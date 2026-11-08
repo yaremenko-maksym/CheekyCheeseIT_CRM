@@ -192,20 +192,22 @@ for key in sys.argv[1].split('.'):
         break
     cur = cur.get(key, '')
 print(cur if isinstance(cur, str) else '')
-" "$1" 2>/dev/null || true
+" "$1" 2>/dev/null
 }
 
 CMD=$(read_field 'tool_input.command')
+CMD_RC=$?
 CWD=$(read_field 'cwd')
 AGENT_ID=$(read_field 'agent_id')
 CWD=${CWD//\\//} # Windows payloads use backslashes
 
-if [ -z "$CMD" ]; then
-  # read_field swallows errors: no command may only mean that python3 cannot run.
-  python3 -c '' 2>/dev/null && exit 0
-  echo "[pre:bash:cross-agent-blast] INTERNAL ERROR: python3 did not run, so this command was not read. Refused. Fix it first: python3 must run on PATH and the hook library must load. Bash stays refused until then." >&2
+# A command that could not be read is not "no command" (#1297 SR-L-4): python3 did not
+# run, or the payload did not parse, or the command cannot be printed (a lone surrogate).
+if [ "$CMD_RC" -ne 0 ]; then
+  echo "[pre:bash:cross-agent-blast] INTERNAL ERROR: the command could not be read (python3 did not run, or the payload did not parse). Refused. Fix it first: python3 must run on PATH and the hook library must load. Bash stays refused until then." >&2
   exit 2
 fi
+[ -z "$CMD" ] && exit 0
 
 # ---------------------------------------------------------------------------
 # Context gate. Only agents are gated; the owner's own session is untouched.
@@ -280,7 +282,10 @@ else:
             common = subprocess.run(
                 ["git", "-C", os.environ.get("CWD", ""), "rev-parse",
                  "--path-format=absolute", "--git-common-dir"],
-                capture_output=True, text=True, timeout=5).stdout.strip()
+                capture_output=True, text=True, timeout=5,
+                # An inherited GIT_DIR would name another repository (#1297 SR-M-1).
+                env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
+            ).stdout.strip()
         except (OSError, subprocess.SubprocessError):
             common = ""
         common = to_posix(common)

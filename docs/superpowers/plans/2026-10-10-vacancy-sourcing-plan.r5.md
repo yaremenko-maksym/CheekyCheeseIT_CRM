@@ -195,8 +195,10 @@ sends the next reader to ask it again.
 - **Filters:** search, source, eligibility, availability, activity, and **for a specific senior** (the actor's own
   team's seniors only). Filters on engagement form and on salary were considered and **dropped**: the funnel already
   enforces remote and the $3500 floor. The engagement form and the "salary unknown" flag **stay visible on the card**.
-- **List paging:** infinite scroll, keeping a focusable load-more path for keyboard and screen-reader users. The
-  keyset pagination underneath is unchanged.
+- **List paging:** infinite scroll: scrolling still loads pages. Owner decision 2026-11-07 was no always-visible
+  load-more button, with a button only on an error, and a screen-reader check that finds a problem brings it back. QA-M-1
+  fired that fallback (Tab fell to `body` when it outran the fetch), so the button is mounted whenever a next page exists.
+  The keyset pagination underneath is unchanged.
 - **Design (Task 0.1): approved** by the owner.
 
 ### Model split — owner decision, 2026-10-18

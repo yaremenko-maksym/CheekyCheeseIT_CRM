@@ -155,8 +155,9 @@ INPUT=$(cat)
 # what the analyzer can block (never a second, divergent policy). Quotes and
 # backslashes are dropped first (`d''ev` runs dev), and a `$` or backtick can
 # build any word.
-printf '%s' "$INPUT" | tr -d "'\"\\\\" | grep -qE 'vite|nest|dev|dist/main|start|preview' \
-  || printf '%s' "$INPUT" | grep -q '[$`]' || exit 0
+# LC_ALL=C: under a UTF-8 locale macOS tr and grep fail on an invalid byte (#1297 SR-L-6).
+printf '%s' "$INPUT" | LC_ALL=C tr -d "'\"\\\\" | LC_ALL=C grep -qE 'vite|nest|dev|dist/main|start|preview' \
+  || printf '%s' "$INPUT" | LC_ALL=C grep -q '[$`]' || exit 0
 
 printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
 import importlib.util, json, os, re, shlex, sys, urllib.parse

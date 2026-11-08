@@ -1,6 +1,6 @@
 # Rule: Zone-of-write contract per agent
 
-**Status:** Always-on (enforced by hook + Reviewer)
+**Status:** Not auto-loaded (`claudeMdExcludes`); read it before writing outside your usual paths. Enforced by hook + Reviewer.
 **Applies to:** All write-agents (Coder, AutoTest, DevOps, Architect, ui-ux-designer, manual-qa, legal) + Master (orchestrator). `code-reviewer` / `security-reviewer` — read-only to code.
 
 > Rationale: `docs/architecture/rules-rationale/zone-of-write.md`
@@ -47,6 +47,7 @@ Each entry below is one zone row: **may** / **may NOT**.
 
 - may: `.claude/tasks/`, `.claude/briefs/`, `docs/business/` (when resolving blockers), `.claude/agents/memory/<agent>/lessons.md` (append), `scripts/pm/**`
 - may NOT: `apps/**`, `packages/**`, `apps/e2e/**`, `.github/workflows/**`, `.claude/agents/<X>.md` (except memory)
+- exception: a light-track edit (`light-track.md`) of `apps/**` / `packages/**`, made from a session whose cwd is a linked git worktree, into that same worktree
 
 **Architect**
 
@@ -79,9 +80,17 @@ Each entry below is one zone row: **may** / **may NOT**.
 
 ### Active hook
 
-`.claude/hooks/pre-edit-write-zone-of-write.sh` (id `pre:edit-write:zone-of-write`) blocks a Coder
-from the main repo on an attempt to `Edit` / `Write` / `MultiEdit` / `NotebookEdit` in `apps/**` /
-`packages/**` if Master did not allow it.
+`.claude/hooks/pre-edit-write-zone-of-write.sh` (id `pre:edit-write:zone-of-write`) refuses `Edit` /
+`Write` / `MultiEdit` / `NotebookEdit` in `apps/**` / `packages/**` of the MAIN checkout. The zone is
+judged on the raw path and on the resolved one (`~`, `..`, symlinks of the existing prefix). A session
+whose cwd is a linked git worktree (its `.git` is a file, no `core.worktree`; inherited `GIT_*`
+variables are ignored) may write only a target whose own checkout is that same worktree (FM-2; a
+linked worktree nested inside it is a different tree, and so is any directory holding a `.git` entry
+between the target and the toplevel). A main-checkout session is not allowed into any linked
+worktree. No cwd-, branch- or env-based allow remains; the only other allow is the gitignored
+`.claude/.allow-direct-edits` escape hatch, judged on the **target's** checkout and honoured only for
+a session whose cwd is in that same checkout (nearest `.git` entry, found without git). No tool call may
+create or edit that file (any zone); the owner creates it by hand in a shell.
 
 ### Worktree caveat
 
@@ -89,8 +98,10 @@ In a worktree the block is lifted — the Coder _technically_ can overwrite anyt
 
 ### Verify MAIN is clean after each Coder (MANDATORY)
 
-The zone hook does NOT catch a Coder that writes into MAIN by an absolute path, so Master MUST, after EACH finished
-Coder, verify that the MAIN checkout is clean:
+The zone hook refuses a worktree session that writes into MAIN (a plain, non-linked directory
+under `.claude/worktrees/` is no worktree: it is refused like the main checkout); the escape-hatch
+file can still let a write into main through; Bash writes are not gated by this hook at all. So Master MUST, after EACH finished Coder, verify
+that the MAIN checkout is clean:
 
 ```bash
 git -C <main-repo> status --porcelain apps/ packages/   # empty = OK; lines present = contamination, roll back

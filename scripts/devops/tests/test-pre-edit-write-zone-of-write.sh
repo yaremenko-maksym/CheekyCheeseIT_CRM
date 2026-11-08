@@ -41,11 +41,8 @@ if ! bash -n "$HOOK" 2>/dev/null; then
 fi
 
 # ── fixtures ───────────────────────────────────────────────────────────────────
-# A fake repo pinned to branch `main` on purpose. The hook has a second allow
-# path for a cwd under /tmp whose branch looks like an agent branch
-# (`^(coder|feature|fix|infra|test)/`), and `mktemp -d` lands under /tmp on a
-# Linux runner but under /var/folders on macOS. Pinning the branch to `main`
-# makes every case below decide the same way on both.
+# A fake main checkout. (The /tmp + agent-branch allow that once made the
+# branch name matter was removed — SR-L-9.)
 MAIN_REPO="$WS/main-repo"
 mkdir -p "$MAIN_REPO"
 (
@@ -60,11 +57,17 @@ mkdir -p "$MAIN_REPO"
   git commit -q -m init
 ) >/dev/null 2>&1
 
-# A directory whose path contains /.claude/worktrees/<name>/ — which is the
-# only signal the hook uses to recognise an isolated agent (it greps $PWD; the
-# runtime does not propagate $CLAUDE_AGENT_ID, per the hook's own header).
+# Agent worktrees laid out like the Agent tool's `isolation:"worktree"`:
+# REAL `git worktree add` trees under .claude/worktrees/<name>. The hook
+# recognises them by git (linked worktree), not by the path string; a plain
+# directory under .claude/worktrees/ is no longer an allow (see F1-F3 below).
 WT_ROOT="$MAIN_REPO/.claude/worktrees/agent-MINE"
 OTHER_WT="$MAIN_REPO/.claude/worktrees/agent-OTHER"
+(
+  cd "$MAIN_REPO" || exit 1
+  git worktree add -q -b wt-mine "$WT_ROOT"
+  git worktree add -q -b wt-other "$OTHER_WT"
+) >/dev/null 2>&1
 mkdir -p "$WT_ROOT/apps/web" "$OTHER_WT/apps/web"
 
 # $1 = cwd to run from, $2 = tool name, $3 = file_path
@@ -106,9 +109,8 @@ assert_red "MultiEdit is gated the same way as Edit" \
   -- run_hook "$MAIN_REPO" "MultiEdit" "apps/api/src/finance/finance.service.ts"
 
 # ── refusal 2: FM-2, worktree agent writing outside its own worktree ──────────
-# This is the case the cwd check alone could not catch: the agent IS in its
-# worktree (so allow #1 would fire), but the TARGET is an absolute path in
-# somebody else's tree.
+# This is the case a cwd check alone could not catch: the agent IS in its
+# worktree, but the TARGET is an absolute path in somebody else's tree.
 
 assert_red "FM-2: worktree agent writing an absolute path into the MAIN checkout -> BLOCK" \
   --contains '"decision": "block"' \
@@ -204,5 +206,488 @@ assert_green "python3 cannot run + Edit on apps/: exit 2 with INTERNAL ERROR" \
 assert_green "python3 cannot run + Edit elsewhere stays allowed, so the machine can be repaired" \
   --not-contains "INTERNAL ERROR" \
   -- hook_without_python "$HOOK" '{"tool_name":"Edit","tool_input":{"file_path":"docs/x.md"}}'
+# SR-L-6 class: an invalid byte next to apps/ must not hide the zone from this grep either.
+NO_PY_DIR="$WS/no-python"
+mkdir -p "$NO_PY_DIR" && printf '#!/bin/sh\nexit 127\n' >"$NO_PY_DIR/python3" && chmod +x "$NO_PY_DIR/python3"
+assert_green "python3 cannot run + Edit on apps/ next to an invalid byte: exit 2 with INTERNAL ERROR" \
+  --contains "INTERNAL ERROR" \
+  -- exits_2 env LC_ALL=C.UTF-8 bash -c 'printf "%s" "$2" | PATH="$3:$PATH" bash "$1"' _ \
+  "$HOOK" "$(printf '{"tool_name":"Edit","tool_input":{"file_path":"apps/\xff.ts"}}')" "$NO_PY_DIR"
+
+# ── linked git worktrees outside .claude/worktrees/ (2026-11-08) ──────────────
+# The hook used to recognise a worktree only by the string /.claude/worktrees/
+# in $PWD. A T3 `delegate_task isolation:"worktree"` child runs in
+# ~/.t3/worktrees/<project>/t3-xxxx — a real linked worktree — and was refused
+# in its OWN tree; a main-checkout session editing a file inside a linked
+# worktree was refused too, because the hook judged the cwd, not the target.
+# These fixtures are REAL `git worktree add` trees (git-dir != git-common-dir),
+# laid out like T3's, so the decision rests on git, not on a path string.
+LW_MAIN="$WS/lw/crm"
+LW_A="$WS/lw/t3/worktrees/crm/t3-aaaa"
+LW_B="$WS/lw/t3/worktrees/crm/t3-bbbb"
+mkdir -p "$LW_MAIN" "$WS/lw/t3/worktrees/crm"
+(
+  cd "$LW_MAIN" || exit 1
+  git init -q -b main
+  git config user.email test@example.invalid
+  git config user.name "guard test"
+  git config commit.gpgsign false
+  mkdir -p apps/api/src .claude
+  echo seed >apps/api/src/main.ts
+  git add apps/api/src/main.ts
+  git commit -q -m init
+  git worktree add -q -b wt-aaaa "$LW_A"
+  git worktree add -q -b wt-bbbb "$LW_B"
+  # A nested, independent repo inside the main checkout: its own main checkout.
+  mkdir -p vendor/nested && git -C vendor/nested init -q -b main
+) >/dev/null 2>&1
+# A symlink that leads out of worktree A into the main checkout's apps/.
+ln -s "$LW_MAIN/apps/api" "$LW_A/apps/link"
+
+assert_green "linked worktree (T3 layout) editing its own apps file, relative path -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$LW_A" "Edit" "apps/api/src/main.ts"
+
+assert_green "linked worktree editing its own apps file, absolute path -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$LW_A" "Edit" "$LW_A/apps/api/src/main.ts"
+
+assert_green "linked worktree writing a NEW file in a new directory of its own tree -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$LW_A" "Write" "$LW_A/packages/new-pkg/src/index.ts"
+
+assert_red "SR-M-3: main-checkout session editing a file inside a linked worktree -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$LW_MAIN" "Edit" "$LW_A/apps/api/src/main.ts"
+
+assert_green "linked worktree editing a non-production path -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$LW_A" "Edit" "docs/notes.md"
+
+assert_red "FM-2: linked worktree writing into the MAIN checkout's apps -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$LW_A" "Edit" "$LW_MAIN/apps/api/src/main.ts"
+
+assert_red "FM-2: linked worktree writing into a DIFFERENT linked worktree -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$LW_A" "Edit" "$LW_B/apps/api/src/main.ts"
+
+assert_red "FM-2: an absolute '..' escape from a linked worktree into main -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$LW_A" "Edit" "$LW_A/../../../../crm/apps/api/src/main.ts"
+
+assert_red "FM-2: a relative '..' escape from a linked worktree into main -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$LW_A" "Edit" "../../../../crm/apps/api/src/main.ts"
+
+assert_red "FM-2: a symlink inside a linked worktree that resolves into main -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$LW_A" "Edit" "apps/link/src/main.ts"
+
+assert_red "main-checkout session reaching main through a worktree's symlink -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$LW_MAIN" "Edit" "$LW_A/apps/link/src/main.ts"
+
+assert_red "main-checkout session editing its own apps file without the escape hatch -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$LW_MAIN" "Edit" "apps/api/src/main.ts"
+
+assert_red "a nested independent repo is a main checkout, not a worktree -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$LW_MAIN" "Write" "$LW_MAIN/vendor/nested/apps/x.ts"
+
+# ── security review of PR #1297: forged git state must not become an allow ─────
+# SR-M-1: an inherited GIT_DIR pointing at a worktree's gitdir made the main
+# checkout look linked (git-dir != common-dir, toplevel = cwd).
+run_hook_with_git_dir() { GIT_DIR="$1" run_hook "${@:2}"; }
+assert_red "SR-M-1: inherited GIT_DIR cannot make the main checkout look like a linked worktree" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook_with_git_dir "$LW_MAIN/.git/worktrees/t3-aaaa" "$LW_MAIN" "Edit" "$LW_MAIN/apps/api/src/main.ts"
+
+# SR-M-2: Write can plant <main>/.git/commondir (no apps/ in that path), after
+# which git reports a common dir != git dir for the MAIN checkout.
+run_hook_with_forged_commondir() {
+  mkdir -p "$WS/fake-common/objects" "$WS/fake-common/refs"
+  printf '%s\n' "$WS/fake-common" >"$LW_MAIN/.git/commondir"
+  run_hook "$@"
+  local rc=$?
+  rm -f "$LW_MAIN/.git/commondir"
+  return $rc
+}
+assert_red "SR-M-2: a forged .git/commondir in the main checkout is not a linked worktree" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook_with_forged_commondir "$LW_MAIN" "Edit" "$LW_MAIN/apps/api/src/main.ts"
+
+# SR-M-2 follow-up: a per-worktree core.worktree (writable via Write in the
+# gitdir) moves --show-toplevel to a parent directory that holds a forged `.git`
+# FILE, widening a linked worktree over the main checkout.
+run_hook_with_widened_worktree() {
+  git -C "$LW_A" config extensions.worktreeConfig true
+  git -C "$LW_A" config --worktree core.worktree "$WS/lw"
+  printf 'gitdir: %s\n' "$LW_MAIN/.git/worktrees/t3-aaaa" >"$WS/lw/.git"
+  run_hook "$@"
+  local rc=$?
+  git -C "$LW_A" config --worktree --unset core.worktree
+  git -C "$LW_A" config --unset extensions.worktreeConfig
+  rm -f "$WS/lw/.git"
+  return $rc
+}
+assert_red "SR-M-2: a per-worktree core.worktree cannot widen a linked worktree over main" \
+  --contains '"decision": "block"' \
+  -- run_hook_with_widened_worktree "$LW_A" "Edit" "$LW_MAIN/apps/api/src/main.ts"
+
+# SR-L-1: the production-zone check must see the RESOLVED target, not only the raw string.
+ln -s "$LW_MAIN/apps" "$LW_A/lnk"
+assert_red "SR-L-1: a symlink with no apps/ in its raw path, from a linked worktree into main -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$LW_A" "Edit" "lnk/api/src/main.ts"
+
+assert_red "SR-L-1: the same symlink, from the main checkout -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$LW_MAIN" "Edit" "$LW_A/lnk/api/src/main.ts"
+
+assert_red "SR-L-1: a relative path from a cwd inside main's apps/ -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$LW_MAIN/apps/api" "Edit" "src/main.ts"
+
+# SR-L-2: a raw ~/ path is the home directory, not a directory named ~ in the worktree.
+run_hook_with_home() { HOME="$1" run_hook "${@:2}"; }
+mkdir -p "$WS/home"
+assert_red "SR-L-2: a ~/ path from a linked worktree resolves to HOME, outside it -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook_with_home "$WS/home" "$LW_A" "Edit" "~/apps/api/x.ts"
+
+# SR-L-4: payload with lone surrogate in file_path must fail closed (exit 2), not allow.
+run_hook_raw_payload() {
+  local cwd="$1" payload="$2"
+  (cd "$cwd" && printf '%s' "$payload" | bash "$HOOK")
+}
+assert_red "SR-L-4: payload with \\ud800 in file_path -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook_raw_payload "$MAIN_REPO" '{"tool_name":"Write","tool_input":{"file_path":"apps/api/\ud800.ts"}}'
+
+# SR-L-5: lexical normalization before realpath stops symlink + '..' escaping a linked worktree.
+mkdir -p "$LW_A/d1/d2" "$LW_A/main/apps/api/src"
+ln -s "$LW_A/d1/d2" "$LW_A/sym_deep"
+assert_red "SR-L-5: symlink + '..' resolving physically into wt but lexically outside -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$LW_A" "Edit" "sym_deep/../../main/apps/api/src/main.ts"
+
+# ── second opinion on PR #1297: the legacy /.claude/worktrees/ string allow ────
+# A PLAIN directory under .claude/worktrees/ (not a linked worktree) used to be
+# allowed by the path string alone (legacy allow #1); the legacy FM-2 beside it
+# checked only absolute paths, lexically. Real agent worktrees are linked, so
+# the string allow is gone: such a cwd is judged like any other session.
+FAKE_WT="$MAIN_REPO/.claude/worktrees/agent-FAKE"
+mkdir -p "$FAKE_WT/apps/web"
+ln -s "$MAIN_REPO/apps" "$FAKE_WT/lnk"
+
+assert_red "F1: plain dir under .claude/worktrees/, relative '..' into MAIN's apps -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$FAKE_WT" "Edit" "../../../apps/web/x.ts"
+
+assert_red "F2: plain dir under .claude/worktrees/, absolute path through a symlink into MAIN -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$FAKE_WT" "Edit" "$FAKE_WT/lnk/web/x.ts"
+
+assert_red "a plain dir under .claude/worktrees/ editing its own apps file is no longer an allow -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$FAKE_WT" "Edit" "apps/web/x.ts"
+
+# F3: when the linked-worktree check cannot decide (no repo, or its python
+# crashes), the hook must end in the refusal, not in the string allow.
+NOREPO_WT="$WS/norepo/.claude/worktrees/agent-X"
+mkdir -p "$NOREPO_WT/apps/web"
+assert_red "F3: cwd under .claude/worktrees/ that is not a git repo at all -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$NOREPO_WT" "Edit" "apps/web/x.ts"
+
+# A `git` that prints non-UTF-8 makes the check's python raise (text=True decode),
+# so LW_VERDICT is empty — the real failure mode, from a REAL linked worktree.
+GIT_STUB="$WS/git-stub"
+mkdir -p "$GIT_STUB"
+printf '#!/bin/sh\nprintf "\\377\\376\\n\\377\\n\\377\\n"\n' >"$GIT_STUB/git"
+chmod +x "$GIT_STUB/git"
+run_hook_with_broken_git() { PATH="$GIT_STUB:$PATH" run_hook "$@"; }
+assert_red "F3: the linked-worktree check crashing in an agent worktree fails closed -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook_with_broken_git "$WT_ROOT" "Edit" "apps/web/x.ts"
+
+# F4: a surrogate-escaped (non-UTF-8 byte) path made print() raise, RESOLVED was
+# empty, and the raw path (no apps/ in it) fast-exited the hook. print() raises
+# only with a strict stdout: UTF-8 mode off and a non-C UTF-8 locale (a dev shell
+# exporting PYTHONUTF8=1 hides it), so the case pins both.
+run_hook_strict_stdout() { PYTHONUTF8=0 LC_ALL=en_US.UTF-8 run_hook_raw_payload "$@"; }
+assert_red "F4: a non-UTF-8 byte in a relative path from inside main's apps/ -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook_strict_stdout "$MAIN_REPO/apps/web" '{"tool_name":"Edit","tool_input":{"file_path":"src\udcff.ts"}}'
+
+assert_green "F4: the same byte outside the production zones is still a no-op" \
+  --not-contains "BLOCK" \
+  -- run_hook_strict_stdout "$MAIN_REPO" '{"tool_name":"Edit","tool_input":{"file_path":"docs/\udcff.md"}}'
+
+# ── security review of PR #1297 on 99c994ffc: SR-L-6..9, SO-M-1 ──────────────
+# SR-L-6: macOS /usr/bin/grep under a UTF-8 locale fails to match `apps/` on a
+# line holding an invalid byte, so the production-zone fast-exit let it through.
+run_hook_utf8_locale() { LC_ALL=en_US.UTF-8 run_hook_raw_payload "$@"; }
+assert_red "SR-L-6: an invalid byte in an apps/ DIRECTORY name from the main checkout -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook_utf8_locale "$MAIN_REPO" '{"tool_name":"Edit","tool_input":{"file_path":"apps/\udcff/x.ts"}}'
+
+assert_red "SR-L-6: an invalid byte in an absolute main apps/ path from an agent worktree -> FM-2 BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook_utf8_locale "$LW_A" '{"tool_name":"Write","tool_input":{"file_path":"'"$LW_MAIN"'/apps/\udcff.ts"}}'
+
+# SR-L-7: a linked worktree nested inside another one's tree (Agent isolation
+# dispatched from a T3 session lands in <wt>/.claude/worktrees/). A prefix check
+# on the cwd's toplevel let the parent write into the nested agent's tree.
+NESTED_WT="$LW_A/.claude/worktrees/agent-nested"
+git -C "$LW_MAIN" worktree add -q -b wt-nested "$NESTED_WT" >/dev/null 2>&1
+mkdir -p "$NESTED_WT/apps/api/src"
+assert_red "SR-L-7: parent worktree writing into a NESTED linked worktree -> FM-2 BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$LW_A" "Edit" "$NESTED_WT/apps/api/src/main.ts"
+
+assert_green "SR-L-7: the nested worktree writing its own apps file -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$NESTED_WT" "Edit" "apps/api/src/main.ts"
+
+assert_red "SR-L-7: the nested worktree writing into its parent worktree -> FM-2 BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$NESTED_WT" "Edit" "$LW_A/apps/api/src/main.ts"
+
+# SR-L-8: a planted `<parent>/.git` FILE plus a fake `<common>/worktrees/fake`
+# (all outside the zone, so Write can create them) makes a cwd ABOVE main a
+# "linked worktree" whose toplevel contains main.
+run_hook_with_planted_parent() {
+  local fake="$LW_MAIN/.git/worktrees/fake"
+  mkdir -p "$fake"
+  printf '%s\n' "$WS/lw/.git" >"$fake/gitdir"
+  printf '../..\n' >"$fake/commondir"
+  cp "$LW_MAIN/.git/HEAD" "$fake/HEAD"
+  printf 'gitdir: %s\n' "$fake" >"$WS/lw/.git"
+  run_hook "$@"
+  local rc=$?
+  rm -rf "$fake" "$WS/lw/.git"
+  return $rc
+}
+assert_red "SR-L-8: a planted parent .git file cannot make main part of a linked worktree -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook_with_planted_parent "$WS/lw" "Write" "$LW_MAIN/apps/api/src/main.ts"
+
+# SR-L-9: the removed allow #2 (/tmp cwd + agent-style branch) never looked at
+# the target. Fixtures must really sit under /tmp, so they get their own dir.
+TMP_WS="$(mktemp -d /tmp/zow-test.XXXXXX)"
+trap 'rm -rf "$WS" "$TMP_WS"' EXIT
+git clone -q "$LW_MAIN" "$TMP_WS/clone" >/dev/null 2>&1
+git -C "$TMP_WS/clone" checkout -q -b fix/y >/dev/null 2>&1
+git -C "$LW_MAIN" worktree add -q -b coder/x "$TMP_WS/linked" >/dev/null 2>&1
+assert_red "SR-L-9: a non-linked /tmp clone on fix/y writing into another checkout's apps -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$TMP_WS/clone" "Write" "$LW_MAIN/apps/api/src/main.ts"
+
+assert_green "SR-L-9: a linked worktree under /tmp on coder/x writing its own apps file -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$TMP_WS/linked" "Edit" "apps/api/src/main.ts"
+
+# SO-M-1: the removed allow #3 (CLAUDE_AGENT_ID=coder) never looked at the target.
+run_hook_as_coder() { CLAUDE_AGENT_ID=coder run_hook "$@"; }
+assert_red "SO-M-1: a non-linked cwd with CLAUDE_AGENT_ID=coder writing into another checkout's apps -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook_as_coder "$TMP_WS/clone" "Write" "$LW_MAIN/apps/api/src/x.ts"
+
+assert_green "SO-M-1: a linked worktree with CLAUDE_AGENT_ID=coder writing its own apps file -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook_as_coder "$LW_A" "Write" "$LW_A/apps/api/src/x.ts"
+
+# ── security review of PR #1297 on b3ab7229d: SR-L-10, SR-L-11 ────────────────
+# SR-L-10: git's discovery skips a corrupted `.git` directory and keeps climbing.
+# A main-style checkout INSIDE a linked worktree, with its `.git/HEAD` overwritten
+# (allowed: not under apps/), made git on the target side resolve to the outer
+# worktree, so the toplevel comparison passed.
+INNER_MAIN="$LW_A/inner-main"
+mkdir -p "$INNER_MAIN/apps/web"
+git -C "$INNER_MAIN" init -q -b main >/dev/null 2>&1
+run_hook_with_corrupt_inner_head() {
+  local saved
+  saved="$(cat "$INNER_MAIN/.git/HEAD")"
+  printf 'garbage\n' >"$INNER_MAIN/.git/HEAD"
+  run_hook "$@"
+  local rc=$?
+  printf '%s\n' "$saved" >"$INNER_MAIN/.git/HEAD"
+  return $rc
+}
+assert_red "SR-L-10: a corrupted .git/HEAD in a checkout inside a linked worktree -> FM-2 BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook_with_corrupt_inner_head "$LW_A" "Write" "$INNER_MAIN/apps/web/x.ts"
+
+assert_green "SR-L-10: a write deep inside the worktree in a new subdirectory -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$LW_A" "Write" "$LW_A/apps/api/src/brand/new/deep/dir/x.ts"
+
+# SR-L-11 (a): the escape-hatch file itself is never created by Edit/Write.
+assert_red "SR-L-11: Write of the escape-hatch file from the main checkout -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "ESCAPE-HATCH" \
+  -- run_hook "$LW_MAIN" "Write" "$LW_MAIN/.claude/.allow-direct-edits"
+
+assert_red "SR-L-11: Write of main's escape-hatch file from a linked worktree -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "ESCAPE-HATCH" \
+  -- run_hook "$LW_A" "Write" "$LW_MAIN/.claude/.allow-direct-edits"
+
+# SR-L-11 (b): the hatch is judged on the TARGET's checkout, not on the cwd's.
+mkdir -p "$TMP_WS/clone/.claude"
+touch "$TMP_WS/clone/.claude/.allow-direct-edits"
+assert_red "SR-L-11: a /tmp clone with its own hatch writing into another checkout's apps -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$TMP_WS/clone" "Write" "$LW_MAIN/apps/api/src/main.ts"
+rm -f "$TMP_WS/clone/.claude/.allow-direct-edits"
+
+touch "$LW_MAIN/.claude/.allow-direct-edits"
+assert_green "SR-L-11: the main checkout with its hatch writing its own apps/x.ts -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$LW_MAIN" "Write" "$LW_MAIN/apps/x.ts"
+rm -f "$LW_MAIN/.claude/.allow-direct-edits"
+
+# Follow-up review of d5a97f53a: a case-insensitive filesystem (macOS APFS)
+# makes `.Allow-Direct-Edits` the same file as the hatch.
+assert_red "SR-L-11: a case variant of the escape-hatch file name -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "ESCAPE-HATCH" \
+  -- run_hook "$LW_A" "Write" "$LW_MAIN/.claude/.Allow-Direct-Edits"
+
+# Follow-up review of 8b0e7704c: APFS folds Unicode too — `ſ` (U+017F) is `s`,
+# so an ASCII-only lowercase missed `.allow-direct-editſ`.
+assert_red "SR-L-11: a Unicode case-fold variant (long s) of the escape-hatch name -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "ESCAPE-HATCH" \
+  -- run_hook "$LW_A" "Write" "$LW_MAIN/.claude/.allow-direct-edit$(printf '\xc5\xbf')"
+
+# Identity, not spelling: when the hatch exists, any name that IS it is refused.
+run_hook_with_existing_hatch() {
+  touch "$LW_MAIN/.claude/.allow-direct-edits"
+  run_hook "$@"
+  local rc=$?
+  rm -f "$LW_MAIN/.claude/.allow-direct-edits"
+  return $rc
+}
+ln -s "$LW_MAIN/.claude" "$LW_A/claude-link"
+assert_red "SR-L-11: Edit of an existing hatch through a symlinked parent -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "ESCAPE-HATCH" \
+  -- run_hook_with_existing_hatch "$LW_A" "Edit" "$LW_A/claude-link/.allow-direct-edits"
+
+# Follow-up review of d5a97f53a: the hatch lookup used git, which skips a
+# corrupted nested `.git` and lands on a parent checkout that has a hatch.
+run_hook_with_corrupt_nested_head() {
+  local saved
+  saved="$(cat "$LW_MAIN/vendor/nested/.git/HEAD")"
+  printf 'garbage\n' >"$LW_MAIN/vendor/nested/.git/HEAD"
+  touch "$LW_MAIN/.claude/.allow-direct-edits"
+  run_hook "$@"
+  local rc=$?
+  rm -f "$LW_MAIN/.claude/.allow-direct-edits"
+  printf '%s\n' "$saved" >"$LW_MAIN/vendor/nested/.git/HEAD"
+  return $rc
+}
+assert_red "SR-L-11: a parent's hatch does not cover a nested checkout with a corrupted .git -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook_with_corrupt_nested_head "$LW_MAIN" "Write" "$LW_MAIN/vendor/nested/apps/x.ts"
+
+# SR-L-12 (security review of a14518d3e): a linked worktree corrupts its own
+# `.git` file with a plain Write (outside apps/** and packages/**, so allowed).
+# git then sees no checkout at the cwd, the linked-worktree check gives no
+# verdict, and the hatch looked up on the TARGET (main) let the write into main.
+# The hatch counts only when the cwd's checkout root (nearest `.git` entry,
+# lstat, no git) is the target's.
+LW_C="$WS/lw/t3/worktrees/crm/t3-cccc"
+git -C "$LW_MAIN" worktree add -q -b wt-cccc "$LW_C" >/dev/null 2>&1
+mkdir -p "$LW_C/apps/web"
+run_hook_with_corrupt_own_git_file() {
+  local saved
+  saved="$(cat "$LW_C/.git")"
+  printf 'garbage\n' >"$LW_C/.git"
+  touch "$LW_MAIN/.claude/.allow-direct-edits"
+  run_hook "$@"
+  local rc=$?
+  rm -f "$LW_MAIN/.claude/.allow-direct-edits"
+  printf '%s\n' "$saved" >"$LW_C/.git"
+  return $rc
+}
+assert_red "SR-L-12: a linked worktree with a corrupted .git file writing main's apps/x.ts under main's hatch -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook_with_corrupt_own_git_file "$LW_C" "Write" "$LW_MAIN/apps/x.ts"
+
+mkdir -p "$LW_MAIN/docs"
+touch "$LW_MAIN/.claude/.allow-direct-edits"
+assert_green "SR-L-12: the main checkout with its own hatch writing its own apps/x.ts -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$LW_MAIN" "Write" "$LW_MAIN/apps/x.ts"
+assert_green "SR-L-12: a cwd in a main subdirectory with main's hatch writing main's apps/x.ts -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$LW_MAIN/docs" "Write" "$LW_MAIN/apps/x.ts"
+rm -f "$LW_MAIN/.claude/.allow-direct-edits"
+
+# Code review of a14518d3e: identity branch. A hard link to the hatch under a
+# name that does NOT fold to `.allow-direct-edits`, so only samefile catches it.
+run_hook_with_hatch_hardlink() {
+  touch "$LW_MAIN/.claude/.allow-direct-edits"
+  ln "$LW_MAIN/.claude/.allow-direct-edits" "$LW_MAIN/.claude/hatch-hardlink"
+  run_hook "$@"
+  local rc=$?
+  rm -f "$LW_MAIN/.claude/.allow-direct-edits" "$LW_MAIN/.claude/hatch-hardlink"
+  return $rc
+}
+assert_red "SR-L-11: Write of a hard link to the existing hatch under another name -> BLOCK (identity)" \
+  --contains '"decision": "block"' \
+  --contains "ESCAPE-HATCH" \
+  -- run_hook_with_hatch_hardlink "$LW_MAIN" "Write" "$LW_MAIN/.claude/hatch-hardlink"
+
+# Code review of a14518d3e: the hatch must be a regular file, not a symlink.
+run_hook_with_symlinked_hatch() {
+  printf 'x\n' >"$WS/hatch-target"
+  ln -s "$WS/hatch-target" "$LW_MAIN/.claude/.allow-direct-edits"
+  run_hook "$@"
+  local rc=$?
+  rm -f "$LW_MAIN/.claude/.allow-direct-edits" "$WS/hatch-target"
+  return $rc
+}
+assert_red "SR-L-11: a symlinked hatch does not open main's apps/x.ts -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook_with_symlinked_hatch "$LW_MAIN" "Write" "$LW_MAIN/apps/x.ts"
 
 guard_test_summary "test-pre-edit-write-zone-of-write.sh"

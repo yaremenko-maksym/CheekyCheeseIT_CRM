@@ -10,7 +10,8 @@
     "**/.claude/rules/common/model-routing.md",
     "**/.claude/rules/common/orchestration-routing.md",
     "**/.claude/rules/common/phase-boundaries.md",
-    "**/.claude/rules/common/review-findings-transfer.md"
+    "**/.claude/rules/common/review-findings-transfer.md",
+    "**/.claude/rules/common/zone-of-write.md"
   ],
   "permissions": {
     "allow": ["*"],
