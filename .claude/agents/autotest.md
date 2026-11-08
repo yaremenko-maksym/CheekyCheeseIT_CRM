@@ -370,7 +370,8 @@ Rule: only the specific paths in `apps/e2e/tests/*.spec.ts`, `apps/e2e/fixtures/
 
 ## Reference (on-demand)
 
-- [`RULES.md`](../RULES.md) — MCP / git / skills / version pins / zone-of-write
+- [`RULES.md`](../RULES.md) — MCP / git / skills / version pins
+- [`zone-of-write.md`](../rules/common/zone-of-write.md) — your write zone (any test file; never product code); read it before writing outside `apps/e2e/**` or a spec file
 - [`project-state.md`](project-state.md) — phases / RBAC / seed users / shared schemas
 - [`contracts.md`](contracts.md) — AutoTest dispatch decision (§5)
 - [`memory/autotest/lessons.md`](memory/autotest/lessons.md) — accumulated lessons (anti-patterns, gotchas)

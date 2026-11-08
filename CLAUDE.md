@@ -96,12 +96,13 @@ snapshot in an always-loaded file goes stale silently.
 
 Auto-loaded from `.claude/rules/common/` — here only a reminder that they exist: MCP-first ·
 git-policy (no `--no-verify`, explicit `git add`, `ac_verified:`) · language-policy (English in repo +
-agent output, Russian only owner-chat) · zone-of-write · skills triggers · autonomy-levels (gather
+agent output, Russian only owner-chat) · skills triggers · autonomy-levels (gather
 facts yourself, decide the reversible yourself on the record). Loaded only when UI files are touched:
 design-gate (any UI → designer-in-the-loop) · responsive-design (mobile/tablet/laptop/large — hard
 gate) · design-fidelity-review (mockup↔localhost on all screens — gate before merge). Loaded only when
 matching files are touched: version-pins (read it by hand before `pnpm add` or a bump through Bash) ·
-doc-durability (read it by hand before an issue or PR body).
+doc-durability (read it by hand before an issue or PR body) · graphify (`.sql`/`.sh`/`.json`; read it by
+hand before any `graphify` command) · hook-gates (`.claude/hooks/**`, hook registration, hook tests).
 
 **Not auto-loaded: read the file in `.claude/rules/common/` when its trigger fires.**
 
@@ -110,6 +111,10 @@ doc-durability (read it by hand before an issue or PR body).
 - Master, before a direct edit: `light-track.md`
 - Anyone writing, transferring or fixing review findings: `review-findings-transfer.md`
 - Anyone reaching the end of a phase: `phase-boundaries.md`
+- Zone-of-write (each agent writes ONLY in its own zone; a cross-zone diff = `Verdict: BLOCK`): read
+  `zone-of-write.md` before writing a file your task does not name, before dispatching or accepting a
+  write-agent (Master — then verify the MAIN checkout is clean), and when reviewing a diff for zone
+  violations
 
 Beyond the rules: E2E locally before pushing code (docs-only diff is exempt — see light-track);
 merging a PR — **only** on an explicit confirmation from USER in the chat.

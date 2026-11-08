@@ -117,22 +117,11 @@ Worktree: /abs/path (verified: toplevel == dispatched path)
 No line → Master returns the agent for rework, as for a missing verdict. It is the only thing that
 makes rules 7 and 8 observable: the harness gives no hook for "an agent reads the wrong directory".
 
-## Checking the gates
+## Gate tests and false positives
 
-```bash
-bash .claude/hooks/tests/cross-agent-hooks-smoke.sh   # both sides: refusals and silence
-```
-
-Called from `scripts/devops/tests/test-pre-bash-cross-agent-blast.sh`, part of `run-guard-tests.sh` —
-a step inside a **required** check. Each hook also has its own cases in `scripts/devops/tests/`,
-because the meta-guard `check-guard-tests-exist.sh` reads the hook list from `.claude/settings.json`
-and requires a negative case from every hook that can refuse.
-
-The smoke test also requires, of a blocked case, the body `{"decision":"block"}` (rationale file).
-
-## False positives
-
-Both hooks decide by the **first token of a command segment**, not a substring: `grep -rn "pkill" .claude/hooks/` and `echo "do not run pkill"` pass. `WORKTREE-OPAQUE` is the one exception that refuses by unverifiability; do not extend that pattern to ordinary mutators (rationale file).
+How the two hooks are tested and how they decide (first token of a segment, the `WORKTREE-OPAQUE`
+exception) moved to `.claude/rules/common/hook-gates.md`; read it before you edit either hook or
+its tests (it auto-loads on `.claude/hooks/**`).
 
 ## Related rules
 
