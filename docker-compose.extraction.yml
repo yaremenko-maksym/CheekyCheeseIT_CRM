@@ -85,6 +85,11 @@ services:
     mem_limit: 512m
     memswap_limit: 512m
     cpus: 0.5
+    pids_limit: 64
+    # Writable: the state volume and /tmp only.
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -99,18 +104,20 @@ services:
       - runtime
 
   # ── One-shot weights download (never starts without --profile provision) ──
-  # Fetches by digest into the runtime's volume; a mismatch leaves no file behind.
+  # Fetches by digest into the runtime's volume; any failure leaves no partial file behind.
+  # Runs as the runtime's user: the runbook chowns the fresh volume to 1000:1000 once, first.
   weights-fetch:
     profiles: ['provision']
     image: ghcr.io/ggml-org/llama.cpp@sha256:${EXTRACTION_RUNTIME_IMAGE_SHA256:?pin the runtime image digest}
     restart: 'no'
-    user: '0:0'
+    user: '1000:1000'
     entrypoint:
       - sh
       - -ec
       - |
-        curl -fsSL --max-time 3600 "$$EXTRACTION_MODEL_URL" -o /models/.partial
-        echo "$$EXTRACTION_MODEL_SHA256  /models/.partial" | sha256sum -c - || { rm -f /models/.partial; exit 1; }
+        trap 'rm -f /models/.partial' EXIT
+        curl -fsSL --proto =https --proto-redir =https --max-time 3600 "$$EXTRACTION_MODEL_URL" -o /models/.partial
+        echo "$$EXTRACTION_MODEL_SHA256  /models/.partial" | sha256sum -c -
         chmod 0444 /models/.partial
         mv /models/.partial "/models/$$EXTRACTION_MODEL_FILE"
     environment:
@@ -119,6 +126,9 @@ services:
       EXTRACTION_MODEL_SHA256: ${EXTRACTION_MODEL_SHA256:?pin the weights digest}
     volumes:
       - model_weights:/models
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 32
     security_opt:
       - no-new-privileges:true
     cap_drop:

@@ -96,6 +96,26 @@ try {
 const errors = []
 const services = extraction.services ?? {}
 const netsOf = (svc) => Object.keys(svc?.networks ?? {}).sort()
+// The start command as shell words: line continuations joined, quotes dropped.
+const tokens = (svc) =>
+  [...(svc.entrypoint ?? []), ...(svc.command ?? [])]
+    .join(' ')
+    .replace(/\\\n/g, ' ')
+    .replace(/["']/g, '')
+    .split(/\s+/)
+    .filter(Boolean)
+const valuesOf = (words, flag) => words.flatMap((w, i) => (w === flag ? [words[i + 1] ?? ''] : []))
+// null: the flag must carry some value (the window is a pin, checked by the unset-pin run).
+const RUNTIME_FLAGS = {
+  '--ctx-size': null,
+  '--threads': '2',
+  '--threads-batch': '2',
+  '--threads-http': '2',
+  '--parallel': '1',
+  '--host': '0.0.0.0',
+  '--port': '8080',
+}
+const isRoot = (svc) => ['', '0', 'root'].includes(String(svc.user ?? '').split(':')[0])
 
 // ── The separate project ────────────────────────────────────────────────────
 if (extraction.name !== PROJECT)
@@ -122,6 +142,8 @@ if (!worker) {
 } else {
   checkHardened(WORKER, worker, WORKER_MEM_BYTES)
   if (Number(worker.cpus) !== 0.5) errors.push(`${WORKER} cpus must be 0.5`)
+  if (Number(worker.pids_limit) !== 64) errors.push(`${WORKER} pids_limit must be 64`)
+  if (worker.read_only !== true) errors.push(`${WORKER} must run with read_only: true`)
   if (netsOf(worker).join() !== [ENTRY, RUNTIME_NET].join()) {
     errors.push(
       `${WORKER} must be on ${ENTRY} and ${RUNTIME_NET} only (found: ${netsOf(worker).join(', ') || 'none'})`,
@@ -145,17 +167,20 @@ if (!runtime) {
   }
   if (!/@sha256:[0-9a-f]{64}$/.test(runtime.image ?? ''))
     errors.push(`${RUNTIME} image must be pinned by sha256`)
-  const user = String(runtime.user ?? '').split(':')[0]
-  if (user === '' || user === '0' || user === 'root') errors.push(`${RUNTIME} must run non-root`)
-  const start = [...(runtime.entrypoint ?? []), ...(runtime.command ?? [])].join(' ')
-  for (const flag of [
-    'sha256sum -c',
-    '--log-disable',
-    '--ctx-size',
-    '--threads 2',
-    '--parallel 1',
-  ]) {
-    if (!start.includes(flag)) errors.push(`${RUNTIME} start command must carry "${flag}"`)
+  if (isRoot(runtime)) errors.push(`${RUNTIME} must run non-root`)
+  const start = tokens(runtime)
+  if (!start.join(' ').includes('sha256sum -c'))
+    errors.push(`${RUNTIME} start command must carry "sha256sum -c"`)
+  if (!start.includes('--log-disable'))
+    errors.push(`${RUNTIME} start command must carry "--log-disable"`)
+  // Every occurrence must hold the value: a later duplicate flag overrides the first.
+  for (const [flag, want] of Object.entries(RUNTIME_FLAGS)) {
+    const got = valuesOf(start, flag)
+    if (got.length === 0 || got.some((v) => (want === null ? !v : v !== want))) {
+      errors.push(
+        `${RUNTIME} start command must carry "${flag}${want === null ? ' <value>' : ` ${want}`}" (found: ${got.join(', ') || 'none'})`,
+      )
+    }
   }
   if ((runtime.volumes ?? []).some((v) => v.target === '/models' && v.read_only !== true)) {
     errors.push(`${RUNTIME} must mount the weights read-only`)
@@ -186,6 +211,23 @@ for (const [name, svc] of Object.entries(services)) {
     if (name !== FETCH) errors.push(`unexpected service ${name} in the extraction project`)
     if (!(svc.profiles ?? []).length) errors.push(`service ${name} must stay behind a profile`)
     if ((svc.ports ?? []).length > 0) errors.push(`service ${name} must not publish ports`)
+  }
+}
+
+const fetchSvc = services[FETCH]
+if (!fetchSvc) {
+  errors.push(`service ${FETCH} is missing`)
+} else {
+  if (isRoot(fetchSvc)) errors.push(`${FETCH} must run non-root`)
+  if (!(Number(fetchSvc.mem_limit) > 0)) errors.push(`${FETCH} must set mem_limit`)
+  if (!(Number(fetchSvc.pids_limit) > 0)) errors.push(`${FETCH} must set pids_limit`)
+  if (fetchSvc.privileged) errors.push(`${FETCH} must not be privileged`)
+  if ((fetchSvc.cap_add ?? []).length > 0) errors.push(`${FETCH} must not add capabilities`)
+  const words = tokens(fetchSvc)
+  for (const flag of ['--proto', '--proto-redir']) {
+    const got = valuesOf(words, flag)
+    if (got.length === 0 || got.some((v) => v !== '=https'))
+      errors.push(`${FETCH} curl must carry "${flag} =https"`)
   }
 }
 

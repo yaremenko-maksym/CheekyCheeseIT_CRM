@@ -7,8 +7,9 @@
 ## What the compose file gives you
 
 - Service `crm-model-runtime`: the llama.cpp server, image pinned by `sha256`, weights checked against their digest on every start, read-only weights volume, user `1000:1000`, `no-new-privileges`, all capabilities dropped, request and prompt logging off. Limits: 3584 MiB memory with no swap above it, 2.0 CPUs, 128 processes, 2 threads, one request at a time, one window for the whole server.
-- Service `extraction-worker`: the `api` image at a tag you pin, command `node dist/extraction-worker/main`, 512 MiB, 0.5 CPU, same hardening. Env from its own file `.env.extraction-worker`, never `.env.production`. Router state on the volume `crm-extraction_worker_state`.
-- Service `weights-fetch`: a one-shot download behind the profile `provision`; a plain `up` never starts it.
+- Service `extraction-worker`: the `api` image at a tag you pin, command `node dist/extraction-worker/main`, 512 MiB, 0.5 CPU, 64 processes, read-only root filesystem (writable: its state volume and a 16 MiB `/tmp`), same hardening. Env from its own file `.env.extraction-worker`, never `.env.production`. Router state on the volume `crm-extraction_worker_state`.
+- **The worker's image pin** `EXTRACTION_WORKER_IMAGE_TAG` is the same tag the deploy gives `api`: the full git commit SHA it was built from. Read the running one with `docker inspect -f '{{.Config.Image}}' crm-api-1`. It is a tag, not a digest: the deploy publishes and starts `api` by this tag, and the worker follows the same image by the same name.
+- Service `weights-fetch`: a one-shot download behind the profile `provision`; a plain `up` never starts it. It runs as `1000:1000`, https only (redirects included), 256 MiB, 32 processes, and removes its partial file on any failure.
 - Network `crm-extraction-entry` (`internal: true`): the worker and its caller, `api`. Network `crm-extraction_runtime` (`internal: true`): the worker and the runtime only. No `ports:` anywhere.
 - Every pin is required. An unset one makes compose refuse to start, so a forgotten digest cannot fall back to a default.
 
@@ -87,11 +88,15 @@ Fill it with an editor; never paste values into a command line or chat. Keys (se
 
 ### 5. Download the weights (checked against the digest)
 
+A fresh named volume is root-owned, and the download runs as `1000:1000`, so hand the volume to that user once, then fetch:
+
 ```bash
+docker compose -f docker-compose.extraction.yml --env-file .env.extraction-pins --profile provision run --rm --no-deps \
+  --user root --cap-add CHOWN --entrypoint chown weights-fetch 1000:1000 /models
 docker compose -f docker-compose.extraction.yml --env-file .env.extraction-pins --profile provision run --rm weights-fetch
 ```
 
-A digest mismatch leaves no file behind and exits non-zero.
+A failed download or a digest mismatch leaves no file behind and exits non-zero.
 
 ### 6. State volume ownership (once)
 
@@ -169,7 +174,7 @@ node scripts/devops/extraction-mp04/mp04.mjs --candidate cand.json --api-dist ./
 
 **The CRM probe** sends unauthenticated GETs to `--crm-url`, one at a time, at most one per `--probe-interval-ms` (default 500, floor 200). First a baseline with the runtime idle (`--baseline-s`, default 60), then the same probe during the run.
 
-**The abort rule** stops the run at once on any probe 5xx, a rolling p95 (last 20 probes) above 2 x the baseline p95, or host available RAM below 800 MiB. A stopped run fails. Never relax a threshold to make a candidate pass.
+**The abort rule** stops the runtime container and ends the run at once on any probe 5xx, any probe with no answer (timeout, refused or lost connection), a rolling p95 (last 20 probes) above 2 x the baseline p95, or host available RAM below 800 MiB. A stopped run fails. A probe with no answer also fails the availability row, and MP-03 is scored and judged for `uk` and `en` separately: either one failing fails the candidate. Never relax a threshold to make a candidate pass.
 
 **Reading the result.** `mp04-out/summary.txt` is one screen: a PASS/FAIL line per candidate, its failing rows, then `passes: ...` or `none passes`. `mp04-out/report.json` has every measured value per candidate. Exit status: 0 = the report is written and this candidate passes; 1 = written, it fails; 2 = harness error. A harness error still writes a report naming the error. An unmeasured value fails its row.
 

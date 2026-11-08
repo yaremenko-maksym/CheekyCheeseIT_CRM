@@ -197,11 +197,22 @@ record "B. both paths with the project absent: main healthy, attach was a no-op"
 
 # ── C. Install the project (the runbook's steps) ────────────────────────────
 log "C. Provision weights, prepare the state volume, start the project"
+ext --profile provision run --rm --no-deps --user root --cap-add CHOWN --entrypoint chown weights-fetch 1000:1000 /models
+ext --profile provision run --rm -e EXTRACTION_MODEL_SHA256="$(printf '0%.0s' $(seq 64))" weights-fetch \
+  && fail "C. a fetch with a wrong digest succeeded"
+[ -z "$(ext --profile provision run --rm -T --no-deps --entrypoint sh weights-fetch -c 'ls -A /models')" ] \
+  || fail "C. a failed fetch left a file behind"
+record "C. a fetch with a wrong digest: refused, nothing left in the volume"
 ext --profile provision run --rm weights-fetch
+[ "$(ext --profile provision run --rm -T --no-deps --entrypoint sh weights-fetch -c 'ls -A /models')" = "$MODEL_FILE" ] \
+  || fail "C. the weights volume holds more than the verified file"
 ext run --rm --no-deps --user root --cap-add CHOWN --entrypoint chown extraction-worker node:node /var/lib/extraction-worker
 ext up -d
 ext ps
 [ -z "$(ext ps -q weights-fetch)" ] || fail "C. weights-fetch started without its profile"
+hc="$(docker inspect -f 'read_only={{.HostConfig.ReadonlyRootfs}} pids={{.HostConfig.PidsLimit}}' "$(ecid extraction-worker)")"
+[ "$hc" = "read_only=true pids=64" ] || fail "C. worker limits not applied ($hc)"
+record "C. worker runs with $hc (healthy below: api reaches it)"
 for _ in $(seq 1 60); do
   [ "$(probe "$(ecid extraction-worker)" http://crm-model-runtime:8080/health)" = status=200 ] && break
   sleep 3
@@ -249,13 +260,15 @@ ports="$(docker inspect -f '{{json .NetworkSettings.Ports}}' "$(ecid crm-model-r
 echo "$ports" | grep -q HostPort && fail "G. a port is published: $ports"
 record "G. published ports on runtime and worker: none"
 MARKER="rehearsal-marker-$(openssl rand -hex 4)"
-docker exec "$(ecid extraction-worker)" node -e "
+out="$(docker exec "$(ecid extraction-worker)" node -e "
   fetch('http://crm-model-runtime:8080/v1/chat/completions', { method: 'POST',
     headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(60000),
     body: JSON.stringify({ messages: [{ role: 'user', content: '$MARKER' }], max_tokens: 8 }) })
-    .then((r) => console.log('chat status=' + r.status), (e) => console.log('chat error=' + (e.cause?.code || e.name)))"
+    .then((r) => console.log('chat status=' + r.status), (e) => console.log('chat error=' + (e.cause?.code || e.name)))")"
+# An absent marker proves nothing unless the runtime actually took the prompt.
+[ "$out" = "chat status=200" ] || fail "G. the marker prompt was not answered ($out)"
 docker logs "$(ecid crm-model-runtime)" 2>&1 | grep -qF "$MARKER" && fail "G. the runtime logged the prompt"
-record "G. a prompt carrying a marker: absent from the runtime log"
+record "G. a prompt carrying a marker: $out, absent from the runtime log"
 record "G. runtime log lines after all requests: $(docker logs "$(ecid crm-model-runtime)" 2>&1 | wc -l)"
 # A fact, not a gate: whether the host itself reaches the runtime by its address on the internal
 # network. The MP-04 harness runs on the host and depends on it.

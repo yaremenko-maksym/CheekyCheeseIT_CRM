@@ -44,7 +44,11 @@ mutate() {
 ex() { mutate "$EXTRACTION" "$@"; }
 
 WORKER='/^    command: \[.node., .dist\/extraction-worker\/main.\]/'
-RUNTIME='/^    user: .1000:1000.$/'
+# The runtime's own restart line: its user line is shared with weights-fetch.
+RUNTIME='/^    restart: on-failure:3$/'
+RT='/^  crm-model-runtime:/,/^  # ── Extraction worker/'
+WK='/^  extraction-worker:/,/^  # ── One-shot/'
+FE='/^  weights-fetch:/,/^volumes:/'
 
 echo "== test-check-extraction-worker-compose.sh =="
 
@@ -85,8 +89,62 @@ assert_red "an external entry network is refused" --contains "must not be extern
 F="$(ex renamed-entry 's/^    name: crm-extraction-entry$/    name: other/')"
 assert_red "renaming the entry network is refused" --contains "must keep the name" -- guard_with --extraction "$F"
 
-F="$(ex root-user 's/^    user: .1000:1000.$/    user: "0:0"/')"
-assert_red "runtime running as root is refused" --contains "must run non-root" -- guard_with --extraction "$F"
+F="$(ex root-user "$RT"' s/^    user: .1000:1000.$/    user: "0:0"/')"
+assert_red "runtime running as root is refused" --contains "crm-model-runtime must run non-root" -- guard_with --extraction "$F"
+
+F="$(ex worker-cpus "$WK"' s/^    cpus: 0.5$/    cpus: 1.0/')"
+assert_red "worker cpus drifting is refused" --contains "extraction-worker cpus must be 0.5" -- guard_with --extraction "$F"
+
+F="$(ex worker-mem "$WK"' s/^    mem_limit: 512m$/    mem_limit: 1024m/')"
+assert_red "worker memory drifting is refused" --contains "extraction-worker mem_limit" -- guard_with --extraction "$F"
+
+F="$(ex worker-pids "$WK"' { /^    pids_limit: 64$/d; }')"
+assert_red "worker without a pids limit is refused" --contains "extraction-worker pids_limit must be 64" -- guard_with --extraction "$F"
+
+F="$(ex worker-rw "$WK"' { /^    read_only: true$/d; }')"
+assert_red "worker with a writable root filesystem is refused" --contains "extraction-worker must run with read_only" -- guard_with --extraction "$F"
+
+F="$(ex runtime-cpus "$RT"' s/^    cpus: 2.0$/    cpus: 4.0/')"
+assert_red "runtime cpus drifting is refused" --contains "crm-model-runtime cpus must be 2" -- guard_with --extraction "$F"
+
+F="$(ex runtime-pids "$RT"' s/^    pids_limit: 128$/    pids_limit: 4096/')"
+assert_red "runtime pids limit drifting is refused" --contains "crm-model-runtime pids_limit must be 128" -- guard_with --extraction "$F"
+
+F="$(ex parallel-12 's/--parallel 1 /--parallel 12 /')"
+assert_red "runtime with --parallel 12 is refused" --contains '"--parallel 1" (found: 12)' -- guard_with --extraction "$F"
+
+F="$(ex threads-24 's/--threads 2 --threads-batch/--threads 24 --threads-batch/')"
+assert_red "runtime with --threads 24 is refused" --contains '"--threads 2" (found: 24)' -- guard_with --extraction "$F"
+
+F="$(ex parallel-dup 's/ --log-disable$/ --log-disable --parallel 4/')"
+assert_red "a later duplicate --parallel is refused" --contains '"--parallel 1" (found: 1, 4)' -- guard_with --extraction "$F"
+
+F="$(ex worker-expose "${WORKER}a\\
+    expose: ['3100']")"
+assert_red "worker declaring expose is refused" --contains "extraction-worker must not declare expose" -- guard_with --extraction "$F"
+
+F="$(ex runtime-privileged "${RUNTIME}a\\
+    privileged: true")"
+assert_red "a privileged runtime is refused" --contains "crm-model-runtime must not be privileged" -- guard_with --extraction "$F"
+
+F="$(ex runtime-cap-add "${RUNTIME}a\\
+    cap_add: [NET_ADMIN]")"
+assert_red "runtime adding a capability is refused" --contains "crm-model-runtime must not add capabilities" -- guard_with --extraction "$F"
+
+F="$(ex fetch-shares-ns "$FE"' { s/^    networks:$/    network_mode: "service:crm-model-runtime"/; /^      - provision$/d; }')"
+assert_red "weights-fetch sharing the runtime's namespace is refused" --contains "must not share another service's network namespace" -- guard_with --extraction "$F"
+
+F="$(ex fetch-no-profile "$FE"' { /^    profiles: .*provision/d; }')"
+assert_red "weights-fetch without its profile is refused" --contains "service weights-fetch must stay behind a profile" -- guard_with --extraction "$F"
+
+F="$(ex fetch-on-entry "$FE"' s/^      - provision$/      - entry/')"
+assert_red "another service joining the entry network is refused" --contains "service weights-fetch must not join entry" -- guard_with --extraction "$F"
+
+F="$(ex fetch-root "$FE"' s/^    user: .1000:1000.$/    user: "0:0"/')"
+assert_red "weights-fetch running as root is refused" --contains "weights-fetch must run non-root" -- guard_with --extraction "$F"
+
+F="$(ex fetch-http 's/ --proto =https / /')"
+assert_red "weights-fetch allowing a non-https download is refused" --contains 'curl must carry "--proto =https"' -- guard_with --extraction "$F"
 
 F="$(ex keep-caps '/^  crm-model-runtime:/,/^  # ── Extraction worker/ { /^    cap_drop:$/d; /^      - ALL$/d; }')"
 assert_red "runtime keeping capabilities is refused" --contains "model-runtime must drop all capabilities" -- guard_with --extraction "$F"
@@ -149,6 +207,14 @@ F="$(mutate "$PROD" external-net -e '/^networks:$/a\
 ' -e 's/^      - frontend$/      - frontend\
       - crossing/')"
 assert_red "an external network in the deploy configuration is refused" --contains "must not use external network crossing" -- guard_with --prod "$F"
+
+# The network the old prod file declared; resolves to crm_extraction-internal.
+F="$(mutate "$PROD" readds-net -e '/^networks:$/a\
+  extraction-internal:\
+    internal: true
+' -e 's/^      - frontend$/      - frontend\
+      - extraction-internal/')"
+assert_red "an extraction network re-added to the prod file is refused" --contains "must not declare network extraction-internal" -- guard_with --prod "$F"
 
 # ── the deploy paths ──
 F="$(mutate "$SCRIPT" names-file '1a\

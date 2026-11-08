@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { buildFixtures } from './fixtures.mjs'
 import {
   abortReason,
+  abortWatch,
   estimateShares,
   evaluate,
   fieldCorrect,
@@ -58,6 +59,46 @@ test('abortReason: 5xx, low host RAM, rolling p95 over 2 x baseline', () => {
     abortReason({ baselineP95: 100, recent: slow.slice(0, 5), hostAvailableBytes: null }),
     null,
   )
+  // a probe with no answer (timeout, refused, lost connection) stops the run like a 5xx
+  assert.match(
+    abortReason({
+      baselineP95: 100,
+      recent: [...ok, { ms: 5000, status: 0 }],
+      hostAvailableBytes: null,
+    }),
+    /no answer/,
+  )
+})
+
+test('abortWatch: the first reason stops the runtime and ends the run, once', () => {
+  for (const [label, samples, host] of [
+    ['5xx', [{ ms: 90, status: 502 }], 2e9],
+    ['no answer', [{ ms: 5000, status: 0 }], 2e9],
+    ['low host RAM', [{ ms: 90, status: 200 }], 700 * 1048576],
+  ]) {
+    const calls = { stop: 0, end: 0 }
+    const w = abortWatch({
+      baselineP95: 100,
+      samples,
+      hostAvailable: () => host,
+      stopRuntime: () => (calls.stop += 1),
+      endRun: () => (calls.end += 1),
+    })
+    assert.ok(w.check(), label)
+    w.check()
+    assert.deepEqual(calls, { stop: 1, end: 1 }, label)
+    assert.ok(w.reason, label)
+  }
+  const calls = { stop: 0, end: 0 }
+  const quiet = abortWatch({
+    baselineP95: 100,
+    samples: [{ ms: 90, status: 200 }],
+    hostAvailable: () => 2e9,
+    stopRuntime: () => (calls.stop += 1),
+    endRun: () => (calls.end += 1),
+  })
+  assert.equal(quiet.check(), null)
+  assert.deepEqual(calls, { stop: 0, end: 0 })
 })
 
 function passing() {
@@ -71,6 +112,7 @@ function passing() {
     },
     oomKills: 0,
     restarts: 0,
+    peakRuntimeMemBytes: 2e9,
     crm: { baseline: probe, loaded: probe },
     recordWallP95Ms: 100_000,
     requestTimeoutMs: 120_000,
@@ -78,7 +120,11 @@ function passing() {
     cpuIdleAfterAbortMs: 2_000,
     estimate: { uk: { share: 1 }, en: { share: 0.96 } },
     emptyAnswerRate: 0,
-    mp03: { schemaValidRate: 0.95, inventedUrls: [], fieldAccuracy: 0.85 },
+    mp03: {
+      records: 50,
+      uk: { records: 25, schemaValidRate: 0.95, inventedUrls: [], fieldAccuracy: 0.85 },
+      en: { records: 25, schemaValidRate: 0.95, inventedUrls: [], fieldAccuracy: 0.85 },
+    },
     licence: { verdict: 'acceptable', url: 'https://huggingface.co/x/y/blob/abcdef1/LICENSE' },
     repoCommit: 'abcdef1',
   }
@@ -93,15 +139,23 @@ test('evaluate: a full pass, and each frozen limit fails just past it', () => {
     (m) => (m.crm.loaded = { ...m.crm.loaded, p95: 151 }),
     (m) => (m.crm.loaded = { ...m.crm.loaded, p99: 151 }),
     (m) => (m.crm.loaded = { ...m.crm.loaded, status5xx: 1 }),
+    (m) => (m.crm.loaded = { ...m.crm.loaded, noResponse: 1 }),
+    (m) => (m.crm.baseline = { ...m.crm.baseline, noResponse: 1 }),
+    (m) => (m.peakRuntimeMemBytes = THRESHOLDS.runtimeMemoryBytes),
     (m) => (m.recordWallP95Ms = 240_001),
     (m) => (m.requestTimeoutMs = 300_000),
     (m) => (m.coldLoadMs = 180_001),
     (m) => (m.cpuIdleAfterAbortMs = 10_001),
     (m) => (m.estimate.uk.share = 0.94),
     (m) => (m.emptyAnswerRate = 0.06),
-    (m) => (m.mp03.schemaValidRate = 0.89),
-    (m) => (m.mp03.inventedUrls = [{ id: 'x', url: 'https://a.example/' }]),
-    (m) => (m.mp03.fieldAccuracy = 0.79),
+    (m) => (m.mp03.uk.schemaValidRate = 0.89),
+    (m) => (m.mp03.en.schemaValidRate = 0.89),
+    (m) => (m.mp03.uk.inventedUrls = [{ id: 'x', url: 'https://a.example/' }]),
+    (m) => (m.mp03.en.inventedUrls = [{ id: 'x', url: 'https://a.example/' }]),
+    (m) => (m.mp03.uk.fieldAccuracy = 0.79),
+    (m) => (m.mp03.en.fieldAccuracy = 0.79),
+    (m) =>
+      (m.mp03.en = { records: 0, schemaValidRate: null, inventedUrls: [], fieldAccuracy: null }),
     (m) => (m.licence.url = 'https://huggingface.co/x/y/blob/main/LICENSE'),
     (m) => (m.licence.verdict = 'unread'),
     (m) => (m.aborted = 'probe answered 502'),
@@ -114,7 +168,13 @@ test('evaluate: a full pass, and each frozen limit fails just past it', () => {
 })
 
 test('evaluate: an unmeasured value fails its row', () => {
-  for (const k of ['coldLoadMs', 'cpuIdleAfterAbortMs', 'recordWallP95Ms', 'emptyAnswerRate']) {
+  for (const k of [
+    'coldLoadMs',
+    'cpuIdleAfterAbortMs',
+    'recordWallP95Ms',
+    'emptyAnswerRate',
+    'peakRuntimeMemBytes',
+  ]) {
     const m = passing()
     m[k] = null
     const r = evaluate(m)
@@ -145,19 +205,35 @@ test('fieldCorrect and scoreMp03', () => {
     fieldCorrect('applyUrl', 'https://a.example/apply/1', 'https://a.example/apply/1/'),
     true,
   )
-  const fx = buildFixtures()[0]
-  const perfect = {
+  const perfectFor = (fx) => ({
     ...Object.fromEntries(Object.entries(fx.expected).filter(([k]) => k !== 'descriptionIncludes')),
     description: fx.expected.descriptionIncludes.join('. '),
-  }
+  })
+  const fx = buildFixtures().find((f) => f.lang === 'uk' && f.layout !== 'prefilled')
+  const en = buildFixtures().find((f) => f.lang === 'en' && f.layout !== 'prefilled')
+  const perfect = perfectFor(fx)
   const s = scoreMp03([
     { fixture: fx, record: perfect, schemaValid: true },
     { fixture: fx, record: { ...perfect, applyUrl: 'https://evil.example/x' }, schemaValid: true },
     { fixture: fx, record: null, schemaValid: false },
+    { fixture: en, record: perfectFor(en), schemaValid: true },
   ])
-  assert.equal(s.schemaValidRate, 2 / 3)
-  assert.deepEqual(s.inventedUrls, [{ id: fx.id, url: 'https://evil.example/x' }])
-  assert.ok(s.fieldAccuracy < 2 / 3)
+  assert.equal(s.records, 4)
+  assert.equal(s.uk.records, 3)
+  assert.equal(s.uk.schemaValidRate, 2 / 3)
+  assert.deepEqual(s.uk.inventedUrls, [{ id: fx.id, url: 'https://evil.example/x' }])
+  assert.ok(s.uk.fieldAccuracy < 2 / 3)
+  // the languages are scored apart: a perfect en does not lift a weak uk
+  assert.equal(s.en.records, 1)
+  assert.equal(s.en.schemaValidRate, 1)
+  assert.equal(s.en.fieldAccuracy, 1)
+  const m = passing()
+  m.mp03 = s
+  const failing = evaluate(m)
+    .rows.filter((r) => !r.pass)
+    .map((r) => r.name)
+  assert.ok(failing.includes('MP-03 field accuracy (uk)'))
+  assert.ok(!failing.includes('MP-03 field accuracy (en)'))
 })
 
 test('estimateShares: per language, only answered requests with reported tokens', () => {
@@ -231,4 +307,35 @@ test('mp04.mjs: no exit 0 without a report', () => {
   const report = JSON.parse(readFileSync(join(out, 'report.json'), 'utf8'))
   assert.equal(report.nonePasses, true)
   assert.ok(report.candidates[0].error)
+})
+
+test('mp04.mjs: a non-numeric flag is refused at parse, before anything runs', () => {
+  const cli = join(here, 'mp04.mjs')
+  for (const [flag, value] of [
+    ['--probe-interval-ms', 'fast'],
+    ['--baseline-s', '-1'],
+    ['--fixtures', '0'],
+  ]) {
+    const r = spawnSync(
+      process.execPath,
+      [
+        cli,
+        '--candidate',
+        'x.json',
+        '--api-dist',
+        'x',
+        '--runtime-url',
+        'http://127.0.0.1:9',
+        '--crm-url',
+        'http://127.0.0.1:9/',
+        '--out-dir',
+        'x',
+        flag,
+        value,
+      ],
+      { encoding: 'utf8' },
+    )
+    assert.equal(r.status, 2, flag)
+    assert.match(r.stderr, new RegExp(flag), flag)
+  }
 })

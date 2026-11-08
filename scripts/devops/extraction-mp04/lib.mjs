@@ -51,10 +51,13 @@ export function probeStats(samples) {
   }
 }
 
+/** A probe that got no answer (timeout, refused, lost connection) is a failure, like a 5xx. */
+const failedProbe = (s) => s.status === 0 || s.status >= 500
+
 /** Returns the reason to stop, or null. `recent` are the probe samples so far under load. */
 export function abortReason({ baselineP95, recent, hostAvailableBytes }) {
-  const bad = recent.find((s) => s.status >= 500)
-  if (bad) return `probe answered ${bad.status}`
+  const bad = recent.find(failedProbe)
+  if (bad) return bad.status === 0 ? 'probe got no answer' : `probe answered ${bad.status}`
   if (hostAvailableBytes !== null && hostAvailableBytes < ABORT.hostAvailableMinBytes) {
     return `host available RAM ${Math.round(hostAvailableBytes / 1048576)} MiB < 800 MiB`
   }
@@ -69,6 +72,28 @@ export function abortReason({ baselineP95, recent, hostAvailableBytes }) {
     }
   }
   return null
+}
+
+/**
+ * The abort rule in action: `check()` runs on every probe sample and every host-memory tick. The
+ * first reason stops the runtime container and ends the run, once; later checks return it again.
+ */
+export function abortWatch({ baselineP95, samples, hostAvailable, stopRuntime, endRun }) {
+  let reason = null
+  return {
+    get reason() {
+      return reason
+    },
+    check() {
+      if (reason) return reason
+      reason = abortReason({ baselineP95, recent: samples, hostAvailableBytes: hostAvailable() })
+      if (reason) {
+        stopRuntime()
+        endRun()
+      }
+      return reason
+    },
+  }
 }
 
 const fold = (s) =>
@@ -107,10 +132,19 @@ export function inventedUrls(fixture, record) {
 }
 
 /**
- * MP-03 over the per-record results. `results[i]`: `{ fixture, record | null, schemaValid }`; a
- * record that did not come back scores every expected field as wrong.
+ * MP-03 over the per-record results, per language: the frozen rows hold for uk and for en
+ * separately. `results[i]`: `{ fixture, record | null, schemaValid }`; a record that did not come
+ * back scores every expected field as wrong. A language with no records scores null (fails).
  */
 export function scoreMp03(results) {
+  return {
+    records: results.length,
+    uk: scoreSet(results.filter((r) => r.fixture.lang === 'uk')),
+    en: scoreSet(results.filter((r) => r.fixture.lang === 'en')),
+  }
+}
+
+function scoreSet(results) {
   let scored = 0
   let correct = 0
   const invented = []
@@ -188,10 +222,16 @@ export function evaluate(m) {
     ),
     row('CRM p99 (ms)', l.p99, `<= 1.5 x ${b.p99}`, b.p99 !== null && l.p99 <= 1.5 * b.p99),
     row(
-      'CRM 5xx',
-      l.count > 0 ? b.status5xx + l.status5xx : null,
+      'CRM 5xx or no answer',
+      l.count > 0 ? b.status5xx + b.noResponse + l.status5xx + l.noResponse : null,
       '0',
-      b.status5xx + l.status5xx === 0,
+      b.status5xx + b.noResponse + l.status5xx + l.noResponse === 0,
+    ),
+    row(
+      'peak runtime memory (bytes)',
+      m.peakRuntimeMemBytes,
+      `< ${T.runtimeMemoryBytes} (3584 MiB; at the cap is reclaim pressure)`,
+      m.peakRuntimeMemBytes < T.runtimeMemoryBytes,
     ),
     row(
       'wall time per record p95 (ms)',
@@ -226,24 +266,29 @@ export function evaluate(m) {
       `<= ${T.emptyAnswerRate}`,
       m.emptyAnswerRate <= T.emptyAnswerRate,
     ),
-    row(
-      'MP-03 schema-valid',
-      m.mp03.schemaValidRate,
-      `>= ${T.schemaValidRate}`,
-      m.mp03.schemaValidRate >= T.schemaValidRate,
-    ),
-    row(
-      'MP-03 invented URLs',
-      m.mp03.inventedUrls.length,
-      `${T.inventedUrls}`,
-      m.mp03.inventedUrls.length === T.inventedUrls,
-    ),
-    row(
-      'MP-03 field accuracy',
-      m.mp03.fieldAccuracy,
-      `>= ${T.fieldAccuracy}`,
-      m.mp03.fieldAccuracy >= T.fieldAccuracy,
-    ),
+    ...['uk', 'en'].flatMap((lang) => {
+      const s = m.mp03[lang]
+      return [
+        row(
+          `MP-03 schema-valid (${lang})`,
+          s.schemaValidRate,
+          `>= ${T.schemaValidRate}`,
+          s.schemaValidRate >= T.schemaValidRate,
+        ),
+        row(
+          `MP-03 invented URLs (${lang})`,
+          s.records > 0 ? s.inventedUrls.length : null,
+          `${T.inventedUrls}`,
+          s.inventedUrls.length === T.inventedUrls,
+        ),
+        row(
+          `MP-03 field accuracy (${lang})`,
+          s.fieldAccuracy,
+          `>= ${T.fieldAccuracy}`,
+          s.fieldAccuracy >= T.fieldAccuracy,
+        ),
+      ]
+    }),
     row(
       'licence read at the pinned digest',
       m.licence ? `${m.licence.verdict} (${m.licence.url})` : null,
