@@ -2515,7 +2515,7 @@ if [ ! -f "$CLOUDFLARE_AOP_CA_FILE" ]; then
   echo "currently-running api/nginx containers are left as-is by THIS"
   echo "step (this does not cover the rarer path where Step 1 above has"
   echo "already reset the whole stack via 'down --remove-orphans' after a"
-  echo "postgres/redis network conflict — see that step's own 2026-07-31"
+  echo "postgres network conflict — see that step's own 2026-07-31"
   echo "incident comment; if that branch fired, nginx was already stopped"
   echo "before this preflight ever ran)."
   exit 1

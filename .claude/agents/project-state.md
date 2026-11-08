@@ -84,7 +84,7 @@ need the owner's explicit go-ahead in chat first. None have been made.
 
 - **Monorepo:** Turborepo + pnpm
 - **Frontend:** React + **Vite SPA** (NOT TanStack Start/vinxi) + TanStack Router/Form/Query + Tailwind v4 + shadcn/ui + Framer Motion
-- **Backend:** NestJS 11 + a Fastify adapter + Drizzle ORM (PostgreSQL)
+- **Backend:** NestJS 11 + a Fastify adapter + Drizzle ORM (PostgreSQL) + Redis
 - **Validation:** Zod v4 (strict). All API requests/responses via `.parse()`. DTO in NestJS via Zod, NOT class-validator.
 - **Testing:** Vitest (unit), Playwright (E2E)
 - **Routing:** TanStack Router file-based (`apps/web/app/routes/**`)
