@@ -565,6 +565,21 @@ for c in "git commit -m 'use powershell -c x'" "echo powershell -c x" "gh pr cre
          "pnpm add powershell" "brew install powershell" "brew install --cask pwsh" "npm i pwsh"; do
   assert_green "naming a shell does not run it: $c" -- h "$c"
 done
+# CR-M-1 / SR-M-4 (#1294): PowerShell 5.1 runs a plain next word as -Command and both shells
+# run piped stdin, so a powershell/pwsh reading needs no flag after it. Only a package name
+# in an install is exempt, and never inside an inline program.
+for c in 'winpty powershell Remove-Item -Recurse -Force C:/x' 'echo Remove-Item -Recurse C:/x | winpty pwsh' \
+         "python3 -c \"import os; os.system('powershell Remove-Item -Recurse -Force C:/Users/x')\"" \
+         "node -e \"require('child_process').execSync('powershell Remove-Item -Recurse C:/x')\"" \
+         "python3 -c \"import os; os.system('echo Remove-Item C:/x | powershell')\"" \
+         "python3 -c \"import os; os.system('pwsh ./do-it')\"" \
+         'unknown-wrapper powershell Remove-Item x pnpm add powershell' \
+         "python3 -c \"import os; os.system('pnpm add pwsh')\""; do
+  assert_red "unread shell, any next word: $c" --contains "no gate reads" -- h "$c"
+done
+for c in "pnpm add powershell" "brew install pwsh" "go run ./cmd" "winpty pnpm add powershell"; do
+  assert_green "a package name is not a launch: $c" -- h "$c"
+done
 
 # SR-M-1 (#1294): a backslash-newline is a line continuation, so the shell joins the word.
 for c in $'r\\\nm -rf /etc' $'rm -rf \\\n/etc' $'git push --force \\\norigin main'; do

@@ -736,3 +736,12 @@ block	db,ttl	$'vite' --port 3000
 block	db,ttl	cat > note.md <<'EOF'<NL>use `pnpm dev` and<NL>line \<NL>EOF
 allow	safety	pnpm add powershell
 allow	safety	brew install pwsh
+# CR-M-1 / SR-M-4 of #1294: a powershell/pwsh reading needs no flag after it (5.1 runs a
+# plain word as -Command, piped stdin runs with no argument). Install arguments stay allowed.
+block	safety	winpty powershell Remove-Item -Recurse -Force C:/x
+block	safety	echo Remove-Item -Recurse C:/x | winpty pwsh
+block	safety	python3 -c "import os; os.system('powershell Remove-Item -Recurse -Force C:/Users/x')"
+block	safety	node -e "require('child_process').execSync('powershell Remove-Item -Recurse C:/x')"
+block	safety	python3 -c "import os; os.system('echo Remove-Item C:/x | powershell')"
+block	safety	python3 -c "import os; os.system('pwsh ./do-it')"
+block	safety	unknown-wrapper powershell Remove-Item x pnpm add powershell

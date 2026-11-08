@@ -342,8 +342,8 @@ if not blocked:
 
 # ── predicate 7: a shell no gate can read ───────────────────────────────────
 # Every gate reads bash syntax, so what powershell or cmd run was never judged. The
-# PowerShell tool is denied for the same reason. A reading needs a following flag:
-# in an uncertain segment `powershell` may be a plain word of a message.
+# PowerShell tool is denied for the same reason. Confident segments (echo, git commit -m)
+# yield no argument readings, so a message that names a shell is never judged here.
 UNREAD_SHELLS = ("powershell", "pwsh", "cmd")
 
 
@@ -351,17 +351,55 @@ def unread_shell(word):
     return re.sub(r"\.(exe|cmd|bat|com)$", "", re.split(r"[/\\]", word)[-1], flags=re.I).lower()
 
 
+PS_SHELLS = ("powershell", "pwsh")
+PM_INSTALL = {"pnpm": ("add", "install", "i"), "npm": ("add", "install", "i"),
+              "yarn": ("add", "install", "i"), "brew": ("install",), "winget": ("install",),
+              "choco": ("install",), "scoop": ("install",)}
+
+
+def is_ps_word(tok):
+    name = cmdscan._command_name(tok)
+    return cmdscan._plausible_command_word(name) and unread_shell(name) in PS_SHELLS
+
+
+def ps_only_installed(arg_reads):
+    # True when every powershell/pwsh argument reading is a package name handed to ONE
+    # install (`pnpm add powershell`, `brew install --cask pwsh`). Counting, not
+    # matching by name: each install argument is also a reading, so equal counts mean
+    # no reading is left over as a launch (`wrap powershell x pnpm add powershell`).
+    want = sum(1 for r in arg_reads[1:] if unread_shell(r.name) in PS_SHELLS)
+    for pm in arg_reads:
+        verbs = PM_INSTALL.get(unread_shell(pm.name), ())
+        if pm.argv and pm.argv[0] in verbs and sum(map(is_ps_word, pm.argv[1:])) == want:
+            return True
+    return False
+
+
 for seg in scan.segments:
     if blocked:
         break
+    # cmdscan.candidates(seg) is the segment and its argument readings. A code reading
+    # (python -c, node -e) with the same name and arguments is one of those tokens read
+    # again (brew is code-capable, so `brew install pwsh` is re-read); any other is code.
+    arg_reads = cmdscan.candidates(seg)
+    arg_keys = {(r.name, tuple(r.argv)) for r in arg_reads}
+    installed = ps_only_installed(arg_reads)
     for cand in candidates(seg):
         shell = unread_shell(cand.name)
-        # As an argument the word is often a name, not a launch: `go run ./cmd`,
-        # `pnpm add powershell`, `brew install pwsh`. So an argument reading counts only
-        # with a flag after it, or (powershell, pwsh) a script file after it.
+        if shell not in UNREAD_SHELLS:
+            continue
         nxt = cand.argv[0] if cand.argv else ""
-        if shell in UNREAD_SHELLS and (cand is seg or nxt[:1] in ("-", "/")
-                                       or (shell != "cmd" and nxt.lower().endswith(".ps1"))):
+        if cand is seg:
+            hit = True
+        elif shell == "cmd":
+            # `cmd` is a common directory name (`go run ./cmd`): only with a flag after it.
+            hit = nxt[:1] in ("-", "/")
+        else:
+            # PowerShell 5.1 runs a plain next word as -Command and both shells run piped
+            # stdin with no argument, so any next word (or none) is a launch. The one
+            # exemption is a package name in an install, and never inside inline code.
+            hit = not installed or (cand.name, tuple(cand.argv)) not in arg_keys
+        if hit:
             blocked.append("`%s` runs a shell whose syntax no gate reads" % cand.name)
             break
 
