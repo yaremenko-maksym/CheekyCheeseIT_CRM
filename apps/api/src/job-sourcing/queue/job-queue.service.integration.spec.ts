@@ -483,6 +483,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       await lead('oppWorked', 'senA')
       await lead('oppWorked', 'senB')
       await expireGeneration('teamA')
+      await expireGeneration('teamB')
       const before = await service.list(hrA(), q())
       const baseline = before.items.find((i) => i.opportunityId === id('oppWorked'))
 
