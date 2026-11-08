@@ -40,11 +40,8 @@ if ! bash -n "$HOOK" 2>/dev/null; then
 fi
 
 # ── fixtures ───────────────────────────────────────────────────────────────────
-# A fake repo pinned to branch `main` on purpose. The hook has a second allow
-# path for a cwd under /tmp whose branch looks like an agent branch
-# (`^(coder|feature|fix|infra|test)/`), and `mktemp -d` lands under /tmp on a
-# Linux runner but under /var/folders on macOS. Pinning the branch to `main`
-# makes every case below decide the same way on both.
+# A fake main checkout. (The /tmp + agent-branch allow that once made the
+# branch name matter was removed — SR-L-9.)
 MAIN_REPO="$WS/main-repo"
 mkdir -p "$MAIN_REPO"
 (
@@ -63,7 +60,6 @@ mkdir -p "$MAIN_REPO"
 # REAL `git worktree add` trees under .claude/worktrees/<name>. The hook
 # recognises them by git (linked worktree), not by the path string; a plain
 # directory under .claude/worktrees/ is no longer an allow (see F1-F3 below).
-# Branch names are not agent-like, so allow #2 cannot decide a case on Linux.
 WT_ROOT="$MAIN_REPO/.claude/worktrees/agent-MINE"
 OTHER_WT="$MAIN_REPO/.claude/worktrees/agent-OTHER"
 (
@@ -210,8 +206,6 @@ assert_red "Windows payload: a backslash '..' escape is normalised, not trusted 
 # worktree was refused too, because the hook judged the cwd, not the target.
 # These fixtures are REAL `git worktree add` trees (git-dir != git-common-dir),
 # laid out like T3's, so the decision rests on git, not on a path string.
-# Branch names are deliberately not agent-like, so allow #2 (/tmp + coder/*)
-# cannot be what lets a case through on a Linux runner.
 LW_MAIN="$WS/lw/crm"
 LW_A="$WS/lw/t3/worktrees/crm/t3-aaaa"
 LW_B="$WS/lw/t3/worktrees/crm/t3-bbbb"
@@ -437,5 +431,85 @@ assert_red "F4: a non-UTF-8 byte in a relative path from inside main's apps/ -> 
 assert_green "F4: the same byte outside the production zones is still a no-op" \
   --not-contains "BLOCK" \
   -- run_hook_strict_stdout "$MAIN_REPO" '{"tool_name":"Edit","tool_input":{"file_path":"docs/\udcff.md"}}'
+
+# ── security review of PR #1297 on 99c994ffc: SR-L-6..9, SO-M-1 ──────────────
+# SR-L-6: macOS /usr/bin/grep under a UTF-8 locale fails to match `apps/` on a
+# line holding an invalid byte, so the production-zone fast-exit let it through.
+run_hook_utf8_locale() { LC_ALL=en_US.UTF-8 run_hook_raw_payload "$@"; }
+assert_red "SR-L-6: an invalid byte in an apps/ DIRECTORY name from the main checkout -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook_utf8_locale "$MAIN_REPO" '{"tool_name":"Edit","tool_input":{"file_path":"apps/\udcff/x.ts"}}'
+
+assert_red "SR-L-6: an invalid byte in an absolute main apps/ path from an agent worktree -> FM-2 BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook_utf8_locale "$LW_A" '{"tool_name":"Write","tool_input":{"file_path":"'"$LW_MAIN"'/apps/\udcff.ts"}}'
+
+# SR-L-7: a linked worktree nested inside another one's tree (Agent isolation
+# dispatched from a T3 session lands in <wt>/.claude/worktrees/). A prefix check
+# on the cwd's toplevel let the parent write into the nested agent's tree.
+NESTED_WT="$LW_A/.claude/worktrees/agent-nested"
+git -C "$LW_MAIN" worktree add -q -b wt-nested "$NESTED_WT" >/dev/null 2>&1
+mkdir -p "$NESTED_WT/apps/api/src"
+assert_red "SR-L-7: parent worktree writing into a NESTED linked worktree -> FM-2 BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$LW_A" "Edit" "$NESTED_WT/apps/api/src/main.ts"
+
+assert_green "SR-L-7: the nested worktree writing its own apps file -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$NESTED_WT" "Edit" "apps/api/src/main.ts"
+
+assert_red "SR-L-7: the nested worktree writing into its parent worktree -> FM-2 BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "WORKTREE" \
+  -- run_hook "$NESTED_WT" "Edit" "$LW_A/apps/api/src/main.ts"
+
+# SR-L-8: a planted `<parent>/.git` FILE plus a fake `<common>/worktrees/fake`
+# (all outside the zone, so Write can create them) makes a cwd ABOVE main a
+# "linked worktree" whose toplevel contains main.
+run_hook_with_planted_parent() {
+  local fake="$LW_MAIN/.git/worktrees/fake"
+  mkdir -p "$fake"
+  printf '%s\n' "$WS/lw/.git" >"$fake/gitdir"
+  printf '../..\n' >"$fake/commondir"
+  cp "$LW_MAIN/.git/HEAD" "$fake/HEAD"
+  printf 'gitdir: %s\n' "$fake" >"$WS/lw/.git"
+  run_hook "$@"
+  local rc=$?
+  rm -rf "$fake" "$WS/lw/.git"
+  return $rc
+}
+assert_red "SR-L-8: a planted parent .git file cannot make main part of a linked worktree -> BLOCK" \
+  --contains '"decision": "block"' \
+  -- run_hook_with_planted_parent "$WS/lw" "Write" "$LW_MAIN/apps/api/src/main.ts"
+
+# SR-L-9: the removed allow #2 (/tmp cwd + agent-style branch) never looked at
+# the target. Fixtures must really sit under /tmp, so they get their own dir.
+TMP_WS="$(mktemp -d /tmp/zow-test.XXXXXX)"
+trap 'rm -rf "$WS" "$TMP_WS"' EXIT
+git clone -q "$LW_MAIN" "$TMP_WS/clone" >/dev/null 2>&1
+git -C "$TMP_WS/clone" checkout -q -b fix/y >/dev/null 2>&1
+git -C "$LW_MAIN" worktree add -q -b coder/x "$TMP_WS/linked" >/dev/null 2>&1
+assert_red "SR-L-9: a non-linked /tmp clone on fix/y writing into another checkout's apps -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook "$TMP_WS/clone" "Write" "$LW_MAIN/apps/api/src/main.ts"
+
+assert_green "SR-L-9: a linked worktree under /tmp on coder/x writing its own apps file -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook "$TMP_WS/linked" "Edit" "apps/api/src/main.ts"
+
+# SO-M-1: the removed allow #3 (CLAUDE_AGENT_ID=coder) never looked at the target.
+run_hook_as_coder() { CLAUDE_AGENT_ID=coder run_hook "$@"; }
+assert_red "SO-M-1: a non-linked cwd with CLAUDE_AGENT_ID=coder writing into another checkout's apps -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "PRODUCTION-EDIT BLOCK" \
+  -- run_hook_as_coder "$TMP_WS/clone" "Write" "$LW_MAIN/apps/api/src/x.ts"
+
+assert_green "SO-M-1: a linked worktree with CLAUDE_AGENT_ID=coder writing its own apps file -> allow" \
+  --not-contains "BLOCK" \
+  -- run_hook_as_coder "$LW_A" "Write" "$LW_A/apps/api/src/x.ts"
 
 guard_test_summary "test-pre-edit-write-zone-of-write.sh"

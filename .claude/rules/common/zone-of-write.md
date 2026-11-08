@@ -84,8 +84,10 @@ Each entry below is one zone row: **may** / **may NOT**.
 `Write` / `MultiEdit` / `NotebookEdit` in `apps/**` / `packages/**` of the MAIN checkout. The zone is
 judged on the raw path and on the resolved one (`~`, `..`, symlinks of the existing prefix). A session
 whose cwd is a linked git worktree (its `.git` is a file, no `core.worktree`; inherited `GIT_*`
-variables are ignored) may write only a target that resolves inside that worktree (FM-2). A
-main-checkout session is not allowed into any linked worktree.
+variables are ignored) may write only a target whose own checkout is that same worktree (FM-2; a
+linked worktree nested inside it is a different tree). A main-checkout session is not allowed into
+any linked worktree. No cwd-, branch- or env-based allow remains; the only other allow is the
+gitignored `.claude/.allow-direct-edits` escape hatch.
 
 ### Worktree caveat
 
@@ -94,9 +96,8 @@ In a worktree the block is lifted — the Coder _technically_ can overwrite anyt
 ### Verify MAIN is clean after each Coder (MANDATORY)
 
 The zone hook refuses a worktree session that writes into MAIN (a plain, non-linked directory
-under `.claude/worktrees/` is no worktree: it is refused like the main checkout); allow #2
-(`/tmp` heuristic), allow #3 (`CLAUDE_AGENT_ID=coder`, currently dead) and the #4 escape hatch can
-still let a write into main through; Bash writes are not gated by this hook at all. So Master MUST, after EACH finished Coder, verify
+under `.claude/worktrees/` is no worktree: it is refused like the main checkout); the escape-hatch
+file can still let a write into main through; Bash writes are not gated by this hook at all. So Master MUST, after EACH finished Coder, verify
 that the MAIN checkout is clean:
 
 ```bash

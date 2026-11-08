@@ -16,9 +16,9 @@
 # AGENT DETECTION (Phase 2.5 empirical finding):
 #   Tested 2026-06-03 against Claude Code v2.1.148: `$CLAUDE_AGENT_ID` and
 #   `$CLAUDE_SUBAGENT_TYPE` are NOT propagated by the runtime to hook
-#   subshells. Only `CLAUDE_CODE_SESSION_ID` is reliably set. This makes the
-#   env-var detection path a *dead branch* under current runtime, but we
-#   keep it for forward-compat with future ECC plugin install.
+#   subshells. Only `CLAUDE_CODE_SESSION_ID` is reliably set. The env-var
+#   allow built on it was removed 2026-11-08 (SO-M-1: target-blind; an env
+#   var says who is writing, never where).
 #
 #   Operational allow paths today (fail-closed by default — safer for
 #   production zone gating):
@@ -30,15 +30,19 @@
 #      target is inside THAT worktree (else FM-2 refusal). Covers T3
 #      worktrees and Agent `isolation:"worktree"` trees under
 #      `.claude/worktrees/` (both are linked worktrees). A main-checkout session
-#      writing into a linked worktree is NOT allowed here; it falls through to #2-#4.
+#      writing into a linked worktree is NOT allowed here; it falls through to #4.
+#      The target's own checkout (git, run from the target's nearest existing
+#      directory) must have the SAME toplevel as the cwd's: a linked worktree
+#      nested inside another one is a different tree (SR-L-7), and a planted
+#      `<parent>/.git` above main does not make main part of it (SR-L-8).
 #   1. (removed 2026-11-08) the `/.claude/worktrees/` cwd string match. It let a
 #      plain, non-linked directory there write into main via `..`, a symlink, or
 #      a failed check #0 (PR #1297 second opinion F1-F3); #0 covers real ones.
-#   2. cwd starts with /tmp/ AND git branch matches `coder/*|feature/*|
-#      fix/*|infra/*|test/*` (heuristic — manual `git worktree add /tmp/...`
-#      with agent branch naming).
-#   3. Env var `$CLAUDE_AGENT_ID == "coder"` (forward-compat — currently
-#      unused per empirical finding above).
+#   2. (removed 2026-11-08) a /tmp/ cwd on a `coder|feature|fix|infra|test/*`
+#      branch. It never looked at the target, so a /tmp clone could write into
+#      main (SR-L-9); real /tmp agent worktrees are linked and covered by #0.
+#   3. (removed 2026-11-08) `$CLAUDE_AGENT_ID == "coder"`. Also target-blind
+#      (SO-M-1), and the runtime never set it (empirical finding above).
 #   4. Escape hatch file `<repo>/.claude/.allow-direct-edits` (gitignored;
 #      user-explicit opt-out for emergency edits).
 #
@@ -99,10 +103,11 @@ fi
 # Fast exit: file path is not in production zones — judged on the raw path AND
 # on the resolved one (~, cwd, `..`, symlinks of the existing prefix; SR-L-1, SR-L-5).
 # Case-insensitive: Windows and macOS accept Apps/x as the same path as apps/x.
+# LC_ALL=C: macOS grep under a UTF-8 locale skips a line with an invalid byte (SR-L-6).
 # Raw bytes out (surrogateescape): print() raises on a non-UTF-8 byte (F4). An
 # empty RESOLVED means python failed: do not fast-exit, run the checks (fail closed).
 RESOLVED=$(python3 -c 'import os,sys; sys.stdout.buffer.write(os.path.realpath(os.path.normpath(os.path.join(sys.argv[1], os.path.expanduser(sys.argv[2])))).encode("utf-8", "surrogateescape"))' "$PWD" "$FILE_PATH" 2>/dev/null || true)
-if [ -n "$RESOLVED" ] && ! printf '%s\n%s\n' "$FILE_PATH" "$RESOLVED" | grep -qiE '(^|/)(apps|packages)/'; then
+if [ -n "$RESOLVED" ] && ! printf '%s\n%s\n' "$FILE_PATH" "$RESOLVED" | LC_ALL=C grep -qiE '(^|/)(apps|packages)/'; then
   exit 0
 fi
 
@@ -113,7 +118,8 @@ fi
 # was refused in its OWN tree, and a plain directory there escaped via '..' or a
 # symlink. The gate protects the MAIN checkout, so it is decided by git (GIT_*
 # stripped above) and by the resolved TARGET:
-#   * cwd is a linked worktree -> the target must resolve inside it, else FM-2;
+#   * cwd is a linked worktree -> the target's own checkout must be that same
+#     worktree (same realpath toplevel, judged by git from the target side), else FM-2;
 #   * anything else (main checkout, nested repo, no repo, error) -> fall through.
 # A main-checkout session is never allowed into a linked worktree here (SR-M-3:
 # a non-isolated reviewer would otherwise edit a live coder's tree).
@@ -123,7 +129,7 @@ fi
 # (a per-worktree core.worktree widens the toplevel to a parent over main).
 # realpath resolves `..` and symlinks of the existing prefix (a new file is
 # judged by its nearest existing parent). Any failure prints nothing and falls
-# through to allows #2-#4, which end in a refusal (no cwd-string allow remains).
+# through to the #4 escape-hatch file, then the refusal (no cwd- or env-based allow remains).
 # SR-L-3 accepted: a symlink swapped between this check and the write (needs Bash) is not caught.
 LW_VERDICT=$(python3 - "$PWD" "$FILE_PATH" <<'PY' 2>/dev/null || true
 import os, subprocess, sys
@@ -160,7 +166,9 @@ real_cwd = os.path.realpath(cwd)
 t = os.path.realpath(os.path.normpath(os.path.join(real_cwd, os.path.expanduser(target))))
 c = checkout(real_cwd)
 if c and c[1]:
-    print('ALLOW' if inside(t, c[0]) else 'FM2 ' + c[0])
+    # SR-L-7/8: a prefix check is not enough; the target must be in THIS checkout.
+    tc = checkout(t)
+    print('ALLOW' if inside(t, c[0]) and tc and tc[0] == c[0] else 'FM2 ' + c[0])
 else:
     print('NONE')
 PY
@@ -182,22 +190,6 @@ print(json.dumps({'decision': 'block', 'reason': reason}))
     exit 2
     ;;
 esac
-
-# Allow #2: /tmp/ worktree with agent-style branch naming (heuristic per
-# Step 3 — fallback when CLAUDE_AGENT_ID is not propagated by runtime).
-if echo "$PWD" | grep -qE '^/tmp/' ; then
-  BRANCH_FOR_HEURISTIC=$(git branch --show-current 2>/dev/null || echo "")
-  if echo "$BRANCH_FOR_HEURISTIC" | grep -qE '^(coder|feature|fix|infra|test)/'; then
-    exit 0
-  fi
-fi
-
-# Allow #3: explicit Coder agent-id (forward-compat; currently dead branch
-# per empirical finding — runtime does not propagate this var as of
-# Claude Code v2.1.148).
-if [ "${CLAUDE_AGENT_ID:-}" = "coder" ]; then
-  exit 0
-fi
 
 # Allow #4: escape hatch file.
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
