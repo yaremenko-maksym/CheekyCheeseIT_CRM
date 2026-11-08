@@ -858,7 +858,15 @@ aggregator expiry ≠ employer closure; reopen preserves claims/dismissals; stat
       roster/exclusion/team events; > 30-day active changes; claimed closure/update; stale worker input; periodic
       repair; event-loop latency; old unit/integration/RBAC/budget suites on scratch + new projection suites.
 
-# Phase 5 — HTML path and model extraction (OpenRouter or local model)
+# Phase 5 — HTML path and model extraction (hosted free models only)
+
+> **Amended 2026-11-08 (owner decision): hosted-only.** Model extraction runs only on free hosted models — Gemini,
+> Groq and OpenRouter `:free` models — through the router of
+> `docs/architecture/2026-11-03-extraction-model-router.md` (section "Amendment 2026-11-08 — hosted-only"). The local
+> model is withdrawn: no local LLM runtime on the server, ever, for extraction (MP-04 failed on the production host).
+> When every provider, model and limit is exhausted, the user sees a localized "limits exhausted" message (uk + en)
+> instead of a slow local fallback. Earlier text below that says "local baseline", "local floor" or "OpenRouter or
+> local" is historical and superseded by that amendment.
 
 HTML stays in the portfolio behind per-source gates; deterministic HTTP/JSON-LD parsing and stubbed tests proceed
 without credentials or browser deployment. Model extraction only after its endpoint is provisioned with a spending or
@@ -880,15 +888,15 @@ capacity limit; nothing raises a limit or buys hardware automatically.
 
 ### Task 5.2: Model endpoint provisioning (DevOps + human-only; replaces the withdrawn CLI route)
 
-- [ ] **OpenRouter:** owner creates a worker-only key with a USD `limit` + `limit_reset`; requests pin an exact model
-      slug, `response_format: { type: 'json_schema', json_schema: { name, strict: true, schema } }`, provider
-      restrictions (require parameters, deny data collection, max price) and `zdr` when MP-03 confirms ZDR endpoints
-      (parameter names open); fallbacks/order set from MP-03; usage/cost recorded per request; egress allowed to the
-      OpenRouter host only; limit/credit errors pause with checkpoints.
-- [ ] **Local model:** OpenAI-compatible runtime enforcing JSON schema (Ollama OpenAI endpoint, llama.cpp server or
-      vLLM — enforcement confirmed on the pinned version), own container, pinned runtime + model digest, no outbound
-      network at inference, CPU/RAM/thread limits, concurrency 1; on the main VPS only if MP-04 passes.
-- [ ] **Both:** secrets never in config/manifest/DB/build layers/reports/logs; new optional keys in `config/env.ts`
+- [ ] **OpenRouter (amended 2026-11-08):** one route of the hosted router, `:free` models only, never a paid model;
+      the key carries a USD `limit` of $0 as a backstop. The free-only guard, the request fields (`require_parameters`,
+      `max_price`, `data_collection` as one config value — an open owner decision) and the `SPENT_DAY` / `CREDIT` /
+      `FLAG_REJECTED` classification are specified in the ADR amendment, ADR §3.5. Egress to the OpenRouter host only;
+      limit/credit errors pause with checkpoints.
+- [ ] ~~**Local model:** OpenAI-compatible runtime enforcing JSON schema, own container, pinned runtime + model digest,
+      on the main VPS only if MP-04 passes.~~ **Withdrawn 2026-11-08 (owner decision).** MP-04 failed on the production
+      host; the runtime, its compose and its weights were removed. No local LLM runtime is provisioned for extraction.
+- [ ] **Every route:** secrets never in config/manifest/DB/build layers/reports/logs; new optional keys in `config/env.ts`
       read only by the worker (never `CLOUDFLARE_*` — C-21); the worker holds no DB credential; contact details
       stripped before text leaves the host; `ai-input=no` sources processed deterministically; Task 5.4 validation
       applies even with provider-side enforcement; controlled smoke per route (schema, cost, limit pause, egress
@@ -918,6 +926,12 @@ capacity limit; nothing raises a limit or buys hardware automatically.
 > adopted from the owner's VideoContentFactory project through its own ADR — until then `@crm/inference` offers a single
 > route (`local` or `openrouter`). Split for delivery: **5.4a** pure guards (contact stripping, `ai-input` gate, prompt
 > envelope, result guard), **5.4b** port + adapter + shared-budget port (fake in tests), **5.4c** router (after its ADR).
+>
+> **Amended 2026-11-08 (hosted-only).** The router has no local baseline and no small-dose floor; "local = calls + CPU
+> time" below no longer applies. A call that finds every hosted provider, model and limit spent ends with a typed
+> limits-exhausted outcome: the collection cycle stops its model stage, keeps the remaining records owed, raises a health
+> flag, and HR/ADMIN see a localized message. The 5.4c task table (5.4c-7 and 5.4c-8 retired, 5.4c-5 re-scoped, new
+> hosted-only tasks) is in the ADR amendment.
 
 Extract one discovered job/detail or a bounded chunk with known IDs/URLs (never an inventory from listing markdown);
 schema with nullable fields, evidence spans/revision IDs, uncertainty, extraction version; model-supplied URLs must
