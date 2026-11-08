@@ -890,7 +890,8 @@ capacity limit; nothing raises a limit or buys hardware automatically.
 
 - [ ] **OpenRouter (amended 2026-11-08):** one route of the hosted router, `:free` models only, never a paid model;
       the key carries a USD `limit` of $0 as a backstop. The free-only guard, the request fields (`require_parameters`,
-      `max_price`, `data_collection` as one config value — an open owner decision) and the `SPENT_DAY` / `CREDIT` /
+      `max_price`, `data_collection: allow` as one config value — owner decision D11, which makes contact stripping
+      mandatory on every hosted route) and the `SPENT_DAY` / `CREDIT` /
       `FLAG_REJECTED` classification are specified in the ADR amendment, ADR §3.5. Egress to the OpenRouter host only;
       limit/credit errors pause with checkpoints.
 - [ ] ~~**Local model:** OpenAI-compatible runtime enforcing JSON schema, own container, pinned runtime + model digest,

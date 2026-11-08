@@ -93,7 +93,8 @@ note pointing here.
 
 What it supersedes: Decision items 2, 6, 7 and 8; D3, D8 and D9; the local route of §2.1, §2.4, §3.1 and §3.3; §5.3 "slow,
 never a silent failure"; §5.4 (the small dose); the local phase of §6.2; the tasks 5.4c-7 and 5.4c-8; and §8 as a whole
-(withdrawn, kept as the record of the attempt). D1, D2, D4–D7 and D10 stand unchanged.
+(withdrawn, kept as the record of the attempt). D1, D2, D4–D7 and D10 stand unchanged. D11 (OpenRouter
+`data_collection: allow`, decided by the owner the same day) is new (H.9).
 
 #### H.1 Router config without a local route (HIGH)
 
@@ -114,7 +115,7 @@ never a silent failure"; §5.4 (the small dose); the local phase of §6.2; the t
   - Unique providers per route list: kept. `routes` stays `.min(1).max(3)`.
 - **`hostedBudgetMs` is positive** (it was non-negative only so that a local-only config could carry 0).
 - **The route schema is a discriminated union on `provider`.** The OpenRouter member has one extra required field,
-  `dataCollection: 'allow' | 'deny'`, with no default (§3.5, open decision OD-1). The Gemini and Groq members refuse it.
+  `dataCollection: 'allow' | 'deny'`, with no default (§3.5). It is set to `allow` (owner decision D11, H.9). The Gemini and Groq members refuse it.
 - **The call ceiling is the hosted budget.** `routerCallCeilingMs(config)` returns `config.hostedBudgetMs`. On the
   collection side, `CALL_CEILING_MS` becomes `MAX_HOSTED_BUDGET_MS` (120 s) instead of 120 s plus six local requests of up to
   300 s each, and `WORKER_STRUCTURER_TIMEOUT_MS`, `WORKER_ADAPTER_TIMEOUT_MS` and `WORKER_HOLD_MS` shrink with it. §5.5 is
@@ -289,15 +290,27 @@ operators. No code path waits on it, so an error here delays a retry by one cycl
   `prepareCycle`. Later, the HR queue's empty state is the natural second place, when a queue stays empty because the
   model stage was skipped; it is a follow-up, not part of H-3.
 
-#### H.9 What is not decided here
+#### H.9 Two OpenRouter decisions
 
-- **OD-1, `provider.data_collection` on the OpenRouter route** (owner, A2, open). The 2026-11-08 probe found that `deny`
-  gives `nvidia/nemotron-3.5-super-vl:free` a 404 ("No endpoints found matching your data policy (Free model training)").
-  `dots-studio/dots-3-note-preview:free` and `xingchen-agi/xing4.0-29b-a4b:free` answer 200 with `deny`. The two Gemma models
-  answer 429 either way. **Recommendation: `allow`.** It is consistent with D2, which accepts free terms that allow
-  training, because only public vacancy text with contacts stripped (5.4a) leaves the host. It keeps the largest
-  JSON-capable model in the pool. The code makes it one required config value (§3.5), so the answer is a config change,
-  not a code change.
+- **D11, `provider.data_collection` on the OpenRouter route: `allow`** (decided by the owner, 2026-11-08). The owner's
+  words: "let them collect data, we never send personal information to the models anyway".
+  - **The facts it rests on.** The 2026-11-08 probe found that `deny` gives `nvidia/nemotron-3.5-super-vl:free` a 404
+    ("No endpoints found matching your data policy (Free model training)").
+    `dots-studio/dots-3-note-preview:free` and `xingchen-agi/xing4.0-29b-a4b:free` answer 200 with `deny`. The two Gemma
+    models answer 429 either way.
+  - **Rationale.** It is consistent with D2. Only public vacancy text leaves the host, and contact details are stripped
+    before it does.
+  - **What it makes load-bearing.** With `allow`, the contact-stripping guard of 5.4a (`stripContacts`, run on the
+    collection side and again in the extraction worker, §2.4) becomes **the** privacy control for OpenRouter. No
+    provider-side setting stands behind it. So it is **mandatory on every hosted route**: no config value, route or
+    provider can skip it.
+  - **Test obligation.** For each hosted provider (`gemini`, `groq`, `openrouter`), a router-level privacy test sends an
+    input carrying every contact shape `stripContacts` handles. It asserts that the outgoing request body holds none of
+    them, and that no code path reaches a leaf without passing the strip. It runs in the inference privacy specs and the
+    extraction-worker spec, on production, probe and chain-check requests alike (§3.3, one request builder).
+  - **One config value.** `dataCollection` is required on the OpenRouter route, with no default, and is set to `allow`.
+    Changing it is a config change, not a code change. If it is ever set to `deny`, the nemotron model is
+    `FLAG_REJECTED` and the cascade moves on.
 - **OD-2, `provider.ignore` contents** (A1, taken by the architect and recorded here; the owner may override).
   **Decided: empty.** Its old content came from the
   D2 exclusion that no longer exists. The field stays in the request builder, so a later entry is a config value.
@@ -794,33 +807,72 @@ missing, empty or invalid file therefore degrades to the first edition's behavio
 **Confidence: HIGH** for the mechanism and the Groq path (VCF runs them daily); **MED** for the Gemini path (a chat-probed
 refresh and a pattern standing in for the missing free-tier field are not in VCF).
 
-### 3.5 Deferred with OpenRouter (owner decision D3)
+### 3.5 OpenRouter route: free models only (built — Amendment 2026-11-08; was "deferred", D3)
 
-OpenRouter is not a router route in this version. None of the following is built; it is kept here as the specification
-to restore, reviewed again at that time:
+> **Restored and amended 2026-11-08.** D3 is superseded (§4.3). The specification that was kept here for restoration is
+> now the build spec, narrowed where the facts of 2026-11-08 allow. Confidence: HIGH for the guard's shape, MED for the
+> exact OpenRouter field names and markers until the 5.4c-5 smoke confirms them by fixture.
 
-- **Route:** provider id `openrouter`, reading the existing `OPENROUTER_API_KEY`, which §3.1 otherwise forbids the router.
-- **Candidates:** the public catalogue, free entries only: prompt and completion price 0 **and** a plain or `:free` id
-  (price 0 alone is not trusted). `PROBE_CAP` 10 under a ~50/day limit; Task 5.2's USD key limit as the backstop.
-- **Ids:** exactly `<author>/<model>` or `<author>/<model>:free`. Any other suffix is refused (`:online` forwards the prompt
-  to a web search; also `:extended`, `:nitro`, `:floor`, `:thinking`, any future one). `openrouter/auto` and every id whose
-  author is `openrouter` are denied. Hostile-id and free-filter tests come back with it.
-- **Privacy fields** on production, probe and chain-check requests alike: `provider.data_collection: "deny"`, `zdr` once
-  confirmed, `provider.ignore`. A route whose builder cannot produce them is **disabled**, never sent without them. An id
-  names the author, not the endpoint, so filtering ids does not keep an upstream out; `provider.ignore` does.
-- **`FLAG_REJECTED`:** the provider refuses a privacy parameter or reports no endpoint matches the data policy. Classified
-  **before** `RETIRED`, or it retires good models. Next route, never retried without the flag, own-cap unit released. On a
-  production request: a persisted provider bit, cleared only by a 2xx probe with every production field to the model it was
-  recorded against (or the current first model if that one is retired), start-up refresh included. On a probe: that model
-  is ineligible, and the provider bit is never set.
-- **Classification:** the `SPENT_DAY` free-models-per-day marker and the `CREDIT` signal for the USD key limit.
+- **Route.** Provider id `openrouter`, base URL the package constant `https://openrouter.ai/api/v1`. The key is the
+  existing `OPENROUTER_API_KEY`, read only by the extraction worker (H.4). §3.1 otherwise forbids the router this key.
+- **A paid model can never be selected. Four independent checks**, any one of which is enough to refuse:
+  1. **Id shape.**
+     - A requested id is exactly `<author>/<model>:free`. This narrows the earlier "plain or `:free`": every free entry
+       of the 2026-11-08 catalogue except `openrouter/free` carries the suffix, so nothing usable is lost.
+     - Any other suffix is refused: `:online` forwards the prompt to a web search; also `:extended`, `:nitro`, `:floor`,
+       `:thinking` and any future one.
+     - Every id whose author is `openrouter` is denied (`openrouter/auto`, `openrouter/free`). These are meta-routers
+       that choose the upstream themselves.
+     - The check runs in `isValidProviderModelId('openrouter', id)` on the pinned list, the managed list and every listing
+       entry before it is probed, stored or logged (§3.4).
+  2. **Catalogue price.**
+     - From `GET /api/v1/models`, a candidate needs **every** field of `pricing` to parse as the number 0. A missing,
+       blank or non-numeric price is not free.
+     - The existing `fetchOpenRouterCatalog` reads `pricing.prompt` only; the router's listing reads them all.
+     - A candidate must also list `structured_outputs` in `supported_parameters`. That drops the two Gemma models, which
+       offer `response_format` only. `MIN_MANAGED_CONTEXT` applies as for the other providers.
+  3. **Request fields** on production, probe and chain-check requests alike, from the one request builder (§3.3):
+     - `provider.max_price` with every price 0;
+     - `provider.require_parameters: true`;
+     - `provider.data_collection` from the route's `dataCollection` value (D11: `allow`);
+     - `provider.ignore` from config (OD-2: empty).
 
-**Re-decided by the owner when it is added:** whether to keep `deny` if it empties the free pool, and what `provider.ignore`
-lists, since its contents came from the D2 exclusion that no longer exists. The same restoration applies if 5.4c-0 finds a
-per-request privacy parameter on Gemini or Groq that the owner wants sent: a flag a provider can refuse needs
-`FLAG_REJECTED` back.
+     Never a `models` fallback array, a `route` field or `transforms`: each would let OpenRouter pick a model this guard
+     did not check. A builder that cannot produce these fields disables the route; it never sends without them.
+  4. **The key's USD `limit` is $0** (an owner setting; the key showed `limit: 0` on 2026-11-08). Even if the three checks
+     above failed, a paid request has no spend to draw on. The 5.4c-5 smoke confirms that `:free` calls succeed under a $0
+     limit with a positive credit balance, because the probe's 200s on 2026-11-08 suggest it but do not prove it.
+- **Limits.**
+  - `freeLimit.requestsPerDay` is 1000. That is OpenRouter's `:free` limit once at least $10 of credits were bought; the
+    owner bought exactly $10. So the own cap is 500 (D5).
+  - `minGapMs` is 3000, under the ~20 requests a minute that `:free` models allow.
+  - `PROBE_CAP` stays 10. Probes count against the own cap (§3.4).
+  - A negative credit balance makes OpenRouter answer 402 even on free models. That is `CREDIT` below.
+- **Classification** (§5.1, one table, bounded structured fields, never page text):
+  - **`FLAG_REJECTED`** is classified **before** `RETIRED`, or it retires good models. It covers a 404 whose
+    `error.message` reports that no endpoint matches the data policy, and a 400 that refuses a routing parameter. The
+    call moves to the next route; it is never retried without the flag, and the own-cap unit is released.
+    - On a production request, it sets a persisted provider bit. A 2xx probe clears it, and the probe must carry every
+      production field to the model the bit was recorded against (or the current first model, if that one is retired).
+      The start-up refresh can be that probe.
+    - On a probe, that model becomes ineligible, and the provider bit is never set.
+  - **`SPENT_DAY`**: a 429 whose `error.message` holds the whole token `free-models-per-day`. The model, and with it the
+    provider (the limit is per account, not per model), is spent until the reset.
+  - **`BUSY`** with a cool-down: a 429 with `free-models-per-min`, or an upstream 429 without either marker. One wait,
+    never a loop (§5.2).
+  - **`CREDIT`**: a 402, or the key's limit reached. The provider is off until the bit clears, and the event is loud.
+  - **`AUTH`**: a 401, or a 403 with the documented error envelope.
+- **Egress.** `openrouter.ai` only, listing included.
+- **Tests that come with it** (5.4c-H1):
+  - hostile ids: suffixes, the `openrouter` author, path tricks, case;
+  - the free filter, including a price present as `"0.0000001"`, missing or `null`;
+  - the request-field assertion on all three request kinds;
+  - a disabled route when a field cannot be built;
+  - classification fixtures for each marker above, and a literal "free-models-per-day" in a page-echoing message that
+    must not match outside `error.message`.
 
-The existing `openrouter` value of `extraction.provider`, its adapter and its `data_collection: deny` are unchanged.
+The existing single-route `openrouter` value of `extraction.provider`, its adapter and its `data_collection: deny` are
+unchanged. The router does not reuse that adapter, so the D11 `allow` does not leak into it.
 
 ---
 
@@ -875,9 +927,13 @@ risk of §4.1 accurate, and a material change in those terms goes back to the ow
 
 ### 4.3 OpenRouter — owner decision D3 (decided 2026-11-04)
 
-**Decided: OpenRouter is not enabled in this version.** The first router version has Gemini, Groq and the local floor,
-which narrows the owner's decision of 2026-10-18. The question of keeping `data_collection: "deny"` against an empty
-free pool is moot for now and is re-decided if OpenRouter is added (§3.5).
+> **Superseded 2026-11-08 (owner decision; Amendment 2026-11-08).** OpenRouter is a route, free models only (§3.5). The
+> `data_collection` question is answered by D11: `allow`, which makes contact stripping load-bearing on every hosted route
+> (H.9). The text below is the record of the 2026-11-04 decision.
+
+**Decided (2026-11-04, superseded): OpenRouter is not enabled in this version.** The first router version has Gemini,
+Groq and the local floor, which narrows the owner's decision of 2026-10-18. The question of keeping
+`data_collection: "deny"` against an empty free pool is moot for now and is re-decided if OpenRouter is added (§3.5).
 
 ---
 
