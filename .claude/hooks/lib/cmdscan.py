@@ -1016,6 +1016,91 @@ def _starts_word(text, i):
     return prev in " \t\n;&|()"
 
 
+def join_continuations(text):
+    """Remove every backslash-newline the shell removes, before anything splits the text.
+
+    SR-M-1 of PR #1294: bash and zsh join `d\\<newline>ev` into `dev` while reading
+    input, so every reader below saw two words where the shell runs one, and the
+    launch / rm / pkill went through all four hooks. Measured on bash and zsh
+    (2026-11-08), the pair is removed everywhere EXCEPT inside single quotes and
+    $'...', inside a comment (the comment ends at the newline, and the next line
+    runs), and inside the body of a heredoc whose delimiter is quoted. An unquoted
+    heredoc body is joined too, including the line that would be the delimiter.
+
+    shortcut: quotes are tracked one level deep (a `'` inside `"$(…)"` is read as
+    literal) and an opener split by a continuation is not seen as an opener;
+    upgrade to a real lexer if a corpus row shows either one hiding a command.
+    """
+    if "\\\n" not in text:
+        return text
+    out = []
+    i, n = 0, len(text)
+    quote = ""  # "", "'", '"' or "$'" (in $'...' a backslash escapes the next char)
+    pending = []  # heredocs opened on the current line: (delimiter, strip_tabs, literal)
+    while i < n:
+        ch = text[i]
+        if ch == "\\" and i + 1 < n and quote != "'":
+            if text[i + 1] == "\n" and quote != "$'":
+                i += 2
+                continue
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        if quote:
+            if ch == quote[-1]:
+                quote = ""
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "$" and text.startswith("$'", i):
+            quote = "$'"
+            out.append("$'")
+            i += 2
+            continue
+        if ch in "'\"":
+            quote = ch
+        elif ch == "#" and _STRIP_COMMENTS and _starts_word("".join(out) + ch, len("".join(out))):
+            # Decided on the JOINED text: `ls \<newline>#x` is `ls #x`, a comment.
+            eol = text.find("\n", i)
+            eol = n if eol < 0 else eol
+            out.append(text[i:eol])
+            i = eol
+            continue
+        elif ch == "<":
+            opener = _heredoc_opener(text, i)
+            if opener:
+                pending.append(opener[1:])
+                out.append(text[i:i + opener[0]])
+                i += opener[0]
+                continue
+        elif ch == "\n" and pending:
+            out.append(ch)
+            i += 1
+            for delimiter, strip_tabs, literal in pending:
+                while i < n:
+                    line = []
+                    while i < n and text[i] != "\n":
+                        if not literal and text[i] == "\\" and i + 1 < n:
+                            if text[i + 1] != "\n":
+                                line.append(text[i:i + 2])
+                            i += 2
+                            continue
+                        line.append(text[i])
+                        i += 1
+                    line = "".join(line)
+                    out.append(line)
+                    if i < n:
+                        out.append("\n")
+                        i += 1
+                    if (line.lstrip("\t") if strip_tabs else line) == delimiter:
+                        break
+            pending = []
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _split_segments(text):
     segs = []
     cur = []
@@ -1950,7 +2035,7 @@ def candidates(seg, code=False):
 
 def scan(command_line, depth=0, env=None):
     global _STRIP_COMMENTS
-    command_line = command_line or ""
+    command_line = join_continuations(command_line or "")
     spans = _heredoc_literal_spans(command_line)
     text, inners = _extract_substitutions(command_line, spans)
     raw_segments, code_view = _split_segments(text)

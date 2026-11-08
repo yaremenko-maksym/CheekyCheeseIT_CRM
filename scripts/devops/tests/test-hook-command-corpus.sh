@@ -128,6 +128,7 @@ while IFS=$'\t' read -r expect hooks cmd <&3; do
     exit 2
   fi
   [ "$hooks" = "all" ] && hooks="safety,db,ttl"
+  cmd=${cmd//<NL>/$'\n'} # a row is one line; <NL> carries a newline (corpus header)
 
   for key in $(printf '%s' "$hooks" | tr ',' ' '); do
     hook="$REPO_ROOT/.claude/hooks/$(hook_file "$key")"

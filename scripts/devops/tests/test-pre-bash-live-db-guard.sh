@@ -1019,6 +1019,15 @@ for cwd in '/Users/dev/.t3/worktrees/crm/t3-abc' 'C:\Users\dev\.t3\worktrees\crm
 done
 assert_green "another directory still does not arm the guard" -- h "$RUN" '/Users/dev/elsewhere'
 
+# SR-M-1 (#1294): a backslash-newline is a line continuation, so the shell joins the word.
+for c in $'pnpm --filter @crm/api d\\\nev' $'vi\\\nte --port 3000' $'pnpm --filter @crm/api \\\ndev'; do
+  assert_red "line continuation in a launch: ${c//$'\n'/<NL>}" --contains '"decision": "block"' -- h "$c"
+done
+# Single quotes, a comment and a quoted heredoc body keep the backslash-newline.
+for c in $'echo \'d\\\nev\'' $'ls # d\\\nev' $'cat <<\'EOF\'\nvi\\\nte\nEOF'; do
+  assert_green "no continuation there: ${c//$'\n'/<NL>}" -- h "$c"
+done
+
 # ── no analyzer: refused, not waved through ─────────────────────────────────
 assert_green "broken analyzer + harmless read: exit 2 (exit 1 does not block)" \
   --contains "Refused" \

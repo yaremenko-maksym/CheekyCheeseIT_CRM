@@ -558,6 +558,19 @@ for c in "git commit -m 'use powershell -c x'" "echo powershell -c x" "gh pr cre
   assert_green "naming a shell does not run it: $c" -- h "$c"
 done
 
+# SR-M-1 (#1294): a backslash-newline is a line continuation, so the shell joins the word.
+for c in $'r\\\nm -rf /etc' $'rm -rf \\\n/etc' $'git push --force \\\norigin main'; do
+  assert_red "line continuation: ${c//$'\n'/<NL>}" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+# The joined text must not swallow the next line: a comment the join creates, an unquoted
+# heredoc whose delimiter the join moved, a quoted heredoc body that is not joined.
+for c in $'ls \\\n#x \\\nrm -rf /etc' $'cat <<EOF\nx\\\nEOF\nEOF\nrm -rf /etc' $'cat <<\'EOF\'\nx\\\nEOF\nrm -rf /etc'; do
+  assert_red "the line after a continuation: ${c//$'\n'/<NL>}" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+for c in $'echo \'r\\\nm -rf /etc\'' $'ls # r\\\nm -rf /tmp/x'; do
+  assert_green "no continuation there: ${c//$'\n'/<NL>}" -- h "$c"
+done
+
 # ── no analyzer: refused, not waved through ─────────────────────────────────
 assert_green "broken analyzer + harmless command: exit 2 (exit 1 does not block)" \
   --contains "Refused" \
