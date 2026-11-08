@@ -243,8 +243,8 @@ WRAPPER_SPEC = {
     # `env -S "pnpm dev"` splits the string and RUNS it — a value flag would have
     # swallowed the whole launch. Found by probing the wrapper table, not by
     # reading it.
-    "env": _w(value_flags=("-u", "--unset", "-C", "--chdir"),
-              code_flags=("-S", "--split-string")),
+    # Its flags are read by _env_flags: -S changes what the command IS.
+    "env": _w(),
     "nice": _w(value_flags=("-n", "--adjustment")),
     "ionice": _w(value_flags=(
         "-c", "--class", "-n", "--classdata", "-p", "--pid", "-P", "--pgid",
@@ -1161,6 +1161,58 @@ def _consume_flags(tokens, spec, code_out):
     return tokens
 
 
+# GNU and BSD short flags of `env` that take a value: -u NAME, -C DIR, -a ARG0, -P PATH.
+_ENV_VALUE_LETTERS = "uCaP"
+_ENV_VALUE_LONG = ("--unset", "--chdir", "--argv0")
+
+
+def _env_split(payload):
+    # A backslash and an underscore: the separator env -S adds to shell quoting.
+    try:
+        return shlex.split(payload.replace("\\_", " "))
+    except ValueError:
+        return payload.split()
+
+
+def _env_flags(tokens, code_out):
+    """Read the flags of `env` the way env does and return the rest of its argv.
+
+    `env -S 'rm -rf /etc'`, `env -S rm -rf /etc`, `env -Srm -rf /etc` and
+    `env -iS rm -rf /etc` all run `rm -rf /etc`: the -S value is split and put in
+    front of the remaining arguments, which can hold more flags. The value is also
+    kept as code, so anything this split reads differently is still judged.
+    Returns (rest, unsure): unsure when a flag reshaped argv (-S, -P, -a, --argv0).
+    """
+    unsure = False
+    while tokens and tokens[0].startswith("-") and tokens[0] != "-":
+        flag = tokens.pop(0)
+        if flag == "--":
+            break
+        payload = None
+        if flag.startswith("--"):
+            key, eq, value = flag.partition("=")
+            # getopt accepts any unambiguous prefix (`--split`, `--s`).
+            if len(key) > 2 and "--split-string".startswith(key):
+                payload = value if eq else (tokens.pop(0) if tokens else None)
+                unsure = True
+            elif not eq and tokens and any(k.startswith(key) for k in _ENV_VALUE_LONG):
+                tokens.pop(0)
+            if len(key) > 2 and "--argv0".startswith(key):
+                unsure = True
+        else:
+            for i, letter in enumerate(flag[1:], 1):
+                if letter == "S" or letter in _ENV_VALUE_LETTERS:
+                    value = flag[i + 1:] or (tokens.pop(0) if tokens else None)
+                    if letter == "S":
+                        payload = value
+                    unsure = unsure or letter in "SaP"
+                    break
+        if payload is not None:
+            code_out.append(payload)
+            tokens = _env_split(payload) + tokens
+    return tokens, unsure
+
+
 def _unwrap(tokens, assigns):
     """Drop keywords, leading assignments and wrappers; reach the real command.
 
@@ -1251,10 +1303,39 @@ def _unwrap(tokens, assigns):
         tokens.pop(0)
         if not spec["exact"] and inexact is None:
             inexact = base
-        if base == "dev-ttl.sh" and "--" in tokens:
-            # Its contract is `dev-ttl.sh [--ttl N] -- <command>`; everything
-            # before the `--` is the wrapper's own business.
-            tokens = tokens[tokens.index("--") + 1:]
+        # Earlier versions read these two wrappers more loosely. Where this reading
+        # differs, every position stays judged and a command word holding spaces is
+        # also read as code, so no command that was refused before is let through.
+        if base == "env":
+            tokens, unsure = _env_flags(tokens, nested_code)
+            if unsure and inexact is None:
+                inexact = base
+            while tokens and ASSIGN_RE.match(tokens[0]):
+                if re.search(r"\s", tokens[0]):
+                    nested_code.append(tokens[0])
+                m = ASSIGN_RE.match(tokens.pop(0))
+                assigns[m.group(1)] = m.group(2)
+            if tokens and re.search(r"\s", tokens[0]):
+                nested_code.append(tokens[0])
+            continue
+        if base == "dev-ttl.sh":
+            # What the script itself does: an optional `--ttl N`, an optional `--`,
+            # and the rest is the command. `dev-ttl.sh rm -rf /etc -- ls` runs rm.
+            if tokens[:1] == ["--ttl"] and not (tokens[1:2] and tokens[1].isdigit()):
+                # The script exits on a TTL that is not a number; judge every word anyway.
+                inexact = inexact or base
+            elif tokens[:1] == ["--ttl"]:
+                del tokens[:2]
+            elif tokens and tokens[0].startswith("--ttl="):
+                tokens.pop(0)
+            if tokens[:1] == ["--"]:
+                tokens.pop(0)
+            elif "--" in tokens and inexact is None:
+                # A later `--` is an argument of the command. Every position stays
+                # judged, so a command behind it is not cleared by the one in front.
+                inexact = base
+            if tokens and re.search(r"\s", tokens[0]):
+                nested_code.append(tokens[0])
             continue
         tokens = _consume_flags(tokens, spec, nested_code)
         if tokens and tokens[0] == "--":
@@ -1268,10 +1349,6 @@ def _unwrap(tokens, assigns):
                     tokens.pop(0)
         # flags may follow the wrapper's own operands (`flock /tmp/l -c '…'`)
         tokens = _consume_flags(tokens, spec, nested_code)
-        if base == "env":
-            while tokens and ASSIGN_RE.match(tokens[0]):
-                m = ASSIGN_RE.match(tokens.pop(0))
-                assigns[m.group(1)] = m.group(2)
     return tokens, wrappers, inexact, nested_code
 
 

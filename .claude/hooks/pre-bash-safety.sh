@@ -340,6 +340,29 @@ if not blocked:
             if blocked:
                 break
 
+# ── predicate 7: a shell no gate can read ───────────────────────────────────
+# Every gate reads bash syntax, so what powershell or cmd run was never judged. The
+# PowerShell tool is denied for the same reason. A reading needs a following flag:
+# in an uncertain segment `powershell` may be a plain word of a message.
+UNREAD_SHELLS = ("powershell", "pwsh", "cmd")
+
+
+def unread_shell(word):
+    return re.sub(r"\.(exe|cmd|bat|com)$", "", re.split(r"[/\\]", word)[-1], flags=re.I).lower()
+
+
+for seg in scan.segments:
+    if blocked:
+        break
+    for cand in candidates(seg):
+        shell = unread_shell(cand.name)
+        # `cmd` is also a common directory name (`go run ./cmd`), so as an argument it
+        # counts only with a flag after it; powershell and pwsh name nothing else.
+        if shell in UNREAD_SHELLS and (cand is seg or shell != "cmd"
+                                       or (cand.argv and cand.argv[0][:1] in ("-", "/"))):
+            blocked.append("`%s` runs a shell whose syntax no gate reads" % cand.name)
+            break
+
 # ── the analyzer admitting it did not finish ────────────────────────────────
 # `$( $( … 200 deep … ) )` walks past MAX_DEPTH and leaves code unread. Silence
 # about code nobody looked at is exactly the failure mode this hook was rewritten
@@ -386,4 +409,6 @@ if echo "$FLAT" | grep -qE 'rm[[:space:]]+-rf?[[:space:]]+(/[a-zA-Z]|/[[:space:]
   echo "[pre:bash:safety] BLOCK (degraded fallback, coarse substring rule)" >&2
   exit 2
 fi
-exit 1
+# Refused, because a command nobody read is not a command that was cleared.
+echo "[pre:bash:safety] Refused: no analyzer, so this command was not read. Fix it first: python3 must run on PATH and the hook library must load. Bash stays refused until then." >&2
+exit 2

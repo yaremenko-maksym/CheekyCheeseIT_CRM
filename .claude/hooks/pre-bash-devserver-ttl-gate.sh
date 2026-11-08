@@ -118,7 +118,7 @@ if not cmd:
     sys.exit(0)
 
 # Enforce only in agent worktree / claude scratchpad context.
-CONTEXT = re.compile(r"\.claude/worktrees/|/tmp/claude-")
+CONTEXT = re.compile(r"\.claude/worktrees/|\.t3/worktrees/|/tmp/claude-|AppData/Local/Temp/claude", re.I)
 if not CONTEXT.search(cmd.replace("\\", "/")) and not CONTEXT.search(cwd):
     sys.exit(0)
 
@@ -131,8 +131,8 @@ hits = cmdscan.launches(scan)
 
 # Code the analyzer never reached (nesting past MAX_DEPTH) is refused rather
 # than reported clean — with no wrappers, so the TTL check below fails it.
-if not hits and scan.truncated:
-    hits = [(
+if scan.truncated:
+    hits = hits + [(
         cmdscan.Segment("", [], [], [], False, cmd, 0, {}, False, None),
         "nesting deeper than the parse limit — the code was not read",
     )]
@@ -216,4 +216,6 @@ if echo "$FLAT" | grep -qE "$LEGACY" &&
   echo "[pre:bash:devserver-ttl-gate] BLOCK (degraded fallback, coarse substring rule)" >&2
   exit 2
 fi
-exit 1
+# Refused, because a command nobody read is not a command that was cleared.
+echo "[pre:bash:devserver-ttl-gate] Refused: no analyzer, so this command was not read. Fix it first: python3 must run on PATH and the hook library must load. Bash stays refused until then." >&2
+exit 2

@@ -515,4 +515,51 @@ assert_red "Windows: env.exe -S git push --force" \
   --contains '"decision": "block"' \
   -- h "env.exe -S git push --force origin main"
 
+# ── env -S is read the way env reads it ─────────────────────────────────────
+for c in "env -S rm -rf /etc" "env -Srm -rf /etc" "env -iS rm -rf /etc" "env -iS 'rm -rf /etc'" \
+         "env --split-string='rm -rf /etc'" "env --split-string 'rm -rf /etc'" "env --split rm -rf /etc" \
+         'env -S "rm\_-rf\_/etc"' "env -S '-i rm -rf /etc'" "env -iu HOME rm -rf /etc" \
+         "env -P /bin rm -rf /etc" "env -C /tmp rm -rf /etc" "env -- rm -rf /etc" \
+         "env -S git push --force origin main" "env -S ls -- rm -rf /etc" "env -P /bin ls -- rm -rf /etc" \
+         "env -P /bin 'rm -rf /etc'" "env --argv0 x 'rm -rf /etc'" "env -a x ls -- git push --force origin main"; do
+  assert_red "env flags: $c" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+for c in "env -S 'echo ok'" "env -i ls" "env -u HOME ls" "env -S ls -la" "env -- ls"; do
+  assert_green "env flags, harmless: $c" -- h "$c"
+done
+
+# ── dev-ttl.sh is read the way the script reads its arguments ───────────────
+for c in "scripts/devops/dev-ttl.sh rm -rf /etc -- ls" "scripts/devops/dev-ttl.sh rm -rf /etc" \
+         "scripts/devops/dev-ttl.sh --ttl 5 rm -rf /etc -- ls" "bash scripts/devops/dev-ttl.sh rm -rf /etc -- ls" \
+         "scripts/devops/dev-ttl.sh git push --force origin main -- ls" \
+         "scripts/devops/dev-ttl.sh ls -- rm -rf /etc" "scripts/devops/dev-ttl.sh --ttl=5 -- rm -rf /etc" \
+         "scripts/devops/dev-ttl.sh --ttl rm -rf /etc" "scripts/devops/dev-ttl.sh --ttl 5 'rm -rf /etc'"; do
+  assert_red "dev-ttl.sh: $c" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+for c in "scripts/devops/dev-ttl.sh -- ls" "scripts/devops/dev-ttl.sh --ttl 5 -- ls"; do
+  assert_green "dev-ttl.sh, harmless: $c" -- h "$c"
+done
+
+# ── a shell no gate can read ────────────────────────────────────────────────
+for c in 'powershell -c "Remove-Item x"' 'PowerShell.exe -Command x' 'pwsh -c x' 'pwsh.exe x' 'powershell x.ps1' \
+         'cmd //c rd /s /q x' 'cmd.exe /c dir' 'CMD /c dir' '/c/Windows/System32/cmd.exe //c dir' \
+         "'C:\\Windows\\System32\\cmd.exe' /c dir" 'env powershell -c x' "bash -c 'pwsh -c x'" \
+         'timeout 5 cmd //c dir' 'unknown-wrapper powershell -c x' 'true && cmd //c dir' \
+         'env.exe powershell x.ps1' 'unknown-wrapper pwsh x.ps1'; do
+  assert_red "unread shell: $c" --contains "no gate reads" -- h "$c"
+done
+for c in "git commit -m 'use powershell -c x'" "echo powershell -c x" "gh pr create --body 'run cmd /c dir'" \
+         "grep -rn powershell .claude" "ls cmd" "cat cmd/main.go" "go run ./cmd" "go build ./cmd/server"; do
+  assert_green "naming a shell does not run it: $c" -- h "$c"
+done
+
+# ── no analyzer: refused, not waved through ─────────────────────────────────
+assert_green "broken analyzer + harmless command: exit 2 (exit 1 does not block)" \
+  --contains "Refused" \
+  -- exits_2 hook_at "$BROKEN" "ls -la" "$WS"
+assert_green "python3 cannot run + harmless command: exit 2" \
+  --contains "INTERNAL ERROR" \
+  --contains "Refused" \
+  -- exits_2 hook_without_python "$HOOK" '{"tool_name":"Bash","tool_input":{"command":"ls -la"}}'
+
 guard_test_summary "test-pre-bash-safety.sh"

@@ -24,6 +24,7 @@
 set -u
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SELF_DIR/lib/harness.sh"
+. "$SELF_DIR/lib/hook-harness.sh"
 
 HOOK="$REPO_ROOT/.claude/hooks/pre-bash-cross-agent-blast.sh"
 SMOKE="$REPO_ROOT/.claude/hooks/tests/cross-agent-hooks-smoke.sh"
@@ -394,5 +395,56 @@ assert_red "Windows payload: pkill behind a wrapper spelled env.exe -> BLOCK" \
 assert_green "Windows payload: taskkill of one PID passes" \
   --not-contains '"decision": "block"' \
   -- run_hook "$WIN_MINE" "taskkill //F //PID 1234"
+
+# ── T3 worktrees: the gate arms and knows whose tree is whose ───────────────
+T3_MINE='/Users/dev/.t3/worktrees/crm/t3-abc'
+assert_red "T3 worktree: pkill" --contains 'BROADCAST-KILL' -- run_hook "$T3_MINE" "pkill -f node"
+assert_red "T3 worktree, Windows payload: pkill" \
+  --contains 'BROADCAST-KILL' \
+  -- run_hook 'C:\Users\dev\.t3\worktrees\crm\t3-abc' "pkill -f node"
+assert_red "Windows scratchpad: pkill" \
+  --contains 'BROADCAST-KILL' \
+  -- run_hook 'C:\Users\dev\AppData\Local\Temp\claude\x' "pkill -f node"
+assert_red "Windows scratchpad in another case: pkill" \
+  --contains 'BROADCAST-KILL' \
+  -- run_hook 'c:\users\dev\appdata\local\temp\claude\x' "pkill -f node"
+assert_red "T3 worktree: mutating another T3 worktree" \
+  --contains 'FOREIGN-WORKTREE' \
+  -- run_hook "$T3_MINE" "rm -rf /Users/dev/.t3/worktrees/crm/t3-other/apps/x"
+assert_green "T3 worktree: mutating my own worktree" \
+  --not-contains '"decision": "block"' \
+  -- run_hook "$T3_MINE" "rm -rf /Users/dev/.t3/worktrees/crm/t3-abc/tmp"
+assert_green "T3 worktree: killing one PID" \
+  --not-contains '"decision": "block"' \
+  -- run_hook "$T3_MINE" "kill 1234"
+
+T3_WS="$(mktemp -d)"
+(
+  cd "$T3_WS" || exit 1
+  git init -q -b main crm
+  cd crm || exit 1
+  git -c user.email=test@example.invalid -c user.name="guard test" -c commit.gpgsign=false commit -q --allow-empty -m init
+  git worktree add -q -b t3-branch "$T3_WS/.t3/worktrees/crm/t3-abc"
+) >/dev/null 2>&1
+T3_CHECKOUT="$(git -C "$T3_WS/crm" rev-parse --show-toplevel)"
+T3_WT="$(git -C "$T3_WS/.t3/worktrees/crm/t3-abc" rev-parse --show-toplevel)"
+assert_red "T3 worktree: mutating the shared checkout, which only git can name" \
+  --contains 'SHARED-CHECKOUT' \
+  -- run_hook "$T3_WT" "rm -rf $T3_CHECKOUT/apps/x"
+assert_green "T3 worktree: a path that merely looks like the checkout" \
+  --not-contains '"decision": "block"' \
+  -- run_hook "$T3_WT" "rm -rf $T3_CHECKOUT-other/apps/x"
+rm -rf "$T3_WS"
+
+# ── no analyzer: refused, not waved through ─────────────────────────────────
+assert_green "python3 cannot run: exit 2 with INTERNAL ERROR" \
+  --contains "INTERNAL ERROR" \
+  -- exits_2 hook_without_python "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","tool_input":{"command":"pkill -f node"}}'
+BROKEN_DIR="$(mktemp -d)"
+sed 's/^for r in reasons:$/def broken(:/' "$HOOK" >"$BROKEN_DIR/hook.sh"
+assert_green "analyzer crash: exit 2 with INTERNAL ERROR" \
+  --contains "INTERNAL ERROR" \
+  -- exits_2 hook_at "$BROKEN_DIR/hook.sh" "pkill -f node" "/x/.claude/worktrees/a"
+rm -rf "$BROKEN_DIR"
 
 guard_test_summary "test-pre-bash-cross-agent-blast.sh"

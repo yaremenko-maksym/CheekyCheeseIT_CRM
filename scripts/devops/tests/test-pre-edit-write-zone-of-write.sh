@@ -24,6 +24,7 @@
 set -u
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SELF_DIR/lib/harness.sh"
+. "$SELF_DIR/lib/hook-harness.sh"
 
 HOOK="$REPO_ROOT/.claude/hooks/pre-edit-write-zone-of-write.sh"
 
@@ -195,5 +196,13 @@ assert_red "Windows payload: a backslash '..' escape is normalised, not trusted 
   --contains '"decision": "block"' \
   --contains "WORKTREE" \
   -- run_hook "$WT_ROOT" "Edit" "$WT_BACKSLASH\\..\\agent-OTHER\\apps\\web\\app\\x.tsx"
+
+# ── python3 cannot run: a write to the production zones is refused ──────────
+assert_green "python3 cannot run + Edit on apps/: exit 2 with INTERNAL ERROR" \
+  --contains "INTERNAL ERROR" \
+  -- exits_2 hook_without_python "$HOOK" '{"tool_name":"Edit","tool_input":{"file_path":"apps/api/src/x.ts"}}'
+assert_green "python3 cannot run + Edit elsewhere stays allowed, so the machine can be repaired" \
+  --not-contains "INTERNAL ERROR" \
+  -- hook_without_python "$HOOK" '{"tool_name":"Edit","tool_input":{"file_path":"docs/x.md"}}'
 
 guard_test_summary "test-pre-edit-write-zone-of-write.sh"

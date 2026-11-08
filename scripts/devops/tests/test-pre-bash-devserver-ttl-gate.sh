@@ -716,4 +716,30 @@ assert_red "Windows payload: cd into a backslash worktree path from the main che
   --contains "[pre:bash:devserver-ttl-gate] BLOCK" \
   -- h "cd '$WIN_WT' && pnpm --filter @crm/api dev" 'C:\Users\dev\CheekyCheeseIT_CRM'
 
+# ── a stripped decoy does not switch off the refusal for unread code ────────
+deep() {
+  local s="$1" i
+  for i in 1 2 3 4 5 6 7 8; do s="echo \$($s)"; done
+  printf '%s' "$s"
+}
+assert_red "unread nested code behind a wrapped launch is still refused" \
+  --contains "nesting deeper" \
+  -- h "$TTL -- pnpm exec tsx x.ts pnpm.cmd dev; $(deep 'pnpm dev')"
+
+# ── T3 worktrees and the Windows scratchpad arm the gate ────────────────────
+for cwd in '/Users/dev/.t3/worktrees/crm/t3-abc' 'C:\Users\dev\.t3\worktrees\crm\t3-abc' \
+           'C:\Users\dev\AppData\Local\Temp\claude\x' 'c:\users\dev\appdata\local\temp\claude\x'; do
+  assert_red "unwrapped launch from $cwd" --contains '"decision": "block"' -- h "pnpm --filter @crm/api dev" "$cwd"
+  assert_green "wrapped launch from $cwd" -- h "$TTL -- pnpm --filter @crm/api dev" "$cwd"
+done
+assert_red "launch that names a T3 worktree" \
+  --contains '"decision": "block"' \
+  -- h "cd /Users/dev/.t3/worktrees/crm/t3-abc && pnpm --filter @crm/api dev" '/Users/dev/elsewhere'
+assert_green "another directory still does not arm the gate" -- h "pnpm --filter @crm/api dev" '/Users/dev/elsewhere'
+
+# ── no analyzer: refused, not waved through ─────────────────────────────────
+assert_green "broken analyzer + harmless read: exit 2 (exit 1 does not block)" \
+  --contains "Refused" \
+  -- exits_2 hook_at "$BROKEN" "grep -rn 'pnpm dev' .claude/rules"
+
 guard_test_summary "test-pre-bash-devserver-ttl-gate.sh"

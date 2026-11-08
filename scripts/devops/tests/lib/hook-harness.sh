@@ -6,7 +6,8 @@
 # they read a tool-call JSON on stdin and answer with an exit code —
 #   0  allow
 #   2  BLOCK, and stdout carries {"decision":"block","reason":...}
-#   1  the hook's own analyzer failed. NOT a verdict.
+#   2  with INTERNAL ERROR on stderr and no decision body: the hook's own analyzer
+#      failed. NOT a verdict, but the command is refused, because nobody read it.
 #
 # That last distinction is the whole reason this file exposes the raw exit code
 # instead of hiding it: a hook that dies on a bash syntax error also exits 2, so
@@ -34,6 +35,25 @@ sys.stdout.write(json.dumps({
     "tool_input": {"command": os.environ["CMD"]},
 }))
 ' | bash "$hook"
+}
+
+# The exit code exactly: `assert_red` alone also accepts an exit 1, which does not block.
+exits_2() {
+  "$@"
+  [ "$?" -eq 2 ]
+}
+
+# Feeds $2 (a JSON payload) to hook $1 with a python3 that cannot run first on PATH,
+# which is a machine without python3 or with the Windows Store stub.
+hook_without_python() {
+  local hook="$1" json="$2" dir rc
+  dir="$(mktemp -d)"
+  printf '#!/bin/sh\nexit 127\n' >"$dir/python3"
+  chmod +x "$dir/python3"
+  printf '%s' "$json" | PATH="$dir:$PATH" bash "$hook"
+  rc=$?
+  rm -rf "$dir"
+  return "$rc"
 }
 
 # Copies a hook into a scratch dir next to a DELIBERATELY BROKEN lib/cmdscan.py,

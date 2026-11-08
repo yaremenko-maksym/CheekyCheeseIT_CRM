@@ -44,6 +44,14 @@ INPUT=$(cat)
 
 TOOL_NAME=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || true)
 
+# python3 cannot run: nothing below can judge a write, so refuse one that names the
+# production zones. Other paths stay writable, so the machine can still be repaired.
+if [ -z "$TOOL_NAME" ] && ! python3 -c '' 2>/dev/null &&
+  printf '%s' "$INPUT" | grep -qiE '(apps|packages)[/\\]'; then
+  echo "[pre:edit-write:zone-of-write] INTERNAL ERROR: python3 did not run, so this write to apps/ or packages/ was not checked. Refused. Fix python3 on PATH first." >&2
+  exit 2
+fi
+
 # Fast exit: not a target tool.
 case "$TOOL_NAME" in
   Edit|Write|MultiEdit|NotebookEdit) ;;

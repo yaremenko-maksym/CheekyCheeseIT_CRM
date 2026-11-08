@@ -944,4 +944,62 @@ assert_red "Windows payload: cd into a backslash worktree path from the main che
   --contains '"decision": "block"' \
   -- h "cd '$WIN_WT' && pnpm --filter @crm/api dev" 'C:\Users\dev\CheekyCheeseIT_CRM'
 
+# ── SR-M-15: an inner env overrides the pin ─────────────────────────────────
+PIN3="DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011"
+DT="scripts/devops/dev-ttl.sh --"
+RUN="pnpm --filter @crm/api dev"
+for c in "$PIN3 $DT pnpm exec env DATABASE_URL=$LIVE_DB pnpm dev" \
+         "$PIN3 $DT pnpm --filter @crm/api exec env DATABASE_URL=$LIVE_DB pnpm dev" \
+         "$PIN3 $DT pnpm exec /usr/bin/env API_PORT=3001 pnpm dev" \
+         "$PIN3 $DT pnpm exec env.exe API_PORT=3001 pnpm dev" \
+         "$PIN3 $DT pnpm exec /usr/local/bin/cross-env API_PORT=3001 pnpm dev" \
+         "$PIN3 $DT pnpm exec Cross-Env.cmd API_PORT=3001 pnpm dev" \
+         "$PIN3 $DT pnpm exec cross-env DATABASE_URL=$LIVE_DB pnpm dev" \
+         "$PIN3 $DT pnpm exec DATABASE_URL=$LIVE_DB pnpm dev"; do
+  # Some of these are refused earlier, for an unknown command word; any refusal will do.
+  assert_red "SR-M-15: ${c:0:110}" --contains '"decision": "block"' -- h "$c"
+done
+assert_red "SR-M-15, the specific reason" \
+  --contains "rewrites its environment" \
+  -- h "$PIN3 $DT pnpm exec env DATABASE_URL=$LIVE_DB pnpm dev"
+assert_launch_green "a launch with no inner env stays allowed" -- h "$PIN3 $DT $RUN"
+
+# ── SR-M-13: an export that may never run is not a pin ──────────────────────
+EX="DATABASE_URL=$SAFE_DB API_PORT=3011"
+for c in "false && export $EX; $RUN" "true || export $EX; $RUN" "if false; then export $EX; fi; $RUN" \
+         "(export $EX); $RUN" "export $EX | cat; $RUN" "export $EX & $RUN" "f() { export $EX; }; $RUN" \
+         "for x in; do export $EX; done; $RUN" "export $EX; unset DATABASE_URL; $RUN" \
+         "export $EX; export -n DATABASE_URL; $RUN" "export $EX; declare +x DATABASE_URL; $RUN" \
+         "export $EX; typeset +x API_PORT; $RUN" "export $EX; export -fn DATABASE_URL; $RUN" "false && export API_PORT=3011; DATABASE_URL=$SAFE_DB $RUN" \
+         "false && \"export\" $EX; $RUN"; do
+  assert_red "SR-M-13: ${c:0:110}" --contains "only through an export" -- h "$c"
+done
+for c in "export $EX; $RUN" "export $EX; $RUN 2>&1" "export $EX; $RUN >/tmp/x.log 2>&1" \
+         "export $EX; echo 'a && b'; $RUN" "cd x && $PIN3 $RUN" "false && export FOO=1; $PIN3 $RUN"; do
+  assert_launch_green "the pin does reach the launch: ${c:0:110}" -- h "$c"
+done
+
+# ── SR-M-16: a stripped decoy does not switch off the refusal for unread code ──
+deep() {
+  local s="$1" i
+  for i in 1 2 3 4 5 6 7 8; do s="echo \$($s)"; done
+  printf '%s' "$s"
+}
+assert_red "SR-M-16: unread nested code behind a pinned launch is still refused" \
+  --contains "nesting deeper" \
+  -- h "$PIN3 $DT pnpm exec tsx x.ts pnpm.cmd dev; $(deep 'pnpm dev')"
+
+# ── T3 worktrees and the Windows scratchpad arm the guard ───────────────────
+for cwd in '/Users/dev/.t3/worktrees/crm/t3-abc' 'C:\Users\dev\.t3\worktrees\crm\t3-abc' \
+           'C:\Users\dev\AppData\Local\Temp\claude\x' 'c:\users\dev\appdata\local\temp\claude\x'; do
+  assert_red "unpinned launch from $cwd" --contains '"decision": "block"' -- h "$RUN" "$cwd"
+  assert_green "pinned launch from $cwd" -- h "$PIN3 $RUN" "$cwd"
+done
+assert_green "another directory still does not arm the guard" -- h "$RUN" '/Users/dev/elsewhere'
+
+# ── no analyzer: refused, not waved through ─────────────────────────────────
+assert_green "broken analyzer + harmless read: exit 2 (exit 1 does not block)" \
+  --contains "Refused" \
+  -- exits_2 hook_at "$BROKEN" "grep -rn 'pnpm dev' .claude/rules"
+
 guard_test_summary "test-pre-bash-live-db-guard.sh"

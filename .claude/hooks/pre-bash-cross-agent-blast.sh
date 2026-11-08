@@ -200,7 +200,12 @@ CWD=$(read_field 'cwd')
 AGENT_ID=$(read_field 'agent_id')
 CWD=${CWD//\\//} # Windows payloads use backslashes
 
-[ -z "$CMD" ] && exit 0
+if [ -z "$CMD" ]; then
+  # read_field swallows errors: no command may only mean that python3 cannot run.
+  python3 -c '' 2>/dev/null && exit 0
+  echo "[pre:bash:cross-agent-blast] INTERNAL ERROR: python3 did not run, so this command was not read. Refused. Fix it first: python3 must run on PATH and the hook library must load. Bash stays refused until then." >&2
+  exit 2
+fi
 
 # ---------------------------------------------------------------------------
 # Context gate. Only agents are gated; the owner's own session is untouched.
@@ -213,14 +218,16 @@ CWD=${CWD//\\//} # Windows payloads use backslashes
 # runtime does not send the field, the cwd signal alone still covers all three
 # incidents above, every one of which happened inside a worktree.
 # ---------------------------------------------------------------------------
-CONTEXT='\.claude/worktrees/|/tmp/claude-|/private/tmp/claude-'
-if ! echo "$CWD" | grep -qE "$CONTEXT" && [ -z "$AGENT_ID" ]; then
+CONTEXT='\.claude/worktrees/|\.t3/worktrees/|/tmp/claude-|/private/tmp/claude-|AppData/Local/Temp/claude'
+if ! echo "$CWD" | grep -qiE "$CONTEXT" && [ -z "$AGENT_ID" ]; then
   exit 0
 fi
 
 # Cheap pre-filter: if none of the three trigger words appear anywhere, leave.
 # Case-insensitive: Windows and macOS accept any case for the same path.
-echo "$CMD" | grep -qiE 'pkill|killall|taskkill|worktree|\.claude/worktrees/|CheekyCheeseIT_CRM' || exit 0
+# A T3 worktree lives outside its checkout, whose name can be anything, so it skips this filter.
+echo "$CWD" | grep -qiE '\.t3/worktrees/' ||
+  echo "$CMD" | grep -qiE 'pkill|killall|taskkill|worktree|\.t3/|\.claude/worktrees/|CheekyCheeseIT_CRM' || exit 0
 
 # NOTE: this `python3 -c '...'` is SINGLE-quoted, so an apostrophe anywhere
 # inside it — including in a comment — closes the string and the hook dies at
@@ -230,7 +237,7 @@ echo "$CMD" | grep -qiE 'pkill|killall|taskkill|worktree|\.claude/worktrees/|Che
 # "the caller's cwd". (The message block further down has the opposite hazard:
 # it is DOUBLE-quoted, so backticks there are command substitution.)
 REASONS=$(printf '%s' "$CMD" | CWD="$CWD" MSYS2_ENV_CONV_EXCL=CWD AGENT_ID="$AGENT_ID" python3 -c '
-import os, posixpath, re, shlex, sys
+import os, posixpath, re, shlex, subprocess, sys
 
 
 def to_posix(p):
@@ -261,6 +268,22 @@ if m:
     repo_root = m.group("root")
     own_seg = m.group("seg")
     own_wt = f"{repo_root}/.claude/worktrees/{own_seg}"
+else:
+    # A T3 worktree lives outside the checkout, so only git can name that checkout.
+    m = re.match(r"^(?P<wt>.*?/\.t3/worktrees/[^/]+/(?P<seg>[^/]+))", cwd, re.I)
+    if m:
+        own_wt = m.group("wt")
+        own_seg = m.group("seg")
+        try:
+            common = subprocess.run(
+                ["git", "-C", os.environ.get("CWD", ""), "rev-parse",
+                 "--path-format=absolute", "--git-common-dir"],
+                capture_output=True, text=True, timeout=5).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            common = ""
+        common = to_posix(common)
+        if common.endswith("/.git"):
+            repo_root = common[:-len("/.git")]
 
 
 def tmp_norm(p):
@@ -649,6 +672,7 @@ redirect_targets = re.findall(r">>?\s*([^\s;|&()]+)", cmd)
 
 if mutating or redirect_targets:
     referenced = set(re.findall(r"[^\s\"\x27;|&()]*/\.claude/worktrees/([^/\s\"\x27;|&()]+)", cmd.replace(chr(92), "/")))
+    referenced |= set(re.findall(r"[^\s\"\x27;|&()]*/\.t3/worktrees/[^/\s\"\x27;|&()]+/([^/\s\"\x27;|&()]+)", cmd.replace(chr(92), "/")))
     foreign = sorted(s for s in referenced if s != own_seg)
     if foreign:
         reasons.append(
@@ -682,6 +706,12 @@ if mutating or redirect_targets:
 for r in reasons:
     print(r)
 ' 2>/dev/null)
+RC=$?
+
+if [ "$RC" -ne 0 ]; then
+  echo "[pre:bash:cross-agent-blast] INTERNAL ERROR: the analyzer did not run (rc=$RC), so this command was not read. Refused. Fix it first: python3 must run on PATH and the hook library must load. Bash stays refused until then." >&2
+  exit 2
+fi
 
 [ -z "$REASONS" ] && exit 0
 
