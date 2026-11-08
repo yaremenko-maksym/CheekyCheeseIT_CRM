@@ -123,10 +123,23 @@ RESOLVED=$(python3 -c 'import os,sys; sys.stdout.buffer.write(os.path.realpath(o
 # SR-L-11: the escape-hatch file is created by the owner in a shell, never by a
 # tool call (a Write of it would turn the gate off for the next edit). Raw and
 # resolved basenames, so neither a symlink nor a failed resolve slips past.
-# Case-insensitive: on macOS APFS `.Allow-Direct-Edits` IS the hatch file.
-HATCH_RAW=$(printf '%s' "${FILE_PATH##*/}" | LC_ALL=C tr 'A-Z' 'a-z')
-HATCH_RES=$(printf '%s' "${RESOLVED##*/}" | LC_ALL=C tr 'A-Z' 'a-z')
-if [ "$HATCH_RAW" = ".allow-direct-edits" ] || [ "$HATCH_RES" = ".allow-direct-edits" ]; then
+# Unicode-folded: macOS APFS is case- and normalization-insensitive with Unicode
+# folding (`.Allow-Direct-Edits` and `.allow-direct-editſ`, U+017F, ARE the hatch).
+# Plus identity: if a hatch already sits beside the target, any spelling that is
+# the same file is refused. A python failure refuses too (fail closed).
+HATCH_HIT=$(python3 - "$FILE_PATH" "$RESOLVED" <<'PY' 2>/dev/null || echo HIT
+import os, sys, unicodedata
+def fold(s):
+    return unicodedata.normalize('NFKD', unicodedata.normalize('NFKD', s).casefold())
+raw, res = sys.argv[1], sys.argv[2]
+hit = any(fold(os.path.basename(p)) == '.allow-direct-edits' for p in (raw, res) if p)
+if not hit and res:
+    h = os.path.join(os.path.dirname(res), '.allow-direct-edits')
+    hit = os.path.lexists(h) and os.path.lexists(res) and os.path.samefile(h, res)
+print('HIT' if hit else 'OK')
+PY
+)
+if [ "$HATCH_HIT" != "OK" ]; then
   python3 -c "
 import json, sys
 reason = f'''🚫 ESCAPE-HATCH BLOCK (SR-L-11): {sys.argv[1]} is the zone-of-write escape-hatch file.

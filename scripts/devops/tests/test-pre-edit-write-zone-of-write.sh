@@ -571,6 +571,27 @@ assert_red "SR-L-11: a case variant of the escape-hatch file name -> BLOCK" \
   --contains "ESCAPE-HATCH" \
   -- run_hook "$LW_A" "Write" "$LW_MAIN/.claude/.Allow-Direct-Edits"
 
+# Follow-up review of 8b0e7704c: APFS folds Unicode too — `ſ` (U+017F) is `s`,
+# so an ASCII-only lowercase missed `.allow-direct-editſ`.
+assert_red "SR-L-11: a Unicode case-fold variant (long s) of the escape-hatch name -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "ESCAPE-HATCH" \
+  -- run_hook "$LW_A" "Write" "$LW_MAIN/.claude/.allow-direct-edit$(printf '\xc5\xbf')"
+
+# Identity, not spelling: when the hatch exists, any name that IS it is refused.
+run_hook_with_existing_hatch() {
+  touch "$LW_MAIN/.claude/.allow-direct-edits"
+  run_hook "$@"
+  local rc=$?
+  rm -f "$LW_MAIN/.claude/.allow-direct-edits"
+  return $rc
+}
+ln -s "$LW_MAIN/.claude" "$LW_A/claude-link"
+assert_red "SR-L-11: Edit of an existing hatch through a symlinked parent -> BLOCK" \
+  --contains '"decision": "block"' \
+  --contains "ESCAPE-HATCH" \
+  -- run_hook_with_existing_hatch "$LW_A" "Edit" "$LW_A/claude-link/.allow-direct-edits"
+
 # Follow-up review of d5a97f53a: the hatch lookup used git, which skips a
 # corrupted nested `.git` and lands on a parent checkout that has a hatch.
 run_hook_with_corrupt_nested_head() {
