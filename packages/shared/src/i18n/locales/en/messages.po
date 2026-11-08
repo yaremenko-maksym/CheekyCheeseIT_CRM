@@ -7237,7 +7237,7 @@ msgstr "Updates are available."
 
 #: apps/web/app/components/job-queue/JobQueueRow.tsx
 msgid "Мідл"
-msgstr "Middle"
+msgstr "Mid-level"
 
 #: apps/web/app/components/onboarding/TosUpdateBanner.tsx
 msgid "Опубліковано нову версію Умов використання. <0>Читати →</0>"

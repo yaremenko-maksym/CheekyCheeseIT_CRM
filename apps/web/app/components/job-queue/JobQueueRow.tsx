@@ -65,7 +65,7 @@ const SENIORITY_LABEL: Record<JobSeniorityLevel, MessageDescriptor | null> = {
   LEAD: msg`Лід`,
   UNKNOWN: null,
 }
-const ROW_KEYWORDS_SHOWN = 3
+const ROW_KEYWORDS_SHOWN = 4
 // spans, not <Badge>: Badge renders a <div>, invalid inside the row's <button>
 const CHIP = 'rounded-md border px-1.5 py-0.5 text-xs'
 
@@ -98,6 +98,7 @@ export function JobQueueRow({
   const stopListedAll = matched === 0 && item.stopListedSeniorCount > 0
   const alsoSeen = item.alsoSeenOnCount
   const firstSeenAgo = formatRelativeTime(item.firstSeenAt, locale)
+  const triage = item.eligibility === 'TRIAGE'
   const seniorityLabel = SENIORITY_LABEL[item.seniority]
   const keywords = item.matchedKeywords
   const moreKeywords = keywords.length - ROW_KEYWORDS_SHOWN
@@ -114,14 +115,27 @@ export function JobQueueRow({
           data-testid="job-queue-row-main"
           className="flex min-w-0 flex-col gap-1 @min-[720px]:flex-1"
         >
-          {item.eligibility === 'TRIAGE' && (
-            // a span, not <Badge>: Badge renders a <div>, invalid inside this <button>
+          {/* §4.3 line 1: triage badge · seniority badge; wraps at 320 px, never overflows */}
+          {(triage || seniorityLabel) && (
             <span
-              data-testid="job-queue-row-triage"
-              className="inline-flex w-fit items-center gap-1 rounded-md border border-dashed px-1.5 py-0.5 text-xs text-muted-foreground"
+              data-testid="job-queue-row-line1"
+              className="flex min-w-0 flex-wrap items-center gap-1"
             >
-              <CircleHelp aria-hidden="true" className="size-3.5" />
-              <Trans>Потребує розгляду</Trans>
+              {triage && (
+                // a span, not <Badge>: Badge renders a <div>, invalid inside this <button>
+                <span
+                  data-testid="job-queue-row-triage"
+                  className="inline-flex w-fit items-center gap-1 rounded-md border border-dashed px-1.5 py-0.5 text-xs text-muted-foreground"
+                >
+                  <CircleHelp aria-hidden="true" className="size-3.5" />
+                  <Trans>Потребує розгляду</Trans>
+                </span>
+              )}
+              {seniorityLabel && (
+                <span data-testid="job-queue-row-seniority" className={`${CHIP} font-medium`}>
+                  {i18n._(seniorityLabel)}
+                </span>
+              )}
             </span>
           )}
           <span className="line-clamp-2 font-semibold [overflow-wrap:anywhere]">{item.title}</span>
@@ -134,50 +148,37 @@ export function JobQueueRow({
             />
             <span className="truncate">{company}</span>
           </span>
-          {(seniorityLabel || keywords.length > 0) && (
+          {/* §4.3: a triage row replaces the stack line with its reason */}
+          {!triage && keywords.length > 0 && (
             <span
-              data-testid="job-queue-row-chips"
+              data-testid="job-queue-row-keywords"
               className="flex min-w-0 flex-wrap items-center gap-1"
             >
-              {seniorityLabel && (
-                <span data-testid="job-queue-row-seniority" className={`${CHIP} font-medium`}>
-                  {i18n._(seniorityLabel)}
-                </span>
-              )}
-              {keywords.length > 0 && (
+              {keywords.slice(0, ROW_KEYWORDS_SHOWN).map((keyword) => (
                 <span
-                  data-testid="job-queue-row-keywords"
-                  className="flex min-w-0 flex-wrap items-center gap-1"
+                  key={keyword}
+                  data-testid="job-queue-row-keyword"
+                  title={keyword}
+                  className={`${CHIP} max-w-full truncate text-muted-foreground`}
                 >
-                  {keywords.slice(0, ROW_KEYWORDS_SHOWN).map((keyword) => (
-                    <span
-                      key={keyword}
-                      data-testid="job-queue-row-keyword"
-                      title={keyword}
-                      className={`${CHIP} max-w-full truncate text-muted-foreground`}
-                    >
-                      {keyword}
-                    </span>
-                  ))}
-                  {moreKeywords > 0 && (
-                    <span
-                      data-testid="job-queue-row-keywords-more"
-                      className={`${CHIP} text-muted-foreground tabular-nums`}
-                    >
-                      {/* "+3" alone tells a screen reader nothing: it hears the sr-only phrase */}
-                      <span aria-hidden="true">
-                        <Trans>+{moreKeywords}</Trans>
-                      </span>
-                      <span className="sr-only">
-                        {i18n._(MORE_KEYWORDS.id, { n: moreKeywords })}
-                      </span>
-                    </span>
-                  )}
+                  {keyword}
+                </span>
+              ))}
+              {moreKeywords > 0 && (
+                <span
+                  data-testid="job-queue-row-keywords-more"
+                  className={`${CHIP} text-muted-foreground tabular-nums`}
+                >
+                  {/* "+3" alone tells a screen reader nothing: it hears the sr-only phrase */}
+                  <span aria-hidden="true">
+                    <Trans>+{moreKeywords}</Trans>
+                  </span>
+                  <span className="sr-only">{i18n._(MORE_KEYWORDS.id, { n: moreKeywords })}</span>
                 </span>
               )}
             </span>
           )}
-          {item.eligibility === 'TRIAGE' && (
+          {triage && (
             <span
               data-testid="job-queue-row-triage-reason"
               className="text-sm text-muted-foreground"

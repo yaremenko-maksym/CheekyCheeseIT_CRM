@@ -154,22 +154,31 @@ const lead = (opp: string, senior: string, score = 50, keyword = 'Go') =>
     rankWarnings: [],
   })
 /** A LEAD left behind by an older revision or rule, with a score that would show if it counted. */
-function staleLead(opp: string, senior: string, stale: { revision?: number; rule?: string }) {
+function staleLead(
+  opp: string,
+  senior: string,
+  stale: { revision?: number; rule?: string; profile?: string; keyword?: string },
+) {
   const v = live.get(id(senior)) as SeniorVersions
+  const reasons =
+    stale.keyword === undefined
+      ? []
+      : [{ code: 'TECH_MATCH', evidence: [`${stale.keyword}:CORE`], ruleVersion: 'r' }]
   return sqlq(
     `INSERT INTO job_opportunity_matches
        (opportunity_id, senior_id, opportunity_revision, senior_profile_version,
         exclusion_version, rule_version, outcome, evidence)
      SELECT $1::uuid, $2::uuid, COALESCE($3::int, o.revision), $4::text, $5::text, $6::text,
-            'LEAD', '{"score":900,"reasons":[]}'::jsonb
+            'LEAD', $7::jsonb
        FROM job_opportunities o WHERE o.id = $1::uuid`,
     [
       id(opp),
       id(senior),
       stale.revision ?? null,
-      v.profile,
+      stale.profile ?? v.profile,
       v.exclusion,
       stale.rule ?? MATCH_RULE_VERSION,
+      JSON.stringify({ score: 900, reasons }),
     ],
   )
 }
@@ -466,6 +475,25 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
         'KeywordShared',
       ])
       expect((await itemOf(hrA(), 'oppGrant'))?.matchedKeywords).toEqual([])
+
+      // SR-L-1: an own senior's EXCLUDED match and stale LEAD carry TECH_MATCH evidence too; the
+      // (opportunity, senior) pair is unique, so each sits on its own opp, kept visible by a live LEAD.
+      await mkOpp('oppLeakExcluded')
+      await lead('oppLeakExcluded', 'senShared', 40, 'KeywordLive')
+      await match('oppLeakExcluded', 'senA', 'EXCLUDED', {
+        stage: 'SCORING',
+        reasons: [{ code: 'TECH_MATCH', evidence: ['KeywordLeak:CORE'], ruleVersion: 'r' }],
+      })
+      await mkOpp('oppLeakStale')
+      await lead('oppLeakStale', 'senShared', 40, 'KeywordLive')
+      await staleLead('oppLeakStale', 'senA', { profile: 'stale-profile', keyword: 'KeywordLeak' })
+      await expireGeneration('teamA')
+      await expireStudio()
+      for (const viewer of [hrA(), admin()]) {
+        for (const opp of ['oppLeakExcluded', 'oppLeakStale']) {
+          expect((await itemOf(viewer, opp))?.matchedKeywords).toEqual(['KeywordLive'])
+        }
+      }
     })
 
     it('row seniority is the stored column', async () => {
