@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import http from 'node:http'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -15,10 +16,12 @@ import {
   fieldCorrect,
   percentile,
   probeStats,
+  ramWatch,
   scoreMp03,
   summary,
   THRESHOLDS,
 } from './lib.mjs'
+import { startTap } from './tap.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -99,6 +102,67 @@ test('abortWatch: the first reason stops the runtime and ends the run, once', ()
   })
   assert.equal(quiet.check(), null)
   assert.deepEqual(calls, { stop: 0, end: 0 })
+})
+
+test('ramWatch: low host RAM alone stops and ends once; enough RAM or none measured does not', () => {
+  for (const [host, fires] of [
+    [700 * 1048576, true],
+    [900 * 1048576, false],
+    [null, false],
+  ]) {
+    const calls = { stop: 0, end: 0 }
+    const w = ramWatch({
+      hostAvailable: () => host,
+      stopRuntime: () => (calls.stop += 1),
+      endRun: () => (calls.end += 1),
+    })
+    w.check()
+    w.check()
+    const n = fires ? 1 : 0
+    assert.deepEqual(calls, { stop: n, end: n }, String(host))
+    assert.equal(Boolean(w.reason), fires, String(host))
+  }
+})
+
+test('tap: a runtime that fails, before or mid-answer, gets the client a 502 and in-flight 0', async () => {
+  const upstream = http.createServer((req, res) => {
+    req.resume()
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json', 'content-length': '1000' })
+      res.write('{"choices":')
+      setTimeout(() => res.socket.destroy(), 20)
+    })
+  })
+  await new Promise((ok) => upstream.listen(0, '127.0.0.1', ok))
+  const dropped = `http://127.0.0.1:${upstream.address().port}`
+  try {
+    for (const [label, target] of [
+      ['dropped mid-stream', dropped],
+      ['refused', 'http://127.0.0.1:9'],
+    ]) {
+      const current = { tag: {}, inFlight: 0 }
+      const tap = await startTap(target, current)
+      try {
+        const r = await fetch(`http://127.0.0.1:${tap.port}/v1/chat/completions`, {
+          method: 'POST',
+          body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
+          signal: AbortSignal.timeout(5_000),
+        })
+        assert.equal(r.status, 502, label)
+        await r.arrayBuffer()
+        await new Promise((ok) => setTimeout(ok, 50)) // let a late `close` try a second decrement
+        assert.equal(current.inFlight, 0, label)
+        assert.equal(tap.requests[0].status, 0, label)
+        assert.equal(tap.requests[0].aborted, false, label)
+      } finally {
+        tap.server.closeAllConnections()
+        tap.server.close()
+      }
+    }
+  } finally {
+    upstream.closeAllConnections()
+    upstream.close()
+  }
 })
 
 function passing() {

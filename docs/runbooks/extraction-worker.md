@@ -139,8 +139,12 @@ docker exec crm-api-1 wget -S -qO- --post-data='{}' http://extraction-worker:310
 
 # By address, not by name: a name-resolution error proves nothing about routing.
 RT_IP="$(docker inspect -f '{{with index .NetworkSettings.Networks "crm-extraction_runtime"}}{{.IPAddress}}{{end}}' "$($EXT ps -q crm-model-runtime)")"
-echo "$RT_IP"                # expect an address; empty means the check below is meaningless
+# an empty address makes net.connect fall back to localhost, which is refused and looks like a pass
+[ -n "$RT_IP" ] || { echo "FAIL: no runtime IP"; exit 1; }
 TCP='const [h,p]=process.argv.slice(1);const s=require("net").connect({host:h,port:+p,timeout:5000});s.on("connect",()=>{console.log("CONNECTED");s.destroy()});s.on("timeout",()=>{console.log("ETIMEDOUT");s.destroy()});s.on("error",e=>console.log(e.code))'
+
+# positive control: the worker reaches the runtime (expect CONNECTED; anything else voids the checks below)
+docker exec "$($EXT ps -q extraction-worker)" node -e "$TCP" "$RT_IP" 8080
 
 # api cannot connect to the runtime's address (expect an error code, never CONNECTED)
 docker exec crm-api-1 node -e "$TCP" "$RT_IP" 8080
@@ -190,7 +194,9 @@ node scripts/devops/extraction-mp04/mp04.mjs --candidate cand.json --api-dist ./
 
 **The CRM probe** sends unauthenticated GETs to `--crm-url`, one at a time, at most one per `--probe-interval-ms` (default 500, floor 200). First a baseline with the runtime idle (`--baseline-s`, default 60), then the same probe during the run.
 
-**The abort rule** stops the runtime container and ends the run at once on any probe 5xx, any probe with no answer (timeout, refused or lost connection), a rolling p95 (last 20 probes) above 2 x the baseline p95, or host available RAM below 800 MiB. A stopped run fails. A probe with no answer also fails the availability row, and MP-03 is scored and judged for `uk` and `en` separately: either one failing fails the candidate. Never relax a threshold to make a candidate pass.
+**The abort rule** stops the runtime container and ends the run at once on any probe 5xx, any probe with no answer (timeout, refused or lost connection), a rolling p95 (last 20 probes) above 2 x the baseline p95, or host available RAM below 800 MiB. A stopped run fails. A probe with no answer also fails the availability row, and MP-03 is scored and judged for `uk` and `en` separately: either one failing fails the candidate. Never relax a threshold to make a candidate pass. Host RAM is watched from before the cold-load restart, so a low-RAM abort can also happen during the cold load or the baseline.
+
+**After an abort the runtime stays stopped.** The harness does not start it again, and the worker gets no answers until you do. `report.json` records the stop for that candidate as `runtimeStoppedByAbort` (`true`, or the `docker stop` error text), with the reason in `aborted`. Read the reason first, then start the runtime again with the same `up -d` as in the install steps (`docker compose -f docker-compose.extraction.yml --env-file .env.extraction-pins up -d`) and check that it is healthy before the next candidate.
 
 **Reading the result.** `mp04-out/summary.txt` is one screen: a PASS/FAIL line per candidate, its failing rows, then `passes: ...` or `none passes`. `mp04-out/report.json` has every measured value per candidate. Exit status: 0 = the report is written and this candidate passes; 1 = written, it fails; 2 = harness error. A harness error still writes a report naming the error. An unmeasured value fails its row.
 

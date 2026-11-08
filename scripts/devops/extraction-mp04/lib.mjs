@@ -96,6 +96,10 @@ export function abortWatch({ baselineP95, samples, hostAvailable, stopRuntime, e
   }
 }
 
+/** The RAM part of the rule alone, for the cold load and the baseline: no probe runs under load yet. */
+export const ramWatch = ({ hostAvailable, stopRuntime, endRun }) =>
+  abortWatch({ baselineP95: null, samples: [], hostAvailable, stopRuntime, endRun })
+
 const fold = (s) =>
   String(s)
     .toUpperCase()

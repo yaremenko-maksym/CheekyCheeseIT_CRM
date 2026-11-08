@@ -267,6 +267,10 @@ log "G. Isolation negatives"
 # By address, not by name: a name-resolution error proves nothing about routing.
 rt_ip="$(docker inspect -f '{{with index .NetworkSettings.Networks "crm-extraction_runtime"}}{{.IPAddress}}{{end}}' "$(ecid crm-model-runtime)")"
 [ -n "$rt_ip" ] || fail "G. the runtime has no address on crm-extraction_runtime"
+# Positive control: tcp() must be able to say "connected" before its errors count as proof.
+out="$(tcp "$(ecid extraction-worker)" "$rt_ip" 8080)"
+[ "$out" = connected ] || fail "G. control: the worker cannot reach the runtime at $rt_ip:8080 ($out)"
+record "G. control: worker -> runtime at $rt_ip:8080: $out"
 out="$(probe "$(cid api)" http://crm-model-runtime:8080/health)"
 record "G. api -> runtime by name: $out (a fact, not the gate)"
 out="$(tcp "$(cid api)" "$rt_ip" 8080)"

@@ -16,7 +16,6 @@
 
 import { spawn, execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import http from 'node:http'
 import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -27,9 +26,11 @@ import {
   evaluate,
   percentile,
   probeStats,
+  ramWatch,
   scoreMp03,
   summary,
 } from './lib.mjs'
+import { startTap } from './tap.mjs'
 
 const DEFAULTS = {
   'runtime-container': 'crm-extraction-crm-model-runtime-1',
@@ -41,18 +42,29 @@ const MIN_PROBE_INTERVAL_MS = 200 // the probe never exceeds 5 GETs per second
 const PROBE_TIMEOUT_MS = 5_000
 const COLD_LOAD_DEADLINE_MS = 600_000
 const IDLE_CPU_PERCENT = 10 // of one CPU: below this the runtime is idle
-// shortcut: mirrors CHARS_PER_TOKEN and MESSAGE_OVERHEAD_TOKENS of @crm/inference router/fit (not
-// exported); if the package changes them, change these with it.
-const CHARS_PER_TOKEN = 2
-const MESSAGE_OVERHEAD_TOKENS = 32
 
 let reportVerified = false
+// What main() has parsed so far, so an uncaught error can still write its error report.
+const parsed = { outDir: null, name: 'unknown' }
 // Exit 1 means "report written, the candidate fails"; without a verified report it is always 2.
 process.on('exit', () => {
   if (!reportVerified) process.exitCode = 2
 })
 process.on('uncaughtException', (err) => {
   process.stderr.write(`mp04: uncaught: ${err?.stack ?? err}\n`)
+  if (!reportVerified && parsed.outDir) {
+    try {
+      finish(parsed.outDir, {
+        candidate: parsed.name,
+        pass: false,
+        error: `uncaught: ${err?.message ?? err}`,
+        rows: [],
+      })
+    } catch (e) {
+      process.stderr.write(`mp04: no report: ${e.message}\n`)
+    }
+    process.exit(2)
+  }
   process.exit(reportVerified ? process.exitCode : 2)
 })
 
@@ -144,9 +156,9 @@ function statsSampler(ct) {
   return { samples, failures, stop: () => child.kill() }
 }
 
-async function waitHealthy(runtimeUrl, deadlineMs) {
+async function waitHealthy(runtimeUrl, deadlineMs, signal) {
   const start = Date.now()
-  while (Date.now() - start < deadlineMs) {
+  while (!signal.aborted && Date.now() - start < deadlineMs) {
     try {
       const r = await fetch(new URL('/health', runtimeUrl), { signal: AbortSignal.timeout(2_000) })
       if (r.status === 200) return Date.now() - start
@@ -185,92 +197,6 @@ function crmProbe(url, intervalMs, onSample) {
     }
   })()
   return { samples, stop: async () => ((stopped = true), done) }
-}
-
-/**
- * The loopback tap: forwards every request to the runtime unchanged and keeps counts only, never
- * a prompt or a reply. A client that disconnects disconnects the runtime too, as in production.
- */
-function startTap(upstream, current) {
-  const requests = []
-  const server = http.createServer((req, res) => {
-    // a client or runtime that drops the socket must not crash the harness without a report
-    req.on('error', () => {})
-    res.on('error', () => {})
-    const chunks = []
-    req.on('data', (c) => chunks.push(c))
-    req.on('end', () => {
-      const body = Buffer.concat(chunks)
-      const row = { ...current.tag, path: req.url, t0: Date.now(), aborted: false }
-      try {
-        const sent = JSON.parse(body.toString('utf8'))
-        const chars = (sent.messages ?? []).reduce(
-          (n, m) => n + (typeof m.content === 'string' ? m.content.length : 0),
-          0,
-        )
-        row.estimate = Math.ceil(chars / CHARS_PER_TOKEN) + MESSAGE_OVERHEAD_TOKENS
-      } catch {
-        // not a chat request
-      }
-      requests.push(row)
-      current.inFlight += 1
-      const up = http.request(
-        new URL(req.url, upstream),
-        {
-          method: req.method,
-          headers: { 'content-type': req.headers['content-type'] ?? 'application/json' },
-        },
-        (ur) => {
-          const out = []
-          ur.on('error', () => {
-            row.status ??= 0
-          })
-          ur.on('data', (c) => out.push(c))
-          ur.on('end', () => {
-            current.inFlight -= 1
-            const text = Buffer.concat(out)
-            row.ms = Date.now() - row.t0
-            row.status = ur.statusCode
-            try {
-              const j = JSON.parse(text.toString('utf8'))
-              const msg = j.choices?.[0]?.message ?? {}
-              const content = typeof msg.content === 'string' ? msg.content : ''
-              const think = /<think>[\s\S]*?<\/think>/g
-              row.promptTokens = j.usage?.prompt_tokens
-              row.completionTokens = j.usage?.completion_tokens
-              row.promptPerSecond = j.timings?.prompt_per_second
-              row.predictedPerSecond = j.timings?.predicted_per_second
-              row.reasoningChars =
-                (msg.reasoning_content?.length ?? 0) + (content.match(think) ?? []).join('').length
-              row.empty = content.replace(think, '').trim() === ''
-            } catch {
-              // a non-JSON answer stays counts-free
-            }
-            if (!res.destroyed) {
-              res.writeHead(ur.statusCode, {
-                'content-type': ur.headers['content-type'] ?? 'application/json',
-              })
-              res.end(text)
-            }
-          })
-        },
-      )
-      up.on('error', () => {
-        current.inFlight = Math.max(0, current.inFlight - 1)
-        if (!res.headersSent && !res.destroyed) res.writeHead(502).end()
-      })
-      res.on('close', () => {
-        if (!res.writableEnded) {
-          row.aborted = true
-          up.destroy()
-        }
-      })
-      up.end(body)
-    })
-  })
-  return new Promise((ok) =>
-    server.listen(0, '127.0.0.1', () => ok({ server, requests, port: server.address().port })),
-  )
 }
 
 function mergeReports(outDir) {
@@ -350,29 +276,44 @@ async function measure(a, cand, closers) {
   )
   m.runtimeImage = inspect(ct, '{{.Config.Image}}')
 
+  // The abort rule: stop the runtime and end the run at once (the runbook restarts it by hand).
+  const stop = new AbortController()
+  const stopRuntime = () => {
+    try {
+      docker('stop', '--time', '5', ct)
+      m.runtimeStoppedByAbort = true
+    } catch (e) {
+      m.runtimeStoppedByAbort = `docker stop failed: ${e.message}`
+    }
+  }
+  const endRun = () => stop.abort()
+  const hostMem = []
+  const hostAvailable = () => hostMem.at(-1) ?? null
+  // Host RAM is watched from before the restart, so the cold load and the baseline are covered.
+  let watch = ramWatch({ hostAvailable, stopRuntime, endRun })
+  const memTimer = setInterval(() => {
+    hostMem.push(hostAvailableBytes())
+    watch.check()
+  }, 2_000)
+  closers.push(() => clearInterval(memTimer))
+  const abortedEarly = () => ({ ...m, aborted: watch.reason, pass: false, rows: [] })
+
   // Cold load: a restart reloads the weights from the volume (the page cache may still hold them).
   docker('restart', ct)
-  m.coldLoadMs = await waitHealthy(a['runtime-url'], COLD_LOAD_DEADLINE_MS)
+  m.coldLoadMs = await waitHealthy(a['runtime-url'], COLD_LOAD_DEADLINE_MS, stop.signal)
+  if (stop.signal.aborted) return abortedEarly()
   if (m.coldLoadMs === null) throw new Error('the runtime did not become healthy after a restart')
   const before = runtimeState(ct)
 
   const stats = statsSampler(ct)
-  const hostMem = []
-  let watch = null
-  const memTimer = setInterval(() => {
-    hostMem.push(hostAvailableBytes())
-    watch?.check()
-  }, 2_000)
-  closers.push(
-    () => stats.stop(),
-    () => clearInterval(memTimer),
-  )
+  closers.push(() => stats.stop())
   const interval = Math.max(MIN_PROBE_INTERVAL_MS, Number(a['probe-interval-ms']))
 
   const baseline = crmProbe(a['crm-url'], interval)
   closers.push(() => baseline.stop())
-  await sleep(Number(a['baseline-s']) * 1000)
+  await sleep(Number(a['baseline-s']) * 1000, null, { signal: stop.signal }).catch(() => {})
   await baseline.stop()
+  if (stop.signal.aborted) return abortedEarly()
   const base = probeStats(baseline.samples)
 
   const current = { tag: {}, inFlight: 0 }
@@ -414,22 +355,14 @@ async function measure(a, cand, closers) {
   if (events.some((e) => e.type === 'CONFIG_REFUSED'))
     throw new Error('the router refused the candidate config')
 
-  const stop = new AbortController()
   const loaded = crmProbe(a['crm-url'], interval, () => watch.check())
-  // The abort rule: stop the runtime and end the run at once (the runbook restarts it by hand).
+  // Under load the full rule replaces the RAM-only one (no reason yet, or we returned above).
   watch = abortWatch({
     baselineP95: base.p95,
     samples: loaded.samples,
-    hostAvailable: () => hostMem.at(-1) ?? null,
-    stopRuntime: () => {
-      try {
-        docker('stop', '--time', '5', ct)
-        m.runtimeStoppedByAbort = true
-      } catch (e) {
-        m.runtimeStoppedByAbort = `docker stop failed: ${e.message}`
-      }
-    },
-    endRun: () => stop.abort(),
+    hostAvailable,
+    stopRuntime,
+    endRun,
   })
   closers.push(() => loaded.stop())
 
@@ -543,8 +476,10 @@ async function main() {
   let name = 'unknown'
   try {
     a = args(process.argv.slice(2))
+    parsed.outDir = a['out-dir'] ?? null
     const cand = loadCandidate(a.candidate)
     name = cand.name
+    parsed.name = name
     finish(a['out-dir'], await run(a, cand))
   } catch (err) {
     process.stderr.write(`mp04: ${err.message}\n`)
