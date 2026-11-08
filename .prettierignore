@@ -5,7 +5,6 @@
 
 # Imported ECC catalog (read-only references)
 agents/
-skills/ecc/
 hooks/
 .claude/rules/ecc/
 manifests/
