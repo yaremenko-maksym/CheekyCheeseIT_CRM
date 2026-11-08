@@ -342,22 +342,22 @@ if not blocked:
                 break
 
 # ── predicate 7: a shell no gate can read ───────────────────────────────────
-# Every gate reads bash syntax, so what powershell or cmd run was never judged. The
+# Every gate reads bash syntax, so what powershell, pwsh or cmd run was never judged. The
 # PowerShell tool is denied for the same reason. Confident segments (echo, git commit -m)
 # yield no argument readings, so a message that names a shell is never judged here.
+# Fail closed (Master decision on #1294, after shape-by-shape patches kept leaking): any
+# reading of the three shells refuses, by name, wherever it stands and whatever follows.
+# Accepted false refusals: `go run ./cmd`, `pnpm add powershell` - run those by hand.
 UNREAD_SHELLS = ("powershell", "pwsh", "cmd")
 
 
 def unread_shell(word):
-    return re.sub(r"\.(exe|cmd|bat|com)$", "", re.split(r"[/\\]", word)[-1], flags=re.I).lower()
-
-
-BARE_CMD = re.compile(r"cmd(\.(exe|cmd|bat|com))?", re.I)
-CMD_FILE = re.compile(r"cmd\.(exe|cmd|bat|com)", re.I)
-COMSPEC = re.compile(r"(?<!\w)(\$\{?COMSPEC\}?|%COMSPEC%)(?!\w)", re.I)
-REDIRECT = re.compile(r"^\d*[<>]")
-# An absolute or drive path: `/c/Windows/System32/cmd`, `C:\Windows\System32\cmd` (AUTO-SR-3).
-ABS_PATH = re.compile(r"^(/|[A-Za-z]:[/\\]|\\\\)")
+    # The last path part, any directory (`..\\x\\cmd`, drive-relative `C:cmd`) and an
+    # extension stripped. `$COMSPEC` / `%COMSPEC%` name cmd.exe and nothing else.
+    last = re.split(r"[/\\:]", word)[-1]
+    last = re.sub(r"^[^\w.]+|[^\w.]+$", "", last)
+    last = re.sub(r"\.(exe|cmd|bat|com)$", "", last, flags=re.I).lower()
+    return "cmd" if last == "comspec" else last
 
 
 def seg_words(seg):
@@ -366,63 +366,39 @@ def seg_words(seg):
             yield word
 
 
-def bare_cmd_word(seg):
-    # True when the segment holds `cmd` / `cmd.exe` as a bare word, or a cmd.exe file
-    # in any directory (CR-M-6), or an absolute path ending in cmd (AUTO-SR-3), not the
-    # relative `./cmd` or `cmd/server`: a project directory is relative and has no extension.
-    for word in seg_words(seg):
-        word = re.sub(r"^[^\w./\\]+|[^\w./\\]+$", "", word)
-        last = re.split(r"[/\\]", word)[-1]
-        if (BARE_CMD.fullmatch(word) or CMD_FILE.fullmatch(last)
-                or (ABS_PATH.match(word) and BARE_CMD.fullmatch(last))):
-            return True
-    return False
+def resolve(word, depth=0):
+    # The literal a dynamic command word stands for, through same-line assignments
+    # (`a=pnpm; b=$a; $b install`), or None when it cannot be known.
+    m = re.fullmatch(r"\$\{?([A-Za-z_]\w*)\}?", word)
+    if not m:
+        return None if re.search(r"[$`]", word) else word
+    value = scan.assigns.get(m.group(1))
+    if value is None or depth >= 5:
+        return None
+    return resolve(value.strip("\x22\x27"), depth + 1)
 
 
 for seg in scan.segments:
     if blocked:
         break
-    # `$COMSPEC` names cmd.exe and nothing else, but a variable is never a reading: refuse
-    # it anywhere in a segment the analyzer did not understand (CR-M-6). `echo $COMSPEC`
-    # is understood, so it is never judged here.
-    if not seg.confident and any(COMSPEC.search(w) for w in seg_words(seg)):
-        blocked.append("`$COMSPEC` runs a shell whose syntax no gate reads")
-        break
-    # AUTO-SR-4: a command word that is a bare variable or substitution (`$x`, `${!v}`,
-    # `"$(printenv COMSPEC)"`) resolves to nothing readable. With nothing after it, or a
-    # redirect next, it may be a shell reading its stdin; a variable assigned in the same
-    # line (`x=$COMSPEC; ... | $x foo`) is judged by its value.
-    # shortcut: such a word WITH a plain argument (`${!v} foo`, `"$(printenv COMSPEC)" foo`)
-    # is allowed, upgrade when cmdscan records segment stdin. Deliberate obfuscation.
-    # A truncated scan is refused below with its own reason; do not mask it.
-    if seg.dynamic and not scan.truncated and not re.search(r"[/\\]", seg.name):
-        nxt0 = seg.argv[0] if seg.argv else ""
-        value = scan.assigns.get(re.sub(r"^\$\{?|\}$", "", seg.name), "")
-        named = COMSPEC.search(value) or unread_shell(value) in UNREAD_SHELLS
-        if named or not nxt0 or REDIRECT.match(nxt0):
-            blocked.append("`%s` is a command word the hook cannot resolve; it may run a shell "
-                           "whose syntax no gate reads" % seg.name)
+    # A dynamic command word (`$x`, `${!v}`, `$(...)`) fails closed unless a literal
+    # assignment in this command resolves it to something other than a shell. A truncated
+    # scan is refused below with its own reason; do not mask it.
+    if seg.dynamic and not scan.truncated:
+        target = resolve(seg.name)
+        if target is None or unread_shell(target) in UNREAD_SHELLS:
+            blocked.append("`%s` is a command word the hook cannot resolve to a known "
+                           "command; it may run a shell whose syntax no gate reads" % seg.name)
             break
-    bare_cmd = bare_cmd_word(seg)
+    # A segment the analyzer did not understand: every word may be the command, including
+    # the ones too odd to be a reading (a quoted path, `$COMSPEC`).
+    words = [] if seg.confident else list(seg_words(seg))
+    named = [w for w in words if unread_shell(w) in UNREAD_SHELLS]
+    if named:
+        blocked.append("`%s` runs a shell whose syntax no gate reads" % named[0])
+        break
     for cand in candidates(seg):
-        shell = unread_shell(cand.name)
-        if shell not in UNREAD_SHELLS:
-            continue
-        nxt = cand.argv[0] if cand.argv else ""
-        if cand is seg or shell != "cmd":
-            # PowerShell 5.1 runs a plain next word as -Command and both shells run piped
-            # stdin with no argument, so any powershell/pwsh reading is a launch. No
-            # exemption: an install (`pnpm add pwsh`) is a known false refusal, run by hand.
-            hit = True
-        else:
-            # `cmd` is a common directory name (`go run ./cmd`): only with a flag after it,
-            # or as a bare word with no next word, which runs its stdin (SO-M-1: a pipe
-            # into `winpty cmd`, `winpty cmd < x.bat`). cmdscan records no segment input,
-            # so a redirect token counts as no word.
-            # shortcut: an unknown wrapper + `cmd` + a plain word + piped stdin is allowed
-            # (cmd ignores the word and runs stdin), upgrade when cmdscan records segment stdin.
-            hit = nxt[:1] in ("-", "/") or (bare_cmd and (not nxt or bool(REDIRECT.match(nxt))))
-        if hit:
+        if unread_shell(cand.name) in UNREAD_SHELLS:
             blocked.append("`%s` runs a shell whose syntax no gate reads" % cand.name)
             break
 

@@ -752,31 +752,40 @@ block	safety	concurrently "pnpm add pwsh" "pwsh -c Remove-Item"
 block	safety	npx concurrently "pnpm add powershell" "powershell Remove-Item -Recurse C:/x"
 block	safety	parallel ::: "pnpm add powershell" "powershell Remove-Item x"
 block	safety	npx concurrently pnpm add powershell
-# SO-M-1 of #1294: a bare `cmd` with no next word runs its stdin (a pipe or a < redirect).
+# SO-M-1, CR-M-6 / SR-M-5, AUTO-SR-3, AUTO-SR-5 of #1294: cmd has the powershell strictness.
+# A word whose last path component is cmd (bare, full, relative or drive-relative path, any
+# .exe/.com/.bat/.cmd extension, any next word) refuses. SR-M-6: winpty is a wrapper.
 block	safety	echo del x | winpty cmd
 block	safety	winpty cmd < x.bat
-# CR-M-6 / SR-M-5 of #1294: a full path to cmd.exe, or $COMSPEC, is cmd too.
 block	safety	echo del x | winpty /c/Windows/System32/cmd.exe
 block	safety	echo del x | winpty C:/Windows/System32/cmd.exe
 block	safety	echo del x | winpty "C:\Windows\System32\cmd.exe"
 block	safety	winpty /c/Windows/System32/cmd.exe < x.bat
-block	safety	echo del x | winpty "$COMSPEC"
-# SR-M-6 of #1294: winpty is a wrapper, so the command after it is the segment command.
 block	safety	echo del x | winpty cmd foo
 block	safety	echo del x | winpty cmd.exe foo
 block	safety	winpty cmd foo < x.bat
-# AUTO-SR-3 of #1294: an absolute or drive path ending in bare cmd is cmd.
 block	safety	echo del x | unknown-tool /c/Windows/System32/cmd
 block	safety	echo del x | winpty C:/Windows/System32/cmd
-# AUTO-SR-4 of #1294: an unresolvable command word with nothing after it, or a variable
-# assigned to $COMSPEC in the same line.
+block	safety	echo del x | unknown-tool cmd foo
+block	safety	echo del x | winpty ../../Windows/System32/cmd
+block	safety	echo del x | unknown-tool C:cmd
+block	safety	echo del x | winpty "..\..\Windows\System32\cmd.exe"
+# Accepted false refusal (#1294): a directory named cmd as the last path component reads as cmd.
+block	safety	go run ./cmd
+# AUTO-SR-4 / AUTO-SR-6 of #1294: a dynamic command word fails closed, with or without an
+# argument, unless a literal assignment in the same command resolves it to a non-shell.
+# $COMSPEC / %COMSPEC% refuse by name.
+block	safety	echo del x | winpty "$COMSPEC"
 block	safety	x=$COMSPEC; echo del x | $x
 block	safety	x=$COMSPEC; echo del x | $x foo
 block	safety	echo del x | "$(printenv COMSPEC)"
 block	safety	echo del x | ${!v}
-# KNOWN LIMIT (#1294): an unknown wrapper + cmd + a plain word + piped stdin stays allowed
-# until cmdscan records segment stdin. So does an unresolvable command word with a plain
-# argument (deliberate obfuscation).
-allow	safety	echo del x | unknown-tool cmd foo
-allow	safety	echo del x | ${!v} foo
-allow	safety	echo del x | "$(printenv COMSPEC)" foo
+block	safety	echo del x | ${!v} foo
+block	safety	echo del x | "$(printenv COMSPEC)" foo
+block	safety	a=cmd; b=$a; $b foo
+block	safety	python3 -c "import os; os.system('%COMSPEC% /c dir')"
+block	safety	"$PNPM" install
+allow	safety	PNPM=pnpm; $PNPM install
+allow	safety	ls cmd
+allow	safety	go build ./cmd/server
+allow	safety	echo $COMSPEC

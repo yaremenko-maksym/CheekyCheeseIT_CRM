@@ -561,7 +561,8 @@ for c in 'powershell -c "Remove-Item x"' 'PowerShell.exe -Command x' 'pwsh -c x'
   assert_red "unread shell: $c" --contains "no gate reads" -- h "$c"
 done
 for c in "git commit -m 'use powershell -c x'" "echo powershell -c x" "gh pr create --body 'run cmd /c dir'" \
-         "grep -rn powershell .claude" "ls cmd" "cat cmd/main.go" "go run ./cmd" "go build ./cmd/server"; do
+         "grep -rn powershell .claude" "ls cmd" "cd cmd" "cat cmd/main.go" "go build ./cmd/server" \
+         "go run /abs/proj/cmd/server" "echo cmd" "git commit -m 'cmd'" "echo \$COMSPEC"; do
   assert_green "naming a shell does not run it: $c" -- h "$c"
 done
 # CR-M-1 / SR-M-4 (#1294): PowerShell 5.1 runs a plain next word as -Command and both shells
@@ -575,37 +576,39 @@ for c in 'winpty powershell Remove-Item -Recurse -Force C:/x' 'echo Remove-Item 
          "python3 -c \"import os; os.system('pnpm add pwsh')\""; do
   assert_red "unread shell, any next word: $c" --contains "no gate reads" -- h "$c"
 done
-assert_green "cmd as a directory name is not a launch: go run ./cmd" -- h "go run ./cmd"
-# SO-M-1 (#1294): a bare `cmd` with no next word runs its stdin, fed by a pipe or a redirect.
-for c in 'echo del x | winpty cmd' 'winpty cmd < x.bat' 'winpty cmd <<< "del x"' 'echo del x | winpty cmd.exe'; do
-  assert_red "cmd reading its stdin: $c" --contains "no gate reads" -- h "$c"
-done
-for c in "go build ./cmd/server" "ls cmd" "echo cmd" "git commit -m 'cmd'" "unknown-tool ./cmd" \
-         "echo \$COMSPEC"; do
-  assert_green "cmd named, not run: $c" -- h "$c"
-done
-# CR-M-6 / SR-M-5 (#1294): a full path to cmd.exe, or $COMSPEC, is cmd too.
-# SR-M-6: winpty is a wrapper, so the command after it is the segment command.
-for c in 'echo del x | winpty /c/Windows/System32/cmd.exe' 'echo del x | winpty C:/Windows/System32/cmd.exe' \
+# SO-M-1, CR-M-6 / SR-M-5, AUTO-SR-3, AUTO-SR-5 (#1294): cmd has the powershell strictness. Any
+# reading whose last path component is cmd refuses: bare, by full, relative or drive-relative
+# path, with or without .exe, with or without a next word, behind winpty (SR-M-6) or not.
+for c in 'echo del x | winpty cmd' 'winpty cmd < x.bat' 'winpty cmd <<< "del x"' 'echo del x | winpty cmd.exe' \
+         'echo del x | winpty /c/Windows/System32/cmd.exe' 'echo del x | winpty C:/Windows/System32/cmd.exe' \
          'echo del x | winpty "C:\Windows\System32\cmd.exe"' 'winpty /c/Windows/System32/cmd.exe < x.bat' \
-         'echo del x | winpty "$COMSPEC"' 'echo del x | unknown-tool /c/Windows/System32/cmd.exe' \
+         'echo del x | unknown-tool /c/Windows/System32/cmd.exe' \
          'echo del x | winpty cmd foo' 'echo del x | winpty cmd.exe foo' 'winpty cmd foo < x.bat' \
-         'winpty -Xallow-non-tty -- cmd foo' \
+         'winpty -Xallow-non-tty -- cmd foo' 'echo del x | unknown-tool cmd foo' \
          'echo del x | unknown-tool /c/Windows/System32/cmd' 'echo del x | winpty C:/Windows/System32/cmd' \
-         'x=$COMSPEC; echo del x | $x' 'x=$COMSPEC; echo del x | $x foo' \
-         'echo del x | "$(printenv COMSPEC)"' 'echo del x | ${!v}' '"$SH" < x.bat'; do
-  assert_red "cmd by path, COMSPEC or behind winpty: $c" --contains "no gate reads" -- h "$c"
+         'echo del x | winpty ../../Windows/System32/cmd' 'echo del x | unknown-tool C:cmd' \
+         'echo del x | winpty "..\..\Windows\System32\cmd.exe"' 'unknown-tool ..\cmd foo' \
+         "python3 -c \"import os; os.system('%COMSPEC% /c dir')\""; do
+  assert_red "cmd by any path or with any next word: $c" --contains "no gate reads" -- h "$c"
 done
-# Known limit (shortcut in predicate 7): an unknown wrapper + cmd + a plain word + piped stdin
-# is allowed until cmdscan records segment stdin. Pinned so a change is seen.
-assert_green "known limit, unknown wrapper + cmd + word + stdin: echo del x | unknown-tool cmd foo" \
-  -- h 'echo del x | unknown-tool cmd foo'
-# Known limit (AUTO-SR-4 shortcut): an unresolvable command word WITH a plain argument.
-for c in 'echo del x | ${!v} foo' 'echo del x | "$(printenv COMSPEC)" foo'; do
-  assert_green "known limit, unresolvable command word + word: $c" -- h "$c"
+# Accepted false refusal: a directory named cmd as the last path component reads as cmd.
+for c in "go run ./cmd" "unknown-tool ./cmd"; do
+  assert_red "accepted false refusal, a directory named cmd: $c" --contains "no gate reads" -- h "$c"
 done
-for c in 'go run /abs/proj/cmd/server' '"$PNPM" install' '$EDITOR file.txt'; do
-  assert_green "not a cmd launch: $c" -- h "$c"
+# AUTO-SR-4 / AUTO-SR-6 (#1294): a dynamic command word fails closed, with or without an
+# argument, unless a literal assignment in the same command resolves it to a non-shell.
+for c in 'echo del x | winpty "$COMSPEC"' 'x=$COMSPEC; echo del x | $x' 'x=$COMSPEC; echo del x | $x foo' \
+         'x="$COMSPEC"; $x /c dir' 'a=cmd; b=$a; $b foo' \
+         'echo del x | "$(printenv COMSPEC)"' 'echo del x | ${!v}' '"$SH" < x.bat' \
+         'echo del x | ${!v} foo' 'echo del x | "$(printenv COMSPEC)" foo' 'echo del x | `printenv COMSPEC` foo'; do
+  assert_red "dynamic command word: $c" --contains "no gate reads" -- h "$c"
+done
+# Accepted false refusal: a dynamic command word the command itself does not assign.
+for c in '"$PNPM" install' '$EDITOR file.txt'; do
+  assert_red "accepted false refusal, unassigned dynamic command word: $c" --contains "no gate reads" -- h "$c"
+done
+for c in 'PNPM=pnpm; $PNPM install' 'a=pnpm; b=$a; "$b" install'; do
+  assert_green "dynamic command word resolved from a literal assignment: $c" -- h "$c"
 done
 # CR-M-4 (#1294): a decoy install in one quoted argument must not exempt a launch in the
 # next one, or past a `;` inside a -c string, and a flat `concurrently` runs every word.
