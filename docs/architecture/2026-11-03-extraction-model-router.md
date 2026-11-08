@@ -74,6 +74,117 @@ the sections are corrected in place; the shipped limits are listed in
     fails closed; the seven-day rule stays.
 12. **The §5.3 signals get new tables, and the 5.5b task owns the first call site (§7.2).**
 
+### Amendment 2026-11-08 — hosted-only
+
+**Owner decision, 2026-11-08 (A3, taken by the owner; written up by the architect).** This amendment is normative. Where an
+older section of this ADR disagrees with it, this amendment wins, and the older section carries a "Superseded 2026-11-08"
+note pointing here.
+
+1. **The local model is withdrawn.** The server never runs a local LLM runtime for extraction. The measured cause is the
+   MP-04 replay of the one candidate, qwen2.5-1.5b, on the production host. It reached an MP-03 schema-valid rate of 0.68
+   (uk) and 0.32 (en) and a field accuracy of 0.16 and 0.14. After an abort, the CPU stayed busy for 36 s against a
+   10 s limit. The owner stopped the replay. The extraction compose project, the weights volume and the images were
+   removed from production.
+2. **The router uses free hosted models only: Gemini, Groq and OpenRouter.** OpenRouter returns as a route (D3 is
+   superseded, §4.3). The owner bought $10 of OpenRouter credits, which raises the `:free` limit to 1000 requests a day.
+   **Only free models are ever used**, never a paid one (§3.5).
+3. **When every provider, model and limit is exhausted, the user sees a localized error** (uk and en, through Lingui),
+   not a slow fallback and not an empty result (H.2, H.8).
+
+What it supersedes: Decision items 2, 6, 7 and 8; D3, D8 and D9; the local route of §2.1, §2.4, §3.1 and §3.3; §5.3 "slow,
+never a silent failure"; §5.4 (the small dose); the local phase of §6.2; the tasks 5.4c-7 and 5.4c-8; and §8 as a whole
+(withdrawn, kept as the record of the attempt). D1, D2, D4–D7 and D10 stand unchanged.
+
+#### H.1 Router config without a local route (HIGH)
+
+- **Providers.** `HOSTED_PROVIDERS` is `gemini`, `groq`, `openrouter`. `HOSTED_BASE_URLS` gains
+  `openrouter: 'https://openrouter.ai/api/v1'`, a package constant like the other two. `RouterProvider` is `HostedProvider`;
+  the value `local` disappears from the router's types.
+- **Removed:** `localRouteSchema`, `LocalRouteConfig`, `floorBudgetMs`, `MAX_FLOOR_BUDGET_MS`, `LOCAL_TIMEOUT_LIMIT_MS`,
+  `isAllowedRouterLocalModelUrl`, `localRuntimeKey`, `ROUTER_LOCAL_MODEL_URL` and the local single-flight queue.
+- **A stale config fails closed.** `routerConfigSchema` stays `.strict()`, and `local` is not in the provider enum. A config
+  that still carries `floorBudgetMs` or a `local` route is therefore refused (`CONFIG_REFUSED`; the adapter answers
+  `NOT_CONFIGURED`). It is never silently stripped into a different config.
+- **The two local refines and their replacement.**
+  - `routes.at(-1)?.provider === 'local'` has no successor. Routes are tried in config order, as §5.2 already says.
+  - `floorBudgetMs >= MAX_SMALL_DOSE_GROUPS * local.timeoutMs` becomes
+    `hostedBudgetMs >= Math.max(...routes.map((r) => r.timeoutMs))`. The idea is the same: the budget must hold one whole
+    request of the route it protects. It now protects the slowest configured route instead of the floor. The refine stays
+    total, so a failed `routes` (empty) reaches it without throwing.
+  - Unique providers per route list: kept. `routes` stays `.min(1).max(3)`.
+- **`hostedBudgetMs` is positive** (it was non-negative only so that a local-only config could carry 0).
+- **The route schema is a discriminated union on `provider`.** The OpenRouter member has one extra required field,
+  `dataCollection: 'allow' | 'deny'`, with no default (§3.5, open decision OD-1). The Gemini and Groq members refuse it.
+- **The call ceiling is the hosted budget.** `routerCallCeilingMs(config)` returns `config.hostedBudgetMs`. On the
+  collection side, `CALL_CEILING_MS` becomes `MAX_HOSTED_BUDGET_MS` (120 s) instead of 120 s plus six local requests of up to
+  300 s each, and `WORKER_STRUCTURER_TIMEOUT_MS`, `WORKER_ADAPTER_TIMEOUT_MS` and `WORKER_HOLD_MS` shrink with it. §5.5 is
+  unchanged otherwise: one request in flight, a real abort, a coded `TIMEOUT` before the transport's.
+
+#### H.2 The all-exhausted outcome: `LIMITS_EXHAUSTED` (HIGH for the behaviour, MED for the name)
+
+- **A new public code.** `INFERENCE_ERROR_CODES` gains `LIMITS_EXHAUSTED`. The name is cheap to change until it ships.
+- **Definition.** A router call ends `LIMITS_EXHAUSTED` only when all three hold:
+  1. it produced no answer;
+  2. the set of **available** routes is non-empty. A route is available when it is configured, its key is present and its
+     provider is not `AUTH`-disabled;
+  3. every available route ended the call **limit-blocked**: its own cap refused a unit (`CAP`, D5 unchanged); or every
+     model it could try is spent for the provider day (`SPENT_DAY` in this call, or a spent entry in route state); or its
+     provider's `CREDIT` bit is set.
+- **How it differs from a transient failure.** A route that ended `BUSY`, `TIMEOUT`, `TRANSPORT`, `INVALID_OUTPUT`,
+  `REFUSED`, `FIT`, `BUDGET` (the call's own time ran out) or `RETIRED` with nothing left to try is **not** limit-blocked.
+  If any available route ended that way, the call keeps today's codes: `PROVIDER_ERROR`, `INVALID_OUTPUT` when the record
+  caused it, or `TIMEOUT` on an abort. A busy route recovers in minutes; an exhausted one waits hours for its reset. So a
+  mix of one spent and one busy route is transient, and HR never sees "limits exhausted" for a quarter-hour blip. The
+  reverse error is impossible by construction: when every route is limit-blocked, the code is always `LIMITS_EXHAUSTED`.
+- **Neighbouring cases.** Every available route `AUTH`-disabled, or no route available: `PROVIDER_ERROR` plus the existing
+  `HOSTED_ROUTES_DEAD` flag (wrong or revoked keys, an operator problem, not limits). No route configured at all:
+  `NOT_CONFIGURED`.
+- **Router event.** `EXHAUSTED`, carrying the per-route reasons (route, internal code; never text), replaces
+  `FELL_TO_LOCAL`. The `onEvent` callback stays mandatory.
+- **No reset time in the port result.** `ExtractionResult` keeps `{ ok: false, code }`. The user message says "try again
+  later" and needs no time; a reset time would widen a cross-package contract for no reader.
+- **The extraction worker passes the code through unchanged**, like `NOT_CONFIGURED`, `PROVIDER_ERROR`, `INVALID_OUTPUT` and
+  `TIMEOUT` (Amendment 2026-11-06 item 8). The worker's reply envelope schema adds it. The adapter must not fold it into
+  `PROVIDER_ERROR`.
+- **The collection cycle (`ModelStructurer`).** `BY_INFERENCE_CODE` maps `LIMITS_EXHAUSTED` to a new `ModelStop` kind,
+  `LIMITS_EXHAUSTED`, with no cause field. On that stop:
+  - the model stage stops for the rest of the cycle, with no further port call;
+  - the record that met it and every remaining record stay **owed**. They are not counted in `modelAttempts` and are
+    never parked; `settleModelPending` treats them as it treats `BUDGET_EXHAUSTED`. The checkpoint is the existing owed
+    set, so the next cycle retries them;
+  - the deterministic stages run on, and fields they produced are still written.
+- **Why a new kind and not `BUDGET_EXHAUSTED`.** That stop is the CRM's own per-cycle budget (`HTML_MODEL_CALLS_PER_CYCLE`),
+  always clear by the next cycle and invisible to users. **Why not `MODEL_UNAVAILABLE`.** That stop means the config or
+  transport is broken and the owner must act. `LIMITS_EXHAUSTED` is a normal daily state that clears itself at reset, and
+  it is the one the user is told about.
+- **Health flag.** `MODEL_HEALTH_FLAG_VALUES` gains `MODEL_LIMITS_EXHAUSTED`. It is raised on the stop (or by the readiness
+  answer of H.3) and cleared by the first successful call or `READY` readiness of a later cycle. It is emitted once per
+  cycle through the existing `claimEmissions`, at warn level, not error: it is expected under load. `MODEL_ROUTE_VALUES`
+  gains `openrouter` and keeps `local`, so a historical row stays valid. Both are CHECK constraints on
+  `job_model_health_flags` and `job_model_route_daily`, so this is forward DDL in `manual-staged/` (critical path).
+
+#### H.3 Preflight becomes a readiness check that sends nothing (HIGH)
+
+- **What it was.** Up to four attempts, 10 s, 30 s and 60 s apart (`PREFLIGHT_BACKOFF_MS`), each sending the synthetic
+  `PREFLIGHT_INPUT` through `localOnlyRouterConfig`. It existed to wait out the local model's cold load (§5.3, MP-04).
+- **Why not a hosted probe instead.** A probe through the hosted routes would spend a free request on every cycle, from
+  the same daily limit the vacancies need. The daily refresh (§3.4) already probes the model lists.
+- **What it is now.** The worker's `/preflight` reads its own route state (spent entries, `CREDIT` and `AUTH` bits, own-cap
+  counters), sends **no model request**, and answers one of:
+  - `READY`: at least one available route is not limit-blocked;
+  - `LIMITS_EXHAUSTED`: routes are available, and every one is limit-blocked;
+  - `NO_ROUTE`: no route has a key, or every route is `AUTH`-disabled.
+
+  It reads the own-cap counters and reserves no unit.
+- **What the collection side does with it.**
+  - `READY`: the model stage runs.
+  - `LIMITS_EXHAUSTED`: the model stage is skipped with the H.2 stop and zero calls.
+  - `NO_ROUTE`, or the worker unreachable: `MODEL_UNREACHABLE`. Its meaning narrows to "the worker or its routes".
+- **One attempt, no backoff.** `PREFLIGHT_BACKOFF_MS` and the multi-attempt loop in `reachModel` go, and so do
+  `PREFLIGHT_INPUT`, `PREFLIGHT_INSTRUCTION` and `localOnlyRouterConfig`. `preflightReplySchema` becomes the three-value
+  answer. A worker that is down is retried by the next cycle.
+- **`READY` is advisory.** Limits can run out mid-cycle; H.2 covers that.
+
 ## Context
 
 The owner decided on 2026-10-18 that vacancy extraction runs on Gemini, Groq, OpenRouter and the local model: a
