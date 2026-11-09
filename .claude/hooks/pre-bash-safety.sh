@@ -203,10 +203,10 @@ def pkg_launch(seg, depth=0):
         if is_value and dynamic_word(rest[0]):
             rest = ["value"] + rest[1:]
         head = rest[:rest.index("--")] if "--" in rest else rest
-        for k, w in enumerate(head):  # CR-H-14: any shell-mode word before --, fail closed
+        for k, w in enumerate(head):  # CR-H-14: any option may carry code (prefix, bundle)
             o, eq, v = w.partition("=")
-            if o in ("-c", "--call", "--shell-mode") and (eq or k + 1 < len(head)):
-                lines.append(["sh", "-c", v if eq else head[k + 1]])
+            if w[:1] == "-":
+                lines += [["sh", "-c", x] for x in ([v] if eq else [w] + head[k + 1:k + 2])]
         lines += [rest] + ([rest[rest.index("--") + 1:]] if "--" in rest else [])
     out = []
     for words in lines:

@@ -1036,7 +1036,8 @@ block	safety	pnpm --filter x x $y
 block	safety	npm --prefix x x $y
 block	safety	yarn --cwd dlx dlx $y
 block	safety	bun --cwd x x $y
-# CR-H-14 of #1294: -c / --call / --shell-mode anywhere after a launch word, before --, carries a shell command.
+# CR-H-14 of #1294: after a launch word, any option before -- may carry a shell command
+# (prefix abbreviations, short-flag bundles): its `=` value or the next word is read as `sh -c`.
 # pnpm exec vitest run "$FILE" and pnpm --filter @crm/api test are rows above.
 block	safety	npm exec -c "$x"
 block	safety	npm x -c "$x"
@@ -1052,8 +1053,14 @@ block	safety	pnpm exec --silent --shell-mode=$x
 block	safety	pnpm exec --reporter silent --shell-mode=$x
 block	safety	pnpm exec -w -c 'rm -rf /etc'
 block	safety	npm exec --registry x -c 'rm -rf /etc'
-# Accepted false refusal: no value-option table, so a tool's own dynamic -c fails closed.
+block	safety	npm exec --cal "$x"
+block	safety	npm exec --shell "$x"
+block	safety	npm exec -yc "$x"
+block	safety	npm exec --shell-m='rm -rf /etc'
+# Accepted false refusals: a dynamic word after any option fails closed.
 block	safety	pnpm exec vitest -c "$cfg"
+block	safety	npm exec --package $p foo
+block	safety	pnpm exec vitest run --reporter $r
 allow	safety	npm exec -c 'echo hi'
 allow	safety	npm exec --yes -c 'echo hi'
 allow	safety	pnpm exec vitest -c vitest.config.ts
