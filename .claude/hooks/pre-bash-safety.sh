@@ -442,71 +442,75 @@ for seg in scan.segments:
 # gate reads the body. Agents never need an alias or expand_aliases, so defining one (an
 # `=` in the arguments), writing BASH_ALIASES, or `shopt -s expand_aliases` refuses.
 # Listing (`alias`, `alias ls`) stays allowed.
-# AUTO-SR-11: any word naming BASH_ALIASES refuses (assignment, `+=`, compound,
-# `printf -v`, `read`, `declare`, `mapfile`), and so does posix mode, which turns alias
-# expansion on in a non-interactive bash: `set -o posix`, `shopt -so posix`,
-# `bash --posix` and any POSIXLY_CORRECT assignment. Accepted false refusal: a message or
-# a search that mentions BASH_ALIASES.
-# AUTO-SR-13: a nameref (`declare -n a=BASH_ALIASES`) or a dynamic assignment target
-# (`printf -v "$t"`, `read "$t"`, `declare "$t"=x`) can write the alias table under a
-# name no check sees, so both refuse. AUTO-SR-14: SHELLOPTS turns posix mode on like
-# POSIXLY_CORRECT, and a dynamic option to set, shopt or `bash -o` may be posix.
-POSIX_VARS = ("POSIXLY_CORRECT", "SHELLOPTS")
-DECLARERS = ("declare", "typeset", "local", "export", "readonly")
+# AUTO-SR-11 / AUTO-SR-14 / AUTO-SR-16..18 (#1294): the per-position checks kept missing
+# routes, so they are replaced by a coarse rule. A command whose raw text names the alias
+# table or posix mode refuses outright: BASH_ALIASES, POSIXLY_CORRECT, SHELLOPTS,
+# expand_aliases, or the word posix, in any case (posix mode turns alias expansion on in a
+# non-interactive bash). Accepted false refusal: a message or a search that mentions one.
+# `alias` refuses on any argument with `=` or a dynamic one; listing (`alias`, `alias ls`)
+# stays allowed. A builtin that assigns to a name it reads from its arguments refuses on
+# any dynamic argument, because the name may be BASH_ALIASES under a spelling no check sees.
+# Accepted false refusals: `local x="$1"`, `export PATH="$HOME/bin:$PATH"`.
+# AUTO-SR-13: a nameref (`declare -n a=BASH_ALIASES`) refuses in any reading.
+# set, shopt and bash/sh refuse on a dynamic option word, which may name posix.
+ALIAS_WORDS = re.compile(r"BASH_ALIASES|POSIXLY_CORRECT|SHELLOPTS|expand_aliases|\bposix\b", re.I)
+DECLARERS = ("declare", "typeset", "local", "export", "readonly", "read", "mapfile",
+             "readarray", "getopts", "let")
 
 
-def assignment_targets(name, args):
-    # The words a builtin assigns to: `printf -v T`, the operands of read / mapfile, the
-    # names before `=` for declare and friends. Option values of read count too (fail closed).
-    if name == "printf":
-        for i, a in enumerate(args):
-            if a == "-v" and i + 1 < len(args):
-                yield args[i + 1]
-            elif a.startswith("-v") and len(a) > 2:
-                yield a[2:]
-    elif name in ("read", "mapfile", "readarray") + DECLARERS:
-        for i, a in enumerate(args):
-            # A reading repeats the value of `x=$1` as its own word; that copy is a value, not a target.
-            if i and "=" in args[i - 1] and args[i - 1].split("=", 1)[1] == a:
-                continue
-            if a != "--" and not a.startswith(("-", "+")):
-                yield a.split("=", 1)[0]
+def short_opts(args, letters):
+    # A short option cluster (`-n`, `-gn`, `+O`) that contains one of `letters`.
+    return any(a[:1] in "-+" and a[1:2] not in ("", "-") and set(a[1:]) & set(letters)
+               for a in args)
 
 
-def alias_route(seg, cand):
+def assigns(name, args):
+    return (name in DECLARERS or (name == "printf" and any(a.startswith("-v") for a in args))
+            or (name == "wait" and short_opts(args, "p")))
+
+
+def shell_opts_dynamic(args):
+    # Every word before the first operand or `-c`, the operand included, plus the argument
+    # an `-o` / `-O` cluster takes.
+    takes = False
+    for a in args:
+        if dynamic_word(a):
+            return True
+        if a in ("-c", "--"):
+            return False
+        if a[:1] in "-+" and len(a) > 1:
+            takes = a[1:2] != "-" and bool(set(a[1:]) & set("oO"))
+        elif takes:
+            takes = False
+        else:
+            return False
+    return False
+
+
+def alias_route(cand):
     name = cand.name.lstrip("\\")
     args = list(cand.argv)
-    opts = [a for a in args if a.startswith(("-", "+")) and a not in ("-", "--")]
-    if name == "alias" and any("=" in a for a in args):
+    if name == "alias":
+        return any("=" in a or dynamic_word(a) for a in args)
+    if name in ("declare", "typeset", "local") and short_opts(args, "n"):
         return True
-    if name == "shopt" and "expand_aliases" in args:
-        return True
-    if name in ("set", "shopt", "bash", "sh") and ("posix" in args or "--posix" in args):
-        return True
+    if assigns(name, args):
+        return any(dynamic_word(a) for a in args)
     if name in ("set", "shopt"):
         before = args[:args.index("--")] if "--" in args else args
-        if any(dynamic_word(a) for a in before):
-            return True
+        return any(dynamic_word(a) for a in before)
     if name in ("bash", "sh"):
-        for i, a in enumerate(args):
-            if a in ("-o", "+o") and i + 1 < len(args) and dynamic_word(args[i + 1]):
-                return True
-    if name in ("declare", "typeset", "local") and any(
-            "n" in o.lstrip("-+") for o in opts if not o.startswith("--")):
-        return True
-    if any(dynamic_word(t) for t in assignment_targets(name, args)):
-        return True
-    if any(v in seg.env or v in cand.env for v in POSIX_VARS):
-        return True
-    if re.search(r"\b(POSIXLY_CORRECT|SHELLOPTS)\s*\+?=", seg.raw or ""):
-        return True
-    return "BASH_ALIASES" in (seg.raw or "")
+        return shell_opts_dynamic(args)
+    return False
 
 
+if not blocked and ALIAS_WORDS.search(cmd):
+    blocked.append("defining an alias, or enabling alias expansion, hides a command "
+                   "body no gate reads")
 for seg in scan.segments:
     if blocked:
         break
-    if any(alias_route(seg, cand) for cand in candidates(seg)):
+    if any(alias_route(cand) for cand in candidates(seg)):
         blocked.append("defining an alias, or enabling alias expansion, hides a command "
                        "body no gate reads")
 

@@ -853,7 +853,17 @@ block	safety	SHELLOPTS=posix bash -c x
 allow	safety	declare -a arr
 allow	safety	printf -v out '%s' x
 allow	safety	read -r line
-allow	safety	local x="$1"
+# AUTO-SR-16..18 of #1294: a coarse rule. The raw text naming the alias table or posix mode
+# refuses; an assigning builtin and `alias` refuse on a dynamic word.
+block	safety	echo $POSIXLY_CORRECT
+block	safety	export SHELLOPTS
+block	safety	bash -O expand_aliases -c x
+block	safety	alias "$a"
+block	safety	declare "$v"=1
+block	safety	getopts ab "$o"
+allow	safety	export FOO=bar
+# Accepted false refusal (AUTO-SR-18): a dynamic value given to an assigning builtin.
+block	safety	local x="$1"
 # AUTO-SR-12 / AUTO-SR-15 of #1294: no exception for a package version.
 block	safety	npx pkg@$(echo x)
 block	safety	pkg@$x

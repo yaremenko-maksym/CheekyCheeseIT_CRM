@@ -671,9 +671,21 @@ for c in 'declare -n a=BASH_ALIASES' 'local -n r=x' 'typeset -gn r=x' 'printf -v
          'set -o "$m"' 'shopt -s "$m"' 'bash -o "$m" -c ls' 'SHELLOPTS=posix bash -c x'; do
   assert_red "nameref, dynamic target or dynamic shell option: $c" --contains "alias" -- h "$c"
 done
-for c in 'declare -a arr' "printf -v out '%s' x" 'read -r line' 'local x="$1"' 'declare x=$y' \
-         'readonly R="$1"'; do
-  assert_green "literal assignment target: $c" -- h "$c"
+for c in 'declare -a arr' "printf -v out '%s' x" 'read -r line' 'export FOO=bar' 'alias' 'alias ls' \
+         'set -euo pipefail' 'bash -euo pipefail script.sh "$arg"'; do
+  assert_green "no dynamic word for an assigning builtin, no alias-table name: $c" -- h "$c"
+done
+# AUTO-SR-16..18 (#1294): a coarse rule. The raw text naming the alias table or posix mode
+# refuses; an assigning builtin, `alias`, set/shopt and the bash/sh options refuse on a
+# dynamic word.
+for c in 'echo $POSIXLY_CORRECT' 'export SHELLOPTS' 'bash -O expand_aliases -c x' 'alias "$a"' \
+         'declare "$v"=1' 'getopts ab "$o"' 'let "$x"' 'wait -p "$v" 1' 'printf -v"$t" x' \
+         'bash +O "$m" -c ls' 'bash -eO "$m" -c ls' 'echo POSIX'; do
+  assert_red "alias table, posix mode or a dynamic assigning word: $c" --contains "alias" -- h "$c"
+done
+# Accepted false refusal: a dynamic value given to an assigning builtin.
+for c in 'local x="$1"' 'declare x=$y' 'readonly R="$1"' 'export PATH="$HOME/bin:$PATH"'; do
+  assert_red "accepted false refusal, dynamic word to an assigning builtin: $c" --contains "alias" -- h "$c"
 done
 # AUTO-SR-12 / AUTO-SR-15 (#1294): no exception for a package version; a dynamic word in a
 # command position refuses. Accepted false refusal: `npx -y pkg@$VER`.
