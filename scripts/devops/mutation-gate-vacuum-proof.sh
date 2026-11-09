@@ -29,11 +29,20 @@
 # go red on and then suppress. Before the extraction that was the production
 # `img: () => null` (null vs undefined: React renders nothing for both). The
 # extraction replaced it with `disallowedElements`, so the shipped component has
-# no known equivalent mutant left. Every arm therefore plants that same
-# `img: () => null,` property back into `MARKDOWN_COMPONENTS` of the working
-# copy. It is inert by construction: `disallowedElements={['img']}` removes every
-# image node before any component runs, so no test can kill its mutant. The plant
-# is the pre-extraction shape, restored on exit like every other edit here.
+# no known equivalent mutant left. Every arm therefore plants one line into the
+# working copy, just above `MARKDOWN_COMPONENTS` (inside the defence range):
+#
+#   export const VACUUM_PROOF_PLANT = 'inert'
+#
+# It yields exactly ONE mutant (StringLiteral `""`). Nothing reads it, so no test
+# can kill it; it is exported, so no unused-variable check can trip on it.
+#
+# Why NOT an image-related plant (finding SO-2b, PR #1302): re-planting
+# `img: () => null` adds a SECOND image ban. With it present, emptying
+# `NO_IMAGES` (the real defence) is unobservable, so the plant turned two real
+# defence mutants (NO_IMAGES `[]` and `""`) into survivors: arm 1 saw 3
+# survivors, not 1. A plant must not overlap any defence behaviour. Restored on
+# exit like every other edit here.
 #
 # WHAT THIS SCRIPT SHOWS, in four arms against that defence block:
 #
@@ -127,7 +136,7 @@ PASS=0
 FAIL=0
 
 # Line range of the render-side defence: from `MARKDOWN_URL_TRANSFORM` to the
-# closing `}` of `MARKDOWN_COMPONENTS` (so `NO_IMAGES` and the planted `img:` are
+# closing `}` of `MARKDOWN_COMPONENTS` (so `NO_IMAGES` and the planted constant are
 # inside). Anchored on the END symbol, not on the first `^}$`: the transform has
 # its own closing brace, and stopping there silently drops the rest of the
 # defence. Recomputed each arm because the plant shifts the lines. Prints
@@ -162,21 +171,21 @@ run_gate() {
 }
 
 # Rewrites $COMPONENT from the pristine backup with the planted
-# `img: () => null,` as the first property of `MARKDOWN_COMPONENTS` (see the
-# header), optionally preceded by a `// <directive>` comment ($1). python3 rather
-# than sed/perl: it is already a hard dependency of every guard in this
-# directory, and its behaviour does not differ between the BSD tools on macOS and
-# the GNU tools on the runner.
-plant_img() {
+# `export const VACUUM_PROOF_PLANT = 'inert'` on the line just above
+# `MARKDOWN_COMPONENTS` (see the header), optionally preceded by a
+# `// <directive>` comment ($1). python3 rather than sed/perl: it is already a
+# hard dependency of every guard in this directory, and its behaviour does not
+# differ between the BSD tools on macOS and the GNU tools on the runner.
+plant_inert() {
   python3 - "$BACKUP/component" "$COMPONENT" "${1:-}" <<'PY'
 import re, sys
 src_path, out_path, directive = sys.argv[1], sys.argv[2], sys.argv[3]
 src = open(src_path, encoding='utf-8').read()
 m = re.search(r'^const MARKDOWN_COMPONENTS: Components = \{\n', src, re.M)
 if not m:
-    sys.exit("vacuum-proof: could not find `const MARKDOWN_COMPONENTS: Components = {` to plant into")
-plant = (f"  // {directive}\n" if directive else "") + "  img: () => null,\n"
-open(out_path, 'w', encoding='utf-8').write(src[:m.end()] + plant + src[m.end():])
+    sys.exit("vacuum-proof: could not find `const MARKDOWN_COMPONENTS: Components = {` to plant above")
+plant = (f"// {directive}\n" if directive else "") + "export const VACUUM_PROOF_PLANT = 'inert'\n\n"
+open(out_path, 'w', encoding='utf-8').write(src[:m.start()] + plant + src[m.start():])
 PY
 }
 
@@ -223,24 +232,24 @@ echo "#   diff base : $BASE ($ADD_COMMIT — the commit that added the component
 echo "######################################################################"
 
 # ── ARM 1: the real test ──────────────────────────────────────────────────────
-plant_img || exit 2
-run_gate "1/4  real tests (as they are on main) + the planted img survivor"
+plant_inert || exit 2
+run_gate "1/4  real tests (as they are on main) + the planted inert survivor"
 RC=$?
 KILLED_REAL="$(count_status Killed)"
 SURVIVED_REAL="$(count_status Survived)"
 echo
 expect       "arm 1 — gate is RED (a survivor in changed code fails the check)" "$RC" 1
 expect_at_least "arm 1 — the real test kills the defence mutants"              "$KILLED_REAL" 4
-expect       "arm 1 — exactly one survivor left (the planted img mutant)"      "$SURVIVED_REAL" 1
+expect       "arm 1 — exactly one survivor left (the planted inert mutant)"      "$SURVIVED_REAL" 1
 
 # ── ARM 2: suppression WITH a reason ──────────────────────────────────────────
-plant_img 'Stryker disable next-line ArrowFunction: React renders nothing for both null and undefined, so no assertion can distinguish the two' || exit 2
+plant_inert 'Stryker disable next-line StringLiteral: the planted constant is read by nothing, so no assertion can observe its value' || exit 2
 run_gate "2/4  real test + suppression WITH a reason"
 RC=$?
 expect "arm 2 — a suppression that states why is accepted" "$RC" 0
 
 # ── ARM 3: suppression WITHOUT a reason ───────────────────────────────────────
-plant_img 'Stryker disable next-line ArrowFunction' || exit 2
+plant_inert 'Stryker disable next-line StringLiteral' || exit 2
 GATE3_OUT="$(
   run_gate "3/4  real test + suppression WITHOUT a reason"
   echo "RC=$?"
@@ -260,7 +269,7 @@ case "$GATE3_OUT" in
 esac
 
 # ── ARM 4: the vacuum test (the whole point) ──────────────────────────────────
-plant_img || exit 2
+plant_inert || exit 2
 cp "$VACUUM_FIXTURE" "$TEST_FILE"
 rm -f "${NEWER_DEFENCE_TESTS[@]}"
 run_gate "4/4  VACUUM test (c71f7fe2, pre-fix — 11 green tests)"
