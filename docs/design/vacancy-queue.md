@@ -53,7 +53,7 @@ row), the footer carries **no** primary; tab counts are the authorized totals an
   brand yellow, used for **stack matches and the one action per senior**.
 - **Memorable detail:** the **working surface is the senior list**. A vacancy is not "taken"; each of the actor's
   seniors has its own state (not submitted / submitting / submitted / excluded by stop-list). Matched stack tokens
-  are highlighted in the same amber on the row, the card chips and the senior's «Збіг за:» line, so the eye links
+  are highlighted in the same amber on the card chips and the senior's «Збіг за:» line, so the eye links
   "what the vacancy wants" to "who has it".
 - **Constraints:** Tailwind v4 + shadcn/ui, `uk` default + `en`, WCAG 2.2 AA, 320–1440+, no hover-only action.
 
@@ -186,10 +186,10 @@ appears from 560 px.
 | Line 1                   | [«Потребує розгляду» badge for triage] · seniority badge (omitted when unknown) · flags (§4.6) |
 | Title                    | `font-semibold`, clamp 2 lines, `overflow-wrap:anywhere`; full text in the card                |
 | Company                  | Source icon (20 px chip) + company, single-line truncate                                       |
-| Stack chips              | Up to 4 + «+K»; matched tokens use the **hit** style (amber), the rest neutral                 |
-| Meta (right column ≥720) | Publication age, `data-slot="matched-count"`, `+N також на …`                                  |
+| Stack chips              | Up to 4 + «+K» from `matchedKeywords`, neutral style (the hit style lives on the card, §5.1)   |
+| Meta (right column ≥720) | Publication age, `data-slot="matched-count"`, «+N на інших джерелах»                           |
 
-- **Delivery of these slots (owner decision 2026-11-07):** the seniority badge, stack chips and the right column ship in PR #1283; matched tokens and also-seen source names are tracked in backlog item 382 and decided at the start of Task 7.3.
+- **Delivery of these slots (owner decision 2026-11-07; backlog item 382 decided at Task 7.3):** the seniority badge, stack chips and the right column ship in PR #1283. The row drops the matched-token hit style and the also-seen source **names**: its chips are `matchedKeywords` only, and the list item carries only `alsoSeenOnCount`. The card carries both — the hit-style «Збіг стеку» chips and the named «Також опубліковано на:» rows (§5.1 items 5 and 6).
 - **Publication age** uses the trusted date: «Опубліковано 2 дні тому». Unknown: «Дата публікації невідома ·
   вперше побачено 3 дні тому» with a calendar-off icon. When last-observed is notably older, add «востаннє бачили
   вчора» as a plain muted phrase. The pairs «вперше побачено», «востаннє бачили», "first seen", "last seen" and
@@ -197,7 +197,7 @@ appears from 560 px.
 - **Matched count:** «3 сеньйори вашої команди мають збіг стеку» (plural via Lingui; uk one/few/many/other, en one/other).
   Hidden at 0. ADMIN in studio scope reads «3 сеньйори мають збіг стеку». On the «Подані» tab — the only place the actor's team has submissions; «Нові» rows never carry it — a **separate**
   clause follows on the same line, wrapping on mobile: «✓ 1 подано» / "✓ 1 submitted". Never «1 з 3».
-- **`+N також на DOU, Djinni`:** from `totalAlsoSeenOnCount`; the count always shows, names truncate first.
+- **«+N на інших джерелах»:** from `alsoSeenOnCount`; a count only, no source names (they are on the card, §5.1 item 5). Hidden at 0.
 - Triage rows replace the stack line with the reason: «Роботодавця не вдалося підтвердити» (the badge already says
   «Потребує розгляду», so the reason does not repeat it).
 
@@ -383,7 +383,7 @@ Length rule: measure the longer language at 320 px; Ukrainian is ≈15–30 % lo
 | row: seniors (HR)                  | `{n, plural, one {# сеньйор вашої команди має збіг стеку} few {# сеньйори вашої команди мають збіг стеку} many {# сеньйорів вашої команди мають збіг стеку} other {# сеньйора вашої команди мають збіг стеку}}`                               | `{n, plural, one {# senior on your team matches the stack} other {# seniors on your team match the stack}}`                                                                                                                                  |
 | row: seniors (ADMIN, studio)       | `{n, plural, one {# сеньйор має збіг стеку} few {# сеньйори мають збіг стеку} many {# сеньйорів мають збіг стеку} other {# сеньйора мають збіг стеку}}`                                                                                       | `{n, plural, one {# senior matches the stack} other {# seniors match the stack}}`                                                                                                                                                            |
 | row: companion                     | {n} подано                                                                                                                                                                                                                                    | {n} submitted                                                                                                                                                                                                                                |
-| row: also on                       | +{n} також на {list}                                                                                                                                                                                                                          | +{n} also on {list}                                                                                                                                                                                                                          |
+| row: also on                       | +{n} на інших джерелах                                                                                                                                                                                                                        | +{n} on other sources                                                                                                                                                                                                                        |
 | posted / unknown (no-break spaces) | Опубліковано {ago} · Дата публікації невідома · вперше побачено {ago} · востаннє бачили {ago}                                                                                                                                                 | Posted {ago} · Publication date unknown · first seen {ago} · last seen {ago}                                                                                                                                                                 |
 | triage                             | Потребує розгляду · Роботодавця не вдалося підтвердити · Сеньйорів не підібрано автоматично                                                                                                                                                   | Needs review · Employer could not be verified · No seniors matched automatically                                                                                                                                                             |
 | flags                              | Оновлено · Можливий дублікат                                                                                                                                                                                                                  | Updated · Possible duplicate                                                                                                                                                                                                                 |

@@ -1,6 +1,7 @@
 /**
  * r5 Task 7.2 — the /job-queue page wired to the real data hook (`useJobQueue`) and the real
- * `useActiveTeams`; only the network (`api.get`), the session and the router are stubbed.
+ * `useActiveTeams`; only the network (`api.get`), the session, the router and the card (Task 7.3,
+ * own suite) are stubbed.
  * The router stub follows interviews/__tests__/index.test.tsx: `Route.useSearch()` answers
  * the test's own search state, `useNavigate()` records the target.
  */
@@ -30,6 +31,30 @@ vi.mock('@tanstack/react-router', async (orig) => {
 vi.mock('@/lib/axios', () => ({ api: { get: vi.fn() } }))
 vi.mock('@/context/auth', () => ({ useAuth: vi.fn() }))
 vi.mock('@/context/onboarding', () => ({ useOnboardingGate: () => ({ isComplete: true }) }))
+// The card has its own suite (components/job-queue/__tests__/JobQueueCard.test.tsx); here only its
+// wiring to `?card=` matters, and a modal would take the page's controls out of reach.
+vi.mock('@/components/job-queue/JobQueueCard', () => ({
+  JobQueueCard: ({
+    opportunityId,
+    onClose,
+    focusFallback,
+  }: {
+    opportunityId: string
+    onClose: () => void
+    focusFallback?: { current: HTMLElement | null }
+  }) => (
+    <>
+      <button type="button" data-testid="job-queue-card-stub" onClick={onClose}>
+        {opportunityId}
+      </button>
+      <button
+        type="button"
+        data-testid="job-queue-card-stub-fallback"
+        onClick={() => focusFallback?.current?.focus()}
+      />
+    </>
+  ),
+}))
 
 import { api } from '@/lib/axios'
 import { useAuth } from '@/context/auth'
@@ -246,6 +271,37 @@ describe('/job-queue page', () => {
       to: '/job-queue',
       search: { tab: 'NEW', card: ITEM_ID },
     })
+  })
+
+  it('`?card=` opens the card for that id; closing it clears only `card`', async () => {
+    currentSearch = { tab: 'SUBMITTED', teamId: TEAM_B, search: 'go', card: ITEM_ID }
+    serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
+    renderPage()
+    const card = await screen.findByTestId('job-queue-card-stub')
+    expect(card).toHaveTextContent(ITEM_ID)
+    await userEvent.click(card)
+    expect(mockNavigate).toHaveBeenLastCalledWith({
+      to: '/job-queue',
+      search: { tab: 'SUBMITTED', teamId: TEAM_B, search: 'go' },
+    })
+  })
+
+  it.each(['HR', 'ADMIN'] as const)(
+    'CR-L-1 %s: the card falls back to the list body when its opener is gone',
+    async (role) => {
+      currentSearch = { tab: 'NEW', card: ITEM_ID }
+      serve({ role })
+      renderPage()
+      await userEvent.click(await screen.findByTestId('job-queue-card-stub-fallback'))
+      expect(screen.getByTestId('job-queue-body')).toHaveFocus()
+    },
+  )
+
+  it('no `card` in the URL: no card', async () => {
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(screen.queryByTestId('job-queue-card-stub')).toBeNull()
   })
 
   it('sends the URL filters to the server and shows filtered-empty', async () => {

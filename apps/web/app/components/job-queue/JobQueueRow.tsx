@@ -59,7 +59,7 @@ const MATCHED_ADMIN = msg`{n, plural, one {# сеньйор має збіг ст
 const MORE_KEYWORDS = msg`{n, plural, one {ще # ключове слово} few {ще # ключові слова} many {ще # ключових слів} other {ще # ключового слова}}`
 
 /* UNKNOWN has no label: an unclassified role shows no badge rather than a noise chip. */
-const SENIORITY_LABEL: Record<JobSeniorityLevel, MessageDescriptor | null> = {
+export const SENIORITY_LABEL: Record<JobSeniorityLevel, MessageDescriptor | null> = {
   MIDDLE: msg`Мідл`,
   SENIOR: msg`Сеньйор`,
   LEAD: msg`Лід`,
@@ -178,7 +178,8 @@ export function JobQueueRow({
               )}
             </span>
           )}
-          {triage && (
+          {/* all stop-listed arrives as TRIAGE too; then the stop-list line is the reason (§5.4) */}
+          {triage && !stopListedAll && (
             <span
               data-testid="job-queue-row-triage-reason"
               className="text-sm text-muted-foreground"

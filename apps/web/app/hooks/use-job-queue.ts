@@ -141,6 +141,25 @@ function useAccessLost(scope: QueueScopeSignature, error: unknown) {
   return lost
 }
 
+/**
+ * A card read (the card or one of its continuations) lost access: refresh the scope's lists, so the
+ * vacancy leaves them. Not for the list itself — refreshing its own 403 would loop. When the lost
+ * card closes, its entry and its continuations are forgotten: browser Back or a second click must
+ * ask the server again instead of repainting the names from cache. Removing them while the card is
+ * still open would refetch under its live observer, so this waits for the unmount.
+ */
+function useRefreshListsOnLoss(scope: QueueScopeSignature, id: string | null, lost: boolean) {
+  const queryClient = useQueryClient()
+  const { actorId, role, teamId } = scope
+
+  useEffect(() => {
+    if (!lost) return
+    const scopeKey = jobQueueScopeKey({ actorId, role, teamId })
+    void queryClient.invalidateQueries({ queryKey: [...scopeKey, 'list'] })
+    return () => queryClient.removeQueries({ queryKey: [...scopeKey, 'card', id] })
+  }, [lost, queryClient, actorId, role, teamId, id])
+}
+
 /** The list, one page of 20 per `nextCursor`. A scope change evicts every other scope's cache. */
 export function useJobQueue(scope: QueueScopeSignature, tab: JobQueueTab, filters: QueueFilters) {
   const queryClient = useQueryClient()
@@ -189,9 +208,11 @@ export function useJobQueue(scope: QueueScopeSignature, tab: JobQueueTab, filter
  * card's cached continuations (`useAccessLost`) and refreshes the scope's lists.
  */
 export function useJobQueueCard(scope: QueueScopeSignature, id: string | null) {
-  const queryClient = useQueryClient()
   const query = useQuery({
     queryKey: jobQueueCardQueryKey(scope, id),
+    // QA-LOW-1: not kept once the card closes, so a reopen never paints names (personal data)
+    // the server has not just confirmed for the current scope; it loads afresh
+    gcTime: 0,
     queryFn:
       id === null
         ? skipToken
@@ -203,22 +224,14 @@ export function useJobQueueCard(scope: QueueScopeSignature, id: string | null) {
           },
   })
   const accessLost = useAccessLost(scope, query.error)
-  const { actorId, role, teamId } = scope
-
-  useEffect(() => {
-    if (accessLost) {
-      void queryClient.invalidateQueries({
-        queryKey: [...jobQueueScopeKey({ actorId, role, teamId }), 'list'],
-      })
-    }
-  }, [accessLost, queryClient, actorId, role, teamId])
-
+  useRefreshListsOnLoss(scope, id, accessLost)
   return { ...query, data: accessLost ? undefined : query.data, accessLost }
 }
 
 /**
  * The continuation of a card preview (seniors past 200, sources past 20), from the preview's own
  * `nextCursor`; disabled while that cursor is `null`. `totalCount` is the server's denominator.
+ * A 403/404 here is the card's loss too: the lists are refreshed the same way.
  */
 function useContinuation<T extends { nextCursor: string | null }>(
   scope: QueueScopeSignature,
@@ -229,6 +242,8 @@ function useContinuation<T extends { nextCursor: string | null }>(
 ) {
   const query = useInfiniteQuery({
     queryKey: [...jobQueueCardQueryKey(scope, id), part, cursor],
+    // forgotten with the card (QA-LOW-1)
+    gcTime: 0,
     initialPageParam: cursor,
     queryFn:
       id === null || cursor === null
@@ -242,6 +257,7 @@ function useContinuation<T extends { nextCursor: string | null }>(
     getNextPageParam: (last) => last.nextCursor,
   })
   const accessLost = useAccessLost(scope, query.error)
+  useRefreshListsOnLoss(scope, id, accessLost)
   return { ...query, data: accessLost ? undefined : query.data, accessLost }
 }
 

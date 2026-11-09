@@ -1,0 +1,51 @@
+import { Trans } from '@lingui/react/macro'
+import { Copy } from 'lucide-react'
+import type { JobQueueCardResponseDto } from '@crm/shared'
+
+/**
+ * «У черзі є схожа вакансія» (spec §5.8): a bounded preview of the similar vacancies in the actor's
+ * own view. The «На схожу вакансію вже подано» line needs own-team submission data the card API does
+ * not send, so it is not rendered (the server never sends other teams' duplicates either, §3).
+ */
+export function PossibleDuplicates({
+  preview,
+}: {
+  preview: JobQueueCardResponseDto['possibleDuplicates']
+}) {
+  if (!preview || preview.items.length === 0) return null
+  const shown = preview.items.length
+  const total = preview.totalCount
+
+  return (
+    <div
+      data-testid="job-queue-duplicates"
+      role="note"
+      className="flex items-start gap-2 rounded-lg border bg-card p-3 text-sm"
+    >
+      <Copy aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+      <div className="flex min-w-0 flex-col gap-1">
+        <p className="font-medium">
+          <Trans>У черзі є схожа вакансія</Trans>
+        </p>
+        <ul className="flex flex-col gap-0.5">
+          {preview.items.map((item) => (
+            <li key={item.opportunityId} className="[overflow-wrap:anywhere]">
+              {item.title}
+              {item.companyName && ` · ${item.companyName}`}
+            </li>
+          ))}
+        </ul>
+        {total > shown && (
+          <p
+            data-testid="job-queue-duplicates-shown"
+            className="text-muted-foreground tabular-nums"
+          >
+            <Trans>
+              Показано {shown} із {total}
+            </Trans>
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}

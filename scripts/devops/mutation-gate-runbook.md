@@ -437,21 +437,36 @@ full run already told you where it is, never a substitute for running it.
 bash scripts/devops/mutation-gate-vacuum-proof.sh
 ```
 
-Four arms against the render-side XSS defence of `JobSuggestionDialog`:
+Four arms against the render-side XSS defence in `PostingMarkdown.tsx`
+(`MARKDOWN_URL_TRANSFORM` through the end of `MARKDOWN_COMPONENTS`, including
+`NO_IMAGES`). The defence moved there from `JobSuggestionDialog.tsx` in r5 Task
+7.3; the dialog still renders it, so the dialog's 2026-08-07 vacuum test is
+still the subject.
 
-1. the real test → 4 killed, 1 survivor → **red**
-2. real test + suppression **with** a reason → **green**
-3. real test + suppression **without** a reason → **red**
+Every arm plants `export const VACUUM_PROOF_PLANT = 'inert'` just above
+`MARKDOWN_COMPONENTS` of the working copy. Nothing reads it, so its one
+StringLiteral mutant is a known equivalent survivor for arms 1-3 to go red on
+and suppress (the shipped component no longer has one). The plant must not
+overlap any defence behaviour: re-planting `img: () => null` adds a second
+image ban, which makes emptying `NO_IMAGES` unobservable and turns two real
+defence mutants into survivors.
+
+1. the real tests → at least 4 killed, 1 survivor (the plant) → **red**
+2. real tests + suppression **with** a reason → **green**
+3. real tests + suppression **without** a reason → **red**
 4. the actual pre-fix vacuum test from 2026-08-07
    (`apps/web/app/test/fixtures/2026-08-07-JobSuggestionDialog.vacuum.tsx.txt`,
-   11 passing tests) → **0 killed, 5 survivors** → **red**
+   11 passing tests), with the newer suites that also pin the defence
+   (`PostingMarkdown.test.tsx`, `JobQueueCard.test.tsx`) set aside →
+   **0 killed, every defence mutant survives** → **red**
 
 Arm 4 is the one that matters, and its assertion is deliberately harsh: the
-vacuum test must kill **zero**. One of those five mutants deletes the entire
-`MARKDOWN_COMPONENTS` object — the whole render-side defence — and that suite
-stays green through it. If a future change makes the vacuum test kill even one
-mutant, the script fails: either the fixture stopped reproducing the original
-state or the gate's configuration drifted.
+vacuum test must kill **zero**. One of those mutants deletes the entire
+`MARKDOWN_COMPONENTS` object, another empties `NO_IMAGES` — the render-side
+defence — and that suite stays green through it. If a future change makes the
+vacuum arm kill even one mutant, the script fails: either the fixture stopped
+reproducing the original state, the gate's configuration drifted, or a new test
+now reaches the defence and belongs in the script's `NEWER_DEFENCE_TESTS`.
 
 The proof restores every file it touches, including on Ctrl-C, and runs nightly
 in the `@crm/web` sweep leg so it cannot rot.

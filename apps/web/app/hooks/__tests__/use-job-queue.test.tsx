@@ -467,6 +467,48 @@ describe('useJobQueueCard', () => {
     ).toBeDefined()
   })
 
+  it('SR-M-1: once a lost card closes, it is forgotten; reopening asks the server again', async () => {
+    const card = jobQueueCardQueryKey(scope, OPP)
+    const continuation = [...card, 'seniors', 's-200']
+    const otherAccount = jobQueueCardQueryKey({ ...scope, actorId: OTHER_ACTOR }, OPP)
+    const cardCalls = () => get.mock.calls.filter((c) => c[0] === `/job-queue/${OPP}`).length
+    client.setQueryData(otherAccount, cardBody())
+    get.mockResolvedValueOnce({ data: cardBody() })
+    const first = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
+    await waitFor(() => expect(first.result.current.data?.seniors.items[0]?.displayName).toBe('Senior 1'))
+    client.setQueryData(continuation, { pages: [], pageParams: [] })
+
+    get.mockRejectedValueOnce(httpError(403, 'FORBIDDEN'))
+    await act(() => first.result.current.refetch())
+    await waitFor(() => expect(first.result.current.accessLost).toBe(true))
+    expect(client.getQueryState(card)).toBeDefined()
+    first.unmount()
+
+    expect(client.getQueryState(card)).toBeUndefined()
+    expect(client.getQueryState(continuation)).toBeUndefined()
+    expect(client.getQueryState(otherAccount)).toBeDefined()
+    get.mockReturnValueOnce(new Promise(() => {}))
+    const again = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
+    expect(again.result.current.data).toBeUndefined()
+    await waitFor(() => expect(cardCalls()).toBe(3))
+  })
+
+  it('QA-LOW-1: a card closed normally is not kept; reopening loads afresh and shows no cached name', async () => {
+    const cardCalls = () => get.mock.calls.filter((c) => c[0] === `/job-queue/${OPP}`).length
+    get.mockResolvedValueOnce({ data: cardBody() })
+    const first = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
+    await waitFor(() => expect(first.result.current.data?.seniors.items[0]?.displayName).toBe('Senior 1'))
+    first.unmount()
+    await waitFor(() => expect(client.getQueryState(jobQueueCardQueryKey(scope, OPP))).toBeUndefined())
+
+    get.mockReturnValueOnce(new Promise(() => {}))
+    const again = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
+    expect(again.result.current.isPending).toBe(true)
+    expect(again.result.current.data).toBeUndefined()
+    await waitFor(() => expect(cardCalls()).toBe(2))
+    expect(again.result.current.data).toBeUndefined()
+  })
+
   it('keeps the data and the cache on any other error', async () => {
     client.setQueryData(jobQueueCardQueryKey(scope, OTHER_OPP), cardBody())
     get.mockResolvedValueOnce({ data: cardBody() })
@@ -515,6 +557,19 @@ describe('card continuations', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
   })
 
+  it.each([
+    ['seniors', useJobQueueSeniors, { items: [senior(201)], totalCount: 201, nextCursor: null }],
+    ['sources', useJobQueueSources, { items: [source(21)], totalCount: 21, nextCursor: null }],
+  ] as const)('QA-LOW-1: %s are not kept once the card closes', async (part, hook, body) => {
+    get.mockResolvedValueOnce({ data: body })
+    const { result, unmount } = renderHook(() => hook(scope, OPP, 'c-1'), { wrapper })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    const key = [...jobQueueCardQueryKey(scope, OPP), part, 'c-1']
+    expect(client.getQueryState(key)).toBeDefined()
+    unmount()
+    await waitFor(() => expect(client.getQueryState(key)).toBeUndefined())
+  })
+
   it('stay idle without a cursor or without an id', () => {
     renderHook(() => useJobQueueSeniors(scope, OPP, null), { wrapper })
     renderHook(() => useJobQueueSources(scope, null, 'x-1'), { wrapper })
@@ -544,6 +599,79 @@ describe('card continuations', () => {
     await waitFor(() => expect(result.current.accessLost).toBe(true))
     expect(result.current.data).toBeUndefined()
     await waitFor(() => expect(client.getQueryState(jobQueueCardQueryKey(scope, OTHER_OPP))).toBeUndefined())
+  })
+
+  it.each([
+    ['seniors', useJobQueueSeniors],
+    ['sources', useJobQueueSources],
+  ] as const)('%s: on 404 refresh the open list once, like the card (SO-1)', async (part, hook) => {
+    const listCalls = () => get.mock.calls.filter((c) => c[0] === '/job-queue').length
+    get.mockImplementation((url: string) =>
+      url === '/job-queue'
+        ? Promise.resolve({ data: page(null) })
+        : Promise.reject(httpError(404, 'JOB_OPPORTUNITY_NOT_FOUND')),
+    )
+    const { result } = renderHook(
+      () => ({ list: useJobQueue(scope, 'NEW', {}), more: hook(scope, OPP, 'c-1') }),
+      { wrapper },
+    )
+    await waitFor(() => expect(result.current.more.accessLost).toBe(true))
+    expect(get).toHaveBeenCalledWith(`/job-queue/${OPP}/${part}`, expect.anything())
+    await waitFor(() => expect(listCalls()).toBe(2))
+    await act(() => new Promise((r) => setTimeout(r, 50)))
+    expect(listCalls()).toBe(2)
+  })
+
+  it.each([
+    ['seniors', useJobQueueSeniors],
+    ['sources', useJobQueueSources],
+  ] as const)(
+    'SR-M-1 %s: a loss forgets the open card once it closes, so no stale senior name repaints',
+    async (part, hook) => {
+      const card = jobQueueCardQueryKey(scope, OPP)
+      const otherCard = jobQueueCardQueryKey(scope, OTHER_OPP)
+      get.mockImplementation((url: string) =>
+        url.endsWith(`/${part}`)
+          ? Promise.reject(httpError(403, 'FORBIDDEN'))
+          : Promise.resolve({ data: cardBody() }),
+      )
+      const first = renderHook(
+        () => ({ card: useJobQueueCard(scope, OPP), more: hook(scope, OPP, 'c-1') }),
+        { wrapper },
+      )
+      await waitFor(() => expect(first.result.current.more.accessLost).toBe(true))
+      expect(first.result.current.card.data?.seniors.items[0]?.displayName).toBe('Senior 1')
+      // a second card of the scope, opened elsewhere, is not this vacancy's to forget
+      const elsewhere = renderHook(() => useJobQueueCard(scope, OTHER_OPP), { wrapper })
+      await waitFor(() => expect(elsewhere.result.current.isSuccess).toBe(true))
+      first.unmount()
+
+      expect(client.getQueryState(card)).toBeUndefined()
+      expect(client.getQueryState([...card, part, 'c-1'])).toBeUndefined()
+      expect(client.getQueryState(otherCard)).toBeDefined()
+      get.mockReset()
+      get.mockReturnValue(new Promise(() => {}))
+      const again = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
+      expect(again.result.current.data).toBeUndefined()
+      expect(again.result.current.isPending).toBe(true)
+      await waitFor(() => expect(get).toHaveBeenCalledWith(`/job-queue/${OPP}`, expect.anything()))
+    },
+  )
+
+  it('keep the open list alone on a non-access error', async () => {
+    const listCalls = () => get.mock.calls.filter((c) => c[0] === '/job-queue').length
+    get.mockImplementation((url: string) =>
+      url === '/job-queue'
+        ? Promise.resolve({ data: page(null) })
+        : Promise.reject(httpError(503, 'JOB_QUEUE_POLICY_UNAVAILABLE')),
+    )
+    const { result } = renderHook(
+      () => ({ list: useJobQueue(scope, 'NEW', {}), more: useJobQueueSeniors(scope, OPP, 'c-1') }),
+      { wrapper },
+    )
+    await waitFor(() => expect(result.current.more.isError).toBe(true))
+    await act(() => new Promise((r) => setTimeout(r, 50)))
+    expect(listCalls()).toBe(1)
   })
 
   it('keep a page on a non-access error', async () => {
