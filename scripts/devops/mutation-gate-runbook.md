@@ -443,10 +443,13 @@ Four arms against the render-side XSS defence in `PostingMarkdown.tsx`
 7.3; the dialog still renders it, so the dialog's 2026-08-07 vacuum test is
 still the subject.
 
-Every arm plants `img: () => null,` back into `MARKDOWN_COMPONENTS` of the
-working copy: the pre-extraction shape, now inert under
-`disallowedElements={['img']}`, so its mutant is a known equivalent survivor for
-arms 1-3 to go red on and suppress (the shipped component no longer has one).
+Every arm plants `export const VACUUM_PROOF_PLANT = 'inert'` just above
+`MARKDOWN_COMPONENTS` of the working copy. Nothing reads it, so its one
+StringLiteral mutant is a known equivalent survivor for arms 1-3 to go red on
+and suppress (the shipped component no longer has one). The plant must not
+overlap any defence behaviour: re-planting `img: () => null` adds a second
+image ban, which makes emptying `NO_IMAGES` unobservable and turns two real
+defence mutants into survivors.
 
 1. the real tests → at least 4 killed, 1 survivor (the plant) → **red**
 2. real tests + suppression **with** a reason → **green**
