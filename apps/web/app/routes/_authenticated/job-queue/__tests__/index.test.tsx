@@ -76,6 +76,13 @@ function page(over: Partial<JobQueueListResponseDto> = {}): JobQueueListResponse
   }
 }
 
+const SENIOR_A = '55555555-5555-4555-8555-555555555555'
+const SENIOR_B = '66666666-6666-4666-8666-666666666666'
+const SENIOR_OPTIONS = [
+  { id: SENIOR_A, name: 'Анна Коваль', teamName: 'Команда А' },
+  { id: SENIOR_B, name: 'Богдан Шевченко', teamName: 'Команда А' },
+]
+
 type Call = { url: string; params?: Record<string, unknown> | undefined }
 const calls: Call[] = []
 
@@ -84,11 +91,13 @@ function serve({
   teams = [team(TEAM_A, 'Alpha')],
   queue = () => Promise.resolve({ data: page() }),
   teamsCall = () => Promise.resolve({ data: teams }),
+  seniorsCall = () => Promise.resolve({ data: { items: SENIOR_OPTIONS } }),
 }: {
   role?: 'HR' | 'ADMIN'
   teams?: unknown[]
   queue?: (params: Record<string, unknown>) => Promise<unknown>
   teamsCall?: () => Promise<unknown>
+  seniorsCall?: () => Promise<unknown>
 } = {}) {
   vi.mocked(useAuth).mockReturnValue({
     user: { id: HR_ID, role },
@@ -101,6 +110,7 @@ function serve({
     calls.push({ url, params: config?.params })
     if (url === '/teams') return teamsCall()
     if (url === '/job-queue') return queue(config?.params ?? {})
+    if (url === '/job-queue/seniors') return seniorsCall()
     return Promise.reject(new Error(`unexpected ${url}`))
   }) as unknown as typeof api.get)
 }
@@ -769,7 +779,13 @@ describe('/job-queue page', () => {
   })
 
   it('switching team keeps the tab and drops search and filters', async () => {
-    currentSearch = { tab: 'SUBMITTED', teamId: TEAM_A, search: 'go', source: ['DOU_RSS'] }
+    currentSearch = {
+      tab: 'SUBMITTED',
+      teamId: TEAM_A,
+      search: 'go',
+      source: ['DOU_RSS'],
+      seniorIds: [SENIOR_A],
+    }
     serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
     renderPage()
     await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
@@ -803,6 +819,85 @@ describe('/job-queue page', () => {
     })
   })
 
+  it('picks seniors into the URL, keeping tab, team and search', async () => {
+    currentSearch = { tab: 'HIDDEN', teamId: TEAM_B, search: 'go', card: ITEM_ID }
+    serve({ teams: [team(TEAM_A, 'Alpha'), team(TEAM_B, 'Beta')] })
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(calls).toContainEqual({ url: '/job-queue/seniors', params: { teamId: TEAM_B } })
+    await userEvent.click(screen.getByTestId('job-queue-filters-button'))
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Анна Коваль' }))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Богдан Шевченко' }))
+    await userEvent.click(screen.getByTestId('job-queue-filters-apply'))
+    expect(mockNavigate).toHaveBeenLastCalledWith({
+      to: '/job-queue',
+      search: { tab: 'HIDDEN', teamId: TEAM_B, search: 'go', seniorIds: [SENIOR_A, SENIOR_B] },
+    })
+  })
+
+  it('sends the URL seniors to the list and names them in the summary, never the id', async () => {
+    currentSearch = { tab: 'NEW', seniorIds: [SENIOR_B, SENIOR_A] }
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(queueCalls().at(-1)?.params).toEqual({
+      teamId: TEAM_A,
+      tab: 'NEW',
+      limit: 20,
+      seniorIds: '66666666-6666-4666-8666-666666666666,55555555-5555-4555-8555-555555555555',
+    })
+    const applied = await screen.findByTestId('job-queue-applied')
+    expect(applied).toHaveTextContent('Застосовано: Сеньйори: Богдан Шевченко, Анна Коваль')
+    expect(applied).not.toHaveTextContent(SENIOR_A)
+    expect(screen.getByTestId('job-queue-filters-button')).toHaveTextContent('Фільтри1')
+  })
+
+  it('resetting the filters drops the seniors', async () => {
+    currentSearch = { tab: 'NEW', search: 'go', seniorIds: [SENIOR_A] }
+    serve()
+    renderPage()
+    const applied = await screen.findByTestId('job-queue-applied')
+    await userEvent.click(within(applied).getByRole('button', { name: 'Скинути фільтри' }))
+    expect(mockNavigate).toHaveBeenLastCalledWith({
+      to: '/job-queue',
+      search: { tab: 'NEW', search: 'go' },
+    })
+  })
+
+  it('a failed picker leaves the list and the rest of the panel working', async () => {
+    currentSearch = { tab: 'NEW' }
+    serve({ seniorsCall: () => Promise.reject(new Error('down')) })
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    await userEvent.click(screen.getByTestId('job-queue-filters-button'))
+    const group = await screen.findByRole('group', { name: 'Підходить сеньйору' })
+    expect(await within(group).findByRole('alert')).toHaveTextContent(
+      'Не вдалося завантажити сеньйорів',
+    )
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Відкрита' }))
+    await userEvent.click(screen.getByTestId('job-queue-filters-apply'))
+    expect(mockNavigate).toHaveBeenLastCalledWith({
+      to: '/job-queue',
+      search: { tab: 'NEW', availability: ['OPEN'] },
+    })
+  })
+
+  it('retries a failed picker from the panel', async () => {
+    currentSearch = { tab: 'NEW' }
+    const seniorsCall = vi
+      .fn<() => Promise<unknown>>()
+      .mockRejectedValueOnce(new Error('down'))
+      .mockResolvedValue({ data: { items: SENIOR_OPTIONS } })
+    serve({ seniorsCall })
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    await userEvent.click(screen.getByTestId('job-queue-filters-button'))
+    const group = await screen.findByRole('group', { name: 'Підходить сеньйору' })
+    await within(group).findByRole('alert')
+    await userEvent.click(within(group).getByRole('button', { name: 'Спробувати ще раз' }))
+    expect(await within(group).findByRole('checkbox', { name: 'Анна Коваль' })).toBeInTheDocument()
+  })
+
   // CR-M-1: the box shows the applied search, also after the URL changes under it.
   it('the search box follows the URL search', async () => {
     currentSearch = { tab: 'NEW', search: 'go' }
@@ -831,6 +926,7 @@ describe('/job-queue search params', () => {
         search: ' go ',
         source: ['DOU_RSS', 'LEVER_ATS'],
         availability: ['OPEN', 'CLOSED'],
+        seniorIds: [SENIOR_A, SENIOR_B],
         teamId: TEAM_A,
         card: ITEM_ID,
       }),
@@ -839,6 +935,7 @@ describe('/job-queue search params', () => {
       search: 'go',
       source: ['DOU_RSS', 'LEVER_ATS'],
       availability: ['OPEN', 'CLOSED'],
+      seniorIds: [SENIOR_A, SENIOR_B],
       teamId: TEAM_A,
       card: ITEM_ID,
     })
@@ -856,10 +953,33 @@ describe('/job-queue search params', () => {
         source: ['BOGUS'],
         eligibility: [],
         availability: 'OPEN',
+        seniorIds: ['nope'],
         teamId: 'x',
         card: 'nope',
       }),
     ).toEqual({ tab: 'NEW' })
+  })
+
+  it('drops an empty or over-limit senior selection', () => {
+    const ids = (n: number) =>
+      Array.from({ length: n }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`)
+    expect(parse({ seniorIds: [] })).toEqual({ tab: 'NEW' })
+    expect(parse({ seniorIds: ids(51) })).toEqual({ tab: 'NEW' })
+    expect(parse({ seniorIds: ids(50) })).toEqual({ tab: 'NEW', seniorIds: ids(50) })
+  })
+
+  it('canonicalises the seniors: lower-cased, de-duplicated, sorted (CR-L-1)', () => {
+    const ids = (n: number) =>
+      Array.from({ length: n }, (_, i) => `0000000a-0000-4000-8000-${String(i).padStart(12, '0')}`)
+    expect(parse({ seniorIds: [SENIOR_B, SENIOR_A.toUpperCase(), SENIOR_A] })).toEqual({
+      tab: 'NEW',
+      seniorIds: [SENIOR_A, SENIOR_B].sort(),
+    })
+    // a repeat does not count toward the limit: 50 distinct ids, sent twice and upper-cased
+    expect(parse({ seniorIds: [...ids(50), ...ids(50).map((s) => s.toUpperCase())] })).toEqual({
+      tab: 'NEW',
+      seniorIds: ids(50),
+    })
   })
 
   it('drops a search longer than 200 characters and defaults a missing tab', () => {

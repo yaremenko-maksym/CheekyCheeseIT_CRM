@@ -117,6 +117,10 @@ msgstr "Видалити вакансію"
 msgid "Назва використовується лише для розрізнення підключень у CRM."
 msgstr "Назва використовується лише для розрізнення підключень у CRM."
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Підходить сеньйору"
+msgstr "Підходить сеньйору"
+
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Перемістити місце роботи {position} вгору"
 msgstr "Перемістити місце роботи {position} вгору"
@@ -1727,6 +1731,10 @@ msgstr "В активних стадіях"
 #: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
 msgid "Періодичність:"
 msgstr "Періодичність:"
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "{n, plural, one {# сеньйор} few {# сеньйори} many {# сеньйорів} other {# сеньйора}}"
+msgstr "{n, plural, one {# сеньйор} few {# сеньйори} many {# сеньйорів} other {# сеньйора}}"
 
 #: apps/web/app/routes/_authenticated/documents/components/DocumentsToolbar.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
@@ -4000,6 +4008,7 @@ msgstr "Контракт — попередній перегляд.pdf"
 msgid "Підключення увімкнено"
 msgstr "Підключення увімкнено"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
@@ -5599,6 +5608,10 @@ msgstr "Черн. ({0})"
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "ФОП / гіг-контракт / USDT"
 msgstr "ФОП / гіг-контракт / USDT"
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Немає сеньйорів"
+msgstr "Немає сеньйорів"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
@@ -9559,6 +9572,10 @@ msgstr "Media token скопійовано"
 msgid "Неприпустимий формат"
 msgstr "Неприпустимий формат"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Сеньйор: {names}"
+msgstr "Сеньйор: {names}"
+
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 msgid "(необов’язково)"
@@ -10349,6 +10366,10 @@ msgstr "Відв’язати"
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Мова"
 msgstr "Мова"
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Без команди"
+msgstr "Без команди"
 
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Заповніть розділи вручну або спробуйте завантажити файл ще раз."
@@ -11229,6 +11250,10 @@ msgstr "Додати перший запис"
 msgid "Сталася помилка. Спробуйте ще раз."
 msgstr "Сталася помилка. Спробуйте ще раз."
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Сеньйори: {names}"
+msgstr "Сеньйори: {names}"
+
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
 msgid "Максимум не може бути меншим за мінімум"
 msgstr "Максимум не може бути меншим за мінімум"
@@ -11458,6 +11483,10 @@ msgstr "Немає доступних проєктів"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/SalaryFields.tsx
 msgid "Виберіть…"
 msgstr "Виберіть…"
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Показано перших {max} сеньйорів"
+msgstr "Показано перших {max} сеньйорів"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
@@ -12091,6 +12120,10 @@ msgstr "Відправник"
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 msgid "Вакансія «{0}» буде видалена назавжди. Цю дію не можна скасувати."
 msgstr "Вакансія «{0}» буде видалена назавжди. Цю дію не можна скасувати."
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Не вдалося завантажити сеньйорів"
+msgstr "Не вдалося завантажити сеньйорів"
 
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Дохід за останній місяць"

@@ -13,6 +13,7 @@ import {
   jobQueueListResponseSchema,
   jobQueuePossibleDuplicateConflictSchema,
   jobQueueRecomputeResponseSchema,
+  jobQueueSeniorOptionsResponseSchema,
   jobQueueSeniorsContinuationSchema,
   jobQueueSourcesContinuationSchema,
   jobQueueSubmissionResponseSchema,
@@ -57,7 +58,10 @@ export interface QueueScopeSignature {
 }
 
 export type QueueFilters = Partial<
-  Pick<JobQueueListQuery, 'search' | 'source' | 'eligibility' | 'availability' | 'activity' | 'seniorId'>
+  Pick<
+    JobQueueListQuery,
+    'search' | 'source' | 'eligibility' | 'availability' | 'activity' | 'seniorIds'
+  >
 >
 
 export const JOB_QUEUE_PAGE_LIMIT = 20
@@ -65,11 +69,23 @@ export const JOB_QUEUE_PAGE_LIMIT = 20
 export const jobQueueScopeKey = (scope: QueueScopeSignature) =>
   ['job-queue', scope.actorId, scope.role, scope.teamId ?? 'default'] as const
 
+/** One spelling of a senior set: lower-cased, de-duplicated, sorted (URL, picker and cache agree). */
+export const canonicalSeniorIds = (ids: readonly string[]): string[] =>
+  [...new Set(ids.map((id) => id.toLowerCase()))].sort()
+
 export const jobQueueQueryKey = (
   scope: QueueScopeSignature,
   tab: JobQueueTab,
   filters: QueueFilters,
-) => [...jobQueueScopeKey(scope), 'list', tab, filters] as const
+) =>
+  [
+    ...jobQueueScopeKey(scope),
+    'list',
+    tab,
+    filters.seniorIds === undefined
+      ? filters
+      : { ...filters, seniorIds: canonicalSeniorIds(filters.seniorIds) },
+  ] as const
 
 export const jobQueueCardQueryKey = (scope: QueueScopeSignature, id: string | null) =>
   [...jobQueueScopeKey(scope), 'card', id] as const
@@ -247,6 +263,17 @@ export function useJobQueueSources(
   return useContinuation(scope, id, cursor, 'sources', (d) =>
     jobQueueSourcesContinuationSchema.parse(d),
   )
+}
+
+/** The list filter's picker: the seniors of the scope, cached under the scope's key. */
+export function useJobQueueSeniorOptions(scope: QueueScopeSignature) {
+  return useQuery({
+    queryKey: [...jobQueueScopeKey(scope), 'senior-options'],
+    queryFn: async () => {
+      const res = await api.get<unknown>('/job-queue/seniors', { params: teamParam(scope) })
+      return jobQueueSeniorOptionsResponseSchema.parse(res.data)
+    },
+  })
 }
 
 /** The 409 `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED` body (the duplicates to confirm), else `null`. */

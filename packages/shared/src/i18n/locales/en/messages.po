@@ -117,6 +117,10 @@ msgstr "Delete vacancy"
 msgid "Назва використовується лише для розрізнення підключень у CRM."
 msgstr "The name is only used to tell connections apart in the CRM."
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Підходить сеньйору"
+msgstr "Matching senior"
+
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Перемістити місце роботи {position} вгору"
 msgstr "Move job {position} up"
@@ -1727,6 +1731,10 @@ msgstr "In active stages"
 #: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
 msgid "Періодичність:"
 msgstr "Cadence:"
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "{n, plural, one {# сеньйор} few {# сеньйори} many {# сеньйорів} other {# сеньйора}}"
+msgstr "{n, plural, one {# senior} other {# seniors}}"
 
 #: apps/web/app/routes/_authenticated/documents/components/DocumentsToolbar.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
@@ -4000,6 +4008,7 @@ msgstr "Contract — preview.pdf"
 msgid "Підключення увімкнено"
 msgstr "Connection enabled"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
@@ -5599,6 +5608,10 @@ msgstr "Draft ({0})"
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "ФОП / гіг-контракт / USDT"
 msgstr "FOP / gig contract / USDT"
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Немає сеньйорів"
+msgstr "No seniors"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
@@ -9559,6 +9572,10 @@ msgstr "Media token copied"
 msgid "Неприпустимий формат"
 msgstr "Invalid format"
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Сеньйор: {names}"
+msgstr "Senior: {names}"
+
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 msgid "(необов’язково)"
@@ -10349,6 +10366,10 @@ msgstr "Detach"
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Мова"
 msgstr "Language"
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Без команди"
+msgstr "No team"
 
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Заповніть розділи вручну або спробуйте завантажити файл ще раз."
@@ -11229,6 +11250,10 @@ msgstr "Add the first entry"
 msgid "Сталася помилка. Спробуйте ще раз."
 msgstr "Something went wrong. Try again."
 
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Сеньйори: {names}"
+msgstr "Seniors: {names}"
+
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
 msgid "Максимум не може бути меншим за мінімум"
 msgstr "Maximum cannot be less than minimum"
@@ -11458,6 +11483,10 @@ msgstr "No projects available"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/SalaryFields.tsx
 msgid "Виберіть…"
 msgstr "Select…"
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Показано перших {max} сеньйорів"
+msgstr "Showing the first {max} seniors"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
@@ -12091,6 +12120,10 @@ msgstr "Sender"
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 msgid "Вакансія «{0}» буде видалена назавжди. Цю дію не можна скасувати."
 msgstr "The vacancy “{0}” will be deleted permanently. This action cannot be undone."
+
+#: apps/web/app/components/job-queue/JobQueueFilters.tsx
+msgid "Не вдалося завантажити сеньйорів"
+msgstr "Couldn’t load the seniors"
 
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Дохід за останній місяць"

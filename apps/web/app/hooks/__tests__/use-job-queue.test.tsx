@@ -10,11 +10,13 @@ vi.mock('@/lib/axios', () => ({ api: { get: (...args: unknown[]) => get(...args)
 
 const {
   JOB_QUEUE_PAGE_LIMIT,
+  canonicalSeniorIds,
   jobQueueCardQueryKey,
   jobQueueQueryKey,
   jobQueueScopeKey,
   useJobQueue,
   useJobQueueCard,
+  useJobQueueSeniorOptions,
   useJobQueueSeniors,
   useJobQueueSources,
 } = await import('../use-job-queue')
@@ -125,6 +127,62 @@ describe('query keys', () => {
   it('give another account a different key', () => {
     expect(jobQueueScopeKey({ ...scope, actorId: OTHER_ACTOR })).not.toEqual(jobQueueScopeKey(scope))
   })
+
+  it('one key for the same senior set in any order, case or repetition (CR-L-1)', () => {
+    const lower = '33333333-3333-4333-8333-00000000000a'
+    const upper = '33333333-3333-4333-8333-00000000000B'
+    expect(jobQueueQueryKey(scope, 'NEW', { search: 'r', seniorIds: [upper, lower, lower] })).toEqual([
+      'job-queue',
+      ACTOR,
+      'HR',
+      TEAM,
+      'list',
+      'NEW',
+      { search: 'r', seniorIds: [lower, upper.toLowerCase()] },
+    ])
+  })
+})
+
+describe('canonicalSeniorIds', () => {
+  it('lower-cases, drops repeats and sorts', () => {
+    expect(
+      canonicalSeniorIds([
+        'BBBBBBBB-BBBB-4BBB-8BBB-BBBBBBBBBBBB',
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      ]),
+    ).toEqual(['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'])
+    expect(canonicalSeniorIds([])).toEqual([])
+  })
+})
+
+describe('useJobQueueSeniorOptions', () => {
+  const options = { items: [{ id: OPP, name: 'Анна Коваль', teamName: 'Команда А' }] }
+
+  it('reads the picker of the team under the scope key', async () => {
+    get.mockResolvedValueOnce({ data: options })
+    const { result } = renderHook(() => useJobQueueSeniorOptions(scope), { wrapper })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(get).toHaveBeenCalledWith('/job-queue/seniors', { params: { teamId: TEAM } })
+    expect(result.current.data).toEqual(options)
+    expect(client.getQueryData(['job-queue', ACTOR, 'HR', TEAM, 'senior-options'])).toEqual(options)
+  })
+
+  it('sends no teamId for the studio scope', async () => {
+    get.mockResolvedValueOnce({ data: { items: [] } })
+    const { result } = renderHook(() => useJobQueueSeniorOptions(studio), { wrapper })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(get).toHaveBeenCalledWith('/job-queue/seniors', { params: {} })
+  })
+
+  it('refuses a body with more than id, name and team name', async () => {
+    get.mockResolvedValueOnce({
+      data: { items: [{ id: OPP, name: 'Анна Коваль', teamName: 'Команда А', email: 'a@example.test' }] },
+    })
+    const { result } = renderHook(() => useJobQueueSeniorOptions(scope), { wrapper })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.error).toBeInstanceOf(ZodError)
+  })
 })
 
 describe('useJobQueue', () => {
@@ -159,6 +217,23 @@ describe('useJobQueue', () => {
     })
     await waitFor(() => expect(result.current.hasNextPage).toBe(false))
     expect(result.current.data?.pages).toHaveLength(2)
+  })
+
+  it('comma-joins the selected seniors on the wire', async () => {
+    get.mockResolvedValueOnce({ data: page(null) })
+    const { result } = renderHook(
+      () => useJobQueue(scope, 'NEW', { seniorIds: [ACTOR, OTHER_ACTOR] }),
+      { wrapper },
+    )
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(get).toHaveBeenCalledWith('/job-queue', {
+      params: {
+        teamId: TEAM,
+        tab: 'NEW',
+        seniorIds: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa,bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        limit: 20,
+      },
+    })
   })
 
   it('sends no teamId for the default (studio) scope', async () => {

@@ -10,6 +10,8 @@ import {
   type JobQueueListResponseDto,
   jobQueueListResponseSchema,
   type JobQueueScopeQuery,
+  JOB_QUEUE_SENIOR_OPTIONS_MAX,
+  type JobQueueSeniorOptionsResponseDto,
   jobQueueSeniorsContinuationSchema,
   jobQueueSourcesContinuationSchema,
   type JobSourceType,
@@ -38,6 +40,7 @@ import {
   policySignature,
   queueRowColumns,
   queueRowJoins,
+  seniorOptionRows,
   seniorRows,
   seniorTotal,
   sourceRows,
@@ -303,6 +306,32 @@ export class JobQueueService {
     })
   }
 
+  /** GET `/job-queue/seniors`: the list filter's picker, only the seniors of the viewer's own scope. */
+  async seniorOptions(
+    user: SessionUser,
+    query: Pick<JobQueueScopeQuery, 'teamId'>,
+  ): Promise<JobQueueSeniorOptionsResponseDto> {
+    const scope = await this.scopes.resolve(user, query.teamId, this.database.db)
+    const versions = await this.scopes.liveVersions(scope, this.database.db)
+    if (versions.length === 0) return { items: [] }
+    const { rows } = await this.scopes.policy(() =>
+      this.database.db.execute(
+        seniorOptionRows(
+          versions.map((v) => v.seniorId),
+          scope.kind === 'TEAM' ? scope.teamId : null,
+          JOB_QUEUE_SENIOR_OPTIONS_MAX,
+        ),
+      ),
+    )
+    return {
+      items: (rows as Row[]).map((row) => ({
+        id: String(row['id']),
+        name: String(row['display_name']).slice(0, 255),
+        teamName: row['team_name'] === null ? null : String(row['team_name']).slice(0, 255),
+      })),
+    }
+  }
+
   /** GET `/job-queue/:id/seniors`: the viewer's own matched seniors beyond the card's preview. */
   async seniors(
     user: SessionUser,
@@ -444,9 +473,9 @@ async function readPage(
         ${frame}`,
   )
   const tally = counts.rows[0] as Row
-  // A senior outside the scope: empty, not an error that would confirm who exists.
-  const senior = query.seniorId?.toLowerCase()
-  if (senior !== undefined && !versions.some((v) => v.seniorId === senior)) {
+  // No senior of the scope left in the filter: empty, not an error that would confirm who exists.
+  const wanted = query.seniorIds
+  if (wanted !== undefined && !versions.some((v) => wanted.includes(v.seniorId))) {
     return { generation, tally, rows: [] as Row[] }
   }
   const { rows } = await tx.execute(

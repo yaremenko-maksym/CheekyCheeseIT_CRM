@@ -496,6 +496,20 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       }
     })
 
+    it('the senior filter picks rows, never the row keywords; a foreign id adds nothing', async () => {
+      const unfiltered = await itemOf(hrB(), 'oppShared')
+      const byShared = await itemOf(hrB(), 'oppShared', { seniorIds: id('senShared') })
+      const withForeign = await itemOf(hrB(), 'oppShared', {
+        seniorIds: `${id('senShared')},${id('senA')}`,
+      })
+      expect(unfiltered?.matchedKeywords).toEqual(['KeywordForeign', 'KeywordShared'])
+      for (const filtered of [byShared, withForeign]) {
+        expect(filtered?.matchedKeywords).toEqual(unfiltered?.matchedKeywords)
+        expect(filtered?.seniority).toBe(unfiltered?.seniority)
+      }
+      expect(JSON.stringify(withForeign)).not.toContain('KeywordA')
+    })
+
     it('row seniority is the stored column', async () => {
       await mkOpp('oppLeadRole')
       await sqlq(`UPDATE job_opportunities SET seniority = 'LEAD' WHERE id = $1`, [
@@ -545,11 +559,11 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
     })
 
     it('filtering by a senior: a stop-listed row goes (owner: intended), a foreign senior is empty', async () => {
-      const mine = await service.list(hrA(), q({ seniorId: id('senShared') }))
+      const mine = await service.list(hrA(), q({ seniorIds: id('senShared') }))
       const listed = mine.items.map((i) => i.opportunityId)
       expect(listed).toContain(id('oppShared'))
       expect(listed).not.toContain(id('oppStop'))
-      const foreign = await service.list(hrA(), q({ seniorId: id('senB') }))
+      const foreign = await service.list(hrA(), q({ seniorIds: id('senB') }))
       expect(foreign.items).toEqual([])
       expect(foreign.counts).toEqual(mine.counts)
     })

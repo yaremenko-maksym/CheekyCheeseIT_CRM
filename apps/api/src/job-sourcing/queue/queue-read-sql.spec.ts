@@ -13,6 +13,7 @@ import {
   queueRowColumns,
   rankSelect,
   queueRowJoins,
+  seniorOptionRows,
   seniorRows,
   seniorTotal,
   sourceRows,
@@ -25,6 +26,7 @@ import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
 const TEAM = '11111111-1111-4111-8111-111111111111'
 const TEAM_2 = '22222222-2222-4222-8222-222222222222'
 const SEN = '33333333-3333-4333-8333-333333333333'
+const SEN_2 = '55555555-5555-4555-8555-555555555555'
 const OPP = '44444444-4444-4444-8444-444444444444'
 const versions: LiveSeniorVersion[] = [{ seniorId: SEN, profile: 'p', exclusion: 'e' }]
 const team: JobQueueScope = {
@@ -84,25 +86,53 @@ describe('listFilters', () => {
     expect(f[3]?.params).toEqual(['["OPENED"]'])
   })
 
-  it('a senior filter needs a live match of that senior, never an EXCLUDED row', () => {
-    const f = render(listFilters(query({ seniorId: SEN.toUpperCase() }), versions)[1] as SQL)
+  it('a senior filter needs a live match of ANY listed senior, never an EXCLUDED row', () => {
+    const f = render(listFilters(query({ seniorIds: [SEN, SEN_2] }), versions)[1] as SQL)
     expect(f.text).toContain(`m.outcome IN ('LEAD', 'TRIAGE')`)
-    expect(f.params).toContain(SEN)
+    // the uuid column is compared as uuid (its index applies); the ids stay ONE bound parameter
+    expect(f.text).toContain(
+      'm.senior_id IN (SELECT x::uuid FROM jsonb_array_elements_text($3::jsonb) x)',
+    )
+    expect(f.params).toContain(JSON.stringify([SEN, SEN_2]))
+  })
+})
+
+describe('seniorOptionRows', () => {
+  it('a TEAM scope names its own team; the ids are one bound uuid list', () => {
+    const r = render(seniorOptionRows([SEN, SEN_2], TEAM, 200))
+    expect(r.text).toBe(
+      'SELECT u.id, u.display_name, t.name AS team_name FROM users u LEFT JOIN LATERAL ( ' +
+        'SELECT t.name FROM team_members tm JOIN teams t ON t.id = tm.team_id ' +
+        'WHERE tm.user_id = u.id AND tm.left_at IS NULL AND tm.team_id = $1::uuid ' +
+        "ORDER BY t.archived_at IS NOT NULL, t.type <> 'SENIOR', t.name, t.id LIMIT 1) t ON TRUE " +
+        'WHERE u.id IN (SELECT x::uuid FROM jsonb_array_elements_text($2::jsonb) x) ' +
+        'ORDER BY t.name NULLS LAST, u.display_name, u.id LIMIT $3',
+    )
+    expect(r.params).toEqual([TEAM, JSON.stringify([SEN, SEN_2]), 200])
+  })
+
+  it('STUDIO names the first live membership, with no team condition', () => {
+    const r = render(seniorOptionRows([SEN], null, 200))
+    expect(r.text).toContain('tm.left_at IS NULL ORDER BY t.archived_at IS NOT NULL')
+    expect(r.params).toEqual([JSON.stringify([SEN]), 200])
   })
 })
 
 describe('filterIdentity', () => {
-  it('ignores list order and id case, and not much else', () => {
+  it('ignores list order, and not much else', () => {
     expect(
-      filterIdentity(query({ source: ['DOU_RSS', 'REMOTEOK_API'], seniorId: SEN.toUpperCase() })),
-    ).toEqual(filterIdentity(query({ source: ['REMOTEOK_API', 'DOU_RSS'], seniorId: SEN })))
+      filterIdentity(query({ source: ['DOU_RSS', 'REMOTEOK_API'], seniorIds: [SEN, SEN_2] })),
+    ).toEqual(
+      filterIdentity(query({ source: ['REMOTEOK_API', 'DOU_RSS'], seniorIds: [SEN_2, SEN] })),
+    )
   })
-  it('stores a senior id in its canonical lowercase', () => {
-    const upper = 'ABCDEFAB-ABCD-4ABC-8ABC-ABCDEFABCDEF'
-    expect(filterIdentity(query({ seniorId: upper }))[6]).toBe(upper.toLowerCase())
+  it('a different set of seniors is a different identity', () => {
+    expect(filterIdentity(query({ seniorIds: [SEN] }))).not.toEqual(
+      filterIdentity(query({ seniorIds: [SEN, SEN_2] })),
+    )
   })
   it('holds every filter, with the absent ones explicit', () => {
-    expect(filterIdentity(query())).toEqual(['NEW', null, [], [], [], [], null])
+    expect(filterIdentity(query())).toEqual(['NEW', null, [], [], [], [], []])
     expect(
       filterIdentity(
         query({
@@ -112,7 +142,7 @@ describe('filterIdentity', () => {
           eligibility: ['TRIAGE', 'LEAD'],
           availability: ['OPEN', 'CLOSED'],
           activity: ['OPENED', 'NOT_OPENED'],
-          seniorId: SEN,
+          seniorIds: [SEN_2, SEN],
         }),
       ),
     ).toEqual([
@@ -122,7 +152,7 @@ describe('filterIdentity', () => {
       ['LEAD', 'TRIAGE'],
       ['CLOSED', 'OPEN'],
       ['NOT_OPENED', 'OPENED'],
-      SEN,
+      [SEN, SEN_2],
     ])
   })
   it('does not reorder the query it was given', () => {

@@ -1820,11 +1820,26 @@ const csvEnumListSchema = <E extends z.ZodType<string, string>>(member: E) =>
     .transform((s) => [...new Set(s.split(',').map((v) => v.trim()))])
     .pipe(z.array(member))
 
+/** How many seniors one list request may filter by. */
+export const JOB_QUEUE_SENIOR_FILTER_MAX = 50
+
+/**
+ * The same comma-separated form for the senior filter, lower-cased here so the
+ * de-duplication, the cursor signature and the SQL all see one spelling of an id.
+ * The raw bound is 50 canonical ids (36 characters each) and their 49 commas.
+ */
+const seniorIdListSchema = z
+  .string()
+  .max(1849)
+  .transform((s) => [...new Set(s.split(',').map((v) => v.trim().toLowerCase()))])
+  .pipe(z.array(z.string().uuid()).max(JOB_QUEUE_SENIOR_FILTER_MAX))
+
 /**
  * GET `/job-queue`. `teamId` absent = the HR's first active team in stable
  * order, or the STUDIO scope for an ADMIN; when present it must be a team the
  * actor belongs to (Phase-6 obligation — a schema cannot see membership).
- * `seniorId` must be one of the scope's own seniors, else the result is empty.
+ * `seniorIds` is an OR: a row is listed if ANY of them matches. An id outside
+ * the scope's own seniors is dropped; none left means an empty result.
  */
 export const jobQueueListQuerySchema = z
   .object({
@@ -1835,7 +1850,7 @@ export const jobQueueListQuerySchema = z
     eligibility: csvEnumListSchema(jobQueueEligibilitySchema).optional(),
     availability: csvEnumListSchema(jobAvailabilitySchema).optional(),
     activity: csvEnumListSchema(jobQueueActivitySchema).optional(),
-    seniorId: z.string().uuid().optional(),
+    seniorIds: seniorIdListSchema.optional(),
     cursor: z.string().min(1).max(300).optional(),
     limit: z.coerce.number().int().min(1).max(50).default(20),
   })
@@ -1967,6 +1982,30 @@ export const jobQueueSubmissionSchema = z
  */
 export const jobQueueForeignSubmissionSchema = z
   .object({ submittedElsewhere: z.literal(true) })
+  .strict()
+
+/** How many seniors the list filter's picker offers. */
+export const JOB_QUEUE_SENIOR_OPTIONS_MAX = 200
+
+/**
+ * GET `/job-queue/seniors`: the seniors of the viewer's resolved scope, and only who they are and
+ * which team the picker groups them under (`teams.name`, varchar 255; null for a senior with no live
+ * membership, which only the STUDIO scope can list).
+ */
+export const jobQueueSeniorOptionsResponseSchema = z
+  .object({
+    items: z
+      .array(
+        z
+          .object({
+            id: z.string().uuid(),
+            name: z.string().max(255),
+            teamName: z.string().max(255).nullable(),
+          })
+          .strict(),
+      )
+      .max(JOB_QUEUE_SENIOR_OPTIONS_MAX),
+  })
   .strict()
 
 /** One of the viewer's own seniors on the card. */
@@ -2290,6 +2329,7 @@ export type JobQueueEligibility = z.infer<typeof jobQueueEligibilitySchema>
 export type JobQueueActivity = z.infer<typeof jobQueueActivitySchema>
 export type JobQueueListQuery = z.infer<typeof jobQueueListQuerySchema>
 export type JobQueueScopeQuery = z.infer<typeof jobQueueScopeQuerySchema>
+export type JobQueueSeniorOptionsResponseDto = z.infer<typeof jobQueueSeniorOptionsResponseSchema>
 export type JobQueueListItemDto = z.infer<typeof jobQueueListItemSchema>
 export type JobQueueListResponseDto = z.infer<typeof jobQueueListResponseSchema>
 export type JobQueueSubmissionDto = z.infer<typeof jobQueueSubmissionSchema>

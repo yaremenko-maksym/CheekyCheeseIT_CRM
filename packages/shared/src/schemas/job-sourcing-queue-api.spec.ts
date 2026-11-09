@@ -21,6 +21,7 @@ import {
   jobQueueQuerySchema,
   jobQueueRecomputeResponseSchema,
   jobQueueScopeQuerySchema,
+  jobQueueSeniorOptionsResponseSchema,
   jobQueueSeniorsContinuationSchema,
   jobQueueSourcesContinuationSchema,
   jobQueueStatusSchema,
@@ -34,6 +35,8 @@ import {
   jobQueueForeignSubmissionSchema,
   DESCRIPTION_MD_MAX,
   JOB_QUEUE_ROW_KEYWORDS_MAX,
+  JOB_QUEUE_SENIOR_FILTER_MAX,
+  JOB_QUEUE_SENIOR_OPTIONS_MAX,
 } from './job-sourcing'
 
 /**
@@ -227,10 +230,50 @@ describe('jobQueueListQuerySchema — GET /job-queue', () => {
     expect(jobQueueListQuerySchema.safeParse({ search: 'a'.repeat(201) }).success).toBe(false)
   })
 
-  it('takes the scope, tab, senior and cursor, and refuses anything else', () => {
+  it('parses the senior filter as a trimmed, lower-cased, de-duplicated uuid list', () => {
+    expect(jobQueueListQuerySchema.parse({ seniorIds: U1 }).seniorIds).toEqual([U1])
     expect(
-      jobQueueListQuerySchema.parse({ teamId: U1, tab: 'HIDDEN', seniorId: U2, cursor: 'c' }),
-    ).toEqual({ teamId: U1, tab: 'HIDDEN', seniorId: U2, cursor: 'c', limit: 20 })
+      jobQueueListQuerySchema.parse({ seniorIds: `${U1}, ${U2},${U1},${U2.toUpperCase()}` })
+        .seniorIds,
+    ).toEqual([U1, U2])
+  })
+
+  it('refuses an empty, malformed or old-style senior filter (400, never "no restriction")', () => {
+    for (const bad of [
+      { seniorIds: '' },
+      { seniorIds: `${U1},` },
+      { seniorIds: 'not-a-uuid' },
+      { seniorIds: `${U1},not-a-uuid` },
+      { seniorId: U1 },
+    ]) {
+      expect(jobQueueListQuerySchema.safeParse(bad).success, JSON.stringify(bad)).toBe(false)
+    }
+  })
+
+  it('bounds the senior filter by count: the limit accepted, one more refused', () => {
+    const ids = (n: number) =>
+      Array.from({ length: n }, (_, i) => U1.slice(0, -4) + String(i).padStart(4, '0'))
+    expect(JOB_QUEUE_SENIOR_FILTER_MAX).toBe(50)
+    expect(jobQueueListQuerySchema.parse({ seniorIds: ids(50).join(',') }).seniorIds).toHaveLength(
+      50,
+    )
+    const over = jobQueueListQuerySchema.safeParse({ seniorIds: ids(51).join(',') })
+    expect(over.error?.issues.map((i) => i.code)).toEqual(['too_big'])
+  })
+
+  it('bounds the senior filter by raw length, before any member is read', () => {
+    // 50 canonical ids and their 49 commas are exactly 1849 characters.
+    const atLimit = `${U1},`.repeat(49) + U1
+    expect(atLimit).toHaveLength(1849)
+    expect(jobQueueListQuerySchema.parse({ seniorIds: atLimit }).seniorIds).toEqual([U1])
+    const long = jobQueueListQuerySchema.safeParse({ seniorIds: atLimit + ' ' })
+    expect(long.error?.issues.map((i) => i.code)).toEqual(['too_big'])
+  })
+
+  it('takes the scope, tab, seniors and cursor, and refuses anything else', () => {
+    expect(
+      jobQueueListQuerySchema.parse({ teamId: U1, tab: 'HIDDEN', seniorIds: U2, cursor: 'c' }),
+    ).toEqual({ teamId: U1, tab: 'HIDDEN', seniorIds: [U2], cursor: 'c', limit: 20 })
     expect(jobQueueListQuerySchema.safeParse({ tab: 'IN_PROGRESS' }).success).toBe(false)
     expect(jobQueueListQuerySchema.safeParse({ teamId: 'team-a' }).success).toBe(false)
     expect(jobQueueListQuerySchema.safeParse({ cursor: '' }).success).toBe(false)
@@ -537,6 +580,43 @@ describe('requests refuse an unknown key (CR-M-1)', () => {
   })
 })
 
+describe('jobQueueSeniorOptionsResponseSchema — GET /job-queue/seniors', () => {
+  const option = { id: U1, name: 'Olena K.', teamName: 'Team Alpha' }
+
+  it('carries the id, the display name and the team name, and nothing else', () => {
+    expect(jobQueueSeniorOptionsResponseSchema.parse({ items: [option] })).toEqual({
+      items: [option],
+    })
+    expect(jobQueueSeniorOptionsResponseSchema.parse({ items: [] })).toEqual({ items: [] })
+    for (const field of ['email', 'teamId', 'role', 'profile']) {
+      const leaky = { items: [{ ...option, [field]: 'x' }] }
+      expect(jobQueueSeniorOptionsResponseSchema.safeParse(leaky).success, field).toBe(false)
+    }
+    expect(jobQueueSeniorOptionsResponseSchema.safeParse({ items: [], extra: 1 }).success).toBe(
+      false,
+    )
+  })
+
+  it('refuses a non-uuid id; bounds the name and the team name at 255; a team may be null', () => {
+    const parse = (o: object) => jobQueueSeniorOptionsResponseSchema.safeParse({ items: [o] })
+    expect(parse({ ...option, id: 'senior-1' }).success).toBe(false)
+    expect(parse({ ...option, name: 'x'.repeat(255) }).success).toBe(true)
+    expect(parse({ ...option, name: 'x'.repeat(256) }).success).toBe(false)
+    expect(parse({ ...option, teamName: 'x'.repeat(255) }).success).toBe(true)
+    expect(parse({ ...option, teamName: 'x'.repeat(256) }).success).toBe(false)
+    // a senior with no live membership (STUDIO only) has no team, never a placeholder string
+    expect(parse({ ...option, teamName: null }).success).toBe(true)
+    expect(parse({ id: U1, name: 'Olena K.' }).success).toBe(false)
+  })
+
+  it('bounds the list: the limit accepted, one more refused', () => {
+    const items = (n: number) => Array.from({ length: n }, () => option)
+    expect(JOB_QUEUE_SENIOR_OPTIONS_MAX).toBe(200)
+    expect(jobQueueSeniorOptionsResponseSchema.safeParse({ items: items(200) }).success).toBe(true)
+    expect(jobQueueSeniorOptionsResponseSchema.safeParse({ items: items(201) }).success).toBe(false)
+  })
+})
+
 describe('field bounds, both sides of each limit (CR-M-2)', () => {
   const s = (n: number) => 'x'.repeat(n)
   const ok = (schema: Parseable, value: unknown) =>
@@ -692,6 +772,7 @@ const RESPONSES = {
   jobQueueListItemSchema,
   jobQueueCardResponseSchema,
   jobQueueCardSeniorSchema,
+  jobQueueSeniorOptionsResponseSchema,
   jobQueueSeniorsContinuationSchema,
   jobQueueSourcesContinuationSchema,
   jobQueueSubmissionSchema,
@@ -705,6 +786,16 @@ const RESPONSES = {
 /** Names that would identify another team or its people. */
 const FOREIGN_IDENTITY =
   /assignee|actor|claim|taken|dismissedBy|undoneBy|releasedBy|reassign|teamId|teamName/i
+
+/**
+ * Fields that match FOREIGN_IDENTITY by name but only ever name the VIEWER's own team. The senior
+ * picker's `teamName`: a TEAM scope (every HR) reads only its own team's name (the SQL pins the
+ * membership to the scope team; the RBAC integration spec asserts it), and only STUDIO, which is
+ * ADMIN-only and sees every team anyway, names any other.
+ */
+const OWN_TEAM_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  jobQueueSeniorOptionsResponseSchema: ['teamName'],
+}
 
 describe('AC4: no response shape carries foreign identity', () => {
   it('the walker sees nested keys (positive control)', () => {
@@ -723,11 +814,18 @@ describe('AC4: no response shape carries foreign identity', () => {
 
   it.each(Object.entries(RESPONSES))(
     '%s has no field naming another team or its actors',
-    (_name, schema) => {
-      const offending = keysOf(schema).filter((k) => FOREIGN_IDENTITY.test(k))
+    (name, schema) => {
+      const offending = keysOf(schema).filter(
+        (k) => FOREIGN_IDENTITY.test(k) && !OWN_TEAM_FIELDS[name]?.includes(k),
+      )
       expect(offending).toEqual([])
     },
   )
+
+  it('the own-team exemption is exactly the picker team name, and nothing else', () => {
+    expect(OWN_TEAM_FIELDS).toEqual({ jobQueueSeniorOptionsResponseSchema: ['teamName'] })
+    expect(keysOf(jobQueueSeniorOptionsResponseSchema)).toContain('teamName')
+  })
 
   /**
    * CR-M-1. Every object a response can contain, each named by its path inside a valid

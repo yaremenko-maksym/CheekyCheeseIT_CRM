@@ -36,6 +36,7 @@ import {
   RECOMPUTE_REASON_PREFIX,
   RECOMPUTE_TRIGGER_PREFIX,
 } from './queue-recompute.service'
+import { seniorOptionRows } from './queue-read-sql'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -345,6 +346,10 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     for (const t of ['teamA', 'teamB', 'teamE', 'teamS', 'teamS2']) await mkTeam(t)
     for (const m of ['hrA', 'senA', 'senShared']) await join('teamA', m)
     for (const m of ['hrB', 'senB', 'senShared']) await join('teamB', m)
+    // SO2-1: a senior who left team A, before the roster read, so no live membership remains
+    await mkUser('senLeft', 'SENIOR')
+    await join('teamA', 'senLeft')
+    await sqlq(`UPDATE team_members SET left_at = now() WHERE user_id = $1`, [id('senLeft')])
     await join('teamE', 'hrE')
     await join('teamS', 'hrS')
     await join('teamS2', 'hrS2')
@@ -357,6 +362,9 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     await mkOpp('oppShared')
     await lead('oppShared', 'senA')
     await lead('oppShared', 'senShared')
+    // Task 7.2: on team B only, so the senior filter has one row per senior to tell apart.
+    await mkOpp('oppOnlyB')
+    await lead('oppOnlyB', 'senB')
     await mkOpp('oppSup', { dup: true })
     await lead('oppSup', 'senA')
     await mkOpp('oppDupHost', { dup: true })
@@ -454,6 +462,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
   /** One request per route, with a valid id and a valid body: only the guard can refuse it. */
   const everyRoute = (): Array<[Method, string, unknown]> => [
     ['GET', '', undefined],
+    ['GET', '/seniors', undefined],
     ['GET', `/${id('oppOnlyA')}`, undefined],
     ['GET', `/${id('oppOnlyA')}/sources`, undefined],
     ['GET', `/${id('oppOnlyA')}/seniors`, undefined],
@@ -591,8 +600,13 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       `cursor=${'c'.repeat(301)}`,
       'teamId=nope',
       'x=1',
+      'seniorIds=nope',
     ])('GET ?%s', async (query) => {
       expect((await get(`?${query}`, 'hrA')).status).toBe(400)
+    })
+
+    it.each(['teamId=nope', 'x=1', 'limit=1'])('GET /seniors?%s', async (query) => {
+      expect((await get(`/seniors?${query}`, 'hrA')).status).toBe(400)
     })
 
     it('a triage write with a bad path id or body is a 400 for the ADMIN, and writes nothing', async () => {
@@ -666,6 +680,154 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       const sources = await get(`/${id('oppOnlyA')}/sources?cursor=forged.cursor`, 'hrA')
       expect(sources.status).toBe(400)
       expect(sources.json['code']).toBe('JOB_QUEUE_CURSOR_MALFORMED')
+    })
+  })
+
+  // Before 'reads, by scope': a test there submits oppShared for team B, which takes it off the NEW
+  // tab that these cases read.
+  describe('Task 7.2: the senior filter and its picker', () => {
+    // Team B's roster is senB and senShared; senA is foreign, yet leads oppShared, which team B
+    // sees through senShared. So a foreign id can only be told from an own one by what it lists.
+    const filtered = (...keys: string[]) => `seniorIds=${keys.map(id).join(',')}`
+    const name = (key: string) => `${TAG} name ${key}`
+
+    it('a foreign senior lists nothing, and answers exactly like an id that does not exist', async () => {
+      const foreign = await get(`?${search}&${filtered('senA')}`, 'hrB')
+      const unknown = await get(`?${search}&seniorIds=${randomUUID()}`, 'hrB')
+      expect(foreign.status).toBe(200)
+      expect(listedIds(foreign)).toEqual([])
+      expect(unknown.status).toBe(200)
+      expect(foreign.raw).toBe(unknown.raw)
+    })
+
+    it('an own and a foreign senior list only what the own senior matches', async () => {
+      const mixed = await get(`?${search}&${filtered('senB', 'senA')}`, 'hrB')
+      expect(mixed.status).toBe(200)
+      expect(listedIds(mixed)).toEqual([id('oppOnlyB')])
+    })
+
+    it('several seniors are an OR: each lists its own row, together they list both', async () => {
+      expect(listedIds(await get(`?${search}&${filtered('senB')}`, 'hrB'))).toEqual([
+        id('oppOnlyB'),
+      ])
+      expect(listedIds(await get(`?${search}&${filtered('senShared')}`, 'hrB'))).toEqual([
+        id('oppShared'),
+      ])
+      const both = await get(`?${search}&${filtered('senB', 'senShared')}`, 'hrB')
+      expect(listedIds(both).sort()).toEqual([id('oppOnlyB'), id('oppShared')].sort())
+    })
+
+    it('the filter does not narrow the tab counts', async () => {
+      const whole = await get(`?${search}`, 'hrB')
+      const narrowed = await get(`?${search}&${filtered('senB')}`, 'hrB')
+      const empty = await get(`?${search}&${filtered('senA')}`, 'hrB')
+      expect(listedIds(narrowed).length).toBeLessThan(listedIds(whole).length)
+      expect(narrowed.json['counts']).toEqual(whole.json['counts'])
+      expect(empty.json['counts']).toEqual(whole.json['counts'])
+    })
+
+    it('a cursor stays valid under the same filter, in any order of its ids', async () => {
+      const page = search.replace('limit=50', 'limit=1')
+      const first = await get(`?${page}&${filtered('senB', 'senShared')}`, 'hrB')
+      expect(first.status).toBe(200)
+      expect(listedIds(first)).toHaveLength(1)
+      const cursor = first.json['nextCursor'] as string
+      expect(typeof cursor).toBe('string')
+
+      const next = await get(
+        `?${page}&${filtered('senShared', 'senB')}&cursor=${encodeURIComponent(cursor)}`,
+        'hrB',
+      )
+      expect(next.status).toBe(200)
+      expect(next.json['generation']).toEqual(first.json['generation'])
+      expect(next.json['nextCursor']).toBeNull()
+      expect([...listedIds(first), ...listedIds(next)].sort()).toEqual(
+        [id('oppOnlyB'), id('oppShared')].sort(),
+      )
+    })
+
+    it('a cursor does not carry over to another filter', async () => {
+      const page = search.replace('limit=50', 'limit=1')
+      const first = await get(`?${page}&${filtered('senB', 'senShared')}`, 'hrB')
+      const cursor = first.json['nextCursor'] as string
+      expect(typeof cursor).toBe('string')
+      const other = await get(
+        `?${page}&${filtered('senB')}&cursor=${encodeURIComponent(cursor)}`,
+        'hrB',
+      )
+      expect(other.status).toBe(409)
+      expect(other.json['code']).toBe('JOB_QUEUE_REFRESH_REQUIRED')
+    })
+
+    it('the picker gives an HR exactly the seniors of the own team, and nothing but id, name and own team', async () => {
+      const own = await get('/seniors', 'hrA')
+      expect(own.status).toBe(200)
+      expect(own.json).toEqual({
+        items: [
+          { id: id('senA'), name: name('senA'), teamName: `${TAG}-teamA` },
+          { id: id('senShared'), name: name('senShared'), teamName: `${TAG}-teamA` },
+        ],
+      })
+      expect(own.raw).not.toContain('@example.test')
+      // senShared is also on teamB: an HR of teamA never reads that other team's name
+      expect(own.raw).not.toContain(`${TAG}-teamB`)
+    })
+
+    it('the picker is empty for a foreign team, no team, and a team without seniors', async () => {
+      for (const [who, query] of [
+        ['hrA', `?teamId=${id('teamB')}`],
+        ['hrNone', ''],
+        ['hrE', ''],
+      ] as const) {
+        const answer = await get(`/seniors${query}`, who)
+        expect(answer.status, `${who} ${query}`).toBe(200)
+        expect(answer.json, `${who} ${query}`).toEqual({ items: [] })
+      }
+    })
+
+    it('the picker gives an ADMIN the studio without a team, and exactly a team with one', async () => {
+      const studio = await get('/seniors', 'admin')
+      expect(studio.status).toBe(200)
+      // STUDIO groups each senior under one team: a shared senior under the first by name
+      expect(studio.json['items']).toEqual(
+        expect.arrayContaining(
+          [
+            ['senA', 'teamA'],
+            ['senB', 'teamB'],
+            ['senShared', 'teamA'],
+          ].map(([s, t]) => ({
+            id: id(s as string),
+            name: name(s as string),
+            teamName: `${TAG}-${t}`,
+          })),
+        ),
+      )
+      expect(studio.raw).not.toContain('@example.test')
+      const team = await get(`/seniors?teamId=${id('teamB')}`, 'admin')
+      expect(team.status).toBe(200)
+      expect(team.json).toEqual({
+        items: [
+          { id: id('senB'), name: name('senB'), teamName: `${TAG}-teamB` },
+          { id: id('senShared'), name: name('senShared'), teamName: `${TAG}-teamB` },
+        ],
+      })
+    })
+
+    it('a senior with no live membership keeps a picker row with a null team (SO2-1)', async () => {
+      // The roster joins live memberships, so over HTTP this row exists only when a senior leaves
+      // between the roster read and the picker read; the picker SQL is asserted on the real DB.
+      const { rows } = await session.databaseService.db.execute(
+        seniorOptionRows([id('senLeft'), id('senA')], null, 200),
+      )
+      expect(rows).toEqual([
+        { id: id('senA'), display_name: name('senA'), team_name: `${TAG}-teamA` },
+        { id: id('senLeft'), display_name: name('senLeft'), team_name: null },
+      ])
+      const studio = await get('/seniors', 'admin')
+      expect(studio.status).toBe(200)
+      const listed = (studio.json['items'] as Array<{ id: string }>).map((i) => i.id)
+      expect(listed).not.toContain(id('senLeft'))
+      expect(listed).toContain(id('senA'))
     })
   })
 
