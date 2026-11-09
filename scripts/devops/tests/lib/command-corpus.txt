@@ -1012,6 +1012,20 @@ block	safety	pnpm sh -c "rm -rf /etc" install
 # Accepted false refusal (AUTO-SR-25): a dynamic value of an unknown option.
 block	safety	pnpm --reporter $r test
 allow	safety	pnpm --reporter silent install
+# AUTO-SR-26 / AUTO-SR-27 of #1294: value options per runner (pnpm -w is a flag); a subcommand
+# word right after an unknown option does not stop the walk; a known option value is rescanned.
+# pnpm --filter $pkg test, pnpm install, pnpm -r build, yarn install, yarn --cwd x $x and
+# pnpm exec vitest run "$FILE" are rows above.
+block	safety	pnpm -w git push --force origin main
+block	safety	pnpm -w dropdb crm_db
+block	safety	pnpm --reporter test git push -f origin main
+block	safety	pnpm --filter x git push -f origin main
+block	safety	pnpm --filter "git push -f origin main" test
+block	safety	pnpm --filter $'git' push -f origin main
+block	safety	pnpm -F $pkg dropdb crm_db
+allow	safety	pnpm -w add -D x
+allow	safety	pnpm -F $pkg run build
+allow	safety	yarn --cwd apps/web install
 # SR-M-11 / SR-M-12 of #1294: `config` anywhere; include files and swapped config files.
 block	safety	git --attr-source HEAD config alias.x '!rm'
 block	safety	git config include.path /tmp/x

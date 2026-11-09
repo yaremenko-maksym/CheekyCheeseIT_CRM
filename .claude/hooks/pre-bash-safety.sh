@@ -145,21 +145,34 @@ blocked = []
 #
 # NB for editors: this python source is a single-quoted bash string. It must not
 # contain a single quote anywhere — use \x27 in patterns, and avoid apostrophes
-# in comments.
-# SR-M-8 (#1294): a package runner executes a word named only at run time (`pnpm exec $x`,
-# `yarn $x`, `npm x -- $x`). The launched word is read here, not in the shared cmdscan
-# wrapper table, because a wrapper entry changes seg.name for every hook that imports it.
-# SR-M-9 / SR-M-10: no hand parse of runner options. The words after the FIRST launch
-# subcommand, wherever it sits, are scanned as a fresh command line, so wrappers unwrap
-# and `--` splits off a command. Accepted false refusal: a launch word as an option value.
-# Bare `pnpm` / `yarn` / `bun` may launch any word in front of their first own subcommand;
-# a script name (`pnpm run $x`) is repo code and stays allowed.
+# in comments. Size: Windows caps a command line near 32K chars; this source is
+# about 1K under it, and over it the hook refuses every command.
+# SR-M-8/9/10 (#1294): a runner launches a word named at run time (`pnpm exec $x`).
+# Read here, not in the cmdscan wrapper table other hooks share. The words after
+# the first launch word are rescanned, so wrappers unwrap and `--` splits. A script
+# name (`pnpm run $x`) is repo code. Accepted false refusal: a launch word as a value.
 PKG_RUNNERS = ("pnpm", "npm", "yarn", "bun", "corepack")
 PKG_LAUNCH_WORDS = ("exec", "dlx", "x", "create", "init", "explore", "foreach")
 PKG_SUBCOMMANDS = {"install", "add", "run", "test", "build", "lint", "typecheck", "i",
                    "remove", "update", "why", "list", "ls", "store", "config", "dev", "start"}
-PKG_VALUE_OPTS = {"--filter", "-F", "--dir", "-C", "--workspace", "-w", "--prefix", "--cwd",
-                  "--package", "-p"}
+# AUTO-SR-26: per runner, only options known to take a value (pnpm -w, -p are flags).
+PKG_VALUE_OPTS = {"pnpm": {"--filter", "-F", "--dir", "-C"}, "yarn": {"--cwd"},
+                  "bun": {"--cwd"}}
+
+
+def ansi_c_spells(body):
+    # An ANSI-C escape other than a quote or a backslash can spell a name (`\x63md`).
+    # `\\` pairs are consumed first, so `foo\\bar` is a literal backslash, not `\b`.
+    return re.search(r"\\[^\x22\x27]", re.sub(r"\\\\", "", body)) is not None
+
+
+def dynamic_word(word):
+    # `$x`, `${x}`, `${!v}`, `$(...)` (the analyzer marks it with a `$`) and backticks.
+    # A `$` that opens ANSI-C or locale quoting (`$\x27...\x27`, `$"..."`) expands nothing.
+    if re.search(r"\$\x27", word) and ansi_c_spells(word):
+        return True
+    word = re.sub(r"\$(?=[\x22\x27])", "", word)
+    return "$" in word or "\x60" in word
 
 
 def requote(word):
@@ -175,25 +188,37 @@ def pkg_launch(seg, depth=0):
         return []
     k = next((i for i, a in enumerate(args) if a in PKG_LAUNCH_WORDS), None)
     if k is not None:
-        starts = [k + 1]
+        starts = [(k + 1, False)]
     else:
-        # CR-M-13 / AUTO-SR-25: a bare runner may launch any word in front of its first own
-        # subcommand (`yarn --cwd x $x`, `pnpm $x test`, `pnpm sh -c "..." install`), so
-        # each such word that is not a known option value starts a command. Words after the
-        # subcommand are its arguments (`pnpm --filter $pkg test` passes). Accepted false
-        # refusal: a dynamic value of an unknown option (`pnpm --reporter $r test`).
+        # CR-M-13, AUTO-SR-25/27: every non-option word before the first own subcommand is
+        # rescanned, a known option value too (only it may be dynamic). A subcommand right
+        # after an unknown option may be its value, so it does not stop the walk.
         if seg.name not in ("pnpm", "yarn", "bun"):
             return []
-        starts, i = [], 0
-        while i < len(args) and args[i] not in PKG_SUBCOMMANDS:
-            if args[i].startswith("-"):
-                i += 2 if args[i] in PKG_VALUE_OPTS else 1
+        takes_value = PKG_VALUE_OPTS[seg.name]
+        starts, i, after_unknown = [], 0, False
+        while i < len(args):
+            a = args[i]
+            if a in PKG_SUBCOMMANDS and not after_unknown:
+                break
+            if a.startswith("-"):
+                if a in takes_value:
+                    if i + 1 < len(args):
+                        starts.append((i + 1, True))
+                    i += 2
+                    after_unknown = False
+                else:
+                    i += 1
+                    after_unknown = "=" not in a
                 continue
-            starts.append(i)
+            starts.append((i, False))
+            after_unknown = False
             i += 1
     lines = []
-    for start in starts:
+    for start, is_value in starts:
         rest = args[start:]
+        if is_value and dynamic_word(rest[0]):
+            rest = ["value"] + rest[1:]
         lines += [rest] + ([rest[rest.index("--") + 1:]] if "--" in rest else [])
     out = []
     for words in lines:
@@ -433,21 +458,6 @@ def seg_words(seg):
     for tok in [seg.name] + list(seg.argv):
         for word in cmdscan._expand_token(tok, True):
             yield word
-
-
-def ansi_c_spells(body):
-    # An ANSI-C escape other than a quote or a backslash can spell a name (`\x63md`).
-    # `\\` pairs are consumed first, so `foo\\bar` is a literal backslash, not `\b`.
-    return re.search(r"\\[^\x22\x27]", re.sub(r"\\\\", "", body)) is not None
-
-
-def dynamic_word(word):
-    # `$x`, `${x}`, `${!v}`, `$(...)` (the analyzer marks it with a `$`) and backticks.
-    # A `$` that opens ANSI-C or locale quoting (`$\x27...\x27`, `$"..."`) expands nothing.
-    if re.search(r"\$\x27", word) and ansi_c_spells(word):
-        return True
-    word = re.sub(r"\$(?=[\x22\x27])", "", word)
-    return "$" in word or "\x60" in word
 
 
 def refuse_dynamic(word):

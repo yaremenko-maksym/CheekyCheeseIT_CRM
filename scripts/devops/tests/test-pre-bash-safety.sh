@@ -794,6 +794,24 @@ done
 assert_red "shell before a subcommand: pnpm sh -c \"rm -rf /etc\" install" --contains "[pre:bash:safety] BLOCK" -- h 'pnpm sh -c "rm -rf /etc" install'
 assert_red "accepted false refusal, dynamic unknown option value: pnpm --reporter \$r test" --contains "no gate reads" -- h 'pnpm --reporter $r test'
 assert_green "unknown option before a subcommand: pnpm --reporter silent install" -- h 'pnpm --reporter silent install'
+# AUTO-SR-26 (#1294): value options per runner; pnpm -w / -p are flags, not value takers.
+# AUTO-SR-27: a subcommand word right after an unknown option may be its value, the walk goes on.
+# A known option value is rescanned too; only it may be dynamic.
+assert_red "boolean -w before a launch: pnpm -w git push --force origin main" --contains "force push" -- h 'pnpm -w git push --force origin main'
+assert_red "boolean -w before a launch: pnpm -w dropdb crm_db" --contains "dropdb" -- h 'pnpm -w dropdb crm_db'
+assert_red "subcommand word as an unknown option value: pnpm --reporter test git push -f origin main" --contains "force push" -- h 'pnpm --reporter test git push -f origin main'
+assert_red "launch after a known option value: pnpm --filter x git push -f origin main" --contains "force push" -- h 'pnpm --filter x git push -f origin main'
+assert_red "known option value rescanned: pnpm --filter \"git push -f origin main\" test" --contains "force push" -- h 'pnpm --filter "git push -f origin main" test'
+assert_red "ANSI-C known option value rescanned: pnpm --filter \$'git' push -f origin main" --contains "force push" -- h "pnpm --filter \$'git' push -f origin main"
+assert_red "dynamic value, launch after it: pnpm -F \$pkg dropdb crm_db" --contains "dropdb" -- h 'pnpm -F $pkg dropdb crm_db'
+for c in 'pnpm --reporter silent $x' 'yarn --cwd x $x'; do
+  assert_red "launch word after an option: $c" --contains "no gate reads" -- h "$c"
+done
+for c in 'pnpm --filter $pkg test' 'pnpm --filter @crm/api test' 'pnpm install' 'pnpm -r build' \
+         'pnpm -w add -D x' 'yarn install' 'pnpm exec vitest run "$FILE"' 'pnpm -F $pkg run build' \
+         'yarn --cwd apps/web install'; do
+  assert_green "runner subcommand: $c" -- h "$c"
+done
 # SR-M-11 / SR-M-12 (#1294): `config` anywhere; include files and swapped config files.
 for c in "git --attr-source HEAD config alias.x '!rm'" 'git config include.path /tmp/x' \
          'git config --global Include.Path /tmp/x' 'git config includeIf.gitdir:/x/.path /tmp/x' \
