@@ -392,10 +392,20 @@ def refuse_dynamic(word):
                    "no gate reads" % word)
 
 
-def version_only(name):
-    # `pkg@$VER` (npx, pnpm dlx): the package is literal, only its version is dynamic.
-    m = re.fullmatch(r"(@?[\w.-]+(?:/[\w.-]+)?)@(.+)", name)
-    return bool(m) and not dynamic_word(m.group(1))
+PACKAGE_RUNNERS = ("npx", "pnpx", "bunx", "pnpm", "yarn")
+
+
+def version_only(seg_or_cand):
+    # `npx pkg@$VER` (AUTO-SR-10 on #1294): under a package runner the package is literal
+    # and only its version is dynamic, as one plain `$NAME`. A bare `pkg@$x` command word,
+    # and a version made of `$(...)`, `${...}`, a backtick, `/` or `:`, stay dynamic.
+    if not any(w in PACKAGE_RUNNERS for w in seg_or_cand.wrappers):
+        return False
+    name = seg_or_cand.name
+    if cmdscan.SUBST_MARKER in name:
+        return False
+    return re.fullmatch(r"@?[\w.-]+(?:/[\w.-]+)?@(?:[\w.+~^*<>=-]|\$[A-Za-z_]\w*)+",
+                        name) is not None
 
 
 # A dynamic word fails closed with no resolution (AUTO-SR-7 on #1294): the union of
@@ -414,9 +424,9 @@ for seg in scan.segments:
         break
     if not scan.truncated:
         # seg.dynamic too: the name is a basename, so its `$` may be gone (`$\x27\\x63md\x27`).
-        names = [seg.name] + [c.name for c in candidates(seg)]
-        dyn = [n for n in names if dynamic_word(n) and not version_only(n)]
-        if seg.dynamic and not version_only(seg.name):
+        dyn = [c.name for c in [seg] + candidates(seg)
+               if dynamic_word(c.name) and not version_only(c)]
+        if seg.dynamic and not version_only(seg):
             dyn.insert(0, seg.name)
         if dyn:
             refuse_dynamic(dyn[0])
@@ -446,6 +456,11 @@ for seg in scan.segments:
 # gate reads the body. Agents never need an alias or expand_aliases, so defining one (an
 # `=` in the arguments), writing BASH_ALIASES, or `shopt -s expand_aliases` refuses.
 # Listing (`alias`, `alias ls`) stays allowed.
+# AUTO-SR-11: any word naming BASH_ALIASES refuses (assignment, `+=`, compound,
+# `printf -v`, `read`, `declare`, `mapfile`), and so does posix mode, which turns alias
+# expansion on in a non-interactive bash: `set -o posix`, `shopt -so posix`,
+# `bash --posix` and any POSIXLY_CORRECT assignment. Accepted false refusal: a message or
+# a search that mentions BASH_ALIASES.
 for seg in scan.segments:
     if blocked:
         break
@@ -454,7 +469,10 @@ for seg in scan.segments:
         args = list(cand.argv)
         if (name == "alias" and any("=" in a for a in args)) \
                 or (name == "shopt" and "expand_aliases" in args) \
-                or re.search(r"\bBASH_ALIASES\[[^]]*\]\+?=", seg.raw or ""):
+                or (name in ("set", "shopt", "bash", "sh") and ("posix" in args or "--posix" in args)) \
+                or "POSIXLY_CORRECT" in seg.env or "POSIXLY_CORRECT" in cand.env \
+                or re.search(r"\bPOSIXLY_CORRECT\s*\+?=", seg.raw or "") \
+                or "BASH_ALIASES" in (seg.raw or ""):
             blocked.append("defining an alias, or enabling alias expansion, hides a command "
                            "body no gate reads")
             break

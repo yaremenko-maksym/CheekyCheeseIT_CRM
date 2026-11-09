@@ -835,6 +835,18 @@ block	safety	alias ls='rm -rf /etc'
 block	safety	shopt -s expand_aliases; alias ls='rm -rf /etc'; ls
 block	safety	BASH_ALIASES[ls]='rm -rf /etc'
 allow	safety	alias
+# AUTO-SR-11 of #1294: every route to the alias table, and posix mode (it expands aliases).
+block	safety	BASH_ALIASES[ls]+=x
+block	safety	printf -v BASH_ALIASES[ls] %s x
+block	safety	set -o posix
+block	safety	(set -o posix; ls)
+block	safety	shopt -so posix
+block	safety	POSIXLY_CORRECT=1 ls
+allow	safety	set -e
+allow	safety	set -o pipefail
+# AUTO-SR-10 of #1294: a dynamic version is allowed only under a package runner, as one $NAME.
+block	safety	npx pkg@$(echo x)
+block	safety	pkg@$x
 allow	safety	ls cmd
 allow	safety	go build ./cmd/server
 allow	safety	echo $COMSPEC

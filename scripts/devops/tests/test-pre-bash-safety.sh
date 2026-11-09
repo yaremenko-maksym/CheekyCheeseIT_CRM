@@ -654,6 +654,23 @@ done
 for c in 'alias' 'alias ls'; do
   assert_green "listing aliases: $c" -- h "$c"
 done
+# AUTO-SR-11 (#1294): every route to the alias table, and posix mode, which expands aliases.
+for c in 'BASH_ALIASES[ls]+=x' 'declare -A BASH_ALIASES=([ls]=x)' 'printf -v BASH_ALIASES[ls] %s x' \
+         'read BASH_ALIASES[ls] <<< x' 'mapfile BASH_ALIASES < f' \
+         'set -o posix' '(set -o posix; ls)' 'shopt -so posix' 'POSIXLY_CORRECT=1 ls' \
+         'export POSIXLY_CORRECT=1' 'bash --posix -c ls'; do
+  assert_red "alias table or posix mode: $c" --contains "alias" -- h "$c"
+done
+for c in 'set -e' 'set -o pipefail' 'set -euo pipefail'; do
+  assert_green "shell options that do not expand aliases: $c" -- h "$c"
+done
+# AUTO-SR-10 (#1294): a dynamic version is allowed only under a package runner, as one `$NAME`.
+for c in 'npx pkg@$(echo x)' 'npx pkg@`echo x`' 'npx pkg@${V}' 'npx pkg@$V/x' 'pkg@$x'; do
+  assert_red "dynamic package spec: $c" --contains "no gate reads" -- h "$c"
+done
+for c in 'bunx pkg@$V' 'npx -y @scope/pkg@$VER x'; do
+  assert_green "package runner with a plain version variable: $c" -- h "$c"
+done
 # CR-M-4 (#1294): a decoy install in one quoted argument must not exempt a launch in the
 # next one, or past a `;` inside a -c string, and a flat `concurrently` runs every word.
 # So there is no install exemption at all.
