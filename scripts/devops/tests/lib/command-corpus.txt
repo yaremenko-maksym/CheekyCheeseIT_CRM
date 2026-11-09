@@ -1003,6 +1003,15 @@ block	safety	pnpm --workspace-dir x exec $x
 block	safety	pnpm --reporter silent $x
 block	safety	yarn workspace web $x
 block	safety	bun $x
+# AUTO-SR-25 of #1294: a launch word in front of a bare runner own subcommand.
+block	safety	pnpm $x test
+block	safety	yarn $x install
+block	safety	bun $x run
+block	safety	pnpm powershell install
+block	safety	pnpm sh -c "rm -rf /etc" install
+# Accepted false refusal (AUTO-SR-25): a dynamic value of an unknown option.
+block	safety	pnpm --reporter $r test
+allow	safety	pnpm --reporter silent install
 # SR-M-11 / SR-M-12 of #1294: `config` anywhere; include files and swapped config files.
 block	safety	git --attr-source HEAD config alias.x '!rm'
 block	safety	git config include.path /tmp/x

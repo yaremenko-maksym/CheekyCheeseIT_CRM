@@ -152,13 +152,14 @@ blocked = []
 # SR-M-9 / SR-M-10: no hand parse of runner options. The words after the FIRST launch
 # subcommand, wherever it sits, are scanned as a fresh command line, so wrappers unwrap
 # and `--` splits off a command. Accepted false refusal: a launch word as an option value.
-# Bare `pnpm` / `yarn` / `bun` launch the first word that is not one of their subcommands;
+# Bare `pnpm` / `yarn` / `bun` may launch any word in front of their first own subcommand;
 # a script name (`pnpm run $x`) is repo code and stays allowed.
 PKG_RUNNERS = ("pnpm", "npm", "yarn", "bun", "corepack")
 PKG_LAUNCH_WORDS = ("exec", "dlx", "x", "create", "init", "explore", "foreach")
 PKG_SUBCOMMANDS = {"install", "add", "run", "test", "build", "lint", "typecheck", "i",
                    "remove", "update", "why", "list", "ls", "store", "config", "dev", "start"}
-PKG_VALUE_OPTS = {"--filter", "-F", "--dir", "-C", "--prefix", "--package", "-p"}
+PKG_VALUE_OPTS = {"--filter", "-F", "--dir", "-C", "--workspace", "-w", "--prefix", "--cwd",
+                  "--package", "-p"}
 
 
 def requote(word):
@@ -173,22 +174,28 @@ def pkg_launch(seg, depth=0):
     if seg.name not in PKG_RUNNERS or depth > 3:
         return []
     k = next((i for i, a in enumerate(args) if a in PKG_LAUNCH_WORDS), None)
-    out = []
-    if k is None:
-        # CR-M-13: with no subcommand of its own anywhere in argv, a bare runner may launch
-        # any word (`yarn --cwd x $x`, `yarn workspace web $x`), so every dynamic word is a
-        # command word. One known subcommand anywhere (`pnpm --filter $pkg test`) passes.
-        if seg.name not in ("pnpm", "yarn", "bun") or any(a in PKG_SUBCOMMANDS for a in args):
+    if k is not None:
+        starts = [k + 1]
+    else:
+        # CR-M-13 / AUTO-SR-25: a bare runner may launch any word in front of its first own
+        # subcommand (`yarn --cwd x $x`, `pnpm $x test`, `pnpm sh -c "..." install`), so
+        # each such word that is not a known option value starts a command. Words after the
+        # subcommand are its arguments (`pnpm --filter $pkg test` passes). Accepted false
+        # refusal: a dynamic value of an unknown option (`pnpm --reporter $r test`).
+        if seg.name not in ("pnpm", "yarn", "bun"):
             return []
-        out = [cmdscan.Segment(a, [], seg.payload, list(seg.wrappers) + [seg.name], True,
-                               seg.raw, seg.depth, seg.env, False, None)
-               for a in args if "$" in a or "\x60" in a]
-        k = 0
-        while k < len(args) and args[k].startswith("-"):
-            k += 2 if args[k] in PKG_VALUE_OPTS else 1
-        k -= 1
-    rest = args[k + 1:]
-    lines = [rest] + ([rest[rest.index("--") + 1:]] if "--" in rest else [])
+        starts, i = [], 0
+        while i < len(args) and args[i] not in PKG_SUBCOMMANDS:
+            if args[i].startswith("-"):
+                i += 2 if args[i] in PKG_VALUE_OPTS else 1
+                continue
+            starts.append(i)
+            i += 1
+    lines = []
+    for start in starts:
+        rest = args[start:]
+        lines += [rest] + ([rest[rest.index("--") + 1:]] if "--" in rest else [])
+    out = []
     for words in lines:
         if not words:
             continue

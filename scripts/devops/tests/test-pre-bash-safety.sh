@@ -787,6 +787,13 @@ for c in 'pnpm exec sh -c "$x"' 'yarn --cwd x $x' 'pnpm --loglevel error exec $x
          'pnpm --workspace-dir x exec $x' 'pnpm --reporter silent $x' 'yarn workspace web $x' 'bun $x'; do
   assert_red "launch through a wrapper or a shifted option: $c" --contains "no gate reads" -- h "$c"
 done
+# AUTO-SR-25 (#1294): a launch word in front of a bare runner own subcommand.
+for c in 'pnpm $x test' 'yarn $x install' 'bun $x run' 'pnpm powershell install'; do
+  assert_red "launch word before a subcommand: $c" --contains "no gate reads" -- h "$c"
+done
+assert_red "shell before a subcommand: pnpm sh -c \"rm -rf /etc\" install" --contains "[pre:bash:safety] BLOCK" -- h 'pnpm sh -c "rm -rf /etc" install'
+assert_red "accepted false refusal, dynamic unknown option value: pnpm --reporter \$r test" --contains "no gate reads" -- h 'pnpm --reporter $r test'
+assert_green "unknown option before a subcommand: pnpm --reporter silent install" -- h 'pnpm --reporter silent install'
 # SR-M-11 / SR-M-12 (#1294): `config` anywhere; include files and swapped config files.
 for c in "git --attr-source HEAD config alias.x '!rm'" 'git config include.path /tmp/x' \
          'git config --global Include.Path /tmp/x' 'git config includeIf.gitdir:/x/.path /tmp/x' \
