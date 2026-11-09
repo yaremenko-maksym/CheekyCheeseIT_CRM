@@ -818,7 +818,6 @@ allow	safety	make test ARGS=$X
 allow	safety	npm run build -- --base=$BASE
 allow	safety	[ -z "$X" ]
 allow	safety	pnpm --filter $pkg test
-allow	safety	npx -y pkg@$VER x
 allow	safety	docker run -e K=$V img
 # KNOWN LIMIT (#1294): an unknown wrapper that executes a dynamic argument is not judged.
 allow	safety	unknown-tool $x
@@ -844,9 +843,23 @@ block	safety	shopt -so posix
 block	safety	POSIXLY_CORRECT=1 ls
 allow	safety	set -e
 allow	safety	set -o pipefail
-# AUTO-SR-10 of #1294: a dynamic version is allowed only under a package runner, as one $NAME.
+allow	safety	set -euo pipefail
+# AUTO-SR-13 / AUTO-SR-14 of #1294: a nameref, a dynamic assignment target, SHELLOPTS and a
+# dynamic shell option can all reach the alias table or posix mode.
+block	safety	declare -n a=BASH_ALIASES
+block	safety	printf -v "$t" x
+block	safety	set -o "$m"
+block	safety	SHELLOPTS=posix bash -c x
+allow	safety	declare -a arr
+allow	safety	printf -v out '%s' x
+allow	safety	read -r line
+allow	safety	local x="$1"
+# AUTO-SR-12 / AUTO-SR-15 of #1294: no exception for a package version.
 block	safety	npx pkg@$(echo x)
 block	safety	pkg@$x
+block	safety	npx pkg@$V
+# Accepted false refusal (AUTO-SR-12): a dynamic package version refuses like any dynamic word.
+block	safety	npx -y pkg@$VER x
 allow	safety	ls cmd
 allow	safety	go build ./cmd/server
 allow	safety	echo $COMSPEC

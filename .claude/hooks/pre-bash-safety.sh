@@ -392,22 +392,6 @@ def refuse_dynamic(word):
                    "no gate reads" % word)
 
 
-PACKAGE_RUNNERS = ("npx", "pnpx", "bunx", "pnpm", "yarn")
-
-
-def version_only(seg_or_cand):
-    # `npx pkg@$VER` (AUTO-SR-10 on #1294): under a package runner the package is literal
-    # and only its version is dynamic, as one plain `$NAME`. A bare `pkg@$x` command word,
-    # and a version made of `$(...)`, `${...}`, a backtick, `/` or `:`, stay dynamic.
-    if not any(w in PACKAGE_RUNNERS for w in seg_or_cand.wrappers):
-        return False
-    name = seg_or_cand.name
-    if cmdscan.SUBST_MARKER in name:
-        return False
-    return re.fullmatch(r"@?[\w.-]+(?:/[\w.-]+)?@(?:[\w.+~^*<>=-]|\$[A-Za-z_]\w*)+",
-                        name) is not None
-
-
 # A dynamic word fails closed with no resolution (AUTO-SR-7 on #1294): the union of
 # same-line assignments drifts from the shell state (`+=`, `read`, `for`, `export`,
 # subshells). Accepted false refusal: `x=ls; $x`. Only command positions are judged
@@ -418,15 +402,17 @@ def version_only(seg_or_cand):
 # and an option value (`make test ARGS=$X`) stay allowed.
 # shortcut: an unknown wrapper that executes a dynamic argument (`unknown-tool $x`) is
 # not judged; upgrade by adding that wrapper to the cmdscan wrapper table.
+# No exception for a package version (AUTO-SR-12 / AUTO-SR-15): the analyzer names a
+# segment by its basename and splits runner flags into words, so an exemption keyed on
+# the name was unsafe. Accepted false refusal: `npx -y pkg@$VER`.
 # A truncated scan is refused below with its own reason; do not mask it.
 for seg in scan.segments:
     if blocked:
         break
     if not scan.truncated:
         # seg.dynamic too: the name is a basename, so its `$` may be gone (`$\x27\\x63md\x27`).
-        dyn = [c.name for c in [seg] + candidates(seg)
-               if dynamic_word(c.name) and not version_only(c)]
-        if seg.dynamic and not version_only(seg):
+        dyn = [c.name for c in [seg] + candidates(seg) if dynamic_word(c.name)]
+        if seg.dynamic:
             dyn.insert(0, seg.name)
         if dyn:
             refuse_dynamic(dyn[0])
@@ -461,21 +447,68 @@ for seg in scan.segments:
 # expansion on in a non-interactive bash: `set -o posix`, `shopt -so posix`,
 # `bash --posix` and any POSIXLY_CORRECT assignment. Accepted false refusal: a message or
 # a search that mentions BASH_ALIASES.
+# AUTO-SR-13: a nameref (`declare -n a=BASH_ALIASES`) or a dynamic assignment target
+# (`printf -v "$t"`, `read "$t"`, `declare "$t"=x`) can write the alias table under a
+# name no check sees, so both refuse. AUTO-SR-14: SHELLOPTS turns posix mode on like
+# POSIXLY_CORRECT, and a dynamic option to set, shopt or `bash -o` may be posix.
+POSIX_VARS = ("POSIXLY_CORRECT", "SHELLOPTS")
+DECLARERS = ("declare", "typeset", "local", "export", "readonly")
+
+
+def assignment_targets(name, args):
+    # The words a builtin assigns to: `printf -v T`, the operands of read / mapfile, the
+    # names before `=` for declare and friends. Option values of read count too (fail closed).
+    if name == "printf":
+        for i, a in enumerate(args):
+            if a == "-v" and i + 1 < len(args):
+                yield args[i + 1]
+            elif a.startswith("-v") and len(a) > 2:
+                yield a[2:]
+    elif name in ("read", "mapfile", "readarray") + DECLARERS:
+        for i, a in enumerate(args):
+            # A reading repeats the value of `x=$1` as its own word; that copy is a value, not a target.
+            if i and "=" in args[i - 1] and args[i - 1].split("=", 1)[1] == a:
+                continue
+            if a != "--" and not a.startswith(("-", "+")):
+                yield a.split("=", 1)[0]
+
+
+def alias_route(seg, cand):
+    name = cand.name.lstrip("\\")
+    args = list(cand.argv)
+    opts = [a for a in args if a.startswith(("-", "+")) and a not in ("-", "--")]
+    if name == "alias" and any("=" in a for a in args):
+        return True
+    if name == "shopt" and "expand_aliases" in args:
+        return True
+    if name in ("set", "shopt", "bash", "sh") and ("posix" in args or "--posix" in args):
+        return True
+    if name in ("set", "shopt"):
+        before = args[:args.index("--")] if "--" in args else args
+        if any(dynamic_word(a) for a in before):
+            return True
+    if name in ("bash", "sh"):
+        for i, a in enumerate(args):
+            if a in ("-o", "+o") and i + 1 < len(args) and dynamic_word(args[i + 1]):
+                return True
+    if name in ("declare", "typeset", "local") and any(
+            "n" in o.lstrip("-+") for o in opts if not o.startswith("--")):
+        return True
+    if any(dynamic_word(t) for t in assignment_targets(name, args)):
+        return True
+    if any(v in seg.env or v in cand.env for v in POSIX_VARS):
+        return True
+    if re.search(r"\b(POSIXLY_CORRECT|SHELLOPTS)\s*\+?=", seg.raw or ""):
+        return True
+    return "BASH_ALIASES" in (seg.raw or "")
+
+
 for seg in scan.segments:
     if blocked:
         break
-    for cand in candidates(seg):
-        name = cand.name.lstrip("\\")
-        args = list(cand.argv)
-        if (name == "alias" and any("=" in a for a in args)) \
-                or (name == "shopt" and "expand_aliases" in args) \
-                or (name in ("set", "shopt", "bash", "sh") and ("posix" in args or "--posix" in args)) \
-                or "POSIXLY_CORRECT" in seg.env or "POSIXLY_CORRECT" in cand.env \
-                or re.search(r"\bPOSIXLY_CORRECT\s*\+?=", seg.raw or "") \
-                or "BASH_ALIASES" in (seg.raw or ""):
-            blocked.append("defining an alias, or enabling alias expansion, hides a command "
-                           "body no gate reads")
-            break
+    if any(alias_route(seg, cand) for cand in candidates(seg)):
+        blocked.append("defining an alias, or enabling alias expansion, hides a command "
+                       "body no gate reads")
 
 # ── the analyzer admitting it did not finish ────────────────────────────────
 # `$( $( … 200 deep … ) )` walks past MAX_DEPTH and leaves code unread. Silence

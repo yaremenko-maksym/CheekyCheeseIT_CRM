@@ -611,7 +611,7 @@ for c in 'env $x' 'xargs $x' 'timeout 5 $x' 'nice $x' 'bash -c "$x"' 'npx -y pws
 done
 # CR-M-8: arguments are never judged by the dynamic check - option values, operands, `[`.
 for c in 'pnpm exec vitest run "$FILE"' 'make test ARGS=$X' 'npm run build -- --base=$BASE' '[ -z "$X" ]' \
-         'pnpm --filter $pkg test' 'npx -y pkg@$VER x' 'docker run -e K=$V img'; do
+         'pnpm --filter $pkg test' 'docker run -e K=$V img'; do
   assert_green "dynamic word as an argument: $c" -- h "$c"
 done
 # Known limit (shortcut in predicate 7): an unknown wrapper that executes a dynamic argument is
@@ -664,12 +664,24 @@ done
 for c in 'set -e' 'set -o pipefail' 'set -euo pipefail'; do
   assert_green "shell options that do not expand aliases: $c" -- h "$c"
 done
-# AUTO-SR-10 (#1294): a dynamic version is allowed only under a package runner, as one `$NAME`.
-for c in 'npx pkg@$(echo x)' 'npx pkg@`echo x`' 'npx pkg@${V}' 'npx pkg@$V/x' 'pkg@$x'; do
+# AUTO-SR-13 (#1294): a nameref, or a dynamic assignment target, can reach the alias table.
+# AUTO-SR-14: SHELLOPTS is read like POSIXLY_CORRECT; a dynamic option name may be posix.
+for c in 'declare -n a=BASH_ALIASES' 'local -n r=x' 'typeset -gn r=x' 'printf -v "$t" x' \
+         'read "$t" <<< x' 'mapfile "$t" < f' 'declare "$t"=x' 'declare $t' 'export "$t"=x' \
+         'set -o "$m"' 'shopt -s "$m"' 'bash -o "$m" -c ls' 'SHELLOPTS=posix bash -c x'; do
+  assert_red "nameref, dynamic target or dynamic shell option: $c" --contains "alias" -- h "$c"
+done
+for c in 'declare -a arr' "printf -v out '%s' x" 'read -r line' 'local x="$1"' 'declare x=$y' \
+         'readonly R="$1"'; do
+  assert_green "literal assignment target: $c" -- h "$c"
+done
+# AUTO-SR-12 / AUTO-SR-15 (#1294): no exception for a package version; a dynamic word in a
+# command position refuses. Accepted false refusal: `npx -y pkg@$VER`.
+for c in 'npx pkg@$(echo x)' 'npx pkg@`echo x`' 'npx pkg@${V}' 'npx pkg@$V/x' 'pkg@$x' 'npx pkg@$V'; do
   assert_red "dynamic package spec: $c" --contains "no gate reads" -- h "$c"
 done
-for c in 'bunx pkg@$V' 'npx -y @scope/pkg@$VER x'; do
-  assert_green "package runner with a plain version variable: $c" -- h "$c"
+for c in 'npx -y pkg@$VER x' 'bunx pkg@$V' 'npx -y @scope/pkg@$VER x'; do
+  assert_red "accepted false refusal, dynamic package version: $c" --contains "no gate reads" -- h "$c"
 done
 # CR-M-4 (#1294): a decoy install in one quoted argument must not exempt a launch in the
 # next one, or past a `;` inside a -c string, and a flat `concurrently` runs every word.
