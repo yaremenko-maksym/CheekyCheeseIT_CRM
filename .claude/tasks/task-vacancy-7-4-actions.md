@@ -60,7 +60,7 @@ The 7.3 card shows a vacancy but cannot act on it. 7.4 adds the actions from pla
 9. [ ] Carried over from PR #1302 (three LOW findings moved here; report one line per id):
    - **UX-L-5** (design review 5831045057): a triage card shows «Сеньйори зі збігом 1» above «Сеньйорів не підібрано автоматично». Show the count only when a senior list renders; first read why a triage card carries `seniors.totalCount > 0` and say what it counts.
    - **UX-L-6** (same review): the seniors count sits 8 px after the label; spec §5.1 and the reference `docs/design/assets/vacancy-queue/card-default-1440.png` put it at the right end of the heading row (`ml-auto` on the count span). Assert the class.
-   - **QA-LOW-6** (manual-qa review 5831124681): `useJobQueueCard` and the seniors / sources continuation queries inherit the app-wide `retry: 1`, so a 403/404 is requested twice (~1.1 s) before the card closes. Do not retry on 403/404 for those queries; keep the default retry for other errors. Test: a 404 issues exactly one request before the close.
+   - **QA-LOW-6** (manual-qa review 5831124681): `useJobQueueCard` and the seniors / sources continuation queries inherit the app-wide `retry: 1`, so a 403/404 is requested twice (~1.1 s) before the card closes. Do not retry on 403/404 for those queries; keep the default retry for other errors. Test: a 403 and a 404 each issue exactly one request before the close; a 500 is still retried once.
 
 ## Interaction tests
 
