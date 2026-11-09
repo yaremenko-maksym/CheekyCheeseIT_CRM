@@ -953,6 +953,10 @@ block	safety	git config set alias.x '!rm'
 block	safety	git -c alias.x='!echo hi' x
 block	safety	git -c "$k"=v status
 block	safety	git --config-env=alias.x=V x
+# SO-H-12 of #1294: a dynamic --config-env pair among the global options, both forms.
+block	safety	git --config-env "$CONF" status
+block	safety	git --config-env=$CONF status
+allow	safety	git --config-env=core.editor=ED status
 block	safety	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.x GIT_CONFIG_VALUE_0='!rm' git x
 block	safety	export GIT_CONFIG_KEY_0=alias.x
 block	safety	git config --rename-section foo alias
@@ -1026,6 +1030,12 @@ block	safety	pnpm -F $pkg dropdb crm_db
 allow	safety	pnpm -w add -D x
 allow	safety	pnpm -F $pkg run build
 allow	safety	yarn --cwd apps/web install
+# SR-M-13 of #1294: a rescan after every launch word, since an option value can itself be one.
+block	safety	pnpm --filter dlx dlx $y
+block	safety	pnpm --filter x x $y
+block	safety	npm --prefix x x $y
+block	safety	yarn --cwd dlx dlx $y
+block	safety	bun --cwd x x $y
 # SR-M-11 / SR-M-12 of #1294: `config` anywhere; include files and swapped config files.
 block	safety	git --attr-source HEAD config alias.x '!rm'
 block	safety	git config include.path /tmp/x

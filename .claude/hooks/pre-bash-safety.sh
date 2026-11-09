@@ -186,10 +186,9 @@ def pkg_launch(seg, depth=0):
     args = list(seg.argv)
     if seg.name not in PKG_RUNNERS or depth > 3:
         return []
-    k = next((i for i, a in enumerate(args) if a in PKG_LAUNCH_WORDS), None)
-    if k is not None:
-        starts = [(k + 1, False)]
-    else:
+    # SR-M-13: after EVERY launch word, since an option value can be one (`--filter dlx dlx $y`).
+    starts = [(i + 1, False) for i, a in enumerate(args) if a in PKG_LAUNCH_WORDS]
+    if not starts:
         # CR-M-13, AUTO-SR-25/27: every non-option word before the first own subcommand is
         # rescanned, a known option value too (only it may be dynamic). A subcommand right
         # after an unknown option may be its value, so it does not stop the walk.
@@ -630,12 +629,13 @@ def git_alias_write(args):
             pair = a.split("=", 1)[1] if "=" in a else nxt
         if pair is not None and git_alias_key(pair.split("=", 1)[0]):
             return True
-    # A dynamic `-c` pair only among the global options, so `git commit -c "$sha"` passes.
+    # A dynamic `-c` / `--config-env` pair (SO-H-12) only among the global options, so
+    # `git commit -c "$sha"` passes.
     k = 0
     while k < len(args) and args[k].startswith("-"):
-        if args[k] == "-c" and k + 1 < len(args) and dynamic_word(args[k + 1]):
+        if args[k] in ("-c", "--config-env") and k + 1 < len(args) and dynamic_word(args[k + 1]):
             return True
-        if args[k].startswith("-c") and dynamic_word(args[k]):
+        if args[k].startswith(("-c", "--config-env")) and dynamic_word(args[k]):
             return True
         k += 2 if args[k] in ("-C", "-c", "--config-env", "--git-dir", "--work-tree",
                               "--namespace", "--attr-source") else 1

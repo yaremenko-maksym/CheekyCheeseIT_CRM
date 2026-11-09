@@ -756,6 +756,11 @@ for c in "git config alias.x '!rm -rf /etc'" "git config --global alias.x '!rm -
          'export GIT_CONFIG_KEY_0=alias.x' 'git config --rename-section foo alias'; do
   assert_red "git alias write: $c" --contains "alias" -- h "$c"
 done
+# SO-H-12 (#1294): a dynamic --config-env pair among the global options, both forms.
+for c in 'git --config-env "$CONF" status' 'git --config-env=$CONF status'; do
+  assert_red "dynamic --config-env pair: $c" --contains "alias" -- h "$c"
+done
+assert_green "static non-alias --config-env pair: git --config-env=core.editor=ED status" -- h 'git --config-env=core.editor=ED status'
 for c in 'git config --get alias.x' 'git config --list' 'git config --get-regexp alias' \
          'git config user.name x' 'git config --global user.email a@b.c' 'git -c core.autocrlf=false status'; do
   assert_green "git config read or a non-alias write: $c" -- h "$c"
@@ -806,6 +811,11 @@ assert_red "ANSI-C known option value rescanned: pnpm --filter \$'git' push -f o
 assert_red "dynamic value, launch after it: pnpm -F \$pkg dropdb crm_db" --contains "dropdb" -- h 'pnpm -F $pkg dropdb crm_db'
 for c in 'pnpm --reporter silent $x' 'yarn --cwd x $x'; do
   assert_red "launch word after an option: $c" --contains "no gate reads" -- h "$c"
+done
+# SR-M-13: a rescan after every launch word, since an option value can itself be one.
+for c in 'pnpm --filter dlx dlx $y' 'pnpm --filter x x $y' 'npm --prefix x x $y' \
+         'yarn --cwd dlx dlx $y' 'bun --cwd x x $y'; do
+  assert_red "launch word as an option value, then a launch: $c" --contains "no gate reads" -- h "$c"
 done
 for c in 'pnpm --filter $pkg test' 'pnpm --filter @crm/api test' 'pnpm install' 'pnpm -r build' \
          'pnpm -w add -D x' 'yarn install' 'pnpm exec vitest run "$FILE"' 'pnpm -F $pkg run build' \
