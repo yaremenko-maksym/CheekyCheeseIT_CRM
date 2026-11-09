@@ -687,7 +687,10 @@ describe('QA-LOW-6: a lost card is not retried', () => {
   const appDefaults = () =>
     new QueryClient({ defaultOptions: { queries: { retry: 1, retryDelay: 0 } } })
 
-  const reads = {
+  const reads: Record<
+    'card' | 'seniors' | 'sources',
+    () => { accessLost: boolean; isError: boolean }
+  > = {
     card: () => useJobQueueCard(scope, OPP),
     seniors: () => useJobQueueSeniors(scope, OPP, 'c-1'),
     sources: () => useJobQueueSources(scope, OPP, 'c-1'),
