@@ -493,12 +493,20 @@ describe('useJobQueueCard', () => {
     await waitFor(() => expect(cardCalls()).toBe(3))
   })
 
-  it('closing a card that kept its access keeps it cached', async () => {
+  it('QA-LOW-1: a card closed normally is not kept; reopening loads afresh and shows no cached name', async () => {
+    const cardCalls = () => get.mock.calls.filter((c) => c[0] === `/job-queue/${OPP}`).length
     get.mockResolvedValueOnce({ data: cardBody() })
-    const { result, unmount } = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    unmount()
-    expect(client.getQueryData(jobQueueCardQueryKey(scope, OPP))).toBeDefined()
+    const first = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
+    await waitFor(() => expect(first.result.current.data?.seniors.items[0]?.displayName).toBe('Senior 1'))
+    first.unmount()
+    await waitFor(() => expect(client.getQueryState(jobQueueCardQueryKey(scope, OPP))).toBeUndefined())
+
+    get.mockReturnValueOnce(new Promise(() => {}))
+    const again = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
+    expect(again.result.current.isPending).toBe(true)
+    expect(again.result.current.data).toBeUndefined()
+    await waitFor(() => expect(cardCalls()).toBe(2))
+    expect(again.result.current.data).toBeUndefined()
   })
 
   it('keeps the data and the cache on any other error', async () => {
@@ -547,6 +555,19 @@ describe('card continuations', () => {
     })
     const { result } = renderHook(() => useJobQueueSources(scope, OPP, 'x-1'), { wrapper })
     await waitFor(() => expect(result.current.isError).toBe(true))
+  })
+
+  it.each([
+    ['seniors', useJobQueueSeniors, { items: [senior(201)], totalCount: 201, nextCursor: null }],
+    ['sources', useJobQueueSources, { items: [source(21)], totalCount: 21, nextCursor: null }],
+  ] as const)('QA-LOW-1: %s are not kept once the card closes', async (part, hook, body) => {
+    get.mockResolvedValueOnce({ data: body })
+    const { result, unmount } = renderHook(() => hook(scope, OPP, 'c-1'), { wrapper })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    const key = [...jobQueueCardQueryKey(scope, OPP), part, 'c-1']
+    expect(client.getQueryState(key)).toBeDefined()
+    unmount()
+    await waitFor(() => expect(client.getQueryState(key)).toBeUndefined())
   })
 
   it('stay idle without a cursor or without an id', () => {

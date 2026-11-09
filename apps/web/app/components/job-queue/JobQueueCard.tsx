@@ -194,9 +194,11 @@ export function JobQueueCard({
           aria-busy={query.isPending || undefined}
           onCloseAutoFocus={(event) => {
             event.preventDefault()
-            // after a loss the list refresh removes the opening row, so focus would fall to <body>
+            // after a loss the list refresh removes the opening row, so focus would fall to <body>;
+            // a card opened by URL has no opener at all (<body> was active), so it parks there too
             const opener =
               returnFocusTo instanceof HTMLElement &&
+              returnFocusTo !== document.body &&
               returnFocusTo.isConnected &&
               !closedOnLoss.current
                 ? returnFocusTo

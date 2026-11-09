@@ -210,6 +210,9 @@ export function useJobQueue(scope: QueueScopeSignature, tab: JobQueueTab, filter
 export function useJobQueueCard(scope: QueueScopeSignature, id: string | null) {
   const query = useQuery({
     queryKey: jobQueueCardQueryKey(scope, id),
+    // QA-LOW-1: not kept once the card closes, so a reopen never paints names (personal data)
+    // the server has not just confirmed for the current scope; it loads afresh
+    gcTime: 0,
     queryFn:
       id === null
         ? skipToken
@@ -239,6 +242,8 @@ function useContinuation<T extends { nextCursor: string | null }>(
 ) {
   const query = useInfiniteQuery({
     queryKey: [...jobQueueCardQueryKey(scope, id), part, cursor],
+    // forgotten with the card (QA-LOW-1)
+    gcTime: 0,
     initialPageParam: cursor,
     queryFn:
       id === null || cursor === null

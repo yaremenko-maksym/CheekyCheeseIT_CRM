@@ -178,6 +178,30 @@ describe('JobQueueCard', () => {
       await waitFor(() => expect(screen.getByTestId('park')).toHaveFocus())
     })
 
+    it('QA-LOW-3: a card opened by URL (no opener, <body> active) closes onto the fallback, not <body>', async () => {
+      function DeepLink() {
+        const [open, setOpen] = useState(true)
+        const park = useRef<HTMLDivElement>(null)
+        return (
+          <div ref={park} tabIndex={-1} data-testid="park">
+            {open && (
+              <JobQueueCard
+                scope={SCOPE}
+                opportunityId={OPP}
+                focusFallback={park}
+                onClose={() => setOpen(false)}
+              />
+            )}
+          </div>
+        )
+      }
+      expect(document.body).toHaveFocus()
+      render(<DeepLink />, { wrapper: I18nTestProvider })
+      await userEvent.keyboard('{Escape}')
+      expect(screen.queryByRole('dialog')).toBeNull()
+      await waitFor(() => expect(screen.getByTestId('park')).toHaveFocus())
+    })
+
     it.each([
       [
         'the card',

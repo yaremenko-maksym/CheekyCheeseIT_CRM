@@ -335,6 +335,23 @@ describe('JobQueueRow', () => {
     )
   })
 
+  it('QA-MED-1: all stop-listed in the shape the API sends (TRIAGE) says the stop-list only, not the triage reason', () => {
+    renderRow({ eligibility: 'TRIAGE', matchedSeniorCount: 0, stopListedSeniorCount: 2 })
+    expect(screen.getByTestId('job-queue-row-stop-listed')).toHaveTextContent(
+      'Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа',
+    )
+    expect(screen.queryByTestId('job-queue-row-triage-reason')).toBeNull()
+    expect(screen.queryByText('Роботодавця не вдалося підтвердити')).toBeNull()
+  })
+
+  it('a real triage row (nothing stop-listed) keeps its reason and has no stop-list line', () => {
+    renderRow({ eligibility: 'TRIAGE', matchedSeniorCount: 0, stopListedSeniorCount: 0 })
+    expect(screen.getByTestId('job-queue-row-triage-reason')).toHaveTextContent(
+      'Роботодавця не вдалося підтвердити',
+    )
+    expect(screen.queryByTestId('job-queue-row-stop-listed')).toBeNull()
+  })
+
   it('has no reason line for a lead', () => {
     renderRow()
     expect(screen.queryByTestId('job-queue-row-triage-reason')).toBeNull()

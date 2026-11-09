@@ -200,6 +200,22 @@ describe('MatchedSeniors', () => {
     )
   })
 
+  it('QA-MED-1: all stop-listed in the shape the API sends (TRIAGE, 0 seniors) is the stop-all state, not triage', () => {
+    renderBlock(
+      cardFixture({
+        eligibility: 'TRIAGE',
+        matchedSeniorCount: 0,
+        stopListedSeniorCount: 2,
+        seniors: none,
+      }),
+    )
+    expect(screen.getByTestId('job-queue-seniors-stop-all')).toHaveTextContent(
+      'Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листаСтек збігається, проте вакансію їм не пропонують.',
+    )
+    expect(screen.queryByTestId('job-queue-seniors-triage')).toBeNull()
+    expect(screen.queryByText('Сеньйорів не підібрано автоматично')).toBeNull()
+  })
+
   it('zero matches (HR / ADMIN): a different headline and scoped body', () => {
     const hr = renderBlock(cardFixture({ matchedSeniorCount: 0, seniors: none }))
     expect(screen.getByTestId('job-queue-seniors-none')).toHaveTextContent(
@@ -220,6 +236,7 @@ describe('MatchedSeniors', () => {
       'Сеньйорів не підібрано автоматичноРоботодавця не вдалося підтвердити, тому система не пропонує цю вакансію конкретним сеньйорам. Оцініть її вручну за описом.',
     )
     expect(screen.queryByTestId('job-queue-seniors-none')).toBeNull()
+    expect(screen.queryByTestId('job-queue-seniors-stop-all')).toBeNull()
   })
 
   it('continues past the preview by its cursor, then page by page', async () => {

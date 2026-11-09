@@ -178,7 +178,8 @@ export function JobQueueRow({
               )}
             </span>
           )}
-          {triage && (
+          {/* all stop-listed arrives as TRIAGE too; then the stop-list line is the reason (§5.4) */}
+          {triage && !stopListedAll && (
             <span
               data-testid="job-queue-row-triage-reason"
               className="text-sm text-muted-foreground"

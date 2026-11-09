@@ -149,7 +149,24 @@ export function MatchedSeniors({
   const stopListed = card.stopListedSeniorCount
 
   let body: ReactNode
-  if (card.eligibility === 'TRIAGE') {
+  // stop-all first: the API calls a vacancy whose only matches are stop-listed TRIAGE (its
+  // eligibility counts LEAD matches only), and the stop-list is the reason to show (§5.4)
+  if (seniors.length === 0 && stopListed > 0) {
+    body = (
+      <EmptyState
+        testId="job-queue-seniors-stop-all"
+        icon={<Ban aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-muted-foreground" />}
+        title={
+          admin ? (
+            <Trans>Усі сеньйори зі збігом внесли компанію до стоп-листа</Trans>
+          ) : (
+            <Trans>Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа</Trans>
+          )
+        }
+        body={<Trans>Стек збігається, проте вакансію їм не пропонують.</Trans>}
+      />
+    )
+  } else if (card.eligibility === 'TRIAGE') {
     body = (
       <EmptyState
         testId="job-queue-seniors-triage"
@@ -164,21 +181,6 @@ export function MatchedSeniors({
             сеньйорам. Оцініть її вручну за описом.
           </Trans>
         }
-      />
-    )
-  } else if (seniors.length === 0 && stopListed > 0) {
-    body = (
-      <EmptyState
-        testId="job-queue-seniors-stop-all"
-        icon={<Ban aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-muted-foreground" />}
-        title={
-          admin ? (
-            <Trans>Усі сеньйори зі збігом внесли компанію до стоп-листа</Trans>
-          ) : (
-            <Trans>Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа</Trans>
-          )
-        }
-        body={<Trans>Стек збігається, проте вакансію їм не пропонують.</Trans>}
       />
     )
   } else if (seniors.length === 0) {
