@@ -41,7 +41,7 @@
 #       from a crash (bash exits 2 on a syntax error too). Needed for the one
 #       question the codes cannot answer — "did the DEGRADED fallback object to
 #       this command?" — where a hook may legitimately answer 0 (fast-exit
-#       before the analyzer) or 1 (analyzer dead, nothing matched). Not a
+#       before the analyzer) or 2 (analyzer dead: the hook refuses, fail closed). Not a
 #       negative case: it never asserts a refusal, so it does not count toward
 #       the meta-guard's requirement.
 #

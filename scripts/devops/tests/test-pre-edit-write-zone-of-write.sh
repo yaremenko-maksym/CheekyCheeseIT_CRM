@@ -24,6 +24,7 @@
 set -u
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SELF_DIR/lib/harness.sh"
+. "$SELF_DIR/lib/hook-harness.sh"
 
 HOOK="$REPO_ROOT/.claude/hooks/pre-edit-write-zone-of-write.sh"
 
@@ -198,6 +199,21 @@ assert_red "Windows payload: a backslash '..' escape is normalised, not trusted 
   --contains "WORKTREE" \
   -- run_hook "$WT_ROOT" "Edit" "$WT_BACKSLASH\\..\\agent-OTHER\\apps\\web\\app\\x.tsx"
 
+# ── python3 cannot run: a write to the production zones is refused ──────────
+assert_green "python3 cannot run + Edit on apps/: exit 2 with INTERNAL ERROR" \
+  --contains "INTERNAL ERROR" \
+  -- exits_2 hook_without_python "$HOOK" '{"tool_name":"Edit","tool_input":{"file_path":"apps/api/src/x.ts"}}'
+assert_green "python3 cannot run + Edit elsewhere stays allowed, so the machine can be repaired" \
+  --not-contains "INTERNAL ERROR" \
+  -- hook_without_python "$HOOK" '{"tool_name":"Edit","tool_input":{"file_path":"docs/x.md"}}'
+# SR-L-6 class: an invalid byte next to apps/ must not hide the zone from this grep either.
+NO_PY_DIR="$WS/no-python"
+mkdir -p "$NO_PY_DIR" && printf '#!/bin/sh\nexit 127\n' >"$NO_PY_DIR/python3" && chmod +x "$NO_PY_DIR/python3"
+assert_green "python3 cannot run + Edit on apps/ next to an invalid byte: exit 2 with INTERNAL ERROR" \
+  --contains "INTERNAL ERROR" \
+  -- exits_2 env LC_ALL=C.UTF-8 bash -c 'printf "%s" "$2" | PATH="$3:$PATH" bash "$1"' _ \
+  "$HOOK" "$(printf '{"tool_name":"Edit","tool_input":{"file_path":"apps/\xff.ts"}}')" "$NO_PY_DIR"
+
 # ── linked git worktrees outside .claude/worktrees/ (2026-11-08) ──────────────
 # The hook used to recognise a worktree only by the string /.claude/worktrees/
 # in $PWD. A T3 `delegate_task isolation:"worktree"` child runs in
@@ -364,6 +380,10 @@ run_hook_raw_payload() {
 assert_red "SR-L-4: payload with \\ud800 in file_path -> BLOCK" \
   --contains '"decision": "block"' \
   -- run_hook_raw_payload "$MAIN_REPO" '{"tool_name":"Write","tool_input":{"file_path":"apps/api/\ud800.ts"}}'
+# Round 3 of #1294: a payload that is not JSON names no tool, and used to exit 0 as "not a write".
+assert_green "unparseable payload: exit 2, not waved through as a non-write" \
+  --contains "not valid JSON" \
+  -- exits_2 run_hook_raw_payload "$MAIN_REPO" '{"tool_name":"Edit","tool_input":{"file_path":"apps/api/x"'
 
 # SR-L-5: lexical normalization before realpath stops symlink + '..' escaping a linked worktree.
 mkdir -p "$LW_A/d1/d2" "$LW_A/main/apps/api/src"

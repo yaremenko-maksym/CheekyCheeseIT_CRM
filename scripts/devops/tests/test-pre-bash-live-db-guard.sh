@@ -944,4 +944,117 @@ assert_red "Windows payload: cd into a backslash worktree path from the main che
   --contains '"decision": "block"' \
   -- h "cd '$WIN_WT' && pnpm --filter @crm/api dev" 'C:\Users\dev\CheekyCheeseIT_CRM'
 
+# ── SR-M-15: an inner env overrides the pin ─────────────────────────────────
+PIN3="DATABASE_URL=$SAFE_DB PGDATABASE=crm_qa API_PORT=3011"
+DT="scripts/devops/dev-ttl.sh --"
+RUN="pnpm --filter @crm/api dev"
+for c in "$PIN3 $DT pnpm exec env DATABASE_URL=$LIVE_DB pnpm dev" \
+         "$PIN3 $DT pnpm --filter @crm/api exec env DATABASE_URL=$LIVE_DB pnpm dev" \
+         "$PIN3 $DT pnpm exec /usr/bin/env API_PORT=3001 pnpm dev" \
+         "$PIN3 $DT pnpm exec env.exe API_PORT=3001 pnpm dev" \
+         "$PIN3 $DT pnpm exec /usr/local/bin/cross-env API_PORT=3001 pnpm dev" \
+         "$PIN3 $DT pnpm exec Cross-Env.cmd API_PORT=3001 pnpm dev" \
+         "$PIN3 $DT pnpm exec cross-env DATABASE_URL=$LIVE_DB pnpm dev" \
+         "$PIN3 $DT pnpm exec DATABASE_URL=$LIVE_DB pnpm dev"; do
+  # Some of these are refused earlier, for an unknown command word; any refusal will do.
+  assert_red "SR-M-15: ${c:0:110}" --contains '"decision": "block"' -- h "$c"
+done
+assert_red "SR-M-15, the specific reason" \
+  --contains "rewrites its environment" \
+  -- h "$PIN3 $DT pnpm exec env DATABASE_URL=$LIVE_DB pnpm dev"
+assert_launch_green "a launch with no inner env stays allowed" -- h "$PIN3 $DT $RUN"
+
+# ── SR-H-7: a second --ttl does not hide the live URL behind the -- ─────────
+for l in "pnpm --filter @crm/api dev" "pnpm dev" "vite --port 3010" "node apps/api/dist/main" "nest start"; do
+  assert_red "SR-H-7: ${l}" --contains '"decision": "block"' \
+    -- h "$PIN3 scripts/devops/dev-ttl.sh --ttl 5 --ttl 6 -- DATABASE_URL=$LIVE_DB $l"
+done
+assert_red "SR-M-21: the script runs node -- apps/api/dist/main as one command" \
+  --contains '"decision": "block"' -- h "scripts/devops/dev-ttl.sh node -- apps/api/dist/main"
+assert_launch_green "one --ttl N before the -- stays allowed" \
+  -- h "$PIN3 scripts/devops/dev-ttl.sh --ttl 5 -- $RUN"
+
+# ── SR-M-18: quotes inside a word do not get past the fast path ─────────────
+assert_red "SR-M-18: a quote-spliced launch word" --contains '"decision": "block"' \
+  -- h "pnpm --filter @crm/api d''ev"
+
+# ── SR-M-13: an export that may never run is not a pin ──────────────────────
+EX="DATABASE_URL=$SAFE_DB API_PORT=3011"
+for c in "false && export $EX; $RUN" "true || export $EX; $RUN" "if false; then export $EX; fi; $RUN" \
+         "(export $EX); $RUN" "export $EX | cat; $RUN" "export $EX & $RUN" "f() { export $EX; }; $RUN" \
+         "for x in; do export $EX; done; $RUN" "export $EX; unset DATABASE_URL; $RUN" \
+         "export $EX; export -n DATABASE_URL; $RUN" "export $EX; declare +x DATABASE_URL; $RUN" \
+         "export $EX; typeset +x API_PORT; $RUN" "export $EX; export -fn DATABASE_URL; $RUN" "false && export API_PORT=3011; DATABASE_URL=$SAFE_DB $RUN" \
+         "false && \"export\" $EX; $RUN" \
+         "export $EX; \`echo unset\` DATABASE_URL; $RUN" "export $EX; X=unset; \$X DATABASE_URL; $RUN" \
+         "export $EX; trap 'unset DATABASE_URL' DEBUG; $RUN" "export $EX; mapfile -t DATABASE_URL < /tmp/l; $RUN" \
+         "export $EX; readarray DATABASE_URL < /tmp/l; $RUN" "export $EX; getopts a: DATABASE_URL -a; $RUN" \
+         "export $EX; wait -p DATABASE_URL; $RUN" "export $EX; read DATABASE_URL < /tmp/l; $RUN" \
+         "false \\ #&& export $EX; $RUN" "false ' '#&& export $EX; $RUN" "false \"\"#|| export $EX; $RUN" \
+         "echo ''#; false && export $EX; $RUN" "echo x\\ #; false && export $EX; $RUN" \
+         "echo 'x'#b; (export $EX); $RUN"; do
+  assert_red "SR-M-13: ${c:0:110}" --contains "only through an export" -- h "$c"
+done
+for c in "export $EX; $RUN" "export $EX; $RUN 2>&1" "export $EX; $RUN >/tmp/x.log 2>&1" \
+         "export $EX; echo 'a && b'; $RUN" "cd x && $PIN3 $RUN" "false && export FOO=1; $PIN3 $RUN" \
+         "export $EX; $RUN # if it fails (see logs) && retry"; do
+  assert_launch_green "the pin does reach the launch: ${c:0:110}" -- h "$c"
+done
+
+# ── SR-M-16: a stripped decoy does not switch off the refusal for unread code ──
+deep() {
+  local s="$1" i
+  for i in 1 2 3 4 5 6 7 8; do s="echo \$($s)"; done
+  printf '%s' "$s"
+}
+assert_red "SR-M-16: unread nested code behind a pinned launch is still refused" \
+  --contains "nesting deeper" \
+  -- h "$PIN3 $DT pnpm exec tsx x.ts pnpm.cmd dev; $(deep 'pnpm dev')"
+
+# ── T3 worktrees and the Windows scratchpad arm the guard ───────────────────
+for cwd in '/Users/dev/.t3/worktrees/crm/t3-abc' 'C:\Users\dev\.t3\worktrees\crm\t3-abc' \
+           'C:\Users\dev\AppData\Local\Temp\claude\x' 'c:\users\dev\appdata\local\temp\claude\x'; do
+  assert_red "unpinned launch from $cwd" --contains '"decision": "block"' -- h "$RUN" "$cwd"
+  assert_green "pinned launch from $cwd" -- h "$PIN3 $RUN" "$cwd"
+done
+assert_green "another directory still does not arm the guard" -- h "$RUN" '/Users/dev/elsewhere'
+
+# SR-M-1 (#1294): a backslash-newline is a line continuation, so the shell joins the word.
+for c in $'pnpm --filter @crm/api d\\\nev' $'vi\\\nte --port 3000' $'pnpm --filter @crm/api \\\ndev'; do
+  assert_red "line continuation in a launch: ${c//$'\n'/<NL>}" --contains '"decision": "block"' -- h "$c"
+done
+# Single quotes, a comment and a quoted heredoc body keep the backslash-newline.
+for c in $'echo \'d\\\nev\'' $'ls # d\\\nev' $'cat <<\'EOF\'\nvi\\\nte\nEOF'; do
+  assert_green "no continuation there: ${c//$'\n'/<NL>}" -- h "$c"
+done
+
+# ── no analyzer: refused, not waved through ─────────────────────────────────
+assert_green "broken analyzer + harmless read: exit 2 (exit 1 does not block)" \
+  --contains "Refused" \
+  -- exits_2 hook_at "$BROKEN" "grep -rn 'pnpm dev' .claude/rules"
+
+# #1297 SR-L-6 class: under a UTF-8 locale, macOS tr and grep fail on an invalid byte,
+# so the fast path used to read "no launch word" and exit 0 before the analyzer ran.
+assert_green "a raw invalid byte in the payload does not skip the fast path" \
+  -- exits_2 hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","tool_input":{"command":"\xff pnpm --filter @crm/api dev"}}'
+
+# F1, round 2 of #1294: `<<<` is a here-string; the line after it is a launch.
+assert_red "here-string, not heredoc: the launch on the next line" \
+  --contains '"decision": "block"' -- h $'cat <<<x\npnpm --filter @crm/api dev'
+# F2, round 2 of #1294: a `'` inside `"$(…)"` leaves the joiner in a quote; the
+# naive-join reading still sees the launch.
+assert_red "naive-join reading: a continuation after nested quotes" \
+  --contains '"decision": "block"' -- h $'echo "$(echo "\'")"; pnpm --filter @crm/api d\\\nev'
+# Round 3 of #1294, KNOWN FALSE REFUSAL (accepted LOW, fails closed): the naive-join
+# reading removes the backslash-newline before a quoted heredoc delimiter, so the body
+# (a backticked `pnpm dev` in a note) is read as code. An exception for it was steerable
+# by a fake opener in a comment or string, so it was dropped (automated security review).
+assert_red "naive-join reading: a quoted heredoc body ending in a backslash (known false refusal)" \
+  --contains '"decision": "block"' \
+  -- h $'cat > note.md <<\'EOF\'\nuse `pnpm dev` and\nline \\\nEOF'
+# Round 3 of #1294: bash decodes $'...' with or without a backslash in it.
+for c in "pnpm --filter @crm/api \$'dev'" "\$'vite' --port 3000" "\$'pnpm' --filter @crm/api dev"; do
+  assert_red "ANSI-C quoting without a backslash: $c" --contains '"decision": "block"' -- h "$c"
+done
+
 guard_test_summary "test-pre-bash-live-db-guard.sh"

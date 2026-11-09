@@ -192,14 +192,21 @@ for key in sys.argv[1].split('.'):
         break
     cur = cur.get(key, '')
 print(cur if isinstance(cur, str) else '')
-" "$1" 2>/dev/null || true
+" "$1" 2>/dev/null
 }
 
 CMD=$(read_field 'tool_input.command')
+CMD_RC=$?
 CWD=$(read_field 'cwd')
 AGENT_ID=$(read_field 'agent_id')
 CWD=${CWD//\\//} # Windows payloads use backslashes
 
+# A command that could not be read is not "no command" (#1297 SR-L-4): python3 did not
+# run, or the payload did not parse, or the command cannot be printed (a lone surrogate).
+if [ "$CMD_RC" -ne 0 ]; then
+  echo "[pre:bash:cross-agent-blast] INTERNAL ERROR: the command could not be read (python3 did not run, or the payload did not parse). Refused. Fix it first: python3 must run on PATH and the hook library must load. Bash stays refused until then." >&2
+  exit 2
+fi
 [ -z "$CMD" ] && exit 0
 
 # ---------------------------------------------------------------------------
@@ -213,14 +220,24 @@ CWD=${CWD//\\//} # Windows payloads use backslashes
 # runtime does not send the field, the cwd signal alone still covers all three
 # incidents above, every one of which happened inside a worktree.
 # ---------------------------------------------------------------------------
-CONTEXT='\.claude/worktrees/|/tmp/claude-|/private/tmp/claude-'
-if ! echo "$CWD" | grep -qE "$CONTEXT" && [ -z "$AGENT_ID" ]; then
+CONTEXT='\.claude/worktrees/|\.t3/worktrees/|/tmp/claude-|/private/tmp/claude-|AppData/Local/Temp/claude'
+if ! echo "$CWD" | grep -qiE "$CONTEXT" && [ -z "$AGENT_ID" ]; then
   exit 0
 fi
 
 # Cheap pre-filter: if none of the three trigger words appear anywhere, leave.
 # Case-insensitive: Windows and macOS accept any case for the same path.
-echo "$CMD" | grep -qiE 'pkill|killall|taskkill|worktree|\.claude/worktrees/|CheekyCheeseIT_CRM' || exit 0
+# A T3 worktree lives outside its checkout, whose name can be anything, so it skips this filter.
+# Quotes and backslashes are dropped first, as the other two fast paths do (`p''kill` runs
+# pkill, SR-M-2 of #1294), and a `$`, backtick or backslash goes to the analyzer: the first
+# two can build any word, a backslash-newline joins one (`p\<newline>kill`, SR-M-1).
+# LC_ALL=C: under a UTF-8 locale macOS tr and grep fail on an invalid byte (#1297 SR-L-6).
+echo "$CWD" | grep -qiE '\.t3/worktrees/' ||
+  printf '%s' "$CMD" | LC_ALL=C tr -d "'\"\\\\" |
+  LC_ALL=C grep -qiE 'pkill|killall|taskkill|worktree|\.t3/|\.claude/worktrees/|CheekyCheeseIT_CRM' ||
+  printf '%s' "$CMD" | LC_ALL=C grep -q '[$`\]' || exit 0
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # NOTE: this `python3 -c '...'` is SINGLE-quoted, so an apostrophe anywhere
 # inside it — including in a comment — closes the string and the hook dies at
@@ -229,8 +246,16 @@ echo "$CMD" | grep -qiE 'pkill|killall|taskkill|worktree|\.claude/worktrees/|Che
 # asserts the {"decision":"block"} body. Write "the cwd of the caller", not
 # "the caller's cwd". (The message block further down has the opposite hazard:
 # it is DOUBLE-quoted, so backticks there are command substitution.)
-REASONS=$(printf '%s' "$CMD" | CWD="$CWD" MSYS2_ENV_CONV_EXCL=CWD AGENT_ID="$AGENT_ID" python3 -c '
-import os, posixpath, re, shlex, sys
+REASONS=$(printf '%s' "$CMD" | CWD="$CWD" MSYS2_ENV_CONV_EXCL=CWD AGENT_ID="$AGENT_ID" \
+  PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
+import importlib.util, os, posixpath, re, shlex, subprocess, sys
+
+# The shared reading of a line continuation (SR-M-1 of #1294); loaded by absolute path,
+# as pre-bash-safety.sh does. A load failure kills the analyzer, which is refused below.
+_spec = importlib.util.spec_from_file_location(
+    "cmdscan", os.path.join(os.environ["CMDSCAN_LIB"], "cmdscan.py"))
+cmdscan = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(cmdscan)
 
 
 def to_posix(p):
@@ -247,7 +272,14 @@ def cmd_name(word):
     return re.sub(r"\.(exe|cmd|bat)$", "", os.path.basename(word), flags=re.I)
 
 
-cmd = sys.stdin.read()
+raw_cmd = sys.stdin.read()
+cmd = cmdscan.join_continuations(raw_cmd)
+# The joiner is a lexer of its own (quotes one level deep, its own comment rule), so a
+# slip in it hides a command split by a continuation (F2/F3, round 2 of #1294). Judge a
+# second reading too, with every backslash-newline removed and nothing lexed: every
+# predicate below works per segment or per match, so appending it can only add work.
+if "\\\n" in raw_cmd:
+    cmd += "\n" + raw_cmd.replace("\\\n", "")
 cwd = to_posix(os.environ.get("CWD", ""))
 agent_id = os.environ.get("AGENT_ID", "").strip()
 
@@ -256,11 +288,32 @@ agent_id = os.environ.get("AGENT_ID", "").strip()
 # own_seg — its directory name, the token compared against other paths
 # repo_root — the shared checkout that hosts .claude/worktrees/
 own_wt = own_seg = repo_root = ""
+in_t3 = False
 m = re.match(r"^(?P<root>.*?)/\.claude/worktrees/(?P<seg>[^/]+)", cwd)
 if m:
     repo_root = m.group("root")
     own_seg = m.group("seg")
     own_wt = f"{repo_root}/.claude/worktrees/{own_seg}"
+else:
+    # A T3 worktree lives outside the checkout, so only git can name that checkout.
+    m = re.match(r"^(?P<wt>.*?/\.t3/worktrees/[^/]+/(?P<seg>[^/]+))", cwd, re.I)
+    if m:
+        in_t3 = True
+        own_wt = m.group("wt")
+        own_seg = m.group("seg")
+        try:
+            common = subprocess.run(
+                ["git", "-C", os.environ.get("CWD", ""), "rev-parse",
+                 "--path-format=absolute", "--git-common-dir"],
+                capture_output=True, text=True, timeout=5,
+                # An inherited GIT_DIR would name another repository (#1297 SR-M-1).
+                env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            common = ""
+        common = to_posix(common)
+        if common.endswith("/.git"):
+            repo_root = common[:-len("/.git")]
 
 
 def tmp_norm(p):
@@ -376,7 +429,8 @@ segments = re.split(r"(?:\|\||&&|[;\n|&])", cmd)
 # `find <other worktree> | xargs rm` was a real, reproduced miss (CR-M-1 on
 # PR #553). Unwrapping is safe for the false-positive budget because a
 # predicate still additionally requires a foreign path to be referenced.
-WRAPPERS = {"xargs", "sudo", "env", "nice", "nohup", "command", "stdbuf", "timeout", "rtk"}
+# dev-ttl.sh is the project TTL wrapper: `dev-ttl.sh [--ttl N] -- <command>` (round 3 of #1294).
+WRAPPERS = {"xargs", "sudo", "env", "nice", "nohup", "command", "stdbuf", "timeout", "rtk", "dev-ttl.sh"}
 RTK_EXEC = {"bypass", "proxy", "err", "test", "run", "summary"}
 # Wrapper flags that consume the NEXT token as their value.
 VALUE_FLAGS = {"-I", "-i", "-n", "-P", "-d", "-E", "-s", "-L", "-a", "-u", "-p"}
@@ -394,6 +448,8 @@ def first_token(seg):
     if not seg:
         return "", []
     seg = seg.lstrip("(){ \t")
+    # bash runs ANSI-C quoted `$(q)pkill(q)` as pkill; shlex leaves `$pkill` (round 3 of #1294).
+    seg = cmdscan._ansi_c_alt(seg) or seg
     try:
         parts = shlex.split(seg, comments=True)
     except ValueError:
@@ -408,6 +464,14 @@ def first_token(seg):
         if not parts or cmd_name(parts[0]) not in WRAPPERS:
             break
         wrapper = cmd_name(parts.pop(0))
+        if wrapper == "dev-ttl.sh":
+            if parts and parts[0] == "--ttl":
+                parts = parts[2:]
+            elif parts and parts[0].startswith("--ttl="):
+                parts.pop(0)
+            if parts and parts[0] == "--":
+                parts.pop(0)
+            continue
         while parts and parts[0].startswith("-"):
             flag = parts.pop(0)
             if flag in VALUE_FLAGS and parts:
@@ -649,6 +713,7 @@ redirect_targets = re.findall(r">>?\s*([^\s;|&()]+)", cmd)
 
 if mutating or redirect_targets:
     referenced = set(re.findall(r"[^\s\"\x27;|&()]*/\.claude/worktrees/([^/\s\"\x27;|&()]+)", cmd.replace(chr(92), "/")))
+    referenced |= set(re.findall(r"[^\s\"\x27;|&()]*/\.t3/worktrees/[^/\s\"\x27;|&()]+/([^/\s\"\x27;|&()]+)", cmd.replace(chr(92), "/")))
     foreign = sorted(s for s in referenced if s != own_seg)
     if foreign:
         reasons.append(
@@ -678,10 +743,54 @@ if mutating or redirect_targets:
                 "MAIN-контаминация (zone-of-write.md FM-2)."
                 % (", ".join(sorted(set(hits))[:3]), own_wt)
             )
+    if in_t3 and not foreign:
+        # T3 keeps every worktree of a project side by side, so a directory above
+        # mine (`rm -rf ~/.t3/worktrees`, `rm -rf ..`) holds the trees of others too.
+        cand = [t.strip("\x22\x27") for t in redirect_targets]
+        for n, a in toks:
+            if is_mutating(n, a):
+                cand += [x for x in a if not x.startswith("-")]
+        def braces(s):
+            # bash brace expansion, so `{..,x}/t3-y` and `..{/t3-y,}` are judged as each word it makes.
+            m = re.search(r"\{([^{}]*,[^{}]*)\}", s)
+            if not m:
+                return [s]
+            return [y for alt in m.group(1).split(",")
+                    for y in braces(s[:m.start()] + alt + s[m.end():])][:64]
+        up = []
+        for c, w in [(c, y) for c in cand for y in braces(c)]:
+            # `~+` is $PWD and `~-` is $OLDPWD; expanduser leaves both alone.
+            w = re.sub(r"^~\+(?=/|$)", cwd, re.sub(r"^~-(?=/|$)", "$OLDPWD", w))
+            p = to_posix(os.path.expandvars(os.path.expanduser(w) if w.startswith("~") else w))
+            # A glob or an unknown variable (`../*`, `$X/y`) is judged by the directory
+            # of its literal prefix; with no literal prefix, by the current directory.
+            g = re.search(r"[*?\[$\x60]", p)
+            if g:
+                pre = p[:g.start()]
+                # `..$X` is `..` itself when X is empty.
+                p = pre if pre.endswith("/") or posixpath.basename(pre) in (".", "..") else posixpath.dirname(pre)
+            p = posixpath.normpath(posixpath.join(cwd, p or ".")).lower().rstrip("/")
+            mine = own_wt.lower().rstrip("/")
+            if mine.startswith(p + "/") or (
+                    (p + "/").startswith(posixpath.dirname(mine) + "/")
+                    and p != mine and not p.startswith(mine + "/")):
+                up.append(c)
+        if up:
+            reasons.append(
+                "FOREIGN-WORKTREE|the command changes a directory above or next to "
+                "your T3 worktree (%s), where the worktrees of other agents are. Yours: %s."
+                % (", ".join(sorted(set(up))[:3]), own_wt)
+            )
 
 for r in reasons:
     print(r)
 ' 2>/dev/null)
+RC=$?
+
+if [ "$RC" -ne 0 ]; then
+  echo "[pre:bash:cross-agent-blast] INTERNAL ERROR: the analyzer did not run (rc=$RC), so this command was not read. Refused. Fix it first: python3 must run on PATH and the hook library must load. Bash stays refused until then." >&2
+  exit 2
+fi
 
 [ -z "$REASONS" ] && exit 0
 

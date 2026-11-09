@@ -99,8 +99,13 @@ INPUT=$(cat)
 [ -z "$INPUT" ] && exit 0
 
 # Hot path: a superset of everything the analyzer can block, so a command with
-# none of these words never pays for a python start.
-echo "$INPUT" | grep -qE 'vite|nest|dev|dist/main|start|preview' || exit 0
+# none of these words never pays for a python start. Quotes and backslashes are
+# dropped first (`d''ev` runs dev), and a `$`, backtick or backslash goes to the analyzer:
+# the first two can build any word, and a backslash-newline joins one (`d\<newline>ev`,
+# SR-M-1 of #1294) while the JSON escape leaves the n of `\n` behind (`dnev`).
+# LC_ALL=C: under a UTF-8 locale macOS tr and grep fail on an invalid byte (#1297 SR-L-6).
+printf '%s' "$INPUT" | LC_ALL=C tr -d "'\"\\\\" | LC_ALL=C grep -qE 'vite|nest|dev|dist/main|start|preview' \
+  || printf '%s' "$INPUT" | LC_ALL=C grep -q '[$`\]' || exit 0
 
 printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
 import importlib.util, json, os, re, sys
@@ -118,7 +123,7 @@ if not cmd:
     sys.exit(0)
 
 # Enforce only in agent worktree / claude scratchpad context.
-CONTEXT = re.compile(r"\.claude/worktrees/|/tmp/claude-")
+CONTEXT = re.compile(r"\.claude/worktrees/|\.t3/worktrees/|/tmp/claude-|AppData/Local/Temp/claude", re.I)
 if not CONTEXT.search(cmd.replace("\\", "/")) and not CONTEXT.search(cwd):
     sys.exit(0)
 
@@ -131,8 +136,8 @@ hits = cmdscan.launches(scan)
 
 # Code the analyzer never reached (nesting past MAX_DEPTH) is refused rather
 # than reported clean — with no wrappers, so the TTL check below fails it.
-if not hits and scan.truncated:
-    hits = [(
+if scan.truncated:
+    hits = hits + [(
         cmdscan.Segment("", [], [], [], False, cmd, 0, {}, False, None),
         "nesting deeper than the parse limit — the code was not read",
     )]
@@ -216,4 +221,6 @@ if echo "$FLAT" | grep -qE "$LEGACY" &&
   echo "[pre:bash:devserver-ttl-gate] BLOCK (degraded fallback, coarse substring rule)" >&2
   exit 2
 fi
-exit 1
+# Refused, because a command nobody read is not a command that was cleared.
+echo "[pre:bash:devserver-ttl-gate] Refused: no analyzer, so this command was not read. Fix it first: python3 must run on PATH and the hook library must load. Bash stays refused until then." >&2
+exit 2

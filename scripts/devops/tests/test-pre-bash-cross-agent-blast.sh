@@ -24,6 +24,7 @@
 set -u
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SELF_DIR/lib/harness.sh"
+. "$SELF_DIR/lib/hook-harness.sh"
 
 HOOK="$REPO_ROOT/.claude/hooks/pre-bash-cross-agent-blast.sh"
 SMOKE="$REPO_ROOT/.claude/hooks/tests/cross-agent-hooks-smoke.sh"
@@ -394,5 +395,120 @@ assert_red "Windows payload: pkill behind a wrapper spelled env.exe -> BLOCK" \
 assert_green "Windows payload: taskkill of one PID passes" \
   --not-contains '"decision": "block"' \
   -- run_hook "$WIN_MINE" "taskkill //F //PID 1234"
+
+# ── T3 worktrees: the gate arms and knows whose tree is whose ───────────────
+T3_MINE='/Users/dev/.t3/worktrees/crm/t3-abc'
+assert_red "T3 worktree: pkill" --contains 'BROADCAST-KILL' -- run_hook "$T3_MINE" "pkill -f node"
+assert_red "T3 worktree, Windows payload: pkill" \
+  --contains 'BROADCAST-KILL' \
+  -- run_hook 'C:\Users\dev\.t3\worktrees\crm\t3-abc' "pkill -f node"
+assert_red "Windows scratchpad: pkill" \
+  --contains 'BROADCAST-KILL' \
+  -- run_hook 'C:\Users\dev\AppData\Local\Temp\claude\x' "pkill -f node"
+assert_red "Windows scratchpad in another case: pkill" \
+  --contains 'BROADCAST-KILL' \
+  -- run_hook 'c:\users\dev\appdata\local\temp\claude\x' "pkill -f node"
+assert_red "T3 worktree: mutating another T3 worktree" \
+  --contains 'FOREIGN-WORKTREE' \
+  -- run_hook "$T3_MINE" "rm -rf /Users/dev/.t3/worktrees/crm/t3-other/apps/x"
+assert_green "T3 worktree: mutating my own worktree" \
+  --not-contains '"decision": "block"' \
+  -- run_hook "$T3_MINE" "rm -rf /Users/dev/.t3/worktrees/crm/t3-abc/tmp"
+# SR-M-19: a directory above my T3 worktree holds the worktrees of others.
+for c in "rm -rf /Users/dev/.t3/worktrees/crm/" "rm -rf /Users/dev/.t3/worktrees/crm" \
+         "rm -rf /Users/dev/.t3/worktrees" "rm -rf .." "rm -rf ../../" \
+         "rm -rf ../*" "rm -rf /Users/dev/.t3/worktrees/c*" "rm -rf ../{a,b}" "rm -rf /*" \
+         "rm -rf ../t3-xyz" "rm -rf /Users/dev/.t3/worktrees/crm/t3-xyz/src" \
+         "rm -rf {../*,x}" "touch {..,y}/t3-xyz" "rm -rf ..{/t3-xyz,}" "rm -rf .{.,}/t3-xyz" \
+         "rm -rf ~+/../t3-xyz" "chmod -R 000 ..\$X"; do
+  assert_red "T3 worktree: $c" --contains 'FOREIGN-WORKTREE' -- run_hook "$T3_MINE" "$c"
+done
+for c in "rm -rf 'C:\Users\dev\.t3\worktrees\crm'" "rm -rf C:/Users/dev/.t3/worktrees/"; do
+  assert_red "T3 worktree, Windows payload: $c" \
+    --contains 'FOREIGN-WORKTREE' \
+    -- run_hook 'C:\Users\dev\.t3\worktrees\crm\t3-abc' "$c"
+done
+assert_green "T3 worktree: a sibling directory inside my worktree" \
+  --not-contains '"decision": "block"' \
+  -- run_hook "$T3_MINE" "rm -rf ./build ../t3-abc/dist ./build/* dist/*.map ./{a,b}/x ~+/tmp \$X"
+assert_green "T3 worktree: killing one PID" \
+  --not-contains '"decision": "block"' \
+  -- run_hook "$T3_MINE" "kill 1234"
+
+T3_WS="$(mktemp -d)"
+(
+  cd "$T3_WS" || exit 1
+  git init -q -b main crm
+  cd crm || exit 1
+  git -c user.email=test@example.invalid -c user.name="guard test" -c commit.gpgsign=false commit -q --allow-empty -m init
+  git worktree add -q -b t3-branch "$T3_WS/.t3/worktrees/crm/t3-abc"
+) >/dev/null 2>&1
+T3_CHECKOUT="$(git -C "$T3_WS/crm" rev-parse --show-toplevel)"
+T3_WT="$(git -C "$T3_WS/.t3/worktrees/crm/t3-abc" rev-parse --show-toplevel)"
+assert_red "T3 worktree: mutating the shared checkout, which only git can name" \
+  --contains 'SHARED-CHECKOUT' \
+  -- run_hook "$T3_WT" "rm -rf $T3_CHECKOUT/apps/x"
+assert_green "T3 worktree: a path that merely looks like the checkout" \
+  --not-contains '"decision": "block"' \
+  -- run_hook "$T3_WT" "rm -rf $T3_CHECKOUT-other/apps/x"
+# #1297 SR-M-1 class: an inherited GIT_DIR must not steer git to another repository.
+git init -q "$T3_WS/decoy" >/dev/null 2>&1
+run_hook_with_git_dir() { GIT_DIR="$T3_WS/decoy/.git" run_hook "$@"; }
+assert_red "T3 worktree: an inherited GIT_DIR does not hide the shared checkout" \
+  --contains 'SHARED-CHECKOUT' \
+  -- run_hook_with_git_dir "$T3_WT" "rm -rf $T3_CHECKOUT/apps/x"
+rm -rf "$T3_WS"
+
+# ── no analyzer: refused, not waved through ─────────────────────────────────
+assert_green "python3 cannot run: exit 2 with INTERNAL ERROR" \
+  --contains "INTERNAL ERROR" \
+  -- exits_2 hook_without_python "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","tool_input":{"command":"pkill -f node"}}'
+BROKEN_DIR="$(mktemp -d)"
+sed 's/^for r in reasons:$/def broken(:/' "$HOOK" >"$BROKEN_DIR/hook.sh"
+assert_green "analyzer crash: exit 2 with INTERNAL ERROR" \
+  --contains "INTERNAL ERROR" \
+  -- exits_2 hook_at "$BROKEN_DIR/hook.sh" "pkill -f node" "/x/.claude/worktrees/a"
+rm -rf "$BROKEN_DIR"
+
+# ── an unreadable command is refused, not read as "no command" (#1297 SR-L-4 class) ──
+assert_green "lone surrogate in the command: exit 2 with INTERNAL ERROR, not waved through" \
+  --contains "INTERNAL ERROR" \
+  -- exits_2 hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","tool_input":{"command":"pkill -f node \\ud800"}}'
+assert_green "an empty command still passes" \
+  --not-contains "INTERNAL ERROR" \
+  -- hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","tool_input":{"command":""}}'
+
+# SR-M-1 (#1294): a backslash-newline is a line continuation, so the shell joins the word.
+for c in $'p\\\nkill -f node # worktree' $'p\\\nkill -f node' $'kill\\\nall node'; do
+  assert_red "line continuation: ${c//$'\n'/<NL>}" --contains 'BROADCAST-KILL' -- run_hook "$MINE" "$c"
+done
+assert_green "a comment keeps its backslash-newline" \
+  --not-contains '"decision": "block"' -- run_hook "$MINE" $'ls # p\\\nkill -f node'
+# SR-M-2 (#1294): quotes inside a word do not get past the pre-filter.
+for c in "p''kill -f node" 'p""kill -f node' "kill'all' node"; do
+  assert_red "quote-spliced: $c" --contains 'BROADCAST-KILL' -- run_hook "$MINE" "$c"
+done
+
+# F1, round 2 of #1294: `<<<` is a here-string; the line after it runs.
+for c in $'cat <<<x\npkill -f node' $'cat <<<x\npk\\\nill -f node'; do
+  assert_red "here-string, not heredoc: ${c//$'\n'/<NL>}" --contains 'BROADCAST-KILL' -- run_hook "$MINE" "$c"
+done
+# F2/F3, round 2 of #1294: the joiner tracks quotes one level deep and reads `${x:- #}` as a
+# comment (bash does not), so it leaves these continuations unjoined. Only the second
+# reading, with every backslash-newline removed, sees the pkill.
+for c in $'echo "$(echo "\'")"; pk\\\nill -f node' $'echo ${x:- #};p\\\nkill -f node'; do
+  assert_red "naive-join reading: ${c//$'\n'/<NL>}" --contains 'BROADCAST-KILL' -- run_hook "$MINE" "$c"
+done
+# Round 3 of #1294: bash runs `$'pkill'` as pkill, and dev-ttl.sh runs what follows `--`.
+for c in "\$'pkill' -f node" "\$'killall' node" "scripts/devops/dev-ttl.sh -- pkill -f node" \
+         "scripts/devops/dev-ttl.sh --ttl 60 -- pkill -f node" "dev-ttl.sh --ttl=60 -- killall node"; do
+  assert_red "wrapped broadcast kill: $c" --contains 'BROADCAST-KILL' -- run_hook "$MINE" "$c"
+done
+assert_green "dev-ttl.sh around a harmless command" -- run_hook "$MINE" "scripts/devops/dev-ttl.sh --ttl 60 -- ls"
+# Round 3 of #1294: this hook does not read a backticked word in its naive-join text as a
+# command, so a quoted heredoc note ending in a backslash stays allowed here. (The cmdscan
+# hooks refuse the same shape: a known false refusal, accepted LOW.)
+assert_green "naive-join reading: a quoted heredoc body ending in a backslash" \
+  -- run_hook "$MINE" $'cat > note.md <<\'EOF\'\nrun `pkill -f node` and\nline \\\nEOF'
 
 guard_test_summary "test-pre-bash-cross-agent-blast.sh"

@@ -360,6 +360,18 @@ assert_red "SR-H-24: sh -c <rm -rf /etc> x dev-ttl.sh" \
   --contains "[pre:bash:safety] BLOCK" \
   -- h "sh -c 'rm -rf /etc' x dev-ttl.sh"
 
+# SR-H-25: in `$'...'` bash reads `\'` as a quote, not the end of the string.
+for c in "echo \$'\' '; rm -rf /etc #'" "echo \$'\' #'; rm -rf /etc #'" "x=\$'a\'b'; rm -rf /etc"; do
+  assert_red "SR-H-25: $c" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+for c in "printf \$'a\tb\n'" "echo \$'it\'s fine'" "IFS=\$'\t' read -r a b"; do
+  assert_green "SR-H-25 ANSI-C quoting alone: $c" --not-contains "BLOCK" -- h "$c"
+done
+# CR-M-3: dev-ttl.sh runs its whole argv, a later `--` included.
+for c in "scripts/devops/dev-ttl.sh rm -rf -- /etc" "scripts/devops/dev-ttl.sh --ttl 5 rm -rf -- /etc"; do
+  assert_red "CR-M-3: $c" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+
 assert_red "SR-H-24: объединённая короткая группа -ec" \
   --contains "[pre:bash:safety] BLOCK" \
   -- h "bash -ec \"psql -c '$DROP'\" x dev-ttl.sh"
@@ -514,5 +526,417 @@ assert_red "Windows: env.exe -S rm -rf /etc" \
 assert_red "Windows: env.exe -S git push --force" \
   --contains '"decision": "block"' \
   -- h "env.exe -S git push --force origin main"
+
+# ── env -S is read the way env reads it ─────────────────────────────────────
+for c in "env -S rm -rf /etc" "env -Srm -rf /etc" "env -iS rm -rf /etc" "env -iS 'rm -rf /etc'" \
+         "env --split-string='rm -rf /etc'" "env --split-string 'rm -rf /etc'" "env --split rm -rf /etc" \
+         'env -S "rm\_-rf\_/etc"' "env -S '-i rm -rf /etc'" "env -iu HOME rm -rf /etc" \
+         "env -P /bin rm -rf /etc" "env -C /tmp rm -rf /etc" "env -- rm -rf /etc" \
+         "env -S git push --force origin main" "env -S ls -- rm -rf /etc" "env -P /bin ls -- rm -rf /etc" \
+         "env -P /bin 'rm -rf /etc'" "env --argv0 x 'rm -rf /etc'" "env -a x ls -- git push --force origin main"; do
+  assert_red "env flags: $c" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+for c in "env -S 'echo ok'" "env -i ls" "env -u HOME ls" "env -S ls -la" "env -- ls"; do
+  assert_green "env flags, harmless: $c" -- h "$c"
+done
+
+# ── dev-ttl.sh is read the way the script reads its arguments ───────────────
+for c in "scripts/devops/dev-ttl.sh rm -rf /etc -- ls" "scripts/devops/dev-ttl.sh rm -rf /etc" \
+         "scripts/devops/dev-ttl.sh --ttl 5 rm -rf /etc -- ls" "bash scripts/devops/dev-ttl.sh rm -rf /etc -- ls" \
+         "scripts/devops/dev-ttl.sh git push --force origin main -- ls" \
+         "scripts/devops/dev-ttl.sh ls -- rm -rf /etc" "scripts/devops/dev-ttl.sh --ttl=5 -- rm -rf /etc" \
+         "scripts/devops/dev-ttl.sh --ttl rm -rf /etc" "scripts/devops/dev-ttl.sh --ttl 5 'rm -rf /etc'"; do
+  assert_red "dev-ttl.sh: $c" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+for c in "scripts/devops/dev-ttl.sh -- ls" "scripts/devops/dev-ttl.sh --ttl 5 -- ls"; do
+  assert_green "dev-ttl.sh, harmless: $c" -- h "$c"
+done
+
+# ── a shell no gate can read ────────────────────────────────────────────────
+for c in 'powershell -c "Remove-Item x"' 'PowerShell.exe -Command x' 'pwsh -c x' 'pwsh.exe x' 'powershell x.ps1' \
+         'cmd //c rd /s /q x' 'cmd.exe /c dir' 'CMD /c dir' '/c/Windows/System32/cmd.exe //c dir' \
+         "'C:\\Windows\\System32\\cmd.exe' /c dir" 'env powershell -c x' "bash -c 'pwsh -c x'" \
+         'timeout 5 cmd //c dir' 'unknown-wrapper powershell -c x' 'true && cmd //c dir' \
+         'env.exe powershell x.ps1' 'unknown-wrapper pwsh x.ps1'; do
+  assert_red "unread shell: $c" --contains "no gate reads" -- h "$c"
+done
+for c in "git commit -m 'use powershell -c x'" "echo powershell -c x" "gh pr create --body 'run cmd /c dir'" \
+         "grep -rn powershell .claude" "ls cmd" "cd cmd" "cat cmd/main.go" "go build ./cmd/server" \
+         "go run /abs/proj/cmd/server" "echo cmd" "git commit -m 'cmd'" "echo \$COMSPEC"; do
+  assert_green "naming a shell does not run it: $c" -- h "$c"
+done
+# CR-M-1 / SR-M-4 (#1294): PowerShell 5.1 runs a plain next word as -Command and both shells
+# run piped stdin, so a powershell/pwsh reading needs no flag after it, wherever it stands.
+for c in 'winpty powershell Remove-Item -Recurse -Force C:/x' 'echo Remove-Item -Recurse C:/x | winpty pwsh' \
+         "python3 -c \"import os; os.system('powershell Remove-Item -Recurse -Force C:/Users/x')\"" \
+         "node -e \"require('child_process').execSync('powershell Remove-Item -Recurse C:/x')\"" \
+         "python3 -c \"import os; os.system('echo Remove-Item C:/x | powershell')\"" \
+         "python3 -c \"import os; os.system('pwsh ./do-it')\"" \
+         'unknown-wrapper powershell Remove-Item x pnpm add powershell' \
+         "python3 -c \"import os; os.system('pnpm add pwsh')\""; do
+  assert_red "unread shell, any next word: $c" --contains "no gate reads" -- h "$c"
+done
+# SO-M-1, CR-M-6 / SR-M-5, AUTO-SR-3, AUTO-SR-5 (#1294): cmd has the powershell strictness. Any
+# reading whose last path component is cmd refuses: bare, by full, relative or drive-relative
+# path, with or without .exe, with or without a next word, behind winpty (SR-M-6) or not.
+for c in 'echo del x | winpty cmd' 'winpty cmd < x.bat' 'winpty cmd <<< "del x"' 'echo del x | winpty cmd.exe' \
+         'echo del x | winpty /c/Windows/System32/cmd.exe' 'echo del x | winpty C:/Windows/System32/cmd.exe' \
+         'echo del x | winpty "C:\Windows\System32\cmd.exe"' 'winpty /c/Windows/System32/cmd.exe < x.bat' \
+         'echo del x | unknown-tool /c/Windows/System32/cmd.exe' \
+         'echo del x | winpty cmd foo' 'echo del x | winpty cmd.exe foo' 'winpty cmd foo < x.bat' \
+         'winpty -Xallow-non-tty -- cmd foo' 'echo del x | unknown-tool cmd foo' \
+         'echo del x | unknown-tool /c/Windows/System32/cmd' 'echo del x | winpty C:/Windows/System32/cmd' \
+         'echo del x | winpty ../../Windows/System32/cmd' 'echo del x | unknown-tool C:cmd' \
+         'echo del x | winpty "..\..\Windows\System32\cmd.exe"' 'unknown-tool "..\cmd" foo' \
+         "python3 -c \"import os; os.system('%COMSPEC% /c dir')\""; do
+  assert_red "cmd by any path or with any next word: $c" --contains "no gate reads" -- h "$c"
+done
+# Accepted false refusal: a directory named cmd as the last path component reads as cmd.
+for c in "go run ./cmd" "unknown-tool ./cmd"; do
+  assert_red "accepted false refusal, a directory named cmd: $c" --contains "no gate reads" -- h "$c"
+done
+# AUTO-SR-4 / AUTO-SR-6 / AUTO-SR-7 (#1294): a dynamic command word fails closed, with or
+# without an argument, and with no resolution through same-line assignments.
+for c in 'echo del x | winpty "$COMSPEC"' 'x=$COMSPEC; echo del x | $x' 'x=$COMSPEC; echo del x | $x foo' \
+         'x="$COMSPEC"; $x /c dir' 'a=cmd; b=$a; $b foo' \
+         'echo del x | "$(printenv COMSPEC)"' 'echo del x | ${!v}' '"$SH" < x.bat' \
+         'echo del x | ${!v} foo' 'echo del x | "$(printenv COMSPEC)" foo' 'echo del x | `printenv COMSPEC` foo'; do
+  assert_red "dynamic command word: $c" --contains "no gate reads" -- h "$c"
+done
+# AUTO-SR-8 / CR-M-8 (#1294): every command position is gated - the segment name, a dynamic
+# segment and every candidate name. Known wrappers unwrap, so their dynamic argument is a name.
+for c in 'env $x' 'xargs $x' 'timeout 5 $x' 'nice $x' 'bash -c "$x"' 'npx -y pwsh@$VER x' \
+         "echo del x | \$'\x63md'"; do
+  assert_red "dynamic word in a command position: $c" --contains "no gate reads" -- h "$c"
+done
+# CR-M-8: arguments are never judged by the dynamic check - option values, operands, `[`.
+for c in 'pnpm exec vitest run "$FILE"' 'make test ARGS=$X' 'npm run build -- --base=$BASE' '[ -z "$X" ]' \
+         'pnpm --filter $pkg test' 'docker run -e K=$V img'; do
+  assert_green "dynamic word as an argument: $c" -- h "$c"
+done
+# Known limit (shortcut in predicate 7): an unknown wrapper that executes a dynamic argument is
+# not judged. Pinned so a change is seen.
+for c in 'unknown-tool $x' 'unknown-tool foo $x' "unknown-tool \$'\x63md' foo"; do
+  assert_green "known limit, unknown wrapper with a dynamic argument: $c" -- h "$c"
+done
+# SO-M-5 (#1294): an assignment that names a shell refuses, prefix or standalone, grouped or not.
+for c in '(PAGER=powershell; git log)' '{ PAGER=powershell; git log; }' '(VISUAL=powershell; git commit)' \
+         'echo hi && if :; then PAGER=powershell; git log; fi' 'PAGER=powershell git log'; do
+  assert_red "assignment naming a shell: $c" --contains "no gate reads" -- h "$c"
+done
+assert_green "assignment naming no shell: X=hello; echo \$X" -- h 'X=hello; echo $X'
+# CR-M-7 / SO-M-2 (#1294): a `$` inside single quotes is literal.
+for c in "awk '{print \$1}' f" "awk -F: '{print \$1}' /etc/passwd" "ps aux | awk '{print \$2}'" \
+         "sed 's/\$//' f" "sed -i 's/foo\$/bar/' f" "sed -n '1,\$p' f" "perl -ne 'print if /x\$/' f" \
+         "docker exec x sh -c 'ls \$HOME'"; do
+  assert_green "single-quoted dollar is literal: $c" -- h "$c"
+done
+# SO-L-3 (#1294): a `\\` pair in ANSI-C quoting is a literal backslash, not an escape.
+assert_green "ANSI-C backslash pair: echo \$'foo\\\\bar'" -- h "echo \$'foo\\\\bar'"
+# Accepted false refusal: any dynamic command word, assigned in the same command or not.
+for c in '"$PNPM" install' '$EDITOR file.txt' 'x=ls; $x' 'PNPM=pnpm; $PNPM install' 'a=pnpm; b=$a; "$b" install'; do
+  assert_red "accepted false refusal, dynamic command word: $c" --contains "no gate reads" -- h "$c"
+done
+for c in 'echo $HOME' 'ls "$SCRATCH"' 'git commit -m "$msg"'; do
+  assert_green "plain argument of a confident segment: $c" -- h "$c"
+done
+# AUTO-SR-9 (#1294): an 8.3 short name is the same binary.
+for c in 'C:/PROGRA~1/POWERS~1/7/pwsh~1.exe -c x' 'echo del x | unknown-tool C:/Windows/System32/WindowsPowerShell/v1.0/POWERS~1.EXE' \
+         'echo del x | winpty "C:\Windows\System32\CMD~1.EXE"' \
+         'echo del x | unknown-tool C:/PROGRA~1/PWSH-P~1.EXE'; do
+  assert_red "8.3 short name of a shell: $c" --contains "no gate reads" -- h "$c"
+done
+# SR-M-7 (#1294): an alias body is never judged, so defining one refuses.
+for c in 'shopt -s expand_aliases' "alias ls='rm -rf /etc'" "shopt -s expand_aliases; alias ls='rm -rf /etc'; ls" \
+         "BASH_ALIASES[ls]='rm -rf /etc'"; do
+  assert_red "alias definition or expansion: $c" --contains "alias" -- h "$c"
+done
+for c in 'alias' 'alias ls'; do
+  assert_green "listing aliases: $c" -- h "$c"
+done
+# AUTO-SR-11 (#1294): every route to the alias table, and posix mode, which expands aliases.
+for c in 'BASH_ALIASES[ls]+=x' 'declare -A BASH_ALIASES=([ls]=x)' 'printf -v BASH_ALIASES[ls] %s x' \
+         'read BASH_ALIASES[ls] <<< x' 'mapfile BASH_ALIASES < f' \
+         'set -o posix' '(set -o posix; ls)' 'shopt -so posix' 'POSIXLY_CORRECT=1 ls' \
+         'export POSIXLY_CORRECT=1' 'bash --posix -c ls'; do
+  assert_red "alias table or posix mode: $c" --contains "alias" -- h "$c"
+done
+for c in 'set -e' 'set -o pipefail' 'set -euo pipefail'; do
+  assert_green "shell options that do not expand aliases: $c" -- h "$c"
+done
+# AUTO-SR-13 (#1294): a nameref, or a dynamic assignment target, can reach the alias table.
+# AUTO-SR-14: SHELLOPTS is read like POSIXLY_CORRECT; a dynamic option name may be posix.
+for c in 'declare -n a=BASH_ALIASES' 'local -n r=x' 'typeset -gn r=x' 'printf -v "$t" x' \
+         'read "$t" <<< x' 'mapfile "$t" < f' 'declare "$t"=x' 'declare $t' 'export "$t"=x' \
+         'set -o "$m"' 'shopt -s "$m"' 'bash -o "$m" -c ls' 'SHELLOPTS=posix bash -c x'; do
+  assert_red "nameref, dynamic target or dynamic shell option: $c" --contains "alias" -- h "$c"
+done
+for c in 'declare -a arr' "printf -v out '%s' x" 'read -r line' 'export FOO=bar' 'alias' 'alias ls' \
+         'set -euo pipefail' 'bash -euo pipefail script.sh "$arg"'; do
+  assert_green "no dynamic word for an assigning builtin, no alias-table name: $c" -- h "$c"
+done
+# AUTO-SR-16..18 (#1294): a coarse rule. The raw text naming the alias table or posix mode
+# refuses; an assigning builtin, `alias`, set/shopt and the bash/sh options refuse on a
+# dynamic word.
+for c in 'echo $POSIXLY_CORRECT' 'export SHELLOPTS' 'bash -O expand_aliases -c x' 'alias "$a"' \
+         'declare "$v"=1' 'getopts ab "$o"' 'let "$x"' 'wait -p "$v" 1' 'printf -v"$t" x' \
+         'bash +O "$m" -c ls' 'bash -eO "$m" -c ls' 'echo POSIX'; do
+  assert_red "alias table, posix mode or a dynamic assigning word: $c" --contains "alias" -- h "$c"
+done
+# AUTO-SR-19 (#1294): quoting that splits a name in the raw text; AUTO-SR-20: options after -c.
+for c in 'shopt -s expand""_aliases' 'shopt -s exp\and_aliases' 'export POSIXLY_"CORRECT"=1' \
+         "export SHELL'OPTS'" 'bash -c -o "$m" x' 'bash -c -O "$m" x'; do
+  assert_red "split alias-table name or a late shell option: $c" --contains "alias" -- h "$c"
+done
+assert_green "bash -c with a literal body" -- h "bash -c 'echo hi'"
+# AUTO-SR-18, narrowed (#1294): only a dynamic assignment TARGET refuses; a dynamic value
+# is allowed, and a value naming a shell is SO-M-5.
+for c in 'local x="$1"' 'declare x=$y' 'readonly R="$1"' 'export PATH="$HOME/bin:$PATH"' \
+         "printf -v out '%s' \"\$x\""; do
+  assert_green "dynamic value of a literal assignment target: $c" -- h "$c"
+done
+for c in 'export "$n"' 'read "$v"' 'sudo declare "$v"=1' "bash -c 'declare \"\$v\"=1'"; do
+  assert_red "dynamic assignment target: $c" --contains "alias" -- h "$c"
+done
+assert_red "declarer value naming a shell: declare x=powershell" --contains "no gate reads" -- h 'declare x=powershell'
+# AUTO-SR-22 / 23 / 24 (#1294): integer attribute, wrapped or nested declarers, startup files.
+for c in 'declare -i x=$y' 'declare -i x; x=$y' 'local -ia x=$y' 'env declare x=$y' \
+         "bash -c 'declare x=\$y'" 'export BASH_ENV=$f; bash -c x' 'ENV=$f sh -c x' \
+         'export BASHOPTS' 'export ENV'; do
+  assert_red "integer attribute, wrapped declarer or startup-file variable: $c" --contains "alias" -- h "$c"
+done
+for c in '(( $y ))' 'echo $(( $y + 1 ))' 'x=$(( $y ))'; do
+  assert_red "dynamic word inside arithmetic: $c" --contains "no gate reads" -- h "$c"
+done
+for c in 'NODE_ENV=test pnpm x' 'cat .env.example' 'env FOO=1 node x' 'grep -r ENV_VAR src' \
+         'declare -i n=5' 'echo $((1+2))' '(local x="$1")' 'f() { local x="$1"; }'; do
+  assert_green "no startup-file variable, literal integer, top-level declarer: $c" -- h "$c"
+done
+# SR-M-8 (#1294): a package runner launches a word named at run time; that word is judged.
+for c in 'pnpm exec $x' 'pnpm --filter @crm/api exec $x' 'pnpm -r exec $x' 'pnpm dlx $x' 'pnpm $x' \
+         'npm exec $x' 'npm exec -- $x' 'npm x $x' 'yarn $x' 'yarn exec $x' 'yarn dlx $x' \
+         'x=$(printf c%sd m); pnpm exec $x /c dir' 'pnpm exec powershell -c x' 'yarn dlx pwsh'; do
+  assert_red "package runner launching a dynamic word or a shell: $c" --contains "no gate reads" -- h "$c"
+done
+for c in 'pnpm exec rm -rf /etc' 'npm exec -- $(echo rm) -rf /etc'; do
+  assert_red "package runner launching a destructive command: $c" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+for c in 'pnpm --filter @crm/api test' 'pnpm exec vitest run "$FILE"' 'pnpm install' 'pnpm -r build' \
+         'npm run build -- --base=$BASE' 'yarn install' 'pnpm --filter @crm/web exec tsc --noEmit' \
+         'pnpm --filter $pkg test' 'pnpm run $x' 'npm run $x'; do
+  assert_green "package runner subcommand or script: $c" -- h "$c"
+done
+# CR-M-9 / SO-H-6 (#1294): the program string after `-c [--]` is read as nested commands, not
+# as an option word. CR-M-10: an array literal is a value. CR-M-11: a `watch` string is judged
+# by its own command words.
+for c in "bash -c 'echo \"\$1\"' _ x" "sh -c 'echo \$0'" "sh -c 'ls \$HOME'" 'bash -c "cd $DIR && ls"' \
+         "find . -exec sh -c 'echo \"\$1\"' _ {} \\;" "xargs -0 -I{} bash -c 'wc -l \"\$1\"' _ {}" \
+         "bash -c 'echo hi' \"\$a\"" 'declare -a arr=("$x")' 'declare -a arr=(a "$x" b)' 'arr=("$x" b)' \
+         "watch -n 5 'ls \$X'" 'set -- "$@"'; do
+  assert_green "program string, array value or watch string: $c" -- h "$c"
+done
+for c in "bash -c '\$x'" 'sh -c "$x foo"' 'sh -c -- "$m"' 'bash -c -- "$(echo rm -rf /etc)"' \
+         "watch -n 5 '\$X'" "watch -n 5 'ls; \$X'" "watch -n 5 'eval \$X'"; do
+  assert_red "dynamic command word inside a program string: $c" --contains "no gate reads" -- h "$c"
+done
+assert_red "program string after -c --: bash -c -- 'rm -rf /etc'" --contains "[pre:bash:safety] BLOCK" -- h "bash -c -- 'rm -rf /etc'"
+assert_red "process substitution in an array literal" --contains "[pre:bash:safety] BLOCK" -- h 'x=(<(rm -rf /etc))'
+assert_red "command after an array literal" --contains "[pre:bash:safety] BLOCK" -- h 'arr=(a b); rm -rf /etc'
+# SO-M-7 / SO-L-8 (#1294): set and shopt option names past `--`.
+for c in "bash -c 'shopt -s expand_aliases'" "bash -c -- 'alias ls=x; ls'" 'shopt -s -- "$m"' \
+         'shopt -s -- expand_aliases' 'set -o -- "$m"'; do
+  assert_red "alias expansion or a dynamic option past --: $c" --contains "alias" -- h "$c"
+done
+# SO-H-9 / SO-L-10 (#1294): a git alias body runs a shell command no gate reads.
+for c in "git config alias.x '!rm -rf /etc'" "git config --global alias.x '!rm -rf /etc'" \
+         "git config --local alias.x '!rm -rf /etc'" "git config --add alias.x '!rm'" \
+         "git config --replace-all Alias.X '!rm'" 'git config "$k" v' "git config set alias.x '!rm'" \
+         "git -c alias.x='!echo hi' x" 'git -c "$k"=v status' 'git --config-env=alias.x=V x' \
+         "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.x GIT_CONFIG_VALUE_0='!rm' git x" \
+         'export GIT_CONFIG_KEY_0=alias.x' 'git config --rename-section foo alias'; do
+  assert_red "git alias write: $c" --contains "alias" -- h "$c"
+done
+# SO-H-12 (#1294): a dynamic --config-env pair among the global options, both forms.
+for c in 'git --config-env "$CONF" status' 'git --config-env=$CONF status'; do
+  assert_red "dynamic --config-env pair: $c" --contains "alias" -- h "$c"
+done
+assert_green "static non-alias --config-env pair: git --config-env=core.editor=ED status" -- h 'git --config-env=core.editor=ED status'
+for c in 'git config --get alias.x' 'git config --list' 'git config --get-regexp alias' \
+         'git config user.name x' 'git config --global user.email a@b.c' 'git -c core.autocrlf=false status'; do
+  assert_green "git config read or a non-alias write: $c" -- h "$c"
+done
+# SR-H-9 (#1294): options go on after -c, so the program is the first operand after them.
+for c in 'bash -c -x "$x"' 'bash -c +x "$x"' 'bash -c -o errexit "$x"' 'bash -c -O extglob "$x"' \
+         'sh -c -e "$x"'; do
+  assert_red "program string after an option past -c: $c" --contains "no gate reads" -- h "$c"
+done
+for c in "bash -c - 'rm -rf /etc'" "bash -c -x 'rm -rf /etc'" "bash -oc 'rm -rf /etc'"; do
+  assert_red "destructive program string after an option past -c: $c" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+# SR-H-10 (#1294): zsh runs `=(cmd)`; only an assignment word opens an array literal.
+for c in 'echo =(rm -rf /etc)' 'cat =(rm -rf /etc)' 'a=(=(rm -rf /etc))' 'a=(x =(rm -rf /etc))'; do
+  assert_red "zsh process substitution: $c" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+assert_green "array append with a dynamic value: arr+=(\"\$x\")" -- h 'arr+=("$x")'
+# SR-M-9 / SR-M-10 (#1294): the words after a launch subcommand are scanned as a command.
+for c in 'pnpm --reporter silent exec $x' 'npm --loglevel silent exec $x' 'yarn --cwd x exec $x' \
+         'pnpm exec env $x' 'pnpm exec sudo $x' 'pnpm exec nice $x' 'pnpm exec timeout 5 $x' \
+         'pnpm exec xargs $x' 'yarn workspace foo exec $x' 'yarn workspaces foreach exec $x' \
+         'npm explore foo -- $x' 'npm create $x' 'pnpm create $x' 'yarn create $x' 'npm init $x' 'bun x $x'; do
+  assert_red "package runner launch: $c" --contains "no gate reads" -- h "$c"
+done
+assert_green "static init: npm init -y" -- h 'npm init -y'
+# CR-M-12 / CR-M-13 (#1294): wrappers and -c strings after a launch; a bare runner with no
+# subcommand of its own judges every dynamic word.
+for c in 'pnpm exec sh -c "$x"' 'yarn --cwd x $x' 'pnpm --loglevel error exec $x' \
+         'pnpm --workspace-dir x exec $x' 'pnpm --reporter silent $x' 'yarn workspace web $x' 'bun $x'; do
+  assert_red "launch through a wrapper or a shifted option: $c" --contains "no gate reads" -- h "$c"
+done
+# AUTO-SR-25 (#1294): a launch word in front of a bare runner own subcommand.
+for c in 'pnpm $x test' 'yarn $x install' 'bun $x run' 'pnpm powershell install'; do
+  assert_red "launch word before a subcommand: $c" --contains "no gate reads" -- h "$c"
+done
+assert_red "shell before a subcommand: pnpm sh -c \"rm -rf /etc\" install" --contains "[pre:bash:safety] BLOCK" -- h 'pnpm sh -c "rm -rf /etc" install'
+assert_red "accepted false refusal, dynamic unknown option value: pnpm --reporter \$r test" --contains "no gate reads" -- h 'pnpm --reporter $r test'
+assert_green "unknown option before a subcommand: pnpm --reporter silent install" -- h 'pnpm --reporter silent install'
+# AUTO-SR-26 (#1294): value options per runner; pnpm -w / -p are flags, not value takers.
+# AUTO-SR-27: a subcommand word right after an unknown option may be its value, the walk goes on.
+# A known option value is rescanned too; only it may be dynamic.
+assert_red "boolean -w before a launch: pnpm -w git push --force origin main" --contains "force push" -- h 'pnpm -w git push --force origin main'
+assert_red "boolean -w before a launch: pnpm -w dropdb crm_db" --contains "dropdb" -- h 'pnpm -w dropdb crm_db'
+assert_red "subcommand word as an unknown option value: pnpm --reporter test git push -f origin main" --contains "force push" -- h 'pnpm --reporter test git push -f origin main'
+assert_red "launch after a known option value: pnpm --filter x git push -f origin main" --contains "force push" -- h 'pnpm --filter x git push -f origin main'
+assert_red "known option value rescanned: pnpm --filter \"git push -f origin main\" test" --contains "force push" -- h 'pnpm --filter "git push -f origin main" test'
+assert_red "ANSI-C known option value rescanned: pnpm --filter \$'git' push -f origin main" --contains "force push" -- h "pnpm --filter \$'git' push -f origin main"
+assert_red "dynamic value, launch after it: pnpm -F \$pkg dropdb crm_db" --contains "dropdb" -- h 'pnpm -F $pkg dropdb crm_db'
+for c in 'pnpm --reporter silent $x' 'yarn --cwd x $x'; do
+  assert_red "launch word after an option: $c" --contains "no gate reads" -- h "$c"
+done
+# SR-M-13: a rescan after every launch word, since an option value can itself be one.
+for c in 'pnpm --filter dlx dlx $y' 'pnpm --filter x x $y' 'npm --prefix x x $y' \
+         'yarn --cwd dlx dlx $y' 'bun --cwd x x $y'; do
+  assert_red "launch word as an option value, then a launch: $c" --contains "no gate reads" -- h "$c"
+done
+# CR-H-14: after a launch word, any option before -- may carry a shell command (prefix
+# abbreviations, short-flag bundles), so its `=` value or the next word is read as `sh -c`.
+for c in 'npm exec -c "$x"' 'npm x -c "$x"' 'npm exec --call "$x"' 'pnpm exec -c "$x"' \
+         'pnpm exec --shell-mode "$x"' 'npm exec --call=$x' 'npm exec --yes -c "$x"' \
+         'npm exec -p x --call "$x"' 'pnpm exec --silent --shell-mode=$x' \
+         'pnpm exec --reporter silent --shell-mode=$x' 'npm exec --cal "$x"' 'npm exec --shell "$x"' \
+         'npm exec -yc "$x"' 'pnpm exec vitest -c "$cfg"' 'npm exec --package $p foo' \
+         'pnpm exec vitest run --reporter $r'; do
+  # The last three are accepted false refusals: a dynamic word after any option fails closed.
+  assert_red "dynamic exec shell-mode payload: $c" --contains "no gate reads" -- h "$c"
+done
+for c in "npm exec -c 'rm -rf /etc'" "npm exec --package=x -c 'rm -rf /etc'" \
+         "pnpm exec -w -c 'rm -rf /etc'" "npm exec --registry x -c 'rm -rf /etc'" \
+         "npm exec --shell-m='rm -rf /etc'"; do
+  assert_red "static exec shell-mode payload: $c" --contains "rm -rf" -- h "$c"
+done
+for c in "npm exec -c 'echo hi'" "npm exec --yes -c 'echo hi'" 'pnpm exec vitest run "$FILE"' 'pnpm --filter @crm/api test' \
+         'pnpm exec vitest -c vitest.config.ts' 'pnpm --filter @crm/web exec tsc --noEmit' \
+         'pnpm exec eslint --fix src' 'npx prettier --check .'; do
+  assert_green "exec shell-mode or a plain exec: $c" -- h "$c"
+done
+# SR-M-14 / SO-H-13 (#1294): the words after an option are also a fresh command line, since the
+# option may take a value (`-p cowsay`) or carry an empty `=` value (`--shell-mode=`).
+for c in 'npm exec -p cowsay $x' 'yarn dlx -p cowsay $x' 'pnpm dlx --package cowsay $x' \
+         'npm exec --shell-mode= $x' 'pnpm exec --shell-mode="" $x' 'npm exec --package=cowsay $x' \
+         'pnpm exec prettier --write "$F"'; do
+  # The last one is an accepted false refusal: a dynamic word after any option fails closed.
+  assert_red "program after a runner option: $c" --contains "no gate reads" -- h "$c"
+done
+# SO-H-14 (#1294): a short option with an attached value (`-c<val>`, bundled `-yc<val>`).
+for c in "npm exec -c'rm -rf /etc'" "npm exec -yc'rm -rf /etc'" "npm exec -c'a=b rm -rf /etc'"; do
+  assert_red "attached short-option payload: $c" --contains "rm -rf" -- h "$c"
+done
+for c in 'npm exec -y vitest' 'pnpm exec -w tsc --noEmit'; do
+  assert_green "short runner option: $c" -- h "$c"
+done
+# AUTO-SR-28 (#1294): rescans that fan out refuse fast rather than time out (and fail open).
+fan="$(printf 'npm exec -a %.0s' $(seq 40))x"
+t0=$SECONDS
+assert_red "40 x npm exec -a refuses as too complex" --contains "too complex" -- h "$fan"
+assert_green "40 x npm exec -a refuses within 10 s" -- test $((SECONDS - t0)) -le 10
+# AUTO-SR-29 (#1294): suffix expansion is quadratic, so a huge short option word refuses first.
+big="npm exec -c$(printf 'x%.0s' $(seq 4998))"
+t0=$SECONDS
+assert_red "a 5000-char -c word refuses as too complex" --contains "too complex" -- h "$big"
+assert_green "a 5000-char -c word refuses within 10 s" -- test $((SECONDS - t0)) -le 10
+for c in 'pnpm --filter $pkg test' 'pnpm --filter @crm/api test' 'pnpm install' 'pnpm -r build' \
+         'pnpm -w add -D x' 'yarn install' 'pnpm exec vitest run "$FILE"' 'pnpm -F $pkg run build' \
+         'yarn --cwd apps/web install'; do
+  assert_green "runner subcommand: $c" -- h "$c"
+done
+# SR-M-11 / SR-M-12 (#1294): `config` anywhere; include files and swapped config files.
+for c in "git --attr-source HEAD config alias.x '!rm'" 'git config include.path /tmp/x' \
+         'git config --global Include.Path /tmp/x' 'git config includeIf.gitdir:/x/.path /tmp/x' \
+         'git -C repo config include.path x' 'git config --rename-section foo include' \
+         'GIT_CONFIG_GLOBAL=/tmp/x git x' 'env GIT_CONFIG_SYSTEM=/tmp/x git x' 'GIT_CONFIG=/tmp/x git x'; do
+  assert_red "git include or config file swap: $c" --contains "alias" -- h "$c"
+done
+for c in 'git config --get include.path' 'git config --get-regexp includeIf' 'git commit -c "$sha"' \
+         'GIT_CONFIG_NOSYSTEM=1 git status'; do
+  assert_green "git include read or a non-config dynamic value: $c" -- h "$c"
+done
+# AUTO-SR-12 / AUTO-SR-15 (#1294): no exception for a package version; a dynamic word in a
+# command position refuses. Accepted false refusal: `npx -y pkg@$VER`.
+for c in 'npx pkg@$(echo x)' 'npx pkg@`echo x`' 'npx pkg@${V}' 'npx pkg@$V/x' 'pkg@$x' 'npx pkg@$V'; do
+  assert_red "dynamic package spec: $c" --contains "no gate reads" -- h "$c"
+done
+for c in 'npx -y pkg@$VER x' 'bunx pkg@$V' 'npx -y @scope/pkg@$VER x'; do
+  assert_red "accepted false refusal, dynamic package version: $c" --contains "no gate reads" -- h "$c"
+done
+# CR-M-4 (#1294): a decoy install in one quoted argument must not exempt a launch in the
+# next one, or past a `;` inside a -c string, and a flat `concurrently` runs every word.
+# So there is no install exemption at all.
+for c in 'winpty bash -c "pnpm add powershell; powershell x"' \
+         'concurrently "pnpm add pwsh" "pwsh -c Remove-Item"' \
+         'npx concurrently "pnpm add powershell" "powershell Remove-Item -Recurse C:/x"' \
+         'parallel ::: "pnpm add powershell" "powershell Remove-Item x"' \
+         'npx concurrently pnpm add powershell'; do
+  assert_red "decoy install, launch beside it: $c" --contains "no gate reads" -- h "$c"
+done
+# Accepted false refusals: installing PowerShell through a package manager is run by the owner by hand.
+for c in "pnpm add powershell" "brew install powershell" "brew install pwsh" "brew install --cask pwsh" \
+         "env pnpm add powershell" "yarn add powershell pwsh" "winpty pnpm add powershell" "npm i pwsh"; do
+  assert_red "accepted false refusal, install of a shell: $c" --contains "no gate reads" -- h "$c"
+done
+
+# SR-M-1 (#1294): a backslash-newline is a line continuation, so the shell joins the word.
+for c in $'r\\\nm -rf /etc' $'rm -rf \\\n/etc' $'git push --force \\\norigin main'; do
+  assert_red "line continuation: ${c//$'\n'/<NL>}" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+# The joined text must not swallow the next line: a comment the join creates, an unquoted
+# heredoc whose delimiter the join moved, a quoted heredoc body that is not joined.
+for c in $'ls \\\n#x \\\nrm -rf /etc' $'cat <<EOF\nx\\\nEOF\nEOF\nrm -rf /etc' $'cat <<\'EOF\'\nx\\\nEOF\nrm -rf /etc'; do
+  assert_red "the line after a continuation: ${c//$'\n'/<NL>}" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+for c in $'echo \'r\\\nm -rf /etc\'' $'ls # r\\\nm -rf /tmp/x'; do
+  assert_green "no continuation there: ${c//$'\n'/<NL>}" -- h "$c"
+done
+
+# F1, round 2 of #1294: `<<<` is a here-string, not a heredoc. Its second `<` read as
+# `<<x` swallowed every following line as a heredoc body (on main as well).
+for c in $'cat <<<x\nrm -rf /etc' $'cat <<<x\nr\\\nm -rf /etc' $'cat <<<\'x\'\nr\\\nm -rf /etc'; do
+  assert_red "here-string, not heredoc: ${c//$'\n'/<NL>}" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+assert_green "a here-string on its own" -- h $'cat <<<x\nls'
+# F2/F3, round 2 of #1294: the joiner's quote and comment lexing is approximate, so a
+# second reading with every backslash-newline removed is judged too. Each case below
+# is missed by the joiner alone: a `'` inside `"$(…)"`, and `#` inside `${x:- #}` (the
+# second is also caught by the comment-free reading).
+for c in $'echo "$(echo "\'")"; r\\\nm -rf /etc' $'echo ${x:- #};r\\\nm -rf /etc'; do
+  assert_red "naive-join reading: ${c//$'\n'/<NL>}" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+
+# ── no analyzer: refused, not waved through ─────────────────────────────────
+assert_green "broken analyzer + harmless command: exit 2 (exit 1 does not block)" \
+  --contains "Refused" \
+  -- exits_2 hook_at "$BROKEN" "ls -la" "$WS"
+assert_green "python3 cannot run + harmless command: exit 2" \
+  --contains "INTERNAL ERROR" \
+  --contains "Refused" \
+  -- exits_2 hook_without_python "$HOOK" '{"tool_name":"Bash","tool_input":{"command":"ls -la"}}'
 
 guard_test_summary "test-pre-bash-safety.sh"

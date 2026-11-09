@@ -128,6 +128,7 @@ while IFS=$'\t' read -r expect hooks cmd <&3; do
     exit 2
   fi
   [ "$hooks" = "all" ] && hooks="safety,db,ttl"
+  cmd=${cmd//<NL>/$'\n'} # a row is one line; <NL> carries a newline (corpus header)
 
   for key in $(printf '%s' "$hooks" | tr ',' ' '); do
     hook="$REPO_ROOT/.claude/hooks/$(hook_file "$key")"
@@ -194,6 +195,16 @@ verdict_rc() { # $1 = hook path, $2 = command  -> prints the exit code
   printf '%s' "$?"
 }
 
+# Did the COARSE RULE refuse it? With no analyzer a hook now refuses every
+# command it could not read (exit 2, "Refused: no analyzer"). That blanket
+# refusal is not a narrowing of anything, so only a refusal labelled DEGRADED
+# MODE (the coarse substring rule) counts here, as in the `narrowed` rows above.
+coarse_refuses() { # $1 = degraded hook path, $2 = command
+  local out
+  out="$(hook_at "$1" "$2" 2>/dev/null)"
+  [ "$?" = "2" ] && printf '%s' "$out" | grep -q "DEGRADED MODE"
+}
+
 METRIC_PAIRS=0
 METRIC_STRICTER=0
 METRIC_UNDECLARED=0
@@ -203,15 +214,17 @@ while IFS=$'\t' read -r expect hooks cmd <&3; do
     "" | \#*) continue ;;
   esac
   [ -n "${cmd:-}" ] || continue
+  row=$cmd # the encoded row: what DECLARED holds and what the report prints
+  cmd=${cmd//<NL>/$'\n'} # decoded as in the main loop; undecoded, `<NL>` reads as redirects
   for key in $ALL_HOOKS; do
     METRIC_PAIRS=$((METRIC_PAIRS + 1))
     file="$(hook_file "$key")"
     [ "$(verdict_rc "$REPO_ROOT/.claude/hooks/$file" "$cmd")" = "2" ] && continue
-    [ "$(verdict_rc "$(broken_hook "$key")" "$cmd")" = "2" ] || continue
+    coarse_refuses "$(broken_hook "$key")" "$cmd" || continue
     METRIC_STRICTER=$((METRIC_STRICTER + 1))
-    if ! printf '%s\t%s\n' "$key" "$cmd" | grep -Fxqf - "$DECLARED"; then
+    if ! printf '%s\t%s\n' "$key" "$row" | grep -Fxqf - "$DECLARED"; then
       METRIC_UNDECLARED=$((METRIC_UNDECLARED + 1))
-      METRIC_LIST="${METRIC_LIST}  [$key] $cmd
+      METRIC_LIST="${METRIC_LIST}  [$key] $row
 "
     fi
   done

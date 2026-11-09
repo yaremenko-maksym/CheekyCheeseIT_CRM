@@ -25,6 +25,8 @@
 #                      corrected rather than quietly rotting.
 #   hooks  = comma list of safety | db | ttl  (db = live-db-guard,
 #            ttl = devserver-ttl-gate), or `all`
+#   <NL> in a command stands for a newline; test-hook-command-corpus.sh decodes it
+#   (a row is one line). compare-hooks-to-ref.sh does not, and reads it literally.
 #
 # The `narrowed` column is the metric the review named: with a BROKEN analyzer
 # `sudo -s rm -rf /etc` was blocked and with a working one it was not — the
@@ -708,3 +710,400 @@ block	db,ttl	rtk bypass -v 'pnpm dev'
 block	db,ttl	rtk summary 'echo ok && pnpm dev'
 allow	all	rtk bypass 'echo hello world'
 allow	all	rtk test 'pnpm --filter @crm/api test'
+# SR-H-25 (2026-11-08): in $'...' bash reads \' as a quote, not the end of the string.
+block	safety	echo $'\' '; rm -rf /etc #'
+block	safety	echo $'\' #'; rm -rf /etc #'
+block	db,ttl	echo $'\' '; pnpm dev #'
+# ═══ SR-M-1 of PR #1294: a backslash-newline is a line continuation ══════════
+# bash and zsh join `d\<NL>ev` into `dev`; the hooks read two words, and the fast
+# paths deleted the backslash and kept the n of the JSON escape.
+block	db,ttl	pnpm --filter @crm/api d\<NL>ev
+block	db,ttl	vi\<NL>te --port 3000
+block	safety	r\<NL>m -rf /etc
+# F1, round 2 of #1294: `<<<` is a here-string, not a heredoc; the next line runs.
+block	safety	cat <<<x<NL>rm -rf /etc
+block	safety	cat <<<x<NL>r\<NL>m -rf /etc
+block	safety	cat <<<'x'<NL>r\<NL>m -rf /etc
+block	db,ttl	cat <<<x<NL>pnpm --filter @crm/api dev
+allow	safety	cat <<<x<NL>ls
+# F2/F3, round 2 of #1294: the joiner's own lexing misses these; the naive-join reading does not.
+block	safety	echo "$(echo "'")"; r\<NL>m -rf /etc
+block	db,ttl	echo "$(echo "'")"; pnpm --filter @crm/api d\<NL>ev
+# Round 3 of #1294: $'...' is decoded even with no backslash. The heredoc-note row is a
+# KNOWN FALSE REFUSAL (accepted LOW, fails closed): the naive-join reading reads the body as code.
+block	db,ttl	pnpm --filter @crm/api $'dev'
+block	db,ttl	$'vite' --port 3000
+block	db,ttl	cat > note.md <<'EOF'<NL>use `pnpm dev` and<NL>line \<NL>EOF
+# Accepted false refusals (#1294): installing PowerShell through a package manager is run by the owner by hand.
+block	safety	pnpm add powershell
+block	safety	brew install pwsh
+# CR-M-1 / SR-M-4 of #1294: a powershell/pwsh reading needs no flag after it (5.1 runs a
+# plain word as -Command, piped stdin runs with no argument). Installs are refused too (accepted false refusal, above).
+block	safety	winpty powershell Remove-Item -Recurse -Force C:/x
+block	safety	echo Remove-Item -Recurse C:/x | winpty pwsh
+block	safety	python3 -c "import os; os.system('powershell Remove-Item -Recurse -Force C:/Users/x')"
+block	safety	node -e "require('child_process').execSync('powershell Remove-Item -Recurse C:/x')"
+block	safety	python3 -c "import os; os.system('echo Remove-Item C:/x | powershell')"
+block	safety	python3 -c "import os; os.system('pwsh ./do-it')"
+block	safety	unknown-wrapper powershell Remove-Item x pnpm add powershell
+# CR-M-4 of #1294: a decoy install in a quoted argument does not exempt a launch beside it.
+block	safety	winpty bash -c "pnpm add powershell; powershell x"
+block	safety	concurrently "pnpm add pwsh" "pwsh -c Remove-Item"
+block	safety	npx concurrently "pnpm add powershell" "powershell Remove-Item -Recurse C:/x"
+block	safety	parallel ::: "pnpm add powershell" "powershell Remove-Item x"
+block	safety	npx concurrently pnpm add powershell
+# SO-M-1, CR-M-6 / SR-M-5, AUTO-SR-3, AUTO-SR-5 of #1294: cmd has the powershell strictness.
+# A word whose last path component is cmd (bare, full, relative or drive-relative path, any
+# .exe/.com/.bat/.cmd extension, any next word) refuses. SR-M-6: winpty is a wrapper.
+block	safety	echo del x | winpty cmd
+block	safety	winpty cmd < x.bat
+block	safety	echo del x | winpty /c/Windows/System32/cmd.exe
+block	safety	echo del x | winpty C:/Windows/System32/cmd.exe
+block	safety	echo del x | winpty "C:\Windows\System32\cmd.exe"
+block	safety	winpty /c/Windows/System32/cmd.exe < x.bat
+block	safety	echo del x | winpty cmd foo
+block	safety	echo del x | winpty cmd.exe foo
+block	safety	winpty cmd foo < x.bat
+block	safety	echo del x | unknown-tool /c/Windows/System32/cmd
+block	safety	echo del x | winpty C:/Windows/System32/cmd
+block	safety	echo del x | unknown-tool cmd foo
+block	safety	echo del x | winpty ../../Windows/System32/cmd
+block	safety	echo del x | unknown-tool C:cmd
+block	safety	echo del x | winpty "..\..\Windows\System32\cmd.exe"
+# Accepted false refusal (#1294): a directory named cmd as the last path component reads as cmd.
+block	safety	go run ./cmd
+# AUTO-SR-4 / AUTO-SR-6 / AUTO-SR-7 of #1294: a dynamic command word fails closed, with or
+# without an argument, and with no resolution through same-line assignments.
+# $COMSPEC / %COMSPEC% refuse by name.
+block	safety	echo del x | winpty "$COMSPEC"
+block	safety	x=$COMSPEC; echo del x | $x
+block	safety	x=$COMSPEC; echo del x | $x foo
+block	safety	echo del x | "$(printenv COMSPEC)"
+block	safety	echo del x | ${!v}
+block	safety	echo del x | ${!v} foo
+block	safety	echo del x | "$(printenv COMSPEC)" foo
+block	safety	a=cmd; b=$a; $b foo
+block	safety	python3 -c "import os; os.system('%COMSPEC% /c dir')"
+block	safety	"$PNPM" install
+# Accepted false refusals (#1294): a dynamic command word the same line assigns.
+block	safety	PNPM=pnpm; $PNPM install
+block	safety	x=ls; $x
+# AUTO-SR-8 of #1294: every reading is gated, not only the segment command word.
+block	safety	env $x
+block	safety	xargs $x
+block	safety	timeout 5 $x
+block	safety	bash -c "$x"
+block	safety	echo del x | $'\x63md'
+allow	safety	echo $HOME
+# AUTO-SR-9 of #1294: an 8.3 short name is the same binary.
+block	safety	C:/PROGRA~1/POWERS~1/7/pwsh~1.exe -c x
+block	safety	echo del x | unknown-tool C:/Windows/System32/WindowsPowerShell/v1.0/POWERS~1.EXE
+block	safety	echo del x | unknown-tool C:/PROGRA~1/PWSH-P~1.EXE
+# CR-M-7 / SO-M-2 of #1294: a `$` inside single quotes is literal, never a dynamic word.
+allow	safety	awk '{print $1}' f
+allow	safety	awk -F: '{print $1}' /etc/passwd
+allow	safety	ps aux | awk '{print $2}'
+allow	safety	sed 's/$//' f
+allow	safety	sed -i 's/foo$/bar/' f
+allow	safety	sed -n '1,$p' f
+allow	safety	perl -ne 'print if /x$/' f
+allow	safety	docker exec x sh -c 'ls $HOME'
+allow	safety	echo $'foo\\bar'
+# CR-M-8 of #1294: the dynamic check judges command positions only (the segment name and
+# every candidate name). Known wrappers unwrap, so their dynamic argument is a name.
+block	safety	nice $x
+block	safety	npx -y pwsh@$VER x
+allow	safety	pnpm exec vitest run "$FILE"
+allow	safety	make test ARGS=$X
+allow	safety	npm run build -- --base=$BASE
+allow	safety	[ -z "$X" ]
+allow	safety	pnpm --filter $pkg test
+allow	safety	docker run -e K=$V img
+# KNOWN LIMIT (#1294): an unknown wrapper that executes a dynamic argument is not judged.
+allow	safety	unknown-tool $x
+allow	safety	unknown-tool foo $x
+# SO-M-5 of #1294: an assignment whose value names a shell refuses, prefix or standalone.
+block	safety	(PAGER=powershell; git log)
+block	safety	{ PAGER=powershell; git log; }
+block	safety	(VISUAL=powershell; git commit)
+block	safety	echo hi && if :; then PAGER=powershell; git log; fi
+allow	safety	X=hello; echo $X
+# SR-M-7 of #1294: an alias body is never judged, so defining one or enabling expansion refuses.
+block	safety	shopt -s expand_aliases
+block	safety	alias ls='rm -rf /etc'
+block	safety	shopt -s expand_aliases; alias ls='rm -rf /etc'; ls
+block	safety	BASH_ALIASES[ls]='rm -rf /etc'
+allow	safety	alias
+# AUTO-SR-11 of #1294: every route to the alias table, and posix mode (it expands aliases).
+block	safety	BASH_ALIASES[ls]+=x
+block	safety	printf -v BASH_ALIASES[ls] %s x
+block	safety	set -o posix
+block	safety	(set -o posix; ls)
+block	safety	shopt -so posix
+block	safety	POSIXLY_CORRECT=1 ls
+allow	safety	set -e
+allow	safety	set -o pipefail
+allow	safety	set -euo pipefail
+# AUTO-SR-13 / AUTO-SR-14 of #1294: a nameref, a dynamic assignment target, SHELLOPTS and a
+# dynamic shell option can all reach the alias table or posix mode.
+block	safety	declare -n a=BASH_ALIASES
+block	safety	printf -v "$t" x
+block	safety	set -o "$m"
+block	safety	SHELLOPTS=posix bash -c x
+allow	safety	declare -a arr
+allow	safety	printf -v out '%s' x
+allow	safety	read -r line
+# AUTO-SR-16..18 of #1294: a coarse rule. The raw text naming the alias table or posix mode
+# refuses; an assigning builtin and `alias` refuse on a dynamic word.
+block	safety	echo $POSIXLY_CORRECT
+block	safety	export SHELLOPTS
+block	safety	bash -O expand_aliases -c x
+block	safety	alias "$a"
+block	safety	declare "$v"=1
+block	safety	getopts ab "$o"
+allow	safety	export FOO=bar
+# AUTO-SR-19 of #1294: quoting splits the name in the raw text; the dequoted words are searched.
+block	safety	shopt -s expand""_aliases
+block	safety	shopt -s exp\and_aliases
+block	safety	export POSIXLY_"CORRECT"=1
+block	safety	export SHELL'OPTS'
+# AUTO-SR-20 of #1294: a shell option after -c is still an option.
+block	safety	bash -c -o "$m" x
+block	safety	bash -c -O "$m" x
+allow	safety	bash -c 'echo hi'
+# AUTO-SR-18, narrowed: only a dynamic assignment TARGET refuses; a dynamic value is allowed.
+allow	safety	local x="$1"
+allow	safety	declare x=$y
+allow	safety	readonly R="$1"
+allow	safety	export PATH="$HOME/bin:$PATH"
+allow	safety	printf -v out '%s' "$x"
+block	safety	export "$n"
+block	safety	read "$v"
+block	safety	declare x=powershell
+# AUTO-SR-22 / 23 / 24 of #1294: integer attribute, wrapped declarer, startup-file variables.
+block	safety	export BASH_ENV=$f; bash -c x
+block	safety	ENV=$f sh -c x
+block	safety	export BASHOPTS
+block	safety	declare -i x=$y
+block	safety	env declare x=$y
+allow	safety	NODE_ENV=test pnpm x
+allow	safety	cat .env.example
+allow	safety	env FOO=1 node x
+allow	safety	grep -r ENV_VAR src
+# SR-M-8 of #1294: a package runner launches a word named at run time.
+block	safety	pnpm exec $x
+block	safety	pnpm --filter @crm/api exec $x
+block	safety	pnpm -r exec $x
+block	safety	pnpm dlx $x
+block	safety	pnpm $x
+block	safety	npm exec $x
+block	safety	npm exec -- $x
+block	safety	npm x $x
+block	safety	yarn $x
+block	safety	yarn exec $x
+block	safety	yarn dlx $x
+block	safety	x=$(printf c%sd m); pnpm exec $x /c dir
+block	safety	pnpm exec powershell -c x
+block	safety	yarn dlx pwsh
+block	safety	npm exec -- $(echo rm) -rf /etc
+allow	safety	pnpm --filter @crm/api test
+allow	safety	pnpm install
+allow	safety	pnpm -r build
+allow	safety	yarn install
+allow	safety	pnpm --filter @crm/web exec tsc --noEmit
+allow	safety	pnpm run $x
+allow	safety	npm run $x
+# CR-M-9 / SO-H-6 / CR-M-10 / CR-M-11 of #1294: program strings, array literals, watch strings.
+allow	safety	bash -c 'echo "$1"' _ x
+allow	safety	sh -c 'echo $0'
+allow	safety	sh -c 'ls $HOME'
+allow	safety	bash -c "cd $DIR && ls"
+allow	safety	find . -exec sh -c 'echo "$1"' _ {} \;
+allow	safety	xargs -0 -I{} bash -c 'wc -l "$1"' _ {}
+allow	safety	bash -c 'echo hi' "$a"
+allow	safety	declare -a arr=("$x")
+allow	safety	declare -a arr=(a "$x" b)
+allow	safety	arr=("$x" b)
+allow	safety	watch -n 5 'ls $X'
+allow	safety	set -- "$@"
+block	safety	bash -c '$x'
+block	safety	sh -c "$x foo"
+block	safety	bash -c 'shopt -s expand_aliases'
+block	safety	bash -c -- 'rm -rf /etc'
+block	safety	bash -c -- "$(echo rm -rf /etc)"
+block	safety	sh -c -- "$m"
+block	safety	bash -c -- 'alias ls=x; ls'
+block	safety	watch -n 5 '$X'
+block	safety	watch -n 5 'ls; $X'
+block	safety	watch -n 5 'eval $X'
+block	safety	x=(<(rm -rf /etc))
+block	safety	arr=(a b); rm -rf /etc
+# SO-M-7 / SO-L-8 of #1294: set and shopt option names past `--`.
+block	safety	shopt -s -- "$m"
+block	safety	shopt -s -- expand_aliases
+block	safety	set -o -- "$m"
+# SO-H-9 / SO-L-10 of #1294: a git alias body is a shell command no gate reads.
+block	safety	git config alias.x '!rm -rf /etc'
+block	safety	git config --global alias.x '!rm -rf /etc'
+block	safety	git config --local alias.x '!rm -rf /etc'
+block	safety	git config --add alias.x '!rm'
+block	safety	git config --replace-all Alias.X '!rm'
+block	safety	git config "$k" v
+block	safety	git config set alias.x '!rm'
+block	safety	git -c alias.x='!echo hi' x
+block	safety	git -c "$k"=v status
+block	safety	git --config-env=alias.x=V x
+# SO-H-12 of #1294: a dynamic --config-env pair among the global options, both forms.
+block	safety	git --config-env "$CONF" status
+block	safety	git --config-env=$CONF status
+allow	safety	git --config-env=core.editor=ED status
+block	safety	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.x GIT_CONFIG_VALUE_0='!rm' git x
+block	safety	export GIT_CONFIG_KEY_0=alias.x
+block	safety	git config --rename-section foo alias
+allow	safety	git config --get alias.x
+allow	safety	git config --list
+allow	safety	git config --get-regexp alias
+allow	safety	git config user.name x
+allow	safety	git config --global user.email a@b.c
+allow	safety	git -c core.autocrlf=false status
+# SR-H-9 of #1294: options go on after -c; the program is the first operand after them.
+block	safety	bash -c -x "$x"
+block	safety	bash -c +x "$x"
+block	safety	bash -c -o errexit "$x"
+block	safety	bash -c -O extglob "$x"
+block	safety	sh -c -e "$x"
+block	safety	bash -c - 'rm -rf /etc'
+block	safety	bash -c -x 'rm -rf /etc'
+block	safety	bash -oc 'rm -rf /etc'
+# SR-H-10 of #1294: zsh runs `=(cmd)`; only an assignment word opens an array literal.
+block	safety	echo =(rm -rf /etc)
+block	safety	cat =(rm -rf /etc)
+block	safety	a=(=(rm -rf /etc))
+block	safety	a=(x =(rm -rf /etc))
+allow	safety	arr+=("$x")
+# SR-M-9 / SR-M-10 of #1294: the words after a launch subcommand are scanned as a command.
+block	safety	pnpm --reporter silent exec $x
+block	safety	npm --loglevel silent exec $x
+block	safety	yarn --cwd x exec $x
+block	safety	pnpm exec env $x
+block	safety	pnpm exec sudo $x
+block	safety	pnpm exec nice $x
+block	safety	pnpm exec timeout 5 $x
+block	safety	pnpm exec xargs $x
+block	safety	yarn workspace foo exec $x
+block	safety	yarn workspaces foreach exec $x
+block	safety	npm explore foo -- $x
+block	safety	npm create $x
+block	safety	pnpm create $x
+block	safety	yarn create $x
+block	safety	npm init $x
+block	safety	bun x $x
+allow	safety	npm init -y
+# CR-M-12 / CR-M-13 of #1294: wrappers after a launch; a bare runner with no subcommand.
+block	safety	pnpm exec sh -c "$x"
+block	safety	yarn --cwd x $x
+block	safety	pnpm --loglevel error exec $x
+block	safety	pnpm --workspace-dir x exec $x
+block	safety	pnpm --reporter silent $x
+block	safety	yarn workspace web $x
+block	safety	bun $x
+# AUTO-SR-25 of #1294: a launch word in front of a bare runner own subcommand.
+block	safety	pnpm $x test
+block	safety	yarn $x install
+block	safety	bun $x run
+block	safety	pnpm powershell install
+block	safety	pnpm sh -c "rm -rf /etc" install
+# Accepted false refusal (AUTO-SR-25): a dynamic value of an unknown option.
+block	safety	pnpm --reporter $r test
+allow	safety	pnpm --reporter silent install
+# AUTO-SR-26 / AUTO-SR-27 of #1294: value options per runner (pnpm -w is a flag); a subcommand
+# word right after an unknown option does not stop the walk; a known option value is rescanned.
+# pnpm --filter $pkg test, pnpm install, pnpm -r build, yarn install, yarn --cwd x $x and
+# pnpm exec vitest run "$FILE" are rows above.
+block	safety	pnpm -w git push --force origin main
+block	safety	pnpm -w dropdb crm_db
+block	safety	pnpm --reporter test git push -f origin main
+block	safety	pnpm --filter x git push -f origin main
+block	safety	pnpm --filter "git push -f origin main" test
+block	safety	pnpm --filter $'git' push -f origin main
+block	safety	pnpm -F $pkg dropdb crm_db
+allow	safety	pnpm -w add -D x
+allow	safety	pnpm -F $pkg run build
+allow	safety	yarn --cwd apps/web install
+# SR-M-13 of #1294: a rescan after every launch word, since an option value can itself be one.
+block	safety	pnpm --filter dlx dlx $y
+block	safety	pnpm --filter x x $y
+block	safety	npm --prefix x x $y
+block	safety	yarn --cwd dlx dlx $y
+block	safety	bun --cwd x x $y
+# CR-H-14 of #1294: after a launch word, any option before -- may carry a shell command
+# (prefix abbreviations, short-flag bundles): its `=` value or the next word is read as `sh -c`.
+# pnpm exec vitest run "$FILE" and pnpm --filter @crm/api test are rows above.
+block	safety	npm exec -c "$x"
+block	safety	npm x -c "$x"
+block	safety	npm exec --call "$x"
+block	safety	pnpm exec -c "$x"
+block	safety	pnpm exec --shell-mode "$x"
+block	safety	npm exec --call=$x
+block	safety	npm exec -c 'rm -rf /etc'
+block	safety	npm exec --yes -c "$x"
+block	safety	npm exec --package=x -c 'rm -rf /etc'
+block	safety	npm exec -p x --call "$x"
+block	safety	pnpm exec --silent --shell-mode=$x
+block	safety	pnpm exec --reporter silent --shell-mode=$x
+block	safety	pnpm exec -w -c 'rm -rf /etc'
+block	safety	npm exec --registry x -c 'rm -rf /etc'
+block	safety	npm exec --cal "$x"
+block	safety	npm exec --shell "$x"
+block	safety	npm exec -yc "$x"
+block	safety	npm exec --shell-m='rm -rf /etc'
+# Accepted false refusals: a dynamic word after any option fails closed.
+block	safety	pnpm exec vitest -c "$cfg"
+block	safety	npm exec --package $p foo
+block	safety	pnpm exec vitest run --reporter $r
+block	safety	pnpm exec prettier --write "$F"
+# SR-M-14 / SO-H-13 of #1294: the words after an option are also a fresh command line.
+block	safety	npm exec -p cowsay $x
+block	safety	yarn dlx -p cowsay $x
+block	safety	pnpm dlx --package cowsay $x
+block	safety	npm exec --shell-mode= $x
+block	safety	pnpm exec --shell-mode="" $x
+block	safety	npm exec --package=cowsay $x
+allow	safety	pnpm exec eslint --fix src
+allow	safety	npx prettier --check .
+# SO-H-14 of #1294: a short option with an attached value. npx goes through cmdscan: #1304.
+block	safety	npm exec -c'rm -rf /etc'
+block	safety	npm exec -yc'rm -rf /etc'
+allow	safety	npm exec -y vitest
+allow	safety	pnpm exec -w tsc --noEmit
+# AUTO-SR-28 of #1294: rescans that fan out refuse as too complex instead of timing out.
+block	safety	npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a npm exec -a x
+block	safety	npm exec -c'a=b rm -rf /etc'
+# AUTO-SR-29 of #1294: a short option word over 1000 chars refuses before suffix expansion.
+block	safety	npm exec -cxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+allow	safety	npm exec -c 'echo hi'
+allow	safety	npm exec --yes -c 'echo hi'
+allow	safety	pnpm exec vitest -c vitest.config.ts
+# SR-M-11 / SR-M-12 of #1294: `config` anywhere; include files and swapped config files.
+block	safety	git --attr-source HEAD config alias.x '!rm'
+block	safety	git config include.path /tmp/x
+block	safety	git config --global Include.Path /tmp/x
+block	safety	git config includeIf.gitdir:/x/.path /tmp/x
+block	safety	git -C repo config include.path x
+block	safety	git config --rename-section foo include
+block	safety	GIT_CONFIG_GLOBAL=/tmp/x git x
+block	safety	env GIT_CONFIG_SYSTEM=/tmp/x git x
+block	safety	GIT_CONFIG=/tmp/x git x
+allow	safety	git config --get include.path
+allow	safety	git config --get-regexp includeIf
+allow	safety	git commit -c "$sha"
+allow	safety	GIT_CONFIG_NOSYSTEM=1 git status
+# AUTO-SR-12 / AUTO-SR-15 of #1294: no exception for a package version.
+block	safety	npx pkg@$(echo x)
+block	safety	pkg@$x
+block	safety	npx pkg@$V
+# Accepted false refusal (AUTO-SR-12): a dynamic package version refuses like any dynamic word.
+block	safety	npx -y pkg@$VER x
+allow	safety	ls cmd
+allow	safety	go build ./cmd/server
+allow	safety	echo $COMSPEC

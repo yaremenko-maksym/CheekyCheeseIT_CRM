@@ -107,13 +107,13 @@
 #   - Fast-exit 0 outside agent worktree / claude scratchpad context — the
 #     owner's own main-checkout session is legitimate and untouched.
 #   - exit 2 + JSON decision body on block.
-#   - exit 1 + `INTERNAL ERROR` on stderr when the ANALYZER itself fails:
-#     a broken hook must never be mistaken for a hook that refused. Both used
-#     to be "non-zero exit"; a bash syntax error still exits 2 exactly like a
-#     verdict, so the distinguishing mark is the contract: a real verdict ALWAYS
-#     carries a {"decision":"block"} body on stdout. If the analyzer dies while
-#     the coarse test says a launcher is present, the fallback still blocks —
-#     but labels itself DEGRADED MODE, so nobody debugs the wrong thing.
+#   - exit 2 + `INTERNAL ERROR` on stderr when the ANALYZER itself fails: a
+#     command nobody read is not a command that was cleared, and exit 1 would
+#     not block. A broken hook must still never be mistaken for a verdict on the
+#     merits, so the mark is on the output: stderr says INTERNAL ERROR, and the
+#     only block body it can print is the coarse fallback, which runs when the
+#     coarse test says a launcher is present and labels itself DEGRADED MODE,
+#     so nobody debugs the wrong thing.
 #   - CI runners never see this file at all (hooks are a local Claude Code
 #     mechanism; GitHub Actions does not invoke .claude/hooks/**).
 #
@@ -152,8 +152,14 @@ INPUT=$(cat)
 
 # Hot path: if no launcher word occurs anywhere in the payload, nothing below
 # can fire — leave before paying for a python start. Deliberately a SUPERSET of
-# what the analyzer can block (never a second, divergent policy).
-echo "$INPUT" | grep -qE 'vite|nest|dev|dist/main|start|preview' || exit 0
+# what the analyzer can block (never a second, divergent policy). Quotes and
+# backslashes are dropped first (`d''ev` runs dev), and a `$`, backtick or backslash
+# goes to the analyzer: the first two can build any word, and a backslash-newline
+# joins one (`d\<newline>ev`, SR-M-1 of #1294) while the JSON escape leaves the n of
+# `\n` behind (`dnev`).
+# LC_ALL=C: under a UTF-8 locale macOS tr and grep fail on an invalid byte (#1297 SR-L-6).
+printf '%s' "$INPUT" | LC_ALL=C tr -d "'\"\\\\" | LC_ALL=C grep -qE 'vite|nest|dev|dist/main|start|preview' \
+  || printf '%s' "$INPUT" | LC_ALL=C grep -q '[$`\]' || exit 0
 
 printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
 import importlib.util, json, os, re, shlex, sys, urllib.parse
@@ -172,7 +178,7 @@ if not cmd:
 
 # Same worktree/scratchpad context gate as the sibling hook — the owner s
 # main checkout is out of scope by design.
-CONTEXT = re.compile(r"\.claude/worktrees/|/tmp/claude-")
+CONTEXT = re.compile(r"\.claude/worktrees/|\.t3/worktrees/|/tmp/claude-|AppData/Local/Temp/claude", re.I)
 if not CONTEXT.search(cmd.replace("\\", "/")) and not CONTEXT.search(cwd):
     sys.exit(0)
 
@@ -187,8 +193,8 @@ hits = cmdscan.launches(scan)
 # Nesting deeper than the analyzer walks leaves code unread. An unread launch is
 # not an absent launch, so it is refused with an env of its own (i.e. nothing
 # proven safe) rather than reported as clean.
-if not hits and scan.truncated:
-    hits = [(
+if scan.truncated:
+    hits = hits + [(
         cmdscan.Segment("", [], [], [], False, cmd, 0, {}, False, None),
         "nesting deeper than the parse limit — the code was not read",
     )]
@@ -441,6 +447,9 @@ def judge(seg):
                       "`NODE_OPTIONS=--inspect pnpm --filter @crm/api dev` (api, dev), "
                       "`vite --port 3010` (web) - each with the DATABASE_URL / PGDATABASE / port prefix")
     DEVTTL_TTL = re.compile(r"^--ttl=[0-9]+$")
+    PINNED = ("DATABASE_URL", "PGDATABASE", "PGUSER", "PGHOST", "PGSERVICE", "PGSERVICEFILE",
+              "API_PORT", "PORT", "WEB_PORT")
+    INNER_PIN = re.compile(r"(?<![A-Za-z0-9_])(?:%s)=" % "|".join(PINNED))
 
     def launch_shape(seg):
         # Returns (names assigned among the leading words, [reasons the launch is not
@@ -468,13 +477,13 @@ def judge(seg):
                     i += 1
             elif base == "dev-ttl.sh" and PLAIN_WORD.match(t):
                 i += 1
-                while i < n and toks[i] != "--":
-                    if toks[i] == "--ttl" and i + 1 < n and toks[i + 1].isdigit():
-                        i += 2
-                    elif DEVTTL_TTL.match(toks[i]):
-                        i += 1
-                    else:
-                        return names, ["dev-ttl.sh is followed by %r, which the hook does not understand" % toks[i]]
+                # The script reads one `--ttl N` and nothing else before the `--`.
+                if toks[i:i + 1] == ["--ttl"] and i + 1 < n and toks[i + 1].isdigit():
+                    i += 2
+                elif i < n and DEVTTL_TTL.match(toks[i]):
+                    i += 1
+                if i >= n or toks[i] != "--":
+                    return names, ["dev-ttl.sh is followed by %r, which the hook does not understand" % (toks[i] if i < n else "")]
                 i += 1
             else:
                 break
@@ -487,6 +496,11 @@ def judge(seg):
             return names, ["the launch goes through a wrapper the hook does not model (%s) - write the launcher directly: %s" % (", ".join(seg.wrappers), LAUNCHER_FORMS)]
         if word.rsplit("/", 1)[-1] != seg.name:
             return names, ["the written command word %r is not the launcher the analyzer resolved (%r) - write the launcher directly: %s" % (word, seg.name, LAUNCHER_FORMS)]
+        # SR-M-15: `pnpm exec env DATABASE_URL=<live> pnpm dev` overrides the leading pin.
+        for t in toks[i + 1:]:
+            tool = re.sub(r"\.(exe|cmd|bat)$", "", re.split(r"[/\\]", t)[-1], flags=re.I).lower()
+            if tool in ("env", "cross-env", "dotenv") or INNER_PIN.search(t):
+                return names, ["the launch rewrites its environment after the pin (%r) - the pin no longer decides what it reaches. Set each value once, as a prefix on the launch" % t]
         return names, []
 
     shapes = [launch_shape(s) for s in segs]
@@ -501,6 +515,36 @@ def judge(seg):
         # bare assignment or a sourced file can still change them), and not by a
         # look-alike argument after the launcher.
         return bool(shapes) and all(name in names for names, _ in shapes)
+
+    # SR-M-13: `false && export ...`, `if false; then export ...; fi` and `(export ...)`
+    # never reach the launch, and cmdscan folds them all the same. A pin that comes
+    # from an export counts only on a line of plain statements. `code_view` has no
+    # quoted text, so a phrase in a string does not count. It spaces operators, so
+    # `2>&1` reads `2> & 1`: a `&` right after `<` or `>` is a redirect, not a job.
+    # `&>x` reads `& >x` exactly like `export X & >x`, so it stays not plain.
+    NOT_PLAIN = re.compile(
+        r"&|\||[(){}`]|\$\("
+        r"|\b(?:if|then|elif|else|fi|for|while|until|do|done|case|esac|function|select|coproc)\b"
+    )
+    # Builtins that assign, un-export or defer code; and a command word the shell
+    # computes (`$X DATABASE_URL`), which may be any of them.
+    UNDOES = ("unset", "enable", "declare", "typeset", "local", "read", "mapfile", "readarray",
+              "getopts", "wait", "trap", "eval", "source", ".", "printf")
+    # A `#` that starts a word opens a comment; its words are not statements.
+    # cmdscan decides that on the raw text (code_view has lost quotes and `\`).
+    plain_view = re.sub(r"[<>]\s*&", " ", scan.plain_view)
+    from_export = [v for v in PINNED if v in env and not literal_inline(v)]
+    # declare/typeset +x and export -n un-export a name; any of them on the line counts.
+    undone = any(s.name in UNDOES or (s.name and not PLAIN_WORD.match(s.name))
+                 or (s.name == "export" and any(a[:1] == "-" and "n" in a for a in s.argv))
+                 for s in scan.segments)
+    if from_export and (undone or NOT_PLAIN.search(plain_view)):
+        reasons.append(
+            "%s reaches the launch only through an export, and this line may skip or undo "
+            "that export (a condition, a subshell, a pipe, a background job, unset) - the "
+            "effective value cannot be determined. Set it as a prefix on the launch"
+            % ", ".join(from_export)
+        )
 
     ENV_LOAD = re.compile(
         r"(?:^|[;&|(\n]\s*)(?:source|\.)\s+[^\s;&|]"
@@ -684,4 +728,6 @@ if echo "$FLAT" | grep -qE "$LEGACY" && echo "$FLAT" | grep -qE '\.claude[/\\]+w
   echo "[pre:bash:live-db-guard] BLOCK (degraded fallback, coarse substring rule)" >&2
   exit 2
 fi
-exit 1
+# Refused, because a command nobody read is not a command that was cleared.
+echo "[pre:bash:live-db-guard] Refused: no analyzer, so this command was not read. Fix it first: python3 must run on PATH and the hook library must load. Bash stays refused until then." >&2
+exit 2

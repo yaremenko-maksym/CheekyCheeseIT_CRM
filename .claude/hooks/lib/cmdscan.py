@@ -243,8 +243,8 @@ WRAPPER_SPEC = {
     # `env -S "pnpm dev"` splits the string and RUNS it — a value flag would have
     # swallowed the whole launch. Found by probing the wrapper table, not by
     # reading it.
-    "env": _w(value_flags=("-u", "--unset", "-C", "--chdir"),
-              code_flags=("-S", "--split-string")),
+    # Its flags are read by _env_flags: -S changes what the command IS.
+    "env": _w(),
     "nice": _w(value_flags=("-n", "--adjustment")),
     "ionice": _w(value_flags=(
         "-c", "--class", "-n", "--classdata", "-p", "--pid", "-P", "--pgid",
@@ -276,6 +276,10 @@ WRAPPER_SPEC = {
     "script": _w(code_flags=("-c", "--command"), operands=1, exact=False),
     "parallel": _w(value_flags=("-j", "--jobs", "-N", "-d", "--colsep", "-S"), exact=False),
     "watch": _w(value_flags=("-n", "--interval"), exact=False),
+    # `winpty [-Xallow-non-tty -Xplain --mouse ...] [--] PROGRAM args` (Git for Windows).
+    # Its flags are all boolean. Inexact so the segment keeps every reading it had as an
+    # unknown command: unwrapping only adds the judged command, no hook loses a reading.
+    "winpty": _w(exact=False),
     "flock": _w(
         value_flags=("-w", "--wait", "--timeout", "-E", "--conflict-exit-code"),
         code_flags=("-c", "--command"), operands=1, exact=False,
@@ -336,8 +340,63 @@ def _interpreter_code_payloads(tokens):
     per placement; so it is now a sweep over the whole token list, and no later step gets to
     decide whether it applies.
     """
-    return [tokens[i + 1] for i, t in enumerate(tokens)
-            if _is_code_flag(t) and i + 1 < len(tokens)]
+    program, is_code, _flags, values = shell_program(tokens)
+    out = [program] if is_code else []
+    # A value with a space cannot be an option name (`bash -oc 'rm -rf /etc'`): read it as code.
+    out += [v for v in values if re.search(r"\s", v)]
+    # SR-H-9 (#1294) adds the shell's own reading above; the sweep below is kept as well, so
+    # the word after EVERY code flag is still read (`bash -c ls -c 'rm -rf /etc'`).
+    for i, t in enumerate(tokens):
+        if not _is_code_flag(t):
+            continue
+        # SO-H-6 (#1294): `bash -c -- 'rm -rf /etc'` runs the word after `--`.
+        j = i + 1
+        while j < len(tokens) and tokens[j] == "--":
+            j += 1
+        if j < len(tokens) and tokens[j] not in out:
+            out.append(tokens[j])
+    return out
+
+
+def shell_program(tokens):
+    """How a shell reads its argv (`tokens`, without the shell name).
+
+    Returns (program, is_code, flags, values). Options go on after `-c` (SR-H-9, #1294:
+    `bash -c -x "$x"` runs `$x`), so the program is the first operand AFTER every option:
+    clusters led by `-` or `+` are options, each `o` / `O` in a cluster takes the next word
+    as its value, `--rcfile` / `--init-file` take one, and `--` or a lone `-` end options.
+    is_code: a code flag was seen; otherwise `program` is the script operand, or None.
+    flags: option words before the first operand. values: every `-o` / `-O` value.
+    Broad on purpose: _is_code_flag decides the code flag, and an operand before it does not
+    stop the sweep (the safe direction).
+    """
+    flags, values, script = [], [], None
+    seen_c = ended = False
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if not ended and t in ("--", "-"):
+            ended = True
+            i += 1
+            continue
+        if not ended and t[:1] in "-+" and len(t) > 1:
+            if script is None:
+                flags.append(t)
+            if t.startswith("--"):
+                take = 1 if t in ("--rcfile", "--init-file") else 0
+            else:
+                take = sum(ch in "oO" for ch in t[1:])
+            seen_c = seen_c or _is_code_flag(t)
+            values += tokens[i + 1:i + 1 + take]
+            i += 1 + take
+            continue
+        if seen_c:
+            return t, True, flags, values
+        if script is None:
+            script = t
+        ended = False
+        i += 1
+    return script, False, flags, values
 
 # Commands this module claims to understand well enough to judge by NAME ALONE.
 # Membership means one of exactly two things and nothing else:
@@ -551,9 +610,13 @@ class Segment:
 
 
 class Scan:
-    __slots__ = ("segments", "assigns", "code_view", "degraded", "truncated", "alt_only")
+    __slots__ = ("segments", "assigns", "code_view", "degraded", "truncated", "alt_only",
+                 "plain_view")
 
     def __init__(self, segments, assigns, code_view, degraded, truncated=False):
+        # code_view of the comment-stripping reading alone (`_starts_word` decides
+        # what a comment is); code_view also gets the comment-keeping reading.
+        self.plain_view = code_view
         # Segments that ONLY the comment-free reading produced (top-level scan only);
         # they are already merged into `segments`. Kept separately so a test can ask
         # "did the comment stripper get this right on its own?" - a union that masks the
@@ -583,7 +646,12 @@ def _heredoc_opener(text, i):
     is expanded by the shell, so a substitution written in one really does run
     and must keep being read as code.
     """
-    if not text.startswith("<<", i) or text.startswith("<<<", i):
+    # `<<<` is a here-string, not a heredoc. A caller walking the text one character
+    # at a time reaches its SECOND `<` too, where `<<x` looks like an opener, and every
+    # following line was then swallowed as "heredoc body" and never read (F1, round 2
+    # of #1294: `cat <<<x` + newline + `rm -rf /etc` was allowed, on main as well).
+    if (not text.startswith("<<", i) or text.startswith("<<<", i)
+            or (i > 0 and text[i - 1] == "<")):
         return None
     rest = text[i:]
     m = HEREDOC_RE.match(rest)
@@ -996,6 +1064,55 @@ def _brace_stands_alone(text, i):
 # The decision is made from the text itself: count the run of backslashes before the
 # previous character; an odd run means that character is escaped.
 _STRIP_COMMENTS = True
+_ANSI_ALT = False
+_NAIVE_JOIN = False
+
+
+def _ansi_c_alt(text):
+    """bash reads `$'...'` with backslash escapes, so `\\'` does not close it; every
+    other reader here closes it there (SR-H-25: `echo $'\\' '; rm -rf /etc #'` hid the
+    rm). Returns the text with each `$'...'` re-spelled in plain quoting, or None
+    when there is no `$'...'`. Decoded even with no backslash inside: the other
+    readers keep the `$`, so `pnpm $'dev'` read as `pnpm $dev` (round 3 of #1294)."""
+    if "$'" not in text:
+        return None
+    out = []
+    i, n, q, hit = 0, len(text), None, False
+    while i < n:
+        ch = text[i]
+        if q == "'":
+            q = None if ch == "'" else q
+            out.append(ch)
+            i += 1
+        elif ch == "\\" and i + 1 < n:
+            out.append(text[i:i + 2])
+            i += 2
+        elif q == '"':
+            q = None if ch == '"' else q
+            out.append(ch)
+            i += 1
+        elif text.startswith("$'", i):
+            j, val, hit = i + 2, [], True
+            while j < n and text[j] != "'":
+                if text[j] == "\\" and j + 1 < n:
+                    nx = text[j + 1]
+                    val.append(nx if nx in "'\"\\?" else "\\" + nx)
+                    j += 2
+                else:
+                    val.append(text[j])
+                    j += 1
+            out.append(shlex.quote("".join(val)))
+            i = j + 1
+        elif ch == "#" and _STRIP_COMMENTS and _starts_word(text, i):
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+            out.append(text[i:j])
+            i = j
+        else:
+            q = ch if ch in "'\"" else q
+            out.append(ch)
+            i += 1
+    return "".join(out) if hit else None
 
 
 def _starts_word(text, i):
@@ -1010,6 +1127,138 @@ def _starts_word(text, i):
     if backslashes % 2 == 1:
         return False  # prev is escaped: an escaped space / newline / operator is not a boundary
     return prev in " \t\n;&|()"
+
+
+def _joined_word_start(out):
+    """`_starts_word` for the position after `out`, reading only its last chunk (CR-M-2,
+    #1294: joining `out` on every `#` was quadratic). An escape is appended as one
+    two-character chunk, so a chunk `\\x` means the previous character is escaped."""
+    last = next((c for c in reversed(out) if c), "")
+    if not last:
+        return True
+    if len(last) == 2 and last[0] == "\\":
+        return False
+    return last[-1] in " \t\n;&|()"
+
+
+def join_continuations(text):
+    """Remove every backslash-newline the shell removes, before anything splits the text.
+
+    SR-M-1 of PR #1294: bash and zsh join `d\\<newline>ev` into `dev` while reading
+    input, so every reader below saw two words where the shell runs one, and the
+    launch / rm / pkill went through all four hooks. Measured on bash and zsh
+    (2026-11-08), the pair is removed everywhere EXCEPT inside single quotes and
+    $'...', inside a comment (the comment ends at the newline, and the next line
+    runs), and inside the body of a heredoc whose delimiter is quoted. An unquoted
+    heredoc body is joined too, including the line that would be the delimiter.
+
+    Known approximations: quotes are tracked one level deep (`"$(echo "'")"` leaves
+    it inside a `'` span), the comment rule is `_starts_word`'s (`${x:- #}` reads as
+    a comment; bash does not), and an opener split by a continuation is not seen as
+    an opener. None of them can hide a command: scan() and the cross-agent-blast
+    analyzer also judge a second reading with every backslash-newline removed and
+    nothing lexed, and refuse if either reading does (F2/F3, round 2 of #1294).
+    The residual is a command that BOTH readings miss: one that needs the
+    continuation kept somewhere (single quotes, a quoted heredoc body, a comment)
+    and removed elsewhere in the same command, and that this lexer also misreads.
+    """
+    if "\\\n" not in text:
+        return text
+    out = []
+    i, n = 0, len(text)
+    quote = ""  # "", "'", '"' or "$'" (in $'...' a backslash escapes the next char)
+    pending = []  # heredocs opened on the current line: (delimiter, strip_tabs, literal)
+    while i < n:
+        ch = text[i]
+        if ch == "\\" and i + 1 < n and quote != "'":
+            if text[i + 1] == "\n" and quote != "$'":
+                i += 2
+                continue
+            out.append(text[i:i + 2])
+            i += 2
+            continue
+        if quote:
+            if ch == quote[-1]:
+                quote = ""
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "$" and text.startswith("$'", i):
+            quote = "$'"
+            out.append("$'")
+            i += 2
+            continue
+        if ch in "'\"":
+            quote = ch
+        elif ch == "#" and _STRIP_COMMENTS and _joined_word_start(out):
+            # Decided on the JOINED text: `ls \<newline>#x` is `ls #x`, a comment.
+            eol = text.find("\n", i)
+            eol = n if eol < 0 else eol
+            out.append(text[i:eol])
+            i = eol
+            continue
+        elif ch == "<":
+            opener = _heredoc_opener(text, i)
+            if opener:
+                pending.append(opener[1:])
+                out.append(text[i:i + opener[0]])
+                i += opener[0]
+                continue
+        elif ch == "\n" and pending:
+            out.append(ch)
+            i += 1
+            for delimiter, strip_tabs, literal in pending:
+                while i < n:
+                    line = []
+                    while i < n and text[i] != "\n":
+                        if not literal and text[i] == "\\" and i + 1 < n:
+                            if text[i + 1] != "\n":
+                                line.append(text[i:i + 2])
+                            i += 2
+                            continue
+                        line.append(text[i])
+                        i += 1
+                    line = "".join(line)
+                    out.append(line)
+                    if i < n:
+                        out.append("\n")
+                        i += 1
+                    if (line.lstrip("\t") if strip_tabs else line) == delimiter:
+                        break
+            pending = []
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+ASSIGN_WORD_OPEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=\Z")
+
+
+def _array_literal_end(text, i):
+    """Index of the `)` that closes the array literal opened at `text[i]`, or None."""
+    depth, quote, j = 0, None, i
+    while j < len(text):
+        c = text[j]
+        if quote:
+            if c == "\\" and quote == '"':
+                j += 1
+            elif c == quote:
+                quote = None
+        elif c in "'\"":
+            quote = c
+        elif c == "\\":
+            j += 1
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return j
+        elif c in ";&|\n":
+            return None
+        j += 1
+    return None
 
 
 def _split_segments(text):
@@ -1083,6 +1332,20 @@ def _split_segments(text):
             pending = []
             flush()
             continue
+
+        # CR-M-10 (#1294): `arr=("$x" b)` is a compound assignment, not a subshell, and
+        # its elements are values that run nothing ($( ) and backticks were lifted out in
+        # stage 1). The literal is kept as an empty `()`. Only a word that starts an
+        # assignment qualifies: zsh runs `=(cmd)` (SR-H-10), and the Bash tool shell is zsh.
+        # Any `(` inside the literal (`<(`, `>(`, `=(`, nesting) keeps the subshell reading.
+        if (ch == "(" and cur and text[i - 1] == "="
+                and ASSIGN_WORD_OPEN_RE.match(("".join(cur).split() or [""])[-1])):
+            end = _array_literal_end(text, i)
+            if end is not None and "(" not in text[i + 1:end]:
+                cur.append("()")
+                code.append("()")
+                i = end + 1
+                continue
 
         # subshell parens: always a boundary (they are shell metacharacters,
         # and $( ) was already lifted out in stage 1)
@@ -1159,6 +1422,58 @@ def _consume_flags(tokens, spec, code_out):
         elif key in spec["value_flags"] and "=" not in flag and tokens:
             tokens.pop(0)
     return tokens
+
+
+# GNU and BSD short flags of `env` that take a value: -u NAME, -C DIR, -a ARG0, -P PATH.
+_ENV_VALUE_LETTERS = "uCaP"
+_ENV_VALUE_LONG = ("--unset", "--chdir", "--argv0")
+
+
+def _env_split(payload):
+    # A backslash and an underscore: the separator env -S adds to shell quoting.
+    try:
+        return shlex.split(payload.replace("\\_", " "))
+    except ValueError:
+        return payload.split()
+
+
+def _env_flags(tokens, code_out):
+    """Read the flags of `env` the way env does and return the rest of its argv.
+
+    `env -S 'rm -rf /etc'`, `env -S rm -rf /etc`, `env -Srm -rf /etc` and
+    `env -iS rm -rf /etc` all run `rm -rf /etc`: the -S value is split and put in
+    front of the remaining arguments, which can hold more flags. The value is also
+    kept as code, so anything this split reads differently is still judged.
+    Returns (rest, unsure): unsure when a flag reshaped argv (-S, -P, -a, --argv0).
+    """
+    unsure = False
+    while tokens and tokens[0].startswith("-") and tokens[0] != "-":
+        flag = tokens.pop(0)
+        if flag == "--":
+            break
+        payload = None
+        if flag.startswith("--"):
+            key, eq, value = flag.partition("=")
+            # getopt accepts any unambiguous prefix (`--split`, `--s`).
+            if len(key) > 2 and "--split-string".startswith(key):
+                payload = value if eq else (tokens.pop(0) if tokens else None)
+                unsure = True
+            elif not eq and tokens and any(k.startswith(key) for k in _ENV_VALUE_LONG):
+                tokens.pop(0)
+            if len(key) > 2 and "--argv0".startswith(key):
+                unsure = True
+        else:
+            for i, letter in enumerate(flag[1:], 1):
+                if letter == "S" or letter in _ENV_VALUE_LETTERS:
+                    value = flag[i + 1:] or (tokens.pop(0) if tokens else None)
+                    if letter == "S":
+                        payload = value
+                    unsure = unsure or letter in "SaP"
+                    break
+        if payload is not None:
+            code_out.append(payload)
+            tokens = _env_split(payload) + tokens
+    return tokens, unsure
 
 
 def _unwrap(tokens, assigns):
@@ -1251,10 +1566,43 @@ def _unwrap(tokens, assigns):
         tokens.pop(0)
         if not spec["exact"] and inexact is None:
             inexact = base
-        if base == "dev-ttl.sh" and "--" in tokens:
-            # Its contract is `dev-ttl.sh [--ttl N] -- <command>`; everything
-            # before the `--` is the wrapper's own business.
-            tokens = tokens[tokens.index("--") + 1:]
+        # Earlier versions read these two wrappers more loosely. Where this reading
+        # differs, every position stays judged and a command word holding spaces is
+        # also read as code, so no command that was refused before is let through.
+        if base == "env":
+            tokens, unsure = _env_flags(tokens, nested_code)
+            if unsure and inexact is None:
+                inexact = base
+            while tokens and ASSIGN_RE.match(tokens[0]):
+                if re.search(r"\s", tokens[0]):
+                    nested_code.append(tokens[0])
+                m = ASSIGN_RE.match(tokens.pop(0))
+                assigns[m.group(1)] = m.group(2)
+            if tokens and re.search(r"\s", tokens[0]):
+                nested_code.append(tokens[0])
+            continue
+        if base == "dev-ttl.sh":
+            # What the script itself does: an optional `--ttl N`, an optional `--`,
+            # and the rest is the command. `dev-ttl.sh rm -rf /etc -- ls` runs rm.
+            if tokens[:1] == ["--ttl"] and tokens[1:2] and tokens[1].isdigit():
+                del tokens[:2]
+            elif tokens and tokens[0].startswith("--ttl="):
+                tokens.pop(0)
+            if tokens[:1] == ["--"]:
+                tokens.pop(0)
+            elif "--" in tokens:
+                # Earlier versions read only what follows the first `--`. That reading
+                # stays, so its assignments still reach the env that is judged. The
+                # script runs all of it, `--` included, so that whole argv is judged
+                # as code of its own too.
+                k = tokens.index("--")
+                nested_code.append(" ".join(shlex.quote(t) for t in tokens))
+                tokens = tokens[k + 1:]
+            elif tokens[:1] == ["--ttl"]:
+                # The script exits on a TTL that is not a number; judge every word anyway.
+                inexact = inexact or base
+            if tokens and re.search(r"\s", tokens[0]):
+                nested_code.append(tokens[0])
             continue
         tokens = _consume_flags(tokens, spec, nested_code)
         if tokens and tokens[0] == "--":
@@ -1268,10 +1616,6 @@ def _unwrap(tokens, assigns):
                     tokens.pop(0)
         # flags may follow the wrapper's own operands (`flock /tmp/l -c '…'`)
         tokens = _consume_flags(tokens, spec, nested_code)
-        if base == "env":
-            while tokens and ASSIGN_RE.match(tokens[0]):
-                m = ASSIGN_RE.match(tokens.pop(0))
-                assigns[m.group(1)] = m.group(2)
     return tokens, wrappers, inexact, nested_code
 
 
@@ -1864,8 +2208,9 @@ def candidates(seg, code=False):
 
 
 def scan(command_line, depth=0, env=None):
-    global _STRIP_COMMENTS
-    command_line = command_line or ""
+    global _STRIP_COMMENTS, _ANSI_ALT, _NAIVE_JOIN
+    original = command_line or ""
+    command_line = join_continuations(command_line or "")
     spans = _heredoc_literal_spans(command_line)
     text, inners = _extract_substitutions(command_line, spans)
     raw_segments, code_view = _split_segments(text)
@@ -1957,7 +2302,40 @@ def scan(command_line, depth=0, env=None):
             result.code_view = result.code_view + "\n" + alt.code_view
         result.degraded = result.degraded or alt.degraded
         result.truncated = result.truncated or alt.truncated
+    if depth == 0 and not _NAIVE_JOIN and _STRIP_COMMENTS and not _ANSI_ALT and "\\\n" in original:
+        # F2/F3, round 2 of #1294: join_continuations() is a lexer of its own (quotes one
+        # level deep, its own idea of where a comment starts), and any slip in it hides a
+        # command split by a continuation. So a SECOND reading removes every
+        # backslash-newline with no lexing at all, and both readings are judged. Merged
+        # like the two readings below: it can add segments, never remove one.
+        _NAIVE_JOIN = True
+        try:
+            _merge(result, scan(original.replace("\\\n", ""), 0, env))
+        finally:
+            _NAIVE_JOIN = False
+    ansi = None if _ANSI_ALT else _ansi_c_alt(command_line)
+    if ansi is not None:
+        # SR-H-25: bash's reading of `$'...'` is merged like the comment-keeping one
+        # above, so it can add segments to judge and never removes one.
+        _ANSI_ALT = True
+        try:
+            alt = scan(ansi, depth, env)
+        finally:
+            _ANSI_ALT = False
+        _merge(result, alt)
     return result
+
+
+def _merge(result, alt):
+    """Add the segments only `alt` has; a segment that merely begins with "#" is a comment."""
+    have = set(sg.raw for sg in result.segments)
+    result.segments = list(result.segments) + [
+        sg for sg in alt.segments
+        if sg.raw not in have and not sg.raw.lstrip().startswith("#")]
+    if alt.code_view != result.code_view:
+        result.code_view = result.code_view + "\n" + alt.code_view
+    result.degraded = result.degraded or alt.degraded
+    result.truncated = result.truncated or alt.truncated
 
 
 # ── the shared "is this a dev-server launch" predicate ────────────────────────

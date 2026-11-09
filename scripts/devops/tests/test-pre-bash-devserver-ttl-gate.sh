@@ -716,4 +716,66 @@ assert_red "Windows payload: cd into a backslash worktree path from the main che
   --contains "[pre:bash:devserver-ttl-gate] BLOCK" \
   -- h "cd '$WIN_WT' && pnpm --filter @crm/api dev" 'C:\Users\dev\CheekyCheeseIT_CRM'
 
+# ── a stripped decoy does not switch off the refusal for unread code ────────
+deep() {
+  local s="$1" i
+  for i in 1 2 3 4 5 6 7 8; do s="echo \$($s)"; done
+  printf '%s' "$s"
+}
+assert_red "unread nested code behind a wrapped launch is still refused" \
+  --contains "nesting deeper" \
+  -- h "$TTL -- pnpm exec tsx x.ts pnpm.cmd dev; $(deep 'pnpm dev')"
+
+# ── T3 worktrees and the Windows scratchpad arm the gate ────────────────────
+for cwd in '/Users/dev/.t3/worktrees/crm/t3-abc' 'C:\Users\dev\.t3\worktrees\crm\t3-abc' \
+           'C:\Users\dev\AppData\Local\Temp\claude\x' 'c:\users\dev\appdata\local\temp\claude\x'; do
+  assert_red "unwrapped launch from $cwd" --contains '"decision": "block"' -- h "pnpm --filter @crm/api dev" "$cwd"
+  assert_green "wrapped launch from $cwd" -- h "$TTL -- pnpm --filter @crm/api dev" "$cwd"
+done
+# SR-M-18: quotes inside a word do not get past the fast path.
+assert_red "a quote-spliced launch word" --contains '"decision": "block"' \
+  -- h "pnpm --filter @crm/api d''ev"
+assert_red "launch that names a T3 worktree" \
+  --contains '"decision": "block"' \
+  -- h "cd /Users/dev/.t3/worktrees/crm/t3-abc && pnpm --filter @crm/api dev" '/Users/dev/elsewhere'
+assert_green "another directory still does not arm the gate" -- h "pnpm --filter @crm/api dev" '/Users/dev/elsewhere'
+
+# SR-M-1 (#1294): a backslash-newline is a line continuation, so the shell joins the word.
+for c in $'pnpm --filter @crm/api d\\\nev' $'vi\\\nte --port 3000' $'pnpm --filter @crm/api \\\ndev'; do
+  assert_red "line continuation in a launch: ${c//$'\n'/<NL>}" --contains '"decision": "block"' -- h "$c"
+done
+# Single quotes, a comment and a quoted heredoc body keep the backslash-newline.
+for c in $'echo \'d\\\nev\'' $'ls # d\\\nev' $'cat <<\'EOF\'\nvi\\\nte\nEOF'; do
+  assert_green "no continuation there: ${c//$'\n'/<NL>}" -- h "$c"
+done
+
+# ── no analyzer: refused, not waved through ─────────────────────────────────
+assert_green "broken analyzer + harmless read: exit 2 (exit 1 does not block)" \
+  --contains "Refused" \
+  -- exits_2 hook_at "$BROKEN" "grep -rn 'pnpm dev' .claude/rules"
+
+# #1297 SR-L-6 class: under a UTF-8 locale, macOS tr and grep fail on an invalid byte,
+# so the fast path used to read "no launch word" and exit 0 before the analyzer ran.
+assert_green "a raw invalid byte in the payload does not skip the fast path" \
+  -- exits_2 hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","tool_input":{"command":"\xff pnpm --filter @crm/api dev"}}'
+
+# F1, round 2 of #1294: `<<<` is a here-string; the line after it is a launch.
+assert_red "here-string, not heredoc: the launch on the next line" \
+  --contains '"decision": "block"' -- h $'cat <<<x\npnpm --filter @crm/api dev'
+# F2, round 2 of #1294: a `'` inside `"$(…)"` leaves the joiner in a quote; the
+# naive-join reading still sees the launch.
+assert_red "naive-join reading: a continuation after nested quotes" \
+  --contains '"decision": "block"' -- h $'echo "$(echo "\'")"; pnpm --filter @crm/api d\\\nev'
+# Round 3 of #1294, KNOWN FALSE REFUSAL (accepted LOW, fails closed): the naive-join
+# reading removes the backslash-newline before a quoted heredoc delimiter, so the body
+# (a backticked `pnpm dev` in a note) is read as code. An exception for it was steerable
+# by a fake opener in a comment or string, so it was dropped (automated security review).
+assert_red "naive-join reading: a quoted heredoc body ending in a backslash (known false refusal)" \
+  --contains '"decision": "block"' \
+  -- h $'cat > note.md <<\'EOF\'\nuse `pnpm dev` and\nline \\\nEOF'
+# Round 3 of #1294: bash decodes $'...' with or without a backslash in it.
+for c in "pnpm --filter @crm/api \$'dev'" "\$'vite' --port 3000" "\$'pnpm' --filter @crm/api dev"; do
+  assert_red "ANSI-C quoting without a backslash: $c" --contains '"decision": "block"' -- h "$c"
+done
+
 guard_test_summary "test-pre-bash-devserver-ttl-gate.sh"
