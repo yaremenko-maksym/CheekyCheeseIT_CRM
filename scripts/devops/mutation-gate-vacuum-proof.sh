@@ -114,13 +114,22 @@ BACKUP="$(mktemp -d "${TMPDIR:-/tmp}/vacuum-proof-XXXXXX")"
 cp "$COMPONENT" "$BACKUP/component"
 cp "$TEST_FILE" "$BACKUP/test"
 for i in "${!NEWER_DEFENCE_TESTS[@]}"; do cp "${NEWER_DEFENCE_TESTS[$i]}" "$BACKUP/newer-$i"; done
+RESTORED=0
+# Idempotent: INT/TERM restore and then `exit`, which fires the EXIT trap, so
+# restore runs twice; the second call must be a no-op (the backup is gone).
 restore() {
+  [ "$RESTORED" = 1 ] && return 0
+  RESTORED=1
   cp "$BACKUP/component" "$COMPONENT"
   cp "$BACKUP/test" "$TEST_FILE"
   for i in "${!NEWER_DEFENCE_TESTS[@]}"; do cp "$BACKUP/newer-$i" "${NEWER_DEFENCE_TESTS[$i]}"; done
   rm -rf "$BACKUP"
 }
-trap restore EXIT INT TERM
+# A signal must STOP the script after restoring: otherwise later steps (the
+# `rm -f` of NEWER_DEFENCE_TESTS, the vacuum fixture copy) run with no backup.
+trap restore EXIT
+trap 'restore; exit 130' INT
+trap 'restore; exit 143' TERM
 
 # The commit that ADDED the component; its parent is a tree where the whole file
 # is "new", which is what makes every line of it count as changed. Derived, not
