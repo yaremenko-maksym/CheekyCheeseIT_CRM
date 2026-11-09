@@ -18,10 +18,10 @@ export const HIT_CHIP =
 
 function initials(name: string): string {
   return name
+    .trim()
     .split(/\s+/)
-    .filter(Boolean)
     .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
+    .map((part) => part.charAt(0).toUpperCase())
     .join('')
 }
 
@@ -34,7 +34,7 @@ function ownTaken(senior: JobQueueCardSeniorDto) {
 function SeniorBlock({ senior, action }: { senior: JobQueueCardSeniorDto; action: ReactNode }) {
   const locale = useLocale()
   const taken = ownTaken(senior)
-  const when = taken ? formatRelativeTime(taken.submittedAt, locale) : ''
+  const when = taken && formatRelativeTime(taken.submittedAt, locale)
   const who = taken?.submittedByName
 
   return (
@@ -96,7 +96,7 @@ function EmptyState({
   icon,
   title,
   body,
-  dashed = false,
+  dashed,
 }: {
   testId: string
   icon: ReactNode
@@ -130,10 +130,12 @@ export function MatchedSeniors({
   scope,
   card,
   renderAction,
+  onAccessLost,
 }: {
   scope: QueueScopeSignature
   card: JobQueueCardResponseDto
   renderAction?: ((senior: JobQueueCardSeniorDto) => ReactNode) | undefined
+  onAccessLost: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   // the continuation fetches as soon as it has a cursor, so it gets one only after the first click
@@ -145,7 +147,6 @@ export function MatchedSeniors({
   const admin = scope.role === 'ADMIN'
   const seniors = [...card.seniors.items, ...(more.data?.pages.flatMap((page) => page.items) ?? [])]
   const stopListed = card.stopListedSeniorCount
-  const iconClass = 'mt-0.5 size-5 shrink-0 text-muted-foreground'
 
   let body: ReactNode
   if (card.eligibility === 'TRIAGE') {
@@ -153,7 +154,9 @@ export function MatchedSeniors({
       <EmptyState
         testId="job-queue-seniors-triage"
         dashed
-        icon={<CircleHelp aria-hidden="true" className={iconClass} />}
+        icon={
+          <CircleHelp aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
+        }
         title={<Trans>Сеньйорів не підібрано автоматично</Trans>}
         body={
           <Trans>
@@ -167,7 +170,7 @@ export function MatchedSeniors({
     body = (
       <EmptyState
         testId="job-queue-seniors-stop-all"
-        icon={<Ban aria-hidden="true" className={iconClass} />}
+        icon={<Ban aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-muted-foreground" />}
         title={
           admin ? (
             <Trans>Усі сеньйори зі збігом внесли компанію до стоп-листа</Trans>
@@ -182,7 +185,7 @@ export function MatchedSeniors({
     body = (
       <EmptyState
         testId="job-queue-seniors-none"
-        icon={<Users aria-hidden="true" className={iconClass} />}
+        icon={<Users aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-muted-foreground" />}
         title={<Trans>Немає сеньйорів зі збігом стеку</Trans>}
         body={
           admin ? (
@@ -209,12 +212,11 @@ export function MatchedSeniors({
           shown={seniors.length}
           total={card.seniors.totalCount}
           pageSize={SENIORS_PAGE}
-          pending={more.isFetching}
-          onMore={() => {
-            if (!expanded) setExpanded(true)
-            else if (more.data) void more.fetchNextPage()
-            else void more.refetch()
-          }}
+          more={more}
+          started={expanded}
+          previewCursor={card.seniors.nextCursor}
+          onStart={() => setExpanded(true)}
+          onAccessLost={onAccessLost}
         />
         {stopListed > 0 && (
           <div

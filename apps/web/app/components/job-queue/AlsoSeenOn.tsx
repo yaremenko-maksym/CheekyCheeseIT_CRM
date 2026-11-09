@@ -17,9 +17,11 @@ const SOURCES_PAGE = 20
 export function AlsoSeenOn({
   scope,
   card,
+  onAccessLost,
 }: {
   scope: QueueScopeSignature
   card: JobQueueCardResponseDto
+  onAccessLost: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   // the continuation fetches as soon as it has a cursor, so it gets one only after the first click
@@ -76,12 +78,11 @@ export function AlsoSeenOn({
         shown={rows.length}
         total={total}
         pageSize={SOURCES_PAGE}
-        pending={more.isFetching}
-        onMore={() => {
-          if (!expanded) setExpanded(true)
-          else if (more.data) void more.fetchNextPage()
-          else void more.refetch()
-        }}
+        more={more}
+        started={expanded}
+        previewCursor={card.sources.nextCursor}
+        onStart={() => setExpanded(true)}
+        onAccessLost={onAccessLost}
       />
     </section>
   )

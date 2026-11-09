@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { toast } from 'sonner'
@@ -79,10 +79,12 @@ function CardBody({
   scope,
   card,
   renderSeniorAction,
+  onAccessLost,
 }: {
   scope: QueueScopeSignature
   card: JobQueueCardResponseDto
   renderSeniorAction?: ((senior: JobQueueCardSeniorDto) => ReactNode) | undefined
+  onAccessLost: () => void
 }) {
   return (
     <>
@@ -104,14 +106,19 @@ function CardBody({
         </div>
       )}
       <PossibleDuplicates preview={card.possibleDuplicates} />
-      <MatchedSeniors scope={scope} card={card} renderAction={renderSeniorAction} />
+      <MatchedSeniors
+        scope={scope}
+        card={card}
+        renderAction={renderSeniorAction}
+        onAccessLost={onAccessLost}
+      />
       <section className="flex flex-col gap-1">
         <h3 className="text-sm font-semibold">
           <Trans>Опис</Trans>
         </h3>
         <PostingMarkdown markdown={card.descriptionMd} testId="job-queue-card-description" />
       </section>
-      <AlsoSeenOn scope={scope} card={card} />
+      <AlsoSeenOn scope={scope} card={card} onAccessLost={onAccessLost} />
       {card.matchedKeywords.length > 0 && (
         <section data-testid="job-queue-card-stack" className="flex flex-col gap-2">
           <h3 className="text-sm font-semibold">
@@ -131,9 +138,10 @@ function CardBody({
 }
 
 /**
- * The vacancy card (spec §5): a modal labelled by its `h2`, full-screen below 640 px. A 403/404
- * closes it with one neutral toast for both, so the text never says whether access changed; the hook
- * has already hidden the data and refreshed the scope's lists. Task 7.4 fills `renderSeniorAction`
+ * The vacancy card (spec §5): a modal labelled by its `h2`, full-screen below 640 px. A 403/404 on
+ * the card or on one of its continuations closes it with one neutral toast for both, so the text
+ * never says whether access changed; the hooks have already hidden the data and refreshed the
+ * scope's lists. Task 7.4 fills `renderSeniorAction`
  * (per-senior submission) and `footer` (vacancy-level actions).
  */
 export function JobQueueCard({
@@ -153,36 +161,37 @@ export function JobQueueCard({
   const query = useJobQueueCard(scope, opportunityId)
   const card = query.data
   // Radix returns focus to a Dialog.Trigger; the card opens from a row instead, so remember it
-  const [returnFocusTo] = useState(() =>
-    document.activeElement instanceof HTMLElement ? document.activeElement : null,
-  )
+  const [returnFocusTo] = useState(() => document.activeElement)
   const closedOnLoss = useRef(false)
 
-  useEffect(() => {
-    if (!query.accessLost || closedOnLoss.current) return
+  const loseAccess = useCallback(() => {
+    if (closedOnLoss.current) return
     closedOnLoss.current = true
     toast.error(t`Цю вакансію не знайдено`)
     onClose()
-  }, [query.accessLost, onClose, t])
+  }, [onClose, t])
+
+  useEffect(() => {
+    if (query.accessLost) loseAccess()
+  }, [query.accessLost, loseAccess])
 
   if (query.accessLost) return null
 
   return (
     <DialogPrimitive.Root
       open
-      onOpenChange={(open) => {
-        if (!open) onClose()
-      }}
+      // no Dialog.Trigger, so Radix only ever reports a close
+      onOpenChange={onClose}
     >
       <DialogPortal>
         <DialogOverlay />
         <DialogPrimitive.Content
           data-testid="job-queue-card"
           aria-describedby={undefined}
-          aria-busy={query.isPending && !card ? true : undefined}
+          aria-busy={query.isPending || undefined}
           onCloseAutoFocus={(event) => {
             event.preventDefault()
-            returnFocusTo?.focus()
+            if (returnFocusTo instanceof HTMLElement) returnFocusTo.focus()
           }}
           className="fixed inset-0 z-50 flex h-dvh w-full flex-col bg-card shadow-xl sm:inset-auto sm:top-1/2 sm:left-1/2 sm:h-auto sm:max-h-[90dvh] sm:w-[calc(100%-2rem)] sm:max-w-2xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border"
         >
@@ -214,7 +223,12 @@ export function JobQueueCard({
           </div>
           <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-4 sm:p-6">
             {card ? (
-              <CardBody scope={scope} card={card} renderSeniorAction={renderSeniorAction} />
+              <CardBody
+                scope={scope}
+                card={card}
+                renderSeniorAction={renderSeniorAction}
+                onAccessLost={loseAccess}
+              />
             ) : (
               query.isError && (
                 <Button
@@ -228,7 +242,11 @@ export function JobQueueCard({
               )
             )}
           </div>
-          {card && footer && <div className="border-t p-4 sm:px-6">{footer}</div>}
+          {card && footer && (
+            <div data-testid="job-queue-card-footer" className="border-t p-4 sm:px-6">
+              {footer}
+            </div>
+          )}
         </DialogPrimitive.Content>
       </DialogPortal>
     </DialogPrimitive.Root>

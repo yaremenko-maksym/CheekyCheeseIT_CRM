@@ -26,12 +26,19 @@ function renderBlock(
   scope: typeof HR | typeof ADMIN = HR,
   renderAction?: Parameters<typeof MatchedSeniors>[0]['renderAction'],
 ) {
-  return render(<MatchedSeniors scope={scope} card={card} renderAction={renderAction} />, {
-    wrapper: I18nTestProvider,
-  })
+  return render(
+    <MatchedSeniors
+      scope={scope}
+      card={card}
+      renderAction={renderAction}
+      onAccessLost={onAccessLost}
+    />,
+    { wrapper: I18nTestProvider },
+  )
 }
 
 const none = { items: [], totalCount: 0, nextCursor: null }
+const onAccessLost = vi.fn()
 
 describe('MatchedSeniors', () => {
   beforeEach(async () => {
@@ -57,7 +64,24 @@ describe('MatchedSeniors', () => {
     const chip = within(block).getByText('Node.js')
     expect(chip).toHaveClass('bg-yellow-subtle', 'text-primary')
     expect(within(block).getByText('React')).toHaveClass('bg-yellow-subtle')
+    expect(chip).toHaveClass('max-w-full', 'truncate')
+    expect(chip).toHaveAttribute('title', 'Node.js')
     expect(within(block).queryByText('Збіг неточний')).toBeNull()
+  })
+
+  it.each([
+    ['two words', 'Олена Коваль', 'ОК'],
+    ['one word', 'Ігор', 'І'],
+    ['three words, lower case, extra whitespace', '  ivan   petro  kovalenko ', 'IP'],
+  ])('the avatar shows initials: %s', (_case, displayName, expected) => {
+    renderBlock(
+      cardFixture({
+        seniors: { items: [senior({ displayName })], totalCount: 1, nextCursor: null },
+      }),
+    )
+    const avatar = within(screen.getByTestId(`job-queue-senior-${S1}`)).getByText(expected)
+    expect(avatar).toHaveAttribute('aria-hidden', 'true')
+    expect(avatar.textContent).toBe(expected)
   })
 
   it('a senior with no matched tokens has no «Збіг за:» line', () => {
@@ -161,6 +185,9 @@ describe('MatchedSeniors', () => {
     )
     expect(screen.queryByTestId('job-queue-stop-some')).toBeNull()
     expect(screen.queryByRole('list')).toBeNull()
+    expect(empty).toHaveClass('rounded-lg', 'border', 'p-4')
+    expect(empty).not.toHaveClass('border-dashed')
+    expect(empty).not.toHaveClass('border-yellow-muted')
   })
 
   it('all stop-listed (ADMIN): the studio sentence', () => {
@@ -187,7 +214,9 @@ describe('MatchedSeniors', () => {
 
   it('triage: the manual-review empty state, no names, no team wording', () => {
     renderBlock(cardFixture({ eligibility: 'TRIAGE', matchedSeniorCount: 0, seniors: none }))
-    expect(screen.getByTestId('job-queue-seniors-triage')).toHaveTextContent(
+    const empty = screen.getByTestId('job-queue-seniors-triage')
+    expect(empty).toHaveClass('rounded-lg', 'border', 'border-dashed', 'border-yellow-muted')
+    expect(empty).toHaveTextContent(
       'Сеньйорів не підібрано автоматичноРоботодавця не вдалося підтвердити, тому система не пропонує цю вакансію конкретним сеньйорам. Оцініть її вручну за описом.',
     )
     expect(screen.queryByTestId('job-queue-seniors-none')).toBeNull()
@@ -226,5 +255,21 @@ describe('MatchedSeniors', () => {
     renderBlock()
     expect(screen.queryByTestId('job-queue-seniors-shown')).toBeNull()
     expect(screen.queryByRole('button')).toBeNull()
+    // no stop-listed senior: no stop-list note under the list
+    expect(screen.queryByTestId('job-queue-stop-some')).toBeNull()
+  })
+
+  it('SO-1: the continuation reports a lost access to the card and offers a retry on any other failure', async () => {
+    onAccessLost.mockClear()
+    const fetchNextPage = vi.fn()
+    seniorsHook.mockReturnValue(idleContinuation([], { isError: true, fetchNextPage }) as never)
+    renderBlock(cardFixture({ seniors: { items: [senior()], totalCount: 3, nextCursor: 's-1' } }))
+    expect(screen.getByTestId(`job-queue-senior-${S1}`)).toBeVisible()
+    expect(screen.getByRole('alert')).toHaveTextContent('Не вдалося завантажити ще')
+    expect(onAccessLost).not.toHaveBeenCalled()
+
+    seniorsHook.mockReturnValue(idleContinuation([], { isError: true, accessLost: true }) as never)
+    await userEvent.click(screen.getByRole('button', { name: 'Спробувати ще раз' }))
+    expect(onAccessLost).toHaveBeenCalledTimes(1)
   })
 })

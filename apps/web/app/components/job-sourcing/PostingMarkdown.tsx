@@ -33,7 +33,7 @@ import { isSafeExternalUrl } from './open-original'
  *      it covers every url-bearing node, including ones we have not overridden.
  *      Pinned by "pins urlTransform …" — a test that reddens when THIS prop is
  *      removed and stays green when the `a` component is.
- *   2. `img: () => null` — a third-party job ad NEVER renders a remote image in
+ *   2. `disallowedElements={['img']}` — a third-party job ad NEVER renders a remote image in
  *      our authenticated origin. This kills the beacon class outright (read
  *      receipt + viewer IP), regardless of how the markdown was produced.
  *      `img-src` in our CSP is a blanket `https:` (noted in #470), so the
@@ -60,8 +60,10 @@ export const MARKDOWN_URL_TRANSFORM = (url: string): string => {
   return isSafeExternalUrl(target) ? target : ''
 }
 
+/** Layer 2: no `<img>` node at all, so nothing can request a remote image. */
+const NO_IMAGES = ['img']
+
 const MARKDOWN_COMPONENTS: Components = {
-  img: () => null,
   // Link HYGIENE only — the URL was already gated by MARKDOWN_URL_TRANSFORM,
   // which blanks anything that is not https. Re-running the same predicate here
   // would make the two props indistinguishable: removing either would leave the
@@ -95,7 +97,11 @@ export function PostingMarkdown({
       )}
       data-testid={testId}
     >
-      <ReactMarkdown urlTransform={MARKDOWN_URL_TRANSFORM} components={MARKDOWN_COMPONENTS}>
+      <ReactMarkdown
+        urlTransform={MARKDOWN_URL_TRANSFORM}
+        components={MARKDOWN_COMPONENTS}
+        disallowedElements={NO_IMAGES}
+      >
         {markdown}
       </ReactMarkdown>
     </div>

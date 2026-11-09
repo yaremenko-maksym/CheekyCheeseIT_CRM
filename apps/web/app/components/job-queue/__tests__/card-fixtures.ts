@@ -93,6 +93,7 @@ export function idleContinuation<T>(pages: T[] = [], over: Record<string, unknow
     hasNextPage: false,
     isFetching: false,
     isError: false,
+    accessLost: false,
     fetchNextPage: () => Promise.resolve(),
     refetch: () => Promise.resolve(),
     ...over,

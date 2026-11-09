@@ -1,7 +1,7 @@
 /** r5 Task 7.3 — the vacancy card dialog (spec §5.1, §5.7, §11). */
 import { useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { toast } from 'sonner'
 import type { JobQueueCardResponseDto } from '@crm/shared'
@@ -136,9 +136,36 @@ describe('JobQueueCard', () => {
     withCard(cardFixture({ eligibility: 'TRIAGE', availability: 'CLOSED', seniority: 'LEAD' }))
     renderCard()
     const header = screen.getByTestId('job-queue-card-badges')
-    expect(within(header).getByText('Потребує розгляду')).toBeVisible()
-    expect(within(header).getByText('Лід')).toBeVisible()
-    expect(within(header).getByText('Закрита')).toBeVisible()
+    const triage = within(header).getByText('Потребує розгляду')
+    const seniority = within(header).getByText('Лід')
+    const closed = within(header).getByText('Закрита')
+    for (const chip of [triage, seniority, closed]) {
+      expect(chip).toHaveClass('inline-flex', 'rounded-md', 'border', 'text-xs')
+    }
+    expect(triage).toHaveClass('border-dashed', 'text-muted-foreground')
+    expect(triage).not.toHaveClass('font-medium')
+    expect(seniority).toHaveClass('font-medium')
+    expect(seniority).not.toHaveClass('border-dashed')
+    expect(closed).toHaveClass('border-destructive', 'text-destructive')
+  })
+
+  it.each([
+    ['seniority alone', { seniority: 'SENIOR' as const }, ['Сеньйор']],
+    [
+      'triage alone',
+      { eligibility: 'TRIAGE' as const, seniority: 'UNKNOWN' as const },
+      ['Потребує розгляду'],
+    ],
+    [
+      'closed alone',
+      { availability: 'CLOSED' as const, seniority: 'UNKNOWN' as const },
+      ['Закрита'],
+    ],
+  ])('the badge row shows for %s', (_name, over, texts) => {
+    withCard(cardFixture(over))
+    renderCard()
+    const header = screen.getByTestId('job-queue-card-badges')
+    expect(header).toHaveTextContent(texts.join(''))
   })
 
   it('an expired vacancy is «Закрита» too; an open one has no status chip', () => {
@@ -197,7 +224,9 @@ describe('JobQueueCard', () => {
     renderCard()
     const stack = screen.getByTestId('job-queue-card-stack')
     expect(within(stack).getByRole('heading', { name: 'Збіг стеку' })).toBeVisible()
-    expect(within(stack).getByText('TypeScript')).toHaveClass('bg-yellow-subtle', 'text-primary')
+    const chip = within(stack).getByText('TypeScript')
+    expect(chip).toHaveClass('bg-yellow-subtle', 'text-primary', 'max-w-full', 'truncate')
+    expect(chip).toHaveAttribute('title', 'TypeScript')
   })
 
   it('no matched stack: no «Збіг стеку» block', () => {
@@ -227,6 +256,72 @@ describe('JobQueueCard', () => {
     expect(screen.queryByText('Олена Коваль')).toBeNull()
   })
 
+  it('403/404 arriving after the card opened: the latest onClose runs once, with the one toast', () => {
+    const first = vi.fn()
+    const latest = vi.fn()
+    const view = render(<JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={first} />, {
+      wrapper: I18nTestProvider,
+    })
+    expect(toast.error).not.toHaveBeenCalled()
+    cardHook.mockReturnValue(cardResult({ data: undefined, accessLost: true, isError: true }))
+    view.rerender(<JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={latest} />)
+    expect(first).not.toHaveBeenCalled()
+    expect(latest).toHaveBeenCalledTimes(1)
+    expect(toast.error).toHaveBeenCalledTimes(1)
+    expect(toast.error).toHaveBeenCalledWith('Цю вакансію не знайдено')
+  })
+
+  it.each([
+    ['seniors', useJobQueueSeniors],
+    ['sources', useJobQueueSources],
+  ] as const)(
+    'SO-1a: a 403/404 on the %s continuation takes the card path: one toast, one close',
+    (_part, hook) => {
+      withCard(
+        cardFixture({
+          seniors: { items: [senior()], totalCount: 300, nextCursor: 's-1' },
+          sources: { items: [PRIMARY, source(1)], totalCount: 30, nextCursor: 'c-1' },
+        }),
+      )
+      const onClose = vi.fn()
+      const view = render(<JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={onClose} />, {
+        wrapper: I18nTestProvider,
+      })
+      expect(onClose).not.toHaveBeenCalled()
+      vi.mocked(hook).mockReturnValue(
+        idleContinuation([], { isError: true, accessLost: true }) as never,
+      )
+      view.rerender(<JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={() => onClose()} />)
+      view.rerender(<JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={() => onClose()} />)
+      expect(onClose).toHaveBeenCalledTimes(1)
+      expect(toast.error).toHaveBeenCalledTimes(1)
+      expect(toast.error).toHaveBeenCalledWith('Цю вакансію не знайдено')
+      expect(screen.queryByRole('alert')).toBeNull()
+    },
+  )
+
+  it('does not move focus back to an opener that is not an HTML element', async () => {
+    function Harness() {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <svg data-testid="svg-opener" tabIndex={0} onKeyDown={() => setOpen(true)} />
+          {open && (
+            <JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={() => setOpen(false)} />
+          )}
+        </>
+      )
+    }
+    render(<Harness />, { wrapper: I18nTestProvider })
+    const opener = screen.getByTestId('svg-opener')
+    opener.focus()
+    expect(opener).toHaveFocus()
+    fireEvent.keyDown(opener, { key: 'Enter' })
+    await userEvent.click(screen.getByRole('button', { name: 'Закрити' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(opener).not.toHaveFocus()
+  })
+
   it('loading: a busy dialog with a status line', () => {
     cardHook.mockReturnValue(cardResult({ data: undefined, isPending: true }))
     renderCard()
@@ -234,11 +329,17 @@ describe('JobQueueCard', () => {
     expect(dialog).toHaveAttribute('aria-busy', 'true')
   })
 
+  it('loaded: not busy', () => {
+    renderCard()
+    expect(screen.getByRole('dialog')).not.toHaveAttribute('aria-busy')
+  })
+
   it('another error: says so and retries', async () => {
     const refetch = vi.fn()
     cardHook.mockReturnValue(cardResult({ data: undefined, isError: true, refetch }))
     renderCard()
     expect(screen.getByRole('dialog', { name: 'Не вдалося завантажити вакансію' })).toBeVisible()
+    expect(screen.getByRole('dialog')).not.toHaveAttribute('aria-busy')
     await userEvent.click(screen.getByRole('button', { name: 'Спробувати ще раз' }))
     expect(refetch).toHaveBeenCalledTimes(1)
     expect(toast.error).not.toHaveBeenCalled()
@@ -255,7 +356,26 @@ describe('JobQueueCard', () => {
       />,
       { wrapper: I18nTestProvider },
     )
-    expect(screen.getByText('footer-slot')).toBeVisible()
+    expect(screen.getByTestId('job-queue-card-footer')).toHaveTextContent('footer-slot')
     expect(screen.getByText('action-Олена Коваль')).toBeVisible()
+  })
+
+  it('no footer given: no footer strip', () => {
+    renderCard()
+    expect(screen.queryByTestId('job-queue-card-footer')).toBeNull()
+  })
+
+  it('the footer waits for the card: none while it loads', () => {
+    cardHook.mockReturnValue(cardResult({ data: undefined, isPending: true }))
+    render(
+      <JobQueueCard
+        scope={SCOPE}
+        opportunityId={OPP}
+        onClose={vi.fn()}
+        footer={<span>footer-slot</span>}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    expect(screen.queryByText('footer-slot')).toBeNull()
   })
 })

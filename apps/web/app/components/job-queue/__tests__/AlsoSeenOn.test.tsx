@@ -21,7 +21,9 @@ const SCOPE = { actorId: 'actor', role: 'HR' as const, teamId: null }
 const sourcesHook = vi.mocked(useJobQueueSources)
 
 function renderBlock(card = cardFixture()) {
-  return render(<AlsoSeenOn scope={SCOPE} card={card} />, { wrapper: I18nTestProvider })
+  return render(<AlsoSeenOn scope={SCOPE} card={card} onAccessLost={vi.fn()} />, {
+    wrapper: I18nTestProvider,
+  })
 }
 
 describe('AlsoSeenOn', () => {

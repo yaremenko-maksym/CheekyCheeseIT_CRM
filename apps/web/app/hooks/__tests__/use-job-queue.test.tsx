@@ -546,6 +546,43 @@ describe('card continuations', () => {
     await waitFor(() => expect(client.getQueryState(jobQueueCardQueryKey(scope, OTHER_OPP))).toBeUndefined())
   })
 
+  it.each([
+    ['seniors', useJobQueueSeniors],
+    ['sources', useJobQueueSources],
+  ] as const)('%s: on 404 refresh the open list once, like the card (SO-1)', async (part, hook) => {
+    const listCalls = () => get.mock.calls.filter((c) => c[0] === '/job-queue').length
+    get.mockImplementation((url: string) =>
+      url === '/job-queue'
+        ? Promise.resolve({ data: page(null) })
+        : Promise.reject(httpError(404, 'JOB_OPPORTUNITY_NOT_FOUND')),
+    )
+    const { result } = renderHook(
+      () => ({ list: useJobQueue(scope, 'NEW', {}), more: hook(scope, OPP, 'c-1') }),
+      { wrapper },
+    )
+    await waitFor(() => expect(result.current.more.accessLost).toBe(true))
+    expect(get).toHaveBeenCalledWith(`/job-queue/${OPP}/${part}`, expect.anything())
+    await waitFor(() => expect(listCalls()).toBe(2))
+    await act(() => new Promise((r) => setTimeout(r, 50)))
+    expect(listCalls()).toBe(2)
+  })
+
+  it('keep the open list alone on a non-access error', async () => {
+    const listCalls = () => get.mock.calls.filter((c) => c[0] === '/job-queue').length
+    get.mockImplementation((url: string) =>
+      url === '/job-queue'
+        ? Promise.resolve({ data: page(null) })
+        : Promise.reject(httpError(503, 'JOB_QUEUE_POLICY_UNAVAILABLE')),
+    )
+    const { result } = renderHook(
+      () => ({ list: useJobQueue(scope, 'NEW', {}), more: useJobQueueSeniors(scope, OPP, 'c-1') }),
+      { wrapper },
+    )
+    await waitFor(() => expect(result.current.more.isError).toBe(true))
+    await act(() => new Promise((r) => setTimeout(r, 50)))
+    expect(listCalls()).toBe(1)
+  })
+
   it('keep a page on a non-access error', async () => {
     get.mockRejectedValueOnce(httpError(503, 'JOB_QUEUE_POLICY_UNAVAILABLE'))
     const { result } = renderHook(() => useJobQueueSeniors(scope, OPP, 'c-1'), { wrapper })
