@@ -880,6 +880,16 @@ allow	safety	printf -v out '%s' "$x"
 block	safety	export "$n"
 block	safety	read "$v"
 block	safety	declare x=powershell
+# AUTO-SR-22 / 23 / 24 of #1294: integer attribute, wrapped declarer, startup-file variables.
+block	safety	export BASH_ENV=$f; bash -c x
+block	safety	ENV=$f sh -c x
+block	safety	export BASHOPTS
+block	safety	declare -i x=$y
+block	safety	env declare x=$y
+allow	safety	NODE_ENV=test pnpm x
+allow	safety	cat .env.example
+allow	safety	env FOO=1 node x
+allow	safety	grep -r ENV_VAR src
 # AUTO-SR-12 / AUTO-SR-15 of #1294: no exception for a package version.
 block	safety	npx pkg@$(echo x)
 block	safety	pkg@$x

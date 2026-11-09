@@ -699,6 +699,19 @@ for c in 'export "$n"' 'read "$v"' 'sudo declare "$v"=1' "bash -c 'declare \"\$v
   assert_red "dynamic assignment target: $c" --contains "alias" -- h "$c"
 done
 assert_red "declarer value naming a shell: declare x=powershell" --contains "no gate reads" -- h 'declare x=powershell'
+# AUTO-SR-22 / 23 / 24 (#1294): integer attribute, wrapped or nested declarers, startup files.
+for c in 'declare -i x=$y' 'declare -i x; x=$y' 'local -ia x=$y' 'env declare x=$y' \
+         "bash -c 'declare x=\$y'" 'export BASH_ENV=$f; bash -c x' 'ENV=$f sh -c x' \
+         'export BASHOPTS' 'export ENV'; do
+  assert_red "integer attribute, wrapped declarer or startup-file variable: $c" --contains "alias" -- h "$c"
+done
+for c in '(( $y ))' 'echo $(( $y + 1 ))' 'x=$(( $y ))'; do
+  assert_red "dynamic word inside arithmetic: $c" --contains "no gate reads" -- h "$c"
+done
+for c in 'NODE_ENV=test pnpm x' 'cat .env.example' 'env FOO=1 node x' 'grep -r ENV_VAR src' \
+         'declare -i n=5' 'echo $((1+2))' '(local x="$1")' 'f() { local x="$1"; }'; do
+  assert_green "no startup-file variable, literal integer, top-level declarer: $c" -- h "$c"
+done
 # AUTO-SR-12 / AUTO-SR-15 (#1294): no exception for a package version; a dynamic word in a
 # command position refuses. Accepted false refusal: `npx -y pkg@$VER`.
 for c in 'npx pkg@$(echo x)' 'npx pkg@`echo x`' 'npx pkg@${V}' 'npx pkg@$V/x' 'pkg@$x' 'npx pkg@$V'; do

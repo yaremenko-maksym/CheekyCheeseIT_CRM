@@ -457,7 +457,16 @@ for seg in scan.segments:
 # punctuation readings, which split a value into words that look like bare targets.
 # AUTO-SR-13: a nameref (`declare -n a=BASH_ALIASES`) refuses in any reading.
 # set, shopt and bash/sh refuse on a dynamic option word, which may name posix.
-ALIAS_WORDS = re.compile(r"BASH_ALIASES|POSIXLY_CORRECT|SHELLOPTS|expand_aliases|\bposix\b", re.I)
+# AUTO-SR-22: an integer attribute (`declare -i x=$y`) evaluates the value as arithmetic, and
+# `a[$(cmd)]` in it runs, so a declarer with `i` in its options refuses on any dynamic word
+# in the command (a later `x=$y` is evaluated too). AUTO-SR-23: the value relaxation holds
+# only for the segment itself, unwrapped and top level; `env declare x=$y` or a reading
+# refuses on any dynamic argument. AUTO-SR-24: BASHOPTS and BASH_ENV join the names; ENV
+# (read by sh at startup) is matched case-sensitively and only as an assignment or a
+# declarer target, so the `env` command and `.env` files pass.
+ALIAS_WORDS = re.compile(
+    r"BASH_ALIASES|POSIXLY_CORRECT|SHELLOPTS|BASHOPTS|BASH_ENV|expand_aliases|\bposix\b", re.I)
+ENV_ASSIGN = re.compile(r"(?<![\w.])ENV\+?=")
 DECLARERS = ("declare", "typeset", "local", "export", "readonly")
 
 
@@ -509,7 +518,13 @@ def alias_route(cand, own):
         return True
     if name == "let":
         return any(dynamic_word(a) for a in args)
-    if own and name in DECLARERS + ("read", "mapfile", "readarray", "getopts", "printf", "wait"):
+    if name in DECLARERS and (short_opts(args, "i") and dynamic_word(cmd)
+                              or "ENV" in targets(name, args)):
+        return True
+    if own is not None and name in DECLARERS + ("read", "mapfile", "readarray", "getopts",
+                                                "printf", "wait"):
+        if not own:
+            return any(dynamic_word(a) for a in args)
         if any(a[:1] in "-+" and dynamic_word(a) for a in args):
             return True
         return any(dynamic_word(t) for t in targets(name, args))
@@ -521,7 +536,7 @@ def alias_route(cand, own):
     return False
 
 
-if not blocked and ALIAS_WORDS.search(cmd):
+if not blocked and (ALIAS_WORDS.search(cmd) or ENV_ASSIGN.search(cmd)):
     blocked.append("defining an alias, or enabling alias expansion, hides a command "
                    "body no gate reads")
 for seg in scan.segments:
@@ -533,7 +548,13 @@ for seg in scan.segments:
     words = list(seg_words(seg)) + [w for c in cands for w in [c.name] + list(c.argv)]
     for env in [seg.env] + [c.env for c in cands]:
         words += [str(k) for k in env] + [str(v) for v in env.values()]
-    if any(ALIAS_WORDS.search(w) for w in words) or any(alias_route(c, c is seg) for c in cands):
+    top = not seg.wrappers and not seg.depth
+    # None: a reading that repeats the segment itself with its values split into words;
+    # the segment already answers for it.
+    own = [top if c is seg else (None if top and c.name == seg.name else False) for c in cands]
+    if (any(ALIAS_WORDS.search(w) or ENV_ASSIGN.search(w) for w in words)
+            or any("ENV" in env for env in [seg.env] + [c.env for c in cands])
+            or any(alias_route(c, o) for c, o in zip(cands, own))):
         blocked.append("defining an alias, or enabling alias expansion, hides a command "
                        "body no gate reads")
 
