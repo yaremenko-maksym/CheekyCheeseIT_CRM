@@ -142,6 +142,7 @@ PKG_SUBCOMMANDS = {"install", "add", "run", "test", "build", "lint", "typecheck"
 # AUTO-SR-26: per runner, only options known to take a value (pnpm -w, -p are flags).
 PKG_VALUE_OPTS = {"pnpm": {"--filter", "-F", "--dir", "-C"}, "yarn": {"--cwd"},
                   "bun": {"--cwd"}}
+SEEN = {}  # AUTO-SR-28: each rescanned line is read once per command; over 500 refuses
 
 
 def ansi_c_spells(body):
@@ -168,7 +169,7 @@ def requote(word):
 
 def pkg_launch(seg, depth=0):
     args = list(seg.argv)
-    if seg.name not in PKG_RUNNERS or depth > 3:
+    if seg.name not in PKG_RUNNERS or depth > 3 or len(SEEN) > 500:
         return []
     # SR-M-13: after EVERY launch word, since an option value can be one (`--filter dlx dlx $y`).
     starts = [(i + 1, False) for i, a in enumerate(args) if a in PKG_LAUNCH_WORDS]
@@ -205,18 +206,27 @@ def pkg_launch(seg, depth=0):
         head = rest[:rest.index("--")] if "--" in rest else rest
         for k, w in enumerate(head):  # CR-H-14: any option may carry code (prefix, bundle)
             o, eq, v = w.partition("=")
-            if w[:1] == "-":
-                lines += [["sh", "-c", x] for x in ([v] if eq else [w] + head[k + 1:k + 2])]
+            if w[:1] == "-" and w[1:2] != "-" and len(w) > 1000:  # AUTO-SR-29: before expansion
+                blocked.append("command too complex for the safety hook to read")
+                return []
+            if w[:1] == "-":  # SO-H-14/15: -c<val>, with or without an = in it
+                lines += [["sh", "-c", x] for x in ([v] if eq else [w] + head[k + 1:k + 2])
+                          + [w[j:] for j in range(2, len(w)) if w[1] != "-"]]
                 lines += [head[k + 1:]] + ([] if eq else [head[k + 2:]])  # SR-M-14, SO-H-13
         lines += [rest] + ([rest[rest.index("--") + 1:]] if "--" in rest else [])
     out = []
-    for words in lines:
-        if not words:
-            continue
-        inner = cmdscan.scan(" ".join(requote(w) for w in words))
-        for s in inner.segments:
-            out += [s] + pkg_launch(s, depth + 1)
-    return out
+    for words in dict.fromkeys(map(tuple, lines)):
+        key = (depth, words)
+        if words and key not in SEEN:
+            SEEN[key] = []
+            if len(SEEN) > 500:
+                if len(SEEN) == 501:  # once; later calls return at the top
+                    blocked.append("command too complex for the safety hook to read")
+                return out
+            inner = cmdscan.scan(" ".join(requote(w) for w in words))
+            SEEN[key] = [x for s in inner.segments for x in [s] + pkg_launch(s, depth + 1)]
+        out += SEEN.get(key, [])
+    return list({id(s): s for s in out}.values())
 
 
 def candidates(seg):
@@ -230,7 +240,7 @@ def candidates(seg):
             launched, ("rm", "git", "dropdb"))
     return out
 
-# ── predicate 1+2: rm -rf on root / home paths ───────────────────────────────
+# predicate 1+2: rm -rf on root / home paths
 SAFE_ROOTS = ("/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/")
 HOME_SAFE = ("~/Downloads", "$HOME/Downloads", "${HOME}/Downloads",
              "$USERPROFILE/Downloads", "${USERPROFILE}/Downloads")
@@ -282,13 +292,13 @@ for seg in scan.segments:
     if blocked:
         break
 
-# ── predicate 3: classic bash fork bomb ──────────────────────────────────────
+# predicate 3: classic bash fork bomb
 # Matched on the UNQUOTED text: a fork bomb inside quotes is a string.
 FORK_BOMB = re.compile(r":\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:")
 if FORK_BOMB.search(scan.code_view):
     blocked.append("fork bomb")
 
-# ── predicate 4: force push to main/master ───────────────────────────────────
+# predicate 4: force push to main/master
 FORCE_FLAGS = ("--force", "-f", "--force-with-lease")
 
 
@@ -302,10 +312,7 @@ def targets_protected_ref(tokens):
     return False
 
 
-# git s own global flags take values, and `positionals()` did not know that —
-# so `git -C <path> push --force origin main` read as subcommand `<path>` and
-# left before the check (review MED-4). `-C` is also the idiom our own rules
-# prescribe for checking MAIN after a Coder, so the shape is a live one.
+# git global flags take values: `git -C <path> push --force origin main` (review MED-4).
 GIT_VALUE_FLAGS = {
     "-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path",
     "--super-prefix", "--config-env",
@@ -332,30 +339,20 @@ for seg in scan.segments:
     if blocked:
         break
 
-# ── predicate 5: dropping the live database ─────────────────────────────────
-# The phrase reaching a command that could execute it is the danger; the same
-# phrase reaching `echo`, `gh pr create --body`, `git commit -m` or a heredoc
-# that writes a file is a quotation. Unknown commands count as dangerous — the
-# allowlist says what is inert, it does not enumerate what is dangerous.
+# predicate 5: dropping the live database
+# The phrase reaching a command that may run it is the danger; in `echo` or a heredoc
+# it is a quotation. Unknown commands count as dangerous: the list says what is inert.
 DROP_RE = re.compile(r"DROP\s+DATABASE\s+(IF\s+EXISTS\s+)?[\"\x27`]?crm_db", re.I)
-# Text consumers only. `sed` (GNU `e`), `awk` (`system()`), `less`/`more` (shell
-# escape), `open`/`code` (hand the file to an application) were on this list and
-# are not inert — `awk "BEGIN{system(\"psql -c ...\")}"` executed straight
-# through it (review MED-2). `cp`/`mv`/`tee` stay: they move bytes, they do not
-# run them — the write-then-execute chain below is what covers materialising a
-# file and feeding it to psql in the same line.
+# Text consumers only: sed, awk, less, more, open and code can run code (review MED-2).
+# cp/mv/tee move bytes; predicate 6 covers write-then-execute.
 INERT = {
     "", "echo", "printf", "cat", "tee", "gh", "git", "jq", "yq", "head", "tail",
     "grep", "egrep", "fgrep", "rg", "ag", "wc", "sort", "uniq", "cut", "tr",
     "diff", "comm", "column", "pbcopy", "true", ":", "test", "cp", "mv",
     "touch", "bat", "prettier", "date",
 }
-# `git -c core.pager="psql -c ..." log -1` runs psql. So does an alias set the
-# same way. `git` is inert only when it is not being handed configuration.
-# Belt AND braces since the third review round: cmdscan now also lifts the value
-# of every `git -c` out as a segment of its own, so that command is caught twice
-# over. Neither check makes the other redundant — this one says "the phrase
-# reached a git that is not inert", the other says "and here is what it ran".
+# `git -c core.pager="psql -c ..." log -1` runs psql, so git handed configuration is not
+# inert. cmdscan also lifts each `git -c` value as a segment; both checks stay.
 GIT_EXEC_FLAGS = ("-c", "--config-env", "--exec-path")
 
 
@@ -385,11 +382,9 @@ for seg in scan.segments:
     if blocked:
         break
 
-# ── predicate 6: write the SQL in one segment, execute the file in the next ──
-# `echo "DROP DATABASE crm_db;" > /tmp/x.sql && psql -f /tmp/x.sql` slipped past
-# predicate 5 because each segment on its own is innocent: the first is `echo`,
-# the second no longer contains the phrase. This is not the stated gap about a
-# script the hook cannot read — the whole chain is right there in the line.
+# predicate 6: write the SQL in one segment, execute the file in the next
+# `echo "DROP DATABASE crm_db;" > /tmp/x.sql && psql -f /tmp/x.sql`: each segment alone
+# is innocent, so predicate 5 missed it.
 if not blocked:
     line_text = "\n".join(seg.text() for seg in scan.segments)
     if DROP_RE.search(line_text):
@@ -418,7 +413,7 @@ if not blocked:
             if blocked:
                 break
 
-# ── predicate 7: a shell no gate can read ───────────────────────────────────
+# predicate 7: a shell no gate can read
 # Every gate reads bash syntax, so what powershell, pwsh or cmd run was never judged. The
 # PowerShell tool is denied for the same reason. Confident segments (echo, git commit -m)
 # yield no argument readings, so a message that names a shell is never judged here.
@@ -519,7 +514,7 @@ for seg in scan.segments:
             blocked.append("`%s` runs a shell whose syntax no gate reads" % cand.name)
             break
 
-# ── predicate 8: an alias body no gate reads ────────────────────────────────
+# predicate 8: an alias body no gate reads
 # SR-M-7 (#1294): `alias ls=\x27rm -rf /etc\x27` turns a later `ls` into anything, and no
 # gate reads the body. Agents never need an alias or expand_aliases, so defining one (an
 # `=` in the arguments), writing BASH_ALIASES, or `shopt -s expand_aliases` refuses.
@@ -719,10 +714,8 @@ for seg in scan.segments:
         blocked.append("defining an alias, or enabling alias expansion, hides a command "
                        "body no gate reads")
 
-# ── the analyzer admitting it did not finish ────────────────────────────────
-# `$( $( … 200 deep … ) )` walks past MAX_DEPTH and leaves code unread. Silence
-# about code nobody looked at is exactly the failure mode this hook was rewritten
-# for, so it refuses instead.
+# the analyzer admitting it did not finish
+# Nesting past MAX_DEPTH leaves code unread, so it refuses.
 if not blocked and scan.truncated:
     blocked.append(
         "the command nests deeper than the parse limit — some code was not read"

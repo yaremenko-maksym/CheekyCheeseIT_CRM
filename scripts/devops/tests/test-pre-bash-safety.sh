@@ -846,6 +846,23 @@ for c in 'npm exec -p cowsay $x' 'yarn dlx -p cowsay $x' 'pnpm dlx --package cow
   # The last one is an accepted false refusal: a dynamic word after any option fails closed.
   assert_red "program after a runner option: $c" --contains "no gate reads" -- h "$c"
 done
+# SO-H-14 (#1294): a short option with an attached value (`-c<val>`, bundled `-yc<val>`).
+for c in "npm exec -c'rm -rf /etc'" "npm exec -yc'rm -rf /etc'" "npm exec -c'a=b rm -rf /etc'"; do
+  assert_red "attached short-option payload: $c" --contains "rm -rf" -- h "$c"
+done
+for c in 'npm exec -y vitest' 'pnpm exec -w tsc --noEmit'; do
+  assert_green "short runner option: $c" -- h "$c"
+done
+# AUTO-SR-28 (#1294): rescans that fan out refuse fast rather than time out (and fail open).
+fan="$(printf 'npm exec -a %.0s' $(seq 40))x"
+t0=$SECONDS
+assert_red "40 x npm exec -a refuses as too complex" --contains "too complex" -- h "$fan"
+assert_green "40 x npm exec -a refuses within 10 s" -- test $((SECONDS - t0)) -le 10
+# AUTO-SR-29 (#1294): suffix expansion is quadratic, so a huge short option word refuses first.
+big="npm exec -c$(printf 'x%.0s' $(seq 4998))"
+t0=$SECONDS
+assert_red "a 5000-char -c word refuses as too complex" --contains "too complex" -- h "$big"
+assert_green "a 5000-char -c word refuses within 10 s" -- test $((SECONDS - t0)) -le 10
 for c in 'pnpm --filter $pkg test' 'pnpm --filter @crm/api test' 'pnpm install' 'pnpm -r build' \
          'pnpm -w add -D x' 'yarn install' 'pnpm exec vitest run "$FILE"' 'pnpm -F $pkg run build' \
          'yarn --cwd apps/web install'; do
