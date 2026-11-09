@@ -234,6 +234,10 @@ msgstr "The file will be deleted permanently"
 msgid "Гаманець компанії (USDT ERC-20)"
 msgstr "Company wallet (USDT ERC-20)"
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Сеньйори зі збігом"
+msgstr "Matching seniors"
+
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Умови персонального контракту прочитано — підтверджую"
 msgstr "I have read and accept the terms of my contract"
@@ -374,6 +378,7 @@ msgid "дропа"
 msgstr "drop"
 
 #: apps/web/app/components/job-queue/JobQueueRow.tsx
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
 msgid "Усі сеньйори зі збігом внесли компанію до стоп-листа"
 msgstr "All matching seniors stop-listed this company"
 
@@ -509,6 +514,7 @@ msgstr "CRM side navigation — move between sections of the system."
 msgid "Підписуючи цей документ, ви підтверджуєте згоду з його змістом. Після підпису документ не можна скасувати."
 msgstr "By signing this document you confirm agreement with its content. Once signed, the document cannot be cancelled."
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
 #: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/job-queue/JobQueueRow.tsx
 msgid "Потребує розгляду"
@@ -814,6 +820,7 @@ msgid "Крок {0} із {1}"
 msgstr "Step {0} of {1}"
 
 #: apps/web/app/components/job-queue/JobQueueRow.tsx
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
 msgid "Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа"
 msgstr "All matching seniors on your team stop-listed this company"
 
@@ -1112,6 +1119,10 @@ msgstr "Select a recipient partner"
 msgid "Чекає підтвердження від {0} — поки діє <0>{1}%</0>"
 msgstr "Awaiting confirmation from {0} — <0>{1}%</0> applies until then"
 
+#: apps/web/app/components/job-queue/PossibleDuplicates.tsx
+msgid "Можливий дублікат. Перевірте, чи це не та сама вакансія."
+msgstr "Possible duplicate. Check that it is not the same vacancy."
+
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 msgid "Редактор: <0>{roleLabel}</0>"
 msgstr "Editor: <0>{roleLabel}</0>"
@@ -1201,6 +1212,7 @@ msgstr "Paste the whole resume text here"
 msgid "Пошук за назвою або компанією"
 msgstr "Search by title or company"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
 #: apps/web/app/components/job-queue/JobQueueRow.tsx
 msgid "Дата публікації невідома"
 msgstr "Publication date unknown"
@@ -1519,6 +1531,10 @@ msgstr "Unsettled transactions awaiting payout ({0}) — they stay in the system
 msgid "Валідація транзакції"
 msgstr "Transaction validation"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgid "Нижче — актуальні дані."
+msgstr "Below is the current data."
+
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Не вдалося з’єднатися з сервером. Перевірте інтернет-з’єднання."
 msgstr "Could not connect to the server. Check your internet connection."
@@ -1762,6 +1778,8 @@ msgid "Створити вакансію"
 msgstr "Create vacancy"
 
 #: apps/web/app/components/job-queue/JobQueueList.tsx
+#: apps/web/app/components/job-queue/PossibleDuplicates.tsx
+#: apps/web/app/components/job-queue/PreviewContinuation.tsx
 msgid "Показано {shown} із {total}"
 msgstr "Showing {shown} of {total}"
 
@@ -1814,6 +1832,10 @@ msgstr "Gross income"
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 msgid "Співробітник не зможе підписати, поки ви знову не позначите контракт готовим до підписання"
 msgstr "The employee won’t be able to sign until you mark the contract ready to sign again"
+
+#: apps/web/app/components/job-queue/PossibleDuplicates.tsx
+msgid "У черзі є схожа вакансія"
+msgstr "There is a similar vacancy in the queue"
 
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Напрямок сортування: за спаданням"
@@ -3734,6 +3756,10 @@ msgstr "Responses growing"
 msgid "Дошка співбесід цього сеньйора"
 msgstr "This senior’s interview board"
 
+#: apps/web/app/components/job-queue/PreviewContinuation.tsx
+msgid "Показати ще ({next})"
+msgstr "Show {next} more"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
@@ -3977,6 +4003,10 @@ msgstr "In validation"
 msgid "Приховані вакансії можна повернути звідси."
 msgstr "Hidden vacancies can be restored from here."
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Сеньйорів не підібрано автоматично"
+msgstr "No seniors matched automatically"
+
 #: apps/web/app/components/contracts/VariablesPanel.tsx
 msgid "Системні змінні"
 msgstr "System variables"
@@ -4008,6 +4038,7 @@ msgstr "Contract — preview.pdf"
 msgid "Підключення увімкнено"
 msgstr "Connection enabled"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
 #: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
@@ -4123,6 +4154,10 @@ msgstr "Paid"
 msgid "Технічна"
 msgstr "Technical"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgid "Завантажуємо вакансію…"
+msgstr "Loading the vacancy…"
+
 #: apps/web/app/routes/login.tsx
 msgid "Не вдалося підтвердити вхід через Google. Спробуйте ще раз."
 msgstr "Couldn't verify your Google sign-in. Try again."
@@ -4202,6 +4237,10 @@ msgstr "No active transactions"
 #: apps/web/app/components/users/UserRow.tsx
 msgid "Відкрити профіль {0}"
 msgstr "Open {0}'s profile"
+
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgid "Цю вакансію не знайдено"
+msgstr "This vacancy was not found"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/edit-cascade-warning-registry.ts
@@ -6444,6 +6483,7 @@ msgstr "Income validation"
 
 #: apps/web/app/components/documents/document-detail-dialog.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
 #: apps/web/app/components/ui/crm-dialog.tsx
 #: apps/web/app/components/ui/dialog.tsx
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
@@ -6951,6 +6991,7 @@ msgstr "Connection actions"
 msgid "Закриті ({0})"
 msgstr "Closed ({0})"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
 #: apps/web/app/components/job-queue/JobQueueRow.tsx
 msgid "вперше побачено {firstSeenAgo}"
 msgstr "first seen {firstSeenAgo}"
@@ -7777,6 +7818,7 @@ msgstr "Could not archive. Try again"
 msgid "Листи, які отримує співробітник. У застосунку сповіщення приходять завжди"
 msgstr "Emails the employee receives. In-app notifications are always on"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
 #: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Закрита"
@@ -8022,6 +8064,10 @@ msgstr "Reload page"
 msgid "Сторона компанії підписала документ автоматично. Контрагент ще не підтвердив підпис."
 msgstr "The company's side signed the document automatically. The counterparty has not confirmed their signature yet."
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Подано · {when}"
+msgstr "Submitted · {when}"
+
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Відстають"
 msgstr "Behind"
@@ -8108,6 +8154,10 @@ msgstr "Step 2 of 2. The payout request has been created. The money has not been
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Мій баланс"
 msgstr "My balance"
+
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgid "Опис"
+msgstr "Description"
 
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Немає шаблону контракту для ролі «{roleLabel}»"
@@ -9153,6 +9203,10 @@ msgstr "Recent payouts"
 msgid "Супровідний лист"
 msgstr "Cover letter"
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Вакансія лишається в черзі, але жоден сеньйор не збігається за стеком."
+msgstr "The vacancy stays in the queue, but no senior matches its stack."
+
 #: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Поки ви не підтвердите, діє <0>{currentPercent}%</0>."
 msgstr "Until you confirm, <0>{currentPercent}%</0> applies."
@@ -9387,6 +9441,7 @@ msgstr "Current avatar"
 msgid "Посилання не працює. Відкрийте посилання з останнього листа, а якщо його немає — попросіть адміністратора надіслати запрошення ще раз."
 msgstr "This link doesn't work. Open the link from the latest email — if there isn't one, ask an admin to resend the invitation."
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
 #: apps/web/app/components/job-queue/JobQueueRow.tsx
 msgid "Компанію не вказано"
 msgstr "Company not specified"
@@ -9522,6 +9577,10 @@ msgstr "Degraded"
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Витрата"
 msgstr "Expense"
+
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Збіг за:"
+msgstr "Matched on:"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx
 msgid "підставити"
@@ -9756,6 +9815,10 @@ msgstr "Sign the invoice?"
 msgid "Запис відв'язано"
 msgstr "Recording unlinked"
 
+#: apps/web/app/components/job-queue/AlsoSeenOn.tsx
+msgid "Також опубліковано на:"
+msgstr "Also listed on:"
+
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 msgid "Значення за замовчуванням (необов’язково)"
 msgstr "Default value (optional)"
@@ -9915,6 +9978,10 @@ msgstr "Change"
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Частка в проєкті тепер {percent}%"
 msgstr "Project share is now {percent}%"
+
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgid "Вакансію оновлено після побудови списку"
+msgstr "The vacancy was updated after the list was built"
 
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Користувачів поки немає"
@@ -10187,6 +10254,10 @@ msgstr "Settling…"
 msgid "{0, select, SENIOR {сеньйор} DROP {дроп} other {співробітник}}"
 msgstr "{0, select, SENIOR {senior} DROP {drop} other {employee}}"
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Збіг неточний"
+msgstr "Match is approximate"
+
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Виберіть дату події"
 msgstr "Choose the event date"
@@ -10322,7 +10393,9 @@ msgstr "First version"
 msgid "Зберегти не можна — по відмічених рядках суму не перерахувати, потрібне ручне рішення"
 msgstr "Cannot save — the amount on the marked rows cannot be recalculated, a manual decision is required"
 
+#. placeholder {0}: formatRelativeTime(card.publishedAt, locale)
 #. placeholder {0}: formatRelativeTime(item.publishedAt, locale)
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
 #: apps/web/app/components/job-queue/JobQueueRow.tsx
 msgid "Опубліковано {0}"
 msgstr "Published {0}"
@@ -10420,6 +10493,10 @@ msgstr "Active projects"
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Змінився формат"
 msgstr "Format changed"
+
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Ці сеньйори внесли компанію до власного стоп-листа, тому вакансія їм не пропонується."
+msgstr "These seniors put the company on their own stop-list, so the vacancy is not offered to them."
 
 #. placeholder {0}: totals.pendingProjects
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
@@ -11020,6 +11097,10 @@ msgstr "The daily limit for automatic recognition is used up. Fill in the resume
 msgid "Потрібно увійти ще раз."
 msgstr "You need to sign in again."
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Стек збігається, проте вакансію їм не пропонують."
+msgstr "The stack matches, but the vacancy is not offered to them."
+
 #: apps/web/app/components/documents/upload-document-dialog.tsx
 msgid "Перетягніть файл сюди або натисніть, щоб обрати"
 msgstr "Drag a file here or click to choose one"
@@ -11118,6 +11199,10 @@ msgstr "Hide the password"
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Остання подія"
 msgstr "Last event"
+
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Подано: {who} · {when}"
+msgstr "Submitted by {who} · {when}"
 
 #. placeholder {0}: receiver.accruedCount
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
@@ -11262,6 +11347,10 @@ msgstr "Maximum cannot be less than minimum"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
 msgid "Некоректна сума"
 msgstr "Invalid amount"
+
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Роботодавця не вдалося підтвердити, тому система не пропонує цю вакансію конкретним сеньйорам. Оцініть її вручну за описом."
+msgstr "The employer could not be verified, so the system does not suggest this vacancy to specific seniors. Judge it manually from the description."
 
 #: apps/web/app/components/documents/document-detail-dialog.tsx
 #: apps/web/app/components/documents/upload-document-dialog.tsx
@@ -11491,6 +11580,10 @@ msgstr "Showing the first {max} seniors"
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
 msgstr "The current Terms version will be deactivated (kept in history). All users will need to accept the new Terms of Service version again."
+
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Вакансія лишається в черзі, але жоден сеньйор із вашої команди не збігається за стеком."
+msgstr "The vacancy stays in the queue, but no senior on your team matches its stack."
 
 #: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
 msgid "Налаштування компанії: гаманець для отримання USDT і реквізити, які автоматично додаються в кінець кожного нового контракту під час підписання."
@@ -11968,6 +12061,10 @@ msgstr "Creating the project"
 #: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 msgid "Призначити {0} дропом"
 msgstr "Assign {0} as the drop"
+
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgid "Не вдалося завантажити вакансію"
+msgstr "Could not load the vacancy"
 
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx
 msgid "Переклади (необов’язково)"
@@ -12866,10 +12963,18 @@ msgstr "Required for every vacancy — used in Google markup."
 msgid "Звичайний"
 msgstr "Normal"
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Виключено за стоп-листом: {stopListed}"
+msgstr "Excluded by stop-list: {stopListed}"
+
 #: apps/web/app/components/documents/pdf-preview.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Відкрити PDF"
 msgstr "Open PDF"
+
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Немає сеньйорів зі збігом стеку"
+msgstr "No seniors match the stack"
 
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Скасовано"
@@ -12921,6 +13026,10 @@ msgstr "There are no active income-receiving projects for {monthLabel}."
 #: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "отримує"
 msgstr "receives"
+
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgid "Збіг стеку"
+msgstr "Stack match"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx
 msgid "Оплата…"
