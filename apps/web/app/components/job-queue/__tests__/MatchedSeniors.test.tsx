@@ -1,4 +1,5 @@
 /** r5 Task 7.3 — «Сеньйори зі збігом» (spec §5.2–§5.6, visibility §3). */
+import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -25,12 +26,14 @@ function renderBlock(
   card: JobQueueCardResponseDto = cardFixture(),
   scope: typeof HR | typeof ADMIN = HR,
   renderAction?: Parameters<typeof MatchedSeniors>[0]['renderAction'],
+  notice?: ReactNode,
 ) {
   return render(
     <MatchedSeniors
       scope={scope}
       card={card}
       renderAction={renderAction}
+      notice={notice}
       onAccessLost={onAccessLost}
     />,
     { wrapper: I18nTestProvider },
@@ -89,6 +92,52 @@ describe('MatchedSeniors', () => {
       expect(count.tagName).toBe('SPAN')
     },
   )
+
+  it('UX-L-6: the count sits at the right end of the heading row (spec §5.1)', () => {
+    renderBlock(cardFixture({ seniors: { items: [senior()], totalCount: 3, nextCursor: 's-1' } }))
+    const heading = screen.getByRole('heading', { name: 'Сеньйори зі збігом 3' })
+    expect(heading).toHaveClass('flex', 'items-baseline')
+    expect(within(heading).getByText('3')).toHaveClass(
+      'ml-auto',
+      'text-muted-foreground',
+      'tabular-nums',
+    )
+  })
+
+  it('UX-L-5: a triage card with TRIAGE-outcome matches shows no count, since no list renders', () => {
+    renderBlock(
+      cardFixture({
+        eligibility: 'TRIAGE',
+        seniors: { items: [senior()], totalCount: 1, nextCursor: null },
+      }),
+    )
+    expect(screen.getByTestId('job-queue-seniors-triage')).toBeVisible()
+    expect(screen.queryByTestId('job-queue-seniors-list')).toBeNull()
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent(/^Сеньйори зі збігом$/)
+  })
+
+  it('UX-L-5: no count over the stop-all state either', () => {
+    renderBlock(cardFixture({ stopListedSeniorCount: 2, seniors: { ...none, totalCount: 2 } }))
+    expect(screen.getByTestId('job-queue-seniors-stop-all')).toBeVisible()
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent(/^Сеньйори зі збігом$/)
+  })
+
+  it('the notice slot (apply-first) sits between the heading and the first senior, only over a list', () => {
+    const view = renderBlock(cardFixture(), HR, undefined, <p data-testid="notice-slot">n</p>)
+    const heading = screen.getByRole('heading', { level: 3 })
+    const notice = screen.getByTestId('notice-slot')
+    const list = screen.getByTestId('job-queue-seniors-list')
+    expect(heading.compareDocumentPosition(notice)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(notice.compareDocumentPosition(list)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    view.unmount()
+    renderBlock(
+      cardFixture({ eligibility: 'TRIAGE', seniors: none }),
+      HR,
+      undefined,
+      <p data-testid="notice-slot">n</p>,
+    )
+    expect(screen.queryByTestId('notice-slot')).toBeNull()
+  })
 
   it('UX-L-4: with no matched senior the heading carries no count', () => {
     renderBlock(

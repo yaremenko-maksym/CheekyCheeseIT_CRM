@@ -132,11 +132,14 @@ export function MatchedSeniors({
   scope,
   card,
   renderAction,
+  notice,
   onAccessLost,
 }: {
   scope: QueueScopeSignature
   card: JobQueueCardResponseDto
   renderAction?: ((senior: JobQueueCardSeniorDto) => ReactNode) | undefined
+  /** Under the heading, above the first senior (the apply-first reminder); only over a list. */
+  notice?: ReactNode
   onAccessLost: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -152,6 +155,7 @@ export function MatchedSeniors({
   const stopListed = card.stopListedSeniorCount
 
   let body: ReactNode
+  let listed = false
   // stop-all first: the API calls a vacancy whose only matches are stop-listed TRIAGE (its
   // eligibility counts LEAD matches only), and the stop-list is the reason to show (§5.4)
   if (seniors.length === 0 && stopListed > 0) {
@@ -205,8 +209,10 @@ export function MatchedSeniors({
       />
     )
   } else {
+    listed = true
     body = (
       <>
+        {notice}
         <ul
           ref={list}
           data-testid="job-queue-seniors-list"
@@ -256,8 +262,12 @@ export function MatchedSeniors({
     <section data-testid="job-queue-seniors" className="flex flex-col gap-2">
       <h3 className="flex items-baseline gap-2 text-sm font-semibold">
         <Trans>Сеньйори зі збігом</Trans>
-        {card.seniors.totalCount > 0 && (
-          <span className="text-muted-foreground tabular-nums">{card.seniors.totalCount}</span>
+        {/* UX-L-5: `totalCount` counts the scope's LEAD and TRIAGE matches, so a triage card can
+            carry one while showing no list; the count belongs to a rendered list only */}
+        {listed && card.seniors.totalCount > 0 && (
+          <span className="ml-auto text-muted-foreground tabular-nums">
+            {card.seniors.totalCount}
+          </span>
         )}
       </h3>
       {body}
