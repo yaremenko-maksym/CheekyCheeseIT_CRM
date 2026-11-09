@@ -890,6 +890,78 @@ allow	safety	NODE_ENV=test pnpm x
 allow	safety	cat .env.example
 allow	safety	env FOO=1 node x
 allow	safety	grep -r ENV_VAR src
+# SR-M-8 of #1294: a package runner launches a word named at run time.
+block	safety	pnpm exec $x
+block	safety	pnpm --filter @crm/api exec $x
+block	safety	pnpm -r exec $x
+block	safety	pnpm dlx $x
+block	safety	pnpm $x
+block	safety	npm exec $x
+block	safety	npm exec -- $x
+block	safety	npm x $x
+block	safety	yarn $x
+block	safety	yarn exec $x
+block	safety	yarn dlx $x
+block	safety	x=$(printf c%sd m); pnpm exec $x /c dir
+block	safety	pnpm exec powershell -c x
+block	safety	yarn dlx pwsh
+block	safety	npm exec -- $(echo rm) -rf /etc
+allow	safety	pnpm --filter @crm/api test
+allow	safety	pnpm install
+allow	safety	pnpm -r build
+allow	safety	yarn install
+allow	safety	pnpm --filter @crm/web exec tsc --noEmit
+allow	safety	pnpm run $x
+allow	safety	npm run $x
+# CR-M-9 / SO-H-6 / CR-M-10 / CR-M-11 of #1294: program strings, array literals, watch strings.
+allow	safety	bash -c 'echo "$1"' _ x
+allow	safety	sh -c 'echo $0'
+allow	safety	sh -c 'ls $HOME'
+allow	safety	bash -c "cd $DIR && ls"
+allow	safety	find . -exec sh -c 'echo "$1"' _ {} \;
+allow	safety	xargs -0 -I{} bash -c 'wc -l "$1"' _ {}
+allow	safety	bash -c 'echo hi' "$a"
+allow	safety	declare -a arr=("$x")
+allow	safety	declare -a arr=(a "$x" b)
+allow	safety	arr=("$x" b)
+allow	safety	watch -n 5 'ls $X'
+allow	safety	set -- "$@"
+block	safety	bash -c '$x'
+block	safety	sh -c "$x foo"
+block	safety	bash -c 'shopt -s expand_aliases'
+block	safety	bash -c -- 'rm -rf /etc'
+block	safety	bash -c -- "$(echo rm -rf /etc)"
+block	safety	sh -c -- "$m"
+block	safety	bash -c -- 'alias ls=x; ls'
+block	safety	watch -n 5 '$X'
+block	safety	watch -n 5 'ls; $X'
+block	safety	watch -n 5 'eval $X'
+block	safety	x=(<(rm -rf /etc))
+block	safety	arr=(a b); rm -rf /etc
+# SO-M-7 / SO-L-8 of #1294: set and shopt option names past `--`.
+block	safety	shopt -s -- "$m"
+block	safety	shopt -s -- expand_aliases
+block	safety	set -o -- "$m"
+# SO-H-9 / SO-L-10 of #1294: a git alias body is a shell command no gate reads.
+block	safety	git config alias.x '!rm -rf /etc'
+block	safety	git config --global alias.x '!rm -rf /etc'
+block	safety	git config --local alias.x '!rm -rf /etc'
+block	safety	git config --add alias.x '!rm'
+block	safety	git config --replace-all Alias.X '!rm'
+block	safety	git config "$k" v
+block	safety	git config set alias.x '!rm'
+block	safety	git -c alias.x='!echo hi' x
+block	safety	git -c "$k"=v status
+block	safety	git --config-env=alias.x=V x
+block	safety	GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.x GIT_CONFIG_VALUE_0='!rm' git x
+block	safety	export GIT_CONFIG_KEY_0=alias.x
+block	safety	git config --rename-section foo alias
+allow	safety	git config --get alias.x
+allow	safety	git config --list
+allow	safety	git config --get-regexp alias
+allow	safety	git config user.name x
+allow	safety	git config --global user.email a@b.c
+allow	safety	git -c core.autocrlf=false status
 # AUTO-SR-12 / AUTO-SR-15 of #1294: no exception for a package version.
 block	safety	npx pkg@$(echo x)
 block	safety	pkg@$x

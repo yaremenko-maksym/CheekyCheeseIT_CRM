@@ -146,12 +146,58 @@ blocked = []
 # NB for editors: this python source is a single-quoted bash string. It must not
 # contain a single quote anywhere — use \x27 in patterns, and avoid apostrophes
 # in comments.
+# SR-M-8 (#1294): a package runner executes a word named only at run time (`pnpm exec $x`,
+# `yarn $x`, `npm x -- $x`). The launched word is read here, not in the shared cmdscan
+# wrapper table, because a wrapper entry changes seg.name for every hook that imports it.
+# Bare `pnpm` / `yarn` launch any word that is not one of their own subcommands; a script
+# name (`pnpm run $x`) is repo code and stays allowed. Only these options take a value;
+# any other option is read as a flag, so `pnpm --filter $pkg test` stays allowed.
+PKG_SUBCOMMANDS = {"install", "add", "run", "test", "build", "lint", "typecheck", "i",
+                   "remove", "update", "why", "list", "ls", "store", "config", "dev", "start"}
+PKG_LAUNCHERS = {"pnpm": ("exec", "dlx", "x"), "npm": ("exec", "x"), "yarn": ("exec", "dlx")}
+
+
+def pkg_launch(seg):
+    runner = seg.name
+    if runner not in PKG_LAUNCHERS:
+        return []
+    takes_value = {"--filter", "-F", "--dir", "-C", "--prefix", "--package", "-p"}
+    if runner == "npm":
+        takes_value |= {"--workspace", "-w"}
+    args = list(seg.argv)
+
+    def skip(k):
+        while k < len(args) and args[k].startswith("-") and args[k] != "--":
+            k += 2 if args[k] in takes_value else 1
+        return k
+
+    k = skip(0)
+    if k >= len(args):
+        return []
+    if args[k] in PKG_LAUNCHERS[runner]:
+        k = skip(k + 1)
+        if k < len(args) and args[k] == "--":
+            k = skip(k + 1)
+    elif runner == "npm" or args[k] in PKG_SUBCOMMANDS:
+        return []
+    if k >= len(args):
+        return []
+    word = args[k]
+    return [cmdscan.Segment(word, args[k + 1:], seg.payload, list(seg.wrappers) + [runner],
+                            "$" in word or "\x60" in word, seg.raw, seg.depth, seg.env,
+                            False, None)]
+
+
 def candidates(seg):
     # A dynamic command word is additionally read as each dangerous command this
     # hook knows: `$(echo rm) -rf /etc` names nothing resolvable, but `-rf /etc`
     # is not ambiguous. Both versions of this hook let that through.
-    return cmdscan.candidates(seg, code=True) + cmdscan.as_if(
+    out = cmdscan.candidates(seg, code=True) + cmdscan.as_if(
         seg, ("rm", "git", "dropdb"))
+    for launched in [l for c in [seg] + out for l in pkg_launch(c)]:
+        out += cmdscan.candidates(launched, code=True) + cmdscan.as_if(
+            launched, ("rm", "git", "dropdb"))
+    return out
 
 # ── predicate 1+2: rm -rf on root / home paths ───────────────────────────────
 SAFE_ROOTS = ("/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/")
@@ -406,14 +452,34 @@ def refuse_dynamic(word):
 # segment by its basename and splits runner flags into words, so an exemption keyed on
 # the name was unsafe. Accepted false refusal: `npx -y pkg@$VER`.
 # A truncated scan is refused below with its own reason; do not mask it.
+def dynamic_names(seg, depth=0):
+    # CR-M-11 (#1294): a name with spaces is a program string (`watch -n 5 \x27ls $X\x27`),
+    # so its own command words are judged, not its arguments. It is scanned as a command
+    # line; past three levels, or on a truncated scan, the whole string counts as dynamic.
+    out = []
+    for c in [seg] + candidates(seg):
+        if not re.search(r"\s", c.name.strip()):
+            if dynamic_word(c.name):
+                out.append(c.name)
+            continue
+        inner = cmdscan.scan(c.name) if depth < 3 else None
+        if inner is None or inner.truncated:
+            out += [c.name] if dynamic_word(c.name) else []
+            continue
+        for s in inner.segments:
+            out += dynamic_names(s, depth + 1)
+    # seg.dynamic too: the name is a basename, so its `$` may be gone (`$\x27\\x63md\x27`).
+    # A program string keeps its `$`, and was judged above by its own command words.
+    if seg.dynamic and not (re.search(r"\s", seg.name.strip()) and dynamic_word(seg.name)):
+        out.insert(0, seg.name)
+    return out
+
+
 for seg in scan.segments:
     if blocked:
         break
     if not scan.truncated:
-        # seg.dynamic too: the name is a basename, so its `$` may be gone (`$\x27\\x63md\x27`).
-        dyn = [c.name for c in [seg] + candidates(seg) if dynamic_word(c.name)]
-        if seg.dynamic:
-            dyn.insert(0, seg.name)
+        dyn = dynamic_names(seg)
         if dyn:
             refuse_dynamic(dyn[0])
             break
@@ -467,6 +533,8 @@ for seg in scan.segments:
 ALIAS_WORDS = re.compile(
     r"BASH_ALIASES|POSIXLY_CORRECT|SHELLOPTS|BASHOPTS|BASH_ENV|expand_aliases|\bposix\b", re.I)
 ENV_ASSIGN = re.compile(r"(?<![\w.])ENV\+?=")
+# SO-H-9: a git alias set through the environment for one run.
+GIT_ALIAS_ENV = re.compile(r"GIT_CONFIG_(KEY_\w*|PARAMETERS)=\W{0,3}(alias\.|\$)", re.I)
 DECLARERS = ("declare", "typeset", "local", "export", "readonly")
 
 
@@ -498,15 +566,77 @@ def targets(name, args):
 def shell_opts_dynamic(args):
     # AUTO-SR-20: a dynamic word up to the first operand (included), and a dynamic word after
     # an `-o` / `-O` cluster anywhere in the argv, past `-c` too (`bash -c -o "$m" x`).
-    takes = operand = False
+    # CR-M-9 / SO-H-6 (#1294): after `-c`, the first operand past any `--` is the program
+    # string. It is skipped here, because predicate 7 already reads it as nested segments
+    # (`bash -c \x27echo "$1"\x27 _ x` is allowed, `bash -c -- "$m"` refuses there).
+    takes = operand = code = False
     for a in args:
+        if a == "--":
+            continue
+        opt = a[:1] in "-+" and len(a) > 1
+        if code and not opt and not takes:
+            code = False
+            operand = True
+            continue
         if dynamic_word(a) and (takes or not operand):
             return True
-        opt = a[:1] in "-+" and len(a) > 1 and a != "--"
         if not opt and not takes:
             operand = True
-        takes = opt and a[1:2] != "-" and bool(set(a[1:]) & set("oO"))
+        short = opt and a[1:2] != "-"
+        code = code or (short and not operand and "c" in a[1:])
+        takes = short and bool(set(a[1:]) & set("oO"))
     return False
+
+
+def git_alias_write(args):
+    # SO-H-9 (#1294): a git alias whose body starts with `!` is a shell command no gate
+    # reads (`git config alias.x \x27!rm -rf /etc\x27`, then `git x`). Refused: a config
+    # write to an `alias.*` key or to a dynamic key, in any scope; a section renamed to
+    # `alias`; and the per-run `git -c alias.x=...` / `--config-env`. Reads stay allowed.
+    # The environment forms (GIT_CONFIG_KEY_<n>, GIT_CONFIG_PARAMETERS) are GIT_ALIAS_ENV.
+    k = 0
+    while k < len(args) and args[k].startswith("-"):
+        a = args[k]
+        nxt = args[k + 1] if k + 1 < len(args) else ""
+        pair = None
+        if a.startswith("-c"):
+            pair = a[2:] or nxt
+        elif a.startswith("--config-env"):
+            pair = a.split("=", 1)[1] if "=" in a else nxt
+        if pair is not None and (dynamic_word(pair) or pair.lower().startswith("alias.")):
+            return True
+        k += 2 if a in ("-C", "-c", "--config-env", "--git-dir", "--work-tree",
+                        "--namespace") else 1
+    if k >= len(args) or args[k] != "config":
+        return False
+    rest = args[k + 1:]
+    sub = None
+    if rest[:1] and rest[0] in ("set", "get", "list", "unset", "rename-section",
+                                "remove-section", "edit"):
+        sub, rest = rest[0], rest[1:]
+    opts, operands, j = [], [], 0
+    while j < len(rest):
+        a = rest[j]
+        if a.startswith("-") and a != "--":
+            opts.append(a)
+            j += 2 if a in ("-f", "--file", "--blob", "--type", "--default",
+                            "--comment", "--value") else 1
+            continue
+        if a != "--":
+            operands.append(a)
+        j += 1
+    if not operands:
+        return False
+    if sub == "rename-section" or "--rename-section" in opts:
+        return any(dynamic_word(o) or o.lower().split(".")[0] == "alias" for o in operands[1:])
+    reads = ("--get", "--list", "-l", "--unset", "--remove-section", "-e", "--edit")
+    if sub in ("get", "list", "unset", "remove-section", "edit") or (
+            sub is None and any(o.startswith(reads) for o in opts)):
+        return False
+    write = sub == "set" or len(operands) > 1 or any(
+        o in ("--add", "--replace-all") for o in opts)
+    key = operands[0]
+    return write and (dynamic_word(key) or key.lower().startswith("alias."))
 
 
 def alias_route(cand, own):
@@ -529,14 +659,22 @@ def alias_route(cand, own):
             return True
         return any(dynamic_word(t) for t in targets(name, args))
     if name in ("set", "shopt"):
+        # SO-M-7 (#1294): bash honours `shopt -s -- expand_aliases` and `set -o -- "$m"`, so
+        # words past `--` are option names too, unless `set` has no `-o` / `+o` cluster: then
+        # they are the positional parameters (`set -- "$@"` stays allowed).
         before = args[:args.index("--")] if "--" in args else args
+        if name == "shopt" or short_opts(before, "o"):
+            before = args
         return any(dynamic_word(a) for a in before)
     if name in ("bash", "sh"):
         return shell_opts_dynamic(args)
+    if name == "git":
+        return git_alias_write(args)
     return False
 
 
-if not blocked and (ALIAS_WORDS.search(cmd) or ENV_ASSIGN.search(cmd)):
+if not blocked and (ALIAS_WORDS.search(cmd) or ENV_ASSIGN.search(cmd)
+                    or GIT_ALIAS_ENV.search(cmd)):
     blocked.append("defining an alias, or enabling alias expansion, hides a command "
                    "body no gate reads")
 for seg in scan.segments:

@@ -712,6 +712,54 @@ for c in 'NODE_ENV=test pnpm x' 'cat .env.example' 'env FOO=1 node x' 'grep -r E
          'declare -i n=5' 'echo $((1+2))' '(local x="$1")' 'f() { local x="$1"; }'; do
   assert_green "no startup-file variable, literal integer, top-level declarer: $c" -- h "$c"
 done
+# SR-M-8 (#1294): a package runner launches a word named at run time; that word is judged.
+for c in 'pnpm exec $x' 'pnpm --filter @crm/api exec $x' 'pnpm -r exec $x' 'pnpm dlx $x' 'pnpm $x' \
+         'npm exec $x' 'npm exec -- $x' 'npm x $x' 'yarn $x' 'yarn exec $x' 'yarn dlx $x' \
+         'x=$(printf c%sd m); pnpm exec $x /c dir' 'pnpm exec powershell -c x' 'yarn dlx pwsh'; do
+  assert_red "package runner launching a dynamic word or a shell: $c" --contains "no gate reads" -- h "$c"
+done
+for c in 'pnpm exec rm -rf /etc' 'npm exec -- $(echo rm) -rf /etc'; do
+  assert_red "package runner launching a destructive command: $c" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+for c in 'pnpm --filter @crm/api test' 'pnpm exec vitest run "$FILE"' 'pnpm install' 'pnpm -r build' \
+         'npm run build -- --base=$BASE' 'yarn install' 'pnpm --filter @crm/web exec tsc --noEmit' \
+         'pnpm --filter $pkg test' 'pnpm run $x' 'npm run $x'; do
+  assert_green "package runner subcommand or script: $c" -- h "$c"
+done
+# CR-M-9 / SO-H-6 (#1294): the program string after `-c [--]` is read as nested commands, not
+# as an option word. CR-M-10: an array literal is a value. CR-M-11: a `watch` string is judged
+# by its own command words.
+for c in "bash -c 'echo \"\$1\"' _ x" "sh -c 'echo \$0'" "sh -c 'ls \$HOME'" 'bash -c "cd $DIR && ls"' \
+         "find . -exec sh -c 'echo \"\$1\"' _ {} \\;" "xargs -0 -I{} bash -c 'wc -l \"\$1\"' _ {}" \
+         "bash -c 'echo hi' \"\$a\"" 'declare -a arr=("$x")' 'declare -a arr=(a "$x" b)' 'arr=("$x" b)' \
+         "watch -n 5 'ls \$X'" 'set -- "$@"'; do
+  assert_green "program string, array value or watch string: $c" -- h "$c"
+done
+for c in "bash -c '\$x'" 'sh -c "$x foo"' 'sh -c -- "$m"' 'bash -c -- "$(echo rm -rf /etc)"' \
+         "watch -n 5 '\$X'" "watch -n 5 'ls; \$X'" "watch -n 5 'eval \$X'"; do
+  assert_red "dynamic command word inside a program string: $c" --contains "no gate reads" -- h "$c"
+done
+assert_red "program string after -c --: bash -c -- 'rm -rf /etc'" --contains "[pre:bash:safety] BLOCK" -- h "bash -c -- 'rm -rf /etc'"
+assert_red "process substitution in an array literal" --contains "[pre:bash:safety] BLOCK" -- h 'x=(<(rm -rf /etc))'
+assert_red "command after an array literal" --contains "[pre:bash:safety] BLOCK" -- h 'arr=(a b); rm -rf /etc'
+# SO-M-7 / SO-L-8 (#1294): set and shopt option names past `--`.
+for c in "bash -c 'shopt -s expand_aliases'" "bash -c -- 'alias ls=x; ls'" 'shopt -s -- "$m"' \
+         'shopt -s -- expand_aliases' 'set -o -- "$m"'; do
+  assert_red "alias expansion or a dynamic option past --: $c" --contains "alias" -- h "$c"
+done
+# SO-H-9 / SO-L-10 (#1294): a git alias body runs a shell command no gate reads.
+for c in "git config alias.x '!rm -rf /etc'" "git config --global alias.x '!rm -rf /etc'" \
+         "git config --local alias.x '!rm -rf /etc'" "git config --add alias.x '!rm'" \
+         "git config --replace-all Alias.X '!rm'" 'git config "$k" v' "git config set alias.x '!rm'" \
+         "git -c alias.x='!echo hi' x" 'git -c "$k"=v status' 'git --config-env=alias.x=V x' \
+         "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.x GIT_CONFIG_VALUE_0='!rm' git x" \
+         'export GIT_CONFIG_KEY_0=alias.x' 'git config --rename-section foo alias'; do
+  assert_red "git alias write: $c" --contains "alias" -- h "$c"
+done
+for c in 'git config --get alias.x' 'git config --list' 'git config --get-regexp alias' \
+         'git config user.name x' 'git config --global user.email a@b.c' 'git -c core.autocrlf=false status'; do
+  assert_green "git config read or a non-alias write: $c" -- h "$c"
+done
 # AUTO-SR-12 / AUTO-SR-15 (#1294): no exception for a package version; a dynamic word in a
 # command position refuses. Accepted false refusal: `npx -y pkg@$VER`.
 for c in 'npx pkg@$(echo x)' 'npx pkg@`echo x`' 'npx pkg@${V}' 'npx pkg@$V/x' 'pkg@$x' 'npx pkg@$V'; do

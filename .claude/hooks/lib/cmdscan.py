@@ -340,8 +340,17 @@ def _interpreter_code_payloads(tokens):
     per placement; so it is now a sweep over the whole token list, and no later step gets to
     decide whether it applies.
     """
-    return [tokens[i + 1] for i, t in enumerate(tokens)
-            if _is_code_flag(t) and i + 1 < len(tokens)]
+    out = []
+    for i, t in enumerate(tokens):
+        if not _is_code_flag(t):
+            continue
+        # SO-H-6 (#1294): `bash -c -- 'rm -rf /etc'` runs the word after `--`.
+        j = i + 1
+        while j < len(tokens) and tokens[j] == "--":
+            j += 1
+        if j < len(tokens):
+            out.append(tokens[j])
+    return out
 
 # Commands this module claims to understand well enough to judge by NAME ALONE.
 # Membership means one of exactly two things and nothing else:
@@ -1177,6 +1186,32 @@ def join_continuations(text):
     return "".join(out)
 
 
+def _array_literal_end(text, i):
+    """Index of the `)` that closes the array literal opened at `text[i]`, or None."""
+    depth, quote, j = 0, None, i
+    while j < len(text):
+        c = text[j]
+        if quote:
+            if c == "\\" and quote == '"':
+                j += 1
+            elif c == quote:
+                quote = None
+        elif c in "'\"":
+            quote = c
+        elif c == "\\":
+            j += 1
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return j
+        elif c in ";&|\n":
+            return None
+        j += 1
+    return None
+
+
 def _split_segments(text):
     segs = []
     cur = []
@@ -1248,6 +1283,18 @@ def _split_segments(text):
             pending = []
             flush()
             continue
+
+        # CR-M-10 (#1294): `arr=("$x" b)` is a compound assignment, not a subshell, and
+        # its elements are values that run nothing ($( ) and backticks were lifted out in
+        # stage 1). The literal is kept as an empty `()`. A process substitution inside
+        # it does run, so that shape keeps the subshell reading below.
+        if ch == "(" and cur and text[i - 1] == "=":
+            end = _array_literal_end(text, i)
+            if end is not None and not re.search(r"[<>]\(", text[i + 1:end]):
+                cur.append("()")
+                code.append("()")
+                i = end + 1
+                continue
 
         # subshell parens: always a boundary (they are shell metacharacters,
         # and $( ) was already lifted out in stage 1)
