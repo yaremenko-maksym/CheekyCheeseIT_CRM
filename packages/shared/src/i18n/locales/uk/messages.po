@@ -638,6 +638,7 @@ msgid "Я ознайомлений і згоден зі змістом раху�
 msgstr "Я ознайомлений і згоден зі змістом рахунку"
 
 #: apps/web/app/components/job-queue/JobQueueList.tsx
+#: apps/web/app/components/job-queue/PreviewContinuation.tsx
 msgid "Не вдалося завантажити ще"
 msgstr "Не вдалося завантажити ще"
 
@@ -4042,6 +4043,7 @@ msgstr "Підключення увімкнено"
 #: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
+#: apps/web/app/components/job-queue/PreviewContinuation.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Спробувати ще раз"
 msgstr "Спробувати ще раз"

@@ -638,6 +638,7 @@ msgid "Я ознайомлений і згоден зі змістом раху�
 msgstr "I have reviewed and agree with the content of the invoice"
 
 #: apps/web/app/components/job-queue/JobQueueList.tsx
+#: apps/web/app/components/job-queue/PreviewContinuation.tsx
 msgid "Не вдалося завантажити ще"
 msgstr "Couldn’t load more"
 
@@ -4042,6 +4043,7 @@ msgstr "Connection enabled"
 #: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
+#: apps/web/app/components/job-queue/PreviewContinuation.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Спробувати ще раз"
 msgstr "Try again"
