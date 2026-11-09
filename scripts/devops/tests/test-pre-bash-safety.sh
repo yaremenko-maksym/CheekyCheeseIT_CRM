@@ -587,7 +587,7 @@ for c in 'echo del x | winpty cmd' 'winpty cmd < x.bat' 'winpty cmd <<< "del x"'
          'winpty -Xallow-non-tty -- cmd foo' 'echo del x | unknown-tool cmd foo' \
          'echo del x | unknown-tool /c/Windows/System32/cmd' 'echo del x | winpty C:/Windows/System32/cmd' \
          'echo del x | winpty ../../Windows/System32/cmd' 'echo del x | unknown-tool C:cmd' \
-         'echo del x | winpty "..\..\Windows\System32\cmd.exe"' 'unknown-tool ..\cmd foo' \
+         'echo del x | winpty "..\..\Windows\System32\cmd.exe"' 'unknown-tool "..\cmd" foo' \
          "python3 -c \"import os; os.system('%COMSPEC% /c dir')\""; do
   assert_red "cmd by any path or with any next word: $c" --contains "no gate reads" -- h "$c"
 done
@@ -595,20 +595,30 @@ done
 for c in "go run ./cmd" "unknown-tool ./cmd"; do
   assert_red "accepted false refusal, a directory named cmd: $c" --contains "no gate reads" -- h "$c"
 done
-# AUTO-SR-4 / AUTO-SR-6 (#1294): a dynamic command word fails closed, with or without an
-# argument, unless a literal assignment in the same command resolves it to a non-shell.
+# AUTO-SR-4 / AUTO-SR-6 / AUTO-SR-7 (#1294): a dynamic command word fails closed, with or
+# without an argument, and with no resolution through same-line assignments.
 for c in 'echo del x | winpty "$COMSPEC"' 'x=$COMSPEC; echo del x | $x' 'x=$COMSPEC; echo del x | $x foo' \
          'x="$COMSPEC"; $x /c dir' 'a=cmd; b=$a; $b foo' \
          'echo del x | "$(printenv COMSPEC)"' 'echo del x | ${!v}' '"$SH" < x.bat' \
          'echo del x | ${!v} foo' 'echo del x | "$(printenv COMSPEC)" foo' 'echo del x | `printenv COMSPEC` foo'; do
   assert_red "dynamic command word: $c" --contains "no gate reads" -- h "$c"
 done
-# Accepted false refusal: a dynamic command word the command itself does not assign.
-for c in '"$PNPM" install' '$EDITOR file.txt'; do
-  assert_red "accepted false refusal, unassigned dynamic command word: $c" --contains "no gate reads" -- h "$c"
+# AUTO-SR-8 (#1294): every reading is gated, not only the segment command word.
+for c in 'env $x' 'xargs $x' 'timeout 5 $x' 'bash -c "$x"' 'unknown-tool foo $x' \
+         "echo del x | \$'\x63md'" "unknown-tool \$'\x63md' foo"; do
+  assert_red "dynamic word in a reading: $c" --contains "no gate reads" -- h "$c"
 done
-for c in 'PNPM=pnpm; $PNPM install' 'a=pnpm; b=$a; "$b" install'; do
-  assert_green "dynamic command word resolved from a literal assignment: $c" -- h "$c"
+# Accepted false refusal: any dynamic command word, assigned in the same command or not.
+for c in '"$PNPM" install' '$EDITOR file.txt' 'x=ls; $x' 'PNPM=pnpm; $PNPM install' 'a=pnpm; b=$a; "$b" install'; do
+  assert_red "accepted false refusal, dynamic command word: $c" --contains "no gate reads" -- h "$c"
+done
+for c in 'echo $HOME' 'ls "$SCRATCH"' 'git commit -m "$msg"'; do
+  assert_green "plain argument of a confident segment: $c" -- h "$c"
+done
+# AUTO-SR-9 (#1294): an 8.3 short name is the same binary.
+for c in 'C:/PROGRA~1/POWERS~1/7/pwsh~1.exe -c x' 'echo del x | unknown-tool C:/Windows/System32/WindowsPowerShell/v1.0/POWERS~1.EXE' \
+         'echo del x | winpty "C:\Windows\System32\CMD~1.EXE"'; do
+  assert_red "8.3 short name of a shell: $c" --contains "no gate reads" -- h "$c"
 done
 # CR-M-4 (#1294): a decoy install in one quoted argument must not exempt a launch in the
 # next one, or past a `;` inside a -c string, and a flat `concurrently` runs every word.

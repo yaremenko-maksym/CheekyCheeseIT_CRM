@@ -347,7 +347,7 @@ if not blocked:
 # yield no argument readings, so a message that names a shell is never judged here.
 # Fail closed (Master decision on #1294, after shape-by-shape patches kept leaking): any
 # reading of the three shells refuses, by name, wherever it stands and whatever follows.
-# Accepted false refusals: `go run ./cmd`, `pnpm add powershell` - run those by hand.
+# Accepted false refusals: `go run ./cmd`, `pnpm add powershell`, `x=ls; $x` - run those by hand.
 UNREAD_SHELLS = ("powershell", "pwsh", "cmd")
 
 
@@ -357,6 +357,10 @@ def unread_shell(word):
     last = re.split(r"[/\\:]", word)[-1]
     last = re.sub(r"^[^\w.]+|[^\w.]+$", "", last)
     last = re.sub(r"\.(exe|cmd|bat|com)$", "", last, flags=re.I).lower()
+    # An 8.3 short name (`C:/PROGRA~1/POWERS~1/7/pwsh~1.exe`) is the same binary.
+    short = re.fullmatch(r"(powers|pwsh|cmd)\w*~\d+", last)
+    if short:
+        return {"powers": "powershell"}.get(short.group(1), short.group(1))
     return "cmd" if last == "comspec" else last
 
 
@@ -366,32 +370,39 @@ def seg_words(seg):
             yield word
 
 
-def resolve(word, depth=0):
-    # The literal a dynamic command word stands for, through same-line assignments
-    # (`a=pnpm; b=$a; $b install`), or None when it cannot be known.
-    m = re.fullmatch(r"\$\{?([A-Za-z_]\w*)\}?", word)
-    if not m:
-        return None if re.search(r"[$`]", word) else word
-    value = scan.assigns.get(m.group(1))
-    if value is None or depth >= 5:
-        return None
-    return resolve(value.strip("\x22\x27"), depth + 1)
+def dynamic_word(word):
+    # `$x`, `${x}`, `${!v}`, `$(...)` (the analyzer marks it with a `$`) and backticks.
+    # A `$` that opens ANSI-C or locale quoting (`$\x27...\x27`, `$"..."`) expands nothing,
+    # but an ANSI-C escape other than a quote or a backslash can spell a name (`\x63md`).
+    if re.search(r"\$\x27", word) and re.search(r"\\[^\x22\x27\\]", word):
+        return True
+    word = re.sub(r"\$(?=[\x22\x27])", "", word)
+    return "$" in word or "\x60" in word
 
 
+def refuse_dynamic(word):
+    blocked.append("`%s` is a word the hook cannot know; it may run a shell whose syntax "
+                   "no gate reads" % word)
+
+
+# A dynamic word fails closed with no resolution (AUTO-SR-7 on #1294): the union of
+# same-line assignments drifts from the shell state (`+=`, `read`, `for`, `export`,
+# subshells). Accepted false refusal: `x=ls; $x`. Plain arguments of a confident segment
+# (`echo $HOME`, `ls "$SCRATCH"`) are never a command and stay allowed. A truncated scan
+# is refused below with its own reason; do not mask it.
 for seg in scan.segments:
     if blocked:
         break
-    # A dynamic command word (`$x`, `${!v}`, `$(...)`) fails closed unless a literal
-    # assignment in this command resolves it to something other than a shell. A truncated
-    # scan is refused below with its own reason; do not mask it.
-    if seg.dynamic and not scan.truncated:
-        target = resolve(seg.name)
-        if target is None or unread_shell(target) in UNREAD_SHELLS:
-            blocked.append("`%s` is a command word the hook cannot resolve to a known "
-                           "command; it may run a shell whose syntax no gate reads" % seg.name)
+    if not scan.truncated:
+        tokens = [seg.name] if seg.confident else [seg.name] + list(seg.argv)
+        # seg.dynamic too: the name is a basename, so its `$` may be gone (`$\x27\\x63md\x27`).
+        dyn = [seg.name] if seg.dynamic else [t for t in tokens if dynamic_word(t)]
+        dyn += [c.name for c in candidates(seg) if dynamic_word(c.name)]
+        if dyn:
+            refuse_dynamic(dyn[0])
             break
     # A segment the analyzer did not understand: every word may be the command, including
-    # the ones too odd to be a reading (a quoted path, `$COMSPEC`).
+    # the ones too odd to be a reading (a quoted path).
     words = [] if seg.confident else list(seg_words(seg))
     named = [w for w in words if unread_shell(w) in UNREAD_SHELLS]
     if named:
