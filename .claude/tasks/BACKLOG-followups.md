@@ -7422,11 +7422,17 @@ team headings, last-seen, the own-team duplicate line, and the full vacancy stac
 `docs/design/vacancy-queue.md` §5.1, §5.2, §5.6 and §5.8 require them, so the 7.3 card renders
 without them.
 
-**Status.** A separate follow-up task proposed by Master. **Owner decision pending (A2);
-recommendation: do it right after Task 7.4.** Cross-zone (api ↔ shared ↔ web): `opus` and full
-review.
+**Also: zero-match vs triage is not distinguishable.** The queue derives `eligibility` as `LEAD`
+only when the matched count (stop-listed seniors excluded) is above zero, otherwise `TRIAGE`. So a
+vacancy whose every matched senior is stop-listed, and a vacancy that matched nobody, both arrive as
+`TRIAGE`; the web tells them apart only by `stopListedSeniorCount`, and a true "matched nobody"
+state has no field of its own. Decide in 7.3b whether the card/row needs an explicit reason.
+
+**Status.** A separate follow-up task, **owner accepted the recommendation (A2): do it right after
+Task 7.4.** Cross-zone (api ↔ shared ↔ web): `opus` and full review.
 
 **Verify.** Compare the keys of `jobQueueCardResponseSchema` with the fields named in those design
-sections; each missing key is an open part of this item.
+sections; each missing key is an open part of this item. For the eligibility part: a vacancy with
+only stop-listed matches and one with no matches return the same `eligibility` value.
 
-Sources: PR #1302 spec review, SPEC-M-2.
+Sources: PR #1302 spec review, SPEC-M-2; PR #1302 fix round 3 (QA-MED-1).

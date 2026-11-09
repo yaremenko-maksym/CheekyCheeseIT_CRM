@@ -2,9 +2,9 @@
 
 ## Agent: coder
 
-## Status: not started
+## Status: ready (PR #1302 merged into `main` at `1f9ebafe`)
 
-## Blockers: PR #1302 (Task 7.3 card) must merge first — this task modifies `JobQueueCard.tsx`, which #1302 creates
+## Blockers: none
 
 ## Priority: high
 
@@ -29,8 +29,9 @@ The 7.3 card shows a vacancy but cannot act on it. 7.4 adds the actions from pla
 1. `apps/web/app/components/job-queue/JobQueueCard.tsx` — mount the actions; blocking notes (§5.7, closed source).
 2. `apps/web/app/components/job-queue/JobQueueActions.tsx` (new) — per-senior «Записати подачу», duplicate confirm, apply-first reminder, footer actions.
 3. `apps/web/app/components/job-queue/DismissMenu.tsx` (new) — «Приховати» reason menu (Radix, keyboard-accessible) + undo toast.
-4. `apps/web/app/components/job-queue/__tests__/` — tests listed in the plan (failing first).
+4. `apps/web/app/components/job-queue/__tests__/` and `apps/web/app/hooks/__tests__/` (`use-job-queue.test.tsx`, `use-job-queue-actions.test.tsx`) — tests listed in the plan and AC 9 (failing first).
 5. `packages/shared/src/i18n/locales/{uk,en}/messages.po` — via `pnpm i18n:extract` only, never by hand; fill `en`; `pnpm i18n:compile`.
+6. Carried over from PR #1302 live review (AC 9): `apps/web/app/components/job-queue/MatchedSeniors.tsx` (seniors heading count) and `apps/web/app/hooks/use-job-queue.ts` (`useJobQueueCard` and the seniors / sources continuation queries: retry policy).
 
 ## Reuse / Regression scope
 
@@ -56,6 +57,10 @@ The 7.3 card shows a vacancy but cannot act on it. 7.4 adds the actions from pla
 6. [ ] (SPEC-M-1 e) Footer «Відкрити оригінал» (fires the `useMarkJobOpened` mutation once and `openOriginalPosting` with the right URL) and «Приховати» → reason menu → scoped versioned dismiss → undo toast (§5.9), with the undo/version race tested; ADMIN «⋯» menus per §5.6 (suppress, triage assign, per-senior cancel submission; no reassign).
 7. [ ] (SPEC-M-1 f) i18n: every new string is a Lingui macro (source `uk`) with an `en` translation; `pnpm i18n:extract` leaves no diff; the CI step "i18n catalogs are in sync (lingui extract --clean)" passes locally; `node scripts/devops/check-no-russian-letters.mjs` passes.
 8. [ ] Responsive: no horizontal overflow at 320 / 375 / 768 / 1024 / 1280 / 1440 / 1920; touch targets ≥ 44 px on mobile; no hover-only actions.
+9. [ ] Carried over from PR #1302 (three LOW findings moved here; report one line per id):
+   - **UX-L-5** (design review 5831045057): a triage card shows «Сеньйори зі збігом 1» above «Сеньйорів не підібрано автоматично». Show the count only when a senior list renders; first read why a triage card carries `seniors.totalCount > 0` and say what it counts.
+   - **UX-L-6** (same review): the seniors count sits 8 px after the label; spec §5.1 and the reference `docs/design/assets/vacancy-queue/card-default-1440.png` put it at the right end of the heading row (`ml-auto` on the count span). Assert the class.
+   - **QA-LOW-6** (manual-qa review 5831124681): `useJobQueueCard` and the seniors / sources continuation queries inherit the app-wide `retry: 1`, so a 403/404 is requested twice (~1.1 s) before the card closes. Do not retry on 403/404 for those queries; keep the default retry for other errors. Test: a 403 and a 404 each issue exactly one request before the close; a 500 is still retried once.
 
 ## Interaction tests
 
@@ -83,4 +88,4 @@ No assumptions.
 1. `git diff HEAD --name-only` — only files from "Concrete changes".
 2. Each AC: a named test or a `grep` for its `data-testid` / string.
 3. Playwright screenshots at 320 and 1440 of the card with the actions, the duplicate confirm and the reason menu.
-4. Commit: `ac_verified: 1,2,3,4,5,6,7,8` and `vision: ✓ /job-queue`.
+4. Commit: `ac_verified: 1,2,3,4,5,6,7,8,9` and `vision: ✓ /job-queue`.
