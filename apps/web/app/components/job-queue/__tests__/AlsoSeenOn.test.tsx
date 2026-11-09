@@ -59,6 +59,63 @@ describe('AlsoSeenOn', () => {
     expect(screen.queryByTestId('job-queue-also-seen-shown')).toBeNull()
   })
 
+  // UX-L-2 / QA-LOW-5: one row per source, its type and where it points, so two postings on the
+  // same board are told apart
+  it('lists each source as a row with its type and the url host and path', () => {
+    const root = source(2, { url: 'https://remote.example/' })
+    renderBlock(
+      cardFixture({
+        sources: { items: [PRIMARY, source(1), root], totalCount: 3, nextCursor: null },
+      }),
+    )
+    const list = screen.getByRole('list')
+    expect(list).toHaveClass(
+      'flex',
+      'flex-col',
+      'divide-y',
+      'overflow-hidden',
+      'rounded-lg',
+      'border',
+    )
+    expect(within(list).getAllByRole('listitem')).toHaveLength(2)
+    const row = screen.getByTestId(`job-queue-source-${source(1).sourceRecordId}`)
+    expect(within(row).getByText('Djinni')).toHaveClass('shrink-0', 'font-medium')
+    expect(within(row).getByText('djinni.co/jobs/1')).toHaveClass(
+      'min-w-0',
+      'flex-1',
+      'truncate',
+      'text-muted-foreground',
+    )
+    expect(row).toHaveClass(
+      'flex',
+      'min-h-11',
+      'w-full',
+      'items-center',
+      'gap-2',
+      'px-3',
+      'text-left',
+    )
+    // a bare host has no path to show
+    expect(
+      within(screen.getByTestId(`job-queue-source-${root.sourceRecordId}`)).getByText(
+        'remote.example',
+      ),
+    ).toBeVisible()
+  })
+
+  it('an unsafe url stays inert text in its row, still saying where it points', () => {
+    const bad = source(1, { url: 'not a url' })
+    renderBlock(
+      cardFixture({ sources: { items: [PRIMARY, bad], totalCount: 2, nextCursor: null } }),
+    )
+    const row = screen.getByTestId(`job-queue-source-${bad.sourceRecordId}`)
+    expect(row.tagName).toBe('SPAN')
+    expect(row).toHaveClass('flex', 'min-h-11', 'items-center', 'gap-2', 'text-muted-foreground')
+    expect(within(row).getByText('not a url')).toHaveClass('truncate')
+    expect(within(row).getByText('Djinni')).toHaveClass('shrink-0')
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
   it('opens a source through openOriginalPosting with its exact url', async () => {
     const s = source(1)
     renderBlock(cardFixture({ sources: { items: [PRIMARY, s], totalCount: 2, nextCursor: null } }))
@@ -113,6 +170,13 @@ describe('AlsoSeenOn', () => {
     const first = screen.getByTestId(`job-queue-source-row-${source(2).sourceRecordId}`)
     expect(first).toHaveFocus()
     expect(first).toHaveAttribute('tabindex', '-1')
+    expect(first).toHaveClass(
+      'min-w-0',
+      'focus-visible:outline-none',
+      'focus-visible:ring-2',
+      'focus-visible:ring-ring',
+      'focus-visible:ring-inset',
+    )
   })
 
   it('a focus moved away before the last page lands is not taken back', async () => {

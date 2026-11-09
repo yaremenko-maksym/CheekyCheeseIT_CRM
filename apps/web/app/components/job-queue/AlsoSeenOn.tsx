@@ -9,6 +9,16 @@ import { PreviewContinuation } from './PreviewContinuation'
 
 const SOURCES_PAGE = 20
 
+/** Where a source points, as a reader tells postings apart: host plus path, or the raw string. */
+function urlLabel(url: string): string {
+  try {
+    const parsed = new URL(url)
+    return parsed.pathname === '/' ? parsed.host : `${parsed.host}${parsed.pathname}`
+  } catch {
+    return url
+  }
+}
+
 /**
  * «Також опубліковано на:» (spec §5.1 item 5): every other source the vacancy was seen on. The
  * server's list includes the primary source; it is the «Відкрити оригінал» target, so it is left out
@@ -45,9 +55,10 @@ export function AlsoSeenOn({
       <h3 className="text-sm font-semibold">
         <Trans>Також опубліковано на:</Trans>
       </h3>
-      <ul ref={list} className="flex flex-wrap gap-2">
+      <ul ref={list} className="flex flex-col divide-y overflow-hidden rounded-lg border">
         {rows.map((row) => {
           const name = sourceLabel(row.sourceType)
+          const where = urlLabel(row.url)
           const testId = `job-queue-source-${row.sourceRecordId}`
           return (
             <li
@@ -55,7 +66,7 @@ export function AlsoSeenOn({
               data-testid={`job-queue-source-row-${row.sourceRecordId}`}
               // takes focus when it is the first row a «Показати ще» brings in (PreviewContinuation)
               tabIndex={-1}
-              className="min-w-0 max-w-full rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="min-w-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
             >
               {isSafeExternalUrl(row.url) ? (
                 <button
@@ -63,17 +74,20 @@ export function AlsoSeenOn({
                   data-testid={testId}
                   // synchronous in the click: a popup blocker allows only a user-gesture open
                   onClick={() => openOriginalPosting(row.url)}
-                  className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-md border px-3 text-sm underline-offset-4 transition-colors hover:bg-muted/50 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-9"
+                  className="flex min-h-11 w-full min-w-0 items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:min-h-9"
                 >
-                  <span className="truncate">{name}</span>
+                  <span className="shrink-0 font-medium">{name}</span>
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground">{where}</span>
                   <ExternalLink aria-hidden="true" className="size-3.5 shrink-0" />
                 </button>
               ) : (
+                // not https: says where it points, but never becomes a control that opens it
                 <span
                   data-testid={testId}
-                  className="inline-flex min-h-11 max-w-full items-center rounded-md border border-dashed px-3 text-sm text-muted-foreground sm:min-h-9"
+                  className="flex min-h-11 w-full min-w-0 items-center gap-2 px-3 py-2 text-sm text-muted-foreground sm:min-h-9"
                 >
-                  <span className="truncate">{name}</span>
+                  <span className="shrink-0">{name}</span>
+                  <span className="min-w-0 flex-1 truncate">{where}</span>
                 </span>
               )}
             </li>

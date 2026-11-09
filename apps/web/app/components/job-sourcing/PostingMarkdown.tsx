@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import { cn } from '@/lib/utils'
 import { isSafeExternalUrl } from './open-original'
@@ -80,6 +81,37 @@ const MARKDOWN_COMPONENTS: Components = {
     ),
 }
 
+/**
+ * Typography, not a defence (so outside the block above): the description sits under the caller's
+ * own heading (the card's h3 «Опис», the dialog's h2 title), so a posting's heading never outranks
+ * it. h1–h2 step down to h4, h3–h6 to h5.
+ */
+function MajorHeading({ children }: { children?: ReactNode }) {
+  return <h4 className="mt-4 mb-1 text-sm font-semibold">{children}</h4>
+}
+
+function MinorHeading({ children }: { children?: ReactNode }) {
+  return <h5 className="mt-3 mb-1 text-sm font-medium">{children}</h5>
+}
+
+const POSTING_COMPONENTS: Components = {
+  ...MARKDOWN_COMPONENTS,
+  h1: MajorHeading,
+  h2: MajorHeading,
+  h3: MinorHeading,
+  h4: MinorHeading,
+  h5: MinorHeading,
+  h6: MinorHeading,
+}
+
+/**
+ * Explicit typography: `@tailwindcss/typography` is not a dependency, so `prose*` would style
+ * nothing. Lists keep their markers (numbered too), quotes and code read as such, links take the
+ * accent colour and keep the underline.
+ */
+const TYPOGRAPHY =
+  'break-words text-sm leading-relaxed [&>:first-child]:mt-0 [&_p]:my-2 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-0.5 [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-4 [&_blockquote]:my-2 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:font-mono [&_code]:text-xs [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0'
+
 export function PostingMarkdown({
   markdown,
   testId,
@@ -90,16 +122,10 @@ export function PostingMarkdown({
   className?: string
 }) {
   return (
-    <div
-      className={cn(
-        'prose prose-sm dark:prose-invert max-w-none break-words text-sm leading-relaxed [&_a]:underline [&_li]:my-0.5 [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5',
-        className,
-      )}
-      data-testid={testId}
-    >
+    <div className={cn(TYPOGRAPHY, className)} data-testid={testId}>
       <ReactMarkdown
         urlTransform={MARKDOWN_URL_TRANSFORM}
-        components={MARKDOWN_COMPONENTS}
+        components={POSTING_COMPONENTS}
         disallowedElements={NO_IMAGES}
       >
         {markdown}
