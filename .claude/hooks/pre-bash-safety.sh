@@ -149,43 +149,49 @@ blocked = []
 # SR-M-8 (#1294): a package runner executes a word named only at run time (`pnpm exec $x`,
 # `yarn $x`, `npm x -- $x`). The launched word is read here, not in the shared cmdscan
 # wrapper table, because a wrapper entry changes seg.name for every hook that imports it.
-# Bare `pnpm` / `yarn` launch any word that is not one of their own subcommands; a script
-# name (`pnpm run $x`) is repo code and stays allowed. Only these options take a value;
-# any other option is read as a flag, so `pnpm --filter $pkg test` stays allowed.
+# SR-M-9 / SR-M-10: no hand parse of runner options. The words after the FIRST launch
+# subcommand, wherever it sits, are scanned as a fresh command line, so wrappers unwrap
+# and `--` splits off a command. Accepted false refusal: a launch word as an option value.
+# Bare `pnpm` / `yarn` still launch the first word that is not one of their subcommands;
+# a script name (`pnpm run $x`) is repo code and stays allowed.
+PKG_RUNNERS = ("pnpm", "npm", "yarn", "bun", "corepack")
+PKG_LAUNCH_WORDS = ("exec", "dlx", "x", "create", "init", "explore", "foreach")
 PKG_SUBCOMMANDS = {"install", "add", "run", "test", "build", "lint", "typecheck", "i",
                    "remove", "update", "why", "list", "ls", "store", "config", "dev", "start"}
-PKG_LAUNCHERS = {"pnpm": ("exec", "dlx", "x"), "npm": ("exec", "x"), "yarn": ("exec", "dlx")}
+PKG_VALUE_OPTS = {"--filter", "-F", "--dir", "-C", "--prefix", "--package", "-p"}
 
 
-def pkg_launch(seg):
-    runner = seg.name
-    if runner not in PKG_LAUNCHERS:
-        return []
-    takes_value = {"--filter", "-F", "--dir", "-C", "--prefix", "--package", "-p"}
-    if runner == "npm":
-        takes_value |= {"--workspace", "-w"}
+def requote(word):
+    # Keeps `$` live, so a dynamic word stays dynamic in the rescan.
+    if re.fullmatch(r"[\w@%+=:,./$\x60{}-]+", word):
+        return word
+    return "\x22" + re.sub(r"([\x22\\])", r"\\\1", word) + "\x22"
+
+
+def pkg_launch(seg, depth=0):
     args = list(seg.argv)
-
-    def skip(k):
-        while k < len(args) and args[k].startswith("-") and args[k] != "--":
-            k += 2 if args[k] in takes_value else 1
-        return k
-
-    k = skip(0)
-    if k >= len(args):
+    if seg.name not in PKG_RUNNERS or depth > 3:
         return []
-    if args[k] in PKG_LAUNCHERS[runner]:
-        k = skip(k + 1)
-        if k < len(args) and args[k] == "--":
-            k = skip(k + 1)
-    elif runner == "npm" or args[k] in PKG_SUBCOMMANDS:
-        return []
-    if k >= len(args):
-        return []
-    word = args[k]
-    return [cmdscan.Segment(word, args[k + 1:], seg.payload, list(seg.wrappers) + [runner],
-                            "$" in word or "\x60" in word, seg.raw, seg.depth, seg.env,
-                            False, None)]
+    k = next((i for i, a in enumerate(args) if a in PKG_LAUNCH_WORDS), None)
+    if k is None:
+        if seg.name not in ("pnpm", "yarn"):
+            return []
+        k = 0
+        while k < len(args) and args[k].startswith("-"):
+            k += 2 if args[k] in PKG_VALUE_OPTS else 1
+        if k >= len(args) or args[k] in PKG_SUBCOMMANDS:
+            return []
+        k -= 1
+    rest = args[k + 1:]
+    lines = [rest] + ([rest[rest.index("--") + 1:]] if "--" in rest else [])
+    out = []
+    for words in lines:
+        if not words:
+            continue
+        inner = cmdscan.scan(" ".join(requote(w) for w in words))
+        for s in inner.segments:
+            out += [s] + pkg_launch(s, depth + 1)
+    return out
 
 
 def candidates(seg):
@@ -533,8 +539,10 @@ for seg in scan.segments:
 ALIAS_WORDS = re.compile(
     r"BASH_ALIASES|POSIXLY_CORRECT|SHELLOPTS|BASHOPTS|BASH_ENV|expand_aliases|\bposix\b", re.I)
 ENV_ASSIGN = re.compile(r"(?<![\w.])ENV\+?=")
-# SO-H-9: a git alias set through the environment for one run.
-GIT_ALIAS_ENV = re.compile(r"GIT_CONFIG_(KEY_\w*|PARAMETERS)=\W{0,3}(alias\.|\$)", re.I)
+# SO-H-9: a git alias set through the environment for one run. SR-M-12: a config file
+# swapped in through the environment can define one; refused wherever it is assigned.
+GIT_ALIAS_ENV = re.compile(r"GIT_CONFIG_(KEY_\w*|PARAMETERS)=\W{0,3}(alias\.|include|\$)"
+                           r"|(?<![\w.])GIT_CONFIG(_GLOBAL|_SYSTEM)?=", re.I)
 DECLARERS = ("declare", "typeset", "local", "export", "readonly")
 
 
@@ -566,26 +574,20 @@ def targets(name, args):
 def shell_opts_dynamic(args):
     # AUTO-SR-20: a dynamic word up to the first operand (included), and a dynamic word after
     # an `-o` / `-O` cluster anywhere in the argv, past `-c` too (`bash -c -o "$m" x`).
-    # CR-M-9 / SO-H-6 (#1294): after `-c`, the first operand past any `--` is the program
-    # string. It is skipped here, because predicate 7 already reads it as nested segments
-    # (`bash -c \x27echo "$1"\x27 _ x` is allowed, `bash -c -- "$m"` refuses there).
-    takes = operand = code = False
-    for a in args:
-        if a == "--":
-            continue
-        opt = a[:1] in "-+" and len(a) > 1
-        if code and not opt and not takes:
-            code = False
-            operand = True
-            continue
-        if dynamic_word(a) and (takes or not operand):
-            return True
-        if not opt and not takes:
-            operand = True
-        short = opt and a[1:2] != "-"
-        code = code or (short and not operand and "c" in a[1:])
-        takes = short and bool(set(a[1:]) & set("oO"))
-    return False
+    # CR-M-9 / SO-H-6 / SR-H-9 (#1294): cmdscan.shell_program finds the program string the
+    # way the shell does, options after `-c` included. The program is not judged here,
+    # because predicate 7 reads it as nested segments (`bash -c \x27echo "$1"\x27 _ x` is
+    # allowed, `bash -c -x "$x"` refuses there); a script operand is judged like an option.
+    program, is_code, flags, values = cmdscan.shell_program(args)
+    words = flags + values + ([] if is_code or program is None else [program])
+    return any(dynamic_word(w) for w in words)
+
+
+def git_alias_key(key):
+    # An alias body, or an include file that can carry one (SR-M-12).
+    key = key.lower()
+    return key.startswith("alias.") or key == "include.path" or (
+        key.startswith("includeif.") and key.endswith(".path"))
 
 
 def git_alias_write(args):
@@ -593,23 +595,32 @@ def git_alias_write(args):
     # reads (`git config alias.x \x27!rm -rf /etc\x27`, then `git x`). Refused: a config
     # write to an `alias.*` key or to a dynamic key, in any scope; a section renamed to
     # `alias`; and the per-run `git -c alias.x=...` / `--config-env`. Reads stay allowed.
-    # The environment forms (GIT_CONFIG_KEY_<n>, GIT_CONFIG_PARAMETERS) are GIT_ALIAS_ENV.
-    k = 0
-    while k < len(args) and args[k].startswith("-"):
-        a = args[k]
-        nxt = args[k + 1] if k + 1 < len(args) else ""
+    # SR-M-12: `include.path` / `includeIf.*.path` load a file that can define an alias.
+    # The environment forms (GIT_CONFIG_KEY_<n>, GIT_CONFIG_PARAMETERS, GIT_CONFIG_GLOBAL,
+    # GIT_CONFIG_SYSTEM, GIT_CONFIG) are GIT_ALIAS_ENV.
+    # SR-M-11: `config` is found as any word (`git --attr-source HEAD config ...`), and a
+    # `-c` pair as any word pair. Accepted false refusal: `config` as another value.
+    for i, a in enumerate(args):
+        nxt = args[i + 1] if i + 1 < len(args) else ""
         pair = None
-        if a.startswith("-c"):
+        if a.startswith("-c") and not a.startswith("--"):
             pair = a[2:] or nxt
         elif a.startswith("--config-env"):
             pair = a.split("=", 1)[1] if "=" in a else nxt
-        if pair is not None and (dynamic_word(pair) or pair.lower().startswith("alias.")):
+        if pair is not None and git_alias_key(pair.split("=", 1)[0]):
             return True
-        k += 2 if a in ("-C", "-c", "--config-env", "--git-dir", "--work-tree",
-                        "--namespace") else 1
-    if k >= len(args) or args[k] != "config":
+    # A dynamic `-c` pair only among the global options, so `git commit -c "$sha"` passes.
+    k = 0
+    while k < len(args) and args[k].startswith("-"):
+        if args[k] == "-c" and k + 1 < len(args) and dynamic_word(args[k + 1]):
+            return True
+        if args[k].startswith("-c") and dynamic_word(args[k]):
+            return True
+        k += 2 if args[k] in ("-C", "-c", "--config-env", "--git-dir", "--work-tree",
+                              "--namespace", "--attr-source") else 1
+    if "config" not in args:
         return False
-    rest = args[k + 1:]
+    rest = args[args.index("config") + 1:]
     sub = None
     if rest[:1] and rest[0] in ("set", "get", "list", "unset", "rename-section",
                                 "remove-section", "edit"):
@@ -628,7 +639,8 @@ def git_alias_write(args):
     if not operands:
         return False
     if sub == "rename-section" or "--rename-section" in opts:
-        return any(dynamic_word(o) or o.lower().split(".")[0] == "alias" for o in operands[1:])
+        return any(dynamic_word(o) or o.lower().split(".")[0] in ("alias", "include")
+                   or o.lower().startswith("includeif") for o in operands[1:])
     reads = ("--get", "--list", "-l", "--unset", "--remove-section", "-e", "--edit")
     if sub in ("get", "list", "unset", "remove-section", "edit") or (
             sub is None and any(o.startswith(reads) for o in opts)):
@@ -636,7 +648,7 @@ def git_alias_write(args):
     write = sub == "set" or len(operands) > 1 or any(
         o in ("--add", "--replace-all") for o in opts)
     key = operands[0]
-    return write and (dynamic_word(key) or key.lower().startswith("alias."))
+    return write and (dynamic_word(key) or git_alias_key(key))
 
 
 def alias_route(cand, own):

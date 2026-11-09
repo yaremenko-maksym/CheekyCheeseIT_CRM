@@ -340,17 +340,51 @@ def _interpreter_code_payloads(tokens):
     per placement; so it is now a sweep over the whole token list, and no later step gets to
     decide whether it applies.
     """
-    out = []
-    for i, t in enumerate(tokens):
-        if not _is_code_flag(t):
+    program, is_code, _flags, values = shell_program(tokens)
+    out = [program] if is_code else []
+    # A value with a space cannot be an option name (`bash -oc 'rm -rf /etc'`): read it as code.
+    return out + [v for v in values if re.search(r"\s", v)]
+
+
+def shell_program(tokens):
+    """How a shell reads its argv (`tokens`, without the shell name).
+
+    Returns (program, is_code, flags, values). Options go on after `-c` (SR-H-9, #1294:
+    `bash -c -x "$x"` runs `$x`), so the program is the first operand AFTER every option:
+    clusters led by `-` or `+` are options, each `o` / `O` in a cluster takes the next word
+    as its value, `--rcfile` / `--init-file` take one, and `--` or a lone `-` end options.
+    is_code: a code flag was seen; otherwise `program` is the script operand, or None.
+    flags: option words before the first operand. values: every `-o` / `-O` value.
+    Broad on purpose: _is_code_flag decides the code flag, and an operand before it does not
+    stop the sweep (the safe direction).
+    """
+    flags, values, script = [], [], None
+    seen_c = ended = False
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if not ended and t in ("--", "-"):
+            ended = True
+            i += 1
             continue
-        # SO-H-6 (#1294): `bash -c -- 'rm -rf /etc'` runs the word after `--`.
-        j = i + 1
-        while j < len(tokens) and tokens[j] == "--":
-            j += 1
-        if j < len(tokens):
-            out.append(tokens[j])
-    return out
+        if not ended and t[:1] in "-+" and len(t) > 1:
+            if script is None:
+                flags.append(t)
+            if t.startswith("--"):
+                take = 1 if t in ("--rcfile", "--init-file") else 0
+            else:
+                take = sum(ch in "oO" for ch in t[1:])
+            seen_c = seen_c or _is_code_flag(t)
+            values += tokens[i + 1:i + 1 + take]
+            i += 1 + take
+            continue
+        if seen_c:
+            return t, True, flags, values
+        if script is None:
+            script = t
+        ended = False
+        i += 1
+    return script, False, flags, values
 
 # Commands this module claims to understand well enough to judge by NAME ALONE.
 # Membership means one of exactly two things and nothing else:
@@ -1186,6 +1220,9 @@ def join_continuations(text):
     return "".join(out)
 
 
+ASSIGN_WORD_OPEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?\+?=\Z")
+
+
 def _array_literal_end(text, i):
     """Index of the `)` that closes the array literal opened at `text[i]`, or None."""
     depth, quote, j = 0, None, i
@@ -1286,11 +1323,13 @@ def _split_segments(text):
 
         # CR-M-10 (#1294): `arr=("$x" b)` is a compound assignment, not a subshell, and
         # its elements are values that run nothing ($( ) and backticks were lifted out in
-        # stage 1). The literal is kept as an empty `()`. A process substitution inside
-        # it does run, so that shape keeps the subshell reading below.
-        if ch == "(" and cur and text[i - 1] == "=":
+        # stage 1). The literal is kept as an empty `()`. Only a word that starts an
+        # assignment qualifies: zsh runs `=(cmd)` (SR-H-10), and the Bash tool shell is zsh.
+        # Any `(` inside the literal (`<(`, `>(`, `=(`, nesting) keeps the subshell reading.
+        if (ch == "(" and cur and text[i - 1] == "="
+                and ASSIGN_WORD_OPEN_RE.match(("".join(cur).split() or [""])[-1])):
             end = _array_literal_end(text, i)
-            if end is not None and not re.search(r"[<>]\(", text[i + 1:end]):
+            if end is not None and "(" not in text[i + 1:end]:
                 cur.append("()")
                 code.append("()")
                 i = end + 1

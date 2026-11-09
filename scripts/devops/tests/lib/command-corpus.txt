@@ -962,6 +962,53 @@ allow	safety	git config --get-regexp alias
 allow	safety	git config user.name x
 allow	safety	git config --global user.email a@b.c
 allow	safety	git -c core.autocrlf=false status
+# SR-H-9 of #1294: options go on after -c; the program is the first operand after them.
+block	safety	bash -c -x "$x"
+block	safety	bash -c +x "$x"
+block	safety	bash -c -o errexit "$x"
+block	safety	bash -c -O extglob "$x"
+block	safety	sh -c -e "$x"
+block	safety	bash -c - 'rm -rf /etc'
+block	safety	bash -c -x 'rm -rf /etc'
+block	safety	bash -oc 'rm -rf /etc'
+# SR-H-10 of #1294: zsh runs `=(cmd)`; only an assignment word opens an array literal.
+block	safety	echo =(rm -rf /etc)
+block	safety	cat =(rm -rf /etc)
+block	safety	a=(=(rm -rf /etc))
+block	safety	a=(x =(rm -rf /etc))
+allow	safety	arr+=("$x")
+# SR-M-9 / SR-M-10 of #1294: the words after a launch subcommand are scanned as a command.
+block	safety	pnpm --reporter silent exec $x
+block	safety	npm --loglevel silent exec $x
+block	safety	yarn --cwd x exec $x
+block	safety	pnpm exec env $x
+block	safety	pnpm exec sudo $x
+block	safety	pnpm exec nice $x
+block	safety	pnpm exec timeout 5 $x
+block	safety	pnpm exec xargs $x
+block	safety	yarn workspace foo exec $x
+block	safety	yarn workspaces foreach exec $x
+block	safety	npm explore foo -- $x
+block	safety	npm create $x
+block	safety	pnpm create $x
+block	safety	yarn create $x
+block	safety	npm init $x
+block	safety	bun x $x
+allow	safety	npm init -y
+# SR-M-11 / SR-M-12 of #1294: `config` anywhere; include files and swapped config files.
+block	safety	git --attr-source HEAD config alias.x '!rm'
+block	safety	git config include.path /tmp/x
+block	safety	git config --global Include.Path /tmp/x
+block	safety	git config includeIf.gitdir:/x/.path /tmp/x
+block	safety	git -C repo config include.path x
+block	safety	git config --rename-section foo include
+block	safety	GIT_CONFIG_GLOBAL=/tmp/x git x
+block	safety	env GIT_CONFIG_SYSTEM=/tmp/x git x
+block	safety	GIT_CONFIG=/tmp/x git x
+allow	safety	git config --get include.path
+allow	safety	git config --get-regexp includeIf
+allow	safety	git commit -c "$sha"
+allow	safety	GIT_CONFIG_NOSYSTEM=1 git status
 # AUTO-SR-12 / AUTO-SR-15 of #1294: no exception for a package version.
 block	safety	npx pkg@$(echo x)
 block	safety	pkg@$x

@@ -760,6 +760,38 @@ for c in 'git config --get alias.x' 'git config --list' 'git config --get-regexp
          'git config user.name x' 'git config --global user.email a@b.c' 'git -c core.autocrlf=false status'; do
   assert_green "git config read or a non-alias write: $c" -- h "$c"
 done
+# SR-H-9 (#1294): options go on after -c, so the program is the first operand after them.
+for c in 'bash -c -x "$x"' 'bash -c +x "$x"' 'bash -c -o errexit "$x"' 'bash -c -O extglob "$x"' \
+         'sh -c -e "$x"'; do
+  assert_red "program string after an option past -c: $c" --contains "no gate reads" -- h "$c"
+done
+for c in "bash -c - 'rm -rf /etc'" "bash -c -x 'rm -rf /etc'" "bash -oc 'rm -rf /etc'"; do
+  assert_red "destructive program string after an option past -c: $c" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+# SR-H-10 (#1294): zsh runs `=(cmd)`; only an assignment word opens an array literal.
+for c in 'echo =(rm -rf /etc)' 'cat =(rm -rf /etc)' 'a=(=(rm -rf /etc))' 'a=(x =(rm -rf /etc))'; do
+  assert_red "zsh process substitution: $c" --contains "[pre:bash:safety] BLOCK" -- h "$c"
+done
+assert_green "array append with a dynamic value: arr+=(\"\$x\")" -- h 'arr+=("$x")'
+# SR-M-9 / SR-M-10 (#1294): the words after a launch subcommand are scanned as a command.
+for c in 'pnpm --reporter silent exec $x' 'npm --loglevel silent exec $x' 'yarn --cwd x exec $x' \
+         'pnpm exec env $x' 'pnpm exec sudo $x' 'pnpm exec nice $x' 'pnpm exec timeout 5 $x' \
+         'pnpm exec xargs $x' 'yarn workspace foo exec $x' 'yarn workspaces foreach exec $x' \
+         'npm explore foo -- $x' 'npm create $x' 'pnpm create $x' 'yarn create $x' 'npm init $x' 'bun x $x'; do
+  assert_red "package runner launch: $c" --contains "no gate reads" -- h "$c"
+done
+assert_green "static init: npm init -y" -- h 'npm init -y'
+# SR-M-11 / SR-M-12 (#1294): `config` anywhere; include files and swapped config files.
+for c in "git --attr-source HEAD config alias.x '!rm'" 'git config include.path /tmp/x' \
+         'git config --global Include.Path /tmp/x' 'git config includeIf.gitdir:/x/.path /tmp/x' \
+         'git -C repo config include.path x' 'git config --rename-section foo include' \
+         'GIT_CONFIG_GLOBAL=/tmp/x git x' 'env GIT_CONFIG_SYSTEM=/tmp/x git x' 'GIT_CONFIG=/tmp/x git x'; do
+  assert_red "git include or config file swap: $c" --contains "alias" -- h "$c"
+done
+for c in 'git config --get include.path' 'git config --get-regexp includeIf' 'git commit -c "$sha"' \
+         'GIT_CONFIG_NOSYSTEM=1 git status'; do
+  assert_green "git include read or a non-config dynamic value: $c" -- h "$c"
+done
 # AUTO-SR-12 / AUTO-SR-15 (#1294): no exception for a package version; a dynamic word in a
 # command position refuses. Accepted false refusal: `npx -y pkg@$VER`.
 for c in 'npx pkg@$(echo x)' 'npx pkg@`echo x`' 'npx pkg@${V}' 'npx pkg@$V/x' 'pkg@$x' 'npx pkg@$V'; do
