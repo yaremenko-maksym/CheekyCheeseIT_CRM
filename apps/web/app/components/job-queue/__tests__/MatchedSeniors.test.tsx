@@ -57,9 +57,9 @@ describe('MatchedSeniors', () => {
         },
       }),
     )
-    const heading = screen.getByRole('heading', { name: '1 сеньйор зі збігом' })
+    const heading = screen.getByRole('heading', { name: 'Сеньйори зі збігом 1' })
     expect(heading).toBeVisible()
-    expect(heading).toHaveClass('text-sm', 'font-semibold', 'tabular-nums')
+    expect(heading).toHaveClass('flex', 'items-baseline', 'gap-2', 'text-sm', 'font-semibold')
     // UX-L-4: one bordered list, rows split by dividers rather than a box per senior
     expect(screen.getByTestId('job-queue-seniors-list')).toHaveClass(
       'divide-y',
@@ -79,14 +79,16 @@ describe('MatchedSeniors', () => {
     expect(within(block).queryByText('Збіг неточний')).toBeNull()
   })
 
-  it.each([
-    [3, '3 сеньйори зі збігом'],
-    [5, '5 сеньйорів зі збігом'],
-    [21, '21 сеньйор зі збігом'],
-  ])('UX-L-4: the heading counts every matched senior, not the preview: %i', (totalCount, name) => {
-    renderBlock(cardFixture({ seniors: { items: [senior()], totalCount, nextCursor: 's-1' } }))
-    expect(screen.getByRole('heading', { name })).toBeVisible()
-  })
+  it.each([3, 5, 21])(
+    'SPEC-L-4: the label stays, a muted count follows; it counts every matched senior: %i',
+    (totalCount) => {
+      renderBlock(cardFixture({ seniors: { items: [senior()], totalCount, nextCursor: 's-1' } }))
+      const heading = screen.getByRole('heading', { name: `Сеньйори зі збігом ${totalCount}` })
+      const count = within(heading).getByText(String(totalCount))
+      expect(count).toHaveClass('text-muted-foreground', 'tabular-nums')
+      expect(count.tagName).toBe('SPAN')
+    },
+  )
 
   it('UX-L-4: with no matched senior the heading carries no count', () => {
     renderBlock(

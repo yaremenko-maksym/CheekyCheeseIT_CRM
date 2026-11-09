@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { Trans } from '@lingui/react/macro'
 import { Button } from '@/components/ui/button'
 
@@ -53,12 +53,14 @@ export function PreviewContinuation({
   const button = useRef<HTMLButtonElement | null>(null)
   const firstNew = useRef(0)
   const handOff = useRef(false)
-  const trackButton = useCallback((node: HTMLButtonElement | null) => {
+  // Held in state, not `useCallback`, so it is stable by construction: an unstable ref callback is
+  // detached and re-attached on every render, which would set `handOff` while the button is focused.
+  const [trackButton] = useState(() => (node: HTMLButtonElement | null) => {
     // null is React detaching the ref; it does so before it removes the button, so the button can
     // still hold focus at this point (on attach `button.current` is null, which is never focused)
     handOff.current = button.current === document.activeElement
     button.current = node
-  }, [])
+  })
   useLayoutEffect(() => {
     if (!handOff.current) return
     handOff.current = false

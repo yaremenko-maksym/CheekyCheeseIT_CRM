@@ -1,6 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react'
-import { msg } from '@lingui/core/macro'
-import { Trans, useLingui } from '@lingui/react/macro'
+import { Trans } from '@lingui/react/macro'
 import { Ban, Check, CircleHelp, Info, Users } from 'lucide-react'
 import {
   formatRelativeTime,
@@ -13,8 +12,6 @@ import { cn } from '@/lib/utils'
 import { PreviewContinuation } from './PreviewContinuation'
 
 const SENIORS_PAGE = 200
-// Module-level `msg` plural, not the `plural()` macro (breaks under Stryker, see TxDateField).
-const SENIORS_HEADING = msg`{n, plural, one {# сеньйор зі збігом} few {# сеньйори зі збігом} many {# сеньйорів зі збігом} other {# сеньйора зі збігом}}`
 /** §5.1.6 hit style: matched stack tokens, amber on the card. */
 export const HIT_CHIP =
   'rounded-md border border-yellow-muted/40 bg-yellow-subtle px-1.5 py-0.5 text-xs text-primary'
@@ -142,7 +139,6 @@ export function MatchedSeniors({
   renderAction?: ((senior: JobQueueCardSeniorDto) => ReactNode) | undefined
   onAccessLost: () => void
 }) {
-  const { i18n } = useLingui()
   const [expanded, setExpanded] = useState(false)
   const list = useRef<HTMLUListElement>(null)
   // the continuation fetches as soon as it has a cursor, so it gets one only after the first click
@@ -258,11 +254,10 @@ export function MatchedSeniors({
 
   return (
     <section data-testid="job-queue-seniors" className="flex flex-col gap-2">
-      <h3 className="text-sm font-semibold tabular-nums">
-        {card.seniors.totalCount > 0 ? (
-          i18n._(SENIORS_HEADING.id, { n: card.seniors.totalCount })
-        ) : (
-          <Trans>Сеньйори зі збігом</Trans>
+      <h3 className="flex items-baseline gap-2 text-sm font-semibold">
+        <Trans>Сеньйори зі збігом</Trans>
+        {card.seniors.totalCount > 0 && (
+          <span className="text-muted-foreground tabular-nums">{card.seniors.totalCount}</span>
         )}
       </h3>
       {body}

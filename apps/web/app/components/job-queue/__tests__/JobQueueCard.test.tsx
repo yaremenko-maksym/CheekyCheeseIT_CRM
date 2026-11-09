@@ -74,17 +74,19 @@ describe('JobQueueCard', () => {
     )
     expect(within(dialog).getByRole('heading', { level: 2 })).not.toHaveClass('line-clamp-2')
     expect(dialog).toHaveClass('inset-0', 'h-dvh', 'sm:h-auto', 'sm:max-w-2xl')
-    // UX-L-3: the shadcn dialog's enter/exit set, only when motion is allowed (none on reduce)
+    // UX-L-3 / SPEC-L-3: the shadcn dialog's enter/exit set; the fade always (opacity only under
+    // reduced motion), the zoom only when motion is safe
     expect(dialog).toHaveClass(
       'duration-150',
-      'motion-safe:data-[state=open]:animate-in',
-      'motion-safe:data-[state=closed]:animate-out',
+      'data-[state=open]:animate-in',
+      'data-[state=closed]:animate-out',
       'data-[state=open]:fade-in-0',
       'data-[state=closed]:fade-out-0',
-      'sm:data-[state=open]:zoom-in-95',
-      'sm:data-[state=closed]:zoom-out-95',
+      'sm:motion-safe:data-[state=open]:zoom-in-95',
+      'sm:motion-safe:data-[state=closed]:zoom-out-95',
     )
-    expect(dialog.className).not.toMatch(/(^| )data-\[state=(open|closed)\]:animate-/)
+    expect(dialog.className).not.toMatch(/motion-safe:data-\[state=(open|closed)\]:(animate|fade)-/)
+    expect(dialog.className).not.toMatch(/(^| )(sm:)?data-\[state=(open|closed)\]:zoom-/)
   })
 
   it('the close button is 44×44, labelled «Закрити», and closes', async () => {
