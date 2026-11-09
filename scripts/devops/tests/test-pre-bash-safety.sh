@@ -834,8 +834,17 @@ for c in "npm exec -c 'rm -rf /etc'" "npm exec --package=x -c 'rm -rf /etc'" \
   assert_red "static exec shell-mode payload: $c" --contains "rm -rf" -- h "$c"
 done
 for c in "npm exec -c 'echo hi'" "npm exec --yes -c 'echo hi'" 'pnpm exec vitest run "$FILE"' 'pnpm --filter @crm/api test' \
-         'pnpm exec vitest -c vitest.config.ts' 'pnpm --filter @crm/web exec tsc --noEmit'; do
+         'pnpm exec vitest -c vitest.config.ts' 'pnpm --filter @crm/web exec tsc --noEmit' \
+         'pnpm exec eslint --fix src' 'npx prettier --check .'; do
   assert_green "exec shell-mode or a plain exec: $c" -- h "$c"
+done
+# SR-M-14 / SO-H-13 (#1294): the words after an option are also a fresh command line, since the
+# option may take a value (`-p cowsay`) or carry an empty `=` value (`--shell-mode=`).
+for c in 'npm exec -p cowsay $x' 'yarn dlx -p cowsay $x' 'pnpm dlx --package cowsay $x' \
+         'npm exec --shell-mode= $x' 'pnpm exec --shell-mode="" $x' 'npm exec --package=cowsay $x' \
+         'pnpm exec prettier --write "$F"'; do
+  # The last one is an accepted false refusal: a dynamic word after any option fails closed.
+  assert_red "program after a runner option: $c" --contains "no gate reads" -- h "$c"
 done
 for c in 'pnpm --filter $pkg test' 'pnpm --filter @crm/api test' 'pnpm install' 'pnpm -r build' \
          'pnpm -w add -D x' 'yarn install' 'pnpm exec vitest run "$FILE"' 'pnpm -F $pkg run build' \

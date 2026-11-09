@@ -207,6 +207,7 @@ def pkg_launch(seg, depth=0):
             o, eq, v = w.partition("=")
             if w[:1] == "-":
                 lines += [["sh", "-c", x] for x in ([v] if eq else [w] + head[k + 1:k + 2])]
+                lines += [head[k + 1:]] + ([] if eq else [head[k + 2:]])  # SR-M-14, SO-H-13
         lines += [rest] + ([rest[rest.index("--") + 1:]] if "--" in rest else [])
     out = []
     for words in lines:

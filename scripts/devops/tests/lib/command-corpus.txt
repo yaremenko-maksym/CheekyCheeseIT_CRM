@@ -1061,6 +1061,16 @@ block	safety	npm exec --shell-m='rm -rf /etc'
 block	safety	pnpm exec vitest -c "$cfg"
 block	safety	npm exec --package $p foo
 block	safety	pnpm exec vitest run --reporter $r
+block	safety	pnpm exec prettier --write "$F"
+# SR-M-14 / SO-H-13 of #1294: the words after an option are also a fresh command line.
+block	safety	npm exec -p cowsay $x
+block	safety	yarn dlx -p cowsay $x
+block	safety	pnpm dlx --package cowsay $x
+block	safety	npm exec --shell-mode= $x
+block	safety	pnpm exec --shell-mode="" $x
+block	safety	npm exec --package=cowsay $x
+allow	safety	pnpm exec eslint --fix src
+allow	safety	npx prettier --check .
 allow	safety	npm exec -c 'echo hi'
 allow	safety	npm exec --yes -c 'echo hi'
 allow	safety	pnpm exec vitest -c vitest.config.ts
