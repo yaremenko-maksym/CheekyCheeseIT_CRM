@@ -111,10 +111,7 @@ INPUT=$(cat)
 printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
 import importlib.util, json, os, re, shlex, sys
 
-# Loaded by absolute path instead of sys.path.insert: putting lib/ on the import
-# path made every stdlib module cmdscan imports (shlex) resolvable from that
-# directory, on EVERY Bash call. The bar to abuse it was high, but the directory
-# had no business being importable at all (review LOW).
+# Loaded by absolute path: lib/ is never on the import path (review LOW).
 _spec = importlib.util.spec_from_file_location(
     "cmdscan", os.path.join(os.environ["CMDSCAN_LIB"], "cmdscan.py"))
 cmdscan = importlib.util.module_from_spec(_spec)
@@ -128,25 +125,12 @@ if not cmd:
 scan = cmdscan.scan(cmd)
 blocked = []
 
-# Every predicate below judges CANDIDATES, not segments. For a segment the
-# analyzer understood, the candidate list is just the segment. For one it could
-# not (`script -q /dev/null rm -rf /etc`, `sudo -T 5 rm -rf /etc`, an unknown
-# wrapper) it is every "the real command might start here" reading — so a
-# wrapper nobody has added to the list still cannot hide the command it runs.
-# This is the fix for the review finding that 13 misses all had degraded=False:
-# the parser had not failed, it had been confidently wrong, and nothing checked.
-#
-# `code=True` also re-reads the inline program of an interpreter — python3 -c,
-# perl -e, awk BEGIN{system(...)} — through a punctuation split, because a
-# dangerous command hidden inside another language was caught by the old
-# substring rule and dropping it would be a narrowing nobody agreed to. This
-# hook can afford the resulting false positives; the launcher hooks cannot (the
-# false positive that started all of this was an inline node -e), and do not ask.
-#
+# Predicates judge CANDIDATES (every reading where the real command may start),
+# and code=True re-reads inline interpreter programs. False positives accepted.
 # NB for editors: this python source is a single-quoted bash string. It must not
 # contain a single quote anywhere — use \x27 in patterns, and avoid apostrophes
-# in comments. Size: Windows caps a command line near 32K chars; this source is
-# about 1K under it, and over it the hook refuses every command.
+# in comments. Size: Windows caps the command line, and over the cap the hook
+# refuses every command; measure real headroom after any edit here.
 # SR-M-8/9/10 (#1294): a runner launches a word named at run time (`pnpm exec $x`).
 # Read here, not in the cmdscan wrapper table other hooks share. The words after
 # the first launch word are rescanned, so wrappers unwrap and `--` splits. A script
@@ -218,6 +202,9 @@ def pkg_launch(seg, depth=0):
         rest = args[start:]
         if is_value and dynamic_word(rest[0]):
             rest = ["value"] + rest[1:]
+        o = rest[0].split("=", 1) if rest else [""]
+        if o[0] in ("-c", "--call", "--shell-mode"):  # CR-H-14: read as `sh -c`
+            rest = ["sh", "-c"] + o[1:] + rest[1:]
         lines += [rest] + ([rest[rest.index("--") + 1:]] if "--" in rest else [])
     out = []
     for words in lines:

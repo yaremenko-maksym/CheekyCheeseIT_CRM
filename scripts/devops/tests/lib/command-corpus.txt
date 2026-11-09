@@ -1036,6 +1036,16 @@ block	safety	pnpm --filter x x $y
 block	safety	npm --prefix x x $y
 block	safety	yarn --cwd dlx dlx $y
 block	safety	bun --cwd x x $y
+# CR-H-14 of #1294: -c / --call / --shell-mode right after a launch word carries a shell command.
+# pnpm exec vitest run "$FILE" and pnpm --filter @crm/api test are rows above.
+block	safety	npm exec -c "$x"
+block	safety	npm x -c "$x"
+block	safety	npm exec --call "$x"
+block	safety	pnpm exec -c "$x"
+block	safety	pnpm exec --shell-mode "$x"
+block	safety	npm exec --call=$x
+block	safety	npm exec -c 'rm -rf /etc'
+allow	safety	npm exec -c 'echo hi'
 # SR-M-11 / SR-M-12 of #1294: `config` anywhere; include files and swapped config files.
 block	safety	git --attr-source HEAD config alias.x '!rm'
 block	safety	git config include.path /tmp/x
