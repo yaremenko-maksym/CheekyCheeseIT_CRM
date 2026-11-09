@@ -871,8 +871,15 @@ block	safety	export SHELL'OPTS'
 block	safety	bash -c -o "$m" x
 block	safety	bash -c -O "$m" x
 allow	safety	bash -c 'echo hi'
-# Accepted false refusal (AUTO-SR-18): a dynamic value given to an assigning builtin.
-block	safety	local x="$1"
+# AUTO-SR-18, narrowed: only a dynamic assignment TARGET refuses; a dynamic value is allowed.
+allow	safety	local x="$1"
+allow	safety	declare x=$y
+allow	safety	readonly R="$1"
+allow	safety	export PATH="$HOME/bin:$PATH"
+allow	safety	printf -v out '%s' "$x"
+block	safety	export "$n"
+block	safety	read "$v"
+block	safety	declare x=powershell
 # AUTO-SR-12 / AUTO-SR-15 of #1294: no exception for a package version.
 block	safety	npx pkg@$(echo x)
 block	safety	pkg@$x

@@ -448,14 +448,17 @@ for seg in scan.segments:
 # expand_aliases, or the word posix, in any case (posix mode turns alias expansion on in a
 # non-interactive bash). Accepted false refusal: a message or a search that mentions one.
 # `alias` refuses on any argument with `=` or a dynamic one; listing (`alias`, `alias ls`)
-# stays allowed. A builtin that assigns to a name it reads from its arguments refuses on
-# any dynamic argument, because the name may be BASH_ALIASES under a spelling no check sees.
-# Accepted false refusals: `local x="$1"`, `export PATH="$HOME/bin:$PATH"`.
+# stays allowed. A builtin that assigns to a name it reads from its arguments refuses on a
+# dynamic TARGET or a dynamic option word, because the name may be BASH_ALIASES under a
+# spelling no check sees: the NAME of `NAME=VALUE` and a bare operand of declare and friends,
+# every word of read / mapfile, the first two operands of getopts, the word after printf -v
+# and wait -p. A dynamic VALUE is allowed (`local x="$1"`); a value naming a shell is SO-M-5.
+# `let` refuses on any dynamic argument. The target rule reads the segment itself, not its
+# punctuation readings, which split a value into words that look like bare targets.
 # AUTO-SR-13: a nameref (`declare -n a=BASH_ALIASES`) refuses in any reading.
 # set, shopt and bash/sh refuse on a dynamic option word, which may name posix.
 ALIAS_WORDS = re.compile(r"BASH_ALIASES|POSIXLY_CORRECT|SHELLOPTS|expand_aliases|\bposix\b", re.I)
-DECLARERS = ("declare", "typeset", "local", "export", "readonly", "read", "mapfile",
-             "readarray", "getopts", "let")
+DECLARERS = ("declare", "typeset", "local", "export", "readonly")
 
 
 def short_opts(args, letters):
@@ -464,9 +467,23 @@ def short_opts(args, letters):
                for a in args)
 
 
-def assigns(name, args):
-    return (name in DECLARERS or (name == "printf" and any(a.startswith("-v") for a in args))
-            or (name == "wait" and short_opts(args, "p")))
+def opt_value(args, letter):
+    # The word a short option takes, glued (`-vNAME`) or next (`-v NAME`).
+    for i, a in enumerate(args):
+        if a[:1] == "-" and a[1:2] not in ("", "-") and letter in a[1:]:
+            rest = a[a.index(letter, 1) + 1:]
+            yield rest or (args[i + 1] if i + 1 < len(args) else "")
+
+
+def targets(name, args):
+    words = [a for a in args if a != "--" and not a.startswith(("-", "+"))]
+    if name in DECLARERS:
+        return [a.split("=", 1)[0] for a in words]
+    if name in ("read", "mapfile", "readarray"):
+        return args
+    if name == "getopts":
+        return words[:2]
+    return list(opt_value(args, {"printf": "v", "wait": "p"}[name]))
 
 
 def shell_opts_dynamic(args):
@@ -483,15 +500,19 @@ def shell_opts_dynamic(args):
     return False
 
 
-def alias_route(cand):
+def alias_route(cand, own):
     name = cand.name.lstrip("\\")
     args = list(cand.argv)
     if name == "alias":
         return any("=" in a or dynamic_word(a) for a in args)
     if name in ("declare", "typeset", "local") and short_opts(args, "n"):
         return True
-    if assigns(name, args):
+    if name == "let":
         return any(dynamic_word(a) for a in args)
+    if own and name in DECLARERS + ("read", "mapfile", "readarray", "getopts", "printf", "wait"):
+        if any(a[:1] in "-+" and dynamic_word(a) for a in args):
+            return True
+        return any(dynamic_word(t) for t in targets(name, args))
     if name in ("set", "shopt"):
         before = args[:args.index("--")] if "--" in args else args
         return any(dynamic_word(a) for a in before)
@@ -512,7 +533,7 @@ for seg in scan.segments:
     words = list(seg_words(seg)) + [w for c in cands for w in [c.name] + list(c.argv)]
     for env in [seg.env] + [c.env for c in cands]:
         words += [str(k) for k in env] + [str(v) for v in env.values()]
-    if any(ALIAS_WORDS.search(w) for w in words) or any(alias_route(c) for c in cands):
+    if any(ALIAS_WORDS.search(w) for w in words) or any(alias_route(c, c is seg) for c in cands):
         blocked.append("defining an alias, or enabling alias expansion, hides a command "
                        "body no gate reads")
 

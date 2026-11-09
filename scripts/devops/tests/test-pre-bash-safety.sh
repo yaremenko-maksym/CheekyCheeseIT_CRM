@@ -689,10 +689,16 @@ for c in 'shopt -s expand""_aliases' 'shopt -s exp\and_aliases' 'export POSIXLY_
   assert_red "split alias-table name or a late shell option: $c" --contains "alias" -- h "$c"
 done
 assert_green "bash -c with a literal body" -- h "bash -c 'echo hi'"
-# Accepted false refusal: a dynamic value given to an assigning builtin.
-for c in 'local x="$1"' 'declare x=$y' 'readonly R="$1"' 'export PATH="$HOME/bin:$PATH"'; do
-  assert_red "accepted false refusal, dynamic word to an assigning builtin: $c" --contains "alias" -- h "$c"
+# AUTO-SR-18, narrowed (#1294): only a dynamic assignment TARGET refuses; a dynamic value
+# is allowed, and a value naming a shell is SO-M-5.
+for c in 'local x="$1"' 'declare x=$y' 'readonly R="$1"' 'export PATH="$HOME/bin:$PATH"' \
+         "printf -v out '%s' \"\$x\""; do
+  assert_green "dynamic value of a literal assignment target: $c" -- h "$c"
 done
+for c in 'export "$n"' 'read "$v"' 'sudo declare "$v"=1' "bash -c 'declare \"\$v\"=1'"; do
+  assert_red "dynamic assignment target: $c" --contains "alias" -- h "$c"
+done
+assert_red "declarer value naming a shell: declare x=powershell" --contains "no gate reads" -- h 'declare x=powershell'
 # AUTO-SR-12 / AUTO-SR-15 (#1294): no exception for a package version; a dynamic word in a
 # command position refuses. Accepted false refusal: `npx -y pkg@$VER`.
 for c in 'npx pkg@$(echo x)' 'npx pkg@`echo x`' 'npx pkg@${V}' 'npx pkg@$V/x' 'pkg@$x' 'npx pkg@$V'; do
