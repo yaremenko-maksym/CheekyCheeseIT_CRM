@@ -7210,7 +7210,7 @@ Sources: PR #1272 and PR #1276 reviews.
 - Optional copy: a hidden-tab empty state that says how a vacancy gets hidden (COPY-L-3 of #1272). The en "stop-listed" is slightly jargon (COPY-L-6 of #1272). COPY-L-4 of #1272 asked for no action and is recorded here so it is not re-raised.
 - The sidebar label «Черга зовнішніх вакан…» clips without an ellipsis, the search placeholder clips at 320 px, and the brand link is under 44 px at 320 and 375 px. This is shell work (UX-L-6 of #1276).
 - Row fidelity: `JobQueueRow` lacks matched tokens in the **hit** style and also-seen source names (the remainder of the owner carve-out on #1276; the seniority and chips half of SPEC-M-1 of #1272 is in PR #1283). Decide at the start of Task 7.3 to build or to drop them from the spec. In the same edit, fix the spec's `totalAlsoSeenOnCount`, because the schema field is `alsoSeenOnCount`.
-- **Decided at Task 7.3 (PR #1302):** matched tokens in the amber **hit** style are NOT shown on the queue row; `docs/design/vacancy-queue.md` §4.3 now says so. Also-seen sources stay a count only on the row (`alsoSeenOnCount`); the card shows the list of source names. The row-fidelity bullet above is closed by this decision once #1302 merges.
+- **Decided at Task 7.3 (PR #1302):** matched tokens in the amber **hit** style are NOT shown on the queue row; #1302 changes `docs/design/vacancy-queue.md` §4.3 to say so (until it merges, §4.3 on main still asks for amber hit tokens). Also-seen sources stay a count only on the row (`alsoSeenOnCount`); the card shows the list of source names. The row-fidelity bullet above is closed by this decision once #1302 merges.
 - QA never exercised HR with real row data, because the seed gave HR an empty list.
 
 **Candidate fixes.** Each item stands alone. The row decision is the only one tied to a task.
@@ -7386,11 +7386,15 @@ Sources: Phase 7 QA passes on PR #1282.
 
 ## 394. Stale `ci-failed` labels stay on PRs after checks turn green (2026-11-09)
 
-**Symptoms.** The CI failure step adds `ci-failed`, but nothing removes it when a later run is green,
-so the label outlives the failure (seen on #1282) and must be removed by hand. Agents read the label
-as a live failure.
+**Symptoms.** On #1282 the label stayed on after the checks turned green and was removed by hand.
+Agents read the label as a live failure. Three CI jobs add `ci-failed` on failure (`quality`,
+`integration`, `mutation`), but only `quality` removes it, on its own success. A failure in
+`integration` or `mutation` is therefore cleared only by a later green `quality` run, never by the
+failing job's own recovery, and the label can be stale whenever `quality` has already finished. The
+exact sequence on #1282 is not confirmed.
 
-**Candidate fixes.** Remove `ci-failed` in the aggregating job when every leg passes. DevOps zone.
+**Candidate fixes.** Remove the label in one place that runs after every labelling job and sees all
+their results. DevOps zone.
 
 **Verify.** Push a red commit, then a green one, to a test PR; `gh pr view <n> --json labels` still
 shows `ci-failed` while this is open.
