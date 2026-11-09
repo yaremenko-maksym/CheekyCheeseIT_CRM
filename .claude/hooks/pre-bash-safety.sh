@@ -355,10 +355,12 @@ def unread_shell(word):
     # The last path part, any directory (`..\\x\\cmd`, drive-relative `C:cmd`) and an
     # extension stripped. `$COMSPEC` / `%COMSPEC%` name cmd.exe and nothing else.
     last = re.split(r"[/\\:]", word)[-1]
+    # A package version (`npx pwsh@$VER`, `pwsh@7`) does not change the binary.
+    last = re.sub(r"(?<=[\w.])@.*$", "", last)
     last = re.sub(r"^[^\w.]+|[^\w.]+$", "", last)
     last = re.sub(r"\.(exe|cmd|bat|com)$", "", last, flags=re.I).lower()
     # An 8.3 short name (`C:/PROGRA~1/POWERS~1/7/pwsh~1.exe`) is the same binary.
-    short = re.fullmatch(r"(powers|pwsh|cmd)\w*~\d+", last)
+    short = re.fullmatch(r"(powers|pwsh|cmd)[^~]*~\d+", last)
     if short:
         return {"powers": "powershell"}.get(short.group(1), short.group(1))
     return "cmd" if last == "comspec" else last
@@ -370,11 +372,16 @@ def seg_words(seg):
             yield word
 
 
+def ansi_c_spells(body):
+    # An ANSI-C escape other than a quote or a backslash can spell a name (`\x63md`).
+    # `\\` pairs are consumed first, so `foo\\bar` is a literal backslash, not `\b`.
+    return re.search(r"\\[^\x22\x27]", re.sub(r"\\\\", "", body)) is not None
+
+
 def dynamic_word(word):
     # `$x`, `${x}`, `${!v}`, `$(...)` (the analyzer marks it with a `$`) and backticks.
-    # A `$` that opens ANSI-C or locale quoting (`$\x27...\x27`, `$"..."`) expands nothing,
-    # but an ANSI-C escape other than a quote or a backslash can spell a name (`\x63md`).
-    if re.search(r"\$\x27", word) and re.search(r"\\[^\x22\x27\\]", word):
+    # A `$` that opens ANSI-C or locale quoting (`$\x27...\x27`, `$"..."`) expands nothing.
+    if re.search(r"\$\x27", word) and ansi_c_spells(word):
         return True
     word = re.sub(r"\$(?=[\x22\x27])", "", word)
     return "$" in word or "\x60" in word
@@ -385,22 +392,43 @@ def refuse_dynamic(word):
                    "no gate reads" % word)
 
 
+def version_only(name):
+    # `pkg@$VER` (npx, pnpm dlx): the package is literal, only its version is dynamic.
+    m = re.fullmatch(r"(@?[\w.-]+(?:/[\w.-]+)?)@(.+)", name)
+    return bool(m) and not dynamic_word(m.group(1))
+
+
 # A dynamic word fails closed with no resolution (AUTO-SR-7 on #1294): the union of
 # same-line assignments drifts from the shell state (`+=`, `read`, `for`, `export`,
-# subshells). Accepted false refusal: `x=ls; $x`. Plain arguments of a confident segment
-# (`echo $HOME`, `ls "$SCRATCH"`) are never a command and stay allowed. A truncated scan
-# is refused below with its own reason; do not mask it.
+# subshells). Accepted false refusal: `x=ls; $x`. Only command positions are judged
+# (CR-M-8): the segment name, `seg.dynamic` and every candidate name. candidates()
+# already unwraps the known wrappers and inline programs, so `env $x`, `timeout 5 $x`,
+# `xargs $x`, `nice $x` and `bash -c "$x"` are judged through their candidate names.
+# Arguments are never judged here, so a `$` inside single quotes (`awk \x27{print $1}\x27`)
+# and an option value (`make test ARGS=$X`) stay allowed.
+# shortcut: an unknown wrapper that executes a dynamic argument (`unknown-tool $x`) is
+# not judged; upgrade by adding that wrapper to the cmdscan wrapper table.
+# A truncated scan is refused below with its own reason; do not mask it.
 for seg in scan.segments:
     if blocked:
         break
     if not scan.truncated:
-        tokens = [seg.name] if seg.confident else [seg.name] + list(seg.argv)
         # seg.dynamic too: the name is a basename, so its `$` may be gone (`$\x27\\x63md\x27`).
-        dyn = [seg.name] if seg.dynamic else [t for t in tokens if dynamic_word(t)]
-        dyn += [c.name for c in candidates(seg) if dynamic_word(c.name)]
+        names = [seg.name] + [c.name for c in candidates(seg)]
+        dyn = [n for n in names if dynamic_word(n) and not version_only(n)]
+        if seg.dynamic and not version_only(seg.name):
+            dyn.insert(0, seg.name)
         if dyn:
             refuse_dynamic(dyn[0])
             break
+    # SO-M-5 (#1294): an assignment that names a shell (`(PAGER=powershell; git log)`) is
+    # read by whatever runs later with that variable in its environment, so any assignment
+    # word whose value names one of the three shells refuses, prefix or standalone.
+    shell_vars = ["%s=%s" % (k, v) for k, v in seg.env.items()
+                  if any(unread_shell(w) in UNREAD_SHELLS for w in str(v).split())]
+    if shell_vars:
+        blocked.append("`%s` names a shell whose syntax no gate reads" % shell_vars[0])
+        break
     # A segment the analyzer did not understand: every word may be the command, including
     # the ones too odd to be a reading (a quoted path).
     words = [] if seg.confident else list(seg_words(seg))
@@ -411,6 +439,24 @@ for seg in scan.segments:
     for cand in candidates(seg):
         if unread_shell(cand.name) in UNREAD_SHELLS:
             blocked.append("`%s` runs a shell whose syntax no gate reads" % cand.name)
+            break
+
+# ── predicate 8: an alias body no gate reads ────────────────────────────────
+# SR-M-7 (#1294): `alias ls=\x27rm -rf /etc\x27` turns a later `ls` into anything, and no
+# gate reads the body. Agents never need an alias or expand_aliases, so defining one (an
+# `=` in the arguments), writing BASH_ALIASES, or `shopt -s expand_aliases` refuses.
+# Listing (`alias`, `alias ls`) stays allowed.
+for seg in scan.segments:
+    if blocked:
+        break
+    for cand in candidates(seg):
+        name = cand.name.lstrip("\\")
+        args = list(cand.argv)
+        if (name == "alias" and any("=" in a for a in args)) \
+                or (name == "shopt" and "expand_aliases" in args) \
+                or re.search(r"\bBASH_ALIASES\[[^]]*\]\+?=", seg.raw or ""):
+            blocked.append("defining an alias, or enabling alias expansion, hides a command "
+                           "body no gate reads")
             break
 
 # ── the analyzer admitting it did not finish ────────────────────────────────

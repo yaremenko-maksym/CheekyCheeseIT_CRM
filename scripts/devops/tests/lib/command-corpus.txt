@@ -798,6 +798,43 @@ allow	safety	echo $HOME
 # AUTO-SR-9 of #1294: an 8.3 short name is the same binary.
 block	safety	C:/PROGRA~1/POWERS~1/7/pwsh~1.exe -c x
 block	safety	echo del x | unknown-tool C:/Windows/System32/WindowsPowerShell/v1.0/POWERS~1.EXE
+block	safety	echo del x | unknown-tool C:/PROGRA~1/PWSH-P~1.EXE
+# CR-M-7 / SO-M-2 of #1294: a `$` inside single quotes is literal, never a dynamic word.
+allow	safety	awk '{print $1}' f
+allow	safety	awk -F: '{print $1}' /etc/passwd
+allow	safety	ps aux | awk '{print $2}'
+allow	safety	sed 's/$//' f
+allow	safety	sed -i 's/foo$/bar/' f
+allow	safety	sed -n '1,$p' f
+allow	safety	perl -ne 'print if /x$/' f
+allow	safety	docker exec x sh -c 'ls $HOME'
+allow	safety	echo $'foo\\bar'
+# CR-M-8 of #1294: the dynamic check judges command positions only (the segment name and
+# every candidate name). Known wrappers unwrap, so their dynamic argument is a name.
+block	safety	nice $x
+block	safety	npx -y pwsh@$VER x
+allow	safety	pnpm exec vitest run "$FILE"
+allow	safety	make test ARGS=$X
+allow	safety	npm run build -- --base=$BASE
+allow	safety	[ -z "$X" ]
+allow	safety	pnpm --filter $pkg test
+allow	safety	npx -y pkg@$VER x
+allow	safety	docker run -e K=$V img
+# KNOWN LIMIT (#1294): an unknown wrapper that executes a dynamic argument is not judged.
+allow	safety	unknown-tool $x
+allow	safety	unknown-tool foo $x
+# SO-M-5 of #1294: an assignment whose value names a shell refuses, prefix or standalone.
+block	safety	(PAGER=powershell; git log)
+block	safety	{ PAGER=powershell; git log; }
+block	safety	(VISUAL=powershell; git commit)
+block	safety	echo hi && if :; then PAGER=powershell; git log; fi
+allow	safety	X=hello; echo $X
+# SR-M-7 of #1294: an alias body is never judged, so defining one or enabling expansion refuses.
+block	safety	shopt -s expand_aliases
+block	safety	alias ls='rm -rf /etc'
+block	safety	shopt -s expand_aliases; alias ls='rm -rf /etc'; ls
+block	safety	BASH_ALIASES[ls]='rm -rf /etc'
+allow	safety	alias
 allow	safety	ls cmd
 allow	safety	go build ./cmd/server
 allow	safety	echo $COMSPEC

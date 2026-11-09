@@ -603,11 +603,36 @@ for c in 'echo del x | winpty "$COMSPEC"' 'x=$COMSPEC; echo del x | $x' 'x=$COMS
          'echo del x | ${!v} foo' 'echo del x | "$(printenv COMSPEC)" foo' 'echo del x | `printenv COMSPEC` foo'; do
   assert_red "dynamic command word: $c" --contains "no gate reads" -- h "$c"
 done
-# AUTO-SR-8 (#1294): every reading is gated, not only the segment command word.
-for c in 'env $x' 'xargs $x' 'timeout 5 $x' 'bash -c "$x"' 'unknown-tool foo $x' \
-         "echo del x | \$'\x63md'" "unknown-tool \$'\x63md' foo"; do
-  assert_red "dynamic word in a reading: $c" --contains "no gate reads" -- h "$c"
+# AUTO-SR-8 / CR-M-8 (#1294): every command position is gated - the segment name, a dynamic
+# segment and every candidate name. Known wrappers unwrap, so their dynamic argument is a name.
+for c in 'env $x' 'xargs $x' 'timeout 5 $x' 'nice $x' 'bash -c "$x"' 'npx -y pwsh@$VER x' \
+         "echo del x | \$'\x63md'"; do
+  assert_red "dynamic word in a command position: $c" --contains "no gate reads" -- h "$c"
 done
+# CR-M-8: arguments are never judged by the dynamic check - option values, operands, `[`.
+for c in 'pnpm exec vitest run "$FILE"' 'make test ARGS=$X' 'npm run build -- --base=$BASE' '[ -z "$X" ]' \
+         'pnpm --filter $pkg test' 'npx -y pkg@$VER x' 'docker run -e K=$V img'; do
+  assert_green "dynamic word as an argument: $c" -- h "$c"
+done
+# Known limit (shortcut in predicate 7): an unknown wrapper that executes a dynamic argument is
+# not judged. Pinned so a change is seen.
+for c in 'unknown-tool $x' 'unknown-tool foo $x' "unknown-tool \$'\x63md' foo"; do
+  assert_green "known limit, unknown wrapper with a dynamic argument: $c" -- h "$c"
+done
+# SO-M-5 (#1294): an assignment that names a shell refuses, prefix or standalone, grouped or not.
+for c in '(PAGER=powershell; git log)' '{ PAGER=powershell; git log; }' '(VISUAL=powershell; git commit)' \
+         'echo hi && if :; then PAGER=powershell; git log; fi' 'PAGER=powershell git log'; do
+  assert_red "assignment naming a shell: $c" --contains "no gate reads" -- h "$c"
+done
+assert_green "assignment naming no shell: X=hello; echo \$X" -- h 'X=hello; echo $X'
+# CR-M-7 / SO-M-2 (#1294): a `$` inside single quotes is literal.
+for c in "awk '{print \$1}' f" "awk -F: '{print \$1}' /etc/passwd" "ps aux | awk '{print \$2}'" \
+         "sed 's/\$//' f" "sed -i 's/foo\$/bar/' f" "sed -n '1,\$p' f" "perl -ne 'print if /x\$/' f" \
+         "docker exec x sh -c 'ls \$HOME'"; do
+  assert_green "single-quoted dollar is literal: $c" -- h "$c"
+done
+# SO-L-3 (#1294): a `\\` pair in ANSI-C quoting is a literal backslash, not an escape.
+assert_green "ANSI-C backslash pair: echo \$'foo\\\\bar'" -- h "echo \$'foo\\\\bar'"
 # Accepted false refusal: any dynamic command word, assigned in the same command or not.
 for c in '"$PNPM" install' '$EDITOR file.txt' 'x=ls; $x' 'PNPM=pnpm; $PNPM install' 'a=pnpm; b=$a; "$b" install'; do
   assert_red "accepted false refusal, dynamic command word: $c" --contains "no gate reads" -- h "$c"
@@ -617,8 +642,17 @@ for c in 'echo $HOME' 'ls "$SCRATCH"' 'git commit -m "$msg"'; do
 done
 # AUTO-SR-9 (#1294): an 8.3 short name is the same binary.
 for c in 'C:/PROGRA~1/POWERS~1/7/pwsh~1.exe -c x' 'echo del x | unknown-tool C:/Windows/System32/WindowsPowerShell/v1.0/POWERS~1.EXE' \
-         'echo del x | winpty "C:\Windows\System32\CMD~1.EXE"'; do
+         'echo del x | winpty "C:\Windows\System32\CMD~1.EXE"' \
+         'echo del x | unknown-tool C:/PROGRA~1/PWSH-P~1.EXE'; do
   assert_red "8.3 short name of a shell: $c" --contains "no gate reads" -- h "$c"
+done
+# SR-M-7 (#1294): an alias body is never judged, so defining one refuses.
+for c in 'shopt -s expand_aliases' "alias ls='rm -rf /etc'" "shopt -s expand_aliases; alias ls='rm -rf /etc'; ls" \
+         "BASH_ALIASES[ls]='rm -rf /etc'"; do
+  assert_red "alias definition or expansion: $c" --contains "alias" -- h "$c"
+done
+for c in 'alias' 'alias ls'; do
+  assert_green "listing aliases: $c" -- h "$c"
 done
 # CR-M-4 (#1294): a decoy install in one quoted argument must not exempt a launch in the
 # next one, or past a `;` inside a -c string, and a flat `concurrently` runs every word.
