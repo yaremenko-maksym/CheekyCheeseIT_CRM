@@ -29,7 +29,7 @@ The 7.3 card shows a vacancy but cannot act on it. 7.4 adds the actions from pla
 1. `apps/web/app/components/job-queue/JobQueueCard.tsx` — mount the actions; blocking notes (§5.7, closed source).
 2. `apps/web/app/components/job-queue/JobQueueActions.tsx` (new) — per-senior «Записати подачу», duplicate confirm, apply-first reminder, footer actions.
 3. `apps/web/app/components/job-queue/DismissMenu.tsx` (new) — «Приховати» reason menu (Radix, keyboard-accessible) + undo toast.
-4. `apps/web/app/components/job-queue/__tests__/` — tests listed in the plan (failing first).
+4. `apps/web/app/components/job-queue/__tests__/` and `apps/web/app/hooks/__tests__/` (`use-job-queue.test.tsx`, `use-job-queue-actions.test.tsx`) — tests listed in the plan and AC 9 (failing first).
 5. `packages/shared/src/i18n/locales/{uk,en}/messages.po` — via `pnpm i18n:extract` only, never by hand; fill `en`; `pnpm i18n:compile`.
 6. Carried over from PR #1302 live review (AC 9): `apps/web/app/components/job-queue/MatchedSeniors.tsx` (seniors heading count) and `apps/web/app/hooks/use-job-queue.ts` (`useJobQueueCard` and the seniors / sources continuation queries: retry policy).
 
@@ -59,7 +59,7 @@ The 7.3 card shows a vacancy but cannot act on it. 7.4 adds the actions from pla
 8. [ ] Responsive: no horizontal overflow at 320 / 375 / 768 / 1024 / 1280 / 1440 / 1920; touch targets ≥ 44 px on mobile; no hover-only actions.
 9. [ ] Carried over from PR #1302 (three LOW findings moved here; report one line per id):
    - **UX-L-5** (design review 5831045057): a triage card shows «Сеньйори зі збігом 1» above «Сеньйорів не підібрано автоматично». Show the count only when a senior list renders; first read why a triage card carries `seniors.totalCount > 0` and say what it counts.
-   - **UX-L-6** (same review): the seniors count sits 8 px after the label; spec §5.3 puts it at the right end of the heading row (`ml-auto` on the count span). Assert the class.
+   - **UX-L-6** (same review): the seniors count sits 8 px after the label; spec §5.1 and the reference `docs/design/assets/vacancy-queue/card-default-1440.png` put it at the right end of the heading row (`ml-auto` on the count span). Assert the class.
    - **QA-LOW-6** (manual-qa review 5831124681): `useJobQueueCard` and the seniors / sources continuation queries inherit the app-wide `retry: 1`, so a 403/404 is requested twice (~1.1 s) before the card closes. Do not retry on 403/404 for those queries; keep the default retry for other errors. Test: a 404 issues exactly one request before the close.
 
 ## Interaction tests
