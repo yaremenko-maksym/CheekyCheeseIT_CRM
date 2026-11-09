@@ -1120,10 +1120,6 @@ msgstr "Виберіть отримувача-партнера"
 msgid "Чекає підтвердження від {0} — поки діє <0>{1}%</0>"
 msgstr "Чекає підтвердження від {0} — поки діє <0>{1}%</0>"
 
-#: apps/web/app/components/job-queue/PossibleDuplicates.tsx
-msgid "Можливий дублікат. Перевірте, чи це не та сама вакансія."
-msgstr "Можливий дублікат. Перевірте, чи це не та сама вакансія."
-
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 msgid "Редактор: <0>{roleLabel}</0>"
 msgstr "Редактор: <0>{roleLabel}</0>"

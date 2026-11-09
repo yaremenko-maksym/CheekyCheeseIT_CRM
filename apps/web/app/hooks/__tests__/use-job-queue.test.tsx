@@ -467,6 +467,40 @@ describe('useJobQueueCard', () => {
     ).toBeDefined()
   })
 
+  it('SR-M-1: once a lost card closes, it is forgotten; reopening asks the server again', async () => {
+    const card = jobQueueCardQueryKey(scope, OPP)
+    const continuation = [...card, 'seniors', 's-200']
+    const otherAccount = jobQueueCardQueryKey({ ...scope, actorId: OTHER_ACTOR }, OPP)
+    const cardCalls = () => get.mock.calls.filter((c) => c[0] === `/job-queue/${OPP}`).length
+    client.setQueryData(otherAccount, cardBody())
+    get.mockResolvedValueOnce({ data: cardBody() })
+    const first = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
+    await waitFor(() => expect(first.result.current.data?.seniors.items[0]?.displayName).toBe('Senior 1'))
+    client.setQueryData(continuation, { pages: [], pageParams: [] })
+
+    get.mockRejectedValueOnce(httpError(403, 'FORBIDDEN'))
+    await act(() => first.result.current.refetch())
+    await waitFor(() => expect(first.result.current.accessLost).toBe(true))
+    expect(client.getQueryState(card)).toBeDefined()
+    first.unmount()
+
+    expect(client.getQueryState(card)).toBeUndefined()
+    expect(client.getQueryState(continuation)).toBeUndefined()
+    expect(client.getQueryState(otherAccount)).toBeDefined()
+    get.mockReturnValueOnce(new Promise(() => {}))
+    const again = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
+    expect(again.result.current.data).toBeUndefined()
+    await waitFor(() => expect(cardCalls()).toBe(3))
+  })
+
+  it('closing a card that kept its access keeps it cached', async () => {
+    get.mockResolvedValueOnce({ data: cardBody() })
+    const { result, unmount } = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    unmount()
+    expect(client.getQueryData(jobQueueCardQueryKey(scope, OPP))).toBeDefined()
+  })
+
   it('keeps the data and the cache on any other error', async () => {
     client.setQueryData(jobQueueCardQueryKey(scope, OTHER_OPP), cardBody())
     get.mockResolvedValueOnce({ data: cardBody() })
@@ -566,6 +600,42 @@ describe('card continuations', () => {
     await act(() => new Promise((r) => setTimeout(r, 50)))
     expect(listCalls()).toBe(2)
   })
+
+  it.each([
+    ['seniors', useJobQueueSeniors],
+    ['sources', useJobQueueSources],
+  ] as const)(
+    'SR-M-1 %s: a loss forgets the open card once it closes, so no stale senior name repaints',
+    async (part, hook) => {
+      const card = jobQueueCardQueryKey(scope, OPP)
+      const otherCard = jobQueueCardQueryKey(scope, OTHER_OPP)
+      get.mockImplementation((url: string) =>
+        url.endsWith(`/${part}`)
+          ? Promise.reject(httpError(403, 'FORBIDDEN'))
+          : Promise.resolve({ data: cardBody() }),
+      )
+      const first = renderHook(
+        () => ({ card: useJobQueueCard(scope, OPP), more: hook(scope, OPP, 'c-1') }),
+        { wrapper },
+      )
+      await waitFor(() => expect(first.result.current.more.accessLost).toBe(true))
+      expect(first.result.current.card.data?.seniors.items[0]?.displayName).toBe('Senior 1')
+      // a second card of the scope, opened elsewhere, is not this vacancy's to forget
+      const elsewhere = renderHook(() => useJobQueueCard(scope, OTHER_OPP), { wrapper })
+      await waitFor(() => expect(elsewhere.result.current.isSuccess).toBe(true))
+      first.unmount()
+
+      expect(client.getQueryState(card)).toBeUndefined()
+      expect(client.getQueryState([...card, part, 'c-1'])).toBeUndefined()
+      expect(client.getQueryState(otherCard)).toBeDefined()
+      get.mockReset()
+      get.mockReturnValue(new Promise(() => {}))
+      const again = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
+      expect(again.result.current.data).toBeUndefined()
+      expect(again.result.current.isPending).toBe(true)
+      await waitFor(() => expect(get).toHaveBeenCalledWith(`/job-queue/${OPP}`, expect.anything()))
+    },
+  )
 
   it('keep the open list alone on a non-access error', async () => {
     const listCalls = () => get.mock.calls.filter((c) => c[0] === '/job-queue').length

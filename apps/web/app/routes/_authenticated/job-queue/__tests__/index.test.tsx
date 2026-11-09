@@ -34,10 +34,25 @@ vi.mock('@/context/onboarding', () => ({ useOnboardingGate: () => ({ isComplete:
 // The card has its own suite (components/job-queue/__tests__/JobQueueCard.test.tsx); here only its
 // wiring to `?card=` matters, and a modal would take the page's controls out of reach.
 vi.mock('@/components/job-queue/JobQueueCard', () => ({
-  JobQueueCard: ({ opportunityId, onClose }: { opportunityId: string; onClose: () => void }) => (
-    <button type="button" data-testid="job-queue-card-stub" onClick={onClose}>
-      {opportunityId}
-    </button>
+  JobQueueCard: ({
+    opportunityId,
+    onClose,
+    focusFallback,
+  }: {
+    opportunityId: string
+    onClose: () => void
+    focusFallback?: { current: HTMLElement | null }
+  }) => (
+    <>
+      <button type="button" data-testid="job-queue-card-stub" onClick={onClose}>
+        {opportunityId}
+      </button>
+      <button
+        type="button"
+        data-testid="job-queue-card-stub-fallback"
+        onClick={() => focusFallback?.current?.focus()}
+      />
+    </>
   ),
 }))
 
@@ -270,6 +285,17 @@ describe('/job-queue page', () => {
       search: { tab: 'SUBMITTED', teamId: TEAM_B, search: 'go' },
     })
   })
+
+  it.each(['HR', 'ADMIN'] as const)(
+    'CR-L-1 %s: the card falls back to the list body when its opener is gone',
+    async (role) => {
+      currentSearch = { tab: 'NEW', card: ITEM_ID }
+      serve({ role })
+      renderPage()
+      await userEvent.click(await screen.findByTestId('job-queue-card-stub-fallback'))
+      expect(screen.getByTestId('job-queue-body')).toHaveFocus()
+    },
+  )
 
   it('no `card` in the URL: no card', async () => {
     serve()

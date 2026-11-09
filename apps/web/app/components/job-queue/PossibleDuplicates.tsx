@@ -27,9 +27,6 @@ export function PossibleDuplicates({
         <p className="font-medium">
           <Trans>У черзі є схожа вакансія</Trans>
         </p>
-        <p className="text-muted-foreground">
-          <Trans>Можливий дублікат. Перевірте, чи це не та сама вакансія.</Trans>
-        </p>
         <ul className="flex flex-col gap-0.5">
           {preview.items.map((item) => (
             <li key={item.opportunityId} className="[overflow-wrap:anywhere]">

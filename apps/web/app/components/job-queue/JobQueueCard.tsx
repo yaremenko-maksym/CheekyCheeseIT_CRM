@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { toast } from 'sonner'
@@ -150,10 +150,13 @@ export function JobQueueCard({
   onClose,
   renderSeniorAction,
   footer,
+  focusFallback,
 }: {
   scope: QueueScopeSignature
   opportunityId: string
   onClose: () => void
+  /** Takes focus on close when the opener is gone or about to go (an access loss). */
+  focusFallback?: RefObject<HTMLElement | null>
   renderSeniorAction?: ((senior: JobQueueCardSeniorDto) => ReactNode) | undefined
   footer?: ReactNode
 }) {
@@ -191,7 +194,14 @@ export function JobQueueCard({
           aria-busy={query.isPending || undefined}
           onCloseAutoFocus={(event) => {
             event.preventDefault()
-            if (returnFocusTo instanceof HTMLElement) returnFocusTo.focus()
+            // after a loss the list refresh removes the opening row, so focus would fall to <body>
+            const opener =
+              returnFocusTo instanceof HTMLElement &&
+              returnFocusTo.isConnected &&
+              !closedOnLoss.current
+                ? returnFocusTo
+                : focusFallback?.current
+            opener?.focus()
           }}
           className="fixed inset-0 z-50 flex h-dvh w-full flex-col bg-card shadow-xl sm:inset-auto sm:top-1/2 sm:left-1/2 sm:h-auto sm:max-h-[90dvh] sm:w-[calc(100%-2rem)] sm:max-w-2xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border"
         >

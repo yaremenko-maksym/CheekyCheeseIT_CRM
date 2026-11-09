@@ -1,7 +1,7 @@
 /** r5 Task 7.3 — the vacancy card dialog (spec §5.1, §5.7, §11). */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { toast } from 'sonner'
 import type { JobQueueCardResponseDto } from '@crm/shared'
@@ -130,6 +130,86 @@ describe('JobQueueCard', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Закрити' }))
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(opener).toHaveFocus()
+  })
+
+  describe('CR-L-1: focus on close when the opening row is gone or about to go', () => {
+    let lose: () => void = () => {}
+    function Harness({ dropOpener = false }: { dropOpener?: boolean }) {
+      const [open, setOpen] = useState(false)
+      const [opener, setOpener] = useState(true)
+      const [, rerender] = useState(0)
+      const park = useRef<HTMLDivElement>(null)
+      lose = () => rerender((n) => n + 1)
+      return (
+        <div ref={park} tabIndex={-1} data-testid="park">
+          {opener && (
+            <button type="button" onClick={() => setOpen(true)}>
+              open-row
+            </button>
+          )}
+          {open && (
+            <JobQueueCard
+              scope={SCOPE}
+              opportunityId={OPP}
+              focusFallback={park}
+              onClose={() => {
+                setOpen(false)
+                if (dropOpener) setOpener(false)
+              }}
+            />
+          )}
+        </div>
+      )
+    }
+
+    it('an ordinary close still returns to a connected opener, not the fallback', async () => {
+      render(<Harness />, { wrapper: I18nTestProvider })
+      const opener = screen.getByRole('button', { name: 'open-row' })
+      await userEvent.click(opener)
+      await userEvent.click(screen.getByRole('button', { name: 'Закрити' }))
+      await waitFor(() => expect(opener).toHaveFocus())
+    })
+
+    it('an opener no longer in the document: focus goes to the fallback, not <body>', async () => {
+      render(<Harness dropOpener />, { wrapper: I18nTestProvider })
+      await userEvent.click(screen.getByRole('button', { name: 'open-row' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Закрити' }))
+      expect(screen.queryByRole('button', { name: 'open-row' })).toBeNull()
+      await waitFor(() => expect(screen.getByTestId('park')).toHaveFocus())
+    })
+
+    it.each([
+      [
+        'the card',
+        () =>
+          cardHook.mockReturnValue(
+            cardResult({ data: undefined, accessLost: true, isError: true }),
+          ),
+      ],
+      [
+        'a continuation',
+        () =>
+          vi
+            .mocked(useJobQueueSeniors)
+            .mockReturnValue(idleContinuation([], { isError: true, accessLost: true }) as never),
+      ],
+    ] as const)(
+      'a loss on %s: focus goes to the fallback, though the row is still there',
+      async (_what, fail) => {
+        withCard(
+          cardFixture({ seniors: { items: [senior()], totalCount: 300, nextCursor: 's-1' } }),
+        )
+        render(<Harness />, { wrapper: I18nTestProvider })
+        const opener = screen.getByRole('button', { name: 'open-row' })
+        await userEvent.click(opener)
+        fail()
+        act(() => lose())
+        expect(screen.queryByRole('dialog')).toBeNull()
+        await waitFor(() => expect(screen.getByTestId('park')).toHaveFocus())
+        expect(opener).toBeInTheDocument()
+        expect(opener).not.toHaveFocus()
+      },
+    )
   })
 
   it('header badges: triage, seniority and «Закрита» for a closed or expired vacancy', () => {

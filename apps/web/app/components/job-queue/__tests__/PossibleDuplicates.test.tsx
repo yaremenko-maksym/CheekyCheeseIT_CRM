@@ -33,7 +33,7 @@ describe('PossibleDuplicates', () => {
     renderNote({ items: [dup(1), dup(2, null)], totalCount: 2 })
     const note = screen.getByTestId('job-queue-duplicates')
     expect(within(note).getByText('У черзі є схожа вакансія')).toBeVisible()
-    expect(note).toHaveTextContent('Можливий дублікат. Перевірте, чи це не та сама вакансія.')
+    expect(note).not.toHaveTextContent('Можливий дублікат') // spec §5.8 has the heading only (SPEC-L-2)
     const items = within(note).getAllByRole('listitem')
     expect(items).toHaveLength(2)
     expect(items[0]).toHaveTextContent('Similar role 1 · Company 1')

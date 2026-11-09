@@ -143,19 +143,21 @@ function useAccessLost(scope: QueueScopeSignature, error: unknown) {
 
 /**
  * A card read (the card or one of its continuations) lost access: refresh the scope's lists, so the
- * vacancy leaves them. Not for the list itself — refreshing its own 403 would loop.
+ * vacancy leaves them. Not for the list itself — refreshing its own 403 would loop. When the lost
+ * card closes, its entry and its continuations are forgotten: browser Back or a second click must
+ * ask the server again instead of repainting the names from cache. Removing them while the card is
+ * still open would refetch under its live observer, so this waits for the unmount.
  */
-function useRefreshListsOnLoss(scope: QueueScopeSignature, lost: boolean) {
+function useRefreshListsOnLoss(scope: QueueScopeSignature, id: string | null, lost: boolean) {
   const queryClient = useQueryClient()
   const { actorId, role, teamId } = scope
 
   useEffect(() => {
-    if (lost) {
-      void queryClient.invalidateQueries({
-        queryKey: [...jobQueueScopeKey({ actorId, role, teamId }), 'list'],
-      })
-    }
-  }, [lost, queryClient, actorId, role, teamId])
+    if (!lost) return
+    const scopeKey = jobQueueScopeKey({ actorId, role, teamId })
+    void queryClient.invalidateQueries({ queryKey: [...scopeKey, 'list'] })
+    return () => queryClient.removeQueries({ queryKey: [...scopeKey, 'card', id] })
+  }, [lost, queryClient, actorId, role, teamId, id])
 }
 
 /** The list, one page of 20 per `nextCursor`. A scope change evicts every other scope's cache. */
@@ -219,7 +221,7 @@ export function useJobQueueCard(scope: QueueScopeSignature, id: string | null) {
           },
   })
   const accessLost = useAccessLost(scope, query.error)
-  useRefreshListsOnLoss(scope, accessLost)
+  useRefreshListsOnLoss(scope, id, accessLost)
   return { ...query, data: accessLost ? undefined : query.data, accessLost }
 }
 
@@ -250,7 +252,7 @@ function useContinuation<T extends { nextCursor: string | null }>(
     getNextPageParam: (last) => last.nextCursor,
   })
   const accessLost = useAccessLost(scope, query.error)
-  useRefreshListsOnLoss(scope, accessLost)
+  useRefreshListsOnLoss(scope, id, accessLost)
   return { ...query, data: accessLost ? undefined : query.data, accessLost }
 }
 

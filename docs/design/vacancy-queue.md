@@ -53,7 +53,7 @@ row), the footer carries **no** primary; tab counts are the authorized totals an
   brand yellow, used for **stack matches and the one action per senior**.
 - **Memorable detail:** the **working surface is the senior list**. A vacancy is not "taken"; each of the actor's
   seniors has its own state (not submitted / submitting / submitted / excluded by stop-list). Matched stack tokens
-  are highlighted in the same amber on the row, the card chips and the senior's «Збіг за:» line, so the eye links
+  are highlighted in the same amber on the card chips and the senior's «Збіг за:» line, so the eye links
   "what the vacancy wants" to "who has it".
 - **Constraints:** Tailwind v4 + shadcn/ui, `uk` default + `en`, WCAG 2.2 AA, 320–1440+, no hover-only action.
 

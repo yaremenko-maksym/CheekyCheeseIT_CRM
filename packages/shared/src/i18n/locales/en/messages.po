@@ -1120,10 +1120,6 @@ msgstr "Select a recipient partner"
 msgid "Чекає підтвердження від {0} — поки діє <0>{1}%</0>"
 msgstr "Awaiting confirmation from {0} — <0>{1}%</0> applies until then"
 
-#: apps/web/app/components/job-queue/PossibleDuplicates.tsx
-msgid "Можливий дублікат. Перевірте, чи це не та сама вакансія."
-msgstr "Possible duplicate. Check that it is not the same vacancy."
-
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 msgid "Редактор: <0>{roleLabel}</0>"
 msgstr "Editor: <0>{roleLabel}</0>"
@@ -1534,7 +1530,7 @@ msgstr "Transaction validation"
 
 #: apps/web/app/components/job-queue/JobQueueCard.tsx
 msgid "Нижче — актуальні дані."
-msgstr "Below is the current data."
+msgstr "The details below are up to date."
 
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Не вдалося з’єднатися з сервером. Перевірте інтернет-з’єднання."
@@ -11352,7 +11348,7 @@ msgstr "Invalid amount"
 
 #: apps/web/app/components/job-queue/MatchedSeniors.tsx
 msgid "Роботодавця не вдалося підтвердити, тому система не пропонує цю вакансію конкретним сеньйорам. Оцініть її вручну за описом."
-msgstr "The employer could not be verified, so the system does not suggest this vacancy to specific seniors. Judge it manually from the description."
+msgstr "The employer could not be verified, so the system does not offer this vacancy to specific seniors. Judge it manually from the description."
 
 #: apps/web/app/components/documents/document-detail-dialog.tsx
 #: apps/web/app/components/documents/upload-document-dialog.tsx

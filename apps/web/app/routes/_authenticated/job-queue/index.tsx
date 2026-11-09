@@ -5,7 +5,7 @@
  * `?card=<id>`, which opens the card (Task 7.3); closing it clears `card`. Layout and copy:
  * docs/design/vacancy-queue.md.
  */
-import { useId, useRef, useState, type FormEvent } from 'react'
+import { useId, useRef, useState, type FormEvent, type RefObject } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { AlertTriangle, RefreshCw, Search, X } from 'lucide-react'
@@ -101,6 +101,7 @@ export function JobQueuePage() {
         scope={{ actorId: user.id, role: 'ADMIN', teamId: null }}
         search={search}
         scrollRoot={scrollRoot}
+        focusPark={bodyRef}
         onReturnToTop={returnToTop}
       />
     )
@@ -158,6 +159,7 @@ export function JobQueuePage() {
         search={search}
         teams={teams.map((t) => ({ id: t.id, name: t.name }))}
         scrollRoot={scrollRoot}
+        focusPark={bodyRef}
         onReturnToTop={returnToTop}
       />
     )
@@ -199,12 +201,14 @@ function QueueBody({
   search,
   teams,
   scrollRoot,
+  focusPark,
   onReturnToTop,
 }: {
   scope: QueueScopeSignature & { role: 'ADMIN' | 'HR' }
   search: QueueSearch
   teams?: ReadonlyArray<{ id: string; name: string }>
   scrollRoot: HTMLElement | null
+  focusPark: RefObject<HTMLDivElement | null>
   onReturnToTop: () => void
 }) {
   const { t } = useLingui()
@@ -410,6 +414,7 @@ function QueueBody({
           scope={scope}
           opportunityId={search.card}
           onClose={() => go({ ...search, card: undefined })}
+          focusFallback={focusPark}
         />
       )}
     </div>
