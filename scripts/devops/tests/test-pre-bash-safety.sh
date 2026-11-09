@@ -819,11 +819,14 @@ for c in 'pnpm --filter dlx dlx $y' 'pnpm --filter x x $y' 'npm --prefix x x $y'
 done
 # CR-H-14: -c / --call / --shell-mode right after a launch word carries a shell command.
 for c in 'npm exec -c "$x"' 'npm x -c "$x"' 'npm exec --call "$x"' 'pnpm exec -c "$x"' \
-         'pnpm exec --shell-mode "$x"' 'npm exec --call=$x'; do
+         'pnpm exec --shell-mode "$x"' 'npm exec --call=$x' 'npm exec --yes -c "$x"' \
+         'npm exec -p x --call "$x"' 'pnpm exec --silent --shell-mode=$x'; do
   assert_red "dynamic exec shell-mode payload: $c" --contains "no gate reads" -- h "$c"
 done
-assert_red "static exec shell-mode payload: npm exec -c 'rm -rf /etc'" --contains "rm -rf" -- h "npm exec -c 'rm -rf /etc'"
-for c in "npm exec -c 'echo hi'" 'pnpm exec vitest run "$FILE"' 'pnpm --filter @crm/api test'; do
+for c in "npm exec -c 'rm -rf /etc'" "npm exec --package=x -c 'rm -rf /etc'"; do
+  assert_red "static exec shell-mode payload: $c" --contains "rm -rf" -- h "$c"
+done
+for c in "npm exec -c 'echo hi'" "npm exec --yes -c 'echo hi'" 'pnpm exec vitest run "$FILE"' 'pnpm --filter @crm/api test'; do
   assert_green "exec shell-mode or a plain exec: $c" -- h "$c"
 done
 for c in 'pnpm --filter $pkg test' 'pnpm --filter @crm/api test' 'pnpm install' 'pnpm -r build' \
