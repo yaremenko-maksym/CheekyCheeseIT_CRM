@@ -202,10 +202,11 @@ def pkg_launch(seg, depth=0):
         rest = args[start:]
         if is_value and dynamic_word(rest[0]):
             rest = ["value"] + rest[1:]
-        code = []  # CR-H-14: a shell-mode option among the options, read as `sh -c`
-        cmdscan._consume_flags(list(rest), cmdscan._w(("-p", "--package", "-w", "--workspace",
-                               "--filter"), ("-c", "--call", "--shell-mode")), code)
-        lines += [["sh", "-c", c] for c in code]
+        head = rest[:rest.index("--")] if "--" in rest else rest
+        for k, w in enumerate(head):  # CR-H-14: any shell-mode word before --, fail closed
+            o, eq, v = w.partition("=")
+            if o in ("-c", "--call", "--shell-mode") and (eq or k + 1 < len(head)):
+                lines.append(["sh", "-c", v if eq else head[k + 1]])
         lines += [rest] + ([rest[rest.index("--") + 1:]] if "--" in rest else [])
     out = []
     for words in lines:

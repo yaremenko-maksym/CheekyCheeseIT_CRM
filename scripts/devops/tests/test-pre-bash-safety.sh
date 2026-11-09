@@ -817,16 +817,20 @@ for c in 'pnpm --filter dlx dlx $y' 'pnpm --filter x x $y' 'npm --prefix x x $y'
          'yarn --cwd dlx dlx $y' 'bun --cwd x x $y'; do
   assert_red "launch word as an option value, then a launch: $c" --contains "no gate reads" -- h "$c"
 done
-# CR-H-14: -c / --call / --shell-mode right after a launch word carries a shell command.
+# CR-H-14: -c / --call / --shell-mode anywhere after a launch word, before --, carries a shell command.
 for c in 'npm exec -c "$x"' 'npm x -c "$x"' 'npm exec --call "$x"' 'pnpm exec -c "$x"' \
          'pnpm exec --shell-mode "$x"' 'npm exec --call=$x' 'npm exec --yes -c "$x"' \
-         'npm exec -p x --call "$x"' 'pnpm exec --silent --shell-mode=$x'; do
+         'npm exec -p x --call "$x"' 'pnpm exec --silent --shell-mode=$x' \
+         'pnpm exec --reporter silent --shell-mode=$x' 'pnpm exec vitest -c "$cfg"'; do
+  # The last one is an accepted false refusal: no value-option table, so fail closed.
   assert_red "dynamic exec shell-mode payload: $c" --contains "no gate reads" -- h "$c"
 done
-for c in "npm exec -c 'rm -rf /etc'" "npm exec --package=x -c 'rm -rf /etc'"; do
+for c in "npm exec -c 'rm -rf /etc'" "npm exec --package=x -c 'rm -rf /etc'" \
+         "pnpm exec -w -c 'rm -rf /etc'" "npm exec --registry x -c 'rm -rf /etc'"; do
   assert_red "static exec shell-mode payload: $c" --contains "rm -rf" -- h "$c"
 done
-for c in "npm exec -c 'echo hi'" "npm exec --yes -c 'echo hi'" 'pnpm exec vitest run "$FILE"' 'pnpm --filter @crm/api test'; do
+for c in "npm exec -c 'echo hi'" "npm exec --yes -c 'echo hi'" 'pnpm exec vitest run "$FILE"' 'pnpm --filter @crm/api test' \
+         'pnpm exec vitest -c vitest.config.ts'; do
   assert_green "exec shell-mode or a plain exec: $c" -- h "$c"
 done
 for c in 'pnpm --filter $pkg test' 'pnpm --filter @crm/api test' 'pnpm install' 'pnpm -r build' \
