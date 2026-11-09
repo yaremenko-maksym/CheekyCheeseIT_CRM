@@ -683,6 +683,12 @@ for c in 'echo $POSIXLY_CORRECT' 'export SHELLOPTS' 'bash -O expand_aliases -c x
          'bash +O "$m" -c ls' 'bash -eO "$m" -c ls' 'echo POSIX'; do
   assert_red "alias table, posix mode or a dynamic assigning word: $c" --contains "alias" -- h "$c"
 done
+# AUTO-SR-19 (#1294): quoting that splits a name in the raw text; AUTO-SR-20: options after -c.
+for c in 'shopt -s expand""_aliases' 'shopt -s exp\and_aliases' 'export POSIXLY_"CORRECT"=1' \
+         "export SHELL'OPTS'" 'bash -c -o "$m" x' 'bash -c -O "$m" x'; do
+  assert_red "split alias-table name or a late shell option: $c" --contains "alias" -- h "$c"
+done
+assert_green "bash -c with a literal body" -- h "bash -c 'echo hi'"
 # Accepted false refusal: a dynamic value given to an assigning builtin.
 for c in 'local x="$1"' 'declare x=$y' 'readonly R="$1"' 'export PATH="$HOME/bin:$PATH"'; do
   assert_red "accepted false refusal, dynamic word to an assigning builtin: $c" --contains "alias" -- h "$c"

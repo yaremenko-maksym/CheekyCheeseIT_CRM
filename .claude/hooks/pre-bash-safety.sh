@@ -470,20 +470,16 @@ def assigns(name, args):
 
 
 def shell_opts_dynamic(args):
-    # Every word before the first operand or `-c`, the operand included, plus the argument
-    # an `-o` / `-O` cluster takes.
-    takes = False
+    # AUTO-SR-20: a dynamic word up to the first operand (included), and a dynamic word after
+    # an `-o` / `-O` cluster anywhere in the argv, past `-c` too (`bash -c -o "$m" x`).
+    takes = operand = False
     for a in args:
-        if dynamic_word(a):
+        if dynamic_word(a) and (takes or not operand):
             return True
-        if a in ("-c", "--"):
-            return False
-        if a[:1] in "-+" and len(a) > 1:
-            takes = a[1:2] != "-" and bool(set(a[1:]) & set("oO"))
-        elif takes:
-            takes = False
-        else:
-            return False
+        opt = a[:1] in "-+" and len(a) > 1 and a != "--"
+        if not opt and not takes:
+            operand = True
+        takes = opt and a[1:2] != "-" and bool(set(a[1:]) & set("oO"))
     return False
 
 
@@ -510,7 +506,13 @@ if not blocked and ALIAS_WORDS.search(cmd):
 for seg in scan.segments:
     if blocked:
         break
-    if any(alias_route(cand) for cand in candidates(seg)):
+    cands = candidates(seg)
+    # AUTO-SR-19: quoting splits a name in the raw text (`expand""_aliases`), so the
+    # dequoted words, every reading and every assignment are searched too.
+    words = list(seg_words(seg)) + [w for c in cands for w in [c.name] + list(c.argv)]
+    for env in [seg.env] + [c.env for c in cands]:
+        words += [str(k) for k in env] + [str(v) for v in env.values()]
+    if any(ALIAS_WORDS.search(w) for w in words) or any(alias_route(c) for c in cands):
         blocked.append("defining an alias, or enabling alias expansion, hides a command "
                        "body no gate reads")
 

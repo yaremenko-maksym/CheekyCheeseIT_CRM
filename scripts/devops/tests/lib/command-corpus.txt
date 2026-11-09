@@ -862,6 +862,15 @@ block	safety	alias "$a"
 block	safety	declare "$v"=1
 block	safety	getopts ab "$o"
 allow	safety	export FOO=bar
+# AUTO-SR-19 of #1294: quoting splits the name in the raw text; the dequoted words are searched.
+block	safety	shopt -s expand""_aliases
+block	safety	shopt -s exp\and_aliases
+block	safety	export POSIXLY_"CORRECT"=1
+block	safety	export SHELL'OPTS'
+# AUTO-SR-20 of #1294: a shell option after -c is still an option.
+block	safety	bash -c -o "$m" x
+block	safety	bash -c -O "$m" x
+allow	safety	bash -c 'echo hi'
 # Accepted false refusal (AUTO-SR-18): a dynamic value given to an assigning builtin.
 block	safety	local x="$1"
 # AUTO-SR-12 / AUTO-SR-15 of #1294: no exception for a package version.
