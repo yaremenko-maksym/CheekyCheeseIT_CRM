@@ -1,5 +1,6 @@
 /** r5 Task 7.3 — the vacancy card dialog (spec §5.1, §5.7, §11). */
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -9,6 +10,16 @@ import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { useJobQueueCard, useJobQueueSeniors, useJobQueueSources } from '@/hooks/use-job-queue'
 import { JobQueueCard } from '../JobQueueCard'
 import { cardFixture, idleContinuation, OPP, PRIMARY, senior, source } from './card-fixtures'
+
+// the card mounts its own write actions, which need a query client
+function Wrapper({ children }: { children: ReactNode }) {
+  const [client] = useState(() => new QueryClient())
+  return (
+    <QueryClientProvider client={client}>
+      <I18nTestProvider>{children}</I18nTestProvider>
+    </QueryClientProvider>
+  )
+}
 
 vi.mock('@/hooks/use-job-queue', async (orig) => ({
   ...(await orig<typeof import('@/hooks/use-job-queue')>()),
@@ -38,7 +49,7 @@ function withCard(card: JobQueueCardResponseDto) {
 
 function renderCard(onClose = vi.fn()) {
   render(<JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={onClose} />, {
-    wrapper: I18nTestProvider,
+    wrapper: Wrapper,
   })
   return onClose
 }
@@ -112,14 +123,15 @@ describe('JobQueueCard', () => {
     const close = screen.getByRole('button', { name: 'Закрити' })
     const first = screen.getByTestId(`job-queue-source-${s1.sourceRecordId}`)
     const second = screen.getByTestId(`job-queue-source-${s2.sourceRecordId}`)
-    expect(close).toHaveFocus()
-    await userEvent.tab()
-    expect(first).toHaveFocus()
-    await userEvent.tab()
-    expect(second).toHaveFocus()
-    await userEvent.tab()
+    // the last control is the footer's «Приховати» (HR has no admin menu); Tab wraps both ways
+    const last = screen.getByRole('button', { name: 'Приховати' })
     expect(close).toHaveFocus()
     await userEvent.tab({ shift: true })
+    expect(last).toHaveFocus()
+    await userEvent.tab()
+    expect(close).toHaveFocus()
+    act(() => first.focus())
+    await userEvent.tab()
     expect(second).toHaveFocus()
   })
 
@@ -137,7 +149,7 @@ describe('JobQueueCard', () => {
         </>
       )
     }
-    render(<Harness />, { wrapper: I18nTestProvider })
+    render(<Harness />, { wrapper: Wrapper })
     const opener = screen.getByRole('button', { name: 'open-row' })
     await userEvent.click(opener)
     await userEvent.click(screen.getByRole('button', { name: 'Закрити' }))
@@ -176,7 +188,7 @@ describe('JobQueueCard', () => {
     }
 
     it('an ordinary close still returns to a connected opener, not the fallback', async () => {
-      render(<Harness />, { wrapper: I18nTestProvider })
+      render(<Harness />, { wrapper: Wrapper })
       const opener = screen.getByRole('button', { name: 'open-row' })
       await userEvent.click(opener)
       await userEvent.click(screen.getByRole('button', { name: 'Закрити' }))
@@ -184,7 +196,7 @@ describe('JobQueueCard', () => {
     })
 
     it('an opener no longer in the document: focus goes to the fallback, not <body>', async () => {
-      render(<Harness dropOpener />, { wrapper: I18nTestProvider })
+      render(<Harness dropOpener />, { wrapper: Wrapper })
       await userEvent.click(screen.getByRole('button', { name: 'open-row' }))
       await userEvent.click(screen.getByRole('button', { name: 'Закрити' }))
       expect(screen.queryByRole('button', { name: 'open-row' })).toBeNull()
@@ -209,7 +221,7 @@ describe('JobQueueCard', () => {
         )
       }
       expect(document.body).toHaveFocus()
-      render(<DeepLink />, { wrapper: I18nTestProvider })
+      render(<DeepLink />, { wrapper: Wrapper })
       await userEvent.keyboard('{Escape}')
       expect(screen.queryByRole('dialog')).toBeNull()
       await waitFor(() => expect(screen.getByTestId('park')).toHaveFocus())
@@ -236,7 +248,7 @@ describe('JobQueueCard', () => {
         withCard(
           cardFixture({ seniors: { items: [senior()], totalCount: 300, nextCursor: 's-1' } }),
         )
-        render(<Harness />, { wrapper: I18nTestProvider })
+        render(<Harness />, { wrapper: Wrapper })
         const opener = screen.getByRole('button', { name: 'open-row' })
         await userEvent.click(opener)
         fail()
@@ -288,7 +300,7 @@ describe('JobQueueCard', () => {
   it('an expired vacancy is «Закрита» too; an open one has no status chip', () => {
     withCard(cardFixture({ availability: 'EXPIRED' }))
     const first = render(<JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={vi.fn()} />, {
-      wrapper: I18nTestProvider,
+      wrapper: Wrapper,
     })
     expect(screen.getByTestId('job-queue-card-closed')).toHaveTextContent('Закрита')
     first.unmount()
@@ -310,7 +322,7 @@ describe('JobQueueCard', () => {
   it('shows the informational note only when the card is newer than the list', () => {
     withCard(cardFixture({ newerThanList: true }))
     const first = render(<JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={vi.fn()} />, {
-      wrapper: I18nTestProvider,
+      wrapper: Wrapper,
     })
     expect(screen.getByTestId('job-queue-card-updated')).toHaveTextContent(
       'Вакансію оновлено після побудови спискуНижче — актуальні дані.',
@@ -363,7 +375,7 @@ describe('JobQueueCard', () => {
     cardHook.mockReturnValue(cardResult({ data: undefined, accessLost: true, isError: true }))
     const onClose = vi.fn()
     const view = render(<JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={onClose} />, {
-      wrapper: I18nTestProvider,
+      wrapper: Wrapper,
     })
     view.rerender(<JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={() => onClose()} />)
     expect(onClose).toHaveBeenCalledTimes(1)
@@ -377,7 +389,7 @@ describe('JobQueueCard', () => {
     const first = vi.fn()
     const latest = vi.fn()
     const view = render(<JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={first} />, {
-      wrapper: I18nTestProvider,
+      wrapper: Wrapper,
     })
     expect(toast.error).not.toHaveBeenCalled()
     cardHook.mockReturnValue(cardResult({ data: undefined, accessLost: true, isError: true }))
@@ -402,7 +414,7 @@ describe('JobQueueCard', () => {
       )
       const onClose = vi.fn()
       const view = render(<JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={onClose} />, {
-        wrapper: I18nTestProvider,
+        wrapper: Wrapper,
       })
       expect(onClose).not.toHaveBeenCalled()
       vi.mocked(hook).mockReturnValue(
@@ -429,7 +441,7 @@ describe('JobQueueCard', () => {
         </>
       )
     }
-    render(<Harness />, { wrapper: I18nTestProvider })
+    render(<Harness />, { wrapper: Wrapper })
     const opener = screen.getByTestId('svg-opener')
     opener.focus()
     expect(opener).toHaveFocus()
@@ -462,37 +474,17 @@ describe('JobQueueCard', () => {
     expect(toast.error).not.toHaveBeenCalled()
   })
 
-  it('footer and per-senior action slots (Task 7.4 seams) render when given', () => {
-    render(
-      <JobQueueCard
-        scope={SCOPE}
-        opportunityId={OPP}
-        onClose={vi.fn()}
-        footer={<span>footer-slot</span>}
-        renderSeniorAction={(s) => <span>action-{s.displayName}</span>}
-      />,
-      { wrapper: I18nTestProvider },
-    )
-    expect(screen.getByTestId('job-queue-card-footer')).toHaveTextContent('footer-slot')
-    expect(screen.getByText('action-Олена Коваль')).toBeVisible()
-  })
-
-  it('no footer given: no footer strip', () => {
+  it('mounts the vacancy actions in the footer and «Записати подачу» per untouched senior', () => {
     renderCard()
-    expect(screen.queryByTestId('job-queue-card-footer')).toBeNull()
+    const footer = screen.getByTestId('job-queue-card-footer')
+    expect(within(footer).getByRole('button', { name: 'Відкрити оригінал' })).toBeVisible()
+    expect(within(footer).getByRole('button', { name: 'Приховати' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Записати подачу: Олена Коваль' })).toBeVisible()
   })
 
   it('the footer waits for the card: none while it loads', () => {
     cardHook.mockReturnValue(cardResult({ data: undefined, isPending: true }))
-    render(
-      <JobQueueCard
-        scope={SCOPE}
-        opportunityId={OPP}
-        onClose={vi.fn()}
-        footer={<span>footer-slot</span>}
-      />,
-      { wrapper: I18nTestProvider },
-    )
-    expect(screen.queryByText('footer-slot')).toBeNull()
+    renderCard()
+    expect(screen.queryByTestId('job-queue-card-footer')).toBeNull()
   })
 })

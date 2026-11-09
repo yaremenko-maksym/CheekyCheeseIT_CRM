@@ -167,7 +167,7 @@ describe('«Записати подачу» (AC 1, AC 2)', () => {
     renderCard()
     fireEvent.click(submitButton())
     fireEvent.click(submitButton())
-    expect(sent(SUBMIT)).toHaveLength(1)
+    await waitFor(() => expect(sent(SUBMIT)).toHaveLength(1))
     expect(sent(SUBMIT)[0]).toMatchObject({
       teamId: TEAM,
       seniorId: OLENA,
@@ -183,7 +183,7 @@ describe('«Записати подачу» (AC 1, AC 2)', () => {
     expect(toast.error).not.toHaveBeenCalled()
   })
 
-  it('a released own submission is re-submitted with its version', () => {
+  it('a released own submission is re-submitted with its version', async () => {
     setCard(
       cardFixture({
         seniors: {
@@ -195,6 +195,7 @@ describe('«Записати подачу» (AC 1, AC 2)', () => {
     )
     renderCard()
     fireEvent.click(submitButton())
+    await waitFor(() => expect(sent(SUBMIT)).toHaveLength(1))
     expect(sent(SUBMIT)[0]).toMatchObject({ expectedVersion: 4, expectedOpportunityRevision: 3 })
   })
 
@@ -211,7 +212,7 @@ describe('«Записати подачу» (AC 1, AC 2)', () => {
     expect(toast.error).not.toHaveBeenCalled()
     await waitFor(() => expect(submitButton()).toBeEnabled())
     fireEvent.click(submitButton())
-    expect(sent(SUBMIT)).toHaveLength(2)
+    await waitFor(() => expect(sent(SUBMIT)).toHaveLength(2))
     await waitFor(() => expect(screen.queryByTestId('job-queue-conflict')).toBeNull())
   })
 
@@ -232,7 +233,7 @@ describe('«Записати подачу» (AC 1, AC 2)', () => {
     expect(screen.queryByTestId('job-queue-conflict')).toBeNull()
     await waitFor(() => expect(submitButton()).toBeEnabled())
     fireEvent.click(submitButton())
-    expect(sent(SUBMIT)).toHaveLength(2)
+    await waitFor(() => expect(sent(SUBMIT)).toHaveLength(2))
   })
 
   it('a lost card (404) is left to the close: no failure toast from the button', async () => {
@@ -252,6 +253,7 @@ describe('«Записати подачу» (AC 1, AC 2)', () => {
     expect(submitButton(PETRO)).toBeEnabled()
     expect(submitButton(PETRO)).toHaveTextContent('Записати подачу')
     fireEvent.click(submitButton(PETRO))
+    await waitFor(() => expect(sent(SUBMIT)).toHaveLength(2))
     expect(sent(SUBMIT).map((body) => body.seniorId)).toEqual([OLENA, PETRO])
   })
 
@@ -263,6 +265,7 @@ describe('«Записати подачу» (AC 1, AC 2)', () => {
     rerender({ ...HR, teamId: OTHER_TEAM })
     await waitFor(() => expect(submitButton()).toBeEnabled())
     fireEvent.click(submitButton())
+    await waitFor(() => expect(sent(SUBMIT)).toHaveLength(2))
     const [first, second] = sent(SUBMIT)
     expect(first).toMatchObject({ teamId: TEAM })
     expect(second).toMatchObject({ teamId: OTHER_TEAM })
@@ -291,11 +294,11 @@ describe('possible-duplicate confirm (AC 3, §5.8)', () => {
     expect(confirm).toHaveTextContent('Ви впевнені, що це інша вакансія?')
     const keep = within(confirm).getByRole('button', { name: 'Не записувати' })
     await waitFor(() => expect(keep).toHaveFocus())
-    expect(keep).toHaveAttribute('data-variant', 'default')
-    expect(within(confirm).getByRole('button', { name: 'Так, записати все одно' })).toHaveAttribute(
-      'data-variant',
-      'outline',
-    )
+    // the safe choice is the filled (primary) button, the override the outline one
+    expect(keep).toHaveClass('bg-primary')
+    const anyway = within(confirm).getByRole('button', { name: 'Так, записати все одно' })
+    expect(anyway).toHaveClass('border-border')
+    expect(anyway).not.toHaveClass('bg-primary')
     expect(confirm).not.toHaveTextContent('Скасувати')
     expect(toast.error).not.toHaveBeenCalled()
   })
@@ -304,7 +307,7 @@ describe('possible-duplicate confirm (AC 3, §5.8)', () => {
     const { confirm } = await openConfirm()
     post.mockResolvedValueOnce(submitted())
     fireEvent.click(within(confirm).getByRole('button', { name: 'Так, записати все одно' }))
-    expect(sent(SUBMIT)).toHaveLength(2)
+    await waitFor(() => expect(sent(SUBMIT)).toHaveLength(2))
     expect(sent(SUBMIT)[1]).toMatchObject({
       seniorId: OLENA,
       expectedOpportunityRevision: 3,
@@ -413,6 +416,7 @@ describe('blocking notes (AC 5, §5.7)', () => {
     expect(submitButton(PETRO)).toBeEnabled()
     expect(screen.getByTestId('job-queue-apply-first')).toBeVisible()
     fireEvent.click(submitButton(OLENA))
+    await waitFor(() => expect(sent(SUBMIT)).toHaveLength(1))
     expect(sent(SUBMIT)[0]).toMatchObject({ expectedOpportunityRevision: 4 })
   })
 

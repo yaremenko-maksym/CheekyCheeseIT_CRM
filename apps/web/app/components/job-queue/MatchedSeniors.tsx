@@ -26,7 +26,7 @@ function initials(name: string): string {
 }
 
 /** Own-scope submission row only; the foreign bare marker and a released row read as untouched (§3). */
-function ownTaken(senior: JobQueueCardSeniorDto) {
+export function ownTaken(senior: JobQueueCardSeniorDto) {
   const s = senior.submission
   return s && 'state' in s && s.state === 'TAKEN' ? s : null
 }
