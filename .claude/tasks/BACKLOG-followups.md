@@ -6905,7 +6905,11 @@ Windows run reads as a pass.
 **Candidate fixes.** Compare through `url.pathToFileURL(process.argv[1]).href`. DevOps zone.
 
 **Verify.** On Windows run the script against a package and check that the JSON report exists. Today none is written and the exit
-code is 0.
+code is 0. A sharper check (added 2026-11-09): on a branch with a known surviving mutant, `pnpm mutation:changed` on Windows passes,
+while the same branch under WSL/Linux fails.
+
+**Until fixed:** the changed-lines mutation gate (`pnpm mutation:changed`) must be run under WSL/Linux; a Windows result is not
+evidence.
 
 Sources: PR #1273 notes; confirmed by reading the guard.
 
@@ -7171,10 +7175,16 @@ Source: security review of PR #1287.
 
 ## 381. Queue infinite scroll: open focus, motion and screen-reader gaps (2026-11-07)
 
-**Symptoms.**
+**Re-checked 2026-11-09 against `main` after #1276 merged (`ec03d6fb`).** Two bullets of the first
+version were closed inside #1276 before it merged and are removed from the list:
 
-- A retry answered with refresh-required unmounts the focused retry button; the foot's restart button takes no focus, so focus falls to `body` (CR-L-3 of #1276).
-- A retry answered with an empty last page drops focus and leaves `focusFrom` pending, so a later refetch can move focus unprompted. A rare race (CR-L-8 of #1276).
+- CR-L-3 of #1276 (refresh-required retry drops focus to `body`) — closed: `JobQueueList` now hands
+  focus to the restart button (`refreshFoot`) when the foot had focus and focus fell to `body`.
+- CR-L-8 of #1276 (`focusFrom` left pending) — closed: `focusFrom` no longer exists; the new-row
+  focus effect is keyed on the append and fires only when the append added rows (`added > 0`).
+
+**Symptoms (still open).**
+
 - The queue's first-load retry button unmounts on click and parks focus nowhere, so focus falls to `body`; only the team-list retry parks it on the list body (CR-L-11 of #1276).
 - After a successful first-load retry, focus lands on a generic wrapper (QA-L-3 of #1272). That wrapper may be read with the stale error text, because focus moves before the re-render (UX-L-11 of #1272).
 - `aria-busy` sits on the status skeleton, which is removed rather than updated, so the loading line is probably never announced (UX-L-10 of #1272).
@@ -7182,9 +7192,9 @@ Source: security review of PR #1287.
 - The shared `Skeleton` keeps pulsing under `prefers-reduced-motion` on every screen (UX-L-4 of #1276). Candidate fix: `motion-reduce:animate-none` on `Skeleton`.
 - No real screen-reader pass of infinite scroll has been done. The owner decision of 2026-11-07 brings back an always-visible button if such a pass finds a problem.
 
-**Candidate fixes.** Give the restart button focus when a retry resolves to refresh-required; clear `focusFrom` when an append adds no rows; keep one status region mounted and change only its text.
+**Candidate fixes.** Park focus on the list (or the loaded first row) after a first-load retry; keep one status region mounted and change only its text; `motion-reduce:animate-none` on `Skeleton`.
 
-**Verify.** On `/job-queue`, make the retry request answer with an expired cursor and then with an empty page, and read `document.activeElement` after each. Run with reduced motion and inspect the `Skeleton` animation. Do a VoiceOver or NVDA pass through a whole append.
+**Verify.** On `/job-queue`, fail the first load, click «Спробувати ще раз», and read `document.activeElement` after the list renders (today it is `body`). `JobQueueList` still puts `aria-busy` on the `job-queue-loading` block, which is removed rather than updated. Run with reduced motion and inspect the `Skeleton` animation. Do a VoiceOver or NVDA pass through a whole append.
 
 Sources: PR #1272 and PR #1276 reviews.
 
@@ -7200,6 +7210,7 @@ Sources: PR #1272 and PR #1276 reviews.
 - Optional copy: a hidden-tab empty state that says how a vacancy gets hidden (COPY-L-3 of #1272). The en "stop-listed" is slightly jargon (COPY-L-6 of #1272). COPY-L-4 of #1272 asked for no action and is recorded here so it is not re-raised.
 - The sidebar label «Черга зовнішніх вакан…» clips without an ellipsis, the search placeholder clips at 320 px, and the brand link is under 44 px at 320 and 375 px. This is shell work (UX-L-6 of #1276).
 - Row fidelity: `JobQueueRow` lacks matched tokens in the **hit** style and also-seen source names (the remainder of the owner carve-out on #1276; the seniority and chips half of SPEC-M-1 of #1272 is in PR #1283). Decide at the start of Task 7.3 to build or to drop them from the spec. In the same edit, fix the spec's `totalAlsoSeenOnCount`, because the schema field is `alsoSeenOnCount`.
+- **Decided at Task 7.3 (PR #1302):** matched tokens in the amber **hit** style are NOT shown on the queue row; #1302 changes `docs/design/vacancy-queue.md` §4.3 to say so (until it merges, §4.3 on main still asks for amber hit tokens). Also-seen sources stay a count only on the row (`alsoSeenOnCount`); the card shows the list of source names. The row-fidelity bullet above is closed by this decision once #1302 merges.
 - QA never exercised HR with real row data, because the seed gave HR an empty list.
 
 **Candidate fixes.** Each item stands alone. The row decision is the only one tied to a task.
@@ -7231,7 +7242,7 @@ Sources: PR #1282 and PR #1283.
 - Bash's default `node` here is v25.4.0, against the Node 22 pin.
 - `isGitWorktree` in the web Vitest config returns false when the main checkout has no `node_modules`, so a t3 worktree gets `testTimeout` 15000 instead of 30000 and no fork limit. This also forced a 60 s timeout on `test-quality-rules.spec.ts`, whose comment still says "under CPU load" (SPEC-L-2 of #1276).
 - `poolOptions.forks.maxForks` in that config may be ignored by Vitest 4 (unverified).
-- A worktree without the generated, gitignored `routeTree.gen.ts` fails the pre-push typecheck with misleading errors: TS2307 on `./routeTree.gen`, and TS7053 in `login.tsx`.
+- A worktree without the generated, gitignored `routeTree.gen.ts` fails the pre-push typecheck with misleading errors: TS2307 on `./routeTree.gen`, and TS7053 in `login.tsx`. Every fresh worktree hits it; the workaround today is one `vite build` of `@crm/web` (the router plugin writes the file) before `@crm/web typecheck` or the pre-push hook.
 - The pre-push hook does not run the catalog gate, so a text edit passes the hook and then fails CI with `Run 'pnpm i18n:extract' and commit the updated .po catalogs`.
 - WSL load average stays near 27 while the CPU is 92% idle, so load average is not a usable signal on this VM. Cause unproven.
 - A haiku coder died three times on this repo with "the context refilled too quickly after compaction". Sonnet completed the same work.
@@ -7249,7 +7260,7 @@ Sources: PR #1272, PR #1276 and PR #1283 push logs.
 
 - Web finance specs, with `findBy*` or element-not-found timeouts: `cascade-impact-panel` (including CP-24 with 4 workers), `paid-salary-amount-edit`, `PaySalaryDialog.paid-amount`, `DropFinancePage`, `TransactionRow.settle-senior`, `AdminEditTransactionDialog.followups`, `CreateTransactionDialog.sections`, `SettleSeniorPayoutDialog`.
 - `JobQueueRow` spec, `renders title, company and source as one button that opens the card`, in Windows runs. Cause unproven.
-- `app.module.container.spec.ts` (hook timeout), once. `xml-limits.spec.ts` is item 364.
+- `app.module.container.spec.ts`: `Hook timed out in 270000ms` under pre-push load (seen again during the Phase 7 pushes). `xml-limits.spec.ts` is item 364.
 
 **Candidate fixes.** Raise `findBy*` timeouts only where a cause is shown.
 
@@ -7266,3 +7277,156 @@ Sources: pre-push logs of PR #1276, PR #1282 and PR #1283.
 **Verify.** On any page, read `getComputedStyle(document.documentElement).colorScheme`. It is `normal` while this is open.
 
 Sources: PR #1276 design review, UX-L-9.
+
+## 387. Zone-of-write hook treated T3 worktrees as the main checkout — closed (2026-11-09)
+
+**Recorded so it is not re-raised.** `pre:edit-write:zone-of-write` used to match agent worktrees by
+the `/.claude/worktrees/` path string, so a T3 Code worktree (`.t3/worktrees/<name>`) was judged to be
+the main checkout and child agents there needed the `.claude/.allow-direct-edits` escape hatch. PR
+#1297 (`37d999f5`) replaced the string match with a linked-worktree check (`git-dir` under
+`<git-common-dir>/worktrees/`), which covers T3 worktrees.
+
+**Verify.** From a T3 worktree without `.claude/.allow-direct-edits`, an edit under `apps/web/**` is
+allowed, and the same edit from the main checkout is refused. Reopen if either fails.
+
+Sources: Phase 7 child-agent sessions; PR #1297.
+
+## 388. «Показано перших {max} сеньйорів» ignores the uk plural (COPY-L-2, 2026-11-09)
+
+**Symptoms.** The senior filter's cap note is a fixed genitive plural, so a `{max}` value that needs
+another form reads wrong in uk. The cap is `JOB_QUEUE_SENIOR_OPTIONS_MAX` (200 today, which happens
+to take «сеньйорів»), so it shows only if the cap changes — but the string is a template and must not
+depend on that.
+
+**Candidate fixes.** An ICU plural with `one / few / many / other`, the way `SENIOR_COUNT` in the
+same component already does it; mirror in en.
+
+**Verify.** `grep -n "Показано перших" packages/shared/src/i18n/locales/uk/messages.po` shows a
+`plural` message. Today it shows a plain one.
+
+Sources: copy review of PR #1282, COPY-L-2.
+
+## 389. Senior filter: same-named teams merge into one group (CR-L-1 of #1282, 2026-11-09)
+
+**Symptoms.** The ADMIN senior picker groups options by `teamName` (a `Map` keyed by the name) and
+renders each group with its heading as the React key. Two different teams with the same name are
+shown as one group, with both teams' seniors under one heading; a team whose name equals the no-team
+label collides with the no-team group on the React key.
+
+**Candidate fixes.** Return the team id in `jobQueueSeniorOptionsResponseSchema` items; group and key
+by it; keep the name for display.
+
+**Verify.** Seed two teams with one name, each with a senior; open the filter as ADMIN. Today one
+heading lists both seniors.
+
+Sources: PR #1282 code review, CR-L-1.
+
+## 390. `jobQueueSeniorOptionsResponseSchema` doc-comment promises more than the schema enforces (2026-11-09)
+
+**Symptoms.** The doc-comment says `teamName` is "which team the picker groups them under" and that a
+`null` team name occurs only for a senior "which only the STUDIO scope can list". The schema it
+documents accepts `teamName: null` for any scope (nothing ties `null` to STUDIO), and it carries a
+team **name**, not a team identity, so it cannot say "which team" when two teams share a name (item
+389). A reader trusting the comment assumes both guarantees.
+
+**Candidate fixes.** Reword the comment to what the schema guarantees, or make the schema carry what
+the comment promises (a team id; a scope-aware refinement if `null` must be STUDIO-only).
+
+**Verify.** Read the comment above `jobQueueSeniorOptionsResponseSchema` and compare it with the item
+shape. Closed when the two agree.
+
+Sources: PR #1282 review notes.
+
+## 391. `job-run-worker.spec`: heartbeat timing flake (CR-M-2, 2026-11-09)
+
+**Symptoms.** The case "a heartbeat that finds the run fenced closes the context" (block "the deadline
+and the heartbeat (SR-M-18)") relies on a wall-clock `setTimeout` race between the adapter's wait and
+the worker's heartbeat interval. Under load the heartbeat can land after the adapter's request, so
+the run ends with an outcome other than `FAILED / RUN_FENCED`.
+
+**Candidate fixes.** Drive the heartbeat with fake timers, or make the test adapter wait on a promise
+the heartbeat stub resolves instead of on wall time.
+
+**Verify.** Run that case 50 times under CPU load; any outcome other than `RUN_FENCED` shows the flake
+is alive.
+
+Sources: code review CR-M-2 during the Phase 7 pushes.
+
+## 392. Nested turbo `lingui compile` times out inside `@crm/landing` typecheck under load (2026-11-09)
+
+**Symptoms.** The `@crm/landing` `typecheck` script first runs `turbo run build --filter=@crm/shared`,
+whose build includes `lingui compile`. Inside an outer turbo run under load that nested build times
+out and fails the landing typecheck, though nothing in landing changed.
+
+**Candidate fixes.** Express the shared build as a turbo `dependsOn` of landing's `typecheck` instead
+of a nested turbo call.
+
+**Verify.** `grep '"typecheck"' apps/landing/package.json` still shows the nested `turbo run build`;
+run the root `typecheck` with other suites running and watch for the timeout.
+
+Sources: Phase 7 pre-push logs.
+
+## 393. Job-queue filter panel: layout and control gaps that predate Phase 7 (2026-11-09)
+
+**Symptoms.**
+
+- The senior group sits about 1500 px down the panel, below every other group, so it is effectively
+  hidden.
+- The Source group lists all 31 source types, including ones that never produced a vacancy.
+- The group order follows no stated rule.
+- The filter popover has no header and no close button; closing relies on outside click or Escape.
+
+**Candidate fixes.** Fix the group order in `docs/design/vacancy-queue.md`; list only sources with
+vacancies (or collapse them); add a header with a close button. Design Tier 2.
+
+**Verify.** Open the `/job-queue` filters at 1440 px and 320 px; measure the senior group's offset and
+count the Source options.
+
+Sources: Phase 7 QA passes on PR #1282.
+
+## 394. Stale `ci-failed` labels stay on PRs after checks turn green (2026-11-09)
+
+**Symptoms.** On #1282 the label stayed on after the checks turned green and was removed by hand.
+Agents read the label as a live failure. Three CI jobs add `ci-failed` on failure (`quality`,
+`integration`, `mutation`), but only `quality` removes it, on its own success. A failure in
+`integration` or `mutation` is therefore cleared only by a later green `quality` run, never by the
+failing job's own recovery, and the label can be stale whenever `quality` has already finished. The
+exact sequence on #1282 is not confirmed.
+
+**Candidate fixes.** Remove the label in one place that runs after every labelling job and sees all
+their results. DevOps zone.
+
+**Verify.** Push a red commit, then a green one, to a test PR; `gh pr view <n> --json labels` still
+shows `ci-failed` while this is open.
+
+Sources: PR #1282.
+
+## 395. `nest --watch` restart storm in a dev session (2026-11-09)
+
+**Symptoms.** During one dev session the API under `nest --watch` restarted about 77 times without
+matching edits, so the stack spent most of the session restarting. Cause unproven (candidates:
+generated files or worktree writes inside the watched tree).
+
+**Candidate fixes.** Find which paths trigger restarts and exclude them from the watcher.
+
+**Verify.** Run the API in watch mode (through `scripts/devops/dev-ttl.sh`, scratch database) for an
+hour with no edits and count the restart lines in its log; more than zero keeps this open.
+
+Sources: Phase 7 manual-QA sessions.
+
+## 396. Task 7.3b: the card API lacks fields the design requires (SPEC-M-2 of #1302, 2026-11-09)
+
+**Symptoms.** The card response (`/job-queue/:id`, `jobQueueCardResponseSchema`) does not return:
+terms / engagement form with the salary flag, senior availability, the «Чому збіг» evidence, ADMIN
+team headings, last-seen, the own-team duplicate line, and the full vacancy stack.
+`docs/design/vacancy-queue.md` §5.1, §5.2, §5.6 and §5.8 require them, so the 7.3 card renders
+without them.
+
+**Status.** A separate follow-up task proposed by Master. **Owner decision pending (A2);
+recommendation: do it right after Task 7.4.** Cross-zone (api ↔ shared ↔ web): `opus` and full
+review.
+
+**Verify.** Compare the keys of `jobQueueCardResponseSchema` with the fields named in those design
+sections; each missing key is an open part of this item.
+
+Sources: PR #1302 spec review, SPEC-M-2.

@@ -31,7 +31,7 @@ Single source of truth for the **factual state of the project**: phases, migrati
 - [ ] **PHASE 9**: Dashboard — partly stale (per-role dashboards are already at the root `/` #223); redefine = a generic ADMIN/SENIOR dashboard (#231 MED-defer) + cross-role analytics. See ADR 2026-06-17 Part 3(c)
 - [x] **VACANCY SOURCING — store (r5 Phase 1)** ✅ closed 2026-10-21, on production. External vacancy sourcing → relevance → autosubmit; the store half is built, the collection half is not. Details — §1.2
 - [ ] **PHASE 9**: Dashboard — see the line above this block; unchanged by the vacancy epic.
-- **Current focus (snapshot 2026-10-21, replacing the 2026-06-22 one):** the vacancy-sourcing epic. Its **Phase 1 (store) is closed and deployed**; **Phase 2 (provider kit)** is in progress in a separate session — open PRs at the time of writing: the observation-identity seam (r5 Task 2.1) and the XML-parser dependency review (preparation for Task 2.4). The **Claude Design** migration named in the previous snapshot was neither cancelled nor progressed by this work; treat its status as unverified rather than current.
+- **Current focus (snapshot 2026-11-09, replacing the 2026-10-21 one):** the vacancy-sourcing epic, now at **r5 Phase 7 (the `/job-queue` UI)**. Merged: Task 7.2 list (#1272), 7.2b infinite scroll (#1276, `ec03d6fb`), 7.2c seniority and stack chips (#1283, `a0dfe24e`), 7.2d senior filter (#1282, `4da1e29f`). In review: 7.3 card (#1302). Next: 7.4 actions + i18n (task file `.claude/tasks/task-vacancy-7-4-actions.md`), 7.5 ADMIN source switch (Design Tier 2), 7.6 E2E (including 320 px overflow), then Phase 8 — 8.1 runbook, 8.2 owner + DevOps activation, 8.3 post-deploy checks. Proposed, owner decision pending: 7.3b card API fields (backlog item 396). Details — §1.2. The **Claude Design** migration status stays unverified.
 
 ### 1.2. VACANCY SOURCING — store shipped, collection not (r5 Phase 1, closed 2026-10-21)
 
@@ -64,6 +64,21 @@ The legal memo recording the erasure analysis is `docs/legal/2026-10-17-job-queu
 - **Task 1.1 was never executed as its own increment**; its contents arrived with Task 1.2 and were
   reconciled after the fact (19 findings, 6 fixed in #1063, 13 routed to the tasks that produce or
   consume the shapes). The three external-URL guards are kept in step **by hand** — backlog 261.
+
+**Phase 7 — the queue UI (status 2026-11-09).**
+
+| Task                  | State                                   | Where                                                                                                                       |
+| --------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| 7.2 list              | merged                                  | #1272 (`f00b1e44`)                                                                                                          |
+| 7.2b infinite scroll  | merged                                  | #1276 (`ec03d6fb`)                                                                                                          |
+| 7.2c chips            | merged                                  | #1283 (`a0dfe24e`)                                                                                                          |
+| 7.2d senior filter    | merged                                  | #1282 (`4da1e29f`)                                                                                                          |
+| 7.3 card              | in review                               | #1302                                                                                                                       |
+| 7.3b card API fields  | proposed; owner decision pending (A2)   | backlog item 396; recommended right after 7.4                                                                               |
+| 7.4 actions + i18n    | not started                             | `.claude/tasks/task-vacancy-7-4-actions.md`                                                                                 |
+| 7.5 ADMIN source      | not started (Design Tier 2)             | plan r5                                                                                                                     |
+| 7.6 E2E               | not started (incl. 320 px overflow)     | plan r5                                                                                                                     |
+| Phase 8               | not started                             | 8.1 runbook · 8.2 owner + DevOps activation · 8.3 post-deploy checks                                                        |
 
 **Owner constraint still binding:** external GET requests to job sites, for measurement or scraping,
 need the owner's explicit go-ahead in chat first. None have been made.
