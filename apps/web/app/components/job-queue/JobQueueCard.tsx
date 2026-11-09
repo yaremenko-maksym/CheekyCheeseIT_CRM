@@ -283,7 +283,7 @@ export function JobQueueCard({
             >
               <OpenOriginalButton scope={scope} card={card} />
               <div className="flex gap-2 sm:ml-auto">
-                <DismissMenu scope={scope} opportunityId={card.opportunityId} />
+                <DismissMenu scope={scope} opportunityId={card.opportunityId} onClose={onClose} />
                 {scope.role === 'ADMIN' && (
                   <AdminVacancyMenu
                     scope={scope}

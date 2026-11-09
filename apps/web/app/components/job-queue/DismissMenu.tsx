@@ -32,13 +32,16 @@ const REASONS = [
  * «Приховати» (§5.9): a fixed reason, scoped to the actor (own team; ADMIN in the studio scope —
  * the whole studio), then an 8 s undo in exactly that scope. The dismissal's version is kept, so an
  * undo or a later hide that meets a newer one is a conflict the actor sees, never silently applied.
+ * The card closes on success: its modal layer would leave the undo toast unreachable (inert, no focus).
  */
 export function DismissMenu({
   scope,
   opportunityId,
+  onClose,
 }: {
   scope: QueueScopeSignature
   opportunityId: string
+  onClose: () => void
 }) {
   const { t } = useLingui()
   const dismiss = useDismissJobQueueItem(scope)
@@ -66,17 +69,19 @@ export function DismissMenu({
             duration: UNDO_MS,
             action: {
               label: t`Скасувати`,
-              onClick: () =>
-                undo.mutate(
-                  { opportunityId, scope: res.scope, expectedVersion: res.version },
-                  {
-                    onSuccess: (restored) => setVersion(restored.version),
-                    onError: (error) =>
+              // the card is closed by now: the promise settles after unmount, mutate callbacks would not
+              onClick: () => {
+                void undo
+                  .mutateAsync({ opportunityId, scope: res.scope, expectedVersion: res.version })
+                  .then(
+                    (restored) => setVersion(restored.version),
+                    (error: unknown) =>
                       failed(error, t`Не вдалося повернути вакансію. Спробуйте ще раз.`),
-                  },
-                ),
+                  )
+              },
             },
           })
+          onClose()
         },
         onError: (error) => failed(error, t`Не вдалося приховати вакансію. Спробуйте ще раз.`),
       },

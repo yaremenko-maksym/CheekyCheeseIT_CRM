@@ -478,7 +478,7 @@ describe('«Приховати» (AC 6, §5.9)', () => {
 
   async function hideAsSpam(scope: QueueScopeSignature = HR) {
     const user = userEvent.setup()
-    renderCard(scope)
+    const { onClose, unmount } = renderCard(scope)
     const trigger = screen.getByRole('button', { name: 'Приховати' })
     trigger.focus()
     await user.keyboard('{Enter}')
@@ -489,7 +489,7 @@ describe('«Приховати» (AC 6, §5.9)', () => {
     await user.keyboard('{ArrowDown}')
     expect(within(menu).getByRole('menuitem', { name: 'Спам' })).toHaveFocus()
     await user.keyboard('{Enter}')
-    return { user, trigger }
+    return { user, trigger, onClose, unmount }
   }
 
   /** The undo toast's own action, as sonner would run it. */
@@ -517,7 +517,7 @@ describe('«Приховати» (AC 6, §5.9)', () => {
 
   it('keyboard: Arrow keys move, Enter picks a reason, the dismiss is scoped, the undo toast lasts 8 s', async () => {
     post.mockResolvedValueOnce(dismissed(2))
-    await hideAsSpam()
+    const { onClose } = await hideAsSpam()
     await waitFor(() => expect(sent(DISMISS)).toHaveLength(1))
     expect(sent(DISMISS)[0]).toMatchObject({ teamId: TEAM, scope: 'TEAM', reason: 'SPAM' })
     expect(sent(DISMISS)[0]).not.toHaveProperty('expectedVersion')
@@ -525,7 +525,8 @@ describe('«Приховати» (AC 6, §5.9)', () => {
     expect(title).toBe('Приховано')
     expect(options.duration).toBe(8000)
     expect(options.action.label).toBe('Скасувати')
-    expect(screen.getByTestId('job-queue-card')).toBeInTheDocument()
+    // the modal card would leave the toast unreachable, so a hide closes it once the toast is up
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('Escape closes the menu without a request and returns focus to «Приховати»', async () => {
@@ -565,6 +566,17 @@ describe('«Приховати» (AC 6, §5.9)', () => {
     expect(sent(UNDO)[0]).toMatchObject({ expectedVersion: 2 })
   })
 
+  it('the undo still answers once the card is gone (a hide closes it)', async () => {
+    post.mockResolvedValueOnce(dismissed(2))
+    const { unmount } = await hideAsSpam()
+    const { options } = await lastUndo()
+    unmount()
+    post.mockRejectedValueOnce(coded(409, 'JOB_QUEUE_VERSION_CONFLICT'))
+    act(() => options.action.onClick())
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(CONFLICT_TEXT))
+    expect(sent(UNDO)[0]).toMatchObject({ teamId: TEAM, scope: 'TEAM', expectedVersion: 2 })
+  })
+
   it('a second hide after an undo carries the version the undo returned', async () => {
     post.mockResolvedValueOnce(dismissed(2))
     const { user, trigger } = await hideAsSpam()
@@ -581,11 +593,12 @@ describe('«Приховати» (AC 6, §5.9)', () => {
 
   it('a failed hide toasts its failure and offers no undo', async () => {
     post.mockRejectedValueOnce(httpError(500, {}))
-    await hideAsSpam()
+    const { onClose } = await hideAsSpam()
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith('Не вдалося приховати вакансію. Спробуйте ще раз.'),
     )
     expect(toastFn).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   it('a hide conflict shows the conflict text', async () => {
