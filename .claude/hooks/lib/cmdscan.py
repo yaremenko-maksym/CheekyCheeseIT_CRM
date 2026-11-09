@@ -343,7 +343,19 @@ def _interpreter_code_payloads(tokens):
     program, is_code, _flags, values = shell_program(tokens)
     out = [program] if is_code else []
     # A value with a space cannot be an option name (`bash -oc 'rm -rf /etc'`): read it as code.
-    return out + [v for v in values if re.search(r"\s", v)]
+    out += [v for v in values if re.search(r"\s", v)]
+    # SR-H-9 (#1294) adds the shell's own reading above; the sweep below is kept as well, so
+    # the word after EVERY code flag is still read (`bash -c ls -c 'rm -rf /etc'`).
+    for i, t in enumerate(tokens):
+        if not _is_code_flag(t):
+            continue
+        # SO-H-6 (#1294): `bash -c -- 'rm -rf /etc'` runs the word after `--`.
+        j = i + 1
+        while j < len(tokens) and tokens[j] == "--":
+            j += 1
+        if j < len(tokens) and tokens[j] not in out:
+            out.append(tokens[j])
+    return out
 
 
 def shell_program(tokens):

@@ -995,6 +995,14 @@ block	safety	yarn create $x
 block	safety	npm init $x
 block	safety	bun x $x
 allow	safety	npm init -y
+# CR-M-12 / CR-M-13 of #1294: wrappers after a launch; a bare runner with no subcommand.
+block	safety	pnpm exec sh -c "$x"
+block	safety	yarn --cwd x $x
+block	safety	pnpm --loglevel error exec $x
+block	safety	pnpm --workspace-dir x exec $x
+block	safety	pnpm --reporter silent $x
+block	safety	yarn workspace web $x
+block	safety	bun $x
 # SR-M-11 / SR-M-12 of #1294: `config` anywhere; include files and swapped config files.
 block	safety	git --attr-source HEAD config alias.x '!rm'
 block	safety	git config include.path /tmp/x

@@ -152,7 +152,7 @@ blocked = []
 # SR-M-9 / SR-M-10: no hand parse of runner options. The words after the FIRST launch
 # subcommand, wherever it sits, are scanned as a fresh command line, so wrappers unwrap
 # and `--` splits off a command. Accepted false refusal: a launch word as an option value.
-# Bare `pnpm` / `yarn` still launch the first word that is not one of their subcommands;
+# Bare `pnpm` / `yarn` / `bun` launch the first word that is not one of their subcommands;
 # a script name (`pnpm run $x`) is repo code and stays allowed.
 PKG_RUNNERS = ("pnpm", "npm", "yarn", "bun", "corepack")
 PKG_LAUNCH_WORDS = ("exec", "dlx", "x", "create", "init", "explore", "foreach")
@@ -173,18 +173,22 @@ def pkg_launch(seg, depth=0):
     if seg.name not in PKG_RUNNERS or depth > 3:
         return []
     k = next((i for i, a in enumerate(args) if a in PKG_LAUNCH_WORDS), None)
+    out = []
     if k is None:
-        if seg.name not in ("pnpm", "yarn"):
+        # CR-M-13: with no subcommand of its own anywhere in argv, a bare runner may launch
+        # any word (`yarn --cwd x $x`, `yarn workspace web $x`), so every dynamic word is a
+        # command word. One known subcommand anywhere (`pnpm --filter $pkg test`) passes.
+        if seg.name not in ("pnpm", "yarn", "bun") or any(a in PKG_SUBCOMMANDS for a in args):
             return []
+        out = [cmdscan.Segment(a, [], seg.payload, list(seg.wrappers) + [seg.name], True,
+                               seg.raw, seg.depth, seg.env, False, None)
+               for a in args if "$" in a or "\x60" in a]
         k = 0
         while k < len(args) and args[k].startswith("-"):
             k += 2 if args[k] in PKG_VALUE_OPTS else 1
-        if k >= len(args) or args[k] in PKG_SUBCOMMANDS:
-            return []
         k -= 1
     rest = args[k + 1:]
     lines = [rest] + ([rest[rest.index("--") + 1:]] if "--" in rest else [])
-    out = []
     for words in lines:
         if not words:
             continue

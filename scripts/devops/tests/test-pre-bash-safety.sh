@@ -781,6 +781,12 @@ for c in 'pnpm --reporter silent exec $x' 'npm --loglevel silent exec $x' 'yarn 
   assert_red "package runner launch: $c" --contains "no gate reads" -- h "$c"
 done
 assert_green "static init: npm init -y" -- h 'npm init -y'
+# CR-M-12 / CR-M-13 (#1294): wrappers and -c strings after a launch; a bare runner with no
+# subcommand of its own judges every dynamic word.
+for c in 'pnpm exec sh -c "$x"' 'yarn --cwd x $x' 'pnpm --loglevel error exec $x' \
+         'pnpm --workspace-dir x exec $x' 'pnpm --reporter silent $x' 'yarn workspace web $x' 'bun $x'; do
+  assert_red "launch through a wrapper or a shifted option: $c" --contains "no gate reads" -- h "$c"
+done
 # SR-M-11 / SR-M-12 (#1294): `config` anywhere; include files and swapped config files.
 for c in "git --attr-source HEAD config alias.x '!rm'" 'git config include.path /tmp/x' \
          'git config --global Include.Path /tmp/x' 'git config includeIf.gitdir:/x/.path /tmp/x' \
