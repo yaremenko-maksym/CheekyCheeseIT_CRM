@@ -1,0 +1,230 @@
+/** r5 Task 7.3 — «Сеньйори зі збігом» (spec §5.2–§5.6, visibility §3). */
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import type { JobQueueCardResponseDto } from '@crm/shared'
+import { I18nTestProvider, loadCatalog } from '@/test/i18n'
+import { useJobQueueSeniors } from '@/hooks/use-job-queue'
+import { MatchedSeniors } from '../MatchedSeniors'
+import { cardFixture, idleContinuation, OPP, senior, submission } from './card-fixtures'
+
+vi.mock('@/hooks/use-job-queue', async (orig) => ({
+  ...(await orig<typeof import('@/hooks/use-job-queue')>()),
+  useJobQueueSeniors: vi.fn(),
+}))
+
+const HR = { actorId: 'actor', role: 'HR' as const, teamId: null }
+const ADMIN = { actorId: 'actor', role: 'ADMIN' as const, teamId: null }
+const seniorsHook = vi.mocked(useJobQueueSeniors)
+
+const S1 = 'aaaaaaaa-0000-4000-8000-000000000001'
+const S2 = 'aaaaaaaa-0000-4000-8000-000000000002'
+const S3 = 'aaaaaaaa-0000-4000-8000-000000000003'
+
+function renderBlock(
+  card: JobQueueCardResponseDto = cardFixture(),
+  scope: typeof HR | typeof ADMIN = HR,
+  renderAction?: Parameters<typeof MatchedSeniors>[0]['renderAction'],
+) {
+  return render(<MatchedSeniors scope={scope} card={card} renderAction={renderAction} />, {
+    wrapper: I18nTestProvider,
+  })
+}
+
+const none = { items: [], totalCount: 0, nextCursor: null }
+
+describe('MatchedSeniors', () => {
+  beforeEach(async () => {
+    seniorsHook.mockReset()
+    seniorsHook.mockReturnValue(idleContinuation() as never)
+    await loadCatalog('uk')
+  })
+
+  it('one block per own senior: name, «Збіг за:» chips in the hit style', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [senior({ matchedKeywords: ['React', 'Node.js'] })],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    expect(screen.getByRole('heading', { name: 'Сеньйори зі збігом' })).toBeVisible()
+    const block = screen.getByTestId(`job-queue-senior-${S1}`)
+    expect(within(block).getByText('Олена Коваль')).toBeVisible()
+    expect(within(block).getByText('Збіг за:')).toBeVisible()
+    const chip = within(block).getByText('Node.js')
+    expect(chip).toHaveClass('bg-yellow-subtle', 'text-primary')
+    expect(within(block).getByText('React')).toHaveClass('bg-yellow-subtle')
+    expect(within(block).queryByText('Збіг неточний')).toBeNull()
+  })
+
+  it('a senior with no matched tokens has no «Збіг за:» line', () => {
+    renderBlock(
+      cardFixture({
+        seniors: { items: [senior({ matchedKeywords: [] })], totalCount: 1, nextCursor: null },
+      }),
+    )
+    expect(screen.queryByText('Збіг за:')).toBeNull()
+  })
+
+  it('an approximate match says so in text, not colour alone', () => {
+    renderBlock(
+      cardFixture({
+        seniors: { items: [senior({ matchApproximate: true })], totalCount: 1, nextCursor: null },
+      }),
+    )
+    expect(
+      within(screen.getByTestId(`job-queue-senior-${S1}`)).getByText('Збіг неточний'),
+    ).toBeVisible()
+  })
+
+  it('an own submission shows «Подано · …», with the submitter when the API names one', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [
+            senior({ submission: submission() }),
+            senior({
+              seniorId: S2,
+              displayName: 'Ігор',
+              submission: submission({ seniorId: S2, submittedByName: 'Ірина' }),
+            }),
+          ],
+          totalCount: 2,
+          nextCursor: null,
+        },
+      }),
+    )
+    expect(screen.getByTestId(`job-queue-senior-submitted-${S1}`)).toHaveTextContent(
+      /^Подано · 2 год(ини)? тому$/,
+    )
+    expect(screen.getByTestId(`job-queue-senior-submitted-${S2}`)).toHaveTextContent(
+      /^Подано: Ірина · 2 год(ини)? тому$/,
+    )
+  })
+
+  it('a released submission reads as not submitted', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [senior({ submission: submission({ state: 'RELEASED' }) })],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    expect(screen.queryByTestId(`job-queue-senior-submitted-${S1}`)).toBeNull()
+    expect(screen.queryByText(/Подано/)).toBeNull()
+  })
+
+  it('a foreign-team submission (bare marker) is indistinguishable from untouched (§3)', () => {
+    const foreign = renderBlock(
+      cardFixture({
+        seniors: {
+          items: [senior({ submission: { submittedElsewhere: true } })],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    const foreignText = screen.getByTestId(`job-queue-senior-${S1}`).textContent
+    expect(screen.queryByTestId(`job-queue-senior-submitted-${S1}`)).toBeNull()
+    foreign.unmount()
+    renderBlock()
+    expect(screen.getByTestId(`job-queue-senior-${S1}`).textContent).toBe(foreignText)
+  })
+
+  it('the action slot (Task 7.4 seam) renders inside each senior block with that senior', () => {
+    const renderAction = vi.fn((s: { seniorId: string }) => <span>slot-{s.seniorId}</span>)
+    renderBlock(cardFixture(), HR, renderAction)
+    expect(
+      within(screen.getByTestId(`job-queue-senior-${S1}`)).getByText(`slot-${S1}`),
+    ).toBeVisible()
+  })
+
+  it('partial stop-list: the count and the reason under the list, never a name', () => {
+    renderBlock(cardFixture({ stopListedSeniorCount: 2 }))
+    const note = screen.getByTestId('job-queue-stop-some')
+    expect(note).toHaveTextContent(
+      'Виключено за стоп-листом: 2Ці сеньйори внесли компанію до власного стоп-листа, тому вакансія їм не пропонується.',
+    )
+    expect(screen.getByTestId(`job-queue-senior-${S1}`)).toBeVisible()
+  })
+
+  it('all stop-listed (HR): the scoped empty state, no list', () => {
+    renderBlock(cardFixture({ matchedSeniorCount: 0, stopListedSeniorCount: 3, seniors: none }))
+    const empty = screen.getByTestId('job-queue-seniors-stop-all')
+    expect(empty).toHaveTextContent(
+      'Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листаСтек збігається, проте вакансію їм не пропонують.',
+    )
+    expect(screen.queryByTestId('job-queue-stop-some')).toBeNull()
+    expect(screen.queryByRole('list')).toBeNull()
+  })
+
+  it('all stop-listed (ADMIN): the studio sentence', () => {
+    renderBlock(
+      cardFixture({ matchedSeniorCount: 0, stopListedSeniorCount: 3, seniors: none }),
+      ADMIN,
+    )
+    expect(screen.getByTestId('job-queue-seniors-stop-all')).toHaveTextContent(
+      /^Усі сеньйори зі збігом внесли компанію до стоп-листа/,
+    )
+  })
+
+  it('zero matches (HR / ADMIN): a different headline and scoped body', () => {
+    const hr = renderBlock(cardFixture({ matchedSeniorCount: 0, seniors: none }))
+    expect(screen.getByTestId('job-queue-seniors-none')).toHaveTextContent(
+      'Немає сеньйорів зі збігом стекуВакансія лишається в черзі, але жоден сеньйор із вашої команди не збігається за стеком.',
+    )
+    hr.unmount()
+    renderBlock(cardFixture({ matchedSeniorCount: 0, seniors: none }), ADMIN)
+    expect(screen.getByTestId('job-queue-seniors-none')).toHaveTextContent(
+      'Немає сеньйорів зі збігом стекуВакансія лишається в черзі, але жоден сеньйор не збігається за стеком.',
+    )
+  })
+
+  it('triage: the manual-review empty state, no names, no team wording', () => {
+    renderBlock(cardFixture({ eligibility: 'TRIAGE', matchedSeniorCount: 0, seniors: none }))
+    expect(screen.getByTestId('job-queue-seniors-triage')).toHaveTextContent(
+      'Сеньйорів не підібрано автоматичноРоботодавця не вдалося підтвердити, тому система не пропонує цю вакансію конкретним сеньйорам. Оцініть її вручну за описом.',
+    )
+    expect(screen.queryByTestId('job-queue-seniors-none')).toBeNull()
+  })
+
+  it('continues past the preview by its cursor, then page by page', async () => {
+    const fetchNextPage = vi.fn()
+    renderBlock(cardFixture({ seniors: { items: [senior()], totalCount: 3, nextCursor: 's-1' } }))
+    expect(seniorsHook).toHaveBeenLastCalledWith(HR, OPP, null)
+    expect(screen.getByTestId('job-queue-seniors-shown')).toHaveTextContent('Показано 1 із 3')
+
+    seniorsHook.mockReturnValue(
+      idleContinuation(
+        [
+          {
+            items: [senior({ seniorId: S2, displayName: 'Ігор' })],
+            totalCount: 3,
+            nextCursor: 's-2',
+          },
+        ],
+        { hasNextPage: true, fetchNextPage },
+      ) as never,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Показати ще (2)' }))
+    expect(seniorsHook).toHaveBeenLastCalledWith(HR, OPP, 's-1')
+    expect(screen.getByTestId(`job-queue-senior-${S2}`)).toBeVisible()
+    expect(screen.getByTestId('job-queue-seniors-shown')).toHaveTextContent('Показано 2 із 3')
+    expect(fetchNextPage).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Показати ще (1)' }))
+    expect(fetchNextPage).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId(`job-queue-senior-${S3}`)).toBeNull()
+  })
+
+  it('everything listed: no totals line and no continuation button', () => {
+    renderBlock()
+    expect(screen.queryByTestId('job-queue-seniors-shown')).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+})

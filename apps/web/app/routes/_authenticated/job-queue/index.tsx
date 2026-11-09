@@ -2,7 +2,8 @@
  * /job-queue — r5 Task 7.2. The external vacancy queue (ADMIN | HR): status tabs with authorized
  * counts, search + bounded filters (URL state, applied explicitly), the infinite-scroll list,
  * the HR team switcher and the refresh / partial / access-lost notices. Opening a row writes
- * `?card=<id>`; the card itself is Task 7.3. Layout and copy: docs/design/vacancy-queue.md.
+ * `?card=<id>`, which opens the card (Task 7.3); closing it clears `card`. Layout and copy:
+ * docs/design/vacancy-queue.md.
  */
 import { useId, useRef, useState, type FormEvent } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
@@ -27,6 +28,7 @@ import {
   type QueueScopeSignature,
 } from '@/hooks/use-job-queue'
 import { Button } from '@/components/ui/button'
+import { JobQueueCard } from '@/components/job-queue/JobQueueCard'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { JobQueueStatusTabs } from '@/components/job-queue/JobQueueStatusTabs'
@@ -402,6 +404,14 @@ function QueueBody({
           />
         )}
       </JobQueueStatusTabs>
+      {search.card && (
+        <JobQueueCard
+          key={search.card}
+          scope={scope}
+          opportunityId={search.card}
+          onClose={() => go({ ...search, card: undefined })}
+        />
+      )}
     </div>
   )
 }
