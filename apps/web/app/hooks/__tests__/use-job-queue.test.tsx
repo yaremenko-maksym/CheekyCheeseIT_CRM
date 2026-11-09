@@ -681,3 +681,61 @@ describe('card continuations', () => {
     expect(result.current.accessLost).toBe(false)
   })
 })
+
+describe('QA-LOW-6: a lost card is not retried', () => {
+  // the app's own defaults (`createQueryClient`): one retry; no delay, so the retry is observable at once
+  const appDefaults = () =>
+    new QueryClient({ defaultOptions: { queries: { retry: 1, retryDelay: 0 } } })
+
+  const reads = {
+    card: () => useJobQueueCard(scope, OPP),
+    seniors: () => useJobQueueSeniors(scope, OPP, 'c-1'),
+    sources: () => useJobQueueSources(scope, OPP, 'c-1'),
+  }
+
+  it.each([
+    ['card', 403],
+    ['card', 404],
+    ['seniors', 403],
+    ['seniors', 404],
+    ['sources', 403],
+    ['sources', 404],
+  ] as const)('%s: a %i issues exactly one request before the close', async (read, status) => {
+    client = appDefaults()
+    get.mockRejectedValue(httpError(status, 'JOB_OPPORTUNITY_NOT_FOUND'))
+    const { result } = renderHook(reads[read], { wrapper })
+    await waitFor(() => expect(result.current.accessLost).toBe(true))
+    await act(() => new Promise((r) => setTimeout(r, 30)))
+    expect(get).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['card', 'seniors', 'sources'] as const)(
+    '%s: a 500 is still retried once (the app default)',
+    async (read) => {
+      client = appDefaults()
+      get.mockRejectedValue(httpError(500, 'INTERNAL'))
+      const { result } = renderHook(reads[read], { wrapper })
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect(result.current.accessLost).toBe(false)
+      expect(get).toHaveBeenCalledTimes(2)
+    },
+  )
+
+  it.each([
+    ['a function default', { retry: (n: number) => n < 2 }, 3],
+    ['no default (TanStack: 3)', {}, 4],
+  ])('other errors follow the client default: %s', async (_name, queries, calls) => {
+    client = new QueryClient({ defaultOptions: { queries: { ...queries, retryDelay: 0 } } })
+    get.mockRejectedValue(httpError(500, 'INTERNAL'))
+    const { result } = renderHook(reads.card, { wrapper })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(get).toHaveBeenCalledTimes(calls)
+  })
+
+  it('a client with retries off is not overridden for other errors', async () => {
+    get.mockRejectedValue(httpError(500, 'INTERNAL'))
+    const { result } = renderHook(reads.card, { wrapper })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(get).toHaveBeenCalledTimes(1)
+  })
+})

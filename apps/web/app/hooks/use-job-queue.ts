@@ -126,8 +126,7 @@ const seg = encodeURIComponent
  */
 function useAccessLost(scope: QueueScopeSignature, error: unknown) {
   const queryClient = useQueryClient()
-  const status = getAxiosStatus(error)
-  const lost = status === 403 || status === 404
+  const lost = isAccessLoss(error)
   const { actorId, role, teamId } = scope
 
   useEffect(() => {
@@ -139,6 +138,24 @@ function useAccessLost(scope: QueueScopeSignature, error: unknown) {
   }, [lost, queryClient, actorId, role, teamId])
 
   return lost
+}
+
+const isAccessLoss = (error: unknown) => {
+  const status = getAxiosStatus(error)
+  return status === 403 || status === 404
+}
+
+/**
+ * QA-LOW-6: a card read answered 403/404 is final, so it closes at once instead of asking again;
+ * every other error keeps the client's default retry.
+ */
+function useRetryUnlessAccessLost() {
+  const fallback = useQueryClient().getDefaultOptions().queries?.retry ?? 3
+  return (failureCount: number, error: unknown): boolean => {
+    if (isAccessLoss(error)) return false
+    if (typeof fallback === 'function') return fallback(failureCount, error as Error)
+    return typeof fallback === 'number' ? failureCount < fallback : fallback
+  }
 }
 
 /**
@@ -210,6 +227,7 @@ export function useJobQueue(scope: QueueScopeSignature, tab: JobQueueTab, filter
 export function useJobQueueCard(scope: QueueScopeSignature, id: string | null) {
   const query = useQuery({
     queryKey: jobQueueCardQueryKey(scope, id),
+    retry: useRetryUnlessAccessLost(),
     // QA-LOW-1: not kept once the card closes, so a reopen never paints names (personal data)
     // the server has not just confirmed for the current scope; it loads afresh
     gcTime: 0,
@@ -242,6 +260,7 @@ function useContinuation<T extends { nextCursor: string | null }>(
 ) {
   const query = useInfiniteQuery({
     queryKey: [...jobQueueCardQueryKey(scope, id), part, cursor],
+    retry: useRetryUnlessAccessLost(),
     // forgotten with the card (QA-LOW-1)
     gcTime: 0,
     initialPageParam: cursor,
