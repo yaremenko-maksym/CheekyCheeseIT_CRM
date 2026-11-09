@@ -74,6 +74,17 @@ describe('JobQueueCard', () => {
     )
     expect(within(dialog).getByRole('heading', { level: 2 })).not.toHaveClass('line-clamp-2')
     expect(dialog).toHaveClass('inset-0', 'h-dvh', 'sm:h-auto', 'sm:max-w-2xl')
+    // UX-L-3: the shadcn dialog's enter/exit set, only when motion is allowed (none on reduce)
+    expect(dialog).toHaveClass(
+      'duration-150',
+      'motion-safe:data-[state=open]:animate-in',
+      'motion-safe:data-[state=closed]:animate-out',
+      'data-[state=open]:fade-in-0',
+      'data-[state=closed]:fade-out-0',
+      'sm:data-[state=open]:zoom-in-95',
+      'sm:data-[state=closed]:zoom-out-95',
+    )
+    expect(dialog.className).not.toMatch(/(^| )data-\[state=(open|closed)\]:animate-/)
   })
 
   it('the close button is 44×44, labelled «Закрити», and closes', async () => {
@@ -246,7 +257,7 @@ describe('JobQueueCard', () => {
     for (const chip of [triage, seniority, closed]) {
       expect(chip).toHaveClass('inline-flex', 'rounded-md', 'border', 'text-xs')
     }
-    expect(triage).toHaveClass('border-dashed', 'text-muted-foreground')
+    expect(triage).toHaveClass('border-dashed', 'border-yellow-muted', 'text-muted-foreground')
     expect(triage).not.toHaveClass('font-medium')
     expect(seniority).toHaveClass('font-medium')
     expect(seniority).not.toHaveClass('border-dashed')

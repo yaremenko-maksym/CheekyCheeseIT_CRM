@@ -57,8 +57,18 @@ describe('MatchedSeniors', () => {
         },
       }),
     )
-    expect(screen.getByRole('heading', { name: 'Сеньйори зі збігом' })).toBeVisible()
+    const heading = screen.getByRole('heading', { name: '1 сеньйор зі збігом' })
+    expect(heading).toBeVisible()
+    expect(heading).toHaveClass('text-sm', 'font-semibold', 'tabular-nums')
+    // UX-L-4: one bordered list, rows split by dividers rather than a box per senior
+    expect(screen.getByTestId('job-queue-seniors-list')).toHaveClass(
+      'divide-y',
+      'rounded-lg',
+      'border',
+      'bg-card',
+    )
     const block = screen.getByTestId(`job-queue-senior-${S1}`)
+    expect(block).not.toHaveClass('border')
     expect(within(block).getByText('Олена Коваль')).toBeVisible()
     expect(within(block).getByText('Збіг за:')).toBeVisible()
     const chip = within(block).getByText('Node.js')
@@ -67,6 +77,25 @@ describe('MatchedSeniors', () => {
     expect(chip).toHaveClass('max-w-full', 'truncate')
     expect(chip).toHaveAttribute('title', 'Node.js')
     expect(within(block).queryByText('Збіг неточний')).toBeNull()
+  })
+
+  it.each([
+    [3, '3 сеньйори зі збігом'],
+    [5, '5 сеньйорів зі збігом'],
+    [21, '21 сеньйор зі збігом'],
+  ])('UX-L-4: the heading counts every matched senior, not the preview: %i', (totalCount, name) => {
+    renderBlock(cardFixture({ seniors: { items: [senior()], totalCount, nextCursor: 's-1' } }))
+    expect(screen.getByRole('heading', { name })).toBeVisible()
+  })
+
+  it('UX-L-4: with no matched senior the heading carries no count', () => {
+    renderBlock(
+      cardFixture({
+        eligibility: 'TRIAGE',
+        seniors: { items: [], totalCount: 0, nextCursor: null },
+      }),
+    )
+    expect(screen.getByRole('heading', { name: 'Сеньйори зі збігом' })).toBeVisible()
   })
 
   it.each([
@@ -266,6 +295,58 @@ describe('MatchedSeniors', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Показати ще (1)' }))
     expect(fetchNextPage).toHaveBeenCalledTimes(1)
     expect(screen.queryByTestId(`job-queue-senior-${S3}`)).toBeNull()
+  })
+
+  it('UX-M-2 / QA-LOW-2: the last page by keyboard hands focus to the first new senior, not the dialog', async () => {
+    renderBlock(cardFixture({ seniors: { items: [senior()], totalCount: 2, nextCursor: 's-1' } }))
+    seniorsHook.mockReturnValue(
+      idleContinuation([
+        { items: [senior({ seniorId: S2, displayName: 'Ігор' })], totalCount: 2, nextCursor: null },
+      ]) as never,
+    )
+    screen.getByRole('button', { name: 'Показати ще (1)' }).focus()
+    await userEvent.keyboard('{Enter}')
+    expect(screen.queryByRole('button')).toBeNull()
+    const first = screen.getByTestId(`job-queue-senior-${S2}`)
+    expect(first).toHaveFocus()
+    expect(first).toHaveAttribute('tabindex', '-1')
+    expect(first).toHaveClass(
+      'flex',
+      'flex-col',
+      'gap-2',
+      'p-3',
+      'focus-visible:outline-none',
+      'focus-visible:ring-2',
+      'focus-visible:ring-ring',
+      'focus-visible:ring-inset',
+    )
+  })
+
+  it('focus handed to the new senior is not taken again on a later render', async () => {
+    const card = cardFixture({ seniors: { items: [senior()], totalCount: 2, nextCursor: 's-1' } })
+    const { rerender } = renderBlock(card)
+    seniorsHook.mockReturnValue(
+      idleContinuation([
+        { items: [senior({ seniorId: S2, displayName: 'Ігор' })], totalCount: 2, nextCursor: null },
+      ]) as never,
+    )
+    screen.getByRole('button', { name: 'Показати ще (1)' }).focus()
+    await userEvent.keyboard('{Enter}')
+    const own = screen.getByTestId(`job-queue-senior-${S1}`)
+    own.focus()
+    rerender(<MatchedSeniors scope={HR} card={card} onAccessLost={onAccessLost} />)
+    expect(own).toHaveFocus()
+  })
+
+  it('a last page with nothing new leaves focus to the browser without an error', async () => {
+    renderBlock(cardFixture({ seniors: { items: [senior()], totalCount: 2, nextCursor: 's-1' } }))
+    seniorsHook.mockReturnValue(
+      idleContinuation([{ items: [], totalCount: 2, nextCursor: null }]) as never,
+    )
+    screen.getByRole('button', { name: 'Показати ще (1)' }).focus()
+    await userEvent.keyboard('{Enter}')
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(document.body).toHaveFocus()
   })
 
   it('everything listed: no totals line and no continuation button', () => {

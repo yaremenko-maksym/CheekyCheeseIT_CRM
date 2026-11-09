@@ -10019,6 +10019,10 @@ msgstr "Картка співробітника"
 msgid "Розділи проєкту"
 msgstr "Розділи проєкту"
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "{n, plural, one {# сеньйор зі збігом} few {# сеньйори зі збігом} many {# сеньйорів зі збігом} other {# сеньйора зі збігом}}"
+msgstr "{n, plural, one {# сеньйор зі збігом} few {# сеньйори зі збігом} many {# сеньйорів зі збігом} other {# сеньйора зі збігом}}"
+
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Запис зникне з цієї співбесіди та повернеться до списку неприв'язаних записів."
 msgstr "Запис зникне з цієї співбесіди та повернеться до списку неприв'язаних записів."

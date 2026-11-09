@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 import { Trans } from '@lingui/react/macro'
 import { Button } from '@/components/ui/button'
 
@@ -18,7 +18,9 @@ export interface Continuation {
  * asks for the next page (with nothing fetched yet that loads the first). Renders nothing once
  * everything is shown or nothing is left to fetch, so the button is never dead. A 403/404 goes to
  * `onAccessLost`, the card's own close path; any other failure keeps the rows and offers a retry.
- * A running fetch keeps the button mounted but inert, so focus is not lost mid-fetch.
+ * A running fetch keeps the button mounted but inert, so focus is not lost mid-fetch. When the last
+ * page lands the button goes; if it held focus, focus moves to the first new item of `list` (each
+ * item is focusable), so a keyboard user carries on reading instead of landing on the dialog.
  */
 export function PreviewContinuation({
   testId,
@@ -28,6 +30,7 @@ export function PreviewContinuation({
   more,
   started,
   previewCursor,
+  list,
   onStart,
   onAccessLost,
 }: {
@@ -38,12 +41,29 @@ export function PreviewContinuation({
   more: Continuation
   started: boolean
   previewCursor: string | null
+  /** The list the pages append to; its children are the items, in order. */
+  list: RefObject<HTMLUListElement | null>
   onStart: () => void
   onAccessLost: () => void
 }) {
   useEffect(() => {
     if (more.accessLost) onAccessLost()
   }, [more.accessLost, onAccessLost])
+
+  const button = useRef<HTMLButtonElement | null>(null)
+  const firstNew = useRef(0)
+  const handOff = useRef(false)
+  const trackButton = useCallback((node: HTMLButtonElement | null) => {
+    // null is React detaching the ref; it does so before it removes the button, so the button can
+    // still hold focus at this point (on attach `button.current` is null, which is never focused)
+    handOff.current = button.current === document.activeElement
+    button.current = node
+  }, [])
+  useLayoutEffect(() => {
+    if (!handOff.current) return
+    handOff.current = false
+    ;(list.current!.children[firstNew.current] as HTMLElement | undefined)?.focus()
+  })
 
   const hasMore = more.data ? more.hasNextPage : previewCursor !== null
   if (!hasMore || total <= shown) return null
@@ -67,9 +87,11 @@ export function PreviewContinuation({
         variant="outline"
         size="sm"
         className="min-h-11 sm:min-h-9"
+        ref={trackButton}
         aria-disabled={more.isFetching || undefined}
         onClick={() => {
           if (more.isFetching) return
+          firstNew.current = shown
           if (started) void more.fetchNextPage()
           else onStart()
         }}

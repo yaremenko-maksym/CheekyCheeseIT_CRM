@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Trans } from '@lingui/react/macro'
 import { ExternalLink } from 'lucide-react'
 import type { JobQueueCardResponseDto } from '@crm/shared'
@@ -24,6 +24,7 @@ export function AlsoSeenOn({
   onAccessLost: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
+  const list = useRef<HTMLUListElement>(null)
   // the continuation fetches as soon as it has a cursor, so it gets one only after the first click
   const more = useJobQueueSources(
     scope,
@@ -44,12 +45,18 @@ export function AlsoSeenOn({
       <h3 className="text-sm font-semibold">
         <Trans>Також опубліковано на:</Trans>
       </h3>
-      <ul className="flex flex-wrap gap-2">
+      <ul ref={list} className="flex flex-wrap gap-2">
         {rows.map((row) => {
           const name = sourceLabel(row.sourceType)
           const testId = `job-queue-source-${row.sourceRecordId}`
           return (
-            <li key={row.sourceRecordId} className="min-w-0 max-w-full">
+            <li
+              key={row.sourceRecordId}
+              data-testid={`job-queue-source-row-${row.sourceRecordId}`}
+              // takes focus when it is the first row a «Показати ще» brings in (PreviewContinuation)
+              tabIndex={-1}
+              className="min-w-0 max-w-full rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
               {isSafeExternalUrl(row.url) ? (
                 <button
                   type="button"
@@ -81,6 +88,7 @@ export function AlsoSeenOn({
         more={more}
         started={expanded}
         previewCursor={card.sources.nextCursor}
+        list={list}
         onStart={() => setExpanded(true)}
         onAccessLost={onAccessLost}
       />

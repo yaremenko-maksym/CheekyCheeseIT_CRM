@@ -34,7 +34,7 @@ function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
       {(triage || seniority || closed) && (
         <div data-testid="job-queue-card-badges" className="flex flex-wrap items-center gap-1">
           {triage && (
-            <span className={cn(CHIP, 'border-dashed text-muted-foreground')}>
+            <span className={cn(CHIP, 'border-dashed border-yellow-muted text-muted-foreground')}>
               <CircleHelp aria-hidden="true" className="size-3.5" />
               <Trans>Потребує розгляду</Trans>
             </span>
@@ -205,7 +205,9 @@ export function JobQueueCard({
                 : focusFallback?.current
             opener?.focus()
           }}
-          className="fixed inset-0 z-50 flex h-dvh w-full flex-col bg-card shadow-xl sm:inset-auto sm:top-1/2 sm:left-1/2 sm:h-auto sm:max-h-[90dvh] sm:w-[calc(100%-2rem)] sm:max-w-2xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border"
+          // enter/exit: the shadcn dialog's tw-animate-css set, gated on motion-safe so a reduced-motion
+          // user gets none; the zoom only from 640 px, where the panel is not full-screen
+          className="fixed inset-0 z-50 flex h-dvh w-full flex-col bg-card shadow-xl duration-150 motion-safe:data-[state=open]:animate-in motion-safe:data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:h-auto sm:max-h-[90dvh] sm:w-[calc(100%-2rem)] sm:max-w-2xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:border sm:data-[state=open]:zoom-in-95 sm:data-[state=closed]:zoom-out-95"
         >
           <div className="flex items-start gap-2 border-b p-4 pr-2 sm:p-6 sm:pr-3">
             <div className="flex min-w-0 flex-1 flex-col gap-1.5">

@@ -1,5 +1,6 @@
-import { useState, type ReactNode } from 'react'
-import { Trans } from '@lingui/react/macro'
+import { useRef, useState, type ReactNode } from 'react'
+import { msg } from '@lingui/core/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { Ban, Check, CircleHelp, Info, Users } from 'lucide-react'
 import {
   formatRelativeTime,
@@ -12,6 +13,8 @@ import { cn } from '@/lib/utils'
 import { PreviewContinuation } from './PreviewContinuation'
 
 const SENIORS_PAGE = 200
+// Module-level `msg` plural, not the `plural()` macro (breaks under Stryker, see TxDateField).
+const SENIORS_HEADING = msg`{n, plural, one {# сеньйор зі збігом} few {# сеньйори зі збігом} many {# сеньйорів зі збігом} other {# сеньйора зі збігом}}`
 /** §5.1.6 hit style: matched stack tokens, amber on the card. */
 export const HIT_CHIP =
   'rounded-md border border-yellow-muted/40 bg-yellow-subtle px-1.5 py-0.5 text-xs text-primary'
@@ -40,7 +43,9 @@ function SeniorBlock({ senior, action }: { senior: JobQueueCardSeniorDto; action
   return (
     <li
       data-testid={`job-queue-senior-${senior.seniorId}`}
-      className="flex flex-col gap-2 rounded-lg border bg-card p-3"
+      // takes focus when it is the first senior a «Показати ще» brings in (PreviewContinuation)
+      tabIndex={-1}
+      className="flex flex-col gap-2 p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
     >
       <div className="flex min-w-0 items-start gap-3">
         <span
@@ -137,7 +142,9 @@ export function MatchedSeniors({
   renderAction?: ((senior: JobQueueCardSeniorDto) => ReactNode) | undefined
   onAccessLost: () => void
 }) {
+  const { i18n } = useLingui()
   const [expanded, setExpanded] = useState(false)
+  const list = useRef<HTMLUListElement>(null)
   // the continuation fetches as soon as it has a cursor, so it gets one only after the first click
   const more = useJobQueueSeniors(
     scope,
@@ -204,7 +211,11 @@ export function MatchedSeniors({
   } else {
     body = (
       <>
-        <ul className="flex flex-col gap-2">
+        <ul
+          ref={list}
+          data-testid="job-queue-seniors-list"
+          className="flex flex-col divide-y rounded-lg border bg-card"
+        >
           {seniors.map((senior) => (
             <SeniorBlock key={senior.seniorId} senior={senior} action={renderAction?.(senior)} />
           ))}
@@ -217,6 +228,7 @@ export function MatchedSeniors({
           more={more}
           started={expanded}
           previewCursor={card.seniors.nextCursor}
+          list={list}
           onStart={() => setExpanded(true)}
           onAccessLost={onAccessLost}
         />
@@ -246,8 +258,12 @@ export function MatchedSeniors({
 
   return (
     <section data-testid="job-queue-seniors" className="flex flex-col gap-2">
-      <h3 className="text-sm font-semibold">
-        <Trans>Сеньйори зі збігом</Trans>
+      <h3 className="text-sm font-semibold tabular-nums">
+        {card.seniors.totalCount > 0 ? (
+          i18n._(SENIORS_HEADING.id, { n: card.seniors.totalCount })
+        ) : (
+          <Trans>Сеньйори зі збігом</Trans>
+        )}
       </h3>
       {body}
     </section>

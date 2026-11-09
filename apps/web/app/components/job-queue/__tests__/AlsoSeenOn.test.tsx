@@ -100,6 +100,39 @@ describe('AlsoSeenOn', () => {
     expect(fetchNextPage).toHaveBeenCalledTimes(1)
   })
 
+  it('UX-M-2 / QA-LOW-2: the last page by keyboard hands focus to the first new source, not the dialog', async () => {
+    renderBlock(
+      cardFixture({ sources: { items: [PRIMARY, source(1)], totalCount: 3, nextCursor: 'c-1' } }),
+    )
+    sourcesHook.mockReturnValue(
+      idleContinuation([{ items: [source(2)], totalCount: 3, nextCursor: null }]) as never,
+    )
+    screen.getByRole('button', { name: 'Показати ще (1)' }).focus()
+    await userEvent.keyboard('{Enter}')
+    expect(screen.queryByRole('button', { name: /Показати ще/ })).toBeNull()
+    const first = screen.getByTestId(`job-queue-source-row-${source(2).sourceRecordId}`)
+    expect(first).toHaveFocus()
+    expect(first).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('a focus moved away before the last page lands is not taken back', async () => {
+    const card = cardFixture({
+      sources: { items: [PRIMARY, source(1)], totalCount: 3, nextCursor: 'c-1' },
+    })
+    const { rerender } = renderBlock(card)
+    screen.getByRole('button', { name: 'Показати ще (1)' }).focus()
+    await userEvent.keyboard('{Enter}')
+    // still loading, so the control stays; the user moves on to the first source
+    const elsewhere = screen.getByTestId(`job-queue-source-${source(1).sourceRecordId}`)
+    elsewhere.focus()
+    sourcesHook.mockReturnValue(
+      idleContinuation([{ items: [source(2)], totalCount: 3, nextCursor: null }]) as never,
+    )
+    rerender(<AlsoSeenOn scope={SCOPE} card={card} onAccessLost={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: /Показати ще/ })).toBeNull()
+    expect(elsewhere).toHaveFocus()
+  })
+
   it('the last continuation step offers only what is left', () => {
     const items = [PRIMARY, ...Array.from({ length: 19 }, (_, i) => source(i + 1))]
     renderBlock(cardFixture({ sources: { items, totalCount: 26, nextCursor: 'c-1' } }))

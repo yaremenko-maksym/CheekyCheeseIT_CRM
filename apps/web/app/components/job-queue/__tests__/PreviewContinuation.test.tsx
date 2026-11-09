@@ -28,6 +28,7 @@ function props(over: Partial<Props> = {}): Props {
     more: more(),
     started: false,
     previewCursor: 'c-1',
+    list: { current: null },
     onStart: vi.fn(),
     onAccessLost: vi.fn(),
     ...over,
