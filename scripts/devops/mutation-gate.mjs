@@ -22,10 +22,11 @@
  * The reference case ships with the repo:
  * apps/web/app/test/fixtures/2026-08-07-JobSuggestionDialog.vacuum.tsx.txt is a
  * verbatim copy of the pre-fix JobSuggestionDialog test. Every one of its tests
- * passes against the CURRENT, hardened component, and it kills ZERO of the five
- * mutants in that component's XSS defence — including the mutant that empties
- * `MARKDOWN_COMPONENTS` outright. `scripts/devops/mutation-gate-vacuum-proof.sh`
- * reproduces that A/B on demand.
+ * passes against the CURRENT, hardened component, and it kills ZERO of the
+ * mutants in its XSS defence (since r5 Task 7.3 that defence lives in
+ * `apps/web/app/components/job-sourcing/PostingMarkdown.tsx`, which the dialog
+ * renders) — including the mutant that empties `MARKDOWN_COMPONENTS` outright.
+ * `scripts/devops/mutation-gate-vacuum-proof.sh` reproduces that A/B on demand.
  *
  * WHAT IT DOES
  * ------------
