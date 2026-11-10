@@ -482,9 +482,7 @@ def first_token(seg):
         if wrapper == "watch":
             # procps-ng watch: getopt_long(argv, "+bCcefd::ghq:n:prs:twvx", WATCH_LONG). n, q, s
             # take a value (glued, or the next word); d takes only a glued one, so in -dn the n
-            # is the value of -d. The next word is taken for n / q only when it is a number:
-            # watch refuses anything else, so keeping the word as the program is the stricter
-            # reading. The program is then sh -c of the remaining words.
+            # is the value of -d. The program is then sh -c of the remaining words.
             while parts and parts[0].startswith("-") and parts[0] not in ("-", "--"):
                 flag = parts.pop(0)
                 takes = ""
@@ -502,7 +500,9 @@ def first_token(seg):
                         if ch in "nqs":
                             takes = ch if at == len(flag) - 1 else ""  # else the value is glued
                             break
-                if parts and (takes == "s" or (takes in ("n", "q") and re.fullmatch(r"[\d.]+", parts[0]))):
+                if parts and takes:
+                    # always the next word, as getopt does: watch parses +2, " 2", 2,5 as numbers,
+                    # and for a value it rejects it exits before running anything (SR-M-5, CR-H-1)
                     parts.pop(0)
             if parts and parts[0] == "--":
                 parts.pop(0)
