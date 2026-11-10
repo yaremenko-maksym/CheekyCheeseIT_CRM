@@ -23,8 +23,8 @@ Each bullet is action verb + scope + result, one line, with numbers only from th
 ${RULES}
 Reply shape: {"items": [{"index": 0, "bullets": ["<bullet>", "..."]}]}`
 
-const summaryReplySchema = z.object({ summary: z.string().min(1).max(2000) }).strict()
-const bulletsReplySchema = z
+export const summaryReplySchema = z.object({ summary: z.string().min(1).max(2000) }).strict()
+export const bulletsReplySchema = z
   .object({
     items: z
       .array(

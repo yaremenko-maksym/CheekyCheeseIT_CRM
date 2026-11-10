@@ -4,6 +4,7 @@ import type { ExtractionPort, ExtractionRequest, ExtractionResult } from '../con
 import {
   boundedRequestToExtractionWorker,
   DEFAULT_MAX_BYTES,
+  type BoundedResult,
   type FetchLike,
 } from '../http/bounded-request'
 import { parseJsonOrNull } from '../internal/chat-completions'
@@ -75,6 +76,38 @@ export type ExtractionWorkerAdapterConfig = {
   fetchImpl?: FetchLike
 }
 
+/** The worker's routes (ADR §2.4); nothing else is reachable through its transport. */
+export type ExtractionWorkerRoute = '/extract' | '/preflight' | '/resume-write' | '/visual-check'
+
+/**
+ * One authenticated POST to the worker: the shared-secret header, the private-host URL rule and the
+ * reply size cap. Shared by this adapter and the api's resume-verification clients. Never throws.
+ */
+export type ExtractionWorkerTransport = (
+  route: ExtractionWorkerRoute,
+  req: { body?: string; timeoutMs: number; signal?: AbortSignal | undefined },
+) => Promise<BoundedResult>
+
+export function createExtractionWorkerTransport(
+  config: Pick<ExtractionWorkerAdapterConfig, 'baseUrl' | 'secret' | 'fetchImpl'>,
+): ExtractionWorkerTransport {
+  const headers = {
+    authorization: `Bearer ${config.secret}`,
+    'content-type': 'application/json',
+  }
+  return (route, req) =>
+    boundedRequestToExtractionWorker({
+      url: `${config.baseUrl}${route}`,
+      method: 'POST',
+      headers,
+      ...(req.body !== undefined && { body: req.body }),
+      timeoutMs: req.timeoutMs,
+      maxBytes: DEFAULT_MAX_BYTES,
+      signal: req.signal,
+      fetchImpl: config.fetchImpl,
+    })
+}
+
 /**
  * `extract`, plus the §5.3 preflight: reached or not, with no text. A preflight that did not reach
  * carries the HTTP status when the worker answered at all; a timeout or a dropped connection has none.
@@ -97,10 +130,7 @@ export function createExtractionWorkerAdapter(
 ): ExtractionWorkerAdapter {
   const replySchema = buildReplySchema()
   const preflightReplySchema = buildPreflightReplySchema()
-  const headers = {
-    authorization: `Bearer ${config.secret}`,
-    'content-type': 'application/json',
-  }
+  const post = createExtractionWorkerTransport(config)
   const report = (reply: ExtractionWorkerReply): void => {
     try {
       config.onReply(reply)
@@ -110,14 +140,7 @@ export function createExtractionWorkerAdapter(
   }
   return {
     async preflight() {
-      const res = await boundedRequestToExtractionWorker({
-        url: `${config.baseUrl}/preflight`,
-        method: 'POST',
-        headers,
-        timeoutMs: PREFLIGHT_TIMEOUT_MS,
-        maxBytes: DEFAULT_MAX_BYTES,
-        fetchImpl: config.fetchImpl,
-      })
+      const res = await post('/preflight', { timeoutMs: PREFLIGHT_TIMEOUT_MS })
       const status = res.kind === 'timeout' ? undefined : res.status
       const failed = status === undefined ? { reached: false } : { reached: false, status }
       if (res.kind !== 'ok') return failed
@@ -131,15 +154,10 @@ export function createExtractionWorkerAdapter(
       const failed: ExtractionResult<T> = { ok: false, code: 'PROVIDER_ERROR' }
       // `/extract` is text-only: images are never dropped silently, the visual check has its own route.
       if (req.images !== undefined) return { ok: false, code: 'NOT_CONFIGURED' }
-      const res = await boundedRequestToExtractionWorker({
-        url: `${config.baseUrl}/extract`,
-        method: 'POST',
-        headers,
+      const res = await post('/extract', {
         body: JSON.stringify({ input: req.input, tableVersion: config.tableVersion }),
         timeoutMs: config.timeoutMs,
-        maxBytes: DEFAULT_MAX_BYTES,
         signal: req.signal,
-        fetchImpl: config.fetchImpl,
       })
       if (res.kind === 'timeout') return res.aborted ? { ok: false, code: 'TIMEOUT' } : failed
       if (res.kind !== 'ok') return failed

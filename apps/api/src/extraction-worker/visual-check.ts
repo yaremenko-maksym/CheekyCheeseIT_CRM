@@ -27,7 +27,7 @@ If the pages have no defect, reply with an empty list.
 Answer with the JSON object only.
 Reply shape: {"findings": [{"check": "<one of the checks>", "page": 0, "text": "<one sentence>"}]}`
 
-const findingsReplySchema = z
+export const findingsReplySchema = z
   .object({
     findings: z
       .array(

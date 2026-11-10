@@ -49,7 +49,7 @@ export const MODEL_EXTRACTION_ENV_KEYS = [
 
 const positiveInt = z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().positive())
 
-const envSchema = z.object({
+const workerEnvSchema = z.object({
   EXTRACTION_WORKER_URL: z
     .url({ protocol: /^https?$/ })
     .refine((u) => {
@@ -59,12 +59,45 @@ const envSchema = z.object({
     // The adapter appends `/extract` and `/preflight` to it.
     .transform((u) => u.replace(/\/+$/, '')),
   EXTRACTION_WORKER_SECRET: z.string().refine(isUsableWorkerSecret),
+})
+
+const envSchema = z.object({
   // The worker's local route window: the page is cut to it before it leaves (§2.1).
   EXTRACTION_LOCAL_CONTEXT_TOKENS: positiveInt,
   EXTRACTION_LOCAL_MAX_ANSWER_TOKENS: positiveInt,
   // Frozen from MP-04 (§5.5 item 6); unset is no local-time limit.
   EXTRACTION_CYCLE_LOCAL_MS_LIMIT: positiveInt.optional(),
 })
+
+export type ExtractionWorkerEnv =
+  | { kind: 'unset' }
+  | { kind: 'invalid'; keys: string[] }
+  | { kind: 'ok'; url: string; secret: string }
+
+const issueKeys = (e: z.ZodError) => e.issues.map((i) => String(i.path[0]))
+
+/**
+ * The extraction worker's address and secret, read from the two named keys only. Neither set is no
+ * worker; the empty value `.env.example` ships counts as unset. A refusal names keys, never values.
+ */
+export function readExtractionWorkerEnv(
+  rawEnv: Readonly<Record<string, string | undefined>>,
+): ExtractionWorkerEnv {
+  const env = {
+    EXTRACTION_WORKER_URL: rawEnv.EXTRACTION_WORKER_URL || undefined,
+    EXTRACTION_WORKER_SECRET: rawEnv.EXTRACTION_WORKER_SECRET || undefined,
+  }
+  if (env.EXTRACTION_WORKER_URL === undefined && env.EXTRACTION_WORKER_SECRET === undefined) {
+    return { kind: 'unset' }
+  }
+  const parsed = workerEnvSchema.safeParse(env)
+  if (!parsed.success) return { kind: 'invalid', keys: [...new Set(issueKeys(parsed.error))] }
+  return {
+    kind: 'ok',
+    url: parsed.data.EXTRACTION_WORKER_URL,
+    secret: parsed.data.EXTRACTION_WORKER_SECRET,
+  }
+}
 
 export type ModelCycle =
   | {
@@ -103,18 +136,22 @@ export function buildModelExtraction(
     sleep?: (ms: number) => Promise<unknown>
   } & Pick<ExtractionWorkerAdapterConfig, 'fetchImpl'>,
 ): ModelExtractionResult {
+  const worker = readExtractionWorkerEnv(rawEnv)
+  if (worker.kind === 'unset') return { ok: true, wiring: undefined }
   // Read the named keys only, so nothing else in the process env is touched.
-  const env = Object.fromEntries(MODEL_EXTRACTION_ENV_KEYS.map((k) => [k, rawEnv[k]]))
-  if (env.EXTRACTION_WORKER_URL === '') env.EXTRACTION_WORKER_URL = undefined
-  if (env.EXTRACTION_WORKER_SECRET === '') env.EXTRACTION_WORKER_SECRET = undefined
-  if (env.EXTRACTION_WORKER_URL === undefined && env.EXTRACTION_WORKER_SECRET === undefined) {
-    return { ok: true, wiring: undefined }
+  const parsed = envSchema.safeParse(
+    Object.fromEntries(Object.keys(envSchema.shape).map((k) => [k, rawEnv[k]])),
+  )
+  const keys = [
+    ...(worker.kind === 'invalid' ? worker.keys : []),
+    ...(parsed.success ? [] : issueKeys(parsed.error)),
+  ]
+  if (worker.kind === 'invalid' || !parsed.success) return { ok: false, keys: [...new Set(keys)] }
+  const e = {
+    ...parsed.data,
+    EXTRACTION_WORKER_URL: worker.url,
+    EXTRACTION_WORKER_SECRET: worker.secret,
   }
-  const parsed = envSchema.safeParse(env)
-  if (!parsed.success) {
-    return { ok: false, keys: [...new Set(parsed.error.issues.map((i) => String(i.path[0])))] }
-  }
-  const e = parsed.data
   const adapter = (onReply: ExtractionWorkerAdapterConfig['onReply']) =>
     createExtractionWorkerAdapter({
       baseUrl: e.EXTRACTION_WORKER_URL,
