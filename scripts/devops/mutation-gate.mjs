@@ -297,7 +297,7 @@ import {
 } from 'node:fs'
 import { cpus } from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const SELF_DIR = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(SELF_DIR, '../..')
@@ -477,7 +477,15 @@ function resolveNodePin({ execPath = process.execPath, env = process.env, cwd = 
   const lib = path.join(SELF_DIR, 'lib/ensure-node.sh')
   const probe = spawnSync(
     'sh',
-    ['-c', '. "$1" && ensure_node && command -v node && printf "%s\\n" "$PATH"', 'sh', lib],
+    [
+      '-c',
+      // Git Bash prints /c/x paths, which a native Windows node can neither compare nor spawn.
+      '. "$1" && ensure_node && n=$(command -v node) && ' +
+        'if command -v cygpath >/dev/null 2>&1; then cygpath -w "$n" && cygpath -wp "$PATH"; ' +
+        'else printf "%s\\n" "$n" "$PATH"; fi',
+      'sh',
+      lib,
+    ],
     {
       cwd,
       encoding: 'utf8',
@@ -497,19 +505,27 @@ function resolveNodePin({ execPath = process.execPath, env = process.env, cwd = 
         .trim(),
     }
   }
-  const [nodePath, pinnedPath] = (probe.stdout ?? '').split('\n').filter(Boolean)
+  let [nodePath, pinnedPath] = (probe.stdout ?? '').split('\n').filter(Boolean)
   if (!nodePath || !pinnedPath) {
     return { action: 'refuse', message: 'node pin probe returned no node path' }
   }
-  const real = (p) => {
-    try {
-      return realpathSync(p)
-    } catch {
-      return p
-    }
-  }
-  if (real(nodePath) === real(execPath)) return { action: 'continue', notice }
+  if (process.platform === 'win32' && existsSync(`${nodePath}.exe`)) nodePath += '.exe'
+  if (samePath(nodePath, execPath)) return { action: 'continue', notice }
   return { action: 'reexec', node: nodePath, path: pinnedPath, notice }
+}
+
+/** Same executable? win32 paths are case-insensitive and `node` may stand for `node.exe`. */
+function samePath(a, b, platform = process.platform) {
+  const norm = (p) => {
+    let r = p
+    try {
+      r = realpathSync(p)
+    } catch {
+      /* not on disk: compare as given */
+    }
+    return platform === 'win32' ? r.replace(/\.exe$/i, '').toLowerCase() : r
+  }
+  return norm(a) === norm(b)
 }
 
 /**
@@ -1684,7 +1700,13 @@ function budgetExceeded(pkg, budgetSeconds, elapsedMs, perPackage) {
 // gate-zero-mutants) without triggering a real Stryker run —
 // `node mutation-gate.mjs --changed` is unaffected, since argv[1] there IS this
 // file.
-const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`
+// A template string `file://${argv[1]}` never equals file:///C:/... on Windows, so the
+// gate exited 0 there without running (test-mutation-gate-windows-paths.sh).
+function isEntryPoint(metaUrl, argv1, windows = process.platform === 'win32') {
+  return Boolean(argv1) && metaUrl === pathToFileURL(argv1, { windows }).href
+}
+
+const isMain = isEntryPoint(import.meta.url, process.argv[1])
 if (isMain) {
   // 'reexec': a child under the pinned node owns the run and the exit code, so the
   // parent must not also run main().
@@ -1709,4 +1731,6 @@ export {
   parseDryRunTimeoutMinutes,
   resolveNodePin,
   pinNodeOrExit,
+  isEntryPoint,
+  samePath,
 }
