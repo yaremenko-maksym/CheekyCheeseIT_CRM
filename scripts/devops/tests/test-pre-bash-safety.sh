@@ -888,6 +888,19 @@ copies="$(for i in $(seq 100); do printf '%s; ' "$seg"; done)true"
 t0=$SECONDS
 assert_red "#1304: 100 copies of one runner segment refuse as too complex" --contains "too complex" -- h "$copies"
 assert_green "#1304: 100 copies of one runner segment refuse within 10 s" -- test $((SECONDS - t0)) -le 10
+# #1304 follow-up: `watch` runs its joined arguments through sh -c.
+assert_red "watch -n 5 'rm -rf /etc'" --contains "rm -rf" -- h "watch -n 5 'rm -rf /etc'"
+assert_red "watch -d -n1 -- 'echo hi; rm -rf /etc'" -- h "watch -d -n1 -- 'echo hi; rm -rf /etc'"
+assert_red "watch -n 5 'bash -c \"rm -rf /etc\"'" -- h "watch -n 5 'bash -c \"rm -rf /etc\"'"
+assert_red "watch -x sh -c 'rm -rf /etc'" -- h "watch -x sh -c 'rm -rf /etc'"
+assert_red "sh -c \"watch 'rm -rf /etc'\"" -- h "sh -c \"watch 'rm -rf /etc'\""
+assert_green "watch -n 5 'git status'" -- h "watch -n 5 'git status'"
+assert_green "watch -n 5 \"git log --oneline | head -5\"" -- h "watch -n 5 \"git log --oneline | head -5\""
+assert_green "watch -n 1 'echo \"rm -rf /etc\"' (quoted phrase)" -- h "watch -n 1 'echo \"rm -rf /etc\"'"
+# SR-L-2: the analyzer's own deadline refuses a slow read (lowered to 1 s here).
+slow="pnpm exec eslint --fix --max-warnings 0 --cache $(printf 'apps/web/src/components/feature/f-%s.tsx ' $(seq 1100))"
+assert_green "1100-path eslint is allowed at the default deadline" -- h "$slow"
+PRE_BASH_SAFETY_DEADLINE=1 assert_red "a read past the deadline refuses as too complex" --contains "took over 1 s" -- h "$slow"
 assert_green "normal runner command passes: pnpm --filter @crm/api exec vitest run a b c" \
   -- h "pnpm --filter @crm/api exec vitest run a b c"
 for c in 'pnpm --filter $pkg test' 'pnpm --filter @crm/api test' 'pnpm install' 'pnpm -r build' \

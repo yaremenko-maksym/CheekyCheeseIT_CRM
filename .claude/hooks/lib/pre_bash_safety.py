@@ -1,4 +1,31 @@
-import importlib.util, json, os, re, shlex, sys
+import importlib.util, json, os, re, shlex, signal, sys
+
+
+def refuse(reason):
+    msg = (
+        "Blocked by the safety hook: %s. Run it by hand if you are sure.\n\n"
+        "The hook looks at the COMMAND, not at a substring: quoting a dangerous phrase "
+        "(echo, git commit -m, gh pr create --body, a heredoc into a file) is free — "
+        "what is blocked is executing it." % reason
+    )
+    sys.stdout.write(json.dumps({"decision": "block", "reason": msg}) + "\n")
+    sys.stdout.flush()
+    sys.stderr.write("[pre:bash:safety] BLOCK: %s\n" % reason)
+    sys.stderr.flush()
+    os._exit(10)
+
+
+# SR-L-2 (#1304): an own deadline below the registered 60 s timeout, so a slow read
+# refuses on every client, also one that ignores `onFailure` and would fail open.
+# PRE_BASH_SAFETY_DEADLINE can only lower it (the tests use 1 s).
+if hasattr(signal, "SIGALRM"):
+    try:
+        _deadline = min(45, max(1, int(os.environ.get("PRE_BASH_SAFETY_DEADLINE", "45"))))
+    except ValueError:
+        _deadline = 45
+    signal.signal(signal.SIGALRM, lambda *_: refuse(
+        "command too complex for the safety hook to read (took over %d s)" % _deadline))
+    signal.alarm(_deadline)
 
 # Loaded by absolute path; `python3 -I` keeps lib/ and the cwd off the import path.
 _spec = importlib.util.spec_from_file_location(
@@ -163,9 +190,10 @@ def _pkg_launch(seg, args, depth):
     return list({id(s): s for s in out}.values())
 
 
-def candidates(seg):
-    TOP[0] = id(seg)
-    TOP_KEEP.append(seg)
+def candidates(seg, depth=0):
+    if depth == 0:
+        TOP[0] = id(seg)
+        TOP_KEEP.append(seg)
     # A dynamic command word is additionally read as each dangerous command this
     # hook knows: `$(echo rm) -rf /etc` names nothing resolvable, but `-rf /etc`
     # is not ambiguous. Both versions of this hook let that through.
@@ -174,7 +202,52 @@ def candidates(seg):
     for launched in [l for c in [seg] + out for l in pkg_launch(c)]:
         out += cmdscan.candidates(launched, code=True) + cmdscan.as_if(
             launched, ("rm", "git", "dropdb"))
+    # #1304 follow-up: `watch` joins its arguments with spaces and runs them through
+    # `sh -c`, so `watch -n 5 \x27rm -rf /etc\x27` hides the rm inside one word (the segment
+    # name is that word\x27s basename). That program is scanned and judged too; past three
+    # levels, or when it cannot be read, the command refuses as too complex.
+    read = set()
+    for c in [seg] + list(out):
+        if "watch" not in c.wrappers or c.raw in read:
+            continue
+        read.add(c.raw)
+        program = watch_program(c.raw) if depth < 3 else None
+        inner = cmdscan.scan(program) if program else None
+        if inner is None or inner.truncated:
+            if program != "" and TOO_COMPLEX not in blocked:
+                blocked.append(TOO_COMPLEX)
+            continue
+        for s in inner.segments:
+            out += [s] + candidates(s, depth + 1)
     return out
+
+
+WATCH_VALUE_FLAGS = ("-n", "--interval", "-q", "--equexit")
+
+
+def watch_program(raw):
+    # The shell program `watch` runs: its arguments after its own options, joined with
+    # spaces (with -x / --exec, each argument stays one word). None = unreadable,
+    # "" = no program (`watch` alone).
+    try:
+        words = shlex.split(raw)
+    except ValueError:
+        return None
+    at = next((i for i, w in enumerate(words) if os.path.basename(w) == "watch"), None)
+    if at is None:
+        return None
+    i, exact = at + 1, False
+    while i < len(words) and words[i].startswith("-") and words[i] != "-":
+        w = words[i]
+        i += 1
+        if w == "--":
+            break
+        if w in ("-x", "--exec"):
+            exact = True
+        elif w in WATCH_VALUE_FLAGS:
+            i += 1
+    rest = words[i:]
+    return " ".join(requote(w) for w in rest) if exact else " ".join(rest)
 
 # predicate 1+2: rm -rf on root / home paths
 SAFE_ROOTS = ("/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/")
@@ -660,13 +733,4 @@ if not blocked and scan.truncated:
 if not blocked:
     sys.exit(0)
 
-reason = blocked[0]
-msg = (
-    "Blocked by the safety hook: %s. Run it by hand if you are sure.\n\n"
-    "The hook looks at the COMMAND, not at a substring: quoting a dangerous phrase "
-    "(echo, git commit -m, gh pr create --body, a heredoc into a file) is free — "
-    "what is blocked is executing it." % reason
-)
-print(json.dumps({"decision": "block", "reason": msg}))
-sys.stderr.write("[pre:bash:safety] BLOCK: %s\n" % reason)
-sys.exit(10)
+refuse(blocked[0])
