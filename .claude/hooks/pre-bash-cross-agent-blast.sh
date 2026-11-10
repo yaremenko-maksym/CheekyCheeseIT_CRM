@@ -608,8 +608,30 @@ for g in scanned:
 # Only single-quoted spans are blanked: `$( )` and backticks still run inside double
 # quotes (`eval "$(cat <<EOF ...)"`), so a double-quoted span is skipped over, kept whole.
 SINGLE_QUOTED = re.compile(r"\\.|\"(?:[^\"\\]|\\.)*\"|(\$\x27(?:[^\x27\\]|\\.)*\x27|\x27[^\x27]*\x27)", re.S)
-segments = re.split(r"(?:\|\||&&|[;\n|&])",
-                    SINGLE_QUOTED.sub(lambda m: " " if m.group(1) else m.group(0), naive))
+# ...and only inside a top-level command known to read its arguments as data. Any other
+# command may run a quoted argument as code (`ssh host \x27x; pkill -f node\x27`, `git -c
+# core.pager=...`, `git rebase -x`, `sort --compress-program`), so its quotes stay in the split.
+# BSD sed (macOS) has no `e` command.
+QUOTE_DATA = {"sed", "grep", "rg", "echo", "printf", "gh", "jq", "cat", "head", "tail", "wc"}
+QUOTE_DATA_GIT = {"commit", "tag", "log", "show", "diff", "grep", "status", "notes"}
+
+
+def quotes_are_data(g):
+    n = cmd_name(g.name)
+    if g.depth or g.wrappers or g.dynamic:
+        return False
+    if n == "git":
+        return git_sub(g.argv) in QUOTE_DATA_GIT and not any(
+            a.startswith(("-c", "--config", "--exec")) for a in g.argv)
+    return n in QUOTE_DATA
+
+
+split_src = naive
+for g in scanned:
+    if quotes_are_data(g) and g.raw and g.raw in split_src:
+        split_src = split_src.replace(
+            g.raw, SINGLE_QUOTED.sub(lambda m: " " if m.group(1) else m.group(0), g.raw), 1)
+segments = re.split(r"(?:\|\||&&|[;\n|&])", split_src)
 
 
 # Wrappers that RUN another command. Without unwrapping them, the effective
