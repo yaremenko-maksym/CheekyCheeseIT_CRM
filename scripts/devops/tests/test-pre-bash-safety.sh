@@ -616,9 +616,13 @@ for c in 'pnpm exec vitest run "$FILE"' 'make test ARGS=$X' 'npm run build -- --
 done
 # Known limit (shortcut in predicate 7): an unknown wrapper that executes a dynamic argument is
 # not judged. Pinned so a change is seen.
-for c in 'unknown-tool $x' 'unknown-tool foo $x' "unknown-tool \$'\x63md' foo"; do
+for c in 'unknown-tool $x' 'unknown-tool foo $x'; do
   assert_green "known limit, unknown wrapper with a dynamic argument: $c" -- h "$c"
 done
+# cmdscan decodes every ANSI-C escape bash does (\xHH included), so $'\x63md' reads as the
+# literal `cmd` and is judged like `unknown-tool cmd foo`: no longer a dynamic word.
+assert_red "ANSI-C \\x escape decodes to a shell name: unknown-tool \$'\\x63md' foo" \
+  --contains "no gate reads" -- h "unknown-tool \$'\x63md' foo"
 # SO-M-5 (#1294): an assignment that names a shell refuses, prefix or standalone, grouped or not.
 for c in '(PAGER=powershell; git log)' '{ PAGER=powershell; git log; }' '(VISUAL=powershell; git commit)' \
          'echo hi && if :; then PAGER=powershell; git log; fi' 'PAGER=powershell git log'; do

@@ -1076,6 +1076,34 @@ _ANSI_ALT = False
 _NAIVE_JOIN = False
 
 
+_ANSI_C_SIMPLE = {"a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f", "n": "\n",
+                  "r": "\r", "t": "\t", "v": "\v", "'": "'", '"': '"', "\\": "\\", "?": "?"}
+
+
+def _ansi_c_escape(text, j):
+    """Decode the `$'...'` escape at text[j] (a backslash) as bash does: (char, next index).
+    An escape bash leaves alone (`\\q`) stays as the two characters."""
+    nx = text[j + 1]
+    if nx in _ANSI_C_SIMPLE:
+        return _ANSI_C_SIMPLE[nx], j + 2
+    spec = {"x": (16, 2), "u": (16, 4), "U": (16, 8)}.get(nx)
+    if spec or nx in "01234567":
+        base, width = spec or (8, 3)
+        start = j + 2 if spec else j + 1
+        digits = "0123456789abcdefABCDEF"[:16 if base == 16 else 8]
+        k = start
+        while k < len(text) and k - start < width and text[k] in digits:
+            k += 1
+        if k > start:
+            try:
+                return chr(int(text[start:k], base) & (0xFF if base == 8 else 0x10FFFF)), k
+            except ValueError:
+                return "", k
+    if nx == "c" and j + 2 < len(text):
+        return chr(ord(text[j + 2]) & 0x1F), j + 3
+    return "\\" + nx, j + 2
+
+
 def _ansi_c_alt(text):
     """bash reads `$'...'` with backslash escapes, so `\\'` does not close it; every
     other reader here closes it there (SR-H-25: `echo $'\\' '; rm -rf /etc #'` hid the
@@ -1103,11 +1131,9 @@ def _ansi_c_alt(text):
             j, val, hit = i + 2, [], True
             while j < n and text[j] != "'":
                 if text[j] == "\\" and j + 1 < n:
-                    nx = text[j + 1]
-                    # \n, \t, \r decode too: `bash -c $'bash <<E\npkill x\nE'` has lines
-                    val.append(nx if nx in "'\"\\?" else
-                               {"n": "\n", "t": "\t", "r": "\r"}.get(nx, "\\" + nx))
-                    j += 2
+                    # every escape bash decodes: `bash -c $'bash <<E\npkill x\nE'` has lines
+                    ch2, j = _ansi_c_escape(text, j)
+                    val.append(ch2)
                 else:
                     val.append(text[j])
                     j += 1

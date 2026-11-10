@@ -302,6 +302,8 @@ bash_case block "$MINE" $'bash << EOF; true\nexec pkill -f node\nEOF'       'a d
 bash_case block "$MINE" "bash -s x <<< 'pkill -f node'"                     'bash -s: operands are parameters, code is on stdin'
 bash_case block "$MINE" $'cat > s.sh <<\'EOF\'\npkill -f node\nEOF\nbash s.sh' 'a heredoc written to a script the same command runs'
 bash_case block "$MINE" "bash -c \$'bash <<EOF\\npkill -f node\\nEOF'"      'an ANSI-C \n in bash -c makes heredoc lines'
+bash_case block "$MINE" $'echo \'pkill -f node\' | bash; cat <<EOF\nx\nEOF'  'NESTED-OPAQUE: a heredoc on another segment does not feed a piped shell'
+bash_case block "$MINE" "bash -c \$'bash <<EOF\\x0apkill -f node\\012EOF'"  'ANSI-C \x0a and \012 decode to newlines'
 bash_case allow "$MINE" $'cat <<EOF | bash\necho hi\nEOF'                   'a harmless heredoc piped into a shell'
 bash_case allow "$MINE" $'git commit -F - <<\'EOF\'\nfix: pkill handling\nEOF' 'a commit message that mentions pkill'
 # False positives on origin/main: a heredoc body is data, a quoted word is not a redirect.

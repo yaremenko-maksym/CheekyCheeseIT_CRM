@@ -481,13 +481,15 @@ for _ in range(64):
         scanned.append(g)
         reads, strings, runs = stdin_reader(g)
         shell_reads = shell_reads or reads
-        blind = blind or (reads and not strings)
+        # its own heredoc: it opened one (`bash <<EOF`) or carries one, being the last
+        # segment of the line (`cat <<EOF | sh`). `echo x | sh; cat <<EOF` is still blind.
+        blind = blind or (reads and not strings and not g.opened and not g.heredocs)
         runs_file = runs_file or runs
         work += strings
     bodies = [b for g in sc.segments for b in g.heredocs]
     if shell_reads:
         work += bodies
-    opaque = opaque or (blind and not bodies)
+    opaque = opaque or blind
 opaque = opaque or bool(work)
 
 # ---- split into command segments --------------------------------------------
