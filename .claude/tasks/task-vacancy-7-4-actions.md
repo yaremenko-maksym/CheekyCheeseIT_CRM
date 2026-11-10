@@ -2,7 +2,7 @@
 
 ## Agent: coder
 
-## Status: ready (PR #1302 merged into `main` at `1f9ebafe`)
+## Status: done (PR #1306 merged into `main` at `14341a99`, 2026-11-10)
 
 ## Blockers: none
 
@@ -44,7 +44,7 @@ The 7.3 card shows a vacancy but cannot act on it. 7.4 adds the actions from pla
 | Role                 | Access                                                                                 |
 | -------------------- | -------------------------------------------------------------------------------------- |
 | ADMIN                | all actions + §5.6 menus: vacancy «⋯» (suppress «Приховати для всіх…»; triage «Призначити команді…»), per-senior «⋯» «Скасувати подачу…»; no reassign (dropped, plan r5) |
-| HR / SENIOR (scoped) | per-senior «Записати подачу», «Відкрити оригінал», «Приховати» within their own scope  |
+| HR (scoped)          | per-senior «Записати подачу», «Відкрити оригінал», «Приховати» within their own scope  |
 | others               | no queue access (unchanged)                                                            |
 
 ## Acceptance criteria
@@ -54,7 +54,7 @@ The 7.3 card shows a vacancy but cannot act on it. 7.4 adds the actions from pla
 3. [ ] (SPEC-M-1 b) Possible-duplicate inline confirm per §5.8: «Не записувати» is the primary action and takes initial focus; «Так, записати все одно» proceeds; a 409 `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED` from the API opens the same confirm.
 4. [ ] (SPEC-M-1 c) Apply-first reminder per §5.3: `data-testid="job-queue-apply-first"`, a persistent note (not a toast), hidden only when every «Записати подачу» button on the card is disabled.
 5. [ ] (SPEC-M-1 d) Two blocking notes, each disabling every «Записати подачу» on the card: (i) the newer-revision note (§5.7) — disabled until the card is refreshed, so an old card cannot claim; (ii) the closed/expired-at-source note (design state "Closed / expired at source") — disabled for good, refresh does not lift it.
-6. [ ] (SPEC-M-1 e) Footer «Відкрити оригінал» (fires the `useMarkJobOpened` mutation once and `openOriginalPosting` with the right URL) and «Приховати» → reason menu → scoped versioned dismiss → undo toast (§5.9), with the undo/version race tested; ADMIN «⋯» menus per §5.6 (suppress, triage assign, per-senior cancel submission; no reassign).
+6. [ ] (SPEC-M-1 e) Footer «Відкрити оригінал» (fires the `useMarkJobOpened` mutation once and `openOriginalPosting` with the right URL) and «Приховати» → reason menu → scoped versioned dismiss → undo toast (§5.9), with the undo/version race tested; ADMIN «⋯» menus per §5.6 (suppress, triage assign, per-senior cancel submission; no reassign). **Partial:** triage assign is descoped to `task-vacancy-7-4b-triage-assign.md` (owner brief Q1, see Assumptions).
 7. [ ] (SPEC-M-1 f) i18n: every new string is a Lingui macro (source `uk`) with an `en` translation; `pnpm i18n:extract` leaves no diff; the CI step "i18n catalogs are in sync (lingui extract --clean)" passes locally; `node scripts/devops/check-no-russian-letters.mjs` passes.
 8. [ ] Responsive: no horizontal overflow at 320 / 375 / 768 / 1024 / 1280 / 1440 / 1920; touch targets ≥ 44 px on mobile; no hover-only actions.
 9. [ ] Carried over from PR #1302 (three LOW findings moved here; report one line per id):
@@ -76,7 +76,9 @@ The 7.3 card shows a vacancy but cannot act on it. 7.4 adds the actions from pla
 
 ## Assumptions
 
-No assumptions.
+- RBAC: SENIOR has no queue access (redirected), so the scoped row is HR only; the earlier "HR / SENIOR" label was a typo.
+- Owner brief Q1 (2026-11-10, recommendation taken): «Призначити команді…» is descoped from AC 6 to `task-vacancy-7-4b-triage-assign.md`, after Task 7.3b; it needs the policy version, a team list for ADMIN and a grant expiry the card did not expose.
+- Owner brief Q2 (2026-11-10, recommendation taken): re-hide after undo and a reload answers 409 until the card returns the live dismissal; `dismissal: { scope, version } | null` is added in Task 7.3b. 7.4 fixes the in-session case only.
 
 ## Do not touch
 
