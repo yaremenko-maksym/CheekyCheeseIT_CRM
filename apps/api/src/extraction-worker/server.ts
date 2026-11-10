@@ -141,6 +141,7 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
       return refuse(reply, 400, 'BAD_REQUEST')
     }
     const { task, payload, feedback } = body.data
+    // Stryker disable next-line ArrayDeclaration: equivalent — this reply carries no events, so the list is never read
     const result = await call(reply, [], (signal) => writeResume(ports.extract, body.data, signal))
     opts.log({
       event: 'RESUME_WRITE',
