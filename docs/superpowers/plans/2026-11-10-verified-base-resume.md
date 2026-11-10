@@ -315,12 +315,13 @@ detail: string }`.
   - Compare after whitespace normalisation. A bullet that wraps across lines still matches.
   - Each heading is alone on a line, in effective order (`normalizeResumeLayout`).
   - The name and the email appear on page 1 before the first heading.
-  - Letter-spacing is detected by `/\b(?:[A-Z] ){3,}[A-Z]\b/`.
+  - Letter-spacing is detected by `/\b(?:\p{L} ){3,}\p{L}\b/u`, any case.
   - Ligature code points are U+FB00–U+FB06.
 
 - [ ] **Step 1: Failing tests** on hand-written `pages` arrays, one per failure code. Also:
   - a clean case gives `ok: true`;
-  - an extracted bullet split over two lines still passes.
+  - an extracted bullet split over two lines still passes;
+  - `e x p e r i e n c e` (lowercase) fails with `LETTER_SPACED`, and `A B testing` passes.
 - [ ] **Step 2:** Run `pnpm --filter @crm/api test resume-ats-checker`. Expected: FAIL.
 - [ ] **Step 3:** Implement `checkResumeAts` and `extractRenderedPages`. **[builder]** confirms that `unpdf` with
       `mergePages: false` keeps line ends. The test `extractRenderedPages keeps heading on its own line` renders the
@@ -425,7 +426,10 @@ detail: string }`.
 - Modify:
   - `apps/api/src/extraction-worker/server.ts` (route);
   - `apps/api/src/extraction-worker/schema.ts` (body schema);
-  - the router model pick in `packages/inference/src/router/model-picks.ts` (a `strong` preference), with its spec.
+  - `packages/inference/src/contracts/extraction.ts`: `ExtractionRequest` gains `modelPreference?: 'largest'`;
+  - `packages/inference/src/router/router.ts`: with `'largest'`, order the healthy candidates by model size, largest
+    first; without it, behaviour is unchanged. `model-picks.ts` feeds only `model-refresh.ts`, not per-call routing,
+    so the preference belongs in the router. Add a spec for it.
 
 **Interfaces:**
 
@@ -436,8 +440,9 @@ detail: string }`.
 - Prompts are fixed strings in the worker. The caller cannot send an instruction. The rules carry the adopted
   career-ops wording "Reformulate, never fabricate" and "no ownership-verb inflation". Bullets are action verb +
   scope + result, with numbers only from the notes. The summary is 3–4 sentences.
-- The router picks the largest available free model for `resume-write`. Test: `strong preference never picks the
-smallest model when a larger one is healthy`.
+- `resume-write` calls the router with `modelPreference: 'largest'`. Tests in the router spec:
+  - `largest preference never picks the smallest model when a larger one is healthy`;
+  - `no preference keeps today's order`.
 - Same shared-secret auth as `/extract`.
 
 - [ ] **Step 1: Failing tests:**
@@ -446,7 +451,7 @@ smallest model when a larger one is healthy`.
   - a fake router returning `{summary}` gives `kind ok`;
   - router exhausted gives `kind unavailable`;
   - a payload over the limit gives 400.
-- [ ] **Step 2:** Run `pnpm --filter @crm/api test resume-write` and `pnpm --filter @crm/inference test model-picks`.
+- [ ] **Step 2:** Run `pnpm --filter @crm/api test resume-write` and `pnpm --filter @crm/inference test router`.
       Expected: FAIL.
 - [ ] **Step 3:** Implement.
 - [ ] **Step 4:** Run again. Expected: PASS.
@@ -490,8 +495,15 @@ chat-completions`. Expected: FAIL.
 
 **Interfaces:**
 
-- Consumes: `EXTRACTION_WORKER_URL` / `EXTRACTION_WORKER_SECRET` and `JEV_API_KEY` from `apps/api/src/config/env.ts`
-  (all already defined); `createJevDecisionAdapter`; `MAX_DECISION_QUESTIONS`.
+- Consumes:
+  - `JEV_API_KEY` from `apps/api/src/config/env.ts`, which already defines it;
+  - `EXTRACTION_WORKER_URL` / `EXTRACTION_WORKER_SECRET`. These are **not** in `env.ts`.
+    `apps/api/src/job-sourcing/structuring/model-extraction-wiring.ts` reads them with its own `envSchema` over
+    `MODEL_EXTRACTION_ENV_KEYS`. Move that reading into an exported `readExtractionWorkerEnv(rawEnv)` next to it and
+    use it from both places. Do not add the keys to `env.ts` a second time, and do not change the deploy env, because
+    the keys already exist wherever job sourcing runs;
+  - `createExtractionWorkerAdapter`'s HTTP transport;
+  - `createJevDecisionAdapter`, `MAX_DECISION_QUESTIONS`.
 - Produces three Nest providers. Each is `unavailable` when its env is unset:
   - `ResumeWriterClient.write(task, payload, feedback): Promise<WriterReply>`.
   - `VisualCheckClient.check(pngPages: Buffer[]): Promise<VisualReply>`.
@@ -500,12 +512,16 @@ number> | 'unavailable'>`.
     - Jev questions go in chunks of ≤ 50 (⌈q/50⌉ requests).
     - Each question is of kind `noul`: "Is this statement fully supported by these source statements? Inflated
       ownership verbs count as unsupported."
-    - Constant `ENTAILMENT_THRESHOLD = 0.8` **[call]**.
+    - Constant `ENTAILMENT_THRESHOLD = 0.8` **[call]**. A Jev `noul` answer is `{ value: boolean, probability }`. The
+      returned score is `value ? probability : 1 - probability`, and a claim counts as supported only when
+      `value === true && probability >= ENTAILMENT_THRESHOLD`.
 
 - [ ] **Step 1: Failing tests:**
   - 120 claims give 3 Jev requests;
   - a missing key gives `'unavailable'`;
-  - a writer at an unset URL gives `unavailable`, never a throw.
+  - a writer at an unset URL gives `unavailable`, never a throw;
+  - `noul {value:false, probability:0.9}` is not supported;
+  - `model-extraction-wiring` tests still pass after the env move.
 - [ ] **Step 2:** Run `pnpm --filter @crm/api test inference-clients`. Expected: FAIL.
 - [ ] **Step 3:** Implement.
 - [ ] **Step 4:** Run again. Expected: PASS.
@@ -518,11 +534,20 @@ number> | 'unavailable'>`.
 **Files:**
 
 - Modify:
-  - `apps/api/src/database/schema/resumes.ts`: the columns of spec §8 plus `verification_kind` (`full` / `item` /
-    `staged-edit` / `template`) and `verification_target_path`;
+  - `apps/api/src/database/schema/resumes.ts`: the columns of spec §8, plus:
+    - `verification_kind` (`full` / `item` / `staged-edit` / `template`);
+    - `verification_target_path`;
+    - `verification_base_version` (the `version` the run started from);
+    - `staged_edited_paths` (JSONB `{ path, userId }[]`, Task 15).
+
+    `verification_status` defaults to `'DRAFT'`, so every existing row starts as DRAFT (spec §3).
+
   - `apps/api/src/database/schema/enums.ts`: `resume_verification_status`;
-  - `apps/api/src/resumes/resumes.service.ts` (delegation only): every write to content or layout bumps `version` and
-    sets DRAFT;
+  - `apps/api/src/resumes/resumes.service.ts` (delegation only), applying the status rule below to its writes:
+    - content writes (`updateContent`, `ingestText`);
+    - layout writes (`updateLayout`);
+    - the extraction terminal write in `runExtraction`. It now writes `facts = contentToFacts(extracted)` and leaves
+      `content` untouched (spec §4 step 2: upload fills the facts, never the dynamic fields);
   - `apps/api/src/resumes/resumes.controller.ts`.
 - Create:
   - `apps/api/drizzle/manual/2026-11-XX_senior_resumes_verification.sql`: idempotent
@@ -536,15 +561,24 @@ number> | 'unavailable'>`.
 - Produces `ResumeVerificationService`:
   - `saveFacts(viewer: SessionUser, targetUserId: string, facts: ResumeFacts): Promise<SeniorResumeResponse>`
   - `setTemplate(viewer, targetUserId, name: ResumeTemplateName): Promise<SeniorResumeResponse>`
-  - `toDtoFields(row): Pick<SeniorResumeDto, 'facts' | 'verificationStatus' | … | 'staged'>`. When `facts` is null,
-    the facts come from `contentToFacts(row.content)`. Nothing is written on read.
+  - `toDtoFields(row): Pick<SeniorResumeDto, 'facts' | 'verificationStatus' | … | 'staged'>`. When `facts` is null
+    (a legacy row never saved since), the facts come from `contentToFacts(row.content)`. Reads never write. The first
+    facts save persists the mapping, which satisfies "mapped once" in spec §3.
+  - `isVerificationBusy(row): boolean`. It is true when status is QUEUED or CHECKING, or when status is VERIFIED and
+    `verification_run_id IS NOT NULL` (a template run in flight, Task 16). A VERIFIED row holds
+    `verification_run_id = NULL` at every other time.
 - Endpoints, under the existing `@Controller` path:
   - `PUT facts` (`updateResumeFactsSchema`);
   - `PUT template` (`updateResumeTemplateSchema`).
-
-  Both answer 409 `RESUME_VERIFICATION_BUSY` while QUEUED or CHECKING. A write in AWAITING_CONFIRM or VERIFIED sets
-  DRAFT, clears the staged columns and deletes the staged S3 object after commit. `setTemplate` on a VERIFIED resume
-  starts a template run instead (Task 16).
+- **Status rule for every write** (facts, content, layout, template, extraction result):
+  - busy → 409 `RESUME_VERIFICATION_BUSY`, row unchanged. The busy check is in the UPDATE's `WHERE`, not a prior
+    read.
+  - facts, content or extraction result → bump `version` and set DRAFT. If the row was AWAITING_CONFIRM, also clear
+    the staged columns and delete the staged S3 object after commit.
+  - layout or template on VERIFIED → a template run (Task 16), with no DRAFT.
+  - layout or template on AWAITING_CONFIRM → DRAFT plus the staged cleanup above, because the staged PDF was
+    rendered with the old look.
+  - layout or template on DRAFT or FAILED → write it and bump `version`.
 
 - `templateName` for a new row: the catalog name least used among the senior's team members (`team_members`), ties
   broken by `sha256(userId)` modulo 4 (spec §6). Test: `new resume in a team using classic×2, modern×1 gets compact or
@@ -556,7 +590,10 @@ technical deterministically`.
   - `facts edit in AWAITING_CONFIRM clears staged columns`;
   - `SENIOR may PUT own facts, not another senior's (403)`;
   - `ACCOUNTANT gets 403`;
-  - `legacy row without facts reads mapped facts and status DRAFT`.
+  - `legacy row without facts reads mapped facts and status DRAFT`;
+  - `PUT layout on DRAFT writes it without a run`;
+  - `PUT layout on VERIFIED does not set DRAFT`;
+  - `extraction result lands in facts, content unchanged`.
 - [ ] **Step 2:** Run `DATABASE_URL=<scratch> pnpm --filter @crm/api test resume-verification resumes-rbac`.
       Expected: FAIL.
 - [ ] **Step 3:** Implement. Apply the schema to the scratch DB only:
@@ -576,8 +613,12 @@ technical deterministically`.
 - `submit(viewer, targetUserId): Promise<SeniorResumeResponse>` returns 202.
   - It answers 422 `INCOMPLETE` with the `CompletenessIssue[]` in the error details when completeness fails, and 422
     `CUSTOM_TEMPLATE` when `templateSource` is set.
-  - Otherwise it sets QUEUED with a new `verification_run_id`, `verification_queued_at` and kind `full`, then
-    `void runner.run(resumeId, runId)`.
+  - It answers 409 `RESUME_VERIFICATION_BUSY` when `isVerificationBusy`. The check is in the UPDATE's `WHERE`, so two
+    concurrent submits start one run.
+  - Submit is allowed from DRAFT, FAILED and AWAITING_CONFIRM. From AWAITING_CONFIRM the old staged columns are
+    cleared, and the old staged object is deleted after commit.
+  - Otherwise it sets QUEUED with a new `verification_run_id`, `verification_queued_at`, `verification_base_version
+= version` and kind `full`, then calls `void runner.run(resumeId, runId)`.
 - `VerificationRunner.run(resumeId: string, runId: string): Promise<void>` runs the stages below in order. Each
   stage's result goes into `verification_report.gates`.
   1. Claim with a CAS: QUEUED and `run_id` match → CHECKING, set `verification_started_at`.
@@ -599,10 +640,14 @@ technical deterministically`.
      - render with `loadCatalogTemplate(templateName)`;
      - upload under `resumes/<resumeId>/staged/<runId>.pdf`;
      - a render error → FAILED `RENDER_FAILED`.
-  6. ATS: `extractRenderedPages` + `checkResumeAts`. A failure on an AI-written item reverts that item to the note
-     text and re-renders once. Still failing → `ATS_CHECK_FAILED`. Dropped glyphs → `GLYPH_CHECK_FAILED`.
+  6. ATS: run `extractRenderedPages` + `checkResumeAts`.
+     - `TOO_MANY_PAGES` and `TOO_LARGE` are layout failures. They go to stage 7's repair loop, never terminal here.
+     - Any other failure on an AI-written item reverts that item to the note text and re-renders once. Still failing
+       → `ATS_CHECK_FAILED`.
+     - Dropped glyphs → `GLYPH_CHECK_FAILED`.
+     - The ATS check re-runs after every layout repair render.
   7. Layout:
-     - pages ≤ `ATS_MAX_PAGES`;
+     - pages ≤ `ATS_MAX_PAGES` and bytes ≤ `ATS_MAX_BYTES`;
      - the last page holds at least 25 % of the average line count of the full pages when there is more than one page
        **[call]**: line-count ratio, no extra Typst query.
 
@@ -610,14 +655,20 @@ technical deterministically`.
      `LAYOUT_UNFIXABLE`.
 
   8. Visual:
-     - render a placeholder copy as PNG pages, with name → `Firstname Lastname` and email → `name@example.com`;
+     - render a placeholder copy as PNG pages: name → `Firstname Lastname`, email → `name@example.com`, and every
+       `links` entry → label `Link`, URL `https://example.com` (tailored spec §6.4 item 18). Education and languages
+       stay as they are;
      - call `VisualCheckClient`;
      - a finding counts only when a second call confirms the same `check` and `page`;
      - `unavailable` → `VISUAL_CHECK_UNAVAILABLE`, a confirmed finding → `VISUAL_CHECK_FAILED`.
-  9. Stage: with a CAS on `run_id`, write `staged_*` and set AWAITING_CONFIRM. Losing the CAS deletes the uploaded
-     object and writes nothing.
+  9. Stage: with a CAS on `run_id` and `version = verification_base_version`, write `staged_*` and set
+     AWAITING_CONFIRM.
+     - Losing the CAS deletes the uploaded object and writes nothing.
+     - If the row already had a staged object from an earlier run (edit or regenerate, Task 15), it is deleted after
+       commit.
 
-  Every FAILED terminal write CASes on `run_id` and deletes the run's staged object.
+  Every FAILED terminal write CASes on `run_id`. It deletes the run's own object and any earlier staged object, and
+  clears the staged columns. A run started from AWAITING_CONFIRM that fails leaves FAILED, and HR submits again.
 
 - `RendererPng`: add `renderPng(input: ResumeRenderInput): Promise<Buffer[]>` to `ResumeTypstService`, through the
   same sandbox (`--format png`, one file per page).
@@ -631,7 +682,11 @@ technical deterministically`.
   - `model output containing the full name fails that item`;
   - `superseded run (run_id changed mid-run) writes nothing and deletes its object`;
   - `vision unconfirmed finding does not fail`;
-  - `vision unavailable → VISUAL_CHECK_UNAVAILABLE`.
+  - `vision unavailable → VISUAL_CHECK_UNAVAILABLE`;
+  - `3-page first render is repaired by density, not failed by the ATS stage`;
+  - `PNG copy sent to vision contains no real name, email or link URL` (extract the placeholder render's text);
+  - `two concurrent submits → one run`;
+  - `re-submit from AWAITING_CONFIRM deletes the old staged object`.
 - [ ] **Step 2:** Run `pnpm --filter @crm/api test verification-runner`. Expected: FAIL.
 - [ ] **Step 3:** Implement. Each stage is a private method; the runner file stays under 400 lines. Split the
       content-gate loop into `content-gates.ts` if it grows past that.
@@ -651,17 +706,24 @@ technical deterministically`.
   - ADMIN/HR only; anyone else gets 403.
   - It is one UPDATE with `WHERE verification_run_id = $runId AND version = $version AND verification_status =
 'AWAITING_CONFIRM'`. That UPDATE promotes the staged content, layout, template and PDF key to the live columns,
-    bumps `version`, sets `verified_version = version` (new), `verified_at` and `verified_by_user_id`, sets VERIFIED
-    and clears the staged columns.
+    sets `version = version + 1, verified_version = version + 1` (both read the pre-update `version`),
+    `verified_at` and `verified_by_user_id`, sets VERIFIED, clears `verification_run_id` and the staged columns.
   - 0 rows → 409 `RESUME_CONFIRM_STALE`. After commit the replaced live PDF object is deleted.
 - `editStagedField(viewer, targetUserId, { runId, path, text })`:
   - only in AWAITING_CONFIRM with a matching `runId`;
   - `path` is `summary` or `experience.<i>.bullets.<j>`;
+  - `text` must pass `isLatinScript` and have no `scanContacts` hit; otherwise 422 with the hit;
+  - it appends `{ path, userId: viewer.id }` to `staged_edited_paths`;
   - it starts a run of kind `staged-edit` with a new run id. That run applies the text to the staged content and
-    re-runs stages 5–9, without the content gates (spec §4 step 6).
+    re-runs stages 5–9, without the writer and entailment gates (spec §4 step 6).
 - `regenerateStagedField(viewer, targetUserId, { runId, path })` starts a run of kind `item`. That run re-runs stages
-  3–9 for that one path and keeps the other staged texts.
-- Both edits follow `canAccessResume` write, as editing does (spec Q-C).
+  3–9 for that one path and keeps the other staged texts. It removes `path` from `staged_edited_paths`.
+- During either run the row keeps its previous staged columns, so the UI still shows the last staged PDF. The run's
+  stage 9 replaces them and deletes the previous staged object (Task 14).
+- Both edits follow `canAccessResume` write, as editing does (spec Q-C). The confirmer sees each staged-edited path
+  marked "edited by a person, not fact-checked" (Task 19), so a SENIOR edit never reaches VERIFIED unseen.
+- `getStagedPdf(viewer, targetUserId)`: `GET /users/:id/resume/staged-pdf`, `canAccessResume` read. It streams the
+  staged object. No staged object, or no access → the same 404 as the live PDF endpoint.
 
 - [ ] **Step 1: Failing tests:**
   - `two concurrent confirms → exactly one 200, one 409, version bumped once` (`Promise.all` on the scratch DB);
@@ -669,7 +731,12 @@ technical deterministically`.
   - `SENIOR cannot confirm own resume (403)`;
   - `HR can confirm`;
   - `staged-edit skips writer and entailment clients` (call counts are 0);
-  - `confirm deletes the old live PDF object`.
+  - `confirm deletes the old live PDF object`;
+  - `confirm sets verified_version equal to the new version`;
+  - `staged edit with an email address → 422, no run started`;
+  - `staged edit records { path, userId } in staged_edited_paths`;
+  - `staged edit run replaces the previous staged object and deletes it`;
+  - `staged-pdf: owner SENIOR gets the file, foreign SENIOR and no-staged both get 404`.
 - [ ] **Step 2:** Run `DATABASE_URL=<scratch> pnpm --filter @crm/api test resume-verification resumes-rbac`.
       Expected: FAIL.
 - [ ] **Step 3:** Implement.
@@ -689,20 +756,32 @@ technical deterministically`.
 **Interfaces:**
 
 - On a VERIFIED resume, `setTemplate` and `updateLayout` start a run of kind `template`:
+  - it sets `verification_run_id`, `verification_kind = 'template'`, `verification_base_version = version` and
+    `verification_queued_at`; the status stays VERIFIED, and `isVerificationBusy` now returns true (Task 13);
   - the staged template or layout is the requested one, and the staged content is the live content;
   - stages 5–8 run;
-  - pass → promote PDF and template or layout, bump `version`, set `verified_version = version`, stay VERIFIED;
+  - every terminal write CASes on `verification_run_id = $runId AND version = verification_base_version`, and clears
+    `verification_run_id`;
+  - pass → promote PDF and template or layout, set `version = version + 1, verified_version = version + 1`, stay
+    VERIFIED; after commit delete the replaced live PDF object;
   - fail → the live columns stay untouched and the status stays VERIFIED; `verification_error_code` and
-    `verification_report` are set, and the UI shows them as the result of the last template check.
-- `sweepStalledVerifications(now: Date): Promise<number>`. A run QUEUED or CHECKING past 10 minutes
-  (`VERIFICATION_DEADLINE_MS = 600_000`) becomes FAILED `STALLED`, or, for kind `template`, returns to VERIFIED with
-  the error code. The run's staged object is deleted.
+    `verification_report` are set, the run's object is deleted, and the UI shows them as the result of the last
+    template check.
+- `sweepStalledVerifications(now: Date): Promise<number>`, with `VERIFICATION_DEADLINE_MS = 600_000`:
+  - status QUEUED or CHECKING and `verification_queued_at < now − deadline` → FAILED `STALLED`;
+  - status VERIFIED, `verification_run_id IS NOT NULL` and `verification_queued_at < now − deadline` → clear
+    `verification_run_id`, set `verification_error_code = 'STALLED'`, stay VERIFIED;
+  - each UPDATE CASes on the run id it read; the run's staged object is deleted after commit.
 
 - [ ] **Step 1: Failing tests:**
   - `template change on VERIFIED passes → VERIFIED with new template and verified_version == version`;
   - `template change fails (vision unavailable) → previous template and PDF kept, VERIFIED`;
   - `sweep fails a CHECKING run older than 10 min and deletes its object`;
-  - `sweep ignores a run 9 min old`.
+  - `sweep ignores a run 9 min old`;
+  - `sweep clears a stalled template run and keeps VERIFIED`;
+  - `facts PUT during a template run → 409`;
+  - `template pass deletes the replaced live PDF object`;
+  - `template run that lost the CAS writes nothing and deletes its object`.
 - [ ] **Step 2:** Run `pnpm --filter @crm/api test resume-verification verification-runner resume-extraction.cron`.
       Expected: FAIL.
 - [ ] **Step 3:** Implement.
@@ -767,13 +846,16 @@ resume screens`.
 
 - Confirm is shown only when `canConfirm`. Every action sends the `staged.runId`. A 409 refetches and shows "the
   resume changed, review again". Failure codes map to localized reasons with the report item path.
+- The preview loads `GET /users/:id/resume/staged-pdf` (Task 15). Each `staged_edited_paths` entry is marked
+  "edited by a person, not fact-checked" next to its text.
 
 - [ ] **Step 1: Failing tests:**
   - `SENIOR sees no Confirm button`;
   - `Confirm sends runId and version`;
   - `409 on confirm refetches`;
   - `FAILED ATS_CHECK_FAILED shows the item path`;
-  - `fallbacks listed as "kept from your notes"`.
+  - `fallbacks listed as "kept from your notes"`;
+  - `staged-edited path shows the "not fact-checked" mark`.
 - [ ] **Step 2:** Run the tests. Expected: FAIL.
 - [ ] **Step 3:** Implement, then run `i18n:extract`.
 - [ ] **Step 4:** Run again. Expected: PASS.
