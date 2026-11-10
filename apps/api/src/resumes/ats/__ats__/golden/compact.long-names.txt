@@ -1,0 +1,21 @@
+Theodora Vasquez-Lindqvist
+theodora.vasquez-lindqvist@example.com
+Summary
+Software engineer who ships maintainable backend and frontend code.
+Skills
+TypeScript · PostgreSQL · Docker
+Experience
+Senior Principal Platform Reliability Engineering Architect Apr 2019 – Nov 2024
+Consolidated Northern Agricultural Machinery and Precision Irrigation Holdings
+• Designed the telemetry ingestion platform for field equipment
+Lead Full-Stack Engineer, Customer Subscription Platforms Jan 2015 – Mar 2019
+Riverside Interactive Entertainment and Educational Software Studio
+• Rebuilt the subscription checkout
+Education
+Northbridge Technical University
+BSc Computer Science
+2008 – 2012
+Languages
+English — C1 · German — B1
+Links
+GitHub

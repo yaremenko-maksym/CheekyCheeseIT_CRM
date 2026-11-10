@@ -1,0 +1,20 @@
+Mila Brandt
+mila.brandt@example.com
+Summary
+Junior developer with one year of commercial experience.
+Skills
+TypeScript · PostgreSQL · Docker
+Experience
+Junior Developer
+Fernhill Digital
+Jun 2024 – Jul 2025
+• Built internal admin screens in React
+• Wrote unit tests for the billing API
+Education
+Northbridge Technical University
+BSc Computer Science
+2008 – 2012
+Languages
+English — C1 · German — B1
+Links
+GitHub

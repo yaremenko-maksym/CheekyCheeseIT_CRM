@@ -1,0 +1,22 @@
+José Müller
+jose.mueller@example.com
+Summary
+Ingeniero de software. Erfahrung mit Zürich-basierten Teams, café-culture remote.
+Skills
+TypeScript
+PostgreSQL
+Docker
+Experience
+Desarrollador Sénior
+Señora Pérez Ingeniería
+Sep 2020 – Feb 2025
+• Migró la facturación a PostgreSQL
+• Führte Code-Reviews für fünf Entwickler
+Education
+Universität Köln
+Diplom Informatik
+2010 – 2015
+Languages
+English — C1 · German — B1
+Links
+GitHub

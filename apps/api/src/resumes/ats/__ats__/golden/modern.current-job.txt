@@ -1,0 +1,23 @@
+Casimir Oduya
+casimir.oduya@example.com
+Summary
+Software engineer who ships maintainable backend and frontend code.
+Skills
+TypeScript · PostgreSQL · Docker
+Experience
+Senior Backend Engineer
+Harborlight Insurance Tech
+Oct 2022 – Present
+• Leads the claims service rewrite
+Backend Engineer
+Marlow Data Works
+Feb 2018 – Sep 2022
+• Built the nightly reporting jobs
+Education
+Northbridge Technical University
+BSc Computer Science
+2008 – 2012
+Languages
+English — C1 · German — B1
+Links
+GitHub
