@@ -25,6 +25,11 @@ import { ResumeTypstService } from './resume-typst.service'
 import { ResumeTextExtractionService } from './resume-text-extraction.service'
 import { SeniorResumesController } from './resumes.controller'
 import { SeniorResumesService } from './resumes.service'
+import {
+  ResumeEntailmentClient,
+  ResumeWriterClient,
+  VisualCheckClient,
+} from './verification/inference-clients'
 
 @Module({
   imports: [ScheduleModule.forRoot(), DocumentsModule, PdfModule],
@@ -35,6 +40,9 @@ import { SeniorResumesService } from './resumes.service'
     ResumeTextExtractionService,
     ResumeTypstService,
     ResumeExtractionCronService,
+    ResumeWriterClient,
+    VisualCheckClient,
+    ResumeEntailmentClient,
   ],
   exports: [SeniorResumesService],
 })
