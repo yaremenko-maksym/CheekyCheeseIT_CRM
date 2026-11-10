@@ -1,6 +1,9 @@
 import type { ExtractionPort } from '@crm/inference'
 import { z } from 'zod'
+import { bulletsReplySchema, summaryReplySchema } from './link-contract'
 import type { ResumeWriteBody } from './schema'
+
+export { bulletsReplySchema, summaryReplySchema }
 
 /** Shared by both prompts: the adopted career-ops rules. */
 const RULES = `Rules:
@@ -22,22 +25,6 @@ For each experience item, in the order given, write 2 to 5 bullets from that ite
 Each bullet is action verb + scope + result, one line, with numbers only from that item's notes. An item whose notes support fewer bullets gets fewer; never pad.
 ${RULES}
 Reply shape: {"items": [{"index": 0, "bullets": ["<bullet>", "..."]}]}`
-
-export const summaryReplySchema = z.object({ summary: z.string().min(1).max(2000) }).strict()
-export const bulletsReplySchema = z
-  .object({
-    items: z
-      .array(
-        z
-          .object({
-            index: z.number().int().min(0),
-            bullets: z.array(z.string().min(1).max(400)).min(1).max(8),
-          })
-          .strict(),
-      )
-      .max(50),
-  })
-  .strict()
 
 export type ResumeWriteReply =
   | { kind: 'ok'; summary: string }

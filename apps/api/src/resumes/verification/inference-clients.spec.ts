@@ -129,17 +129,13 @@ describe('ResumeWriterClient', () => {
     })
   })
 
-  it.each([
-    ['a non-object payload', '[1]', []],
-    ['a feedback line with a line break', '{}', ['a\nb']],
-  ])('%s is refused before sending', async (_n, payload, feedback) => {
+  it('a request the worker refuses (400) is unavailable', async () => {
     workerEnv()
-    const calls = stubFetch({ kind: 'ok', summary: 'x' })
-    await expect(new ResumeWriterClient().write('summary', payload, feedback)).resolves.toEqual({
+    stubFetch({ error: 'BAD_REQUEST' }, 400)
+    await expect(new ResumeWriterClient().write('summary', '[1]', ['a\nb'])).resolves.toEqual({
       kind: 'unavailable',
-      reason: 'INVALID_INPUT',
+      reason: 'PROVIDER_ERROR',
     })
-    expect(calls).toHaveLength(0)
   })
 })
 

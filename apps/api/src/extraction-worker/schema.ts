@@ -6,7 +6,15 @@ import {
 } from '@crm/inference'
 import { z } from 'zod'
 import { buildRouterConfig, extractionWorkerEnvSchema } from '../inference/build-inference-config'
-import { isUsableWorkerSecret } from './link-contract'
+import {
+  isUsableWorkerSecret,
+  MAX_PAGE_BYTES,
+  MAX_PAGE_CHARS,
+  MAX_PAGES,
+  visualCheckBodySchema,
+} from './link-contract'
+
+export { MAX_PAGE_BYTES, MAX_PAGES, visualCheckBodySchema }
 
 /** The delimited user message from `buildExtractionPrompt`, bounded by the port's own input cap. */
 export const MAX_WORKER_INPUT_CHARS = MAX_EXTRACTION_INPUT_CHARS
@@ -48,31 +56,8 @@ export const resumeWriteBodySchema = z
   .strict()
 export type ResumeWriteBody = z.infer<typeof resumeWriteBodySchema>
 
-/** The most pages one visual check takes, and the decoded size cap of each (1.5 MB). */
-export const MAX_PAGES = 2
-export const MAX_PAGE_BYTES = 1_500_000
-/**
- * The base64 length of a page at the cap. The cap divides by 3, so a canonical string of at most
- * this length decodes to at most `MAX_PAGE_BYTES`: the length check is the size check.
- */
-const MAX_PAGE_CHARS = (MAX_PAGE_BYTES / 3) * 4
 /** The route's body limit: the pages at their cap plus the JSON around them. */
 export const VISUAL_CHECK_BODY_LIMIT = MAX_PAGES * MAX_PAGE_CHARS + 1024
-const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-
-/** Canonical padded base64 whose bytes start with the PNG signature (12 chars hold 9 bytes). */
-function isPngPage(b64: string): boolean {
-  if (b64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) return false
-  // Stryker disable next-line MethodExpression: equivalent — decoding the whole page gives the same first 8 bytes; the slice only saves the work
-  return Buffer.from(b64.slice(0, 12), 'base64').subarray(0, 8).equals(PNG_SIGNATURE)
-}
-
-/** `visual-check` data only: the rendered pages. The checklist is the worker's own. */
-export const visualCheckBodySchema = z
-  .object({
-    pages: z.array(z.string().max(MAX_PAGE_CHARS).refine(isPngPage)).min(1).max(MAX_PAGES),
-  })
-  .strict()
 
 /** `preflight` takes nothing: no body, or an empty JSON object. */
 export const preflightBodySchema = z.union([z.undefined(), z.object({}).strict()])

@@ -8,6 +8,7 @@ import {
   type DecisionRequest,
   type ExtractionWorkerRoute,
   type ExtractionWorkerTransport,
+  type InferenceErrorCode,
 } from '@crm/inference'
 import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
@@ -15,24 +16,24 @@ import { z } from 'zod'
 import type { Env } from '../../config/env'
 import {
   bulletsReplySchema,
+  findingsReplySchema,
   summaryReplySchema,
-  type ResumeWriteReply,
-} from '../../extraction-worker/resume-write'
-import { resumeWriteBodySchema, visualCheckBodySchema } from '../../extraction-worker/schema'
-import { findingsReplySchema, type VisualCheckReply } from '../../extraction-worker/visual-check'
+  visualCheckBodySchema,
+} from '../../extraction-worker/link-contract'
 import {
   readExtractionWorkerEnv,
   WORKER_ADAPTER_TIMEOUT_MS,
 } from '../../job-sourcing/structuring/model-extraction-wiring'
 
 export type WriterTask = 'summary' | 'bullets'
-export type WriterReply = ResumeWriteReply
-export type VisualReply = VisualCheckReply
 export type EntailmentClaim = { id: string; text: string; sources: string[] }
 
 /** `INVALID_INPUT`: the client refused the request before sending it. */
-type Unavailable = { kind: 'unavailable'; reason: string }
-const unavailable = (reason: string): Unavailable => ({ kind: 'unavailable', reason })
+export type Unavailable = { kind: 'unavailable'; reason: InferenceErrorCode | 'INVALID_INPUT' }
+const unavailable = (reason: Unavailable['reason']): Unavailable => ({
+  kind: 'unavailable',
+  reason,
+})
 const reasonSchema = z.enum(INFERENCE_ERROR_CODES)
 
 /** The worker transport, or undefined when its env is unset or invalid. */
@@ -56,7 +57,7 @@ async function callWorker<T>(
   post: ExtractionWorkerTransport | undefined,
   route: ExtractionWorkerRoute,
   body: string,
-  replySchema: z.ZodType<T | Unavailable>,
+  replySchema: z.ZodType<T>,
 ): Promise<T | Unavailable> {
   if (post === undefined) return unavailable('NOT_CONFIGURED')
   // The transport never throws: a network error is a `transport` result.
@@ -79,6 +80,25 @@ const bulletsWireSchema = z.union([
   z.object({ kind: z.literal('ok'), items: bulletsReplySchema.shape.items }).strict(),
   unavailableReplySchema,
 ])
+export type WriterReply =
+  | Exclude<z.infer<typeof summaryWireSchema> | z.infer<typeof bulletsWireSchema>, Unavailable>
+  | Unavailable
+
+const visualWireSchema = (pages: number) =>
+  z.union([
+    z
+      .object({
+        kind: z.literal('ok'),
+        // A finding on a page that was not sent makes the whole reply invalid.
+        findings: findingsReplySchema.shape.findings.refine((fs) =>
+          fs.every((f) => f.page < pages),
+        ),
+      })
+      .strict(),
+    unavailableReplySchema,
+  ])
+export type VisualReply =
+  Exclude<z.infer<ReturnType<typeof visualWireSchema>>, Unavailable> | Unavailable
 
 /**
  * The AI writer over the worker's `/resume-write`.
@@ -91,16 +111,17 @@ export class ResumeWriterClient {
   private readonly post = workerTransport()
 
   async write(task: WriterTask, payload: string, feedback: string[]): Promise<WriterReply> {
-    const body = resumeWriteBodySchema.safeParse({ task, payload, feedback })
-    if (!body.success) return unavailable('INVALID_INPUT')
-    const schema = task === 'summary' ? summaryWireSchema : bulletsWireSchema
-    return callWorker<WriterReply>(this.post, '/resume-write', JSON.stringify(body.data), schema)
+    // The worker checks the body (a JSON-object payload, one line per feedback item): a 400 is unavailable.
+    const body = JSON.stringify({ task, payload, feedback })
+    const schema: z.ZodType<WriterReply> =
+      task === 'summary' ? summaryWireSchema : bulletsWireSchema
+    return callWorker(this.post, '/resume-write', body, schema)
   }
 }
 
 /**
  * The vision check over the worker's `/visual-check`: at most 2 PNG pages of at most 1 500 000 bytes
- * each, checked here before anything is sent.
+ * each, checked here before anything is sent (`INVALID_INPUT`).
  *
  * Precondition (R19): the pages are rendered from the contact-redacted (placeholder) copy; this
  * client does not redact. It never logs the pages or the findings text.
@@ -114,19 +135,8 @@ export class VisualCheckClient {
       pages: pngPages.map((p) => p.toString('base64')),
     })
     if (!body.success) return unavailable('INVALID_INPUT')
-    const pages = body.data.pages.length
-    const schema = z.union([
-      z
-        .object({
-          kind: z.literal('ok'),
-          findings: findingsReplySchema.shape.findings.refine((fs) =>
-            fs.every((f) => f.page < pages),
-          ),
-        })
-        .strict(),
-      unavailableReplySchema,
-    ])
-    return callWorker<VisualReply>(this.post, '/visual-check', JSON.stringify(body.data), schema)
+    const schema = visualWireSchema(body.data.pages.length)
+    return callWorker(this.post, '/visual-check', JSON.stringify(body.data), schema)
   }
 }
 
