@@ -106,7 +106,7 @@ or CHECKING (409). A facts edit in AWAITING_CONFIRM discards the staged result a
 claim / sweep pattern of the tailored design §6 (`verification_run_id`, queued and started timestamps, a sweep that
 fails a run QUEUED or CHECKING past its deadline as STALLED and discards its staged result).
 
-**Who may do what [call, owner to confirm as Q-C].** Editing facts and Submit follow today's resume write rule
+**Who may do what [owner, Q-C].** Editing facts and Submit follow today's resume write rule
 (`canAccessResume` write: ADMIN, HR, and the SENIOR for their own resume). **Confirm** is ADMIN and HR only: a senior
 cannot mark their own resume VERIFIED.
 
@@ -193,7 +193,7 @@ templates, the renderer, the checker or the Typst pin.
   it fails until the new golden is reviewed. **[call]**
 - **Negative controls:** a deliberately broken two-column fixture template and a letter-spaced heading must fail the
   checker, proving the checker can see the failures it claims to catch (verification-integrity).
-- **Independent parser oracle (owner decision, §9 Q-A):** the OpenResume parser (pdf.js-based, built for
+- **Independent parser oracle [owner, §9 Q-A]:** the OpenResume parser (pdf.js-based, built for
   single-column English resumes) run as a separate CI job against the matrix PDFs, asserting name, email, company,
   role and dates. It is AGPL-3.0: run from its own checkout, never copied into this repo.
 - **One-off manual check:** each new template through a commercial parser trial (Affinda) before release, owner-run
@@ -219,14 +219,13 @@ templates, the renderer, the checker or the Typst pin.
   exact paths, following the existing resume controller.
 - The tailored design reads "base resume READY" as `verification_status = VERIFIED` and `verified_version = version`.
 
-## 9. Owner decisions still open (A2, not blocking the design)
+## 9. Owner decisions (answered 2026-11-10)
 
-- **Q-A.** Run the AGPL OpenResume parser as a separate CI job (recommended), or skip the oracle and rely on our own
-  checker plus negative controls.
-- **Q-B.** One-off Affinda check of each new template with synthetic fixtures only (recommended; it is an external
-  send, so synthetic data, never a real senior).
-- **Q-C (RBAC).** A senior may edit and submit their own base resume, but only ADMIN or HR may Confirm it
-  (recommended, as written in §4), or seniors get no write access to the base resume at all.
+- **Q-A. [owner]** The AGPL OpenResume parser runs as a separate CI job from its own checkout, never copied into this
+  repository.
+- **Q-B. [owner]** Each new template gets a one-off Affinda trial check before release, owner-run, with synthetic
+  fixtures only (an external send: never a real senior).
+- **Q-C. [owner]** A senior may edit and submit their own base resume; only ADMIN or HR may Confirm it (§4).
 
 ## 10. Delivery slices
 
