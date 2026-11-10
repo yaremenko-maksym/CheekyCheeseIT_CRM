@@ -33,6 +33,11 @@ export type ExtractionRequest<T> = {
   smallDose?: SmallDose<T>
   /** `largest`: hosted models tried by parameter count, largest first, rotation off (R15). */
   modelPreference?: 'largest'
+  /**
+   * Base64 PNG pages sent as image parts after the input. A request with images goes only to
+   * vision-capable pairs and never to the local floor: with none healthy it fails.
+   */
+  images?: readonly string[]
 }
 
 /** `localMs` is the time spent on local requests, charged on failure too (§5.5 item 6). */

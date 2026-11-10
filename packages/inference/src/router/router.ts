@@ -13,6 +13,7 @@ import {
   type ClassifiedChatOutcome,
 } from '../internal/classified-chat'
 import { runExtraction } from '../internal/extraction-pipeline'
+import { isVisionCapable } from '../internal/model-id'
 import {
   HOSTED_BASE_URLS,
   localRuntimeKey,
@@ -245,6 +246,7 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     const start = now()
     const hostedDeadline = start + cfg.hostedBudgetMs
     const inputChars = req.input.length
+    const images = req.images
     const rendered = renderSchema(req.schema)
     const schema = rendered?.replySchema ?? req.schema
     let totalTokens: number | undefined
@@ -381,6 +383,7 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
         instruction: req.instruction,
         input: req.input,
         correction,
+        images: req.images,
         maxTokens: route.maxAnswerTokens,
         structuredOutput: structuredOutputFor(rendered, route.structuredOutput),
         timeoutMs: Math.max(1, Math.min(route.timeoutMs, hostedDeadline - now())),
@@ -437,7 +440,11 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
         continue
       }
       const models = (await managedModels(p, route.models)).filter(
-        (m) => !isSpent(snap, p, m, today) && !isRetired(snap, p, m) && !coolingDown(p, m),
+        (m) =>
+          (images === undefined || isVisionCapable(p, m)) &&
+          !isSpent(snap, p, m, today) &&
+          !isRetired(snap, p, m) &&
+          !coolingDown(p, m),
       )
       if (models.length === 0) reasons.push({ route: p, code: 'NO_MODEL' })
       else candidates.push({ route, models })
@@ -474,6 +481,13 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     // ---- hand-back and floor (§5.2 items 5-6) ----
     // An abort during a step that sends nothing (a cap refusal, a state write) ends here, not on the floor.
     if (signal?.aborted === true) return finish({ ok: false, code: 'ABORTED' }, false)
+    // The floor is text-only: images never fall to it, nor do they reach any model with the pages dropped.
+    if (images !== undefined) {
+      return finish(
+        { ok: false, code: pairs.length === 0 ? 'NOT_CONFIGURED' : 'PROVIDER_ERROR' },
+        false,
+      )
+    }
     // Every fall is an event, a local-only config included: the consumer counts floor falls (§5.3).
     // This fall-through is the hand-back of §5.4 (`SMALL_DOSE_NEEDED`): it has no value to leak.
     emit({
