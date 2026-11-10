@@ -92,16 +92,18 @@ function checkExperienceItem(
   if (item.start === null) {
     issues.push({ path: `${base}.start`, code: 'START_MISSING' })
     // `YYYY-MM` sorts lexicographically, so the current month is the cutoff.
-  } else if (item.start > nowMonth) {
-    issues.push({ path: `${base}.start`, code: 'START_IN_FUTURE' })
+  } else {
+    if (item.start > nowMonth) issues.push({ path: `${base}.start`, code: 'START_IN_FUTURE' })
+    // A missing end falls back to the start, which is never before itself. Written
+    // without a null guard: a `YYYY-MM` string compared with null is always false,
+    // so a guard would only add a mutant no test can kill.
+    if ((item.end ?? item.start) < item.start) {
+      issues.push({ path: `${base}.end`, code: 'END_BEFORE_START' })
+    }
   }
 
   if (!item.current && item.end === null) {
     issues.push({ path: `${base}.end`, code: 'END_MISSING' })
-  }
-  // Stryker disable next-line ConditionalExpression,LogicalOperator: a `YYYY-MM` string compared with null coerces to NaN < 0 (or 0 < NaN), always false, so dropping either null guard cannot change the result
-  if (item.start !== null && item.end !== null && item.end < item.start) {
-    issues.push({ path: `${base}.end`, code: 'END_BEFORE_START' })
   }
 
   item.technologies.forEach((technology, technologyIndex) => {
