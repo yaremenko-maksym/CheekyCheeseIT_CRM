@@ -48,6 +48,12 @@ import {
   JOB_SOURCING_ERROR_MESSAGES,
   JOB_SOURCING_ERROR_PARAMS,
 } from './job-sourcing'
+import {
+  RESUME_ERROR_CODES,
+  RESUME_ERROR_FALLBACK_EN,
+  RESUME_ERROR_MESSAGES,
+  RESUME_ERROR_PARAMS,
+} from './resume'
 
 /**
  * task-i18n-stage4-task1 (Track A, "Дисциплина параллельности" — SPEC-M-1).
@@ -74,6 +80,7 @@ export const API_ERROR_CODES = [
   ...APPLICATIONS_ERROR_CODES,
   ...MEETING_RECORDER_ERROR_CODES,
   ...JOB_SOURCING_ERROR_CODES,
+  ...RESUME_ERROR_CODES,
 ] as const
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number]
 
@@ -91,6 +98,7 @@ export const API_ERROR_PARAMS = {
   ...APPLICATIONS_ERROR_PARAMS,
   ...MEETING_RECORDER_ERROR_PARAMS,
   ...JOB_SOURCING_ERROR_PARAMS,
+  ...RESUME_ERROR_PARAMS,
 } as const satisfies Record<ApiErrorCode, readonly string[]>
 
 /**
@@ -158,6 +166,7 @@ export const API_ERROR_MESSAGES: Record<ApiErrorCode, MessageDescriptor> = {
   ...APPLICATIONS_ERROR_MESSAGES,
   ...MEETING_RECORDER_ERROR_MESSAGES,
   ...JOB_SOURCING_ERROR_MESSAGES,
+  ...RESUME_ERROR_MESSAGES,
 }
 
 /**
@@ -179,6 +188,7 @@ export const API_ERROR_FALLBACK_EN: Record<ApiErrorCode, string> = {
   ...APPLICATIONS_ERROR_FALLBACK_EN,
   ...MEETING_RECORDER_ERROR_FALLBACK_EN,
   ...JOB_SOURCING_ERROR_FALLBACK_EN,
+  ...RESUME_ERROR_FALLBACK_EN,
 }
 
 export * from './meeting-recorder'

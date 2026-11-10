@@ -3462,6 +3462,26 @@ msgid "api-error.REJOIN_TEAM_SENIOR_ONLY"
 msgstr "Повернутися до команди може лише сеньйор"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_CONFIRM_STALE"
+msgstr "Резюме змінилося після перевірки. Оновіть сторінку й перевірте його ще раз."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_CUSTOM_TEMPLATE"
+msgstr "Цей шаблон резюме не підтримує перевірку. Оберіть шаблон із каталогу."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_INCOMPLETE"
+msgstr "Заповніть усі потрібні поля резюме перед перевіркою"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_VERIFICATION_BUSY"
+msgstr "Резюме зараз перевіряється. Зачекайте, доки перевірка завершиться."
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SENIOR_ADMIN_USDT_ONLY"
 msgstr "Для сеньйора й адміністратора доступний лише один спосіб виплати — USDT ERC-20"

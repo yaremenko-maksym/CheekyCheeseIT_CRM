@@ -42,9 +42,10 @@ describe('resumeMonthSchema', () => {
     expect(resumeMonthSchema.parse('2021-03')).toBe('2021-03')
   })
 
-  it('rejects month "2021-00" and a full date', () => {
+  it('rejects month "2021-00", a full date and a prefixed month', () => {
     expect(resumeMonthSchema.safeParse('2021-00').success).toBe(false)
     expect(resumeMonthSchema.safeParse('2021-03-01').success).toBe(false)
+    expect(resumeMonthSchema.safeParse('x2021-03').success).toBe(false)
   })
 })
 
@@ -73,6 +74,24 @@ describe('resumeFactsSchema', () => {
       factsWith({ links: [{ label: 'GitHub', url: 'https://github.com/x' }] }),
     )
     expect(result.success).toBe(true)
+  })
+
+  it('every workFormat and language level from the brief parses', () => {
+    for (const workFormat of ['remote', 'hybrid', 'onsite'] as const) {
+      expect(resumeFactsSchema.parse(factsWith({ workFormat })).workFormat).toBe(workFormat)
+    }
+    const levels = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'native'] as const
+    const languages = levels.map((level) => ({ name: 'English', level }))
+    expect(resumeFactsSchema.parse(factsWith({ languages })).languages).toEqual(languages)
+  })
+
+  it('an education item keeps its fields and needs integer years', () => {
+    const item = { institution: 'KPI', degree: 'BSc', startYear: 2015, endYear: null }
+    expect(resumeFactsSchema.parse(factsWith({ education: [item] })).education).toEqual([item])
+    expect(
+      resumeFactsSchema.safeParse(factsWith({ education: [{ ...item, startYear: 2015.5 }] }))
+        .success,
+    ).toBe(false)
   })
 
   it('a language level outside the CEFR set is rejected', () => {
@@ -118,6 +137,30 @@ describe('resumeTemplateNameSchema', () => {
 })
 
 describe('verification schemas', () => {
+  it('status and error code sets are exactly the ones in the brief', () => {
+    expect(resumeVerificationStatusSchema.options).toEqual([
+      'DRAFT',
+      'QUEUED',
+      'CHECKING',
+      'AWAITING_CONFIRM',
+      'VERIFIED',
+      'FAILED',
+    ])
+    expect(resumeVerificationErrorCodeSchema.options).toEqual([
+      'INCOMPLETE',
+      'CUSTOM_TEMPLATE',
+      'WRITER_UNAVAILABLE',
+      'ENTAILMENT_UNAVAILABLE',
+      'RENDER_FAILED',
+      'ATS_CHECK_FAILED',
+      'GLYPH_CHECK_FAILED',
+      'LAYOUT_UNFIXABLE',
+      'VISUAL_CHECK_FAILED',
+      'VISUAL_CHECK_UNAVAILABLE',
+      'STALLED',
+    ])
+  })
+
   it('status and error code reject values outside their sets', () => {
     expect(resumeVerificationStatusSchema.parse('AWAITING_CONFIRM')).toBe('AWAITING_CONFIRM')
     expect(resumeVerificationStatusSchema.safeParse('READY').success).toBe(false)

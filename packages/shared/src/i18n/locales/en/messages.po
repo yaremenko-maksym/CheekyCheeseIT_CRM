@@ -3462,6 +3462,26 @@ msgid "api-error.REJOIN_TEAM_SENIOR_ONLY"
 msgstr "Only a senior can rejoin a team"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_CONFIRM_STALE"
+msgstr "The resume changed after the check. Refresh the page and check it again."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_CUSTOM_TEMPLATE"
+msgstr "This resume template does not support verification. Choose a template from the catalog."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_INCOMPLETE"
+msgstr "Fill in all required resume fields before the check"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_VERIFICATION_BUSY"
+msgstr "The resume is being checked right now. Wait until the check finishes."
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SENIOR_ADMIN_USDT_ONLY"
 msgstr "Seniors and admins can only be paid to USDT ERC-20"
