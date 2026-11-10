@@ -5,6 +5,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
   type QueryKey,
 } from '@tanstack/react-query'
 import {
@@ -126,8 +127,7 @@ const seg = encodeURIComponent
  */
 function useAccessLost(scope: QueueScopeSignature, error: unknown) {
   const queryClient = useQueryClient()
-  const status = getAxiosStatus(error)
-  const lost = status === 403 || status === 404
+  const lost = isAccessLoss(error)
   const { actorId, role, teamId } = scope
 
   useEffect(() => {
@@ -139,6 +139,25 @@ function useAccessLost(scope: QueueScopeSignature, error: unknown) {
   }, [lost, queryClient, actorId, role, teamId])
 
   return lost
+}
+
+/** A 403/404: the actor lost access (missing and unauthorized look alike by design). */
+export const isAccessLoss = (error: unknown) => {
+  const status = getAxiosStatus(error)
+  return status === 403 || status === 404
+}
+
+/**
+ * QA-LOW-6: a card read answered 403/404 is final, so it closes at once instead of asking again;
+ * every other error keeps the client's default retry.
+ */
+function useRetryUnlessAccessLost() {
+  const fallback = useQueryClient().getDefaultOptions().queries?.retry ?? 3
+  return (failureCount: number, error: unknown): boolean => {
+    if (isAccessLoss(error)) return false
+    if (typeof fallback === 'function') return fallback(failureCount, error as Error)
+    return typeof fallback === 'number' ? failureCount < fallback : fallback
+  }
 }
 
 /**
@@ -210,6 +229,7 @@ export function useJobQueue(scope: QueueScopeSignature, tab: JobQueueTab, filter
 export function useJobQueueCard(scope: QueueScopeSignature, id: string | null) {
   const query = useQuery({
     queryKey: jobQueueCardQueryKey(scope, id),
+    retry: useRetryUnlessAccessLost(),
     // QA-LOW-1: not kept once the card closes, so a reopen never paints names (personal data)
     // the server has not just confirmed for the current scope; it loads afresh
     gcTime: 0,
@@ -242,6 +262,7 @@ function useContinuation<T extends { nextCursor: string | null }>(
 ) {
   const query = useInfiniteQuery({
     queryKey: [...jobQueueCardQueryKey(scope, id), part, cursor],
+    retry: useRetryUnlessAccessLost(),
     // forgotten with the card (QA-LOW-1)
     gcTime: 0,
     initialPageParam: cursor,
@@ -396,23 +417,54 @@ export function useCancelJobQueueSubmission(scope: QueueScopeSignature) {
   )
 }
 
-/** «Приховати» in the TEAM or (ADMIN) STUDIO scope; versioned on a re-dismiss. */
+/**
+ * The latest dismissal version per actor scope, vacancy and dismissal scope. The API refuses an
+ * unversioned re-dismiss of an existing row, and a hide closes the card, so the version must
+ * outlive the menu that got it. One map per QueryClient: it goes with the client, as the cache does.
+ * shortcut: memory only, so a reload forgets it; drop it once the card carries its dismissal (7.3b).
+ */
+const dismissalVersions = new WeakMap<QueryClient, Map<string, number>>()
+
+function useDismissalVersions(scope: QueueScopeSignature) {
+  const queryClient = useQueryClient()
+  let versions = dismissalVersions.get(queryClient)
+  if (!versions) {
+    versions = new Map()
+    dismissalVersions.set(queryClient, versions)
+  }
+  const store = versions
+  const keyOf = (opportunityId: string, kind: string) =>
+    JSON.stringify([...jobQueueScopeKey(scope), opportunityId, kind])
+  return {
+    get: (opportunityId: string, kind: string) => store.get(keyOf(opportunityId, kind)),
+    set: (res: { opportunityId: string; scope: string; version: number }) =>
+      store.set(keyOf(res.opportunityId, res.scope), res.version),
+  }
+}
+
+/** «Приховати» in the TEAM or (ADMIN) STUDIO scope; a re-dismiss sends the last known version. */
 export function useDismissJobQueueItem(scope: QueueScopeSignature) {
+  const versions = useDismissalVersions(scope)
   return useQueueWrite(
     scope,
     async ({ opportunityId, ...body }: OnCard<JobQueueDismissRequestDto>, idempotencyKey) => {
+      const expectedVersion = body.expectedVersion ?? versions.get(opportunityId, body.scope)
       const res = await api.post<unknown>(`/job-queue/${seg(opportunityId)}/dismiss`, {
         ...teamParam(scope),
         ...body,
+        ...(expectedVersion === undefined ? {} : { expectedVersion }),
         idempotencyKey,
       })
-      return jobQueueDismissalResponseSchema.parse(res.data)
+      const dismissal = jobQueueDismissalResponseSchema.parse(res.data)
+      versions.set(dismissal)
+      return dismissal
     },
     card,
   )
 }
 
 export function useUndoJobQueueDismissal(scope: QueueScopeSignature) {
+  const versions = useDismissalVersions(scope)
   return useQueueWrite(
     scope,
     async ({ opportunityId, ...body }: OnCard<JobQueueUndoRequestDto>, idempotencyKey) => {
@@ -421,7 +473,9 @@ export function useUndoJobQueueDismissal(scope: QueueScopeSignature) {
         ...body,
         idempotencyKey,
       })
-      return jobQueueDismissalResponseSchema.parse(res.data)
+      const restored = jobQueueDismissalResponseSchema.parse(res.data)
+      versions.set(restored)
+      return restored
     },
     card,
   )

@@ -100,6 +100,10 @@ msgstr "Start date"
 msgid "Змінна з таким ключем уже існує"
 msgstr "A variable with this key already exists"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Нові подачі неможливі."
+msgstr "New submissions are not possible."
+
 #: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
 msgid "Введіть нотатку (до 500 символів)."
 msgstr "Enter a note (up to 500 characters)."
@@ -314,6 +318,11 @@ msgstr "Provide the manual-confirmation details"
 msgid "Немає доступних дропів"
 msgstr "No drops available"
 
+#: apps/web/app/components/job-queue/DismissMenu.tsx
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Буде приховано для всієї студії"
+msgstr "Will be hidden for the whole studio"
+
 #: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 msgid "(HR може створювати лише сеньйорів)"
 msgstr "(HR can only create seniors)"
@@ -376,6 +385,10 @@ msgstr "Could not change the application status. Try again"
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "дропа"
 msgstr "drop"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Не записувати"
+msgstr "Don't log it"
 
 #: apps/web/app/components/job-queue/JobQueueRow.tsx
 #: apps/web/app/components/job-queue/MatchedSeniors.tsx
@@ -690,6 +703,10 @@ msgstr "Pending senior settlement"
 #: apps/web/app/hooks/use-documents.ts
 msgid "Не вдалося видалити документ. Спробуйте ще раз"
 msgstr "Could not delete the document. Try again"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Так, записати все одно"
+msgstr "Yes, log it anyway"
 
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
@@ -1110,6 +1127,10 @@ msgstr "Minimum"
 msgid "Змінити адресу"
 msgstr "Change address"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Дії адміністратора: {who}"
+msgstr "Administrator actions: {who}"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionValidator.ts
 msgid "Виберіть отримувача-партнера"
 msgstr "Select a recipient partner"
@@ -1349,6 +1370,10 @@ msgstr "Benefits"
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Розпізнаємо резюме"
 msgstr "Recognizing the resume"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Дії адміністратора"
+msgstr "Administrator actions"
 
 #. placeholder {0}: (currentTos?.version ?? 0) + 1
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
@@ -1620,6 +1645,10 @@ msgstr "The cover story is not filled in."
 msgid "Документ"
 msgstr "Document"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Дані змінилися. Оновіть картку й повторіть."
+msgstr "The data has changed. Refresh the card and try again."
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 msgid "Факт переказу"
 msgstr "Transfer record"
@@ -1673,6 +1702,11 @@ msgstr "Current month"
 #: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Частка в проєкті тепер {0}%"
 msgstr "The project share is now {0}%"
+
+#: apps/web/app/components/job-queue/DismissMenu.tsx
+msgctxt "undo a hide"
+msgid "Скасувати"
+msgstr "Undo"
 
 #: apps/web/app/routes/login.tsx
 msgid "Dev Login (лише для тестування)"
@@ -3870,6 +3904,10 @@ msgstr "Net profit for {0}: income minus that month’s expenses and salaries."
 msgid "Дія"
 msgstr "Action"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Оновити картку"
+msgstr "Refresh card"
+
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Редагування назви, Telegram-посилання та заміток команди."
 msgstr "Edit the team's name, Telegram link and notes."
@@ -4104,6 +4142,10 @@ msgstr "No transfers yet"
 #: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
 msgid "Стек технологій"
 msgstr "Tech stack"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Не приховувати"
+msgstr "Keep"
 
 #: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "USDT ERC-20"
@@ -5769,6 +5811,10 @@ msgstr "The team's HR/accountants remain unlinked after restoring — add them a
 msgid "Спробуйте ще раз"
 msgstr "Try again"
 
+#: apps/web/app/components/job-queue/DismissMenu.tsx
+msgid "Буде приховано для вашої команди"
+msgstr "Will be hidden for your team"
+
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Часткова зайнятість"
 msgstr "Part-time"
@@ -6167,6 +6213,10 @@ msgstr "Cancelling the proposal…"
 msgid "Видалено"
 msgstr "Deleted"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Не вдалося скасувати подачу. Спробуйте ще раз."
+msgstr "Could not cancel the submission. Please try again."
+
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 msgid "Підсумковий токен:"
 msgstr "Resulting token:"
@@ -6501,6 +6551,7 @@ msgstr "10 digits"
 msgid "Не вдалося зберегти контракт"
 msgstr "Could not save the contract"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
 #: apps/web/app/components/pending-share/cancel-pending-share.tsx
 msgid "Залишити"
 msgstr "Keep"
@@ -6543,6 +6594,10 @@ msgstr "Signing…"
 #: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
 msgid "Не вдалося завантажити чек"
 msgstr "Could not upload the receipt"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Ця картка застаріла, тому записати подачу з неї не можна."
+msgstr "This card is out of date, so you cannot log a submission from it."
 
 #: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
 msgid "Додати нотатку"
@@ -6980,6 +7035,10 @@ msgstr "Review income ({0})"
 msgid "Підтверджує {senior}"
 msgstr "Awaiting {senior}"
 
+#: apps/web/app/components/job-queue/DismissMenu.tsx
+msgid "Нерелевантна"
+msgstr "Not relevant"
+
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Дії з підключенням"
 msgstr "Connection actions"
@@ -7123,6 +7182,10 @@ msgstr "Version {0} · last edited by {1}"
 msgid "Очікує перевірки"
 msgstr "Awaiting verification"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Ви впевнені, що це інша вакансія?"
+msgstr "Are you sure this is a different vacancy?"
+
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Команда з’являється автоматично, коли в систему додають сеньйора"
 msgstr "A team appears automatically when a senior is added to the system"
@@ -7260,6 +7323,10 @@ msgstr "Copy wallet address"
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Розмір команди"
 msgstr "Team size"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Подачу записано: {who}"
+msgstr "Submission logged: {who}"
 
 #. placeholder {0}: summary.pendingValidation.count
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
@@ -7514,6 +7581,10 @@ msgstr "Team not found"
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Прибуток за останній місяць"
 msgstr "Net profit for the last month"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Скасувати подачу"
+msgstr "Cancel submission"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Користувача створено, контракт збережено як чернетку"
@@ -7803,6 +7874,10 @@ msgstr "Restoring is possible — the profile comes back, but projects must be r
 msgid "Прив'язку скинуто. Налаштуйте новий секрет."
 msgstr "Binding reset. Set up a new secret."
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Приховати для всіх"
+msgstr "Hide for everyone"
+
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Виплат ще немає"
@@ -7837,6 +7912,18 @@ msgstr "First publication — all of the content will be added as new."
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Неприпустиме значення"
 msgstr "Invalid value"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Спершу подайте на сайті джерела («Відкрити оригінал»), потім запишіть подачу тут."
+msgstr "Apply at the source first (“Open original”), then log the submission here."
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Подачу «{who}» буде скасовано. Записати її можна буде знову."
+msgstr "The submission for “{who}” will be cancelled. You can log it again later."
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Вакансія зникне з черги для всіх команд."
+msgstr "The vacancy will disappear from every team’s queue."
 
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Назва команди"
@@ -7893,6 +7980,10 @@ msgstr "Move “{label}” up"
 #: apps/web/app/routes/_authenticated/project.tsx
 msgid "Сеньйор проєкту"
 msgstr "Project senior"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Записуємо…"
+msgstr "Saving…"
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Аватар оновлено"
@@ -8090,6 +8181,10 @@ msgstr "No avatars"
 #: apps/web/app/components/ui/amount-currency-input.tsx
 msgid "ERC-20, прив’язаний до долара"
 msgstr "ERC-20, pegged to the dollar"
+
+#: apps/web/app/components/job-queue/DismissMenu.tsx
+msgid "Мертве посилання"
+msgstr "Dead link"
 
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 #: apps/web/app/components/user-profile/resume/ResumePdfPreview.tsx
@@ -8456,6 +8551,10 @@ msgstr "Drop: {0}"
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Можна прикріпити пізніше в розділі «Проєкти»"
 msgstr "You can attach one later in the Projects section"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Раніше подано: {earlier}."
+msgstr "Previously submitted: {earlier}."
 
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Неприв'язаних записів немає"
@@ -9368,6 +9467,7 @@ msgstr "No obligations"
 msgid "Сб"
 msgstr "Sat"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
 #: apps/web/app/components/job-queue/JobQueueFilters.tsx
 msgid "Прострочена"
 msgstr "Expired"
@@ -9851,6 +9951,10 @@ msgstr "Request to Etherscan, will take a few seconds"
 msgid "Нові"
 msgstr "New"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Приховати для всіх…"
+msgstr "Hide for everyone…"
+
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Приєднатися до команди дропа"
 msgstr "Join a drop's team"
@@ -9862,9 +9966,17 @@ msgstr "Join a drop's team"
 msgid "Нічого не знайдено"
 msgstr "No results"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Приховати для всієї студії?"
+msgstr "Hide for the whole studio?"
+
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Оберіть сеньйора, знайдіть потрібну співбесіду та підтвердьте прив'язування запису «{recordingTitle}»."
 msgstr "Choose a senior, find the interview, then confirm to link “{recordingTitle}” to it."
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Записати подачу: {who}"
+msgstr "Log submission: {who}"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/useCreateTransactionValidator.ts
 msgid "Сума перевищує баланс рахунку компанії"
@@ -9938,6 +10050,10 @@ msgstr "Deleting…"
 msgid "Частка сеньйора (%)"
 msgstr "Senior's share (%)"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "З’явилася новіша версія вакансії"
+msgstr "A newer version of the vacancy is available"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 msgid "Виплатити"
@@ -9946,6 +10062,10 @@ msgstr "Pay out"
 #: apps/web/app/components/documents/upload-document-dialog.tsx
 msgid "Не вдалося завантажити документ — спробуйте ще раз"
 msgstr "Couldn’t upload the document — try again"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Термін вакансії на джерелі минув"
+msgstr "The vacancy has expired at the source"
 
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Немає доходу"
@@ -9976,6 +10096,11 @@ msgstr "Change"
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Частка в проєкті тепер {percent}%"
 msgstr "Project share is now {percent}%"
+
+#: apps/web/app/components/job-queue/DismissMenu.tsx
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Не вдалося приховати вакансію. Спробуйте ще раз."
+msgstr "Could not hide the vacancy. Please try again."
 
 #: apps/web/app/components/job-queue/JobQueueCard.tsx
 msgid "Вакансію оновлено після побудови списку"
@@ -10092,6 +10217,10 @@ msgstr "Degree / field"
 msgid "Потрібен секрет"
 msgstr "Secret required"
 
+#: apps/web/app/components/job-queue/DismissMenu.tsx
+msgid "Приховати"
+msgstr "Hide"
+
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 #: apps/web/app/routes/_authenticated/admin/sources.index.tsx
 msgid "Вимкнено"
@@ -10137,6 +10266,10 @@ msgstr "An admin will see the reason and can propose a different share"
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Не вдалося прив'язати запис"
 msgstr "Couldn't link the recording"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Скасувати подачу?"
+msgstr "Cancel this submission?"
 
 #: apps/web/app/routes/_authenticated/finance/cascade-preview.ts
 msgid "Дані змінилися з моменту перегляду — оновіть перегляд"
@@ -10624,6 +10757,10 @@ msgstr "Sun"
 msgid "Дивіденди адміну"
 msgstr "Dividends to admin"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Не вдалося записати подачу. Спробуйте ще раз."
+msgstr "Could not log the submission. Please try again."
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/DividendFields.tsx
 msgid "Виберіть партнера"
 msgstr "Select a partner"
@@ -10691,6 +10828,10 @@ msgstr "Published: {0}"
 #: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
 msgid "адаптер {0}"
 msgstr "adapter {0}"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Вакансію закрито на джерелі"
+msgstr "The vacancy is closed at the source"
 
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Не вдалося завантажити неприв'язані записи."
@@ -10847,6 +10988,10 @@ msgstr "Relink"
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "за {count, plural, one {# місяць} few {# місяці} many {# місяців} other {# місяця}}"
 msgstr "over {count, plural, one {# month} other {# months}}"
+
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Подано"
+msgstr "Submitted"
 
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
@@ -11043,6 +11188,10 @@ msgstr "Awaiting payout"
 msgid "Активна версія: v{0} · оновлена {1}"
 msgstr "Active version: v{0} · updated {1}"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Скасувати подачу…"
+msgstr "Cancel submission…"
+
 #: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 msgid "Залишили проєкт"
 msgstr "Left the project"
@@ -11086,6 +11235,10 @@ msgstr "Proposed {0}%"
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Навички"
 msgstr "Skills"
+
+#: apps/web/app/components/job-queue/DismissMenu.tsx
+msgid "Спам"
+msgstr "Spam"
 
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Добовий ліміт автоматичного розпізнавання вичерпано. Заповніть резюме вручну — форма нижче працює."
@@ -11300,6 +11453,10 @@ msgstr "Last run: {lastRun}"
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Найнято за місяць"
 msgstr "Hired this month"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Записати подачу"
+msgstr "Log submission"
 
 #: apps/web/app/components/contracts/VariablesPanel.tsx
 msgid "Змінну {{{key}}} видалено"
@@ -11558,6 +11715,10 @@ msgstr "Signing secret"
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Публікація…"
 msgstr "Publishing…"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Відкрити оригінал"
+msgstr "Open original"
 
 #: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
 msgid "Зберегти нотатку"
@@ -11842,6 +12003,10 @@ msgstr "Note — {0}"
 msgid "Термін дії запрошення закінчився. Попросіть адміністратора надіслати його ще раз."
 msgstr "The invitation has expired. Ask an admin to send it again."
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Цього сеньйора вже подано на схожу вакансію"
+msgstr "This senior has already been submitted for a similar vacancy"
+
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Дохід дропа (неоплачена частка)"
 msgstr "Drop income (unpaid share)"
@@ -11865,6 +12030,11 @@ msgstr "Legal name"
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "Ви працюватимете від імені цього користувача. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
 msgstr "You will act on their behalf. A banner will remind you of the active session — click “Return to your profile” to exit."
+
+#: apps/web/app/components/job-queue/DismissMenu.tsx
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Приховано"
+msgstr "Hidden"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
@@ -12132,6 +12302,10 @@ msgstr "Drop"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 msgid "До доплати"
 msgstr "Remaining to pay"
+
+#: apps/web/app/components/job-queue/DismissMenu.tsx
+msgid "Не вдалося повернути вакансію. Спробуйте ще раз."
+msgstr "Could not restore the vacancy. Please try again."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/DividendFields.tsx
 msgid "Сума (USDT)"

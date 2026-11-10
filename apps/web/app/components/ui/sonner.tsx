@@ -4,7 +4,8 @@ function Toaster({ ...props }: ToasterProps) {
   return (
     <Sonner
       theme="dark"
-      className="toaster group"
+      // a Radix modal sets `pointer-events: none` on <body>; toasts must stay pressable above it
+      className="toaster group pointer-events-auto"
       position="top-center"
       closeButton
       style={

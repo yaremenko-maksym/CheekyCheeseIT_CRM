@@ -25,10 +25,25 @@ function initials(name: string): string {
     .join('')
 }
 
-/** Own-scope submission row only; the foreign bare marker and a released row read as untouched (§3). */
-function ownTaken(senior: JobQueueCardSeniorDto) {
+/** The own-scope submission row (taken or released); another team's bare marker is not one. */
+export function ownSubmission(senior: JobQueueCardSeniorDto) {
   const s = senior.submission
-  return s && 'state' in s && s.state === 'TAKEN' ? s : null
+  return s && 'state' in s ? s : null
+}
+
+/** Own-scope submission row only; a released row reads as untouched, the bare marker apart (§3). */
+export function ownTaken(senior: JobQueueCardSeniorDto) {
+  const s = ownSubmission(senior)
+  return s?.state === 'TAKEN' ? s : null
+}
+
+/**
+ * QA-LOW-1 (plan r5): a submission is a fact about the senior, shown to every team the senior belongs
+ * to without a name — another team's submission arrives as a bare marker and reads «Подано» only.
+ */
+export function submittedElsewhere(senior: JobQueueCardSeniorDto) {
+  const s = senior.submission
+  return Boolean(s && 'submittedElsewhere' in s)
 }
 
 function SeniorBlock({ senior, action }: { senior: JobQueueCardSeniorDto; action: ReactNode }) {
@@ -86,6 +101,15 @@ function SeniorBlock({ senior, action }: { senior: JobQueueCardSeniorDto; action
               )}
             </span>
           )}
+          {!taken && submittedElsewhere(senior) && (
+            <span
+              data-testid={`job-queue-senior-submitted-${senior.seniorId}`}
+              className="inline-flex flex-wrap items-center gap-1 text-sm text-muted-foreground"
+            >
+              <Check aria-hidden="true" className="size-3.5 shrink-0" />
+              <Trans>Подано</Trans>
+            </span>
+          )}
         </div>
       </div>
       {action}
@@ -132,11 +156,14 @@ export function MatchedSeniors({
   scope,
   card,
   renderAction,
+  notice,
   onAccessLost,
 }: {
   scope: QueueScopeSignature
   card: JobQueueCardResponseDto
   renderAction?: ((senior: JobQueueCardSeniorDto) => ReactNode) | undefined
+  /** Under the heading, above the first senior (the apply-first reminder); only over a list. */
+  notice?: ReactNode
   onAccessLost: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -152,6 +179,7 @@ export function MatchedSeniors({
   const stopListed = card.stopListedSeniorCount
 
   let body: ReactNode
+  let listed = false
   // stop-all first: the API calls a vacancy whose only matches are stop-listed TRIAGE (its
   // eligibility counts LEAD matches only), and the stop-list is the reason to show (§5.4)
   if (seniors.length === 0 && stopListed > 0) {
@@ -205,8 +233,10 @@ export function MatchedSeniors({
       />
     )
   } else {
+    listed = true
     body = (
       <>
+        {notice}
         <ul
           ref={list}
           data-testid="job-queue-seniors-list"
@@ -256,8 +286,12 @@ export function MatchedSeniors({
     <section data-testid="job-queue-seniors" className="flex flex-col gap-2">
       <h3 className="flex items-baseline gap-2 text-sm font-semibold">
         <Trans>Сеньйори зі збігом</Trans>
-        {card.seniors.totalCount > 0 && (
-          <span className="text-muted-foreground tabular-nums">{card.seniors.totalCount}</span>
+        {/* UX-L-5: `totalCount` counts the scope's LEAD and TRIAGE matches, so a triage card can
+            carry one while showing no list; the count belongs to a rendered list only */}
+        {listed && (
+          <span className="ml-auto text-muted-foreground tabular-nums">
+            {card.seniors.totalCount}
+          </span>
         )}
       </h3>
       {body}

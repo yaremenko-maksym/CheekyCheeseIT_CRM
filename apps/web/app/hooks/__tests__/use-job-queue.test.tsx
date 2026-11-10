@@ -125,13 +125,17 @@ describe('query keys', () => {
   })
 
   it('give another account a different key', () => {
-    expect(jobQueueScopeKey({ ...scope, actorId: OTHER_ACTOR })).not.toEqual(jobQueueScopeKey(scope))
+    expect(jobQueueScopeKey({ ...scope, actorId: OTHER_ACTOR })).not.toEqual(
+      jobQueueScopeKey(scope),
+    )
   })
 
   it('one key for the same senior set in any order, case or repetition (CR-L-1)', () => {
     const lower = '33333333-3333-4333-8333-00000000000a'
     const upper = '33333333-3333-4333-8333-00000000000B'
-    expect(jobQueueQueryKey(scope, 'NEW', { search: 'r', seniorIds: [upper, lower, lower] })).toEqual([
+    expect(
+      jobQueueQueryKey(scope, 'NEW', { search: 'r', seniorIds: [upper, lower, lower] }),
+    ).toEqual([
       'job-queue',
       ACTOR,
       'HR',
@@ -177,7 +181,9 @@ describe('useJobQueueSeniorOptions', () => {
 
   it('refuses a body with more than id, name and team name', async () => {
     get.mockResolvedValueOnce({
-      data: { items: [{ id: OPP, name: 'Анна Коваль', teamName: 'Команда А', email: 'a@example.test' }] },
+      data: {
+        items: [{ id: OPP, name: 'Анна Коваль', teamName: 'Команда А', email: 'a@example.test' }],
+      },
     })
     const { result } = renderHook(() => useJobQueueSeniorOptions(scope), { wrapper })
     await waitFor(() => expect(result.current.isError).toBe(true))
@@ -199,7 +205,13 @@ describe('useJobQueue', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(JOB_QUEUE_PAGE_LIMIT).toBe(20)
     expect(get).toHaveBeenNthCalledWith(1, '/job-queue', {
-      params: { teamId: TEAM, tab: 'SUBMITTED', search: 'react', source: 'DOU_RSS,REMOTEOK_API', limit: 20 },
+      params: {
+        teamId: TEAM,
+        tab: 'SUBMITTED',
+        search: 'react',
+        source: 'DOU_RSS,REMOTEOK_API',
+        limit: 20,
+      },
     })
     expect(result.current.hasNextPage).toBe(true)
     expect(result.current.data?.pages[0]?.counts).toEqual({ NEW: 7, SUBMITTED: 1, HIDDEN: 0 })
@@ -321,7 +333,9 @@ describe('useJobQueue', () => {
     await act(() => result.current.refetch())
     await waitFor(() => expect(result.current.accessLost).toBe(true))
     expect(result.current.data).toBeUndefined()
-    await waitFor(() => expect(client.getQueryState(jobQueueCardQueryKey(scope, OPP))).toBeUndefined())
+    await waitFor(() =>
+      expect(client.getQueryState(jobQueueCardQueryKey(scope, OPP))).toBeUndefined(),
+    )
     expect(client.getQueryState(jobQueueQueryKey(scope, 'NEW', {}))).toBeDefined()
   })
 
@@ -351,10 +365,16 @@ describe('useJobQueue', () => {
     renderHook(() => useJobQueue(scope, 'NEW', {}), { wrapper })
 
     await waitFor(() =>
-      expect(client.getQueryData(jobQueueCardQueryKey({ ...scope, actorId: OTHER_ACTOR }, OPP))).toBeUndefined(),
+      expect(
+        client.getQueryData(jobQueueCardQueryKey({ ...scope, actorId: OTHER_ACTOR }, OPP)),
+      ).toBeUndefined(),
     )
-    expect(client.getQueryData(jobQueueCardQueryKey({ ...scope, teamId: null }, OPP))).toBeUndefined()
-    expect(client.getQueryData(jobQueueCardQueryKey({ ...scope, role: 'ADMIN' }, OPP))).toBeUndefined()
+    expect(
+      client.getQueryData(jobQueueCardQueryKey({ ...scope, teamId: null }, OPP)),
+    ).toBeUndefined()
+    expect(
+      client.getQueryData(jobQueueCardQueryKey({ ...scope, role: 'ADMIN' }, OPP)),
+    ).toBeUndefined()
     expect(client.getQueryData(jobQueueCardQueryKey(scope, OPP))).toBeDefined()
     expect(client.getQueryData(['hr', 'summary'])).toEqual({ kept: true })
   })
@@ -411,7 +431,9 @@ describe('useJobQueueCard', () => {
   it('encodes the id into the path', async () => {
     get.mockResolvedValueOnce({ data: cardBody() })
     renderHook(() => useJobQueueCard(scope, 'a/b?c'), { wrapper })
-    await waitFor(() => expect(get).toHaveBeenCalledWith('/job-queue/a%2Fb%3Fc', { params: { teamId: TEAM } }))
+    await waitFor(() =>
+      expect(get).toHaveBeenCalledWith('/job-queue/a%2Fb%3Fc', { params: { teamId: TEAM } }),
+    )
   })
 
   it('refuses a card carrying a field outside the contract with a ZodError', async () => {
@@ -456,12 +478,17 @@ describe('useJobQueueCard', () => {
 
   it('on 403 hides the card and drops the scope cache no screen observes', async () => {
     client.setQueryData(jobQueueCardQueryKey(scope, OTHER_OPP), cardBody())
-    client.setQueryData(jobQueueCardQueryKey({ ...scope, actorId: OTHER_ACTOR }, OTHER_OPP), cardBody())
+    client.setQueryData(
+      jobQueueCardQueryKey({ ...scope, actorId: OTHER_ACTOR }, OTHER_OPP),
+      cardBody(),
+    )
     get.mockRejectedValueOnce(httpError(403, 'FORBIDDEN'))
     const { result } = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
     await waitFor(() => expect(result.current.accessLost).toBe(true))
     expect(result.current.data).toBeUndefined()
-    await waitFor(() => expect(client.getQueryState(jobQueueCardQueryKey(scope, OTHER_OPP))).toBeUndefined())
+    await waitFor(() =>
+      expect(client.getQueryState(jobQueueCardQueryKey(scope, OTHER_OPP))).toBeUndefined(),
+    )
     expect(
       client.getQueryState(jobQueueCardQueryKey({ ...scope, actorId: OTHER_ACTOR }, OTHER_OPP)),
     ).toBeDefined()
@@ -475,7 +502,9 @@ describe('useJobQueueCard', () => {
     client.setQueryData(otherAccount, cardBody())
     get.mockResolvedValueOnce({ data: cardBody() })
     const first = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
-    await waitFor(() => expect(first.result.current.data?.seniors.items[0]?.displayName).toBe('Senior 1'))
+    await waitFor(() =>
+      expect(first.result.current.data?.seniors.items[0]?.displayName).toBe('Senior 1'),
+    )
     client.setQueryData(continuation, { pages: [], pageParams: [] })
 
     get.mockRejectedValueOnce(httpError(403, 'FORBIDDEN'))
@@ -497,9 +526,13 @@ describe('useJobQueueCard', () => {
     const cardCalls = () => get.mock.calls.filter((c) => c[0] === `/job-queue/${OPP}`).length
     get.mockResolvedValueOnce({ data: cardBody() })
     const first = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
-    await waitFor(() => expect(first.result.current.data?.seniors.items[0]?.displayName).toBe('Senior 1'))
+    await waitFor(() =>
+      expect(first.result.current.data?.seniors.items[0]?.displayName).toBe('Senior 1'),
+    )
     first.unmount()
-    await waitFor(() => expect(client.getQueryState(jobQueueCardQueryKey(scope, OPP))).toBeUndefined())
+    await waitFor(() =>
+      expect(client.getQueryState(jobQueueCardQueryKey(scope, OPP))).toBeUndefined(),
+    )
 
     get.mockReturnValueOnce(new Promise(() => {}))
     const again = renderHook(() => useJobQueueCard(scope, OPP), { wrapper })
@@ -551,7 +584,11 @@ describe('card continuations', () => {
 
   it('refuse a `javascript:` URL in a source continuation', async () => {
     get.mockResolvedValueOnce({
-      data: { items: [{ ...source(21), url: 'javascript:alert(1)' }], totalCount: 21, nextCursor: null },
+      data: {
+        items: [{ ...source(21), url: 'javascript:alert(1)' }],
+        totalCount: 21,
+        nextCursor: null,
+      },
     })
     const { result } = renderHook(() => useJobQueueSources(scope, OPP, 'x-1'), { wrapper })
     await waitFor(() => expect(result.current.isError).toBe(true))
@@ -592,14 +629,19 @@ describe('card continuations', () => {
   it.each([
     ['seniors', useJobQueueSeniors],
     ['sources', useJobQueueSources],
-  ] as const)('%s: on 403 hide the page and drop the scope cache no screen observes', async (_part, hook) => {
-    client.setQueryData(jobQueueCardQueryKey(scope, OTHER_OPP), cardBody())
-    get.mockRejectedValueOnce(httpError(403, 'FORBIDDEN'))
-    const { result } = renderHook(() => hook(scope, OPP, 'c-1'), { wrapper })
-    await waitFor(() => expect(result.current.accessLost).toBe(true))
-    expect(result.current.data).toBeUndefined()
-    await waitFor(() => expect(client.getQueryState(jobQueueCardQueryKey(scope, OTHER_OPP))).toBeUndefined())
-  })
+  ] as const)(
+    '%s: on 403 hide the page and drop the scope cache no screen observes',
+    async (_part, hook) => {
+      client.setQueryData(jobQueueCardQueryKey(scope, OTHER_OPP), cardBody())
+      get.mockRejectedValueOnce(httpError(403, 'FORBIDDEN'))
+      const { result } = renderHook(() => hook(scope, OPP, 'c-1'), { wrapper })
+      await waitFor(() => expect(result.current.accessLost).toBe(true))
+      expect(result.current.data).toBeUndefined()
+      await waitFor(() =>
+        expect(client.getQueryState(jobQueueCardQueryKey(scope, OTHER_OPP))).toBeUndefined(),
+      )
+    },
+  )
 
   it.each([
     ['seniors', useJobQueueSeniors],
@@ -679,5 +721,82 @@ describe('card continuations', () => {
     const { result } = renderHook(() => useJobQueueSeniors(scope, OPP, 'c-1'), { wrapper })
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(result.current.accessLost).toBe(false)
+  })
+})
+
+describe('QA-LOW-6: a lost card is not retried', () => {
+  // the app's own defaults (`createQueryClient`): one retry; no delay, so the retry is observable at once
+  const appDefaults = () =>
+    new QueryClient({ defaultOptions: { queries: { retry: 1, retryDelay: 0 } } })
+
+  const reads: Record<
+    'card' | 'seniors' | 'sources',
+    () => { accessLost: boolean; isError: boolean }
+  > = {
+    card: () => useJobQueueCard(scope, OPP),
+    seniors: () => useJobQueueSeniors(scope, OPP, 'c-1'),
+    sources: () => useJobQueueSources(scope, OPP, 'c-1'),
+  }
+
+  it.each([
+    ['card', 403],
+    ['card', 404],
+    ['seniors', 403],
+    ['seniors', 404],
+    ['sources', 403],
+    ['sources', 404],
+  ] as const)('%s: a %i issues exactly one request before the close', async (read, status) => {
+    client = appDefaults()
+    get.mockRejectedValue(httpError(status, 'JOB_OPPORTUNITY_NOT_FOUND'))
+    const { result } = renderHook(reads[read], { wrapper })
+    await waitFor(() => expect(result.current.accessLost).toBe(true))
+    await act(() => new Promise((r) => setTimeout(r, 30)))
+    expect(get).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['card', 'seniors', 'sources'] as const)(
+    '%s: a 500 is still retried once (the app default)',
+    async (read) => {
+      client = appDefaults()
+      get.mockRejectedValue(httpError(500, 'INTERNAL'))
+      const { result } = renderHook(reads[read], { wrapper })
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect(result.current.accessLost).toBe(false)
+      expect(get).toHaveBeenCalledTimes(2)
+    },
+  )
+
+  it.each([
+    ['a function default', { retry: (n: number) => n < 2 }, 3],
+    ['no default (TanStack: 3)', {}, 4],
+  ])('other errors follow the client default: %s', async (_name, queries, calls) => {
+    client = new QueryClient({ defaultOptions: { queries: { ...queries, retryDelay: 0 } } })
+    get.mockRejectedValue(httpError(500, 'INTERNAL'))
+    const { result } = renderHook(reads.card, { wrapper })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(get).toHaveBeenCalledTimes(calls)
+  })
+
+  it('CR-M-1: a client with no query defaults at all still reads a card', async () => {
+    client = new QueryClient()
+    get.mockRejectedValue(httpError(404, 'JOB_OPPORTUNITY_NOT_FOUND'))
+    const { result } = renderHook(reads.card, { wrapper })
+    await waitFor(() => expect(result.current.accessLost).toBe(true))
+  })
+
+  it('CR-M-1: a boolean `retry: true` default keeps retrying other errors', async () => {
+    client = new QueryClient({ defaultOptions: { queries: { retry: true, retryDelay: 0 } } })
+    get.mockRejectedValue(httpError(500, 'INTERNAL'))
+    renderHook(reads.card, { wrapper })
+    await waitFor(() => expect(get.mock.calls.length).toBeGreaterThan(3))
+    await act(() => client.cancelQueries())
+    client.clear()
+  })
+
+  it('a client with retries off is not overridden for other errors', async () => {
+    get.mockRejectedValue(httpError(500, 'INTERNAL'))
+    const { result } = renderHook(reads.card, { wrapper })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(get).toHaveBeenCalledTimes(1)
   })
 })

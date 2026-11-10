@@ -1,23 +1,33 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { toast } from 'sonner'
 import { CalendarOff, CircleHelp, RefreshCw, TriangleAlert, X } from 'lucide-react'
-import {
-  formatRelativeTime,
-  type JobQueueCardResponseDto,
-  type JobQueueCardSeniorDto,
-} from '@crm/shared'
+import { formatRelativeTime, type JobQueueCardResponseDto } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { DialogOverlay, DialogPortal } from '@/components/ui/dialog'
 import { PostingMarkdown } from '@/components/job-sourcing/PostingMarkdown'
-import { useJobQueueCard, type QueueScopeSignature } from '@/hooks/use-job-queue'
+import { useIsMutating } from '@tanstack/react-query'
+import { jobQueueScopeKey, useJobQueueCard, type QueueScopeSignature } from '@/hooks/use-job-queue'
 import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { AlsoSeenOn } from './AlsoSeenOn'
+import { DismissMenu } from './DismissMenu'
+import {
+  AdminVacancyMenu,
+  ApplyFirst,
+  OpenOriginalButton,
+  SeniorAction,
+  hasOpenSubmit,
+  useCardGate,
+} from './JobQueueActions'
 import { SENIORITY_LABEL } from './JobQueueRow'
 import { HIT_CHIP, MatchedSeniors } from './MatchedSeniors'
 import { PossibleDuplicates } from './PossibleDuplicates'
+
+/** The event's target is inside an element matching `selector`. */
+const inside = (target: EventTarget | null, selector: string) =>
+  target instanceof Element && target.closest(selector) !== null
 
 const CHIP = 'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs'
 
@@ -46,7 +56,11 @@ function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
               className={cn(CHIP, 'border-destructive text-destructive')}
             >
               <TriangleAlert aria-hidden="true" className="size-3.5" />
-              <Trans>Закрита</Trans>
+              {card.availability === 'EXPIRED' ? (
+                <Trans>Прострочена</Trans>
+              ) : (
+                <Trans>Закрита</Trans>
+              )}
             </span>
           )}
         </div>
@@ -78,17 +92,21 @@ function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
 function CardBody({
   scope,
   card,
-  renderSeniorAction,
+  refetch,
   onAccessLost,
 }: {
   scope: QueueScopeSignature
   card: JobQueueCardResponseDto
-  renderSeniorAction?: ((senior: JobQueueCardSeniorDto) => ReactNode) | undefined
+  refetch: () => void
   onAccessLost: () => void
 }) {
+  const gate = useCardGate(card, refetch)
+  // a write belongs to the scope it started in: another team's actions are other buttons
+  const scopeKey = JSON.stringify(jobQueueScopeKey(scope))
   return (
     <>
-      {card.newerThanList && (
+      {gate.notes}
+      {card.newerThanList && !gate.stale && (
         <div
           data-testid="job-queue-card-updated"
           role="status"
@@ -109,7 +127,17 @@ function CardBody({
       <MatchedSeniors
         scope={scope}
         card={card}
-        renderAction={renderSeniorAction}
+        notice={!gate.blocked && hasOpenSubmit(card) && <ApplyFirst />}
+        renderAction={(senior) => (
+          <SeniorAction
+            key={scopeKey}
+            scope={scope}
+            card={card}
+            senior={senior}
+            blocked={gate.blocked}
+            onConflict={gate.setConflict}
+          />
+        )}
         onAccessLost={onAccessLost}
       />
       <section className="flex flex-col gap-1">
@@ -141,15 +169,12 @@ function CardBody({
  * The vacancy card (spec §5): a modal labelled by its `h2`, full-screen below 640 px. A 403/404 on
  * the card or on one of its continuations closes it with one neutral toast for both, so the text
  * never says whether access changed; the hooks have already hidden the data and refreshed the
- * scope's lists. Task 7.4 fills `renderSeniorAction`
- * (per-senior submission) and `footer` (vacancy-level actions).
+ * scope's lists. The per-senior and vacancy-level actions are `JobQueueActions` / `DismissMenu`.
  */
 export function JobQueueCard({
   scope,
   opportunityId,
   onClose,
-  renderSeniorAction,
-  footer,
   focusFallback,
 }: {
   scope: QueueScopeSignature
@@ -157,8 +182,6 @@ export function JobQueueCard({
   onClose: () => void
   /** Takes focus on close when the opener is gone or about to go (an access loss). */
   focusFallback?: RefObject<HTMLElement | null>
-  renderSeniorAction?: ((senior: JobQueueCardSeniorDto) => ReactNode) | undefined
-  footer?: ReactNode
 }) {
   const { t } = useLingui()
   const query = useJobQueueCard(scope, opportunityId)
@@ -166,6 +189,8 @@ export function JobQueueCard({
   // Radix returns focus to a Dialog.Trigger; the card opens from a row instead, so remember it
   const [returnFocusTo] = useState(() => document.activeElement)
   const closedOnLoss = useRef(false)
+  // QA-MED-1 (r3): a write's outcome is shown in this card, so Escape waits for it to settle
+  const writing = useIsMutating() > 0
 
   const loseAccess = useCallback(() => {
     if (closedOnLoss.current) return
@@ -192,6 +217,14 @@ export function JobQueueCard({
           data-testid="job-queue-card"
           aria-describedby={undefined}
           aria-busy={query.isPending || undefined}
+          // an inline confirm (`data-escape-scope`) takes Escape for itself; the card stays open
+          onEscapeKeyDown={(event) => {
+            if (writing || inside(event.target, '[data-escape-scope]')) event.preventDefault()
+          }}
+          // UX-M-1 (r3): a toast sits outside the modal, and a press on it is not a dismissal
+          onInteractOutside={(event) => {
+            if (inside(event.target, '[data-sonner-toaster]')) event.preventDefault()
+          }}
           onCloseAutoFocus={(event) => {
             event.preventDefault()
             // after a loss the list refresh removes the opening row, so focus would fall to <body>;
@@ -241,7 +274,7 @@ export function JobQueueCard({
               <CardBody
                 scope={scope}
                 card={card}
-                renderSeniorAction={renderSeniorAction}
+                refetch={() => void query.refetch()}
                 onAccessLost={loseAccess}
               />
             ) : (
@@ -257,9 +290,22 @@ export function JobQueueCard({
               )
             )}
           </div>
-          {card && footer && (
-            <div data-testid="job-queue-card-footer" className="border-t p-4 sm:px-6">
-              {footer}
+          {card && (
+            <div
+              data-testid="job-queue-card-footer"
+              className="flex flex-col gap-2 border-t p-4 sm:flex-row sm:items-center sm:px-6"
+            >
+              <OpenOriginalButton scope={scope} card={card} />
+              <div className="flex gap-2 sm:ml-auto">
+                <DismissMenu scope={scope} opportunityId={card.opportunityId} onClose={onClose} />
+                {scope.role === 'ADMIN' && (
+                  <AdminVacancyMenu
+                    scope={scope}
+                    opportunityId={card.opportunityId}
+                    onClose={onClose}
+                  />
+                )}
+              </div>
             </div>
           )}
         </DialogPrimitive.Content>

@@ -1,11 +1,12 @@
 /** r5 Task 7.3 — «Сеньйори зі збігом» (spec §5.2–§5.6, visibility §3). */
+import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { JobQueueCardResponseDto } from '@crm/shared'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { useJobQueueSeniors } from '@/hooks/use-job-queue'
-import { MatchedSeniors } from '../MatchedSeniors'
+import { MatchedSeniors, ownSubmission } from '../MatchedSeniors'
 import { cardFixture, idleContinuation, OPP, senior, submission } from './card-fixtures'
 
 vi.mock('@/hooks/use-job-queue', async (orig) => ({
@@ -25,12 +26,14 @@ function renderBlock(
   card: JobQueueCardResponseDto = cardFixture(),
   scope: typeof HR | typeof ADMIN = HR,
   renderAction?: Parameters<typeof MatchedSeniors>[0]['renderAction'],
+  notice?: ReactNode,
 ) {
   return render(
     <MatchedSeniors
       scope={scope}
       card={card}
       renderAction={renderAction}
+      notice={notice}
       onAccessLost={onAccessLost}
     />,
     { wrapper: I18nTestProvider },
@@ -89,6 +92,52 @@ describe('MatchedSeniors', () => {
       expect(count.tagName).toBe('SPAN')
     },
   )
+
+  it('UX-L-6: the count sits at the right end of the heading row (spec §5.1)', () => {
+    renderBlock(cardFixture({ seniors: { items: [senior()], totalCount: 3, nextCursor: 's-1' } }))
+    const heading = screen.getByRole('heading', { name: 'Сеньйори зі збігом 3' })
+    expect(heading).toHaveClass('flex', 'items-baseline')
+    expect(within(heading).getByText('3')).toHaveClass(
+      'ml-auto',
+      'text-muted-foreground',
+      'tabular-nums',
+    )
+  })
+
+  it('UX-L-5: a triage card with TRIAGE-outcome matches shows no count, since no list renders', () => {
+    renderBlock(
+      cardFixture({
+        eligibility: 'TRIAGE',
+        seniors: { items: [senior()], totalCount: 1, nextCursor: null },
+      }),
+    )
+    expect(screen.getByTestId('job-queue-seniors-triage')).toBeVisible()
+    expect(screen.queryByTestId('job-queue-seniors-list')).toBeNull()
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent(/^Сеньйори зі збігом$/)
+  })
+
+  it('UX-L-5: no count over the stop-all state either', () => {
+    renderBlock(cardFixture({ stopListedSeniorCount: 2, seniors: { ...none, totalCount: 2 } }))
+    expect(screen.getByTestId('job-queue-seniors-stop-all')).toBeVisible()
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent(/^Сеньйори зі збігом$/)
+  })
+
+  it('the notice slot (apply-first) sits between the heading and the first senior, only over a list', () => {
+    const view = renderBlock(cardFixture(), HR, undefined, <p data-testid="notice-slot">n</p>)
+    const heading = screen.getByRole('heading', { level: 3 })
+    const notice = screen.getByTestId('notice-slot')
+    const list = screen.getByTestId('job-queue-seniors-list')
+    expect(heading.compareDocumentPosition(notice)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(notice.compareDocumentPosition(list)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    view.unmount()
+    renderBlock(
+      cardFixture({ eligibility: 'TRIAGE', seniors: none }),
+      HR,
+      undefined,
+      <p data-testid="notice-slot">n</p>,
+    )
+    expect(screen.queryByTestId('notice-slot')).toBeNull()
+  })
 
   it('UX-L-4: with no matched senior the heading carries no count', () => {
     renderBlock(
@@ -174,8 +223,11 @@ describe('MatchedSeniors', () => {
     expect(screen.queryByText(/Подано/)).toBeNull()
   })
 
-  it('a foreign-team submission (bare marker) is indistinguishable from untouched (§3)', () => {
-    const foreign = renderBlock(
+  // QA-LOW-1. Plan r5 (Task 6.x, A3 option (a)): "a submission is a fact about the senior: it is
+  // shown to every team the senior belongs to, without a name". Design §3's «submitted by another
+  // team» row is about a vacancy, not a shared senior, so the marker is shown, with nothing more.
+  it('a shared senior submitted by another team (bare marker) reads «Подано», with no name, time or place', () => {
+    renderBlock(
       cardFixture({
         seniors: {
           items: [senior({ submission: { submittedElsewhere: true } })],
@@ -184,11 +236,12 @@ describe('MatchedSeniors', () => {
         },
       }),
     )
-    const foreignText = screen.getByTestId(`job-queue-senior-${S1}`).textContent
-    expect(screen.queryByTestId(`job-queue-senior-submitted-${S1}`)).toBeNull()
-    foreign.unmount()
-    renderBlock()
-    expect(screen.getByTestId(`job-queue-senior-${S1}`).textContent).toBe(foreignText)
+    const state = screen.getByTestId(`job-queue-senior-submitted-${S1}`)
+    expect(state.textContent).toBe('Подано')
+    // §3 leak pattern: no team, actor, time or vacancy appears next to the marker
+    expect(screen.getByTestId(`job-queue-senior-${S1}`)).not.toHaveTextContent(
+      /команд|тому|зараз|Подано:|·/,
+    )
   })
 
   it('the action slot (Task 7.4 seam) renders inside each senior block with that senior', () => {
@@ -371,5 +424,16 @@ describe('MatchedSeniors', () => {
     seniorsHook.mockReturnValue(idleContinuation([], { isError: true, accessLost: true }) as never)
     await userEvent.click(screen.getByRole('button', { name: 'Спробувати ще раз' }))
     expect(onAccessLost).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ownSubmission', () => {
+  it("CR-M-1: another team's bare marker is not an own submission row", () => {
+    type Senior = Parameters<typeof ownSubmission>[0]
+    const marker = { submission: { submittedElsewhere: true } } as unknown as Senior
+    expect(ownSubmission(marker)).toBeNull()
+    expect(ownSubmission({ submission: null } as unknown as Senior)).toBeNull()
+    const own = { state: 'RELEASED', version: 2 }
+    expect(ownSubmission({ submission: own } as unknown as Senior)).toBe(own)
   })
 })
