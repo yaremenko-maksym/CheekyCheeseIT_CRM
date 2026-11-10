@@ -4,6 +4,7 @@ import {
   RESUME_EMAIL_PATTERN,
   RESUME_PHONE_PATTERN,
   checkResumeCompleteness,
+  findPhoneSpans,
   isLatinScript,
 } from './resume-completeness'
 
@@ -405,6 +406,46 @@ describe('checkResumeCompleteness', () => {
       { path: 'languages', code: 'ENGLISH_MISSING' },
       { path: 'languages.0.name', code: 'NON_LATIN' },
     ])
+  })
+})
+
+describe('findPhoneSpans', () => {
+  it.each([
+    'Released 2015-01-01 - 2019-12-31',
+    'Promoted 10.05.2020 - 15.06.2023',
+    'From 2015/01/01 to 2019.12.31',
+    'Shipped 31-12-2019 – 01-02-2020',
+  ])('does not read a run of full dates as a phone: %s', (text) => {
+    expect(findPhoneSpans(text)).toEqual([])
+  })
+
+  it('finds exactly the phone after a date range', () => {
+    const text = '2015-01-01 - 2019-12-31, call +380 67 123 4567'
+    expect(findPhoneSpans(text).map(({ start, end }) => text.slice(start, end))).toEqual([
+      '+380 67 123 4567',
+    ])
+  })
+
+  it('finds every phone, with its offsets', () => {
+    expect(findPhoneSpans('a +380671234567 b 0671234567')).toEqual([
+      { start: 2, end: 15 },
+      { start: 18, end: 28 },
+    ])
+  })
+
+  it('keeps a bare ten-digit run as a phone (a UA mobile has the same shape)', () => {
+    expect(findPhoneSpans('order 9876543210 shipped')).toEqual([{ start: 6, end: 16 }])
+  })
+
+  it('keeps a run that mixes a date with more digits as a phone', () => {
+    expect(findPhoneSpans('2015-01-01 0671234567')).toEqual([{ start: 0, end: 21 }])
+  })
+
+  it('CONTACT_IN_TEXT uses the same rule: a date-range note passes', () => {
+    const facts = makeFacts({
+      experience: [makeExperience({ notes: ['Promoted 10.05.2020 - 15.06.2023'] })],
+    })
+    expect(checkResumeCompleteness(facts, CTX)).toEqual([])
   })
 })
 

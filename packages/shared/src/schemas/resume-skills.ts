@@ -8,6 +8,7 @@
  * `net`, and the resume and vacancy sides never disagree on what a token is.
  */
 import { stackTokens } from '../utils/stack-keywords'
+import { RESUME_LIMITS } from './resume'
 
 export const SKILL_SYNONYM_GROUPS: readonly { canonical: string; aliases: readonly string[] }[] = [
   // --- languages ---
@@ -88,7 +89,8 @@ export function mergeSkills(skills: string[], technologies: string[][]): string[
     const key = keyOf(skill)
     if (key && !merged.has(key)) merged.set(key, skill)
   }
-  return [...merged.values()]
+  // HR's own skills come first, so the cap drops technologies before them.
+  return [...merged.values()].slice(0, RESUME_LIMITS.skills)
 }
 
 /**

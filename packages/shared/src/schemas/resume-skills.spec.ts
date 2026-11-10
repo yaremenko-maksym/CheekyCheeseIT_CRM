@@ -103,6 +103,23 @@ describe('SKILL_SYNONYM_GROUPS', () => {
 })
 
 describe('mergeSkills', () => {
+  it('caps the result at 60, keeping every HR skill in order before technologies', () => {
+    const skills = Array.from({ length: 60 }, (_, i) => `Skill${i}`)
+    const merged = mergeSkills(skills, [['Tech0', 'Tech1', 'Tech2', 'Tech3', 'Tech4']])
+    expect(merged).toHaveLength(60)
+    expect(merged).toEqual(skills)
+  })
+
+  it('fills up to 60 with technologies after the HR skills', () => {
+    const skills = Array.from({ length: 58 }, (_, i) => `Skill${i}`)
+    expect(mergeSkills(skills, [['Tech0', 'Tech1', 'Tech2']]).slice(56)).toEqual([
+      'Skill56',
+      'Skill57',
+      'Tech0',
+      'Tech1',
+    ])
+  })
+
   it('merges skills and per-job technologies in first-seen order, deduplicated', () => {
     expect(mergeSkills(['React', 'react'], [['TypeScript', 'Node JS']])).toEqual([
       'React',

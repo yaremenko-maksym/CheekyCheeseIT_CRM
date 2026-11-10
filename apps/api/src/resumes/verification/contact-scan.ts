@@ -6,7 +6,7 @@
  * contact is a leak, so every recognisable email and phone counts, not only the
  * senior's own. Pure: no I/O, no Nest providers.
  */
-import { RESUME_EMAIL_PATTERN, RESUME_PHONE_PATTERN } from '@crm/shared'
+import { findPhoneSpans, RESUME_EMAIL_PATTERN } from '@crm/shared'
 
 export interface ContactContext {
   fullName: string
@@ -103,17 +103,14 @@ function namePatterns(fullName: string): RegExp[] {
   return sources.filter(Boolean).map(wholeToken)
 }
 
+/** Email patterns; phones come from `findPhoneSpans`, the rule completeness uses too. */
 function contactPatterns(ctx: ContactContext): [ContactHit['kind'], RegExp][] {
   const global = (p: RegExp) => new RegExp(p.source, `${p.flags}g`)
   const literalEmails = ctx.emails
     .map((email) => email.normalize('NFC').trim())
     .filter(Boolean)
     .map((email): [ContactHit['kind'], RegExp] => ['email', new RegExp(escapeRegExp(email), 'giu')])
-  return [
-    ['email', global(RESUME_EMAIL_PATTERN)],
-    ...literalEmails,
-    ['phone', global(RESUME_PHONE_PATTERN)],
-  ]
+  return [['email', global(RESUME_EMAIL_PATTERN)], ...literalEmails]
 }
 
 /** Every raw hit on the NFC text, sorted by start, longer first on a tie. */
@@ -125,6 +122,7 @@ function findSpans(text: string, ctx: ContactContext): Span[] {
       spans.push({ kind, start: m.index, end: m.index + m[0].length })
     }
   }
+  for (const span of findPhoneSpans(plain)) spans.push({ kind: 'phone', ...span })
   const folded = foldAccents(plain)
   for (const pattern of namePatterns(ctx.fullName)) {
     for (const m of folded.text.matchAll(pattern)) {

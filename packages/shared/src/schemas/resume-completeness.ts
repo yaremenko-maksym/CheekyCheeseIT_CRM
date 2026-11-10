@@ -45,6 +45,26 @@ export type CompletenessIssue = { path: string; code: CompletenessCode }
  */
 export const RESUME_PHONE_PATTERN = /(?=(?:[^\d\p{L}]*\d){9,})[+(]?\d[\d\s().–-]{7,}\d/u
 
+/** A full date: `YYYY-MM-DD` / `YYYY.MM.DD` / `YYYY/MM/DD` or `DD-MM-YYYY` / `DD.MM.YYYY` / `DD/MM/YYYY`. */
+const FULL_DATE = String.raw`(?:(?:19|20)\d\d[-./](?:0[1-9]|1[0-2])[-./](?:0[1-9]|[12]\d|3[01])|(?:0[1-9]|[12]\d|3[01])[-./](?:0[1-9]|1[0-2])[-./](?:19|20)\d\d)`
+/** A phone candidate made only of full dates and separators (`2015-01-01 - 2019-12-31`). */
+const DATES_ONLY = new RegExp(String.raw`^${FULL_DATE}(?:[\s().–-]+${FULL_DATE})*$`)
+
+/**
+ * Every phone in `text` as `[start, end)` offsets: `RESUME_PHONE_PATTERN` runs,
+ * minus runs that are only full dates. The one rule both the completeness check
+ * and the API contact scan use. A bare ten-digit run stays a phone: a UA mobile
+ * `0671234567` has that shape, and a missed phone is a leak.
+ */
+export function findPhoneSpans(text: string): Array<{ start: number; end: number }> {
+  const spans: Array<{ start: number; end: number }> = []
+  // A fresh global copy per call, so the exported pattern stays stateless.
+  for (const m of text.matchAll(new RegExp(RESUME_PHONE_PATTERN.source, 'gu'))) {
+    if (!DATES_ONLY.test(m[0])) spans.push({ start: m.index, end: m.index + m[0].length })
+  }
+  return spans
+}
+
 /** An email address shape: local part with the common punctuation, and a dot TLD. */
 export const RESUME_EMAIL_PATTERN = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/u
 
@@ -69,7 +89,7 @@ function isBlank(text: string): boolean {
 }
 
 function containsContactData(text: string): boolean {
-  return RESUME_PHONE_PATTERN.test(text) || RESUME_EMAIL_PATTERN.test(text)
+  return findPhoneSpans(text).length > 0 || RESUME_EMAIL_PATTERN.test(text)
 }
 
 function checkExperienceItem(

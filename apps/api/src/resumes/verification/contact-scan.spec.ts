@@ -87,6 +87,15 @@ describe('scanContacts — names', () => {
 })
 
 describe('scanContacts — phones and emails', () => {
+  it('does not read a run of full dates as a phone, but finds the phone after it', () => {
+    expect(scanContacts('Released 2015-01-01 - 2019-12-31', ctx)).toEqual([])
+    expect(scanContacts('Promoted 10.05.2020 - 15.06.2023', ctx)).toEqual([])
+    expect(scanContacts('2015-01-01 - 2019-12-31, call +380 67 123 4567', ctx)).toEqual([
+      { kind: 'phone', match: '+380 67 123 4567' },
+    ])
+    expect(redactContacts('order 9876543210 shipped', ctx)).toBe('order [REDACTED] shipped')
+  })
+
   it('hits an international phone number', () => {
     expect(scanContacts('call +380671234567 now', ctx)).toEqual([
       { kind: 'phone', match: '+380671234567' },
