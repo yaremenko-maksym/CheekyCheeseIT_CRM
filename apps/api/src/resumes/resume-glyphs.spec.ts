@@ -67,6 +67,21 @@ describe('coverage follows the template font', () => {
     expect(toRenderableText(`5000 ${HRYVNIA}`, 'compact').text).toBe('5000 UAH')
   })
 
+  it('gives a personal template only what EVERY embedded face draws', () => {
+    // A personal template may set any embedded font, so its coverage is the
+    // intersection of all of them: PT Serif has the hryvnia, Roboto does not.
+    const personal = resumeFontCoverage('personal')
+    expect(personal.has(HRYVNIA.codePointAt(0) as number)).toBe(false)
+    expect(personal.has('Ж'.codePointAt(0) as number)).toBe(true)
+    for (const code of personal) {
+      expect(
+        resumeFontCoverage('classic').has(code) && resumeFontCoverage('modern').has(code),
+      ).toBe(true)
+    }
+    expect(findUnrenderable(`5000 ${HRYVNIA}`, 'personal')).toEqual([HRYVNIA])
+    expect(toRenderableText(`5000 ${HRYVNIA}`, 'personal').text).toBe('5000 UAH')
+  })
+
   it('reads a real coverage set for the classic font, Latin Extended and Cyrillic included', () => {
     const coverage = resumeFontCoverage('classic')
     expect(coverage.size).toBeGreaterThan(400)

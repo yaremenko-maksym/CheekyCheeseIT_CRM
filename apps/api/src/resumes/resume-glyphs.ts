@@ -41,14 +41,23 @@ const ROBOTO = ['Roboto-Regular.ttf', 'Roboto-Bold.ttf'] as const
 const PT_SERIF = ['PTSerif-Regular.ttf', 'PTSerif-Bold.ttf'] as const
 
 /**
- * The two faces each catalog template uses (its theme's `font`). A glyph must
- * exist in BOTH to be safe. Keep in step with `assets/typst/themes/*.typ`.
+ * Which fonts a render can draw with: a catalog template's own font, or
+ * `'personal'` for a senior's own template source, which may name ANY embedded
+ * font, so only a glyph every embedded face has is safe for it.
  */
-const TEMPLATE_FONT_FILES: Readonly<Record<ResumeTemplateName, readonly string[]>> = {
+export type GlyphFontSet = ResumeTemplateName | 'personal'
+
+/**
+ * The faces each font set uses (a catalog theme's `font`). A glyph must exist
+ * in EVERY face to be safe. Keep in step with `assets/typst/themes/*.typ` and
+ * with the fonts shipped in `assets/fonts`.
+ */
+const TEMPLATE_FONT_FILES: Readonly<Record<GlyphFontSet, readonly string[]>> = {
   classic: PT_SERIF,
   modern: ROBOTO,
   compact: ROBOTO,
   technical: ROBOTO,
+  personal: [...ROBOTO, ...PT_SERIF],
 }
 
 /**
@@ -84,7 +93,7 @@ const CURRENCY_CODES: ReadonlyMap<number, string> = new Map([
   [0x20af, 'GRD'], // ₯
 ])
 
-const coverageCache = new Map<ResumeTemplateName, Set<number>>()
+const coverageCache = new Map<GlyphFontSet, Set<number>>()
 
 /**
  * Codepoints drawable in EVERY face of `template`'s font, read from the
@@ -93,7 +102,7 @@ const coverageCache = new Map<ResumeTemplateName, Set<number>>()
  * Intersection, not union: a heading is bold, so a character present only in
  * the regular face would still box out in a company name.
  */
-export function resumeFontCoverage(template: ResumeTemplateName): Set<number> {
+export function resumeFontCoverage(template: GlyphFontSet): Set<number> {
   const coverage = coverageCache.get(template) ?? measureCoverage(TEMPLATE_FONT_FILES[template])
   coverageCache.set(template, coverage)
   return coverage
@@ -120,7 +129,7 @@ function measureCoverage(files: readonly string[]): Set<number> {
  * input: "nothing reaching the template is undrawable". Whitespace and the
  * newline are excluded — they have no glyph by definition.
  */
-export function findUnrenderable(text: string, template: ResumeTemplateName): string[] {
+export function findUnrenderable(text: string, template: GlyphFontSet): string[] {
   const coverage = resumeFontCoverage(template)
   const out: string[] = []
   for (const ch of text.normalize('NFC')) {
@@ -141,7 +150,7 @@ export function findUnrenderable(text: string, template: ResumeTemplateName): st
  */
 export function toRenderableText(
   raw: string,
-  template: ResumeTemplateName,
+  template: GlyphFontSet,
   options: { insertBreaks?: boolean } = {},
 ): { text: string; dropped: string[] } {
   const coverage = resumeFontCoverage(template)
@@ -249,7 +258,7 @@ const MACHINE_TARGET_KEYS = new Set(['url'])
  */
 export function toRenderableDeep<T>(
   value: T,
-  template: ResumeTemplateName,
+  template: GlyphFontSet,
 ): { value: T; dropped: string[] } {
   const dropped: string[] = []
 

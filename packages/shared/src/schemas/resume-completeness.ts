@@ -94,9 +94,9 @@ function checkExperienceItem(
     // `YYYY-MM` sorts lexicographically, so the current month is the cutoff.
   } else {
     if (item.start > nowMonth) issues.push({ path: `${base}.start`, code: 'START_IN_FUTURE' })
-    // A missing end falls back to the start, which is never before itself. Written
-    // without a null guard: a `YYYY-MM` string compared with null is always false,
-    // so a guard would only add a mutant no test can kill.
+    // A missing end falls back to the start, which is never before itself, so
+    // no separate null check is needed (one would only add a mutant no test
+    // can kill: the fallback already makes a null end compare as not-before).
     if ((item.end ?? item.start) < item.start) {
       issues.push({ path: `${base}.end`, code: 'END_BEFORE_START' })
     }

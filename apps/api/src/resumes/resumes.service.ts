@@ -1039,13 +1039,17 @@ export class SeniorResumesService {
     return this.toResponse(updated, viewer)
   }
 
-  /** The resume owner's name and email, both printed at the top of the PDF. */
+  /**
+   * The resume owner's name and email, both printed at the top of the PDF.
+   * Empty when the owner row is gone: the skeleton then titles the PDF
+   * `Resume` and prints no name (PDF content is English-only).
+   */
   private async ownerFor(userId: string): Promise<ResumeOwner> {
     const user = await this.db.db.query.users.findFirst({
       where: (tbl, { eq: equals }) => equals(tbl.id, userId),
       columns: { displayName: true, email: true },
     })
-    return { displayName: user?.displayName ?? 'Резюме', email: user?.email ?? '' }
+    return { displayName: user?.displayName ?? '', email: user?.email ?? '' }
   }
 
   // ==========================================================================

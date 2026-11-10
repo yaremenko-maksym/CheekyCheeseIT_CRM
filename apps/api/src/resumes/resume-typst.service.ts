@@ -64,7 +64,12 @@ import {
   type ResumeTemplateName,
 } from '@crm/shared'
 import { resolveAssetPath } from '../common/assets.util'
-import { findUnrenderable, logDroppedGlyphs, toRenderableDeep } from './resume-glyphs'
+import {
+  findUnrenderable,
+  logDroppedGlyphs,
+  toRenderableDeep,
+  type GlyphFontSet,
+} from './resume-glyphs'
 import {
   MAX_PDF_CONTENT_BYTES,
   MAX_PDF_TEXT_OPERATORS,
@@ -278,7 +283,7 @@ export class ResumeTypstService {
     const dir = await mkdtemp(join(this.scratchRoot, 'crm-resume-'))
     try {
       const template = input.templateSource ?? loadCatalogTemplate(input.templateName)
-      assertTemplateIsDrawable(template, input.templateName)
+      assertTemplateIsDrawable(template, glyphFontSet(input))
       await writeFile(join(dir, 'data.json'), payload, 'utf8')
       await writeFile(join(dir, 'template.typ'), template, 'utf8')
       // The entry point is OURS, not the template's: it decides that the
@@ -350,7 +355,7 @@ export class ResumeTypstService {
         content: input.content,
         layout: normalizeResumeLayout(input.layout),
       },
-      input.templateName,
+      glyphFontSet(input),
     )
     const templateKey = createHash('sha256')
       .update(input.templateSource ?? loadCatalogTemplate(input.templateName))
@@ -574,7 +579,9 @@ const spawnTypst: TypstRunner = createSpawnRunner()
  *
  * That is the honest limit of what is guaranteed here, and it is the limit a
  * designer authoring a personal template needs to know — stated again at the
- * top of `assets/typst/resume-skeleton.typ`, which is the file they will copy.
+ * top of `assets/typst/resume-skeleton.typ`. That file does not compile alone
+ * (`theme` is defined by a theme file): an author copies a whole catalog
+ * template, i.e. the output of `loadCatalogTemplate` (theme + skeleton).
  *
  * Cheap by construction — a template is a few kilobytes, and the coverage set
  * is cached for the process.
@@ -640,8 +647,8 @@ async function assertDocumentIsNotBlank(pdf: Buffer): Promise<void> {
   )
 }
 
-function assertTemplateIsDrawable(template: string, templateName: ResumeTemplateName): void {
-  const missing = findUnrenderable(template, templateName)
+function assertTemplateIsDrawable(template: string, fontSet: GlyphFontSet): void {
+  const missing = findUnrenderable(template, fontSet)
   if (missing.length === 0) return
   throw new ResumeRenderError(
     `В шаблоне резюме есть символы, которые не отрисовываются доступными шрифтами: ${missing.join(' ')}. Замените их или добавьте шрифт с этими глифами.`,
@@ -650,11 +657,28 @@ function assertTemplateIsDrawable(template: string, templateName: ResumeTemplate
 }
 
 /**
+ * The fonts a render's glyphs are checked against. A catalog template uses its
+ * theme's font; a personal template may name any embedded font, so it gets
+ * the glyphs every embedded face has, whatever its stored `templateName`.
+ */
+function glyphFontSet(input: ResumeRenderInput): GlyphFontSet {
+  return input.templateSource === null ? input.templateName : 'personal'
+}
+
+const catalogCache = new Map<ResumeTemplateName, string>()
+
+/**
  * A catalog template as ONE Typst source: the theme's `#let theme = (...)`
- * followed by the shared skeleton. Read on every call (two files of a few
- * kilobytes): no cache to go stale or to hide a broken path from the tests.
+ * followed by the shared skeleton. Read once per name and kept for the
+ * process: the assets are part of the build and do not change under it.
  */
 export function loadCatalogTemplate(name: ResumeTemplateName): string {
+  const source = catalogCache.get(name) ?? readCatalogTemplate(name)
+  catalogCache.set(name, source)
+  return source
+}
+
+function readCatalogTemplate(name: ResumeTemplateName): string {
   const themePath = resolveAssetPath(`typst/themes/${name}.typ`)
   const skeletonPath = resolveAssetPath('typst/resume-skeleton.typ')
   // Stryker disable next-line StringLiteral: an empty encoding returns a Buffer, which the template literal below decodes as UTF-8, the identical string

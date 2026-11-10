@@ -21,7 +21,8 @@
 //     header or footer;
 //   - no images, icons, floats or absolute placement;
 //   - ligatures off, so extracted text spells words the way they were typed;
-//   - the document title is "<name> - Resume" with an em dash;
+//   - the document title is "<name> - Resume" with an em dash, or "Resume"
+//     when the name is empty;
 //   - headings are not letter-spaced.
 //
 // A theme may change ONLY: font, accent colour, size and weight, rules,
@@ -134,7 +135,9 @@
 
   // `date: none`, or Typst stamps the compile date and renders stop being
   // byte-identical.
-  set document(title: data.displayName + " — Resume", author: data.displayName, date: none)
+  // An empty name (the owner row is gone) titles the document plain "Resume".
+  let title = if data.displayName.trim() == "" { "Resume" } else { data.displayName + " — Resume" }
+  set document(title: title, author: data.displayName, date: none)
   set page(paper: "a4", margin: density.margin * theme.margin-scale)
   set text(font: theme.font, size: size, hyphenate: false, ligatures: false)
   set par(leading: density.leading * theme.spacing-scale, justify: false)
@@ -149,7 +152,7 @@
   }
 
   align(theme.name-align)[
-    #text(size: theme.name-size, weight: "bold")[#data.displayName] \
+    #if data.displayName.trim() != "" [#text(size: theme.name-size, weight: "bold")[#data.displayName] \ ]
     #if data.email != "" [#data.email]
   ]
 

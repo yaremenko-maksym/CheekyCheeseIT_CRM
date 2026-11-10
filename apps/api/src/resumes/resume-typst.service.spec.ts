@@ -154,6 +154,14 @@ function layoutViolations(source: string): string[] {
   return FORBIDDEN_LAYOUT.filter(([, re]) => re.test(code)).map(([name]) => name)
 }
 
+/** Every role in a pdf.js structure tree, depth-first. */
+function structRoles(node: unknown): string[] {
+  if (typeof node !== 'object' || node === null) return []
+  const { role, children } = node as { role?: unknown; children?: unknown }
+  const own = typeof role === 'string' ? [role] : []
+  return Array.isArray(children) ? [...own, ...children.flatMap(structRoles)] : own
+}
+
 async function readPdf(pdf: Buffer) {
   const { getDocumentProxy } = await import('unpdf')
   return getDocumentProxy(new Uint8Array(pdf))
@@ -239,6 +247,23 @@ describe('template catalog', () => {
     expect(info.Title).toBe('Іван Петренко — Resume')
   }, 120_000)
 
+  it('titles the document plain "Resume" and prints no name when the name is empty', async () => {
+    for (const name of RESUME_TEMPLATE_NAMES) {
+      const pdf = await service.render(input({ templateName: name, displayName: '' }))
+      const { info } = (await (await readPdf(pdf)).getMetadata()) as { info: { Title?: string } }
+      const { text } = await readBack(pdf)
+      expect({
+        name,
+        title: info.Title,
+        startsWithEmail: text.trimStart().startsWith('ivan.petrenko@example.com'),
+      }).toEqual({
+        name,
+        title: 'Resume',
+        startsWithEmail: true,
+      })
+    }
+  }, 240_000)
+
   it('prints name and email as body text on page one, never in a page header or footer', async () => {
     const { text } = await readBack(await service.render(input()))
     expect(text).toContain('ivan.petrenko@example.com')
@@ -267,9 +292,16 @@ describe('template catalog', () => {
       )
       // Typst bookmarks every real heading; a styled paragraph would not appear here.
       const outline = ((await proxy.getOutline()) ?? []).map((entry) => entry.title)
-      expect({ name, outline }).toEqual({
+      // And the tag tree keeps an H1 per heading: the `show heading` rule must
+      // not turn a heading into an untagged block (a screen reader and a
+      // tagged-PDF parser read these, not the bookmarks).
+      const h1 = structRoles(await (await proxy.getPage(1)).getStructTree()).filter(
+        (role) => role === 'H1',
+      ).length
+      expect({ name, outline, h1 }).toEqual({
         name,
         outline: ['Experience', 'Education', 'Summary', 'Links', 'Languages'],
+        h1: 5,
       })
     }
   }, 240_000)
@@ -631,6 +663,25 @@ describe('the sandbox', () => {
     const clean = '#let render(data) = [Резюме — #data.displayName]'
     const pdf = await service.render(input({ templateSource: clean }))
     expect(pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-')
+  }, 120_000)
+
+  it('checks a personal template against every embedded font, whatever its template name', async () => {
+    // The stored name of a personal template resolves to `classic` (PT Serif,
+    // which HAS the hryvnia), but the template may set any embedded font, and
+    // Roboto has no hryvnia: Typst would drop the text silently. Only glyphs
+    // every face draws are kept, so the sign still becomes its code.
+    const personal = '#let render(data) = [#set text(font: "Roboto"); #data.displayName]'
+    const { text } = await readBack(
+      await service.render(
+        input({ templateName: 'classic', templateSource: personal, displayName: '5000 ₴' }),
+      ),
+    )
+    expect(text).toContain('5000 UAH')
+    // Control: the same name in the classic catalog template keeps the sign.
+    const catalog = await readBack(
+      await service.render(input({ templateName: 'classic', displayName: '5000 ₴' })),
+    )
+    expect(catalog.text).toContain('5000 ₴')
   }, 120_000)
 
   it('refuses a template that reads outside its scratch directory', async () => {

@@ -208,7 +208,7 @@ describe('SeniorResumesService.runRender — failure branches (bug-44)', () => {
     await buildService(db, s3, typst).runRender(RESUME_ID)
 
     expect(typst.render).toHaveBeenCalledWith(
-      expect.objectContaining({ displayName: 'Резюме', email: '' }),
+      expect.objectContaining({ displayName: '', email: '' }),
       expect.any(Function),
     )
   })
