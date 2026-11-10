@@ -7,9 +7,15 @@ import {
   DEFAULT_RESUME_LAYOUT,
   EMPTY_RESUME_CONTENT,
   type ResumeContent,
+  type ResumeFacts,
   type ResumeLayoutOptions,
+  type ResumeVerificationReport,
 } from '@crm/shared'
-import { resumeExtractionStatusEnum, resumeRenderStatusEnum } from './enums'
+import {
+  resumeExtractionStatusEnum,
+  resumeRenderStatusEnum,
+  resumeVerificationStatusEnum,
+} from './enums'
 import { users } from './users'
 
 // ---------------------------------------------------------------------------
@@ -105,6 +111,41 @@ export const seniorResumes = pgTable(
      * must discard its result instead of overwriting fresher bytes.
      */
     pdfRenderRunId: uuid('pdf_render_run_id'),
+
+    // --- verification (verified base resume, spec §8) -------------------------
+    /** ResumeFacts — what HR entered. NULL = a legacy row never saved since. UNTRUSTED. */
+    facts: jsonb('facts').$type<ResumeFacts>(),
+    /** Every existing row starts as DRAFT (spec §3). */
+    verificationStatus: resumeVerificationStatusEnum('verification_status')
+      .notNull()
+      .default('DRAFT'),
+    /** The run that owns the row; NULL on a VERIFIED row unless a template run is in flight. */
+    verificationRunId: uuid('verification_run_id'),
+    /** `full` / `item` / `staged-edit` / `template`. */
+    verificationKind: text('verification_kind'),
+    verificationTargetPath: text('verification_target_path'),
+    /** The `version` the run started from. */
+    verificationBaseVersion: integer('verification_base_version'),
+    verificationQueuedAt: timestamp('verification_queued_at', { withTimezone: true }),
+    verificationStartedAt: timestamp('verification_started_at', { withTimezone: true }),
+    /** ResumeVerificationErrorCode (packages/shared). */
+    verificationErrorCode: text('verification_error_code'),
+    verificationReport: jsonb('verification_report').$type<ResumeVerificationReport>(),
+    verifiedVersion: integer('verified_version'),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }),
+    verifiedByUserId: uuid('verified_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    // Staged columns — written only by a check run, promoted on Confirm.
+    stagedContent: jsonb('staged_content').$type<ResumeContent>(),
+    stagedLayout: jsonb('staged_layout').$type<ResumeLayoutOptions>(),
+    stagedTemplateName: text('staged_template_name'),
+    /** Run-scoped private key of the staged PDF. */
+    stagedPdfS3Key: text('staged_pdf_s3_key'),
+    stagedEditedPaths: jsonb('staged_edited_paths')
+      .$type<{ path: string; userId: string }[]>()
+      .notNull()
+      .default([]),
 
     updatedByUserId: uuid('updated_by_user_id').references(() => users.id, {
       onDelete: 'set null',

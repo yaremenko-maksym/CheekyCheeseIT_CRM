@@ -12,7 +12,15 @@
  * Submit, not by this schema.
  */
 import { z } from 'zod'
-import { RESUME_LIMITS, resumeLinkSchema } from './resume'
+import {
+  RESUME_LIMITS,
+  resumeContentSchema,
+  resumeExtractionStatusSchema,
+  resumeFailureCodeSchema,
+  resumeLayoutOptionsSchema,
+  resumeLinkSchema,
+  resumeRenderStatusSchema,
+} from './resume'
 
 const shortText = z.string().max(RESUME_LIMITS.shortText)
 
@@ -149,3 +157,101 @@ export type EditStagedFieldInput = z.infer<typeof editStagedFieldSchema>
 
 export const regenerateStagedFieldSchema = z.object({ runId: z.uuid(), path: shortText })
 export type RegenerateStagedFieldInput = z.infer<typeof regenerateStagedFieldSchema>
+
+// ---------------------------------------------------------------------------
+// DTO
+// ---------------------------------------------------------------------------
+// Lives here, not in resume.ts: it embeds the facts/verification schemas above,
+// and resume.ts importing this file back would be a load-order cycle.
+
+export const seniorResumeDtoSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  content: resumeContentSchema,
+  status: resumeExtractionStatusSchema,
+  errorCode: resumeFailureCodeSchema.nullable(),
+  /** Human-readable detail for FAILED (already Russian, safe to render). */
+  errorMessage: z.string().nullable(),
+  /** ISO — when the Cloudflare daily allowance resets (QUOTA_EXCEEDED only). */
+  quotaResetsAt: z.string().nullable(),
+  sourceFileName: z.string().nullable(),
+  sourceFileSizeBytes: z.number().int().nonnegative().nullable(),
+  /** True when an original file is stored and downloadable. */
+  hasSourceFile: z.boolean(),
+  /**
+   * Bumped on every content save. task-resume-tailoring uses it to detect
+   * tailored variants built from a now-stale base.
+   */
+  version: z.number().int().nonnegative(),
+  updatedByUserId: z.string().uuid().nullable(),
+  updatedByName: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+
+  // --- layout half of the "template + data" split ---------------------------
+  /** The switches HR flipped. Always normalised (total order, no duplicates). */
+  layout: resumeLayoutOptionsSchema,
+  /**
+   * Which template typesets this resume. A LABEL, never the source: the
+   * template is code and stays server-side, which is the property the whole
+   * split exists to guarantee.
+   */
+  templateName: resumeTemplateNameSchema,
+  /** False while the senior is still on the repo's default template. */
+  hasCustomTemplate: z.boolean(),
+
+  // --- rendered PDF ---------------------------------------------------------
+  renderStatus: resumeRenderStatusSchema,
+  /** Russian, safe to display — set together with `renderStatus: 'FAILED'`. */
+  renderError: z.string().nullable(),
+  /**
+   * True when a rendered PDF exists AND was built from exactly the current
+   * content + layout + template. The UI uses it to decide between "скачать" and
+   * "готовим предпросмотр" — a stale PDF is never offered as the current one.
+   */
+  pdfUpToDate: z.boolean(),
+
+  // --- verification (verified base resume) ----------------------------------
+  /** What HR entered. A legacy row never saved since is mapped from `content`. */
+  facts: resumeFactsSchema,
+  verificationStatus: resumeVerificationStatusSchema,
+  verificationErrorCode: resumeVerificationErrorCodeSchema.nullable(),
+  verificationReport: resumeVerificationReportSchema.nullable(),
+  /** VERIFIED means `verifiedVersion === version`. */
+  verifiedVersion: z.number().int().nonnegative().nullable(),
+  verifiedAt: z.string().nullable(),
+  verifiedByName: z.string().nullable(),
+  /** The check run's result awaiting Confirm; null unless a staged PDF exists. */
+  staged: z
+    .object({
+      runId: z.uuid(),
+      content: resumeContentSchema,
+      layout: resumeLayoutOptionsSchema,
+      templateName: resumeTemplateNameSchema,
+      pdfAvailable: z.boolean(),
+      editedPaths: z.array(z.object({ path: z.string(), userId: z.uuid() })),
+    })
+    .nullable(),
+  /** A run is in flight (also a template run on a VERIFIED resume): writes answer 409. */
+  verificationBusy: z.boolean(),
+})
+export type SeniorResumeDto = z.infer<typeof seniorResumeDtoSchema>
+
+/**
+ * Every resume endpoint answers with this envelope.
+ *
+ * `resume` is `null` when the senior has no resume row yet — but `canEdit` is
+ * a property of the (viewer, target) PAIR, not of the row, so it lives OUTSIDE
+ * and is always present. That distinction is load-bearing: with `canEdit`
+ * inside a nullable DTO, the empty state carried no permission signal at all
+ * and the UI had to either guess (defaulting to read-only, which would hide
+ * the upload button from the very people meant to create the resume) or
+ * re-derive the RBAC rule client-side. Server-computed, never echoed back.
+ */
+export const seniorResumeResponseSchema = z.object({
+  resume: seniorResumeDtoSchema.nullable(),
+  canEdit: z.boolean(),
+  /** Confirm is ADMIN/HR only — a viewer property, like `canEdit`. */
+  canConfirm: z.boolean(),
+})
+export type SeniorResumeResponse = z.infer<typeof seniorResumeResponseSchema>
