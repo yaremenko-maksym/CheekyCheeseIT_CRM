@@ -38,15 +38,16 @@ import {
 } from '@/components/ui/dropdown-menu'
 import {
   getJobQueuePossibleDuplicateConflict,
+  isAccessLoss,
   useCancelJobQueueSubmission,
   useMarkJobOpened,
   useSubmitJobQueueSenior,
   useSuppressJobQueueItem,
   type QueueScopeSignature,
 } from '@/hooks/use-job-queue'
-import { getApiErrorCode, getAxiosStatus } from '@/lib/axios-utils'
+import { getApiErrorCode } from '@/lib/axios-utils'
 import { cn } from '@/lib/utils'
-import { ownTaken } from './MatchedSeniors'
+import { ownTaken, submittedElsewhere } from './MatchedSeniors'
 
 /** §5.6: the one conflict text, used everywhere; it never says who changed what, or where. */
 export const CONFLICT_NOTE = msg`Дані змінилися. Оновіть картку й повторіть.`
@@ -57,19 +58,14 @@ export function isQueueConflict(error: unknown) {
   return code === 'JOB_QUEUE_VERSION_CONFLICT' || code === 'JOB_QUEUE_IDEMPOTENCY_CONFLICT'
 }
 
-/** A 403/404: the card's own read closes it with the one neutral toast, so a write adds none. */
-export function isCardLost(error: unknown) {
-  const status = getAxiosStatus(error)
-  return status === 403 || status === 404
-}
-
 const NOTE = 'flex items-start gap-2 rounded-lg border p-3 text-sm'
-const BLOCKING = cn(NOTE, 'border-destructive/40 bg-destructive/10')
+const BLOCKING = cn(NOTE, 'border-destructive/40')
 
 /**
  * The card's write gate (§5.7). A revision newer than the one the actor last looked at blocks every
  * «Записати подачу» until «Оновити картку»; a vacancy closed or expired at the source blocks them for
- * good. The conflict note stays until the next action starts.
+ * good. The conflict note stays until the next action starts; a stale card shows only its own note
+ * (a 403/404 from a write is left to the card's read, which closes it with the one neutral toast).
  */
 export function useCardGate(card: JobQueueCardResponseDto, refetch: () => void) {
   const [seenRevision, setSeenRevision] = useState(card.revision)
@@ -84,8 +80,12 @@ export function useCardGate(card: JobQueueCardResponseDto, refetch: () => void) 
         <div data-testid="job-queue-closed" role="note" className={BLOCKING}>
           <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
           <div className="flex min-w-0 flex-col gap-0.5">
-            <p className="font-medium">
-              <Trans>Вакансію закрито на джерелі</Trans>
+            <p className="font-medium text-destructive">
+              {card.availability === 'EXPIRED' ? (
+                <Trans>Термін вакансії на джерелі минув</Trans>
+              ) : (
+                <Trans>Вакансію закрито на джерелі</Trans>
+              )}
             </p>
             <p className="text-muted-foreground text-pretty">
               <Trans>Нові подачі неможливі.</Trans>
@@ -106,9 +106,9 @@ export function useCardGate(card: JobQueueCardResponseDto, refetch: () => void) 
           className={cn(BLOCKING, 'flex-col sm:flex-row sm:items-center')}
         >
           <div className="flex min-w-0 flex-1 items-start gap-2">
-            <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
+            <RefreshCw aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
             <div className="flex min-w-0 flex-col gap-0.5">
-              <p className="font-medium">
+              <p className="font-medium text-destructive">
                 <Trans>З’явилася новіша версія вакансії</Trans>
               </p>
               <p className="text-muted-foreground text-pretty">
@@ -119,9 +119,10 @@ export function useCardGate(card: JobQueueCardResponseDto, refetch: () => void) 
           <Button
             type="button"
             variant="outline"
-            className="min-h-11 w-full shrink-0 sm:w-auto"
+            className="min-h-11 shrink-0 self-start sm:self-auto"
             onClick={() => {
               setSeenRevision(card.revision)
+              setConflict(false)
               refetch()
             }}
           >
@@ -130,11 +131,11 @@ export function useCardGate(card: JobQueueCardResponseDto, refetch: () => void) 
           </Button>
         </div>
       )}
-      {conflict && <ConflictNote />}
+      {conflict && !stale && <ConflictNote />}
     </>
   )
 
-  return { blocked: closed || stale, setConflict, notes }
+  return { blocked: closed || stale, stale, setConflict, notes }
 }
 
 function ConflictNote() {
@@ -163,7 +164,10 @@ export function ApplyFirst() {
 
 /** Whether any «Записати подачу» can still be pressed (seniors beyond the preview count as open). */
 export function hasOpenSubmit(card: JobQueueCardResponseDto) {
-  return card.seniors.nextCursor !== null || card.seniors.items.some((s) => !ownTaken(s))
+  return (
+    card.seniors.nextCursor !== null ||
+    card.seniors.items.some((s) => !ownTaken(s) && !submittedElsewhere(s))
+  )
 }
 
 /** The ADMIN confirm (§5.6): the safe button takes the initial focus; focus then returns to `trigger`. */
@@ -315,7 +319,7 @@ export function AdminVacancyMenu({
                   onClose()
                 },
                 onError: (error) => {
-                  if (!isCardLost(error))
+                  if (!isAccessLoss(error))
                     toast.error(t`Не вдалося приховати вакансію. Спробуйте ще раз.`)
                 },
               },
@@ -334,12 +338,14 @@ function CancelSubmissionMenu({
   who,
   submission,
   onConflict,
+  onCancelled,
 }: {
   scope: QueueScopeSignature
   opportunityId: string
   who: string
   submission: JobQueueSubmissionDto
   onConflict: (conflict: boolean) => void
+  onCancelled: () => void
 }) {
   const { t } = useLingui()
   const cancel = useCancelJobQueueSubmission(scope)
@@ -359,9 +365,10 @@ function CancelSubmissionMenu({
             cancel.mutate(
               { opportunityId, submissionId: submission.id, expectedVersion: submission.version },
               {
+                onSuccess: onCancelled,
                 onError: (error) => {
                   if (isQueueConflict(error)) onConflict(true)
-                  else if (!isCardLost(error))
+                  else if (!isAccessLoss(error))
                     toast.error(t`Не вдалося скасувати подачу. Спробуйте ще раз.`)
                 },
               },
@@ -398,7 +405,7 @@ function DuplicateConfirm({
       onKeyDown={(event) => {
         if (event.key !== 'Escape') return
         event.stopPropagation()
-        onKeep()
+        if (!pending) onKeep()
       }}
     >
       <div className="flex items-start gap-2">
@@ -412,8 +419,14 @@ function DuplicateConfirm({
           </p>
         </div>
       </div>
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <Button ref={keepRef} type="button" className="min-h-11 sm:min-h-9" onClick={onKeep}>
+      <div className="flex flex-col items-start gap-2 sm:flex-row">
+        <Button
+          ref={keepRef}
+          type="button"
+          className="min-h-11 sm:min-h-9"
+          disabled={pending}
+          onClick={onKeep}
+        >
           <Trans>Не записувати</Trans>
         </Button>
         <Button
@@ -459,27 +472,47 @@ export function SeniorAction({
   const inFlight = useRef(false)
   const button = useRef<HTMLButtonElement>(null)
   const keep = useRef<HTMLButtonElement>(null)
-  const refocus = useRef(false)
+  const menuBox = useRef<HTMLDivElement>(null)
+  const row = useRef<HTMLElement | null>(null)
+  // CR-L-2 / UX-L-4: after the confirm closes or a cancel lands, focus returns to this senior — its
+  // button if one is drawn, else its row — once the card shows the expected taken state
+  const focusAfter = useRef<{ taken: boolean } | null>(null)
+  const who = senior.displayName
+  const taken = ownTaken(senior)
 
   useEffect(() => {
     if (confirming) keep.current?.focus()
-    else if (refocus.current) {
-      refocus.current = false
-      button.current?.focus()
-    }
   }, [confirming])
 
-  const who = senior.displayName
-  const taken = ownTaken(senior)
+  useEffect(() => {
+    const li = (button.current ?? keep.current ?? menuBox.current)?.closest('li')
+    if (li) row.current = li
+    const wait = focusAfter.current
+    if (!wait || confirming) return
+    const active = document.activeElement
+    // the actor moved on: never pull focus back
+    if (active && active !== document.body && !row.current?.contains(active)) {
+      focusAfter.current = null
+      return
+    }
+    const own = button.current && !button.current.disabled ? button.current : row.current
+    own?.focus()
+    if (Boolean(taken) === wait.taken) focusAfter.current = null
+  })
+
+  if (submittedElsewhere(senior)) return null
   if (taken) {
     return scope.role === 'ADMIN' ? (
-      <div className="flex justify-end">
+      <div ref={menuBox} className="flex justify-end">
         <CancelSubmissionMenu
           scope={scope}
           opportunityId={card.opportunityId}
           who={who}
           submission={taken}
           onConflict={onConflict}
+          onCancelled={() => {
+            focusAfter.current = { taken: false }
+          }}
         />
       </div>
     ) : null
@@ -500,14 +533,17 @@ export function SeniorAction({
       },
       {
         onSuccess: () => {
+          focusAfter.current = { taken: true }
           setConfirming(false)
           toast.success(t`Подачу записано: ${who}`)
         },
         onError: (error) => {
           if (getJobQueuePossibleDuplicateConflict(error)) return setConfirming(true)
+          focusAfter.current = { taken: false }
           setConfirming(false)
           if (isQueueConflict(error)) onConflict(true)
-          else if (!isCardLost(error)) toast.error(t`Не вдалося записати подачу. Спробуйте ще раз.`)
+          else if (!isAccessLoss(error))
+            toast.error(t`Не вдалося записати подачу. Спробуйте ще раз.`)
         },
         onSettled: () => {
           inFlight.current = false
@@ -523,7 +559,7 @@ export function SeniorAction({
         pending={submit.isPending}
         keepRef={keep}
         onKeep={() => {
-          refocus.current = true
+          focusAfter.current = { taken: false }
           setConfirming(false)
         }}
         onConfirm={() => send(true)}

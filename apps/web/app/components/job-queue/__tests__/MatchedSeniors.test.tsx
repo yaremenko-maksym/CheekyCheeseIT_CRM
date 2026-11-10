@@ -223,8 +223,11 @@ describe('MatchedSeniors', () => {
     expect(screen.queryByText(/Подано/)).toBeNull()
   })
 
-  it('a foreign-team submission (bare marker) is indistinguishable from untouched (§3)', () => {
-    const foreign = renderBlock(
+  // QA-LOW-1. Plan r5 (Task 6.x, A3 option (a)): "a submission is a fact about the senior: it is
+  // shown to every team the senior belongs to, without a name". Design §3's «submitted by another
+  // team» row is about a vacancy, not a shared senior, so the marker is shown, with nothing more.
+  it('a shared senior submitted by another team (bare marker) reads «Подано», with no name, time or place', () => {
+    renderBlock(
       cardFixture({
         seniors: {
           items: [senior({ submission: { submittedElsewhere: true } })],
@@ -233,11 +236,12 @@ describe('MatchedSeniors', () => {
         },
       }),
     )
-    const foreignText = screen.getByTestId(`job-queue-senior-${S1}`).textContent
-    expect(screen.queryByTestId(`job-queue-senior-submitted-${S1}`)).toBeNull()
-    foreign.unmount()
-    renderBlock()
-    expect(screen.getByTestId(`job-queue-senior-${S1}`).textContent).toBe(foreignText)
+    const state = screen.getByTestId(`job-queue-senior-submitted-${S1}`)
+    expect(state.textContent).toBe('Подано')
+    // §3 leak pattern: no team, actor, time or vacancy appears next to the marker
+    expect(screen.getByTestId(`job-queue-senior-${S1}`)).not.toHaveTextContent(
+      /команд|тому|зараз|Подано:|·/,
+    )
   })
 
   it('the action slot (Task 7.4 seam) renders inside each senior block with that senior', () => {

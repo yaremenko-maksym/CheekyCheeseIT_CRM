@@ -25,10 +25,19 @@ function initials(name: string): string {
     .join('')
 }
 
-/** Own-scope submission row only; the foreign bare marker and a released row read as untouched (§3). */
+/** Own-scope submission row only; a released row reads as untouched, the bare marker apart (§3). */
 export function ownTaken(senior: JobQueueCardSeniorDto) {
   const s = senior.submission
   return s && 'state' in s && s.state === 'TAKEN' ? s : null
+}
+
+/**
+ * QA-LOW-1 (plan r5): a submission is a fact about the senior, shown to every team the senior belongs
+ * to without a name — another team's submission arrives as a bare marker and reads «Подано» only.
+ */
+export function submittedElsewhere(senior: JobQueueCardSeniorDto) {
+  const s = senior.submission
+  return Boolean(s && 'submittedElsewhere' in s)
 }
 
 function SeniorBlock({ senior, action }: { senior: JobQueueCardSeniorDto; action: ReactNode }) {
@@ -84,6 +93,15 @@ function SeniorBlock({ senior, action }: { senior: JobQueueCardSeniorDto; action
               ) : (
                 <Trans>Подано · {when}</Trans>
               )}
+            </span>
+          )}
+          {!taken && submittedElsewhere(senior) && (
+            <span
+              data-testid={`job-queue-senior-submitted-${senior.seniorId}`}
+              className="inline-flex flex-wrap items-center gap-1 text-sm text-muted-foreground"
+            >
+              <Check aria-hidden="true" className="size-3.5 shrink-0" />
+              <Trans>Подано</Trans>
             </span>
           )}
         </div>

@@ -183,6 +183,28 @@ describe('«Записати подачу» (AC 1, AC 2)', () => {
     expect(toast.error).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['HR', HR],
+    ['ADMIN', ADMIN],
+  ])(
+    'QA-LOW-1 (plan r5: a submission is a fact about the senior, shown to every team without a name) — %s: a senior submitted by another team offers no write',
+    (_, scope) => {
+      setCard(
+        cardFixture({
+          seniors: {
+            items: [senior({ submission: { submittedElsewhere: true } })],
+            totalCount: 1,
+            nextCursor: null,
+          },
+        }),
+      )
+      renderCard(scope)
+      expect(screen.queryByTestId(`job-queue-submit-${OLENA}`)).toBeNull()
+      expect(screen.queryByRole('button', { name: /Дії адміністратора:/ })).toBeNull()
+      expect(screen.queryByTestId('job-queue-apply-first')).toBeNull()
+    },
+  )
+
   it('a released own submission is re-submitted with its version', async () => {
     setCard(
       cardFixture({
@@ -301,6 +323,10 @@ describe('possible-duplicate confirm (AC 3, §5.8)', () => {
     expect(anyway).not.toHaveClass('bg-primary')
     expect(confirm).not.toHaveTextContent('Скасувати')
     expect(toast.error).not.toHaveBeenCalled()
+    // UX-L-3 (card-dupconfirm-320.png): stacked at content width on mobile, not stretched
+    // the layout lives on the buttons' row, which has no role of its own
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(keep.parentElement).toHaveClass('items-start', 'sm:flex-row')
   })
 
   it('«Так, записати все одно» re-sends the same submission confirmed', async () => {
@@ -314,6 +340,38 @@ describe('possible-duplicate confirm (AC 3, §5.8)', () => {
       confirmPossibleDuplicate: true,
     })
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Подачу записано: Олена Коваль'))
+  })
+
+  it('CR-L-1: while the confirmed request runs, «Не записувати» is disabled too', async () => {
+    const { confirm } = await openConfirm()
+    let settle!: (value: unknown) => void
+    post.mockReturnValueOnce(new Promise((resolve) => (settle = resolve)))
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Так, записати все одно' }))
+    await waitFor(() =>
+      expect(within(confirm).getByRole('button', { name: 'Не записувати' })).toBeDisabled(),
+    )
+    await act(async () => settle(submitted()))
+  })
+
+  it('CR-L-2: a confirmed success puts focus on the senior: its button, then its row once submitted', async () => {
+    const { confirm, rerender } = await openConfirm()
+    post.mockResolvedValueOnce(submitted())
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Так, записати все одно' }))
+    await waitFor(() => expect(submitButton()).toHaveFocus())
+    // the refetch: the senior is submitted, the button is gone, the row keeps the focus
+    setCard(
+      cardFixture({ seniors: { items: [senior(taken(OLENA))], totalCount: 1, nextCursor: null } }),
+    )
+    rerender()
+    await waitFor(() => expect(screen.getByTestId(`job-queue-senior-${OLENA}`)).toHaveFocus())
+  })
+
+  it('CR-L-2: a confirmed request that fails returns focus to «Записати подачу»', async () => {
+    const { confirm } = await openConfirm()
+    post.mockRejectedValueOnce(coded(409, 'JOB_QUEUE_VERSION_CONFLICT'))
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Так, записати все одно' }))
+    await screen.findByTestId('job-queue-conflict')
+    await waitFor(() => expect(submitButton()).toHaveFocus())
   })
 
   it('«Не записувати» cancels without a request and returns focus to «Записати подачу»', async () => {
@@ -436,11 +494,60 @@ describe('blocking notes (AC 5, §5.7)', () => {
     expect(submitButton(OLENA)).toBeDisabled()
   })
 
-  it('expired reads as closed; no earlier count at 0', () => {
+  it('COPY-M-2: expired blocks like closed but says expired; no earlier count at 0', () => {
     setCard(cardFixture({ availability: 'EXPIRED', submittedSeniorCount: 0 }))
     renderCard()
-    expect(screen.getByTestId('job-queue-closed')).not.toHaveTextContent('Раніше подано')
+    const note = screen.getByTestId('job-queue-closed')
+    expect(note).toHaveTextContent('Термін вакансії на джерелі минув')
+    expect(note).not.toHaveTextContent('закрито')
+    expect(note).toHaveTextContent('Нові подачі неможливі.')
+    expect(note).not.toHaveTextContent('Раніше подано')
     expect(submitButton()).toBeDisabled()
+  })
+
+  it('CR-L-3: a 409 that turns out to be a newer revision shows the stale note only; refresh clears both', async () => {
+    setCard(twoSeniors())
+    const { rerender } = renderCard()
+    post.mockRejectedValueOnce(coded(409, 'JOB_QUEUE_VERSION_CONFLICT'))
+    fireEvent.click(submitButton())
+    await screen.findByTestId('job-queue-conflict')
+    // the refetch brings the bumped revision (and the list's own «updated» note)
+    setCard(twoSeniors({ revision: 4, newerThanList: true }))
+    rerender()
+    expect(screen.getByTestId('job-queue-stale')).toBeVisible()
+    expect(screen.queryByTestId('job-queue-conflict')).toBeNull()
+    expect(screen.queryByTestId('job-queue-card-updated')).toBeNull()
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Оновити картку' }))
+    expect(screen.queryByTestId('job-queue-stale')).toBeNull()
+    expect(screen.queryByTestId('job-queue-conflict')).toBeNull()
+  })
+
+  it('UX-M-1, UX-L-1, UX-L-2: destructive titles, border-only notes, a refresh icon, a content-width button', () => {
+    setCard(twoSeniors({ availability: 'CLOSED' }))
+    const closed = renderCard()
+    const closedNote = screen.getByTestId('job-queue-closed')
+    expect(within(closedNote).getByText('Вакансію закрито на джерелі')).toHaveClass(
+      'text-destructive',
+    )
+    expect(closedNote).not.toHaveClass('bg-destructive/10')
+    closed.unmount()
+
+    setCard(twoSeniors())
+    const { rerender } = renderCard()
+    setCard(twoSeniors({ revision: 4 }))
+    rerender()
+    const stale = screen.getByTestId('job-queue-stale')
+    expect(within(stale).getByText('З’явилася новіша версія вакансії')).toHaveClass(
+      'text-destructive',
+    )
+    expect(stale).not.toHaveClass('bg-destructive/10')
+    // the icon is aria-hidden, so no query by role reaches it
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(stale.querySelector('svg')).toHaveClass('lucide-refresh-cw')
+    const refresh = within(stale).getByRole('button', { name: 'Оновити картку' })
+    expect(refresh).toHaveClass('min-h-11', 'self-start')
+    expect(refresh).not.toHaveClass('w-full')
   })
 })
 
@@ -591,6 +698,43 @@ describe('«Приховати» (AC 6, §5.9)', () => {
     expect(sent(DISMISS)[1]).toMatchObject({ reason: 'NOT_RELEVANT', expectedVersion: 3 })
   })
 
+  it('CR-M-1: the version outlives the card: hide, undo, close, reopen, hide again carries it', async () => {
+    post.mockResolvedValueOnce(dismissed(2))
+    const { unmount } = await hideAsSpam()
+    const { options } = await lastUndo()
+    post.mockResolvedValueOnce({ data: { ...dismissed(3).data, hidden: false } })
+    act(() => options.action.onClick())
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2))
+    // a hide closes the card, so the menu that kept the version is gone before the next hide
+    unmount()
+    post.mockResolvedValueOnce(dismissed(4))
+    await hideAsSpam()
+    await waitFor(() => expect(sent(DISMISS)).toHaveLength(2))
+    expect(sent(DISMISS)[1]).toMatchObject({ reason: 'SPAM', expectedVersion: 3 })
+  })
+
+  it('COPY-M-1: the toast action reads «Скасувати» in uk and "Undo" in en, apart from the shared Cancel', async () => {
+    await loadCatalog('en')
+    post.mockResolvedValueOnce(dismissed(2))
+    const user = userEvent.setup()
+    renderCard()
+    await user.click(screen.getByRole('button', { name: 'Hide' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Spam' }))
+    const { title, options } = await lastUndo()
+    expect(title).toBe('Hidden')
+    expect(options.action.label).toBe('Undo')
+  })
+
+  it('QA-MED-2: the undo action and the close button get 44 px targets on mobile, on this toast only', async () => {
+    post.mockResolvedValueOnce(dismissed(2))
+    await hideAsSpam()
+    const { options } = (await lastUndo()) as unknown as {
+      options: { classNames: { actionButton: string; closeButton: string } }
+    }
+    expect(options.classNames.actionButton).toContain('max-sm:min-h-11!')
+    expect(options.classNames.closeButton).toContain('max-sm:size-11!')
+  })
+
   it('a failed hide toasts its failure and offers no undo', async () => {
     post.mockRejectedValueOnce(httpError(500, {}))
     const { onClose } = await hideAsSpam()
@@ -632,15 +776,21 @@ describe('RBAC: ADMIN menus (AC 6, §5.6)', () => {
     })
   const SENIOR_SCOPE: QueueScopeSignature = { actorId: 's', role: 'SENIOR', teamId: TEAM }
 
-  it.each([
-    ['HR', HR],
-    ['SENIOR', SENIOR_SCOPE],
-  ])('%s: the three own-scope actions, no administrator menu', (_, scope) => {
+  it('HR: the three own-scope actions, no administrator menu', () => {
     setCard(cardWithSubmitted())
-    renderCard(scope)
+    renderCard(HR)
     expect(submitButton()).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Відкрити оригінал' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Приховати' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /Дії адміністратора/ })).toBeNull()
+    expect(screen.queryByText(/Скасувати подачу/)).toBeNull()
+  })
+
+  // SR-L-1: SENIOR has no queue at all (route redirect; API @Roles('ADMIN', 'HR')); this only
+  // proves the card itself never draws an administrator menu for a non-ADMIN role
+  it('SENIOR (no queue access): the card, were it drawn, renders no administrator menu', () => {
+    setCard(cardWithSubmitted())
+    renderCard(SENIOR_SCOPE)
     expect(screen.queryByRole('button', { name: /Дії адміністратора/ })).toBeNull()
     expect(screen.queryByText(/Скасувати подачу/)).toBeNull()
   })
@@ -715,6 +865,31 @@ describe('RBAC: ADMIN menus (AC 6, §5.6)', () => {
     await waitFor(() => expect(sent(path)).toHaveLength(1))
     expect(sent(path)[0]).toMatchObject({ expectedVersion: 1 })
     expect(sent(path)[0]).not.toHaveProperty('teamId')
+  })
+
+  it('UX-L-4: after a cancel the «⋯» goes away with the refetch; focus lands on that senior’s new button', async () => {
+    const user = userEvent.setup()
+    setCard(cardWithSubmitted())
+    const { rerender } = renderCard(ADMIN)
+    await user.click(screen.getByRole('button', { name: 'Дії адміністратора: Петро Шевченко' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Скасувати подачу…' }))
+    post.mockResolvedValueOnce({
+      data: {
+        submission: submission({
+          seniorId: PETRO,
+          state: 'RELEASED',
+          version: 2,
+          cancelledAt: '2026-11-10T10:00:00.000Z',
+        }),
+      },
+    })
+    await user.click(await screen.findByRole('button', { name: 'Скасувати подачу' }))
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    // the refetch: the submission is released, so the senior gets «Записати подачу» back
+    setCard(twoSeniors())
+    rerender()
+    await waitFor(() => expect(submitButton(PETRO)).toHaveFocus())
   })
 
   it('ADMIN: a cancel conflict shows the one conflict note', async () => {

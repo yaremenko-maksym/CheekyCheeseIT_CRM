@@ -97,7 +97,7 @@ function CardBody({
   return (
     <>
       {gate.notes}
-      {card.newerThanList && (
+      {card.newerThanList && !gate.stale && (
         <div
           data-testid="job-queue-card-updated"
           role="status"

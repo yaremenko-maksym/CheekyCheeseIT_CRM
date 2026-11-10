@@ -1703,6 +1703,11 @@ msgstr "Поточний місяць"
 msgid "Частка в проєкті тепер {0}%"
 msgstr "Частка в проєкті тепер {0}%"
 
+#: apps/web/app/components/job-queue/DismissMenu.tsx
+msgctxt "undo a hide"
+msgid "Скасувати"
+msgstr "Скасувати"
+
 #: apps/web/app/routes/login.tsx
 msgid "Dev Login (лише для тестування)"
 msgstr "Dev Login (лише для тестування)"
@@ -6014,7 +6019,6 @@ msgstr "чек"
 #: apps/web/app/components/documents/upload-document-dialog.tsx
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
-#: apps/web/app/components/job-queue/DismissMenu.tsx
 #: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
@@ -10058,6 +10062,10 @@ msgstr "Виплатити"
 msgid "Не вдалося завантажити документ — спробуйте ще раз"
 msgstr "Не вдалося завантажити документ — спробуйте ще раз"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Термін вакансії на джерелі минув"
+msgstr "Термін вакансії на джерелі минув"
+
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Немає доходу"
 msgstr "Немає доходу"
@@ -10979,6 +10987,10 @@ msgstr "Переприв'язати"
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "за {count, plural, one {# місяць} few {# місяці} many {# місяців} other {# місяця}}"
 msgstr "за {count, plural, one {# місяць} few {# місяці} many {# місяців} other {# місяця}}"
+
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Подано"
+msgstr "Подано"
 
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx

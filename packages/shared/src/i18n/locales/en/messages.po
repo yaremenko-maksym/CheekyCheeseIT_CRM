@@ -1703,6 +1703,11 @@ msgstr "Current month"
 msgid "Частка в проєкті тепер {0}%"
 msgstr "The project share is now {0}%"
 
+#: apps/web/app/components/job-queue/DismissMenu.tsx
+msgctxt "undo a hide"
+msgid "Скасувати"
+msgstr "Undo"
+
 #: apps/web/app/routes/login.tsx
 msgid "Dev Login (лише для тестування)"
 msgstr "Dev Login (testing only)"
@@ -6014,7 +6019,6 @@ msgstr "receipt"
 #: apps/web/app/components/documents/upload-document-dialog.tsx
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
-#: apps/web/app/components/job-queue/DismissMenu.tsx
 #: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
@@ -7911,7 +7915,7 @@ msgstr "Invalid value"
 
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Спершу подайте на сайті джерела («Відкрити оригінал»), потім запишіть подачу тут."
-msgstr "Apply at the source first (Open original), then log the submission here."
+msgstr "Apply at the source first (“Open original”), then log the submission here."
 
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Подачу «{who}» буде скасовано. Записати її можна буде знову."
@@ -10058,6 +10062,10 @@ msgstr "Pay out"
 msgid "Не вдалося завантажити документ — спробуйте ще раз"
 msgstr "Couldn’t upload the document — try again"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Термін вакансії на джерелі минув"
+msgstr "The vacancy has expired at the source"
+
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Немає доходу"
 msgstr "No income"
@@ -10979,6 +10987,10 @@ msgstr "Relink"
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "за {count, plural, one {# місяць} few {# місяці} many {# місяців} other {# місяця}}"
 msgstr "over {count, plural, one {# month} other {# months}}"
+
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Подано"
+msgstr "Submitted"
 
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
@@ -11992,7 +12004,7 @@ msgstr "The invitation has expired. Ask an admin to send it again."
 
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Цього сеньйора вже подано на схожу вакансію"
-msgstr "This senior is already submitted to a similar vacancy"
+msgstr "This senior has already been submitted for a similar vacancy"
 
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Дохід дропа (неоплачена частка)"

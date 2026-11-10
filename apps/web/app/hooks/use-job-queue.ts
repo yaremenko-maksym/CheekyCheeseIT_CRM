@@ -5,6 +5,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
   type QueryKey,
 } from '@tanstack/react-query'
 import {
@@ -140,7 +141,8 @@ function useAccessLost(scope: QueueScopeSignature, error: unknown) {
   return lost
 }
 
-const isAccessLoss = (error: unknown) => {
+/** A 403/404: the actor lost access (missing and unauthorized look alike by design). */
+export const isAccessLoss = (error: unknown) => {
   const status = getAxiosStatus(error)
   return status === 403 || status === 404
 }
@@ -415,23 +417,54 @@ export function useCancelJobQueueSubmission(scope: QueueScopeSignature) {
   )
 }
 
-/** «Приховати» in the TEAM or (ADMIN) STUDIO scope; versioned on a re-dismiss. */
+/**
+ * The latest dismissal version per actor scope, vacancy and dismissal scope. The API refuses an
+ * unversioned re-dismiss of an existing row, and a hide closes the card, so the version must
+ * outlive the menu that got it. One map per QueryClient: it goes with the client, as the cache does.
+ * shortcut: memory only, so a reload forgets it; drop it once the card carries its dismissal (7.3b).
+ */
+const dismissalVersions = new WeakMap<QueryClient, Map<string, number>>()
+
+function useDismissalVersions(scope: QueueScopeSignature) {
+  const queryClient = useQueryClient()
+  let versions = dismissalVersions.get(queryClient)
+  if (!versions) {
+    versions = new Map()
+    dismissalVersions.set(queryClient, versions)
+  }
+  const store = versions
+  const keyOf = (opportunityId: string, kind: string) =>
+    JSON.stringify([...jobQueueScopeKey(scope), opportunityId, kind])
+  return {
+    get: (opportunityId: string, kind: string) => store.get(keyOf(opportunityId, kind)),
+    set: (res: { opportunityId: string; scope: string; version: number }) =>
+      store.set(keyOf(res.opportunityId, res.scope), res.version),
+  }
+}
+
+/** «Приховати» in the TEAM or (ADMIN) STUDIO scope; a re-dismiss sends the last known version. */
 export function useDismissJobQueueItem(scope: QueueScopeSignature) {
+  const versions = useDismissalVersions(scope)
   return useQueueWrite(
     scope,
     async ({ opportunityId, ...body }: OnCard<JobQueueDismissRequestDto>, idempotencyKey) => {
+      const expectedVersion = body.expectedVersion ?? versions.get(opportunityId, body.scope)
       const res = await api.post<unknown>(`/job-queue/${seg(opportunityId)}/dismiss`, {
         ...teamParam(scope),
         ...body,
+        ...(expectedVersion === undefined ? {} : { expectedVersion }),
         idempotencyKey,
       })
-      return jobQueueDismissalResponseSchema.parse(res.data)
+      const dismissal = jobQueueDismissalResponseSchema.parse(res.data)
+      versions.set(dismissal)
+      return dismissal
     },
     card,
   )
 }
 
 export function useUndoJobQueueDismissal(scope: QueueScopeSignature) {
+  const versions = useDismissalVersions(scope)
   return useQueueWrite(
     scope,
     async ({ opportunityId, ...body }: OnCard<JobQueueUndoRequestDto>, idempotencyKey) => {
@@ -440,7 +473,9 @@ export function useUndoJobQueueDismissal(scope: QueueScopeSignature) {
         ...body,
         idempotencyKey,
       })
-      return jobQueueDismissalResponseSchema.parse(res.data)
+      const restored = jobQueueDismissalResponseSchema.parse(res.data)
+      versions.set(restored)
+      return restored
     },
     card,
   )
