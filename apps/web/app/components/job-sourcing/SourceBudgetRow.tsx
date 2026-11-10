@@ -1,5 +1,4 @@
 import type { JobSourceDto } from '@crm/shared'
-import { cn } from '@/lib/utils'
 
 /**
  * Remaining request budget of one source — task-vacancy-matching AC7 (moved out of
@@ -41,27 +40,14 @@ export function formatResetAt(iso: string | null): string {
   })
 }
 
-/**
- * `embedded`: the row sits inside a `SourceSwitchCard`, which already names the source and draws
- * the box — so the raw type and the border/padding are dropped, the budget wording is unchanged.
- */
-export function SourceBudgetRow({
-  source,
-  embedded = false,
-}: {
-  source: JobSourceDto
-  embedded?: boolean
-}) {
+/** Sits inside a `SourceSwitchCard`, which already names the source and draws the box. */
+export function SourceBudgetRow({ source }: { source: JobSourceDto }) {
   const { state, limit, window, used, remaining, resetsAt } = source.budget
-  const root = cn(
-    'flex flex-col gap-0.5 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3',
-    !embedded && 'rounded-md border px-3 py-2',
-    !embedded && (state === 'MISCONFIGURED' ? 'border-destructive/50' : 'border-border/60'),
-  )
+  const root =
+    'flex flex-col gap-0.5 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3'
   const name = (
     <span className="font-medium text-foreground">
-      {!embedded && source.type}
-      <span className={cn('font-normal text-muted-foreground', !embedded && 'ml-1.5')}>
+      <span className="font-normal text-muted-foreground">
         ({TRIGGER_LABEL[source.triggerMode]})
       </span>
     </span>

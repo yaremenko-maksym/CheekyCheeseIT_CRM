@@ -599,3 +599,208 @@ describe('AC7 — English', () => {
     expect(screen.getAllByRole('img', { name: 'Used 232 of 500' })).toHaveLength(2)
   })
 })
+
+describe('exact rendering contract (state chips, notes, quota, panel shell)', () => {
+  const chip = () => screen.getByTestId('job-source-state-chip')
+  const note = () => screen.getByTestId('job-source-state-note')
+  const ready = () => screen.findByRole('switch', { name: 'DOU' })
+  const timeOnly = (iso: string) =>
+    new Date(iso).toLocaleTimeString('uk', { hour: '2-digit', minute: '2-digit' })
+
+  it.each([
+    ['running', {}, 'Check', ['text-green-400', 'bg-green-500/10']],
+    ['disabled', { enabled: false }, 'Ban', ['bg-secondary']],
+    ['paused', { adminState: 'PAUSED' }, 'Pause', ['text-amber-400', 'border-amber-500/40']],
+    [
+      'blocked',
+      { readiness: 'BLOCKED', readinessReason: 'x' },
+      'ShieldExclamationPoint',
+      ['bg-destructive', 'text-white'],
+    ],
+  ] as const)(
+    'the %s chip has its own icon, variant and aria-hidden icon',
+    async (kind, over, icon, classes) => {
+      listed = [source(over as Partial<JobSourceDto>)]
+      renderPanel()
+      await ready()
+      expect(chip()).toHaveAttribute('data-state', kind)
+      expect(chip()).toHaveAttribute('data-icon', icon)
+      for (const cls of classes) expect(chip()).toHaveClass(cls)
+      // a missing / empty variant falls back to the solid primary badge
+      expect(chip()).not.toHaveClass('bg-primary')
+      const svg = within(chip()).getByTestId('job-source-state-icon')
+      expect(svg).toHaveAttribute('aria-hidden', 'true')
+      expect(svg).toHaveClass('mr-1', 'size-3', 'shrink-0')
+    },
+  )
+
+  it('only the paused chip is amber', async () => {
+    listed = [
+      source({ id: ID_A }),
+      source({ id: ID_B, type: 'DJINNI_RSS', enabled: false }),
+      source({
+        id: '77777777-7777-4777-8777-777777777777',
+        type: 'REED_API',
+        adminState: 'PAUSED',
+      }),
+      source({
+        id: '88888888-8888-4888-8888-888888888888',
+        type: 'JSEARCH_API',
+        readiness: 'BLOCKED',
+        readinessReason: 'x',
+      }),
+    ]
+    renderPanel()
+    await ready()
+    const amber = screen
+      .getAllByTestId('job-source-state-chip')
+      .map((c) => c.classList.contains('text-amber-400'))
+    expect(amber).toEqual([false, false, true, false])
+  })
+
+  it('a pause under 24 h shows the time only; 24 h or more shows the date too', async () => {
+    const withDate = (iso: string) =>
+      new Date(iso).toLocaleString('uk', {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    const soon = ahead(23 * HOUR)
+    const exactly = ahead(DAY)
+    const later = ahead(3 * DAY)
+    for (const [iso, expected] of [
+      [soon, timeOnly(soon)],
+      [exactly, withDate(exactly)],
+      [later, withDate(later)],
+    ] as const) {
+      listed = [source({ cooldownUntil: iso })]
+      const { unmount } = renderPanel()
+      await ready()
+      expect(note().textContent).toBe(`Пауза до ${expected}`)
+      unmount()
+    }
+  })
+
+  it('a pause with no stated reason does not invent one', async () => {
+    const until = ahead(HOUR)
+    listed = [source({ cooldownUntil: until, lastErrorCode: null })]
+    renderPanel()
+    await ready()
+    expect(note().textContent).toBe(`Пауза до ${timeOnly(until)}`)
+  })
+
+  it('a blocked source with no stated reason still says it is not ready', async () => {
+    listed = [source({ readiness: 'BLOCKED', readinessReason: null })]
+    renderPanel()
+    await ready()
+    expect(note().textContent).toBe('Не готове до роботи')
+  })
+
+  it('a cooldown that ends exactly now is over', async () => {
+    listed = [source({ cooldownUntil: NOW.toISOString(), hostPausedUntil: NOW.toISOString() })]
+    renderPanel()
+    await ready()
+    expect(chip()).toHaveAttribute('data-state', 'running')
+  })
+
+  it('draws a bar only for an ACTIVE or EXHAUSTED source that has a limit', async () => {
+    const budget = (state: JobSourceDto['budget']['state'], limit: number | null) => ({
+      state,
+      limit,
+      window: 'MONTH' as const,
+      used: 1,
+      remaining: 1,
+      resetsAt: null,
+    })
+    listed = [
+      source({ id: ID_A, budget: budget('UNLIMITED', 5) }),
+      source({ id: ID_B, type: 'DJINNI_RSS', budget: budget('MISCONFIGURED', 5) }),
+      source({
+        id: '77777777-7777-4777-8777-777777777777',
+        type: 'REED_API',
+        budget: budget('ACTIVE', null),
+      }),
+    ]
+    renderPanel()
+    await ready()
+    expect(screen.queryByRole('img')).toBeNull()
+    expect(screen.queryByTestId('job-source-quota-legend')).toBeNull()
+  })
+
+  it('keeps the budget line exact when the server states no window', async () => {
+    listed = [
+      source({
+        budget: { state: 'ACTIVE', limit: 5, window: null, used: 0, remaining: 3, resetsAt: null },
+      }),
+    ]
+    renderPanel()
+    await ready()
+    expect(screen.getByTestId('job-source-budget-remaining').textContent).toBe('Осталось 3 из 5 ')
+  })
+
+  it('lays the budget row out as the design says', async () => {
+    renderPanel()
+    await ready()
+    const row = screen.getByTestId('job-source-budget-row')
+    expect(row).toHaveClass(
+      'flex',
+      'flex-col',
+      'gap-0.5',
+      'text-xs',
+      'sm:flex-row',
+      'sm:items-center',
+      'sm:justify-between',
+      'sm:gap-3',
+    )
+    expect(row.textContent).toBe('(по расписанию)Осталось 268 из 500 в месяц (израсходовано 232)')
+  })
+
+  it('words the failure as one sentence with a space after the headline', async () => {
+    listed = [source({ enabled: false, readiness: 'BLOCKED', readinessReason: 'сплив' })]
+    vi.mocked(api.patch).mockRejectedValue(new Error('409'))
+    renderPanel()
+    const toggle = await ready()
+    await act(async () => {
+      fireEvent.click(toggle)
+    })
+    expect((await screen.findByTestId('job-source-enable-failure')).textContent).toBe(
+      'Не вдалося увімкнути Причина: сплив. Стан не змінено.',
+    )
+  })
+})
+
+describe('the panel shell', () => {
+  const bare = () =>
+    render(
+      <I18nTestProvider>
+        <QueryClientProvider client={new QueryClient()}>
+          <SourceBudgetPanel canView />
+        </QueryClientProvider>
+      </I18nTestProvider>,
+    )
+
+  it('defaults to the always-open list: titled, ruled off, not collapsible', async () => {
+    bare()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(screen.getByRole('heading', { name: 'Бюджет источников' })).toHaveClass(
+      'text-sm',
+      'font-medium',
+      'text-foreground',
+    )
+    expect(screen.getByTestId('job-source-budgets')).toHaveClass(
+      'mt-6',
+      'border-t',
+      'border-border/50',
+      'pt-4',
+    )
+    expect(screen.queryByTestId('job-source-section')).toBeNull()
+  })
+
+  it('the collapsible form has no heading and no rule of its own', async () => {
+    renderPanel({ collapsible: true })
+    await screen.findByTestId('job-source-section')
+    expect(screen.queryByRole('heading')).toBeNull()
+    expect(screen.getByTestId('job-source-budgets')).not.toHaveAttribute('class')
+  })
+})

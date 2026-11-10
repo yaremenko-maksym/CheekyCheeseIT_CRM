@@ -1,5 +1,5 @@
-import { useId, useRef } from 'react'
-import { Ban, Check, Pause, ShieldAlert } from 'lucide-react'
+import { useId, useRef, type ReactNode } from 'react'
+import { Ban, Check, Pause, ShieldAlert, type LucideIcon } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { formatRelativeTime, type JobSourceDto } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
@@ -25,30 +25,12 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 const CHIP: Record<
   SourceStateKind,
-  {
-    variant: 'status-active' | 'secondary' | 'outline' | 'destructive'
-    className: string
-    icon: string
-  }
+  { variant: 'status-active' | 'secondary' | 'outline' | 'destructive'; Icon: LucideIcon }
 > = {
-  running: { variant: 'status-active', className: '', icon: 'check' },
-  disabled: { variant: 'secondary', className: '', icon: 'ban' },
-  paused: { variant: 'outline', className: 'border-amber-500/40 text-amber-400', icon: 'pause' },
-  blocked: { variant: 'destructive', className: '', icon: 'shield-alert' },
-}
-
-function StateIcon({ kind }: { kind: SourceStateKind }) {
-  const props = { 'aria-hidden': true, className: 'mr-1 size-3 shrink-0' }
-  switch (kind) {
-    case 'running':
-      return <Check {...props} />
-    case 'disabled':
-      return <Ban {...props} />
-    case 'paused':
-      return <Pause {...props} />
-    case 'blocked':
-      return <ShieldAlert {...props} />
-  }
+  running: { variant: 'status-active', Icon: Check },
+  disabled: { variant: 'secondary', Icon: Ban },
+  paused: { variant: 'outline', Icon: Pause },
+  blocked: { variant: 'destructive', Icon: ShieldAlert },
 }
 
 export function SourceSwitchCard({ source }: { source: JobSourceDto }) {
@@ -65,45 +47,43 @@ export function SourceSwitchCard({ source }: { source: JobSourceDto }) {
   const readinessReason = source.readinessReason
   const name = sourceLabel(source.type)
 
-  const label: Record<SourceStateKind, string> = {
+  const label: Record<SourceStateKind, ReactNode> = {
     running: t`Працює`,
     disabled: t`Вимкнено`,
     paused: t`Призупинено`,
     // Own context: the bare «Заблоковано» is already the finance «Locked» in the English catalog.
-    blocked: t({ message: 'Заблоковано', context: 'job source readiness' }),
+    // `Trans` (not `t({ message })`): Stryker rewrites the string literal the macro needs.
+    blocked: <Trans context="job source readiness">Заблоковано</Trans>,
   }
 
   const pauseReason = (code: string | null): string | null => {
-    if (code === null) return null
+    if (!code) return null
     if (code === 'HTTP_429') return t`джерело просило зачекати (429)`
     if (code === 'CHALLENGE_DETECTED') return t`джерело вимагає перевірки (challenge)`
     return t`код ${code}`
   }
 
   const note = (() => {
-    switch (state.kind) {
-      case 'running':
-        return null
-      case 'disabled':
-        return t`Вимкнено адміністратором`
-      case 'blocked':
-        return readinessReason ? t`Не готове: ${readinessReason}` : t`Не готове до роботи`
-      case 'paused': {
-        if (!state.pausedUntil) return t`Пауза без визначеного часу`
-        const until = new Date(state.pausedUntil)
-        const when =
-          until.getTime() - now < DAY_MS
-            ? until.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
-            : until.toLocaleString(locale, {
-                day: 'numeric',
-                month: 'short',
-                hour: '2-digit',
-                minute: '2-digit',
-              })
-        const reason = pauseReason(state.code)
-        return reason ? t`Пауза до ${when}: ${reason}` : t`Пауза до ${when}`
-      }
+    if (state.kind === 'disabled') return t`Вимкнено адміністратором`
+    if (state.kind === 'blocked') {
+      return readinessReason ? t`Не готове: ${readinessReason}` : t`Не готове до роботи`
     }
+    if (state.kind === 'paused') {
+      if (!state.pausedUntil) return t`Пауза без визначеного часу`
+      const until = new Date(state.pausedUntil)
+      const when =
+        until.getTime() - now < DAY_MS
+          ? until.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+          : until.toLocaleString(locale, {
+              day: 'numeric',
+              month: 'short',
+              hour: '2-digit',
+              minute: '2-digit',
+            })
+      const reason = pauseReason(state.code)
+      return reason ? t`Пауза до ${when}: ${reason}` : t`Пауза до ${when}`
+    }
+    return null
   })()
 
   const toggle = () => {
@@ -149,12 +129,16 @@ export function SourceSwitchCard({ source }: { source: JobSourceDto }) {
           <span className="text-sm font-medium text-foreground">{name}</span>
           <Badge
             variant={chip.variant}
-            className={chip.className}
+            className={state.kind === 'paused' ? 'border-amber-500/40 text-amber-400' : undefined}
             data-testid="job-source-state-chip"
             data-state={state.kind}
-            data-icon={chip.icon}
+            data-icon={chip.Icon.displayName}
           >
-            <StateIcon kind={state.kind} />
+            <chip.Icon
+              aria-hidden
+              data-testid="job-source-state-icon"
+              className="mr-1 size-3 shrink-0"
+            />
             {label[state.kind]}
           </Badge>
         </div>
@@ -175,7 +159,7 @@ export function SourceSwitchCard({ source }: { source: JobSourceDto }) {
         </p>
       )}
 
-      <SourceBudgetRow source={source} embedded />
+      <SourceBudgetRow source={source} />
 
       {showQuota && limit && (
         <div className="flex flex-col gap-1">

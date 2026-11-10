@@ -5,7 +5,7 @@ import { useJobSources } from '@/hooks/use-job-sourcing'
 import { SourceSwitchCard } from './SourceSwitchCard'
 import { deriveSourceState } from './source-state'
 
-export { formatResetAt, SourceBudgetRow } from './SourceBudgetRow'
+export { formatResetAt } from './SourceBudgetRow'
 
 // Module-level `msg` plural, not the `plural()` macro (breaks under Stryker, see TxDateField).
 const SOURCES_COUNT = msg`{n, plural, one {# джерело} few {# джерела} many {# джерел} other {# джерела}}`
