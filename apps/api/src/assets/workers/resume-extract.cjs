@@ -63,7 +63,13 @@ async function extractPages(filePath, maxChars) {
 async function main() {
   const [, , filePath, mime, maxCharsRaw, output] = process.argv
   const maxChars = Number(maxCharsRaw)
-  if (!filePath || !mime || !Number.isFinite(maxChars) || maxChars <= 0) {
+  if (
+    !filePath ||
+    !mime ||
+    !Number.isFinite(maxChars) ||
+    maxChars <= 0 ||
+    (output !== undefined && output !== 'pages')
+  ) {
     emit({ ok: false, error: 'bad worker invocation' })
     process.exitCode = 2
     return

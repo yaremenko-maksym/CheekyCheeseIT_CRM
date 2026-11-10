@@ -24,11 +24,11 @@ export const ATS_MAX_BYTES = 1_048_576
 const MONTH = `(?:${MONTH_LABELS.join('|')}) \\d{4}`
 
 /** Exactly the non-empty shapes `formatPeriod` prints, and nothing else. */
-export const PERIOD_PATTERN = new RegExp(`^${MONTH}(?: – (?:${MONTH}|Present))?$`, 'u')
+export const PERIOD_PATTERN = new RegExp(`^${MONTH}(?: – (?:${MONTH}|Present))?$`)
 
 /** Four or more single letters separated by single spaces, at letter boundaries (`\b` is ASCII-only). */
 const LETTER_SPACED = /(?<!\p{L})(?:\p{L} ){3,}\p{L}(?!\p{L})/u
-const LIGATURE = /[ﬀ-ﬆ]/u
+const LIGATURE = /[\uFB00-\uFB06]/u
 
 /** The heading text the skeleton prints for each section. */
 const SECTION_TITLES: Record<ResumeSectionKey, string> = {
@@ -79,8 +79,22 @@ export interface AtsCheckInput {
 interface Line {
   page: number
   text: string
-  /** Offset of this line in the flat text. */
-  offset: number
+}
+
+/** The non-empty, whitespace-normalised lines of every page, in reading order. */
+function readLines(pages: string[]): Line[] {
+  return pages.flatMap((page, pageIndex) =>
+    page
+      .split('\n')
+      .map(normalise)
+      .filter((text) => text !== '')
+      .map((text) => ({ page: pageIndex, text })),
+  )
+}
+
+/** Lines as one text, so a string wrapped over several lines still matches. */
+function joinLines(lines: Line[]): string {
+  return lines.map((line) => line.text).join(' ')
 }
 
 function normalise(value: string): string {
@@ -130,25 +144,15 @@ export function checkResumeAts(input: AtsCheckInput): AtsReport {
     (key) => !hidden.has(key) && hasBody(key, input.content),
   )
 
-  // One flat, whitespace-normalised text, with each line's offset in it.
-  const lines: Line[] = []
-  let flat = ''
-  input.pages.forEach((page, pageIndex) => {
-    for (const raw of page.split('\n')) {
-      const text = normalise(raw)
-      if (text === '') continue
-      if (flat !== '') flat += ' '
-      lines.push({ page: pageIndex, text, offset: flat.length })
-      flat += text
-    }
-  })
-  const headingLine = (title: string): Line | undefined => lines.find((line) => line.text === title)
+  const lines = readLines(input.pages)
+  const flat = joinLines(lines)
+  const headingIndex = (title: string): number => lines.findIndex((line) => line.text === title)
 
-  // Every rendered string occurs.
+  // Every rendered string occurs (an empty one trivially does: it prints nothing).
   for (const key of visible) {
     for (const [path, value] of renderedStrings(key, input.content)) {
       const text = normalise(value)
-      if (text !== '' && !flat.includes(text)) {
+      if (!flat.includes(text)) {
         failures.push({
           code: 'MISSING_TEXT',
           path,
@@ -159,11 +163,11 @@ export function checkResumeAts(input: AtsCheckInput): AtsReport {
   }
 
   // Headings: each alone on a line, in the effective order; hidden ones absent.
-  const found: Array<{ title: string; offset: number }> = []
+  const found: Array<{ title: string; index: number }> = []
   for (const key of visible) {
     const title = SECTION_TITLES[key]
-    const line = headingLine(title)
-    if (line) found.push({ title, offset: line.offset })
+    const index = headingIndex(title)
+    if (index !== -1) found.push({ title, index })
     else
       failures.push({
         code: 'HEADING_MISSING',
@@ -173,7 +177,7 @@ export function checkResumeAts(input: AtsCheckInput): AtsReport {
   }
   const expected = found.map((heading) => heading.title).join(', ')
   const actual = [...found]
-    .sort((a, b) => a.offset - b.offset)
+    .sort((a, b) => a.index - b.index)
     .map((heading) => heading.title)
     .join(', ')
   if (actual !== expected) {
@@ -184,7 +188,7 @@ export function checkResumeAts(input: AtsCheckInput): AtsReport {
   }
   for (const key of layout.hiddenSections) {
     const title = SECTION_TITLES[key]
-    if (headingLine(title)) {
+    if (headingIndex(title) !== -1) {
       failures.push({
         code: 'HIDDEN_SECTION_PRESENT',
         path: key,
@@ -204,12 +208,9 @@ export function checkResumeAts(input: AtsCheckInput): AtsReport {
         })
       }
     })
-    checkExperience(
-      input.content,
-      flat,
-      headingLine(SECTION_TITLES.experience)?.offset ?? 0,
-      failures,
-    )
+    // Read after the Experience heading; without one (HEADING_MISSING) the whole text.
+    const body = lines.slice(headingIndex(SECTION_TITLES.experience) + 1)
+    checkExperience(input.content, flat, joinLines(body), failures)
   }
 
   // Name and email in the body of page 1, before the first heading.
@@ -223,8 +224,8 @@ export function checkResumeAts(input: AtsCheckInput): AtsReport {
     ['displayName', 'Name', input.displayName],
     ['email', 'Email', input.email],
   ] as const) {
-    const text = normalise(value)
-    if (text !== '' && !contact.includes(text)) {
+    // An empty name or email is not printed, and `includes('')` is true.
+    if (!contact.includes(normalise(value))) {
       failures.push({
         code: 'CONTACT_NOT_IN_BODY',
         path,
@@ -234,7 +235,7 @@ export function checkResumeAts(input: AtsCheckInput): AtsReport {
   }
 
   input.pages.forEach((page, i) => {
-    if (page.includes('�')) {
+    if (page.includes('\uFFFD')) {
       failures.push({
         code: 'REPLACEMENT_CHAR',
         path: `pages[${i}]`,
@@ -279,50 +280,41 @@ export function checkResumeAts(input: AtsCheckInput): AtsReport {
 
 /**
  * Inside each experience item, role, company and period precede its bullets,
- * and no two items interleave: the items are read in order from the
- * Experience heading with one cursor. A string missing from the text entirely
- * is MISSING_TEXT, not an order failure; each item reports its first
- * out-of-order string only.
+ * and no two items interleave: the items are read in order through `body` (the
+ * text after the Experience heading) with one cursor. A string absent from the
+ * whole text (`flat`) is MISSING_TEXT, not an order failure.
  */
 function checkExperience(
   content: ResumeContent,
   flat: string,
-  start: number,
+  body: string,
   failures: AtsFailure[],
 ): void {
-  let cursor = start
+  let cursor = 0
   content.experience.forEach((item, i) => {
-    const after = (from: number, path: string, value: string): number | null => {
+    /** Where `value` ends when found at or after `from`; `from` when it is not. */
+    const find = (from: number, path: string, value: string): number => {
       const text = normalise(value)
-      if (text === '' || !flat.includes(text)) return from
-      const at = flat.indexOf(text, from)
+      if (!flat.includes(text)) return from
+      const at = body.indexOf(text, from)
       if (at !== -1) return at + text.length
       failures.push({
         code: 'ITEM_ORDER',
         path,
         detail: `Not after the header of its own item: "${text}"`,
       })
-      return null
+      return from
     }
 
     // The header fields may print in any order (compact puts the period on the role line).
-    let headerEnd = cursor
-    for (const [field, value] of [
-      ['role', item.role],
-      ['company', item.company],
-      ['period', item.period],
-    ] as const) {
-      const end = after(cursor, `experience[${i}].${field}`, value)
-      if (end === null) return
-      headerEnd = Math.max(headerEnd, end)
-    }
-
-    let next = headerEnd
-    for (const [b, bullet] of item.bullets.entries()) {
-      const end = after(next, `experience[${i}].bullets[${b}]`, bullet)
-      if (end === null) return
-      next = end
-    }
-    cursor = next
+    const headerEnd = Math.max(
+      find(cursor, `experience[${i}].role`, item.role),
+      find(cursor, `experience[${i}].company`, item.company),
+      find(cursor, `experience[${i}].period`, item.period),
+    )
+    cursor = item.bullets.reduce(
+      (next, bullet, b) => find(next, `experience[${i}].bullets[${b}]`, bullet),
+      headerEnd,
+    )
   })
 }

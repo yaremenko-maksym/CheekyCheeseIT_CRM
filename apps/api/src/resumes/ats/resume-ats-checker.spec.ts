@@ -6,13 +6,19 @@
  * bullets prefixed with `• `). The last block renders the real `classic`
  * template, so the shape assumed here is pinned to the real extractor.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DEFAULT_RESUME_LAYOUT, type ResumeContent, type ResumeLayoutOptions } from '@crm/shared'
+import {
+  DEFAULT_RESUME_LAYOUT,
+  RESUME_PDF_MIME,
+  type ResumeContent,
+  type ResumeLayoutOptions,
+} from '@crm/shared'
 import { buildEmptyPdf } from '../../test/resume-fixtures'
 import { assertTypstAvailable } from '../../test/typst-availability'
+import * as sandboxedProcess from '../sandboxed-process'
 import {
   ResumeFileUnreadableError,
   ResumeTextExtractionService,
@@ -113,6 +119,11 @@ describe('checkResumeAts — clean input', () => {
 
   it('a bullet wrapped over two lines still matches after whitespace normalisation', () => {
     const page = pageWith('• Led a team of five engineers', '• Led a team of\nfive   engineers')
+    expect(checkResumeAts(input({ pages: [page] }))).toEqual({ ok: true, failures: [] })
+  })
+
+  it('a blank line inside a wrapped string still matches (normalizeExtractedText keeps one)', () => {
+    const page = pageWith('• Led a team of five engineers', '• Led a team of\n\n  \nfive engineers')
     expect(checkResumeAts(input({ pages: [page] }))).toEqual({ ok: true, failures: [] })
   })
 
@@ -235,6 +246,15 @@ describe('headings', () => {
     expect(checkResumeAts(input({ content, pages: [page] }))).toEqual({ ok: true, failures: [] })
   })
 
+  it('an empty list section needs no heading even when the summary is printed', () => {
+    const content: ResumeContent = { ...CONTENT, languages: [] }
+    const page = CLEAN_PAGE.filter((line) => line !== 'Languages' && line !== 'English — C1')
+    expect(checkResumeAts(input({ content, pages: [page.join('\n')] }))).toEqual({
+      ok: true,
+      failures: [],
+    })
+  })
+
   it('HEADING_ORDER when two headings appear out of the effective order', () => {
     const swapped = [...CLEAN_PAGE]
     const skills = swapped.splice(4, 2)
@@ -300,6 +320,24 @@ describe('ITEM_ORDER', () => {
     const report = checkResumeAts(input({ pages: [page.join('\n')] }))
     expect(report.failures.map((f) => [f.code, f.path])).toEqual([
       ['ITEM_ORDER', 'experience[1].role'],
+      ['ITEM_ORDER', 'experience[1].company'],
+      ['ITEM_ORDER', 'experience[1].period'],
+    ])
+  })
+
+  it('a bullet whose only occurrence is inside its own header is out of order', () => {
+    const content: ResumeContent = {
+      ...CONTENT,
+      experience: [{ ...CONTENT.experience[0]!, bullets: ['Lead'] }, CONTENT.experience[1]!],
+    }
+    const page = CLEAN_PAGE.filter((line) => !line.startsWith('• Led') && !line.startsWith('• Cut'))
+    const report = checkResumeAts(input({ content, pages: [page.join('\n')] }))
+    expect(report.failures).toEqual([
+      {
+        code: 'ITEM_ORDER',
+        path: 'experience[0].bullets[0]',
+        detail: 'Not after the header of its own item: "Lead"',
+      },
     ])
   })
 
@@ -313,14 +351,12 @@ describe('ITEM_ORDER', () => {
   })
 
   it('an item header that only occurs before the Experience heading is out of order', () => {
-    const content: ResumeContent = {
-      ...CONTENT,
-      summary: 'Senior engineer with ten years of experience. Tech Lead.',
-    }
-    const page = pageWith(
-      'Senior engineer with ten years of experience.',
-      'Senior engineer with ten years of experience. Tech Lead.',
-    ).replace('Experience\nTech Lead\n', 'Experience\n')
+    const content: ResumeContent = { ...CONTENT, skills: ['TypeScript', 'NestJS', 'Tech Lead'] }
+    // The skills line is the line directly above the Experience heading.
+    const page = pageWith('TypeScript · NestJS', 'TypeScript · NestJS · Tech Lead').replace(
+      'Experience\nTech Lead\n',
+      'Experience\n',
+    )
     const report = checkResumeAts(input({ content, pages: [page] }))
     expect(report.failures.map((f) => [f.code, f.path])).toEqual([
       ['ITEM_ORDER', 'experience[0].role'],
@@ -331,6 +367,7 @@ describe('ITEM_ORDER', () => {
     const content: ResumeContent = {
       ...CONTENT,
       summary: 'Engineer at Globex. Built the billing service.',
+      experience: [{ ...CONTENT.experience[0]!, period: '2021 — now' }, CONTENT.experience[1]!],
     }
     const page = CLEAN_PAGE.slice(0, CLEAN_PAGE.indexOf('Experience'))
       .map((line) => (line.startsWith('Senior') ? content.summary : line))
@@ -452,6 +489,29 @@ describe('CONTACT_NOT_IN_BODY', () => {
     ])
   })
 
+  it('with no heading, a contact block on page 2 still fails', () => {
+    const empty: ResumeContent = {
+      summary: '',
+      skills: [],
+      experience: [],
+      education: [],
+      languages: [],
+      links: [],
+    }
+    const report = checkResumeAts(
+      input({ content: empty, pages: ['Cover', 'Jane Doe\njane@example.com'] }),
+    )
+    expect(report.failures.map((f) => [f.code, f.path])).toEqual([
+      ['CONTACT_NOT_IN_BODY', 'displayName'],
+      ['CONTACT_NOT_IN_BODY', 'email'],
+    ])
+  })
+
+  it('a name wrapped over two lines still counts', () => {
+    const report = checkResumeAts(input({ pages: [pageWith('Jane Doe', 'Jane\nDoe')] }))
+    expect(report).toEqual({ ok: true, failures: [] })
+  })
+
   it('a name on the same line as the email still counts', () => {
     const page = pageWith('Jane Doe', null).replace('jane@example.com', 'Jane Doe jane@example.com')
     expect(checkResumeAts(input({ pages: [page] })).ok).toBe(true)
@@ -481,7 +541,7 @@ describe('CONTACT_NOT_IN_BODY', () => {
 
 describe('glyph checks', () => {
   it('REPLACEMENT_CHAR on U+FFFD anywhere in the text', () => {
-    const report = checkResumeAts(input({ pages: [CLEAN_PAGE.join('\n'), 'note �'] }))
+    const report = checkResumeAts(input({ pages: [CLEAN_PAGE.join('\n'), 'note \uFFFD'] }))
     expect(report.failures).toEqual([
       {
         code: 'REPLACEMENT_CHAR',
@@ -492,9 +552,9 @@ describe('glyph checks', () => {
   })
 
   it.each([
-    ['ﬀ', 'U+FB00'],
-    ['ﬁ', 'U+FB01'],
-    ['ﬆ', 'U+FB06'],
+    ['\uFB00', 'U+FB00'],
+    ['\uFB01', 'U+FB01'],
+    ['\uFB06', 'U+FB06'],
   ])('LIGATURE on %s', (char, label) => {
     const report = checkResumeAts(input({ pages: [`${CLEAN_PAGE.join('\n')}\nef${char}cient`] }))
     expect(report.failures).toEqual([
@@ -502,20 +562,23 @@ describe('glyph checks', () => {
     ])
   })
 
-  it.each(['﫿', '﬇'])('no LIGATURE on the neighbour %j', (char) => {
+  it.each(['\uFAFF', '\uFB07'])('no LIGATURE on the neighbour %j', (char) => {
     const report = checkResumeAts(input({ pages: [`${CLEAN_PAGE.join('\n')}\n${char}`] }))
     expect(report).toEqual({ ok: true, failures: [] })
   })
 
-  it.each(['E X P E R I E N C E', 'e x p e r i e n c e', 'É x p é r i e n c e', 'S k i l'])(
-    'LETTER_SPACED on %j',
-    (line) => {
-      const report = checkResumeAts(input({ pages: [`${CLEAN_PAGE.join('\n')}\n${line}`] }))
-      expect(report.failures).toEqual([
-        { code: 'LETTER_SPACED', path: 'pages[0]', detail: `Letter-spaced text: "${line}"` },
-      ])
-    },
-  )
+  it.each([
+    'E X P E R I E N C E',
+    'e x p e r i e n c e',
+    'É x p é r i e n c e',
+    'S k i l',
+    'S k i l.',
+  ])('LETTER_SPACED on %j', (line) => {
+    const report = checkResumeAts(input({ pages: [`${CLEAN_PAGE.join('\n')}\n${line}`] }))
+    expect(report.failures).toEqual([
+      { code: 'LETTER_SPACED', path: 'pages[0]', detail: `Letter-spaced text: "${line}"` },
+    ])
+  })
 
   it.each(['A B testing', 'S k iX', 'A B C', '1 2 3 4', 'éA B C D'])(
     'no LETTER_SPACED on %j',
@@ -638,4 +701,56 @@ describe('on a real render', () => {
       ResumeFileUnreadableError,
     )
   }, 60_000)
+})
+
+/**
+ * The worker reply is checked against the mode it was asked for. Only the
+ * worker's stdout is stood in for: the PDF guards before it run for real.
+ */
+describe('extractRenderedPages — the worker reply', () => {
+  const extraction = new ResumeTextExtractionService()
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function workerReplies(stdout: string) {
+    return vi
+      .spyOn(sandboxedProcess, 'runSandboxed')
+      .mockResolvedValue({ code: 0, stdout, stderr: '', timedOut: false })
+  }
+
+  it('asks the worker for pages and returns them normalised', async () => {
+    const spy = workerReplies(JSON.stringify({ ok: true, pages: ['  Summary  \n\n\n\nx', 'y'] }))
+    await expect(extraction.extractRenderedPages(await buildEmptyPdf(1))).resolves.toEqual([
+      'Summary\n\nx',
+      'y',
+    ])
+    expect(spy.mock.calls[0]?.[0]?.args.at(-1)).toBe('pages')
+  })
+
+  it('text extraction does not pass the pages flag', async () => {
+    const spy = workerReplies(JSON.stringify({ ok: true, text: 'hello' }))
+    await expect(extraction.extract(await buildEmptyPdf(1), RESUME_PDF_MIME)).resolves.toBe('hello')
+    expect(spy.mock.calls[0]?.[0]?.args).not.toContain('pages')
+  })
+
+  it.each([
+    ['a text reply', { ok: true, text: 'Summary' }],
+    ['a non-string page', { ok: true, pages: ['Summary', 1] }],
+    ['a pages object', { ok: true, pages: { 0: 'Summary' } }],
+    ['ok: false with pages', { ok: false, pages: ['Summary'], error: 'boom' }],
+  ])('refuses %s', async (_name, reply) => {
+    workerReplies(JSON.stringify(reply))
+    await expect(extraction.extractRenderedPages(await buildEmptyPdf(1))).rejects.toThrow(
+      new ResumeFileUnreadableError('Не удалось прочитать файл резюме'),
+    )
+  })
+
+  it('text extraction refuses a pages reply', async () => {
+    workerReplies(JSON.stringify({ ok: true, pages: ['Summary'] }))
+    await expect(extraction.extract(await buildEmptyPdf(1), RESUME_PDF_MIME)).rejects.toThrow(
+      new ResumeFileUnreadableError('Не удалось прочитать файл резюме'),
+    )
+  })
 })

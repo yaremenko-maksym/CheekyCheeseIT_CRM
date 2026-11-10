@@ -283,7 +283,7 @@ export class ResumeTextExtractionService {
     await this.acquireSlot()
     try {
       return await this.readPdf(pdf, async () =>
-        (await this.runWorker(pdf, RESUME_PDF_MIME, undefined, undefined, 'pages')).map(
+        (await this.runWorker(pdf, RESUME_PDF_MIME, undefined, undefined, true)).map(
           normalizeExtractedText,
         ),
       )
@@ -373,14 +373,14 @@ export class ResumeTextExtractionService {
     mime: ResumeSourceMime,
     timeoutMs: number | undefined,
     cpuSeconds: number | undefined,
-    output: 'pages',
+    pages: true,
   ): Promise<string[]>
   private async runWorker(
     buffer: Buffer,
     mime: ResumeSourceMime,
     timeoutMs: number = EXTRACTION_TIMEOUT_MS,
     cpuSeconds: number = EXTRACTION_CPU_SECONDS,
-    output: 'text' | 'pages' = 'text',
+    pages = false,
   ): Promise<string | string[]> {
     // ── THE SEAM MAY ONLY TIGHTEN THE LIMIT, NEVER LOOSEN IT ──────────────
     //
@@ -421,7 +421,7 @@ export class ResumeTextExtractionService {
           filePath,
           mime,
           String(RESUME_LIMITS.extractionRawChars),
-          ...(output === 'pages' ? ['pages'] : []),
+          ...(pages ? ['pages'] : []),
         ],
         cwd: dir,
         // Only what node needs to start. The database URL, the S3 credentials
@@ -474,11 +474,10 @@ export class ResumeTextExtractionService {
         pages?: unknown
         error?: string
       }
-      const value = output === 'pages' ? parsed.pages : parsed.text
-      const valid =
-        output === 'pages'
-          ? Array.isArray(value) && value.every((page) => typeof page === 'string')
-          : typeof value === 'string'
+      const value = pages ? parsed.pages : parsed.text
+      const valid = pages
+        ? Array.isArray(value) && value.every((page) => typeof page === 'string')
+        : typeof value === 'string'
       if (!parsed.ok || !valid) {
         this.logger.warn(`Extraction worker reported: ${parsed.error ?? 'unknown'}`)
         throw new ResumeFileUnreadableError('Не удалось прочитать файл резюме')
