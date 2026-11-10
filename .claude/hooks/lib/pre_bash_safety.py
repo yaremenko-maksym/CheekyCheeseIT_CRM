@@ -17,15 +17,17 @@ def refuse(reason):
 
 # SR-L-2 (#1304): an own deadline below the registered 60 s timeout, so a slow read
 # refuses on every client, also one that ignores `onFailure` and would fail open.
-# PRE_BASH_SAFETY_DEADLINE can only lower it (the tests use 1 s).
-if hasattr(signal, "SIGALRM"):
+# PRE_BASH_SAFETY_DEADLINE can only lower it (the tests use 0.05 s). Best effort: the
+# handler runs between bytecodes, so one long regex call delays it; the registered
+# timeout with onFailure: block stays the hard backstop.
+if hasattr(signal, "setitimer"):
     try:
-        _deadline = min(45, max(1, int(os.environ.get("PRE_BASH_SAFETY_DEADLINE", "45"))))
+        _deadline = min(45.0, max(0.01, float(os.environ.get("PRE_BASH_SAFETY_DEADLINE", "45"))))
     except ValueError:
-        _deadline = 45
+        _deadline = 45.0
     signal.signal(signal.SIGALRM, lambda *_: refuse(
-        "command too complex for the safety hook to read (took over %d s)" % _deadline))
-    signal.alarm(_deadline)
+        "command too complex for the safety hook to read (took over %g s)" % _deadline))
+    signal.setitimer(signal.ITIMER_REAL, _deadline)
 
 # Loaded by absolute path; `python3 -I` keeps lib/ and the cwd off the import path.
 _spec = importlib.util.spec_from_file_location(
@@ -211,15 +213,29 @@ def candidates(seg, depth=0):
         if "watch" not in c.wrappers or c.raw in read:
             continue
         read.add(c.raw)
-        program = watch_program(c.raw) if depth < 3 else None
-        inner = cmdscan.scan(program) if program else None
-        if inner is None or inner.truncated:
-            if program != "" and TOO_COMPLEX not in blocked:
+        # Memoized like pkg_launch: every predicate reads the segment again. The program
+        # bytes are charged to the rescan budget once per top-level segment.
+        wk = (c.raw, depth)
+        if (wk, TOP[0]) not in CHARGED:
+            CHARGED.add((wk, TOP[0]))
+            if over(len(c.raw)):
+                continue
+        if wk not in WATCHED:
+            program = watch_program(c.raw) if depth < 3 else None
+            inner = cmdscan.scan(program) if program else None
+            if inner is None or inner.truncated:
+                WATCHED[wk] = None if program != "" else []
+            else:
+                WATCHED[wk] = [x for s in inner.segments for x in [s] + candidates(s, depth + 1)]
+        if WATCHED[wk] is None:
+            if TOO_COMPLEX not in blocked:
                 blocked.append(TOO_COMPLEX)
             continue
-        for s in inner.segments:
-            out += [s] + candidates(s, depth + 1)
+        out += WATCHED[wk]
     return out
+
+
+WATCHED = {}  # expanded candidates per (watch segment text, depth); None = unreadable
 
 
 WATCH_VALUE_FLAGS = ("-n", "--interval", "-q", "--equexit")
@@ -244,8 +260,8 @@ def watch_program(raw):
             break
         if w in ("-x", "--exec"):
             exact = True
-        elif w in WATCH_VALUE_FLAGS:
-            i += 1
+        elif w in WATCH_VALUE_FLAGS or re.fullmatch(r"-[a-z]*[nq]", w):
+            i += 1  # `-n 5`, and a cluster ending in a value flag (`-dn 5`)
     rest = words[i:]
     return " ".join(requote(w) for w in rest) if exact else " ".join(rest)
 

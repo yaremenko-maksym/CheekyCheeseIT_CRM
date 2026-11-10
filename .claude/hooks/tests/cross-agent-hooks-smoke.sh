@@ -109,9 +109,16 @@ fi
 UNISOLATED=$(python3 -I -c '
 import glob, re, sys
 for f in sorted(glob.glob(sys.argv[1] + "/*.sh")):
-    for n, l in enumerate(open(f, errors="replace"), 1):
-        if not l.lstrip().startswith("#") and re.search(r"\bpython3 +(-c|-)(\s|$)", l):
-            print("%s:%d" % (f, n))
+    # a backslash-continued line is one command (`python3 \<newline> -c`)
+    lines = open(f, errors="replace").read().replace("\\\n", " ").split("\n")
+    for n, l in enumerate(lines, 1):
+        if l.lstrip().startswith("#"):
+            continue
+        # a python3 / python3.N run given options must give -I first (alone or in a
+        # cluster); script-path runs and prose mentions carry no option and pass
+        for m in re.finditer(r"\bpython3(?:\.\d+)?\s+(-\S*)", l):
+            if not re.fullmatch(r"-[A-Za-z]*I[A-Za-z]*", m.group(1)):
+                print("%s:%d" % (f, n))
 ' "$HOOKS_DIR")
 if [ -n "$UNISOLATED" ]; then
   echo "FATAL: python3 without -I in a hook (cwd on sys.path):"

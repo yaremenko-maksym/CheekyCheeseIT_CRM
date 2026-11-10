@@ -894,13 +894,14 @@ assert_red "watch -d -n1 -- 'echo hi; rm -rf /etc'" -- h "watch -d -n1 -- 'echo 
 assert_red "watch -n 5 'bash -c \"rm -rf /etc\"'" -- h "watch -n 5 'bash -c \"rm -rf /etc\"'"
 assert_red "watch -x sh -c 'rm -rf /etc'" -- h "watch -x sh -c 'rm -rf /etc'"
 assert_red "sh -c \"watch 'rm -rf /etc'\"" -- h "sh -c \"watch 'rm -rf /etc'\""
+assert_red "watch -dn 1 'rm -rf /etc'" --contains "rm -rf" -- h "watch -dn 1 'rm -rf /etc'"
 assert_green "watch -n 5 'git status'" -- h "watch -n 5 'git status'"
 assert_green "watch -n 5 \"git log --oneline | head -5\"" -- h "watch -n 5 \"git log --oneline | head -5\""
 assert_green "watch -n 1 'echo \"rm -rf /etc\"' (quoted phrase)" -- h "watch -n 1 'echo \"rm -rf /etc\"'"
-# SR-L-2: the analyzer's own deadline refuses a slow read (lowered to 1 s here).
+# SR-L-2: the analyzer's own deadline refuses a slow read (lowered to 0.05 s here; the read takes ~2 s).
 slow="pnpm exec eslint --fix --max-warnings 0 --cache $(printf 'apps/web/src/components/feature/f-%s.tsx ' $(seq 1100))"
 assert_green "1100-path eslint is allowed at the default deadline" -- h "$slow"
-PRE_BASH_SAFETY_DEADLINE=1 assert_red "a read past the deadline refuses as too complex" --contains "took over 1 s" -- h "$slow"
+PRE_BASH_SAFETY_DEADLINE=0.05 assert_red "a read past the deadline refuses as too complex" --contains "took over 0.05 s" -- h "$slow"
 # #1304 follow-up: a script operand with a literal path prefix is the script, not an option.
 assert_green "bash scripts/devops/tests/\$t" -- h 'bash scripts/devops/tests/$t'
 assert_green "for t in a b; do bash scripts/devops/tests/\$t; done" -- h 'for t in a b; do bash scripts/devops/tests/$t; done'
