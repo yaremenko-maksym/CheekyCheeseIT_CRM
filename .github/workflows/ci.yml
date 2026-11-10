@@ -570,6 +570,201 @@ jobs:
         if: steps.scope.outputs.run != 'true'
         run: echo "No apps/api or packages/shared change — timing specs skipped."
 
+  # ATS suite (verified-base-resume Task 8): 4 templates × 10 synthetic fixtures rendered with the
+  # real Typst pin, read back by our extraction and compared with goldens. Its own job because the
+  # default `vitest run` excludes `*.ats.spec.ts`. NOT a required context (owner decision pending);
+  # path-filtered like `timing_specs`, so an unrelated PR gets a green skip, not a missing check.
+  # On failure the rendered PDFs and the full vitest log (golden diffs) are uploaded; goldens are
+  # never rewritten in CI (`ATS_UPDATE_GOLDEN` is not set here, on purpose).
+  ats_suite:
+    name: ATS suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Detect résumé rendering changes
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            ats:
+              - 'apps/api/src/assets/typst/**'
+              - 'apps/api/src/resumes/resume-typst.service.ts'
+              - 'apps/api/src/resumes/resume-glyphs.ts'
+              - 'apps/api/src/resumes/ats/**'
+              - 'apps/api/src/resumes/resume-text-extraction.service.ts'
+              - 'apps/api/src/assets/workers/resume-extract.cjs'
+              - 'apps/api/Dockerfile'
+              - 'scripts/devops/openresume-oracle.mjs'
+              - '.github/workflows/ci.yml'
+
+      - name: Resolve run scope
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_ATS: ${{ steps.filter.outputs.ats }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then RUN="$PR_ATS"; else RUN=true; fi
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
+          echo "ATS suite scope: event=$EVENT run=$RUN"
+
+      - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.run == 'true'
+        with:
+          version: 7.32.4
+
+      - uses: actions/setup-node@v4
+        if: steps.scope.outputs.run == 'true'
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      # Same Typst pin + cache key as `quality_core`.
+      - uses: actions/cache@v4
+        id: typst-cache
+        if: steps.scope.outputs.run == 'true'
+        with:
+          path: ~/.cache/crm-typst-bin
+          key: typst-${{ runner.os }}-${{ hashFiles('apps/api/Dockerfile') }}
+
+      - name: Install Typst (version + checksum parsed from apps/api/Dockerfile)
+        if: steps.scope.outputs.run == 'true' && steps.typst-cache.outputs.cache-hit != 'true'
+        run: scripts/devops/install-typst-from-dockerfile.sh "$HOME/.cache/crm-typst-bin"
+
+      - name: Add Typst to PATH
+        if: steps.scope.outputs.run == 'true'
+        run: echo "$HOME/.cache/crm-typst-bin" >> "$GITHUB_PATH"
+
+      - if: steps.scope.outputs.run == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Run ATS suite
+        if: steps.scope.outputs.run == 'true'
+        run: |
+          set -o pipefail
+          ATS_MATRIX_OUT="$RUNNER_TEMP/ats-pdfs" pnpm --filter @crm/api test:ats 2>&1 | tee "$RUNNER_TEMP/ats-suite.log"
+
+      - name: Upload ATS evidence (PDFs + golden diffs)
+        if: failure() && steps.scope.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ats-suite-failure
+          path: |
+            ${{ runner.temp }}/ats-pdfs
+            ${{ runner.temp }}/ats-suite.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Skipped (no résumé rendering changes)
+        if: steps.scope.outputs.run != 'true'
+        run: echo "No résumé template / Typst / extraction change — ATS suite skipped."
+
+  # External parser oracle: OpenResume's `parse-resume-from-pdf` reads every matrix PDF and must
+  # recover name, email and each job's company / role / period (expectations: the suite's
+  # fixtures.ts, via scripts/devops/openresume-oracle.mjs). OpenResume is AGPL-3.0: it is fetched
+  # at a PINNED sha into $RUNNER_TEMP (never the workspace) and only invoked, never vendored.
+  # NOT a required context.
+  ats_oracle:
+    name: ATS oracle (OpenResume)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      OPENRESUME_SHA: 4f8255a2c763479837f69f1dccf2a3338730cd79
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Detect résumé rendering changes
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          # Same list as `ats_suite` — keep the two in step.
+          filters: |
+            ats:
+              - 'apps/api/src/assets/typst/**'
+              - 'apps/api/src/resumes/resume-typst.service.ts'
+              - 'apps/api/src/resumes/resume-glyphs.ts'
+              - 'apps/api/src/resumes/ats/**'
+              - 'apps/api/src/resumes/resume-text-extraction.service.ts'
+              - 'apps/api/src/assets/workers/resume-extract.cjs'
+              - 'apps/api/Dockerfile'
+              - 'scripts/devops/openresume-oracle.mjs'
+              - '.github/workflows/ci.yml'
+
+      - name: Resolve run scope
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_ATS: ${{ steps.filter.outputs.ats }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then RUN="$PR_ATS"; else RUN=true; fi
+          echo "run=$RUN" >> "$GITHUB_OUTPUT"
+          echo "ATS oracle scope: event=$EVENT run=$RUN"
+
+      - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.run == 'true'
+        with:
+          version: 7.32.4
+
+      - uses: actions/setup-node@v4
+        if: steps.scope.outputs.run == 'true'
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - uses: actions/cache@v4
+        id: typst-cache
+        if: steps.scope.outputs.run == 'true'
+        with:
+          path: ~/.cache/crm-typst-bin
+          key: typst-${{ runner.os }}-${{ hashFiles('apps/api/Dockerfile') }}
+
+      - name: Install Typst (version + checksum parsed from apps/api/Dockerfile)
+        if: steps.scope.outputs.run == 'true' && steps.typst-cache.outputs.cache-hit != 'true'
+        run: scripts/devops/install-typst-from-dockerfile.sh "$HOME/.cache/crm-typst-bin"
+
+      - name: Add Typst to PATH
+        if: steps.scope.outputs.run == 'true'
+        run: echo "$HOME/.cache/crm-typst-bin" >> "$GITHUB_PATH"
+
+      - if: steps.scope.outputs.run == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Render the ATS matrix PDFs
+        if: steps.scope.outputs.run == 'true'
+        run: ATS_MATRIX_OUT="$RUNNER_TEMP/ats-pdfs" pnpm --filter @crm/api test:ats
+
+      - name: Fetch OpenResume at the pinned sha (into $RUNNER_TEMP, AGPL — never the workspace)
+        if: steps.scope.outputs.run == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/openresume"
+          curl -sSfL "https://codeload.github.com/xitanggg/open-resume/tar.gz/$OPENRESUME_SHA" \
+            | tar xz -C "$RUNNER_TEMP/openresume" --strip-components=1
+          cd "$RUNNER_TEMP/openresume"
+          npm ci --ignore-scripts --no-audit --no-fund
+          test -f node_modules/pdfjs-dist/build/pdf.worker.js
+
+      - name: Run the OpenResume oracle
+        if: steps.scope.outputs.run == 'true'
+        env:
+          # @crm/shared is not built in this job; resolve its `source` export (TypeScript) instead.
+          NODE_OPTIONS: --conditions=source
+        run: apps/api/node_modules/.bin/tsx scripts/devops/openresume-oracle.mjs "$RUNNER_TEMP/openresume" "$RUNNER_TEMP/ats-pdfs"
+
+      - name: Skipped (no résumé rendering changes)
+        if: steps.scope.outputs.run != 'true'
+        run: echo "No résumé template / Typst / extraction change — ATS oracle skipped."
+
   # REQUIRED CONTEXT: `Typecheck · Lint · Unit Tests`. Aggregator over the two
   # parallel legs; green <=> both legs green. `if: always()` so it still
   # reports (red) when a leg fails instead of being skipped — a skipped
