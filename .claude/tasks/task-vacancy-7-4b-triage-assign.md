@@ -52,7 +52,8 @@ The API exists: `POST /job-queue/:id/team-triage` (ADMIN, `jobQueueTeamTriageGra
 
 ## Assumptions
 
-No assumptions yet. The expiry default is decided in this task (owner brief Q1).
+- A1 (Coder fills in): the grant-expiry default and why, one line here before the first commit. Owner brief Q1 left the
+  default to this task; the value rides into the PR body Assumptions block.
 
 ## Verification (Coder before `git push`)
 

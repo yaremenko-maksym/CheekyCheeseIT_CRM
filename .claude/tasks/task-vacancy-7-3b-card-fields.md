@@ -74,8 +74,9 @@ Cross-zone (api ↔ shared ↔ web). The card is scoped data: every new field ob
 3. [ ] ADMIN sees the seniors grouped under team headings (§5.6) and gets `policyVersion`; HR gets neither.
 4. [ ] `dismissal`: hide → undo → reload → hide succeeds (no 409); the integration spec covers a dismissal in another
        scope (another team's dismissal is never returned to HR).
-5. [ ] Zero-match vs every-match-stop-listed: the card shows the two empty states of §5.5 correctly, from an explicit field or
-       a recorded decision.
+5. [ ] The three empty states stay distinct: every match stop-listed (§5.4, `job-queue-seniors-stop-all`, already
+       rendered from `stopListedSeniorCount`), triage and zero-match (§5.5, different icon and headline). Add an explicit API
+       reason only if triage and zero-match cannot be told apart from the existing fields; say which in the report.
 6. [ ] i18n: every new string is a Lingui macro (source `uk`) with `en`; `pnpm i18n:extract` leaves no diff; `node
        scripts/devops/check-no-russian-letters.mjs` passes.
 7. [ ] Responsive: no horizontal overflow at 320 / 375 / 768 / 1024 / 1280 / 1440 / 1920; touch targets ≥ 44 px.
@@ -88,8 +89,10 @@ Cross-zone (api ↔ shared ↔ web). The card is scoped data: every new field ob
 
 ## Assumptions
 
-- A1 (Master): if a field has no data source in the schema today (for example availability or evidence), the Coder does not
-  invent one: run `decision-frontier` and report it; the rest of the task continues.
+- A1 (Master): a field with no data source today is not invented and does not pass AC 1. Per-senior availability (§5.2) has
+  none (no column in the schema nor in the queue read SQL; verified 2026-11-10); a new column is a migration, so it is an
+  owner decision (A3), raised by Master. The Coder lists every such field in the report as `AC 1 partial: <field> — no
+  source`, runs `decision-frontier` for anything else unclear, and continues with the rest.
 
 ## Do not touch
 

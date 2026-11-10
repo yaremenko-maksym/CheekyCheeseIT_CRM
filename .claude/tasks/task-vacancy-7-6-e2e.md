@@ -2,9 +2,9 @@
 
 ## Agent: autotest
 
-## Status: blocked until Tasks 7.3b and 7.5 are merged
+## Status: blocked until Tasks 7.3b, 7.4b and 7.5 are merged
 
-## Blockers: Task 7.3b, Task 7.5
+## Blockers: Task 7.3b, Task 7.4b, Task 7.5
 
 ## Priority: high
 
@@ -39,7 +39,8 @@ written for the shipped model.
 9. Expired generation refresh; empty / error / loading / partial-health states.
 10. Cache purge on logout and on account change.
 11. SENIOR direct URL is redirected (defence in depth only; the backend guard is proven by Task 6.4).
-12. ADMIN: source switch (Task 7.5) — toggle off and on, readiness failure keeps the state.
+12. ADMIN: source switch (Task 7.5) — toggle off and on, readiness failure keeps the state; triage assign (Task 7.4b) —
+    the granted team sees the triage vacancy, another team does not.
 13. Mobile 375: no horizontal scroll, full-screen card, targets ≥ 44 px, gesture-safe open (pattern:
     `job-sourcing-mobile.spec.ts`).
 
