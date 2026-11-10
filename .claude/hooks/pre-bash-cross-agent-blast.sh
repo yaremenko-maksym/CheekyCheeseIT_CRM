@@ -234,7 +234,7 @@ fi
 # LC_ALL=C: under a UTF-8 locale macOS tr and grep fail on an invalid byte (#1297 SR-L-6).
 echo "$CWD" | grep -qiE '\.t3/worktrees/' ||
   printf '%s' "$CMD" | LC_ALL=C tr -d "'\"\\\\" |
-  LC_ALL=C grep -qiE 'pkill|killall|taskkill|worktree|\.t3/|\.claude/worktrees/|CheekyCheeseIT_CRM' ||
+  LC_ALL=C grep -qiE 'pkill|killall|taskkill|kill[[:space:]]|worktree|\.t3/|\.claude/worktrees/|CheekyCheeseIT_CRM' ||
   printf '%s' "$CMD" | LC_ALL=C grep -q '[$`\]' || exit 0
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -481,6 +481,24 @@ def stdin_reader(seg):
     return True, strings, False, int(fdm.group(1)) if fdm else 0
 
 
+def heredoc_pass_through(p):
+    """`cat <<EOF | sh`: a cat with no file operand prints exactly its heredoc. Any other
+    source (`printf x <<EOF | sh`, `cat s.sh <<EOF | sh`) prints what the text does not show."""
+    if cmd_name(p.name) != "cat" or stdin_feed(p.argv, 0) != "heredoc":
+        return False
+    i = 0
+    while i < len(p.argv):
+        a = p.argv[i]
+        m = REDIRECT_TOKEN.match(a)
+        if m:
+            i += 1 if a[m.end():] else 2  # `<<EOF` / `<< EOF`, `2>&1` / `> f`
+            continue
+        if a != "-" and not a.startswith("-"):
+            return False
+        i += 1
+    return True
+
+
 # cmdscan hands every heredoc body of a line to the LAST segment of that line, whoever
 # opened it (`bash <<EOF; cat` gives the body to cat). So when a scan holds a shell that
 # reads code, every body of that scan is scanned as code, whichever segment carries it.
@@ -507,7 +525,7 @@ for _ in range(64):
                 blind = True
             elif feed is None and g.piped and not strings:
                 p = prev.get(g.depth)
-                blind = blind or p is None or stdin_feed(p.argv, 0) != "heredoc"
+                blind = blind or p is None or not heredoc_pass_through(p)
         runs_file = runs_file or runs
         work += strings
         prev[g.depth] = g
@@ -556,6 +574,8 @@ def written_file_named_again(g):
     rest = cmd
     for body in g.heredocs:
         rest = rest.replace(body, "", 1)
+    if files and re.search(r"[*?\[$`]", rest):
+        return True  # `./*eploy`, `$f`, `$(ls)` may name the file without spelling it
     for f in files:
         base = posixpath.basename(f.rstrip("/"))
         if base and len(re.findall(r"(?<![\w.-])%s(?![\w.-])" % re.escape(base), rest)) > 1:
@@ -736,17 +756,28 @@ if opaque:
 NONLITERAL = re.compile(r"[$`*?\[]")
 
 
-def resolve(tok):
-    """Absolute path for a LITERAL token. Caller must reject non-literals first."""
+def resolve(tok, base=None):
+    """Absolute path for a LITERAL token, relative to base (default cwd). Caller must reject
+    non-literals first."""
     t = to_posix(os.path.expanduser(tok))
     if not t.startswith("/"):
-        t = posixpath.join(cwd, t)
+        t = posixpath.join(base or cwd, t)
     return posixpath.normpath(t).rstrip("/")
+
+
+def kill_broadcast(args):
+    """`kill -9 -1` signals every process the user owns, `kill 0` the whole process group."""
+    i = 0
+    if args[:1] in (["-s"], ["-n"]):
+        i = 2
+    elif args[:1] and args[0].startswith("-") and args[0] != "--":
+        i = 1  # the signal: `kill -1 1234` is SIGHUP to 1234
+    return any(a in ("-1", "0") for a in args[i:] if a != "--")
 
 # ---- predicate 1: broadcast process kill (backlog 72 / PR #547) -------------
 for name, args in toks:
     # taskkill /IM and /FI are the Windows pkill. /PID names one process, so it stays allowed.
-    if name in ("pkill", "killall") or (
+    if name in ("pkill", "killall") or (name == "kill" and kill_broadcast(args)) or (
         name == "taskkill" and any(re.match(r"^[/-]+(im|fi)(:|$)", a, re.I) for a in args)
     ):
         reasons.append(
@@ -760,6 +791,19 @@ for name, args in toks:
 for name, args in toks:
     if name != "git" or "worktree" not in args:
         continue
+    # `git -C <dir> worktree remove .`: relative targets are read from <dir>, not cwd
+    gdir, i, gdir_literal = cwd, 0, True
+    while i < len(args) and args[i].startswith("-"):
+        if args[i] == "-C" and i + 1 < len(args):
+            gdir_literal = gdir_literal and not NONLITERAL.search(args[i + 1])
+            gdir = resolve(args[i + 1], gdir)
+        i += 2 if args[i] in ("-C", "-c", "--git-dir", "--work-tree", "--namespace") else 1
+    if not gdir_literal:
+        reasons.append(
+            "WORKTREE-OPAQUE|`git -C <dir> worktree ...` with a non-literal <dir>: I cannot "
+            "tell which tree the command runs in. Pass the directory as a literal."
+        )
+        break
     sub = ""
     for a in args[args.index("worktree") + 1:]:
         if not a.startswith("-"):
@@ -830,10 +874,12 @@ for name, args in toks:
             if os.path.exists(cand):
                 continue
             record_owned(cand)
-        break
-    if sub == "remove":
+        continue  # a later worktree command on the line is judged too
+    if sub in ("remove", "move"):
         targets = [a for a in args[args.index("worktree") + 1:]
-                   if not a.startswith("-") and a != "remove" and not REDIRECT_TOKEN.match(a)]
+                   if not a.startswith("-") and a != sub and not REDIRECT_TOKEN.match(a)]
+        if sub == "move":
+            targets = targets[:1]  # `git worktree move <tree> <new-path>`: the tree is the first
         if not targets:
             # `xargs git worktree remove <<EOF` / `... | xargs git worktree remove`:
             # the path arrives on stdin, so whose tree it is cannot be read here
@@ -869,7 +915,7 @@ for name, args in toks:
                     "назову. Убираешь пачкой — по одному." % (t, t)
                 )
                 continue
-            t_abs = resolve(t)
+            t_abs = resolve(t, gdir)
             if own_wt and (t_abs == own_wt or t_abs.startswith(own_wt + "/")):
                 continue  # removing my own worktree is fine
             t_tmp = tmp_norm(t_abs)
@@ -896,7 +942,7 @@ for name, args in toks:
                 "ревьюера, ждавшего следующего раунда, и выбросила его в общий "
                 "чекаут." % (t, own_wt or own_scratch or "<не в worktree>")
             )
-        break
+        continue
 
 # ---- predicate 3: mutating another agent tree or the shared checkout --------
 # (backlog 27 / PR #493, backlog 100 / PR #551)
@@ -926,10 +972,7 @@ def is_mutating(name, args):
                 if cmd_name(args[i + 1]) in MUTATORS:
                     return True
     if name == "git":
-        for a in args:
-            if a.startswith("-"):
-                continue
-            return a in MUTATING_GIT
+        return git_sub(args) in MUTATING_GIT  # `git -C <dir> clean`: -C takes a value
     return False
 
 
