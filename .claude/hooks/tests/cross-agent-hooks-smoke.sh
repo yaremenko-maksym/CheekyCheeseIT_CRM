@@ -90,36 +90,37 @@ done
 # The shared analyzer is python, and a broken one makes every hook fall back to
 # its coarse rule while still exiting 2 — a degraded guard that looks like a
 # working one.
-if ! python3 -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
+if ! python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
   "$HOOKS_DIR/lib/cmdscan.py" >/dev/null 2>&1; then
   echo "FATAL: lib/cmdscan.py does not compile"
-  python3 -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
+  python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
     "$HOOKS_DIR/lib/cmdscan.py"
   exit 1
 fi
-if ! python3 -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
+if ! python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
   "$HOOKS_DIR/lib/pre_bash_safety.py" >/dev/null 2>&1; then
   echo "FATAL: lib/pre_bash_safety.py does not compile"
-  python3 -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
+  python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
     "$HOOKS_DIR/lib/pre_bash_safety.py"
   exit 1
 fi
 # #1304 follow-up: a hook runs in the agent's cwd, so `python3 -c` / `python3 -` without
 # -I puts that cwd on sys.path and a planted json.py runs inside the hook.
-UNISOLATED=$(python3 -I -c '
-import glob, re, sys
-for f in sorted(glob.glob(sys.argv[1] + "/*.sh")):
-    # a backslash-continued line is one command (`python3 \<newline> -c`)
-    lines = open(f, errors="replace").read().replace("\\\n", " ").split("\n")
-    for n, l in enumerate(lines, 1):
-        if l.lstrip().startswith("#"):
-            continue
-        # a python3 / python3.N run given options must give -I first (alone or in a
-        # cluster); script-path runs and prose mentions carry no option and pass
-        for m in re.finditer(r"\bpython3(?:\.\d+)?\s+(-\S*)", l):
-            if not re.fullmatch(r"-[A-Za-z]*I[A-Za-z]*", m.group(1)):
-                print("%s:%d" % (f, n))
-' "$HOOKS_DIR")
+# The scan lives in its own file: inline in bash single quotes, one stray quote made it
+# silently never run (gate 0 still printed success).
+if ! python3 -I "$HOOKS_DIR/tests/check_python_isolation.py" --self-test; then
+  echo "FATAL: the python3 isolation scanner fails its own self-test"
+  exit 1
+fi
+UNISOLATED=$(python3 -I "$HOOKS_DIR/tests/check_python_isolation.py" "$HOOKS_DIR")
+UNISOLATED_RC=$?
+# fail closed: a scan that did not run, or read no hooks, is not a pass
+SCANNED=$(printf '%s\n' "$UNISOLATED" | sed -n 's/^scanned \([0-9][0-9]*\)$/\1/p')
+if [ "$UNISOLATED_RC" -ne 0 ] || [ -z "$SCANNED" ] || [ "$SCANNED" -lt 10 ]; then
+  echo "FATAL: the python3 isolation scan did not run (rc=$UNISOLATED_RC, scanned='${SCANNED}')"
+  exit 1
+fi
+UNISOLATED=$(printf '%s\n' "$UNISOLATED" | grep -v '^scanned [0-9]*$' || true)
 if [ -n "$UNISOLATED" ]; then
   echo "FATAL: python3 without -I in a hook (cwd on sys.path):"
   echo "$UNISOLATED"
@@ -177,7 +178,7 @@ ledger_case() {
 bash_case() {
   local expect="$1" cwd="$2" cmd="$3" label="$4"
   local payload rc
-  payload=$(MSYS2_ENV_CONV_EXCL='*' CWD="$cwd" CMD="$cmd" python3 -c '
+  payload=$(MSYS2_ENV_CONV_EXCL='*' CWD="$cwd" CMD="$cmd" python3 -I -B -c '
 import json, os
 print(json.dumps({
     "hook_event_name": "PreToolUse",
@@ -196,7 +197,7 @@ print(json.dumps({
 scratch_case() {
   local expect="$1" agent="$2" cwd="$3" cmd="$4" label="$5"
   local payload rc
-  payload=$(MSYS2_ENV_CONV_EXCL='*' CWD="$cwd" CMD="$cmd" AID="$agent" python3 -c '
+  payload=$(MSYS2_ENV_CONV_EXCL='*' CWD="$cwd" CMD="$cmd" AID="$agent" python3 -I -B -c '
 import json, os
 print(json.dumps({
     "hook_event_name": "PreToolUse",
@@ -214,7 +215,7 @@ print(json.dumps({
 agent_case() {
   local expect="$1" ti="$2" label="$3"
   local payload rc
-  payload=$(TI="$ti" python3 -c '
+  payload=$(TI="$ti" python3 -I -B -c '
 import json, os
 print(json.dumps({
     "hook_event_name": "PreToolUse",

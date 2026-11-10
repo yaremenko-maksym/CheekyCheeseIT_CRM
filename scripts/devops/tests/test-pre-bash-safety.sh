@@ -335,6 +335,18 @@ sys.exit(0 if not m.scan(os.environ["CMD"]).alt_only else 1)
 '
 stripper_alone_sees_all() { CMDSCAN="$REPO_ROOT/.claude/hooks/lib/cmdscan.py" CMD="$1" python3 -I -c "$ALT_ONLY_PY"; }
 stripper_needed_help() { ! stripper_alone_sees_all "$1"; }
+# cmdscan unwraps `watch -q N <cmd>` to <cmd>: -q/--equexit take a value (the hooks that
+# read segment names must see `pkill`, not `3`, the value of -q)
+WATCH_NAMES_PY='
+import importlib.util, os, sys
+spec = importlib.util.spec_from_file_location("cmdscan", os.environ["CMDSCAN"])
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+sys.exit(0 if [s.name for s in m.scan(os.environ["CMD"]).segments] == ["pkill"] else 1)
+'
+watch_unwraps_to_pkill() { CMDSCAN="$REPO_ROOT/.claude/hooks/lib/cmdscan.py" CMD="$1" python3 -I -c "$WATCH_NAMES_PY"; }
+assert_green "cmdscan: watch -q 3 pkill -f node is the pkill segment" -- watch_unwraps_to_pkill "watch -q 3 pkill -f node"
+assert_green "cmdscan: watch --equexit 3 pkill -f node is the pkill segment" -- watch_unwraps_to_pkill "watch --equexit 3 pkill -f node"
 assert_green "SR-M-22: стриппер САМ видит команду после экранированного пробела и #" \
   -- stripper_alone_sees_all "echo a\\ # && psql -c '$DROP'"
 assert_green "SR-M-22: то же с ;" \
@@ -890,10 +902,10 @@ assert_red "#1304: 100 copies of one runner segment refuse as too complex" --con
 assert_green "#1304: 100 copies of one runner segment refuse within 10 s" -- test $((SECONDS - t0)) -le 10
 # #1304 follow-up: `watch` runs its joined arguments through sh -c.
 assert_red "watch -n 5 'rm -rf /etc'" --contains "rm -rf" -- h "watch -n 5 'rm -rf /etc'"
-assert_red "watch -d -n1 -- 'echo hi; rm -rf /etc'" -- h "watch -d -n1 -- 'echo hi; rm -rf /etc'"
-assert_red "watch -n 5 'bash -c \"rm -rf /etc\"'" -- h "watch -n 5 'bash -c \"rm -rf /etc\"'"
-assert_red "watch -x sh -c 'rm -rf /etc'" -- h "watch -x sh -c 'rm -rf /etc'"
-assert_red "sh -c \"watch 'rm -rf /etc'\"" -- h "sh -c \"watch 'rm -rf /etc'\""
+assert_red "watch -d -n1 -- 'echo hi; rm -rf /etc'" --contains "rm -rf on root" -- h "watch -d -n1 -- 'echo hi; rm -rf /etc'"
+assert_red "watch -n 5 'bash -c \"rm -rf /etc\"'" --contains "rm -rf on root" -- h "watch -n 5 'bash -c \"rm -rf /etc\"'"
+assert_red "watch -x sh -c 'rm -rf /etc'" --contains "rm -rf on root" -- h "watch -x sh -c 'rm -rf /etc'"
+assert_red "sh -c \"watch 'rm -rf /etc'\"" --contains "rm -rf on root" -- h "sh -c \"watch 'rm -rf /etc'\""
 assert_red "watch -dn 1 'rm -rf /etc'" --contains "rm -rf" -- h "watch -dn 1 'rm -rf /etc'"
 assert_green "watch -n 5 'git status'" -- h "watch -n 5 'git status'"
 assert_green "watch -n 5 \"git log --oneline | head -5\"" -- h "watch -n 5 \"git log --oneline | head -5\""
@@ -907,10 +919,10 @@ assert_green "bash scripts/devops/tests/\$t" -- h 'bash scripts/devops/tests/$t'
 assert_green "for t in a b; do bash scripts/devops/tests/\$t; done" -- h 'for t in a b; do bash scripts/devops/tests/$t; done'
 assert_green "bash ./\$x" -- h 'bash ./$x'
 assert_green "sh \"scripts/\$t.sh\" arg" -- h 'sh "scripts/$t.sh" arg'
-assert_red "bash \$x (may be an option word)" -- h 'bash $x'
-assert_red "bash \"\$x\" (may be an option word)" -- h 'bash "$x"'
-assert_red "bash \$m x.sh" -- h 'bash $m x.sh'
-assert_red "bash \${x}" -- h 'bash ${x}'
+assert_red "bash \$x (may be an option word)" --contains "alias expansion" -- h 'bash $x'
+assert_red "bash \"\$x\" (may be an option word)" --contains "alias expansion" -- h 'bash "$x"'
+assert_red "bash \$m x.sh" --contains "alias expansion" -- h 'bash $m x.sh'
+assert_red "bash \${x}" --contains "alias expansion" -- h 'bash ${x}'
 assert_green "normal runner command passes: pnpm --filter @crm/api exec vitest run a b c" \
   -- h "pnpm --filter @crm/api exec vitest run a b c"
 for c in 'pnpm --filter $pkg test' 'pnpm --filter @crm/api test' 'pnpm install' 'pnpm -r build' \

@@ -26,7 +26,7 @@ HOOK_TEST_WORKTREE="$REPO_ROOT/.claude/worktrees/agent-guard-test"
 # $1 = hook path, $2 = command line, $3 = cwd (default: fake worktree)
 hook_at() {
   local hook="$1" cmd="$2" cwd="${3:-$HOOK_TEST_WORKTREE}"
-  CMD="$cmd" CWD="$cwd" python3 -c '
+  CMD="$cmd" CWD="$cwd" python3 -I -B -c '
 import json, os, sys
 sys.stdout.write(json.dumps({
     "session_id": "guard-test",
