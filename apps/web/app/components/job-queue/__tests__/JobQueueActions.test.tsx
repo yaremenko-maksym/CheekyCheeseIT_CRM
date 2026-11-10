@@ -500,6 +500,25 @@ describe('possible-duplicate confirm (AC 3, §5.8)', () => {
     expect(card).toHaveFocus()
   })
 
+  it('CR-M-1: a card that turns blocked ends the focus wait; focus is not pulled to the senior', async () => {
+    const { confirm, rerender } = await openConfirm()
+    post.mockResolvedValueOnce(submitted())
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Так, записати все одно' }))
+    await waitFor(() => expect(toast.success).toHaveBeenCalled())
+    const card = screen.getByTestId('job-queue-card')
+    act(() => card.focus())
+    // the refetch: taken, but someone else moved the vacancy on meanwhile
+    setCard(
+      cardFixture({
+        revision: 4,
+        seniors: { items: [senior(taken(OLENA))], totalCount: 1, nextCursor: null },
+      }),
+    )
+    rerender()
+    expect(screen.getByTestId('job-queue-stale')).toBeInTheDocument()
+    expect(card).toHaveFocus()
+  })
+
   it('CR-M-1: after a confirmed write, focus waits on the button until the refetch, then the row; then it is free', async () => {
     const { confirm, rerender } = await openConfirm()
     post.mockResolvedValueOnce(submitted())
@@ -1270,6 +1289,33 @@ describe('RBAC: ADMIN menus (AC 6, §5.6)', () => {
     await user.keyboard('{Escape}')
     await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
     expect(trigger).toHaveFocus()
+  })
+
+  it('CR-M-1: a failed studio hide toasts its failure; one that loses access does not', async () => {
+    const user = userEvent.setup()
+    const { onClose } = renderCard(ADMIN)
+    const hideForAll = async () => {
+      await user.click(screen.getByRole('button', { name: 'Дії адміністратора' }))
+      await user.click(await screen.findByRole('menuitem', { name: 'Приховати для всіх…' }))
+      const dialog = await screen.findByRole('alertdialog')
+      await user.click(within(dialog).getByRole('button', { name: 'Приховати для всіх' }))
+    }
+    post.mockRejectedValueOnce(httpError(500, {}))
+    await hideForAll()
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'Не вдалося приховати вакансію. Спробуйте ще раз.',
+        JOB_QUEUE_TOAST,
+      ),
+    )
+    expect(onClose).not.toHaveBeenCalled()
+    vi.mocked(toast.error).mockClear()
+    post.mockRejectedValueOnce(coded(404, 'JOB_OPPORTUNITY_NOT_FOUND'))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    await hideForAll()
+    await waitFor(() => expect(sent(`/job-queue/${OPP}/suppress`)).toHaveLength(2))
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+    expect(toast.error).not.toHaveBeenCalled()
   })
 
   it('ADMIN: «Не приховувати» keeps the vacancy, with no request', async () => {
