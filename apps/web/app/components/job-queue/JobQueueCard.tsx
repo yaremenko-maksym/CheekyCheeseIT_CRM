@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { toast } from 'sonner'
@@ -182,15 +182,22 @@ function VacancyStack({ card }: { card: JobQueueCardResponseDto }) {
         {stack.map((keyword) => {
           const hit = hits.has(keyword.toLowerCase())
           return (
-            <span
-              key={keyword}
-              data-testid="job-queue-card-stack-chip"
-              data-hit={hit}
-              className={cn(hit ? HIT_CHIP : STACK_CHIP, 'max-w-full truncate')}
-              title={keyword}
-            >
-              {keyword}
-            </span>
+            <Fragment key={keyword}>
+              <span
+                data-testid="job-queue-card-stack-chip"
+                data-hit={hit}
+                className={cn(hit ? HIT_CHIP : STACK_CHIP, 'max-w-full truncate')}
+                title={keyword}
+              >
+                {keyword}
+              </span>
+              {/* the hit style alone would be the only cue (SC 1.4.1) */}
+              {hit && (
+                <span className="sr-only">
+                  , <Trans>збігається</Trans>
+                </span>
+              )}
+            </Fragment>
           )
         })}
       </div>

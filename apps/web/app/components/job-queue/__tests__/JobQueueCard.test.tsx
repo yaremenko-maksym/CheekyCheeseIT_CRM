@@ -373,6 +373,11 @@ describe('JobQueueCard', () => {
     const plain = within(stack).getByText('GraphQL')
     expect(plain).toHaveAttribute('data-hit', 'false')
     expect(plain).not.toHaveClass('bg-yellow-subtle')
+    // a hit is not told by its style alone: a screen reader hears it after the token (SC 1.4.1)
+    expect(stack).toHaveTextContent(/react, збігаєтьсяTypeScript, збігаєтьсяGraphQL$/)
+    const marks = within(stack).getAllByText(', збігається')
+    expect(marks).toHaveLength(2)
+    for (const mark of marks) expect(mark).toHaveClass('sr-only')
   })
 
   it('no stack at all: no «Збіг стеку» block; a stack with no hit still shows', () => {

@@ -9043,6 +9043,10 @@ msgstr "Користувача створено, контракт готовий
 msgid "Зарплати"
 msgstr "Зарплати"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgid "збігається"
+msgstr "збігається"
+
 #. placeholder {0}: invoice.projectName
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Проєкт: {0}"
