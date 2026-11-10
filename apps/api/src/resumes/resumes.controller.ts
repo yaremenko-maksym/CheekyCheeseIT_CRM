@@ -36,7 +36,9 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import {
   ingestResumeTextSchema,
   updateResumeContentSchema,
+  updateResumeFactsSchema,
   updateResumeLayoutSchema,
+  updateResumeTemplateSchema,
   type SessionUser,
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
@@ -152,6 +154,28 @@ export class SeniorResumesController {
   ) {
     const { layout } = updateResumeLayoutSchema.parse(body)
     return this.service.updateLayout(user, userId, layout)
+  }
+
+  /** The facts HR enters (spec §3). Same write rule; 409 while a check runs. */
+  @Put('facts')
+  updateFacts(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const { facts } = updateResumeFactsSchema.parse(body)
+    return this.service.saveFacts(user, userId, facts)
+  }
+
+  /** A catalog template (spec §6) — a name from the enum, never template source. */
+  @Put('template')
+  updateTemplate(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const { templateName } = updateResumeTemplateSchema.parse(body)
+    return this.service.setTemplate(user, userId, templateName)
   }
 
   /**

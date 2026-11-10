@@ -31,6 +31,7 @@ import type { S3Service } from '../documents/s3.service'
 import type { ResumeAiService } from './resume-ai.service'
 import type { ResumeTextExtractionService } from './resume-text-extraction.service'
 import type { ResumeTypstService } from './resume-typst.service'
+import type { ResumeVerificationService } from './verification/resume-verification.service'
 import { SeniorResumesService } from './resumes.service'
 
 const RESUME_ID = 'resume-1'
@@ -93,6 +94,7 @@ function buildService(
     {} as unknown as ResumeAiService,
     {} as unknown as ResumeTextExtractionService,
     typst as unknown as ResumeTypstService,
+    {} as unknown as ResumeVerificationService,
   )
 }
 

@@ -20,6 +20,7 @@
 import {
   ConflictException,
   ForbiddenException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -36,8 +37,10 @@ import {
   normalizeResumeLayout,
   resumeContentSchema,
   type ResumeContent,
+  type ResumeFacts,
   type ResumeFailureCode,
   type ResumeLayoutOptions,
+  type ResumeTemplateName,
   type SeniorResumeDto,
   type SeniorResumeResponse,
   type SessionUser,
@@ -46,7 +49,16 @@ import { DatabaseService } from '../database/database.service'
 import { seniorResumes, type SeniorResume, type User } from '../database/schema'
 import { S3Service, presignTtlForCategory } from '../documents/s3.service'
 import { ResumeAiService } from './resume-ai.service'
-import { canAccessResume, type ResumeAccessMode } from './resume-access'
+import { canAccessResume, canConfirmResume, type ResumeAccessMode } from './resume-access'
+import { apiError } from '../common/api-error'
+import {
+  ResumeVerificationService,
+  draftReset,
+  draftWriteGuard,
+  isVerificationBusy,
+  notVerificationBusy,
+} from './verification/resume-verification.service'
+import { contentToFacts } from './verification/derive-content'
 import {
   ResumeRenderError,
   ResumeTypstService,
@@ -105,6 +117,7 @@ export class SeniorResumesService {
     private readonly ai: ResumeAiService,
     private readonly extraction: ResumeTextExtractionService,
     private readonly typst: ResumeTypstService,
+    private readonly verification: ResumeVerificationService,
   ) {}
 
   // ==========================================================================
@@ -150,7 +163,7 @@ export class SeniorResumesService {
     await this.assertAccess(viewer, targetUserId, 'read')
     const row = await this.findRow(targetUserId)
     if (!row) {
-      return { resume: null, canEdit: canAccessResume(viewer, targetUserId, 'write') }
+      return this.emptyResponse(viewer, targetUserId)
     }
     return this.toResponse(row, viewer)
   }
@@ -244,12 +257,11 @@ export class SeniorResumesService {
       .update(seniorResumes)
       .set({
         content: validated,
-        // Incremented IN SQL, not read-modify-write. `existing.version` was
-        // read in a separate statement, so two concurrent saves both computed
-        // the same next value and one increment vanished — and `version` is
-        // exactly the signal task-resume-tailoring reads to notice a stale
-        // base, so a lost increment silently marks a stale variant as current.
-        version: sql`${seniorResumes.version} + 1`,
+        // Status rule: a content write resets to DRAFT. `draftReset` bumps
+        // `version` IN SQL, not read-modify-write: two concurrent saves that
+        // computed the next value from a separate read would lose an increment,
+        // and `version` is what task-resume-tailoring reads to notice a stale base.
+        ...draftReset(),
         status: 'READY',
         errorCode: null,
         errorMessage: null,
@@ -262,10 +274,11 @@ export class SeniorResumesService {
         updatedByUserId: viewer.id,
         updatedAt: new Date(),
       })
-      .where(eq(seniorResumes.id, existing.id))
+      .where(draftWriteGuard(existing))
       .returning()
 
-    if (!updated) throw new NotFoundException('Резюме не найдено')
+    if (!updated) return this.verification.resolveMiss(existing.id)
+    await this.verification.deleteStagedObject(existing.stagedPdfS3Key)
     // The data changed, so the PDF is stale. Queued, never rendered here: the
     // save must not wait on a typesetter (task §2, "рендер вне пути запроса").
     await this.enqueueRender(updated.id, target)
@@ -301,6 +314,8 @@ export class SeniorResumesService {
     }
 
     const row = await this.ensureRow(targetUserId)
+    // P5: refuse at the start, before paying for the upload; the WHERE below re-checks.
+    if (isVerificationBusy(row)) throw apiError('RESUME_VERIFICATION_BUSY', HttpStatus.CONFLICT)
     const key = `senior-resumes/${targetUserId}/${row.id}-${Date.now()}`
     await this.s3.upload(key, file.buffer, detected, 'RESUME')
 
@@ -325,9 +340,12 @@ export class SeniorResumesService {
         updatedByUserId: viewer.id,
         updatedAt: new Date(),
       })
-      .where(eq(seniorResumes.id, row.id))
+      .where(and(eq(seniorResumes.id, row.id), notVerificationBusy()))
       .returning()
-    if (!queued) throw new NotFoundException('Резюме не найдено')
+    if (!queued) {
+      await this.s3.delete(key) // nothing points at the object we just stored
+      return this.verification.resolveMiss(row.id)
+    }
 
     // Replacing the source must not leave the previous object orphaned in R2.
     if (previousKey && previousKey !== key) {
@@ -364,9 +382,9 @@ export class SeniorResumesService {
         updatedByUserId: viewer.id,
         updatedAt: new Date(),
       })
-      .where(eq(seniorResumes.id, row.id))
+      .where(and(eq(seniorResumes.id, row.id), notVerificationBusy()))
       .returning()
-    if (!queued) throw new NotFoundException('Резюме не найдено')
+    if (!queued) return this.verification.resolveMiss(row.id)
 
     this.startExtraction(row.id, () => Promise.resolve(text))
     return this.toResponse(queued, viewer)
@@ -418,8 +436,11 @@ export class SeniorResumesService {
       // personal data — a delete that erased only the source would leave a
       // full CV in the bucket while telling the user it was gone.
       const pdfKey = row.pdfS3Key
+      // P5: the staged PDF is a third copy (it carries the real name).
+      const stagedKey = row.stagedPdfS3Key
       if (key) await this.s3.delete(key)
       if (pdfKey) await this.s3.delete(pdfKey)
+      if (stagedKey) await this.s3.delete(stagedKey)
 
       const removed = await this.db.db
         .delete(seniorResumes)
@@ -433,13 +454,14 @@ export class SeniorResumesService {
             // change rewrites one and not the other), so the guard has to cover
             // it too — otherwise a render landing mid-delete orphans its PDF.
             sql`${seniorResumes.pdfS3Key} IS NOT DISTINCT FROM ${pdfKey}`,
+            sql`${seniorResumes.stagedPdfS3Key} IS NOT DISTINCT FROM ${stagedKey}`,
           ),
         )
         .returning({ id: seniorResumes.id })
 
       if (removed.length > 0) {
         this.logger.log(`Resume of ${targetUserId} deleted by ${viewer.id}`)
-        return { resume: null, canEdit: canAccessResume(viewer, targetUserId, 'write') }
+        return this.emptyResponse(viewer, targetUserId)
       }
 
       // The row changed between the read and the delete — almost certainly a
@@ -537,10 +559,19 @@ export class SeniorResumesService {
       return
     }
 
+    // Spec §4 step 2: the upload fills the FACTS, never the dynamic fields, so
+    // `content` (and with it the PDF) stays as it was.
+    const [current] = await this.db.db
+      .select({ id: seniorResumes.id, stagedPdfS3Key: seniorResumes.stagedPdfS3Key })
+      .from(seniorResumes)
+      .where(eq(seniorResumes.id, resumeId))
+      .limit(1)
+    if (!current) return
     const written = await this.db.db
       .update(seniorResumes)
       .set({
-        content: result.content,
+        facts: contentToFacts(result.content),
+        ...draftReset(),
         status: 'READY',
         errorCode: null,
         errorMessage: null,
@@ -548,15 +579,11 @@ export class SeniorResumesService {
         extractionStartedAt: null,
         extractionRunId: null,
         lastExtractionTokens: result.tokensUsed,
-        // The extraction REPLACES the content, so it is a content change like
-        // any other and must move `version` — that field is what
-        // task-resume-tailoring reads to notice a stale base, and a silent
-        // content swap underneath a stable version is exactly the case it
-        // would miss.
-        version: sql`${seniorResumes.version} + 1`,
+        // `draftReset` bumps `version`: the facts changed, and a stable version
+        // under changed facts is exactly what task-resume-tailoring would miss.
         updatedAt: new Date(),
       })
-      .where(this.ownedByRun(resumeId, runId))
+      .where(and(this.ownedByRun(resumeId, runId), draftWriteGuard(current)))
       .returning({ id: seniorResumes.id })
 
     if (written.length === 0) {
@@ -565,10 +592,7 @@ export class SeniorResumesService {
       )
       return
     }
-
-    // Extraction REPLACED the content, so the PDF that matched the old content
-    // is stale. Same detached queue as a manual save.
-    await this.enqueueRender(resumeId)
+    await this.verification.deleteStagedObject(current.stagedPdfS3Key)
   }
 
   /**
@@ -1020,22 +1044,41 @@ export class SeniorResumesService {
   ): Promise<SeniorResumeResponse> {
     const target = await this.assertAccess(viewer, targetUserId, 'write')
     const existing = await this.ensureRow(targetUserId)
+    const updated = await this.verification.setLayout(existing, layout, viewer.id)
+    return this.afterLookWrite(updated, target, viewer)
+  }
 
-    const [updated] = await this.db.db
-      .update(seniorResumes)
-      .set({
-        layout: normalizeResumeLayout(layout),
-        // In SQL, for the same reason as `updateContent` — a layout change and
-        // a content save racing each other must produce two increments, not one.
-        version: sql`${seniorResumes.version} + 1`,
-        updatedByUserId: viewer.id,
-        updatedAt: new Date(),
-      })
-      .where(eq(seniorResumes.id, existing.id))
-      .returning()
-    if (!updated) throw new NotFoundException('Резюме не найдено')
+  /** PUT facts — RBAC here, the status rule in the verification service. */
+  async saveFacts(
+    viewer: SessionUser,
+    targetUserId: string,
+    facts: ResumeFacts,
+  ): Promise<SeniorResumeResponse> {
+    await this.assertAccess(viewer, targetUserId, 'write')
+    const existing = await this.ensureRow(targetUserId)
+    // Facts are not render input: the live PDF stays current.
+    return this.toResponse(await this.verification.saveFacts(existing, facts, viewer.id), viewer)
+  }
 
-    await this.enqueueRender(updated.id, target)
+  /** PUT template — same status rule as a layout write. */
+  async setTemplate(
+    viewer: SessionUser,
+    targetUserId: string,
+    name: ResumeTemplateName,
+  ): Promise<SeniorResumeResponse> {
+    const target = await this.assertAccess(viewer, targetUserId, 'write')
+    const existing = await this.ensureRow(targetUserId)
+    const updated = await this.verification.setTemplate(existing, name, viewer.id)
+    return this.afterLookWrite(updated, target, viewer)
+  }
+
+  /** A VERIFIED row kept its live look (a template run started): nothing to render. */
+  private async afterLookWrite(
+    updated: SeniorResume,
+    target: ResumeOwner,
+    viewer: SessionUser,
+  ): Promise<SeniorResumeResponse> {
+    if (updated.verificationStatus !== 'VERIFIED') await this.enqueueRender(updated.id, target)
     return this.toResponse(updated, viewer)
   }
 
@@ -1073,7 +1116,11 @@ export class SeniorResumesService {
 
     await this.db.db
       .insert(seniorResumes)
-      .values({ userId: targetUserId, content: EMPTY_RESUME_CONTENT })
+      .values({
+        userId: targetUserId,
+        content: EMPTY_RESUME_CONTENT,
+        templateName: await this.verification.templateForNewResume(targetUserId),
+      })
       .onConflictDoNothing({ target: seniorResumes.userId })
 
     const created = await this.findRow(targetUserId)
@@ -1113,7 +1160,7 @@ export class SeniorResumesService {
         // A LABEL. `template_source` is never serialised: the template is code,
         // it stays server-side, and keeping it out of the DTO is what makes
         // "the template is not part of the data" true rather than intended.
-        templateName: row.templateName ?? 'Стандартный шаблон',
+        templateName: resolveTemplateName(row.templateName),
         hasCustomTemplate: row.templateSource !== null,
 
         renderStatus: row.pdfRenderStatus,
@@ -1126,9 +1173,19 @@ export class SeniorResumesService {
           Boolean(row.pdfS3Key) &&
           row.pdfFingerprint ===
             this.typst.fingerprint(this.renderInputFor(row, await this.ownerFor(row.userId))),
+        ...(await this.verification.toDtoFields(row)),
       },
       // Server-computed, never echoed from the client.
       canEdit: canAccessResume(viewer, row.userId, 'write'),
+      canConfirm: canConfirmResume(viewer),
+    }
+  }
+
+  private emptyResponse(viewer: SessionUser, targetUserId: string): SeniorResumeResponse {
+    return {
+      resume: null,
+      canEdit: canAccessResume(viewer, targetUserId, 'write'),
+      canConfirm: canConfirmResume(viewer),
     }
   }
 

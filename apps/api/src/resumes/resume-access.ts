@@ -41,3 +41,11 @@ export function canAccessResume(
   // JUNIOR, ACCOUNTANT, DROP and anything added later: no resume surface.
   return false
 }
+
+/**
+ * True when `viewer` may Confirm a staged check result (spec §4, owner Q-C):
+ * ADMIN and HR only — a senior cannot mark their own resume VERIFIED.
+ */
+export function canConfirmResume(viewer: Pick<SessionUser, 'role'>): boolean {
+  return RESUME_MANAGER_ROLES.has(viewer.role)
+}

@@ -54,6 +54,7 @@ describe.skipIf(!hasDatabaseUrl())(
         inert as never,
         inert as never,
         inert as never,
+        inert as never,
       )
     }, 120_000)
 
