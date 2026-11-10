@@ -108,7 +108,7 @@ INPUT=$(cat)
 
 [ -z "$INPUT" ] && exit 0
 
-printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 "$SELF_DIR/lib/pre_bash_safety.py"
+printf '%s' "$INPUT" | CMDSCAN_LIB="$SELF_DIR/lib" python3 -I -B "$SELF_DIR/lib/pre_bash_safety.py"
 RC=$?
 
 case "$RC" in

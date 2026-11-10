@@ -1,6 +1,6 @@
 import importlib.util, json, os, re, shlex, sys
 
-# Loaded by absolute path: lib/ is never on the import path (review LOW).
+# Loaded by absolute path; `python3 -I` keeps lib/ and the cwd off the import path.
 _spec = importlib.util.spec_from_file_location(
     "cmdscan", os.path.join(os.environ["CMDSCAN_LIB"], "cmdscan.py"))
 cmdscan = importlib.util.module_from_spec(_spec)
@@ -31,10 +31,12 @@ PKG_VALUE_OPTS = {"pnpm": {"--filter", "-F", "--dir", "-C"}, "yarn": {"--cwd"},
                   "bun": {"--cwd"}}
 SEEN = {}  # AUTO-SR-28: each rescanned line is read once per command; over 500 refuses
 # #1304: a byte budget, not only a line count; tails make rescans O(n*L)
-RESCAN_BYTE_BUDGET = 100000
+RESCAN_BYTE_BUDGET = 500000
 RESCAN_BYTES = [0]
 TOO_COMPLEX = "command too complex for the safety hook to read"
-LAUNCHED = {}  # pkg_launch result per (depth, runner, argv)
+LAUNCHED = {}  # (result, bytes charged) per (depth, runner, argv)
+CHARGED = set()  # (argv key, top-level segment) pairs already charged
+TOP = [None]  # the segment candidates() is reading
 
 
 def ansi_c_spells(body):
@@ -63,10 +65,29 @@ def pkg_launch(seg, depth=0):
     args = list(seg.argv)
     if seg.name not in PKG_RUNNERS or depth > 3 or len(SEEN) > 500 or RESCAN_BYTES[0] > RESCAN_BYTE_BUDGET:
         return []
-    ck = (depth, seg.name, tuple(args))  # #1304: each reading of one argv is charged once
-    if ck not in LAUNCHED:
-        LAUNCHED[ck] = _pkg_launch(seg, args, depth)
-    return LAUNCHED[ck]
+    # #1304: memoized. A copy of the segment elsewhere in the command is charged again,
+    # since each copy re-runs the predicates; another reading of the same one is not.
+    ck = (depth, seg.name, tuple(args))
+    if ck in LAUNCHED:
+        result, cost = LAUNCHED[ck]
+        if (ck, TOP[0]) in CHARGED:
+            return result
+        CHARGED.add((ck, TOP[0]))
+        return [] if over(cost) else result
+    CHARGED.add((ck, TOP[0]))
+    before = RESCAN_BYTES[0]
+    result = _pkg_launch(seg, args, depth)
+    LAUNCHED[ck] = (result, RESCAN_BYTES[0] - before)
+    return result
+
+
+def over(nbytes):
+    RESCAN_BYTES[0] += nbytes
+    if RESCAN_BYTES[0] <= RESCAN_BYTE_BUDGET:
+        return False
+    if TOO_COMPLEX not in blocked:
+        blocked.append(TOO_COMPLEX)
+    return True
 
 
 def _pkg_launch(seg, args, depth):
@@ -105,14 +126,6 @@ def _pkg_launch(seg, args, depth):
         pre.append(pre[-1] + len(a) + 1)
     last_dd = max((i for i, a in enumerate(args) if a == "--"), default=-1)
 
-    def over(nbytes):
-        RESCAN_BYTES[0] += nbytes
-        if RESCAN_BYTES[0] <= RESCAN_BYTE_BUDGET:
-            return False
-        if TOO_COMPLEX not in blocked:
-            blocked.append(TOO_COMPLEX)
-        return True
-
     for start, is_value in starts:
         rest_bytes = pre[-1] - pre[start]
         if over(2 * rest_bytes if start <= last_dd else rest_bytes):  # rest, after `--`
@@ -124,7 +137,7 @@ def _pkg_launch(seg, args, depth):
         for k, w in enumerate(head):  # CR-H-14: any option may carry code (prefix, bundle)
             o, eq, v = w.partition("=")
             if w[:1] == "-" and w[1:2] != "-" and len(w) > 1000:  # AUTO-SR-29: before expansion
-                blocked.append("command too complex for the safety hook to read")
+                blocked.append(TOO_COMPLEX)
                 return []
             if w[:1] == "-":  # SO-H-14/15: -c<val>, with or without an = in it
                 tail = pre[-1] - pre[min(start + k + 1, len(args))]
@@ -150,6 +163,7 @@ def _pkg_launch(seg, args, depth):
 
 
 def candidates(seg):
+    TOP[0] = id(seg)
     # A dynamic command word is additionally read as each dangerous command this
     # hook knows: `$(echo rm) -rf /etc` names nothing resolvable, but `-rf /etc`
     # is not ambiguous. Both versions of this hook let that through.

@@ -81,7 +81,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-bash-safety.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-bash-safety.sh",
+            "timeout": 60,
+            "onFailure": "block"
           }
         ],
         "description": "Safety gate — block catastrophic Bash patterns (rm -rf /, force push to main, DROP DATABASE crm_db)",
