@@ -303,6 +303,13 @@ bash_case block "$MINE" $'bash /dev/stdin <<EOF\npkill -f node\nEOF'           '
 bash_case block "$MINE" $'source /dev/stdin <<EOF\npkill -f node\nEOF'         'source /dev/stdin runs the heredoc'
 bash_case block "$MINE" $'cat <<EOF | tee /tmp/x | sh\npkill -f node\nEOF'     'the heredoc reaches the shell at the end of the pipeline'
 bash_case block "$MINE" "echo \\' > $OTHER/f \\'"                             'an escaped quote outside quotes opens no quoted span'
+# Security review of b8580e5: a body is handed to the last segment of its line, not its opener.
+bash_case block "$MINE" $'xargs rm -rf <<EOF; cat\n'"$OTHER"$'/src\nEOF'        'the body of xargs, carried by cat, is not stripped'
+bash_case block "$MINE" $'bash <<EOF; true\nsh -c \'pkill -f node\'\nEOF'     'the body of bash, carried by true, is scanned as code'
+bash_case block "$MINE" "source /dev/stdin <<< 'pkill -f node'"                'source /dev/stdin runs its here-string'
+bash_case block "$MINE" $'source -- /dev/stdin <<EOF\npkill -f node\nEOF'      'source -- /dev/stdin runs the heredoc'
+bash_case block "$MINE" "echo \$'\\'' > $OTHER/f; echo 'x'"                  'an ANSI-C quoted escaped quote opens no long span'
+bash_case allow "$MINE" "source ./env.sh"                                       'source of a script file'
 bash_case block "$MINE" "timeout 60 rm -rf $OTHER/dist"                     'CR-M-1: mutator behind timeout'
 
 # ── the target is not a literal, so ownership cannot be established ───────────

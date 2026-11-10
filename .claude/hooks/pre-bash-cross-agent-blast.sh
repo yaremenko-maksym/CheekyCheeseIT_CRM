@@ -429,13 +429,10 @@ REDIRECT_TOKEN = re.compile(r"^\d*(?:<<<|<<-?|<>|>>?|<|>&|&>>?)")
 STDIN_PATHS = {"-", "/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"}
 
 
-def stdin_programs(seg):
-    """Heredoc bodies and here-strings a shell segment runs as its program. cmdscan hands
-    a heredoc to the LAST command of its pipeline, so `cat <<EOF | tee x | sh` reaches sh."""
-    if seg.name in ("source", ".") and seg.argv[:1] and seg.argv[0] in STDIN_PATHS:
-        return list(seg.heredocs)
-    if seg.name not in cmdscan.INTERPRETERS:
-        return []
+def stdin_reader(seg):
+    """(reads stdin as code, here-strings it runs) for a shell or source / . segment."""
+    if seg.name not in cmdscan.INTERPRETERS and seg.name not in ("source", "."):
+        return False, []
     argv, strings, i = [], [], 0
     while i < len(seg.argv):
         a = seg.argv[i]
@@ -452,21 +449,33 @@ def stdin_programs(seg):
         elif m.end() == len(a) and not m.group(0).startswith("<<"):
             i += 1  # the target of `> file` / `< file` is not an operand
         i += 1
-    program, is_code = cmdscan.shell_program(argv)[:2]
+    if seg.name in ("source", "."):
+        ops = argv[1:] if argv[:1] == ["--"] else argv
+        program, is_code = (ops[0] if ops else None), False
+    else:
+        program, is_code = cmdscan.shell_program(argv)[:2]
     if is_code or (program is not None and program not in STDIN_PATHS):
-        return []  # bash -c is read by cmdscan; a script operand reads its own file
-    return list(seg.heredocs) + strings
+        return False, []  # bash -c is read by cmdscan; a script operand reads its own file
+    return True, strings
 
 
+# cmdscan hands every heredoc body of a line to the LAST segment of that line, whoever
+# opened it (`bash <<EOF; cat` gives the body to cat). So when a scan holds a shell that
+# reads stdin, every body of that scan is scanned as code, whichever segment carries it.
 scanned, work, opaque = [], [cmd], False
 for _ in range(64):
     if not work:
         break
     sc = cmdscan.scan(work.pop())
     opaque = opaque or sc.truncated
+    shell_reads = False
     for g in sc.segments:
         scanned.append(g)
-        work += stdin_programs(g)
+        reads, strings = stdin_reader(g)
+        shell_reads = shell_reads or reads
+        work += strings
+    if shell_reads:
+        work += [b for g in sc.segments for b in g.heredocs]
 opaque = opaque or bool(work)
 
 # ---- split into command segments --------------------------------------------
@@ -478,8 +487,11 @@ opaque = opaque or bool(work)
 # arguments (its owner is rm), so that body stays in the text every predicate reads.
 DATA_SINKS = {"cat", "tee", "gh", "git", "jq", "grep", "wc", "head", "tail", "sort"}
 naive = cmd
+HEREDOC_OPENER = re.compile(r"^\d*<<-?(?!<)")
 for g in scanned:
-    if cmd_name(g.name) not in DATA_SINKS:
+    # stripped only when this segment opened every body it carries (see cmdscan above)
+    if cmd_name(g.name) not in DATA_SINKS or \
+            sum(bool(HEREDOC_OPENER.match(a)) for a in g.argv) != len(g.heredocs):
         continue
     for body in g.heredocs:
         if body.strip():
@@ -829,8 +841,9 @@ mutating = any(is_mutating(n, a) for n, a in toks)
 # word is data unless it is the target itself (`sed "s|a|b 2>\&1|"` redirects nothing),
 # so quoted spans are blanked first; nested code is read through the scanned segments.
 # An escaped character outside quotes is matched first and kept, so `\x27` or `\"` there
-# opens no span: `echo \x27 > f \x27` still redirects into f.
-QUOTED = re.compile(r"\\.|(>>?\s*)?(\x27[^\x27]*\x27|\"(?:[^\"\\]|\\.)*\")", re.S)
+# opens no span: `echo \x27 > f \x27` still redirects into f. `$\x27...\x27` is ANSI-C
+# quoted, where a backslash escapes the closing quote too.
+QUOTED = re.compile(r"\\.|(>>?\s*)?(\$\x27(?:[^\x27\\]|\\.)*\x27|\x27[^\x27]*\x27|\"(?:[^\"\\]|\\.)*\")", re.S)
 
 
 def unquoted(text):
