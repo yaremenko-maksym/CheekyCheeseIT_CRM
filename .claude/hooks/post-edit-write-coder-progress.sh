@@ -28,13 +28,13 @@ set -u
 
 INPUT=$(cat)
 
-TOOL_NAME=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || true)
+TOOL_NAME=$(echo "$INPUT" | python3 -I -B -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || true)
 case "$TOOL_NAME" in
   Edit|Write|MultiEdit|NotebookEdit) ;;
   *) exit 0 ;;
 esac
 
-FILE_PATH=$(echo "$INPUT" | python3 -c "
+FILE_PATH=$(echo "$INPUT" | python3 -I -B -c "
 import json, sys
 d = json.load(sys.stdin)
 ti = d.get('tool_input', {})

@@ -104,7 +104,21 @@ if ! python3 -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=
     "$HOOKS_DIR/lib/pre_bash_safety.py"
   exit 1
 fi
-echo "gate 0: $SYNTAX_CHECKED hooks parse, lib/cmdscan.py and lib/pre_bash_safety.py compile"
+# #1304 follow-up: a hook runs in the agent's cwd, so `python3 -c` / `python3 -` without
+# -I puts that cwd on sys.path and a planted json.py runs inside the hook.
+UNISOLATED=$(python3 -I -c '
+import glob, re, sys
+for f in sorted(glob.glob(sys.argv[1] + "/*.sh")):
+    for n, l in enumerate(open(f, errors="replace"), 1):
+        if not l.lstrip().startswith("#") and re.search(r"\bpython3 +(-c|-)(\s|$)", l):
+            print("%s:%d" % (f, n))
+' "$HOOKS_DIR")
+if [ -n "$UNISOLATED" ]; then
+  echo "FATAL: python3 without -I in a hook (cwd on sys.path):"
+  echo "$UNISOLATED"
+  exit 1
+fi
+echo "gate 0: $SYNTAX_CHECKED hooks parse, lib/cmdscan.py and lib/pre_bash_safety.py compile, every python3 call is isolated (-I)"
 
 # Gate 0b. FIXTURE FIDELITY — the same class of problem as gate 0, learned the
 # hard way (PR #1025: green here, red in CI).

@@ -147,7 +147,7 @@ INPUT=$(cat)
 # match either predicate, so there is nothing to analyse without one of them.
 printf '%s' "$INPUT" | grep -qE '2>[[:space:]]*/dev/null|\$[A-Za-z_][A-Za-z0-9_]*:' || exit 0
 
-printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
+printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -I -B -c '
 import importlib.util, json, os, re, sys
 
 # By absolute path, not via sys.path — same reason as the sibling hooks.

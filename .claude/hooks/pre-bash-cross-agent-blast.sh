@@ -182,7 +182,7 @@ set -u
 INPUT=$(cat)
 
 read_field() {
-  printf '%s' "$INPUT" | python3 -c "
+  printf '%s' "$INPUT" | python3 -I -B -c "
 import json, sys
 d = json.load(sys.stdin)
 cur = d
@@ -247,7 +247,7 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # "the caller's cwd". (The message block further down has the opposite hazard:
 # it is DOUBLE-quoted, so backticks there are command substitution.)
 REASONS=$(printf '%s' "$CMD" | CWD="$CWD" MSYS2_ENV_CONV_EXCL=CWD AGENT_ID="$AGENT_ID" \
-  PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
+  PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -I -B -c '
 import importlib.util, os, posixpath, re, shlex, subprocess, sys
 
 # The shared reading of a line continuation (SR-M-1 of #1294); loaded by absolute path,
@@ -803,7 +803,7 @@ fi
 # lost exactly the two names it exists to say. Escape every backtick (\`) and
 # every literal `$` here. Pinned by the message case in
 # scripts/devops/tests/test-pre-bash-cross-agent-blast.sh.
-python3 -c "
+python3 -I -B -c "
 import json, sys
 
 raw = [r for r in sys.argv[1].splitlines() if r.strip()]

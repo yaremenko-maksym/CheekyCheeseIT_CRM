@@ -161,7 +161,7 @@ INPUT=$(cat)
 printf '%s' "$INPUT" | LC_ALL=C tr -d "'\"\\\\" | LC_ALL=C grep -qE 'vite|nest|dev|dist/main|start|preview' \
   || printf '%s' "$INPUT" | LC_ALL=C grep -q '[$`\]' || exit 0
 
-printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
+printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -I -B -c '
 import importlib.util, json, os, re, shlex, sys, urllib.parse
 
 # By absolute path, not via sys.path — see the note in pre-bash-safety.sh.
