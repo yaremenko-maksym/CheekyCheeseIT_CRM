@@ -883,10 +883,11 @@ assert_green "#1304: a 450-char long option is not too complex" \
 lint="pnpm exec eslint --fix --max-warnings 0 --cache $(printf 'apps/web/src/components/feature/file-%s.tsx ' $(seq 162))"
 assert_green "#1304: eslint with flags and 162 paths is not too complex" -- h "$lint"
 seg="pnpm exec eslint --fix --max-warnings 0 --cache $(printf 'src/a%s.ts ' $(seq 80))"
-copies="$(for i in $(seq 200); do printf '%s; ' "$seg"; done)true"
+# 100 copies (~92 KB): Linux caps one env string (the harness CMD) at 128 KB.
+copies="$(for i in $(seq 100); do printf '%s; ' "$seg"; done)true"
 t0=$SECONDS
-assert_red "#1304: 200 copies of one runner segment refuse as too complex" --contains "too complex" -- h "$copies"
-assert_green "#1304: 200 copies of one runner segment refuse within 10 s" -- test $((SECONDS - t0)) -le 10
+assert_red "#1304: 100 copies of one runner segment refuse as too complex" --contains "too complex" -- h "$copies"
+assert_green "#1304: 100 copies of one runner segment refuse within 10 s" -- test $((SECONDS - t0)) -le 10
 assert_green "normal runner command passes: pnpm --filter @crm/api exec vitest run a b c" \
   -- h "pnpm --filter @crm/api exec vitest run a b c"
 for c in 'pnpm --filter $pkg test' 'pnpm --filter @crm/api test' 'pnpm install' 'pnpm -r build' \
