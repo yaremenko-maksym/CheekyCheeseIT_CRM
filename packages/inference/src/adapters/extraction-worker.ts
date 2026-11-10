@@ -76,8 +76,15 @@ export type ExtractionWorkerAdapterConfig = {
   fetchImpl?: FetchLike
 }
 
-/** The worker's routes (ADR §2.4); nothing else is reachable through its transport. */
+/** The worker's routes (ADR §2.4): the four its server serves. */
 export type ExtractionWorkerRoute = '/extract' | '/preflight' | '/resume-write' | '/visual-check'
+/** Checked at runtime too: a cast or an untyped caller cannot reach another path on the worker host. */
+const WORKER_ROUTES: ReadonlySet<string> = new Set<ExtractionWorkerRoute>([
+  '/extract',
+  '/preflight',
+  '/resume-write',
+  '/visual-check',
+])
 
 /**
  * One authenticated POST to the worker: the shared-secret header, the private-host URL rule and the
@@ -95,8 +102,10 @@ export function createExtractionWorkerTransport(
     authorization: `Bearer ${config.secret}`,
     'content-type': 'application/json',
   }
-  return (route, req) =>
-    boundedRequestToExtractionWorker({
+  return (route, req) => {
+    // Any other route is refused before a request, so only the four routes are reachable.
+    if (!WORKER_ROUTES.has(route)) return Promise.resolve({ kind: 'transport' })
+    return boundedRequestToExtractionWorker({
       url: `${config.baseUrl}${route}`,
       method: 'POST',
       headers,
@@ -106,6 +115,7 @@ export function createExtractionWorkerTransport(
       signal: req.signal,
       fetchImpl: config.fetchImpl,
     })
+  }
 }
 
 /**
