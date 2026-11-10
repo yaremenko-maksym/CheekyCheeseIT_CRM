@@ -54,6 +54,15 @@ describe('resumeMonthSchema', () => {
     expect(resumeMonthSchema.safeParse('2021-03-01').success).toBe(false)
     expect(resumeMonthSchema.safeParse('x2021-03').success).toBe(false)
   })
+
+  it('bounds the year to 1950..2100, like resumeYear', () => {
+    expect(resumeMonthSchema.safeParse('1949-12').success).toBe(false)
+    expect(resumeMonthSchema.safeParse('2101-01').success).toBe(false)
+    expect(resumeMonthSchema.safeParse('0000-01').success).toBe(false)
+    expect(resumeMonthSchema.safeParse('9999-12').success).toBe(false)
+    expect(resumeMonthSchema.parse('1950-01')).toBe('1950-01')
+    expect(resumeMonthSchema.parse('2100-12')).toBe('2100-12')
+  })
 })
 
 describe('resumeFactsSchema', () => {
@@ -236,6 +245,11 @@ describe('request bodies', () => {
     expect(confirmResumeSchema.safeParse({ runId: RUN_ID, version: 3 }).success).toBe(true)
     expect(confirmResumeSchema.safeParse({ runId: 'run-1', version: 3 }).success).toBe(false)
     expect(confirmResumeSchema.safeParse({ runId: RUN_ID, version: 1.5 }).success).toBe(false)
+  })
+
+  it('confirmResumeSchema floors version at 0, the column default', () => {
+    expect(confirmResumeSchema.safeParse({ runId: RUN_ID, version: 0 }).success).toBe(true)
+    expect(confirmResumeSchema.safeParse({ runId: RUN_ID, version: -1 }).success).toBe(false)
   })
 
   it('staged-field bodies cap text at 2000 and path at 200 characters', () => {

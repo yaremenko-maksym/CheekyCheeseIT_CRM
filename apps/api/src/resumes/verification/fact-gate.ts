@@ -85,8 +85,12 @@ export function findUngroundedTokens(text: string, source: FactSource): string[]
   for (const { canonical } of SKILL_SYNONYM_GROUPS) {
     if (!mentionsSkill(output, canonical) || grounded(canonical)) continue
     // A mention only inside a longer skill (`JS` of `Node JS`) has no span of its own and is not one.
-    // `go-live`, `the rest of`, `react to`, `each node`: English, not the skill
-    const span = spans.find((s) => s.canonical === canonical && !ENGLISH_WORDS.has(s.token))
+    // `go-live`, `the rest of`, `react to`, `each node`: English, not the skill;
+    // so is `Go-live …` / `Rest of …` opening a sentence, where the capital says nothing
+    const english = (s: Candidate) =>
+      ENGLISH_WORDS.has(s.token) ||
+      (ENGLISH_WORDS.has(s.token.toLowerCase()) && SENTENCE_START.test(output.slice(0, s.index)))
+    const span = spans.find((s) => s.canonical === canonical && !english(s))
     if (span) candidates.push(span)
   }
 

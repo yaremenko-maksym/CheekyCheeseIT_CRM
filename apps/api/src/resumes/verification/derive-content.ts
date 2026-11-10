@@ -52,7 +52,8 @@ const PERIOD_TOKEN = new RegExp(
     // 03/2021
     String.raw`|(?<slash>\b(?:0[1-9]|1[0-2])\/\d{4}\b)`,
     // Mar 2021 / March 2021 / Sept. 2021
-    String.raw`|(?<named>\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?[\s,]+(?:\d{4})\b)`,
+    // The name must end at a word boundary, so `Marketing 2023` is not March.
+    String.raw`|(?<named>\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b\.?[\s,]+(?:\d{4})\b)`,
     // a year with no month
     String.raw`|(?<year>\b\d{4}\b)`,
   ].join(''),
@@ -143,13 +144,15 @@ function toMonthIndex(month: string | null): number | null {
  * count once, and a current job runs to `now`.
  */
 export function yearsOfExperience(items: ResumeFacts['experience'], now: Date): number {
-  const nowIndex = now.getFullYear() * 12 + now.getMonth()
+  // UTC, like `checkResumeCompleteness`, so both agree on the current month.
+  const nowIndex = now.getUTCFullYear() * 12 + now.getUTCMonth()
   // Stryker disable next-line ArrayDeclaration: an extra empty element destructures to undefined/undefined, which every comparison below ignores
   const intervals: Array<[number, number]> = new Array<[number, number]>()
 
   for (const item of items) {
     const start = toMonthIndex(item.start)
-    if (start === null) continue
+    // A job that has not started yet adds nothing (completeness flags it).
+    if (start === null || start > nowIndex) continue
     const end = item.current ? nowIndex : item.end ? toMonthIndex(item.end) : start
     intervals.push([start, Math.max(start, end ?? start)])
   }

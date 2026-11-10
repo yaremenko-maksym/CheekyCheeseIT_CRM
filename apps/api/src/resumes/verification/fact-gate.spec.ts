@@ -131,6 +131,19 @@ describe('findUngroundedTokens — fix round 1', () => {
     expect(findUngroundedTokens('on each node', src('on'))).toEqual([])
   })
 
+  it('does not flag a sentence-initial English word that is also a skill', () => {
+    expect(findUngroundedTokens('Go-live in May.', src('in May'))).toEqual([])
+    expect(
+      findUngroundedTokens('Done. Rest of the team helped', src('Done the team helped')),
+    ).toEqual([])
+    expect(findUngroundedTokens('- React to incidents', src('to incidents'))).toEqual([])
+  })
+
+  it('still flags the same word mid-sentence, and a sentence-initial non-English skill', () => {
+    expect(findUngroundedTokens('we plan Go-live', src('we plan live'))).toEqual(['Go'])
+    expect(findUngroundedTokens('Kotlin streams', src('streams'))).toEqual(['Kotlin'])
+  })
+
   it('still flags the capitalised form, and a later unambiguous spelling of the same group', () => {
     expect(findUngroundedTokens('wrote Go and React services', src('wrote and'))).toEqual([
       'Go',

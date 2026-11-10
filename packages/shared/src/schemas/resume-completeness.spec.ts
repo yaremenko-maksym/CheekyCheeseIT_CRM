@@ -136,6 +136,62 @@ describe('checkResumeCompleteness', () => {
     ])
   })
 
+  it('END_IN_FUTURE: a past item whose end month is after now’s month', () => {
+    const facts = makeFacts({
+      experience: [makeExperience({ start: '2021-01', end: '2099-01', current: false })],
+    })
+    expect(checkResumeCompleteness(facts, CTX)).toEqual([
+      { path: 'experience.0.end', code: 'END_IN_FUTURE' },
+    ])
+  })
+
+  it('END_IN_FUTURE: an end in the current month is allowed', () => {
+    const facts = makeFacts({
+      experience: [makeExperience({ start: '2021-01', end: '2026-11', current: false })],
+    })
+    expect(checkResumeCompleteness(facts, CTX)).toEqual([])
+  })
+
+  it('END_IN_FUTURE: a current item ignores its end month', () => {
+    const facts = makeFacts({
+      experience: [makeExperience({ start: '2021-01', end: '2099-01', current: true })],
+    })
+    expect(checkResumeCompleteness(facts, CTX)).toEqual([])
+  })
+
+  it('END_IN_FUTURE: raised without a start, after START_MISSING', () => {
+    const facts = makeFacts({
+      experience: [makeExperience({ start: null, end: '2027-01', current: false })],
+    })
+    expect(checkResumeCompleteness(facts, CTX)).toEqual([
+      { path: 'experience.0.start', code: 'START_MISSING' },
+      { path: 'experience.0.end', code: 'END_IN_FUTURE' },
+    ])
+  })
+
+  it('END_BEFORE_START: education end year earlier than start year', () => {
+    const facts = makeFacts({
+      education: [{ institution: 'KPI', degree: 'BSc', startYear: 2005, endYear: 1999 }],
+    })
+    expect(checkResumeCompleteness(facts, CTX)).toEqual([
+      { path: 'education.0.endYear', code: 'END_BEFORE_START' },
+    ])
+  })
+
+  it('END_BEFORE_START: education equal years, or one year missing, are allowed', () => {
+    const years: Array<[number | null, number | null]> = [
+      [2019, 2019],
+      [null, 1999],
+      [2005, null],
+    ]
+    for (const [startYear, endYear] of years) {
+      const facts = makeFacts({
+        education: [{ institution: 'KPI', degree: 'BSc', startYear, endYear }],
+      })
+      expect(checkResumeCompleteness(facts, CTX)).toEqual([])
+    }
+  })
+
   it('NO_NOTES: no notes at all', () => {
     const facts = makeFacts({ experience: [makeExperience({ notes: [] })] })
     expect(checkResumeCompleteness(facts, CTX)).toEqual([
@@ -220,6 +276,16 @@ describe('checkResumeCompleteness', () => {
     })
     expect(checkResumeCompleteness(facts, CTX)).toEqual([
       { path: 'skills.0', code: 'CONTACT_IN_TEXT' },
+    ])
+  })
+
+  it('CONTACT_IN_TEXT: an email in a technology, after its NON_LATIN check', () => {
+    const facts = makeFacts({
+      experience: [makeExperience({ technologies: ['React', 'Котлин a@b.io'] })],
+    })
+    expect(checkResumeCompleteness(facts, CTX)).toEqual([
+      { path: 'experience.0.technologies.1', code: 'NON_LATIN' },
+      { path: 'experience.0.technologies.1', code: 'CONTACT_IN_TEXT' },
     ])
   })
 

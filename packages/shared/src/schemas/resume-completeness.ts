@@ -21,6 +21,7 @@ export const COMPLETENESS_CODES = [
   'END_MISSING',
   'END_BEFORE_START',
   'START_IN_FUTURE',
+  'END_IN_FUTURE',
   'NO_NOTES',
   'TOO_FEW_SKILLS',
   'ENGLISH_MISSING',
@@ -105,10 +106,17 @@ function checkExperienceItem(
   if (!item.current && item.end === null) {
     issues.push({ path: `${base}.end`, code: 'END_MISSING' })
   }
+  if (!item.current && item.end !== null && item.end > nowMonth) {
+    issues.push({ path: `${base}.end`, code: 'END_IN_FUTURE' })
+  }
 
   item.technologies.forEach((technology, technologyIndex) => {
     if (!isLatinScript(technology)) {
       issues.push({ path: `${base}.technologies.${technologyIndex}`, code: 'NON_LATIN' })
+    }
+    // technologies render in the Skills section, so they leak like a skill would
+    if (containsContactData(technology)) {
+      issues.push({ path: `${base}.technologies.${technologyIndex}`, code: 'CONTACT_IN_TEXT' })
     }
   })
 
@@ -171,6 +179,9 @@ export function checkResumeCompleteness(
     }
     if (!isLatinScript(item.degree)) {
       issues.push({ path: `education.${index}.degree`, code: 'NON_LATIN' })
+    }
+    if (item.startYear !== null && item.endYear !== null && item.endYear < item.startYear) {
+      issues.push({ path: `education.${index}.endYear`, code: 'END_BEFORE_START' })
     }
   })
 

@@ -44,16 +44,30 @@ function wholeToken(source: string): RegExp {
   return new RegExp(`(?:(?<!${TOKEN_CHAR})|(?<=${ESCAPE}))${source}(?!${TOKEN_CHAR})`, 'giu')
 }
 
+/** Letters NFD does not decompose, folded by hand; `ß` becomes two code units. */
+const UNDECOMPOSED: Record<string, string> = {
+  ł: 'l',
+  Ł: 'L',
+  ø: 'o',
+  Ø: 'O',
+  đ: 'd',
+  Đ: 'D',
+  ß: 'ss',
+}
+
 /**
- * `text` without accents (NFD, marks dropped), and for each of its code units
- * the span of the NFC character, marks included, it came from.
+ * `text` without accents (NFD, marks dropped, plus `UNDECOMPOSED`), and for each
+ * of its code units the span of the NFC character, marks included, it came from.
  */
 function foldAccents(text: string): { text: string; from: number[]; to: number[] } {
   let folded = ''
   const from: number[] = []
   const to: number[] = []
   for (const { 0: cluster, index } of text.matchAll(/\P{M}\p{M}*/gu)) {
-    const piece = cluster.normalize('NFD').replace(/\p{M}/gu, '')
+    const piece = cluster
+      .normalize('NFD')
+      .replace(/\p{M}/gu, '')
+      .replace(/[łŁøØđĐß]/gu, (letter) => UNDECOMPOSED[letter] ?? letter)
     folded += piece
     for (let k = 0; k < piece.length; k++) {
       from.push(index)
@@ -117,7 +131,8 @@ function findSpans(text: string, ctx: ContactContext): Span[] {
  *
  * Contract (both functions): call on each raw string field BEFORE
  * `JSON.stringify`, never on serialized JSON; that also keeps every input small.
- * Name matching folds accents (`Muller` hits `Müller`) and curly apostrophes,
+ * Name matching folds accents (`Muller` hits `Müller`, `Walesa` hits `Wałęsa`,
+ * `Strasse` hits `Straße`) and curly apostrophes,
  * but not transliterations (`Mueller`) or scripts: a Cyrillic context name does
  * not hit Latin text, so the caller passes the name in the text's script.
  */

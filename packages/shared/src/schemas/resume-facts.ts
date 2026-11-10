@@ -16,8 +16,8 @@ import { RESUME_LIMITS, resumeLinkSchema } from './resume'
 
 const shortText = z.string().max(RESUME_LIMITS.shortText)
 
-/** `YYYY-MM`, month 01-12. */
-export const resumeMonthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/)
+/** `YYYY-MM`, year 1950-2100 (as `resumeYear`), month 01-12. */
+export const resumeMonthSchema = z.string().regex(/^(19[5-9]\d|20\d\d|2100)-(0[1-9]|1[0-2])$/)
 
 export const resumeFactsExperienceSchema = z.object({
   company: shortText,
@@ -136,7 +136,7 @@ export type UpdateResumeFactsInput = z.infer<typeof updateResumeFactsSchema>
 export const updateResumeTemplateSchema = z.object({ templateName: resumeTemplateNameSchema })
 export type UpdateResumeTemplateInput = z.infer<typeof updateResumeTemplateSchema>
 
-export const confirmResumeSchema = z.object({ runId: z.uuid(), version: z.number().int() })
+export const confirmResumeSchema = z.object({ runId: z.uuid(), version: z.number().int().min(0) })
 export type ConfirmResumeInput = z.infer<typeof confirmResumeSchema>
 
 export const editStagedFieldSchema = z.object({

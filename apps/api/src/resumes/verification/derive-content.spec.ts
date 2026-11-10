@@ -163,6 +163,29 @@ describe('yearsOfExperience', () => {
     },
   )
 
+  it('reads now in UTC, not in the local time zone', () => {
+    // 2021-01-01T00:30 UTC is still December 2020 west of UTC; a local read loses January.
+    const utcJanuary = new Date('2021-01-01T00:30:00.000Z')
+    const tz = process.env['TZ']
+    process.env['TZ'] = 'America/New_York'
+    try {
+      expect(yearsOfExperience([experience({ start: '2020-02', current: true })], utcJanuary)).toBe(
+        1,
+      )
+    } finally {
+      if (tz === undefined) delete process.env['TZ']
+      else process.env['TZ'] = tz
+    }
+  })
+
+  it('skips a current job that has not started yet', () => {
+    const items = [
+      experience({ start: '2021-06', current: true }),
+      experience({ start: '2020-02', end: '2020-12', current: false }),
+    ]
+    expect(yearsOfExperience(items, now)).toBe(0)
+  })
+
   it('skips an invalid start next to a valid eleven-month job', () => {
     const items = [
       experience({ start: 'garbage', current: false }),
@@ -271,6 +294,24 @@ describe('parseFreePeriod', () => {
         current: false,
       })
     }
+  })
+
+  it('does not read a month out of a word that only starts like one', () => {
+    expect(parseFreePeriod('Marketing 2023 – Decoration 2024')).toEqual({
+      start: null,
+      end: null,
+      current: false,
+    })
+    expect(parseFreePeriod('Junior 2019, Mayor 2020')).toEqual({
+      start: null,
+      end: null,
+      current: false,
+    })
+    expect(parseFreePeriod('January 2021 – Sept. 2022')).toEqual({
+      start: '2021-01',
+      end: '2022-09',
+      current: false,
+    })
   })
 
   it('never throws, whatever the string', () => {

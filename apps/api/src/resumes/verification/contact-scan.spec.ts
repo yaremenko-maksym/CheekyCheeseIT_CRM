@@ -240,6 +240,24 @@ describe('scanContacts — serialized text and spelling variants (fix round 1)',
     expect(scanContacts('by Mueller', accented)).toEqual([])
   })
 
+  it('folds letters without a Unicode decomposition: ł ø đ ß', () => {
+    const polish = { fullName: 'Jan Wałęsa', emails: [] }
+    expect(scanContacts('by Walesa', polish)).toEqual([name('Walesa')])
+    expect(scanContacts('by WAŁĘSA', { fullName: 'Jan Walesa', emails: [] })).toEqual([
+      name('WAŁĘSA'),
+    ])
+    expect(scanContacts('by Sorensen', { fullName: 'Ib Sørensen', emails: [] })).toEqual([
+      name('Sorensen'),
+    ])
+    expect(scanContacts('by Dorde', { fullName: 'Ana Đorđe', emails: [] })).toEqual([name('Dorde')])
+    expect(redactContacts('by Strasse, ok', { fullName: 'Max Straße', emails: [] })).toBe(
+      'by [REDACTED], ok',
+    )
+    expect(redactContacts('by Straße, ok', { fullName: 'Max Strasse', emails: [] })).toBe(
+      'by [REDACTED], ok',
+    )
+  })
+
   it('redacts a folded match on its original span', () => {
     const bronte = { fullName: 'Zoë Brontë', emails: [] }
     expect(redactContacts('Zoe Bronte and Brontë, then Bronte.', bronte)).toBe(
