@@ -432,6 +432,13 @@ segments = re.split(r"(?:\|\||&&|[;\n|&])", cmd)
 # dev-ttl.sh is the project TTL wrapper: `dev-ttl.sh [--ttl N] -- <command>` (round 3 of #1294).
 WRAPPERS = {"xargs", "sudo", "env", "nice", "nohup", "command", "stdbuf", "timeout", "rtk", "dev-ttl.sh", "watch"}
 RTK_EXEC = {"bypass", "proxy", "err", "test", "run", "summary"}
+# watch long options (procps-ng src/watch.c longopts) -> the short letter of those taking a
+# required value, "" for the rest (differences takes its optional value only after =)
+WATCH_LONG = {
+    "color": "", "no-color": "", "differences": "", "help": "", "interval": "n", "beep": "",
+    "errexit": "", "follow": "", "chgexit": "", "equexit": "q", "exec": "", "precise": "",
+    "no-rerun": "", "shotsdir": "s", "no-title": "", "no-wrap": "", "version": "",
+}
 # Wrapper flags that consume the NEXT token as their value.
 VALUE_FLAGS = {"-I", "-i", "-n", "-P", "-d", "-E", "-s", "-L", "-a", "-u", "-p"}
 
@@ -473,25 +480,29 @@ def first_token(seg):
                 parts.pop(0)
             continue
         if wrapper == "watch":
-            # the watch grammar: -n/--interval take a value, -q/--equexit a number (watch
-            # refuses anything else), the rest are boolean; the program is sh -c of the words.
-            # A short cluster reads like getopt: `-dn 2` is -d plus -n 2, `-dn2` carries its value
+            # procps-ng watch: getopt_long(argv, "+bCcefd::ghq:n:prs:twvx", WATCH_LONG). n, q, s
+            # take a value (glued, or the next word); d takes only a glued one, so in -dn the n
+            # is the value of -d. The next word is taken for n / q only when it is a number:
+            # watch refuses anything else, so keeping the word as the program is the stricter
+            # reading. The program is then sh -c of the remaining words.
             while parts and parts[0].startswith("-") and parts[0] not in ("-", "--"):
                 flag = parts.pop(0)
+                takes = ""
                 if flag.startswith("--"):
-                    # getopt_long takes a unique prefix: --int 2 is --interval 2, --eq 3 is
-                    # --equexit 3 (a bare --e is ambiguous with --errexit and --exec: watch refuses)
+                    # getopt_long takes a unique prefix (--int 2 is --interval 2); a value after
+                    # = is glued; an ambiguous or unknown name makes watch refuse to run
                     name = flag[2:]
-                    takes = "" if "=" in name or not name else (
-                        "n" if "interval".startswith(name) else
-                        "q" if len(name) > 1 and "equexit".startswith(name) else "")
+                    hits = [o for o in WATCH_LONG if o.startswith(name)] if name else []
+                    if "=" not in name and (name in WATCH_LONG or len(hits) == 1):
+                        takes = WATCH_LONG[name if name in WATCH_LONG else hits[0]]
                 else:
-                    takes = ""
                     for at, ch in enumerate(flag[1:], 1):
-                        if ch in "nq":
-                            takes = ch if at == len(flag) - 1 else ""
+                        if ch == "d":
+                            break  # the rest of the cluster is its optional value
+                        if ch in "nqs":
+                            takes = ch if at == len(flag) - 1 else ""  # else the value is glued
                             break
-                if parts and (takes == "n" or (takes == "q" and re.fullmatch(r"[\d.]+", parts[0]))):
+                if parts and (takes == "s" or (takes in ("n", "q") and re.fullmatch(r"[\d.]+", parts[0]))):
                     parts.pop(0)
             if parts and parts[0] == "--":
                 parts.pop(0)
@@ -501,10 +512,11 @@ def first_token(seg):
                 parts = " ".join(parts).split()
             # the segment was split at ; before quotes were read, so a quoted program holding
             # a ; arrives with the opening quote glued to its first word; a subshell keeps its (
-            if parts:
+            while parts:
                 parts[0] = parts[0].lstrip("(){ \t\x27\"")
-                if not parts[0]:
-                    parts.pop(0)
+                if parts[0]:
+                    break
+                parts.pop(0)
             continue
         while parts and parts[0].startswith("-"):
             flag = parts.pop(0)
