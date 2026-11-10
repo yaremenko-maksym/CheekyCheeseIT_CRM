@@ -426,14 +426,28 @@ reasons = []
 # the body is scanned as code. Bounded: 64 scans; past it, or past the cmdscan depth,
 # the code was not read and the command is refused as NESTED-OPAQUE.
 REDIRECT_TOKEN = re.compile(r"^\d*(?:<<<|<<-?|<>|>>?|<|>&|&>>?)")
-STDIN_PATHS = {"-", "/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"}
+FD_PATH = re.compile(r"^(?:/dev/fd/|/proc/self/fd/)(\d+)$")
+SCRIPT_WORD = re.compile(r"^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(\S+)")
+
+
+def stdin_feed(argv, fd):
+    """The last redirection of `fd` in argv: "heredoc" (`<<`, `<<<`), "redir" (`<`, `<&`,
+    `<>`, `<(...)`, whose source is unknown here) or None (inherited)."""
+    feed = None
+    for a in argv:
+        m = re.match(r"^(\d*)(<<<|<<-?|<>|<&|<)", a)
+        if m and int(m.group(1) or 0) == fd:
+            feed = "heredoc" if m.group(2).startswith("<<") else "redir"
+    return feed
 
 
 def stdin_reader(seg):
-    """(reads stdin as code, here-strings it runs, runs a script file) for a segment."""
+    """(reads code from a fd, here-strings it runs, runs a script file, the fd) for a segment."""
     if seg.name not in cmdscan.INTERPRETERS and seg.name not in ("source", "."):
-        # `./s.sh`, `scripts/x.sh`: a file this command may have just written
-        return False, [], "/" in seg.name or seg.name.endswith(".sh")
+        # `./s.sh`, `scripts/x.sh`, `./deploy`: a file this command may have just written
+        # (cmdscan keeps only the basename in seg.name, so the word is read from raw)
+        w = SCRIPT_WORD.match(seg.raw)
+        return False, [], bool(w) and ("/" in w.group(1) or seg.name.endswith(".sh")), 0
     argv, strings, i = [], [], 0
     while i < len(seg.argv):
         a = seg.argv[i]
@@ -457,19 +471,24 @@ def stdin_reader(seg):
         program, is_code, flags = cmdscan.shell_program(argv)[:3]
         if any(f[:1] == "-" and f[1:2] != "-" and "s" in f[1:] for f in flags):
             program = None  # `bash -s x y`: x y are positional parameters, code comes on stdin
+        if program is None and any(f in ("--version", "--help") for f in flags):
+            return False, [], False, 0  # prints and exits, reads no code
     if is_code:
-        return False, [], False  # bash -c is read by cmdscan
-    if program is not None and program not in STDIN_PATHS:
-        return False, [], True  # a script operand reads its own file
-    return True, strings, False
+        return False, [], False, 0  # bash -c is read by cmdscan
+    fdm = FD_PATH.match(program or "")
+    if program is not None and not fdm and program not in ("-", "/dev/stdin"):
+        return False, [], True, 0  # a script operand reads its own file
+    return True, strings, False, int(fdm.group(1)) if fdm else 0
 
 
 # cmdscan hands every heredoc body of a line to the LAST segment of that line, whoever
 # opened it (`bash <<EOF; cat` gives the body to cat). So when a scan holds a shell that
-# reads stdin, every body of that scan is scanned as code, whichever segment carries it.
-# A shell that reads code from stdin with no heredoc or here-string on its line gets it
-# from a pipe, `<(...)` or a file (`echo x | bash`, `bash <(curl ..)`): code made at run
-# time, which no reading of the text can judge, so it is NESTED-OPAQUE.
+# reads code, every body of that scan is scanned as code, whichever segment carries it.
+# The shell is BLIND (NESTED-OPAQUE) when its code comes from a pipe, `<`, `<(...)` or a
+# fd with no heredoc of its own: code made at run time, which no reading of the text can
+# judge (`echo x | bash`, `bash <(curl ..)`, `echo x | bash 3<<EOF`). Its own heredoc is
+# one it opened on that fd (`bash <<EOF`), or, for a pipe, one the segment before it
+# opened on stdin (`cat <<EOF | sh`). A shell with nothing on stdin reads nothing.
 scanned, work, opaque, runs_file = [], [cmd], False, False
 for _ in range(64):
     if not work:
@@ -477,18 +496,23 @@ for _ in range(64):
     sc = cmdscan.scan(work.pop())
     opaque = opaque or sc.truncated
     shell_reads = blind = False
+    prev = {}  # depth -> the segment before, at that depth
     for g in sc.segments:
         scanned.append(g)
-        reads, strings, runs = stdin_reader(g)
-        shell_reads = shell_reads or reads
-        # its own heredoc: it opened one (`bash <<EOF`) or carries one, being the last
-        # segment of the line (`cat <<EOF | sh`). `echo x | sh; cat <<EOF` is still blind.
-        blind = blind or (reads and not strings and not g.opened and not g.heredocs)
+        reads, strings, runs, fd = stdin_reader(g)
+        if reads:
+            shell_reads = True
+            feed = stdin_feed(g.argv, fd)
+            if feed == "redir" or (feed is None and fd != 0):
+                blind = True
+            elif feed is None and g.piped and not strings:
+                p = prev.get(g.depth)
+                blind = blind or p is None or stdin_feed(p.argv, 0) != "heredoc"
         runs_file = runs_file or runs
         work += strings
-    bodies = [b for g in sc.segments for b in g.heredocs]
+        prev[g.depth] = g
     if shell_reads:
-        work += bodies
+        work += [b for g in sc.segments for b in g.heredocs]
     opaque = opaque or blind
 opaque = opaque or bool(work)
 
@@ -503,13 +527,51 @@ opaque = opaque or bool(work)
 # `git am` (the body is a patch naming the files it writes), and when the command also
 # runs a script file (`cat > s.sh <<EOF ... EOF; bash s.sh` runs the body).
 DATA_SINKS = {"cat", "tee", "gh", "git", "jq", "grep", "wc", "head", "tail", "sort"}
+
+
+def git_sub(argv):
+    """The git subcommand: the first word after the global options (-C / -c take a value)."""
+    i = 1 if argv[:1] == ["git"] else 0
+    while i < len(argv) and argv[i].startswith("-"):
+        i += 2 if argv[i] in ("-C", "-c", "--git-dir", "--work-tree", "--namespace") else 1
+    return argv[i] if i < len(argv) else None
+
+
+def written_file_named_again(g):
+    """The body goes to a file (`> f`, `>> f`, `tee f`) whose name the command uses again:
+    `cat > deploy <<EOF ...; sudo ./deploy` may run it, so the body is not data."""
+    files, i = [], 0
+    while i < len(g.argv):
+        a = g.argv[i]
+        m = re.match(r"^\d*(?:>>?|&>>?)(?!&)", a)
+        if m:
+            if a[m.end():]:
+                files.append(a[m.end():])
+            elif i + 1 < len(g.argv):
+                i += 1
+                files.append(g.argv[i])
+        elif cmd_name(g.name) == "tee" and not a.startswith("-"):
+            files.append(a)
+        i += 1
+    rest = cmd
+    for body in g.heredocs:
+        rest = rest.replace(body, "", 1)
+    for f in files:
+        base = posixpath.basename(f.rstrip("/"))
+        if base and len(re.findall(r"(?<![\w.-])%s(?![\w.-])" % re.escape(base), rest)) > 1:
+            return True
+    return False
+
+
 naive = cmd
 for g in scanned:
     # stripped only when this segment opened every body it carries (see cmdscan above);
     # opened counts real openers, so a quoted `\x27<<X\x27` argument does not count
     if cmd_name(g.name) not in DATA_SINKS or g.opened != len(g.heredocs):
         continue
-    if runs_file or g.depth > 0 or (cmd_name(g.name) == "git" and {"apply", "am"} & set(g.argv)):
+    if runs_file or g.depth > 0 or (cmd_name(g.name) == "git" and git_sub(g.argv) in ("apply", "am")):
+        continue
+    if written_file_named_again(g):
         continue
     for body in g.heredocs:
         if body.strip():
@@ -780,6 +842,15 @@ for name, args in toks:
                 "comes from stdin (xargs, a pipe, a heredoc), so I cannot tell whose tree "
                 "it is. Pass each path as a literal argument, one command per tree."
             )
+        if re.search(r"\b(?:xargs|find)\b", cmd):  # cmdscan unwraps both, so read the text
+            # `xargs -I{} git worktree remove {}`, `find .. -exec git worktree remove {} ;`:
+            # any word may be the placeholder (`-I /x/ph`), filled in at run time
+            reasons.append(
+                "WORKTREE-OPAQUE|`git worktree remove` under xargs / find: the path is "
+                "filled in at run time, so I cannot tell whose tree it is. Pass each path "
+                "as an absolute literal, one command per tree."
+            )
+            targets = []
         for t in targets:
             # Third outcome: OWN / FOREIGN / UNKNOWN. Before this existed the
             # token "$w" was joined onto cwd, landed inside own_wt, and hit the
@@ -835,7 +906,7 @@ MUTATORS = {
 }
 MUTATING_GIT = {
     "checkout", "restore", "reset", "clean", "stash", "apply", "revert",
-    "merge", "rebase", "commit", "add", "rm", "mv", "switch", "cherry-pick",
+    "merge", "rebase", "commit", "add", "rm", "mv", "switch", "cherry-pick", "am",
 }
 
 

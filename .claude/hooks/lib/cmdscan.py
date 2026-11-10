@@ -583,7 +583,7 @@ def _command_name(word):
 class Segment:
     __slots__ = (
         "name", "argv", "payload", "wrappers", "dynamic", "raw", "depth",
-        "env", "confident", "why", "heredocs", "opened",
+        "env", "confident", "why", "heredocs", "opened", "piped",
     )
 
     def __init__(self, name, argv, payload, wrappers, dynamic, raw, depth,
@@ -602,6 +602,7 @@ class Segment:
         self.heredocs = tuple(heredocs)
         # how many heredoc openers this segment holds (set by scan from _split_segments)
         self.opened = 0
+        self.piped = False  # stdin is the previous segment of a `|` pipeline
 
     def positionals(self, value_flags=()):
         """argv minus flags and the values consumed by `value_flags`."""
@@ -1099,7 +1100,10 @@ def _ansi_c_escape(text, j):
                 return chr(int(text[start:k], base) & (0xFF if base == 8 else 0x10FFFF)), k
             except ValueError:
                 return "", k
-    if nx == "c" and j + 2 < len(text):
+    if nx == "c" and j + 2 < len(text) and text[j + 2] != "'":
+        # never the closing quote: bash ends `$'..\c'` there. `\c\\` is one control char
+        if text[j + 2] == "\\" and j + 3 < len(text) and text[j + 3] == "\\":
+            return chr(0x1C), j + 4
         return chr(ord(text[j + 2]) & 0x1F), j + 3
     return "\\" + nx, j + 2
 
@@ -1128,14 +1132,17 @@ def _ansi_c_alt(text):
             out.append(ch)
             i += 1
         elif text.startswith("$'", i):
-            j, val, hit = i + 2, [], True
+            j, val, hit, nul = i + 2, [], True, False
             while j < n and text[j] != "'":
                 if text[j] == "\\" and j + 1 < n:
                     # every escape bash decodes: `bash -c $'bash <<E\npkill x\nE'` has lines
                     ch2, j = _ansi_c_escape(text, j)
-                    val.append(ch2)
+                    nul = nul or ch2 == "\0"  # bash ends the value at a NUL
+                    if not nul:
+                        val.append(ch2)
                 else:
-                    val.append(text[j])
+                    if not nul:
+                        val.append(text[j])
                     j += 1
             out.append(shlex.quote("".join(val)))
             i = j + 1
@@ -1304,6 +1311,7 @@ def _split_segments(text):
     # heredoc openers in the current segment: bodies are handed to the LAST segment of
     # their line, so this count is what tells a caller whether a segment opened them
     opened = [0]
+    piped = [False]  # the segment being read follows a `|` / `|&`
     code = []
     pending = []
     quote = None
@@ -1313,7 +1321,8 @@ def _split_segments(text):
     def flush():
         raw = "".join(cur).strip()
         if raw or cur_heredocs:
-            segs.append((raw, list(cur_heredocs), opened[0]))
+            segs.append((raw, list(cur_heredocs), opened[0], piped[0]))
+            piped[0] = False
         del cur[:]
         del cur_heredocs[:]
         opened[0] = 0
@@ -1410,6 +1419,8 @@ def _split_segments(text):
                 break
         if op is not None:
             flush()
+            # `a | (b)`: the paren flushes nothing, so b keeps the pipe; `a |& b` too
+            piped[0] = op == "|" or (op == "&" and code[-1:] == [" | "])
             code.append(" %s " % op)
             i += len(op)
             continue
@@ -2274,7 +2285,7 @@ def scan(command_line, depth=0, env=None):
     # was not predicted either.
     if spans:
         captured = set()
-        for _raw, _heredocs, _opened in raw_segments:
+        for _raw, _heredocs, _opened, _piped in raw_segments:
             captured.update(_heredocs)
         for start, end in spans:
             if command_line[start:end].strip("\n") not in captured:
@@ -2293,13 +2304,14 @@ def scan(command_line, depth=0, env=None):
         assigns.update(sub.assigns)
         return sub.code_view, sub.degraded, sub.truncated
 
-    for raw, heredocs, opened in raw_segments:
+    for raw, heredocs, opened, piped in raw_segments:
         tokens, deg = _tokenize(raw)
         degraded = degraded or deg
         seg, nested, exports = _build_segment(
             raw, tokens, heredocs, running_env, depth, deg,
         )
         seg.opened = opened
+        seg.piped = piped
         segments.append(seg)
         assigns.update(seg.env)
         # exports outlive their segment; an inline prefix does not.
