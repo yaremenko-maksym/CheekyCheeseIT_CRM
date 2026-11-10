@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isVerificationBusy, pickTemplateName } from './resume-verification.service'
+import { draftReset, isVerificationBusy, pickTemplateName } from './resume-verification.service'
 
 // sha256(id) mod 4, computed once by hand: ...01 -> 2, ...02 -> 0, ...11 -> 3, ...12 -> 1.
 const ID_MOD_2 = '7b3d91c4-2e5f-4a00-aa00-000000000001'
@@ -45,5 +45,26 @@ describe('pickTemplateName', () => {
     expect(pickTemplateName({ classic: 3, modern: 0, compact: 2, technical: 1 }, ID_MOD_3)).toBe(
       'modern',
     )
+  })
+})
+
+describe('draftReset', () => {
+  it('clears the run fields and every staged column', () => {
+    expect(draftReset()).toMatchObject({
+      verificationStatus: 'DRAFT',
+      verificationRunId: null,
+      verificationKind: null,
+      verificationTargetPath: null,
+      verificationBaseVersion: null,
+      verificationQueuedAt: null,
+      verificationStartedAt: null,
+      verificationErrorCode: null,
+      verificationReport: null,
+      stagedContent: null,
+      stagedLayout: null,
+      stagedTemplateName: null,
+      stagedPdfS3Key: null,
+      stagedEditedPaths: [],
+    })
   })
 })

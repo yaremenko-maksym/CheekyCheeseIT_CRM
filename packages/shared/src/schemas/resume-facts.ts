@@ -164,6 +164,11 @@ export type RegenerateStagedFieldInput = z.infer<typeof regenerateStagedFieldSch
 // Lives here, not in resume.ts: it embeds the facts/verification schemas above,
 // and resume.ts importing this file back would be a load-order cycle.
 
+/** Staged fields a person edited by hand, and who (the `staged_edited_paths` column). */
+export const resumeStagedEditedPathsSchema = z.array(
+  z.object({ path: z.string(), userId: z.uuid() }),
+)
+
 export const seniorResumeDtoSchema = z.object({
   id: z.string().uuid(),
   userId: z.string().uuid(),
@@ -229,7 +234,7 @@ export const seniorResumeDtoSchema = z.object({
       layout: resumeLayoutOptionsSchema,
       templateName: resumeTemplateNameSchema,
       pdfAvailable: z.boolean(),
-      editedPaths: z.array(z.object({ path: z.string(), userId: z.uuid() })),
+      editedPaths: resumeStagedEditedPathsSchema,
     })
     .nullable(),
   /** A run is in flight (also a template run on a VERIFIED resume): writes answer 409. */

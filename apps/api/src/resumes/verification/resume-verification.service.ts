@@ -29,6 +29,7 @@ import {
   normalizeResumeLayout,
   resumeContentSchema,
   resumeFactsSchema,
+  resumeStagedEditedPathsSchema,
   resumeVerificationErrorCodeSchema,
   resumeVerificationReportSchema,
   type ResumeFacts,
@@ -36,7 +37,6 @@ import {
   type ResumeTemplateName,
   type SeniorResumeDto,
 } from '@crm/shared'
-import { z } from 'zod'
 import { apiError } from '../../common/api-error'
 import { DatabaseService } from '../../database/database.service'
 import { seniorResumes, teamMembers, type SeniorResume } from '../../database/schema'
@@ -56,8 +56,6 @@ type VerificationDtoFields = Pick<
   | 'staged'
   | 'verificationBusy'
 >
-
-const editedPathsSchema = z.array(z.object({ path: z.string(), userId: z.uuid() }))
 
 /** True while a run owns the row: every write answers 409 then. */
 export function isVerificationBusy(
@@ -126,6 +124,7 @@ export function pickTemplateName(
 ): ResumeTemplateName {
   const hash = createHash('sha256').update(userId).digest('hex')
   const start = Number(BigInt(`0x${hash}`) % BigInt(RESUME_TEMPLATE_NAMES.length))
+  // Stryker disable next-line MethodExpression: equivalent — only the first least-used name is read, and a whole catalog after the tail repeats names already met
   const order = [...RESUME_TEMPLATE_NAMES.slice(start), ...RESUME_TEMPLATE_NAMES.slice(0, start)]
   const least = Math.min(...order.map((name) => counts[name] ?? 0))
   return order.find((name) => (counts[name] ?? 0) === least) ?? 'classic'
@@ -307,7 +306,8 @@ export class ResumeVerificationService {
               layout: normalizeResumeLayout(row.stagedLayout ?? DEFAULT_RESUME_LAYOUT),
               templateName: resolveTemplateName(row.stagedTemplateName),
               pdfAvailable: true,
-              editedPaths: editedPathsSchema.safeParse(row.stagedEditedPaths).data ?? [],
+              editedPaths:
+                resumeStagedEditedPathsSchema.safeParse(row.stagedEditedPaths).data ?? [],
             }
           : null,
       verificationBusy: isVerificationBusy(row),

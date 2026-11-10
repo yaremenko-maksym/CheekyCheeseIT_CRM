@@ -13,6 +13,7 @@ import {
   resumeVerificationErrorCodeSchema,
   resumeVerificationReportSchema,
   resumeVerificationStatusSchema,
+  seniorResumeResponseSchema,
   updateResumeFactsSchema,
   updateResumeTemplateSchema,
   type ResumeFacts,
@@ -22,6 +23,7 @@ import {
   RESUME_ERROR_FALLBACK_EN,
   RESUME_ERROR_MESSAGES,
 } from './api-errors/resume'
+import { DEFAULT_RESUME_LAYOUT, EMPTY_RESUME_CONTENT } from './resume'
 
 const RUN_ID = '3f2b8c1e-4d5a-4e6f-8a7b-9c0d1e2f3a4b'
 
@@ -282,6 +284,72 @@ describe('request bodies', () => {
       true,
     )
     expect(regenerateStagedFieldSchema.safeParse({ runId: 'x', path: 'summary' }).success).toBe(
+      false,
+    )
+  })
+})
+
+describe('senior resume response', () => {
+  const USER_ID = '6c1d2e3f-4a5b-4c6d-8e7f-8091a2b3c4d5'
+  const resume = {
+    id: '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d',
+    userId: USER_ID,
+    content: EMPTY_RESUME_CONTENT,
+    status: 'READY',
+    errorCode: null,
+    errorMessage: null,
+    quotaResetsAt: null,
+    sourceFileName: null,
+    sourceFileSizeBytes: null,
+    hasSourceFile: false,
+    version: 4,
+    updatedByUserId: null,
+    updatedByName: null,
+    createdAt: '2026-11-11T10:00:00.000Z',
+    updatedAt: '2026-11-11T10:00:00.000Z',
+    layout: DEFAULT_RESUME_LAYOUT,
+    templateName: 'modern',
+    hasCustomTemplate: false,
+    renderStatus: 'READY',
+    renderError: null,
+    pdfUpToDate: true,
+    facts: EMPTY_RESUME_FACTS,
+    verificationStatus: 'AWAITING_CONFIRM',
+    verificationErrorCode: null,
+    verificationReport: null,
+    verifiedVersion: 3,
+    verifiedAt: '2026-11-10T09:00:00.000Z',
+    verifiedByName: 'Ганна',
+    staged: {
+      runId: RUN_ID,
+      content: EMPTY_RESUME_CONTENT,
+      layout: DEFAULT_RESUME_LAYOUT,
+      templateName: 'compact',
+      pdfAvailable: true,
+      editedPaths: [{ path: 'summary', userId: USER_ID }],
+    },
+    verificationBusy: false,
+  }
+
+  it('keeps every DTO field, the staged result and both viewer flags', () => {
+    const body = { resume, canEdit: true, canConfirm: false }
+    expect(seniorResumeResponseSchema.parse(body)).toEqual(body)
+  })
+
+  it('rejects a staged edited path without a uuid author', () => {
+    const bad = {
+      resume: {
+        ...resume,
+        staged: { ...resume.staged, editedPaths: [{ path: 'summary', userId: 'x' }] },
+      },
+      canEdit: true,
+      canConfirm: false,
+    }
+    expect(seniorResumeResponseSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('requires canConfirm on the envelope', () => {
+    expect(seniorResumeResponseSchema.safeParse({ resume: null, canEdit: true }).success).toBe(
       false,
     )
   })
