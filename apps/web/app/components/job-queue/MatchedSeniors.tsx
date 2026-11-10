@@ -51,13 +51,14 @@ export function submittedElsewhere(senior: JobQueueCardSeniorDto) {
 function MatchEvidence({ senior }: { senior: JobQueueCardSeniorDto }) {
   const [open, setOpen] = useState(false)
   const id = useId()
-  const core = senior.matchEvidence.filter((e) => e.strength === 'CORE').map((e) => e.keyword)
-  const optional = senior.matchEvidence
-    .filter((e) => e.strength === 'OPTIONAL')
-    .map((e) => e.keyword)
   if (senior.matchEvidence.length === 0) return null
-  const required = core.join(', ')
-  const nice = optional.join(', ')
+  const keywords = (strength: 'CORE' | 'OPTIONAL') =>
+    senior.matchEvidence
+      .filter((e) => e.strength === strength)
+      .map((e) => e.keyword)
+      .join(', ')
+  const required = keywords('CORE')
+  const nice = keywords('OPTIONAL')
 
   return (
     <div className="flex min-w-0 flex-col items-start gap-1 text-xs">
