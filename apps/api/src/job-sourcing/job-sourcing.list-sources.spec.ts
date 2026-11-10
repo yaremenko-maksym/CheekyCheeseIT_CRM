@@ -267,6 +267,7 @@ describe('listSources — task 7.5 meter projection', () => {
   })
 
   it.each([
+    ['unit', { cost_unit: 7 }],
     ['window', { meter_window: 3 }],
     ['used', { meter_used: '120' }],
     ['reserved', { meter_reserved: null }],
