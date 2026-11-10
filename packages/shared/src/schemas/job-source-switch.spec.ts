@@ -144,3 +144,55 @@ describe('the switch error codes', () => {
     },
   )
 })
+
+describe('jobSourceSchema — the additive `meter` projection (task 7.5)', () => {
+  const METER = {
+    unit: 'REQUEST',
+    window: 'MONTH',
+    limit: 200,
+    used: 120,
+    reserved: 10,
+    uncertain: 5,
+    resetsAt: '2026-12-01T00:00:00.000Z',
+  }
+
+  it('an old DTO without `meter` still parses and stays without it', () => {
+    expect('meter' in jobSourceSchema.parse(EXTENDED)).toBe(false)
+  })
+
+  it('parses a meter and returns it unchanged', () => {
+    expect(jobSourceSchema.parse({ ...EXTENDED, meter: METER }).meter).toEqual(METER)
+  })
+
+  it('accepts null (no meter) and a null limit / resetsAt (unlimited, LIFETIME)', () => {
+    expect(jobSourceSchema.parse({ ...EXTENDED, meter: null }).meter).toBeNull()
+    const open = { ...METER, window: 'LIFETIME', limit: null, resetsAt: null }
+    expect(jobSourceSchema.parse({ ...EXTENDED, meter: open }).meter).toEqual(open)
+  })
+
+  it.each([
+    ['a negative used', { used: -1 }],
+    ['a fractional reserved', { reserved: 1.5 }],
+    ['a negative uncertain', { uncertain: -1 }],
+    ['a negative limit', { limit: -1 }],
+    ['an unknown unit', { unit: 'BYTES' }],
+    ['an unknown window', { window: 'WEEK' }],
+    ['a non-ISO resetsAt', { resetsAt: 'tomorrow' }],
+    ['a missing used', { used: undefined }],
+  ])('rejects %s', (_name, patch) => {
+    expect(jobSourceSchema.safeParse({ ...EXTENDED, meter: { ...METER, ...patch } }).success).toBe(
+      false,
+    )
+  })
+
+  it('rejects an unknown meter key (strict: no account key or other column leaks through)', () => {
+    expect(
+      jobSourceSchema.safeParse({ ...EXTENDED, meter: { ...METER, accountKey: 'x:y' } }).success,
+    ).toBe(false)
+  })
+
+  it('the list parses a source with a meter', () => {
+    const { items } = jobSourceListSchema.parse({ items: [{ ...EXTENDED, meter: METER }] })
+    expect(items[0]?.meter).toEqual(METER)
+  })
+})

@@ -17,7 +17,9 @@ import type {
   JobCollectionRunDto,
   JobExclusionDto,
   JobMeterUnit,
+  JobMeterWindow,
   JobSourceDto,
+  JobSourceMeterDto,
   JobSourceTriggerMode,
   JobSourceType,
   JobSuggestionDto,
@@ -178,6 +180,33 @@ export class NotLegacySourceError extends Error {
   constructor(readonly sourceType: JobSourceType) {
     super(`${sourceType} is a reporting source: it runs only through the run ledger`)
     this.name = 'NotLegacySourceError'
+  }
+}
+
+/**
+ * Task 7.5: one `sourceOperationalFacts` row's meter cells as the DTO slice. A cell of the wrong
+ * type (no joined meter gives NULLs; `cost_unit` is the join's presence marker) means "no meter"
+ * rather than a half-filled one the response schema would reject.
+ */
+function meterOf(r: Record<string, unknown>): JobSourceMeterDto | null {
+  const { cost_unit: unit, meter_window: window } = r
+  const used = r['meter_used']
+  const reserved = r['meter_reserved']
+  const uncertain = r['meter_uncertain']
+  if (typeof unit !== 'string' || typeof window !== 'string') return null
+  if (typeof used !== 'number' || typeof reserved !== 'number' || typeof uncertain !== 'number') {
+    return null
+  }
+  const limit = r['meter_limit']
+  const resetsAtMs = r['meter_resets_at_ms']
+  return {
+    unit: unit as JobMeterUnit,
+    window: window as JobMeterWindow,
+    limit: typeof limit === 'number' ? limit : null,
+    used,
+    reserved,
+    uncertain,
+    resetsAt: typeof resetsAtMs === 'number' ? new Date(resetsAtMs).toISOString() : null,
   }
 }
 
@@ -1434,6 +1463,7 @@ export class JobSourcingService {
         hostPauseReason: fact?.hostPauseReason ?? null,
         costUnit: fact?.costUnit ?? null,
         resumeCheckpoint: fact?.resumeCheckpoint ?? false,
+        meter: fact?.meter ?? null,
         // A drifted DB value maps to null rather than failing the whole list's response schema.
         healthState: jobHealthStateSchema.safeParse(health.get(row.id)?.toState).data ?? null,
       }
@@ -1445,6 +1475,11 @@ export class JobSourcingService {
    * force, its meter's unit, and whether the next run would resume from a stored checkpoint: the
    * ledger's own `inheritedCheckpoint` (the "Crash resume" rule) is not `{}`. One query; instants
    * as epoch ms (driver parsing of timestamptz is not relied on).
+   *
+   * Task 7.5 meter cells: a window reset happens in place and only on the meter's next write, so
+   * once `resets_at` has passed the stored `used` belongs to the previous window — it is projected
+   * as 0 and the elapsed reset instant as null. `reserved` and `uncertain` are not reset by the roll
+   * and are shown as stored. Counters are bigint, hence `::float8` (a string otherwise).
    */
   private async sourceOperationalFacts(): Promise<
     Map<
@@ -1454,6 +1489,7 @@ export class JobSourcingService {
         hostPauseReason: string | null
         costUnit: JobMeterUnit | null
         resumeCheckpoint: boolean
+        meter: JobSourceMeterDto | null
       }
     >
   > {
@@ -1463,6 +1499,12 @@ export class JobSourcingService {
                   THEN (extract(epoch FROM h.paused_until) * 1000)::float8 END AS paused_until_ms,
              CASE WHEN h.paused_until > clock_timestamp() THEN h.pause_reason END AS pause_reason,
              m.unit::text AS cost_unit,
+             m.window_kind::text AS meter_window,
+             m.limit_amount::float8 AS meter_limit,
+             CASE WHEN m.resets_at IS NOT NULL AND m.resets_at <= clock_timestamp() THEN 0 ELSE m.used::float8 END AS meter_used,
+             m.reserved::float8 AS meter_reserved,
+             m.uncertain::float8 AS meter_uncertain,
+             CASE WHEN m.resets_at > clock_timestamp() THEN (extract(epoch FROM m.resets_at) * 1000)::float8 END AS meter_resets_at_ms,
              ${inheritedCheckpoint(sql`s.id`, sql`s.config_version`, sql`true`)} <> '{}'::jsonb
                AS resume_checkpoint
         FROM job_sources s
@@ -1479,6 +1521,7 @@ export class JobSourcingService {
           hostPauseReason: typeof r['pause_reason'] === 'string' ? r['pause_reason'] : null,
           costUnit: typeof r['cost_unit'] === 'string' ? (r['cost_unit'] as JobMeterUnit) : null,
           resumeCheckpoint: r['resume_checkpoint'] === true,
+          meter: meterOf(r),
         },
       ]),
     )
