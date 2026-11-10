@@ -3474,7 +3474,7 @@ msgstr "This resume template does not support verification. Choose a template fr
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_INCOMPLETE"
-msgstr "Fill in all required resume fields before the check"
+msgstr "Fill in all required resume fields before the check."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts

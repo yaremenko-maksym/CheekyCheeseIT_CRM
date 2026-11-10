@@ -31,10 +31,15 @@ export const resumeFactsExperienceSchema = z.object({
 })
 export type ResumeFactsExperience = z.infer<typeof resumeFactsExperienceSchema>
 
+export const RESUME_WORK_FORMATS = ['remote', 'hybrid', 'onsite'] as const
+export const RESUME_LANGUAGE_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'native'] as const
+
+const resumeYear = z.number().int().min(1950).max(2100)
+
 export const resumeFactsSchema = z.object({
   headline: shortText,
   location: z.object({ city: shortText, country: shortText }),
-  workFormat: z.enum(['remote', 'hybrid', 'onsite']).nullable(),
+  workFormat: z.enum(RESUME_WORK_FORMATS).nullable(),
   skills: z.array(shortText).max(RESUME_LIMITS.skills),
   experience: z.array(resumeFactsExperienceSchema).max(RESUME_LIMITS.experience),
   education: z
@@ -42,8 +47,8 @@ export const resumeFactsSchema = z.object({
       z.object({
         institution: shortText,
         degree: shortText,
-        startYear: z.number().int().nullable(),
-        endYear: z.number().int().nullable(),
+        startYear: resumeYear.nullable(),
+        endYear: resumeYear.nullable(),
       }),
     )
     .max(RESUME_LIMITS.education),
@@ -51,7 +56,7 @@ export const resumeFactsSchema = z.object({
     .array(
       z.object({
         name: shortText,
-        level: z.enum(['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'native']),
+        level: z.enum(RESUME_LANGUAGE_LEVELS),
       }),
     )
     .max(RESUME_LIMITS.languages),
@@ -136,10 +141,11 @@ export type ConfirmResumeInput = z.infer<typeof confirmResumeSchema>
 
 export const editStagedFieldSchema = z.object({
   runId: z.uuid(),
-  path: z.string(),
-  text: z.string(),
+  path: shortText,
+  // The larger of the summary/bullet caps; the server enforces the per-path cap.
+  text: z.string().max(RESUME_LIMITS.summary),
 })
 export type EditStagedFieldInput = z.infer<typeof editStagedFieldSchema>
 
-export const regenerateStagedFieldSchema = z.object({ runId: z.uuid(), path: z.string() })
+export const regenerateStagedFieldSchema = z.object({ runId: z.uuid(), path: shortText })
 export type RegenerateStagedFieldInput = z.infer<typeof regenerateStagedFieldSchema>

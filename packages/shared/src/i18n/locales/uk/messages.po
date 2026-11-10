@@ -3474,7 +3474,7 @@ msgstr "Цей шаблон резюме не підтримує перевір�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_INCOMPLETE"
-msgstr "Заповніть усі потрібні поля резюме перед перевіркою"
+msgstr "Заповніть усі потрібні поля резюме перед перевіркою."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts

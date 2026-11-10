@@ -30,7 +30,7 @@ export const RESUME_ERROR_MESSAGES: Record<ResumeErrorCode, MessageDescriptor> =
   },
   RESUME_INCOMPLETE: /* i18n */ {
     id: 'api-error.RESUME_INCOMPLETE',
-    message: 'Заповніть усі потрібні поля резюме перед перевіркою',
+    message: 'Заповніть усі потрібні поля резюме перед перевіркою.',
   },
   RESUME_VERIFICATION_BUSY: /* i18n */ {
     id: 'api-error.RESUME_VERIFICATION_BUSY',
@@ -42,6 +42,6 @@ export const RESUME_ERROR_FALLBACK_EN: Record<ResumeErrorCode, string> = {
   RESUME_CONFIRM_STALE: 'The resume changed after the check. Refresh the page and check it again.',
   RESUME_CUSTOM_TEMPLATE:
     'This resume template does not support verification. Choose a template from the catalog.',
-  RESUME_INCOMPLETE: 'Fill in all required resume fields before the check',
+  RESUME_INCOMPLETE: 'Fill in all required resume fields before the check.',
   RESUME_VERIFICATION_BUSY: 'The resume is being checked right now. Wait until the check finishes.',
 }

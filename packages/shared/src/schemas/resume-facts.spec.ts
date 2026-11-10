@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   EMPTY_RESUME_FACTS,
+  RESUME_LANGUAGE_LEVELS,
   RESUME_TEMPLATE_NAMES,
+  RESUME_WORK_FORMATS,
   confirmResumeSchema,
   editStagedFieldSchema,
   regenerateStagedFieldSchema,
@@ -15,6 +17,11 @@ import {
   updateResumeTemplateSchema,
   type ResumeFacts,
 } from './resume-facts'
+import {
+  RESUME_ERROR_CODES,
+  RESUME_ERROR_FALLBACK_EN,
+  RESUME_ERROR_MESSAGES,
+} from './api-errors/resume'
 
 const RUN_ID = '3f2b8c1e-4d5a-4e6f-8a7b-9c0d1e2f3a4b'
 
@@ -92,6 +99,32 @@ describe('resumeFactsSchema', () => {
       resumeFactsSchema.safeParse(factsWith({ education: [{ ...item, startYear: 2015.5 }] }))
         .success,
     ).toBe(false)
+  })
+
+  it('a year outside 1950-2100 is rejected', () => {
+    const item = { institution: 'KPI', degree: 'BSc', startYear: 99999, endYear: null }
+    expect(resumeFactsSchema.safeParse(factsWith({ education: [item] })).success).toBe(false)
+    expect(
+      resumeFactsSchema.safeParse(factsWith({ education: [{ ...item, startYear: 1949 }] })).success,
+    ).toBe(false)
+    expect(
+      resumeFactsSchema.safeParse(factsWith({ education: [{ ...item, startYear: 1950 }] })).success,
+    ).toBe(true)
+    expect(
+      resumeFactsSchema.safeParse(
+        factsWith({ education: [{ ...item, startYear: null, endYear: 2101 }] }),
+      ).success,
+    ).toBe(false)
+    expect(
+      resumeFactsSchema.safeParse(
+        factsWith({ education: [{ ...item, startYear: null, endYear: 2100 }] }),
+      ).success,
+    ).toBe(true)
+  })
+
+  it('the work-format and language-level catalogs are exported as the brief literals', () => {
+    expect(RESUME_WORK_FORMATS).toEqual(['remote', 'hybrid', 'onsite'])
+    expect(RESUME_LANGUAGE_LEVELS).toEqual(['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'native'])
   })
 
   it('a language level outside the CEFR set is rejected', () => {
@@ -179,6 +212,15 @@ describe('verification schemas', () => {
   })
 })
 
+describe('resume api-error copy', () => {
+  it('every uk message and en fallback ends with a period', () => {
+    for (const code of RESUME_ERROR_CODES) {
+      expect(RESUME_ERROR_MESSAGES[code].message, code).toMatch(/\.$/)
+      expect(RESUME_ERROR_FALLBACK_EN[code], code).toMatch(/\.$/)
+    }
+  })
+})
+
 describe('request bodies', () => {
   it('updateResumeFactsSchema validates the nested facts', () => {
     expect(updateResumeFactsSchema.safeParse({ facts: EMPTY_RESUME_FACTS }).success).toBe(true)
@@ -194,6 +236,27 @@ describe('request bodies', () => {
     expect(confirmResumeSchema.safeParse({ runId: RUN_ID, version: 3 }).success).toBe(true)
     expect(confirmResumeSchema.safeParse({ runId: 'run-1', version: 3 }).success).toBe(false)
     expect(confirmResumeSchema.safeParse({ runId: RUN_ID, version: 1.5 }).success).toBe(false)
+  })
+
+  it('staged-field bodies cap text at 2000 and path at 200 characters', () => {
+    const path200 = 'p'.repeat(200)
+    expect(
+      editStagedFieldSchema.safeParse({ runId: RUN_ID, path: path200, text: 't'.repeat(2000) })
+        .success,
+    ).toBe(true)
+    expect(
+      editStagedFieldSchema.safeParse({ runId: RUN_ID, path: 'summary', text: 't'.repeat(2001) })
+        .success,
+    ).toBe(false)
+    expect(
+      editStagedFieldSchema.safeParse({ runId: RUN_ID, path: `${path200}p`, text: 'x' }).success,
+    ).toBe(false)
+    expect(regenerateStagedFieldSchema.safeParse({ runId: RUN_ID, path: path200 }).success).toBe(
+      true,
+    )
+    expect(
+      regenerateStagedFieldSchema.safeParse({ runId: RUN_ID, path: `${path200}p` }).success,
+    ).toBe(false)
   })
 
   it('staged-field bodies need a uuid runId', () => {
