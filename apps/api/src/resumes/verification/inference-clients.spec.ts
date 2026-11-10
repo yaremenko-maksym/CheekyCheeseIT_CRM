@@ -317,6 +317,13 @@ describe('scoreEntailment', () => {
     expect(port.requests).toHaveLength(0)
   })
 
+  it('a duplicate id in another chunk of 50 is unavailable and sends nothing', async () => {
+    const port = fakePort()
+    const dup = [...claims(60), { id: 'c0', text: 'again', sources: [] }]
+    await expect(scoreEntailment(port, dup)).resolves.toBe('unavailable')
+    expect(port.requests).toHaveLength(0)
+  })
+
   it('an id Jev does not accept is unavailable and sends nothing', async () => {
     const port = fakePort()
     await expect(scoreEntailment(port, [{ id: '', text: 't', sources: [] }])).resolves.toBe(
@@ -403,7 +410,10 @@ describe('scoreEntailment', () => {
 })
 
 const config = (key: string | undefined) =>
-  ({ get: () => key }) as unknown as ConfigService<Env, true>
+  ({ get: (k: string) => (k === 'JEV_API_KEY' ? key : 'wrong-key') }) as unknown as ConfigService<
+    Env,
+    true
+  >
 
 describe('ResumeEntailmentClient', () => {
   it('a missing JEV_API_KEY is unavailable and sends nothing', async () => {
@@ -414,11 +424,18 @@ describe('ResumeEntailmentClient', () => {
     expect(calls).toHaveLength(0)
   })
 
+  it('a missing JEV_API_KEY is unavailable even for no claims', async () => {
+    await expect(new ResumeEntailmentClient(config(undefined)).score([])).resolves.toBe(
+      'unavailable',
+    )
+  })
+
   it('with a key it asks Jev, and its noul reply is scored', async () => {
     const calls = stubFetch({ answers: { c0: { type: 'noul', noul: 0.95 } } })
     const r = await new ResumeEntailmentClient(config('jev-key')).score(claims(1))
     expect(r).toEqual(new Map([['c0', 0.95]]))
     expect(calls).toHaveLength(1)
     expect(calls[0]?.url).toContain('/v1/systemone')
+    expect(calls[0]?.init.headers?.Authorization).toBe('Bearer jev-key')
   })
 })

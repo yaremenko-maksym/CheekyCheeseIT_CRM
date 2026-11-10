@@ -44,12 +44,14 @@ function workerTransport(): ExtractionWorkerTransport | undefined {
     : undefined
 }
 
+/** Undefined for a non-JSON reply: it fails every reply schema. */
 function parseJson(text: string): unknown {
   try {
     return JSON.parse(text) as unknown
   } catch {
-    return undefined
+    // not JSON
   }
+  return undefined
 }
 
 /** One call to a worker route; every failure is a coded `unavailable`, never a throw. */
@@ -209,6 +211,7 @@ export class ResumeEntailmentClient {
   private readonly port: DecisionPort | undefined
 
   constructor(config: ConfigService<Env, true>) {
+    // Stryker disable next-line ObjectLiteral,BooleanLiteral: equivalent — `infer` only types the return
     const apiKey = config.get('JEV_API_KEY', { infer: true })
     this.port = apiKey ? createJevDecisionAdapter({ apiKey }) : undefined
   }
