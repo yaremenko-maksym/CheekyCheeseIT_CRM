@@ -1104,7 +1104,9 @@ def _ansi_c_alt(text):
             while j < n and text[j] != "'":
                 if text[j] == "\\" and j + 1 < n:
                     nx = text[j + 1]
-                    val.append(nx if nx in "'\"\\?" else "\\" + nx)
+                    # \n, \t, \r decode too: `bash -c $'bash <<E\npkill x\nE'` has lines
+                    val.append(nx if nx in "'\"\\?" else
+                               {"n": "\n", "t": "\t", "r": "\r"}.get(nx, "\\" + nx))
                     j += 2
                 else:
                     val.append(text[j])

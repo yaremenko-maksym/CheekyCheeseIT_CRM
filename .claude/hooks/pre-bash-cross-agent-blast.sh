@@ -430,9 +430,10 @@ STDIN_PATHS = {"-", "/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"}
 
 
 def stdin_reader(seg):
-    """(reads stdin as code, here-strings it runs) for a shell or source / . segment."""
+    """(reads stdin as code, here-strings it runs, runs a script file) for a segment."""
     if seg.name not in cmdscan.INTERPRETERS and seg.name not in ("source", "."):
-        return False, []
+        # `./s.sh`, `scripts/x.sh`: a file this command may have just written
+        return False, [], "/" in seg.name or seg.name.endswith(".sh")
     argv, strings, i = [], [], 0
     while i < len(seg.argv):
         a = seg.argv[i]
@@ -446,36 +447,47 @@ def stdin_reader(seg):
             elif i + 1 < len(seg.argv):
                 i += 1
                 strings.append(seg.argv[i])
-        elif m.end() == len(a) and not m.group(0).startswith("<<"):
-            i += 1  # the target of `> file` / `< file` is not an operand
+        elif m.end() == len(a):
+            i += 1  # the target of `> file` / `< file`, or the word after `<< ` (a delimiter)
         i += 1
     if seg.name in ("source", "."):
         ops = argv[1:] if argv[:1] == ["--"] else argv
         program, is_code = (ops[0] if ops else None), False
     else:
-        program, is_code = cmdscan.shell_program(argv)[:2]
-    if is_code or (program is not None and program not in STDIN_PATHS):
-        return False, []  # bash -c is read by cmdscan; a script operand reads its own file
-    return True, strings
+        program, is_code, flags = cmdscan.shell_program(argv)[:3]
+        if any(f[:1] == "-" and f[1:2] != "-" and "s" in f[1:] for f in flags):
+            program = None  # `bash -s x y`: x y are positional parameters, code comes on stdin
+    if is_code:
+        return False, [], False  # bash -c is read by cmdscan
+    if program is not None and program not in STDIN_PATHS:
+        return False, [], True  # a script operand reads its own file
+    return True, strings, False
 
 
 # cmdscan hands every heredoc body of a line to the LAST segment of that line, whoever
 # opened it (`bash <<EOF; cat` gives the body to cat). So when a scan holds a shell that
 # reads stdin, every body of that scan is scanned as code, whichever segment carries it.
-scanned, work, opaque = [], [cmd], False
+# A shell that reads code from stdin with no heredoc or here-string on its line gets it
+# from a pipe, `<(...)` or a file (`echo x | bash`, `bash <(curl ..)`): code made at run
+# time, which no reading of the text can judge, so it is NESTED-OPAQUE.
+scanned, work, opaque, runs_file = [], [cmd], False, False
 for _ in range(64):
     if not work:
         break
     sc = cmdscan.scan(work.pop())
     opaque = opaque or sc.truncated
-    shell_reads = False
+    shell_reads = blind = False
     for g in sc.segments:
         scanned.append(g)
-        reads, strings = stdin_reader(g)
+        reads, strings, runs = stdin_reader(g)
         shell_reads = shell_reads or reads
+        blind = blind or (reads and not strings)
+        runs_file = runs_file or runs
         work += strings
+    bodies = [b for g in sc.segments for b in g.heredocs]
     if shell_reads:
-        work += [b for g in sc.segments for b in g.heredocs]
+        work += bodies
+    opaque = opaque or (blind and not bodies)
 opaque = opaque or bool(work)
 
 # ---- split into command segments --------------------------------------------
@@ -485,12 +497,17 @@ opaque = opaque or bool(work)
 # before this quote-blind split: `cat <<EOF` with a line `pkill -f node` is a note.
 # Only for a consumer that treats its stdin as data: `xargs rm <<EOF` turns the body into
 # arguments (its owner is rm), so that body stays in the text every predicate reads.
+# Not stripped: inside $( ) (its output can be run: `eval "$(cat <<EOF`), `git apply` /
+# `git am` (the body is a patch naming the files it writes), and when the command also
+# runs a script file (`cat > s.sh <<EOF ... EOF; bash s.sh` runs the body).
 DATA_SINKS = {"cat", "tee", "gh", "git", "jq", "grep", "wc", "head", "tail", "sort"}
 naive = cmd
 for g in scanned:
     # stripped only when this segment opened every body it carries (see cmdscan above);
     # opened counts real openers, so a quoted `\x27<<X\x27` argument does not count
     if cmd_name(g.name) not in DATA_SINKS or g.opened != len(g.heredocs):
+        continue
+    if runs_file or g.depth > 0 or (cmd_name(g.name) == "git" and {"apply", "am"} & set(g.argv)):
         continue
     for body in g.heredocs:
         if body.strip():
@@ -752,7 +769,15 @@ for name, args in toks:
         break
     if sub == "remove":
         targets = [a for a in args[args.index("worktree") + 1:]
-                   if not a.startswith("-") and a != "remove"]
+                   if not a.startswith("-") and a != "remove" and not REDIRECT_TOKEN.match(a)]
+        if not targets:
+            # `xargs git worktree remove <<EOF` / `... | xargs git worktree remove`:
+            # the path arrives on stdin, so whose tree it is cannot be read here
+            reasons.append(
+                "WORKTREE-OPAQUE|`git worktree remove` without a literal path: the path "
+                "comes from stdin (xargs, a pipe, a heredoc), so I cannot tell whose tree "
+                "it is. Pass each path as a literal argument, one command per tree."
+            )
         for t in targets:
             # Third outcome: OWN / FOREIGN / UNKNOWN. Before this existed the
             # token "$w" was joined onto cwd, landed inside own_wt, and hit the
