@@ -428,6 +428,8 @@ export function buildArgs(dir: string, outPath: string): string[] {
     // Determinism + a quieter CPU footprint.
     '--jobs',
     '1',
+    // No `--pdf-standard ua-1`: Typst 0.15.1 refuses a UA-1 document without a
+    // title, and a personal template need not set one. Output is tagged anyway.
     '--diagnostic-format',
     'short',
     join(dir, 'main.typ'),
@@ -647,22 +649,15 @@ function assertTemplateIsDrawable(template: string, templateName: ResumeTemplate
   )
 }
 
-const catalogCache = new Map<ResumeTemplateName, string>()
-
 /**
  * A catalog template as ONE Typst source: the theme's `#let theme = (...)`
- * followed by the shared skeleton. Read once per name per process — static
- * assets, like the fonts.
+ * followed by the shared skeleton. Read on every call (two files of a few
+ * kilobytes): no cache to go stale or to hide a broken path from the tests.
  */
 export function loadCatalogTemplate(name: ResumeTemplateName): string {
-  let source = catalogCache.get(name)
-  if (source === undefined) {
-    const theme = readFileSync(resolveAssetPath(`typst/themes/${name}.typ`), 'utf8')
-    const skeleton = readFileSync(resolveAssetPath('typst/resume-skeleton.typ'), 'utf8')
-    source = `${theme}\n${skeleton}`
-    catalogCache.set(name, source)
-  }
-  return source
+  const theme = readFileSync(resolveAssetPath(`typst/themes/${name}.typ`), 'utf8')
+  const skeleton = readFileSync(resolveAssetPath('typst/resume-skeleton.typ'), 'utf8')
+  return `${theme}\n${skeleton}`
 }
 
 /**

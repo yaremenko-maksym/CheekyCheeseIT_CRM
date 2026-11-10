@@ -196,6 +196,23 @@ describe('SeniorResumesService.runRender — failure branches (bug-44)', () => {
    * `template_name` that is not a catalog name — the legacy display label, or
    * null — renders as `classic` (ruling R3).
    */
+  it('falls back to a generic name and no email when the owner row is gone', async () => {
+    const { db } = buildDbDouble(makeRow())
+    Object.assign(db, { query: { users: { findFirst: vi.fn().mockResolvedValue(undefined) } } })
+    const typst = {
+      fingerprint: vi.fn().mockReturnValue('fingerprint-no-owner-0123456789'),
+      render: vi.fn().mockResolvedValue(Buffer.from('%PDF-1.7 fake')),
+    }
+    const s3 = { upload: vi.fn().mockResolvedValue(undefined), delete: vi.fn() }
+
+    await buildService(db, s3, typst).runRender(RESUME_ID)
+
+    expect(typst.render).toHaveBeenCalledWith(
+      expect.objectContaining({ displayName: 'Резюме', email: '' }),
+      expect.any(Function),
+    )
+  })
+
   it('loads the owner name and email itself and resolves a non-catalog template name to classic', async () => {
     for (const [stored, expected] of [
       ['Стандартный шаблон', 'classic'],

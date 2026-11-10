@@ -94,11 +94,14 @@ const coverageCache = new Map<ResumeTemplateName, Set<number>>()
  * the regular face would still box out in a company name.
  */
 export function resumeFontCoverage(template: ResumeTemplateName): Set<number> {
-  const cached = coverageCache.get(template)
-  if (cached) return cached
+  const coverage = coverageCache.get(template) ?? measureCoverage(TEMPLATE_FONT_FILES[template])
+  coverageCache.set(template, coverage)
+  return coverage
+}
 
+function measureCoverage(files: readonly string[]): Set<number> {
   let intersection: Set<number> | null = null
-  for (const file of TEMPLATE_FONT_FILES[template]) {
+  for (const file of files) {
     const covered = readCmapCoverage(loadFontBuffer(file))
     if (intersection === null) {
       intersection = covered
@@ -107,9 +110,7 @@ export function resumeFontCoverage(template: ResumeTemplateName): Set<number> {
     const previous: Set<number> = intersection
     intersection = new Set<number>([...previous].filter((code) => covered.has(code)))
   }
-  const coverage = intersection ?? new Set<number>()
-  coverageCache.set(template, coverage)
-  return coverage
+  return intersection ?? new Set<number>()
 }
 
 /**
