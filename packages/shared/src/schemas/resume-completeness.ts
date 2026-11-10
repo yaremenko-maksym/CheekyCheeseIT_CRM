@@ -106,7 +106,8 @@ function checkExperienceItem(
   if (!item.current && item.end === null) {
     issues.push({ path: `${base}.end`, code: 'END_MISSING' })
   }
-  if (!item.current && item.end !== null && item.end > nowMonth) {
+  // A null end compares as '', which is never after a month.
+  if (!item.current && (item.end ?? '') > nowMonth) {
     issues.push({ path: `${base}.end`, code: 'END_IN_FUTURE' })
   }
 
@@ -180,7 +181,8 @@ export function checkResumeCompleteness(
     if (!isLatinScript(item.degree)) {
       issues.push({ path: `education.${index}.degree`, code: 'NON_LATIN' })
     }
-    if (item.startYear !== null && item.endYear !== null && item.endYear < item.startYear) {
+    // A missing start falls back to the end, which is never before itself.
+    if (item.endYear !== null && item.endYear < (item.startYear ?? item.endYear)) {
       issues.push({ path: `education.${index}.endYear`, code: 'END_BEFORE_START' })
     }
   })

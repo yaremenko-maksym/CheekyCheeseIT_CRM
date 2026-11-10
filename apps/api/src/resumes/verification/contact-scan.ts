@@ -67,8 +67,6 @@ const UNDECOMPOSED: Record<string, string> = {
   ħ: 'h',
   Ħ: 'H',
 }
-/** Built from the map's keys, so the two cannot drift. */
-const UNDECOMPOSED_LETTER = new RegExp(`[${Object.keys(UNDECOMPOSED).join('')}]`, 'gu')
 
 /**
  * `text` without accents (NFD, marks dropped, plus `UNDECOMPOSED`), and for each
@@ -79,10 +77,9 @@ function foldAccents(text: string): { text: string; from: number[]; to: number[]
   const from: number[] = []
   const to: number[] = []
   for (const { 0: cluster, index } of text.matchAll(/\P{M}\p{M}*/gu)) {
-    const piece = cluster
-      .normalize('NFD')
-      .replace(/\p{M}/gu, '')
-      .replace(UNDECOMPOSED_LETTER, (letter) => UNDECOMPOSED[letter] ?? letter)
+    // A cluster is one base letter plus marks, so after the marks go it is one key.
+    const base = cluster.normalize('NFD').replace(/\p{M}/gu, '')
+    const piece = UNDECOMPOSED[base] ?? base
     folded += piece
     for (let k = 0; k < piece.length; k++) {
       from.push(index)

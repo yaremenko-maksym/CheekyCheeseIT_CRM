@@ -240,6 +240,30 @@ describe('scanContacts — serialized text and spelling variants (fix round 1)',
     expect(scanContacts('by Mueller', accented)).toEqual([])
   })
 
+  it.each([
+    ['ł', 'l'],
+    ['Ł', 'L'],
+    ['ø', 'o'],
+    ['Ø', 'O'],
+    ['đ', 'd'],
+    ['Đ', 'D'],
+    ['ß', 'ss'],
+    ['ẞ', 'SS'],
+    ['ı', 'i'],
+    ['æ', 'ae'],
+    ['Æ', 'AE'],
+    ['œ', 'oe'],
+    ['Œ', 'OE'],
+    ['þ', 'th'],
+    ['Þ', 'TH'],
+    ['ħ', 'h'],
+    ['Ħ', 'H'],
+  ])('folds %s to %s', (letter, folded) => {
+    expect(
+      redactContacts(`by Qu${folded}q, ok`, { fullName: `Ann Qu${letter}q`, emails: [] }),
+    ).toBe('by [REDACTED], ok')
+  })
+
   it('folds capital ẞ, which /iu does not case-fold to ss', () => {
     expect(redactContacts('by STRAUẞ, ok', { fullName: 'Max Strauß', emails: [] })).toBe(
       'by [REDACTED], ok',

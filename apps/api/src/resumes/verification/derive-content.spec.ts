@@ -186,6 +186,14 @@ describe('yearsOfExperience', () => {
     expect(yearsOfExperience(items, now)).toBe(0)
   })
 
+  it('counts a current job that started this month', () => {
+    const items = [
+      experience({ start: '2021-01', current: true }),
+      experience({ start: '2020-02', end: '2020-12', current: false }),
+    ]
+    expect(yearsOfExperience(items, now)).toBe(1)
+  })
+
   it('skips an invalid start next to a valid eleven-month job', () => {
     const items = [
       experience({ start: 'garbage', current: false }),
