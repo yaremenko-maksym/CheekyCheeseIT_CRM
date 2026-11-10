@@ -8,6 +8,7 @@ import { useSetJobSourceEnabled } from '@/hooks/use-job-sourcing'
 import { getUserFacingErrorMessage } from '@/lib/axios-utils'
 import { useLocale } from '@/lib/i18n'
 import { sourceLabel } from '@/components/job-queue/JobQueueRow'
+import { QuotaBar, type QuotaFigures } from './QuotaBar'
 import { SourceBudgetRow } from './SourceBudgetRow'
 import { deriveSourceState, type SourceStateKind } from './source-state'
 
@@ -100,10 +101,22 @@ export function SourceSwitchCard({ source }: { source: JobSourceDto }) {
     )
   }
 
-  const { budget } = source
-  const used = budget.used
-  const limit = budget.limit
-  const showQuota = (budget.state === 'ACTIVE' || budget.state === 'EXHAUSTED') && !!limit
+  // The account meter (r5) is the truth for a source that has one; the legacy per-source counter
+  // (DOU) has no reserved / uncertain amounts. A limit of null or 0 draws no bar.
+  const { budget, meter } = source
+  const quota: QuotaFigures | null = meter
+    ? meter.limit
+      ? { ...meter, total: meter.limit }
+      : null
+    : (budget.state === 'ACTIVE' || budget.state === 'EXHAUSTED') && budget.limit
+      ? {
+          used: budget.used,
+          reserved: 0,
+          uncertain: 0,
+          total: budget.limit,
+          unit: 'REQUEST',
+        }
+      : null
 
   const never = t`ніколи`
   const stamps: Array<[string, string | null | undefined]> = [
@@ -161,24 +174,7 @@ export function SourceSwitchCard({ source }: { source: JobSourceDto }) {
 
       <SourceBudgetRow source={source} />
 
-      {showQuota && limit && (
-        <div className="flex flex-col gap-1">
-          <div
-            role="img"
-            aria-label={t`Використано ${used} з ${limit}`}
-            className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
-          >
-            <div
-              data-testid="job-source-quota-used"
-              className="h-full rounded-full bg-primary"
-              style={{ width: `${Math.min(100, (used * 100) / limit)}%` }}
-            />
-          </div>
-          <p data-testid="job-source-quota-legend" className="tabular-nums text-muted-foreground">
-            <Trans>Використано {used}</Trans>
-          </p>
-        </div>
-      )}
+      {quota && <QuotaBar {...quota} />}
 
       <dl
         data-testid="job-source-timestamps"

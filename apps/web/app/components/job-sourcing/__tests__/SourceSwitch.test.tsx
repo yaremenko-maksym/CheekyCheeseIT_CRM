@@ -267,13 +267,83 @@ describe('AC2 — disabled, paused and blocked are three different states', () =
   })
 })
 
-describe('AC3 — quota bar', () => {
-  it('draws used over the limit as a role=img whose label carries the numbers', async () => {
+describe('AC3 — three-segment quota bar', () => {
+  const meter = (over: Partial<NonNullable<JobSourceDto['meter']>> = {}) => ({
+    unit: 'REQUEST' as const,
+    window: 'MONTH' as const,
+    limit: 200,
+    used: 120,
+    reserved: 10,
+    uncertain: 5,
+    resetsAt: null,
+    ...over,
+  })
+  const bar = (name: string) => screen.getByRole('img', { name })
+
+  it('draws used / reserved / uncertain of the limit; the label and the legend carry all three numbers', async () => {
+    listed = [source({ meter: meter() })]
     renderPanel()
     await screen.findByRole('switch', { name: 'DOU' })
-    const bar = screen.getByRole('img', { name: 'Використано 232 з 500' })
-    expect(within(bar).getByTestId('job-source-quota-used')).toHaveStyle({ width: '46.4%' })
-    expect(screen.getByTestId('job-source-quota-legend')).toHaveTextContent('Використано 232')
+    const img = bar('Використано 120, зарезервовано 10, невизначено 5 з 200')
+    expect(within(img).getByTestId('job-source-quota-used')).toHaveStyle({ width: '60%' })
+    expect(within(img).getByTestId('job-source-quota-reserved')).toHaveStyle({ width: '5%' })
+    expect(within(img).getByTestId('job-source-quota-uncertain')).toHaveStyle({ width: '2.5%' })
+    expect(screen.getByTestId('job-source-quota-limit').textContent).toBe(
+      'Ліміт: 120 / 200 запитів',
+    )
+    expect(screen.getByTestId('job-source-quota-legend-used')).toHaveTextContent('Використано 120')
+    expect(screen.getByTestId('job-source-quota-legend-reserved')).toHaveTextContent(
+      'Зарезервовано 10',
+    )
+    expect(screen.getByTestId('job-source-quota-legend-uncertain')).toHaveTextContent(
+      'Невизначено 5',
+    )
+  })
+
+  it('hatches the uncertain segment so the bar is not colour-only, and tints reserved', async () => {
+    listed = [source({ meter: meter() })]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(screen.getByTestId('job-source-quota-uncertain').className).toContain(
+      'repeating-linear-gradient',
+    )
+    expect(screen.getByTestId('job-source-quota-used').className).toContain('bg-primary')
+    expect(screen.getByTestId('job-source-quota-reserved').className).toContain(
+      'bg-yellow-muted/60',
+    )
+    expect(screen.getByTestId('job-source-quota-used').className).not.toContain(
+      'repeating-linear-gradient',
+    )
+    expect(screen.getByTestId('job-source-quota-reserved').className).not.toContain(
+      'repeating-linear-gradient',
+    )
+  })
+
+  it('the meter wins over the legacy budget counter', async () => {
+    listed = [source({ meter: meter({ used: 40, reserved: 0, uncertain: 0 }) })]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(bar('Використано 40, зарезервовано 0, невизначено 0 з 200')).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: /232/ })).toBeNull()
+  })
+
+  it('without a meter it falls back to the legacy budget counter (no reserved / uncertain)', async () => {
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    const img = bar('Використано 232, зарезервовано 0, невизначено 0 з 500')
+    expect(within(img).getByTestId('job-source-quota-used')).toHaveStyle({ width: '46.4%' })
+    expect(within(img).getByTestId('job-source-quota-reserved')).toHaveStyle({ width: '0%' })
+    expect(within(img).getByTestId('job-source-quota-uncertain')).toHaveStyle({ width: '0%' })
+    expect(screen.getByTestId('job-source-quota-limit').textContent).toBe(
+      'Ліміт: 232 / 500 запитів',
+    )
+  })
+
+  it('a null meter behaves like an absent one', async () => {
+    listed = [source({ meter: null })]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(bar('Використано 232, зарезервовано 0, невизначено 0 з 500')).toBeInTheDocument()
   })
 
   it('caps an overspent window at 100 %', async () => {
@@ -292,6 +362,17 @@ describe('AC3 — quota bar', () => {
     renderPanel()
     await screen.findByRole('switch', { name: 'DOU' })
     expect(screen.getByTestId('job-source-quota-used')).toHaveStyle({ width: '100%' })
+  })
+
+  it('draws no bar for a meter without a limit or with a zero limit', async () => {
+    listed = [
+      source({ meter: meter({ limit: null, window: 'LIFETIME' }) }),
+      source({ id: ID_B, type: 'DJINNI_RSS', meter: meter({ limit: 0, used: 0 }) }),
+    ]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(screen.queryByRole('img')).toBeNull()
+    expect(screen.queryByTestId('job-source-quota-limit')).toBeNull()
   })
 
   it('draws no bar for an unlimited or a misconfigured source', async () => {
@@ -322,6 +403,36 @@ describe('AC3 — quota bar', () => {
     renderPanel()
     await screen.findByRole('switch', { name: 'DOU' })
     expect(screen.queryByRole('img')).toBeNull()
+  })
+
+  it.each([
+    ['RECORD' as const, 'Ліміт: 120 / 200 записів'],
+    ['MODEL_CALL' as const, 'Ліміт: 120 / 200 викликів моделі'],
+  ])('names the %s unit', async (unit, text) => {
+    listed = [source({ meter: meter({ unit }) })]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(screen.getByTestId('job-source-quota-limit').textContent).toBe(text)
+  })
+
+  it('shows a money meter in dollars, not in micros, with no unit word', async () => {
+    listed = [
+      source({
+        meter: meter({
+          unit: 'USD_MICROS',
+          limit: 5_000_000,
+          used: 1_500_000,
+          reserved: 250_000,
+          uncertain: 0,
+        }),
+      }),
+    ]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(
+      bar('Використано $1.50, зарезервовано $0.25, невизначено $0.00 з $5.00'),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId('job-source-quota-limit').textContent).toBe('Ліміт: $1.50 / $5.00')
   })
 })
 
@@ -362,6 +473,14 @@ describe('AC4 — timestamps', () => {
     expect(valueOf('Остання спроба')).toBe('ніколи')
     expect(valueOf('Остання вдала')).toBe('ніколи')
     expect(valueOf('Остання з даними')).toBe('ніколи')
+  })
+
+  it('has no «Політика діє до» / «Авторизація до» rows: the API has no source for either', async () => {
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(within(stamps()).getAllByRole('term')).toHaveLength(3)
+    expect(screen.queryByText('Політика діє до')).toBeNull()
+    expect(screen.queryByText('Авторизація до')).toBeNull()
   })
 
   it('is one column on mobile and three from a 560 px container', async () => {
@@ -412,7 +531,9 @@ describe('AC5 — a refused enable', () => {
     expect(screen.getByTestId('job-source-budget-remaining')).toHaveTextContent(
       'Осталось 90 из 400',
     )
-    expect(screen.getByRole('img', { name: 'Використано 310 з 400' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('img', { name: 'Використано 310, зарезервовано 0, невизначено 0 з 400' }),
+    ).toBeInTheDocument()
     expect(screen.getByTestId('job-source-card').textContent).toBe(before + failure.textContent)
     expect(sourceGets()).toBe(getsBefore)
   })
@@ -596,7 +717,18 @@ describe('AC7 — English', () => {
     const failure = await screen.findByTestId('job-source-enable-failure')
     expect(failure).toHaveTextContent('Could not enable')
     expect(failure).toHaveTextContent('Reason: authorization expired. Nothing was changed.')
-    expect(screen.getAllByRole('img', { name: 'Used 232 of 500' })).toHaveLength(2)
+    expect(
+      screen.getAllByRole('img', { name: 'Used 232, reserved 0, uncertain 0 of 500' }),
+    ).toHaveLength(2)
+    expect(screen.getAllByTestId('job-source-quota-limit')[0]?.textContent).toBe(
+      'Limit: 232 / 500 requests',
+    )
+    expect(screen.getAllByTestId('job-source-quota-legend-reserved')[0]).toHaveTextContent(
+      'Reserved 0',
+    )
+    expect(screen.getAllByTestId('job-source-quota-legend-uncertain')[0]).toHaveTextContent(
+      'Uncertain 0',
+    )
   })
 })
 

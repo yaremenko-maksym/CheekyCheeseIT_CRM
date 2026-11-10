@@ -760,6 +760,10 @@ msgstr "Click to change the direction"
 msgid "У вас немає активної команди"
 msgstr "You have no active team"
 
+#: apps/web/app/components/job-sourcing/QuotaBar.tsx
+msgid "запитів"
+msgstr "requests"
+
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
@@ -849,6 +853,10 @@ msgstr "All matching seniors on your team stop-listed this company"
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 msgid "Завантажено ще {added}. Показано {shown}"
 msgstr "Loaded {added} more. Showing {shown}"
+
+#: apps/web/app/components/job-sourcing/QuotaBar.tsx
+msgid "записів"
+msgstr "records"
 
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Посилання, рядок {position}"
@@ -5725,10 +5733,6 @@ msgstr "Could not load the PDF"
 msgid "Без реквізитів ми не зможемо вам заплатити — вкажіть гаманець USDT або банківський рахунок"
 msgstr "Without payout details we cannot pay you — add a USDT wallet or a bank account"
 
-#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
-msgid "Використано {used}"
-msgstr "Used {used}"
-
 #: apps/web/app/hooks/use-credentials.ts
 msgid "Пароль додано"
 msgstr "Password added"
@@ -5946,6 +5950,10 @@ msgstr "Upload document"
 msgid "Пауза до {when}"
 msgstr "Paused until {when}"
 
+#: apps/web/app/components/job-sourcing/QuotaBar.tsx
+msgid "викликів моделі"
+msgstr "model calls"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/routes/_authenticated/pending/index.tsx
@@ -5965,6 +5973,10 @@ msgstr "Assign senior"
 #: apps/web/app/components/documents/upload-document-dialog.tsx
 msgid "Оберіть проєкт"
 msgstr "Choose a project"
+
+#: apps/web/app/components/job-sourcing/QuotaBar.tsx
+msgid "Ліміт: {usedText} / {totalText}"
+msgstr "Limit: {usedText} / {totalText}"
 
 #. placeholder {0}: template.version
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
@@ -6558,6 +6570,10 @@ msgstr "Enter a valid amount"
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Валідація доходів"
 msgstr "Income validation"
+
+#: apps/web/app/components/job-sourcing/QuotaBar.tsx
+msgid "Невизначено {uncertainText}"
+msgstr "Uncertain {uncertainText}"
 
 #: apps/web/app/components/documents/document-detail-dialog.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
@@ -9671,6 +9687,10 @@ msgstr "Your share: {0}% · senior: {1}"
 msgid "Місяць зарплати"
 msgstr "Salary month"
 
+#: apps/web/app/components/job-sourcing/QuotaBar.tsx
+msgid "Використано {usedText}, зарезервовано {reservedText}, невизначено {uncertainText} з {totalText}"
+msgstr "Used {usedText}, reserved {reservedText}, uncertain {uncertainText} of {totalText}"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Користувачі"
 msgstr "Users"
@@ -10791,6 +10811,10 @@ msgstr "Rate: 1 {0} = {1} {2}"
 msgid "Замінити media token"
 msgstr "Replace media token"
 
+#: apps/web/app/components/job-sourcing/QuotaBar.tsx
+msgid "Зарезервовано {reservedText}"
+msgstr "Reserved {reservedText}"
+
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Не вдалося перейменувати підключення"
 msgstr "Couldn't rename the connection"
@@ -11737,10 +11761,6 @@ msgstr "Lead"
 msgid "Статус на джерелі"
 msgstr "Status on source"
 
-#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
-msgid "Використано {used} з {limit}"
-msgstr "Used {used} of {limit}"
-
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
 msgid "Прикріпіть чек або вкажіть посилання на підтвердження"
 msgstr "Attach a receipt or provide a confirmation link"
@@ -12076,6 +12096,10 @@ msgstr "Oldest first"
 #: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Введіть ціле число від 0 до 100"
 msgstr "Enter a whole number from 0 to 100"
+
+#: apps/web/app/components/job-sourcing/QuotaBar.tsx
+msgid "Використано {usedText}"
+msgstr "Used {usedText}"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/DeleteTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/RestoreTransactionDialog.tsx
