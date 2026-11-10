@@ -2,7 +2,7 @@ import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { toast } from 'sonner'
 import { EyeOff } from 'lucide-react'
-import type { JobQueueDismissRequestDto } from '@crm/shared'
+import type { JobQueueCardResponseDto, JobQueueDismissRequestDto } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -32,17 +32,19 @@ const REASONS = [
  * «Приховати» (§5.9): a fixed reason, scoped to the actor (own team; ADMIN in the studio scope —
  * the whole studio), then an 8 s undo in exactly that scope. The hooks keep the latest dismissal
  * version past this menu (the card closes on a hide), so the next hide or undo sends it, and a
- * newer one on the server is a conflict the actor sees, never silently applied. A reload forgets
- * it until the card carries its dismissal (7.3b). The card closes on success: its modal layer
- * would leave the undo toast unreachable (inert, no focus).
+ * newer one on the server is a conflict the actor sees, never silently applied. After a reload the
+ * card's own `dismissal` supplies it (7.3b). The card closes on success: its modal layer would
+ * leave the undo toast unreachable (inert, no focus).
  */
 export function DismissMenu({
   scope,
   opportunityId,
+  dismissal,
   onClose,
 }: {
   scope: QueueScopeSignature
   opportunityId: string
+  dismissal: JobQueueCardResponseDto['dismissal']
   onClose: () => void
 }) {
   const { t } = useLingui()
@@ -55,9 +57,16 @@ export function DismissMenu({
     else if (!isAccessLoss(error)) toast.error(failure, JOB_QUEUE_TOAST)
   }
 
+  // the card's own row in this scope, undone or not: a reloaded page re-hides with it (AC 4)
+  const cardVersion = dismissal?.scope === kind ? dismissal.version : undefined
   const hide = (reason: JobQueueDismissRequestDto['reason']) =>
     dismiss.mutate(
-      { opportunityId, scope: kind, reason },
+      {
+        opportunityId,
+        scope: kind,
+        reason,
+        ...(cardVersion === undefined ? {} : { expectedVersion: cardVersion }),
+      },
       {
         onSuccess: (res) => {
           toast(t`Приховано`, {

@@ -3885,6 +3885,10 @@ msgstr "Частки"
 msgid "Досягнення — по одному в рядку"
 msgstr "Досягнення — по одному в рядку"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgid "востаннє бачили {lastSeenAgo}"
+msgstr "востаннє бачили {lastSeenAgo}"
+
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Аналіз скасовано"
 msgstr "Аналіз скасовано"
@@ -7516,6 +7520,10 @@ msgstr "Максимум"
 msgid "Примітки"
 msgstr "Примітки"
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Бажані: {nice}"
+msgstr "Бажані: {nice}"
+
 #: apps/web/app/components/ui/month-picker.tsx
 msgid "Рік зарплати"
 msgstr "Рік зарплати"
@@ -9801,6 +9809,10 @@ msgstr "Неприв'язані записи"
 msgid "Договір"
 msgstr "Договір"
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Чому збіг"
+msgstr "Чому збіг"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/user-profile/tabs/DocumentsTab.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
@@ -10035,6 +10047,10 @@ msgstr "Не вдалося позначити готовим"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Крок 2 з 2: оплата створеної заявки"
 msgstr "Крок 2 з 2: оплата створеної заявки"
+
+#: apps/web/app/components/job-queue/PossibleDuplicates.tsx
+msgid "На схожу вакансію вже подано: {title} · {seniors}"
+msgstr "На схожу вакансію вже подано: {title} · {seniors}"
 
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 msgid "Пароль *"
@@ -11131,6 +11147,10 @@ msgstr "Видалити файл"
 msgid "Попередній перегляд PDF"
 msgstr "Попередній перегляд PDF"
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Команда «{teamHeading}»"
+msgstr "Команда «{teamHeading}»"
+
 #: apps/web/app/lib/axios-utils.ts
 msgid "Недостатньо прав для цієї дії."
 msgstr "Недостатньо прав для цієї дії."
@@ -11575,6 +11595,10 @@ msgstr "усі"
 #: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 msgid "Немає кого додати"
 msgstr "Немає кого додати"
+
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Обов’язкові: {required}"
+msgstr "Обов’язкові: {required}"
 
 #: apps/web/app/hooks/use-senior-resume.ts
 msgid "Резюме видалено"

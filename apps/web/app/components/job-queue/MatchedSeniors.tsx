@@ -1,11 +1,12 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { useId, useRef, useState, type ReactNode } from 'react'
 import { Trans } from '@lingui/react/macro'
-import { Ban, Check, CircleHelp, Info, Users } from 'lucide-react'
+import { Ban, Check, ChevronDown, CircleHelp, Info, Users } from 'lucide-react'
 import {
   formatRelativeTime,
   type JobQueueCardResponseDto,
   type JobQueueCardSeniorDto,
 } from '@crm/shared'
+import { Button } from '@/components/ui/button'
 import { useJobQueueSeniors, type QueueScopeSignature } from '@/hooks/use-job-queue'
 import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -46,7 +47,69 @@ export function submittedElsewhere(senior: JobQueueCardSeniorDto) {
   return Boolean(s && 'submittedElsewhere' in s)
 }
 
-function SeniorBlock({ senior, action }: { senior: JobQueueCardSeniorDto; action: ReactNode }) {
+/** «Чому збіг» (spec §5.2): the matched keywords split by how the vacancy needs them. */
+function MatchEvidence({ senior }: { senior: JobQueueCardSeniorDto }) {
+  const [open, setOpen] = useState(false)
+  const id = useId()
+  const core = senior.matchEvidence.filter((e) => e.strength === 'CORE').map((e) => e.keyword)
+  const optional = senior.matchEvidence
+    .filter((e) => e.strength === 'OPTIONAL')
+    .map((e) => e.keyword)
+  if (senior.matchEvidence.length === 0) return null
+  const required = core.join(', ')
+  const nice = optional.join(', ')
+
+  return (
+    <div className="flex min-w-0 flex-col items-start gap-1 text-xs">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="-ml-2 min-h-11 gap-1 px-2 text-xs text-muted-foreground sm:min-h-9"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <ChevronDown
+          aria-hidden="true"
+          className={cn('size-3.5 shrink-0 transition-transform', open && 'rotate-180')}
+        />
+        <Trans>Чому збіг</Trans>
+      </Button>
+      {open && (
+        <div
+          id={id}
+          data-testid={`job-queue-senior-evidence-${senior.seniorId}`}
+          className="flex min-w-0 flex-col gap-0.5 [overflow-wrap:anywhere]"
+        >
+          {required && (
+            <p>
+              <Trans>Обов’язкові: {required}</Trans>
+            </p>
+          )}
+          {nice && (
+            <p className="text-muted-foreground">
+              <Trans>Бажані: {nice}</Trans>
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SeniorBlock({
+  senior,
+  action,
+  arrival,
+  teamHeading,
+}: {
+  senior: JobQueueCardSeniorDto
+  action: ReactNode
+  /** The senior's place in fetch order; the keyboard hand-off finds the first new one by it. */
+  arrival: number
+  teamHeading: string | null
+}) {
   const locale = useLocale()
   const taken = ownTaken(senior)
   const when = taken && formatRelativeTime(taken.submittedAt, locale)
@@ -55,10 +118,16 @@ function SeniorBlock({ senior, action }: { senior: JobQueueCardSeniorDto; action
   return (
     <li
       data-testid={`job-queue-senior-${senior.seniorId}`}
+      data-arrival={arrival}
       // takes focus when it is the first senior a «Показати ще» brings in (PreviewContinuation)
       tabIndex={-1}
       className="flex flex-col gap-2 p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
     >
+      {teamHeading !== null && (
+        <h4 className="text-xs font-semibold text-muted-foreground [overflow-wrap:anywhere]">
+          <Trans>Команда «{teamHeading}»</Trans>
+        </h4>
+      )}
       <div className="flex min-w-0 items-start gap-3">
         <span
           aria-hidden="true"
@@ -86,6 +155,7 @@ function SeniorBlock({ senior, action }: { senior: JobQueueCardSeniorDto; action
               ))}
             </div>
           )}
+          <MatchEvidence senior={senior} />
           {taken && (
             <span
               data-testid={`job-queue-senior-submitted-${senior.seniorId}`}
@@ -147,10 +217,32 @@ function EmptyState({
   )
 }
 
+interface Row {
+  senior: JobQueueCardSeniorDto
+  arrival: number
+  teamHeading: string | null
+}
+
 /**
- * «Сеньйори зі збігом» (spec §5.2–§5.5): only what the API returns for the actor's scope. Team
- * headings (§5.6) and availability / match evidence (§5.2) are not in the card API, so not rendered.
- * `renderAction` is the per-senior action slot Task 7.4 fills («Записати подачу» and its states).
+ * ADMIN (§5.6): one run per team, teams in first-seen order, a heading on each run's first senior.
+ * Seniors with no live team lead the list unheaded. The API orders seniors by id, not by team.
+ */
+function byTeam(seniors: JobQueueCardSeniorDto[]): Row[] {
+  const runs = new Map<string | null, Row[]>([[null, []]])
+  seniors.forEach((senior, arrival) => {
+    const key = senior.team?.teamId ?? null
+    const row = { senior, arrival, teamHeading: null }
+    const run = runs.get(key)
+    if (run) run.push(row)
+    else runs.set(key, [{ ...row, teamHeading: senior.team?.teamName ?? null }])
+  })
+  return [...runs.values()].flat()
+}
+
+/**
+ * «Сеньйори зі збігом» (spec §5.2–§5.6): only what the API returns for the actor's scope. ADMIN gets
+ * team headings (the API sends `team` to the studio view only); per-senior availability has no
+ * source and is not rendered. `renderAction` is the per-senior action slot Task 7.4 fills.
  */
 export function MatchedSeniors({
   scope,
@@ -197,7 +289,9 @@ export function MatchedSeniors({
         body={<Trans>Стек збігається, проте вакансію їм не пропонують.</Trans>}
       />
     )
-  } else if (card.eligibility === 'TRIAGE') {
+  } else if (card.eligibility === 'TRIAGE' && card.noMatchReason !== 'NO_MATCH') {
+    // every zero-match card is TRIAGE by eligibility; a manual card nobody matches is a zero match
+    // (AC 5), which only the API's reason can tell apart
     body = (
       <EmptyState
         testId="job-queue-seniors-triage"
@@ -242,8 +336,17 @@ export function MatchedSeniors({
           data-testid="job-queue-seniors-list"
           className="flex flex-col divide-y rounded-lg border bg-card"
         >
-          {seniors.map((senior) => (
-            <SeniorBlock key={senior.seniorId} senior={senior} action={renderAction?.(senior)} />
+          {(admin
+            ? byTeam(seniors)
+            : seniors.map((senior, arrival) => ({ senior, arrival, teamHeading: null }))
+          ).map(({ senior, arrival, teamHeading }) => (
+            <SeniorBlock
+              key={senior.seniorId}
+              senior={senior}
+              arrival={arrival}
+              teamHeading={teamHeading}
+              action={renderAction?.(senior)}
+            />
           ))}
         </ul>
         <PreviewContinuation

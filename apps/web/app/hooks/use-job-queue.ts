@@ -421,7 +421,8 @@ export function useCancelJobQueueSubmission(scope: QueueScopeSignature) {
  * The latest dismissal version per actor scope, vacancy and dismissal scope. The API refuses an
  * unversioned re-dismiss of an existing row, and a hide closes the card, so the version must
  * outlive the menu that got it. One map per QueryClient: it goes with the client, as the cache does.
- * shortcut: memory only, so a reload forgets it; drop it once the card carries its dismissal (7.3b).
+ * A reload forgets it; the caller then sends the card's own `dismissal` version (7.3b). This
+ * session's later write, when there is one, is fresher than the card the menu was opened from.
  */
 const dismissalVersions = new WeakMap<QueryClient, Map<string, number>>()
 
@@ -442,13 +443,16 @@ function useDismissalVersions(scope: QueueScopeSignature) {
   }
 }
 
-/** «Приховати» in the TEAM or (ADMIN) STUDIO scope; a re-dismiss sends the last known version. */
+/**
+ * «Приховати» in the TEAM or (ADMIN) STUDIO scope; a re-dismiss sends the last known version: this
+ * session's own, else the `expectedVersion` the caller read off the card.
+ */
 export function useDismissJobQueueItem(scope: QueueScopeSignature) {
   const versions = useDismissalVersions(scope)
   return useQueueWrite(
     scope,
     async ({ opportunityId, ...body }: OnCard<JobQueueDismissRequestDto>, idempotencyKey) => {
-      const expectedVersion = body.expectedVersion ?? versions.get(opportunityId, body.scope)
+      const expectedVersion = versions.get(opportunityId, body.scope) ?? body.expectedVersion
       const res = await api.post<unknown>(`/job-queue/${seg(opportunityId)}/dismiss`, {
         ...teamParam(scope),
         ...body,

@@ -446,6 +446,30 @@ describe('the other card writes', () => {
     expect(post.mock.calls[2]?.[1]).toMatchObject({ expectedVersion: 2 })
   })
 
+  it("7.3b: the card's version goes out when the session has none; the session's own wins", async () => {
+    post.mockResolvedValueOnce({ data: { ...dismissal, version: 6 } })
+    const { result } = renderHook(() => useDismissJobQueueItem(scope), { wrapper })
+    await act(() =>
+      result.current.mutateAsync({
+        opportunityId: OPP,
+        scope: 'TEAM',
+        reason: 'SPAM',
+        expectedVersion: 5,
+      }),
+    )
+    expect(post.mock.calls[0]?.[1]).toMatchObject({ expectedVersion: 5 })
+    post.mockResolvedValueOnce({ data: { ...dismissal, version: 7 } })
+    await act(() =>
+      result.current.mutateAsync({
+        opportunityId: OPP,
+        scope: 'TEAM',
+        reason: 'SPAM',
+        expectedVersion: 5,
+      }),
+    )
+    expect(post.mock.calls[1]?.[1]).toMatchObject({ expectedVersion: 6 })
+  })
+
   it('the studio scope sends no teamId', async () => {
     post.mockResolvedValueOnce({ data: { ...dismissal, scope: 'STUDIO' } })
     const { result } = renderHook(() => useDismissJobQueueItem(studio), { wrapper })

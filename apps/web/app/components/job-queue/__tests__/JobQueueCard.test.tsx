@@ -47,6 +47,14 @@ function withCard(card: JobQueueCardResponseDto) {
   cardHook.mockReturnValue(cardResult({ data: card }))
 }
 
+/** One card, rendered: a fresh mount per call, so a test can unmount and show another. */
+function show(card: JobQueueCardResponseDto) {
+  withCard(card)
+  return render(<JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={vi.fn()} />, {
+    wrapper: Wrapper,
+  })
+}
+
 function renderCard(onClose = vi.fn()) {
   render(<JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={onClose} />, {
     wrapper: Wrapper,
@@ -349,19 +357,45 @@ describe('JobQueueCard', () => {
     expect(within(desc).getByText('ok', { selector: 'strong' })).toBeVisible()
   })
 
-  it('«Збіг стеку»: the matched stack as hit chips', () => {
+  it('«Збіг стеку»: the vacancy stack, hit style on the matched tokens only', () => {
+    withCard(cardFixture({ stackKeywords: ['react', 'TypeScript', 'GraphQL'] }))
     renderCard()
     const stack = screen.getByTestId('job-queue-card-stack')
     expect(within(stack).getByRole('heading', { name: 'Збіг стеку' })).toBeVisible()
-    const chip = within(stack).getByText('TypeScript')
-    expect(chip).toHaveClass('bg-yellow-subtle', 'text-primary', 'max-w-full', 'truncate')
-    expect(chip).toHaveAttribute('title', 'TypeScript')
+    const chips = within(stack).getAllByTestId('job-queue-card-stack-chip')
+    expect(chips.map((c) => c.textContent)).toEqual(['react', 'TypeScript', 'GraphQL'])
+    const hit = within(stack).getByText('TypeScript')
+    expect(hit).toHaveClass('bg-yellow-subtle', 'text-primary', 'max-w-full', 'truncate')
+    expect(hit).toHaveAttribute('title', 'TypeScript')
+    expect(hit).toHaveAttribute('data-hit', 'true')
+    // matched case-insensitively: the API lowercases the vacancy stack, not the senior's tokens
+    expect(within(stack).getByText('react')).toHaveAttribute('data-hit', 'true')
+    const plain = within(stack).getByText('GraphQL')
+    expect(plain).toHaveAttribute('data-hit', 'false')
+    expect(plain).not.toHaveClass('bg-yellow-subtle')
   })
 
-  it('no matched stack: no «Збіг стеку» block', () => {
-    withCard(cardFixture({ matchedKeywords: [] }))
-    renderCard()
+  it('no stack at all: no «Збіг стеку» block; a stack with no hit still shows', () => {
+    const first = show(cardFixture({ matchedKeywords: [], stackKeywords: [] }))
     expect(screen.queryByTestId('job-queue-card-stack')).toBeNull()
+    first.unmount()
+    show(cardFixture({ matchedKeywords: [], stackKeywords: ['Go'] }))
+    expect(screen.getByText('Go')).toHaveAttribute('data-hit', 'false')
+  })
+
+  it('a pre-7.3b row with no stored stack falls back to the matched tokens', () => {
+    show(cardFixture({ stackKeywords: [] }))
+    const chips = screen.getAllByTestId('job-queue-card-stack-chip')
+    expect(chips.map((c) => c.textContent)).toEqual(['React', 'TypeScript'])
+  })
+
+  it('meta: «востаннє бачили» only when the vacancy was last seen a day or more ago', () => {
+    const now = Date.now()
+    const first = show(cardFixture({ lastSeenAt: new Date(now - 3 * 86_400_000).toISOString() }))
+    expect(screen.getByTestId('job-queue-card-meta')).toHaveTextContent(/ · востаннє бачили /)
+    first.unmount()
+    show(cardFixture({ lastSeenAt: new Date(now - 3_600_000).toISOString() }))
+    expect(screen.getByTestId('job-queue-card-meta')).not.toHaveTextContent('востаннє')
   })
 
   it('the seniors come before the description (the decision surface first)', () => {

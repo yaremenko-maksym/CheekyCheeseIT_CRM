@@ -1195,6 +1195,41 @@ describe('«Приховати» (AC 6, §5.9)', () => {
     expect(sent(DISMISS)[0]).toMatchObject({ scope: 'STUDIO', reason: 'DEAD_LINK' })
     expect(sent(DISMISS)[0]).not.toHaveProperty('teamId')
   })
+
+  it('AC 4: after a reload, a re-hide carries the version the card was read with', async () => {
+    // a fresh client is a reloaded page: the session has no version of its own
+    setCard(cardFixture({ dismissal: { scope: 'TEAM', version: 2 } }))
+    post.mockResolvedValueOnce(dismissed(3))
+    await hideAsSpam()
+    await waitFor(() => expect(sent(DISMISS)).toHaveLength(1))
+    expect(sent(DISMISS)[0]).toMatchObject({ scope: 'TEAM', expectedVersion: 2 })
+  })
+
+  it("the session's own later write wins over the version the card was read with", async () => {
+    setCard(cardFixture({ dismissal: { scope: 'TEAM', version: 2 } }))
+    post.mockResolvedValueOnce(dismissed(3))
+    const { user, trigger } = await hideAsSpam()
+    const { options } = await lastUndo()
+    post.mockResolvedValueOnce({ data: { ...dismissed(4).data, hidden: false } })
+    act(() => options.action.onClick())
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2))
+    // the card still says 2: it is not re-read here
+    await user.click(trigger)
+    await user.click(await screen.findByRole('menuitem', { name: 'Нерелевантна' }))
+    await waitFor(() => expect(sent(DISMISS)).toHaveLength(2))
+    expect(sent(DISMISS)[1]).toMatchObject({ expectedVersion: 4 })
+  })
+
+  it("another scope kind's dismissal version is never sent", async () => {
+    const user = userEvent.setup()
+    setCard(cardFixture({ dismissal: { scope: 'TEAM', version: 5 } }))
+    post.mockResolvedValueOnce(dismissed(1, 'STUDIO'))
+    renderCard(ADMIN)
+    await user.click(screen.getByRole('button', { name: 'Приховати' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Спам' }))
+    await waitFor(() => expect(sent(DISMISS)).toHaveLength(1))
+    expect(sent(DISMISS)[0]).not.toHaveProperty('expectedVersion')
+  })
 })
 
 describe('RBAC: ADMIN menus (AC 6, §5.6)', () => {

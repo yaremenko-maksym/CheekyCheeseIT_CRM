@@ -30,6 +30,10 @@ const inside = (target: EventTarget | null, selector: string) =>
   target instanceof Element && target.closest(selector) !== null
 
 const CHIP = 'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs'
+/** A vacancy stack token no senior of the scope matches. */
+const STACK_CHIP = 'rounded-md border px-1.5 py-0.5 text-xs text-muted-foreground'
+/** «востаннє бачили» joins the meta once the vacancy has gone unseen this long (spec §5.1). */
+const LAST_SEEN_AFTER_MS = 86_400_000
 
 function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
   const { t, i18n } = useLingui()
@@ -38,6 +42,9 @@ function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
   const seniority = SENIORITY_LABEL[card.seniority]
   const closed = card.availability === 'CLOSED' || card.availability === 'EXPIRED'
   const firstSeenAgo = formatRelativeTime(card.firstSeenAt, locale)
+  const lastSeenAgo =
+    Date.now() - Date.parse(card.lastSeenAt) >= LAST_SEEN_AFTER_MS &&
+    formatRelativeTime(card.lastSeenAt, locale)
 
   return (
     <>
@@ -82,6 +89,12 @@ function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
               {' · '}
               <Trans>вперше побачено {firstSeenAgo}</Trans>
             </span>
+          </span>
+        )}
+        {lastSeenAgo && (
+          <span className="whitespace-nowrap">
+            {' · '}
+            <Trans>востаннє бачили {lastSeenAgo}</Trans>
           </span>
         )}
       </p>
@@ -147,21 +160,41 @@ function CardBody({
         <PostingMarkdown markdown={card.descriptionMd} testId="job-queue-card-description" />
       </section>
       <AlsoSeenOn scope={scope} card={card} onAccessLost={onAccessLost} />
-      {card.matchedKeywords.length > 0 && (
-        <section data-testid="job-queue-card-stack" className="flex flex-col gap-2">
-          <h3 className="text-sm font-semibold">
-            <Trans>Збіг стеку</Trans>
-          </h3>
-          <div className="flex flex-wrap gap-1">
-            {card.matchedKeywords.map((keyword) => (
-              <span key={keyword} className={cn(HIT_CHIP, 'max-w-full truncate')} title={keyword}>
-                {keyword}
-              </span>
-            ))}
-          </div>
-        </section>
-      )}
+      <VacancyStack card={card} />
     </>
+  )
+}
+
+/**
+ * «Збіг стеку» (spec §5.1): the vacancy's stack, the tokens the scope's seniors match in the hit
+ * style. A row stored before the stack was kept (Task 7.3b) falls back to the matched tokens.
+ */
+function VacancyStack({ card }: { card: JobQueueCardResponseDto }) {
+  const stack = card.stackKeywords.length > 0 ? card.stackKeywords : card.matchedKeywords
+  if (stack.length === 0) return null
+  const hits = new Set(card.matchedKeywords.map((k) => k.toLowerCase()))
+  return (
+    <section data-testid="job-queue-card-stack" className="flex flex-col gap-2">
+      <h3 className="text-sm font-semibold">
+        <Trans>Збіг стеку</Trans>
+      </h3>
+      <div className="flex flex-wrap gap-1">
+        {stack.map((keyword) => {
+          const hit = hits.has(keyword.toLowerCase())
+          return (
+            <span
+              key={keyword}
+              data-testid="job-queue-card-stack-chip"
+              data-hit={hit}
+              className={cn(hit ? HIT_CHIP : STACK_CHIP, 'max-w-full truncate')}
+              title={keyword}
+            >
+              {keyword}
+            </span>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 
@@ -297,7 +330,12 @@ export function JobQueueCard({
             >
               <OpenOriginalButton scope={scope} card={card} />
               <div className="flex gap-2 sm:ml-auto">
-                <DismissMenu scope={scope} opportunityId={card.opportunityId} onClose={onClose} />
+                <DismissMenu
+                  scope={scope}
+                  opportunityId={card.opportunityId}
+                  dismissal={card.dismissal}
+                  onClose={onClose}
+                />
                 {scope.role === 'ADMIN' && (
                   <AdminVacancyMenu
                     scope={scope}
