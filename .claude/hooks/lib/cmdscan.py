@@ -583,11 +583,11 @@ def _command_name(word):
 class Segment:
     __slots__ = (
         "name", "argv", "payload", "wrappers", "dynamic", "raw", "depth",
-        "env", "confident", "why",
+        "env", "confident", "why", "heredocs",
     )
 
     def __init__(self, name, argv, payload, wrappers, dynamic, raw, depth,
-                 env=None, confident=True, why=None):
+                 env=None, confident=True, why=None, heredocs=()):
         self.name = name
         self.argv = argv
         self.payload = payload
@@ -598,6 +598,8 @@ class Segment:
         self.env = env if env is not None else {}
         self.confident = confident
         self.why = why
+        # the heredoc bodies this segment reads on stdin (data unless the command runs it)
+        self.heredocs = tuple(heredocs)
 
     def positionals(self, value_flags=()):
         """argv minus flags and the values consumed by `value_flags`."""
@@ -2003,7 +2005,7 @@ def _build_segment(raw, tokens, heredocs, running_env, depth, degraded):
     env.update(own)
 
     if not toks:
-        empty = Segment("", [], payload, wrappers, False, raw, depth, env, True, None)
+        empty = Segment("", [], payload, wrappers, False, raw, depth, env, True, None, heredocs)
         return empty, nested, {}
 
     word = toks[0]
@@ -2070,7 +2072,7 @@ def _build_segment(raw, tokens, heredocs, running_env, depth, degraded):
         why = "command `%s` is not in the understood list" % name
 
     seg = Segment(name, argv, payload, wrappers, dynamic, raw, depth, env,
-                  why is None, why)
+                  why is None, why, heredocs)
     return seg, nested, exports
 
 

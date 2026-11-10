@@ -418,10 +418,64 @@ def is_owned(path):
 
 reasons = []
 
+# ---- the tokenizer of record: cmdscan.scan ------------------------------------
+# It reads quotes, heredocs and nested code (exec, bash -c, eval, $( ), backticks,
+# find -exec, wrappers), so its segments are judged too: `bash -c "pkill -f node"` and
+# `echo $(pkill -f node)` passed the quote-blind split below. A shell that reads a
+# heredoc or a here-string on stdin (`bash <<EOF`, `cat <<EOF | sh`) runs that body, so
+# the body is scanned as code. Bounded: 64 scans; past it, or past the cmdscan depth,
+# the code was not read and the command is refused as NESTED-OPAQUE.
+REDIRECT_TOKEN = re.compile(r"^\d*(?:<<<|<<-?|<>|>>?|<|>&|&>>?)")
+
+
+def stdin_programs(seg):
+    """Heredoc bodies and here-strings a shell segment runs as its program."""
+    if seg.name not in cmdscan.INTERPRETERS:
+        return []
+    argv, strings, i = [], [], 0
+    while i < len(seg.argv):
+        a = seg.argv[i]
+        m = REDIRECT_TOKEN.match(a)
+        if not m:
+            argv.append(a)
+        elif m.group(0).endswith("<<<"):
+            rest = a[m.end():]
+            if rest:
+                strings.append(rest)
+            elif i + 1 < len(seg.argv):
+                i += 1
+                strings.append(seg.argv[i])
+        elif m.end() == len(a) and not m.group(0).startswith("<<"):
+            i += 1  # the target of `> file` / `< file` is not an operand
+        i += 1
+    program, is_code = cmdscan.shell_program(argv)[:2]
+    if is_code or program is not None:
+        return []  # bash -c is read by cmdscan; a script operand reads its own file
+    return list(seg.heredocs) + strings
+
+
+scanned, work, opaque = [], [cmd], False
+for _ in range(64):
+    if not work:
+        break
+    sc = cmdscan.scan(work.pop())
+    opaque = opaque or sc.truncated
+    for g in sc.segments:
+        scanned.append(g)
+        work += stdin_programs(g)
+opaque = opaque or bool(work)
+
 # ---- split into command segments --------------------------------------------
 # Decisions are made on the FIRST TOKEN of a segment, so a pattern quoted as an
-# ARGUMENT (grep "pkill", echo "rm -rf") never trips a predicate.
-segments = re.split(r"(?:\|\||&&|[;\n|&])", cmd)
+# ARGUMENT (grep "pkill", echo "rm -rf") never trips a predicate. A heredoc body is
+# data for its command (the scan above judges the one a shell runs), so it is cut out
+# before this quote-blind split: `cat <<EOF` with a line `pkill -f node` is a note.
+naive = cmd
+for g in scanned:
+    for body in g.heredocs:
+        if body.strip():
+            naive = naive.replace(body, "", 1)
+segments = re.split(r"(?:\|\||&&|[;\n|&])", naive)
 
 
 # Wrappers that RUN another command. Without unwrapping them, the effective
@@ -562,6 +616,14 @@ def first_token(seg):
 
 
 toks = [first_token(s) for s in segments]
+toks += [first_token(g.raw) for g in scanned]
+toks += [(cmd_name(g.name), list(g.argv)) for g in scanned if g.name]
+if opaque:
+    reasons.append(
+        "NESTED-OPAQUE|the command nests code (bash -c, $( ), eval, a heredoc for a shell) "
+        "deeper than this hook reads, so it cannot say what that code kills or removes. "
+        "Run the inner command on its own."
+    )
 
 
 # ---- literal or not? ---------------------------------------------------------
@@ -754,12 +816,24 @@ def is_mutating(name, args):
 
 
 mutating = any(is_mutating(n, a) for n, a in toks)
-# a redirect into a path is a mutation regardless of the command doing it
-redirect_targets = re.findall(r">>?\s*([^\s;|&()]+)", cmd)
+# a redirect into a path is a mutation regardless of the command doing it. A quoted
+# word is data unless it is the target itself (`sed "s|a|b 2>\&1|"` redirects nothing),
+# so quoted spans are blanked first; nested code is read through the scanned segments.
+QUOTED = re.compile(r"(>>?\s*)?(\x27[^\x27]*\x27|\"(?:[^\"\\]|\\.)*\")")
+
+
+def unquoted(text):
+    return QUOTED.sub(lambda m: m.group(0) if m.group(1) else " ", text)
+
+
+redirect_targets = re.findall(
+    r">>?\s*([^\s;|&()]+)", "\n".join([unquoted(naive)] + [unquoted(g.raw) for g in scanned]))
 
 if mutating or redirect_targets:
-    referenced = set(re.findall(r"[^\s\"\x27;|&()]*/\.claude/worktrees/([^/\s\"\x27;|&()]+)", cmd.replace(chr(92), "/")))
-    referenced |= set(re.findall(r"[^\s\"\x27;|&()]*/\.t3/worktrees/[^/\s\"\x27;|&()]+/([^/\s\"\x27;|&()]+)", cmd.replace(chr(92), "/")))
+    # read without heredoc bodies: a note that names a worktree path is not a mutation of it
+    seen = "\n".join([naive] + [g.raw for g in scanned]).replace(chr(92), "/")
+    referenced = set(re.findall(r"[^\s\"\x27;|&()]*/\.claude/worktrees/([^/\s\"\x27;|&()]+)", seen))
+    referenced |= set(re.findall(r"[^\s\"\x27;|&()]*/\.t3/worktrees/[^/\s\"\x27;|&()]+/([^/\s\"\x27;|&()]+)", seen))
     foreign = sorted(s for s in referenced if s != own_seg)
     if foreign:
         reasons.append(
