@@ -71,6 +71,7 @@ const senior = (n: number) => ({
   displayName: `Senior ${n}`,
   matchApproximate: false,
   matchedKeywords: ['react'],
+  matchEvidence: [{ keyword: 'react', strength: 'CORE' }],
   submission: null,
 })
 
@@ -88,6 +89,10 @@ const cardBody = (over: Record<string, unknown> = {}) => ({
   seniors: { items: [senior(1)], totalCount: 1, nextCursor: null },
   sources: { items: [source(1)], totalCount: 1, nextCursor: null },
   possibleDuplicates: null,
+  lastSeenAt: '2026-10-02T00:00:00.000Z',
+  stackKeywords: ['react'],
+  noMatchReason: null,
+  dismissal: null,
   ...over,
 })
 

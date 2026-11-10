@@ -12,7 +12,14 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Env } from '../../config/env'
 import type { DatabaseService } from '../../database/database.service'
-import { matchFacts, JobQueueService, toListItem, toSubmission } from './job-queue.service'
+import {
+  matchEvidence,
+  matchFacts,
+  JobQueueService,
+  noMatchReason,
+  toListItem,
+  toSubmission,
+} from './job-queue.service'
 import { parseCursor, type QueueCursor, requestSignature, signCursor } from './queue-cursor'
 import { filterIdentity, policySignature } from './queue-read-sql'
 import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
@@ -706,6 +713,64 @@ describe('matchFacts', () => {
   })
 })
 
+describe('matchEvidence (Task 7.3b «Чому збіг»)', () => {
+  it('pairs each TECH_MATCH keyword with its strength, keeping colons inside a keyword', () => {
+    const evidence = {
+      reasons: [
+        { code: 'OTHER', evidence: ['ignored:CORE'] },
+        { code: 'TECH_MATCH', evidence: ['Go:CORE', 'c:sharp:OPTIONAL'] },
+      ],
+    }
+    expect(matchEvidence(evidence)).toEqual([
+      { keyword: 'Go', strength: 'CORE' },
+      { keyword: 'c:sharp', strength: 'OPTIONAL' },
+    ])
+  })
+  it('drops an item with no known strength or no keyword: it cannot say why it matched', () => {
+    const evidence = {
+      reasons: [{ code: 'TECH_MATCH', evidence: ['Rust', 'Go:STRONG', ':CORE', 'ts:CORE'] }],
+    }
+    expect(matchEvidence(evidence)).toEqual([{ keyword: 'ts', strength: 'CORE' }])
+  })
+  it.each([
+    ['null', null],
+    ['no reasons', {}],
+    ['reasons that are not a list', { reasons: 'x' }],
+    ['a null reason', { reasons: [null] }],
+  ])('tolerates %s', (_label, evidence) => {
+    expect(matchEvidence(evidence)).toEqual([])
+  })
+  it('clips an overlong keyword and stops at the wire cap', () => {
+    const long = { reasons: [{ code: 'TECH_MATCH', evidence: [`${'k'.repeat(101)}:CORE`] }] }
+    expect(matchEvidence(long)[0]?.keyword).toHaveLength(100)
+    const many = {
+      reasons: [
+        { code: 'TECH_MATCH', evidence: Array.from({ length: 201 }, (_, i) => `k${i}:CORE`) },
+      ],
+    }
+    const items = matchEvidence(many)
+    expect(items).toHaveLength(200)
+    expect(items[199]).toEqual({ keyword: 'k199', strength: 'CORE' })
+  })
+})
+
+describe('noMatchReason (Task 7.3b, three empty states)', () => {
+  it('is null as soon as one senior matched, whatever else holds', () => {
+    expect(noMatchReason({ matched: '1', stop_listed: '3', manual_team_id: TEAM })).toBeNull()
+  })
+  it('a stop-list on every matching senior is STOP_LISTED, a manual card included', () => {
+    expect(noMatchReason({ matched: '0', stop_listed: '1', manual_team_id: TEAM })).toBe(
+      'STOP_LISTED',
+    )
+  })
+  it('a manual card nobody matched is NO_MATCH: no classifier placed it', () => {
+    expect(noMatchReason({ matched: '0', stop_listed: '0', manual_team_id: TEAM })).toBe('NO_MATCH')
+  })
+  it('any other unmatched card is TRIAGE (granted, subscribed, or ADMIN studio triage)', () => {
+    expect(noMatchReason({ matched: '0', stop_listed: '0', manual_team_id: null })).toBe('TRIAGE')
+  })
+})
+
 describe('toSubmission', () => {
   const own = {
     opportunity_id: OPP,
@@ -766,6 +831,10 @@ const cardDbRow = (over: Record<string, unknown> = {}) => ({
   ...dbRow(),
   description: '# Role',
   newer_than_list: false,
+  last_observed_at: new Date('2026-11-03T00:00:00.000Z'),
+  stack_keywords: ['go', 'react'],
+  manual_team_id: null,
+  dismissal_version: null,
   ...over,
 })
 const seniorDbRow = (over: Record<string, unknown> = {}) => ({
@@ -803,15 +872,29 @@ describe('JobQueueService.card', () => {
       [{ total: '1' }],
       [sourceDbRow()],
       [{ total: '1' }],
-      [{ id: SRC, title: 'Engineer', employer_name: null, total: '6' }],
+      [
+        {
+          id: SRC,
+          title: 'Engineer',
+          employer_name: null,
+          total: '6',
+          submitted_senior_names: ['Senior One'],
+        },
+      ],
     )
     const card = await h.svc.card(user, OPP, { teamId: TEAM })
     expect(h.scopes.resolve).toHaveBeenCalledWith(user, TEAM, h.db)
     expect(h.scopes.assertVisible).toHaveBeenCalledWith(teamScope, OPP, h.db)
+    // A TEAM scope never carries the ADMIN team key at all (toEqual alone ignores an undefined one).
+    expect(card.seniors.items[0]).not.toHaveProperty('team')
     expect(card).toEqual({
       ...ITEM,
       descriptionMd: '# Role',
       newerThanList: false,
+      lastSeenAt: '2026-11-03T00:00:00.000Z',
+      stackKeywords: ['go', 'react'],
+      noMatchReason: null,
+      dismissal: null,
       seniors: {
         items: [
           {
@@ -819,6 +902,7 @@ describe('JobQueueService.card', () => {
             displayName: 'Senior One',
             matchApproximate: false,
             matchedKeywords: ['Go'],
+            matchEvidence: [{ keyword: 'Go', strength: 'CORE' }],
             submission: null,
           },
         ],
@@ -838,10 +922,81 @@ describe('JobQueueService.card', () => {
         nextCursor: null,
       },
       possibleDuplicates: {
-        items: [{ opportunityId: SRC, title: 'Engineer', companyName: null }],
+        items: [
+          {
+            opportunityId: SRC,
+            title: 'Engineer',
+            companyName: null,
+            submittedSeniorNames: ['Senior One'],
+          },
+        ],
         totalCount: 6,
       },
     })
+  })
+
+  const tailCard = (scope: JobQueueScope, row: Record<string, unknown>, seniors: Rows = []) =>
+    harness(scope, [row], seniors, [{ total: String(seniors.length) }], [], [{ total: '0' }], [])
+
+  it('the dismissal is this scope row and its version; none is null (Task 7.3b)', async () => {
+    const live = await tailCard(teamScope, cardDbRow({ dismissal_version: 3 })).svc.card(user, OPP)
+    expect(live.dismissal).toEqual({ scope: 'TEAM', version: 3 })
+    const studio = await tailCard({ kind: 'STUDIO' }, cardDbRow({ dismissal_version: '2' })).svc.card(user, OPP) // prettier-ignore
+    expect(studio.dismissal).toEqual({ scope: 'STUDIO', version: 2 })
+    const none = await tailCard(teamScope, cardDbRow()).svc.card(user, OPP)
+    expect(none.dismissal).toBeNull()
+    // Unreachable in production (NONE is refused before the read); the type still has no scope.
+    const noScope = await tailCard({ kind: 'NONE' }, cardDbRow({ dismissal_version: 3 })).svc.card(user, OPP) // prettier-ignore
+    expect(noScope.dismissal).toBeNull()
+  })
+
+  it('an unmatched card states its reason; the stack is clipped and capped (Task 7.3b)', async () => {
+    const stack = [`${'s'.repeat(101)}`, ...Array.from({ length: 60 }, (_, i) => `k${i}`)]
+    const card = await tailCard(
+      teamScope,
+      cardDbRow({ matched: '0', stop_listed: '0', manual_team_id: TEAM, stack_keywords: stack }),
+    ).svc.card(user, OPP)
+    expect(card.noMatchReason).toBe('NO_MATCH')
+    expect(card.stackKeywords).toHaveLength(60)
+    expect(card.stackKeywords[0]).toHaveLength(100)
+    expect(card.stackKeywords[59]).toBe('k58')
+    const empty = await tailCard(teamScope, cardDbRow({ stack_keywords: null })).svc.card(user, OPP)
+    expect(empty.stackKeywords).toEqual([])
+  })
+
+  it('a STUDIO card names each senior team; a senior with no live team is null (Task 7.3b)', async () => {
+    const card = await tailCard({ kind: 'STUDIO' }, cardDbRow(), [
+      seniorDbRow({ team_id: TEAM, team_name: 't'.repeat(256) }),
+      seniorDbRow({ senior_id: SEN_2, team_id: null, team_name: null }),
+    ]).svc.card(user, OPP)
+    expect(card.seniors.items[0]?.team).toEqual({ teamId: TEAM, teamName: 't'.repeat(255) })
+    expect(card.seniors.items[1]?.team).toBeNull()
+    expect(card.seniors.items[1]).toHaveProperty('team')
+  })
+
+  it('a TEAM card drops a team column even if one arrived (defence in depth)', async () => {
+    const card = await tailCard(teamScope, cardDbRow(), [
+      seniorDbRow({ team_id: OTHER_TEAM, team_name: 'Other' }),
+    ]).svc.card(user, OPP)
+    expect(card.seniors.items[0]).not.toHaveProperty('team')
+  })
+
+  it('a duplicate without submissions names nobody; names are clipped and capped', async () => {
+    const dup = (names: unknown) =>
+      harness(
+        teamScope,
+        [cardDbRow()],
+        [],
+        [{ total: '0' }],
+        [],
+        [{ total: '0' }],
+        [{ id: SRC, title: 'D', employer_name: null, total: '1', submitted_senior_names: names }],
+      ).svc.card(user, OPP)
+    expect((await dup(null)).possibleDuplicates?.items[0]?.submittedSeniorNames).toEqual([])
+    const many = Array.from({ length: 201 }, (_, i) => `n${i}`)
+    const capped = (await dup(['x'.repeat(256), ...many])).possibleDuplicates?.items[0]
+    expect(capped?.submittedSeniorNames).toHaveLength(200)
+    expect(capped?.submittedSeniorNames[0]).toHaveLength(255)
   })
 
   it('without an active source link it is the same 404, and reads nothing further', async () => {

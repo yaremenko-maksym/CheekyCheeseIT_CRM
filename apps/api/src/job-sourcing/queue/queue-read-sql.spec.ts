@@ -335,4 +335,41 @@ describe('field scoping — what each read binds', () => {
     expect(text).toContain('m.opportunity_id = dup.id')
     expect(params).toEqual(expect.arrayContaining([OPP, TEAM, 5]))
   })
+
+  it('a duplicate names only the live submissions of this scope, sorted (Task 7.3b)', () => {
+    const { text } = render(duplicateRows(team, OPP, 5))
+    expect(text).toContain(
+      `(SELECT coalesce(jsonb_agg(su.display_name ORDER BY su.display_name, su.id), '[]'::jsonb) FROM job_queue_assignments da JOIN users su ON su.id = da.senior_id WHERE da.opportunity_id = dup.id AND da.state = 'TAKEN' AND da.team_id = $`,
+    )
+    expect(text).toContain('AS submitted_senior_names')
+    expect(render(duplicateRows(studio, OPP, 5)).text).toContain(
+      `da.state = 'TAKEN' AND TRUE) AS submitted_senior_names`,
+    )
+  })
+
+  it('the card row carries last seen, the stack, the manual team and its own dismissal (Task 7.3b)', () => {
+    const { text, params } = render(cardRow(team, versions, OPP))
+    expect(text).toContain('o.last_observed_at, o.stack_keywords, o.manual_team_id')
+    expect(text).toContain(
+      'LEFT JOIN LATERAL ( SELECT dm.version FROM job_queue_dismissals dm WHERE dm.opportunity_id = o.id AND dm.scope_kind = $',
+    )
+    expect(text).toContain('::job_queue_scope_kind AND dm.team_id IS NOT DISTINCT FROM $')
+    expect(text).toContain('dis.version AS dismissal_version')
+    expect(text).toContain(') dis ON TRUE')
+    expect(params).toEqual(expect.arrayContaining([OPP, TEAM, 'TEAM']))
+    const s = render(cardRow(studio, [], OPP))
+    expect(s.text).toContain('::job_queue_scope_kind AND dm.team_id IS NOT DISTINCT FROM $')
+    expect(s.params).toEqual(expect.arrayContaining(['STUDIO', null]))
+  })
+
+  it('card seniors name a team only in the STUDIO scope (Task 7.3b)', () => {
+    const t = render(seniorRows(team, versions, OPP, undefined, 201)).text
+    expect(t).not.toContain('team_members')
+    expect(t).not.toContain('AS team_name')
+    const s = render(seniorRows(studio, versions, OPP, undefined, 201)).text
+    expect(s).toContain('st.id AS team_id, st.name AS team_name')
+    expect(s).toContain(
+      "LEFT JOIN LATERAL ( SELECT t.id, t.name FROM team_members tm JOIN teams t ON t.id = tm.team_id WHERE tm.user_id = ms.senior_id AND tm.left_at IS NULL ORDER BY t.archived_at IS NOT NULL, t.type <> 'SENIOR', t.name, t.id LIMIT 1) st ON TRUE",
+    )
+  })
 })

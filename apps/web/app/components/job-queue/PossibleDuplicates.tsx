@@ -4,8 +4,8 @@ import type { JobQueueCardResponseDto } from '@crm/shared'
 
 /**
  * «У черзі є схожа вакансія» (spec §5.8): a bounded preview of the similar vacancies in the actor's
- * own view. The «На схожу вакансію вже подано» line needs own-team submission data the card API does
- * not send, so it is not rendered (the server never sends other teams' duplicates either, §3).
+ * own view. The «На схожу вакансію вже подано» line names the seniors the actor's own scope submitted
+ * there; the server scopes `submittedSeniorNames`, so another team's submission never reaches it (§3).
  */
 export function PossibleDuplicates({
   preview,
@@ -28,12 +28,23 @@ export function PossibleDuplicates({
           <Trans>У черзі є схожа вакансія</Trans>
         </p>
         <ul className="flex flex-col gap-0.5">
-          {preview.items.map((item) => (
-            <li key={item.opportunityId} className="[overflow-wrap:anywhere]">
-              {item.title}
-              {item.companyName && ` · ${item.companyName}`}
-            </li>
-          ))}
+          {preview.items.map((item) => {
+            const title = item.title
+            const seniors = item.submittedSeniorNames.join(', ')
+            return (
+              <li key={item.opportunityId} className="[overflow-wrap:anywhere]">
+                {item.title}
+                {item.companyName && ` · ${item.companyName}`}
+                {seniors && (
+                  <p data-testid="job-queue-duplicate-submitted" className="text-muted-foreground">
+                    <Trans>
+                      На схожу вакансію вже подано: {title} · {seniors}
+                    </Trans>
+                  </p>
+                )}
+              </li>
+            )
+          })}
         </ul>
         {total > shown && (
           <p

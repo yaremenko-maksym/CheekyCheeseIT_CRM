@@ -9,6 +9,7 @@ import {
   type JobQueueListQuery,
   type JobQueueListResponseDto,
   jobQueueListResponseSchema,
+  type JobQueueNoMatchReason,
   type JobQueueScopeQuery,
   JOB_QUEUE_SENIOR_OPTIONS_MAX,
   type JobQueueSeniorOptionsResponseDto,
@@ -16,6 +17,7 @@ import {
   jobQueueSourcesContinuationSchema,
   type JobSourceType,
   MAX_STACK_KEYWORD_CHARS,
+  MAX_STACK_KEYWORDS,
   type SessionUser,
 } from '@crm/shared'
 import { sql } from 'drizzle-orm'
@@ -117,13 +119,7 @@ export function toListItem(r: Row): JobQueueListItemDto {
  * unless it holds a CORE keyword: a TRIAGE row has none, an OPTIONAL-only one is a weak signal.
  */
 export function matchFacts(evidence: unknown): { keywords: string[]; approximate: boolean } {
-  const reasons = (evidence as { reasons?: unknown } | null)?.reasons
-  const items = Array.isArray(reasons)
-    ? reasons
-        .filter((r: { code?: unknown }) => r?.code === 'TECH_MATCH')
-        .flatMap((r: { evidence?: unknown }) => (Array.isArray(r.evidence) ? r.evidence : []))
-        .map(String)
-    : []
+  const items = techMatchItems(evidence)
   return {
     // No `:STRENGTH` suffix: the whole string is the keyword.
     keywords: items
@@ -133,6 +129,53 @@ export function matchFacts(evidence: unknown): { keywords: string[]; approximate
       .slice(0, 200),
     approximate: !items.some((k) => k.endsWith(':CORE')),
   }
+}
+
+/** The raw `keyword:STRENGTH` items of a senior's own `TECH_MATCH` reasons. */
+function techMatchItems(evidence: unknown): string[] {
+  const reasons = (evidence as { reasons?: unknown } | null)?.reasons
+  return Array.isArray(reasons)
+    ? reasons
+        .filter((r: { code?: unknown }) => r?.code === 'TECH_MATCH')
+        .flatMap((r: { evidence?: unknown }) => (Array.isArray(r.evidence) ? r.evidence : []))
+        .map(String)
+    : []
+}
+
+const EVIDENCE_ITEM = /^(.+):(CORE|OPTIONAL)$/
+
+/**
+ * «Чому збіг» (Task 7.3b, design §5.2): each matched keyword with its weight in the vacancy stack.
+ * An item without a known strength says nothing about why it matched, so it is left out.
+ */
+export function matchEvidence(
+  evidence: unknown,
+): Array<{ keyword: string; strength: 'CORE' | 'OPTIONAL' }> {
+  return techMatchItems(evidence)
+    .flatMap((item) => {
+      const m = EVIDENCE_ITEM.exec(item)
+      return m === null
+        ? []
+        : [
+            {
+              keyword: (m[1] as string).slice(0, MAX_STACK_KEYWORD_CHARS),
+              strength: m[2] as 'CORE' | 'OPTIONAL',
+            },
+          ]
+    })
+    .slice(0, 200)
+}
+
+/**
+ * Why a card has no matched senior (Task 7.3b, design §5.4–5.5). A stop-list wins; a manual card
+ * was placed by a person, so nobody matching is a zero match; anything else unmatched reached the
+ * viewer through triage (grant, subscription or studio triage). Unknown-stack versus known-but-
+ * unmatched is not persisted for a team or studio view, so those stay TRIAGE.
+ */
+export function noMatchReason(r: Row): JobQueueNoMatchReason | null {
+  if (count(r['matched']) > 0) return null
+  if (count(r['stop_listed']) > 0) return 'STOP_LISTED'
+  return r['manual_team_id'] == null ? 'TRIAGE' : 'NO_MATCH'
 }
 
 /** The union over the scope's LEAD seniors, never attributed. Sorted: the cap keeps a stable set. */
@@ -170,16 +213,28 @@ export function toSubmission(r: Row): SeniorsPage['items'][number]['submission']
   return r['submitted_elsewhere'] === true ? { submittedElsewhere: true } : null
 }
 
-const toSenior = (r: Row): SeniorsPage['items'][number] => {
-  const facts = matchFacts(r['evidence'])
-  return {
-    seniorId: String(r['senior_id']),
-    displayName: String(r['display_name']).slice(0, 255),
-    matchApproximate: facts.approximate,
-    matchedKeywords: facts.keywords,
-    submission: toSubmission(r),
+/** The ADMIN team heading is read for the STUDIO scope only; a TEAM scope never carries the key. */
+const toSenior =
+  (scope: JobQueueScope) =>
+  (r: Row): SeniorsPage['items'][number] => {
+    const facts = matchFacts(r['evidence'])
+    return {
+      seniorId: String(r['senior_id']),
+      displayName: String(r['display_name']).slice(0, 255),
+      matchApproximate: facts.approximate,
+      matchedKeywords: facts.keywords,
+      matchEvidence: matchEvidence(r['evidence']),
+      submission: toSubmission(r),
+      ...(scope.kind === 'STUDIO'
+        ? {
+            team:
+              r['team_id'] == null
+                ? null
+                : { teamId: String(r['team_id']), teamName: String(r['team_name']).slice(0, 255) },
+          }
+        : {}),
+    }
   }
-}
 
 const toSource = (r: Row): SourcesPage['items'][number] => ({
   sourceRecordId: String(r['source_record_id']),
@@ -303,6 +358,16 @@ export class JobQueueService {
       descriptionMd: String(row['description'] ?? '').slice(0, DESCRIPTION_MD_MAX),
       newerThanList: row['newer_than_list'] === true,
       ...parts,
+      lastSeenAt: iso(row['last_observed_at']),
+      stackKeywords: (Array.isArray(row['stack_keywords']) ? row['stack_keywords'] : [])
+        .slice(0, MAX_STACK_KEYWORDS)
+        .map((k) => String(k).slice(0, MAX_STACK_KEYWORD_CHARS)),
+      noMatchReason: noMatchReason(row),
+      dismissal:
+        // A NONE scope never gets this far: `resolve` / `assertVisible` refuse it first.
+        row['dismissal_version'] == null || scope.kind === 'NONE'
+          ? null
+          : { scope: scope.kind, version: Number(row['dismissal_version']) },
     })
   }
 
@@ -393,7 +458,7 @@ export class JobQueueService {
     const total = await this.database.db.execute(seniorTotal(versions, id))
     const page = rows.slice(0, SENIOR_PREVIEW_MAX)
     return {
-      items: page.map(toSenior),
+      items: page.map(toSenior(scope)),
       totalCount: count((total.rows[0] as Row)['total']),
       nextCursor:
         rows.length > SENIOR_PREVIEW_MAX
@@ -440,6 +505,12 @@ export class JobQueueService {
         opportunityId: String(r['id']),
         title: String(r['title']).slice(0, 500),
         companyName: clipped(r['employer_name'], 255),
+        submittedSeniorNames: (Array.isArray(r['submitted_senior_names'])
+          ? r['submitted_senior_names']
+          : []
+        )
+          .slice(0, 200)
+          .map((n) => String(n).slice(0, 255)),
       })),
       totalCount: count(first['total']),
     }

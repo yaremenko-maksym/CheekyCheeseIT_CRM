@@ -67,6 +67,10 @@ const CARD = {
   seniors: PAGE,
   sources: PAGE,
   possibleDuplicates: null,
+  lastSeenAt: T,
+  stackKeywords: [],
+  noMatchReason: 'TRIAGE',
+  dismissal: null,
 }
 const SUBMISSION = {
   submission: {
