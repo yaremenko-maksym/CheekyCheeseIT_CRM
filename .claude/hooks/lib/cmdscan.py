@@ -1623,6 +1623,9 @@ def _unwrap(tokens, assigns):
                     tokens.pop(0)
         # flags may follow the wrapper's own operands (`flock /tmp/l -c '…'`)
         tokens = _consume_flags(tokens, spec, nested_code)
+        if base == "watch" and tokens:
+            # watch runs its words through `sh -c`, so `watch 'pnpm dev; date'` is code
+            nested_code.append(" ".join(tokens))
     return tokens, wrappers, inexact, nested_code
 
 

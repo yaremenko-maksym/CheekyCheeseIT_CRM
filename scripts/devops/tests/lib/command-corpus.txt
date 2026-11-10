@@ -87,6 +87,9 @@ block	db,ttl	watch 'pnpm dev'
 block	db,ttl	watch -q 3 pnpm dev
 block	db,ttl	watch -q pnpm dev
 block	db,ttl	watch --equexit 3 pnpm dev
+block	db,ttl	watch -n 2 'pnpm dev; date'
+block	db,ttl	watch -dq 3 pnpm dev
+allow	db,ttl	watch 'ls; date'
 block	db,ttl	strace -o /tmp/t pnpm dev
 block	db,ttl	caffeinate -i pnpm dev
 block	db,ttl	unbuffer pnpm dev

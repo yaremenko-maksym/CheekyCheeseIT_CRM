@@ -474,11 +474,24 @@ def first_token(seg):
             continue
         if wrapper == "watch":
             # the watch grammar: -n/--interval take a value, -q/--equexit a number (watch
-            # refuses anything else), the rest are boolean; the program is sh -c of the words
+            # refuses anything else), the rest are boolean; the program is sh -c of the words.
+            # A short cluster reads like getopt: `-dn 2` is -d plus -n 2, `-dn2` carries its value
             while parts and parts[0].startswith("-") and parts[0] not in ("-", "--"):
-                key = parts.pop(0).split("=", 1)
-                if parts and len(key) == 1 and (key[0] in ("-n", "--interval") or (
-                        key[0] in ("-q", "--equexit") and re.fullmatch(r"[\d.]+", parts[0]))):
+                flag = parts.pop(0)
+                if flag.startswith("--"):
+                    # getopt_long takes a unique prefix: --int 2 is --interval 2, --eq 3 is
+                    # --equexit 3 (a bare --e is ambiguous with --errexit and --exec: watch refuses)
+                    name = flag[2:]
+                    takes = "" if "=" in name or not name else (
+                        "n" if "interval".startswith(name) else
+                        "q" if len(name) > 1 and "equexit".startswith(name) else "")
+                else:
+                    takes = ""
+                    for at, ch in enumerate(flag[1:], 1):
+                        if ch in "nq":
+                            takes = ch if at == len(flag) - 1 else ""
+                            break
+                if parts and (takes == "n" or (takes == "q" and re.fullmatch(r"[\d.]+", parts[0]))):
                     parts.pop(0)
             if parts and parts[0] == "--":
                 parts.pop(0)
@@ -486,6 +499,12 @@ def first_token(seg):
                 parts = shlex.split(" ".join(parts), comments=True)
             except ValueError:
                 parts = " ".join(parts).split()
+            # the segment was split at ; before quotes were read, so a quoted program holding
+            # a ; arrives with the opening quote glued to its first word; a subshell keeps its (
+            if parts:
+                parts[0] = parts[0].lstrip("(){ \t\x27\"")
+                if not parts[0]:
+                    parts.pop(0)
             continue
         while parts and parts[0].startswith("-"):
             flag = parts.pop(0)

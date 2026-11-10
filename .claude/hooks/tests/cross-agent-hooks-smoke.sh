@@ -264,6 +264,9 @@ bash_case block "$MINE" "find $OTHER -type f -exec rm {} ;"                 'CR-
 bash_case block "$MINE" "sudo pkill -f node"                                'CR-M-1: pkill behind sudo'
 bash_case block "$MINE" "watch -q 3 pkill -f node"                          'pkill behind watch, -q takes the number'
 bash_case block "$MINE" "watch -d 'pkill -f node'"                          'pkill as the watch program string'
+bash_case block "$MINE" "watch -dn 2 pkill -f node"                         'SR-M-1: -n at the end of a short cluster takes the value'
+bash_case block "$MINE" "watch --int 2 pkill -f node"                       'an abbreviated long option (getopt_long prefix) takes the value'
+bash_case block "$MINE" "watch -n 2 'pkill -f node; date'"                  'SR-M-2: a ; inside the quoted watch program'
 bash_case allow "$MINE" "watch -n 2 git status"                             'watch of a harmless command'
 bash_case block "$MINE" "timeout 60 rm -rf $OTHER/dist"                     'CR-M-1: mutator behind timeout'
 
