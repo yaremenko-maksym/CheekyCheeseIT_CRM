@@ -12,7 +12,15 @@
  * `ATS_MATRIX_OUT=<dir>` also writes every matrix PDF there as `<template>.<fixture>.pdf`,
  * for the external parser oracle (CI).
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -36,6 +44,12 @@ const HERE = fileURLToPath(new URL('.', import.meta.url))
 const GOLDEN_DIR = join(HERE, 'golden')
 const UPDATE_GOLDEN = process.env['ATS_UPDATE_GOLDEN'] === '1'
 const MATRIX_OUT = process.env['ATS_MATRIX_OUT']
+/**
+ * Fixtures the equivalence check does not read back.
+ * shortcut: parseExtracted cannot split a wrapped role from a wrapped company, so `long-names-wrapped`
+ * is checked by the matrix and the goldens only; upgrade when the extraction exposes font runs.
+ */
+const EQUIVALENCE_SKIP = new Set(['long-names-wrapped'])
 /** Between pages in a golden file. */
 const PAGE_BREAK = '\n\f\n'
 
@@ -114,18 +128,19 @@ describe('ATS matrix', () => {
   })
 
   it('parsed field set is identical across templates', () => {
+    const layout = normalizeResumeLayout(DEFAULT_RESUME_LAYOUT)
     for (const fixture of ATS_FIXTURES) {
-      const content = renderable(fixture.content, 'classic')
-      const layout = normalizeResumeLayout(DEFAULT_RESUME_LAYOUT)
-      // The independent expectation: what the fixture says should be readable.
-      const expected: ParsedResume = {
-        headings: layout.sectionOrder
-          .filter((key) => (key === 'summary' ? content.summary !== '' : content[key].length > 0))
-          .map((key) => key.charAt(0).toUpperCase() + key.slice(1)),
-        items: content.experience.map(({ role, company, period }) => ({ role, company, period })),
-        skills: content.skills,
-      }
+      if (EQUIVALENCE_SKIP.has(fixture.name)) continue
       for (const template of RESUME_TEMPLATE_NAMES) {
+        // The independent expectation: what the fixture says should be readable, in this template's glyphs.
+        const content = renderable(fixture.content, template)
+        const expected: ParsedResume = {
+          headings: layout.sectionOrder
+            .filter((key) => (key === 'summary' ? content.summary !== '' : content[key].length > 0))
+            .map((key) => key.charAt(0).toUpperCase() + key.slice(1)),
+          items: content.experience.map(({ role, company, period }) => ({ role, company, period })),
+          skills: content.skills,
+        }
         const parsed = parseExtracted(get(`${template}.${fixture.name}`).pages)
         expect(parsed, `${template}.${fixture.name}`).toEqual(expected)
       }
@@ -143,6 +158,12 @@ describe('ATS matrix', () => {
         mismatches.push(`${key}: no golden (run with ATS_UPDATE_GOLDEN=1)`)
       else if (readFileSync(file, 'utf8') !== text) mismatches.push(`${key}: differs from golden`)
     }
+    // A golden with no pair is a renamed or removed fixture whose file was left behind.
+    const keys = new Set(PAIRS.map(({ key }) => `${key}.txt`))
+    for (const file of readdirSync(GOLDEN_DIR)) {
+      if (file.endsWith('.txt') && !keys.has(file))
+        mismatches.push(`${file}: orphan golden, delete it`)
+    }
     expect(mismatches).toEqual([])
   })
 })
@@ -156,12 +177,19 @@ describe('negative controls', () => {
     return check(career, 'personal', await renderAndExtract(career, 'classic', source))
   }
 
+  it("the negative controls' shared skeleton without a defect passes", async () => {
+    expect(await checkNegative('clean.typ')).toEqual({ ok: true, failures: [] })
+  }, 60_000)
+
   it('two-column negative control fails with ITEM_ORDER or MISSING_TEXT', async () => {
     const report = await checkNegative('two-column.typ')
     expect(report.ok).toBe(false)
-    expect(codes(report).some((code) => code === 'ITEM_ORDER' || code === 'MISSING_TEXT')).toBe(
-      true,
+    // The defect is in the experience section, so the failure must name an experience field.
+    const inExperience = report.failures.filter(
+      ({ code, path }) =>
+        (code === 'ITEM_ORDER' || code === 'MISSING_TEXT') && path?.startsWith('experience['),
     )
+    expect(inExperience).not.toEqual([])
   }, 60_000)
 
   it('letter-spaced negative control fails with LETTER_SPACED', async () => {

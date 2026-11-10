@@ -1,0 +1,27 @@
+Maximilian Okonkwo-Fairweather
+maximilian.okonkwo-fairweather@example.com
+Summary
+Software engineer who ships maintainable backend and frontend code.
+Skills
+TypeScript · PostgreSQL · Docker
+Experience
+Senior Principal Distributed Systems, Platform Reliability and Developer Experience Engineering
+Architect for Field Operations
+Consolidated Northern Hemisphere Agricultural Machinery, Precision Irrigation Equipment and Field
+Telemetry Services Holdings Group
+Apr 2019 – Nov 2024
+• Designed the telemetry ingestion platform for field equipment
+Lead Full-Stack Engineer for Customer-Facing Subscription, Billing and Account Management
+Platforms
+Riverside Interactive Entertainment, Educational Software and Online Learning Platforms Studio
+International
+Jan 2015 – Mar 2019
+• Rebuilt the subscription checkout
+Education
+Northbridge Technical University
+BSc Computer Science
+2008 – 2012
+Languages
+English — C1 · German — B1
+Links
+GitHub

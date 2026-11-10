@@ -75,6 +75,8 @@ function parseHeader(lines: string[]): ParsedItem {
     }
   }
   // Role, company and period each on their own line.
+  // shortcut: a wrapped role or company gives more than 3 lines, and the text alone cannot say where
+  // the role ends, so it throws; upgrade by reading the bold run (font info) from the extraction worker.
   if (lines.length !== 3 || !PERIOD_PATTERN.test(lines[2]!)) {
     throw new Error(`Cannot read an item header from ${JSON.stringify(lines)}`)
   }

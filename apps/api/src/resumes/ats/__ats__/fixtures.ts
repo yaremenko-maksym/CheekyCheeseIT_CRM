@@ -40,7 +40,7 @@ function base(overrides: Partial<ResumeContent>): ResumeContent {
   }
 }
 
-/** Ten jobs back to back, newest first, from 2011 to now. */
+/** Ten jobs back to back, newest first, from 2010 to now. */
 function career(): ResumeContent['experience'] {
   const companies = [
     'Lumen Freight Systems',
@@ -130,21 +130,52 @@ export const ATS_FIXTURES: readonly AtsFixture[] = [
     }),
   },
   {
+    // Role and company long enough to wrap onto a second line in every template.
+    name: 'long-names-wrapped',
+    displayName: 'Maximilian Okonkwo-Fairweather',
+    email: 'maximilian.okonkwo-fairweather@example.com',
+    content: base({
+      experience: [
+        {
+          company:
+            'Consolidated Northern Hemisphere Agricultural Machinery, Precision Irrigation Equipment and Field Telemetry Services Holdings Group',
+          role: 'Senior Principal Distributed Systems, Platform Reliability and Developer Experience Engineering Architect for Field Operations',
+          period: formatPeriod('2019-04', '2024-11', false),
+          bullets: ['Designed the telemetry ingestion platform for field equipment'],
+        },
+        {
+          company:
+            'Riverside Interactive Entertainment, Educational Software and Online Learning Platforms Studio International',
+          role: 'Lead Full-Stack Engineer for Customer-Facing Subscription, Billing and Account Management Platforms',
+          period: formatPeriod('2015-01', '2019-03', false),
+          bullets: ['Rebuilt the subscription checkout'],
+        },
+      ],
+    }),
+  },
+  {
     name: 'diacritics',
     displayName: 'José Müller',
     email: 'jose.mueller@example.com',
     content: base({
-      summary: 'Ingeniero de software. Erfahrung mit Zürich-basierten Teams, café-culture remote.',
+      summary: 'Software engineer who has worked with teams in Zürich, Málaga and Kraków.',
       experience: [
         {
           company: 'Señora Pérez Ingeniería',
-          role: 'Desarrollador Sénior',
+          role: 'Senior Developer',
           period: formatPeriod('2020-09', '2025-02', false),
-          bullets: ['Migró la facturación a PostgreSQL', 'Führte Code-Reviews für fünf Entwickler'],
+          bullets: [
+            'Migrated the Señora Pérez Ingeniería billing system to PostgreSQL',
+            'Led code reviews for the Zürich team',
+          ],
         },
       ],
       education: [
-        { institution: 'Universität Köln', degree: 'Diplom Informatik', period: '2010 – 2015' },
+        {
+          institution: 'Universität Köln',
+          degree: 'Diploma in Computer Science',
+          period: '2010 – 2015',
+        },
       ],
     }),
   },

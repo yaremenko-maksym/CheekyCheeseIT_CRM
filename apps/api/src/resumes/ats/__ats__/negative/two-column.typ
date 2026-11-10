@@ -39,6 +39,7 @@
   set document(title: data.displayName + " — Resume", date: none)
   set page(paper: "a4", margin: 1.8cm)
   set text(font: "Roboto", size: 10.5pt, ligatures: false)
+  show heading: it => block(above: 1.2em, below: 0.5em)[#it.body]
   [#text(weight: "bold", size: 18pt)[#data.displayName] \ #data.email]
   for key in data.layout.sectionOrder {
     heading(level: 1, titles.at(key))
