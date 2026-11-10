@@ -18,6 +18,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
   EMPTY_RESUME_CONTENT,
+  EMPTY_RESUME_FACTS,
   type ResumeLayoutOptions,
   type SeniorResumeDto,
 } from '@crm/shared'
@@ -321,11 +322,20 @@ function dto(overrides: Partial<SeniorResumeDto> = {}): SeniorResumeDto {
     createdAt: '2026-08-10T10:00:00.000Z',
     updatedAt: '2026-08-10T10:00:00.000Z',
     layout: DEFAULT_RESUME_LAYOUT,
-    templateName: 'Стандартный шаблон',
+    templateName: 'classic',
     hasCustomTemplate: false,
     renderStatus: 'READY',
     renderError: null,
     pdfUpToDate: true,
+    facts: EMPTY_RESUME_FACTS,
+    verificationStatus: 'DRAFT',
+    verificationErrorCode: null,
+    verificationReport: null,
+    verifiedVersion: null,
+    verifiedAt: null,
+    verifiedByName: null,
+    staged: null,
+    verificationBusy: false,
     ...overrides,
   }
 }

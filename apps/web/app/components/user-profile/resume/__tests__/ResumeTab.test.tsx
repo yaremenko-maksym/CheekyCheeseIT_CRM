@@ -17,6 +17,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
   EMPTY_RESUME_CONTENT,
+  EMPTY_RESUME_FACTS,
   type SeniorResumeDto,
   type SeniorResumeResponse,
 } from '@crm/shared'
@@ -34,7 +35,7 @@ const uploadMock = vi.fn()
 const ingestTextMock = vi.fn()
 const deleteMock = vi.fn()
 
-let resumeData: SeniorResumeResponse = { resume: null, canEdit: true }
+let resumeData: SeniorResumeResponse = { resume: null, canEdit: true, canConfirm: false }
 let isLoading = false
 // Mutable so a test can observe the delete confirm button's isPending-driven
 // text ("Видаляємо…" vs "Видалити") without a real mutation in flight.
@@ -80,14 +81,23 @@ function makeResponse(
     createdAt: '2026-08-07T10:00:00.000Z',
     updatedAt: '2026-08-07T10:00:00.000Z',
     layout: DEFAULT_RESUME_LAYOUT,
-    templateName: 'Стандартный шаблон',
+    templateName: 'classic',
     hasCustomTemplate: false,
     renderStatus: 'READY',
     renderError: null,
     pdfUpToDate: true,
+    facts: EMPTY_RESUME_FACTS,
+    verificationStatus: 'DRAFT',
+    verificationErrorCode: null,
+    verificationReport: null,
+    verifiedVersion: null,
+    verifiedAt: null,
+    verifiedByName: null,
+    staged: null,
+    verificationBusy: false,
     ...overrides,
   }
-  return { resume, canEdit }
+  return { resume, canEdit, canConfirm: false }
 }
 
 const FILLED = makeResponse({
@@ -106,7 +116,7 @@ const FILLED = makeResponse({
 
 beforeEach(async () => {
   vi.clearAllMocks()
-  resumeData = { resume: null, canEdit: true }
+  resumeData = { resume: null, canEdit: true, canConfirm: false }
   isLoading = false
   deleteIsPending = false
   await loadCatalog('uk')
@@ -114,7 +124,7 @@ beforeEach(async () => {
 
 describe('ResumeTab — empty state', () => {
   it('invites an editor to upload a file or paste text', () => {
-    resumeData = { resume: null, canEdit: true }
+    resumeData = { resume: null, canEdit: true, canConfirm: false }
     render(<ResumeTab userId="senior-1" />)
     expect(screen.getByTestId('resume-intake')).toBeInTheDocument()
     expect(screen.getByTestId('resume-upload-button')).toBeInTheDocument()
@@ -122,14 +132,14 @@ describe('ResumeTab — empty state', () => {
   })
 
   it('shows a read-only message instead of the upload UI when the viewer cannot edit', () => {
-    resumeData = { resume: null, canEdit: false }
+    resumeData = { resume: null, canEdit: false, canConfirm: false }
     render(<ResumeTab userId="senior-1" />)
     expect(screen.getByTestId('resume-empty-readonly')).toBeInTheDocument()
     expect(screen.queryByTestId('resume-upload-button')).not.toBeInTheDocument()
   })
 
   it('paste-text flow submits the text through the ingest mutation', () => {
-    resumeData = { resume: null, canEdit: true }
+    resumeData = { resume: null, canEdit: true, canConfirm: false }
     render(<ResumeTab userId="senior-1" />)
     fireEvent.click(screen.getByTestId('resume-paste-toggle'))
     fireEvent.change(screen.getByTestId('resume-text-input'), {
@@ -553,7 +563,7 @@ describe('ResumeTab — deleting the resume', () => {
   })
 
   it('is not offered before a resume exists', () => {
-    resumeData = { resume: null, canEdit: true }
+    resumeData = { resume: null, canEdit: true, canConfirm: false }
     render(<ResumeTab userId="senior-1" />)
     expect(screen.queryByTestId('resume-delete')).not.toBeInTheDocument()
   })

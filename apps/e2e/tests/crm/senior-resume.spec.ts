@@ -89,8 +89,20 @@ const DEFAULT_LAYOUT = {
   fontScale: 'normal',
 }
 
+/** Mirrors EMPTY_RESUME_FACTS — same reason as DEFAULT_LAYOUT above. */
+const EMPTY_FACTS = {
+  headline: '',
+  location: { city: '', country: '' },
+  workFormat: null,
+  skills: [],
+  experience: [],
+  education: [],
+  languages: [],
+  links: [],
+}
+
 function resumeResponse(stub: ResumeStub | null, canEdit = true) {
-  if (stub === null) return { resume: null, canEdit }
+  if (stub === null) return { resume: null, canEdit, canConfirm: false }
   return {
     resume: {
       id: 'aaaaaaaa-0000-4000-8000-000000000001',
@@ -112,13 +124,25 @@ function resumeResponse(stub: ResumeStub | null, canEdit = true) {
       // is never in the DTO — only its label — which is what keeps it out of
       // reach of anything running in a browser.
       layout: stub.layout ?? DEFAULT_LAYOUT,
-      templateName: 'Стандартный шаблон',
+      templateName: 'classic',
       hasCustomTemplate: false,
       renderStatus: stub.renderStatus ?? 'READY',
       renderError: stub.renderError ?? null,
       pdfUpToDate: stub.pdfUpToDate ?? true,
+      // verified-base-resume Task 13: the verification half of the DTO. A row
+      // that never ran a check is a DRAFT with no staged result.
+      facts: EMPTY_FACTS,
+      verificationStatus: 'DRAFT',
+      verificationErrorCode: null,
+      verificationReport: null,
+      verifiedVersion: null,
+      verifiedAt: null,
+      verifiedByName: null,
+      staged: null,
+      verificationBusy: false,
     },
     canEdit,
+    canConfirm: false,
   }
 }
 
