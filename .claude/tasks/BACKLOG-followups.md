@@ -7436,3 +7436,111 @@ sections; each missing key is an open part of this item. For the eligibility par
 only stop-listed matches and one with no matches return the same `eligibility` value.
 
 Sources: PR #1302 spec review, SPEC-M-2; PR #1302 fix round 3 (QA-MED-1).
+
+## 397. Toast close button: English aria-label in the uk UI, 42×42 at 320 (PR #1306 reviews, 2026-11-10)
+
+**Symptoms.** The sonner close button on every toast is named "Close toast" in the `uk` UI (sonner default, app-wide).
+At 320 px it measures 42×42, under the 44 px target (QA-LOW-2 of the #1306 round-4 manual QA). The job-queue toasts
+already use a transparent 44 px hit area (`JOB_QUEUE_TOAST`); the rest of the app does not.
+
+**Status.** Out of the 7.4 scope (app-wide `Toaster` in `apps/web/app/components/ui/sonner.tsx`). Coder, light track.
+
+**Verify.** In the `uk` locale, every toast close button has a Ukrainian accessible name and a ≥ 44×44 hit area at 320 px.
+
+Sources: PR #1306 manual QA rounds 2 and 4.
+
+## 398. Vacancy card: the named «Подано · <time> · <name>» line wraps at 320 (PR #1306 design review round 2, 2026-11-10)
+
+**Symptoms.** At 320 px the same-team submitted line of a senior block wraps onto a second line. Not counted as a finding
+in the design review; the layout stays intact.
+
+**Status.** Candidate polish for Task 7.3b or the next card change. ui-ux-designer decides wrap vs truncation.
+
+**Verify.** Screenshot at 320 of a senior submitted by the own team with a long name: one line, or an accepted wrap.
+
+Sources: PR #1306 design review 5837449312.
+
+## 399. Dark theme: native scrollbars render light (PR #1306 design review round 2, 2026-11-10)
+
+**Symptoms.** Scroll containers (the card dialog, the queue list) show the browser's light native scrollbar on the dark
+theme. `color-scheme: dark` (or a scrollbar token) is not set on the root.
+
+**Status.** App-wide, ui-ux-designer + Coder, light track.
+
+**Verify.** In Chromium on the dark theme, the card dialog's scrollbar is dark.
+
+Sources: PR #1306 design review 5837449312.
+
+## 400. Agent isolation: junctions into another checkout, and panel reviewers writing into the shared checkout (2026-11-10)
+
+**Symptoms.** (a) A read-only panel reviewer created a worktree under `/tmp`, linked it to another agent's `node_modules`
+with `mklink /J` junctions, then ran `git worktree remove --force`, which deleted through the junctions every tracked file
+of `packages/shared/**` in that other checkout. `pre:bash:cross-agent-blast` did not refuse `mklink /J` nor a remove of a
+worktree whose tree contains junctions to a foreign path. (b) Another panel reviewer wrote a file into the shared checkout
+it was told to read only (PR #1308 round 3).
+
+**Status.** DevOps (`.claude/hooks/**`). Read `hook-gates.md` first.
+
+**Verify.** A hook test: `mklink /J` from a scratch path into a foreign worktree is refused; `git worktree remove --force` on a
+tree that holds a junction is refused. A shared-checkout write by a reviewer is caught (for example by a `git status`
+diff before and after the review, reported by Master).
+
+Sources: PR #1306 panel round (nemotron, distrusted); PR #1308 round 3 (or:flint, distrusted).
+
+## 401. Vacancy card: focus after «Оновити картку» and after «Не записувати» on a stale card (QA-LOW-1 of #1306 r4, 2026-11-10)
+
+**Symptoms.** After «Оновити картку», and after «Не записувати» on a card that went stale, focus lands on `<body>`
+instead of a control in the card. Keyboard users lose their place. Also from the CR round-4 notes: focus drops to the
+page when «Так, записати все одно» turns disabled on a foreign stale (same path as a plain submit).
+
+**Status.** Coder, with Task 7.3b or as a light-track fix. A11y, so it is not cut.
+
+**Verify.** A rendered `JobQueueCard` test: after each of the three actions, `document.activeElement` is inside the dialog.
+
+Sources: PR #1306 manual QA round 4 (QA-LOW-1); code review 5841414216 (private notes).
+
+## 402. Vacancy card: the Escape guard counts every pending write app-wide (CR round-4 note on #1306, 2026-11-10)
+
+**Symptoms.** The card blocks Escape while `useIsMutating()` is non-zero. The count is app-wide, so an unrelated pending
+mutation elsewhere also blocks closing the card.
+
+**Status.** Coder, light track: scope the count with a `mutationKey` filter for the job-queue writes.
+
+**Verify.** A test: an unrelated pending mutation does not block Escape; a job-queue write does.
+
+Sources: code review 5841414216 (private notes).
+
+## 403. CI: a stale `ci-failed` label is never removed by a later passing mutation job (2026-11-10)
+
+**Symptoms.** A failing mutation or integration job sets `ci-failed` on the PR. A later green run of the same job does
+not remove it; only the quality job clears it. On #1306 the label stayed after every check was green (auto-merge was not
+blocked).
+
+**Status.** DevOps (`.github/workflows/**`).
+
+**Verify.** On a test PR: a failing mutation job sets the label; the next passing run of that job removes it.
+
+Sources: PR #1306 merge.
+
+## 404. API log: `JobSourcingCronService: collection window: claim failed (RangeError)` (2026-11-10)
+
+**Symptoms.** The API log on the WSL QA stack carries `JobSourcingCronService: collection window: claim failed` with a
+`RangeError` while the cron claims a collection window. Seen during the #1306 live reviews; impact on collection not yet
+measured.
+
+**Status.** Coder, `superpowers:systematic-debugging` first (no red command, no hypotheses).
+
+**Verify.** Run the API on a scratch database through one cron window; the log has no `claim failed` line.
+
+Sources: PR #1306 manual QA / design review live stacks.
+
+## 405. Two reporting test failures on `origin/main` under WSL (DevOps report, 2026-11-10)
+
+**Symptoms.** While working on PR #1308, DevOps saw two tests of the reporting module fail on `origin/main` in WSL. They pass
+in CI, so the failure is environment-dependent (timezone or locale suspected, not verified).
+
+**Status.** Coder; capture the test names and the failure text on the first run.
+
+**Verify.** `pnpm --filter @crm/api test -- report` in WSL with an empty `DATABASE_URL`: zero failures.
+
+Sources: PR #1308 DevOps report.
