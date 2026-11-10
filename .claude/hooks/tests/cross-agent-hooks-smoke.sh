@@ -274,6 +274,35 @@ bash_case block "$MINE" "watch -n 2 ' ( pkill -f node; date)'"             'CR-M
 bash_case block "$MINE" "watch --int 2 pkill -f node"                       'an abbreviated long option (getopt_long prefix) takes the value'
 bash_case block "$MINE" "watch -n 2 'pkill -f node; date'"                  'SR-M-2: a ; inside the quoted watch program'
 bash_case allow "$MINE" "watch -n 2 git status"                             'watch of a harmless command'
+
+# Nested code, read through cmdscan.scan: each of these passed this hook on origin/main.
+bash_case block "$MINE" "exec pkill -f node"                                 'exec runs its operand in place of the shell'
+bash_case block "$MINE" "exec -a foo pkill -f node"                          'exec -a takes a value'
+bash_case block "$MINE" "bash -c 'pkill -f node'"                            'the program of bash -c'
+bash_case block "$MINE" "sudo -u x zsh -lc 'killall node'"                   'a clustered -lc behind sudo'
+bash_case block "$MINE" "echo \$(pkill -f node)"                             'a $( ) substitution'
+bash_case block "$MINE" 'x=`killall node`'                                   'a backtick substitution in an assignment'
+bash_case block "$MINE" "eval 'pkill node'"                                  'eval runs its arguments'
+bash_case block "$MINE" "bash -c 'git worktree prune'"                       'git worktree prune inside bash -c'
+bash_case block "$MINE" "bash -c 'rm -rf $OTHER/src'"                        'a foreign tree mutated inside bash -c'
+bash_case block "$MINE" $'bash <<EOF\npkill -f node\nEOF'                    'a shell runs its heredoc'
+bash_case block "$MINE" $'cat <<-EOF | sh\n\tpkill -f node\n\tEOF'           'a heredoc piped into a shell'
+bash_case block "$MINE" "bash <<< 'pkill -f node'"                           'a shell runs its here-string'
+bash_case block "$MINE" $'cat <<EOF\n$(pkill -f node)\nEOF'                  'an unquoted heredoc expands its $( )'
+bash_case allow "$MINE" 'echo $(echo $(echo $(echo $(echo $(echo $(x))))))'   'six nested $( ) are within the scan depth and read'
+bash_case block "$MINE" 'echo $(echo $(echo $(echo $(echo $(echo $(echo $(x)))))))' 'NESTED-OPAQUE: seven nested $( ) are past the scan depth'
+# False positives on origin/main: a heredoc body is data, a quoted word is not a redirect.
+bash_case allow "$MINE" $'cat <<\'EOF\'\npkill -f node\nEOF'                 'a quoted heredoc that mentions pkill'
+bash_case allow "$MINE" $'cat <<EOF\npkill -f node\nEOF'                     'an unquoted heredoc body is still data for cat'
+bash_case allow "$MINE" $'cat > /tmp/note.md <<\'EOF\'\nsee '"$OTHER"$'/src\nEOF' 'a note that names a foreign tree'
+bash_case allow "$MINE" "sed -i '' 's|a|b 2>\\&1; c|' /tmp/x.sh"             'a quoted sed script holding 2>\&1 redirects nothing'
+bash_case allow "$MINE" "bash -c 'git status'"                               'a harmless bash -c'
+# Security review of 813a320: a heredoc stays code or arguments unless its consumer reads data.
+bash_case block "$MINE" $'xargs rm -rf <<EOF\n'"$OTHER"$'/src\nEOF'             'a heredoc read as xargs arguments names a foreign tree'
+bash_case block "$MINE" $'bash /dev/stdin <<EOF\npkill -f node\nEOF'           'a shell reading /dev/stdin runs the heredoc'
+bash_case block "$MINE" $'source /dev/stdin <<EOF\npkill -f node\nEOF'         'source /dev/stdin runs the heredoc'
+bash_case block "$MINE" $'cat <<EOF | tee /tmp/x | sh\npkill -f node\nEOF'     'the heredoc reaches the shell at the end of the pipeline'
+bash_case block "$MINE" "echo \\' > $OTHER/f \\'"                             'an escaped quote outside quotes opens no quoted span'
 bash_case block "$MINE" "timeout 60 rm -rf $OTHER/dist"                     'CR-M-1: mutator behind timeout'
 
 # ── the target is not a literal, so ownership cannot be established ───────────

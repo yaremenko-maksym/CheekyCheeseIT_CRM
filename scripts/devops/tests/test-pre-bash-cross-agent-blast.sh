@@ -505,10 +505,11 @@ for c in "\$'pkill' -f node" "\$'killall' node" "scripts/devops/dev-ttl.sh -- pk
   assert_red "wrapped broadcast kill: $c" --contains 'BROADCAST-KILL' -- run_hook "$MINE" "$c"
 done
 assert_green "dev-ttl.sh around a harmless command" -- run_hook "$MINE" "scripts/devops/dev-ttl.sh --ttl 60 -- ls"
-# Round 3 of #1294: this hook does not read a backticked word in its naive-join text as a
-# command, so a quoted heredoc note ending in a backslash stays allowed here. (The cmdscan
-# hooks refuse the same shape: a known false refusal, accepted LOW.)
-assert_green "naive-join reading: a quoted heredoc body ending in a backslash" \
+# Round 3 of #1294 kept this shape allowed here while the cmdscan hooks refused it. This
+# hook now reads nested code through cmdscan.scan, whose naive-join reading glues the last
+# body line onto EOF and reads the backticked word as code, so it refuses the same shape:
+# the known false refusal of the cmdscan hooks (accepted LOW), now shared by all of them.
+assert_red "naive-join reading: a quoted heredoc body ending in a backslash" --contains 'BROADCAST-KILL' \
   -- run_hook "$MINE" $'cat > note.md <<\'EOF\'\nrun `pkill -f node` and\nline \\\nEOF'
 
 guard_test_summary "test-pre-bash-cross-agent-blast.sh"

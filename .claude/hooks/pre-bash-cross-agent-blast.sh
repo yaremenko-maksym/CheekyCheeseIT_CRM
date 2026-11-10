@@ -426,10 +426,14 @@ reasons = []
 # the body is scanned as code. Bounded: 64 scans; past it, or past the cmdscan depth,
 # the code was not read and the command is refused as NESTED-OPAQUE.
 REDIRECT_TOKEN = re.compile(r"^\d*(?:<<<|<<-?|<>|>>?|<|>&|&>>?)")
+STDIN_PATHS = {"-", "/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"}
 
 
 def stdin_programs(seg):
-    """Heredoc bodies and here-strings a shell segment runs as its program."""
+    """Heredoc bodies and here-strings a shell segment runs as its program. cmdscan hands
+    a heredoc to the LAST command of its pipeline, so `cat <<EOF | tee x | sh` reaches sh."""
+    if seg.name in ("source", ".") and seg.argv[:1] and seg.argv[0] in STDIN_PATHS:
+        return list(seg.heredocs)
     if seg.name not in cmdscan.INTERPRETERS:
         return []
     argv, strings, i = [], [], 0
@@ -449,7 +453,7 @@ def stdin_programs(seg):
             i += 1  # the target of `> file` / `< file` is not an operand
         i += 1
     program, is_code = cmdscan.shell_program(argv)[:2]
-    if is_code or program is not None:
+    if is_code or (program is not None and program not in STDIN_PATHS):
         return []  # bash -c is read by cmdscan; a script operand reads its own file
     return list(seg.heredocs) + strings
 
@@ -470,8 +474,13 @@ opaque = opaque or bool(work)
 # ARGUMENT (grep "pkill", echo "rm -rf") never trips a predicate. A heredoc body is
 # data for its command (the scan above judges the one a shell runs), so it is cut out
 # before this quote-blind split: `cat <<EOF` with a line `pkill -f node` is a note.
+# Only for a consumer that treats its stdin as data: `xargs rm <<EOF` turns the body into
+# arguments (its owner is rm), so that body stays in the text every predicate reads.
+DATA_SINKS = {"cat", "tee", "gh", "git", "jq", "grep", "wc", "head", "tail", "sort"}
 naive = cmd
 for g in scanned:
+    if cmd_name(g.name) not in DATA_SINKS:
+        continue
     for body in g.heredocs:
         if body.strip():
             naive = naive.replace(body, "", 1)
@@ -819,11 +828,13 @@ mutating = any(is_mutating(n, a) for n, a in toks)
 # a redirect into a path is a mutation regardless of the command doing it. A quoted
 # word is data unless it is the target itself (`sed "s|a|b 2>\&1|"` redirects nothing),
 # so quoted spans are blanked first; nested code is read through the scanned segments.
-QUOTED = re.compile(r"(>>?\s*)?(\x27[^\x27]*\x27|\"(?:[^\"\\]|\\.)*\")")
+# An escaped character outside quotes is matched first and kept, so `\x27` or `\"` there
+# opens no span: `echo \x27 > f \x27` still redirects into f.
+QUOTED = re.compile(r"\\.|(>>?\s*)?(\x27[^\x27]*\x27|\"(?:[^\"\\]|\\.)*\")", re.S)
 
 
 def unquoted(text):
-    return QUOTED.sub(lambda m: m.group(0) if m.group(1) else " ", text)
+    return QUOTED.sub(lambda m: m.group(0) if m.group(0)[0] == chr(92) or m.group(1) else " ", text)
 
 
 redirect_targets = re.findall(
