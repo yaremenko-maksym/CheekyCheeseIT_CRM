@@ -655,8 +655,12 @@ function assertTemplateIsDrawable(template: string, templateName: ResumeTemplate
  * kilobytes): no cache to go stale or to hide a broken path from the tests.
  */
 export function loadCatalogTemplate(name: ResumeTemplateName): string {
-  const theme = readFileSync(resolveAssetPath(`typst/themes/${name}.typ`), 'utf8')
-  const skeleton = readFileSync(resolveAssetPath('typst/resume-skeleton.typ'), 'utf8')
+  const themePath = resolveAssetPath(`typst/themes/${name}.typ`)
+  const skeletonPath = resolveAssetPath('typst/resume-skeleton.typ')
+  // Stryker disable next-line StringLiteral: an empty encoding returns a Buffer, which the template literal below decodes as UTF-8, the identical string
+  const theme = readFileSync(themePath, 'utf8')
+  // Stryker disable next-line StringLiteral: as above, an empty encoding decodes to the identical string
+  const skeleton = readFileSync(skeletonPath, 'utf8')
   return `${theme}\n${skeleton}`
 }
 
