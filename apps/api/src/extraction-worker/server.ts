@@ -8,7 +8,14 @@ import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
 import { smallDoseFor } from '../job-sourcing/structuring/small-dose-table'
 import { EXTRACTION_TABLE_VERSION } from './link-contract'
-import { extractBodySchema, healthFlags, preflightBodySchema } from './schema'
+import { resumeWriteInput, writeResume } from './resume-write'
+import {
+  MAX_WORKER_INPUT_CHARS,
+  extractBodySchema,
+  healthFlags,
+  preflightBodySchema,
+  resumeWriteBodySchema,
+} from './schema'
 
 /** The one fixed preflight request: the caller sends nothing, so nothing of its can reach a route. */
 const PREFLIGHT_INPUT = 'Reply with the JSON object {"ok": true} and nothing else.'
@@ -121,6 +128,28 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
       }),
     )
     return { result, events, health: healthFlags(opts.routeState.snapshot()) }
+  })
+
+  // The caller redacts every field before it builds `payload` (R16); the worker logs no text of it.
+  app.post('/resume-write', async (req, reply) => {
+    const body = resumeWriteBodySchema.safeParse(req.body)
+    // The port cuts a longer input without a word, so an input over the cap is refused, not cut.
+    if (
+      !body.success ||
+      resumeWriteInput(body.data.payload, body.data.feedback).length > MAX_WORKER_INPUT_CHARS
+    ) {
+      return refuse(reply, 400, 'BAD_REQUEST')
+    }
+    const { task, payload, feedback } = body.data
+    const result = await call(reply, [], (signal) => writeResume(ports.extract, body.data, signal))
+    opts.log({
+      event: 'RESUME_WRITE',
+      task,
+      payloadChars: payload.length,
+      feedbackCount: feedback.length,
+      outcome: result.kind === 'ok' ? 'OK' : result.reason,
+    })
+    return result
   })
 
   app.post('/preflight', async (req, reply) => {

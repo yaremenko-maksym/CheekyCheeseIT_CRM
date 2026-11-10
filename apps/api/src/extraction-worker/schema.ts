@@ -20,6 +20,19 @@ export const extractBodySchema = z
   })
   .strict()
 
+/**
+ * `resume-write` data only: the task, the caller-redacted facts (spec §5.2) and the gate feedback on
+ * the previous draft. The instruction is the worker's own; nothing here can replace it.
+ */
+export const resumeWriteBodySchema = z
+  .object({
+    task: z.enum(['summary', 'bullets']),
+    payload: z.string().min(1).max(MAX_WORKER_INPUT_CHARS),
+    feedback: z.array(z.string().min(1).max(1000)).max(20),
+  })
+  .strict()
+export type ResumeWriteBody = z.infer<typeof resumeWriteBodySchema>
+
 /** `preflight` takes nothing: no body, or an empty JSON object. */
 export const preflightBodySchema = z.union([z.undefined(), z.object({}).strict()])
 
