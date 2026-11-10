@@ -369,6 +369,10 @@ describe('RESUME_PHONE_PATTERN', () => {
     expect('(067) 123-45-67'.match(RESUME_PHONE_PATTERN)?.[0]).toBe('(067) 123-45-67')
   })
 
+  it('accepts an en-dash as a separator', () => {
+    expect('call +38 067 123–45–67 now'.match(RESUME_PHONE_PATTERN)?.[0]).toBe('+38 067 123–45–67')
+  })
+
   it('is stateless: repeated tests give the same answer without a g flag', () => {
     expect(RESUME_PHONE_PATTERN.flags).not.toContain('g')
     expect(RESUME_PHONE_PATTERN.test('+380 67 123 45 67')).toBe(true)

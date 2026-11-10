@@ -122,3 +122,45 @@ describe('findUngroundedTokens — result shape', () => {
     expect(findUngroundedTokens(text, src(text))).toEqual([])
   })
 })
+
+describe('findUngroundedTokens — fix round 1', () => {
+  it('does not flag a lowercase English word that is also a skill', () => {
+    expect(findUngroundedTokens('plan the go-live', src('plan'))).toEqual([])
+    expect(findUngroundedTokens('the rest of it', src('it'))).toEqual([])
+    expect(findUngroundedTokens('react to change', src('change'))).toEqual([])
+    expect(findUngroundedTokens('on each node', src('on'))).toEqual([])
+  })
+
+  it('still flags the capitalised form, and a later unambiguous spelling of the same group', () => {
+    expect(findUngroundedTokens('wrote Go and React services', src('wrote and'))).toEqual([
+      'Go',
+      'React',
+    ])
+    expect(findUngroundedTokens('the rest of it is restful', src('it'))).toEqual(['restful'])
+    expect(findUngroundedTokens('each node runs nodejs', src('runs'))).toEqual(['nodejs'])
+  })
+
+  it('flags a sentence-initial word that looks like a name: all caps, inner capital or a digit', () => {
+    expect(findUngroundedTokens('AWS hosted it', src('hosted it'))).toEqual(['AWS'])
+    expect(findUngroundedTokens('GitHub hosted it', src('hosted it'))).toEqual(['GitHub'])
+    expect(findUngroundedTokens('S3 stored it. Ec2 ran it', src('stored ran it 3 2'))).toEqual([
+      'S3',
+      'Ec2',
+    ])
+  })
+
+  it('leaves a plain sentence-initial word, or a grounded distinctive one, unflagged', () => {
+    expect(findUngroundedTokens('Kafka stored it', src('stored it'))).toEqual([])
+    expect(findUngroundedTokens('AWS hosted it', src('aws hosted it'))).toEqual([])
+  })
+
+  it('treats numbered items and more bullet glyphs as sentence starts', () => {
+    expect(findUngroundedTokens('1) Led it\n 12) Ran it', src('it 1 12'))).toEqual([])
+    expect(findUngroundedTokens('– Led it\n— Ran it\n▪ Shipped it', src('it'))).toEqual([])
+  })
+
+  it('does not treat a colon or an inline bracket as a sentence start', () => {
+    expect(findUngroundedTokens('Stack: Kafka', src(''))).toEqual(['Kafka'])
+    expect(findUngroundedTokens('it (and more) Kafka', src('it and more'))).toEqual(['Kafka'])
+  })
+})

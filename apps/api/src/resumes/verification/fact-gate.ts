@@ -18,9 +18,17 @@ interface Candidate {
 }
 
 const NUMBER = /\d+(?:\.\d+)?/gu
-const CAPITALISED = /(?<![\p{L}\p{N}#+])\p{Lu}[\p{L}\p{N}#+]+/gu
-/** Text start, after `.` `!` `?` or a newline, or after a bullet that opens its line. */
-const SENTENCE_START = /(?:^|[.!?\n]|(?:^|\n)[^\S\n]*[-*•])\s*$/u
+/** A dot glued to the word (`.NET`, `Node.JS`) makes it part of a dotted token, left to the skill rule. */
+const CAPITALISED = /(?<![\p{L}\p{N}#+.])\p{Lu}[\p{L}\p{N}#+]+/gu
+/**
+ * Text start, after `.` `!` `?` or a newline, or after a bullet or an item
+ * number (`1)`) that opens its line. Not after `:`, which would hide `Stack: Kafka`.
+ */
+const SENTENCE_START = /(?:^|[.!?\n]|(?:^|\n)[^\S\n]*(?:[-*•–—▪]|\d+\)))\s*$/u
+/** All caps, an inner capital or a digit (`AWS`, `GitHub`, `S3`): a name even when it opens a sentence. */
+const NAME_SHAPED = /.\p{Lu}|\p{N}/u
+/** Skill spellings that are also everyday English words when written in lowercase. */
+const ENGLISH_WORDS = new Set(['go', 'rest', 'react', 'node'])
 /** Words for locating a skill's surface form; the leading dot keeps `.NET` whole. */
 const WORD = /\.?[\p{L}\p{N}#+]+/gu
 /** The longest alias in `SKILL_SYNONYM_GROUPS` (`Google Cloud Platform`) has three words. */
@@ -69,14 +77,16 @@ export function findUngroundedTokens(text: string, source: FactSource): string[]
     if (!sourceNumbers.has(m[0])) candidates.push({ index: m.index, token: m[0] })
   }
   for (const m of output.matchAll(CAPITALISED)) {
-    if (SENTENCE_START.test(output.slice(0, m.index)) || grounded(m[0])) continue
+    if (grounded(m[0])) continue
+    if (SENTENCE_START.test(output.slice(0, m.index)) && !NAME_SHAPED.test(m[0])) continue
     candidates.push({ index: m.index, token: m[0] })
   }
   const spans = [...skillSpans(output)]
   for (const { canonical } of SKILL_SYNONYM_GROUPS) {
     if (!mentionsSkill(output, canonical) || grounded(canonical)) continue
     // A mention only inside a longer skill (`JS` of `Node JS`) has no span of its own and is not one.
-    const span = spans.find((s) => s.canonical === canonical)
+    // `go-live`, `the rest of`, `react to`, `each node`: English, not the skill
+    const span = spans.find((s) => s.canonical === canonical && !ENGLISH_WORDS.has(s.token))
     if (span) candidates.push(span)
   }
 

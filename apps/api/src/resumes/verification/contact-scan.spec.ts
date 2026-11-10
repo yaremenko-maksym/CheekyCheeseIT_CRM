@@ -184,3 +184,88 @@ describe('redactContacts', () => {
     expect(scanContacts(redactContacts('by Mu\u0308ller', muller), muller)).toEqual([])
   })
 })
+
+describe('scanContacts — serialized text and spelling variants (fix round 1)', () => {
+  const name = (match: string) => ({ kind: 'name', match })
+
+  it('treats a JSON escape before the surname as a boundary', () => {
+    expect(scanContacts('…it.\\nLevin reviewed', ctx)).toEqual([name('Levin')])
+    expect(scanContacts('it\\tLevin, it\\rLevin, \\"Levin\\"', ctx)).toEqual([
+      name('Levin'),
+      name('Levin'),
+      name('Levin'),
+    ])
+    expect(scanContacts('caf\\u00e9Levin and \\u00E9Levin', ctx)).toEqual([
+      name('Levin'),
+      name('Levin'),
+    ])
+  })
+
+  it('matches a full name split by an escaped whitespace', () => {
+    expect(scanContacts('Mark\\nLevin', ctx)).toEqual([name('Mark\\nLevin')])
+    expect(scanContacts('Mark\\t \\r\\nLevin', ctx)).toEqual([name('Mark\\t \\r\\nLevin')])
+  })
+
+  it('needs the backslash: a plain letter or a short escape is no boundary', () => {
+    expect(scanContacts('xnLevin tLevin', ctx)).toEqual([])
+    expect(scanContacts('a\\u00eLevin a\\xLevin', ctx)).toEqual([])
+  })
+
+  it('matches curly apostrophes against a straight one, both ways', () => {
+    const straight = { fullName: "Sean O'Brien", emails: [] }
+    expect(scanContacts('by O’Brien, Oʼbrien and O‘Brien', straight)).toEqual([
+      name('O’Brien'),
+      name('Oʼbrien'),
+      name('O‘Brien'),
+    ])
+    expect(scanContacts("by O'Brien", { fullName: 'Sean O’Brien', emails: [] })).toEqual([
+      name("O'Brien"),
+    ])
+  })
+
+  it('hits a possessive surname', () => {
+    expect(scanContacts("Levin's code and Levin’s tests", ctx)).toEqual([
+      name('Levin'),
+      name('Levin'),
+    ])
+  })
+
+  it('matches the accent-folded spelling of a name, both ways, and reports it as written', () => {
+    const accented = { fullName: 'Anna Müller', emails: [] }
+    expect(scanContacts('by Muller', accented)).toEqual([name('Muller')])
+    expect(scanContacts('by Müller', { fullName: 'Anna Muller', emails: [] })).toEqual([
+      name('Müller'),
+    ])
+    // known limit: a transliteration is not a fold
+    expect(scanContacts('by Mueller', accented)).toEqual([])
+  })
+
+  it('redacts a folded match on its original span', () => {
+    const bronte = { fullName: 'Zoë Brontë', emails: [] }
+    expect(redactContacts('Zoe Bronte and Brontë, then Bronte.', bronte)).toBe(
+      '[REDACTED] and [REDACTED], then [REDACTED].',
+    )
+    // a mark NFC cannot compose stays inside the span it belongs to
+    expect(redactContacts('by Leviq\u0303 ok', { fullName: 'Ann Leviq', emails: [] })).toBe(
+      'by [REDACTED] ok',
+    )
+    // a character NFD expands to several code units, before the name, keeps the offsets right
+    expect(redactContacts('\uD55C\uAD6D Levin x', ctx)).toBe('\uD55C\uAD6D [REDACTED] x')
+  })
+
+  it('hits a phone written with brackets or en-dashes', () => {
+    expect(scanContacts('tel +38 (067) 123-45-67', ctx)).toEqual([
+      { kind: 'phone', match: '+38 (067) 123-45-67' },
+    ])
+    expect(scanContacts('tel +38 067 123–45–67', ctx)).toEqual([
+      { kind: 'phone', match: '+38 067 123–45–67' },
+    ])
+  })
+
+  it('hits a +tag email and an uppercase email as written', () => {
+    expect(scanContacts('mark+cv@example.com, MARK.LEVIN@EXAMPLE.COM', ctx)).toEqual([
+      { kind: 'email', match: 'mark+cv@example.com' },
+      { kind: 'email', match: 'MARK.LEVIN@EXAMPLE.COM' },
+    ])
+  })
+})

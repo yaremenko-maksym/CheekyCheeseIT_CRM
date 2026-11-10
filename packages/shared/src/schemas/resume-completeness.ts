@@ -33,8 +33,8 @@ export type CompletenessCode = (typeof COMPLETENESS_CODES)[number]
 export type CompletenessIssue = { path: string; code: CompletenessCode }
 
 /**
- * A phone number: at least nine digits, with `+`, spaces, dots, parentheses or
- * hyphens allowed between them. The digit lookahead is what keeps dates,
+ * A phone number: at least nine digits, with `+`, spaces, dots, parentheses,
+ * hyphens or en-dashes allowed between them. The digit lookahead is what keeps dates,
  * version numbers and large figures out (`2015 – 2019`, `Mar 2021 – May 2023`,
  * `C++ 17`, `1,000,000 requests`, `Node.js 18`); commas are deliberately not a
  * separator for the same reason.
@@ -42,7 +42,7 @@ export type CompletenessIssue = { path: string; code: CompletenessCode }
  * Stateless on purpose (no `g` flag): the same pattern is reused by the API, so
  * `.test()` on a shared RegExp must not depend on an earlier call's lastIndex.
  */
-export const RESUME_PHONE_PATTERN = /(?=(?:[^\d\p{L}]*\d){9,})[+(]?\d[\d\s().-]{7,}\d/u
+export const RESUME_PHONE_PATTERN = /(?=(?:[^\d\p{L}]*\d){9,})[+(]?\d[\d\s().–-]{7,}\d/u
 
 /** An email address shape: local part with the common punctuation, and a dot TLD. */
 export const RESUME_EMAIL_PATTERN = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/u
