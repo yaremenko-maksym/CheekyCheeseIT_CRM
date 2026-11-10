@@ -25,7 +25,7 @@ export const SKILL_SYNONYM_GROUPS: readonly { canonical: string; aliases: readon
   { canonical: 'Next.js', aliases: ['NextJS'] },
   { canonical: 'Vue.js', aliases: ['Vue', 'VueJS'] },
   { canonical: 'Angular', aliases: ['AngularJS', 'Angular.js'] },
-  { canonical: '.NET', aliases: ['dotnet', 'dot net'] },
+  { canonical: '.NET', aliases: ['dotnet', 'dot net', 'dotnet core', 'net core', 'netcore'] },
   // --- data ---
   { canonical: 'PostgreSQL', aliases: ['Postgres', 'psql'] },
   { canonical: 'MySQL', aliases: [] },
@@ -54,7 +54,11 @@ function keyOf(raw: string): string {
 
 /** Space-joined token phrase, padded so `includes` only hits whole tokens. */
 function phraseOf(raw: string): string {
-  return ` ${stackTokens(raw).join(' ')} `
+  // `C Sharp` / `Java Script` would otherwise leave a bare `c` / `java` token that matches C / Java.
+  const folded = raw
+    .replace(/\bc\s+sharp\b/gi, 'csharp')
+    .replace(/\bjava\s+script\b/gi, 'javascript')
+  return ` ${stackTokens(folded).join(' ')} `
 }
 
 /**

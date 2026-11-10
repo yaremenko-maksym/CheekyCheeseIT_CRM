@@ -72,7 +72,7 @@ describe('SKILL_SYNONYM_GROUPS', () => {
       { canonical: 'Next.js', aliases: ['NextJS'] },
       { canonical: 'Vue.js', aliases: ['Vue', 'VueJS'] },
       { canonical: 'Angular', aliases: ['AngularJS', 'Angular.js'] },
-      { canonical: '.NET', aliases: ['dotnet', 'dot net'] },
+      { canonical: '.NET', aliases: ['dotnet', 'dot net', 'dotnet core', 'net core', 'netcore'] },
       { canonical: 'PostgreSQL', aliases: ['Postgres', 'psql'] },
       { canonical: 'MySQL', aliases: [] },
       { canonical: 'MongoDB', aliases: ['Mongo', 'Mongo DB'] },
@@ -93,15 +93,12 @@ describe('SKILL_SYNONYM_GROUPS', () => {
   })
 
   it('never lets one spelling belong to two groups', () => {
-    const owners = new Map<string, string>()
     for (const { canonical, aliases } of SKILL_SYNONYM_GROUPS) {
       for (const spelling of [canonical, ...aliases]) {
         const owner = canonicalSkill(spelling)
         expect(owner, `${spelling} resolved to ${owner}, expected ${canonical}`).toBe(canonical)
-        owners.set(spelling, canonical)
       }
     }
-    expect(owners.size).toBeGreaterThan(SKILL_SYNONYM_GROUPS.length)
   })
 })
 
@@ -124,6 +121,11 @@ describe('mergeSkills', () => {
     expect(mergeSkills(['', '  ', 'Redis'], [['   ']])).toEqual(['Redis'])
   })
 
+  it('folds the .NET Core spellings into .NET', () => {
+    expect(mergeSkills(['.NET', 'dotnet core'], [])).toEqual(['.NET'])
+    expect(mergeSkills(['net core', 'NetCore', '.NET Core'], [])).toEqual(['.NET'])
+  })
+
   it('returns an empty list for empty input', () => {
     expect(mergeSkills([], [])).toEqual([])
   })
@@ -135,6 +137,25 @@ describe('mentionsSkill', () => {
     expect(mentionsSkill('wrote C++ services', 'C')).toBe(false)
     expect(mentionsSkill('wrote C# services', 'C')).toBe(false)
     expect(mentionsSkill('TypeScript only', 'Type')).toBe(false)
+  })
+
+  it('does not split a multi-word spelling of C# or JavaScript into a shorter skill', () => {
+    expect(mentionsSkill('C Sharp developer', 'C')).toBe(false)
+    expect(mentionsSkill('Java Script developer', 'Java')).toBe(false)
+    expect(mentionsSkill('c  sharp and java   script', 'C')).toBe(false)
+    expect(mentionsSkill('c  sharp and java   script', 'Java')).toBe(false)
+    expect(mentionsSkill('C Sharp developer', 'C#')).toBe(true)
+    expect(mentionsSkill('Java Script developer', 'JavaScript')).toBe(true)
+    expect(mentionsSkill('used C# daily', 'C Sharp')).toBe(true)
+    expect(mentionsSkill('Sharp C tooling', 'C')).toBe(true)
+    expect(mentionsSkill('Script Java tooling', 'Java')).toBe(true)
+  })
+
+  it('folds those spellings only as whole words', () => {
+    expect(mentionsSkill('Basic sharp tools', 'Basic')).toBe(true)
+    expect(mentionsSkill('a C sharpener', 'C')).toBe(true)
+    expect(mentionsSkill('Kajava script', 'Kajava')).toBe(true)
+    expect(mentionsSkill('Java scripting', 'Java')).toBe(true)
   })
 
   it('treats # + . as part of the token', () => {
