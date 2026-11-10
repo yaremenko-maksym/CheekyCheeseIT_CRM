@@ -574,6 +574,8 @@ def written_file_named_again(g):
     rest = cmd
     for body in g.heredocs:
         rest = rest.replace(body, "", 1)
+    if files and any(s is not g for s in scanned):
+        return True  # `make`, `git commit`, `npm run` read Makefile / a hook / a script by convention
     if files and re.search(r"[*?\[$`]", rest):
         return True  # `./*eploy`, `$f`, `$(ls)` may name the file without spelling it
     for f in files:
@@ -581,6 +583,13 @@ def written_file_named_again(g):
         if base and len(re.findall(r"(?<![\w.-])%s(?![\w.-])" % re.escape(base), rest)) > 1:
             return True
     return False
+
+
+QUOTED = re.compile(r"\\.|(>>?\s*)?(\$\x27(?:[^\x27\\]|\\.)*\x27|\x27[^\x27]*\x27|\"(?:[^\"\\]|\\.)*\")", re.S)
+
+
+def unquoted(text):
+    return QUOTED.sub(lambda m: m.group(0) if m.group(0)[0] == chr(92) or m.group(1) else " ", text)
 
 
 naive = cmd
@@ -596,7 +605,11 @@ for g in scanned:
     for body in g.heredocs:
         if body.strip():
             naive = naive.replace(body, "", 1)
-segments = re.split(r"(?:\|\||&&|[;\n|&])", naive)
+# Only single-quoted spans are blanked: `$( )` and backticks still run inside double
+# quotes (`eval "$(cat <<EOF ...)"`), so a double-quoted span is skipped over, kept whole.
+SINGLE_QUOTED = re.compile(r"\\.|\"(?:[^\"\\]|\\.)*\"|(\$\x27(?:[^\x27\\]|\\.)*\x27|\x27[^\x27]*\x27)", re.S)
+segments = re.split(r"(?:\|\||&&|[;\n|&])",
+                    SINGLE_QUOTED.sub(lambda m: " " if m.group(1) else m.group(0), naive))
 
 
 # Wrappers that RUN another command. Without unwrapping them, the effective
@@ -767,12 +780,16 @@ def resolve(tok, base=None):
 
 def kill_broadcast(args):
     """`kill -9 -1` signals every process the user owns, `kill 0` the whole process group."""
+    if args[:1] and args[0] in ("-l", "-L"):
+        return False  # lists signal names, signals nothing
     i = 0
     if args[:1] in (["-s"], ["-n"]):
         i = 2
     elif args[:1] and args[0].startswith("-") and args[0] != "--":
         i = 1  # the signal: `kill -1 1234` is SIGHUP to 1234
-    return any(a in ("-1", "0") for a in args[i:] if a != "--")
+    # kill reads a pid as a number: `-01`, `+0`, `-0` and " -1" are -1 and 0 too
+    return any(re.fullmatch(r"\s*[+-]?\d+\s*", a) and int(a) in (-1, 0)
+               for a in args[i:] if a != "--")
 
 # ---- predicate 1: broadcast process kill (backlog 72 / PR #547) -------------
 for name, args in toks:
@@ -784,6 +801,21 @@ for name, args in toks:
             "BROADCAST-KILL|`%s` бьёт по шаблону/имени и гасит процессы ЛЮБОГО "
             "агента, не только твои. Именно так PR #547 дважды убил dev-API "
             "параллельно работавшего кодера." % name
+        )
+        break
+
+# git -c alias.x=... x / --config-env: the alias, not the word after it, is what runs
+# (`git -c alias.wr="worktree remove" wr <tree>`, `git -c alias.x="!sh" x`)
+for name, args in toks:
+    if name == "git" and any(
+        a.lower().startswith(("-calias.", "--config-env"))  # config sections ignore case
+        or (a == "-c" and k + 1 < len(args) and args[k + 1].lower().startswith("alias."))
+        for k, a in enumerate(args)
+    ) or (name == "git" and re.search(r"\bGIT_CONFIG_(?:COUNT|KEY_\d+|PARAMETERS)\b", cmd)):
+        reasons.append(
+            "NESTED-OPAQUE|`git -c alias.*` / `--config-env` defines what the subcommand runs, "
+            "so the word after it says nothing about what happens. Run the real git "
+            "subcommand directly."
         )
         break
 
@@ -983,11 +1015,6 @@ mutating = any(is_mutating(n, a) for n, a in toks)
 # An escaped character outside quotes is matched first and kept, so `\x27` or `\"` there
 # opens no span: `echo \x27 > f \x27` still redirects into f. `$\x27...\x27` is ANSI-C
 # quoted, where a backslash escapes the closing quote too.
-QUOTED = re.compile(r"\\.|(>>?\s*)?(\$\x27(?:[^\x27\\]|\\.)*\x27|\x27[^\x27]*\x27|\"(?:[^\"\\]|\\.)*\")", re.S)
-
-
-def unquoted(text):
-    return QUOTED.sub(lambda m: m.group(0) if m.group(0)[0] == chr(92) or m.group(1) else " ", text)
 
 
 redirect_targets = re.findall(
