@@ -138,6 +138,18 @@ describe('extraction-worker adapter — what crosses', () => {
   })
 })
 
+describe('extraction-worker adapter — images do not cross /extract', () => {
+  it('a request with images is NOT_CONFIGURED and reaches no worker', async () => {
+    const f = fakeFetch(async () => reply({ ok: true, data: { title: 't' } }))
+    const { port } = setup(f)
+    expect(await port.extract(request({ images: ['iVBORw0KGgo='] }))).toEqual({
+      ok: false,
+      code: 'NOT_CONFIGURED',
+    })
+    expect(f.sent).toHaveLength(0)
+  })
+})
+
 describe('extraction-worker adapter — every refused, failed or malformed reply is PROVIDER_ERROR', () => {
   const PROVIDER_ERROR = { ok: false, code: 'PROVIDER_ERROR' }
   it.each([

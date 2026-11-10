@@ -1,6 +1,7 @@
 import { setTimeout as wait } from 'node:timers/promises'
 import type { InferenceErrorCode } from '../contracts/errors'
 import {
+  MAX_IMAGE_REQUEST_CHARS,
   MAX_SMALL_DOSE_GROUPS,
   type ExtractionPort,
   type ExtractionRequest,
@@ -298,6 +299,14 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     if (req.smallDose !== undefined && req.smallDose.groups.length > MAX_SMALL_DOSE_GROUPS) {
       return finish({ ok: false, code: 'PROVIDER_ERROR' }, false)
     }
+    // Images are checked here too, not only by the caller: strict base64, inside the request cap.
+    if (
+      images !== undefined &&
+      (images.some((b64) => b64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) ||
+        images.reduce((n, b64) => n + b64.length, 0) > MAX_IMAGE_REQUEST_CHARS)
+    ) {
+      return finish({ ok: false, code: 'PROVIDER_ERROR' }, false)
+    }
 
     /**
      * Waits for port writes no longer than the hosted budget (SR-L-70). Every port applies its change
@@ -461,7 +470,8 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       // ---- rotation (§5.2 item 3) ----
       const rotatable = candidates.filter((c) => c.route.rotate)
       // No rotatable candidate: the index is NaN and `first` is undefined.
-      const first = rotatable[rotation++ % rotatable.length]
+      // An image call reads the rotation but does not advance it: text calls keep their turn.
+      const first = rotatable[(images === undefined ? rotation++ : rotation) % rotatable.length]
       pairs = pairsOf(
         first === undefined ? candidates : [first, ...candidates.filter((c) => c !== first)],
       )
@@ -483,8 +493,13 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     if (signal?.aborted === true) return finish({ ok: false, code: 'ABORTED' }, false)
     // The floor is text-only: images never fall to it, nor do they reach any model with the pages dropped.
     if (images !== undefined) {
+      // NOT_CONFIGURED only when no configured route could ever take images; a blocked, spent or
+      // too-small vision route is a failure of this call.
+      const visionConfigured = hostedRoutes.some((r) =>
+        r.models.some((m) => isVisionCapable(r.provider, m)),
+      )
       return finish(
-        { ok: false, code: pairs.length === 0 ? 'NOT_CONFIGURED' : 'PROVIDER_ERROR' },
+        { ok: false, code: visionConfigured ? 'PROVIDER_ERROR' : 'NOT_CONFIGURED' },
         false,
       )
     }

@@ -129,6 +129,8 @@ export function createExtractionWorkerAdapter(
     },
     async extract<T>(req: ExtractionRequest<T>): Promise<ExtractionResult<T>> {
       const failed: ExtractionResult<T> = { ok: false, code: 'PROVIDER_ERROR' }
+      // `/extract` is text-only: images are never dropped silently, the visual check has its own route.
+      if (req.images !== undefined) return { ok: false, code: 'NOT_CONFIGURED' }
       const res = await boundedRequestToExtractionWorker({
         url: `${config.baseUrl}/extract`,
         method: 'POST',

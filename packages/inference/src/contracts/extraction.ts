@@ -4,6 +4,8 @@ import type { InferenceErrorCode } from './errors'
 export const MAX_EXTRACTION_INPUT_CHARS = 50000
 /** The most groups a small-dose table may hold; a request over it sends nothing (ADR §5.5 item 1). */
 export const MAX_SMALL_DOSE_GROUPS = 6
+/** The most base64 image chars one request may carry: the inline request cap of the vision research. */
+export const MAX_IMAGE_REQUEST_CHARS = 20_000_000
 
 /** One small request on the local route: a checked-in instruction and a strict flat sub-schema (§5.4). */
 export type SmallDoseGroup = {
