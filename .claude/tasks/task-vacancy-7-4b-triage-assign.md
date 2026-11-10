@@ -28,11 +28,11 @@ The API exists: `POST /job-queue/:id/team-triage` (ADMIN, `jobQueueTeamTriageGra
 
 ## Concrete changes
 
-1. Card response: the `policyVersion` the grant needs, if 7.3b did not already add it (ADMIN only).
-2. `apps/web/app/hooks/use-job-queue.ts` — a grant mutation (reuse the existing action-hook pattern and 409 handling).
-3. `apps/web/app/components/job-queue/JobQueueActions.tsx` — the ADMIN vacancy «⋯» item «Призначити команді…» on triage
+1. Reuse the existing `useGrantJobQueueTeamTriage` in `apps/web/app/hooks/use-job-queue.ts` (no new hook); the card's
+   ADMIN-only `policyVersion` comes from Task 7.3b.
+2. `apps/web/app/components/job-queue/JobQueueActions.tsx` — the ADMIN vacancy «⋯» item «Призначити команді…» on triage
    items: team picker (every active team), bounded reason, expiry; a 409 shows the one conflict note (§5.6).
-4. Lingui catalogs for every new string.
+3. Lingui catalogs for every new string.
 
 ## RBAC
 

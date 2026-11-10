@@ -82,4 +82,4 @@ queue page for ADMIN as the collapsed section «Джерела вакансій�
 
 1. `git diff HEAD --name-only` — only files from "Concrete changes".
 2. Each AC: a named test or a `grep` for its testid / string.
-3. Commit: `ac_verified: 1,...,9` and `vision: ✓ /job-queue`.
+3. Commit: `ac_verified: 1,...,8 (9 — PR body note, checked at PR time)` and `vision: ✓ /job-queue`.

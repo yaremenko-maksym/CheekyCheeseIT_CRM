@@ -15,8 +15,10 @@
 ## Context
 
 Files: create `apps/e2e/tests/job-queue.spec.ts` and `apps/e2e/fixtures/job-queue.ts`. Skill `playwright-patterns`.
-Stand: dev-login via `POST /api/auth/dev-login`. Data via `mcp__postgres__query` on a scratch / QA database, never
-hardcoded, never the live `crm_db`. Anchors are the testids of design §14, not headings.
+Stand: dev-login via `POST /api/auth/dev-login`, following the login fixture pattern already in `apps/e2e`. Data: the
+seed on a scratch / QA database, never the live `crm_db`. `apps/e2e` has no database client, so `mcp__postgres__query`
+is the author's tool for looking up seed rows while writing; at run time a spec finds its rows through the API. A scenario
+the seed cannot express (shared senior, triage, unsafe HTML) is reported to Master: the seed is the Coder's zone. Anchors are the testids of design §14, not headings.
 
 **Plan text vs the shipped model (the shipped model wins).** Plan r5 still speaks of a vacancy-level "take"
 («Нові» → «У роботі», «вже взято <name>»). The shipped card is per senior (owner decision A3 (a), 2026-11-04): the action is
@@ -25,7 +27,7 @@ written for the shipped model.
 
 ## Scenarios (each one a named test)
 
-1. HR opens «Черга вакансій» from the menu; the card shows sources and the own team's matched seniors.
+1. HR opens «Черга зовнішніх вакансій» from the menu; the card shows sources and the own team's matched seniors.
 2. «Записати подачу» on a senior moves the vacancy from «Нові» to «Подані» for that team.
 3. A second HR of the same team sees the senior as «Подано» with the submitter's name.
 4. HR of another team that shares the senior sees a nameless «Подано» and no submit button (A3 (a)); HR of another team
@@ -47,7 +49,8 @@ Mock mode is never used for a rights check.
 
 1. [ ] Every scenario above exists as a named test and passes.
 2. [ ] `pnpm --filter @crm/e2e test -- job-queue` runs three times green locally (zero-flake policy); paste the three counts.
-3. [ ] No hardcoded ids, emails or amounts; fixtures read them from the scratch database.
+3. [ ] No hardcoded ids or amounts; rows are found through the API at run time; logins follow the existing e2e fixture
+       pattern.
 
 ## Assumptions
 

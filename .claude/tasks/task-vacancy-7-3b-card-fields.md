@@ -38,6 +38,8 @@ Cross-zone (api ↔ shared ↔ web). The card is scoped data: every new field ob
    - the full vacancy stack (§5.1 «Збіг стеку»);
    - per senior: availability (free from <date> / busy) and the «Чому збіг» evidence (§5.2);
    - ADMIN only: the team of each senior (id + name) for the team headings (§5.6); absent for HR;
+   - ADMIN only: the `policyVersion` the triage grant request needs (`jobQueueTeamTriageGrantRequestSchema`), consumed by
+     Task 7.4b; absent for HR;
    - the own-team possible-duplicate line «На схожу вакансію вже подано: <назва> · <senior>» (§5.8), own team only;
    - an explicit empty-state reason that separates "matched nobody" from "every match is stop-listed" (§5.5), or a
      recorded decision that `stopListedSeniorCount` is enough (one line in Assumptions);
@@ -69,7 +71,7 @@ Cross-zone (api ↔ shared ↔ web). The card is scoped data: every new field ob
        "Verify"); each one is rendered on the card per its section.
 2. [ ] HR never receives a foreign team's data through a new field: a real-DB integration spec asserts the raw JSON for an HR
        actor carries no other team's id, name, senior, submitter or timestamp (absence, not "did not parse").
-3. [ ] ADMIN sees the seniors grouped under team headings (§5.6); HR gets no heading.
+3. [ ] ADMIN sees the seniors grouped under team headings (§5.6) and gets `policyVersion`; HR gets neither.
 4. [ ] `dismissal`: hide → undo → reload → hide succeeds (no 409); the integration spec covers a dismissal in another
        scope (another team's dismissal is never returned to HR).
 5. [ ] Zero-match vs every-match-stop-listed: the card shows the two empty states of §5.5 correctly, from an explicit field or
