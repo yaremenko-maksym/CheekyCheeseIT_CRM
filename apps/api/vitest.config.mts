@@ -242,7 +242,7 @@ const discovery = {
   // `TIMING_SPECS=1` selects ONLY the stopwatch specs (`*.timing.spec.ts`); a normal run never
   // sees them.
   include: isAtsRun
-    ? ['src/**/*.ats.spec.ts']
+    ? [ATS_SPEC_GLOB] // relative to `--dir`, so no `src/` prefix
     : isTimingRun
       ? ['src/**/*.timing.spec.ts']
       : ['src/**/*.{spec,test}.ts'],

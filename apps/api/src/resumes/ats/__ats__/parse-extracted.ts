@@ -23,8 +23,8 @@ export interface ParsedResume {
 
 const TITLES = new Set(['Summary', 'Experience', 'Skills', 'Education', 'Languages', 'Links'])
 const BULLET = /^[•‣–-] /u
-/** The period pattern, anchored at the end of a line instead of the start. */
-const TRAILING_PERIOD = new RegExp(` (${PERIOD_PATTERN.source.slice(1, -1)})$`, 'u')
+/** A role line ending in a period; the lazy role takes the longest period (`Jun 2024 – Jul 2025`, not `Jul 2025`). */
+const TRAILING_PERIOD = new RegExp(`^(.+?) (${PERIOD_PATTERN.source.slice(1, -1)})$`, 'u')
 
 export function parseExtracted(pages: string[]): ParsedResume {
   const lines = pages
@@ -64,14 +64,14 @@ function parseExperience(lines: string[]): ParsedItem[] {
 
 function parseHeader(lines: string[]): ParsedItem {
   // Period on the role line: everything up to it is the role, the rest the company.
-  const onRole = lines.findIndex((line) => TRAILING_PERIOD.test(line))
+  // A line that is only a period is the own-line layout, not a role line.
+  const onRole = lines.findIndex((line) => !PERIOD_PATTERN.test(line) && TRAILING_PERIOD.test(line))
   if (onRole !== -1) {
     const match = TRAILING_PERIOD.exec(lines[onRole]!)!
-    const roleLines = [...lines.slice(0, onRole), lines[onRole]!.slice(0, match.index)]
     return {
-      role: roleLines.join(' '),
+      role: [...lines.slice(0, onRole), match[1]!].join(' '),
       company: lines.slice(onRole + 1).join(' '),
-      period: match[1]!,
+      period: match[2]!,
     }
   }
   // Role, company and period each on their own line.
