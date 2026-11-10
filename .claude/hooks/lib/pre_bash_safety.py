@@ -37,6 +37,7 @@ TOO_COMPLEX = "command too complex for the safety hook to read"
 LAUNCHED = {}  # (result, bytes charged) per (depth, runner, argv)
 CHARGED = set()  # (argv key, top-level segment) pairs already charged
 TOP = [None]  # the segment candidates() is reading
+TOP_KEEP = []  # holds each read segment alive, so its id() is never reused
 
 
 def ansi_c_spells(body):
@@ -154,7 +155,7 @@ def _pkg_launch(seg, args, depth):
             SEEN[key] = []
             if len(SEEN) > 500:
                 if len(SEEN) == 501:  # once; later calls return at the top
-                    blocked.append("command too complex for the safety hook to read")
+                    blocked.append(TOO_COMPLEX)
                 return out
             inner = cmdscan.scan(" ".join(requote(w) for w in words))
             SEEN[key] = [x for s in inner.segments for x in [s] + pkg_launch(s, depth + 1)]
@@ -164,6 +165,7 @@ def _pkg_launch(seg, args, depth):
 
 def candidates(seg):
     TOP[0] = id(seg)
+    TOP_KEEP.append(seg)
     # A dynamic command word is additionally read as each dangerous command this
     # hook knows: `$(echo rm) -rf /etc` names nothing resolvable, but `-rf /etc`
     # is not ambiguous. Both versions of this hook let that through.
