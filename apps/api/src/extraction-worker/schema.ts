@@ -48,6 +48,29 @@ export const resumeWriteBodySchema = z
   .strict()
 export type ResumeWriteBody = z.infer<typeof resumeWriteBodySchema>
 
+/** The most pages one visual check takes, and the decoded size cap of each (1.5 MB). */
+export const MAX_PAGES = 2
+export const MAX_PAGE_BYTES = 1_500_000
+/** The base64 length of a page at the cap. */
+const MAX_PAGE_CHARS = Math.ceil(MAX_PAGE_BYTES / 3) * 4
+/** The route's body limit: the pages at their cap plus the JSON around them. */
+export const VISUAL_CHECK_BODY_LIMIT = MAX_PAGES * (MAX_PAGE_CHARS + 8) + 1024
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+/** Canonical padded base64 whose bytes fit the cap and start with the PNG signature. */
+function isPngPage(b64: string): boolean {
+  if (b64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) return false
+  const bytes = Buffer.from(b64, 'base64')
+  return bytes.length <= MAX_PAGE_BYTES && bytes.subarray(0, 8).equals(PNG_SIGNATURE)
+}
+
+/** `visual-check` data only: the rendered pages. The checklist is the worker's own. */
+export const visualCheckBodySchema = z
+  .object({
+    pages: z.array(z.string().max(MAX_PAGE_CHARS).refine(isPngPage)).min(1).max(MAX_PAGES),
+  })
+  .strict()
+
 /** `preflight` takes nothing: no body, or an empty JSON object. */
 export const preflightBodySchema = z.union([z.undefined(), z.object({}).strict()])
 

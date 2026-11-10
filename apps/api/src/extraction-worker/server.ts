@@ -15,7 +15,10 @@ import {
   healthFlags,
   preflightBodySchema,
   resumeWriteBodySchema,
+  VISUAL_CHECK_BODY_LIMIT,
+  visualCheckBodySchema,
 } from './schema'
+import { checkVisual } from './visual-check'
 
 /** The one fixed preflight request: the caller sends nothing, so nothing of its can reach a route. */
 const PREFLIGHT_INPUT = 'Reply with the JSON object {"ok": true} and nothing else.'
@@ -43,10 +46,10 @@ export type ExtractionWorkerOptions = {
 const digest = (value: string) => createHash('sha256').update(value).digest()
 
 /**
- * The extraction worker (ADR §2.4): the only process that holds provider keys. It answers three
+ * The extraction worker (ADR §2.4): the only process that holds provider keys. It answers four
  * routes and builds every request itself from checked-in prompts and schemas: `/extract` takes the
  * input text and the table version, `/preflight` takes nothing, `/resume-write` takes the task, the
- * caller-redacted facts payload and the gate feedback lines.
+ * caller-redacted facts payload and the gate feedback lines, `/visual-check` takes rendered pages.
  */
 export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyInstance {
   const tableVersion = opts.tableVersion ?? EXTRACTION_TABLE_VERSION
@@ -149,6 +152,22 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
       task,
       payloadChars: payload.length,
       feedbackCount: feedback.length,
+      outcome: result.kind === 'ok' ? 'OK' : result.reason,
+    })
+    return result
+  })
+
+  // Pages arrive rendered from the placeholder copy (R18); no image byte, prompt or model text is logged.
+  app.post('/visual-check', { bodyLimit: VISUAL_CHECK_BODY_LIMIT }, async (req, reply) => {
+    const body = visualCheckBodySchema.safeParse(req.body)
+    if (!body.success) return refuse(reply, 400, 'BAD_REQUEST')
+    const { pages } = body.data
+    // Stryker disable next-line ArrayDeclaration: equivalent — this reply carries no events, so the list is never read
+    const result = await call(reply, [], (signal) => checkVisual(ports.extract, pages, signal))
+    opts.log({
+      event: 'VISUAL_CHECK',
+      pages: pages.length,
+      findings: result.kind === 'ok' ? result.findings.length : 0,
       outcome: result.kind === 'ok' ? 'OK' : result.reason,
     })
     return result
