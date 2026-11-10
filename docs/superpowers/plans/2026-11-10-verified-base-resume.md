@@ -110,7 +110,10 @@ fallbacks: string[] }`. `fallbacks` lists the content paths that reverted to not
   - `seniorResumeDtoSchema` gains:
     - `facts`, `verificationStatus`, `verificationErrorCode` (nullable), `verificationReport` (nullable);
     - `verifiedVersion` (nullable int), `verifiedAt` (nullable), `verifiedByName` (nullable);
-    - `staged: { runId; content; layout; templateName; pdfAvailable: boolean } | null`.
+    - `staged: { runId; content; layout; templateName; pdfAvailable: boolean; editedPaths: { path: string; userId:
+uuid }[] } | null`;
+    - `verificationBusy: boolean` (the server's `isVerificationBusy`, Task 13), which also covers a template run on a
+      VERIFIED resume.
 
     `templateName` becomes `resumeTemplateNameSchema`. `seniorResumeResponseSchema` gains `canConfirm: boolean`,
     which sits next to `canEdit` for the same reason.
@@ -538,7 +541,10 @@ number> | 'unavailable'>`.
     - `verification_kind` (`full` / `item` / `staged-edit` / `template`);
     - `verification_target_path`;
     - `verification_base_version` (the `version` the run started from);
-    - `staged_edited_paths` (JSONB `{ path, userId }[]`, Task 15).
+    - `staged_edited_paths` (JSONB `{ path, userId }[]`, default `[]`, Task 15).
+
+    "The staged columns" in every task means `staged_content`, `staged_layout`, `staged_template_name`,
+    `staged_pdf_s3_key` and `staged_edited_paths`. Clearing them sets the first four to NULL and the last to `[]`.
 
     `verification_status` defaults to `'DRAFT'`, so every existing row starts as DRAFT (spec §3).
 
@@ -670,7 +676,8 @@ technical deterministically`.
        commit.
 
   Every FAILED terminal write CASes on `run_id`, clears `verification_run_id` and the staged columns, and after commit
-  deletes any earlier staged object. A failed run has uploaded nothing of its own. A run started from AWAITING_CONFIRM
+  deletes any earlier staged object. Every write that clears or replaces a PDF key (staged or live) runs in a
+  transaction: `SELECT … FOR UPDATE` reads the old key, the UPDATE runs, and the read key is deleted after commit. A failed run has uploaded nothing of its own. A run started from AWAITING_CONFIRM
   that fails leaves FAILED, and HR submits again.
 
 - `RendererPng`: add `renderPng(input: ResumeRenderInput): Promise<Buffer[]>` to `ResumeTypstService`, through the
@@ -719,18 +726,22 @@ technical deterministically`.
   - only in AWAITING_CONFIRM with a matching `runId`;
   - `path` is `summary` or `experience.<i>.bullets.<j>`;
   - `text` must pass `isLatinScript` and have no `scanContacts` hit; otherwise 422 with the hit;
-  - it appends `{ path, userId: viewer.id }` to `staged_edited_paths`;
-  - it starts a run of kind `staged-edit`. That run applies the text to the staged content and re-runs stages 1 and
-    5–9, without the writer and entailment gates (spec §4 step 6).
-- `regenerateStagedField(viewer, targetUserId, { runId, path })` starts a run of kind `item`. That run re-runs stages
-  1 and 3–9 for that one path and keeps the other staged texts. It removes `path` from `staged_edited_paths`.
+  - the start UPDATE (below) writes `text` into `staged_content` at `path` and appends `{ path, userId: viewer.id }`
+    to `staged_edited_paths`;
+  - the run is of kind `staged-edit`. It reads `staged_content` as its input and re-runs stages 1 and 5–9, without
+    the writer and entailment gates (spec §4 step 6).
+- `regenerateStagedField(viewer, targetUserId, { runId, path })` starts a run of kind `item`. The start UPDATE
+  removes `path` from `staged_edited_paths`. The run re-runs stages 1 and 3–9 for `verification_target_path` only and
+  keeps the other staged texts.
 - Starting either run is one UPDATE with `WHERE verification_run_id = $runId AND verification_status =
 'AWAITING_CONFIRM'` (0 rows → 409 `RESUME_CONFIRM_STALE`). It sets QUEUED, a new `verification_run_id`,
-  `verification_kind`, `verification_queued_at` and `verification_base_version = version`, like submit. The run then
-  claims QUEUED → CHECKING (stage 1). So `isVerificationBusy` is true for the whole run, and confirm, facts writes and
-  submit all get 409.
-- During either run the row keeps its previous staged columns, so the UI still shows the last staged PDF. The run's
-  stage 9 replaces them and deletes the previous staged object (Task 14).
+  `verification_kind`, `verification_target_path = path`, `verification_queued_at` and
+  `verification_base_version = version`, like submit. The run reads everything it needs from the row, so
+  `run(resumeId, runId)` keeps its signature. The run then claims QUEUED → CHECKING (stage 1). So
+  `isVerificationBusy` is true for the whole run, and confirm, facts writes and submit all get 409.
+- During either run the row keeps `staged_pdf_s3_key`, so the UI still shows the last staged PDF. The run's stage 9
+  replaces it and deletes the previous staged object (Task 14). Stage 9 keeps `staged_edited_paths` for kinds
+  `staged-edit` and `item`, and writes `[]` for kind `full`.
 - Both edits follow `canAccessResume` write, as editing does (spec Q-C). The confirmer sees each staged-edited path
   marked "edited by a person, not fact-checked" (Task 19), so a SENIOR edit never reaches VERIFIED unseen.
 - `getStagedPdf(viewer, targetUserId)`: `GET /users/:id/resume/staged-pdf`, `canAccessResume` read. It streams the
@@ -772,26 +783,32 @@ technical deterministically`.
 - On a VERIFIED resume, `setTemplate` and `updateLayout` start a run of kind `template`:
   - it sets `verification_run_id`, `verification_kind = 'template'`, `verification_base_version = version` and
     `verification_queued_at`; the status stays VERIFIED, and `isVerificationBusy` now returns true (Task 13);
-  - the staged template or layout is the requested one, and the staged content is the live content;
-  - stages 5–8 run;
+  - the start UPDATE writes `staged_template_name` / `staged_layout` (the requested one) and `staged_content` (the
+    live content); `staged_pdf_s3_key` stays NULL;
+  - stages 5–8 run on the staged columns, then the passing buffer is uploaded under
+    `resumes/<resumeId>/staged/<runId>.pdf`, as Task 14 stage 9 does;
   - every terminal write CASes on `verification_run_id = $runId AND version = verification_base_version`, and clears
-    `verification_run_id`;
-  - pass → promote PDF and template or layout, set `version = version + 1, verified_version = version + 1`, stay
-    VERIFIED; after commit delete the replaced live PDF object;
-  - fail → the live columns stay untouched and the status stays VERIFIED; `verification_error_code` and
-    `verification_report` are set, the run's object is deleted, and the UI shows them as the result of the last
+    `verification_run_id` and the staged columns;
+  - pass → promote the uploaded PDF and the template or layout, set `version = version + 1,
+verified_version = version + 1`, stay VERIFIED; after commit delete the replaced live PDF object. Losing the CAS
+    deletes the uploaded object;
+  - fail → nothing was uploaded; the live columns stay untouched and the status stays VERIFIED;
+    `verification_error_code` and `verification_report` are set, and the UI shows them as the result of the last
     template check.
-- `sweepStalledVerifications(now: Date): Promise<number>`, with `VERIFICATION_DEADLINE_MS = 600_000`:
-  - status QUEUED or CHECKING and `verification_queued_at < now − deadline` → FAILED `STALLED`, with the FAILED rule
-    of Task 14 (clear run id and staged columns, delete any earlier staged object);
-  - status VERIFIED, `verification_run_id IS NOT NULL` and `verification_queued_at < now − deadline` → clear
-    `verification_run_id`, set `verification_error_code = 'STALLED'`, stay VERIFIED;
-  - each UPDATE CASes on the run id it read; the run's staged object is deleted after commit.
+- `sweepStalledVerifications(now: Date): Promise<number>`, with `VERIFICATION_DEADLINE_MS = 600_000`. Each UPDATE's
+  `WHERE` repeats the selection predicate (status, `verification_run_id = $readRunId`, `verification_queued_at <
+$cutoff`), so a run that finished in between is not touched:
+  - status QUEUED or CHECKING → FAILED `STALLED`, with the FAILED rule of Task 14;
+  - status VERIFIED and `verification_run_id IS NOT NULL` → clear `verification_run_id` and the staged columns, set
+    `verification_error_code = 'STALLED'`, stay VERIFIED. A template run uploads only at its end, so there is no
+    object to delete.
 
 - [ ] **Step 1: Failing tests:**
   - `template change on VERIFIED passes → VERIFIED with new template and verified_version == version`;
   - `template change fails (vision unavailable) → previous template and PDF kept, VERIFIED`;
   - `sweep fails a CHECKING run older than 10 min and deletes its object`;
+  - `sweep does not touch a run that reached AWAITING_CONFIRM after the sweep read it`;
+  - `template pass promotes an object that exists in the fake S3`;
   - `sweep ignores a run 9 min old`;
   - `sweep clears a stalled template run and keeps VERIFIED`;
   - `facts PUT during a template run → 409`;
@@ -855,13 +872,14 @@ resume screens`.
 
 - Create: `ResumeVerificationPanel.tsx` (progress, confirm, edit, regenerate, failure) and its tests.
 - Modify: `use-senior-resume.ts`: `useConfirmResume`, `useEditStagedField`, `useRegenerateStagedField`. Polling uses
-  the existing resume query refetch interval while QUEUED or CHECKING.
+  the existing resume query refetch interval while `verificationBusy` is true (this includes a template run on a
+  VERIFIED resume).
 
 **Interfaces:**
 
 - Confirm is shown only when `canConfirm`. Every action sends the `staged.runId`. A 409 refetches and shows "the
   resume changed, review again". Failure codes map to localized reasons with the report item path.
-- The preview loads `GET /users/:id/resume/staged-pdf` (Task 15). Each `staged_edited_paths` entry is marked
+- The preview loads `GET /users/:id/resume/staged-pdf` (Task 15). Each `staged.editedPaths` entry is marked
   "edited by a person, not fact-checked" next to its text.
 
 - [ ] **Step 1: Failing tests:**
@@ -870,7 +888,8 @@ resume screens`.
   - `409 on confirm refetches`;
   - `FAILED ATS_CHECK_FAILED shows the item path`;
   - `fallbacks listed as "kept from your notes"`;
-  - `staged-edited path shows the "not fact-checked" mark`.
+  - `staged-edited path shows the "not fact-checked" mark`;
+  - `polls while verificationBusy on a VERIFIED resume and stops when it clears`.
 - [ ] **Step 2:** Run the tests. Expected: FAIL.
 - [ ] **Step 3:** Implement, then run `i18n:extract`.
 - [ ] **Step 4:** Run again. Expected: PASS.
