@@ -192,6 +192,81 @@ describe('MISSING_TEXT', () => {
     ])
   })
 
+  it('a skill is matched on token boundaries: Go is not in Google', () => {
+    const content: ResumeContent = { ...CONTENT, skills: ['Go'] }
+    const page = pageWith('TypeScript · NestJS', 'Google')
+    const report = checkResumeAts(input({ content, pages: [page] }))
+    expect(report.failures.map((f) => [f.code, f.path])).toEqual([['MISSING_TEXT', 'skills[0]']])
+  })
+
+  it('a skill is matched on token boundaries: C is not in C#', () => {
+    const content: ResumeContent = { ...CONTENT, skills: ['C'] }
+    const page = pageWith('TypeScript · NestJS', 'C#')
+    const report = checkResumeAts(input({ content, pages: [page] }))
+    expect(report.failures.map((f) => [f.code, f.path])).toEqual([['MISSING_TEXT', 'skills[0]']])
+  })
+
+  it('Java is not in JavaScript, nor C in C++', () => {
+    const content: ResumeContent = { ...CONTENT, skills: ['Java', 'C'] }
+    const page = pageWith('TypeScript · NestJS', 'JavaScript · C++')
+    const report = checkResumeAts(input({ content, pages: [page] }))
+    expect(report.failures.map((f) => [f.code, f.path])).toEqual([
+      ['MISSING_TEXT', 'skills[0]'],
+      ['MISSING_TEXT', 'skills[1]'],
+    ])
+  })
+
+  it('a needle with regex characters matches verbatim, and a trailing period or comma is a boundary', () => {
+    const content: ResumeContent = { ...CONTENT, skills: ['C++', 'Node.js', 'C#'] }
+    const page = pageWith('TypeScript · NestJS', 'C++, Node.js. C#')
+    const report = checkResumeAts(input({ content, pages: [page] }))
+    expect(report).toEqual({ ok: true, failures: [] })
+  })
+
+  it('a regex metacharacter in a needle is not a wildcard', () => {
+    const content: ResumeContent = { ...CONTENT, skills: ['Node.js'] }
+    const page = pageWith('TypeScript · NestJS', 'Nodexjs')
+    const report = checkResumeAts(input({ content, pages: [page] }))
+    expect(report.failures.map((f) => [f.code, f.path])).toEqual([['MISSING_TEXT', 'skills[0]']])
+  })
+
+  it('a skill printed only in the summary, not under Skills, is missing at its skill path', () => {
+    const page = pageWith('TypeScript · NestJS', 'NestJS').replace(
+      'Senior engineer with ten years of experience.',
+      'Senior engineer with ten years of experience. TypeScript',
+    )
+    const report = checkResumeAts(input({ pages: [page] }))
+    expect(report.failures).toEqual([
+      {
+        code: 'MISSING_TEXT',
+        path: 'skills[0]',
+        detail: 'Not found in the extracted text: "TypeScript"',
+      },
+    ])
+  })
+
+  it('an empty field prints nothing, so it is found even in a section with no free boundary', () => {
+    const content: ResumeContent = {
+      summary: '',
+      skills: [],
+      experience: [{ role: 'Lead', company: '', period: '', bullets: ['Shipped'] }],
+      education: [{ institution: 'MIT', degree: '', period: '' }],
+      languages: [],
+      links: [],
+    }
+    const page = [
+      'Jane Doe',
+      'jane@example.com',
+      'Experience',
+      'Lead',
+      'Shipped',
+      'Education',
+      'MIT',
+    ]
+    const report = checkResumeAts(input({ content, pages: [page.join('\n')] }))
+    expect(report).toEqual({ ok: true, failures: [] })
+  })
+
   it('a hidden section is not expected in the text', () => {
     const page = CLEAN_PAGE.slice(0, CLEAN_PAGE.indexOf('Links')).join('\n')
     const report = checkResumeAts(
@@ -253,6 +328,61 @@ describe('headings', () => {
       ok: true,
       failures: [],
     })
+  })
+
+  it('a one-item list whose item equals the next title is not taken for that heading', () => {
+    const content: ResumeContent = { ...CONTENT, skills: ['Experience'] }
+    const report = checkResumeAts(
+      input({ content, pages: [pageWith('TypeScript · NestJS', 'Experience')] }),
+    )
+    expect(report).toEqual({ ok: true, failures: [] })
+  })
+
+  it('the heading is the first title line after the whole previous section, not after part of it', () => {
+    // "Experience" also ends the summary, just above the Skills heading: only the Skills body counts.
+    const content: ResumeContent = {
+      ...CONTENT,
+      summary: 'Ten years of Experience',
+      skills: ['Go', 'Experience'],
+    }
+    const page = pageWith('TypeScript · NestJS', 'Go\nExperience').replace(
+      'Senior engineer with ten years of experience.',
+      'Ten years of Experience',
+    )
+    expect(checkResumeAts(input({ content, pages: [page] }))).toEqual({ ok: true, failures: [] })
+  })
+
+  it('a title line above the previous heading is never taken for the next heading', () => {
+    // NestJS is missing, so no candidate holds the Skills body and the first one after Skills is taken.
+    const content: ResumeContent = { ...CONTENT, summary: 'Experience' }
+    const page = pageWith('TypeScript · NestJS', 'TypeScript').replace(
+      'Senior engineer with ten years of experience.',
+      'Experience',
+    )
+    const report = checkResumeAts(input({ content, pages: [page] }))
+    expect(report.failures.map((f) => [f.code, f.path])).toEqual([['MISSING_TEXT', 'skills[1]']])
+  })
+
+  it('the first heading may be the first line of the page', () => {
+    const content: ResumeContent = { ...CONTENT, summary: 'Skills' }
+    const page = pageWith('Jane Doe', null).replace(
+      'Senior engineer with ten years of experience.',
+      'Skills',
+    )
+    const report = checkResumeAts(input({ content, displayName: '', pages: [page] }))
+    expect(report).toEqual({ ok: true, failures: [] })
+  })
+
+  it('a title-equal item does not silently stand in for a missing heading', () => {
+    // Skills holds "Links", and the real Links heading is gone: the item line is the only candidate.
+    const content: ResumeContent = { ...CONTENT, skills: ['Links'] }
+    const page = pageWith('TypeScript · NestJS', 'Links').replace('Links\nGitHub', 'GitHub')
+    const report = checkResumeAts(input({ content, pages: [page] }))
+    expect(report.failures.map((f) => [f.code, f.path])).toEqual([
+      ['HEADING_ORDER', undefined],
+      ['MISSING_TEXT', 'skills[0]'],
+      ['MISSING_TEXT', 'links[0].label'],
+    ])
   })
 
   it('HEADING_ORDER when two headings appear out of the effective order', () => {
@@ -350,7 +480,7 @@ describe('ITEM_ORDER', () => {
     ])
   })
 
-  it('an item header that only occurs before the Experience heading is out of order', () => {
+  it('an item header that only occurs before the Experience heading is missing from its section', () => {
     const content: ResumeContent = { ...CONTENT, skills: ['TypeScript', 'NestJS', 'Tech Lead'] }
     // The skills line is the line directly above the Experience heading.
     const page = pageWith('TypeScript · NestJS', 'TypeScript · NestJS · Tech Lead').replace(
@@ -359,7 +489,21 @@ describe('ITEM_ORDER', () => {
     )
     const report = checkResumeAts(input({ content, pages: [page] }))
     expect(report.failures.map((f) => [f.code, f.path])).toEqual([
-      ['ITEM_ORDER', 'experience[0].role'],
+      ['MISSING_TEXT', 'experience[0].role'],
+    ])
+  })
+
+  it('an experience string out of order is not rescued by the same text in a later section', () => {
+    const content: ResumeContent = {
+      ...CONTENT,
+      links: [{ label: 'Built the billing service', url: 'https://example.com' }],
+    }
+    const page = CLEAN_PAGE.filter((line) => line !== '• Built the billing service')
+    page.splice(page.indexOf('Engineer'), 0, '• Built the billing service')
+    page.splice(page.indexOf('GitHub'), 1, 'Built the billing service')
+    const report = checkResumeAts(input({ content, pages: [page.join('\n')] }))
+    expect(report.failures.map((f) => [f.code, f.path])).toEqual([
+      ['ITEM_ORDER', 'experience[1].bullets[0]'],
     ])
   })
 

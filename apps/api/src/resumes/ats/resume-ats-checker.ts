@@ -67,6 +67,7 @@ export interface AtsReport {
 }
 
 export interface AtsCheckInput {
+  /** The renderable form the renderer typeset (`toRenderableDeep` output), or substituted glyphs read as MISSING_TEXT. */
   content: ResumeContent
   layout: ResumeLayoutOptions
   displayName: string
@@ -99,6 +100,28 @@ function joinLines(lines: Line[]): string {
 
 function normalise(value: string): string {
   return value.replace(/\s+/gu, ' ').trim()
+}
+
+/** Token characters, as in `mentionsSkill` (`@crm/shared`): `C` is not in `C#`, `Go` is not in `Google`. */
+const TOKEN_CHAR = '[\\p{L}\\p{N}#+]'
+
+/**
+ * Where `needle` (already normalised, non-empty) occurs as whole tokens in
+ * `haystack` at or after `from`; null when it does not. A trailing `.` or `,`
+ * is not a token character, so `Node.js.` still contains `Node.js`.
+ */
+function findToken(haystack: string, needle: string, from: number): { end: number } | null {
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+  const pattern = new RegExp(`(?<!${TOKEN_CHAR})${escaped}(?!${TOKEN_CHAR})`, 'gu')
+  pattern.lastIndex = from
+  const match = pattern.exec(haystack)
+  return match && { end: match.index + needle.length }
+}
+
+/** `value` occurs as whole tokens in `haystack`; an empty one trivially does (it prints nothing). */
+function occurs(haystack: string, value: string): boolean {
+  const text = normalise(value)
+  return text === '' || findToken(haystack, text, 0) !== null
 }
 
 /** Mirrors `section-body` in the skeleton: a section with nothing to print has no heading. */
@@ -145,29 +168,36 @@ export function checkResumeAts(input: AtsCheckInput): AtsReport {
   )
 
   const lines = readLines(input.pages)
-  const flat = joinLines(lines)
-  const headingIndex = (title: string): number => lines.findIndex((line) => line.text === title)
+  const text = (from: number, to: number): string => joinLines(lines.slice(from, to))
 
-  // Every rendered string occurs (an empty one trivially does: it prints nothing).
-  for (const key of visible) {
-    for (const [path, value] of renderedStrings(key, input.content)) {
-      const text = normalise(value)
-      if (!flat.includes(text)) {
-        failures.push({
-          code: 'MISSING_TEXT',
-          path,
-          detail: `Not found in the extracted text: "${text}"`,
-        })
-      }
-    }
-  }
-
-  // Headings: each alone on a line, in the effective order; hidden ones absent.
-  const found: Array<{ title: string; index: number }> = []
+  /*
+   * Locate each heading in the effective order. Its title line is the first one
+   * after the previous heading whose gap already holds every string of the
+   * previous section, so a body line equal to a title (a skill "Links") is not
+   * taken for that heading. Out of order, the first such line anywhere, so the
+   * order check still sees it.
+   */
+  const located = new Map<ResumeSectionKey, number>()
+  let previous: { index: number; key?: ResumeSectionKey } = { index: -1 }
   for (const key of visible) {
     const title = SECTION_TITLES[key]
-    const index = headingIndex(title)
-    if (index !== -1) found.push({ title, index })
+    const candidates = lines.flatMap((line, i) =>
+      // Stryker disable next-line EqualityOperator: equivalent, the line at `previous.index` is another section's title.
+      line.text === title && i > previous.index ? [i] : [],
+    )
+    const holdsPrevious = (at: number): boolean =>
+      previous.key === undefined ||
+      renderedStrings(previous.key, input.content).every(([, value]) =>
+        occurs(text(previous.index + 1, at), value),
+      )
+    const inOrder = candidates.find(holdsPrevious) ?? candidates[0]
+    if (inOrder !== undefined) {
+      located.set(key, inOrder)
+      previous = { index: inOrder, key }
+      continue
+    }
+    const anywhere = lines.findIndex((line) => line.text === title)
+    if (anywhere !== -1) located.set(key, anywhere)
     else
       failures.push({
         code: 'HEADING_MISSING',
@@ -175,25 +205,52 @@ export function checkResumeAts(input: AtsCheckInput): AtsReport {
         detail: `Heading "${title}" is not alone on a line`,
       })
   }
-  const expected = found.map((heading) => heading.title).join(', ')
-  const actual = [...found]
-    .sort((a, b) => a.index - b.index)
-    .map((heading) => heading.title)
+
+  // Headings in the effective order.
+  const byPosition = [...located].sort(([, a], [, b]) => a - b)
+  const expected = visible
+    .filter((key) => located.has(key))
+    .map((key) => SECTION_TITLES[key])
     .join(', ')
+  const actual = byPosition.map(([key]) => SECTION_TITLES[key]).join(', ')
   if (actual !== expected) {
     failures.push({
       code: 'HEADING_ORDER',
       detail: `Headings are "${actual}", expected "${expected}"`,
     })
   }
+  // Covers only the heading: the strings of a hidden section are not searched for.
   for (const key of layout.hiddenSections) {
     const title = SECTION_TITLES[key]
-    if (headingIndex(title) !== -1) {
+    if (lines.some((line) => line.text === title)) {
       failures.push({
         code: 'HIDDEN_SECTION_PRESENT',
         path: key,
         detail: `Hidden section "${title}" is present in the text`,
       })
+    }
+  }
+
+  /** A section's text: from its heading to the next located one; without a heading, the whole text. */
+  const sectionText = (key: ResumeSectionKey): string => {
+    const at = located.get(key)
+    // Stryker disable next-line ConditionalExpression: equivalent, `slice(NaN)` and `find(index > undefined)` also yield the whole text.
+    if (at === undefined) return text(0, lines.length)
+    const next = byPosition.find(([, index]) => index > at)?.[1]
+    return text(at + 1, next ?? lines.length)
+  }
+
+  // Every rendered string occurs, as whole tokens, in its own section.
+  for (const key of visible) {
+    const body = sectionText(key)
+    for (const [path, value] of renderedStrings(key, input.content)) {
+      if (!occurs(body, value)) {
+        failures.push({
+          code: 'MISSING_TEXT',
+          path,
+          detail: `Not found in the extracted text: "${normalise(value)}"`,
+        })
+      }
     }
   }
 
@@ -208,9 +265,7 @@ export function checkResumeAts(input: AtsCheckInput): AtsReport {
         })
       }
     })
-    // Read after the Experience heading; without one (HEADING_MISSING) the whole text.
-    const body = lines.slice(headingIndex(SECTION_TITLES.experience) + 1)
-    checkExperience(input.content, flat, joinLines(body), failures)
+    checkExperience(input.content, sectionText('experience'), failures)
   }
 
   // Name and email in the body of page 1, before the first heading.
@@ -281,23 +336,18 @@ export function checkResumeAts(input: AtsCheckInput): AtsReport {
 /**
  * Inside each experience item, role, company and period precede its bullets,
  * and no two items interleave: the items are read in order through `body` (the
- * text after the Experience heading) with one cursor. A string absent from the
- * whole text (`flat`) is MISSING_TEXT, not an order failure.
+ * Experience section) with one cursor. A string absent from `body` is
+ * MISSING_TEXT, not an order failure.
  */
-function checkExperience(
-  content: ResumeContent,
-  flat: string,
-  body: string,
-  failures: AtsFailure[],
-): void {
+function checkExperience(content: ResumeContent, body: string, failures: AtsFailure[]): void {
   let cursor = 0
   content.experience.forEach((item, i) => {
     /** Where `value` ends when found at or after `from`; `from` when it is not. */
     const find = (from: number, path: string, value: string): number => {
       const text = normalise(value)
-      if (!flat.includes(text)) return from
-      const at = body.indexOf(text, from)
-      if (at !== -1) return at + text.length
+      if (text === '' || !occurs(body, text)) return from
+      const at = findToken(body, text, from)
+      if (at) return at.end
       failures.push({
         code: 'ITEM_ORDER',
         path,
