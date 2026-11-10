@@ -260,8 +260,11 @@ def watch_program(raw):
             break
         if w in ("-x", "--exec"):
             exact = True
-        elif w in WATCH_VALUE_FLAGS or re.fullmatch(r"-[a-z]*[nq]", w):
-            i += 1  # `-n 5`, and a cluster ending in a value flag (`-dn 5`)
+        elif (w in WATCH_VALUE_FLAGS or re.fullmatch(r"-[a-z]*[nq]", w)) and i < len(words) \
+                and re.fullmatch(r"[\d.]+", words[i]):
+            # `-n 5`, and a cluster ending in a value flag (`-dn 5`). watch refuses a value
+            # that is not a number, so a non-number stays in the program: the stricter reading
+            i += 1
     rest = words[i:]
     return " ".join(requote(w) for w in rest) if exact else " ".join(rest)
 

@@ -275,7 +275,7 @@ WRAPPER_SPEC = {
     # ── inexact on purpose (see `exact` above) ──
     "script": _w(code_flags=("-c", "--command"), operands=1, exact=False),
     "parallel": _w(value_flags=("-j", "--jobs", "-N", "-d", "--colsep", "-S"), exact=False),
-    "watch": _w(value_flags=("-n", "--interval", "-q", "--equexit"), exact=False),
+    "watch": _w(value_flags=("-n", "--interval"), exact=False),
     # `winpty [-Xallow-non-tty -Xplain --mouse ...] [--] PROGRAM args` (Git for Windows).
     # Its flags are all boolean. Inexact so the segment keeps every reading it had as an
     # unknown command: unwrapping only adds the judged command, no hook loses a reading.

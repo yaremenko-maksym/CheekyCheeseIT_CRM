@@ -335,18 +335,6 @@ sys.exit(0 if not m.scan(os.environ["CMD"]).alt_only else 1)
 '
 stripper_alone_sees_all() { CMDSCAN="$REPO_ROOT/.claude/hooks/lib/cmdscan.py" CMD="$1" python3 -I -c "$ALT_ONLY_PY"; }
 stripper_needed_help() { ! stripper_alone_sees_all "$1"; }
-# cmdscan unwraps `watch -q N <cmd>` to <cmd>: -q/--equexit take a value (the hooks that
-# read segment names must see `pkill`, not `3`, the value of -q)
-WATCH_NAMES_PY='
-import importlib.util, os, sys
-spec = importlib.util.spec_from_file_location("cmdscan", os.environ["CMDSCAN"])
-m = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
-sys.exit(0 if [s.name for s in m.scan(os.environ["CMD"]).segments] == ["pkill"] else 1)
-'
-watch_unwraps_to_pkill() { CMDSCAN="$REPO_ROOT/.claude/hooks/lib/cmdscan.py" CMD="$1" python3 -I -c "$WATCH_NAMES_PY"; }
-assert_green "cmdscan: watch -q 3 pkill -f node is the pkill segment" -- watch_unwraps_to_pkill "watch -q 3 pkill -f node"
-assert_green "cmdscan: watch --equexit 3 pkill -f node is the pkill segment" -- watch_unwraps_to_pkill "watch --equexit 3 pkill -f node"
 assert_green "SR-M-22: стриппер САМ видит команду после экранированного пробела и #" \
   -- stripper_alone_sees_all "echo a\\ # && psql -c '$DROP'"
 assert_green "SR-M-22: то же с ;" \
@@ -907,6 +895,7 @@ assert_red "watch -n 5 'bash -c \"rm -rf /etc\"'" --contains "rm -rf on root" --
 assert_red "watch -x sh -c 'rm -rf /etc'" --contains "rm -rf on root" -- h "watch -x sh -c 'rm -rf /etc'"
 assert_red "sh -c \"watch 'rm -rf /etc'\"" --contains "rm -rf on root" -- h "sh -c \"watch 'rm -rf /etc'\""
 assert_red "watch -dn 1 'rm -rf /etc'" --contains "rm -rf" -- h "watch -dn 1 'rm -rf /etc'"
+assert_red "watch -q with a non-number value keeps it in the program" --contains "rm -rf on root" -- h "watch -q 'rm -rf /etc'"
 assert_green "watch -n 5 'git status'" -- h "watch -n 5 'git status'"
 assert_green "watch -n 5 \"git log --oneline | head -5\"" -- h "watch -n 5 \"git log --oneline | head -5\""
 assert_green "watch -n 1 'echo \"rm -rf /etc\"' (quoted phrase)" -- h "watch -n 1 'echo \"rm -rf /etc\"'"

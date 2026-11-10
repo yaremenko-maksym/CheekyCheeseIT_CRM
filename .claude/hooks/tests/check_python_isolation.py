@@ -7,7 +7,7 @@ Usage: python3 -I check_python_isolation.py <hooks dir>
 Prints one `<file>:<line>` per unisolated run, then `scanned <n>` last. The caller treats a
 missing or low `scanned` line as a failure, so a scan that did not run is never a pass.
 """
-import glob
+import os
 import re
 import sys
 
@@ -16,20 +16,20 @@ import sys
 # `==` / `!=` comparison; `!` only as negation, never `!=`.
 BASE = (
     r"(?:^|[|;&`]|(?<!\$)\{|\)|(?<![\s!=])=(?!=)|!(?!=)|\$\(|\s-c\s+"
-    r"|\b(?:if|elif|while|until|then|do|else)\s+)"
+    r"|\b(?:if|elif|while|until|then|do|else)\s+|\s-exec(?:dir)?\s+|\$\{\w+:?[-=])"
 )
 # a launcher in command position itself (so prose like "this command was ... python3" is
 # not one), then up to 6 of its own words (sudo -n -u root python3, env -i python3);
 # `command -v` / `-V` only looks the name up, it runs nothing
 LAUNCH = (
-    BASE + r"\s*(?:sudo|doas|env|nice|ionice|nohup|setsid|stdbuf|flock|unbuffer|caffeinate"
+    BASE + r"\s*(?:[^\s\"'|;&]*/)?(?:eval|sudo|doas|env|nice|ionice|nohup|setsid|stdbuf|flock|unbuffer|caffeinate"
     r"|strace|ltrace|chroot|runuser|parallel|watch|timeout|xargs|time|exec|command(?!\s+-[vV]\b))"
     r"(?:\s+[^\s|;&]+){0,6}?\s+"
 )
 POS = "(?:" + LAUNCH + "|" + BASE + ")"
 # an optional ( / { group opener, env assignments (VAR=1 python3), an optional quote, an optional path (/usr/bin/, "$VENV/bin/")
 INTERP = re.compile(
-    POS + r"\s*(?:[({]\s*)*(?:[A-Za-z_]\w*=(?:\"[^\"]*\"|'[^']*'|\S*)\s+)*[\"']?(?:[^\s\"'|;&]*/)?python3?(?:\.\d+)?[\"']?(?![\w./-])(?=((?:\s+\S+)*))"
+    POS + r"\s*(?:[({]\s*)*(?:[A-Za-z_]\w*=(?:\"[^\"]*\"|'[^']*'|\S*)\s+)*[\"']?(?:[^\s\"'|;&]*/)?python3?(?:\.\d+)?[\"'}]*(?![\w./-])(?=((?:\s+\S+)*))"
 )
 
 
@@ -62,7 +62,7 @@ def isolated(rest):
 
 def main(hooks_dir):
     # every .sh below the hooks dir, the smoke test itself included
-    files = sorted(glob.glob(hooks_dir + "/**/*.sh", recursive=True))
+    files = sorted(os.path.join(d, f) for d, _, fs in os.walk(hooks_dir) for f in fs if f.endswith(".sh"))
     for f in files:
         # a backslash-continued line is one command (`python3 \<newline> -c`)
         lines = open(f, errors="replace").read().replace("\\\n", " ").split("\n")
@@ -74,8 +74,12 @@ def main(hooks_dir):
     print("scanned %d" % len(files))
 
 
+# an interpreter resolved into a variable: the run goes through "$PY", which no scan reads
+RESOLVED = re.compile(r"\$\(\s*(?:command\s+-[vV]|which|type\s+-[pP])\s+python3?(?:\.\d+)?\b")
+
+
 def unisolated(line):
-    return any(not isolated(m.group(1)) for m in INTERP.finditer(line))
+    return bool(RESOLVED.search(line)) or any(not isolated(m.group(1)) for m in INTERP.finditer(line))
 
 
 # (line, must be flagged). Every form a review round found; run by the smoke before the scan.
@@ -93,6 +97,9 @@ SELF_TEST = [
     ("strace -f python3 -c x", True), ("chroot /r python3 -c x", True),
     ("sudo -n -C2 -u root python3 -c x", True), ("command python3 -c x", True),
     ("command -v python3 >/dev/null", False),
+    ("PY=$(command -v python3)", True), ('"${PYTHON:-python3}" -c 1', True),
+    ("/usr/bin/env python3 -c 1", True), ('eval "python3 -c 1"', True),
+    ("find . -exec python3 -c 1 {} +", True), ('"${PYTHON:-python3}" -I -c 1', False),
     ('echo "this command was not read. Fix it first: python3 must run"', False),
     ("ok=$(python3 -I -B -c 1); ok2=$(python3 -B -I script.py)", False),
     ("python3 -E -s -I -c 1", False), ("python3 -W ignore -I -c 1", False),
