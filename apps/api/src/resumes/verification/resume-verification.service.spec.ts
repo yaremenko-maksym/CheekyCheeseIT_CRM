@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import type { SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { draftReset, isVerificationBusy, pickTemplateName } from './resume-verification.service'
 
 // sha256(id) mod 4, computed once by hand: ...01 -> 2, ...02 -> 0, ...11 -> 3, ...12 -> 1.
@@ -49,6 +51,11 @@ describe('pickTemplateName', () => {
 })
 
 describe('draftReset', () => {
+  it('bumps the version in SQL, so a concurrent bump is never lost', () => {
+    const version = draftReset().version as SQL
+    expect(new PgDialect().sqlToQuery(version).sql).toBe('"senior_resumes"."version" + 1')
+  })
+
   it('clears the run fields and every staged column', () => {
     expect(draftReset()).toMatchObject({
       verificationStatus: 'DRAFT',

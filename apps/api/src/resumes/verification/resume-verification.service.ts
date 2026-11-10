@@ -124,8 +124,11 @@ export function pickTemplateName(
 ): ResumeTemplateName {
   const hash = createHash('sha256').update(userId).digest('hex')
   const start = Number(BigInt(`0x${hash}`) % BigInt(RESUME_TEMPLATE_NAMES.length))
-  // Stryker disable next-line MethodExpression: equivalent — only the first least-used name is read, and a whole catalog after the tail repeats names already met
-  const order = [...RESUME_TEMPLATE_NAMES.slice(start), ...RESUME_TEMPLATE_NAMES.slice(0, start)]
+  const order = [
+    ...RESUME_TEMPLATE_NAMES.slice(start),
+    // Stryker disable next-line MethodExpression: equivalent — only the first least-used name is read, and a whole catalog after the tail repeats names already met
+    ...RESUME_TEMPLATE_NAMES.slice(0, start),
+  ]
   const least = Math.min(...order.map((name) => counts[name] ?? 0))
   return order.find((name) => (counts[name] ?? 0) === least) ?? 'classic'
 }
