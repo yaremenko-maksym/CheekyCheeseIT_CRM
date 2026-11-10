@@ -70,6 +70,7 @@ export function DismissMenu({
             duration: UNDO_MS,
             classNames: UNDO_TOAST_TARGETS,
             action: {
+              // Stryker disable next-line ObjectLiteral,StringLiteral: Lingui's t() macro must read this descriptor as a literal at compile time; an instrumented literal misses the en entry and the dry run fails before any mutant
               label: t({ message: 'Скасувати', context: 'undo a hide' }),
               // the card is closed by now: the promise settles after unmount, mutate callbacks would not
               onClick: () => {
