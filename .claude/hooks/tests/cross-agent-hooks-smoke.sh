@@ -90,14 +90,43 @@ done
 # The shared analyzer is python, and a broken one makes every hook fall back to
 # its coarse rule while still exiting 2 — a degraded guard that looks like a
 # working one.
-if ! python3 -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
+if ! python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
   "$HOOKS_DIR/lib/cmdscan.py" >/dev/null 2>&1; then
   echo "FATAL: lib/cmdscan.py does not compile"
-  python3 -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
+  python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
     "$HOOKS_DIR/lib/cmdscan.py"
   exit 1
 fi
-echo "gate 0: $SYNTAX_CHECKED hooks parse, lib/cmdscan.py compiles"
+if ! python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
+  "$HOOKS_DIR/lib/pre_bash_safety.py" >/dev/null 2>&1; then
+  echo "FATAL: lib/pre_bash_safety.py does not compile"
+  python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
+    "$HOOKS_DIR/lib/pre_bash_safety.py"
+  exit 1
+fi
+# #1304 follow-up: a hook runs in the agent's cwd, so `python3 -c` / `python3 -` without
+# -I puts that cwd on sys.path and a planted json.py runs inside the hook.
+# The scan lives in its own file: inline in bash single quotes, one stray quote made it
+# silently never run (gate 0 still printed success).
+if ! python3 -I "$HOOKS_DIR/tests/check_python_isolation.py" --self-test; then
+  echo "FATAL: the python3 isolation scanner fails its own self-test"
+  exit 1
+fi
+UNISOLATED=$(python3 -I "$HOOKS_DIR/tests/check_python_isolation.py" "$HOOKS_DIR")
+UNISOLATED_RC=$?
+# fail closed: a scan that did not run, or read no hooks, is not a pass
+SCANNED=$(printf '%s\n' "$UNISOLATED" | sed -n 's/^scanned \([0-9][0-9]*\)$/\1/p')
+if [ "$UNISOLATED_RC" -ne 0 ] || [ -z "$SCANNED" ] || [ "$SCANNED" -lt 10 ]; then
+  echo "FATAL: the python3 isolation scan did not run (rc=$UNISOLATED_RC, scanned='${SCANNED}')"
+  exit 1
+fi
+UNISOLATED=$(printf '%s\n' "$UNISOLATED" | grep -v '^scanned [0-9]*$' || true)
+if [ -n "$UNISOLATED" ]; then
+  echo "FATAL: python3 without -I in a hook (cwd on sys.path):"
+  echo "$UNISOLATED"
+  exit 1
+fi
+echo "gate 0: $SYNTAX_CHECKED hooks parse, lib/cmdscan.py and lib/pre_bash_safety.py compile, every python3 call is isolated (-I)"
 
 # Gate 0b. FIXTURE FIDELITY — the same class of problem as gate 0, learned the
 # hard way (PR #1025: green here, red in CI).
@@ -149,7 +178,7 @@ ledger_case() {
 bash_case() {
   local expect="$1" cwd="$2" cmd="$3" label="$4"
   local payload rc
-  payload=$(MSYS2_ENV_CONV_EXCL='*' CWD="$cwd" CMD="$cmd" python3 -c '
+  payload=$(MSYS2_ENV_CONV_EXCL='*' CWD="$cwd" CMD="$cmd" python3 -I -B -c '
 import json, os
 print(json.dumps({
     "hook_event_name": "PreToolUse",
@@ -168,7 +197,7 @@ print(json.dumps({
 scratch_case() {
   local expect="$1" agent="$2" cwd="$3" cmd="$4" label="$5"
   local payload rc
-  payload=$(MSYS2_ENV_CONV_EXCL='*' CWD="$cwd" CMD="$cmd" AID="$agent" python3 -c '
+  payload=$(MSYS2_ENV_CONV_EXCL='*' CWD="$cwd" CMD="$cmd" AID="$agent" python3 -I -B -c '
 import json, os
 print(json.dumps({
     "hook_event_name": "PreToolUse",
@@ -186,7 +215,7 @@ print(json.dumps({
 agent_case() {
   local expect="$1" ti="$2" label="$3"
   local payload rc
-  payload=$(TI="$ti" python3 -c '
+  payload=$(TI="$ti" python3 -I -B -c '
 import json, os
 print(json.dumps({
     "hook_event_name": "PreToolUse",
@@ -233,6 +262,18 @@ bash_case block "$MINE" "find $OTHER -name '*.log' | xargs rm"              'CR-
 bash_case block "$MINE" "find $OTHER -name '*.log' -delete"                 'CR-M-1: find -delete'
 bash_case block "$MINE" "find $OTHER -type f -exec rm {} ;"                 'CR-M-1: find -exec rm'
 bash_case block "$MINE" "sudo pkill -f node"                                'CR-M-1: pkill behind sudo'
+bash_case block "$MINE" "watch -q 3 pkill -f node"                          'pkill behind watch, -q takes the number'
+bash_case block "$MINE" "watch -d 'pkill -f node'"                          'pkill as the watch program string'
+bash_case block "$MINE" "watch -bn 2 pkill -f node"                         'SR-M-1: -n at the end of a short cluster takes the value'
+bash_case block "$MINE" "watch -dn pkill -f node"                           'SR-M-3: in -dn the n is the glued value of -d, not -n'
+bash_case block "$MINE" "watch -s /tmp pkill -f node"                       'SR-M-4: -s takes a value (shotsdir)'
+bash_case block "$MINE" "watch -n +2 pkill -f node"                         'SR-M-5: watch parses +2 as an interval'
+bash_case block "$MINE" "watch -n 2,5 pkill -f node"                        'SR-M-5: a comma decimal interval'
+bash_case block "$MINE" "watch -q +3 pkill -f node"                         'SR-M-6: watch parses +3 as an equexit count'
+bash_case block "$MINE" "watch -n 2 ' ( pkill -f node; date)'"             'CR-M-4: several leading empty words before the program'
+bash_case block "$MINE" "watch --int 2 pkill -f node"                       'an abbreviated long option (getopt_long prefix) takes the value'
+bash_case block "$MINE" "watch -n 2 'pkill -f node; date'"                  'SR-M-2: a ; inside the quoted watch program'
+bash_case allow "$MINE" "watch -n 2 git status"                             'watch of a harmless command'
 bash_case block "$MINE" "timeout 60 rm -rf $OTHER/dist"                     'CR-M-1: mutator behind timeout'
 
 # ── the target is not a literal, so ownership cannot be established ───────────

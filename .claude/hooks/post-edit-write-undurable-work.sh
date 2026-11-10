@@ -71,7 +71,7 @@ UNDURABLE_LINES="${UNDURABLE_LINES:-120}"
 # pre:bash:devserver-ttl-gate reads), falling back to $PWD. Taking it from the
 # payload is what makes the predicate testable without standing a real agent up.
 INPUT=$(cat)
-CWD=$(printf '%s' "$INPUT" | python3 -c '
+CWD=$(printf '%s' "$INPUT" | python3 -I -B -c '
 import json, sys
 try:
     print((json.load(sys.stdin).get("cwd") or "").strip())

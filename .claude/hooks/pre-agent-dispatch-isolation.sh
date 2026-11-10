@@ -58,7 +58,7 @@ set -u
 
 INPUT=$(cat)
 
-REASONS=$(printf '%s' "$INPUT" | python3 -c '
+REASONS=$(printf '%s' "$INPUT" | python3 -I -B -c '
 import json, re, sys
 
 try:
@@ -118,7 +118,7 @@ for r in reasons:
 
 [ -z "$REASONS" ] && exit 0
 
-python3 -c "
+python3 -I -B -c "
 import json, sys
 
 raw = [r for r in sys.argv[1].splitlines() if r.strip()]

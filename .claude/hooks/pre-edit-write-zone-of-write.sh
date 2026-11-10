@@ -72,11 +72,11 @@ for _v in $(compgen -e); do [[ $_v == GIT_* ]] && unset "$_v"; done
 
 INPUT=$(cat)
 
-TOOL_NAME=$(echo "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || true)
+TOOL_NAME=$(echo "$INPUT" | python3 -I -B -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_name',''))" 2>/dev/null || true)
 
 # python3 cannot run: nothing below can judge a write, so refuse one that names the
 # production zones. Other paths stay writable, so the machine can still be repaired.
-if [ -z "$TOOL_NAME" ] && ! python3 -c '' 2>/dev/null &&
+if [ -z "$TOOL_NAME" ] && ! python3 -I -B -c '' 2>/dev/null &&
   printf '%s' "$INPUT" | LC_ALL=C grep -qiE '(apps|packages)[/\\]'; then
   echo "[pre:edit-write:zone-of-write] INTERNAL ERROR: python3 did not run, so this write to apps/ or packages/ was not checked. Refused. Fix python3 on PATH first." >&2
   exit 2
@@ -84,8 +84,8 @@ fi
 
 # python3 runs but the payload is not JSON: it names no tool, so "not a write" would be a
 # guess. Refuse (round 3 of #1294: an unterminated payload naming apps/ used to exit 0).
-if [ -z "$TOOL_NAME" ] && ! printf '%s' "$INPUT" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null &&
-  python3 -c '' 2>/dev/null; then
+if [ -z "$TOOL_NAME" ] && ! printf '%s' "$INPUT" | python3 -I -B -c "import json,sys; json.load(sys.stdin)" 2>/dev/null &&
+  python3 -I -B -c '' 2>/dev/null; then
   echo "[pre:edit-write:zone-of-write] Refused: the hook payload is not valid JSON, so the write it describes was not checked." >&2
   exit 2
 fi
@@ -97,7 +97,7 @@ case "$TOOL_NAME" in
 esac
 
 FILE_PATH_ERR=0
-FILE_PATH=$(printf '%s' "$INPUT" | python3 -c "
+FILE_PATH=$(printf '%s' "$INPUT" | python3 -I -B -c "
 import json, sys
 d = json.load(sys.stdin)
 ti = d.get('tool_input', {})
@@ -106,7 +106,7 @@ sys.stdout.buffer.write(p.encode('utf-8', 'surrogateescape'))
 " 2>/dev/null) || FILE_PATH_ERR=$?
 
 if [ "$FILE_PATH_ERR" -ne 0 ]; then
-  python3 -c "
+  python3 -I -B -c "
 import json, sys
 tool = sys.argv[1]
 reason = f'''🚫 UNPARSABLE PATH BLOCK (SR-L-4): cannot extract a valid file_path from {tool} payload.
@@ -136,7 +136,7 @@ fi
 # LC_ALL=C: macOS grep under a UTF-8 locale skips a line with an invalid byte (SR-L-6).
 # Raw bytes out (surrogateescape): print() raises on a non-UTF-8 byte (F4). An
 # empty RESOLVED means python failed: do not fast-exit, run the checks (fail closed).
-RESOLVED=$(python3 -c 'import os,sys; sys.stdout.buffer.write(os.path.realpath(os.path.normpath(os.path.join(sys.argv[1], os.path.expanduser(sys.argv[2])))).encode("utf-8", "surrogateescape"))' "$PWD" "$FILE_PATH" 2>/dev/null || true)
+RESOLVED=$(python3 -I -B -c 'import os,sys; sys.stdout.buffer.write(os.path.realpath(os.path.normpath(os.path.join(sys.argv[1], os.path.expanduser(sys.argv[2])))).encode("utf-8", "surrogateescape"))' "$PWD" "$FILE_PATH" 2>/dev/null || true)
 
 # SR-L-11: the escape-hatch file is created by the owner in a shell, never by a
 # tool call (a Write of it would turn the gate off for the next edit). Raw and
@@ -145,7 +145,7 @@ RESOLVED=$(python3 -c 'import os,sys; sys.stdout.buffer.write(os.path.realpath(o
 # folding (`.Allow-Direct-Edits` and `.allow-direct-editſ`, U+017F, ARE the hatch).
 # Plus identity: if a hatch already sits beside the target, any spelling that is
 # the same file is refused. A python failure refuses too (fail closed).
-HATCH_HIT=$(python3 - "$FILE_PATH" "$RESOLVED" <<'PY' 2>/dev/null || echo HIT
+HATCH_HIT=$(python3 -I -B - "$FILE_PATH" "$RESOLVED" <<'PY' 2>/dev/null || echo HIT
 import os, sys, unicodedata
 def fold(s):
     return unicodedata.normalize('NFKD', unicodedata.normalize('NFKD', s).casefold())
@@ -158,7 +158,7 @@ print('HIT' if hit else 'OK')
 PY
 )
 if [ "$HATCH_HIT" != "OK" ]; then
-  python3 -c "
+  python3 -I -B -c "
 import json, sys
 reason = f'''🚫 ESCAPE-HATCH BLOCK (SR-L-11): {sys.argv[1]} is the zone-of-write escape-hatch file.
 
@@ -193,7 +193,7 @@ fi
 # judged by its nearest existing parent). Any failure prints nothing and falls
 # through to the #4 escape-hatch file, then the refusal (no cwd- or env-based allow remains).
 # SR-L-3 accepted: a symlink swapped between this check and the write (needs Bash) is not caught.
-LW_VERDICT=$(python3 - "$PWD" "$FILE_PATH" <<'PY' 2>/dev/null || true
+LW_VERDICT=$(python3 -I -B - "$PWD" "$FILE_PATH" <<'PY' 2>/dev/null || true
 import os, subprocess, sys
 cwd, target = sys.argv[1], sys.argv[2]
 
@@ -253,7 +253,7 @@ case "$LW_VERDICT" in
   ALLOW) exit 0 ;;
   "FM2 "*)
     LW_ROOT=${LW_VERDICT#FM2 }
-    python3 -c "
+    python3 -I -B -c "
 import json, sys
 file_path, wt = sys.argv[1], sys.argv[2]
 reason = f'''🚫 WORKTREE CONTAMINATION BLOCK (FM-2): this session runs in the linked worktree {wt},
@@ -285,7 +285,7 @@ TARGET_ROOT=""
 CWD_ROOT=""
 if [ -n "$RESOLVED" ]; then
   TARGET_ROOT=$(checkout_root "$RESOLVED")
-  REAL_CWD=$(python3 -c 'import os,sys; sys.stdout.buffer.write(os.path.realpath(sys.argv[1]).encode("utf-8", "surrogateescape"))' "$PWD" 2>/dev/null || true)
+  REAL_CWD=$(python3 -I -B -c 'import os,sys; sys.stdout.buffer.write(os.path.realpath(sys.argv[1]).encode("utf-8", "surrogateescape"))' "$PWD" 2>/dev/null || true)
   [ -n "$REAL_CWD" ] && CWD_ROOT=$(checkout_root "$REAL_CWD")
 fi
 HATCH="$TARGET_ROOT/.claude/.allow-direct-edits"
@@ -294,7 +294,7 @@ if [ -n "$TARGET_ROOT" ] && [ "$CWD_ROOT" = "$TARGET_ROOT" ] && [ -f "$HATCH" ] 
 fi
 
 # Block.
-python3 -c "
+python3 -I -B -c "
 import json, sys
 file_path = sys.argv[1]
 reason = f'''🚫 PRODUCTION-EDIT BLOCK: попытка править {file_path} из main-repo сессии (не Coder worktree).

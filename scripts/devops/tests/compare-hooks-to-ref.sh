@@ -48,6 +48,8 @@ for f in $HOOK_FILES; do
 done
 git -C "$REPO_ROOT" show "$REF:.claude/hooks/lib/cmdscan.py" >"$WORK/ref/lib/cmdscan.py" 2>/dev/null ||
   rm -f "$WORK/ref/lib/cmdscan.py"
+git -C "$REPO_ROOT" show "$REF:.claude/hooks/lib/pre_bash_safety.py" >"$WORK/ref/lib/pre_bash_safety.py" 2>/dev/null ||
+  rm -f "$WORK/ref/lib/pre_bash_safety.py"
 
 # A cwd that reads as an agent worktree: the two launcher hooks only enforce
 # there, so comparing outside it would compare two fast-exits.

@@ -35,7 +35,7 @@
 
 set -u
 
-CMD=$(python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('command',''))" 2>/dev/null || true)
+CMD=$(python3 -I -B -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('command',''))" 2>/dev/null || true)
 
 # Fast exit: not a `git push` invocation at all.
 [ -z "$CMD" ] && exit 0
@@ -134,7 +134,7 @@ run_prettier_check() {
 
 block() {
   # $1 = reason text
-  python3 -c "import json,sys; print(json.dumps({'decision':'block','reason':sys.argv[1]}))" "$1" 2>/dev/null
+  python3 -I -B -c "import json,sys; print(json.dumps({'decision':'block','reason':sys.argv[1]}))" "$1" 2>/dev/null
   echo "[pre:bash:prettier-gate] BLOCK branch=$BRANCH" >&2
   exit 2
 }

@@ -137,7 +137,7 @@
 
 set -u
 
-CMD=$(python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('command',''))" 2>/dev/null || true)
+CMD=$(python3 -I -B -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('command',''))" 2>/dev/null || true)
 
 # Fast exit: not a `git push` invocation at all.
 [ -z "$CMD" ] && exit 0
@@ -171,7 +171,7 @@ WT_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
 # measured 10x off for apps/api; a number nobody has to trust because it is
 # printed fresh on every run is the actual fix, the corrected estimate is only
 # a starting point).
-HOOK_STARTED_AT=$(python3 -c "import time; print(time.time())" 2>/dev/null || echo "")
+HOOK_STARTED_AT=$(python3 -I -B -c "import time; print(time.time())" 2>/dev/null || echo "")
 
 elapsed_s() {
   # Prints seconds.tenths since HOOK_STARTED_AT, or "?" if the clock read failed
@@ -180,7 +180,7 @@ elapsed_s() {
     echo "?"
     return
   fi
-  python3 -c "import time,sys; print(f'{time.time()-float(sys.argv[1]):.1f}')" "$HOOK_STARTED_AT" 2>/dev/null || echo "?"
+  python3 -I -B -c "import time,sys; print(f'{time.time()-float(sys.argv[1]):.1f}')" "$HOOK_STARTED_AT" 2>/dev/null || echo "?"
 }
 
 # Appended to the PASS and SKIP banners when the runtime could not be judged
@@ -205,7 +205,7 @@ skip() {
 
 block() {
   # $1 = short reason for the JSON decision, $2 = already-printed detail (stderr only)
-  python3 -c "import json,sys; print(json.dumps({'decision':'block','reason':sys.argv[1]}))" "$1" 2>/dev/null
+  python3 -I -B -c "import json,sys; print(json.dumps({'decision':'block','reason':sys.argv[1]}))" "$1" 2>/dev/null
   echo "[pre:bash:mutation-gate] BLOCK branch=$BRANCH ($(elapsed_s)s)" >&2
   exit 2
 }

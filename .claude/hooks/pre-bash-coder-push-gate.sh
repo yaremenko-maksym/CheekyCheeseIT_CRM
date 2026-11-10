@@ -90,7 +90,7 @@
 
 set -u
 
-CMD=$(python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('command',''))" 2>/dev/null || true)
+CMD=$(python3 -I -B -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('command',''))" 2>/dev/null || true)
 
 # Fast exit: not a `git push` invocation at all.
 [ -z "$CMD" ] && exit 0
@@ -150,7 +150,7 @@ if PARENT_LINE=$(git log -1 --pretty=%P 2>/dev/null); then
 fi
 
 # Block.
-python3 -c "
+python3 -I -B -c "
 import json
 reason = '''🚫 PRE-PUSH BLOCK: последний commit на ветке '$BRANCH' не содержит 'ac_verified:' строки.
 

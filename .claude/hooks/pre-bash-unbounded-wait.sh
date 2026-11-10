@@ -790,7 +790,7 @@ print(json.dumps({"decision": "block", "reason": msg}, ensure_ascii=False))
 sys.exit(2)
 PY
 
-OUT=$(HOOK_INPUT="$INPUT" python3 -c "$ANALYZER" 2>/dev/null)
+OUT=$(HOOK_INPUT="$INPUT" python3 -I -B -c "$ANALYZER" 2>/dev/null)
 RC=$?
 
 # Only a deliberate refusal blocks: exit 2 AND the decision body. A crashed

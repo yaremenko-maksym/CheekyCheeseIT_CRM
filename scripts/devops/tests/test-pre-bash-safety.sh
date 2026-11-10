@@ -863,6 +863,59 @@ big="npm exec -c$(printf 'x%.0s' $(seq 4998))"
 t0=$SECONDS
 assert_red "a 5000-char -c word refuses as too complex" --contains "too complex" -- h "$big"
 assert_green "a 5000-char -c word refuses within 10 s" -- test $((SECONDS - t0)) -le 10
+# #1304: rescanned tail bytes are budgeted; long tails refuse as too complex.
+repro="npm exec $(printf -- '--a= %.0s' $(seq 249))-c 'rm -rf /etc' $(printf 'w %.0s' $(seq 16000))"
+t0=$SECONDS
+assert_red "#1304 repro: 249 options with long tail refuses as too complex" --contains "too complex" -- h "$repro"
+assert_green "#1304 repro: finishes within 10 s" -- test $((SECONDS - t0)) -le 10
+harmless="npm exec $(printf -- '--a= %.0s' $(seq 249))-c 'echo hi' $(printf 'w %.0s' $(seq 16000))"
+t0=$SECONDS
+assert_red "#1304 harmless variant refuses as too complex" --contains "too complex" -- h "$harmless"
+assert_green "#1304 harmless variant finishes within 10 s" -- test $((SECONDS - t0)) -le 10
+many="npm exec $(printf -- '-a %.0s' $(seq 20000))x"
+t0=$SECONDS
+assert_red "#1304: 20000 short options refuse as too complex" --contains "too complex" -- h "$many"
+assert_green "#1304: 20000 short options refuse within 10 s" -- test $((SECONDS - t0)) -le 10
+files="$(printf 'apps/api/src/some/module/file-%s.spec.ts ' $(seq 500))"
+assert_green "#1304: a 500-file vitest run is not too complex" -- h "pnpm exec vitest run --reporter=dot $files"
+assert_green "#1304: a 450-char long option is not too complex" \
+  -- h "pnpm exec prettier --write --config=$(printf 'c%.0s' $(seq 450)) x.ts"
+lint="pnpm exec eslint --fix --max-warnings 0 --cache $(printf 'apps/web/src/components/feature/file-%s.tsx ' $(seq 162))"
+assert_green "#1304: eslint with flags and 162 paths is not too complex" -- h "$lint"
+seg="pnpm exec eslint --fix --max-warnings 0 --cache $(printf 'src/a%s.ts ' $(seq 80))"
+# 100 copies (~92 KB): Linux caps one env string (the harness CMD) at 128 KB.
+copies="$(for i in $(seq 100); do printf '%s; ' "$seg"; done)true"
+t0=$SECONDS
+assert_red "#1304: 100 copies of one runner segment refuse as too complex" --contains "too complex" -- h "$copies"
+assert_green "#1304: 100 copies of one runner segment refuse within 10 s" -- test $((SECONDS - t0)) -le 10
+# #1304 follow-up: `watch` runs its joined arguments through sh -c.
+assert_red "watch -n 5 'rm -rf /etc'" --contains "rm -rf" -- h "watch -n 5 'rm -rf /etc'"
+assert_red "watch -d -n1 -- 'echo hi; rm -rf /etc'" --contains "rm -rf on root" -- h "watch -d -n1 -- 'echo hi; rm -rf /etc'"
+assert_red "watch -n 5 'bash -c \"rm -rf /etc\"'" --contains "rm -rf on root" -- h "watch -n 5 'bash -c \"rm -rf /etc\"'"
+assert_red "watch -x sh -c 'rm -rf /etc'" --contains "rm -rf on root" -- h "watch -x sh -c 'rm -rf /etc'"
+assert_red "sh -c \"watch 'rm -rf /etc'\"" --contains "rm -rf on root" -- h "sh -c \"watch 'rm -rf /etc'\""
+assert_red "watch -dn 1 'rm -rf /etc'" --contains "rm -rf" -- h "watch -dn 1 'rm -rf /etc'"
+assert_red "watch -q with a non-number value keeps it in the program" --contains "rm -rf on root" -- h "watch -q 'rm -rf /etc'"
+assert_red "watch -n 1,5 (a non-[0-9.] interval) still judges the program" --contains "rm -rf on root" -- h "watch -n 1,5 'rm -rf /etc'"
+assert_red "watch -n 1e1 still judges the program" --contains "rm -rf on root" -- h "watch -n 1e1 'rm -rf /etc'"
+assert_green "watch -n 5 'git status'" -- h "watch -n 5 'git status'"
+assert_green "watch -n 5 \"git log --oneline | head -5\"" -- h "watch -n 5 \"git log --oneline | head -5\""
+assert_green "watch -n 1 'echo \"rm -rf /etc\"' (quoted phrase)" -- h "watch -n 1 'echo \"rm -rf /etc\"'"
+# SR-L-2: the analyzer's own deadline refuses a slow read (lowered to 0.05 s here; the read takes ~2 s).
+slow="pnpm exec eslint --fix --max-warnings 0 --cache $(printf 'apps/web/src/components/feature/f-%s.tsx ' $(seq 1100))"
+assert_green "1100-path eslint is allowed at the default deadline" -- h "$slow"
+PRE_BASH_SAFETY_DEADLINE=0.05 assert_red "a read past the deadline refuses as too complex" --contains "took over 0.05 s" -- h "$slow"
+# #1304 follow-up: a script operand with a literal path prefix is the script, not an option.
+assert_green "bash scripts/devops/tests/\$t" -- h 'bash scripts/devops/tests/$t'
+assert_green "for t in a b; do bash scripts/devops/tests/\$t; done" -- h 'for t in a b; do bash scripts/devops/tests/$t; done'
+assert_green "bash ./\$x" -- h 'bash ./$x'
+assert_green "sh \"scripts/\$t.sh\" arg" -- h 'sh "scripts/$t.sh" arg'
+assert_red "bash \$x (may be an option word)" --contains "alias expansion" -- h 'bash $x'
+assert_red "bash \"\$x\" (may be an option word)" --contains "alias expansion" -- h 'bash "$x"'
+assert_red "bash \$m x.sh" --contains "alias expansion" -- h 'bash $m x.sh'
+assert_red "bash \${x}" --contains "alias expansion" -- h 'bash ${x}'
+assert_green "normal runner command passes: pnpm --filter @crm/api exec vitest run a b c" \
+  -- h "pnpm --filter @crm/api exec vitest run a b c"
 for c in 'pnpm --filter $pkg test' 'pnpm --filter @crm/api test' 'pnpm install' 'pnpm -r build' \
          'pnpm -w add -D x' 'yarn install' 'pnpm exec vitest run "$FILE"' 'pnpm -F $pkg run build' \
          'yarn --cwd apps/web install'; do

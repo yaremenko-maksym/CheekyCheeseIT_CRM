@@ -182,7 +182,7 @@ set -u
 INPUT=$(cat)
 
 read_field() {
-  printf '%s' "$INPUT" | python3 -c "
+  printf '%s' "$INPUT" | python3 -I -B -c "
 import json, sys
 d = json.load(sys.stdin)
 cur = d
@@ -247,7 +247,7 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # "the caller's cwd". (The message block further down has the opposite hazard:
 # it is DOUBLE-quoted, so backticks there are command substitution.)
 REASONS=$(printf '%s' "$CMD" | CWD="$CWD" MSYS2_ENV_CONV_EXCL=CWD AGENT_ID="$AGENT_ID" \
-  PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
+  PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -I -B -c '
 import importlib.util, os, posixpath, re, shlex, subprocess, sys
 
 # The shared reading of a line continuation (SR-M-1 of #1294); loaded by absolute path,
@@ -430,8 +430,15 @@ segments = re.split(r"(?:\|\||&&|[;\n|&])", cmd)
 # PR #553). Unwrapping is safe for the false-positive budget because a
 # predicate still additionally requires a foreign path to be referenced.
 # dev-ttl.sh is the project TTL wrapper: `dev-ttl.sh [--ttl N] -- <command>` (round 3 of #1294).
-WRAPPERS = {"xargs", "sudo", "env", "nice", "nohup", "command", "stdbuf", "timeout", "rtk", "dev-ttl.sh"}
+WRAPPERS = {"xargs", "sudo", "env", "nice", "nohup", "command", "stdbuf", "timeout", "rtk", "dev-ttl.sh", "watch"}
 RTK_EXEC = {"bypass", "proxy", "err", "test", "run", "summary"}
+# watch long options (procps-ng src/watch.c longopts) -> the short letter of those taking a
+# required value, "" for the rest (differences takes its optional value only after =)
+WATCH_LONG = {
+    "color": "", "no-color": "", "differences": "", "help": "", "interval": "n", "beep": "",
+    "errexit": "", "follow": "", "chgexit": "", "equexit": "q", "exec": "", "precise": "",
+    "no-rerun": "", "shotsdir": "s", "no-title": "", "no-wrap": "", "version": "",
+}
 # Wrapper flags that consume the NEXT token as their value.
 VALUE_FLAGS = {"-I", "-i", "-n", "-P", "-d", "-E", "-s", "-L", "-a", "-u", "-p"}
 
@@ -470,6 +477,45 @@ def first_token(seg):
             elif parts and parts[0].startswith("--ttl="):
                 parts.pop(0)
             if parts and parts[0] == "--":
+                parts.pop(0)
+            continue
+        if wrapper == "watch":
+            # procps-ng watch: getopt_long(argv, "+bCcefd::ghq:n:prs:twvx", WATCH_LONG). n, q, s
+            # take a value (glued, or the next word); d takes only a glued one, so in -dn the n
+            # is the value of -d. The program is then sh -c of the remaining words.
+            while parts and parts[0].startswith("-") and parts[0] not in ("-", "--"):
+                flag = parts.pop(0)
+                takes = ""
+                if flag.startswith("--"):
+                    # getopt_long takes a unique prefix (--int 2 is --interval 2); a value after
+                    # = is glued; an ambiguous or unknown name makes watch refuse to run
+                    name = flag[2:]
+                    hits = [o for o in WATCH_LONG if o.startswith(name)] if name else []
+                    if "=" not in name and (name in WATCH_LONG or len(hits) == 1):
+                        takes = WATCH_LONG[name if name in WATCH_LONG else hits[0]]
+                else:
+                    for at, ch in enumerate(flag[1:], 1):
+                        if ch == "d":
+                            break  # the rest of the cluster is its optional value
+                        if ch in "nqs":
+                            takes = ch if at == len(flag) - 1 else ""  # else the value is glued
+                            break
+                if parts and takes:
+                    # always the next word, as getopt does: watch parses +2, " 2", 2,5 as numbers,
+                    # and for a value it rejects it exits before running anything (SR-M-5, CR-H-1)
+                    parts.pop(0)
+            if parts and parts[0] == "--":
+                parts.pop(0)
+            try:
+                parts = shlex.split(" ".join(parts), comments=True)
+            except ValueError:
+                parts = " ".join(parts).split()
+            # the segment was split at ; before quotes were read, so a quoted program holding
+            # a ; arrives with the opening quote glued to its first word; a subshell keeps its (
+            while parts:
+                parts[0] = parts[0].lstrip("(){ \t\x27\"")
+                if parts[0]:
+                    break
                 parts.pop(0)
             continue
         while parts and parts[0].startswith("-"):
@@ -803,7 +849,7 @@ fi
 # lost exactly the two names it exists to say. Escape every backtick (\`) and
 # every literal `$` here. Pinned by the message case in
 # scripts/devops/tests/test-pre-bash-cross-agent-blast.sh.
-python3 -c "
+python3 -I -B -c "
 import json, sys
 
 raw = [r for r in sys.argv[1].splitlines() if r.strip()]
