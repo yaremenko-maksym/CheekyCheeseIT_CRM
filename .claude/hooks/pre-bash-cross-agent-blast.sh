@@ -610,10 +610,29 @@ for g in scanned:
 SINGLE_QUOTED = re.compile(r"\\.|\"(?:[^\"\\]|\\.)*\"|(\$\x27(?:[^\x27\\]|\\.)*\x27|\x27[^\x27]*\x27)", re.S)
 # ...and only inside a top-level command known to read its arguments as data. Any other
 # command may run a quoted argument as code (`ssh host \x27x; pkill -f node\x27`, `git -c
-# core.pager=...`, `git rebase -x`, `sort --compress-program`), so its quotes stay in the split.
-# BSD sed (macOS) has no `e` command.
-QUOTE_DATA = {"sed", "grep", "rg", "echo", "printf", "gh", "jq", "cat", "head", "tail", "wc"}
-QUOTE_DATA_GIT = {"commit", "tag", "log", "show", "diff", "grep", "status", "notes"}
+# core.pager=...`, `git rebase -x`, `git grep -O`, `rg --pre`, `sort --compress-program`),
+# so its quotes stay in the split. sed counts only when no script word holds an `e` at all
+# and no -f script file is named: `sed` may be GNU sed from PATH, whose `e` command and s///e
+# flag run code, and its syntax is too loose to recognise (fail-closed).
+QUOTE_DATA = {"sed", "grep", "echo", "printf", "gh", "jq", "cat", "head", "tail", "wc"}
+QUOTE_DATA_GIT = {"commit", "tag", "log", "show", "diff", "status", "notes"}
+
+
+def sed_may_exec(argv):
+    for a in argv:  # cmdscan argv holds no command name
+        if a.startswith("--file") or (a.startswith("-") and not a.startswith("--") and "f" in a[1:]):
+            return True
+        if a.startswith("--expression"):
+            word = a[len("--expression"):]
+        elif a.startswith("-e"):
+            word = a[2:]
+        elif a.startswith("-"):
+            continue
+        else:
+            word = a  # the script, or a file name (fail-closed if it holds an e)
+        if "e" in word:
+            return True
+    return False
 
 
 def quotes_are_data(g):
@@ -623,6 +642,8 @@ def quotes_are_data(g):
     if n == "git":
         return git_sub(g.argv) in QUOTE_DATA_GIT and not any(
             a.startswith(("-c", "--config", "--exec")) for a in g.argv)
+    if n == "sed" and sed_may_exec(g.argv):
+        return False
     return n in QUOTE_DATA
 
 
