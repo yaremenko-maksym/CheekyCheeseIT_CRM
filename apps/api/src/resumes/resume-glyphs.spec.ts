@@ -19,15 +19,14 @@
  * a different dash to the layout.
  */
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { EMPTY_RESUME_CONTENT, DEFAULT_RESUME_LAYOUT } from '@crm/shared'
-import { resolveAssetPath } from '../common/assets.util'
+import { EMPTY_RESUME_CONTENT, DEFAULT_RESUME_LAYOUT, RESUME_TEMPLATE_NAMES } from '@crm/shared'
 import {
   findUnrenderable,
   resumeFontCoverage,
   toRenderableDeep,
   toRenderableText,
 } from './resume-glyphs'
+import { loadCatalogTemplate } from './resume-typst.service'
 
 const HRYVNIA = '₴'
 const RUBLE = '₽'
@@ -35,7 +34,7 @@ const LARI = '₾'
 
 describe('resume font coverage (measured from the cmap, not assumed)', () => {
   it('reads a real, non-trivial coverage set out of the shipped fonts', () => {
-    const coverage = resumeFontCoverage()
+    const coverage = resumeFontCoverage('modern')
     // Sanity floor: a cmap parser that silently returned nothing would make
     // every assertion below vacuously pass while dropping the entire alphabet.
     expect(coverage.size).toBeGreaterThan(400)
@@ -50,35 +49,59 @@ describe('resume font coverage (measured from the cmap, not assumed)', () => {
    * the correct moment to have that conversation.
    */
   it('confirms the asymmetry that made a hand-written list impossible', () => {
-    const coverage = resumeFontCoverage()
+    const coverage = resumeFontCoverage('modern')
     expect(coverage.has(HRYVNIA.codePointAt(0) as number)).toBe(false)
     expect(coverage.has(RUBLE.codePointAt(0) as number)).toBe(true)
+  })
+})
+
+describe('coverage follows the template font', () => {
+  it('measures each template against its own font, not one shared set', () => {
+    // PT Serif (classic) carries the hryvnia; Roboto (the other three) does not.
+    expect(resumeFontCoverage('classic').has(HRYVNIA.codePointAt(0) as number)).toBe(true)
+    for (const template of ['modern', 'compact', 'technical'] as const) {
+      expect(resumeFontCoverage(template).has(HRYVNIA.codePointAt(0) as number)).toBe(false)
+    }
+    expect(findUnrenderable(`5000 ${HRYVNIA}`, 'classic')).toEqual([])
+    expect(toRenderableText(`5000 ${HRYVNIA}`, 'classic').text).toBe(`5000 ${HRYVNIA}`)
+    expect(toRenderableText(`5000 ${HRYVNIA}`, 'compact').text).toBe('5000 UAH')
+  })
+
+  it('reads a real coverage set for the classic font, Latin Extended and Cyrillic included', () => {
+    const coverage = resumeFontCoverage('classic')
+    expect(coverage.size).toBeGreaterThan(400)
+    for (const ch of ['A', 'ł', 'ő', 'Ș', 'Ж', 'ї', 'є', 'ґ']) {
+      expect({ ch, covered: coverage.has(ch.codePointAt(0) as number) }).toEqual({
+        ch,
+        covered: true,
+      })
+    }
   })
 })
 
 describe('the coverage check has teeth', () => {
   it('reports an uncovered character as unrenderable', () => {
     // Control for every `toEqual([])` below: the detector does find things.
-    expect(findUnrenderable(`5000 ${HRYVNIA}`)).toEqual([HRYVNIA])
-    expect(findUnrenderable('résumé — «цитата» · 100%')).toEqual([])
+    expect(findUnrenderable(`5000 ${HRYVNIA}`, 'modern')).toEqual([HRYVNIA])
+    expect(findUnrenderable('résumé — «цитата» · 100%', 'modern')).toEqual([])
   })
 })
 
 describe('substitution', () => {
   it('turns an uncovered currency sign into its ISO code', () => {
-    expect(toRenderableText(`5000 ${HRYVNIA}`).text).toBe('5000 UAH')
-    expect(toRenderableText(`20 ${LARI}`).text).toBe('20 GEL')
+    expect(toRenderableText(`5000 ${HRYVNIA}`, 'modern').text).toBe('5000 UAH')
+    expect(toRenderableText(`20 ${LARI}`, 'modern').text).toBe('20 GEL')
   })
 
   it('leaves a covered currency sign alone', () => {
     // The reason the list is consulted only for uncovered codepoints: `₽` draws.
-    expect(toRenderableText(`100 ${RUBLE}`).text).toBe(`100 ${RUBLE}`)
-    expect(toRenderableText('100 €').text).toBe('100 €')
+    expect(toRenderableText(`100 ${RUBLE}`, 'modern').text).toBe(`100 ${RUBLE}`)
+    expect(toRenderableText('100 €', 'modern').text).toBe('100 €')
   })
 
   it('drops what it cannot draw or name, and reports it', () => {
-    const result = toRenderableText('Иван 😀 漢字 Петров')
-    expect(findUnrenderable(result.text)).toEqual([])
+    const result = toRenderableText('Иван 😀 漢字 Петров', 'modern')
+    expect(findUnrenderable(result.text, 'modern')).toEqual([])
     expect(result.dropped).toEqual(['😀', '漢', '字'])
     // No double gap left where the characters were.
     expect(result.text).toBe('Иван Петров')
@@ -95,25 +118,28 @@ describe('substitution', () => {
     // diff and an editor may silently re-compose it, which would turn this into
     // a test of nothing.
     expect(decomposed).toHaveLength(4)
-    expect(resumeFontCoverage().has(0x0306)).toBe(false)
+    expect(resumeFontCoverage('modern').has(0x0306)).toBe(false)
 
-    const result = toRenderableText(decomposed)
+    const result = toRenderableText(decomposed, 'modern')
     expect(result.text).toBe('йог')
     expect(result.dropped).toEqual([])
   })
 
   it('preserves structure when walking a whole resume', () => {
-    const { value } = toRenderableDeep({
-      displayName: `Иван ${HRYVNIA}`,
-      content: {
-        ...EMPTY_RESUME_CONTENT,
-        skills: ['TypeScript', `Ставка 50 ${HRYVNIA}/ч`],
-        experience: [
-          { company: 'Акме', role: 'Лид', period: '2021', bullets: [`Бюджет 1000 ${HRYVNIA}`] },
-        ],
+    const { value } = toRenderableDeep(
+      {
+        displayName: `Иван ${HRYVNIA}`,
+        content: {
+          ...EMPTY_RESUME_CONTENT,
+          skills: ['TypeScript', `Ставка 50 ${HRYVNIA}/ч`],
+          experience: [
+            { company: 'Акме', role: 'Лид', period: '2021', bullets: [`Бюджет 1000 ${HRYVNIA}`] },
+          ],
+        },
+        layout: DEFAULT_RESUME_LAYOUT,
       },
-      layout: DEFAULT_RESUME_LAYOUT,
-    })
+      'modern',
+    )
 
     expect(value.displayName).toBe('Иван UAH')
     expect(value.content.skills).toEqual(['TypeScript', 'Ставка 50 UAH/ч'])
@@ -134,20 +160,29 @@ describe('every character that can reach the PDF has a glyph', () => {
       `${HRYVNIA}${RUBLE}${LARI}€$£¥₸֏₹ 漢字 😀🏳️‍🌈 مرحبا שלום ` +
       'й é \u0000\u0007 𝕳𝖊𝖑𝖑𝖔 ⇒ → ﹪ ％ ‰ ± × ÷ … — – „“ «» ✓ ✗'
 
-    const { value } = toRenderableDeep({
-      displayName: nasty,
-      content: {
-        summary: nasty,
-        skills: [nasty],
-        experience: [{ company: nasty, role: nasty, period: nasty, bullets: [nasty] }],
-        education: [{ institution: nasty, degree: nasty, period: nasty }],
-        languages: [{ name: nasty, level: nasty }],
-        links: [{ label: nasty, url: 'https://example.com' }],
-      },
-      layout: DEFAULT_RESUME_LAYOUT,
-    })
+    for (const template of RESUME_TEMPLATE_NAMES) {
+      const { value } = toRenderableDeep(
+        {
+          displayName: nasty,
+          email: nasty,
+          content: {
+            summary: nasty,
+            skills: [nasty],
+            experience: [{ company: nasty, role: nasty, period: nasty, bullets: [nasty] }],
+            education: [{ institution: nasty, degree: nasty, period: nasty }],
+            languages: [{ name: nasty, level: nasty }],
+            links: [{ label: nasty, url: 'https://example.com' }],
+          },
+          layout: DEFAULT_RESUME_LAYOUT,
+        },
+        template,
+      )
 
-    expect(findUnrenderable(JSON.stringify(value))).toEqual([])
+      expect({ template, missing: findUnrenderable(JSON.stringify(value), template) }).toEqual({
+        template,
+        missing: [],
+      })
+    }
   })
 
   /**
@@ -159,9 +194,7 @@ describe('every character that can reach the PDF has a glyph', () => {
    * for in as many words: add an arrow, a different dash or a fullwidth percent
    * sign to the layout and this goes red in CI, not in a client's inbox.
    */
-  it('holds for EVERY character in the shipped template, however it is written', () => {
-    const source = readFileSync(resolveAssetPath('typst/default-resume.typ'), 'utf8')
-
+  it('holds for EVERY character in every shipped template, however it is written', () => {
     // THE WHOLE FILE, not its quoted strings.
     //
     // The previous version scanned `"..."` literals only, and that is the same
@@ -176,9 +209,10 @@ describe('every character that can reach the PDF has a glyph', () => {
     // STRICTER than necessary — a character used only in a comment is flagged
     // too — and that is the right trade: the cost is rewriting `→` as `->` in
     // a comment, and the alternative is enumerating Typst's syntax forever.
-    const offenders = findUnrenderable(source)
-
-    expect(offenders).toEqual([])
+    for (const template of RESUME_TEMPLATE_NAMES) {
+      const offenders = findUnrenderable(loadCatalogTemplate(template), template)
+      expect({ template, offenders }).toEqual({ template, offenders: [] })
+    }
   })
 
   /**
@@ -192,7 +226,9 @@ describe('every character that can reach the PDF has a glyph', () => {
    * simply false; content mode never entered a quoted string.
    */
   it('holds for the markers the typesetter adds by itself', () => {
-    expect(findUnrenderable('•')).toEqual([])
+    for (const template of RESUME_TEMPLATE_NAMES) {
+      expect(findUnrenderable('•', template)).toEqual([])
+    }
   })
 
   /**
@@ -207,14 +243,13 @@ describe('every character that can reach the PDF has a glyph', () => {
    * Not closable yet in any honest way: no code path writes that column, so
    * there is nothing to scan and nothing to regress against. It is recorded as
    * a test rather than a comment so that whoever adds the write path meets this
-   * paragraph — the check they need is `findUnrenderable(templateSource)` at
+   * paragraph — the check they need is `findUnrenderable(templateSource, templateName)` at
    * the moment a template is SAVED, which is the only place the source exists
    * and the only moment a human can still fix it.
    */
   it('covers a senior’s own template too — enforced at render, not merely noted', () => {
     // The guarantee the shipped template gets...
-    const shipped = readFileSync(resolveAssetPath('typst/default-resume.typ'), 'utf8')
-    expect(findUnrenderable(shipped)).toEqual([])
+    expect(findUnrenderable(loadCatalogTemplate('modern'), 'modern')).toEqual([])
 
     // ...now also reaches a PERSONAL template. This scan is what
     // `assertTemplateIsDrawable` runs on every render, so a designer's layout
@@ -226,6 +261,6 @@ describe('every character that can reach the PDF has a glyph', () => {
     // it is the end that exists. The refusal itself is asserted in
     // resume-typst.service.spec.ts.
     const personalTemplateWithAnArrow = '#let render(data) = [→ #data.displayName]'
-    expect(findUnrenderable(personalTemplateWithAnArrow)).toEqual(['→'])
+    expect(findUnrenderable(personalTemplateWithAnArrow, 'modern')).toEqual(['→'])
   })
 })

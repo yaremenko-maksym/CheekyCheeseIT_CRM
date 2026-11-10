@@ -1202,7 +1202,7 @@ describe.skipIf(!hasDatabaseUrl())(
           return Buffer.from('%PDF-1.7 superseded')
         })
 
-        await service.runRender(resumeId, 'Синьор А')
+        await service.runRender(resumeId, { displayName: 'Синьор А', email: SENIOR_A.email })
 
         // The bytes were written, then found to belong to nobody — so they are
         // erased. Left alone they would be an unreferenced CV in the bucket.
@@ -1249,7 +1249,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
         s3.upload.mockRejectedValueOnce(new Error('storage unreachable'))
 
-        await service.runRender(resumeId, 'Синьор А')
+        await service.runRender(resumeId, { displayName: 'Синьор А', email: SENIOR_A.email })
 
         const [after] = await dbSvc.db
           .select()

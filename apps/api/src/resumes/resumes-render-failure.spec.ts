@@ -66,6 +66,8 @@ function buildDbDouble(claimedRow: Record<string, unknown>) {
   return { db, updates }
 }
 
+const OWNER = { displayName: 'Синьор Тест', email: 'senior.test@example.com' }
+
 function makeRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: RESUME_ID,
@@ -115,7 +117,7 @@ describe('SeniorResumesService.runRender — failure branches (bug-44)', () => {
     }
     const service = buildService(db, s3, typst)
 
-    await expect(service.runRender(RESUME_ID, 'Синьор Тест')).resolves.toBeUndefined()
+    await expect(service.runRender(RESUME_ID, OWNER)).resolves.toBeUndefined()
 
     // The upload really happened, with the exact category args — a mutant that
     // blanks either literal must not survive.
@@ -162,7 +164,7 @@ describe('SeniorResumesService.runRender — failure branches (bug-44)', () => {
     }
     const service = buildService(db, s3, typst)
 
-    await service.runRender(RESUME_ID, 'Синьор Тест')
+    await service.runRender(RESUME_ID, OWNER)
 
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('PDF upload failed — unknown'))
   })
@@ -177,7 +179,7 @@ describe('SeniorResumesService.runRender — failure branches (bug-44)', () => {
     }
     const service = buildService(db, s3, typst)
 
-    await service.runRender(RESUME_ID, 'Синьор Тест')
+    await service.runRender(RESUME_ID, OWNER)
 
     // Never even reached the upload half.
     expect(s3.upload).not.toHaveBeenCalled()
@@ -186,5 +188,43 @@ describe('SeniorResumesService.runRender — failure branches (bug-44)', () => {
     const failWrite = updates[1]?.values
     expect(failWrite?.['pdfRenderStatus']).toBe('FAILED')
     expect(failWrite?.['pdfFingerprint']).toBe('fingerprint-render-fail-0123456789')
+  })
+
+  /**
+   * The render input a detached run builds on its own (the sweep passes no
+   * owner): the owner's name AND email come from `users`, and a stored
+   * `template_name` that is not a catalog name — the legacy display label, or
+   * null — renders as `classic` (ruling R3).
+   */
+  it('loads the owner name and email itself and resolves a non-catalog template name to classic', async () => {
+    for (const [stored, expected] of [
+      ['Стандартный шаблон', 'classic'],
+      [null, 'classic'],
+      ['compact', 'compact'],
+    ] as const) {
+      const row = makeRow({ templateName: stored })
+      const { db } = buildDbDouble(row)
+      const findFirst = vi.fn().mockResolvedValue(OWNER)
+      Object.assign(db, { query: { users: { findFirst } } })
+      const typst = {
+        fingerprint: vi.fn().mockReturnValue('fingerprint-owner-0123456789'),
+        render: vi.fn().mockResolvedValue(Buffer.from('%PDF-1.7 fake')),
+      }
+      const s3 = { upload: vi.fn().mockResolvedValue(undefined), delete: vi.fn() }
+
+      await buildService(db, s3, typst).runRender(RESUME_ID)
+
+      expect(findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ columns: { displayName: true, email: true } }),
+      )
+      expect(typst.render).toHaveBeenCalledWith(
+        expect.objectContaining({
+          displayName: OWNER.displayName,
+          email: OWNER.email,
+          templateName: expected,
+        }),
+        expect.any(Function),
+      )
+    }
   })
 })

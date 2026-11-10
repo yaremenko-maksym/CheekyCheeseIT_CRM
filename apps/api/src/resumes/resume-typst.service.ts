@@ -56,7 +56,13 @@ import { readFileSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { setPriority, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { normalizeResumeLayout, type ResumeContent, type ResumeLayoutOptions } from '@crm/shared'
+import {
+  normalizeResumeLayout,
+  resumeTemplateNameSchema,
+  type ResumeContent,
+  type ResumeLayoutOptions,
+  type ResumeTemplateName,
+} from '@crm/shared'
 import { resolveAssetPath } from '../common/assets.util'
 import { findUnrenderable, logDroppedGlyphs, toRenderableDeep } from './resume-glyphs'
 import {
@@ -122,9 +128,13 @@ export class ResumeRenderError extends Error {
 
 export interface ResumeRenderInput {
   displayName: string
+  /** Printed as body text under the name. */
+  email: string
   content: ResumeContent
   layout: ResumeLayoutOptions
-  /** Typst source for this senior. `null` → the template shipped in the repo. */
+  /** Catalog template; also picks the font whose glyph coverage applies. */
+  templateName: ResumeTemplateName
+  /** Typst source for this senior. `null` → the catalog template `templateName`. */
   templateSource: string | null
 }
 
@@ -267,8 +277,8 @@ export class ResumeTypstService {
 
     const dir = await mkdtemp(join(this.scratchRoot, 'crm-resume-'))
     try {
-      const template = input.templateSource ?? loadDefaultTemplate()
-      assertTemplateIsDrawable(template)
+      const template = input.templateSource ?? loadCatalogTemplate(input.templateName)
+      assertTemplateIsDrawable(template, input.templateName)
       await writeFile(join(dir, 'data.json'), payload, 'utf8')
       await writeFile(join(dir, 'template.typ'), template, 'utf8')
       // The entry point is OURS, not the template's: it decides that the
@@ -333,13 +343,17 @@ export class ResumeTypstService {
    * would invalidate a cached PDF for no reason.
    */
   private serialiseInput(input: ResumeRenderInput): { payload: string; dropped: string[] } {
-    const safe = toRenderableDeep({
-      displayName: input.displayName,
-      content: input.content,
-      layout: normalizeResumeLayout(input.layout),
-    })
+    const safe = toRenderableDeep(
+      {
+        displayName: input.displayName,
+        email: input.email,
+        content: input.content,
+        layout: normalizeResumeLayout(input.layout),
+      },
+      input.templateName,
+    )
     const templateKey = createHash('sha256')
-      .update(input.templateSource ?? loadDefaultTemplate())
+      .update(input.templateSource ?? loadCatalogTemplate(input.templateName))
       .digest('hex')
 
     return {
@@ -504,7 +518,7 @@ export function createSpawnRunner(timeoutMs: number = RENDER_TIMEOUT_MS): TypstR
 const spawnTypst: TypstRunner = createSpawnRunner()
 
 // ---------------------------------------------------------------------------
-// The default template
+// Templates
 // ---------------------------------------------------------------------------
 
 /**
@@ -558,7 +572,7 @@ const spawnTypst: TypstRunner = createSpawnRunner()
  *
  * That is the honest limit of what is guaranteed here, and it is the limit a
  * designer authoring a personal template needs to know — stated again at the
- * top of `assets/typst/default-resume.typ`, which is the file they will copy.
+ * top of `assets/typst/resume-skeleton.typ`, which is the file they will copy.
  *
  * Cheap by construction — a template is a few kilobytes, and the coverage set
  * is cached for the process.
@@ -624,8 +638,8 @@ async function assertDocumentIsNotBlank(pdf: Buffer): Promise<void> {
   )
 }
 
-function assertTemplateIsDrawable(template: string): void {
-  const missing = findUnrenderable(template)
+function assertTemplateIsDrawable(template: string, templateName: ResumeTemplateName): void {
+  const missing = findUnrenderable(template, templateName)
   if (missing.length === 0) return
   throw new ResumeRenderError(
     `В шаблоне резюме есть символы, которые не отрисовываются доступными шрифтами: ${missing.join(' ')}. Замените их или добавьте шрифт с этими глифами.`,
@@ -633,17 +647,32 @@ function assertTemplateIsDrawable(template: string): void {
   )
 }
 
-let defaultTemplateCache: string | null = null
+const catalogCache = new Map<ResumeTemplateName, string>()
 
 /**
- * The one template shipped in this repo, for every senior without a personal
- * one. Read once per process — it is a static asset, like the fonts.
+ * A catalog template as ONE Typst source: the theme's `#let theme = (...)`
+ * followed by the shared skeleton. Read once per name per process — static
+ * assets, like the fonts.
  */
-export function loadDefaultTemplate(): string {
-  if (defaultTemplateCache === null) {
-    defaultTemplateCache = readFileSync(resolveAssetPath('typst/default-resume.typ'), 'utf8')
+export function loadCatalogTemplate(name: ResumeTemplateName): string {
+  let source = catalogCache.get(name)
+  if (source === undefined) {
+    const theme = readFileSync(resolveAssetPath(`typst/themes/${name}.typ`), 'utf8')
+    const skeleton = readFileSync(resolveAssetPath('typst/resume-skeleton.typ'), 'utf8')
+    source = `${theme}\n${skeleton}`
+    catalogCache.set(name, source)
   }
-  return defaultTemplateCache
+  return source
+}
+
+/**
+ * The catalog name a stored `senior_resumes.template_name` resolves to. Live
+ * rows hold a legacy display label (`'Стандартный шаблон'`) or null, neither a
+ * catalog name, so anything that does not parse renders as `classic`.
+ */
+export function resolveTemplateName(stored: string | null): ResumeTemplateName {
+  const parsed = resumeTemplateNameSchema.safeParse(stored)
+  return parsed.success ? parsed.data : 'classic'
 }
 
 /**

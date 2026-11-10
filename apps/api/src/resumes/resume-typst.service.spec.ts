@@ -10,16 +10,18 @@
  * API responsiveness during a render (AC3) is measured separately, in
  * resume-render-responsiveness.spec.ts, because it needs an HTTP server.
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
+  RESUME_TEMPLATE_NAMES,
   type ResumeContent,
   type ResumeLayoutOptions,
   type ResumeSectionKey,
 } from '@crm/shared'
+import { resolveAssetPath } from '../common/assets.util'
 import { slowTemplate } from '../test/resume-render-fixtures'
 import { assertTypstAvailable } from '../test/typst-availability'
 import { findUnrenderable } from './resume-glyphs'
@@ -28,7 +30,8 @@ import {
   ResumeTypstService,
   buildArgs,
   createSpawnRunner,
-  loadDefaultTemplate,
+  loadCatalogTemplate,
+  resolveTemplateName,
   removeScratchDir,
   renderEnv,
   type ResumeRenderInput,
@@ -71,8 +74,10 @@ const CONTENT: ResumeContent = {
 function input(overrides: Partial<ResumeRenderInput> = {}): ResumeRenderInput {
   return {
     displayName: 'Іван Петренко',
+    email: 'ivan.petrenko@example.com',
     content: CONTENT,
     layout: DEFAULT_RESUME_LAYOUT,
+    templateName: 'classic',
     templateSource: null,
     ...overrides,
   }
@@ -116,6 +121,174 @@ beforeAll(() => {
   assertTypstAvailable()
 })
 
+/**
+ * Template catalog on one skeleton (verified-base-resume spec §6).
+ *
+ * The skeleton rules are asserted two ways: statically over the shipped sources
+ * (what a theme may not write), and on the rendered PDF (what a reader gets).
+ */
+const THEMES_DIR = resolveAssetPath('typst/themes')
+const SKELETON_PATH = resolveAssetPath('typst/resume-skeleton.typ')
+
+/** What no catalog source may contain — each one breaks ATS text extraction or reading order. */
+const FORBIDDEN_LAYOUT: ReadonlyArray<[string, RegExp]> = [
+  ['place', /\bplace\s*\(/],
+  ['image', /\bimage\s*\(/],
+  ['float', /\bfloat\s*:/],
+  ['page header', /\bheader\s*:/],
+  ['page footer', /\bfooter\s*:/],
+  ['columns', /\bcolumns\s*[:(]/],
+  ['colbreak', /\bcolbreak\s*\(/],
+  ['grid', /\bgrid\s*\(/],
+  ['table', /\btable\s*\(/],
+  ['letter-spacing', /\btracking\s*:(?!\s*0pt\b)/],
+]
+
+/** Comments are prose and may name a forbidden construct; only code is linted. */
+function stripComments(source: string): string {
+  return source.replace(/\/\/[^\n]*/g, '')
+}
+
+function layoutViolations(source: string): string[] {
+  const code = stripComments(source)
+  return FORBIDDEN_LAYOUT.filter(([, re]) => re.test(code)).map(([name]) => name)
+}
+
+async function readPdf(pdf: Buffer) {
+  const { getDocumentProxy } = await import('unpdf')
+  return getDocumentProxy(new Uint8Array(pdf))
+}
+
+describe('template catalog', () => {
+  it('loads a distinct source for every catalog name, each holding its theme and the skeleton', () => {
+    const skeleton = readFileSync(SKELETON_PATH, 'utf8')
+    const sources = RESUME_TEMPLATE_NAMES.map((name) => loadCatalogTemplate(name))
+
+    expect(RESUME_TEMPLATE_NAMES).toHaveLength(4)
+    expect(new Set(sources).size).toBe(4)
+    for (const [i, name] of RESUME_TEMPLATE_NAMES.entries()) {
+      const theme = readFileSync(join(THEMES_DIR, `${name}.typ`), 'utf8')
+      expect(sources[i]).toContain(theme)
+      expect(sources[i]).toContain(skeleton)
+      // Theme first: the skeleton reads `theme` at the top level.
+      expect(sources[i]?.indexOf(theme)).toBeLessThan(sources[i]?.indexOf(skeleton) ?? -1)
+    }
+  })
+
+  for (const name of RESUME_TEMPLATE_NAMES) {
+    it(`renders a PDF with the ${name} template`, async () => {
+      const pdf = await service.render(input({ templateName: name }))
+      expect(pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-')
+      const { text } = await readBack(pdf)
+      expect(text).toContain('Іван Петренко')
+      expect(text).toContain('Experience')
+    }, 120_000)
+  }
+
+  it('gives each template its own fingerprint for the same data', () => {
+    const prints = RESUME_TEMPLATE_NAMES.map((name) =>
+      service.fingerprint(input({ templateName: name })),
+    )
+    expect(new Set(prints).size).toBe(4)
+  })
+
+  it('falls back to classic for a legacy display label or a null stored name', () => {
+    expect(resolveTemplateName('Стандартный шаблон')).toBe('classic')
+    expect(resolveTemplateName(null)).toBe('classic')
+    expect(resolveTemplateName('modern')).toBe('modern')
+    expect(resolveTemplateName('technical')).toBe('technical')
+  })
+
+  it('themes do not use place/image/header', () => {
+    // Control: the lint does catch the constructs it names.
+    expect(layoutViolations('#let theme = (x: place(top)[a], y: image("a.png"))')).toEqual([
+      'place',
+      'image',
+    ])
+    expect(layoutViolations('#set page(header: [Name])')).toEqual(['page header'])
+    expect(layoutViolations('#set text(tracking: 0.1em)')).toEqual(['letter-spacing'])
+    expect(layoutViolations('#set text(tracking: 0pt)')).toEqual([])
+
+    for (const name of RESUME_TEMPLATE_NAMES) {
+      const theme = readFileSync(join(THEMES_DIR, `${name}.typ`), 'utf8')
+      expect({ name, violations: layoutViolations(theme) }).toEqual({ name, violations: [] })
+    }
+  })
+
+  it('the skeleton is single-column with no floats, images, page header/footer or tracking', () => {
+    expect(layoutViolations(readFileSync(SKELETON_PATH, 'utf8'))).toEqual([])
+  })
+
+  it('a theme only defines the theme dictionary', () => {
+    for (const name of RESUME_TEMPLATE_NAMES) {
+      const code = stripComments(readFileSync(join(THEMES_DIR, `${name}.typ`), 'utf8')).trim()
+      expect(code.startsWith('#let theme = (')).toBe(true)
+      expect(code.match(/^#/gm)).toHaveLength(1)
+    }
+  })
+
+  it('turns ligatures off in body text and spells headings plain', () => {
+    const code = stripComments(readFileSync(SKELETON_PATH, 'utf8'))
+    expect(code).toMatch(/set text\([^)]*ligatures: false/)
+    expect(code).toMatch(/tracking: 0pt/)
+  })
+
+  it('sets the document title to "<name> — Resume"', async () => {
+    const proxy = await readPdf(await service.render(input()))
+    const { info } = (await proxy.getMetadata()) as { info: { Title?: string } }
+    expect(info.Title).toBe('Іван Петренко — Resume')
+  }, 120_000)
+
+  it('prints name and email as body text on page one, never in a page header or footer', async () => {
+    const { text } = await readBack(await service.render(input()))
+    expect(text).toContain('ivan.petrenko@example.com')
+    // The name comes first, then the email, then the first section.
+    expect(text.indexOf('Іван Петренко')).toBeLessThan(text.indexOf('ivan.petrenko@example.com'))
+    expect(text.indexOf('ivan.petrenko@example.com')).toBeLessThan(text.indexOf('Summary'))
+  }, 120_000)
+
+  it('emits the sections as real headings, in layout order, and drops hidden ones', async () => {
+    const order: ResumeSectionKey[] = [
+      'experience',
+      'education',
+      'summary',
+      'skills',
+      'links',
+      'languages',
+    ]
+    for (const name of RESUME_TEMPLATE_NAMES) {
+      const proxy = await readPdf(
+        await service.render(
+          input({
+            templateName: name,
+            layout: layout({ sectionOrder: order, hiddenSections: ['skills'] }),
+          }),
+        ),
+      )
+      // Typst bookmarks every real heading; a styled paragraph would not appear here.
+      const outline = ((await proxy.getOutline()) ?? []).map((entry) => entry.title)
+      expect({ name, outline }).toEqual({
+        name,
+        outline: ['Experience', 'Education', 'Summary', 'Links', 'Languages'],
+      })
+    }
+  }, 240_000)
+
+  it('prints role, company and period of an experience item before its bullets', async () => {
+    for (const name of RESUME_TEMPLATE_NAMES) {
+      const { text } = await readBack(await service.render(input({ templateName: name })))
+      const bullet = text.indexOf("Керував командою з п'яти інженерів")
+      for (const field of ['Технічний лідер', 'Акме Технології', '2021 — наст. время']) {
+        expect({
+          name,
+          field,
+          before: text.indexOf(field) < bullet && text.indexOf(field) >= 0,
+        }).toEqual({ name, field, before: true })
+      }
+    }
+  }, 240_000)
+})
+
 describe('AC1 — determinism', () => {
   it('renders byte-identical output for the same input', async () => {
     const a = await service.render(input())
@@ -138,7 +311,7 @@ describe('AC1 — determinism', () => {
    * serving everyone's cached PDF of the old one.
    */
   it('changes when the template changes, with identical data', () => {
-    const custom = loadDefaultTemplate().replace('О СЕБЕ', 'ПРО МЕНЕ')
+    const custom = loadCatalogTemplate('classic').replace('Summary', 'Profile')
     expect(service.fingerprint(input({ templateSource: custom }))).not.toBe(
       service.fingerprint(input()),
     )
@@ -167,7 +340,7 @@ describe('AC2 — Cyrillic', () => {
     expect(text).toContain("Керував командою з п'яти інженерів")
     expect(text).toContain('Английский')
     // Headings come from the template, not the data.
-    expect(text).toContain('ОПЫТ РАБОТЫ')
+    expect(text).toContain('Experience')
   }, 120_000)
 
   /**
@@ -177,15 +350,24 @@ describe('AC2 — Cyrillic', () => {
    * The drawn-ness is proved where it can be: against the font's own cmap.
    */
   it('draws every character it typesets — nothing falls back to an empty box', async () => {
-    const rich = input({
-      content: { ...CONTENT, summary: `${CONTENT.summary} Ставка 5000 ₴, бонус 100 ₽.` },
-    })
-    const { text } = await readBack(await service.render(rich))
+    // Roboto (modern) lacks the hryvnia and has the ruble; PT Serif (classic)
+    // has both. Substitution follows the template's own font.
+    const rich = (templateName: ResumeRenderInput['templateName']) =>
+      input({
+        templateName,
+        content: { ...CONTENT, summary: `${CONTENT.summary} Ставка 5000 ₴, бонус 100 ₽.` },
+      })
+    const roboto = (await readBack(await service.render(rich('modern')))).text
 
-    expect(findUnrenderable(text)).toEqual([])
+    expect(findUnrenderable(roboto, 'modern')).toEqual([])
     // The hryvnia had no glyph, so it is spelled; the ruble had one, so it is not.
-    expect(text).toContain('5000 UAH')
-    expect(text).toContain('100 ₽')
+    expect(roboto).toContain('5000 UAH')
+    expect(roboto).toContain('100 ₽')
+
+    const serif = (await readBack(await service.render(rich('classic')))).text
+    expect(findUnrenderable(serif, 'classic')).toEqual([])
+    expect(serif).toContain('5000 ₴')
+    expect(serif).toContain('100 ₽')
   }, 120_000)
 })
 
@@ -204,8 +386,8 @@ describe('AC8 — the layout switches change the result', () => {
       await service.render(input({ layout: layout({ sectionOrder: reordered }) })),
     )
 
-    expect(before.text.indexOf('ОПЫТ РАБОТЫ')).toBeGreaterThan(before.text.indexOf('НАВЫКИ'))
-    expect(after.text.indexOf('ОПЫТ РАБОТЫ')).toBeLessThan(after.text.indexOf('НАВЫКИ'))
+    expect(before.text.indexOf('Experience')).toBeGreaterThan(before.text.indexOf('Skills'))
+    expect(after.text.indexOf('Experience')).toBeLessThan(after.text.indexOf('Skills'))
   }, 120_000)
 
   it('hidden sections: a hidden section and its heading leave the document', async () => {
@@ -213,14 +395,14 @@ describe('AC8 — the layout switches change the result', () => {
       await service.render(input({ layout: layout({ hiddenSections: ['skills', 'languages'] }) })),
     )
 
-    expect(text).not.toContain('НАВЫКИ')
+    expect(text).not.toContain('Skills')
     // A skill that appears ONLY in the skills list — "TypeScript" is also in
     // the summary, so asserting on it would have passed with the section still
     // fully rendered.
     expect(text).not.toContain('NestJS')
-    expect(text).not.toContain('ЯЗЫКИ')
+    expect(text).not.toContain('Languages')
     // Everything else survives.
-    expect(text).toContain('ОПЫТ РАБОТЫ')
+    expect(text).toContain('Experience')
   }, 120_000)
 
   it('density: a compact resume fits more onto the first page than a relaxed one', async () => {
@@ -255,7 +437,7 @@ describe('AC8 — the layout switches change the result', () => {
       await service.render(input({ layout: partial as ResumeLayoutOptions })),
     )
 
-    for (const heading of ['О СЕБЕ', 'НАВЫКИ', 'ОПЫТ РАБОТЫ', 'ОБРАЗОВАНИЕ', 'ЯЗЫКИ', 'ССЫЛКИ']) {
+    for (const heading of ['Summary', 'Skills', 'Experience', 'Education', 'Languages', 'Links']) {
       expect(text.split(heading).length - 1).toBe(1)
     }
   }, 120_000)
@@ -504,7 +686,7 @@ describe('the sandbox', () => {
     ) as { compilerOptions: { assets: Array<{ include: string }> } }
 
     const globs = config.compilerOptions.assets.map((asset) => asset.include)
-    expect(globs).toContain('assets/typst/*.typ')
+    expect(globs).toContain('assets/typst/**/*.typ')
   })
 
   it('leaves no scratch directory behind, on success or on failure', async () => {

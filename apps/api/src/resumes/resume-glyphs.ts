@@ -2,7 +2,8 @@
  * Glyph safety for the rendered resume (task-resume-template).
  *
  * THE PROBLEM. The renderer runs with `--ignore-system-fonts`, so the only
- * typeface available is the Roboto pair committed to this repo. That is what
+ * typefaces available are the pairs committed to this repo, one per catalog
+ * template (Roboto; PT Serif for `classic`). That is what
  * makes a render reproducible on any machine — and it also means a codepoint
  * Roboto does not carry cannot be drawn at all: Typst emits `.notdef` and the
  * reader shows an empty box. A resume is free-text written by a stranger, so
@@ -30,13 +31,25 @@
  * exactly as stored; this is applied on the way into the template.
  */
 import { Logger } from '@nestjs/common'
+import type { ResumeTemplateName } from '@crm/shared'
 import { loadFontBuffer } from '../common/pdf/pdf.utils'
 import { normalizeExtractedText } from './resume-source.util'
 
 const logger = new Logger('ResumeGlyphs')
 
-/** The two faces the template uses. A glyph must exist in BOTH to be safe. */
-const RESUME_FONT_FILES = ['Roboto-Regular.ttf', 'Roboto-Bold.ttf'] as const
+const ROBOTO = ['Roboto-Regular.ttf', 'Roboto-Bold.ttf'] as const
+const PT_SERIF = ['PTSerif-Regular.ttf', 'PTSerif-Bold.ttf'] as const
+
+/**
+ * The two faces each catalog template uses (its theme's `font`). A glyph must
+ * exist in BOTH to be safe. Keep in step with `assets/typst/themes/*.typ`.
+ */
+const TEMPLATE_FONT_FILES: Readonly<Record<ResumeTemplateName, readonly string[]>> = {
+  classic: PT_SERIF,
+  modern: ROBOTO,
+  compact: ROBOTO,
+  technical: ROBOTO,
+}
 
 /**
  * ISO 4217 codes for currency signs, used only where the font has no glyph.
@@ -71,19 +84,21 @@ const CURRENCY_CODES: ReadonlyMap<number, string> = new Map([
   [0x20af, 'GRD'], // ₯
 ])
 
-let coverageCache: Set<number> | null = null
+const coverageCache = new Map<ResumeTemplateName, Set<number>>()
 
 /**
- * Codepoints drawable in EVERY resume face, read from the fonts' `cmap`.
+ * Codepoints drawable in EVERY face of `template`'s font, read from the
+ * fonts' `cmap`.
  *
  * Intersection, not union: a heading is bold, so a character present only in
- * Roboto-Regular would still box out in a company name.
+ * the regular face would still box out in a company name.
  */
-export function resumeFontCoverage(): Set<number> {
-  if (coverageCache) return coverageCache
+export function resumeFontCoverage(template: ResumeTemplateName): Set<number> {
+  const cached = coverageCache.get(template)
+  if (cached) return cached
 
   let intersection: Set<number> | null = null
-  for (const file of RESUME_FONT_FILES) {
+  for (const file of TEMPLATE_FONT_FILES[template]) {
     const covered = readCmapCoverage(loadFontBuffer(file))
     if (intersection === null) {
       intersection = covered
@@ -92,8 +107,9 @@ export function resumeFontCoverage(): Set<number> {
     const previous: Set<number> = intersection
     intersection = new Set<number>([...previous].filter((code) => covered.has(code)))
   }
-  coverageCache = intersection ?? new Set<number>()
-  return coverageCache
+  const coverage = intersection ?? new Set<number>()
+  coverageCache.set(template, coverage)
+  return coverage
 }
 
 /**
@@ -103,8 +119,8 @@ export function resumeFontCoverage(): Set<number> {
  * input: "nothing reaching the template is undrawable". Whitespace and the
  * newline are excluded — they have no glyph by definition.
  */
-export function findUnrenderable(text: string): string[] {
-  const coverage = resumeFontCoverage()
+export function findUnrenderable(text: string, template: ResumeTemplateName): string[] {
+  const coverage = resumeFontCoverage(template)
   const out: string[] = []
   for (const ch of text.normalize('NFC')) {
     const code = ch.codePointAt(0)
@@ -124,9 +140,10 @@ export function findUnrenderable(text: string): string[] {
  */
 export function toRenderableText(
   raw: string,
+  template: ResumeTemplateName,
   options: { insertBreaks?: boolean } = {},
 ): { text: string; dropped: string[] } {
-  const coverage = resumeFontCoverage()
+  const coverage = resumeFontCoverage(template)
   const dropped: string[] = []
   let out = ''
 
@@ -229,12 +246,15 @@ const MACHINE_TARGET_KEYS = new Set(['url'])
  * undrawable character in a link label must not box out either); only the
  * line-break insertion is withheld from machine targets.
  */
-export function toRenderableDeep<T>(value: T): { value: T; dropped: string[] } {
+export function toRenderableDeep<T>(
+  value: T,
+  template: ResumeTemplateName,
+): { value: T; dropped: string[] } {
   const dropped: string[] = []
 
   const walk = (node: unknown, key?: string): unknown => {
     if (typeof node === 'string') {
-      const result = toRenderableText(node, {
+      const result = toRenderableText(node, template, {
         insertBreaks: key === undefined || !MACHINE_TARGET_KEYS.has(key),
       })
       for (const ch of result.dropped) if (!dropped.includes(ch)) dropped.push(ch)

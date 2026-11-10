@@ -50,6 +50,7 @@ import { canAccessResume, type ResumeAccessMode } from './resume-access'
 import {
   ResumeRenderError,
   ResumeTypstService,
+  resolveTemplateName,
   type ResumeRenderInput,
 } from './resume-typst.service'
 import {
@@ -68,6 +69,9 @@ const DELETE_RACE_ATTEMPTS = 3
 
 /** A RUNNING row older than this was abandoned (process died) — AC3 sweep. */
 export const STUCK_EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000
+
+/** Whose resume it is — both fields are printed at the top of the PDF. */
+type ResumeOwner = Pick<User, 'displayName' | 'email'>
 
 /**
  * A render left RUNNING longer than this was abandoned.
@@ -199,7 +203,7 @@ export class SeniorResumesService {
     const row = await this.findRow(targetUserId)
     if (!row) throw new NotFoundException('Резюме ещё не создано')
 
-    const wanted = this.typst.fingerprint(this.renderInputFor(row, target.displayName))
+    const wanted = this.typst.fingerprint(this.renderInputFor(row, target))
     if (row.pdfS3Key && row.pdfFingerprint === wanted) {
       return {
         ready: true,
@@ -213,7 +217,7 @@ export class SeniorResumesService {
     }
 
     // Stale or never built — make sure something is working on it.
-    await this.enqueueRender(row.id, target.displayName)
+    await this.enqueueRender(row.id, target)
     return { ready: false, status: 'QUEUED', message: null }
   }
 
@@ -264,7 +268,7 @@ export class SeniorResumesService {
     if (!updated) throw new NotFoundException('Резюме не найдено')
     // The data changed, so the PDF is stale. Queued, never rendered here: the
     // save must not wait on a typesetter (task §2, "рендер вне пути запроса").
-    await this.enqueueRender(updated.id, target.displayName)
+    await this.enqueueRender(updated.id, target)
     return this.toResponse(updated, viewer)
   }
 
@@ -759,11 +763,13 @@ export class SeniorResumesService {
    * would eventually disagree about some field, and the fingerprint would stop
    * meaning "these bytes are current" without anything failing loudly.
    */
-  private renderInputFor(row: SeniorResume, displayName: string): ResumeRenderInput {
+  private renderInputFor(row: SeniorResume, owner: ResumeOwner): ResumeRenderInput {
     return {
-      displayName,
+      displayName: owner.displayName,
+      email: owner.email,
       content: this.safeContent(row.content),
       layout: this.safeLayout(row.layout),
+      templateName: resolveTemplateName(row.templateName),
       templateSource: row.templateSource,
     }
   }
@@ -776,7 +782,7 @@ export class SeniorResumesService {
    * clears the run token, so a render already in flight is disowned rather than
    * cancelled — it finishes, finds the token gone, and drops its bytes.
    */
-  private async enqueueRender(resumeId: string, displayName?: string): Promise<void> {
+  private async enqueueRender(resumeId: string, owner?: ResumeOwner): Promise<void> {
     await this.db.db
       .update(seniorResumes)
       .set({
@@ -787,7 +793,7 @@ export class SeniorResumesService {
       })
       .where(eq(seniorResumes.id, resumeId))
 
-    void this.runRender(resumeId, displayName).catch((err: unknown) => {
+    void this.runRender(resumeId, owner).catch((err: unknown) => {
       this.logger.error(
         `Detached resume render crashed for ${resumeId}: ${err instanceof Error ? err.message : 'unknown'}`,
       )
@@ -803,7 +809,7 @@ export class SeniorResumesService {
    * already be two saves old, and writing its key would advertise a stale PDF
    * as the current one.
    */
-  async runRender(resumeId: string, displayName?: string): Promise<void> {
+  async runRender(resumeId: string, owner?: ResumeOwner): Promise<void> {
     const runId = randomUUID()
     const claimed = await this.db.db
       .update(seniorResumes)
@@ -821,8 +827,7 @@ export class SeniorResumesService {
     const row = claimed[0]
     if (!row) return // someone else owns this render
 
-    const name = displayName ?? (await this.displayNameFor(row.userId))
-    const input = this.renderInputFor(row, name)
+    const input = this.renderInputFor(row, owner ?? (await this.ownerFor(row.userId)))
     const fingerprint = this.typst.fingerprint(input)
 
     let pdf: Buffer
@@ -1030,16 +1035,17 @@ export class SeniorResumesService {
       .returning()
     if (!updated) throw new NotFoundException('Резюме не найдено')
 
-    await this.enqueueRender(updated.id, target.displayName)
+    await this.enqueueRender(updated.id, target)
     return this.toResponse(updated, viewer)
   }
 
-  private async displayNameFor(userId: string): Promise<string> {
+  /** The resume owner's name and email, both printed at the top of the PDF. */
+  private async ownerFor(userId: string): Promise<ResumeOwner> {
     const user = await this.db.db.query.users.findFirst({
       where: (tbl, { eq: equals }) => equals(tbl.id, userId),
-      columns: { displayName: true },
+      columns: { displayName: true, email: true },
     })
-    return user?.displayName ?? 'Резюме'
+    return { displayName: user?.displayName ?? 'Резюме', email: user?.email ?? '' }
   }
 
   // ==========================================================================
@@ -1115,7 +1121,7 @@ export class SeniorResumesService {
         pdfUpToDate:
           Boolean(row.pdfS3Key) &&
           row.pdfFingerprint ===
-            this.typst.fingerprint(this.renderInputFor(row, await this.displayNameFor(row.userId))),
+            this.typst.fingerprint(this.renderInputFor(row, await this.ownerFor(row.userId))),
       },
       // Server-computed, never echoed from the client.
       canEdit: canAccessResume(viewer, row.userId, 'write'),
