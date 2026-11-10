@@ -240,6 +240,24 @@ describe('scanContacts — serialized text and spelling variants (fix round 1)',
     expect(scanContacts('by Mueller', accented)).toEqual([])
   })
 
+  it('folds capital ẞ, which /iu does not case-fold to ss', () => {
+    expect(redactContacts('by STRAUẞ, ok', { fullName: 'Max Strauß', emails: [] })).toBe(
+      'by [REDACTED], ok',
+    )
+  })
+
+  it('folds dotless ı', () => {
+    expect(redactContacts('by Yildiz, ok', { fullName: 'Ece Yıldız', emails: [] })).toBe(
+      'by [REDACTED], ok',
+    )
+  })
+
+  it('folds the ligatures æ and œ', () => {
+    expect(redactContacts('by Baekoe, ok', { fullName: 'Ann Bækœ', emails: [] })).toBe(
+      'by [REDACTED], ok',
+    )
+  })
+
   it('folds letters without a Unicode decomposition: ł ø đ ß', () => {
     const polish = { fullName: 'Jan Wałęsa', emails: [] }
     expect(scanContacts('by Walesa', polish)).toEqual([name('Walesa')])

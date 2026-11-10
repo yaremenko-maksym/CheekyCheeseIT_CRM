@@ -44,7 +44,10 @@ function wholeToken(source: string): RegExp {
   return new RegExp(`(?:(?<!${TOKEN_CHAR})|(?<=${ESCAPE}))${source}(?!${TOKEN_CHAR})`, 'giu')
 }
 
-/** Letters NFD does not decompose, folded by hand; `ß` becomes two code units. */
+/**
+ * Letters NFD does not decompose and `/iu` does not case-fold to the mapped form
+ * (`/ss/iu` misses `ẞ`), folded by hand; `ß` becomes two code units.
+ */
 const UNDECOMPOSED: Record<string, string> = {
   ł: 'l',
   Ł: 'L',
@@ -53,7 +56,19 @@ const UNDECOMPOSED: Record<string, string> = {
   đ: 'd',
   Đ: 'D',
   ß: 'ss',
+  ẞ: 'SS',
+  ı: 'i',
+  æ: 'ae',
+  Æ: 'AE',
+  œ: 'oe',
+  Œ: 'OE',
+  þ: 'th',
+  Þ: 'TH',
+  ħ: 'h',
+  Ħ: 'H',
 }
+/** Built from the map's keys, so the two cannot drift. */
+const UNDECOMPOSED_LETTER = new RegExp(`[${Object.keys(UNDECOMPOSED).join('')}]`, 'gu')
 
 /**
  * `text` without accents (NFD, marks dropped, plus `UNDECOMPOSED`), and for each
@@ -67,7 +82,7 @@ function foldAccents(text: string): { text: string; from: number[]; to: number[]
     const piece = cluster
       .normalize('NFD')
       .replace(/\p{M}/gu, '')
-      .replace(/[łŁøØđĐß]/gu, (letter) => UNDECOMPOSED[letter] ?? letter)
+      .replace(UNDECOMPOSED_LETTER, (letter) => UNDECOMPOSED[letter] ?? letter)
     folded += piece
     for (let k = 0; k < piece.length; k++) {
       from.push(index)
