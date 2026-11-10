@@ -901,6 +901,15 @@ assert_green "watch -n 1 'echo \"rm -rf /etc\"' (quoted phrase)" -- h "watch -n 
 slow="pnpm exec eslint --fix --max-warnings 0 --cache $(printf 'apps/web/src/components/feature/f-%s.tsx ' $(seq 1100))"
 assert_green "1100-path eslint is allowed at the default deadline" -- h "$slow"
 PRE_BASH_SAFETY_DEADLINE=1 assert_red "a read past the deadline refuses as too complex" --contains "took over 1 s" -- h "$slow"
+# #1304 follow-up: a script operand with a literal path prefix is the script, not an option.
+assert_green "bash scripts/devops/tests/\$t" -- h 'bash scripts/devops/tests/$t'
+assert_green "for t in a b; do bash scripts/devops/tests/\$t; done" -- h 'for t in a b; do bash scripts/devops/tests/$t; done'
+assert_green "bash ./\$x" -- h 'bash ./$x'
+assert_green "sh \"scripts/\$t.sh\" arg" -- h 'sh "scripts/$t.sh" arg'
+assert_red "bash \$x (may be an option word)" -- h 'bash $x'
+assert_red "bash \"\$x\" (may be an option word)" -- h 'bash "$x"'
+assert_red "bash \$m x.sh" -- h 'bash $m x.sh'
+assert_red "bash \${x}" -- h 'bash ${x}'
 assert_green "normal runner command passes: pnpm --filter @crm/api exec vitest run a b c" \
   -- h "pnpm --filter @crm/api exec vitest run a b c"
 for c in 'pnpm --filter $pkg test' 'pnpm --filter @crm/api test' 'pnpm install' 'pnpm -r build' \

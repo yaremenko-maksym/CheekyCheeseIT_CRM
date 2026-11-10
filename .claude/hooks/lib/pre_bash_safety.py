@@ -593,7 +593,11 @@ def shell_opts_dynamic(args):
     # because predicate 7 reads it as nested segments (`bash -c \x27echo "$1"\x27 _ x` is
     # allowed, `bash -c -x "$x"` refuses there); a script operand is judged like an option.
     program, is_code, flags, values = cmdscan.shell_program(args)
-    words = flags + values + ([] if is_code or program is None else [program])
+    # #1304 follow-up: a script operand that starts with a literal path character
+    # (`bash scripts/tests/$t`) is the script path whatever `$t` holds; any words it
+    # splits into are the script's arguments, never bash options.
+    script = not is_code and program is not None and re.match(r"[\w./]", program)
+    words = flags + values + ([] if is_code or program is None or script else [program])
     return any(dynamic_word(w) for w in words)
 
 
