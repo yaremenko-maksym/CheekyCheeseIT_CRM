@@ -177,6 +177,16 @@ describe('checkResumeCompleteness', () => {
     ])
   })
 
+  it('ENGLISH_MISSING: English anywhere in a list of several languages is enough', () => {
+    const facts = makeFacts({
+      languages: [
+        { name: 'Ukrainian', level: 'native' },
+        { name: 'English', level: 'B2' },
+      ],
+    })
+    expect(checkResumeCompleteness(facts, CTX)).toEqual([])
+  })
+
   it('ENGLISH_MISSING: name match is trimmed and case-insensitive', () => {
     const facts = makeFacts({ languages: [{ name: '  english ', level: 'B2' }] })
     expect(checkResumeCompleteness(facts, CTX)).toEqual([])
@@ -347,8 +357,16 @@ describe('RESUME_PHONE_PATTERN', () => {
     '1,000,000 requests',
     'Node.js 18',
     '2020-01-15',
+    // Nine digits are present, but split by separators a phone does not use.
+    '1,000,000,000 requests',
+    '2019/2020/2021',
   ])('does not flag %s', (text) => {
     expect(RESUME_PHONE_PATTERN.test(text)).toBe(false)
+  })
+
+  it('matches the whole number, the leading + or ( included', () => {
+    expect('call +380 67 123 45 67 now'.match(RESUME_PHONE_PATTERN)?.[0]).toBe('+380 67 123 45 67')
+    expect('(067) 123-45-67'.match(RESUME_PHONE_PATTERN)?.[0]).toBe('(067) 123-45-67')
   })
 
   it('is stateless: repeated tests give the same answer without a g flag', () => {
@@ -359,11 +377,20 @@ describe('RESUME_PHONE_PATTERN', () => {
 })
 
 describe('RESUME_EMAIL_PATTERN', () => {
-  it.each(['jane.doe@example.com', 'a+b@sub.example.co.uk'])('flags %s', (email) => {
-    expect(RESUME_EMAIL_PATTERN.test(email)).toBe(true)
+  it.each(['jane.doe@example.com', 'a+b@sub.example.co.uk', '123@example.com', 'jane@123.com'])(
+    'flags %s',
+    (email) => {
+      expect(RESUME_EMAIL_PATTERN.test(email)).toBe(true)
+    },
+  )
+
+  it('matches the whole local part, not its last character', () => {
+    expect('mail jane.doe@example.com today'.match(RESUME_EMAIL_PATTERN)?.[0]).toBe(
+      'jane.doe@example.com',
+    )
   })
 
-  it.each(['jane at example dot com', 'no-address-here'])('does not flag %s', (text) => {
+  it.each(['jane at example dot com', 'no-address-here', 'a@b.c'])('does not flag %s', (text) => {
     expect(RESUME_EMAIL_PATTERN.test(text)).toBe(false)
   })
 

@@ -99,6 +99,7 @@ function checkExperienceItem(
   if (!item.current && item.end === null) {
     issues.push({ path: `${base}.end`, code: 'END_MISSING' })
   }
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: a `YYYY-MM` string compared with null coerces to NaN < 0 (or 0 < NaN), always false, so dropping either null guard cannot change the result
   if (item.start !== null && item.end !== null && item.end < item.start) {
     issues.push({ path: `${base}.end`, code: 'END_BEFORE_START' })
   }
