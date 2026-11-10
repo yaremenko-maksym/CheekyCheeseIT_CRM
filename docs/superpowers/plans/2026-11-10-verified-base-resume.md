@@ -635,17 +635,17 @@ technical deterministically`.
      A failing item is regenerated up to 2 times with the reasons as `feedback`. Still failing, it falls back to the
      cleaned note text, and the path is recorded in `fallbacks`.
 
-  5. Render the staged PDF:
+  5. Render the staged PDF into memory (no upload yet):
      - normalise every string with NFC and `toRenderableText`;
      - render with `loadCatalogTemplate(templateName)`;
-     - upload under `resumes/<resumeId>/staged/<runId>.pdf`;
      - a render error → FAILED `RENDER_FAILED`.
   6. ATS: run `extractRenderedPages` + `checkResumeAts`.
      - `TOO_MANY_PAGES` and `TOO_LARGE` are layout failures. They go to stage 7's repair loop, never terminal here.
-     - Any other failure on an AI-written item reverts that item to the note text and re-renders once. Still failing
-       → `ATS_CHECK_FAILED`.
+     - A failure on an AI-written item reverts that item to the note text and re-renders once. Still failing →
+       `ATS_CHECK_FAILED`.
+     - Any other failure (name, email or a heading missing; order; period format) → `ATS_CHECK_FAILED`.
      - Dropped glyphs → `GLYPH_CHECK_FAILED`.
-     - The ATS check re-runs after every layout repair render.
+     - The ATS check re-runs after every re-render, so the buffer that passes is the last one rendered.
   7. Layout:
      - pages ≤ `ATS_MAX_PAGES` and bytes ≤ `ATS_MAX_BYTES`;
      - the last page holds at least 25 % of the average line count of the full pages when there is more than one page
@@ -661,14 +661,17 @@ technical deterministically`.
      - call `VisualCheckClient`;
      - a finding counts only when a second call confirms the same `check` and `page`;
      - `unavailable` → `VISUAL_CHECK_UNAVAILABLE`, a confirmed finding → `VISUAL_CHECK_FAILED`.
-  9. Stage: with a CAS on `run_id` and `version = verification_base_version`, write `staged_*` and set
-     AWAITING_CONFIRM.
-     - Losing the CAS deletes the uploaded object and writes nothing.
-     - If the row already had a staged object from an earlier run (edit or regenerate, Task 15), it is deleted after
+  9. Stage:
+     - upload the last passing buffer under `resumes/<resumeId>/staged/<runId>.pdf`;
+     - then, with a CAS on `run_id` and `version = verification_base_version`, write `staged_*` and set
+       AWAITING_CONFIRM;
+     - losing the CAS deletes the uploaded object and writes nothing;
+     - if the row already had a staged object from an earlier run (edit or regenerate, Task 15), it is deleted after
        commit.
 
-  Every FAILED terminal write CASes on `run_id`. It deletes the run's own object and any earlier staged object, and
-  clears the staged columns. A run started from AWAITING_CONFIRM that fails leaves FAILED, and HR submits again.
+  Every FAILED terminal write CASes on `run_id`, clears `verification_run_id` and the staged columns, and after commit
+  deletes any earlier staged object. A failed run has uploaded nothing of its own. A run started from AWAITING_CONFIRM
+  that fails leaves FAILED, and HR submits again.
 
 - `RendererPng`: add `renderPng(input: ResumeRenderInput): Promise<Buffer[]>` to `ResumeTypstService`, through the
   same sandbox (`--format png`, one file per page).
@@ -686,7 +689,10 @@ technical deterministically`.
   - `3-page first render is repaired by density, not failed by the ATS stage`;
   - `PNG copy sent to vision contains no real name, email or link URL` (extract the placeholder render's text);
   - `two concurrent submits → one run`;
-  - `re-submit from AWAITING_CONFIRM deletes the old staged object`.
+  - `re-submit from AWAITING_CONFIRM deletes the old staged object`;
+  - `after a density repair the uploaded object is the repaired render` (the fake S3 holds the last buffer);
+  - `missing email on page 1 → FAILED ATS_CHECK_FAILED`;
+  - `a run that fails before stage 9 uploads nothing`.
 - [ ] **Step 2:** Run `pnpm --filter @crm/api test verification-runner`. Expected: FAIL.
 - [ ] **Step 3:** Implement. Each stage is a private method; the runner file stays under 400 lines. Split the
       content-gate loop into `content-gates.ts` if it grows past that.
@@ -714,16 +720,21 @@ technical deterministically`.
   - `path` is `summary` or `experience.<i>.bullets.<j>`;
   - `text` must pass `isLatinScript` and have no `scanContacts` hit; otherwise 422 with the hit;
   - it appends `{ path, userId: viewer.id }` to `staged_edited_paths`;
-  - it starts a run of kind `staged-edit` with a new run id. That run applies the text to the staged content and
-    re-runs stages 5–9, without the writer and entailment gates (spec §4 step 6).
+  - it starts a run of kind `staged-edit`. That run applies the text to the staged content and re-runs stages 1 and
+    5–9, without the writer and entailment gates (spec §4 step 6).
 - `regenerateStagedField(viewer, targetUserId, { runId, path })` starts a run of kind `item`. That run re-runs stages
-  3–9 for that one path and keeps the other staged texts. It removes `path` from `staged_edited_paths`.
+  1 and 3–9 for that one path and keeps the other staged texts. It removes `path` from `staged_edited_paths`.
+- Starting either run is one UPDATE with `WHERE verification_run_id = $runId AND verification_status =
+'AWAITING_CONFIRM'` (0 rows → 409 `RESUME_CONFIRM_STALE`). It sets QUEUED, a new `verification_run_id`,
+  `verification_kind`, `verification_queued_at` and `verification_base_version = version`, like submit. The run then
+  claims QUEUED → CHECKING (stage 1). So `isVerificationBusy` is true for the whole run, and confirm, facts writes and
+  submit all get 409.
 - During either run the row keeps its previous staged columns, so the UI still shows the last staged PDF. The run's
   stage 9 replaces them and deletes the previous staged object (Task 14).
 - Both edits follow `canAccessResume` write, as editing does (spec Q-C). The confirmer sees each staged-edited path
   marked "edited by a person, not fact-checked" (Task 19), so a SENIOR edit never reaches VERIFIED unseen.
 - `getStagedPdf(viewer, targetUserId)`: `GET /users/:id/resume/staged-pdf`, `canAccessResume` read. It streams the
-  staged object. No staged object, or no access → the same 404 as the live PDF endpoint.
+  staged object. No access, or `staged_pdf_s3_key` is NULL → the same 404 as the live PDF endpoint.
 
 - [ ] **Step 1: Failing tests:**
   - `two concurrent confirms → exactly one 200, one 409, version bumped once` (`Promise.all` on the scratch DB);
@@ -731,6 +742,9 @@ technical deterministically`.
   - `SENIOR cannot confirm own resume (403)`;
   - `HR can confirm`;
   - `staged-edit skips writer and entailment clients` (call counts are 0);
+  - `confirm during a staged-edit run → 409`;
+  - `staged-edit run stages with base version = version at start`;
+  - `stalled staged-edit swept → FAILED, staged columns cleared, staged-pdf 404`;
   - `confirm deletes the old live PDF object`;
   - `confirm sets verified_version equal to the new version`;
   - `staged edit with an email address → 422, no run started`;
@@ -768,7 +782,8 @@ technical deterministically`.
     `verification_report` are set, the run's object is deleted, and the UI shows them as the result of the last
     template check.
 - `sweepStalledVerifications(now: Date): Promise<number>`, with `VERIFICATION_DEADLINE_MS = 600_000`:
-  - status QUEUED or CHECKING and `verification_queued_at < now − deadline` → FAILED `STALLED`;
+  - status QUEUED or CHECKING and `verification_queued_at < now − deadline` → FAILED `STALLED`, with the FAILED rule
+    of Task 14 (clear run id and staged columns, delete any earlier staged object);
   - status VERIFIED, `verification_run_id IS NOT NULL` and `verification_queued_at < now − deadline` → clear
     `verification_run_id`, set `verification_error_code = 'STALLED'`, stay VERIFIED;
   - each UPDATE CASes on the run id it read; the run's staged object is deleted after commit.
