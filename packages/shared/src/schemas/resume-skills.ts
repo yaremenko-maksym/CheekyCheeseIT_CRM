@@ -57,20 +57,23 @@ function phraseOf(raw: string): string {
   return ` ${stackTokens(raw).join(' ')} `
 }
 
-const CANONICAL_BY_KEY: ReadonlyMap<string, string> = new Map(
-  SKILL_SYNONYM_GROUPS.flatMap(({ canonical, aliases }) =>
-    [canonical, ...aliases].map((spelling) => [keyOf(spelling), canonical] as const),
-  ),
-)
-
-const SPELLINGS_BY_CANONICAL: ReadonlyMap<string, readonly string[]> = new Map(
-  SKILL_SYNONYM_GROUPS.map(({ canonical, aliases }) => [canonical, [canonical, ...aliases]]),
-)
+/**
+ * Every spelling of the group `raw` belongs to, or undefined for an unknown skill.
+ * Looked up at call time, not via a module-level index: a table this small costs
+ * nothing to scan, and load-time code is code the mutation gate cannot exercise.
+ */
+function spellingsOf(raw: string): string[] | undefined {
+  const key = keyOf(raw)
+  const group = SKILL_SYNONYM_GROUPS.find(({ canonical, aliases }) =>
+    [canonical, ...aliases].some((spelling) => keyOf(spelling) === key),
+  )
+  return group && [group.canonical, ...group.aliases]
+}
 
 /** The display form of a skill; an unknown skill passes through trimmed. */
 export function canonicalSkill(raw: string): string {
   const trimmed = raw.trim()
-  return CANONICAL_BY_KEY.get(keyOf(trimmed)) ?? trimmed
+  return spellingsOf(trimmed)?.[0] ?? trimmed
 }
 
 /** Skills, then each job's technologies: canonicalised, blanks dropped, first-seen order. */
@@ -89,8 +92,7 @@ export function mergeSkills(skills: string[], technologies: string[][]): string[
  * `Java` is not in `JavaScript`, `C` is not in `C#` / `C++`.
  */
 export function mentionsSkill(text: string, skill: string): boolean {
-  const canonical = canonicalSkill(skill)
-  const spellings = SPELLINGS_BY_CANONICAL.get(canonical) ?? [canonical]
+  const spellings = spellingsOf(skill) ?? [skill]
   const haystack = phraseOf(text)
   return spellings.some((spelling) => {
     const needle = phraseOf(spelling)

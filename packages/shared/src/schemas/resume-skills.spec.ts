@@ -34,6 +34,13 @@ describe('canonicalSkill', () => {
     expect(canonicalSkill('  Elixir  ')).toBe('Elixir')
   })
 
+  it('collapses spaces, dots and hyphens in the lookup key', () => {
+    expect(canonicalSkill('Type Script')).toBe('TypeScript')
+    expect(canonicalSkill('Mongo-DB')).toBe('MongoDB')
+    expect(canonicalSkill('React JS')).toBe('React')
+    expect(canonicalSkill('vue-js')).toBe('Vue.js')
+  })
+
   it('keeps symbols distinct: C, C#, C++ and Java, JavaScript are different skills', () => {
     expect(canonicalSkill('C')).toBe('C')
     expect(canonicalSkill('C#')).toBe('C#')
@@ -50,39 +57,39 @@ describe('canonicalSkill', () => {
 })
 
 describe('SKILL_SYNONYM_GROUPS', () => {
-  it('holds the seed vocabulary', () => {
-    const canonicals = SKILL_SYNONYM_GROUPS.map((g) => g.canonical)
-    expect(canonicals).toEqual(
-      expect.arrayContaining([
-        'JavaScript',
-        'TypeScript',
-        'Node.js',
-        'React',
-        'Next.js',
-        'Vue.js',
-        'Angular',
-        'Python',
-        'Go',
-        'Java',
-        'Kotlin',
-        'C#',
-        'C++',
-        '.NET',
-        'PostgreSQL',
-        'MySQL',
-        'MongoDB',
-        'Redis',
-        'Docker',
-        'Kubernetes',
-        'Amazon Web Services (AWS)',
-        'Google Cloud Platform (GCP)',
-        'Azure',
-        'Terraform',
-        'CI/CD',
-        'GraphQL',
-        'REST',
-      ]),
-    )
+  it('holds exactly the seed vocabulary and its aliases', () => {
+    expect(SKILL_SYNONYM_GROUPS).toEqual([
+      { canonical: 'JavaScript', aliases: ['JS', 'ECMAScript'] },
+      { canonical: 'TypeScript', aliases: ['TS'] },
+      { canonical: 'Python', aliases: ['Python3', 'Python 3'] },
+      { canonical: 'Go', aliases: ['Golang'] },
+      { canonical: 'Java', aliases: [] },
+      { canonical: 'Kotlin', aliases: [] },
+      { canonical: 'C#', aliases: ['C Sharp'] },
+      { canonical: 'C++', aliases: ['CPP'] },
+      { canonical: 'Node.js', aliases: ['Node', 'NodeJS', 'Node JS'] },
+      { canonical: 'React', aliases: ['React.js', 'ReactJS'] },
+      { canonical: 'Next.js', aliases: ['NextJS'] },
+      { canonical: 'Vue.js', aliases: ['Vue', 'VueJS'] },
+      { canonical: 'Angular', aliases: ['AngularJS', 'Angular.js'] },
+      { canonical: '.NET', aliases: ['dotnet', 'dot net'] },
+      { canonical: 'PostgreSQL', aliases: ['Postgres', 'psql'] },
+      { canonical: 'MySQL', aliases: [] },
+      { canonical: 'MongoDB', aliases: ['Mongo', 'Mongo DB'] },
+      { canonical: 'Redis', aliases: [] },
+      { canonical: 'Docker', aliases: [] },
+      { canonical: 'Kubernetes', aliases: ['K8s', 'kube'] },
+      { canonical: 'Amazon Web Services (AWS)', aliases: ['AWS', 'Amazon Web Services'] },
+      {
+        canonical: 'Google Cloud Platform (GCP)',
+        aliases: ['GCP', 'Google Cloud', 'Google Cloud Platform'],
+      },
+      { canonical: 'Azure', aliases: ['Microsoft Azure'] },
+      { canonical: 'Terraform', aliases: [] },
+      { canonical: 'CI/CD', aliases: ['CICD', 'CI-CD', 'CI CD'] },
+      { canonical: 'GraphQL', aliases: ['Graph QL'] },
+      { canonical: 'REST', aliases: ['REST API', 'RESTful', 'RESTful API'] },
+    ])
   })
 
   it('never lets one spelling belong to two groups', () => {
