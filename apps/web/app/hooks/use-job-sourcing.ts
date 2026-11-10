@@ -5,18 +5,21 @@ import {
   jobExclusionListSchema,
   jobExclusionSchema,
   jobSourceListSchema,
+  jobSourceSwitchResultSchema,
   jobSuggestionListSchema,
   jobSuggestionSchema,
   type CreateJobExclusionDto,
   type JobExclusionDto,
   type JobExclusionListDto,
   type JobSourceListDto,
+  type JobSourceSwitchResultDto,
   type JobSuggestionDto,
   type JobSuggestionListDto,
   type JobSuggestionStatus,
 } from '@crm/shared'
 import { api } from '@/lib/axios'
 import { getUserFacingErrorMessage } from '@/lib/axios-utils'
+import { jobSourceHealthQueryKey } from './use-job-source-admin'
 
 /**
  * Job sourcing queries — task-job-sourcing-slice1.
@@ -72,6 +75,27 @@ export function useJobSources(enabled = true) {
     },
     enabled,
     staleTime: 0,
+  })
+}
+
+/**
+ * ADMIN source switch (r5 Task 7.5). The caller passes the INVERTED value; the server answers 409
+ * when it refuses to enable (`JOB_SOURCE_NOT_READY` / `JOB_SOURCE_AUTH_PAUSED`). Feedback is the
+ * caller's (an inline note under the source), so this hook only writes and refetches — and only on
+ * success: a refused change leaves both lists exactly as they were.
+ */
+export function useSetJobSourceEnabled() {
+  const queryClient = useQueryClient()
+
+  return useMutation<JobSourceSwitchResultDto, unknown, { id: string; enabled: boolean }>({
+    mutationFn: async ({ id, enabled }) => {
+      const res = await api.patch<unknown>(`/job-sourcing/sources/${id}`, { enabled })
+      return jobSourceSwitchResultSchema.parse(res.data)
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: jobSourcesQueryKey })
+      void queryClient.invalidateQueries({ queryKey: jobSourceHealthQueryKey })
+    },
   })
 }
 
