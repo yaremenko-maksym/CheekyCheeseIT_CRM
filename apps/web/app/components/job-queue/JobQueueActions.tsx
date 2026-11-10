@@ -47,7 +47,7 @@ import {
 } from '@/hooks/use-job-queue'
 import { getApiErrorCode } from '@/lib/axios-utils'
 import { cn } from '@/lib/utils'
-import { ownTaken, submittedElsewhere } from './MatchedSeniors'
+import { ownSubmission, ownTaken, submittedElsewhere } from './MatchedSeniors'
 
 /** §5.6: the one conflict text, used everywhere; it never says who changed what, or where. */
 export const CONFLICT_NOTE = msg`Дані змінилися. Оновіть картку й повторіть.`
@@ -71,8 +71,8 @@ export const JOB_QUEUE_TOAST = {
  * Focus nobody chose: <body>, the card dialog Radix parks it on, or a control that became disabled
  * (a browser drops that focus to <body>). Anything else is the actor's choice and is never pulled.
  */
-function unchosen(active: Element | null) {
-  return !active || active === document.body || active.matches('[role="dialog"], :disabled')
+function unchosen(active: Element) {
+  return active.matches('body, [role="dialog"], :disabled')
 }
 
 /** A 409 from a concurrent change (an expected version or a reused key no longer matches). */
@@ -101,7 +101,8 @@ export function useCardGate(card: JobQueueCardResponseDto, refetch: () => void) 
   // UX-L-2: the actor's own write met the newer revision; focus goes to the one way forward, in the
   // commit (a senior's own restore runs first, as a child), so it never drops to <body>
   useLayoutEffect(() => {
-    if (stale && conflict && unchosen(document.activeElement)) refresh.current?.focus()
+    // the note with «Оновити картку» is drawn whenever the card is stale
+    if (stale && conflict && unchosen(document.activeElement!)) refresh.current!.focus()
   }, [stale, conflict])
 
   const notes = (
@@ -522,7 +523,8 @@ export function SeniorAction({
   const taken = ownTaken(senior)
 
   useEffect(() => {
-    if (confirming) keep.current?.focus()
+    // the confirm (and so «Не записувати») is drawn whenever `confirming` is set
+    if (confirming) keep.current!.focus()
   }, [confirming])
 
   // CR-M-3: a layout effect, so the restore runs in the commit, before Radix FocusScope parks focus
@@ -537,7 +539,7 @@ export function SeniorAction({
       focusAfter.current = null
       return
     }
-    const active = document.activeElement
+    const active = document.activeElement!
     // P2-1: focus nobody chose, or this senior's own target (its «⋯» too, where Radix returns it
     // after a cancel, QA-LOW-1), is "not moved on"; any other focus is the actor's, never pulled
     const parked =
@@ -550,7 +552,8 @@ export function SeniorAction({
       return
     }
     const own = button.current && !button.current.disabled ? button.current : row.current
-    own?.focus()
+    // SeniorAction is always drawn inside its senior's <li>, so a row is always known here
+    own!.focus()
     // CR note: a senior now submitted elsewhere never shows the awaited state; its row is the end
     if (Boolean(taken) === wait.taken || submittedElsewhere(senior)) focusAfter.current = null
   })
@@ -572,7 +575,8 @@ export function SeniorAction({
       </div>
     ) : null
   }
-  const released = senior.submission && 'state' in senior.submission ? senior.submission : null
+  // taken and submitted-elsewhere seniors returned above, so an own row here is a released one
+  const released = ownSubmission(senior)
 
   const send = (confirmPossibleDuplicate: boolean) => {
     if (inFlight.current) return

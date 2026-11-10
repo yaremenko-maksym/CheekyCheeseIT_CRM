@@ -143,7 +143,8 @@ describe('useSubmitJobQueueSenior', () => {
     expect(client.getQueryState(jobQueueQueryKey(scope, 'NEW', {}))?.isInvalidated).toBe(true)
     expect(client.getQueryState(jobQueueCardQueryKey(scope, OPP))?.isInvalidated).toBe(true)
     expect(
-      client.getQueryState(jobQueueCardQueryKey({ ...scope, teamId: OTHER_TEAM }, OPP))?.isInvalidated,
+      client.getQueryState(jobQueueCardQueryKey({ ...scope, teamId: OTHER_TEAM }, OPP))
+        ?.isInvalidated,
     ).toBe(false)
   })
 
@@ -201,7 +202,11 @@ describe('useSubmitJobQueueSenior', () => {
     rerender({ s: scope })
     await act(() => result.current.mutateAsync(vars))
 
-    expect(post).toHaveBeenNthCalledWith(1, expect.any(String), expect.objectContaining({ teamId: TEAM }))
+    expect(post).toHaveBeenNthCalledWith(
+      1,
+      expect.any(String),
+      expect.objectContaining({ teamId: TEAM }),
+    )
     expect(post).toHaveBeenNthCalledWith(
       2,
       expect.any(String),
@@ -261,7 +266,11 @@ describe('useSubmitJobQueueSenior', () => {
     post.mockResolvedValueOnce({ data: { submission } })
     const { result } = renderHook(() => useCancelJobQueueSubmission(scope), { wrapper })
     await act(() =>
-      result.current.mutateAsync({ opportunityId: 'a/b', submissionId: '../x', expectedVersion: 1 }),
+      result.current.mutateAsync({
+        opportunityId: 'a/b',
+        submissionId: '../x',
+        expectedVersion: 1,
+      }),
     )
     expect(post.mock.calls[0]?.[0]).toBe('/job-queue/a%2Fb/submissions/..%2Fx/cancel')
   })
@@ -291,7 +300,9 @@ describe('useSubmitJobQueueSenior', () => {
         totalCount: 1,
       },
     }
-    post.mockRejectedValueOnce(httpError(409, conflict)).mockResolvedValueOnce({ data: { submission } })
+    post
+      .mockRejectedValueOnce(httpError(409, conflict))
+      .mockResolvedValueOnce({ data: { submission } })
     const { result } = renderHook(() => useSubmitJobQueueSenior(scope), { wrapper })
 
     await act(() => result.current.mutateAsync(vars).catch(() => undefined))
@@ -372,7 +383,11 @@ describe('the other card writes', () => {
     post.mockResolvedValueOnce({ data: { submission } })
     const { result } = renderHook(() => useCancelJobQueueSubmission(scope), { wrapper })
     const answer = await act(() =>
-      result.current.mutateAsync({ opportunityId: OPP, submissionId: SUBMISSION, expectedVersion: 1 }),
+      result.current.mutateAsync({
+        opportunityId: OPP,
+        submissionId: SUBMISSION,
+        expectedVersion: 1,
+      }),
     )
     expect(post).toHaveBeenCalledWith(`/job-queue/${OPP}/submissions/${SUBMISSION}/cancel`, {
       teamId: TEAM,
@@ -412,6 +427,25 @@ describe('the other card writes', () => {
     expect(answer.hidden).toBe(false)
   })
 
+  it('CR-M-1: a dismissal version is kept per vacancy, not shared', async () => {
+    const OTHER_OPP = '12121212-1212-4121-8121-121212121212'
+    post.mockResolvedValueOnce({ data: dismissal })
+    const { result } = renderHook(() => useDismissJobQueueItem(scope), { wrapper })
+    await act(() =>
+      result.current.mutateAsync({ opportunityId: OPP, scope: 'TEAM', reason: 'SPAM' }),
+    )
+    post.mockResolvedValueOnce({ data: { ...dismissal, opportunityId: OTHER_OPP, version: 1 } })
+    await act(() =>
+      result.current.mutateAsync({ opportunityId: OTHER_OPP, scope: 'TEAM', reason: 'SPAM' }),
+    )
+    expect(post.mock.calls[1]?.[1]).not.toHaveProperty('expectedVersion')
+    post.mockResolvedValueOnce({ data: { ...dismissal, version: 3 } })
+    await act(() =>
+      result.current.mutateAsync({ opportunityId: OPP, scope: 'TEAM', reason: 'SPAM' }),
+    )
+    expect(post.mock.calls[2]?.[1]).toMatchObject({ expectedVersion: 2 })
+  })
+
   it('the studio scope sends no teamId', async () => {
     post.mockResolvedValueOnce({ data: { ...dismissal, scope: 'STUDIO' } })
     const { result } = renderHook(() => useDismissJobQueueItem(studio), { wrapper })
@@ -436,7 +470,10 @@ describe('useMarkJobOpened', () => {
     post.mockResolvedValueOnce({ data: undefined })
     const { result } = renderHook(() => useMarkJobOpened(scope), { wrapper })
     expect(result.current(OPP, SRC)).toBeUndefined()
-    expect(post).toHaveBeenCalledWith(`/job-queue/${OPP}/opened`, { teamId: TEAM, sourceRecordId: SRC })
+    expect(post).toHaveBeenCalledWith(`/job-queue/${OPP}/opened`, {
+      teamId: TEAM,
+      sourceRecordId: SRC,
+    })
   })
 
   it('keeps one function across renders and takes a new one for another team', () => {
@@ -526,7 +563,11 @@ describe('manual card and the ADMIN writes', () => {
       }),
     )
     expect(del).toHaveBeenCalledWith(`/job-queue/${OPP}/team-triage/${TEAM}`, {
-      data: { expectedGrantVersion: 1, reason: 'Done', idempotencyKey: expect.stringMatching(UUID) },
+      data: {
+        expectedGrantVersion: 1,
+        reason: 'Done',
+        idempotencyKey: expect.stringMatching(UUID),
+      },
     })
     expect(answer.revokedAt).toBe('2026-10-04T00:00:00.000Z')
   })
@@ -573,7 +614,9 @@ describe('manual card and the ADMIN writes', () => {
 
 describe('getJobQueuePossibleDuplicateConflict', () => {
   it('is null for any other error, and for no error', () => {
-    expect(getJobQueuePossibleDuplicateConflict(coded(409, 'JOB_QUEUE_VERSION_CONFLICT'))).toBeNull()
+    expect(
+      getJobQueuePossibleDuplicateConflict(coded(409, 'JOB_QUEUE_VERSION_CONFLICT')),
+    ).toBeNull()
     expect(getJobQueuePossibleDuplicateConflict(new Error('boom'))).toBeNull()
     expect(getJobQueuePossibleDuplicateConflict(null)).toBeNull()
   })

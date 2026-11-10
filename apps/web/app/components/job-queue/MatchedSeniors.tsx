@@ -25,10 +25,16 @@ function initials(name: string): string {
     .join('')
 }
 
+/** The own-scope submission row (taken or released); another team's bare marker is not one. */
+export function ownSubmission(senior: JobQueueCardSeniorDto) {
+  const s = senior.submission
+  return s && 'state' in s ? s : null
+}
+
 /** Own-scope submission row only; a released row reads as untouched, the bare marker apart (§3). */
 export function ownTaken(senior: JobQueueCardSeniorDto) {
-  const s = senior.submission
-  return s && 'state' in s && s.state === 'TAKEN' ? s : null
+  const s = ownSubmission(senior)
+  return s?.state === 'TAKEN' ? s : null
 }
 
 /**
@@ -282,7 +288,7 @@ export function MatchedSeniors({
         <Trans>Сеньйори зі збігом</Trans>
         {/* UX-L-5: `totalCount` counts the scope's LEAD and TRIAGE matches, so a triage card can
             carry one while showing no list; the count belongs to a rendered list only */}
-        {listed && card.seniors.totalCount > 0 && (
+        {listed && (
           <span className="ml-auto text-muted-foreground tabular-nums">
             {card.seniors.totalCount}
           </span>

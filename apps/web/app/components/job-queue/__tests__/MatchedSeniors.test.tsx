@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event'
 import type { JobQueueCardResponseDto } from '@crm/shared'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { useJobQueueSeniors } from '@/hooks/use-job-queue'
-import { MatchedSeniors } from '../MatchedSeniors'
+import { MatchedSeniors, ownSubmission } from '../MatchedSeniors'
 import { cardFixture, idleContinuation, OPP, senior, submission } from './card-fixtures'
 
 vi.mock('@/hooks/use-job-queue', async (orig) => ({
@@ -424,5 +424,16 @@ describe('MatchedSeniors', () => {
     seniorsHook.mockReturnValue(idleContinuation([], { isError: true, accessLost: true }) as never)
     await userEvent.click(screen.getByRole('button', { name: 'Спробувати ще раз' }))
     expect(onAccessLost).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ownSubmission', () => {
+  it("CR-M-1: another team's bare marker is not an own submission row", () => {
+    type Senior = Parameters<typeof ownSubmission>[0]
+    const marker = { submission: { submittedElsewhere: true } } as unknown as Senior
+    expect(ownSubmission(marker)).toBeNull()
+    expect(ownSubmission({ submission: null } as unknown as Senior)).toBeNull()
+    const own = { state: 'RELEASED', version: 2 }
+    expect(ownSubmission({ submission: own } as unknown as Senior)).toBe(own)
   })
 })
