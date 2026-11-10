@@ -1,0 +1,186 @@
+/**
+ * Contact scan (verified-base-resume Task 9): a senior's contact details never
+ * reach a third-party AI writer. A missed contact is a leak, so the scan is
+ * deliberately greedy and redaction is checked by re-scanning its own output.
+ */
+import { describe, expect, it } from 'vitest'
+import { redactContacts, scanContacts, type ContactContext } from './contact-scan'
+
+const ctx: ContactContext = { fullName: 'Mark Levin', emails: ['mark.levin@example.com'] }
+
+describe('scanContacts — names', () => {
+  it('does not hit the first name alone', () => {
+    expect(scanContacts('Mark built the pipeline', ctx)).toEqual([])
+  })
+
+  it('hits the full name and the surname alone', () => {
+    expect(scanContacts('Mark Levin led it', ctx)).toEqual([{ kind: 'name', match: 'Mark Levin' }])
+    expect(scanContacts('reviewed by Levin', ctx)).toEqual([{ kind: 'name', match: 'Levin' }])
+  })
+
+  it('matches case-insensitively, across any whitespace, and reports the text as written', () => {
+    expect(scanContacts('MARK \n  levin', ctx)).toEqual([{ kind: 'name', match: 'MARK \n  levin' }])
+  })
+
+  it('does not hit a surname inside another word', () => {
+    expect(scanContacts('Levine and Levins and SLevin', ctx)).toEqual([])
+  })
+
+  it('treats # and + as word characters at the boundary', () => {
+    expect(scanContacts('Levin# Levin+ #Levin', ctx)).toEqual([])
+  })
+
+  it('matches a diacritic surname whatever the Unicode normalisation of either side', () => {
+    const muller = { fullName: 'Anna Müller', emails: [] }
+    expect(scanContacts('by MÜLLER', muller)).toEqual([{ kind: 'name', match: 'MÜLLER' }])
+    // decomposed u + combining diaeresis in the text
+    expect(scanContacts('by Mu\u0308ller', muller)).toEqual([{ kind: 'name', match: 'Müller' }])
+    // decomposed in the context, composed in the text
+    expect(scanContacts('by Müller', { fullName: 'Anna Mu\u0308ller', emails: [] })).toEqual([
+      { kind: 'name', match: 'Müller' },
+    ])
+  })
+
+  it('accepts any whitespace between the parts of the context name', () => {
+    expect(scanContacts('Mark Levin led it', { fullName: 'Mark \t Levin', emails: [] })).toEqual([
+      { kind: 'name', match: 'Mark Levin' },
+    ])
+  })
+
+  it('uses the last token as the surname', () => {
+    const three = { fullName: 'Anna Maria Kowalska', emails: [] }
+    expect(scanContacts('Maria wrote it', three)).toEqual([])
+    expect(scanContacts('Kowalska wrote it', three)).toEqual([{ kind: 'name', match: 'Kowalska' }])
+  })
+
+  it('matches a single-token name as a whole token only', () => {
+    const mono = { fullName: '  Prince ', emails: [] }
+    expect(scanContacts('Prince sang', mono)).toEqual([{ kind: 'name', match: 'Prince' }])
+    expect(scanContacts('Princess sang', mono)).toEqual([])
+  })
+
+  it('ignores a one-letter surname but still matches the full name', () => {
+    const short = { fullName: 'Malcolm X', emails: [] }
+    expect(scanContacts('version X shipped', short)).toEqual([])
+    expect(scanContacts('Malcolm X spoke', short)).toEqual([{ kind: 'name', match: 'Malcolm X' }])
+  })
+
+  it('counts letters, not characters, for the surname minimum', () => {
+    expect(scanContacts("x'' shipped", { fullName: "Ann x''", emails: [] })).toEqual([])
+    expect(scanContacts('Li shipped', { fullName: 'Wei Li', emails: [] })).toEqual([
+      { kind: 'name', match: 'Li' },
+    ])
+  })
+
+  it('escapes regex metacharacters in the name', () => {
+    expect(scanContacts('a.b and axb', { fullName: 'Jo a.b', emails: [] })).toEqual([
+      { kind: 'name', match: 'a.b' },
+    ])
+  })
+
+  it('finds nothing for a blank name', () => {
+    const blank = { fullName: '   ', emails: [] }
+    // separators in the text: an empty name pattern would match between them
+    expect(scanContacts('nothing  here, at all.', blank)).toEqual([])
+    expect(redactContacts('nothing  here, at all.', blank)).toBe('nothing  here, at all.')
+  })
+})
+
+describe('scanContacts — phones and emails', () => {
+  it('hits an international phone number', () => {
+    expect(scanContacts('call +380671234567 now', ctx)).toEqual([
+      { kind: 'phone', match: '+380671234567' },
+    ])
+  })
+
+  it('hits every phone, not only the first', () => {
+    expect(scanContacts('+380671234567 or (067) 123-45-67', ctx)).toEqual([
+      { kind: 'phone', match: '+380671234567' },
+      { kind: 'phone', match: '(067) 123-45-67' },
+    ])
+  })
+
+  it('hits any email the pattern recognises, not only the senior’s', () => {
+    expect(scanContacts('write to a@b.io or c@d.dev', ctx)).toEqual([
+      { kind: 'email', match: 'a@b.io' },
+      { kind: 'email', match: 'c@d.dev' },
+    ])
+  })
+
+  it('hits a context email the pattern misses, case-insensitively', () => {
+    const odd = { fullName: 'Mark Levin', emails: ['ml@intranet'] }
+    expect(scanContacts('ping ML@INTRANET today', odd)).toEqual([
+      { kind: 'email', match: 'ML@INTRANET' },
+    ])
+  })
+
+  it('reports an email once when the pattern and the context list both find it', () => {
+    expect(scanContacts('mail mark.levin@example.com', ctx)).toEqual([
+      { kind: 'email', match: 'mark.levin@example.com' },
+    ])
+  })
+
+  it('normalises a context email before the literal match', () => {
+    const nfd = { fullName: 'Mark Levin', emails: ['mu\u0308ller@intranet'] }
+    expect(scanContacts('ping müller@intranet', nfd)).toEqual([
+      { kind: 'email', match: 'müller@intranet' },
+    ])
+  })
+
+  it('prefers the longer of two hits that start together', () => {
+    // the pattern stops at `_`; the context address, found later, runs on
+    const long = { fullName: 'Mark Levin', emails: ['ml@x.io_old'] }
+    expect(scanContacts('ml@x.io_old', long)).toEqual([{ kind: 'email', match: 'ml@x.io_old' }])
+  })
+
+  it('ignores blank context emails', () => {
+    expect(scanContacts('plain  text', { fullName: 'Mark Levin', emails: ['', '  '] })).toEqual([])
+  })
+
+  it('trims a context email before the literal match', () => {
+    const padded = { fullName: 'Mark Levin', emails: [' ml@intranet '] }
+    expect(scanContacts('ping ml@intranet.', padded)).toEqual([
+      { kind: 'email', match: 'ml@intranet' },
+    ])
+  })
+
+  it('keeps the longer of two overlapping hits and reports hits in text order', () => {
+    const named = { fullName: 'Mark Levin', emails: ['levin@x.io'] }
+    expect(scanContacts('Levin then levin@x.io', named)).toEqual([
+      { kind: 'name', match: 'Levin' },
+      { kind: 'email', match: 'levin@x.io' },
+    ])
+  })
+})
+
+describe('redactContacts', () => {
+  const sample = 'Mark Levin (+380671234567, mark.levin@example.com) — Levin led it; Mark reviewed.'
+
+  it('replaces every hit with [REDACTED] and leaves the rest alone', () => {
+    expect(redactContacts(sample, ctx)).toBe(
+      '[REDACTED] ([REDACTED], [REDACTED]) — [REDACTED] led it; Mark reviewed.',
+    )
+  })
+
+  it('merges overlapping and adjacent spans into one replacement', () => {
+    const named = { fullName: 'Mark Levin', emails: ['levin@x.io'] }
+    expect(redactContacts('Levinlevin@x.io', named)).toBe('[REDACTED]')
+    // the surname ends exactly where the phone begins
+    expect(redactContacts('Levin(067) 123-45-67 ok', named)).toBe('[REDACTED] ok')
+  })
+
+  it('returns text without contacts unchanged', () => {
+    expect(redactContacts('no contacts here', ctx)).toBe('no contacts here')
+  })
+
+  it('is idempotent', () => {
+    const once = redactContacts(sample, ctx)
+    expect(redactContacts(once, ctx)).toBe(once)
+  })
+
+  it('leaves nothing for a re-scan to find', () => {
+    expect(scanContacts(redactContacts(sample, ctx), ctx)).toEqual([])
+    const muller = { fullName: 'Anna Müller', emails: [] }
+    expect(scanContacts(redactContacts('by Mu\u0308ller', muller), muller)).toEqual([])
+  })
+})
