@@ -487,11 +487,10 @@ opaque = opaque or bool(work)
 # arguments (its owner is rm), so that body stays in the text every predicate reads.
 DATA_SINKS = {"cat", "tee", "gh", "git", "jq", "grep", "wc", "head", "tail", "sort"}
 naive = cmd
-HEREDOC_OPENER = re.compile(r"^\d*<<-?(?!<)")
 for g in scanned:
-    # stripped only when this segment opened every body it carries (see cmdscan above)
-    if cmd_name(g.name) not in DATA_SINKS or \
-            sum(bool(HEREDOC_OPENER.match(a)) for a in g.argv) != len(g.heredocs):
+    # stripped only when this segment opened every body it carries (see cmdscan above);
+    # opened counts real openers, so a quoted `\x27<<X\x27` argument does not count
+    if cmd_name(g.name) not in DATA_SINKS or g.opened != len(g.heredocs):
         continue
     for body in g.heredocs:
         if body.strip():

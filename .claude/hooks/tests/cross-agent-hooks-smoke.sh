@@ -310,6 +310,7 @@ bash_case block "$MINE" "source /dev/stdin <<< 'pkill -f node'"                '
 bash_case block "$MINE" $'source -- /dev/stdin <<EOF\npkill -f node\nEOF'      'source -- /dev/stdin runs the heredoc'
 bash_case block "$MINE" "echo \$'\\'' > $OTHER/f; echo 'x'"                  'an ANSI-C quoted escaped quote opens no long span'
 bash_case allow "$MINE" "source ./env.sh"                                       'source of a script file'
+bash_case block "$MINE" $'xargs rm -rf <<EOF; cat \'<<X\'\n'"$OTHER"$'/src\nEOF' 'a quoted <<X argument is not a heredoc opener'
 bash_case block "$MINE" "timeout 60 rm -rf $OTHER/dist"                     'CR-M-1: mutator behind timeout'
 
 # ── the target is not a literal, so ownership cannot be established ───────────

@@ -583,7 +583,7 @@ def _command_name(word):
 class Segment:
     __slots__ = (
         "name", "argv", "payload", "wrappers", "dynamic", "raw", "depth",
-        "env", "confident", "why", "heredocs",
+        "env", "confident", "why", "heredocs", "opened",
     )
 
     def __init__(self, name, argv, payload, wrappers, dynamic, raw, depth,
@@ -600,6 +600,8 @@ class Segment:
         self.why = why
         # the heredoc bodies this segment reads on stdin (data unless the command runs it)
         self.heredocs = tuple(heredocs)
+        # how many heredoc openers this segment holds (set by scan from _split_segments)
+        self.opened = 0
 
     def positionals(self, value_flags=()):
         """argv minus flags and the values consumed by `value_flags`."""
@@ -1271,6 +1273,9 @@ def _split_segments(text):
     segs = []
     cur = []
     cur_heredocs = []
+    # heredoc openers in the current segment: bodies are handed to the LAST segment of
+    # their line, so this count is what tells a caller whether a segment opened them
+    opened = [0]
     code = []
     pending = []
     quote = None
@@ -1280,9 +1285,10 @@ def _split_segments(text):
     def flush():
         raw = "".join(cur).strip()
         if raw or cur_heredocs:
-            segs.append((raw, list(cur_heredocs)))
+            segs.append((raw, list(cur_heredocs), opened[0]))
         del cur[:]
         del cur_heredocs[:]
+        opened[0] = 0
 
     while i < n:
         ch = text[i]
@@ -1317,6 +1323,7 @@ def _split_segments(text):
         if opener is not None:
             length, delim, strip_tabs, _literal = opener
             pending.append((delim, strip_tabs))
+            opened[0] += 1
             cur.append(text[i:i + length])
             code.append(text[i:i + length])
             i += length
@@ -2239,7 +2246,7 @@ def scan(command_line, depth=0, env=None):
     # was not predicted either.
     if spans:
         captured = set()
-        for _raw, _heredocs in raw_segments:
+        for _raw, _heredocs, _opened in raw_segments:
             captured.update(_heredocs)
         for start, end in spans:
             if command_line[start:end].strip("\n") not in captured:
@@ -2258,12 +2265,13 @@ def scan(command_line, depth=0, env=None):
         assigns.update(sub.assigns)
         return sub.code_view, sub.degraded, sub.truncated
 
-    for raw, heredocs in raw_segments:
+    for raw, heredocs, opened in raw_segments:
         tokens, deg = _tokenize(raw)
         degraded = degraded or deg
         seg, nested, exports = _build_segment(
             raw, tokens, heredocs, running_env, depth, deg,
         )
+        seg.opened = opened
         segments.append(seg)
         assigns.update(seg.env)
         # exports outlive their segment; an inline prefix does not.
