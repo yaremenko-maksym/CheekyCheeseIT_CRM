@@ -97,7 +97,14 @@ if ! python3 -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=
     "$HOOKS_DIR/lib/cmdscan.py"
   exit 1
 fi
-echo "gate 0: $SYNTAX_CHECKED hooks parse, lib/cmdscan.py compiles"
+if ! python3 -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
+  "$HOOKS_DIR/lib/pre_bash_safety.py" >/dev/null 2>&1; then
+  echo "FATAL: lib/pre_bash_safety.py does not compile"
+  python3 -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
+    "$HOOKS_DIR/lib/pre_bash_safety.py"
+  exit 1
+fi
+echo "gate 0: $SYNTAX_CHECKED hooks parse, lib/cmdscan.py and lib/pre_bash_safety.py compile"
 
 # Gate 0b. FIXTURE FIDELITY — the same class of problem as gate 0, learned the
 # hard way (PR #1025: green here, red in CI).

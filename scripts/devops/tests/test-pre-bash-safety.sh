@@ -863,6 +863,25 @@ big="npm exec -c$(printf 'x%.0s' $(seq 4998))"
 t0=$SECONDS
 assert_red "a 5000-char -c word refuses as too complex" --contains "too complex" -- h "$big"
 assert_green "a 5000-char -c word refuses within 10 s" -- test $((SECONDS - t0)) -le 10
+# #1304: rescanned tail bytes are budgeted; long tails refuse as too complex.
+repro="npm exec $(printf -- '--a= %.0s' $(seq 249))-c 'rm -rf /etc' $(printf 'w %.0s' $(seq 16000))"
+t0=$SECONDS
+assert_red "#1304 repro: 249 options with long tail refuses" -- h "$repro"
+assert_green "#1304 repro: finishes within 10 s" -- test $((SECONDS - t0)) -le 10
+harmless="npm exec $(printf -- '--a= %.0s' $(seq 249))-c 'echo hi' $(printf 'w %.0s' $(seq 16000))"
+t0=$SECONDS
+assert_red "#1304 harmless variant refuses as too complex" --contains "too complex" -- h "$harmless"
+assert_green "#1304 harmless variant finishes within 10 s" -- test $((SECONDS - t0)) -le 10
+many="npm exec $(printf -- '-a %.0s' $(seq 20000))x"
+t0=$SECONDS
+assert_red "#1304: 20000 short options refuse as too complex" --contains "too complex" -- h "$many"
+assert_green "#1304: 20000 short options refuse within 10 s" -- test $((SECONDS - t0)) -le 10
+files="$(printf 'apps/api/src/some/module/file-%s.spec.ts ' $(seq 500))"
+assert_green "#1304: a 500-file vitest run is not too complex" -- h "pnpm exec vitest run --reporter=dot $files"
+assert_green "#1304: a 450-char long option is not too complex" \
+  -- h "pnpm exec prettier --write --config=$(printf 'c%.0s' $(seq 450)) x.ts"
+assert_green "normal runner command passes: pnpm --filter @crm/api exec vitest run a b c" \
+  -- h "pnpm --filter @crm/api exec vitest run a b c"
 for c in 'pnpm --filter $pkg test' 'pnpm --filter @crm/api test' 'pnpm install' 'pnpm -r build' \
          'pnpm -w add -D x' 'yarn install' 'pnpm exec vitest run "$FILE"' 'pnpm -F $pkg run build' \
          'yarn --cwd apps/web install'; do

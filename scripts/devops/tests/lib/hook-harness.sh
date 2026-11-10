@@ -69,6 +69,7 @@ hook_with_broken_lib() {
   local ws="$1" hook_name="$2"
   mkdir -p "$ws/broken/lib"
   cp "$REPO_ROOT/.claude/hooks/$hook_name" "$ws/broken/$hook_name"
+  cp "$REPO_ROOT/.claude/hooks/lib/"*.py "$ws/broken/lib/"
   printf 'def scan(:\n    this is not python\n' >"$ws/broken/lib/cmdscan.py"
   printf '%s' "$ws/broken/$hook_name"
 }
