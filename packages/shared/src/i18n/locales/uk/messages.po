@@ -9467,6 +9467,7 @@ msgstr "Немає зобов’язань"
 msgid "Сб"
 msgstr "Сб"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
 #: apps/web/app/components/job-queue/JobQueueFilters.tsx
 msgid "Прострочена"
 msgstr "Прострочена"

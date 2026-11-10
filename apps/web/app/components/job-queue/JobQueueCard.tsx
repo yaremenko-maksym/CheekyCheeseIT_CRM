@@ -51,7 +51,11 @@ function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
               className={cn(CHIP, 'border-destructive text-destructive')}
             >
               <TriangleAlert aria-hidden="true" className="size-3.5" />
-              <Trans>Закрита</Trans>
+              {card.availability === 'EXPIRED' ? (
+                <Trans>Прострочена</Trans>
+              ) : (
+                <Trans>Закрита</Trans>
+              )}
             </span>
           )}
         </div>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { toast } from 'sonner'
@@ -52,6 +52,18 @@ import { ownTaken, submittedElsewhere } from './MatchedSeniors'
 /** §5.6: the one conflict text, used everywhere; it never says who changed what, or where. */
 export const CONFLICT_NOTE = msg`Дані змінилися. Оновіть картку й повторіть.`
 
+/**
+ * QA-MED-2 / UX-L-3 / QA-LOW-2: every toast of the queue actions gets 44 px targets on mobile, on
+ * these toasts only (sonner's styles are unlayered, hence `!`). The close keeps its 20 px circle; a
+ * transparent `::before` widens its hit area, so it neither overhangs the corner nor meets the title.
+ */
+export const JOB_QUEUE_TOAST = {
+  classNames: {
+    actionButton: 'max-sm:min-h-11! max-sm:px-4!',
+    closeButton: 'max-sm:before:absolute max-sm:before:-inset-3',
+  },
+}
+
 /** A 409 from a concurrent change (an expected version or a reused key no longer matches). */
 export function isQueueConflict(error: unknown) {
   const code = getApiErrorCode(error)
@@ -70,9 +82,16 @@ const BLOCKING = cn(NOTE, 'border-destructive/40')
 export function useCardGate(card: JobQueueCardResponseDto, refetch: () => void) {
   const [seenRevision, setSeenRevision] = useState(card.revision)
   const [conflict, setConflict] = useState(false)
+  const refresh = useRef<HTMLButtonElement>(null)
   const closed = card.availability === 'CLOSED' || card.availability === 'EXPIRED'
   const stale = !closed && card.revision > seenRevision
   const earlier = card.submittedSeniorCount
+
+  // UX-L-2: the actor's own write met the newer revision; focus goes to the one way forward, in the
+  // commit (a senior's own restore runs first, as a child), so it never drops to <body>
+  useLayoutEffect(() => {
+    if (stale && conflict) refresh.current?.focus()
+  }, [stale, conflict])
 
   const notes = (
     <>
@@ -117,6 +136,7 @@ export function useCardGate(card: JobQueueCardResponseDto, refetch: () => void) 
             </div>
           </div>
           <Button
+            ref={refresh}
             type="button"
             variant="outline"
             className="min-h-11 shrink-0 self-start sm:self-auto"
@@ -315,12 +335,15 @@ export function AdminVacancyMenu({
               { opportunityId },
               {
                 onSuccess: () => {
-                  toast.success(t`Приховано`)
+                  toast.success(t`Приховано`, JOB_QUEUE_TOAST)
                   onClose()
                 },
                 onError: (error) => {
                   if (!isAccessLoss(error))
-                    toast.error(t`Не вдалося приховати вакансію. Спробуйте ще раз.`)
+                    toast.error(
+                      t`Не вдалося приховати вакансію. Спробуйте ще раз.`,
+                      JOB_QUEUE_TOAST,
+                    )
                 },
               },
             )
@@ -369,7 +392,7 @@ function CancelSubmissionMenu({
                 onError: (error) => {
                   if (isQueueConflict(error)) onConflict(true)
                   else if (!isAccessLoss(error))
-                    toast.error(t`Не вдалося скасувати подачу. Спробуйте ще раз.`)
+                    toast.error(t`Не вдалося скасувати подачу. Спробуйте ще раз.`, JOB_QUEUE_TOAST)
                 },
               },
             )
@@ -414,26 +437,29 @@ function DuplicateConfirm({
           <p id={`job-queue-duplicate-title-${seniorId}`} className="font-medium text-pretty">
             <Trans>Цього сеньйора вже подано на схожу вакансію</Trans>
           </p>
-          <p className="text-muted-foreground text-pretty">
+          <p className="text-foreground/70 text-pretty">
             <Trans>Ви впевнені, що це інша вакансія?</Trans>
           </p>
         </div>
       </div>
+      {/* QA-MED-1: `aria-disabled`, not `disabled`, while pending: a browser drops focus off a
+          disabled button to <body>, outside the Escape scope, and Escape then closes the card */}
       <div className="flex flex-col items-start gap-2 sm:flex-row">
         <Button
           ref={keepRef}
           type="button"
-          className="min-h-11 sm:min-h-9"
-          disabled={pending}
-          onClick={onKeep}
+          className="min-h-11 aria-disabled:opacity-50 sm:min-h-9"
+          aria-disabled={pending || undefined}
+          onClick={pending ? undefined : onKeep}
         >
           <Trans>Не записувати</Trans>
         </Button>
         <Button
           type="button"
           variant="outline"
-          className="min-h-11 sm:min-h-9"
-          disabled={pending}
+          // UX-L-1: the default outline border is invisible on the amber surface
+          className="min-h-11 border-yellow-muted aria-disabled:opacity-50 sm:min-h-9"
+          aria-disabled={pending || undefined}
           aria-busy={pending || undefined}
           onClick={onConfirm}
         >
@@ -484,14 +510,23 @@ export function SeniorAction({
     if (confirming) keep.current?.focus()
   }, [confirming])
 
-  useEffect(() => {
+  // CR-M-3: a layout effect, so the restore runs in the commit, before Radix FocusScope parks focus
+  // on the dialog when the focused confirm unmounts
+  useLayoutEffect(() => {
     const li = (button.current ?? keep.current ?? menuBox.current)?.closest('li')
     if (li) row.current = li
     const wait = focusAfter.current
     if (!wait || confirming) return
     const active = document.activeElement
-    // the actor moved on: never pull focus back
-    if (active && active !== document.body && !row.current?.contains(active)) {
+    // P2-1: only <body>, the card dialog or this senior's own target are "not moved on"; any other
+    // focus (in this row or not) is the actor's choice, never pulled back
+    const parked =
+      !active ||
+      active === document.body ||
+      active.matches('[role="dialog"]') ||
+      active === button.current ||
+      active === row.current
+    if (!parked) {
       focusAfter.current = null
       return
     }
@@ -535,7 +570,7 @@ export function SeniorAction({
         onSuccess: () => {
           focusAfter.current = { taken: true }
           setConfirming(false)
-          toast.success(t`Подачу записано: ${who}`)
+          toast.success(t`Подачу записано: ${who}`, JOB_QUEUE_TOAST)
         },
         onError: (error) => {
           if (getJobQueuePossibleDuplicateConflict(error)) return setConfirming(true)
@@ -543,7 +578,7 @@ export function SeniorAction({
           setConfirming(false)
           if (isQueueConflict(error)) onConflict(true)
           else if (!isAccessLoss(error))
-            toast.error(t`Не вдалося записати подачу. Спробуйте ще раз.`)
+            toast.error(t`Не вдалося записати подачу. Спробуйте ще раз.`, JOB_QUEUE_TOAST)
         },
         onSettled: () => {
           inFlight.current = false
@@ -575,8 +610,10 @@ export function SeniorAction({
       data-testid={`job-queue-submit-${senior.seniorId}`}
       aria-label={t`Записати подачу: ${who}`}
       aria-busy={pending || undefined}
-      disabled={blocked || pending}
-      className="min-h-11 w-full sm:w-auto sm:self-start"
+      // QA-MED-1: pending is `aria-disabled` (focus stays); `send` drops the click while in flight
+      aria-disabled={pending || undefined}
+      disabled={blocked}
+      className="min-h-11 w-full aria-disabled:opacity-50 sm:w-auto sm:self-start"
       onClick={() => send(false)}
     >
       {pending ? (

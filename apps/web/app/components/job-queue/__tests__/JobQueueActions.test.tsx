@@ -16,6 +16,7 @@ import {
 } from '@/hooks/use-job-queue'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { JobQueueCard } from '../JobQueueCard'
+import { JOB_QUEUE_TOAST } from '../JobQueueActions'
 import {
   cardFixture,
   idleContinuation,
@@ -175,11 +176,15 @@ describe('«Записати подачу» (AC 1, AC 2)', () => {
     })
     expect(sent(SUBMIT)[0]).not.toHaveProperty('expectedVersion')
     expect(sent(SUBMIT)[0]).not.toHaveProperty('confirmPossibleDuplicate')
-    await waitFor(() => expect(submitButton()).toBeDisabled())
+    // QA-MED-1 / UX-L-2: unavailable but not `disabled`, so a browser keeps the focus on it
+    await waitFor(() => expect(submitButton()).toHaveAttribute('aria-disabled', 'true'))
+    expect(submitButton()).not.toBeDisabled()
     expect(submitButton()).toHaveAttribute('aria-busy', 'true')
     expect(submitButton()).toHaveTextContent('Записуємо…')
     await act(async () => settle(submitted()))
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Подачу записано: Олена Коваль'))
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Подачу записано: Олена Коваль', JOB_QUEUE_TOAST),
+    )
     expect(toast.error).not.toHaveBeenCalled()
   })
 
@@ -245,12 +250,51 @@ describe('«Записати подачу» (AC 1, AC 2)', () => {
     expect(await screen.findByTestId('job-queue-conflict')).toHaveTextContent(CONFLICT_TEXT)
   })
 
+  it('UX-L-3: every toast of the submit flow carries the 44 px mobile targets', async () => {
+    post.mockRejectedValueOnce(httpError(500, {}))
+    renderCard()
+    fireEvent.click(submitButton())
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'Не вдалося записати подачу. Спробуйте ще раз.',
+        JOB_QUEUE_TOAST,
+      ),
+    )
+    post.mockResolvedValueOnce(submitted())
+    fireEvent.click(submitButton())
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Подачу записано: Олена Коваль', JOB_QUEUE_TOAST),
+    )
+  })
+
+  it("UX-L-2: after the actor's own write meets a newer revision, focus lands on «Оновити картку»", async () => {
+    setCard(twoSeniors())
+    const { rerender } = renderCard()
+    post.mockRejectedValueOnce(coded(409, 'JOB_QUEUE_VERSION_CONFLICT'))
+    fireEvent.click(submitButton())
+    await screen.findByTestId('job-queue-conflict')
+    setCard(twoSeniors({ revision: 4 }))
+    rerender()
+    expect(screen.getByRole('button', { name: 'Оновити картку' })).toHaveFocus()
+  })
+
+  it('UX-L-2: a newer revision nobody acted on does not steal focus', () => {
+    setCard(twoSeniors())
+    const { rerender } = renderCard()
+    setCard(twoSeniors({ revision: 4 }))
+    rerender()
+    expect(screen.getByRole('button', { name: 'Оновити картку' })).not.toHaveFocus()
+  })
+
   it('a failed write toasts the failure and the same button sends again', async () => {
     post.mockRejectedValueOnce(httpError(500, {}))
     renderCard()
     fireEvent.click(submitButton())
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Не вдалося записати подачу. Спробуйте ще раз.'),
+      expect(toast.error).toHaveBeenCalledWith(
+        'Не вдалося записати подачу. Спробуйте ще раз.',
+        JOB_QUEUE_TOAST,
+      ),
     )
     expect(screen.queryByTestId('job-queue-conflict')).toBeNull()
     await waitFor(() => expect(submitButton()).toBeEnabled())
@@ -271,7 +315,7 @@ describe('«Записати подачу» (AC 1, AC 2)', () => {
     post.mockReturnValueOnce(new Promise(() => {}))
     renderCard()
     fireEvent.click(submitButton(OLENA))
-    await waitFor(() => expect(submitButton(OLENA)).toBeDisabled())
+    await waitFor(() => expect(submitButton(OLENA)).toHaveAttribute('aria-disabled', 'true'))
     expect(submitButton(PETRO)).toBeEnabled()
     expect(submitButton(PETRO)).toHaveTextContent('Записати подачу')
     fireEvent.click(submitButton(PETRO))
@@ -283,7 +327,7 @@ describe('«Записати подачу» (AC 1, AC 2)', () => {
     post.mockReturnValueOnce(new Promise(() => {}))
     const { rerender } = renderCard(HR)
     fireEvent.click(submitButton())
-    await waitFor(() => expect(submitButton()).toBeDisabled())
+    await waitFor(() => expect(submitButton()).toHaveAttribute('aria-disabled', 'true'))
     rerender({ ...HR, teamId: OTHER_TEAM })
     await waitFor(() => expect(submitButton()).toBeEnabled())
     fireEvent.click(submitButton())
@@ -319,7 +363,7 @@ describe('possible-duplicate confirm (AC 3, §5.8)', () => {
     // the safe choice is the filled (primary) button, the override the outline one
     expect(keep).toHaveClass('bg-primary')
     const anyway = within(confirm).getByRole('button', { name: 'Так, записати все одно' })
-    expect(anyway).toHaveClass('border-border')
+    expect(anyway).toHaveClass('border')
     expect(anyway).not.toHaveClass('bg-primary')
     expect(confirm).not.toHaveTextContent('Скасувати')
     expect(toast.error).not.toHaveBeenCalled()
@@ -339,18 +383,89 @@ describe('possible-duplicate confirm (AC 3, §5.8)', () => {
       expectedOpportunityRevision: 3,
       confirmPossibleDuplicate: true,
     })
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Подачу записано: Олена Коваль'))
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Подачу записано: Олена Коваль', JOB_QUEUE_TOAST),
+    )
   })
 
-  it('CR-L-1: while the confirmed request runs, «Не записувати» is disabled too', async () => {
-    const { confirm } = await openConfirm()
+  it('CR-L-1: while the confirmed request runs, «Не записувати» is unavailable too (and does nothing)', async () => {
+    const { confirm, onClose } = await openConfirm()
     let settle!: (value: unknown) => void
     post.mockReturnValueOnce(new Promise((resolve) => (settle = resolve)))
     fireEvent.click(within(confirm).getByRole('button', { name: 'Так, записати все одно' }))
-    await waitFor(() =>
-      expect(within(confirm).getByRole('button', { name: 'Не записувати' })).toBeDisabled(),
-    )
+    const keep = within(confirm).getByRole('button', { name: 'Не записувати' })
+    await waitFor(() => expect(keep).toHaveAttribute('aria-disabled', 'true'))
+    fireEvent.click(keep)
+    expect(screen.getByTestId(`job-queue-duplicate-confirm-${OLENA}`)).toBeInTheDocument()
     await act(async () => settle(submitted()))
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  // QA-MED-1: a real browser moves focus off a `disabled` button to <body>, outside the
+  // `[data-escape-scope]` the card spares, so Escape closed the card mid-request. jsdom does not
+  // blur a disabled button, so this asserts the mechanism: the focused buttons are never `disabled`.
+  it('QA-MED-1: while the confirmed request runs, focus stays in the confirm and Escape keeps the card open', async () => {
+    const user = userEvent.setup()
+    const { confirm, onClose } = await openConfirm()
+    let settle!: (value: unknown) => void
+    post.mockReturnValueOnce(new Promise((resolve) => (settle = resolve)))
+    const anyway = within(confirm).getByRole('button', { name: 'Так, записати все одно' })
+    await user.click(anyway)
+    await waitFor(() => expect(anyway).toHaveAttribute('aria-busy', 'true'))
+    expect(anyway).not.toBeDisabled()
+    expect(within(confirm).getByRole('button', { name: 'Не записувати' })).not.toBeDisabled()
+    expect(anyway).toHaveFocus()
+    await user.keyboard('{Escape}')
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByTestId(`job-queue-duplicate-confirm-${OLENA}`)).toBeInTheDocument()
+    fireEvent.click(anyway)
+    expect(sent(SUBMIT)).toHaveLength(2)
+    await act(async () => settle(submitted()))
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Подачу записано: Олена Коваль', JOB_QUEUE_TOAST),
+    )
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  // CR-M-3: in a real browser Radix FocusScope parks focus on the dialog container when the focused
+  // confirm button unmounts. That is not "the actor moved on": the restore still lands on the senior.
+  it('CR-M-3: focus parked on the card dialog after a confirmed success still returns to the senior', async () => {
+    const { confirm, rerender } = await openConfirm()
+    post.mockResolvedValueOnce(submitted())
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Так, записати все одно' }))
+    await waitFor(() => expect(toast.success).toHaveBeenCalled())
+    act(() => screen.getByTestId('job-queue-card').focus())
+    setCard(
+      cardFixture({ seniors: { items: [senior(taken(OLENA))], totalCount: 1, nextCursor: null } }),
+    )
+    rerender()
+    await waitFor(() => expect(screen.getByTestId(`job-queue-senior-${OLENA}`)).toHaveFocus())
+  })
+
+  it('P2-1: once the actor focuses another control, even inside the senior row, focus is not pulled back', async () => {
+    const { confirm, rerender } = await openConfirm()
+    post.mockResolvedValueOnce(submitted())
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Так, записати все одно' }))
+    await waitFor(() => expect(submitButton()).toHaveFocus())
+    // a second control in the row (the ADMIN «⋯» is one); added by hand to keep the setup HR-only
+    const other = document.createElement('button')
+    screen.getByTestId(`job-queue-senior-${OLENA}`).append(other)
+    act(() => other.focus())
+    rerender()
+    expect(other).toHaveFocus()
+    setCard(
+      cardFixture({ seniors: { items: [senior(taken(OLENA))], totalCount: 1, nextCursor: null } }),
+    )
+    rerender()
+    expect(other).toHaveFocus()
+  })
+
+  it('UX-M-1 / UX-L-1: the confirm subtext and the outline button read on the amber surface', async () => {
+    const { confirm } = await openConfirm()
+    expect(screen.getByText('Ви впевнені, що це інша вакансія?')).toHaveClass('text-foreground/70')
+    expect(within(confirm).getByRole('button', { name: 'Так, записати все одно' })).toHaveClass(
+      'border-yellow-muted',
+    )
   })
 
   it('CR-L-2: a confirmed success puts focus on the senior: its button, then its row once submitted', async () => {
@@ -668,7 +783,7 @@ describe('«Приховати» (AC 6, §5.9)', () => {
     const { options } = await lastUndo()
     post.mockRejectedValueOnce(coded(409, 'JOB_QUEUE_VERSION_CONFLICT'))
     act(() => options.action.onClick())
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(CONFLICT_TEXT))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(CONFLICT_TEXT, JOB_QUEUE_TOAST))
     expect(sent(UNDO)).toHaveLength(1)
     expect(sent(UNDO)[0]).toMatchObject({ expectedVersion: 2 })
   })
@@ -680,7 +795,7 @@ describe('«Приховати» (AC 6, §5.9)', () => {
     unmount()
     post.mockRejectedValueOnce(coded(409, 'JOB_QUEUE_VERSION_CONFLICT'))
     act(() => options.action.onClick())
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(CONFLICT_TEXT))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(CONFLICT_TEXT, JOB_QUEUE_TOAST))
     expect(sent(UNDO)[0]).toMatchObject({ teamId: TEAM, scope: 'TEAM', expectedVersion: 2 })
   })
 
@@ -732,14 +847,25 @@ describe('«Приховати» (AC 6, §5.9)', () => {
       options: { classNames: { actionButton: string; closeButton: string } }
     }
     expect(options.classNames.actionButton).toContain('max-sm:min-h-11!')
-    expect(options.classNames.closeButton).toContain('max-sm:size-11!')
+    // QA-LOW-2: a transparent 44 px hit area around the 20 px circle, not a 44 px circle
+    expect(options.classNames.closeButton).toContain('max-sm:before:-inset-3')
+    expect(options.classNames.closeButton).not.toContain('max-sm:size-11!')
+  })
+
+  it('UX-L-3: the hide failure and conflict toasts get the same mobile targets', async () => {
+    post.mockRejectedValueOnce(coded(409, 'JOB_QUEUE_VERSION_CONFLICT'))
+    await hideAsSpam()
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(CONFLICT_TEXT, JOB_QUEUE_TOAST))
   })
 
   it('a failed hide toasts its failure and offers no undo', async () => {
     post.mockRejectedValueOnce(httpError(500, {}))
     const { onClose } = await hideAsSpam()
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Не вдалося приховати вакансію. Спробуйте ще раз.'),
+      expect(toast.error).toHaveBeenCalledWith(
+        'Не вдалося приховати вакансію. Спробуйте ще раз.',
+        JOB_QUEUE_TOAST,
+      ),
     )
     expect(toastFn).not.toHaveBeenCalled()
     expect(onClose).not.toHaveBeenCalled()
@@ -748,7 +874,7 @@ describe('«Приховати» (AC 6, §5.9)', () => {
   it('a hide conflict shows the conflict text', async () => {
     post.mockRejectedValueOnce(coded(409, 'JOB_QUEUE_VERSION_CONFLICT'))
     await hideAsSpam()
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(CONFLICT_TEXT))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(CONFLICT_TEXT, JOB_QUEUE_TOAST))
   })
 
   it('ADMIN in the studio scope hides for the whole studio', async () => {
@@ -822,7 +948,7 @@ describe('RBAC: ADMIN menus (AC 6, §5.6)', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Приховати для всіх' }))
     await waitFor(() => expect(sent(`/job-queue/${OPP}/suppress`)).toHaveLength(1))
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
-    expect(toast.success).toHaveBeenCalledWith('Приховано')
+    expect(toast.success).toHaveBeenCalledWith('Приховано', JOB_QUEUE_TOAST)
   })
 
   it('ADMIN: «Не приховувати» keeps the vacancy, with no request', async () => {

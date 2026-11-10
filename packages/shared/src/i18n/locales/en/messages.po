@@ -9467,6 +9467,7 @@ msgstr "No obligations"
 msgid "Сб"
 msgstr "Sat"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
 #: apps/web/app/components/job-queue/JobQueueFilters.tsx
 msgid "Прострочена"
 msgstr "Expired"

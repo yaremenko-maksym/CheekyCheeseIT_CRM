@@ -18,7 +18,7 @@ import {
   useUndoJobQueueDismissal,
   type QueueScopeSignature,
 } from '@/hooks/use-job-queue'
-import { CONFLICT_NOTE, isQueueConflict } from './JobQueueActions'
+import { CONFLICT_NOTE, isQueueConflict, JOB_QUEUE_TOAST } from './JobQueueActions'
 
 const UNDO_MS = 8000
 
@@ -27,12 +27,6 @@ const REASONS = [
   { reason: 'SPAM', label: msg`Спам` },
   { reason: 'DEAD_LINK', label: msg`Мертве посилання` },
 ] as const
-
-/** QA-MED-2: sonner's action and close are 24 / 20 px; 44 px on mobile, for this toast only. */
-const UNDO_TOAST_TARGETS = {
-  actionButton: 'max-sm:min-h-11! max-sm:px-4!',
-  closeButton: 'max-sm:size-11!',
-}
 
 /**
  * «Приховати» (§5.9): a fixed reason, scoped to the actor (own team; ADMIN in the studio scope —
@@ -57,8 +51,8 @@ export function DismissMenu({
   const kind = scope.role === 'ADMIN' && scope.teamId === null ? 'STUDIO' : 'TEAM'
 
   const failed = (error: unknown, failure: string) => {
-    if (isQueueConflict(error)) toast.error(t(CONFLICT_NOTE))
-    else if (!isAccessLoss(error)) toast.error(failure)
+    if (isQueueConflict(error)) toast.error(t(CONFLICT_NOTE), JOB_QUEUE_TOAST)
+    else if (!isAccessLoss(error)) toast.error(failure, JOB_QUEUE_TOAST)
   }
 
   const hide = (reason: JobQueueDismissRequestDto['reason']) =>
@@ -67,8 +61,8 @@ export function DismissMenu({
       {
         onSuccess: (res) => {
           toast(t`Приховано`, {
+            ...JOB_QUEUE_TOAST,
             duration: UNDO_MS,
-            classNames: UNDO_TOAST_TARGETS,
             action: {
               // Stryker disable next-line ObjectLiteral,StringLiteral: Lingui's t() macro must read this descriptor as a literal at compile time; an instrumented literal misses the en entry and the dry run fails before any mutant
               label: t({ message: 'Скасувати', context: 'undo a hide' }),

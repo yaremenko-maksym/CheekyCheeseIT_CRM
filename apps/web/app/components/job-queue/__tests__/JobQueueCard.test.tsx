@@ -297,12 +297,12 @@ describe('JobQueueCard', () => {
     expect(header).toHaveTextContent(texts.join(''))
   })
 
-  it('an expired vacancy is «Закрита» too; an open one has no status chip', () => {
+  it('an expired vacancy reads «Прострочена», not «Закрита»; an open one has no status chip', () => {
     withCard(cardFixture({ availability: 'EXPIRED' }))
     const first = render(<JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={vi.fn()} />, {
       wrapper: Wrapper,
     })
-    expect(screen.getByTestId('job-queue-card-closed')).toHaveTextContent('Закрита')
+    expect(screen.getByTestId('job-queue-card-closed')).toHaveTextContent(/^Прострочена$/)
     first.unmount()
     withCard(cardFixture({ availability: 'UNKNOWN', seniority: 'UNKNOWN' }))
     renderCard()
