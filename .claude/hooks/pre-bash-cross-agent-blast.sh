@@ -619,18 +619,12 @@ QUOTE_DATA_GIT = {"commit", "tag", "log", "show", "diff", "status", "notes"}
 
 
 def sed_may_exec(argv):
+    # a short-option cluster can carry the script (`-ne...`) and long options abbreviate
+    # (`--expr=`, `--fi`), so any option word with an e or f counts (fail-closed)
     for a in argv:  # cmdscan argv holds no command name
-        if a.startswith("--file") or (a.startswith("-") and not a.startswith("--") and "f" in a[1:]):
+        if a.startswith("-") and ("e" in a.lstrip("-") or "f" in a.lstrip("-")):
             return True
-        if a.startswith("--expression"):
-            word = a[len("--expression"):]
-        elif a.startswith("-e"):
-            word = a[2:]
-        elif a.startswith("-"):
-            continue
-        else:
-            word = a  # the script, or a file name (fail-closed if it holds an e)
-        if "e" in word:
+        if not a.startswith("-") and "e" in a:  # the script, or a file name
             return True
     return False
 

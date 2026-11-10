@@ -354,6 +354,8 @@ bash_case block "$MINE" "rg --pre='true; pkill -f node' x ."                    
 bash_case block "$MINE" "sed 's|x|y; pkill -f node|e' f"                          'GNU sed s///e runs the replacement'
 bash_case block "$MINE" "sed '1e true; pkill -f node' f"                          'GNU sed e command runs its argument'
 bash_case block "$MINE" "sed -f s.sed 's|x|y|; pkill -f node' f"                  'a sed -f script file is not read'
+bash_case block "$MINE" "sed -ne's|x|y; pkill -f node|e' f"                  'a script glued into a short-option cluster'
+bash_case block "$MINE" "sed --expr='s|x|y; pkill -f node|e' f"              'an abbreviated --expression'
 bash_case allow "$MINE" 'kill -1 1234'                                        'a signal number before one pid'
 bash_case block "$MINE" "find . -exec sh -c 'x; git worktree remove {}' \\;" 'WORKTREE-OPAQUE: find anywhere on the line, quotes may hide a separator'
 bash_case allow "$MINE" $'git commit -m apply <<\'EOF\'\npkill -f node is deprecated\nEOF' 'apply as a commit message word is not the git subcommand'
