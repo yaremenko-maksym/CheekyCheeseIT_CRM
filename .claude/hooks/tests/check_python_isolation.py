@@ -16,7 +16,7 @@ import sys
 # `==` / `!=` comparison; `!` only as negation, never `!=`.
 BASE = (
     r"(?:^|[|;&`]|(?<!\$)\{|\)|(?<![\s!=])=(?!=)|!(?!=)|\$\(|\s-c\s+"
-    r"|\b(?:if|elif|while|until|then|do|else)\s+|\s-exec(?:dir)?\s+|\$\{\w+:?[-=])"
+    r"|\b(?:if|elif|while|until|then|do|else)\s+|\s-exec(?:dir)?\s+|\$\{\w+:?[-=+])"
 )
 # a launcher in command position itself (so prose like "this command was ... python3" is
 # not one), then up to 6 of its own words (sudo -n -u root python3, env -i python3);
@@ -75,7 +75,7 @@ def main(hooks_dir):
 
 
 # an interpreter resolved into a variable: the run goes through "$PY", which no scan reads
-RESOLVED = re.compile(r"\$\(\s*(?:command\s+-[vV]|which|type\s+-[pP])\s+python3?(?:\.\d+)?\b")
+RESOLVED = re.compile(r"(?:\$\(|`)\s*(?:command\s+-[vV]|which|type\s+-[pP])\s+python3?(?:\.\d+)?\b")
 
 
 def unisolated(line):
@@ -107,6 +107,8 @@ SELF_TEST = [
     ('[ "$x" = python3 ] && [ "$x" != python3 ]', False), ("[[ $x == python3 ]]", False),
     ('echo "read (python3 did not run)"', False), ('ok=$("python3" -I -c 1)', False),
     ('ok3=$(VAR="a b" python3 -I -c 1)', False), ('echo "${x} python3 runs"', False),
+    ("PY=`command -v python3`", True), ("PY=`type -p python3`", True),
+    ('"${USE:+python3}" -c 1', True), ('"${USE+python3}" -c 1', True),
 ]
 
 

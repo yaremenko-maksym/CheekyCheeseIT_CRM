@@ -896,6 +896,8 @@ assert_red "watch -x sh -c 'rm -rf /etc'" --contains "rm -rf on root" -- h "watc
 assert_red "sh -c \"watch 'rm -rf /etc'\"" --contains "rm -rf on root" -- h "sh -c \"watch 'rm -rf /etc'\""
 assert_red "watch -dn 1 'rm -rf /etc'" --contains "rm -rf" -- h "watch -dn 1 'rm -rf /etc'"
 assert_red "watch -q with a non-number value keeps it in the program" --contains "rm -rf on root" -- h "watch -q 'rm -rf /etc'"
+assert_red "watch -n 1,5 (a non-[0-9.] interval) still judges the program" --contains "rm -rf on root" -- h "watch -n 1,5 'rm -rf /etc'"
+assert_red "watch -n 1e1 still judges the program" --contains "rm -rf on root" -- h "watch -n 1e1 'rm -rf /etc'"
 assert_green "watch -n 5 'git status'" -- h "watch -n 5 'git status'"
 assert_green "watch -n 5 \"git log --oneline | head -5\"" -- h "watch -n 5 \"git log --oneline | head -5\""
 assert_green "watch -n 1 'echo \"rm -rf /etc\"' (quoted phrase)" -- h "watch -n 1 'echo \"rm -rf /etc\"'"

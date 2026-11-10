@@ -86,6 +86,7 @@ block	db,ttl	watch -n 5 pnpm dev
 block	db,ttl	watch 'pnpm dev'
 block	db,ttl	watch -q 3 pnpm dev
 block	db,ttl	watch -q pnpm dev
+block	db,ttl	watch --equexit 3 pnpm dev
 block	db,ttl	strace -o /tmp/t pnpm dev
 block	db,ttl	caffeinate -i pnpm dev
 block	db,ttl	unbuffer pnpm dev

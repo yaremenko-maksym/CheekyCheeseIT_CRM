@@ -262,6 +262,9 @@ bash_case block "$MINE" "find $OTHER -name '*.log' | xargs rm"              'CR-
 bash_case block "$MINE" "find $OTHER -name '*.log' -delete"                 'CR-M-1: find -delete'
 bash_case block "$MINE" "find $OTHER -type f -exec rm {} ;"                 'CR-M-1: find -exec rm'
 bash_case block "$MINE" "sudo pkill -f node"                                'CR-M-1: pkill behind sudo'
+bash_case block "$MINE" "watch -q 3 pkill -f node"                          'pkill behind watch, -q takes the number'
+bash_case block "$MINE" "watch -d 'pkill -f node'"                          'pkill as the watch program string'
+bash_case allow "$MINE" "watch -n 2 git status"                             'watch of a harmless command'
 bash_case block "$MINE" "timeout 60 rm -rf $OTHER/dist"                     'CR-M-1: mutator behind timeout'
 
 # ── the target is not a literal, so ownership cannot be established ───────────

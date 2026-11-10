@@ -430,7 +430,7 @@ segments = re.split(r"(?:\|\||&&|[;\n|&])", cmd)
 # PR #553). Unwrapping is safe for the false-positive budget because a
 # predicate still additionally requires a foreign path to be referenced.
 # dev-ttl.sh is the project TTL wrapper: `dev-ttl.sh [--ttl N] -- <command>` (round 3 of #1294).
-WRAPPERS = {"xargs", "sudo", "env", "nice", "nohup", "command", "stdbuf", "timeout", "rtk", "dev-ttl.sh"}
+WRAPPERS = {"xargs", "sudo", "env", "nice", "nohup", "command", "stdbuf", "timeout", "rtk", "dev-ttl.sh", "watch"}
 RTK_EXEC = {"bypass", "proxy", "err", "test", "run", "summary"}
 # Wrapper flags that consume the NEXT token as their value.
 VALUE_FLAGS = {"-I", "-i", "-n", "-P", "-d", "-E", "-s", "-L", "-a", "-u", "-p"}
@@ -471,6 +471,21 @@ def first_token(seg):
                 parts.pop(0)
             if parts and parts[0] == "--":
                 parts.pop(0)
+            continue
+        if wrapper == "watch":
+            # the watch grammar: -n/--interval take a value, -q/--equexit a number (watch
+            # refuses anything else), the rest are boolean; the program is sh -c of the words
+            while parts and parts[0].startswith("-") and parts[0] not in ("-", "--"):
+                key = parts.pop(0).split("=", 1)
+                if parts and len(key) == 1 and (key[0] in ("-n", "--interval") or (
+                        key[0] in ("-q", "--equexit") and re.fullmatch(r"[\d.]+", parts[0]))):
+                    parts.pop(0)
+            if parts and parts[0] == "--":
+                parts.pop(0)
+            try:
+                parts = shlex.split(" ".join(parts), comments=True)
+            except ValueError:
+                parts = " ".join(parts).split()
             continue
         while parts and parts[0].startswith("-"):
             flag = parts.pop(0)

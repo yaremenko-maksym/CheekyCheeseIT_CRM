@@ -211,6 +211,8 @@ READING_ARGV_WINDOW = 64
 # but did for `xargs`, and one set cannot be both.
 #
 #   value_flags — consume the NEXT token as their value
+#   number_flags — consume the next token only when it is a number (`watch -q 3`);
+#                 otherwise the flag reads as boolean and the token stays the command
 #   code_flags  — consume the next token AS A COMMAND LINE (parsed, not ignored)
 #   operands    — positional operands belonging to the wrapper before the
 #                 command starts (`chroot <dir> cmd`), or "duration" for timeout
@@ -224,9 +226,10 @@ READING_ARGV_WINDOW = 64
 # command word becomes some flag's value — which then fails the plausibility or
 # the UNDERSTOOD test and lands in readings() anyway. The wrong guess degrades
 # into caution instead of into silence.
-def _w(value_flags=(), code_flags=(), operands=0, exact=True):
+def _w(value_flags=(), code_flags=(), operands=0, exact=True, number_flags=()):
     return {
         "value_flags": frozenset(value_flags),
+        "number_flags": frozenset(number_flags),
         "code_flags": frozenset(code_flags),
         "operands": operands,
         "exact": exact,
@@ -275,7 +278,8 @@ WRAPPER_SPEC = {
     # ── inexact on purpose (see `exact` above) ──
     "script": _w(code_flags=("-c", "--command"), operands=1, exact=False),
     "parallel": _w(value_flags=("-j", "--jobs", "-N", "-d", "--colsep", "-S"), exact=False),
-    "watch": _w(value_flags=("-n", "--interval"), exact=False),
+    # `-q/--equexit N`: watch refuses a non-number, so `watch -q pnpm dev` still reads `pnpm`
+    "watch": _w(value_flags=("-n", "--interval"), number_flags=("-q", "--equexit"), exact=False),
     # `winpty [-Xallow-non-tty -Xplain --mouse ...] [--] PROGRAM args` (Git for Windows).
     # Its flags are all boolean. Inexact so the segment keeps every reading it had as an
     # unknown command: unwrapping only adds the judged command, no hook loses a reading.
@@ -1420,6 +1424,9 @@ def _consume_flags(tokens, spec, code_out):
             elif tokens:
                 code_out.append(tokens.pop(0))
         elif key in spec["value_flags"] and "=" not in flag and tokens:
+            tokens.pop(0)
+        elif key in spec["number_flags"] and "=" not in flag and tokens \
+                and re.fullmatch(r"[\d.]+", tokens[0]):
             tokens.pop(0)
     return tokens
 
