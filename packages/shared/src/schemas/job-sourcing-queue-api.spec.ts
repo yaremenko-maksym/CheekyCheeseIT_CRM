@@ -38,6 +38,7 @@ import {
   JOB_QUEUE_SENIOR_FILTER_MAX,
   JOB_QUEUE_SENIOR_OPTIONS_MAX,
 } from './job-sourcing'
+import { MAX_STACK_KEYWORD_CHARS } from '../utils/stack-keywords'
 
 /**
  * r5 Phase 6 T0 — the `/job-queue` wire contracts (per-senior submissions, no
@@ -106,12 +107,22 @@ const senior = {
   displayName: 'Taras S.',
   matchApproximate: false,
   matchedKeywords: ['typescript'],
+  matchEvidence: [{ keyword: 'typescript', strength: 'CORE' }],
   submission: submitted,
+}
+/** The submit conflict's preview: the shared duplicate item, without the card's own-scope names. */
+const plainDuplicates = {
+  items: [{ opportunityId: U3, title: 'Dup', companyName: null }],
+  totalCount: 1,
 }
 const card = {
   ...listItem,
   descriptionMd: '# Role',
   newerThanList: false,
+  lastSeenAt: LATER,
+  stackKeywords: ['react', 'typescript', 'aws'],
+  noMatchReason: null,
+  dismissal: { scope: 'TEAM', version: 2 },
   seniors: { items: [senior], totalCount: 1, nextCursor: null },
   sources: {
     items: [{ sourceRecordId: U2, sourceType: 'DOU_RSS', url: URL, linkedAt: NOW }],
@@ -119,7 +130,7 @@ const card = {
     nextCursor: null,
   },
   possibleDuplicates: {
-    items: [{ opportunityId: U3, title: 'Dup', companyName: null }],
+    items: [{ opportunityId: U3, title: 'Dup', companyName: null, submittedSeniorNames: [] }],
     totalCount: 1,
   },
 }
@@ -316,7 +327,7 @@ describe('response shapes round-trip', () => {
     expect(jobQueueRecomputeResponseSchema.parse({ runId: U1 })).toEqual({ runId: U1 })
     const conflict = {
       code: 'JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED',
-      possibleDuplicates: card.possibleDuplicates,
+      possibleDuplicates: plainDuplicates,
     }
     expect(jobQueuePossibleDuplicateConflictSchema.parse(conflict)).toEqual(conflict)
   })
@@ -700,6 +711,79 @@ describe('field bounds, both sides of each limit (CR-M-2)', () => {
     no(jobQueueCardResponseSchema, { ...card, descriptionMd: s(DESCRIPTION_MD_MAX + 1) })
     expect(DESCRIPTION_MD_MAX).toBe(50000)
   })
+
+  it('stackKeywords: 60 items accepted, 61 refused; one keyword over the char cap refused', () => {
+    const stack = (n: number) => Array.from({ length: n }, (_, i) => `k${String(i)}`)
+    ok(jobQueueCardResponseSchema, { ...card, stackKeywords: [] })
+    ok(jobQueueCardResponseSchema, { ...card, stackKeywords: stack(60) })
+    no(jobQueueCardResponseSchema, { ...card, stackKeywords: stack(61) })
+    ok(jobQueueCardResponseSchema, { ...card, stackKeywords: [s(MAX_STACK_KEYWORD_CHARS)] })
+    no(jobQueueCardResponseSchema, { ...card, stackKeywords: [s(MAX_STACK_KEYWORD_CHARS + 1)] })
+  })
+
+  it('matchEvidence: 200 items accepted, 201 refused; strength is CORE or OPTIONAL only', () => {
+    const ev = (n: number) => ({
+      ...senior,
+      matchEvidence: Array.from({ length: n }, () => ({ keyword: 'ts', strength: 'CORE' })),
+    })
+    ok(jobQueueCardSeniorSchema, ev(200))
+    no(jobQueueCardSeniorSchema, ev(201))
+    ok(jobQueueCardSeniorSchema, {
+      ...senior,
+      matchEvidence: [{ keyword: 'go', strength: 'OPTIONAL' }],
+    })
+    no(jobQueueCardSeniorSchema, { ...senior, matchEvidence: [{ keyword: 'go', strength: 'X' }] })
+    no(jobQueueCardSeniorSchema, { ...senior, matchEvidence: undefined })
+    no(jobQueueCardSeniorSchema, {
+      ...senior,
+      matchEvidence: [{ keyword: s(MAX_STACK_KEYWORD_CHARS + 1), strength: 'CORE' }],
+    })
+  })
+
+  it('a senior team is optional (absent for a TEAM scope), nullable, and capped', () => {
+    ok(jobQueueCardSeniorSchema, senior)
+    ok(jobQueueCardSeniorSchema, { ...senior, team: null })
+    ok(jobQueueCardSeniorSchema, { ...senior, team: { teamId: U1, teamName: s(255) } })
+    no(jobQueueCardSeniorSchema, { ...senior, team: { teamId: U1, teamName: s(256) } })
+    no(jobQueueCardSeniorSchema, { ...senior, team: { teamId: 'x', teamName: 'A' } })
+    no(jobQueueCardSeniorSchema, { ...senior, team: { teamId: U1, teamName: 'A', seniorId: U1 } })
+  })
+
+  it('noMatchReason: the three empty states or null, nothing else', () => {
+    for (const reason of ['STOP_LISTED', 'TRIAGE', 'NO_MATCH', null]) {
+      ok(jobQueueCardResponseSchema, { ...card, noMatchReason: reason })
+    }
+    no(jobQueueCardResponseSchema, { ...card, noMatchReason: 'OTHER' })
+    no(jobQueueCardResponseSchema, { ...card, noMatchReason: undefined })
+  })
+
+  it('dismissal: null or { scope, version >= 1 }', () => {
+    ok(jobQueueCardResponseSchema, { ...card, dismissal: null })
+    ok(jobQueueCardResponseSchema, { ...card, dismissal: { scope: 'STUDIO', version: 1 } })
+    no(jobQueueCardResponseSchema, { ...card, dismissal: { scope: 'TEAM', version: 0 } })
+    no(jobQueueCardResponseSchema, { ...card, dismissal: { scope: 'NONE', version: 1 } })
+    no(jobQueueCardResponseSchema, { ...card, dismissal: undefined })
+  })
+
+  it('a card duplicate names own-scope submitted seniors; the submit conflict does not', () => {
+    const dupWith = (names: unknown) => ({
+      ...card,
+      possibleDuplicates: {
+        items: [
+          { opportunityId: U3, title: 'Dup', companyName: null, submittedSeniorNames: names },
+        ],
+        totalCount: 1,
+      },
+    })
+    ok(jobQueueCardResponseSchema, dupWith(['Ann', 'Bob']))
+    no(jobQueueCardResponseSchema, dupWith([s(256)]))
+    no(jobQueueCardResponseSchema, dupWith(undefined))
+  })
+
+  it('lastSeenAt is a required datetime', () => {
+    no(jobQueueCardResponseSchema, { ...card, lastSeenAt: undefined })
+    no(jobQueueCardResponseSchema, { ...card, lastSeenAt: 'yesterday' })
+  })
 })
 
 describe("another team's submission is a bare marker (SR-M-2)", () => {
@@ -795,6 +879,11 @@ const FOREIGN_IDENTITY =
  */
 const OWN_TEAM_FIELDS: Readonly<Record<string, readonly string[]>> = {
   jobQueueSeniorOptionsResponseSchema: ['teamName'],
+  // Task 7.3b: a card senior's `team` (§5.6 headings) is filled in the STUDIO scope only, which is
+  // ADMIN-only; a TEAM scope (every HR) omits the key (the card-fields integration spec asserts it).
+  jobQueueCardResponseSchema: ['teamId', 'teamName'],
+  jobQueueCardSeniorSchema: ['teamId', 'teamName'],
+  jobQueueSeniorsContinuationSchema: ['teamId', 'teamName'],
 }
 
 describe('AC4: no response shape carries foreign identity', () => {
@@ -822,8 +911,13 @@ describe('AC4: no response shape carries foreign identity', () => {
     },
   )
 
-  it('the own-team exemption is exactly the picker team name, and nothing else', () => {
-    expect(OWN_TEAM_FIELDS).toEqual({ jobQueueSeniorOptionsResponseSchema: ['teamName'] })
+  it('the own-team exemption is exactly the picker team name and the ADMIN-only card team, and nothing else', () => {
+    expect(OWN_TEAM_FIELDS).toEqual({
+      jobQueueSeniorOptionsResponseSchema: ['teamName'],
+      jobQueueCardResponseSchema: ['teamId', 'teamName'],
+      jobQueueCardSeniorSchema: ['teamId', 'teamName'],
+      jobQueueSeniorsContinuationSchema: ['teamId', 'teamName'],
+    })
     expect(keysOf(jobQueueSeniorOptionsResponseSchema)).toContain('teamName')
   })
 
@@ -840,7 +934,7 @@ describe('AC4: no response shape carries foreign identity', () => {
   }
   const conflict = {
     code: 'JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED',
-    possibleDuplicates: card.possibleDuplicates,
+    possibleDuplicates: plainDuplicates,
   }
   const dismissal = { opportunityId: U1, scope: 'TEAM', reason: 'SPAM', hidden: true, version: 2 }
   const RESPONSE_SITES: ReadonlyArray<
@@ -876,6 +970,20 @@ describe('AC4: no response shape carries foreign identity', () => {
       jobQueueCardResponseSchema,
       card,
       ['possibleDuplicates', 'items', 0],
+    ],
+    ['card > dismissal', jobQueueCardResponseSchema, card, ['dismissal']],
+    [
+      'card > seniors > items[0] > matchEvidence[0]',
+      jobQueueCardResponseSchema,
+      card,
+      ['seniors', 'items', 0, 'matchEvidence', 0],
+    ],
+    // `team` itself declares teamId, so its own strictness is pinned in the field-bounds block.
+    [
+      'card senior (ADMIN team heading)',
+      jobQueueCardSeniorSchema,
+      { ...senior, team: { teamId: U1, teamName: 'Alpha' } },
+      [],
     ],
     ['seniors continuation', jobQueueSeniorsContinuationSchema, card.seniors, []],
     ['sources continuation', jobQueueSourcesContinuationSchema, card.sources, []],
