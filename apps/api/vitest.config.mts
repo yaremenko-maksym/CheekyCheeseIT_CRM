@@ -217,6 +217,15 @@ const TIMING_SPEC_GLOB = '**/*.timing.spec.ts'
 const isTimingRun = process.env['TIMING_SPECS'] === '1'
 const timingExclude = isTimingRun ? [] : [TIMING_SPEC_GLOB]
 
+// ── ATS suite (`*.ats.spec.ts`) ────────────────────────────────────────────
+// The template × fixture render matrix of the verified-base-resume spec §7: dozens of real Typst
+// renders and PDF extractions, plus committed golden text. Kept out of the default run (unit,
+// mutation gate, pre-push) and run by `test:ats` (`vitest run --dir src/resumes/ats/__ats__`),
+// which is detected from that directory in argv. An ATS run sees ONLY these files.
+const ATS_SPEC_GLOB = '**/*.ats.spec.ts'
+const isAtsRun = process.argv.some((arg) => arg.includes('__ats__'))
+const atsExclude = isAtsRun ? [] : [ATS_SPEC_GLOB]
+
 /**
  * Unit specs re-run under each zone below (month-boundary finance windows, the Kyiv
  * business-day floor of NULL-txDate rows, backlog 338, and the DST-safe `nextSlot`).
@@ -232,21 +241,25 @@ const TZ_UNIT_SPECS_ZONES = ['Europe/Kyiv', 'America/Los_Angeles']
 const discovery = {
   // `TIMING_SPECS=1` selects ONLY the stopwatch specs (`*.timing.spec.ts`); a normal run never
   // sees them.
-  include: isTimingRun ? ['src/**/*.timing.spec.ts'] : ['src/**/*.{spec,test}.ts'],
+  include: isAtsRun
+    ? ['src/**/*.ats.spec.ts']
+    : isTimingRun
+      ? ['src/**/*.timing.spec.ts']
+      : ['src/**/*.{spec,test}.ts'],
   // Non-integration runs: exclude every DB-backed integration spec file from
   // discovery entirely (see the "Non-integration-run structural skip" comment
   // above) — this is what makes the guard unconditional, independent of
   // DATABASE_URL. Integration runs keep vitest's plain default exclude; the
   // CLI's positional `integration.spec` filter narrows execution from there.
   exclude: isIntegrationRun
-    ? [...configDefaults.exclude, ...timingExclude]
-    : [...configDefaults.exclude, INTEGRATION_SPEC_EXCLUDE_GLOB, ...timingExclude],
+    ? [...configDefaults.exclude, ...timingExclude, ...atsExclude]
+    : [...configDefaults.exclude, INTEGRATION_SPEC_EXCLUDE_GLOB, ...timingExclude, ...atsExclude],
 }
 
 // Projects exist only on a plain unit run. Discovery then lives on the `default`
 // project, because `extends: true` MERGES array options such as `include` (a tz
 // project inheriting the root `include` would re-run every spec under its zone).
-const withTzProjects = !isIntegrationRun && !isTimingRun
+const withTzProjects = !isIntegrationRun && !isTimingRun && !isAtsRun
 
 export default defineConfig({
   // '@crm/shared' is aliased straight to TypeScript SOURCE unconditionally —
