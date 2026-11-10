@@ -99,7 +99,7 @@ fi
 with_exe() {
   MSYS_NO_PATHCONV=1 node --input-type=module -e "
 import { withExe } from '$GATE'
-console.log('NODE=' + withExe(process.argv[1], process.argv[2], () => process.argv[3] === 'yes'))
+console.log('NODE=' + withExe(process.argv[1], process.argv[2], (p) => process.argv[3] === 'yes' && p === process.argv[2] + '.exe'))
 " "$@"
 }
 
@@ -111,6 +111,10 @@ assert_green "win32 + already .exe -> unchanged" \
   --contains 'NODE=C:\x\bin\node.exe' \
   --not-contains 'node.exe.exe' \
   -- with_exe win32 'C:\x\bin\node.exe' yes
+assert_green "win32 + no node.exe beside it -> unchanged (append only what exists)" \
+  --contains 'NODE=C:\x\bin\node' \
+  --not-contains 'node.exe' \
+  -- with_exe win32 'C:\x\bin\node' no
 assert_green "linux + a node.exe beside it -> unchanged (no .exe on POSIX)" \
   --contains 'NODE=/x/bin/node' \
   --not-contains 'node.exe' \
