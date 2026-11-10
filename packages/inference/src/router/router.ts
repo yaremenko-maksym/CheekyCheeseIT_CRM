@@ -164,6 +164,15 @@ const NEXT_ROUTE = new Set<AttemptCode>([
   'BUDGET',
 ])
 
+/**
+ * Parameter count in billions read from a model id (R15): `70b` 70, `1.5b` 1.5, `8x7b` 56; in
+ * `30b-a3b` the active count has a letter before it, so the total wins. No size token: undefined.
+ */
+export function modelSizeB(id: string): number | undefined {
+  const m = /(?:^|[^a-z0-9])(?:(\d+)x)?(\d+(?:\.\d+)?)b(?![a-z0-9])/.exec(id.toLowerCase())
+  return m === null ? undefined : Number(m[2]) * Number(m[1] ?? 1)
+}
+
 /** The floor's public code (§5.2 item 6, §5.1 `PROMPT_TOO_LARGE`). */
 function floorCode(code: AttemptCode): InferenceErrorCode | 'ABORTED' {
   if (code === 'ABORTED' || code === 'TIMEOUT' || code === 'INVALID_OUTPUT') return code
@@ -434,22 +443,32 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       else candidates.push({ route, models })
     }
 
-    // ---- rotation (§5.2 item 3) ----
-    const rotatable = candidates.filter((c) => c.route.rotate)
-    // No rotatable candidate: the index is NaN and `first` is undefined.
-    const first = rotatable[rotation++ % rotatable.length]
-    const order =
-      first === undefined ? candidates : [first, ...candidates.filter((c) => c !== first)]
+    const pairsOf = (cs: typeof candidates) =>
+      cs.flatMap(({ route, models }) => models.map((model) => ({ route, model })))
+    let pairs: { route: HostedRouteConfig; model: string }[]
+    if (req.modelPreference === 'largest') {
+      // R15: largest first across routes, no rotation; a stable sort keeps ties in today's order.
+      const size = (m: string) => modelSizeB(m) ?? 0
+      pairs = pairsOf(candidates).sort((a, b) => size(b.model) - size(a.model))
+    } else {
+      // ---- rotation (§5.2 item 3) ----
+      const rotatable = candidates.filter((c) => c.route.rotate)
+      // No rotatable candidate: the index is NaN and `first` is undefined.
+      const first = rotatable[rotation++ % rotatable.length]
+      pairs = pairsOf(
+        first === undefined ? candidates : [first, ...candidates.filter((c) => c !== first)],
+      )
+    }
 
     // ---- hosted cascade ----
-    for (const { route, models } of order) {
-      for (const model of models) {
-        const r = await tryModel(route, model)
-        if (r.ok) return finish(success(r.data), false)
-        if (r.code === 'ABORTED') return finish(r as RouterResult<T>, false)
-        reasons.push({ route: route.provider, code: r.code })
-        if (NEXT_ROUTE.has(r.code)) break
-      }
+    const left = new Set<HostedRouteConfig>()
+    for (const { route, model } of pairs) {
+      if (left.has(route)) continue
+      const r = await tryModel(route, model)
+      if (r.ok) return finish(success(r.data), false)
+      if (r.code === 'ABORTED') return finish(r as RouterResult<T>, false)
+      reasons.push({ route: route.provider, code: r.code })
+      if (NEXT_ROUTE.has(r.code)) left.add(route)
     }
 
     // ---- hand-back and floor (§5.2 items 5-6) ----

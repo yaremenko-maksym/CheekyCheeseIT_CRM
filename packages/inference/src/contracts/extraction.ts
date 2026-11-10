@@ -31,6 +31,8 @@ export type ExtractionRequest<T> = {
   /** Aborting stops the call: no further request, in-flight cancelled, sleeps woken (§5.5 item 3). */
   signal?: AbortSignal
   smallDose?: SmallDose<T>
+  /** `largest`: hosted models tried by parameter count, largest first, rotation off (R15). */
+  modelPreference?: 'largest'
 }
 
 /** `localMs` is the time spent on local requests, charged on failure too (§5.5 item 6). */
