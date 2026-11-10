@@ -7,6 +7,7 @@ import { formatRelativeTime, type JobQueueCardResponseDto } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { DialogOverlay, DialogPortal } from '@/components/ui/dialog'
 import { PostingMarkdown } from '@/components/job-sourcing/PostingMarkdown'
+import { useIsMutating } from '@tanstack/react-query'
 import { jobQueueScopeKey, useJobQueueCard, type QueueScopeSignature } from '@/hooks/use-job-queue'
 import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
@@ -23,6 +24,10 @@ import {
 import { SENIORITY_LABEL } from './JobQueueRow'
 import { HIT_CHIP, MatchedSeniors } from './MatchedSeniors'
 import { PossibleDuplicates } from './PossibleDuplicates'
+
+/** The event's target is inside an element matching `selector`. */
+const inside = (target: EventTarget | null, selector: string) =>
+  target instanceof Element && target.closest(selector) !== null
 
 const CHIP = 'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs'
 
@@ -184,6 +189,8 @@ export function JobQueueCard({
   // Radix returns focus to a Dialog.Trigger; the card opens from a row instead, so remember it
   const [returnFocusTo] = useState(() => document.activeElement)
   const closedOnLoss = useRef(false)
+  // QA-MED-1 (r3): a write's outcome is shown in this card, so Escape waits for it to settle
+  const writing = useIsMutating() > 0
 
   const loseAccess = useCallback(() => {
     if (closedOnLoss.current) return
@@ -212,8 +219,11 @@ export function JobQueueCard({
           aria-busy={query.isPending || undefined}
           // an inline confirm (`data-escape-scope`) takes Escape for itself; the card stays open
           onEscapeKeyDown={(event) => {
-            if (event.target instanceof Element && event.target.closest('[data-escape-scope]'))
-              event.preventDefault()
+            if (writing || inside(event.target, '[data-escape-scope]')) event.preventDefault()
+          }}
+          // UX-M-1 (r3): a toast sits outside the modal, and a press on it is not a dismissal
+          onInteractOutside={(event) => {
+            if (inside(event.target, '[data-sonner-toaster]')) event.preventDefault()
           }}
           onCloseAutoFocus={(event) => {
             event.preventDefault()

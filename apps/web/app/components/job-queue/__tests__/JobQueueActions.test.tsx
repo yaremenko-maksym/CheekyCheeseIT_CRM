@@ -180,6 +180,7 @@ describe('«Записати подачу» (AC 1, AC 2)', () => {
     await waitFor(() => expect(submitButton()).toHaveAttribute('aria-disabled', 'true'))
     expect(submitButton()).not.toBeDisabled()
     expect(submitButton()).toHaveAttribute('aria-busy', 'true')
+    expect(submitButton()).toHaveClass('aria-disabled:pointer-events-none')
     expect(submitButton()).toHaveTextContent('Записуємо…')
     await act(async () => settle(submitted()))
     await waitFor(() =>
@@ -271,6 +272,8 @@ describe('«Записати подачу» (AC 1, AC 2)', () => {
     setCard(twoSeniors())
     const { rerender } = renderCard()
     post.mockRejectedValueOnce(coded(409, 'JOB_QUEUE_VERSION_CONFLICT'))
+    // a real click focuses the button it presses
+    act(() => submitButton().focus())
     fireEvent.click(submitButton())
     await screen.findByTestId('job-queue-conflict')
     setCard(twoSeniors({ revision: 4 }))
@@ -284,6 +287,70 @@ describe('«Записати подачу» (AC 1, AC 2)', () => {
     setCard(twoSeniors({ revision: 4 }))
     rerender()
     expect(screen.getByRole('button', { name: 'Оновити картку' })).not.toHaveFocus()
+  })
+
+  it('QA-MED-1 (r3): Escape while a plain «Записати подачу» is pending keeps the card open; once settled it closes', async () => {
+    const user = userEvent.setup()
+    let settle!: (value: unknown) => void
+    post.mockReturnValueOnce(new Promise((resolve) => (settle = resolve)))
+    const { onClose } = renderCard()
+    await user.click(submitButton())
+    await waitFor(() => expect(submitButton()).toHaveAttribute('aria-busy', 'true'))
+    await user.keyboard('{Escape}')
+    expect(onClose).not.toHaveBeenCalled()
+    await act(async () => settle(submitted()))
+    await waitFor(() => expect(toast.success).toHaveBeenCalled())
+    await user.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('QA-MED-1 (r3): a submit that lands after the card closed still shows its success', async () => {
+    let settle!: (value: unknown) => void
+    post.mockReturnValueOnce(new Promise((resolve) => (settle = resolve)))
+    const view = renderCard()
+    fireEvent.click(submitButton())
+    view.unmount()
+    await act(async () => settle(submitted()))
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Подачу записано: Олена Коваль', JOB_QUEUE_TOAST),
+    )
+  })
+
+  it('QA-MED-1 (r3): a submit that fails after the card closed still shows its failure', async () => {
+    let fail!: (reason: unknown) => void
+    post.mockReturnValueOnce(new Promise((_resolve, reject) => (fail = reject)))
+    const view = renderCard()
+    fireEvent.click(submitButton())
+    view.unmount()
+    await act(async () => fail(httpError(400, {})))
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'Не вдалося записати подачу. Спробуйте ще раз.',
+        JOB_QUEUE_TOAST,
+      ),
+    )
+  })
+
+  it('UX-M-1 (r3): a press inside the toaster is not "outside" the card; any other outside press closes it', async () => {
+    const { onClose } = renderCard()
+    const toaster = document.createElement('ol')
+    toaster.setAttribute('data-sonner-toaster', '')
+    const close = document.createElement('button')
+    toaster.append(close)
+    const elsewhere = document.createElement('button')
+    document.body.append(toaster, elsewhere)
+    // Radix registers its outside listener a tick after mount, and a modal dismisses on the click
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+    const press = (target: Element) => {
+      fireEvent.pointerDown(target)
+      fireEvent.click(target)
+    }
+    press(close)
+    expect(onClose).not.toHaveBeenCalled()
+    press(elsewhere)
+    expect(onClose).toHaveBeenCalledTimes(1)
+    toaster.remove()
+    elsewhere.remove()
   })
 
   it('a failed write toasts the failure and the same button sends again', async () => {
@@ -414,6 +481,9 @@ describe('possible-duplicate confirm (AC 3, §5.8)', () => {
     await waitFor(() => expect(anyway).toHaveAttribute('aria-busy', 'true'))
     expect(anyway).not.toBeDisabled()
     expect(within(confirm).getByRole('button', { name: 'Не записувати' })).not.toBeDisabled()
+    // UX-L-2 (r3): the house pattern for a pending control, no hover feedback
+    for (const pendingButton of within(confirm).getAllByRole('button'))
+      expect(pendingButton).toHaveClass('aria-disabled:pointer-events-none')
     expect(anyway).toHaveFocus()
     await user.keyboard('{Escape}')
     expect(onClose).not.toHaveBeenCalled()
@@ -466,6 +536,49 @@ describe('possible-duplicate confirm (AC 3, §5.8)', () => {
     expect(within(confirm).getByRole('button', { name: 'Так, записати все одно' })).toHaveClass(
       'border-yellow-muted',
     )
+  })
+
+  it('G3-1: a newer revision while the confirm is open disables «Так, записати все одно» only', async () => {
+    const { confirm, rerender } = await openConfirm()
+    setCard(cardFixture({ revision: 4 }))
+    rerender()
+    const anyway = within(confirm).getByRole('button', { name: 'Так, записати все одно' })
+    expect(anyway).toBeDisabled()
+    fireEvent.click(anyway)
+    expect(sent(SUBMIT)).toHaveLength(1)
+    const keep = within(confirm).getByRole('button', { name: 'Не записувати' })
+    expect(keep).toBeEnabled()
+    fireEvent.click(keep)
+    expect(screen.queryByTestId(`job-queue-duplicate-confirm-${OLENA}`)).toBeNull()
+  })
+
+  it('G3-1: a vacancy closed while the confirm is open disables «Так, записати все одно» too', async () => {
+    const { confirm, rerender } = await openConfirm()
+    setCard(cardFixture({ availability: 'CLOSED' }))
+    rerender()
+    expect(within(confirm).getByRole('button', { name: 'Так, записати все одно' })).toBeDisabled()
+  })
+
+  it('CR note: a senior submitted elsewhere on the refetch settles the restore; focus is not pulled back later', async () => {
+    const { confirm, rerender } = await openConfirm()
+    post.mockResolvedValueOnce(submitted())
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Так, записати все одно' }))
+    await waitFor(() => expect(toast.success).toHaveBeenCalled())
+    setCard(
+      cardFixture({
+        seniors: {
+          items: [senior({ submission: { submittedElsewhere: true } })],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    rerender()
+    expect(screen.getByTestId(`job-queue-senior-${OLENA}`)).toHaveFocus()
+    const card = screen.getByTestId('job-queue-card')
+    act(() => card.focus())
+    rerender()
+    expect(card).toHaveFocus()
   })
 
   it('CR-L-2: a confirmed success puts focus on the senior: its button, then its row once submitted', async () => {
@@ -636,6 +749,20 @@ describe('blocking notes (AC 5, §5.7)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Оновити картку' }))
     expect(screen.queryByTestId('job-queue-stale')).toBeNull()
     expect(screen.queryByTestId('job-queue-conflict')).toBeNull()
+  })
+
+  it('CR-M-2: focus the actor moved after the 409 is not pulled to «Оновити картку» by the refetch', async () => {
+    setCard(twoSeniors())
+    const { rerender } = renderCard()
+    post.mockRejectedValueOnce(coded(409, 'JOB_QUEUE_VERSION_CONFLICT'))
+    fireEvent.click(submitButton())
+    await screen.findByTestId('job-queue-conflict')
+    const other = screen.getByRole('button', { name: 'Відкрити оригінал' })
+    act(() => other.focus())
+    setCard(twoSeniors({ revision: 4 }))
+    rerender()
+    expect(screen.getByTestId('job-queue-stale')).toBeVisible()
+    expect(other).toHaveFocus()
   })
 
   it('UX-M-1, UX-L-1, UX-L-2: destructive titles, border-only notes, a refresh icon, a content-width button', () => {
@@ -844,11 +971,16 @@ describe('«Приховати» (AC 6, §5.9)', () => {
     post.mockResolvedValueOnce(dismissed(2))
     await hideAsSpam()
     const { options } = (await lastUndo()) as unknown as {
-      options: { classNames: { actionButton: string; closeButton: string } }
+      options: { classNames: { actionButton: string; closeButton: string; toast: string } }
     }
     expect(options.classNames.actionButton).toContain('max-sm:min-h-11!')
     // QA-LOW-2: a transparent 44 px hit area around the 20 px circle, not a 44 px circle
     expect(options.classNames.closeButton).toContain('max-sm:before:-inset-3')
+    // QA-LOW-2 (r3): the 20 px circle sits inside the toast; the content moves right to clear it
+    expect(options.classNames.closeButton).toContain('max-sm:transform-none!')
+    expect(options.classNames.closeButton).toContain('max-sm:top-1.5!')
+    expect(options.classNames.closeButton).toContain('max-sm:left-1.5!')
+    expect(options.classNames.toast).toContain('max-sm:pl-10!')
     expect(options.classNames.closeButton).not.toContain('max-sm:size-11!')
   })
 
@@ -1016,6 +1148,32 @@ describe('RBAC: ADMIN menus (AC 6, §5.6)', () => {
     setCard(twoSeniors())
     rerender()
     await waitFor(() => expect(submitButton(PETRO)).toHaveFocus())
+  })
+
+  it('QA-LOW-1 (r3): focus Radix returns to the senior\u2019s own «⋯» is not a choice; it still lands on the new button', async () => {
+    const user = userEvent.setup()
+    setCard(cardWithSubmitted())
+    const { rerender } = renderCard(ADMIN)
+    const trigger = screen.getByRole('button', { name: 'Дії адміністратора: Петро Шевченко' })
+    await user.click(trigger)
+    await user.click(await screen.findByRole('menuitem', { name: 'Скасувати подачу…' }))
+    post.mockResolvedValueOnce({
+      data: {
+        submission: submission({
+          seniorId: PETRO,
+          state: 'RELEASED',
+          version: 2,
+          cancelledAt: '2026-11-10T10:00:00.000Z',
+        }),
+      },
+    })
+    await user.click(await screen.findByRole('button', { name: 'Скасувати подачу' }))
+    await waitFor(() => expect(client.isMutating()).toBe(0))
+    act(() => trigger.focus())
+    rerender()
+    setCard(twoSeniors())
+    rerender()
+    expect(submitButton(PETRO)).toHaveFocus()
   })
 
   it('ADMIN: a cancel conflict shows the one conflict note', async () => {

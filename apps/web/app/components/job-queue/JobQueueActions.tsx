@@ -55,13 +55,24 @@ export const CONFLICT_NOTE = msg`Дані змінилися. Оновіть к�
 /**
  * QA-MED-2 / UX-L-3 / QA-LOW-2: every toast of the queue actions gets 44 px targets on mobile, on
  * these toasts only (sonner's styles are unlayered, hence `!`). The close keeps its 20 px circle; a
- * transparent `::before` widens its hit area, so it neither overhangs the corner nor meets the title.
+ * transparent `::before` widens its hit area. On mobile sonner's corner offset is dropped so the
+ * circle sits inside the toast, and the content moves right to clear it.
  */
 export const JOB_QUEUE_TOAST = {
   classNames: {
+    toast: 'max-sm:pl-10!',
     actionButton: 'max-sm:min-h-11! max-sm:px-4!',
-    closeButton: 'max-sm:before:absolute max-sm:before:-inset-3',
+    closeButton:
+      'max-sm:transform-none! max-sm:top-1.5! max-sm:left-1.5! max-sm:before:absolute max-sm:before:-inset-3',
   },
+}
+
+/**
+ * Focus nobody chose: <body>, the card dialog Radix parks it on, or a control that became disabled
+ * (a browser drops that focus to <body>). Anything else is the actor's choice and is never pulled.
+ */
+function unchosen(active: Element | null) {
+  return !active || active === document.body || active.matches('[role="dialog"], :disabled')
 }
 
 /** A 409 from a concurrent change (an expected version or a reused key no longer matches). */
@@ -90,7 +101,7 @@ export function useCardGate(card: JobQueueCardResponseDto, refetch: () => void) 
   // UX-L-2: the actor's own write met the newer revision; focus goes to the one way forward, in the
   // commit (a senior's own restore runs first, as a child), so it never drops to <body>
   useLayoutEffect(() => {
-    if (stale && conflict) refresh.current?.focus()
+    if (stale && conflict && unchosen(document.activeElement)) refresh.current?.focus()
   }, [stale, conflict])
 
   const notes = (
@@ -407,12 +418,15 @@ function CancelSubmissionMenu({
 function DuplicateConfirm({
   seniorId,
   pending,
+  blocked,
   keepRef,
   onKeep,
   onConfirm,
 }: {
   seniorId: string
   pending: boolean
+  /** G3-1: a newer revision or a closed vacancy blocks the write; keeping is still possible */
+  blocked: boolean
   keepRef: RefObject<HTMLButtonElement>
   onKeep: () => void
   onConfirm: () => void
@@ -448,7 +462,7 @@ function DuplicateConfirm({
         <Button
           ref={keepRef}
           type="button"
-          className="min-h-11 aria-disabled:opacity-50 sm:min-h-9"
+          className="min-h-11 aria-disabled:pointer-events-none aria-disabled:opacity-50 sm:min-h-9"
           aria-disabled={pending || undefined}
           onClick={pending ? undefined : onKeep}
         >
@@ -458,9 +472,10 @@ function DuplicateConfirm({
           type="button"
           variant="outline"
           // UX-L-1: the default outline border is invisible on the amber surface
-          className="min-h-11 border-yellow-muted aria-disabled:opacity-50 sm:min-h-9"
+          className="min-h-11 border-yellow-muted aria-disabled:pointer-events-none aria-disabled:opacity-50 sm:min-h-9"
           aria-disabled={pending || undefined}
           aria-busy={pending || undefined}
+          disabled={blocked}
           onClick={onConfirm}
         >
           {pending && (
@@ -517,22 +532,27 @@ export function SeniorAction({
     if (li) row.current = li
     const wait = focusAfter.current
     if (!wait || confirming) return
+    // CR-M-2: a blocked card hands focus to «Оновити картку»; the wait is over
+    if (blocked) {
+      focusAfter.current = null
+      return
+    }
     const active = document.activeElement
-    // P2-1: only <body>, the card dialog or this senior's own target are "not moved on"; any other
-    // focus (in this row or not) is the actor's choice, never pulled back
+    // P2-1: focus nobody chose, or this senior's own target (its «⋯» too, where Radix returns it
+    // after a cancel, QA-LOW-1), is "not moved on"; any other focus is the actor's, never pulled
     const parked =
-      !active ||
-      active === document.body ||
-      active.matches('[role="dialog"]') ||
+      unchosen(active) ||
       active === button.current ||
-      active === row.current
+      active === row.current ||
+      Boolean(menuBox.current?.contains(active))
     if (!parked) {
       focusAfter.current = null
       return
     }
     const own = button.current && !button.current.disabled ? button.current : row.current
     own?.focus()
-    if (Boolean(taken) === wait.taken) focusAfter.current = null
+    // CR note: a senior now submitted elsewhere never shows the awaited state; its row is the end
+    if (Boolean(taken) === wait.taken || submittedElsewhere(senior)) focusAfter.current = null
   })
 
   if (submittedElsewhere(senior)) return null
@@ -558,21 +578,23 @@ export function SeniorAction({
     if (inFlight.current) return
     inFlight.current = true
     onConflict(false)
-    submit.mutate(
-      {
+    // QA-MED-1 (r3): the promise settles after an unmount too (per-call `mutate` callbacks do
+    // not), so the outcome toast survives the card closing
+    void submit
+      .mutateAsync({
         opportunityId: card.opportunityId,
         seniorId: senior.seniorId,
         expectedOpportunityRevision: card.revision,
         ...(released ? { expectedVersion: released.version } : {}),
         ...(confirmPossibleDuplicate ? { confirmPossibleDuplicate: true } : {}),
-      },
-      {
-        onSuccess: () => {
+      })
+      .then(
+        () => {
           focusAfter.current = { taken: true }
           setConfirming(false)
           toast.success(t`Подачу записано: ${who}`, JOB_QUEUE_TOAST)
         },
-        onError: (error) => {
+        (error: unknown) => {
           if (getJobQueuePossibleDuplicateConflict(error)) return setConfirming(true)
           focusAfter.current = { taken: false }
           setConfirming(false)
@@ -580,11 +602,10 @@ export function SeniorAction({
           else if (!isAccessLoss(error))
             toast.error(t`Не вдалося записати подачу. Спробуйте ще раз.`, JOB_QUEUE_TOAST)
         },
-        onSettled: () => {
-          inFlight.current = false
-        },
-      },
-    )
+      )
+      .finally(() => {
+        inFlight.current = false
+      })
   }
 
   if (confirming) {
@@ -592,6 +613,7 @@ export function SeniorAction({
       <DuplicateConfirm
         seniorId={senior.seniorId}
         pending={submit.isPending}
+        blocked={blocked}
         keepRef={keep}
         onKeep={() => {
           focusAfter.current = { taken: false }
@@ -613,7 +635,7 @@ export function SeniorAction({
       // QA-MED-1: pending is `aria-disabled` (focus stays); `send` drops the click while in flight
       aria-disabled={pending || undefined}
       disabled={blocked}
-      className="min-h-11 w-full aria-disabled:opacity-50 sm:w-auto sm:self-start"
+      className="min-h-11 w-full aria-disabled:pointer-events-none aria-disabled:opacity-50 sm:w-auto sm:self-start"
       onClick={() => send(false)}
     >
       {pending ? (
