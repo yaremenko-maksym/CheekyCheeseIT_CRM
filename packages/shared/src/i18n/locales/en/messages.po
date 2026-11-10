@@ -91,6 +91,10 @@ msgstr "Recipient account"
 msgid "Банківські реквізити ФОП"
 msgstr "Sole proprietor bank details"
 
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "Остання з даними"
+msgstr "Last with data"
+
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
 msgid "Дата початку"
@@ -980,6 +984,7 @@ msgstr "Set up signing secret"
 msgid "Курс (USD)"
 msgstr "Rate (USD)"
 
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Призупинено"
 msgstr "Paused"
@@ -1607,6 +1612,10 @@ msgstr "Rejected"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Прийнято: {0}"
 msgstr "Accepted: {0}"
+
+#: apps/web/app/components/job-sourcing/SourceBudgetPanel.tsx
+msgid "{paused} призупинено"
+msgstr "{paused} paused"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Налаштувати секрет"
@@ -3814,6 +3823,7 @@ msgstr "The link may be outdated or the page may have been moved."
 msgid "Старий файл/посилання буде видалено без можливості відновлення."
 msgstr "The old file/link will be deleted with no way to restore it."
 
+#: apps/web/app/components/job-sourcing/SourceBudgetPanel.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 msgid "Джерела вакансій"
 msgstr "Job sources"
@@ -4699,6 +4709,10 @@ msgstr "HR — interview pipeline"
 msgid "Скинути прив'язку?"
 msgstr "Reset binding?"
 
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "Не вдалося вимкнути"
+msgstr "Could not disable"
+
 #: apps/web/app/components/user-profile/resume/ResumeSectionCard.tsx
 msgid "Спершу збережіть або скасуйте правки у відкритому розділі"
 msgstr "First save or cancel the edits in the open section"
@@ -5091,6 +5105,10 @@ msgstr "Leave"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx
 msgid "Дата виплати"
 msgstr "Payout date"
+
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "Не вдалося увімкнути"
+msgstr "Could not enable"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Підключення створено, але секрет не вдалося зберегти"
@@ -5692,6 +5710,10 @@ msgstr "FOP / gig contract / USDT"
 msgid "Немає сеньйорів"
 msgstr "No seniors"
 
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "Пауза до {when}: {reason}"
+msgstr "Paused until {when}: {reason}"
+
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
@@ -5702,6 +5724,10 @@ msgstr "Could not load the PDF"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Без реквізитів ми не зможемо вам заплатити — вкажіть гаманець USDT або банківський рахунок"
 msgstr "Without payout details we cannot pay you — add a USDT wallet or a bank account"
+
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "Використано {used}"
+msgstr "Used {used}"
 
 #: apps/web/app/hooks/use-credentials.ts
 msgid "Пароль додано"
@@ -5915,6 +5941,10 @@ msgstr "Accrual"
 #: apps/web/app/components/user-profile/tabs/DocumentsTab.tsx
 msgid "Додати документ"
 msgstr "Upload document"
+
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "Пауза до {when}"
+msgstr "Paused until {when}"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
@@ -6743,6 +6773,10 @@ msgstr "Transactions in the payout ({0})"
 msgid "Зазвичай займає кілька секунд. Сторінка оновиться сама."
 msgstr "Usually takes a few seconds. The page will refresh on its own."
 
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "ніколи"
+msgstr "never"
+
 #: apps/web/app/routes/_authenticated/documents/components/DocumentsCounterText.tsx
 msgid "{count, plural, one {# документ} few {# документи} many {# документів} other {# документа}}"
 msgstr "{count, plural, one {# document} other {# documents}}"
@@ -6758,6 +6792,10 @@ msgstr "All sources"
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 msgid "Назва *"
 msgstr "Name *"
+
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "Остання вдала"
+msgstr "Last successful"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 msgid "Деталі транзакції"
@@ -8084,6 +8122,10 @@ msgstr "Proposal rejected — the previous share stays. The admin will see the r
 msgid "Дошку видалено"
 msgstr "Board removed"
 
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "Остання спроба"
+msgstr "Last attempt"
+
 #: apps/web/app/routes/_authenticated/team/team-detail/components/TeamNotFound.tsx
 msgid "Можливо, у вас немає доступу до цієї команди"
 msgstr "You may not have access to this team"
@@ -8499,6 +8541,10 @@ msgstr "Document filter"
 msgid "Накопичений баланс кожного партнера: усі оплачені надходження та дохід адмінів мінус перекази між адмінами."
 msgstr "Each partner’s accumulated balance: all paid receipts and admin income minus transfers between admins."
 
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "Не готове: {readinessReason}"
+msgstr "Not ready: {readinessReason}"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
 msgid "Редагування транзакції"
 msgstr "Editing a transaction"
@@ -8514,6 +8560,10 @@ msgstr "Log in as"
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 msgid "Сума всіх виплат за весь час"
 msgstr "All-time total of payouts"
+
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "Вимкнено адміністратором"
+msgstr "Disabled by an administrator"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Стандартно"
@@ -8559,6 +8609,11 @@ msgstr "Previously submitted: {earlier}."
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "Неприв'язаних записів немає"
 msgstr "No unlinked recordings"
+
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgctxt "job source readiness"
+msgid "Заблоковано"
+msgstr "Blocked"
 
 #. placeholder {0}: impact.projectsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
@@ -8626,6 +8681,10 @@ msgstr "Company expense"
 msgid "Дохід сеньйора (неоплачена частка)"
 msgstr "Senior's income (unpaid share)"
 
+#: apps/web/app/components/job-sourcing/SourceBudgetPanel.tsx
+msgid "{blocked} заблоковано"
+msgstr "{blocked} blocked"
+
 #: apps/web/app/components/users/user-dialog/useUserDialogMutations.ts
 msgid "Не вдалося позначити контракт готовим до підписання"
 msgstr "Could not mark the contract as ready to sign"
@@ -8683,6 +8742,10 @@ msgstr "Link recording to an interview"
 #: apps/web/app/routes/login.tsx
 msgid "Особисту адресу підтверджено. Увійдіть через Google — виберіть цю адресу."
 msgstr "Your personal email is confirmed. Sign in with Google — choose this address."
+
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "код {code}"
+msgstr "code {code}"
 
 #: apps/web/app/routes/_authenticated/projects/ProjectInfoRows.tsx
 msgid "Встановлено для цього проєкту; глобальна частка дропа: {fallback}%"
@@ -10083,6 +10146,10 @@ msgstr "Accepting…"
 msgid "Гроші"
 msgstr "Money"
 
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "Не готове до роботи"
+msgstr "Not ready to run"
+
 #: apps/web/app/components/user-profile/tabs/InterviewsTab.tsx
 msgid "Відкрити дошку"
 msgstr "Open the board"
@@ -10221,6 +10288,7 @@ msgstr "Secret required"
 msgid "Приховати"
 msgstr "Hide"
 
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 #: apps/web/app/routes/_authenticated/admin/sources.index.tsx
 msgid "Вимкнено"
@@ -10815,6 +10883,10 @@ msgstr "{0, plural, one {# income entry} other {# income entries}}"
 msgid "Нотатка (макс. 2000 символів)"
 msgstr "Note (max 2000 characters)"
 
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "Пауза без визначеного часу"
+msgstr "Paused with no set time"
+
 #: apps/web/app/hooks/use-legend.ts
 msgid "Не вдалося додати запис. Спробуйте ще раз"
 msgstr "Could not add the entry. Try again"
@@ -10972,6 +11044,10 @@ msgstr "Could not create the vacancy. Try again"
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 msgid "Легенда не заповнена"
 msgstr "The legend is not filled in"
+
+#: apps/web/app/components/job-sourcing/SourceBudgetPanel.tsx
+msgid "{n, plural, one {# джерело} few {# джерела} many {# джерел} other {# джерела}}"
+msgstr "{n, plural, one {# source} other {# sources}}"
 
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
 msgid "Мітка"
@@ -11661,6 +11737,10 @@ msgstr "Lead"
 msgid "Статус на джерелі"
 msgstr "Status on source"
 
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "Використано {used} з {limit}"
+msgstr "Used {used} of {limit}"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
 msgid "Прикріпіть чек або вкажіть посилання на підтвердження"
 msgstr "Attach a receipt or provide a confirmation link"
@@ -11698,6 +11778,10 @@ msgstr "Processing analysis"
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Проєкти без зарахованого доходу"
 msgstr "Projects without a counted income entry"
+
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "Причина: {failureReason}. Стан не змінено."
+msgstr "Reason: {failureReason}. Nothing was changed."
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsSparkline.tsx
 msgid "Історія заробітку по місяцях"
@@ -11754,6 +11838,10 @@ msgstr "Company settings: the wallet for receiving USDT and the details that are
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Хобі"
 msgstr "Hobbies"
+
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "джерело просило зачекати (429)"
+msgstr "the source asked us to wait (429)"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Попередній перегляд умов"
@@ -11916,6 +12004,10 @@ msgstr "A new team led by this senior. Pick its members below."
 #: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Telegram-чат"
 msgstr "Telegram chat"
+
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "джерело вимагає перевірки (challenge)"
+msgstr "the source requires verification (challenge)"
 
 #: apps/web/app/routes/_authenticated/interviews/constants.ts
 #: apps/web/app/routes/_authenticated/projects/constants.ts
@@ -12280,6 +12372,10 @@ msgstr "Not set — the senior’s default share applies (26% unless changed). M
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "#{0} від {1}"
 msgstr "#{0} of {1}"
+
+#: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
+msgid "Працює"
+msgstr "Running"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Оформлення"

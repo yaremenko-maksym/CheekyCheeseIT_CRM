@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { JobSourceDto, JobSourceListDto } from '@crm/shared'
+import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 
 import { SourceBudgetPanel, formatResetAt } from '../SourceBudgetPanel'
 
@@ -23,6 +24,15 @@ vi.mock('@/hooks/use-job-sourcing', () => ({
     data: enabled ? mockSources : undefined,
     isLoading: mockState.isLoading,
     isError: mockState.isError,
+  }),
+  // The switch itself is covered in SourceSwitch.test.tsx; here it is an idle mutation.
+  useSetJobSourceEnabled: () => ({
+    mutate: vi.fn(),
+    reset: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+    variables: undefined,
   }),
 }))
 
@@ -47,14 +57,17 @@ const source = (over: Partial<JobSourceDto> = {}): JobSourceDto => ({
 function renderPanel(canView = true) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={queryClient}>
-      <SourceBudgetPanel canView={canView} />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={queryClient}>
+        <SourceBudgetPanel canView={canView} />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
 }
 
 describe('SourceBudgetPanel (AC7)', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await loadCatalog('uk')
     mockSources = { items: [source()] }
     mockState = { isLoading: false, isError: false }
   })
