@@ -509,9 +509,15 @@ function resolveNodePin({ execPath = process.execPath, env = process.env, cwd = 
   if (!nodePath || !pinnedPath) {
     return { action: 'refuse', message: 'node pin probe returned no node path' }
   }
-  if (process.platform === 'win32' && existsSync(`${nodePath}.exe`)) nodePath += '.exe'
+  nodePath = withExe(process.platform, nodePath, existsSync)
   if (samePath(nodePath, execPath)) return { action: 'continue', notice }
   return { action: 'reexec', node: nodePath, path: pinnedPath, notice }
+}
+
+/** win32: `command -v node` has no extension; spawn the node.exe beside it when it exists. */
+function withExe(platform, nodePath, exists) {
+  if (platform !== 'win32' || /\.exe$/i.test(nodePath)) return nodePath
+  return exists(`${nodePath}.exe`) ? `${nodePath}.exe` : nodePath
 }
 
 /** Same executable? win32 paths are case-insensitive and `node` may stand for `node.exe`. */
@@ -1693,6 +1699,20 @@ function budgetExceeded(pkg, budgetSeconds, elapsedMs, perPackage) {
   )
 }
 
+// A template string `file://${argv[1]}` never equals file:///C:/... on Windows, so the
+// gate exited 0 there without running; and import.meta.url is the RESOLVED file, so a
+// symlink / junction in argv[1] is resolved first (test-mutation-gate-windows-paths.sh).
+function isEntryPoint(metaUrl, argv1, windows = process.platform === 'win32') {
+  if (!argv1) return false
+  let p = argv1
+  try {
+    p = realpathSync(argv1)
+  } catch {
+    /* not on disk (the pure tests): compare as given */
+  }
+  return metaUrl === pathToFileURL(p, { windows }).href
+}
+
 // Guarded so scripts/devops/tests/test-mutation-gate-reporting.sh can `import`
 // groupSuppressions() / looksIntegrationOnly() / splitUncoveredByIntegrationHint()
 // (task-mutation-gate-mechanical AC2/AC3/AC6) / formatKilled() (task-mutation-
@@ -1700,12 +1720,6 @@ function budgetExceeded(pkg, budgetSeconds, elapsedMs, perPackage) {
 // gate-zero-mutants) without triggering a real Stryker run —
 // `node mutation-gate.mjs --changed` is unaffected, since argv[1] there IS this
 // file.
-// A template string `file://${argv[1]}` never equals file:///C:/... on Windows, so the
-// gate exited 0 there without running (test-mutation-gate-windows-paths.sh).
-function isEntryPoint(metaUrl, argv1, windows = process.platform === 'win32') {
-  return Boolean(argv1) && metaUrl === pathToFileURL(argv1, { windows }).href
-}
-
 const isMain = isEntryPoint(import.meta.url, process.argv[1])
 if (isMain) {
   // 'reexec': a child under the pinned node owns the run and the exit code, so the
@@ -1733,4 +1747,5 @@ export {
   pinNodeOrExit,
   isEntryPoint,
   samePath,
+  withExe,
 }

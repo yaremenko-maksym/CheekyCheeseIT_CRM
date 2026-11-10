@@ -78,4 +78,42 @@ assert_red "linux: /X/node vs /x/node -> different (case-sensitive, unchanged)" 
   --contains "SAME=false" \
   -- same '/X/node' '/x/node' linux
 
+# 7 -- CR-L-1: invoked through a link, argv[1] keeps the link while import.meta.url is the
+# resolved file. Git Bash `ln -s` copies instead of linking, so this case needs a POSIX
+# host (CI); the Windows junction shape was checked by hand (PR #1308 body).
+if command -v cygpath >/dev/null 2>&1; then
+  echo "SKIP  symlinked script dir (no real symlinks under Git Bash; runs on the Linux runner)"
+else
+  WS="$(guard_test_workspace)"
+  WS="$(cd -P "$WS" && pwd)"
+  trap 'rm -rf "$WS"' EXIT
+  mkdir -p "$WS/real"
+  : >"$WS/real/mutation-gate.mjs"
+  ln -s "$WS/real" "$WS/link"
+  assert_green "argv[1] through a symlinked dir vs the resolved file URL -> entry point" \
+    --contains "ENTRY=true" \
+    -- entry "file://$WS/real/mutation-gate.mjs" "$WS/link/mutation-gate.mjs" false
+fi
+
+# withExe <platform> <nodePath> <exists: yes|no> -- prints the path the re-exec would spawn.
+with_exe() {
+  MSYS_NO_PATHCONV=1 node --input-type=module -e "
+import { withExe } from '$GATE'
+console.log('NODE=' + withExe(process.argv[1], process.argv[2], () => process.argv[3] === 'yes'))
+" "$@"
+}
+
+# 8 -- CR-L-2: on win32 the probe's extension-less node gets .exe only when that file exists.
+assert_green "win32 + node.exe exists -> .exe appended" \
+  --contains 'NODE=C:\x\bin\node.exe' \
+  -- with_exe win32 'C:\x\bin\node' yes
+assert_green "win32 + already .exe -> unchanged" \
+  --contains 'NODE=C:\x\bin\node.exe' \
+  --not-contains 'node.exe.exe' \
+  -- with_exe win32 'C:\x\bin\node.exe' yes
+assert_green "linux + a node.exe beside it -> unchanged (no .exe on POSIX)" \
+  --contains 'NODE=/x/bin/node' \
+  --not-contains 'node.exe' \
+  -- with_exe linux '/x/bin/node' yes
+
 guard_test_summary "test-mutation-gate-windows-paths.sh"
