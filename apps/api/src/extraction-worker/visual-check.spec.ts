@@ -11,7 +11,6 @@ import {
 import { afterEach, describe, expect, it } from 'vitest'
 import { MAX_PAGE_BYTES } from './schema'
 import { buildExtractionWorker, type WorkerLogLine } from './server'
-import { VISUAL_CHECK_INSTRUCTION } from './visual-check'
 
 const SECRET = 'SECRET-MARKER-0123456789abcdef-0123456789'
 const MODEL_MARKER = 'MODEL-MARKER-finding-text'
@@ -67,6 +66,14 @@ describe('visual-check — refusals reach no route', () => {
     ['3 pages', [PAGE, PAGE, PAGE]],
     ['no pages', []],
     ['a page that is not base64', ['not*base64!']],
+    // Node's decoder skips these characters, so each one would still decode to a PNG.
+    ['a page with a length that is not a multiple of 4', [`${pngOf(63)}A`]],
+    [
+      'a page with a character outside the alphabet',
+      [`${pngOf(63).slice(0, 40)}*${pngOf(63).slice(41)}`],
+    ],
+    ['a page with a leading non-base64 run', [`****${pngOf(63)}`]],
+    ['a page with a trailing non-base64 run', [`${pngOf(63)}****`]],
     ['a page that is not a PNG', [Buffer.from('GIF89a-not-a-png').toString('base64')]],
     ['an empty page', ['']],
     ['a page over the size cap', [pngOf(MAX_PAGE_BYTES + 1)]],
@@ -103,12 +110,23 @@ describe('visual-check — the call', () => {
   it('two pages at the size cap are accepted and sent as images with the fixed checklist', async () => {
     const big = pngOf(MAX_PAGE_BYTES)
     const { app, calls } = setup()
-    const res = await post(app, [big, PAGE])
+    const res = await post(app, [big, big])
     expect(res.statusCode).toBe(200)
     expect(calls).toHaveLength(1)
-    expect(calls[0]!.images).toEqual([big, PAGE])
-    expect(calls[0]!.instruction).toBe(VISUAL_CHECK_INSTRUCTION)
+    expect(calls[0]!.images).toEqual([big, big])
     expect(calls[0]!.input).toContain('2 page')
+    const instruction = calls[0]!.instruction ?? ''
+    for (const check of [
+      'overflow',
+      'overlap',
+      'ragged',
+      'orphan',
+      'broken-bullet',
+      'uneven-spacing',
+      'cut-off',
+    ]) {
+      expect(instruction).toContain(`- ${check}: `)
+    }
   })
 
   it("parses the fake model's findings", async () => {
@@ -128,8 +146,13 @@ describe('visual-check — the call', () => {
 
   it.each([
     [
-      'a page index past the submitted pages',
-      { findings: [{ check: 'overlap', page: 1, text: 't' }] },
+      'one finding on a page past the submitted pages',
+      {
+        findings: [
+          { check: 'overlap', page: 0, text: 't' },
+          { check: 'overlap', page: 1, text: 't' },
+        ],
+      },
     ],
     ['an unknown check', { findings: [{ check: 'blurry', page: 0, text: 't' }] }],
     ['an extra key', { findings: [], note: 'x' }],
