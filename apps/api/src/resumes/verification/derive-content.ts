@@ -21,7 +21,8 @@ export interface FreePeriod {
   current: boolean
 }
 
-const MONTH_LABELS = [
+/** The month labels `formatPeriod` prints; the ATS `PERIOD_PATTERN` is built from them. */
+export const MONTH_LABELS = [
   'Jan',
   'Feb',
   'Mar',
