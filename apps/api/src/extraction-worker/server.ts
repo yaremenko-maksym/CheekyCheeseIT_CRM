@@ -43,9 +43,10 @@ export type ExtractionWorkerOptions = {
 const digest = (value: string) => createHash('sha256').update(value).digest()
 
 /**
- * The extraction worker (ADR §2.4): the only process that holds provider keys. It answers two
- * routes, builds every request itself from the checked-in extraction module, and takes from the
- * caller nothing but the input text and the table version.
+ * The extraction worker (ADR §2.4): the only process that holds provider keys. It answers three
+ * routes and builds every request itself from checked-in prompts and schemas: `/extract` takes the
+ * input text and the table version, `/preflight` takes nothing, `/resume-write` takes the task, the
+ * caller-redacted facts payload and the gate feedback lines.
  */
 export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyInstance {
   const tableVersion = opts.tableVersion ?? EXTRACTION_TABLE_VERSION

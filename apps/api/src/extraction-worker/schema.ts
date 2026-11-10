@@ -20,6 +20,12 @@ export const extractBodySchema = z
   })
   .strict()
 
+/** The facts arrive as one JSON object; an array, a primitive or a non-JSON string is refused. */
+function isJsonObject(text: string): boolean {
+  const parsed = parseJson(text)
+  return typeof parsed?.value === 'object' && parsed.value !== null && !Array.isArray(parsed.value)
+}
+
 /**
  * `resume-write` data only: the task, the caller-redacted facts (spec §5.2) and the gate feedback on
  * the previous draft. The instruction is the worker's own; nothing here can replace it.
@@ -27,8 +33,17 @@ export const extractBodySchema = z
 export const resumeWriteBodySchema = z
   .object({
     task: z.enum(['summary', 'bullets']),
-    payload: z.string().min(1).max(MAX_WORKER_INPUT_CHARS),
-    feedback: z.array(z.string().min(1).max(1000)).max(20),
+    payload: z.string().min(1).max(MAX_WORKER_INPUT_CHARS).refine(isJsonObject),
+    // One line each: a line break could fake a `FACTS` or `FEEDBACK` heading in the user message.
+    feedback: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .max(1000)
+          .regex(/^[^\r\n]*$/),
+      )
+      .max(20),
   })
   .strict()
 export type ResumeWriteBody = z.infer<typeof resumeWriteBodySchema>
