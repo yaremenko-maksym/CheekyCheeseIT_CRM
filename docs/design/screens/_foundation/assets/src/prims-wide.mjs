@@ -116,7 +116,7 @@ export const toastUndoTablet = (w, h) =>
     active: 'more',
     list: interviewList,
     detail: pickOne,
-    overlay: undoToast('left:50%;bottom:24px;width:420px;transform:translateX(-50%)', 44),
+    overlay: undoToast('right:24px;bottom:24px;width:420px', 44),
   })
 
 const interviewTable = () => {
@@ -135,7 +135,7 @@ export const toastUndoDesktop = (w, h) =>
     crumb: ['Робота', 'Співбесіди'],
     cta: 'Нова співбесіда',
     content: interviewTable(),
-    overlay: undoToast('left:272px;bottom:24px;width:420px'),
+    overlay: undoToast('right:24px;bottom:24px;width:420px'),
   })
 
 // ---------- Upload pill ----------
@@ -147,7 +147,7 @@ const pill = (pos, h = 44) =>
   `<div class="row" style="position:absolute;z-index:80;gap:10px;height:${h}px;padding:0 6px 0 10px;border-radius:${h / 2}px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.28 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5);font-size:14px;${pos}"><span role="progressbar" aria-label="Завантаження 2 чеків" aria-valuemin="0" aria-valuemax="100" aria-valuenow="40" style="display:grid">${ring(40, 26)}</span><span class="grow num" aria-hidden="true">Завантаження 2 чеків · 40%</span><span role="status" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">Почалося завантаження 2 чеків</span><span class="iconbtn" style="width:${h - 8}px;height:${h - 8}px" aria-label="Показати завантаження">${icon('chevron-up', { size: 18 })}</span></div>`
 
 export const uploadPillTablet = (w, h) =>
-  tablet({ w, h, overlay: pill('left:50%;bottom:24px;width:320px;transform:translateX(-50%)', 52) })
+  tablet({ w, h, overlay: pill('right:24px;bottom:24px;width:320px', 52) })
 
 export const uploadPillDesktop = (w, h) =>
   desktop({ w, h, overlay: pill('right:24px;bottom:24px;width:300px', 40) })

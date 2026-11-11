@@ -315,7 +315,7 @@ export const SENT_AT = '14:32'
 
 // The check sheet lists only rows created after the send, newest created first, with no filters or
 // date sections; each row carries its business date. A match (amount, currency, type) is highlighted.
-const NEW_ROWS = [
+export const NEW_ROWS = [
   {
     t: 'Оплата від клієнта',
     s: 'Дохід · 10.11.2026',
@@ -334,7 +334,7 @@ const NEW_ROWS = [
     isNew: true,
   },
 ]
-const MATCH_ROW = {
+export const MATCH_ROW = {
   t: 'Без опису',
   s: 'Витрата · 11.11.2026',
   a: `−${AMOUNT} USD`,
