@@ -23,6 +23,7 @@ import {
   errAlert,
   discardBtn,
   MATCH_ROW,
+  SIMILAR_ROW,
   NEW_ROWS,
   AMOUNT,
   DRAFT,
@@ -161,14 +162,15 @@ export function checkDialog(w, h) {
     ),
   })}</div>
   <div style="padding:12px 20px 16px;border-top:1px solid var(--border)"><button type="button" class="btn primary" style="width:100%">${icon('list', { size: 18 })}Перевірити список</button>${discardBtn}</div></aside>`
-  const rows = [MATCH_ROW, ...NEW_ROWS].map((r) => txnRow(r)).join('')
+  const rows = [MATCH_ROW, ...NEW_ROWS, SIMILAR_ROW].map((r) => txnRow(r)).join('')
   const dialog = `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.55);z-index:80"></div>
   <div role="dialog" aria-modal="true" aria-labelledby="ck-t" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:560px;z-index:90;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);overflow:hidden">
   <div class="row" style="height:56px;padding:0 12px 0 20px;border-bottom:1px solid var(--border)"><div id="ck-t" class="grow t-head">Нові записи</div><span class="kbdkey" style="margin-right:6px">Esc</span><button type="button" class="iconbtn" aria-label="Закрити" style="width:32px;height:32px">${icon('x', { size: 18 })}</button></div>
   <div class="col" style="gap:8px;padding:14px 20px 10px">
     <div class="t-sub num" style="font-weight:600">Шукаємо: −${AMOUNT} USD · Витрата · надіслано 14:32</div>
     <div class="t-foot muted num">Лише ваші записи з 14:27</div>
-    <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено о 14:34:01. Тепер можна створити ще раз</div><button type="button" class="btn sm secondary" style="height:32px;font-size:13px">${icon('refresh-cw', { size: 14 })}Оновити</button></div>
+    <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено о 14:34:01. Знайдено збіг</div><button type="button" class="btn sm secondary" style="height:32px;font-size:13px">${icon('refresh-cw', { size: 14 })}Оновити</button></div>
+    <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Схоже, це ваша транзакція: −${AMOUNT} USD, створена о 14:33. Перевірте її, перш ніж створювати ще раз.</div>
   </div>
   <div class="group" style="margin:0 20px">${rows}</div>
   <div class="row" style="gap:8px;justify-content:flex-end;padding:14px 20px;margin-top:14px;border-top:1px solid var(--border)"><button type="button" class="btn sm secondary" style="height:36px;font-size:14px">${icon('plus', { size: 16 })}Немає — створити ще раз</button><button type="button" class="btn sm primary" style="height:36px;font-size:14px">${icon('check', { size: 16 })}Є в списку — закрити чернетку</button></div></div>`

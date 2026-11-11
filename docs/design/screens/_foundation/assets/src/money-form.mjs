@@ -367,6 +367,18 @@ export const SIMILAR_ROW = {
   tag: 'схожа',
 }
 
+/** Equal amount, created after the send, but the payload differs (the server trimmed the description): a warning «схожа». */
+export const SIMILAR_AFTER = {
+  t: 'Обладнання',
+  s: 'Витрата · 11.11.2026',
+  a: `−${AMOUNT} USD`,
+  time: '14:33',
+  ic: 'receipt',
+  neg: true,
+  tag: 'схожа',
+  warn: true,
+}
+
 export const MATCH_ROW = {
   t: 'Без опису',
   s: 'Витрата · 11.11.2026',
@@ -384,7 +396,7 @@ export const MATCH_ROW = {
  * is highlighted («збіг»); an equal amount that fails either test is «схожа»; other new rows say «нова».
  * «Немає — створити ще раз» stays aria-disabled until 60 s after the failure arrived; then one automatic
  * refetch runs and the status region announces the unlock once. The countdown is never in a live region.
- * rows: 'none' (new rows, no match), 'match', 'empty', 'failed' (the refetch failed: an alert with
+ * rows: 'none' (new rows, no match), 'match', 'similar' (a warning «схожа» after the send), 'empty', 'failed' (the refetch failed: an alert with
  * «Повторити», never the empty text or «Збігів немає»; the recreate unlocks only after a successful
  * refetch at least 60 s after the failure arrived).
  */
@@ -394,20 +406,24 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
     ? 'Список не оновився. Створити транзакцію ще раз можна лише після того, як він оновиться.'
     : rows === 'match'
       ? 'Схоже, це ваша транзакція: −1 250,50 USD, створена о 14:33. Перевірте її, перш ніж створювати ще раз.'
-      : ready
-        ? 'Список оновлено через хвилину після помилки. Якщо транзакції в ньому немає, її можна створити ще раз.'
-        : 'Сервер міг зберегти транзакцію із запізненням. Через хвилину після помилки список оновиться сам, і тоді її можна буде створити ще раз.'
+      : rows === 'similar'
+        ? 'У списку є схожа о 14:33: та сама сума, але інші дані. Перевірте її, перш ніж створювати ще раз.'
+        : ready
+          ? 'Список оновлено через хвилину після помилки. Якщо транзакції в ньому немає, її можна створити ще раз.'
+          : 'Сервер міг зберегти транзакцію із запізненням. Через хвилину після помилки список оновиться сам, і тоді її можна буде створити ще раз.'
   // With a «збіг» the status never announces the unlock.
   const status = ready
     ? rows === 'match'
       ? 'Оновлено о 14:34:01. Знайдено збіг'
-      : 'Оновлено о 14:34:01. Тепер можна створити ще раз'
+      : rows === 'similar'
+        ? 'Оновлено о 14:34:01. Знайдено схожу'
+        : 'Оновлено о 14:34:01. Тепер можна створити ще раз'
     : 'Оновлено о 14:33:18'
   const list = failed
     ? ''
     : rows === 'empty'
       ? `<div class="col" style="align-items:center;gap:6px;padding:28px 24px;text-align:center"><span class="muted">${icon('search', { size: 24 })}</span><div class="t-body num" style="font-weight:600">Нових записів з ${FROM} немає</div></div>`
-      : `<div class="group" style="margin-top:4px">${(rows === 'match' ? [MATCH_ROW, ...NEW_ROWS, SIMILAR_ROW] : NEW_ROWS).map((r) => txnRow(r)).join('')}</div>`
+      : `<div class="group" style="margin-top:4px">${(rows === 'match' ? [MATCH_ROW, ...NEW_ROWS, SIMILAR_ROW] : rows === 'similar' ? [SIMILAR_AFTER, ...NEW_ROWS] : NEW_ROWS).map((r) => txnRow(r)).join('')}</div>`
   const body = `<div class="col" style="gap:8px;padding:0 16px 8px">
   <div class="t-sub num" style="font-weight:600">Шукаємо: −${AMOUNT} USD · Витрата · надіслано ${SENT_AT}</div>
   <div class="t-foot muted num">Лише ваші записи з ${FROM}</div>
@@ -642,11 +658,11 @@ const overHome = (screen, overlay) =>
 /** Unknown outcome, «Немає — створити ще раз»: the one money-moving step after an unknown result asks first. */
 export const confirmRecreate = (w, h) =>
   overHome(
-    failureUnknownList(w, h, { ready: true }),
+    failureUnknownList(w, h, { ready: true, rows: 'similar' }),
     actionConfirm(w, {
       id: 'cr',
       title: `Створити ${AMOUNT} USD ще раз?`,
-      desc: 'Буде створено одну нову транзакцію: витрата, сьогодні, без проєкту.',
+      desc: 'У списку є схожа о 14:33. Буде створено одну нову транзакцію: витрата, сьогодні, без проєкту.',
       action: 'Створити ще раз',
       ink: 'var(--primary)',
       overSheet: true,

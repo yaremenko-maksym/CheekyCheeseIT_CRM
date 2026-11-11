@@ -154,7 +154,7 @@ export function txnRow(x, { compact = false } = {}) {
     : ''
   return `<div class="lrow two" style="--inset:64px${hl}"><div class="lead">${icon(x.ic, { size: 18 })}</div>
   <div class="grow col" style="gap:2px"><div class="t-body trunc" style="font-weight:500">${x.t}</div><div class="t-foot muted trunc row" style="gap:6px">${x.att ? icon('paperclip', { size: 13 }) : ''}<span class="trunc">${x.s}</span></div></div>
-  <div class="trail"><span class="amount ${x.neg ? '' : 'pos'}">${x.a}</span>${x.pending ? '<span class="pill warn" style="height:18px;font-size:11px">Очікує</span>' : x.tag ? `<span class="t-cap muted num">${x.tag} · ${x.time}</span>` : x.match || x.isNew ? `<span class="t-cap num" style="color:var(--primary);font-weight:600">${x.match ? 'збіг' : 'нова'} · ${x.time}</span>` : `<span class="t-cap muted num">${x.time}</span>`}</div>${compact ? '' : ''}</div>`
+  <div class="trail"><span class="amount ${x.neg ? '' : 'pos'}">${x.a}</span>${x.pending ? '<span class="pill warn" style="height:18px;font-size:11px">Очікує</span>' : x.tag ? `<span class="t-cap num${x.warn ? '' : ' muted'}"${x.warn ? ' style="color:var(--warning);font-weight:600"' : ''}>${x.tag} · ${x.time}</span>` : x.match ? `<span class="t-cap num" style="color:var(--primary);font-weight:600">збіг · ${x.time}</span>` : x.isNew ? `<span class="t-cap muted num">нова · ${x.time}</span>` : `<span class="t-cap muted num">${x.time}</span>`}</div>${compact ? '' : ''}</div>`
 }
 
 export function txnList(rows = TXNS, { stickyFirst = true } = {}) {
