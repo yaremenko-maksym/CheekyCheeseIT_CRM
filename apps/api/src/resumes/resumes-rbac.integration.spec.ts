@@ -38,7 +38,7 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { createHash, randomUUID } from 'node:crypto'
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
   EMPTY_RESUME_CONTENT,
@@ -1591,6 +1591,80 @@ describe.skipIf(!hasDatabaseUrl())(
         expect((await service.getForUser(session(ADMIN_USER), SENIOR_A.id)).canConfirm).toBe(true)
         expect((await service.getForUser(session(HR_USER), SENIOR_A.id)).canConfirm).toBe(true)
         expect((await service.getForUser(session(SENIOR_A), SENIOR_A.id)).canConfirm).toBe(false)
+      })
+
+      describe('POST submit: who may queue the check run', () => {
+        // Complete facts and a Latin display name, so an accepted submit passes the completeness
+        // check and a refusal can only come from the access rule.
+        const COMPLETE: ResumeFacts = {
+          ...FACTS,
+          location: { city: 'Lisbon', country: 'Portugal' },
+          skills: ['TypeScript', 'NestJS', 'PostgreSQL', 'Docker', 'Kafka'],
+          experience: [
+            {
+              company: 'Acme Corp',
+              role: 'Tech Lead',
+              location: null,
+              start: '2021-03',
+              end: null,
+              current: true,
+              technologies: ['TypeScript'],
+              notes: ['Led the payments team'],
+            },
+          ],
+          languages: [{ name: 'English', level: 'C1' }],
+        }
+
+        beforeEach(async () => {
+          await service.saveFacts(session(SENIOR_A), SENIOR_A.id, COMPLETE)
+          await dbSvc.db
+            .update(users)
+            .set({ displayName: 'Senior First' })
+            .where(eq(users.id, SENIOR_A.id))
+          runner.run.mockClear()
+        })
+
+        afterEach(async () => {
+          await dbSvc.db
+            .update(users)
+            .set({ displayName: SENIOR_A.displayName })
+            .where(eq(users.id, SENIOR_A.id))
+        })
+
+        it("SENIOR on another senior's resume is 403 and queues nothing", async () => {
+          const bBefore = await rowOf(SENIOR_B.id)
+          await expect(service.submit(session(SENIOR_A), SENIOR_B.id)).rejects.toBeInstanceOf(
+            ForbiddenException,
+          )
+          expect(await rowOf(SENIOR_B.id)).toEqual(bBefore)
+          expect(runner.run).not.toHaveBeenCalled()
+        })
+
+        it.each([
+          ['JUNIOR', JUNIOR_USER],
+          ['ACCOUNTANT', ACCOUNTANT_USER],
+        ])('%s is 403 and queues nothing', async (_role, viewer) => {
+          const before = await rowOf(SENIOR_A.id)
+          await expect(service.submit(session(viewer), SENIOR_A.id)).rejects.toBeInstanceOf(
+            ForbiddenException,
+          )
+          expect(await rowOf(SENIOR_A.id)).toEqual(before)
+          expect(runner.run).not.toHaveBeenCalled()
+        })
+
+        it.each([
+          ['SENIOR on their own resume', SENIOR_A],
+          ['HR', HR_USER],
+        ])('%s is accepted: the row is QUEUED and the runner starts once', async (_who, viewer) => {
+          const out = await service.submit(session(viewer), SENIOR_A.id)
+
+          expect(out.resume?.verificationStatus).toBe('QUEUED')
+          const row = await rowOf(SENIOR_A.id)
+          expect(row.verificationStatus).toBe('QUEUED')
+          expect(row.verificationKind).toBe('full')
+          expect(row.updatedByUserId).toBe(viewer.id)
+          expect(runner.run.mock.calls).toEqual([[row.id, row.verificationRunId]])
+        })
       })
 
       it('legacy row without facts reads mapped facts and status DRAFT', async () => {
