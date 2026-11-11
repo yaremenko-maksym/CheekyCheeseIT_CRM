@@ -723,15 +723,16 @@ const draftRow = ({ kind, amount, state }) => {
 const RANK = { unknown: 0, failed: 1, inflight: 2, armed: 3 }
 const byRank = (drafts) => [...drafts].sort((a, b) => RANK[a.kind] - RANK[b.kind])
 const chernetok = (n) => (n === 1 ? 'чернетка' : n < 5 ? 'чернетки' : 'чернеток')
-/** The pinned rows block: at most two rows, unresolved first, the rest in «Ще N чернеток · Показати». */
+/** The pinned rows block: up to three rows, unresolved first; from four on, two plus «Ще N чернеток · Показати» (N ≥ 2). */
 export const pinnedRows = (drafts) => {
   const sorted = byRank(drafts)
-  const more = sorted.length - 2
+  const shown = sorted.length > 3 ? 2 : sorted.length
+  const more = sorted.length - shown
   const moreRow =
     more > 0
       ? `<div style="padding:0 16px 8px"><a href="#" class="row" aria-expanded="false" style="justify-content:space-between;min-height:44px;padding:0 14px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font-size:15px;color:var(--fg);text-decoration:none"><span class="num">Ще ${more} ${chernetok(more)}</span><span style="color:var(--primary);font-weight:600">Показати</span></a></div>`
       : ''
-  return `<div style="padding-bottom:4px">${sorted.slice(0, 2).map(draftRow).join('')}${moreRow}</div>`
+  return `<div style="padding-bottom:4px">${sorted.slice(0, shown).map(draftRow).join('')}${moreRow}</div>`
 }
 const pinDrafts = (drafts) => {
   const body = financeBody()
