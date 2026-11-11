@@ -137,7 +137,12 @@ export const moneyBody = ({
   narrow = false,
   locked = false,
 } = {}) => {
-  const fields = `${receiptCard(receipt, { narrow, cur })}${amountBlock({ focus: focus === 'amount', amount, cur })}${expanded ? `<div class="col" style="gap:16px">${optionalFields({ focus, dateError })}</div>` : defaultsRow()}`
+  const rest = locked
+    ? sentFields()
+    : expanded
+      ? `<div class="col" style="gap:16px">${optionalFields({ focus, dateError })}</div>`
+      : defaultsRow()
+  const fields = `${receiptCard(receipt, { narrow, cur })}${amountBlock({ focus: focus === 'amount', amount, cur })}${rest}`
   return `<div class="col" style="gap:14px;padding:${pad};transform:translateY(-${scroll}px)">${alert}${locked ? lockedFields(fields) : fields}</div>`
 }
 
@@ -150,6 +155,19 @@ const lockedFields = (html) =>
   `<style>.locked .btn,.locked .iconbtn,.locked [role=radiogroup],.locked .pill,.locked [aria-expanded]{opacity:.4}</style><div class="t-foot muted row num" style="gap:6px;justify-content:center">${icon('lock', { size: 14 })}Надіслано о 14:32 · змінити не можна</div><div class="locked col" style="gap:14px">${html
     .replace(/<button type="button"/g, '<button type="button" aria-disabled="true"')
     .replace(/role="(button|radio)"/g, 'role="$1" aria-disabled="true"')}</div>`
+
+/** A locked draft shows everything it sent: the optional fields as read-only text, no «змінити». */
+const sentFields = () =>
+  `<dl class="group" style="margin:0">${[
+    ['Дата', 'Сьогодні, 11 листопада'],
+    ['Проєкт', 'Без проєкту'],
+    ['Опис', 'Без опису'],
+  ]
+    .map(
+      ([k, v], i) =>
+        `<div class="row" style="justify-content:space-between;gap:12px;min-height:44px;padding:0 14px;${i ? 'border-top:1px solid var(--separator)' : ''}"><dt class="t-foot muted">${k}</dt><dd class="t-body" style="margin:0">${v}</dd></div>`,
+    )
+    .join('')}</dl>`
 
 /** Bottom submit bar: sits on the keyboard (tracks visualViewport) or above the home indicator. */
 export function submitBar({ w = 375, kbdH = 0, inner }) {
@@ -312,9 +330,12 @@ export const failureUnknown = (w, h) =>
 
 /** The send time of the sample draft (invented). */
 export const SENT_AT = '14:32'
+/** The check sheet's bound: `t − 5 хв`, so a device clock that runs ahead cannot hide the committed row. */
+export const FROM = '14:27'
 
-// The check sheet lists only rows created after the send, newest created first, with no filters or
-// date sections; each row carries its business date. A match (amount, currency, type) is highlighted.
+// The check sheet lists only the user's rows created from `t − 5 хв`, newest created first, with no
+// filters or date sections; each row carries its business date and its server creation time. A match
+// (amount, currency, type) is highlighted.
 export const NEW_ROWS = [
   {
     t: 'Оплата від клієнта',
@@ -346,7 +367,7 @@ export const MATCH_ROW = {
 
 /**
  * «Перевірити список»: the list opens as a sheet over the kept form, refetched on open. It lists only rows
- * created after the send, newest created first, without the list's filters or date sections. Only a row
+ * created from `t − 5 хв`, newest created first, without the list's filters or date sections. Only a row
  * whose amount, currency and type match the draft is highlighted («збіг»); other new rows say «нова».
  * «Немає — створити ще раз» stays aria-disabled until 60 s after the failure arrived; then one automatic
  * refetch runs and the status region announces the unlock once. The countdown is never in a live region.
@@ -358,18 +379,20 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
   const failed = rows === 'failed'
   const hint = failed
     ? 'Список не оновився. Створити транзакцію ще раз можна лише після того, як він оновиться.'
-    : ready
-      ? 'Список оновлено через хвилину після помилки. Якщо транзакції в ньому немає, її можна створити ще раз.'
-      : 'Сервер міг зберегти транзакцію із запізненням. Через хвилину після помилки список оновиться сам, і тоді її можна буде створити ще раз.'
+    : rows === 'match'
+      ? 'Схоже, це ваша транзакція: −1 250,50 USD, створена о 14:33. Перевірте її, перш ніж створювати ще раз.'
+      : ready
+        ? 'Список оновлено через хвилину після помилки. Якщо транзакції в ньому немає, її можна створити ще раз.'
+        : 'Сервер міг зберегти транзакцію із запізненням. Через хвилину після помилки список оновиться сам, і тоді її можна буде створити ще раз.'
   const status = ready ? 'Оновлено о 14:34:01. Тепер можна створити ще раз' : 'Оновлено о 14:33:18'
   const list = failed
     ? ''
     : rows === 'empty'
-      ? `<div class="col" style="align-items:center;gap:6px;padding:28px 24px;text-align:center"><span class="muted">${icon('search', { size: 24 })}</span><div class="t-body num" style="font-weight:600">Нових записів після ${SENT_AT} немає</div></div>`
+      ? `<div class="col" style="align-items:center;gap:6px;padding:28px 24px;text-align:center"><span class="muted">${icon('search', { size: 24 })}</span><div class="t-body num" style="font-weight:600">Нових записів з ${FROM} немає</div></div>`
       : `<div class="group" style="margin-top:4px">${(rows === 'match' ? [MATCH_ROW, ...NEW_ROWS] : NEW_ROWS).map((r) => txnRow(r)).join('')}</div>`
   const body = `<div class="col" style="gap:8px;padding:0 16px 8px">
   <div class="t-sub num" style="font-weight:600">Шукаємо: −${AMOUNT} USD · Витрата · надіслано ${SENT_AT}</div>
-  <div class="t-foot muted num">Лише ваші записи, створені після ${SENT_AT}, від найновішого</div>
+  <div class="t-foot muted num">Лише ваші записи з ${FROM}</div>
   ${
     failed
       ? `<div role="alert" class="row" style="gap:8px;padding:6px 6px 6px 12px;border-radius:12px;background:oklch(0.2 0.04 22);border:1px solid oklch(0.38 0.09 22)"><span style="color:var(--destructive)">${icon('circle-alert', { size: 16 })}</span><span class="grow t-foot" style="font-weight:600">Не вдалося оновити список</span><button type="button" class="btn sm secondary" style="height:44px">${icon('rotate-cw', { size: 16 })}Повторити</button></div>`
@@ -384,7 +407,7 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
     rows === 'none'
       ? `<div class="t-foot muted num" style="text-align:center">Збігів немає</div>`
       : ''
-  const footer = `<div style="display:grid;gap:8px;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)">${noMatch}<span class="btn ${rows === 'match' ? 'primary' : 'secondary'}" role="button" style="width:100%">${icon('check', { size: 18 })}Є в списку — закрити чернетку</span>${recreate}</div>`
+  const footer = `<div style="display:grid;gap:8px;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)">${noMatch}<span class="btn ${rows === 'match' ? 'primary' : 'secondary'}" role="button"${rows === 'match' ? '' : ' aria-haspopup="dialog"'} style="width:100%">${icon('check', { size: 18 })}Є в списку — закрити чернетку</span>${recreate}</div>`
   const sh = sheet({
     w,
     h,
@@ -571,6 +594,20 @@ export const confirmRecreate = (w, h) =>
       desc: 'Буде створено одну нову транзакцію: витрата, сьогодні, без проєкту.',
       action: 'Створити ще раз',
       ink: 'var(--primary)',
+      overSheet: true,
+    }),
+  )
+
+/** Empty list, «Є в списку — закрити чернетку» without a «збіг»: closing drops the frozen payload, so it asks. */
+export const failureUnknownEmpty = (w, h) =>
+  overHome(
+    failureUnknownList(w, h, { ready: true, rows: 'empty' }),
+    actionConfirm(w, {
+      id: 'cc',
+      title: `Закрити чернетку ${AMOUNT} USD?`,
+      desc: 'У списку її не знайдено',
+      action: 'Закрити чернетку',
+      cancel: 'Залишити',
       overSheet: true,
     }),
   )

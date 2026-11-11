@@ -130,7 +130,8 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   «Замінити», and with the sheet closed the pill reads «Не збережено 1 250,50 USD · Відкрити»
   (`primitives-v2/form-receipt-failed-375`). A failed or unknown draft closes with «Згорнути» (a drag or
   a scrim tap does the same) and is kept; «Видалити чернетку» under the primary discards it after the
-  named confirm. An unknown draft is read-only until it leaves that state. The receipt is mandatory (a file or a link; USDT: an explorer link only), so no path saves
+  named confirm. An unknown draft is read-only until it leaves that state, its optional fields expanded as read-only
+  text. A `failed` marker lives as long as its draft. The receipt is mandatory (a file or a link; USDT: an explorer link only), so no path saves
   without one (primitives-v2 §4).
 
 ### More sheet

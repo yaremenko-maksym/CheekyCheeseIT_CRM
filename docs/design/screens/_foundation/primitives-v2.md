@@ -323,33 +323,38 @@ must not share one UI (spec §4.5b):
   залишились. Перевірте список: якщо транзакції там немає, її можна створити ще раз.»; the form and the
   receipt stay and there is **no retry button on the alert**. **The unknown draft is read-only**: the
   sent values stay visible under «Надіслано о 14:32 · змінити не можна», every control dimmed and
-  `aria-disabled="true"` (announced, never hidden, never `inert`); the check sheet and a recreate use
+  `aria-disabled="true"` (announced, never hidden, never `inert`); the optional fields are expanded as read-only text
+  (Дата, Проєкт, Опис) with no «змінити» link, so the sent values can be matched in the check sheet;
+  the check sheet and a recreate use
   exactly the sent payload, and changing a value means discarding the draft. A failed draft stays
   editable and a re-save sends one new request with no gate (nothing was saved). The leading control
   reads «Згорнути» and keeps the draft; under the footer primary sits «Видалити чернетку». The footer «Перевірити список» opens the
   **check sheet** «Нові записи» **over the kept form** (`toast-error-unknown-list-375`), refetched on
   open. The header names what to look for, «Шукаємо: −1 250,50 USD · Витрата · надіслано 14:32», and
-  the sheet lists **only the current user's own rows created after the send, newest created first** («Лише ваші записи, створені
-  після 14:32, від найновішого»), without filters or date sections, each row with its business date.
+  the sheet lists **only the current user's own rows created from `t − 5 хв`, newest created first** («Лише ваші записи з
+  14:27»: the margin absorbs a device clock that runs ahead of the server, and the sub-header names the
+  real bound), without filters or date sections, each row with its business date and its server
+  creation time.
   **A highlight means a match:** only a row whose amount, currency and type equal the draft gets the
   tint, the 3 px yellow bar and «збіг · 14:33» (`toast-error-unknown-match-375`); other new rows show
   «нова · 14:33» only; with new rows and no match «Збігів немає» sits above the exits; with none the
-  body reads «Нових записів після 14:32 немає» (`toast-error-unknown-empty-375`). Money uses one
+  body reads «Нових записів з 14:27 немає» (`toast-error-unknown-empty-375`). Money uses one
   notation, `<amount> <CODE>` (foundation §6). A 44 px «Оновити» refetches («Оновлено о 14:33:18» is
   the one `role="status"`). **A failed refetch** (`toast-error-unknown-refetch-failed-375`) shows
   `role="alert"` «Не вдалося оновити список» with a 44 px «Повторити» in place of the status line and
   the list, never the empty text or «Збігів немає»; the hint reads «Список не оновився. Створити
-  транзакцію ще раз можна лише після того, як він оновиться.». Two exits under the list (with a «збіг» the first becomes the filled primary and the recreate
-  confirm adds «У списку є збіг о 14:33»): «Є в списку — закрити чернетку» (closes the
-  draft, sends nothing) and «Немає — створити ще раз», which is `aria-disabled` (described by the hint
+  транзакцію ще раз можна лише після того, як він оновиться.». Two exits under the list (with a «збіг» the first becomes the filled primary, the hint names the
+  row «Схоже, це ваша транзакція: −1 250,50 USD, створена о 14:33. Перевірте її, перш ніж створювати ще раз.» and the recreate confirm adds «У списку є збіг о 14:33»): «Є в списку — закрити
+  чернетку» (closes the draft, sends nothing; one tap with a «збіг», otherwise the confirm «Закрити чернетку 1 250,50 USD? У списку її не знайдено»,
+  `toast-error-unknown-empty-375`) and «Немає — створити ще раз», which is `aria-disabled` (described by the hint
   line) until **60 s after the failure arrived** (not after the send: nginx `proxy_read_timeout 60s`
   and Cloudflare's 100 s mean a timeout can arrive after a send-based gate while the origin may still
   commit), showing «Можна через 0:42» until then (`aria-hidden`; the countdown is **never in a live
   region**). It unlocks only after a **successful** refetch that ran at least 60 s after the failure
   arrived. At the gate one automatic refetch runs, and the status announces the unlock once
   («Оновлено о 14:34:01. Тепер можна створити ще раз»); then a confirm «Створити 1 250,50 USD ще
-  раз?» and exactly one new create. Wave 1 AC: the list API returns rows created by the current user after a given time,
-  ordered by creation time, newest first. This is a user-confirmed new
+  раз?» and exactly one new create. Wave 1 AC: the list API takes a created-after time and returns the current user's rows
+  created from it, ordered by creation time, newest first. This is a user-confirmed new
   create after seeing the refreshed list, not an automatic or one-tap resubmit (provisional; the owner
   confirms at PNG approval). Closing the sheet returns to the form. When the user reaches the Finance
   list another way, the kept draft is a pinned row at the top (`listrow-draft-375`): «Чернетка 1 250,50

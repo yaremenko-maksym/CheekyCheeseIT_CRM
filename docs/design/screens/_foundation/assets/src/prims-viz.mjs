@@ -97,7 +97,7 @@ export function checkDialog(w, h) {
   <div class="row" style="height:56px;padding:0 12px 0 20px;border-bottom:1px solid var(--border)"><div id="ck-t" class="grow t-head">Нові записи</div><span class="kbdkey" style="margin-right:6px">Esc</span><button type="button" class="iconbtn" aria-label="Закрити" style="width:32px;height:32px">${icon('x', { size: 18 })}</button></div>
   <div class="col" style="gap:8px;padding:14px 20px 10px">
     <div class="t-sub num" style="font-weight:600">Шукаємо: −${AMOUNT} USD · Витрата · надіслано 14:32</div>
-    <div class="t-foot muted num">Лише ваші записи, створені після 14:32, від найновішого</div>
+    <div class="t-foot muted num">Лише ваші записи з 14:27</div>
     <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено о 14:34:01. Тепер можна створити ще раз</div><button type="button" class="btn sm secondary" style="height:32px;font-size:13px">${icon('refresh-cw', { size: 14 })}Оновити</button></div>
   </div>
   <div class="group" style="margin:0 20px">${rows}</div>

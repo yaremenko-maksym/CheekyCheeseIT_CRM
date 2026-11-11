@@ -1,6 +1,12 @@
 // Primitives v2 frames. Rendered by `node render.mjs primitives [filter]` into ../primitives-v2/.
 import { page } from './base.mjs'
-import { moneyForm, failureReceipt, uploadPillInflight, quickAddDrafts } from './money-form.mjs'
+import {
+  moneyForm,
+  failureReceipt,
+  failureUnknownEmpty,
+  uploadPillInflight,
+  quickAddDrafts,
+} from './money-form.mjs'
 import {
   sheetMedium,
   sheetLarge,
@@ -136,12 +142,7 @@ export function frames() {
       812,
       toastErrorUnknownList(375, 812, { ready: true, rows: 'match' }),
     ),
-    M(
-      'toast-error-unknown-empty-375',
-      375,
-      812,
-      toastErrorUnknownList(375, 812, { ready: true, rows: 'empty' }),
-    ),
+    M('toast-error-unknown-empty-375', 375, 812, failureUnknownEmpty(375, 812)),
     M(
       'toast-error-unknown-refetch-failed-375',
       375,
