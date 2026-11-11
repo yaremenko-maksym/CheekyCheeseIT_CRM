@@ -1633,6 +1633,20 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     expect(within(menu).getAllByRole('separator')).toHaveLength(2)
   })
 
+  it('AC 1: ADMIN on a card that is not triage gets the studio hide alone', async () => {
+    const user = userEvent.setup()
+    setCard(triage({ eligibility: 'LEAD' }))
+    renderCard(ADMIN)
+    await user.click(screen.getByRole('button', { name: 'Дії адміністратора' }))
+    const menu = await screen.findByRole('menu')
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Приховати для всіх…'])
+    expect(within(menu).getAllByRole('separator')).toHaveLength(1)
+  })
+
   it('AC 1: HR never gets the item on a triage card: no administrator menu, nothing in «Приховати»', async () => {
     const user = userEvent.setup()
     renderCard(HR)
@@ -1693,10 +1707,18 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     rerender()
     let answer: (value: unknown) => void = () => {}
     post.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)))
+    expect(assign(dialog)).not.toHaveAttribute('aria-disabled')
+    expect(assign(dialog)).not.toHaveAttribute('aria-busy')
     await user.click(assign(dialog))
     await waitFor(() => expect(sent(GRANT)).toHaveLength(2))
     expect(within(dialog).queryByTestId('job-queue-conflict')).toBeNull()
     expect(sent(GRANT)[1]).toMatchObject({ expectedOpportunityRevision: 4 })
+    // pending: «Призначити» keeps its focus but sends nothing more
+    await waitFor(() => expect(assign(dialog)).toHaveAttribute('aria-disabled', 'true'))
+    expect(assign(dialog)).toHaveAttribute('aria-busy', 'true')
+    expect(assign(dialog)).toHaveFocus()
+    await user.click(assign(dialog))
+    expect(sent(GRANT)).toHaveLength(2)
     answer(granted())
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
   })
@@ -1777,13 +1799,13 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     renderCard(ADMIN)
     const dialog = await openAssign(user)
     const until = within(dialog).getByRole('button', { name: 'Діє до' })
-    expect(until).toHaveTextContent('25 лист. 2026')
+    expect(until).toHaveTextContent('25 листоп. 2026')
     await user.click(until)
     const panel = within(await screen.findByRole('dialog'))
     expect(panel.getByRole('button', { name: /, 10-е листопада 2026/ })).toBeDisabled()
     expect(panel.getByRole('button', { name: /, 11-е листопада 2026/ })).toBeEnabled()
     await user.click(panel.getByRole('button', { name: /, 20-е листопада 2026/ }))
-    expect(until).toHaveTextContent('20 лист. 2026')
+    expect(until).toHaveTextContent('20 листоп. 2026')
     await fill(user, dialog)
     await user.click(assign(dialog))
     await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
@@ -1823,9 +1845,10 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     renderCard(ADMIN)
     const dialog = await openAssign(user)
     expect(dialog).toHaveClass('max-w-[calc(100%-2rem)]', 'sm:max-w-lg')
+    // the reason box is the shared Textarea, 80 px tall at least
+    expect(within(dialog).getByRole('textbox', { name: 'Причина' })).toHaveClass('min-h-[80px]')
     for (const control of [
       within(dialog).getByRole('combobox', { name: 'Команда' }),
-      within(dialog).getByRole('textbox', { name: 'Причина' }),
       within(dialog).getByRole('button', { name: 'Діє до' }),
       within(dialog).getByRole('button', { name: 'Не призначати' }),
       assign(dialog),

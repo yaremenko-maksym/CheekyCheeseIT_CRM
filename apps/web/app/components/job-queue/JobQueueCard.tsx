@@ -371,11 +371,7 @@ export function JobQueueCard({
                   onClose={onClose}
                 />
                 {scope.role === 'ADMIN' && (
-                  <AdminVacancyMenu
-                    scope={scope}
-                    opportunityId={card.opportunityId}
-                    onClose={onClose}
-                  />
+                  <AdminVacancyMenu scope={scope} card={card} onClose={onClose} />
                 )}
               </div>
             </div>
