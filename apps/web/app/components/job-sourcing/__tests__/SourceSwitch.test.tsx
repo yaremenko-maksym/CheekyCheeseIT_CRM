@@ -529,7 +529,7 @@ describe('AC5 — a refused enable', () => {
     // policy / cost state untouched: same chip, same note, same budget line, same bar, no refetch
     expect(screen.getByTestId('job-source-state-chip')).toHaveTextContent('Заблоковано')
     expect(screen.getByTestId('job-source-budget-remaining')).toHaveTextContent(
-      'Осталось 90 из 400',
+      'Залишилось 90 з 400',
     )
     expect(
       screen.getByRole('img', { name: 'Використано 310, зарезервовано 0, невизначено 0 з 400' }),
@@ -868,7 +868,7 @@ describe('exact rendering contract (state chips, notes, quota, panel shell)', ()
     ]
     renderPanel()
     await ready()
-    expect(screen.getByTestId('job-source-budget-remaining').textContent).toBe('Осталось 3 из 5 ')
+    expect(screen.getByTestId('job-source-budget-remaining').textContent).toBe('Залишилось 3 з 5 ')
   })
 
   it('lays the budget row out as the design says', async () => {
@@ -885,7 +885,7 @@ describe('exact rendering contract (state chips, notes, quota, panel shell)', ()
       'sm:justify-between',
       'sm:gap-3',
     )
-    expect(row.textContent).toBe('(по расписанию)Осталось 268 из 500 в месяц (израсходовано 232)')
+    expect(row.textContent).toBe('(за розкладом)Залишилось 268 з 500 на місяць (використано 232)')
   })
 
   it('words the failure as one sentence with a space after the headline', async () => {
@@ -915,7 +915,7 @@ describe('the panel shell', () => {
   it('defaults to the always-open list: titled, ruled off, not collapsible', async () => {
     bare()
     await screen.findByRole('switch', { name: 'DOU' })
-    expect(screen.getByRole('heading', { name: 'Бюджет источников' })).toHaveClass(
+    expect(screen.getByRole('heading', { name: 'Бюджет джерел' })).toHaveClass(
       'text-sm',
       'font-medium',
       'text-foreground',

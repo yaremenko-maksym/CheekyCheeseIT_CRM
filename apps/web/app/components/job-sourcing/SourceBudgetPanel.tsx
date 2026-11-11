@@ -51,17 +51,26 @@ function SourceBudgetPanelBody({ collapsible }: { collapsible: boolean }) {
       className={collapsible ? undefined : 'mt-6 border-t border-border/50 pt-4'}
       data-testid="job-source-budgets"
     >
-      {!collapsible && <h3 className="text-sm font-medium text-foreground">Бюджет источников</h3>}
+      {!collapsible && (
+        <h3 className="text-sm font-medium text-foreground">
+          <Trans>Бюджет джерел</Trans>
+        </h3>
+      )}
       <p className="mt-1 text-xs text-muted-foreground">
-        Сбор останавливается, когда запросы источника закончились — и ручной запуск тратит тот же
-        лимит.
+        <Trans>
+          Збір зупиняється, коли запити джерела вичерпано, а ручний запуск витрачає той самий ліміт.
+        </Trans>
       </p>
 
-      {isLoading && <p className="mt-3 text-xs text-muted-foreground">Загрузка…</p>}
+      {isLoading && (
+        <p className="mt-3 text-xs text-muted-foreground">
+          <Trans context="job source list">Завантаження…</Trans>
+        </p>
+      )}
 
       {isError && !isLoading && (
         <p className="mt-3 text-xs text-destructive" data-testid="job-source-budgets-error">
-          Не удалось загрузить состояние источников.
+          <Trans>Не вдалося завантажити стан джерел.</Trans>
         </p>
       )}
 
@@ -71,7 +80,9 @@ function SourceBudgetPanelBody({ collapsible }: { collapsible: boolean }) {
             <SourceSwitchCard key={source.id} source={source} />
           ))}
           {items.length === 0 && (
-            <li className="text-xs text-muted-foreground">Источники не настроены.</li>
+            <li className="text-xs text-muted-foreground">
+              <Trans>Джерела не налаштовано.</Trans>
+            </li>
           )}
         </ul>
       )}

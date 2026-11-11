@@ -317,6 +317,10 @@ msgstr "Увімкнути"
 msgid "Вкажіть деталі ручного підтвердження"
 msgstr "Вкажіть деталі ручного підтвердження"
 
+#: apps/web/app/components/job-sourcing/SourceBudgetRow.tsx
+msgid "за розкладом і за кнопкою"
+msgstr "за розкладом і за кнопкою"
+
 #: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Немає доступних дропів"
@@ -3775,6 +3779,10 @@ msgstr "{pendingObligationCount, plural, one {# зобов’язання} few {
 msgid "Метод ручного підтвердження"
 msgstr "Метод ручного підтвердження"
 
+#: apps/web/app/components/job-sourcing/SourceBudgetPanel.tsx
+msgid "Збір зупиняється, коли запити джерела вичерпано, а ручний запуск витрачає той самий ліміт."
+msgstr "Збір зупиняється, коли запити джерела вичерпано, а ручний запуск витрачає той самий ліміт."
+
 #: apps/web/app/components/job-queue/JobQueueStatusTabs.tsx
 msgid "Приховані"
 msgstr "Приховані"
@@ -3898,6 +3906,10 @@ msgstr "Частка дропа (%)"
 #: apps/web/app/routes/_authenticated/pending/index.tsx
 msgid "Частки"
 msgstr "Частки"
+
+#: apps/web/app/components/job-sourcing/SourceBudgetRow.tsx
+msgid "Залишилось {remaining} з {limit}"
+msgstr "Залишилось {remaining} з {limit}"
 
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Досягнення — по одному в рядку"
@@ -4151,6 +4163,10 @@ msgstr "Остання вакансія:"
 #: apps/web/app/components/users/user-dialog/EmailChangeWarningDialog.tsx
 msgid "Зміна email може розірвати вхід через Google для <0>{0}</0>. Переконайтеся, що користувач знає про зміну і за потреби змінить свій обліковий запис Google."
 msgstr "Зміна email може розірвати вхід через Google для <0>{0}</0>. Переконайтеся, що користувач знає про зміну і за потреби змінить свій обліковий запис Google."
+
+#: apps/web/app/components/job-sourcing/SourceBudgetRow.tsx
+msgid "на місяць"
+msgstr "на місяць"
 
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 msgid "Переказів ще не було"
@@ -4784,6 +4800,10 @@ msgstr "Додати запис у журнал"
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Чернетка"
 msgstr "Чернетка"
+
+#: apps/web/app/components/job-sourcing/SourceBudgetRow.tsx
+msgid "Ліміт налаштовано неправильно — збір зупинено. Перевірте налаштування джерела."
+msgstr "Ліміт налаштовано неправильно — збір зупинено. Перевірте налаштування джерела."
 
 #: apps/web/app/routes/_authenticated/interviews/unmatched.tsx
 msgid "До співбесід"
@@ -6610,6 +6630,10 @@ msgstr "Оплату зараховано на рахунок компанії"
 msgid "Повернути контракт у чернетку?"
 msgstr "Повернути контракт у чернетку?"
 
+#: apps/web/app/components/job-sourcing/SourceBudgetRow.tsx
+msgid "на добу"
+msgstr "на добу"
+
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 msgid "Адмін побачить причину і зможе запропонувати проєкт знову."
 msgstr "Адмін побачить причину і зможе запропонувати проєкт знову."
@@ -7107,6 +7131,7 @@ msgstr "Закриті ({0})"
 msgid "вперше побачено {firstSeenAgo}"
 msgstr "вперше побачено {firstSeenAgo}"
 
+#: apps/web/app/components/job-sourcing/SourceBudgetPanel.tsx
 #: apps/web/app/routes/_authenticated/admin/sources.index.tsx
 msgid "Не вдалося завантажити стан джерел."
 msgstr "Не вдалося завантажити стан джерел."
@@ -8030,6 +8055,10 @@ msgstr "Реквізити оновлено"
 msgid "Перемістити «{label}» вгору"
 msgstr "Перемістити «{label}» вгору"
 
+#: apps/web/app/components/job-sourcing/SourceBudgetRow.tsx
+msgid "за кнопкою"
+msgstr "за кнопкою"
+
 #: apps/web/app/routes/_authenticated/project.tsx
 #: apps/web/app/routes/_authenticated/project.tsx
 msgid "Сеньйор проєкту"
@@ -8108,6 +8137,10 @@ msgstr "Причина зміни дати"
 #: apps/web/app/routes/_authenticated/vacancies/components/ResumePreviewDialog.tsx
 msgid "Попередній перегляд резюме кандидата {0}"
 msgstr "Попередній перегляд резюме кандидата {0}"
+
+#: apps/web/app/components/job-sourcing/SourceBudgetPanel.tsx
+msgid "Бюджет джерел"
+msgstr "Бюджет джерел"
 
 #: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Сеньйора створено, команду сформовано"
@@ -9408,6 +9441,10 @@ msgstr "Порожні відповіді"
 msgid "Назва або компанія"
 msgstr "Назва або компанія"
 
+#: apps/web/app/components/job-sourcing/SourceBudgetRow.tsx
+msgid "(використано {used})"
+msgstr "(використано {used})"
+
 #: apps/web/app/routes/_authenticated/project.tsx
 msgid "/ місяць"
 msgstr "/ місяць"
@@ -10197,6 +10234,10 @@ msgstr "Вакансію оновлено після побудови списк
 msgid "Користувачів поки немає"
 msgstr "Користувачів поки немає"
 
+#: apps/web/app/components/job-sourcing/SourceBudgetRow.tsx
+msgid "Без ліміту запитів"
+msgstr "Без ліміту запитів"
+
 #: apps/web/app/routes/_authenticated/team/team-detail/components/MembersCard.tsx
 msgid "Немає учасників"
 msgstr "Немає учасників"
@@ -10667,6 +10708,10 @@ msgstr "Без команди"
 msgid "Заповніть розділи вручну або спробуйте завантажити файл ще раз."
 msgstr "Заповніть розділи вручну або спробуйте завантажити файл ще раз."
 
+#: apps/web/app/components/job-sourcing/SourceBudgetPanel.tsx
+msgid "Джерела не налаштовано."
+msgstr "Джерела не налаштовано."
+
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
 msgid "Банк"
@@ -11092,6 +11137,10 @@ msgstr "за {count, plural, one {# місяць} few {# місяці} many {# �
 #: apps/web/app/components/job-queue/MatchedSeniors.tsx
 msgid "Подано"
 msgstr "Подано"
+
+#: apps/web/app/components/job-sourcing/SourceBudgetRow.tsx
+msgid "Ліміт вичерпано"
+msgstr "Ліміт вичерпано"
 
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
@@ -11636,6 +11685,10 @@ msgstr "Транзакцію підтверджено"
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Надходження від компаній за цей місяць"
 msgstr "Надходження від компаній за цей місяць"
+
+#: apps/web/app/components/job-sourcing/SourceBudgetRow.tsx
+msgid "оновиться {resetAt}"
+msgstr "оновиться {resetAt}"
 
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Завантажити для перегляду"
@@ -12462,6 +12515,10 @@ msgstr "Підписати контракт"
 msgid "Запис вкладки"
 msgstr "Запис вкладки"
 
+#: apps/web/app/components/job-sourcing/SourceBudgetRow.tsx
+msgid "за розкладом"
+msgstr "за розкладом"
+
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Податок на дивіденди"
 msgstr "Податок на дивіденди"
@@ -13254,6 +13311,11 @@ msgstr "Обов’язкова для всіх вакансій — викор�
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Звичайний"
 msgstr "Звичайний"
+
+#: apps/web/app/components/job-sourcing/SourceBudgetPanel.tsx
+msgctxt "job source list"
+msgid "Завантаження…"
+msgstr "Завантаження…"
 
 #: apps/web/app/components/job-queue/MatchedSeniors.tsx
 msgid "Виключено за стоп-листом: {stopListed}"

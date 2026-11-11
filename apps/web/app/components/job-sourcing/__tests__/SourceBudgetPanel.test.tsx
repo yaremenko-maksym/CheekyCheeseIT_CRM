@@ -7,7 +7,7 @@ import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { SourceBudgetPanel, formatResetAt } from '../SourceBudgetPanel'
 
 /**
- * task-vacancy-matching AC7 — "остаток бюджета виден в интерфейсе".
+ * task-vacancy-matching AC7 — "the remaining budget is visible in the interface".
  *
  * The defect these tests exist to prevent is not a missing number but a
  * MISLEADING silence: when an allowance runs out the collector refuses to fetch,
@@ -95,12 +95,12 @@ describe('SourceBudgetPanel (AC7)', () => {
     renderPanel()
 
     expect(await screen.findByTestId('job-source-budget-remaining')).toHaveTextContent(
-      'Осталось 47 из 200 в месяц',
+      'Залишилось 47 з 200 на місяць',
     )
   })
 
   it('names the reset moment, not just the fact that it is spent', async () => {
-    // "Лимит исчерпан" on its own gives an operator nothing to plan around.
+    // "Limit reached" on its own gives an operator nothing to plan around.
     mockSources = {
       items: [
         source({
@@ -118,14 +118,14 @@ describe('SourceBudgetPanel (AC7)', () => {
     renderPanel()
 
     const remaining = await screen.findByTestId('job-source-budget-remaining')
-    expect(remaining).toHaveTextContent('Лимит исчерпан')
-    expect(remaining).toHaveTextContent('обновится')
+    expect(remaining).toHaveTextContent('Ліміт вичерпано')
+    expect(remaining).toHaveTextContent('оновиться')
   })
 
   it('says a source has no limit rather than showing a blank remainder', async () => {
     renderPanel()
     expect(await screen.findByTestId('job-source-budget-unlimited')).toHaveTextContent(
-      'Без лимита запросов',
+      'Без ліміту запитів',
     )
   })
 
@@ -147,7 +147,7 @@ describe('SourceBudgetPanel (AC7)', () => {
     }
     renderPanel()
 
-    expect(await screen.findByTestId('job-source-budget-row')).toHaveTextContent('по кнопке')
+    expect(await screen.findByTestId('job-source-budget-row')).toHaveTextContent('за кнопкою')
   })
 
   /**
@@ -155,11 +155,11 @@ describe('SourceBudgetPanel (AC7)', () => {
    *
    * The panel used to infer "unlimited" from `limit === null || window === null`,
    * so a source whose cap the collector cannot use — and which therefore refuses
-   * every request — was shown as "без лимита запросов". That is the restriction
+   * every request — was shown as "no request limit". That is the restriction
    * presenting as WEAKER than it is, which is the one direction this codebase
    * treats as never acceptable.
    */
-  it('shows a misconfigured limit as broken, NOT as "без лимита"', async () => {
+  it('shows a misconfigured limit as broken, NOT as "no limit"', async () => {
     mockSources = {
       items: [
         source({
@@ -177,7 +177,7 @@ describe('SourceBudgetPanel (AC7)', () => {
     renderPanel()
 
     expect(await screen.findByTestId('job-source-budget-broken')).toHaveTextContent(
-      'Лимит настроен неверно',
+      'Ліміт налаштовано неправильно — збір зупинено. Перевірте налаштування джерела.',
     )
     // The exact confusion this fixes: it must NOT read as an unrestricted source.
     expect(screen.queryByTestId('job-source-budget-unlimited')).toBeNull()
@@ -201,7 +201,7 @@ describe('SourceBudgetPanel (AC7)', () => {
     }
     renderPanel()
 
-    expect(await screen.findByTestId('job-source-budget-row')).toHaveTextContent('по кнопке')
+    expect(await screen.findByTestId('job-source-budget-row')).toHaveTextContent('за кнопкою')
   })
 
   /**
@@ -239,15 +239,15 @@ describe('SourceBudgetPanel (AC7)', () => {
       withBudget({ window: 'DAY', limit: 250, used: 3, remaining: 247 })
       renderPanel()
       expect(await screen.findByTestId('job-source-budget-remaining')).toHaveTextContent(
-        'Осталось 247 из 250 в сутки',
+        'Залишилось 247 з 250 на добу',
       )
     })
 
     it('names each trigger mode', async () => {
       for (const [mode, label] of [
-        ['SCHEDULED', 'по расписанию'],
-        ['MANUAL', 'по кнопке'],
-        ['BOTH', 'по расписанию и по кнопке'],
+        ['SCHEDULED', 'за розкладом'],
+        ['MANUAL', 'за кнопкою'],
+        ['BOTH', 'за розкладом і за кнопкою'],
       ] as const) {
         withBudget({}, mode)
         const { unmount } = renderPanel()
@@ -260,7 +260,7 @@ describe('SourceBudgetPanel (AC7)', () => {
       withBudget({ used: 47, remaining: 153 })
       renderPanel()
       expect(await screen.findByTestId('job-source-budget-remaining')).toHaveTextContent(
-        'израсходовано 47',
+        'використано 47',
       )
     })
 
@@ -268,7 +268,7 @@ describe('SourceBudgetPanel (AC7)', () => {
       withBudget({ used: 0, remaining: 200 })
       renderPanel()
       expect(await screen.findByTestId('job-source-budget-remaining')).not.toHaveTextContent(
-        'израсходовано',
+        'використано',
       )
     })
 
@@ -276,14 +276,14 @@ describe('SourceBudgetPanel (AC7)', () => {
       withBudget({ resetsAt: null })
       renderPanel()
       expect(await screen.findByTestId('job-source-budget-remaining')).not.toHaveTextContent(
-        'обновится',
+        'оновиться',
       )
     })
 
     it('shows a loading line instead of an empty list while fetching', async () => {
       mockState = { isLoading: true, isError: false }
       renderPanel()
-      expect(await screen.findByTestId('job-source-budgets')).toHaveTextContent('Загрузка…')
+      expect(await screen.findByTestId('job-source-budgets')).toHaveTextContent('Завантаження…')
       expect(screen.queryByTestId('job-source-budget-row')).toBeNull()
     })
 
@@ -312,12 +312,12 @@ describe('SourceBudgetPanel (AC7)', () => {
       expect(healthy).not.toHaveClass('text-destructive')
     })
 
-    it('does not claim "не настроены" while sources are listed', async () => {
+    it('does not claim "не налаштовано" while sources are listed', async () => {
       withBudget({})
       renderPanel()
       await screen.findByTestId('job-source-budget-row')
       expect(screen.getByTestId('job-source-budgets')).not.toHaveTextContent(
-        'Источники не настроены',
+        'Джерела не налаштовано',
       )
     })
 
@@ -327,19 +327,23 @@ describe('SourceBudgetPanel (AC7)', () => {
       mockSources = undefined as unknown as JobSourceListDto
       renderPanel()
       expect(await screen.findByTestId('job-source-budgets')).toHaveTextContent(
-        'Источники не настроены',
+        'Джерела не налаштовано',
       )
     })
   })
 
   describe('formatResetAt', () => {
     it('renders a human date for a real instant', () => {
-      expect(formatResetAt('2026-09-01T00:00:00.000Z')).toContain('сентября')
+      expect(formatResetAt('2026-09-01T00:00:00.000Z', 'uk')).toContain('вересня')
+    })
+
+    it('follows the locale it is given', () => {
+      expect(formatResetAt('2026-09-01T00:00:00.000Z', 'en')).toContain('September')
     })
 
     it('returns an empty string for null or an unparseable value', () => {
-      expect(formatResetAt(null)).toBe('')
-      expect(formatResetAt('not-a-date')).toBe('')
+      expect(formatResetAt(null, 'uk')).toBe('')
+      expect(formatResetAt('not-a-date', 'uk')).toBe('')
     })
   })
 
@@ -347,7 +351,9 @@ describe('SourceBudgetPanel (AC7)', () => {
     mockState = { isLoading: false, isError: true }
     renderPanel()
 
-    expect(await screen.findByTestId('job-source-budgets-error')).toBeInTheDocument()
+    expect(await screen.findByTestId('job-source-budgets-error')).toHaveTextContent(
+      'Не вдалося завантажити стан джерел.',
+    )
     expect(screen.queryByTestId('job-source-budget-row')).toBeNull()
   })
 
@@ -356,7 +362,96 @@ describe('SourceBudgetPanel (AC7)', () => {
     renderPanel()
 
     expect(await screen.findByTestId('job-source-budgets')).toHaveTextContent(
-      'Источники не настроены',
+      'Джерела не налаштовано',
     )
+  })
+  describe('copy, uk and en', () => {
+    it('heads the panel and explains the shared limit in Ukrainian', async () => {
+      renderPanel()
+      expect(await screen.findByRole('heading', { name: 'Бюджет джерел' })).toBeInTheDocument()
+      expect(screen.getByTestId('job-source-budgets')).toHaveTextContent(
+        'Збір зупиняється, коли запити джерела вичерпано, а ручний запуск витрачає той самий ліміт.',
+      )
+    })
+
+    it('reads the whole budget line in English', async () => {
+      await loadCatalog('en')
+      mockSources = {
+        items: [
+          source({
+            triggerMode: 'BOTH',
+            budget: {
+              state: 'ACTIVE',
+              limit: 200,
+              window: 'MONTH',
+              used: 47,
+              remaining: 153,
+              resetsAt: '2026-09-01T00:00:00.000Z',
+            },
+          }),
+        ],
+      }
+      renderPanel()
+      const row = await screen.findByTestId('job-source-budget-row')
+      expect(row).toHaveTextContent('(on a schedule and on button press)')
+      const remaining = screen.getByTestId('job-source-budget-remaining')
+      const text = remaining.textContent ?? ''
+      expect(text.startsWith('153 of 200 left per month · resets ')).toBe(true)
+      expect(text).toContain('September')
+      expect(text.endsWith(' (47 used)')).toBe(true)
+      expect(screen.getByRole('heading', { name: 'Source budget' })).toBeInTheDocument()
+    })
+
+    it('reads the exhausted, unlimited and broken lines in English', async () => {
+      await loadCatalog('en')
+      const budget = (state: 'EXHAUSTED' | 'UNLIMITED' | 'MISCONFIGURED') =>
+        source({
+          budget: {
+            state,
+            limit: state === 'UNLIMITED' ? null : 200,
+            window: state === 'UNLIMITED' ? null : 'DAY',
+            used: 0,
+            remaining: null,
+            resetsAt: null,
+          },
+        })
+      mockSources = { items: [budget('EXHAUSTED')] }
+      const first = renderPanel()
+      expect((await screen.findByTestId('job-source-budget-remaining')).textContent).toBe(
+        'Limit reached per day',
+      )
+      first.unmount()
+      mockSources = { items: [budget('UNLIMITED')] }
+      const second = renderPanel()
+      expect(await screen.findByTestId('job-source-budget-unlimited')).toHaveTextContent(
+        'No request limit',
+      )
+      second.unmount()
+      mockSources = { items: [budget('MISCONFIGURED')] }
+      renderPanel()
+      expect(await screen.findByTestId('job-source-budget-broken')).toHaveTextContent(
+        'The limit is misconfigured — collection is stopped. Check the source settings.',
+      )
+    })
+
+    it('reads the loading, error and empty lines in English', async () => {
+      await loadCatalog('en')
+      mockState = { isLoading: true, isError: false }
+      const loading = renderPanel()
+      expect(await screen.findByTestId('job-source-budgets')).toHaveTextContent('Loading…')
+      loading.unmount()
+      mockState = { isLoading: false, isError: true }
+      const failed = renderPanel()
+      expect(await screen.findByTestId('job-source-budgets-error')).toHaveTextContent(
+        'Could not load source health.',
+      )
+      failed.unmount()
+      mockState = { isLoading: false, isError: false }
+      mockSources = { items: [] }
+      renderPanel()
+      expect(await screen.findByTestId('job-source-budgets')).toHaveTextContent(
+        'No sources are configured.',
+      )
+    })
   })
 })
