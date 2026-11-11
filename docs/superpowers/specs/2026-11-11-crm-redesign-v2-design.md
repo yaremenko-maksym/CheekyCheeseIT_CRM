@@ -243,8 +243,10 @@ Each council round receives:
   Simulator, and measured facts: INP / long tasks for the main flow, overflow scan, touch-target scan, and the
   network log summary (§4.6: request count, duplicates, waterfall depth, bytes, before vs after). At the mockup
   gate the interaction criteria are scored from the spec's stated behaviour against written qualitative anchors
-  (optimistic vs blocking, what happens to input on error / close); the measured thresholds and the < 5 hard
-  floor apply only at the implementation gate.
+  (optimistic vs blocking, what happens to input on error / close); the measured thresholds apply only at
+  the implementation gate. The < 5 hard floor holds at both gates: at the mockup gate it is scored from the
+  stated behaviour (a spec that auto-retries a money create is < 5 on "never blocks" whatever the total;
+  council ruling, Task 0.8 round 1).
 
 **What the score is (my call):** each member gives one overall score n/10 per device class (mobile, tablet,
 desktop),
