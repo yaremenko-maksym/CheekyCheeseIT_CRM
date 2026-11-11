@@ -102,15 +102,22 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   any field edit, or replacing / removing the receipt. While armed the leading control reads **«Згорнути»**: it closes the sheet and the save stays
   armed (a drag down and a scrim tap do the same); the global upload pill then carries «Збережеться 1
   250,50 USD · 62%» / «Відкрити чернетку» (`primitives-v2/upload-pill-armed-375`). At 100% exactly one
-  request is sent, so a form without an idempotency key still sends exactly once. The result **stays in
-  the pill until tapped** («Збережено 1 250,50 USD · Відкрити», which a 44 px ✕ «Закрити» or a swipe
-  also dismisses, or «Не збережено · Відкрити чернетку»); no sheet opens by itself. **One pill slot:**
-  the money pill wins it and other uploads fold in («+2 чеки», `primitives-v2/upload-pill-multi-375`). Backgrounding the app does not disarm; a page kill is reported at the next
-  boot by the marker's phase (`armed`: not saved; `sent`: check the list, no resubmit). **An armed draft blocks nothing:** «+» opens a new form and the pill reads «Збережеться 2
-  транзакції». Only a failed or unknown-outcome draft makes «+» reopen it (the FAB then reads «Відкрити
-  чернетку 1 250,50 USD» and shows the draft icon). Discard is unavailable while the create is in
-  flight. The full lifecycle is
-  the state table in foundation §11. An upload failure disarms the save and shows its error on the
+  request is sent, so a form without an idempotency key still sends exactly once; while it is **in
+  flight** the pill reads «Зберігаємо 1 250,50 USD…». The result **stays in the pill until tapped**
+  («Збережено 1 250,50 USD · Відкрити», which a 44 px ✕ «Закрити» or a swipe also dismisses; «Не
+  збережено 1 250,50 USD · Відкрити»; «Результат невідомий» · «1 250,50 USD · Відкрити»,
+  `primitives-v2/upload-pill-unknown-375`); no sheet opens by itself. **Several drafts, one model**
+  (foundation §11 is the single source): one pill slot shows the highest state, **unknown > failed >
+  in flight > armed > saved**, with the amount for one draft and a count for more («Збережеться 2
+  транзакції · 1 з 2»; two or more failed or unknown drafts read «2 чернетки»); «+2 чеки» counts only
+  uploads that belong to no draft; Фінанси pins one row per unsaved draft (`primitives-v2/drafts-two-375`).
+  An armed or in-flight draft blocks nothing: «+» opens a new form. One failed or unknown draft makes
+  «+» reopen it (the FAB reads «Відкрити чернетку 1 250,50 USD» and shows the draft icon); two or more
+  make «+» open Фінанси at the pinned rows (FAB «Відкрити 2 чернетки»). Discard is offered for a failed
+  or unknown draft and is unavailable only while its request is in flight. Every money create writes
+  its page-kill marker `{ t, phase: 'sent' }` at send (an armed one writes `armed` first);
+  backgrounding does not disarm; a page kill is reported at the next boot with one alert per phase
+  (`armed`: not saved; `sent`: check the list, no resubmit). An upload failure disarms the save and shows its error on the
   receipt card; the user replaces the file, or removes it («✕ Видалити чек») and adds another file or a
   link. The receipt is mandatory (a file or a link; USDT: an explorer link only), so no path saves
   without one (primitives-v2 §4).

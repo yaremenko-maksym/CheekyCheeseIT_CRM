@@ -87,6 +87,7 @@ html,body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-
 /* top bar */
 .topbar{flex:none;display:flex;align-items:center;gap:4px;height:44px;padding:0 8px 0 16px}
 .topbar .title{flex:1;text-align:center;font-size:17px;font-weight:600}
+:where(button,a).btn,:where(button,a).iconbtn{appearance:none;margin:0;border:0;background:none;font:inherit;color:inherit;text-decoration:none;cursor:pointer}
 .iconbtn{width:44px;height:44px;display:grid;place-items:center;border-radius:12px;color:var(--fg);position:relative;flex:none}
 .iconbtn .dot{position:absolute;top:10px;right:10px;width:8px;height:8px;border-radius:4px;background:var(--primary);box-shadow:0 0 0 2px var(--bg)}
 .largetitle{padding:2px 16px 8px}

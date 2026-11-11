@@ -324,11 +324,27 @@ const pillText = (a, b) =>
   `<span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:13px;font-weight:600;white-space:nowrap">${a}</span><span class="t-cap muted">${b}</span></span>`
 
 /**
- * One pill slot, the money pill wins it. armed: the save rides the upload. saved: a 44 px ✕ and a swipe
- * dismiss it, the body opens the transaction. failed: waits for a tap. multi: two armed drafts, and the
- * other uploads fold in («+2 чеки»); a tap opens the upload list.
+ * One pill slot for every draft; it shows the highest state: unknown > failed > in flight > armed >
+ * saved (foundation §11). The amount for one draft, a count for more. armed: the save rides the upload.
+ * saved: a 44 px ✕ and a swipe dismiss it, the body opens the transaction. failed / unknown: wait for a
+ * tap. multi: two armed drafts («1 з 2» receipts done) plus uploads that belong to no draft («+2 чеки»).
+ * drafts: two or more failed / unknown drafts; a tap opens Фінанси at the pinned rows.
  */
 export function moneyPill(w, kind = 'armed') {
+  if (kind === 'unknown')
+    return pillBox(
+      w,
+      `<span style="color:var(--primary)">${icon('circle-help', { size: 24 })}</span>${pillText('Результат невідомий', `${AMOUNT} USD · Відкрити`)}<span role="status" style="${SR}">Невідомо, чи транзакцію збережено</span>`,
+      `Результат невідомий, ${AMOUNT} USD. Відкрити`,
+      '0.42 0.09 85',
+    )
+  if (kind === 'drafts')
+    return pillBox(
+      w,
+      `<span style="color:var(--destructive)">${icon('file-pen', { size: 24 })}</span>${pillText('2 чернетки', 'Відкрити')}`,
+      '2 чернетки. Відкрити',
+      '0.42 0.12 22',
+    )
   if (kind === 'saved')
     return pillBox(
       w,
@@ -340,14 +356,14 @@ export function moneyPill(w, kind = 'armed') {
   if (kind === 'multi')
     return pillBox(
       w,
-      `${progress(ring(62, 28), 'Завантаження чеків')}${pillText('Збережеться 2 транзакції · 62%', '+2 чеки · Показати')}`,
-      'Збережеться 2 транзакції після чеків, ще 2 чеки завантажуються. Показати',
+      `${progress(ring(62, 28), 'Завантаження чеків')}${pillText('Збережеться 2 транзакції · 1 з 2', '+2 чеки · Показати')}`,
+      'Збережеться 2 транзакції після чеків, готово 1 з 2; ще 2 чеки завантажуються. Показати',
     )
   if (kind === 'failed')
     return pillBox(
       w,
-      `<span style="color:var(--destructive)">${icon('circle-alert', { size: 24 })}</span>${pillText('Не збережено', 'Відкрити чернетку')}<span role="status" style="${SR}">Транзакцію не збережено</span>`,
-      'Не збережено. Відкрити чернетку',
+      `<span style="color:var(--destructive)">${icon('circle-alert', { size: 24 })}</span>${pillText(`Не збережено ${AMOUNT} USD`, 'Відкрити')}<span role="status" style="${SR}">Транзакцію не збережено</span>`,
+      `Не збережено ${AMOUNT} USD. Відкрити`,
       '0.42 0.12 22',
     )
   return pillBox(
@@ -365,14 +381,25 @@ export const uploadPillArmed = (w, h) => financeTab(w, h, moneyPill(w, 'armed'))
 export const uploadPillSaved = (w, h) => financeTab(w, h, moneyPill(w, 'saved'))
 export const uploadPillMulti = (w, h) => financeTab(w, h, moneyPill(w, 'multi'))
 
-/** A failed / unknown draft exists: the FAB reopens it, so it says so and changes its icon. */
-export const draftFab = (html) =>
+/**
+ * Failed / unknown drafts exist: the FAB reopens the one draft, or with two or more opens Фінанси at the
+ * pinned rows; it says so and changes its icon (a red dot, carrying the count when more than one).
+ */
+export const draftFab = (html, count = 1) =>
   html.replace(
     /<div class="fab" role="button" aria-label="[^"]*"\s*(?:aria-haspopup="dialog")?\s*style="([^"]*)">[\s\S]*?<\/div>/,
-    (_, st) =>
-      `<div class="fab" role="button" aria-label="Відкрити чернетку ${AMOUNT} USD" style="${st}">${icon('file-pen', { size: 24, stroke: 2.2 })}<i aria-hidden="true" style="position:absolute;top:9px;right:9px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--primary)"></i></div>`,
+    (_, st) => {
+      const dot =
+        count > 1
+          ? `<i aria-hidden="true" class="num" style="position:absolute;top:5px;right:5px;min-width:18px;height:18px;border-radius:9px;background:var(--destructive);color:#fff;font:700 12px/18px var(--font);font-style:normal;text-align:center;box-shadow:0 0 0 2px var(--primary)">${count}</i>`
+          : '<i aria-hidden="true" style="position:absolute;top:9px;right:9px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--primary)"></i>'
+      const name = count > 1 ? `Відкрити ${count} чернетки` : `Відкрити чернетку ${AMOUNT} USD`
+      return `<div class="fab" role="button" aria-label="${name}" style="${st}">${icon('file-pen', { size: 24, stroke: 2.2 })}${dot}</div>`
+    },
   )
 export const uploadPillFailed = (w, h) => draftFab(financeTab(w, h, moneyPill(w, 'failed')))
+export const uploadPillUnknown = (w, h) =>
+  draftFab(financeTab(w, h, moneyPill(w, 'unknown'), pinDrafts([DRAFT.unknown])))
 
 /** Toast + pill: the pill keeps the base slot, at most one toast stacks 8 px above it. */
 export function toastPillStack(w, h) {
@@ -459,10 +486,29 @@ export const confirmDiscardDraft = (w, h) =>
     }),
   )
 
-/** The kept draft, pinned at the top of the Фінанси list when reached another way. */
-export function listrowDraft(w, h) {
-  const row = `<div style="padding:0 16px 12px"><div class="row" style="gap:12px;min-height:64px;padding:8px 8px 8px 12px;border-radius:14px;background:var(--card);border:1px solid oklch(0.84 0.183 85.3 / 0.45);box-shadow:inset 2px 0 0 var(--primary)"><span style="width:36px;height:36px;border-radius:10px;background:var(--yellow-subtle);color:var(--primary);display:grid;place-items:center;flex:none">${icon('file-pen', { size: 18 })}</span><span class="grow col" style="gap:2px;min-width:0"><span class="t-body num" style="font-weight:600">Чернетка <span style="white-space:nowrap">${AMOUNT} USD</span></span><span class="t-foot muted">Не збережено · Витрата · чек додано</span></span><span class="btn sm primary" role="button" aria-label="Відкрити чернетку ${AMOUNT} USD" style="height:44px">Відкрити</span></div></div>`
-  const body = financeBody()
-  const k = body.indexOf('<div class="sechead"')
-  return draftFab(financeTab(w, h, '', k < 0 ? row + body : body.slice(0, k) + row + body.slice(k)))
+// Pinned draft rows: one per unsaved draft (armed, in flight, failed, unknown), newest first.
+const DRAFT = {
+  failed: { amount: AMOUNT, state: 'Не збережено · Витрата · чек додано' },
+  unknown: { amount: AMOUNT, state: 'Результат невідомий · Витрата · чек додано' },
+  armed: { amount: '320,00', state: 'Збережеться після чека · Витрата · чек 62%', armed: true },
+  failed2: { amount: '86,40', state: 'Не збережено · Витрата · чек додано' },
 }
+const draftRow = ({ amount, state, armed = false }) =>
+  `<div style="padding:0 16px 8px"><div class="row" style="gap:12px;min-height:64px;padding:8px 8px 8px 12px;border-radius:14px;background:var(--card);border:1px solid ${armed ? 'var(--border)' : 'oklch(0.84 0.183 85.3 / 0.45)'};box-shadow:inset 2px 0 0 ${armed ? 'var(--muted-fg)' : 'var(--primary)'}"><span style="width:36px;height:36px;border-radius:10px;background:${armed ? 'var(--surface)' : 'var(--yellow-subtle)'};color:${armed ? 'var(--muted-fg)' : 'var(--primary)'};display:grid;place-items:center;flex:none">${icon(armed ? 'clock' : 'file-pen', { size: 18 })}</span><span class="grow col" style="gap:2px;min-width:0"><span class="t-body num" style="font-weight:600">Чернетка <span style="white-space:nowrap">${amount} USD</span></span><span class="t-foot muted">${state}</span></span><a class="btn sm ${armed ? 'secondary' : 'primary'}" href="#" aria-label="Відкрити чернетку ${amount} USD" style="height:44px">Відкрити</a></div></div>`
+const pinDrafts = (drafts) => {
+  const body = financeBody()
+  const rows = `<div style="padding-bottom:4px">${drafts.map(draftRow).join('')}</div>`
+  const k = body.indexOf('<div class="sechead"')
+  return k < 0 ? rows + body : body.slice(0, k) + rows + body.slice(k)
+}
+
+/** The kept draft, pinned at the top of the Фінанси list when reached another way. */
+export const listrowDraft = (w, h) => draftFab(financeTab(w, h, '', pinDrafts([DRAFT.failed])))
+
+/** One failed + one armed draft: the failed one wins the pill (unknown > failed > in flight > armed > saved); both are pinned. */
+export const draftsTwo = (w, h) =>
+  draftFab(financeTab(w, h, moneyPill(w, 'failed'), pinDrafts([DRAFT.armed, DRAFT.failed])))
+
+/** Two unresolved drafts: the pill and the FAB name the count and open Фінанси at the pinned rows. */
+export const draftsTwoUnresolved = (w, h) =>
+  draftFab(financeTab(w, h, moneyPill(w, 'drafts'), pinDrafts([DRAFT.failed2, DRAFT.unknown])), 2)
