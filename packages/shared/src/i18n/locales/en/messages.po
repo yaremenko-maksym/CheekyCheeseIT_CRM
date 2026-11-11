@@ -12143,6 +12143,10 @@ msgstr "Not accepted"
 msgid "Було → Стало"
 msgstr "Before → After"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgid "Форма співпраці: Не вказано"
+msgstr "Contract type: Not stated"
+
 #: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
 msgid "Заповнити в профілі →"
 msgstr "Fill in on the profile →"

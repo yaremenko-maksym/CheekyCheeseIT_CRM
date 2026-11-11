@@ -413,7 +413,7 @@ describe('JobQueueCard', () => {
     expect(screen.getByTestId('job-queue-card-meta')).toHaveTextContent(/ · востаннє бачили /)
   })
 
-  it('terms: «Форма співпраці» names B2B or employment, and is absent when none is stated', () => {
+  it('terms: «Форма співпраці» names B2B or employment, and «Не вказано» when none is stated', () => {
     const b2b = show(cardFixture({ engagementForm: 'B2B' }))
     expect(screen.getByTestId('job-queue-terms')).toHaveTextContent('Форма співпраці: B2B')
     b2b.unmount()
@@ -422,8 +422,9 @@ describe('JobQueueCard', () => {
       'Форма співпраці: Трудовий договір',
     )
     emp.unmount()
+    // design §5.1: the engagement form stays visible even when the posting states none
     show(cardFixture({ engagementForm: null }))
-    expect(screen.queryByTestId('job-queue-terms')).toBeNull()
+    expect(screen.getByTestId('job-queue-terms')).toHaveTextContent('Форма співпраці: Не вказано')
   })
 
   it('the seniors come before the description (the decision surface first)', () => {

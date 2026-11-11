@@ -92,15 +92,15 @@ function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
           <Trans>востаннє бачили {lastSeenAgo}</Trans>
         </span>
       </p>
-      {card.engagementForm && (
-        <p data-testid="job-queue-terms" className="text-xs text-muted-foreground">
-          {card.engagementForm === 'B2B' ? (
-            <Trans>Форма співпраці: B2B</Trans>
-          ) : (
-            <Trans>Форма співпраці: Трудовий договір</Trans>
-          )}
-        </p>
-      )}
+      <p data-testid="job-queue-terms" className="text-xs text-muted-foreground">
+        {card.engagementForm === 'B2B' ? (
+          <Trans>Форма співпраці: B2B</Trans>
+        ) : card.engagementForm === 'EMPLOYMENT' ? (
+          <Trans>Форма співпраці: Трудовий договір</Trans>
+        ) : (
+          <Trans>Форма співпраці: Не вказано</Trans>
+        )}
+      </p>
     </>
   )
 }

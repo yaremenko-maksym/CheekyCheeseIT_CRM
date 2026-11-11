@@ -12143,6 +12143,10 @@ msgstr "Не прийнято"
 msgid "Було → Стало"
 msgstr "Було → Стало"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgid "Форма співпраці: Не вказано"
+msgstr "Форма співпраці: Не вказано"
+
 #: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
 msgid "Заповнити в профілі →"
 msgstr "Заповнити в профілі →"
