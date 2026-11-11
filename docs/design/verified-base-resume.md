@@ -76,18 +76,18 @@ Empty state (`resume === null`, `canEdit`) replaces everything with `<ResumeInta
 
 Busy is **only** `verificationBusy === true`. Never infer it from `verificationReport` or the status.
 
-| DTO state                                              | Bar badge                            | What shows                                                                                                 |
-| ------------------------------------------------------ | ------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `resume === null`, `canEdit`                           | —                                    | Empty state (screen 2)                                                                                     |
-| `resume === null`, `!canEdit`                          | —                                    | Existing read-only "The resume is not filled in yet."                                                      |
-| `DRAFT`                                                | Draft (outline)                      | Facts form + completeness panel (screen 1). Line "The facts changed…" only when `verifiedVersion !== null` |
-| `QUEUED` / `CHECKING`, `staged === null` (busy)        | Checking (primary outline)           | Progress (screen 3); form, Submit, picker, layout switches disabled                                        |
-| `QUEUED` / `CHECKING`, `staged !== null` (busy)        | Checking (primary outline)           | Confirm step **read-only**: progress line "Checking your change…" at the top, every action disabled        |
-| `AWAITING_CONFIRM`, `staged`                           | Awaiting confirmation                | Confirm step (screen 4); facts form collapsed behind "Change the facts"                                    |
-| `FAILED`                                               | Failed the check (amber)             | Failure panel (screen 5) above the facts form                                                              |
-| `VERIFIED`, `verificationErrorCode === null`, not busy | Verified (emerald)                   | Meta "Verified {date} · {name}", facts form, picker, layout panel                                          |
-| `VERIFIED` + busy (template or layout run)             | Verified + Checking the new template | Picker and layout switches disabled, small progress line; everything else stays usable read-only           |
-| `VERIFIED`, `verificationErrorCode !== null`, not busy | Verified (emerald)                   | Non-blocking warning row `failure.templateWarning` + the code body                                         |
+| DTO state                                              | Bar badge                        | What shows                                                                                                    |
+| ------------------------------------------------------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `resume === null`, `canEdit`                           | —                                | Empty state (screen 2)                                                                                        |
+| `resume === null`, `!canEdit`                          | —                                | Existing read-only "The resume is not filled in yet."                                                         |
+| `DRAFT`                                                | Draft (outline)                  | Facts form + completeness panel (screen 1). Line "The facts changed…" only when `verifiedVersion !== null`    |
+| `QUEUED` / `CHECKING`, `staged === null` (busy)        | Checking (primary outline)       | Progress (screen 3); form, Submit, picker, layout switches disabled                                           |
+| `QUEUED` / `CHECKING`, `staged !== null` (busy)        | Checking (primary outline)       | Confirm step **read-only**: progress line "Updating and checking the text…" at the top, every action disabled |
+| `AWAITING_CONFIRM`, `staged`                           | Awaiting confirmation            | Confirm step (screen 4); facts form collapsed behind "Change the facts"                                       |
+| `FAILED`                                               | Failed the check (amber)         | Failure panel (screen 5) above the facts form                                                                 |
+| `VERIFIED`, `verificationErrorCode === null`, not busy | Verified (emerald)               | Meta "Verified {date} · {name}", facts form, picker, layout panel                                             |
+| `VERIFIED` + busy (template or layout run)             | Verified + Checking the new look | Picker and layout switches disabled, small progress line; everything else stays usable read-only              |
+| `VERIFIED`, `verificationErrorCode !== null`, not busy | Verified (emerald)               | Non-blocking warning row `failure.templateWarning` + the code body                                            |
 
 A staged edit or regenerate puts the row back to `QUEUED` (then `CHECKING`) and keeps `staged`
 non-null; there is no `AWAITING_CONFIRM` + busy state. The DTO does not say which block triggered the
@@ -157,9 +157,9 @@ hand" (the brief said "Fill in manually"; copy review agreed: one concept, one w
   facts form at `opacity-50` inside `<fieldset disabled>`: the values stay readable, the controls leave
   the tab order. The picker and the layout switches are disabled the same way (§5.6, §5.7).
 - Template or layout run on VERIFIED (`VERIFIED` + busy): no big card. The bar shows the Verified badge
-  plus a "Checking the new template" badge and the line "The resume stays verified while the check
+  plus a "Checking the new look" badge and the line "The resume stays verified while the check
   runs." The DTO does not tell a template run from a layout run, so this badge text covers both
-  (`progress.templateRun` names the template because that is the common case; see Q6).
+  (`progress.templateRun` is neutral on purpose; see Q6).
 - Announcements: the live region announces the title change once per status change (Queued → Checking
   → result). Do not re-announce on every poll.
 
@@ -167,11 +167,11 @@ hand" (the brief said "Fill in manually"; copy review agreed: one concept, one w
 
 - **Shown whenever `staged !== null`.** In `AWAITING_CONFIRM` it is interactive. In `QUEUED` /
   `CHECKING` (after a staged edit or regenerate) it is read-only: a progress line at the top of the
-  header card (badge "Checking", the indeterminate bar, text "Checking your change…",
+  header card (badge "Checking", the indeterminate bar, text "Updating and checking the text…",
   `role="status"`), and **every** action disabled — Confirm, Change the facts, Edit, Regenerate. No
   per-block marker: the DTO does not say which block started the run. When the run ends the step
   becomes interactive again (or the failure panel shows).
-- **Header card:** badge "Awaiting confirmation", title "Review the generated text", sub-line, actions
+- **Header card:** badge "Awaiting confirmation", title "Review the resume text", sub-line, actions
   "Change the facts" (outline) and **Confirm** (primary, `Check` icon). Confirm renders only when
   `canConfirm`. Disabled while busy. On click: `POST confirm { runId: staged.runId, version }`. A
   `RESUME_CONFIRM_STALE` answer shows the catalog message as a toast and refetches.
@@ -201,7 +201,7 @@ hand" (the brief said "Fill in manually"; copy review agreed: one concept, one w
     they are."
 - **Inline edit:** the text is replaced by a `Textarea` (autofocus, label "Bullet {j}, job {i}" or
   "About") with Save / Cancel. Save sends `PUT staged`; on success the row goes to `QUEUED` and the
-  whole step turns read-only with the "Checking your change…" line (above). A 4xx
+  whole step turns read-only with the "Updating and checking the text…" line (above). A 4xx
   `RESUME_STAGED_TEXT_INVALID` shows the catalog message under the field (`aria-invalid`), the text
   stays in the textarea, and the matched text is never echoed. Escape = Cancel.
 - **Staged PDF:** the existing `PdfPreview` fed by a blob hook on `GET …/resume/staged-pdf` (same
@@ -228,11 +228,14 @@ hand" (the brief said "Fill in manually"; copy review agreed: one concept, one w
     every layout item: a resume-level row, label "Whole resume", **not** a button (a plain `div`, no
     hover, no focus stop). Same for `pages.<n>` ("Page {n}", n = index + 1) and the profile `email` /
     `displayName` paths: no facts field to focus.
+  - **Unknown path** (not in §10.6): if its first segment is a known section key, the row takes that
+    section's label and behaves like the section row; otherwise "Whole resume", plain. Never an empty
+    line 1.
   - **Unknown reason code:** the generic line "did not pass an automated check" (ruling R46). Never
     the raw code, never an empty line 2.
 - **Actions by code:** retryable codes (`WRITER_UNAVAILABLE`, `ENTAILMENT_UNAVAILABLE`,
   `VISUAL_CHECK_UNAVAILABLE`, `RENDER_FAILED`, `STALLED`) → primary **Check again** (`POST submit`), no
-  "Fix the facts". `INCOMPLETE`, `LAYOUT_UNFIXABLE` → primary **Fix the facts** (focuses the first
+  "Fix the facts"; `RENDER_FAILED` adds outline **Choose a template** (its body suggests one). `INCOMPLETE`, `LAYOUT_UNFIXABLE` → primary **Fix the facts** (focuses the first
   item that is a button, or the form) + outline **Check again**. `ATS_CHECK_FAILED`,
   `GLYPH_CHECK_FAILED`, `VISUAL_CHECK_FAILED` → the same two plus outline **Choose a template**
   (scrolls to the picker and focuses the selected tile), because the body offers another template.
@@ -478,7 +481,7 @@ manually"; copy review agreed: one concept, one wording).
 | `progress.checkDetail`            | Пишемо текст · Звіряємо з фактами · Збираємо PDF · ATS-перевірка · Візуальна перевірка                                               | Writing the text · Checking against the facts · Building the PDF · ATS check · Visual check                                         |
 | `progress.canClose`               | Вкладку можна закрити: перевірка йде на сервері, результат буде тут.                                                                 | You can close this tab: the check runs on the server and the result shows up here.                                                  |
 | `progress.locked`                 | Поки триває перевірка, редагування недоступне.                                                                                       | Editing is unavailable while the check runs.                                                                                        |
-| `progress.templateRun`            | Перевіряємо новий шаблон                                                                                                             | Checking the new template                                                                                                           |
+| `progress.templateRun`            | Перевіряємо нове оформлення                                                                                                          | Checking the new look                                                                                                               |
 | `progress.templateRunNote`        | Резюме лишається перевіреним, поки триває перевірка.                                                                                 | The resume stays verified while the check runs.                                                                                     |
 | `failure.templateWarning`         | Зміна шаблону чи оформлення не пройшла перевірку — залишено попередній варіант.                                                      | The template or formatting change failed the check — the previous version is kept.                                                  |
 | `failure.chooseTemplate`          | Обрати шаблон                                                                                                                        | Choose a template                                                                                                                   |
@@ -487,8 +490,8 @@ manually"; copy review agreed: one concept, one wording).
 | `failure.period`                  | Період                                                                                                                               | Period                                                                                                                              |
 | `failure.profileEmail`            | Email у профілі                                                                                                                      | Profile email                                                                                                                       |
 | `layout.verifiedNote`             | Зміна оформлення запустить перевірку макета. Резюме лишиться перевіреним, а якщо перевірка не пройде — збереже попереднє оформлення. | Changing the formatting starts a layout check. The resume stays verified, and if the check fails, it keeps the previous formatting. |
-| `layout.busy`                     | Оформлення можна змінити після перевірки.                                                                                            | You can change the formatting after the check.                                                                                      |
-| `confirm.title`                   | Перегляньте згенерований текст                                                                                                       | Review the generated text                                                                                                           |
+| `layout.busy`                     | Оформлення зміните після перевірки.                                                                                                  | You can change the formatting after the check.                                                                                      |
+| `confirm.title`                   | Перегляньте текст резюме                                                                                                             | Review the resume text                                                                                                              |
 | `confirm.sub` (`canConfirm`)      | Текст згенеровано з ваших фактів. Підтвердьте, відредагуйте або згенеруйте заново.                                                   | The text is generated from your facts. Confirm it, edit it or regenerate it.                                                        |
 | `confirm.subNoConfirm`            | Текст згенеровано з ваших фактів. Відредагуйте його або згенеруйте заново.                                                           | The text is generated from your facts. Edit it or regenerate it.                                                                    |
 | `confirm.hrConfirms`              | Резюме підтверджує HR. Ви можете змінити факти й надіслати знову.                                                                    | HR confirms the resume. You can still change the facts and submit again.                                                            |
@@ -506,7 +509,7 @@ manually"; copy review agreed: one concept, one wording).
 | `confirm.years`                   | {count, plural, one {# рік} few {# роки} many {# років} other {# року}}                                                              | {count, plural, one {# year} other {# years}}                                                                                       |
 | `confirm.fallbackNote`            | Згенерований текст не пройшов звірку з фактами — тут ваші нотатки як є.                                                              | The generated text did not pass the fact check — your notes are shown as they are.                                                  |
 | `confirm.recheckNote`             | Після збереження перевіримо PDF ще раз.                                                                                              | Once you save, we check the PDF again.                                                                                              |
-| `confirm.checkingChange`          | Перевіряємо вашу зміну…                                                                                                              | Checking your change…                                                                                                               |
+| `confirm.checkingChange`          | Оновлюємо й перевіряємо текст…                                                                                                       | Updating and checking the text…                                                                                                     |
 | `confirm.locked`                  | Усі дії недоступні, поки триває перевірка.                                                                                           | Every action is unavailable while the check runs.                                                                                   |
 | `confirm.toast.textSaved`         | Текст збережено                                                                                                                      | Text saved                                                                                                                          |
 | `confirm.toast.confirmed`         | Резюме підтверджено                                                                                                                  | Resume confirmed                                                                                                                    |
@@ -515,14 +518,13 @@ manually"; copy review agreed: one concept, one wording).
 | `confirm.pdfLabel` (aria)         | Попередній перегляд PDF резюме до підтвердження                                                                                      | Preview of the resume PDF before confirmation                                                                                       |
 | `failure.fixFacts`                | Виправити факти                                                                                                                      | Fix the facts                                                                                                                       |
 | `failure.retry`                   | Перевірити ще раз                                                                                                                    | Check again                                                                                                                         |
-| `failure.chooseTemplate`          | Обрати шаблон                                                                                                                        | Choose a template                                                                                                                   |
 | `failure.more`                    | і ще {count}                                                                                                                         | and {count} more                                                                                                                    |
 | `picker.title`                    | Шаблон                                                                                                                               | Template                                                                                                                            |
 | `picker.intro`                    | Усі шаблони каталогу підтримують перевірку. Мініатюри — на прикладі одного резюме.                                                   | Every catalog template supports the check. The thumbnails show one sample resume.                                                   |
-| `picker.name.*`                   | Класичний · Сучасний · Компактний · Технічний                                                                                        | Classic · Modern · Compact · Technical                                                                                              |
+| `picker.name.*`                   | Класичний · Сучасний · Стислий · Технічний                                                                                           | Classic · Modern · Condensed · Technical                                                                                            |
 | `picker.desc.classic`             | Шрифт із засічками, ім’я по центру                                                                                                   | Serif font, centered name                                                                                                           |
 | `picker.desc.modern`              | Без засічок, акцентна лінія під заголовками                                                                                          | Sans-serif, an accent rule under the headings                                                                                       |
-| `picker.desc.compact`             | Щільніше, дати праворуч                                                                                                              | Denser, dates on the right                                                                                                          |
+| `picker.desc.compact`             | Дати праворуч, менше відступів                                                                                                       | Dates on the right, tighter spacing                                                                                                 |
 | `picker.desc.technical`           | Навички за категоріями                                                                                                               | Skills grouped by category                                                                                                          |
 | `picker.current`                  | Поточний                                                                                                                             | Current                                                                                                                             |
 | `picker.verifiedNote`             | Зміна шаблону запустить перевірку макета. Резюме лишиться перевіреним, а якщо перевірка не пройде — збереже попередній шаблон.       | Changing the template starts a layout check. The resume stays verified, and if the check fails, it keeps the previous template.     |
@@ -533,7 +535,7 @@ manually"; copy review agreed: one concept, one wording).
 
 Primary action: **R** = Check again (retryable), **F** = Fix the facts + outline Check again, **T** =
 Choose a template, **F+T** = F plus outline Choose a template (`failure.chooseTemplate`, the body names
-another template). On a VERIFIED row with a code the title is replaced by `failure.templateWarning` and
+another template), **R+T** = R plus outline Choose a template. On a VERIFIED row with a code the title is replaced by `failure.templateWarning` and
 the body is kept.
 
 | Code                       | Act | uk title / body                                                                                                                                            | en title / body                                                                                                                                                              |
@@ -542,8 +544,8 @@ the body is kept.
 | `CUSTOM_TEMPLATE`          | T   | Шаблон не підтримує перевірку / body = `api-error.RESUME_CUSTOM_TEMPLATE` (reused)                                                                         | This template cannot be checked / body = `api-error.RESUME_CUSTOM_TEMPLATE` (en changed, §10.1)                                                                              |
 | `WRITER_UNAVAILABLE`       | R   | Сервіс написання тексту недоступний / Це тимчасово. Спробуйте ще раз за кілька хвилин.                                                                     | The writing service is unavailable / This is temporary. Try again in a few minutes.                                                                                          |
 | `ENTAILMENT_UNAVAILABLE`   | R   | Сервіс звірки з фактами недоступний / Це тимчасово. Спробуйте ще раз за кілька хвилин.                                                                     | The fact-check service is unavailable / This is temporary. Try again in a few minutes.                                                                                       |
-| `RENDER_FAILED`            | R   | Не вдалося зібрати PDF (reused) / Спробуйте ще раз. Якщо повториться — змініть шаблон або зверніться до адміністратора.                                    | Could not build the PDF (reused) / Try again. If it happens again, change the template or contact an admin.                                                                  |
-| `ATS_CHECK_FAILED`         | F+T | PDF не пройшов перевірку ATS / Частину тексту ATS не прочитав з PDF. Скоротіть поля зі списку або оберіть інший шаблон.                                    | The PDF failed the ATS check / An ATS could not read part of the text in the PDF. Shorten the fields in the list or choose another template.                                 |
+| `RENDER_FAILED`            | R+T | Не вдалося зібрати PDF (reused) / Спробуйте ще раз. Якщо повториться — змініть шаблон або зверніться до адміністратора.                                    | Could not build the PDF (reused) / Try again. If it happens again, change the template or contact an admin.                                                                  |
+| `ATS_CHECK_FAILED`         | F+T | ATS не прочитав PDF / Частина тексту не читається з PDF. Скоротіть поля зі списку або оберіть інший шаблон.                                                | An ATS could not read the PDF / Part of the text cannot be read from the PDF. Shorten the fields in the list or choose another template.                                     |
 | `GLYPH_CHECK_FAILED`       | F+T | Шрифт не показує частину символів / У PDF випали символи з полів зі списку. Замініть їх звичайними латинськими літерами або оберіть інший шаблон.          | The font cannot show some characters / Some characters from the fields in the list are missing in the PDF. Replace them with plain Latin letters or choose another template. |
 | `LAYOUT_UNFIXABLE`         | F   | Резюме не вміщується в макет / Резюме не вміщується у 2 сторінки або остання сторінка майже порожня. Скоротіть нотатки або змініть щільність в оформленні. | The resume does not fit the layout / The resume does not fit in 2 pages, or the last page is almost empty. Shorten the notes or change the density in the formatting.        |
 | `VISUAL_CHECK_FAILED`      | F+T | PDF не пройшов візуальну перевірку / На сторінці знайдено накладання або обрізаний текст. Скоротіть поля зі списку або оберіть інший шаблон.               | The PDF failed the visual check / Overlapping or cut-off text was found on the page. Shorten the fields in the list or choose another template.                              |
@@ -593,19 +595,19 @@ shows what the producer writes; `''` = a resume-level row (§5.5).
 | content | `UNGROUNDED`             | same                                               | немає у фактах                        | not in the facts                |
 | content | `NON_LATIN`              | same                                               | не латиницею                          | not in Latin letters            |
 | content | `CONTACT_IN_TEXT`        | same                                               | містить контакти                      | contains contact details        |
-| content | `NOT_SUPPORTED`          | same                                               | не підтримується шаблоном             | not supported by the template   |
+| content | `NOT_SUPPORTED`          | same                                               | шаблон це не підтримує                | not supported by the template   |
 | content | `HUMAN_EDITED`           | the edited path                                    | змінено вручну                        | edited by hand                  |
 | content | `BAD_INDEX`              | same                                               | generic line                          | generic line                    |
 | ats     | `MISSING_TEXT`           | `summary`, `skills[i]`, `experience[i].<field>`, … | текст не знайдено в PDF               | text not found in the PDF       |
 | ats     | `HEADING_MISSING`        | section key (`summary`, `skills`, `experience`, …) | немає заголовка розділу               | section heading missing         |
 | ats     | `HEADING_ORDER`          | `''`                                               | заголовки розділів не в тому порядку  | section headings out of order   |
-| ats     | `HIDDEN_SECTION_PRESENT` | section key                                        | прихований розділ є в PDF             | a hidden section is in the PDF  |
-| ats     | `ITEM_ORDER`             | `experience[i].<field>`, `education[i].<field>`    | текст стоїть не у своєму місці роботи | text sits under the wrong job   |
-| ats     | `PERIOD_FORMAT`          | `experience[i].period`, `education[i].period`      | дати у неправильному форматі          | dates in the wrong format       |
-| ats     | `CONTACT_NOT_IN_BODY`    | `displayName`, `email`                             | немає на першій сторінці під ім’ям    | not on page 1 under the name    |
+| ats     | `HIDDEN_SECTION_PRESENT` | section key                                        | прихований розділ потрапив у PDF      | a hidden section is in the PDF  |
+| ats     | `ITEM_ORDER`             | `experience[i].<field>`                            | текст стоїть не у своєму місці роботи | text sits under the wrong job   |
+| ats     | `PERIOD_FORMAT`          | `experience[i].period`                             | дати у неправильному форматі          | dates in the wrong format       |
+| ats     | `CONTACT_NOT_IN_BODY`    | `displayName`, `email`                             | немає в шапці першої сторінки         | missing from the page 1 header  |
 | ats     | `REPLACEMENT_CHAR`       | `pages[i]`                                         | нечитабельні символи                  | unreadable characters           |
 | ats     | `LIGATURE`               | `pages[i]`                                         | злиті літери (лігатури)               | joined letters (ligatures)      |
-| ats     | `LETTER_SPACED`          | `pages[i]`                                         | заголовок розріджено по літерах       | heading spaced letter by letter |
+| ats     | `LETTER_SPACED`          | `pages[i]`                                         | заголовок набрано врозрядку           | heading spaced letter by letter |
 | ats     | `TOO_MANY_PAGES`         | `''`                                               | більше 2 сторінок                     | more than 2 pages               |
 | ats     | `TOO_LARGE`              | `''`                                               | файл більший за 1 МБ                  | file larger than 1 MB           |
 | ats     | `UNREADABLE`             | `''`                                               | PDF не читається як текст             | the PDF cannot be read as text  |
@@ -616,11 +618,11 @@ shows what the producer writes; `''` = a resume-level row (§5.5).
 | visual  | `overflow`               | `pages.<n>`                                        | текст виходить за поле                | text runs past the margin       |
 | visual  | `overlap`                | `pages.<n>`                                        | рядки накладаються                    | lines overlap                   |
 | visual  | `ragged`                 | `pages.<n>`                                        | нерівний край тексту                  | ragged text edge                |
-| visual  | `orphan`                 | `pages.<n>`                                        | одинокий рядок на сторінці            | a lone line on the page         |
-| visual  | `broken-bullet`          | `pages.<n>`                                        | пункт розірвано                       | a broken bullet                 |
+| visual  | `orphan`                 | `pages.<n>`                                        | висячий рядок                         | lone line on the page           |
+| visual  | `broken-bullet`          | `pages.<n>`                                        | пункт розірвано                       | broken bullet                   |
 | visual  | `uneven-spacing`         | `pages.<n>`                                        | нерівні відступи                      | uneven spacing                  |
 | visual  | `cut-off`                | `pages.<n>`                                        | текст обрізано                        | text is cut off                 |
-| any     | unknown code (R46)       | any                                                | не пройшло автоматичну перевірку      | did not pass an automated check |
+| any     | unknown code (R46)       | any                                                | автоматична перевірка не пройдена     | did not pass an automated check |
 
 The map is keyed by reason only (one text per code): `TOO_MANY_PAGES` / `TOO_LARGE` read the same in
 the ATS and the layout gate. Visual codes are lower-case with hyphens as the gate sends them. The 1 MB
@@ -637,57 +639,59 @@ Pattern `{section} · {field}`, where a numbered section uses the position (inde
 `x[i]` → `x.i` (`experience[0].period` → `experience.0.period`, `pages[0]` → `pages.0`). The last column
 says whether the row is a button (focuses a facts field) or a plain resume-level row (§5.5).
 
-| Path                                                                               | uk                               | en                            | Row                                |
-| ---------------------------------------------------------------------------------- | -------------------------------- | ----------------------------- | ---------------------------------- |
-| `''` (empty)                                                                       | Резюме загалом                   | Whole resume                  | plain                              |
-| `pages.<i>`                                                                        | Сторінка {n}                     | Page {n}                      | plain                              |
-| `email`                                                                            | Email у профілі                  | Profile email                 | plain (lives in the profile)       |
-| `experience.<i>.period`                                                            | Місце роботи {n} · Період        | Job {n} · Period              | button → the start month           |
-| `education.<i>.period`                                                             | Освіта {n} · Період              | Education {n} · Period        | button → the start year            |
-| section key (`skills`, `experience`, `education`, `languages`; `summary` as below) | the section title (§10.1)        | the section title (§10.1)     | button → the section's first field |
-| `displayName`                                                                      | Ім’я в профілі                   | Profile name                  | plain (lives in the profile)       |
-| `headline`                                                                         | Цільова посада                   | Target role                   | button                             |
-| `location.city` / `location.country`                                               | Місто · Країна                   | City · Country                | button                             |
-| `skills`, `skills.<i>`                                                             | Навички · Навичка {n}            | Skills · Skill {n}            | button                             |
-| `experience`                                                                       | Досвід роботи                    | Work experience               | button                             |
-| `experience.<i>.<field>`                                                           | Місце роботи {n} · {field label} | Job {n} · {field label}       | button                             |
-| `experience.<i>.notes[.<j>]`                                                       | Місце роботи {n} · Нотатки       | Job {n} · Notes               | button                             |
-| `experience.<i>.technologies.<j>`                                                  | Місце роботи {n} · Технології    | Job {n} · Technologies        | button                             |
-| `experience.<i>.bullets[.<j>]` (report)                                            | Місце роботи {n} · Пункти        | Job {n} · Bullets             | button → the job notes             |
-| `summary` (report)                                                                 | Про себе                         | About                         | plain (generated from all facts)   |
-| `education.<i>.<field>`                                                            | Освіта {n} · {field label}       | Education {n} · {field label} | button                             |
-| `languages`, `languages.<i>.name`                                                  | Мови · Мова {n}                  | Languages · Language {n}      | button                             |
+| Path                                                                                        | uk                                                                                  | en                                                                                | Row                                |
+| ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------- |
+| `''` (empty)                                                                                | Резюме загалом                                                                      | Whole resume                                                                      | plain                              |
+| `pages.<i>`                                                                                 | Сторінка {n}                                                                        | Page {n}                                                                          | plain                              |
+| `email`                                                                                     | Email у профілі                                                                     | Profile email                                                                     | plain (lives in the profile)       |
+| `experience.<i>.period`                                                                     | Місце роботи {n} · Період                                                           | Job {n} · Period                                                                  | button → the start month           |
+| `education.<i>.period`                                                                      | Освіта {n} · Період                                                                 | Education {n} · Period                                                            | button → the start year            |
+| section key (`skills`, `experience`, `education`, `languages`, `links`; `summary` as below) | the section title (§10.1)                                                           | the section title (§10.1)                                                         | button → the section's first field |
+| `displayName`                                                                               | Ім’я в профілі                                                                      | Profile name                                                                      | plain (lives in the profile)       |
+| `headline`                                                                                  | Цільова посада                                                                      | Target role                                                                       | button                             |
+| `location.city` / `location.country`                                                        | Місто · Країна                                                                      | City · Country                                                                    | button                             |
+| `skills`, `skills.<i>`                                                                      | Навички · Навичка {n}                                                               | Skills · Skill {n}                                                                | button                             |
+| `experience`                                                                                | Досвід роботи                                                                       | Work experience                                                                   | button                             |
+| `experience.<i>.<field>`                                                                    | Місце роботи {n} · {field label}                                                    | Job {n} · {field label}                                                           | button                             |
+| `experience.<i>.notes[.<j>]`                                                                | Місце роботи {n} · Нотатки                                                          | Job {n} · Notes                                                                   | button                             |
+| `experience.<i>.technologies.<j>`                                                           | Місце роботи {n} · Технології                                                       | Job {n} · Technologies                                                            | button                             |
+| `experience.<i>.bullets[.<j>]` (report)                                                     | Місце роботи {n} · Пункти                                                           | Job {n} · Bullets                                                                 | button → the job notes             |
+| `summary` (report)                                                                          | Про себе                                                                            | About                                                                             | plain (generated from all facts)   |
+| `education.<i>.<field>`                                                                     | Освіта {n} · {field label}                                                          | Education {n} · {field label}                                                     | button                             |
+| `languages`, `languages.<i>`, `languages.<i>.name`                                          | Мови · Мова {n}                                                                     | Languages · Language {n}                                                          | button                             |
+| `links`, `links.<i>.label`, `links.<i>.url`                                                 | Посилання · Посилання {n}                                                           | Links · Link {n}                                                                  | button                             |
+| any other path (fallback)                                                                   | the section title if the first segment is a known section, otherwise Резюме загалом | the section title if the first segment is a known section, otherwise Whole resume | as the section row / plain         |
 
 ## 11. Edge cases
 
-| Case                                      | Behaviour                                                                                                      |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Loading the tab                           | Existing tab skeleton; the bar shows a `Skeleton` badge; no layout shift when the badge text arrives           |
-| `PUT facts` / `POST submit` in flight     | Buttons show a spinner and stay the same width; form inputs stay enabled until the server says busy            |
-| Any write answers 409 busy                | Toast `api-error.RESUME_VERIFICATION_BUSY`, then refetch; the UI becomes the busy state                        |
-| The run ends while the tab is open        | Poll (existing interval) flips the screen; live region announces once                                          |
-| `staged === null` with `AWAITING_CONFIRM` | Should not happen (the DTO says `staged` is set once a staged PDF exists). Show the bar and "Check again" only |
-| Staged edit / regenerate in flight        | Status QUEUED / CHECKING with `staged` kept: the confirm step stays, read-only, under "Checking your change…"  |
-| A report item with path `''`              | "Whole resume" plain row with the reason line; never an empty label                                            |
-| A reason code the map does not know       | The generic line "did not pass an automated check" (R46)                                                       |
-| Many issues (> 15)                        | Panel list scrolls at `lg+`; count badge exact; mobile list collapsed by default when > 5                      |
-| Long company / role / city                | Wrap; never truncate a fact the reviewer must read                                                             |
-| Long bullet in the confirm step           | Wraps; the edit icon button stays top-aligned in its own grid column                                           |
-| No fallbacks, no edited paths             | No notes, no badges; nothing reserves their space                                                              |
-| Every field fell back to notes            | One note per block (not per bullet), so the step stays readable                                                |
-| `!canEdit` viewer                         | Existing read-only view; no facts form, no picker, no confirm actions; the badge and verified meta still show  |
-| `verifiedByName === null` on VERIFIED     | Meta line shows the date only                                                                                  |
+| Case                                      | Behaviour                                                                                                               |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Loading the tab                           | Existing tab skeleton; the bar shows a `Skeleton` badge; no layout shift when the badge text arrives                    |
+| `PUT facts` / `POST submit` in flight     | Buttons show a spinner and stay the same width; form inputs stay enabled until the server says busy                     |
+| Any write answers 409 busy                | Toast `api-error.RESUME_VERIFICATION_BUSY`, then refetch; the UI becomes the busy state                                 |
+| The run ends while the tab is open        | Poll (existing interval) flips the screen; live region announces once                                                   |
+| `staged === null` with `AWAITING_CONFIRM` | Should not happen (the DTO says `staged` is set once a staged PDF exists). Show the bar and "Check again" only          |
+| Staged edit / regenerate in flight        | Status QUEUED / CHECKING with `staged` kept: the confirm step stays, read-only, under "Updating and checking the text…" |
+| A report item with path `''`              | "Whole resume" plain row with the reason line; never an empty label                                                     |
+| A reason code the map does not know       | The generic line "did not pass an automated check" (R46)                                                                |
+| Many issues (> 15)                        | Panel list scrolls at `lg+`; count badge exact; mobile list collapsed by default when > 5                               |
+| Long company / role / city                | Wrap; never truncate a fact the reviewer must read                                                                      |
+| Long bullet in the confirm step           | Wraps; the edit icon button stays top-aligned in its own grid column                                                    |
+| No fallbacks, no edited paths             | No notes, no badges; nothing reserves their space                                                                       |
+| Every field fell back to notes            | One note per block (not per bullet), so the step stays readable                                                         |
+| `!canEdit` viewer                         | Existing read-only view; no facts form, no picker, no confirm actions; the badge and verified meta still show           |
+| `verifiedByName === null` on VERIFIED     | Meta line shows the date only                                                                                           |
 
 ## 12. Open design questions
 
-| #   | Question                                                                                                                                                   | Recommendation                                                                                       |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Q1  | The DTO has no current runner stage, so progress can only show Queued vs Check. Expose `verificationStage` (writing / entailment / render / ats / visual)? | Not for Task 18: ship the static list. Add the field later if HR asks "where is it stuck".           |
-| Q2  | How are the four thumbnails produced and served — PNGs committed to `apps/web/public` from the `current-job` fixture, or an API endpoint?                  | Committed PNGs, regenerated by a script from the fixture when a template changes; no endpoint.       |
-| Q3  | Submit with unsaved changes: save then submit in one action (as specified), or force an explicit save first?                                               | One action (A1, see Assumptions).                                                                    |
-| Q4  | Gate reason codes are free strings in the report schema. Type them in `@crm/shared` so §10.5 is exhaustive?                                                | Yes: an enum next to `resumeVerificationReportSchema` and a typed map in web.                        |
-| Q5  | The 320px profile tab bar clips the last tab (pre-existing shell issue, not this feature).                                                                 | Separate backlog item.                                                                               |
-| Q6  | The DTO does not say whether a VERIFIED run is a template run or a layout run, so the badge and the warning name both. Expose the run kind?                | Not for Task 18: the combined texts are correct for both. Add a field only if users find them vague. |
+| #   | Question                                                                                                                                                                          | Recommendation                                                                                       |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Q1  | The DTO has no current runner stage, so progress can only show Queued vs Check. Expose `verificationStage` (writing / entailment / render / ats / visual)?                        | Not for Task 18: ship the static list. Add the field later if HR asks "where is it stuck".           |
+| Q2  | How are the four thumbnails produced and served — PNGs committed to `apps/web/public` from the `current-job` fixture, or an API endpoint?                                         | Committed PNGs, regenerated by a script from the fixture when a template changes; no endpoint.       |
+| Q3  | Submit with unsaved changes: save then submit in one action (as specified), or force an explicit save first?                                                                      | One action (A1, see Assumptions).                                                                    |
+| Q4  | Gate reason codes are free strings in the report schema. Type them in `@crm/shared` so §10.5 is exhaustive?                                                                       | Yes: an enum next to `resumeVerificationReportSchema` and a typed map in web.                        |
+| Q5  | The 320px profile tab bar clips the last tab (pre-existing shell issue, not this feature).                                                                                        | Separate backlog item.                                                                               |
+| Q6  | The DTO does not say whether a VERIFIED run is a template run or a layout run, so the badge is neutral ("Checking the new look") and the warning names both. Expose the run kind? | Not for Task 18: the combined texts are correct for both. Add a field only if users find them vague. |
 
 ## Assumptions
 
