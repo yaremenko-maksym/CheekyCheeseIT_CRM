@@ -163,6 +163,8 @@ describe('lastPageUnderfilled', () => {
     [['a\nb\nc\nd\ne', 'a\nb\nc\nd\ne', 'x\ny'], false],
     [['a\nb\nc\nd\ne\nf\ng\nh\ni', 'a', 'x\ny'], false],
     [['a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl', 'a\nb\nc\nd', 'x'], true],
+    // lines are counted, not characters, and trailing blank lines are not lines
+    [['aa\n'.repeat(8), 'xxxxx\n\n\n\n'], true],
   ])('%j -> %s', (pages, underfilled) => {
     expect(lastPageUnderfilled(pages)).toBe(underfilled)
   })
@@ -173,6 +175,7 @@ describe('aiPath', () => {
     ['summary', 'summary'],
     ['experience[2].bullets[0]', 'experience.2.bullets'],
     ['experience[12].bullets[3]', 'experience.12.bullets'],
+    ['experience[2].bullets[10]', 'experience.2.bullets'],
     ['experience[2].role', null],
     ['experience[2].period', null],
     ['xexperience[1].bullets[0]', null],
@@ -238,6 +241,45 @@ describe('renderAccepted', () => {
     expect(d.typst.render).toHaveBeenCalledTimes(4)
   })
 
+  it('a count over 30 pages on every layout is LAYOUT_UNFIXABLE TOO_MANY_PAGES', async () => {
+    const d = deps({ count: () => 31 })
+    const err = await failure(renderAccepted(plan(), d))
+    expect(err.code).toBe('LAYOUT_UNFIXABLE')
+    expect(err.gates).toContainEqual({
+      gate: 'layout',
+      ok: false,
+      items: [{ path: '', reason: 'TOO_MANY_PAGES' }],
+    })
+    expect(d.extraction.extractRenderedPages).not.toHaveBeenCalled()
+  })
+
+  it('an underfilled last page on every layout is LAYOUT_UNFIXABLE LAST_PAGE_UNDERFILLED', async () => {
+    const d = deps({})
+    d.extraction.extractRenderedPages.mockImplementation(async (pdf: Buffer) => {
+      const lines = skeletonLines(decodePdf(pdf), { omitEmail: false })
+      return [lines.slice(0, -1).join('\n'), lines.at(-1) as string]
+    })
+    const err = await failure(renderAccepted(plan(), d))
+    expect(err.code).toBe('LAYOUT_UNFIXABLE')
+    expect(err.gates).toContainEqual({
+      gate: 'layout',
+      ok: false,
+      items: [{ path: '', reason: 'LAST_PAGE_UNDERFILLED' }],
+    })
+  })
+
+  it('a PDF over 1 MiB is a layout failure repaired by density, not an ATS failure', async () => {
+    const d = deps({})
+    d.typst.render.mockImplementation(async (input: ResumeRenderInput) =>
+      input.layout.density === 'relaxed'
+        ? Buffer.concat([encodePdf(input), Buffer.alloc(1_100_000, 0x20)])
+        : encodePdf(input),
+    )
+    const out = await renderAccepted(plan(), d)
+    expect(out.layout.density).toBe('normal')
+    expect(d.typst.render).toHaveBeenCalledTimes(2)
+  })
+
   it('fails at once when nothing is left to shrink', async () => {
     const d = deps({ pages: () => 3 })
     const tight = { ...LAYOUT, density: 'compact', fontScale: 'small' } as const
@@ -285,6 +327,37 @@ describe('renderAccepted', () => {
 
   it('reverted and still failing is ATS_CHECK_FAILED with the ATS items', async () => {
     const d = deps({ lines: (lines) => lines.filter((l) => !l.startsWith('•')) })
+    const err = await failure(renderAccepted(plan(), d))
+    expect(err.code).toBe('ATS_CHECK_FAILED')
+    expect(err.gates).toEqual([
+      {
+        gate: 'ats',
+        ok: false,
+        items: [{ path: 'experience[0].bullets[0]', reason: 'MISSING_TEXT' }],
+      },
+    ])
+    expect(d.typst.render).toHaveBeenCalledTimes(2)
+  })
+
+  it('an AI failure next to a non-AI one is not reverted: ATS_CHECK_FAILED at once with both', async () => {
+    const d = deps({
+      lines: (lines) => without('jane.doe@unit.spec')(without('Led the payments team')(lines)),
+    })
+    const err = await failure(renderAccepted(plan(), d))
+    expect(err.code).toBe('ATS_CHECK_FAILED')
+    const [gate] = err.gates as { items: { path: string }[] }[]
+    expect(gate?.items.map((i) => i.path)).toContain('experience[0].bullets[0]')
+    expect(gate?.items.length).toBeGreaterThan(1)
+    expect(d.typst.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('the revert happens once: a second AI path failing after it is ATS_CHECK_FAILED', async () => {
+    const d = deps({
+      lines: (lines, input) =>
+        input.content.summary !== ''
+          ? without('Backend engineer')(lines)
+          : without('Led the payments team')(lines),
+    })
     const err = await failure(renderAccepted(plan(), d))
     expect(err.code).toBe('ATS_CHECK_FAILED')
     expect(err.gates).toEqual([

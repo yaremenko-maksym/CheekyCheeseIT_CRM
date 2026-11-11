@@ -63,6 +63,7 @@ export function shrinkLayout(layout: ResumeLayoutOptions): ResumeLayoutOptions |
 
 /** A last page with under a quarter of the average line count of the pages before it. */
 export function lastPageUnderfilled(pages: readonly string[]): boolean {
+  // Stryker disable next-line ConditionalExpression: equivalent — with under 2 pages the average of no full pages is NaN and the comparison below is false anyway; the guard says so plainly
   if (pages.length < 2) return false
   const lines = pages.map((page) => page.split('\n').filter((l) => l.trim() !== '').length)
   const full = lines.slice(0, -1)
@@ -73,6 +74,7 @@ export function lastPageUnderfilled(pages: readonly string[]): boolean {
 /** The fallback path of an ATS failure on an AI-written field, else `null`. */
 export function aiPath(atsPath: string | undefined): string | null {
   if (atsPath === 'summary') return 'summary'
+  // Stryker disable next-line StringLiteral: equivalent — any other fallback for a missing path is also no bullet path
   const bullet = /^experience\[(\d+)\]\.bullets\[\d+\]$/u.exec(atsPath ?? '')
   return bullet ? `experience.${bullet[1]}.bullets` : null
 }
@@ -85,11 +87,11 @@ function revert(content: ResumeContent, notes: ResumeContent, paths: Set<string>
   return {
     ...content,
     summary: paths.has('summary') ? notes.summary : content.summary,
-    experience: content.experience.map((item, i) =>
-      paths.has(`experience.${i}.bullets`)
-        ? { ...item, bullets: notes.experience[i]?.bullets ?? [] }
-        : item,
-    ),
+    experience: content.experience.map((item, i) => {
+      if (!paths.has(`experience.${i}.bullets`)) return item
+      // Stryker disable next-line OptionalChaining: equivalent — notes come from the same facts item by item, so index i exists
+      return { ...item, bullets: notes.experience[i]?.bullets ?? [] }
+    }),
   }
 }
 
@@ -111,8 +113,10 @@ async function measure(
     const pages = await deps.extraction.extractRenderedPages(pdf)
     const { failures } = checkResumeAts({ ...input, pages, pdfBytes: pdf.length })
     const other = failures.filter((f) => !LAYOUT_CODES.has(f.code))
+    // Stryker disable next-line MethodExpression: equivalent — the caller reads `layout` only when `other` is empty, and then every failure is a layout code
     const layout = failures.filter((f) => LAYOUT_CODES.has(f.code)).map((f) => f.code as string)
-    if (other.length === 0 && lastPageUnderfilled(pages)) layout.push('LAST_PAGE_UNDERFILLED')
+    // Read only when `other` is empty, like the codes above.
+    if (lastPageUnderfilled(pages)) layout.push('LAST_PAGE_UNDERFILLED')
     return { other, layout }
   } catch {
     throw new RunFailure('ATS_CHECK_FAILED', [
