@@ -355,6 +355,17 @@ export const NEW_ROWS = [
     isNew: true,
   },
 ]
+/** Same amount, but an earlier row (fails the server-time test): «схожа», never a «збіг». */
+export const SIMILAR_ROW = {
+  t: 'Обладнання · ноутбук',
+  s: 'Витрата · 11.11.2026',
+  a: `−${AMOUNT} USD`,
+  time: '14:29',
+  ic: 'receipt',
+  neg: true,
+  tag: 'схожа',
+}
+
 export const MATCH_ROW = {
   t: 'Без опису',
   s: 'Витрата · 11.11.2026',
@@ -368,7 +379,8 @@ export const MATCH_ROW = {
 /**
  * «Перевірити список»: the list opens as a sheet over the kept form, refetched on open. It lists only rows
  * created from `t − 5 хв`, newest created first, without the list's filters or date sections. Only a row
- * whose amount, currency and type match the draft is highlighted («збіг»); other new rows say «нова».
+ * whose every sent field matches and whose created_at >= t + offset − 5 s (offset from the `Date` header)
+ * is highlighted («збіг»); an equal amount that fails either test is «схожа»; other new rows say «нова».
  * «Немає — створити ще раз» stays aria-disabled until 60 s after the failure arrived; then one automatic
  * refetch runs and the status region announces the unlock once. The countdown is never in a live region.
  * rows: 'none' (new rows, no match), 'match', 'empty', 'failed' (the refetch failed: an alert with
@@ -384,12 +396,17 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
       : ready
         ? 'Список оновлено через хвилину після помилки. Якщо транзакції в ньому немає, її можна створити ще раз.'
         : 'Сервер міг зберегти транзакцію із запізненням. Через хвилину після помилки список оновиться сам, і тоді її можна буде створити ще раз.'
-  const status = ready ? 'Оновлено о 14:34:01. Тепер можна створити ще раз' : 'Оновлено о 14:33:18'
+  // With a «збіг» the status never announces the unlock.
+  const status = ready
+    ? rows === 'match'
+      ? 'Оновлено о 14:34:01. Знайдено збіг'
+      : 'Оновлено о 14:34:01. Тепер можна створити ще раз'
+    : 'Оновлено о 14:33:18'
   const list = failed
     ? ''
     : rows === 'empty'
       ? `<div class="col" style="align-items:center;gap:6px;padding:28px 24px;text-align:center"><span class="muted">${icon('search', { size: 24 })}</span><div class="t-body num" style="font-weight:600">Нових записів з ${FROM} немає</div></div>`
-      : `<div class="group" style="margin-top:4px">${(rows === 'match' ? [MATCH_ROW, ...NEW_ROWS] : NEW_ROWS).map((r) => txnRow(r)).join('')}</div>`
+      : `<div class="group" style="margin-top:4px">${(rows === 'match' ? [MATCH_ROW, ...NEW_ROWS, SIMILAR_ROW] : NEW_ROWS).map((r) => txnRow(r)).join('')}</div>`
   const body = `<div class="col" style="gap:8px;padding:0 16px 8px">
   <div class="t-sub num" style="font-weight:600">Шукаємо: −${AMOUNT} USD · Витрата · надіслано ${SENT_AT}</div>
   <div class="t-foot muted num">Лише ваші записи з ${FROM}</div>
@@ -423,14 +440,25 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
 /**
  * Boot, phase `sent`: «Оновити список» on the alert opens the check sheet over the Фінанси list. No draft form
  * is behind it and the marker holds no amount, so the sheet names only the time and offers no resubmit.
- * A failed refetch here reuses the «Не вдалося оновити список» alert with «Повторити».
+ * A failed refetch here reuses the «Не вдалося оновити список» alert with «Повторити». Drawn while the
+ * device time is before `earliest t + 160 s`: the hint names the automatic refetch, and «…створіть її
+ * знову» appears only after it succeeds. «Зрозуміло» acknowledges; ✕ keeps the markers.
  */
+const BEFORE_ROW = {
+  t: 'Таксі на зустріч',
+  s: 'Витрата · 11.11.2026',
+  a: '−18,20 USD',
+  time: '14:29',
+  ic: 'receipt',
+  neg: true,
+  tag: 'раніше',
+}
 export function checkSheetBoot(w, h) {
   const body = `<div class="col" style="gap:8px;padding:0 16px 8px">
   <div class="t-sub num" style="font-weight:600">Транзакція о ${SENT_AT} · результат невідомий</div>
   <div class="t-foot muted num">Лише ваші записи з ${FROM}</div>
-  <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено о 14:40:12</div><span class="btn sm secondary" role="button" style="height:44px">${icon('refresh-cw', { size: 16 })}Оновити</span></div>
-  <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Якщо транзакції в списку немає, створіть її знову: форму не збережено.</div></div><div class="group" style="margin-top:4px">${NEW_ROWS.map((r) => txnRow(r)).join('')}</div>`
+  <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено о 14:33:40</div><span class="btn sm secondary" role="button" style="height:44px">${icon('refresh-cw', { size: 16 })}Оновити</span></div>
+  <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Сервер міг зберегти транзакцію із запізненням. Список оновиться о 14:35:12</div></div><div class="group" style="margin-top:4px">${[...NEW_ROWS, BEFORE_ROW].map((r) => txnRow(r)).join('')}</div>`
   const footer = `<div style="padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)"><span class="btn secondary" role="button" style="width:100%">Зрозуміло</span></div>`
   const sh = sheet({
     w,

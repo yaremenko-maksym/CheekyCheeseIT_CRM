@@ -292,7 +292,8 @@ sheet the global upload pill carries the save; the result then stays in the pill
 (`upload-pill-saved-375`, `upload-pill-failed-375`); a sheet never opens by itself. A page kill is
 reported at the next boot by the marker's phase (`state-page-kill-375` armed, `alert-pagekill-sent-375`
 sent). On `sent` the alert opens the check sheet with no draft form behind it: it names the time, not an
-amount, offers no resubmit and closes with «Зрозуміло» (`check-sheet-boot-375`); a failed refetch there
+amount, and offers no resubmit; «Зрозуміло» acknowledges the alert and removes the `sent` markers, and ✕
+closes the sheet and keeps them, so the boot alert returns on the next boot (`check-sheet-boot-375`); a failed refetch there
 reuses the «Не вдалося оновити список» alert with «Повторити». The amount never truncates: at 320 it steps 44 →
 34 px, the armed label wraps to two lines, and the sheet title truncates (`quick-add-txn-armed-320`).
 
@@ -337,8 +338,8 @@ must not share one UI (spec §4.5b):
   14:27»: the margin absorbs a device clock that runs ahead of the server, and the sub-header names the
   real bound), without filters or date sections, each row with its business date and its server
   creation time.
-  **A highlight means a match:** only a row whose amount, currency and type equal the draft gets the
-  tint, the 3 px yellow bar and «збіг · 14:33» (`toast-error-unknown-match-375`); other new rows show
+  **A highlight means a match, by payload and by server time:** each refetch computes `offset = server − device` from the response `Date` header, and a row is a «збіг» only when every sent field is equal (amount, currency, type, business date, project, description or recipient) **and** its `created_at >= t + offset − 5 s`; only that row gets the
+  tint, the 3 px yellow bar and «збіг · 14:33» (`toast-error-unknown-match-375`). A row with the same amount that fails either test reads «схожа · 14:29» and never becomes a «збіг», so «Є в списку — закрити чернетку» keeps its named confirm. Without a `Date` header no row is a «збіг»: every equal-amount row is «схожа». The query still starts at `t − 5 хв`, so a fast device clock cannot hide the row. Other new rows show
   «нова · 14:33» only; with new rows and no match «Збігів немає» sits above the exits; with none the
   body reads «Нових записів з 14:27 немає» (`toast-error-unknown-empty-375`). Money uses one
   notation, `<amount> <CODE>` (foundation §6). A 44 px «Оновити» refetches («Оновлено о 14:33:18» is
@@ -354,9 +355,9 @@ must not share one UI (spec §4.5b):
   commit), showing «Можна через 0:42» until then (`aria-hidden`; the countdown is **never in a live
   region**). It unlocks only after a **successful** refetch that ran at least 60 s after the failure
   arrived. At the gate one automatic refetch runs, and the status announces the unlock once
-  («Оновлено о 14:34:01. Тепер можна створити ще раз»); then a confirm «Створити 1 250,50 USD ще
+  («Оновлено о 14:34:01. Тепер можна створити ще раз»; with a «збіг» the status reads «Оновлено о 14:34:01. Знайдено збіг» and never announces the unlock; the unlock text shows only when there is no match); then a confirm «Створити 1 250,50 USD ще
   раз?» and exactly one new create. Wave 1 AC: the list API takes a created-after time and returns the current user's rows
-  created from it, ordered by creation time, newest first. This is a user-confirmed new
+  created from it, ordered by creation time, newest first. The list response exposes `Date` (`Access-Control-Expose-Headers` if the API is cross-origin). This is a user-confirmed new
   create after seeing the refreshed list, not an automatic or one-tap resubmit (provisional; the owner
   confirms at PNG approval). Closing the sheet returns to the form. When the user reaches the Finance
   list another way, the kept draft is a pinned row at the top (`listrow-draft-375`): «Чернетка 1 250,50
@@ -386,8 +387,8 @@ way is reported at the next boot (`state-page-kill-375`: a persistent inline ale
 sent** shows instead «Результат збереження транзакції о 14:32 невідомий. Вона могла зберегтися: перевірте нові
 записи, перш ніж створювати її знову.» (the
 time is the marker's `t`) with «Зрозуміло» and, on the Фінанси tab, «Оновити список» (elsewhere
-«Відкрити Фінанси»), and no resubmit; either action opens the check sheet «Нові записи» filtered from the earliest `t` (the user's own
-rows, each «нова»; no amount is known, so there is no «Шукаємо» line, no match and no exits), and the
+«Відкрити Фінанси»), and no resubmit; either action opens the check sheet «Нові записи» filtered from the earliest `t − 5 хв` with the same server-time test: a row created before `earliest t + offset − 5 s` reads «раніше · 14:29»; no amount is known, so no row is a «збіг» or «схожа». **Late-commit guard:** while the device time is earlier than `earliest t + 160 s` (Cloudflare's 100 s origin timeout plus the in-app 60 s gate; both times come from the device, so skew does not matter) the hint reads «Сервер міг зберегти транзакцію із запізненням. Список оновиться о 14:35:12», one automatic refetch runs at that time, and the hint «…створіть її знову» appears only after that refetch succeeds (`check-sheet-boot-375`). «Зрозуміло» acknowledges the alert and removes the `sent` markers; ✕ closes the sheet and keeps them, so the boot alert returns on the next boot (the user's own
+rows, each «нова»; there is no «Шукаємо» line and no exit but «Зрозуміло»), and the
 dated list is never scrolled
 (`alert-pagekill-sent-375`). The phases and when the marker is cleared: foundation §11. **Confirms**
 use the action-sheet confirm (`sheet-confirm-375`; `actionConfirm` in the mockup sources), two 56 px
