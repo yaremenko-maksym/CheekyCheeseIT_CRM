@@ -52,6 +52,7 @@ import {
 } from '@crm/shared'
 import { apiError } from '../../common/api-error'
 import { DatabaseService } from '../../database/database.service'
+import { describeDbError } from '../../database/pg-errors'
 import { S3Service } from '../../documents/s3.service'
 import { seniorResumes, teamMembers, type SeniorResume } from '../../database/schema'
 import { resolveTemplateName } from '../resume-typst.service'
@@ -265,7 +266,8 @@ export class ResumeVerificationService {
         verificationQueuedAt: new Date(),
         verificationStartedAt: null,
         verificationErrorCode: null,
-        verificationReport: null,
+        // The gates are re-run; the fallbacks are what the confirmed text holds (SR-L-2).
+        verificationReport: { gates: [], fallbacks: row.verificationReport?.fallbacks ?? [] },
         stagedContent: sql`${seniorResumes.content}`,
         stagedLayout: look.layout ?? normalizeResumeLayout(row.layout ?? DEFAULT_RESUME_LAYOUT),
         stagedTemplateName: look.templateName ?? resolveTemplateName(row.templateName),
@@ -335,32 +337,15 @@ export class ResumeVerificationService {
       .where(stalled)
     let swept = 0
     for (const { id, runId, status } of rows) {
-      const won = await this.db.db.transaction(async (tx) => {
-        const [current] = await tx
-          .select({ key: seniorResumes.stagedPdfS3Key })
-          .from(seniorResumes)
-          .where(eq(seniorResumes.id, id))
-          .for('update')
-        const [updated] = await tx
-          .update(seniorResumes)
-          .set({
-            ...(status === 'VERIFIED' ? {} : { verificationStatus: 'FAILED' as const }),
-            verificationErrorCode: 'STALLED',
-            verificationReport: { gates: [], fallbacks: [] },
-            ...CLEARED_RUN,
-            ...CLEARED_STAGED,
-          })
-          .where(
-            and(
-              eq(seniorResumes.id, id),
-              stalled,
-              eq(seniorResumes.verificationStatus, status),
-              eq(seniorResumes.verificationRunId, runId as string),
-            ),
-          )
-          .returning({ id: seniorResumes.id })
-        return updated ? { key: current?.key ?? null } : null
-      })
+      let won: { key: string | null } | null
+      try {
+        won = await this.sweepRow(id, runId as string, status, stalled)
+      } catch (err) {
+        // One bad row must not stop the tick (SR-L-3). Value-free: SQLSTATE or the error name only.
+        const why = describeDbError(err) ?? (err instanceof Error ? err.name : 'unknown')
+        this.logger.error(`Verification sweep of resume ${id} failed (${why})`)
+        continue
+      }
       if (!won) continue
       swept += 1
       this.logger.warn(`Verification run ${runId} of resume ${id} swept: STALLED`)
@@ -369,6 +354,45 @@ export class ResumeVerificationService {
       if (derived !== won.key) await this.deleteStagedObject(derived)
     }
     return swept
+  }
+
+  /** One row of the sweep: the lock, then the CAS that repeats the selection; null when it lost. */
+  private sweepRow(
+    id: string,
+    runId: string,
+    status: SeniorResume['verificationStatus'],
+    stalled: SQL | undefined,
+  ): Promise<{ key: string | null } | null> {
+    return this.db.db.transaction(async (tx) => {
+      const [current] = await tx
+        .select({ key: seniorResumes.stagedPdfS3Key, report: seniorResumes.verificationReport })
+        .from(seniorResumes)
+        .where(eq(seniorResumes.id, id))
+        .for('update')
+      const [updated] = await tx
+        .update(seniorResumes)
+        .set({
+          ...(status === 'VERIFIED' ? {} : { verificationStatus: 'FAILED' as const }),
+          verificationErrorCode: 'STALLED',
+          // A VERIFIED row still shows the confirmed text: its fallbacks stay on record (SR-L-2).
+          verificationReport: {
+            gates: [],
+            fallbacks: status === 'VERIFIED' ? (current?.report?.fallbacks ?? []) : [],
+          },
+          ...CLEARED_RUN,
+          ...CLEARED_STAGED,
+        })
+        .where(
+          and(
+            eq(seniorResumes.id, id),
+            stalled,
+            eq(seniorResumes.verificationStatus, status),
+            eq(seniorResumes.verificationRunId, runId),
+          ),
+        )
+        .returning({ id: seniorResumes.id })
+      return updated ? { key: current?.key ?? null } : null
+    })
   }
 
   /**

@@ -120,12 +120,14 @@ export class VerificationRunner {
     } catch (err) {
       const name = err instanceof Error ? err.name : 'unknown'
       this.logger.error(`Verification run ${runId} of resume ${resumeId} crashed (${name})`)
-      try {
-        await this.fail(resumeId, runId, 'STALLED', { gates: [], fallbacks: [] })
-      } catch {
+      const empty = { gates: [], fallbacks: [] }
+      const failed = await this.fail(resumeId, runId, 'STALLED', empty).catch(() => {
         this.logger.error(`Verification run ${runId} of resume ${resumeId}: FAILED not written`)
-      }
-      await this.deleteQuietly(stagedPdfKey(resumeId, runId))
+        return null
+      })
+      // A lost or unknown FAILED write may follow a committed promote: the derived key is then live.
+      const derived = stagedPdfKey(resumeId, runId)
+      if (failed !== null && failed.live !== derived) await this.deleteQuietly(derived)
     }
   }
 
@@ -155,6 +157,7 @@ export class VerificationRunner {
       let locked: string[] = []
       if (template) {
         ;({ content, locked } = templateContent(row))
+        fallbacks = row.verificationReport?.fallbacks ?? []
       } else {
         const written = await this.written(
           row,
@@ -202,7 +205,7 @@ export class VerificationRunner {
         deps,
       )
       gates.push(...accepted.gates)
-      // The locked paths are no fallbacks: the report keeps what the confirmed content holds.
+      // A template run reports the confirmed run's fallbacks: its locked paths are no new ones.
       if (!template) fallbacks = accepted.fallbacks
       gates.push(await visualGate(accepted, templateName, owner.contacts, deps))
 
@@ -353,15 +356,19 @@ export class VerificationRunner {
     runId: string,
     code: ResumeVerificationErrorCode,
     report: ResumeVerificationReport,
-  ): Promise<void> {
-    const old = await this.db.db.transaction(async (tx) => {
+  ): Promise<{ old: string | null; live: string | null } | null> {
+    const won = await this.db.db.transaction(async (tx) => {
       const [current] = await tx
-        .select({ key: seniorResumes.stagedPdfS3Key, kind: seniorResumes.verificationKind })
+        .select({
+          key: seniorResumes.stagedPdfS3Key,
+          kind: seniorResumes.verificationKind,
+          live: seniorResumes.pdfS3Key,
+        })
         .from(seniorResumes)
         .where(eq(seniorResumes.id, resumeId))
         .for('update')
       const template = current?.kind === 'template'
-      const [won] = await tx
+      const [updated] = await tx
         .update(seniorResumes)
         .set({
           ...(template ? {} : { verificationStatus: 'FAILED' as const }),
@@ -380,9 +387,10 @@ export class VerificationRunner {
           ),
         )
         .returning({ id: seniorResumes.id })
-      return won ? (current?.key ?? null) : null
+      return updated ? { old: current?.key ?? null, live: current?.live ?? null } : null
     })
-    await this.deleteQuietly(old)
+    if (won !== null) await this.deleteQuietly(won.old)
+    return won
   }
 
   private deleteQuietly(key: string | null): Promise<void> {

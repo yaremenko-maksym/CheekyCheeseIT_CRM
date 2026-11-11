@@ -334,7 +334,7 @@ describe('VerificationRunner.run', () => {
       verificationBaseVersion: null,
       ...CLEARED_STAGED,
     })
-    expect([lock?.columns, fail?.columns]).toEqual([['key', 'kind'], ['id']])
+    expect([lock?.columns, fail?.columns]).toEqual([['key', 'kind', 'live'], ['id']])
     expect(s3.upload).not.toHaveBeenCalled()
     expect(s3.delete.mock.calls).toEqual([[OLD_KEY]])
     expect(logs).toContain(`Verification run ${RUN} of resume ${RESUME} failed: WRITER_UNAVAILABLE`)
@@ -505,7 +505,15 @@ describe('VerificationRunner.run', () => {
     await expect(broken.run(RESUME, RUN)).resolves.toBeUndefined()
     expect(logs).toContain(`Verification run ${RUN} of resume ${RESUME} crashed (unknown)`)
     expect(logs).toContain(`Verification run ${RUN} of resume ${RESUME}: FAILED not written`)
-    expect(s3.delete.mock.calls).toEqual([[KEY]])
+    // SR-L-1: with the FAILED write unknown, the derived key may be live: the sweep cleans up
+    expect(s3.delete).not.toHaveBeenCalled()
+  })
+
+  it('SR-L-1: a crash whose FAILED write lost its CAS deletes nothing', async () => {
+    s3.upload.mockRejectedValueOnce(new Error('s3 down'))
+    const { run } = runner([...START, [{ key: null, live: null }], []])
+    await run()
+    expect(s3.delete).not.toHaveBeenCalled()
   })
 
   it('logs carry ids, codes and keys only: never a name, an email or model text', async () => {
@@ -789,6 +797,31 @@ describe('VerificationRunner.run — template kind (Task 16)', () => {
     expect(s3.delete).not.toHaveBeenCalled()
     await templateRun([[], [{ id: RESUME }]])
     expect(s3.delete).not.toHaveBeenCalled()
+  })
+
+  it('SR-L-1: a crash never deletes the derived key when it is the live PDF', async () => {
+    await templateRun([[{ key: null, kind: 'template', live: KEY }], [{ id: RESUME }]], {}, () => {
+      s3.upload.mockRejectedValueOnce(new Error('ack lost'))
+    })
+    expect(s3.delete).not.toHaveBeenCalled()
+  })
+
+  it('SR-L-2: a template pass and a template fail keep the confirmed fallbacks', async () => {
+    const verificationReport = { gates: [], fallbacks: ['experience.0.bullets'] }
+    const pass = await templateRun([[{ key: LIVE_KEY }], [{ id: RESUME }]], { verificationReport })
+    expect(pass.log.at(-1)?.set?.['verificationReport']).toMatchObject({
+      fallbacks: ['experience.0.bullets'],
+    })
+    const fail = await templateRun(
+      [[{ key: null, kind: 'template' }], [{ id: RESUME }]],
+      { verificationReport },
+      () => {
+        world.vision = [{ kind: 'unavailable', reason: 'TIMEOUT' } as VisualReply]
+      },
+    )
+    expect(fail.log.at(-1)?.set?.['verificationReport']).toMatchObject({
+      fallbacks: ['experience.0.bullets'],
+    })
   })
 
   it('an ATS miss on the AI summary fails the run: the summary is locked too', async () => {

@@ -406,15 +406,21 @@ describe.skipIf(!hasDatabaseUrl())(
       await drain()
     })
 
-    it('a template start stages both look columns and clears the last check error and report', async () => {
+    it('a template start stages both look columns, clears the last error and gates, keeps the fallbacks', async () => {
       const before = await verified()
       await setState({
         verificationErrorCode: 'VISUAL_CHECK_UNAVAILABLE',
-        verificationReport: { gates: [], fallbacks: [] },
+        verificationReport: {
+          gates: [{ gate: 'visual', ok: false, items: [] }],
+          fallbacks: ['experience.0.bullets'],
+        },
       })
       const release = holdRuns()
       await service.setTemplate(OWNER, OWNER_ID, 'technical')
       const started = await rowOf()
+      // released before the asserts: a held run left in `pending` would hang every later drain()
+      release()
+      await drain()
       expect(started.verificationStatus).toBe('VERIFIED')
       expect(started.verificationKind).toBe('template')
       expect(started.stagedTemplateName).toBe('technical')
@@ -422,10 +428,11 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(started.stagedContent).toEqual(before.content)
       expect(started.stagedPdfS3Key).toBeNull()
       expect(started.verificationErrorCode).toBeNull()
-      expect(started.verificationReport).toBeNull()
+      expect(started.verificationReport).toEqual({
+        gates: [],
+        fallbacks: ['experience.0.bullets'],
+      })
       expect(started.templateName).toBe(before.templateName)
-      release()
-      await drain()
     })
 
     // ── The sweep ─────────────────────────────────────────────────────────────
