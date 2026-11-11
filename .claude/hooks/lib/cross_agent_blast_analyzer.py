@@ -92,18 +92,23 @@ def native_path(p):
     """The path as the filesystem of THIS python knows it, for an existence test only.
     Native Windows python cannot see a Git Bash spelling (`/c/x` is `C:/x`, `/tmp/x`
     lives under the Git install), so os.path.exists answered False for a live tree and
-    an `add` onto it was recorded as this agent's (SR-M-1 of #1317). Elsewhere, and
-    when cygpath is unavailable, the path is returned unchanged."""
+    an `add` onto it was recorded as this agent's (SR-M-1 of #1317). Elsewhere the
+    path is returned unchanged. None when the conversion fails (cygpath missing,
+    non-zero, timed out, empty): the caller then treats the path as existing, because
+    a fallback to the Git Bash spelling would answer "absent" and record a live tree."""
     if os.name != "nt" or not p.startswith("/"):
         return p
     m = re.match(r"^/([A-Za-z])(?=/|$)", p)
     if m:
         return m.group(1).upper() + ":" + p[2:]
     try:
-        out = subprocess.run(["cygpath", "-w", p], capture_output=True, text=True, timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        return p
-    return out.stdout.strip() if out.returncode == 0 and out.stdout.strip() else p
+        # utf-8: under -I the default is the ANSI code page, which mangles a Cyrillic path
+        out = subprocess.run(["cygpath", "-w", p], capture_output=True, text=True,
+                             encoding="utf-8", timeout=5)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    native = (out.stdout or "").strip()  # None when the output did not decode
+    return native if out.returncode == 0 and native else None
 
 
 # ---- identity: the scratchpad is SHARED, so the path cannot say whose it is --
@@ -172,7 +177,7 @@ def record_owned(path):
     if not (OWNERS and agent_id):
         return
     try:
-        with open(OWNERS, "a") as fh:
+        with open(OWNERS, "a", encoding="utf-8") as fh:
             fh.write("%s\t%s\n" % (agent_id, path))
     except OSError:
         pass
@@ -185,7 +190,7 @@ def is_owned(path):
     if not (OWNERS and agent_id):
         return False
     try:
-        with open(OWNERS) as fh:
+        with open(OWNERS, encoding="utf-8") as fh:
             lines = fh.read().splitlines()
     except OSError:
         return False
@@ -722,8 +727,9 @@ for name, args in toks:
             cand = tmp_norm(posixpath.normpath(t).rstrip("/"))
             if not own_scratch or not cand.startswith(own_scratch + "/"):
                 continue
-            if os.path.exists(native_path(cand)):
-                continue
+            native = native_path(cand)
+            if native is None or os.path.exists(native):
+                continue  # unconvertible counts as existing: never record what may be live
             record_owned(cand)
         continue  # a later worktree command on the line is judged too
     if sub in ("remove", "move"):

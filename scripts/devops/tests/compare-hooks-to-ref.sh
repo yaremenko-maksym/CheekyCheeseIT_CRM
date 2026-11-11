@@ -52,15 +52,24 @@ ref_git() { (cd "$REPO_ROOT" && MSYS2_ARG_CONV_EXCL='*' git "$@"); }
 OPTIONAL_HOOKS="pre-bash-cross-agent-blast.sh"
 mkdir -p "$WORK/ref/lib"
 COMPARED=""
+# Absence is asked of git directly (cat-file -e), so only a hook the ref really lacks
+# is skipped; any other failure to read it is an error, not a smaller comparison.
 for f in $HOOK_FILES; do
-  if ref_git show "$REF:.claude/hooks/$f" >"$WORK/ref/$f" 2>/dev/null; then
-    COMPARED="$COMPARED $f"
-  elif case " $OPTIONAL_HOOKS " in *" $f "*) true ;; *) false ;; esac; then
-    echo "NOTE: $REF has no .claude/hooks/$f, so it is not compared; the other hooks are."
-  else
+  if ! ref_git cat-file -e "$REF:.claude/hooks/$f" 2>/dev/null; then
+    case " $OPTIONAL_HOOKS " in
+      *" $f "*)
+        echo "NOTE: $REF has no .claude/hooks/$f, so it is not compared; the other hooks are."
+        continue
+        ;;
+    esac
     echo "ERROR: $REF has no .claude/hooks/$f" >&2
     exit 2
   fi
+  if ! ref_git show "$REF:.claude/hooks/$f" >"$WORK/ref/$f"; then
+    echo "ERROR: $REF has .claude/hooks/$f but it cannot be read" >&2
+    exit 2
+  fi
+  COMPARED="$COMPARED $f"
 done
 HOOK_FILES="${COMPARED# }"
 # Every lib/*.py the ref HAS is copied, by listing the ref rather than naming files

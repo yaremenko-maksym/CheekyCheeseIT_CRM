@@ -309,6 +309,52 @@ assert_red "...and records nothing, so removing that live tree is still refused 
   --contains 'WORKTREE-UNRECORDED' \
   -- run_hook_as agent-A "$LIVE_SESS/scratchpad" "git worktree remove --force $LIVE_SESS/scratchpad/sibling-live"
 
+# Windows only (SR-M-1 / CR-L-3 of #1317): native python sees no Git Bash path, so the
+# existence test above goes through a conversion, and a conversion that fails must
+# count as "exists", never as "absent, record it". Each case uses its own agent id so
+# a record left by another case cannot decide it.
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    FAKE_CYG="$(mktemp -d "${TMPDIR:-/tmp}/guard-fake-cygpath.XXXXXX")"
+    cp /usr/bin/false.exe "$FAKE_CYG/cygpath.exe"
+    PATH="$FAKE_CYG:$PATH" run_hook_as agent-W1 "$LIVE_SESS/scratchpad" \
+      "git worktree add --detach $LIVE_SESS/scratchpad/sibling-live deadbeef" >/dev/null 2>&1
+    assert_red "[windows] cygpath failing: an add onto a live tree records nothing, its remove is refused" \
+      --contains 'WORKTREE-UNRECORDED' \
+      -- run_hook_as agent-W1 "$LIVE_SESS/scratchpad" "git worktree remove --force $LIVE_SESS/scratchpad/sibling-live"
+    rm -rf "$FAKE_CYG"
+
+    # The name SR used: every byte of it decodes in cp1251, so a wrong decoding gives a
+    # plausible wrong path (absent, recorded) rather than a crash.
+    LIVE_CYR="$LIVE_SESS/scratchpad/$(printf '\xd1\x80\xd0\xb5\xd0\xb2\xd1\x8c\xd1\x8e')-co"
+    mkdir -p "$LIVE_CYR"
+    run_hook_as agent-W2 "$LIVE_SESS/scratchpad" "git worktree add --detach $LIVE_CYR deadbeef" >/dev/null 2>&1
+    assert_red "[windows] a live sibling with a Cyrillic name is seen as existing, its remove is refused" \
+      --contains 'WORKTREE-UNRECORDED' \
+      -- run_hook_as agent-W2 "$LIVE_SESS/scratchpad" "git worktree remove --force $LIVE_CYR"
+
+    LIVE_MIXED="$(cygpath -m "$LIVE_SESS/scratchpad/sibling-live")"
+    LIVE_DRIVE="/$(printf '%s' "${LIVE_MIXED:0:1}" | tr 'A-Z' 'a-z')${LIVE_MIXED:2}"
+    run_hook_as agent-W3 "$LIVE_SESS/scratchpad" "git worktree add --detach $LIVE_DRIVE deadbeef" >/dev/null 2>&1
+    assert_red "[windows] an add onto a live sibling spelled /c/... records nothing, its remove is refused" \
+      --contains 'WORKTREE-UNRECORDED' \
+      -- run_hook_as agent-W3 "$LIVE_SESS/scratchpad" "git worktree remove --force $LIVE_SESS/scratchpad/sibling-live"
+    ;;
+  *)
+    echo "SKIP  [windows] Git Bash path conversion before the existence test: not Windows ($(uname -s))"
+    ;;
+esac
+
+# A name the Windows code page cannot encode (SR-L-1 of #1317): the ledger is UTF-8,
+# so recording it does not crash the analyzer into a false refusal.
+FRESH_CJK="$MY_SESSION/scratchpad/$(printf '\xe6\x97\xa5\xe6\x9c\xac')-fresh-co"
+assert_green "a fresh checkout with a CJK name is recorded, not a crash" \
+  --not-contains 'INTERNAL ERROR' --not-contains '"decision": "block"' \
+  -- run_hook_as agent-A "$MY_SESSION/scratchpad" "git worktree add --detach $FRESH_CJK deadbeef"
+assert_green "...and its creator may remove it" \
+  --not-contains 'INTERNAL ERROR' --not-contains '"decision": "block"' \
+  -- run_hook_as agent-A "$MY_SESSION/scratchpad" "git worktree remove --force $FRESH_CJK"
+
 assert_red "another session's scratchpad is as foreign as another agent's worktree -> BLOCK" \
   --contains 'WORKTREE-REMOVE' \
   -- run_hook_as agent-A "$MY_SESSION/scratchpad" "git worktree remove --force $OTHER_SESSION/scratchpad/checkout"

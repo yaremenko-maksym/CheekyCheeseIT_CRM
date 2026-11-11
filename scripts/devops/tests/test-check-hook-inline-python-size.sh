@@ -68,6 +68,22 @@ UNQUOTED_VAR="$(printf "#!/bin/bash\nread -r -d '' SRC <<'PY'\nimport sys\nPY\np
 HOME_PY="$(printf '%s\n' '#!/bin/bash' "\"\$HOME/bin/python3\" -c 'print(1)'")"
 DEFAULT_PY="$(printf '%s\n' '#!/bin/bash' "\${PY:-python3} -c 'print(1)'")"
 GREP_C="$(printf '%s\n' '#!/bin/bash' 'n=$(grep "$PAT" -c "$FILE")' "python3 -c 'print(1)'")"
+# Round 3 (CR-M-2, CR-L-4, sonnet L of #1317): the catch-all reports a python-like
+# word before a -c that the parser did not read; a body that is only expansions is
+# unmeasured; a -c after the script belongs to the script.
+c_case() { printf '%s\n' '#!/bin/bash' "$1"; }
+TIMEOUT_PY="$(c_case "timeout 5 \"\$PY\" -c 'print(1)'")"
+XARGS_PY="$(c_case "printf x | xargs \"\$PY\" -c 'print(1)'")"
+SUDO_PY="$(c_case "sudo -u root \"\$PY\" -c 'print(1)'")"
+PY_EXE="$(c_case "python.exe -c 'print(1)'")"
+PY_LAUNCHER="$(c_case "py -3 -c 'print(1)'")"
+SPACE_PATH="$(c_case "\"/c/Program Files/Python312/python3\" -c 'print(1)'")"
+SUBST_PY="$(c_case "\$(command -v python3) -c 'print(1)'")"
+BODY_POSITIONAL="$(c_case 'python3 -c "$1"')"
+BODY_DEFAULT="$(c_case 'python3 -c "${VAR:-}"')"
+BODY_TWO_VARS="$(c_case 'python3 -c "$A$B"')"
+BODY_PREFIXED="$(printf "#!/bin/bash\nread -r -d '' SRC <<'PY'\nimport sys\nPY\npython3 -c \"\$PRE\$SRC\"\n")"
+SCRIPT_ARG_C="$(printf '%s\n' '#!/bin/bash' 'python3 "$SCRIPT" a -c b' "python3 -c 'print(1)'")"
 
 # ── positive ───────────────────────────────────────────────────────────────────
 assert_green "a small inline body -> green" \
@@ -181,6 +197,35 @@ assert_red "an interpreter under a variable path (\"\$HOME/bin/python3\" -c) is 
 assert_red "an interpreter from a default expansion (\${PY:-python3} -c) is unmeasured -> red" \
   --contains "UNMEASURED" \
   -- run_guard "$(make_case default-py "$DEFAULT_PY")"
+
+assert_green "a -c after the script (python3 \"\$SCRIPT\" a -c b) is the script's -> green, one body measured" \
+  --contains "Violations found:              0" \
+  --contains "bodies measured: 1" \
+  -- run_guard "$(make_case script-arg-c "$SCRIPT_ARG_C")"
+
+assert_red "catch-all: timeout 5 \"\$PY\" -c -> unmeasured" \
+  --contains "UNMEASURED" -- run_guard "$(make_case timeout-py "$TIMEOUT_PY")"
+assert_red "catch-all: xargs \"\$PY\" -c -> unmeasured" \
+  --contains "UNMEASURED" -- run_guard "$(make_case xargs-py "$XARGS_PY")"
+assert_red "catch-all: sudo -u root \"\$PY\" -c -> unmeasured" \
+  --contains "UNMEASURED" -- run_guard "$(make_case sudo-py "$SUDO_PY")"
+assert_red "catch-all: python.exe -c -> unmeasured" \
+  --contains "UNMEASURED" -- run_guard "$(make_case py-exe "$PY_EXE")"
+assert_red "catch-all: py -3 -c -> unmeasured" \
+  --contains "UNMEASURED" -- run_guard "$(make_case py-launcher "$PY_LAUNCHER")"
+assert_red "catch-all: a quoted interpreter path with a space -> unmeasured" \
+  --contains "UNMEASURED" -- run_guard "$(make_case space-path "$SPACE_PATH")"
+assert_red "catch-all: \$(command -v python3) -c -> unmeasured" \
+  --contains "UNMEASURED" -- run_guard "$(make_case subst-py "$SUBST_PY")"
+
+assert_red "a body that is a positional parameter (-c \"\$1\") is unmeasured, not its own text" \
+  --contains "UNMEASURED" -- run_guard "$(make_case body-positional "$BODY_POSITIONAL")"
+assert_red "a body that is a default expansion (-c \"\${VAR:-}\") is unmeasured" \
+  --contains "UNMEASURED" -- run_guard "$(make_case body-default "$BODY_DEFAULT")"
+assert_red "a body of two expansions (-c \"\$A\$B\") is unmeasured" \
+  --contains "UNMEASURED" -- run_guard "$(make_case body-two-vars "$BODY_TWO_VARS")"
+assert_red "a traced heredoc var behind a prefix (-c \"\$PRE\$SRC\") is unmeasured" \
+  --contains "UNMEASURED" -- run_guard "$(make_case body-prefixed "$BODY_PREFIXED")"
 
 assert_red "no inline body found at all: the scan read nothing -> red, not OK" \
   --contains "the scan read nothing" \
