@@ -297,14 +297,19 @@ export function AvatarUploadDialog({
   }
 
   function handleClear() {
+    // Same session token as a save: closing mid-clear makes this clear stale.
+    const session = ++pickRef.current
+    const current = () => session === pickRef.current
     updateMe.mutate(
       { avatarDocumentId: null },
       {
         onSuccess: () => {
-          toast.success(t`Повернуто стандартний аватар`)
-          handleClose()
+          toast.success(t`Повернуто стандартний аватар`) // the avatar did change, even if stale
+          if (current()) handleClose()
         },
-        onError: () => setError(t`Не вдалося очистити аватар`),
+        onError: () => {
+          if (current()) setError(t`Не вдалося очистити аватар`)
+        },
       },
     )
   }

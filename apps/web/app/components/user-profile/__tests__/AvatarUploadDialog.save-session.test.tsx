@@ -38,7 +38,7 @@ import { AvatarUploadDialog } from '../AvatarUploadDialog'
 
 const photo = new File([new Uint8Array(64)], 'IMG_0003.jpg', { type: 'image/jpeg' })
 
-function Harness() {
+function Harness({ avatarDocumentId = null }: { avatarDocumentId?: string | null }) {
   const [open, setOpen] = useState(true)
   return (
     <>
@@ -47,7 +47,7 @@ function Harness() {
         open={open}
         onClose={() => setOpen(false)}
         userId="user-1"
-        avatarDocumentId={null}
+        avatarDocumentId={avatarDocumentId}
         avatarUrl={null}
       />
     </>
@@ -216,5 +216,62 @@ describe('AvatarUploadDialog — save bound to its dialog session (task-1316-fix
     })
 
     expect(screen.getByTestId('avatar-upload-progress')).toBeInTheDocument()
+  })
+})
+
+describe('AvatarUploadDialog — clear bound to its dialog session (task-1316-fix5 item 1)', () => {
+  async function clearAndMaybeReopen(reopen: boolean) {
+    render(<Harness avatarDocumentId="doc-0" />, { wrapper: I18nTestProvider })
+    fireEvent.click(screen.getByRole('button', { name: 'Повернути стандартний' }))
+    expect(m.mutate).toHaveBeenCalledWith({ avatarDocumentId: null }, expect.anything())
+    if (reopen) await closeAndReopen()
+    return m.mutate.mock.calls[0]![1] as { onSuccess: () => void; onError: () => void }
+  }
+
+  it('closing mid-clear and reopening: the old clear succeeding keeps the new dialog open, toast once', async () => {
+    const cb = await clearAndMaybeReopen(true)
+    act(() => cb.onSuccess())
+
+    expect(m.toastSuccess).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('closing mid-clear and reopening: the old clear failing shows no error in the new dialog', async () => {
+    const cb = await clearAndMaybeReopen(true)
+    act(() => cb.onError())
+
+    expect(screen.queryByText('Не вдалося очистити аватар')).toBeNull()
+  })
+
+  it('a current clear succeeding closes the dialog with its toast', async () => {
+    const cb = await clearAndMaybeReopen(false)
+    act(() => cb.onSuccess())
+
+    expect(m.toastSuccess).toHaveBeenCalledWith('Повернуто стандартний аватар')
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('a current clear failing shows the error', async () => {
+    const cb = await clearAndMaybeReopen(false)
+    act(() => cb.onError())
+
+    expect(screen.getByText('Не вдалося очистити аватар')).toBeInTheDocument()
+  })
+
+  it('a clear makes an earlier, still-decoding pick stale: its late decode does not open the crop step', async () => {
+    installFakePreviewWorker(photo, 'manual')
+    render(<Harness avatarDocumentId="doc-0" />, { wrapper: I18nTestProvider })
+    const input = screen.getByTestId('avatar-file-input')
+    fireEvent.change(input, { target: { files: [photo] } }) // pick A, held
+    fireEvent.change(input, { target: { files: [photo] } }) // pick B, held
+    await vi.waitFor(() => expect(pendingReplies).toHaveLength(2))
+    fireEvent.click(screen.getByRole('button', { name: 'Повернути стандартний' }))
+
+    await act(async () => {
+      pendingReplies[0]!() // A's late decode
+      await nextFrame()
+    })
+
+    expect(screen.queryByRole('button', { name: 'Зберегти' })).toBeNull()
   })
 })

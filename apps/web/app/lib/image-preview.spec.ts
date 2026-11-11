@@ -172,6 +172,20 @@ describe('createImagePreviewUrl â€” fallbacks and wiring (task-1316-fix3 A6, B1â
     await expect(createImagePreviewUrl(photo, 1024, ORIGINAL)).resolves.toBeNull()
     expect(workerStats.terminated).toBe(1)
   })
+
+  it('fix5 item 2: createObjectURL throwing on the worker reply blob resolves null, not a rejection', async () => {
+    installFakePreviewWorker(photo, 'auto')
+    const seen: Blob[] = []
+    vi.mocked(URL.createObjectURL).mockImplementation((b) => {
+      seen.push(b as Blob)
+      throw new Error('quota')
+    })
+
+    await expect(createImagePreviewUrl(photo, 1024, ORIGINAL)).resolves.toBeNull()
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).not.toBe(photo) // the worker's reply, not the original fallback
+    expect(workerStats.terminated).toBe(1)
+  })
 })
 
 describe('revokeBlobUrl', () => {
