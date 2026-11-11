@@ -79,6 +79,7 @@ const USER = {
 
 let world: { omitBullet: boolean; vision: VisualReply[] }
 const typst = {
+  fingerprint: (input: ResumeRenderInput) => JSON.stringify(input),
   render: vi.fn(async (input: ResumeRenderInput) => encodePdf(input)),
   renderPng: vi.fn(async (input: ResumeRenderInput) => [encodePng(input)]),
 }
@@ -304,9 +305,10 @@ describe('VerificationRunner.run', () => {
   })
 
   it('a claim that misses (another run owns the row) does nothing', async () => {
-    const { run, log } = runner([[]])
+    const { run, log } = runner([[], []])
     await run()
-    expect(log).toHaveLength(1)
+    // the QUEUED claim, then the template claim (Task 16): both miss
+    expect(log).toHaveLength(2)
     expect(writer.write).not.toHaveBeenCalled()
     expect(s3.upload).not.toHaveBeenCalled()
   })
@@ -319,6 +321,8 @@ describe('VerificationRunner.run', () => {
     expect([lock?.op, lock?.locked, lock?.inTransaction]).toEqual(['select', true, true])
     expect(fail?.inTransaction).toBe(true)
     expect(fail?.where?.params).toEqual([RESUME, RUN])
+    // only a template run's FAILED write needs the base version (Task 16)
+    expect(fail?.where?.sql).not.toContain('verification_base_version')
     expect(fail?.set).toEqual({
       verificationStatus: 'FAILED',
       verificationErrorCode: 'WRITER_UNAVAILABLE',
@@ -329,7 +333,7 @@ describe('VerificationRunner.run', () => {
       verificationBaseVersion: null,
       ...CLEARED_STAGED,
     })
-    expect([lock?.columns, fail?.columns]).toEqual([['key'], ['id']])
+    expect([lock?.columns, fail?.columns]).toEqual([['key', 'kind'], ['id']])
     expect(s3.upload).not.toHaveBeenCalled()
     expect(s3.delete.mock.calls).toEqual([[OLD_KEY]])
     expect(logs).toContain(`Verification run ${RUN} of resume ${RESUME} failed: WRITER_UNAVAILABLE`)
@@ -627,5 +631,176 @@ describe('VerificationRunner.run — staged kinds (Task 15)', () => {
       expect(stage?.set?.['verificationErrorCode']).toBe('INCOMPLETE')
       expect(writer.write).not.toHaveBeenCalled()
     }
+  })
+})
+
+describe('VerificationRunner.run — template kind (Task 16)', () => {
+  const LIVE_KEY = 'resumes/r-1/staged/run-0.pdf'
+  const LOOK = {
+    ...DEFAULT_RESUME_LAYOUT,
+    sectionOrder: [...RESUME_SECTION_ORDER],
+    density: 'relaxed',
+  }
+
+  /** The confirmed content: what a full run staged. */
+  async function liveContent(): Promise<ResumeContent> {
+    const { run, log } = runner([...START, [{ key: null }], [{ id: RESUME }]])
+    await run()
+    vi.clearAllMocks()
+    return log.at(-1)?.set?.['stagedContent'] as ResumeContent
+  }
+
+  /** A VERIFIED row whose look change started a template run (the Task 13 start UPDATE). */
+  async function templateRun(
+    tail: unknown[][],
+    over: Partial<SeniorResume> = {},
+    arm: () => void = () => {},
+  ) {
+    const content = await liveContent()
+    arm()
+    const row = {
+      ...ROW,
+      content,
+      stagedContent: content,
+      stagedLayout: LOOK,
+      stagedTemplateName: 'modern',
+      verificationStatus: 'VERIFIED',
+      verificationKind: 'template',
+      verificationReport: null,
+      ...over,
+    } as unknown as SeniorResume
+    const { run, log } = runner([[], [row], [USER], [], ...tail])
+    await run()
+    return { content, log }
+  }
+
+  it('pass: claimed on VERIFIED by its start time, no writer, the new look promoted under a CAS', async () => {
+    const { content, log } = await templateRun([[{ key: LIVE_KEY }], [{ id: RESUME }]])
+
+    const [queued, claim] = log
+    expect(queued?.where?.params).toEqual([RESUME, RUN, 'QUEUED'])
+    expect(claim?.set).toEqual({ verificationStartedAt: expect.any(Date) })
+    expect(claim?.where?.params).toEqual([RESUME, RUN, 'VERIFIED', 'template'])
+    expect(claim?.where?.sql).toContain('"verification_started_at" is null')
+    expect(writer.write).not.toHaveBeenCalled()
+    expect(entailment.score).not.toHaveBeenCalled()
+
+    const uploaded = (s3.upload.mock.calls[0] as unknown as [string, Buffer])[1]
+    expect(s3.upload.mock.calls[0]?.[0]).toBe(KEY)
+    const rendered = decodePdf(uploaded)
+    expect([rendered.templateName, rendered.layout, rendered.content]).toEqual([
+      'modern',
+      LOOK,
+      content,
+    ])
+
+    const [lock, promote] = log.slice(-2)
+    expect([lock?.locked, lock?.inTransaction, lock?.columns]).toEqual([true, true, ['key']])
+    expect(promote?.inTransaction).toBe(true)
+    expect(promote?.where?.params).toEqual([RESUME, RUN, 'VERIFIED'])
+    expect(promote?.where?.sql).toContain(
+      '"version" = "senior_resumes"."verification_base_version"',
+    )
+    expect(promote?.where?.sql).toContain('"template_source" is null')
+    const { version, verifiedVersion, ...set } = promote?.set ?? {}
+    expect([version, verifiedVersion].every((v) => typeof v === 'object')).toBe(true)
+    expect(set).toEqual({
+      layout: LOOK,
+      templateName: 'modern',
+      pdfS3Key: KEY,
+      pdfFingerprint: JSON.stringify({
+        displayName: 'Jane Doe',
+        email: 'jane.doe@unit.spec',
+        content,
+        layout: LOOK,
+        templateName: 'modern',
+        templateSource: null,
+      }),
+      pdfRenderStatus: 'READY',
+      pdfRenderError: null,
+      pdfRenderRunId: null,
+      pdfRenderStartedAt: null,
+      verificationErrorCode: null,
+      verificationReport: {
+        gates: [
+          { gate: 'ats', ok: true, items: [] },
+          { gate: 'layout', ok: true, items: [] },
+          { gate: 'visual', ok: true, items: [] },
+        ],
+        fallbacks: [],
+      },
+      verificationRunId: null,
+      verificationKind: null,
+      verificationTargetPath: null,
+      verificationBaseVersion: null,
+      ...CLEARED_STAGED,
+    })
+    // the replaced live object goes after commit
+    expect(s3.delete.mock.calls).toEqual([[LIVE_KEY]])
+  })
+
+  it('a lost promote CAS deletes its own upload and nothing else', async () => {
+    await templateRun([[{ key: LIVE_KEY }], []])
+    expect(s3.upload).toHaveBeenCalledTimes(1)
+    expect(s3.delete.mock.calls).toEqual([[KEY]])
+    expect(logs).toContain(`Template run ${RUN} of resume ${RESUME} superseded: ${KEY} dropped`)
+  })
+
+  it('a won promote over the same key, or over no live key, deletes nothing', async () => {
+    await templateRun([[{ key: KEY }], [{ id: RESUME }]])
+    await templateRun([[], [{ id: RESUME }]])
+    expect(s3.delete).not.toHaveBeenCalled()
+  })
+
+  it('vision unavailable: the status and live columns stay, the code and report are set', async () => {
+    const { log } = await templateRun(
+      [[{ key: null, kind: 'template' }], [{ id: RESUME }]],
+      {},
+      () => {
+        world.vision = [{ kind: 'unavailable', reason: 'TIMEOUT' } as VisualReply]
+      },
+    )
+    const fail = log.at(-1)
+    expect(fail?.where?.params).toEqual([RESUME, RUN])
+    expect(fail?.where?.sql).toContain('"version" = "senior_resumes"."verification_base_version"')
+    expect(fail?.set).toEqual({
+      verificationErrorCode: 'VISUAL_CHECK_UNAVAILABLE',
+      verificationReport: {
+        gates: [
+          { gate: 'ats', ok: true, items: [] },
+          { gate: 'layout', ok: true, items: [] },
+          { gate: 'visual', ok: false, items: [] },
+        ],
+        fallbacks: [],
+      },
+      verificationRunId: null,
+      verificationKind: null,
+      verificationTargetPath: null,
+      verificationBaseVersion: null,
+      ...CLEARED_STAGED,
+    })
+    expect(s3.upload).not.toHaveBeenCalled()
+    expect(s3.delete).not.toHaveBeenCalled()
+  })
+
+  it('an ATS failure on an AI path fails the run: the confirmed text is never reverted', async () => {
+    const { log } = await templateRun(
+      [[{ key: null, kind: 'template' }], [{ id: RESUME }]],
+      {},
+      () => {
+        world.omitBullet = true
+      },
+    )
+    expect(log.at(-1)?.set?.verificationErrorCode).toBe('ATS_CHECK_FAILED')
+    expect(typst.render).toHaveBeenCalledTimes(1)
+  })
+
+  it('a template row without valid staged content fails INCOMPLETE before any render', async () => {
+    const { log } = await templateRun([[{ key: null, kind: 'template' }], [{ id: RESUME }]], {
+      stagedContent: null,
+    })
+    expect(log.at(-1)?.set?.verificationErrorCode).toBe('INCOMPLETE')
+    expect(log.at(-1)?.set).not.toHaveProperty('verificationStatus')
+    expect(typst.render).not.toHaveBeenCalled()
   })
 })

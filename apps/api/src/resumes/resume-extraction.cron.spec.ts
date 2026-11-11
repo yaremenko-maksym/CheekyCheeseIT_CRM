@@ -14,20 +14,35 @@
  * The sweeps' own SQL is covered against a real Postgres in
  * `resumes-rbac.integration.spec.ts` (R-INT-9 / R-INT-11).
  */
+import { Logger } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import { ResumeExtractionCronService } from './resume-extraction.cron'
 import type { SeniorResumesService } from './resumes.service'
+import type { ResumeVerificationService } from './verification/resume-verification.service'
 
-function buildCron(overrides: Partial<Record<'sweep' | 'requeue', unknown>> = {}) {
+function buildCron(overrides: Partial<Record<'sweep' | 'requeue' | 'stalled', unknown>> = {}) {
   const sweepStuckExtractions = vi.fn().mockResolvedValue(0)
   const requeueAbandoned = vi.fn().mockResolvedValue(0)
   const sweepStuckRenders = vi.fn().mockResolvedValue(0)
   if (overrides.sweep) sweepStuckExtractions.mockImplementation(overrides.sweep as () => never)
   if (overrides.requeue) requeueAbandoned.mockImplementation(overrides.requeue as () => never)
 
+  const sweepStalledVerifications = vi.fn().mockResolvedValue(0)
+  if (overrides.stalled)
+    sweepStalledVerifications.mockImplementation(overrides.stalled as () => never)
+
   const resumes = { sweepStuckExtractions, requeueAbandoned, sweepStuckRenders }
-  const cron = new ResumeExtractionCronService(resumes as unknown as SeniorResumesService)
-  return { cron, sweepStuckExtractions, requeueAbandoned, sweepStuckRenders }
+  const cron = new ResumeExtractionCronService(
+    resumes as unknown as SeniorResumesService,
+    { sweepStalledVerifications } as unknown as ResumeVerificationService,
+  )
+  return {
+    cron,
+    sweepStuckExtractions,
+    requeueAbandoned,
+    sweepStuckRenders,
+    sweepStalledVerifications,
+  }
 }
 
 describe('ResumeExtractionCronService', () => {
@@ -94,5 +109,62 @@ describe('ResumeExtractionCronService', () => {
     })
 
     await expect(cron.handleStuckExtractions()).resolves.toBeUndefined()
+  })
+
+  // ── The stalled verification sweep (Task 16) ──────────────────────────────
+
+  it('runs the stalled verification sweep on every tick, with the current time', async () => {
+    const { cron, sweepStalledVerifications } = buildCron()
+    const before = Date.now()
+    await cron.handleStuckExtractions()
+    expect(sweepStalledVerifications).toHaveBeenCalledTimes(1)
+    const now = sweepStalledVerifications.mock.calls[0]?.[0] as Date
+    expect(now).toBeInstanceOf(Date)
+    expect(now.getTime()).toBeGreaterThanOrEqual(before)
+    expect(now.getTime()).toBeLessThanOrEqual(Date.now())
+  })
+
+  it('a failing extraction pass does not stop the verification sweep', async () => {
+    const { cron, sweepStalledVerifications } = buildCron({
+      sweep: () => Promise.reject(new Error('DB connection lost')),
+    })
+    await cron.handleStuckExtractions()
+    expect(sweepStalledVerifications).toHaveBeenCalledTimes(1)
+  })
+
+  it('a failing verification sweep neither rejects nor stops the extraction pass', async () => {
+    const errors = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {})
+    const warns = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
+    const { cron, sweepStuckExtractions, sweepStuckRenders } = buildCron({
+      stalled: () => Promise.reject(new Error('lock timeout')),
+    })
+    await expect(cron.handleStuckExtractions()).resolves.toBeUndefined()
+    expect(sweepStuckExtractions).toHaveBeenCalledTimes(1)
+    expect(sweepStuckRenders).toHaveBeenCalledTimes(1)
+    expect(errors.mock.calls.map((c) => c[0])).toEqual([
+      'Resume verification sweep failed: lock timeout',
+    ])
+    expect(warns).not.toHaveBeenCalled()
+    errors.mockRestore()
+    warns.mockRestore()
+  })
+
+  it('logs the stalled count only when a run was swept', async () => {
+    const warns = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
+    const { cron, sweepStalledVerifications } = buildCron()
+    await cron.handleStuckExtractions()
+    expect(warns).not.toHaveBeenCalled()
+    sweepStalledVerifications.mockResolvedValueOnce(2)
+    await cron.handleStuckExtractions()
+    expect(warns.mock.calls.map((c) => c[0])).toEqual([
+      'Swept 2 stalled resume verification run(s)',
+    ])
+    warns.mockRestore()
+  })
+
+  it('the verification service really exposes the sweep', async () => {
+    const { ResumeVerificationService: Real } =
+      await import('./verification/resume-verification.service')
+    expect(typeof Real.prototype.sweepStalledVerifications).toBe('function')
   })
 })

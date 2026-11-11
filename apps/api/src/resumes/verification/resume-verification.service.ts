@@ -13,8 +13,8 @@
  *     UPDATE's WHERE, so it cannot race a run starting between read and write.
  *   - facts / content / extraction result → bump `version`, DRAFT, staged
  *     columns cleared (their object deleted after commit).
- *   - layout / template on VERIFIED → a template run starts (P1: start UPDATE
- *     only, the runner is Task 16); live look and status stay.
+ *   - layout / template on VERIFIED → a template run starts (P1 start UPDATE,
+ *     then the runner, Task 16); live look and status stay until it passes.
  *   - layout / template on AWAITING_CONFIRM → DRAFT + the staged cleanup.
  *   - layout / template on DRAFT / FAILED → written, `version` bumped.
  */
@@ -26,7 +26,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { createHash, randomUUID } from 'node:crypto'
-import { and, eq, inArray, isNull, ne, notInArray, sql, type SQL } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, isNull, lt, ne, notInArray, sql, type SQL } from 'drizzle-orm'
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core'
 import {
   DEFAULT_RESUME_LAYOUT,
@@ -57,11 +57,14 @@ import { seniorResumes, teamMembers, type SeniorResume } from '../../database/sc
 import { resolveTemplateName } from '../resume-typst.service'
 import { hasContact } from './content-gates'
 import { contentToFacts } from './derive-content'
+import { CLEARED_RUN } from './run-columns'
 import {
   CLEARED_STAGED,
   deleteStagedQuietly,
   loadOwnerContacts,
   regenerateTarget,
+  stagedPdfKey,
+  VERIFICATION_DEADLINE_MS,
   VerificationRunner,
 } from './verification-runner'
 
@@ -242,7 +245,7 @@ export class ResumeVerificationService {
   /**
    * A layout or template write. The UPDATE is a compare-and-set on the status
    * that chose the branch; a row that moved in between answers 409.
-   * Returns the row; on VERIFIED the live look is unchanged (nothing to render).
+   * Returns the row; on VERIFIED the live look is unchanged until the template run passes.
    */
   private async writeLook(
     row: SeniorResume,
@@ -251,11 +254,12 @@ export class ResumeVerificationService {
   ): Promise<SeniorResume> {
     const stamp = { updatedByUserId: viewerId, updatedAt: new Date() }
     let set: PgUpdateSetSource<typeof seniorResumes>
+    const runId = randomUUID()
     if (row.verificationStatus === 'VERIFIED') {
-      // P1: start a template run into the staged columns; the runner is Task 16.
+      // P1: start a template run into the staged columns (the runner, Task 16).
       // Writing the live look here would break `verified_version = version`.
       set = {
-        verificationRunId: randomUUID(),
+        verificationRunId: runId,
         verificationKind: 'template',
         verificationBaseVersion: sql`${seniorResumes.version}`,
         verificationQueuedAt: new Date(),
@@ -283,6 +287,7 @@ export class ResumeVerificationService {
     if (row.verificationStatus === 'AWAITING_CONFIRM') {
       await this.deleteStagedObject(row.stagedPdfS3Key)
     }
+    if (row.verificationStatus === 'VERIFIED') void this.runner.run(row.id, runId)
     return updated
   }
 
@@ -303,6 +308,67 @@ export class ResumeVerificationService {
   /** After commit. A failure is logged (key only) and never fails the request. */
   deleteStagedObject(key: string | null): Promise<void> {
     return deleteStagedQuietly(this.s3, this.logger, key)
+  }
+
+  /**
+   * The stalled-run sweep (Task 16, cron): the process of a run died. The runner fails an over-budget
+   * run itself (P2), so only a run queued before `now - VERIFICATION_DEADLINE_MS` is reaped. Each
+   * UPDATE repeats the selection predicate on the status and run id read, so a run that ended in
+   * between is not touched. QUEUED / CHECKING → FAILED `STALLED` (the runner's FAILED rule); VERIFIED
+   * with a template run → run and staged columns cleared, `STALLED`, still VERIFIED. After commit the
+   * staged object goes, and the run's derived key too (a crash between upload and CAS).
+   * Returns the number of rows reaped.
+   */
+  async sweepStalledVerifications(now: Date): Promise<number> {
+    const stalled = and(
+      isNotNull(seniorResumes.verificationRunId),
+      lt(seniorResumes.verificationQueuedAt, new Date(now.getTime() - VERIFICATION_DEADLINE_MS)),
+      inArray(seniorResumes.verificationStatus, ['QUEUED', 'CHECKING', 'VERIFIED']),
+    )
+    const rows = await this.db.db
+      .select({
+        id: seniorResumes.id,
+        runId: seniorResumes.verificationRunId,
+        status: seniorResumes.verificationStatus,
+      })
+      .from(seniorResumes)
+      .where(stalled)
+    let swept = 0
+    for (const { id, runId, status } of rows) {
+      const won = await this.db.db.transaction(async (tx) => {
+        const [current] = await tx
+          .select({ key: seniorResumes.stagedPdfS3Key })
+          .from(seniorResumes)
+          .where(eq(seniorResumes.id, id))
+          .for('update')
+        const [updated] = await tx
+          .update(seniorResumes)
+          .set({
+            ...(status === 'VERIFIED' ? {} : { verificationStatus: 'FAILED' as const }),
+            verificationErrorCode: 'STALLED',
+            verificationReport: { gates: [], fallbacks: [] },
+            ...CLEARED_RUN,
+            ...CLEARED_STAGED,
+          })
+          .where(
+            and(
+              eq(seniorResumes.id, id),
+              stalled,
+              eq(seniorResumes.verificationStatus, status),
+              eq(seniorResumes.verificationRunId, runId as string),
+            ),
+          )
+          .returning({ id: seniorResumes.id })
+        return updated ? { key: current?.key ?? null } : null
+      })
+      if (!won) continue
+      swept += 1
+      this.logger.warn(`Verification run ${runId} of resume ${id} swept: STALLED`)
+      await this.deleteStagedObject(won.key)
+      const derived = stagedPdfKey(id, runId as string)
+      if (derived !== won.key) await this.deleteStagedObject(derived)
+    }
+    return swept
   }
 
   /**

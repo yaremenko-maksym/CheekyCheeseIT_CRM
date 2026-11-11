@@ -31,6 +31,8 @@ import {
 import { deriveFrozenContent } from './derive-content'
 import { ResumeEntailmentClient, ResumeWriterClient, VisualCheckClient } from './inference-clients'
 import { renderAccepted, visualGate, type Accepted, type RenderDeps } from './render-gates'
+import { CLEARED_RUN, CLEARED_STAGED, deleteStagedQuietly, stagedPdfKey } from './run-columns'
+import { claimTemplateRun, promoteTemplateRun, templateContent } from './template-run'
 
 /** A run past this is STALLED, checked before every model call (P2). */
 export const VERIFICATION_RUN_BUDGET_MS = 20 * 60_000
@@ -38,37 +40,14 @@ export const VERIFICATION_RUN_BUDGET_MS = 20 * 60_000
 export const VERIFICATION_DEADLINE_MS =
   VERIFICATION_RUN_BUDGET_MS + WORKER_ADAPTER_TIMEOUT_MS + 60_000
 
-/** Clearing the staged columns: four NULLs and an empty edited-paths list. */
-export const CLEARED_STAGED = {
-  stagedContent: null,
-  stagedLayout: null,
-  stagedTemplateName: null,
-  stagedPdfS3Key: null,
-  stagedEditedPaths: [],
-}
-
-/** Where a run's staged PDF lives: derived from the ids, so a crashed run can still clean up. */
-export const stagedPdfKey = (resumeId: string, runId: string): string =>
-  `resumes/${resumeId}/staged/${runId}.pdf`
-
-/** After commit. A failure is logged (key only) and never fails the caller. */
-export async function deleteStagedQuietly(
-  s3: Pick<S3Service, 'delete'>,
-  logger: Logger,
-  key: string | null,
-): Promise<void> {
-  if (!key) return
-  try {
-    await s3.delete(key)
-  } catch {
-    logger.warn(`Staged resume PDF not deleted: ${key}`)
-  }
-}
+export { CLEARED_STAGED, deleteStagedQuietly, stagedPdfKey } from './run-columns'
 
 export type ResumeOwnerContacts = { displayName: string; email: string; contacts: ContactContext[] }
 
 /** Kinds that start from the staged result of an earlier run instead of writing everything anew. */
 const FROM_STAGED = new Set<string | null>(['staged-edit', 'item'])
+/** Kinds rendered with the staged look; a template run renders the requested one (Task 16). */
+const STAGED_LOOK = new Set<string | null>([...FROM_STAGED, 'template'])
 
 /**
  * `summary` → 'summary', `experience.<i>.bullets` → i; anything else → null. Indexes are canonical
@@ -164,25 +143,34 @@ export class VerificationRunner {
       if (!facts.success) throw new RunFailure('INCOMPLETE')
       const owner = await this.ownerOf(row.userId)
       const frozen = deriveFrozenContent(facts.data)
-      const fromStaged = FROM_STAGED.has(row.verificationKind)
-      // A staged-edit or item run re-checks the staged result, rendered with its own look.
+      const template = row.verificationKind === 'template'
+      // A staged-edit, item or template run renders the staged look.
+      const stagedLook = STAGED_LOOK.has(row.verificationKind)
       const templateName = resolveTemplateName(
-        fromStaged ? row.stagedTemplateName : row.templateName,
+        stagedLook ? row.stagedTemplateName : row.templateName,
       )
 
-      const written = await this.written(
-        row,
-        {
-          facts: facts.data,
-          frozen,
-          contacts: owner.contacts,
-          template: templateName,
-          now: new Date(),
-        },
-        { writer: this.writer, entailment: this.entailment, beforeModelCall },
-      )
-      gates.push(written.gate)
-      fallbacks = written.fallbacks
+      // A template run re-renders the confirmed content: no writer, no entailment, no content gate.
+      let content: ResumeContent
+      let locked: string[] = []
+      if (template) {
+        ;({ content, locked } = templateContent(row))
+      } else {
+        const written = await this.written(
+          row,
+          {
+            facts: facts.data,
+            frozen,
+            contacts: owner.contacts,
+            template: templateName,
+            now: new Date(),
+          },
+          { writer: this.writer, entailment: this.entailment, beforeModelCall },
+        )
+        gates.push(written.gate)
+        fallbacks = written.fallbacks
+        content = written.content
+      }
 
       const notes: ResumeContent = {
         ...frozen,
@@ -202,11 +190,11 @@ export class VerificationRunner {
         {
           displayName: owner.displayName,
           email: owner.email,
-          content: written.content,
-          layout: normalizeResumeLayout(fromStaged ? row.stagedLayout : row.layout),
+          content,
+          layout: normalizeResumeLayout(stagedLook ? row.stagedLayout : row.layout),
           templateName,
           notes,
-          fallbacks,
+          fallbacks: [...fallbacks, ...locked],
           editedPaths: (
             resumeStagedEditedPathsSchema.safeParse(row.stagedEditedPaths).data ?? []
           ).map((edit) => edit.path),
@@ -214,10 +202,28 @@ export class VerificationRunner {
         deps,
       )
       gates.push(...accepted.gates)
-      fallbacks = accepted.fallbacks
+      // The locked paths are no fallbacks: the report keeps what the confirmed content holds.
+      if (!template) fallbacks = accepted.fallbacks
       gates.push(await visualGate(accepted, templateName, owner.contacts, deps))
 
-      await this.stage(row, runId, accepted, templateName, { gates, fallbacks }, fromStaged)
+      const report = { gates, fallbacks }
+      if (!template) {
+        await this.stage(
+          row,
+          runId,
+          accepted,
+          templateName,
+          report,
+          FROM_STAGED.has(row.verificationKind),
+        )
+        return
+      }
+      await promoteTemplateRun(this.templateDeps(), row.id, runId, {
+        accepted,
+        templateName,
+        report,
+        owner,
+      })
     } catch (err) {
       if (!(err instanceof RunFailure)) throw err
       this.logger.warn(`Verification run ${runId} of resume ${resumeId} failed: ${err.code}`)
@@ -265,20 +271,19 @@ export class VerificationRunner {
     }
   }
 
-  /** Stage 1: QUEUED to CHECKING on this run id; `undefined` when another run owns the row. */
+  /** Stage 1: QUEUED to CHECKING on this run id, else a template run; `undefined` when another run owns the row. */
   private async claim(resumeId: string, runId: string): Promise<SeniorResume | undefined> {
+    const own = and(eq(seniorResumes.id, resumeId), eq(seniorResumes.verificationRunId, runId))
     const [row] = await this.db.db
       .update(seniorResumes)
       .set({ verificationStatus: 'CHECKING', verificationStartedAt: new Date() })
-      .where(
-        and(
-          eq(seniorResumes.id, resumeId),
-          eq(seniorResumes.verificationRunId, runId),
-          eq(seniorResumes.verificationStatus, 'QUEUED'),
-        ),
-      )
+      .where(and(own, eq(seniorResumes.verificationStatus, 'QUEUED')))
       .returning()
-    return row
+    return row ?? claimTemplateRun(this.db, own)
+  }
+
+  private templateDeps() {
+    return { db: this.db, s3: this.s3, typst: this.typst, logger: this.logger }
   }
 
   private async ownerOf(userId: string): Promise<ResumeOwnerContacts> {
@@ -339,7 +344,10 @@ export class VerificationRunner {
     }
   }
 
-  /** FAILED on this run id: run fields and staged columns cleared, the old object deleted after commit. */
+  /**
+   * FAILED on this run id: run fields and staged columns cleared, the old object deleted after commit.
+   * A template run keeps VERIFIED and the live columns (Task 16): its CAS also needs the base version.
+   */
   private async fail(
     resumeId: string,
     runId: string,
@@ -348,23 +356,29 @@ export class VerificationRunner {
   ): Promise<void> {
     const old = await this.db.db.transaction(async (tx) => {
       const [current] = await tx
-        .select({ key: seniorResumes.stagedPdfS3Key })
+        .select({ key: seniorResumes.stagedPdfS3Key, kind: seniorResumes.verificationKind })
         .from(seniorResumes)
         .where(eq(seniorResumes.id, resumeId))
         .for('update')
+      const template = current?.kind === 'template'
       const [won] = await tx
         .update(seniorResumes)
         .set({
-          verificationStatus: 'FAILED',
+          ...(template ? {} : { verificationStatus: 'FAILED' as const }),
           verificationErrorCode: code,
           verificationReport: report,
-          verificationRunId: null,
-          verificationKind: null,
-          verificationTargetPath: null,
-          verificationBaseVersion: null,
+          ...CLEARED_RUN,
           ...CLEARED_STAGED,
         })
-        .where(and(eq(seniorResumes.id, resumeId), eq(seniorResumes.verificationRunId, runId)))
+        .where(
+          and(
+            eq(seniorResumes.id, resumeId),
+            eq(seniorResumes.verificationRunId, runId),
+            template
+              ? sql`${seniorResumes.version} = ${seniorResumes.verificationBaseVersion}`
+              : undefined,
+          ),
+        )
         .returning({ id: seniorResumes.id })
       return won ? (current?.key ?? null) : null
     })
