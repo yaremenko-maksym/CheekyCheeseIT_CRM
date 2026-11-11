@@ -93,9 +93,11 @@ Leading: 40 px avatar or 32 px icon tile. Primary line 16/22; secondary 15/20 mu
 right-aligned, `tabular-nums`, with sign (`+` positive, `−` destructive) and a status word or badge.
 Pressed state `bg-accent`. Variants: navigation (chevron), value, toggle, destructive.
 
-**At 768 / 1440** (`listrow-768`, `listrow-1440`): the tablet keeps the touch row (56 / 64, target ≥ 44)
-in the list pane; the selected row is `bg-accent` with `aria-current` and opens in the detail pane, not
-over it. The desktop row is a 40 px table row (states default / hover / selected / focus ring 2 px /
+**At 768 / 1440** (`listrow-768`, `listrow-1440`): the tablet keeps the touch row (56 / 64, target ≥ 44).
+**640–899 is a single pane with push**: the list takes the full width and a row pushes its detail, so
+there is no selected-row highlight (no `aria-current`, no `bg-raised`). From **≥ 900** list and detail
+sit side by side (`shell-v2/tablet-two-pane-1000`: rail 80, list 320, detail the rest, 600 at 1000)
+and only there the selected row is `bg-raised` with `aria-current`. The desktop row is a 40 px table row (states default / hover / selected / focus ring 2 px /
 pending; the selected row carries a 2 px yellow leading bar plus `bg-accent` and `aria-selected`) and a
 36 px sidebar row; the full row is the hit area. Under `(pointer: coarse)` the table row is 52 and the
 sidebar row 44 (`shell-v2/shell-touch-1180.png`).
@@ -108,8 +110,11 @@ from a list.
 **Swipe actions** (`listrow-swipe-375`): trailing edge only (no leading swipe: it collides with system
 back). Revealed actions «Змінити» (secondary) and «Видалити» (destructive), each ≥ 72 × row height. A
 full swipe does **not** delete; it asks with the action sheet. **Single-pointer alternative**
-(SC 2.5.1 / 2.5.7): every row shows a visible 44 px «…» button (`aria-label` «Дії з транзакцією»,
-`aria-haspopup="menu"`); it and a long-press open the same actions as a context menu. Rows set
+(SC 2.5.1 / 2.5.7): a row **with a pushed detail** (a transaction, a person) carries the same actions in
+its detail page, so it shows no «…» and its title never loses width to one at 375. A row **without a
+pushed detail** (a file, a receipt) shows a visible 44 px «…» button (`aria-label` «Дії з файлом»,
+`aria-haspopup="menu"`); it and a long-press open the same actions as a context menu. Long-press on a
+row with a detail opens the same menu as a shortcut, never the only path. Rows set
 `-webkit-touch-callout: none` so the long-press does not raise the iOS link / image callout.
 
 **Sticky section header** (`listrow-sticky-320`, `section-header-375`): overline 12/16 uppercase, 92%
@@ -254,7 +259,7 @@ right inset 80, left of the FAB); a toast stacks 8 px above it; at most one toas
 timer pauses while the page is hidden.
 
 **Skeletons** (`skeleton-mobile-375`, `skeleton-768`, `skeleton-1440`, `skeleton-table-desktop`): blocks
-match the final layout (row heights, avatar circles, right-aligned values; on the tablet both panes; on
+match the final layout (row heights, avatar circles, right-aligned values; on the tablet the single pane below 900 and both panes from 900; on
 the desktop the shell is real and only the table is skeletal); shimmer 1.2 s, off under reduced motion.
 
 ---
@@ -263,9 +268,11 @@ the desktop the shell is real and only the table is skeletal); shimmer 1.2 s, of
 
 `chart-mobile-375` / `chart-mobile-320`: one question per viewport («Чистий прибуток»); bars in
 `--chart-1`; **negative months hatched with a `−` label below zero**; zero line `--chart-grid`; tap a bar
-for a tooltip with the exact value; the period is a 44 px segmented control (swipe is an extra, not the
+for a tooltip with the exact value (the hit area is the full-height column band; under 44 px, as in the
+12-bar «Рік», drag-scrub with a persistent value line above the chart, foundation §7.4); the period is a 44 px segmented control (swipe is an extra, not the
 only way). The second, smaller chart (partners) sits **below the fold** (`chart-mobile-scrolled-375`),
-with the A / B labels directly under their bars and no legend. `chart-desktop`: hover tooltip, keyboard focus on bars (arrow keys), series swatches carry
+with the partners' **initials** («ВК», «ОШ») directly under their bars, no legend, and the full
+names in the accessible summary. `chart-desktop`: hover tooltip, keyboard focus on bars (arrow keys), series swatches carry
 token names, the chart follows the table filters.
 
 ---
@@ -309,7 +316,8 @@ Re-render: `node assets/src/render.mjs primitives [filter]`, then `assets/src/co
 
 - Sheets, panels and dialogs: focus trap, Esc closes, focus returns to the trigger; drag has a button
   alternative.
-- Swipe and long-press actions have a visible 44 px «…» alternative on every row.
+- Swipe and long-press actions have a single-pointer path: the row's detail page, or a visible 44 px
+  «…» on rows without a detail.
 - The money-form primary is never disabled for validity; a tap moves focus to the first invalid field.
 - Errors: `aria-invalid` + `aria-describedby`; save error `role="alert"`; toasts and uploads
   `role="status"`.

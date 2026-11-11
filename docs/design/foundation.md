@@ -83,10 +83,21 @@ Rules that hold in every class:
   full width. No stretched line length at 2560.
 - **Safe areas:** `env(safe-area-inset-*)` on the top bar, tab bar, FAB, sheets and toasts. Nothing
   interactive sits under the home indicator.
+- **PWA viewport:** `<meta name="viewport" content="…, viewport-fit=cover">`; the shell height is
+  **`100dvh`, never `100vh`** (iOS counts the hidden toolbar in `vh`); the tab bar and every bottom bar
+  (submit bar, sheet footer) pad by `env(safe-area-inset-bottom)`, the top bar by
+  `env(safe-area-inset-top)`, and the landscape sides by the left / right insets.
 - **Floating-layer stacking (mobile).** The FAB (56, inset 16) owns the bottom-right corner. Toasts and
   the upload pill sit to its left: inset 12 left, **80 right**, 16 above the tab bar. They never cover
   the FAB, and the FAB never covers them. Tab-root lists end with bottom padding **56 + 16 + 8** above
   the tab bar, so the last row scrolls clear of the FAB. Order: tab bar < FAB / toast / pill < sheet.
+  With a pill showing, a toast stacks 8 px above it; at most one toast at a time
+  (`primitives-v2/toast-pill-stack-375.png`).
+- **FAB and pill on scroll.** Scrolling down slides the FAB and the upload pill out below the tab bar;
+  they come back on scroll-up or after **1 s** without scrolling. Transform only (`translateY`, 200 ms
+  standard easing); under `prefers-reduced-motion` they fade instead. They never hide while one of them
+  holds keyboard focus (SC 2.4.11). Mid-scroll, a trailing amount that sits under the FAB slot is
+  readable (`shell-v2/state-scrolled-375.png`).
 
 ---
 
@@ -221,11 +232,15 @@ All five series colours are ≥ 4.97:1 on every surface step. Chart rules:
 
 - **One chart per mobile viewport**, answer visible in 2 s. A second chart on the same screen sits below
   the fold (`primitives-v2/chart-mobile-375.png` / `chart-mobile-scrolled-375.png`). Max 3 series per
-  chart; label series directly (category labels such as partner A / B go directly under their bars, no
-  legend).
+  chart; label series directly (partner series by **initials** under their bars, e.g. «ВК» / «ОШ», no
+  legend; the full names are in the chart's accessible summary).
 - **Negative values:** hatched fill + `−` label below the zero line. Sign, not colour, carries meaning.
 - Tap (mobile) or hover (desktop) a bar for a tooltip with the exact value; the tooltip is also reachable
-  by keyboard (arrow keys over a focused chart).
+  by keyboard (arrow keys over a focused chart). **A bar's hit area is its full-height column band**
+  (the whole slot from the top of the plot to the axis), not the painted bar, so a short bar is as
+  easy to hit as a tall one. When a band is narrower than 44 px (the 12-bar «Рік» on a phone), tap
+  targets give way to **drag-scrub**: a finger moving across the plot selects the band under it, and
+  the value shows in a persistent line above the chart (not a tooltip under the finger).
 - Desktop charts follow the table filters on the same screen.
 
 ### 7.5 Brand-yellow discipline
@@ -395,7 +410,8 @@ listed, and anything the v2 screen shows must trace back to that list.
 - **Focus:** visible 2 px yellow ring with offset on every interactive element (SC 2.4.11 / 2.4.7);
   focus never hidden under the sticky header, tab bar or a toast (SC 2.4.11).
 - **Gestures:** every swipe or drag has a single-pointer alternative (SC 2.5.1 / 2.5.7): swipe actions
-  are also in a long-press menu and a visible «…» button on the row; sheets also close by button and Esc.
+  are also in the row's detail page, or, on a row without a pushed detail, a visible «…» button and a
+  long-press menu; sheets also close by button and Esc.
 - **Names:** icon-only controls have an `aria-label`; tab bar is a `nav` with `aria-current="page"`;
   badges are announced ("3 нових").
 - **Live regions:** toasts and the upload indicator are `role="status"`; save errors are `role="alert"`.

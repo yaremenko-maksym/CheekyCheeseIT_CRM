@@ -152,7 +152,7 @@ const PART = [
   [2.2, 3.6],
   [4.0, 1.8],
   [2.8, 3.0],
-] // partner A / B, k USD, invented
+] // partners ВК / ОШ (invented: Віктор Кравець, Олена Шевчук), k USD
 
 function netBars(W, H, { labelSize = 11, pad = 28 } = {}) {
   const max = 8,
@@ -187,16 +187,16 @@ function partnerBars(W, H, { labelSize = 11, pad = 8 } = {}) {
   const y = (v) => top + ((max - v) / max) * (bottom - top)
   const gw = (W - pad * 2) / PART.length
   const q = ['I кв', 'II кв', 'III кв', 'IV кв']
-  return `<svg width="${W}" height="${H}" role="img" aria-label="Виплати партнерам A і B по кварталах"><line x1="${pad}" x2="${W - pad}" y1="${y(0)}" y2="${y(0)}" stroke="var(--chart-grid)"/>${PART.map(
+  return `<svg width="${W}" height="${H}" role="img" aria-label="Виплати партнерам по кварталах, тис. $: Віктор Кравець — 3,1; 2,2; 4,0; 2,8. Олена Шевчук — 2,4; 3,6; 1,8; 3,0."><line x1="${pad}" x2="${W - pad}" y1="${y(0)}" y2="${y(0)}" stroke="var(--chart-grid)"/>${PART.map(
     ([a, b], i) => {
       const x = pad + i * gw + gw * 0.16,
         bw = gw * 0.32
       const one = (v, xx, c) =>
         `<rect x="${xx}" y="${y(v)}" width="${bw - 2}" height="${y(0) - y(v)}" rx="3" fill="${c}"/><text x="${xx + (bw - 2) / 2}" y="${y(v) - 4}" text-anchor="middle" font-size="${labelSize - 1}" font-weight="600" fill="var(--fg)">${v.toFixed(1).replace('.', ',')}</text>`
-      // Series named directly under each bar: no legend lookup.
+      // Series named by initials directly under each bar: no legend lookup; full names in the aria-label.
       const ab = (t, xx) =>
         `<text x="${xx + (bw - 2) / 2}" y="${H - 24}" text-anchor="middle" font-size="${labelSize - 1}" font-weight="600" fill="var(--fg)">${t}</text>`
-      return `${one(a, x, 'var(--chart-1)')}${one(b, x + bw, 'var(--chart-2)')}${ab('A', x)}${ab('B', x + bw)}<text x="${x + bw}" y="${H - 6}" text-anchor="middle" font-size="${labelSize}" fill="var(--muted-fg)">${q[i]}</text>`
+      return `${one(a, x, 'var(--chart-1)')}${one(b, x + bw, 'var(--chart-2)')}${ab('ВК', x)}${ab('ОШ', x + bw)}<text x="${x + bw}" y="${H - 6}" text-anchor="middle" font-size="${labelSize}" fill="var(--muted-fg)">${q[i]}</text>`
     },
   ).join('')}</svg>`
 }
@@ -245,7 +245,7 @@ export function chartDesktop() {
       ['', 'Збиток', 'hatch'],
     ],
   )}</div><div style="margin-top:10px">${netBars(720, 260, { labelSize: 12, pad: 34 })}</div>${tooltip}</div>
-  <div style="flex:1;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Виплати партнерам</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">24 900,00 $</div><div style="margin:10px 0 8px">${partnerBars(330, 252, { labelSize: 12 })}</div><div class="t-cap muted">A, B — партнери</div></div></div>
+  <div style="flex:1;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Виплати партнерам</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">24 900,00 $</div><div style="margin:10px 0 8px">${partnerBars(330, 252, { labelSize: 12 })}</div><div class="t-cap muted">ВК — Віктор Кравець · ОШ — Олена Шевчук</div></div></div>
   <div class="row" style="gap:10px;margin-top:16px;flex-wrap:wrap">${[
     ['--chart-1', 'chart-1 · primary'],
     ['--chart-2', 'chart-2'],

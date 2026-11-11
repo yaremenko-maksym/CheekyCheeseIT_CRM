@@ -156,7 +156,7 @@ export const uploadPillDesktop = (w, h) =>
 export function skeletonTablet(w, h) {
   const list = `<section role="status" aria-label="Завантаження транзакцій" class="col" style="width:320px;flex:none;border-right:1px solid var(--border)">
   <div class="row" style="height:56px;padding:0 16px"><div class="t-title">Фінанси</div></div>
-  <div style="padding:4px 16px 10px"><div class="sk" style="height:40px;border-radius:12px"></div></div>
+  <div style="padding:4px 16px 10px"><div class="sk" style="height:44px;border-radius:12px"></div></div>
   <div class="sechead"><div class="sk" style="height:11px;width:70px"></div></div><div class="group" style="margin:0 12px" aria-hidden="true">${skRow().repeat(4)}</div>
   <div class="sechead"><div class="sk" style="height:11px;width:70px"></div></div><div class="group" style="margin:0 12px" aria-hidden="true">${skRow().repeat(3)}</div></section>`
   const detail = `<section class="grow col" aria-hidden="true" style="padding:24px;gap:12px"><div class="sk" style="height:22px;width:46%"></div><div class="sk" style="height:12px;width:30%"></div><div class="sk" style="height:40px;width:52%;margin-top:6px"></div>

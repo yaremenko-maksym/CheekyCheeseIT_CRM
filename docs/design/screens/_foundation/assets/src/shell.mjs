@@ -96,6 +96,28 @@ export function frames() {
       ),
     )
     out.push(M('state-loading-375', 375, 812, loadingScreen('ADMIN', 375, 812)))
+    // Scrolling down: the FAB slides out (transform only), so the amount sitting under its slot is visible.
+    out.push(
+      M(
+        'state-scrolled-375',
+        375,
+        812,
+        tabScreen({
+          w: 375,
+          h: 812,
+          role: 'ADMIN',
+          active: '/finance',
+          title: 'Фінанси',
+          body: financeBody(),
+          showFab: false,
+        })
+          .replace(
+            '<div class="content">',
+            '<div class="content"><div style="transform:translateY(-72px)">',
+          )
+          .replace('</div><nav class="tabbar"', '</div></div><nav class="tabbar"'),
+      ),
+    )
     out.push(M('state-empty-375', 375, 812, emptyScreen(375, 812)))
     out.push(M('state-error-375', 375, 812, errorScreen(375, 812)))
     out.push(

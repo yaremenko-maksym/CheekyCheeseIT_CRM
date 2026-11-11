@@ -73,6 +73,11 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 
 - 56 px yellow circle (context «+», §1), bottom right, inset 16, 16 px above the tab bar. Hidden while
   the keyboard is open and while a sheet is open. **Never dimmed or disabled**, offline included.
+- **FAB and pill on scroll.** Scrolling down slides the FAB and the upload pill out below the tab bar;
+  they come back on scroll-up or after **1 s** without scrolling. Transform only (`translateY`, 200 ms
+  standard easing); under `prefers-reduced-motion` they fade instead. They never hide while one of them
+  holds keyboard focus (SC 2.4.11). Mid-scroll, a trailing amount that sits under the FAB slot is
+  readable (`state-scrolled-375`).
 - **Floating-layer stacking:** toasts and the upload pill sit left of the FAB (inset 12 left, 80 right,
   16 above the tab bar), so neither covers the other. Tab-root lists end with 56 + 16 + 8 px of bottom
   padding above the tab bar, so the last row scrolls clear of the FAB.
@@ -136,8 +141,9 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   **popover** from the rail with the destinations that did not fit (`tablet-rail-more-768`, a 768 × 700
   window). The fit is a height budget (status 24 + brand and «+» 120 + avatar 64 + home indicator 20);
   Wave 0 measures the real row heights.
-- **Panes:** one pane at 640–899 (the list takes the full width; the detail pushes); list + detail side by
-  side only from **≥ 900**. Touch heights (inputs 48, buttons 44): density follows `(pointer: coarse)`,
+- **Panes:** one pane at 640–899 (the list takes the full width; the detail pushes; no selected-row
+  highlight); list + detail side by side only from **≥ 900** (`tablet-two-pane-1000`: rail 80, list
+  320, detail 600 at 1000, the selected row `bg-raised` + `aria-current`). Touch heights (inputs 48, buttons 44): density follows `(pointer: coarse)`,
   not width.
 
 ---
@@ -198,12 +204,14 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 | `quick-add-txn-armed-375.png`        |   375 | Save armed: «Згорнути», separate disarm, 62%    |
 | `quick-add-txn-armed-320.png`        |   320 | Armed at 320: 1 250 000,50 UAH, label wraps     |
 | `state-loading-375.png`              |   375 | Shell + skeleton                                |
+| `state-scrolled-375.png`             |   375 | Scrolling down: FAB slid out, amount readable   |
 | `state-empty-375.png`                |   375 | Empty tab root                                  |
 | `state-error-375.png`                |   375 | Load error with a safe re-fetch                 |
 | `state-offline-375.png`              |   375 | Offline banner, FAB stays enabled               |
 | `state-impersonation-375.png`        |   375 | Impersonation banner                            |
 | `tablet-rail-768.png`                |   768 | Rail with every destination, one pane           |
 | `tablet-rail-more-768.png`           |   768 | 768 × 700 window: overflow «Ще» popover         |
+| `tablet-two-pane-1000.png`           |  1000 | ≥ 900: rail 80 · list 320 · detail 600          |
 | `desktop-sidebar-1024.png`           |  1024 | Sidebar + header + dense table                  |
 | `desktop-sidebar-collapsed-1024.png` |  1024 | Collapsed rail with tooltip                     |
 | `desktop-sidebar-1440.png`           |  1440 | Wide: extra column, selected-row bar            |

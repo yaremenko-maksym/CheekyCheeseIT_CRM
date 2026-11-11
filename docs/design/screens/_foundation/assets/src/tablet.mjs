@@ -1,4 +1,4 @@
-// Tablet (640–1023): slim rail + two-pane list/detail. Touch rules (44 px), desktop-like layout.
+// Tablet (640–1023): slim rail + one pane with push below 900, list/detail from 900. Touch rules (44 px), desktop-like layout.
 import { icon } from './base.mjs'
 import { DEST, TABS, GROUPS, allowed } from './nav.mjs'
 import { TXNS, txnRow, searchField, chips } from './mobile.mjs'
