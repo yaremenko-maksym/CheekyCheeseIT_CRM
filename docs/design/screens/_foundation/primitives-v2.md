@@ -463,7 +463,7 @@ instant, sheet 280 ms up / 150 ms down, desktop 150 ms crossfade, reduced motion
 
 ## 8. Frames (all PNG under `assets/primitives-v2/`)
 
-79 frames; phones and component crops render at 2×, full 768 / 1024 / 1440 screens and the storyboard at 1×. Every
+83 frames; phones and component crops render at 2×, full 768 / 1024 / 1440 screens and the storyboard at 1×. Every
 PNG is ≤ 400 KB.
 
 | Frame                                    | Viewport (CSS px) | PNG (px)    |  KB | Round            |
@@ -504,8 +504,8 @@ PNG is ≤ 400 KB.
 | `toast-undo-1440`                        | 1440 × 900        | 1440 × 900  |  34 |                  |
 | `toast-error-definite-375`               | 375 × 812         | 750 × 1624  |  38 |                  |
 | `toast-error-unknown-375`                | 375 × 812         | 750 × 1624  |  46 |                  |
-| `toast-error-unknown-list-375`           | 375 × 812         | 750 × 1624  |  47 | re-rendered (R8) |
-| `toast-error-unknown-match-375`          | 375 × 812         | 750 × 1624  |  55 | re-rendered (R8) |
+| `toast-error-unknown-list-375`           | 375 × 812         | 750 × 1624  |  47 |                  |
+| `toast-error-unknown-match-375`          | 375 × 812         | 750 × 1624  |  55 | re-rendered (R9) |
 | `toast-error-unknown-empty-375`          | 375 × 812         | 750 × 1624  |  36 |                  |
 | `toast-error-unknown-refetch-failed-375` | 375 × 812         | 750 × 1624  |  31 |                  |
 | `form-receipt-failed-375`                | 375 × 812         | 750 × 1624  |  36 |                  |
@@ -517,31 +517,35 @@ PNG is ≤ 400 KB.
 | `upload-pill-inflight-375`               | 375 × 812         | 750 × 1624  |  58 |                  |
 | `upload-pill-unknown-375`                | 375 × 812         | 750 × 1624  |  60 |                  |
 | `drafts-two-375`                         | 375 × 812         | 750 × 1624  |  57 |                  |
-| `drafts-two-unresolved-375`              | 375 × 812         | 750 × 1624  |  55 | re-rendered (R8) |
-| `quick-add-drafts-375`                   | 375 × 812         | 750 × 1624  |  45 | re-rendered (R8) |
+| `drafts-two-unresolved-375`              | 375 × 812         | 750 × 1624  |  55 |                  |
+| `drafts-four-collapsed-375`              | 375 × 812         | 750 × 1624  |  56 | new (R9)         |
+| `quick-add-drafts-375`                   | 375 × 812         | 750 × 1624  |  45 |                  |
 | `toast-pill-stack-375`                   | 375 × 812         | 750 × 1624  |  60 |                  |
 | `state-page-kill-375`                    | 375 × 812         | 750 × 1624  |  54 |                  |
-| `alert-pagekill-sent-375`                | 375 × 812         | 750 × 1624  |  57 | re-rendered (R8) |
-| `check-sheet-boot-375`                   | 375 × 812         | 750 × 1624  |  42 | re-rendered (R8) |
+| `alert-pagekill-sent-375`                | 375 × 812         | 750 × 1624  |  57 |                  |
+| `check-sheet-boot-375`                   | 375 × 812         | 750 × 1624  |  42 |                  |
 | `alert-pagekill-failed-375`              | 375 × 812         | 750 × 1624  |  54 |                  |
-| `confirm-recreate-375`                   | 375 × 812         | 750 × 1624  |  52 | re-rendered (R8) |
+| `toast-error-unknown-similar-375`        | 375 × 812         | 750 × 1624  |  50 | new (R9)         |
+| `confirm-recreate-375`                   | 375 × 812         | 750 × 1624  |  53 | re-rendered (R9) |
+| `alert-session-expired-375`              | 375 × 812         | 750 × 1624  |  35 | new (R9)         |
 | `confirm-discard-draft-375`              | 375 × 812         | 750 × 1624  |  38 |                  |
 | `listrow-draft-375`                      | 375 × 812         | 750 × 1624  |  56 |                  |
 | `upload-states-375`                      | 375 × 812         | 750 × 1624  |  55 |                  |
 | `upload-pill-768`                        | 768 × 1024        | 768 × 1024  |  42 |                  |
 | `upload-pill-1440`                       | 1440 × 900        | 1440 × 900  |  59 |                  |
 | `drafts-desktop-1440`                    | 1440 × 900        | 1440 × 900  |  60 |                  |
-| `drafts-chooser-1440`                    | 1440 × 900        | 1440 × 900  |  35 | re-rendered (R8) |
-| `drafts-chooser-768`                     | 768 × 1024        | 768 × 1024  |  32 | re-rendered (R8) |
-| `check-dialog-1024`                      | 1024 × 768        | 1024 × 768  |  55 | re-rendered (R8) |
+| `drafts-chooser-1440`                    | 1440 × 900        | 1440 × 900  |  35 |                  |
+| `drafts-chooser-768`                     | 768 × 1024        | 768 × 1024  |  32 | re-rendered (R9) |
+| `check-dialog-1024`                      | 1024 × 768        | 1024 × 768  |  54 | re-rendered (R9) |
 | `skeleton-mobile-375`                    | 375 × 812         | 750 × 1624  |  24 |                  |
 | `skeleton-768`                           | 768 × 1024        | 768 × 1024  |  18 |                  |
 | `skeleton-1440`                          | 1440 × 900        | 1440 × 900  |  33 |                  |
 | `skeleton-table-desktop`                 | 960 × 420         | 1920 × 904  |  23 |                  |
+| `list-footer-375`                        | 375 × 600         | 750 × 1208  |  37 | new (R9)         |
 | `chart-mobile-375`                       | 375 × 812         | 750 × 1624  |  35 |                  |
 | `chart-mobile-scrolled-375`              | 375 × 812         | 750 × 1624  |  25 |                  |
 | `chart-mobile-320`                       | 320 × 568         | 640 × 1136  |  28 |                  |
-| `chart-desktop`                          | 1200 × 420        | 2400 × 934  |  49 | re-rendered (R8) |
+| `chart-desktop`                          | 1200 × 420        | 2400 × 934  |  49 |                  |
 | `transition-storyboard`                  | 900 × 1200        | 900 × 2158  |  82 |                  |
 | `ptr-armed-375`                          | 375 × 480         | 750 × 960   |  23 |                  |
 | `ptr-done-375`                           | 375 × 480         | 750 × 960   |  29 |                  |
