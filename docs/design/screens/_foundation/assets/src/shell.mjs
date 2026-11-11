@@ -70,6 +70,7 @@ export function frames() {
     out.push(M('quick-add-admin-375', 375, 812, quickAddSheet('ADMIN', 375, 812)))
     out.push(M('quick-add-hr-320', 320, 568, quickAddSheet('HR', 320, 568)))
     out.push(M('quick-add-txn-keyboard-375', 375, 812, txnQuickStep(375, 812)))
+    out.push(M('quick-add-txn-armed-375', 375, 812, txnQuickStep(375, 812, { armed: true })))
     out.push(M('state-loading-375', 375, 812, loadingScreen('ADMIN', 375, 812)))
     out.push(M('state-empty-375', 375, 812, emptyScreen(375, 812)))
     out.push(M('state-error-375', 375, 812, errorScreen(375, 812)))

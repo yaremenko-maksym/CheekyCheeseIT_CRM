@@ -283,10 +283,12 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
 - **Carve-out — the four forms without a key** (expense, admin-income, admin-transfer, company
   deposit) keep today's behaviour until the first Wave 1 task ships the key: **no optimistic insert**
   (the row appears after the server confirms) and **no resubmit offer on an unknown outcome**.
-- **Two kinds of save failure, never merged.** A **definite** failure (the server answered 4xx / 5xx,
-  or the app knew it was offline before sending) wrote nothing: an inline `role="alert"` above the form,
-  values kept, a manual «Повторити збереження» (`primitives-v2/toast-error-definite-375.png`). An
-  **unknown** outcome (timeout, connection dropped after sending) on a form without a key: the alert
+- **Two kinds of save failure, never merged.** A **definite** failure wrote nothing: a 4xx, or a 500 /
+  503 returned by the app itself, or the app knew it was offline before sending. It shows an inline
+  `role="alert"` above the form, values kept, a manual «Повторити збереження»
+  (`primitives-v2/toast-error-definite-375.png`). An **unknown** outcome may have committed: a 502 / 504
+  from the gateway, a Cloudflare 524 (prod sits behind Cloudflare), a connection dropped after sending,
+  or a client timeout. On a form without a key the alert
   says the outcome is unknown and sends the user to the list to check before re-entering; **no retry
   button** (`primitives-v2/toast-error-unknown-375.png`).
 - **Pull-to-refresh** (spec §4.2) is an in-app gesture on the list scroller only: it refetches that
@@ -359,7 +361,8 @@ listed, and anything the v2 screen shows must trace back to that list.
 - The FAB sits above the tab bar, not inside it. The tablet uses a rail with a popover More.
 - Money create errors show inline above the form, not as a floating toast (the toast covered the
   amount field at 375).
-- A 5xx counts as a definite failure (task review fix round 1, following spec §4.5b's split). If the
-  Wave 1 finance spec finds an endpoint that can commit and still answer 5xx, that endpoint's 5xx moves to
-  the unknown branch.
+- Status-code split (Master ruling, fix round 2, supersedes the round-1 "any 5xx is definite"):
+  definite = 4xx + 500 / 503 returned by the app; unknown = 502 / 504 / 524, a drop after send, a client
+  timeout. The Wave 1 client tells an app-originated 500 / 503 from a gateway one by the app's error
+  envelope (a gateway page has none); without the envelope the response counts as unknown.
 - The sidebar collapse shortcut is `[` (single key, so it sits behind the SC 2.1.4 toggle), not ⌘\.

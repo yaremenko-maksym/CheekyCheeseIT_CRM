@@ -134,11 +134,13 @@ with a 40 px action.
 floating toast over a field, and the values stay in the form. **No auto-retry**, ever. Two cases that
 must not share one UI (spec §4.5b):
 
-- **Definite failure** (`toast-error-definite-375`): the server answered 4xx / 5xx, or the app knew it
-  was offline before sending. Nothing was written. «Транзакцію не збережено» + the cause; the primary
-  button becomes «Повторити збереження» (manual).
-- **Unknown outcome** (`toast-error-unknown-375`): timeout or a connection dropped after the request
-  left. On the four forms without an idempotency key (expense, admin-income, admin-transfer, company
+- **Definite failure** (`toast-error-definite-375`): a 4xx (the frame shows a 422 validation reject), a
+  500 / 503 returned by the app itself (it carries the app's error envelope), or the app knew it was
+  offline before sending. Nothing was written. «Транзакцію не збережено» + the cause; the primary button
+  becomes «Повторити збереження» (manual).
+- **Unknown outcome** (`toast-error-unknown-375`): a 502 / 504 from the gateway, a Cloudflare 524, a 5xx
+  without the app's error envelope, a connection dropped after the request left, or a client timeout.
+  Any of these can arrive after the origin committed. On the four forms without an idempotency key (expense, admin-income, admin-transfer, company
   deposit) the alert reads «Невідомо, чи транзакцію збережено» and asks the user to check the list
   before re-entering; the footer is «Відкрити список транзакцій» and there is **no retry button**. After
   the first Wave 1 task ships the key, a form that has it may offer a resubmit with the same key.
@@ -228,7 +230,7 @@ Re-render: `node assets/src/render.mjs primitives [filter]`, then `assets/src/co
 - A full trailing swipe asks before deleting (no instant destructive swipe).
 - The FAB is hidden in the 320 chart frame only (static-frame artefact, not a product rule).
 - Pull-to-refresh arm distance 64 px and the 1 s "done" hold are proposals for the implementation.
-- A 5xx counts as a definite failure (task review fix round 1). If the Wave 1 finance spec finds an
-  endpoint that can commit and still answer 5xx, that endpoint's 5xx moves to the unknown branch.
+- Status-code split per the Master ruling (fix round 2, supersedes round 1's "any 5xx is definite"):
+  definite = 4xx + app 500 / 503; unknown = 502 / 504 / 524, a drop after send, a client timeout.
 - The 768 / 1440 toast, upload pill and skeleton frames show placement and metrics; the screen specs own
   the content.

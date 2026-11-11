@@ -74,11 +74,14 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   toggle is the role's create set, the same as `form-money-375` (ADMIN: Витрата / Дохід / Переказ). The
   sheet content scrolls above the keyboard; the focused field is never covered. The frame is
   illustrative; the Wave 1 finance spec owns the form.
-- **Save waits for the receipt upload.** While a receipt uploads, the save button is not a plain submit:
-  it shows the upload progress («Зберегти · чек 62%», a progress fill, `aria-disabled` and described by
-  the receipt status line). A tap arms the save: one request is sent automatically when the upload
-  reaches 100%, so a form without an idempotency key still sends exactly once. Until that request is
-  sent, the sheet stays dismissible (Скасувати, drag, scrim); dismissing cancels the armed save (nothing
+- **Save waits for the receipt upload.** While a receipt uploads, the save button stays an active
+  button (no `aria-disabled`: it acts) whose label says what a tap does: «Зберегти після завантаження
+  чека» (`quick-add-txn-keyboard-375`). A tap **arms** the save (`quick-add-txn-armed-375`): the button
+  turns into a progress fill reading «Збережеться після чека · 62%» (`aria-pressed="true"`, the label in
+  an `aria-live="polite"` region, a caption «Натисніть ще раз, щоб не зберігати»). A second tap
+  **disarms** it. One request is sent automatically when the upload reaches 100%, so a form without an
+  idempotency key still sends exactly once. The receipt card's «Замінити» is 44 px tall. Until that
+  request is sent, the sheet stays dismissible (Скасувати, drag, scrim); dismissing cancels the armed save (nothing
   was sent), the upload keeps going under the global upload pill, and the draft is kept for the session.
   An upload failure disarms the save and shows its error on the receipt card; the user may replace the
   file or remove it and save without a receipt.
@@ -159,7 +162,8 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 | `more-sheet-admin-320.png`           |   320 | More sheet at 320                             |
 | `quick-add-admin-375.png`            |   375 | Quick-add action menu (4 actions)             |
 | `quick-add-hr-320.png`               |   320 | Quick-add menu at 320                         |
-| `quick-add-txn-keyboard-375.png`     |   375 | Keyboard + accessory bar, save waits (62%)    |
+| `quick-add-txn-keyboard-375.png`     |   375 | Keyboard + accessory bar, upload at 62%       |
+| `quick-add-txn-armed-375.png`        |   375 | Save armed, waits for the receipt (62%)       |
 | `state-loading-375.png`              |   375 | Shell + skeleton                              |
 | `state-empty-375.png`                |   375 | Empty tab root                                |
 | `state-error-375.png`                |   375 | Load error with a safe re-fetch               |

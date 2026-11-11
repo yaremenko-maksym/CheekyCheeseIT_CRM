@@ -82,8 +82,8 @@ export function toastUndo(w, h) {
 }
 
 // Money create failed. Two cases, never merged (spec §4.5b):
-// definite — the server answered 4xx/5xx, or the app knew it was offline before sending: retry is safe;
-// unknown — the request left and no answer came back: on a form without an idempotency key the app
+// definite — the app itself answered 4xx or 500/503, or the app knew it was offline before sending: retry is safe;
+// unknown — 502/504/524 (gateway / Cloudflare), a drop after send, or a client timeout: on a form without an idempotency key the app
 // must not offer a resubmit; it sends the user to the list to check first.
 const errAlert = (title, text, tone = 22) =>
   `<div role="alert" style="padding:12px 14px;border-radius:14px;background:oklch(0.2 0.04 ${tone});border:1px solid oklch(0.38 0.09 ${tone})"><div class="row" style="gap:10px;align-items:flex-start"><span style="color:${tone === 22 ? 'var(--destructive)' : 'var(--warning)'};margin-top:1px">${icon(tone === 22 ? 'circle-alert' : 'circle-help', { size: 18 })}</span><div class="grow"><div style="font-size:15px;font-weight:600">${title}</div><div class="t-foot" style="margin-top:2px;color:oklch(0.88 0.02 ${tone})">${text}</div></div></div></div>`
@@ -97,14 +97,14 @@ const errForm = (w, h, alert, footer) =>
   <div style="position:absolute;left:0;right:0;bottom:0;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border)">${footer}</div>`,
   })
 
-/** Definite failure (4xx/5xx or offline before send): nothing was written, so a manual retry is safe. */
+/** Definite failure (4xx, app 500/503, or offline before send): nothing was written, so a manual retry is safe. */
 export function toastErrorDefinite(w, h) {
   return errForm(
     w,
     h,
     errAlert(
       'Транзакцію не збережено',
-      'Сервер відхилив запит (помилка 503), запис не створено. Введені дані залишились у формі.',
+      'Сервер відхилив дані (помилка 422): дата в закритому періоді. Запис не створено, введене залишилось у формі.',
     ),
     `<span class="btn primary" style="width:100%">${icon('rotate-cw', { size: 18 })}Повторити збереження</span>`,
   )
