@@ -21,25 +21,27 @@
 
 ## 1. Component map
 
-| Primitive                 | Build on                                                    | New?                         | Frames                                                                                                                                                                                                     |
-| ------------------------- | ----------------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Bottom sheet (detents)    | Base UI Drawer (approved stack change, spec §4)             | NEW `Sheet` mobile variant   | `sheet-medium-375`, `sheet-medium-320`, `sheet-large-375`                                                                                                                                                  |
-| Action sheet (confirm)    | Base UI Drawer + `ui/alert-dialog.tsx` semantics            | NEW variant                  | `sheet-confirm-375`                                                                                                                                                                                        |
-| Side panel                | `ui/sheet.tsx` (side = right)                               | restyle                      | `sheet-panel-768`, `sheet-panel-1024`, `sheet-panel-1440`                                                                                                                                                  |
-| Confirm dialog            | `ui/alert-dialog.tsx`                                       | restyle                      | `sheet-confirm-dialog-1024`                                                                                                                                                                                |
-| List row                  | —                                                           | NEW `ListRow`                | `listrow-variants-375`, `listrow-swipe-375`, `listrow-sticky-320`, `listrow-empty-error-375`, `listrow-768`, `listrow-1440`                                                                                |
-| Section header            | —                                                           | NEW `ListSection`            | `section-header-375`                                                                                                                                                                                       |
-| Table row states          | `ui/table.tsx`                                              | restyle                      | `listrow-table-desktop`                                                                                                                                                                                    |
-| Form field                | `ui/input.tsx`, `ui/label.tsx`                              | restyle (16 px, 48 h mobile) | `form-states-375`, `formfield-768`, `formfield-1440`                                                                                                                                                       |
-| Money field + receipt     | `ui/amount-currency-input.tsx`, `ui/image-upload-field.tsx` | restyle                      | `form-money-375`, `form-keyboard-375`, `sheet-large-375` (one canonical form: `assets/src/money-form.mjs`)                                                                                                 |
-| Segmented control, switch | `ui/segmented-toggle.tsx`, `ui/switch.tsx`                  | restyle                      | `form-money-375`, `sheet-medium-375`                                                                                                                                                                       |
-| Undo toast                | `ui/sonner.tsx`                                             | restyle                      | `toast-undo-375`, `toast-undo-768`, `toast-undo-1440`                                                                                                                                                      |
-| Save error (inline)       | `ui/alert.tsx`                                              | restyle                      | `toast-error-definite-375`, `toast-error-offline-375`, `toast-error-unknown-375`, `toast-error-unknown-list-375`                                                                                           |
-| Upload states + indicator | `ui/upload-progress.tsx`                                    | restyle + global pill (NEW)  | `upload-states-375`, `upload-pill-armed-375`, `upload-pill-saved-375`, `upload-pill-failed-375`, `toast-pill-stack-375`, `state-page-kill-375`, `listrow-draft-375`, `upload-pill-768`, `upload-pill-1440` |
-| Skeletons                 | `ui/skeleton.tsx`                                           | restyle                      | `skeleton-mobile-375`, `skeleton-768`, `skeleton-1440`, `skeleton-table-desktop`                                                                                                                           |
-| Charts                    | the existing chart library on `--chart-*` tokens            | restyle                      | `chart-mobile-375`, `chart-mobile-scrolled-375`, `chart-mobile-320`, `chart-desktop`                                                                                                                       |
-| Pull-to-refresh           | —                                                           | NEW `PullToRefresh`          | `ptr-pulling-375`, `ptr-armed-375`, `ptr-refreshing-375`, `ptr-done-375`                                                                                                                                   |
-| Transitions               | View Transitions API + `motion` (`m.*`, LazyMotion)         | NEW                          | `transition-storyboard`                                                                                                                                                                                    |
+| Primitive                 | Build on                                                                                                      | New?                         | Frames                                                                                                                                                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bottom sheet (detents)    | Base UI Drawer (approved stack change, spec §4)                                                               | NEW `Sheet` mobile variant   | `sheet-medium-375`, `sheet-medium-320`, `sheet-large-375`                                                                                                                                                  |
+| Action sheet (confirm)    | Base UI Drawer + `ui/alert-dialog.tsx` semantics                                                              | NEW variant                  | `sheet-confirm-375`                                                                                                                                                                                        |
+| PickerSheet               | Base UI Drawer + `ui/command.tsx` (search, listbox); replaces `ui/select.tsx` / `ui/role-select.tsx` on touch | NEW variant                  | `picker-sheet-375`                                                                                                                                                                                         |
+| TextEditor                | `ui/textarea.tsx` (autosize) + a chip row on `visualViewport`                                                 | NEW composite                | `form-longtext-375`                                                                                                                                                                                        |
+| Side panel                | `ui/sheet.tsx` (side = right)                                                                                 | restyle                      | `sheet-panel-768`, `sheet-panel-1024`, `sheet-panel-1440`                                                                                                                                                  |
+| Confirm dialog            | `ui/alert-dialog.tsx`                                                                                         | restyle                      | `sheet-confirm-dialog-1024`                                                                                                                                                                                |
+| List row                  | —                                                                                                             | NEW `ListRow`                | `listrow-variants-375`, `listrow-swipe-375`, `listrow-sticky-320`, `listrow-empty-error-375`, `listrow-768`, `listrow-1440`                                                                                |
+| Section header            | —                                                                                                             | NEW `ListSection`            | `section-header-375`                                                                                                                                                                                       |
+| Table row states          | `ui/table.tsx`                                                                                                | restyle                      | `listrow-table-desktop`                                                                                                                                                                                    |
+| Form field                | `ui/input.tsx`, `ui/label.tsx`                                                                                | restyle (16 px, 48 h mobile) | `form-states-375`, `formfield-768`, `formfield-1440`                                                                                                                                                       |
+| Money field + receipt     | `ui/amount-currency-input.tsx`, `ui/image-upload-field.tsx`                                                   | restyle                      | `form-money-375`, `form-keyboard-375`, `sheet-large-375` (one canonical form: `assets/src/money-form.mjs`)                                                                                                 |
+| Segmented control, switch | `ui/segmented-toggle.tsx`, `ui/switch.tsx`                                                                    | restyle                      | `form-money-375`, `sheet-medium-375`                                                                                                                                                                       |
+| Undo toast                | `ui/sonner.tsx`                                                                                               | restyle                      | `toast-undo-375`, `toast-undo-768`, `toast-undo-1440`                                                                                                                                                      |
+| Save error (inline)       | `ui/alert.tsx`                                                                                                | restyle                      | `toast-error-definite-375`, `toast-error-offline-375`, `toast-error-unknown-375`, `toast-error-unknown-list-375`                                                                                           |
+| Upload states + indicator | `ui/upload-progress.tsx`                                                                                      | restyle + global pill (NEW)  | `upload-states-375`, `upload-pill-armed-375`, `upload-pill-saved-375`, `upload-pill-failed-375`, `toast-pill-stack-375`, `state-page-kill-375`, `listrow-draft-375`, `upload-pill-768`, `upload-pill-1440` |
+| Skeletons                 | `ui/skeleton.tsx`                                                                                             | restyle                      | `skeleton-mobile-375`, `skeleton-768`, `skeleton-1440`, `skeleton-table-desktop`                                                                                                                           |
+| Charts                    | the existing chart library on `--chart-*` tokens                                                              | restyle                      | `chart-mobile-375`, `chart-mobile-scrolled-375`, `chart-mobile-320`, `chart-desktop`                                                                                                                       |
+| Pull-to-refresh           | —                                                                                                             | NEW `PullToRefresh`          | `ptr-pulling-375`, `ptr-armed-375`, `ptr-refreshing-375`, `ptr-done-375`                                                                                                                                   |
+| Transitions               | View Transitions API + `motion` (`m.*`, LazyMotion)                                                           | NEW                          | `transition-storyboard`                                                                                                                                                                                    |
 
 ---
 
@@ -47,8 +49,9 @@
 
 **Medium sheet** (`sheet-medium-*`): filters and short forms (≤ 4 fields). Top at ≈ 46% of the
 viewport (36% at 320 so the content fits), `--radius-sheet` corners, drag handle (36 × 5, hit area
-44), title row with «Скинути» on the left and nothing on the right; the apply action «Показати 48»
-sits in the bottom bar. Drag up expands to large; drag down past 30% or a fling dismisses. Scrim
+44), title row with «Скинути» on the left (resets the filters to their defaults) and a 44 px ✕ on the
+right (closes and **discards unapplied filter changes**); the apply action «Показати 48» sits in the
+bottom bar. Drag up expands to large; drag down past 30% or a fling dismisses. Scrim
 `--scrim`.
 
 **Large sheet / `ResponsiveSheet`** (`sheet-large-375`): long forms and edit. Full height minus the
@@ -58,13 +61,25 @@ keyboard when it is open. The pushed form page (`form-money-375`) uses the same 
 is **always enabled** except while its own request is in flight (§4 Submit). **A dirty form asks
 before it closes** (drag, scrim, Скасувати) with an action sheet; an armed save is the exception (§4).
 
+**PickerSheet** (`picker-sheet-375`, project picker over the money form, keyboard closed): one medium
+sheet for every single choice from a long list: **project, user, currency, role**. Title names the field
+(«Проєкт»), 44 px ✕ on the right (closes, nothing changes). A **sticky 44 px search** (16 px text) sits
+under the title; rows are 56 px `role="option"` inside a `role="listbox"`; the current value carries a
+yellow checkmark and `aria-selected="true"`. Order: for project, the «Без проєкту» row first; then
+«Нещодавні» (last used on this device, newest first); then the full list alphabetically. A tap selects
+and closes the sheet; focus returns to the field. Currency and role are short: same sheet, no search
+under 8 options.
+
 **Action sheet** (`sheet-confirm-375`): destructive confirm on touch. Message names the object
 («Видалити транзакцію «Оренда офісу»?»), destructive action in `text-destructive`, «Скасувати» as a
 separate bold group. `role="alertdialog"`, focus starts on «Скасувати».
 
 **Side panel** (`sheet-panel-*`): preview and edit on tablet / desktop. Width 400 (tablet, touch
 heights 48 / 44), 420 (1024), 480 (≥ 1440). Header with title + close; sticky footer with the primary
-action and the hints «Esc» / «⌘↵». The table stays interactive next to it at ≥ 1440.
+action. **The tablet money panel (`sheet-panel-768`) reuses the canonical `moneyBody()` of the phone
+form** at 400 px: the same field order, segmented type, currency pill, receipt card and defaults row,
+with «Скасувати» on the left and «Зберегти» in the footer. Shortcut hints («Esc», «⌘↵») show **only
+under `(pointer: fine)`**: the 1024 / 1440 panels have them, the touch tablet does not. The table stays interactive next to it at ≥ 1440.
 
 **Confirm dialog** (`sheet-confirm-dialog-1024`): 420 px centred alert dialog; initial focus on
 «Скасувати»; Enter does not trigger the destructive action.
@@ -125,7 +140,27 @@ The optional fields are collapsed into a 44 px defaults row that names what will
 без проєкту · змінити»; a tap expands Дата / Проєкт / Опис. Receipt: one dashed tile «Додати чек —
 Камера, фото або файл · до 10 МБ» (one file input without `capture`, so iOS offers its native chooser);
 once added, a card with the thumbnail, the status line, **«Замінити»** and **«✕»** (`aria-label`
-«Видалити чек»), both 44 × 44.
+«Видалити чек»), both 44 × 44. The pushed page (`form-money-375`) renders the same defaults row as the
+sheet, not expanded fields.
+
+- **Defaults** (what the defaults row names): type and currency = the last used **on this device**;
+  project = the screen the form was opened from (a project page), otherwise «без проєкту»; date =
+  today. The row always states the values that will be saved.
+- **Date field:** a native `<input type="date">` on touch, inside the 48 px field (the OS picker, no
+  custom calendar on a phone); the desktop keeps the existing date picker.
+- **Amount parsing:** accept «,» and «.» as the decimal mark; strip spaces (including the narrow
+  no-break space a paste may carry); at most 2 decimals (a third is refused as you type, not rounded);
+  on blur re-format in uk style («1 250,50»). The value sent is the parsed number, never the display
+  string.
+- **Pickers** for project, user, currency and role are the PickerSheet (§2).
+
+**TextEditor** (`form-longtext-375`, keyboard open; contract templates with `{{placeholders}}`): a
+pushed page; the text area **autosizes** to its content (no inner scroll; the page scrolls), 16 / 24
+text, placeholders shown in yellow. Above the keyboard, a horizontally scrolling chip row «Вставити
+змінну» (36 px chips inside a 44 px row, each with its uk label and the token, `aria-label` «Вставити
+змінну <label>»); a tap inserts the token at the caret. The bottom save bar («Зберегти шаблон») rides
+the keyboard on `visualViewport`, chips on top of it. **A dirty close asks** («Вийти без збереження?»
+with «Вийти» and «Залишитися»); nothing is persisted client-side.
 
 **Keyboard** (`form-keyboard-375`, `shell-v2/quick-add-txn-keyboard-375`): the content scrolls so the
 focused field sits above the keyboard, and the submit bar rides on the keyboard. **The accessory bar
@@ -256,7 +291,7 @@ instant, sheet 280 ms up / 150 ms down, desktop 150 ms crossfade, reduced motion
 `sheet-medium-375` · `sheet-medium-320` · `sheet-large-375` · `sheet-confirm-375` ·
 `listrow-variants-375` · `listrow-swipe-375` · `listrow-sticky-320` · `listrow-empty-error-375` ·
 `listrow-768` · `listrow-1440` · `section-header-375` · `form-states-375` · `formfield-768` ·
-`formfield-1440` · `form-money-375` · `form-keyboard-375` · `sheet-panel-768` · `sheet-panel-1024` ·
+`formfield-1440` · `form-money-375` · `form-keyboard-375` · `picker-sheet-375` · `form-longtext-375` · `sheet-panel-768` · `sheet-panel-1024` ·
 `sheet-panel-1440` · `sheet-confirm-dialog-1024` · `listrow-table-desktop` · `toast-undo-375` ·
 `toast-undo-768` · `toast-undo-1440` · `toast-error-definite-375` · `toast-error-offline-375` ·
 `toast-error-unknown-375` · `toast-error-unknown-list-375` · `upload-states-375` · `upload-pill-armed-375` ·

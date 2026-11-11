@@ -84,7 +84,7 @@ export function formLongText(w, h) {
     `<span class="btn sm secondary" role="button" aria-label="Вставити змінну ${label}" style="height:36px;flex:none;font-size:14px;padding:0 12px;border-radius:18px">${label}<span class="muted" style="font-size:12px">{{${tok}}}</span></span>`
   const chips = `<div class="row" style="gap:8px;margin:0 -16px 8px;padding:4px 16px;min-height:44px;overflow:hidden;white-space:nowrap"><span class="t-foot muted" style="flex:none">Вставити змінну</span>${chip('Дата початку', 'start_date')}${chip('Клієнт', 'client_name')}${chip('Ставка', 'rate_usd')}</div>`
   const bar = submitBar({ w, kbdH: TEXT_H, inner: `${chips}${primaryBtn('Зберегти шаблон')}` })
-  const inner = `${topBar({ back: true, title: 'Шаблон договору', bell: false, search: false })}<div class="content col" style="gap:18px;padding:12px 16px 0;transform:translateY(-40px)">${fields}</div>${bar}${textKeyboard()}`
+  const inner = `${topBar({ back: true, title: 'Шаблон договору', bell: false, search: false })}<div class="content col" style="gap:18px;padding:12px 16px 0">${fields}</div>${bar}${textKeyboard()}`
   return phone({ w, h, inner })
 }
 
