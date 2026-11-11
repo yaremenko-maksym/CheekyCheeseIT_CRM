@@ -431,6 +431,13 @@ describe('AC2 — disabled, paused and blocked are three different states', () =
       'gap-2',
     )
   })
+
+  it('the running chip also keeps its own width instead of stretching across the card', async () => {
+    listed = [source()]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(chip()).toHaveClass('self-start')
+  })
 })
 
 describe('AC3 — three-segment quota bar', () => {
