@@ -21,25 +21,25 @@
 
 ## 1. Component map
 
-| Primitive                 | Build on                                                    | New?                         | Frames                                                                                                                      |
-| ------------------------- | ----------------------------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Bottom sheet (detents)    | Base UI Drawer (approved stack change, spec §4)             | NEW `Sheet` mobile variant   | `sheet-medium-375`, `sheet-medium-320`, `sheet-large-375`                                                                   |
-| Action sheet (confirm)    | Base UI Drawer + `ui/alert-dialog.tsx` semantics            | NEW variant                  | `sheet-confirm-375`                                                                                                         |
-| Side panel                | `ui/sheet.tsx` (side = right)                               | restyle                      | `sheet-panel-768`, `sheet-panel-1024`, `sheet-panel-1440`                                                                   |
-| Confirm dialog            | `ui/alert-dialog.tsx`                                       | restyle                      | `sheet-confirm-dialog-1024`                                                                                                 |
-| List row                  | —                                                           | NEW `ListRow`                | `listrow-variants-375`, `listrow-swipe-375`, `listrow-sticky-320`, `listrow-empty-error-375`, `listrow-768`, `listrow-1440` |
-| Section header            | —                                                           | NEW `ListSection`            | `section-header-375`                                                                                                        |
-| Table row states          | `ui/table.tsx`                                              | restyle                      | `listrow-table-desktop`                                                                                                     |
-| Form field                | `ui/input.tsx`, `ui/label.tsx`                              | restyle (16 px, 48 h mobile) | `form-states-375`, `formfield-768`, `formfield-1440`                                                                        |
-| Money field + receipt     | `ui/amount-currency-input.tsx`, `ui/image-upload-field.tsx` | restyle                      | `form-money-375`, `form-keyboard-375`, `sheet-large-375` (one canonical form: `assets/src/money-form.mjs`)                  |
-| Segmented control, switch | `ui/segmented-toggle.tsx`, `ui/switch.tsx`                  | restyle                      | `form-money-375`, `sheet-medium-375`                                                                                        |
-| Undo toast                | `ui/sonner.tsx`                                             | restyle                      | `toast-undo-375`, `toast-undo-768`, `toast-undo-1440`                                                                       |
-| Save error (inline)       | `ui/alert.tsx`                                              | restyle                      | `toast-error-definite-375`, `toast-error-offline-375`, `toast-error-unknown-375`, `toast-error-unknown-list-375`            |
-| Upload states + indicator | `ui/upload-progress.tsx`                                    | restyle + global pill (NEW)  | `upload-states-375`, `upload-pill-armed-375`, `upload-pill-768`, `upload-pill-1440`                                         |
-| Skeletons                 | `ui/skeleton.tsx`                                           | restyle                      | `skeleton-mobile-375`, `skeleton-768`, `skeleton-1440`, `skeleton-table-desktop`                                            |
-| Charts                    | the existing chart library on `--chart-*` tokens            | restyle                      | `chart-mobile-375`, `chart-mobile-scrolled-375`, `chart-mobile-320`, `chart-desktop`                                        |
-| Pull-to-refresh           | —                                                           | NEW `PullToRefresh`          | `ptr-pulling-375`, `ptr-armed-375`, `ptr-refreshing-375`, `ptr-done-375`                                                    |
-| Transitions               | View Transitions API + `motion` (`m.*`, LazyMotion)         | NEW                          | `transition-storyboard`                                                                                                     |
+| Primitive                 | Build on                                                    | New?                         | Frames                                                                                                                                                                                                     |
+| ------------------------- | ----------------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bottom sheet (detents)    | Base UI Drawer (approved stack change, spec §4)             | NEW `Sheet` mobile variant   | `sheet-medium-375`, `sheet-medium-320`, `sheet-large-375`                                                                                                                                                  |
+| Action sheet (confirm)    | Base UI Drawer + `ui/alert-dialog.tsx` semantics            | NEW variant                  | `sheet-confirm-375`                                                                                                                                                                                        |
+| Side panel                | `ui/sheet.tsx` (side = right)                               | restyle                      | `sheet-panel-768`, `sheet-panel-1024`, `sheet-panel-1440`                                                                                                                                                  |
+| Confirm dialog            | `ui/alert-dialog.tsx`                                       | restyle                      | `sheet-confirm-dialog-1024`                                                                                                                                                                                |
+| List row                  | —                                                           | NEW `ListRow`                | `listrow-variants-375`, `listrow-swipe-375`, `listrow-sticky-320`, `listrow-empty-error-375`, `listrow-768`, `listrow-1440`                                                                                |
+| Section header            | —                                                           | NEW `ListSection`            | `section-header-375`                                                                                                                                                                                       |
+| Table row states          | `ui/table.tsx`                                              | restyle                      | `listrow-table-desktop`                                                                                                                                                                                    |
+| Form field                | `ui/input.tsx`, `ui/label.tsx`                              | restyle (16 px, 48 h mobile) | `form-states-375`, `formfield-768`, `formfield-1440`                                                                                                                                                       |
+| Money field + receipt     | `ui/amount-currency-input.tsx`, `ui/image-upload-field.tsx` | restyle                      | `form-money-375`, `form-keyboard-375`, `sheet-large-375` (one canonical form: `assets/src/money-form.mjs`)                                                                                                 |
+| Segmented control, switch | `ui/segmented-toggle.tsx`, `ui/switch.tsx`                  | restyle                      | `form-money-375`, `sheet-medium-375`                                                                                                                                                                       |
+| Undo toast                | `ui/sonner.tsx`                                             | restyle                      | `toast-undo-375`, `toast-undo-768`, `toast-undo-1440`                                                                                                                                                      |
+| Save error (inline)       | `ui/alert.tsx`                                              | restyle                      | `toast-error-definite-375`, `toast-error-offline-375`, `toast-error-unknown-375`, `toast-error-unknown-list-375`                                                                                           |
+| Upload states + indicator | `ui/upload-progress.tsx`                                    | restyle + global pill (NEW)  | `upload-states-375`, `upload-pill-armed-375`, `upload-pill-saved-375`, `upload-pill-failed-375`, `toast-pill-stack-375`, `state-page-kill-375`, `listrow-draft-375`, `upload-pill-768`, `upload-pill-1440` |
+| Skeletons                 | `ui/skeleton.tsx`                                           | restyle                      | `skeleton-mobile-375`, `skeleton-768`, `skeleton-1440`, `skeleton-table-desktop`                                                                                                                           |
+| Charts                    | the existing chart library on `--chart-*` tokens            | restyle                      | `chart-mobile-375`, `chart-mobile-scrolled-375`, `chart-mobile-320`, `chart-desktop`                                                                                                                       |
+| Pull-to-refresh           | —                                                           | NEW `PullToRefresh`          | `ptr-pulling-375`, `ptr-armed-375`, `ptr-refreshing-375`, `ptr-done-375`                                                                                                                                   |
+| Transitions               | View Transitions API + `motion` (`m.*`, LazyMotion)         | NEW                          | `transition-storyboard`                                                                                                                                                                                    |
 
 ---
 
@@ -140,15 +140,19 @@ validates, moves focus to the first invalid field and shows the inline errors. I
 while its own request is in flight (no double submit); the label stays, a 16 px spinner replaces the
 icon.
 
-**Armed save** (`shell-v2/quick-add-txn-armed-375`, `upload-pill-armed-375`): while a receipt uploads,
-the primary reads «Зберегти після завантаження чека». A tap **freezes the payload** and arms; the button
-(56 px, `aria-pressed="true"`, `aria-live="polite"`) reads «Збережеться 1 250,50 USD після чека · 62%»
-with the receipt progress as a fill. A second tap or **any field edit disarms**. Dismissing the sheet
-keeps the armed save: the global upload pill turns into «Збережеться 1 250,50 USD · 62%» / «Відкрити
-чернетку», and a tap reopens the draft. At 100% exactly one request is sent; the result is a toast
-«Транзакцію збережено» + «Відкрити», or a failure alert that reopens the draft. Backgrounding the app
-does not disarm. **If the page is killed, nothing is sent and the draft is gone**; nothing in the UI
-says otherwise.
+**Armed save** (`shell-v2/quick-add-txn-armed-375`, `-320`, `upload-pill-armed-375`): the lifecycle
+is the state table in foundation §11; this is the component view. While a receipt uploads, the primary
+reads «Зберегти після завантаження чека». A tap **freezes the payload** and arms. The armed button (min
+56 px) reads «Збережеться 1 250,50 USD після чека» with the receipt progress as a fill; «чек 62%» is a
+`role="progressbar"` with `aria-valuenow`, never a live region. A visually hidden `role="status"`
+announces only arm, disarm and result. **Repeat taps on the armed primary are ignored**: no toggle, no
+`aria-pressed`. **Disarm is a separate control**: the 44 px text button «Не зберігати автоматично»
+under the primary; any field edit also disarms. While armed the leading control reads **«Згорнути»**:
+it closes the sheet and the save stays armed; a drag down and a scrim tap do the same. On the closed
+sheet the global upload pill carries the save; the result then stays in the pill until tapped
+(`upload-pill-saved-375`, `upload-pill-failed-375`); a sheet never opens by itself. A page kill is
+reported at the next boot (`state-page-kill-375`). The amount never truncates: at 320 it steps 44 →
+34 px, the armed label wraps to two lines, and the sheet title truncates (`quick-add-txn-armed-320`).
 
 ---
 
@@ -174,13 +178,19 @@ must not share one UI (spec §4.5b):
 - **Unknown outcome** (`toast-error-unknown-375`): a 502 / 504 from the gateway, a Cloudflare 524, a 5xx
   without the app's error envelope, a connection dropped after the request left, or a client timeout.
   Any of these can arrive after the origin committed. On the four forms without an idempotency key (expense, admin-income, admin-transfer, company
-  deposit) the alert reads «Невідомо, чи транзакцію збережено»; the form and the receipt stay and there
-  is **no retry button**. The footer «Перевірити список» opens the list **as a sheet over the kept form**
-  (`toast-error-unknown-list-375`), refetched on open («Оновлено щойно»), with the line «Якщо транзакції
-  ще немає, оновіть список за хвилину». Closing it returns to the form. When the user reaches the
-  Finance list another way, the kept form shows as a row «Чернетка 1 250,50 USD · Продовжити» at the top
-  (described, not drawn). After the first Wave 1 task ships the key, a form that has it may offer a
-  resubmit with the same key.
+  deposit) the alert reads «Невідомо, чи транзакцію збережено» / «Відповідь не надійшла. Форма й чек
+  залишились. Перевірте список: якщо транзакції там немає, її можна створити ще раз.»; the form and the
+  receipt stay and there is **no retry button on the alert**. The footer «Перевірити список» opens the
+  list **as a sheet over the kept form** (`toast-error-unknown-list-375`), refetched on open («Оновлено
+  щойно»), with the line «Якщо транзакції ще немає, оновіть список за хвилину» and two exits under the
+  list: «Є в списку — закрити чернетку» (closes the draft, sends nothing) and «Немає — створити ще раз»
+  (a confirm «Створити 1 250,50 USD ще раз?», then exactly one new create). This is a user-confirmed new
+  create after seeing the refreshed list, not an automatic or one-tap resubmit (provisional; the owner
+  confirms at PNG approval). Closing the sheet returns to the form. When the user reaches the Finance
+  list another way, the kept draft is a pinned row at the top (`listrow-draft-375`): «Чернетка 1 250,50
+  USD», the state line «Не збережено · Витрата · чек додано» (after an unknown outcome it reads
+  «Результат невідомий · Витрата · чек додано») and a 44 px «Продовжити». After the first
+  Wave 1 task ships the key, a form that has it may offer a resubmit with the same key.
 
 **Offline** (`shell-v2/state-offline-375`): the FAB stays enabled (no dim, no `aria-disabled`). A save
 while offline gives the definite alert above (`toast-error-offline-375`) with every value kept.
@@ -195,7 +205,18 @@ rejected file, «Повторити» for a dropped connection). A global pill �
 On a phone it sits left of the FAB (inset 12 left, 80 right, 16 above the tab bar; foundation §3), as
 does the undo toast (`upload-pill-768`: centred above the bottom edge;
 `upload-pill-1440`: bottom-right of the main area, 40 px). Uploads are in-memory: closing the app loses them; the UI says
-so only when the user tries to close a sheet with uploads running.
+so only when the user tries to close a sheet with uploads running, and an armed money save lost this
+way is reported at the next boot (`state-page-kill-375`: a persistent inline alert «Транзакцію не
+збережено: застосунок закрився під час завантаження чека. Створіть її ще раз.» with «Зрозуміло»; the
+`localStorage` marker behind it holds only a timestamp).
+
+**Money pill** (one 56 px pill, three states, same slot): armed «Збережеться 1 250,50 USD · 62%» /
+«Відкрити чернетку» (`upload-pill-armed-375`); saved «Збережено 1 250,50 USD» / «Відкрити»
+(`upload-pill-saved-375`); failed «Не збережено» / «Відкрити чернетку» (`upload-pill-failed-375`);
+unknown «Результат невідомий» / «Відкрити чернетку» (described). A result **stays until tapped**; it
+never times out. **Toast + pill** (`toast-pill-stack-375`): the pill keeps the base slot (left 12,
+right inset 80, left of the FAB); a toast stacks 8 px above it; at most one toast at a time. A toast
+timer pauses while the page is hidden.
 
 **Skeletons** (`skeleton-mobile-375`, `skeleton-768`, `skeleton-1440`, `skeleton-table-desktop`): blocks
 match the final layout (row heights, avatar circles, right-aligned values; on the tablet both panes; on
@@ -239,7 +260,8 @@ instant, sheet 280 ms up / 150 ms down, desktop 150 ms crossfade, reduced motion
 `sheet-panel-1440` · `sheet-confirm-dialog-1024` · `listrow-table-desktop` · `toast-undo-375` ·
 `toast-undo-768` · `toast-undo-1440` · `toast-error-definite-375` · `toast-error-offline-375` ·
 `toast-error-unknown-375` · `toast-error-unknown-list-375` · `upload-states-375` · `upload-pill-armed-375` ·
-`upload-pill-768` · `upload-pill-1440` · `skeleton-mobile-375` · `skeleton-768` · `skeleton-1440` ·
+`upload-pill-saved-375` · `upload-pill-failed-375` · `toast-pill-stack-375` · `state-page-kill-375` ·
+`listrow-draft-375` · `upload-pill-768` · `upload-pill-1440` · `skeleton-mobile-375` · `skeleton-768` · `skeleton-1440` ·
 `skeleton-table-desktop` · `chart-mobile-375` · `chart-mobile-scrolled-375` · `chart-mobile-320` ·
 `chart-desktop` · `ptr-pulling-375` · `ptr-armed-375` · `ptr-refreshing-375` · `ptr-done-375` ·
 `transition-storyboard` (45 frames). Contact sheets: `_contact-sheet.png` (phones), `_contact-sheet-wide.png` (768 / 1024 /

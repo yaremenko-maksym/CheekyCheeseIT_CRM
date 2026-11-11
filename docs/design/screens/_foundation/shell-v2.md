@@ -88,17 +88,20 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   Wave 1 finance spec owns the form.
 - **Armed save** (save during a receipt upload). The primary stays an active button (no
   `aria-disabled`: it acts) whose label says what a tap does: «Зберегти після завантаження чека». A tap
-  **freezes the payload and arms** (`quick-add-txn-armed-375`): the button turns into a progress fill
-  reading «Збережеться 1 250,50 USD після чека · 62%» (`aria-pressed="true"`, the label in an
-  `aria-live="polite"` region, a caption «Натисніть ще раз або змініть поле, щоб скасувати»). A second
-  tap or **any field edit disarms** it. **Dismissing the sheet keeps the armed save**: the global upload
-  pill carries «Збережеться 1 250,50 USD · 62%» / «Відкрити чернетку», and a tap reopens the draft
-  (`primitives-v2/upload-pill-armed-375`). At 100% exactly one request is sent, so a form without an
-  idempotency key still sends exactly once; the result is a toast «Транзакцію збережено» + «Відкрити»,
-  or a failure alert that reopens the draft (`primitives-v2.md` §5). Backgrounding the app does not
-  disarm. **If the page is killed, nothing is sent and the draft is gone.** An upload failure disarms
-  the save and shows its error on the receipt card; the user may replace the file or remove it («✕
-  Видалити чек») and save without a receipt.
+  **freezes the payload and arms** (`quick-add-txn-armed-375`, `quick-add-txn-armed-320`): the button
+  turns into a progress fill reading «Збережеться 1 250,50 USD після чека» with «чек 62%» as a
+  `progressbar` (no `aria-pressed`; only arm, disarm and result are announced). **Repeat taps are
+  ignored.** Disarm is the separate 44 px text button «Не зберігати автоматично» under it, or any field
+  edit. While armed the leading control reads **«Згорнути»**: it closes the sheet and the save stays
+  armed (a drag down and a scrim tap do the same); the global upload pill then carries «Збережеться 1
+  250,50 USD · 62%» / «Відкрити чернетку» (`primitives-v2/upload-pill-armed-375`). At 100% exactly one
+  request is sent, so a form without an idempotency key still sends exactly once. The result **stays in
+  the pill until tapped** («Збережено 1 250,50 USD · Відкрити» or «Не збережено · Відкрити чернетку»);
+  no sheet opens by itself. Backgrounding the app does not disarm; a page kill is reported at the next
+  boot. **One money draft per session:** while a draft exists, «+» reopens it. The full lifecycle is
+  the state table in foundation §11. An upload failure disarms the save and shows its error on the
+  receipt card; the user may replace the file or remove it («✕ Видалити чек») and save without a
+  receipt.
 
 ### More sheet
 
@@ -192,7 +195,8 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 | `quick-add-admin-375.png`            |   375 | Quick-add menu from Статистика (4 actions)      |
 | `quick-add-hr-320.png`               |   320 | Quick-add menu at 320                           |
 | `quick-add-txn-keyboard-375.png`     |   375 | Canonical money form, decimal keys + system bar |
-| `quick-add-txn-armed-375.png`        |   375 | Save armed: frozen amount, receipt at 62%       |
+| `quick-add-txn-armed-375.png`        |   375 | Save armed: «Згорнути», separate disarm, 62%    |
+| `quick-add-txn-armed-320.png`        |   320 | Armed at 320: 1 250 000,50 UAH, label wraps     |
 | `state-loading-375.png`              |   375 | Shell + skeleton                                |
 | `state-empty-375.png`                |   375 | Empty tab root                                  |
 | `state-error-375.png`                |   375 | Load error with a safe re-fetch                 |
@@ -245,4 +249,5 @@ Re-render: `node assets/src/render.mjs shell [filter]`, then `assets/src/contact
   and payouts; JUNIOR: own salary). What each role really sees is the existing RBAC, unchanged by v2.
 - The armed save after an upload (frozen payload, kept across a sheet dismiss, carried by the pill)
   and the in-memory draft are proposals; the Wave 1 finance spec confirms them per form. The draft row
-  «Чернетка … · Продовжити» on the list is described, not drawn.
+  is drawn (`primitives-v2/listrow-draft-375`). The two unknown-outcome exits are a provisional ruling;
+  the owner confirms them at PNG approval.

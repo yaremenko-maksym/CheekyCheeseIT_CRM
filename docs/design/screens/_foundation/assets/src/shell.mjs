@@ -82,7 +82,19 @@ export function frames() {
         }),
       ),
     )
-    out.push(M('quick-add-txn-armed-375', 375, 812, moneyForm({ footer: armedBtn() })))
+    out.push(
+      M('quick-add-txn-armed-375', 375, 812, moneyForm({ lead: 'Згорнути', footer: armedBtn() })),
+    )
+    // 320, the longest plausible amount: the amount never truncates, the armed label wraps, the title truncates.
+    const big = { amount: '1 250 000,50', cur: 'UAH' }
+    out.push(
+      M(
+        'quick-add-txn-armed-320',
+        320,
+        568,
+        moneyForm({ w: 320, h: 568, lead: 'Згорнути', ...big, footer: armedBtn(big) }),
+      ),
+    )
     out.push(M('state-loading-375', 375, 812, loadingScreen('ADMIN', 375, 812)))
     out.push(M('state-empty-375', 375, 812, emptyScreen(375, 812)))
     out.push(M('state-error-375', 375, 812, errorScreen(375, 812)))

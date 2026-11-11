@@ -308,7 +308,10 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
   the same key.
 - **Carve-out — the four forms without a key** (expense, admin-income, admin-transfer, company
   deposit) keep today's behaviour until the first Wave 1 task ships the key: **no optimistic insert**
-  (the row appears after the server confirms) and **no resubmit offer on an unknown outcome**.
+  (the row appears after the server confirms) and **no automatic or one-tap resubmit**: the unknown
+  alert itself never offers a resubmit. The one way to send the money again is a **user-confirmed new
+  create after seeing the refreshed list**: «Немає — створити ще раз» under that list, then a confirm
+  that names the amount, then exactly one new request (see the unknown-outcome row of the table below).
 - **Save failures, never merged.**
   - **422 (the values are wrong):** an inline error on the field, focus moved there, **no retry
     button**; the primary stays «Зберегти» (`primitives-v2/toast-error-definite-375.png`).
@@ -318,22 +321,41 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
     (`primitives-v2/toast-error-offline-375.png`).
   - **Unknown** — it may have committed: a 502 / 504 from the gateway, a Cloudflare 524 (prod sits behind
     Cloudflare), a connection dropped after sending, or a client timeout. On a form without a key the
-    alert says the outcome is unknown; the form and receipt stay; **no retry button**. «Перевірити
-    список» opens the list as a sheet over the kept form, refetched on open, with the line «Якщо
-    транзакції ще немає, оновіть список за хвилину»
-    (`primitives-v2/toast-error-unknown-375.png`, `toast-error-unknown-list-375.png`). Reached from
-    elsewhere, the kept form shows a row «Чернетка 1 250,50 USD · Продовжити».
+    alert reads «Відповідь не надійшла. Форма й чек залишились. Перевірте список: якщо транзакції там
+    немає, її можна створити ще раз.»; the form and receipt stay; **no retry button on the alert**.
+    «Перевірити список» opens the list as a sheet over the kept form, refetched on open, with the line
+    «Якщо транзакції ще немає, оновіть список за хвилину» and two exits under the list: «Є в списку —
+    закрити чернетку» and «Немає — створити ще раз» (`primitives-v2/toast-error-unknown-375.png`,
+    `toast-error-unknown-list-375.png`). Both exits are a provisional ruling; the owner confirms them
+    at PNG approval. Reached from elsewhere, the kept form is the pinned row «Чернетка 1 250,50 USD ·
+    Продовжити» (`primitives-v2/listrow-draft-375.png`).
   - App 500/503 counts as definite only for endpoints that commit in one DB transaction and swallow post-commit errors; Wave 1 verifies this per endpoint (AC + test) before the form shows a retry.
 - **Offline** never disables creation: the FAB stays enabled (no dim, no `aria-disabled`). Saving while
   offline gives the inline definite alert above with every value kept.
-- **Armed save (save during a receipt upload).** The primary reads «Зберегти після завантаження чека».
-  A tap **freezes the payload** and arms: the button reads «Збережеться 1 250,50 USD після чека · 62%»
-  (`shell-v2/quick-add-txn-armed-375.png`). A second tap or **any field edit disarms**. Dismissing the
-  sheet keeps the armed save: the upload pill carries «Збережеться 1 250,50 USD · 62%» and a tap reopens
-  the draft (`primitives-v2/upload-pill-armed-375.png`). At 100% exactly one request is sent; the result
-  is a toast («Транзакцію збережено» + «Відкрити») or a failure alert that reopens the draft.
-  Backgrounding the app does not disarm (no `visibilitychange` rule). **If the page is killed, nothing
-  is sent and the draft is gone**; the UI never claims otherwise.
+- **Armed save and the money-draft lifecycle** (save during a receipt upload). The primary reads
+  «Зберегти після завантаження чека». A tap **freezes the payload** and arms. The table below is the
+  single source; every frame and every other paragraph agrees with it.
+
+  | Event                                                                             | Button / pill / list show                                                                                                                                                                                                                                                                                                                                                                                               | What is sent                                                                                   | How the user leaves                                                                                                                                                         |
+  | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | **Arm** (tap the primary while the receipt uploads)                               | Primary «Збережеться 1 250,50 USD після чека», «чек 62%» as a `progressbar`; one announcement «Збереження заплановано». Under it the 44 px text button «Не зберігати автоматично». The leading control reads **«Згорнути»** (`shell-v2/quick-add-txn-armed-375.png`, `-320.png`). Repeat taps on the primary are ignored: no toggle, no `aria-pressed`. A `localStorage` marker holding **only a timestamp** is written | Nothing yet; the payload is frozen in memory                                                   | «Згорнути», a drag down or a scrim tap all close the sheet and keep the save armed (next row)                                                                               |
+  | **Edit** (any field), **«Не зберігати автоматично»**, or the receipt upload fails | The primary returns to «Зберегти після завантаження чека»; one announcement «Автоматичне збереження вимкнено»; the leading control reads «Скасувати» again; the marker is removed                                                                                                                                                                                                                                       | Nothing; the upload continues                                                                  | Stays in the form; the draft is kept                                                                                                                                        |
+  | **Dismiss** while armed                                                           | The sheet closes. The upload pill reads «Збережеться 1 250,50 USD · 62%» · «Відкрити чернетку» (`primitives-v2/upload-pill-armed-375.png`); a toast stacks above it (`toast-pill-stack-375.png`)                                                                                                                                                                                                                        | Nothing until the receipt reaches 100%; then exactly **one** create, and the marker is removed | A pill tap or «+» reopens the same draft                                                                                                                                    |
+  | **Success**                                                                       | Sheet open: it closes. The pill holds «Збережено 1 250,50 USD · Відкрити» **until tapped** (`upload-pill-saved-375.png`); one announcement «Транзакцію збережено». The row appears in the list after the server confirms                                                                                                                                                                                                | The one create, 2xx                                                                            | Pill tap opens the transaction; the pill and the draft are gone                                                                                                             |
+  | **Definite failure** (422 or any definite case above)                             | Sheet open: the inline alert from the failure rules. Sheet closed: the pill holds «Не збережено · Відкрити чернетку» **until tapped** (`upload-pill-failed-375.png`); one announcement «Транзакцію не збережено». The list shows the pinned draft row                                                                                                                                                                   | The one create; wrote nothing                                                                  | Pill tap reopens the draft with the alert; or an explicit discard                                                                                                           |
+  | **Unknown outcome**                                                               | Sheet open: the unknown alert. Sheet closed: the pill holds «Результат невідомий · Відкрити чернетку» until tapped; the list shows the pinned draft row (`listrow-draft-375.png`). Inside the draft, «Перевірити список» opens the refetched list with the two exits (`toast-error-unknown-list-375.png`)                                                                                                               | The one create; it may have committed. **Nothing is re-sent automatically**                    | «Є в списку — закрити чернетку»: the draft closes, nothing is sent. «Немає — створити ще раз»: the confirm «Створити 1 250,50 USD ще раз?», then exactly **one** new create |
+  | **Page kill** while armed (tab closed, OS kill, crash)                            | At the next boot the marker is found: a persistent inline alert above the first screen «Транзакцію не збережено: застосунок закрився під час завантаження чека. Створіть її ще раз.» with «Зрозуміло» (`state-page-kill-375.png`). It names no amount: the marker holds none                                                                                                                                            | Nothing: the request never left (the marker is removed the moment the create is sent)          | «Зрозуміло» removes the marker and the alert                                                                                                                                |
+  | **Explicit discard** (from the draft, or before a new form while one exists)      | A confirm that names the amount: «Видалити чернетку 1 250,50 USD?» with «Видалити» and «Залишити»                                                                                                                                                                                                                                                                                                                       | Nothing; the upload is aborted                                                                 | «Видалити»: the draft, its pill, its row and the marker are gone. «Залишити»: back to the draft                                                                             |
+  - **One money draft per session.** While an armed, failed or unknown-outcome draft exists, «+» (the
+    FAB and the quick-add action) **reopens that draft**. A new form opens only after the discard
+    confirm above, which names the amount.
+  - **The result stays until acknowledged.** A sheet is **never opened automatically** over what the user
+    is doing; the pill holds the result. A toast timer **pauses while the page is hidden**.
+  - **No `visibilitychange` disarm:** backgrounding keeps the save armed. A page kill is **reported, not
+    hidden** (the page-kill row). **Finance data is never persisted client-side:** the marker is a
+    timestamp only, never an amount, a payload or a receipt.
+  - The draft row and the pill are one draft, drawn twice: the row in Фінанси, the pill on every tab.
+
 - **Pull-to-refresh** (spec §4.2) is an in-app gesture on the list scroller only: it refetches that
   list's query, **never reloads the page**, and is **off while a sheet is open**. Wave 0 proves on the
   iOS Simulator that a sheet drag at `scrollTop` 0 and a pull on a list never reload the page.
@@ -341,7 +363,7 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
 - **Filters live in the URL.** No saved filter views.
 - **Search covers loaded data only** (and Cmd+K navigation / page actions). No cross-entity server search.
 - **Uploads** are in-memory and non-blocking with a global progress indicator. Nothing survives an app
-  close; the UI never claims otherwise.
+  close. An armed money save lost this way is reported at the next boot (the page-kill row above).
 - **Keyboard (desktop):** Tab order follows reading order; Enter submits; Esc closes; single-key
   shortcuts (including `[` for the sidebar collapse) can be turned off in the `?` sheet (stored on the
   device, SC 2.1.4) and never fire inside a text field.
