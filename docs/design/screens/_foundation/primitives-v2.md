@@ -306,7 +306,7 @@ instant, sheet 280 ms up / 150 ms down, desktop 150 ms crossfade, reduced motion
 `listrow-draft-375` · `upload-pill-768` · `upload-pill-1440` · `skeleton-mobile-375` · `skeleton-768` · `skeleton-1440` ·
 `skeleton-table-desktop` · `chart-mobile-375` · `chart-mobile-scrolled-375` · `chart-mobile-320` ·
 `chart-desktop` · `ptr-pulling-375` · `ptr-armed-375` · `ptr-refreshing-375` · `ptr-done-375` ·
-`transition-storyboard` (45 frames). Contact sheets: `_contact-sheet.png` (phones), `_contact-sheet-wide.png` (768 / 1024 /
+`transition-storyboard` (52 frames). Contact sheets: `_contact-sheet.png` (phones), `_contact-sheet-wide.png` (768 / 1024 /
 1440 and boards), `_contact-sheet-detail.png` (`chart-desktop` and `transition-storyboard` at native
 size).
 
