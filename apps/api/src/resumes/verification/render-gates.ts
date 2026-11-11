@@ -1,4 +1,9 @@
-import type { ResumeContent, ResumeLayoutOptions, ResumeTemplateName } from '@crm/shared'
+import type {
+  ResumeContent,
+  ResumeLayoutOptions,
+  ResumeSectionKey,
+  ResumeTemplateName,
+} from '@crm/shared'
 import { checkResumeAts, type AtsCheckInput, type AtsFailure } from '../ats/resume-ats-checker'
 import { toRenderableDeep } from '../resume-glyphs'
 import { MAX_PDF_PAGES } from '../resume-source.util'
@@ -18,7 +23,7 @@ export interface RenderDeps {
   }
   vision: { check(pngPages: Buffer[]): Promise<VisualReply> }
   /** Runs before every model call; throws `RunFailure('STALLED')` past the run budget. */
-  beforeModelCall(): void
+  beforeModelCall(): Promise<void>
 }
 
 export interface RenderPlan {
@@ -72,6 +77,17 @@ export function lastPageUnderfilled(pages: readonly string[]): boolean {
 }
 
 /** The fallback path of an ATS failure on an AI-written field, else `null`. */
+/** The sections completeness (§5.1) requires: experience items, five skills, English among languages. */
+const REQUIRED_SECTIONS: readonly ResumeSectionKey[] = ['skills', 'experience', 'languages']
+
+/**
+ * CD-1 (spec G4): a layout that hides a section completeness requires leaves the PDF incomplete, so
+ * every run kind fails INCOMPLETE on it, a template run on a VERIFIED resume included.
+ */
+export function hidesRequiredSection(layout: ResumeLayoutOptions): boolean {
+  return layout.hiddenSections.some((key) => REQUIRED_SECTIONS.includes(key))
+}
+
 export function aiPath(atsPath: string | undefined): string | null {
   if (atsPath === 'summary') return 'summary'
   // Stryker disable next-line StringLiteral: equivalent — any other fallback for a missing path is also no bullet path
@@ -243,13 +259,13 @@ export async function visualGate(
   } catch {
     throw new RunFailure('RENDER_FAILED', [{ gate: 'visual', ok: false, items: [] }])
   }
-  deps.beforeModelCall()
+  await deps.beforeModelCall()
   const first = await deps.vision.check(pngs)
   if (first.kind === 'unavailable') {
     throw new RunFailure('VISUAL_CHECK_UNAVAILABLE', [{ gate: 'visual', ok: false, items: [] }])
   }
   if (first.findings.length === 0) return { gate: 'visual', ok: true, items: [] }
-  deps.beforeModelCall()
+  await deps.beforeModelCall()
   const second = await deps.vision.check(pngs)
   const confirmed =
     second.kind === 'unavailable'

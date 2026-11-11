@@ -35,6 +35,17 @@ import {
   VerificationRunner,
 } from './verification-runner'
 
+/**
+ * CD-3: the per-call ownership read is its own seam (`ownsRun`, pinned in run-end.spec.ts). Here it
+ * answers true until `lostAfter` checks have passed, so the queued DB results stay those of the run.
+ */
+const ownership = vi.hoisted(() => ({ calls: [] as string[][], lostAfter: Infinity }))
+vi.mock('./run-end', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  ownsRun: async (_db: unknown, resumeId: string, runId: string) =>
+    ownership.calls.push([resumeId, runId]) <= ownership.lostAfter,
+}))
+
 const RESUME = 'r-1'
 const RUN = 'run-1'
 const KEY = 'resumes/r-1/staged/run-1.pdf'
@@ -136,6 +147,8 @@ const START = [[ROW], [USER], [{ email: 'jana.home@unit.spec' }]]
 beforeEach(() => {
   vi.clearAllMocks()
   world = { omitBullet: false, dropLine: null, vision: [] }
+  ownership.calls = []
+  ownership.lostAfter = Infinity
   payloads.length = 0
   logs = []
   for (const level of ['log', 'warn', 'error'] as const) {
@@ -334,7 +347,7 @@ describe('VerificationRunner.run', () => {
       verificationBaseVersion: null,
       ...CLEARED_STAGED,
     })
-    expect([lock?.columns, fail?.columns]).toEqual([['key', 'kind', 'live'], ['id']])
+    expect([lock?.columns, fail?.columns]).toEqual([['key', 'kind', 'live', 'report'], ['id']])
     expect(s3.upload).not.toHaveBeenCalled()
     expect(s3.delete.mock.calls).toEqual([[OLD_KEY]])
     expect(logs).toContain(`Verification run ${RUN} of resume ${RESUME} failed: WRITER_UNAVAILABLE`)
@@ -516,6 +529,57 @@ describe('VerificationRunner.run', () => {
     expect(s3.delete).not.toHaveBeenCalled()
     expect(logs).not.toContain(`Verification run ${RUN} of resume ${RESUME}: FAILED not written`)
   })
+
+  it('CD-3: a run that loses its row mid-way makes no further model call and writes nothing', async () => {
+    ownership.lostAfter = 1
+    const { run, log } = runner([...START])
+    await run()
+    expect(ownership.calls[0]).toEqual([RESUME, RUN])
+    expect(ownership.calls).toHaveLength(2)
+    expect(writer.write).toHaveBeenCalledTimes(1)
+    expect(entailment.score).not.toHaveBeenCalled()
+    expect(vision.check).not.toHaveBeenCalled()
+    expect(log).toHaveLength(3)
+    expect(s3.upload).not.toHaveBeenCalled()
+    expect(s3.delete).not.toHaveBeenCalled()
+    expect(logs).toEqual([`Verification run ${RUN} of resume ${RESUME} lost its row: stopped`])
+  })
+
+  it('CD-3: every model call is preceded by an ownership check', async () => {
+    await runner([...START, [{ key: null }], [{ id: RESUME }]]).run()
+    const calls =
+      writer.write.mock.calls.length +
+      entailment.score.mock.calls.length +
+      vision.check.mock.calls.length
+    expect(calls).toBeGreaterThan(0)
+    expect(ownership.calls).toHaveLength(calls)
+  })
+
+  it('CD-6: a crash on a full run records no fallbacks, whatever the stored report holds', async () => {
+    s3.upload.mockRejectedValueOnce(new Error('s3 down'))
+    const report = { gates: [], fallbacks: ['summary'] }
+    const { run, log } = runner([...START, [{ key: null, live: null, report }], [{ id: RESUME }]])
+    await run()
+    expect(log.at(-1)?.set?.['verificationReport']).toEqual({ gates: [], fallbacks: [] })
+  })
+
+  it.each(['skills', 'experience', 'languages'])(
+    'CD-1: a full run whose layout hides %s fails INCOMPLETE before any model call',
+    async (section) => {
+      const layout = { ...ROW.layout, hiddenSections: [section] }
+      const row = { ...ROW, layout } as unknown as SeniorResume
+      const tail = [[{ key: null }], [{ id: RESUME }]]
+      const { run, log } = runner([[row], [USER], [{ email: 'x@y.z' }], ...tail])
+      await run()
+      expect(log.at(-1)?.set).toMatchObject({
+        verificationStatus: 'FAILED',
+        verificationErrorCode: 'INCOMPLETE',
+      })
+      expect(writer.write).not.toHaveBeenCalled()
+      expect(typst.render).not.toHaveBeenCalled()
+      expect(s3.upload).not.toHaveBeenCalled()
+    },
+  )
 
   it('logs carry ids, codes and keys only: never a name, an email or model text', async () => {
     writer.write.mockResolvedValueOnce({ kind: 'unavailable', reason: 'TIMEOUT' } as WriterReply)
@@ -807,14 +871,61 @@ describe('VerificationRunner.run — template kind (Task 16)', () => {
     expect(s3.delete).not.toHaveBeenCalled()
   })
 
+  it('CD-6: a crash on a template run keeps the confirmed fallbacks', async () => {
+    const report = { gates: [{ gate: 'ats', ok: true, items: [] }], fallbacks: ['summary'] }
+    const { log } = await templateRun(
+      [[{ key: null, kind: 'template', live: LIVE_KEY, report }], [{ id: RESUME }]],
+      { verificationReport: report } as Partial<SeniorResume>,
+      () => {
+        s3.upload.mockRejectedValueOnce(new Error('s3 down'))
+      },
+    )
+    expect(log.at(-1)?.set?.verificationErrorCode).toBe('STALLED')
+    expect(log.at(-1)?.set?.['verificationReport']).toEqual({ gates: [], fallbacks: ['summary'] })
+  })
+
+  it('CD-1: a template run whose layout hides experience fails INCOMPLETE; the live look stays', async () => {
+    const { log } = await templateRun([[{ key: null, kind: 'template' }], [{ id: RESUME }]], {
+      stagedLayout: { ...LOOK, hiddenSections: ['experience'] },
+    } as Partial<SeniorResume>)
+    const set = log.at(-1)?.set ?? {}
+    expect(set['verificationErrorCode']).toBe('INCOMPLETE')
+    expect(set).not.toHaveProperty('verificationStatus')
+    expect(set).not.toHaveProperty('layout')
+    expect(set).not.toHaveProperty('pdfS3Key')
+    expect(typst.render).not.toHaveBeenCalled()
+    expect(s3.upload).not.toHaveBeenCalled()
+    expect(s3.delete).not.toHaveBeenCalled()
+  })
+
+  it('CD-1: hiding an optional section still promotes', async () => {
+    const look = { ...LOOK, hiddenSections: ['education'] }
+    const { log } = await templateRun([[{ key: LIVE_KEY }], [{ id: RESUME }]], {
+      stagedLayout: look,
+    } as Partial<SeniorResume>)
+    expect(log.at(-1)?.set).toMatchObject({ layout: look, pdfS3Key: KEY })
+  })
+
+  it('CD-3: a template run that lost its row before vision makes no vision call', async () => {
+    const { log } = await templateRun([], {}, () => {
+      ownership.calls = []
+      ownership.lostAfter = 0
+    })
+    expect(ownership.calls).toEqual([[RESUME, RUN]])
+    expect(vision.check).not.toHaveBeenCalled()
+    expect(s3.upload).not.toHaveBeenCalled()
+    expect(log.every((q) => !q.inTransaction)).toBe(true)
+  })
+
   it('SR-L-2: a template pass and a template fail keep the confirmed fallbacks', async () => {
     const verificationReport = { gates: [], fallbacks: ['experience.0.bullets'] }
     const pass = await templateRun([[{ key: LIVE_KEY }], [{ id: RESUME }]], { verificationReport })
     expect(pass.log.at(-1)?.set?.['verificationReport']).toMatchObject({
       fallbacks: ['experience.0.bullets'],
     })
+    // the FAILED write keeps what its locked read holds (CD-6)
     const fail = await templateRun(
-      [[{ key: null, kind: 'template' }], [{ id: RESUME }]],
+      [[{ key: null, kind: 'template', report: verificationReport }], [{ id: RESUME }]],
       { verificationReport },
       () => {
         world.vision = [{ kind: 'unavailable', reason: 'TIMEOUT' } as VisualReply]

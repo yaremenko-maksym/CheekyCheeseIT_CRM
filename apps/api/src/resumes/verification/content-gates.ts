@@ -30,7 +30,7 @@ export interface ContentDeps {
   writer: { write(task: WriterTask, payload: string, feedback: string[]): Promise<WriterReply> }
   entailment: { score(claims: EntailmentClaim[]): Promise<Map<string, number> | 'unavailable'> }
   /** Runs before every model call; throws `RunFailure('STALLED')` past the run budget. */
-  beforeModelCall(): void
+  beforeModelCall(): Promise<void>
 }
 
 export interface ContentInput {
@@ -207,7 +207,7 @@ async function gateTexts(
     }
   })
   for (const group of groupClaims(claims)) {
-    deps.beforeModelCall()
+    await deps.beforeModelCall()
     const scores = await deps.entailment.score(group)
     if (scores === 'unavailable') throw new RunFailure('ENTAILMENT_UNAVAILABLE')
     for (const claim of group) {
@@ -243,7 +243,7 @@ async function write(
   sent: { payload: WritingPayload; feedback: string[] },
   deps: ContentDeps,
 ): Promise<Exclude<WriterReply, { kind: 'unavailable' }>> {
-  deps.beforeModelCall()
+  await deps.beforeModelCall()
   const reply = await deps.writer.write(task, JSON.stringify(sent.payload), sent.feedback)
   if (reply.kind === 'unavailable') throw new RunFailure('WRITER_UNAVAILABLE')
   return reply

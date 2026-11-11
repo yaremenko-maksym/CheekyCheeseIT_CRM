@@ -30,8 +30,15 @@ import {
 } from './content-gates'
 import { deriveFrozenContent } from './derive-content'
 import { ResumeEntailmentClient, ResumeWriterClient, VisualCheckClient } from './inference-clients'
-import { renderAccepted, visualGate, type Accepted, type RenderDeps } from './render-gates'
-import { CLEARED_RUN, CLEARED_STAGED, deleteStagedQuietly, stagedPdfKey } from './run-columns'
+import {
+  hidesRequiredSection,
+  renderAccepted,
+  visualGate,
+  type Accepted,
+  type RenderDeps,
+} from './render-gates'
+import { deleteStagedQuietly, stagedPdfKey } from './run-columns'
+import { failRun, ownsRun, RunLost } from './run-end'
 import { claimTemplateRun, promoteTemplateRun, templateContent } from './template-run'
 
 /** A run past this is STALLED, checked before every model call (P2). */
@@ -135,8 +142,9 @@ export class VerificationRunner {
     const row = await this.claim(resumeId, runId)
     if (!row) return
     const startedAt = Date.now()
-    const beforeModelCall = () => {
+    const beforeModelCall = async () => {
       if (Date.now() - startedAt > VERIFICATION_RUN_BUDGET_MS) throw new RunFailure('STALLED')
+      if (!(await ownsRun(this.db, resumeId, runId))) throw new RunLost()
     }
     const gates: GateResult[] = []
     let fallbacks: string[] = []
@@ -151,6 +159,8 @@ export class VerificationRunner {
       const templateName = resolveTemplateName(
         stagedLook ? row.stagedTemplateName : row.templateName,
       )
+      const layout = normalizeResumeLayout(stagedLook ? row.stagedLayout : row.layout)
+      if (hidesRequiredSection(layout)) throw new RunFailure('INCOMPLETE')
 
       // A template run re-renders the confirmed content: no writer, no entailment, no content gate.
       let content: ResumeContent
@@ -193,7 +203,7 @@ export class VerificationRunner {
           displayName: owner.displayName,
           email: owner.email,
           content,
-          layout: normalizeResumeLayout(stagedLook ? row.stagedLayout : row.layout),
+          layout,
           templateName,
           notes,
           fallbacks: [...fallbacks, ...locked],
@@ -227,6 +237,10 @@ export class VerificationRunner {
         owner,
       })
     } catch (err) {
+      if (err instanceof RunLost) {
+        this.logger.log(`Verification run ${runId} of resume ${resumeId} lost its row: stopped`)
+        return
+      }
       if (!(err instanceof RunFailure)) throw err
       this.logger.warn(`Verification run ${runId} of resume ${resumeId} failed: ${err.code}`)
       await this.fail(resumeId, runId, err.code, { gates: [...gates, ...err.gates], fallbacks })
@@ -346,50 +360,13 @@ export class VerificationRunner {
     }
   }
 
-  /**
-   * FAILED on this run id: run fields and staged columns cleared, the old object deleted after commit.
-   * A template run keeps VERIFIED and the live columns (Task 16): its CAS also needs the base version.
-   */
-  private async fail(
+  private fail(
     resumeId: string,
     runId: string,
     code: ResumeVerificationErrorCode,
     report: ResumeVerificationReport,
-  ): Promise<{ old: string | null; live: string | null } | null> {
-    const won = await this.db.db.transaction(async (tx) => {
-      const [current] = await tx
-        .select({
-          key: seniorResumes.stagedPdfS3Key,
-          kind: seniorResumes.verificationKind,
-          live: seniorResumes.pdfS3Key,
-        })
-        .from(seniorResumes)
-        .where(eq(seniorResumes.id, resumeId))
-        .for('update')
-      const template = current?.kind === 'template'
-      const [updated] = await tx
-        .update(seniorResumes)
-        .set({
-          ...(template ? {} : { verificationStatus: 'FAILED' as const }),
-          verificationErrorCode: code,
-          verificationReport: report,
-          ...CLEARED_RUN,
-          ...CLEARED_STAGED,
-        })
-        .where(
-          and(
-            eq(seniorResumes.id, resumeId),
-            eq(seniorResumes.verificationRunId, runId),
-            template
-              ? sql`${seniorResumes.version} = ${seniorResumes.verificationBaseVersion}`
-              : undefined,
-          ),
-        )
-        .returning({ id: seniorResumes.id })
-      return updated ? { old: current?.key ?? null, live: current?.live ?? null } : null
-    })
-    if (won !== null) await this.deleteQuietly(won.old)
-    return won
+  ) {
+    return failRun(this.templateDeps(), resumeId, runId, code, report)
   }
 
   private deleteQuietly(key: string | null): Promise<void> {
