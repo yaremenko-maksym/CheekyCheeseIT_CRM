@@ -254,6 +254,39 @@ describe('ResumeTab — facts form', () => {
     expect(screen.getByTestId('resume-facts-submit')).toBeDisabled()
   })
 
+  it('a report from an earlier check does not lock the form: only verificationBusy does', () => {
+    setData(
+      makeResponse({
+        ...(FILLED.resume as SeniorResumeDto),
+        verificationStatus: 'DRAFT',
+        verificationReport: {
+          gates: [{ gate: 'names', ok: false, items: [{ path: 'headline', reason: 'x' }] }],
+          fallbacks: [],
+        },
+        verificationBusy: false,
+      }),
+    )
+    render(tab())
+    expect(screen.getByLabelText('Цільова посада')).toBeEnabled()
+    expect(screen.getByTestId('resume-delete')).toBeEnabled()
+  })
+
+  it('while a check runs, erase and re-upload are locked too', () => {
+    setData(
+      makeResponse({
+        ...(FILLED.resume as SeniorResumeDto),
+        status: 'FAILED',
+        errorCode: 'NO_TEXT',
+        verificationStatus: 'CHECKING',
+        verificationBusy: true,
+      }),
+    )
+    render(tab())
+    expect(screen.getByTestId('resume-delete')).toBeDisabled()
+    expect(screen.getByTestId('resume-upload-button')).toBeDisabled()
+    expect(screen.getByTestId('resume-paste-toggle')).toBeDisabled()
+  })
+
   it('the profile name feeds the live check (R32): a Cyrillic name is listed, not editable here', () => {
     setData(FILLED)
     render(tab({ displayName: 'Олександр Доу' }))

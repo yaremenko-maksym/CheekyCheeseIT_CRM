@@ -70,7 +70,7 @@ const SECTION_LABEL_MESSAGES: Record<ResumeSectionKey, MessageDescriptor> = {
   experience: msg`Досвід роботи`,
   education: msg`Освіта`,
   languages: msg`Мови`,
-  links: msg`Посилання`,
+  links: msg({ message: 'Посилання', context: 'resume' }),
 } satisfies Record<ResumeSectionKey, MessageDescriptor>
 
 export interface ResumeLayoutPanelProps {

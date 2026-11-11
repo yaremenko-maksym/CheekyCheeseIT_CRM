@@ -43,14 +43,21 @@ describe('ResumeCompletenessPanel', () => {
     expect(submit).toBeDisabled()
     // The reason is text, tied to the button, not only the grey look.
     expect(submit).toHaveAccessibleDescription('Спершу заповніть поля зі списку')
-    expect(screen.getByText('2 поля')).toBeInTheDocument()
+    // The polite live region carries the count; it stays mounted (L-3).
+    expect(screen.getByTestId('resume-completeness-live')).toHaveTextContent('2 поля')
     fireEvent.click(submit)
     expect(onSubmit).not.toHaveBeenCalled()
   })
 
   it('enables Submit and shows the clean title once nothing is missing', () => {
     const { onSubmit } = renderPanel()
-    expect(screen.getByText('Усе заповнено — можна надсилати')).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Усе заповнено — можна надсилати' }),
+    ).toBeInTheDocument()
+    // The clean state is announced by the same live region, not only shown.
+    const live = screen.getByTestId('resume-completeness-live')
+    expect(live).toHaveAttribute('aria-live', 'polite')
+    expect(live).toHaveTextContent('Усе заповнено — можна надсилати')
     const submit = screen.getByRole('button', { name: 'Надіслати на перевірку' })
     expect(submit).toBeEnabled()
     fireEvent.click(submit)

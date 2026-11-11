@@ -149,6 +149,21 @@ describe('ResumeFactsForm', () => {
     expect(screen.getByLabelText('Цільова посада')).toHaveValue('Typed')
   })
 
+  it('new server facts under a dirty draft are announced and can be loaded', () => {
+    const { rerender } = render(<Wired facts={EMPTY_RESUME_FACTS} />, { wrapper: Providers })
+    expect(screen.queryByTestId('resume-facts-server-changed')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Цільова посада'), { target: { value: 'Typed' } })
+    rerender(<Wired facts={{ ...EMPTY_RESUME_FACTS, headline: 'Server' }} />)
+
+    const line = screen.getByTestId('resume-facts-server-changed')
+    expect(line).toHaveTextContent('Збережена версія змінилася.')
+    expect(screen.getByLabelText('Цільова посада')).toHaveValue('Typed')
+
+    fireEvent.click(within(line).getByRole('button', { name: 'Завантажити збережену' }))
+    expect(screen.getByLabelText('Цільова посада')).toHaveValue('Server')
+    expect(screen.queryByTestId('resume-facts-server-changed')).not.toBeInTheDocument()
+  })
+
   it('Submit with unsaved facts saves first, then submits, in one action', async () => {
     const complete: ResumeFacts = {
       ...EMPTY_RESUME_FACTS,

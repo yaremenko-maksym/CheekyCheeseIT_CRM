@@ -201,9 +201,17 @@ export function ResumeCompletenessPanel({
         <h3 id={`${listId}-title`} className="text-base font-semibold">
           {clean ? <Trans>Усе заповнено — можна надсилати</Trans> : <Trans>Що ще потрібно</Trans>}
         </h3>
+        {/* One live region that stays mounted, so the clean state is announced too. */}
+        <p className="sr-only" aria-live="polite" data-testid="resume-completeness-live">
+          {clean ? (
+            <Trans>Усе заповнено — можна надсилати</Trans>
+          ) : (
+            <Plural value={issues.length} one="# поле" few="# поля" many="# полів" other="# поля" />
+          )}
+        </p>
         {!clean && (
           <div className="flex items-center gap-1">
-            <Badge variant="secondary" className="tabular-nums" aria-live="polite">
+            <Badge variant="secondary" className="tabular-nums" aria-hidden>
               <Plural
                 value={issues.length}
                 one="# поле"

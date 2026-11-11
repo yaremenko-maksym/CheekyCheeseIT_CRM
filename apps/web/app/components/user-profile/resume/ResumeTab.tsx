@@ -75,6 +75,9 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
   const content = resume?.content ?? EMPTY_RESUME_CONTENT
   const canEdit = data?.canEdit ?? false
   const isBusy = uploadMutation.isPending || textMutation.isPending
+  // Busy comes ONLY from `verificationBusy` (design §4), never from the status.
+  // While it is set, the facts are locked, so erase and re-upload are locked too.
+  const verificationBusy = resume?.verificationBusy === true
 
   const [isDirty, setIsDirty] = useState(false)
   const [showIntake, setShowIntake] = useState(false)
@@ -152,6 +155,7 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
           <Button
             variant="outline"
             onClick={() => setConfirmDelete(true)}
+            disabled={verificationBusy}
             data-testid="resume-delete"
             className="min-h-11 text-destructive hover:text-destructive"
           >
@@ -231,8 +235,6 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
     )
   }
 
-  // Busy comes ONLY from `verificationBusy` (design §4), never from the status.
-  const verificationBusy = resume?.verificationBusy === true
   const isDraft = resume?.verificationStatus === 'DRAFT'
 
   return (
@@ -299,7 +301,7 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
             setShowIntake(false)
             textMutation.mutate(text)
           }}
-          isBusy={isBusy}
+          isBusy={isBusy || verificationBusy}
         />
       )}
 

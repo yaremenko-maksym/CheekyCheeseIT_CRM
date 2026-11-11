@@ -485,6 +485,39 @@ test.describe('Резюме — факты', () => {
     await expect(page.getByTestId('resume-facts-job-0')).toBeVisible()
     await expect(headline).toHaveValue('Draft that is easy to lose')
   })
+
+  test('порядок мест работы меняется кнопками и уходит в сохранение', async ({ page }) => {
+    const job = (company: string) => ({
+      company,
+      role: 'Engineer',
+      location: null,
+      start: '2020-01',
+      end: '2021-01',
+      current: false,
+      technologies: [],
+      notes: [],
+    })
+    const facts = { ...EMPTY_FACTS, experience: [job('Acme'), job('Beta'), job('Gamma')] }
+    const putRequest = page.waitForRequest(
+      (r) => r.url().endsWith('/resume/facts') && r.method() === 'PUT',
+    )
+    await openSeniorResumeAsAdmin(page, [resumeResponse({ content: FILLED_CONTENT, facts })])
+
+    const company = (i: number) =>
+      page.getByTestId(`resume-facts-job-${i}`).locator('input[name="resumeFactsCompany"]')
+    await expect(company(0)).toHaveValue('Acme')
+    // Up on the second job, then down on the (new) second job: Beta, Gamma, Acme.
+    await page.getByRole('button', { name: 'Перемістити місце роботи 2 вгору' }).click()
+    await expect(company(0)).toHaveValue('Beta')
+    await page.getByRole('button', { name: 'Перемістити місце роботи 2 вниз' }).click()
+    await expect(company(1)).toHaveValue('Gamma')
+    await page.getByTestId('resume-facts-save').click()
+
+    const body = JSON.parse((await putRequest).postData() ?? '{}') as {
+      facts?: { experience?: { company: string }[] }
+    }
+    expect(body.facts?.experience?.map((e) => e.company)).toEqual(['Beta', 'Gamma', 'Acme'])
+  })
 })
 
 // ---------------------------------------------------------------------------
