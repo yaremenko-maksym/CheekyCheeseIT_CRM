@@ -432,4 +432,141 @@ describe.skipIf(!hasDatabaseUrl())('Verification run — real DB (Task 14)', () 
     expect(row.verificationStatus).toBe('FAILED')
     expect(row.verificationErrorCode).toBe('VISUAL_CHECK_UNAVAILABLE')
   })
+
+  it('9. a 3-page first render is repaired by density, not failed by the ATS stage', async () => {
+    world.pagesFor = (layout) => (layout.density === 'compact' ? 2 : 3)
+    const row = await submitAndRun()
+    expect(row.verificationStatus).toBe('AWAITING_CONFIRM')
+    expect(typst.render.mock.calls.map((c) => c[0].layout.density)).toEqual(['normal', 'compact'])
+    expect(row.stagedLayout?.density).toBe('compact')
+  })
+
+  it('9b. a render over 30 pages enters the repair loop as TOO_MANY_PAGES', async () => {
+    world.pagesFor = (layout) => (layout.density === 'compact' ? 1 : 31)
+    const row = await submitAndRun()
+    expect(row.verificationStatus).toBe('AWAITING_CONFIRM')
+    // 31 pages is decided by the page count: the text is never extracted
+    expect(extraction.extractRenderedPages).toHaveBeenCalledTimes(1)
+  })
+
+  it('9c. a layout still too long after 3 repair rounds → LAYOUT_UNFIXABLE', async () => {
+    world.pagesFor = () => 3
+    const row = await submitAndRun()
+    expect(row.verificationErrorCode).toBe('LAYOUT_UNFIXABLE')
+    // normal → compact → font small: one first render and two repairs, then nothing left to shrink
+    expect(
+      typst.render.mock.calls.map((c) => [c[0].layout.density, c[0].layout.fontScale]),
+    ).toEqual([
+      ['normal', 'normal'],
+      ['compact', 'normal'],
+      ['compact', 'small'],
+    ])
+    expect(s3.upload).not.toHaveBeenCalled()
+  })
+
+  it('10. the PNG copy sent to vision has no real name, email or link URL', async () => {
+    await submitAndRun()
+    expect(typst.renderPng).toHaveBeenCalledTimes(1)
+    const sent = vision.check.mock.calls[0]?.[0] ?? []
+    expect(sent).toHaveLength(1)
+    const copy = decodePng(sent[0] as Buffer)
+    expect(copy.displayName).toBe('Firstname Lastname')
+    expect(copy.email).toBe('name@example.com')
+    expect(copy.content.links).toEqual([{ label: 'Link', url: 'https://example.com' }])
+    const text = JSON.stringify(copy)
+    for (const secret of [NAME, EMAIL, PERSONAL_EMAIL, LINK_URL, 'GitHub']) {
+      expect(text).not.toContain(secret)
+    }
+  })
+
+  it('A1. a contact typed into an experience company is redacted in the PNG copy sent to vision', async () => {
+    const phone = '+1 415 555 0100'
+    const facts = structuredClone(FACTS)
+    ;(facts.experience[1] as ResumeFacts['experience'][number]).company = `Globex ${phone}`
+    await setState({ facts })
+    const row = await submitAndRun()
+    // redacted, not failed
+    expect(row.verificationStatus).toBe('AWAITING_CONFIRM')
+    expect(row.stagedContent?.experience[1]?.company).toBe(`Globex ${phone}`)
+    const copy = decodePng(vision.check.mock.calls[0]?.[0][0] as Buffer)
+    expect(copy.content.experience[1]?.company).toBe('Globex [REDACTED]')
+    expect(JSON.stringify(copy)).not.toContain('555')
+  })
+
+  it('11. two concurrent submits → one run', async () => {
+    const stale = await rowOf()
+    const results = await Promise.allSettled([
+      service.submit(stale, NAME, USER_ID),
+      service.submit(stale, NAME, USER_ID),
+    ])
+    expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected'])
+    const rejected = results.find((r) => r.status === 'rejected')
+    expect(((rejected as PromiseRejectedResult).reason as HttpException).getStatus()).toBe(409)
+    expect(pending).toHaveLength(1)
+    await Promise.all(pending.splice(0))
+    expect(writeCalls.filter((c) => c.task === 'summary')).toHaveLength(1)
+    expect((await rowOf()).verificationStatus).toBe('AWAITING_CONFIRM')
+  })
+
+  it('12. re-submit from AWAITING_CONFIRM deletes the old staged object', async () => {
+    const first = await submitAndRun()
+    const oldKey = first.stagedPdfS3Key as string
+    expect(first.verificationStatus).toBe('AWAITING_CONFIRM')
+    s3.delete.mockClear()
+    writerReply = () => ({ kind: 'unavailable', reason: 'TIMEOUT' })
+    await service.submit(first, NAME, USER_ID)
+    // cleared and deleted at submit, before the run ends
+    const queued = await rowOf()
+    expect(queued.stagedPdfS3Key).toBeNull()
+    expect(queued.stagedContent).toBeNull()
+    expect(s3.delete.mock.calls.map((c) => c[0])).toEqual([oldKey])
+    await Promise.all(pending.splice(0))
+  })
+
+  it('12b. submit refuses a custom template and incomplete facts with 422, busy with 409', async () => {
+    const expectStatus = async (p: Promise<unknown>, status: number) => {
+      const err = await p.then(
+        () => undefined,
+        (e: unknown) => e,
+      )
+      expect((err as HttpException).getStatus()).toBe(status)
+    }
+    await setState({ templateSource: '#let x = 1' })
+    await expectStatus(service.submit(await rowOf(), NAME, USER_ID), 422)
+    await setState({ templateSource: null, facts: { ...FACTS, headline: '' } })
+    await expectStatus(service.submit(await rowOf(), NAME, USER_ID), 422)
+    await setState({ facts: FACTS, status: 'RUNNING' })
+    await expectStatus(service.submit(await rowOf(), NAME, USER_ID), 409)
+    expect(pending).toHaveLength(0)
+  })
+
+  it('13. after a density repair the uploaded object is the repaired render', async () => {
+    world.pagesFor = (layout) => (layout.density === 'compact' ? 2 : 3)
+    await submitAndRun()
+    const uploaded = s3.upload.mock.calls[0]?.[1] as Buffer
+    expect(decodePdf(uploaded).layout.density).toBe('compact')
+    expect(uploaded.equals(await typst.render.mock.results[1]?.value)).toBe(true)
+  })
+
+  it('14. a missing email on page 1 → FAILED ATS_CHECK_FAILED', async () => {
+    world.omitEmail = true
+    const row = await submitAndRun()
+    expect(row.verificationStatus).toBe('FAILED')
+    expect(row.verificationErrorCode).toBe('ATS_CHECK_FAILED')
+    expect(row.verificationReport?.gates.at(-1)?.items.map((i) => i.reason)).toContain(
+      'CONTACT_NOT_IN_BODY',
+    )
+  })
+
+  it.each([
+    ['the writer', () => (writerReply = () => ({ kind: 'unavailable', reason: 'TIMEOUT' }))],
+    ['entailment', () => entailment.score.mockResolvedValueOnce('unavailable')],
+    ['the ATS stage', () => (world.omitEmail = true)],
+    ['the vision check', () => (visionReplies = [{ kind: 'unavailable', reason: 'TIMEOUT' }])],
+  ])('15. a run that fails at %s uploads nothing', async (_stage, arrange) => {
+    arrange()
+    const row = await submitAndRun()
+    expect(row.verificationStatus).toBe('FAILED')
+    expect(s3.upload).not.toHaveBeenCalled()
+  })
 })
