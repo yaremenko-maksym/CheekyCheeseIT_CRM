@@ -63,6 +63,33 @@ describe('useSetJobSourceEnabled', () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: jobSourceHealthQueryKey })
   })
 
+  it('stays pending until BOTH refetches finish, so the switch never flickers back', async () => {
+    vi.mocked(api.patch).mockResolvedValue({
+      data: { id: ID, enabled: true, changed: true, cancelledRuns: 0 },
+    })
+    const { result, invalidate } = setup()
+    const release: Array<() => void> = []
+    invalidate.mockImplementation(
+      () => new Promise<void>((resolve) => release.push(resolve)) as never,
+    )
+
+    act(() => {
+      result.current.mutate({ id: ID, enabled: true })
+    })
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2))
+    expect(result.current.isPending).toBe(true)
+
+    await act(async () => {
+      release[1]?.()
+    })
+    expect(result.current.isPending).toBe(true)
+
+    await act(async () => {
+      release[0]?.()
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+  })
+
   it('refetches nothing when the server refuses the change', async () => {
     vi.mocked(api.patch).mockRejectedValue(new Error('409'))
     const { result, invalidate } = setup()

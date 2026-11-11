@@ -92,10 +92,13 @@ export function useSetJobSourceEnabled() {
       const res = await api.patch<unknown>(`/job-sourcing/sources/${id}`, { enabled })
       return jobSourceSwitchResultSchema.parse(res.data)
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: jobSourcesQueryKey })
-      void queryClient.invalidateQueries({ queryKey: jobSourceHealthQueryKey })
-    },
+    // Returned, not fire-and-forget: the mutation stays pending until both lists are refetched,
+    // so the switch never shows the old server value between the PATCH and the refetch.
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: jobSourcesQueryKey }),
+        queryClient.invalidateQueries({ queryKey: jobSourceHealthQueryKey }),
+      ]),
   })
 }
 
