@@ -49,7 +49,7 @@ export const CSS = `
   --bg:oklch(0.08 0 0); --card:oklch(0.12 0 0); --popover:oklch(0.13 0 0);
   --surface:oklch(0.16 0.006 85); --raised:oklch(0.19 0.012 85); --secondary:oklch(0.2 0 0);
   --fg:oklch(0.97 0 0); --muted-fg:oklch(0.64 0 0);
-  --border:oklch(0.22 0.004 85); --separator:oklch(0.2 0.004 85); --input-border:oklch(0.48 0.006 85);
+  --border:oklch(0.22 0.004 85); --separator:oklch(0.2 0.004 85); --input-border:oklch(0.52 0.006 85);
   --primary:oklch(0.84 0.183 85.3); --primary-fg:oklch(0.08 0 0);
   --yellow-muted:oklch(0.72 0.13 85.3); --yellow-subtle:oklch(0.22 0.04 85.3);
   --destructive:oklch(0.65 0.21 22.2); --positive:oklch(0.76 0.14 160);
@@ -146,7 +146,7 @@ html,body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-
 .input.focus{border-color:var(--primary);box-shadow:0 0 0 3px oklch(0.84 0.183 85.3 / 0.28)}
 .input.error{border-color:var(--destructive);box-shadow:0 0 0 3px oklch(0.65 0.21 22.2 / 0.22)}
 .input.disabled{opacity:0.5;border-style:dashed}
-.input .ph{color:oklch(0.55 0 0)}
+.input .ph{color:oklch(0.6 0 0)}
 .caret{display:inline-block;width:2px;height:20px;background:var(--primary);margin-left:1px;vertical-align:middle}
 .hint{font-size:13px;color:var(--muted-fg);display:flex;gap:6px;align-items:flex-start}
 .hint.err{color:var(--destructive)}
