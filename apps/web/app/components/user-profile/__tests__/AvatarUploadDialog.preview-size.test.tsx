@@ -147,3 +147,85 @@ describe('AvatarUploadDialog — iOS types and unmount (task-1316-fix2 items 6, 
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:bounded-preview')
   })
 })
+
+describe('AvatarUploadDialog — pick token and source URL lifecycle (task-1316-fix3 A2, A7)', () => {
+  const dialog = () => (
+    <AvatarUploadDialog
+      open={true}
+      onClose={() => {}}
+      userId="user-1"
+      avatarDocumentId={null}
+      avatarUrl={null}
+    />
+  )
+  const pick = (file: File = photo) =>
+    fireEvent.change(screen.getByTestId('avatar-file-input'), { target: { files: [file] } })
+  const replyFirst = () =>
+    act(async () => {
+      pendingReplies[0]!()
+      await Promise.resolve()
+    })
+
+  it('A2: close then re-pick gets a new token — the closed pick never reaches the cropper', async () => {
+    installFakePreviewWorker(photo, 'manual')
+    render(dialog(), { wrapper: I18nTestProvider })
+    pick()
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' }) // reset() cancels A
+    pick()
+    expect(pendingReplies).toHaveLength(2)
+
+    await replyFirst()
+
+    expect(screen.queryByRole('presentation')).toBeNull()
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:bounded-preview')
+  })
+
+  it('A7: unmounting with two picks in flight leaves both stale — the older one is revoked', async () => {
+    installFakePreviewWorker(photo, 'manual')
+    const { unmount } = render(dialog(), { wrapper: I18nTestProvider })
+    pick()
+    pick()
+    unmount()
+
+    await replyFirst()
+
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:bounded-preview')
+  })
+
+  it('A7: «Назад» from the crop step revokes the blob source', async () => {
+    render(dialog(), { wrapper: I18nTestProvider })
+    pick()
+    await screen.findByRole('presentation')
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Назад' }))
+
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:bounded-preview')
+    expect(screen.queryByRole('presentation')).toBeNull()
+  })
+
+  it('A7: closing from the crop step revokes the blob source', async () => {
+    render(dialog(), { wrapper: I18nTestProvider })
+    pick()
+    await screen.findByRole('presentation')
+
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:bounded-preview')
+  })
+
+  it('A7: a remote https source is never passed to revokeObjectURL', async () => {
+    const { unmount } = render(dialog(), { wrapper: I18nTestProvider })
+    fireEvent.click(screen.getByText('Посилання'))
+    fireEvent.change(screen.getByPlaceholderText('https://example.com/avatar.png'), {
+      target: { value: 'https://cdn.example.com/me.png' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Продовжити' }))
+    await screen.findByRole('presentation')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Назад' }))
+    unmount()
+
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+  })
+})

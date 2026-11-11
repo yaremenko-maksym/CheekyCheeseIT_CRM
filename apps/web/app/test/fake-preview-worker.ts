@@ -7,31 +7,39 @@
  * answer in `pendingReplies` so a test can hold a preview mid-decode;
  * `never` models a worker iOS killed under memory pressure; `error` is the
  * worker's own "decode failed" reply; `crash` fires `onerror`; `throw` makes
- * `new Worker(...)` itself throw (CSP, a missing chunk after a redeploy).
+ * `new Worker(...)` itself throw (CSP, a missing chunk after a redeploy);
+ * `small` is the "already within maxEdge" `null` reply; `cloneError` makes
+ * `postMessage` throw synchronously (a DataCloneError).
  */
 import { vi } from 'vitest'
 import type { PreviewRequest } from '@/lib/image-preview-size'
 
-export type FakeReplyMode = 'auto' | 'manual' | 'never' | 'error' | 'crash' | 'throw'
+export type FakeReplyMode =
+  'auto' | 'manual' | 'never' | 'error' | 'crash' | 'throw' | 'small' | 'cloneError'
 
 export const previewRequests: PreviewRequest[] = []
 export const pendingReplies: Array<() => void> = []
 export const workerStats = { terminated: 0 }
+/** `new Worker(url, options)` arguments, one entry per constructed worker. */
+export const workerConstructions: Array<{ url: string; options: unknown }> = []
 let replyMode: FakeReplyMode = 'auto'
 
 class FakePreviewWorker {
   onmessage: ((e: { data: unknown }) => void) | null = null
   onerror: (() => void) | null = null
-  constructor() {
+  constructor(url: URL | string, options?: unknown) {
     if (replyMode === 'throw') throw new Error('worker blocked')
+    workerConstructions.push({ url: String(url), options })
   }
   postMessage(req: PreviewRequest) {
+    if (replyMode === 'cloneError') throw new DOMException('could not clone', 'DataCloneError')
     previewRequests.push(req)
     const reply = () => this.onmessage?.({ data: new Blob(['x'], { type: 'image/jpeg' }) })
     if (replyMode === 'auto') queueMicrotask(reply)
     else if (replyMode === 'manual') pendingReplies.push(reply)
     else if (replyMode === 'error') queueMicrotask(() => this.onmessage?.({ data: 'error' }))
     else if (replyMode === 'crash') queueMicrotask(() => this.onerror?.())
+    else if (replyMode === 'small') queueMicrotask(() => this.onmessage?.({ data: null }))
   }
   terminate() {
     workerStats.terminated += 1
@@ -43,6 +51,7 @@ export function installFakePreviewWorker(original: Blob, mode: FakeReplyMode = '
   previewRequests.length = 0
   pendingReplies.length = 0
   workerStats.terminated = 0
+  workerConstructions.length = 0
   replyMode = mode
   vi.stubGlobal('Worker', FakePreviewWorker)
   vi.stubGlobal('OffscreenCanvas', class {})

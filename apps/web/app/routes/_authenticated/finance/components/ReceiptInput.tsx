@@ -28,7 +28,7 @@ import { Label } from '@/components/ui/label'
 import { UploadProgress } from '@/components/ui/upload-progress'
 import { useDocumentDownloadUrl, useUploadDocument } from '@/hooks/use-documents'
 import { useUploadProgressState } from '@/hooks/use-upload-progress-state'
-import { createImagePreviewUrl } from '@/lib/image-preview'
+import { createImagePreviewUrl, revokeBlobUrl } from '@/lib/image-preview'
 
 /** The preview box is `max-h-40` (160 CSS px); 1024 px covers a 3× retina screen. */
 const RECEIPT_PREVIEW_MAX_EDGE = 1024
@@ -144,12 +144,8 @@ export function ReceiptInput({
     setPreparing(false)
     progress.reset()
   }
-  useEffect(
-    () => () => {
-      pickRef.current += 1
-    },
-    [],
-  )
+  // Stryker disable next-line ArrayDeclaration: any constant deps list still runs the cleanup only on unmount
+  useEffect(() => cancelPick, [])
 
   // task-receipts-frontend: when explorerOnly flips true while the user has
   // a file selected, auto-normalize to an empty url-mode state — a file
@@ -157,8 +153,9 @@ export function ReceiptInput({
   // the currency switches to USDT. Narrow trigger (only `explorerOnly`, not
   // the whole `state`) mirrors the existing resolvedUrl effect above.
   useEffect(() => {
-    if (explorerOnly) cancelPick()
-    if (explorerOnly && state.mode === 'file') {
+    if (!explorerOnly) return
+    cancelPick()
+    if (state.mode === 'file') {
       if (state.previewUrl && state.previewUrl.startsWith('blob:')) {
         URL.revokeObjectURL(state.previewUrl)
       }
@@ -231,14 +228,15 @@ export function ReceiptInput({
     // through a bounded-size copy: a full-resolution phone photo in the DOM
     // froze iPhone Safari (task-ios-file-input-freeze). An empty type (iOS
     // Files / iCloud) is a candidate image too: the worker fails fast on a
-    // non-image and resolves `null`. `null` = no preview (decode failed or
-    // timed out): the upload still runs and the file name is shown.
+    // non-image and resolves `null`. `null` = no preview (decode failed, timed
+    // out, or no usable worker — never the full-size original): the upload
+    // still runs and the file name is shown.
     const localPreview =
       file.type === '' || file.type.startsWith('image/')
-        ? await createImagePreviewUrl(file, RECEIPT_PREVIEW_MAX_EDGE)
+        ? await createImagePreviewUrl(file, RECEIPT_PREVIEW_MAX_EDGE, { fallback: 'none' })
         : URL.createObjectURL(file)
     if (pick !== pickRef.current) {
-      if (localPreview) URL.revokeObjectURL(localPreview)
+      revokeBlobUrl(localPreview)
       return
     }
     setPreparing(false)
@@ -260,13 +258,13 @@ export function ReceiptInput({
       // Stale (explorerOnly flip / tab switch / clear / unmount mid-upload):
       // the newer state wins. The uploaded document stays an orphan.
       if (pick !== pickRef.current) {
-        if (localPreview) URL.revokeObjectURL(localPreview)
+        revokeBlobUrl(localPreview)
         return
       }
       progress.success()
       // Revoke the local blob — we'll use the presigned URL going forward
       // (downloadQuery is enabled for state.documentId on next render).
-      if (localPreview) URL.revokeObjectURL(localPreview)
+      revokeBlobUrl(localPreview)
       onChange({
         mode: 'file',
         documentId: doc.id,
@@ -285,11 +283,11 @@ export function ReceiptInput({
       // COPY-H-fin-3: never the raw `.message` of an unknown error — the
       // same status-based resolver the rest of finance uses.
       if (pick !== pickRef.current) {
-        if (localPreview) URL.revokeObjectURL(localPreview)
+        revokeBlobUrl(localPreview)
         return
       }
       progress.error(getApiErrorMessage(err, t`Не вдалося завантажити чек`))
-      if (localPreview) URL.revokeObjectURL(localPreview)
+      revokeBlobUrl(localPreview)
       onChange(emptyReceiptState())
     }
   }
@@ -304,7 +302,8 @@ export function ReceiptInput({
 
   // Busy covers the preview decode too, so a second pick cannot race the first.
   const uploading = uploadMutation.isPending || preparing
-  const hasFile = state.mode === 'file' && (state.documentId || state.previewUrl || state.fileName)
+  // Read only inside the file-mode branch below.
+  const hasFile = state.documentId || state.previewUrl || state.fileName
   // An untyped file (iOS Files / iCloud) may be an image; a preview the
   // browser cannot render falls back to the document block via `onError`.
   const [failedPreview, setFailedPreview] = useState<string | null>(null)

@@ -11,25 +11,38 @@
  * ~150 ms and an `<img>.decode()` + canvas `drawImage` ~80 ms, the worker ~9 ms.
  * Only the small copy reaches the DOM; the caller still uploads the original.
  *
- * Falls back to the original file's URL (the old behaviour) only when there is
- * no usable worker: the engine has no `Worker` / `OffscreenCanvas` (Safari
- * < 16.4), or `new Worker(...)` throws (CSP, a missing chunk after a redeploy).
+ * When there is no usable worker — no `OffscreenCanvas` (Safari < 16.4), no
+ * `Worker`, or `new Worker(...)` throws (CSP, a missing chunk after a
+ * redeploy) — the caller's `fallback` decides: `'original'` resolves the
+ * original file's URL (the old behaviour; the avatar cropper needs a source),
+ * `'none'` resolves `null` (the receipt shows its file name instead).
  * Resolves `null` (no preview) when the worker cannot decode the file (its
- * `'error'` reply), crashes (`onerror`), or does not answer within
- * `PREVIEW_TIMEOUT_MS` — iOS may kill it under memory pressure, and handing
- * the original file to an `<img>` there would bring the freeze back.
+ * `'error'` reply), crashes (`onerror`), cannot be posted to, or does not
+ * answer within `PREVIEW_TIMEOUT_MS` — iOS may kill it under memory pressure,
+ * and handing the original file to an `<img>` there would bring the freeze back.
  * Never rejects; settles once — a late reply after the timeout is ignored.
- * The caller owns the returned URL and must `URL.revokeObjectURL` it.
+ * The caller owns the returned URL and must release it with `revokeBlobUrl`.
  */
 import type { PreviewReply, PreviewRequest } from './image-preview-size'
 
 export const PREVIEW_TIMEOUT_MS = 10_000
 
-export function createImagePreviewUrl(file: Blob, maxEdge: number): Promise<string | null> {
+export type PreviewFallback = 'original' | 'none'
+
+/** Revokes an object URL; a remote / `data:` URL or an empty value is left alone. */
+export function revokeBlobUrl(url: string | null | undefined): void {
+  if (url?.startsWith('blob:')) URL.revokeObjectURL(url)
+}
+
+export function createImagePreviewUrl(
+  file: Blob,
+  maxEdge: number,
+  { fallback }: { fallback: PreviewFallback },
+): Promise<string | null> {
   const original = () => URL.createObjectURL(file)
-  if (typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined') {
-    return Promise.resolve(original())
-  }
+  const noWorker = () => (fallback === 'original' ? original() : null)
+  // No `Worker` needs no check of its own: `new Worker` throws into the catch below.
+  if (typeof OffscreenCanvas === 'undefined') return Promise.resolve(noWorker())
   return new Promise((resolve) => {
     let worker: Worker
     try {
@@ -37,7 +50,7 @@ export function createImagePreviewUrl(file: Blob, maxEdge: number): Promise<stri
         type: 'module',
       })
     } catch {
-      resolve(original())
+      resolve(noWorker())
       return
     }
     let settled = false
@@ -46,7 +59,13 @@ export function createImagePreviewUrl(file: Blob, maxEdge: number): Promise<stri
       settled = true
       clearTimeout(timer)
       worker.terminate()
-      resolve(url())
+      let result: string | null = null
+      try {
+        result = url()
+      } catch {
+        // URL.createObjectURL failed (out of memory): no preview.
+      }
+      resolve(result)
     }
     const timer = setTimeout(() => done(() => null), PREVIEW_TIMEOUT_MS)
     worker.onmessage = (e: MessageEvent<PreviewReply>) =>
@@ -57,6 +76,10 @@ export function createImagePreviewUrl(file: Blob, maxEdge: number): Promise<stri
       })
     worker.onerror = () => done(() => null)
     const request: PreviewRequest = { file, maxEdge }
-    worker.postMessage(request)
+    try {
+      worker.postMessage(request)
+    } catch {
+      done(() => null) // DataCloneError
+    }
   })
 }

@@ -267,3 +267,110 @@ describe('ReceiptInput — remaining races (task-1316-fix2)', () => {
     expect(screen.getByText('IMG_0004')).toBeInTheDocument()
   })
 })
+
+describe('ReceiptInput — pick lifecycle (task-1316-fix3 A1–A4, B1)', () => {
+  const fileInput = () => screen.getByTestId('receipt-input-file')
+  const pick = (file: File = photo) => fireEvent.change(fileInput(), { target: { files: [file] } })
+
+  function holdUpload() {
+    let settle!: { ok: () => void; fail: () => void }
+    post.mockReturnValue(
+      new Promise((resolve, reject) => {
+        settle = {
+          ok: () =>
+            resolve({ data: { id: 'doc-1', name: 'IMG_0001.jpg', mimeType: 'image/jpeg' } }),
+          fail: () => reject(new Error('network')),
+        }
+      }),
+    )
+    return () => settle
+  }
+
+  it('A1: a finished upload hands documentId to the form and re-enables the picker', async () => {
+    const settle = holdUpload()
+    renderHarness()
+    expect(emitted).toEqual([]) // mounting in file mode emits nothing
+    pick()
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    expect(fileInput()).toBeDisabled()
+
+    await act(async () => settle().ok())
+
+    await waitFor(() => expect(emitted.at(-1)?.documentId).toBe('doc-1'))
+    expect(emitted.at(-1)).toMatchObject({ mode: 'file', fileName: 'IMG_0001.jpg' })
+    expect(fileInput()).toBeEnabled()
+  })
+
+  it('A1: a failed upload empties the state, shows the error and re-enables the picker', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const settle = holdUpload()
+    renderHarness()
+    pick()
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+
+    await act(async () => settle().fail())
+
+    await waitFor(() => expect(emitted.at(-1)).toEqual(emptyReceiptState()))
+    expect(screen.getByTestId('receipt-input-progress-idle')).toBeInTheDocument()
+    expect(fileInput()).toBeEnabled()
+  })
+
+  it('A2: cancel then re-pick gets a new token — the cancelled decode is never applied', async () => {
+    installFakePreviewWorker(photo, 'manual')
+    const client = qc()
+    const { rerender } = render(tree(false, client))
+    const a = new File([new Uint8Array(8)], 'IMG_A.jpg', { type: 'image/jpeg' })
+    const b = new File([new Uint8Array(8)], 'IMG_B.jpg', { type: 'image/jpeg' })
+    pick(a)
+    rerender(tree(true, client)) // cancels A
+    rerender(tree(false, client))
+    fireEvent.click(screen.getByTestId('receipt-input-mode-file'))
+    pick(b)
+    expect(pendingReplies).toHaveLength(2)
+
+    await act(async () => {
+      pendingReplies[0]!() // A's decode lands after the cancel
+      await Promise.resolve()
+    })
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(emitted.some((s) => s.fileName === 'IMG_A.jpg')).toBe(false)
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('A3/A4: an unrelated rerender during the decode does not cancel the pick', async () => {
+    installFakePreviewWorker(photo, 'manual')
+    const client = qc()
+    const { rerender } = render(tree(false, client))
+    pick()
+    rerender(tree(false, client))
+    await finishDecodes()
+
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    expect(emitted.at(-1)?.fileName).toBe('IMG_0001.jpg')
+  })
+
+  it('a PDF is not decoded and shows the document block, not an <img>', async () => {
+    const pdf = new File([new Uint8Array(8)], 'act.pdf', { type: 'application/pdf' })
+    renderHarness()
+    pick(pdf)
+
+    await screen.findByText('PDF-документ')
+    expect(previewRequests).toEqual([])
+    expect(screen.queryByAltText('Прев’ю чека')).toBeNull()
+  })
+
+  it.each([
+    ['no OffscreenCanvas', () => vi.stubGlobal('OffscreenCanvas', undefined)],
+    ['a throwing Worker constructor', () => installFakePreviewWorker(photo, 'throw')],
+  ])('B1: %s — no full-size thumbnail; the name shows and the upload runs', async (_l, strip) => {
+    strip()
+    renderHarness()
+    pick()
+
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    expect(URL.createObjectURL).not.toHaveBeenCalledWith(photo)
+    expect(screen.queryByAltText('Прев’ю чека')).toBeNull()
+    expect(screen.getByText('IMG_0001.jpg')).toBeInTheDocument()
+  })
+})

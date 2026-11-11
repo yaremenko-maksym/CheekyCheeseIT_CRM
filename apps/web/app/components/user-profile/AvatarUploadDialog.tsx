@@ -34,7 +34,7 @@ import { useUploadProgressState } from '@/hooks/use-upload-progress-state'
 import { cn } from '@/lib/utils'
 import { formatBytes } from '@/lib/format-bytes'
 import { useLocale } from '@/lib/i18n'
-import { createImagePreviewUrl } from '@/lib/image-preview'
+import { createImagePreviewUrl, revokeBlobUrl } from '@/lib/image-preview'
 import { getCroppedDataUrl } from './cropImage'
 
 // task-i18n-stage3b (Task 1), Step 9 — the size the file-size check compares
@@ -118,10 +118,9 @@ export function AvatarUploadDialog({
   useEffect(
     () => () => {
       pickRef.current += 1
-      if (sourceImageRef.current?.startsWith('blob:')) {
-        URL.revokeObjectURL(sourceImageRef.current)
-      }
+      revokeBlobUrl(sourceImageRef.current)
     },
+    // Stryker disable next-line ArrayDeclaration: any constant deps list still runs the cleanup only on unmount
     [],
   )
   const updateMe = useUpdateMe()
@@ -129,7 +128,7 @@ export function AvatarUploadDialog({
   const progress = useUploadProgressState()
 
   function clearSourceImage() {
-    if (sourceImage?.startsWith('blob:')) URL.revokeObjectURL(sourceImage)
+    revokeBlobUrl(sourceImage)
     setSourceImage(null)
   }
 
@@ -177,22 +176,24 @@ export function AvatarUploadDialog({
     const pick = ++pickRef.current
     // A bounded-size copy, not the whole file as a data: URL: a full-resolution
     // phone photo in the cropper froze iPhone Safari (task-ios-file-input-freeze).
-    createImagePreviewUrl(file, CROP_SOURCE_MAX_EDGE).then((previewUrl) => {
-      if (pick !== pickRef.current) {
-        if (previewUrl) URL.revokeObjectURL(previewUrl)
-        return
-      }
-      if (!previewUrl) {
-        // Decode failed or timed out: no preview rather than the full-size file.
+    createImagePreviewUrl(file, CROP_SOURCE_MAX_EDGE, { fallback: 'original' }).then(
+      (previewUrl) => {
+        if (pick !== pickRef.current) {
+          revokeBlobUrl(previewUrl)
+          return
+        }
+        if (!previewUrl) {
+          // Decode failed or timed out: no preview rather than the full-size file.
+          progress.reset()
+          setError(t`Не вдалося прочитати файл`)
+          return
+        }
+        // The read is done — hand off to the crop step. Its own progress
+        // starts fresh at 'idle' (that step tracks the upload, not the read).
         progress.reset()
-        setError(t`Не вдалося прочитати файл`)
-        return
-      }
-      // The read is done — hand off to the crop step. Its own progress
-      // starts fresh at 'idle' (that step tracks the upload, not the read).
-      progress.reset()
-      startCrop(previewUrl)
-    })
+        startCrop(previewUrl)
+      },
+    )
   }
 
   function handleDrop(e: React.DragEvent<HTMLDivElement>) {
