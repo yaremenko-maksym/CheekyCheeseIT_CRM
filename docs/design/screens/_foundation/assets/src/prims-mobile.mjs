@@ -98,17 +98,27 @@ const detailTop = (title) =>
     title,
     bell: false,
     search: false,
-    trailing: `<span class="btn ghost" role="button" style="height:44px;padding:0 8px;font-size:17px;font-weight:500;color:var(--primary)">Редагувати</span><span class="iconbtn" role="button" aria-label="Інші дії" aria-haspopup="menu">${icon('ellipsis', { size: 22 })}</span>`,
+    trailing: detailActions,
   })
+// The detail page's trailing actions: the same pair on the phone top bar and the ≥ 900 detail pane.
+export const detailActions = `<button type="button" class="btn ghost" style="height:44px;padding:0 8px;font-size:17px;font-weight:500;color:var(--primary)">Редагувати</button><button type="button" class="iconbtn" aria-label="Інші дії" aria-haspopup="menu">${icon('ellipsis', { size: 22 })}</button>`
 const kv = (k, v, { link = false } = {}) =>
-  `<div class="lrow" ${link ? 'role="link"' : ''} style="--inset:16px;min-height:52px"><div class="t-body muted" style="flex:none">${k}</div><div class="grow t-body" style="text-align:right;overflow-wrap:anywhere">${v}</div>${link ? icon('chevron-right', { size: 18, cls: 'chev' }) : ''}</div>`
+  `<${link ? 'a href="#"' : 'div'} class="lrow" style="--inset:16px;min-height:52px"><div class="t-body muted" style="flex:none">${k}</div><div class="grow t-body" style="text-align:right;overflow-wrap:anywhere">${v}</div>${link ? icon('chevron-right', { size: 18, cls: 'chev' }) : ''}</${link ? 'a' : 'div'}>`
 
-/** Transaction detail: amount, type, parties, date, project, the receipt (tap = full-screen viewer). */
+/**
+ * The one transaction-detail body: the pushed page on a phone and the detail pane from 900 px both use
+ * it. Title, amount, one status-pill slot under the amount, one field set, the receipt.
+ */
+export function detailTxnBody() {
+  const head = `<div class="col" style="align-items:center;gap:6px;padding:8px 16px 18px;text-align:center"><div class="t-sub muted">Оренда офісу</div><div class="num" style="font-size:40px;line-height:46px;font-weight:700;letter-spacing:-0.03em;white-space:nowrap">−1 200,00 USD</div><span class="pill ok" style="height:28px;padding:0 12px;font-size:13px">${icon('check', { size: 14, stroke: 2.4 })}Оплачено</span></div>`
+  const parts = `<div class="group">${kv('Тип', 'Витрата')}${kv('Платник', 'Компанія')}${kv('Отримувач', 'ТОВ «Бізнес-центр Поділ»')}${kv('Дата', '11 листопада 2026, 14:20')}${kv('Проєкт', 'Проєкт «Альфа»', { link: true })}${kv('Створив', 'Віктор Кравець')}</div>`
+  const receipt = `<div class="sechead"><span class="t-over">Чек</span></div><div class="group"><button type="button" class="lrow" aria-label="Переглянути чек на весь екран" style="min-height:76px">${thumb(56)}<div class="grow col" style="gap:2px;min-width:0"><div class="t-body trunc">receipt-office-nov.jpg</div><div class="t-foot muted">220 КБ · торкніться, щоб збільшити</div></div><span class="muted">${icon('maximize-2', { size: 18 })}</span></button></div>`
+  return `${head}${parts}${receipt}`
+}
+
+/** Transaction detail page (phone): the top bar plus the shared body. */
 export function detailTxn(w, h) {
-  const head = `<div class="col" style="align-items:center;gap:6px;padding:8px 16px 18px;text-align:center"><div class="t-sub muted">Оренда офісу</div><div class="num" style="font-size:40px;line-height:46px;font-weight:700;letter-spacing:-0.03em;white-space:nowrap">−1 200,00 USD</div><span class="pill" style="height:28px;padding:0 12px;font-size:13px">Витрата</span></div>`
-  const parts = `<div class="group">${kv('Платник', 'Компанія')}${kv('Отримувач', 'ТОВ «Бізнес-центр Поділ»')}${kv('Дата', '11 листопада 2026, 14:20')}${kv('Проєкт', 'Проєкт «Альфа»', { link: true })}${kv('Створив', 'Віктор Кравець')}</div>`
-  const receipt = `<div class="sechead"><span class="t-over">Чек</span></div><div class="group"><div class="lrow" role="button" aria-label="Переглянути чек на весь екран" style="min-height:76px">${thumb(56)}<div class="grow col" style="gap:2px;min-width:0"><div class="t-body trunc">receipt-office-nov.jpg</div><div class="t-foot muted">220 КБ · торкніться, щоб збільшити</div></div><span class="muted">${icon('maximize-2', { size: 18 })}</span></div></div>`
-  const inner = `${detailTop('Транзакція')}<div class="content" style="padding:0 16px 24px">${head}${parts}${receipt}</div>`
+  const inner = `${detailTop('Транзакція')}<div class="content" style="padding:0 16px 24px">${detailTxnBody()}</div>`
   return phone({ w, h, inner })
 }
 
@@ -127,9 +137,9 @@ export function receiptViewer(w, h) {
 /** Person detail: avatar, name, role, team, contacts as tappable rows, the edit entry. */
 export function detailPerson(w, h) {
   const head = `<div class="col" style="align-items:center;gap:6px;padding:8px 16px 18px;text-align:center"><span style="width:72px;height:72px;border-radius:36px;background:var(--yellow-subtle);color:var(--primary);display:grid;place-items:center;font-size:26px;font-weight:700">ІМ</span><div class="t-title" style="font-weight:700">Ірина Мельник</div><div class="t-foot muted">Junior · Команда «Альфа»</div></div>`
-  const contact = (ic, v, label) =>
-    `<div class="lrow" role="link" aria-label="${label}" style="--inset:52px;min-height:56px"><span style="color:var(--primary);flex:none">${icon(ic, { size: 20 })}</span><div class="grow t-body trunc">${v}</div>${icon('chevron-right', { size: 18, cls: 'chev' })}</div>`
-  const contacts = `<div class="sechead"><span class="t-over">Контакти</span></div><div class="group">${contact('phone', '+380 67 000 00 00', 'Подзвонити: +380 67 000 00 00')}${contact('mail', 'iryna.melnyk@example.com', 'Написати: iryna.melnyk@example.com')}${contact('send', '@iryna_m', 'Telegram: @iryna_m')}</div>`
+  const contact = (ic, v, label, href) =>
+    `<a class="lrow" href="${href}" aria-label="${label}" style="--inset:52px;min-height:56px"><span style="color:var(--primary);flex:none">${icon(ic, { size: 20 })}</span><div class="grow t-body trunc">${v}</div>${icon('chevron-right', { size: 18, cls: 'chev' })}</a>`
+  const contacts = `<div class="sechead"><span class="t-over">Контакти</span></div><div class="group">${contact('phone', '+380 67 000 00 00', 'Подзвонити: +380 67 000 00 00', 'tel:+380670000000')}${contact('mail', 'iryna.melnyk@example.com', 'Написати: iryna.melnyk@example.com', 'mailto:iryna.melnyk@example.com')}${contact('send', '@iryna_m', 'Telegram: @iryna_m', 'https://t.me/iryna_m')}</div>`
   const work = `<div class="sechead"><span class="t-over">Робота</span></div><div class="group">${kv('Роль', 'Junior')}${kv('Команда', '«Альфа»', { link: true })}${kv('Проєкти', '3', { link: true })}</div>`
   const inner = `${detailTop('Профіль')}<div class="content" style="padding:0 16px 24px">${head}${contacts}${work}</div>`
   return phone({ w, h, inner })

@@ -113,6 +113,7 @@ html,body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-
 .group{margin:0 16px;background:var(--card);border:1px solid var(--border);border-radius:var(--r-xl);overflow:hidden}
 .sechead{display:flex;align-items:flex-end;justify-content:space-between;padding:20px 20px 8px}
 .sechead.sticky{position:sticky;top:0;background:oklch(0.08 0 0 / 0.92);backdrop-filter:blur(12px);padding:8px 20px;z-index:5}
+:where(button,a).lrow{appearance:none;margin:0;border:0;background:none;font:inherit;color:inherit;text-decoration:none;width:100%;text-align:inherit;cursor:pointer}
 .lrow{display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 16px;position:relative;-webkit-touch-callout:none}
 .lrow.two{min-height:64px}
 .lrow + .lrow::before{content:'';position:absolute;top:0;left:var(--inset,16px);right:0;height:1px;background:var(--separator)}

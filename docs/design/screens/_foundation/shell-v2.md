@@ -159,6 +159,14 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   highlight); list + detail side by side only from **≥ 900** (`tablet-two-pane-1000`: rail 80, list
   360, detail 560 at 1000, the selected row `bg-raised` + `aria-current`). Touch heights (inputs 48, buttons 44): density follows `(pointer: coarse)`,
   not width.
+- **The detail pane at ≥ 900 is the pushed detail page body**, not a second layout: the same
+  component renders both (`primitives-v2/detail-txn-375` and the right pane of
+  `tablet-two-pane-1000`). One field set (Тип, Платник, Отримувач, Дата, Проєкт, Створив) and **one
+  status-pill slot under the amount** («Оплачено», «Очікує», …); the type is a field, never a second
+  pill. The pane keeps the page's top bar without the back button: title «Транзакція» + «Редагувати» +
+  «Інші дії». Under 900 the same body is pushed as a page.
+- **The list pane scrolls as one block** (search, chips, section heads and group cards in one
+  scroller): a group card never shrinks to the pane height and never clips its last row.
 
 ---
 
@@ -225,7 +233,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 | `state-impersonation-375.png`        |   375 | Impersonation banner                                  |
 | `tablet-rail-768.png`                |   768 | Rail with every destination, one pane                 |
 | `tablet-rail-more-768.png`           |   768 | 768 × 700 window: overflow «Ще» popover               |
-| `tablet-two-pane-1000.png`           |  1000 | ≥ 900: rail 80 · list 360 · detail 560                |
+| `tablet-two-pane-1000.png`           |  1000 | ≥ 900: rail 80 · list 360 · detail 560 (detail body)  |
 | `desktop-sidebar-1024.png`           |  1024 | Sidebar + header + dense table                        |
 | `desktop-sidebar-collapsed-1024.png` |  1024 | Collapsed rail with tooltip                           |
 | `desktop-sidebar-1440.png`           |  1440 | Wide: extra column, selected-row bar                  |

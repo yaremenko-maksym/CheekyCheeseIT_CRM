@@ -2,6 +2,7 @@
 import { icon } from './base.mjs'
 import { DEST, TABS, GROUPS, allowed } from './nav.mjs'
 import { TXNS, txnRow, searchField, chips } from './mobile.mjs'
+import { detailTxnBody, detailActions } from './prims-mobile.mjs'
 
 export const brandMark = (s = 32) =>
   `<div aria-label="Cheeky Cheese CRM" style="width:${s}px;height:${s}px;border-radius:${Math.round(s * 0.28)}px;background:var(--primary);display:grid;place-items:center;flex:none"><svg width="${s * 0.56}" height="${s * 0.56}" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6l9 6-9 6z" fill="oklch(0.08 0 0)"/><rect x="15" y="15" width="5" height="3" rx="1" fill="oklch(0.08 0 0)"/></svg></div>`
@@ -38,18 +39,11 @@ function rail(role, active, h) {
   <div style="flex:1"></div><div class="lead av" style="width:40px;height:40px;border-radius:20px;display:grid;place-items:center;background:var(--yellow-subtle);color:var(--primary);font-size:14px;font-weight:600">ВК</div></nav>`
 }
 
+// ≥ 900 the detail pane IS the pushed detail page body (one anatomy): the phone top bar without back.
 function detailPane() {
-  const f = (k, v) =>
-    `<div class="lrow"><div class="muted t-sub" style="flex:none">${k}</div><div class="grow t-sub trunc" style="text-align:right">${v}</div></div>`
-  return `<section aria-label="Деталі транзакції" class="grow col" style="background:var(--bg)">
-  <div class="row" style="height:56px;padding:0 16px;gap:8px;border-bottom:1px solid var(--border)"><div class="grow t-foot muted">Транзакція</div>
-  <span class="btn sm secondary">${icon('pencil', { size: 15 })}Редагувати</span><span class="iconbtn" aria-label="Ще дії">${icon('ellipsis', { size: 20 })}</span></div>
-  <div style="padding:24px 24px 8px"><div class="t-title">Оренда офісу</div><div class="t-foot muted" style="margin-top:2px">Витрата · сьогодні, 14:20</div><div class="num" style="font-size:40px;line-height:48px;font-weight:700;letter-spacing:-0.03em;margin-top:4px">−1 200,00 USD</div>
-  <div class="row" style="gap:8px;margin-top:10px"><span class="pill ok">${icon('check', { size: 13, stroke: 2.4 })}Оплачено</span><span class="pill">Проєкт «Альфа»</span></div></div>
-  <div class="sechead"><span class="t-over">Подробиці</span></div>
-  <div class="group" style="margin:0 20px">${f('Тип', 'Витрата')}${f('Проєкт', 'Проєкт «Альфа»')}${f('Контрагент', 'Офісний центр «Сигма»')}${f('Дата', '11 листопада 2026')}${f('Додав', 'Віктор Кравець')}</div>
-  <div class="sechead"><span class="t-over">Чек</span></div>
-  <div style="margin:0 24px" class="row"><div style="width:120px;height:150px;border-radius:12px;background:linear-gradient(170deg,oklch(0.9 0 0),oklch(0.74 0 0));outline:1px solid oklch(1 0 0 / 0.1);outline-offset:-1px;padding:14px;display:grid;gap:7px;align-content:start">${'<i style="height:4px;background:oklch(0.5 0 0);border-radius:2px"></i>'.repeat(8)}</div></div></section>`
+  return `<section aria-label="Деталі транзакції" class="grow col" style="background:var(--bg);min-width:0">
+  <div class="row" style="height:56px;padding:0 8px 0 20px;gap:4px;border-bottom:1px solid var(--border);flex:none"><div class="grow t-head">Транзакція</div>${detailActions}</div>
+  <div style="flex:1;min-height:0;overflow:hidden;padding:12px 8px 24px">${detailTxnBody()}</div></section>`
 }
 
 function morePanel(role, h) {
@@ -94,7 +88,7 @@ export function tablet({
     listPane ||
     `<section aria-label="Транзакції" class="col" style="width:360px;flex:none;border-right:1px solid var(--border)">
   <div class="row" style="height:56px;padding:0 8px 0 16px"><div class="grow t-title">Фінанси</div><span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></span></div>
-  ${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾'])}
+  <div style="flex:1;min-height:0;overflow:hidden">${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾'])}
   <div class="sechead"><span class="t-over">Сьогодні</span></div>
   <div class="group" style="margin:0 12px">${TXNS.slice(0, 3)
     .map((x, i) =>
@@ -116,7 +110,7 @@ export function tablet({
     6,
   )
     .map((x) => txnRow(x))
-    .join('')}</div></section>`
+    .join('')}</div></div></section>`
   const listHtml = twoPane
     ? list
     : list.replace('style="width:360px;flex:none;', 'style="flex:1;min-width:0;')

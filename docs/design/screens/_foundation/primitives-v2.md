@@ -123,9 +123,11 @@ row with a detail opens the same menu as a shortcut, never the only path. Rows s
 the home of that row's swipe actions. Inline title + back; on the right a 44 px text button
 «Редагувати» (the edit entry) and a 44 px «…» (`aria-label` «Інші дії», `aria-haspopup="menu"`) for the
 rest (delete asks with the action sheet). **Transaction:** the description, the amount 40/46 700
-`tabular-nums` (never truncated), the type pill, then a key-value group (Платник, Отримувач, Дата,
-Проєкт as a link row, Створив; long values wrap, they do not truncate), then «Чек»: a 56 px thumbnail
-row («торкніться, щоб збільшити», `aria-label` «Переглянути чек на весь екран»). A link receipt is the
+`tabular-nums` (never truncated), **one status-pill slot** under it («Оплачено» here), then one
+key-value group (Тип, Платник, Отримувач, Дата, Проєкт as a link row `<a>`, Створив; long values wrap,
+they do not truncate), then «Чек»: a 56 px thumbnail row, a real `<button>` («торкніться, щоб
+збільшити», `aria-label` «Переглянути чек на весь екран»). This body is the one detail anatomy: the
+≥ 900 detail pane renders the same component (`shell-v2.md` §3). A link receipt is the
 same row with the host name and opens in the browser. The tap opens the **full-screen viewer**
 (`detail-txn-receipt-375`): a `role="dialog"` on black, the file name, a 44 px ✕ «Закрити» top-left,
 pinch and double-tap to zoom, Esc and a swipe down also close, focus returns to the thumbnail.
