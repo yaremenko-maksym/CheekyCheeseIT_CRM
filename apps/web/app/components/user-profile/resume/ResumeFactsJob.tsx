@@ -6,7 +6,7 @@
 import { useId, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { RESUME_LIMITS, type ResumeFactsExperience } from '@crm/shared'
+import { RESUME_LIMITS, type CompletenessCode, type ResumeFactsExperience } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,7 +15,27 @@ import { Switch } from '@/components/ui/switch'
 import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import { factsFieldId } from './ResumeCompletenessPanel'
+import { COMPLETENESS_MESSAGES, factsFieldId } from './ResumeCompletenessPanel'
+
+/** The error line under one field; shown once the field was touched. */
+export function FieldError({
+  field,
+  errors,
+  touched,
+}: {
+  field: string
+  errors: ReadonlyMap<string, CompletenessCode[]>
+  touched: ReadonlySet<string>
+}) {
+  const { i18n } = useLingui()
+  const codes = errors.get(field)
+  if (!touched.has(field) || !codes) return null
+  return (
+    <p id={`${factsFieldId(field)}-error`} className="text-xs text-destructive">
+      {codes.map((code) => i18n._(COMPLETENESS_MESSAGES[code])).join(' ')}
+    </p>
+  )
+}
 
 export type A11y = (
   field: string,
@@ -33,7 +53,7 @@ export function JobBlock({
   count,
   nowMonth,
   a11y,
-  FieldError,
+  fieldError,
   onPatch,
   onMove,
   onRemove,
@@ -43,7 +63,7 @@ export function JobBlock({
   count: number
   nowMonth: string
   a11y: A11y
-  FieldError: (props: { field: string }) => ReactNode
+  fieldError: (field: string) => ReactNode
   onPatch: (changes: Partial<ResumeFactsExperience>) => void
   onMove: (to: number) => void
   onRemove: () => void
@@ -55,6 +75,7 @@ export function JobBlock({
   const currentId = useId()
   const startA11y = a11y(`${base}.start`)
   const endA11y = a11y(`${base}.end`)
+  const techA11y = a11y(`${base}.technologies`)
 
   return (
     <div className="space-y-3 rounded-lg border p-3" data-testid={`resume-facts-job-${index}`}>
@@ -96,7 +117,7 @@ export function JobBlock({
             onChange={(e) => onPatch({ company: e.target.value })}
             name="resumeFactsCompany"
           />
-          <FieldError field={`${base}.company`} />
+          {fieldError(`${base}.company`)}
         </div>
         <div className="space-y-1.5">
           <Label htmlFor={factsFieldId(`${base}.role`)}>
@@ -110,7 +131,7 @@ export function JobBlock({
             onChange={(e) => onPatch({ role: e.target.value })}
             name="resumeFactsRole"
           />
-          <FieldError field={`${base}.role`} />
+          {fieldError(`${base}.role`)}
         </div>
         <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor={factsFieldId(`${base}.location`)}>
@@ -124,9 +145,9 @@ export function JobBlock({
             onChange={(e) => onPatch({ location: e.target.value === '' ? null : e.target.value })}
             name="resumeFactsJobLocation"
           />
-          <FieldError field={`${base}.location`} />
+          {fieldError(`${base}.location`)}
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" onBlur={startA11y.onBlur}>
           <Label htmlFor={startA11y.id}>
             <Trans>Початок</Trans>
           </Label>
@@ -141,9 +162,9 @@ export function JobBlock({
             monthAriaLabel={t`Місяць початку, місце роботи ${position}`}
             yearAriaLabel={t`Рік початку, місце роботи ${position}`}
           />
-          <FieldError field={`${base}.start`} />
+          {fieldError(`${base}.start`)}
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5" onBlur={endA11y.onBlur}>
           <Label htmlFor={endA11y.id}>
             <Trans>Кінець</Trans>
           </Label>
@@ -159,7 +180,7 @@ export function JobBlock({
             monthAriaLabel={t`Місяць завершення, місце роботи ${position}`}
             yearAriaLabel={t`Рік завершення, місце роботи ${position}`}
           />
-          <FieldError field={`${base}.end`} />
+          {fieldError(`${base}.end`)}
         </div>
       </div>
 
@@ -176,20 +197,19 @@ export function JobBlock({
 
       <div className="space-y-1.5" id={factsFieldId(`${base}.technologies`)}>
         <p className="text-sm font-medium">
-          <Trans>Технології</Trans>
+          <Trans context="resume">Технології</Trans>
         </p>
         <TechAutocompleteInput
           value={job.technologies}
           onChange={(technologies) => onPatch({ technologies })}
           maxItems={RESUME_LIMITS.skills}
+          onBlur={techA11y.onBlur}
           placeholder={t`Технології, місце роботи ${position}`}
           errorId={
-            a11y(`${base}.technologies`)['aria-invalid']
-              ? `${factsFieldId(`${base}.technologies`)}-error`
-              : undefined
+            techA11y['aria-invalid'] ? `${factsFieldId(`${base}.technologies`)}-error` : undefined
           }
         />
-        <FieldError field={`${base}.technologies`} />
+        {fieldError(`${base}.technologies`)}
       </div>
 
       <div className="space-y-1.5">
@@ -209,7 +229,7 @@ export function JobBlock({
           name="resumeFactsNotes"
           data-testid={`resume-facts-notes-${index}`}
         />
-        <FieldError field={`${base}.notes`} />
+        {fieldError(`${base}.notes`)}
       </div>
     </div>
   )

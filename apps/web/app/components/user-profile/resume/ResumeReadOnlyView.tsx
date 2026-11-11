@@ -85,7 +85,7 @@ export function ResumeReadOnlyView({ content }: { content: ResumeContent }) {
         )}
       </Section>
 
-      <Section id="links" title={t`Посилання`}>
+      <Section id="links" title={t({ message: 'Посилання', context: 'resume' })}>
         {content.links.length > 0 ? (
           <ul className="space-y-1.5 text-sm" data-testid="resume-links-view">
             {content.links.map((item, i) => (

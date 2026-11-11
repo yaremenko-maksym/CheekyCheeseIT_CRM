@@ -11,7 +11,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLingui } from '@lingui/react/macro'
 import type {
-  ResumeContent,
   ResumeFacts,
   ResumeLayoutOptions,
   SeniorResumeResponse,
@@ -154,26 +153,6 @@ export function useSaveResumeLayout(userId: string) {
       qc.setQueryData(resumeQueryKey(userId), data)
       void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
       toast.success(t`Оформлення оновлено`)
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-}
-
-export function useSaveResumeContent(userId: string) {
-  const qc = useQueryClient()
-  const { t } = useLingui()
-  return useMutation({
-    mutationKey: ['save-senior-resume', userId],
-    mutationFn: (content: ResumeContent) =>
-      api
-        .put<SeniorResumeResponse>(`/users/${userId}/resume`, { content })
-        .then((r) => r.data),
-    onSuccess: (data) => {
-      // Write the server's answer straight into the cache so `version` and
-      // `updatedBy` are correct immediately, then revalidate.
-      qc.setQueryData(resumeQueryKey(userId), data)
-      void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
-      toast.success(t`Резюме збережено`)
     },
     onError: (e: Error) => toast.error(e.message),
   })

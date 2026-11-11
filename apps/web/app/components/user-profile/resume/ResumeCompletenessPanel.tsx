@@ -64,7 +64,7 @@ export function useIssueLabel(): (path: string) => string {
     experience: t`Досвід роботи`,
     education: t`Освіта`,
     languages: t`Мови`,
-    links: t`Посилання`,
+    links: t({ message: 'Посилання', context: 'resume' }),
     summary: t`Про себе`,
     displayName: t`Ім’я в профілі`,
     email: t`Email у профілі`,
@@ -77,7 +77,7 @@ export function useIssueLabel(): (path: string) => string {
     end: t`Кінець`,
     period: t`Період`,
     notes: t`Нотатки`,
-    technologies: t`Технології`,
+    technologies: t({ message: 'Технології', context: 'resume' }),
     bullets: t`Пункти`,
   }
   const educationFields: Record<string, string> = {
@@ -280,7 +280,7 @@ export function ResumeCompletenessPanel({
           {pending === 'save' && (
             <Loader2 className="mr-2 size-4 animate-spin motion-reduce:animate-none" aria-hidden />
           )}
-          <Trans>Зберегти чернетку</Trans>
+          <Trans context="resume">Зберегти чернетку</Trans>
         </Button>
       </div>
     </section>

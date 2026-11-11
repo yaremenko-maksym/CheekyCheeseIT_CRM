@@ -39,13 +39,8 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import {
-  COMPLETENESS_MESSAGES,
-  ResumeCompletenessPanel,
-  factsFieldId,
-  issueFieldPath,
-} from './ResumeCompletenessPanel'
-import { IconButton, JobBlock, RowBlock } from './ResumeFactsJob'
+import { ResumeCompletenessPanel, factsFieldId, issueFieldPath } from './ResumeCompletenessPanel'
+import { FieldError, IconButton, JobBlock, RowBlock } from './ResumeFactsJob'
 
 /** Pure move helper — exported so the reorder rule is unit-testable. */
 export function moveItem<T>(items: readonly T[], from: number, to: number): T[] {
@@ -110,15 +105,21 @@ export function ResumeFactsForm({
   onDirtyChange,
   now,
 }: ResumeFactsFormProps) {
-  const { t, i18n } = useLingui()
+  const { t } = useLingui()
   const [draft, setDraft] = useState(facts)
   const [baseline, setBaseline] = useState(facts)
   const [touched, setTouched] = useState<ReadonlySet<string>>(new Set())
   const [pending, setPending] = useState<'save' | 'submit' | null>(null)
+  /** The server facts moved while the draft had unsaved edits (e.g. an extraction landed). */
+  const [serverChanged, setServerChanged] = useState(false)
 
   // A new server value replaces the draft only when nothing unsaved is in it.
+  // Otherwise the draft stays and the user is told the saved version moved.
   if (facts !== baseline) {
-    if (same(cleanFacts(draft), cleanFacts(baseline))) setDraft(facts)
+    const draftClean = same(cleanFacts(draft), cleanFacts(baseline))
+    if (draftClean) setDraft(facts)
+    if (draftClean || same(cleanFacts(draft), cleanFacts(facts))) setServerChanged(false)
+    else if (!same(cleanFacts(facts), cleanFacts(baseline))) setServerChanged(true)
     setBaseline(facts)
   }
 
@@ -160,15 +161,9 @@ export function ResumeFactsForm({
     }
   }
 
-  function FieldError({ field }: { field: string }) {
-    const codes = errorsByField.get(field)
-    if (!touched.has(field) || !codes) return null
-    return (
-      <p id={`${factsFieldId(field)}-error`} className="text-xs text-destructive">
-        {codes.map((code) => i18n._(COMPLETENESS_MESSAGES[code])).join(' ')}
-      </p>
-    )
-  }
+  const fieldError = (field: string) => (
+    <FieldError field={field} errors={errorsByField} touched={touched} />
+  )
 
   function focusPath(path: string) {
     const field = issueFieldPath(path)
@@ -243,6 +238,30 @@ export function ResumeFactsForm({
           <Trans>Факти резюме</Trans>
         </legend>
 
+        {serverChanged && (
+          <div
+            role="status"
+            className="flex flex-col gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
+            data-testid="resume-facts-server-changed"
+          >
+            <span>
+              <Trans>Збережена версія змінилася.</Trans>
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-11 sm:h-9"
+              onClick={() => {
+                setDraft(baseline)
+                setServerChanged(false)
+              }}
+            >
+              <Trans>Завантажити збережену</Trans>
+            </Button>
+          </div>
+        )}
+
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">
@@ -261,7 +280,7 @@ export function ResumeFactsForm({
                 onChange={(e) => patch({ headline: e.target.value })}
                 name="resumeFactsHeadline"
               />
-              <FieldError field="headline" />
+              {fieldError('headline')}
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
@@ -275,7 +294,7 @@ export function ResumeFactsForm({
                   onChange={(e) => patch({ location: { ...draft.location, city: e.target.value } })}
                   name="resumeFactsCity"
                 />
-                <FieldError field="location.city" />
+                {fieldError('location.city')}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor={factsFieldId('location.country')}>
@@ -290,7 +309,7 @@ export function ResumeFactsForm({
                   }
                   name="resumeFactsCountry"
                 />
-                <FieldError field="location.country" />
+                {fieldError('location.country')}
               </div>
             </div>
             <div className="space-y-1.5 sm:w-1/2 sm:pr-1.5">
@@ -344,7 +363,7 @@ export function ResumeFactsForm({
               onChange={(e) => patch({ skills: lines(e.target.value) })}
               data-testid="resume-facts-skills"
             />
-            <FieldError field="skills" />
+            {fieldError('skills')}
           </CardContent>
         </Card>
 
@@ -368,7 +387,7 @@ export function ResumeFactsForm({
             </Button>
           </CardHeader>
           <CardContent className="space-y-3">
-            <FieldError field="experience.add" />
+            {fieldError('experience.add')}
             {draft.experience.map((job, index) => (
               <JobBlock
                 key={index}
@@ -377,7 +396,7 @@ export function ResumeFactsForm({
                 count={draft.experience.length}
                 nowMonth={nowMonth}
                 a11y={a11y}
-                FieldError={FieldError}
+                fieldError={fieldError}
                 onPatch={(changes) => patchJob(index, changes)}
                 onMove={(to) => patch({ experience: moveItem(draft.experience, index, to) })}
                 onRemove={() =>
@@ -434,52 +453,68 @@ export function ResumeFactsForm({
                     }
                   >
                     <div className="grid gap-3 sm:grid-cols-2">
-                      <Input
-                        {...a11y(`${base}.institution`)}
-                        aria-label={t`Навчальний заклад, освіта ${position}`}
-                        placeholder={t`Навчальний заклад`}
-                        value={item.institution}
-                        maxLength={RESUME_LIMITS.shortText}
-                        onChange={(e) => set({ institution: e.target.value })}
-                        name="resumeFactsInstitution"
-                      />
-                      <Input
-                        {...a11y(`${base}.degree`)}
-                        aria-label={t`Ступінь / спеціальність, освіта ${position}`}
-                        placeholder={t`Ступінь / спеціальність`}
-                        value={item.degree}
-                        maxLength={RESUME_LIMITS.shortText}
-                        onChange={(e) => set({ degree: e.target.value })}
-                        name="resumeFactsDegree"
-                      />
-                      <Input
-                        {...a11y(`${base}.startYear`)}
-                        type="number"
-                        inputMode="numeric"
-                        min={1950}
-                        max={2100}
-                        aria-label={t`Рік початку, освіта ${position}`}
-                        placeholder={t`Рік початку`}
-                        value={item.startYear ?? ''}
-                        onChange={(e) => set({ startYear: year(e.target.value) })}
-                        name="resumeFactsEducationStartYear"
-                      />
-                      <Input
-                        {...a11y(`${base}.endYear`)}
-                        type="number"
-                        inputMode="numeric"
-                        min={1950}
-                        max={2100}
-                        aria-label={t`Рік завершення, освіта ${position}`}
-                        placeholder={t`Рік завершення`}
-                        value={item.endYear ?? ''}
-                        onChange={(e) => set({ endYear: year(e.target.value) })}
-                        name="resumeFactsEducationEndYear"
-                      />
+                      <div className="space-y-1.5">
+                        <Label htmlFor={factsFieldId(`${base}.institution`)}>
+                          <Trans>Навчальний заклад</Trans>
+                        </Label>
+                        <Input
+                          {...a11y(`${base}.institution`)}
+                          aria-label={t`Навчальний заклад, освіта ${position}`}
+                          value={item.institution}
+                          maxLength={RESUME_LIMITS.shortText}
+                          onChange={(e) => set({ institution: e.target.value })}
+                          name="resumeFactsInstitution"
+                        />
+                        {fieldError(`${base}.institution`)}
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor={factsFieldId(`${base}.degree`)}>
+                          <Trans>Ступінь / спеціальність</Trans>
+                        </Label>
+                        <Input
+                          {...a11y(`${base}.degree`)}
+                          aria-label={t`Ступінь / спеціальність, освіта ${position}`}
+                          value={item.degree}
+                          maxLength={RESUME_LIMITS.shortText}
+                          onChange={(e) => set({ degree: e.target.value })}
+                          name="resumeFactsDegree"
+                        />
+                        {fieldError(`${base}.degree`)}
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor={factsFieldId(`${base}.startYear`)}>
+                          <Trans>Рік початку</Trans>
+                        </Label>
+                        <Input
+                          {...a11y(`${base}.startYear`)}
+                          type="number"
+                          inputMode="numeric"
+                          min={1950}
+                          max={2100}
+                          aria-label={t`Рік початку, освіта ${position}`}
+                          value={item.startYear ?? ''}
+                          onChange={(e) => set({ startYear: year(e.target.value) })}
+                          name="resumeFactsEducationStartYear"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor={factsFieldId(`${base}.endYear`)}>
+                          <Trans>Рік завершення</Trans>
+                        </Label>
+                        <Input
+                          {...a11y(`${base}.endYear`)}
+                          type="number"
+                          inputMode="numeric"
+                          min={1950}
+                          max={2100}
+                          aria-label={t`Рік завершення, освіта ${position}`}
+                          value={item.endYear ?? ''}
+                          onChange={(e) => set({ endYear: year(e.target.value) })}
+                          name="resumeFactsEducationEndYear"
+                        />
+                        {fieldError(`${base}.endYear`)}
+                      </div>
                     </div>
-                    <FieldError field={`${base}.institution`} />
-                    <FieldError field={`${base}.degree`} />
-                    <FieldError field={`${base}.endYear`} />
                   </RowBlock>
                 )
               })}
@@ -507,7 +542,7 @@ export function ResumeFactsForm({
             </Button>
           </CardHeader>
           <CardContent className="space-y-3">
-            <FieldError field="languages.add" />
+            {fieldError('languages.add')}
             {draft.languages.map((language, index) => {
               const position = index + 1
               const set = (changes: Partial<typeof language>) =>
@@ -520,38 +555,46 @@ export function ResumeFactsForm({
                 <div key={index} className="flex items-start gap-2">
                   <div className="grid flex-1 gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5">
+                      <Label htmlFor={factsFieldId(`languages.${index}.name`)}>
+                        <Trans>Мова</Trans>
+                      </Label>
                       <Input
                         {...a11y(`languages.${index}.name`)}
                         aria-label={t`Мова, рядок ${position}`}
-                        placeholder={t`Мова`}
                         value={language.name}
                         maxLength={RESUME_LIMITS.shortText}
                         onChange={(e) => set({ name: e.target.value })}
                         name="resumeFactsLanguage"
                       />
-                      <FieldError field={`languages.${index}.name`} />
+                      {fieldError(`languages.${index}.name`)}
                     </div>
-                    <Select
-                      value={language.level}
-                      onValueChange={(level) =>
-                        set({ level: level as (typeof RESUME_LANGUAGE_LEVELS)[number] })
-                      }
-                      disabled={disabled}
-                    >
-                      <SelectTrigger
-                        aria-label={t`Рівень, рядок ${position}`}
-                        className="h-11 sm:h-9"
+                    <div className="space-y-1.5">
+                      <Label htmlFor={factsFieldId(`languages.${index}.level`)}>
+                        <Trans>Рівень</Trans>
+                      </Label>
+                      <Select
+                        value={language.level}
+                        onValueChange={(level) =>
+                          set({ level: level as (typeof RESUME_LANGUAGE_LEVELS)[number] })
+                        }
+                        disabled={disabled}
                       >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {RESUME_LANGUAGE_LEVELS.map((level) => (
-                          <SelectItem key={level} value={level}>
-                            {level === 'native' ? t`Рідна` : level}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                        <SelectTrigger
+                          id={factsFieldId(`languages.${index}.level`)}
+                          aria-label={t`Рівень, рядок ${position}`}
+                          className="h-11 sm:h-9"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {RESUME_LANGUAGE_LEVELS.map((level) => (
+                            <SelectItem key={level} value={level}>
+                              {level === 'native' ? t`Рідна` : level}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   <IconButton
                     label={t`Видалити мову ${position}`}
@@ -571,7 +614,7 @@ export function ResumeFactsForm({
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
             <CardTitle className="text-base">
-              <Trans>Посилання</Trans>
+              <Trans context="resume">Посилання</Trans>
             </CardTitle>
             <Button
               type="button"
@@ -596,25 +639,38 @@ export function ResumeFactsForm({
                 return (
                   <div key={index} className="flex items-start gap-2">
                     <div className="grid flex-1 gap-3 sm:grid-cols-2">
-                      <Input
-                        aria-label={t`Назва посилання, рядок ${position}`}
-                        placeholder={t`Назва`}
-                        value={link.label}
-                        maxLength={RESUME_LIMITS.shortText}
-                        onChange={(e) => set({ label: e.target.value })}
-                        name="resumeFactsLinkLabel"
-                      />
-                      <Input
-                        type="url"
-                        aria-label={t`Посилання, рядок ${position}`}
-                        placeholder={t`https://… або mailto:…`}
-                        value={link.url}
-                        onChange={(e) => set({ url: e.target.value })}
-                        name="resumeFactsLinkUrl"
-                        autoCapitalize="off"
-                        autoCorrect="off"
-                        spellCheck={false}
-                      />
+                      <div className="space-y-1.5">
+                        <Label htmlFor={factsFieldId(`links.${index}.label`)}>
+                          <Trans>Назва</Trans>
+                        </Label>
+                        <Input
+                          {...a11y(`links.${index}.label`)}
+                          aria-label={t`Назва посилання, рядок ${position}`}
+                          value={link.label}
+                          maxLength={RESUME_LIMITS.shortText}
+                          onChange={(e) => set({ label: e.target.value })}
+                          name="resumeFactsLinkLabel"
+                        />
+                        {fieldError(`links.${index}.label`)}
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor={factsFieldId(`links.${index}.url`)}>
+                          <Trans>Адреса посилання</Trans>
+                        </Label>
+                        <Input
+                          {...a11y(`links.${index}.url`)}
+                          type="url"
+                          aria-label={t`Посилання, рядок ${position}`}
+                          placeholder={t`https://… або mailto:…`}
+                          value={link.url}
+                          onChange={(e) => set({ url: e.target.value })}
+                          name="resumeFactsLinkUrl"
+                          autoCapitalize="off"
+                          autoCorrect="off"
+                          spellCheck={false}
+                        />
+                        {fieldError(`links.${index}.url`)}
+                      </div>
                     </div>
                     <IconButton
                       label={t`Видалити посилання ${position}`}
