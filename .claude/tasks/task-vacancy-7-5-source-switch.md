@@ -133,6 +133,11 @@ Master A1 decisions (PR #1312 round 3 fix round; carried verbatim into the PR bo
   `JOB_SOURCE_NOT_READY`; any other error shows the generic user-facing message.
 - A1 (Master, UX-04 / QA-MED-1): the switch stays focusable while the request is in flight (`aria-disabled`, no native
   `disabled`); the existing in-flight guard still blocks a second send.
+- A1 (Coder, UX-01): "has a meter" means the meter draws a bar (`meter.limit` > 0); a meter without a limit keeps the
+  budget-state row.
+- A1 (Coder, UX-07): the collapsed summary stacks under the title at every width, as in the 1440 reference PNG.
+- A1 (Coder, UX-03): the disabled note stays a plain muted line per design §7, although the PNG draws a box.
+- A1 (Coder, UX-06): the source icon is the generic `Globe`, as in the reference PNGs.
 - A1 (Master, UX-05): the off-state switch contrast (≥ 3:1, SC 1.4.11) is fixed locally in `SourceSwitchCard`; the shared
   `Switch` primitive is not changed in this PR.
 
