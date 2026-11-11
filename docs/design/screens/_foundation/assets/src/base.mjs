@@ -96,7 +96,7 @@ html,body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-
 .tabbar .tabs{display:grid;grid-template-columns:repeat(5,1fr);height:50px}
 .tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--muted-fg);font-size:10.5px;line-height:13px;font-weight:500;letter-spacing:-0.01em;min-width:0;position:relative}
 .tab span{max-width:100%;padding:0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tab.on{color:var(--fg)} .tab.on .ic{color:var(--primary)}
+.tab.on{color:var(--fg);font-weight:650} .tab.on .ic{color:var(--primary)}
 .tab .badge{position:absolute;top:3px;left:calc(50% + 6px);min-width:17px;height:17px;padding:0 5px;border-radius:9px;background:var(--primary);color:var(--primary-fg);font-size:11px;font-weight:700;line-height:17px;text-align:center;box-shadow:0 0 0 2px oklch(0.1 0 0)}
 .fab{position:absolute;right:16px;z-index:45;width:56px;height:56px;border-radius:28px;background:var(--primary);color:var(--primary-fg);display:grid;place-items:center;box-shadow:0 6px 20px oklch(0 0 0 / 0.5),0 0 0 1px oklch(0 0 0 / 0.2)}
 /* narrow phones (< 360): full-bleed lists, tighter tab labels */

@@ -67,8 +67,11 @@ Rules that hold in every class:
 
 - **Top bar (mobile):** 44 px plus the safe area. Tab roots use a large title (28/34) that collapses into
   the 44 px bar on scroll. Pushed screens use the inline title (17/22, centred) with back on the left.
-- **Tab bar (mobile):** 50 px plus the bottom safe area (34 px on Face ID iPhones). Opaque `bg-card` with
-  a top `border-separator`; no blur (blur costs frames on older iPhones and reads poorly on dark).
+- **Tab bar (mobile):** 50 px plus the bottom safe area (34 px on Face ID iPhones). A 94% opaque
+  near-card fill with a 20 px backdrop blur and a top `border-border` (the iOS bar convention). Blur is
+  allowed only on bars that content scrolls under: the tab bar, sticky section headers (92%) and bottom
+  action bars (94%). Never on cards, sheets or dialogs. Fully opaque under `prefers-reduced-transparency`. Active tab:
+  yellow icon + white semibold label (weight is the non-colour cue).
 - **Header (desktop):** `flex-none`, sticky, opaque, `z-20` (the `StickyPageHeader` pattern). Left:
   breadcrumb (group / page). Right: bell, then the page's primary action with its single-key hint.
 - **Content width:** lists and details cap at a readable `max-w` on ≥ 1440; tables and dashboards may go
