@@ -90,20 +90,25 @@ done
 # The shared analyzer is python, and a broken one makes every hook fall back to
 # its coarse rule while still exiting 2 — a degraded guard that looks like a
 # working one.
-if ! python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
-  "$HOOKS_DIR/lib/cmdscan.py" >/dev/null 2>&1; then
-  echo "FATAL: lib/cmdscan.py does not compile"
-  python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
-    "$HOOKS_DIR/lib/cmdscan.py"
-  exit 1
-fi
-if ! python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
-  "$HOOKS_DIR/lib/pre_bash_safety.py" >/dev/null 2>&1; then
-  echo "FATAL: lib/pre_bash_safety.py does not compile"
-  python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
-    "$HOOKS_DIR/lib/pre_bash_safety.py"
-  exit 1
-fi
+# Every hook analyzer that lives in lib/ is compiled here, not only the shared one.
+LIB_COMPILED=0
+for lib_py in "$HOOKS_DIR"/lib/*.py; do
+  if ! python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
+    "$lib_py" >/dev/null 2>&1; then
+    echo "FATAL: lib/$(basename "$lib_py") does not compile"
+    python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
+      "$lib_py"
+    exit 1
+  fi
+  LIB_COMPILED=$((LIB_COMPILED + 1))
+done
+# fail closed: the analyzers the hooks run must be among the files compiled
+for lib_py in cmdscan.py pre_bash_safety.py cross_agent_blast_analyzer.py live_db_guard_analyzer.py; do
+  if [ ! -f "$HOOKS_DIR/lib/$lib_py" ]; then
+    echo "FATAL: lib/$lib_py is missing"
+    exit 1
+  fi
+done
 # #1304 follow-up: a hook runs in the agent's cwd, so `python3 -c` / `python3 -` without
 # -I puts that cwd on sys.path and a planted json.py runs inside the hook.
 # The scan lives in its own file: inline in bash single quotes, one stray quote made it
@@ -126,7 +131,7 @@ if [ -n "$UNISOLATED" ]; then
   echo "$UNISOLATED"
   exit 1
 fi
-echo "gate 0: $SYNTAX_CHECKED hooks parse, lib/cmdscan.py and lib/pre_bash_safety.py compile, every python3 call is isolated (-I)"
+echo "gate 0: $SYNTAX_CHECKED hooks parse, $LIB_COMPILED lib/*.py analyzers compile, every python3 call is isolated (-I)"
 
 # Gate 0b. FIXTURE FIDELITY — the same class of problem as gate 0, learned the
 # hard way (PR #1025: green here, red in CI).

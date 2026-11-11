@@ -138,7 +138,10 @@ const AGENT_ROOT = join(ROOT, '.claude', 'hooks')
 const AGENT_EXCEPTIONS = new Map([
   ['pre-agent-dispatch-isolation.sh', 29],
   ['pre-bash-coder-push-gate.sh', 12],
-  ['pre-bash-cross-agent-blast.sh', 62],
+  // 62 until 2026-11-11, when the analyzer moved to lib/ with 36 of its lines (a move,
+  // not a new exemption: the sum is unchanged).
+  ['pre-bash-cross-agent-blast.sh', 26],
+  ['lib/cross_agent_blast_analyzer.py', 36],
   ['pre-bash-mutation-gate.sh', 2],
   ['pre-bash-prettier-gate.sh', 18],
   ['pre-bash-unbounded-wait.sh', 32],
