@@ -7791,9 +7791,21 @@ accidental command, not a deliberate forgery, so this is defense in depth.
 **Status.** Decide first (DevOps + security-reviewer): either move the ledger out of agent-writable space, or have
 `pre:bash:cross-agent-blast` refuse any command that writes to the ledger path. Pre-existing, not from PR #1317.
 
-**Verify.** A blast-suite case: a sibling appends a forged line, then its removal of the victim is still refused.
+A narrower variant of the same gap: `is_owned` ignores a recorded line naming the session directory itself, but not
+one naming `<session>/scratchpad` (where sibling checkouts actually live) or its `/private` spelling. Such a line still
+lets its owner remove any sibling under it. It needs a line written on purpose or left by an older hook version. Fix
+with the item above, or in `is_owned`: skip a recorded path that equals the hook's cwd or is an ancestor of it, or
+require at least two path components below `own_scratch`.
 
-Sources: PR #1317 round 4 panel (nim:step), reproduced by the panel reviewer, not by Master.
+**Status.** Decide first (DevOps + security-reviewer): either move the ledger out of agent-writable space, or have
+`pre:bash:cross-agent-blast` refuse any command that writes to the ledger path. Pre-existing, not from PR #1317.
+
+**Verify.** A blast-suite case: a sibling appends a forged line, then its removal of the victim is still refused. A
+second case: a ledger line naming the scratchpad directory itself (the smoke suite's `$SCR`), then a sibling's removal
+is refused with `WORKTREE-UNRECORDED`.
+
+Sources: PR #1317 round 4 panel (nim:step), reproduced by the panel reviewer, not by Master; PR #1317 round 5
+security review (SR5-L-1, the scratchpad-directory variant).
 
 ## 424. Hook size guard and blast suite: three small limits (2026-11-11)
 
@@ -7805,12 +7817,17 @@ Sources: PR #1317 round 4 panel (nim:step), reproduced by the panel reviewer, no
   newline: a false positive that fails closed.
 - `test-pre-bash-cross-agent-blast.sh` `run_hook_reason` prints the decoded reason through a cp1252 pipe on native
   Windows; printing the hook's emoji raises, the reason is empty and one assertion fails. Green on Linux CI.
+- The guard's shell-keyword skip in `catch_all()` (it picks the command word after `if`, `then`, `while`, `do`, `!` …)
+  is pinned by no test: every keyword case uses `"$PY"`, which `python_like()` matches by itself. Reverting the skip
+  keeps the size suite green. Untested forms: `if sudo -E "$RUNTIME" -c '<big>'`, `then timeout 5 "$INTERP" -c '<big>'`,
+  `while nice -n 5 "$RUNTIME" -c '<big>'` (must be UNMEASURED) and `if git -C "$PYDIR" -c user.name=x commit …` (must
+  stay clean).
 
 **Status.** DevOps, one PR, one red test each.
 
 **Verify.** Each case above has a guard or suite test that fails before the fix.
 
-Sources: PR #1317 round 4 code review (CR4-L-3, CR4-L-4) and panel (nim:step).
+Sources: PR #1317 round 4 code review (CR4-L-3, CR4-L-4) and panel (nim:step); round 5 code review (CR5-L-1).
 
 ## 425. Job queue triage grants: the policy version is a client stamp, never checked (2026-11-11)
 
