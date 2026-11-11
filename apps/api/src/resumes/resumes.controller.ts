@@ -155,6 +155,8 @@ export class SeniorResumesController {
    * task, not through the API.
    */
   @Put('layout')
+  // On VERIFIED a look write starts a template run (model calls): throttled like submit.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   updateLayout(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Body() body: unknown,
@@ -237,6 +239,8 @@ export class SeniorResumesController {
 
   /** A catalog template (spec §6) — a name from the enum, never template source. */
   @Put('template')
+  // On VERIFIED a look write starts a template run (model calls): throttled like submit.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   updateTemplate(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Body() body: unknown,

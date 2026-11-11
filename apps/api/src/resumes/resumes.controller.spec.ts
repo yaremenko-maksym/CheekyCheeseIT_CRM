@@ -147,3 +147,14 @@ describe('SeniorResumesController — Task 15 routes', () => {
     expect(reply.send.mock.calls[0]?.[0]?.toString()).toBe('%PDF')
   })
 })
+
+describe('look writes on VERIFIED start a model run: throttled like the other run starts (CD-5)', () => {
+  it.each(['updateLayout', 'updateTemplate'] as const)(
+    '%s is throttled at 10 per minute',
+    (name) => {
+      const handler = SeniorResumesController.prototype[name]
+      expect(Reflect.getMetadata('THROTTLER:LIMITdefault', handler)).toBe(10)
+      expect(Reflect.getMetadata('THROTTLER:TTLdefault', handler)).toBe(60_000)
+    },
+  )
+})
