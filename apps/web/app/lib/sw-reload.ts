@@ -51,3 +51,22 @@ export function shouldReloadOnControllerChange({
   if (userBusy) return false
   return true
 }
+
+/**
+ * Polls for a redeploy every `intervalMs` and re-checks a deferred reload on
+ * each tick. `controllerchange` / `visibilitychange` alone miss the case where
+ * the write settles or the dialog closes while the tab is already hidden — no
+ * event fires after that, so the tick is what finally reloads it.
+ */
+export function pollForUpdates(
+  registration: Pick<ServiceWorkerRegistration, 'update'>,
+  onTick: () => void,
+  intervalMs = 60_000,
+): ReturnType<typeof setInterval> {
+  return setInterval(() => {
+    registration.update().catch(() => {
+      // update() can fail offline — ignore it.
+    })
+    onTick()
+  }, intervalMs)
+}

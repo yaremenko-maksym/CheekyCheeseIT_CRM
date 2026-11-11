@@ -11,7 +11,7 @@
  * the bytes into S3, and the returned document id is persisted on
  * users.avatar_document_id.
  */
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Cropper, { type Area } from 'react-easy-crop'
 import { ArrowLeft, ImagePlus, Link2, Trash2, Upload, ZoomIn, ZoomOut } from 'lucide-react'
 import { toast } from 'sonner'
@@ -100,6 +100,15 @@ export function AvatarUploadDialog({
   const [saving, setSaving] = useState(false)
 
   const fileRef = useRef<HTMLInputElement>(null)
+  // Per-pick token: a preview that resolves after the dialog was closed / reset
+  // (or after a newer pick) is stale — it revokes its URL and goes nowhere.
+  const pickRef = useRef(0)
+  useEffect(
+    () => () => {
+      pickRef.current += 1
+    },
+    [],
+  )
   const updateMe = useUpdateMe()
   const uploadDoc = useUploadDocument()
   const progress = useUploadProgressState()
@@ -110,6 +119,7 @@ export function AvatarUploadDialog({
   }
 
   function reset() {
+    pickRef.current += 1
     setStep('source')
     setTab('file')
     clearSourceImage()
@@ -149,16 +159,28 @@ export function AvatarUploadDialog({
       return
     }
     progress.prepare()
+    const pick = ++pickRef.current
     // A bounded-size copy, not the whole file as a data: URL: a full-resolution
     // phone photo in the cropper froze iPhone Safari (task-ios-file-input-freeze).
     createImagePreviewUrl(file, CROP_SOURCE_MAX_EDGE).then(
       (previewUrl) => {
+        if (pick !== pickRef.current) {
+          if (previewUrl) URL.revokeObjectURL(previewUrl)
+          return
+        }
+        if (!previewUrl) {
+          // The worker timed out: no preview rather than the full-size file.
+          progress.reset()
+          setError(t`Не вдалося прочитати файл`)
+          return
+        }
         // The read is done — hand off to the crop step. Its own progress
         // starts fresh at 'idle' (that step tracks the upload, not the read).
         progress.reset()
         startCrop(previewUrl)
       },
       () => {
+        if (pick !== pickRef.current) return
         progress.reset()
         setError(t`Не вдалося прочитати файл`)
       },

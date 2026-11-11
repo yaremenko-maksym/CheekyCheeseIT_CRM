@@ -28,11 +28,11 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (response) => {
-    if (isWrite(response.config.method)) pendingWrites--
+    if (isWrite(response.config.method)) pendingWrites = Math.max(0, pendingWrites - 1)
     return response
   },
   (error) => {
-    if (isWrite(error.config?.method)) pendingWrites--
+    if (isWrite(error.config?.method)) pendingWrites = Math.max(0, pendingWrites - 1)
     if (error.response?.status === 401) {
       window.location.href = '/login'
     }

@@ -17,7 +17,7 @@
  *   - `receiptStateFromExternalUrl(url)` — for edit dialogs with an
  *     external-URL receipt.
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { FileImage, FileText, Link as LinkIcon, Paperclip, X } from 'lucide-react'
 import { useLingui } from '@lingui/react/macro'
@@ -132,6 +132,22 @@ export function ReceiptInput({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const uploadMutation = useUploadDocument()
   const progress = useUploadProgressState()
+  // A pick is "preparing" while its preview decodes (before the upload starts).
+  // `pickRef` is a per-pick token: a pick superseded by a newer pick, an
+  // explorerOnly flip, a tab switch, a clear or an unmount resolves stale —
+  // it revokes its preview URL and neither calls onChange nor uploads.
+  const [preparing, setPreparing] = useState(false)
+  const pickRef = useRef(0)
+  function cancelPick() {
+    pickRef.current += 1
+    setPreparing(false)
+  }
+  useEffect(
+    () => () => {
+      pickRef.current += 1
+    },
+    [],
+  )
 
   // task-receipts-frontend: when explorerOnly flips true while the user has
   // a file selected, auto-normalize to an empty url-mode state — a file
@@ -139,6 +155,7 @@ export function ReceiptInput({
   // the currency switches to USDT. Narrow trigger (only `explorerOnly`, not
   // the whole `state`) mirrors the existing resolvedUrl effect above.
   useEffect(() => {
+    if (explorerOnly) cancelPick()
     if (explorerOnly && state.mode === 'file') {
       if (state.previewUrl && state.previewUrl.startsWith('blob:')) {
         URL.revokeObjectURL(state.previewUrl)
@@ -178,6 +195,7 @@ export function ReceiptInput({
   }, [resolvedUrl, state.documentId])
 
   function switchToFile() {
+    cancelPick()
     if (state.previewUrl && state.previewUrl.startsWith('blob:')) {
       URL.revokeObjectURL(state.previewUrl)
     }
@@ -185,6 +203,7 @@ export function ReceiptInput({
   }
 
   function switchToUrl() {
+    cancelPick()
     if (state.previewUrl && state.previewUrl.startsWith('blob:')) {
       URL.revokeObjectURL(state.previewUrl)
     }
@@ -204,12 +223,23 @@ export function ReceiptInput({
     if (!file) return
 
     progress.prepare()
+    const pick = ++pickRef.current
+    setPreparing(true)
     // Local objectURL for the preview while the upload is in flight. Images go
     // through a bounded-size copy: a full-resolution phone photo in the DOM
-    // froze iPhone Safari (task-ios-file-input-freeze).
-    const localPreview = file.type.startsWith('image/')
-      ? await createImagePreviewUrl(file, RECEIPT_PREVIEW_MAX_EDGE)
-      : URL.createObjectURL(file)
+    // froze iPhone Safari (task-ios-file-input-freeze). An empty type (iOS
+    // Files / iCloud) is a candidate image too: the worker fails fast on a
+    // non-image and the fallback applies. `null` = the worker timed out: no
+    // preview, the upload still runs and the file name is shown.
+    const localPreview =
+      file.type === '' || file.type.startsWith('image/')
+        ? await createImagePreviewUrl(file, RECEIPT_PREVIEW_MAX_EDGE)
+        : URL.createObjectURL(file)
+    if (pick !== pickRef.current) {
+      if (localPreview) URL.revokeObjectURL(localPreview)
+      return
+    }
+    setPreparing(false)
     onChange({
       mode: 'file',
       documentId: null,
@@ -228,7 +258,7 @@ export function ReceiptInput({
       progress.success()
       // Revoke the local blob — we'll use the presigned URL going forward
       // (downloadQuery is enabled for state.documentId on next render).
-      URL.revokeObjectURL(localPreview)
+      if (localPreview) URL.revokeObjectURL(localPreview)
       onChange({
         mode: 'file',
         documentId: doc.id,
@@ -247,20 +277,22 @@ export function ReceiptInput({
       // COPY-H-fin-3: never the raw `.message` of an unknown error — the
       // same status-based resolver the rest of finance uses.
       progress.error(getApiErrorMessage(err, t`Не вдалося завантажити чек`))
-      URL.revokeObjectURL(localPreview)
+      if (localPreview) URL.revokeObjectURL(localPreview)
       onChange(emptyReceiptState())
     }
   }
 
   function clearFile() {
+    cancelPick()
     if (state.previewUrl && state.previewUrl.startsWith('blob:')) {
       URL.revokeObjectURL(state.previewUrl)
     }
     onChange(emptyReceiptState())
   }
 
-  const uploading = uploadMutation.isPending
-  const hasFile = state.mode === 'file' && (state.documentId || state.previewUrl)
+  // Busy covers the preview decode too, so a second pick cannot race the first.
+  const uploading = uploadMutation.isPending || preparing
+  const hasFile = state.mode === 'file' && (state.documentId || state.previewUrl || state.fileName)
 
   return (
     <div className="space-y-2">
@@ -311,6 +343,7 @@ export function ReceiptInput({
             type="file"
             accept="image/*,application/pdf"
             data-testid="receipt-input-file"
+            disabled={uploading}
             className="hidden"
             onChange={(e) => {
               void handleFileChange(e)
