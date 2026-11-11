@@ -52,7 +52,7 @@ export function listrowDesktop() {
   return board(
     1440,
     'ListRow · 1440',
-    'Десктоп — вказівник: рядок таблиці 40 px, пункт бічної панелі 34 px; є hover; фокус клавіатури — кільце 2 px.',
+    'Десктоп — вказівник: рядок таблиці 40 px, пункт бічної панелі 36 px; є hover; фокус клавіатури — кільце 2 px.',
     `<div class="row" style="gap:32px;align-items:flex-start"><div>${cap('Бічна панель')}${nav}</div><div>${cap('Рядок таблиці')}${table}</div></div>`,
   )
 }
