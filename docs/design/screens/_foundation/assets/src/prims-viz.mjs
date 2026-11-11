@@ -14,6 +14,7 @@ import {
   FLOAT_RIGHT,
 } from './mobile.mjs'
 import { skeletonList } from './mobile-overlays.mjs'
+import { ACTIONS, QUICK_ADD } from './nav.mjs'
 import { desktop } from './desktop.mjs'
 import { tablet } from './tablet.mjs'
 import {
@@ -65,16 +66,23 @@ const DOT =
 const WARN = (p) => `color-mix(in oklch, var(--warning) ${p}%, transparent)`
 
 /**
- * The chooser off the phone (foundation §11): a menu, the drafts above, «Нова транзакція» last with the
- * initial focus (so `C` then Enter still creates). ↑ / ↓ move, Esc closes and returns focus to «+».
+ * The «+» menus off the phone (foundation §11): the «Чернетки» section on top. `role`: the rail quick-add
+ * menu keeps the role's actions; without it, the compact header / `C` menu ends with «Нова транзакція»
+ * (initial focus, so `C` then Enter still creates). ↑ / ↓ move, Esc closes and returns focus to «+».
  */
-function chooserMenu({ drafts, pos, itemH, coarse = false }) {
+function chooserMenu({ drafts, pos, itemH, coarse = false, role = '' }) {
   const tone = { failed: 'var(--destructive)', unknown: 'var(--warning)' }
   const item = (d) =>
-    `<div role="menuitem" tabindex="-1" class="row" aria-label="Відкрити чернетку ${d.amount} USD, ${d.state.split(' · ')[0]}" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px"><span style="color:${tone[d.kind] || 'var(--muted-fg)'};display:grid">${icon('file-pen', { size: 18 })}</span><span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:14px;font-weight:600">Чернетка ${d.amount} USD</span><span class="t-cap muted trunc">${d.state.split(' · ')[0]}</span></span><span class="t-cap muted">Відкрити</span></div>`
-  const items = drafts.map(item).join('')
+    `<div role="menuitem" tabindex="-1" class="row" aria-label="Відкрити чернетку ${d.amount} USD, ${d.state.split(' · ')[0]}" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px"><span style="color:${tone[d.kind] || 'var(--muted-fg)'};display:grid">${icon('file-pen', { size: 18 })}</span><span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:14px;font-weight:600;white-space:nowrap">${d.amount} USD</span><span class="muted trunc" style="font-size:${coarse ? 13 : 12}px;line-height:${coarse ? 18 : 16}px">${d.state}</span></span><span class="t-cap muted">Відкрити</span></div>`
+  const items = `<div role="group" aria-labelledby="ch-drafts"><div id="ch-drafts" class="t-over" style="padding:6px 10px 4px">Чернетки</div>${drafts.map(item).join('')}</div>`
+  const focus = 'background:var(--raised);box-shadow:inset 0 0 0 2px var(--primary)'
+  const act = (a, i) =>
+    `<div role="menuitem" tabindex="${i ? -1 : 0}" class="row" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px;${i ? '' : focus}"><span style="color:${i ? 'var(--muted-fg)' : 'var(--primary)'};display:grid">${icon(ACTIONS[a].icon, { size: 18 })}</span><span class="grow" style="font-size:14px;font-weight:600">${ACTIONS[a].label}</span></div>`
+  const tail = role
+    ? QUICK_ADD[role].map(act).join('')
+    : `<div role="menuitem" tabindex="0" class="row" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px;${focus}"><span style="color:var(--primary);display:grid">${icon('plus', { size: 18, stroke: 2.4 })}</span><span class="grow" style="font-size:14px;font-weight:600">Нова транзакція</span>${coarse ? '' : '<span class="kbdkey">Enter</span>'}</div>`
   return `<div style="position:absolute;${pos};width:340px;z-index:90;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:12px;box-shadow:0 20px 50px oklch(0 0 0 / 0.6)">
-  <div id="ch-menu" role="menu" aria-label="Нова транзакція або чернетка" style="padding:6px">${items}<div role="separator" style="height:1px;margin:6px 4px;background:var(--border)"></div><div role="menuitem" tabindex="0" class="row" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px;background:var(--raised);box-shadow:inset 0 0 0 2px var(--primary)"><span style="color:var(--primary);display:grid">${icon('plus', { size: 18, stroke: 2.4 })}</span><span class="grow" style="font-size:14px;font-weight:600">Нова транзакція</span>${coarse ? '' : '<span class="kbdkey">Enter</span>'}</div></div>
+  <div id="ch-menu" role="menu" aria-label="${role ? 'Створити' : 'Нова транзакція або чернетка'}" style="padding:6px">${items}<div role="separator" style="height:1px;margin:6px 4px;background:var(--border)"></div>${tail}</div>
   ${coarse ? '' : '<div aria-hidden="true" class="t-cap muted" style="padding:8px 16px;border-top:1px solid var(--border)">↑ ↓ чернетки · Esc закрити</div>'}</div>`
 }
 
@@ -112,13 +120,14 @@ export function draftsDesktop(w, h, { chooser = false } = {}) {
   )
 }
 
-/** Tablet: the rail «+» with the dot opens the chooser menu beside it; 44 px items (touch). */
+/** Tablet: the rail «+» with the dot opens its quick-add menu (drafts on top, then the role's actions); 44 px items. */
 export function draftsChooserTablet(w, h) {
   const menu = chooserMenu({
     drafts: [DRAFT.unknown, DRAFT.failed2],
     pos: 'left:88px;top:86px',
     itemH: 44,
     coarse: true,
+    role: 'ADMIN',
   })
   const pill = `<div role="button" aria-label="2 чернетки потребують перевірки. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.38 0.09 22);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--destructive);display:grid">${icon('file-pen', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">2 потребують перевірки</span><span class="t-cap muted">Відкрити</span></span></div>`
   // The list pads by the pill height + 48 (52 + 24 + 24), so the corner never covers the last row.

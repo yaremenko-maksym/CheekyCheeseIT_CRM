@@ -5,7 +5,7 @@
 // focuses the first invalid field and shows inline errors. Sample data is invented.
 import { icon, phone, safeBottom, systemBar, segmented, currencyPill, field } from './base.mjs'
 import { tabScreen, financeBody, topBar, txnRow, TABBAR_H, FLOAT_RIGHT } from './mobile.mjs'
-import { sheet, safeTop, closeBtn } from './mobile-overlays.mjs'
+import { sheet, safeTop, closeBtn, quickAddRows } from './mobile-overlays.mjs'
 
 export const AMOUNT = '1 250,50'
 
@@ -556,7 +556,7 @@ export const uploadPillInflight = (w, h) =>
  * other tabs it opens the quick-add sheet with the draft rows on top. A red dot (carrying the count when
  * more than one) and the accessible name say how many drafts need attention.
  */
-export const draftFab = (html, count = 1) =>
+export const draftFab = (html, count = 1, label = 'Нова транзакція') =>
   html.replace(
     /<div class="fab" role="button" aria-label="[^"]*"\s*(aria-haspopup="dialog")?\s*style="([^"]*)">[\s\S]*?<\/div>/,
     (_, hp, st) => {
@@ -566,8 +566,8 @@ export const draftFab = (html, count = 1) =>
           : '<i aria-hidden="true" style="position:absolute;top:9px;right:9px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--primary)"></i>'
       const name =
         count > 1
-          ? `Нова транзакція, ${count} чернетки потребують уваги`
-          : 'Нова транзакція, 1 чернетка потребує уваги'
+          ? `${label}, ${count} чернетки потребують уваги`
+          : `${label}, 1 чернетка потребує уваги`
       return `<div class="fab" role="button" aria-label="${name}"${hp ? ' aria-haspopup="dialog"' : ''} style="${st}">${icon('plus', { size: 26, stroke: 2.4 })}${dot}</div>`
     },
   )
@@ -745,15 +745,15 @@ export const draftsTwoUnresolved = (w, h) =>
   )
 
 /**
- * «+» with unresolved drafts off Фінанси (the FAB on another tab, quick-add): the quick-add sheet with the
- * draft rows on top, each with its state, and «Нова транзакція» enabled under them. Nothing is blocked.
+ * «+» with unresolved drafts off Фінанси (a quick-add FAB): the quick-add sheet keeps the role's actions; the
+ * «Чернетки» section sits on top. A draft never hides other actions.
  * On Фінанси the FAB opens a new form directly. `base`: the tab screen behind the sheet.
  */
 export function quickAddDrafts(w, h, base) {
   const rows = byRank([DRAFT.failed2, DRAFT.unknown]).map(draftRow).join('')
-  const create = `<div style="padding:4px 16px 0"><button type="button" class="lrow two" style="--inset:68px;width:100%;border-radius:14px;background:var(--card);border:1px solid var(--border);text-align:left"><span class="lead" style="width:40px;height:40px;border-radius:12px;background:var(--yellow-subtle);color:var(--primary)">${icon('plus', { size: 20 })}</span><span class="grow col" style="gap:2px"><span class="t-body" style="font-weight:600">Нова транзакція</span><span class="t-foot muted">Витрата, дохід або переказ</span></span>${icon('chevron-right', { size: 18, cls: 'chev' })}</button></div>`
-  const body = `<div class="t-over" style="padding:0 16px 8px">Чернетки · 2 потребують перевірки</div>${rows}${create}`
-  const listH = 52 + 26 + 2 * 90 + 84 + safeBottom(w) + 24
+  const acts = `<div class="group" style="margin-top:8px">${quickAddRows('ADMIN')}</div>`
+  const body = `<div class="t-over" style="padding:0 16px 8px">Чернетки · 2 потребують перевірки</div>${rows}${acts}`
+  const listH = 52 + 26 + 2 * 72 + 8 + 4 * 64 + safeBottom(w) + 24
   const overlay = sheet({ w, h, top: h - listH, title: 'Створити', trail: closeBtn, body })
-  return draftFab(overHome(base, overlay), 2)
+  return draftFab(overHome(base, overlay), 2, 'Створити')
 }

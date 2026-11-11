@@ -56,9 +56,9 @@ export function moreSheet(role, w, h) {
   })
 }
 
-export function quickAddSheet(role, w, h) {
-  const acts = QUICK_ADD[role]
-  const rows = acts
+/** The role's quick-add rows (icon, label, one-line hint); the drafts sheet reuses them. */
+export const quickAddRows = (role) =>
+  QUICK_ADD[role]
     .map((a, i) => {
       const x = ACTIONS[a]
       const hero = i === 0
@@ -66,6 +66,9 @@ export function quickAddSheet(role, w, h) {
       <div class="grow col" style="gap:2px"><div class="t-body" style="font-weight:600">${x.label}</div><div class="t-foot muted trunc">${x.sub}</div></div>${icon('chevron-right', { size: 18, cls: 'chev' })}</div>`
     })
     .join('')
+export function quickAddSheet(role, w, h) {
+  const acts = QUICK_ADD[role]
+  const rows = quickAddRows(role)
   const listH = 52 + acts.length * 64 + 40 + safeBottom(w) + 16
   const body = `<div class="group">${rows}</div>`
   const overlay = sheet({ w, h, top: h - listH, title: 'Створити', trail: closeBtn, body })
