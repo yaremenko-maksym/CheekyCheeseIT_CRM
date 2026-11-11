@@ -26,6 +26,7 @@ import {
   DEFAULT_RESUME_LAYOUT,
   EMPTY_RESUME_CONTENT,
   RESUME_TEMPLATE_NAMES,
+  checkResumeCompleteness,
   normalizeResumeLayout,
   resumeContentSchema,
   resumeFactsSchema,
@@ -39,10 +40,14 @@ import {
 } from '@crm/shared'
 import { apiError } from '../../common/api-error'
 import { DatabaseService } from '../../database/database.service'
-import { seniorResumes, teamMembers, type SeniorResume } from '../../database/schema'
 import { S3Service } from '../../documents/s3.service'
+import { seniorResumes, teamMembers, type SeniorResume } from '../../database/schema'
 import { resolveTemplateName } from '../resume-typst.service'
 import { contentToFacts } from './derive-content'
+import { CLEARED_STAGED, deleteStagedQuietly, VerificationRunner } from './verification-runner'
+
+/** An extraction in flight owns the row's facts (P5a). */
+const EXTRACTION_BUSY: SeniorResume['status'][] = ['QUEUED', 'RUNNING']
 
 type VerificationDtoFields = Pick<
   SeniorResumeDto,
@@ -100,15 +105,6 @@ export function lookWriteGuard(
   ) as SQL
 }
 
-/** Clearing the staged columns: four NULLs and an empty edited-paths list. */
-const CLEARED_STAGED = {
-  stagedContent: null,
-  stagedLayout: null,
-  stagedTemplateName: null,
-  stagedPdfS3Key: null,
-  stagedEditedPaths: [],
-}
-
 /** Back to DRAFT: version bumped, run fields and staged columns cleared. */
 export function draftReset() {
   return {
@@ -153,6 +149,7 @@ export class ResumeVerificationService {
   constructor(
     private readonly db: DatabaseService,
     private readonly s3: S3Service,
+    private readonly runner: VerificationRunner,
   ) {}
 
   /** PUT facts: bump `version`, DRAFT, staged cleared; also disowns an extraction in flight. */
@@ -253,13 +250,59 @@ export class ResumeVerificationService {
   }
 
   /** After commit. A failure is logged (key only) and never fails the request. */
-  async deleteStagedObject(key: string | null): Promise<void> {
-    if (!key) return
-    try {
-      await this.s3.delete(key)
-    } catch {
-      this.logger.warn(`Staged resume PDF not deleted: ${key}`)
+  deleteStagedObject(key: string | null): Promise<void> {
+    return deleteStagedQuietly(this.s3, this.logger, key)
+  }
+
+  /**
+   * POST submit (202): from DRAFT, FAILED or AWAITING_CONFIRM, queue a full check run and start it off
+   * the request path. 422 for a custom template or incomplete facts (P7: no issue list), 409 while a
+   * check or an extraction runs (P5a). From AWAITING_CONFIRM the old staged object goes after commit.
+   */
+  async submit(row: SeniorResume, displayName: string, viewerId: string): Promise<SeniorResume> {
+    if (row.templateSource !== null) {
+      throw apiError('RESUME_CUSTOM_TEMPLATE', HttpStatus.UNPROCESSABLE_ENTITY)
     }
+    if (isVerificationBusy(row) || EXTRACTION_BUSY.includes(row.status)) {
+      throw apiError('RESUME_VERIFICATION_BUSY', HttpStatus.CONFLICT)
+    }
+    const facts = this.factsOf(row)
+    if (checkResumeCompleteness(facts, { displayName, now: new Date() }).length > 0) {
+      throw apiError('RESUME_INCOMPLETE', HttpStatus.UNPROCESSABLE_ENTITY)
+    }
+    const runId = randomUUID()
+    const [updated] = await this.db.db
+      .update(seniorResumes)
+      .set({
+        // Stored as checked: a legacy row's mapped facts become its facts, unchanged.
+        facts,
+        verificationStatus: 'QUEUED',
+        verificationRunId: runId,
+        verificationKind: 'full',
+        verificationTargetPath: null,
+        verificationBaseVersion: sql`${seniorResumes.version}`,
+        verificationQueuedAt: new Date(),
+        verificationStartedAt: null,
+        verificationErrorCode: null,
+        verificationReport: null,
+        ...CLEARED_STAGED,
+        updatedByUserId: viewerId,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          draftWriteGuard(row),
+          inArray(seniorResumes.verificationStatus, ['DRAFT', 'FAILED', 'AWAITING_CONFIRM']),
+          notInArray(seniorResumes.status, EXTRACTION_BUSY),
+          isNull(seniorResumes.templateSource),
+          eq(seniorResumes.version, row.version),
+        ),
+      )
+      .returning()
+    if (!updated) return this.resolveMiss(row.id)
+    await this.deleteStagedObject(row.stagedPdfS3Key)
+    void this.runner.run(row.id, runId)
+    return updated
   }
 
   /** Template for a new resume (spec §6), from the senior's active team members. */

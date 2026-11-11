@@ -183,6 +183,8 @@ describe.skipIf(!hasDatabaseUrl())(
     }
     let ai: { extractStructure: ReturnType<typeof vi.fn> }
     let typst: { fingerprint: ReturnType<typeof vi.fn>; render: ReturnType<typeof vi.fn> }
+    /** The check run is Task 14's own spec: here a submit only queues it. */
+    const runner = { run: vi.fn().mockResolvedValue(undefined) }
 
     beforeAll(async () => {
       try {
@@ -243,7 +245,7 @@ describe.skipIf(!hasDatabaseUrl())(
         // Real extraction service — the file fixtures are real PDFs/DOCX.
         new (await import('./resume-text-extraction.service')).ResumeTextExtractionService(),
         typst as never,
-        new ResumeVerificationService(dbSvc, s3 as never),
+        new ResumeVerificationService(dbSvc, s3 as never, runner as never),
       )
 
       await db
@@ -1536,7 +1538,7 @@ describe.skipIf(!hasDatabaseUrl())(
         const newKey = `resumes/${stale.id}/staged/${OTHER_RUN_ID}.pdf`
         await setState(SENIOR_A.id, { verificationRunId: OTHER_RUN_ID, stagedPdfS3Key: newKey })
         const before = await rowOf(SENIOR_A.id)
-        const verification = new ResumeVerificationService(dbSvc, s3 as never)
+        const verification = new ResumeVerificationService(dbSvc, s3 as never, runner as never)
 
         await expectBusy(verification.saveFacts(stale, { ...FACTS, headline: 'raced' }, HR_USER.id))
         await expectBusy(verification.setTemplate(stale, 'technical', HR_USER.id))

@@ -1082,6 +1082,16 @@ export class SeniorResumesService {
     return this.toResponse(await this.verification.saveFacts(existing, facts, viewer.id), viewer)
   }
 
+  /** POST submit — queue the check run; the senior's display name feeds the completeness check. */
+  async submit(viewer: SessionUser, targetUserId: string): Promise<SeniorResumeResponse> {
+    const target = await this.assertAccess(viewer, targetUserId, 'write')
+    const existing = await this.ensureRow(targetUserId)
+    return this.toResponse(
+      await this.verification.submit(existing, target.displayName, viewer.id),
+      viewer,
+    )
+  }
+
   /** PUT template — same status rule as a layout write. */
   async setTemplate(
     viewer: SessionUser,

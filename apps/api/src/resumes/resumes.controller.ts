@@ -24,6 +24,7 @@ import {
   Delete,
   Get,
   Header,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -165,6 +166,14 @@ export class SeniorResumesController {
   ) {
     const { facts } = updateResumeFactsSchema.parse(body)
     return this.service.saveFacts(user, userId, facts)
+  }
+
+  /** Starts the check run (Task 14): 202, the run goes on off the request path; 409 while busy. */
+  @Post('submit')
+  @HttpCode(202)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  submit(@Param('userId', ParseUUIDPipe) userId: string, @CurrentUser() user: SessionUser) {
+    return this.service.submit(user, userId)
   }
 
   /** A catalog template (spec §6) — a name from the enum, never template source. */

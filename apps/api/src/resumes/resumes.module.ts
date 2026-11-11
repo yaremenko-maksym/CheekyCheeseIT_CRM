@@ -26,6 +26,7 @@ import { ResumeTextExtractionService } from './resume-text-extraction.service'
 import { SeniorResumesController } from './resumes.controller'
 import { SeniorResumesService } from './resumes.service'
 import { ResumeVerificationService } from './verification/resume-verification.service'
+import { VerificationRunner } from './verification/verification-runner'
 import {
   ResumeEntailmentClient,
   ResumeWriterClient,
@@ -38,6 +39,7 @@ import {
   providers: [
     SeniorResumesService,
     ResumeVerificationService,
+    VerificationRunner,
     ResumeAiService,
     ResumeTextExtractionService,
     ResumeTypstService,
