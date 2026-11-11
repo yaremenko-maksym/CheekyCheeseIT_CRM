@@ -30,6 +30,61 @@ function keyOf(request: Request): string {
 }
 
 /**
+ * Computes the waterfall depth in O(n log n) using a sweep-line algorithm:
+ * depth of a call = 1 + the deepest call whose response ended before (or at) it started.
+ * Calls without a response end time (untimed) cannot start/continue a chain.
+ */
+export function computeWaterfallDepth(
+  requests: { start: number; end?: number | undefined }[],
+): number {
+  if (requests.length === 0) return 0
+
+  // Preserve original relative order as tie-breaker for identical start times
+  const byStart = requests
+    .map((r, origIndex) => ({
+      start: r.start,
+      end: r.end,
+      origIndex,
+      byStartIndex: 0,
+      depth: 0,
+    }))
+    .sort((a, b) => a.start - b.start || a.origIndex - b.origIndex)
+
+  byStart.forEach((r, i) => {
+    r.byStartIndex = i
+  })
+
+  // Only calls with a defined response end time can be parents of subsequent calls
+  const timed = byStart.filter((r): r is typeof r & { end: number } => r.end !== undefined)
+  const byEnd = [...timed].sort((a, b) => a.end - b.end || a.byStartIndex - b.byStartIndex)
+
+  let p = 0
+  let maxCompletedDepth = 0
+  let maxDepth = 0
+
+  for (const r of byStart) {
+    while (
+      p < byEnd.length &&
+      (byEnd[p]!.end < r.start ||
+        (byEnd[p]!.end === r.start && byEnd[p]!.byStartIndex < r.byStartIndex))
+    ) {
+      if (byEnd[p]!.depth > maxCompletedDepth) {
+        maxCompletedDepth = byEnd[p]!.depth
+      }
+      p++
+    }
+
+    const currentDepth = maxCompletedDepth + 1
+    r.depth = currentDepth
+    if (currentDepth > maxDepth) {
+      maxDepth = currentDepth
+    }
+  }
+
+  return maxDepth
+}
+
+/**
  * Starts recording API calls on `page`. Call `stop()` only once the UI has
  * settled (assert the final state first): it makes one page round-trip so
  * pending `request` events arrive, detaches the listener, waits for every
@@ -76,22 +131,10 @@ export function recordNetwork(page: Page): { stop(): Promise<NetworkSummary> } {
         .filter(([, count]) => count > 1)
         .map(([key, count]) => ({ key, count }))
 
-      // Depth of a call = 1 + the deepest call whose response ended before it started.
-      const byStart = [...done].sort((a, b) => a.start - b.start)
-      const depth: number[] = []
-      byStart.forEach((d, i) => {
-        let parent = 0
-        for (let j = 0; j < i; j++) {
-          const end = byStart[j]!.end
-          if (end !== undefined && end <= d.start) parent = Math.max(parent, depth[j]!)
-        }
-        depth.push(parent + 1)
-      })
-
       return {
         requests: done.length,
         duplicates,
-        waterfallDepth: Math.max(0, ...depth),
+        waterfallDepth: computeWaterfallDepth(done),
         bytes: done.reduce((sum, d) => sum + d.bytes, 0),
         untimed: done.filter((d) => d.end === undefined).length,
       }

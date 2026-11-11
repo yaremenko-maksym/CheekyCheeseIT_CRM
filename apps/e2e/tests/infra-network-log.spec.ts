@@ -7,7 +7,7 @@
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { test, expect, type Page } from '@playwright/test'
-import { recordNetwork, expectNoDuplicates } from '../fixtures/network-log'
+import { recordNetwork, expectNoDuplicates, computeWaterfallDepth } from '../fixtures/network-log'
 import { measureInp } from '../fixtures/inp'
 
 const ORIGIN = 'http://infra.e2e.test'
@@ -117,6 +117,16 @@ test.describe('E2E infra — network log', () => {
 
     expect(summary.requests).toBe(2)
     expect(summary.waterfallDepth).toBe(2)
+  })
+
+  test('computeWaterfallDepth: a 3-deep chain plus a parallel request is waterfall depth 3', () => {
+    const waterfallDepth = computeWaterfallDepth([
+      { start: 0, end: 10 },
+      { start: 0, end: 50 },
+      { start: 15, end: 25 },
+      { start: 30, end: 40 },
+    ])
+    expect(waterfallDepth).toBe(3)
   })
 
   test('a redirected call does not break stop() and adds no bytes of its own', async ({ page }) => {

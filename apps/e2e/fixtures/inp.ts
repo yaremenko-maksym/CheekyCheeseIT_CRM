@@ -39,6 +39,7 @@ interface Probe {
   longest: number
   eventMax: number
   count0: number
+  observers?: PerformanceObserver[]
 }
 
 declare global {
@@ -72,15 +73,20 @@ export async function measureInp(
     window.__crmInpProbe = probe
     const t0 = performance.now()
     // Neither observer is `buffered`, and both filter on t0: entries from before `action` never count.
-    new PerformanceObserver((list) => {
+    const longtaskObserver = new PerformanceObserver((list) => {
       for (const e of list.getEntries())
         if (e.startTime >= t0) probe.longest = Math.max(probe.longest, e.duration)
-    }).observe({ type: 'longtask' })
-    new PerformanceObserver((list) => {
+    })
+    longtaskObserver.observe({ type: 'longtask' })
+
+    const eventObserver = new PerformanceObserver((list) => {
       for (const e of list.getEntries() as PerformanceEventTiming[])
         if (e.interactionId && e.startTime >= t0)
           probe.eventMax = Math.max(probe.eventMax, e.duration)
-    }).observe({ type: 'event', durationThreshold: 16 } as PerformanceObserverInit)
+    })
+    eventObserver.observe({ type: 'event', durationThreshold: 16 } as PerformanceObserverInit)
+
+    probe.observers = [longtaskObserver, eventObserver]
   })
 
   const cdp = await page.context().newCDPSession(page)
@@ -91,16 +97,16 @@ export async function measureInp(
     interactions = await page.evaluate(
       () => performance.interactionCount! - window.__crmInpProbe!.count0,
     )
-    if (interactions > 0) {
-      // Event Timing entries are delivered after the next paint: let two frames and an idle pass.
-      await page.evaluate(
-        () =>
-          new Promise<void>((resolve) =>
-            requestAnimationFrame(() =>
-              requestAnimationFrame(() => requestIdleCallback(() => resolve(), { timeout: 1000 })),
-            ),
+    // Settle pass for both branches: two rAFs + idle callback so pending longtask and Event Timing entries flush.
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => requestIdleCallback(() => resolve(), { timeout: 1000 })),
           ),
-      )
+        ),
+    )
+    if (interactions > 0) {
       // None within 1 s more means every interaction stayed under the 16 ms reporting floor:
       // `inp` stays null (unmeasured). Any other failure propagates.
       await page
@@ -110,10 +116,22 @@ export async function measureInp(
         })
     }
   } finally {
-    await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 })
-    await cdp.detach()
+    try {
+      await page
+        .evaluate(() => {
+          window.__crmInpProbe?.observers?.forEach((o) => o.disconnect())
+        })
+        .catch(() => {})
+    } finally {
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 })
+      await cdp.detach()
+    }
   }
 
-  const { eventMax, longest } = await page.evaluate(() => window.__crmInpProbe!)
+  const { eventMax, longest } = await page.evaluate(() => {
+    const probe = window.__crmInpProbe!
+    probe.observers?.forEach((o) => o.disconnect())
+    return { eventMax: probe.eventMax, longest: probe.longest }
+  })
   return { inp: eventMax > 0 ? eventMax : null, longestTask: longest, interactions }
 }
