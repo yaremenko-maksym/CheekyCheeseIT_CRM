@@ -74,8 +74,16 @@ describe('ProjectCredentialsSection — 429 cooldown countdown', () => {
     expect(secondsLeft()).toBe(58)
 
     await act(async () => {
-      vi.advanceTimersByTime(58_000)
+      vi.advanceTimersByTime(57_000)
     })
+    expect(secondsLeft()).toBe(1)
+    expect(vi.getTimerCount()).toBe(1)
+
+    // The tick where now === cooldownUntil clears the cooldown and stops the interval.
+    await act(async () => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(vi.getTimerCount()).toBe(0)
     expect(button).not.toBeDisabled()
     expect(button).not.toHaveAttribute('title')
   })

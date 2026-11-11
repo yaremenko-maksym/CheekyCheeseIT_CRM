@@ -241,7 +241,8 @@ function CredentialRow({
   // 429 cooldown — disable reveal for N seconds (§9.3).
   const [cooldownUntil, setCooldownUntil] = useState<number | null>(null)
   // The clock lives in state: a render-time Date.now() is not a compiler memo dependency.
-  const [now, setNow] = useState(() => Date.now())
+  // Set from the clock when a cooldown starts; unread while there is none.
+  const [now, setNow] = useState(0)
   const revealBtnRef = useRef<HTMLButtonElement>(null)
 
   // Tick every second while in cooldown so the disabled countdown updates.
@@ -269,8 +270,8 @@ function CredentialRow({
     return () => window.clearTimeout(id)
   }, [clipboardStatus])
 
-  const cooldownSeconds =
-    cooldownUntil !== null ? Math.max(0, Math.ceil((cooldownUntil - now) / 1000)) : 0
+  // No cooldown: (0 - now) is never positive, so this is 0.
+  const cooldownSeconds = Math.max(0, Math.ceil(((cooldownUntil ?? 0) - now) / 1000))
   const revealDisabled = reveal.isPending || cooldownSeconds > 0
 
   const handleToggleReveal = async () => {
