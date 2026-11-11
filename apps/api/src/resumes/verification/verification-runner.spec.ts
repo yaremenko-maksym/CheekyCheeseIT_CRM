@@ -825,6 +825,15 @@ describe('VerificationRunner.run — template kind (Task 16)', () => {
     })
   })
 
+  it('SR-L-4: a malformed stored report seeds no fallbacks and the template run still passes', async () => {
+    const verificationReport = { gates: [], fallbacks: 'x' }
+    const { log } = await templateRun([[{ key: LIVE_KEY }], [{ id: RESUME }]], {
+      verificationReport,
+    })
+    expect(log.at(-1)?.set?.verificationErrorCode).toBeNull()
+    expect(log.at(-1)?.set?.['verificationReport']).toMatchObject({ fallbacks: [] })
+  })
+
   it('an ATS miss on the AI summary fails the run: the summary is locked too', async () => {
     const { log } = await templateRun(
       [[{ key: null, kind: 'template' }], [{ id: RESUME }]],

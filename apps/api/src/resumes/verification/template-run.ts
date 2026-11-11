@@ -18,22 +18,31 @@ import type { S3Service } from '../../documents/s3.service'
 import type { ResumeTypstService } from '../resume-typst.service'
 import { RunFailure } from './content-gates'
 import type { Accepted } from './render-gates'
-import { CLEARED_RUN, CLEARED_STAGED, deleteStagedQuietly, stagedPdfKey } from './run-columns'
+import {
+  CLEARED_RUN,
+  CLEARED_STAGED,
+  deleteStagedQuietly,
+  stagedPdfKey,
+  storedFallbacks,
+} from './run-columns'
 
 /**
  * The content a template run renders: the staged copy of the live, confirmed content. Every AI path
  * counts as a fallback already, so an ATS failure there fails the run instead of rewriting a text
  * nobody confirms again.
  */
-export function templateContent(row: Pick<SeniorResume, 'stagedContent'>): {
+export function templateContent(row: Pick<SeniorResume, 'stagedContent' | 'verificationReport'>): {
   content: ResumeContent
   locked: string[]
+  fallbacks: string[]
 } {
   const staged = resumeContentSchema.safeParse(row.stagedContent)
   if (!staged.success) throw new RunFailure('INCOMPLETE')
   return {
     content: staged.data,
     locked: ['summary', ...staged.data.experience.map((_, i) => `experience.${i}.bullets`)],
+    // The confirmed run's fallbacks: a template run reports them, its locked paths are no new ones.
+    fallbacks: storedFallbacks(row.verificationReport),
   }
 }
 

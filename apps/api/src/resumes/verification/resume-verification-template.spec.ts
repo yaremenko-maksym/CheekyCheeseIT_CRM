@@ -130,6 +130,16 @@ describe('sweepStalledVerifications', () => {
     expect(failed?.set?.['verificationReport']).toEqual({ gates: [], fallbacks: [] })
   })
 
+  it('SR-L-4: a swept VERIFIED row whose stored report is malformed records no fallbacks', async () => {
+    const { swept, log } = sweep([
+      [{ id: 'r-2', runId: 'run-2', status: 'VERIFIED' }],
+      [{ key: null, report: { gates: [], fallbacks: 'x' } }],
+      [{ id: 'r-2' }],
+    ])
+    expect(await swept()).toBe(1)
+    expect(log.at(-1)?.set?.['verificationReport']).toEqual({ gates: [], fallbacks: [] })
+  })
+
   it('SR-L-3: a row that throws is logged by id and the rest of the tick goes on', async () => {
     const { swept, db } = sweep([
       [
@@ -238,6 +248,13 @@ describe('a look change on VERIFIED starts a template run (Task 16)', () => {
     }
     await svc.setTemplate({ ...ROW, verificationReport } as SeniorResume, 'modern', 'viewer-1')
     expect(log[0]?.set?.['verificationReport']).toEqual({ gates: [], fallbacks: ['summary'] })
+  })
+
+  it('SR-L-4: a malformed stored report starts with no fallbacks', async () => {
+    const { svc, log } = service([[{ id: 'r-1' }]])
+    const verificationReport = { gates: [], fallbacks: 'x' }
+    await svc.setTemplate({ ...ROW, verificationReport } as unknown as SeniorResume, 'modern', 'v')
+    expect(log[0]?.set?.['verificationReport']).toEqual({ gates: [], fallbacks: [] })
   })
 
   it('layout: the requested layout and the live template are staged', async () => {

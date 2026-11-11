@@ -156,8 +156,7 @@ export class VerificationRunner {
       let content: ResumeContent
       let locked: string[] = []
       if (template) {
-        ;({ content, locked } = templateContent(row))
-        fallbacks = row.verificationReport?.fallbacks ?? []
+        ;({ content, locked, fallbacks } = templateContent(row))
       } else {
         const written = await this.written(
           row,

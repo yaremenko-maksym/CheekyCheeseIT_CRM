@@ -58,7 +58,7 @@ import { seniorResumes, teamMembers, type SeniorResume } from '../../database/sc
 import { resolveTemplateName } from '../resume-typst.service'
 import { hasContact } from './content-gates'
 import { contentToFacts } from './derive-content'
-import { CLEARED_RUN } from './run-columns'
+import { CLEARED_RUN, storedFallbacks } from './run-columns'
 import {
   CLEARED_STAGED,
   deleteStagedQuietly,
@@ -267,7 +267,7 @@ export class ResumeVerificationService {
         verificationStartedAt: null,
         verificationErrorCode: null,
         // The gates are re-run; the fallbacks are what the confirmed text holds (SR-L-2).
-        verificationReport: { gates: [], fallbacks: row.verificationReport?.fallbacks ?? [] },
+        verificationReport: { gates: [], fallbacks: storedFallbacks(row.verificationReport) },
         stagedContent: sql`${seniorResumes.content}`,
         stagedLayout: look.layout ?? normalizeResumeLayout(row.layout ?? DEFAULT_RESUME_LAYOUT),
         stagedTemplateName: look.templateName ?? resolveTemplateName(row.templateName),
@@ -377,7 +377,7 @@ export class ResumeVerificationService {
           // A VERIFIED row still shows the confirmed text: its fallbacks stay on record (SR-L-2).
           verificationReport: {
             gates: [],
-            fallbacks: status === 'VERIFIED' ? (current?.report?.fallbacks ?? []) : [],
+            fallbacks: status === 'VERIFIED' ? storedFallbacks(current?.report) : [],
           },
           ...CLEARED_RUN,
           ...CLEARED_STAGED,
