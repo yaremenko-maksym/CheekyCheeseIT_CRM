@@ -750,7 +750,7 @@ export const pinnedRows = (drafts) => {
   const more = sorted.length - shown
   const moreRow =
     more > 0
-      ? `<div style="padding:0 16px 8px"><a href="#" class="row" aria-expanded="false" style="justify-content:space-between;min-height:44px;padding:0 14px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font-size:15px;color:var(--fg);text-decoration:none"><span class="num">Ще ${more} ${chernetok(more)}</span><span style="color:var(--primary);font-weight:600">Показати</span></a></div>`
+      ? `<div style="padding:0 16px 8px"><button type="button" class="row" aria-expanded="false" style="width:100%;justify-content:space-between;min-height:44px;padding:0 14px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font:inherit;font-size:15px;color:var(--fg);cursor:pointer"><span class="num">Ще ${more} ${chernetok(more)}</span><span style="color:var(--primary);font-weight:600">Показати</span></button></div>`
       : ''
   return `<div style="padding-bottom:4px">${sorted.slice(0, shown).map(draftRow).join('')}${moreRow}</div>`
 }
@@ -770,7 +770,7 @@ export const draftsTwo = (w, h) =>
 
 /**
  * Two unresolved drafts and an armed one: the pill names the count and opens Фінанси at the pinned rows;
- * the FAB dot carries it. Two rows show (unresolved first), the armed one collapses into «Ще 1 чернетка».
+ * the FAB dot carries it. Up to three rows show, so all three are here (unresolved first).
  */
 export const draftsTwoUnresolved = (w, h) =>
   draftFab(
@@ -783,14 +783,35 @@ export const draftsTwoUnresolved = (w, h) =>
     2,
   )
 
+/** Four drafts: two rows (unresolved first) and «Ще 2 чернетки · Показати», collapsed. */
+export const draftsFourCollapsed = (w, h) =>
+  draftFab(
+    financeTab(
+      w,
+      h,
+      moneyPill(w, 'drafts'),
+      pinDrafts([DRAFT.armed, DRAFT.failed2, DRAFT.inflight, DRAFT.unknown]),
+    ),
+    2,
+  )
+
+/** Any «+» menu shows at most 2 draft rows; from 3, a last row «Усі чернетки (N)» opens Фінанси at the pinned rows. */
+const menuDraftRows = (drafts) => {
+  const all =
+    drafts.length > 2
+      ? `<div style="padding:0 16px 8px"><a href="#" class="row" style="justify-content:space-between;min-height:44px;padding:0 14px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font-size:15px;color:var(--fg);text-decoration:none"><span class="num">Усі чернетки (${drafts.length})</span>${icon('chevron-right', { size: 18 })}</a></div>`
+      : ''
+  return byRank(drafts).slice(0, 2).map(draftRow).join('') + all
+}
+
 /**
  * «+» with unresolved drafts off Фінанси (a quick-add FAB): the quick-add sheet keeps the role's actions; the
  * «Чернетки» section sits on top. A draft never hides other actions.
  * On Фінанси the FAB opens a new form directly. `base`: the tab screen behind the sheet.
  */
 export function quickAddDrafts(w, h, base) {
-  const rows = byRank([DRAFT.failed2, DRAFT.unknown]).map(draftRow).join('')
-  const acts = `<div class="group" style="margin-top:8px">${quickAddRows('ADMIN')}</div>`
+  const rows = menuDraftRows([DRAFT.failed2, DRAFT.unknown])
+  const acts = `<div class="group" role="group" aria-label="Дії" style="margin-top:8px">${quickAddRows('ADMIN')}</div>`
   const body = `<div class="t-over" style="padding:0 16px 8px">Чернетки · 2 потребують перевірки</div>${rows}${acts}`
   const listH = 52 + 26 + 2 * 72 + 8 + 4 * 64 + safeBottom(w) + 24
   const overlay = sheet({ w, h, top: h - listH, title: 'Створити', trail: closeBtn, body })

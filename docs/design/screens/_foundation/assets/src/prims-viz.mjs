@@ -13,7 +13,7 @@ import {
   TABBAR_H,
   FLOAT_RIGHT,
 } from './mobile.mjs'
-import { skeletonList } from './mobile-overlays.mjs'
+import { skeletonList, skRow } from './mobile-overlays.mjs'
 import { ACTIONS, QUICK_ADD } from './nav.mjs'
 import { desktop } from './desktop.mjs'
 import { tablet } from './tablet.mjs'
@@ -75,8 +75,14 @@ function chooserMenu({ drafts, pos, itemH, coarse = false, role = '' }) {
   const tone = { failed: 'var(--destructive)', unknown: 'var(--warning)' }
   const item = (d) =>
     `<div role="menuitem" tabindex="-1" class="row" aria-label="Відкрити чернетку ${d.amount} USD, ${d.state.split(' · ')[0]}" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px"><span style="color:${tone[d.kind] || 'var(--muted-fg)'};display:grid">${icon('file-pen', { size: 18 })}</span><span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:14px;font-weight:600;white-space:nowrap">${d.amount} USD</span><span class="muted trunc" style="font-size:${coarse ? 13 : 12}px;line-height:${coarse ? 18 : 16}px">${d.state}</span></span><span class="t-cap muted">Відкрити</span></div>`
-  const items = `<div role="group" aria-labelledby="ch-drafts"><div id="ch-drafts" class="t-over" style="padding:6px 10px 4px">Чернетки</div>${drafts.map(item).join('')}</div>`
-  const focus = 'background:var(--raised);box-shadow:inset 0 0 0 2px var(--primary)'
+  // At most 2 draft rows in any menu; from 3, «Усі чернетки (N)» opens Фінанси at the pinned rows.
+  const all =
+    drafts.length > 2
+      ? `<div role="menuitem" tabindex="-1" class="row" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px"><span class="grow num" style="font-size:14px">Усі чернетки (${drafts.length})</span>${icon('chevron-right', { size: 16 })}</div>`
+      : ''
+  const items = `<div role="group" aria-labelledby="ch-drafts"><div id="ch-drafts" class="t-over" style="padding:6px 10px 4px">Чернетки</div>${drafts.slice(0, 2).map(item).join('')}${all}</div>`
+  // Touch: the initial focus is real but drawn only on :focus-visible, so no ring under (pointer: coarse).
+  const focus = coarse ? '' : 'background:var(--raised);box-shadow:inset 0 0 0 2px var(--primary)'
   const act = (a, i) =>
     `<div role="menuitem" tabindex="${i ? -1 : 0}" class="row" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px;${i ? '' : focus}"><span style="color:${i ? 'var(--muted-fg)' : 'var(--primary)'};display:grid">${icon(ACTIONS[a].icon, { size: 18 })}</span><span class="grow" style="font-size:14px;font-weight:600">${ACTIONS[a].label}</span></div>`
   const tail = role
@@ -233,6 +239,7 @@ export {
   uploadPillUnknown,
   draftsTwo,
   draftsTwoUnresolved,
+  draftsFourCollapsed,
   toastPillStack,
   pageKillAlert,
   checkSheetBoot,
@@ -449,4 +456,15 @@ export function transitions() {
   ${rowOf('Вкладки', 'без анімації: миттєве перемикання, позиція прокрутки кожної вкладки зберігається', [tabCell('/finance', 'Фінанси'), tabCell('/stats', 'Статистика · 0 мс')])}
   ${rowOf('Аркуш', 'scrim 0→60% 200 мс + translateY 100%→0 280 мс · закриття 150 мс · drag-to-dismiss — m.* spring', [sh(100, 0, '0 мс'), sh(35, 0.6, '160 мс'), sh(0, 1, '280 мс · фокус у аркуші')])}
   <div class="t-foot muted" style="width:100%">prefers-reduced-motion: усі зсуви замінено на crossfade 120 мс; пружини вимкнено. Десктоп: зміна маршруту — crossfade вмісту 150 мс, бічна панель і заголовок нерухомі.</div></div>`
+}
+
+/** List footer: the next page loading (3 skeleton rows) and failing (an inline retry; the loaded rows stay). */
+export function listFooter() {
+  const rows = TXNS.slice(0, 2)
+    .map((r) => txnRow(r))
+    .join('')
+  const cap = (t) => `<div class="t-over" style="padding:14px 16px 6px">${t}</div>`
+  const loading = `<div class="group">${rows}<div role="status" aria-label="Завантаження ще транзакцій" style="display:contents"><div aria-hidden="true" style="display:contents">${skRow().repeat(3)}</div></div></div>`
+  const failed = `<div class="group">${rows}<div class="lrow" role="alert" style="--inset:16px;gap:10px"><span style="color:var(--destructive);display:grid">${icon('circle-alert', { size: 18 })}</span><span class="grow t-foot" style="white-space:nowrap">Не вдалося завантажити ще</span><span class="btn sm secondary" role="button" style="height:44px">${icon('rotate-cw', { size: 16 })}Повторити</span></div></div>`
+  return `<div style="width:375px;padding:4px 0 16px;background:var(--bg)">${cap('Наступна сторінка · завантаження')}${loading}${cap('Наступна сторінка · помилка')}${failed}</div>`
 }
