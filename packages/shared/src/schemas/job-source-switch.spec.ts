@@ -196,3 +196,24 @@ describe('jobSourceSchema — the additive `meter` projection (task 7.5)', () =>
     expect(items[0]?.meter).toEqual(METER)
   })
 })
+
+describe('jobSourceSchema — the additive policyUntil / authUntil deadlines (task 7.5)', () => {
+  const ISO = '2027-02-10T00:00:00.000Z'
+
+  it('an old DTO without the deadlines still parses and stays without them', () => {
+    const parsed = jobSourceSchema.parse(EXTENDED)
+    expect('policyUntil' in parsed).toBe(false)
+    expect('authUntil' in parsed).toBe(false)
+  })
+
+  it('accepts an ISO instant and null for each, unchanged', () => {
+    const parsed = jobSourceSchema.parse({ ...EXTENDED, policyUntil: null, authUntil: ISO })
+    expect(parsed.policyUntil).toBeNull()
+    expect(parsed.authUntil).toBe(ISO)
+  })
+
+  it.each([['policyUntil'], ['authUntil']])('rejects a %s that is not a datetime', (key) => {
+    expect(jobSourceSchema.safeParse({ ...EXTENDED, [key]: '10.02.2027' }).success).toBe(false)
+    expect(jobSourceSchema.safeParse({ ...EXTENDED, [key]: 5 }).success).toBe(false)
+  })
+})

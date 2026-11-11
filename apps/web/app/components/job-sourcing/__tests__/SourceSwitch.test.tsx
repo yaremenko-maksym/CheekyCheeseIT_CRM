@@ -217,7 +217,7 @@ describe('AC2 — disabled, paused and blocked are three different states', () =
     renderPanel()
     await screen.findByRole('switch', { name: 'DOU' })
     expect(chip()).toHaveAttribute('data-state', 'paused')
-    expect(note().textContent).toBe('Пауза без визначеного часу')
+    expect(note().textContent).toBe('Призупинено адміністратором')
   })
 
   it('a cooldown already in the past is NOT a pause', async () => {
@@ -229,13 +229,60 @@ describe('AC2 — disabled, paused and blocked are three different states', () =
 
   it('readiness-blocked: destructive chip with the readiness reason, even while switched off', async () => {
     listed = [
-      source({ enabled: false, readiness: 'BLOCKED', readinessReason: 'сплив термін авторизації' }),
+      source({
+        enabled: false,
+        readiness: 'BLOCKED',
+        readinessReason: 'AUTH_DEADLINE_PASSED: the authorization window closed on 2027-02-10',
+      }),
     ]
     renderPanel()
     await screen.findByRole('switch', { name: 'DOU' })
     expect(chip()).toHaveTextContent('Заблоковано')
     expect(chip()).toHaveAttribute('data-state', 'blocked')
-    expect(note()).toHaveTextContent('Не готове: сплив термін авторизації')
+    expect(note().textContent).toBe('Не готове: сплив термін авторизації')
+  })
+
+  it('readiness-blocked with several codes: one phrase each, in order, joined by «; »', async () => {
+    listed = [
+      source({
+        readiness: 'BLOCKED',
+        readinessReason:
+          'KEY_REQUIRED: set the API key; NO_CAPTURE: record a sample; KEY_REQUIRED: again',
+      }),
+    ]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(note().textContent).toBe(
+      'Не готове: потрібен ключ доступу; немає перевіреного зразка відповіді',
+    )
+  })
+
+  it('readiness-blocked with an unknown code: the neutral phrase, never the server text', async () => {
+    listed = [
+      source({
+        readiness: 'BLOCKED',
+        readinessReason: 'SOMETHING_NEW: internal developer detail about the adapter',
+      }),
+    ]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(note().textContent).toBe('Не готове до роботи')
+    expect(document.body.textContent).not.toContain('developer detail')
+    expect(document.body.textContent).not.toContain('SOMETHING_NEW')
+  })
+
+  it('readiness-blocked: the English detail after the code never reaches the page', async () => {
+    listed = [
+      source({
+        readiness: 'BLOCKED',
+        readinessReason: 'PERMISSION_PROHIBITED: robots.txt disallows /jobs for all agents',
+      }),
+    ]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(note().textContent).toBe('Не готове: джерело забороняє автоматичний збір')
+    expect(document.body.textContent).not.toContain('robots.txt')
+    expect(document.body.textContent).not.toContain('PERMISSION_PROHIBITED')
   })
 
   it('a retired source reads as disabled', async () => {
@@ -278,7 +325,9 @@ describe('AC3 — three-segment quota bar', () => {
     resetsAt: null,
     ...over,
   })
-  const bar = (name: string) => screen.getByRole('img', { name })
+  // Intl puts a no-break space between a number and the currency / inside a group.
+  const plain = (text: string | null) => (text ?? '').replace(/[  ]/g, ' ')
+  const bar = (name: string) => screen.getByRole('img', { name: (n) => plain(n) === name })
 
   it('draws used / reserved / uncertain of the limit; the label and the legend carry all three numbers', async () => {
     listed = [source({ meter: meter() })]
@@ -288,8 +337,9 @@ describe('AC3 — three-segment quota bar', () => {
     expect(within(img).getByTestId('job-source-quota-used')).toHaveStyle({ width: '60%' })
     expect(within(img).getByTestId('job-source-quota-reserved')).toHaveStyle({ width: '5%' })
     expect(within(img).getByTestId('job-source-quota-uncertain')).toHaveStyle({ width: '2.5%' })
+    // The headline adds up everything the limit has committed: used + reserved + uncertain.
     expect(screen.getByTestId('job-source-quota-limit').textContent).toBe(
-      'Ліміт: 120 / 200 запитів',
+      'Ліміт: 135 / 200 запитів',
     )
     expect(screen.getByTestId('job-source-quota-legend-used')).toHaveTextContent('Використано 120')
     expect(screen.getByTestId('job-source-quota-legend-reserved')).toHaveTextContent(
@@ -406,8 +456,8 @@ describe('AC3 — three-segment quota bar', () => {
   })
 
   it.each([
-    ['RECORD' as const, 'Ліміт: 120 / 200 записів'],
-    ['MODEL_CALL' as const, 'Ліміт: 120 / 200 викликів моделі'],
+    ['RECORD' as const, 'Ліміт: 135 / 200 записів'],
+    ['MODEL_CALL' as const, 'Ліміт: 135 / 200 викликів моделі'],
   ])('names the %s unit', async (unit, text) => {
     listed = [source({ meter: meter({ unit }) })]
     renderPanel()
@@ -430,9 +480,74 @@ describe('AC3 — three-segment quota bar', () => {
     renderPanel()
     await screen.findByRole('switch', { name: 'DOU' })
     expect(
-      bar('Використано $1.50, зарезервовано $0.25, невизначено $0.00 з $5.00'),
+      bar('Використано 1,50 USD, зарезервовано 0,25 USD, невизначено 0,00 USD з 5,00 USD'),
     ).toBeInTheDocument()
-    expect(screen.getByTestId('job-source-quota-limit').textContent).toBe('Ліміт: $1.50 / $5.00')
+    expect(plain(screen.getByTestId('job-source-quota-limit').textContent)).toBe(
+      'Ліміт: 1,75 USD / 5,00 USD',
+    )
+    expect(plain(screen.getByTestId('job-source-quota-legend-used').textContent)).toBe(
+      'Використано 1,50 USD',
+    )
+  })
+
+  it('groups large counts the way the active locale does', async () => {
+    listed = [source({ meter: meter({ limit: 20_000, used: 12_500, reserved: 0, uncertain: 0 }) })]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(plain(screen.getByTestId('job-source-quota-limit').textContent)).toBe(
+      'Ліміт: 12 500 / 20 000 запитів',
+    )
+    expect(plain(screen.getByTestId('job-source-quota-legend-used').textContent)).toBe(
+      'Використано 12 500',
+    )
+  })
+
+  // The unit word agrees with the limit (uk one / few / many / other).
+  it.each([
+    [1, 'запит'],
+    [2, 'запити'],
+    [5, 'запитів'],
+    [11, 'запитів'],
+    [21, 'запит'],
+    [22, 'запити'],
+    [25, 'запитів'],
+  ])('agrees the REQUEST unit with a limit of %i: «%s»', async (limit, word) => {
+    listed = [source({ meter: meter({ limit, used: 0, reserved: 0, uncertain: 0 }) })]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(screen.getByTestId('job-source-quota-limit').textContent).toBe(
+      `Ліміт: 0 / ${limit} ${word}`,
+    )
+  })
+
+  it.each([
+    [1, 'запис'],
+    [3, 'записи'],
+    [7, 'записів'],
+  ])('agrees the RECORD unit with a limit of %i: «%s»', async (limit, word) => {
+    listed = [
+      source({ meter: meter({ unit: 'RECORD', limit, used: 0, reserved: 0, uncertain: 0 }) }),
+    ]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(screen.getByTestId('job-source-quota-limit').textContent).toBe(
+      `Ліміт: 0 / ${limit} ${word}`,
+    )
+  })
+
+  it.each([
+    [1, 'виклик моделі'],
+    [4, 'виклики моделі'],
+    [9, 'викликів моделі'],
+  ])('agrees the MODEL_CALL unit with a limit of %i: «%s»', async (limit, word) => {
+    listed = [
+      source({ meter: meter({ unit: 'MODEL_CALL', limit, used: 0, reserved: 0, uncertain: 0 }) }),
+    ]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(screen.getByTestId('job-source-quota-limit').textContent).toBe(
+      `Ліміт: 0 / ${limit} ${word}`,
+    )
   })
 })
 
@@ -475,12 +590,42 @@ describe('AC4 — timestamps', () => {
     expect(valueOf('Остання з даними')).toBe('ніколи')
   })
 
-  it('has no «Політика діє до» / «Авторизація до» rows: the API has no source for either', async () => {
+  const dateOf = (iso: string, locale: string) =>
+    new Date(iso).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric' })
+
+  it('shows «Політика діє до» and «Авторизація до» with an absolute date when the source has deadlines', async () => {
+    listed = [
+      source({
+        policyUntil: '2027-03-15T00:00:00.000Z',
+        authUntil: '2027-02-10T00:00:00.000Z',
+      }),
+    ]
     renderPanel()
     await screen.findByRole('switch', { name: 'DOU' })
-    expect(within(stamps()).getAllByRole('term')).toHaveLength(3)
-    expect(screen.queryByText('Політика діє до')).toBeNull()
-    expect(screen.queryByText('Авторизація до')).toBeNull()
+    expect(within(stamps()).getAllByRole('term')).toHaveLength(5)
+    expect(valueOf('Політика діє до')).toBe(dateOf('2027-03-15T00:00:00.000Z', 'uk'))
+    expect(valueOf('Авторизація до')).toBe(dateOf('2027-02-10T00:00:00.000Z', 'uk'))
+    // an absolute date, not the relative «через N днів» the attempts use
+    expect(valueOf('Авторизація до')).toMatch(/2027/)
+    // the two deadlines differ, so each value sits under its own label
+    expect(valueOf('Політика діє до')).not.toBe(valueOf('Авторизація до'))
+  })
+
+  it('says «ніколи» for a deadline that is null — and for one an older server does not send', async () => {
+    listed = [source({ policyUntil: null, authUntil: undefined })]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(within(stamps()).getAllByRole('term')).toHaveLength(5)
+    expect(valueOf('Політика діє до')).toBe('ніколи')
+    expect(valueOf('Авторизація до')).toBe('ніколи')
+  })
+
+  it('one deadline set, the other not: only the unset row says «ніколи»', async () => {
+    listed = [source({ policyUntil: null, authUntil: '2027-02-10T00:00:00.000Z' })]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(valueOf('Політика діє до')).toBe('ніколи')
+    expect(valueOf('Авторизація до')).toBe(dateOf('2027-02-10T00:00:00.000Z', 'uk'))
   })
 
   it('is one column on mobile and three from a 560 px container', async () => {
@@ -489,6 +634,9 @@ describe('AC4 — timestamps', () => {
     expect(stamps().tagName).toBe('DL')
     expect(stamps().className).toContain('grid-cols-1')
     expect(stamps().className).toContain('@min-[560px]:grid-cols-3')
+    // a container query matches only inside an `@container` ancestor: the card is that container
+    expect(screen.getByTestId('job-source-card')).toHaveClass('@container')
+    expect(screen.getByTestId('job-source-card')).toContainElement(stamps())
   })
 })
 
@@ -497,7 +645,7 @@ describe('AC5 — a refused enable', () => {
     source({
       enabled: false,
       readiness: 'BLOCKED',
-      readinessReason: 'сплив термін авторизації',
+      readinessReason: 'AUTH_DEADLINE_PASSED: the authorization window closed on 2027-02-10',
       budget: {
         state: 'ACTIVE',
         limit: 400,
@@ -522,8 +670,10 @@ describe('AC5 — a refused enable', () => {
 
     const failure = await screen.findByTestId('job-source-enable-failure')
     expect(failure).toHaveAttribute('role', 'alert')
-    expect(failure).toHaveTextContent('Не вдалося увімкнути')
-    expect(failure).toHaveTextContent('Причина: сплив термін авторизації. Стан не змінено.')
+    expect(failure.textContent).toBe(
+      'Не вдалося увімкнути. Причина: сплив термін авторизації. Стан не змінено.',
+    )
+    expect(failure.textContent).not.toContain('authorization window')
     expect(screen.getByRole('switch', { name: 'DOU' })).toHaveAttribute('aria-checked', 'false')
     expect(screen.getByRole('switch', { name: 'DOU' })).not.toBeDisabled()
     // policy / cost state untouched: same chip, same note, same budget line, same bar, no refetch
@@ -549,9 +699,53 @@ describe('AC5 — a refused enable', () => {
       fireEvent.click(toggle)
     })
 
-    expect(await screen.findByTestId('job-source-enable-failure')).toHaveTextContent(
-      `Причина: ${getUserFacingErrorMessage(error)}. Стан не змінено.`,
+    // one period after the server answer, never two
+    const answer = getUserFacingErrorMessage(error)
+    const sentence = /[.!?…]$/.test(answer) ? answer : `${answer}.`
+    const failure = await screen.findByTestId('job-source-enable-failure')
+    expect(failure.textContent).toBe(`Не вдалося увімкнути. ${sentence} Стан не змінено.`)
+    expect(failure.textContent).not.toContain('..')
+  })
+
+  it('does not double the period when the server answer already ends with one', async () => {
+    listed = [source({ enabled: false })]
+    vi.mocked(api.patch).mockRejectedValue({
+      isAxiosError: true,
+      response: { status: 409, data: { message: 'Джерело зайняте іншим запуском.' } },
+    })
+    renderPanel()
+    const toggle = await screen.findByRole('switch', { name: 'DOU' })
+
+    await act(async () => {
+      fireEvent.click(toggle)
+    })
+
+    const failure = await screen.findByTestId('job-source-enable-failure')
+    expect(failure.textContent).toBe(
+      'Не вдалося увімкнути. Джерело зайняте іншим запуском. Стан не змінено.',
     )
+    expect(failure.textContent).not.toContain('..')
+  })
+
+  it('an unknown readiness code in the refusal reads «Не готове до роботи», never the server text', async () => {
+    listed = [
+      source({
+        enabled: false,
+        readiness: 'BLOCKED',
+        readinessReason: 'SOMETHING_NEW: internal developer detail',
+      }),
+    ]
+    vi.mocked(api.patch).mockRejectedValue(new Error('409'))
+    renderPanel()
+    const toggle = await screen.findByRole('switch', { name: 'DOU' })
+
+    await act(async () => {
+      fireEvent.click(toggle)
+    })
+
+    const failure = await screen.findByTestId('job-source-enable-failure')
+    expect(failure.textContent).toBe('Не вдалося увімкнути. Не готове до роботи. Стан не змінено.')
+    expect(failure.textContent).not.toContain('developer detail')
   })
 
   it('a failed DISABLE is not worded as an enable failure', async () => {
@@ -693,7 +887,7 @@ describe('AC7 — English', () => {
         id: ID_B,
         type: 'DJINNI_RSS',
         readiness: 'BLOCKED',
-        readinessReason: 'authorization expired',
+        readinessReason: 'AUTH_DEADLINE_PASSED: the authorization window closed on 2027-02-10',
         enabled: false,
       }),
     ]
@@ -709,19 +903,21 @@ describe('AC7 — English', () => {
       'Not ready: authorization expired',
     )
     expect(screen.getAllByText('Last attempt')).toHaveLength(2)
+    expect(screen.getAllByText('Last success')).toHaveLength(2)
     expect(screen.getAllByText(formatRelativeTime(ago(12 * MIN), 'en'))[0]).toBeInTheDocument()
 
     await act(async () => {
       fireEvent.click(screen.getByRole('switch', { name: 'Djinni' }))
     })
     const failure = await screen.findByTestId('job-source-enable-failure')
-    expect(failure).toHaveTextContent('Could not enable')
-    expect(failure).toHaveTextContent('Reason: authorization expired. Nothing was changed.')
+    expect(failure.textContent).toBe(
+      'Could not enable. Reason: authorization expired. Nothing was changed.',
+    )
     expect(
       screen.getAllByRole('img', { name: 'Used 232, reserved 0, uncertain 0 of 500' }),
     ).toHaveLength(2)
     expect(screen.getAllByTestId('job-source-quota-limit')[0]?.textContent).toBe(
-      'Limit: 232 / 500 requests',
+      'Quota: 232 / 500 requests',
     )
     expect(screen.getAllByTestId('job-source-quota-legend-reserved')[0]).toHaveTextContent(
       'Reserved 0',
@@ -740,14 +936,21 @@ describe('exact rendering contract (state chips, notes, quota, panel shell)', ()
     new Date(iso).toLocaleTimeString('uk', { hour: '2-digit', minute: '2-digit' })
 
   it.each([
-    ['running', {}, 'Check', ['text-green-400', 'bg-green-500/10']],
-    ['disabled', { enabled: false }, 'Ban', ['bg-secondary']],
-    ['paused', { adminState: 'PAUSED' }, 'Pause', ['text-amber-400', 'border-amber-500/40']],
+    // design §7/§8: running outlined + check, disabled secondary fill + power, paused amber tint
+    // from the design tokens + pause, blocked destructive outline + lock
+    ['running', {}, 'Check', ['border-border']],
+    ['disabled', { enabled: false }, 'Power', ['bg-secondary', 'text-foreground']],
+    [
+      'paused',
+      { adminState: 'PAUSED' },
+      'Pause',
+      ['border-yellow-muted/40', 'bg-yellow-subtle', 'text-foreground'],
+    ],
     [
       'blocked',
       { readiness: 'BLOCKED', readinessReason: 'x' },
-      'ShieldExclamationPoint',
-      ['bg-destructive', 'text-white'],
+      'Lock',
+      ['border-destructive', 'text-destructive'],
     ],
   ] as const)(
     'the %s chip has its own icon, variant and aria-hidden icon',
@@ -766,7 +969,7 @@ describe('exact rendering contract (state chips, notes, quota, panel shell)', ()
     },
   )
 
-  it('only the paused chip is amber', async () => {
+  it('only the paused chip is amber, through the design tokens and no raw amber / green classes', async () => {
     listed = [
       source({ id: ID_A }),
       source({ id: ID_B, type: 'DJINNI_RSS', enabled: false }),
@@ -784,10 +987,14 @@ describe('exact rendering contract (state chips, notes, quota, panel shell)', ()
     ]
     renderPanel()
     await ready()
-    const amber = screen
-      .getAllByTestId('job-source-state-chip')
-      .map((c) => c.classList.contains('text-amber-400'))
-    expect(amber).toEqual([false, false, true, false])
+    const chips = screen.getAllByTestId('job-source-state-chip')
+    expect(chips.map((c) => c.classList.contains('bg-yellow-subtle'))).toEqual([
+      false,
+      false,
+      true,
+      false,
+    ])
+    for (const c of chips) expect(c.className).not.toMatch(/amber|green-/)
   })
 
   it('a pause under 24 h shows the time only; 24 h or more shows the date too', async () => {
@@ -889,7 +1096,13 @@ describe('exact rendering contract (state chips, notes, quota, panel shell)', ()
   })
 
   it('words the failure as one sentence with a space after the headline', async () => {
-    listed = [source({ enabled: false, readiness: 'BLOCKED', readinessReason: 'сплив' })]
+    listed = [
+      source({
+        enabled: false,
+        readiness: 'BLOCKED',
+        readinessReason: 'AUTH_DEADLINE_PASSED: window closed',
+      }),
+    ]
     vi.mocked(api.patch).mockRejectedValue(new Error('409'))
     renderPanel()
     const toggle = await ready()
@@ -897,7 +1110,7 @@ describe('exact rendering contract (state chips, notes, quota, panel shell)', ()
       fireEvent.click(toggle)
     })
     expect((await screen.findByTestId('job-source-enable-failure')).textContent).toBe(
-      'Не вдалося увімкнути Причина: сплив. Стан не змінено.',
+      'Не вдалося увімкнути. Причина: сплив термін авторизації. Стан не змінено.',
     )
   })
 })
@@ -934,5 +1147,72 @@ describe('the panel shell', () => {
     await screen.findByTestId('job-source-section')
     expect(screen.queryByRole('heading')).toBeNull()
     expect(screen.getByTestId('job-source-budgets')).not.toHaveAttribute('class')
+  })
+})
+
+describe('COPY — English quota, deadlines and admin pause', () => {
+  beforeEach(async () => {
+    await loadCatalog('en')
+  })
+  afterEach(async () => {
+    await loadCatalog('uk')
+  })
+
+  const meter = (over: Partial<NonNullable<JobSourceDto['meter']>> = {}) => ({
+    unit: 'REQUEST' as const,
+    window: 'MONTH' as const,
+    limit: 20_000,
+    used: 12_500,
+    reserved: 0,
+    uncertain: 0,
+    resetsAt: null,
+    ...over,
+  })
+
+  it('groups counts with commas and agrees the unit word', async () => {
+    listed = [source({ meter: meter() })]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(screen.getByTestId('job-source-quota-limit').textContent).toBe(
+      'Quota: 12,500 / 20,000 requests',
+    )
+  })
+
+  it.each([
+    ['REQUEST' as const, 1, 'Quota: 0 / 1 request'],
+    ['RECORD' as const, 2, 'Quota: 0 / 2 records'],
+    ['MODEL_CALL' as const, 1, 'Quota: 0 / 1 model call'],
+  ])('writes %s with a limit of %i as «%s»', async (unit, limit, text) => {
+    listed = [source({ meter: meter({ unit, limit, used: 0 }) })]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(screen.getByTestId('job-source-quota-limit').textContent).toBe(text)
+  })
+
+  it('writes money in US style', async () => {
+    listed = [
+      source({
+        meter: meter({ unit: 'USD_MICROS', limit: 5_000_000, used: 1_500_000, reserved: 250_000 }),
+      }),
+    ]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(screen.getByTestId('job-source-quota-limit').textContent).toBe('Quota: $1.75 / $5.00')
+    expect(screen.getByRole('img', { name: /Used \$1\.50, reserved \$0\.25/ })).toBeInTheDocument()
+  })
+
+  it('words the deadline rows and the admin pause', async () => {
+    listed = [
+      source({ policyUntil: null, authUntil: '2027-02-10T00:00:00.000Z' }),
+      source({ id: ID_B, type: 'DJINNI_RSS', adminState: 'PAUSED' }),
+    ]
+    renderPanel()
+    await screen.findAllByRole('switch')
+    expect(screen.getAllByText('Policy valid until')).toHaveLength(2)
+    expect(screen.getAllByText('Authorization until')).toHaveLength(2)
+    expect(screen.getAllByText('never')).toHaveLength(3)
+    expect(screen.getAllByTestId('job-source-state-note')[0]?.textContent).toBe(
+      'Paused by an administrator',
+    )
   })
 })

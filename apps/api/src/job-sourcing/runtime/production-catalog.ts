@@ -113,6 +113,33 @@ export function catalogFromSnapshot(snapshot: LedgerCatalogSnapshot): LedgerCata
   }
 }
 
+/**
+ * Task 7.5 (AC4): the dates from which one source's policy lapses (`POLICY_EXPIRES`) and from which
+ * it needs authorization (`AUTH_REQUIRED_FROM`), read off the same snapshot that drives readiness.
+ * A source inherits its TYPE's deadlines and its own ENTRY's (found by `manifest_id`, and only when
+ * the entry is of the source's type, as the claim does); when several apply, the earliest wins,
+ * because that is the first one that blocks it. `null` = no such deadline.
+ */
+export function sourceDeadlines(
+  type: JobSourceType,
+  manifestId: string | null,
+  snapshot: LedgerCatalogSnapshot = LEDGER_CATALOG_SNAPSHOT,
+): { policyUntil: string | null; authUntil: string | null } {
+  const entry =
+    manifestId === null
+      ? undefined
+      : snapshot.entries.find((e) => e.id === manifestId && e.type === type)
+  const all = [
+    ...(snapshot.types.find((t) => t.type === type)?.deadlines ?? []),
+    ...(entry?.deadlines ?? []),
+  ]
+  const earliest = (kind: SnapshotDeadline['kind']): string | null => {
+    const ms = all.filter((d) => d.kind === kind).map((d) => Date.parse(d.at))
+    return ms.length === 0 ? null : new Date(Math.min(...ms)).toISOString()
+  }
+  return { policyUntil: earliest('POLICY_EXPIRES'), authUntil: earliest('AUTH_REQUIRED_FROM') }
+}
+
 /** The catalog the production worker runs with. */
 export function productionLedgerCatalog(): LedgerCatalog {
   return catalogFromSnapshot(LEDGER_CATALOG_SNAPSHOT)

@@ -1,11 +1,16 @@
 import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { JobMeterUnit } from '@crm/shared'
+import { useLocale } from '@/lib/i18n'
+import { formatCount, formatUsdMicros } from './quota-format'
 
 /**
  * Three-segment quota bar — docs/design/vacancy-queue.md §7. Used (`primary`), reserved
  * (`yellow-muted`, 60 %) and uncertain (hatched, so the bar is not colour-only) over the limit, with
  * a legend that carries the numbers and an `aria-label` that names all three.
+ *
+ * The headline number is used + reserved + uncertain (design.html `quota()`): everything the limit
+ * has already committed, which is what the filled part of the bar adds up to.
  */
 
 export interface QuotaFigures {
@@ -17,34 +22,38 @@ export interface QuotaFigures {
   unit: JobMeterUnit
 }
 
-// Module-level `msg`, not `t({ message })`: Stryker rewrites the literal the macro needs.
-const UNIT_WORD: Record<JobMeterUnit, ReturnType<typeof msg> | null> = {
-  REQUEST: msg`запитів`,
-  RECORD: msg`записів`,
-  MODEL_CALL: msg`викликів моделі`,
-  USD_MICROS: null,
-}
-
-const MICROS = 1_000_000
+// One ICU plural per unit, keyed on the limit, so the unit word agrees with the number.
+// Module-level `msg`, not `t({ message })` / `plural()`: Stryker rewrites what those macros read.
+const QUOTA_LINE = {
+  REQUEST: msg`Ліміт: {used} / {total, plural, one {# запит} few {# запити} many {# запитів} other {# запиту}}`,
+  RECORD: msg`Ліміт: {used} / {total, plural, one {# запис} few {# записи} many {# записів} other {# запису}}`,
+  MODEL_CALL: msg`Ліміт: {used} / {total, plural, one {# виклик моделі} few {# виклики моделі} many {# викликів моделі} other {# виклику моделі}}`,
+  USD_MICROS: msg`Ліміт: {used} / {total}`,
+} satisfies Record<JobMeterUnit, ReturnType<typeof msg>>
 
 export function QuotaBar({ used, reserved, uncertain, total, unit }: QuotaFigures) {
   const { i18n, t } = useLingui()
+  const locale = useLocale()
 
-  // A money meter counts millionths of a dollar; nobody reads 1500000.
-  const amount = (n: number) => (unit === 'USD_MICROS' ? `$${(n / MICROS).toFixed(2)}` : `${n}`)
+  const amount = (n: number) =>
+    unit === 'USD_MICROS' ? formatUsdMicros(locale, n) : formatCount(locale, n)
   const width = (n: number) => `${Math.min(100, (n * 100) / total)}%`
-  const word = UNIT_WORD[unit]
 
   const usedText = amount(used)
   const reservedText = amount(reserved)
   const uncertainText = amount(uncertain)
   const totalText = amount(total)
 
+  const line = i18n._(QUOTA_LINE[unit].id, {
+    used: amount(used + reserved + uncertain),
+    // The plural needs the number; money has no unit word to agree, so it is the formatted text.
+    total: unit === 'USD_MICROS' ? totalText : total,
+  })
+
   return (
     <div className="flex flex-col gap-1">
       <p data-testid="job-source-quota-limit" className="tabular-nums text-muted-foreground">
-        {t`Ліміт: ${usedText} / ${totalText}`}
-        {word && ` ${i18n._(word)}`}
+        {line}
       </p>
       <div
         role="img"

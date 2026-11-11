@@ -301,3 +301,19 @@ describe('listSources — task 7.5 meter projection', () => {
     )
   })
 })
+
+describe('listSources — task 7.5 policy / authorization deadlines (AC4)', () => {
+  it('a Recruitee board with a catalog deadline carries authUntil; policyUntil is null', async () => {
+    const h = harness([{ ...ROW, type: 'RECRUITEE_ATS', manifestId: 'recruitee.board.bunq' }], [])
+    const [item] = await h.service.listSources(ADMIN)
+    expect(item).toMatchObject({ authUntil: '2027-02-10T00:00:00.000Z', policyUntil: null })
+    expect(jobSourceListSchema.parse({ items: [item] }).items[0]).toEqual(item)
+  })
+
+  it('a source with no deadline reads null / null, and a row without manifestId resolves by type', async () => {
+    const h = harness([ROW, { ...ROW, id: OTHER, type: 'RECRUITEE_ATS', manifestId: null }], [])
+    const [none, byType] = await h.service.listSources(ADMIN)
+    expect(none).toMatchObject({ authUntil: null, policyUntil: null })
+    expect(byType).toMatchObject({ authUntil: '2027-02-10T00:00:00.000Z', policyUntil: null })
+  })
+})

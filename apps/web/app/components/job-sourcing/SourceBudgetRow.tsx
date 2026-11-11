@@ -2,6 +2,7 @@ import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { JobSourceDto } from '@crm/shared'
 import { useLocale } from '@/lib/i18n'
+import { formatCount } from './quota-format'
 
 /**
  * Remaining request budget of one source — task-vacancy-matching AC7 (moved out of
@@ -48,7 +49,11 @@ export function formatResetAt(iso: string | null, locale: string): string {
 export function SourceBudgetRow({ source }: { source: JobSourceDto }) {
   const { i18n, t } = useLingui()
   const locale = useLocale()
-  const { state, limit, window, used, remaining, resetsAt } = source.budget
+  const { state, window, resetsAt } = source.budget
+  // Named like the placeholders in the messages below; counts follow the active locale.
+  const limit = formatCount(locale, source.budget.limit ?? 0)
+  const remaining = formatCount(locale, source.budget.remaining ?? 0)
+  const used = formatCount(locale, source.budget.used)
   const root =
     'flex flex-col gap-0.5 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3'
   const name = (
@@ -107,7 +112,7 @@ export function SourceBudgetRow({ source }: { source: JobSourceDto }) {
               <Trans>оновиться {resetAt}</Trans>
             </span>
           )}
-          {!exhausted && used > 0 && (
+          {!exhausted && source.budget.used > 0 && (
             <span className="sr-only">
               {' '}
               <Trans>(використано {used})</Trans>

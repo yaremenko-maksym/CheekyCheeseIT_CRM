@@ -1,5 +1,5 @@
 import { useId, useRef, type ReactNode } from 'react'
-import { Ban, Check, Pause, ShieldAlert, type LucideIcon } from 'lucide-react'
+import { Check, Lock, Pause, Power, type LucideIcon } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { formatRelativeTime, type JobSourceDto } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
@@ -9,6 +9,7 @@ import { getUserFacingErrorMessage } from '@/lib/axios-utils'
 import { useLocale } from '@/lib/i18n'
 import { sourceLabel } from '@/components/job-queue/JobQueueRow'
 import { QuotaBar, type QuotaFigures } from './QuotaBar'
+import { readinessPhrases } from './readiness-reason'
 import { SourceBudgetRow } from './SourceBudgetRow'
 import { deriveSourceState, type SourceStateKind } from './source-state'
 
@@ -24,18 +25,31 @@ import { deriveSourceState, type SourceStateKind } from './source-state'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
+// Design §7 / §8, built from `globals.css` tokens only: running is outlined; disabled is the
+// `secondary` fill with `foreground` text (muted text on `secondary` is 4.23:1); paused is the
+// amber tint (`yellow-subtle` fill, `yellow-muted` line); blocked is a destructive outline.
 const CHIP: Record<
   SourceStateKind,
-  { variant: 'status-active' | 'secondary' | 'outline' | 'destructive'; Icon: LucideIcon }
+  { variant: 'secondary' | 'outline'; className: string; Icon: LucideIcon }
 > = {
-  running: { variant: 'status-active', Icon: Check },
-  disabled: { variant: 'secondary', Icon: Ban },
-  paused: { variant: 'outline', Icon: Pause },
-  blocked: { variant: 'destructive', Icon: ShieldAlert },
+  running: { variant: 'outline', className: '', Icon: Check },
+  disabled: { variant: 'secondary', className: 'text-foreground', Icon: Power },
+  paused: {
+    variant: 'outline',
+    className: 'border-yellow-muted/40 bg-yellow-subtle text-foreground',
+    Icon: Pause,
+  },
+  blocked: { variant: 'outline', className: 'border-destructive text-destructive', Icon: Lock },
 }
 
+/** A message ends in exactly one sentence stop, whether or not the server text already had one. */
+const endSentence = (text: string): string => (/[.!?…]$/.test(text) ? text : `${text}.`)
+
+const formatDeadline = (iso: string, locale: string): string =>
+  new Date(iso).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric' })
+
 export function SourceSwitchCard({ source }: { source: JobSourceDto }) {
-  const { t } = useLingui()
+  const { i18n, t } = useLingui()
   const locale = useLocale()
   const noteId = useId()
   const mutation = useSetJobSourceEnabled()
@@ -46,6 +60,8 @@ export function SourceSwitchCard({ source }: { source: JobSourceDto }) {
   const now = Date.now()
   const state = deriveSourceState(source, now)
   const readinessReason = source.readinessReason
+  // The server text is `CODE: english detail`; only the mapped phrase for a known CODE is shown.
+  const reasonText = readinessPhrases(readinessReason, i18n).join('; ')
   const name = sourceLabel(source.type)
 
   const label: Record<SourceStateKind, ReactNode> = {
@@ -67,10 +83,11 @@ export function SourceSwitchCard({ source }: { source: JobSourceDto }) {
   const note = (() => {
     if (state.kind === 'disabled') return t`Вимкнено адміністратором`
     if (state.kind === 'blocked') {
-      return readinessReason ? t`Не готове: ${readinessReason}` : t`Не готове до роботи`
+      return reasonText ? t`Не готове: ${reasonText}` : t`Не готове до роботи`
     }
     if (state.kind === 'paused') {
-      if (!state.pausedUntil) return t`Пауза без визначеного часу`
+      // Only an admin pause has no end time: a host ban or a cooldown always states one.
+      if (!state.pausedUntil) return t`Призупинено адміністратором`
       const until = new Date(state.pausedUntil)
       const when =
         until.getTime() - now < DAY_MS
@@ -119,15 +136,23 @@ export function SourceSwitchCard({ source }: { source: JobSourceDto }) {
       : null
 
   const never = t`ніколи`
-  const stamps: Array<[string, string | null | undefined]> = [
-    [t`Остання спроба`, source.lastAttemptAt],
-    [t`Остання вдала`, source.lastSuccessAt],
-    [t`Остання з даними`, source.lastNonemptyAt],
+  const stamps: Array<[string, string | null | undefined, 'ago' | 'date']> = [
+    [t`Остання спроба`, source.lastAttemptAt, 'ago'],
+    [t`Остання вдала`, source.lastSuccessAt, 'ago'],
+    [t`Остання з даними`, source.lastNonemptyAt, 'ago'],
+    [t`Політика діє до`, source.policyUntil, 'date'],
+    [t`Авторизація до`, source.authUntil, 'date'],
   ]
 
   const attemptedEnable = mutation.variables?.enabled === true
+  // One sentence, ending in one stop: a refused enable names the mapped readiness reason, any other
+  // failure carries the (already sentence-shaped) user-facing error text.
   const failureReason =
-    (attemptedEnable && readinessReason) || getUserFacingErrorMessage(mutation.error)
+    attemptedEnable && readinessReason
+      ? reasonText
+        ? t`Причина: ${reasonText}.`
+        : endSentence(t`Не готове до роботи`)
+      : endSentence(getUserFacingErrorMessage(mutation.error))
 
   const chip = CHIP[state.kind]
 
@@ -135,14 +160,14 @@ export function SourceSwitchCard({ source }: { source: JobSourceDto }) {
     <li
       data-testid="job-source-card"
       data-source-type={source.type}
-      className="flex flex-col gap-2.5 rounded-lg border border-border/60 p-3 text-xs"
+      className="@container flex flex-col gap-2.5 rounded-lg border border-border/60 p-3 text-xs"
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <span className="text-sm font-medium text-foreground">{name}</span>
           <Badge
             variant={chip.variant}
-            className={state.kind === 'paused' ? 'border-amber-500/40 text-amber-400' : undefined}
+            className={chip.className}
             data-testid="job-source-state-chip"
             data-state={state.kind}
             data-icon={chip.Icon.displayName}
@@ -180,11 +205,15 @@ export function SourceSwitchCard({ source }: { source: JobSourceDto }) {
         data-testid="job-source-timestamps"
         className="grid grid-cols-1 gap-x-4 gap-y-1.5 @min-[560px]:grid-cols-3"
       >
-        {stamps.map(([term, iso]) => (
+        {stamps.map(([term, iso, kind]) => (
           <div key={term} className="flex flex-col gap-0.5">
             <dt className="text-muted-foreground">{term}</dt>
             <dd className="tabular-nums text-foreground">
-              {iso ? formatRelativeTime(iso, locale) : never}
+              {iso
+                ? kind === 'ago'
+                  ? formatRelativeTime(iso, locale)
+                  : formatDeadline(iso, locale)
+                : never}
             </dd>
           </div>
         ))}
@@ -197,9 +226,9 @@ export function SourceSwitchCard({ source }: { source: JobSourceDto }) {
           className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-destructive"
         >
           <span className="font-medium">
-            {attemptedEnable ? t`Не вдалося увімкнути` : t`Не вдалося вимкнути`}
+            {attemptedEnable ? t`Не вдалося увімкнути.` : t`Не вдалося вимкнути.`}
           </span>{' '}
-          {t`Причина: ${failureReason}. Стан не змінено.`}
+          {failureReason} {t`Стан не змінено.`}
         </p>
       )}
     </li>

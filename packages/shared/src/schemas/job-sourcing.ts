@@ -491,6 +491,13 @@ export const jobSourceSchema = z.object({
     .lazy(() => jobSourceMeterSchema)
     .nullable()
     .optional(),
+  /**
+   * Task 7.5 (AC4) — the instant the source's policy lapses (`POLICY_EXPIRES`) and the instant it
+   * starts to need authorization (`AUTH_REQUIRED_FROM`), from the production catalog; null = none.
+   * ADMIN-only like the rest of this list.
+   */
+  policyUntil: z.string().datetime().nullable().optional(),
+  authUntil: z.string().datetime().nullable().optional(),
 })
 
 export const jobSourceListSchema = z.object({

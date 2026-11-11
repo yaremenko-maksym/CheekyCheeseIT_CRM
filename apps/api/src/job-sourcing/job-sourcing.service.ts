@@ -67,7 +67,7 @@ import { apiError } from '../common/api-error'
 import { markExclusionDirty } from './dirty-producers'
 import { DETAIL_FETCH, enqueueDirty } from './ownership/dirty-work.store'
 import { detailFetchTargets, loadOpportunity } from './runtime/recompute-inputs'
-import { productionLedgerCatalog } from './runtime/production-catalog'
+import { productionLedgerCatalog, sourceDeadlines } from './runtime/production-catalog'
 import { JobSourceRegistry } from './registry/job-source-registry'
 import { type TypeFilter, sourceAcceptsTrigger, typePassesFilter } from './scheduling/due-policy'
 import { resolveRegistry } from './registry/production-registry'
@@ -1430,6 +1430,7 @@ export class JobSourcingService {
     return rows.map((row) => {
       const budget = resolveBudget(this.budgetStateOf(row), now)
       const fact = facts.get(row.id)
+      const deadlines = sourceDeadlines(row.type, row.manifestId)
       return {
         id: row.id,
         type: row.type,
@@ -1464,6 +1465,8 @@ export class JobSourcingService {
         costUnit: fact?.costUnit ?? null,
         resumeCheckpoint: fact?.resumeCheckpoint ?? false,
         meter: fact?.meter ?? null,
+        policyUntil: deadlines.policyUntil,
+        authUntil: deadlines.authUntil,
         // A drifted DB value maps to null rather than failing the whole list's response schema.
         healthState: jobHealthStateSchema.safeParse(health.get(row.id)?.toState).data ?? null,
       }
