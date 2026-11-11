@@ -7750,3 +7750,36 @@ new string; design §5.1 first).
 without content.
 
 Sources: Phase 7 Task 7.3 review notes (Master).
+
+## 418. Source switch card: two quotas beside a meter, one of them unlabelled (2026-11-11)
+
+**Symptoms.** A source with an account meter shows the meter as a bar; its own per-source budget row appears only when
+the budget is `MISCONFIGURED` or `EXHAUSTED`. So an `ACTIVE` per-source cap that is nearly spent shows nothing, and when
+the row does appear, its window («на місяць» / «на добу») and reset time belong to the per-source budget while the bar
+belongs to the meter, with nothing on the card telling the two apart. A healthy legacy-counter source also lost its
+window label: the bar carries no window. A meter that is full while the per-source budget is `ACTIVE` shows a full bar
+and no exhausted line (the missing meter reset time is item 412).
+
+**Status.** Design first (Mode A, `docs/design/vacancy-queue.md` §7, §8): label the bar as the account meter and the row
+as the source cap, show each window, and decide whether a nearly spent cap is shown. Then Coder (uk + en, Lingui) and
+copy review.
+
+**Verify.** Unit tests: a metered source with an `ACTIVE` budget and a metered source with an `EXHAUSTED` budget in a
+different window each render both labels and both windows; a full meter with an `ACTIVE` budget renders an exhausted
+state.
+
+Sources: PR #1321 copy review (COPY-4), code review (CR-L-1), second-opinion panel (claude:sonnet, gemini).
+
+## 419. Source switch card: limit wording beside the bar (2026-11-11)
+
+**Symptoms.** en uses "Limit reached" / "The limit is misconfigured" directly above "Quota:", so one concept has two
+words (uk keeps «Ліміт»). «Ліміт вичерпано на місяць» / "Limit reached per month" can read as "exhausted for a month",
+and the en is not grammatical. The trigger line «(за розкладом)» / «(за кнопкою)» is a parenthetical with no subject,
+more visible now that it is its own line.
+
+**Status.** Copy (uk + en): one term for the limit, a window phrase that reads as "for this month" / "this month's
+limit", and a subject for the trigger line (new msgids). Copy review on the result.
+
+**Verify.** `pnpm i18n:extract` diff holds only the reworded ids; the card tests assert the new strings.
+
+Sources: PR #1321 copy review (COPY-1, COPY-2, COPY-3).
