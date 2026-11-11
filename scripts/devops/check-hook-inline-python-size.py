@@ -34,7 +34,11 @@ one. Two passes make sure of that:
    containing `python`, `py`, `pypy3`, `python.exe`, or a variable whose name
    contains `PY`) before a `-c` word, where pass 1 read no interpreter, is UNMEASURED
    too: `timeout 5 "$PY" -c`, `py -3 -c`, `$(command -v python3) -c`. So a form the
-   parser does not know is reported, never skipped.
+   parser does not know is reported, never skipped. A python-like word right after an
+   option is that option's argument (`git -C "$PYDIR" -c x=y`), unless the command
+   is a wrapper that runs the next command (`sudo -E "$PY" -c`).
+An expansion between the interpreter and the `-c` (`"$PY" "$OPT" -c`, `python3
+"$SCRIPT" a -c b`) cannot be read, so the body is UNMEASURED: fail closed.
 """
 
 import os
@@ -61,6 +65,10 @@ C_OPTION = re.compile(r"^-[A-Za-z?]*c")
 C_WORD = re.compile(r"^-[bBdEhiIOPqRsSuvVx?]*c")
 PY_LIKE_BASE = re.compile(r"^(?:py|pypy3?(?:\.\d+)?)(?:\.exe)?$", re.I)
 PY_LIKE_VAR = re.compile(r"\$\{?[A-Za-z0-9_]*PY")
+ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+# Commands that run the next command: an option right before the interpreter is theirs.
+WRAPPERS = {"timeout", "xargs", "sudo", "doas", "env", "nice", "nohup", "stdbuf", "ionice",
+            "chrt", "taskset", "setsid", "flock", "time", "command", "exec", "builtin"}
 VAR_START = re.compile(r"^\"?\$\{?([A-Za-z_][A-Za-z0-9_]*)")
 TRACED_VAR = re.compile(r'^"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"$')
 EXPANSION = re.compile(r"\$(?:\{|[A-Za-z_0-9@*#?$!-])")
@@ -77,6 +85,7 @@ PREFIX_WORDS = {"then", "do", "else", "elif", "if", "while", "until", "exec", "c
 
 UNMEASURED = object()  # there is (or may be) a -c body, and it cannot be measured
 NO_C = object()  # the interpreter's command was read to its end: no -c
+UNREADABLE = object()  # catch-all: the tokenizer lost the file from here to its end
 
 
 def heredoc_var(text, name):
@@ -137,9 +146,14 @@ def bash_word(text, i):
             out.append(text[i:j + 1])
             i = j + 1
         elif text.startswith("$'", i):
-            dynamic = True
-            out.append(c)
-            i += 1
+            dynamic = True  # `\'` does not close an ANSI-C string
+            j = i + 2
+            while j < len(text) and text[j] != "'":
+                j += 2 if text[j] == "\\" else 1
+            if j >= len(text):
+                return None, len(text), expands
+            out.append(text[i:j + 1])
+            i = j + 1
         elif EXPANSION.match(text, i):
             expands = True
             out.append(c)
@@ -238,13 +252,9 @@ def c_body(text, i):
         if w is None:
             return NO_C
         value, raw, i, expands = w
-        if value is not None and expands and raw.startswith('"'):
-            # One quoted word with an expansion (`"$SCRIPT"`) is the script: python's
-            # options end there, and a later -c is the script's own argument.
-            # shortcut: a quoted `"$OPT"` that holds an option is read as a script.
-            return NO_C
         if value is None or expands:
-            # `$FLAGS` (unquoted, may hold the -c) or a substitution: unreadable
+            # `$FLAGS`, `"$OPT"` (quoted or not, it may be an option) or a substitution:
+            # unreadable. So `python3 "$SCRIPT" a -c b` is reported too (fail closed).
             return UNMEASURED if C_OPTION.match(raw) or later_c(text, i) else NO_C
         if value.startswith("--"):
             if value in LONG_WITH_ARG:
@@ -291,6 +301,9 @@ def body_of(text, i):
     rest = PLAIN_EXPANSION.sub("", value)
     if not rest.strip() or EXPANSION.search(rest):
         return UNMEASURED  # `"$1"`, `"${V:-}"`, `"$A$B"`: the body is values nobody knows
+    for name in PLAIN_EXPANSION.findall(value):
+        if heredoc_var(text, name.strip("${}")) is not None:
+            return UNMEASURED  # `-c "import sys; $SRC"`: a program spliced in (CR3-L-4)
     return value
 
 
@@ -340,13 +353,16 @@ def commands(text):
                 yield seg
                 seg = []
             i += 1
-            for tag, strip in heredocs:
+            for tag, strip, at in heredocs:
                 while i < n:
                     j = text.find("\n", i)
                     j = n if j == -1 else j
                     line, i = text[i:j], j + 1
                     if (line.lstrip("\t") if strip else line) == tag:
                         break
+                else:  # never closed (`(( a << 2 ))` read as a heredoc): the rest is unread
+                    yield [(at, UNREADABLE, None)]
+                    return
             heredocs = []
         elif c in ";|&()":
             if seg:
@@ -362,7 +378,7 @@ def commands(text):
             m = HEREDOC.match(text, i)
             value, end, _ = bash_word(text, m.end())
             if value:
-                heredocs.append((value, m.group(1) == "-"))
+                heredocs.append((value, m.group(1) == "-", i))
             i = max(end, m.end())
         elif c in "<>":
             i += 1
@@ -371,6 +387,13 @@ def commands(text):
             if end == i:
                 i += 1
                 continue
+            if end >= n and "\n" in text[i:end].rstrip("\n"):
+                # A quote or `$(` that never closed swallowed the rest of the file
+                # (CR3-L-3: an apostrophe in a heredoc inside `$(...)`): unread, so
+                # UNMEASURED. shortcut: a mis-pairing that resyncs before the end is
+                # not detected; make skip_subst heredoc-aware if a hook hits one.
+                yield seg + [(i, UNREADABLE, None)]
+                return
             seg.append((i, text[i:end], value))
             i = end
     if seg:
@@ -386,13 +409,28 @@ def catch_all(text, read_starts):
     """Yield the line of every command with a python-like word before a -c word in
     which pass 1 read no interpreter."""
     for seg in commands(text):
+        if seg[-1][1] is UNREADABLE:
+            yield text.count("\n", 0, seg[-1][0]) + 1
+            continue
         if any(start in read_starts for start, _, _ in seg):
             continue
+        names = [v if v is not None else r for _, r, v in seg]
+        cmd_k = next((k for k, w in enumerate(names) if not ASSIGNMENT.match(w)), 0)
+        wrapper = re.split(r"[/\\]", names[cmd_k])[-1] in WRAPPERS
         for k, (start, raw, _) in enumerate(seg):
-            if python_like(raw):
-                if any(C_WORD.match(v if v is not None else r) for _, r, v in seg[k + 1:]):
-                    yield text.count("\n", 0, start) + 1
-                break
+            v = VAR_START.match(raw)
+            variable = v is not None and v.group(1) not in SHELL_VARS
+            # `timeout 5 "$INTERP" -c`: a variable may be any interpreter (CR3-L-2)
+            if not (python_like(raw) or (variable and (wrapper or k == cmd_k))):
+                continue
+            if k and names[k - 1].startswith("-") and names[k - 1] != "--" and not wrapper:
+                # `git -C "$PYDIR" -c x=y`: the argument of an option, not the command.
+                # shortcut: an unknown wrapper (`firejail -q "$PY" -c`) is read this
+                # way too; add such a wrapper to WRAPPERS.
+                continue
+            if any(C_WORD.match(w) for w in names[k + 1:]):
+                yield text.count("\n", 0, start) + 1
+            break
 
 
 def bodies(text):

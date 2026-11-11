@@ -317,6 +317,12 @@ case "$(uname -s)" in
   MINGW* | MSYS* | CYGWIN*)
     FAKE_CYG="$(mktemp -d "${TMPDIR:-/tmp}/guard-fake-cygpath.XXXXXX")"
     cp /usr/bin/false.exe "$FAKE_CYG/cygpath.exe"
+    # Asserted (CR3-L-5): a failed copy would leave the real cygpath first on PATH,
+    # and the case would pass for the wrong reason.
+    if [ ! -x "$FAKE_CYG/cygpath.exe" ] || "$FAKE_CYG/cygpath.exe" -w /tmp >/dev/null 2>&1; then
+      echo "FATAL: fake cygpath at $FAKE_CYG/cygpath.exe is missing or does not fail"
+      exit 1
+    fi
     PATH="$FAKE_CYG:$PATH" run_hook_as agent-W1 "$LIVE_SESS/scratchpad" \
       "git worktree add --detach $LIVE_SESS/scratchpad/sibling-live deadbeef" >/dev/null 2>&1
     assert_red "[windows] cygpath failing: an add onto a live tree records nothing, its remove is refused" \
@@ -332,13 +338,8 @@ case "$(uname -s)" in
     assert_red "[windows] a live sibling with a Cyrillic name is seen as existing, its remove is refused" \
       --contains 'WORKTREE-UNRECORDED' \
       -- run_hook_as agent-W2 "$LIVE_SESS/scratchpad" "git worktree remove --force $LIVE_CYR"
-
-    LIVE_MIXED="$(cygpath -m "$LIVE_SESS/scratchpad/sibling-live")"
-    LIVE_DRIVE="/$(printf '%s' "${LIVE_MIXED:0:1}" | tr 'A-Z' 'a-z')${LIVE_MIXED:2}"
-    run_hook_as agent-W3 "$LIVE_SESS/scratchpad" "git worktree add --detach $LIVE_DRIVE deadbeef" >/dev/null 2>&1
-    assert_red "[windows] an add onto a live sibling spelled /c/... records nothing, its remove is refused" \
-      --contains 'WORKTREE-UNRECORDED' \
-      -- run_hook_as agent-W3 "$LIVE_SESS/scratchpad" "git worktree remove --force $LIVE_SESS/scratchpad/sibling-live"
+    # No /c/... case: a recordable path is always under the /tmp/claude-* scratchpad,
+    # so a /c/... spelling is out of scope before any conversion is asked.
     ;;
   *)
     echo "SKIP  [windows] Git Bash path conversion before the existence test: not Windows ($(uname -s))"
@@ -354,6 +355,40 @@ assert_green "a fresh checkout with a CJK name is recorded, not a crash" \
 assert_green "...and its creator may remove it" \
   --not-contains 'INTERNAL ERROR' --not-contains '"decision": "block"' \
   -- run_hook_as agent-A "$MY_SESSION/scratchpad" "git worktree remove --force $FRESH_CJK"
+
+# A quoted newline, tab or line separator in an add target (SR3-M-1 of #1317) used
+# to write ledger lines the existence test never saw: a line claiming a live sibling,
+# or the scratch root (every sibling then "mine"). Such a target is never recorded.
+SCR="$LIVE_SESS/scratchpad"
+NL=$'\n' TAB=$'\t' LS="$(printf '\xe2\x80\xa8')"
+run_hook_as agent-S1 "$SCR" "git worktree add --detach \"$SCR/x${NL}agent-S1${TAB}$SCR/sibling-live\" deadbeef" >/dev/null 2>&1
+assert_red "a newline in an add target cannot inject a ledger line for a live sibling -> BLOCK" \
+  --contains 'WORKTREE-UNRECORDED' \
+  -- run_hook_as agent-S1 "$SCR" "git worktree remove --force $SCR/sibling-live"
+run_hook_as agent-S2 "$SCR" "git worktree add --detach \"$SCR/x${NL}agent-S2${TAB}$SCR\" deadbeef" >/dev/null 2>&1
+assert_red "...nor a line for the scratch root itself -> BLOCK" \
+  --contains 'WORKTREE-UNRECORDED' \
+  -- run_hook_as agent-S2 "$SCR" "git worktree remove --force $SCR/sibling-live"
+run_hook_as agent-S3 "$SCR" "git worktree add --detach \"$SCR/x${LS}agent-S3${TAB}$SCR/sibling-live\" deadbeef" >/dev/null 2>&1
+assert_red "...nor through U+2028, which splitlines() reads as a line break -> BLOCK" \
+  --contains 'WORKTREE-UNRECORDED' \
+  -- run_hook_as agent-S3 "$SCR" "git worktree remove --force $SCR/sibling-live"
+
+# A ledger line an older version wrote in cp1251 is not UTF-8. Reading it used to
+# crash the analyzer, and the hook then refused every scratch remove with INTERNAL ERROR.
+CP_LEDGER="$(mktemp "${TMPDIR:-/tmp}/guard-owners-cp.XXXXXX")"
+# cp1251 for U+0440 U+0435 U+0432; 0xf0 opens a 4-byte UTF-8 sequence, 0xe5 cannot continue it
+printf 'agent-C\t%s/\xf0\xe5\xe2-old\n' "$MY_SESSION/scratchpad" >"$CP_LEDGER"
+run_hook_cp() { OWNERS_LEDGER="$CP_LEDGER" run_hook_as "$@"; }
+run_hook_cp agent-C "$MY_SESSION/scratchpad" \
+  "git worktree add --detach $MY_SESSION/scratchpad/co-C deadbeef" >/dev/null 2>&1
+assert_contract "an add next to a legacy non-UTF-8 ledger line is still recorded" \
+  --contains "agent-C	$MY_SESSION/scratchpad/co-C" \
+  -- cat "$CP_LEDGER"
+assert_green "a legacy non-UTF-8 ledger line does not crash the analyzer: the creator may remove its tree" \
+  --not-contains 'INTERNAL ERROR' --not-contains '"decision": "block"' \
+  -- run_hook_cp agent-C "$MY_SESSION/scratchpad" "git worktree remove --force $MY_SESSION/scratchpad/co-C"
+rm -f "$CP_LEDGER"
 
 assert_red "another session's scratchpad is as foreign as another agent's worktree -> BLOCK" \
   --contains 'WORKTREE-REMOVE' \

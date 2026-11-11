@@ -52,8 +52,9 @@ ref_git() { (cd "$REPO_ROOT" && MSYS2_ARG_CONV_EXCL='*' git "$@"); }
 OPTIONAL_HOOKS="pre-bash-cross-agent-blast.sh"
 mkdir -p "$WORK/ref/lib"
 COMPARED=""
-# Absence is asked of git directly (cat-file -e), so only a hook the ref really lacks
-# is skipped; any other failure to read it is an error, not a smaller comparison.
+# `cat-file -e` only says whether "$REF:<path>" names an object. A no is read as "the
+# ref lacks this hook"; an unresolvable ref also answers no, and then the first hook
+# that is not optional stops the run. A hook that exists but cannot be read is an error.
 for f in $HOOK_FILES; do
   if ! ref_git cat-file -e "$REF:.claude/hooks/$f" 2>/dev/null; then
     case " $OPTIONAL_HOOKS " in

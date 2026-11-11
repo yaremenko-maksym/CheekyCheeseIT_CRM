@@ -98,9 +98,8 @@ def native_path(p):
     a fallback to the Git Bash spelling would answer "absent" and record a live tree."""
     if os.name != "nt" or not p.startswith("/"):
         return p
-    m = re.match(r"^/([A-Za-z])(?=/|$)", p)
-    if m:
-        return m.group(1).upper() + ":" + p[2:]
+    # No `/c/x` fast path: the only caller passes a path under own_scratch (/tmp/...),
+    # so it was unreachable; cygpath converts that spelling too.
     try:
         # utf-8: under -I the default is the ANSI code page, which mangles a Cyrillic path
         out = subprocess.run(["cygpath", "-w", p], capture_output=True, text=True,
@@ -167,6 +166,7 @@ if m2:
 # Without an agent_id (main thread, or a runtime that omits the field) nothing is
 # recorded and nothing is permitted — i.e. the behaviour before this widening.
 OWNERS = os.environ.get("CROSS_AGENT_WORKTREE_OWNERS", "")
+LEDGER_UNSAFE = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")  # every control char but the one tab
 if not OWNERS and own_scratch:
     OWNERS = os.path.join(own_scratch, ".cross-agent-worktree-owners")
 
@@ -176,10 +176,13 @@ def record_owned(path):
     over a bookkeeping write would refuse the command it was only observing."""
     if not (OWNERS and agent_id):
         return
+    line = "%s\t%s" % (agent_id, path)
+    if LEDGER_UNSAFE.search(line) or line.count("\t") != 1:
+        return  # a quoted newline or tab would write a line nobody checked (SR3-M-1)
     try:
         with open(OWNERS, "a", encoding="utf-8") as fh:
-            fh.write("%s\t%s\n" % (agent_id, path))
-    except OSError:
+            fh.write(line + "\n")
+    except (OSError, ValueError):  # ValueError: a lone surrogate does not encode
         pass
 
 
@@ -190,12 +193,19 @@ def is_owned(path):
     if not (OWNERS and agent_id):
         return False
     try:
-        with open(OWNERS, encoding="utf-8") as fh:
-            lines = fh.read().splitlines()
+        # errors="replace": a line an older version wrote in cp1251 then matches nothing
+        # instead of crashing every Bash call. Split on "\n" only (text mode already
+        # folds "\r\n"): splitlines() also breaks on U+2028, U+0085 and the like,
+        # which record_owned does not refuse.
+        with open(OWNERS, encoding="utf-8", errors="replace") as fh:
+            lines = fh.read().split("\n")
     except OSError:
         return False
     for line in lines:
-        who, _, owned = line.partition("\t")
+        fields = line.split("\t")
+        if len(fields) != 2 or LEDGER_UNSAFE.search(line):
+            continue
+        who, owned = fields
         if who != agent_id or not owned:
             continue
         owned = tmp_norm(owned)

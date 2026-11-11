@@ -84,6 +84,21 @@ BODY_DEFAULT="$(c_case 'python3 -c "${VAR:-}"')"
 BODY_TWO_VARS="$(c_case 'python3 -c "$A$B"')"
 BODY_PREFIXED="$(printf "#!/bin/bash\nread -r -d '' SRC <<'PY'\nimport sys\nPY\npython3 -c \"\$PRE\$SRC\"\n")"
 SCRIPT_ARG_C="$(printf '%s\n' '#!/bin/bash' 'python3 "$SCRIPT" a -c b' "python3 -c 'print(1)'")"
+# Round 4. A quoted expansion before -c, oversized body (item 3 / CR3-L-1).
+BIG_OPT_PY="$(printf '#!/bin/bash\n"$PY" "$OPT" -c %s\n%s\n%s\n' "'" "$(py_lines 4100)" "'")"
+BIG_OPT_PY3="$(printf '#!/bin/bash\npython3 "$OPT" -c %s\n%s\n%s\n' "'" "$(py_lines 4100)" "'")"
+# git's own -c after an option argument named like PY (item 4); sudo -E keeps its catch.
+GIT_PYDIR="$(printf '%s\n' '#!/bin/bash' 'git -C "$PYDIR" -c user.name=x commit' "python3 -c 'print(1)'")"
+SUDO_E_PY="$(c_case "sudo -E \"\$PY\" -c 'print(1)'")"
+# Any variable interpreter after a wrapper (CR3-L-2).
+TIMEOUT_INTERP="$(c_case "timeout 5 \"\$INTERP\" -c 'print(1)'")"
+XARGS_RUNTIME="$(c_case "printf x | xargs \"\$RUNTIME\" -c 'print(1)'")"
+# The tokenizer losing the file must not hide a later form (CR3-L-3).
+ARITH_SHIFT="$(printf '%s\n' '#!/bin/bash' '(( a << 2 ))' "timeout 5 \"\$PY\" -c 'print(1)'")"
+SUBST_APOS="$(printf '%s\n' '#!/bin/bash' 'X=$(cat <<EOF' "it's" 'EOF' ')' "timeout 5 \"\$PY\" -c 'print(1)'")"
+ANSI_ESC="$(printf '%s\n' '#!/bin/bash' "echo \$'a\\'b'" "python3 -c 'print(1)'")"
+# A heredoc-filled variable spliced into program text (CR3-L-4).
+BODY_SPLICED="$(printf "#!/bin/bash\nread -r -d '' SRC <<'PY'\nimport sys\nPY\npython3 -c \"import sys; \$SRC\"\n")"
 
 # ── positive ───────────────────────────────────────────────────────────────────
 assert_green "a small inline body -> green" \
@@ -198,9 +213,8 @@ assert_red "an interpreter from a default expansion (\${PY:-python3} -c) is unme
   --contains "UNMEASURED" \
   -- run_guard "$(make_case default-py "$DEFAULT_PY")"
 
-assert_green "a -c after the script (python3 \"\$SCRIPT\" a -c b) is the script's -> green, one body measured" \
-  --contains "Violations found:              0" \
-  --contains "bodies measured: 1" \
+assert_red "an expansion before -c (python3 \"\$SCRIPT\" a -c b) cannot be read: unmeasured, fail closed" \
+  --contains "UNMEASURED" \
   -- run_guard "$(make_case script-arg-c "$SCRIPT_ARG_C")"
 
 assert_red "catch-all: timeout 5 \"\$PY\" -c -> unmeasured" \
@@ -226,6 +240,31 @@ assert_red "a body of two expansions (-c \"\$A\$B\") is unmeasured" \
   --contains "UNMEASURED" -- run_guard "$(make_case body-two-vars "$BODY_TWO_VARS")"
 assert_red "a traced heredoc var behind a prefix (-c \"\$PRE\$SRC\") is unmeasured" \
   --contains "UNMEASURED" -- run_guard "$(make_case body-prefixed "$BODY_PREFIXED")"
+
+assert_red "\"\$PY\" \"\$OPT\" -c '<oversized>' is unmeasured, not skipped (item 3)" \
+  --contains "UNMEASURED" -- run_guard "$(make_case big-opt-py "$BIG_OPT_PY")"
+assert_red "python3 \"\$OPT\" -c '<oversized>' is unmeasured, not skipped (CR3-L-1)" \
+  --contains "UNMEASURED" -- run_guard "$(make_case big-opt-py3 "$BIG_OPT_PY3")"
+assert_green "git -C \"\$PYDIR\" -c user.name=x is git's -c -> green, one body measured (item 4)" \
+  --contains "Violations found:              0" \
+  --contains "bodies measured: 1" \
+  -- run_guard "$(make_case git-pydir "$GIT_PYDIR")"
+assert_red "catch-all: sudo -E \"\$PY\" -c (an option before it, but sudo runs it) -> unmeasured" \
+  --contains "UNMEASURED" -- run_guard "$(make_case sudo-e-py "$SUDO_E_PY")"
+assert_red "catch-all: timeout 5 \"\$INTERP\" -c -> unmeasured (CR3-L-2)" \
+  --contains "UNMEASURED" -- run_guard "$(make_case timeout-interp "$TIMEOUT_INTERP")"
+assert_red "catch-all: xargs \"\$RUNTIME\" -c -> unmeasured (CR3-L-2)" \
+  --contains "UNMEASURED" -- run_guard "$(make_case xargs-runtime "$XARGS_RUNTIME")"
+assert_red "a shift read as a heredoc that never closes: the rest is unmeasured (CR3-L-3)" \
+  --contains "UNMEASURED" -- run_guard "$(make_case arith-shift "$ARITH_SHIFT")"
+assert_red "an apostrophe in a heredoc inside \$(...): the rest is unmeasured (CR3-L-3)" \
+  --contains "UNMEASURED" -- run_guard "$(make_case subst-apos "$SUBST_APOS")"
+assert_green "an escaped quote in \$'...' does not swallow the file -> green, one body measured" \
+  --contains "Violations found:              0" \
+  --contains "bodies measured: 1" \
+  -- run_guard "$(make_case ansi-esc "$ANSI_ESC")"
+assert_red "a heredoc-filled \$SRC inside program text is unmeasured, not its name (CR3-L-4)" \
+  --contains "UNMEASURED" -- run_guard "$(make_case body-spliced "$BODY_SPLICED")"
 
 assert_red "no inline body found at all: the scan read nothing -> red, not OK" \
   --contains "the scan read nothing" \
