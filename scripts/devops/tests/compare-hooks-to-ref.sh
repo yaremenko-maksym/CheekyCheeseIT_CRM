@@ -47,13 +47,22 @@ ref_git() { (cd "$REPO_ROOT" && MSYS2_ARG_CONV_EXCL='*' git "$@"); }
 # ── materialise the ref's hooks ───────────────────────────────────────────────
 # A ref older than the shared analyzer simply has no lib/cmdscan.py; its hooks
 # were self-contained, so the absence is correct and not an error.
+# cross-agent-blast is newer than the other three, so a ref may predate it: then the
+# others are still compared and the run says so. Any other hook missing is an error.
+OPTIONAL_HOOKS="pre-bash-cross-agent-blast.sh"
 mkdir -p "$WORK/ref/lib"
+COMPARED=""
 for f in $HOOK_FILES; do
-  if ! ref_git show "$REF:.claude/hooks/$f" >"$WORK/ref/$f" 2>/dev/null; then
+  if ref_git show "$REF:.claude/hooks/$f" >"$WORK/ref/$f" 2>/dev/null; then
+    COMPARED="$COMPARED $f"
+  elif case " $OPTIONAL_HOOKS " in *" $f "*) true ;; *) false ;; esac; then
+    echo "NOTE: $REF has no .claude/hooks/$f, so it is not compared; the other hooks are."
+  else
     echo "ERROR: $REF has no .claude/hooks/$f" >&2
     exit 2
   fi
 done
+HOOK_FILES="${COMPARED# }"
 # Every lib/*.py the ref HAS is copied, by listing the ref rather than naming files
 # here: a hook from a ref that runs lib/<x>.py must not meet a missing <x>.py and
 # read as "refused" for that reason (a named list once left out

@@ -202,13 +202,21 @@ print(cur if isinstance(cur, str) else '')
 CMD=$(read_field 'tool_input.command')
 CMD_RC=$?
 CWD=$(read_field 'cwd')
+CWD_RC=$?
 AGENT_ID=$(read_field 'agent_id')
+AGENT_ID_RC=$?
 CWD=${CWD//\\//} # Windows payloads use backslashes
 
 # A command that could not be read is not "no command" (#1297 SR-L-4): python3 did not
 # run, or the payload did not parse, or the command cannot be printed (a lone surrogate).
 if [ "$CMD_RC" -ne 0 ]; then
   echo "[pre:bash:cross-agent-blast] INTERNAL ERROR: the command could not be read (python3 did not run, or the payload did not parse). Refused. Fix it first: python3 must run on PATH and the hook library must load. Bash stays refused until then." >&2
+  exit 2
+fi
+# Same for the two context fields (SO-M-1 of #1317): an unreadable cwd or agent_id left
+# both empty, and the context gate below read that as "not an agent" and let it through.
+if [ "$CWD_RC" -ne 0 ] || [ "$AGENT_ID_RC" -ne 0 ]; then
+  echo "[pre:bash:cross-agent-blast] INTERNAL ERROR: the cwd or agent_id of the payload could not be read (rc=$CWD_RC/$AGENT_ID_RC), so whose workspace this is is unknown. Refused. Fix it first: python3 must run on PATH. Bash stays refused until then." >&2
   exit 2
 fi
 [ -z "$CMD" ] && exit 0

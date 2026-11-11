@@ -88,6 +88,24 @@ def tmp_norm(p):
     return re.sub(r"^/private(/tmp/)", r"\1", p)
 
 
+def native_path(p):
+    """The path as the filesystem of THIS python knows it, for an existence test only.
+    Native Windows python cannot see a Git Bash spelling (`/c/x` is `C:/x`, `/tmp/x`
+    lives under the Git install), so os.path.exists answered False for a live tree and
+    an `add` onto it was recorded as this agent's (SR-M-1 of #1317). Elsewhere, and
+    when cygpath is unavailable, the path is returned unchanged."""
+    if os.name != "nt" or not p.startswith("/"):
+        return p
+    m = re.match(r"^/([A-Za-z])(?=/|$)", p)
+    if m:
+        return m.group(1).upper() + ":" + p[2:]
+    try:
+        out = subprocess.run(["cygpath", "-w", p], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return p
+    return out.stdout.strip() if out.returncode == 0 and out.stdout.strip() else p
+
+
 # ---- identity: the scratchpad is SHARED, so the path cannot say whose it is --
 # A read-only agent gets no worktree (agent-isolation.md rule 2), so own_wt above
 # is empty for every reviewer — and a reviewer that needs to RUN something makes
@@ -704,7 +722,7 @@ for name, args in toks:
             cand = tmp_norm(posixpath.normpath(t).rstrip("/"))
             if not own_scratch or not cand.startswith(own_scratch + "/"):
                 continue
-            if os.path.exists(cand):
+            if os.path.exists(native_path(cand)):
                 continue
             record_owned(cand)
         continue  # a later worktree command on the line is judged too

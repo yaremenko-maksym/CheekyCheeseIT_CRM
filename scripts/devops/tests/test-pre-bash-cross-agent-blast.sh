@@ -506,6 +506,14 @@ rm -rf "$BROKEN_DIR"
 assert_green "lone surrogate in the command: exit 2 with INTERNAL ERROR, not waved through" \
   --contains "INTERNAL ERROR" \
   -- exits_2 hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","tool_input":{"command":"pkill -f node \\ud800"}}'
+# The context fields too (SO-M-1 of #1317): an unreadable cwd or agent_id came back
+# empty, the context gate read that as "not an agent", and the command passed.
+assert_green "lone surrogate in the cwd: exit 2 with INTERNAL ERROR, not read as 'not an agent'" \
+  --contains "INTERNAL ERROR" \
+  -- exits_2 hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a\\ud800","tool_input":{"command":"ls"}}'
+assert_green "lone surrogate in the agent_id: exit 2 with INTERNAL ERROR" \
+  --contains "INTERNAL ERROR" \
+  -- exits_2 hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","agent_id":"a\\ud800","tool_input":{"command":"ls"}}'
 assert_green "an empty command still passes" \
   --not-contains "INTERNAL ERROR" \
   -- hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","tool_input":{"command":""}}'

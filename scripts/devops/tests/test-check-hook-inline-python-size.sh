@@ -56,6 +56,18 @@ BIG_CLUSTER="$(printf '#!/bin/bash\npython3 -IBc %s\n%s\n%s\n' "'" "$(py_lines 4
 SUBSTITUTED="$(printf '%s\n' '#!/bin/bash' 'python3 -c "$(cat big.py)"')"
 VAR_INTERP="$(printf '%s\n' '#!/bin/bash' 'PY=python3' "\"\$PY\" -I -c 'print(1)'")"
 NOT_PYTHON="$(printf '%s\n' '#!/bin/bash' '"$SHELL" -c "echo hi"' 'find "$D" -type f -exec rm {} +' "python3 -c 'print(1)'")"
+# Round 2 (CR-M-1 / SR-L-1, SO-L-1, CR-L-1, CR-L-2 of #1317): options the round-1
+# matcher did not know, and forms it skipped instead of reporting.
+BIG_R="$(printf '#!/bin/bash\npython3 -R -c %s\n%s\n%s\n' "'" "$(py_lines 4100)" "'")"
+BIG_QUOTED_X="$(printf '#!/bin/bash\npython3 -X %sutf8%s -W "ignore" -c %s\n%s\n%s\n' "'" "'" "'" "$(py_lines 4100)" "'")"
+BIG_LONG="$(printf '#!/bin/bash\npython3 --check-hash-based-pycs never -I -c %s\n%s\n%s\n' "'" "$(py_lines 4100)" "'")"
+VAR_FLAGS="$(printf '%s\n' '#!/bin/bash' "python3 \$FLAGS -c 'print(1)'")"
+UNKNOWN_FLAG="$(printf '%s\n' '#!/bin/bash' "python3 -Z -c 'print(1)'")"
+ANSI_C="$(printf '#!/bin/bash\npython3 -c $%sprint(1)%s\n' "'" "'")"
+UNQUOTED_VAR="$(printf "#!/bin/bash\nread -r -d '' SRC <<'PY'\nimport sys\nPY\npython3 -c \$SRC\n")"
+HOME_PY="$(printf '%s\n' '#!/bin/bash' "\"\$HOME/bin/python3\" -c 'print(1)'")"
+DEFAULT_PY="$(printf '%s\n' '#!/bin/bash' "\${PY:-python3} -c 'print(1)'")"
+GREP_C="$(printf '%s\n' '#!/bin/bash' 'n=$(grep "$PAT" -c "$FILE")' "python3 -c 'print(1)'")"
 
 # ── positive ───────────────────────────────────────────────────────────────────
 assert_green "a small inline body -> green" \
@@ -128,6 +140,47 @@ assert_green "a shell's -c and find's -exec are not python bodies -> green, one 
   --contains "Violations found:              0" \
   --contains "bodies measured: 1" \
   -- run_guard "$(make_case not-python "$NOT_PYTHON")"
+
+assert_green "grep's -c after a variable argument is not a python body -> green, one body measured" \
+  --contains "Violations found:              0" \
+  --contains "bodies measured: 1" \
+  -- run_guard "$(make_case grep-c "$GREP_C")"
+
+assert_red "-R before -c is a python option (python3 -R -c) -> red" \
+  --contains "OVER" \
+  -- run_guard "$(make_case flag-r "$BIG_R")"
+
+assert_red "a quoted argument after -X / -W (-X 'utf8', -W \"ignore\") is skipped -> red" \
+  --contains "OVER" \
+  -- run_guard "$(make_case quoted-x "$BIG_QUOTED_X")"
+
+assert_red "a long option before -c (--check-hash-based-pycs never) is skipped -> red" \
+  --contains "OVER" \
+  -- run_guard "$(make_case long-opt "$BIG_LONG")"
+
+assert_red "an option list behind a variable (python3 \$FLAGS -c) is unmeasured -> red" \
+  --contains "UNMEASURED" \
+  -- run_guard "$(make_case var-flags "$VAR_FLAGS")"
+
+assert_red "an option python does not have before -c (-Z) is unmeasured -> red, not skipped" \
+  --contains "UNMEASURED" \
+  -- run_guard "$(make_case unknown-flag "$UNKNOWN_FLAG")"
+
+assert_red "an ANSI-C body (-c \$'...') is unmeasured -> red" \
+  --contains "UNMEASURED" \
+  -- run_guard "$(make_case ansi-c "$ANSI_C")"
+
+assert_red "an unquoted -c \$SRC is unmeasured even with a heredoc behind it -> red" \
+  --contains "UNMEASURED" \
+  -- run_guard "$(make_case unquoted-var "$UNQUOTED_VAR")"
+
+assert_red "an interpreter under a variable path (\"\$HOME/bin/python3\" -c) is unmeasured -> red" \
+  --contains "UNMEASURED" \
+  -- run_guard "$(make_case home-py "$HOME_PY")"
+
+assert_red "an interpreter from a default expansion (\${PY:-python3} -c) is unmeasured -> red" \
+  --contains "UNMEASURED" \
+  -- run_guard "$(make_case default-py "$DEFAULT_PY")"
 
 assert_red "no inline body found at all: the scan read nothing -> red, not OK" \
   --contains "the scan read nothing" \

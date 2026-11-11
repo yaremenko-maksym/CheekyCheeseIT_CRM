@@ -10,7 +10,7 @@ pre-bash-cross-agent-blast.sh reached 44186 characters, its fail-closed branch t
 rc 126 into a refusal, and every Bash call on Windows was refused.
 
 This guard measures every `python3 -c` / `python3.X -c` / `python -c` body (any python
-flags before the `-c`) in .claude/hooks/**/*.sh,
+options before the `-c`) in .claude/hooks/**/*.sh,
 as the whole shell word bash passes (quote splices included), and fails when one
 exceeds BUDGET. The budget sits well under
 the hard cap, because the rest of the command line (interpreter path, flags, other
@@ -18,9 +18,11 @@ arguments) shares the same 32767. The fix it asks for is the one the hooks alrea
 use: put the program in .claude/hooks/lib/<name>.py and run `python3 -I -B <file>`.
 
 A body passed as a variable (`-c "$SRC"`) is measured through the heredoc that fills
-it (`read -r -d '' SRC <<'PY'`, as pre-bash-unbounded-wait.sh does). A variable the
-guard cannot trace to such a heredoc is a violation, not a pass: an unmeasured body
-is not a small one.
+it (`read -r -d '' SRC <<'PY'`, as pre-bash-unbounded-wait.sh does). Everything the
+guard cannot measure is a violation, not a pass: an unmeasured body is not a small
+one. That covers a variable it cannot trace, an unquoted `$SRC`, `$'...'`, a command
+substitution, an interpreter it cannot name (`"$PY"`, `"$HOME/bin/python3"`), and an
+option list it cannot read up to the `-c`.
 """
 
 import os
@@ -33,22 +35,26 @@ HARD_CAP = 32767
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 HOOKS = os.path.join(REPO_ROOT, ".claude", "hooks")
 
-# The interpreter (`python`, `python3`, `python3.12`, or a variable holding one), its
-# flags (possibly over a line continuation), then `-c` and the opening quote of its
-# argument. Flags are python's own: a cluster of no-argument letters (`-I`, `-IB`), or
-# `-X` / `-W` with its argument, attached or not (`-X utf8`, `-Wignore`). `-c` may end
-# a cluster (`-Ic`). Limiting the letters to python's keeps `find ... -exec` out.
-_SEP = r"(?:\s|\\\n)+"
-_NOARG = "bBdEiIOPqsSuvx"
-_FLAG = r"(?:-[XW](?:\s|\\\n)*[^\s'\"\\]+|-[%s]+)" % _NOARG
-OPEN = re.compile(
-    r"(?:\bpython(?:3(?:\.\d+)?)?|(?P<var>\"?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\"?))"
-    r"(?:%s%s)*?%s-[%s]*c%s(?P<q>['\"])" % (_SEP, _FLAG, _SEP, _NOARG, _SEP)
-)
+# The interpreter is found as a shell WORD, then its options are read word by word up
+# to the `-c` (python's own option grammar, so `find ... -exec` is not one of them).
+# python's options without an argument; `-c`, `-m`, `-W`, `-X` take one.
+NOARG = set("bBdEhiIOPqRsSuvVx?")
+LONG_WITH_ARG = {"--check-hash-based-pycs"}
+PY_NAME = re.compile(r"(?<![A-Za-z0-9_])python(?:3(?:\.\d+)?)?(?![\w.])")
+# The interpreter word, quotes and a closing brace removed, ends in a python name:
+# `python3`, `/usr/bin/python3`, `"$HOME/bin/python3"`, `${PY:-python3}`.
+PY_WORD = re.compile(r"(?:^|[/:-])python(?:3(?:\.\d+)?)?$")
+C_OPTION = re.compile(r"^-[A-Za-z?]*c")
 VAR_REF = re.compile(r"^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$")
-# A variable interpreter is not traced to its value, so its -c body is reported as
-# unmeasured; a shell (`"$SHELL" -c`) is not python and is left alone.
+VAR_START = re.compile(r"^\"?\$\{?([A-Za-z_][A-Za-z0-9_]*)")
+# A shell (`"$SHELL" -c`) is not python and is left alone.
 SHELL_VARS = {"SHELL", "BASH", "SH", "ZSH"}
+WORD_BREAK = " \t\n;|&()<>`"
+END_OF_COMMAND = ";|&\n)"
+REDIRECT = re.compile(r"[0-9]*(?:<<<|<<-?|>>|<>|>&|<&|>\||>|<)")
+# Words after which the next word is a command again (`then python3 -c ...`).
+PREFIX_WORDS = {"then", "do", "else", "elif", "if", "while", "until", "exec", "command",
+                "time", "!", "nohup", "env", "sudo", "{"}
 
 
 def heredoc_var(text, name):
@@ -67,13 +73,13 @@ def bash_word(text, i):
     into a single-quoted body as `'\\''` has a body longer than its first segment).
     A parameter expansion is counted as its own text (shortcut: its value is unknown,
     fine while hook bodies only expand short names). value is None when a quote never
-    closes, or when the word holds a command substitution (`"$(cat f)"`, a backtick):
-    its length is whatever the command prints, so it cannot be measured here."""
+    closes, or when the word holds a command substitution (`"$(cat f)"`, a backtick)
+    or an ANSI-C string (`$'...'`): its length is not the length of its text."""
     out = []
     dynamic = False
     while i < len(text):
         c = text[i]
-        if c == "`" or text.startswith("$(", i):
+        if c == "`" or text.startswith("$(", i) or text.startswith("$'", i):
             dynamic = True
             out.append(c)
             i += 1
@@ -100,7 +106,7 @@ def bash_word(text, i):
         elif c == "\\":
             out.append("" if text[i + 1:i + 2] == "\n" else text[i + 1:i + 2])
             i += 2
-        elif c in " \t\n;|&()<>":
+        elif c in WORD_BREAK:
             break
         else:
             out.append(c)
@@ -108,30 +114,145 @@ def bash_word(text, i):
     return (None if dynamic else "".join(out)), i
 
 
+def next_word(text, i):
+    """(value, raw, end) of the next argument of the current command, skipping
+    redirections; None when the command ends first."""
+    while True:
+        while i < len(text) and (text[i] in " \t" or text.startswith("\\\n", i)):
+            i += 2 if text[i] == "\\" else 1
+        if i >= len(text) or text[i] in END_OF_COMMAND:
+            return None
+        r = REDIRECT.match(text, i)
+        if r:
+            i = r.end()
+            while i < len(text) and text[i] in " \t":
+                i += 1
+            if i < len(text) and text[i] not in END_OF_COMMAND:
+                i = bash_word(text, i)[1]
+            continue
+        if text[i] == "(":
+            return None
+        value, end = bash_word(text, i)
+        if end == i:
+            return None
+        return value, text[i:end], end
+
+
+def word_start(text, k):
+    """Start of the shell word holding text[k] (a word has no unquoted break in it)."""
+    while k > 0 and text[k - 1] not in WORD_BREAK:
+        k -= 1
+    return k
+
+
+def command_position(text, start):
+    """True when the word at `start` is where bash looks for a command."""
+    line_start = text.rfind("\n", 0, start) + 1
+    prefix = text[line_start:start].rstrip()
+    if not prefix or prefix[-1] in ";|&({`":
+        return True
+    last = re.split(r"[\s;|&({`]+", prefix)[-1]  # `n=$(grep`: the command is grep
+    return last in PREFIX_WORDS or re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", last) is not None
+
+
+UNMEASURED = object()
+
+
+def later_c(text, i):
+    """True when a word after text[i] in the same command looks like a `-c` option."""
+    while True:
+        w = next_word(text, i)
+        if w is None:
+            return False
+        if C_OPTION.match(w[0] if w[0] is not None else w[1]):
+            return True
+        i = w[2]
+
+
+def c_body(text, i):
+    """Read python's options from text[i] up to `-c`. None = no -c in this command,
+    UNMEASURED = there may be one but the options or the body cannot be read, else
+    the body text."""
+    while True:
+        w = next_word(text, i)
+        if w is None:
+            return None
+        value, raw, i = w
+        if value is None or "$" in raw:
+            # `$FLAGS` or a script path: unreadable, so a -c after it is reported
+            return UNMEASURED if C_OPTION.match(raw) or later_c(text, i) else None
+        if value.startswith("--"):
+            if value in LONG_WITH_ARG:
+                nxt = next_word(text, i)
+                if nxt is None:
+                    return None
+                i = nxt[2]
+            continue
+        if not value.startswith("-") or value == "-":
+            return None  # a script, `-` (stdin): the options ended without a -c
+        letters = value[1:]
+        for n, ch in enumerate(letters):
+            if ch in NOARG:
+                continue
+            rest = letters[n + 1:]
+            if ch == "c":
+                return body_of(text, i) if not rest else rest
+            if ch in "XW":
+                if not rest:  # `-X utf8`, `-W 'ignore'`: the argument is the next word
+                    nxt = next_word(text, i)
+                    if nxt is None:
+                        return None
+                    i = nxt[2]
+                break
+            if ch == "m":
+                return None
+            # a letter python does not have: what follows is not read as python's
+            return UNMEASURED if "c" in rest or later_c(text, i) else None
+
+
+def body_of(text, i):
+    w = next_word(text, i)
+    if w is None or w[0] is None:
+        return UNMEASURED
+    value, raw, _ = w
+    m = re.match(r'^"(\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)"$', raw)
+    if m:  # `-c "$SRC"`: measure the heredoc that fills SRC
+        body = heredoc_var(text, VAR_REF.match(m.group(1)).group(1))
+        return UNMEASURED if body is None else body
+    if VAR_REF.match(raw):
+        return UNMEASURED  # unquoted `$SRC`: split into words, never measured
+    return value
+
+
 def bodies(text):
     """Yield (line, body) for every -c body outside a comment line; body None = unmeasured."""
-    pos = 0
-    while True:
-        m = OPEN.search(text, pos)
-        if not m:
-            return
-        line_start = text.rfind("\n", 0, m.start()) + 1
-        line_no = text.count("\n", 0, m.start()) + 1
-        if text[line_start:m.start()].lstrip().startswith("#"):
-            pos = m.end()
+    seen = set()
+    candidates = sorted({m.start() for m in PY_NAME.finditer(text)}
+                        | {m.start() for m in re.finditer(r"\$", text)})
+    for k in candidates:
+        start = word_start(text, k)
+        if start in seen:
             continue
-        body, end = bash_word(text, m.end() - 1)
-        if m.group("var"):
-            if m.group("var").strip('"${}') in SHELL_VARS:
-                pos = m.end()
-                continue
-            body = None  # `"$PY" -c ...`: not traced to python, so not measured, reported
-        elif body is not None and m.group("q") == '"' and VAR_REF.match(text[m.end():end - 1]):
-            # `-c "$SRC"`: measure the heredoc that fills SRC. None: untraceable, reported.
-            body = heredoc_var(text, VAR_REF.match(text[m.end():end - 1]).group(1))
-        # An unterminated or untraceable body is not a small body: report it, never skip it.
-        yield line_no, body
-        pos = max(end, m.end())
+        seen.add(start)
+        line_start = text.rfind("\n", 0, start) + 1
+        if text[line_start:start].lstrip().startswith("#"):
+            continue
+        value, end = bash_word(text, start)
+        raw = text[start:end]
+        if raw.startswith("#"):
+            continue
+        if PY_WORD.search(raw.strip("\"'").rstrip("}")):
+            dynamic = value is None or "$" in raw  # `"$HOME/bin/python3"`, `${PY:-python3}`
+        else:
+            v = VAR_START.match(raw)
+            if not v or v.group(1) in SHELL_VARS or not command_position(text, start):
+                continue  # `grep "$PAT" -c "$FILE"`: $PAT is not the command
+            dynamic = True
+        body = c_body(text, end)
+        if body is None:
+            continue
+        line_no = text.count("\n", 0, start) + 1
+        yield line_no, (None if dynamic or body is UNMEASURED else body)
 
 
 def units(s):
@@ -171,10 +292,10 @@ def main():
         return 1
     if violations:
         print(
-            "FAIL: a hook passes python3 an inline -c body over budget (budget %d, Windows "
-            "command-line cap %d). On Windows it fails with \"Argument list too long\" "
-            "(rc 126). Move the body into .claude/hooks/lib/<name>.py and run it as "
-            "`python3 -I -B <file>`." % (BUDGET, HARD_CAP)
+            "FAIL: a hook passes python3 an inline -c body over budget or one this guard "
+            "cannot measure (budget %d, Windows command-line cap %d). On Windows it fails "
+            "with \"Argument list too long\" (rc 126). Move the body into "
+            ".claude/hooks/lib/<name>.py and run it as `python3 -I -B <file>`." % (BUDGET, HARD_CAP)
         )
         return 1
     print("OK")
