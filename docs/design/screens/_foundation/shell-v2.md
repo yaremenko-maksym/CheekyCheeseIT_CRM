@@ -25,20 +25,25 @@
 Destinations = `route-access` ∩ the existing `NAV_ITEMS` (labels = the existing uk catalog strings). The
 tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, grouped, plus the profile at the top.
 
-| Role             | Tab 1      | Tab 2       | Tab 3      | Tab 4     | In «Ще»                                                                                                    | Quick-add «+»                                         |
-| ---------------- | ---------- | ----------- | ---------- | --------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| ADMIN            | Фінанси    | Користувачі | Статистика | Дашборд   | Чекають рішення · Команда · Проєкти · Співбесіди · Документи · Вакансії · Черга зовнішніх вакансій · Адмін | menu: транзакція · користувач · співбесіда · вакансія |
-| SENIOR           | Дашборд    | Фінанси     | Команда    | Проєкти   | Чекають рішення · Співбесіди · Документи                                                                   | menu: транзакція · співбесіда                         |
-| SENIOR (no team) | Дашборд    | Фінанси     | Команда    | Документи | Чекають рішення                                                                                            | direct: Нова транзакція                               |
-| JUNIOR           | Мій проєкт | Фінанси     | Легенда    | Документи | Чекають рішення                                                                                            | none (no «+»)                                         |
-| HR               | Дашборд    | Співбесіди  | Вакансії   | Команда   | Фінанси · Чекають рішення · Проєкти · Документи · Черга зовнішніх вакансій                                 | menu: співбесіда · вакансія                           |
-| ACCOUNTANT       | Фінанси    | Статистика  | Дашборд    | Проєкти   | Чекають рішення · Команда · Документи                                                                      | direct: Нова транзакція                               |
-| DROP             | Дашборд    | Фінанси     | Документи  | Команда   | Чекають рішення                                                                                            | direct: Нова транзакція                               |
+| Role             | Tab 1      | Tab 2       | Tab 3      | Tab 4     | In «Ще»                                                                                                      | Context «+» (direct on the tab · menu elsewhere)                                                    |
+| ---------------- | ---------- | ----------- | ---------- | --------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| ADMIN            | Фінанси    | Користувачі | Статистика | Адмін     | Дашборд · Чекають рішення · Команда · Проєкти · Співбесіди · Документи · Вакансії · Черга зовнішніх вакансій | Фінанси → Нова транзакція · Користувачі → Новий користувач · elsewhere menu of all 4                |
+| SENIOR           | Дашборд    | Фінанси     | Команда    | Проєкти   | Чекають рішення · Співбесіди · Документи                                                                     | Фінанси → Нова транзакція · Співбесіди → Нова співбесіда · elsewhere menu (транзакція · співбесіда) |
+| SENIOR (no team) | Дашборд    | Фінанси     | Команда    | Документи | Чекають рішення                                                                                              | Нова транзакція on every tab (one action)                                                           |
+| JUNIOR           | Мій проєкт | Фінанси     | Легенда    | Документи | Чекають рішення                                                                                              | none (no «+»)                                                                                       |
+| HR               | Дашборд    | Співбесіди  | Вакансії   | Команда   | Фінанси · Чекають рішення · Проєкти · Документи · Черга зовнішніх вакансій                                   | Співбесіди → Нова співбесіда · Вакансії → Нова вакансія · elsewhere menu (співбесіда · вакансія)    |
+| ACCOUNTANT       | Фінанси    | Статистика  | Дашборд    | Проєкти   | Чекають рішення · Команда · Документи                                                                        | Нова транзакція on every tab (one action)                                                           |
+| DROP             | Дашборд    | Фінанси     | Документи  | Команда   | Чекають рішення                                                                                              | Нова транзакція on every tab (one action)                                                           |
 
+- **ADMIN tab 4 is «Адмін»** (`/admin`, which redirects to `/admin/contracts`, the contract-template
+  editor): editing contracts is a daily owner task, the dashboard is not. «Дашборд» moves to «Ще» → Огляд.
 - **Profile** is the first row of «Ще» (avatar, name, «Профіль · <role>»), not a tab.
 - **«Ще» badge** = the sum of badges of the destinations it hides (today: «Чекають рішення»).
 - Quick-add actions are existing create actions only (verified against `canCreate` / route-access,
-  2026-11-11). One action: «+» opens it directly. None: no «+». Several: an action menu sheet.
+  2026-11-11). **Context «+»:** on a tab that owns one of the role's create actions, «+» opens that
+  action directly (`aria-label` = its name, «Нова транзакція»); on any other tab it opens the role's
+  action menu (`aria-label` «Створити», `aria-haspopup="dialog"`). A role with one action always opens
+  it directly. None: no «+».
 - **Groups** (sidebar and «Ще»): Огляд · Гроші · Люди · Робота · Найм · Система. Empty groups are hidden.
 
 ---
@@ -66,25 +71,34 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 
 ### Quick-add FAB
 
-- 56 px yellow circle, `aria-label` = the action name (direct) or «Створити» (menu), bottom right, 16 px
-  above the tab bar. Hidden while the keyboard is open and while a sheet is open.
-- Menu: a medium sheet listing the role's actions (icon, label, one-line hint). Each row 64 px.
-- `quick-add-txn-keyboard-375`: «Нова транзакція» opens as a large sheet with the amount field focused,
-  the decimal keyboard up, and a keyboard accessory bar (˄ ˅ previous / next field, «Готово»). The type
-  toggle is the role's create set, the same as `form-money-375` (ADMIN: Витрата / Дохід / Переказ). The
-  sheet content scrolls above the keyboard; the focused field is never covered. The frame is
-  illustrative; the Wave 1 finance spec owns the form.
-- **Save waits for the receipt upload.** While a receipt uploads, the save button stays an active
-  button (no `aria-disabled`: it acts) whose label says what a tap does: «Зберегти після завантаження
-  чека» (`quick-add-txn-keyboard-375`). A tap **arms** the save (`quick-add-txn-armed-375`): the button
-  turns into a progress fill reading «Збережеться після чека · 62%» (`aria-pressed="true"`, the label in
-  an `aria-live="polite"` region, a caption «Натисніть ще раз, щоб не зберігати»). A second tap
-  **disarms** it. One request is sent automatically when the upload reaches 100%, so a form without an
-  idempotency key still sends exactly once. The receipt card's «Замінити» is 44 px tall. Until that
-  request is sent, the sheet stays dismissible (Скасувати, drag, scrim); dismissing cancels the armed save (nothing
-  was sent), the upload keeps going under the global upload pill, and the draft is kept for the session.
-  An upload failure disarms the save and shows its error on the receipt card; the user may replace the
-  file or remove it and save without a receipt.
+- 56 px yellow circle (context «+», §1), bottom right, inset 16, 16 px above the tab bar. Hidden while
+  the keyboard is open and while a sheet is open. **Never dimmed or disabled**, offline included.
+- **Floating-layer stacking:** toasts and the upload pill sit left of the FAB (inset 12 left, 80 right,
+  16 above the tab bar), so neither covers the other. Tab-root lists end with 56 + 16 + 8 px of bottom
+  padding above the tab bar, so the last row scrolls clear of the FAB.
+- Menu (`quick-add-admin-375`, drawn from Статистика, a tab with no create action of its own;
+  `quick-add-hr-320` from Дашборд): a medium sheet listing the role's actions (icon, label, one-line
+  hint). Each row 64 px.
+- `quick-add-txn-keyboard-375`: «Нова транзакція» opens as the canonical money form
+  (`primitives-v2.md` §4; source `assets/src/money-form.mjs`): «Скасувати» top-left, title centred,
+  nothing top-right; the amount is focused with the decimal keyboard up and the bottom submit bar riding
+  on it. The bar above the keys is **iOS Safari's own accessory bar**, drawn and labelled "system" only;
+  we do not build one. The type toggle is the role's create set (ADMIN: Витрата / Дохід / Переказ); the
+  optional fields sit collapsed in «Сьогодні · без проєкту · змінити». The frame is illustrative; the
+  Wave 1 finance spec owns the form.
+- **Armed save** (save during a receipt upload). The primary stays an active button (no
+  `aria-disabled`: it acts) whose label says what a tap does: «Зберегти після завантаження чека». A tap
+  **freezes the payload and arms** (`quick-add-txn-armed-375`): the button turns into a progress fill
+  reading «Збережеться 1 250,50 USD після чека · 62%» (`aria-pressed="true"`, the label in an
+  `aria-live="polite"` region, a caption «Натисніть ще раз або змініть поле, щоб скасувати»). A second
+  tap or **any field edit disarms** it. **Dismissing the sheet keeps the armed save**: the global upload
+  pill carries «Збережеться 1 250,50 USD · 62%» / «Відкрити чернетку», and a tap reopens the draft
+  (`primitives-v2/upload-pill-armed-375`). At 100% exactly one request is sent, so a form without an
+  idempotency key still sends exactly once; the result is a toast «Транзакцію збережено» + «Відкрити»,
+  or a failure alert that reopens the draft (`primitives-v2.md` §5). Backgrounding the app does not
+  disarm. **If the page is killed, nothing is sent and the draft is gone.** An upload failure disarms
+  the save and shows its error on the receipt card; the user may replace the file or remove it («✕
+  Видалити чек») and save without a receipt.
 
 ### More sheet
 
@@ -100,8 +114,10 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   filtered-empty list is different: it offers «Скинути фільтри» (`primitives-v2/listrow-empty-error-375`).
 - **Error** (`state-error-375`): `role="alert"` block «Не вдалося завантажити транзакції» + «Нічого не
   змінено» + «Спробувати ще». The retry re-runs the read query only (safe); it is never a money write.
-- **Offline** (`state-offline-375`): a slim `role="status"` banner under the top bar («Немає з’єднання»),
-  cached content stays visible, writes queue nothing (spec §4.5b: nothing survives a close).
+- **Offline** (`state-offline-375`): a slim `role="status"` banner under the top bar («Немає з’єднання.
+  Показано останні завантажені дані; збереження не пройде, введене залишиться у формі.»), cached content
+  stays visible, the FAB stays enabled, writes queue nothing (spec §4.5b: nothing survives a close). A
+  save attempt shows the definite inline alert with every value kept (`primitives-v2/toast-error-offline-375`).
 - **Impersonation** (`state-impersonation-375`): the existing banner, pinned under the top bar, with
   «Повернутися» (44 px); the tab bar shows the impersonated role's tabs.
 
@@ -109,10 +125,17 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 
 ## 3. Tablet (640–1023 px)
 
-- 80 px **navigation rail** on the left: quick-add button on top, then the 4 role tabs and «Ще», icon over
-  label. Active item on `bg-accent` with a yellow icon.
-- «Ще» opens a **popover** from the rail (not a bottom sheet): same groups and rows as the More sheet.
-- Content: list + detail panes where the screen has both; touch heights (inputs 48, buttons 44).
+- 80 px **navigation rail** on the left: quick-add button on top, then **every role destination that
+  fits by height** (the tab-bar set first, then the rest in sidebar group order), icon over label, the
+  avatar (profile) at the bottom. Active item on `bg-accent` with a yellow icon. At 768 × 1024 all 12
+  ADMIN destinations fit (`tablet-rail-768`).
+- «Ще» appears **only on overflow** (a short window: Split View, Stage Manager, landscape) and opens a
+  **popover** from the rail with the destinations that did not fit (`tablet-rail-more-768`, a 768 × 700
+  window). The fit is a height budget (status 24 + brand and «+» 120 + avatar 64 + home indicator 20);
+  Wave 0 measures the real row heights.
+- **Panes:** one pane at 640–899 (the list takes the full width; the detail pushes); list + detail side by
+  side only from **≥ 900**. Touch heights (inputs 48, buttons 44): density follows `(pointer: coarse)`,
+  not width.
 
 ---
 
@@ -120,8 +143,14 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 
 ### Sidebar
 
-- 248 px, `bg-card`, grouped (overlines), 36 px rows, active row `bg-accent` + yellow icon + 2 px yellow
-  leading bar. Footer: user row (avatar, name, role) opening the profile menu.
+- 248 px, `bg-card`, grouped (overlines), 36 px rows (one value; `primitives-v2.md` §3 agrees), active
+  row `bg-accent` + yellow icon + 2 px yellow leading bar. Footer: user row (avatar, name, role) opening
+  the profile menu.
+- **Table selected row** uses the same cue: `bg-accent` + a 2 px yellow leading bar + `aria-selected`
+  (`desktop-sidebar-1440`).
+- **Touch density** (`shell-touch-1180`, an iPad in landscape): the layout follows the width (sidebar,
+  header, table), the density follows `(pointer: coarse)`: sidebar rows 44, table rows 52 / header 44,
+  filter chips, bell and page action 44, search 48 with 16 px text.
 - **Collapsible** to a 64 px icon rail (toggle at the top, or the single key `[`, which the SC 2.1.4 toggle in the `?` sheet can turn off and
   which never fires inside a text field; the `?` sheet lists the same key); every icon gets a tooltip with the
   label and its `G` shortcut («Фінанси G F»). State stored on the device.
@@ -146,37 +175,38 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 
 ## 5. Frames (all PNG under `assets/shell-v2/`)
 
-| Frame                                | Width | Shows                                         |
-| ------------------------------------ | ----: | --------------------------------------------- |
-| `tabbar-admin-375.png`               |   375 | ADMIN tab bar, «Ще» badge, «+»                |
-| `tabbar-senior-375.png`              |   375 | SENIOR tab bar, own-project rows only         |
-| `tabbar-senior-teamless-375.png`     |   375 | SENIOR without a team (Документи in slot 4)   |
-| `tabbar-junior-375.png`              |   375 | JUNIOR (no «+»), own salary rows only         |
-| `tabbar-hr-375.png`                  |   375 | HR                                            |
-| `tabbar-accountant-375.png`          |   375 | ACCOUNTANT                                    |
-| `tabbar-drop-375.png`                |   375 | DROP, drop income and payout rows only        |
-| `tabbar-admin-320.png`               |   320 | ADMIN at the narrowest width (labels fit)     |
-| `tabbar-hr-320.png`                  |   320 | HR at 320 (longest labels)                    |
-| `more-sheet-admin-375.png`           |   375 | More sheet, ADMIN (8 destinations)            |
-| `more-sheet-junior-375.png`          |   375 | More sheet, JUNIOR (short)                    |
-| `more-sheet-admin-320.png`           |   320 | More sheet at 320                             |
-| `quick-add-admin-375.png`            |   375 | Quick-add action menu (4 actions)             |
-| `quick-add-hr-320.png`               |   320 | Quick-add menu at 320                         |
-| `quick-add-txn-keyboard-375.png`     |   375 | Keyboard + accessory bar, upload at 62%       |
-| `quick-add-txn-armed-375.png`        |   375 | Save armed, waits for the receipt (62%)       |
-| `state-loading-375.png`              |   375 | Shell + skeleton                              |
-| `state-empty-375.png`                |   375 | Empty tab root                                |
-| `state-error-375.png`                |   375 | Load error with a safe re-fetch               |
-| `state-offline-375.png`              |   375 | Offline banner                                |
-| `state-impersonation-375.png`        |   375 | Impersonation banner                          |
-| `tablet-rail-768.png`                |   768 | Rail + two panes                              |
-| `tablet-rail-more-768.png`           |   768 | Rail «Ще» popover                             |
-| `desktop-sidebar-1024.png`           |  1024 | Sidebar + header + dense table                |
-| `desktop-sidebar-collapsed-1024.png` |  1024 | Collapsed rail with tooltip                   |
-| `desktop-sidebar-1440.png`           |  1440 | Wide: extra table column                      |
-| `desktop-cmdk-1440.png`              |  1440 | Cmd+K palette                                 |
-| `desktop-cmdk-1024.png`              |  1024 | Cmd+K at the narrowest desktop                |
-| `desktop-shortcuts-1440.png`         |  1440 | `?` shortcut sheet with the single-key toggle |
+| Frame                                | Width | Shows                                           |
+| ------------------------------------ | ----: | ----------------------------------------------- |
+| `tabbar-admin-375.png`               |   375 | ADMIN tab bar (tab 4 «Адмін»), «Ще» badge, «+»  |
+| `tabbar-senior-375.png`              |   375 | SENIOR tab bar, own-project rows only           |
+| `tabbar-senior-teamless-375.png`     |   375 | SENIOR without a team (Документи in slot 4)     |
+| `tabbar-junior-375.png`              |   375 | JUNIOR (no «+»), own salary rows only           |
+| `tabbar-hr-375.png`                  |   375 | HR                                              |
+| `tabbar-accountant-375.png`          |   375 | ACCOUNTANT                                      |
+| `tabbar-drop-375.png`                |   375 | DROP, drop income and payout rows only          |
+| `tabbar-admin-320.png`               |   320 | ADMIN at the narrowest width (labels fit)       |
+| `tabbar-hr-320.png`                  |   320 | HR at 320 (longest labels)                      |
+| `more-sheet-admin-375.png`           |   375 | More sheet, ADMIN (8; «Дашборд» in Огляд)       |
+| `more-sheet-junior-375.png`          |   375 | More sheet, JUNIOR (short)                      |
+| `more-sheet-admin-320.png`           |   320 | More sheet at 320                               |
+| `quick-add-admin-375.png`            |   375 | Quick-add menu from Статистика (4 actions)      |
+| `quick-add-hr-320.png`               |   320 | Quick-add menu at 320                           |
+| `quick-add-txn-keyboard-375.png`     |   375 | Canonical money form, decimal keys + system bar |
+| `quick-add-txn-armed-375.png`        |   375 | Save armed: frozen amount, receipt at 62%       |
+| `state-loading-375.png`              |   375 | Shell + skeleton                                |
+| `state-empty-375.png`                |   375 | Empty tab root                                  |
+| `state-error-375.png`                |   375 | Load error with a safe re-fetch                 |
+| `state-offline-375.png`              |   375 | Offline banner, FAB stays enabled               |
+| `state-impersonation-375.png`        |   375 | Impersonation banner                            |
+| `tablet-rail-768.png`                |   768 | Rail with every destination, one pane           |
+| `tablet-rail-more-768.png`           |   768 | 768 × 700 window: overflow «Ще» popover         |
+| `desktop-sidebar-1024.png`           |  1024 | Sidebar + header + dense table                  |
+| `desktop-sidebar-collapsed-1024.png` |  1024 | Collapsed rail with tooltip                     |
+| `desktop-sidebar-1440.png`           |  1440 | Wide: extra column, selected-row bar            |
+| `shell-touch-1180.png`               |  1180 | iPad landscape: desktop layout, touch density   |
+| `desktop-cmdk-1440.png`              |  1440 | Cmd+K palette                                   |
+| `desktop-cmdk-1024.png`              |  1024 | Cmd+K at the narrowest desktop                  |
+| `desktop-shortcuts-1440.png`         |  1440 | `?` shortcut sheet with the single-key toggle   |
 
 Re-render: `node assets/src/render.mjs shell [filter]`, then `assets/src/contact-sheet.sh shell`.
 
@@ -187,7 +217,8 @@ Re-render: `node assets/src/render.mjs shell [filter]`, then `assets/src/contact
 - Focus order (mobile): top bar → content → FAB → tab bar. Desktop: skip link → sidebar → header → main.
 - Tab bar and rail are `nav` landmarks; sidebar is `nav` with group headings as `h2` (visually overlines).
 - More sheet and Cmd+K trap focus, close on Esc and scrim, and return focus to the trigger.
-- Every target ≥ 44 × 44 on touch classes; desktop rows 36 px with full-row hit area.
+- Every coarse-pointer target ≥ 44 × 44, whatever the width; fine-pointer desktop rows 36 px with a
+  full-row hit area.
 - Badge counts are in the accessible name; the offline banner is `role="status"`.
 - Single-key shortcuts can be turned off (SC 2.1.4); they never fire inside text fields.
 
@@ -204,11 +235,14 @@ Re-render: `node assets/src/render.mjs shell [filter]`, then `assets/src/contact
 - Tab labels reuse the existing nav strings («Дашборд» for Home). «Ще» and the six group headings are
   new strings (copy-reviewer gate in the Wave 0 implementation).
 - The FAB sits above the tab bar, not inside it (tab bar = navigation only).
-- Tablet uses a rail with a popover «Ще», not a bottom sheet.
+- Tablet uses a rail listing every destination that fits, with a popover «Ще» only on overflow, not a
+  bottom sheet.
+- ADMIN tab 4 = «Адмін» (contract editing) and «Дашборд» in «Ще» (council R1 ruling).
 - Sidebar collapse shortcut `[` and the `G <letter>` navigation shortcuts are proposals for the
   implementation task. `[` was chosen over ⌘\ (task review fix round 1) and is guarded like every
   single-key shortcut.
 - Finance rows in the role frames are role-plausible sample data (SENIOR: own project; DROP: drop income
   and payouts; JUNIOR: own salary). What each role really sees is the existing RBAC, unchanged by v2.
-- The armed save after an upload and the session-scoped draft are proposals; the Wave 1 finance spec
-  confirms them per form.
+- The armed save after an upload (frozen payload, kept across a sheet dismiss, carried by the pill)
+  and the in-memory draft are proposals; the Wave 1 finance spec confirms them per form. The draft row
+  «Чернетка … · Продовжити» on the list is described, not drawn.
