@@ -125,6 +125,7 @@ export class VerificationRunner {
         ...frozen,
         experience: frozen.experience.map((item, i) => ({
           ...item,
+          // Stryker disable next-line OptionalChaining: equivalent — frozen is derived from facts item by item, so index i exists
           bullets: cleanedNotes(facts.data.experience[i]?.notes ?? []),
         })),
       }
@@ -194,8 +195,9 @@ export class VerificationRunner {
       .from(userEmails)
       .where(eq(userEmails.userId, userId))
     const emails = [...new Set([user.email, ...extra.map((e) => e.email)])]
-    const names = [...new Set([user.displayName, user.legalFullName ?? ''])].filter(
-      (name) => name.trim() !== '',
+    // A blank name adds no match: namePatterns drops an empty source.
+    const names = [...new Set([user.displayName, user.legalFullName])].filter(
+      (name): name is string => name !== null,
     )
     return {
       displayName: user.displayName,
@@ -244,9 +246,9 @@ export class VerificationRunner {
           ),
         )
         .returning({ id: seniorResumes.id })
-      return won ? { won: true, old: current?.key ?? null } : { won: false, old: null }
+      return won ? { old: current?.key ?? null } : null
     })
-    if (!replaced.won) {
+    if (replaced === null) {
       this.logger.warn(`Verification run ${runId} of resume ${row.id} superseded: ${key} dropped`)
       await this.deleteQuietly(key)
     } else if (replaced.old !== key) {

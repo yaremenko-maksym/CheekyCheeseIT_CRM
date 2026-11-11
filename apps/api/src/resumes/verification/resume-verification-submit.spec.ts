@@ -4,6 +4,8 @@
  * Two concurrent submits on a real Postgres are in verification-runner.integration.spec.ts.
  */
 import { HttpException, NotFoundException } from '@nestjs/common'
+import type { SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 import type { ResumeFacts } from '@crm/shared'
 import type { SeniorResume } from '../../database/schema'
@@ -87,6 +89,11 @@ describe('ResumeVerificationService.submit', () => {
     expect(set.verificationQueuedAt).toBeInstanceOf(Date)
     expect(set.updatedAt).toBeInstanceOf(Date)
     expect(set.verificationRunId).toMatch(/^[0-9a-f-]{36}$/u)
+    // The base version is the row's own version column, read in the same UPDATE.
+    expect(new PgDialect().sqlToQuery(set.verificationBaseVersion as SQL)).toEqual({
+      sql: '"senior_resumes"."version"',
+      params: [],
+    })
     expect(runner.run).toHaveBeenCalledWith('r-1', set.verificationRunId)
     // The old staged object goes after the write.
     expect(s3.delete.mock.calls).toEqual([['resumes/r-1/staged/old.pdf']])

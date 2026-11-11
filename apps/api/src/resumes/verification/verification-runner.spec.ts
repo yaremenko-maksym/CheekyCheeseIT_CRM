@@ -182,6 +182,13 @@ describe('VerificationRunner.run', () => {
       verificationStartedAt: expect.any(Date),
     })
     expect(claim?.where?.params).toEqual([RESUME, RUN, 'QUEUED'])
+    expect(log.map((q) => q.columns)).toEqual([
+      undefined,
+      ['displayName', 'email', 'legalFullName'],
+      ['email'],
+      ['key'],
+      ['id'],
+    ])
     expect(stage?.where?.params).toEqual([RESUME, RUN, 'CHECKING'])
     expect(stage?.where?.sql).toContain('"version" = "senior_resumes"."verification_base_version"')
     expect(stage?.set).toMatchObject({
@@ -211,6 +218,29 @@ describe('VerificationRunner.run', () => {
     await run()
     expect(payloads.join('\n')).not.toContain('Kowalska')
     expect(payloads.join('\n')).toContain('Thanks to [REDACTED] for billing')
+  })
+
+  it('every owner email, primary and extra, is redacted, even one the generic pattern misses', async () => {
+    const notes = [
+      'Mail jane@corp.x for billing',
+      'Mail jana@home.y for ops',
+      'Led the payments team',
+    ]
+    const item = FACTS.experience[0] as ResumeFacts['experience'][number]
+    const row = { ...ROW, facts: { ...FACTS, experience: [{ ...item, notes }] } }
+    const { run } = runner([
+      [row],
+      [{ ...USER, email: 'jane@corp.x' }],
+      [{ email: 'jana@home.y' }],
+      [{ key: null }],
+      [{ id: RESUME }],
+    ])
+    await run()
+    const sent = payloads.join('\n')
+    expect(sent).toContain('Mail [REDACTED] for billing')
+    expect(sent).toContain('Mail [REDACTED] for ops')
+    expect(sent).not.toContain('corp.x')
+    expect(sent).not.toContain('home.y')
   })
 
   it('a legal name equal to the display name or empty adds no context', async () => {
@@ -268,6 +298,7 @@ describe('VerificationRunner.run', () => {
       verificationBaseVersion: null,
       ...CLEARED_STAGED,
     })
+    expect([lock?.columns, fail?.columns]).toEqual([['key'], ['id']])
     expect(s3.upload).not.toHaveBeenCalled()
     expect(s3.delete.mock.calls).toEqual([[OLD_KEY]])
     expect(logs).toContain(`Verification run ${RUN} of resume ${RESUME} failed: WRITER_UNAVAILABLE`)
@@ -276,6 +307,15 @@ describe('VerificationRunner.run', () => {
   it('a lost FAILED CAS deletes nothing', async () => {
     writer.write.mockResolvedValueOnce({ kind: 'unavailable', reason: 'TIMEOUT' } as WriterReply)
     await runner([...START, [{ key: OLD_KEY }], []]).run()
+    expect(s3.delete).not.toHaveBeenCalled()
+  })
+
+  it('a won FAILED CAS over a row whose lock read found nothing deletes nothing', async () => {
+    writer.write.mockResolvedValueOnce({ kind: 'unavailable', reason: 'TIMEOUT' } as WriterReply)
+    const { run, log } = runner([...START, [], [{ id: RESUME }]])
+    await run()
+    expect(log).toHaveLength(5)
+    expect(log.at(-1)?.set?.verificationStatus).toBe('FAILED')
     expect(s3.delete).not.toHaveBeenCalled()
   })
 

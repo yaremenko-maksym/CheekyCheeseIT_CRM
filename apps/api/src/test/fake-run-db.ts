@@ -10,6 +10,8 @@ export type LoggedQuery = {
   op: 'update' | 'select'
   set?: Record<string, unknown>
   where?: { sql: string; params: unknown[] }
+  /** The keys of the `select` or `returning` column object; `undefined` when none was passed. */
+  columns?: string[]
   locked: boolean
   inTransaction: boolean
 }
@@ -20,8 +22,9 @@ export function fakeRunDb(results: unknown[][]) {
   const log: LoggedQuery[] = []
   const queue = [...results]
   const handle = (inTransaction: boolean) => {
-    const query = (op: LoggedQuery['op']) => {
+    const query = (op: LoggedQuery['op'], cols?: object) => {
       const q: LoggedQuery = { op, locked: false, inTransaction }
+      if (cols) q.columns = Object.keys(cols)
       const chain = {
         set(values: Record<string, unknown>) {
           q.set = values
@@ -29,7 +32,10 @@ export function fakeRunDb(results: unknown[][]) {
         },
         from: () => chain,
         limit: () => chain,
-        returning: () => chain,
+        returning(returned?: object) {
+          if (returned) q.columns = Object.keys(returned)
+          return chain
+        },
         where(cond: SQL | undefined) {
           if (cond) q.where = dialect.sqlToQuery(cond)
           return chain
@@ -47,7 +53,7 @@ export function fakeRunDb(results: unknown[][]) {
     }
     return {
       update: (_table: unknown) => query('update'),
-      select: (_cols?: unknown) => query('select'),
+      select: (cols?: object) => query('select', cols),
     }
   }
   const db = {
