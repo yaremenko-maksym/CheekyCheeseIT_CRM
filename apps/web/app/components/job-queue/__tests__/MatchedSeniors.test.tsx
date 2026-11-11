@@ -412,9 +412,15 @@ describe('MatchedSeniors', () => {
     const block = screen.getByTestId(`job-queue-senior-${S1}`)
     const toggle = within(block).getByRole('button', { name: 'Чому збіг' })
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    // QA-LOW-1: ≥44 px at every width, no `sm:` override
     expect(toggle).toHaveClass('min-h-11')
+    expect(toggle.className).not.toMatch(/\bsm:min-h-/)
+    // UX-L-3: the label is the accent colour, the chevron trails it
+    expect(toggle).toHaveClass('text-primary')
     expect(within(block).queryByTestId(`job-queue-senior-evidence-${S1}`)).toBeNull()
     const chevron = within(toggle).getByTestId('job-queue-senior-evidence-chevron')
+    const label = within(toggle).getByText('Чому збіг')
+    expect(label.compareDocumentPosition(chevron) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(chevron).toHaveClass('size-3.5', 'shrink-0', 'transition-transform')
     expect(chevron).not.toHaveClass('rotate-180')
 
@@ -423,6 +429,8 @@ describe('MatchedSeniors', () => {
     expect(chevron).toHaveClass('size-3.5', 'shrink-0', 'transition-transform', 'rotate-180')
     const evidence = within(block).getByTestId(`job-queue-senior-evidence-${S1}`)
     expect(toggle).toHaveAttribute('aria-controls', evidence.id)
+    // UX-L-3: the evidence reads as an indented quote
+    expect(evidence).toHaveClass('border-l-2', 'pl-3')
     expect(evidence).toHaveTextContent(/^Обов’язкові: React, TypeScriptБажані: GraphQL$/)
 
     await userEvent.click(toggle)

@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useRef, useState, type RefObject } fr
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { toast } from 'sonner'
-import { CalendarOff, CircleHelp, RefreshCw, TriangleAlert, X } from 'lucide-react'
+import { CalendarOff, Check, CircleHelp, RefreshCw, TriangleAlert, X } from 'lucide-react'
 import { formatRelativeTime, type JobQueueCardResponseDto } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { DialogOverlay, DialogPortal } from '@/components/ui/dialog'
@@ -36,7 +36,8 @@ const STACK_CHIP = 'rounded-md border px-1.5 py-0.5 text-xs text-muted-foregroun
 function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
   const { t, i18n } = useLingui()
   const locale = useLocale()
-  const triage = card.eligibility === 'TRIAGE'
+  // an excluded vacancy is neither triage nor a zero match (CR2-M-1): its seniors block says so
+  const triage = card.eligibility === 'TRIAGE' && card.noMatchReason !== 'EXCLUDED'
   const seniority = SENIORITY_LABEL[card.seniority]
   const closed = card.availability === 'CLOSED' || card.availability === 'EXPIRED'
   const firstSeenAgo = formatRelativeTime(card.firstSeenAt, locale)
@@ -76,16 +77,24 @@ function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
       </p>
       <p data-testid="job-queue-card-meta" className="text-xs text-muted-foreground">
         {card.publishedAt ? (
-          <Trans>Опубліковано {formatRelativeTime(card.publishedAt, locale)}</Trans>
+          <span className="whitespace-nowrap">
+            <Trans>Опубліковано {formatRelativeTime(card.publishedAt, locale)}</Trans>
+          </span>
         ) : (
-          <span className="inline-flex flex-wrap items-center gap-x-1">
-            <CalendarOff aria-hidden="true" className="size-3.5 shrink-0" />
-            <Trans>Дата публікації невідома</Trans>
+          <>
+            <span className="whitespace-nowrap">
+              <CalendarOff
+                aria-hidden="true"
+                data-testid="job-queue-card-meta-icon"
+                className="mr-1 inline-block size-3.5 align-[-0.2em]"
+              />
+              <Trans>Дата публікації невідома</Trans>
+            </span>
             <span className="whitespace-nowrap">
               {' · '}
               <Trans>вперше побачено {firstSeenAgo}</Trans>
             </span>
-          </span>
+          </>
         )}
         <span className="whitespace-nowrap">
           {' · '}
@@ -94,11 +103,17 @@ function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
       </p>
       <p data-testid="job-queue-terms" className="text-xs text-muted-foreground">
         {card.engagementForm === 'B2B' ? (
-          <Trans>Форма співпраці: B2B</Trans>
+          <Trans>
+            Форма співпраці: <span className="text-foreground">B2B</span>
+          </Trans>
         ) : card.engagementForm === 'EMPLOYMENT' ? (
-          <Trans>Форма співпраці: Трудовий договір</Trans>
+          <Trans>
+            Форма співпраці: <span className="text-foreground">Трудовий договір</span>
+          </Trans>
         ) : (
-          <Trans>Форма співпраці: Не вказано</Trans>
+          <Trans>
+            Форма співпраці: <span className="text-foreground">Не вказано</span>
+          </Trans>
         )}
       </p>
     </>
@@ -189,12 +204,22 @@ function VacancyStack({ card }: { card: JobQueueCardResponseDto }) {
               <span
                 data-testid="job-queue-card-stack-chip"
                 data-hit={hit}
-                className={cn(hit ? HIT_CHIP : STACK_CHIP, 'max-w-full truncate')}
+                className={cn(
+                  hit ? cn(HIT_CHIP, 'inline-flex items-center gap-1') : STACK_CHIP,
+                  'max-w-full [overflow-wrap:anywhere]',
+                )}
                 title={keyword}
               >
+                {/* the hit style alone would be the only cue (SC 1.4.1) */}
+                {hit && (
+                  <Check
+                    aria-hidden="true"
+                    data-testid="job-queue-card-stack-hit-icon"
+                    className="size-3 shrink-0"
+                  />
+                )}
                 {keyword}
               </span>
-              {/* the hit style alone would be the only cue (SC 1.4.1) */}
               {hit && (
                 <span className="sr-only">
                   , <Trans context="job-queue stack chip, screen-reader suffix">збігається</Trans>

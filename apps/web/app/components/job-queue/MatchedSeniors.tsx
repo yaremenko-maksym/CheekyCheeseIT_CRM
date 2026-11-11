@@ -66,23 +66,23 @@ function MatchEvidence({ senior }: { senior: JobQueueCardSeniorDto }) {
         type="button"
         variant="ghost"
         size="sm"
-        className="-ml-2 min-h-11 gap-1 px-2 text-xs text-muted-foreground sm:min-h-9"
+        className="-ml-2 min-h-11 gap-1 px-2 text-xs text-primary"
         aria-expanded={open}
         aria-controls={id}
         onClick={() => setOpen((v) => !v)}
       >
+        <Trans>Чому збіг</Trans>
         <ChevronDown
           aria-hidden="true"
           data-testid="job-queue-senior-evidence-chevron"
           className={cn('size-3.5 shrink-0 transition-transform', open && 'rotate-180')}
         />
-        <Trans>Чому збіг</Trans>
       </Button>
       {open && (
         <div
           id={id}
           data-testid={`job-queue-senior-evidence-${senior.seniorId}`}
-          className="flex min-w-0 flex-col gap-0.5 [overflow-wrap:anywhere]"
+          className="ml-1 flex min-w-0 flex-col gap-0.5 border-l-2 pl-3 [overflow-wrap:anywhere]"
         >
           {required && (
             <p>
