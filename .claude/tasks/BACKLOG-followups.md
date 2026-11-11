@@ -7810,3 +7810,63 @@ spec. API change, not web.
 **Verify.** An integration spec toggles one source and asserts the list order is unchanged.
 
 Sources: PR #1321 live QA (QA LOW 1; pre-existing, not from that PR).
+
+## 422. Cross-agent blast hook: the worktree ownership ledger is inactive on native Windows (2026-11-11)
+
+**Symptoms.** `pre:bash:cross-agent-blast` records a worktree as owned only when the agent's working directory matches
+the Linux scratchpad shape (`/tmp/claude-<id>/...`). On native Windows the harness scratchpad is `/tmp/claude/<hash>/...`,
+so `record_owned` never runs, and every removal of an agent's own worktree is refused as `WORKTREE-UNRECORDED`. It fails
+closed (safe) but makes the ledger useless on Windows; agents report their checkouts to the owner instead.
+
+**Status.** DevOps: derive the own-scratchpad root from both spellings, with a test per spelling. Pre-existing, not from
+PR #1317.
+
+**Verify.** In the blast suite, an agent whose scratchpad is spelled `/tmp/claude/<hash>/` creates and then removes its
+own worktree: the removal is allowed; a sibling's stays refused.
+
+Sources: PR #1317 rounds 3-4 (Master).
+
+## 423. Cross-agent blast hook: the ownership ledger is a plain file any sibling can append to (2026-11-11)
+
+**Symptoms.** The ledger that `is_owned` reads lives in the session-shared scratchpad. A sibling agent that deliberately
+appends `<its id>\t<victim path>` to it is then allowed to remove the victim's worktree. The hook's threat model is an
+accidental command, not a deliberate forgery, so this is defense in depth.
+
+**Status.** Decide first (DevOps + security-reviewer): either move the ledger out of agent-writable space, or have
+`pre:bash:cross-agent-blast` refuse any command that writes to the ledger path. Pre-existing, not from PR #1317.
+
+**Verify.** A blast-suite case: a sibling appends a forged line, then its removal of the victim is still refused.
+
+Sources: PR #1317 round 4 panel (nim:step), reproduced by the panel reviewer, not by Master.
+
+## 424. Hook size guard and blast suite: three small limits (2026-11-11)
+
+**Symptoms.**
+
+- `check-hook-inline-python-size.py` heredoc resync: after a comment containing an apostrophe (`# don't`) a later
+  `case … a)` line can be misread, so a body behind it is silently not measured. No live hook hits it today.
+- The same guard reports UNMEASURED for a hook whose last word is a closed multi-line quoted word with no final
+  newline: a false positive that fails closed.
+- `test-pre-bash-cross-agent-blast.sh` `run_hook_reason` prints the decoded reason through a cp1252 pipe on native
+  Windows; printing the hook's emoji raises, the reason is empty and one assertion fails. Green on Linux CI.
+
+**Status.** DevOps, one PR, one red test each.
+
+**Verify.** Each case above has a guard or suite test that fails before the fix.
+
+Sources: PR #1317 round 4 code review (CR4-L-3, CR4-L-4) and panel (nim:step).
+
+## 425. Job queue triage grants: the policy version is a client stamp, never checked (2026-11-11)
+
+**Symptoms.** `POST /job-queue/:id/team-triage` stores the client-sent `policyVersion` as an audit stamp; no server
+value validates it. The plan says policy versions bump on membership / exclusion writes and a stale one is a conflict,
+but no such version exists. Task 7.4b sends `0` ("unversioned"), so a grant is not invalidated when team membership
+changes after the ADMIN opened the card.
+
+**Status.** Owner decision (RBAC, A3): implement server-side policy versioning (a migration plus the conflict check),
+or accept the stamp and drop the field from the contract. Listed in the Phase 7 decision brief.
+
+**Verify.** If implemented: an integration spec bumps membership between card load and grant, and the grant answers
+409 `JOB_QUEUE_VERSION_CONFLICT`.
+
+Sources: PR #1313 spec review (SPEC-M-2), Task 7.4b brief (Master).
