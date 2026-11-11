@@ -258,20 +258,44 @@ describe('AvatarUploadDialog — clear bound to its dialog session (task-1316-fi
     expect(screen.getByText('Не вдалося очистити аватар')).toBeInTheDocument()
   })
 
-  it('a clear makes an earlier, still-decoding pick stale: its late decode does not open the crop step', async () => {
+  it('a clear makes a still-decoding pick stale: neither the latest nor an earlier late decode opens the crop step', async () => {
     installFakePreviewWorker(photo, 'manual')
     render(<Harness avatarDocumentId="doc-0" />, { wrapper: I18nTestProvider })
     const input = screen.getByTestId('avatar-file-input')
     fireEvent.change(input, { target: { files: [photo] } }) // pick A, held
-    fireEvent.change(input, { target: { files: [photo] } }) // pick B, held
+    fireEvent.change(input, { target: { files: [photo] } }) // pick B (the latest), held
     await vi.waitFor(() => expect(pendingReplies).toHaveLength(2))
     fireEvent.click(screen.getByRole('button', { name: 'Повернути стандартний' }))
 
     await act(async () => {
-      pendingReplies[0]!() // A's late decode
+      pendingReplies[1]!() // B's decode: only the clear made it stale
       await nextFrame()
     })
-
     expect(screen.queryByRole('button', { name: 'Зберегти' })).toBeNull()
+
+    await act(async () => {
+      pendingReplies[0]!() // A's decode: a clear moving the token backwards would revive it
+      await nextFrame()
+    })
+    expect(screen.queryByRole('button', { name: 'Зберегти' })).toBeNull()
+  })
+
+  it('a clear that fails after superseding a read leaves no stuck read status', async () => {
+    installFakePreviewWorker(photo, 'manual')
+    render(<Harness avatarDocumentId="doc-0" />, { wrapper: I18nTestProvider })
+    fireEvent.change(screen.getByTestId('avatar-file-input'), { target: { files: [photo] } }) // held
+    await vi.waitFor(() => expect(pendingReplies).toHaveLength(1))
+    fireEvent.click(screen.getByRole('button', { name: 'Повернути стандартний' }))
+    const cb = m.mutate.mock.calls[0]![1] as { onError: () => void }
+
+    await act(async () => {
+      pendingReplies[0]!()
+      await nextFrame()
+    })
+    act(() => cb.onError())
+
+    expect(screen.getByText('Не вдалося очистити аватар')).toBeInTheDocument()
+    expect(screen.queryByTestId('avatar-upload-read-progress')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Вибрати зображення' })).toBeEnabled()
   })
 })

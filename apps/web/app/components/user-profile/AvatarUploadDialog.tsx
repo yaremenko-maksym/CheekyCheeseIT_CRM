@@ -298,6 +298,8 @@ export function AvatarUploadDialog({
 
   function handleClear() {
     // Same session token as a save: closing mid-clear makes this clear stale.
+    // It also supersedes a read in flight, so that read's status goes too.
+    progress.reset()
     const session = ++pickRef.current
     const current = () => session === pickRef.current
     updateMe.mutate(
