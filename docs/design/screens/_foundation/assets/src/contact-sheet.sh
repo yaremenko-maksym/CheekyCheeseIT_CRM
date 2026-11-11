@@ -32,6 +32,8 @@ sheet() {
   [ "$(stat -f%z "$out")" -le 409600 ] || magick "$out" -dither None -colors 96 -define png:compression-level=9 "PNG8:$out"
   # Still over (the phone sheet of a large set): scale the whole sheet to 90% and quantise again.
   [ "$(stat -f%z "$out")" -le 409600 ] || magick "$out" -resize 90% -dither None -colors 96 -define png:compression-level=9 "PNG8:$out"
+  # Last step for the largest set: 80% of the original size and 64 colours, labels still legible.
+  [ "$(stat -f%z "$out")" -le 409600 ] || magick "$out" -resize 89% -dither None -colors 64 -define png:compression-level=9 "PNG8:$out"
   echo "$out $(($(stat -f%z "$out") / 1024)) KB from $(($# - 4)) frames"
 }
 rm -f "$dir"/_contact-sheet*.png

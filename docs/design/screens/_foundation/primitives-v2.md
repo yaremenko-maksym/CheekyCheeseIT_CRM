@@ -35,10 +35,10 @@
 | Receipt viewer            | Base UI Dialog (full screen)                                                                                  | NEW                          | `detail-txn-receipt-375`                                                                                                                                                                                                                                                                                                                                                                      |
 | Table row states          | `ui/table.tsx`                                                                                                | restyle                      | `listrow-table-desktop`                                                                                                                                                                                                                                                                                                                                                                       |
 | Form field                | `ui/input.tsx`, `ui/label.tsx`                                                                                | restyle (16 px, 48 h mobile) | `form-states-375`, `form-add-user-375`, `formfield-768`, `formfield-1440`                                                                                                                                                                                                                                                                                                                     |
-| Money field + receipt     | `ui/amount-currency-input.tsx`, `ui/image-upload-field.tsx`                                                   | restyle                      | `form-money-375`, `form-receipt-link-375`, `form-receipt-usdt-375`, `form-keyboard-375`, `sheet-large-375` (one canonical form: `assets/src/money-form.mjs`)                                                                                                                                                                                                                                  |
+| Money field + receipt     | `ui/amount-currency-input.tsx`, `ui/image-upload-field.tsx`                                                   | restyle                      | `form-money-375`, `form-receipt-link-375`, `form-receipt-usdt-375`, `form-receipt-usdt-empty-375`, `form-receipt-usdt-file-375`, `form-keyboard-375`, `sheet-large-375` (one canonical form: `assets/src/money-form.mjs`)                                                                                                                                                                     |
 | Segmented control, switch | `ui/segmented-toggle.tsx`, `ui/switch.tsx`                                                                    | restyle                      | `form-money-375`, `sheet-medium-375`                                                                                                                                                                                                                                                                                                                                                          |
 | Undo toast                | `ui/sonner.tsx`                                                                                               | restyle                      | `toast-undo-375`, `toast-undo-768`, `toast-undo-1440`                                                                                                                                                                                                                                                                                                                                         |
-| Save error (inline)       | `ui/alert.tsx`                                                                                                | restyle                      | `toast-error-definite-375`, `toast-error-offline-375`, `toast-error-unknown-375`, `toast-error-unknown-list-375`                                                                                                                                                                                                                                                                              |
+| Save error (inline)       | `ui/alert.tsx`                                                                                                | restyle                      | `toast-error-definite-375`, `toast-error-offline-375`, `toast-error-unknown-375`, `toast-error-unknown-list-375`, `toast-error-unknown-match-375`, `toast-error-unknown-empty-375`                                                                                                                                                                                                            |
 | Upload states + indicator | `ui/upload-progress.tsx`                                                                                      | restyle + global pill (NEW)  | `upload-states-375`, `upload-pill-armed-375`, `upload-pill-saved-375`, `upload-pill-failed-375`, `upload-pill-multi-375`, `upload-pill-unknown-375`, `drafts-two-375`, `drafts-two-unresolved-375`, `toast-pill-stack-375`, `state-page-kill-375`, `alert-pagekill-sent-375`, `confirm-recreate-375`, `confirm-discard-draft-375`, `listrow-draft-375`, `upload-pill-768`, `upload-pill-1440` |
 | Skeletons                 | `ui/skeleton.tsx`                                                                                             | restyle                      | `skeleton-mobile-375`, `skeleton-768`, `skeleton-1440`, `skeleton-table-desktop`                                                                                                                                                                                                                                                                                                              |
 | Charts                    | the existing chart library on `--chart-*` tokens                                                              | restyle                      | `chart-mobile-375`, `chart-mobile-scrolled-375`, `chart-mobile-320`, `chart-desktop`                                                                                                                                                                                                                                                                                                          |
@@ -426,73 +426,80 @@ instant, sheet 280 ms up / 150 ms down, desktop 150 ms crossfade, reduced motion
 
 ## 8. Frames (all PNG under `assets/primitives-v2/`)
 
-62 frames; phones and component crops render at 2×, full 768 / 1024 / 1440 screens and the storyboard at 1×. Every
+69 frames; phones and component crops render at 2×, full 768 / 1024 / 1440 screens and the storyboard at 1×. Every
 PNG is ≤ 400 KB.
 
-| Frame                          | Viewport (CSS px) | PNG (px)    |  KB | Round            |
-| ------------------------------ | ----------------- | ----------- | --: | ---------------- |
-| `sheet-medium-375`             | 375 × 812         | 750 × 1624  |  33 |                  |
-| `sheet-medium-320`             | 320 × 568         | 640 × 1136  |  25 |                  |
-| `sheet-large-375`              | 375 × 812         | 750 × 1624  |  33 |                  |
-| `sheet-confirm-375`            | 375 × 812         | 750 × 1624  |  44 |                  |
-| `listrow-variants-375`         | 375 × 812         | 750 × 1624  |  38 |                  |
-| `listrow-swipe-375`            | 375 × 812         | 750 × 1624  |  40 |                  |
-| `listrow-sticky-320`           | 320 × 568         | 640 × 1136  |  45 |                  |
-| `listrow-empty-error-375`      | 375 × 812         | 750 × 1624  |  41 |                  |
-| `listrow-768`                  | 768 × 400         | 1536 × 800  |  47 |                  |
-| `listrow-1440`                 | 1440 × 420        | 1440 × 420  |  23 |                  |
-| `section-header-375`           | 375 × 812         | 750 × 1624  |  30 |                  |
-| `form-states-375`              | 375 × 812         | 750 × 1624  |  32 | re-rendered (R3) |
-| `form-add-user-375`            | 375 × 812         | 750 × 1624  |  22 | new (R3)         |
-| `detail-txn-375`               | 375 × 812         | 750 × 1624  |  35 | new (R3)         |
-| `detail-txn-receipt-375`       | 375 × 812         | 750 × 1624  |  31 | new (R3)         |
-| `detail-person-375`            | 375 × 812         | 750 × 1624  |  26 | new (R3)         |
-| `formfield-768`                | 768 × 500         | 1536 × 1000 |  34 |                  |
-| `formfield-1440`               | 1440 × 360        | 1440 × 360  |  15 |                  |
-| `form-money-375`               | 375 × 812         | 750 × 1624  |  27 | re-rendered (R3) |
-| `form-receipt-link-375`        | 375 × 812         | 750 × 1624  |  30 | new (R3)         |
-| `form-receipt-usdt-375`        | 375 × 812         | 750 × 1624  |  35 | new (R3)         |
-| `picker-sheet-375`             | 375 × 812         | 750 × 1624  |  37 |                  |
-| `form-longtext-375`            | 375 × 667         | 750 × 1334  |  45 | re-rendered (R3) |
-| `form-keyboard-375`            | 375 × 812         | 750 × 1624  |  31 |                  |
-| `sheet-panel-768`              | 768 × 1024        | 768 × 1024  |  41 |                  |
-| `sheet-panel-1024`             | 1024 × 768        | 1024 × 768  |  42 |                  |
-| `sheet-panel-1440`             | 1440 × 900        | 1440 × 900  |  50 |                  |
-| `sheet-confirm-dialog-1024`    | 1024 × 768        | 1024 × 768  |  48 |                  |
-| `listrow-table-desktop`        | 960 × 300         | 1920 × 600  |  31 |                  |
-| `toast-undo-375`               | 375 × 812         | 750 × 1624  |  51 |                  |
-| `toast-undo-768`               | 768 × 1024        | 768 × 1024  |  29 |                  |
-| `toast-undo-1440`              | 1440 × 900        | 1440 × 900  |  34 |                  |
-| `toast-error-definite-375`     | 375 × 812         | 750 × 1624  |  38 |                  |
-| `toast-error-unknown-375`      | 375 × 812         | 750 × 1624  |  41 |                  |
-| `toast-error-unknown-list-375` | 375 × 812         | 750 × 1624  |  57 | re-rendered (R3) |
-| `toast-error-offline-375`      | 375 × 812         | 750 × 1624  |  37 |                  |
-| `upload-pill-armed-375`        | 375 × 812         | 750 × 1624  |  59 |                  |
-| `upload-pill-saved-375`        | 375 × 812         | 750 × 1624  |  57 | re-rendered (R3) |
-| `upload-pill-failed-375`       | 375 × 812         | 750 × 1624  |  58 | re-rendered (R3) |
-| `upload-pill-multi-375`        | 375 × 812         | 750 × 1624  |  58 | new (R3)         |
-| `toast-pill-stack-375`         | 375 × 812         | 750 × 1624  |  61 |                  |
-| `state-page-kill-375`          | 375 × 812         | 750 × 1624  |  55 |                  |
-| `alert-pagekill-sent-375`      | 375 × 812         | 750 × 1624  |  62 | re-rendered (R3) |
-| `confirm-recreate-375`         | 375 × 812         | 750 × 1624  |  49 | re-rendered (R3) |
-| `confirm-discard-draft-375`    | 375 × 812         | 750 × 1624  |  39 | fix 5            |
-| `listrow-draft-375`            | 375 × 812         | 750 × 1624  |  54 | re-rendered (R3) |
-| `upload-states-375`            | 375 × 812         | 750 × 1624  |  55 |                  |
-| `upload-pill-768`              | 768 × 1024        | 768 × 1024  |  41 |                  |
-| `upload-pill-1440`             | 1440 × 900        | 1440 × 900  |  58 |                  |
-| `skeleton-mobile-375`          | 375 × 812         | 750 × 1624  |  24 |                  |
-| `skeleton-768`                 | 768 × 1024        | 768 × 1024  |  18 |                  |
-| `skeleton-1440`                | 1440 × 900        | 1440 × 900  |  33 |                  |
-| `skeleton-table-desktop`       | 960 × 420         | 1920 × 904  |  23 |                  |
-| `chart-mobile-375`             | 375 × 812         | 750 × 1624  |  35 |                  |
-| `chart-mobile-scrolled-375`    | 375 × 812         | 750 × 1624  |  23 |                  |
-| `chart-mobile-320`             | 320 × 568         | 640 × 1136  |  29 |                  |
-| `chart-desktop`                | 1200 × 420        | 2400 × 934  |  46 |                  |
-| `transition-storyboard`        | 900 × 1200        | 900 × 2158  |  82 |                  |
-| `ptr-armed-375`                | 375 × 480         | 750 × 960   |  23 |                  |
-| `ptr-done-375`                 | 375 × 480         | 750 × 960   |  29 |                  |
-| `ptr-pulling-375`              | 375 × 480         | 750 × 960   |  26 |                  |
-| `ptr-refreshing-375`           | 375 × 480         | 750 × 960   |  25 |                  |
+| Frame                           | Viewport (CSS px) | PNG (px)    |  KB | Round            |
+| ------------------------------- | ----------------- | ----------- | --: | ---------------- |
+| `sheet-medium-375`              | 375 × 812         | 750 × 1624  |  33 | re-rendered (R4) |
+| `sheet-medium-320`              | 320 × 568         | 640 × 1136  |  25 |                  |
+| `sheet-large-375`               | 375 × 812         | 750 × 1624  |  33 | re-rendered (R4) |
+| `sheet-confirm-375`             | 375 × 812         | 750 × 1624  |  44 | re-rendered (R4) |
+| `listrow-variants-375`          | 375 × 812         | 750 × 1624  |  38 | re-rendered (R4) |
+| `listrow-swipe-375`             | 375 × 812         | 750 × 1624  |  40 | re-rendered (R4) |
+| `listrow-sticky-320`            | 320 × 568         | 640 × 1136  |  45 | re-rendered (R4) |
+| `listrow-empty-error-375`       | 375 × 812         | 750 × 1624  |  41 |                  |
+| `listrow-768`                   | 768 × 400         | 1536 × 800  |  47 | re-rendered (R4) |
+| `listrow-1440`                  | 1440 × 420        | 1440 × 420  |  23 | re-rendered (R4) |
+| `section-header-375`            | 375 × 812         | 750 × 1624  |  30 | re-rendered (R4) |
+| `form-states-375`               | 375 × 812         | 750 × 1624  |  32 | re-rendered (R4) |
+| `form-add-user-375`             | 375 × 812         | 750 × 1624  |  22 | re-rendered (R4) |
+| `detail-txn-375`                | 375 × 812         | 750 × 1624  |  35 | re-rendered (R4) |
+| `detail-txn-receipt-375`        | 375 × 812         | 750 × 1624  |  31 |                  |
+| `detail-person-375`             | 375 × 812         | 750 × 1624  |  25 | re-rendered (R4) |
+| `formfield-768`                 | 768 × 500         | 1536 × 1000 |  34 |                  |
+| `formfield-1440`                | 1440 × 360        | 1440 × 360  |  15 |                  |
+| `form-money-375`                | 375 × 812         | 750 × 1624  |  27 | re-rendered (R4) |
+| `form-receipt-link-375`         | 375 × 812         | 750 × 1624  |  30 |                  |
+| `form-receipt-usdt-375`         | 375 × 812         | 750 × 1624  |  35 | re-rendered (R4) |
+| `form-receipt-usdt-empty-375`   | 375 × 812         | 750 × 1624  |  33 | new (R4)         |
+| `form-receipt-usdt-file-375`    | 375 × 812         | 750 × 1624  |  36 | new (R4)         |
+| `picker-sheet-375`              | 375 × 812         | 750 × 1624  |  37 | re-rendered (R4) |
+| `form-longtext-375`             | 375 × 667         | 750 × 1334  |  45 | re-rendered (R4) |
+| `form-keyboard-375`             | 375 × 812         | 750 × 1624  |  31 | re-rendered (R4) |
+| `sheet-panel-768`               | 768 × 1024        | 768 × 1024  |  42 | re-rendered (R4) |
+| `sheet-panel-1024`              | 1024 × 768        | 1024 × 768  |  42 | re-rendered (R4) |
+| `sheet-panel-1440`              | 1440 × 900        | 1440 × 900  |  51 | re-rendered (R4) |
+| `sheet-confirm-dialog-1024`     | 1024 × 768        | 1024 × 768  |  49 | re-rendered (R4) |
+| `listrow-table-desktop`         | 960 × 300         | 1920 × 600  |  32 | re-rendered (R4) |
+| `toast-undo-375`                | 375 × 812         | 750 × 1624  |  51 |                  |
+| `toast-undo-768`                | 768 × 1024        | 768 × 1024  |  29 |                  |
+| `toast-undo-1440`               | 1440 × 900        | 1440 × 900  |  34 |                  |
+| `toast-error-definite-375`      | 375 × 812         | 750 × 1624  |  37 | re-rendered (R4) |
+| `toast-error-unknown-375`       | 375 × 812         | 750 × 1624  |  40 | re-rendered (R4) |
+| `toast-error-unknown-list-375`  | 375 × 812         | 750 × 1624  |  49 | re-rendered (R4) |
+| `toast-error-unknown-match-375` | 375 × 812         | 750 × 1624  |  52 | new (R4)         |
+| `toast-error-unknown-empty-375` | 375 × 812         | 750 × 1624  |  38 | new (R4)         |
+| `toast-error-offline-375`       | 375 × 812         | 750 × 1624  |  37 | re-rendered (R4) |
+| `upload-pill-armed-375`         | 375 × 812         | 750 × 1624  |  58 | re-rendered (R4) |
+| `upload-pill-saved-375`         | 375 × 812         | 750 × 1624  |  57 | re-rendered (R4) |
+| `upload-pill-failed-375`        | 375 × 812         | 750 × 1624  |  57 | re-rendered (R4) |
+| `upload-pill-multi-375`         | 375 × 812         | 750 × 1624  |  57 | re-rendered (R4) |
+| `upload-pill-unknown-375`       | 375 × 812         | 750 × 1624  |  56 | new (R4)         |
+| `drafts-two-375`                | 375 × 812         | 750 × 1624  |  58 | new (R4)         |
+| `drafts-two-unresolved-375`     | 375 × 812         | 750 × 1624  |  57 | new (R4)         |
+| `toast-pill-stack-375`          | 375 × 812         | 750 × 1624  |  60 | re-rendered (R4) |
+| `state-page-kill-375`           | 375 × 812         | 750 × 1624  |  54 | re-rendered (R4) |
+| `alert-pagekill-sent-375`       | 375 × 812         | 750 × 1624  |  62 | re-rendered (R4) |
+| `confirm-recreate-375`          | 375 × 812         | 750 × 1624  |  48 | re-rendered (R4) |
+| `confirm-discard-draft-375`     | 375 × 812         | 750 × 1624  |  39 | re-rendered (R4) |
+| `listrow-draft-375`             | 375 × 812         | 750 × 1624  |  54 | re-rendered (R4) |
+| `upload-states-375`             | 375 × 812         | 750 × 1624  |  55 | re-rendered (R4) |
+| `upload-pill-768`               | 768 × 1024        | 768 × 1024  |  42 | re-rendered (R4) |
+| `upload-pill-1440`              | 1440 × 900        | 1440 × 900  |  59 | re-rendered (R4) |
+| `skeleton-mobile-375`           | 375 × 812         | 750 × 1624  |  24 |                  |
+| `skeleton-768`                  | 768 × 1024        | 768 × 1024  |  18 |                  |
+| `skeleton-1440`                 | 1440 × 900        | 1440 × 900  |  33 |                  |
+| `skeleton-table-desktop`        | 960 × 420         | 1920 × 904  |  23 |                  |
+| `chart-mobile-375`              | 375 × 812         | 750 × 1624  |  35 |                  |
+| `chart-mobile-scrolled-375`     | 375 × 812         | 750 × 1624  |  23 |                  |
+| `chart-mobile-320`              | 320 × 568         | 640 × 1136  |  29 |                  |
+| `chart-desktop`                 | 1200 × 420        | 2400 × 934  |  48 | re-rendered (R4) |
+| `transition-storyboard`         | 900 × 1200        | 900 × 2158  |  82 | re-rendered (R4) |
+| `ptr-armed-375`                 | 375 × 480         | 750 × 960   |  23 | re-rendered (R4) |
+| `ptr-done-375`                  | 375 × 480         | 750 × 960   |  29 | re-rendered (R4) |
+| `ptr-pulling-375`               | 375 × 480         | 750 × 960   |  26 | re-rendered (R4) |
+| `ptr-refreshing-375`            | 375 × 480         | 750 × 960   |  25 | re-rendered (R4) |
 
 Contact sheets: `_contact-sheet.png` (phones), `_contact-sheet-wide.png` (768 / 1024 / 1440 and boards),
 `_contact-sheet-detail.png` (`chart-desktop` and `transition-storyboard` at native size).
