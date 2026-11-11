@@ -120,9 +120,9 @@ const PhoneTextInput = forwardRef<HTMLInputElement, ComponentProps<'input'>>(
     const { currentCountry, inputRef } = useContext(PhoneInputContext)
 
     const setRefs = (el: HTMLInputElement | null) => {
-      ;(inputRef as React.MutableRefObject<HTMLInputElement | null>).current = el
+      inputRef.current = el
       if (typeof ref === 'function') ref(el)
-      else if (ref) (ref as React.MutableRefObject<HTMLInputElement | null>).current = el
+      else if (ref) ref.current = el
     }
 
     const checkIfValidInput = (value: string) => {

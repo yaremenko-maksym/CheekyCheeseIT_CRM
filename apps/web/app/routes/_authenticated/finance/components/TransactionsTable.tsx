@@ -241,11 +241,10 @@ export function TransactionsTable({
   // task-i18n-stage3d-pr1 (Task 1, Step 4, template G-fin). Moved off the
   // module level — a module-level `i18n._()` call would freeze every label at
   // whatever locale was active on first import (`constants.ts`'s own
-  // `activeLocale()` doc explains the mechanism this avoids). The `i18n`
-  // singleton keeps the same identity across `activate()`, so memoizing on it
-  // never invalidates (the React Compiler infers deps from the body, so an
-  // unused `i18n.locale` dep is dropped). `t` is re-bound on every locale
-  // switch, which is what makes a live switch recompute the options.
+  // `activeLocale()` doc explains the mechanism this avoids). The compiler
+  // never drops manual memo deps. The `i18n` singleton keeps its identity
+  // across `activate()`, so `[i18n, i18n.locale]` never invalidated; `t` is
+  // re-bound on every locale switch, which is what recomputes the options.
   const TYPE_OPTIONS = useMemo(
     () =>
       Object.keys(TYPE_LABEL_MESSAGES).map((value) => ({

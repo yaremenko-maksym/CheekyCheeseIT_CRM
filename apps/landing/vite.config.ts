@@ -34,6 +34,8 @@ export default defineConfig({
     },
   },
   resolve: {
+    // One React copy (landing's own 18) for every importer, whatever pnpm's hoist layout holds.
+    dedupe: ['react', 'react-dom'],
     alias: {
       // '@crm/shared/public' MUST be listed before the plain '@crm/shared'
       // entry below — Vite/@rollup/plugin-alias matches importee-startsWith

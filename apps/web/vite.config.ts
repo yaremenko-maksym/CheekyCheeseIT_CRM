@@ -72,6 +72,8 @@ export default defineConfig({
     },
   },
   resolve: {
+    // One React copy for every importer, whatever pnpm's hoist layout holds.
+    dedupe: ['react', 'react-dom'],
     alias: {
       '@crm/shared': path.resolve(monorepoRoot, 'packages/shared/src/index.ts'),
       // task-i18n-stage2 (Task 6) — see the matching alias + comment in

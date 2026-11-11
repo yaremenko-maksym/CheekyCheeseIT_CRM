@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/check-react-bundle.mjs",
     "start": "vite preview",
     "typecheck": "turbo run build --filter=@crm/shared && tsc --noEmit",
     "lint": "eslint app",
