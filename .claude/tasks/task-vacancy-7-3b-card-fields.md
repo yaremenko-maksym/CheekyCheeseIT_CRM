@@ -127,6 +127,10 @@ Coder A1 decisions (PR #1313, review rounds 0–1; carried verbatim into the PR 
   casing map, and CSS capitalisation would misspell names like TypeScript. A casing map is a backlog item.
 - A1 (Master, QA-LOW-2, PR #1313 round 3): the triage empty-state wording that names the employer when the employer is
   verified comes from `main`; neutral wording is a backlog item, not this PR.
+- A1 (Coder, UX-L-1, PR #1313 round 3): each terms value is a rich-text `Trans` (`Форма співпраці: <0>B2B</0>`), so
+  the value can carry `text-foreground`; three catalog ids change, the en text does not.
+- A1 (Coder, UX-L-3, PR #1313 round 3): the «Чому збіг» chevron stays `ChevronDown` (rotated when open) and trails the
+  label; the evidence block stays below the toggle (the PNG puts the quote above it).
 - A1 (Master, SPEC-L-1): «востаннє бачили» is shown whenever `lastSeenAt` exists; the design has no 24 h threshold.
 - A1 (Coder, SPEC-M-1): the engagement form comes from the primary source's latest revision
   (`normalized.employmentType`), classified to `B2B | EMPLOYMENT | null`. The value set was taken from the provider
