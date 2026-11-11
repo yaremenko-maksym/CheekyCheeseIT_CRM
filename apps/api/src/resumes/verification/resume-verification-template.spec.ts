@@ -69,6 +69,7 @@ describe('sweepStalledVerifications', () => {
     expect([lock?.locked, lock?.inTransaction, lock?.columns]).toEqual([true, true, ['key']])
     expect(lock?.where?.params).toEqual(['r-1'])
     expect(update?.inTransaction).toBe(true)
+    expect(update?.columns).toEqual(['id'])
     expect(update?.set).toEqual({ verificationStatus: 'FAILED', ...CLEARED })
     expect(update?.where?.params).toEqual([
       'r-1',

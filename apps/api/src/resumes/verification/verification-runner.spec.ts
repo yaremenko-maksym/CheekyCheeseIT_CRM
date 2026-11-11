@@ -4,6 +4,8 @@
  * Postgres are in verification-runner.integration.spec.ts.
  */
 import { Logger } from '@nestjs/common'
+import type { SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
@@ -77,7 +79,8 @@ const USER = {
   legalFullName: 'Jana Kowalska',
 }
 
-let world: { omitBullet: boolean; vision: VisualReply[] }
+/** `dropLine`: a text line every render loses, for an ATS miss on one exact text. */
+let world: { omitBullet: boolean; dropLine: string | null; vision: VisualReply[] }
 const typst = {
   fingerprint: (input: ResumeRenderInput) => JSON.stringify(input),
   render: vi.fn(async (input: ResumeRenderInput) => encodePdf(input)),
@@ -87,10 +90,8 @@ const extraction = {
   countRenderedPages: vi.fn(async () => 1),
   extractRenderedPages: vi.fn(async (pdf: Buffer) => {
     const lines = skeletonLines(decodePdf(pdf), { omitEmail: false })
-    return splitPages(
-      world.omitBullet ? lines.filter((l) => !l.startsWith('• Led the payments team')) : lines,
-      1,
-    )
+    const drop = world.omitBullet ? '• Led the payments team' : world.dropLine
+    return splitPages(drop === null ? lines : lines.filter((l) => !l.startsWith(drop)), 1)
   }),
 }
 const s3 = { upload: vi.fn(async () => {}), delete: vi.fn(async (_key: string) => {}) }
@@ -134,7 +135,7 @@ const START = [[ROW], [USER], [{ email: 'jana.home@unit.spec' }]]
 
 beforeEach(() => {
   vi.clearAllMocks()
-  world = { omitBullet: false, vision: [] }
+  world = { omitBullet: false, dropLine: null, vision: [] }
   payloads.length = 0
   logs = []
   for (const level of ['log', 'warn', 'error'] as const) {
@@ -384,6 +385,37 @@ describe('VerificationRunner.run', () => {
       },
     })
     expect(typst.render).toHaveBeenCalledTimes(2)
+  })
+
+  it('an ATS miss the notes fix: the revert is staged and reported as a fallback', async () => {
+    const echo = writer.write.getMockImplementation()
+    writer.write.mockImplementation(async (task, payload, ...rest) => {
+      const reply = await echo!(task, payload, ...rest)
+      if (reply.kind !== 'ok' || !('items' in reply)) return reply
+      // a reworded first bullet: the render loses it, the notes it reverts to are present
+      const [first] = reply.items
+      return {
+        ...reply,
+        items: [
+          { index: 0, bullets: ['Drove the payments team', ...(first?.bullets.slice(1) ?? [])] },
+        ],
+      }
+    })
+    world.dropLine = '• Drove the payments team'
+    try {
+      const { run, log } = runner([...START, [{ key: null }], [{ id: RESUME }]])
+      await run()
+      const set = log.at(-1)?.set ?? {}
+      expect(set['verificationStatus']).toBe('AWAITING_CONFIRM')
+      expect((set['verificationReport'] as { fallbacks: string[] }).fallbacks).toEqual([
+        'experience.0.bullets',
+      ])
+      expect((set['stagedContent'] as ResumeContent).experience[0]?.bullets[0]).toBe(
+        'Led the payments team',
+      )
+    } finally {
+      writer.write.mockImplementation(echo!)
+    }
   })
 
   it('a human-edited path from staged_edited_paths fails ATS_CHECK_FAILED naming it', async () => {
@@ -687,6 +719,7 @@ describe('VerificationRunner.run — template kind (Task 16)', () => {
 
     const uploaded = (s3.upload.mock.calls[0] as unknown as [string, Buffer])[1]
     expect(s3.upload.mock.calls[0]?.[0]).toBe(KEY)
+    expect((s3.upload.mock.calls[0] as unknown[]).slice(2)).toEqual(['application/pdf', 'RESUME'])
     const rendered = decodePdf(uploaded)
     expect([rendered.templateName, rendered.layout, rendered.content]).toEqual([
       'modern',
@@ -702,8 +735,12 @@ describe('VerificationRunner.run — template kind (Task 16)', () => {
       '"version" = "senior_resumes"."verification_base_version"',
     )
     expect(promote?.where?.sql).toContain('"template_source" is null')
+    expect(promote?.columns).toEqual(['id'])
     const { version, verifiedVersion, ...set } = promote?.set ?? {}
-    expect([version, verifiedVersion].every((v) => typeof v === 'object')).toBe(true)
+    // both read the pre-update row: the promoted version and the verified one are the same number
+    for (const v of [version, verifiedVersion]) {
+      expect(new PgDialect().sqlToQuery(v as SQL).sql).toBe('"senior_resumes"."version" + 1')
+    }
     expect(set).toEqual({
       layout: LOOK,
       templateName: 'modern',
@@ -747,9 +784,24 @@ describe('VerificationRunner.run — template kind (Task 16)', () => {
   })
 
   it('a won promote over the same key, or over no live key, deletes nothing', async () => {
+    // each templateRun clears the mocks first, so each case is asserted on its own
     await templateRun([[{ key: KEY }], [{ id: RESUME }]])
+    expect(s3.delete).not.toHaveBeenCalled()
     await templateRun([[], [{ id: RESUME }]])
     expect(s3.delete).not.toHaveBeenCalled()
+  })
+
+  it('an ATS miss on the AI summary fails the run: the summary is locked too', async () => {
+    const { log } = await templateRun(
+      [[{ key: null, kind: 'template' }], [{ id: RESUME }]],
+      {},
+      () => {
+        world.dropLine = 'Backend engineer.'
+      },
+    )
+    expect(log.at(-1)?.set?.verificationErrorCode).toBe('ATS_CHECK_FAILED')
+    expect(typst.render).toHaveBeenCalledTimes(1)
+    expect(s3.upload).not.toHaveBeenCalled()
   })
 
   it('vision unavailable: the status and live columns stay, the code and report are set', async () => {
