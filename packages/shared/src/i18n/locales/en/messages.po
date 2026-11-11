@@ -121,7 +121,7 @@ msgstr "The name is only used to tell connections apart in the CRM."
 msgid "Підходить сеньйору"
 msgstr "Matching senior"
 
-#: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
 msgid "Перемістити місце роботи {position} вгору"
 msgstr "Move job {position} up"
 
@@ -407,6 +407,10 @@ msgstr "Change payout details"
 msgid "PDF-документ. За потреби скористайтеся кнопкою «Завантажити для перегляду» нижче, щоб переглянути контракт у зовнішній програмі"
 msgstr "PDF document. If needed, use the “Download to view” button below to open the contract in an external app"
 
+#: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
+msgid "Завантаження лише заповнює поля. Статус «Перевірено» резюме отримає після перевірки й підтвердження HR."
+msgstr "Uploading only fills in the fields. The resume gets the Verified status after the check and HR confirmation."
+
 #: apps/web/app/components/ui/role-select.tsx
 #: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 msgid "Роль"
@@ -600,6 +604,10 @@ msgstr "View"
 msgid "Архівувати проєкт"
 msgstr "Archive project"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Приберіть ім’я, email або телефон — контакти не потрапляють у текст резюме"
+msgstr "Remove the name, email or phone number — contacts never go into the resume text"
+
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Сума всіх оплачених операційних витрат компанії."
 msgstr "Sum of all paid operating expenses of the company."
@@ -608,7 +616,7 @@ msgstr "Sum of all paid operating expenses of the company."
 msgid "Вибір команди"
 msgstr "Choose a team"
 
-#: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
 msgid "Видалити місце роботи {position}"
 msgstr "Delete job {position}"
 
@@ -766,9 +774,19 @@ msgstr "Choose who to add to the team."
 msgid "Не вдалося увійти: {errMessage}"
 msgstr "Failed to log in: {errMessage}"
 
+#. placeholder {0}: issues.length
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "{0, plural, one {# поле} few {# поля} many {# полів} other {# поля}}"
+msgstr "{0, plural, one {# field} other {# fields}}"
+
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 msgid "Вакансію не знайдено"
 msgstr "Vacancy not found"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Країна"
+msgstr "Country"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
@@ -829,7 +847,7 @@ msgstr "All matching seniors on your team stop-listed this company"
 msgid "Завантажено ще {added}. Показано {shown}"
 msgstr "Loaded {added} more. Showing {shown}"
 
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Посилання, рядок {position}"
 msgstr "Link, row {position}"
 
@@ -850,7 +868,7 @@ msgstr "Open legend"
 msgid "Змін немає — вміст ідентичний поточній версії."
 msgstr "No changes — the content is identical to the current version."
 
-#: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
 msgid "Місце роботи {position}"
 msgstr "Job {position}"
 
@@ -897,6 +915,10 @@ msgstr "Could not load the source."
 msgid "Минулий місяць"
 msgstr "Last month"
 
+#: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
+msgid "Порожня форма фактів. Перевірка запускається, коли все заповнено."
+msgstr "An empty facts form. Checking starts once everything is filled in."
+
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Не вдалося оновити signing secret"
 msgstr "Couldn't update the signing secret"
@@ -926,6 +948,10 @@ msgstr "every {0} min"
 msgid "Транскрипт готовий"
 msgstr "Transcript ready"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Додайте англійську до мов"
+msgstr "Add English to the languages"
+
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Частка сеньйора за весь час"
 msgstr "Senior's share · all time"
@@ -949,10 +975,6 @@ msgstr "A Ukrainian sole-proprietor bank account will be used."
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Підключено"
 msgstr "Connected"
-
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
-msgid "{label}, рядок {position}"
-msgstr "{label}, row {position}"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Налаштувати signing secret"
@@ -984,7 +1006,7 @@ msgstr "Preview unavailable — an error on our side, try again later"
 msgid "{remainingCount, plural, one {транзакція залишилась в черзі} few {транзакції залишилось в черзі} many {транзакцій залишилось в черзі} other {транзакції залишилось в черзі}}"
 msgstr "{remainingCount, plural, one {transaction left in the queue} other {transactions left in the queue}}"
 
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Додати мову"
 msgstr "Add a language"
 
@@ -1026,6 +1048,10 @@ msgstr "New address (ERC-20)"
 #: apps/web/app/components/users/user-dialog/useUserDialogMutations.ts
 msgid "Не вдалося створити дропа — дані залишилися у формі, спробуйте ще раз"
 msgstr "Could not create the drop — the form keeps your data, try again"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Додайте хоча б одну нотатку про досягнення"
+msgstr "Add at least one achievement note"
 
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Опублікована"
@@ -1153,10 +1179,6 @@ msgstr "Internal notes…"
 msgid "Тип зайнятості"
 msgstr "Employment type"
 
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
-msgid "Видалити рядок {position}"
-msgstr "Delete row {position}"
-
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/routes/_authenticated/finance/components/ActiveTransactionsTable.tsx
@@ -1197,6 +1219,10 @@ msgstr "Delete variable {0}"
 msgid "Валюта"
 msgstr "Currency"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Email у профілі"
+msgstr "Profile email"
+
 #: apps/web/app/components/pending-share/cancel-pending-share.tsx
 msgid "Скасувати пропозицію {pendingPercent}%?"
 msgstr "Cancel the {pendingPercent}% proposal?"
@@ -1225,10 +1251,6 @@ msgstr "name"
 #: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
 msgid "Подій ще немає."
 msgstr "No events yet."
-
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
-msgid "Рівень"
-msgstr "Level"
 
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
@@ -1326,6 +1348,10 @@ msgstr "Confirmed income you have not transferred yet"
 msgid "Незбережені зміни"
 msgstr "Unsaved changes"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Кінець не може бути раніше за початок"
+msgstr "The end cannot be before the start"
+
 #. placeholder {0}: formatDate(salaryMeta.changedAt, locale, 'long')
 #: apps/web/app/routes/_authenticated/project.tsx
 msgid "Змінено {0}"
@@ -1334,10 +1360,6 @@ msgstr "Changed {0}"
 #: apps/web/app/components/stats/FinanceChart.tsx
 msgid "Прибуток"
 msgstr "Profit"
-
-#: apps/web/app/components/user-profile/resume/ResumeSectionCard.tsx
-msgid "Інші розділи недоступні, поки відкритий цей."
-msgstr "Other sections are unavailable while this one is open."
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
@@ -1446,7 +1468,6 @@ msgid "Буде прив'язано до"
 msgstr "Will be linked to"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
-#: apps/web/app/components/user-profile/resume/ResumeSectionCard.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
@@ -1540,6 +1561,10 @@ msgstr "Could not connect to the server. Check your internet connection."
 msgid "перевизначено на рівні команди"
 msgstr "overridden at the team level"
 
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Факти резюме"
+msgstr "Resume facts"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Перевірка в блокчейні…"
 msgstr "Checking on the blockchain…"
@@ -1582,6 +1607,10 @@ msgstr "Rejected"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Прийнято: {0}"
 msgstr "Accepted: {0}"
+
+#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+msgid "Факти змінено. Надішліть резюме на перевірку знову."
+msgstr "The facts changed. Submit the resume for checking again."
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Налаштувати секрет"
@@ -1842,6 +1871,10 @@ msgstr "Sort direction: descending"
 msgid "Всі вакансії"
 msgstr "All vacancies"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Мова {n}"
+msgstr "Language {n}"
+
 #: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
 msgid "Прибрати зі складу?"
 msgstr "Remove from the project?"
@@ -1864,6 +1897,10 @@ msgstr "Average income / mo."
 msgid "Завантажте файл (PNG, JPEG, GIF, WebP, до 5 МБ) або вкажіть пряме https-посилання"
 msgstr "Upload a file (PNG, JPEG, GIF, WebP, up to 5 MB) or provide a direct https link"
 
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
+msgid "Нотатки про досягнення"
+msgstr "Achievement notes"
+
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 msgid "Місто підписання"
 msgstr "Signing city"
@@ -1875,6 +1912,11 @@ msgstr "Enter the payout amount"
 #: apps/web/app/components/documents/document-image.tsx
 msgid "Зображення завантажується"
 msgstr "Loading the image"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
+msgid "Локація (необов’язково)"
+msgstr "Location (optional)"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
@@ -3809,10 +3851,6 @@ msgstr "The old file/link will be deleted with no way to restore it."
 msgid "Джерела вакансій"
 msgstr "Job sources"
 
-#: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
-msgid "Період, наприклад 2021 — наст. час"
-msgstr "Period, e.g. 2021 — present"
-
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Посилання має починатися з https://"
 msgstr "The link must start with https://"
@@ -3821,10 +3859,6 @@ msgstr "The link must start with https://"
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Попередній перегляд умов використання"
 msgstr "Terms of Service preview"
-
-#: apps/web/app/components/user-profile/resume/ResumeSectionCard.tsx
-msgid "Є незбережені правки — інші розділи недоступні, поки ви не збережете або не скасуєте їх."
-msgstr "There are unsaved edits — other sections are unavailable until you save or cancel them."
 
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 msgid "Новий запис у журнал легенди…"
@@ -3872,9 +3906,9 @@ msgstr "Drop's share (%)"
 msgid "Частки"
 msgstr "Shares"
 
-#: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
-msgid "Досягнення — по одному в рядку"
-msgstr "Achievements — one per line"
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Рідна"
+msgstr "Native"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Аналіз скасовано"
@@ -4002,7 +4036,8 @@ msgid "Адмін"
 msgstr "Admin"
 
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
-#: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
@@ -4038,7 +4073,7 @@ msgstr "System variables"
 msgid "Проєкт <0>{entityName}</0> піде в архів, від нього буде відв’язано <1>{0, plural, one {# активного джуніора} few {# активних джуніорів} many {# активних джуніорів} other {# активного джуніора}}</1>. Сеньйор і команда в архів <2>не</2> підуть. Фінансова історія (транзакції, рахунки) залишається доступною."
 msgstr "The project <0>{entityName}</0> will be archived, and <1>{0, plural, one {# active junior} other {# active juniors}}</1> will be unassigned from it. The senior and the team will <2>not</2> be archived. Financial history (transactions, invoices) remains accessible."
 
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Додати посилання"
 msgstr "Add a link"
 
@@ -4108,6 +4143,14 @@ msgstr "Payout details not filled in"
 msgid "Задано для команди. Діє на всіх її проєктах, крім тих, де є індивідуальна частка за проєктом."
 msgstr "Set for the team. Applies to all its projects except those with an individual project share."
 
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Ступінь / спеціальність, освіта {position}"
+msgstr "Degree / field of study, education {position}"
+
+#: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
+msgid "Завантажити, щоб заповнити"
+msgstr "Upload to prefill"
+
 #: apps/web/app/routes/_authenticated/documents/components/DocumentsCounterText.tsx
 msgid "в архіві"
 msgstr "in archive"
@@ -4120,6 +4163,10 @@ msgstr "Newest posting:"
 #: apps/web/app/components/users/user-dialog/EmailChangeWarningDialog.tsx
 msgid "Зміна email може розірвати вхід через Google для <0>{0}</0>. Переконайтеся, що користувач знає про зміну і за потреби змінить свій обліковий запис Google."
 msgstr "Changing the email may break Google sign-in for <0>{0}</0>. Make sure the user knows about the change and updates their Google account if needed."
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
+msgid "Місяць завершення, місце роботи {position}"
+msgstr "End month, job {position}"
 
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 msgid "Переказів ще не було"
@@ -4339,6 +4386,10 @@ msgstr "Backstory"
 msgid "Оберіть, зберегти зміни чи закрити без збереження."
 msgstr "Choose whether to save the changes or close without saving."
 
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Видалити мову {position}"
+msgstr "Remove language {position}"
+
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 msgid "Форма відмови: причина"
 msgstr "Rejection form: reason"
@@ -4391,8 +4442,10 @@ msgstr "Share percentage source: {0}"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeReadOnlyView.tsx
 #: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
 msgid "Посилання"
 msgstr "Link"
@@ -4594,7 +4647,6 @@ msgid "Вакансію приховано"
 msgstr "Vacancy hidden"
 
 #: apps/web/app/components/documents/upload-document-dialog.tsx
-#: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 #: apps/web/app/routes/_authenticated/documents/components/DocumentsHeader.tsx
 msgid "Завантажити файл"
 msgstr "Upload a file"
@@ -4652,6 +4704,10 @@ msgstr "Analysis ready"
 msgid "Документи вам не відкриті. Потрібен доступ — напишіть адміну"
 msgstr "You don’t have access to documents. Ask an admin if you need it"
 
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
+msgid "Рік початку, місце роботи {position}"
+msgstr "Start year, job {position}"
+
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Не вдалося змінити сеньйора — спробуйте ще раз"
 msgstr "Could not change the senior — try again"
@@ -4681,10 +4737,6 @@ msgstr "HR — interview pipeline"
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Скинути прив'язку?"
 msgstr "Reset binding?"
-
-#: apps/web/app/components/user-profile/resume/ResumeSectionCard.tsx
-msgid "Спершу збережіть або скасуйте правки у відкритому розділі"
-msgstr "First save or cancel the edits in the open section"
 
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Без розкладу"
@@ -4742,6 +4794,7 @@ msgstr "Add an entry to the journal"
 
 #: apps/web/app/components/documents/document-labels.ts
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Чернетка"
 msgstr "Draft"
@@ -4782,7 +4835,7 @@ msgstr "Show more"
 msgid "Переглянутий"
 msgstr "Viewed"
 
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Заповнити вручну"
 msgstr "Fill in by hand"
 
@@ -4883,6 +4936,10 @@ msgstr "Invoice PDF"
 #: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 msgid "Транзакцій по проєкту ще немає"
 msgstr "No transactions for the project yet"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Видалити освіту {position}"
+msgstr "Remove education {position}"
 
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
 msgid "Оберіть спосіб виплати і заповніть реквізити"
@@ -5013,6 +5070,10 @@ msgstr "Refresh"
 #: apps/web/app/routes/_authenticated/team/team-detail/components/ActiveProjectsCard.tsx
 msgid "Активні проєкти"
 msgstr "Active projects"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Пишіть лише латиницею — резюме англійською"
+msgstr "Use Latin letters only — the resume is in English"
 
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
@@ -5634,13 +5695,14 @@ msgstr "The date can't be changed: payment is confirmed on-chain, comes from the
 msgid "Немає доступних команд дропа."
 msgstr "No drop teams available."
 
-#: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
-msgid "Завантажте резюме (PDF або DOCX) — ми один раз розкладемо його на розділи, а далі ви редагуєте їх тут. Якщо у файлі немає тексту, вставте текст вручну."
-msgstr "Upload a resume (PDF or DOCX) — we split it into sections once, then you edit them here. If the file has no text, paste it in instead."
-
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 msgid "Завантажено ще {added}. Усі вакансії показано: {shown}"
 msgstr "Loaded {added} more. All vacancies shown: {shown}"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Місто"
+msgstr "City"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 msgid "Передперегляд оновлено"
@@ -5650,7 +5712,7 @@ msgstr "Preview updated"
 msgid "Поповнює баланс рахунку компанії."
 msgstr "Tops up the company account balance."
 
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Додати освіту"
 msgstr "Add education"
 
@@ -5666,6 +5728,10 @@ msgstr "Team — activity"
 #: apps/web/app/routes/_authenticated/vacancies/index.tsx
 msgid "Черн. ({0})"
 msgstr "Draft ({0})"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Нотатки"
+msgstr "Notes"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "ФОП / гіг-контракт / USDT"
@@ -5715,7 +5781,7 @@ msgstr "Saved"
 msgid "До розрахунку зараз"
 msgstr "Remaining to settle now"
 
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "https://… або mailto:…"
 msgstr "https://… or mailto:…"
 
@@ -5726,10 +5792,6 @@ msgstr "Company details"
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Фільтр користувачів"
 msgstr "User filter"
-
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
-msgid "Ті самі розділи і той самий експорт у PDF — розпізнавання просто економить час."
-msgstr "The same sections and the same PDF export — recognition just saves time."
 
 #: apps/web/app/components/contracts/VariablesPanel.tsx
 msgid "Авто (100 − sharePercent)"
@@ -5743,6 +5805,10 @@ msgstr "Began with a config change to version {0}"
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Середньомісячна виручка за весь час роботи компанії."
 msgstr "The company's all-time average monthly revenue."
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Показати"
+msgstr "Show"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Нотатки сеньйора"
@@ -5793,6 +5859,10 @@ msgstr "The team's HR/accountants remain unlinked after restoring — add them a
 #: apps/web/app/hooks/use-notification-preferences.ts
 msgid "Спробуйте ще раз"
 msgstr "Try again"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "В офісі"
+msgstr "On-site"
 
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Часткова зайнятість"
@@ -5863,6 +5933,10 @@ msgstr "Public invoice verification"
 #: apps/web/app/components/user-profile/resume/ResumePdfPreview.tsx
 msgid "Завантажити PDF"
 msgstr "Download PDF"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Вкажіть посаду"
+msgstr "Enter the position"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
@@ -5959,6 +6033,10 @@ msgstr "The contract is signed — editing is locked; reverting to draft will re
 msgid "Немає сеньйорів без активної команди"
 msgstr "No seniors without an active team"
 
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Рік завершення, освіта {position}"
+msgstr "End year, education {position}"
+
 #: apps/web/app/routes/_authenticated/projects/ProjectInfoRows.tsx
 msgid "Діє попередній відсоток, поки новий не підтверджено."
 msgstr "The previous percentage applies until the new one is confirmed."
@@ -5967,6 +6045,12 @@ msgstr "The previous percentage applies until the new one is confirmed."
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Відхилено"
 msgstr "Rejected"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
+msgid "Початок"
+msgstr "Start"
 
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
@@ -6012,7 +6096,6 @@ msgstr "receipt"
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
-#: apps/web/app/components/user-profile/resume/ResumeSectionCard.tsx
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
@@ -6096,6 +6179,12 @@ msgstr "Translation is still in progress — some screens remain in Russian."
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Тиждень"
 msgstr "Week"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
+msgid "Кінець"
+msgstr "End"
 
 #: apps/web/app/components/users/user-dialog/WizardStep3.tsx
 msgid "Користувача створено"
@@ -6305,8 +6394,10 @@ msgstr "Your share: {0}%"
 msgid "Партнерам (50 / 50)"
 msgstr "To partners (50 / 50)"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeReadOnlyView.tsx
 msgid "Мови"
 msgstr "Languages"
 
@@ -6534,9 +6625,17 @@ msgstr "Keep"
 msgid "Оплату зараховано на рахунок компанії"
 msgstr "The payment has been credited to the company account"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Пункти"
+msgstr "Points"
+
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 msgid "Повернути контракт у чернетку?"
 msgstr "Revert the contract to draft?"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Незаповнені поля"
+msgstr "Missing fields"
 
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 msgid "Адмін побачить причину і зможе запропонувати проєкт знову."
@@ -6549,7 +6648,6 @@ msgstr "Ivan Ivanenko"
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
-#: apps/web/app/components/user-profile/resume/ResumeSectionCard.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/admin/contracts.index.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
@@ -6657,6 +6755,7 @@ msgstr "Delete permanently?"
 msgid "Override"
 msgstr "Override"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 #: apps/web/app/components/users/user-dialog/WizardStep3.tsx
 msgid "Зберегти чернетку"
 msgstr "Save draft"
@@ -6672,6 +6771,10 @@ msgstr "Share in “{projectName}”: proposal rejected — the previous one sta
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutDetailDialog.tsx
 msgid "Деталі виплати"
 msgstr "Payout details"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
+msgid "Що ви зробили і з яким результатом"
+msgstr "What you did and what came of it"
 
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
@@ -6691,6 +6794,10 @@ msgstr "Awaiting your decision"
 msgid "Джерело зображення"
 msgstr "Image source"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Місце роботи {n}"
+msgstr "Job {n}"
+
 #. placeholder {0}: impact.teamsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
 msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль HR). Самі команди залишаться активними. Вхід у CRM для цього акаунта буде закрито."
@@ -6699,10 +6806,6 @@ msgstr "The profile of <0>{entityName}</0> will be archived; it will be removed 
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Автоматично"
 msgstr "Automatically"
-
-#: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
-msgid "Період, місце роботи {position}"
-msgstr "Period, job {position}"
 
 #. placeholder {0}: incomeTxs.length
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
@@ -7445,6 +7548,10 @@ msgstr "Confirmed settlement"
 msgid "Збіг не знайдено"
 msgstr "No match found"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Початок не може бути в майбутньому"
+msgstr "The start cannot be in the future"
+
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Відкрити програвач"
 msgstr "Open player"
@@ -7567,7 +7674,8 @@ msgstr "Share: {0}%"
 msgid "Перегляд недоступний — недостатньо прав"
 msgstr "Preview unavailable — insufficient permissions"
 
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Навчальний заклад"
 msgstr "Institution"
 
@@ -7599,6 +7707,10 @@ msgstr "Assigning…"
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Рішення щодо цієї пропозиції вже ухвалено. Оновіть сторінку."
 msgstr "A decision on this proposal has already been made. Refresh the page."
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
+msgid "Місяць початку, місце роботи {position}"
+msgstr "Start month, job {position}"
 
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
@@ -7754,7 +7866,8 @@ msgstr "The company has already booked this amount but has not transferred it ye
 msgid "Очікується ваш підпис"
 msgstr "Your signature is pending"
 
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
 msgid "Період"
@@ -7828,6 +7941,10 @@ msgstr "Restoring is possible — the profile comes back, but projects must be r
 msgid "Прив'язку скинуто. Налаштуйте новий секрет."
 msgstr "Binding reset. Set up a new secret."
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Вкажіть компанію"
+msgstr "Enter the company"
+
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Виплат ще немає"
@@ -7862,6 +7979,10 @@ msgstr "First publication — all of the content will be added as new."
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Неприпустиме значення"
 msgstr "Invalid value"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
+msgid "По одній нотатці в рядку"
+msgstr "One note per line"
 
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Назва команди"
@@ -7908,6 +8029,10 @@ msgstr "No active contract template for this role"
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Реквізити оновлено"
 msgstr "Payment details updated"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Спершу заповніть поля зі списку"
+msgstr "Fill in the fields in the list first"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
@@ -8054,6 +8179,10 @@ msgstr "The link must start with https://t.me/"
 msgid "Ваші правки в тексті контракту буде замінено актуальним шаблоном"
 msgstr "Your edits to the contract text will be replaced with the current template"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Сховати"
+msgstr "Hide"
+
 #: apps/web/app/routes/_authenticated/documents/components/DocumentsListSection.tsx
 msgid "Чеки додаються в розділі «Фінанси» під час створення транзакції."
 msgstr "Receipts are attached in Finance when you create a transaction."
@@ -8186,8 +8315,10 @@ msgstr "Description"
 msgid "Немає шаблону контракту для ролі «{roleLabel}»"
 msgstr "No contract template for the “{roleLabel}” role"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeReadOnlyView.tsx
 msgid "Досвід роботи"
 msgstr "Work experience"
 
@@ -8318,6 +8449,10 @@ msgstr "Applied: {summary}"
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Не вдалося приєднатися до команди — спробуйте ще раз"
 msgstr "Could not join the team — try again"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Ім’я в профілі"
+msgstr "Profile name"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
 msgid "Немає прикріпленого чека"
@@ -8579,6 +8714,10 @@ msgstr "Thu"
 #: apps/web/app/routes/_authenticated/finance/hooks/usePayoutPaymentForm.ts
 msgid "Баланс рахунку компанії поповнено."
 msgstr "The company account balance has been topped up."
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Вкажіть цільову посаду"
+msgstr "Enter the target role"
 
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
@@ -8978,6 +9117,10 @@ msgstr "No invoices yet"
 msgid "Немає доступу до цього розділу — якщо він потрібен для роботи, напишіть адміністратору"
 msgstr "No access to this section — if you need it for work, contact an admin"
 
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
+msgid "Працюю тут зараз"
+msgstr "I work here now"
+
 #: apps/web/app/routes/_authenticated/projects/ProjectHero.tsx
 msgid "Проєкт з дропом"
 msgstr "Project with a drop"
@@ -9080,6 +9223,10 @@ msgstr "Locked"
 msgid "Резюме видалено (минув термін зберігання)"
 msgstr "Resume deleted (retention period expired)"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Потрібно щонайменше 5 навичок разом із технологіями з досвіду"
+msgstr "Add at least 5 skills, counting the technologies from the jobs"
+
 #: apps/web/app/components/users/user-dialog/useUserDialogMutations.ts
 #: apps/web/app/components/users/user-dialog/useUserDialogMutations.ts
 msgid "Не вдалося зберегти зміни — дані залишилися у формі, спробуйте ще раз"
@@ -9127,6 +9274,7 @@ msgstr "Throttled"
 msgid "Ласкаво просимо до CRM"
 msgstr "Welcome to the CRM"
 
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 #: apps/web/app/components/users/user-dialog/IdentitySection.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Основне"
@@ -9239,7 +9387,7 @@ msgid "Динаміка за місяцями"
 msgstr "Monthly trend"
 
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeReadOnlyView.tsx
 msgid "Не заповнено"
 msgstr "Not filled in"
 
@@ -9292,6 +9440,10 @@ msgstr "Current address"
 #: apps/web/app/hooks/use-job-sourcing.ts
 msgid "Позначено: відгукнулися"
 msgstr "Marked: applied"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Мова, рядок {position}"
+msgstr "Language, row {position}"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
@@ -9352,6 +9504,10 @@ msgstr "Invitation sent to the personal email"
 msgid "Завантажити ще раз"
 msgstr "Upload again"
 
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Рівень, рядок {position}"
+msgstr "Level, row {position}"
+
 #: apps/web/app/routes/_authenticated/job-queue/index.tsx
 msgid "Список може бути неповним: показано лише найрелевантніші вакансії. Уточніть пошук або фільтри, щоб побачити решту."
 msgstr "The list may be incomplete: only the most relevant vacancies are shown. Narrow the search or filters to see the rest."
@@ -9392,6 +9548,11 @@ msgstr "No obligations"
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Сб"
 msgstr "Sat"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Цільова посада"
+msgstr "Target role"
 
 #: apps/web/app/components/job-queue/JobQueueFilters.tsx
 msgid "Прострочена"
@@ -9436,6 +9597,11 @@ msgstr "Recalculating linked payouts…"
 #: apps/web/app/components/contracts/VariablesPanel.tsx
 msgid "Вставити"
 msgstr "Insert"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Формат роботи"
+msgstr "Work format"
 
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Посилання на Telegram-чат команди"
@@ -9629,6 +9795,10 @@ msgstr "Slow"
 msgid "Зарплата співробітнику"
 msgstr "Employee salary"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Вкажіть місяць початку"
+msgstr "Enter the start month"
+
 #: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Не вдалося підтвердити. Спробуйте ще раз"
@@ -9785,7 +9955,8 @@ msgstr "Logging in…"
 msgid "Не вдалося завантажити записи."
 msgstr "Couldn't load recordings."
 
-#: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
 msgid "Посада"
 msgstr "Position"
 
@@ -9834,6 +10005,10 @@ msgstr "You can't change your own role"
 msgid "Підписати рахунок?"
 msgstr "Sign the invoice?"
 
+#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
+msgid "Порядок і вигляд розділів. Факти резюме редагуються вище."
+msgstr "The order and look of the sections. Edit the resume facts above."
+
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Запис відв'язано"
 msgstr "Recording unlinked"
@@ -9845,6 +10020,10 @@ msgstr "Also listed on:"
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 msgid "Значення за замовчуванням (необов’язково)"
 msgstr "Default value (optional)"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
+msgid "Технології, місце роботи {position}"
+msgstr "Technologies, job {position}"
 
 #: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
@@ -9908,6 +10087,10 @@ msgstr "Earliest available date — {0}."
 msgid "Те, що сеньйор залишає собі. Нове значення набуде чинності після підтвердження сеньйора."
 msgstr "What the senior keeps for themselves. The new value takes effect once the senior confirms it."
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Вкажіть місяць завершення або позначте «Працюю тут зараз»"
+msgstr "Enter the end month or tick “I work here now”"
+
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Не вдалося видалити відгук. Спробуйте ще раз"
 msgstr "Could not delete the application. Try again"
@@ -9952,6 +10135,10 @@ msgstr "Step 2 of 2: pay the created request"
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 msgid "Пароль *"
 msgstr "Password *"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Резюме загалом"
+msgstr "Whole resume"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/DeleteTransactionDialog.tsx
 msgid "Видалення…"
@@ -10031,7 +10218,7 @@ msgstr "Ivan Ivanenko"
 msgid "Хто створив"
 msgstr "Created by"
 
-#: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
 msgid "Перемістити місце роботи {position} вниз"
 msgstr "Move job {position} down"
 
@@ -10076,7 +10263,7 @@ msgstr "Contract template for the “{roleLabel}” role published"
 msgid "Реквізити для виплат"
 msgstr "Payout details"
 
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
@@ -10109,7 +10296,8 @@ msgstr "Remove"
 msgid "Створити свою команду"
 msgstr "Create your own team"
 
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Ступінь / спеціальність"
 msgstr "Degree / field"
 
@@ -10167,10 +10355,6 @@ msgstr "Couldn't link the recording"
 msgid "Дані змінилися з моменту перегляду — оновіть перегляд"
 msgstr "Data changed since the preview — refresh the preview"
 
-#: apps/web/app/components/user-profile/resume/ResumeSectionCard.tsx
-msgid "Редагувати розділ «{title}»"
-msgstr "Edit section “{title}”"
-
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
 msgid "Замінити наявний чек?"
 msgstr "Replace the existing receipt?"
@@ -10198,7 +10382,7 @@ msgstr "Reason for rejection *"
 msgid "Документ переміщено в кошик"
 msgstr "Document moved to trash"
 
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Назва посилання, рядок {position}"
 msgstr "Link title, row {position}"
 
@@ -10242,6 +10426,14 @@ msgstr "Change avatar"
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Статус"
 msgstr "Status"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Рік початку, освіта {position}"
+msgstr "Start year, education {position}"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Гібридно"
+msgstr "Hybrid"
 
 #: apps/web/app/routes/_authenticated/stats/components/CompanyAndPartnersCard.tsx
 msgid "Баланси вирівняно"
@@ -10327,6 +10519,10 @@ msgstr "It is proposed to clear the project-level share: currently <0>{currentPe
 msgid "Наступна"
 msgstr "Next"
 
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
+msgid "Рік завершення, місце роботи {position}"
+msgstr "End year, job {position}"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Симулювати успіх"
 msgstr "Simulate success"
@@ -10360,10 +10556,6 @@ msgstr "Scan"
 msgid "Створіть сеньйора та сформуйте команду."
 msgstr "Create a senior and form a team."
 
-#: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
-msgid "Досягнення, місце роботи {position}"
-msgstr "Achievements, job {position}"
-
 #: apps/web/app/components/contracts/VariablesPanel.tsx
 msgid "Авто (CHK-N-YYYY)"
 msgstr "Auto (CHK-N-YYYY)"
@@ -10396,6 +10588,7 @@ msgstr "Copied"
 msgid "<0>{0}</0> більше не буде у складі проєкту."
 msgstr "<0>{0}</0> will no longer be on the project."
 
+#: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "PDF або DOCX, до {MAX_MB} МБ. Файл бачите тільки ви і команда найму."
 msgstr "PDF or DOCX, up to {MAX_MB} MB. Only you and the hiring team can see the file."
@@ -10459,7 +10652,7 @@ msgstr "Confirm"
 msgid "Відв’язати"
 msgstr "Detach"
 
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Мова"
 msgstr "Language"
 
@@ -10500,6 +10693,10 @@ msgstr "Custom"
 msgid "Ще не запускалося"
 msgstr "Not run yet"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Надіслати на перевірку"
+msgstr "Submit for checking"
+
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Підписи"
@@ -10508,6 +10705,10 @@ msgstr "Signatures"
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Замінити секрет"
 msgstr "Replace secret"
+
+#: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
+msgid "Заповніть факти вручну або завантажте резюме — ми заповнимо з нього поля, а ви переглянете."
+msgstr "Fill in the facts by hand or upload a resume — we’ll prefill the fields from it, and you review them."
 
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Активних проєктів"
@@ -10755,7 +10956,7 @@ msgstr "Note saved"
 msgid "Скасований"
 msgstr "Cancelled"
 
-#: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Додати місце роботи"
 msgstr "Add a job"
 
@@ -10828,6 +11029,10 @@ msgstr "No access? Contact an admin."
 msgid "Спробуйте ще раз."
 msgstr "Try again."
 
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "{ownSkills} + {fromJobs} з досвіду = {totalSkills} з 5"
+msgstr "{ownSkills} + {fromJobs} from experience = {totalSkills} of 5"
+
 #: apps/web/app/components/contracts/VariablesPanel.tsx
 msgid "+ Зареєструвати"
 msgstr "+ Register"
@@ -10873,6 +11078,8 @@ msgstr "Relink"
 msgid "за {count, plural, one {# місяць} few {# місяці} many {# місяців} other {# місяця}}"
 msgstr "over {count, plural, one {# month} other {# months}}"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/users/user-dialog/TechStackSection.tsx
@@ -10900,6 +11107,10 @@ msgstr "By name"
 #: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "ФОП (UAH)"
 msgstr "Sole proprietor (UAH)"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Рік завершення"
+msgstr "End year"
 
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
@@ -10949,6 +11160,14 @@ msgstr "Could not clear the avatar"
 msgid "Змінити мітку {0}"
 msgstr "Change the label {0}"
 
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Рік початку"
+msgstr "Start year"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Що ще потрібно"
+msgstr "What is still missing"
+
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Підтвердження архівації. Введіть ім’я для підтвердження дії."
 msgstr "Archive confirmation. Enter the name to confirm the action."
@@ -10971,6 +11190,10 @@ msgstr "{0}. Projects shown: {1}."
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
 msgid "Причина відмови:"
 msgstr "Rejection reason:"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
+msgid "Нотатки, місце роботи {position}"
+msgstr "Notes, job {position}"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Для відновлення проєкту <0>{projectName}</0> потрібно також відновити пару:"
@@ -11050,11 +11273,15 @@ msgstr "Senior:"
 msgid "Рік"
 msgstr "Year"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Ім’я в профілі має бути латиницею. Змініть його в профілі"
+msgstr "The profile name must be in Latin letters. Change it in the profile"
+
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 msgid "У черзі немає нових вакансій"
 msgstr "No new vacancies in the queue"
 
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "По одній навичці в рядку"
 msgstr "One skill per line"
 
@@ -11106,9 +11333,11 @@ msgstr "Receipt preview"
 msgid "Запропоновано {0}%"
 msgstr "Proposed {0}%"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeReadOnlyView.tsx
 msgid "Навички"
 msgstr "Skills"
 
@@ -11123,6 +11352,10 @@ msgstr "You need to sign in again."
 #: apps/web/app/components/job-queue/MatchedSeniors.tsx
 msgid "Стек збігається, проте вакансію їм не пропонують."
 msgstr "The stack matches, but the vacancy is not offered to them."
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Кінець не може бути в майбутньому. Якщо ви ще тут працюєте, позначте «Працюю тут зараз»"
+msgstr "The end cannot be in the future. If you still work here, tick “I work here now”"
 
 #: apps/web/app/components/documents/upload-document-dialog.tsx
 msgid "Перетягніть файл сюди або натисніть, щоб обрати"
@@ -11181,6 +11414,10 @@ msgstr "Could not load the contract variables"
 #: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
 msgid "Зміна ERC-20 адреси для отримання USDT-депозитів"
 msgstr "Changing the ERC-20 address used to receive USDT deposits"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Навичка {n}"
+msgstr "Skill {n}"
 
 #: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Буде створено акаунт сеньйора та сформовано команду з вами в ролі HR."
@@ -11269,10 +11506,6 @@ msgstr "Adding…"
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 msgid "Розділи адміністратора"
 msgstr "Admin sections"
-
-#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
-msgid "Порядок і вигляд розділів. Текст резюме редагується вище."
-msgstr "The order and look of the sections. Edit the resume text above."
 
 #: apps/web/app/components/documents/document-card.tsx
 #: apps/web/app/components/documents/document-detail-dialog.tsx
@@ -11419,7 +11652,6 @@ msgstr "Could not read the file"
 #: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
-#: apps/web/app/components/user-profile/resume/ResumeSectionCard.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
@@ -11461,7 +11693,7 @@ msgstr "Choose a drop for the project"
 msgid "Немає доступу до профілю"
 msgstr "No access to this profile"
 
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Видалити посилання {position}"
 msgstr "Delete link {position}"
 
@@ -11504,6 +11736,10 @@ msgstr "First page"
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "{0, plural, one {# на валідації} few {# на валідації} many {# на валідації} other {# на валідації}}"
 msgstr "{0, plural, one {# in validation} other {# in validation}}"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Освіта {position}"
+msgstr "Education {position}"
 
 #: apps/web/app/components/users/AccountantChipField.tsx
 msgid "Обрати бухгалтера"
@@ -11556,6 +11792,10 @@ msgstr "Type"
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Змінився доступ"
 msgstr "Access changed"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
+msgid "Локація, місце роботи {position}"
+msgstr "Location, job {position}"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingSummarySection.tsx
@@ -11666,10 +11906,18 @@ msgstr "You have not been added to a project yet."
 msgid "{0, plural, one {Доступна # команда.} few {Доступно # команди.} many {Доступно # команд.} other {Доступно # команди.}}"
 msgstr "{0, plural, one {# team available.} other {# teams available.}}"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Посилання {n}"
+msgstr "Link {n}"
+
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 #: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 msgid "Частка дропа"
 msgstr "Drop’s share"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Навчальний заклад, освіта {position}"
+msgstr "Institution, education {position}"
 
 #: apps/web/app/components/documents/document-labels.ts
 msgid "скан"
@@ -11732,6 +11980,10 @@ msgstr "{0} of {1}"
 msgid "Неможливо видалити вакансію з відгуками"
 msgstr "A vacancy with applications cannot be deleted"
 
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Віддалено"
+msgstr "Remote"
+
 #: apps/web/app/components/users/user-dialog/useUserDialogMutations.ts
 msgid "Дропа створено"
 msgstr "Drop created"
@@ -11756,7 +12008,7 @@ msgstr "Could not load income tracking data."
 msgid "Переглянути на сайті"
 msgstr "View on the site"
 
-#: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
 msgid "Компанія, місце роботи {position}"
 msgstr "Company, job {position}"
 
@@ -11806,6 +12058,10 @@ msgstr "Saved. Proposed {0}% to the senior instead of the current {1}%"
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "{0, plural, one {# команда доступна.} few {# команди доступні.} many {# команд доступно.} other {# команди доступно.}}"
 msgstr "{0, plural, one {# team available.} other {# teams available.}}"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Освіта {n}"
+msgstr "Education {n}"
 
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
@@ -11899,7 +12155,11 @@ msgstr "PNG, JPEG, WebP — up to {MAX_MB} MB. The file is uploaded to secure st
 msgid "Додати дохід"
 msgstr "Add income"
 
-#: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
+#: apps/web/app/hooks/use-senior-resume.ts
+msgid "Резюме надіслано на перевірку"
+msgstr "Resume sent for checking"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsJob.tsx
 msgid "Посада, місце роботи {position}"
 msgstr "Position, job {position}"
 
@@ -12189,6 +12449,14 @@ msgstr "Google for Jobs (optional)"
 msgid "Підписати контракт"
 msgstr "Sign the contract"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Додайте хоча б одне місце роботи"
+msgstr "Add at least one job"
+
+#: apps/web/app/hooks/use-senior-resume.ts
+msgid "Чернетку збережено"
+msgstr "Draft saved"
+
 #: apps/web/app/routes/_authenticated/interviews/constants.ts
 msgid "Запис вкладки"
 msgstr "Tab recording"
@@ -12252,6 +12520,10 @@ msgstr "Revenue for the last month"
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid " (адмін)"
 msgstr " (admin)"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Усе заповнено — можна надсилати"
+msgstr "Everything is filled in — ready to submit"
 
 #. placeholder {0}: formatAmount(thisMonthEarned, 'USD')
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
@@ -12959,8 +13231,10 @@ msgstr "Variable value must not exceed 2000 characters"
 msgid "Остання вакансія: {newest}"
 msgstr "Newest posting: {newest}"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeReadOnlyView.tsx
 msgid "Освіта"
 msgstr "Education"
 
@@ -13019,9 +13293,9 @@ msgstr "Reset"
 msgid "Webhook URL скопійовано"
 msgstr "Webhook URL copied"
 
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/components/user-profile/resume/ResumeReadOnlyView.tsx
 msgid "Про себе"
 msgstr "About"
 
