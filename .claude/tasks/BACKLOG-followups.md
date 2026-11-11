@@ -7614,3 +7614,17 @@ Sources: vacancy-sourcing Phase 7 pushes.
 `en`.
 
 Sources: vacancy-sourcing Phase 7 reviews.
+
+## 411. `noMatchReason` has no real-DB case for another team's TRIAGE / LEAD rows (2026-11-11)
+
+**Symptoms.** The job-queue card's `noMatchReason` for an HR actor counts only the actor's own team's match rows. Today that is
+pinned only by a unit spec on the SQL text, not by an integration case on a real database. A regression in the team scoping
+would let another team's TRIAGE or LEAD row change what HR sees, and no real-DB test would fail.
+
+**Status.** Coder: add one case to the job-queue service integration spec. A senior who belongs only to team B gets a TRIAGE
+match row (and, in a second case, a LEAD row) on an opportunity; HR of team A must still get `NO_MATCH`. Scratch DB only.
+
+**Verify.** The integration spec has such a case, it runs on a scratch database (non-zero case count), and it fails when the
+team predicate is removed from the `noMatchReason` stats.
+
+Sources: PR #1313 security review round 2 (SR2-L-1).
