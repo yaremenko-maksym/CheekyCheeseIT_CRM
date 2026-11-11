@@ -94,6 +94,41 @@ Cross-zone (api ↔ shared ↔ web). The card is scoped data: every new field ob
   owner decision (A3), raised by Master. The Coder lists every such field in the report as `AC 1 partial: <field> — no
   source`, runs `decision-frontier` for anything else unclear, and continues with the rest.
 
+Coder A1 decisions (PR #1313, review rounds 0–1; carried verbatim into the PR body):
+
+- A1 (Coder): `lastSeenAt` comes from `job_opportunities.last_observed_at`; `stackKeywords` comes from
+  `job_opportunities.stack_keywords`. The stack falls back to `matchedKeywords` when `stackKeywords` is empty.
+- A1 (Coder): `stackKeywords` are deduped after clipping to 100 characters, before the 60 cap, because the card keys
+  its chips by keyword.
+- A1 (Coder): `matchEvidence` comes from the senior's `TECH_MATCH` items `keyword:STRENGTH`; items without a known
+  strength are dropped.
+- A1 (Coder): a STUDIO senior's team is their first live membership, in the senior-picker order. ADMIN grouping is
+  done client-side (teams in first-seen order; seniors with no team first, without a heading; the keyboard hand-off
+  finds the first new senior by `data-arrival`), because the API orders seniors by id.
+- A1 (Coder): duplicate submitted names are `TAKEN` assignments under `scopedTeamRowPredicate`, so another team's are
+  never counted; each senior is named once (by user id), even when two teams submitted them in a STUDIO view.
+- A1 (Master, COPY-M-1): the duplicate line is uk «Уже подано: {seniors}», en "Already submitted: {seniors}"; the list
+  item already shows the duplicate's title, so the line does not repeat it.
+- A1 (Coder): `dismissal` is the own-scope row, including an undone one; the lateral reads one row (`LIMIT 1`). Re-hide
+  sends the newest known version, max(session, card), because dismissal versions only grow; the card's version is
+  used only when the scope kind matches.
+- A1 (Coder, SPEC-H-1): `noMatchReason`, first match wins: any own LEAD → none; stop-listed → `STOP_LISTED`; any own
+  live TRIAGE match row → `TRIAGE`; manual card → `NO_MATCH`; employer not verified, or not evaluated at the current
+  revision → `TRIAGE`; otherwise → `NO_MATCH`.
+- A1 (Master, SPEC-L-1): «востаннє бачили» is shown whenever `lastSeenAt` exists; the design has no 24 h threshold.
+- A1 (Coder, SPEC-M-1): the engagement form comes from the primary source's latest revision
+  (`normalized.employmentType`), classified to `B2B | EMPLOYMENT | null`. The value set was taken from the provider
+  adapters and their fixtures, not from prod data. B2B: B2B, ФОП, JDG, sole proprietor. EMPLOYMENT: employee phrases
+  from the layer-1 lexicon and a bare `permanent`. Schedule-only, contractor/freelance, fixed-term, intern, mixed,
+  negated, unknown or empty values give `null`.
+- A1 (Master, design §5.1): a `null` engagement form renders «Форма співпраці: Не вказано» / "Contract type: Not
+  stated"; the form stays visible per the owner's note in the design.
+- A1 (Coder): a hit stack chip gets an sr-only «, збігається» (SC 1.4.1), Lingui context "job-queue stack chip,
+  screen-reader suffix".
+- Decision for Task 7.4b (SPEC-M-2): the triage grant stores the client-sent `policyVersion` as an audit stamp and no
+  server value validates it; the only per-source value is `job_sources.policy_version`. The 7.4b brief settles which
+  value the client sends.
+
 ## Do not touch
 
 - The triage assignment UI («Призначити команді…») — that is `task-vacancy-7-4b-triage-assign.md`, after this task.
