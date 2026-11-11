@@ -67,7 +67,12 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 
 - Tab root: large title 28/34 that collapses into a 44 px inline bar on scroll; bell (and search where the
   screen has it) on the right.
-- Pushed screen: 44 px bar, back chevron (44 × 44, `aria-label="Назад"`) + centred 17/22 title.
+- Pushed screen: 44 px bar, back chevron (44 × 44 `<button>`, `aria-label="Назад"`) + a 17/22 title
+  **centred on the bar, not on the space left over** (iOS): the title is absolutely positioned and
+  inset on both sides by the wider side, the back button or the trailing actions (`--topbar-side`,
+  56 px with back only, 104 with «Зберегти», 168 with «Редагувати» + «Інші дії»), and truncates before
+  it collides. The product measures the trailing slot (one `ResizeObserver`) rather than hard-coding
+  the inset. A detail page has no title at rest (`primitives-v2.md` detail page).
 
 ### Quick-add FAB
 

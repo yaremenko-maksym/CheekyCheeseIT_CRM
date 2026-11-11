@@ -123,7 +123,10 @@ row with a detail opens the same menu as a shortcut, never the only path. Rows s
 `-webkit-touch-callout: none` so the long-press does not raise the iOS link / image callout.
 
 **Pushed detail page** (`detail-txn-375`, `detail-person-375`): the target of a row with a detail, and
-the home of that row's swipe actions. Inline title + back; on the right a 44 px text button
+the home of that row's swipe actions. **No bar title at rest** (the iOS Contacts pattern): the head's
+text («Оренда офісу», the person's name) is the page `h1`; once the head scrolls under the bar it
+becomes the centred inline title, inset 168 px on both sides so it truncates before the trailing
+actions. Back on the left (a real `<button>`, `aria-label` «Назад»); on the right a 44 px text button
 «Редагувати» (the edit entry) and a 44 px «…» (`aria-label` «Інші дії», `aria-haspopup="menu"`) for the
 rest (delete asks with the action sheet). **Transaction:** the description, the amount 40/46 700
 `tabular-nums` (never truncated), **one status-pill slot** under it («Оплачено» here), then one
@@ -155,7 +158,10 @@ destructive border + icon + message under the field (`aria-describedby`, `aria-i
 Validation on blur for format, on submit for required.
 
 **Add user** (`form-add-user-375`): a pushed form «Новий користувач»: Імʼя, Email (hint «На цю адресу
-прийде запрошення»), Роль and Команда as PickerSheet fields, the primary «Додати» in the bottom bar.
+прийде запрошення»), Роль and Команда as PickerSheet fields (each a real `<button>` with
+`aria-haspopup="dialog"`), the primary «Додати» in the bottom bar. **Every pushed form clears its sticky
+footer:** the content's bottom padding is the footer height (8 + 44 + 8) plus the safe area plus 16,
+so the last field scrolls fully above the bar.
 
 **Field → keyboard** (every mobile input sets these; the mock inputs carry them as attributes):
 
@@ -235,9 +241,11 @@ as a 44 px text button «Зберегти» (the one place a save sits top-right
 room). The text window at 375 × 667 is 667 − 54 status − 44 top bar − 61 chip row − 290 keyboard =
 218 px: **at least 8 lines of 24 px** stay visible. The scroller sets `scroll-padding-bottom` equal to
 the bar height (61 px), so the caret line is never under the chips. The chip row «Вставити змінну»
-(`role="group"`) scrolls horizontally: 44 px chips, each with its uk label and the token (`aria-label`
-«Вставити змінну <label>»); a tap inserts the token at the caret. **«Усі змінні…»** is pinned at the
-row's trailing edge (it never scrolls away) and opens a PickerSheet with search over every variable
+(`role="group"`) scrolls horizontally: 44 px chips that show **the uk label only** («Клієнт»); the
+token goes in the `aria-label` («Вставити змінну Клієнт, {{client_name}}»);
+a tap inserts the token at the caret. **«Усі змінні»** is a 44 × 44 icon button `{ }` (`braces`,
+`aria-label` «Усі змінні», `aria-haspopup="dialog"`) pinned at the row's trailing edge (it never
+scrolls away), so the row shows more than one chip at 375. It opens a PickerSheet with search over every variable
 (`picker-sheet-375` pattern); a pick inserts at the caret and returns focus to the `textarea`. **A dirty close asks** («Вийти без збереження?»
 with «Вийти» and «Залишитися»); nothing is persisted client-side.
 
@@ -247,12 +255,17 @@ focused field sits above the keyboard, and the submit bar rides on the keyboard.
 labelled "system · iOS Safari" only so the layout height is honest. **Wave 0 device check:** at 320 and
 375 on a real iPhone (or the iOS Simulator), the bottom submit bar tracks `visualViewport` (height and
 `offsetTop`) and sits directly on the system bar with no jump while the keyboard opens, closes or
-switches between decimal and text.
+switches between decimal and text. **TextEditor with the keyboard open:** iOS pans the layout
+viewport, so the top bar holding «Зберегти» is pinned to `visualViewport.offsetTop` (it follows the
+pan and never scrolls off with the page); the device check confirms «Зберегти» stays visible and
+tappable while the caret moves down a long template.
 
 **Submit — always enabled.** The primary is never disabled for invalid or untouched values: a tap
-validates, moves focus to the first invalid field and shows the inline errors. It is disabled only
-while its own request is in flight (no double submit); the label stays, a 16 px spinner replaces the
-icon.
+validates, moves focus to the first invalid field and shows the inline errors. **While its own request
+is in flight** it is `aria-disabled="true"`, never `disabled`: it ignores taps (no double submit),
+keeps focus and its name, the label stays and a 16 px spinner replaces the icon (`aria-busy="true"`
+on the form). `disabled` would drop focus to the body, the same reason the armed button is
+`aria-disabled`.
 
 **Armed save** (`shell-v2/quick-add-txn-armed-375`, `-320`, `upload-pill-armed-375`): the lifecycle
 is the state table in foundation §11; this is the component view. While a receipt uploads, the primary
@@ -493,6 +506,13 @@ Re-render: `node assets/src/render.mjs primitives [filter]`, then `assets/src/co
 - Swipe and long-press actions have a single-pointer path: the row's detail page, or a visible 44 px
   «…» on rows without a detail.
 - The money-form primary is never disabled for validity; a tap moves focus to the first invalid field.
+  In flight it is `aria-disabled="true"` with its spinner, never `disabled`, so focus stays on it.
+- Every interactive element is a native `<button>` or `<a>` (rows with a detail, contact rows, the
+  receipt row, the top-bar actions, chips, the switch, PickerSheet fields); no `role="button"` /
+  `role="link"` on a `div` or `span`. `prims-mobile.mjs` and `tablet.mjs` follow it; the older money
+  form and shell sources (`money-form.mjs`, `mobile.mjs`, `mobile-overlays.mjs`, `base.mjs`) still
+  draw 20 `role="button"` spans as drawing shorthand. The mockups are a visual reference, never markup
+  to copy.
 - Errors: `aria-invalid` + `aria-describedby`; save error `role="alert"`; toasts `role="status"`.
 - Progress (receipt ring, upload pill, armed fill) is `role="progressbar"` with `aria-valuenow`; one
   visually hidden `role="status"` per surface announces milestones only (started, finished, failed),

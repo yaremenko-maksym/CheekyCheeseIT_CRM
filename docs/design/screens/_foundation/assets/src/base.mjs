@@ -146,6 +146,7 @@ html,body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-
 /* field */
 .field{display:flex;flex-direction:column;gap:6px}
 .field label{font-size:13px;font-weight:500;color:var(--muted-fg)}
+:where(button).input{appearance:none;margin:0;font:inherit;width:100%;text-align:left;cursor:pointer}
 .input{height:48px;border-radius:var(--r-lg);background:var(--surface);border:1px solid var(--input-border);padding:0 14px;display:flex;align-items:center;gap:8px;font-size:16px;color:var(--fg)}
 .input.focus{border-color:var(--primary);box-shadow:0 0 0 3px oklch(0.84 0.183 85.3 / 0.28)}
 .input.error{border-color:var(--destructive);box-shadow:0 0 0 3px oklch(0.65 0.21 22.2 / 0.22)}
@@ -206,6 +207,7 @@ export function field({
   suffix = '',
   id = 'f',
   attrs = '',
+  tag = 'div',
 }) {
   const shown = value || ph
   const caret = state === 'focus' ? '<span class="caret"></span>' : ''
@@ -215,7 +217,7 @@ export function field({
       ? `<div class="hint" id="${id}-h">${hint}</div>`
       : ''
   return `<div class="field"><label for="${id}">${label}</label>
-  <div class="input ${state}" id="${id}" ${attrs} ${state.includes('error') ? 'aria-invalid="true"' : ''} ${state === 'disabled' ? 'aria-disabled="true"' : ''}>${lead}<span class="grow trunc ${value ? '' : 'ph'}">${state === 'focus' && !value ? caret + shown : shown + caret}</span>${suffix}</div>${msg}</div>`
+  <${tag} ${tag === 'button' ? 'type="button" ' : ''}class="input ${state}" id="${id}" ${attrs} ${state.includes('error') ? 'aria-invalid="true"' : ''} ${state === 'disabled' ? 'aria-disabled="true"' : ''}>${lead}<span class="grow trunc ${value ? '' : 'ph'}">${state === 'focus' && !value ? caret + shown : shown + caret}</span>${suffix}</${tag}>${msg}</div>`
 }
 
 export const safeBottom = (w) => (w <= 320 ? 0 : 34)

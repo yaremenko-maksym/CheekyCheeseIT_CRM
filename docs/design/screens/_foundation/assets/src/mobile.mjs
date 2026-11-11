@@ -39,8 +39,14 @@ export function topBar({
   bell = true,
   search = true,
   trailing = '',
+  side = 56,
 } = {}) {
-  return `<div class="topbar">${back ? `<div class="iconbtn" style="margin-left:-12px" aria-label="Назад">${icon('chevron-left', { size: 28, stroke: 2 })}</div>` : '<div style="width:44px"></div>'}
+  // Pushed page: the title is centred on the bar, inset on both sides by the wider side (back or the
+  // trailing actions), so it truncates before it collides and never drifts off centre.
+  if (back)
+    return `<div class="topbar" style="position:relative"><button type="button" class="iconbtn" style="margin-left:-12px" aria-label="Назад">${icon('chevron-left', { size: 28, stroke: 2 })}</button>
+  <div class="title trunc" style="position:absolute;left:${side}px;right:${side}px;top:0;line-height:44px">${title}</div><div class="grow"></div>${trailing}${search ? `<div class="iconbtn" aria-label="Пошук">${icon('search', { size: 22 })}</div>` : ''}${bell ? `<div class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></div>` : ''}</div>`
+  return `<div class="topbar"><div style="width:44px"></div>
   <div class="title">${title}</div>${trailing}${search ? `<div class="iconbtn" aria-label="Пошук">${icon('search', { size: 22 })}</div>` : ''}${bell ? `<div class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></div>` : ''}</div>`
 }
 
