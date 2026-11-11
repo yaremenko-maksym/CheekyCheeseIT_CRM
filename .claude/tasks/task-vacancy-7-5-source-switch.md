@@ -118,6 +118,24 @@ queue page for ADMIN as the collapsed section «Джерела вакансій�
 - A1 (Coder): the deadline integration case uses a `RECRUITEE_ATS` source (`recruitee.board.bunq`, namespace
   `m75-<tag>`, required by `ck_job_sources_inventory_namespace_nonempty`) on scratch DB `crm_scratch_75` only.
 
+Master A1 decisions (PR #1312 round 3 fix round; carried verbatim into the PR body):
+
+- A1 (Master, UX-02 / QA-LOW-2): «Політика діє до» and «Авторизація до» are rendered only when the source has that
+  deadline; a null deadline omits the row (as in the reference PNGs), because «ніколи» there reads as the opposite of
+  "no deadline". The three relative stamps keep «ніколи».
+- A1 (Master, UX-01 / QA-MED-2): a source with a quota meter shows only the meter; the budget-state row
+  («Без ліміту запитів» and the other states) is rendered only when there is no meter.
+- A1 (Master, QA-LOW-3): the card does not render the trigger label («за розкладом» / «за кнопкою»); design §7 does not
+  list the trigger mode on the card. The job-suggestion dialog panel is unchanged.
+- A1 (Master, QA-LOW-1): the quota headline «Ліміт: {used} / {total} запитів» counts used requests only, as in the design
+  §7 example (232 / 500); reserved and uncertain stay in the bar and the legend.
+- A1 (Master, SO-M-1): the readiness reason is shown for a refused enable only when the error code is
+  `JOB_SOURCE_NOT_READY`; any other error shows the generic user-facing message.
+- A1 (Master, UX-04 / QA-MED-1): the switch stays focusable while the request is in flight (`aria-disabled`, no native
+  `disabled`); the existing in-flight guard still blocks a second send.
+- A1 (Master, UX-05): the off-state switch contrast (≥ 3:1, SC 1.4.11) is fixed locally in `SourceSwitchCard`; the shared
+  `Switch` primitive is not changed in this PR.
+
 ## Verification (Coder before `git push`)
 
 1. `git diff HEAD --name-only` — only files from "Concrete changes".
