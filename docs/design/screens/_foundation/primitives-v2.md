@@ -433,7 +433,7 @@ for a tooltip with the exact value (the hit area is the full-height column band;
 only way). The second, smaller chart (partners) sits **below the fold** (`chart-mobile-scrolled-375`),
 with the partners' **initials** («ВК», «ОШ») directly under their bars, no legend, and the full
 names in the accessible summary. Bars and ticks carry bare numbers («4,2», «8»); the caption row states
-the unit once («тис. USD»), and the accessible summary says «тис. USD». `chart-desktop`: hover tooltip, keyboard focus on bars (arrow keys), series swatches carry
+the unit once («тис. USD»), and the accessible summary says «тис. USD». `chart-desktop`: hover tooltip (values `white-space: nowrap`, the tooltip min-width 176 px and kept inside the card), keyboard focus on bars (arrow keys), series swatches carry
 token names, the chart follows the table filters.
 
 ---
