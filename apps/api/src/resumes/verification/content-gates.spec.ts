@@ -306,28 +306,28 @@ describe('fitToWorker', () => {
 
   it('returns a payload that already fits unchanged', () => {
     const p = { ...base, experience: [item(['a']), item(['b'])] }
-    expect(fitToWorker(p, ['f1', 'f2'], true)).toEqual({ payload: p, feedback: ['f1', 'f2'] })
+    expect(fitToWorker(p, ['f1', 'f2'])).toEqual({ payload: p, feedback: ['f1', 'f2'] })
   })
 
   it('drops trailing items for the summary, never the first one', () => {
     const big = item(['z'.repeat(20_000)])
     const p = { ...base, experience: [big, big, big, big] }
-    const out = fitToWorker(p, ['keep me'], true)
+    const out = fitToWorker(p, ['keep me'])
     expect(out.payload.experience).toHaveLength(2)
     expect(out.feedback).toEqual(['keep me'])
     expect(size(out.payload, out.feedback)).toBeLessThanOrEqual(MAX_EXTRACTION_INPUT_CHARS)
 
     const huge = { ...base, experience: [item(['z'.repeat(60_000)]), item(['a'])] }
-    expect(fitToWorker(huge, ['f'], true)).toEqual({
+    expect(fitToWorker(huge, ['f'])).toEqual({
       payload: { ...base, experience: [huge.experience[0]] },
       feedback: [],
     })
   })
 
-  it('keeps items when told to and drops feedback lines last first until it fits', () => {
-    const p = { ...base, experience: [item(['z'.repeat(45_000)]), item(['a'])] }
+  it('keeps the only item (a bullets call) and drops feedback lines last first until it fits', () => {
+    const p = { ...base, experience: [item(['z'.repeat(45_000)])] }
     const feedback = Array.from({ length: 10 }, (_, i) => `${i}`.repeat(1000))
-    const out = fitToWorker(p, feedback, false)
+    const out = fitToWorker(p, feedback)
     expect(out.payload).toBe(p)
     const n = out.feedback.length
     expect(n).toBeGreaterThan(0)
@@ -335,6 +335,14 @@ describe('fitToWorker', () => {
     expect(out.feedback).toEqual(feedback.slice(0, n))
     expect(size(p, out.feedback)).toBeLessThanOrEqual(MAX_EXTRACTION_INPUT_CHARS)
     expect(size(p, feedback.slice(0, n + 1))).toBeGreaterThan(MAX_EXTRACTION_INPUT_CHARS)
+  })
+
+  it('a message of exactly 50 000 chars fits, one char more does not', () => {
+    const p = { ...base, experience: [item(['a'])] }
+    const pad = MAX_EXTRACTION_INPUT_CHARS - size(p, [''])
+    expect(size(p, ['x'.repeat(pad)])).toBe(50_000)
+    expect(fitToWorker(p, ['x'.repeat(pad)]).feedback).toHaveLength(1)
+    expect(fitToWorker(p, ['x'.repeat(pad + 1)]).feedback).toHaveLength(0)
   })
 })
 
@@ -437,6 +445,102 @@ describe('writeGatedContent', () => {
     expect(out.content.experience[0]?.bullets).toEqual(['Led the payments team'])
     expect(out.fallbacks).toEqual([])
     expect(deps.calls.filter((c) => c.task === 'bullets')).toHaveLength(3)
+  })
+
+  it('feedback names every ungrounded token, comma-separated', async () => {
+    const deps = fakeDeps({
+      bullets: (company) =>
+        company === 'Acme Corp'
+          ? [bullets('Cut costs by 40% at Initech')]
+          : [bullets('Built the billing service')],
+    })
+    await writeGatedContent(input(), deps)
+    expect(deps.calls[2]?.feedback).toEqual([
+      'Bullet 1: it states things that are not in FACTS: 40, Initech.',
+    ])
+  })
+
+  it('source statements stay separate lines; a bullet may use a skill of the whole resume', async () => {
+    const globex = FACTS.experience[1] as ResumeFacts['experience'][number]
+    const facts: ResumeFacts = {
+      ...FACTS,
+      experience: [
+        FACTS.experience[0] as ResumeFacts['experience'][number],
+        { ...globex, notes: ['Cut latency by 40', '3 services moved'] },
+      ],
+    }
+    // Joined without a separator the notes would read "by 403 services" and lose the 40.
+    const deps = fakeDeps({
+      summary: [ok('Cut latency by 40 percent.')],
+      bullets: (company) =>
+        company === 'Globex'
+          ? [bullets('Cut latency by 40 percent with NestJS')]
+          : [bullets('Led the payments team')],
+    })
+    const out = await writeGatedContent(input(facts), deps)
+    expect(out.fallbacks).toEqual([])
+    expect(out.content.summary).toBe('Cut latency by 40 percent.')
+    expect(out.content.experience[1]?.bullets).toEqual(['Cut latency by 40 percent with NestJS'])
+  })
+
+  it('a summary naming a company the payload does not hold is UNGROUNDED', async () => {
+    const deps = fakeDeps({ summary: [ok('Backend engineer at Stryker.')] })
+    const out = await writeGatedContent(input(), deps)
+    expect(out.gate.items).toEqual([{ path: 'summary', reason: 'UNGROUNDED' }])
+    expect(deps.calls[1]?.feedback).toEqual([
+      'Sentence 1: it states things that are not in FACTS: Stryker.',
+    ])
+  })
+
+  it('the summary call drops trailing items to fit the worker; each bullets call keeps its item', async () => {
+    const long = 'billing '.repeat(2_500).trim()
+    const base = FACTS.experience[1] as ResumeFacts['experience'][number]
+    const facts: ResumeFacts = {
+      ...FACTS,
+      experience: ['Globex', 'Initech', 'Hooli', 'Umbrella'].map((company) => ({
+        ...base,
+        company,
+        notes: [long],
+      })),
+    }
+    const deps = fakeDeps({})
+    await writeGatedContent(input(facts), deps)
+    expect(deps.calls[0]?.payload.experience.map((e) => e.company)).toEqual(['Globex', 'Initech'])
+    expect(deps.calls.slice(1).map((c) => c.payload.experience.map((e) => e.company))).toEqual([
+      ['Globex'],
+      ['Initech'],
+      ['Hooli'],
+      ['Umbrella'],
+    ])
+  })
+
+  it('a name of any one contact context fails the item, not only a name of all of them', async () => {
+    const deps = fakeDeps({
+      bullets: (company) =>
+        company === 'Globex'
+          ? [bullets('Worked with Ivanna Petrenko on billing')]
+          : [bullets('Led the payments team')],
+    })
+    const contacts = [
+      { fullName: 'Jane Doe', emails: [] },
+      { fullName: 'Ivanna Petrenko', emails: [] },
+    ]
+    const out = await writeGatedContent({ ...input(), contacts }, deps)
+    expect(out.gate.items).toEqual([{ path: 'experience.1.bullets', reason: 'CONTACT_IN_TEXT' }])
+  })
+
+  it('model text is cleaned for the template: lines joined, spaces collapsed, no break hints', async () => {
+    const run = 'x'.repeat(70)
+    const deps = fakeDeps({
+      summary: [ok('\nBackend engineer.\n\nBuilt billing.\n')],
+      bullets: () => [bullets(`Built ${run} billing`)],
+    })
+    const out = await writeGatedContent(input(), deps)
+    expect(out.content.summary).toBe('Backend engineer. Built billing.')
+    expect(out.content.experience.map((e) => e.bullets)).toEqual([
+      [`Built ${run} billing`],
+      [`Built ${run} billing`],
+    ])
   })
 
   it.each([

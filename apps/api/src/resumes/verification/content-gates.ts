@@ -109,18 +109,18 @@ export function writingPayload(input: ContentInput): WritingPayload {
 }
 
 /**
- * The payload and feedback the worker accepts: its user message is at most 50 000 chars (P9). The
- * summary drops trailing experience items first; then feedback lines go, last first.
+ * The payload and feedback the worker accepts: its user message is at most 50 000 chars (P9).
+ * Trailing experience items go first, never the first one (so a bullets call keeps its one item);
+ * then feedback lines go, last first.
  */
 export function fitToWorker(
   payload: WritingPayload,
   feedback: string[],
-  dropItems: boolean,
 ): { payload: WritingPayload; feedback: string[] } {
   let p = payload
   let f = feedback
   const fits = () => resumeWriteInput(JSON.stringify(p), f).length <= MAX_EXTRACTION_INPUT_CHARS
-  while (!fits() && dropItems && p.experience.length > 1) {
+  while (!fits() && p.experience.length > 1) {
     p = { ...p, experience: p.experience.slice(0, -1) }
   }
   while (!fits() && f.length > 0) f = f.slice(0, -1)
@@ -150,7 +150,7 @@ export function payloadStatements(p: WritingPayload): string[] {
 
 export function splitSentences(text: string): string[] {
   return text
-    .split(/(?<=[.!?])\s+/u)
+    .split(/(?<=[.!?])\s/u)
     .map((s) => s.trim())
     .filter(Boolean)
 }
@@ -248,8 +248,10 @@ async function write(
   return reply
 }
 
-function allSkills(p: WritingPayload): string[] {
-  return [...p.skills, ...p.experience.flatMap((item) => item.technologies)]
+const BAD_INDEX: Failure = {
+  index: -1,
+  reason: 'BAD_INDEX',
+  detail: 'Return exactly one item, with index 0, for the one experience item in FACTS',
 }
 
 async function writeSummary(
@@ -259,22 +261,22 @@ async function writeSummary(
   clean: (text: string) => string,
 ): Promise<{ summary: string; failures: Failure[] }> {
   let feedback: string[] = []
-  let failures: Failure[] = []
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const sent = fitToWorker(payload, feedback, true)
+  for (let attempt = 1; ; attempt++) {
+    const sent = fitToWorker(payload, feedback)
     const reply = await write('summary', sent, deps)
     const summary = clean('summary' in reply ? reply.summary : '')
     const sentences = splitSentences(summary)
     const statements = payloadStatements(sent.payload)
-    const source = { text: statements.join('\n'), skills: allSkills(sent.payload) }
-    failures =
+    // The statements already list every skill and technology of the payload.
+    const source = { text: statements.join('\n'), skills: [] }
+    const failures: Failure[] =
       sentences.length === 0
         ? [{ index: -1, reason: 'EMPTY', detail: 'The summary is empty' }]
         : await gateTexts(sentences, source, statements, input, deps)
     if (failures.length === 0) return { summary, failures }
+    if (attempt === MAX_ATTEMPTS) return { summary: '', failures }
     feedback = toFeedback('Sentence', failures, input.contacts)
   }
-  return { summary: '', failures }
 }
 
 async function writeBullets(
@@ -288,29 +290,20 @@ async function writeBullets(
   const statements = itemStatements(item)
   const source = { text: statements.join('\n'), skills: [...item.technologies, ...payload.skills] }
   let feedback: string[] = []
-  let failures: Failure[] = []
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+  for (let attempt = 1; ; attempt++) {
     // One item per call (P9): the only valid reply is exactly one item with index 0 (P8).
-    const sent = fitToWorker({ ...payload, experience: [item] }, feedback, false)
+    const sent = fitToWorker({ ...payload, experience: [item] }, feedback)
     const reply = await write('bullets', sent, deps)
-    const items = 'items' in reply ? reply.items : []
-    const only = items.length === 1 && items[0]?.index === 0 ? items[0] : undefined
-    if (only === undefined) {
-      failures = [
-        {
-          index: -1,
-          reason: 'BAD_INDEX',
-          detail: 'Return exactly one item, with index 0, for the one experience item in FACTS',
-        },
-      ]
-    } else {
+    const only = 'items' in reply && reply.items.length === 1 ? reply.items[0] : undefined
+    let failures = [BAD_INDEX]
+    if (only?.index === 0) {
       const bullets = only.bullets.map(clean)
       failures = await gateTexts(bullets, source, statements, input, deps)
       if (failures.length === 0) return { bullets, failures }
     }
+    if (attempt === MAX_ATTEMPTS) return { bullets: null, failures }
     feedback = toFeedback('Bullet', failures, input.contacts)
   }
-  return { bullets: null, failures }
 }
 
 /**
@@ -345,6 +338,7 @@ export async function writeGatedContent(
     }
     experience.push({
       ...frozen,
+      // Stryker disable next-line OptionalChaining: frozen is derived from facts item by item, so facts.experience[i] always exists
       bullets: written.bullets ?? cleanedNotes(input.facts.experience[i]?.notes ?? []),
     })
   }
