@@ -4,7 +4,7 @@
  * fall back to the full-size original (that is the freeze being fixed).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { installFakePreviewWorker, workerStats } from '@/test/fake-preview-worker'
+import { installFakePreviewWorker, pendingReplies, workerStats } from '@/test/fake-preview-worker'
 import { createImagePreviewUrl, PREVIEW_TIMEOUT_MS } from './image-preview'
 
 const photo = new File([new Uint8Array(16)], 'IMG.jpg', { type: 'image/jpeg' })
@@ -39,5 +39,37 @@ describe('createImagePreviewUrl — worker timeout', () => {
     expect(result).toBe('blob:bounded-preview')
     await vi.advanceTimersByTimeAsync(PREVIEW_TIMEOUT_MS)
     expect(workerStats.terminated).toBe(1)
+  })
+})
+
+describe('createImagePreviewUrl — failure modes (task-1316-fix2 items 3, 5)', () => {
+  it('5a: a reply that lands after the timeout does not create (and leak) a URL', async () => {
+    vi.useFakeTimers()
+    installFakePreviewWorker(photo, 'manual')
+    const result = createImagePreviewUrl(photo, 1024)
+    await vi.advanceTimersByTimeAsync(PREVIEW_TIMEOUT_MS)
+    expect(await result).toBeNull()
+
+    pendingReplies.splice(0).forEach((reply) => reply())
+
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+    expect(workerStats.terminated).toBe(1)
+  })
+
+  it("5b: a worker 'error' reply resolves null, never the full-size original", async () => {
+    installFakePreviewWorker(photo, 'error')
+    expect(await createImagePreviewUrl(photo, 1024)).toBeNull()
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('5b: a worker crash (onerror) resolves null, never the full-size original', async () => {
+    installFakePreviewWorker(photo, 'crash')
+    expect(await createImagePreviewUrl(photo, 1024)).toBeNull()
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+  })
+
+  it('3: new Worker() throwing does not reject — it falls back to the original (no usable worker)', async () => {
+    installFakePreviewWorker(photo, 'throw')
+    await expect(createImagePreviewUrl(photo, 1024)).resolves.toBe('blob:original-full-size')
   })
 })

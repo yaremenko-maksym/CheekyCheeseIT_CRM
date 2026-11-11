@@ -50,6 +50,13 @@ const ALLOWED_MIME_TYPES = new Set([
   'image/gif',
   'image/webp',
 ])
+/**
+ * Types the decoder gets a chance at even though they are not on the list:
+ * iOS Files / iCloud picks often carry no type, and an iPhone photo may arrive
+ * as HEIC/HEIF. The worker either decodes it or replies `'error'`, which shows
+ * «Не вдалося прочитати файл».
+ */
+const DECODE_CANDIDATE_TYPES = new Set(['', 'image/heic', 'image/heif'])
 
 const OUTPUT_SIZE = 512
 const MIN_ZOOM = 1
@@ -103,9 +110,17 @@ export function AvatarUploadDialog({
   // Per-pick token: a preview that resolves after the dialog was closed / reset
   // (or after a newer pick) is stale — it revokes its URL and goes nowhere.
   const pickRef = useRef(0)
+  // Latest crop source, so the unmount cleanup revokes the blob URL in use.
+  const sourceImageRef = useRef<string | null>(null)
+  useEffect(() => {
+    sourceImageRef.current = sourceImage
+  }, [sourceImage])
   useEffect(
     () => () => {
       pickRef.current += 1
+      if (sourceImageRef.current?.startsWith('blob:')) {
+        URL.revokeObjectURL(sourceImageRef.current)
+      }
     },
     [],
   )
@@ -148,7 +163,7 @@ export function AvatarUploadDialog({
   }
 
   function handleFile(file: File) {
-    if (!ALLOWED_MIME_TYPES.has(file.type)) {
+    if (!ALLOWED_MIME_TYPES.has(file.type) && !DECODE_CANDIDATE_TYPES.has(file.type)) {
       setError(t`Дозволено лише PNG, JPEG, GIF, WebP`)
       return
     }
@@ -162,29 +177,22 @@ export function AvatarUploadDialog({
     const pick = ++pickRef.current
     // A bounded-size copy, not the whole file as a data: URL: a full-resolution
     // phone photo in the cropper froze iPhone Safari (task-ios-file-input-freeze).
-    createImagePreviewUrl(file, CROP_SOURCE_MAX_EDGE).then(
-      (previewUrl) => {
-        if (pick !== pickRef.current) {
-          if (previewUrl) URL.revokeObjectURL(previewUrl)
-          return
-        }
-        if (!previewUrl) {
-          // The worker timed out: no preview rather than the full-size file.
-          progress.reset()
-          setError(t`Не вдалося прочитати файл`)
-          return
-        }
-        // The read is done — hand off to the crop step. Its own progress
-        // starts fresh at 'idle' (that step tracks the upload, not the read).
-        progress.reset()
-        startCrop(previewUrl)
-      },
-      () => {
-        if (pick !== pickRef.current) return
+    createImagePreviewUrl(file, CROP_SOURCE_MAX_EDGE).then((previewUrl) => {
+      if (pick !== pickRef.current) {
+        if (previewUrl) URL.revokeObjectURL(previewUrl)
+        return
+      }
+      if (!previewUrl) {
+        // Decode failed or timed out: no preview rather than the full-size file.
         progress.reset()
         setError(t`Не вдалося прочитати файл`)
-      },
-    )
+        return
+      }
+      // The read is done — hand off to the crop step. Its own progress
+      // starts fresh at 'idle' (that step tracks the upload, not the read).
+      progress.reset()
+      startCrop(previewUrl)
+    })
   }
 
   function handleDrop(e: React.DragEvent<HTMLDivElement>) {

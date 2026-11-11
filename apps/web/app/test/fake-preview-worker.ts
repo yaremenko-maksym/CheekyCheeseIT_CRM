@@ -5,12 +5,14 @@
  *
  * Reply modes: `auto` answers on the next microtask; `manual` queues the
  * answer in `pendingReplies` so a test can hold a preview mid-decode;
- * `never` models a worker iOS killed under memory pressure.
+ * `never` models a worker iOS killed under memory pressure; `error` is the
+ * worker's own "decode failed" reply; `crash` fires `onerror`; `throw` makes
+ * `new Worker(...)` itself throw (CSP, a missing chunk after a redeploy).
  */
 import { vi } from 'vitest'
 import type { PreviewRequest } from '@/lib/image-preview-size'
 
-export type FakeReplyMode = 'auto' | 'manual' | 'never'
+export type FakeReplyMode = 'auto' | 'manual' | 'never' | 'error' | 'crash' | 'throw'
 
 export const previewRequests: PreviewRequest[] = []
 export const pendingReplies: Array<() => void> = []
@@ -20,11 +22,16 @@ let replyMode: FakeReplyMode = 'auto'
 class FakePreviewWorker {
   onmessage: ((e: { data: unknown }) => void) | null = null
   onerror: (() => void) | null = null
+  constructor() {
+    if (replyMode === 'throw') throw new Error('worker blocked')
+  }
   postMessage(req: PreviewRequest) {
     previewRequests.push(req)
     const reply = () => this.onmessage?.({ data: new Blob(['x'], { type: 'image/jpeg' }) })
     if (replyMode === 'auto') queueMicrotask(reply)
     else if (replyMode === 'manual') pendingReplies.push(reply)
+    else if (replyMode === 'error') queueMicrotask(() => this.onmessage?.({ data: 'error' }))
+    else if (replyMode === 'crash') queueMicrotask(() => this.onerror?.())
   }
   terminate() {
     workerStats.terminated += 1

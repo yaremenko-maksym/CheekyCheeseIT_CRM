@@ -101,3 +101,49 @@ describe('AvatarUploadDialog — stale preview after close (task-1316-fix1 item 
     }
   })
 })
+
+describe('AvatarUploadDialog — iOS types and unmount (task-1316-fix2 items 6, 7)', () => {
+  const dialog = () => (
+    <AvatarUploadDialog
+      open={true}
+      onClose={() => {}}
+      userId="user-1"
+      avatarDocumentId={null}
+      avatarUrl={null}
+    />
+  )
+
+  it.each([
+    ['an empty type (iOS Files / iCloud)', ''],
+    ['image/heic', 'image/heic'],
+    ['image/heif', 'image/heif'],
+  ])('7: %s goes to the decoder, not the type gate', async (_label, type) => {
+    const iosPhoto = new File([new Uint8Array(64)], 'IMG_0005.HEIC', { type })
+    installFakePreviewWorker(iosPhoto)
+    render(dialog(), { wrapper: I18nTestProvider })
+    fireEvent.change(screen.getByTestId('avatar-file-input'), { target: { files: [iosPhoto] } })
+
+    const cropImg = await screen.findByRole('presentation')
+    expect(cropImg).toHaveAttribute('src', 'blob:bounded-preview')
+    expect(screen.queryByText('Дозволено лише PNG, JPEG, GIF, WebP')).toBeNull()
+  })
+
+  it('7: other non-image types keep the type error', () => {
+    const doc = new File([new Uint8Array(8)], 'notes.pdf', { type: 'application/pdf' })
+    installFakePreviewWorker(doc)
+    render(dialog(), { wrapper: I18nTestProvider })
+    fireEvent.change(screen.getByTestId('avatar-file-input'), { target: { files: [doc] } })
+    expect(screen.getByText('Дозволено лише PNG, JPEG, GIF, WebP')).toBeInTheDocument()
+  })
+
+  it('6: unmounting during the crop step revokes the crop source URL', async () => {
+    const { unmount } = render(dialog(), { wrapper: I18nTestProvider })
+    fireEvent.change(screen.getByTestId('avatar-file-input'), { target: { files: [photo] } })
+    await screen.findByRole('presentation')
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+
+    unmount()
+
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:bounded-preview')
+  })
+})

@@ -135,12 +135,14 @@ export function ReceiptInput({
   // A pick is "preparing" while its preview decodes (before the upload starts).
   // `pickRef` is a per-pick token: a pick superseded by a newer pick, an
   // explorerOnly flip, a tab switch, a clear or an unmount resolves stale —
-  // it revokes its preview URL and neither calls onChange nor uploads.
+  // it revokes its preview URL and neither calls onChange nor uploads; an
+  // upload that completes after its pick went stale does not call onChange.
   const [preparing, setPreparing] = useState(false)
   const pickRef = useRef(0)
   function cancelPick() {
     pickRef.current += 1
     setPreparing(false)
+    progress.reset()
   }
   useEffect(
     () => () => {
@@ -229,8 +231,8 @@ export function ReceiptInput({
     // through a bounded-size copy: a full-resolution phone photo in the DOM
     // froze iPhone Safari (task-ios-file-input-freeze). An empty type (iOS
     // Files / iCloud) is a candidate image too: the worker fails fast on a
-    // non-image and the fallback applies. `null` = the worker timed out: no
-    // preview, the upload still runs and the file name is shown.
+    // non-image and resolves `null`. `null` = no preview (decode failed or
+    // timed out): the upload still runs and the file name is shown.
     const localPreview =
       file.type === '' || file.type.startsWith('image/')
         ? await createImagePreviewUrl(file, RECEIPT_PREVIEW_MAX_EDGE)
@@ -255,6 +257,12 @@ export function ReceiptInput({
         category: 'RECEIPT',
         onProgress: progress.onProgress,
       })
+      // Stale (explorerOnly flip / tab switch / clear / unmount mid-upload):
+      // the newer state wins. The uploaded document stays an orphan.
+      if (pick !== pickRef.current) {
+        if (localPreview) URL.revokeObjectURL(localPreview)
+        return
+      }
       progress.success()
       // Revoke the local blob — we'll use the presigned URL going forward
       // (downloadQuery is enabled for state.documentId on next render).
@@ -276,6 +284,10 @@ export function ReceiptInput({
       // and clears it — matching AC3 without a dangling retry action).
       // COPY-H-fin-3: never the raw `.message` of an unknown error — the
       // same status-based resolver the rest of finance uses.
+      if (pick !== pickRef.current) {
+        if (localPreview) URL.revokeObjectURL(localPreview)
+        return
+      }
       progress.error(getApiErrorMessage(err, t`Не вдалося завантажити чек`))
       if (localPreview) URL.revokeObjectURL(localPreview)
       onChange(emptyReceiptState())
@@ -293,6 +305,13 @@ export function ReceiptInput({
   // Busy covers the preview decode too, so a second pick cannot race the first.
   const uploading = uploadMutation.isPending || preparing
   const hasFile = state.mode === 'file' && (state.documentId || state.previewUrl || state.fileName)
+  // An untyped file (iOS Files / iCloud) may be an image; a preview the
+  // browser cannot render falls back to the document block via `onError`.
+  const [failedPreview, setFailedPreview] = useState<string | null>(null)
+  const showImage =
+    !!state.previewUrl &&
+    state.previewUrl !== failedPreview &&
+    (state.mimeType === '' || state.mimeType.startsWith('image/'))
 
   return (
     <div className="space-y-2">
@@ -351,9 +370,10 @@ export function ReceiptInput({
           />
           {hasFile ? (
             <div className="relative rounded-lg border border-border overflow-hidden bg-muted/20">
-              {state.mimeType.startsWith('image/') && state.previewUrl ? (
+              {showImage ? (
                 <img
-                  src={state.previewUrl}
+                  src={state.previewUrl ?? undefined}
+                  onError={() => setFailedPreview(state.previewUrl)}
                   alt={t`Прев’ю чека`}
                   className="w-full max-h-40 object-contain"
                 />
