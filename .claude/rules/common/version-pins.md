@@ -64,6 +64,12 @@ comments** — link here.
 
 - **PostgreSQL:** 16-alpine (Docker Compose).
 
+### E2E
+
+- **`web-vitals`:** `^6.2` — `apps/e2e` devDependency only, injected into the page by
+  `apps/e2e/fixtures/inp.ts` through its UMD `require` entry (sets `window.webVitals`). A major bump
+  must keep that UMD build and the `onINP(cb, { reportAllChanges, durationThreshold })` options.
+
 ### i18n
 
 - **`@lingui/*`:** `5.9.5` EXACT, **one version** across `@lingui/core`, `@lingui/react`,
