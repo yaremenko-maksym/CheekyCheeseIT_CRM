@@ -3478,6 +3478,11 @@ msgstr "Заповніть усі потрібні поля резюме пер�
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_STAGED_TEXT_INVALID"
+msgstr "Текст не збережено: {reason, select, NON_LATIN {пишіть лише латиницею} CONTACT_IN_TEXT {приберіть ім’я, email або телефон} other {перевірте текст}}."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_VERIFICATION_BUSY"
 msgstr "Резюме зараз перевіряється. Зачекайте, доки перевірка завершиться."
 

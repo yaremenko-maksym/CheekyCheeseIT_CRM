@@ -3478,6 +3478,11 @@ msgstr "Fill in all required resume fields before the check."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_STAGED_TEXT_INVALID"
+msgstr "The text was not saved: {reason, select, NON_LATIN {use Latin letters only} CONTACT_IN_TEXT {remove the name, email or phone number} other {check the text}}."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_VERIFICATION_BUSY"
 msgstr "The resume is being checked right now. Wait until the check finishes."
 
