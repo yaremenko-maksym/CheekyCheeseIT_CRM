@@ -46,7 +46,14 @@ export function formatResetAt(iso: string | null, locale: string): string {
 }
 
 /** Sits inside a `SourceSwitchCard`, which already names the source and draws the box. */
-export function SourceBudgetRow({ source }: { source: JobSourceDto }) {
+export function SourceBudgetRow({
+  source,
+  showTrigger,
+}: {
+  source: JobSourceDto
+  /** The trigger mode («за розкладом» …) is shown in the suggestion dialog only. */
+  showTrigger: boolean
+}) {
   const { i18n, t } = useLingui()
   const locale = useLocale()
   const { state, window, resetsAt } = source.budget
@@ -56,7 +63,7 @@ export function SourceBudgetRow({ source }: { source: JobSourceDto }) {
   const used = formatCount(locale, source.budget.used)
   const root =
     'flex flex-col gap-0.5 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3'
-  const name = (
+  const name = showTrigger && (
     <span className="font-medium text-foreground">
       <span className="font-normal text-muted-foreground">
         ({i18n._(TRIGGER_LABEL[source.triggerMode])})

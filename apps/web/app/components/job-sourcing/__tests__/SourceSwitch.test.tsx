@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { formatRelativeTime, type JobSourceDto } from '@crm/shared'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
@@ -51,6 +52,15 @@ const source = (over: Partial<JobSourceDto> = {}): JobSourceDto => ({
   hostPauseReason: null,
   lastErrorCode: null,
   ...over,
+})
+
+/** The server's readiness refusal (`JobSourceAdminService`): the only error that names the reason. */
+const notReadyError = () => ({
+  isAxiosError: true,
+  response: {
+    status: 409,
+    data: { statusCode: 409, code: 'JOB_SOURCE_NOT_READY', message: 'Source is not ready' },
+  },
 })
 
 let listed: JobSourceDto[] = []
@@ -139,7 +149,50 @@ describe('AC1 — the switch sends the inverted value, once, and refetches', () 
     })
 
     expect(api.patch).toHaveBeenCalledTimes(1)
-    await waitFor(() => expect(toggle).toBeDisabled())
+    // in flight: announced as unavailable, but never natively disabled (that drops keyboard focus)
+    await waitFor(() => expect(toggle).toHaveAttribute('aria-disabled', 'true'))
+    expect(toggle).not.toBeDisabled()
+    expect(toggle).toHaveClass('aria-disabled:cursor-not-allowed', 'aria-disabled:opacity-60')
+  })
+
+  it('a keyboard toggle keeps focus on the switch while the request is in flight', async () => {
+    vi.mocked(api.patch).mockReturnValue(new Promise(() => {}) as never)
+    const user = userEvent.setup()
+    renderPanel()
+    const toggle = await screen.findByRole('switch', { name: 'DOU' })
+    expect(toggle).not.toHaveAttribute('aria-disabled')
+
+    toggle.focus()
+    await user.keyboard(' ')
+    await user.keyboard(' ')
+
+    expect(api.patch).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(toggle).toHaveAttribute('aria-disabled', 'true'))
+    expect(toggle).toHaveFocus()
+  })
+
+  it('the switched-off track contrasts with the card (SC 1.4.11), not the near-black input fill', async () => {
+    listed = [source({ enabled: false })]
+    renderPanel()
+    const toggle = await screen.findByRole('switch', { name: 'DOU' })
+    expect(toggle).toHaveClass('data-[state=unchecked]:bg-muted-foreground')
+    expect(toggle).not.toHaveClass('data-[state=unchecked]:bg-input')
+  })
+
+  it('shows the source icon next to the name, hidden from assistive tech', async () => {
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    const icon = screen.getByTestId('job-source-icon')
+    expect(icon).toHaveAttribute('aria-hidden', 'true')
+    expect(icon).toHaveClass('size-6', 'rounded-full', 'bg-secondary')
+    const name = screen.getByTestId('job-source-name')
+    expect(name).toHaveTextContent('DOU')
+    expect(name).toHaveClass('truncate', 'text-sm', 'font-medium')
+    // icon first, then the name, both in the title group
+    const title = screen.getByTestId('job-source-title')
+    expect(title).toContainElement(icon)
+    expect(title).toContainElement(name)
+    expect(icon.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('only the toggled source is sent; the other one is untouched', async () => {
@@ -312,6 +365,72 @@ describe('AC2 — disabled, paused and blocked are three different states', () =
       .map((c) => c.getAttribute('data-icon'))
     expect(new Set(icons).size).toBe(3)
   })
+
+  // Design §7 state table: the pause is an amber info note, the block a destructive note, the
+  // admin switch-off a plain muted line. The icon is decoration; the text is the content.
+  it.each([
+    [
+      'paused',
+      { cooldownUntil: ahead(HOUR) },
+      'Pause',
+      ['bg-yellow-subtle', 'border-yellow-muted/40', 'text-foreground'],
+    ],
+    [
+      'blocked',
+      { readiness: 'BLOCKED', readinessReason: 'x' },
+      'Lock',
+      ['border-destructive/50', 'text-destructive', 'font-medium'],
+    ],
+  ] as const)(
+    'the %s note is a boxed note with its own aria-hidden icon',
+    async (_kind, over, icon, classes) => {
+      listed = [source(over as Partial<JobSourceDto>)]
+      renderPanel()
+      await screen.findByRole('switch', { name: 'DOU' })
+      expect(note()).toHaveClass(
+        'flex',
+        'items-start',
+        'gap-2',
+        'rounded-md',
+        'border',
+        'px-3',
+        'py-2',
+        ...classes,
+      )
+      const svg = within(note()).getByTestId('job-source-note-icon')
+      expect(svg).toHaveAttribute('aria-hidden', 'true')
+      expect(svg).toHaveAttribute('data-icon', icon)
+      expect(svg).toHaveClass('mt-0.5', 'size-3.5', 'shrink-0')
+    },
+  )
+
+  it('the disabled note is a plain muted line with no box and no icon', async () => {
+    listed = [source({ enabled: false })]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(note()).toHaveClass('text-muted-foreground')
+    expect(note()).not.toHaveClass('border')
+    expect(within(note()).queryByTestId('job-source-note-icon')).toBeNull()
+  })
+
+  it('the chip sits on its own line under the name, the paused one in amber text', async () => {
+    listed = [source({ cooldownUntil: ahead(HOUR) })]
+    renderPanel()
+    const toggle = await screen.findByRole('switch', { name: 'DOU' })
+    expect(chip()).toHaveClass('self-start', 'text-primary')
+    expect(chip()).not.toHaveClass('text-foreground')
+    // the header row holds the icon, the name and the switch — not the chip
+    const header = screen.getByTestId('job-source-header')
+    expect(header).toContainElement(toggle)
+    expect(header).not.toContainElement(chip())
+    expect(header).toHaveClass('flex', 'items-center', 'justify-between', 'gap-3')
+    expect(screen.getByTestId('job-source-title')).toHaveClass(
+      'flex',
+      'min-w-0',
+      'items-center',
+      'gap-2',
+    )
+  })
 })
 
 describe('AC3 — three-segment quota bar', () => {
@@ -337,10 +456,16 @@ describe('AC3 — three-segment quota bar', () => {
     expect(within(img).getByTestId('job-source-quota-used')).toHaveStyle({ width: '60%' })
     expect(within(img).getByTestId('job-source-quota-reserved')).toHaveStyle({ width: '5%' })
     expect(within(img).getByTestId('job-source-quota-uncertain')).toHaveStyle({ width: '2.5%' })
-    // The headline adds up everything the limit has committed: used + reserved + uncertain.
+    // The headline counts what is used (design: 232 / 500); reserved / uncertain stay in the bar.
     expect(screen.getByTestId('job-source-quota-limit').textContent).toBe(
-      'Ліміт: 135 / 200 запитів',
+      'Ліміт: 120 / 200 запитів',
     )
+    // a meter that draws the bar replaces the budget line: one quota statement, not two
+    expect(screen.queryByTestId('job-source-budget-row')).toBeNull()
+    expect(screen.queryByText('Без ліміту запитів')).toBeNull()
+    // the legend numbers carry the weight, in tabular figures
+    const figure = within(screen.getByTestId('job-source-quota-legend-used')).getByText('120')
+    expect(figure).toHaveClass('font-medium', 'tabular-nums', 'text-foreground')
     expect(screen.getByTestId('job-source-quota-legend-used')).toHaveTextContent('Використано 120')
     expect(screen.getByTestId('job-source-quota-legend-reserved')).toHaveTextContent(
       'Зарезервовано 10',
@@ -423,6 +548,8 @@ describe('AC3 — three-segment quota bar', () => {
     await screen.findByRole('switch', { name: 'DOU' })
     expect(screen.queryByRole('img')).toBeNull()
     expect(screen.queryByTestId('job-source-quota-limit')).toBeNull()
+    // no meter bar, so the budget line still states the quota
+    expect(screen.getAllByTestId('job-source-budget-row')).toHaveLength(2)
   })
 
   it('draws no bar for an unlimited or a misconfigured source', async () => {
@@ -456,8 +583,8 @@ describe('AC3 — three-segment quota bar', () => {
   })
 
   it.each([
-    ['RECORD' as const, 'Ліміт: 135 / 200 записів'],
-    ['MODEL_CALL' as const, 'Ліміт: 135 / 200 викликів моделі'],
+    ['RECORD' as const, 'Ліміт: 120 / 200 записів'],
+    ['MODEL_CALL' as const, 'Ліміт: 120 / 200 викликів моделі'],
   ])('names the %s unit', async (unit, text) => {
     listed = [source({ meter: meter({ unit }) })]
     renderPanel()
@@ -483,7 +610,7 @@ describe('AC3 — three-segment quota bar', () => {
       bar('Використано 1,50 USD, зарезервовано 0,25 USD, невизначено 0,00 USD з 5,00 USD'),
     ).toBeInTheDocument()
     expect(plain(screen.getByTestId('job-source-quota-limit').textContent)).toBe(
-      'Ліміт: 1,75 USD / 5,00 USD',
+      'Ліміт: 1,50 USD / 5,00 USD',
     )
     expect(plain(screen.getByTestId('job-source-quota-legend-used').textContent)).toBe(
       'Використано 1,50 USD',
@@ -591,7 +718,12 @@ describe('AC4 — timestamps', () => {
   })
 
   const dateOf = (iso: string, locale: string) =>
-    new Date(iso).toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: 'numeric' })
+    new Date(iso).toLocaleDateString(locale, {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      timeZone: 'UTC',
+    })
 
   it('shows «Політика діє до» and «Авторизація до» with an absolute date when the source has deadlines', async () => {
     listed = [
@@ -633,20 +765,45 @@ describe('AC4 — timestamps', () => {
     }
   })
 
-  it('says «ніколи» for a deadline that is null — and for one an older server does not send', async () => {
+  it('writes the UTC calendar day of a deadline in every time zone', async () => {
+    // restore the resolved zone, not `delete`: ICU keeps the last assigned zone otherwise
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    // a deadline is a calendar day: 23:30 UTC is the next day east of UTC, 00:30 UTC the day
+    // before west of it, and neither may move it
+    listed = [
+      source({ policyUntil: '2027-03-05T23:30:00.000Z', authUntil: '2027-12-09T00:30:00.000Z' }),
+    ]
+    try {
+      for (const tz of ['Pacific/Kiritimati', 'Pacific/Pago_Pago']) {
+        process.env.TZ = tz
+        const view = renderPanel()
+        await screen.findByRole('switch', { name: 'DOU' })
+        expect(valueOf('Політика діє до')).toBe('05.03.2027')
+        expect(valueOf('Авторизація до')).toBe('09.12.2027')
+        view.unmount()
+      }
+    } finally {
+      process.env.TZ = zone
+    }
+  })
+
+  it('omits a deadline row that is null — and one an older server does not send', async () => {
     listed = [source({ policyUntil: null, authUntil: undefined })]
     renderPanel()
     await screen.findByRole('switch', { name: 'DOU' })
-    expect(within(stamps()).getAllByRole('term')).toHaveLength(5)
-    expect(valueOf('Політика діє до')).toBe('ніколи')
-    expect(valueOf('Авторизація до')).toBe('ніколи')
+    expect(
+      within(stamps())
+        .getAllByRole('term')
+        .map((el) => el.textContent),
+    ).toEqual(['Остання спроба', 'Остання вдала', 'Остання з даними'])
   })
 
-  it('one deadline set, the other not: only the unset row says «ніколи»', async () => {
+  it('one deadline set, the other not: only the set one has a row', async () => {
     listed = [source({ policyUntil: null, authUntil: '2027-02-10T00:00:00.000Z' })]
     renderPanel()
     await screen.findByRole('switch', { name: 'DOU' })
-    expect(valueOf('Політика діє до')).toBe('ніколи')
+    expect(within(stamps()).getAllByRole('term')).toHaveLength(4)
+    expect(within(stamps()).queryByText('Політика діє до')).toBeNull()
     expect(valueOf('Авторизація до')).toBe(dateOf('2027-02-10T00:00:00.000Z', 'uk'))
   })
 
@@ -680,7 +837,7 @@ describe('AC5 — a refused enable', () => {
 
   it('shows the readiness reason, puts the switch back and changes nothing else', async () => {
     listed = [blocked()]
-    vi.mocked(api.patch).mockRejectedValue(new Error('409'))
+    vi.mocked(api.patch).mockRejectedValue(notReadyError())
     renderPanel()
     const toggle = await screen.findByRole('switch', { name: 'DOU' })
     const before = screen.getByTestId('job-source-card').textContent
@@ -708,6 +865,93 @@ describe('AC5 — a refused enable', () => {
     ).toBeInTheDocument()
     expect(screen.getByTestId('job-source-card').textContent).toBe(before + failure.textContent)
     expect(sourceGets()).toBe(getsBefore)
+  })
+
+  it.each([
+    [
+      'another refusal code',
+      {
+        isAxiosError: true,
+        response: {
+          status: 409,
+          data: { statusCode: 409, code: 'JOB_SOURCE_AUTH_PAUSED', message: 'x' },
+        },
+      },
+    ],
+    ['a server failure', new Error('500')],
+  ])(
+    'a blocked source refused for %s shows that error, not the readiness reason',
+    async (_name, error) => {
+      listed = [blocked()]
+      vi.mocked(api.patch).mockRejectedValue(error)
+      renderPanel()
+      const toggle = await screen.findByRole('switch', { name: 'DOU' })
+
+      await act(async () => {
+        fireEvent.click(toggle)
+      })
+
+      const answer = getUserFacingErrorMessage(error)
+      const sentence = /[.!?…]$/.test(answer) ? answer : `${answer}.`
+      const failure = await screen.findByTestId('job-source-enable-failure')
+      expect(failure.textContent).toBe(`Не вдалося увімкнути. ${sentence} Стан не змінено.`)
+      expect(failure.textContent).not.toContain('сплив термін авторизації')
+    },
+  )
+
+  it('a readiness refusal for a source that states no reason shows the translated refusal', async () => {
+    listed = [source({ enabled: false })]
+    const error = notReadyError()
+    vi.mocked(api.patch).mockRejectedValue(error)
+    renderPanel()
+    const toggle = await screen.findByRole('switch', { name: 'DOU' })
+    await act(async () => {
+      fireEvent.click(toggle)
+    })
+
+    const answer = getUserFacingErrorMessage(error)
+    const sentence = /[.!?…]$/.test(answer) ? answer : `${answer}.`
+    expect((await screen.findByTestId('job-source-enable-failure')).textContent).toBe(
+      `Не вдалося увімкнути. ${sentence} Стан не змінено.`,
+    )
+    expect(answer).not.toBe('Не готове до роботи')
+  })
+
+  it('lays the failure out as a destructive note: icon, headline, then the reason', async () => {
+    listed = [blocked()]
+    vi.mocked(api.patch).mockRejectedValue(notReadyError())
+    renderPanel()
+    const toggle = await screen.findByRole('switch', { name: 'DOU' })
+    await act(async () => {
+      fireEvent.click(toggle)
+    })
+
+    const failure = await screen.findByTestId('job-source-enable-failure')
+    expect(failure).toHaveClass(
+      'flex',
+      'items-start',
+      'gap-2',
+      'rounded-md',
+      'border',
+      'border-destructive/50',
+      'px-3',
+      'py-2',
+    )
+    const icon = within(failure).getByTestId('job-source-failure-icon')
+    expect(icon).toHaveAttribute('aria-hidden', 'true')
+    expect(icon).toHaveClass('mt-0.5', 'size-3.5', 'shrink-0', 'text-destructive')
+    expect(within(failure).getByTestId('job-source-failure-text')).toHaveClass(
+      'flex',
+      'min-w-0',
+      'flex-col',
+      'gap-0.5',
+    )
+    const headline = within(failure).getByTestId('job-source-failure-headline')
+    const detail = within(failure).getByTestId('job-source-failure-detail')
+    expect(headline.textContent).toBe('Не вдалося увімкнути.')
+    expect(headline).toHaveClass('font-medium', 'text-destructive')
+    expect(detail.textContent).toBe('Причина: сплив термін авторизації. Стан не змінено.')
+    expect(detail).toHaveClass('text-muted-foreground')
   })
 
   it('falls back to the server answer when the source states no readiness reason', async () => {
@@ -776,7 +1020,7 @@ describe('AC5 — a refused enable', () => {
         readinessReason: 'SOMETHING_NEW: internal developer detail',
       }),
     ]
-    vi.mocked(api.patch).mockRejectedValue(new Error('409'))
+    vi.mocked(api.patch).mockRejectedValue(notReadyError())
     renderPanel()
     const toggle = await screen.findByRole('switch', { name: 'DOU' })
 
@@ -890,6 +1134,26 @@ describe('AC7 — the collapsed section and its summary (uk)', () => {
     expect(await summaryOf()).toBe('1 джерело · 1 заблоковано')
   })
 
+  it('stacks the summary under the title, so a 320 px row never squeezes it', async () => {
+    renderPanel({ collapsible: true })
+    const summary = await screen.findByTestId('job-source-summary')
+    expect(summary).not.toHaveClass('ml-auto')
+    expect(summary).toHaveClass('text-xs', 'tabular-nums', 'text-muted-foreground')
+    const heading = screen.getByTestId('job-source-section-title')
+    expect(heading).toHaveClass('flex', 'min-w-0', 'flex-col')
+    expect(heading).toContainElement(summary)
+    expect(heading.textContent).toBe(`Джерела вакансій${summary.textContent}`)
+  })
+
+  it('the page section does not print the trigger mode on the card', async () => {
+    renderPanel({ collapsible: true })
+    await screen.findByTestId('job-source-section')
+    expect((await screen.findByTestId('job-source-budget-row')).textContent).toBe(
+      'Залишилось 268 з 500 на місяць (використано 232)',
+    )
+    expect(screen.queryByText(/за розкладом/)).toBeNull()
+  })
+
   it('shows no summary while the list is loading', () => {
     vi.mocked(api.get).mockReturnValue(new Promise(() => {}) as never)
     renderPanel({ collapsible: true })
@@ -932,7 +1196,7 @@ describe('AC7 — English', () => {
         enabled: false,
       }),
     ]
-    vi.mocked(api.patch).mockRejectedValue(new Error('409'))
+    vi.mocked(api.patch).mockRejectedValue(notReadyError())
     renderPanel({ collapsible: true })
 
     expect((await screen.findByTestId('job-source-summary')).textContent).toBe(
@@ -985,7 +1249,7 @@ describe('exact rendering contract (state chips, notes, quota, panel shell)', ()
       'paused',
       { adminState: 'PAUSED' },
       'Pause',
-      ['border-yellow-muted/40', 'bg-yellow-subtle', 'text-foreground'],
+      ['border-yellow-muted/40', 'bg-yellow-subtle', 'text-primary'],
     ],
     [
       'blocked',
@@ -1146,7 +1410,7 @@ describe('exact rendering contract (state chips, notes, quota, panel shell)', ()
         readinessReason: 'AUTH_DEADLINE_PASSED: window closed',
       }),
     ]
-    vi.mocked(api.patch).mockRejectedValue(new Error('409'))
+    vi.mocked(api.patch).mockRejectedValue(notReadyError())
     renderPanel()
     const toggle = await ready()
     await act(async () => {
@@ -1240,20 +1504,20 @@ describe('COPY — English quota, deadlines and admin pause', () => {
     ]
     renderPanel()
     await screen.findByRole('switch', { name: 'DOU' })
-    expect(screen.getByTestId('job-source-quota-limit').textContent).toBe('Quota: $1.75 / $5.00')
+    expect(screen.getByTestId('job-source-quota-limit').textContent).toBe('Quota: $1.50 / $5.00')
     expect(screen.getByRole('img', { name: /Used \$1\.50, reserved \$0\.25/ })).toBeInTheDocument()
   })
 
   it('words the deadline rows and the admin pause', async () => {
     listed = [
-      source({ policyUntil: null, authUntil: '2027-02-10T00:00:00.000Z' }),
-      source({ id: ID_B, type: 'DJINNI_RSS', adminState: 'PAUSED' }),
+      source({ policyUntil: '2027-03-15T00:00:00.000Z', authUntil: '2027-02-10T00:00:00.000Z' }),
+      source({ id: ID_B, type: 'DJINNI_RSS', adminState: 'PAUSED', lastAttemptAt: null }),
     ]
     renderPanel()
     await screen.findAllByRole('switch')
-    expect(screen.getAllByText('Policy valid until')).toHaveLength(2)
-    expect(screen.getAllByText('Authorization until')).toHaveLength(2)
-    expect(screen.getAllByText('never')).toHaveLength(3)
+    expect(screen.getAllByText('Policy valid until')).toHaveLength(1)
+    expect(screen.getAllByText('Authorization until')).toHaveLength(1)
+    expect(screen.getAllByText('never')).toHaveLength(1)
     expect(screen.getAllByTestId('job-source-state-note')[0]?.textContent).toBe(
       'Paused by an administrator',
     )

@@ -77,7 +77,7 @@ function SourceBudgetPanelBody({ collapsible }: { collapsible: boolean }) {
       {!isLoading && !isError && (
         <ul className="mt-3 flex flex-col gap-2">
           {items.map((source) => (
-            <SourceSwitchCard key={source.id} source={source} />
+            <SourceSwitchCard key={source.id} source={source} showTrigger={!collapsible} />
           ))}
           {items.length === 0 && (
             <li className="text-xs text-muted-foreground">
@@ -98,17 +98,20 @@ function SourceBudgetPanelBody({ collapsible }: { collapsible: boolean }) {
           aria-hidden
           className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
         />
-        <span className="font-medium text-foreground">
-          <Trans>Джерела вакансій</Trans>
-        </span>
-        {summary && (
-          <span
-            data-testid="job-source-summary"
-            className="ml-auto text-xs tabular-nums text-muted-foreground"
-          >
-            {summary}
+        {/* Summary under the title (design §7), so a 320 px row never squeezes it. */}
+        <span data-testid="job-source-section-title" className="flex min-w-0 flex-col">
+          <span className="font-medium text-foreground">
+            <Trans>Джерела вакансій</Trans>
           </span>
-        )}
+          {summary && (
+            <span
+              data-testid="job-source-summary"
+              className="text-xs tabular-nums text-muted-foreground"
+            >
+              {summary}
+            </span>
+          )}
+        </span>
       </summary>
       <div className="px-3 pb-3">{body}</div>
     </details>

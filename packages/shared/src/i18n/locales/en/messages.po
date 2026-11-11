@@ -4668,6 +4668,10 @@ msgstr "English"
 msgid "Файл більший за {MAX_MB} МБ — виберіть інший"
 msgstr "File is larger than {MAX_MB} MB — choose another one"
 
+#: apps/web/app/components/job-sourcing/QuotaBar.tsx
+msgid "Зарезервовано <0>{reservedText}</0>"
+msgstr "Reserved <0>{reservedText}</0>"
+
 #: apps/web/app/hooks/use-job-sourcing.ts
 msgid "Вакансію приховано"
 msgstr "Vacancy hidden"
@@ -6543,6 +6547,10 @@ msgstr "Create your own team or join a drop’s team to regain access to project
 msgid "Не вдалося відтворити медіа. Спробуйте оновити доступ."
 msgstr "Could not play media. Try refreshing access."
 
+#: apps/web/app/components/job-sourcing/QuotaBar.tsx
+msgid "Використано <0>{usedText}</0>"
+msgstr "Used <0>{usedText}</0>"
+
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
 msgid "Додаткові поля для повнішої розмітки вакансії в пошуку Google."
 msgstr "Additional fields for fuller vacancy markup in Google search."
@@ -6618,10 +6626,6 @@ msgstr "Income validation"
 #: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
 msgid "Не готове: {reasonText}"
 msgstr "Not ready: {reasonText}"
-
-#: apps/web/app/components/job-sourcing/QuotaBar.tsx
-msgid "Невизначено {uncertainText}"
-msgstr "Uncertain {uncertainText}"
 
 #: apps/web/app/components/documents/document-detail-dialog.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
@@ -10192,6 +10196,10 @@ msgstr "Could not mark as ready"
 msgid "Крок 2 з 2: оплата створеної заявки"
 msgstr "Step 2 of 2: pay the created request"
 
+#: apps/web/app/components/job-sourcing/QuotaBar.tsx
+msgid "Невизначено <0>{uncertainText}</0>"
+msgstr "Uncertain <0>{uncertainText}</0>"
+
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 msgid "Пароль *"
 msgstr "Password *"
@@ -10900,10 +10908,6 @@ msgstr "Rate: 1 {0} = {1} {2}"
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Замінити media token"
 msgstr "Replace media token"
-
-#: apps/web/app/components/job-sourcing/QuotaBar.tsx
-msgid "Зарезервовано {reservedText}"
-msgstr "Reserved {reservedText}"
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Не вдалося перейменувати підключення"
@@ -12198,10 +12202,6 @@ msgstr "Oldest first"
 #: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Введіть ціле число від 0 до 100"
 msgstr "Enter a whole number from 0 to 100"
-
-#: apps/web/app/components/job-sourcing/QuotaBar.tsx
-msgid "Використано {usedText}"
-msgstr "Used {usedText}"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/DeleteTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/RestoreTransactionDialog.tsx

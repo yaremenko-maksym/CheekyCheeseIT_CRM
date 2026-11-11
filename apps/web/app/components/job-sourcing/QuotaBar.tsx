@@ -9,8 +9,8 @@ import { formatCount, formatUsdMicros } from './quota-format'
  * (`yellow-muted`, 60 %) and uncertain (hatched, so the bar is not colour-only) over the limit, with
  * a legend that carries the numbers and an `aria-label` that names all three.
  *
- * The headline number is used + reserved + uncertain (design.html `quota()`): everything the limit
- * has already committed, which is what the filled part of the bar adds up to.
+ * The headline counts what is used only (design §7: «Ліміт: 232 / 500 запитів»); reserved and
+ * uncertain amounts are not spent yet, so they live in the bar and the legend.
  */
 
 export interface QuotaFigures {
@@ -31,6 +31,9 @@ const QUOTA_LINE = {
   USD_MICROS: msg`Ліміт: {used} / {total}`,
 } satisfies Record<JobMeterUnit, ReturnType<typeof msg>>
 
+/** A legend number: the figure carries the weight, the word stays muted (design §7). */
+const FIGURE = 'font-medium tabular-nums text-foreground'
+
 export function QuotaBar({ used, reserved, uncertain, total, unit }: QuotaFigures) {
   const { i18n, t } = useLingui()
   const locale = useLocale()
@@ -45,7 +48,7 @@ export function QuotaBar({ used, reserved, uncertain, total, unit }: QuotaFigure
   const totalText = amount(total)
 
   const line = i18n._(QUOTA_LINE[unit].id, {
-    used: amount(used + reserved + uncertain),
+    used: usedText,
     // The plural needs the number; money has no unit word to agree, so it is the formatted text.
     total: unit === 'USD_MICROS' ? totalText : total,
   })
@@ -82,18 +85,24 @@ export function QuotaBar({ used, reserved, uncertain, total, unit }: QuotaFigure
       >
         <li data-testid="job-source-quota-legend-used" className="flex items-center gap-1.5">
           <span aria-hidden className="size-2 rounded-sm bg-primary" />
-          <Trans>Використано {usedText}</Trans>
+          <Trans>
+            Використано <span className={FIGURE}>{usedText}</span>
+          </Trans>
         </li>
         <li data-testid="job-source-quota-legend-reserved" className="flex items-center gap-1.5">
           <span aria-hidden className="size-2 rounded-sm bg-yellow-muted/60" />
-          <Trans>Зарезервовано {reservedText}</Trans>
+          <Trans>
+            Зарезервовано <span className={FIGURE}>{reservedText}</span>
+          </Trans>
         </li>
         <li data-testid="job-source-quota-legend-uncertain" className="flex items-center gap-1.5">
           <span
             aria-hidden
             className="size-2 rounded-sm bg-[repeating-linear-gradient(135deg,var(--color-muted-foreground)_0_2px,transparent_2px_4px)]"
           />
-          <Trans>Невизначено {uncertainText}</Trans>
+          <Trans>
+            Невизначено <span className={FIGURE}>{uncertainText}</span>
+          </Trans>
         </li>
       </ul>
     </div>
