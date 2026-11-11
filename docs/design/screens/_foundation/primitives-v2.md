@@ -411,7 +411,7 @@ two armed «Збережеться 2 транзакції» / «Відкрити
 its own; `upload-pill-multi-375`); «+2 чеки» counts only uploads that belong to no draft; two or more
 failed or unknown «2 потребують перевірки» / «Відкрити», which opens Фінанси at the pinned rows, and the
 FAB dot carries the count (`drafts-two-unresolved-375`). A save that completes under a failed or
-unknown pill shows as a normal success toast stacked above it; the pill keeps its own state. Фінанси pins one row per unsaved draft, newest first
+unknown pill shows as a normal success toast stacked above it; the pill keeps its own state. Фінанси pins a row per unsaved draft by the slot precedence, at most two, the rest in «Ще N чернеток · Показати»
 (`drafts-two-375`: one failed and one armed; the failed one wins the pill). Without a money draft the
 slot holds the plain upload pill. **Toast + pill** (`toast-pill-stack-375`): the pill keeps the base slot (left 12,
 right inset 80, left of the FAB); a toast stacks 8 px above it; at most one toast at a time. A toast
@@ -455,14 +455,14 @@ instant, sheet 280 ms up / 150 ms down, desktop 150 ms crossfade, reduced motion
 
 ## 8. Frames (all PNG under `assets/primitives-v2/`)
 
-76 frames; phones and component crops render at 2×, full 768 / 1024 / 1440 screens and the storyboard at 1×. Every
+79 frames; phones and component crops render at 2×, full 768 / 1024 / 1440 screens and the storyboard at 1×. Every
 PNG is ≤ 400 KB.
 
 | Frame                                    | Viewport (CSS px) | PNG (px)    |  KB | Round            |
 | ---------------------------------------- | ----------------- | ----------- | --: | ---------------- |
 | `sheet-medium-375`                       | 375 × 812         | 750 × 1624  |  33 |                  |
 | `sheet-medium-320`                       | 320 × 568         | 640 × 1136  |  25 |                  |
-| `sheet-large-375`                        | 375 × 812         | 750 × 1624  |  32 | re-rendered (R5) |
+| `sheet-large-375`                        | 375 × 812         | 750 × 1624  |  32 |                  |
 | `sheet-confirm-375`                      | 375 × 812         | 750 × 1624  |  44 |                  |
 | `listrow-variants-375`                   | 375 × 812         | 750 × 1624  |  38 |                  |
 | `listrow-swipe-375`                      | 375 × 812         | 750 × 1624  |  40 |                  |
@@ -483,7 +483,7 @@ PNG is ≤ 400 KB.
 | `form-receipt-usdt-375`                  | 375 × 812         | 750 × 1624  |  35 |                  |
 | `form-receipt-usdt-empty-375`            | 375 × 812         | 750 × 1624  |  33 |                  |
 | `form-receipt-usdt-file-375`             | 375 × 812         | 750 × 1624  |  36 |                  |
-| `picker-sheet-375`                       | 375 × 812         | 750 × 1624  |  37 | re-rendered (R5) |
+| `picker-sheet-375`                       | 375 × 812         | 750 × 1624  |  37 |                  |
 | `form-longtext-375`                      | 375 × 667         | 750 × 1334  |  45 |                  |
 | `form-keyboard-375`                      | 375 × 812         | 750 × 1624  |  31 |                  |
 | `sheet-panel-768`                        | 768 × 1024        | 768 × 1024  |  42 |                  |
@@ -492,45 +492,48 @@ PNG is ≤ 400 KB.
 | `sheet-confirm-dialog-1024`              | 1024 × 768        | 1024 × 768  |  49 |                  |
 | `listrow-table-desktop`                  | 960 × 300         | 1920 × 600  |  32 |                  |
 | `toast-undo-375`                         | 375 × 812         | 750 × 1624  |  51 |                  |
-| `toast-undo-768`                         | 768 × 1024        | 768 × 1024  |  29 | re-rendered (R5) |
-| `toast-undo-1440`                        | 1440 × 900        | 1440 × 900  |  34 | re-rendered (R5) |
-| `toast-error-definite-375`               | 375 × 812         | 750 × 1624  |  38 | re-rendered (R5) |
-| `toast-error-unknown-375`                | 375 × 812         | 750 × 1624  |  42 | re-rendered (R5) |
-| `toast-error-unknown-list-375`           | 375 × 812         | 750 × 1624  |  49 | re-rendered (R5) |
-| `toast-error-unknown-match-375`          | 375 × 812         | 750 × 1624  |  52 | re-rendered (R5) |
-| `toast-error-unknown-empty-375`          | 375 × 812         | 750 × 1624  |  38 | re-rendered (R5) |
-| `toast-error-unknown-refetch-failed-375` | 375 × 812         | 750 × 1624  |  33 | new (R5)         |
-| `form-receipt-failed-375`                | 375 × 812         | 750 × 1624  |  36 | new (R5)         |
-| `toast-error-offline-375`                | 375 × 812         | 750 × 1624  |  37 | re-rendered (R5) |
+| `toast-undo-768`                         | 768 × 1024        | 768 × 1024  |  29 |                  |
+| `toast-undo-1440`                        | 1440 × 900        | 1440 × 900  |  34 |                  |
+| `toast-error-definite-375`               | 375 × 812         | 750 × 1624  |  38 |                  |
+| `toast-error-unknown-375`                | 375 × 812         | 750 × 1624  |  46 | re-rendered (R6) |
+| `toast-error-unknown-list-375`           | 375 × 812         | 750 × 1624  |  48 | re-rendered (R6) |
+| `toast-error-unknown-match-375`          | 375 × 812         | 750 × 1624  |  50 | re-rendered (R6) |
+| `toast-error-unknown-empty-375`          | 375 × 812         | 750 × 1624  |  36 | re-rendered (R6) |
+| `toast-error-unknown-refetch-failed-375` | 375 × 812         | 750 × 1624  |  31 | re-rendered (R6) |
+| `form-receipt-failed-375`                | 375 × 812         | 750 × 1624  |  36 |                  |
+| `toast-error-offline-375`                | 375 × 812         | 750 × 1624  |  37 |                  |
 | `upload-pill-armed-375`                  | 375 × 812         | 750 × 1624  |  58 |                  |
 | `upload-pill-saved-375`                  | 375 × 812         | 750 × 1624  |  57 |                  |
-| `upload-pill-failed-375`                 | 375 × 812         | 750 × 1624  |  57 | re-rendered (R5) |
-| `upload-pill-multi-375`                  | 375 × 812         | 750 × 1624  |  58 | re-rendered (R5) |
-| `upload-pill-inflight-375`               | 375 × 812         | 750 × 1624  |  54 | new (R5)         |
-| `upload-pill-unknown-375`                | 375 × 812         | 750 × 1624  |  55 | re-rendered (R5) |
-| `drafts-two-375`                         | 375 × 812         | 750 × 1624  |  58 | re-rendered (R5) |
-| `drafts-two-unresolved-375`              | 375 × 812         | 750 × 1624  |  57 | re-rendered (R5) |
-| `quick-add-drafts-375`                   | 375 × 812         | 750 × 1624  |  47 | new (R5)         |
+| `upload-pill-failed-375`                 | 375 × 812         | 750 × 1624  |  57 |                  |
+| `upload-pill-multi-375`                  | 375 × 812         | 750 × 1624  |  58 |                  |
+| `upload-pill-inflight-375`               | 375 × 812         | 750 × 1624  |  54 |                  |
+| `upload-pill-unknown-375`                | 375 × 812         | 750 × 1624  |  55 | re-rendered (R6) |
+| `drafts-two-375`                         | 375 × 812         | 750 × 1624  |  58 | re-rendered (R6) |
+| `drafts-two-unresolved-375`              | 375 × 812         | 750 × 1624  |  59 | re-rendered (R6) |
+| `quick-add-drafts-375`                   | 375 × 812         | 750 × 1624  |  41 | re-rendered (R6) |
 | `toast-pill-stack-375`                   | 375 × 812         | 750 × 1624  |  60 |                  |
 | `state-page-kill-375`                    | 375 × 812         | 750 × 1624  |  54 |                  |
-| `alert-pagekill-sent-375`                | 375 × 812         | 750 × 1624  |  57 | re-rendered (R5) |
-| `alert-pagekill-failed-375`              | 375 × 812         | 750 × 1624  |  54 | new (R5)         |
-| `confirm-recreate-375`                   | 375 × 812         | 750 × 1624  |  48 | re-rendered (R5) |
-| `confirm-discard-draft-375`              | 375 × 812         | 750 × 1624  |  38 | re-rendered (R5) |
-| `listrow-draft-375`                      | 375 × 812         | 750 × 1624  |  54 | re-rendered (R5) |
+| `alert-pagekill-sent-375`                | 375 × 812         | 750 × 1624  |  57 |                  |
+| `check-sheet-boot-375`                   | 375 × 812         | 750 × 1624  |  37 | new (R6)         |
+| `alert-pagekill-failed-375`              | 375 × 812         | 750 × 1624  |  54 |                  |
+| `confirm-recreate-375`                   | 375 × 812         | 750 × 1624  |  47 | re-rendered (R6) |
+| `confirm-discard-draft-375`              | 375 × 812         | 750 × 1624  |  38 |                  |
+| `listrow-draft-375`                      | 375 × 812         | 750 × 1624  |  54 | re-rendered (R6) |
 | `upload-states-375`                      | 375 × 812         | 750 × 1624  |  55 |                  |
-| `upload-pill-768`                        | 768 × 1024        | 768 × 1024  |  42 | re-rendered (R5) |
+| `upload-pill-768`                        | 768 × 1024        | 768 × 1024  |  42 |                  |
 | `upload-pill-1440`                       | 1440 × 900        | 1440 × 900  |  59 |                  |
-| `drafts-desktop-1440`                    | 1440 × 900        | 1440 × 900  |  63 | new (R5)         |
-| `check-dialog-1024`                      | 1024 × 768        | 1024 × 768  |  51 | new (R5)         |
+| `drafts-desktop-1440`                    | 1440 × 900        | 1440 × 900  |  61 | re-rendered (R6) |
+| `drafts-chooser-1440`                    | 1440 × 900        | 1440 × 900  |  64 | new (R6)         |
+| `drafts-chooser-768`                     | 768 × 1024        | 768 × 1024  |  47 | new (R6)         |
+| `check-dialog-1024`                      | 1024 × 768        | 1024 × 768  |  52 | re-rendered (R6) |
 | `skeleton-mobile-375`                    | 375 × 812         | 750 × 1624  |  24 |                  |
 | `skeleton-768`                           | 768 × 1024        | 768 × 1024  |  18 |                  |
 | `skeleton-1440`                          | 1440 × 900        | 1440 × 900  |  33 |                  |
 | `skeleton-table-desktop`                 | 960 × 420         | 1920 × 904  |  23 |                  |
-| `chart-mobile-375`                       | 375 × 812         | 750 × 1624  |  36 | re-rendered (R5) |
-| `chart-mobile-scrolled-375`              | 375 × 812         | 750 × 1624  |  24 | re-rendered (R5) |
-| `chart-mobile-320`                       | 320 × 568         | 640 × 1136  |  28 | re-rendered (R5) |
-| `chart-desktop`                          | 1200 × 420        | 2400 × 934  |  48 |                  |
+| `chart-mobile-375`                       | 375 × 812         | 750 × 1624  |  35 | re-rendered (R6) |
+| `chart-mobile-scrolled-375`              | 375 × 812         | 750 × 1624  |  25 | re-rendered (R6) |
+| `chart-mobile-320`                       | 320 × 568         | 640 × 1136  |  28 | re-rendered (R6) |
+| `chart-desktop`                          | 1200 × 420        | 2400 × 934  |  48 | re-rendered (R6) |
 | `transition-storyboard`                  | 900 × 1200        | 900 × 2158  |  82 |                  |
 | `ptr-armed-375`                          | 375 × 480         | 750 × 960   |  23 |                  |
 | `ptr-done-375`                           | 375 × 480         | 750 × 960   |  29 |                  |
