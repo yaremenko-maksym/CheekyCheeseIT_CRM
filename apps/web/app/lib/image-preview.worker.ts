@@ -1,4 +1,3 @@
-/// <reference lib="webworker" />
 /**
  * Decodes and downscales a picked photo off the main thread for
  * `createImagePreviewUrl` (task-ios-file-input-freeze). Replies with the
