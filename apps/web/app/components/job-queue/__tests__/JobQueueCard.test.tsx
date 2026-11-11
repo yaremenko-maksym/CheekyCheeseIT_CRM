@@ -404,6 +404,9 @@ describe('JobQueueCard', () => {
     expect(icon).toHaveAttribute('aria-hidden', 'true')
     expect(within(stack).getByText('react')).toContainElement(icon)
     expect(within(stack).getByText('GraphQL')).not.toContainElement(icon)
+    // the check and the token share one line: a flex row, centred, with a gap
+    expect(within(stack).getByText('react')).toHaveClass('inline-flex', 'items-center', 'gap-1')
+    expect(within(stack).getByText('GraphQL')).not.toHaveClass('inline-flex')
   })
 
   it('UX-L-5: a long stack token wraps inside the chip instead of an ellipsis', () => {
