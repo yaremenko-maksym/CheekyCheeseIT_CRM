@@ -815,3 +815,58 @@ describe('removeScratchDir', () => {
     await expect(stat(dir)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 })
+
+describe('renderPng (Task 14, the vision check copy)', () => {
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+  it('asks Typst for PNG pages through the same sandbox arguments', () => {
+    const png = buildArgs('/scratch', '/scratch/page-{0p}.png', 'png')
+    expect(png[png.indexOf('--format') + 1]).toBe('png')
+    expect(png.at(-1)).toBe('/scratch/page-{0p}.png')
+    expect(png[png.indexOf('--root') + 1]).toBe('/scratch')
+    expect(png).toContain('--ignore-system-fonts')
+    // The PDF default is unchanged.
+    const pdf = buildArgs('/scratch', '/scratch/out.pdf')
+    expect(pdf[pdf.indexOf('--format') + 1]).toBe('pdf')
+  })
+
+  it('renders the real template to PNG pages', async () => {
+    const pages = await service.renderPng(input())
+    expect(pages.length).toBeGreaterThan(0)
+    for (const page of pages) expect(page.subarray(0, 8).equals(PNG)).toBe(true)
+  }, 120_000)
+
+  /** A runner that writes the given files into the sandbox instead of running Typst. */
+  const writing =
+    (files: Record<string, Buffer>, seen: string[][] = []): TypstRunner =>
+    async (_bin, args, options) => {
+      seen.push(args)
+      const { writeFile } = await import('node:fs/promises')
+      for (const [name, body] of Object.entries(files)) {
+        await writeFile(join(options.cwd, name), body)
+      }
+      return { code: 0, stderr: '', timedOut: false }
+    }
+
+  it('returns the pages in page order and ignores other files', async () => {
+    const seen: string[][] = []
+    const page = (n: number) => Buffer.concat([PNG, Buffer.from(`page ${n}`)])
+    const fake = new ResumeTypstService(
+      writing({ 'page-02.png': page(2), 'page-01.png': page(1), 'notes.png': page(9) }, seen),
+      SCRATCH_ROOT,
+    )
+    const pages = await fake.renderPng(input())
+    expect(pages.map((p) => p.subarray(8).toString())).toEqual(['page 1', 'page 2'])
+    const args = seen[0] ?? []
+    expect(args[args.indexOf('--format') + 1]).toBe('png')
+    expect(args.at(-1)?.endsWith('page-{0p}.png')).toBe(true)
+  })
+
+  it.each([
+    ['no pages', {}],
+    ['a page that is not a PNG', { 'page-1.png': Buffer.from('%PDF-1.7') }],
+  ])('refuses %s', async (_label, files: Record<string, Buffer>) => {
+    const fake = new ResumeTypstService(writing(files), SCRATCH_ROOT)
+    await expect(fake.renderPng(input())).rejects.toBeInstanceOf(ResumeRenderError)
+  })
+})
