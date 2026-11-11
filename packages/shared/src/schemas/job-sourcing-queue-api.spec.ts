@@ -750,8 +750,8 @@ describe('field bounds, both sides of each limit (CR-M-2)', () => {
     no(jobQueueCardSeniorSchema, { ...senior, team: { teamId: U1, teamName: 'A', seniorId: U1 } })
   })
 
-  it('noMatchReason: the three empty states or null, nothing else', () => {
-    for (const reason of ['STOP_LISTED', 'TRIAGE', 'NO_MATCH', null]) {
+  it('noMatchReason: the four empty states or null, nothing else', () => {
+    for (const reason of ['STOP_LISTED', 'TRIAGE', 'NO_MATCH', 'EXCLUDED', null]) {
       ok(jobQueueCardResponseSchema, { ...card, noMatchReason: reason })
     }
     no(jobQueueCardResponseSchema, { ...card, noMatchReason: 'OTHER' })

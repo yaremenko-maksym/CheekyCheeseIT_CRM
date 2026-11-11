@@ -296,6 +296,21 @@ export function MatchedSeniors({
         body={<Trans>Стек збігається, проте вакансію їм не пропонують.</Trans>}
       />
     )
+  } else if (card.noMatchReason === 'EXCLUDED') {
+    // the funnel excluded it at its current revision (CR2-M-1): neither triage nor a zero match
+    body = (
+      <EmptyState
+        testId="job-queue-seniors-excluded"
+        icon={<Info aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-muted-foreground" />}
+        title={<Trans>Вакансію відсіяно автоматичним відбором</Trans>}
+        body={
+          <Trans>
+            Система не пропонує її сеньйорам: вакансія не пройшла автоматичний відбір. Відкрийте
+            опис, якщо хочете оцінити її вручну.
+          </Trans>
+        }
+      />
+    )
   } else if (card.eligibility === 'TRIAGE' && card.noMatchReason !== 'NO_MATCH') {
     // every zero-match card is TRIAGE by eligibility; a manual card nobody matches is a zero match
     // (AC 5), which only the API's reason can tell apart

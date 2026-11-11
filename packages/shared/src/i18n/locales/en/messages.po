@@ -7467,6 +7467,10 @@ msgstr "Could not restore the document. Try again"
 msgid "Підтвердження"
 msgstr "Confirmation"
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Система не пропонує її сеньйорам: вакансія не пройшла автоматичний відбір. Відкрийте опис, якщо хочете оцінити її вручну."
+msgstr "The system does not offer it to seniors: the vacancy did not pass automatic screening. Open the description if you want to review it manually."
+
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Помилка аналізу"
 msgstr "Analysis failed"
@@ -9277,6 +9281,10 @@ msgstr "Processing…"
 #: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
 msgid "Посилання на blockchain-explorer (etherscan.io, tronscan.org, bscscan.com та ін.)"
 msgstr "A link to a blockchain explorer (etherscan.io, tronscan.org, bscscan.com, etc.)"
+
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Вакансію відсіяно автоматичним відбором"
+msgstr "Filtered out by automatic screening"
 
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx

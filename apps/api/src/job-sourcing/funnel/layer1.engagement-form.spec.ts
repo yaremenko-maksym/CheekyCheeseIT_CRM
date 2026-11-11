@@ -51,6 +51,8 @@ describe('engagementFormOf', () => {
     'Employee / contractor',
     // a negated form states nothing
     'no B2B',
+    'not permanent',
+    'Fixed-term, not permanent',
     // unknown text, blank and missing
     'Remote',
     '   ',

@@ -356,6 +356,26 @@ describe('MatchedSeniors', () => {
     expect(screen.queryByTestId('job-queue-seniors-stop-all')).toBeNull()
   })
 
+  it('CR2-M-1: a card the funnel excluded says so, neither triage nor a zero match', () => {
+    renderBlock(
+      cardFixture({
+        eligibility: 'TRIAGE',
+        noMatchReason: 'EXCLUDED',
+        matchedSeniorCount: 0,
+        seniors: none,
+      }),
+    )
+    const empty = screen.getByTestId('job-queue-seniors-excluded')
+    expect(empty).toHaveClass('rounded-lg', 'border')
+    expect(empty).not.toHaveClass('border-dashed')
+    expect(empty).toHaveTextContent(
+      'Вакансію відсіяно автоматичним відборомСистема не пропонує її сеньйорам: вакансія не пройшла автоматичний відбір. Відкрийте опис, якщо хочете оцінити її вручну.',
+    )
+    expect(screen.queryByTestId('job-queue-seniors-triage')).toBeNull()
+    expect(screen.queryByTestId('job-queue-seniors-none')).toBeNull()
+    expect(screen.queryByTestId('job-queue-seniors-stop-all')).toBeNull()
+  })
+
   it('AC 5: a manual card nobody matches reads as a zero match, not as triage', () => {
     // the API marks every zero-match card TRIAGE by eligibility; the reason tells them apart
     renderBlock(

@@ -132,7 +132,7 @@ export const cardRow = (
               AND listed.opportunity_revision < o.revision) AS newer_than_list,
              o.last_observed_at, o.stack_keywords, o.manual_team_id,
              stats.triaged, o.employer_verified,
-             (o.evaluated_revision = o.revision) IS TRUE AS evaluated_current,
+             (o.evaluated_revision = o.revision) IS TRUE AS evaluated_current, o.evaluation_verdict,
              (SELECT rv.normalized->>'employmentType' FROM job_source_records sr
                 JOIN job_source_record_revisions rv ON rv.id = sr.latest_revision_id
                WHERE sr.id = src.source_record_id) AS employment_type,

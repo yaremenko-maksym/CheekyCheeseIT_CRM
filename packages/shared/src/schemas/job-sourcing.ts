@@ -2080,8 +2080,11 @@ const jobQueueCardDuplicatesPreviewSchema = jobPossibleDuplicatesPreviewSchema
   })
   .strict()
 
-/** Why a card has no matched senior (§5.8): drives the three distinct empty states. */
-export const jobQueueNoMatchReasonSchema = z.enum(['STOP_LISTED', 'TRIAGE', 'NO_MATCH'])
+/**
+ * Why a card has no matched senior (§5.8): drives the four distinct empty states. EXCLUDED: the
+ * funnel excluded the vacancy at its current revision (CR2-M-1), so NO_MATCH means an OPEN verdict.
+ */
+export const jobQueueNoMatchReasonSchema = z.enum(['STOP_LISTED', 'TRIAGE', 'NO_MATCH', 'EXCLUDED'])
 export type JobQueueNoMatchReason = z.infer<typeof jobQueueNoMatchReasonSchema>
 
 /** §5.1 «Форма співпраці»: only a form the posting states unambiguously; null names none. */

@@ -168,17 +168,22 @@ export function matchEvidence(
 }
 
 /**
- * Why a card has no matched senior (Task 7.3b, design §5.4–5.5, SPEC-H-1), first that holds:
- * a stop-list; an own senior's live TRIAGE row (the stack could not be judged); a manual card
- * (never evaluated, a person placed it: nobody matching is a zero match); an unverified employer
- * or no evaluation at the current revision (TRIAGE); else evaluated with no own row: NO_MATCH.
+ * Why a card has no matched senior (Task 7.3b, design §5.4–5.5, SPEC-H-1, CR2-M-1), first that
+ * holds: a stop-list; the funnel excluded the vacancy at its current revision (EXCLUDED); an own
+ * senior's live TRIAGE row (the stack could not be judged); a manual card (never evaluated, a
+ * person placed it: nobody matching is a zero match); an unverified employer or no evaluation at
+ * the current revision (TRIAGE); else an OPEN verdict with no own senior's LEAD, TRIAGE or
+ * stop-list row (the own seniors' other EXCLUDED rows do exist): NO_MATCH.
  */
 export function noMatchReason(r: Row): JobQueueNoMatchReason | null {
   if (count(r['matched']) > 0) return null
   if (count(r['stop_listed']) > 0) return 'STOP_LISTED'
+  const current = r['evaluated_current'] === true
+  if (current && r['evaluation_verdict'] === 'EXCLUDED') return 'EXCLUDED'
   if (count(r['triaged']) > 0) return 'TRIAGE'
   if (r['manual_team_id'] != null) return 'NO_MATCH'
-  return r['employer_verified'] === true && r['evaluated_current'] === true ? 'NO_MATCH' : 'TRIAGE'
+  const open = current && r['evaluation_verdict'] === 'OPEN'
+  return r['employer_verified'] === true && open ? 'NO_MATCH' : 'TRIAGE'
 }
 
 /** The union over the scope's LEAD seniors, never attributed. Sorted: the cap keeps a stable set. */

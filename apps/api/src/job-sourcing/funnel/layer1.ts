@@ -1,3 +1,4 @@
+import type { JobQueueEngagementForm } from '@crm/shared'
 import {
   AGENCY_ACCEPT_AFTER,
   AGENCY_ACCEPT_PHRASES,
@@ -402,19 +403,23 @@ const extractBasis: Extractor<BasisSignal> = (folded) => {
   return out
 }
 
+const PERMANENT_WORD_RE = phraseRegex(['permanent'])
+
 /**
  * The vacancy card's «Форма співпраці» (Task 7.3b SPEC-M-1): the provider's own `employmentType`
  * text alone, through the basis lexicon above. B2B wins over a contractor word ("B2B contract");
  * employment needs no contractor or B2B beside it. A schedule-only, contractor-only, mixed or
  * unknown value states no form, so the card shows none. A bare `permanent` (Lever `commitment`,
  * SmartRecruiters, Personio, Recruitee `fulltime_permanent`) is employment here only: inside the
- * basis lexicon it would change the funnel, which this card does not own.
+ * basis lexicon it would change the funnel, which this card does not own. A negated one ("not
+ * permanent") states nothing, as for the other employee phrases.
  */
-export function engagementFormOf(text: string | null | undefined): 'B2B' | 'EMPLOYMENT' | null {
+export function engagementFormOf(text: string | null | undefined): JobQueueEngagementForm | null {
   if (text == null) return null
   const folded = fold(text)
   const signals = new Set(extractBasis(folded).map((s) => s.value))
-  if (/\bpermanent\b/.test(folded)) signals.add('EMPLOYEE')
+  if (hitsOf(PERMANENT_WORD_RE, folded).some((h) => !isNegated(folded, h.index)))
+    signals.add('EMPLOYEE')
   if (signals.has('EMPLOYEE')) return signals.size === 1 ? 'EMPLOYMENT' : null
   return signals.has('B2B') ? 'B2B' : null
 }

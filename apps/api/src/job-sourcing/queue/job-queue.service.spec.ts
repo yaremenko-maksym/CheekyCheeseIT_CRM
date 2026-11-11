@@ -762,8 +762,8 @@ describe('matchEvidence (Task 7.3b «Чому збіг»)', () => {
   })
 })
 
-describe('noMatchReason (Task 7.3b, three empty states)', () => {
-  // A sourced card evaluated at its current revision, verified, with no row for any own senior.
+describe('noMatchReason (Task 7.3b, four empty states)', () => {
+  // A sourced card evaluated OPEN at its current revision, verified, with no own LEAD/TRIAGE/stop row.
   const evaluated = {
     matched: '0',
     stop_listed: '0',
@@ -771,7 +771,25 @@ describe('noMatchReason (Task 7.3b, three empty states)', () => {
     manual_team_id: null,
     employer_verified: true,
     evaluated_current: true,
+    evaluation_verdict: 'OPEN',
   }
+  const excluded = { ...evaluated, evaluation_verdict: 'EXCLUDED' }
+  it('a card excluded at its current revision is EXCLUDED, never NO_MATCH (CR2-M-1)', () => {
+    expect(noMatchReason(excluded)).toBe('EXCLUDED')
+    expect(noMatchReason({ ...excluded, employer_verified: false })).toBe('EXCLUDED')
+    expect(noMatchReason({ ...excluded, triaged: '1' })).toBe('EXCLUDED')
+    expect(noMatchReason({ ...excluded, manual_team_id: TEAM })).toBe('EXCLUDED')
+  })
+  it('a stop-list wins over the exclusion; a LEAD wins over both', () => {
+    expect(noMatchReason({ ...excluded, stop_listed: '1' })).toBe('STOP_LISTED')
+    expect(noMatchReason({ ...excluded, matched: '1' })).toBeNull()
+  })
+  it('an exclusion at an older revision is not EXCLUDED: the new revision awaits evaluation', () => {
+    expect(noMatchReason({ ...excluded, evaluated_current: false })).toBe('TRIAGE')
+  })
+  it('NO_MATCH needs an OPEN verdict: a missing verdict is TRIAGE', () => {
+    expect(noMatchReason({ ...evaluated, evaluation_verdict: null })).toBe('TRIAGE')
+  })
   it('is null as soon as one senior matched, whatever else holds', () => {
     expect(noMatchReason({ ...evaluated, matched: '1', stop_listed: '3', triaged: '2' })).toBeNull()
   })
@@ -867,6 +885,7 @@ const cardDbRow = (over: Record<string, unknown> = {}) => ({
   triaged: '0',
   employer_verified: true,
   evaluated_current: true,
+  evaluation_verdict: 'OPEN',
   employment_type: 'B2B',
   dismissal_version: null,
   ...over,

@@ -1307,6 +1307,32 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       expect((await service.card(admin(), id('opp73Zero'))).noMatchReason).toBe('TRIAGE')
     })
 
+    it('no-match reason: a card excluded at its current revision is EXCLUDED, not NO_MATCH (CR2-M-1)', async () => {
+      await mkOpp('opp73Out')
+      await evaluated('opp73Out', 'EXCLUDED')
+      await verifyEmployer('opp73Out')
+      // every own senior has an EXCLUDED row: no LEAD, TRIAGE or stop-list count
+      await match('opp73Out', 'senA', 'EXCLUDED', { reasons: [] })
+      const out = await service.card(admin(), id('opp73Out'))
+      expect(out).toMatchObject({ eligibility: 'TRIAGE', matchedSeniorCount: 0 })
+      expect(out.noMatchReason).toBe('EXCLUDED')
+      // a new revision is not judged yet: triage, not the old exclusion
+      await sqlq(`UPDATE job_opportunities SET revision = revision + 1 WHERE id = $1`, [
+        id('opp73Out'),
+      ])
+      expect((await service.card(admin(), id('opp73Out'))).noMatchReason).toBe('TRIAGE')
+    })
+
+    it('no-match reason: a stop-listed card that is also EXCLUDED stays STOP_LISTED', async () => {
+      await mkOpp('opp73StopOut')
+      await evaluated('opp73StopOut', 'EXCLUDED')
+      await verifyEmployer('opp73StopOut')
+      await stopListed('opp73StopOut', 'senA')
+      const stop = await service.card(admin(), id('opp73StopOut'))
+      expect(stop).toMatchObject({ matchedSeniorCount: 0, stopListedSeniorCount: 1 })
+      expect(stop.noMatchReason).toBe('STOP_LISTED')
+    })
+
     it('no-match reason: an own TRIAGE match row keeps a verified, evaluated card in triage', async () => {
       await mkOpp('opp73Triage')
       await grant('opp73Triage', 'teamA')

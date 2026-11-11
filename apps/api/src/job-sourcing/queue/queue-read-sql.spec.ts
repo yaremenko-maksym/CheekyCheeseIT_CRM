@@ -354,7 +354,7 @@ describe('field scoping — what each read binds', () => {
     // SPEC-H-1: the no-match reason reads own TRIAGE rows, the employer check and the evaluation
     expect(text).toContain("count(*) FILTER (WHERE m.outcome = 'TRIAGE') AS triaged")
     expect(text).toContain(
-      'stats.triaged, o.employer_verified, (o.evaluated_revision = o.revision) IS TRUE AS evaluated_current',
+      'stats.triaged, o.employer_verified, (o.evaluated_revision = o.revision) IS TRUE AS evaluated_current, o.evaluation_verdict,',
     )
     // SPEC-M-1: the primary source's own employment text, from its latest revision
     expect(text).toContain(
