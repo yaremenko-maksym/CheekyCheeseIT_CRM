@@ -73,7 +73,7 @@ const FROM_STAGED = new Set<string | null>(['staged-edit', 'item'])
 /** `summary` → 'summary', `experience.<i>.bullets` → i; anything else → null. */
 export function regenerateTarget(path: string | null): 'summary' | number | null {
   if (path === 'summary') return 'summary'
-  const item = /^experience\.(\d+)\.bullets$/u.exec(path ?? '')
+  const item = /^experience\.(\d+)\.bullets$/u.exec(String(path))
   return item ? Number(item[1]) : null
 }
 
@@ -225,7 +225,8 @@ export class VerificationRunner {
   /**
    * Stages 3 and 4 by run kind: `full` writes everything; `item` writes `verification_target_path`
    * only and keeps the other staged texts; `staged-edit` writes nothing (spec §4 step 6: no writer,
-   * no entailment). The staged kinds carry the earlier run's fallbacks and content findings forward.
+   * no entailment). The staged kinds carry the earlier run's fallbacks and content findings forward,
+   * except those of `verification_target_path`: that text was just rewritten, by the model or a person.
    */
   private async written(
     row: SeniorResume,
@@ -236,28 +237,28 @@ export class VerificationRunner {
     const staged = resumeContentSchema.safeParse(row.stagedContent)
     if (!staged.success) throw new RunFailure('INCOMPLETE')
     const previous = resumeVerificationReportSchema.safeParse(row.verificationReport).data
-    const target = row.verificationKind === 'item' ? row.verificationTargetPath : null
+    const target = row.verificationTargetPath
     const keep = <T extends string | { path: string }>(list: T[]) =>
       list.filter((entry) => (typeof entry === 'string' ? entry : entry.path) !== target)
-    const carried = {
-      fallbacks: keep(previous?.fallbacks ?? []),
-      items: keep(previous?.gates.find((g) => g.gate === 'content')?.items ?? []),
-    }
-    let next: WrittenContent = {
+    let next: { content: ResumeContent; items: GateResult['items']; fallbacks: string[] } = {
       content: staged.data,
-      gate: { gate: 'content', ok: true, items: [] },
+      items: [],
       fallbacks: [],
     }
     if (row.verificationKind === 'item') {
       const field = regenerateTarget(target)
       if (field === null) throw new RunFailure('INCOMPLETE')
-      next = await writeGatedField(input, deps, field, staged.data)
+      const fresh = await writeGatedField(input, deps, field, staged.data)
+      next = { content: fresh.content, items: fresh.gate.items, fallbacks: fresh.fallbacks }
     }
-    const items = [...carried.items, ...next.gate.items]
+    const items = [
+      ...keep(previous?.gates.find((g) => g.gate === 'content')?.items ?? []),
+      ...next.items,
+    ]
     return {
       content: next.content,
       gate: { gate: 'content', ok: items.length === 0, items },
-      fallbacks: [...carried.fallbacks, ...next.fallbacks],
+      fallbacks: [...keep(previous?.fallbacks ?? []), ...next.fallbacks],
     }
   }
 

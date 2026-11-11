@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { MAX_EXTRACTION_INPUT_CHARS } from '@crm/inference'
-import type { ResumeFacts } from '@crm/shared'
+import type { ResumeContent, ResumeFacts } from '@crm/shared'
 import type { ContactContext } from './contact-scan'
 import {
   cleanedNotes,
@@ -17,6 +17,7 @@ import {
   splitSentences,
   toFeedback,
   writeGatedContent,
+  writeGatedField,
   writingPayload,
   type ContentDeps,
   type ContentInput,
@@ -693,6 +694,82 @@ describe('writeGatedContent', () => {
     }
     await expect(writeGatedContent(input(), deps)).rejects.toMatchObject({ code: 'STALLED' })
     expect(deps.writer.write).not.toHaveBeenCalled()
+  })
+})
+
+describe('writeGatedField (Task 15 item run)', () => {
+  /** The staged content an item run starts from: every text hand-written, so a rewrite shows. */
+  function base(): ResumeContent {
+    const frozen = input().frozen
+    return {
+      ...frozen,
+      summary: 'Hand summary.',
+      experience: frozen.experience.map((item, i) => ({ ...item, bullets: [`Hand bullet ${i}`] })),
+    }
+  }
+
+  it('bullets of one item: one call for that item, every other text kept', async () => {
+    const deps = fakeDeps({})
+    const out = await writeGatedField(input(), deps, 1, base())
+    expect(deps.calls.map((c) => [c.task, c.payload.experience[0]?.company])).toEqual([
+      ['bullets', 'Globex'],
+    ])
+    expect(out.content.summary).toBe('Hand summary.')
+    expect(out.content.experience.map((e) => e.bullets)).toEqual([
+      ['Hand bullet 0'],
+      ['Built the billing service'],
+    ])
+    expect(out.gate).toEqual({ gate: 'content', ok: true, items: [] })
+    expect(out.fallbacks).toEqual([])
+  })
+
+  it('bullets that fail every attempt fall back to the cleaned notes of that item', async () => {
+    const deps = fakeDeps({ bullets: () => [bullets('Cut costs by 40%')] })
+    const out = await writeGatedField(input(), deps, 0, base())
+    expect(out.content.experience.map((e) => e.bullets)).toEqual([
+      ['Led the payments team', 'Moved billing to TypeScript'],
+      ['Hand bullet 1'],
+    ])
+    expect(out.content.summary).toBe('Hand summary.')
+    expect(out.fallbacks).toEqual(['experience.0.bullets'])
+    expect(out.gate).toEqual({
+      gate: 'content',
+      ok: false,
+      items: [{ path: 'experience.0.bullets', reason: 'UNGROUNDED' }],
+    })
+  })
+
+  it('bullets that pass on a regeneration are kept, with no finding', async () => {
+    const deps = fakeDeps({
+      bullets: () => [bullets('Cut costs by 40%'), bullets('Led the payments team')],
+    })
+    const out = await writeGatedField(input(), deps, 0, base())
+    expect(out.content.experience[0]?.bullets).toEqual(['Led the payments team'])
+    expect(out.gate).toEqual({ gate: 'content', ok: true, items: [] })
+    expect(out.fallbacks).toEqual([])
+  })
+
+  it('the summary: one summary call, cleaned for the template, the bullets kept', async () => {
+    const deps = fakeDeps({ summary: [ok('Backend\nengineer.')] })
+    const out = await writeGatedField(input(), deps, 'summary', base())
+    expect(deps.calls.map((c) => c.task)).toEqual(['summary'])
+    expect(out.content.summary).toBe('Backend engineer.')
+    expect(out.content.experience).toEqual(base().experience)
+    expect(out.gate).toEqual({ gate: 'content', ok: true, items: [] })
+    expect(out.fallbacks).toEqual([])
+  })
+
+  it('a summary still failing after two regenerations becomes "" and is a fallback (P10)', async () => {
+    const deps = fakeDeps({ summary: [ok('   ')] })
+    const out = await writeGatedField(input(), deps, 'summary', base())
+    expect(deps.calls).toHaveLength(3)
+    expect(out.content.summary).toBe('')
+    expect(out.fallbacks).toEqual(['summary'])
+    expect(out.gate).toEqual({
+      gate: 'content',
+      ok: false,
+      items: [{ path: 'summary', reason: 'EMPTY' }],
+    })
   })
 })
 

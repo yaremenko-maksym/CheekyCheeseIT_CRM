@@ -26,6 +26,7 @@ import type { EntailmentClaim, VisualReply, WriterReply, WriterTask } from './in
 import {
   CLEARED_STAGED,
   deleteStagedQuietly,
+  regenerateTarget,
   stagedPdfKey,
   VERIFICATION_DEADLINE_MS,
   VERIFICATION_RUN_BUDGET_MS,
@@ -166,6 +167,28 @@ describe('deleteStagedQuietly', () => {
     s3.delete.mockRejectedValueOnce(new Error('s3 down'))
     await expect(deleteStagedQuietly(s3, logger, KEY)).resolves.toBeUndefined()
     expect(logs).toEqual([`Staged resume PDF not deleted: ${KEY}`])
+  })
+})
+
+describe('regenerateTarget', () => {
+  it('reads summary and a whole bullet list, multi-digit index included', () => {
+    expect(regenerateTarget('summary')).toBe('summary')
+    expect(regenerateTarget('experience.0.bullets')).toBe(0)
+    expect(regenerateTarget('experience.10.bullets')).toBe(10)
+  })
+
+  it('refuses null, one bullet, and anything around the exact shape', () => {
+    for (const path of [
+      null,
+      'null',
+      'experience.0.bullets.1',
+      'xexperience.0.bullets',
+      'experience.0.bulletsx',
+      'experience.a.bullets',
+      'experience..bullets',
+    ]) {
+      expect(regenerateTarget(path)).toBeNull()
+    }
   })
 })
 
@@ -504,7 +527,10 @@ describe('VerificationRunner.run — staged kinds (Task 15)', () => {
   }
 
   it('staged-edit: no writer and no entailment, the staged look, every edit kept', async () => {
-    const { set, rendered } = await stagedRun({ verificationKind: 'staged-edit' })
+    const { set, rendered } = await stagedRun({
+      verificationKind: 'staged-edit',
+      verificationTargetPath: 'summary',
+    })
     expect(writer.write).not.toHaveBeenCalled()
     expect(entailment.score).not.toHaveBeenCalled()
     expect(set['verificationStatus']).toBe('AWAITING_CONFIRM')
@@ -514,9 +540,45 @@ describe('VerificationRunner.run — staged kinds (Task 15)', () => {
     expect(rendered?.templateName).toBe('modern')
     expect(rendered?.layout.hiddenSections).toEqual([])
     const report = set['verificationReport'] as typeof PREVIOUS
-    // nothing was rewritten, so the earlier findings and fallbacks all still stand
+    // the person replaced the summary: its finding and fallback go, the item's stay
+    expect(report.gates[0]).toEqual({
+      gate: 'content',
+      ok: false,
+      items: [{ path: 'experience.0.bullets', reason: 'UNSUPPORTED' }],
+    })
+    expect(report.fallbacks).toEqual(['experience.0.bullets'])
+  })
+
+  it('staged-edit of one bullet keeps every earlier finding: the item path was not rewritten', async () => {
+    const { set } = await stagedRun({
+      verificationKind: 'staged-edit',
+      verificationTargetPath: 'experience.0.bullets.0',
+    })
+    const report = set['verificationReport'] as typeof PREVIOUS
     expect(report.gates[0]).toEqual(PREVIOUS.gates[0])
-    expect(report.fallbacks).toEqual(expect.arrayContaining(PREVIOUS.fallbacks))
+    expect(report.fallbacks).toEqual(PREVIOUS.fallbacks)
+  })
+
+  it('no earlier report, or one whose first gate is not content: nothing is carried', async () => {
+    for (const verificationReport of [
+      null,
+      {
+        gates: [
+          { gate: 'ats', ok: false, items: [{ path: 'summary', reason: 'MISSING' }] },
+          { gate: 'content', ok: true, items: [] },
+        ],
+        fallbacks: [],
+      },
+    ]) {
+      const { set } = await stagedRun({
+        verificationKind: 'staged-edit',
+        verificationTargetPath: 'experience.0.bullets.0',
+        verificationReport: verificationReport as never,
+      })
+      const report = set['verificationReport'] as typeof PREVIOUS
+      expect(report.gates[0]).toEqual({ gate: 'content', ok: true, items: [] })
+      expect(report.fallbacks).toEqual([])
+    }
   })
 
   it('item summary: writes the summary only, keeps the bullets, drops that path from the report', async () => {
