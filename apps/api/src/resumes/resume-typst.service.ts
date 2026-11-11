@@ -53,7 +53,7 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { setPriority, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -272,11 +272,20 @@ export class ResumeTypstService {
       // aging renders by "when were you asked for" would declare it stuck and
       // restart it on top of itself.
       onStart?.()
-      return this.renderOnce(input)
+      return this.renderOnce(input, 'pdf').then(([pdf]) => pdf as Buffer)
     })
   }
 
-  private async renderOnce(input: ResumeRenderInput): Promise<Buffer> {
+  /**
+   * Render `input` to one PNG per page, through the same sandbox, gate and
+   * glyph substitution as `render` (the visual check's input). Throws
+   * `ResumeRenderError` like `render`.
+   */
+  async renderPng(input: ResumeRenderInput): Promise<Buffer[]> {
+    return this.gate.run(() => this.renderOnce(input, 'png'))
+  }
+
+  private async renderOnce(input: ResumeRenderInput, format: RenderFormat): Promise<Buffer[]> {
     const { payload, dropped } = this.serialiseInput(input)
     logDroppedGlyphs('resume render', dropped)
 
@@ -295,8 +304,9 @@ export class ResumeTypstService {
         'utf8',
       )
 
-      const outPath = join(dir, 'out.pdf')
-      const result = await this.runner(typstBinary(), buildArgs(dir, outPath), {
+      // Typst numbers the PNG pages itself: `{0p}` is the zero-padded page number.
+      const outPath = join(dir, format === 'pdf' ? 'out.pdf' : 'page-{0p}.png')
+      const result = await this.runner(typstBinary(), buildArgs(dir, outPath, format), {
         cwd: dir,
         env: renderEnv(),
       })
@@ -315,12 +325,13 @@ export class ResumeTypstService {
         )
       }
 
+      if (format === 'png') return await readPngPages(dir)
       const pdf = await readFile(outPath)
       if (pdf.subarray(0, 5).toString('latin1') !== '%PDF-') {
         throw new ResumeRenderError('Сборка PDF завершилась, но файл не является PDF.')
       }
       await assertDocumentIsNotBlank(pdf)
-      return pdf
+      return [pdf]
     } catch (err: unknown) {
       if (err instanceof ResumeRenderError) throw err
       const detail = err instanceof Error ? err.message : 'unknown'
@@ -409,8 +420,23 @@ export function typstBinary(): string {
   return process.env['TYPST_BIN']?.trim() || 'typst'
 }
 
+type RenderFormat = 'pdf' | 'png'
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+const PNG_PAGE = /^page-\d+\.png$/
+
+/** The PNG pages Typst wrote, in page order (the zero-padded names sort as numbers). */
+async function readPngPages(dir: string): Promise<Buffer[]> {
+  const names = (await readdir(dir)).filter((name) => PNG_PAGE.test(name)).sort()
+  const pages = await Promise.all(names.map((name) => readFile(join(dir, name))))
+  if (pages.length === 0 || pages.some((page) => !page.subarray(0, 8).equals(PNG_SIGNATURE))) {
+    throw new ResumeRenderError('The PNG render finished, but its pages are not PNG files.')
+  }
+  return pages
+}
+
 /** The full argument list — exported so the spec can assert on it directly. */
-export function buildArgs(dir: string, outPath: string): string[] {
+export function buildArgs(dir: string, outPath: string, format: RenderFormat = 'pdf'): string[] {
   return [
     'compile',
     // Nothing outside the scratch directory is readable by the template.
@@ -435,6 +461,8 @@ export function buildArgs(dir: string, outPath: string): string[] {
     '1',
     // No `--pdf-standard ua-1`: Typst 0.15.1 refuses a UA-1 document without a
     // title, and a personal template need not set one. Output is tagged anyway.
+    '--format',
+    format,
     '--diagnostic-format',
     'short',
     join(dir, 'main.typ'),

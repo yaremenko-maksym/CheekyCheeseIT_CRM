@@ -292,6 +292,18 @@ export class ResumeTextExtractionService {
     }
   }
 
+  /**
+   * The page count of a PDF we rendered ourselves, from the xref and catalogue
+   * only (no content stream, no worker). The verification run reads it first:
+   * `extractRenderedPages` refuses a document over `MAX_PDF_PAGES`, and an
+   * overflowing render is a layout failure to repair, not an unreadable file.
+   */
+  async countRenderedPages(pdf: Buffer): Promise<number> {
+    const { getDocumentProxy } = await import('unpdf')
+    const proxy = await getDocumentProxy(new Uint8Array(pdf))
+    return proxy.numPages
+  }
+
   /** Concurrency gate — see `MAX_CONCURRENT_EXTRACTIONS`. */
   private acquireSlot(): Promise<void> {
     if (this.running < MAX_CONCURRENT_EXTRACTIONS) {
