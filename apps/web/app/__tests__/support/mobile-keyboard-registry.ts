@@ -287,12 +287,17 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
   // ---- user-profile/AvatarUploadDialog.tsx ----
   'app/components/user-profile/AvatarUploadDialog.tsx#2': 'URL', // avatar-by-URL tab
 
-  // ---- user-profile/resume/ResumeTab.tsx (task-resume-base) ----
+  // ---- user-profile/resume/ResumeFactsForm.tsx (verified base resume) ----
   // Portfolio / GitHub / mailto link on a senior's resume. Classified (not
   // exempted) precisely BECAUSE it is a URL: iOS autocapitalisation and
   // autocorrect corrupt pasted addresses, and the server only accepts
   // https:/mailto: — a "corrected" value is a rejected value.
-  'app/components/user-profile/resume/ResumeTab.tsx#name:resumeLinkUrl': 'URL',
+  'app/components/user-profile/resume/ResumeFactsForm.tsx#name:resumeFactsLinkUrl': 'URL',
+  // Education start / end year: a 4-digit number, nothing else.
+  'app/components/user-profile/resume/ResumeFactsForm.tsx#name:resumeFactsEducationStartYear':
+    'INTEGER_SPINNER',
+  'app/components/user-profile/resume/ResumeFactsForm.tsx#name:resumeFactsEducationEndYear':
+    'INTEGER_SPINNER',
 }
 
 /**
@@ -516,24 +521,32 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   // A resume is prose end to end. The ONLY structured value anywhere in it is
   // the link URL, which is classified URL in FIELD_CATEGORIES above — every
   // field below is genuinely free text a person writes in their own words.
-  'testid:resume-summary-input':
-    'Раздел «О себе» — free-form prose the senior writes about themselves; no taxonomy class applies.',
-  'testid:resume-skills-input':
-    'Newline-separated list of skill names ("TypeScript", "Проектирование систем") — arbitrary words in either alphabet, not identifiers.',
   'testid:resume-text-input':
     'Paste-the-whole-resume fallback textarea used when a PDF has no text layer — an entire CV as prose.',
-  'app/components/user-profile/resume/ResumeExperienceEditor.tsx#name:resumeExperienceRole':
-    'Job title as written on the resume ("Технический лидер") — free text, and autocapitalising it is if anything desirable.',
-  'app/components/user-profile/resume/ResumeExperienceEditor.tsx#name:resumeExperienceCompany':
-    'Employer name ("Акме Технологии") — a proper noun in free text, not an identifier.',
-  'app/components/user-profile/resume/ResumeExperienceEditor.tsx#name:resumeExperiencePeriod':
-    'Deliberately free-form employment period ("2021 — наст. время") — the schema stores it as a string, not a date range, so no numeric/date keyboard fits.',
-  'app/components/user-profile/resume/ResumeExperienceEditor.tsx#name:resumeExperienceBullets':
-    'Achievements, one per line — prose sentences.',
-  'app/components/user-profile/resume/ResumeTab.tsx#name:resumeLinkLabel':
-    'Human-readable caption for a link ("GitHub", "Портфолио") — free text. The URL beside it is classified URL in FIELD_CATEGORIES.',
-  'app/components/user-profile/resume/ResumeTab.tsx#name:resumePairField':
-    'Shared field of the education/languages rows (institution, degree, period, language, level) — every column is free-text prose.',
+  'testid:resume-facts-skills':
+    'Newline-separated list of skill names ("TypeScript", "System design") — arbitrary words in either alphabet, not identifiers.',
+  'app/components/user-profile/resume/ResumeFactsForm.tsx#name:resumeFactsHeadline':
+    'Professional headline ("Senior backend engineer") — free text.',
+  'app/components/user-profile/resume/ResumeFactsForm.tsx#name:resumeFactsCity':
+    'City name — a proper noun in free text; autocapitalising it is desirable.',
+  'app/components/user-profile/resume/ResumeFactsForm.tsx#name:resumeFactsCountry':
+    'Country name — a proper noun in free text.',
+  'app/components/user-profile/resume/ResumeFactsForm.tsx#name:resumeFactsInstitution':
+    'University / school name — a proper noun in free text.',
+  'app/components/user-profile/resume/ResumeFactsForm.tsx#name:resumeFactsDegree':
+    'Degree / field of study ("BSc Computer Science") — free text.',
+  'app/components/user-profile/resume/ResumeFactsForm.tsx#name:resumeFactsLanguage':
+    'Spoken language name ("English") — free text.',
+  'app/components/user-profile/resume/ResumeFactsForm.tsx#name:resumeFactsLinkLabel':
+    'Human-readable caption for a link ("GitHub", "Portfolio") — free text. The URL beside it is classified URL in FIELD_CATEGORIES.',
+  'app/components/user-profile/resume/ResumeFactsJob.tsx#name:resumeFactsCompany':
+    'Employer name — a proper noun in free text, not an identifier.',
+  'app/components/user-profile/resume/ResumeFactsJob.tsx#name:resumeFactsRole':
+    'Job title as written on the resume ("Tech lead") — free text.',
+  'app/components/user-profile/resume/ResumeFactsJob.tsx#name:resumeFactsJobLocation':
+    'Work location ("Kyiv / remote") — free text.',
+  'app/components/user-profile/resume/ResumeFactsJob.tsx#name:resumeFactsNotes':
+    'Achievement notes, one per line — prose sentences.',
 }
 
 /**

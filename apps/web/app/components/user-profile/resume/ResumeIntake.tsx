@@ -11,7 +11,7 @@
  * server-side on the file's bytes.
  */
 import { useRef, useState } from 'react'
-import { FileUp, ClipboardType } from 'lucide-react'
+import { FileUp, ClipboardType, PencilLine } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { RESUME_LIMITS, RESUME_SOURCE_MAX_BYTES } from '@crm/shared'
 import { Button } from '@/components/ui/button'
@@ -25,6 +25,8 @@ interface ResumeIntakeProps {
   isBusy: boolean
   /** Compact rendering for the "replace source" panel above an existing resume. */
   variant?: 'empty' | 'compact'
+  /** Empty state only: open the empty facts form instead of uploading. */
+  onFillManually?: () => void
 }
 
 const ACCEPTED_EXTENSIONS = ['.pdf', '.docx']
@@ -35,6 +37,7 @@ export function ResumeIntake({
   onSubmitText,
   isBusy,
   variant = 'empty',
+  onFillManually,
 }: ResumeIntakeProps) {
   const { t } = useLingui()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -66,30 +69,44 @@ export function ResumeIntake({
     setMode('idle')
   }
 
+  const uploadButtons = (
+    <>
+      <Button
+        variant={variant === 'empty' ? 'outline' : 'default'}
+        onClick={() => fileInputRef.current?.click()}
+        disabled={isBusy}
+        data-testid="resume-upload-button"
+        className="min-h-11"
+      >
+        <FileUp className="mr-2 h-4 w-4" aria-hidden />
+        {variant === 'empty' ? (
+          <Trans>Завантажити, щоб заповнити</Trans>
+        ) : (
+          <Trans>Замінити файл</Trans>
+        )}
+      </Button>
+      <Button
+        variant={variant === 'empty' ? 'ghost' : 'outline'}
+        onClick={() => setMode((m) => (m === 'text' ? 'idle' : 'text'))}
+        disabled={isBusy}
+        data-testid="resume-paste-toggle"
+        className="min-h-11"
+      >
+        <ClipboardType className="mr-2 h-4 w-4" aria-hidden />
+        <Trans>Вставити текстом</Trans>
+      </Button>
+    </>
+  )
+
   return (
     <div
       className={
         variant === 'empty'
-          ? 'rounded-lg border border-dashed bg-muted/30 px-4 py-10 text-center sm:px-6'
+          ? 'max-w-[720px] rounded-lg border border-dashed bg-muted/30 px-4 py-8 sm:px-6'
           : 'rounded-lg border bg-muted/20 p-4'
       }
       data-testid="resume-intake"
     >
-      {variant === 'empty' && (
-        <>
-          <FileUp className="mx-auto h-10 w-10 text-muted-foreground" aria-hidden />
-          <h3 className="mt-3 text-base font-medium">
-            <Trans>Резюме ще не заповнено</Trans>
-          </h3>
-          <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-            <Trans>
-              Завантажте резюме (PDF або DOCX) — ми один раз розкладемо його на розділи, а далі ви
-              редагуєте їх тут. Якщо у файлі немає тексту, вставте текст вручну.
-            </Trans>
-          </p>
-        </>
-      )}
-
       <input
         ref={fileInputRef}
         type="file"
@@ -100,33 +117,46 @@ export function ResumeIntake({
         aria-label={t`Файл резюме`}
       />
 
-      <div
-        className={
-          variant === 'empty'
-            ? 'mt-5 flex flex-col items-stretch justify-center gap-2 sm:flex-row'
-            : 'flex flex-col items-stretch gap-2 sm:flex-row'
-        }
-      >
-        <Button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isBusy}
-          data-testid="resume-upload-button"
-          className="min-h-11"
-        >
-          <FileUp className="mr-2 h-4 w-4" aria-hidden />
-          {variant === 'empty' ? <Trans>Завантажити файл</Trans> : <Trans>Замінити файл</Trans>}
-        </Button>
-        <Button
-          variant="outline"
-          onClick={() => setMode((m) => (m === 'text' ? 'idle' : 'text'))}
-          disabled={isBusy}
-          data-testid="resume-paste-toggle"
-          className="min-h-11"
-        >
-          <ClipboardType className="mr-2 h-4 w-4" aria-hidden />
-          <Trans>Вставити текстом</Trans>
-        </Button>
-      </div>
+      {variant === 'empty' ? (
+        <>
+          <h3 className="text-base font-medium">
+            <Trans>Резюме ще не заповнено</Trans>
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            <Trans>
+              Заповніть факти вручну або завантажте резюме — ми заповнимо з нього поля, а ви
+              переглянете.
+            </Trans>
+          </p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {onFillManually && (
+              <div className="flex flex-col gap-3 rounded-lg border bg-card p-4">
+                <PencilLine className="h-6 w-6 text-muted-foreground" aria-hidden />
+                <p className="text-sm text-muted-foreground">
+                  <Trans>Порожня форма фактів. Перевірка запускається, коли все заповнено.</Trans>
+                </p>
+                <Button
+                  onClick={onFillManually}
+                  disabled={isBusy}
+                  data-testid="resume-fill-manually"
+                  className="mt-auto min-h-11"
+                >
+                  <Trans>Заповнити вручну</Trans>
+                </Button>
+              </div>
+            )}
+            <div className="flex flex-col gap-3 rounded-lg border bg-card p-4">
+              <FileUp className="h-6 w-6 text-muted-foreground" aria-hidden />
+              <p className="text-sm text-muted-foreground">
+                <Trans>PDF або DOCX, до {MAX_MB} МБ. Файл бачите тільки ви і команда найму.</Trans>
+              </p>
+              <div className="mt-auto flex flex-col gap-2">{uploadButtons}</div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="flex flex-col items-stretch gap-2 sm:flex-row">{uploadButtons}</div>
+      )}
 
       {mode === 'text' && (
         <div className="mt-4 space-y-2 text-left">
@@ -162,7 +192,14 @@ export function ResumeIntake({
       )}
 
       <p className="mt-3 text-xs text-muted-foreground">
-        <Trans>PDF або DOCX, до {MAX_MB} МБ. Файл бачите тільки ви і команда найму.</Trans>
+        {variant === 'empty' ? (
+          <Trans>
+            Завантаження лише заповнює поля. Статус «Перевірено» резюме отримає після перевірки й
+            підтвердження HR.
+          </Trans>
+        ) : (
+          <Trans>PDF або DOCX, до {MAX_MB} МБ. Файл бачите тільки ви і команда найму.</Trans>
+        )}
       </p>
     </div>
   )

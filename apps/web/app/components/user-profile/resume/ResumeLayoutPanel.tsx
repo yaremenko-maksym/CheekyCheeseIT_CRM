@@ -140,7 +140,7 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
             <Trans>Оформлення</Trans>
           </h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            <Trans>Порядок і вигляд розділів. Текст резюме редагується вище.</Trans>
+            <Trans>Порядок і вигляд розділів. Факти резюме редагуються вище.</Trans>
           </p>
         </div>
         {canEdit && (

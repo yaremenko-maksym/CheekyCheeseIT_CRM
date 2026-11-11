@@ -30,9 +30,11 @@ function renderIntake(overrides: Partial<ComponentProps<typeof ResumeIntake>> = 
 }
 
 describe('the upload button reads the state it is actually in', () => {
-  it('"empty" variant (also the default, no prop passed): "Завантажити файл", not "Замінити файл"', () => {
+  it('"empty" variant (also the default, no prop passed): upload only prefills, not "Замінити файл"', () => {
     renderIntake()
-    expect(screen.getByTestId('resume-upload-button')).toHaveTextContent('Завантажити файл')
+    expect(screen.getByTestId('resume-upload-button')).toHaveTextContent(
+      'Завантажити, щоб заповнити',
+    )
     expect(screen.getByTestId('resume-upload-button')).not.toHaveTextContent('Замінити файл')
   })
 
@@ -40,6 +42,25 @@ describe('the upload button reads the state it is actually in', () => {
     renderIntake({ variant: 'compact' })
     expect(screen.getByTestId('resume-upload-button')).toHaveTextContent('Замінити файл')
     expect(screen.getByTestId('resume-upload-button')).not.toHaveTextContent('Завантажити файл')
+  })
+})
+
+describe('the empty state offers two choices (design §5.2)', () => {
+  it('"Заповнити вручну" opens the empty facts form; the note says upload only prefills', () => {
+    const onFillManually = vi.fn()
+    renderIntake({ onFillManually })
+    fireEvent.click(screen.getByRole('button', { name: 'Заповнити вручну' }))
+    expect(onFillManually).toHaveBeenCalledTimes(1)
+    expect(
+      screen.getByText(
+        'Завантаження лише заповнює поля. Статус «Перевірено» резюме отримає після перевірки й підтвердження HR.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('the compact variant has no "fill by hand" tile', () => {
+    renderIntake({ variant: 'compact', onFillManually: vi.fn() })
+    expect(screen.queryByRole('button', { name: 'Заповнити вручну' })).toBeNull()
   })
 })
 
