@@ -47,14 +47,22 @@ const emitted: ReceiptState[] = []
 function Harness({ explorerOnly = false }: { explorerOnly?: boolean }) {
   const [state, setState] = useState<ReceiptState>(emptyReceiptState())
   return (
-    <ReceiptInput
-      state={state}
-      onChange={(next) => {
-        emitted.push(next)
-        setState(next)
-      }}
-      explorerOnly={explorerOnly}
-    />
+    <>
+      {/* The parent dialog resetting its receipt (e.g. PaySalaryDialog on reopen). */}
+      <button
+        type="button"
+        data-testid="harness-reset"
+        onClick={() => setState(emptyReceiptState())}
+      />
+      <ReceiptInput
+        state={state}
+        onChange={(next) => {
+          emitted.push(next)
+          setState(next)
+        }}
+        explorerOnly={explorerOnly}
+      />
+    </>
   )
 }
 
@@ -372,5 +380,62 @@ describe('ReceiptInput — pick lifecycle (task-1316-fix3 A1–A4, B1)', () => {
     expect(URL.createObjectURL).not.toHaveBeenCalledWith(photo)
     expect(screen.queryByAltText('Прев’ю чека')).toBeNull()
     expect(screen.getByText('IMG_0001.jpg')).toBeInTheDocument()
+  })
+})
+
+describe('ReceiptInput — stale upload progress (task-1316-fix3 B4)', () => {
+  const pick = (file: File = photo) =>
+    fireEvent.change(screen.getByTestId('receipt-input-file'), { target: { files: [file] } })
+
+  /** The axios `onUploadProgress` the in-flight upload was started with. */
+  const uploadProgress = () =>
+    (post.mock.calls[0]![2] as { onUploadProgress: (e: { loaded: number; total: number }) => void })
+      .onUploadProgress
+
+  function holdUpload() {
+    let finish!: () => void
+    post.mockReturnValue(
+      new Promise((resolve) => {
+        finish = () =>
+          resolve({ data: { id: 'doc-1', name: 'IMG_0001.jpg', mimeType: 'image/jpeg' } })
+      }),
+    )
+    return () => finish()
+  }
+
+  it('B4: after an explorerOnly flip mid-upload, the stale upload’s progress does not bring the bar back', async () => {
+    const finish = holdUpload()
+    const client = qc()
+    const { rerender } = render(tree(false, client))
+    pick()
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    rerender(tree(true, client)) // cancels the pick: progress back to idle
+
+    await act(async () => {
+      uploadProgress()({ loaded: 40, total: 100 })
+      uploadProgress()({ loaded: 100, total: 100 })
+      await new Promise((r) => setTimeout(r, 50)) // past the rAF coalescing
+      finish()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    rerender(tree(false, client))
+    // The parent puts the receipt back to an empty file pick: the picker shows.
+    fireEvent.click(screen.getByTestId('harness-reset'))
+
+    // `receipt-input-progress-idle` is the bar shown OUTSIDE the idle phase.
+    expect(screen.queryByTestId('receipt-input-progress-idle')).toBeNull()
+    expect(screen.getByText('Натисніть, щоб вибрати файл')).toBeInTheDocument()
+  })
+
+  it('B4: the current pick’s upload progress still reaches the bar', async () => {
+    render(tree(false, qc()))
+    pick()
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    expect(screen.getByTestId('receipt-input-progress')).not.toHaveTextContent('Обробка…')
+    await act(async () => {
+      uploadProgress()({ loaded: 100, total: 100 })
+      await new Promise((r) => setTimeout(r, 50))
+    })
+    expect(screen.getByTestId('receipt-input-progress')).toHaveTextContent('Обробка…')
   })
 })

@@ -253,7 +253,10 @@ export function ReceiptInput({
       const doc = await uploadMutation.mutateAsync({
         file,
         category: 'RECEIPT',
-        onProgress: progress.onProgress,
+        // A stale upload must not bring the bar back after cancelPick() reset it.
+        onProgress: (percent) => {
+          if (pick === pickRef.current) progress.onProgress(percent)
+        },
       })
       // Stale (explorerOnly flip / tab switch / clear / unmount mid-upload):
       // the newer state wins. The uploaded document stays an orphan.
