@@ -427,6 +427,7 @@ const PNG_PAGE = /^page-\d+\.png$/
 
 /** The PNG pages Typst wrote, in page order (the zero-padded names sort as numbers). */
 async function readPngPages(dir: string): Promise<Buffer[]> {
+  // Stryker disable next-line MethodExpression: readdir order is unspecified by POSIX; APFS returns names sorted, so the missing sort only shows elsewhere (the page-order spec writes the pages last first)
   const names = (await readdir(dir)).filter((name) => PNG_PAGE.test(name)).sort()
   const pages = await Promise.all(names.map((name) => readFile(join(dir, name))))
   if (pages.length === 0 || pages.some((page) => !page.subarray(0, 8).equals(PNG_SIGNATURE))) {

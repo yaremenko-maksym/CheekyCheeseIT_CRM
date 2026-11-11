@@ -314,10 +314,9 @@ export async function writeGatedContent(
   input: ContentInput,
   deps: ContentDeps,
 ): Promise<WrittenContent> {
+  // toRenderableText already trims each line and drops blank edges; this joins the lines.
   const clean = (text: string) =>
-    toRenderableText(text, input.template, { insertBreaks: false })
-      .text.replace(/\s+/gu, ' ')
-      .trim()
+    toRenderableText(text, input.template, { insertBreaks: false }).text.replace(/\s+/gu, ' ')
   const payload = writingPayload(input)
   const items: GateResult['items'] = []
   const fallbacks: string[] = []
