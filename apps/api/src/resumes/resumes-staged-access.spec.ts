@@ -141,6 +141,22 @@ describe('SeniorResumesService — Task 15 allowed paths', () => {
     }
   })
 
+  it('the live PDF of a senior with no resume row is the same 404', async () => {
+    const { svc, typst } = build(undefined)
+    const err = await refusal(svc.getRenderedPdf(viewer(OWNER_ID, 'SENIOR'), OWNER_ID))
+    expect(err).toBeInstanceOf(NotFoundException)
+    expect((err as NotFoundException).message).toBe('Резюме ещё не создано')
+    expect(typst.fingerprint).not.toHaveBeenCalled()
+  })
+
+  it('a row whose live PDF matches the render input streams it', async () => {
+    const live = { ...ROW, pdfS3Key: 'resumes/r-1/live.pdf', pdfFingerprint: 'fp-staged' }
+    const { svc, s3 } = build(live)
+    const out = await svc.getRenderedPdf(viewer(OWNER_ID, 'SENIOR'), OWNER_ID)
+    expect(out).toMatchObject({ ready: true, displayName: 'Jane Doe' })
+    expect(s3.getObject).toHaveBeenCalledWith('resumes/r-1/live.pdf')
+  })
+
   it('confirm on a senior with no resume row is the live 404, no fingerprint', async () => {
     const { svc, typst, verification } = build(undefined)
     const hr = viewer('a15e0000-0000-4000-8000-0000000000a3', 'HR')

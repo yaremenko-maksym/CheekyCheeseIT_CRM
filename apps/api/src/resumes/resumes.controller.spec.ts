@@ -9,9 +9,13 @@
  * only stripped quotes and newlines — so the very same string was defused going
  * in and passed through intact coming out. Now there is one definition, and
  * these tests hold both ends to it.
+ *
+ * The Task 15 routes are thin: they parse the body, pass the viewer through, and the staged PDF
+ * goes out as a PDF attachment named by `resumeContentDisposition`.
  */
-import { describe, expect, it } from 'vitest'
-import { resumeContentDisposition } from './resumes.controller'
+import { describe, expect, it, vi } from 'vitest'
+import type { SessionUser } from '@crm/shared'
+import { resumeContentDisposition, SeniorResumesController } from './resumes.controller'
 import { sanitizeFileName } from './resumes.service'
 
 describe('sanitizeFileName', () => {
@@ -93,5 +97,53 @@ describe('resumeContentDisposition', () => {
 
   it('falls back for a display name that reduces to nothing', () => {
     expect(resumeContentDisposition('   ')).toContain('resume.pdf')
+  })
+})
+
+describe('SeniorResumesController — Task 15 routes', () => {
+  const USER = 'a15e0000-0000-4000-8000-0000000000a1'
+  const RUN = 'a15e0000-0000-4000-8000-000000000001'
+  const viewer = { id: 'v', email: 'v@unit.spec', role: 'HR' } as SessionUser
+  const service = {
+    confirm: vi.fn(async (..._args: unknown[]) => 'confirmed'),
+    editStagedField: vi.fn(async (..._args: unknown[]) => 'edited'),
+    regenerateStagedField: vi.fn(async (..._args: unknown[]) => 'regenerated'),
+    getStagedPdf: vi.fn(async (..._args: unknown[]) => ({
+      pdfBuffer: Buffer.from('%PDF'),
+      displayName: 'Jane Doe',
+    })),
+  }
+  const controller = new SeniorResumesController(service as never)
+
+  it('confirm, edit and regenerate parse the body and pass the viewer through', async () => {
+    await expect(controller.confirm(USER, { runId: RUN, version: 3 }, viewer)).resolves.toBe(
+      'confirmed',
+    )
+    expect(service.confirm).toHaveBeenCalledWith(viewer, USER, { runId: RUN, version: 3 })
+    const edit = { runId: RUN, path: 'summary', text: 'New.' }
+    await expect(controller.editStaged(USER, edit, viewer)).resolves.toBe('edited')
+    expect(service.editStagedField).toHaveBeenCalledWith(viewer, USER, edit)
+    const regen = { runId: RUN, path: 'summary' }
+    await expect(controller.regenerateStaged(USER, regen, viewer)).resolves.toBe('regenerated')
+    expect(service.regenerateStagedField).toHaveBeenCalledWith(viewer, USER, regen)
+    expect(() => controller.confirm(USER, { runId: 'nope', version: 3 }, viewer)).toThrow()
+  })
+
+  it('staged-pdf is sent as a PDF attachment under the owner name', async () => {
+    const headers: Record<string, string> = {}
+    const reply = {
+      header(name: string, value: string) {
+        headers[name] = value
+        return reply
+      },
+      send: vi.fn(async (_body: Buffer) => undefined),
+    }
+    await controller.getStagedPdf(USER, viewer, reply as never)
+    expect(service.getStagedPdf).toHaveBeenCalledWith(viewer, USER)
+    expect(headers).toEqual({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': resumeContentDisposition('Jane Doe'),
+    })
+    expect(reply.send.mock.calls[0]?.[0]?.toString()).toBe('%PDF')
   })
 })
