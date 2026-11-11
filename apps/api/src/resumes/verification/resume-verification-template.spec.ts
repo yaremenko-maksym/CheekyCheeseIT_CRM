@@ -134,6 +134,7 @@ describe('sweepStalledVerifications', () => {
     const { swept, db } = sweep([
       [
         { id: 'r-1', runId: 'run-1', status: 'QUEUED' },
+        { id: 'r-2', runId: 'run-2', status: 'QUEUED' },
         { id: 'r-3', runId: 'run-3', status: 'CHECKING' },
       ],
       [{ key: null, report: null }],
@@ -142,9 +143,13 @@ describe('sweepStalledVerifications', () => {
     const real = db.transaction
     vi.spyOn(db, 'transaction')
       .mockRejectedValueOnce(Object.assign(new Error('jane@x.test'), { name: 'TypeError' }))
+      .mockRejectedValueOnce('not an error')
       .mockImplementation(real)
     expect(await swept()).toBe(1)
-    expect(errors).toEqual(['Verification sweep of resume r-1 failed (TypeError)'])
+    expect(errors).toEqual([
+      'Verification sweep of resume r-1 failed (TypeError)',
+      'Verification sweep of resume r-2 failed (unknown)',
+    ])
     expect(logs).toEqual(['Verification run run-3 of resume r-3 swept: STALLED'])
   })
 
@@ -162,6 +167,17 @@ describe('sweepStalledVerifications', () => {
     expect(await swept()).toBe(1)
     expect(s3.delete.mock.calls).toEqual([['resumes/r-1/staged/run-1.pdf']])
     expect(logs).toHaveLength(1)
+  })
+
+  it('a VERIFIED row whose lock read found nothing is swept with no fallbacks', async () => {
+    const { swept, log } = sweep([
+      [{ id: 'r-2', runId: 'run-2', status: 'VERIFIED' }],
+      [],
+      [{ id: 'r-2' }],
+    ])
+    expect(await swept()).toBe(1)
+    expect(log.at(-1)?.set?.['verificationReport']).toEqual({ gates: [], fallbacks: [] })
+    expect(errors).toEqual([])
   })
 
   it('a won CAS over a row whose lock read found nothing still deletes the derived key', async () => {

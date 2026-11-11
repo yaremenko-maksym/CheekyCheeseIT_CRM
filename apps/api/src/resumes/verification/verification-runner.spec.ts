@@ -514,6 +514,7 @@ describe('VerificationRunner.run', () => {
     const { run } = runner([...START, [{ key: null, live: null }], []])
     await run()
     expect(s3.delete).not.toHaveBeenCalled()
+    expect(logs).not.toContain(`Verification run ${RUN} of resume ${RESUME}: FAILED not written`)
   })
 
   it('logs carry ids, codes and keys only: never a name, an email or model text', async () => {
