@@ -501,6 +501,11 @@ describe('JobQueueCard', () => {
     expect(within(meta).getByText(/^Опубліковано /).className).not.toMatch(/flex/)
     expect(within(meta).getByText(/^Опубліковано /)).toHaveClass('whitespace-nowrap')
     expect(within(meta).getByText(/^· востаннє бачили /)).toHaveClass('whitespace-nowrap')
+    expect(within(meta).getByText(/^Опубліковано /).textContent).toMatch(/^\S.*\S$/)
+    expect(within(meta).getByText(/^· востаннє бачили /).textContent).toMatch(/^\S.*\S$/)
+    // QA4-MED-1: the line breaks between phrases, so the space before each «·» is outside the
+    // nowrap spans, in the paragraph's own text
+    expect(meta.textContent).toMatch(/\S · востаннє/)
     known.unmount()
     show(cardFixture({ publishedAt: null }))
     const unknown = screen.getByTestId('job-queue-card-meta')
@@ -510,6 +515,14 @@ describe('JobQueueCard', () => {
     expect(date).toContainElement(within(unknown).getByTestId('job-queue-card-meta-icon'))
     expect(within(unknown).getByText(/^· вперше побачено /)).toHaveClass('whitespace-nowrap')
     expect(within(unknown).getByText(/^· востаннє бачили /)).toHaveClass('whitespace-nowrap')
+    for (const phrase of [
+      /^Дата публікації невідома/,
+      /^· вперше побачено /,
+      /^· востаннє бачили /,
+    ]) {
+      expect(within(unknown).getByText(phrase).textContent).toMatch(/^\S.*\S$/)
+    }
+    expect(unknown.textContent).toMatch(/невідома · вперше побачено .*\S · востаннє/)
     const icon = within(unknown).getByTestId('job-queue-card-meta-icon')
     expect(icon).toHaveAttribute('aria-hidden', 'true')
     expect(icon).toHaveClass('inline-block')

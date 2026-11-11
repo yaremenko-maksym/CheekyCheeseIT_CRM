@@ -36,7 +36,7 @@ const STACK_CHIP = 'rounded-md border px-1.5 py-0.5 text-xs text-muted-foregroun
 function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
   const { t, i18n } = useLingui()
   const locale = useLocale()
-  // an excluded vacancy is neither triage nor a zero match (CR2-M-1): its seniors block says so
+  // an excluded vacancy is neither triage nor a zero match (UX-M-2): its seniors block says so
   const triage = card.eligibility === 'TRIAGE' && card.noMatchReason !== 'EXCLUDED'
   const seniority = SENIORITY_LABEL[card.seniority]
   const closed = card.availability === 'CLOSED' || card.availability === 'EXPIRED'
@@ -90,15 +90,14 @@ function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
               />
               <Trans>Дата публікації невідома</Trans>
             </span>
+            {/* the space before each «·» stays outside its nowrap span: it is the line's break point */}{' '}
             <span className="whitespace-nowrap">
-              {' · '}
-              <Trans>вперше побачено {firstSeenAgo}</Trans>
+              · <Trans>вперше побачено {firstSeenAgo}</Trans>
             </span>
           </>
-        )}
+        )}{' '}
         <span className="whitespace-nowrap">
-          {' · '}
-          <Trans>востаннє бачили {lastSeenAgo}</Trans>
+          · <Trans>востаннє бачили {lastSeenAgo}</Trans>
         </span>
       </p>
       <p data-testid="job-queue-terms" className="text-xs text-muted-foreground">

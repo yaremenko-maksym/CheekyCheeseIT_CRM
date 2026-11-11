@@ -77,7 +77,9 @@ describe('MatchedSeniors', () => {
     const chip = within(block).getByText('Node.js')
     expect(chip).toHaveClass('bg-yellow-subtle', 'text-primary')
     expect(within(block).getByText('React')).toHaveClass('bg-yellow-subtle')
-    expect(chip).toHaveClass('max-w-full', 'truncate')
+    // a long token wraps like the card's stack chips, it is never cut to an ellipsis
+    expect(chip).toHaveClass('max-w-full', '[overflow-wrap:anywhere]')
+    expect(chip).not.toHaveClass('truncate')
     expect(chip).toHaveAttribute('title', 'Node.js')
     expect(within(block).queryByText('Збіг неточний')).toBeNull()
   })
@@ -419,8 +421,8 @@ describe('MatchedSeniors', () => {
     expect(toggle).toHaveClass('text-primary')
     expect(within(block).queryByTestId(`job-queue-senior-evidence-${S1}`)).toBeNull()
     const chevron = within(toggle).getByTestId('job-queue-senior-evidence-chevron')
-    const label = within(toggle).getByText('Чому збіг')
-    expect(label.compareDocumentPosition(chevron) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // the label text is a bare text node, so order is read off the markup: text first, icon last
+    expect(toggle.innerHTML).toMatch(/^Чому збіг<svg\b[\s\S]*<\/svg>$/)
     expect(chevron).toHaveClass('size-3.5', 'shrink-0', 'transition-transform')
     expect(chevron).not.toHaveClass('rotate-180')
 

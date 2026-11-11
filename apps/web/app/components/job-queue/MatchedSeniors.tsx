@@ -151,7 +151,11 @@ function SeniorBlock({
                 <Trans>Збіг за:</Trans>
               </span>
               {senior.matchedKeywords.map((keyword) => (
-                <span key={keyword} className={cn(HIT_CHIP, 'max-w-full truncate')} title={keyword}>
+                <span
+                  key={keyword}
+                  className={cn(HIT_CHIP, 'max-w-full [overflow-wrap:anywhere]')}
+                  title={keyword}
+                >
                   {keyword}
                 </span>
               ))}
