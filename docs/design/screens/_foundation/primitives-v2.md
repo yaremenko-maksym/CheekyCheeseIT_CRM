@@ -347,7 +347,7 @@ must not share one UI (spec §4.5b):
   the one `role="status"`). **A failed refetch** (`toast-error-unknown-refetch-failed-375`) shows
   `role="alert"` «Не вдалося оновити список» with a 44 px «Повторити» in place of the status line and
   the list, never the empty text or «Збігів немає»; the hint reads «Список не оновився. Створити
-  транзакцію ще раз можна лише після того, як він оновиться.». Two exits under the list (with a «збіг» the first becomes the filled primary, the hint names the
+  транзакцію ще раз можна лише після того, як він оновиться.». A 401 is not a failed refetch: the sheet then shows the session alert «Сесія завершилася» instead of «Повторити» (`alert-session-expired-375`, foundation §11). Two exits under the list (with a «збіг» the first becomes the filled primary, the hint names the
   row «Схоже, це ваша транзакція: −1 250,50 USD, створена о 14:33. Перевірте її, перш ніж створювати ще раз.» and the recreate confirm adds «У списку є збіг о 14:33»): «Є в списку — закрити
   чернетку» (closes the draft, sends nothing; one tap with a «збіг», otherwise the confirm «Закрити чернетку 1 250,50 USD? У списку її не знайдено»,
   `toast-error-unknown-empty-375`) and «Немає — створити ще раз», which is `aria-disabled` (described by the hint

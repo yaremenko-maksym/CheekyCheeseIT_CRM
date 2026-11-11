@@ -655,6 +655,20 @@ export function actionConfirm(
 const overHome = (screen, overlay) =>
   screen.replace('<div class="homebar">', `${overlay}<div class="homebar">`)
 
+/** A 401 with a dirty money form: its own state, never a save failure; the markers survive the sign-in. */
+export const sessionExpired = (w, h) =>
+  overHome(
+    moneyForm({ w, h, receipt: 'done' }),
+    actionConfirm(w, {
+      id: 'se',
+      title: 'Сесія завершилася. Увійдіть знову, щоб продовжити.',
+      desc: 'Незбережені дані форми та вибраний чек буде втрачено.',
+      action: 'Увійти знову',
+      ink: 'var(--primary)',
+      overSheet: true,
+    }),
+  )
+
 /** Unknown outcome, «Немає — створити ще раз»: the one money-moving step after an unknown result asks first. */
 export const confirmRecreate = (w, h) =>
   overHome(

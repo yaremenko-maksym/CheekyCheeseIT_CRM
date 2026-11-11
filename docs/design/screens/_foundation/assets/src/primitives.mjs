@@ -6,6 +6,7 @@ import {
   failureUnknownEmpty,
   uploadPillInflight,
   quickAddDrafts,
+  sessionExpired,
 } from './money-form.mjs'
 import {
   sheetMedium,
@@ -168,6 +169,7 @@ export function frames() {
     M('check-sheet-boot-375', 375, 812, checkSheetBoot(375, 812)),
     M('alert-pagekill-failed-375', 375, 812, pageKillAlert(375, 812, 'failed')),
     M('confirm-recreate-375', 375, 812, confirmRecreate(375, 812)),
+    M('alert-session-expired-375', 375, 812, sessionExpired(375, 812)),
     M('confirm-discard-draft-375', 375, 812, confirmDiscardDraft(375, 812)),
     M('listrow-draft-375', 375, 812, listrowDraft(375, 812)),
     M('upload-states-375', 375, 812, uploadStates(375, 812)),

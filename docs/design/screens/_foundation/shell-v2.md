@@ -148,6 +148,11 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   Показано останні завантажені дані; збереження не пройде, введене залишиться у формі.»), cached content
   stays visible, the FAB stays enabled, writes queue nothing (spec §4.5b: nothing survives a close). A
   save attempt shows the definite inline alert with every value kept (`primitives-v2/toast-error-offline-375`).
+- **Session expired** (`primitives-v2/alert-session-expired-375`): a 401 is its own state, never a save or a load
+  error. With no dirty form and no open money sheet the app goes to sign-in directly; otherwise the alert
+  «Сесія завершилася. Увійдіть знову, щоб продовжити.» with «Увійти знову» (primary) and «Скасувати», plus
+  «Незбережені дані форми та вибраний чек буде втрачено.» only when a form is dirty. Draft markers survive the
+  sign-in (foundation §11).
 - **Impersonation** (`state-impersonation-375`): the existing banner, pinned under the top bar, with
   «Повернутися» (44 px); the tab bar shows the impersonated role's tabs.
 
