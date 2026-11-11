@@ -74,7 +74,7 @@ export function quickAddSheet(role, w, h) {
   const active = role === 'HR' ? '/' : '/stats'
   const kpi = (k, v, c = '') =>
     `<div class="lrow"><div class="grow t-body">${k}</div><span class="amount ${c}">${v}</span></div>`
-  const content = `<div class="sechead"><span class="t-over">Цей місяць</span></div><div class="group">${kpi('Дохід', '+18 400,00 $', 'pos')}${kpi('Витрати', '−10 500,00 $')}${kpi('Чистий прибуток', '+7 900,00 $', 'pos')}</div>`
+  const content = `<div class="sechead"><span class="t-over">Цей місяць</span></div><div class="group">${kpi('Дохід', '+18 400,00 USD', 'pos')}${kpi('Витрати', '−10 500,00 USD')}${kpi('Чистий прибуток', '+7 900,00 USD', 'pos')}</div>`
   return tabScreen({
     w,
     h,

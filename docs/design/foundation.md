@@ -150,7 +150,11 @@ xl 14). One step is added for sheets.
 ## 6. Type scale (Inter)
 
 `--font-sans` = `'Inter', system-ui, sans-serif`. Hierarchy comes from scale and weight, not colour.
-**`tabular-nums` on every number** (money, counts, dates, IDs).
+**`tabular-nums` on every number** (money, counts, dates, IDs). **Money is always `<amount> <CODE>`**
+(«−1 250,50 USD», «320,00 USDT»): uk grouping and a decimal comma, U+2212 for the minus, the ISO code
+after a non-breaking space; never a `$` symbol (USD and USDT would both read as `$`). This is the
+product formatter `formatMoney` (`packages/shared/src/i18n/format.ts`); every frame, header and row
+uses it.
 
 | Role         | Mobile (size/line, weight) | Desktop (size/line, weight) | Use                                         |
 | ------------ | -------------------------- | --------------------------- | ------------------------------------------- |
@@ -338,16 +342,30 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
     Cloudflare), a connection dropped after sending, or a client timeout. On a form without a key the
     alert reads «Відповідь не надійшла. Форма й чек залишились. Перевірте список: якщо транзакції там
     немає, її можна створити ще раз.»; the form and receipt stay; **no retry button on the alert**.
-    «Перевірити список» opens the list as a sheet over the kept form, refetched on open. The sheet
-    names what to look for («Шукаємо: −1 250,50 USD · Витрата · надіслано 14:32»), highlights the rows
-    created after the send time, has a 44 px «Оновити» that refetches, and two exits under the list:
-    «Є в списку — закрити чернетку» and «Немає — створити ще раз». The second is `aria-disabled` until
-    a refetch that **finished at least 60 s after the send** has come back; until then it shows the
-    countdown «Можна через 0:42» and the hint line says why (a late commit can still appear)
-    (`primitives-v2/toast-error-unknown-375.png`, `toast-error-unknown-list-375.png`). Both exits are a provisional ruling; the owner confirms them
-    at PNG approval. Reached from elsewhere, the kept form is the pinned row «Чернетка 1 250,50 USD» with
-    one primary «Відкрити» (`primitives-v2/listrow-draft-375.png`).
+    «Перевірити список» opens the **check sheet** «Нові записи» over the kept form, refetched on open.
+    It names what to look for («Шукаємо: −1 250,50 USD · Витрата · надіслано 14:32») and lists **only
+    the rows created after the send, newest created first**, without the list's filters or date
+    sections; each row shows its business date. **A highlight means a match:** a row whose amount,
+    currency and type equal the draft gets the full highlight (a tint, a 3 px yellow bar) and «збіг ·
+    14:33» (`toast-error-unknown-match-375.png`); every other new row shows only «нова · 14:33». With
+    new rows but no match the line «Збігів немає» sits above the exits; with no new rows the body reads
+    «Нових записів після 14:32 немає» (`toast-error-unknown-empty-375.png`). A 44 px «Оновити»
+    refetches. Two exits under the list: «Є в списку — закрити чернетку» and «Немає — створити ще раз».
+  - **The 60 s gate counts from the moment the failure arrived**, never from the send: nginx closes an
+    upstream read after 60 s (`proxy_read_timeout 60s`) and Cloudflare after 100 s, so a timeout can
+    reach the client after a send-based gate has already passed while the origin may still commit.
+    Until the gate, «Немає — створити ще раз» is `aria-disabled` (described by the hint line «Сервер міг
+    зберегти транзакцію із запізненням. Через хвилину після помилки список оновиться сам, і тоді її
+    можна буде створити ще раз.») and shows the countdown «Можна через 0:42», which is **never in a live
+    region**. At the gate the sheet runs **one automatic refetch**; when it returns, the sheet's one
+    `role="status"` announces the unlock once («Оновлено о 14:34:01. Тепер можна створити ще раз»)
+    (`primitives-v2/toast-error-unknown-375.png`, `toast-error-unknown-list-375.png`). Both exits are a
+    provisional ruling; the owner confirms them at PNG approval. Reached from elsewhere, the kept form is
+    the pinned row «Чернетка 1 250,50 USD» with one primary «Відкрити»
+    (`primitives-v2/listrow-draft-375.png`).
   - App 500/503 counts as definite only for endpoints that commit in one DB transaction and swallow post-commit errors; Wave 1 verifies this per endpoint (AC + test) before the form shows a retry.
+  - **Wave 1 AC (check sheet):** the transactions list API returns the rows created after a given time,
+    ordered by creation time, newest first (not verified to exist today; the check sheet needs it).
 - **Offline** never disables creation: the FAB stays enabled (no dim, no `aria-disabled`). Saving while
   offline gives the inline definite alert above with every value kept.
 - **Money drafts: one state model for any number of drafts.** A **draft** is a money create the user

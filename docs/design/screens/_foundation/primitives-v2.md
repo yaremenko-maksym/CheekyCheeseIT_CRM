@@ -284,14 +284,24 @@ must not share one UI (spec §4.5b):
   deposit) the alert reads «Невідомо, чи транзакцію збережено» / «Відповідь не надійшла. Форма й чек
   залишились. Перевірте список: якщо транзакції там немає, її можна створити ще раз.»; the form and the
   receipt stay and there is **no retry button on the alert**. The footer «Перевірити список» opens the
-  list **as a sheet over the kept form** (`toast-error-unknown-list-375`), refetched on open. The header names
-  what to look for, «Шукаємо: −1 250,50 USD · Витрата · надіслано 14:32»; rows created after the send
-  are highlighted (a tint, a 3 px yellow bar and «нова · 14:34», so not by colour alone); a 44 px
-  «Оновити» refetches («Оновлено о 14:32:58» is the one `role="status"`). Two exits under the list: «Є в
-  списку — закрити чернетку» (closes the draft, sends nothing) and «Немає — створити ще раз», which is
-  `aria-disabled` (described by the hint line) until a refetch that **finished at least 60 s after the
-  send** has come back, showing «Можна через 0:42» until then; then a confirm «Створити 1 250,50 USD ще
-  раз?» and exactly one new create. This is a user-confirmed new
+  **check sheet** «Нові записи» **over the kept form** (`toast-error-unknown-list-375`), refetched on
+  open. The header names what to look for, «Шукаємо: −1 250,50 USD · Витрата · надіслано 14:32», and
+  the sheet lists **only rows created after the send, newest created first** («Лише записи, створені
+  після 14:32, від найновішого»), without filters or date sections, each row with its business date.
+  **A highlight means a match:** only a row whose amount, currency and type equal the draft gets the
+  tint, the 3 px yellow bar and «збіг · 14:33» (`toast-error-unknown-match-375`); other new rows show
+  «нова · 14:33» only; with new rows and no match «Збігів немає» sits above the exits; with none the
+  body reads «Нових записів після 14:32 немає» (`toast-error-unknown-empty-375`). Money uses one
+  notation, `<amount> <CODE>` (foundation §6). A 44 px «Оновити» refetches («Оновлено о 14:33:18» is
+  the one `role="status"`). Two exits under the list: «Є в списку — закрити чернетку» (closes the
+  draft, sends nothing) and «Немає — створити ще раз», which is `aria-disabled` (described by the hint
+  line) until **60 s after the failure arrived** (not after the send: nginx `proxy_read_timeout 60s`
+  and Cloudflare's 100 s mean a timeout can arrive after a send-based gate while the origin may still
+  commit), showing «Можна через 0:42» until then (`aria-hidden`; the countdown is **never in a live
+  region**). At the gate one automatic refetch runs, and the status announces the unlock once
+  («Оновлено о 14:34:01. Тепер можна створити ще раз»); then a confirm «Створити 1 250,50 USD ще
+  раз?» and exactly one new create. Wave 1 AC: the list API returns rows created after a time,
+  ordered by creation time. This is a user-confirmed new
   create after seeing the refreshed list, not an automatic or one-tap resubmit (provisional; the owner
   confirms at PNG approval). Closing the sheet returns to the form. When the user reaches the Finance
   list another way, the kept draft is a pinned row at the top (`listrow-draft-375`): «Чернетка 1 250,50
@@ -320,9 +330,9 @@ way is reported at the next boot (`state-page-kill-375`: a persistent inline ale
 збережено: застосунок закрився під час завантаження чека. Створіть її ще раз.» with «Зрозуміло»; the
 `localStorage` marker behind it is `{ t, phase }`, never an amount). A kill **after the create was
 sent** shows instead «Застосунок закрився під час збереження транзакції о 14:32. Вона могла
-зберегтися: записи після 14:32 підсвічено в списку. Перевірте їх, перш ніж створювати її знову.» (the
+зберегтися: записи після 14:32 позначено в списку. Перевірте їх, перш ніж створювати її знову.» (the
 time is the marker's `t`) with «Зрозуміло» and, on the Фінанси tab, «Оновити список» (elsewhere
-«Відкрити Фінанси»), and no resubmit; the list scrolls to and highlights the rows created after `t`
+«Відкрити Фінанси»), and no resubmit; the list scrolls to the rows created after `t` and marks them «нова» (no amount is known, so nothing is a match)
 (`alert-pagekill-sent-375`). The phases and when the marker is cleared: foundation §11. **Confirms**
 use the action-sheet confirm (`sheet-confirm-375`; `actionConfirm` in the mockup sources), two 56 px
 rows, stacked above an open sheet: `confirm-recreate-375` («Створити 1 250,50 USD ще раз?» ·

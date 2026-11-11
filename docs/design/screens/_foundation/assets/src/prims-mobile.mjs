@@ -105,7 +105,7 @@ const kv = (k, v, { link = false } = {}) =>
 
 /** Transaction detail: amount, type, parties, date, project, the receipt (tap = full-screen viewer). */
 export function detailTxn(w, h) {
-  const head = `<div class="col" style="align-items:center;gap:6px;padding:8px 16px 18px;text-align:center"><div class="t-sub muted">Оренда офісу</div><div class="num" style="font-size:40px;line-height:46px;font-weight:700;letter-spacing:-0.03em;white-space:nowrap">−1 200,00 $</div><span class="pill" style="height:28px;padding:0 12px;font-size:13px">Витрата</span></div>`
+  const head = `<div class="col" style="align-items:center;gap:6px;padding:8px 16px 18px;text-align:center"><div class="t-sub muted">Оренда офісу</div><div class="num" style="font-size:40px;line-height:46px;font-weight:700;letter-spacing:-0.03em;white-space:nowrap">−1 200,00 USD</div><span class="pill" style="height:28px;padding:0 12px;font-size:13px">Витрата</span></div>`
   const parts = `<div class="group">${kv('Платник', 'Компанія')}${kv('Отримувач', 'ТОВ «Бізнес-центр Поділ»')}${kv('Дата', '11 листопада 2026, 14:20')}${kv('Проєкт', 'Проєкт «Альфа»', { link: true })}${kv('Створив', 'Віктор Кравець')}</div>`
   const receipt = `<div class="sechead"><span class="t-over">Чек</span></div><div class="group"><div class="lrow" role="button" aria-label="Переглянути чек на весь екран" style="min-height:76px">${thumb(56)}<div class="grow col" style="gap:2px;min-width:0"><div class="t-body trunc">receipt-office-nov.jpg</div><div class="t-foot muted">220 КБ · торкніться, щоб збільшити</div></div><span class="muted">${icon('maximize-2', { size: 18 })}</span></div></div>`
   const inner = `${detailTop('Транзакція')}<div class="content" style="padding:0 16px 24px">${head}${parts}${receipt}</div>`
@@ -222,7 +222,7 @@ export function sheetConfirm(w, h) {
   const overlay = actionConfirm(w, {
     id: 'cf',
     title: 'Видалити транзакцію «Оренда офісу»?',
-    desc: '−1 200,00 $ · 11.11.2026. Цю дію не можна скасувати.',
+    desc: '−1 200,00 USD · 11.11.2026. Цю дію не можна скасувати.',
     action: 'Видалити',
   })
   return tabScreen({
@@ -293,12 +293,12 @@ export function listSticky(w, h) {
     ...TXNS[0],
     t: 'Підписка на інструмент для дизайну інтерфейсів команди',
     s: 'Витрата · Проєкт «Інфраструктура та інструменти»',
-    a: '−1 029,00 $',
+    a: '−1 029,00 USD',
   }
   const inner = `${topBar({ title: 'Фінанси', bell: false })}<div class="content">
-  <div class="sechead sticky" style="box-shadow:0 1px 0 var(--border)"><span class="t-over">Вчора</span><span class="t-cap muted num">−3 186,40 $</span></div>
+  <div class="sechead sticky" style="box-shadow:0 1px 0 var(--border)"><span class="t-over">Вчора</span><span class="t-cap muted num">−3 186,40 USD</span></div>
   <div class="group" style="margin-top:-18px">${txnRow(TXNS[3])}${txnRow(long)}${txnRow(TXNS[4])}${txnRow(TXNS[5])}</div>
-  <div class="sechead"><span class="t-over">9 листопада</span><span class="t-cap muted num">+2 870,00 $</span></div><div class="group">${TXNS.slice(
+  <div class="sechead"><span class="t-over">9 листопада</span><span class="t-cap muted num">+2 870,00 USD</span></div><div class="group">${TXNS.slice(
     0,
     4,
   )
@@ -312,7 +312,7 @@ export function sectionHeaders(w, h) {
   const inner = `${topBar({ title: 'Заголовки секцій', bell: false, search: false })}<div class="content col" style="gap:14px;padding-top:6px">
   ${card(`${sec('Overline · 12/16')}<div class="lrow"><span class="t-foot muted">Групує рядки списку. Колір muted, не жовтий.</span></div>`)}
   ${card(`${sec('З дією', 'Усі')}<div class="lrow"><span class="t-foot muted">Дія 15 px, ціль ≥ 44 px по висоті.</span></div>`)}
-  ${card(`<div class="sechead"><span class="t-over">З підсумком</span><span class="t-cap muted num">−3 186,40 $</span></div><div class="lrow"><span class="t-foot muted">Підсумок дня — tabular-nums.</span></div>`)}
+  ${card(`<div class="sechead"><span class="t-over">З підсумком</span><span class="t-cap muted num">−3 186,40 USD</span></div><div class="lrow"><span class="t-foot muted">Підсумок дня — tabular-nums.</span></div>`)}
   ${card(`<div class="sechead" style="padding-top:16px"><span class="t-title">Цей місяць</span><span class="btn sm secondary">${icon('calendar', { size: 14 })}Листопад</span></div><div class="lrow"><span class="t-foot muted">Заголовок блоку дашборда 20/26.</span></div>`)}
   ${card(`<div class="sechead sticky" style="margin:0"><span class="t-over">Липкий · blur</span></div><div class="lrow"><span class="t-foot muted">Липне під верхньою панеллю, фон 92% + blur.</span></div>`)}</div>`
   return phone({ w, h, inner })

@@ -53,7 +53,7 @@ export function confirmDialog(w, h) {
   const overlay = `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.55);z-index:60"></div>
   <div role="alertdialog" aria-modal="true" aria-labelledby="cd-t" aria-describedby="cd-d" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:420px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);padding:22px 24px 18px">
   <div id="cd-t" class="t-head">Видалити транзакцію «Оренда офісу»?</div>
-  <div id="cd-d" class="t-foot muted" style="margin-top:6px;font-size:14px;line-height:20px">−1 200,00 $ · 11.11.2026. Цю дію не можна скасувати; чек теж буде видалено.</div>
+  <div id="cd-d" class="t-foot muted" style="margin-top:6px;font-size:14px;line-height:20px">−1 200,00 USD · 11.11.2026. Цю дію не можна скасувати; чек теж буде видалено.</div>
   <div class="row" style="gap:8px;justify-content:flex-end;margin-top:20px"><span class="btn sm secondary" style="height:36px;font-size:14px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)">Скасувати</span><span class="btn sm" style="height:36px;font-size:14px;background:var(--destructive);color:#fff">Видалити</span></div>
   <div class="t-cap muted" style="margin-top:10px;text-align:right">Фокус спершу на «Скасувати»</div></div>`
   return desktop({ w, h, overlay })
@@ -73,7 +73,7 @@ export function tableRows() {
   }
   return `<div style="padding:24px;background:var(--bg);width:960px"><div style="border:1px solid var(--border);border-radius:14px;background:var(--card);overflow:hidden">
   <div class="row" style="height:36px;padding:0 16px;gap:16px;font-size:12px;font-weight:600;color:var(--muted-fg);border-bottom:1px solid var(--border)"><span style="width:52px">Дата</span><span class="grow">Опис</span><span style="width:96px">Тип</span><span style="width:120px;text-align:right">Сума</span><span style="width:120px">Стан рядка</span></div>
-  ${r('default', '11.11', 'Оренда офісу', 'Витрата', '−1 200,00 $')}${r('hover', '11.11', 'Оплата від клієнта', 'Дохід', '+4 800,00 $', true)}${r('selected', '10.11', 'Зарплата · Розробник 4', 'Зарплата', '−2 150,00 $')}${r('focus', '10.11', 'Переказ на рахунок компанії', 'Переказ', '−3 000,00 $')}${r('pending', '09.11', 'Хмарний хостинг', 'Витрата', '−86,40 $', false, '<span class="pill warn" style="height:20px;font-size:11px">Очікує</span>')}</div></div>`
+  ${r('default', '11.11', 'Оренда офісу', 'Витрата', '−1 200,00 USD')}${r('hover', '11.11', 'Оплата від клієнта', 'Дохід', '+4 800,00 USD', true)}${r('selected', '10.11', 'Зарплата · Розробник 4', 'Зарплата', '−2 150,00 USD')}${r('focus', '10.11', 'Переказ на рахунок компанії', 'Переказ', '−3 000,00 USD')}${r('pending', '09.11', 'Хмарний хостинг', 'Витрата', '−86,40 USD', false, '<span class="pill warn" style="height:20px;font-size:11px">Очікує</span>')}</div></div>`
 }
 
 // ---------- Toasts ----------
@@ -243,15 +243,15 @@ export function chartMobile(w, h, { scrolled = 0 } = {}) {
 }
 
 export function chartDesktop() {
-  const tooltip = `<div style="position:absolute;left:600px;top:70px;padding:8px 10px;border-radius:10px;background:var(--popover);border:1px solid oklch(0.28 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5);font-size:13px;min-width:170px"><div style="font-weight:600">Жовтень 2026</div><div class="row" style="justify-content:space-between;margin-top:4px"><span class="muted">Дохід</span><span class="num">18 400,00 $</span></div><div class="row" style="justify-content:space-between"><span class="muted">Витрати</span><span class="num">10 500,00 $</span></div><div class="row" style="justify-content:space-between;margin-top:2px;font-weight:600"><span>Чистий</span><span class="num">+7 900,00 $</span></div></div>`
+  const tooltip = `<div style="position:absolute;left:600px;top:70px;padding:8px 10px;border-radius:10px;background:var(--popover);border:1px solid oklch(0.28 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5);font-size:13px;min-width:170px"><div style="font-weight:600">Жовтень 2026</div><div class="row" style="justify-content:space-between;margin-top:4px"><span class="muted">Дохід</span><span class="num">18 400,00 USD</span></div><div class="row" style="justify-content:space-between"><span class="muted">Витрати</span><span class="num">10 500,00 USD</span></div><div class="row" style="justify-content:space-between;margin-top:2px;font-weight:600"><span>Чистий</span><span class="num">+7 900,00 USD</span></div></div>`
   return `<div style="padding:24px;background:var(--bg);width:1200px"><div class="row" style="gap:16px;align-items:stretch">
-  <div style="position:relative;flex:2;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted" style="font-size:13px">Чистий прибуток</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+25 900,00 $</div></div>${legend(
+  <div style="position:relative;flex:2;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted" style="font-size:13px">Чистий прибуток</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+25 900,00 USD</div></div>${legend(
     [
       ['var(--chart-1)', 'Прибуток'],
       ['', 'Збиток', 'hatch'],
     ],
   )}</div><div style="margin-top:10px">${netBars(720, 260, { labelSize: 12, pad: 34 })}</div>${tooltip}</div>
-  <div style="flex:1;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Виплати партнерам</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">24 900,00 $</div><div style="margin:10px 0 8px">${partnerBars(330, 252, { labelSize: 12 })}</div><div class="t-cap muted">ВК — Віктор Кравець · ОШ — Олена Шевчук</div></div></div>
+  <div style="flex:1;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Виплати партнерам</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">24 900,00 USD</div><div style="margin:10px 0 8px">${partnerBars(330, 252, { labelSize: 12 })}</div><div class="t-cap muted">ВК — Віктор Кравець · ОШ — Олена Шевчук</div></div></div>
   <div class="row" style="gap:10px;margin-top:16px;flex-wrap:wrap">${[
     ['--chart-1', 'chart-1 · primary'],
     ['--chart-2', 'chart-2'],
@@ -295,7 +295,7 @@ const mini = (inner, cap, { x = 0, op = 1, scale = 1, extra = '' } = {}) =>
 const listScr = () =>
   `<div style="position:absolute;inset:0">${phone({ w: 375, h: 812, inner: `${topBar()}<div class="content">${largeTitle('Фінанси')}${txnList(TXNS.slice(0, 5))}</div>${tabBar('ADMIN', '/finance')}` })}</div>`
 const detailScr = (x, op) =>
-  `<div style="position:absolute;inset:0;transform:translateX(${x}%);opacity:${op};box-shadow:-20px 0 40px oklch(0 0 0 / 0.5)">${phone({ w: 375, h: 812, inner: `${topBar({ back: true, title: '', bell: false, search: false })}<div class="content" style="padding:8px 20px"><div class="t-title">Оренда офісу</div><div class="num" style="font-size:40px;font-weight:700;margin-top:6px">−1 200,00 $</div><div class="t-foot muted" style="margin-top:4px">Витрата · сьогодні, 14:20</div></div>` })}</div>`
+  `<div style="position:absolute;inset:0;transform:translateX(${x}%);opacity:${op};box-shadow:-20px 0 40px oklch(0 0 0 / 0.5)">${phone({ w: 375, h: 812, inner: `${topBar({ back: true, title: '', bell: false, search: false })}<div class="content" style="padding:8px 20px"><div class="t-title">Оренда офісу</div><div class="num" style="font-size:40px;font-weight:700;margin-top:6px">−1 200,00 USD</div><div class="t-foot muted" style="margin-top:4px">Витрата · сьогодні, 14:20</div></div>` })}</div>`
 const sheetScr = (y, op) =>
   `<div style="position:absolute;inset:0;background:oklch(0 0 0 / ${0.6 * op});z-index:5"></div><div style="position:absolute;left:0;right:0;bottom:0;height:420px;transform:translateY(${y}%);z-index:6;background:var(--popover);border-radius:20px 20px 0 0;border-top:1px solid var(--border)"><div class="grabber"></div><div class="t-head" style="text-align:center;margin-top:16px">Фільтри</div></div>`
 

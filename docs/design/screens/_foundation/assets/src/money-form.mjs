@@ -9,6 +9,7 @@ import {
   financeBody,
   topBar,
   txnList,
+  txnRow,
   TXNS,
   TABBAR_H,
   FLOAT_RIGHT,
@@ -269,48 +270,92 @@ export const failureUnknown = (w, h) =>
     footer: `<span class="btn secondary" role="button" style="width:100%">${icon('list', { size: 18 })}Перевірити список</span>`,
   })
 
-/** Rows created after the send time (14:32): invented, highlighted in the check list and after a page kill. */
+/** Rows created after the send time (14:32): invented; marked «нова» in the list after a page kill. */
 export const SENT_AT = '14:32'
 export const AFTER_SEND = [
   {
     day: 'Сьогодні',
     t: 'Хостинг серверів',
     s: 'Витрата · Проєкт «Бета»',
-    a: '−45,00 $',
+    a: '−45,00 USD',
     time: '14:34',
     ic: 'receipt',
     neg: true,
-    hl: true,
+    isNew: true,
   },
 ]
 
+// The check sheet lists only rows created after the send, newest created first, with no filters or
+// date sections; each row carries its business date. A match (amount, currency, type) is highlighted.
+const NEW_ROWS = [
+  {
+    t: 'Оплата від клієнта',
+    s: 'Дохід · 10.11.2026',
+    a: '+1 250,50 USD',
+    time: '14:33',
+    ic: 'arrow-down-left',
+    isNew: true,
+  },
+  {
+    t: 'Хостинг серверів',
+    s: 'Витрата · 11.11.2026',
+    a: '−45,00 USD',
+    time: '14:33',
+    ic: 'receipt',
+    neg: true,
+    isNew: true,
+  },
+]
+const MATCH_ROW = {
+  t: 'Без опису',
+  s: 'Витрата · 11.11.2026',
+  a: `−${AMOUNT} USD`,
+  time: '14:33',
+  ic: 'receipt',
+  neg: true,
+  match: true,
+}
+
 /**
- * «Перевірити список»: the list opens as a sheet over the kept form, refetched on open. The header names
- * what to look for; rows created after the send are highlighted. «Немає — створити ще раз» stays
- * aria-disabled until a refetch that finished at least 60 s after the send has come back.
+ * «Перевірити список»: the list opens as a sheet over the kept form, refetched on open. It lists only rows
+ * created after the send, newest created first, without the list's filters or date sections. Only a row
+ * whose amount, currency and type match the draft is highlighted («збіг»); other new rows say «нова».
+ * «Немає — створити ще раз» stays aria-disabled until 60 s after the failure arrived; then one automatic
+ * refetch runs and the status region announces the unlock once. The countdown is never in a live region.
+ * rows: 'none' (new rows, no match), 'match', 'empty'.
  */
-export function failureUnknownList(w, h, { ready = false } = {}) {
+export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) {
   const hint = ready
-    ? 'Список оновлено через хвилину після надсилання. Якщо транзакції в ньому немає, її можна створити ще раз.'
-    : 'Сервер міг зберегти транзакцію із запізненням. Створити її ще раз можна після оновлення, що завершиться щонайменше через хвилину після надсилання.'
+    ? 'Список оновлено через хвилину після помилки. Якщо транзакції в ньому немає, її можна створити ще раз.'
+    : 'Сервер міг зберегти транзакцію із запізненням. Через хвилину після помилки список оновиться сам, і тоді її можна буде створити ще раз.'
+  const status = ready ? 'Оновлено о 14:34:01. Тепер можна створити ще раз' : 'Оновлено о 14:33:18'
+  const list =
+    rows === 'empty'
+      ? `<div class="col" style="align-items:center;gap:6px;padding:28px 24px;text-align:center"><span class="muted">${icon('search', { size: 24 })}</span><div class="t-body num" style="font-weight:600">Нових записів після ${SENT_AT} немає</div></div>`
+      : `<div class="group" style="margin-top:4px">${(rows === 'match' ? [MATCH_ROW, ...NEW_ROWS] : NEW_ROWS).map((r) => txnRow(r)).join('')}</div>`
   const body = `<div class="col" style="gap:8px;padding:0 16px 8px">
   <div class="t-sub num" style="font-weight:600">Шукаємо: −${AMOUNT} USD · Витрата · надіслано ${SENT_AT}</div>
-  <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}${ready ? 'Оновлено о 14:33:40' : 'Оновлено о 14:32:58'}</div><span class="btn sm secondary" role="button" style="height:44px">${icon('refresh-cw', { size: 16 })}Оновити</span></div>
-  <div id="rc-h" class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">${hint}</div></div>${txnList([...AFTER_SEND, ...TXNS.slice(0, 3)])}`
+  <div class="t-foot muted num">Лише записи, створені після ${SENT_AT}, від найновішого</div>
+  <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}${status}</div><span class="btn sm secondary" role="button" style="height:44px">${icon('refresh-cw', { size: 16 })}Оновити</span></div>
+  <div id="rc-h" class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">${hint}</div></div>${list}`
   const recreate = ready
     ? `<span class="btn secondary" role="button" style="width:100%">${icon('plus', { size: 18 })}Немає — створити ще раз</span>`
-    : `<span class="btn secondary" role="button" aria-disabled="true" aria-describedby="rc-h" style="width:100%;min-height:52px;height:auto;padding:6px 14px;flex-direction:column;gap:0;color:var(--muted-fg);box-shadow:none;border:1px solid var(--border);background:transparent"><span class="row" style="gap:8px">${icon('plus', { size: 18 })}Немає — створити ще раз</span><span class="t-cap num">Можна через 0:42</span></span>`
-  const footer = `<div style="display:grid;gap:8px;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)"><span class="btn secondary" role="button" style="width:100%">${icon('check', { size: 18 })}Є в списку — закрити чернетку</span>${recreate}</div>`
-  const list = sheet({
+    : `<span class="btn secondary" role="button" aria-disabled="true" aria-describedby="rc-h" style="width:100%;min-height:52px;height:auto;padding:6px 14px;flex-direction:column;gap:0;color:var(--muted-fg);box-shadow:none;border:1px solid var(--border);background:transparent"><span class="row" style="gap:8px">${icon('plus', { size: 18 })}Немає — створити ще раз</span><span class="t-cap num" aria-hidden="true">Можна через 0:42</span></span>`
+  const noMatch =
+    rows === 'none'
+      ? `<div class="t-foot muted num" style="text-align:center">Збігів немає</div>`
+      : ''
+  const footer = `<div style="display:grid;gap:8px;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)">${noMatch}<span class="btn secondary" role="button" style="width:100%">${icon('check', { size: 18 })}Є в списку — закрити чернетку</span>${recreate}</div>`
+  const sh = sheet({
     w,
     h,
     top: safeTop(w) + 34,
-    title: 'Транзакції',
+    title: 'Нові записи',
     trail: closeBtn,
     body,
     footer,
   })
-  return failureUnknown(w, h).replace('<div class="homebar">', `${list}<div class="homebar">`)
+  return failureUnknown(w, h).replace('<div class="homebar">', `${sh}<div class="homebar">`)
 }
 
 export const PILL_H = 56
@@ -420,7 +465,7 @@ const KILL = {
     glyph: 'circle-alert',
   },
   sent: {
-    text: 'Застосунок закрився під час збереження транзакції о 14:32. Вона могла зберегтися: записи після 14:32 підсвічено в списку. Перевірте їх, перш ніж створювати її знову.',
+    text: 'Застосунок закрився під час збереження транзакції о 14:32. Вона могла зберегтися: записи після 14:32 позначено в списку. Перевірте їх, перш ніж створювати її знову.',
     actions:
       '<span class="btn sm ghost" role="button">Зрозуміло</span><span class="btn sm secondary" role="button">Оновити список</span>',
     tone: 85,

@@ -44,7 +44,7 @@ function detailPane() {
   return `<section aria-label="Деталі транзакції" class="grow col" style="background:var(--bg)">
   <div class="row" style="height:56px;padding:0 16px;gap:8px;border-bottom:1px solid var(--border)"><div class="grow t-foot muted">Транзакція</div>
   <span class="btn sm secondary">${icon('pencil', { size: 15 })}Редагувати</span><span class="iconbtn" aria-label="Ще дії">${icon('ellipsis', { size: 20 })}</span></div>
-  <div style="padding:24px 24px 8px"><div class="t-title">Оренда офісу</div><div class="t-foot muted" style="margin-top:2px">Витрата · сьогодні, 14:20</div><div class="num" style="font-size:40px;line-height:48px;font-weight:700;letter-spacing:-0.03em;margin-top:4px">−1 200,00 $</div>
+  <div style="padding:24px 24px 8px"><div class="t-title">Оренда офісу</div><div class="t-foot muted" style="margin-top:2px">Витрата · сьогодні, 14:20</div><div class="num" style="font-size:40px;line-height:48px;font-weight:700;letter-spacing:-0.03em;margin-top:4px">−1 200,00 USD</div>
   <div class="row" style="gap:8px;margin-top:10px"><span class="pill ok">${icon('check', { size: 13, stroke: 2.4 })}Оплачено</span><span class="pill">Проєкт «Альфа»</span></div></div>
   <div class="sechead"><span class="t-over">Подробиці</span></div>
   <div class="group" style="margin:0 20px">${f('Тип', 'Витрата')}${f('Проєкт', 'Проєкт «Альфа»')}${f('Контрагент', 'Офісний центр «Сигма»')}${f('Дата', '11 листопада 2026')}${f('Додав', 'Віктор Кравець')}</div>

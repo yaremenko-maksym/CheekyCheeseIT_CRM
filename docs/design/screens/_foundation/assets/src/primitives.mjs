@@ -116,6 +116,18 @@ export function frames() {
     M('toast-error-definite-375', 375, 812, toastErrorDefinite(375, 812)),
     M('toast-error-unknown-375', 375, 812, toastErrorUnknown(375, 812)),
     M('toast-error-unknown-list-375', 375, 812, toastErrorUnknownList(375, 812)),
+    M(
+      'toast-error-unknown-match-375',
+      375,
+      812,
+      toastErrorUnknownList(375, 812, { ready: true, rows: 'match' }),
+    ),
+    M(
+      'toast-error-unknown-empty-375',
+      375,
+      812,
+      toastErrorUnknownList(375, 812, { ready: true, rows: 'empty' }),
+    ),
     M('toast-error-offline-375', 375, 812, toastErrorOffline(375, 812)),
     M('upload-pill-armed-375', 375, 812, uploadPillArmed(375, 812)),
     M('upload-pill-saved-375', 375, 812, uploadPillSaved(375, 812)),
