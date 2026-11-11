@@ -268,11 +268,11 @@ const legend = (items) =>
 
 export function chartMobile(w, h, { scrolled = 0 } = {}) {
   const card = (title, value, sub, chart, leg) =>
-    `<div style="margin:0 16px 12px;padding:14px 14px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted">${title}</div><div class="row" style="gap:8px;align-items:baseline;margin-top:2px"><span class="num" style="font-size:24px;font-weight:700;letter-spacing:-0.02em">${value}</span><span class="t-foot num" style="color:var(--positive)">${sub}</span></div><div style="margin-top:8px">${chart}</div>${leg}</div>`
+    `<div style="margin:0 16px 12px;padding:14px 14px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted">${title}</div><div class="row" style="gap:2px 8px;flex-wrap:wrap;align-items:baseline;margin-top:2px"><span class="num" style="font-size:24px;font-weight:700;letter-spacing:-0.02em;white-space:nowrap">${value}</span><span class="t-foot num" style="color:var(--positive);white-space:nowrap">${sub}</span></div><div style="margin-top:8px">${chart}</div>${leg}</div>`
   const body = `<div style="padding:0 16px 10px">${segmented(['3 міс', '6 міс', 'Рік'], 1, { fit: true })}</div>
   ${card(
     'Чистий прибуток · 6 міс',
-    '+25,9k $',
+    '+25,9 тис. USD',
     '▲ 12% до попер.',
     netBars(w - 60, w <= 320 ? 200 : 380),
     legend([
@@ -280,7 +280,7 @@ export function chartMobile(w, h, { scrolled = 0 } = {}) {
       ['', 'Збиток', 'hatch'],
     ]),
   )}
-  ${card('Виплати партнерам · 2026', '24,9k $', '', partnerBars(w - 60, 150), '')}`
+  ${card('Виплати партнерам · 2026', '24,9 тис. USD', '', partnerBars(w - 60, 150), '')}`
   // FAB hidden at 320 only so the static frame shows the chart; the live screen scrolls under it.
   return tabScreen({
     w,

@@ -154,7 +154,8 @@ xl 14). One step is added for sheets.
 («−1 250,50 USD», «320,00 USDT»): uk grouping and a decimal comma, U+2212 for the minus, the ISO code
 after a non-breaking space; never a `$` symbol (USD and USDT would both read as `$`). This is the
 product formatter `formatMoney` (`packages/shared/src/i18n/format.ts`); every frame, header and row
-uses it.
+uses it. A compact amount (a chart total or a KPI caption with no room) keeps the code and the uk
+compact word: «+25,9 тис. USD», «1,2 млн USD», never «25,9k $».
 
 | Role         | Mobile (size/line, weight) | Desktop (size/line, weight) | Use                                         |
 | ------------ | -------------------------- | --------------------------- | ------------------------------------------- |
@@ -321,8 +322,8 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
 ## 11. Interaction rules (spec §4.5b, binding for every screen)
 
 - **Never block.** Input feedback < 100 ms. Writes are optimistic where the action is reversible.
-- **Finance writes** are sent immediately. No double submit (the submit control disables while in
-  flight). **No auto-retry of money creates.** A form that already sends an idempotency key is shown
+- **Finance writes** are sent immediately. No double submit (while in flight the submit control is
+  `aria-disabled="true"`, never `disabled`: it ignores taps and stays announced; primitives-v2 §4). **No auto-retry of money creates.** A form that already sends an idempotency key is shown
   optimistically, with rollback and a visible error, and an unknown outcome may be resubmitted only with
   the same key.
 - **Carve-out — the four forms without a key** (expense, admin-income, admin-transfer, company
