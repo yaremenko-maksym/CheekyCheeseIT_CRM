@@ -78,7 +78,7 @@ const REDACTED = '[REDACTED]'
 
 /** Every contact of every name context replaced, one raw field at a time (P8). */
 export function redactAll(text: string, contacts: readonly ContactContext[]): string {
-  return contacts.reduce((acc, ctx) => redactContacts(acc, ctx), text)
+  return redactContacts(text, contacts)
 }
 
 function hasContact(text: string, contacts: readonly ContactContext[]): boolean {

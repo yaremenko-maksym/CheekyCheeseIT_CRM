@@ -164,10 +164,18 @@ export function scanContacts(text: string, ctx: ContactContext): ContactHit[] {
  * redacting it again, or scanning it, finds nothing. Same contract as
  * `scanContacts`: one raw field at a time, before serialization.
  */
-export function redactContacts(text: string, ctx: ContactContext): string {
+export function redactContacts(
+  text: string,
+  ctx: ContactContext | readonly ContactContext[],
+): string {
   const nfc = text.normalize('NFC')
   const merged: { start: number; end: number }[] = []
-  for (const { start, end } of findSpans(nfc, ctx)) {
+  // Several contexts (display and legal name) merge their spans before any replacement: redacting one
+  // context's surname first would break the other's full-name match and leak its first names.
+  const spans = (Array.isArray(ctx) ? ctx : [ctx])
+    .flatMap((c: ContactContext) => findSpans(nfc, c))
+    .sort((a, b) => a.start - b.start || b.end - a.end)
+  for (const { start, end } of spans) {
     const last = merged.at(-1)
     if (last && start <= last.end) last.end = Math.max(last.end, end)
     else merged.push({ start, end })
