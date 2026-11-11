@@ -433,7 +433,11 @@ listed, and anything the v2 screen shows must trace back to that list.
   long-press menu; sheets also close by button and Esc.
 - **Names:** icon-only controls have an `aria-label`; tab bar is a `nav` with `aria-current="page"`;
   badges are announced ("3 нових").
-- **Live regions:** toasts and the upload indicator are `role="status"`; save errors are `role="alert"`.
+- **Live regions, one rule:** progress UI (the receipt ring, the upload pill, the armed fill) is
+  `role="progressbar"` with `aria-valuenow`, never a live region. Each surface (a form, the floating
+  pill slot) has **one** visually hidden `role="status"` that announces milestones only: started,
+  finished, failed (and arm / disarm for the armed save). Toasts are `role="status"`; save errors are
+  `role="alert"`.
 - **Zoom** is never disabled (`user-scalable` stays on); reflow works at 320 CSS px.
 - **Product language:** visible text is `uk` (default) + `en` through Lingui catalogs; no literals.
 

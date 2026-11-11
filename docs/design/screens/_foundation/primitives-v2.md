@@ -186,7 +186,9 @@ both at once is refused too). The empty tile has two modes, **«Файл» / «�
 (one file input without `capture`, so iOS offers its native chooser); «Посилання» is a URL field
 «Посилання на чек» (`form-receipt-link-375`; any `http(s)` link). Once a file is added, a card with the
 thumbnail, the status line, **«Замінити»** and **«✕»** (`aria-label` «Видалити чек»), both 44 × 44,
-replaces the switch (remove the file to switch to a link). **Effective currency USDT: a link only**,
+replaces the switch (remove the file to switch to a link). The percent is the thumbnail ring's
+`progressbar`, not a live region. **Below 360 px** «Замінити» becomes a 44 px icon button (`aria-label`
+«Замінити чек») and the status line shows only «62%» (`shell-v2/quick-add-txn-armed-320`). **Effective currency USDT: a link only**,
 and it must be a blockchain-explorer link: the file mode is gone and the field reads «Посилання на
 транзакцію в блокчейн-експлорері» (`form-receipt-usdt-375`). The link field is `type=url`,
 `inputmode=url`, `autocapitalize=none`, `autocorrect=off`, `enterkeyhint=done`. **A save without a
@@ -295,10 +297,11 @@ while offline gives the definite alert above (`toast-error-offline-375`) with ev
 **Carve-out — no optimistic insert** on those four forms until the key ships: the new row appears in
 the list after the server confirms, not before.
 
-**Uploads** (`upload-states-375`): per-file row with a progress ring and a 44 px cancel ✕ (uploading
+**Uploads** (`upload-states-375`): per-file row with a progress ring (`role="progressbar"`) and a 44 px cancel ✕ (uploading
 62%, compressing), done («Готово» with a check), and failed (the reason wraps; 44 px «Інший файл» for a
-rejected file, «Повторити» for a dropped connection). A global pill «2 чеки · 40%» (accessible name
-«Завантажуються 2 чеки, 40%», 44 px chevron) stays above the tab bar on any screen while uploads run.
+rejected file, «Повторити» for a dropped connection). A global pill «2 чеки · 40%» (the ring is the
+`progressbar`; a hidden `role="status"` says «Почалося завантаження 2 чеків» once, then only finished /
+failed; 44 px chevron) stays above the tab bar on any screen while uploads run.
 On a phone it sits left of the FAB (inset 12 left, 80 right, 16 above the tab bar; foundation §3), as
 does the undo toast (`upload-pill-768`: centred above the bottom edge;
 `upload-pill-1440`: bottom-right of the main area, 40 px). Uploads are in-memory: closing the app loses them; the UI says
@@ -389,8 +392,12 @@ Re-render: `node assets/src/render.mjs primitives [filter]`, then `assets/src/co
 - Swipe and long-press actions have a single-pointer path: the row's detail page, or a visible 44 px
   «…» on rows without a detail.
 - The money-form primary is never disabled for validity; a tap moves focus to the first invalid field.
-- Errors: `aria-invalid` + `aria-describedby`; save error `role="alert"`; toasts and uploads
-  `role="status"`.
+- Errors: `aria-invalid` + `aria-describedby`; save error `role="alert"`; toasts `role="status"`.
+- Progress (receipt ring, upload pill, armed fill) is `role="progressbar"` with `aria-valuenow`; one
+  visually hidden `role="status"` per surface announces milestones only (started, finished, failed),
+  never each percent (foundation §11).
+- Action-sheet rows (`actionConfirm`) are real `<button type="button">` elements, never a
+  `div role="button"`.
 - Charts: a text summary («Чистий прибуток за 6 місяців: …») as the accessible name; bars focusable.
 - Every coarse-pointer target ≥ 44 × 44 (foundation §4), including segments, the currency pill, chips,
   search, the period control, «Скасувати» in toasts, small buttons and chevrons; inputs ≥ 16 px; contrast

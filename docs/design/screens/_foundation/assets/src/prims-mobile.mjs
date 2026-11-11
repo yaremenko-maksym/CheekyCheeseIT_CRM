@@ -164,7 +164,7 @@ export function formLongText(w, h) {
   const editor = `<div class="field"><label for="tpl">Текст шаблону</label><div id="tpl" role="textbox" aria-multiline="true" class="input" style="height:auto;min-height:120px;align-items:flex-start;padding:12px 14px;font-size:16px;line-height:24px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)"><span style="display:block">${text}</span></div></div>`
   const fields = `${field({ id: 'tn', label: 'Назва шаблону', value: 'Договір підряду · USD' })}${editor}`
   const chip = (label, tok) =>
-    `<span class="btn sm secondary" role="button" aria-label="Вставити змінну ${label}" style="height:36px;flex:none;font-size:14px;padding:0 12px;border-radius:18px">${label}<span class="muted" style="font-size:12px">{{${tok}}}</span></span>`
+    `<span class="btn sm secondary" role="button" aria-label="Вставити змінну ${label}" style="height:44px;flex:none;font-size:14px;padding:0 14px;border-radius:22px">${label}<span class="muted" style="font-size:12px">{{${tok}}}</span></span>`
   const chips = `<div class="row" style="gap:8px;margin:0 -16px 8px;padding:4px 16px;min-height:44px;overflow:hidden;white-space:nowrap"><span class="t-foot muted" style="flex:none">Вставити змінну</span>${chip('Дата початку', 'start_date')}${chip('Клієнт', 'client_name')}${chip('Ставка', 'rate_usd')}</div>`
   const bar = submitBar({ w, kbdH: TEXT_H, inner: `${chips}${primaryBtn('Зберегти шаблон')}` })
   const inner = `${topBar({ back: true, title: 'Шаблон договору', bell: false, search: false })}<div class="content col" style="gap:18px;padding:12px 16px 0">${fields}</div>${bar}${textKeyboard()}`

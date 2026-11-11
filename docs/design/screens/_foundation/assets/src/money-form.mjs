@@ -50,7 +50,7 @@ const linkField = ({ usdt = false, value = '', err = '' } = {}) =>
  * A file in place replaces the switch (remove it to switch). USDT: the link field only, no file mode.
  * «Замінити» and «✕ Видалити чек» are both 44 px.
  */
-export function receiptCard(state = 'uploading') {
+export function receiptCard(state = 'uploading', { narrow = false } = {}) {
   if (state === 'empty')
     return `<div>${receiptModes(0)}<div class="row" role="button" style="gap:12px;height:68px;padding:0 12px;border-radius:var(--r-lg);border:1.5px dashed var(--input-border)">
     <span style="width:44px;height:44px;border-radius:12px;background:var(--surface);display:grid;place-items:center">${icon('camera', { size: 20 })}</span><span class="grow col" style="gap:2px"><span class="t-sub" style="font-weight:600">Додати чек</span><span class="t-foot muted">Камера, фото або файл · до 10 МБ</span></span></div></div>`
@@ -64,12 +64,22 @@ export function receiptCard(state = 'uploading') {
     })
   const up = state === 'uploading'
   const over = up
-    ? `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.45);display:grid;place-items:center">${ring(62)}</div>`
+    ? `<div role="progressbar" aria-label="Завантаження чека" aria-valuemin="0" aria-valuemax="100" aria-valuenow="62" style="position:absolute;inset:0;background:oklch(0 0 0 / 0.45);display:grid;place-items:center">${ring(62)}</div>`
     : ''
+  const status = up
+    ? narrow
+      ? '62%'
+      : 'Завантажується · 62%'
+    : narrow
+      ? '220 КБ'
+      : 'Завантажено · 220 КБ'
+  const replace = narrow
+    ? `<span class="iconbtn" role="button" aria-label="Замінити чек">${icon('replace', { size: 18 })}</span>`
+    : '<span class="btn sm secondary">Замінити</span>'
   return `<div class="row" style="gap:10px;padding:6px 4px 6px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)">
     <div style="position:relative;width:44px;height:44px;flex:none">${thumb()}${over}</div>
-    <div class="grow col" style="gap:2px;min-width:0"><div class="t-sub" style="font-weight:600">Чек додано</div><div class="t-foot muted num" role="status">${up ? 'Завантажується · 62%' : 'Завантажено · 220 КБ'}</div></div>
-    <span class="btn sm secondary">Замінити</span><span class="iconbtn" role="button" aria-label="Видалити чек" style="color:var(--muted-fg)">${icon('x', { size: 18 })}</span></div>`
+    <div class="grow col" style="gap:2px;min-width:0"><div class="t-sub" style="font-weight:600">Чек додано</div><div class="t-foot muted num" aria-hidden="${up}">${status}</div></div>
+    ${replace}<span class="iconbtn" role="button" aria-label="Видалити чек" style="color:var(--muted-fg)">${icon('x', { size: 18 })}</span></div>`
 }
 
 export function amountBlock({ focus = false, amount = AMOUNT, cur = 'USD' } = {}) {
@@ -121,8 +131,9 @@ export const moneyBody = ({
   alert = '',
   scroll = 0,
   pad = '4px 16px 120px',
+  narrow = false,
 } = {}) =>
-  `<div class="col" style="gap:14px;padding:${pad};transform:translateY(-${scroll}px)">${alert}${receiptCard(receipt)}${amountBlock({ focus: focus === 'amount', amount, cur })}${expanded ? `<div class="col" style="gap:16px">${optionalFields({ focus, dateError })}</div>` : defaultsRow()}</div>`
+  `<div class="col" style="gap:14px;padding:${pad};transform:translateY(-${scroll}px)">${alert}${receiptCard(receipt, { narrow })}${amountBlock({ focus: focus === 'amount', amount, cur })}${expanded ? `<div class="col" style="gap:16px">${optionalFields({ focus, dateError })}</div>` : defaultsRow()}</div>`
 
 /** Bottom submit bar: sits on the keyboard (tracks visualViewport) or above the home indicator. */
 export function submitBar({ w = 375, kbdH = 0, inner }) {
@@ -193,7 +204,17 @@ export function moneyForm({
   over = '',
 }) {
   const kbdH = keyboard === 'decimal' ? DECIMAL_H : keyboard === 'text' ? TEXT_H : 0
-  const body = moneyBody({ amount, cur, receipt, expanded, focus, dateError, alert, scroll })
+  const body = moneyBody({
+    amount,
+    cur,
+    receipt,
+    expanded,
+    focus,
+    dateError,
+    alert,
+    scroll,
+    narrow: w < 360,
+  })
   const bar = submitBar({ w, kbdH, inner: footer })
   const kbd = keyboard === 'decimal' ? decimalPad() : keyboard === 'text' ? textKeyboard() : ''
   if (variant === 'page') {
@@ -400,7 +421,7 @@ export function actionConfirm(
 ) {
   const z = overSheet ? [76, 77] : [70, 75]
   const row = (label, style) =>
-    `<div role="button" style="height:56px;display:grid;place-items:center;font-size:17px;font-weight:600;${style}">${label}</div>`
+    `<button type="button" style="appearance:none;margin:0;border:0;background:none;font:inherit;color:inherit;width:100%;cursor:pointer;height:56px;display:grid;place-items:center;font-size:17px;font-weight:600;${style}">${label}</button>`
   return `<div class="scrim" style="z-index:${z[0]}"></div><div role="alertdialog" aria-modal="true" aria-labelledby="${id}-t" aria-describedby="${id}-d" style="position:absolute;left:8px;right:8px;bottom:${safeBottom(w) + 8}px;z-index:${z[1]};display:grid;gap:8px">
   <div style="background:var(--popover);border-radius:14px;border:1px solid var(--border);overflow:hidden;text-align:center">
     <div style="padding:16px 20px 14px"><div id="${id}-t" class="t-sub num" style="font-weight:600">${title}</div><div id="${id}-d" class="t-foot muted" style="margin-top:4px">${desc}</div></div>
