@@ -10,7 +10,7 @@ import { sheet, safeTop, closeBtn } from './mobile-overlays.mjs'
 export const AMOUNT = '1 250,50'
 
 const thumb = (s = 44) =>
-  `<div style="position:relative;width:${s}px;height:${s}px;flex:none;border-radius:10px;background:linear-gradient(160deg,oklch(0.86 0 0),oklch(0.7 0 0));outline:1px solid oklch(1 0 0 / 0.1);outline-offset:-1px;overflow:hidden"><div style="position:absolute;inset:7px 9px;display:grid;gap:4px">${'<i style="height:3px;background:oklch(0.45 0 0);border-radius:2px"></i>'.repeat(4)}</div>`
+  `<div style="position:relative;width:${s}px;height:${s}px;flex:none;border-radius:10px;background:linear-gradient(160deg,oklch(0.86 0 0),oklch(0.7 0 0));outline:1px solid oklch(1 0 0 / 0.1);outline-offset:-1px;overflow:hidden"><div style="position:absolute;inset:7px 9px;display:grid;gap:4px">${'<i style="height:3px;background:oklch(0.45 0 0);border-radius:2px"></i>'.repeat(4)}</div></div>`
 
 export function ring(pct, size = 28) {
   const c = 2 * Math.PI * 15
@@ -27,7 +27,7 @@ export function receiptCard(state = 'uploading') {
     ? `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.45);display:grid;place-items:center">${ring(62)}</div>`
     : ''
   return `<div class="row" style="gap:10px;padding:6px 4px 6px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)">
-    ${thumb()}${over}</div>
+    <div style="position:relative;width:44px;height:44px;flex:none">${thumb()}${over}</div>
     <div class="grow col" style="gap:2px;min-width:0"><div class="t-sub" style="font-weight:600">Чек додано</div><div class="t-foot muted num" role="status">${up ? 'Завантажується · 62%' : 'Завантажено · 220 КБ'}</div></div>
     <span class="btn sm secondary">Замінити</span><span class="iconbtn" role="button" aria-label="Видалити чек" style="color:var(--muted-fg)">${icon('x', { size: 18 })}</span></div>`
 }

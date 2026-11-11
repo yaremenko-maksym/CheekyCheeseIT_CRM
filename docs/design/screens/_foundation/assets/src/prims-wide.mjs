@@ -104,8 +104,8 @@ export function formfieldDesktop() {
 }
 
 // ---------- Undo toast ----------
-const undoToast = (extra = '') =>
-  `<div role="status" class="row" style="position:absolute;z-index:80;gap:12px;height:52px;padding:0 6px 0 16px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.28 0.006 85);box-shadow:0 14px 40px oklch(0 0 0 / 0.55);font-size:15px;overflow:hidden;${extra}"><span style="color:var(--positive)">${icon('archive', { size: 18 })}</span><span class="grow">Співбесіду архівовано</span><span class="btn sm ghost" style="color:var(--primary);height:40px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
+const undoToast = (extra = '', btnH = 40) =>
+  `<div role="status" class="row" style="position:absolute;z-index:80;gap:12px;height:52px;padding:0 6px 0 16px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.28 0.006 85);box-shadow:0 14px 40px oklch(0 0 0 / 0.55);font-size:15px;overflow:hidden;${extra}"><span style="color:var(--positive)">${icon('archive', { size: 18 })}</span><span class="grow">Співбесіду архівовано</span><span class="btn sm ghost" style="color:var(--primary);height:${btnH}px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
 
 const interviewList = `<section aria-label="Співбесіди" class="col" style="width:320px;flex:none;border-right:1px solid var(--border)">
   <div class="row" style="height:56px;padding:0 8px 0 16px"><div class="grow t-title">Співбесіди</div></div>
@@ -119,7 +119,7 @@ export const toastUndoTablet = (w, h) =>
     active: 'more',
     list: interviewList,
     detail: pickOne,
-    overlay: undoToast('left:50%;bottom:24px;width:420px;transform:translateX(-50%)'),
+    overlay: undoToast('left:50%;bottom:24px;width:420px;transform:translateX(-50%)', 44),
   })
 
 const interviewTable = () => {
@@ -150,7 +150,7 @@ const pill = (pos, h = 44) =>
   `<div role="status" class="row" style="position:absolute;z-index:80;gap:10px;height:${h}px;padding:0 6px 0 10px;border-radius:${h / 2}px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.28 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5);font-size:14px;${pos}">${ring(40, 26)}<span class="grow num">Завантаження 2 чеків · 40%</span><span class="iconbtn" style="width:${h - 8}px;height:${h - 8}px" aria-label="Показати завантаження">${icon('chevron-up', { size: 18 })}</span></div>`
 
 export const uploadPillTablet = (w, h) =>
-  tablet({ w, h, overlay: pill('left:50%;bottom:24px;width:320px;transform:translateX(-50%)') })
+  tablet({ w, h, overlay: pill('left:50%;bottom:24px;width:320px;transform:translateX(-50%)', 52) })
 
 export const uploadPillDesktop = (w, h) =>
   desktop({ w, h, overlay: pill('right:24px;bottom:24px;width:300px', 40) })

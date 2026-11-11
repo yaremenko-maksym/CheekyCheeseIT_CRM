@@ -95,7 +95,7 @@ export function skeletonList(n = 4) {
 }
 
 export function loadingScreen(role, w, h) {
-  const body = `<div role="status" aria-label="Завантаження транзакцій" style="display:contents">${'<div style="padding:4px 16px 10px"><div class="sk" style="height:40px;border-radius:12px"></div></div>'}${skeletonList(3)}${skeletonList(3)}</div>`
+  const body = `<div role="status" aria-label="Завантаження транзакцій" style="display:contents">${'<div style="padding:4px 16px 10px"><div class="sk" style="height:44px;border-radius:12px"></div></div>'}${skeletonList(3)}${skeletonList(3)}</div>`
   return tabScreen({ w, h, role, active: '/finance', title: 'Фінанси', body })
 }
 
@@ -136,7 +136,7 @@ export function offlineBanner() {
 export function impersonationBanner() {
   return `<div role="status" style="margin:0 12px 4px;padding:8px 12px;border-radius:12px;background:var(--yellow-subtle);border:1px solid oklch(0.34 0.07 85);font-size:14px;line-height:18px">
   <div class="row" style="gap:8px;color:var(--primary)">${icon('triangle-alert', { size: 16 })}<span class="grow">Ви увійшли як <b>«Оксана Бойко»</b> (HR)</span></div>
-  <div class="row" style="gap:6px;height:36px;color:var(--fg);font-weight:600;padding-left:24px">${icon('undo-2', { size: 15 })}Повернутися до свого профілю</div></div>`
+  <div class="row" role="button" style="gap:6px;height:44px;color:var(--fg);font-weight:600;padding-left:24px">${icon('undo-2', { size: 15 })}Повернутися до свого профілю</div></div>`
 }
 
 export { safeTop, sheet, closeBtn, skRow, topBar, tabBar, largeTitle, TABBAR_H, phone }

@@ -112,7 +112,7 @@ html,body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-
 .group{margin:0 16px;background:var(--card);border:1px solid var(--border);border-radius:var(--r-xl);overflow:hidden}
 .sechead{display:flex;align-items:flex-end;justify-content:space-between;padding:20px 20px 8px}
 .sechead.sticky{position:sticky;top:0;background:oklch(0.08 0 0 / 0.92);backdrop-filter:blur(12px);padding:8px 20px;z-index:5}
-.lrow{display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 16px;position:relative}
+.lrow{display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 16px;position:relative;-webkit-touch-callout:none}
 .lrow.two{min-height:64px}
 .lrow + .lrow::before{content:'';position:absolute;top:0;left:var(--inset,16px);right:0;height:1px;background:var(--separator)}
 .lrow .lead{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:var(--surface);color:var(--fg);flex:none}
@@ -223,10 +223,10 @@ export const systemBar = (style = '') =>
 
 /** Segmented control: each option is a real 44 px target; the selected fill is drawn inside it. */
 export const segmented = (opts, on = 0, { fit = false, size = 14 } = {}) =>
-  `<div role="radiogroup" class="row" style="height:44px;border-radius:22px;background:var(--surface);border:1px solid var(--border);${fit ? 'width:fit-content' : ''}">${opts
+  `<div role="radiogroup" class="row" style="min-height:44px;box-sizing:border-box;border-radius:22px;background:var(--surface);border:1px solid var(--border);${fit ? 'width:fit-content' : ''}">${opts
     .map(
       (o, i) =>
-        `<span role="radio" aria-checked="${i === on}" class="${fit ? '' : 'grow'}" style="height:42px;display:grid;place-items:center;padding:0 3px"><span style="height:36px;padding:0 12px;border-radius:18px;display:grid;place-items:center;font-size:${size}px;font-weight:600;white-space:nowrap;${i === on ? 'background:var(--fg);color:var(--bg)' : 'color:var(--fg)'}">${o}</span></span>`,
+        `<span role="radio" aria-checked="${i === on}" class="${fit ? '' : 'grow'}" style="height:44px;display:grid;place-items:center;padding:0 3px"><span style="height:36px;padding:0 12px;border-radius:18px;display:grid;place-items:center;font-size:${size}px;font-weight:600;white-space:nowrap;${i === on ? 'background:var(--fg);color:var(--bg)' : 'color:var(--fg)'}">${o}</span></span>`,
     )
     .join('')}</div>`
 
