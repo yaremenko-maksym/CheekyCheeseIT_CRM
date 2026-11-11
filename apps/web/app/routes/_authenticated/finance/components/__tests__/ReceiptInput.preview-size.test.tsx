@@ -10,6 +10,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+import { installFakePreviewWorker, previewRequests } from '@/test/fake-preview-worker'
 
 const post = vi.fn()
 vi.mock('@/lib/axios', () => ({
@@ -22,26 +23,11 @@ vi.mock('@/lib/axios', () => ({
 import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptInput'
 
 const photo = new File([new Uint8Array(1024)], 'IMG_0001.jpg', { type: 'image/jpeg' })
-const drawImage = vi.fn()
 
 beforeEach(async () => {
   await loadCatalog('uk')
   post.mockReturnValue(new Promise(() => {})) // upload stays in flight
-  drawImage.mockClear()
-  vi.stubGlobal(
-    'createImageBitmap',
-    vi.fn().mockResolvedValue({ width: 4000, height: 3000, close: vi.fn() }),
-  )
-  vi.spyOn(URL, 'createObjectURL').mockImplementation((b) =>
-    b === photo ? 'blob:original-full-size' : 'blob:bounded-preview',
-  )
-  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
-    () => ({ drawImage }) as unknown as CanvasRenderingContext2D,
-  )
-  HTMLCanvasElement.prototype.toBlob = function (cb: BlobCallback) {
-    cb(new Blob(['x'], { type: 'image/jpeg' }))
-  }
+  installFakePreviewWorker(photo)
 })
 
 afterEach(() => {
@@ -72,8 +58,7 @@ describe('ReceiptInput — bounded image preview (iOS freeze regression)', () =>
 
     const img = await screen.findByAltText('Прев’ю чека')
     expect(img).toHaveAttribute('src', 'blob:bounded-preview')
-    // 4000×3000 → long edge bounded to 1024 px.
-    expect(drawImage).toHaveBeenCalledWith(expect.anything(), 0, 0, 1024, 768)
+    expect(previewRequests).toEqual([{ file: photo, maxEdge: 1024 }])
   })
 
   it('still uploads the ORIGINAL file, not the preview copy', async () => {

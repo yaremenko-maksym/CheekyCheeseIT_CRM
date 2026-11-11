@@ -8,6 +8,7 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+import { installFakePreviewWorker, previewRequests } from '@/test/fake-preview-worker'
 
 vi.mock('@/hooks/use-user-profile', () => ({
   useUpdateMe: () => ({ mutate: vi.fn(), isPending: false }),
@@ -20,25 +21,10 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 import { AvatarUploadDialog } from '../AvatarUploadDialog'
 
 const photo = new File([new Uint8Array(2048)], 'IMG_0002.jpg', { type: 'image/jpeg' })
-const drawImage = vi.fn()
 
 beforeEach(async () => {
   await loadCatalog('uk')
-  drawImage.mockClear()
-  vi.stubGlobal(
-    'createImageBitmap',
-    vi.fn().mockResolvedValue({ width: 3000, height: 4000, close: vi.fn() }),
-  )
-  vi.spyOn(URL, 'createObjectURL').mockImplementation((b) =>
-    b === photo ? 'blob:original-full-size' : 'blob:bounded-preview',
-  )
-  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
-    () => ({ drawImage }) as unknown as CanvasRenderingContext2D,
-  )
-  HTMLCanvasElement.prototype.toBlob = function (cb: BlobCallback) {
-    cb(new Blob(['x'], { type: 'image/jpeg' }))
-  }
+  installFakePreviewWorker(photo)
 })
 
 afterEach(() => {
@@ -62,7 +48,6 @@ describe('AvatarUploadDialog — bounded crop source (iOS freeze regression)', (
 
     const cropImg = await screen.findByRole('presentation')
     expect(cropImg).toHaveAttribute('src', 'blob:bounded-preview')
-    // Portrait 3000×4000 → long edge bounded to 2048 px.
-    expect(drawImage).toHaveBeenCalledWith(expect.anything(), 0, 0, 1536, 2048)
+    expect(previewRequests).toEqual([{ file: photo, maxEdge: 2048 }])
   })
 })
