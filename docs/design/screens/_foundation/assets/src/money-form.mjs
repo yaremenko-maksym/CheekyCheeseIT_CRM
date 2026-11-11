@@ -458,7 +458,8 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
  * Boot, phase `sent`: «Оновити список» on the alert opens the check sheet over the Фінанси list. No draft form
  * is behind it and the marker holds no amount, so the sheet names only the time and offers no resubmit.
  * A failed refetch here reuses the «Не вдалося оновити список» alert with «Повторити». Drawn while the
- * device time is before `latest t + 160 s`: the hint names the automatic refetch, and «…створіть її
+ * device time is before `latest t + 160 s`: the hint names the app-owned background refetch (it runs at
+ * `max(boot, latest sent t + 160 s)` whether this sheet is open or not; foundation §11), and «…створіть її
  * знову» appears only after it succeeds. Until then the footer reads «Закрити» and keeps the markers (like
  * ✕); «Зрозуміло» (acknowledge + remove the markers) appears only after that refetch.
  */
