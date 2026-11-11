@@ -43,8 +43,8 @@ export const panelDesktop = (w, h) => desktop({ w, h, overlay: sidePanel(w >= 14
 function moneyPanel(width) {
   return `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.5);z-index:60"></div>
   <aside role="dialog" aria-modal="true" aria-labelledby="mp-t" style="position:absolute;top:0;right:0;bottom:0;width:${width}px;z-index:70;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);box-shadow:-24px 0 60px oklch(0 0 0 / 0.5);display:flex;flex-direction:column">
-  <div class="row" style="height:60px;flex:none;padding:0 8px 0 8px;border-bottom:1px solid var(--border)"><span class="btn ghost" role="button" style="height:44px;font-size:17px;font-weight:400;padding:0 12px">Скасувати</span><div id="mp-t" class="grow t-head" style="text-align:center">Нова транзакція</div><span style="width:104px"></span></div>
-  <div class="grow" style="min-height:0;overflow:hidden">${moneyBody({ receipt: 'done', pad: '12px 24px 24px' })}</div>
+  <div class="row" style="height:60px;flex:none;padding:0 8px 0 8px;border-bottom:1px solid var(--border)"><button type="button" class="btn ghost" style="height:44px;font-size:17px;font-weight:400;padding:0 12px">Скасувати</button><div id="mp-t" class="grow t-head" style="text-align:center">Нова транзакція</div><span style="width:104px"></span></div>
+  <div class="grow" style="min-height:0;overflow:hidden">${moneyBody({ receipt: 'empty', pad: '12px 24px 24px' })}</div>
   <div style="padding:12px 24px 20px;border-top:1px solid var(--border)">${primaryBtn('Зберегти')}</div></aside>`
 }
 export const panelTablet = (w, h) => tablet({ w, h, overlay: moneyPanel(400) })

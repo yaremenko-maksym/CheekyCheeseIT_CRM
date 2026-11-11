@@ -79,8 +79,11 @@ separate bold group. `role="alertdialog"`, focus starts on «Скасувати�
 **Side panel** (`sheet-panel-*`): preview and edit on tablet / desktop. Width 400 (tablet, touch
 heights 48 / 44), 420 (1024), 480 (≥ 1440). Header with title + close; sticky footer with the primary
 action. **The tablet money panel (`sheet-panel-768`) reuses the canonical `moneyBody()` of the phone
-form** at 400 px: the same field order, segmented type, currency pill, receipt card and defaults row,
-with «Скасувати» on the left and «Зберегти» in the footer. Shortcut hints («Esc», «⌘↵») show **only
+form** at 400 px: the same field order, segmented type, currency pill, receipt and defaults row, with
+«Скасувати» on the left and «Зберегти» in the footer. The frame shows a new draft, so the receipt is
+empty: the 44 px «Файл» / «Посилання» switch over the «Додати чек» tile, exactly as on the phone. Where
+drafts start, where the pill lives and where «Перевірити список» opens per size: `shell-v2.md` §4
+«Money drafts per size». Shortcut hints («Esc», «⌘↵») show **only
 under `(pointer: fine)`**: the 1024 / 1440 panels have them, the touch tablet does not. The table stays interactive next to it at ≥ 1440.
 
 **Confirm dialog** (`sheet-confirm-dialog-1024`): 420 px centred alert dialog; initial focus on
