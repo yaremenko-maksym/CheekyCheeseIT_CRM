@@ -100,7 +100,7 @@ export function frames() {
       moneyForm({ w: 375, h: 812, receipt: 'usdt-error', cur: 'USDT' }),
     ),
     M('picker-sheet-375', 375, 812, pickerSheet(375, 812)),
-    M('form-longtext-375', 375, 812, formLongText(375, 812)),
+    M('form-longtext-375', 375, 667, formLongText(375, 667)),
     M('form-keyboard-375', 375, 812, formKeyboard(375, 812)),
     D('sheet-panel-768', 768, 1024, panelTablet(768, 1024)),
     D('sheet-panel-1024', 1024, 768, panelDesktop(1024, 768)),

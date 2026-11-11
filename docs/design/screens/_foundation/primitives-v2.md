@@ -208,12 +208,22 @@ sheet, not expanded fields.
   string.
 - **Pickers** for project, user, currency and role are the PickerSheet (§2).
 
-**TextEditor** (`form-longtext-375`, keyboard open; contract templates with `{{placeholders}}`): a
-pushed page; the text area **autosizes** to its content (no inner scroll; the page scrolls), 16 / 24
-text, placeholders shown in yellow. Above the keyboard, a horizontally scrolling chip row «Вставити
-змінну» (36 px chips inside a 44 px row, each with its uk label and the token, `aria-label` «Вставити
-змінну <label>»); a tap inserts the token at the caret. The bottom save bar («Зберегти шаблон») rides
-the keyboard on `visualViewport`, chips on top of it. **A dirty close asks** («Вийти без збереження?»
+**TextEditor** (`form-longtext-375`, 375 × 667, keyboard open; contract templates with
+`{{placeholders}}`): a pushed page; the text area **autosizes** to its content (no inner scroll; the
+page scrolls), 16 / 24 text. **Token highlight technique:** a mirror layer behind a transparent
+`textarea`, with the same font, size, line height, padding, wrapping and scroll position; the mirror
+repeats the text with `{{tokens}}` wrapped in yellow spans and is `aria-hidden`. The `textarea` stays
+the source of truth (value, caret, selection, IME, undo, spellcheck); the mirror is redrawn from its
+value on every input. **Keyboard closed:** the bottom bar holds the chip row over the primary «Зберегти
+шаблон». **Keyboard open:** the bar collapses to the chip row only, and the save moves into the top bar
+as a 44 px text button «Зберегти» (the one place a save sits top-right, because the keyboard leaves no
+room). The text window at 375 × 667 is 667 − 54 status − 44 top bar − 61 chip row − 290 keyboard =
+218 px: **at least 8 lines of 24 px** stay visible. The scroller sets `scroll-padding-bottom` equal to
+the bar height (61 px), so the caret line is never under the chips. The chip row «Вставити змінну»
+(`role="group"`) scrolls horizontally: 44 px chips, each with its uk label and the token (`aria-label`
+«Вставити змінну <label>»); a tap inserts the token at the caret. **«Усі змінні…»** is pinned at the
+row's trailing edge (it never scrolls away) and opens a PickerSheet with search over every variable
+(`picker-sheet-375` pattern); a pick inserts at the caret and returns focus to the `textarea`. **A dirty close asks** («Вийти без збереження?»
 with «Вийти» and «Залишитися»); nothing is persisted client-side.
 
 **Keyboard** (`form-keyboard-375`, `shell-v2/quick-add-txn-keyboard-375`): the content scrolls so the

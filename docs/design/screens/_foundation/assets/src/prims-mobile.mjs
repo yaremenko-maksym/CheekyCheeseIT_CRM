@@ -158,16 +158,21 @@ export function pickerSheet(w, h) {
 }
 
 // ---------- TextEditor: long text with {{placeholders}} (contract templates), keyboard open ----------
+// Keyboard open: the bar collapses to the chip row and «Зберегти» moves into the top bar, so at 375 × 667
+// at least 8 text lines stay visible. The token highlight is a mirror layer behind a transparent
+// textarea (same font metrics); the textarea is the source of truth.
 export function formLongText(w, h) {
   const v = (t) => `<span style="color:var(--primary)">{{${t}}}</span>`
-  const text = `Договір № ${v('contract_number')}<br>м. Київ, ${v('contract_date')}<br><br>${v('client_name')}, надалі «Замовник», з однієї сторони, та ${v('contractor_name')}, надалі «Виконавець», з другої сторони, уклали цей договір про таке.<br><br>1. Виконавець надає послуги з розробки програмного забезпечення за ставкою ${v('rate_usd')} USD на годину, починаючи з <span class="caret" style="height:20px"></span>`
-  const editor = `<div class="field"><label for="tpl">Текст шаблону</label><div id="tpl" role="textbox" aria-multiline="true" class="input" style="height:auto;min-height:120px;align-items:flex-start;padding:12px 14px;font-size:16px;line-height:24px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)"><span style="display:block">${text}</span></div></div>`
-  const fields = `${field({ id: 'tn', label: 'Назва шаблону', value: 'Договір підряду · USD' })}${editor}`
+  const text = `${v('client_name')}, надалі «Замовник», з однієї сторони, та ${v('contractor_name')}, надалі «Виконавець», з другої сторони, уклали цей договір про таке.<br><br>1. Виконавець надає послуги з розробки програмного забезпечення за ставкою ${v('rate_usd')} USD на годину, починаючи з ${v('start_date')}.<br><br>2. Оплата здійснюється щомісяця до 10 числа на підставі акта, підписаного обома сторонами <span class="caret" style="height:20px"></span>`
+  // Scrolled: the name field and the editor's top edge sit above the top bar, the text fills the window.
+  const editor = `<div class="field" style="flex:none"><label for="tpl" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Текст шаблону</label><div id="tpl" role="textbox" aria-multiline="true" class="input" style="height:auto;min-height:120px;align-items:flex-start;padding:12px 14px;font-size:16px;line-height:24px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)"><span style="display:block">${text}</span></div></div>`
   const chip = (label, tok) =>
     `<span class="btn sm secondary" role="button" aria-label="Вставити змінну ${label}" style="height:44px;flex:none;font-size:14px;padding:0 14px;border-radius:22px">${label}<span class="muted" style="font-size:12px">{{${tok}}}</span></span>`
-  const chips = `<div class="row" style="gap:8px;margin:0 -16px 8px;padding:4px 16px;min-height:44px;overflow:hidden;white-space:nowrap"><span class="t-foot muted" style="flex:none">Вставити змінну</span>${chip('Дата початку', 'start_date')}${chip('Клієнт', 'client_name')}${chip('Ставка', 'rate_usd')}</div>`
-  const bar = submitBar({ w, kbdH: TEXT_H, inner: `${chips}${primaryBtn('Зберегти шаблон')}` })
-  const inner = `${topBar({ back: true, title: 'Шаблон договору', bell: false, search: false })}<div class="content col" style="gap:18px;padding:12px 16px 0">${fields}</div>${bar}${textKeyboard()}`
+  const all = `<span class="btn sm secondary" role="button" aria-haspopup="dialog" style="height:44px;flex:none;font-size:14px;padding:0 14px;border-radius:22px;position:relative;box-shadow:-16px 0 12px var(--popover)">${icon('braces', { size: 16 })}Усі змінні…</span>`
+  const chips = `<div role="group" aria-label="Вставити змінну" class="row" style="gap:8px;margin:0 -16px;padding:0 16px;height:44px;white-space:nowrap"><div class="row grow" style="gap:8px;overflow:hidden;min-width:0">${chip('Клієнт', 'client_name')}${chip('Ставка', 'rate_usd')}${chip('Дата початку', 'start_date')}</div>${all}</div>`
+  const bar = submitBar({ w, kbdH: TEXT_H, inner: chips })
+  const save = `<span class="btn sm ghost" role="button" style="height:44px;color:var(--primary);font-size:17px;font-weight:600;padding:0 8px">Зберегти</span>`
+  const inner = `${topBar({ back: true, title: 'Шаблон договору', bell: false, search: false, trailing: save })}<div class="content col" style="padding:0 16px ${TEXT_H + 61}px;justify-content:flex-end;scroll-padding-bottom:61px">${editor}</div>${bar}${textKeyboard()}`
   return phone({ w, h, inner })
 }
 
