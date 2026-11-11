@@ -333,6 +333,13 @@ Triage: dashed note + the senior block shows the empty state with the triage rea
 placed nobody). Zero matches: plain empty state «Немає сеньйорів зі збігом стеку» + «Вакансія лишається в черзі, але
 жоден сеньйор із вашої команди не збігається за стеком.» The two empties differ in **icon and headline** (users vs ban).
 
+Excluded by screening (`noMatchReason: EXCLUDED`, PR #1313 CR2-M-1): an opportunity the automatic screening excluded at its
+current revision is hidden from the list, but an ADMIN can open it by id. Its senior block shows a fourth empty state, with
+the same layout and tokens as the other empties: «Вакансію відсіяно автоматичним відбором» + «Система не пропонує її
+сеньйорам: вакансія не пройшла автоматичний відбір. Відкрийте опис, якщо хочете оцінити її вручну.» (en "Filtered out by
+automatic screening" + "The system does not suggest it to seniors: the vacancy did not pass automatic screening. Open the
+description if you want to review it manually."). It never says «немає збігу стеку» and never blames the employer check.
+
 ### 5.6 ADMIN
 
 - Studio scope: the senior block is grouped under **team headings** («Команда «Альфа»») — rendered for ADMIN only.
