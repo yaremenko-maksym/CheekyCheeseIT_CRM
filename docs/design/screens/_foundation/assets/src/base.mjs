@@ -135,9 +135,9 @@ html,body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-
 .scrim{position:absolute;inset:0;background:var(--scrim);z-index:70}
 .sheet{position:absolute;left:0;right:0;bottom:0;z-index:75;background:var(--popover);border-radius:var(--r-sheet) var(--r-sheet) 0 0;border-top:1px solid var(--border);display:flex;flex-direction:column;box-shadow:0 -12px 40px oklch(0 0 0 / 0.5)}
 .grabber{width:36px;height:5px;border-radius:3px;background:oklch(0.4 0 0);margin:6px auto 0;flex:none}
-.sheethead{display:flex;align-items:center;height:52px;padding:0 8px;flex:none}
-.sheethead .t{flex:1;text-align:center;font-size:17px;font-weight:600}
-.sheethead .a{min-width:72px;height:44px;display:flex;align-items:center;padding:0 8px;font-size:17px;color:var(--fg)}
+.sheethead{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;height:52px;padding:0 8px;flex:none}
+.sheethead .t{text-align:center;font-size:17px;font-weight:600;white-space:nowrap}
+.sheethead .a{min-width:0;height:44px;display:flex;align-items:center;padding:0 8px;font-size:17px;color:var(--fg)}
 .sheethead .a.r{justify-content:flex-end;color:var(--primary);font-weight:600}
 /* field */
 .field{display:flex;flex-direction:column;gap:6px}

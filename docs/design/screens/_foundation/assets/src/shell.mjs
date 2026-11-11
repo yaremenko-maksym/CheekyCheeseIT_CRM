@@ -80,6 +80,7 @@ export function frames() {
           title: 'Фінанси',
           body: financeBody(),
           banner: offlineBanner(),
+          fabDim: true,
         }),
       ),
     )

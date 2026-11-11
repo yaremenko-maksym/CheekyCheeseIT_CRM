@@ -15,9 +15,9 @@ export function tabBar(role, active, { w = 375, moreBadge = 3 } = {}) {
   return `<nav class="tabbar" aria-label="Основна навігація" style="padding-bottom:${safeBottom(w)}px"><div class="tabs">${tabs}${more}</div></nav>`
 }
 
-export function fab(role, w = 375) {
+export function fab(role, w = 375, dim = false) {
   if (!QUICK_ADD[role].length) return ''
-  return `<div class="fab" aria-label="Створити" style="bottom:${TABBAR_H + safeBottom(w) + 16}px">${icon('plus', { size: 26, stroke: 2.4 })}</div>`
+  return `<div class="fab" aria-label="Створити" ${dim ? 'aria-disabled="true"' : ''} style="bottom:${TABBAR_H + safeBottom(w) + 16}px;${dim ? 'opacity:0.4;box-shadow:none' : ''}">${icon('plus', { size: 26, stroke: 2.4 })}</div>`
 }
 
 export function topBar({
@@ -175,8 +175,9 @@ export function tabScreen({
   overlay = '',
   moreBadge = 3,
   showFab = true,
+  fabDim = false,
 }) {
-  const inner = `${banner}${topBar()}<div class="content">${largeTitle(title, sub)}${body}<div style="height:${TABBAR_H + safeBottom(w) + 88}px"></div></div>${tabBar(role, active, { w, moreBadge })}${showFab ? fab(role, w) : ''}`
+  const inner = `${banner}${topBar()}<div class="content">${largeTitle(title, sub)}${body}<div style="height:${TABBAR_H + safeBottom(w) + 88}px"></div></div>${tabBar(role, active, { w, moreBadge })}${showFab ? fab(role, w, fabDim) : ''}`
   return phone({ w, h, inner, overlay })
 }
 
