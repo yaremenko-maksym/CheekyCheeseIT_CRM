@@ -83,6 +83,7 @@ const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r(null)))
 async function pickAndSave() {
   fireEvent.change(screen.getByTestId('avatar-file-input'), { target: { files: [photo] } })
   const save = await screen.findByRole('button', { name: 'Зберегти' })
+  await act(async () => {}) // flush the cropper's passive effect (it reports the crop area)
   fireEvent.click(save)
   await vi.waitFor(() => expect(m.mutateAsync).toHaveBeenCalledTimes(1))
 }
@@ -200,7 +201,9 @@ describe('AvatarUploadDialog — save bound to its dialog session (task-1316-fix
     fireEvent.change(input, { target: { files: [photo] } }) // pick B
     await vi.waitFor(() => expect(pendingReplies).toHaveLength(2))
     act(() => pendingReplies[1]!()) // B decodes
-    fireEvent.click(await screen.findByRole('button', { name: 'Зберегти' }))
+    const save = await screen.findByRole('button', { name: 'Зберегти' })
+    await act(async () => {}) // flush the cropper's passive effect (it reports the crop area)
+    fireEvent.click(save)
     await vi.waitFor(() => expect(m.mutateAsync).toHaveBeenCalledTimes(1))
     await act(async () => {
       upload.onProgress(40)
