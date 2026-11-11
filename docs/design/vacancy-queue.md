@@ -337,7 +337,7 @@ Excluded by screening (`noMatchReason: EXCLUDED`, PR #1313 CR2-M-1): an opportun
 current revision is hidden from the list, but an ADMIN can open it by id. Its senior block shows a fourth empty state, with
 the same layout and tokens as the other empties: «Вакансію відсіяно автоматичним відбором» + «Система не пропонує її
 сеньйорам: вакансія не пройшла автоматичний відбір. Відкрийте опис, якщо хочете оцінити її вручну.» (en "Filtered out by
-automatic screening" + "The system does not suggest it to seniors: the vacancy did not pass automatic screening. Open the
+automatic screening" + "The system does not offer it to seniors: the vacancy did not pass automatic screening. Open the
 description if you want to review it manually."). It never says «немає збігу стеку» and never blames the employer check.
 
 ### 5.6 ADMIN
