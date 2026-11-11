@@ -43,6 +43,14 @@ comments** — link here.
   route types (route `from` paths).
 - **Tailwind:** v4 (CSS-first config, `@import "tailwindcss"` + `@theme inline`).
 - **tw-animate-css:** v2 (needed for shadcn animations after the migration to Tailwind v4).
+- **React (`apps/web`):** `react` / `react-dom` / `react-is` `^19.3`, `@types/react` / `@types/react-dom`
+  `^19.3`. `react-is` is a direct dependency because `recharts` needs it as a peer at the React major
+  (pnpm 7 does not install peers; the hoisted 17.x does not recognise React 19 elements).
+  **`apps/landing` stays on React 18**; its `tsconfig.json` `paths` pin `react` / `react-dom` types to its
+  own 18 copies, so shared deps' `.d.ts` do not pick up the hoisted 19 types.
+- **React Compiler:** `babel-plugin-react-compiler` `^1.0`, in `@vitejs/plugin-react`'s Babel list
+  **after** `@lingui/babel-plugin-lingui-macro` (compiler-first changes `<Trans>` message ids) in both
+  `vite.config.ts` and `vitest.config.ts`. Lint: `eslint-plugin-react-hooks` `^7.1` (ships the compiler rules).
 
 ### Backend
 

@@ -237,29 +237,30 @@ export function TransactionsTable({
   showDeleted?: boolean
   onToggleShowDeleted?: () => void
 }) {
-  const { t, i18n } = useLingui()
+  const { t } = useLingui()
   // task-i18n-stage3d-pr1 (Task 1, Step 4, template G-fin). Moved off the
   // module level — a module-level `i18n._()` call would freeze every label at
   // whatever locale was active on first import (`constants.ts`'s own
   // `activeLocale()` doc explains the mechanism this avoids). The `i18n`
-  // singleton keeps the same identity across `activate()`, so deps alone on
-  // `i18n` would never invalidate; `i18n.locale` (a primitive that changes on
-  // every switch) is what makes a live locale switch recompute the options.
+  // singleton keeps the same identity across `activate()`, so memoizing on it
+  // never invalidates (the React Compiler infers deps from the body, so an
+  // unused `i18n.locale` dep is dropped). `t` is re-bound on every locale
+  // switch, which is what makes a live switch recompute the options.
   const TYPE_OPTIONS = useMemo(
     () =>
       Object.keys(TYPE_LABEL_MESSAGES).map((value) => ({
         value,
-        label: i18n._(TYPE_LABEL_MESSAGES[value as keyof typeof TYPE_LABEL_MESSAGES]),
+        label: t(TYPE_LABEL_MESSAGES[value as keyof typeof TYPE_LABEL_MESSAGES]),
       })),
-    [i18n, i18n.locale],
+    [t],
   )
   const STATUS_OPTIONS = useMemo(
     () =>
       Object.keys(STATUS_LABEL_MESSAGES).map((value) => ({
         value,
-        label: i18n._(STATUS_LABEL_MESSAGES[value as keyof typeof STATUS_LABEL_MESSAGES]),
+        label: t(STATUS_LABEL_MESSAGES[value as keyof typeof STATUS_LABEL_MESSAGES]),
       })),
-    [i18n, i18n.locale],
+    [t],
   )
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
