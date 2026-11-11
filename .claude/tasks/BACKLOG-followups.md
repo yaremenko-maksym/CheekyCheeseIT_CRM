@@ -7887,3 +7887,25 @@ or accept the stamp and drop the field from the contract. Listed in the Phase 7 
 409 `JOB_QUEUE_VERSION_CONFLICT`.
 
 Sources: PR #1313 spec review (SPEC-M-2), Task 7.4b brief (Master).
+
+## 426. Job queue triage grants: a re-grant dead-ends, and the server trusts the client for triage-only (2026-11-12)
+
+**Symptoms.**
+
+- A grant to a team that already holds a live grant on the opportunity answers 409 `JOB_QUEUE_VERSION_CONFLICT`
+  (`grantTeamTriage`, the "current grant is live" branch). That is the same code as a stale card revision, so the
+  «Призначити команді…» dialog shows «Дані змінилися. Оновіть картку й повторіть.»; the refresh changes nothing and
+  every retry fails the same way. The card exposes no grants, so the client cannot pre-empt it.
+- `grantTeamTriage` checks ADMIN, the revision, a manual card and a live SENIOR team, but not that the opportunity is
+  in triage (`eligibility`). The triage-only rule lives only in the web menu; an ADMIN's crafted request can grant a
+  LEAD or EXCLUDED opportunity.
+- No expiry ceiling on either side: a multi-year grant is accepted.
+
+**Status.** API + web, one PR. Decide (A2): a distinct 409 code for "this team already has access" (the dialog then
+says until when), or treat a re-grant as an extension. Add the server-side eligibility check. Pick a ceiling, or record
+that none is needed.
+
+**Verify.** An integration spec: two grants to the same team, the second answers the new code (or extends); a grant on
+a non-triage opportunity is refused.
+
+Sources: PR #1322 second-opinion panel (nim:step), confirmed by Master against the service.
