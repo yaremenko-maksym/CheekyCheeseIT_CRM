@@ -57,7 +57,7 @@ function morePanel(role) {
   <div class="row" style="gap:12px;height:44px;padding:0 16px;color:var(--destructive)">${icon('log-out', { size: 18 })}<span class="t-sub">Вийти</span></div></div>`
 }
 
-export function tablet({ w, h, more = false }) {
+export function tablet({ w, h, more = false, overlay = '' }) {
   const role = 'ADMIN'
   const list = `<section aria-label="Транзакції" class="col" style="width:320px;flex:none;border-right:1px solid var(--border)">
   <div class="row" style="height:56px;padding:0 8px 0 16px"><div class="grow t-title">Фінанси</div><span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></span></div>
@@ -86,6 +86,6 @@ export function tablet({ w, h, more = false }) {
     .join('')}</div></section>`
   return `<div class="device" style="width:${w}px;height:${h}px">
   <div class="row" style="height:24px;padding:0 20px;justify-content:space-between;font-size:13px;font-weight:600;flex:none"><span>9:41 вт 11 лист.</span><span class="row" style="gap:6px">${icon('wifi', { size: 14, stroke: 2.2 })}100%</span></div>
-  <div class="row grow" style="align-items:stretch;min-height:0;position:relative">${rail(role, more ? 'more' : '/finance')}${list}${detailPane()}${more ? morePanel(role) : ''}</div>
+  <div class="row grow" style="align-items:stretch;min-height:0;position:relative">${rail(role, more ? 'more' : '/finance')}${list}${detailPane()}${more ? morePanel(role) : ''}${overlay}</div>
   <div class="homebar" style="width:180px"></div></div>`
 }
