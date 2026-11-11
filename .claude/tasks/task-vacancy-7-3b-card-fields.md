@@ -120,7 +120,8 @@ Coder A1 decisions (PR #1313, review rounds 0–1; carried verbatim into the PR 
   automatic screening" (design §5.5); `NO_MATCH` is given only for an `OPEN` verdict. The stop-list still wins over
   `EXCLUDED`, and the check runs before the employer check, so the text never blames the employer.
 - A1 (Master, UX-M-2, PR #1313 round 3): an excluded card (`noMatchReason: EXCLUDED`) does not show the «Потребує
-  розгляду» triage badge; the excluded empty state is the only status it shows.
+  розгляду» triage badge; the excluded empty state is the only triage status it shows. The availability chip (for
+  example «Закрита») is a different axis and stays.
 - A1 (Master, QA-LOW-1, PR #1313 round 3): the «Чому збіг» toggle is ≥ 44 px tall at every width, because design §5.2
   and AC 7 do not limit the target size to mobile.
 - A1 (Master, UX-L-4, PR #1313 round 3): stack tokens are shown as stored (lowercase); the repo has no canonical keyword
@@ -141,6 +142,10 @@ Coder A1 decisions (PR #1313, review rounds 0–1; carried verbatim into the PR 
   stated"; the form stays visible per the owner's note in the design.
 - A1 (Coder): a hit stack chip gets an sr-only «, збігається» (SC 1.4.1), Lingui context "job-queue stack chip,
   screen-reader suffix".
+- A1 (Master, SPEC4-L-1, PR #1313 round 4): the round-3 visual polish follows design §5.1 / §5.2 and the card PNGs
+  and is in scope of AC 7: a check icon on hit stack chips, long stack tokens and senior «Збіг за:» chips wrap instead
+  of an ellipsis, the meta line is plain text with the separator space outside the no-wrap spans, the «Чому збіг»
+  label is `text-primary`, and the evidence is an indented quote with a left border.
 - Decision for Task 7.4b (SPEC-M-2): the triage grant stores the client-sent `policyVersion` as an audit stamp and no
   server value validates it; the only per-source value is `job_sources.policy_version`. The 7.4b brief settles which
   value the client sends.
