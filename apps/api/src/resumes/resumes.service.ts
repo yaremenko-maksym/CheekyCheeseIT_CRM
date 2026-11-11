@@ -251,7 +251,9 @@ export class SeniorResumesService {
     viewer: SessionUser,
     targetUserId: string,
   ): Promise<{ pdfBuffer: Buffer; displayName: string }> {
+    // Stryker disable next-line StringLiteral: equivalent — canAccessResume ignores its mode (read and write are granted together)
     if (!canAccessResume(viewer, targetUserId, 'read')) throw noResume()
+    // Stryker disable next-line StringLiteral: equivalent — the mode reaches canAccessResume only, which ignores it
     const target = await this.assertAccess(viewer, targetUserId, 'read')
     const row = await this.findRow(targetUserId)
     if (!row?.stagedPdfS3Key) throw noResume()
@@ -1128,6 +1130,7 @@ export class SeniorResumesService {
     input: ConfirmResumeInput,
   ): Promise<SeniorResumeResponse> {
     if (!canConfirmResume(viewer)) throw new ForbiddenException(NO_ACCESS)
+    // Stryker disable next-line StringLiteral: equivalent — the mode reaches canAccessResume only, which ignores it
     const target = await this.assertAccess(viewer, targetUserId, 'write')
     const existing = await this.existingRow(targetUserId)
     const promoted: SeniorResume = {
@@ -1149,6 +1152,7 @@ export class SeniorResumesService {
     targetUserId: string,
     input: EditStagedFieldInput,
   ): Promise<SeniorResumeResponse> {
+    // Stryker disable next-line StringLiteral: equivalent — the mode reaches canAccessResume only, which ignores it
     await this.assertAccess(viewer, targetUserId, 'write')
     const existing = await this.existingRow(targetUserId)
     return this.toResponse(
@@ -1163,6 +1167,7 @@ export class SeniorResumesService {
     targetUserId: string,
     input: RegenerateStagedFieldInput,
   ): Promise<SeniorResumeResponse> {
+    // Stryker disable next-line StringLiteral: equivalent — the mode reaches canAccessResume only, which ignores it
     await this.assertAccess(viewer, targetUserId, 'write')
     const existing = await this.existingRow(targetUserId)
     return this.toResponse(await this.verification.regenerateStagedField(existing, input), viewer)

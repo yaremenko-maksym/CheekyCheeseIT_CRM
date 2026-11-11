@@ -559,16 +559,12 @@ describe('VerificationRunner.run — staged kinds (Task 15)', () => {
     expect(report.fallbacks).toEqual(PREVIOUS.fallbacks)
   })
 
-  it('no earlier report, or one whose first gate is not content: nothing is carried', async () => {
+  it('no earlier report, no content gate, or content not first: nothing is carried', async () => {
+    const ats = { gate: 'ats', ok: false, items: [{ path: 'summary', reason: 'MISSING' }] }
     for (const verificationReport of [
       null,
-      {
-        gates: [
-          { gate: 'ats', ok: false, items: [{ path: 'summary', reason: 'MISSING' }] },
-          { gate: 'content', ok: true, items: [] },
-        ],
-        fallbacks: [],
-      },
+      { gates: [ats], fallbacks: [] },
+      { gates: [ats, { gate: 'content', ok: true, items: [] }], fallbacks: [] },
     ]) {
       const { set } = await stagedRun({
         verificationKind: 'staged-edit',

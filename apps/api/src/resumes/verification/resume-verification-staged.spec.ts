@@ -5,6 +5,8 @@
  * is what the mutation gate can see.
  */
 import { BadRequestException, HttpException } from '@nestjs/common'
+import type { SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 import { RESUME_LIMITS, type ResumeContent } from '@crm/shared'
 import type { SeniorResume } from '../../database/schema'
@@ -54,6 +56,7 @@ const ROW = {
   version: 7,
 } as unknown as SeniorResume
 
+const dialect = new PgDialect()
 const OWNER = [{ displayName: 'Jane Doe', email: 'jane@unit.spec', legalFullName: null }]
 
 function service(results: unknown[][]) {
@@ -98,6 +101,13 @@ describe('editPathCap / isRegeneratePath (P8, P10)', () => {
     ]) {
       expect(editPathCap(path, STAGED)).toBeNull()
     }
+  })
+
+  it('reads multi-digit item and bullet indexes', () => {
+    const item = { ...STAGED.experience[0]!, bullets: Array.from({ length: 11 }, () => 'b') }
+    const wide = { ...STAGED, experience: Array.from({ length: 11 }, () => item) }
+    expect(editPathCap('experience.10.bullets.10', wide)).toBe(RESUME_LIMITS.bullet)
+    expect(editPathCap('experience.10.bullets.11', wide)).toBeNull()
   })
 
   it('accepts summary and an in-bounds item as regenerate paths, nothing else', () => {
@@ -151,6 +161,26 @@ describe('ResumeVerificationService.confirm', () => {
     // the replaced live object goes after the commit
     expect(s3.delete).toHaveBeenCalledTimes(1)
     expect(s3.delete).toHaveBeenCalledWith('resumes/r-1/live.pdf')
+  })
+
+  it('locks the live key only, and promotes the staged columns with version + 1', async () => {
+    const { svc, log } = service([[{ key: null }], [ROW]])
+    await svc.confirm(ROW, input, HR1, 'fp')
+    expect(log[0]?.columns).toEqual(['key'])
+    const set = log[1]?.set as Record<string, SQL>
+    const compiled = (key: string) => dialect.sqlToQuery(set[key] as SQL).sql
+    expect(compiled('content')).toBe('"senior_resumes"."staged_content"')
+    expect(compiled('layout')).toBe('"senior_resumes"."staged_layout"')
+    expect(compiled('templateName')).toBe('"senior_resumes"."staged_template_name"')
+    expect(compiled('pdfS3Key')).toBe('"senior_resumes"."staged_pdf_s3_key"')
+    expect(compiled('version')).toBe('"senior_resumes"."version" + 1')
+    expect(compiled('verifiedVersion')).toBe('"senior_resumes"."version" + 1')
+  })
+
+  it('a row gone from the locked read still confirms and deletes nothing', async () => {
+    const { svc, s3 } = service([[], [ROW]])
+    await expect(svc.confirm(ROW, input, HR1, 'fp')).resolves.toBe(ROW)
+    expect(s3.delete).not.toHaveBeenCalled()
   })
 
   it('a CAS miss answers 409 and deletes nothing', async () => {
@@ -219,6 +249,37 @@ describe('ResumeVerificationService.editStagedField', () => {
     expect(newRun).not.toBe(RUN)
     expect(update?.where?.params).toEqual(['r-1', RUN, 'AWAITING_CONFIRM'])
     expect(runner.run).toHaveBeenCalledWith('r-1', newRun)
+  })
+
+  it('rewrites the named item only, and the run base is the row version', async () => {
+    const { svc, log } = service([OWNER, [], [ROW]])
+    await svc.editStagedField(
+      ROW,
+      { runId: RUN, path: 'experience.1.bullets.0', text: 'New.' },
+      'h',
+    )
+    const set = log[2]?.set as Record<string, unknown>
+    expect((set['stagedContent'] as ResumeContent).experience.map((e) => e.bullets)).toEqual([
+      ['Led the payments team', 'Moved billing to PostgreSQL'],
+      ['New.'],
+    ])
+    expect(dialect.sqlToQuery(set['verificationBaseVersion'] as SQL).sql).toBe(
+      '"senior_resumes"."version"',
+    )
+  })
+
+  it('an owner with no user row adds no contact rule', async () => {
+    const { svc, runner } = service([[], [ROW]])
+    await svc.editStagedField(ROW, { runId: RUN, path: 'summary', text: 'Ask Jane Doe' }, 'h')
+    expect(runner.run).toHaveBeenCalledTimes(1)
+  })
+
+  it('an empty text at a path that names no staged text is 400', async () => {
+    const { svc, log } = service([])
+    await expect(
+      svc.editStagedField(ROW, { runId: RUN, path: 'headline', text: '' }, 'h'),
+    ).rejects.toBeInstanceOf(BadRequestException)
+    expect(log).toHaveLength(0)
   })
 
   it('rewrites the summary only when the path is summary', async () => {

@@ -383,7 +383,8 @@ export async function writeGatedField(
       experience: base.experience.map((item, i) => (i === target ? { ...item, bullets } : item)),
     }
     path = `experience.${target}.bullets`
-    failures = written.bullets === null ? written.failures : []
+    // writeBullets returns bullets only with no failures, so these are the fallback's reasons
+    failures = written.failures
   }
   return {
     content,
