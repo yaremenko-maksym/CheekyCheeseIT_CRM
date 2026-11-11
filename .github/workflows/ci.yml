@@ -1236,7 +1236,20 @@ jobs:
             # check (page.route only, no DB), same pattern as
             # tests/app-shell-responsive.spec.ts here. Placed by content (one
             # responsive/shell-layout surface), not by duration.
-            files: tests/auth.spec.ts tests/navigation.spec.ts tests/app-shell-responsive.spec.ts tests/crm-tab-title.spec.ts tests/e2e-origin-agnostic-guard.spec.ts tests/notifications-popup-overflow.spec.ts tests/notification-types.spec.ts tests/job-source-admin-responsive.spec.ts
+            #
+            # tests/infra-network-log.spec.ts (redesign v2, task 0.14): the
+            # measuring fixtures' own self-test — static fixture HTML served
+            # through `page.route`, no web app, no API, no DB, the same
+            # zero-live-call shape as the mocked specs above. It is ALSO the
+            # only file in the `webkit-iphone` project's `testMatch` (see
+            # apps/e2e/playwright.config.ts), which is why every legacy shard
+            # is pinned to `--project=chromium` in the run step below: without
+            # that pin Playwright matches this file in BOTH the `chromium` and
+            # `webkit-iphone` projects, and every chromium leg would try to
+            # launch a WebKit binary that only the `webkit-iphone` shard
+            # installs. The Chromium copy still matters — it is the only place
+            # the INP test runs (`test.skip` outside Chromium).
+            files: tests/auth.spec.ts tests/navigation.spec.ts tests/app-shell-responsive.spec.ts tests/crm-tab-title.spec.ts tests/e2e-origin-agnostic-guard.spec.ts tests/notifications-popup-overflow.spec.ts tests/notification-types.spec.ts tests/job-source-admin-responsive.spec.ts tests/infra-network-log.spec.ts
           - name: team-users
             # tests/locale-switcher.spec.ts (task-i18n-stage2, Task 7): the
             # profile-overview language switcher (own profile only) — task
@@ -1420,6 +1433,27 @@ jobs:
           # ones, without a per-file list here.
           - name: landing
             files: tests/landing/
+          # `webkit-iphone`: the mobile-Safari Playwright project (redesign v2,
+          # task 0.14) — see apps/e2e/playwright.config.ts. Its `testMatch`
+          # names only tests/infra-network-log.spec.ts, so this leg runs
+          # exactly that one mocked spec (no backend of its own: page.route +
+          # static fixture HTML; its INP test self-skips outside Chromium,
+          # the 3 network-log tests are browser-agnostic) in WebKit — proof
+          # that the mobile project is actually runnable, not config-only.
+          # Two shard-specific branches below are the only extra behaviour:
+          #   * Install Playwright browsers (and the cached-run deps step)
+          #     install WebKit instead of Chromium. The browser cache key
+          #     above is browser-scoped for the same reason — a shared key
+          #     would let a Chromium-only cache make the install step skip
+          #     and leave `browserType.launch: WebKit` failing.
+          #   * Run E2E tests uses `--project=webkit-iphone` instead of the
+          #     `files:` list.
+          # Same job (not a separate one) so it runs in parallel with the
+          # other legs and joins the `E2E Tests` aggregate for free, and so
+          # existing job names — which branch protection keys on — are
+          # untouched; the templated name yields `E2E (webkit-iphone)`.
+          - name: webkit-iphone
+            files: tests/infra-network-log.spec.ts
     services:
       postgres:
         image: postgres:16-alpine
@@ -1531,7 +1565,12 @@ jobs:
         if: steps.scope.outputs.code == 'true'
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('apps/e2e/package.json') }}
+          # Browser-scoped key: the `webkit-iphone` shard installs WebKit, every
+          # other leg installs Chromium. A shared key would let one leg restore
+          # the OTHER browser's cache (`cache-hit == 'true'`), skip its own
+          # `playwright install`, and then fail at launch with a missing
+          # binary. Chromium legs keep the original key shape unchanged.
+          key: playwright-${{ runner.os }}-${{ matrix.shard.name == 'webkit-iphone' && 'webkit-' || '' }}${{ hashFiles('apps/e2e/package.json') }}
 
       - if: steps.scope.outputs.code == 'true'
         run: pnpm install --frozen-lockfile
@@ -1602,7 +1641,12 @@ jobs:
 
       - name: Install Playwright browsers
         if: steps.scope.outputs.code == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
-        run: pnpm --filter @crm/e2e exec playwright install --with-deps chromium
+        run: |
+          if [ "${{ matrix.shard.name }}" = "webkit-iphone" ]; then
+            pnpm --filter @crm/e2e exec playwright install --with-deps webkit
+          else
+            pnpm --filter @crm/e2e exec playwright install --with-deps chromium
+          fi
 
       # backlog item 122 (.claude/tasks/BACKLOG-followups.md, 2026-08-18):
       # this step used to be a bare `run:` with no cap of its own and hung
@@ -1622,6 +1666,11 @@ jobs:
       # rather than being removed.
       - name: Install Playwright system deps (cached run)
         if: steps.scope.outputs.code == 'true' && steps.pw-cache.outputs.cache-hit == 'true'
+        env:
+          # The wrapper defaults to `install-deps chromium`; the WebKit leg
+          # needs WebKit's own shared libraries instead (same browser split as
+          # the install step above and the browser-scoped cache key).
+          PLAYWRIGHT_DEPS_CMD: ${{ matrix.shard.name == 'webkit-iphone' && 'pnpm --filter @crm/e2e exec playwright install-deps webkit' || 'pnpm --filter @crm/e2e exec playwright install-deps chromium' }}
         run: scripts/devops/install-playwright-system-deps.sh
 
       # ── landing-only steps (task-landing-e2e-in-ci.md КОНТРАКТ) ─────────
@@ -1680,8 +1729,17 @@ jobs:
             pnpm --filter @crm/e2e exec playwright test --project=landing
           elif [ "${{ matrix.shard.name }}" = "cache" ]; then
             pnpm --filter @crm/e2e exec playwright test --project=cache
+          elif [ "${{ matrix.shard.name }}" = "webkit-iphone" ]; then
+            pnpm --filter @crm/e2e exec playwright test --project=webkit-iphone
           else
-            pnpm --filter @crm/e2e exec playwright test $SHARD_FILES
+            # `--project=chromium` is required, not cosmetic: legacy shards would
+            # otherwise also match tests/infra-network-log.spec.ts through the
+            # `webkit-iphone` project's `testMatch` (see the auth-nav shard
+            # comment above) and try to launch WebKit, which only the
+            # `webkit-iphone` leg installs. Every spec in a legacy shard list is
+            # a `chromium`-project spec, so this pin is behaviour-preserving for
+            # all of them.
+            pnpm --filter @crm/e2e exec playwright test $SHARD_FILES --project=chromium
           fi
 
       - name: Docs-only short-circuit
@@ -1707,9 +1765,10 @@ jobs:
         if: always() && steps.scope.outputs.code == 'true'
         run: docker rm -f s3-stand || true
 
-  # Aggregate status of every E2E matrix leg (11 at the time of writing: ten Playwright legs + landing) into one PR-level check.
+  # Aggregate status of every E2E matrix leg (12 at the time of writing: eleven Playwright legs + landing) into one PR-level check.
   # (auth-nav, team-users, projects, finance, misc, meeting-recorder,
-  # drop-finance, drop-lifecycle, docs-money, cache, landing — recounted
+  # drop-finance, drop-lifecycle, docs-money, cache, landing, webkit-iphone —
+  # recounted
   # from the matrix; earlier counts here went stale ("5", then 8) so
   # do not trust it blindly next time either — recount matrix.shard entries
   # above instead of copying the number forward.)
