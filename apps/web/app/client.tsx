@@ -9,6 +9,7 @@ import {
   PRELOAD_RELOAD_TS_KEY,
 } from './lib/preload-reload'
 import { shouldReloadOnControllerChange } from './lib/sw-reload'
+import { pendingWriteCount } from './lib/axios'
 import { activateLocale, readPreLoginLocale } from './lib/i18n'
 
 // Service Worker регистрируется плагином vite-plugin-pwa автоматически
@@ -78,6 +79,9 @@ if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
           hadControllerAtLoad,
           alreadyReloading,
           pageVisible: document.visibilityState === 'visible',
+          userBusy:
+            pendingWriteCount() > 0 ||
+            document.querySelector('[role="dialog"],[role="alertdialog"]') !== null,
         })
       ) {
         alreadyReloading = true

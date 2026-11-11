@@ -51,4 +51,29 @@ describe('shouldReloadOnControllerChange', () => {
       }),
     ).toBe(false)
   })
+
+  // task-ios-file-input-freeze: the iOS photo picker / camera hides and
+  // re-shows the page. A pending SW update must not reload (and wipe) a form
+  // that is open or an upload that is still in flight at that moment.
+  it('returns false on a hidden page while the user is busy (open dialog / write in flight)', () => {
+    expect(
+      shouldReloadOnControllerChange({
+        hadControllerAtLoad: true,
+        alreadyReloading: false,
+        pageVisible: false,
+        userBusy: true,
+      }),
+    ).toBe(false)
+  })
+
+  it('reloads on a hidden page once the user is no longer busy', () => {
+    expect(
+      shouldReloadOnControllerChange({
+        hadControllerAtLoad: true,
+        alreadyReloading: false,
+        pageVisible: false,
+        userBusy: false,
+      }),
+    ).toBe(true)
+  })
 })

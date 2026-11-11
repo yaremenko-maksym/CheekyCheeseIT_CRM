@@ -14,9 +14,25 @@ export const api = axios.create({
   },
 })
 
+// Write requests (uploads, mutations) still in flight — read by the deferred
+// SW reload in client.tsx so a redeploy never reloads mid-upload.
+let pendingWrites = 0
+export const pendingWriteCount = (): number => pendingWrites
+const isWrite = (method: string | undefined) =>
+  !!method && !['get', 'head', 'options'].includes(method.toLowerCase())
+
+api.interceptors.request.use((config) => {
+  if (isWrite(config.method)) pendingWrites++
+  return config
+})
+
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (isWrite(response.config.method)) pendingWrites--
+    return response
+  },
   (error) => {
+    if (isWrite(error.config?.method)) pendingWrites--
     if (error.response?.status === 401) {
       window.location.href = '/login'
     }
