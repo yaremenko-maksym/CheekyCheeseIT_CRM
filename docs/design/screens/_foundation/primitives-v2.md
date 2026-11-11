@@ -31,9 +31,11 @@
 | Confirm dialog            | `ui/alert-dialog.tsx`                                                                                         | restyle                      | `sheet-confirm-dialog-1024`                                                                                                                                                                                |
 | List row                  | —                                                                                                             | NEW `ListRow`                | `listrow-variants-375`, `listrow-swipe-375`, `listrow-sticky-320`, `listrow-empty-error-375`, `listrow-768`, `listrow-1440`                                                                                |
 | Section header            | —                                                                                                             | NEW `ListSection`            | `section-header-375`                                                                                                                                                                                       |
+| Pushed detail page        | —                                                                                                             | NEW `DetailPage`             | `detail-txn-375`, `detail-person-375`                                                                                                                                                                      |
+| Receipt viewer            | Base UI Dialog (full screen)                                                                                  | NEW                          | `detail-txn-receipt-375`                                                                                                                                                                                   |
 | Table row states          | `ui/table.tsx`                                                                                                | restyle                      | `listrow-table-desktop`                                                                                                                                                                                    |
-| Form field                | `ui/input.tsx`, `ui/label.tsx`                                                                                | restyle (16 px, 48 h mobile) | `form-states-375`, `formfield-768`, `formfield-1440`                                                                                                                                                       |
-| Money field + receipt     | `ui/amount-currency-input.tsx`, `ui/image-upload-field.tsx`                                                   | restyle                      | `form-money-375`, `form-keyboard-375`, `sheet-large-375` (one canonical form: `assets/src/money-form.mjs`)                                                                                                 |
+| Form field                | `ui/input.tsx`, `ui/label.tsx`                                                                                | restyle (16 px, 48 h mobile) | `form-states-375`, `form-add-user-375`, `formfield-768`, `formfield-1440`                                                                                                                                  |
+| Money field + receipt     | `ui/amount-currency-input.tsx`, `ui/image-upload-field.tsx`                                                   | restyle                      | `form-money-375`, `form-receipt-link-375`, `form-receipt-usdt-375`, `form-keyboard-375`, `sheet-large-375` (one canonical form: `assets/src/money-form.mjs`)                                               |
 | Segmented control, switch | `ui/segmented-toggle.tsx`, `ui/switch.tsx`                                                                    | restyle                      | `form-money-375`, `sheet-medium-375`                                                                                                                                                                       |
 | Undo toast                | `ui/sonner.tsx`                                                                                               | restyle                      | `toast-undo-375`, `toast-undo-768`, `toast-undo-1440`                                                                                                                                                      |
 | Save error (inline)       | `ui/alert.tsx`                                                                                                | restyle                      | `toast-error-definite-375`, `toast-error-offline-375`, `toast-error-unknown-375`, `toast-error-unknown-list-375`                                                                                           |
@@ -117,6 +119,20 @@ pushed detail** (a file, a receipt) shows a visible 44 px «…» button (`aria-
 row with a detail opens the same menu as a shortcut, never the only path. Rows set
 `-webkit-touch-callout: none` so the long-press does not raise the iOS link / image callout.
 
+**Pushed detail page** (`detail-txn-375`, `detail-person-375`): the target of a row with a detail, and
+the home of that row's swipe actions. Inline title + back; on the right a 44 px text button
+«Редагувати» (the edit entry) and a 44 px «…» (`aria-label` «Інші дії», `aria-haspopup="menu"`) for the
+rest (delete asks with the action sheet). **Transaction:** the description, the amount 40/46 700
+`tabular-nums` (never truncated), the type pill, then a key-value group (Платник, Отримувач, Дата,
+Проєкт as a link row, Створив; long values wrap, they do not truncate), then «Чек»: a 56 px thumbnail
+row («торкніться, щоб збільшити», `aria-label` «Переглянути чек на весь екран»). A link receipt is the
+same row with the host name and opens in the browser. The tap opens the **full-screen viewer**
+(`detail-txn-receipt-375`): a `role="dialog"` on black, the file name, a 44 px ✕ «Закрити» top-left,
+pinch and double-tap to zoom, Esc and a swipe down also close, focus returns to the thumbnail.
+**Person:** a 72 px avatar with initials, name, «роль · команда», then «Контакти» as tappable 56 px
+rows (`tel:`, `mailto:`, Telegram; the accessible name says the action, «Подзвонити: …»), then
+«Робота» (Роль, Команда and Проєкти as link rows).
+
 **Sticky section header** (`listrow-sticky-320`, `section-header-375`): overline 12/16 uppercase, 92%
 translucent bar with blur while stuck; date sections show the day total on the right (`tabular-nums`).
 Long titles truncate on one line with the full text as the accessible name.
@@ -125,11 +141,32 @@ Long titles truncate on one line with the full text as the accessible name.
 
 ## 4. Forms
 
-**Field states** (`form-states-375`): label above (15/20), input 48 h (mobile) / 36 h (desktop), 16 px
-text, `--input-border` outline, `--placeholder` text. Focus: yellow border + 3 px soft ring. Error:
+**Field states** (`form-states-375`, a profile edit «Редагувати профіль»): label above (15/20), input
+48 h (mobile) / 36 h (desktop), 16 px text, `--input-border` outline, `--placeholder` text. The frame
+shows filled, focus, error, a PickerSheet field (Роль, enabled: a tap opens the PickerSheet) and a
+disabled field with its reason («Email для входу» · «Привʼязаний до Google-акаунта»). Focus: yellow border + 3 px soft ring. Error:
 destructive border + icon + message under the field (`aria-describedby`, `aria-invalid`). Disabled:
 50% opacity + dashed border + a reason line («Роль змінює адміністратор»). Helper text 13/18 muted.
 Validation on blur for format, on submit for required.
+
+**Add user** (`form-add-user-375`): a pushed form «Новий користувач»: Імʼя, Email (hint «На цю адресу
+прийде запрошення»), Роль and Команда as PickerSheet fields, the primary «Додати» in the bottom bar.
+
+**Field → keyboard** (every mobile input sets these; the mock inputs carry them as attributes):
+
+| Field         | `type`   | `inputmode` | `autocomplete`  | `autocapitalize` | `enterkeyhint`    | Also                                     |
+| ------------- | -------- | ----------- | --------------- | ---------------- | ----------------- | ---------------------------------------- |
+| Email         | `email`  | `email`     | `email`         | `none`           | `next`            | `autocorrect=off`, `spellcheck=false`    |
+| Phone         | `tel`    | `tel`       | `tel`           | —                | `next`            |                                          |
+| Name          | `text`   | `text`      | `name`          | `words`          | `next`            |                                          |
+| URL (receipt) | `url`    | `url`       | `off`           | `none`           | `done`            | `autocorrect=off`, `spellcheck=false`    |
+| Amount        | `text`   | `decimal`   | `off`           | —                | `done`            | parsed, never `type=number` (§4 parsing) |
+| Search        | `search` | `search`    | `off`           | `none`           | `search`          | `autocorrect=off`                        |
+| OTP / code    | `text`   | `numeric`   | `one-time-code` | `none`           | `done`            | `pattern="[0-9]*"`                       |
+| Long text     | —        | `text`      | `off`           | `sentences`      | `enter` (newline) | `textarea`; the save is a button         |
+
+The last field of a form uses `enterkeyhint="done"`; Enter on it submits only where the form has a
+single primary and no textarea.
 
 **At 768 / 1440** (`formfield-768`, `formfield-1440`): the tablet keeps 48 h / 16 px (touch, no iOS zoom)
 in two columns; the desktop field is 36 h / 14 px with a 13 px label and 12 px helper, target ≥ 24 px
@@ -142,10 +179,20 @@ under it a 44 px currency pill and a 44 px segmented type control (36 px visual 
 area) over the role's existing create types (the frame shows the ADMIN set Витрата / Дохід / Переказ =
 `EXPENSE` / `ADMIN_INCOME` / `ADMIN_TRANSFER`; the Wave 1 finance spec owns the exact set per role).
 The optional fields are collapsed into a 44 px defaults row that names what will be saved: «Сьогодні ·
-без проєкту · змінити»; a tap expands Дата / Проєкт / Опис. Receipt: one dashed tile «Додати чек —
-Камера, фото або файл · до 10 МБ» (one file input without `capture`, so iOS offers its native chooser);
-once added, a card with the thumbnail, the status line, **«Замінити»** and **«✕»** (`aria-label`
-«Видалити чек»), both 44 × 44. The pushed page (`form-money-375`) renders the same defaults row as the
+без проєкту · змінити»; a tap expands Дата / Проєкт / Опис. **The receipt is mandatory: exactly one
+of a file or a link** (`receiptMandatoryError` in `packages/shared/src/schemas/finance/validation.ts`,
+both at once is refused too). The empty tile has two modes, **«Файл» / «Посилання»**
+(a 44 px segmented control): «Файл» is one dashed tile «Додати чек — Камера, фото або файл · до 10 МБ»
+(one file input without `capture`, so iOS offers its native chooser); «Посилання» is a URL field
+«Посилання на чек» (`form-receipt-link-375`; any `http(s)` link). Once a file is added, a card with the
+thumbnail, the status line, **«Замінити»** and **«✕»** (`aria-label` «Видалити чек»), both 44 × 44,
+replaces the switch (remove the file to switch to a link). **Effective currency USDT: a link only**,
+and it must be a blockchain-explorer link: the file mode is gone and the field reads «Посилання на
+транзакцію в блокчейн-експлорері» (`form-receipt-usdt-375`). The link field is `type=url`,
+`inputmode=url`, `autocapitalize=none`, `autocorrect=off`, `enterkeyhint=done`. **A save without a
+receipt:** the primary stays enabled (house rule); a tap focuses the receipt and shows the inline
+error «Додайте чек: файл або посилання» (USDT: «Для USDT потрібне посилання на транзакцію в
+експлорері», also for a link that is not an explorer link). No path saves without a receipt. The pushed page (`form-money-375`) renders the same defaults row as the
 sheet, not expanded fields.
 
 - **Defaults** (what the defaults row names): type and currency = the last used **on this device**;

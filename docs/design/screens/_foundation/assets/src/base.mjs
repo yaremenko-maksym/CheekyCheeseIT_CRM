@@ -203,6 +203,7 @@ export function field({
   lead = '',
   suffix = '',
   id = 'f',
+  attrs = '',
 }) {
   const shown = value || ph
   const caret = state === 'focus' ? '<span class="caret"></span>' : ''
@@ -212,7 +213,7 @@ export function field({
       ? `<div class="hint" id="${id}-h">${hint}</div>`
       : ''
   return `<div class="field"><label for="${id}">${label}</label>
-  <div class="input ${state}" id="${id}" ${state.includes('error') ? 'aria-invalid="true"' : ''} ${state === 'disabled' ? 'aria-disabled="true"' : ''}>${lead}<span class="grow trunc ${value ? '' : 'ph'}">${state === 'focus' && !value ? caret + shown : shown + caret}</span>${suffix}</div>${msg}</div>`
+  <div class="input ${state}" id="${id}" ${attrs} ${state.includes('error') ? 'aria-invalid="true"' : ''} ${state === 'disabled' ? 'aria-disabled="true"' : ''}>${lead}<span class="grow trunc ${value ? '' : 'ph'}">${state === 'focus' && !value ? caret + shown : shown + caret}</span>${suffix}</div>${msg}</div>`
 }
 
 export const safeBottom = (w) => (w <= 320 ? 0 : 34)

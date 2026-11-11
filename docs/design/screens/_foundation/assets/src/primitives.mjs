@@ -1,5 +1,6 @@
 // Primitives v2 frames. Rendered by `node render.mjs primitives [filter]` into ../primitives-v2/.
 import { page } from './base.mjs'
+import { moneyForm } from './money-form.mjs'
 import {
   sheetMedium,
   sheetLarge,
@@ -9,6 +10,10 @@ import {
   listSticky,
   sectionHeaders,
   formStates,
+  formAddUser,
+  detailTxn,
+  detailPerson,
+  receiptViewer,
   formMoney,
   pickerSheet,
   formLongText,
@@ -79,9 +84,20 @@ export function frames() {
     D('listrow-1440', 1440, 420, listrowDesktop(), true),
     M('section-header-375', 375, 812, sectionHeaders(375, 812)),
     M('form-states-375', 375, 812, formStates(375, 812)),
+    M('form-add-user-375', 375, 812, formAddUser(375, 812)),
+    M('detail-txn-375', 375, 812, detailTxn(375, 812)),
+    M('detail-txn-receipt-375', 375, 812, receiptViewer(375, 812)),
+    M('detail-person-375', 375, 812, detailPerson(375, 812)),
     C('formfield-768', 768, 500, formfieldTablet()),
     D('formfield-1440', 1440, 360, formfieldDesktop(), true),
     M('form-money-375', 375, 812, formMoney(375, 812)),
+    M('form-receipt-link-375', 375, 812, moneyForm({ w: 375, h: 812, receipt: 'link' })),
+    M(
+      'form-receipt-usdt-375',
+      375,
+      812,
+      moneyForm({ w: 375, h: 812, receipt: 'usdt-error', cur: 'USDT' }),
+    ),
     M('picker-sheet-375', 375, 812, pickerSheet(375, 812)),
     M('form-longtext-375', 375, 812, formLongText(375, 812)),
     M('form-keyboard-375', 375, 812, formKeyboard(375, 812)),

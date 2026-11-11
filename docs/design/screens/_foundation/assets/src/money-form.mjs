@@ -9,7 +9,7 @@ import { sheet, safeTop, closeBtn } from './mobile-overlays.mjs'
 
 export const AMOUNT = '1 250,50'
 
-const thumb = (s = 44) =>
+export const thumb = (s = 44) =>
   `<div style="position:relative;width:${s}px;height:${s}px;flex:none;border-radius:10px;background:linear-gradient(160deg,oklch(0.86 0 0),oklch(0.7 0 0));outline:1px solid oklch(1 0 0 / 0.1);outline-offset:-1px;overflow:hidden"><div style="position:absolute;inset:7px 9px;display:grid;gap:4px">${'<i style="height:3px;background:oklch(0.45 0 0);border-radius:2px"></i>'.repeat(4)}</div></div>`
 
 export function ring(pct, size = 28) {
@@ -17,11 +17,41 @@ export function ring(pct, size = 28) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15" fill="none" stroke="oklch(1 0 0 / 0.25)" stroke-width="3"/><circle cx="18" cy="18" r="15" fill="none" stroke="var(--primary)" stroke-width="3" stroke-linecap="round" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${(c * (1 - pct / 100)).toFixed(1)}" transform="rotate(-90 18 18)"/></svg>`
 }
 
-/** Receipt: empty picker, uploading or uploaded. «Замінити» and «✕ Видалити чек» are both 44 px. */
+// The receipt is mandatory: exactly one of a file or a link. Effective currency USDT: an explorer link only.
+const URL_ATTRS =
+  'type="url" inputmode="url" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="done"'
+const receiptModes = (on) =>
+  `<div role="group" aria-label="Чек" style="margin-bottom:8px">${segmented(['Файл', 'Посилання'], on)}</div>`
+const linkField = ({ usdt = false, value = '', err = '' } = {}) =>
+  field({
+    id: 'rl',
+    label: usdt ? 'Посилання на транзакцію в блокчейн-експлорері' : 'Посилання на чек',
+    value,
+    ph: usdt ? 'https://tronscan.org/#/transaction/…' : 'https://…',
+    state: err ? 'error focus' : '',
+    err,
+    hint: usdt && !err ? 'Чек для USDT — лише посилання на транзакцію' : '',
+    lead: `<span class="muted">${icon('link', { size: 18 })}</span>`,
+    attrs: URL_ATTRS,
+  })
+
+/**
+ * Receipt tile. Empty: «Файл» / «Посилання» (44 px segmented) over the picker or the link field.
+ * A file in place replaces the switch (remove it to switch). USDT: the link field only, no file mode.
+ * «Замінити» and «✕ Видалити чек» are both 44 px.
+ */
 export function receiptCard(state = 'uploading') {
   if (state === 'empty')
-    return `<div class="row" role="button" style="gap:12px;height:68px;padding:0 12px;border-radius:var(--r-lg);border:1.5px dashed var(--input-border)">
-    <span style="width:44px;height:44px;border-radius:12px;background:var(--surface);display:grid;place-items:center">${icon('camera', { size: 20 })}</span><span class="grow col" style="gap:2px"><span class="t-sub" style="font-weight:600">Додати чек</span><span class="t-foot muted">Камера, фото або файл · до 10 МБ</span></span></div>`
+    return `<div>${receiptModes(0)}<div class="row" role="button" style="gap:12px;height:68px;padding:0 12px;border-radius:var(--r-lg);border:1.5px dashed var(--input-border)">
+    <span style="width:44px;height:44px;border-radius:12px;background:var(--surface);display:grid;place-items:center">${icon('camera', { size: 20 })}</span><span class="grow col" style="gap:2px"><span class="t-sub" style="font-weight:600">Додати чек</span><span class="t-foot muted">Камера, фото або файл · до 10 МБ</span></span></div></div>`
+  if (state === 'link')
+    return `<div>${receiptModes(1)}${linkField({ value: 'https://docs.example.com/receipts/office-nov.pdf' })}</div>`
+  if (state === 'usdt-error')
+    return linkField({
+      usdt: true,
+      value: 'https://drive.example.com/usdt-receipt.png',
+      err: 'Для USDT потрібне посилання на транзакцію в експлорері',
+    })
   const up = state === 'uploading'
   const over = up
     ? `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.45);display:grid;place-items:center">${ring(62)}</div>`

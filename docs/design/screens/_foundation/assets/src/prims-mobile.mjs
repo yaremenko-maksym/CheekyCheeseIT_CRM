@@ -7,6 +7,7 @@ import {
   textKeyboard,
   TEXT_H,
   actionConfirm,
+  thumb,
 } from './money-form.mjs'
 export { field, segmented }
 import { tabScreen, financeBody, txnRow, TXNS, topBar, PEOPLE } from './mobile.mjs'
@@ -27,36 +28,111 @@ function formPage(w, h, title, fields, { footer = '', overlay = '' } = {}) {
   return phone({ w, h, inner, overlay })
 }
 
+// Field → keyboard attributes (primitives §4 keyboard table). Rendered on the mock inputs as-is.
+const KB = {
+  name: 'autocomplete="name" autocapitalize="words" enterkeyhint="next"',
+  email:
+    'type="email" inputmode="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next"',
+  tel: 'type="tel" inputmode="tel" autocomplete="tel" enterkeyhint="next"',
+}
+// A picker field opens the PickerSheet (§2): a button with the current value and a chevron.
+const pickerField = (id, label, value) =>
+  field({ id, label, value, suffix: chevDown, attrs: 'role="button" aria-haspopup="dialog"' })
+
+/** Field states on a profile edit: filled, focus, error, a PickerSheet field, disabled with a reason. */
 export function formStates(w, h) {
   const f = [
-    field({ id: 'a', label: 'Ім’я та прізвище', ph: 'Наприклад, Ірина Мельник' }),
+    field({ id: 'a', label: 'Імʼя', value: 'Ірина Мельник', attrs: KB.name }),
     field({
-      id: 'b',
-      label: 'Email',
-      value: 'iryna.m',
+      id: 'c',
+      label: 'Телефон',
+      value: '+380 67 000 00 0',
       state: 'focus',
-      hint: 'На цю адресу прийде запрошення',
+      hint: 'Для звʼязку з командою',
+      attrs: KB.tel,
     }),
-    field({ id: 'c', label: 'Телефон', value: '+380 67 000 00 00' }),
     field({
       id: 'd',
       label: 'Робочий email',
       value: 'iryna@',
       state: 'error',
       err: 'Вкажіть email у форматі name@domain.com',
+      attrs: KB.email,
     }),
+    pickerField('e', 'Роль', 'Junior'),
     field({
-      id: 'e',
-      label: 'Роль',
-      value: 'Junior',
+      id: 'g',
+      label: 'Email для входу',
+      value: 'iryna.melnyk@example.com',
       state: 'disabled',
-      suffix: chevDown,
-      hint: 'Роль змінює адміністратор',
+      hint: 'Привʼязаний до Google-акаунта',
     }),
   ].join('')
-  return formPage(w, h, 'Новий користувач', f, {
-    footer: stickyFooter(w, 'Надіслати запрошення'),
+  return formPage(w, h, 'Редагувати профіль', f, {
+    footer: stickyFooter(w, 'Зберегти зміни'),
   })
+}
+
+/** New user: name, email, role and team through the PickerSheet, primary «Додати». */
+export function formAddUser(w, h) {
+  const f = [
+    field({ id: 'un', label: 'Імʼя', value: 'Ірина Мельник', attrs: KB.name }),
+    field({
+      id: 'ue',
+      label: 'Email',
+      value: 'iryna.melnyk@example.com',
+      state: 'focus',
+      hint: 'На цю адресу прийде запрошення',
+      attrs: KB.email,
+    }),
+    pickerField('ur', 'Роль', 'Junior'),
+    pickerField('ut', 'Команда', 'Команда «Альфа»'),
+  ].join('')
+  return formPage(w, h, 'Новий користувач', f, { footer: stickyFooter(w, 'Додати') })
+}
+
+// ---------- Pushed detail pages: the rows with a detail carry their actions here (§3) ----------
+const detailTop = (title) =>
+  topBar({
+    back: true,
+    title,
+    bell: false,
+    search: false,
+    trailing: `<span class="btn ghost" role="button" style="height:44px;padding:0 8px;font-size:17px;font-weight:500;color:var(--primary)">Редагувати</span><span class="iconbtn" role="button" aria-label="Інші дії" aria-haspopup="menu">${icon('ellipsis', { size: 22 })}</span>`,
+  })
+const kv = (k, v, { link = false } = {}) =>
+  `<div class="lrow" ${link ? 'role="link"' : ''} style="--inset:16px;min-height:52px"><div class="t-body muted" style="flex:none">${k}</div><div class="grow t-body" style="text-align:right;overflow-wrap:anywhere">${v}</div>${link ? icon('chevron-right', { size: 18, cls: 'chev' }) : ''}</div>`
+
+/** Transaction detail: amount, type, parties, date, project, the receipt (tap = full-screen viewer). */
+export function detailTxn(w, h) {
+  const head = `<div class="col" style="align-items:center;gap:6px;padding:8px 16px 18px;text-align:center"><div class="t-sub muted">Оренда офісу</div><div class="num" style="font-size:40px;line-height:46px;font-weight:700;letter-spacing:-0.03em;white-space:nowrap">−1 200,00 $</div><span class="pill" style="height:28px;padding:0 12px;font-size:13px">Витрата</span></div>`
+  const parts = `<div class="group">${kv('Платник', 'Компанія')}${kv('Отримувач', 'ТОВ «Бізнес-центр Поділ»')}${kv('Дата', '11 листопада 2026, 14:20')}${kv('Проєкт', 'Проєкт «Альфа»', { link: true })}${kv('Створив', 'Віктор Кравець')}</div>`
+  const receipt = `<div class="sechead"><span class="t-over">Чек</span></div><div class="group"><div class="lrow" role="button" aria-label="Переглянути чек на весь екран" style="min-height:76px">${thumb(56)}<div class="grow col" style="gap:2px;min-width:0"><div class="t-body trunc">receipt-office-nov.jpg</div><div class="t-foot muted">220 КБ · торкніться, щоб збільшити</div></div><span class="muted">${icon('maximize-2', { size: 18 })}</span></div></div>`
+  const inner = `${detailTop('Транзакція')}<div class="content" style="padding:0 16px 24px">${head}${parts}${receipt}</div>`
+  return phone({ w, h, inner })
+}
+
+/** Full-screen receipt viewer: pinch to zoom, 44 px close, the file name. */
+export function receiptViewer(w, h) {
+  const img = `<div style="position:absolute;left:24px;right:24px;top:${safeTop(w) + 70}px;bottom:${safeBottom(w) + 90}px;border-radius:6px;background:linear-gradient(170deg,oklch(0.95 0 0),oklch(0.86 0 0));padding:28px 24px;display:grid;align-content:start;gap:12px">${'<i style="height:8px;background:oklch(0.55 0 0);border-radius:3px"></i>'.repeat(3)}<i style="height:8px;width:60%;background:oklch(0.55 0 0);border-radius:3px"></i><i style="height:22px"></i>${'<i style="height:6px;background:oklch(0.7 0 0);border-radius:3px"></i>'.repeat(8)}<i style="height:14px;width:40%;margin-top:18px;justify-self:end;background:oklch(0.4 0 0);border-radius:3px"></i></div>`
+  const top = `<div class="row" style="position:absolute;left:8px;right:8px;top:${safeTop(w) + 6}px;gap:8px"><span class="iconbtn" role="button" aria-label="Закрити" style="color:#fff">${icon('x', { size: 24 })}</span><span class="grow t-sub" style="text-align:center;color:#fff">receipt-office-nov.jpg</span><span style="width:44px"></span></div>`
+  const hint = `<div class="t-foot" style="position:absolute;left:0;right:0;bottom:${safeBottom(w) + 40}px;text-align:center;color:oklch(0.75 0 0)">Зведіть або розведіть пальці, щоб змінити масштаб</div>`
+  return phone({
+    w,
+    h,
+    inner: `<div role="dialog" aria-modal="true" aria-label="Чек receipt-office-nov.jpg" style="position:absolute;inset:0;background:#000">${img}${top}${hint}</div>`,
+  })
+}
+
+/** Person detail: avatar, name, role, team, contacts as tappable rows, the edit entry. */
+export function detailPerson(w, h) {
+  const head = `<div class="col" style="align-items:center;gap:6px;padding:8px 16px 18px;text-align:center"><span style="width:72px;height:72px;border-radius:36px;background:var(--yellow-subtle);color:var(--primary);display:grid;place-items:center;font-size:26px;font-weight:700">ІМ</span><div class="t-title" style="font-weight:700">Ірина Мельник</div><div class="t-foot muted">Junior · Команда «Альфа»</div></div>`
+  const contact = (ic, v, label) =>
+    `<div class="lrow" role="link" aria-label="${label}" style="--inset:52px;min-height:56px"><span style="color:var(--primary);flex:none">${icon(ic, { size: 20 })}</span><div class="grow t-body trunc">${v}</div>${icon('chevron-right', { size: 18, cls: 'chev' })}</div>`
+  const contacts = `<div class="sechead"><span class="t-over">Контакти</span></div><div class="group">${contact('phone', '+380 67 000 00 00', 'Подзвонити: +380 67 000 00 00')}${contact('mail', 'iryna.melnyk@example.com', 'Написати: iryna.melnyk@example.com')}${contact('send', '@iryna_m', 'Telegram: @iryna_m')}</div>`
+  const work = `<div class="sechead"><span class="t-over">Робота</span></div><div class="group">${kv('Роль', 'Junior')}${kv('Команда', '«Альфа»', { link: true })}${kv('Проєкти', '3', { link: true })}</div>`
+  const inner = `${detailTop('Профіль')}<div class="content" style="padding:0 16px 24px">${head}${contacts}${work}</div>`
+  return phone({ w, h, inner })
 }
 
 /** Pushed-screen variant of the canonical money form: no keyboard, empty receipt, the same defaults row as the sheet. */

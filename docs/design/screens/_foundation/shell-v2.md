@@ -105,8 +105,9 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   no sheet opens by itself. Backgrounding the app does not disarm; a page kill is reported at the next
   boot by the marker's phase (`armed`: not saved; `sent`: check the list, no resubmit). **One money draft per session:** while a draft exists, «+» reopens it. The full lifecycle is
   the state table in foundation §11. An upload failure disarms the save and shows its error on the
-  receipt card; the user may replace the file or remove it («✕ Видалити чек») and save without a
-  receipt.
+  receipt card; the user replaces the file, or removes it («✕ Видалити чек») and adds another file or a
+  link. The receipt is mandatory (a file or a link; USDT: an explorer link only), so no path saves
+  without one (primitives-v2 §4).
 
 ### More sheet
 
