@@ -88,7 +88,7 @@ describe.skipIf(!hasDatabaseUrl())('GET /job-sourcing/sources — the meter proj
   let jwt: JwtService
   let pool: Pool
   const meterIds: string[] = []
-  const sourceIds = { live: '', elapsed: '', none: '' }
+  const sourceIds = { live: '', elapsed: '', none: '', deadline: '' }
 
   const DAY_MS = 86_400_000
   const tag = randomUUID().slice(0, 8)
@@ -113,10 +113,14 @@ describe.skipIf(!hasDatabaseUrl())('GET /job-sourcing/sources — the meter proj
     return id
   }
 
-  const insertSource = async (key: string, accountMeterId: string | null): Promise<string> => {
+  const insertSource = async (
+    key: string,
+    accountMeterId: string | null,
+    over: Partial<typeof jobSources.$inferInsert> = {},
+  ): Promise<string> => {
     const [row] = await dbSvcRef.db
       .insert(jobSources)
-      .values({ type: 'REMOTIVE_API', config: { m75: key, tag }, accountMeterId })
+      .values({ type: 'REMOTIVE_API', config: { m75: key, tag }, accountMeterId, ...over })
       .returning({ id: jobSources.id })
     return row?.id ?? ''
   }
@@ -160,6 +164,13 @@ describe.skipIf(!hasDatabaseUrl())('GET /job-sourcing/sources — the meter proj
     sourceIds.live = await insertSource('live', live)
     sourceIds.elapsed = await insertSource('elapsed', elapsed)
     sourceIds.none = await insertSource('none', null)
+    // The shipped ledger catalog gives this manifest an authorization deadline (2027-02-10).
+    sourceIds.deadline = await insertSource('deadline', null, {
+      type: 'RECRUITEE_ATS',
+      manifestId: 'recruitee.board.bunq',
+      // an inventory source must name its board (ck_job_sources_inventory_namespace_nonempty)
+      namespace: `m75-${tag}`,
+    })
 
     const moduleRef = await Test.createTestingModule({ imports: [MeterTestModule] })
       .overrideGuard(RolesGuard)
@@ -228,13 +239,31 @@ describe.skipIf(!hasDatabaseUrl())('GET /job-sourcing/sources — the meter proj
     expect(itemOf(body, sourceIds.none)?.meter).toBeNull()
   })
 
+  it('an ADMIN reads the authorization deadline of a catalogued source as an ISO instant', async () => {
+    const { status, body } = await listAs(ADMIN)
+    expect(status).toBe(200)
+    const item = itemOf(body, sourceIds.deadline)
+    expect(item?.authUntil).toBe('2027-02-10T00:00:00.000Z')
+    expect(item?.policyUntil).toBeNull()
+  })
+
+  it('a source with no catalogued deadline reads policyUntil and authUntil as null, not absent', async () => {
+    const { body } = await listAs(ADMIN)
+    const raw = (body['items'] as Record<string, unknown>[]).find((i) => i['id'] === sourceIds.none)
+    expect(raw).toBeDefined()
+    expect(raw).toHaveProperty('policyUntil', null)
+    expect(raw).toHaveProperty('authUntil', null)
+  })
+
   it.each(NON_ADMIN.map((u) => [u.role, u] as const))(
-    '%s is refused by the role guard with 403 and sees no meter',
+    '%s is refused by the role guard with 403 and sees no meter or deadline',
     async (_role, user) => {
       const { status, body } = await listAs(user)
       expect(status).toBe(403)
       expect(body['code']).toBe(GUARD_REFUSAL_CODE)
       expect(JSON.stringify(body)).not.toContain('meter')
+      expect(JSON.stringify(body)).not.toContain('authUntil')
+      expect(JSON.stringify(body)).not.toContain('policyUntil')
     },
   )
 
