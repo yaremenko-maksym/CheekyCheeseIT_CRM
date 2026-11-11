@@ -115,6 +115,15 @@ assert_red "голый запуск: ни DATABASE_URL, ни порта" \
   --contains "[pre:bash:live-db-guard] BLOCK" \
   -- h "pnpm --filter @crm/api dev"
 
+# The stderr BLOCK line carries a non-ASCII em dash; the decision JSON escapes its own
+# (\u2014), so a raw one can only come from stderr. On Windows the analyzer wrote it in
+# the locale code page and it arrived as a replacement character. Red there before the
+# analyzer set its streams to UTF-8.
+assert_red "the stderr BLOCK line reaches the caller as UTF-8 (the em dash survives)" \
+  --contains "[pre:bash:live-db-guard] BLOCK" \
+  --contains " — " \
+  -- h "pnpm --filter @crm/api dev"
+
 assert_red "префикс переменных окружения указывает на ЖИВУЮ crm_db" \
   --contains "crm_db" \
   -- h "DATABASE_URL=$LIVE_DB API_PORT=3011 pnpm --filter @crm/api dev"

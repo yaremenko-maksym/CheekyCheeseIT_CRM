@@ -58,6 +58,13 @@ assert_red "pkill -f kills every agent's processes, not mine -> BLOCK (PR #547)"
   --contains '"decision": "block"' \
   -- run_hook "$MINE" 'pkill -f "apps/api/dist/main"'
 
+# The reason text crosses a pipe from the analyzer to the message block. On Windows
+# that pipe used the locale code page, so the JSON carried mojibake escapes
+# (\u00e1\u00fc...) instead of the Cyrillic ones below. Red on Windows before the fix.
+assert_red "the analyzer reason reaches the refusal as UTF-8, not in the locale code page" \
+  --contains '\u0431\u044c\u0451\u0442 \u043f\u043e \u0448\u0430\u0431\u043b\u043e\u043d\u0443' \
+  -- run_hook "$MINE" 'pkill -f "apps/api/dist/main"'
+
 assert_red "removing another agent's worktree -> BLOCK (PR #544)" \
   --contains '"decision": "block"' \
   -- run_hook "$MINE" "git worktree remove --force $OTHER"
