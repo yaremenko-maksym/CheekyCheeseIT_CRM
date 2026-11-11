@@ -18,21 +18,33 @@
  *   - layout / template on AWAITING_CONFIRM → DRAFT + the staged cleanup.
  *   - layout / template on DRAFT / FAILED → written, `version` bumped.
  */
-import { HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common'
 import { createHash, randomUUID } from 'node:crypto'
 import { and, eq, inArray, isNull, ne, notInArray, sql, type SQL } from 'drizzle-orm'
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core'
 import {
   DEFAULT_RESUME_LAYOUT,
   EMPTY_RESUME_CONTENT,
+  RESUME_LIMITS,
   RESUME_TEMPLATE_NAMES,
   checkResumeCompleteness,
+  isLatinScript,
   normalizeResumeLayout,
   resumeContentSchema,
   resumeFactsSchema,
   resumeStagedEditedPathsSchema,
   resumeVerificationErrorCodeSchema,
   resumeVerificationReportSchema,
+  type ConfirmResumeInput,
+  type EditStagedFieldInput,
+  type RegenerateStagedFieldInput,
+  type ResumeContent,
   type ResumeFacts,
   type ResumeLayoutOptions,
   type ResumeTemplateName,
@@ -43,8 +55,15 @@ import { DatabaseService } from '../../database/database.service'
 import { S3Service } from '../../documents/s3.service'
 import { seniorResumes, teamMembers, type SeniorResume } from '../../database/schema'
 import { resolveTemplateName } from '../resume-typst.service'
+import { hasContact } from './content-gates'
 import { contentToFacts } from './derive-content'
-import { CLEARED_STAGED, deleteStagedQuietly, VerificationRunner } from './verification-runner'
+import {
+  CLEARED_STAGED,
+  deleteStagedQuietly,
+  loadOwnerContacts,
+  regenerateTarget,
+  VerificationRunner,
+} from './verification-runner'
 
 /** An extraction in flight owns the row's facts (P5a). */
 const EXTRACTION_BUSY: SeniorResume['status'][] = ['QUEUED', 'RUNNING']
@@ -61,6 +80,36 @@ type VerificationDtoFields = Pick<
   | 'staged'
   | 'verificationBusy'
 >
+
+/**
+ * An edit path (P10): `summary` or `experience.<i>.bullets.<j>`, in bounds of `content`. Returns
+ * the text cap of that path (P8), or `null` when the path names no staged text.
+ */
+export function editPathCap(path: string, content: ResumeContent): number | null {
+  if (path === 'summary') return RESUME_LIMITS.summary
+  const bullet = /^experience\.(\d+)\.bullets\.(\d+)$/u.exec(path)
+  if (!bullet) return null
+  const bullets = content.experience[Number(bullet[1])]?.bullets
+  return bullets !== undefined && Number(bullet[2]) < bullets.length ? RESUME_LIMITS.bullet : null
+}
+
+/** A regenerate path (P10): `summary` or `experience.<i>.bullets`, in bounds of `content`. */
+export function isRegeneratePath(path: string, content: ResumeContent): boolean {
+  const target = regenerateTarget(path)
+  return target === 'summary' || (target !== null && target < content.experience.length)
+}
+
+/** `content` with the text at a valid edit path replaced. */
+function withText(content: ResumeContent, path: string, text: string): ResumeContent {
+  if (path === 'summary') return { ...content, summary: text }
+  const [, i, , j] = path.split('.').map(Number)
+  return {
+    ...content,
+    experience: content.experience.map((item, at) =>
+      at === i ? { ...item, bullets: item.bullets.map((b, k) => (k === j ? text : b)) } : item,
+    ),
+  }
+}
 
 /** True while a run owns the row: every write answers 409 then. */
 export function isVerificationBusy(
@@ -301,6 +350,185 @@ export class ResumeVerificationService {
       .returning()
     if (!updated) return this.resolveMiss(row.id)
     await this.deleteStagedObject(row.stagedPdfS3Key)
+    void this.runner.run(row.id, runId)
+    return updated
+  }
+
+  /**
+   * POST confirm (ADMIN/HR; the caller checks the role). One compare-and-set UPDATE on the run id,
+   * the version, AWAITING_CONFIRM and no custom template promotes the staged result to the live
+   * columns and sets VERIFIED with `verified_version` = the new version. `pdfFingerprint` is the
+   * caller's fingerprint of the promoted render input (P11): the live PDF endpoint then serves the
+   * checked PDF instead of re-rendering it. A miss is 409 RESUME_CONFIRM_STALE. The replaced live
+   * PDF object goes after commit.
+   */
+  async confirm(
+    row: SeniorResume,
+    input: ConfirmResumeInput,
+    viewerId: string,
+    pdfFingerprint: string,
+  ): Promise<SeniorResume> {
+    // The fingerprint was taken from this read, so it must be the staged result being confirmed.
+    if (row.verificationStatus !== 'AWAITING_CONFIRM' || row.verificationRunId !== input.runId) {
+      throw apiError('RESUME_CONFIRM_STALE', HttpStatus.CONFLICT)
+    }
+    const now = new Date()
+    const result = await this.db.db.transaction(async (tx) => {
+      const [current] = await tx
+        .select({ key: seniorResumes.pdfS3Key })
+        .from(seniorResumes)
+        .where(eq(seniorResumes.id, row.id))
+        .for('update')
+      // Every right-hand side reads the pre-update row, so both versions get version + 1.
+      const [won] = await tx
+        .update(seniorResumes)
+        .set({
+          content: sql`${seniorResumes.stagedContent}`,
+          layout: sql`${seniorResumes.stagedLayout}`,
+          templateName: sql`${seniorResumes.stagedTemplateName}`,
+          pdfS3Key: sql`${seniorResumes.stagedPdfS3Key}`,
+          pdfFingerprint,
+          pdfRenderStatus: 'READY',
+          pdfRenderError: null,
+          pdfRenderRunId: null,
+          pdfRenderStartedAt: null,
+          version: sql`${seniorResumes.version} + 1`,
+          verifiedVersion: sql`${seniorResumes.version} + 1`,
+          verifiedAt: now,
+          verifiedByUserId: viewerId,
+          verificationStatus: 'VERIFIED',
+          verificationRunId: null,
+          verificationKind: null,
+          verificationTargetPath: null,
+          verificationBaseVersion: null,
+          verificationQueuedAt: null,
+          verificationStartedAt: null,
+          verificationErrorCode: null,
+          ...CLEARED_STAGED,
+          updatedByUserId: viewerId,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(seniorResumes.id, row.id),
+            eq(seniorResumes.verificationRunId, input.runId),
+            eq(seniorResumes.version, input.version),
+            eq(seniorResumes.verificationStatus, 'AWAITING_CONFIRM'),
+            isNull(seniorResumes.templateSource),
+          ),
+        )
+        .returning()
+      return won ? { row: won, old: current?.key ?? null } : null
+    })
+    if (!result) throw apiError('RESUME_CONFIRM_STALE', HttpStatus.CONFLICT)
+    await this.deleteStagedObject(result.old)
+    return result.row
+  }
+
+  /**
+   * PUT staged: a person rewrites one staged text (P10 edit path, P8 cap). The text must be Latin
+   * and hold no contact of the senior, else 422 RESUME_STAGED_TEXT_INVALID with the reason only
+   * (P7: the matched text is never echoed). A `staged-edit` run then re-checks the staged result
+   * without the writer and entailment gates; the path is recorded in `staged_edited_paths`.
+   */
+  async editStagedField(
+    row: SeniorResume,
+    input: EditStagedFieldInput,
+    viewerId: string,
+  ): Promise<SeniorResume> {
+    const staged = this.stagedOf(row, input.runId)
+    const cap = editPathCap(input.path, staged)
+    if (cap === null || input.text.length > cap) throw new BadRequestException()
+    if (!isLatinScript(input.text)) {
+      throw apiError('RESUME_STAGED_TEXT_INVALID', HttpStatus.UNPROCESSABLE_ENTITY, {
+        reason: 'NON_LATIN',
+      })
+    }
+    const owner = await loadOwnerContacts(this.db, row.userId)
+    if (hasContact(input.text, owner?.contacts ?? [])) {
+      throw apiError('RESUME_STAGED_TEXT_INVALID', HttpStatus.UNPROCESSABLE_ENTITY, {
+        reason: 'CONTACT_IN_TEXT',
+      })
+    }
+    const edited = this.editedPathsOf(row).filter((e) => e.path !== input.path)
+    return this.startStagedRun(row, input.runId, 'staged-edit', input.path, {
+      stagedContent: withText(staged, input.path, input.text),
+      stagedEditedPaths: [...edited, { path: input.path, userId: viewerId }],
+    })
+  }
+
+  /**
+   * POST staged/regenerate: an `item` run rewrites one staged path (`summary` or
+   * `experience.<i>.bullets`) and keeps the other staged texts. Every human edit under the path
+   * leaves `staged_edited_paths`: the model text replaces it.
+   */
+  async regenerateStagedField(
+    row: SeniorResume,
+    input: RegenerateStagedFieldInput,
+  ): Promise<SeniorResume> {
+    const staged = this.stagedOf(row, input.runId)
+    if (!isRegeneratePath(input.path, staged)) throw new BadRequestException()
+    return this.startStagedRun(row, input.runId, 'item', input.path, {
+      stagedEditedPaths: this.editedPathsOf(row).filter(
+        (e) => e.path !== input.path && !e.path.startsWith(`${input.path}.`),
+      ),
+    })
+  }
+
+  /**
+   * The staged content of the run the caller saw. Staged columns change only with the run id, so
+   * a patch computed from this read is exact once the start UPDATE matches the same run id.
+   */
+  private stagedOf(row: SeniorResume, runId: string): ResumeContent {
+    if (row.verificationStatus !== 'AWAITING_CONFIRM' || row.verificationRunId !== runId) {
+      throw apiError('RESUME_CONFIRM_STALE', HttpStatus.CONFLICT)
+    }
+    const staged = resumeContentSchema.safeParse(row.stagedContent)
+    // Stryker disable next-line ConditionalExpression: defensive — AWAITING_CONFIRM always holds the content stage 9 wrote
+    if (!staged.success) throw apiError('RESUME_CONFIRM_STALE', HttpStatus.CONFLICT)
+    return staged.data
+  }
+
+  private editedPathsOf(row: SeniorResume) {
+    return resumeStagedEditedPathsSchema.safeParse(row.stagedEditedPaths).data ?? []
+  }
+
+  /**
+   * The start UPDATE of a staged-edit or item run, like submit's: QUEUED with a new run id, the
+   * kind, the target path and `base_version = version`. It matches the run id the caller saw and
+   * AWAITING_CONFIRM (0 rows → 409 RESUME_CONFIRM_STALE). The staged PDF stays until stage 9
+   * replaces it, so the last one is still shown. The run starts off the request path.
+   */
+  private async startStagedRun(
+    row: SeniorResume,
+    seenRunId: string,
+    kind: 'staged-edit' | 'item',
+    path: string,
+    staged: PgUpdateSetSource<typeof seniorResumes>,
+  ): Promise<SeniorResume> {
+    const runId = randomUUID()
+    const [updated] = await this.db.db
+      .update(seniorResumes)
+      .set({
+        ...staged,
+        verificationStatus: 'QUEUED',
+        verificationRunId: runId,
+        verificationKind: kind,
+        verificationTargetPath: path,
+        verificationBaseVersion: sql`${seniorResumes.version}`,
+        verificationQueuedAt: new Date(),
+        verificationStartedAt: null,
+        verificationErrorCode: null,
+      })
+      .where(
+        and(
+          eq(seniorResumes.id, row.id),
+          eq(seniorResumes.verificationRunId, seenRunId),
+          eq(seniorResumes.verificationStatus, 'AWAITING_CONFIRM'),
+        ),
+      )
+      .returning()
+    if (!updated) throw apiError('RESUME_CONFIRM_STALE', HttpStatus.CONFLICT)
     void this.runner.run(row.id, runId)
     return updated
   }

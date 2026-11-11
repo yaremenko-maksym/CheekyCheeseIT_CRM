@@ -37,6 +37,9 @@ import {
   normalizeResumeLayout,
   resumeContentSchema,
   resumeFactsSchema,
+  type ConfirmResumeInput,
+  type EditStagedFieldInput,
+  type RegenerateStagedFieldInput,
   type ResumeContent,
   type ResumeFacts,
   type ResumeFailureCode,
@@ -85,6 +88,11 @@ export const STUCK_EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000
 
 /** Whose resume it is — both fields are printed at the top of the PDF. */
 type ResumeOwner = Pick<User, 'displayName' | 'email'>
+
+/** The 403 of every denied resume request. */
+const NO_ACCESS = 'Нет доступа к резюме этого пользователя'
+/** The 404 of a resume (or its PDF) that does not exist — one wording for every endpoint. */
+const noResume = () => new NotFoundException('Резюме ещё не создано')
 
 /**
  * A render left RUNNING longer than this was abandoned.
@@ -140,7 +148,7 @@ export class SeniorResumesService {
     mode: ResumeAccessMode,
   ): Promise<User> {
     if (!canAccessResume(viewer, targetUserId, mode)) {
-      throw new ForbiddenException('Нет доступа к резюме этого пользователя')
+      throw new ForbiddenException(NO_ACCESS)
     }
     const target = await this.db.db.query.users.findFirst({
       where: (tbl, { eq: equals }) => equals(tbl.id, targetUserId),
@@ -215,7 +223,7 @@ export class SeniorResumesService {
   > {
     const target = await this.assertAccess(viewer, targetUserId, 'read')
     const row = await this.findRow(targetUserId)
-    if (!row) throw new NotFoundException('Резюме ещё не создано')
+    if (!row) throw noResume()
 
     const wanted = this.typst.fingerprint(this.renderInputFor(row, target))
     if (row.pdfS3Key && row.pdfFingerprint === wanted) {
@@ -233,6 +241,24 @@ export class SeniorResumesService {
     // Stale or never built — make sure something is working on it.
     await this.enqueueRender(row.id, target)
     return { ready: false, status: 'QUEUED', message: null }
+  }
+
+  /**
+   * GET staged-pdf: the check run's PDF awaiting Confirm, streamed from storage. No read access and
+   * no staged PDF both answer the live PDF endpoint's 404, so a denied viewer learns nothing.
+   */
+  async getStagedPdf(
+    viewer: SessionUser,
+    targetUserId: string,
+  ): Promise<{ pdfBuffer: Buffer; displayName: string }> {
+    if (!canAccessResume(viewer, targetUserId, 'read')) throw noResume()
+    const target = await this.assertAccess(viewer, targetUserId, 'read')
+    const row = await this.findRow(targetUserId)
+    if (!row?.stagedPdfS3Key) throw noResume()
+    return {
+      pdfBuffer: await this.s3.getObject(row.stagedPdfS3Key),
+      displayName: target.displayName,
+    }
   }
 
   // ==========================================================================
@@ -1092,6 +1118,56 @@ export class SeniorResumesService {
     )
   }
 
+  /**
+   * POST confirm — ADMIN/HR only (spec Q-C: a senior cannot verify their own resume). The
+   * fingerprint of the promoted render input is taken here, where the render input is built (P11).
+   */
+  async confirm(
+    viewer: SessionUser,
+    targetUserId: string,
+    input: ConfirmResumeInput,
+  ): Promise<SeniorResumeResponse> {
+    if (!canConfirmResume(viewer)) throw new ForbiddenException(NO_ACCESS)
+    const target = await this.assertAccess(viewer, targetUserId, 'write')
+    const existing = await this.existingRow(targetUserId)
+    const promoted: SeniorResume = {
+      ...existing,
+      content: existing.stagedContent ?? existing.content,
+      layout: existing.stagedLayout ?? existing.layout,
+      templateName: existing.stagedTemplateName ?? existing.templateName,
+    }
+    const fingerprint = this.typst.fingerprint(this.renderInputFor(promoted, target))
+    return this.toResponse(
+      await this.verification.confirm(existing, input, viewer.id, fingerprint),
+      viewer,
+    )
+  }
+
+  /** PUT staged — one staged text rewritten by a person, then a staged-edit run (write rule). */
+  async editStagedField(
+    viewer: SessionUser,
+    targetUserId: string,
+    input: EditStagedFieldInput,
+  ): Promise<SeniorResumeResponse> {
+    await this.assertAccess(viewer, targetUserId, 'write')
+    const existing = await this.existingRow(targetUserId)
+    return this.toResponse(
+      await this.verification.editStagedField(existing, input, viewer.id),
+      viewer,
+    )
+  }
+
+  /** POST staged/regenerate — an item run for one staged path (write rule). */
+  async regenerateStagedField(
+    viewer: SessionUser,
+    targetUserId: string,
+    input: RegenerateStagedFieldInput,
+  ): Promise<SeniorResumeResponse> {
+    await this.assertAccess(viewer, targetUserId, 'write')
+    const existing = await this.existingRow(targetUserId)
+    return this.toResponse(await this.verification.regenerateStagedField(existing, input), viewer)
+  }
+
   /** PUT template — same status rule as a layout write. */
   async setTemplate(
     viewer: SessionUser,
@@ -1135,6 +1211,13 @@ export class SeniorResumesService {
     return this.db.db.query.seniorResumes.findFirst({
       where: (tbl, { eq: equals }) => equals(tbl.userId, targetUserId),
     })
+  }
+
+  /** A write that needs a staged result: no row means nothing to confirm or edit (404). */
+  private async existingRow(targetUserId: string): Promise<SeniorResume> {
+    const row = await this.findRow(targetUserId)
+    if (!row) throw noResume()
+    return row
   }
 
   /**

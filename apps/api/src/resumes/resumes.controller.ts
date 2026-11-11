@@ -8,6 +8,10 @@
  *   POST   /api/users/:userId/resume/text       paste plain text -> QUEUED
  *   GET    /api/users/:userId/resume/source     presigned download of the original
  *   GET    /api/users/:userId/resume/pdf        rendered PDF on our template
+ *   POST   /api/users/:userId/resume/confirm    promote the staged result (ADMIN/HR)
+ *   PUT    /api/users/:userId/resume/staged     edit one staged text -> staged-edit run
+ *   POST   /api/users/:userId/resume/staged/regenerate  one staged path -> item run
+ *   GET    /api/users/:userId/resume/staged-pdf the staged PDF awaiting Confirm
  *   DELETE /api/users/:userId/resume            erase the row + the stored file
  *
  * Auth: the global JwtAuthGuard (AppModule APP_GUARD) authenticates. There is
@@ -35,7 +39,10 @@ import {
 import { Throttle } from '@nestjs/throttler'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import {
+  confirmResumeSchema,
+  editStagedFieldSchema,
   ingestResumeTextSchema,
+  regenerateStagedFieldSchema,
   updateResumeContentSchema,
   updateResumeFactsSchema,
   updateResumeLayoutSchema,
@@ -174,6 +181,57 @@ export class SeniorResumesController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   submit(@Param('userId', ParseUUIDPipe) userId: string, @CurrentUser() user: SessionUser) {
     return this.service.submit(user, userId)
+  }
+
+  /** Confirm the staged result (Task 15): ADMIN/HR only; 409 when it changed since it was shown. */
+  @Post('confirm')
+  @HttpCode(200)
+  confirm(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    return this.service.confirm(user, userId, confirmResumeSchema.parse(body))
+  }
+
+  /** Rewrite one staged text by hand; a staged-edit run re-checks it (202). */
+  @Put('staged')
+  @HttpCode(202)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  editStaged(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    return this.service.editStagedField(user, userId, editStagedFieldSchema.parse(body))
+  }
+
+  /** Regenerate one staged path with the model; an item run (202). */
+  @Post('staged/regenerate')
+  @HttpCode(202)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  regenerateStaged(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    return this.service.regenerateStagedField(user, userId, regenerateStagedFieldSchema.parse(body))
+  }
+
+  /** The staged PDF awaiting Confirm; 404 like the live PDF when absent or not readable. */
+  @Get('staged-pdf')
+  @Header('Cache-Control', 'private, no-store')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  async getStagedPdf(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @CurrentUser() user: SessionUser,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const result = await this.service.getStagedPdf(user, userId)
+    await reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', resumeContentDisposition(result.displayName))
+      .send(result.pdfBuffer)
   }
 
   /** A catalog template (spec §6) — a name from the enum, never template source. */

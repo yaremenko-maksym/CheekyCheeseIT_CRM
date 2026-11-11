@@ -81,7 +81,8 @@ export function redactAll(text: string, contacts: readonly ContactContext[]): st
   return redactContacts(text, contacts)
 }
 
-function hasContact(text: string, contacts: readonly ContactContext[]): boolean {
+/** A name, an email or a phone of the senior in `text` (or a redaction marker left in it). */
+export function hasContact(text: string, contacts: readonly ContactContext[]): boolean {
   return text.includes(REDACTED) || contacts.some((ctx) => scanContacts(text, ctx).length > 0)
 }
 
@@ -310,13 +311,17 @@ async function writeBullets(
  * Stages 3 and 4: writes the summary and every item's bullets, gates each, regenerates a failing one
  * up to twice with feedback, then falls back (summary to '', bullets to the cleaned notes).
  */
+/** Model text as one renderable line: toRenderableText trims each line and drops blank edges. */
+function cleaner(template: GlyphFontSet): (text: string) => string {
+  return (text) =>
+    toRenderableText(text, template, { insertBreaks: false }).text.replace(/\s+/gu, ' ')
+}
+
 export async function writeGatedContent(
   input: ContentInput,
   deps: ContentDeps,
 ): Promise<WrittenContent> {
-  // toRenderableText already trims each line and drops blank edges; this joins the lines.
-  const clean = (text: string) =>
-    toRenderableText(text, input.template, { insertBreaks: false }).text.replace(/\s+/gu, ' ')
+  const clean = cleaner(input.template)
   const payload = writingPayload(input)
   const items: GateResult['items'] = []
   const fallbacks: string[] = []
@@ -346,5 +351,47 @@ export async function writeGatedContent(
     content: { ...input.frozen, summary: summary.summary, experience },
     gate: { gate: 'content', ok: fallbacks.length === 0, items },
     fallbacks,
+  }
+}
+
+/**
+ * Stages 3 and 4 of an `item` run (P10) for one path, `summary` or the bullets of item `target`:
+ * written and gated like a full run, every other text of `base` (the staged content) kept as is.
+ */
+export async function writeGatedField(
+  input: ContentInput,
+  deps: ContentDeps,
+  target: 'summary' | number,
+  base: ResumeContent,
+): Promise<WrittenContent> {
+  const clean = cleaner(input.template)
+  const payload = writingPayload(input)
+  let content: ResumeContent
+  let path: string
+  let failures: Failure[]
+  if (target === 'summary') {
+    const written = await writeSummary(input, payload, deps, clean)
+    content = { ...base, summary: written.summary }
+    path = 'summary'
+    failures = written.failures
+  } else {
+    const written = await writeBullets(input, payload, target, deps, clean)
+    // Stryker disable next-line OptionalChaining: equivalent — the start UPDATE checked target against the staged items, which mirror the facts
+    const bullets = written.bullets ?? cleanedNotes(input.facts.experience[target]?.notes ?? [])
+    content = {
+      ...base,
+      experience: base.experience.map((item, i) => (i === target ? { ...item, bullets } : item)),
+    }
+    path = `experience.${target}.bullets`
+    failures = written.bullets === null ? written.failures : []
+  }
+  return {
+    content,
+    gate: {
+      gate: 'content',
+      ok: failures.length === 0,
+      items: failures.map((f) => ({ path, reason: f.reason })),
+    },
+    fallbacks: failures.length > 0 ? [path] : [],
   }
 }

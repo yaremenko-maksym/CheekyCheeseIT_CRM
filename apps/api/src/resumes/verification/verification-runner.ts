@@ -2,8 +2,10 @@ import { Injectable, Logger } from '@nestjs/common'
 import { and, eq, sql } from 'drizzle-orm'
 import {
   normalizeResumeLayout,
+  resumeContentSchema,
   resumeFactsSchema,
   resumeStagedEditedPathsSchema,
+  resumeVerificationReportSchema,
   type ResumeContent,
   type ResumeTemplateName,
   type ResumeVerificationErrorCode,
@@ -16,7 +18,16 @@ import { WORKER_ADAPTER_TIMEOUT_MS } from '../../job-sourcing/structuring/model-
 import { ResumeTextExtractionService } from '../resume-text-extraction.service'
 import { resolveTemplateName, ResumeTypstService } from '../resume-typst.service'
 import type { ContactContext } from './contact-scan'
-import { cleanedNotes, RunFailure, writeGatedContent, type GateResult } from './content-gates'
+import {
+  cleanedNotes,
+  RunFailure,
+  writeGatedContent,
+  writeGatedField,
+  type ContentDeps,
+  type ContentInput,
+  type GateResult,
+  type WrittenContent,
+} from './content-gates'
 import { deriveFrozenContent } from './derive-content'
 import { ResumeEntailmentClient, ResumeWriterClient, VisualCheckClient } from './inference-clients'
 import { renderAccepted, visualGate, type Accepted, type RenderDeps } from './render-gates'
@@ -54,7 +65,51 @@ export async function deleteStagedQuietly(
   }
 }
 
-type Owner = { displayName: string; email: string; contacts: ContactContext[] }
+export type ResumeOwnerContacts = { displayName: string; email: string; contacts: ContactContext[] }
+
+/** Kinds that start from the staged result of an earlier run instead of writing everything anew. */
+const FROM_STAGED = new Set(['staged-edit', 'item'])
+
+/** `summary` → 'summary', `experience.<i>.bullets` → i; anything else → null. */
+export function regenerateTarget(path: string | null): 'summary' | number | null {
+  if (path === 'summary') return 'summary'
+  const item = /^experience\.(\d+)\.bullets$/u.exec(path ?? '')
+  return item ? Number(item[1]) : null
+}
+
+/**
+ * The header contacts and one contact context per distinct name (display and legal), each with
+ * every email of the user. The one builder of contact contexts for a resume owner.
+ */
+export async function loadOwnerContacts(
+  db: DatabaseService,
+  userId: string,
+): Promise<ResumeOwnerContacts | null> {
+  const [user] = await db.db
+    .select({
+      displayName: users.displayName,
+      email: users.email,
+      legalFullName: users.legalFullName,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1)
+  if (!user) return null
+  const extra = await db.db
+    .select({ email: userEmails.email })
+    .from(userEmails)
+    .where(eq(userEmails.userId, userId))
+  const emails = [...new Set([user.email, ...extra.map((e) => e.email)])]
+  // A blank name adds no match: namePatterns drops an empty source.
+  const names = [...new Set([user.displayName, user.legalFullName])].filter(
+    (name): name is string => name !== null,
+  )
+  return {
+    displayName: user.displayName,
+    email: user.email,
+    contacts: names.map((fullName) => ({ fullName, emails })),
+  }
+}
 
 /**
  * The check run of a submitted resume (Task 14), off the request path: claim, write and gate the AI
@@ -106,9 +161,14 @@ export class VerificationRunner {
       if (!facts.success) throw new RunFailure('INCOMPLETE')
       const owner = await this.ownerOf(row.userId)
       const frozen = deriveFrozenContent(facts.data)
-      const templateName = resolveTemplateName(row.templateName)
+      const fromStaged = FROM_STAGED.has(row.verificationKind ?? '')
+      // A staged-edit or item run re-checks the staged result, rendered with its own look.
+      const templateName = resolveTemplateName(
+        fromStaged ? row.stagedTemplateName : row.templateName,
+      )
 
-      const written = await writeGatedContent(
+      const written = await this.written(
+        row,
         {
           facts: facts.data,
           frozen,
@@ -140,7 +200,7 @@ export class VerificationRunner {
           displayName: owner.displayName,
           email: owner.email,
           content: written.content,
-          layout: normalizeResumeLayout(row.layout),
+          layout: normalizeResumeLayout(fromStaged ? row.stagedLayout : row.layout),
           templateName,
           notes,
           fallbacks,
@@ -154,11 +214,50 @@ export class VerificationRunner {
       fallbacks = accepted.fallbacks
       gates.push(await visualGate(accepted, templateName, owner.contacts, deps))
 
-      await this.stage(row, runId, accepted, templateName, { gates, fallbacks })
+      await this.stage(row, runId, accepted, templateName, { gates, fallbacks }, fromStaged)
     } catch (err) {
       if (!(err instanceof RunFailure)) throw err
       this.logger.warn(`Verification run ${runId} of resume ${resumeId} failed: ${err.code}`)
       await this.fail(resumeId, runId, err.code, { gates: [...gates, ...err.gates], fallbacks })
+    }
+  }
+
+  /**
+   * Stages 3 and 4 by run kind: `full` writes everything; `item` writes `verification_target_path`
+   * only and keeps the other staged texts; `staged-edit` writes nothing (spec §4 step 6: no writer,
+   * no entailment). The staged kinds carry the earlier run's fallbacks and content findings forward.
+   */
+  private async written(
+    row: SeniorResume,
+    input: ContentInput,
+    deps: ContentDeps,
+  ): Promise<WrittenContent> {
+    if (!FROM_STAGED.has(row.verificationKind ?? '')) return writeGatedContent(input, deps)
+    const staged = resumeContentSchema.safeParse(row.stagedContent)
+    if (!staged.success) throw new RunFailure('INCOMPLETE')
+    const previous = resumeVerificationReportSchema.safeParse(row.verificationReport).data
+    const target = row.verificationKind === 'item' ? row.verificationTargetPath : null
+    const keep = <T extends string | { path: string }>(list: T[]) =>
+      list.filter((entry) => (typeof entry === 'string' ? entry : entry.path) !== target)
+    const carried = {
+      fallbacks: keep(previous?.fallbacks ?? []),
+      items: keep(previous?.gates.find((g) => g.gate === 'content')?.items ?? []),
+    }
+    let next: WrittenContent = {
+      content: staged.data,
+      gate: { gate: 'content', ok: true, items: [] },
+      fallbacks: [],
+    }
+    if (row.verificationKind === 'item') {
+      const field = regenerateTarget(target)
+      if (field === null) throw new RunFailure('INCOMPLETE')
+      next = await writeGatedField(input, deps, field, staged.data)
+    }
+    const items = [...carried.items, ...next.gate.items]
+    return {
+      content: next.content,
+      gate: { gate: 'content', ok: items.length === 0, items },
+      fallbacks: [...carried.fallbacks, ...next.fallbacks],
     }
   }
 
@@ -178,32 +277,10 @@ export class VerificationRunner {
     return row
   }
 
-  /** The header contacts and one contact context per distinct name, each with every email. */
-  private async ownerOf(userId: string): Promise<Owner> {
-    const [user] = await this.db.db
-      .select({
-        displayName: users.displayName,
-        email: users.email,
-        legalFullName: users.legalFullName,
-      })
-      .from(users)
-      .where(eq(users.id, userId))
-      .limit(1)
-    if (!user) throw new RunFailure('INCOMPLETE')
-    const extra = await this.db.db
-      .select({ email: userEmails.email })
-      .from(userEmails)
-      .where(eq(userEmails.userId, userId))
-    const emails = [...new Set([user.email, ...extra.map((e) => e.email)])]
-    // A blank name adds no match: namePatterns drops an empty source.
-    const names = [...new Set([user.displayName, user.legalFullName])].filter(
-      (name): name is string => name !== null,
-    )
-    return {
-      displayName: user.displayName,
-      email: user.email,
-      contacts: names.map((fullName) => ({ fullName, emails })),
-    }
+  private async ownerOf(userId: string): Promise<ResumeOwnerContacts> {
+    const owner = await loadOwnerContacts(this.db, userId)
+    if (!owner) throw new RunFailure('INCOMPLETE')
+    return owner
   }
 
   /**
@@ -216,6 +293,7 @@ export class VerificationRunner {
     accepted: Accepted,
     templateName: ResumeTemplateName,
     report: ResumeVerificationReport,
+    keepEditedPaths: boolean,
   ): Promise<void> {
     const key = stagedPdfKey(row.id, runId)
     await this.s3.upload(key, accepted.pdf, 'application/pdf', 'RESUME')
@@ -232,7 +310,8 @@ export class VerificationRunner {
           stagedLayout: accepted.layout,
           stagedTemplateName: templateName,
           stagedPdfS3Key: key,
-          stagedEditedPaths: [],
+          // A staged-edit or item run keeps the record of what a person wrote (Task 15).
+          ...(keepEditedPaths ? {} : { stagedEditedPaths: [] }),
           verificationStatus: 'AWAITING_CONFIRM',
           verificationErrorCode: null,
           verificationReport: report,
