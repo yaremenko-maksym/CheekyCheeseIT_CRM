@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import { draftReset, isVerificationBusy, pickTemplateName } from './resume-verification.service'
+import {
+  draftReset,
+  draftWriteGuard,
+  isVerificationBusy,
+  lookWriteGuard,
+  notVerificationBusy,
+  pickTemplateName,
+} from './resume-verification.service'
 
 // sha256(id) mod 4, computed once by hand: ...01 -> 2, ...02 -> 0, ...11 -> 3, ...12 -> 1.
 const ID_MOD_2 = '7b3d91c4-2e5f-4a00-aa00-000000000001'
@@ -32,7 +39,12 @@ describe('pickTemplateName', () => {
     expect(pickTemplateName(counts, ID_MOD_3)).toBe('technical')
     expect(pickTemplateName(counts, ID_MOD_0)).toBe('compact')
     expect(pickTemplateName(counts, ID_MOD_1)).toBe('compact')
-    expect(pickTemplateName(counts, ID_MOD_3)).toBe('technical')
+  })
+
+  it('a tie is broken where the hash starts: modern for a start at modern', () => {
+    // modern and technical are both unused; the rotation starting at modern meets it first.
+    expect(pickTemplateName({ classic: 1, compact: 1 }, ID_MOD_1)).toBe('modern')
+    expect(pickTemplateName({ classic: 1, compact: 1 }, ID_MOD_3)).toBe('technical')
   })
 
   it('with no team the hash alone picks the catalog entry', () => {
@@ -74,4 +86,44 @@ describe('draftReset', () => {
       stagedEditedPaths: [],
     })
   })
+})
+
+// The SQL each write guard renders, read by hand against the WHERE the brief asks
+// for. A guard that loses a clause lets a write land on a row a run owns.
+const render = (s: SQL) => new PgDialect().sqlToQuery(s)
+const NOT_BUSY =
+  '"senior_resumes"."verification_status" not in ($2, $3) and ' +
+  '("senior_resumes"."verification_status" <> $4 OR "senior_resumes"."verification_run_id" is null)'
+
+describe('write guards', () => {
+  it('notVerificationBusy excludes QUEUED/CHECKING and a VERIFIED row holding a run', () => {
+    const q = render(notVerificationBusy())
+    expect(q.sql).toBe(
+      '("senior_resumes"."verification_status" not in ($1, $2) and ' +
+        '("senior_resumes"."verification_status" <> $3 OR "senior_resumes"."verification_run_id" is null))',
+    )
+    expect(q.params).toEqual(['QUEUED', 'CHECKING', 'VERIFIED'])
+  })
+
+  it('draftWriteGuard pins the row, the not-busy rule and the staged key we read', () => {
+    const q = render(draftWriteGuard({ id: RUN, stagedPdfS3Key: 'resumes/r/staged/k.pdf' }))
+    expect(q.sql).toBe(
+      `("senior_resumes"."id" = $1 and (${NOT_BUSY}) and ` +
+        '"senior_resumes"."staged_pdf_s3_key" IS NOT DISTINCT FROM $5)',
+    )
+    expect(q.params).toEqual([RUN, 'QUEUED', 'CHECKING', 'VERIFIED', 'resumes/r/staged/k.pdf'])
+  })
+
+  it.each(['VERIFIED', 'AWAITING_CONFIRM', 'DRAFT'] as const)(
+    'lookWriteGuard adds a compare-and-set on the read status (%s)',
+    (verificationStatus) => {
+      const q = render(lookWriteGuard({ id: RUN, stagedPdfS3Key: null, verificationStatus }))
+      expect(q.sql).toBe(
+        `(("senior_resumes"."id" = $1 and (${NOT_BUSY}) and ` +
+          '"senior_resumes"."staged_pdf_s3_key" IS NOT DISTINCT FROM $5) and ' +
+          '"senior_resumes"."verification_status" = $6)',
+      )
+      expect(q.params).toEqual([RUN, 'QUEUED', 'CHECKING', 'VERIFIED', null, verificationStatus])
+    },
+  )
 })

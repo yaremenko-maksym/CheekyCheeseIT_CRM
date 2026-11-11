@@ -36,6 +36,7 @@ import {
   RESUME_SOURCE_MAX_BYTES,
   normalizeResumeLayout,
   resumeContentSchema,
+  resumeFactsSchema,
   type ResumeContent,
   type ResumeFacts,
   type ResumeFailureCode,
@@ -343,7 +344,13 @@ export class SeniorResumesService {
       .where(and(eq(seniorResumes.id, row.id), notVerificationBusy()))
       .returning()
     if (!queued) {
-      await this.s3.delete(key) // nothing points at the object we just stored
+      // Nothing points at the object we just stored. A failed delete leaves an
+      // orphan to log, never a 500 in place of the 409.
+      try {
+        await this.s3.delete(key)
+      } catch {
+        this.logger.warn(`Unreferenced resume source not deleted: ${key}`)
+      }
       return this.verification.resolveMiss(row.id)
     }
 
@@ -560,7 +567,22 @@ export class SeniorResumesService {
     }
 
     // Spec §4 step 2: the upload fills the FACTS, never the dynamic fields, so
-    // `content` (and with it the PDF) stays as it was.
+    // `content` (and with it the PDF) stays as it was. The facts are validated
+    // like a PUT facts body: a parsed period outside the schema range fails the run.
+    const facts = resumeFactsSchema.safeParse(contentToFacts(result.content))
+    if (!facts.success) {
+      this.logger.warn(`Resume ${resumeId}: extracted facts failed validation — not stored`)
+      await this.failExtraction(
+        resumeId,
+        runId,
+        'MODEL_INVALID_JSON',
+        'Модель вернула данные вне допустимых значений. Проверьте и заполните поля вручную.',
+        null,
+        result.tokensUsed,
+      )
+      return
+    }
+
     const [current] = await this.db.db
       .select({ id: seniorResumes.id, stagedPdfS3Key: seniorResumes.stagedPdfS3Key })
       .from(seniorResumes)
@@ -570,7 +592,7 @@ export class SeniorResumesService {
     const written = await this.db.db
       .update(seniorResumes)
       .set({
-        facts: contentToFacts(result.content),
+        facts: facts.data,
         ...draftReset(),
         status: 'READY',
         errorCode: null,

@@ -1404,8 +1404,10 @@ describe.skipIf(!hasDatabaseUrl())(
         headline: 'Senior Backend Engineer',
         skills: ['TypeScript'],
       }
-      const STAGED_KEY = 'resumes/staged/0b9a1c3e-0000-4000-8000-0000000000aa.pdf'
       const RUN_ID = '0b9a1c3e-0000-4000-8000-0000000000aa'
+      const OTHER_RUN_ID = '0b9a1c3e-0000-4000-8000-0000000000bb'
+      /** Run-scoped, like the runner writes it: `resumes/<id>/staged/<runId>.pdf`. */
+      let stagedKey = ''
 
       async function rowOf(userId: string) {
         const [row] = await dbSvc.db
@@ -1432,20 +1434,21 @@ describe.skipIf(!hasDatabaseUrl())(
         })
       }
 
-      const AWAITING = {
+      const awaiting = () => ({
         verificationStatus: 'AWAITING_CONFIRM' as const,
         verificationRunId: RUN_ID,
         verificationKind: 'full',
         stagedContent: { ...EMPTY_RESUME_CONTENT, summary: 'staged summary' },
         stagedLayout: DEFAULT_RESUME_LAYOUT,
         stagedTemplateName: 'modern',
-        stagedPdfS3Key: STAGED_KEY,
+        stagedPdfS3Key: stagedKey,
         stagedEditedPaths: [{ path: 'summary', userId: HR_USER.id }],
-      }
+      })
 
       beforeEach(async () => {
         await dbSvc.db.delete(seniorResumes).where(eq(seniorResumes.userId, SENIOR_A.id))
         await service.saveFacts(session(SENIOR_A), SENIOR_A.id, FACTS)
+        stagedKey = `resumes/${(await rowOf(SENIOR_A.id)).id}/staged/${RUN_ID}.pdf`
         s3.delete.mockClear()
       })
 
@@ -1500,7 +1503,7 @@ describe.skipIf(!hasDatabaseUrl())(
       })
 
       it('facts edit in AWAITING_CONFIRM clears staged columns', async () => {
-        await setState(SENIOR_A.id, AWAITING)
+        await setState(SENIOR_A.id, awaiting())
         const shown = await service.getForUser(session(HR_USER), SENIOR_A.id)
         expect(shown.resume?.staged).toMatchObject({
           runId: RUN_ID,
@@ -1523,11 +1526,27 @@ describe.skipIf(!hasDatabaseUrl())(
           stagedPdfS3Key: null,
           stagedEditedPaths: [],
         })
-        expect(s3.delete).toHaveBeenCalledWith(STAGED_KEY)
+        expect(s3.delete).toHaveBeenCalledWith(stagedKey)
+      })
+
+      it('a run landing between the read and the write: 409, row unchanged, its PDF kept', async () => {
+        await setState(SENIOR_A.id, awaiting())
+        const stale = await rowOf(SENIOR_A.id)
+        // A newer run's result landed after our read: new run id, new staged key.
+        const newKey = `resumes/${stale.id}/staged/${OTHER_RUN_ID}.pdf`
+        await setState(SENIOR_A.id, { verificationRunId: OTHER_RUN_ID, stagedPdfS3Key: newKey })
+        const before = await rowOf(SENIOR_A.id)
+        const verification = new ResumeVerificationService(dbSvc, s3 as never)
+
+        await expectBusy(verification.saveFacts(stale, { ...FACTS, headline: 'raced' }, HR_USER.id))
+        await expectBusy(verification.setTemplate(stale, 'technical', HR_USER.id))
+
+        expect(await rowOf(SENIOR_A.id)).toEqual(before)
+        expect(s3.delete).not.toHaveBeenCalled()
       })
 
       it('a failed staged-object delete is logged and does not fail the write', async () => {
-        await setState(SENIOR_A.id, AWAITING)
+        await setState(SENIOR_A.id, awaiting())
         s3.delete.mockRejectedValueOnce(new Error('storage down'))
 
         const saved = await service.saveFacts(session(HR_USER), SENIOR_A.id, FACTS)
@@ -1659,7 +1678,7 @@ describe.skipIf(!hasDatabaseUrl())(
       })
 
       it('PUT template in AWAITING_CONFIRM returns to DRAFT and drops the staged PDF', async () => {
-        await setState(SENIOR_A.id, AWAITING)
+        await setState(SENIOR_A.id, awaiting())
         const before = await rowOf(SENIOR_A.id)
 
         const saved = await service.setTemplate(session(HR_USER), SENIOR_A.id, 'compact')
@@ -1668,7 +1687,7 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(saved.resume?.verificationStatus).toBe('DRAFT')
         expect(saved.resume?.version).toBe(before.version + 1)
         expect(saved.resume?.staged).toBeNull()
-        expect(s3.delete).toHaveBeenCalledWith(STAGED_KEY)
+        expect(s3.delete).toHaveBeenCalledWith(stagedKey)
       })
 
       it('PUT template on FAILED writes it and keeps FAILED', async () => {
@@ -1684,7 +1703,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
       it('extraction result lands in facts, content unchanged', async () => {
         await setState(SENIOR_A.id, {
-          ...AWAITING,
+          ...awaiting(),
           content: { ...EMPTY_RESUME_CONTENT, summary: 'live summary' },
         })
         const before = await rowOf(SENIOR_A.id)
@@ -1714,7 +1733,7 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(row.verificationStatus).toBe('DRAFT')
         expect(row.version).toBe(before.version + 1)
         expect(row.stagedPdfS3Key).toBeNull()
-        expect(s3.delete).toHaveBeenCalledWith(STAGED_KEY)
+        expect(s3.delete).toHaveBeenCalledWith(stagedKey)
       })
 
       it('upload while CHECKING returns 409 before storing anything', async () => {
@@ -1730,6 +1749,50 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(s3.upload).not.toHaveBeenCalled()
       })
 
+      it('a run starting during the upload still answers 409 when the cleanup delete fails', async () => {
+        s3.upload.mockImplementationOnce(async () => {
+          await setState(SENIOR_A.id, { verificationStatus: 'CHECKING', verificationRunId: RUN_ID })
+        })
+        s3.delete.mockRejectedValueOnce(new Error('storage down'))
+
+        await expectBusy(
+          service.uploadSource(session(HR_USER), SENIOR_A.id, {
+            buffer: buildDocx(['Иван Петров', 'Синьор']),
+            mimetype: RESUME_DOCX_MIME,
+            originalname: 'cv.docx',
+          }),
+        )
+        const uploadedKey = s3.upload.mock.calls.at(-1)?.[0] as string
+        expect(s3.delete).toHaveBeenCalledWith(uploadedKey)
+        expect((await rowOf(SENIOR_A.id)).sourceS3Key).not.toBe(uploadedKey)
+      })
+
+      it('extracted facts outside the schema range fail the run and store nothing', async () => {
+        const before = await rowOf(SENIOR_A.id)
+        ai.extractStructure.mockResolvedValueOnce({
+          ok: true,
+          content: {
+            ...EMPTY_RESUME_CONTENT,
+            experience: [
+              { company: 'OldCo', role: 'Clerk', period: '1900-05 — 2005-01', bullets: [] },
+            ],
+          },
+          tokensUsed: 7,
+        })
+
+        await service.ingestText(session(HR_USER), SENIOR_A.id, 'a'.repeat(200))
+        await vi.waitFor(async () => {
+          expect((await rowOf(SENIOR_A.id)).status).toBe('FAILED')
+        })
+
+        const row = await rowOf(SENIOR_A.id)
+        expect(row.errorCode).toBe('MODEL_INVALID_JSON')
+        expect(row.lastExtractionTokens).toBe(7)
+        expect(row.facts).toEqual(before.facts)
+        expect(row.version).toBe(before.version)
+        expect(row.verificationStatus).toBe(before.verificationStatus)
+      })
+
       it('pasted text while QUEUED returns 409 and starts no extraction', async () => {
         await setState(SENIOR_A.id, { verificationStatus: 'QUEUED', verificationRunId: RUN_ID })
         const before = await rowOf(SENIOR_A.id)
@@ -1741,11 +1804,11 @@ describe.skipIf(!hasDatabaseUrl())(
       })
 
       it('deleting a resume also deletes its staged PDF', async () => {
-        await setState(SENIOR_A.id, AWAITING)
+        await setState(SENIOR_A.id, awaiting())
 
         await service.deleteResume(session(HR_USER), SENIOR_A.id)
 
-        expect(s3.delete).toHaveBeenCalledWith(STAGED_KEY)
+        expect(s3.delete).toHaveBeenCalledWith(stagedKey)
         expect(
           await dbSvc.db.select().from(seniorResumes).where(eq(seniorResumes.userId, SENIOR_A.id)),
         ).toEqual([])

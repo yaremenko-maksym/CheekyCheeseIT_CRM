@@ -87,6 +87,19 @@ export function draftWriteGuard(row: Pick<SeniorResume, 'id' | 'stagedPdfS3Key'>
   ) as SQL
 }
 
+/**
+ * The guard of a layout/template write: `draftWriteGuard` plus a compare-and-set
+ * on the status that chose the branch, so a row that moved in between is a miss.
+ */
+export function lookWriteGuard(
+  row: Pick<SeniorResume, 'id' | 'stagedPdfS3Key' | 'verificationStatus'>,
+): SQL {
+  return and(
+    draftWriteGuard(row),
+    eq(seniorResumes.verificationStatus, row.verificationStatus),
+  ) as SQL
+}
+
 /** Clearing the staged columns: four NULLs and an empty edited-paths list. */
 const CLEARED_STAGED = {
   stagedContent: null,
@@ -189,7 +202,6 @@ export class ResumeVerificationService {
     viewerId: string,
   ): Promise<SeniorResume> {
     const stamp = { updatedByUserId: viewerId, updatedAt: new Date() }
-    const sameStatus = eq(seniorResumes.verificationStatus, row.verificationStatus)
     let set: PgUpdateSetSource<typeof seniorResumes>
     if (row.verificationStatus === 'VERIFIED') {
       // P1: start a template run into the staged columns; the runner is Task 16.
@@ -217,7 +229,7 @@ export class ResumeVerificationService {
     const [updated] = await this.db.db
       .update(seniorResumes)
       .set(set)
-      .where(and(draftWriteGuard(row), sameStatus))
+      .where(lookWriteGuard(row))
       .returning()
     if (!updated) return this.resolveMiss(row.id)
     if (row.verificationStatus === 'AWAITING_CONFIRM') {
