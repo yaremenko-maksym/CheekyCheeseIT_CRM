@@ -537,8 +537,11 @@ function TriageGrantForm({
             </SelectContent>
           </Select>
           {teams.isError && (
-            <div role="alert" className={cn(BLOCKING, 'items-center')}>
-              <TriangleAlert aria-hidden="true" className="size-4 shrink-0 text-destructive" />
+            <div role="alert" className={BLOCKING}>
+              <TriangleAlert
+                aria-hidden="true"
+                className="mt-0.5 size-4 shrink-0 text-destructive"
+              />
               <p className="min-w-0 flex-1 text-pretty">
                 <Trans>Не вдалося завантажити команди.</Trans>
               </p>
