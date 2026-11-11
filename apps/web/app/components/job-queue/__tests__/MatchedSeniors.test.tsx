@@ -394,9 +394,13 @@ describe('MatchedSeniors', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
     expect(toggle).toHaveClass('min-h-11')
     expect(within(block).queryByTestId(`job-queue-senior-evidence-${S1}`)).toBeNull()
+    const chevron = within(toggle).getByTestId('job-queue-senior-evidence-chevron')
+    expect(chevron).toHaveClass('size-3.5', 'shrink-0', 'transition-transform')
+    expect(chevron).not.toHaveClass('rotate-180')
 
     await userEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(chevron).toHaveClass('size-3.5', 'shrink-0', 'transition-transform', 'rotate-180')
     const evidence = within(block).getByTestId(`job-queue-senior-evidence-${S1}`)
     expect(toggle).toHaveAttribute('aria-controls', evidence.id)
     expect(evidence).toHaveTextContent(/^Обов’язкові: React, TypeScriptБажані: GraphQL$/)

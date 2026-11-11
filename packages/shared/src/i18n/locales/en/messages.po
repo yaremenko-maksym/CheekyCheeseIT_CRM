@@ -9043,10 +9043,6 @@ msgstr "User created, the contract is ready to sign"
 msgid "Зарплати"
 msgstr "Salaries"
 
-#: apps/web/app/components/job-queue/JobQueueCard.tsx
-msgid "збігається"
-msgstr "matches"
-
 #. placeholder {0}: invoice.projectName
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Проєкт: {0}"
@@ -9846,6 +9842,11 @@ msgstr "No drop teams without an active senior. Create a drop or choose “Creat
 msgid "Не вдалося підписати контракт"
 msgstr "Could not sign the contract"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgctxt "job-queue stack chip, screen-reader suffix"
+msgid "збігається"
+msgstr "matches"
+
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Не вдалося зберегти аватар"
 msgstr "Could not save the avatar"
@@ -9912,6 +9913,10 @@ msgstr "Admin"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Метод оплати"
 msgstr "Payment method"
+
+#: apps/web/app/components/job-queue/PossibleDuplicates.tsx
+msgid "Уже подано: {seniors}"
+msgstr "Already submitted: {seniors}"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Готових медіафайлів ще немає."
@@ -10051,10 +10056,6 @@ msgstr "Could not mark as ready"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Крок 2 з 2: оплата створеної заявки"
 msgstr "Step 2 of 2: pay the created request"
-
-#: apps/web/app/components/job-queue/PossibleDuplicates.tsx
-msgid "На схожу вакансію вже подано: {title} · {seniors}"
-msgstr "Already submitted to a similar vacancy: {title} · {seniors}"
 
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 msgid "Пароль *"

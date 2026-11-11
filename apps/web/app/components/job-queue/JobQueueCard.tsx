@@ -194,7 +194,7 @@ function VacancyStack({ card }: { card: JobQueueCardResponseDto }) {
               {/* the hit style alone would be the only cue (SC 1.4.1) */}
               {hit && (
                 <span className="sr-only">
-                  , <Trans>збігається</Trans>
+                  , <Trans context="job-queue stack chip, screen-reader suffix">збігається</Trans>
                 </span>
               )}
             </Fragment>

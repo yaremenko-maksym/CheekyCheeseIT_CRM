@@ -444,15 +444,19 @@ function useDismissalVersions(scope: QueueScopeSignature) {
 }
 
 /**
- * «Приховати» in the TEAM or (ADMIN) STUDIO scope; a re-dismiss sends the last known version: this
- * session's own, else the `expectedVersion` the caller read off the card.
+ * «Приховати» in the TEAM or (ADMIN) STUDIO scope; a re-dismiss sends the newest version known: this
+ * session's own or the `expectedVersion` the caller read off the card, whichever is higher (a
+ * teammate's hide and undo since this session's own leave the card ahead). Versions only grow.
  */
 export function useDismissJobQueueItem(scope: QueueScopeSignature) {
   const versions = useDismissalVersions(scope)
   return useQueueWrite(
     scope,
     async ({ opportunityId, ...body }: OnCard<JobQueueDismissRequestDto>, idempotencyKey) => {
-      const expectedVersion = versions.get(opportunityId, body.scope) ?? body.expectedVersion
+      const known = [versions.get(opportunityId, body.scope), body.expectedVersion].filter(
+        (v) => v !== undefined,
+      )
+      const expectedVersion = known.length === 0 ? undefined : Math.max(...known)
       const res = await api.post<unknown>(`/job-queue/${seg(opportunityId)}/dismiss`, {
         ...teamParam(scope),
         ...body,

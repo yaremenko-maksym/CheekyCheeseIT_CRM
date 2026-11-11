@@ -881,6 +881,11 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       )
       // The stored description is longer than the wire bound: the card is cut at 50 000.
       expect((card.json['descriptionMd'] as string).length).toBe(50_000)
+      // a team heading is the STUDIO view's: no HR senior row carries the key at all (7.3b SR-L-1)
+      const seniors = (card.json['seniors'] as { items: Array<Record<string, unknown>> }).items
+      expect(seniors.length).toBeGreaterThan(0)
+      for (const senior of seniors) expect(senior).not.toHaveProperty('team')
+      expect(card.raw).not.toContain('"team"')
       expect(card.raw).not.toContain('identity_key')
       expect(card.raw).not.toContain(`${TAG}-k`)
     })

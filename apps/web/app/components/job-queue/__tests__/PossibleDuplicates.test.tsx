@@ -61,9 +61,7 @@ describe('PossibleDuplicates', () => {
     })
     const lines = screen.getAllByTestId('job-queue-duplicate-submitted')
     expect(lines).toHaveLength(1)
-    expect(lines[0]).toHaveTextContent(
-      /^На схожу вакансію вже подано: Similar role 1 · Олена Коваль, Іван Шевченко$/,
-    )
+    expect(lines[0]).toHaveTextContent(/^Уже подано: Олена Коваль, Іван Шевченко$/)
     const [first, second] = screen.getAllByRole('listitem') as [HTMLElement, HTMLElement]
     expect(within(first).getByTestId('job-queue-duplicate-submitted')).toBe(lines[0])
     expect(within(second).queryByTestId('job-queue-duplicate-submitted')).toBeNull()
@@ -73,7 +71,7 @@ describe('PossibleDuplicates', () => {
     await loadCatalog('en')
     renderNote({ items: [dup(1, null, ['Olena'])], totalCount: 1 })
     expect(screen.getByTestId('job-queue-duplicate-submitted')).toHaveTextContent(
-      /^Already submitted to a similar vacancy: Similar role 1 · Olena$/,
+      /^Already submitted: Olena$/,
     )
   })
 })

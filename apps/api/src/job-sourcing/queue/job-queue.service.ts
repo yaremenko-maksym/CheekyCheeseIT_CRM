@@ -359,9 +359,14 @@ export class JobQueueService {
       newerThanList: row['newer_than_list'] === true,
       ...parts,
       lastSeenAt: iso(row['last_observed_at']),
-      stackKeywords: (Array.isArray(row['stack_keywords']) ? row['stack_keywords'] : [])
-        .slice(0, MAX_STACK_KEYWORDS)
-        .map((k) => String(k).slice(0, MAX_STACK_KEYWORD_CHARS)),
+      // each token once: the card keys its chips by the keyword
+      stackKeywords: [
+        ...new Set(
+          (Array.isArray(row['stack_keywords']) ? row['stack_keywords'] : []).map((k) =>
+            String(k).slice(0, MAX_STACK_KEYWORD_CHARS),
+          ),
+        ),
+      ].slice(0, MAX_STACK_KEYWORDS),
       noMatchReason: noMatchReason(row),
       dismissal:
         // A NONE scope never gets this far: `resolve` / `assertVisible` refuse it first.

@@ -9043,10 +9043,6 @@ msgstr "Користувача створено, контракт готовий
 msgid "Зарплати"
 msgstr "Зарплати"
 
-#: apps/web/app/components/job-queue/JobQueueCard.tsx
-msgid "збігається"
-msgstr "збігається"
-
 #. placeholder {0}: invoice.projectName
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Проєкт: {0}"
@@ -9846,6 +9842,11 @@ msgstr "Немає команд дропа без активного сеньй�
 msgid "Не вдалося підписати контракт"
 msgstr "Не вдалося підписати контракт"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgctxt "job-queue stack chip, screen-reader suffix"
+msgid "збігається"
+msgstr "збігається"
+
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Не вдалося зберегти аватар"
 msgstr "Не вдалося зберегти аватар"
@@ -9912,6 +9913,10 @@ msgstr "Адміністратор"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Метод оплати"
 msgstr "Метод оплати"
+
+#: apps/web/app/components/job-queue/PossibleDuplicates.tsx
+msgid "Уже подано: {seniors}"
+msgstr "Уже подано: {seniors}"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Готових медіафайлів ще немає."
@@ -10051,10 +10056,6 @@ msgstr "Не вдалося позначити готовим"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Крок 2 з 2: оплата створеної заявки"
 msgstr "Крок 2 з 2: оплата створеної заявки"
-
-#: apps/web/app/components/job-queue/PossibleDuplicates.tsx
-msgid "На схожу вакансію вже подано: {title} · {seniors}"
-msgstr "На схожу вакансію вже подано: {title} · {seniors}"
 
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 msgid "Пароль *"

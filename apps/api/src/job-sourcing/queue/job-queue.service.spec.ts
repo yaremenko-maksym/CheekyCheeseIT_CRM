@@ -732,6 +732,14 @@ describe('matchEvidence (Task 7.3b «Чому збіг»)', () => {
     }
     expect(matchEvidence(evidence)).toEqual([{ keyword: 'ts', strength: 'CORE' }])
   })
+  it('reads the whole item: a strength must end it, a keyword must start it', () => {
+    const evidence = {
+      reasons: [
+        { code: 'TECH_MATCH', evidence: ['x:COREy', 'x:CORE ', '\nx:CORE', 'ts:OPTIONAL'] },
+      ],
+    }
+    expect(matchEvidence(evidence)).toEqual([{ keyword: 'ts', strength: 'OPTIONAL' }])
+  })
   it.each([
     ['null', null],
     ['no reasons', {}],
@@ -962,6 +970,21 @@ describe('JobQueueService.card', () => {
     expect(card.stackKeywords[59]).toBe('k58')
     const empty = await tailCard(teamScope, cardDbRow({ stack_keywords: null })).svc.card(user, OPP)
     expect(empty.stackKeywords).toEqual([])
+  })
+
+  it('the stack names each token once, deduped after clipping, before the cap', async () => {
+    const long = 's'.repeat(100)
+    const stack = [
+      'go',
+      'go',
+      `${long}a`,
+      `${long}b`,
+      ...Array.from({ length: 60 }, (_, i) => `k${i}`),
+    ]
+    const card = await tailCard(teamScope, cardDbRow({ stack_keywords: stack })).svc.card(user, OPP)
+    expect(card.stackKeywords.slice(0, 3)).toEqual(['go', long, 'k0'])
+    expect(card.stackKeywords).toHaveLength(60)
+    expect(card.stackKeywords[59]).toBe('k57')
   })
 
   it('a STUDIO card names each senior team; a senior with no live team is null (Task 7.3b)', async () => {

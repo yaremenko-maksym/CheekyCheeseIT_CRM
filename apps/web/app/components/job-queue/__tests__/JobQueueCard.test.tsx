@@ -373,6 +373,16 @@ describe('JobQueueCard', () => {
     const plain = within(stack).getByText('GraphQL')
     expect(plain).toHaveAttribute('data-hit', 'false')
     expect(plain).not.toHaveClass('bg-yellow-subtle')
+    expect(plain).toHaveClass(
+      'rounded-md',
+      'border',
+      'px-1.5',
+      'py-0.5',
+      'text-xs',
+      'text-muted-foreground',
+      'max-w-full',
+      'truncate',
+    )
     // a hit is not told by its style alone: a screen reader hears it after the token (SC 1.4.1)
     expect(stack).toHaveTextContent(/react, збігаєтьсяTypeScript, збігаєтьсяGraphQL$/)
     const marks = within(stack).getAllByText(', збігається')
@@ -401,6 +411,21 @@ describe('JobQueueCard', () => {
     first.unmount()
     show(cardFixture({ lastSeenAt: new Date(now - 3_600_000).toISOString() }))
     expect(screen.getByTestId('job-queue-card-meta')).not.toHaveTextContent('востаннє')
+  })
+
+  it('meta: «востаннє бачили» from exactly 24 h, not a millisecond before', () => {
+    const now = Date.parse('2026-11-11T12:00:00.000Z')
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(now)
+    try {
+      const day = show(cardFixture({ lastSeenAt: new Date(now - 86_400_000).toISOString() }))
+      expect(screen.getByTestId('job-queue-card-meta')).toHaveTextContent(/ · востаннє бачили /)
+      day.unmount()
+      show(cardFixture({ lastSeenAt: new Date(now - 86_399_999).toISOString() }))
+      expect(screen.getByTestId('job-queue-card-meta')).not.toHaveTextContent('востаннє')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('the seniors come before the description (the decision surface first)', () => {

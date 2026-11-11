@@ -139,6 +139,7 @@ export const cardRow = (
            WHERE dm.opportunity_id = o.id
              AND dm.scope_kind = ${scope.kind}::job_queue_scope_kind
              AND dm.team_id IS NOT DISTINCT FROM ${scope.kind === 'TEAM' ? scope.teamId : null}::uuid
+           LIMIT 1
         ) dis ON TRUE
         LEFT JOIN LATERAL (
           SELECT e.opportunity_revision
@@ -226,14 +227,16 @@ export const sourceRows = (id: string, after: string | undefined, limit: number)
 /**
  * The possible-duplicate set (`possibleDuplicateJoin`, the one definition Task 6.3 shares), minus the
  * opportunity itself. `total` counts visible ones only. `submitted_senior_names` (Task 7.3b, §5.8)
- * are the seniors of THIS scope's live submissions on the duplicate: another team's never count.
+ * are the seniors of THIS scope's live submissions on the duplicate, each once (a STUDIO view may
+ * see one senior submitted by two teams): another team's never count for a TEAM scope.
  */
 export const duplicateRows = (scope: JobQueueScope, id: string, limit: number): SQL =>
   sql`SELECT dup.id, dup.title, dup.employer_name, count(*) OVER () AS total,
              (SELECT coalesce(jsonb_agg(su.display_name ORDER BY su.display_name, su.id), '[]'::jsonb)
-                FROM job_queue_assignments da JOIN users su ON su.id = da.senior_id
-               WHERE da.opportunity_id = dup.id AND da.state = 'TAKEN'
-                 AND ${scopedTeamRowPredicate(scope, sql`da.team_id`)}) AS submitted_senior_names
+                FROM users su
+               WHERE su.id IN (SELECT da.senior_id FROM job_queue_assignments da
+                                WHERE da.opportunity_id = dup.id AND da.state = 'TAKEN'
+                                  AND ${scopedTeamRowPredicate(scope, sql`da.team_id`)})) AS submitted_senior_names
         FROM job_opportunities o
         JOIN job_opportunities dup ON ${possibleDuplicateJoin('o', 'dup')} AND dup.id <> o.id
        WHERE o.id = ${id}::uuid

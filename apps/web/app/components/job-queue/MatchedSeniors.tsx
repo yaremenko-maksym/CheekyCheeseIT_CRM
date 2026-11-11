@@ -73,6 +73,7 @@ function MatchEvidence({ senior }: { senior: JobQueueCardSeniorDto }) {
       >
         <ChevronDown
           aria-hidden="true"
+          data-testid="job-queue-senior-evidence-chevron"
           className={cn('size-3.5 shrink-0 transition-transform', open && 'rotate-180')}
         />
         <Trans>Чому збіг</Trans>
@@ -229,15 +230,20 @@ interface Row {
  * Seniors with no live team lead the list unheaded. The API orders seniors by id, not by team.
  */
 function byTeam(seniors: JobQueueCardSeniorDto[]): Row[] {
-  const runs = new Map<string | null, Row[]>([[null, []]])
+  const noTeam: Row[] = []
+  const runs = new Map<string, Row[]>()
   seniors.forEach((senior, arrival) => {
-    const key = senior.team?.teamId ?? null
     const row = { senior, arrival, teamHeading: null }
-    const run = runs.get(key)
+    const { team } = senior
+    if (!team) {
+      noTeam.push(row)
+      return
+    }
+    const run = runs.get(team.teamId)
     if (run) run.push(row)
-    else runs.set(key, [{ ...row, teamHeading: senior.team?.teamName ?? null }])
+    else runs.set(team.teamId, [{ ...row, teamHeading: team.teamName }])
   })
-  return [...runs.values()].flat()
+  return [...noTeam, ...[...runs.values()].flat()]
 }
 
 /**

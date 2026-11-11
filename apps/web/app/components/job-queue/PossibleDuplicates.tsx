@@ -4,7 +4,7 @@ import type { JobQueueCardResponseDto } from '@crm/shared'
 
 /**
  * «У черзі є схожа вакансія» (spec §5.8): a bounded preview of the similar vacancies in the actor's
- * own view. The «На схожу вакансію вже подано» line names the seniors the actor's own scope submitted
+ * own view. The «Уже подано» line names the seniors the actor's own scope submitted
  * there; the server scopes `submittedSeniorNames`, so another team's submission never reaches it (§3).
  */
 export function PossibleDuplicates({
@@ -29,7 +29,6 @@ export function PossibleDuplicates({
         </p>
         <ul className="flex flex-col gap-0.5">
           {preview.items.map((item) => {
-            const title = item.title
             const seniors = item.submittedSeniorNames.join(', ')
             return (
               <li key={item.opportunityId} className="[overflow-wrap:anywhere]">
@@ -37,9 +36,7 @@ export function PossibleDuplicates({
                 {item.companyName && ` · ${item.companyName}`}
                 {seniors && (
                   <p data-testid="job-queue-duplicate-submitted" className="text-muted-foreground">
-                    <Trans>
-                      На схожу вакансію вже подано: {title} · {seniors}
-                    </Trans>
+                    <Trans>Уже подано: {seniors}</Trans>
                   </p>
                 )}
               </li>
