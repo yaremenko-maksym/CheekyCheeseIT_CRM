@@ -7544,3 +7544,73 @@ in CI, so the failure is environment-dependent (timezone or locale suspected, no
 **Verify.** `pnpm --filter @crm/api test -- report` in WSL with an empty `DATABASE_URL`: zero failures.
 
 Sources: PR #1308 DevOps report.
+
+## 406. Hooks: an inline `python3 -c` body past 32 KB refuses every Bash call on Windows (2026-11-11)
+
+**Symptoms.** After `pre:bash:cross-agent-blast` grew its analyzer, every Bash call in a Windows session whose checkout was on
+`origin/main` was refused with `INTERNAL ERROR: the analyzer did not run (rc=126)`, even `echo ok`. Windows caps a whole
+command line at 32767 characters; the analyzer was passed as one `-c` argument, so `python3.exe` never launched, and the
+fail-closed branch turned that into a refusal of everything. Linux CI has a far higher limit, so the guard tests stayed green.
+Agents on older checkouts were unaffected, which is why it surfaced only for the orchestrator.
+
+**Status.** DevOps, branch `fix/cross-agent-blast-windows-argmax`: the analyzer runs from a file under `.claude/hooks/lib/`,
+and a guard test caps the size of any inline `-c` body of a hook.
+
+**Verify.** On Windows Git Bash, with the checkout on `main`: `echo ok` runs, and a broadcast-kill payload fed to the hook
+still exits 2. On Linux CI the size guard fails when an inline `-c` body of any hook exceeds its cap.
+
+Sources: Master session 2026-11-11 (vacancy-sourcing Phase 7).
+
+## 407. Mutation gate under WSL: `SourceBudgetPanel` AC7 test times out at concurrency 4 (2026-11-11)
+
+**Symptoms.** The `@crm/web` dry run of `scripts/devops/mutation-gate.mjs --changed` in WSL failed in the initial test run with
+`SourceBudgetPanel (AC7) still names the source and its trigger while it is broken — Hook timed out in 10000ms` at
+`MUTATION_CONCURRENCY=4`. The same job in CI passed on the same head; at concurrency 2 the WSL run is green. The same family as
+the load-dependent flake recorded for the CP-28 / CP-29 cases above.
+
+**Status.** Coder (web tests): the test's setup hook must not depend on machine load (no real timers in the hook body, or a
+longer hook timeout scoped to this file with a written reason).
+
+**Verify.** Three WSL dry runs of the web mutation gate in a row at `MUTATION_CONCURRENCY=4` without a hook timeout.
+
+Sources: PR #1312 mutation run.
+
+## 408. Windows pre-push: API suite fails for environment reasons, pushes go through WSL (2026-11-11)
+
+**Symptoms.** On the owner's Windows machine the pre-push hook's `@crm/api` test run fails on cases that pass in WSL and in CI,
+so feature branches of the vacancy-sourcing epic were pushed from WSL worktrees fed by `git bundle`. The failing cases were not
+captured.
+
+**Status.** DevOps: capture the failing test names and error text on the first Windows run, then decide between fixing the
+cases and documenting WSL as the supported push host.
+
+**Verify.** `DATABASE_URL= git push` from Windows Git Bash of a feature branch that changes `apps/api` (so the pre-push run
+includes the `@crm/api` suite) completes with that suite green.
+
+Sources: vacancy-sourcing Phase 7 pushes (branches changing `apps/api`).
+
+## 409. WSL: a fresh clone hangs on a credential prompt during `git fetch` / `git push` (2026-11-11)
+
+**Symptoms.** A new clone inside WSL without the owner's configured credential helper waits forever for a username on HTTPS
+fetch or push, which reads as a hung agent. Working around it needs `GIT_TERMINAL_PROMPT=0` (fail fast) and worktrees of the
+one WSL clone that has a helper configured.
+
+**Status.** DevOps: document the WSL push recipe in a runbook (`docs/runbooks/`), with `GIT_TERMINAL_PROMPT=0` and the
+bundle hand-off. Do not print or copy the helper's value.
+
+**Verify.** Following the runbook from a fresh WSL shell pushes a branch without any interactive prompt.
+
+Sources: vacancy-sourcing Phase 7 pushes.
+
+## 410. `JobSuggestionDialog` still renders Russian visible strings (2026-11-11)
+
+**Symptoms.** The job-sourcing suggestion dialog (`JobSuggestionDialog`) shows hard-coded Russian text, not Lingui macros with
+`uk` source and `en`, so the dialog does not follow the UI locale.
+
+**Status.** Coder: migrate the module's visible strings to Lingui (`uk` + `en`); copy-reviewer per language.
+
+**Verify.** The Lingui `no-unlocalized-strings` lint covers the dialog's file with no exemption and passes (the
+`check-no-russian-letters` script scans `apps/api` and the catalogs, not `apps/web`); the dialog renders fully in `uk` and in
+`en`.
+
+Sources: vacancy-sourcing Phase 7 reviews.
