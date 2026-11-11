@@ -107,17 +107,46 @@ describe('createImagePreviewUrl — fallbacks and wiring (task-1316-fix3 A6, B1�
     expect(workerStats.terminated).toBe(1)
   })
 
+  // Each row strips exactly one thing; the rest is a working worker, so the
+  // row passes only through the guard it names.
   it.each([
     ['no OffscreenCanvas', () => vi.stubGlobal('OffscreenCanvas', undefined)],
     ['no Worker', () => vi.stubGlobal('Worker', undefined)],
-    ['a throwing Worker constructor', () => {}],
+    ['a throwing Worker constructor', () => installFakePreviewWorker(photo, 'throw')],
   ])('B1: %s — `original` gets the file URL, `none` gets null', async (_label, strip) => {
-    installFakePreviewWorker(photo, 'throw')
+    installFakePreviewWorker(photo, 'auto')
     strip()
     await expect(createImagePreviewUrl(photo, 1024, ORIGINAL)).resolves.toBe(
       'blob:original-full-size',
     )
     await expect(createImagePreviewUrl(photo, 1024, NONE)).resolves.toBeNull()
+  })
+
+  it.each([
+    ['no OffscreenCanvas', () => vi.stubGlobal('OffscreenCanvas', undefined)],
+    ['a throwing Worker constructor', () => installFakePreviewWorker(photo, 'throw')],
+  ])(
+    'fix4 item 2: %s and a throwing createObjectURL — `original` resolves null, never throws or rejects',
+    async (_label, strip) => {
+      installFakePreviewWorker(photo, 'auto')
+      strip()
+      vi.mocked(URL.createObjectURL).mockImplementation(() => {
+        throw new Error('quota')
+      })
+      let result: Promise<string | null> | undefined
+      expect(() => (result = createImagePreviewUrl(photo, 1024, ORIGINAL))).not.toThrow()
+      await expect(result).resolves.toBeNull()
+    },
+  )
+
+  it('fix4 item 3: an undeserializable reply (messageerror) settles at once with null', async () => {
+    vi.useFakeTimers()
+    installFakePreviewWorker(photo, 'messageError')
+    let result: string | null | undefined
+    void createImagePreviewUrl(photo, 1024, ORIGINAL).then((r) => (result = r))
+    await vi.advanceTimersByTimeAsync(1)
+    expect(result).toBeNull()
+    expect(workerStats.terminated).toBe(1)
   })
 
   it('B1: without OffscreenCanvas no worker is started', async () => {

@@ -103,11 +103,46 @@ describe('pendingWriteCount (task-ios-file-input-freeze)', () => {
     },
   )
 
-  it('an error without a request config passes through untouched', async () => {
+  it('a write whose transformRequest throws (no config on the error) is not left counted', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    const bare = new Error('no config')
-    const adapter: AxiosAdapter = () => Promise.reject(bare)
-    await expect(api.get('/x', { adapter })).rejects.toBe(bare)
+    const bare = new Error('Do not know how to serialize a BigInt')
+    const req = api.post(
+      '/x',
+      { n: 1 },
+      {
+        transformRequest: [
+          () => {
+            throw bare
+          },
+        ],
+      },
+    )
+    await expect(req).rejects.toBe(bare)
+    expect(pendingWriteCount()).toBe(0)
+  })
+
+  it('a config-less failure next to a live write keeps that write counted until it settles', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const live = deferredAdapter()
+    const a = api.post('/upload', {}, { adapter: live.adapter })
+    await vi.waitFor(() => expect(pendingWriteCount()).toBe(1))
+
+    const b = api.put(
+      '/x',
+      {},
+      {
+        transformRequest: [
+          () => {
+            throw new Error('circular')
+          },
+        ],
+      },
+    )
+    await expect(b).rejects.toThrow()
+    expect(pendingWriteCount()).toBe(1)
+
+    live.settle(true)
+    await a
     expect(pendingWriteCount()).toBe(0)
   })
 })

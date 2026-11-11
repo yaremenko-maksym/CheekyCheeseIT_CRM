@@ -407,7 +407,13 @@ describe('ReceiptInput — pick lifecycle (task-1316-fix3 A1–A4, B1)', () => {
   })
 
   it.each([
-    ['no OffscreenCanvas', () => vi.stubGlobal('OffscreenCanvas', undefined)],
+    [
+      'no OffscreenCanvas',
+      () => {
+        installFakePreviewWorker(photo, 'auto') // a working worker: only the guard yields null
+        vi.stubGlobal('OffscreenCanvas', undefined)
+      },
+    ],
     ['a throwing Worker constructor', () => installFakePreviewWorker(photo, 'throw')],
   ])('B1: %s — no full-size thumbnail; the name shows and the upload runs', async (_l, strip) => {
     strip()

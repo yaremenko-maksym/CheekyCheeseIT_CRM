@@ -9,13 +9,22 @@
  * worker's own "decode failed" reply; `crash` fires `onerror`; `throw` makes
  * `new Worker(...)` itself throw (CSP, a missing chunk after a redeploy);
  * `small` is the "already within maxEdge" `null` reply; `cloneError` makes
- * `postMessage` throw synchronously (a DataCloneError).
+ * `postMessage` throw synchronously (a DataCloneError); `messageError` fires
+ * `onmessageerror` (a reply that could not be deserialized).
  */
 import { vi } from 'vitest'
 import type { PreviewRequest } from '@/lib/image-preview-size'
 
 export type FakeReplyMode =
-  'auto' | 'manual' | 'never' | 'error' | 'crash' | 'throw' | 'small' | 'cloneError'
+  | 'auto'
+  | 'manual'
+  | 'never'
+  | 'error'
+  | 'crash'
+  | 'throw'
+  | 'small'
+  | 'cloneError'
+  | 'messageError'
 
 export const previewRequests: PreviewRequest[] = []
 export const pendingReplies: Array<() => void> = []
@@ -27,6 +36,7 @@ let replyMode: FakeReplyMode = 'auto'
 class FakePreviewWorker {
   onmessage: ((e: { data: unknown }) => void) | null = null
   onerror: (() => void) | null = null
+  onmessageerror: (() => void) | null = null
   constructor(url: URL | string, options?: unknown) {
     if (replyMode === 'throw') throw new Error('worker blocked')
     workerConstructions.push({ url: String(url), options })
@@ -39,6 +49,7 @@ class FakePreviewWorker {
     else if (replyMode === 'manual') pendingReplies.push(reply)
     else if (replyMode === 'error') queueMicrotask(() => this.onmessage?.({ data: 'error' }))
     else if (replyMode === 'crash') queueMicrotask(() => this.onerror?.())
+    else if (replyMode === 'messageError') queueMicrotask(() => this.onmessageerror?.())
     else if (replyMode === 'small') queueMicrotask(() => this.onmessage?.({ data: null }))
   }
   terminate() {

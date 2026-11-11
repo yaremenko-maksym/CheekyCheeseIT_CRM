@@ -1,4 +1,4 @@
-import axios from 'axios'
+import axios, { getAdapter, type AxiosAdapter } from 'axios'
 import { getUserFacingErrorMessage, stripQueryString } from './axios-utils'
 
 // Dot access — hotfix (task-telemetry-env-gate): `import.meta.env['VITE_API_URL']`
@@ -21,18 +21,32 @@ export const pendingWriteCount = (): number => pendingWrites
 const isWrite = (method: string | undefined) =>
   !!method && !['get', 'head', 'options'].includes(method.toLowerCase())
 
+// Counted around the adapter, not in the interceptors: the adapter's own
+// `finally` releases each write exactly once whatever the error looks like.
+// A write that fails before the adapter (a throwing transformRequest) never
+// left the browser, so it is never counted.
+const counted = new WeakSet<AxiosAdapter>()
 api.interceptors.request.use((config) => {
-  if (isWrite(config.method)) pendingWrites++
+  if (!isWrite(config.method)) return config
+  if (typeof config.adapter === 'function' && counted.has(config.adapter)) return config // a retry
+  const inner = config.adapter
+  const wrapper: AxiosAdapter = async (c) => {
+    pendingWrites++
+    try {
+      // The runtime takes the config too (the fetch adapter is built per config); the .d.ts omits it.
+      return await (getAdapter as (a: typeof inner, c: unknown) => AxiosAdapter)(inner, c)(c)
+    } finally {
+      pendingWrites--
+    }
+  }
+  counted.add(wrapper)
+  config.adapter = wrapper
   return config
 })
 
 api.interceptors.response.use(
-  (response) => {
-    if (isWrite(response.config.method)) pendingWrites = Math.max(0, pendingWrites - 1)
-    return response
-  },
+  (response) => response,
   (error) => {
-    if (isWrite(error.config?.method)) pendingWrites = Math.max(0, pendingWrites - 1)
     if (error.response?.status === 401) {
       window.location.href = '/login'
     }

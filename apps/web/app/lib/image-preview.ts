@@ -40,7 +40,16 @@ export function createImagePreviewUrl(
   { fallback }: { fallback: PreviewFallback },
 ): Promise<string | null> {
   const original = () => URL.createObjectURL(file)
-  const noWorker = () => (fallback === 'original' ? original() : null)
+  // Never throws: createObjectURL can fail (out of memory), and this runs both
+  // outside the promise and inside its executor.
+  const noWorker = () => {
+    if (fallback !== 'original') return null
+    try {
+      return original()
+    } catch {
+      return null
+    }
+  }
   // No `Worker` needs no check of its own: `new Worker` throws into the catch below.
   if (typeof OffscreenCanvas === 'undefined') return Promise.resolve(noWorker())
   return new Promise((resolve) => {
@@ -75,6 +84,7 @@ export function createImagePreviewUrl(
         return e.data === null ? original() : null
       })
     worker.onerror = () => done(() => null)
+    worker.onmessageerror = () => done(() => null) // a reply that could not be deserialized
     const request: PreviewRequest = { file, maxEdge }
     try {
       worker.postMessage(request)

@@ -246,6 +246,10 @@ export function AvatarUploadDialog({
       setError(t`Спочатку виберіть область`)
       return
     }
+    // Session token: close (reset) or a retry makes this save stale. Its upload
+    // runs on (close is not blocked), but it no longer drives this dialog.
+    const session = ++pickRef.current
+    const current = () => session === pickRef.current
     setSaving(true)
     setError(null)
     // 'preparing' covers the synchronous canvas crop/re-encode below — a
@@ -259,7 +263,9 @@ export function AvatarUploadDialog({
         file,
         category: 'AVATAR',
         ownerId: userId,
-        onProgress: progress.onProgress,
+        onProgress: (percent) => {
+          if (current()) progress.onProgress(percent)
+        },
       })
       // Still 'processing' here (100% sent, waiting on the server) through
       // this second PATCH request too — it's the same "server hasn't
@@ -268,11 +274,13 @@ export function AvatarUploadDialog({
         { avatarDocumentId: doc.id },
         {
           onSuccess: () => {
+            toast.success(t`Аватар оновлено`) // the avatar did change, even if stale
+            if (!current()) return
             progress.success()
-            toast.success(t`Аватар оновлено`)
             handleClose()
           },
           onError: () => {
+            if (!current()) return
             setSaving(false)
             progress.error(t`Не вдалося зберегти аватар`)
           },
@@ -282,6 +290,7 @@ export function AvatarUploadDialog({
       // cropImage.ts throws its own English, dev-facing Error messages
       // (canvas/image-load failures) — never shown to the user; this is the
       // single client-facing text for any crop/encode failure.
+      if (!current()) return
       setSaving(false)
       progress.error(t`Не вдалося обрізати зображення`)
     }
