@@ -34,12 +34,15 @@ import { useUploadProgressState } from '@/hooks/use-upload-progress-state'
 import { cn } from '@/lib/utils'
 import { formatBytes } from '@/lib/format-bytes'
 import { useLocale } from '@/lib/i18n'
+import { createImagePreviewUrl } from '@/lib/image-preview'
 import { getCroppedDataUrl } from './cropImage'
 
 // task-i18n-stage3b (Task 1), Step 9 — the size the file-size check compares
 // against, so the error message formats the SAME number it validated on
 // instead of a second hardcoded "5 MB" that could drift from it.
 const AVATAR_MAX_BYTES = 5 * 1024 * 1024 // 5 MB raw input — the cropper re-encodes
+/** Cropper source bound: 4× the 512 px output still leaves room to zoom in. */
+const CROP_SOURCE_MAX_EDGE = 2048
 const ALLOWED_MIME_TYPES = new Set([
   'image/png',
   'image/jpeg',
@@ -101,10 +104,15 @@ export function AvatarUploadDialog({
   const uploadDoc = useUploadDocument()
   const progress = useUploadProgressState()
 
+  function clearSourceImage() {
+    if (sourceImage?.startsWith('blob:')) URL.revokeObjectURL(sourceImage)
+    setSourceImage(null)
+  }
+
   function reset() {
     setStep('source')
     setTab('file')
-    setSourceImage(null)
+    clearSourceImage()
     setUrl('')
     setError(null)
     setDragOver(false)
@@ -141,18 +149,20 @@ export function AvatarUploadDialog({
       return
     }
     progress.prepare()
-    const fr = new FileReader()
-    fr.onload = () => {
-      // The read is done — hand off to the crop step. Its own progress
-      // starts fresh at 'idle' (that step tracks the upload, not the read).
-      progress.reset()
-      startCrop(fr.result as string)
-    }
-    fr.onerror = () => {
-      progress.reset()
-      setError(t`Не вдалося прочитати файл`)
-    }
-    fr.readAsDataURL(file)
+    // A bounded-size copy, not the whole file as a data: URL: a full-resolution
+    // phone photo in the cropper froze iPhone Safari (task-ios-file-input-freeze).
+    createImagePreviewUrl(file, CROP_SOURCE_MAX_EDGE).then(
+      (previewUrl) => {
+        // The read is done — hand off to the crop step. Its own progress
+        // starts fresh at 'idle' (that step tracks the upload, not the read).
+        progress.reset()
+        startCrop(previewUrl)
+      },
+      () => {
+        progress.reset()
+        setError(t`Не вдалося прочитати файл`)
+      },
+    )
   }
 
   function handleDrop(e: React.DragEvent<HTMLDivElement>) {
@@ -478,7 +488,7 @@ export function AvatarUploadDialog({
                   variant="outline"
                   onClick={() => {
                     setStep('source')
-                    setSourceImage(null)
+                    clearSourceImage()
                   }}
                   disabled={isPending}
                   className="gap-1.5"
