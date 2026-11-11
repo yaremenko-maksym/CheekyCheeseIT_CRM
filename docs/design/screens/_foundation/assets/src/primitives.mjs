@@ -95,7 +95,7 @@ export function frames() {
     D('skeleton-1440', 1440, 900, skeletonDesktop(1440, 900)),
     C('skeleton-table-desktop', 960, 420, skeletonTable()),
     M('chart-mobile-375', 375, 812, chartMobile(375, 812)),
-    M('chart-mobile-scrolled-375', 375, 812, chartMobile(375, 812, { scrolled: 400 })),
+    M('chart-mobile-scrolled-375', 375, 812, chartMobile(375, 812, { scrolled: 470 })),
     M('chart-mobile-320', 320, 568, chartMobile(320, 568)),
     C('chart-desktop', 1200, 420, chartDesktop()),
     ...['pulling', 'armed', 'refreshing', 'done'].map((s) =>

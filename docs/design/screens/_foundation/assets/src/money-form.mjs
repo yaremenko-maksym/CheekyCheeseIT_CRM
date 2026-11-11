@@ -187,7 +187,7 @@ export function failureUnknownList(w, h) {
 
 /** Sheet dismissed while armed: the global upload pill carries the save; a tap reopens the draft. */
 export function uploadPillArmed(w, h) {
-  const pill = `<div role="button" aria-label="Збережеться ${AMOUNT} USD після чека, 62%. Відкрити чернетку" class="row" style="position:absolute;left:12px;right:${FLOAT_RIGHT}px;bottom:${TABBAR_H + safeBottom(w) + 16}px;z-index:44;gap:10px;height:56px;padding:0 12px 0 10px;border-radius:16px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.34 0.05 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)">${ring(62, 28)}<span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:14px;font-weight:600;white-space:nowrap" aria-live="polite">Збережеться ${AMOUNT} USD · 62%</span><span class="t-cap muted">Відкрити чернетку</span></span></div>`
+  const pill = `<div role="button" aria-label="Збережеться ${AMOUNT} USD після чека, 62%. Відкрити чернетку" class="row" style="position:absolute;left:12px;right:${FLOAT_RIGHT}px;bottom:${TABBAR_H + safeBottom(w) + 16}px;z-index:44;gap:10px;height:56px;padding:0 12px 0 10px;border-radius:16px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.34 0.05 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)">${ring(62, 28)}<span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:13px;font-weight:600;white-space:nowrap" aria-live="polite">Збережеться ${AMOUNT} USD · 62%</span><span class="t-cap muted">Відкрити чернетку</span></span></div>`
   return tabScreen({
     w,
     h,

@@ -198,7 +198,7 @@ export function chartMobile(w, h, { scrolled = 0 } = {}) {
     'Чистий прибуток · 6 міс',
     '+25,9k $',
     '▲ 12% до попер.',
-    netBars(w - 60, w <= 320 ? 200 : 300),
+    netBars(w - 60, w <= 320 ? 200 : 380),
     legend([
       ['var(--chart-1)', 'Прибуток'],
       ['', 'Збиток', 'hatch'],
