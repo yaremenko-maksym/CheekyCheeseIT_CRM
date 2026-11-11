@@ -353,9 +353,12 @@ must not share one UI (spec §4.5b):
   confirms at PNG approval). Closing the sheet returns to the form. When the user reaches the Finance
   list another way, the kept draft is a pinned row at the top (`listrow-draft-375`): «Чернетка 1 250,50
   USD», the state line «Не збережено · Витрата · чек додано» (after an unknown outcome it reads
-  «Результат невідомий · Витрата · чек додано») and **one** 44 px primary «Відкрити» (no other action on the row). While a failed or unknown draft
-  exists the FAB reopens it: accessible name «Відкрити чернетку 1 250,50 USD», a draft icon (`file-pen`)
-  with a red dot (`listrow-draft-375`, `upload-pill-failed-375`). After the first
+  «Результат невідомий · Витрата · чек додано») and **one** 44 px primary «Відкрити» (no other action on the row). «+» never blocks: with unresolved drafts (failed or unknown), «+» (the FAB, the quick-add action, the rail «+» and the
+  header «Нова транзакція») opens the **quick-add sheet**: the draft rows sit on top, each with its state
+  line and «Відкрити», and «Нова транзакція» stays enabled under them (`primitives-v2/quick-add-drafts-375`).
+  The FAB keeps its «+» and gains a red dot (with the count from two); its accessible name says the
+  count: «Нова транзакція, 1 чернетка потребує уваги», «Нова транзакція, 2 чернетки потребують уваги» (`listrow-draft-375`,
+  `upload-pill-failed-375`). After the first
   Wave 1 task ships the key, a form that has it may offer a resubmit with the same key.
 
 **Offline** (`shell-v2/state-offline-375`): the FAB stays enabled (no dim, no `aria-disabled`). A save
@@ -395,16 +398,16 @@ foundation §11).
 **Money pill** (one 56 px pill, one slot): armed «Збережеться 1 250,50 USD · 62%» /
 «Відкрити чернетку» (`upload-pill-armed-375`); saved «Збережено 1 250,50 USD» / «Відкрити» with a 44
 px ✕ (`aria-label` «Закрити»; a swipe also dismisses, the body still opens the transaction;
-`upload-pill-saved-375`); in flight «Зберігаємо 1 250,50 USD…» (between 100% and the result); failed
+`upload-pill-saved-375`); in flight «Зберігаємо 1 250,50 USD…» / «Відкрити» (between 100% and the result; `upload-pill-inflight-375`); failed
 «Не збережено 1 250,50 USD» / «Відкрити» (`upload-pill-failed-375`); unknown «Результат невідомий» /
 «1 250,50 USD · Відкрити» (`upload-pill-unknown-375`). A result **stays until tapped** (or
 dismissed); it never times out. **Several drafts** (foundation §11): the slot shows the highest state,
 **unknown > failed > in flight > armed > saved**, naming the amount for one draft and a count for more:
-two armed «Збережеться 2 транзакції · 1 з 2» (receipts finished, never one merged percentage) /
-«+2 чеки · Показати», where «+2 чеки» counts only uploads that belong to no draft
-(`upload-pill-multi-375`); two or more failed or unknown «2 чернетки» / «Відкрити», which opens Фінанси
-at the pinned rows, and the FAB is named «Відкрити 2 чернетки» with the count on its dot
-(`drafts-two-unresolved-375`). Фінанси pins one row per unsaved draft, newest first
+two armed «Збережеться 2 транзакції» / «Відкрити» (never one merged percentage: each pinned row shows
+its own; `upload-pill-multi-375`); «+2 чеки» counts only uploads that belong to no draft; two or more
+failed or unknown «2 потребують перевірки» / «Відкрити», which opens Фінанси at the pinned rows, and the
+FAB dot carries the count (`drafts-two-unresolved-375`). A save that completes under a failed or
+unknown pill shows as a normal success toast stacked above it; the pill keeps its own state. Фінанси pins one row per unsaved draft, newest first
 (`drafts-two-375`: one failed and one armed; the failed one wins the pill). Without a money draft the
 slot holds the plain upload pill. **Toast + pill** (`toast-pill-stack-375`): the pill keeps the base slot (left 12,
 right inset 80, left of the FAB); a toast stacks 8 px above it; at most one toast at a time. A toast

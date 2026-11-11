@@ -411,8 +411,9 @@ const pillText = (a, b) =>
  * One pill slot for every draft; it shows the highest state: unknown > failed > in flight > armed >
  * saved (foundation §11). The amount for one draft, a count for more. armed: the save rides the upload.
  * saved: a 44 px ✕ and a swipe dismiss it, the body opens the transaction. failed / unknown: wait for a
- * tap. multi: two armed drafts («1 з 2» receipts done) plus uploads that belong to no draft («+2 чеки»).
- * drafts: two or more failed / unknown drafts; a tap opens Фінанси at the pinned rows.
+ * tap. multi: two armed drafts, a count and never a merged percentage (each pinned row has its own).
+ * inflight: the create has left. drafts: two or more failed / unknown drafts; a tap opens Фінанси at the
+ * pinned rows.
  */
 export function moneyPill(w, kind = 'armed') {
   if (kind === 'unknown')
@@ -425,8 +426,8 @@ export function moneyPill(w, kind = 'armed') {
   if (kind === 'drafts')
     return pillBox(
       w,
-      `<span style="color:var(--destructive)">${icon('file-pen', { size: 24 })}</span>${pillText('2 чернетки', 'Відкрити')}`,
-      '2 чернетки. Відкрити',
+      `<span style="color:var(--destructive)">${icon('file-pen', { size: 24 })}</span>${pillText('2 потребують перевірки', 'Відкрити')}`,
+      '2 чернетки потребують перевірки. Відкрити',
       '0.42 0.12 22',
     )
   if (kind === 'saved')
@@ -440,8 +441,14 @@ export function moneyPill(w, kind = 'armed') {
   if (kind === 'multi')
     return pillBox(
       w,
-      `${progress(ring(62, 28), 'Завантаження чеків')}${pillText('Збережеться 2 транзакції · 1 з 2', '+2 чеки · Показати')}`,
-      'Збережеться 2 транзакції після чеків, готово 1 з 2; ще 2 чеки завантажуються. Показати',
+      `<span style="color:var(--primary)">${icon('clock', { size: 24 })}</span>${pillText('Збережеться 2 транзакції', 'Відкрити')}`,
+      'Збережеться 2 транзакції після чеків. Відкрити',
+    )
+  if (kind === 'inflight')
+    return pillBox(
+      w,
+      `<span style="color:var(--primary);display:grid">${icon('loader-circle', { size: 24 })}</span>${pillText(`Зберігаємо ${AMOUNT} USD…`, 'Відкрити')}`,
+      `Зберігаємо ${AMOUNT} USD. Відкрити`,
     )
   if (kind === 'failed')
     return pillBox(
@@ -463,11 +470,15 @@ const financeTab = (w, h, overlay, body = financeBody()) =>
 /** Sheet dismissed while armed: the global upload pill carries the save; a tap reopens the draft. */
 export const uploadPillArmed = (w, h) => financeTab(w, h, moneyPill(w, 'armed'))
 export const uploadPillSaved = (w, h) => financeTab(w, h, moneyPill(w, 'saved'))
-export const uploadPillMulti = (w, h) => financeTab(w, h, moneyPill(w, 'multi'))
+export const uploadPillMulti = (w, h) =>
+  financeTab(w, h, moneyPill(w, 'multi'), pinDrafts([DRAFT.armed2, DRAFT.armed]))
+export const uploadPillInflight = (w, h) =>
+  financeTab(w, h, moneyPill(w, 'inflight'), pinDrafts([DRAFT.inflight]))
 
 /**
- * Failed / unknown drafts exist: the FAB reopens the one draft, or with two or more opens Фінанси at the
- * pinned rows; it says so and changes its icon (a red dot, carrying the count when more than one).
+ * Failed / unknown drafts exist: «+» never blocks. The FAB keeps its «+» and opens the quick-add sheet
+ * with the draft rows on top and «Нова транзакція» enabled under them; a red dot (carrying the count when
+ * more than one) and the accessible name say how many drafts need attention.
  */
 export const draftFab = (html, count = 1) =>
   html.replace(
@@ -477,8 +488,11 @@ export const draftFab = (html, count = 1) =>
         count > 1
           ? `<i aria-hidden="true" class="num" style="position:absolute;top:5px;right:5px;min-width:18px;height:18px;border-radius:9px;background:var(--destructive);color:#fff;font:700 12px/18px var(--font);font-style:normal;text-align:center;box-shadow:0 0 0 2px var(--primary)">${count}</i>`
           : '<i aria-hidden="true" style="position:absolute;top:9px;right:9px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--primary)"></i>'
-      const name = count > 1 ? `Відкрити ${count} чернетки` : `Відкрити чернетку ${AMOUNT} USD`
-      return `<div class="fab" role="button" aria-label="${name}" style="${st}">${icon('file-pen', { size: 24, stroke: 2.2 })}${dot}</div>`
+      const name =
+        count > 1
+          ? `Нова транзакція, ${count} чернетки потребують уваги`
+          : 'Нова транзакція, 1 чернетка потребує уваги'
+      return `<div class="fab" role="button" aria-label="${name}" aria-haspopup="dialog" style="${st}">${icon('plus', { size: 26, stroke: 2.4 })}${dot}</div>`
     },
   )
 export const uploadPillFailed = (w, h) => draftFab(financeTab(w, h, moneyPill(w, 'failed')))
@@ -580,10 +594,17 @@ const DRAFT = {
   failed: { amount: AMOUNT, state: 'Не збережено · Витрата · чек додано' },
   unknown: { amount: AMOUNT, state: 'Результат невідомий · Витрата · чек додано' },
   armed: { amount: '320,00', state: 'Збережеться після чека · Витрата · чек 62%', armed: true },
+  armed2: { amount: AMOUNT, state: 'Збережеться після чека · Витрата · чек 35%', armed: true },
+  inflight: {
+    amount: AMOUNT,
+    state: 'Зберігаємо… · Витрата · чек додано',
+    armed: true,
+    ic: 'loader-circle',
+  },
   failed2: { amount: '86,40', state: 'Не збережено · Витрата · чек додано' },
 }
-const draftRow = ({ amount, state, armed = false }) =>
-  `<div style="padding:0 16px 8px"><div class="row" style="gap:12px;min-height:64px;padding:8px 8px 8px 12px;border-radius:14px;background:var(--card);border:1px solid ${armed ? 'var(--border)' : 'oklch(0.84 0.183 85.3 / 0.45)'};box-shadow:inset 2px 0 0 ${armed ? 'var(--muted-fg)' : 'var(--primary)'}"><span style="width:36px;height:36px;border-radius:10px;background:${armed ? 'var(--surface)' : 'var(--yellow-subtle)'};color:${armed ? 'var(--muted-fg)' : 'var(--primary)'};display:grid;place-items:center;flex:none">${icon(armed ? 'clock' : 'file-pen', { size: 18 })}</span><span class="grow col" style="gap:2px;min-width:0"><span class="t-body num" style="font-weight:600">Чернетка <span style="white-space:nowrap">${amount} USD</span></span><span class="t-foot muted">${state}</span></span><a class="btn sm ${armed ? 'secondary' : 'primary'}" href="#" aria-label="Відкрити чернетку ${amount} USD" style="height:44px">Відкрити</a></div></div>`
+const draftRow = ({ amount, state, armed = false, ic = '' }) =>
+  `<div style="padding:0 16px 8px"><div class="row" style="gap:12px;min-height:64px;padding:8px 8px 8px 12px;border-radius:14px;background:var(--card);border:1px solid ${armed ? 'var(--border)' : 'oklch(0.84 0.183 85.3 / 0.45)'};box-shadow:inset 2px 0 0 ${armed ? 'var(--muted-fg)' : 'var(--primary)'}"><span style="width:36px;height:36px;border-radius:10px;background:${armed ? 'var(--surface)' : 'var(--yellow-subtle)'};color:${armed ? 'var(--muted-fg)' : 'var(--primary)'};display:grid;place-items:center;flex:none">${icon(ic || (armed ? 'clock' : 'file-pen'), { size: 18 })}</span><span class="grow col" style="gap:2px;min-width:0"><span class="t-body num" style="font-weight:600">Чернетка <span style="white-space:nowrap">${amount} USD</span></span><span class="t-foot muted">${state}</span></span><a class="btn sm ${armed ? 'secondary' : 'primary'}" href="#" aria-label="Відкрити чернетку ${amount} USD" style="height:44px">Відкрити</a></div></div>`
 const pinDrafts = (drafts) => {
   const body = financeBody()
   const rows = `<div style="padding-bottom:4px">${drafts.map(draftRow).join('')}</div>`
@@ -598,6 +619,19 @@ export const listrowDraft = (w, h) => draftFab(financeTab(w, h, '', pinDrafts([D
 export const draftsTwo = (w, h) =>
   draftFab(financeTab(w, h, moneyPill(w, 'failed'), pinDrafts([DRAFT.armed, DRAFT.failed])))
 
-/** Two unresolved drafts: the pill and the FAB name the count and open Фінанси at the pinned rows. */
+/** Two unresolved drafts: the pill names the count and opens Фінанси at the pinned rows; the FAB dot carries it. */
 export const draftsTwoUnresolved = (w, h) =>
   draftFab(financeTab(w, h, moneyPill(w, 'drafts'), pinDrafts([DRAFT.failed2, DRAFT.unknown])), 2)
+
+/**
+ * «+» with unresolved drafts (FAB, quick-add, rail «+», «Нова транзакція»): the quick-add sheet with the
+ * draft rows on top, each with its state, and «Нова транзакція» enabled under them. Nothing is blocked.
+ */
+export function quickAddDrafts(w, h) {
+  const rows = [DRAFT.failed2, DRAFT.unknown].map(draftRow).join('')
+  const create = `<div style="padding:4px 16px 0"><button type="button" class="lrow two" style="--inset:68px;width:100%;border-radius:14px;background:var(--card);border:1px solid var(--border);text-align:left"><span class="lead" style="width:40px;height:40px;border-radius:12px;background:var(--yellow-subtle);color:var(--primary)">${icon('plus', { size: 20 })}</span><span class="grow col" style="gap:2px"><span class="t-body" style="font-weight:600">Нова транзакція</span><span class="t-foot muted">Витрата, дохід або переказ</span></span>${icon('chevron-right', { size: 18, cls: 'chev' })}</button></div>`
+  const body = `<div class="t-over" style="padding:0 16px 8px">Чернетки · 2 потребують перевірки</div>${rows}${create}`
+  const listH = 52 + 26 + 2 * 90 + 84 + safeBottom(w) + 24
+  const overlay = sheet({ w, h, top: h - listH, title: 'Створити', trail: closeBtn, body })
+  return draftFab(financeTab(w, h, overlay, pinDrafts([DRAFT.failed2, DRAFT.unknown])), 2)
+}

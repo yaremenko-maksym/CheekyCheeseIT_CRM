@@ -1,6 +1,6 @@
 // Primitives v2 frames. Rendered by `node render.mjs primitives [filter]` into ../primitives-v2/.
 import { page } from './base.mjs'
-import { moneyForm, failureReceipt } from './money-form.mjs'
+import { moneyForm, failureReceipt, uploadPillInflight, quickAddDrafts } from './money-form.mjs'
 import {
   sheetMedium,
   sheetLarge,
@@ -152,9 +152,11 @@ export function frames() {
     M('upload-pill-saved-375', 375, 812, uploadPillSaved(375, 812)),
     M('upload-pill-failed-375', 375, 812, uploadPillFailed(375, 812)),
     M('upload-pill-multi-375', 375, 812, uploadPillMulti(375, 812)),
+    M('upload-pill-inflight-375', 375, 812, uploadPillInflight(375, 812)),
     M('upload-pill-unknown-375', 375, 812, uploadPillUnknown(375, 812)),
     M('drafts-two-375', 375, 812, draftsTwo(375, 812)),
     M('drafts-two-unresolved-375', 375, 812, draftsTwoUnresolved(375, 812)),
+    M('quick-add-drafts-375', 375, 812, quickAddDrafts(375, 812)),
     M('toast-pill-stack-375', 375, 812, toastPillStack(375, 812)),
     M('state-page-kill-375', 375, 812, pageKillAlert(375, 812)),
     M('alert-pagekill-sent-375', 375, 812, pageKillAlert(375, 812, 'sent')),
