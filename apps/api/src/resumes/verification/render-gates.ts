@@ -1,9 +1,10 @@
 import type { ResumeContent, ResumeLayoutOptions, ResumeTemplateName } from '@crm/shared'
-import { checkResumeAts, type AtsFailure } from '../ats/resume-ats-checker'
+import { checkResumeAts, type AtsCheckInput, type AtsFailure } from '../ats/resume-ats-checker'
 import { toRenderableDeep } from '../resume-glyphs'
 import { MAX_PDF_PAGES } from '../resume-source.util'
 import { loadCatalogTemplate, type ResumeRenderInput } from '../resume-typst.service'
-import { RunFailure, type GateResult } from './content-gates'
+import type { ContactContext } from './contact-scan'
+import { redactAll, RunFailure, type GateResult } from './content-gates'
 import type { VisualReply } from './inference-clients'
 
 export interface RenderDeps {
@@ -100,7 +101,7 @@ const atsGate = (failures: AtsFailure[]): GateResult => ({
 
 async function measure(
   pdf: Buffer,
-  input: ResumeRenderInput,
+  input: Omit<AtsCheckInput, 'pages' | 'pdfBytes'>,
   deps: RenderDeps,
 ): Promise<{ other: AtsFailure[]; layout: string[] }> {
   try {
@@ -196,17 +197,22 @@ export async function renderAccepted(plan: RenderPlan, deps: RenderDeps): Promis
   }
 }
 
-/** The copy the vision model sees: no real name, email or link URL. */
-export function placeholderCopy(content: ResumeContent): {
-  displayName: string
-  email: string
-  content: ResumeContent
-} {
+/**
+ * The copy the vision model sees: no real name, email or link URL, and every other string redacted
+ * field by field (addendum A1: company, role and education are never contact-scanned at submit).
+ */
+export function placeholderCopy(
+  content: ResumeContent,
+  contacts: readonly ContactContext[],
+): { displayName: string; email: string; content: ResumeContent } {
+  const redacted = JSON.parse(JSON.stringify(content), (_key, value: unknown) =>
+    typeof value === 'string' ? redactAll(value, contacts) : value,
+  ) as ResumeContent
   return {
     displayName: 'Firstname Lastname',
     email: 'name@example.com',
     content: {
-      ...content,
+      ...redacted,
       links: content.links.map(() => ({ label: 'Link', url: 'https://example.com' })),
     },
   }
@@ -219,12 +225,13 @@ export function placeholderCopy(content: ResumeContent): {
 export async function visualGate(
   accepted: Pick<Accepted, 'content' | 'layout'>,
   templateName: ResumeTemplateName,
+  contacts: readonly ContactContext[],
   deps: RenderDeps,
 ): Promise<GateResult> {
   let pngs: Buffer[]
   try {
     pngs = await deps.typst.renderPng({
-      ...placeholderCopy(accepted.content),
+      ...placeholderCopy(accepted.content, contacts),
       layout: accepted.layout,
       templateName,
       templateSource: loadCatalogTemplate(templateName),
