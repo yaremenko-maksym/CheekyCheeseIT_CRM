@@ -1,6 +1,6 @@
 // Primitives v2 frames. Rendered by `node render.mjs primitives [filter]` into ../primitives-v2/.
 import { page } from './base.mjs'
-import { moneyForm } from './money-form.mjs'
+import { moneyForm, failureReceipt } from './money-form.mjs'
 import {
   sheetMedium,
   sheetLarge,
@@ -140,6 +140,13 @@ export function frames() {
       812,
       toastErrorUnknownList(375, 812, { ready: true, rows: 'empty' }),
     ),
+    M(
+      'toast-error-unknown-refetch-failed-375',
+      375,
+      812,
+      toastErrorUnknownList(375, 812, { ready: true, rows: 'failed' }),
+    ),
+    M('form-receipt-failed-375', 375, 812, failureReceipt(375, 812)),
     M('toast-error-offline-375', 375, 812, toastErrorOffline(375, 812)),
     M('upload-pill-armed-375', 375, 812, uploadPillArmed(375, 812)),
     M('upload-pill-saved-375', 375, 812, uploadPillSaved(375, 812)),
@@ -151,6 +158,7 @@ export function frames() {
     M('toast-pill-stack-375', 375, 812, toastPillStack(375, 812)),
     M('state-page-kill-375', 375, 812, pageKillAlert(375, 812)),
     M('alert-pagekill-sent-375', 375, 812, pageKillAlert(375, 812, 'sent')),
+    M('alert-pagekill-failed-375', 375, 812, pageKillAlert(375, 812, 'failed')),
     M('confirm-recreate-375', 375, 812, confirmRecreate(375, 812)),
     M('confirm-discard-draft-375', 375, 812, confirmDiscardDraft(375, 812)),
     M('listrow-draft-375', 375, 812, listrowDraft(375, 812)),

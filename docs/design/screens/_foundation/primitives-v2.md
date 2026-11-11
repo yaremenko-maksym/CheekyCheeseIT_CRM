@@ -61,7 +61,11 @@ status bar. Chrome, the same on every mobile form: «Скасувати» top-le
 top-right**; the primary («Зберегти зміни») sits in a bottom bar above the home indicator, or on the
 keyboard when it is open. The pushed form page (`form-money-375`) uses the same bottom bar. The primary
 is **always enabled** except while its own request is in flight (§4 Submit). **A dirty form asks
-before it closes** (drag, scrim, Скасувати) with an action sheet; an armed save is the exception (§4).
+before it closes** (drag, scrim, Скасувати) with an action sheet. A **money draft** is the exception:
+while it is armed, failed or unknown the leading control reads **«Згорнути»**, and drag, scrim and
+«Згорнути» all close the sheet and **keep** the draft, with no confirm. Discarding a failed or unknown
+draft is its own 44 px control «Видалити чернетку» under the primary, which opens the named confirm
+(§4; foundation §11).
 
 **PickerSheet** (`picker-sheet-375`, project picker over the money form, keyboard closed): one medium
 sheet for every single choice from a long list: **project, user, currency, role**. Title names the field
@@ -199,7 +203,10 @@ both at once is refused too). The empty tile has two modes, **«Файл» / «�
 thumbnail, the title, the status line, **«Замінити»** and **«✕»** (`aria-label` «Видалити чек»), both
 44 × 44 real `<button>`s, replaces the switch (remove the file to switch to a link). **While uploading**
 the title is the file name and the status line reads «Завантаження · 62%»; **«Чек додано»** appears
-only at 100% (status «Завантажено · 220 КБ»). The percent is the thumbnail ring's `progressbar`, not a
+only at 100% (status «220 КБ», which truncates with an ellipsis before it can run under «Замінити»).
+**Upload failed** (`form-receipt-failed-375`): the card stays, red, with «Не завантажено · 220 КБ», the
+error «Чек не завантажився: з’єднання перервалося» and two 44 px exits «Повторити» / «Замінити»; on an
+armed draft this makes the draft **failed** (foundation §11), never a silent disarm. The percent is the thumbnail ring's `progressbar`, not a
 live region (the status text is `aria-hidden`). **Below 360 px** «Замінити» becomes a 44 px icon button
 `refresh-cw` (`aria-label` «Замінити чек») and the status line shows only «62%»
 (`shell-v2/quick-add-txn-armed-320`). **Effective currency USDT: a link only**, and it must be a
@@ -276,7 +283,9 @@ announces only arm, disarm and result. **The armed primary is `aria-disabled="tr
 `disabled`: it keeps focus and its name); a repeat tap toggles nothing (no `aria-pressed`) and shows
 the hint «Чек ще завантажується. Транзакція збережеться сама, щойно він завантажиться». **Disarm is a
 separate control**: the 44 px text button «Не зберігати автоматично» under the primary; any field edit,
-and replacing or removing the receipt, also disarms. An armed draft blocks nothing: «+» opens a new
+and replacing or removing the receipt, also disarms. A **receipt upload that fails** on an armed draft
+does not disarm: the draft becomes failed (pill «Не збережено 1 250,50 USD · Відкрити», a pinned row,
+the error on the receipt card; `form-receipt-failed-375`). An armed draft blocks nothing: «+» opens a new
 form. While armed the leading control reads **«Згорнути»**:
 it closes the sheet and the save stays armed; a drag down and a scrim tap do the same. On the closed
 sheet the global upload pill carries the save; the result then stays in the pill until tapped
@@ -311,7 +320,12 @@ must not share one UI (spec §4.5b):
   Any of these can arrive after the origin committed. On the four forms without an idempotency key (expense, admin-income, admin-transfer, company
   deposit) the alert reads «Невідомо, чи транзакцію збережено» / «Відповідь не надійшла. Форма й чек
   залишились. Перевірте список: якщо транзакції там немає, її можна створити ще раз.»; the form and the
-  receipt stay and there is **no retry button on the alert**. The footer «Перевірити список» opens the
+  receipt stay and there is **no retry button on the alert**. **The unknown draft is read-only**: the
+  sent values stay visible under «Надіслано о 14:32 · змінити не можна», every control dimmed and
+  `aria-disabled="true"` (announced, never hidden, never `inert`); the check sheet and a recreate use
+  exactly the sent payload, and changing a value means discarding the draft. A failed draft stays
+  editable and a re-save sends one new request with no gate (nothing was saved). The leading control
+  reads «Згорнути» and keeps the draft; under the footer primary sits «Видалити чернетку». The footer «Перевірити список» opens the
   **check sheet** «Нові записи» **over the kept form** (`toast-error-unknown-list-375`), refetched on
   open. The header names what to look for, «Шукаємо: −1 250,50 USD · Витрата · надіслано 14:32», and
   the sheet lists **only rows created after the send, newest created first** («Лише записи, створені
@@ -321,12 +335,16 @@ must not share one UI (spec §4.5b):
   «нова · 14:33» only; with new rows and no match «Збігів немає» sits above the exits; with none the
   body reads «Нових записів після 14:32 немає» (`toast-error-unknown-empty-375`). Money uses one
   notation, `<amount> <CODE>` (foundation §6). A 44 px «Оновити» refetches («Оновлено о 14:33:18» is
-  the one `role="status"`). Two exits under the list: «Є в списку — закрити чернетку» (closes the
+  the one `role="status"`). **A failed refetch** (`toast-error-unknown-refetch-failed-375`) shows
+  `role="alert"` «Не вдалося оновити список» with a 44 px «Повторити» in place of the status line and
+  the list, never the empty text or «Збігів немає»; the hint reads «Список не оновився. Створити
+  транзакцію ще раз можна лише після того, як він оновиться.». Two exits under the list: «Є в списку — закрити чернетку» (closes the
   draft, sends nothing) and «Немає — створити ще раз», which is `aria-disabled` (described by the hint
   line) until **60 s after the failure arrived** (not after the send: nginx `proxy_read_timeout 60s`
   and Cloudflare's 100 s mean a timeout can arrive after a send-based gate while the origin may still
   commit), showing «Можна через 0:42» until then (`aria-hidden`; the countdown is **never in a live
-  region**). At the gate one automatic refetch runs, and the status announces the unlock once
+  region**). It unlocks only after a **successful** refetch that ran at least 60 s after the failure
+  arrived. At the gate one automatic refetch runs, and the status announces the unlock once
   («Оновлено о 14:34:01. Тепер можна створити ще раз»); then a confirm «Створити 1 250,50 USD ще
   раз?» and exactly one new create. Wave 1 AC: the list API returns rows created after a time,
   ordered by creation time. This is a user-confirmed new

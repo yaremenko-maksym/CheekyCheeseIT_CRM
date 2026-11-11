@@ -91,7 +91,8 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   `quick-add-hr-320` from Дашборд): a medium sheet listing the role's actions (icon, label, one-line
   hint). Each row 64 px.
 - `quick-add-txn-keyboard-375`: «Нова транзакція» opens as the canonical money form
-  (`primitives-v2.md` §4; source `assets/src/money-form.mjs`): «Скасувати» top-left, title centred,
+  (`primitives-v2.md` §4; source `assets/src/money-form.mjs`): «Скасувати» top-left («Згорнути» while
+  the draft is armed, failed or unknown), title centred,
   nothing top-right; the amount is focused with the decimal keyboard up and the bottom submit bar riding
   on it. The bar above the keys is **iOS Safari's own accessory bar**, drawn and labelled "system" only;
   we do not build one. The type toggle is the role's create set (ADMIN: Витрата / Дохід / Переказ); the
@@ -122,9 +123,12 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   or unknown draft and is unavailable only while its request is in flight. Every money create writes
   its page-kill marker `{ t, phase: 'sent' }` at send (an armed one writes `armed` first);
   backgrounding does not disarm; a page kill is reported at the next boot with one alert per phase
-  (`armed`: not saved; `sent`: check the list, no resubmit). An upload failure disarms the save and shows its error on the
-  receipt card; the user replaces the file, or removes it («✕ Видалити чек») and adds another file or a
-  link. The receipt is mandatory (a file or a link; USDT: an explorer link only), so no path saves
+  (`armed` and `failed`: not saved; `sent`: check the list, no resubmit). An upload failure on an armed draft makes it **failed**
+  (foundation §11), never a silent disarm: the error sits on the receipt card with «Повторити» /
+  «Замінити», and with the sheet closed the pill reads «Не збережено 1 250,50 USD · Відкрити»
+  (`primitives-v2/form-receipt-failed-375`). A failed or unknown draft closes with «Згорнути» (a drag or
+  a scrim tap does the same) and is kept; «Видалити чернетку» under the primary discards it after the
+  named confirm. An unknown draft is read-only until it leaves that state. The receipt is mandatory (a file or a link; USDT: an explorer link only), so no path saves
   without one (primitives-v2 §4).
 
 ### More sheet
