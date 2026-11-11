@@ -19,7 +19,6 @@
     "eslint": "^10.14.0",
     "eslint-plugin-playwright": "^2.12.2",
     "tsx": "^4.23.15",
-    "typescript": "^5.9.3",
-    "web-vitals": "^6.2.3"
+    "typescript": "^5.9.3"
   }
 }

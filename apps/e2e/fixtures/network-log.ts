@@ -18,6 +18,8 @@ export interface NetworkSummary {
   duplicates: { key: string; count: number }[]
   waterfallDepth: number
   bytes: number
+  /** Calls whose response end time the browser did not report: they cannot start a chain, so `waterfallDepth` may undercount when this is > 0. */
+  untimed: number
 }
 
 function keyOf(request: Request): string {
@@ -28,12 +30,15 @@ function keyOf(request: Request): string {
 }
 
 /**
- * Starts recording API calls on `page`. `stop()` detaches the listener, waits
- * for every recorded call to finish (a call that never ends hangs the test
- * until its timeout — do not use around long-polling) and summarises.
- * `bytes` is the decoded response body size; `waterfallDepth` is the longest
- * chain of calls where each one started after the previous one's response
- * ended, measured on the browser's own clock.
+ * Starts recording API calls on `page`. Call `stop()` only once the UI has
+ * settled (assert the final state first): it makes one page round-trip so
+ * pending `request` events arrive, detaches the listener, waits for every
+ * recorded call to finish (a call that never ends hangs the test until its
+ * timeout — do not use around long-polling) and summarises.
+ * `bytes` is the decoded response body size (a redirect counts 0; the call it
+ * leads to is recorded on its own); `waterfallDepth` is the longest chain of
+ * calls where each one started after the previous one's response ended,
+ * measured on the browser's own clock.
  */
 export function recordNetwork(page: Page): { stop(): Promise<NetworkSummary> } {
   const requests: Request[] = []
@@ -44,6 +49,7 @@ export function recordNetwork(page: Page): { stop(): Promise<NetworkSummary> } {
 
   return {
     async stop(): Promise<NetworkSummary> {
+      await page.evaluate(() => 0) // flush `request` events still on the wire
       page.off('request', onRequest)
 
       const done = await Promise.all(
@@ -55,7 +61,11 @@ export function recordNetwork(page: Page): { stop(): Promise<NetworkSummary> } {
             key: keyOf(request),
             start: t.startTime,
             end: t.responseEnd >= 0 ? t.startTime + t.responseEnd : undefined,
-            bytes: failed ? 0 : (await response.body()).length,
+            // 3xx has no body: `body()` throws "unavailable for redirect responses".
+            bytes:
+              failed || (response.status() >= 300 && response.status() < 400)
+                ? 0
+                : (await response.body()).length, // any other body error fails loudly
           }
         }),
       )
@@ -83,6 +93,7 @@ export function recordNetwork(page: Page): { stop(): Promise<NetworkSummary> } {
         duplicates,
         waterfallDepth: Math.max(0, ...depth),
         bytes: done.reduce((sum, d) => sum + d.bytes, 0),
+        untimed: done.filter((d) => d.end === undefined).length,
       }
     },
   }
