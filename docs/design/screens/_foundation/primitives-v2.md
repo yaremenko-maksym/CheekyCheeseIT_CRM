@@ -303,7 +303,7 @@ sent). The amount never truncates: at 320 it steps 44 →
 are already reversible in the product. On tablet and desktop there is one corner for
 everything that floats: bottom-right, 24 px from both edges, 420 wide (`toast-undo-768`, with a 44 px
 action; `toast-undo-1440`, with a 40 px action). When the upload pill is there too, toasts stack above
-it in the same corner.
+it in the same corner. While a pill or toast shows, the tablet and desktop scrollers get bottom padding equal to the stack height + 24, so the corner never covers the last row (`drafts-desktop-1440`); with a side panel open the corner moves left of the panel.
 
 **Save error** — for money creates the error is an **inline `role="alert"` above the form**, never a
 floating toast over a field, and the values stay in the form. **No auto-retry**, ever. Two cases that
@@ -359,11 +359,7 @@ must not share one UI (spec §4.5b):
   confirms at PNG approval). Closing the sheet returns to the form. When the user reaches the Finance
   list another way, the kept draft is a pinned row at the top (`listrow-draft-375`): «Чернетка 1 250,50
   USD», the state line «Не збережено · Витрата · чек додано» (after an unknown outcome it reads
-  «Результат невідомий · Витрата · чек додано») and **one** 44 px primary «Відкрити» (no other action on the row). «+» never blocks: with unresolved drafts (failed or unknown), «+» (the FAB, the quick-add action, the rail «+» and the
-  header «Нова транзакція») opens the **quick-add sheet**: the draft rows sit on top, each with its state
-  line and «Відкрити», and «Нова транзакція» stays enabled under them (`primitives-v2/quick-add-drafts-375`).
-  The FAB keeps its «+» and gains a red dot (with the count from two); its accessible name says the
-  count: «Нова транзакція, 1 чернетка потребує уваги», «Нова транзакція, 2 чернетки потребують уваги» (`listrow-draft-375`,
+  «Результат невідомий · Витрата · чек додано») and **one** 44 px tonal «Відкрити» (no other action on the row). A pinned row is never a primary: its «Відкрити» is tonal (foundation §7.5). The row icon and its 2 px leading bar are `--destructive` for a failed draft and `--warning` for an unknown one; armed and in-flight rows stay muted. **At most two pinned rows** show, unresolved first by the slot precedence; the rest collapse into one row «Ще N чернеток · Показати», which expands them in place (`drafts-two-unresolved-375`). «+» never blocks: with unresolved drafts (failed or unknown), **on Фінанси the FAB opens a new form directly**: the pinned rows, the pill and the FAB dot already show the drafts. Everywhere else «+» (the FAB on the other tabs, the quick-add action, the rail «+», the header «Нова транзакція» and `C`, on every page) opens the **chooser**. On a phone it is the quick-add sheet: the draft rows on top, each with its state line and «Відкрити», and «Нова транзакція» enabled under them (`primitives-v2/quick-add-drafts-375`). Off the phone it is a menu (`role="menu"`, the trigger `aria-haspopup="menu"`): the drafts above, «Нова транзакція» last with the initial focus, so `C` then Enter still creates; ↑ / ↓ move between the items, and Esc closes it and returns focus to the trigger (`primitives-v2/drafts-chooser-1440`, `drafts-chooser-768`). The FAB keeps its «+» and gains a red dot (with the count from two); its accessible name says the count: «Нова транзакція, 1 чернетка потребує уваги», «Нова транзакція, 2 чернетки потребують уваги» (`listrow-draft-375`,
   `upload-pill-failed-375`). After the first
   Wave 1 task ships the key, a form that has it may offer a resubmit with the same key.
 

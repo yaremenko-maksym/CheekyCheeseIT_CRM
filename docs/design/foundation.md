@@ -387,7 +387,7 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
     `role="status"` announces the unlock once («Оновлено о 14:34:01. Тепер можна створити ще раз»)
     (`primitives-v2/toast-error-unknown-375.png`, `toast-error-unknown-list-375.png`). Both exits are a
     provisional ruling; the owner confirms them at PNG approval. Reached from elsewhere, the kept form is
-    the pinned row «Чернетка 1 250,50 USD» with one primary «Відкрити»
+    the pinned row «Чернетка 1 250,50 USD» with a tonal «Відкрити»
     (`primitives-v2/listrow-draft-375.png`).
   - App 500/503 counts as definite only for endpoints that commit in one DB transaction and swallow post-commit errors; Wave 1 verifies this per endpoint (AC + test) before the form shows a retry.
   - **Wave 1 AC (check sheet):** the list API takes a created-after time and returns the current
@@ -434,12 +434,8 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
   - **One pinned row per draft.** Фінанси pins one row for every draft that is not saved (armed, in
     flight, failed, unknown), newest first, each with its state line and one 44 px primary «Відкрити»
     (`drafts-two-375.png`: one failed and one armed). A lower state the pill does not show is never
-    lost: its row is there.
-  - **«+» never blocks.** Armed and in-flight drafts change nothing: «+» opens a new form. with unresolved drafts (failed or unknown), «+» (the FAB, the quick-add action, the rail «+» and the
-    header «Нова транзакція») opens the **quick-add sheet**: the draft rows sit on top, each with its state
-    line and «Відкрити», and «Нова транзакція» stays enabled under them (`primitives-v2/quick-add-drafts-375`).
-    The FAB keeps its «+» and gains a red dot (with the count from two); its accessible name says the
-    count: «Нова транзакція, 1 чернетка потребує уваги», «Нова транзакція, 2 чернетки потребують уваги»
+    lost: its row is there. A pinned row is never a primary: its «Відкрити» is tonal (one primary per context, §7.5). The row icon and its 2 px leading bar are `--destructive` for a failed draft and `--warning` for an unknown one; armed and in-flight rows stay muted. **At most two pinned rows** show, unresolved first by the slot precedence; the rest collapse into one row «Ще N чернеток · Показати», which expands them in place (`drafts-two-unresolved-375`).
+  - **«+» never blocks.** Armed and in-flight drafts change nothing: «+» opens a new form. With unresolved drafts (failed or unknown), **on Фінанси the FAB opens a new form directly**: the pinned rows, the pill and the FAB dot already show the drafts. Everywhere else «+» (the FAB on the other tabs, the quick-add action, the rail «+», the header «Нова транзакція» and `C`, on every page) opens the **chooser**. On a phone it is the quick-add sheet: the draft rows on top, each with its state line and «Відкрити», and «Нова транзакція» enabled under them (`primitives-v2/quick-add-drafts-375`). Off the phone it is a menu (`role="menu"`, the trigger `aria-haspopup="menu"`): the drafts above, «Нова транзакція» last with the initial focus, so `C` then Enter still creates; ↑ / ↓ move between the items, and Esc closes it and returns focus to the trigger (`primitives-v2/drafts-chooser-1440`, `drafts-chooser-768`). The FAB keeps its «+» and gains a red dot (with the count from two); its accessible name says the count: «Нова транзакція, 1 чернетка потребує уваги», «Нова транзакція, 2 чернетки потребують уваги»
     (`upload-pill-failed-375.png`, `listrow-draft-375.png`, `drafts-two-unresolved-375.png`). No draft
     forces a wait or a discard before another expense.
   - **Replacing or removing the receipt disarms**, like any field edit: the frozen payload named the

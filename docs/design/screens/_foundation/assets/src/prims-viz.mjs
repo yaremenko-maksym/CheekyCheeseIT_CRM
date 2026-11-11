@@ -24,6 +24,8 @@ import {
   MATCH_ROW,
   NEW_ROWS,
   AMOUNT,
+  DRAFT,
+  pinnedRows,
 } from './money-form.mjs'
 
 // ---------- ResponsiveSheet ≥ 640: right side panel; confirm = centred dialog ----------
@@ -61,18 +63,61 @@ export const panelTablet = (w, h) => tablet({ w, h, overlay: moneyPanel(400) })
 const DOT =
   '<i aria-hidden="true" style="position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--bg)"></i>'
 
+const WARN = (p) => `color-mix(in oklch, var(--warning) ${p}%, transparent)`
+
+/**
+ * The chooser off the phone (foundation §11): a menu, the drafts above, «Нова транзакція» last with the
+ * initial focus (so `C` then Enter still creates). ↑ / ↓ move, Esc closes and returns focus to «+».
+ */
+function chooserMenu({ drafts, pos, itemH }) {
+  const tone = { failed: 'var(--destructive)', unknown: 'var(--warning)' }
+  const item = (d) =>
+    `<div role="menuitem" tabindex="-1" class="row" aria-label="Відкрити чернетку ${d.amount} USD, ${d.state.split(' · ')[0]}" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px"><span style="color:${tone[d.kind] || 'var(--muted-fg)'};display:grid">${icon('file-pen', { size: 18 })}</span><span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:14px;font-weight:600">Чернетка ${d.amount} USD</span><span class="t-cap muted trunc">${d.state.split(' · ')[0]}</span></span><span class="t-cap muted">Відкрити</span></div>`
+  const items = drafts.map(item).join('')
+  return `<div style="position:absolute;${pos};width:340px;z-index:90;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:12px;box-shadow:0 20px 50px oklch(0 0 0 / 0.6)">
+  <div id="ch-menu" role="menu" aria-label="Нова транзакція або чернетка" style="padding:6px">${items}<div role="separator" style="height:1px;margin:6px 4px;background:var(--border)"></div><div role="menuitem" tabindex="0" class="row" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px;background:var(--raised);box-shadow:inset 0 0 0 2px var(--primary)"><span style="color:var(--primary);display:grid">${icon('plus', { size: 18, stroke: 2.4 })}</span><span class="grow" style="font-size:14px;font-weight:600">Нова транзакція</span><span class="kbdkey">Enter</span></div></div>
+  <div aria-hidden="true" class="t-cap muted" style="padding:8px 16px;border-top:1px solid var(--border)">↑ ↓ чернетки · Esc закрити</div></div>`
+}
+
 /** Desktop with one unknown draft: the pill bottom-right, a pinned row in the 40 px table, the header dot. */
-export function draftsDesktop(w, h) {
+export function draftsDesktop(w, h, { chooser = false } = {}) {
   const pill = `<div role="button" aria-label="Результат невідомий, ${AMOUNT} USD. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap muted num">${AMOUNT} USD · Відкрити</span></span></div>`
-  const row = `<tr><td colspan="6" style="padding:0;max-width:none;background:oklch(0.84 0.183 85.3 / 0.07);box-shadow:inset 2px 0 0 var(--primary)"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:var(--primary);display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600">Чернетка ${AMOUNT} USD</span><span class="grow muted trunc">Результат невідомий · Витрата · чек додано</span><button type="button" class="btn sm primary" aria-label="Відкрити чернетку ${AMOUNT} USD" style="height:28px;font-size:13px;padding:0 12px">Відкрити</button></div></td></tr>`
-  return desktop({ w, h, overlay: pill })
-    .replace('<tr aria-selected="true" style="background:var(--raised)">', '<tr>')
-    .replace('<tbody>', `<tbody>${row}`)
+  const row = `<tr><td colspan="6" style="padding:0;max-width:none;background:${WARN(7)};box-shadow:inset 2px 0 0 var(--warning)"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:var(--warning);display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600">Чернетка ${AMOUNT} USD</span><span class="grow muted trunc">Результат невідомий · Витрата · чек додано</span><button type="button" class="btn sm secondary" aria-label="Відкрити чернетку ${AMOUNT} USD" style="height:28px;font-size:13px;padding:0 12px;background:${WARN(18)};border-color:${WARN(45)}">Відкрити</button></div></td></tr>`
+  const menu = chooser
+    ? chooserMenu({ drafts: [DRAFT.unknown], pos: 'right:20px;top:52px', itemH: 40 })
+    : ''
+  return (
+    desktop({ w, h, overlay: pill + menu })
+      // The scroller pads by the stack height + 24 (52 + 24 + 24), so the pill never covers the last row.
+      .replace('padding:20px 24px 24px;', 'padding:20px 24px 100px;')
+      .replace('<tr aria-selected="true" style="background:var(--raised)">', '<tr>')
+      .replace('<tbody>', `<tbody>${row}`)
+      .replace(
+        '<span class="btn primary" style="height:36px',
+        `<span class="btn primary" aria-label="Нова транзакція, 1 чернетка потребує уваги" aria-haspopup="menu" aria-expanded="${chooser}"${chooser ? ' aria-controls="ch-menu"' : ''} style="position:relative;height:36px`,
+      )
+      .replace('C</span></span></header>', `C</span>${DOT}</span></header>`)
+  )
+}
+
+/** Tablet: the rail «+» with the dot opens the chooser menu beside it; 44 px items (touch). */
+export function draftsChooserTablet(w, h) {
+  const drafts = [DRAFT.failed2, DRAFT.unknown]
+  const menu = chooserMenu({
+    drafts: [DRAFT.unknown, DRAFT.failed2],
+    pos: 'left:88px;top:86px',
+    itemH: 44,
+  })
+  return tablet({ w, h, overlay: menu })
+    .replace('<div class="sechead">', `${pinnedRows(drafts)}<div class="sechead">`)
     .replace(
-      '<span class="btn primary" style="height:36px',
-      '<span class="btn primary" aria-label="Нова транзакція, 1 чернетка потребує уваги" aria-haspopup="dialog" style="position:relative;height:36px',
+      '<div aria-label="Створити" style="width:52px;height:52px;',
+      `<div role="button" aria-label="Створити, 2 чернетки потребують уваги" aria-haspopup="menu" aria-expanded="true" aria-controls="ch-menu" style="position:relative;width:52px;height:52px;`,
     )
-    .replace('C</span></span></header>', `C</span>${DOT}</span></header>`)
+    .replace(
+      /(aria-controls="ch-menu" style="position:relative;width:52px[^>]*>[\s\S]*?<\/svg>)/,
+      `$1${DOT}`,
+    )
 }
 
 /** «Перевірити список» at ≥ 640: a centred 560 px dialog over the side panel, which stays mounted. */

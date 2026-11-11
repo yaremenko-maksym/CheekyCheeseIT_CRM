@@ -499,14 +499,14 @@ export const uploadPillInflight = (w, h) =>
   financeTab(w, h, moneyPill(w, 'inflight'), pinDrafts([DRAFT.inflight]))
 
 /**
- * Failed / unknown drafts exist: «+» never blocks. The FAB keeps its «+» and opens the quick-add sheet
- * with the draft rows on top and «Нова транзакція» enabled under them; a red dot (carrying the count when
+ * Failed / unknown drafts exist: «+» never blocks. On Фінанси the FAB opens a new form directly; on the
+ * other tabs it opens the quick-add sheet with the draft rows on top. A red dot (carrying the count when
  * more than one) and the accessible name say how many drafts need attention.
  */
 export const draftFab = (html, count = 1) =>
   html.replace(
-    /<div class="fab" role="button" aria-label="[^"]*"\s*(?:aria-haspopup="dialog")?\s*style="([^"]*)">[\s\S]*?<\/div>/,
-    (_, st) => {
+    /<div class="fab" role="button" aria-label="[^"]*"\s*(aria-haspopup="dialog")?\s*style="([^"]*)">[\s\S]*?<\/div>/,
+    (_, hp, st) => {
       const dot =
         count > 1
           ? `<i aria-hidden="true" class="num" style="position:absolute;top:5px;right:5px;min-width:18px;height:18px;border-radius:9px;background:var(--destructive);color:#fff;font:700 12px/18px var(--font);font-style:normal;text-align:center;box-shadow:0 0 0 2px var(--primary)">${count}</i>`
@@ -515,7 +515,7 @@ export const draftFab = (html, count = 1) =>
         count > 1
           ? `Нова транзакція, ${count} чернетки потребують уваги`
           : 'Нова транзакція, 1 чернетка потребує уваги'
-      return `<div class="fab" role="button" aria-label="${name}" aria-haspopup="dialog" style="${st}">${icon('plus', { size: 26, stroke: 2.4 })}${dot}</div>`
+      return `<div class="fab" role="button" aria-label="${name}"${hp ? ' aria-haspopup="dialog"' : ''} style="${st}">${icon('plus', { size: 26, stroke: 2.4 })}${dot}</div>`
     },
   )
 export const uploadPillFailed = (w, h) => draftFab(financeTab(w, h, moneyPill(w, 'failed')))
@@ -627,24 +627,43 @@ export const confirmDiscardDraft = (w, h) =>
   )
 
 // Pinned draft rows: one per unsaved draft (armed, in flight, failed, unknown), newest first.
-const DRAFT = {
-  failed: { amount: AMOUNT, state: 'Не збережено · Витрата · чек додано' },
-  unknown: { amount: AMOUNT, state: 'Результат невідомий · Витрата · чек додано' },
-  armed: { amount: '320,00', state: 'Збережеться після чека · Витрата · чек 62%', armed: true },
-  armed2: { amount: AMOUNT, state: 'Збережеться після чека · Витрата · чек 35%', armed: true },
+export const DRAFT = {
+  failed: { kind: 'failed', amount: AMOUNT, state: 'Не збережено · Витрата · чек додано' },
+  unknown: { kind: 'unknown', amount: AMOUNT, state: 'Результат невідомий · Витрата · чек додано' },
+  armed: { kind: 'armed', amount: '320,00', state: 'Збережеться після чека · Витрата · чек 62%' },
+  armed2: { kind: 'armed', amount: AMOUNT, state: 'Збережеться після чека · Витрата · чек 35%' },
   inflight: {
+    kind: 'inflight',
     amount: AMOUNT,
     state: 'Зберігаємо… · Витрата · чек додано',
-    armed: true,
     ic: 'loader-circle',
   },
-  failed2: { amount: '86,40', state: 'Не збережено · Витрата · чек додано' },
+  failed2: { kind: 'failed', amount: '86,40', state: 'Не збережено · Витрата · чек додано' },
 }
-const draftRow = ({ amount, state, armed = false, ic = '' }) =>
-  `<div style="padding:0 16px 8px"><div class="row" style="gap:12px;min-height:64px;padding:8px 8px 8px 12px;border-radius:14px;background:var(--card);border:1px solid ${armed ? 'var(--border)' : 'oklch(0.84 0.183 85.3 / 0.45)'};box-shadow:inset 2px 0 0 ${armed ? 'var(--muted-fg)' : 'var(--primary)'}"><span style="width:36px;height:36px;border-radius:10px;background:${armed ? 'var(--surface)' : 'var(--yellow-subtle)'};color:${armed ? 'var(--muted-fg)' : 'var(--primary)'};display:grid;place-items:center;flex:none">${icon(ic || (armed ? 'clock' : 'file-pen'), { size: 18 })}</span><span class="grow col" style="gap:2px;min-width:0"><span class="t-body num" style="font-weight:600">Чернетка <span style="white-space:nowrap">${amount} USD</span></span><span class="t-foot muted">${state}</span></span><a class="btn sm ${armed ? 'secondary' : 'primary'}" href="#" aria-label="Відкрити чернетку ${amount} USD" style="height:44px">Відкрити</a></div></div>`
+// A pinned row is never a primary (foundation §7.5): a tonal «Відкрити»; the tone marks failed / unknown.
+const TONE = { failed: 'var(--destructive)', unknown: 'var(--warning)' }
+const draftRow = ({ kind, amount, state, ic = '' }) => {
+  const t = TONE[kind]
+  const mix = (p) => (t ? `color-mix(in oklch, ${t} ${p}%, transparent)` : '')
+  return `<div style="padding:0 16px 8px"><div class="row" style="gap:12px;min-height:64px;padding:8px 8px 8px 12px;border-radius:14px;background:var(--card);border:1px solid ${t ? mix(40) : 'var(--border)'};box-shadow:inset 2px 0 0 ${t || 'var(--muted-fg)'}"><span style="width:36px;height:36px;border-radius:10px;background:${t ? mix(16) : 'var(--surface)'};color:${t || 'var(--muted-fg)'};display:grid;place-items:center;flex:none">${icon(ic || (t ? 'file-pen' : 'clock'), { size: 18 })}</span><span class="grow col" style="gap:2px;min-width:0"><span class="t-body num" style="font-weight:600">Чернетка <span style="white-space:nowrap">${amount} USD</span></span><span class="t-foot muted">${state}</span></span><a class="btn sm secondary" href="#" aria-label="Відкрити чернетку ${amount} USD" style="height:44px;${t ? `background:${mix(18)};border-color:${mix(45)}` : ''}">Відкрити</a></div></div>`
+}
+// The slot precedence (unknown > failed > in flight > armed) orders the rows; at most two show.
+const RANK = { unknown: 0, failed: 1, inflight: 2, armed: 3 }
+const byRank = (drafts) => [...drafts].sort((a, b) => RANK[a.kind] - RANK[b.kind])
+const chernetok = (n) => (n === 1 ? 'чернетка' : n < 5 ? 'чернетки' : 'чернеток')
+/** The pinned rows block: at most two rows, unresolved first, the rest in «Ще N чернеток · Показати». */
+export const pinnedRows = (drafts) => {
+  const sorted = byRank(drafts)
+  const more = sorted.length - 2
+  const moreRow =
+    more > 0
+      ? `<div style="padding:0 16px 8px"><a href="#" class="row" aria-expanded="false" style="justify-content:space-between;min-height:44px;padding:0 14px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font-size:15px;color:var(--fg);text-decoration:none"><span class="num">Ще ${more} ${chernetok(more)}</span><span style="color:var(--primary);font-weight:600">Показати</span></a></div>`
+      : ''
+  return `<div style="padding-bottom:4px">${sorted.slice(0, 2).map(draftRow).join('')}${moreRow}</div>`
+}
 const pinDrafts = (drafts) => {
   const body = financeBody()
-  const rows = `<div style="padding-bottom:4px">${drafts.map(draftRow).join('')}</div>`
+  const rows = pinnedRows(drafts)
   const k = body.indexOf('<div class="sechead"')
   return k < 0 ? rows + body : body.slice(0, k) + rows + body.slice(k)
 }
@@ -656,19 +675,31 @@ export const listrowDraft = (w, h) => draftFab(financeTab(w, h, '', pinDrafts([D
 export const draftsTwo = (w, h) =>
   draftFab(financeTab(w, h, moneyPill(w, 'failed'), pinDrafts([DRAFT.armed, DRAFT.failed])))
 
-/** Two unresolved drafts: the pill names the count and opens Фінанси at the pinned rows; the FAB dot carries it. */
+/**
+ * Two unresolved drafts and an armed one: the pill names the count and opens Фінанси at the pinned rows;
+ * the FAB dot carries it. Two rows show (unresolved first), the armed one collapses into «Ще 1 чернетка».
+ */
 export const draftsTwoUnresolved = (w, h) =>
-  draftFab(financeTab(w, h, moneyPill(w, 'drafts'), pinDrafts([DRAFT.failed2, DRAFT.unknown])), 2)
+  draftFab(
+    financeTab(
+      w,
+      h,
+      moneyPill(w, 'drafts'),
+      pinDrafts([DRAFT.failed2, DRAFT.unknown, DRAFT.armed]),
+    ),
+    2,
+  )
 
 /**
- * «+» with unresolved drafts (FAB, quick-add, rail «+», «Нова транзакція»): the quick-add sheet with the
+ * «+» with unresolved drafts off Фінанси (the FAB on another tab, quick-add): the quick-add sheet with the
  * draft rows on top, each with its state, and «Нова транзакція» enabled under them. Nothing is blocked.
+ * On Фінанси the FAB opens a new form directly. `base`: the tab screen behind the sheet.
  */
-export function quickAddDrafts(w, h) {
-  const rows = [DRAFT.failed2, DRAFT.unknown].map(draftRow).join('')
+export function quickAddDrafts(w, h, base) {
+  const rows = byRank([DRAFT.failed2, DRAFT.unknown]).map(draftRow).join('')
   const create = `<div style="padding:4px 16px 0"><button type="button" class="lrow two" style="--inset:68px;width:100%;border-radius:14px;background:var(--card);border:1px solid var(--border);text-align:left"><span class="lead" style="width:40px;height:40px;border-radius:12px;background:var(--yellow-subtle);color:var(--primary)">${icon('plus', { size: 20 })}</span><span class="grow col" style="gap:2px"><span class="t-body" style="font-weight:600">Нова транзакція</span><span class="t-foot muted">Витрата, дохід або переказ</span></span>${icon('chevron-right', { size: 18, cls: 'chev' })}</button></div>`
   const body = `<div class="t-over" style="padding:0 16px 8px">Чернетки · 2 потребують перевірки</div>${rows}${create}`
   const listH = 52 + 26 + 2 * 90 + 84 + safeBottom(w) + 24
   const overlay = sheet({ w, h, top: h - listH, title: 'Створити', trail: closeBtn, body })
-  return draftFab(financeTab(w, h, overlay, pinDrafts([DRAFT.failed2, DRAFT.unknown])), 2)
+  return draftFab(overHome(base, overlay), 2)
 }
