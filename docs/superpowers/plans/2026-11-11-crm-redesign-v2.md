@@ -32,7 +32,7 @@
 
 1. **iOS photo picker returns after a deploy, with a half-filled form.** Expected: no reload, input intact; the reload happens later on an idle navigation. Pinned in Task 0.6 (`does not reload on visibilitychange while busy`).
 2. **Device class changes mid-flow** (iPad rotation, desktop window resize) with a sheet open or a dirty form. Expected: no refetch, no new cache entry, no lost input. Pinned in Task 0.5 (`same query key across classes`) and Task 0.4 (`keeps form state when the sheet switches presentation`).
-3. **A role whose route has no tab.** Expected: every route the role may open is reachable through tab bar or "More" (and Cmd+K on desktop); a role without create actions gets no "+". Pinned in Task 0.9 (`every allowed route is reachable for every role`).
+3. **A role whose route has no tab** (including a teamless SENIOR, who loses `/projects` and `/interviews`). Expected: every route the role may open is reachable through tab bar or "More" (and Cmd+K on desktop), and none it may not open is shown; a role without create actions gets no "+". Pinned in Task 0.9 (`nav shows exactly the routes the role may open`), Task 0.10 (`palette lists exactly the nav routes for the role`) and Task 0.12 (`no quick-add for a role without create actions`).
 4. **Typing in a text field or the CodeMirror contract editor.** Expected: a single-key shortcut (`c`, `/`, `?`) never fires. Pinned in Task 0.10 (`ignores keys from editable targets`).
 5. **Pull or sheet drag at `scrollTop` 0 on iOS Safari.** Expected: the list refetches or the sheet closes; the page never reloads; edge back-swipe does not fight a horizontal scroller. Pinned in Task 0.11 (unit) and the Task 0.13 Simulator AC.
 
@@ -59,7 +59,7 @@
                                                                   ──► 0.15 showcase + implementation council
 ```
 
-0.1–0.3, 0.6, 0.7, 0.14 and 0.8 have no code dependency on each other and run in parallel (concurrency ≤ 3–4 agents). Shell code (0.9 on) starts only after 0.8's owner approval.
+0.1–0.3, 0.6, 0.7, 0.14 and 0.8 have no code dependency on each other and run in parallel (concurrency ≤ 3–4 agents). Tasks are numbered by topic, not by run order: run 0.5 before 0.4. Task 0.9 needs 0.4, 0.5 and 0.7 merged and 0.8's owner approval. Tasks 0.10–0.12 each mount their own components in the shell slots that 0.9 provides (`TopBarSlots`).
 
 ---
 
@@ -93,6 +93,7 @@
 - Modify: `apps/web/package.json` (remove `framer-motion`, add `motion` at the same major 12)
 - Modify: the 57 files importing `framer-motion` (import path → `motion/react`; `motion.<tag>` → `m.<tag>`)
 - Modify: `apps/web/app/routes/__root.tsx` (wrap the tree in `<LazyMotion features={domAnimation} strict>`)
+- Modify: `apps/web/vite.config.ts` (`manualChunks`: the `node_modules/framer-motion/` match becomes `node_modules/motion/` + `node_modules/motion-dom/` + `node_modules/motion-utils/`, same chunk name)
 - Modify: ESLint config of `apps/web` (`no-restricted-imports`: ban `framer-motion`, and ban the `motion` named export from `motion/react` with message "use m + LazyMotion")
 - Modify: `version-pins.md`, lockfile
 
@@ -199,6 +200,8 @@ Starts after the iOS-freeze PR (`fix/ios-file-input-freeze`) merges; if that PR 
 
 - Create: `apps/web/app/lib/reload-guard.ts`
 - Modify: `apps/web/app/lib/sw-reload.ts`, `apps/web/app/client.tsx` (SW block), `apps/web/app/router.tsx` (navigation subscription)
+- Modify: `apps/web/app/lib/query-client.ts` (add `export const queryClient = createQueryClient()`, the app singleton) and `apps/web/app/routes/__root.tsx` (import it instead of its module-level `const queryClient = createQueryClient()`), so `client.tsx` can read `queryClient.isMutating()`
+- Modify: the legacy create-transaction form (`routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx`) and `finance/components/ReceiptInput.tsx`: `useReloadGuard(form dirty, 'dirty-form')` and `useReloadGuard(upload in flight, 'upload')`, so Step 5 tests a real guarded form before the Wave 1 redesign
 - Create: `apps/web/app/hooks/use-reload-guard.ts`
 - Test: `apps/web/app/lib/__tests__/reload-guard.spec.ts`, extend `apps/web/app/lib/sw-reload.spec.ts`
 
@@ -217,7 +220,7 @@ Starts after the iOS-freeze PR (`fix/ios-file-input-freeze`) merges; if that PR 
     hadControllerAtLoad: boolean
     alreadyReloading: boolean
     pageVisible: boolean
-    busy: boolean // new: isReloadHeld() || queryClient.isMutating() > 0 (queryClient from lib/query-client.ts)
+    busy: boolean // new: isReloadHeld() || queryClient.isMutating() > 0 (the singleton exported from lib/query-client.ts)
     navigating: boolean // new: true when called from a router navigation
   }
   // returns true iff hadControllerAtLoad && !alreadyReloading && !busy && (!pageVisible || navigating)
@@ -293,7 +296,7 @@ Agent: `ui-ux-designer` (+ Master runs the councils). No product code.
 - Create: `apps/web/app/components/shell/MobileTabBar.tsx`, `MoreSheet.tsx`, `TabletRail.tsx`, `TopBar.tsx` (title, standalone back, notifications bell, impersonation banner slot)
 - Modify: `apps/web/app/components/crm/nav-sidebar.tsx` (desktop only; consumes `nav-model`; mobile drawer code removed)
 - Modify: `apps/web/app/routes/_authenticated/route.tsx` (`CrmLayout` renders `ByDevice` shell; content container owns `--safe-*` padding and tab-bar clearance)
-- Modify: `apps/web/app/components/layout/NotificationsBell.tsx`, `ImpersonationBanner.tsx` (fit TopBar; no viewport positioning)
+- Modify: `apps/web/app/components/layout/notifications-bell.tsx`, `apps/web/app/components/layout/ImpersonationBanner.tsx` (fit TopBar; no viewport positioning)
 - Test: `apps/web/app/lib/__tests__/nav-model.test.ts`, `apps/web/app/components/shell/__tests__/*.test.tsx`, `apps/e2e/tests/shell-v2.spec.ts`
 
 **Interfaces:**
@@ -311,22 +314,32 @@ Agent: `ui-ux-designer` (+ Master runs the councils). No product code.
     activeOptions?: { exact: boolean }
   }
   export const NAV_ITEMS: readonly NavItem[]
-  export const TAB_BAR: Record<Role, readonly string[]> // 4 NavItem ids per role, from Task 0.8 (approved)
-  export function navItemsFor(role: Role): NavItem[] // NAV_ITEMS filtered by roles, original order
-  export function tabItemsFor(role: Role): NavItem[]
-  export function moreItemsFor(role: Role): NavItem[] // navItemsFor minus tabItemsFor
+  export interface NavContext {
+    isTeamless: boolean
+  } // from useActiveTeam(); teamless SENIOR loses /projects and /interviews (today's nav-sidebar gate)
+  export const TAB_BAR: Record<Role, readonly string[]> // NavItem ids per role in priority order (≥ 5), from Task 0.8 (approved); the first 4 visible become tabs
+  export function navItemsFor(role: Role, ctx: NavContext): NavItem[] // NAV_ITEMS filtered by roles and ctx, original order
+  export function tabItemsFor(role: Role, ctx: NavContext): NavItem[] // first 4 of TAB_BAR[role] present in navItemsFor
+  export function moreItemsFor(role: Role, ctx: NavContext): NavItem[] // navItemsFor minus tabItemsFor
+  // components/shell/TopBar.tsx and MobileTabBar.tsx expose mount slots for later tasks
+  export interface TopBarSlots {
+    palette?: React.ReactNode
+    shortcuts?: React.ReactNode
+    quickAdd?: React.ReactNode
+    uploads?: React.ReactNode
+  } // mobile: quickAdd in the tab bar's centre, uploads above the tab bar; tablet/desktop: all in TopBar
   // components/shell/use-edge-swipe-back.ts — standalone PWA only (Safari tabs have the browser's own back swipe)
   export function useEdgeSwipeBack(enabled: boolean): void // touch starting ≤ 20px from the left edge, moving right > 80px, mostly horizontal → router.history.back(); ignored when the touch starts inside an element with horizontal overflow or while a sheet is open
   ```
 
 - [ ] **Step 1: Failing unit tests:**
-  - `every allowed route is reachable for every role` — for each role in `['ADMIN','SENIOR','JUNIOR','HR','ACCOUNTANT','DROP']`: the set of `to` in `tabItemsFor ∪ moreItemsFor` equals the set of `to` in `navItemsFor`; every tab id resolves to an item the role may open (`isRouteAllowed(item.to, role)`).
-  - `tab bar has exactly 4 items per role`.
-  - `nav-sidebar and tab bar share one source` — `NavSidebar` renders exactly `navItemsFor(role).length` links.
+  - `nav shows exactly the routes the role may open` — for each role in `['ADMIN','SENIOR','JUNIOR','HR','ACCOUNTANT','DROP']` and `isTeamless` in `[false, true]`: for every `NAV_ITEMS` entry, it is in `navItemsFor(role, ctx)` iff `isRouteAllowed(item.to, role)` and not (`role === 'SENIOR' && ctx.isTeamless && ['/projects','/interviews'].includes(item.to)`) — the oracle is `route-access`, not `nav-model`; and `tabItemsFor ∪ moreItemsFor` equals `navItemsFor` with no overlap.
+  - `tab bar has 4 items per role, also for a teamless SENIOR` (`/projects` replaced by the next id in `TAB_BAR.SENIOR`).
+  - `nav-sidebar and tab bar share one source` — `NavSidebar` renders exactly `navItemsFor(role, ctx).length` links.
   - `edge swipe goes back only from the edge` — touch at x=10 moving to x=120 → `back` called once; at x=60 → not called; starting inside an `overflow-x: auto` element with scrollable width → not called; while `useAnyDialogOpen()` → not called.
 - [ ] **Step 2: Run** → FAIL.
 - [ ] **Step 3: Implement** per the approved mockups. Pending badge count moves with its item (tab or More). One shell mounted per class (no `hidden md:*` duplicates).
-- [ ] **Step 4: E2E `shell-v2.spec.ts`** (Chromium 375 / 768 / 1440 and WebKit iPhone project from 0.14), dev-login per role: every `navItemsFor(role)` route opens via the tab bar or "More" (mobile) / rail (tablet) / sidebar (desktop), renders its root `data-testid`, and no element overflows the viewport; tab bar never covers the last row of a long list (scroll to bottom, last row's bounding box above the tab bar's top).
+- [ ] **Step 4: E2E `shell-v2.spec.ts`** (Chromium 375 / 768 / 1440 and WebKit iPhone project from 0.14), dev-login per role: every `navItemsFor(role, ctx)` route opens via the tab bar or "More" (mobile) / rail (tablet) / sidebar (desktop), renders its root `data-testid`, and no element overflows the viewport; tab bar never covers the last row of a long list (scroll to bottom, last row's bounding box above the tab bar's top).
 - [ ] **Step 5: Network check:** HAR of the shell load at 375 and 1440 (0.14 helper) — 0 duplicates; switching 375 ↔ 1440 issues no request.
 - [ ] **Step 6: Run** all → PASS; `i18n:extract`; screenshots per class/role in the PR.
 - [ ] **Step 7: Commit** `feat(web): app shell v2 (tab bar, More, rail, sidebar)`.
@@ -336,6 +349,7 @@ Agent: `ui-ux-designer` (+ Master runs the councils). No product code.
 **Files:**
 
 - Create: `apps/web/app/lib/shortcuts.ts`, `apps/web/app/components/shell/CommandPalette.tsx` (cmdk), `apps/web/app/components/shell/ShortcutsSheet.tsx`
+- Modify: `apps/web/app/routes/_authenticated/route.tsx` (pass `palette` and `shortcuts` into `TopBarSlots`; mounted once for every class)
 - Test: `apps/web/app/lib/__tests__/shortcuts.test.ts`, `apps/web/app/components/shell/__tests__/CommandPalette.test.tsx`
 
 **Interfaces:**
@@ -366,7 +380,7 @@ Agent: `ui-ux-designer` (+ Master runs the councils). No product code.
   - `ignores keys from editable targets` — dispatch `keydown 'c'` on an `<input>`, a `<textarea>`, a `[contenteditable]` and an element inside `.cm-editor` → `run` not called; on `document.body` → called once.
   - `mod shortcuts fire inside inputs` — `Cmd+K` in an input opens the palette.
   - `single-key switch off disables them` — set off → `'c'` on body does nothing; `Cmd+K` still works.
-  - `palette lists only routes the role may open` — role `JUNIOR` → no `/users` entry.
+  - `palette lists exactly the nav routes for the role` — for each role and `isTeamless` value, the palette's navigate entries equal `navItemsFor(role, ctx)` (e.g. `JUNIOR` → no `/users`; teamless `SENIOR` → no `/projects`).
 - [ ] **Step 2–4:** run FAIL → implement → PASS. `/` focuses the screen's search input when one registered; `?` opens `ShortcutsSheet` with the switch.
 - [ ] **Step 5: Commit** `feat(web): command palette and WCAG-safe shortcuts`.
 
@@ -376,7 +390,7 @@ Split into three PRs (a reviewer may reject one alone): 0.11a list, 0.11b form, 
 
 **Files (0.11a list):** Create `components/ui/list-row.tsx`, `components/ui/section-header.tsx`, `components/ui/pull-to-refresh.tsx`, `components/ui/skeletons.tsx` (row / card / chart / form variants, replacing ad-hoc spinners in new code).
 **Files (0.11b form):** Create `components/ui/form-field.tsx`, `hooks/use-keyboard-inset.ts` (VisualViewport), `components/ui/sticky-action-bar.tsx`.
-**Files (0.11c feedback):** Create `lib/undo-toast.ts`, `lib/upload-queue.ts`, `components/shell/UploadIndicator.tsx`, `components/stats/chart-theme.ts`, `lib/view-transition.ts`. Tests beside each under `__tests__/`.
+**Files (0.11c feedback):** Create `lib/undo-toast.ts`, `lib/upload-queue.ts`, `components/shell/UploadIndicator.tsx`, `components/stats/chart-theme.ts`, `lib/view-transition.ts`; Modify `routes/_authenticated/route.tsx` (`uploads` slot ← `UploadIndicator`). Tests beside each under `__tests__/`.
 
 **Interfaces:**
 
@@ -422,10 +436,10 @@ Split into three PRs (a reviewer may reject one alone): 0.11a list, 0.11b form, 
     state: 'queued' | 'uploading' | 'done' | 'error'
     retry: () => void
   }
-  export function enqueueUpload(
+  export function enqueueUpload<T>(
     label: string,
-    run: (onProgress: (pct: number) => void) => Promise<unknown>,
-  ): string // holds reload while active; progress throttled to whole percents
+    run: (onProgress: (pct: number) => void) => Promise<T>,
+  ): { id: string; result: Promise<T> } // result resolves with run's value (e.g. the uploaded document id), rejects on error, and re-settles after retry; holds reload while active; progress throttled to whole percents
   export function useUploads(): UploadJob[]
   export const CHART_THEME: {
     palette: readonly string[]
@@ -438,13 +452,13 @@ Split into three PRs (a reviewer may reject one alone): 0.11a list, 0.11b form, 
 
 - [ ] **Step 1: Failing tests (0.11a):** `ListRow min height is 44px` (rendered class contains `min-h-11`); `TwoPane shows emptyDetail when detail is null`; `PullToRefresh calls onRefresh on a pull past threshold at scrollTop 0`; `PullToRefresh is inert while a dialog is open`; `PullToRefresh never calls location.reload` (spy).
 - [ ] **Step 2: Failing tests (0.11b):** `FormField links label, hint and error` (`getByLabelText`, `aria-describedby` contains hint and error ids, `aria-invalid="true"` with error); `useKeyboardInset returns innerHeight - visualViewport.height`.
-- [ ] **Step 3: Failing tests (0.11c):** `upload holds reload while active` (`isReloadHeld()` true until resolve, false after); `progress updates only on whole-percent change` (10 calls between 4.1 and 4.9 → 1 state update); `upload survives route change` (job still in `useUploads()` after unmounting the caller); `navigateWithTransition falls back when startViewTransition is missing`.
+- [ ] **Step 3: Failing tests (0.11c):** `upload holds reload while active` (`isReloadHeld()` true until resolve, false after); `progress updates only on whole-percent change` (10 calls between 4.1 and 4.9 → 1 state update); `upload survives route change` (job still in `useUploads()` after unmounting the caller); `result resolves with the run value` (`run` resolves `{ id: 'doc-1' }` → `await result` equals it); `result rejects on failure and resolves after retry`; `navigateWithTransition falls back when startViewTransition is missing`.
 - [ ] **Step 4:** run FAIL → implement per mockups → PASS; lint, typecheck.
 - [ ] **Step 5: Commit** one per sub-PR (`feat(web): list primitives` / `form primitives` / `feedback primitives`).
 
 ### Task 0.12: Role-aware quick-add
 
-**Files:** Create `apps/web/app/lib/quick-add.ts`, `apps/web/app/components/shell/QuickAddButton.tsx`; Test `apps/web/app/lib/__tests__/quick-add.test.ts`.
+**Files:** Create `apps/web/app/lib/quick-add.ts`, `apps/web/app/components/shell/QuickAddButton.tsx`; Modify `apps/web/app/routes/_authenticated/route.tsx` (`quickAdd` slot ← `QuickAddButton`, rendered only when `quickAddActionsFor` is non-empty); Test `apps/web/app/lib/__tests__/quick-add.test.ts`.
 
 **Interfaces:**
 
@@ -471,7 +485,7 @@ Split into three PRs (a reviewer may reject one alone): 0.11a list, 0.11b form, 
 **Files:** Modify the files that position against the viewport — list produced in Step 1 and written into the task file; Test `apps/e2e/tests/legacy-in-shell.spec.ts`.
 
 - [ ] **Step 1: List** — `grep -rlE "(^|[\" ])(fixed|sticky|h-screen|min-h-screen|h-dvh)([\" ]|$)|100vh" apps/web/app --include='*.tsx' --include='*.css'`; keep only real class/CSS uses (spec counts 14 files, e.g. `onboarding/route.tsx`, `JobQueueCard.tsx`, dialog/sheet primitives). Paste the list into the task file.
-- [ ] **Step 2: Failing E2E** `legacy-in-shell.spec.ts` (Chromium 375 + 1440, WebKit iPhone): for each role and each route from `navItemsFor(role)`, open the route, open its first legacy dialog when the route has one (testid list in the task file), assert the dialog is fully inside the visual viewport and above the tab bar, and close it.
+- [ ] **Step 2: Failing E2E** `legacy-in-shell.spec.ts` (Chromium 375 + 1440, WebKit iPhone): for each role and each route from `navItemsFor(role, ctx)`, open the route, open its first legacy dialog when the route has one (testid list in the task file), assert the dialog is fully inside the visual viewport and above the tab bar, and close it.
 - [ ] **Step 3: Fix** each listed file (container-relative sizing, `dvh`, safe-area vars).
 - [ ] **Step 4: Run** → PASS.
 - [ ] **Step 5: Simulator AC (manual, recorded):** on iOS Simulator Safari and the installed PWA — pull on a list at `scrollTop` 0 → in-app refresh, no page reload; drag a bottom sheet down at `scrollTop` 0 → sheet closes, no page reload; edge back-swipe on a screen with a horizontal scroller → back navigation, scroller unaffected. Recording paths in the PR.
@@ -526,14 +540,14 @@ Agent: `autotest` (or `devops` for CI wiring).
 
 Every screen task in waves 1–8 is one pass of spec §6. Its steps are the same and are not repeated per task:
 
-- [ ] **Capture** — iOS Simulator Safari 375, Android emulator, desktop 1440; blocks, actions, RBAC variants per role; modals/sheets list; baseline `recordNetwork` summary of the main flow (Task 0.14). Output: `docs/design/screens/<slug>.md` "Current" section + `assets/baseline/`.
+- [ ] **Capture** — iOS Simulator Safari 375, Android emulator, desktop 1440; blocks, actions, RBAC variants per role; modals/sheets list; dual-mount list for the screen's files (`grep -nE "hidden (sm|md|lg):(block|flex|grid)|(sm|md|lg):hidden"`; every pair that renders the same data twice is converted to `ByDevice` in this pass — the repo has more than the 2 the spec counted, e.g. `NotificationSettingsTab.tsx`, `projects/index.tsx`, `admin/login-as.tsx`, `vacancies/*`); baseline `recordNetwork` summary of the main flow (Task 0.14). Output: `docs/design/screens/<slug>.md` "Current" section + `assets/baseline/`.
 - [ ] **Design** — `ui-ux-designer`, Tier 1: spec + mockups at 320/375/768/1024/1440, all states, per role variant, built from the approved primitives (0.4, 0.9–0.12) and benchmark patterns.
-- [ ] **Mockup council** ≥ 9.0 → fixes → repeat. **Owner look:** waves 1–2 need approval before code; later waves continue unless the owner objects.
+- [ ] **Mockup council** ≥ 9.0 → fixes → repeat. **Owner look:** Wave 1 screens need the owner's approval before code (Wave 0's is Task 0.8 Step 5); later waves continue unless the owner objects (spec §6 step 4).
 - [ ] **Implement** — `coder`, worktree; `ByDevice` layouts over one query key (`select` per layout, same `limit`); optimistic writes via `onMutate` / `setQueryData` + exact invalidation of derived keys; every form host calls `useReloadGuard`; `@tanstack/react-virtual` only if a measured long list janks on the phone (its own pinned dependency change); tests first (unit for logic, E2E for flows); `i18n:extract`.
 - [ ] **Verify** — Playwright 320/375/768/1024/1280/1440/1920 (Chromium + `webkit-iphone`); iOS Simulator Safari + installed PWA; Android emulator; `measureInp` of the main flow (INP < 200 ms, no long task > 200 ms); `recordNetwork` after vs baseline (0 duplicates, no unused fetch, waterfall justified).
 - [ ] **Reviews** — design-fidelity (Mode B), code-reviewer, spec-reviewer, security-reviewer (finance / people-RBAC / contracts / auth), copy-reviewer.
 - [ ] **Implementation council** ≥ 9.5 per class → fixes → repeat (max 10 rounds; at the cap → owner).
-- [ ] **UT + merge** — manual-qa per role on the real stack (scratch DB); owner "merge"; INDEX row → `implemented` with final scores.
+- [ ] **UT + merge** — manual-qa per role on the real stack (scratch DB); for screens in the owner's five flows (finance transaction with receipt, add employee, edit contract, edit profile, stats), the owner checks the flow on their own iPhone before "merge" (spec §8: the final check; Simulator timings are indicative only); owner "merge"; INDEX row → `implemented` with final scores.
 
 Each screen's E2E spec must include, beyond its flows: `no duplicate requests on load and primary action` (`expectNoDuplicates`), `breakpoint change does not refetch` (375 → 1440 → 0 new API requests), and, for a form, `input survives an accidental sheet close` where the screen spec promises it.
 
@@ -546,8 +560,9 @@ Agents: `coder` + `security-reviewer` (mandatory). Critical-path zone: finance.
 **Files:**
 
 - Modify: `packages/shared/src/schemas/finance/income.ts` (`createExpenseSchema`, `createAdminIncomeSchema`, `createAdminTransferSchema`: add `idempotencyKey: z.string().uuid()`), `packages/shared/src/schemas/finance/company-account.ts` (`createCompanyDepositSchema`: same)
-- Modify: the four API services (pattern: `apps/api/src/finance/senior-drop-income.service.ts`, replay guard on `uq_transactions_senior_income_idempotency_key`)
-- Create: Drizzle migration with one partial unique index per write kind (`uq_transactions_expense_idempotency_key`, `uq_transactions_admin_income_idempotency_key`, `uq_transactions_admin_transfer_idempotency_key`, and the company-deposit table's equivalent); prod DDL through the deploy flow
+- Modify: the service methods behind the four routes: `TransactionsService.createExpense` and `TransactionsService.createAdminTransfer` (`apps/api/src/finance/transactions.service.ts`), `createAdminIncome` (`apps/api/src/finance/admin-income.service.ts`), and the deposit create in `company-account.service.ts`. Pattern: the replay guard in `apps/api/src/finance/senior-drop-income.service.ts` on `uq_transactions_senior_income_idempotency_key`.
+- Reuse, do not recreate: the shared `transactions.idempotency_key` column and the existing `uq_transactions_admin_income_idempotency_key` (`type = 'ADMIN_INCOME'`, already in prod; see the DDL comment in `apps/api/src/database/schema/transactions.ts`). Admin income needs schema + service + web work only.
+- Create: a manual-staged migration adding a partial unique index on `transactions (idempotency_key)` only for the row types without one: `EXPENSE` (`uq_transactions_expense_idempotency_key`), `COMPANY_DEPOSIT` (`uq_transactions_company_deposit_idempotency_key`; deposits are `transactions` rows), and the row type `createAdminTransfer` writes (read it first; if it writes two rows, the index covers the primary row only and the guard replays the pair). `CREATE UNIQUE INDEX IF NOT EXISTS`, prod DDL through the deploy flow.
 - Modify: the web create hooks of the four forms (one `crypto.randomUUID()` per form open, reused on resubmit)
 - Test: API integration specs (scratch DB), shared schema unit tests, web hook tests
 
