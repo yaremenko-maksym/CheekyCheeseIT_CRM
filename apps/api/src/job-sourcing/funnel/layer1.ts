@@ -411,7 +411,8 @@ const extractBasis: Extractor<BasisSignal> = (folded) => {
  * basis lexicon it would change the funnel, which this card does not own.
  */
 export function engagementFormOf(text: string | null | undefined): 'B2B' | 'EMPLOYMENT' | null {
-  const folded = fold(text ?? '')
+  if (text == null) return null
+  const folded = fold(text)
   const signals = new Set(extractBasis(folded).map((s) => s.value))
   if (/\bpermanent\b/.test(folded)) signals.add('EMPLOYEE')
   if (signals.has('EMPLOYEE')) return signals.size === 1 ? 'EMPLOYMENT' : null

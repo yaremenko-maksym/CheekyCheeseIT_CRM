@@ -371,9 +371,8 @@ export class JobQueueService {
         ),
       ].slice(0, MAX_STACK_KEYWORDS),
       noMatchReason: noMatchReason(row),
-      engagementForm: engagementFormOf(
-        row['employment_type'] == null ? null : String(row['employment_type']),
-      ),
+      // `->>` yields text or NULL; the function owns the null case
+      engagementForm: engagementFormOf(row['employment_type'] as string | null),
       dismissal:
         // A NONE scope never gets this far: `resolve` / `assertVisible` refuse it first.
         row['dismissal_version'] == null || scope.kind === 'NONE'
