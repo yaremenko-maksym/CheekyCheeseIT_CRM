@@ -1504,6 +1504,20 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(await rowOf(SENIOR_A.id)).toEqual(before)
       })
 
+      it('CD-4: DELETE while QUEUED returns 409; the row and its keys stay', async () => {
+        await setState(SENIOR_A.id, {
+          verificationStatus: 'QUEUED',
+          verificationRunId: RUN_ID,
+          stagedPdfS3Key: stagedKey,
+        })
+        const before = await rowOf(SENIOR_A.id)
+
+        await expectBusy(service.deleteResume(session(HR_USER), SENIOR_A.id))
+
+        expect(await rowOf(SENIOR_A.id)).toEqual(before)
+        expect(s3.delete).not.toHaveBeenCalled()
+      })
+
       it('facts edit in AWAITING_CONFIRM clears staged columns', async () => {
         await setState(SENIOR_A.id, awaiting())
         const shown = await service.getForUser(session(HR_USER), SENIOR_A.id)

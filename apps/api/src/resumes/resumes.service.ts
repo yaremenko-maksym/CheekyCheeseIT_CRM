@@ -464,6 +464,8 @@ export class SeniorResumesService {
         if (attempt === 0) throw new NotFoundException('Резюме ещё не создано')
         break // a racing writer removed it first — the end state is the same
       }
+      // CD-4: a run owning the row would upload a staged PDF no row points at any more.
+      if (isVerificationBusy(row)) throw apiError('RESUME_VERIFICATION_BUSY', HttpStatus.CONFLICT)
 
       const key = row.sourceS3Key
       // BOTH stored objects go: the uploaded original AND the rendered PDF.

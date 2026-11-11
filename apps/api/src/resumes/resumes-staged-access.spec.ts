@@ -6,7 +6,7 @@
  * real-DB flows are in
  * verification/resume-verification-confirm.integration.spec.ts.
  */
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
+import { ForbiddenException, HttpException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import { DEFAULT_RESUME_LAYOUT, type SessionUser } from '@crm/shared'
 import type { ResumeRenderInput } from './resume-typst.service'
@@ -189,5 +189,44 @@ describe('SeniorResumesService — Task 15 allowed paths', () => {
     expect(rendered?.content.summary).toBe('Live.')
     expect(rendered?.layout.hiddenSections).toEqual([])
     expect(rendered?.templateName).toBe('classic')
+  })
+})
+
+describe('SeniorResumesService — a delete while a run owns the row (CD-4)', () => {
+  const OWNER = { id: OWNER_ID, role: 'SENIOR', displayName: 'Jane Doe', email: 'jane@unit.spec' }
+  const ROW = { id: 'r-1', userId: OWNER_ID, sourceS3Key: 'src', pdfS3Key: 'live.pdf' }
+
+  it.each([
+    ['QUEUED', { verificationStatus: 'QUEUED', verificationRunId: RUN }],
+    ['CHECKING', { verificationStatus: 'CHECKING', verificationRunId: RUN }],
+    ['a VERIFIED template run', { verificationStatus: 'VERIFIED', verificationRunId: RUN }],
+  ])('%s: 409 RESUME_VERIFICATION_BUSY, no object and no row deleted', async (_label, over) => {
+    const s3 = { delete: vi.fn() }
+    const remove = vi.fn()
+    const db = {
+      db: {
+        query: {
+          users: { findFirst: vi.fn(async () => OWNER) },
+          seniorResumes: { findFirst: vi.fn(async () => ({ ...ROW, ...over })) },
+        },
+        delete: remove,
+      },
+    }
+    const svc = new SeniorResumesService(
+      db as never,
+      s3 as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    )
+    const err = await refusal(svc.deleteResume(viewer(OWNER_ID, 'SENIOR'), OWNER_ID))
+    expect(err).toBeInstanceOf(HttpException)
+    expect((err as HttpException).getStatus()).toBe(409)
+    expect((err as HttpException).getResponse()).toMatchObject({
+      code: 'RESUME_VERIFICATION_BUSY',
+    })
+    expect(s3.delete).not.toHaveBeenCalled()
+    expect(remove).not.toHaveBeenCalled()
   })
 })
