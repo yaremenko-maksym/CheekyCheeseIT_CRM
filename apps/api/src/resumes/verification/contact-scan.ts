@@ -174,7 +174,8 @@ export function redactContacts(
   // context's surname first would break the other's full-name match and leak its first names.
   const spans = (Array.isArray(ctx) ? ctx : [ctx])
     .flatMap((c: ContactContext) => findSpans(nfc, c))
-    .sort((a, b) => a.start - b.start || b.end - a.end)
+    // by start only: the merge below keeps the furthest end, so a tie needs no order
+    .sort((a, b) => a.start - b.start)
   for (const { start, end } of spans) {
     const last = merged.at(-1)
     if (last && start <= last.end) last.end = Math.max(last.end, end)

@@ -848,15 +848,44 @@ describe('renderPng (Task 14, the vision check copy)', () => {
       return { code: 0, stderr: '', timedOut: false }
     }
 
+  it('render() asks Typst for out.pdf in PDF format', async () => {
+    const seen: string[][] = []
+    const spy: TypstRunner = (bin, args, options) => {
+      seen.push(args)
+      return createSpawnRunner()(bin, args, options)
+    }
+    await new ResumeTypstService(spy, SCRATCH_ROOT).render(input())
+    const args = seen[0] ?? []
+    expect(args[args.indexOf('--format') + 1]).toBe('pdf')
+    expect(args.at(-1)?.endsWith('/out.pdf')).toBe(true)
+  }, 120_000)
+
   it('returns the pages in page order and ignores other files', async () => {
     const seen: string[][] = []
     const page = (n: number) => Buffer.concat([PNG, Buffer.from(`page ${n}`)])
+    // Written last page first, so the order cannot come from the write order.
+    const numbered = Object.fromEntries(
+      Array.from({ length: 12 }, (_, i) => 12 - i).map((n) => [
+        `page-${String(n).padStart(2, '0')}.png`,
+        page(n),
+      ]),
+    )
     const fake = new ResumeTypstService(
-      writing({ 'page-02.png': page(2), 'page-01.png': page(1), 'notes.png': page(9) }, seen),
+      writing(
+        {
+          ...numbered,
+          'notes.png': page(90),
+          'xpage-01.png': page(91),
+          'page-01.png.bak': page(92),
+        },
+        seen,
+      ),
       SCRATCH_ROOT,
     )
     const pages = await fake.renderPng(input())
-    expect(pages.map((p) => p.subarray(8).toString())).toEqual(['page 1', 'page 2'])
+    expect(pages.map((p) => p.subarray(8).toString())).toEqual(
+      Array.from({ length: 12 }, (_, i) => `page ${i + 1}`),
+    )
     const args = seen[0] ?? []
     expect(args[args.indexOf('--format') + 1]).toBe('png')
     expect(args.at(-1)?.endsWith('page-{0p}.png')).toBe(true)
@@ -865,8 +894,14 @@ describe('renderPng (Task 14, the vision check copy)', () => {
   it.each([
     ['no pages', {}],
     ['a page that is not a PNG', { 'page-1.png': Buffer.from('%PDF-1.7') }],
+    ['one bad page among good ones', { 'page-1.png': PNG, 'page-2.png': Buffer.from('%PDF-1.7') }],
   ])('refuses %s', async (_label, files: Record<string, Buffer>) => {
     const fake = new ResumeTypstService(writing(files), SCRATCH_ROOT)
-    await expect(fake.renderPng(input())).rejects.toBeInstanceOf(ResumeRenderError)
+    const err = await fake.renderPng(input()).then(
+      () => undefined,
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(ResumeRenderError)
+    expect((err as Error).message).toBe('The PNG render finished, but its pages are not PNG files.')
   })
 })
