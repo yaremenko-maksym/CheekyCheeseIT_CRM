@@ -35,8 +35,8 @@ one. Two passes make sure of that:
    contains `PY`) before a `-c` word, where pass 1 read no interpreter, is UNMEASURED
    too: `timeout 5 "$PY" -c`, `py -3 -c`, `$(command -v python3) -c`. So a form the
    parser does not know is reported, never skipped. A python-like word right after an
-   option is that option's argument (`git -C "$PYDIR" -c x=y`), unless the command
-   is a wrapper that runs the next command (`sudo -E "$PY" -c`).
+   option is that option's argument only for a command named in NON_WRAPPERS
+   (`git -C "$PYDIR" -c x=y`); after any other command it is still reported.
 An expansion between the interpreter and the `-c` (`"$PY" "$OPT" -c`, `python3
 "$SCRIPT" a -c b`) cannot be read, so the body is UNMEASURED: fail closed.
 """
@@ -69,6 +69,8 @@ ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 # Commands that run the next command: an option right before the interpreter is theirs.
 WRAPPERS = {"timeout", "xargs", "sudo", "doas", "env", "nice", "nohup", "stdbuf", "ionice",
             "chrt", "taskset", "setsid", "flock", "time", "command", "exec", "builtin"}
+# Commands whose own `-c` follows an option argument: `git -C "$PYDIR" -c user.name=x`.
+NON_WRAPPERS = {"git"}
 VAR_START = re.compile(r"^\"?\$\{?([A-Za-z_][A-Za-z0-9_]*)")
 TRACED_VAR = re.compile(r'^"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"$')
 EXPANSION = re.compile(r"\$(?:\{|[A-Za-z_0-9@*#?$!-])")
@@ -415,18 +417,21 @@ def catch_all(text, read_starts):
         if any(start in read_starts for start, _, _ in seg):
             continue
         names = [v if v is not None else r for _, r, v in seg]
-        cmd_k = next((k for k, w in enumerate(names) if not ASSIGNMENT.match(w)), 0)
-        wrapper = re.split(r"[/\\]", names[cmd_k])[-1] in WRAPPERS
+        # the command word: past assignments and keywords (`then sudo`, `if ! timeout`)
+        cmd_k = next((k for k, w in enumerate(names)
+                      if not ASSIGNMENT.match(w) and w not in PREFIX_WORDS - WRAPPERS), 0)
+        cmd = re.split(r"[/\\]", names[cmd_k])[-1]
+        wrapper = cmd in WRAPPERS
         for k, (start, raw, _) in enumerate(seg):
             v = VAR_START.match(raw)
             variable = v is not None and v.group(1) not in SHELL_VARS
             # `timeout 5 "$INTERP" -c`: a variable may be any interpreter (CR3-L-2)
             if not (python_like(raw) or (variable and (wrapper or k == cmd_k))):
                 continue
-            if k and names[k - 1].startswith("-") and names[k - 1] != "--" and not wrapper:
+            if k and names[k - 1].startswith("-") and names[k - 1] != "--" and cmd in NON_WRAPPERS:
                 # `git -C "$PYDIR" -c x=y`: the argument of an option, not the command.
-                # shortcut: an unknown wrapper (`firejail -q "$PY" -c`) is read this
-                # way too; add such a wrapper to WRAPPERS.
+                # Only for commands known not to run another one: an unknown command
+                # (`strace -f "$PY" -c`, `firejail -q "$PY" -c`) stays fail closed.
                 continue
             if any(C_WORD.match(w) for w in names[k + 1:]):
                 yield text.count("\n", 0, start) + 1

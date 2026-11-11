@@ -96,7 +96,14 @@ XARGS_RUNTIME="$(c_case "printf x | xargs \"\$RUNTIME\" -c 'print(1)'")"
 # The tokenizer losing the file must not hide a later form (CR3-L-3).
 ARITH_SHIFT="$(printf '%s\n' '#!/bin/bash' '(( a << 2 ))' "timeout 5 \"\$PY\" -c 'print(1)'")"
 SUBST_APOS="$(printf '%s\n' '#!/bin/bash' 'X=$(cat <<EOF' "it's" 'EOF' ')' "timeout 5 \"\$PY\" -c 'print(1)'")"
-ANSI_ESC="$(printf '%s\n' '#!/bin/bash' "echo \$'a\\'b'" "python3 -c 'print(1)'")"
+ANSI_ESC="$(printf '%s\n' '#!/bin/bash' "echo \$'a\\'b'" "python3 -c 'print(1)'" "timeout 5 \"\$PY\" -c 'print(1)'")"
+# Round 5. A keyword before the wrapper (CR4-M-1); $1 = the keyword(s). Each case ends
+# in a command line: make_case drops the final newline, and a quote that closes at EOF
+# without one is UNMEASURED for an unrelated reason (CR4-L-4), so it would not test this.
+kw_case() { printf '#!/bin/bash\n%s sudo -E "$PY" -c %s\n%s\n%s\necho done\n' "$1" "'" "$(py_lines 4100)" "'"; }
+# An unknown leading command stays fail closed (CR4-L-2).
+BIG_STRACE="$(printf '#!/bin/bash\nstrace -f "$PY" -c %s\n%s\n%s\necho done\n' "'" "$(py_lines 4100)" "'")"
+BIG_FIREJAIL="$(printf '#!/bin/bash\nfirejail -q "$PY" -c %s\n%s\n%s\necho done\n' "'" "$(py_lines 4100)" "'")"
 # A heredoc-filled variable spliced into program text (CR3-L-4).
 BODY_SPLICED="$(printf "#!/bin/bash\nread -r -d '' SRC <<'PY'\nimport sys\nPY\npython3 -c \"import sys; \$SRC\"\n")"
 
@@ -259,10 +266,22 @@ assert_red "a shift read as a heredoc that never closes: the rest is unmeasured 
   --contains "UNMEASURED" -- run_guard "$(make_case arith-shift "$ARITH_SHIFT")"
 assert_red "an apostrophe in a heredoc inside \$(...): the rest is unmeasured (CR3-L-3)" \
   --contains "UNMEASURED" -- run_guard "$(make_case subst-apos "$SUBST_APOS")"
-assert_green "an escaped quote in \$'...' does not swallow the file -> green, one body measured" \
-  --contains "Violations found:              0" \
-  --contains "bodies measured: 1" \
+assert_red "an escaped quote in \$'...' does not swallow the file: the later timeout \"\$PY\" -c is still seen" \
+  --contains "UNMEASURED" \
+  --contains "bodies measured: 2" \
+  --contains "Violations found:              1" \
   -- run_guard "$(make_case ansi-esc "$ANSI_ESC")"
+
+n=0
+for kw in then '{' if 'if !' while do else '!'; do
+  n=$((n + 1))
+  assert_red "catch-all: '$kw sudo -E \"\$PY\" -c <oversized>' is unmeasured (CR4-M-1)" \
+    --contains "UNMEASURED" -- run_guard "$(make_case "kw-$n" "$(kw_case "$kw")")"
+done
+assert_red "catch-all: strace -f \"\$PY\" -c '<oversized>' is unmeasured (CR4-L-2)" \
+  --contains "UNMEASURED" -- run_guard "$(make_case big-strace "$BIG_STRACE")"
+assert_red "catch-all: firejail -q \"\$PY\" -c '<oversized>' is unmeasured (CR4-L-2)" \
+  --contains "UNMEASURED" -- run_guard "$(make_case big-firejail "$BIG_FIREJAIL")"
 assert_red "a heredoc-filled \$SRC inside program text is unmeasured, not its name (CR3-L-4)" \
   --contains "UNMEASURED" -- run_guard "$(make_case body-spliced "$BODY_SPLICED")"
 

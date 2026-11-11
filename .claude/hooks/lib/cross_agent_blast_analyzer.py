@@ -209,6 +209,8 @@ def is_owned(path):
         if who != agent_id or not owned:
             continue
         owned = tmp_norm(owned)
+        if not (own_scratch and owned.startswith(own_scratch + "/")):
+            continue  # a root line (written by 3694da26) would make every sibling "mine"
         if path == owned or path.startswith(owned + "/"):
             return True
     return False

@@ -390,6 +390,16 @@ assert_green "a legacy non-UTF-8 ledger line does not crash the analyzer: the cr
   -- run_hook_cp agent-C "$MY_SESSION/scratchpad" "git worktree remove --force $MY_SESSION/scratchpad/co-C"
 rm -f "$CP_LEDGER"
 
+# A ledger line naming the scratch root itself (3694da26 could be made to write one)
+# must not cover every sibling below it: is_owned re-checks "strictly below".
+ROOT_LEDGER="$(mktemp "${TMPDIR:-/tmp}/guard-owners-root.XXXXXX")"
+printf 'agent-R\t%s\n' "$LIVE_SESS" >"$ROOT_LEDGER"
+run_hook_root() { OWNERS_LEDGER="$ROOT_LEDGER" run_hook_as "$@"; }
+assert_red "a ledger line for the scratch root does not authorise removing a sibling -> BLOCK" \
+  --contains 'WORKTREE-UNRECORDED' \
+  -- run_hook_root agent-R "$SCR" "git worktree remove --force $SCR/sibling-live"
+rm -f "$ROOT_LEDGER"
+
 assert_red "another session's scratchpad is as foreign as another agent's worktree -> BLOCK" \
   --contains 'WORKTREE-REMOVE' \
   -- run_hook_as agent-A "$MY_SESSION/scratchpad" "git worktree remove --force $OTHER_SESSION/scratchpad/checkout"
