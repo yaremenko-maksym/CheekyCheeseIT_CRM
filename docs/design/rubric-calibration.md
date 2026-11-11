@@ -19,8 +19,8 @@
   — the weighted total out of 100 divided by 10, with criteria that do not apply dropped and the weights
   renormalised (for example, data-viz on a form).
 - **Hard floors:** a score under 5 on criterion 2 ("never blocks") or criterion 4 ("forms and input") fails
-  the screen, whatever the total. **The < 5 floor also holds at the mockup gate** (council R1), scored
-  from the stated behaviour in §4: a spec that auto-retries a money create is < 5 on criterion 2
+  the screen, whatever the total. **The < 5 floor holds at both gates** (spec §5, amended by Master in
+  PR #1315); at the mockup gate it is scored from the stated behaviour in §4: a spec that auto-retries a money create is < 5 on criterion 2
   regardless of the total. The measured thresholds of §2 apply only at the implementation gate.
 - **Gates:** mockup gate ≥ 9.0 from every member; implementation gate ≥ 9.5 from every member on every
   device class, max 10 rounds. Quorum 3.
@@ -93,14 +93,14 @@ Each cell describes what a screen **at** that score looks like. Score between an
 
 ### 4. Forms and input ergonomics (10)
 
-| Score | Anchor                                                                                                                                                                                                                                                                                                                             |
-| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 10    | Minimal required fields, correct keyboard types, inline validation, no input lost on error or accidental close (Mercury, HubSpot). M: inputs ≥ 16 px, `inputmode` set, receipt via camera or library, the keyboard never covers the focused field. D: Tab order = reading order, Enter submits, inline edit where the data allows. |
-| 9.5   | As 10; one field lacks the ideal keyboard or one validation message is generic.                                                                                                                                                                                                                                                    |
-| 9     | All of the above present; validation runs on submit rather than on blur, or one optional field is shown where progressive disclosure would hide it.                                                                                                                                                                                |
-| 8     | Input survives errors, but one field needs a manual format (date typed as text) or one error is not tied to its field.                                                                                                                                                                                                             |
-| 6     | Wrong keyboard on a numeric field, inputs < 16 px (iOS zoom), or the keyboard covers the focused field; input still kept.                                                                                                                                                                                                          |
-| < 5   | Input lost on error or accidental close, including a dirty form that closes without asking when its values are not restorable (no session draft) (floor: fails the screen).                                                                                                                                                        |
+| Score | Anchor                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 10    | Minimal required fields, correct keyboard types, inline validation, no input lost on error or accidental close: a dirty form asks before close **or keeps a restorable draft** (Mercury, HubSpot). M: inputs ≥ 16 px, `inputmode` set, receipt via camera or library, the keyboard never covers the focused field. D: Tab order = reading order, Enter submits, inline edit where the data allows. |
+| 9.5   | As 10; one field lacks the ideal keyboard or one validation message is generic.                                                                                                                                                                                                                                                                                                                    |
+| 9     | All of the above present; validation runs on submit rather than on blur, or one optional field is shown where progressive disclosure would hide it.                                                                                                                                                                                                                                                |
+| 8     | Input survives errors, but one field needs a manual format (date typed as text) or one error is not tied to its field.                                                                                                                                                                                                                                                                             |
+| 6     | Wrong keyboard on a numeric field, inputs < 16 px (iOS zoom), or the keyboard covers the focused field; input still kept.                                                                                                                                                                                                                                                                          |
+| < 5   | Input lost on error or accidental close, including a dirty form that closes without asking when its values are not restorable (no session draft) (floor: fails the screen).                                                                                                                                                                                                                        |
 
 ### 5. Lists and tables (10)
 
@@ -124,23 +124,23 @@ Each cell describes what a screen **at** that score looks like. Score between an
 
 ### 7. System states and feedback (10)
 
-| Score | Anchor                                                                                                                                                                                                            |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 10    | Skeletons matching the final layout, useful empty states with an action, recoverable errors that keep input, undo where the action is reversible. M: the success toast names the object and offers its next step. |
-| 9.5   | As 10; one state is plain (an empty state without its action, or a success toast without its next step).                                                                                                          |
-| 9     | Every state exists; one uses a generic spinner or a generic error text.                                                                                                                                           |
-| 8     | One state missing (no empty state, or offline is not handled), or an error is shown but not recoverable in place.                                                                                                 |
-| 6     | Spinners instead of skeletons on the main content, blank empty state, errors as dead-end toasts.                                                                                                                  |
+| Score | Anchor                                                                                                                                                                                                                                                                                        |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 10    | Skeletons matching the final layout, useful empty states with an action, recoverable errors that keep input, undo where the action is reversible. M: the success toast names the object and offers its next step; **the outcome of a deferred money write stays visible until acknowledged**. |
+| 9.5   | As 10; one state is plain (an empty state without its action, or a success toast without its next step).                                                                                                                                                                                      |
+| 9     | Every state exists; one uses a generic spinner or a generic error text.                                                                                                                                                                                                                       |
+| 8     | One state missing (no empty state, or offline is not handled), or an error is shown but not recoverable in place.                                                                                                                                                                             |
+| 6     | Spinners instead of skeletons on the main content, blank empty state, errors as dead-end toasts.                                                                                                                                                                                              |
 
 ### 8. Data visualisation (7)
 
-| Score | Anchor                                                                                                                                                                                                          |
-| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 10    | Answer visible in 2 s; tap / hover drill-down; colour-blind-safe; sign not colour (Copilot). M: one chart per screen, tap a bar for detail, swipe the period. D: the chart follows the table filters (Mercury). |
-| 9.5   | As 10; one drill-down path is weaker (tooltip but no keyboard access, or no period swipe).                                                                                                                      |
-| 9     | Clear answer and safe palette; drill-down present but the chart ignores the table filters (D) or two charts share one phone screen.                                                                             |
-| 8     | Readable but slow: the answer needs a legend lookup, or the sign is carried by colour only in one place.                                                                                                        |
-| 6     | Several charts competing, unlabelled axes, red/green only, or no drill-down.                                                                                                                                    |
+| Score | Anchor                                                                                                                                                                                                                |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 10    | Answer visible in 2 s; tap / hover drill-down; colour-blind-safe; sign not colour (Copilot). M: one chart per **viewport**, tap a bar for detail, swipe the period. D: the chart follows the table filters (Mercury). |
+| 9.5   | As 10; one drill-down path is weaker (tooltip but no keyboard access, or no period swipe).                                                                                                                            |
+| 9     | Clear answer and safe palette; drill-down present but the chart ignores the table filters (D) or two charts share one phone **viewport**.                                                                             |
+| 8     | Readable but slow: the answer needs a legend lookup, or the sign is carried by colour only in one place.                                                                                                              |
+| 6     | Several charts competing, unlabelled axes, red/green only, or no drill-down.                                                                                                                                          |
 
 ### 9. Platform fit (8)
 
@@ -158,7 +158,7 @@ Each cell describes what a screen **at** that score looks like. Score between an
 | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 10    | Labels, focus order, contrast ≥ 4.5:1 (3:1 for UI parts), reduced motion honoured, zoom not disabled. Coarse pointer: every target ≥ 44 × 44. D: visible focus ring, full keyboard operation. Gestures have a single-pointer alternative. |
 | 9.5   | As 10; one decorative icon with a redundant label, or one reduced-motion variant is a crossfade where a cut would be calmer.                                                                                                              |
-| 9     | AA met; **any coarse-pointer target under 44 px caps the criterion at 9** (a 40–43 px non-critical control lands here).                                                                                                                   |
+| 9     | AA met; **any coarse-pointer target under 44 px caps the criterion at 9** (a 40–43 px non-critical control lands here); **a target under 40 px on the critical path is 8**.                                                               |
 | 8     | One AA miss off the critical path: a secondary control without a visible focus ring (SC 2.4.7), an unannounced toast (SC 4.1.3), a 3:1 border on a secondary input, or a gesture-only action with the menu missing.                       |
 | 6     | An AA miss on the critical path (an icon-only button without a name, text under 4.5:1, a modal that does not trap focus).                                                                                                                 |
 
@@ -244,6 +244,6 @@ of each calibration round here._
 - The benchmark sets in §5 are proposals drawn from the benchmarks file; the calibration round may swap
   them.
 - Members are recorded by seat, not by model name (spec §5 does not name models).
-- The mockup-gate floor (§1) follows the council R1 ruling (Task 0.8 fix round 3); it supersedes the
-  spec §5 note that the floors do not apply at the mockup gate. Haptics are dropped from scoring: iOS
+- The mockup-gate floor (§1) is spec §5 as amended in PR #1315 (the < 5 floor holds at both gates,
+  scored from stated behaviour at the mockup gate); this file restates it and changes no gate. Haptics are dropped from scoring: iOS
   Safari exposes no Vibration API, so a PWA cannot earn or lose points for them.
