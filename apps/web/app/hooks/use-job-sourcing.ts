@@ -92,8 +92,9 @@ export function useSetJobSourceEnabled() {
       const res = await api.patch<unknown>(`/job-sourcing/sources/${id}`, { enabled })
       return jobSourceSwitchResultSchema.parse(res.data)
     },
-    // Returned, not fire-and-forget: the mutation stays pending until both lists are refetched,
-    // so the switch never shows the old server value between the PATCH and the refetch.
+    // Returned, not fire-and-forget: the mutation stays pending until both lists are refetched.
+    // The switch keeps showing the old value while the request is pending and stays guarded
+    // (`aria-disabled`) until the fresh value arrives, so it is never flipped by a stale click.
     onSuccess: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: jobSourcesQueryKey }),

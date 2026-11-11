@@ -32,7 +32,7 @@ const QUOTA_LINE = {
 } satisfies Record<JobMeterUnit, ReturnType<typeof msg>>
 
 /** A legend number: the figure carries the weight, the word stays muted (design §7). */
-const FIGURE = 'font-medium tabular-nums text-foreground'
+const FIGURE = 'font-semibold tabular-nums text-foreground'
 
 export function QuotaBar({ used, reserved, uncertain, total, unit }: QuotaFigures) {
   const { i18n, t } = useLingui()
