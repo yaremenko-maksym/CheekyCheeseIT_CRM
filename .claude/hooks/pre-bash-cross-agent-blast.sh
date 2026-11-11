@@ -184,6 +184,10 @@ INPUT=$(cat)
 read_field() {
   printf '%s' "$INPUT" | python3 -I -B -c "
 import json, sys
+# UTF-8 both ways, as in the analyzer: on Windows the locale code page cannot even
+# decode some UTF-8 Cyrillic (the 0x98 of U+0418), and the command was refused unread.
+sys.stdin.reconfigure(encoding='utf-8', errors=sys.stdin.errors)
+sys.stdout.reconfigure(encoding='utf-8', errors=sys.stdout.errors)
 d = json.load(sys.stdin)
 cur = d
 for key in sys.argv[1].split('.'):
@@ -198,13 +202,21 @@ print(cur if isinstance(cur, str) else '')
 CMD=$(read_field 'tool_input.command')
 CMD_RC=$?
 CWD=$(read_field 'cwd')
+CWD_RC=$?
 AGENT_ID=$(read_field 'agent_id')
+AGENT_ID_RC=$?
 CWD=${CWD//\\//} # Windows payloads use backslashes
 
 # A command that could not be read is not "no command" (#1297 SR-L-4): python3 did not
 # run, or the payload did not parse, or the command cannot be printed (a lone surrogate).
 if [ "$CMD_RC" -ne 0 ]; then
   echo "[pre:bash:cross-agent-blast] INTERNAL ERROR: the command could not be read (python3 did not run, or the payload did not parse). Refused. Fix it first: python3 must run on PATH and the hook library must load. Bash stays refused until then." >&2
+  exit 2
+fi
+# Same for the two context fields (SO-M-1 of #1317): an unreadable cwd or agent_id left
+# both empty, and the context gate below read that as "not an agent" and let it through.
+if [ "$CWD_RC" -ne 0 ] || [ "$AGENT_ID_RC" -ne 0 ]; then
+  echo "[pre:bash:cross-agent-blast] INTERNAL ERROR: the cwd or agent_id of the payload could not be read (rc=$CWD_RC/$AGENT_ID_RC), so whose workspace this is is unknown. Refused. Fix it first: python3 must run on PATH. Bash stays refused until then." >&2
   exit 2
 fi
 [ -z "$CMD" ] && exit 0
