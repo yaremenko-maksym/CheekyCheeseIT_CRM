@@ -611,6 +611,28 @@ describe('AC4 — timestamps', () => {
     expect(valueOf('Політика діє до')).not.toBe(valueOf('Авторизація до'))
   })
 
+  it('writes a deadline as a 2-digit day and month plus the year, exactly, in uk and in en', async () => {
+    // noon UTC: the same calendar day in every time zone the suite can run in
+    listed = [
+      source({ policyUntil: '2027-03-05T12:00:00.000Z', authUntil: '2027-12-09T12:00:00.000Z' }),
+    ]
+    const view = renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(valueOf('Політика діє до')).toBe('05.03.2027')
+    expect(valueOf('Авторизація до')).toBe('09.12.2027')
+    view.unmount()
+
+    await loadCatalog('en')
+    try {
+      renderPanel()
+      await screen.findByRole('switch', { name: 'DOU' })
+      expect(valueOf('Policy valid until')).toBe('03/05/2027')
+      expect(valueOf('Authorization until')).toBe('12/09/2027')
+    } finally {
+      await loadCatalog('uk')
+    }
+  })
+
   it('says «ніколи» for a deadline that is null — and for one an older server does not send', async () => {
     listed = [source({ policyUntil: null, authUntil: undefined })]
     renderPanel()
@@ -725,6 +747,25 @@ describe('AC5 — a refused enable', () => {
       'Не вдалося увімкнути. Джерело зайняте іншим запуском. Стан не змінено.',
     )
     expect(failure.textContent).not.toContain('..')
+  })
+
+  it('adds the closing period when the server answer has one only in the middle', async () => {
+    listed = [source({ enabled: false })]
+    vi.mocked(api.patch).mockRejectedValue({
+      isAxiosError: true,
+      response: { status: 409, data: { message: 'Збій. Спробуйте пізніше' } },
+    })
+    renderPanel()
+    const toggle = await screen.findByRole('switch', { name: 'DOU' })
+
+    await act(async () => {
+      fireEvent.click(toggle)
+    })
+
+    const failure = await screen.findByTestId('job-source-enable-failure')
+    expect(failure.textContent).toBe(
+      'Не вдалося увімкнути. Збій. Спробуйте пізніше. Стан не змінено.',
+    )
   })
 
   it('an unknown readiness code in the refusal reads «Не готове до роботи», never the server text', async () => {
@@ -963,6 +1004,8 @@ describe('exact rendering contract (state chips, notes, quota, panel shell)', ()
       for (const cls of classes) expect(chip()).toHaveClass(cls)
       // a missing / empty variant falls back to the solid primary badge
       expect(chip()).not.toHaveClass('bg-primary')
+      // the paused tint overrides `bg-primary`, but not the default variant's shadow and hover
+      expect(chip().className).not.toMatch(/shadow|hover:bg-primary/)
       const svg = within(chip()).getByTestId('job-source-state-icon')
       expect(svg).toHaveAttribute('aria-hidden', 'true')
       expect(svg).toHaveClass('mr-1', 'size-3', 'shrink-0')

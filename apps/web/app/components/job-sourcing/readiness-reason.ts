@@ -30,9 +30,7 @@ const CODE = /(?:^|; )([A-Z][A-Z0-9_]*): /g
 /** The catalog phrases for the known blocker codes in `raw`, once each, in order. */
 export function readinessPhrases(raw: string | null | undefined, i18n: I18n): string[] {
   if (!raw) return []
-  const codes = new Set<KnownCode>()
-  for (const [, code] of raw.matchAll(CODE)) {
-    if (code !== undefined && isKnown(code)) codes.add(code)
-  }
-  return [...codes].map((code) => i18n._(REASON[code]))
+  // Group 1 takes part in every match of CODE, so it is always a string.
+  const found = Array.from(raw.matchAll(CODE), (m) => m[1] as string).filter(isKnown)
+  return [...new Set(found)].map((code) => i18n._(REASON[code]))
 }

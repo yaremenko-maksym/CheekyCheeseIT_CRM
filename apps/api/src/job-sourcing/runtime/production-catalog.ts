@@ -125,14 +125,10 @@ export function sourceDeadlines(
   manifestId: string | null,
   snapshot: LedgerCatalogSnapshot = LEDGER_CATALOG_SNAPSHOT,
 ): { policyUntil: string | null; authUntil: string | null } {
-  const entry =
-    manifestId === null
-      ? undefined
-      : snapshot.entries.find((e) => e.id === manifestId && e.type === type)
   const all = [
-    ...(snapshot.types.find((t) => t.type === type)?.deadlines ?? []),
-    ...(entry?.deadlines ?? []),
-  ]
+    ...snapshot.types.filter((t) => t.type === type),
+    ...snapshot.entries.filter((e) => e.id === manifestId && e.type === type),
+  ].flatMap((owner) => owner.deadlines)
   const earliest = (kind: SnapshotDeadline['kind']): string | null => {
     const ms = all.filter((d) => d.kind === kind).map((d) => Date.parse(d.at))
     return ms.length === 0 ? null : new Date(Math.min(...ms)).toISOString()

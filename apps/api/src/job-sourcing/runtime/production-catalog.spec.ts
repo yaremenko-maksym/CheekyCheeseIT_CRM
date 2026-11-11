@@ -86,8 +86,30 @@ describe('sourceDeadlines — task 7.5 (AC4)', () => {
         deadlines: [{ kind: 'POLICY_EXPIRES', at: '2028-01-01T00:00:00.000Z' }],
         fetchProfile: null,
       },
+      {
+        // earlier than every Recruitee deadline: it must never leak into a Recruitee source
+        id: 'gh.early',
+        type: 'GREENHOUSE_ATS',
+        blockerCodes: [],
+        deadlines: [
+          { kind: 'AUTH_REQUIRED_FROM', at: '2026-12-01T00:00:00.000Z' },
+          { kind: 'POLICY_EXPIRES', at: '2026-12-02T00:00:00.000Z' },
+        ],
+        fetchProfile: null,
+      },
+      {
+        id: 'rt.plain',
+        type: 'RECRUITEE_ATS',
+        blockerCodes: [],
+        deadlines: [],
+        fetchProfile: null,
+      },
     ],
     hosts: [],
+  }
+  const TYPE_ONLY = {
+    policyUntil: '2027-09-01T00:00:00.000Z',
+    authUntil: '2027-03-01T00:00:00.000Z',
   }
 
   it('a source with no deadline anywhere reads null / null', () => {
@@ -115,10 +137,46 @@ describe('sourceDeadlines — task 7.5 (AC4)', () => {
     })
   })
 
-  it('an entry of another type is not resolved for the source', () => {
-    expect(sourceDeadlines('RECRUITEE_ATS', 'gh.board', snap).policyUntil).toBe(
-      '2027-09-01T00:00:00.000Z',
-    )
+  it('an entry whose id matches but whose type differs is not resolved for the source', () => {
+    expect(sourceDeadlines('RECRUITEE_ATS', 'gh.board', snap)).toEqual(TYPE_ONLY)
+    // earlier than the type's own deadlines, so a leak would change both kinds
+    expect(sourceDeadlines('RECRUITEE_ATS', 'gh.early', snap)).toEqual(TYPE_ONLY)
+    // the reverse: a Greenhouse source with a Recruitee entry id, and a type with no deadlines
+    expect(sourceDeadlines('GREENHOUSE_ATS', 'rt.early', snap)).toEqual({
+      policyUntil: null,
+      authUntil: null,
+    })
+  })
+
+  it('an entry of the source type with another id is not resolved for the source', () => {
+    expect(sourceDeadlines('RECRUITEE_ATS', 'unknown.entry', snap)).toEqual(TYPE_ONLY)
+    expect(sourceDeadlines('GREENHOUSE_ATS', 'unknown.entry', snap)).toEqual({
+      policyUntil: null,
+      authUntil: null,
+    })
+  })
+
+  it('a null manifest id resolves no entry, even when an entry of the type exists', () => {
+    expect(sourceDeadlines('GREENHOUSE_ATS', null, snap)).toEqual({
+      policyUntil: null,
+      authUntil: null,
+    })
+  })
+
+  it('an entry with no deadlines adds nothing to the type deadlines', () => {
+    expect(sourceDeadlines('RECRUITEE_ATS', 'rt.plain', snap)).toEqual(TYPE_ONLY)
+  })
+
+  it('a type absent from the snapshot gets only its entry deadlines', () => {
+    const noType: LedgerCatalogSnapshot = { ...snap, types: [] }
+    expect(sourceDeadlines('RECRUITEE_ATS', 'rt.early', noType)).toEqual({
+      policyUntil: null,
+      authUntil: '2027-02-10T00:00:00.000Z',
+    })
+    expect(sourceDeadlines('RECRUITEE_ATS', null, noType)).toEqual({
+      policyUntil: null,
+      authUntil: null,
+    })
   })
 
   it('an entry adds its own policy deadline', () => {

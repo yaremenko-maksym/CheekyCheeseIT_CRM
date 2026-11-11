@@ -30,9 +30,9 @@ const DAY_MS = 24 * 60 * 60 * 1000
 // amber tint (`yellow-subtle` fill, `yellow-muted` line); blocked is a destructive outline.
 const CHIP: Record<
   SourceStateKind,
-  { variant: 'secondary' | 'outline'; className: string; Icon: LucideIcon }
+  { variant: 'secondary' | 'outline'; className?: string; Icon: LucideIcon }
 > = {
-  running: { variant: 'outline', className: '', Icon: Check },
+  running: { variant: 'outline', Icon: Check },
   disabled: { variant: 'secondary', className: 'text-foreground', Icon: Power },
   paused: {
     variant: 'outline',
@@ -136,12 +136,14 @@ export function SourceSwitchCard({ source }: { source: JobSourceDto }) {
       : null
 
   const never = t`ніколи`
-  const stamps: Array<[string, string | null | undefined, 'ago' | 'date']> = [
-    [t`Остання спроба`, source.lastAttemptAt, 'ago'],
-    [t`Остання вдала`, source.lastSuccessAt, 'ago'],
-    [t`Остання з даними`, source.lastNonemptyAt, 'ago'],
-    [t`Політика діє до`, source.policyUntil, 'date'],
-    [t`Авторизація до`, source.authUntil, 'date'],
+  const ago = (iso: string) => formatRelativeTime(iso, locale)
+  const on = (iso: string) => formatDeadline(iso, locale)
+  const stamps: Array<[string, string | null | undefined, (iso: string) => string]> = [
+    [t`Остання спроба`, source.lastAttemptAt, ago],
+    [t`Остання вдала`, source.lastSuccessAt, ago],
+    [t`Остання з даними`, source.lastNonemptyAt, ago],
+    [t`Політика діє до`, source.policyUntil, on],
+    [t`Авторизація до`, source.authUntil, on],
   ]
 
   const attemptedEnable = mutation.variables?.enabled === true
@@ -205,16 +207,10 @@ export function SourceSwitchCard({ source }: { source: JobSourceDto }) {
         data-testid="job-source-timestamps"
         className="grid grid-cols-1 gap-x-4 gap-y-1.5 @min-[560px]:grid-cols-3"
       >
-        {stamps.map(([term, iso, kind]) => (
+        {stamps.map(([term, iso, format]) => (
           <div key={term} className="flex flex-col gap-0.5">
             <dt className="text-muted-foreground">{term}</dt>
-            <dd className="tabular-nums text-foreground">
-              {iso
-                ? kind === 'ago'
-                  ? formatRelativeTime(iso, locale)
-                  : formatDeadline(iso, locale)
-                : never}
-            </dd>
+            <dd className="tabular-nums text-foreground">{iso ? format(iso) : never}</dd>
           </div>
         ))}
       </dl>
