@@ -442,8 +442,9 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
  * Boot, phase `sent`: «Оновити список» on the alert opens the check sheet over the Фінанси list. No draft form
  * is behind it and the marker holds no amount, so the sheet names only the time and offers no resubmit.
  * A failed refetch here reuses the «Не вдалося оновити список» alert with «Повторити». Drawn while the
- * device time is before `earliest t + 160 s`: the hint names the automatic refetch, and «…створіть її
- * знову» appears only after it succeeds. «Зрозуміло» acknowledges; ✕ keeps the markers.
+ * device time is before `latest t + 160 s`: the hint names the automatic refetch, and «…створіть її
+ * знову» appears only after it succeeds. Until then the footer reads «Закрити» and keeps the markers (like
+ * ✕); «Зрозуміло» (acknowledge + remove the markers) appears only after that refetch.
  */
 const BEFORE_ROW = {
   t: 'Таксі на зустріч',
@@ -460,7 +461,7 @@ export function checkSheetBoot(w, h) {
   <div class="t-foot muted num">Лише ваші записи з ${FROM}</div>
   <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено о 14:33:40</div><span class="btn sm secondary" role="button" style="height:44px">${icon('refresh-cw', { size: 16 })}Оновити</span></div>
   <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Сервер міг зберегти транзакцію із запізненням. Список оновиться о 14:35:12</div></div><div class="group" style="margin-top:4px">${[...NEW_ROWS, BEFORE_ROW].map((r) => txnRow(r)).join('')}</div>`
-  const footer = `<div style="padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)"><span class="btn secondary" role="button" style="width:100%">Зрозуміло</span></div>`
+  const footer = `<div style="padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)"><span class="btn secondary" role="button" style="width:100%">Закрити</span></div>`
   const sh = sheet({
     w,
     h,
@@ -605,7 +606,8 @@ const KILL = {
   sent: {
     text: 'Результат збереження транзакції о 14:32 невідомий. Вона могла зберегтися: перевірте нові записи, перш ніж створювати її знову.',
     actions:
-      '<span class="btn sm ghost" role="button">Зрозуміло</span><span class="btn sm secondary" role="button">Оновити список</span>',
+      // Drawn inside the late-commit window: «Закрити» keeps the markers until the guard's refetch succeeds.
+      '<span class="btn sm ghost" role="button">Закрити</span><span class="btn sm secondary" role="button">Оновити список</span>',
     tone: 85,
     ink: 'var(--primary)',
     glyph: 'circle-help',

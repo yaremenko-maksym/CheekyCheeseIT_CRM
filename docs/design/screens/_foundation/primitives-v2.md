@@ -292,8 +292,9 @@ sheet the global upload pill carries the save; the result then stays in the pill
 (`upload-pill-saved-375`, `upload-pill-failed-375`); a sheet never opens by itself. A page kill is
 reported at the next boot by the marker's phase (`state-page-kill-375` armed, `alert-pagekill-sent-375`
 sent). On `sent` the alert opens the check sheet with no draft form behind it: it names the time, not an
-amount, and offers no resubmit; «Зрозуміло» acknowledges the alert and removes the `sent` markers, and ✕
-closes the sheet and keeps them, so the boot alert returns on the next boot (`check-sheet-boot-375`); a failed refetch there
+amount, and offers no resubmit; until the late-commit guard's refetch succeeds its footer button reads
+«Закрити» and keeps the markers, like ✕; after it «Зрозуміло» acknowledges the alert and removes the `sent`
+markers, and ✕ still closes the sheet and keeps them, so the boot alert returns on the next boot (`check-sheet-boot-375`); a failed refetch there
 reuses the «Не вдалося оновити список» alert with «Повторити». The amount never truncates: at 320 it steps 44 →
 34 px, the armed label wraps to two lines, and the sheet title truncates (`quick-add-txn-armed-320`).
 
@@ -386,9 +387,9 @@ way is reported at the next boot (`state-page-kill-375`: a persistent inline ale
 `localStorage` marker behind it is `{ t, phase }`, never an amount). A kill **after the create was
 sent** shows instead «Результат збереження транзакції о 14:32 невідомий. Вона могла зберегтися: перевірте нові
 записи, перш ніж створювати її знову.» (the
-time is the marker's `t`) with «Зрозуміло» and, on the Фінанси tab, «Оновити список» (elsewhere
-«Відкрити Фінанси»), and no resubmit; either action opens the check sheet «Нові записи» filtered from the earliest `t − 5 хв` with the same server-time test: a row created before `earliest t + offset − 5 s` reads «раніше · 14:29»; no amount is known, so no row is a «збіг» or «схожа». **Late-commit guard:** while the device time is earlier than `earliest t + 160 s` (Cloudflare's 100 s origin timeout plus the in-app 60 s gate; both times come from the device, so skew does not matter) the hint reads «Сервер міг зберегти транзакцію із запізненням. Список оновиться о 14:35:12», one automatic refetch runs at that time, and the hint «…створіть її знову» appears only after that refetch succeeds (`check-sheet-boot-375`). «Зрозуміло» acknowledges the alert and removes the `sent` markers; ✕ closes the sheet and keeps them, so the boot alert returns on the next boot (the user's own
-rows, each «нова»; there is no «Шукаємо» line and no exit but «Зрозуміло»), and the
+time is the marker's `t`) with «Зрозуміло» («Закрити» until the late-commit guard's refetch succeeds) and, on the Фінанси tab, «Оновити список» (elsewhere
+«Відкрити Фінанси»), and no resubmit; either action opens the check sheet «Нові записи» (the user's own rows, each «нова» or «раніше»; there is
+no «Шукаємо» line, and the exits are ✕ and «Закрити» / «Зрозуміло») filtered from the earliest `t − 5 хв` with the same server-time test: a row created before `earliest t + offset − 5 s` reads «раніше · 14:29»; no amount is known, so no row is a «збіг» or «схожа». **Late-commit guard:** it waits for the **latest** send. While the device time is earlier than `latest t + 160 s` (Cloudflare's 100 s origin timeout plus the in-app 60 s gate; both times come from the device, so skew does not matter), the hint reads «Сервер міг зберегти транзакцію із запізненням. Список оновиться о 14:35:12», one automatic refetch runs at that time, and the hint «…створіть її знову» appears only after that refetch succeeds (`check-sheet-boot-375`). Example: markers at 14:32 and 14:40 and a boot at 14:41 wait until 14:42:40. The query bound and the alert copy keep the earliest `t`. **Until that refetch succeeds, nothing clears the markers:** the sheet's footer button and the boot alert's button read «Закрити» and keep the markers, like ✕ (`check-sheet-boot-375`, `alert-pagekill-sent-375`). Only after it does «Зрозуміло» appear: it acknowledges the alert and removes the `sent` markers, while ✕ still closes the sheet and keeps them, so the boot alert returns on the next boot, and the
 dated list is never scrolled
 (`alert-pagekill-sent-375`). The phases and when the marker is cleared: foundation §11. **Confirms**
 use the action-sheet confirm (`sheet-confirm-375`; `actionConfirm` in the mockup sources), two 56 px
