@@ -103,7 +103,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   request is sent, so a form without an idempotency key still sends exactly once. The result **stays in
   the pill until tapped** («Збережено 1 250,50 USD · Відкрити» or «Не збережено · Відкрити чернетку»);
   no sheet opens by itself. Backgrounding the app does not disarm; a page kill is reported at the next
-  boot. **One money draft per session:** while a draft exists, «+» reopens it. The full lifecycle is
+  boot by the marker's phase (`armed`: not saved; `sent`: check the list, no resubmit). **One money draft per session:** while a draft exists, «+» reopens it. The full lifecycle is
   the state table in foundation §11. An upload failure disarms the save and shows its error on the
   receipt card; the user may replace the file or remove it («✕ Видалити чек») and save without a
   receipt.

@@ -191,7 +191,8 @@ under the primary; any field edit also disarms. While armed the leading control 
 it closes the sheet and the save stays armed; a drag down and a scrim tap do the same. On the closed
 sheet the global upload pill carries the save; the result then stays in the pill until tapped
 (`upload-pill-saved-375`, `upload-pill-failed-375`); a sheet never opens by itself. A page kill is
-reported at the next boot (`state-page-kill-375`). The amount never truncates: at 320 it steps 44 →
+reported at the next boot by the marker's phase (`state-page-kill-375` armed, `alert-pagekill-sent-375`
+sent). The amount never truncates: at 320 it steps 44 →
 34 px, the armed label wraps to two lines, and the sheet title truncates (`quick-add-txn-armed-320`).
 
 ---
@@ -248,7 +249,14 @@ does the undo toast (`upload-pill-768`: centred above the bottom edge;
 so only when the user tries to close a sheet with uploads running, and an armed money save lost this
 way is reported at the next boot (`state-page-kill-375`: a persistent inline alert «Транзакцію не
 збережено: застосунок закрився під час завантаження чека. Створіть її ще раз.» with «Зрозуміло»; the
-`localStorage` marker behind it holds only a timestamp).
+`localStorage` marker behind it is `{ t, phase }`, never an amount). A kill **after the create was
+sent** shows instead «Застосунок закрився під час збереження транзакції. Перевірте список Фінанси, перш
+ніж створювати її знову.» with «Відкрити Фінанси» and «Зрозуміло» and no resubmit
+(`alert-pagekill-sent-375`). The phases and when the marker is cleared: foundation §11. **Confirms**
+use the action-sheet confirm (`sheet-confirm-375`; `actionConfirm` in the mockup sources), two 56 px
+rows, stacked above an open sheet: `confirm-recreate-375` («Створити 1 250,50 USD ще раз?» ·
+«Створити ще раз» · «Скасувати», from the unknown-outcome exit) and `confirm-discard-draft-375`
+(«Видалити чернетку 1 250,50 USD?» · «Видалити» · «Залишити», the one money draft).
 
 **Money pill** (one 56 px pill, three states, same slot): armed «Збережеться 1 250,50 USD · 62%» /
 «Відкрити чернетку» (`upload-pill-armed-375`); saved «Збережено 1 250,50 USD» / «Відкрити»
@@ -302,11 +310,11 @@ instant, sheet 280 ms up / 150 ms down, desktop 150 ms crossfade, reduced motion
 `sheet-panel-1440` · `sheet-confirm-dialog-1024` · `listrow-table-desktop` · `toast-undo-375` ·
 `toast-undo-768` · `toast-undo-1440` · `toast-error-definite-375` · `toast-error-offline-375` ·
 `toast-error-unknown-375` · `toast-error-unknown-list-375` · `upload-states-375` · `upload-pill-armed-375` ·
-`upload-pill-saved-375` · `upload-pill-failed-375` · `toast-pill-stack-375` · `state-page-kill-375` ·
+`upload-pill-saved-375` · `upload-pill-failed-375` · `toast-pill-stack-375` · `state-page-kill-375` · `alert-pagekill-sent-375` · `confirm-recreate-375` · `confirm-discard-draft-375` ·
 `listrow-draft-375` · `upload-pill-768` · `upload-pill-1440` · `skeleton-mobile-375` · `skeleton-768` · `skeleton-1440` ·
 `skeleton-table-desktop` · `chart-mobile-375` · `chart-mobile-scrolled-375` · `chart-mobile-320` ·
 `chart-desktop` · `ptr-pulling-375` · `ptr-armed-375` · `ptr-refreshing-375` · `ptr-done-375` ·
-`transition-storyboard` (52 frames). Contact sheets: `_contact-sheet.png` (phones), `_contact-sheet-wide.png` (768 / 1024 /
+`transition-storyboard` (55 frames). Contact sheets: `_contact-sheet.png` (phones), `_contact-sheet-wide.png` (768 / 1024 /
 1440 and boards), `_contact-sheet-detail.png` (`chart-desktop` and `transition-storyboard` at native
 size).
 
