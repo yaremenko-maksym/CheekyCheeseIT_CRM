@@ -28,6 +28,10 @@ import { Label } from '@/components/ui/label'
 import { UploadProgress } from '@/components/ui/upload-progress'
 import { useDocumentDownloadUrl, useUploadDocument } from '@/hooks/use-documents'
 import { useUploadProgressState } from '@/hooks/use-upload-progress-state'
+import { createImagePreviewUrl } from '@/lib/image-preview'
+
+/** The preview box is `max-h-40` (160 CSS px); 1024 px covers a 3× retina screen. */
+const RECEIPT_PREVIEW_MAX_EDGE = 1024
 
 export type ReceiptMode = 'file' | 'url'
 
@@ -199,8 +203,13 @@ export function ReceiptInput({
     e.target.value = '' // allow re-selecting the same file
     if (!file) return
 
-    // Local objectURL for instant preview while the upload is in flight.
-    const localPreview = URL.createObjectURL(file)
+    progress.prepare()
+    // Local objectURL for the preview while the upload is in flight. Images go
+    // through a bounded-size copy: a full-resolution phone photo in the DOM
+    // froze iPhone Safari (task-ios-file-input-freeze).
+    const localPreview = file.type.startsWith('image/')
+      ? await createImagePreviewUrl(file, RECEIPT_PREVIEW_MAX_EDGE)
+      : URL.createObjectURL(file)
     onChange({
       mode: 'file',
       documentId: null,
@@ -210,7 +219,6 @@ export function ReceiptInput({
       mimeType: file.type,
     })
 
-    progress.prepare()
     try {
       const doc = await uploadMutation.mutateAsync({
         file,
@@ -302,6 +310,7 @@ export function ReceiptInput({
             ref={fileInputRef}
             type="file"
             accept="image/*,application/pdf"
+            data-testid="receipt-input-file"
             className="hidden"
             onChange={(e) => {
               void handleFileChange(e)

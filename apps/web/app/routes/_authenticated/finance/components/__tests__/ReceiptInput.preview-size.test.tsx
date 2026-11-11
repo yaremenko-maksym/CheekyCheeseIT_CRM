@@ -1,0 +1,89 @@
+/**
+ * task-ios-file-input-freeze — regression: a picked phone photo must never be
+ * handed to the DOM at full resolution. The old code previewed the receipt via
+ * `URL.createObjectURL(file)` of the ORIGINAL file, so a 12–24 MP iPhone photo
+ * was decoded and composited at full size inside the dialog. The fix previews
+ * a bounded-size copy; the upload still sends the original file.
+ */
+import { useState } from 'react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+const post = vi.fn()
+vi.mock('@/lib/axios', () => ({
+  api: {
+    get: vi.fn().mockResolvedValue({ data: { url: 'https://cdn.example.com/receipt.png' } }),
+    post: (...args: unknown[]) => post(...args),
+  },
+}))
+
+import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptInput'
+
+const photo = new File([new Uint8Array(1024)], 'IMG_0001.jpg', { type: 'image/jpeg' })
+const drawImage = vi.fn()
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+  post.mockReturnValue(new Promise(() => {})) // upload stays in flight
+  drawImage.mockClear()
+  vi.stubGlobal(
+    'createImageBitmap',
+    vi.fn().mockResolvedValue({ width: 4000, height: 3000, close: vi.fn() }),
+  )
+  vi.spyOn(URL, 'createObjectURL').mockImplementation((b) =>
+    b === photo ? 'blob:original-full-size' : 'blob:bounded-preview',
+  )
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+    () => ({ drawImage }) as unknown as CanvasRenderingContext2D,
+  )
+  HTMLCanvasElement.prototype.toBlob = function (cb: BlobCallback) {
+    cb(new Blob(['x'], { type: 'image/jpeg' }))
+  }
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+})
+
+function Harness() {
+  const [state, setState] = useState<ReceiptState>(emptyReceiptState())
+  return <ReceiptInput state={state} onChange={setState} />
+}
+
+function renderHarness() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <Harness />
+      </QueryClientProvider>
+    </I18nTestProvider>,
+  )
+}
+
+describe('ReceiptInput — bounded image preview (iOS freeze regression)', () => {
+  it('previews a 4000×3000 photo through a downscaled copy, never the original file', async () => {
+    renderHarness()
+    fireEvent.change(screen.getByTestId('receipt-input-file'), { target: { files: [photo] } })
+
+    const img = await screen.findByAltText('Прев’ю чека')
+    expect(img).toHaveAttribute('src', 'blob:bounded-preview')
+    // 4000×3000 → long edge bounded to 1024 px.
+    expect(drawImage).toHaveBeenCalledWith(expect.anything(), 0, 0, 1024, 768)
+  })
+
+  it('still uploads the ORIGINAL file, not the preview copy', async () => {
+    renderHarness()
+    fireEvent.change(screen.getByTestId('receipt-input-file'), { target: { files: [photo] } })
+
+    await waitFor(() => expect(post).toHaveBeenCalled())
+    const form = post.mock.calls[0]![1] as FormData
+    const sent = form.get('file') as File
+    expect(sent.name).toBe('IMG_0001.jpg')
+    expect(sent.size).toBe(1024)
+  })
+})
