@@ -224,7 +224,7 @@ export function placeholderCopy(
 
 /**
  * Stage 8: the vision check of the placeholder copy. A finding counts only when a second call reports
- * the same check on the same page; when either call cannot run, the run is VISUAL_CHECK_UNAVAILABLE.
+ * the same check on the same page; when the confirming call cannot run, the first findings count.
  */
 export async function visualGate(
   accepted: Pick<Accepted, 'content' | 'layout'>,
@@ -251,12 +251,12 @@ export async function visualGate(
   if (first.findings.length === 0) return { gate: 'visual', ok: true, items: [] }
   deps.beforeModelCall()
   const second = await deps.vision.check(pngs)
-  if (second.kind === 'unavailable') {
-    throw new RunFailure('VISUAL_CHECK_UNAVAILABLE', [{ gate: 'visual', ok: false, items: [] }])
-  }
-  const confirmed = first.findings.filter((f) =>
-    second.findings.some((s) => s.check === f.check && s.page === f.page),
-  )
+  const confirmed =
+    second.kind === 'unavailable'
+      ? first.findings
+      : first.findings.filter((f) =>
+          second.findings.some((s) => s.check === f.check && s.page === f.page),
+        )
   // Only the check and page are kept: the finding text is model output.
   const items = confirmed.map((f) => ({ path: `pages.${f.page}`, reason: f.check }))
   if (items.length > 0) {

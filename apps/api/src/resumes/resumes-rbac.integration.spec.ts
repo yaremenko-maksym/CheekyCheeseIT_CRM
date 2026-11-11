@@ -1632,12 +1632,31 @@ describe.skipIf(!hasDatabaseUrl())(
         })
 
         it("SENIOR on another senior's resume is 403 and queues nothing", async () => {
-          const bBefore = await rowOf(SENIOR_B.id)
-          await expect(service.submit(session(SENIOR_A), SENIOR_B.id)).rejects.toBeInstanceOf(
-            ForbiddenException,
-          )
-          expect(await rowOf(SENIOR_B.id)).toEqual(bBefore)
-          expect(runner.run).not.toHaveBeenCalled()
+          // B's row is made submittable like A's, so only the access rule can stop the submit.
+          const seeded = await rowOf(SENIOR_B.id)
+          await service.saveFacts(session(ADMIN_USER), SENIOR_B.id, COMPLETE)
+          await dbSvc.db
+            .update(users)
+            .set({ displayName: 'Senior Second' })
+            .where(eq(users.id, SENIOR_B.id))
+          try {
+            const bBefore = await rowOf(SENIOR_B.id)
+            await expect(service.submit(session(SENIOR_A), SENIOR_B.id)).rejects.toBeInstanceOf(
+              ForbiddenException,
+            )
+            expect(await rowOf(SENIOR_B.id)).toEqual(bBefore)
+            expect(runner.run).not.toHaveBeenCalled()
+          } finally {
+            await setState(SENIOR_B.id, {
+              facts: seeded.facts,
+              verificationStatus: seeded.verificationStatus,
+              version: seeded.version,
+            })
+            await dbSvc.db
+              .update(users)
+              .set({ displayName: SENIOR_B.displayName })
+              .where(eq(users.id, SENIOR_B.id))
+          }
         })
 
         it.each([

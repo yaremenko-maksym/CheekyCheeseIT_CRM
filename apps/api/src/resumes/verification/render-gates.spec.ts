@@ -521,7 +521,7 @@ describe('visualGate', () => {
     expect(d.vision.check).toHaveBeenCalledTimes(2)
   })
 
-  it('when the confirming call is unavailable → VISUAL_CHECK_UNAVAILABLE', async () => {
+  it('when the confirming call cannot run, the first findings count → VISUAL_CHECK_FAILED', async () => {
     const d = deps({
       vision: [
         { kind: 'ok', findings: [finding('ragged', 1)] },
@@ -530,8 +530,8 @@ describe('visualGate', () => {
     } as never)
     const err = await failure(visualGate(accepted, 'classic', CONTACTS, d))
     expect(err).toMatchObject({
-      code: 'VISUAL_CHECK_UNAVAILABLE',
-      gates: [{ gate: 'visual', ok: false, items: [] }],
+      code: 'VISUAL_CHECK_FAILED',
+      gates: [{ gate: 'visual', ok: false, items: [{ path: 'pages.1', reason: 'ragged' }] }],
     })
     expect(d.vision.check).toHaveBeenCalledTimes(2)
   })
