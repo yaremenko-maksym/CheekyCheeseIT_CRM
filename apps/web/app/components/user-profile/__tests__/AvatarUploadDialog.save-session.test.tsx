@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
-import { installFakePreviewWorker } from '@/test/fake-preview-worker'
+import { installFakePreviewWorker, pendingReplies } from '@/test/fake-preview-worker'
 
 const m = vi.hoisted(() => ({
   mutate: vi.fn(),
@@ -159,6 +159,59 @@ describe('AvatarUploadDialog — save bound to its dialog session (task-1316-fix
     act(() => m.mutate.mock.calls[0]![1].onSuccess())
 
     expect(m.toastSuccess).toHaveBeenCalledTimes(1)
+    expect(m.toastSuccess).toHaveBeenCalledWith('Аватар оновлено')
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('the current session still shows its upload progress', async () => {
+    render(<Harness />, { wrapper: I18nTestProvider })
+    await pickAndSave()
+    await act(async () => {
+      upload.onProgress(40)
+      await nextFrame()
+    })
+
+    expect(screen.getByTestId('avatar-upload-progress')).toHaveTextContent('40%')
+  })
+
+  it('the current session still shows its save error', async () => {
+    render(<Harness />, { wrapper: I18nTestProvider })
+    await pickAndSave()
+    await act(async () => upload.finish())
+    await vi.waitFor(() => expect(m.mutate).toHaveBeenCalledTimes(1))
+    act(() => m.mutate.mock.calls[0]![1].onError())
+
+    expect(screen.getByText('Не вдалося зберегти аватар')).toBeInTheDocument()
+  })
+
+  it('the current session still shows its upload failure', async () => {
+    render(<Harness />, { wrapper: I18nTestProvider })
+    await pickAndSave()
+    await act(async () => upload.fail())
+
+    expect(await screen.findByText('Не вдалося обрізати зображення')).toBeInTheDocument()
+  })
+
+  it('a save makes an earlier, still-decoding pick stale: its late decode does not reset the upload', async () => {
+    installFakePreviewWorker(photo, 'manual')
+    render(<Harness />, { wrapper: I18nTestProvider })
+    const input = screen.getByTestId('avatar-file-input')
+    fireEvent.change(input, { target: { files: [photo] } }) // pick A, held
+    fireEvent.change(input, { target: { files: [photo] } }) // pick B
+    await vi.waitFor(() => expect(pendingReplies).toHaveLength(2))
+    act(() => pendingReplies[1]!()) // B decodes
+    fireEvent.click(await screen.findByRole('button', { name: 'Зберегти' }))
+    await vi.waitFor(() => expect(m.mutateAsync).toHaveBeenCalledTimes(1))
+    await act(async () => {
+      upload.onProgress(40)
+      await nextFrame()
+    })
+
+    await act(async () => {
+      pendingReplies[0]!() // A's late decode
+      await nextFrame()
+    })
+
+    expect(screen.getByTestId('avatar-upload-progress')).toBeInTheDocument()
   })
 })

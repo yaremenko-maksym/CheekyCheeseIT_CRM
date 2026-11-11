@@ -28,7 +28,7 @@ const isWrite = (method: string | undefined) =>
 const counted = new WeakSet<AxiosAdapter>()
 api.interceptors.request.use((config) => {
   if (!isWrite(config.method)) return config
-  if (typeof config.adapter === 'function' && counted.has(config.adapter)) return config // a retry
+  if (counted.has(config.adapter as AxiosAdapter)) return config // a retry; has() is false for a name or list
   const inner = config.adapter
   const wrapper: AxiosAdapter = async (c) => {
     pendingWrites++

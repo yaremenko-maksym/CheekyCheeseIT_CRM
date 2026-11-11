@@ -145,4 +145,20 @@ describe('pendingWriteCount (task-ios-file-input-freeze)', () => {
     await a
     expect(pendingWriteCount()).toBe(0)
   })
+
+  it('re-sending a config (a retry) counts that write once, not once per pass', async () => {
+    const d = deferredAdapter()
+    const first = api.post('/retry', {}, { adapter: d.adapter })
+    await vi.waitFor(() => expect(pendingWriteCount()).toBe(1))
+    d.settle(true)
+    const { config } = await first
+
+    const again = api.request(config) // config.adapter is already the counting wrapper
+    await vi.waitFor(() => expect(d.started()).toBe(true))
+    await vi.waitFor(() => expect(pendingWriteCount()).toBeGreaterThan(0))
+    expect(pendingWriteCount()).toBe(1)
+    d.settle(true)
+    await again
+    expect(pendingWriteCount()).toBe(0)
+  })
 })
