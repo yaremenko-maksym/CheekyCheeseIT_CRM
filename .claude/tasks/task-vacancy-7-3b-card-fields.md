@@ -115,6 +115,10 @@ Coder A1 decisions (PR #1313, review rounds 0–1; carried verbatim into the PR 
 - A1 (Coder, SPEC-H-1): `noMatchReason`, first match wins: any own LEAD → none; stop-listed → `STOP_LISTED`; any own
   live TRIAGE match row → `TRIAGE`; manual card → `NO_MATCH`; employer not verified, or not evaluated at the current
   revision → `TRIAGE`; otherwise → `NO_MATCH`.
+- A1 (Master, CR2-M-1, PR #1313 round 2): an opportunity excluded at its current revision gets `noMatchReason:
+  EXCLUDED` and its own (fourth) empty state, uk «Вакансію відсіяно автоматичним відбором» / en "Filtered out by
+  automatic screening" (design §5.5); `NO_MATCH` is given only for an `OPEN` verdict. The stop-list still wins over
+  `EXCLUDED`, and the check runs before the employer check, so the text never blames the employer.
 - A1 (Master, SPEC-L-1): «востаннє бачили» is shown whenever `lastSeenAt` exists; the design has no 24 h threshold.
 - A1 (Coder, SPEC-M-1): the engagement form comes from the primary source's latest revision
   (`normalized.employmentType`), classified to `B2B | EMPLOYMENT | null`. The value set was taken from the provider
