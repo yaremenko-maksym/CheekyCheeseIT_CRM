@@ -328,7 +328,7 @@ must not share one UI (spec §4.5b):
   reads «Згорнути» and keeps the draft; under the footer primary sits «Видалити чернетку». The footer «Перевірити список» opens the
   **check sheet** «Нові записи» **over the kept form** (`toast-error-unknown-list-375`), refetched on
   open. The header names what to look for, «Шукаємо: −1 250,50 USD · Витрата · надіслано 14:32», and
-  the sheet lists **only rows created after the send, newest created first** («Лише записи, створені
+  the sheet lists **only the current user's own rows created after the send, newest created first** («Лише ваші записи, створені
   після 14:32, від найновішого»), without filters or date sections, each row with its business date.
   **A highlight means a match:** only a row whose amount, currency and type equal the draft gets the
   tint, the 3 px yellow bar and «збіг · 14:33» (`toast-error-unknown-match-375`); other new rows show
@@ -338,7 +338,8 @@ must not share one UI (spec §4.5b):
   the one `role="status"`). **A failed refetch** (`toast-error-unknown-refetch-failed-375`) shows
   `role="alert"` «Не вдалося оновити список» with a 44 px «Повторити» in place of the status line and
   the list, never the empty text or «Збігів немає»; the hint reads «Список не оновився. Створити
-  транзакцію ще раз можна лише після того, як він оновиться.». Two exits under the list: «Є в списку — закрити чернетку» (closes the
+  транзакцію ще раз можна лише після того, як він оновиться.». Two exits under the list (with a «збіг» the first becomes the filled primary and the recreate
+  confirm adds «У списку є збіг о 14:33»): «Є в списку — закрити чернетку» (closes the
   draft, sends nothing) and «Немає — створити ще раз», which is `aria-disabled` (described by the hint
   line) until **60 s after the failure arrived** (not after the send: nginx `proxy_read_timeout 60s`
   and Cloudflare's 100 s mean a timeout can arrive after a send-based gate while the origin may still
@@ -346,8 +347,8 @@ must not share one UI (spec §4.5b):
   region**). It unlocks only after a **successful** refetch that ran at least 60 s after the failure
   arrived. At the gate one automatic refetch runs, and the status announces the unlock once
   («Оновлено о 14:34:01. Тепер можна створити ще раз»); then a confirm «Створити 1 250,50 USD ще
-  раз?» and exactly one new create. Wave 1 AC: the list API returns rows created after a time,
-  ordered by creation time. This is a user-confirmed new
+  раз?» and exactly one new create. Wave 1 AC: the list API returns rows created by the current user after a given time,
+  ordered by creation time, newest first. This is a user-confirmed new
   create after seeing the refreshed list, not an automatic or one-tap resubmit (provisional; the owner
   confirms at PNG approval). Closing the sheet returns to the form. When the user reaches the Finance
   list another way, the kept draft is a pinned row at the top (`listrow-draft-375`): «Чернетка 1 250,50
@@ -375,10 +376,12 @@ so only when the user tries to close a sheet with uploads running, and an armed 
 way is reported at the next boot (`state-page-kill-375`: a persistent inline alert «Транзакцію не
 збережено: застосунок закрився під час завантаження чека. Створіть її ще раз.» with «Зрозуміло»; the
 `localStorage` marker behind it is `{ t, phase }`, never an amount). A kill **after the create was
-sent** shows instead «Застосунок закрився під час збереження транзакції о 14:32. Вона могла
-зберегтися: записи після 14:32 позначено в списку. Перевірте їх, перш ніж створювати її знову.» (the
+sent** shows instead «Результат збереження транзакції о 14:32 невідомий. Вона могла зберегтися: перевірте нові
+записи, перш ніж створювати її знову.» (the
 time is the marker's `t`) with «Зрозуміло» and, on the Фінанси tab, «Оновити список» (elsewhere
-«Відкрити Фінанси»), and no resubmit; the list scrolls to the rows created after `t` and marks them «нова» (no amount is known, so nothing is a match)
+«Відкрити Фінанси»), and no resubmit; either action opens the check sheet «Нові записи» filtered from the earliest `t` (the user's own
+rows, each «нова»; no amount is known, so there is no «Шукаємо» line, no match and no exits), and the
+dated list is never scrolled
 (`alert-pagekill-sent-375`). The phases and when the marker is cleared: foundation §11. **Confirms**
 use the action-sheet confirm (`sheet-confirm-375`; `actionConfirm` in the mockup sources), two 56 px
 rows, stacked above an open sheet: `confirm-recreate-375` («Створити 1 250,50 USD ще раз?» ·
@@ -386,7 +389,7 @@ rows, stacked above an open sheet: `confirm-recreate-375` («Створити 1 
 («Видалити чернетку 1 250,50 USD?» · «Видалити» · «Залишити», for a failed or unknown draft; for an
 unknown one the description adds «Якщо транзакцію вже збережено, вона залишиться в списку.»; never
 while its request is in flight). A boot with several markers shows **one alert per phase** with a
-count and the earliest time («Застосунок закрився під час збереження 2 транзакцій, перша о 14:32…»;
+count and the earliest time («Результат збереження 2 транзакцій невідомий, перша о 14:32…»;
 foundation §11).
 
 **Money pill** (one 56 px pill, one slot): armed «Збережеться 1 250,50 USD · 62%» /

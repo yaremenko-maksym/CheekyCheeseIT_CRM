@@ -4,18 +4,7 @@
 // The primary is always enabled (except while its own request is in flight): a tap validates,
 // focuses the first invalid field and shows inline errors. Sample data is invented.
 import { icon, phone, safeBottom, systemBar, segmented, currencyPill, field } from './base.mjs'
-import {
-  tabScreen,
-  financeBody,
-  topBar,
-  txnList,
-  txnRow,
-  TXNS,
-  TABBAR_H,
-  FLOAT_RIGHT,
-  searchField,
-  chips,
-} from './mobile.mjs'
+import { tabScreen, financeBody, topBar, txnRow, TABBAR_H, FLOAT_RIGHT } from './mobile.mjs'
 import { sheet, safeTop, closeBtn } from './mobile-overlays.mjs'
 
 export const AMOUNT = '1 250,50'
@@ -321,20 +310,8 @@ export const failureUnknown = (w, h) =>
     footer: `<span class="btn secondary" role="button" style="width:100%">${icon('list', { size: 18 })}Перевірити список</span>${discardBtn}`,
   })
 
-/** Rows created after the send time (14:32): invented; marked «нова» in the list after a page kill. */
+/** The send time of the sample draft (invented). */
 export const SENT_AT = '14:32'
-export const AFTER_SEND = [
-  {
-    day: 'Сьогодні',
-    t: 'Хостинг серверів',
-    s: 'Витрата · Проєкт «Бета»',
-    a: '−45,00 USD',
-    time: '14:34',
-    ic: 'receipt',
-    neg: true,
-    isNew: true,
-  },
-]
 
 // The check sheet lists only rows created after the send, newest created first, with no filters or
 // date sections; each row carries its business date. A match (amount, currency, type) is highlighted.
@@ -392,7 +369,7 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
       : `<div class="group" style="margin-top:4px">${(rows === 'match' ? [MATCH_ROW, ...NEW_ROWS] : NEW_ROWS).map((r) => txnRow(r)).join('')}</div>`
   const body = `<div class="col" style="gap:8px;padding:0 16px 8px">
   <div class="t-sub num" style="font-weight:600">Шукаємо: −${AMOUNT} USD · Витрата · надіслано ${SENT_AT}</div>
-  <div class="t-foot muted num">Лише записи, створені після ${SENT_AT}, від найновішого</div>
+  <div class="t-foot muted num">Лише ваші записи, створені після ${SENT_AT}, від найновішого</div>
   ${
     failed
       ? `<div role="alert" class="row" style="gap:8px;padding:6px 6px 6px 12px;border-radius:12px;background:oklch(0.2 0.04 22);border:1px solid oklch(0.38 0.09 22)"><span style="color:var(--destructive)">${icon('circle-alert', { size: 16 })}</span><span class="grow t-foot" style="font-weight:600">Не вдалося оновити список</span><button type="button" class="btn sm secondary" style="height:44px">${icon('rotate-cw', { size: 16 })}Повторити</button></div>`
@@ -407,7 +384,7 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
     rows === 'none'
       ? `<div class="t-foot muted num" style="text-align:center">Збігів немає</div>`
       : ''
-  const footer = `<div style="display:grid;gap:8px;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)">${noMatch}<span class="btn secondary" role="button" style="width:100%">${icon('check', { size: 18 })}Є в списку — закрити чернетку</span>${recreate}</div>`
+  const footer = `<div style="display:grid;gap:8px;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)">${noMatch}<span class="btn ${rows === 'match' ? 'primary' : 'secondary'}" role="button" style="width:100%">${icon('check', { size: 18 })}Є в списку — закрити чернетку</span>${recreate}</div>`
   const sh = sheet({
     w,
     h,
@@ -518,7 +495,8 @@ export function toastPillStack(w, h) {
 // receipt, so no alert names an amount.
 //   armed: the create never left, so the alert says it was not saved.
 //   failed: a definite failure (or a failed receipt upload) the user never saw; nothing was saved.
-//   sent: the create left and may have committed, so the alert sends the user to the list; no resubmit.
+//   sent: the create left and may have committed. «Оновити список» opens the «Нові записи» check sheet
+//   (the user's rows created after the earliest t); the dated list is never scrolled. No resubmit.
 const KILL = {
   armed: {
     text: 'Транзакцію не збережено: застосунок закрився під час завантаження чека. Створіть її ще раз.',
@@ -535,7 +513,7 @@ const KILL = {
     glyph: 'circle-alert',
   },
   sent: {
-    text: 'Застосунок закрився під час збереження транзакції о 14:32. Вона могла зберегтися: записи після 14:32 позначено в списку. Перевірте їх, перш ніж створювати її знову.',
+    text: 'Результат збереження транзакції о 14:32 невідомий. Вона могла зберегтися: перевірте нові записи, перш ніж створювати її знову.',
     actions:
       '<span class="btn sm ghost" role="button">Зрозуміло</span><span class="btn sm secondary" role="button">Оновити список</span>',
     tone: 85,
@@ -546,11 +524,7 @@ const KILL = {
 export function pageKillAlert(w, h, phase = 'armed') {
   const k = KILL[phase]
   const alert = `<div style="padding:0 16px 12px"><div role="alert" style="padding:12px 14px;border-radius:14px;background:oklch(0.2 0.04 ${k.tone});border:1px solid oklch(0.38 0.09 ${k.tone})"><div class="row" style="gap:10px;align-items:flex-start"><span style="color:${k.ink};margin-top:1px">${icon(k.glyph, { size: 18 })}</span><div class="grow t-foot" style="font-size:15px;line-height:20px;color:oklch(0.92 0.02 ${k.tone})">${k.text}</div></div><div class="row" style="justify-content:flex-end;gap:8px;margin-top:6px">${k.actions}</div></div></div>`
-  const body =
-    phase === 'sent'
-      ? `${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾', 'Період ▾'])}${txnList([...AFTER_SEND, ...TXNS])}`
-      : financeBody()
-  return financeTab(w, h, '', `${alert}${body}`)
+  return financeTab(w, h, '', `${alert}${financeBody()}`)
 }
 
 /**
