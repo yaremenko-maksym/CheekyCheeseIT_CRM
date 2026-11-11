@@ -10,6 +10,8 @@ import {
   sectionHeaders,
   formStates,
   formMoney,
+  pickerSheet,
+  formLongText,
   formKeyboard,
 } from './prims-mobile.mjs'
 import {
@@ -78,6 +80,8 @@ export function frames() {
     C('formfield-768', 768, 500, formfieldTablet()),
     D('formfield-1440', 1440, 360, formfieldDesktop(), true),
     M('form-money-375', 375, 812, formMoney(375, 812)),
+    M('picker-sheet-375', 375, 812, pickerSheet(375, 812)),
+    M('form-longtext-375', 375, 812, formLongText(375, 812)),
     M('form-keyboard-375', 375, 812, formKeyboard(375, 812)),
     D('sheet-panel-768', 768, 1024, panelTablet(768, 1024)),
     D('sheet-panel-1024', 1024, 768, panelDesktop(1024, 768)),

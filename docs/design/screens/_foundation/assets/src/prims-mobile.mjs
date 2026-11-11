@@ -1,6 +1,6 @@
 // Primitives v2, mobile part: ResponsiveSheet (mobile), ListRow, section header, FormField, keyboard-open.
 import { icon, phone, safeBottom, field, segmented } from './base.mjs'
-import { moneyForm, primaryBtn } from './money-form.mjs'
+import { moneyForm, primaryBtn, submitBar, textKeyboard, TEXT_H } from './money-form.mjs'
 export { field, segmented }
 import { tabScreen, financeBody, txnRow, TXNS, topBar, PEOPLE } from './mobile.mjs'
 import { sheet, closeBtn, safeTop } from './mobile-overlays.mjs'
@@ -52,13 +52,41 @@ export function formStates(w, h) {
   })
 }
 
-/** Pushed-screen variant of the canonical money form: no keyboard, optional fields expanded, empty receipt. */
-export const formMoney = (w, h) =>
-  moneyForm({ w, h, variant: 'page', receipt: 'empty', expanded: true })
+/** Pushed-screen variant of the canonical money form: no keyboard, empty receipt, the same defaults row as the sheet. */
+export const formMoney = (w, h) => moneyForm({ w, h, variant: 'page', receipt: 'empty' })
 
 /** Keyboard open: the focused field scrolls above the keyboard; the bottom bar rides on top of it. */
 export const formKeyboard = (w, h) =>
   moneyForm({ w, h, receipt: 'done', expanded: true, focus: 'note', keyboard: 'text', scroll: 250 })
+
+// ---------- PickerSheet: one medium sheet for project, user, currency and role ----------
+export function pickerSheet(w, h) {
+  const opt = (ic, label, { cur = false, sub = '' } = {}) =>
+    `<div class="lrow" role="option" aria-selected="${cur}" style="--inset:60px;min-height:56px"><div class="lead" style="width:32px;height:32px;border-radius:9px">${icon(ic, { size: 18 })}</div><div class="grow col" style="gap:1px;min-width:0"><div class="t-body trunc" style="${cur ? 'font-weight:600' : ''}">${label}</div>${sub ? `<div class="t-foot muted trunc">${sub}</div>` : ''}</div>${cur ? `<span style="color:var(--primary)">${icon('check', { size: 20, stroke: 2.6 })}</span>` : ''}</div>`
+  const sec = (t) =>
+    `<div class="sechead" style="padding-top:14px"><span class="t-over">${t}</span></div>`
+  const search = `<div style="position:sticky;top:0;z-index:2;padding:4px 16px 10px;background:var(--popover)"><div class="row" role="searchbox" aria-label="Пошук проєкту" style="gap:8px;height:44px;padding:0 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font-size:16px"><span class="muted">${icon('search', { size: 18 })}</span><span class="ph grow">Пошук проєкту</span></div></div>`
+  const body = `${search}<div role="listbox" aria-label="Проєкт">
+  <div class="group">${opt('circle-off', 'Без проєкту')}</div>
+  ${sec('Нещодавні')}<div class="group">${opt('folder', 'Проєкт «Альфа»', { cur: true, sub: 'Використано сьогодні' })}${opt('folder', 'Проєкт «Бета»', { sub: 'Використано вчора' })}</div>
+  ${sec('Усі проєкти')}<div class="group">${opt('folder', 'Проєкт «Гамма»')}${opt('folder', 'Проєкт «Дельта»')}${opt('folder', 'Інфраструктура')}</div></div>`
+  const picker = sheet({ w, h, top: Math.round(h * 0.3), title: 'Проєкт', trail: closeBtn, body })
+  return moneyForm({ w, h, receipt: 'done', expanded: true, over: picker })
+}
+
+// ---------- TextEditor: long text with {{placeholders}} (contract templates), keyboard open ----------
+export function formLongText(w, h) {
+  const v = (t) => `<span style="color:var(--primary)">{{${t}}}</span>`
+  const text = `Договір № ${v('contract_number')}<br>м. Київ, ${v('contract_date')}<br><br>${v('client_name')}, надалі «Замовник», з однієї сторони, та ${v('contractor_name')}, надалі «Виконавець», з другої сторони, уклали цей договір про таке.<br><br>1. Виконавець надає послуги з розробки програмного забезпечення за ставкою ${v('rate_usd')} USD на годину, починаючи з <span class="caret" style="height:20px"></span>`
+  const editor = `<div class="field"><label for="tpl">Текст шаблону</label><div id="tpl" role="textbox" aria-multiline="true" class="input" style="height:auto;min-height:120px;align-items:flex-start;padding:12px 14px;font-size:16px;line-height:24px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)"><span style="display:block">${text}</span></div></div>`
+  const fields = `${field({ id: 'tn', label: 'Назва шаблону', value: 'Договір підряду · USD' })}${editor}`
+  const chip = (label, tok) =>
+    `<span class="btn sm secondary" role="button" aria-label="Вставити змінну ${label}" style="height:36px;flex:none;font-size:14px;padding:0 12px;border-radius:18px">${label}<span class="muted" style="font-size:12px">{{${tok}}}</span></span>`
+  const chips = `<div class="row" style="gap:8px;margin:0 -16px 8px;padding:4px 16px;min-height:44px;overflow:hidden;white-space:nowrap"><span class="t-foot muted" style="flex:none">Вставити змінну</span>${chip('Дата початку', 'start_date')}${chip('Клієнт', 'client_name')}${chip('Ставка', 'rate_usd')}</div>`
+  const bar = submitBar({ w, kbdH: TEXT_H, inner: `${chips}${primaryBtn('Зберегти шаблон')}` })
+  const inner = `${topBar({ back: true, title: 'Шаблон договору', bell: false, search: false })}<div class="content col" style="gap:18px;padding:12px 16px 0;transform:translateY(-40px)">${fields}</div>${bar}${textKeyboard()}`
+  return phone({ w, h, inner })
+}
 
 // ---------- ResponsiveSheet (mobile) ----------
 export function sheetMedium(w, h) {

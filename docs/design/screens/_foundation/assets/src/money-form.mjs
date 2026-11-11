@@ -70,6 +70,20 @@ export function optionalFields({ focus = '', dateError = false } = {}) {
   ].join('')
 }
 
+/** The canonical body (alert, receipt, amount + currency + type, defaults row or expanded fields). */
+export const moneyBody = ({
+  amount = AMOUNT,
+  cur = 'USD',
+  receipt = 'uploading',
+  expanded = false,
+  focus = '',
+  dateError = false,
+  alert = '',
+  scroll = 0,
+  pad = '4px 16px 120px',
+} = {}) =>
+  `<div class="col" style="gap:14px;padding:${pad};transform:translateY(-${scroll}px)">${alert}${receiptCard(receipt)}${amountBlock({ focus: focus === 'amount', amount, cur })}${expanded ? `<div class="col" style="gap:16px">${optionalFields({ focus, dateError })}</div>` : defaultsRow()}</div>`
+
 /** Bottom submit bar: sits on the keyboard (tracks visualViewport) or above the home indicator. */
 export function submitBar({ w = 375, kbdH = 0, inner }) {
   const pad = kbdH ? 8 : safeBottom(w) + 8
@@ -138,7 +152,7 @@ export function moneyForm({
   over = '',
 }) {
   const kbdH = keyboard === 'decimal' ? DECIMAL_H : keyboard === 'text' ? TEXT_H : 0
-  const body = `<div class="col" style="gap:14px;padding:4px 16px 120px;transform:translateY(-${scroll}px)">${alert}${receiptCard(receipt)}${amountBlock({ focus: focus === 'amount', amount, cur })}${expanded ? `<div class="col" style="gap:16px">${optionalFields({ focus, dateError })}</div>` : defaultsRow()}</div>`
+  const body = moneyBody({ amount, cur, receipt, expanded, focus, dateError, alert, scroll })
   const bar = submitBar({ w, kbdH, inner: footer })
   const kbd = keyboard === 'decimal' ? decimalPad() : keyboard === 'text' ? textKeyboard() : ''
   if (variant === 'page') {
