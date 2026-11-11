@@ -1,12 +1,12 @@
 import { MAX_EXTRACTION_INPUT_CHARS } from '@crm/inference'
 import type { ResumeContent, ResumeFacts, ResumeVerificationErrorCode } from '@crm/shared'
-import { resumeWriteInput } from '../../extraction-worker/resume-write'
 import { toRenderableText, type GlyphFontSet } from '../resume-glyphs'
 import { redactContacts, scanContacts, type ContactContext } from './contact-scan'
 import { yearsOfExperience } from './derive-content'
 import { findUngroundedTokens, type FactSource } from './fact-gate'
 import {
   ENTAILMENT_THRESHOLD,
+  resumeWriteInput,
   type EntailmentClaim,
   type WriterReply,
   type WriterTask,

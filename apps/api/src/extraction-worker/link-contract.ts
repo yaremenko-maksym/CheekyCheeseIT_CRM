@@ -80,6 +80,16 @@ export const visualCheckBodySchema = z
   })
   .strict()
 
+/**
+ * The `resume-write` user message: the facts, then the gate feedback, both as data. Here, not in the
+ * worker, because the API sizes its payload against the same message (P9).
+ */
+export function resumeWriteInput(payload: string, feedback: readonly string[]): string {
+  const facts = `FACTS (JSON):\n${payload}`
+  if (feedback.length === 0) return facts
+  return `${facts}\n\nFEEDBACK ON THE PREVIOUS DRAFT:\n${feedback.map((f) => `- ${f}`).join('\n')}`
+}
+
 /** `resume-write` reply data, per task. */
 export const summaryReplySchema = z.object({ summary: z.string().min(1).max(2000) }).strict()
 export const bulletsReplySchema = z

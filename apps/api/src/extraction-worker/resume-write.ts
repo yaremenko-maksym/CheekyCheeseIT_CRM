@@ -1,9 +1,9 @@
 import type { ExtractionPort } from '@crm/inference'
 import { z } from 'zod'
-import { bulletsReplySchema, summaryReplySchema } from './link-contract'
+import { bulletsReplySchema, resumeWriteInput, summaryReplySchema } from './link-contract'
 import type { ResumeWriteBody } from './schema'
 
-export { bulletsReplySchema, summaryReplySchema }
+export { bulletsReplySchema, resumeWriteInput, summaryReplySchema }
 
 /** Shared by both prompts: the adopted career-ops rules. */
 const RULES = `Rules:
@@ -30,13 +30,6 @@ export type ResumeWriteReply =
   | { kind: 'ok'; summary: string }
   | { kind: 'ok'; items: { index: number; bullets: string[] }[] }
   | { kind: 'unavailable'; reason: string }
-
-/** The user message: the facts, then the gate feedback, both as data. */
-export function resumeWriteInput(payload: string, feedback: readonly string[]): string {
-  const facts = `FACTS (JSON):\n${payload}`
-  if (feedback.length === 0) return facts
-  return `${facts}\n\nFEEDBACK ON THE PREVIOUS DRAFT:\n${feedback.map((f) => `- ${f}`).join('\n')}`
-}
 
 /**
  * One writing call on the strongest healthy model (R15). The router validates the reply against the

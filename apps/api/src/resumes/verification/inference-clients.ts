@@ -17,6 +17,7 @@ import type { Env } from '../../config/env'
 import {
   bulletsReplySchema,
   findingsReplySchema,
+  resumeWriteInput,
   summaryReplySchema,
   visualCheckBodySchema,
 } from '../../extraction-worker/link-contract'
@@ -24,6 +25,9 @@ import {
   readExtractionWorkerEnv,
   WORKER_ADAPTER_TIMEOUT_MS,
 } from '../../job-sourcing/structuring/model-extraction-wiring'
+
+/** The worker's user message, for sizing a payload against its cap (P9). */
+export { resumeWriteInput }
 
 export type WriterTask = 'summary' | 'bullets'
 export type EntailmentClaim = { id: string; text: string; sources: string[] }
