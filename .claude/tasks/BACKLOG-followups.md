@@ -7769,7 +7769,8 @@ different window each render both labels and both windows; a full meter with an 
 state.
 
 Sources: PR #1321 copy review (COPY-4), code review (CR-L-1), second-opinion panel (claude:sonnet, gemini), live QA
-(QA LOW 2: «Ліміт вичерпано» above a meter bar at 24% reads as a contradiction).
+(QA LOW 2: «Ліміт вичерпано» above a meter bar at 24% reads as a contradiction), design review (UX-01: both
+quotas are called «Ліміт»).
 
 ## 419. Source switch card: limit wording beside the bar (2026-11-11)
 
@@ -7796,7 +7797,7 @@ the effective collection state, then Coder (uk + en) and copy review.
 **Verify.** A unit test renders an enabled source with a `MISCONFIGURED` budget and asserts the chip and the budget row
 agree.
 
-Sources: PR #1321 live QA (QA LOW 3).
+Sources: PR #1321 live QA (QA LOW 3), design review (UX-02: the state chip ignores the budget state).
 
 ## 421. Job sources list: no stable order, a toggled source moves to the end (2026-11-11)
 
