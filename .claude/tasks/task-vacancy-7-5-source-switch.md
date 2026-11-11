@@ -77,6 +77,46 @@ queue page for ADMIN as the collapsed section «Джерела вакансій�
 
 - A1 (Master): the design step of plan r5 ("Design Tier 2") is covered by the existing spec §7 and the four reference PNGs; no
   new Claude Design run. Mode B on the live stack checks conformance.
+- A2 (Master, SPEC-M-1): widening the meter beyond what the server stores today goes to the Phase 7 closing
+  decision brief, not into this PR.
+- A1 (Coder): `listSources` projects an elapsed meter window (`resets_at <= clock_timestamp()`) as `used: 0`,
+  `resetsAt: null`; `reserved` / `uncertain` stay as stored. A window resets in place only on the next write.
+- A1 (Coder): meter bigint cells are read as `::float8`; a cell of the wrong type drops the whole `meter` to
+  `null` rather than a partial object.
+- A1 (Coder): `jobSourceMeterSchema` is a strict allow-list (`unit`, `window`, `limit`, `used`, `reserved`,
+  `uncertain`, `resetsAt`); meter id, account key and policy version are not exposed.
+- A1 (Coder): the meter beats the legacy per-source counter in `SourceSwitchCard` / `QuotaBar`; the legacy
+  counter renders used-only.
+- A1 (Coder): `SourceSwitchCard` always shows the server's `enabled`; `useSetJobSourceEnabled` has no
+  optimistic update, so a refused enable needs no rollback; a ref guard keeps a double activation to one request.
+- A1 (Coder): the blocked chip uses Lingui context `job source readiness` (bare «Заблоковано» is "Locked" in
+  the finance catalog); the `SourceBudgetPanel` loading line uses context `job source list` (bare
+  «Завантаження…» is "Uploading…"). The load error reuses "Could not load source health."
+- A1 (Coder): the collapsed «Джерела вакансій» section sits at the top of the `job-queue` route body, closed by
+  default, so the infinite list cannot bury it.
+- A1 (Coder): `SourceBudgetRow` moved to its own file without behaviour change, so panel and card do not import
+  each other.
+- A1 (Coder, SPEC-H-1): `sourceDeadlines` (`production-catalog.ts`) resolves `policyUntil` / `authUntil` per
+  source row from the row's `type` plus the snapshot entry matching `manifest_id`, earliest per kind
+  (`POLICY_EXPIRES`, `AUTH_REQUIRED_FROM`); ISO instants or `null`, ADMIN-only in `jobSourceSchema`. The card
+  shows an absolute date via `formatDeadline`, or «ніколи».
+- A1 (Coder, SPEC-M-2, CR-L-1): the `SourceSwitchCard` `CHIP` table follows design §7/§8 (running outline +
+  `Check`; disabled `secondary` + `Power`, `text-foreground` for contrast; paused `yellow-subtle` /
+  `yellow-muted` + `Pause`; blocked destructive outline + `Lock`); raw `amber-*` / `green-*` removed.
+- A1 (Coder, CR-M-1): the card `li` carries `@container` so `@min-[560px]:grid-cols-3` applies.
+- A1 (Coder, COPY-H-1): `readinessPhrases` never renders the server's `readinessReason`; known blocker codes map
+  to uk/en phrases, deduplicated, joined with «; »; unknown or none reads «Не готове до роботи» / "Not ready to run".
+- A1 (Coder, COPY-M-1): the refusal alert reads bold «Не вдалося увімкнути.» then `{reason} Стан не змінено.`;
+  `endSentence` adds a period only when the text does not already end in `.`, `!`, `?` or `…`.
+- A1 (Coder, COPY-M-2, COPY-L-1): `quota-format.ts` formats with `Intl.NumberFormat(activeLocale)` and USD for
+  money; the `QuotaBar` unit word agrees with the limit through one module-level ICU plural `msg` per unit
+  (`QUOTA_LINE`), not `plural()`.
+- A1 (Coder, COPY-L-2): the `QuotaBar` headline numerator is `used + reserved + uncertain`, as the design's
+  `quota()` computes and the filled bar adds up.
+- A1 (Coder, COPY-L-3, COPY-L-4): en «Last success»; an admin pause with no time reads «Призупинено
+  адміністратором» / "Paused by an administrator".
+- A1 (Coder): the deadline integration case uses a `RECRUITEE_ATS` source (`recruitee.board.bunq`, namespace
+  `m75-<tag>`, required by `ck_job_sources_inventory_namespace_nonempty`) on scratch DB `crm_scratch_75` only.
 
 ## Verification (Coder before `git push`)
 
