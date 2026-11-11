@@ -969,33 +969,43 @@ describe('AC4 — timestamps', () => {
   })
 
   it('writes the UTC calendar day of a deadline in every time zone', async () => {
-    // restore the resolved zone, not `delete`: ICU keeps the last assigned zone otherwise
-    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    // The zone is injected, not switched through `process.env.TZ` (a second assignment does not
+    // take effect under every runner): a call WITHOUT an explicit `timeZone` runs in the test
+    // zone, a call with `timeZone: 'UTC'` keeps it.
+    const real = Date.prototype.toLocaleDateString
     // a deadline is a calendar day: 23:30 UTC is the next day east of UTC, 00:30 UTC the day
     // before west of it, and neither may move it
     listed = [
       source({ policyUntil: '2027-03-05T23:30:00.000Z', authUntil: '2027-12-09T00:30:00.000Z' }),
     ]
-    try {
-      // [zone, local calendar day of each instant in that zone]: the zone must really apply before
-      // the panel is rendered, or this test would pass without `timeZone: 'UTC'` in the formatter
-      for (const [tz, localDays] of [
-        ['Pacific/Kiritimati', [6, 9]],
-        ['Pacific/Pago_Pago', [5, 8]],
-      ] as const) {
-        process.env.TZ = tz
+    // [zone, local calendar day of each instant in that zone]
+    for (const [tz, localDays] of [
+      ['Pacific/Kiritimati', ['06', '09']],
+      ['Pacific/Pago_Pago', ['05', '08']],
+    ] as const) {
+      const spy = vi.spyOn(Date.prototype, 'toLocaleDateString').mockImplementation(function (
+        this: Date,
+        locales,
+        options,
+      ) {
+        return real.call(this, locales, options?.timeZone ? options : { ...options, timeZone: tz })
+      })
+      try {
+        // the injected zone must really apply, or this test would pass without `timeZone: 'UTC'`
+        const localDay = (iso: string) =>
+          new Date(iso).toLocaleDateString('en-GB', { day: '2-digit' })
         expect([
-          new Date('2027-03-05T23:30:00.000Z').getDate(),
-          new Date('2027-12-09T00:30:00.000Z').getDate(),
+          localDay('2027-03-05T23:30:00.000Z'),
+          localDay('2027-12-09T00:30:00.000Z'),
         ]).toEqual(localDays)
         const view = renderPanel()
         await screen.findByRole('switch', { name: 'DOU' })
         expect(valueOf('Політика діє до')).toBe('05.03.2027')
         expect(valueOf('Авторизація до')).toBe('09.12.2027')
         view.unmount()
+      } finally {
+        spy.mockRestore()
       }
-    } finally {
-      process.env.TZ = zone
     }
   })
 
