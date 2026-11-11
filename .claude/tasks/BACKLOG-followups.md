@@ -7672,3 +7672,68 @@ match row (and, in a second case, a LEAD row) on an opportunity; HR of team A mu
 team predicate is removed from the `noMatchReason` stats.
 
 Sources: PR #1313 security review round 2 (SR2-L-1).
+
+## 412. Quota bar: a meter's `resetsAt` is not shown (2026-11-11)
+
+**Symptoms.** `QuotaBar` shows used / reserved / uncertain of the limit, but not when the meter window resets, although
+the `meter.resetsAt` field is in the ADMIN source projection. An admin sees a full bar with no hint when it empties.
+
+**Status.** Coder: add the reset time under the bar for a meter with a non-null `resetsAt` (uk + en, Lingui), the same
+wording as the legacy budget row («оновиться …»). Copy review on the new string.
+
+**Verify.** A unit test renders a meter with `resetsAt` and finds the formatted reset time; a meter with `resetsAt: null`
+shows none.
+
+Sources: PR #1312 copy review round 4 (COPY4-L-2 follow-up).
+
+## 413. Errors without an API error code show the raw server text (2026-11-11)
+
+**Symptoms.** `getUserFacingErrorMessage` translates an error envelope by its code; without a code it returns
+`extractBackendMessage` verbatim (by design, for validation details and business rules). A backend text written in
+English or Russian therefore reaches a `uk` user as is. Seen on the source switch refusal path; the helper is app-wide
+and older than that PR.
+
+**Status.** Decide first (A2): either every endpoint a user can hit returns an envelope code, or the backend-message
+fallback is limited to known validation shapes and the rest gets the generic localized message. Check the callers that
+rely on the backend text before changing the helper.
+
+**Verify.** A unit test feeds the helper an error with no code and a plain backend `message`, and the expected output is
+the one the decision names.
+
+Sources: PR #1312 manual QA round 4 (QA4-LOW-2).
+
+## 414. Job queue: the list row still shows «Потребує розгляду» for an excluded opportunity (2026-11-11)
+
+**Symptoms.** `JobQueueCard` hides the triage badge when `noMatchReason` is `EXCLUDED` (Task 7.3b, UX-M-2). `JobQueueRow`
+derives its badge from `eligibility === 'TRIAGE'` alone, so the same opportunity shows the badge in the list and not on
+the card.
+
+**Status.** Coder: one rule for both. Either the list item carries `noMatchReason` (or an equivalent flag) and the row
+applies the card's rule, or the decision is recorded that the list keeps the coarse badge. Check the list payload first.
+
+**Verify.** A unit test renders a row and a card for the same excluded TRIAGE item and both agree on the badge.
+
+Sources: PR #1313 code review round 4 (CR4-L-1).
+
+## 415. Job queue: stack keywords have no canonical casing (2026-11-11)
+
+**Symptoms.** Stack chips show keywords as stored, in lowercase («typescript», «postgresql»). CSS capitalisation would
+misspell names like TypeScript, so the card keeps the raw token.
+
+**Status.** Coder: a small casing map for known keywords in `@crm/shared` (display only; matching stays lowercase),
+used by the card and the senior «Збіг за:» chips. Unknown tokens stay as stored.
+
+**Verify.** A unit test maps «typescript» to «TypeScript» and leaves an unknown token unchanged.
+
+Sources: PR #1313 ui-ux review round 3 (UX-L-4, Master A1).
+
+## 416. Job queue: the triage empty state names the employer (2026-11-11)
+
+**Symptoms.** For a TRIAGE card with a verified employer, the empty state wording points at the employer as the reason,
+although the triage reason may be elsewhere.
+
+**Status.** Copy first (copy-reviewer, uk + en): a neutral wording. Then Coder swaps the catalog entries.
+
+**Verify.** The empty state of a TRIAGE card with a verified employer does not name the employer.
+
+Sources: PR #1313 manual QA round 3 (QA-LOW-2, Master A1).
