@@ -55,6 +55,13 @@ were moved here instead of a fifth review round. Each item below names the findi
 ## Assumptions
 
 - A1 (Master): one PR for all items; no API change (the budget state and the meter are already in `jobSourceSchema`).
+- A1 (Coder): beside a quota bar, the «Ліміт вичерпано» line and its reset time come from the per-source `budget.resetsAt`,
+  not from the meter's `resetsAt` (the two windows are independent).
+- A1 (Coder): the trigger label is its own muted line, «(за розкладом)» / «(за кнопкою)», rendered between the note and
+  the budget row (`SourceTriggerLabel`, `data-testid="job-source-trigger"`); the queue-page card renders none.
+- A1 (Coder): the budget row keeps its `sm:flex-row sm:justify-between` layout classes; only its placement changes.
+- A1 (Coder): tests add a `NO_LIMIT_METER` fixture (a meter with a null limit) so the "no bar, legacy row" branch is
+  covered next to the metered states.
 
 ## Verification (Coder before `git push`)
 
