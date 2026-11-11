@@ -10,8 +10,14 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLingui } from '@lingui/react/macro'
-import type { ResumeContent, ResumeLayoutOptions, SeniorResumeResponse } from '@crm/shared'
+import type {
+  ResumeContent,
+  ResumeFacts,
+  ResumeLayoutOptions,
+  SeniorResumeResponse,
+} from '@crm/shared'
 import { api } from '@/lib/axios'
+import { getUserFacingErrorMessage } from '@/lib/axios-utils'
 
 /** Same base the axios client uses — needed for plain <a href> downloads. */
 export const API_BASE_URL: string = import.meta.env.VITE_API_URL ?? '/api'
@@ -39,7 +45,9 @@ export function useSeniorResume(userId: string | undefined, enabled = true) {
       // hand, which is the failure the extraction polling already exists to
       // avoid.
       const rendering = resume?.renderStatus === 'QUEUED' || resume?.renderStatus === 'RUNNING'
-      return extracting || rendering ? POLL_INTERVAL_MS : false
+      // A check run moves the row on the server too (QUEUED → CHECKING → result).
+      const checking = resume?.verificationBusy === true
+      return extracting || rendering || checking ? POLL_INTERVAL_MS : false
     },
   })
 }
@@ -168,6 +176,58 @@ export function useSaveResumeContent(userId: string) {
       toast.success(t`Резюме збережено`)
     },
     onError: (e: Error) => toast.error(e.message),
+  })
+}
+
+/**
+ * A facts or submit write failed. Every error toasts its catalog text (409
+ * RESUME_VERIFICATION_BUSY, 422 RESUME_INCOMPLETE / RESUME_CUSTOM_TEMPLATE) and
+ * refetches: a busy answer means the server state moved, and the UI must
+ * become that state rather than keep guessing.
+ */
+function useResumeWriteError(userId: string) {
+  const qc = useQueryClient()
+  return (e: unknown) => {
+    toast.error(getUserFacingErrorMessage(e))
+    void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
+  }
+}
+
+/** `PUT facts`. `silent` skips the "saved" toast when Submit saves first. */
+export function useSaveResumeFacts(userId: string) {
+  const qc = useQueryClient()
+  const { t } = useLingui()
+  const onError = useResumeWriteError(userId)
+  return useMutation({
+    mutationKey: ['save-senior-resume-facts', userId],
+    mutationFn: ({ facts }: { facts: ResumeFacts; silent?: boolean }) =>
+      api
+        .put<SeniorResumeResponse>(`/users/${userId}/resume/facts`, { facts })
+        .then((r) => r.data),
+    onSuccess: (data, { silent }) => {
+      qc.setQueryData(resumeQueryKey(userId), data)
+      void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
+      if (!silent) toast.success(t`Чернетку збережено`)
+    },
+    onError,
+  })
+}
+
+/** `POST submit` — starts the check run. */
+export function useSubmitResume(userId: string) {
+  const qc = useQueryClient()
+  const { t } = useLingui()
+  const onError = useResumeWriteError(userId)
+  return useMutation({
+    mutationKey: ['submit-senior-resume', userId],
+    mutationFn: () =>
+      api.post<SeniorResumeResponse>(`/users/${userId}/resume/submit`).then((r) => r.data),
+    onSuccess: (data) => {
+      qc.setQueryData(resumeQueryKey(userId), data)
+      void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
+      toast.success(t`Резюме надіслано на перевірку`)
+    },
+    onError,
   })
 }
 

@@ -26,6 +26,9 @@ interface MonthPickerFieldProps {
   'aria-describedby'?: string | undefined
   'aria-labelledby'?: string | undefined
   'data-testid'?: string | undefined
+  /** Accessible names of the two selects; default to the salary wording. */
+  monthAriaLabel?: string | undefined
+  yearAriaLabel?: string | undefined
 }
 
 // 'YYYY-MM' -> months since year 0; split() on purpose, a Date round-trip drifts with TZ.
@@ -51,6 +54,8 @@ export function MonthPickerField({
   'aria-describedby': describedBy,
   'aria-labelledby': labelledBy,
   'data-testid': testId,
+  monthAriaLabel,
+  yearAriaLabel,
 }: MonthPickerFieldProps) {
   const { t } = useLingui()
   const locale = useLocale()
@@ -100,7 +105,7 @@ export function MonthPickerField({
       >
         <SelectTrigger
           id={id}
-          aria-label={t`Місяць зарплати`}
+          aria-label={monthAriaLabel ?? t`Місяць зарплати`}
           aria-invalid={invalid}
           aria-describedby={describedBy}
           className={cn('h-9 min-w-0 flex-1 text-sm', invalidCls)}
@@ -131,7 +136,7 @@ export function MonthPickerField({
         disabled={disabled ?? false}
       >
         <SelectTrigger
-          aria-label={t`Рік зарплати`}
+          aria-label={yearAriaLabel ?? t`Рік зарплати`}
           aria-invalid={invalid}
           aria-describedby={describedBy}
           className={cn('h-9 w-[5.5rem] shrink-0 text-sm tabular-nums', invalidCls)}

@@ -12,11 +12,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { EMPTY_RESUME_FACTS, type ResumeFacts } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
-const putMock = vi.fn()
-const postMock = vi.fn()
+const { putMock, postMock, toastError } = vi.hoisted(() => ({
+  putMock: vi.fn(),
+  postMock: vi.fn(),
+  toastError: vi.fn(),
+}))
 vi.mock('@/lib/axios', () => ({ api: { put: putMock, post: postMock, get: vi.fn() } }))
 
-const toastError = vi.fn()
 vi.mock('sonner', () => ({ toast: { error: toastError, success: vi.fn() } }))
 
 import { useSaveResumeFacts, useSubmitResume } from '@/hooks/use-senior-resume'
