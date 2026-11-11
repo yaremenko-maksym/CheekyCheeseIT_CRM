@@ -16,22 +16,19 @@ const navRow = (ic, label, extra = '') =>
 
 // ---------- ListRow ----------
 export function listrowTablet() {
-  const sel = txnRow(TXNS[0]).replace(
-    'class="lrow two"',
-    'class="lrow two" aria-current="true" style="--inset:64px;background:var(--raised)"',
-  )
+  // 640–899 is one pane: a row pushes its detail, so there is no selected (aria-current) row here.
   const pressed = txnRow(TXNS[1]).replace(
     'class="lrow two"',
     'class="lrow two" style="--inset:64px;background:var(--accent)"',
   )
-  const left = `<div style="width:320px">${cap('Список у двопанельному макеті · 320')}<div class="group" style="margin:0">${sel}${pressed}${txnRow(TXNS[2])}</div>
-  <div class="t-cap muted" style="margin-top:8px">обраний (aria-current) · натиснутий · очікує</div></div>`
+  const left = `<div style="width:320px">${cap('Одна панель · 640–899')}<div class="group" style="margin:0">${txnRow(TXNS[0])}${pressed}${txnRow(TXNS[2])}</div>
+  <div class="t-cap muted" style="margin-top:8px">натиснутий · очікує; без обраного рядка</div></div>`
   const right = `<div class="grow">${cap('Повна ширина · налаштування')}<div class="group" style="margin:0">${navRow('languages', 'Мова', '<span class="muted t-sub">Українська</span>')}${navRow('bell', 'Сповіщення', toggle(true, 'Сповіщення'))}${navRow('shield', 'Безпека')}</div>
   <div class="t-cap muted" style="margin-top:8px">висоти як на мобільному: 56 / 64, ціль ≥ 44</div></div>`
   return board(
     768,
     'ListRow · 768',
-    'Планшет — дотик: метрики мобільного рядка, дві панелі; обраний рядок підсвічено, а не відкрито поверх.',
+    'Планшет — дотик: метрики мобільного рядка. 640–899: одна панель, рядок відкриває деталь окремим екраном. Обраний рядок — лише від 900 px.',
     `<div class="row" style="gap:24px;align-items:flex-start">${left}${right}</div>`,
   )
 }

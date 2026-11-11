@@ -98,7 +98,7 @@ export function tablet({
   <div class="sechead"><span class="t-over">Сьогодні</span></div>
   <div class="group" style="margin:0 12px">${TXNS.slice(0, 3)
     .map((x, i) =>
-      i === 0
+      i === 0 && twoPane
         ? txnRow(x).replace(
             'class="lrow two"',
             'class="lrow two" aria-current="true" style="--inset:64px;background:var(--raised)"',
