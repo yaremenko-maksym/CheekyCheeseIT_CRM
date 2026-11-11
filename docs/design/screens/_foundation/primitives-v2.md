@@ -206,7 +206,7 @@ the title is the file name and the status line reads «Завантаження 
 only at 100% (status «220 КБ», which truncates with an ellipsis before it can run under «Замінити»).
 **Upload failed** (`form-receipt-failed-375`): the card stays, red, with «Не завантажено · 220 КБ», the
 error «Чек не завантажився: з’єднання перервалося» and two 44 px exits «Повторити» / «Замінити»; on an
-armed draft this makes the draft **failed** (foundation §11), never a silent disarm. The percent is the thumbnail ring's `progressbar`, not a
+armed draft this makes the draft **failed** (foundation §11), never a silent disarm. «Повторити» re-arms it: the payload and the intent are kept, so one tap retries the upload and arms the same save again. The percent is the thumbnail ring's `progressbar`, not a
 live region (the status text is `aria-hidden`). **Below 360 px** «Замінити» becomes a 44 px icon button
 `refresh-cw` (`aria-label` «Замінити чек») and the status line shows only «62%»
 (`shell-v2/quick-add-txn-armed-320`). **Effective currency USDT: a link only**, and it must be a
@@ -291,7 +291,9 @@ it closes the sheet and the save stays armed; a drag down and a scrim tap do the
 sheet the global upload pill carries the save; the result then stays in the pill until tapped
 (`upload-pill-saved-375`, `upload-pill-failed-375`); a sheet never opens by itself. A page kill is
 reported at the next boot by the marker's phase (`state-page-kill-375` armed, `alert-pagekill-sent-375`
-sent). The amount never truncates: at 320 it steps 44 →
+sent). On `sent` the alert opens the check sheet with no draft form behind it: it names the time, not an
+amount, offers no resubmit and closes with «Зрозуміло» (`check-sheet-boot-375`); a failed refetch there
+reuses the «Не вдалося оновити список» alert with «Повторити». The amount never truncates: at 320 it steps 44 →
 34 px, the armed label wraps to two lines, and the sheet title truncates (`quick-add-txn-armed-320`).
 
 ---
@@ -429,7 +431,8 @@ for a tooltip with the exact value (the hit area is the full-height column band;
 12-bar «Рік», drag-scrub with a persistent value line above the chart, foundation §7.4); the period is a 44 px segmented control (swipe is an extra, not the
 only way). The second, smaller chart (partners) sits **below the fold** (`chart-mobile-scrolled-375`),
 with the partners' **initials** («ВК», «ОШ») directly under their bars, no legend, and the full
-names in the accessible summary. `chart-desktop`: hover tooltip, keyboard focus on bars (arrow keys), series swatches carry
+names in the accessible summary. Bars and ticks carry bare numbers («4,2», «8»); the caption row states
+the unit once («тис. USD»), and the accessible summary says «тис. USD». `chart-desktop`: hover tooltip, keyboard focus on bars (arrow keys), series swatches carry
 token names, the chart follows the table filters.
 
 ---

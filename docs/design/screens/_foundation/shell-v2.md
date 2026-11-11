@@ -123,7 +123,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   backgrounding does not disarm; a page kill is reported at the next boot with one alert per phase
   (`armed` and `failed`: not saved; `sent`: check the list, no resubmit). An upload failure on an armed draft makes it **failed**
   (foundation §11), never a silent disarm: the error sits on the receipt card with «Повторити» /
-  «Замінити», and with the sheet closed the pill reads «Не збережено 1 250,50 USD · Відкрити»
+  «Замінити» («Повторити» re-arms it: the payload and the intent are kept, so one tap retries the upload and arms the same save again), and with the sheet closed the pill reads «Не збережено 1 250,50 USD · Відкрити»
   (`primitives-v2/form-receipt-failed-375`). A failed or unknown draft closes with «Згорнути» (a drag or
   a scrim tap does the same) and is kept; «Видалити чернетку» under the primary discards it after the
   named confirm. An unknown draft is read-only until it leaves that state, its optional fields expanded as read-only

@@ -208,6 +208,7 @@ export {
   draftsTwoUnresolved,
   toastPillStack,
   pageKillAlert,
+  checkSheetBoot,
   listrowDraft,
   confirmRecreate,
   confirmDiscardDraft,
@@ -271,7 +272,7 @@ function netBars(W, H, { labelSize = 11, pad = 28 } = {}) {
   const grid = [8, 4, 0]
     .map(
       (g) =>
-        `<line x1="${pad}" x2="${W - 4}" y1="${y(g)}" y2="${y(g)}" stroke="var(--chart-grid)" ${g ? 'stroke-dasharray="2 4"' : ''}/><text x="${pad - 6}" y="${y(g) + 4}" text-anchor="end" font-size="${labelSize}" fill="var(--muted-fg)">${g ? g + 'k' : '0'}</text>`,
+        `<line x1="${pad}" x2="${W - 4}" y1="${y(g)}" y2="${y(g)}" stroke="var(--chart-grid)" ${g ? 'stroke-dasharray="2 4"' : ''}/><text x="${pad - 6}" y="${y(g) + 4}" text-anchor="end" font-size="${labelSize}" fill="var(--muted-fg)">${g}</text>`,
     )
     .join('')
   const bars = NET.map((v, i) => {
@@ -281,10 +282,10 @@ function netBars(W, H, { labelSize = 11, pad = 28 } = {}) {
       y1 = y(v)
     const neg = v < 0
     return `<rect x="${x}" y="${Math.min(y0, y1)}" width="${w}" height="${Math.abs(y1 - y0)}" rx="3" fill="${neg ? 'url(#hatch)' : 'var(--chart-1)'}" ${neg ? 'stroke="var(--chart-1)" stroke-width="1.2"' : ''}/>
-    <text x="${x + w / 2}" y="${neg ? y1 + 13 : y1 - 5}" text-anchor="middle" font-size="${labelSize}" font-weight="600" fill="var(--fg)" style="font-variant-numeric:tabular-nums">${neg ? '−' : '+'}${Math.abs(v).toFixed(1).replace('.', ',')}k</text>
+    <text x="${x + w / 2}" y="${neg ? y1 + 13 : y1 - 5}" text-anchor="middle" font-size="${labelSize}" font-weight="600" fill="var(--fg)" style="font-variant-numeric:tabular-nums">${neg ? '−' : '+'}${Math.abs(v).toFixed(1).replace('.', ',')}</text>
     <text x="${x + w / 2}" y="${H - 6}" text-anchor="middle" font-size="${labelSize}" fill="var(--muted-fg)">${MONTHS[i]}</text>`
   }).join('')
-  return `<svg width="${W}" height="${H}" role="img" aria-label="Чистий прибуток за 6 місяців: найбільший у жовтні, +7,9 тис. $; збиток у серпні, −1,4 тис. $"><defs><pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="oklch(0.84 0.183 85.3 / 0.12)"/><line x1="0" y1="0" x2="0" y2="5" stroke="var(--chart-1)" stroke-width="1.4"/></pattern></defs>${grid}${bars}</svg>`
+  return `<svg width="${W}" height="${H}" role="img" aria-label="Чистий прибуток за 6 місяців: найбільший у жовтні, +7,9 тис. USD; збиток у серпні, −1,4 тис. USD"><defs><pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="oklch(0.84 0.183 85.3 / 0.12)"/><line x1="0" y1="0" x2="0" y2="5" stroke="var(--chart-1)" stroke-width="1.4"/></pattern></defs>${grid}${bars}</svg>`
 }
 
 function partnerBars(W, H, { labelSize = 11, pad = 8 } = {}) {
@@ -294,7 +295,7 @@ function partnerBars(W, H, { labelSize = 11, pad = 8 } = {}) {
   const y = (v) => top + ((max - v) / max) * (bottom - top)
   const gw = (W - pad * 2) / PART.length
   const q = ['I кв', 'II кв', 'III кв', 'IV кв']
-  return `<svg width="${W}" height="${H}" role="img" aria-label="Виплати партнерам по кварталах, тис. $: Віктор Кравець — 3,1; 2,2; 4,0; 2,8. Олена Шевчук — 2,4; 3,6; 1,8; 3,0."><line x1="${pad}" x2="${W - pad}" y1="${y(0)}" y2="${y(0)}" stroke="var(--chart-grid)"/>${PART.map(
+  return `<svg width="${W}" height="${H}" role="img" aria-label="Виплати партнерам по кварталах, тис. USD: Віктор Кравець — 3,1; 2,2; 4,0; 2,8. Олена Шевчук — 2,4; 3,6; 1,8; 3,0."><line x1="${pad}" x2="${W - pad}" y1="${y(0)}" y2="${y(0)}" stroke="var(--chart-grid)"/>${PART.map(
     ([a, b], i) => {
       const x = pad + i * gw + gw * 0.16,
         bw = gw * 0.32
@@ -308,8 +309,9 @@ function partnerBars(W, H, { labelSize = 11, pad = 8 } = {}) {
   ).join('')}</svg>`
 }
 
-const legend = (items) =>
-  `<div class="row" style="gap:14px;font-size:13px">${items.map(([c, t, shape]) => `<span class="row" style="gap:6px"><i style="width:10px;height:10px;border-radius:${shape === 'hatch' ? '2px' : '2px'};background:${c};${shape === 'hatch' ? 'background:repeating-linear-gradient(45deg,var(--chart-1) 0 1.5px,transparent 1.5px 4px);outline:1px solid var(--chart-1)' : ''}"></i>${t}</span>`).join('')}</div>`
+// The unit is stated once, in the caption row; bars and ticks carry bare numbers.
+const legend = (items, unit = 'тис. USD') =>
+  `<div class="row" style="gap:14px;font-size:13px">${items.map(([c, t, shape]) => `<span class="row" style="gap:6px"><i style="width:10px;height:10px;border-radius:${shape === 'hatch' ? '2px' : '2px'};background:${c};${shape === 'hatch' ? 'background:repeating-linear-gradient(45deg,var(--chart-1) 0 1.5px,transparent 1.5px 4px);outline:1px solid var(--chart-1)' : ''}"></i>${t}</span>`).join('')}<span class="muted" style="margin-left:auto">${unit}</span></div>`
 
 export function chartMobile(w, h, { scrolled = 0 } = {}) {
   const card = (title, value, sub, chart, leg) =>
@@ -325,7 +327,7 @@ export function chartMobile(w, h, { scrolled = 0 } = {}) {
       ['', 'Збиток', 'hatch'],
     ]),
   )}
-  ${card('Виплати партнерам · 2026', '24,9 тис. USD', '', partnerBars(w - 60, 150), '')}`
+  ${card('Виплати партнерам · 2026', '24,9 тис. USD', '', partnerBars(w - 60, 150), legend([]))}`
   // FAB hidden at 320 only so the static frame shows the chart; the live screen scrolls under it.
   return tabScreen({
     w,
@@ -352,7 +354,7 @@ export function chartDesktop() {
       ['', 'Збиток', 'hatch'],
     ],
   )}</div><div style="margin-top:10px">${netBars(720, 260, { labelSize: 12, pad: 34 })}</div>${tooltip}</div>
-  <div style="flex:1;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Виплати партнерам</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">24 900,00 USD</div><div style="margin:10px 0 8px">${partnerBars(330, 252, { labelSize: 12 })}</div><div class="t-cap muted">ВК — Віктор Кравець · ОШ — Олена Шевчук</div></div></div>
+  <div style="flex:1;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Виплати партнерам</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">24 900,00 USD</div><div style="margin:10px 0 8px">${partnerBars(330, 252, { labelSize: 12 })}</div><div class="t-cap muted">тис. USD · ВК — Віктор Кравець · ОШ — Олена Шевчук</div></div></div>
   <div class="row" style="gap:10px;margin-top:16px;flex-wrap:wrap">${[
     ['--chart-1', 'chart-1 · primary'],
     ['--chart-2', 'chart-2'],

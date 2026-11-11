@@ -420,6 +420,30 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
   return failureUnknown(w, h).replace('<div class="homebar">', `${sh}<div class="homebar">`)
 }
 
+/**
+ * Boot, phase `sent`: «Оновити список» on the alert opens the check sheet over the Фінанси list. No draft form
+ * is behind it and the marker holds no amount, so the sheet names only the time and offers no resubmit.
+ * A failed refetch here reuses the «Не вдалося оновити список» alert with «Повторити».
+ */
+export function checkSheetBoot(w, h) {
+  const body = `<div class="col" style="gap:8px;padding:0 16px 8px">
+  <div class="t-sub num" style="font-weight:600">Транзакція о ${SENT_AT} · результат невідомий</div>
+  <div class="t-foot muted num">Лише ваші записи з ${FROM}</div>
+  <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено о 14:40:12</div><span class="btn sm secondary" role="button" style="height:44px">${icon('refresh-cw', { size: 16 })}Оновити</span></div>
+  <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Якщо транзакції в списку немає, створіть її знову: форму не збережено.</div></div><div class="group" style="margin-top:4px">${NEW_ROWS.map((r) => txnRow(r)).join('')}</div>`
+  const footer = `<div style="padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)"><span class="btn secondary" role="button" style="width:100%">Зрозуміло</span></div>`
+  const sh = sheet({
+    w,
+    h,
+    top: safeTop(w) + 34,
+    title: 'Нові записи',
+    trail: closeBtn,
+    body,
+    footer,
+  })
+  return overHome(pageKillAlert(w, h, 'sent'), sh)
+}
+
 export const PILL_H = 56
 const PILL_POS = (w) =>
   `position:absolute;left:12px;right:${FLOAT_RIGHT}px;bottom:${TABBAR_H + safeBottom(w) + 16}px;z-index:44;height:${PILL_H}px;border-radius:16px;background:oklch(0.2 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)`
