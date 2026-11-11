@@ -5,7 +5,12 @@
  */
 import { Logger } from '@nestjs/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_RESUME_LAYOUT, RESUME_SECTION_ORDER, type ResumeFacts } from '@crm/shared'
+import {
+  DEFAULT_RESUME_LAYOUT,
+  RESUME_SECTION_ORDER,
+  type ResumeContent,
+  type ResumeFacts,
+} from '@crm/shared'
 import type { SeniorResume } from '../../database/schema'
 import { WORKER_ADAPTER_TIMEOUT_MS } from '../../job-sourcing/structuring/model-extraction-wiring'
 import { fakeRunDb } from '../../test/fake-run-db'
@@ -451,6 +456,115 @@ describe('VerificationRunner.run', () => {
       for (const banned of ['Jane', 'Kowalska', 'unit.spec', 'Backend engineer']) {
         expect(line).not.toContain(banned)
       }
+    }
+  })
+})
+
+describe('VerificationRunner.run — staged kinds (Task 15)', () => {
+  const EDITOR = 'a15e0000-0000-4000-8000-0000000000b1'
+  const PREVIOUS = {
+    gates: [
+      {
+        gate: 'content',
+        ok: false,
+        items: [
+          { path: 'summary', reason: 'UNSUPPORTED' },
+          { path: 'experience.0.bullets', reason: 'UNSUPPORTED' },
+        ],
+      },
+    ],
+    fallbacks: ['summary', 'experience.0.bullets'],
+  }
+
+  /** The staged content a full run produced, so a staged run starts from a real stage 9 result. */
+  async function stagedContent(): Promise<ResumeContent> {
+    const { run, log } = runner([...START, [{ key: null }], [{ id: RESUME }]])
+    await run()
+    vi.clearAllMocks()
+    return log.at(-1)?.set?.['stagedContent'] as ResumeContent
+  }
+
+  async function stagedRun(over: Partial<SeniorResume>) {
+    const staged = await stagedContent()
+    const row = {
+      ...ROW,
+      layout: { ...ROW.layout, hiddenSections: ['languages'] },
+      stagedLayout: { ...ROW.layout, hiddenSections: [] },
+      stagedTemplateName: 'modern',
+      stagedContent: { ...staged, summary: 'Hand written summary.' },
+      stagedEditedPaths: [{ path: 'summary', userId: EDITOR }],
+      verificationReport: PREVIOUS,
+      ...over,
+    } as unknown as SeniorResume
+    const { run, log } = runner([[row], [USER], [], [{ key: OLD_KEY }], [{ id: RESUME }]])
+    await run()
+    const stage = log.at(-1)
+    const uploaded = s3.upload.mock.calls[0] as unknown as [string, Buffer] | undefined
+    return { staged, stage, set: stage?.set ?? {}, rendered: uploaded && decodePdf(uploaded[1]) }
+  }
+
+  it('staged-edit: no writer and no entailment, the staged look, every edit kept', async () => {
+    const { set, rendered } = await stagedRun({ verificationKind: 'staged-edit' })
+    expect(writer.write).not.toHaveBeenCalled()
+    expect(entailment.score).not.toHaveBeenCalled()
+    expect(set['verificationStatus']).toBe('AWAITING_CONFIRM')
+    expect((set['stagedContent'] as ResumeContent).summary).toBe('Hand written summary.')
+    expect('stagedEditedPaths' in set).toBe(false)
+    expect(set['stagedTemplateName']).toBe('modern')
+    expect(rendered?.templateName).toBe('modern')
+    expect(rendered?.layout.hiddenSections).toEqual([])
+    const report = set['verificationReport'] as typeof PREVIOUS
+    // nothing was rewritten, so the earlier findings and fallbacks all still stand
+    expect(report.gates[0]).toEqual(PREVIOUS.gates[0])
+    expect(report.fallbacks).toEqual(expect.arrayContaining(PREVIOUS.fallbacks))
+  })
+
+  it('item summary: writes the summary only, keeps the bullets, drops that path from the report', async () => {
+    const { staged, set } = await stagedRun({
+      verificationKind: 'item',
+      verificationTargetPath: 'summary',
+    })
+    expect(writer.write.mock.calls.map((c) => c[0])).toEqual(['summary'])
+    const content = set['stagedContent'] as ResumeContent
+    expect(content.summary).toBe('Backend engineer.')
+    expect(content.experience).toEqual(staged.experience)
+    const report = set['verificationReport'] as typeof PREVIOUS
+    expect(report.gates[0]).toEqual({
+      gate: 'content',
+      ok: false,
+      items: [{ path: 'experience.0.bullets', reason: 'UNSUPPORTED' }],
+    })
+    expect(report.fallbacks).not.toContain('summary')
+    expect(report.fallbacks).toContain('experience.0.bullets')
+  })
+
+  it('item bullets: with every earlier finding under that path gone, the content gate passes', async () => {
+    const { set } = await stagedRun({
+      verificationKind: 'item',
+      verificationTargetPath: 'experience.0.bullets',
+      verificationReport: {
+        gates: [
+          { gate: 'content', ok: false, items: [{ path: 'experience.0.bullets', reason: 'X' }] },
+        ],
+        fallbacks: ['experience.0.bullets'],
+      } as never,
+    })
+    expect(writer.write.mock.calls.map((c) => c[0])).toEqual(['bullets'])
+    const report = set['verificationReport'] as typeof PREVIOUS
+    expect(report.gates[0]).toEqual({ gate: 'content', ok: true, items: [] })
+    expect(report.fallbacks).not.toContain('experience.0.bullets')
+    expect((set['stagedContent'] as ResumeContent).summary).toBe('Hand written summary.')
+  })
+
+  it('a staged kind without valid staged content, or an item without a target, fails INCOMPLETE', async () => {
+    for (const over of [
+      { verificationKind: 'staged-edit', stagedContent: null },
+      { verificationKind: 'item', verificationTargetPath: 'experience.0.bullets.0' },
+      { verificationKind: 'item', verificationTargetPath: null },
+    ] as Partial<SeniorResume>[]) {
+      const { stage } = await stagedRun(over)
+      expect(stage?.set?.['verificationErrorCode']).toBe('INCOMPLETE')
+      expect(writer.write).not.toHaveBeenCalled()
     }
   })
 })

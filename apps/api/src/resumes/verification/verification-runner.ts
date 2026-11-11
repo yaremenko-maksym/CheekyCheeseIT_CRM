@@ -68,7 +68,7 @@ export async function deleteStagedQuietly(
 export type ResumeOwnerContacts = { displayName: string; email: string; contacts: ContactContext[] }
 
 /** Kinds that start from the staged result of an earlier run instead of writing everything anew. */
-const FROM_STAGED = new Set(['staged-edit', 'item'])
+const FROM_STAGED = new Set<string | null>(['staged-edit', 'item'])
 
 /** `summary` → 'summary', `experience.<i>.bullets` → i; anything else → null. */
 export function regenerateTarget(path: string | null): 'summary' | number | null {
@@ -161,7 +161,7 @@ export class VerificationRunner {
       if (!facts.success) throw new RunFailure('INCOMPLETE')
       const owner = await this.ownerOf(row.userId)
       const frozen = deriveFrozenContent(facts.data)
-      const fromStaged = FROM_STAGED.has(row.verificationKind ?? '')
+      const fromStaged = FROM_STAGED.has(row.verificationKind)
       // A staged-edit or item run re-checks the staged result, rendered with its own look.
       const templateName = resolveTemplateName(
         fromStaged ? row.stagedTemplateName : row.templateName,
@@ -232,7 +232,7 @@ export class VerificationRunner {
     input: ContentInput,
     deps: ContentDeps,
   ): Promise<WrittenContent> {
-    if (!FROM_STAGED.has(row.verificationKind ?? '')) return writeGatedContent(input, deps)
+    if (!FROM_STAGED.has(row.verificationKind)) return writeGatedContent(input, deps)
     const staged = resumeContentSchema.safeParse(row.stagedContent)
     if (!staged.success) throw new RunFailure('INCOMPLETE')
     const previous = resumeVerificationReportSchema.safeParse(row.verificationReport).data

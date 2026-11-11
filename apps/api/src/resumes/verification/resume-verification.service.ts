@@ -484,7 +484,6 @@ export class ResumeVerificationService {
       throw apiError('RESUME_CONFIRM_STALE', HttpStatus.CONFLICT)
     }
     const staged = resumeContentSchema.safeParse(row.stagedContent)
-    // Stryker disable next-line ConditionalExpression: defensive — AWAITING_CONFIRM always holds the content stage 9 wrote
     if (!staged.success) throw apiError('RESUME_CONFIRM_STALE', HttpStatus.CONFLICT)
     return staged.data
   }
