@@ -7724,7 +7724,8 @@ copy review.
 different window each render both labels and both windows; a full meter with an `ACTIVE` budget renders an exhausted
 state.
 
-Sources: PR #1321 copy review (COPY-4), code review (CR-L-1), second-opinion panel (claude:sonnet, gemini).
+Sources: PR #1321 copy review (COPY-4), code review (CR-L-1), second-opinion panel (claude:sonnet, gemini), live QA
+(QA LOW 2: «Ліміт вичерпано» above a meter bar at 24% reads as a contradiction).
 
 ## 419. Source switch card: limit wording beside the bar (2026-11-11)
 
@@ -7739,3 +7740,28 @@ limit", and a subject for the trigger line (new msgids). Copy review on the resu
 **Verify.** `pnpm i18n:extract` diff holds only the reworded ids; the card tests assert the new strings.
 
 Sources: PR #1321 copy review (COPY-1, COPY-2, COPY-3).
+
+## 420. Source switch card: a «Працює» chip beside «збір зупинено» (2026-11-11)
+
+**Symptoms.** A source whose per-source budget is `MISCONFIGURED` keeps the enabled-state chip «Працює» while the
+budget row says «збір зупинено», so the card states two opposite things about the same source.
+
+**Status.** Design first (`docs/design/vacancy-queue.md` §7, §8): decide whether the chip reflects the switch only or
+the effective collection state, then Coder (uk + en) and copy review.
+
+**Verify.** A unit test renders an enabled source with a `MISCONFIGURED` budget and asserts the chip and the budget row
+agree.
+
+Sources: PR #1321 live QA (QA LOW 3).
+
+## 421. Job sources list: no stable order, a toggled source moves to the end (2026-11-11)
+
+**Symptoms.** The sources list response has no explicit sort, so after a toggle the changed source can come back last
+and the card jumps under the pointer. The web list renders the API order as is.
+
+**Status.** Coder: give the list query an explicit, stable order (for example by source key) and pin it in the API
+spec. API change, not web.
+
+**Verify.** An integration spec toggles one source and asserts the list order is unchanged.
+
+Sources: PR #1321 live QA (QA LOW 1; pre-existing, not from that PR).
