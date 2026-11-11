@@ -41,17 +41,22 @@ against in v2 and are not a parity target.
 Three device classes, scored separately (spec §5). Each has its own navigation container. The
 routes, RBAC and labels are the same in all three.
 
-| Class       | Width       | Navigation                                                                                                                                                                                         | Content layout                                       |
-| ----------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| **Mobile**  | < 640 px    | Bottom **tab bar**: 4 role destinations + «Ще» (More sheet). Large title per tab root; inline title + in-app back on pushed screens. **FAB** «+» (quick-add) sits above the tab bar, bottom right. | One column, 2-line list rows, sheets for forms       |
-| **Tablet**  | 640–1023 px | 80 px **navigation rail** (4 tabs + «Ще» popover), labels under icons. Quick-add is the rail's top button.                                                                                         | Two panes (list + detail) where the screen has both  |
-| **Desktop** | ≥ 1024 px   | 248 px grouped **sidebar** (collapsible to a 64 px rail with tooltips), header with breadcrumb + page action, **Cmd+K** palette, **`?`** shortcut sheet.                                           | Dense tables, side panel for preview, dialog confirm |
+| Class       | Width       | Navigation                                                                                                                                                                                     | Content layout                                                      |
+| ----------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **Mobile**  | < 640 px    | Bottom **tab bar**: 4 role destinations + «Ще» (More sheet). Large title per tab root; inline title + in-app back on pushed screens. **Context FAB** «+» sits above the tab bar, bottom right. | One column, 2-line list rows, sheets for forms                      |
+| **Tablet**  | 640–1023 px | 80 px **navigation rail**, labels under icons: every destination that fits by height; «Ще» popover only on overflow. Quick-add is the rail's top button.                                       | One pane with push at 640–899; two panes (list + detail) from ≥ 900 |
+| **Desktop** | ≥ 1024 px   | 248 px grouped **sidebar** (collapsible to a 64 px rail with tooltips), header with breadcrumb + page action, **Cmd+K** palette, **`?`** shortcut sheet.                                       | Dense tables, side panel for preview, dialog confirm                |
 
 Rules that hold in every class:
 
 - **Tab bar = navigation only.** Create actions live in quick-add (FAB / rail button / page action),
-  never as a tab. A role with one create action gets a «+» that opens it directly; a role with none
-  gets no «+».
+  never as a tab. A role with no create action gets no «+».
+- **Context «+».** On a tab that owns one create action the FAB opens it directly (ADMIN: Фінанси →
+  «Нова транзакція», Користувачі → «Новий користувач»; the `aria-label` names the action). On any other
+  tab it opens the role's quick-add menu (`aria-label` «Створити», `aria-haspopup`).
+- **Density follows the pointer, not the width.** `(pointer: coarse)` gets touch density (44 targets,
+  48 inputs, 16 px input text, 52 table rows) in every class, including an iPad at 1180 that gets the
+  desktop layout (`shell-v2/shell-touch-1180.png`). `(pointer: fine)` gets desktop density.
 - **«Ще» carries the badge** for destinations it hides (for example «Чекають рішення»).
 - **Role-aware:** every destination list is `route-access ∩ nav items` for the role. Tab sets per role,
   More contents and quick-add actions: `screens/_foundation/shell-v2.md`.
@@ -78,6 +83,10 @@ Rules that hold in every class:
   full width. No stretched line length at 2560.
 - **Safe areas:** `env(safe-area-inset-*)` on the top bar, tab bar, FAB, sheets and toasts. Nothing
   interactive sits under the home indicator.
+- **Floating-layer stacking (mobile).** The FAB (56, inset 16) owns the bottom-right corner. Toasts and
+  the upload pill sit to its left: inset 12 left, **80 right**, 16 above the tab bar. They never cover
+  the FAB, and the FAB never covers them. Tab-root lists end with bottom padding **56 + 16 + 8** above
+  the tab bar, so the last row scrolls clear of the FAB. Order: tab bar < FAB / toast / pill < sheet.
 
 ---
 
@@ -86,19 +95,26 @@ Rules that hold in every class:
 Base step **4 px** (Tailwind spacing). Rhythm follows hierarchy: dense inside a block, spacious between
 blocks.
 
-| Level                      | Value                                       | Tailwind                |
-| -------------------------- | ------------------------------------------- | ----------------------- |
-| Page gutter                | 16 (mobile) / 24 (tablet) / 32 (desktop)    | `px-4 sm:px-6 lg:px-8`  |
-| Inside a control           | 12–14 horizontal, gap 8                     | `px-3` … `px-3.5 gap-2` |
-| Inside a card / sheet      | 16                                          | `p-4`                   |
-| Between related items      | 8–12                                        | `gap-2` … `gap-3`       |
-| Between sections           | 24 (mobile) / 32 (desktop)                  | `gap-6 lg:gap-8`        |
-| **List row (mobile)**      | 56 single-line, 64 two-line; inset 16       | `min-h-14` / `min-h-16` |
-| **Table row (desktop)**    | 40; header 36                               | `h-10` / `h-9`          |
-| Top bar / tab bar (mobile) | 44 / 50 + safe area                         | —                       |
-| Touch target               | ≥ 44 × 44 mobile; ≥ 24 × 24 desktop pointer | —                       |
+| Level                      | Value                                    | Tailwind                |
+| -------------------------- | ---------------------------------------- | ----------------------- |
+| Page gutter                | 16 (mobile) / 24 (tablet) / 32 (desktop) | `px-4 sm:px-6 lg:px-8`  |
+| Inside a control           | 12–14 horizontal, gap 8                  | `px-3` … `px-3.5 gap-2` |
+| Inside a card / sheet      | 16                                       | `p-4`                   |
+| Between related items      | 8–12                                     | `gap-2` … `gap-3`       |
+| Between sections           | 24 (mobile) / 32 (desktop)               | `gap-6 lg:gap-8`        |
+| **List row (mobile)**      | 56 single-line, 64 two-line; inset 16    | `min-h-14` / `min-h-16` |
+| **Table row (desktop)**    | 40; header 36 (coarse pointer: 52; 44)   | `h-10` / `h-9`          |
+| Sidebar row (desktop)      | 36 (coarse pointer: 44)                  | `h-9`                   |
+| Top bar / tab bar (mobile) | 44 / 50 + safe area                      | —                       |
+| Touch target               | ≥ 44 × 44 coarse pointer; ≥ 24 × 24 fine | —                       |
 
 **Principle:** rhythm contrast creates scannability better than one uniform padding.
+
+**Coarse-pointer hit areas (binding).** Every control reachable by a coarse pointer has a hit area of
+at least **44 × 44**, whatever its drawn size: segmented controls, the currency pill, filter chips,
+search fields, the stats period control, «Скасувати» in the undo toast, small buttons (`.btn.sm`),
+chevrons and «✕» icons. A smaller visual (a 36 px segment fill, an 18 px icon) gets padding or a
+pseudo-element to reach 44. Measured in Playwright with `(pointer: coarse)` emulation.
 
 ---
 
@@ -203,7 +219,10 @@ secondary text on raised rows and sheets. Why `--input-border` is new: `--border
 
 All five series colours are ≥ 4.97:1 on every surface step. Chart rules:
 
-- **One chart per mobile screen**, answer visible in 2 s. Max 3 series per chart; label series directly.
+- **One chart per mobile viewport**, answer visible in 2 s. A second chart on the same screen sits below
+  the fold (`primitives-v2/chart-mobile-375.png` / `chart-mobile-scrolled-375.png`). Max 3 series per
+  chart; label series directly (category labels such as partner A / B go directly under their bars, no
+  legend).
 - **Negative values:** hatched fill + `−` label below the zero line. Sign, not colour, carries meaning.
 - Tap (mobile) or hover (desktop) a bar for a tooltip with the exact value; the tooltip is also reachable
   by keyboard (arrow keys over a focused chart).
@@ -219,15 +238,22 @@ background, never body text on a yellow background other than `--primary-foregro
 
 ## 8. Containers (which surface for which job)
 
-| Job                                       | Mobile                                        | Tablet                 | Desktop                                        |
-| ----------------------------------------- | --------------------------------------------- | ---------------------- | ---------------------------------------------- |
-| Short form, filters, pickers (≤ 4 fields) | Medium **detent sheet** (≈ 54% height)        | Medium sheet / popover | Popover or side panel                          |
-| Long form, edit                           | Large sheet (full height, Скасувати / Готово) | Side panel 400 px      | Side panel 420 (480 at ≥ 1440)                 |
-| Destructive confirm                       | **Action sheet** from the bottom              | Centred alert dialog   | Centred alert dialog 420, focus on «Скасувати» |
-| Detail                                    | Pushed screen                                 | Second pane            | Side panel (preview) or page                   |
-| Navigation overflow                       | More sheet                                    | Rail popover           | Sidebar (always visible)                       |
+| Job                                       | Mobile                                              | Tablet                 | Desktop                                        |
+| ----------------------------------------- | --------------------------------------------------- | ---------------------- | ---------------------------------------------- |
+| Short form, filters, pickers (≤ 4 fields) | Medium **detent sheet** (≈ 54% height)              | Medium sheet / popover | Popover or side panel                          |
+| Long form, edit                           | Large sheet (Скасувати left, primary in bottom bar) | Side panel 400 px      | Side panel 420 (480 at ≥ 1440)                 |
+| Destructive confirm                       | **Action sheet** from the bottom                    | Centred alert dialog   | Centred alert dialog 420, focus on «Скасувати» |
+| Detail                                    | Pushed screen                                       | Second pane            | Side panel (preview) or page                   |
+| Navigation overflow                       | More sheet                                          | Rail popover           | Sidebar (always visible)                       |
 
-- Sheets: drag handle, drag-to-dismiss, Esc / scrim tap closes. **A dirty form asks before it closes.**
+- Sheets: drag handle, drag-to-dismiss, Esc / scrim tap closes. **A dirty form asks before it closes**,
+  except an armed save (§11), which is kept and carried by the upload pill.
+- **Mobile form chrome (one shape).** «Скасувати» top-left, title centred, nothing top-right; the
+  primary sits in a bottom bar that rides on the keyboard (it tracks `visualViewport`) or sits above the
+  home indicator. A pushed form page uses the same bottom bar. Never a top-right «Готово».
+- **The primary is always enabled**, except while its own request is in flight. A tap with invalid
+  values validates, moves focus to the first invalid field and shows the inline errors. No "disabled
+  until valid" state.
 - Sheets and dialogs trap focus, restore it to the trigger on close, and are escapable (SC 2.1.2).
 
 ---
@@ -262,7 +288,7 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
 | ----- | ------- | ----------------------------------------------------------------------------- |
 | 320   | mobile  | nothing overflows; tab labels fit; sheets reach 36% top; long titles truncate |
 | 375   | mobile  | the reference phone (iPhone 13 mini / SE 3 layout width; 812 tall frame)      |
-| 768   | tablet  | rail + two panes; touch heights (48 inputs, 44 buttons)                       |
+| 768   | tablet  | rail + one pane with push (two panes from 900); touch heights (48 inputs, 44) |
 | 1024  | desktop | sidebar 248 (or collapsed 64) + dense table; the narrowest desktop            |
 | 1440  | desktop | wide table columns appear (≥ 1280); side panel 480; content `max-w` caps      |
 
@@ -283,14 +309,31 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
 - **Carve-out — the four forms without a key** (expense, admin-income, admin-transfer, company
   deposit) keep today's behaviour until the first Wave 1 task ships the key: **no optimistic insert**
   (the row appears after the server confirms) and **no resubmit offer on an unknown outcome**.
-- **Two kinds of save failure, never merged.** A **definite** failure wrote nothing: a 4xx, or a 500 /
-  503 returned by the app itself, or the app knew it was offline before sending. It shows an inline
-  `role="alert"` above the form, values kept, a manual «Повторити збереження»
-  (`primitives-v2/toast-error-definite-375.png`). An **unknown** outcome may have committed: a 502 / 504
-  from the gateway, a Cloudflare 524 (prod sits behind Cloudflare), a connection dropped after sending,
-  or a client timeout. On a form without a key the alert
-  says the outcome is unknown and sends the user to the list to check before re-entering; **no retry
-  button** (`primitives-v2/toast-error-unknown-375.png`).
+- **Save failures, never merged.**
+  - **422 (the values are wrong):** an inline error on the field, focus moved there, **no retry
+    button**; the primary stays «Зберегти» (`primitives-v2/toast-error-definite-375.png`).
+  - **Definite, not about a field:** a 4xx other than 422, a 500 / 503 returned by the app itself, or
+    the app knew it was offline before sending. Wrote nothing. An inline `role="alert"` above the form,
+    values and receipt kept, a manual «Повторити збереження»
+    (`primitives-v2/toast-error-offline-375.png`).
+  - **Unknown** — it may have committed: a 502 / 504 from the gateway, a Cloudflare 524 (prod sits behind
+    Cloudflare), a connection dropped after sending, or a client timeout. On a form without a key the
+    alert says the outcome is unknown; the form and receipt stay; **no retry button**. «Перевірити
+    список» opens the list as a sheet over the kept form, refetched on open, with the line «Якщо
+    транзакції ще немає, оновіть список за хвилину»
+    (`primitives-v2/toast-error-unknown-375.png`, `toast-error-unknown-list-375.png`). Reached from
+    elsewhere, the kept form shows a row «Чернетка 1 250,50 USD · Продовжити».
+  - App 500/503 counts as definite only for endpoints that commit in one DB transaction and swallow post-commit errors; Wave 1 verifies this per endpoint (AC + test) before the form shows a retry.
+- **Offline** never disables creation: the FAB stays enabled (no dim, no `aria-disabled`). Saving while
+  offline gives the inline definite alert above with every value kept.
+- **Armed save (save during a receipt upload).** The primary reads «Зберегти після завантаження чека».
+  A tap **freezes the payload** and arms: the button reads «Збережеться 1 250,50 USD після чека · 62%»
+  (`shell-v2/quick-add-txn-armed-375.png`). A second tap or **any field edit disarms**. Dismissing the
+  sheet keeps the armed save: the upload pill carries «Збережеться 1 250,50 USD · 62%» and a tap reopens
+  the draft (`primitives-v2/upload-pill-armed-375.png`). At 100% exactly one request is sent; the result
+  is a toast («Транзакцію збережено» + «Відкрити») or a failure alert that reopens the draft.
+  Backgrounding the app does not disarm (no `visibilitychange` rule). **If the page is killed, nothing
+  is sent and the draft is gone**; the UI never claims otherwise.
 - **Pull-to-refresh** (spec §4.2) is an in-app gesture on the list scroller only: it refetches that
   list's query, **never reloads the page**, and is **off while a sheet is open**. Wave 0 proves on the
   iOS Simulator that a sheet drag at `scrollTop` 0 and a pull on a list never reload the page.
@@ -324,13 +367,13 @@ listed, and anything the v2 screen shows must trace back to that list.
 
 ## 13. A11y (WCAG 2.2 AA)
 
-- **Targets:** ≥ 44 × 44 on touch classes (HIG); ≥ 24 × 24 on desktop pointer (SC 2.5.8). Small icons
-  get an enlarged hit area.
+- **Targets:** ≥ 44 × 44 for every coarse-pointer control, by pointer type, not width (HIG; §4);
+  ≥ 24 × 24 for a fine pointer (SC 2.5.8). Small icons get an enlarged hit area.
 - **Contrast:** text 4.5:1, large text and UI parts 3:1. Measured values: §7. Do not lower them.
 - **Focus:** visible 2 px yellow ring with offset on every interactive element (SC 2.4.11 / 2.4.7);
   focus never hidden under the sticky header, tab bar or a toast (SC 2.4.11).
 - **Gestures:** every swipe or drag has a single-pointer alternative (SC 2.5.1 / 2.5.7): swipe actions
-  are also in a long-press / «…» context menu; sheets also close by button and Esc.
+  are also in a long-press menu and a visible «…» button on the row; sheets also close by button and Esc.
 - **Names:** icon-only controls have an `aria-label`; tab bar is a `nav` with `aria-current="page"`;
   badges are announced ("3 нових").
 - **Live regions:** toasts and the upload indicator are `role="status"`; save errors are `role="alert"`.
@@ -358,7 +401,10 @@ listed, and anything the v2 screen shows must trace back to that list.
 - `--accent` is the "raised" step; no separate `--raised` token is added.
 - Tab labels reuse the existing nav strings («Дашборд» for Home). «Ще» and the six group headings are
   new strings (copy-reviewer gate).
-- The FAB sits above the tab bar, not inside it. The tablet uses a rail with a popover More.
+- The FAB sits above the tab bar, not inside it. The tablet rail shows every destination that fits by
+  height and a popover «Ще» only on overflow (the fit is a height estimate; Wave 0 measures it).
+- ADMIN tab 4 is «Адмін» (`/admin` redirects to `/admin/contracts`, the contract editor); «Дашборд»
+  moves to «Ще» for ADMIN (council R1).
 - Money create errors show inline above the form, not as a floating toast (the toast covered the
   amount field at 375).
 - Status-code split (Master ruling, fix round 2, supersedes the round-1 "any 5xx is definite"):
