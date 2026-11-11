@@ -190,6 +190,22 @@ assert_green "removing MY OWN worktree passes" \
   --not-contains '"decision": "block"' \
   -- run_hook "$MINE" "git worktree remove $MINE"
 
+# A Cyrillic command (SO-sonnet-L of #1314). On Windows python read its stdin in the
+# locale code page: CWD came in by the environment as real text and the command as
+# mojibake, so the hook took my own tree for a foreign one (an escaped payload) or died
+# printing an undecodable byte (a raw UTF-8 one). Both were red there before stdin was
+# set to UTF-8. Built from \x escapes so this file adds no Cyrillic letters.
+CYR_X='\xd0\x98\xd0\xb2\xd0\xb0\xd0\xbd'
+MINE_CYR="$FAKE_REPO/.claude/worktrees/agent-$(printf "$CYR_X")"
+MINE_CYR_X="$FAKE_REPO/.claude/worktrees/agent-$CYR_X"
+assert_green "removing MY OWN Cyrillic-named worktree passes (escaped payload)" \
+  -- run_hook "$MINE_CYR" "git worktree remove --force $MINE_CYR"
+assert_green "removing MY OWN Cyrillic-named worktree passes (raw UTF-8 payload)" \
+  -- hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"'"$MINE_CYR_X"'","tool_input":{"command":"git worktree remove --force '"$MINE_CYR_X"'"}}'
+assert_green "removing ANOTHER worktree from a Cyrillic-named one: exit 2 by the predicate, not a crash" \
+  --contains '"decision": "block"' --contains '[WORKTREE-REMOVE]' --not-contains 'INTERNAL ERROR' \
+  -- exits_2 hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"'"$MINE_CYR_X"'","tool_input":{"command":"git worktree remove --force '"$OTHER"' # '"$CYR_X"'"}}'
+
 assert_green "READING another worktree is not gated" \
   --not-contains '"decision": "block"' \
   -- run_hook "$MINE" "cat $OTHER/README.md"
@@ -470,11 +486,20 @@ rm -rf "$T3_WS"
 assert_green "python3 cannot run: exit 2 with INTERNAL ERROR" \
   --contains "INTERNAL ERROR" \
   -- exits_2 hook_without_python "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","tool_input":{"command":"pkill -f node"}}'
+# The copy carries the whole lib/, and only the analyzer file is broken, so the case
+# fails for the reason it names (a copy without lib/ fails anyway, which once let a
+# sed that matched nothing pass here).
 BROKEN_DIR="$(mktemp -d)"
-sed 's/^for r in reasons:$/def broken(:/' "$HOOK" >"$BROKEN_DIR/hook.sh"
-assert_green "analyzer crash: exit 2 with INTERNAL ERROR" \
+assert_green "analyzer crash (lib/cross_agent_blast_analyzer.py does not parse): exit 2 with INTERNAL ERROR" \
   --contains "INTERNAL ERROR" \
-  -- exits_2 hook_at "$BROKEN_DIR/hook.sh" "pkill -f node" "/x/.claude/worktrees/a"
+  --contains "the analyzer did not run" \
+  -- exits_2 hook_at "$(hook_with_lib_file "$BROKEN_DIR" pre-bash-cross-agent-blast.sh cross_agent_blast_analyzer.py broken)" \
+  "pkill -f node" "/x/.claude/worktrees/a"
+assert_green "analyzer file missing (lib/cross_agent_blast_analyzer.py deleted): exit 2 with INTERNAL ERROR" \
+  --contains "INTERNAL ERROR" \
+  --contains "the analyzer did not run" \
+  -- exits_2 hook_at "$(hook_with_lib_file "$BROKEN_DIR" pre-bash-cross-agent-blast.sh cross_agent_blast_analyzer.py missing)" \
+  "pkill -f node" "/x/.claude/worktrees/a"
 rm -rf "$BROKEN_DIR"
 
 # ── an unreadable command is refused, not read as "no command" (#1297 SR-L-4 class) ──

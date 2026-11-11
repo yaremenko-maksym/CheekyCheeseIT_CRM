@@ -49,6 +49,13 @@ UNTRACED="$(printf '#!/bin/bash\nSRC=$(cat big.py)\npython3 -c "$SRC"\n')"
 FILE_FORM="$(printf '%s\n' '#!/bin/bash' 'python3 -I -B "$SELF_DIR/lib/analyzer.py"' 'python3 -c "print(1)"')"
 IN_COMMENT="$(printf "#!/bin/bash\n# python3 -c '\n%s\n# '\npython3 -c 'print(1)'\n" "$(py_lines 4100)")"
 NONE="$(printf '%s\n' '#!/bin/bash' 'echo no python here')"
+# Interpreter and flag spellings the first version did not see (CR-L-2 of #1314).
+BIG_VERSIONED="$(printf '#!/bin/bash\npython3.12 -c %s\n%s\n%s\n' "'" "$(py_lines 4100)" "'")"
+BIG_ARG_FLAGS="$(printf '#!/bin/bash\npython3 -X utf8 -Wignore -W error -c %s\n%s\n%s\n' "'" "$(py_lines 4100)" "'")"
+BIG_CLUSTER="$(printf '#!/bin/bash\npython3 -IBc %s\n%s\n%s\n' "'" "$(py_lines 4100)" "'")"
+SUBSTITUTED="$(printf '%s\n' '#!/bin/bash' 'python3 -c "$(cat big.py)"')"
+VAR_INTERP="$(printf '%s\n' '#!/bin/bash' 'PY=python3' "\"\$PY\" -I -c 'print(1)'")"
+NOT_PYTHON="$(printf '%s\n' '#!/bin/bash' '"$SHELL" -c "echo hi"' 'find "$D" -type f -exec rm {} +' "python3 -c 'print(1)'")"
 
 # ── positive ───────────────────────────────────────────────────────────────────
 assert_green "a small inline body -> green" \
@@ -96,6 +103,31 @@ assert_red "a big heredoc body passed as -c \"\$SRC\" -> red" \
 assert_red "a -c \"\$SRC\" the guard cannot trace to a heredoc is unmeasured -> red, not a pass" \
   --contains "UNMEASURED" \
   -- run_guard "$(make_case untraced "$UNTRACED")"
+
+assert_red "a versioned interpreter (python3.12 -c) is measured -> red" \
+  --contains "OVER" \
+  -- run_guard "$(make_case versioned "$BIG_VERSIONED")"
+
+assert_red "flags with an argument before -c (-X utf8, -Wignore, -W error) are skipped -> red" \
+  --contains "OVER" \
+  -- run_guard "$(make_case arg-flags "$BIG_ARG_FLAGS")"
+
+assert_red "-c at the end of a flag cluster (-IBc) is found -> red" \
+  --contains "OVER" \
+  -- run_guard "$(make_case cluster "$BIG_CLUSTER")"
+
+assert_red "a body from a command substitution (-c \"\$(cat f)\") is unmeasured -> red, not a small body" \
+  --contains "UNMEASURED" \
+  -- run_guard "$(make_case substituted "$SUBSTITUTED")"
+
+assert_red "a -c behind a variable interpreter (\"\$PY\" -c) is unmeasured -> red" \
+  --contains "UNMEASURED" \
+  -- run_guard "$(make_case var-interp "$VAR_INTERP")"
+
+assert_green "a shell's -c and find's -exec are not python bodies -> green, one body measured" \
+  --contains "Violations found:              0" \
+  --contains "bodies measured: 1" \
+  -- run_guard "$(make_case not-python "$NOT_PYTHON")"
 
 assert_red "no inline body found at all: the scan read nothing -> red, not OK" \
   --contains "the scan read nothing" \

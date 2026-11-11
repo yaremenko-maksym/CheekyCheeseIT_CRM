@@ -9,7 +9,8 @@ green while the hook is dead on every Windows machine. On 2026-11-11 the analyze
 pre-bash-cross-agent-blast.sh reached 44186 characters, its fail-closed branch turned
 rc 126 into a refusal, and every Bash call on Windows was refused.
 
-This guard measures every `python3 -c` / `python -c` body in .claude/hooks/**/*.sh,
+This guard measures every `python3 -c` / `python3.X -c` / `python -c` body (any python
+flags before the `-c`) in .claude/hooks/**/*.sh,
 as the whole shell word bash passes (quote splices included), and fails when one
 exceeds BUDGET. The budget sits well under
 the hard cap, because the rest of the command line (interpreter path, flags, other
@@ -32,10 +33,22 @@ HARD_CAP = 32767
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 HOOKS = os.path.join(REPO_ROOT, ".claude", "hooks")
 
-# `python3`, optional flags (possibly over a line continuation), then `-c` and the
-# opening quote of its argument.
-OPEN = re.compile(r"\bpython3?(?:(?:\s|\\\n)+-[A-Za-z]+)*?(?:\s|\\\n)+-c(?:\s|\\\n)+(['\"])")
+# The interpreter (`python`, `python3`, `python3.12`, or a variable holding one), its
+# flags (possibly over a line continuation), then `-c` and the opening quote of its
+# argument. Flags are python's own: a cluster of no-argument letters (`-I`, `-IB`), or
+# `-X` / `-W` with its argument, attached or not (`-X utf8`, `-Wignore`). `-c` may end
+# a cluster (`-Ic`). Limiting the letters to python's keeps `find ... -exec` out.
+_SEP = r"(?:\s|\\\n)+"
+_NOARG = "bBdEiIOPqsSuvx"
+_FLAG = r"(?:-[XW](?:\s|\\\n)*[^\s'\"\\]+|-[%s]+)" % _NOARG
+OPEN = re.compile(
+    r"(?:\bpython(?:3(?:\.\d+)?)?|(?P<var>\"?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\"?))"
+    r"(?:%s%s)*?%s-[%s]*c%s(?P<q>['\"])" % (_SEP, _FLAG, _SEP, _NOARG, _SEP)
+)
 VAR_REF = re.compile(r"^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$")
+# A variable interpreter is not traced to its value, so its -c body is reported as
+# unmeasured; a shell (`"$SHELL" -c`) is not python and is left alone.
+SHELL_VARS = {"SHELL", "BASH", "SH", "ZSH"}
 
 
 def heredoc_var(text, name):
@@ -52,12 +65,19 @@ def bash_word(text, i):
     """(value, end) of the shell word starting at text[i], as bash builds it: quoted
     segments run together (`'a'"b"'c'` is one word, and a hook that splices a quote
     into a single-quoted body as `'\\''` has a body longer than its first segment).
-    An expansion is counted as its own text (shortcut: its value is unknown, fine
-    while hook bodies only expand short names). value is None when a quote never closes."""
+    A parameter expansion is counted as its own text (shortcut: its value is unknown,
+    fine while hook bodies only expand short names). value is None when a quote never
+    closes, or when the word holds a command substitution (`"$(cat f)"`, a backtick):
+    its length is whatever the command prints, so it cannot be measured here."""
     out = []
+    dynamic = False
     while i < len(text):
         c = text[i]
-        if c == "'":
+        if c == "`" or text.startswith("$(", i):
+            dynamic = True
+            out.append(c)
+            i += 1
+        elif c == "'":
             j = text.find("'", i + 1)
             if j == -1:
                 return None, len(text)
@@ -70,6 +90,8 @@ def bash_word(text, i):
                     out.append("" if text[i + 1] == "\n" else text[i + 1])
                     i += 2
                 else:
+                    if text[i] == "`" or text.startswith("$(", i):
+                        dynamic = True
                     out.append(text[i])
                     i += 1
             if i >= len(text):
@@ -83,7 +105,7 @@ def bash_word(text, i):
         else:
             out.append(c)
             i += 1
-    return "".join(out), i
+    return (None if dynamic else "".join(out)), i
 
 
 def bodies(text):
@@ -99,7 +121,12 @@ def bodies(text):
             pos = m.end()
             continue
         body, end = bash_word(text, m.end() - 1)
-        if body is not None and m.group(1) == '"' and VAR_REF.match(text[m.end():end - 1]):
+        if m.group("var"):
+            if m.group("var").strip('"${}') in SHELL_VARS:
+                pos = m.end()
+                continue
+            body = None  # `"$PY" -c ...`: not traced to python, so not measured, reported
+        elif body is not None and m.group("q") == '"' and VAR_REF.match(text[m.end():end - 1]):
             # `-c "$SRC"`: measure the heredoc that fills SRC. None: untraceable, reported.
             body = heredoc_var(text, VAR_REF.match(text[m.end():end - 1]).group(1))
         # An unterminated or untraceable body is not a small body: report it, never skip it.

@@ -184,6 +184,10 @@ INPUT=$(cat)
 read_field() {
   printf '%s' "$INPUT" | python3 -I -B -c "
 import json, sys
+# UTF-8 both ways, as in the analyzer: on Windows the locale code page cannot even
+# decode some UTF-8 Cyrillic (the 0x98 of U+0418), and the command was refused unread.
+sys.stdin.reconfigure(encoding='utf-8', errors=sys.stdin.errors)
+sys.stdout.reconfigure(encoding='utf-8', errors=sys.stdout.errors)
 d = json.load(sys.stdin)
 cur = d
 for key in sys.argv[1].split('.'):
