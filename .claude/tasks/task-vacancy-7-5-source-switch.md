@@ -140,6 +140,21 @@ Master A1 decisions (PR #1312 round 3 fix round; carried verbatim into the PR bo
 - A1 (Coder, UX-06): the source icon is the generic `Globe`, as in the reference PNGs.
 - A1 (Master, UX-05): the off-state switch contrast (≥ 3:1, SC 1.4.11) is fixed locally in `SourceSwitchCard`; the shared
   `Switch` primitive is not changed in this PR.
+- A1 (Coder, SO-S-L-1 / SPEC4-L-2): `useSetJobSourceEnabled` returns the two refetch promises from `onSuccess`, so the
+  mutation stays pending (and the switch guarded) until the source list and the health query have settled.
+- A1 (Coder, CR3-L-1 / SPEC4-L-2): `formatDeadline` formats in UTC, so a deadline shows the stored calendar day in any
+  browser time zone.
+- A1 (Coder, COPY4-L-1): the refused-enable alert is two lines (headline, then reason and «Стан не змінено.») instead
+  of the single «·»-joined line in design §7.
+
+Master A1 decision (PR #1312 round 4; carried verbatim into the PR body):
+
+- A1 (Master): PR #1312 merges at round 3 with every required verdict PASS. The round-3 LOW / plausible findings go to
+  `task-vacancy-7-5b-source-card-followups.md` instead of a fifth review round on this PR: SO-S2-M / CR4-L-2 /
+  COPY4-L-2 (a metered source hides `MISCONFIGURED` / `EXHAUSTED` and the reset time), SPEC4-L-1 (the dialog loses the
+  trigger label for a metered source), QA4-LOW-1 (a legacy-counter source states its limit twice), CR4-L-1 (comment
+  wording in `use-job-sourcing.ts`), UX4-01 (`rounded-lg` notes), UX4-02 (semibold legend figures), SO-S2-L (the
+  focus and time-zone tests do not fail on a regression).
 
 ## Verification (Coder before `git push`)
 
