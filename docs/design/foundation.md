@@ -1,186 +1,347 @@
-# CRM Redesign — Foundation (visual language)
+# CRM Redesign — Foundation v2 (visual and interaction language)
 
-> **Status:** approved direction (Phase 0, owner 2026-06-23) — north-star app-shell = `screens/_foundation/app-shell.md` (Variant A "restrained", flat navigation). The language was confirmed by generation; no direction changes were needed.
-> **Applies to:** all redesign phases (`docs/superpowers/specs/2026-06-22-crm-redesign-program.md`).
-> **Token source:** `apps/web/app/styles/globals.css` (single source) + `docs/design/assets/_design-system/inventory.md`.
-> **Rule:** this file is the single visual language. Every screen follows it → consistency.
-> Always reference **semantic tokens** (`bg-background`, `text-muted-foreground`, `border-border`,
-> `bg-primary` …), NEVER raw hex/oklch and NEVER generic gradients.
+> **Status:** v2 draft for the CRM redesign v2 program (Wave 0, Task 0.8, 2026-11-11). It replaces
+> the v1 foundation (Phase 0, owner 2026-06-23). The v1 identity is kept; its execution is raised.
+> **Program spec (authority):** `docs/superpowers/specs/2026-11-11-crm-redesign-v2-design.md`.
+> **Benchmarks:** `docs/design/research/2026-11-11-mobile-benchmarks.md`.
+> **Scoring:** `docs/design/rubric-calibration.md`.
+> **Reference mockups:** `screens/_foundation/shell-v2.md` (app shell) and
+> `screens/_foundation/primitives-v2.md` (primitives).
+> **Token source:** `apps/web/app/styles/globals.css` stays the single source. This file proposes the
+> v2 values. The Wave 0 implementation task writes them into `globals.css`, once.
+> **design-gate: degraded.** Claude Design was not driven for Task 0.8. The mockups are Playwright
+> renders of HTML prototypes (`screens/_foundation/assets/src/`).
+>
+> **Rule:** this file is the single visual and interaction language. Every screen follows it.
+> Reference **semantic tokens** (`bg-background`, `text-muted-foreground`, `border-border`,
+> `bg-primary` …). Never raw hex / oklch in code, never generic gradients.
 
 ---
 
 ## 1. Direction (5 questions)
 
-| Question             | Answer                                                                                                                                                                                                                               |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Purpose**          | Internal CRM of a recruiting/outstaffing company: teams, projects, interviews, finance, documents, contracts. A daily working tool, not marketing.                                                                                   |
-| **Audience**         | Power-user operators across 6 roles (ADMIN/SENIOR/HR/ACCOUNTANT/JUNIOR/DROP). They scan tables, KPIs, statuses; they act quickly and often. The money path is sensitive and requires clarity and confirmations.                      |
-| **Tone**             | **dense · quiet · scannable · professional.** A "calm operations console". NOT editorial, NOT playful, NOT marketing-hero. Quiet by default, energy only where action/attention is needed.                                           |
-| **Memorable detail** | A warm amber undertone on dark neutrals (chroma ≈0.04–0.06 hue 85 in `surface`/`border`/`accent`) + brand yellow as the ONLY high-energy accent against deep blacks → a "spotlight" of hierarchy, not a motley dashboard.            |
-| **Constraints**      | Tailwind v4 (`@theme inline`) + shadcn/ui + Radix · Russian UI · WCAG 2.2 AA · responsive 320–1440 · **dark-default** (`.dark` on `<html>`; light/dark parity) · the existing system of 218 tokens / 22 primitives / 103 composites. |
+| Question             | Answer                                                                                                                                                                                                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Purpose**          | Internal CRM of a recruiting / outstaffing company: teams, projects, interviews, finance, documents, contracts. A daily working tool, not marketing.                                                                                                          |
+| **Audience**         | Operators in 6 roles (ADMIN / SENIOR / HR / ACCOUNTANT / JUNIOR / DROP). The owner works mostly from an **iPhone** (installed PWA); the other roles split between phone and desktop. They scan lists, statuses and money, and act often. Money needs clarity. |
+| **Tone**             | **dense · quiet · scannable · professional.** On the phone: App Store-grade native feel (tab bar, sheets, large titles). On the desktop: a keyboard-first operations console (sidebar, Cmd+K, dense tables).                                                  |
+| **Memorable detail** | Warm amber undertone on dark neutrals (chroma ≈ 0.004–0.012, hue 85) with brand yellow as the **only** high-energy accent: a "spotlight" of hierarchy. Money always in `tabular-nums`, sign shown by `+`/`−` and position, never by colour alone.             |
+| **Constraints**      | Tailwind v4 (`@theme inline`) + shadcn/ui + Radix / Base UI Drawer · **product UI in `uk` (default) + `en`** via Lingui · WCAG 2.2 AA · **dark theme only** (owner decision 2026-08-16) · responsive 320–2560 · 3 device classes (§10).                       |
 
-**Domain-fit:** SaaS operations tool ⇒ dense, quiet, scannable. No landing compositions
+**Domain fit:** SaaS operations tool, so dense, quiet and scannable. No landing compositions
 (centered hero, blob gradient, oversized CTA) on working screens.
 
----
-
-## 2. Layout & page chrome (app-shell)
-
-The global frame that EVERY screen inherits (Phase 0 north-star = its redesign):
-
-- **Structure:** left `nav-sidebar` (role-filtered, `bg-surface`) + top header (page-context + `notifications-bell` + user menu) + main content area on `bg-background`.
-- **Sidebar:** fixed width on desktop (≈240–264px), collapsible; at ≤768px — a `Sheet` overlay (trigger in the header). The active item is `bg-accent` (warm dark) + `text-accent-foreground`, left border/icon in `text-primary`. Grouped by domain, not a flat list of 12 items.
-- **Header:** `flex-none`, sticky, opaque background (`bg-background`/`bg-card`), `z-20` (the `StickyPageHeader` pattern). Contains the page context (title + breadcrumbs when deep) on the left, actions/bell/avatar on the right.
-- **Content area:** do NOT stretch max-width on ultra-wide screens — the content column has a sensible `max-w` (lists/details), but tables/dashboards may be full-width. Vertical rhythm of sections is a multiple of the spacing scale (§3).
-- **Density:** informationally dense, but with room to breathe — priority is "how much useful content is visible without scrolling", but without claustrophobia. Do not shrink the hit area for the sake of density (§9).
+**Light theme:** out of scope (spec §2). The `:root` light values in `globals.css` are not designed
+against in v2 and are not a parity target.
 
 ---
 
-## 3. Spacing rhythm / density
+## 2. Device classes and navigation model
 
-The base is Tailwind v4 spacing (4px step). Not "uniform padding everywhere" — rhythm follows the hierarchy:
+Three device classes, scored separately (spec §5). Each has its own navigation container. The
+routes, RBAC and labels are the same in all three.
 
-| Level                           | Token (Tailwind)      | Application                |
-| ------------------------------- | --------------------- | -------------------------- |
-| Inside a control (button/input) | `px-3 py-2` / `gap-2` | compact, tactile           |
-| Inside a card (`CardContent`)   | `p-4` … `p-6`         | by content density         |
-| Between elements in a list      | `gap-2` … `gap-3`     | table-dense                |
-| Between page sections           | `gap-6` … `gap-8`     | clear separation of blocks |
-| Page padding (content)          | `p-4 md:p-6 lg:p-8`   | responsive                 |
+| Class       | Width       | Navigation                                                                                                                                                                                         | Content layout                                       |
+| ----------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| **Mobile**  | < 640 px    | Bottom **tab bar**: 4 role destinations + «Ще» (More sheet). Large title per tab root; inline title + in-app back on pushed screens. **FAB** «+» (quick-add) sits above the tab bar, bottom right. | One column, 2-line list rows, sheets for forms       |
+| **Tablet**  | 640–1023 px | 80 px **navigation rail** (4 tabs + «Ще» popover), labels under icons. Quick-add is the rail's top button.                                                                                         | Two panes (list + detail) where the screen has both  |
+| **Desktop** | ≥ 1024 px   | 248 px grouped **sidebar** (collapsible to a 64 px rail with tooltips), header with breadcrumb + page action, **Cmd+K** palette, **`?`** shortcut sheet.                                           | Dense tables, side panel for preview, dialog confirm |
 
-**Principle:** rhythm contrast (dense inside a block, spacious between blocks) creates scannability
-better than a single spacing. Radii come from the `--radius` scale (sm 4 / md 6.8 / lg 10 / xl 16.4px);
-concentricity: the outer container is `rounded-lg`, the nested one is `rounded-md`.
+Rules that hold in every class:
 
----
-
-## 4. Type scale (Inter)
-
-`--font-sans` = `'Inter', system-ui, sans-serif`. Hierarchy through contrast of scale + weight, not through color.
-
-| Role                  | Class (Tailwind)                  | Note                                                            |
-| --------------------- | --------------------------------- | --------------------------------------------------------------- |
-| Page title            | `text-xl font-semibold`           | one per screen; not an oversized hero                           |
-| Section title         | `text-base font-semibold`         | card/section heading                                            |
-| Card / KPI label      | `text-sm text-muted-foreground`   | metric caption                                                  |
-| Body                  | `text-sm` (default) / `text-base` | main text; in dense tables `text-sm`                            |
-| Caption / hint        | `text-xs text-muted-foreground`   | secondary info, timestamps                                      |
-| **Numbers/money/IDs** | `tabular-nums` + `font-medium`    | **`tabular-nums` is mandatory** — amounts/counters don't "jump" |
-
-Headings — `tracking-tight` for large ones; body text — normal tracking. Line-height per the
-Tailwind default; in dense rows — `leading-tight`.
+- **Tab bar = navigation only.** Create actions live in quick-add (FAB / rail button / page action),
+  never as a tab. A role with one create action gets a «+» that opens it directly; a role with none
+  gets no «+».
+- **«Ще» carries the badge** for destinations it hides (for example «Чекають рішення»).
+- **Role-aware:** every destination list is `route-access ∩ nav items` for the role. Tab sets per role,
+  More contents and quick-add actions: `screens/_foundation/shell-v2.md`.
+- **Sidebar / More groups:** Огляд · Гроші · Люди · Робота · Найм · Система (new headings, copy-reviewer
+  gate in the Wave 0 implementation).
+- **Standalone PWA has no browser back.** Every pushed screen shows an in-app back control (44 px).
+- **No left-edge swipe gesture** of our own (it collides with the system back gesture). Swipe actions on
+  list rows come from the trailing edge only.
 
 ---
 
-## 5. Color semantics (mapping to tokens)
+## 3. Layout chrome
 
-Color is **semantic**, not decorative. Palette: 3 blacks (backgrounds) / 3 whites (text) / 3 yellows + system colors.
-
-| Purpose                           | Token                                                                                              |
-| --------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Page canvas                       | `bg-background`                                                                                    |
-| Raised surface (card)             | `bg-card` + `text-card-foreground`                                                                 |
-| Sidebar/popover/inputs surface    | `bg-surface` (warm amber undertone)                                                                |
-| Primary text                      | `text-foreground`                                                                                  |
-| Secondary/captions                | `text-muted-foreground`                                                                            |
-| **Brand / CTA / active**          | `bg-primary` + `text-primary-foreground` (near-black on yellow)                                    |
-| Hover-ring / glow                 | `ring-ring` / `--yellow-muted`                                                                     |
-| Active sidebar item / ghost-hover | `bg-accent` + `text-accent-foreground`                                                             |
-| Borders                           | `border-border` (warm in dark)                                                                     |
-| Error / deletion / debt           | `bg-destructive` / `text-destructive`                                                              |
-| Status/role badges                | `Badge` variants (admin/senior/junior/hr/accountant/drop/status-active/status-closed/paid/pending) |
-
-**Brand-yellow discipline:** only primary actions, active state, brand moments, key KPI accents.
-Do NOT flood large areas with yellow, do NOT put yellow backgrounds under text (contrast), do NOT use it as a
-decorative section background. Yellow = "action/attention here".
+- **Top bar (mobile):** 44 px plus the safe area. Tab roots use a large title (28/34) that collapses into
+  the 44 px bar on scroll. Pushed screens use the inline title (17/22, centred) with back on the left.
+- **Tab bar (mobile):** 50 px plus the bottom safe area (34 px on Face ID iPhones). Opaque `bg-card` with
+  a top `border-separator`; no blur (blur costs frames on older iPhones and reads poorly on dark).
+- **Header (desktop):** `flex-none`, sticky, opaque, `z-20` (the `StickyPageHeader` pattern). Left:
+  breadcrumb (group / page). Right: bell, then the page's primary action with its single-key hint.
+- **Content width:** lists and details cap at a readable `max-w` on ≥ 1440; tables and dashboards may go
+  full width. No stretched line length at 2560.
+- **Safe areas:** `env(safe-area-inset-*)` on the top bar, tab bar, FAB, sheets and toasts. Nothing
+  interactive sits under the home indicator.
 
 ---
 
-## 6. Elevation / depth
+## 4. Spacing rhythm and density
 
-Depth through surfaces and borders, not heavy shadows (dark UI: shadows read poorly).
+Base step **4 px** (Tailwind spacing). Rhythm follows hierarchy: dense inside a block, spacious between
+blocks.
 
-- Layers: `background` (canvas) → `card`/`surface` (raised) → `popover` (floating, `shadow` from shadcn).
-- Cards: `bg-card` + `border-border` (1px) instead of a default drop-shadow; shadow only for truly floating elements (popover/dropdown/dialog) via shadcn tokens.
-- NO "card in a card" (anti-pattern): nesting is done with sections/dividers (`Separator`), not double borders.
+| Level                      | Value                                       | Tailwind                |
+| -------------------------- | ------------------------------------------- | ----------------------- |
+| Page gutter                | 16 (mobile) / 24 (tablet) / 32 (desktop)    | `px-4 sm:px-6 lg:px-8`  |
+| Inside a control           | 12–14 horizontal, gap 8                     | `px-3` … `px-3.5 gap-2` |
+| Inside a card / sheet      | 16                                          | `p-4`                   |
+| Between related items      | 8–12                                        | `gap-2` … `gap-3`       |
+| Between sections           | 24 (mobile) / 32 (desktop)                  | `gap-6 lg:gap-8`        |
+| **List row (mobile)**      | 56 single-line, 64 two-line; inset 16       | `min-h-14` / `min-h-16` |
+| **Table row (desktop)**    | 40; header 36                               | `h-10` / `h-9`          |
+| Top bar / tab bar (mobile) | 44 / 50 + safe area                         | —                       |
+| Touch target               | ≥ 44 × 44 mobile; ≥ 24 × 24 desktop pointer | —                       |
 
----
-
-## 7. Motion
-
-Compositor-friendly only (`transform`/`opacity`), high-signal, not decorative.
-
-- Duration: 150ms (micro: hover/focus) / 200–300ms (panel transitions, tabs-pill, sheet).
-- Easing: ease-out for appearance; the existing `AnimatedTabs`/`SegmentedToggle` patterns (sliding-pill) are the reference.
-- Respect `prefers-reduced-motion` (the `credentials-timer-bar` pattern in globals.css).
-- Do not animate layout properties (width/height/top/left). Skeleton (`animate-pulse`) for loading.
-
----
-
-## 8. Component styling direction (how they should "feel")
-
-We use the EXISTING shadcn/ui + composites (inventory) — we do not introduce a new visual language:
-
-- **Button:** `default` = brand-yellow primary (the main action, 1 per context); `outline`/`ghost`/`secondary` — secondary; `destructive` — for deletion. Icons for familiar actions.
-- **Card:** `bg-card` + `border-border`, `CardHeader` heading, `CardContent p-4/6` breathing room. The foundation of all surfaces.
-- **Table:** dense rows, sticky header, `tabular-nums` in numeric columns, row hover highlight, row actions on the right (icon-button/`DropdownMenu`). This is the "bread and butter" of the CRM.
-- **Dialog:** via `CrmDialog` (fixed header/body/footer, scrollable body, `max-h-[90dvh]`) — the standard for all modals.
-- **Badge:** statuses/roles strictly via the ready-made variants — a single status language across the whole app.
-- **Input/Select/Tabs:** shadcn defaults on our tokens; focus — a visible `ring-ring`.
+**Principle:** rhythm contrast creates scannability better than one uniform padding.
 
 ---
 
-## 9. A11y (WCAG 2.2 AA)
+## 5. Radius
 
-- **Target-size:** interactive elements ≥ 24×24px (icon buttons — an enlarged hit area even with a small icon).
-- **Contrast:** text 4.5:1, large text/UI elements 3:1. The tokens are already calibrated (see the avatar-text comments in globals.css); do not lower them.
-- **Focus:** a visible focus ring (`ring-ring`) on all interactive elements; logical focus order; focus trap in modals/sheet.
-- **Icon-only:** `aria-label`. Semantic HTML (`nav`/`main`/`header`/tables) — not div soup.
-- **Russian UI:** all strings in Russian; long labels wrap/resize, do not overflow.
+The existing scale is kept (`--radius` = 10 px; `globals.css` already derives sm 6 / md 8 / lg 10 /
+xl 14). One step is added for sheets.
+
+| Token                      | Value | Use                                                  |
+| -------------------------- | ----- | ---------------------------------------------------- |
+| `--radius-sm`              | 6     | badges, kbd keys, small chips                        |
+| `--radius-md`              | 8     | desktop buttons, desktop inputs, table toolbar chips |
+| `--radius-lg`              | 10    | mobile inputs and buttons, list group containers     |
+| `--radius-xl`              | 14    | cards, popovers, toasts, dialogs, inline alerts      |
+| `--radius-sheet` **(NEW)** | 20    | top corners of bottom sheets and the More sheet      |
+
+**Concentricity:** outer radius = inner radius + padding. A card (14) holding an input (10) needs
+≈ 4 px padding to look concentric; with 16 px padding treat them as separate surfaces.
+
+---
+
+## 6. Type scale (Inter)
+
+`--font-sans` = `'Inter', system-ui, sans-serif`. Hierarchy comes from scale and weight, not colour.
+**`tabular-nums` on every number** (money, counts, dates, IDs).
+
+| Role         | Mobile (size/line, weight) | Desktop (size/line, weight) | Use                                         |
+| ------------ | -------------------------- | --------------------------- | ------------------------------------------- |
+| Large title  | 28/34, 700                 | —                           | tab root title (collapses on scroll)        |
+| Title        | 20/26, 600                 | 20/28, 600                  | sheet and dialog titles, desktop page title |
+| Headline     | 17/22, 600                 | 15/22, 600                  | inline top-bar title, section heads         |
+| Body         | **16/22**, 400             | **14/20**, 400              | rows, forms, text                           |
+| Subhead      | 15/20, 400                 | 13/18, 400                  | row secondary line                          |
+| Footnote     | 13/18, 400                 | 12/16, 400                  | hints, timestamps, helper text              |
+| Caption      | 12/16, 500                 | 12/16, 500                  | chart axes, badges, meta                    |
+| Tab label    | 10.5/13, 500 (10 at 320)   | —                           | tab bar and rail labels (iOS-sized)         |
+| Overline     | 12/16, 600, uppercase, +4% | 11/16, 600, uppercase, +4%  | section headers in lists and the sidebar    |
+| Money (hero) | 24–34, 700, tabular        | 24–28, 600, tabular         | amount field, KPI value                     |
+
+- **Inputs are ≥ 16 px on mobile.** Under 16 px iOS Safari zooms the page on focus.
+- `text-wrap: balance` on titles; `text-wrap: pretty` on short descriptions.
+- Long uk labels wrap or truncate with a full-text tooltip / accessible name; never overflow.
+
+---
+
+## 7. Colour
+
+### 7.1 Surface ladder (dark only)
+
+Depth comes from surface steps and borders, not shadows. Each step is +0.03–0.04 L.
+
+| Step  | Token          | v2 value               | Use                                                     |
+| ----- | -------------- | ---------------------- | ------------------------------------------------------- |
+| 0     | `--background` | `oklch(0.08 0 0)`      | page canvas                                             |
+| 1     | `--card`       | `oklch(0.12 0 0)`      | cards, tab bar, sheets, sidebar                         |
+| 1.5   | `--popover`    | `oklch(0.13 0 0)`      | popovers, menus, Cmd+K                                  |
+| 2     | `--surface`    | `oklch(0.16 0.006 85)` | inputs, grouped list rows, segmented control track      |
+| 3     | `--accent`     | `oklch(0.19 0.012 85)` | **raised:** active nav item, pressed row, selected chip |
+| —     | `--secondary`  | `oklch(0.2 0 0)`       | secondary button                                        |
+| scrim | `--scrim` NEW  | `oklch(0 0 0 / 0.6)`   | behind sheets and dialogs                               |
+
+### 7.2 Text, lines and brand
+
+| Token                | v1 → v2                              | Contrast (measured)                                          |
+| -------------------- | ------------------------------------ | ------------------------------------------------------------ |
+| `--foreground`       | `oklch(0.97 0 0)` (unchanged)        | ≥ 16:1 on every step                                         |
+| `--muted-foreground` | **0.58 → `oklch(0.64 0 0)`**         | 6.18 bg / 6.03 card / 5.77 surface / 5.38 raised             |
+| `--placeholder` NEW  | `oklch(0.6 0 0)`                     | 4.92 on surface (input background)                           |
+| `--border`           | `oklch(0.22 0.004 85)` (unchanged)   | decorative separation only                                   |
+| `--separator` NEW    | `oklch(0.2 0.004 85)`                | hairline between list rows (inset 16)                        |
+| `--input-border` NEW | `oklch(0.52 0.006 85)`               | 3.77 bg / 3.68 card / 3.52 surface / 3.29 raised (SC 1.4.11) |
+| `--primary`          | `oklch(0.84 0.183 85.3)` (unchanged) | 12.6 on bg; `--primary-foreground` 0.08 on it 12.6           |
+| `--yellow-muted`     | unchanged                            | hover rings                                                  |
+| `--yellow-subtle`    | unchanged                            | selected-row tint; yellow text on it 10.5                    |
+| `--ring`             | = `--primary`, 2 px + 2 px offset    | focus indicator ≥ 3:1 on every step                          |
+
+Why `--muted-foreground` moves: at 0.58 it measured below 4.5:1 on the raised step, and v2 puts
+secondary text on raised rows and sheets. Why `--input-border` is new: `--border` (0.22) is under
+3:1 against every surface, so input outlines failed SC 1.4.11 (non-text contrast).
+
+### 7.3 Semantic status
+
+| Token            | Value                   | Contrast on card | Use                                              |
+| ---------------- | ----------------------- | ---------------- | ------------------------------------------------ |
+| `--destructive`  | `oklch(0.65 0.21 22.2)` | 5.67             | errors, delete, debt                             |
+| `--positive` NEW | `oklch(0.76 0.14 160)`  | 10.0             | income amounts (always with `+`), success states |
+| `--warning` NEW  | `oklch(0.78 0.15 55)`   | 9.7              | pending, needs attention                         |
+| `--info` NEW     | `oklch(0.74 0.11 245)`  | 8.9              | neutral notices, in-progress                     |
+
+**Status is never colour alone** (SC 1.4.1): every status carries a sign, icon or word.
+
+### 7.4 Chart palette
+
+| Token              | Value                  | Role                                                  |
+| ------------------ | ---------------------- | ----------------------------------------------------- |
+| `--chart-1` NEW    | = `--primary`          | the series the question is about (one per chart)      |
+| `--chart-2` NEW    | `oklch(0.7 0.14 250)`  | comparison series (blue: safe against yellow for CVD) |
+| `--chart-3` NEW    | `oklch(0.75 0.12 175)` | third series                                          |
+| `--chart-4` NEW    | `oklch(0.68 0.17 40)`  | fourth series                                         |
+| `--chart-5` NEW    | `oklch(0.62 0 0)`      | "other" / baseline / previous period                  |
+| `--chart-grid` NEW | `oklch(0.22 0 0)`      | gridlines and zero line                               |
+
+All five series colours are ≥ 4.97:1 on every surface step. Chart rules:
+
+- **One chart per mobile screen**, answer visible in 2 s. Max 3 series per chart; label series directly.
+- **Negative values:** hatched fill + `−` label below the zero line. Sign, not colour, carries meaning.
+- Tap (mobile) or hover (desktop) a bar for a tooltip with the exact value; the tooltip is also reachable
+  by keyboard (arrow keys over a focused chart).
+- Desktop charts follow the table filters on the same screen.
+
+### 7.5 Brand-yellow discipline
+
+Yellow marks **action or attention** only: the primary action (one per context), the active nav item
+indicator, focus, the chart series in question. Never a large fill, never a decorative section
+background, never body text on a yellow background other than `--primary-foreground`.
+
+---
+
+## 8. Containers (which surface for which job)
+
+| Job                                       | Mobile                                        | Tablet                 | Desktop                                        |
+| ----------------------------------------- | --------------------------------------------- | ---------------------- | ---------------------------------------------- |
+| Short form, filters, pickers (≤ 4 fields) | Medium **detent sheet** (≈ 54% height)        | Medium sheet / popover | Popover or side panel                          |
+| Long form, edit                           | Large sheet (full height, Скасувати / Готово) | Side panel 400 px      | Side panel 420 (480 at ≥ 1440)                 |
+| Destructive confirm                       | **Action sheet** from the bottom              | Centred alert dialog   | Centred alert dialog 420, focus on «Скасувати» |
+| Detail                                    | Pushed screen                                 | Second pane            | Side panel (preview) or page                   |
+| Navigation overflow                       | More sheet                                    | Rail popover           | Sidebar (always visible)                       |
+
+- Sheets: drag handle, drag-to-dismiss, Esc / scrim tap closes. **A dirty form asks before it closes.**
+- Sheets and dialogs trap focus, restore it to the trigger on close, and are escapable (SC 2.1.2).
+
+---
+
+## 9. Motion
+
+Compositor-only (`transform`, `opacity`). High-signal, never decorative. **No `transition: all`.**
+
+| Kind                                 | Duration   | Easing                                                |
+| ------------------------------------ | ---------- | ----------------------------------------------------- |
+| Micro (press, hover, focus, toggle)  | 120–150 ms | ease-out                                              |
+| Standard (popover, toast, row state) | 200 ms     | enter `cubic-bezier(0.2, 0, 0, 1)`                    |
+| Sheet / page push                    | 280 ms     | enter `cubic-bezier(0.2, 0, 0, 1)`                    |
+| Any exit                             | 150 ms     | ease-in, quieter than the enter                       |
+| Drag release (sheet, swipe row)      | spring     | the only place for springs (`m.*` under `LazyMotion`) |
+
+- **Push / back:** View Transitions (slide 30% + fade). **Tab switch: instant**, no animation.
+- **Desktop:** route changes are a 150 ms crossfade; no slides.
+- **`prefers-reduced-motion`:** every movement becomes a 120 ms crossfade; drag still follows the finger.
+- Press feedback: `scale(0.97)` on buttons and rows, removable if it distracts.
+- Loading: skeletons that match the final layout (no layout jump); no blocking spinner over content.
+- Storyboard: `screens/_foundation/assets/primitives-v2/transition-storyboard.png`.
 
 ---
 
 ## 10. Responsive
 
-**Hard gate** (rule `.claude/rules/common/responsive-design.md`): EVERY screen is fully usable on
-4 device classes. **Mobile-first:** the base is mobile, scale up with `sm/md/lg/xl/2xl`.
+**Hard gate** (`.claude/rules/common/responsive-design.md`): every screen is fully usable at the five
+reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `md` / `lg` / `xl`.
 
-| Class      | Widths (test) | Behavior                                                                                                                                                                           |
-| ---------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Mobile** | 320 / 375     | single column; nav → `Sheet` (burger); dense tables → card stack OR h-scroll with a sticky 1st column; modals → full/bottom-sheet; touch targets ≥44px; no hover-only interactions |
-| **Tablet** | 768           | 1–2 columns; sidebar visible/collapsible; condensed toolbars; forms 1–2 cols.                                                                                                      |
-| **Laptop** | 1024 / 1280   | full desktop layout (the operators' main target)                                                                                                                                   |
-| **Large**  | 1440 / 1920   | content columns with a `max-w` cap (do not stretch lines on ultra-wide); tables/dashboards full-width                                                                              |
+| Width | Class   | Check                                                                         |
+| ----- | ------- | ----------------------------------------------------------------------------- |
+| 320   | mobile  | nothing overflows; tab labels fit; sheets reach 36% top; long titles truncate |
+| 375   | mobile  | the reference phone (iPhone 13 mini / SE 3 layout width; 812 tall frame)      |
+| 768   | tablet  | rail + two panes; touch heights (48 inputs, 44 buttons)                       |
+| 1024  | desktop | sidebar 248 (or collapsed 64) + dense table; the narrowest desktop            |
+| 1440  | desktop | wide table columns appear (≥ 1280); side panel 480; content `max-w` caps      |
 
-**Mobile adaptation of components (design-system patterns — inherited by all screens):**
-
-- **NavSidebar:** desktop `<aside>` ↔ mobile `Sheet` overlay (burger). The reference is app-shell.
-- **Dense table:** desktop — a table; mobile — a card stack of rows OR horizontal scroll with a sticky first column + an indicator. Do NOT silently cut off columns.
-- **Dialog / `CrmDialog`:** desktop — a centered modal; mobile — full-screen / bottom-sheet (`max-h-[90dvh]`, scroll body).
-- **Filters / toolbars:** desktop — in a row; mobile — wrap or collapse into a "Фильтры" button.
-- **Type-scale:** large headings — `clamp()` as needed; body readable (≥14px) on mobile.
-- **Touch:** interactive elements ≥44px on mobile (larger than the a11y minimum of 24px); actions visible without hover.
-
-- Stable toolbar/grid/counter sizes — they do not "jump" on hover / label change / device class change.
-- **Verification:** Playwright at the test widths — no horizontal page overflow (`scrollWidth ≤ clientWidth`), everything reachable, touch targets OK on mobile.
+- Dense tables on mobile become 2-line list rows (key value right-aligned), never silently cut columns.
+- Stable toolbar, grid and counter sizes: nothing jumps on hover, label change or class change.
+- **Verification:** Playwright at each width: `scrollWidth ≤ clientWidth`, everything reachable,
+  touch targets measured.
 
 ---
 
-## 11. Anti-patterns (AI-slop guardrails — Mode C catches these)
+## 11. Interaction rules (spec §4.5b, binding for every screen)
 
-- ❌ Purple gradients, decorative blobs, oversized hero, vague marketing copy on working screens.
-- ❌ Card in a card; a single radius/spacing/shadow everywhere with no hierarchy.
-- ❌ Yellow as a decorative fill of large areas / a yellow background under text.
-- ❌ Generic "dashboard-by-numbers" with no point of view; raw shadcn defaults passed off as a finished design.
-- ❌ Raw hex/oklch in code — semantic tokens only.
-- ✅ Design-quality requirement: every screen demonstrates ≥4 qualities (hierarchy via scale, rhythm, depth
-  via surfaces, semantic color, designed hover/focus/active, data as part of the system).
+- **Never block.** Input feedback < 100 ms. Writes are optimistic where the action is reversible.
+- **Finance writes** are sent immediately and shown optimistically, with rollback and a visible error.
+  No double submit (the submit control disables while in flight). **No auto-retry of money creates.**
+  An unknown outcome may be resubmitted only with the same idempotency key. Four forms (expense,
+  admin-income, admin-transfer, company deposit) do not have the key yet; the first Wave 1 task adds it.
+- **Errors keep input.** A failed save shows an inline `role="alert"` above the form with the values
+  kept and a manual «Повторити» (reference: `primitives-v2/toast-error-375.png`).
+- **Undo** only where a reversible action already exists (toast with «Скасувати», 5 s).
+- **Filters live in the URL.** No saved filter views.
+- **Search covers loaded data only** (and Cmd+K navigation / page actions). No cross-entity server search.
+- **Uploads** are in-memory and non-blocking with a global progress indicator. Nothing survives an app
+  close; the UI never claims otherwise.
+- **Keyboard (desktop):** Tab order follows reading order; Enter submits; Esc closes; single-key
+  shortcuts can be turned off in the `?` sheet (stored on the device, SC 2.1.4).
 
 ---
 
-## 12. Redesign principle (CRITICAL — inherited by all phases)
+## 12. Redesign principle (relaxed for v2 — spec §4.5)
 
-Redesign = **restyle of existing blocks**: the same blocks, labels, data content as on the REAL
-screen. We change ONLY visuals/spacing/hierarchy/placement per UI/UX canons. **Add nothing new**
-(no buttons, no KPIs, no widgets), do not remove features, do not touch business logic/API/RBAC. Each screen's brief is
-capture-grounded (the real screen is captured, blocks are listed, an explicit "add nothing not listed" prohibition).
+v1 said "restyle existing blocks, add nothing". **For the v2 program this is relaxed:** interaction
+patterns may change. Allowed: the navigation model, quick-add, sheets, inline edit, the command
+palette, progressive disclosure, merged or split views.
+
+**Still forbidden:**
+
+- new business data or new KPIs;
+- removing a capability;
+- changing business rules, the API or RBAC.
+
+Every screen brief stays capture-grounded: the real screen is captured, its blocks and actions are
+listed, and anything the v2 screen shows must trace back to that list.
+
+---
+
+## 13. A11y (WCAG 2.2 AA)
+
+- **Targets:** ≥ 44 × 44 on touch classes (HIG); ≥ 24 × 24 on desktop pointer (SC 2.5.8). Small icons
+  get an enlarged hit area.
+- **Contrast:** text 4.5:1, large text and UI parts 3:1. Measured values: §7. Do not lower them.
+- **Focus:** visible 2 px yellow ring with offset on every interactive element (SC 2.4.11 / 2.4.7);
+  focus never hidden under the sticky header, tab bar or a toast (SC 2.4.11).
+- **Gestures:** every swipe or drag has a single-pointer alternative (SC 2.5.1 / 2.5.7): swipe actions
+  are also in a long-press / «…» context menu; sheets also close by button and Esc.
+- **Names:** icon-only controls have an `aria-label`; tab bar is a `nav` with `aria-current="page"`;
+  badges are announced ("3 нових").
+- **Live regions:** toasts and the upload indicator are `role="status"`; save errors are `role="alert"`.
+- **Zoom** is never disabled (`user-scalable` stays on); reflow works at 320 CSS px.
+- **Product language:** visible text is `uk` (default) + `en` through Lingui catalogs; no literals.
+
+---
+
+## 14. Anti-patterns (AI-slop guardrails — Mode C)
+
+- Purple gradients, decorative blobs, oversized hero, glass / blur cards, marketing copy on working screens.
+- Card in a card; one radius / spacing / shadow everywhere.
+- Yellow as a fill of large areas or a background under text.
+- A blocking full-screen spinner; a toast that covers the field it is about.
+- Colour-only status or sign.
+- Raw hex / oklch in code.
+
+---
+
+## 15. Assumptions (A1, Task 0.8)
+
+- `--muted-foreground` 0.58 → 0.64, `--input-border` (0.52) and `--placeholder` (0.6) are new: the
+  measured contrast in §7 required them. The Wave 0 coder decides whether shadcn's `border-input`
+  points at `--input-border`.
+- `--accent` is the "raised" step; no separate `--raised` token is added.
+- Tab labels reuse the existing nav strings («Дашборд» for Home). «Ще» and the six group headings are
+  new strings (copy-reviewer gate).
+- The FAB sits above the tab bar, not inside it. The tablet uses a rail with a popover More.
+- Money create errors show inline above the form, not as a floating toast (the toast covered the
+  amount field at 375).
