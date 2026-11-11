@@ -10,7 +10,7 @@ import { useLocale } from '@/lib/i18n'
 import { sourceLabel } from '@/components/job-queue/JobQueueRow'
 import { QuotaBar, type QuotaFigures } from './QuotaBar'
 import { readinessPhrases } from './readiness-reason'
-import { SourceBudgetRow } from './SourceBudgetRow'
+import { SourceBudgetRow, SourceTriggerLabel } from './SourceBudgetRow'
 import { deriveSourceState, type SourceStateKind } from './source-state'
 
 /**
@@ -158,6 +158,7 @@ export function SourceSwitchCard({
           unit: 'REQUEST',
         }
       : null
+  const showBudgetRow = !quota || budget.state === 'MISCONFIGURED' || budget.state === 'EXHAUSTED'
 
   const never = t`ніколи`
   const ago = (iso: string) => formatRelativeTime(iso, locale)
@@ -242,7 +243,7 @@ export function SourceSwitchCard({
           <p
             id={noteId}
             data-testid="job-source-state-note"
-            className={`flex items-start gap-2 rounded-md border px-3 py-2 ${boxed.className}`}
+            className={`flex items-start gap-2 rounded-lg border px-3 py-2 ${boxed.className}`}
           >
             <boxed.Icon
               aria-hidden
@@ -258,8 +259,12 @@ export function SourceSwitchCard({
           </p>
         ))}
 
-      {/* A meter that draws the bar states the quota itself; the budget line would repeat it. */}
-      {!meterQuota && <SourceBudgetRow source={source} showTrigger={showTrigger} />}
+      {showTrigger && <SourceTriggerLabel source={source} />}
+
+      {/* A bar states the quota itself, so the budget line would repeat it; it stays only for a
+          problem the bar cannot show: a limiter the collector cannot use, or a spent allowance
+          (with its reset time). ACTIVE and UNLIMITED hide behind the bar. */}
+      {showBudgetRow && <SourceBudgetRow source={source} />}
 
       {quota && <QuotaBar {...quota} />}
 
@@ -279,7 +284,7 @@ export function SourceSwitchCard({
         <div
           role="alert"
           data-testid="job-source-enable-failure"
-          className="flex items-start gap-2 rounded-md border border-destructive/50 px-3 py-2"
+          className="flex items-start gap-2 rounded-lg border border-destructive/50 px-3 py-2"
         >
           <TriangleAlert
             aria-hidden

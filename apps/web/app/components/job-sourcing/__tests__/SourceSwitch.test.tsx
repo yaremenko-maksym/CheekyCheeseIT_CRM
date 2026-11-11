@@ -15,6 +15,7 @@ vi.mock('@/lib/axios', () => ({ api: { get: vi.fn(), patch: vi.fn() } }))
 import { api } from '@/lib/axios'
 import { getUserFacingErrorMessage } from '@/lib/axios-utils'
 import { SourceBudgetPanel } from '../SourceBudgetPanel'
+import { formatResetAt } from '../SourceBudgetRow'
 
 const NOW = new Date('2026-11-10T12:00:00.000Z')
 const ago = (ms: number) => new Date(NOW.getTime() - ms).toISOString()
@@ -62,6 +63,17 @@ const notReadyError = () => ({
     data: { statusCode: 409, code: 'JOB_SOURCE_NOT_READY', message: 'Source is not ready' },
   },
 })
+
+/** A meter with no limit draws no bar, so the budget row still states the quota. */
+const NO_LIMIT_METER: NonNullable<JobSourceDto['meter']> = {
+  unit: 'REQUEST',
+  window: 'MONTH',
+  limit: null,
+  used: 0,
+  reserved: 0,
+  uncertain: 0,
+  resetsAt: null,
+}
 
 let listed: JobSourceDto[] = []
 
@@ -155,6 +167,23 @@ describe('AC1 — the switch sends the inverted value, once, and refetches', () 
     expect(toggle).toHaveClass('aria-disabled:cursor-not-allowed', 'aria-disabled:opacity-60')
   })
 
+  // The ref guard alone: both activations run inside ONE synchronous `act`, so React cannot
+  // re-render between them and `mutation.isPending` is still false in the closure of the second.
+  it('the ref guard alone stops a second send before the pending state re-renders', async () => {
+    vi.mocked(api.patch).mockReturnValue(new Promise(() => {}) as never)
+    renderPanel()
+    const toggle = await screen.findByRole('switch', { name: 'DOU' })
+
+    act(() => {
+      toggle.click()
+      toggle.click()
+    })
+    // `mutate` reaches the wire a microtask later; let it settle before counting
+    await act(async () => {})
+
+    expect(api.patch).toHaveBeenCalledTimes(1)
+  })
+
   it('a keyboard toggle keeps focus on the switch while the request is in flight', async () => {
     vi.mocked(api.patch).mockReturnValue(new Promise(() => {}) as never)
     const user = userEvent.setup()
@@ -169,6 +198,10 @@ describe('AC1 — the switch sends the inverted value, once, and refetches', () 
     expect(api.patch).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(toggle).toHaveAttribute('aria-disabled', 'true'))
     expect(toggle).toHaveFocus()
+    // jsdom keeps focus on a natively disabled button, so focus alone cannot catch the regression:
+    // the attribute (and Radix's `data-disabled` twin) must be absent while the request is pending
+    expect(toggle).not.toHaveAttribute('disabled')
+    expect(toggle).not.toHaveAttribute('data-disabled')
   })
 
   it('the switched-off track contrasts with the card (SC 1.4.11), not the near-black input fill', async () => {
@@ -391,12 +424,13 @@ describe('AC2 — disabled, paused and blocked are three different states', () =
         'flex',
         'items-start',
         'gap-2',
-        'rounded-md',
+        'rounded-lg',
         'border',
         'px-3',
         'py-2',
         ...classes,
       )
+      expect(note()).not.toHaveClass('rounded-md')
       const svg = within(note()).getByTestId('job-source-note-icon')
       expect(svg).toHaveAttribute('aria-hidden', 'true')
       expect(svg).toHaveAttribute('data-icon', icon)
@@ -470,9 +504,18 @@ describe('AC3 — three-segment quota bar', () => {
     // a meter that draws the bar replaces the budget line: one quota statement, not two
     expect(screen.queryByTestId('job-source-budget-row')).toBeNull()
     expect(screen.queryByText('Без ліміту запитів')).toBeNull()
-    // the legend numbers carry the weight, in tabular figures
-    const figure = within(screen.getByTestId('job-source-quota-legend-used')).getByText('120')
-    expect(figure).toHaveClass('font-medium', 'tabular-nums', 'text-foreground')
+    // the legend numbers carry the weight (semibold, design §8), in tabular figures
+    for (const [id, figureText] of [
+      ['used', '120'],
+      ['reserved', '10'],
+      ['uncertain', '5'],
+    ] as const) {
+      const figure = within(screen.getByTestId(`job-source-quota-legend-${id}`)).getByText(
+        figureText,
+      )
+      expect(figure).toHaveClass('font-semibold', 'tabular-nums', 'text-foreground')
+      expect(figure).not.toHaveClass('font-medium')
+    }
     expect(screen.getByTestId('job-source-quota-legend-used')).toHaveTextContent('Використано 120')
     expect(screen.getByTestId('job-source-quota-legend-reserved')).toHaveTextContent(
       'Зарезервовано 10',
@@ -519,6 +562,41 @@ describe('AC3 — three-segment quota bar', () => {
     expect(screen.getByTestId('job-source-quota-limit').textContent).toBe(
       'Ліміт: 232 / 500 запитів',
     )
+  })
+
+  // Task 7.5b AC3 (QA4-LOW-1): the bar is the one statement of the limit.
+  it('a legacy-counter source states its limit once: the bar, not the «Залишилось N з M» line too', async () => {
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(screen.getAllByTestId('job-source-quota-limit')).toHaveLength(1)
+    expect(screen.queryByTestId('job-source-budget-row')).toBeNull()
+    expect(screen.queryByTestId('job-source-budget-remaining')).toBeNull()
+    expect(screen.getByTestId('job-source-card').textContent).not.toContain('Залишилось')
+    // the limit figure is printed once in the card text (the bar's own name is an attribute)
+    expect(screen.getByTestId('job-source-card').textContent?.match(/500/g)).toHaveLength(1)
+  })
+
+  it('an exhausted legacy-counter source keeps «Ліміт вичерпано» and its reset time beside the bar', async () => {
+    const resetsAt = '2026-12-01T00:00:00.000Z'
+    listed = [
+      source({
+        budget: {
+          state: 'EXHAUSTED',
+          limit: 500,
+          window: 'MONTH',
+          used: 500,
+          remaining: 0,
+          resetsAt,
+        },
+      }),
+    ]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(screen.getAllByTestId('job-source-quota-limit')).toHaveLength(1)
+    const remaining = screen.getByTestId('job-source-budget-remaining')
+    expect(remaining).toHaveTextContent('Ліміт вичерпано')
+    expect(remaining).toHaveTextContent(`оновиться ${formatResetAt(resetsAt, 'uk')}`)
+    expect(screen.getByTestId('job-source-card').textContent).not.toContain('Залишилось')
   })
 
   it('a null meter behaves like an absent one', async () => {
@@ -685,6 +763,124 @@ describe('AC3 — three-segment quota bar', () => {
   })
 })
 
+describe('Task 7.5b AC1 — a metered source keeps a budget problem on screen', () => {
+  const metered = {
+    unit: 'REQUEST' as const,
+    window: 'MONTH' as const,
+    limit: 200,
+    used: 120,
+    reserved: 10,
+    uncertain: 5,
+    resetsAt: null,
+  }
+  const budget = (
+    state: JobSourceDto['budget']['state'],
+    over: Partial<JobSourceDto['budget']> = {},
+  ): JobSourceDto['budget'] => ({
+    state,
+    limit: 200,
+    window: 'MONTH',
+    used: 120,
+    remaining: 80,
+    resetsAt: null,
+    ...over,
+  })
+
+  it('MISCONFIGURED: the bar AND the «збір зупинено» warning', async () => {
+    listed = [
+      source({
+        meter: metered,
+        budget: budget('MISCONFIGURED', { limit: 0, window: null, remaining: 0 }),
+      }),
+    ]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(screen.getByTestId('job-source-quota-limit')).toBeInTheDocument()
+    expect(screen.getByTestId('job-source-budget-broken')).toHaveTextContent('збір зупинено')
+    expect(screen.queryByTestId('job-source-budget-unlimited')).toBeNull()
+  })
+
+  it('EXHAUSTED: the bar AND «Ліміт вичерпано» with the reset time', async () => {
+    const resetsAt = '2026-12-01T00:00:00.000Z'
+    listed = [
+      source({
+        meter: metered,
+        budget: budget('EXHAUSTED', { used: 200, remaining: 0, resetsAt }),
+      }),
+    ]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(screen.getByTestId('job-source-quota-limit')).toBeInTheDocument()
+    const remaining = screen.getByTestId('job-source-budget-remaining')
+    expect(remaining).toHaveTextContent('Ліміт вичерпано')
+    expect(remaining).toHaveTextContent(`оновиться ${formatResetAt(resetsAt, 'uk')}`)
+    expect(remaining).toHaveClass('text-destructive')
+  })
+
+  it.each([
+    ['ACTIVE', budget('ACTIVE')],
+    ['UNLIMITED', budget('UNLIMITED', { limit: null, window: null, remaining: null })],
+  ] as const)('%s: only the meter, no budget row', async (_state, b) => {
+    listed = [source({ meter: metered, budget: b })]
+    renderPanel()
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(screen.getByTestId('job-source-quota-limit')).toBeInTheDocument()
+    expect(screen.queryByTestId('job-source-budget-row')).toBeNull()
+    expect(screen.queryByTestId('job-source-budget-broken')).toBeNull()
+    expect(screen.queryByTestId('job-source-budget-remaining')).toBeNull()
+    expect(screen.queryByTestId('job-source-budget-unlimited')).toBeNull()
+  })
+})
+
+describe('Task 7.5b AC2 — the trigger label sits outside the budget row', () => {
+  const metered = {
+    unit: 'REQUEST' as const,
+    window: 'MONTH' as const,
+    limit: 200,
+    used: 120,
+    reserved: 0,
+    uncertain: 0,
+    resetsAt: null,
+  }
+
+  it.each([
+    ['a metered', { meter: metered }],
+    ['a non-metered', {}],
+  ])('the suggestion dialog shows the trigger of %s source', async (_kind, over) => {
+    listed = [source({ triggerMode: 'MANUAL', ...over })]
+    renderPanel({ collapsible: false })
+    await screen.findByRole('switch', { name: 'DOU' })
+    const trigger = screen.getByTestId('job-source-trigger')
+    expect(trigger).toHaveTextContent('(за кнопкою)')
+    expect(screen.queryByTestId('job-source-budget-row')?.contains(trigger) ?? false).toBe(false)
+  })
+
+  it('names each trigger mode', async () => {
+    for (const [mode, label] of [
+      ['SCHEDULED', '(за розкладом)'],
+      ['MANUAL', '(за кнопкою)'],
+      ['BOTH', '(за розкладом і за кнопкою)'],
+    ] as const) {
+      listed = [source({ triggerMode: mode })]
+      const view = renderPanel({ collapsible: false })
+      await screen.findByRole('switch', { name: 'DOU' })
+      expect(screen.getByTestId('job-source-trigger').textContent).toBe(label)
+      view.unmount()
+    }
+  })
+
+  it.each([
+    ['a metered', { meter: metered }],
+    ['a non-metered', {}],
+  ])('the queue-page card shows no trigger for %s source', async (_kind, over) => {
+    listed = [source({ triggerMode: 'MANUAL', ...over })]
+    renderPanel({ collapsible: true })
+    await screen.findByRole('switch', { name: 'DOU' })
+    expect(screen.queryByTestId('job-source-trigger')).toBeNull()
+    expect(screen.queryByText(/за кнопкою/)).toBeNull()
+  })
+})
+
 describe('AC4 — timestamps', () => {
   const stamps = () => screen.getByTestId('job-source-timestamps')
   // <dt>/<dd> pairs by position: a value counts only if it sits at its label's index.
@@ -781,8 +977,17 @@ describe('AC4 — timestamps', () => {
       source({ policyUntil: '2027-03-05T23:30:00.000Z', authUntil: '2027-12-09T00:30:00.000Z' }),
     ]
     try {
-      for (const tz of ['Pacific/Kiritimati', 'Pacific/Pago_Pago']) {
+      // [zone, local calendar day of each instant in that zone]: the zone must really apply before
+      // the panel is rendered, or this test would pass without `timeZone: 'UTC'` in the formatter
+      for (const [tz, localDays] of [
+        ['Pacific/Kiritimati', [6, 9]],
+        ['Pacific/Pago_Pago', [5, 8]],
+      ] as const) {
         process.env.TZ = tz
+        expect([
+          new Date('2027-03-05T23:30:00.000Z').getDate(),
+          new Date('2027-12-09T00:30:00.000Z').getDate(),
+        ]).toEqual(localDays)
         const view = renderPanel()
         await screen.findByRole('switch', { name: 'DOU' })
         expect(valueOf('Політика діє до')).toBe('05.03.2027')
@@ -862,11 +1067,8 @@ describe('AC5 — a refused enable', () => {
     expect(failure.textContent).not.toContain('authorization window')
     expect(screen.getByRole('switch', { name: 'DOU' })).toHaveAttribute('aria-checked', 'false')
     expect(screen.getByRole('switch', { name: 'DOU' })).not.toBeDisabled()
-    // policy / cost state untouched: same chip, same note, same budget line, same bar, no refetch
+    // policy / cost state untouched: same chip, same note, same bar, no refetch
     expect(screen.getByTestId('job-source-state-chip')).toHaveTextContent('Заблоковано')
-    expect(screen.getByTestId('job-source-budget-remaining')).toHaveTextContent(
-      'Залишилось 90 з 400',
-    )
     expect(
       screen.getByRole('img', { name: 'Використано 310, зарезервовано 0, невизначено 0 з 400' }),
     ).toBeInTheDocument()
@@ -938,12 +1140,13 @@ describe('AC5 — a refused enable', () => {
       'flex',
       'items-start',
       'gap-2',
-      'rounded-md',
+      'rounded-lg',
       'border',
       'border-destructive/50',
       'px-3',
       'py-2',
     )
+    expect(failure).not.toHaveClass('rounded-md')
     const icon = within(failure).getByTestId('job-source-failure-icon')
     expect(icon).toHaveAttribute('aria-hidden', 'true')
     expect(icon).toHaveClass('mt-0.5', 'size-3.5', 'shrink-0', 'text-destructive')
@@ -1153,11 +1356,13 @@ describe('AC7 — the collapsed section and its summary (uk)', () => {
   })
 
   it('the page section does not print the trigger mode on the card', async () => {
+    listed = [source({ meter: NO_LIMIT_METER })]
     renderPanel({ collapsible: true })
     await screen.findByTestId('job-source-section')
     expect((await screen.findByTestId('job-source-budget-row')).textContent).toBe(
       'Залишилось 268 з 500 на місяць (використано 232)',
     )
+    expect(screen.queryByTestId('job-source-trigger')).toBeNull()
     expect(screen.queryByText(/за розкладом/)).toBeNull()
   })
 
@@ -1384,6 +1589,7 @@ describe('exact rendering contract (state chips, notes, quota, panel shell)', ()
   it('keeps the budget line exact when the server states no window', async () => {
     listed = [
       source({
+        meter: NO_LIMIT_METER,
         budget: { state: 'ACTIVE', limit: 5, window: null, used: 0, remaining: 3, resetsAt: null },
       }),
     ]
@@ -1393,6 +1599,7 @@ describe('exact rendering contract (state chips, notes, quota, panel shell)', ()
   })
 
   it('lays the budget row out as the design says', async () => {
+    listed = [source({ meter: NO_LIMIT_METER })]
     renderPanel()
     await ready()
     const row = screen.getByTestId('job-source-budget-row')
@@ -1406,7 +1613,9 @@ describe('exact rendering contract (state chips, notes, quota, panel shell)', ()
       'sm:justify-between',
       'sm:gap-3',
     )
-    expect(row.textContent).toBe('(за розкладом)Залишилось 268 з 500 на місяць (використано 232)')
+    // the trigger label is a sibling of the row, never inside it
+    expect(row.textContent).toBe('Залишилось 268 з 500 на місяць (використано 232)')
+    expect(screen.getByTestId('job-source-trigger').textContent).toBe('(за розкладом)')
   })
 
   it('words the failure as one sentence with a space after the headline', async () => {

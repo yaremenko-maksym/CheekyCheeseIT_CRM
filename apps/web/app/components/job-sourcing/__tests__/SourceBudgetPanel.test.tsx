@@ -51,6 +51,17 @@ const source = (over: Partial<JobSourceDto> = {}): JobSourceDto => ({
     remaining: null,
     resetsAt: null,
   },
+  // A meter without a limit draws no quota bar, so the budget row is the only statement of the
+  // quota (Task 7.5b: a source with a bar hides that row unless its budget is broken or spent).
+  meter: {
+    unit: 'REQUEST',
+    window: 'MONTH',
+    limit: null,
+    used: 0,
+    reserved: 0,
+    uncertain: 0,
+    resetsAt: null,
+  },
   ...over,
 })
 
@@ -147,7 +158,7 @@ describe('SourceBudgetPanel (AC7)', () => {
     }
     renderPanel()
 
-    expect(await screen.findByTestId('job-source-budget-row')).toHaveTextContent('за кнопкою')
+    expect(await screen.findByTestId('job-source-trigger')).toHaveTextContent('за кнопкою')
   })
 
   /**
@@ -201,7 +212,8 @@ describe('SourceBudgetPanel (AC7)', () => {
     }
     renderPanel()
 
-    expect(await screen.findByTestId('job-source-budget-row')).toHaveTextContent('за кнопкою')
+    expect(await screen.findByTestId('job-source-trigger')).toHaveTextContent('за кнопкою')
+    expect(screen.getByTestId('job-source-budget-broken')).toBeInTheDocument()
   })
 
   /**
@@ -251,7 +263,7 @@ describe('SourceBudgetPanel (AC7)', () => {
       ] as const) {
         withBudget({}, mode)
         const { unmount } = renderPanel()
-        expect(await screen.findByTestId('job-source-budget-row')).toHaveTextContent(label)
+        expect(await screen.findByTestId('job-source-trigger')).toHaveTextContent(label)
         unmount()
       }
     })
@@ -392,8 +404,8 @@ describe('SourceBudgetPanel (AC7)', () => {
         ],
       }
       renderPanel()
-      const row = await screen.findByTestId('job-source-budget-row')
-      expect(row).toHaveTextContent('(on a schedule and on button press)')
+      const trigger = await screen.findByTestId('job-source-trigger')
+      expect(trigger).toHaveTextContent('(on a schedule and on button press)')
       const remaining = screen.getByTestId('job-source-budget-remaining')
       const text = remaining.textContent ?? ''
       expect(text.startsWith('153 of 200 left per month · resets ')).toBe(true)

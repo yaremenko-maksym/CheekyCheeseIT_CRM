@@ -45,15 +45,21 @@ export function formatResetAt(iso: string | null, locale: string): string {
   })
 }
 
+/**
+ * How the source is triggered. It lives outside the budget row: the row is hidden behind a quota
+ * bar, and the suggestion dialog must keep the label either way.
+ */
+export function SourceTriggerLabel({ source }: { source: JobSourceDto }) {
+  const { i18n } = useLingui()
+  return (
+    <p data-testid="job-source-trigger" className="text-xs text-muted-foreground">
+      ({i18n._(TRIGGER_LABEL[source.triggerMode])})
+    </p>
+  )
+}
+
 /** Sits inside a `SourceSwitchCard`, which already names the source and draws the box. */
-export function SourceBudgetRow({
-  source,
-  showTrigger,
-}: {
-  source: JobSourceDto
-  /** The trigger mode («за розкладом» …) is shown in the suggestion dialog only. */
-  showTrigger: boolean
-}) {
+export function SourceBudgetRow({ source }: { source: JobSourceDto }) {
   const { i18n, t } = useLingui()
   const locale = useLocale()
   const { state, window, resetsAt } = source.budget
@@ -63,13 +69,6 @@ export function SourceBudgetRow({
   const used = formatCount(locale, source.budget.used)
   const root =
     'flex flex-col gap-0.5 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3'
-  const name = showTrigger && (
-    <span className="font-medium text-foreground">
-      <span className="font-normal text-muted-foreground">
-        ({i18n._(TRIGGER_LABEL[source.triggerMode])})
-      </span>
-    </span>
-  )
 
   // Code review MED-4: this used to be inferred here as
   // `limit === null || window === null`, which read a MISCONFIGURED source — a
@@ -79,7 +78,6 @@ export function SourceBudgetRow({
   if (state === 'MISCONFIGURED') {
     return (
       <div data-testid="job-source-budget-row" data-source-type={source.type} className={root}>
-        {name}
         <span className="font-medium text-destructive" data-testid="job-source-budget-broken">
           <Trans>
             Ліміт налаштовано неправильно — збір зупинено. Перевірте налаштування джерела.
@@ -95,8 +93,6 @@ export function SourceBudgetRow({
 
   return (
     <div data-testid="job-source-budget-row" data-source-type={source.type} className={root}>
-      {name}
-
       {unlimited ? (
         <span className="text-muted-foreground" data-testid="job-source-budget-unlimited">
           <Trans>Без ліміту запитів</Trans>
