@@ -29,7 +29,14 @@ import {
 } from './prims-viz.mjs'
 
 const M = (name, w, h, body) => ({ name, w, h, dpr: 2, html: page(body, { width: w }) })
-const D = (name, w, h, body, full = false) => ({ name, w, h, dpr: 1, full, html: page(body, { width: w }) })
+const D = (name, w, h, body, full = false) => ({
+  name,
+  w,
+  h,
+  dpr: 1,
+  full,
+  html: page(body, { width: w }),
+})
 const C = (name, w, h, body) => ({ name, w, h, dpr: 2, full: true, html: page(body, { width: w }) })
 
 export function frames() {
@@ -58,7 +65,9 @@ export function frames() {
     M('chart-mobile-375', 375, 812, chartMobile(375, 812)),
     M('chart-mobile-320', 320, 568, chartMobile(320, 568)),
     C('chart-desktop', 1200, 420, chartDesktop()),
-    ...['pulling', 'armed', 'refreshing', 'done'].map((s) => M(`ptr-${s}-375`, 375, 480, ptr(375, 480, s))),
-    D('transition-storyboard', 1560, 1200, transitions(), true),
+    ...['pulling', 'armed', 'refreshing', 'done'].map((s) =>
+      M(`ptr-${s}-375`, 375, 480, ptr(375, 480, s)),
+    ),
+    D('transition-storyboard', 900, 1200, transitions(), true),
   ]
 }

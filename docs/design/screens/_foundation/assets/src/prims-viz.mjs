@@ -1,7 +1,17 @@
 // Primitives v2, part 2: ResponsiveSheet on tablet/desktop, toasts, upload indicator, skeletons,
 // chart theme, pull-to-refresh, page-transition storyboard.
 import { icon, phone, safeBottom } from './base.mjs'
-import { tabScreen, financeBody, txnList, txnRow, TXNS, topBar, largeTitle, tabBar, TABBAR_H } from './mobile.mjs'
+import {
+  tabScreen,
+  financeBody,
+  txnList,
+  txnRow,
+  TXNS,
+  topBar,
+  largeTitle,
+  tabBar,
+  TABBAR_H,
+} from './mobile.mjs'
 import { skeletonList } from './mobile-overlays.mjs'
 import { desktop } from './desktop.mjs'
 import { tablet } from './tablet.mjs'
@@ -12,7 +22,8 @@ const dField = (label, value, { suffix = '', ph = false } = {}) =>
 
 function sidePanel(width, { touch = false } = {}) {
   const fieldH = touch ? 'height:48px;font-size:16px' : ''
-  const f = (l, v, o) => dField(l, v, o).replace('height:40px;font-size:14px', fieldH || 'height:40px;font-size:14px')
+  const f = (l, v, o) =>
+    dField(l, v, o).replace('height:40px;font-size:14px', fieldH || 'height:40px;font-size:14px')
   return `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.5);z-index:60"></div>
   <aside role="dialog" aria-modal="true" aria-labelledby="sp-t" style="position:absolute;top:0;right:0;bottom:0;width:${width}px;z-index:70;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);box-shadow:-24px 0 60px oklch(0 0 0 / 0.5);display:flex;flex-direction:column">
   <div class="row" style="height:60px;flex:none;padding:0 12px 0 24px;border-bottom:1px solid var(--border)"><div id="sp-t" class="grow t-head">Редагувати транзакцію</div><span class="kbdkey" style="margin-right:6px">Esc</span><span class="iconbtn" aria-label="Закрити">${icon('x', { size: 18 })}</span></div>
@@ -58,16 +69,26 @@ export function tableRows() {
 // ---------- Toasts ----------
 export function toastUndo(w, h) {
   const t = `<div class="toast" role="status" style="bottom:${TABBAR_H + safeBottom(w) + 12}px;overflow:hidden"><span style="color:var(--positive)">${icon('archive', { size: 18 })}</span><span class="grow">Співбесіду архівовано</span><span class="btn sm ghost" style="color:var(--primary);height:36px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
-  return tabScreen({ w, h, role: 'HR', active: '/interviews', title: 'Співбесіди', body: financeBody().replace(/Пошук транзакцій/, 'Пошук кандидатів'), overlay: t, showFab: false })
+  return tabScreen({
+    w,
+    h,
+    role: 'HR',
+    active: '/interviews',
+    title: 'Співбесіди',
+    body: financeBody().replace(/Пошук транзакцій/, 'Пошук кандидатів'),
+    overlay: t,
+    showFab: false,
+  })
 }
 
+/** Money create failed: the error sits ABOVE the form (never over a field), values are kept, retry is manual (no auto-retry). */
 export function toastError(w, h) {
-  const t = `<div class="toast" role="alert" style="top:${54 + 6}px;align-items:flex-start;padding:12px 8px 12px 14px;border-color:oklch(0.38 0.09 22)"><span style="color:var(--destructive);margin-top:1px">${icon('circle-alert', { size: 18 })}</span><span class="grow"><span style="display:block;font-weight:600">Транзакцію не збережено</span><span class="t-foot muted" style="display:block;margin-top:2px">Немає з’єднання. Дані форми збережено — повторіть, коли мережа з’явиться.</span></span><span class="btn sm secondary" style="height:36px;font-size:14px">Повторити</span></div>`
-  const inner = `${topBar({ back: true, title: 'Нова транзакція', bell: false, search: false })}<div class="content col" style="gap:18px;padding:12px 16px 0">
+  const alert = `<div role="alert" style="padding:12px 14px;border-radius:14px;background:oklch(0.2 0.04 22);border:1px solid oklch(0.38 0.09 22)"><div class="row" style="gap:10px;align-items:flex-start"><span style="color:var(--destructive);margin-top:1px">${icon('circle-alert', { size: 18 })}</span><div class="grow"><div style="font-size:15px;font-weight:600">Транзакцію не збережено</div><div class="t-foot" style="margin-top:2px;color:oklch(0.86 0.02 22)">Немає з’єднання. Введені дані збережено у формі — повторіть, коли мережа з’явиться.</div></div></div></div>`
+  const inner = `${topBar({ back: true, title: 'Нова транзакція', bell: false, search: false })}<div class="content col" style="gap:18px;padding:12px 16px 0">${alert}
   <div class="field"><label>Сума</label><div class="input" style="height:56px"><span class="grow num" style="font-size:24px;font-weight:700">1 250,50</span><span class="muted">USD</span></div></div>
   <div class="field"><label>Опис</label><div class="input"><span class="grow">Оренда офісу за листопад</span></div></div></div>
-  <div style="position:absolute;left:0;right:0;bottom:0;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border)"><span class="btn primary" style="width:100%">Зберегти</span></div>`
-  return phone({ w, h, inner, overlay: t })
+  <div style="position:absolute;left:0;right:0;bottom:0;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border)"><span class="btn primary" style="width:100%">${icon('rotate-cw', { size: 18 })}Повторити збереження</span></div>`
+  return phone({ w, h, inner })
 }
 
 // ---------- Upload indicator ----------
@@ -78,7 +99,7 @@ const ring = (pct, size = 36) => {
 export function uploadStates(w, h) {
   const thumb = `<div style="width:44px;height:52px;border-radius:8px;background:linear-gradient(160deg,oklch(0.86 0 0),oklch(0.7 0 0));outline:1px solid oklch(1 0 0 / 0.1);outline-offset:-1px;flex:none"></div>`
   const row = (title, sub, trail, subStyle = '') =>
-    `<div class="lrow two" style="--inset:72px">${thumb}<div class="grow col" style="gap:2px;min-width:0"><div class="t-body trunc" style="font-weight:500">${title}</div><div class="t-foot trunc num" style="${subStyle || 'color:var(--muted-fg)'}">${sub}</div></div>${trail}</div>`
+    `<div class="lrow two" style="--inset:72px">${thumb}<div class="grow col" style="gap:2px;min-width:0"><div class="t-body trunc" style="font-weight:500">${title}</div><div class="t-foot num ${subStyle ? '' : 'trunc'}" style="${subStyle || 'color:var(--muted-fg)'}">${sub}</div></div>${trail}</div>`
   const inner = `${topBar({ back: true, title: 'Чеки', bell: false, search: false })}<div class="content">
   <div class="sechead"><span class="t-over">Стани завантаження</span></div><div class="group">
   ${row('receipt-office.jpg', 'Завантаження · 62% · 0,9 з 1,4 МБ', `<span class="row" style="gap:6px">${ring(62)}<span class="iconbtn" aria-label="Скасувати завантаження">${icon('x', { size: 18 })}</span></span>`)}
@@ -120,13 +141,16 @@ const PART = [
 
 function netBars(W, H, { labelSize = 11, pad = 28 } = {}) {
   const max = 8,
-    min = -2,
+    min = -3.2,
     top = 18,
     bottom = H - 22
   const y = (v) => top + ((max - v) / (max - min)) * (bottom - top)
   const bw = (W - pad * 2) / NET.length
   const grid = [8, 4, 0]
-    .map((g) => `<line x1="${pad}" x2="${W - 4}" y1="${y(g)}" y2="${y(g)}" stroke="var(--chart-grid)" ${g ? 'stroke-dasharray="2 4"' : ''}/><text x="${pad - 6}" y="${y(g) + 4}" text-anchor="end" font-size="${labelSize}" fill="var(--muted-fg)">${g ? g + 'k' : '0'}</text>`)
+    .map(
+      (g) =>
+        `<line x1="${pad}" x2="${W - 4}" y1="${y(g)}" y2="${y(g)}" stroke="var(--chart-grid)" ${g ? 'stroke-dasharray="2 4"' : ''}/><text x="${pad - 6}" y="${y(g) + 4}" text-anchor="end" font-size="${labelSize}" fill="var(--muted-fg)">${g ? g + 'k' : '0'}</text>`,
+    )
     .join('')
   const bars = NET.map((v, i) => {
     const x = pad + i * bw + bw * 0.2,
@@ -148,13 +172,15 @@ function partnerBars(W, H, { labelSize = 11, pad = 8 } = {}) {
   const y = (v) => top + ((max - v) / max) * (bottom - top)
   const gw = (W - pad * 2) / PART.length
   const q = ['I кв', 'II кв', 'III кв', 'IV кв']
-  return `<svg width="${W}" height="${H}" role="img" aria-label="Виплати партнерам A і B по кварталах"><line x1="${pad}" x2="${W - pad}" y1="${y(0)}" y2="${y(0)}" stroke="var(--chart-grid)"/>${PART.map(([a, b], i) => {
-    const x = pad + i * gw + gw * 0.16,
-      bw = gw * 0.32
-    const one = (v, xx, c) =>
-      `<rect x="${xx}" y="${y(v)}" width="${bw - 2}" height="${y(0) - y(v)}" rx="3" fill="${c}"/><text x="${xx + (bw - 2) / 2}" y="${y(v) - 4}" text-anchor="middle" font-size="${labelSize - 1}" font-weight="600" fill="var(--fg)">${v.toFixed(1).replace('.', ',')}</text>`
-    return `${one(a, x, 'var(--chart-1)')}${one(b, x + bw, 'var(--chart-2)')}<text x="${x + bw}" y="${H - 6}" text-anchor="middle" font-size="${labelSize}" fill="var(--muted-fg)">${q[i]}</text>`
-  }).join('')}</svg>`
+  return `<svg width="${W}" height="${H}" role="img" aria-label="Виплати партнерам A і B по кварталах"><line x1="${pad}" x2="${W - pad}" y1="${y(0)}" y2="${y(0)}" stroke="var(--chart-grid)"/>${PART.map(
+    ([a, b], i) => {
+      const x = pad + i * gw + gw * 0.16,
+        bw = gw * 0.32
+      const one = (v, xx, c) =>
+        `<rect x="${xx}" y="${y(v)}" width="${bw - 2}" height="${y(0) - y(v)}" rx="3" fill="${c}"/><text x="${xx + (bw - 2) / 2}" y="${y(v) - 4}" text-anchor="middle" font-size="${labelSize - 1}" font-weight="600" fill="var(--fg)">${v.toFixed(1).replace('.', ',')}</text>`
+      return `${one(a, x, 'var(--chart-1)')}${one(b, x + bw, 'var(--chart-2)')}<text x="${x + bw}" y="${H - 6}" text-anchor="middle" font-size="${labelSize}" fill="var(--muted-fg)">${q[i]}</text>`
+    },
+  ).join('')}</svg>`
 }
 
 const legend = (items) =>
@@ -164,16 +190,53 @@ export function chartMobile(w, h) {
   const card = (title, value, sub, chart, leg) =>
     `<div style="margin:0 16px 12px;padding:14px 14px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted">${title}</div><div class="row" style="gap:8px;align-items:baseline;margin-top:2px"><span class="num" style="font-size:24px;font-weight:700;letter-spacing:-0.02em">${value}</span><span class="t-foot num" style="color:var(--positive)">${sub}</span></div><div style="margin-top:8px">${chart}</div>${leg}</div>`
   const body = `<div style="padding:0 16px 10px"><div class="row" style="height:34px;border-radius:17px;background:var(--surface);border:1px solid var(--border);padding:2px;width:fit-content">${['3 міс', '6 міс', 'Рік'].map((t, i) => `<span style="height:28px;padding:0 14px;border-radius:14px;display:grid;place-items:center;font-size:14px;font-weight:600;${i === 1 ? 'background:var(--fg);color:var(--bg)' : ''}">${t}</span>`).join('')}</div></div>
-  ${card('Чистий прибуток · 6 міс', '+25,9k $', '▲ 12% до попер.', netBars(w - 60, 180), legend([['var(--chart-1)', 'Прибуток'], ['', 'Збиток', 'hatch']]))}
-  ${card('Виплати партнерам · 2026', '24,9k $', '', partnerBars(w - 60, 150), legend([['var(--chart-1)', 'Партнер A'], ['var(--chart-2)', 'Партнер B']]))}`
-  return tabScreen({ w, h, role: 'ADMIN', active: '/stats', title: 'Статистика', body })
+  ${card(
+    'Чистий прибуток · 6 міс',
+    '+25,9k $',
+    '▲ 12% до попер.',
+    netBars(w - 60, w <= 320 ? 170 : 160),
+    legend([
+      ['var(--chart-1)', 'Прибуток'],
+      ['', 'Збиток', 'hatch'],
+    ]),
+  )}
+  ${card(
+    'Виплати партнерам · 2026',
+    '24,9k $',
+    '',
+    partnerBars(w - 60, 120),
+    legend([
+      ['var(--chart-1)', 'Партнер A'],
+      ['var(--chart-2)', 'Партнер B'],
+    ]),
+  )}`
+  // FAB hidden at 320 only so the static frame shows the chart; the live screen scrolls under it.
+  return tabScreen({
+    w,
+    h,
+    role: 'ADMIN',
+    active: '/stats',
+    title: 'Статистика',
+    body,
+    showFab: w > 320,
+  })
 }
 
 export function chartDesktop() {
   const tooltip = `<div style="position:absolute;left:600px;top:70px;padding:8px 10px;border-radius:10px;background:var(--popover);border:1px solid oklch(0.28 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5);font-size:13px;min-width:170px"><div style="font-weight:600">Жовтень 2026</div><div class="row" style="justify-content:space-between;margin-top:4px"><span class="muted">Дохід</span><span class="num">18 400,00 $</span></div><div class="row" style="justify-content:space-between"><span class="muted">Витрати</span><span class="num">10 500,00 $</span></div><div class="row" style="justify-content:space-between;margin-top:2px;font-weight:600"><span>Чистий</span><span class="num">+7 900,00 $</span></div></div>`
   return `<div style="padding:24px;background:var(--bg);width:1200px"><div class="row" style="gap:16px;align-items:stretch">
-  <div style="position:relative;flex:2;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted" style="font-size:13px">Чистий прибуток</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+25 900,00 $</div></div>${legend([['var(--chart-1)', 'Прибуток'], ['', 'Збиток', 'hatch']])}</div><div style="margin-top:10px">${netBars(720, 260, { labelSize: 12, pad: 34 })}</div>${tooltip}</div>
-  <div style="flex:1;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Виплати партнерам</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">24 900,00 $</div><div style="margin:10px 0 8px">${partnerBars(330, 228, { labelSize: 12 })}</div>${legend([['var(--chart-1)', 'Партнер A'], ['var(--chart-2)', 'Партнер B']])}</div></div>
+  <div style="position:relative;flex:2;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="row"><div class="grow"><div class="t-foot muted" style="font-size:13px">Чистий прибуток</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+25 900,00 $</div></div>${legend(
+    [
+      ['var(--chart-1)', 'Прибуток'],
+      ['', 'Збиток', 'hatch'],
+    ],
+  )}</div><div style="margin-top:10px">${netBars(720, 260, { labelSize: 12, pad: 34 })}</div>${tooltip}</div>
+  <div style="flex:1;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Виплати партнерам</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">24 900,00 $</div><div style="margin:10px 0 8px">${partnerBars(330, 228, { labelSize: 12 })}</div>${legend(
+    [
+      ['var(--chart-1)', 'Партнер A'],
+      ['var(--chart-2)', 'Партнер B'],
+    ],
+  )}</div></div>
   <div class="row" style="gap:10px;margin-top:16px;flex-wrap:wrap">${[
     ['--chart-1', 'chart-1 · primary'],
     ['--chart-2', 'chart-2'],
@@ -184,7 +247,10 @@ export function chartDesktop() {
     ['--warning', 'warning'],
     ['--destructive', 'destructive'],
   ]
-    .map(([v, t]) => `<span class="row" style="gap:8px;height:32px;padding:0 12px 0 6px;border-radius:8px;background:var(--card);border:1px solid var(--border);font-size:12px"><i style="width:20px;height:20px;border-radius:5px;background:var(${v})"></i>${t}</span>`)
+    .map(
+      ([v, t]) =>
+        `<span class="row" style="gap:8px;height:32px;padding:0 12px 0 6px;border-radius:8px;background:var(--card);border:1px solid var(--border);font-size:12px"><i style="width:20px;height:20px;border-radius:5px;background:var(${v})"></i>${t}</span>`,
+    )
     .join('')}</div></div>`
 }
 
@@ -194,9 +260,15 @@ export function ptr(w, h, stage) {
   const spinner =
     stage === 'refreshing'
       ? `<svg width="26" height="26" viewBox="0 0 24 24" role="progressbar" aria-label="Оновлення"><g stroke="var(--fg)" stroke-width="2.2" stroke-linecap="round">${Array.from({ length: 8 }, (_, i) => `<line x1="12" y1="3" x2="12" y2="7" opacity="${0.2 + i * 0.1}" transform="rotate(${i * 45} 12 12)"/>`).join('')}</g></svg>`
-      : `<span style="display:inline-block;transform:rotate(${stage === 'armed' ? 180 : Math.round((40 / 76) * 180)}deg);color:${stage === 'armed' ? 'var(--primary)' : 'var(--muted-fg)'}">${icon('arrow-down', { size: 22, stroke: 2.2 })}</span>`
-  const ind = stage === 'done' ? '' : `<div style="position:absolute;left:0;right:0;top:${54 + 44 + 34 + off / 2 - 13}px;display:grid;place-items:center;z-index:2">${spinner}</div>`
-  const doneNote = stage === 'done' ? `<div role="status" class="t-cap muted" style="text-align:center;margin-top:-4px;margin-bottom:4px">Оновлено щойно</div>` : ''
+      : `<span style="display:inline-block;transform:rotate(${stage === 'armed' ? 180 : 0}deg);color:${stage === 'armed' ? 'var(--primary)' : 'var(--muted-fg)'}">${icon('arrow-down', { size: 22, stroke: 2.2 })}</span>`
+  const ind =
+    stage === 'done'
+      ? ''
+      : `<div style="position:absolute;left:0;right:0;top:${50 + off / 2 - 13}px;display:grid;place-items:center;z-index:2">${spinner}</div>`
+  const doneNote =
+    stage === 'done'
+      ? `<div role="status" class="t-cap muted" style="text-align:center;margin-top:-4px;margin-bottom:4px">Оновлено щойно</div>`
+      : ''
   const inner = `${topBar()}<div class="content">${largeTitle('Фінанси')}${ind}<div style="transform:translateY(${off}px)">${doneNote}${txnList(TXNS.slice(0, 3))}</div></div>`
   return phone({ w, h, inner })
 }
@@ -217,9 +289,14 @@ export function transitions() {
   const rowOf = (title, spec, cells) =>
     `<div class="col" style="gap:12px;width:100%"><div class="row" style="gap:12px;align-items:baseline"><span class="t-head">${title}</span><span class="t-foot muted">${spec}</span></div><div class="row" style="gap:18px;align-items:flex-start">${cells.join(arrow)}</div></div>`
   const push = (x, cap) => mini((xx) => listScr() + detailScr(xx, 1), cap, { x })
-  const tabCell = (active, cap) => mini(() => `<div style="position:absolute;inset:0">${phone({ w: 375, h: 812, inner: `${topBar()}<div class="content">${largeTitle(active === '/finance' ? 'Фінанси' : 'Статистика')}${active === '/finance' ? txnList(TXNS.slice(0, 5)) : ''}</div>${tabBar('ADMIN', active)}` })}</div>`, cap)
+  const tabCell = (active, cap) =>
+    mini(
+      () =>
+        `<div style="position:absolute;inset:0">${phone({ w: 375, h: 812, inner: `${topBar()}<div class="content">${largeTitle(active === '/finance' ? 'Фінанси' : 'Статистика')}${active === '/finance' ? txnList(TXNS.slice(0, 5)) : ''}</div>${tabBar('ADMIN', active)}` })}</div>`,
+      cap,
+    )
   const sh = (y, op, cap) => mini(() => listScr() + sheetScr(y, op), cap)
-  return `<div class="board" style="width:1560px;gap:28px">
+  return `<div class="board" style="width:900px;gap:28px">
   <h2>Переходи між сторінками · мобільні</h2>
   ${rowOf('Push: список → деталі', 'View Transitions · 280 мс · cubic-bezier(0.2, 0, 0, 1) · попередній екран зсувається на −30%', [push(100, '0 мс'), push(45, '140 мс'), push(0, '280 мс · фокус на заголовок')])}
   ${rowOf('Назад: кнопка або свайп від краю', 'та сама крива у зворотний бік · 240 мс · свайп керує прогресом, відпускання — пружина', [push(0, 'палець біля лівого краю'), push(55, 'жест 55% · напівпрозорий список'), push(100, 'відпущено → повернення')])}

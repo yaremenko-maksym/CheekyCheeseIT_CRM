@@ -4,7 +4,17 @@ import { tabScreen, financeBody, txnRow, TXNS, topBar, PEOPLE } from './mobile.m
 import { sheet, closeBtn, safeTop } from './mobile-overlays.mjs'
 
 // ---------- FormField ----------
-export function field({ label, value = '', ph = '', state = '', hint = '', err = '', lead = '', suffix = '', id = 'f' }) {
+export function field({
+  label,
+  value = '',
+  ph = '',
+  state = '',
+  hint = '',
+  err = '',
+  lead = '',
+  suffix = '',
+  id = 'f',
+}) {
   const shown = value || ph
   const caret = state === 'focus' ? '<span class="caret"></span>' : ''
   const msg = err
@@ -41,12 +51,33 @@ const stickyFooter = (w, label = 'Зберегти', dis = false) =>
 export function formStates(w, h) {
   const f = [
     field({ id: 'a', label: 'Ім’я та прізвище', ph: 'Наприклад, Ірина Мельник' }),
-    field({ id: 'b', label: 'Email', value: 'iryna.m', state: 'focus', hint: 'На цю адресу прийде запрошення' }),
+    field({
+      id: 'b',
+      label: 'Email',
+      value: 'iryna.m',
+      state: 'focus',
+      hint: 'На цю адресу прийде запрошення',
+    }),
     field({ id: 'c', label: 'Телефон', value: '+380 67 000 00 00' }),
-    field({ id: 'd', label: 'Робочий email', value: 'iryna@', state: 'error', err: 'Вкажіть email у форматі name@domain.com' }),
-    field({ id: 'e', label: 'Роль', value: 'Junior', state: 'disabled', suffix: chevDown, hint: 'Роль змінює адміністратор' }),
+    field({
+      id: 'd',
+      label: 'Робочий email',
+      value: 'iryna@',
+      state: 'error',
+      err: 'Вкажіть email у форматі name@domain.com',
+    }),
+    field({
+      id: 'e',
+      label: 'Роль',
+      value: 'Junior',
+      state: 'disabled',
+      suffix: chevDown,
+      hint: 'Роль змінює адміністратор',
+    }),
   ].join('')
-  return formPage(w, h, 'Новий користувач', f, { footer: stickyFooter(w, 'Надіслати запрошення', true) })
+  return formPage(w, h, 'Новий користувач', f, {
+    footer: stickyFooter(w, 'Надіслати запрошення', true),
+  })
 }
 
 export function receiptPicker(state = 'empty') {
@@ -61,7 +92,12 @@ export function formMoney(w, h) {
     `<div class="field"><label for="amt">Сума</label><div class="input" id="amt" style="height:56px"><span class="grow num" style="font-size:24px;font-weight:700;letter-spacing:-0.02em">1 250,50</span><span class="pill" style="height:30px;font-size:14px;padding:0 10px">USD ${icon('chevron-down', { size: 13 })}</span></div></div>`,
     `<div class="field"><label>Тип</label>${segmented(['Витрата', 'Дохід', 'Переказ'], 0, 40)}</div>`,
     field({ id: 'p', label: 'Проєкт', value: 'Проєкт «Альфа»', suffix: chevDown }),
-    field({ id: 'dt', label: 'Дата', value: '11 листопада 2026', lead: `<span class="muted">${icon('calendar', { size: 18 })}</span>` }),
+    field({
+      id: 'dt',
+      label: 'Дата',
+      value: '11 листопада 2026',
+      lead: `<span class="muted">${icon('calendar', { size: 18 })}</span>`,
+    }),
     receiptPicker('empty'),
   ].join('')
   return formPage(w, h, 'Нова транзакція', f, { footer: stickyFooter(w) })
@@ -71,7 +107,10 @@ function textKeyboard() {
   const row = (keys, pad = 0) =>
     `<div style="display:flex;gap:5px;padding:0 ${pad}px">${keys
       .split('')
-      .map((k) => `<span style="flex:1;height:42px;border-radius:6px;background:oklch(0.36 0 0);display:grid;place-items:center;font-size:20px;color:#fff">${k}</span>`)
+      .map(
+        (k) =>
+          `<span style="flex:1;height:42px;border-radius:6px;background:oklch(0.36 0 0);display:grid;place-items:center;font-size:20px;color:#fff">${k}</span>`,
+      )
       .join('')}</div>`
   return `<div class="kbd" aria-hidden="true" style="padding:0 3px;gap:11px">
   <div class="kbar" style="background:oklch(0.24 0 0);margin:0 -3px"><span class="row" style="gap:18px;color:var(--muted-fg)">${icon('chevron-up', { size: 22 })}${icon('chevron-down', { size: 22 })}</span><span style="color:var(--primary);font-weight:600">Готово</span></div>
@@ -84,7 +123,13 @@ export function formKeyboard(w, h) {
   const kbdH = 44 + 4 * 42 + 4 * 11 + 34
   const f = [
     field({ id: 'n', label: 'Опис', value: 'Оренда офісу за листопад' }),
-    field({ id: 'c', label: 'Контрагент', value: 'Офісний центр «Сиг', state: 'focus', hint: 'Видно лише адміністраторам' }),
+    field({
+      id: 'c',
+      label: 'Контрагент',
+      value: 'Офісний центр «Сиг',
+      state: 'focus',
+      hint: 'Видно лише адміністраторам',
+    }),
   ].join('')
   const inner = `${topBar({ back: true, title: 'Нова транзакція', bell: false, search: false })}
   <div class="content col" style="gap:18px;padding:12px 16px 0"><div class="t-foot muted" style="text-align:center">Сума 1 250,50 USD · Витрата</div>${f}</div>
@@ -100,8 +145,26 @@ export function sheetMedium(w, h) {
   <div class="group">${row('Проєкт', 'Усі проєкти')}${row('Період', 'Цей місяць')}${row('Чек', 'Будь-який')}</div>`
   const footer = `<div style="padding:12px 16px ${safeBottom(w) + 8}px"><span class="btn primary" style="width:100%">Показати 48</span></div>`
   const top = Math.round(h * (w <= 320 ? 0.36 : 0.46))
-  const overlay = sheet({ w, h, top, title: 'Фільтри', lead: '<span style="font-size:17px">Скинути</span>', trail: closeBtn, body, footer })
-  return tabScreen({ w, h, role: 'ADMIN', active: '/finance', title: 'Фінанси', body: financeBody(), overlay, showFab: false })
+  const overlay = sheet({
+    w,
+    h,
+    top,
+    title: 'Фільтри',
+    lead: '<span style="font-size:17px">Скинути</span>',
+    trail: closeBtn,
+    body,
+    footer,
+  })
+  return tabScreen({
+    w,
+    h,
+    role: 'ADMIN',
+    active: '/finance',
+    title: 'Фінанси',
+    body: financeBody(),
+    overlay,
+    showFab: false,
+  })
 }
 
 export function sheetLarge(w, h) {
@@ -121,7 +184,16 @@ export function sheetLarge(w, h) {
     trail: '<span style="padding-right:8px">Готово</span>',
     body,
   })
-  return tabScreen({ w, h, role: 'ADMIN', active: '/finance', title: 'Фінанси', body: financeBody(), overlay, showFab: false })
+  return tabScreen({
+    w,
+    h,
+    role: 'ADMIN',
+    active: '/finance',
+    title: 'Фінанси',
+    body: financeBody(),
+    overlay,
+    showFab: false,
+  })
 }
 
 /** Irreversible action → confirm (never undo). Mobile = action sheet; ≥ 640 = centred dialog. */
@@ -131,7 +203,16 @@ export function sheetConfirm(w, h) {
     <div style="padding:16px 20px 14px"><div id="cf-t" class="t-sub" style="font-weight:600">Видалити транзакцію «Оренда офісу»?</div><div id="cf-d" class="t-foot muted" style="margin-top:4px">−1 200,00 $ · 11.11.2026. Цю дію не можна скасувати.</div></div>
     <div style="height:56px;display:grid;place-items:center;border-top:1px solid var(--separator);color:var(--destructive);font-size:17px;font-weight:600">Видалити</div></div>
   <div style="height:56px;display:grid;place-items:center;background:var(--popover);border-radius:14px;border:1px solid var(--border);font-size:17px;font-weight:600">Скасувати</div></div>`
-  return tabScreen({ w, h, role: 'ADMIN', active: '/finance', title: 'Фінанси', body: financeBody(), overlay, showFab: false })
+  return tabScreen({
+    w,
+    h,
+    role: 'ADMIN',
+    active: '/finance',
+    title: 'Фінанси',
+    body: financeBody(),
+    overlay,
+    showFab: false,
+  })
 }
 
 // ---------- ListRow + section header ----------
@@ -158,7 +239,16 @@ export function listSwipe(w, h) {
     <div class="col" style="width:76px;height:100%;background:var(--destructive);color:#fff;justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600">${icon('trash-2', { size: 18 })}Видалити</div></div>
     <div style="width:100%;transform:translateX(-152px);background:var(--card)">${txnRow(TXNS[2]).replace('class="lrow two"', 'class="lrow two" style="background:var(--card)"')}</div></div>`
   const menu = `<div role="menu" aria-label="Дії з транзакцією" style="position:absolute;right:16px;top:${safeTop(w) + 44 + 362}px;width:230px;z-index:40;background:var(--popover);border:1px solid var(--border);border-radius:14px;box-shadow:0 20px 50px oklch(0 0 0 / 0.6);overflow:hidden">
-    ${[['eye', 'Відкрити'], ['pencil', 'Змінити'], ['copy', 'Дублювати']].map(([i, t]) => `<div role="menuitem" class="row" style="gap:12px;height:44px;padding:0 14px;border-bottom:1px solid var(--separator);font-size:16px">${icon(i, { size: 18 })}${t}</div>`).join('')}
+    ${[
+      ['eye', 'Відкрити'],
+      ['pencil', 'Змінити'],
+      ['copy', 'Дублювати'],
+    ]
+      .map(
+        ([i, t]) =>
+          `<div role="menuitem" class="row" style="gap:12px;height:44px;padding:0 14px;border-bottom:1px solid var(--separator);font-size:16px">${icon(i, { size: 18 })}${t}</div>`,
+      )
+      .join('')}
     <div role="menuitem" class="row" style="gap:12px;height:44px;padding:0 14px;color:var(--destructive);font-size:16px">${icon('trash-2', { size: 18 })}Видалити…</div></div>`
   const inner = `${topBar({ title: 'Свайп і меню', bell: false, search: false })}<div class="content">
   ${sec('Свайп ліворуч')}<div class="group">${txnRow(TXNS[1])}${swiped}${txnRow(TXNS[3])}</div>
@@ -167,11 +257,21 @@ export function listSwipe(w, h) {
 }
 
 export function listSticky(w, h) {
-  const long = { ...TXNS[0], t: 'Підписка на інструмент для дизайну інтерфейсів команди', s: 'Витрата · Проєкт «Інфраструктура та інструменти»', a: '−1 029,00 $' }
+  const long = {
+    ...TXNS[0],
+    t: 'Підписка на інструмент для дизайну інтерфейсів команди',
+    s: 'Витрата · Проєкт «Інфраструктура та інструменти»',
+    a: '−1 029,00 $',
+  }
   const inner = `${topBar({ title: 'Фінанси', bell: false })}<div class="content">
   <div class="sechead sticky" style="box-shadow:0 1px 0 var(--border)"><span class="t-over">Вчора</span><span class="t-cap muted num">−3 186,40 $</span></div>
   <div class="group" style="margin-top:-18px">${txnRow(TXNS[3])}${txnRow(long)}${txnRow(TXNS[4])}${txnRow(TXNS[5])}</div>
-  <div class="sechead"><span class="t-over">9 листопада</span><span class="t-cap muted num">+2 870,00 $</span></div><div class="group">${TXNS.slice(0, 4).map((x) => txnRow(x)).join('')}</div></div>`
+  <div class="sechead"><span class="t-over">9 листопада</span><span class="t-cap muted num">+2 870,00 $</span></div><div class="group">${TXNS.slice(
+    0,
+    4,
+  )
+    .map((x) => txnRow(x))
+    .join('')}</div></div>`
   return phone({ w, h, inner })
 }
 
