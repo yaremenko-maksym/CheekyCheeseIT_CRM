@@ -144,3 +144,76 @@ describe('the switch error codes', () => {
     },
   )
 })
+
+describe('jobSourceSchema — the additive `meter` projection (task 7.5)', () => {
+  const METER = {
+    unit: 'REQUEST',
+    window: 'MONTH',
+    limit: 200,
+    used: 120,
+    reserved: 10,
+    uncertain: 5,
+    resetsAt: '2026-12-01T00:00:00.000Z',
+  }
+
+  it('an old DTO without `meter` still parses and stays without it', () => {
+    expect('meter' in jobSourceSchema.parse(EXTENDED)).toBe(false)
+  })
+
+  it('parses a meter and returns it unchanged', () => {
+    expect(jobSourceSchema.parse({ ...EXTENDED, meter: METER }).meter).toEqual(METER)
+  })
+
+  it('accepts null (no meter) and a null limit / resetsAt (unlimited, LIFETIME)', () => {
+    expect(jobSourceSchema.parse({ ...EXTENDED, meter: null }).meter).toBeNull()
+    const open = { ...METER, window: 'LIFETIME', limit: null, resetsAt: null }
+    expect(jobSourceSchema.parse({ ...EXTENDED, meter: open }).meter).toEqual(open)
+  })
+
+  it.each([
+    ['a negative used', { used: -1 }],
+    ['a fractional reserved', { reserved: 1.5 }],
+    ['a negative uncertain', { uncertain: -1 }],
+    ['a negative limit', { limit: -1 }],
+    ['an unknown unit', { unit: 'BYTES' }],
+    ['an unknown window', { window: 'WEEK' }],
+    ['a non-ISO resetsAt', { resetsAt: 'tomorrow' }],
+    ['a missing used', { used: undefined }],
+  ])('rejects %s', (_name, patch) => {
+    expect(jobSourceSchema.safeParse({ ...EXTENDED, meter: { ...METER, ...patch } }).success).toBe(
+      false,
+    )
+  })
+
+  it('rejects an unknown meter key (strict: no account key or other column leaks through)', () => {
+    expect(
+      jobSourceSchema.safeParse({ ...EXTENDED, meter: { ...METER, accountKey: 'x:y' } }).success,
+    ).toBe(false)
+  })
+
+  it('the list parses a source with a meter', () => {
+    const { items } = jobSourceListSchema.parse({ items: [{ ...EXTENDED, meter: METER }] })
+    expect(items[0]?.meter).toEqual(METER)
+  })
+})
+
+describe('jobSourceSchema — the additive policyUntil / authUntil deadlines (task 7.5)', () => {
+  const ISO = '2027-02-10T00:00:00.000Z'
+
+  it('an old DTO without the deadlines still parses and stays without them', () => {
+    const parsed = jobSourceSchema.parse(EXTENDED)
+    expect('policyUntil' in parsed).toBe(false)
+    expect('authUntil' in parsed).toBe(false)
+  })
+
+  it('accepts an ISO instant and null for each, unchanged', () => {
+    const parsed = jobSourceSchema.parse({ ...EXTENDED, policyUntil: null, authUntil: ISO })
+    expect(parsed.policyUntil).toBeNull()
+    expect(parsed.authUntil).toBe(ISO)
+  })
+
+  it.each([['policyUntil'], ['authUntil']])('rejects a %s that is not a datetime', (key) => {
+    expect(jobSourceSchema.safeParse({ ...EXTENDED, [key]: '10.02.2027' }).success).toBe(false)
+    expect(jobSourceSchema.safeParse({ ...EXTENDED, [key]: 5 }).success).toBe(false)
+  })
+})

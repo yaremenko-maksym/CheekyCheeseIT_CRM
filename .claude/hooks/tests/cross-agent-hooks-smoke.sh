@@ -90,20 +90,25 @@ done
 # The shared analyzer is python, and a broken one makes every hook fall back to
 # its coarse rule while still exiting 2 — a degraded guard that looks like a
 # working one.
-if ! python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
-  "$HOOKS_DIR/lib/cmdscan.py" >/dev/null 2>&1; then
-  echo "FATAL: lib/cmdscan.py does not compile"
-  python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
-    "$HOOKS_DIR/lib/cmdscan.py"
-  exit 1
-fi
-if ! python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
-  "$HOOKS_DIR/lib/pre_bash_safety.py" >/dev/null 2>&1; then
-  echo "FATAL: lib/pre_bash_safety.py does not compile"
-  python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
-    "$HOOKS_DIR/lib/pre_bash_safety.py"
-  exit 1
-fi
+# Every hook analyzer that lives in lib/ is compiled here, not only the shared one.
+LIB_COMPILED=0
+for lib_py in "$HOOKS_DIR"/lib/*.py; do
+  if ! python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
+    "$lib_py" >/dev/null 2>&1; then
+    echo "FATAL: lib/$(basename "$lib_py") does not compile"
+    python3 -I -B -c "import py_compile,sys; py_compile.compile(sys.argv[1], doraise=True)" \
+      "$lib_py"
+    exit 1
+  fi
+  LIB_COMPILED=$((LIB_COMPILED + 1))
+done
+# fail closed: the analyzers the hooks run must be among the files compiled
+for lib_py in cmdscan.py pre_bash_safety.py cross_agent_blast_analyzer.py live_db_guard_analyzer.py; do
+  if [ ! -f "$HOOKS_DIR/lib/$lib_py" ]; then
+    echo "FATAL: lib/$lib_py is missing"
+    exit 1
+  fi
+done
 # #1304 follow-up: a hook runs in the agent's cwd, so `python3 -c` / `python3 -` without
 # -I puts that cwd on sys.path and a planted json.py runs inside the hook.
 # The scan lives in its own file: inline in bash single quotes, one stray quote made it
@@ -126,7 +131,7 @@ if [ -n "$UNISOLATED" ]; then
   echo "$UNISOLATED"
   exit 1
 fi
-echo "gate 0: $SYNTAX_CHECKED hooks parse, lib/cmdscan.py and lib/pre_bash_safety.py compile, every python3 call is isolated (-I)"
+echo "gate 0: $SYNTAX_CHECKED hooks parse, $LIB_COMPILED lib/*.py analyzers compile, every python3 call is isolated (-I)"
 
 # Gate 0b. FIXTURE FIDELITY — the same class of problem as gate 0, learned the
 # hard way (PR #1025: green here, red in CI).
@@ -274,6 +279,114 @@ bash_case block "$MINE" "watch -n 2 ' ( pkill -f node; date)'"             'CR-M
 bash_case block "$MINE" "watch --int 2 pkill -f node"                       'an abbreviated long option (getopt_long prefix) takes the value'
 bash_case block "$MINE" "watch -n 2 'pkill -f node; date'"                  'SR-M-2: a ; inside the quoted watch program'
 bash_case allow "$MINE" "watch -n 2 git status"                             'watch of a harmless command'
+
+# Nested code, read through cmdscan.scan: each of these passed this hook on origin/main.
+bash_case block "$MINE" "exec pkill -f node"                                 'exec runs its operand in place of the shell'
+bash_case block "$MINE" "exec -a foo pkill -f node"                          'exec -a takes a value'
+bash_case block "$MINE" "bash -c 'pkill -f node'"                            'the program of bash -c'
+bash_case block "$MINE" "sudo -u x zsh -lc 'killall node'"                   'a clustered -lc behind sudo'
+bash_case block "$MINE" "echo \$(pkill -f node)"                             'a $( ) substitution'
+bash_case block "$MINE" 'x=`killall node`'                                   'a backtick substitution in an assignment'
+bash_case block "$MINE" "eval 'pkill node'"                                  'eval runs its arguments'
+bash_case block "$MINE" "bash -c 'git worktree prune'"                       'git worktree prune inside bash -c'
+bash_case block "$MINE" "bash -c 'rm -rf $OTHER/src'"                        'a foreign tree mutated inside bash -c'
+bash_case block "$MINE" $'bash <<EOF\npkill -f node\nEOF'                    'a shell runs its heredoc'
+bash_case block "$MINE" $'cat <<-EOF | sh\n\tpkill -f node\n\tEOF'           'a heredoc piped into a shell'
+bash_case block "$MINE" "bash <<< 'pkill -f node'"                           'a shell runs its here-string'
+bash_case block "$MINE" $'cat <<EOF\n$(pkill -f node)\nEOF'                  'an unquoted heredoc expands its $( )'
+bash_case allow "$MINE" 'echo $(echo $(echo $(echo $(echo $(echo $(x))))))'   'six nested $( ) are within the scan depth and read'
+bash_case block "$MINE" 'echo $(echo $(echo $(echo $(echo $(echo $(echo $(x)))))))' 'NESTED-OPAQUE: seven nested $( ) are past the scan depth'
+# Second-opinion round 1 on this change: each one passed it before the fix.
+bash_case block "$MINE" $'git apply <<EOF\n+++ b/'"$OTHER"$'/evil\nEOF'        'git apply: a heredoc patch names the files it writes'
+bash_case block "$MINE" "bash <(echo 'pkill -f node')"                      'NESTED-OPAQUE: a shell runs a process substitution'
+bash_case block "$MINE" "echo 'pkill -f node' | bash"                       'NESTED-OPAQUE: a shell runs code from a pipe'
+bash_case block "$MINE" $'xargs git worktree remove <<EOF\n'"$OTHER"$'\nEOF' 'WORKTREE-OPAQUE: the path comes from a heredoc via xargs'
+bash_case block "$MINE" "echo $OTHER | xargs git worktree remove"           'WORKTREE-OPAQUE: the path comes from a pipe via xargs'
+bash_case block "$MINE" $'eval "$(cat <<EOF\npkill -f node\nEOF\n)"'        'a data-sink body inside $( ) is run by eval'
+bash_case block "$MINE" $'bash << EOF; true\nexec pkill -f node\nEOF'       'a delimiter after a space is not a script operand'
+bash_case block "$MINE" "bash -s x <<< 'pkill -f node'"                     'bash -s: operands are parameters, code is on stdin'
+bash_case block "$MINE" $'cat > s.sh <<\'EOF\'\npkill -f node\nEOF\nbash s.sh' 'a heredoc written to a script the same command runs'
+bash_case block "$MINE" "bash -c \$'bash <<EOF\\npkill -f node\\nEOF'"      'an ANSI-C \n in bash -c makes heredoc lines'
+bash_case block "$MINE" $'echo \'pkill -f node\' | bash; cat <<EOF\nx\nEOF'  'NESTED-OPAQUE: a heredoc on another segment does not feed a piped shell'
+bash_case block "$MINE" "bash -c \$'bash <<EOF\\x0apkill -f node\\012EOF'"  'ANSI-C \x0a and \012 decode to newlines'
+# Second-opinion round 2 and the commit security review.
+bash_case block "$MINE" $'echo \'pkill -f node\' | bash 3<<\'E\'\nx\nE'      'NESTED-OPAQUE: a heredoc on fd 3 does not feed stdin'
+bash_case block "$MINE" "bash /dev/fd/3 3< <(echo 'pkill -f node')"         'NESTED-OPAQUE: code from a fd fed by a process substitution'
+bash_case block "$MINE" $'cat <<EOF >/dev/null; echo \'pkill -f node\' | sh\nx\nEOF' 'NESTED-OPAQUE: a body carried from another segment'
+bash_case block "$MINE" "echo $OTHER | xargs -I{} git worktree remove --force {}" 'WORKTREE-OPAQUE: an xargs -I placeholder'
+bash_case block "$MINE" "find $OTHER -maxdepth 0 -exec git worktree remove {} ;" 'WORKTREE-OPAQUE: a find -exec placeholder'
+bash_case block "$MINE" $'git am <<EOF\n+++ b/'"$OTHER"$'/evil\nEOF'          'git am: a heredoc patch names the files it writes'
+bash_case block "$MINE" $'cat > deploy <<EOF\npkill -f node\nEOF\n./deploy'   'an extensionless script written and run by the same command'
+bash_case block "$MINE" "echo \$'x\\c'; pkill -f node"                      'ANSI-C \c never eats the closing quote'
+bash_case block "$MINE" $'cat > deploy <<EOF\npkill -f node\nEOF\nsudo ./deploy' 'a written file run through a wrapper is named again'
+bash_case block "$MINE" $'tee run.sh <<EOF\npkill -f node\nEOF\nnohup ./run.sh' 'a tee target run later is named again'
+bash_case block "$MINE" "echo $OTHER | xargs -I/x/ph git worktree remove /x/ph" 'WORKTREE-OPAQUE: an xargs placeholder that looks like a path'
+bash_case allow "$MINE" $'cat > /tmp/note.md <<EOF\npkill -f node\nEOF'      'a heredoc written to a file nobody runs'
+# Second-opinion round 3.
+bash_case block "$MINE" $'printf \'pkill -f node\' <<EOF | bash\nx\nEOF'     'NESTED-OPAQUE: a pipe source that owns a heredoc but prints something else'
+bash_case block "$MINE" $'cat s.sh <<EOF | bash\ngit worktree list\nEOF'     'NESTED-OPAQUE: cat with a file operand prints the file, not the heredoc'
+bash_case block "$MINE" $'cat > deploy <<EOF\npkill -f node\nEOF\nsudo ./*eploy' 'a glob may name the written file'
+bash_case block "$MINE" "git -C $OTHER clean -fd"                             'git -C <foreign> takes a value: clean is the subcommand'
+bash_case block "$MINE" "git -C $OTHER worktree remove --force ."             'a relative worktree target is read from git -C'
+bash_case block "$MINE" "git worktree add /tmp/zz-r3; git worktree remove --force $OTHER" 'a later worktree command on the line is judged'
+bash_case block "$MINE" "git worktree move $OTHER /tmp/gone"                  'git worktree move relocates a foreign tree'
+bash_case block "$MINE" 'kill -9 -1'                                          'BROADCAST-KILL: pid -1 is every process the user owns'
+# PR #1310 review (security, code, spec).
+bash_case block "$MINE" 'kill -9 -01'                                         'BROADCAST-KILL: kill reads -01 as -1'
+bash_case block "$MINE" 'kill -9 +0'                                          'BROADCAST-KILL: +0 is the process group'
+bash_case block "$MINE" 'kill -s TERM -- -1'                                  'BROADCAST-KILL: -s takes a value, -- ends options'
+bash_case block "$MINE" 'kill 0'                                              'BROADCAST-KILL: pid 0 is the process group'
+bash_case allow "$MINE" 'kill -l 0'                                           'kill -l lists signal names'
+bash_case allow "$MINE" 'kill -- -1234'                                       'a negative pid other than -1 is one process group'
+bash_case block "$MINE" "git -c alias.wr='worktree remove --force' wr $OTHER"       'NESTED-OPAQUE: a git alias hides the subcommand'
+bash_case block "$MINE" "git -C \$X worktree remove ."                              'WORKTREE-OPAQUE: a non-literal git -C directory'
+bash_case block "$MINE" $'cat > Makefile <<\'EOF\'\nall:\n\tpkill -f node\nEOF\nmake all' 'a file read by convention (make) is code'
+bash_case block "$MINE" "echo 'pkill -f node' |& bash"                           'NESTED-OPAQUE: |& pipes into the shell too'
+bash_case block "$MINE" "echo 'pkill -f node' | (bash)"                          'NESTED-OPAQUE: a shell in a subshell reads the pipe'
+bash_case block "$MINE" "bash /proc/self/fd/3 3< <(echo 'pkill -f node')"        'NESTED-OPAQUE: /proc/self/fd/N is a fd too'
+bash_case allow "$MINE" 'bash --help'                                         'a shell that prints its help reads no code'
+bash_case allow "$MINE" "sed -i '' 's|pkill -f|kill|' /tmp/x.sh"                 'a pipe inside a quoted sed script splits nothing'
+bash_case block "$MINE" "git -c ALIAS.wr='worktree remove --force' wr $OTHER"       'NESTED-OPAQUE: config section names ignore case'
+bash_case block "$MINE" "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.wr GIT_CONFIG_VALUE_0='worktree remove' git wr $OTHER" 'NESTED-OPAQUE: an alias set through GIT_CONFIG_*'
+bash_case block "$MINE" $'eval "$(cat <<EOF\ndon\'t\npkill -f node\nEOF\n)"'   'an apostrophe in a double-quoted $( ) body opens no span'
+bash_case block "$MINE" $'x=1 \'a\'; pkill -f node; echo \'b\''                  'code between two single-quoted spans is still read'
+bash_case block "$MINE" "ssh localhost 'true; pkill -f node'"                     'quoted code for a runner this hook does not read stays in the split'
+bash_case block "$MINE" "git -c core.pager='less; pkill -f node' log"             'git -c can run a quoted value: its quotes stay in the split'
+bash_case block "$MINE" "git rebase -x 'true; pkill -f node' main"                'git rebase -x runs its quoted argument'
+bash_case allow "$MINE" "git commit -m 'drop the pkill -f node; use kill'"        'a quoted commit message is data'
+bash_case block "$MINE" "git grep --open-files-in-pager='true; pkill -f node' x" 'git grep -O runs its quoted argument'
+bash_case block "$MINE" "rg --pre='true; pkill -f node' x ."                      'rg --pre runs its quoted argument'
+bash_case block "$MINE" "sed 's|x|y; pkill -f node|e' f"                          'GNU sed s///e runs the replacement'
+bash_case block "$MINE" "sed '1e true; pkill -f node' f"                          'GNU sed e command runs its argument'
+bash_case block "$MINE" "sed -f s.sed 's|x|y|; pkill -f node' f"                  'a sed -f script file is not read'
+bash_case block "$MINE" "sed -ne's|x|y; pkill -f node|e' f"                  'a script glued into a short-option cluster'
+bash_case block "$MINE" "sed --expr='s|x|y; pkill -f node|e' f"              'an abbreviated --expression'
+bash_case allow "$MINE" 'kill -1 1234'                                        'a signal number before one pid'
+bash_case block "$MINE" "find . -exec sh -c 'x; git worktree remove {}' \\;" 'WORKTREE-OPAQUE: find anywhere on the line, quotes may hide a separator'
+bash_case allow "$MINE" $'git commit -m apply <<\'EOF\'\npkill -f node is deprecated\nEOF' 'apply as a commit message word is not the git subcommand'
+bash_case allow "$MINE" 'bash --version'                                    'a shell that prints its version reads no code'
+bash_case allow "$MINE" $'cat <<EOF | bash\necho hi\nEOF'                   'a harmless heredoc piped into a shell'
+bash_case allow "$MINE" $'git commit -F - <<\'EOF\'\nfix: pkill handling\nEOF' 'a commit message that mentions pkill'
+# False positives on origin/main: a heredoc body is data, a quoted word is not a redirect.
+bash_case allow "$MINE" $'cat <<\'EOF\'\npkill -f node\nEOF'                 'a quoted heredoc that mentions pkill'
+bash_case allow "$MINE" $'cat <<EOF\npkill -f node\nEOF'                     'an unquoted heredoc body is still data for cat'
+bash_case allow "$MINE" $'cat > /tmp/note.md <<\'EOF\'\nsee '"$OTHER"$'/src\nEOF' 'a note that names a foreign tree'
+bash_case allow "$MINE" "sed -i '' 's|a|b 2>\\&1; c|' /tmp/x.sh"             'a quoted sed script holding 2>\&1 redirects nothing'
+bash_case allow "$MINE" "bash -c 'git status'"                               'a harmless bash -c'
+# Security review of 813a320: a heredoc stays code or arguments unless its consumer reads data.
+bash_case block "$MINE" $'xargs rm -rf <<EOF\n'"$OTHER"$'/src\nEOF'             'a heredoc read as xargs arguments names a foreign tree'
+bash_case block "$MINE" $'bash /dev/stdin <<EOF\npkill -f node\nEOF'           'a shell reading /dev/stdin runs the heredoc'
+bash_case block "$MINE" $'source /dev/stdin <<EOF\npkill -f node\nEOF'         'source /dev/stdin runs the heredoc'
+bash_case block "$MINE" $'cat <<EOF | tee /tmp/x | sh\npkill -f node\nEOF'     'the heredoc reaches the shell at the end of the pipeline'
+bash_case block "$MINE" "echo \\' > $OTHER/f \\'"                             'an escaped quote outside quotes opens no quoted span'
+# Security review of b8580e5: a body is handed to the last segment of its line, not its opener.
+bash_case block "$MINE" $'xargs rm -rf <<EOF; cat\n'"$OTHER"$'/src\nEOF'        'the body of xargs, carried by cat, is not stripped'
+bash_case block "$MINE" $'bash <<EOF; true\nsh -c \'pkill -f node\'\nEOF'     'the body of bash, carried by true, is scanned as code'
+bash_case block "$MINE" "source /dev/stdin <<< 'pkill -f node'"                'source /dev/stdin runs its here-string'
+bash_case block "$MINE" $'source -- /dev/stdin <<EOF\npkill -f node\nEOF'      'source -- /dev/stdin runs the heredoc'
+bash_case block "$MINE" "echo \$'\\'' > $OTHER/f; echo 'x'"                  'an ANSI-C quoted escaped quote opens no long span'
+bash_case allow "$MINE" "source ./env.sh"                                       'source of a script file'
+bash_case block "$MINE" $'xargs rm -rf <<EOF; cat \'<<X\'\n'"$OTHER"$'/src\nEOF' 'a quoted <<X argument is not a heredoc opener'
 bash_case block "$MINE" "timeout 60 rm -rf $OTHER/dist"                     'CR-M-1: mutator behind timeout'
 
 # ── the target is not a literal, so ownership cannot be established ───────────

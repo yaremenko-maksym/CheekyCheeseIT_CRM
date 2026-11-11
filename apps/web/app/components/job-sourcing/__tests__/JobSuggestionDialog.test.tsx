@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { JobSuggestionDto, JobSuggestionListDto } from '@crm/shared'
+import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 
 import { JobSuggestionDialog, MARKDOWN_URL_TRANSFORM } from '../JobSuggestionDialog'
 import { isSafeExternalUrl } from '../open-original'
@@ -40,6 +41,12 @@ vi.mock('@/hooks/use-job-sourcing', () => ({
   }),
   useJobExclusions: () => ({ data: { items: [] }, isLoading: false }),
   useJobSources: () => ({ data: { items: [] }, isLoading: false, isError: false }),
+  useSetJobSourceEnabled: () => ({
+    mutate: vi.fn(),
+    reset: vi.fn(),
+    isPending: false,
+    isError: false,
+  }),
   useUpdateJobSuggestionStatus: () => ({ mutate, isPending: false }),
   useCreateJobExclusion: () => ({ mutate: createExclusion, isPending: false }),
   useDeleteJobExclusion: () => ({ mutate: vi.fn(), isPending: false }),
@@ -81,19 +88,23 @@ let mockState = { isLoading: false, isError: false }
 function renderDialog(canViewBudgets = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={queryClient}>
-      <JobSuggestionDialog
-        open
-        onClose={() => {}}
-        seniorId={undefined}
-        canViewBudgets={canViewBudgets}
-      />
-    </QueryClientProvider>,
+    // The ADMIN budget panel (task 7.5) speaks Lingui; the dialog itself still does not.
+    <I18nTestProvider>
+      <QueryClientProvider client={queryClient}>
+        <JobSuggestionDialog
+          open
+          onClose={() => {}}
+          seniorId={undefined}
+          canViewBudgets={canViewBudgets}
+        />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
 }
 
 describe('JobSuggestionDialog', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await loadCatalog('uk')
     mockQueue = { items: [suggestion()], total: 3 }
     mockState = { isLoading: false, isError: false }
     mutate.mockClear()

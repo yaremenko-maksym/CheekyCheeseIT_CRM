@@ -483,6 +483,21 @@ export const jobSourceSchema = z.object({
   resumeCheckpoint: z.boolean().optional(),
   /** The current health state (the latest TRANSITION's `to_state`); null when none recorded. */
   healthState: jobHealthStateSchema.nullable().optional(),
+  /**
+   * Task 7.5 — the source's account meter, read-only, for the ADMIN quota bar. `null` = the source
+   * bills against no meter. Lazy for the same reason as the fields above.
+   */
+  meter: z
+    .lazy(() => jobSourceMeterSchema)
+    .nullable()
+    .optional(),
+  /**
+   * Task 7.5 (AC4) — the instant the source's policy lapses (`POLICY_EXPIRES`) and the instant it
+   * starts to need authorization (`AUTH_REQUIRED_FROM`), from the production catalog; null = none.
+   * ADMIN-only like the rest of this list.
+   */
+  policyUntil: z.string().datetime().nullable().optional(),
+  authUntil: z.string().datetime().nullable().optional(),
 })
 
 export const jobSourceListSchema = z.object({
@@ -1507,6 +1522,22 @@ export const jobAccountMeterSchema = z
     }
   })
 
+/**
+ * Task 7.5 — the slice of a meter the ADMIN source list projects. No `id` / `accountKey` /
+ * `policyVersion`: the panel needs the three amounts, the limit and the reset instant only.
+ * `used` is already zero when the window has elapsed; `reserved` and `uncertain` are shown as
+ * stored (an in-place window reset does not touch them).
+ */
+export const jobSourceMeterSchema = z.strictObject({
+  unit: jobMeterUnitSchema,
+  window: jobMeterWindowSchema,
+  limit: z.number().int().nonnegative().nullable(),
+  used: countSchema,
+  reserved: countSchema,
+  uncertain: countSchema,
+  resetsAt: z.string().datetime().nullable(),
+})
+
 /** One reservation against a meter, keyed by its attempt so a retry is idempotent. */
 export const jobMeterReservationSchema = z
   .object({
@@ -2379,6 +2410,7 @@ export type JobDirtyWorkEntityKind = z.infer<typeof jobDirtyWorkEntityKindSchema
 export type JobDirtyWorkStatus = z.infer<typeof jobDirtyWorkStatusSchema>
 export type JobAccountKey = z.infer<typeof jobAccountKeySchema>
 export type JobErrorCode = z.infer<typeof jobErrorCodeSchema>
+export type JobSourceMeterDto = z.infer<typeof jobSourceMeterSchema>
 export type JobAccountMeterDto = z.infer<typeof jobAccountMeterSchema>
 export type JobMeterReservationDto = z.infer<typeof jobMeterReservationSchema>
 export type JobCollectionCycleDto = z.infer<typeof jobCollectionCycleSchema>

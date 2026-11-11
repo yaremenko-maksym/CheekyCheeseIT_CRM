@@ -46,10 +46,11 @@ for f in $HOOK_FILES; do
     exit 2
   fi
 done
-git -C "$REPO_ROOT" show "$REF:.claude/hooks/lib/cmdscan.py" >"$WORK/ref/lib/cmdscan.py" 2>/dev/null ||
-  rm -f "$WORK/ref/lib/cmdscan.py"
-git -C "$REPO_ROOT" show "$REF:.claude/hooks/lib/pre_bash_safety.py" >"$WORK/ref/lib/pre_bash_safety.py" 2>/dev/null ||
-  rm -f "$WORK/ref/lib/pre_bash_safety.py"
+# Same for an analyzer that a ref still kept inline (live_db_guard_analyzer.py, 2026-11-11).
+for lf in cmdscan.py pre_bash_safety.py live_db_guard_analyzer.py; do
+  git -C "$REPO_ROOT" show "$REF:.claude/hooks/lib/$lf" >"$WORK/ref/lib/$lf" 2>/dev/null ||
+    rm -f "$WORK/ref/lib/$lf"
+done
 
 # A cwd that reads as an agent worktree: the two launcher hooks only enforce
 # there, so comparing outside it would compare two fast-exits.
