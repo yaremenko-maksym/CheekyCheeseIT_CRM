@@ -267,11 +267,80 @@ export function toastPillStack(w, h) {
   return financeTab(w, h, `${moneyPill(w, 'armed')}${toast}`)
 }
 
-/** Boot after a page kill while armed: only a timestamp marker survived, so the alert names no amount. */
-export function pageKillAlert(w, h) {
-  const alert = `<div style="padding:0 16px 12px"><div role="alert" style="padding:12px 14px;border-radius:14px;background:oklch(0.2 0.04 22);border:1px solid oklch(0.38 0.09 22)"><div class="row" style="gap:10px;align-items:flex-start"><span style="color:var(--destructive);margin-top:1px">${icon('circle-alert', { size: 18 })}</span><div class="grow t-foot" style="font-size:15px;line-height:20px;color:oklch(0.92 0.02 22)">Транзакцію не збережено: застосунок закрився під час завантаження чека. Створіть її ще раз.</div></div><div class="row" style="justify-content:flex-end;margin-top:6px"><span class="btn sm secondary" role="button">Зрозуміло</span></div></div></div>`
+// Boot after a page kill. The marker is { t, phase: 'armed' | 'sent' }: no amount, payload or receipt,
+// so neither alert names an amount.
+//   armed: the create never left, so the alert says it was not saved.
+//   sent: the create left and may have committed, so the alert sends the user to the list; no resubmit.
+const KILL = {
+  armed: {
+    text: 'Транзакцію не збережено: застосунок закрився під час завантаження чека. Створіть її ще раз.',
+    actions: '<span class="btn sm secondary" role="button">Зрозуміло</span>',
+    tone: 22,
+    ink: 'var(--destructive)',
+    glyph: 'circle-alert',
+  },
+  sent: {
+    text: 'Застосунок закрився під час збереження транзакції. Перевірте список Фінанси, перш ніж створювати її знову.',
+    actions:
+      '<span class="btn sm ghost" role="button">Зрозуміло</span><span class="btn sm secondary" role="button">Відкрити Фінанси</span>',
+    tone: 85,
+    ink: 'var(--primary)',
+    glyph: 'circle-help',
+  },
+}
+export function pageKillAlert(w, h, phase = 'armed') {
+  const k = KILL[phase]
+  const alert = `<div style="padding:0 16px 12px"><div role="alert" style="padding:12px 14px;border-radius:14px;background:oklch(0.2 0.04 ${k.tone});border:1px solid oklch(0.38 0.09 ${k.tone})"><div class="row" style="gap:10px;align-items:flex-start"><span style="color:${k.ink};margin-top:1px">${icon(k.glyph, { size: 18 })}</span><div class="grow t-foot" style="font-size:15px;line-height:20px;color:oklch(0.92 0.02 ${k.tone})">${k.text}</div></div><div class="row" style="justify-content:flex-end;gap:8px;margin-top:6px">${k.actions}</div></div></div>`
   return financeTab(w, h, '', `${alert}${financeBody()}`)
 }
+
+/**
+ * Irreversible or money-moving action, mobile: an action sheet (alertdialog) with two 56 px rows,
+ * the action first and the cancel apart. Over a sheet it stacks above the sheet (z 76 / 77).
+ */
+export function actionConfirm(
+  w,
+  { id, title, desc, action, cancel = 'Скасувати', ink = 'var(--destructive)', overSheet = false },
+) {
+  const z = overSheet ? [76, 77] : [70, 75]
+  const row = (label, style) =>
+    `<div role="button" style="height:56px;display:grid;place-items:center;font-size:17px;font-weight:600;${style}">${label}</div>`
+  return `<div class="scrim" style="z-index:${z[0]}"></div><div role="alertdialog" aria-modal="true" aria-labelledby="${id}-t" aria-describedby="${id}-d" style="position:absolute;left:8px;right:8px;bottom:${safeBottom(w) + 8}px;z-index:${z[1]};display:grid;gap:8px">
+  <div style="background:var(--popover);border-radius:14px;border:1px solid var(--border);overflow:hidden;text-align:center">
+    <div style="padding:16px 20px 14px"><div id="${id}-t" class="t-sub num" style="font-weight:600">${title}</div><div id="${id}-d" class="t-foot muted" style="margin-top:4px">${desc}</div></div>
+    ${row(action, `border-top:1px solid var(--separator);color:${ink}`)}</div>
+  ${row(cancel, 'background:var(--popover);border-radius:14px;border:1px solid var(--border)')}</div>`
+}
+const overHome = (screen, overlay) =>
+  screen.replace('<div class="homebar">', `${overlay}<div class="homebar">`)
+
+/** Unknown outcome, «Немає — створити ще раз»: the one money-moving step after an unknown result asks first. */
+export const confirmRecreate = (w, h) =>
+  overHome(
+    failureUnknownList(w, h),
+    actionConfirm(w, {
+      id: 'cr',
+      title: `Створити ${AMOUNT} USD ще раз?`,
+      desc: 'Буде створено одну нову транзакцію: витрата, сьогодні, без проєкту.',
+      action: 'Створити ще раз',
+      ink: 'var(--primary)',
+      overSheet: true,
+    }),
+  )
+
+/** The one money draft, reopened by «+» and closed with «Скасувати»: discarding it asks and names the amount. */
+export const confirmDiscardDraft = (w, h) =>
+  overHome(
+    failureOffline(w, h),
+    actionConfirm(w, {
+      id: 'dd',
+      title: `Видалити чернетку ${AMOUNT} USD?`,
+      desc: 'Сума, поля й чек зникнуть. Цю дію не можна скасувати.',
+      action: 'Видалити',
+      cancel: 'Залишити',
+      overSheet: true,
+    }),
+  )
 
 /** The kept draft, pinned at the top of the Фінанси list when reached another way. */
 export function listrowDraft(w, h) {

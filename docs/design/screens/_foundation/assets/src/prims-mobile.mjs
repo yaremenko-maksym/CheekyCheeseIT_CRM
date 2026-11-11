@@ -1,6 +1,13 @@
 // Primitives v2, mobile part: ResponsiveSheet (mobile), ListRow, section header, FormField, keyboard-open.
 import { icon, phone, safeBottom, field, segmented } from './base.mjs'
-import { moneyForm, primaryBtn, submitBar, textKeyboard, TEXT_H } from './money-form.mjs'
+import {
+  moneyForm,
+  primaryBtn,
+  submitBar,
+  textKeyboard,
+  TEXT_H,
+  actionConfirm,
+} from './money-form.mjs'
 export { field, segmented }
 import { tabScreen, financeBody, txnRow, TXNS, topBar, PEOPLE } from './mobile.mjs'
 import { sheet, closeBtn, safeTop } from './mobile-overlays.mjs'
@@ -131,11 +138,12 @@ export const sheetLarge = (w, h) =>
 
 /** Irreversible action → confirm (never undo). Mobile = action sheet; ≥ 640 = centred dialog. */
 export function sheetConfirm(w, h) {
-  const overlay = `<div class="scrim"></div><div role="alertdialog" aria-modal="true" aria-labelledby="cf-t" aria-describedby="cf-d" style="position:absolute;left:8px;right:8px;bottom:${safeBottom(w) + 8}px;z-index:75;display:grid;gap:8px">
-  <div style="background:var(--popover);border-radius:14px;border:1px solid var(--border);overflow:hidden;text-align:center">
-    <div style="padding:16px 20px 14px"><div id="cf-t" class="t-sub" style="font-weight:600">Видалити транзакцію «Оренда офісу»?</div><div id="cf-d" class="t-foot muted" style="margin-top:4px">−1 200,00 $ · 11.11.2026. Цю дію не можна скасувати.</div></div>
-    <div style="height:56px;display:grid;place-items:center;border-top:1px solid var(--separator);color:var(--destructive);font-size:17px;font-weight:600">Видалити</div></div>
-  <div style="height:56px;display:grid;place-items:center;background:var(--popover);border-radius:14px;border:1px solid var(--border);font-size:17px;font-weight:600">Скасувати</div></div>`
+  const overlay = actionConfirm(w, {
+    id: 'cf',
+    title: 'Видалити транзакцію «Оренда офісу»?',
+    desc: '−1 200,00 $ · 11.11.2026. Цю дію не можна скасувати.',
+    action: 'Видалити',
+  })
   return tabScreen({
     w,
     h,
