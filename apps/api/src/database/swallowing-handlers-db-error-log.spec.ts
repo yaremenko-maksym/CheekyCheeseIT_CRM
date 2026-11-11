@@ -62,9 +62,10 @@ const CASES: Case[] = [
     name: 'ResumeExtractionCronService.handleStuckExtractions',
     messageOnly: true,
     arrange: (failure) => {
-      const svc = new ResumeExtractionCronService({
-        sweepStuckExtractions: vi.fn().mockRejectedValue(failure),
-      } as never)
+      const svc = new ResumeExtractionCronService(
+        { sweepStuckExtractions: vi.fn().mockRejectedValue(failure) } as never,
+        { sweepStalledVerifications: vi.fn().mockResolvedValue(0) } as never,
+      )
       return () => svc.handleStuckExtractions()
     },
   },
@@ -190,9 +191,10 @@ describe('ResumeExtractionCronService keeps its message-only shape for non-datab
     ['not an Error', 'Resume extraction sweep failed: unknown error'],
   ])('%s', async (thrown, expected) => {
     const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
-    const svc = new ResumeExtractionCronService({
-      sweepStuckExtractions: vi.fn().mockRejectedValue(thrown),
-    } as never)
+    const svc = new ResumeExtractionCronService(
+      { sweepStuckExtractions: vi.fn().mockRejectedValue(thrown) } as never,
+      { sweepStalledVerifications: vi.fn().mockResolvedValue(0) } as never,
+    )
 
     await svc.handleStuckExtractions()
 
