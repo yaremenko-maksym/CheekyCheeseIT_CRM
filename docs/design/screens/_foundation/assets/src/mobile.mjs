@@ -141,9 +141,12 @@ export const TXNS = [
 ]
 
 export function txnRow(x, { compact = false } = {}) {
-  return `<div class="lrow two" style="--inset:64px"><div class="lead">${icon(x.ic, { size: 18 })}</div>
+  const hl = x.hl
+    ? ';background:oklch(0.84 0.183 85.3 / 0.1);box-shadow:inset 3px 0 0 var(--primary)'
+    : ''
+  return `<div class="lrow two" style="--inset:64px${hl}"><div class="lead">${icon(x.ic, { size: 18 })}</div>
   <div class="grow col" style="gap:2px"><div class="t-body trunc" style="font-weight:500">${x.t}</div><div class="t-foot muted trunc row" style="gap:6px">${x.att ? icon('paperclip', { size: 13 }) : ''}<span class="trunc">${x.s}</span></div></div>
-  <div class="trail"><span class="amount ${x.neg ? '' : 'pos'}">${x.a}</span>${x.pending ? '<span class="pill warn" style="height:18px;font-size:11px">Очікує</span>' : `<span class="t-cap muted num">${x.time}</span>`}</div>${compact ? '' : ''}</div>`
+  <div class="trail"><span class="amount ${x.neg ? '' : 'pos'}">${x.a}</span>${x.pending ? '<span class="pill warn" style="height:18px;font-size:11px">Очікує</span>' : x.hl ? `<span class="t-cap num" style="color:var(--primary);font-weight:600">нова · ${x.time}</span>` : `<span class="t-cap muted num">${x.time}</span>`}</div>${compact ? '' : ''}</div>`
 }
 
 export function txnList(rows = TXNS, { stickyFirst = true } = {}) {

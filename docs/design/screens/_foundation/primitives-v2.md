@@ -21,29 +21,29 @@
 
 ## 1. Component map
 
-| Primitive                 | Build on                                                                                                      | New?                         | Frames                                                                                                                                                                                                     |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Bottom sheet (detents)    | Base UI Drawer (approved stack change, spec §4)                                                               | NEW `Sheet` mobile variant   | `sheet-medium-375`, `sheet-medium-320`, `sheet-large-375`                                                                                                                                                  |
-| Action sheet (confirm)    | Base UI Drawer + `ui/alert-dialog.tsx` semantics                                                              | NEW variant                  | `sheet-confirm-375`                                                                                                                                                                                        |
-| PickerSheet               | Base UI Drawer + `ui/command.tsx` (search, listbox); replaces `ui/select.tsx` / `ui/role-select.tsx` on touch | NEW variant                  | `picker-sheet-375`                                                                                                                                                                                         |
-| TextEditor                | `ui/textarea.tsx` (autosize) + a chip row on `visualViewport`                                                 | NEW composite                | `form-longtext-375`                                                                                                                                                                                        |
-| Side panel                | `ui/sheet.tsx` (side = right)                                                                                 | restyle                      | `sheet-panel-768`, `sheet-panel-1024`, `sheet-panel-1440`                                                                                                                                                  |
-| Confirm dialog            | `ui/alert-dialog.tsx`                                                                                         | restyle                      | `sheet-confirm-dialog-1024`                                                                                                                                                                                |
-| List row                  | —                                                                                                             | NEW `ListRow`                | `listrow-variants-375`, `listrow-swipe-375`, `listrow-sticky-320`, `listrow-empty-error-375`, `listrow-768`, `listrow-1440`                                                                                |
-| Section header            | —                                                                                                             | NEW `ListSection`            | `section-header-375`                                                                                                                                                                                       |
-| Pushed detail page        | —                                                                                                             | NEW `DetailPage`             | `detail-txn-375`, `detail-person-375`                                                                                                                                                                      |
-| Receipt viewer            | Base UI Dialog (full screen)                                                                                  | NEW                          | `detail-txn-receipt-375`                                                                                                                                                                                   |
-| Table row states          | `ui/table.tsx`                                                                                                | restyle                      | `listrow-table-desktop`                                                                                                                                                                                    |
-| Form field                | `ui/input.tsx`, `ui/label.tsx`                                                                                | restyle (16 px, 48 h mobile) | `form-states-375`, `form-add-user-375`, `formfield-768`, `formfield-1440`                                                                                                                                  |
-| Money field + receipt     | `ui/amount-currency-input.tsx`, `ui/image-upload-field.tsx`                                                   | restyle                      | `form-money-375`, `form-receipt-link-375`, `form-receipt-usdt-375`, `form-keyboard-375`, `sheet-large-375` (one canonical form: `assets/src/money-form.mjs`)                                               |
-| Segmented control, switch | `ui/segmented-toggle.tsx`, `ui/switch.tsx`                                                                    | restyle                      | `form-money-375`, `sheet-medium-375`                                                                                                                                                                       |
-| Undo toast                | `ui/sonner.tsx`                                                                                               | restyle                      | `toast-undo-375`, `toast-undo-768`, `toast-undo-1440`                                                                                                                                                      |
-| Save error (inline)       | `ui/alert.tsx`                                                                                                | restyle                      | `toast-error-definite-375`, `toast-error-offline-375`, `toast-error-unknown-375`, `toast-error-unknown-list-375`                                                                                           |
-| Upload states + indicator | `ui/upload-progress.tsx`                                                                                      | restyle + global pill (NEW)  | `upload-states-375`, `upload-pill-armed-375`, `upload-pill-saved-375`, `upload-pill-failed-375`, `toast-pill-stack-375`, `state-page-kill-375`, `listrow-draft-375`, `upload-pill-768`, `upload-pill-1440` |
-| Skeletons                 | `ui/skeleton.tsx`                                                                                             | restyle                      | `skeleton-mobile-375`, `skeleton-768`, `skeleton-1440`, `skeleton-table-desktop`                                                                                                                           |
-| Charts                    | the existing chart library on `--chart-*` tokens                                                              | restyle                      | `chart-mobile-375`, `chart-mobile-scrolled-375`, `chart-mobile-320`, `chart-desktop`                                                                                                                       |
-| Pull-to-refresh           | —                                                                                                             | NEW `PullToRefresh`          | `ptr-pulling-375`, `ptr-armed-375`, `ptr-refreshing-375`, `ptr-done-375`                                                                                                                                   |
-| Transitions               | View Transitions API + `motion` (`m.*`, LazyMotion)                                                           | NEW                          | `transition-storyboard`                                                                                                                                                                                    |
+| Primitive                 | Build on                                                                                                      | New?                         | Frames                                                                                                                                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bottom sheet (detents)    | Base UI Drawer (approved stack change, spec §4)                                                               | NEW `Sheet` mobile variant   | `sheet-medium-375`, `sheet-medium-320`, `sheet-large-375`                                                                                                                                                                           |
+| Action sheet (confirm)    | Base UI Drawer + `ui/alert-dialog.tsx` semantics                                                              | NEW variant                  | `sheet-confirm-375`                                                                                                                                                                                                                 |
+| PickerSheet               | Base UI Drawer + `ui/command.tsx` (search, listbox); replaces `ui/select.tsx` / `ui/role-select.tsx` on touch | NEW variant                  | `picker-sheet-375`                                                                                                                                                                                                                  |
+| TextEditor                | `ui/textarea.tsx` (autosize) + a chip row on `visualViewport`                                                 | NEW composite                | `form-longtext-375`                                                                                                                                                                                                                 |
+| Side panel                | `ui/sheet.tsx` (side = right)                                                                                 | restyle                      | `sheet-panel-768`, `sheet-panel-1024`, `sheet-panel-1440`                                                                                                                                                                           |
+| Confirm dialog            | `ui/alert-dialog.tsx`                                                                                         | restyle                      | `sheet-confirm-dialog-1024`                                                                                                                                                                                                         |
+| List row                  | —                                                                                                             | NEW `ListRow`                | `listrow-variants-375`, `listrow-swipe-375`, `listrow-sticky-320`, `listrow-empty-error-375`, `listrow-768`, `listrow-1440`                                                                                                         |
+| Section header            | —                                                                                                             | NEW `ListSection`            | `section-header-375`                                                                                                                                                                                                                |
+| Pushed detail page        | —                                                                                                             | NEW `DetailPage`             | `detail-txn-375`, `detail-person-375`                                                                                                                                                                                               |
+| Receipt viewer            | Base UI Dialog (full screen)                                                                                  | NEW                          | `detail-txn-receipt-375`                                                                                                                                                                                                            |
+| Table row states          | `ui/table.tsx`                                                                                                | restyle                      | `listrow-table-desktop`                                                                                                                                                                                                             |
+| Form field                | `ui/input.tsx`, `ui/label.tsx`                                                                                | restyle (16 px, 48 h mobile) | `form-states-375`, `form-add-user-375`, `formfield-768`, `formfield-1440`                                                                                                                                                           |
+| Money field + receipt     | `ui/amount-currency-input.tsx`, `ui/image-upload-field.tsx`                                                   | restyle                      | `form-money-375`, `form-receipt-link-375`, `form-receipt-usdt-375`, `form-keyboard-375`, `sheet-large-375` (one canonical form: `assets/src/money-form.mjs`)                                                                        |
+| Segmented control, switch | `ui/segmented-toggle.tsx`, `ui/switch.tsx`                                                                    | restyle                      | `form-money-375`, `sheet-medium-375`                                                                                                                                                                                                |
+| Undo toast                | `ui/sonner.tsx`                                                                                               | restyle                      | `toast-undo-375`, `toast-undo-768`, `toast-undo-1440`                                                                                                                                                                               |
+| Save error (inline)       | `ui/alert.tsx`                                                                                                | restyle                      | `toast-error-definite-375`, `toast-error-offline-375`, `toast-error-unknown-375`, `toast-error-unknown-list-375`                                                                                                                    |
+| Upload states + indicator | `ui/upload-progress.tsx`                                                                                      | restyle + global pill (NEW)  | `upload-states-375`, `upload-pill-armed-375`, `upload-pill-saved-375`, `upload-pill-failed-375`, `upload-pill-multi-375`, `toast-pill-stack-375`, `state-page-kill-375`, `listrow-draft-375`, `upload-pill-768`, `upload-pill-1440` |
+| Skeletons                 | `ui/skeleton.tsx`                                                                                             | restyle                      | `skeleton-mobile-375`, `skeleton-768`, `skeleton-1440`, `skeleton-table-desktop`                                                                                                                                                    |
+| Charts                    | the existing chart library on `--chart-*` tokens                                                              | restyle                      | `chart-mobile-375`, `chart-mobile-scrolled-375`, `chart-mobile-320`, `chart-desktop`                                                                                                                                                |
+| Pull-to-refresh           | —                                                                                                             | NEW `PullToRefresh`          | `ptr-pulling-375`, `ptr-armed-375`, `ptr-refreshing-375`, `ptr-done-375`                                                                                                                                                            |
+| Transitions               | View Transitions API + `motion` (`m.*`, LazyMotion)                                                           | NEW                          | `transition-storyboard`                                                                                                                                                                                                             |
 
 ---
 
@@ -232,9 +232,12 @@ is the state table in foundation §11; this is the component view. While a recei
 reads «Зберегти після завантаження чека». A tap **freezes the payload** and arms. The armed button (min
 56 px) reads «Збережеться 1 250,50 USD після чека» with the receipt progress as a fill; «чек 62%» is a
 `role="progressbar"` with `aria-valuenow`, never a live region. A visually hidden `role="status"`
-announces only arm, disarm and result. **Repeat taps on the armed primary are ignored**: no toggle, no
-`aria-pressed`. **Disarm is a separate control**: the 44 px text button «Не зберігати автоматично»
-under the primary; any field edit also disarms. While armed the leading control reads **«Згорнути»**:
+announces only arm, disarm and result. **The armed primary is `aria-disabled="true"`** (never
+`disabled`: it keeps focus and its name); a repeat tap toggles nothing (no `aria-pressed`) and shows
+the hint «Чек ще завантажується. Транзакція збережеться сама, щойно він завантажиться». **Disarm is a
+separate control**: the 44 px text button «Не зберігати автоматично» under the primary; any field edit,
+and replacing or removing the receipt, also disarms. An armed draft blocks nothing: «+» opens a new
+form. While armed the leading control reads **«Згорнути»**:
 it closes the sheet and the save stays armed; a drag down and a scrim tap do the same. On the closed
 sheet the global upload pill carries the save; the result then stays in the pill until tapped
 (`upload-pill-saved-375`, `upload-pill-failed-375`); a sheet never opens by itself. A page kill is
@@ -269,15 +272,21 @@ must not share one UI (spec §4.5b):
   deposit) the alert reads «Невідомо, чи транзакцію збережено» / «Відповідь не надійшла. Форма й чек
   залишились. Перевірте список: якщо транзакції там немає, її можна створити ще раз.»; the form and the
   receipt stay and there is **no retry button on the alert**. The footer «Перевірити список» opens the
-  list **as a sheet over the kept form** (`toast-error-unknown-list-375`), refetched on open («Оновлено
-  щойно»), with the line «Якщо транзакції ще немає, оновіть список за хвилину» and two exits under the
-  list: «Є в списку — закрити чернетку» (closes the draft, sends nothing) and «Немає — створити ще раз»
-  (a confirm «Створити 1 250,50 USD ще раз?», then exactly one new create). This is a user-confirmed new
+  list **as a sheet over the kept form** (`toast-error-unknown-list-375`), refetched on open. The header names
+  what to look for, «Шукаємо: −1 250,50 USD · Витрата · надіслано 14:32»; rows created after the send
+  are highlighted (a tint, a 3 px yellow bar and «нова · 14:34», so not by colour alone); a 44 px
+  «Оновити» refetches («Оновлено о 14:32:58» is the one `role="status"`). Two exits under the list: «Є в
+  списку — закрити чернетку» (closes the draft, sends nothing) and «Немає — створити ще раз», which is
+  `aria-disabled` (described by the hint line) until a refetch that **finished at least 60 s after the
+  send** has come back, showing «Можна через 0:42» until then; then a confirm «Створити 1 250,50 USD ще
+  раз?» and exactly one new create. This is a user-confirmed new
   create after seeing the refreshed list, not an automatic or one-tap resubmit (provisional; the owner
   confirms at PNG approval). Closing the sheet returns to the form. When the user reaches the Finance
   list another way, the kept draft is a pinned row at the top (`listrow-draft-375`): «Чернетка 1 250,50
   USD», the state line «Не збережено · Витрата · чек додано» (after an unknown outcome it reads
-  «Результат невідомий · Витрата · чек додано») and a 44 px «Продовжити». After the first
+  «Результат невідомий · Витрата · чек додано») and **one** 44 px primary «Відкрити» (no other action on the row). While a failed or unknown draft
+  exists the FAB reopens it: accessible name «Відкрити чернетку 1 250,50 USD», a draft icon (`file-pen`)
+  with a red dot (`listrow-draft-375`, `upload-pill-failed-375`). After the first
   Wave 1 task ships the key, a form that has it may offer a resubmit with the same key.
 
 **Offline** (`shell-v2/state-offline-375`): the FAB stays enabled (no dim, no `aria-disabled`). A save
@@ -297,19 +306,25 @@ so only when the user tries to close a sheet with uploads running, and an armed 
 way is reported at the next boot (`state-page-kill-375`: a persistent inline alert «Транзакцію не
 збережено: застосунок закрився під час завантаження чека. Створіть її ще раз.» with «Зрозуміло»; the
 `localStorage` marker behind it is `{ t, phase }`, never an amount). A kill **after the create was
-sent** shows instead «Застосунок закрився під час збереження транзакції. Перевірте список Фінанси, перш
-ніж створювати її знову.» with «Відкрити Фінанси» and «Зрозуміло» and no resubmit
+sent** shows instead «Застосунок закрився під час збереження транзакції о 14:32. Вона могла
+зберегтися: записи після 14:32 підсвічено в списку. Перевірте їх, перш ніж створювати її знову.» (the
+time is the marker's `t`) with «Зрозуміло» and, on the Фінанси tab, «Оновити список» (elsewhere
+«Відкрити Фінанси»), and no resubmit; the list scrolls to and highlights the rows created after `t`
 (`alert-pagekill-sent-375`). The phases and when the marker is cleared: foundation §11. **Confirms**
 use the action-sheet confirm (`sheet-confirm-375`; `actionConfirm` in the mockup sources), two 56 px
 rows, stacked above an open sheet: `confirm-recreate-375` («Створити 1 250,50 USD ще раз?» ·
 «Створити ще раз» · «Скасувати», from the unknown-outcome exit) and `confirm-discard-draft-375`
-(«Видалити чернетку 1 250,50 USD?» · «Видалити» · «Залишити», the one money draft).
+(«Видалити чернетку 1 250,50 USD?» · «Видалити» · «Залишити», a failed or unknown draft; never in
+phase `sent`).
 
-**Money pill** (one 56 px pill, three states, same slot): armed «Збережеться 1 250,50 USD · 62%» /
-«Відкрити чернетку» (`upload-pill-armed-375`); saved «Збережено 1 250,50 USD» / «Відкрити»
-(`upload-pill-saved-375`); failed «Не збережено» / «Відкрити чернетку» (`upload-pill-failed-375`);
-unknown «Результат невідомий» / «Відкрити чернетку» (described). A result **stays until tapped**; it
-never times out. **Toast + pill** (`toast-pill-stack-375`): the pill keeps the base slot (left 12,
+**Money pill** (one 56 px pill, one slot): armed «Збережеться 1 250,50 USD · 62%» /
+«Відкрити чернетку» (`upload-pill-armed-375`); saved «Збережено 1 250,50 USD» / «Відкрити» with a 44
+px ✕ (`aria-label` «Закрити»; a swipe also dismisses, the body still opens the transaction;
+`upload-pill-saved-375`); several «Збережеться 2 транзакції · 62%» / «+2 чеки · Показати», a tap
+opens the upload list (`upload-pill-multi-375`); failed «Не збережено» / «Відкрити чернетку» (`upload-pill-failed-375`);
+unknown «Результат невідомий» / «Відкрити чернетку» (described). A result **stays until tapped** (or dismissed); it
+never times out. **Slot priority:** one slot; the money pill wins it and every other upload folds in as
+«+N чеки»; without a money draft the slot holds the plain upload pill. **Toast + pill** (`toast-pill-stack-375`): the pill keeps the base slot (left 12,
 right inset 80, left of the FAB); a toast stacks 8 px above it; at most one toast at a time. A toast
 timer pauses while the page is hidden.
 

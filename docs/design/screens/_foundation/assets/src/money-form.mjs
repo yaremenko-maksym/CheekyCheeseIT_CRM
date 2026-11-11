@@ -4,7 +4,17 @@
 // The primary is always enabled (except while its own request is in flight): a tap validates,
 // focuses the first invalid field and shows inline errors. Sample data is invented.
 import { icon, phone, safeBottom, systemBar, segmented, currencyPill, field } from './base.mjs'
-import { tabScreen, financeBody, topBar, txnList, TXNS, TABBAR_H, FLOAT_RIGHT } from './mobile.mjs'
+import {
+  tabScreen,
+  financeBody,
+  topBar,
+  txnList,
+  TXNS,
+  TABBAR_H,
+  FLOAT_RIGHT,
+  searchField,
+  chips,
+} from './mobile.mjs'
 import { sheet, safeTop, closeBtn } from './mobile-overlays.mjs'
 
 export const AMOUNT = '1 250,50'
@@ -131,11 +141,12 @@ const progress = (inner, label = 'Завантаження чека') =>
   `<span role="progressbar" aria-label="${label}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="62" style="display:grid;flex:none">${inner}</span>`
 
 /**
- * Armed save: the payload is frozen and the button names it. Repeat taps are ignored (no toggle).
- * Disarm = the separate «Не зберігати автоматично» control, or any field edit.
+ * Armed save: the payload is frozen and the button names it. aria-disabled (never disabled), so it keeps
+ * focus and its name; a tap only explains the wait. Disarm = «Не зберігати автоматично», any field edit,
+ * or replacing / removing the receipt.
  */
 export const armedBtn = ({ amount = AMOUNT, cur = 'USD' } = {}) =>
-  `<span class="btn" role="button" aria-describedby="arm-st" style="width:100%;min-height:56px;height:auto;padding:8px 14px;flex-direction:column;gap:0;position:relative;overflow:hidden;background:oklch(0.84 0.183 85.3 / 0.12);color:var(--fg);box-shadow:inset 0 0 0 1px oklch(0.84 0.183 85.3 / 0.5)"><i aria-hidden="true" style="position:absolute;left:0;top:0;bottom:0;width:62%;background:oklch(0.84 0.183 85.3 / 0.24)"></i><span class="num" style="position:relative;font-size:15px;line-height:20px;white-space:normal;text-align:center">Збережеться ${amount} ${cur} після чека</span>${progress(`<span class="num t-cap" style="position:relative;font-weight:500;color:oklch(0.86 0 0)">чек 62%</span>`)}</span><span id="arm-st" role="status" style="${SR}">Збереження заплановано</span>
+  `<span class="btn" role="button" aria-disabled="true" aria-describedby="arm-st" style="width:100%;min-height:56px;height:auto;padding:8px 14px;flex-direction:column;gap:0;position:relative;overflow:hidden;background:oklch(0.84 0.183 85.3 / 0.12);color:var(--fg);box-shadow:inset 0 0 0 1px oklch(0.84 0.183 85.3 / 0.5)"><i aria-hidden="true" style="position:absolute;left:0;top:0;bottom:0;width:62%;background:oklch(0.84 0.183 85.3 / 0.24)"></i><span class="num" style="position:relative;font-size:15px;line-height:20px;white-space:normal;text-align:center">Збережеться ${amount} ${cur} після чека</span>${progress(`<span class="num t-cap" style="position:relative;font-weight:500;color:oklch(0.86 0 0)">чек 62%</span>`)}</span><span id="arm-st" role="status" style="${SR}">Збереження заплановано</span>
   <span class="btn ghost" role="button" style="width:100%;height:44px;margin-top:4px;font-size:15px;font-weight:500;color:var(--muted-fg)">Не зберігати автоматично</span>`
 
 export function decimalPad() {
@@ -237,11 +248,38 @@ export const failureUnknown = (w, h) =>
     footer: `<span class="btn secondary" role="button" style="width:100%">${icon('list', { size: 18 })}Перевірити список</span>`,
   })
 
-/** «Перевірити список»: the list opens as a sheet over the kept form, refetched on open. */
-export function failureUnknownList(w, h) {
-  const body = `<div class="col" style="gap:4px;padding:0 16px 8px"><div role="status" class="t-foot muted row" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено щойно</div>
-  <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Якщо транзакції ще немає, оновіть список за хвилину.</div></div>${txnList(TXNS.slice(0, 4))}`
-  const footer = `<div style="display:grid;gap:8px;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)"><span class="btn secondary" role="button" style="width:100%">${icon('check', { size: 18 })}Є в списку — закрити чернетку</span><span class="btn secondary" role="button" style="width:100%">${icon('plus', { size: 18 })}Немає — створити ще раз</span></div>`
+/** Rows created after the send time (14:32): invented, highlighted in the check list and after a page kill. */
+export const SENT_AT = '14:32'
+export const AFTER_SEND = [
+  {
+    day: 'Сьогодні',
+    t: 'Хостинг серверів',
+    s: 'Витрата · Проєкт «Бета»',
+    a: '−45,00 $',
+    time: '14:34',
+    ic: 'receipt',
+    neg: true,
+    hl: true,
+  },
+]
+
+/**
+ * «Перевірити список»: the list opens as a sheet over the kept form, refetched on open. The header names
+ * what to look for; rows created after the send are highlighted. «Немає — створити ще раз» stays
+ * aria-disabled until a refetch that finished at least 60 s after the send has come back.
+ */
+export function failureUnknownList(w, h, { ready = false } = {}) {
+  const hint = ready
+    ? 'Список оновлено через хвилину після надсилання. Якщо транзакції в ньому немає, її можна створити ще раз.'
+    : 'Сервер міг зберегти транзакцію із запізненням. Створити її ще раз можна після оновлення, що завершиться щонайменше через хвилину після надсилання.'
+  const body = `<div class="col" style="gap:8px;padding:0 16px 8px">
+  <div class="t-sub num" style="font-weight:600">Шукаємо: −${AMOUNT} USD · Витрата · надіслано ${SENT_AT}</div>
+  <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}${ready ? 'Оновлено о 14:33:40' : 'Оновлено о 14:32:58'}</div><span class="btn sm secondary" role="button" style="height:44px">${icon('refresh-cw', { size: 16 })}Оновити</span></div>
+  <div id="rc-h" class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">${hint}</div></div>${txnList([...AFTER_SEND, ...TXNS.slice(0, 3)])}`
+  const recreate = ready
+    ? `<span class="btn secondary" role="button" style="width:100%">${icon('plus', { size: 18 })}Немає — створити ще раз</span>`
+    : `<span class="btn secondary" role="button" aria-disabled="true" aria-describedby="rc-h" style="width:100%;min-height:52px;height:auto;padding:6px 14px;flex-direction:column;gap:0;color:var(--muted-fg);box-shadow:none;border:1px solid var(--border);background:transparent"><span class="row" style="gap:8px">${icon('plus', { size: 18 })}Немає — створити ще раз</span><span class="t-cap num">Можна через 0:42</span></span>`
+  const footer = `<div style="display:grid;gap:8px;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)"><span class="btn secondary" role="button" style="width:100%">${icon('check', { size: 18 })}Є в списку — закрити чернетку</span>${recreate}</div>`
   const list = sheet({
     w,
     h,
@@ -255,12 +293,20 @@ export function failureUnknownList(w, h) {
 }
 
 export const PILL_H = 56
-const pillBox = (w, inner, label, tone = '0.34 0.05 85') =>
-  `<div role="button" aria-label="${label}" class="row" style="position:absolute;left:12px;right:${FLOAT_RIGHT}px;bottom:${TABBAR_H + safeBottom(w) + 16}px;z-index:44;gap:10px;height:${PILL_H}px;padding:0 12px 0 10px;border-radius:16px;background:oklch(0.2 0.006 85);border:1px solid oklch(${tone});box-shadow:0 10px 30px oklch(0 0 0 / 0.5)">${inner}</div>`
+const PILL_POS = (w) =>
+  `position:absolute;left:12px;right:${FLOAT_RIGHT}px;bottom:${TABBAR_H + safeBottom(w) + 16}px;z-index:44;height:${PILL_H}px;border-radius:16px;background:oklch(0.2 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)`
+const pillBox = (w, inner, label, tone = '0.34 0.05 85', close = false) =>
+  close
+    ? `<div class="row" style="${PILL_POS(w)};border:1px solid oklch(${tone});padding:0 4px 0 0"><div role="button" aria-label="${label}" class="row grow" style="gap:10px;height:100%;padding:0 4px 0 10px;min-width:0">${inner}</div><span class="iconbtn" role="button" aria-label="Закрити" style="color:var(--muted-fg)">${icon('x', { size: 18 })}</span></div>`
+    : `<div role="button" aria-label="${label}" class="row" style="${PILL_POS(w)};gap:10px;padding:0 12px 0 10px;border:1px solid oklch(${tone})">${inner}</div>`
 const pillText = (a, b) =>
   `<span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:13px;font-weight:600;white-space:nowrap">${a}</span><span class="t-cap muted">${b}</span></span>`
 
-/** One pill, three states. armed: the save rides the upload. saved / failed: the result waits for a tap. */
+/**
+ * One pill slot, the money pill wins it. armed: the save rides the upload. saved: a 44 px ✕ and a swipe
+ * dismiss it, the body opens the transaction. failed: waits for a tap. multi: two armed drafts, and the
+ * other uploads fold in («+2 чеки»); a tap opens the upload list.
+ */
 export function moneyPill(w, kind = 'armed') {
   if (kind === 'saved')
     return pillBox(
@@ -268,6 +314,13 @@ export function moneyPill(w, kind = 'armed') {
       `<span style="color:var(--positive)">${icon('circle-check', { size: 24 })}</span>${pillText(`Збережено ${AMOUNT} USD`, 'Відкрити')}<span role="status" style="${SR}">Транзакцію збережено</span>`,
       `Збережено ${AMOUNT} USD. Відкрити`,
       '0.4 0.08 150',
+      true,
+    )
+  if (kind === 'multi')
+    return pillBox(
+      w,
+      `${progress(ring(62, 28), 'Завантаження чеків')}${pillText('Збережеться 2 транзакції · 62%', '+2 чеки · Показати')}`,
+      'Збережеться 2 транзакції після чеків, ще 2 чеки завантажуються. Показати',
     )
   if (kind === 'failed')
     return pillBox(
@@ -289,7 +342,16 @@ const financeTab = (w, h, overlay, body = financeBody()) =>
 /** Sheet dismissed while armed: the global upload pill carries the save; a tap reopens the draft. */
 export const uploadPillArmed = (w, h) => financeTab(w, h, moneyPill(w, 'armed'))
 export const uploadPillSaved = (w, h) => financeTab(w, h, moneyPill(w, 'saved'))
-export const uploadPillFailed = (w, h) => financeTab(w, h, moneyPill(w, 'failed'))
+export const uploadPillMulti = (w, h) => financeTab(w, h, moneyPill(w, 'multi'))
+
+/** A failed / unknown draft exists: the FAB reopens it, so it says so and changes its icon. */
+export const draftFab = (html) =>
+  html.replace(
+    /<div class="fab" role="button" aria-label="[^"]*"\s*(?:aria-haspopup="dialog")?\s*style="([^"]*)">[\s\S]*?<\/div>/,
+    (_, st) =>
+      `<div class="fab" role="button" aria-label="Відкрити чернетку ${AMOUNT} USD" style="${st}">${icon('file-pen', { size: 24, stroke: 2.2 })}<i aria-hidden="true" style="position:absolute;top:9px;right:9px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--primary)"></i></div>`,
+  )
+export const uploadPillFailed = (w, h) => draftFab(financeTab(w, h, moneyPill(w, 'failed')))
 
 /** Toast + pill: the pill keeps the base slot, at most one toast stacks 8 px above it. */
 export function toastPillStack(w, h) {
@@ -310,9 +372,9 @@ const KILL = {
     glyph: 'circle-alert',
   },
   sent: {
-    text: 'Застосунок закрився під час збереження транзакції. Перевірте список Фінанси, перш ніж створювати її знову.',
+    text: 'Застосунок закрився під час збереження транзакції о 14:32. Вона могла зберегтися: записи після 14:32 підсвічено в списку. Перевірте їх, перш ніж створювати її знову.',
     actions:
-      '<span class="btn sm ghost" role="button">Зрозуміло</span><span class="btn sm secondary" role="button">Відкрити Фінанси</span>',
+      '<span class="btn sm ghost" role="button">Зрозуміло</span><span class="btn sm secondary" role="button">Оновити список</span>',
     tone: 85,
     ink: 'var(--primary)',
     glyph: 'circle-help',
@@ -321,7 +383,11 @@ const KILL = {
 export function pageKillAlert(w, h, phase = 'armed') {
   const k = KILL[phase]
   const alert = `<div style="padding:0 16px 12px"><div role="alert" style="padding:12px 14px;border-radius:14px;background:oklch(0.2 0.04 ${k.tone});border:1px solid oklch(0.38 0.09 ${k.tone})"><div class="row" style="gap:10px;align-items:flex-start"><span style="color:${k.ink};margin-top:1px">${icon(k.glyph, { size: 18 })}</span><div class="grow t-foot" style="font-size:15px;line-height:20px;color:oklch(0.92 0.02 ${k.tone})">${k.text}</div></div><div class="row" style="justify-content:flex-end;gap:8px;margin-top:6px">${k.actions}</div></div></div>`
-  return financeTab(w, h, '', `${alert}${financeBody()}`)
+  const body =
+    phase === 'sent'
+      ? `${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾', 'Період ▾'])}${txnList([...AFTER_SEND, ...TXNS])}`
+      : financeBody()
+  return financeTab(w, h, '', `${alert}${body}`)
 }
 
 /**
@@ -347,7 +413,7 @@ const overHome = (screen, overlay) =>
 /** Unknown outcome, «Немає — створити ще раз»: the one money-moving step after an unknown result asks first. */
 export const confirmRecreate = (w, h) =>
   overHome(
-    failureUnknownList(w, h),
+    failureUnknownList(w, h, { ready: true }),
     actionConfirm(w, {
       id: 'cr',
       title: `Створити ${AMOUNT} USD ще раз?`,
@@ -374,8 +440,8 @@ export const confirmDiscardDraft = (w, h) =>
 
 /** The kept draft, pinned at the top of the Фінанси list when reached another way. */
 export function listrowDraft(w, h) {
-  const row = `<div style="padding:0 16px 12px"><div class="row" style="gap:12px;min-height:64px;padding:8px 8px 8px 12px;border-radius:14px;background:var(--card);border:1px solid oklch(0.84 0.183 85.3 / 0.45);box-shadow:inset 2px 0 0 var(--primary)"><span style="width:36px;height:36px;border-radius:10px;background:var(--yellow-subtle);color:var(--primary);display:grid;place-items:center;flex:none">${icon('file-pen', { size: 18 })}</span><span class="grow col" style="gap:2px;min-width:0"><span class="t-body num" style="font-weight:600">Чернетка <span style="white-space:nowrap">${AMOUNT} USD</span></span><span class="t-foot muted">Не збережено · Витрата · чек додано</span></span><span class="btn sm primary" role="button" style="height:44px">Продовжити</span></div></div>`
+  const row = `<div style="padding:0 16px 12px"><div class="row" style="gap:12px;min-height:64px;padding:8px 8px 8px 12px;border-radius:14px;background:var(--card);border:1px solid oklch(0.84 0.183 85.3 / 0.45);box-shadow:inset 2px 0 0 var(--primary)"><span style="width:36px;height:36px;border-radius:10px;background:var(--yellow-subtle);color:var(--primary);display:grid;place-items:center;flex:none">${icon('file-pen', { size: 18 })}</span><span class="grow col" style="gap:2px;min-width:0"><span class="t-body num" style="font-weight:600">Чернетка <span style="white-space:nowrap">${AMOUNT} USD</span></span><span class="t-foot muted">Не збережено · Витрата · чек додано</span></span><span class="btn sm primary" role="button" aria-label="Відкрити чернетку ${AMOUNT} USD" style="height:44px">Відкрити</span></div></div>`
   const body = financeBody()
   const k = body.indexOf('<div class="sechead"')
-  return financeTab(w, h, '', k < 0 ? row + body : body.slice(0, k) + row + body.slice(k))
+  return draftFab(financeTab(w, h, '', k < 0 ? row + body : body.slice(0, k) + row + body.slice(k)))
 }

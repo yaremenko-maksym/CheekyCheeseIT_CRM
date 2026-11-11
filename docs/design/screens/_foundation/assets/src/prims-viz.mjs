@@ -101,6 +101,7 @@ export {
   uploadPillArmed,
   uploadPillSaved,
   uploadPillFailed,
+  uploadPillMulti,
   toastPillStack,
   pageKillAlert,
   listrowDraft,
