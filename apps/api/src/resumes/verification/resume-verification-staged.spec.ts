@@ -169,8 +169,9 @@ describe('ResumeVerificationService.confirm', () => {
     expect(update?.where?.sql).toContain('"template_source" is null')
     expect(update?.where?.sql).toContain('"verification_status" = $')
     expect(update?.where?.params).toEqual(
-      expect.arrayContaining(['r-1', RUN, 7, 'AWAITING_CONFIRM']),
+      expect.arrayContaining(['r-1', RUN, 7, 'AWAITING_CONFIRM', 'QUEUED', 'RUNNING']),
     )
+    expect(update?.where?.sql).toContain('"status" not in')
     // the replaced live object goes after the commit
     expect(s3.delete).toHaveBeenCalledTimes(1)
     expect(s3.delete).toHaveBeenCalledWith('resumes/r-1/live.pdf')
@@ -260,7 +261,9 @@ describe('ResumeVerificationService.editStagedField', () => {
     const newRun = set['verificationRunId'] as string
     expect(newRun).toMatch(/^[0-9a-f-]{36}$/)
     expect(newRun).not.toBe(RUN)
-    expect(update?.where?.params).toEqual(['r-1', RUN, 'AWAITING_CONFIRM'])
+    // CD-2: an extraction claimed after the read makes the start a miss.
+    expect(update?.where?.params).toEqual(['r-1', RUN, 'AWAITING_CONFIRM', 'QUEUED', 'RUNNING'])
+    expect(update?.where?.sql).toContain('"status" not in')
     expect(runner.run).toHaveBeenCalledWith('r-1', newRun)
   })
 
@@ -461,4 +464,31 @@ describe('leading-zero staged paths (SR-H-1) → 400, no query, no run', () => {
     expect(log).toHaveLength(0)
     expect(runner.run).not.toHaveBeenCalled()
   })
+})
+
+describe('an extraction in flight: staged edit, regenerate and confirm are 409 busy (CD-2)', () => {
+  it.each(['QUEUED', 'RUNNING'])(
+    'extraction %s → 409 RESUME_VERIFICATION_BUSY, no query',
+    async (status) => {
+      const { svc, log, runner } = service([])
+      const row = { ...ROW, status } as unknown as SeniorResume
+      await expectCode(
+        svc.editStagedField(row, { runId: RUN, path: 'summary', text: 'New.' }, 'h'),
+        409,
+        'RESUME_VERIFICATION_BUSY',
+      )
+      await expectCode(
+        svc.regenerateStagedField(row, { runId: RUN, path: 'summary' }),
+        409,
+        'RESUME_VERIFICATION_BUSY',
+      )
+      await expectCode(
+        svc.confirm(row, { runId: RUN, version: 7 }, HR1, 'fp-1'),
+        409,
+        'RESUME_VERIFICATION_BUSY',
+      )
+      expect(log).toHaveLength(0)
+      expect(runner.run).not.toHaveBeenCalled()
+    },
+  )
 })

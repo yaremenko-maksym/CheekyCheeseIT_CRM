@@ -460,6 +460,7 @@ export class ResumeVerificationService {
     viewerId: string,
     pdfFingerprint: string,
   ): Promise<SeniorResume> {
+    this.assertNoExtraction(row)
     // The fingerprint was taken from this read, so it must be the staged result being confirmed.
     if (row.verificationStatus !== 'AWAITING_CONFIRM' || row.verificationRunId !== input.runId) {
       throw apiError('RESUME_CONFIRM_STALE', HttpStatus.CONFLICT)
@@ -507,6 +508,7 @@ export class ResumeVerificationService {
             eq(seniorResumes.version, input.version),
             eq(seniorResumes.verificationStatus, 'AWAITING_CONFIRM'),
             isNull(seniorResumes.templateSource),
+            notInArray(seniorResumes.status, EXTRACTION_BUSY),
           ),
         )
         .returning()
@@ -572,12 +574,23 @@ export class ResumeVerificationService {
    * a patch computed from this read is exact once the start UPDATE matches the same run id.
    */
   private stagedOf(row: SeniorResume, runId: string): ResumeContent {
+    this.assertNoExtraction(row)
     if (row.verificationStatus !== 'AWAITING_CONFIRM' || row.verificationRunId !== runId) {
       throw apiError('RESUME_CONFIRM_STALE', HttpStatus.CONFLICT)
     }
     const staged = resumeContentSchema.safeParse(row.stagedContent)
     if (!staged.success) throw apiError('RESUME_CONFIRM_STALE', HttpStatus.CONFLICT)
     return staged.data
+  }
+
+  /**
+   * CD-2 (R25): an extraction in flight would land on a busy row and lose its facts, or flip a
+   * just-confirmed row back to DRAFT, so a staged run or a confirm answers 409 busy, as submit does.
+   */
+  private assertNoExtraction(row: SeniorResume): void {
+    if (EXTRACTION_BUSY.includes(row.status)) {
+      throw apiError('RESUME_VERIFICATION_BUSY', HttpStatus.CONFLICT)
+    }
   }
 
   private editedPathsOf(row: SeniorResume) {
@@ -616,6 +629,7 @@ export class ResumeVerificationService {
           eq(seniorResumes.id, row.id),
           eq(seniorResumes.verificationRunId, seenRunId),
           eq(seniorResumes.verificationStatus, 'AWAITING_CONFIRM'),
+          notInArray(seniorResumes.status, EXTRACTION_BUSY),
         ),
       )
       .returning()
