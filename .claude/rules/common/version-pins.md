@@ -47,7 +47,11 @@ comments** — link here.
   `^19.3`. `react-is` is a direct dependency because `recharts` needs it as a peer at the React major
   (pnpm 7 does not install peers; the hoisted 17.x does not recognise React 19 elements).
   **`apps/landing` stays on React 18**; its `tsconfig.json` `paths` pin `react` / `react-dom` types to its
-  own 18 copies, so shared deps' `.d.ts` do not pick up the hoisted 19 types.
+  own 18 copies, so shared deps' `.d.ts` do not pick up the hoisted 19 types. `apps/web/tsconfig.json`
+  does the same in reverse (pins to web's 19 types): deps with no `@types/react` peer (cmdk,
+  react-phone-number-input, `@tanstack/react-router`) otherwise resolve pnpm's hidden hoist, which can
+  hold the 18 copy. At runtime, `pnpm.packageExtensions` gives `country-flag-icons` an optional `react`
+  peer: it imports `react` with no peer declared, and the hidden hoist handed web a React 18 element.
 - **React Compiler:** `babel-plugin-react-compiler` `^1.0`, in `@vitejs/plugin-react`'s Babel list
   **after** `@lingui/babel-plugin-lingui-macro` (compiler-first changes `<Trans>` message ids) in both
   `vite.config.ts` and `vitest.config.ts`. Lint: `eslint-plugin-react-hooks` `^7.1` (ships the compiler rules).
