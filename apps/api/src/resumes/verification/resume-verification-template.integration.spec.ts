@@ -406,6 +406,29 @@ describe.skipIf(!hasDatabaseUrl())(
       await drain()
     })
 
+    it('CD-7: an extraction in flight on VERIFIED (a fresh upload) → layout and template PUT 409, no run', async () => {
+      const before = await verified()
+      // The state uploadSource leaves on an idle VERIFIED row: the extraction is queued.
+      await setState({ status: 'QUEUED' })
+      const relaxed = { ...(before.layout as object), density: 'relaxed' } as never
+      await rejectsWith(
+        service.updateLayout(OWNER, OWNER_ID, relaxed),
+        409,
+        'RESUME_VERIFICATION_BUSY',
+      )
+      await rejectsWith(
+        service.setTemplate(OWNER, OWNER_ID, 'modern'),
+        409,
+        'RESUME_VERIFICATION_BUSY',
+      )
+      await drain()
+      const after = await rowOf()
+      expect(after.verificationRunId).toBeNull()
+      expect(after.stagedTemplateName).toBeNull()
+      expect(after.version).toBe(before.version)
+      expect(after.templateName).toBe(before.templateName)
+    })
+
     it('a template start stages both look columns, clears the last error and gates, keeps the fallbacks', async () => {
       const before = await verified()
       await setState({

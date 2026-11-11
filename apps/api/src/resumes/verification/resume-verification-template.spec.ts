@@ -274,4 +274,37 @@ describe('a look change on VERIFIED starts a template run (Task 16)', () => {
     expect(draft.log[0]?.set).toMatchObject({ templateName: 'modern' })
     expect(runner.run).not.toHaveBeenCalled()
   })
+
+  it.each([
+    ['QUEUED', 'layout'],
+    ['QUEUED', 'template'],
+    ['RUNNING', 'layout'],
+    ['RUNNING', 'template'],
+  ])(
+    'CD-7: an extraction %s on VERIFIED: PUT %s is 409 busy, no query, no run',
+    async (status, kind) => {
+      const { svc, log } = service([[{ id: 'r-1' }]])
+      const row = { ...ROW, status } as SeniorResume
+      const write =
+        kind === 'layout' ? svc.setLayout(row, LAYOUT, 'v') : svc.setTemplate(row, 'modern', 'v')
+      const err = await write.catch((e: unknown) => e)
+      expect((err as HttpException).getStatus()).toBe(409)
+      expect((err as HttpException).getResponse()).toMatchObject({
+        code: 'RESUME_VERIFICATION_BUSY',
+      })
+      expect(log).toEqual([])
+      expect(runner.run).not.toHaveBeenCalled()
+    },
+  )
+
+  it('CD-7: the template-run start CAS also refuses an extraction in flight; other look writes do not', async () => {
+    const verified = service([[{ id: 'r-1' }]])
+    await verified.svc.setTemplate({ ...ROW, status: 'READY' } as SeniorResume, 'modern', 'v')
+    const where = verified.log[0]?.where
+    expect(where?.sql).toContain('"status" not in')
+    expect(where?.params?.slice(-2)).toEqual(['QUEUED', 'RUNNING'])
+    const draft = service([[{ id: 'r-1' }]])
+    await draft.svc.setTemplate({ ...ROW, verificationStatus: 'DRAFT' }, 'modern', 'v')
+    expect(draft.log[0]?.where?.sql).not.toContain('"status" not in')
+  })
 })

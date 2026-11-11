@@ -256,7 +256,10 @@ export class ResumeVerificationService {
     const stamp = { updatedByUserId: viewerId, updatedAt: new Date() }
     let set: PgUpdateSetSource<typeof seniorResumes>
     const runId = randomUUID()
-    if (row.verificationStatus === 'VERIFIED') {
+    const verified = row.verificationStatus === 'VERIFIED'
+    if (verified) {
+      // CD-7: the extraction would find the row busy and drop its facts, as on a staged run (CD-2).
+      this.assertNoExtraction(row)
       // P1: start a template run into the staged columns (the runner, Task 16).
       // Writing the live look here would break `verified_version = version`.
       set = {
@@ -283,13 +286,17 @@ export class ResumeVerificationService {
     const [updated] = await this.db.db
       .update(seniorResumes)
       .set(set)
-      .where(lookWriteGuard(row))
+      .where(
+        verified
+          ? and(lookWriteGuard(row), notInArray(seniorResumes.status, EXTRACTION_BUSY))
+          : lookWriteGuard(row),
+      )
       .returning()
     if (!updated) return this.resolveMiss(row.id)
     if (row.verificationStatus === 'AWAITING_CONFIRM') {
       await this.deleteStagedObject(row.stagedPdfS3Key)
     }
-    if (row.verificationStatus === 'VERIFIED') void this.runner.run(row.id, runId)
+    if (verified) void this.runner.run(row.id, runId)
     return updated
   }
 
