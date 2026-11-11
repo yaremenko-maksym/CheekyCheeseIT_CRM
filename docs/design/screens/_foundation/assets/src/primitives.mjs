@@ -102,6 +102,18 @@ export function frames() {
       812,
       moneyForm({ w: 375, h: 812, receipt: 'usdt-error', cur: 'USDT' }),
     ),
+    M(
+      'form-receipt-usdt-empty-375',
+      375,
+      812,
+      moneyForm({ w: 375, h: 812, receipt: 'empty', cur: 'USDT' }),
+    ),
+    M(
+      'form-receipt-usdt-file-375',
+      375,
+      812,
+      moneyForm({ w: 375, h: 812, receipt: 'uploading', cur: 'USDT' }),
+    ),
     M('picker-sheet-375', 375, 812, pickerSheet(375, 812)),
     M('form-longtext-375', 375, 667, formLongText(375, 667)),
     M('form-keyboard-375', 375, 812, formKeyboard(375, 812)),

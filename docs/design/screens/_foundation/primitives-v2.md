@@ -187,12 +187,22 @@ both at once is refused too). The empty tile has two modes, **«Файл» / «�
 (a 44 px segmented control): «Файл» is one dashed tile «Додати чек — Камера, фото або файл · до 10 МБ»
 (one file input without `capture`, so iOS offers its native chooser); «Посилання» is a URL field
 «Посилання на чек» (`form-receipt-link-375`; any `http(s)` link). Once a file is added, a card with the
-thumbnail, the status line, **«Замінити»** and **«✕»** (`aria-label` «Видалити чек»), both 44 × 44,
-replaces the switch (remove the file to switch to a link). The percent is the thumbnail ring's
-`progressbar`, not a live region. **Below 360 px** «Замінити» becomes a 44 px icon button (`aria-label`
-«Замінити чек») and the status line shows only «62%» (`shell-v2/quick-add-txn-armed-320`). **Effective currency USDT: a link only**,
-and it must be a blockchain-explorer link: the file mode is gone and the field reads «Посилання на
-транзакцію в блокчейн-експлорері» (`form-receipt-usdt-375`). The link field is `type=url`,
+thumbnail, the title, the status line, **«Замінити»** and **«✕»** (`aria-label` «Видалити чек»), both
+44 × 44 real `<button>`s, replaces the switch (remove the file to switch to a link). **While uploading**
+the title is the file name and the status line reads «Завантаження · 62%»; **«Чек додано»** appears
+only at 100% (status «Завантажено · 220 КБ»). The percent is the thumbnail ring's `progressbar`, not a
+live region (the status text is `aria-hidden`). **Below 360 px** «Замінити» becomes a 44 px icon button
+`refresh-cw` (`aria-label` «Замінити чек») and the status line shows only «62%»
+(`shell-v2/quick-add-txn-armed-320`). **Effective currency USDT: a link only**, and it must be a
+blockchain-explorer link: the file mode is gone. With an **empty** receipt the explorer-link field
+renders directly, with no «Файл» / «Посилання» switch and no camera tile
+(`form-receipt-usdt-empty-375`); a non-explorer link gets the inline error (`form-receipt-usdt-375`).
+**A currency change is an edit:** it disarms an armed save. Switching to USDT with a file attached,
+uploading or armed **keeps the file card** with a red border, the inline error «Для USDT потрібне
+посилання на транзакцію в експлорері» (the card's `aria-describedby`) and two 44 px exits,
+**«Замінити посиланням»** (opens the explorer-link field in place of the card) and **«Видалити чек»**
+(`form-receipt-usdt-file-375`). **Nothing is deleted silently**; the upload is not aborted by the
+currency switch. Leaving USDT keeps the explorer link: a link is valid for any currency. The link field is `type=url`,
 `inputmode=url`, `autocapitalize=none`, `autocorrect=off`, `enterkeyhint=done`. **A save without a
 receipt:** the primary stays enabled (house rule); a tap focuses the receipt and shows the inline
 error «Додайте чек: файл або посилання» (USDT: «Для USDT потрібне посилання на транзакцію в

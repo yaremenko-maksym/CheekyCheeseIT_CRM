@@ -46,12 +46,22 @@ const linkField = ({ usdt = false, value = '', err = '' } = {}) =>
     attrs: URL_ATTRS,
   })
 
+const USDT_ERR = 'Для USDT потрібне посилання на транзакцію в експлорері'
+
 /**
  * Receipt tile. Empty: «Файл» / «Посилання» (44 px segmented) over the picker or the link field.
  * A file in place replaces the switch (remove it to switch). USDT: the link field only, no file mode.
- * «Замінити» and «✕ Видалити чек» are both 44 px.
+ * «Замінити» and «✕ Видалити чек» are both 44 px. A currency switch to USDT with a file (uploading or
+ * done) keeps the file card with the USDT error and two exits; nothing is deleted silently.
  */
-export function receiptCard(state = 'uploading', { narrow = false } = {}) {
+export function receiptCard(state = 'uploading', { narrow = false, cur = 'USD' } = {}) {
+  const usdt = cur === 'USDT'
+  if (usdt && state === 'empty') return linkField({ usdt: true })
+  if (usdt && (state === 'uploading' || state === 'done'))
+    return `<div role="group" aria-label="Чек" aria-describedby="rf-e" class="col" style="gap:10px;padding:6px 10px 12px;border-radius:14px;background:var(--card);border:1.5px solid var(--destructive)">
+    <div class="row" style="gap:10px">${thumb()}<div class="grow col" style="gap:2px;min-width:0"><div class="t-sub trunc" style="font-weight:600">receipt-office-nov.jpg</div><div class="t-foot muted num">Файл · 220 КБ</div></div></div>
+    <div class="hint err" id="rf-e">${icon('circle-alert', { size: 15 })}<span>${USDT_ERR}</span></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn secondary" style="flex:1 1 auto">${icon('link', { size: 18 })}Замінити посиланням</button><button type="button" class="btn ghost" style="color:var(--destructive)">${icon('trash-2', { size: 18 })}Видалити чек</button></div></div>`
   if (state === 'empty')
     return `<div>${receiptModes(0)}<div class="row" role="button" style="gap:12px;height:68px;padding:0 12px;border-radius:var(--r-lg);border:1.5px dashed var(--input-border)">
     <span style="width:44px;height:44px;border-radius:12px;background:var(--surface);display:grid;place-items:center">${icon('camera', { size: 20 })}</span><span class="grow col" style="gap:2px"><span class="t-sub" style="font-weight:600">Додати чек</span><span class="t-foot muted">Камера, фото або файл · до 10 МБ</span></span></div></div>`
@@ -61,26 +71,29 @@ export function receiptCard(state = 'uploading', { narrow = false } = {}) {
     return linkField({
       usdt: true,
       value: 'https://drive.example.com/usdt-receipt.png',
-      err: 'Для USDT потрібне посилання на транзакцію в експлорері',
+      err: USDT_ERR,
     })
   const up = state === 'uploading'
   const over = up
     ? `<div role="progressbar" aria-label="Завантаження чека" aria-valuemin="0" aria-valuemax="100" aria-valuenow="62" style="position:absolute;inset:0;background:oklch(0 0 0 / 0.45);display:grid;place-items:center">${ring(62)}</div>`
     : ''
+  // «Чек додано» only at 100%; while uploading the title is the file name and the status line the phase.
+  // The percent is aria-hidden: the ring is the progressbar.
+  const title = up ? 'receipt-office-nov.jpg' : 'Чек додано'
   const status = up
     ? narrow
       ? '62%'
-      : 'Завантажується · 62%'
+      : 'Завантаження · 62%'
     : narrow
       ? '220 КБ'
       : 'Завантажено · 220 КБ'
   const replace = narrow
-    ? `<span class="iconbtn" role="button" aria-label="Замінити чек">${icon('replace', { size: 18 })}</span>`
-    : '<span class="btn sm secondary">Замінити</span>'
-  return `<div class="row" style="gap:10px;padding:6px 4px 6px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)">
+    ? `<button type="button" class="iconbtn" aria-label="Замінити чек">${icon('refresh-cw', { size: 18 })}</button>`
+    : '<button type="button" class="btn sm secondary">Замінити</button>'
+  return `<div class="row" style="gap:6px;padding:6px 4px 6px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)">
     <div style="position:relative;width:44px;height:44px;flex:none">${thumb()}${over}</div>
-    <div class="grow col" style="gap:2px;min-width:0"><div class="t-sub" style="font-weight:600">Чек додано</div><div class="t-foot muted num" aria-hidden="${up}">${status}</div></div>
-    ${replace}<span class="iconbtn" role="button" aria-label="Видалити чек" style="color:var(--muted-fg)">${icon('x', { size: 18 })}</span></div>`
+    <div class="grow col" style="gap:2px;min-width:0;margin-left:4px"><div class="t-sub trunc" style="font-weight:600">${title}</div><div class="t-foot muted num" style="white-space:nowrap" aria-hidden="${up}">${status}</div></div>
+    ${replace}<button type="button" class="iconbtn" aria-label="Видалити чек" style="color:var(--muted-fg)">${icon('x', { size: 18 })}</button></div>`
 }
 
 export function amountBlock({ focus = false, amount = AMOUNT, cur = 'USD' } = {}) {
@@ -134,7 +147,7 @@ export const moneyBody = ({
   pad = '4px 16px 120px',
   narrow = false,
 } = {}) =>
-  `<div class="col" style="gap:14px;padding:${pad};transform:translateY(-${scroll}px)">${alert}${receiptCard(receipt, { narrow })}${amountBlock({ focus: focus === 'amount', amount, cur })}${expanded ? `<div class="col" style="gap:16px">${optionalFields({ focus, dateError })}</div>` : defaultsRow()}</div>`
+  `<div class="col" style="gap:14px;padding:${pad};transform:translateY(-${scroll}px)">${alert}${receiptCard(receipt, { narrow, cur })}${amountBlock({ focus: focus === 'amount', amount, cur })}${expanded ? `<div class="col" style="gap:16px">${optionalFields({ focus, dateError })}</div>` : defaultsRow()}</div>`
 
 /** Bottom submit bar: sits on the keyboard (tracks visualViewport) or above the home indicator. */
 export function submitBar({ w = 375, kbdH = 0, inner }) {
