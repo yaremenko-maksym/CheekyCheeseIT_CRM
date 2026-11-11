@@ -7693,3 +7693,16 @@ although the triage reason may be elsewhere.
 **Verify.** The empty state of a TRIAGE card with a verified employer does not name the employer.
 
 Sources: PR #1313 manual QA round 3 (QA-LOW-2, Master A1).
+
+## 417. Job queue card: the «Опис» heading renders over an empty description (2026-11-11)
+
+**Symptoms.** `JobQueueCard` always renders the «Опис» `h3` above `PostingMarkdown`. The card response schema allows an
+empty `descriptionMd` (only the job-suggestion request refuses one), so a card can show the heading with nothing under it.
+
+**Status.** Coder: hide the section, or show a short muted «Опис відсутній» / "No description" line (copy review on the
+new string; design §5.1 first).
+
+**Verify.** A unit test renders a card with `descriptionMd: ''` and finds neither an empty «Опис» section nor a heading
+without content.
+
+Sources: Phase 7 Task 7.3 review notes (Master).
