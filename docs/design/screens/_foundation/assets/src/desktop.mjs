@@ -55,7 +55,7 @@ function sidebar(role, active, collapsed) {
     ${g.items
       .map((d) => {
         const on = d === active
-        return `<div class="row" ${on ? 'aria-current="page"' : ''} style="gap:10px;height:34px;padding:0 10px;border-radius:8px;font-size:14px;font-weight:${on ? 600 : 500};${on ? 'background:var(--raised);color:var(--fg);box-shadow:inset 2px 0 0 var(--primary)' : 'color:var(--muted-fg)'}"><span style="color:${on ? 'var(--primary)' : 'inherit'}">${icon(DEST[d].icon, { size: 17 })}</span><span class="grow trunc">${DEST[d].label}</span>${d === '/pending' ? '<span class="num" style="min-width:20px;height:20px;border-radius:10px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:700;display:grid;place-items:center;padding:0 6px">3</span>' : ''}</div>`
+        return `<div class="row" ${on ? 'aria-current="page"' : ''} class="srow" style="gap:10px;height:36px;padding:0 10px;border-radius:8px;font-size:14px;font-weight:${on ? 600 : 500};${on ? 'background:var(--raised);color:var(--fg);box-shadow:inset 2px 0 0 var(--primary)' : 'color:var(--muted-fg)'}"><span style="color:${on ? 'var(--primary)' : 'inherit'}">${icon(DEST[d].icon, { size: 17 })}</span><span class="grow trunc">${DEST[d].label}</span>${d === '/pending' ? '<span class="num" style="min-width:20px;height:20px;border-radius:10px;background:var(--yellow-subtle);color:var(--primary);font-size:12px;font-weight:700;display:grid;place-items:center;padding:0 6px">3</span>' : ''}</div>`
       })
       .join('')}`,
     )
@@ -83,13 +83,19 @@ function table(w) {
 const TABLE_CSS = `th svg{display:block}
 th{position:sticky;top:0;background:var(--card);font-size:12px;font-weight:600;color:var(--muted-fg);height:36px;padding:0 12px;border-bottom:1px solid var(--border);white-space:nowrap}
 td{height:40px;padding:0 12px;border-bottom:1px solid var(--separator);white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis}
-tbody tr:last-child td{border-bottom:0}`
+tbody tr:last-child td{border-bottom:0}
+tr[aria-selected="true"] td:first-child{box-shadow:inset 2px 0 0 var(--primary)}
+.touch .srow{height:44px !important;font-size:15px !important}
+.touch td{height:52px;font-size:15px}
+.touch th{height:44px}
+.touch .dsearch{height:48px !important;font-size:16px !important}`
 
 // `content` replaces the page body under the header (skeleton / other screens); `active` + `crumb` follow it.
 export function desktop({
   w,
   h,
   collapsed = false,
+  touch = false,
   overlay = '',
   content = '',
   active = '/finance',
@@ -100,21 +106,21 @@ export function desktop({
   const filters = ['Тип', 'Проєкт', 'Період']
     .map(
       (f) =>
-        `<span class="row" style="gap:6px;height:32px;padding:0 10px;border-radius:8px;border:1px dashed var(--input-border);font-size:13px;color:var(--muted-fg)">${icon('plus', { size: 13 })}${f}</span>`,
+        `<span class="row" style="gap:6px;height:${touch ? 44 : 32}px;padding:0 ${touch ? 14 : 10}px;border-radius:8px;border:1px dashed var(--input-border);font-size:${touch ? 15 : 13}px;color:var(--muted-fg)">${icon('plus', { size: 13 })}${f}</span>`,
     )
     .join('')
   const main = `<main class="grow col" style="min-width:0">
   <header class="row" style="height:56px;flex:none;padding:0 20px 0 24px;gap:12px;border-bottom:1px solid var(--border)">
     <div class="grow row" style="gap:8px;font-size:14px"><span class="muted">${crumb[0]}</span><span class="muted">${icon('chevron-right', { size: 14 })}</span><span style="font-weight:600">${crumb[1]}</span></div>
-    <span class="iconbtn" style="width:36px;height:36px" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 18 })}<i class="dot" style="top:7px;right:7px"></i></span>
-    <span class="btn primary" style="height:36px;font-size:14px;padding:0 14px;border-radius:9px">${icon('plus', { size: 16, stroke: 2.4 })}${cta}<span class="kbdkey" style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)">C</span></span></header>
+    <span class="iconbtn" style="width:${touch ? 44 : 36}px;height:${touch ? 44 : 36}px" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 18 })}<i class="dot" style="top:7px;right:7px"></i></span>
+    <span class="btn primary" style="height:${touch ? 44 : 36}px;font-size:${touch ? 16 : 14}px;padding:0 14px;border-radius:9px">${icon('plus', { size: 16, stroke: 2.4 })}${cta}<span class="kbdkey" style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)">C</span></span></header>
   <div class="col grow" style="min-height:0;padding:20px 24px 24px;gap:14px;${w >= 1440 ? 'max-width:1280px' : ''}">
     ${
       content ||
-      `<div class="row" style="gap:8px"><span class="row" style="gap:8px;height:32px;width:${w >= 1280 ? 300 : 220}px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:var(--muted-fg);font-size:13px">${icon('search', { size: 14 })}<span class="grow">Пошук транзакцій</span><span class="kbdkey">/</span></span>${filters}<span class="grow"></span><span class="t-foot muted num">312 транзакцій</span></div>
+      `<div class="row" style="gap:8px"><span class="row dsearch" style="gap:8px;height:32px;width:${w >= 1280 ? 300 : 220}px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:var(--muted-fg);font-size:13px">${icon('search', { size: 14 })}<span class="grow">Пошук транзакцій</span><span class="kbdkey">/</span></span>${filters}<span class="grow"></span><span class="t-foot muted num">312 транзакцій</span></div>
     <div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)">${table(w)}</div>`
     }</div></main>`
-  return `<style>${TABLE_CSS}</style><div class="device" style="width:${w}px;height:${h}px;flex-direction:row;position:relative">${sidebar(role, active, collapsed)}${main}${overlay}</div>`
+  return `<style>${TABLE_CSS}</style><div class="device${touch ? ' touch' : ''}" style="width:${w}px;height:${h}px;flex-direction:row;position:relative">${sidebar(role, active, collapsed)}${main}${overlay}</div>`
 }
 
 const SCRIM =

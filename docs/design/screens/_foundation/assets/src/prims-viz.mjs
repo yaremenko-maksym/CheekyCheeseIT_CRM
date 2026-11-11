@@ -1,6 +1,6 @@
 // Primitives v2, part 2: ResponsiveSheet on tablet/desktop, toasts, upload indicator, skeletons,
 // chart theme, pull-to-refresh, page-transition storyboard.
-import { icon, phone, safeBottom } from './base.mjs'
+import { icon, phone, safeBottom, segmented } from './base.mjs'
 import {
   tabScreen,
   interviewsBody,
@@ -11,6 +11,7 @@ import {
   largeTitle,
   tabBar,
   TABBAR_H,
+  FLOAT_RIGHT,
 } from './mobile.mjs'
 import { skeletonList } from './mobile-overlays.mjs'
 import { desktop } from './desktop.mjs'
@@ -68,7 +69,7 @@ export function tableRows() {
 
 // ---------- Toasts ----------
 export function toastUndo(w, h) {
-  const t = `<div class="toast" role="status" style="bottom:${TABBAR_H + safeBottom(w) + 12}px;overflow:hidden"><span style="color:var(--positive)">${icon('archive', { size: 18 })}</span><span class="grow">Співбесіду архівовано</span><span class="btn sm ghost" style="color:var(--primary);height:36px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
+  const t = `<div class="toast" role="status" style="right:${FLOAT_RIGHT}px;bottom:${TABBAR_H + safeBottom(w) + 16}px;min-height:56px;overflow:hidden"><span style="color:var(--positive)">${icon('archive', { size: 18 })}</span><span class="grow">Співбесіду архівовано</span><span class="btn ghost" style="color:var(--primary);height:44px;padding:0 10px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
   return tabScreen({
     w,
     h,
@@ -77,52 +78,19 @@ export function toastUndo(w, h) {
     title: 'Співбесіди',
     body: interviewsBody(),
     overlay: t,
-    showFab: false,
+    showFab: true,
   })
 }
 
-// Money create failed. Two cases, never merged (spec §4.5b):
-// definite — the app itself answered 4xx or 500/503, or the app knew it was offline before sending: retry is safe;
-// unknown — 502/504/524 (gateway / Cloudflare), a drop after send, or a client timeout: on a form without an idempotency key the app
-// must not offer a resubmit; it sends the user to the list to check first.
-const errAlert = (title, text, tone = 22) =>
-  `<div role="alert" style="padding:12px 14px;border-radius:14px;background:oklch(0.2 0.04 ${tone});border:1px solid oklch(0.38 0.09 ${tone})"><div class="row" style="gap:10px;align-items:flex-start"><span style="color:${tone === 22 ? 'var(--destructive)' : 'var(--warning)'};margin-top:1px">${icon(tone === 22 ? 'circle-alert' : 'circle-help', { size: 18 })}</span><div class="grow"><div style="font-size:15px;font-weight:600">${title}</div><div class="t-foot" style="margin-top:2px;color:oklch(0.88 0.02 ${tone})">${text}</div></div></div></div>`
-const errForm = (w, h, alert, footer) =>
-  phone({
-    w,
-    h,
-    inner: `${topBar({ back: true, title: 'Нова транзакція', bell: false, search: false })}<div class="content col" style="gap:18px;padding:12px 16px 0">${alert}
-  <div class="field"><label>Сума</label><div class="input" style="height:56px"><span class="grow num" style="font-size:24px;font-weight:700">1 250,50</span><span class="muted">USD</span></div></div>
-  <div class="field"><label>Опис</label><div class="input"><span class="grow">Оренда офісу за листопад</span></div></div></div>
-  <div style="position:absolute;left:0;right:0;bottom:0;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border)">${footer}</div>`,
-  })
-
-/** Definite failure (4xx, app 500/503, or offline before send): nothing was written, so a manual retry is safe. */
-export function toastErrorDefinite(w, h) {
-  return errForm(
-    w,
-    h,
-    errAlert(
-      'Транзакцію не збережено',
-      'Сервер відхилив дані (помилка 422): дата в закритому періоді. Запис не створено, введене залишилось у формі.',
-    ),
-    `<span class="btn primary" style="width:100%">${icon('rotate-cw', { size: 18 })}Повторити збереження</span>`,
-  )
-}
-
-/** Unknown outcome on a form without an idempotency key: no retry button; check the list first. */
-export function toastErrorUnknown(w, h) {
-  return errForm(
-    w,
-    h,
-    errAlert(
-      'Невідомо, чи транзакцію збережено',
-      'З’єднання обірвалося після надсилання. Перевірте список транзакцій, перш ніж вводити її знову.',
-      85,
-    ),
-    `<span class="btn secondary" style="width:100%">${icon('list', { size: 18 })}Відкрити список транзакцій</span>`,
-  )
-}
+// Money create failed (spec §4.5b + Master ruling): definite = 4xx + app 500/503 (+ offline before send),
+// unknown = 502/504/524, a drop after send, a client timeout. Drawn on the canonical money form.
+export {
+  failure422 as toastErrorDefinite,
+  failureOffline as toastErrorOffline,
+  failureUnknown as toastErrorUnknown,
+  failureUnknownList as toastErrorUnknownList,
+  uploadPillArmed,
+} from './money-form.mjs'
 
 // ---------- Upload indicator ----------
 const ring = (pct, size = 36) => {
@@ -142,7 +110,7 @@ export function uploadStates(w, h) {
   ${row('receipt-stationery.jpg', 'Зв’язок перервано на 45%', `<span class="btn sm secondary">${icon('rotate-cw', { size: 14 })}Повторити</span>`, 'color:var(--destructive)')}</div>
   <div class="sechead"><span class="t-over">Глобальний індикатор</span></div>
   <div style="padding:0 16px"><div class="t-foot muted">Поки є активні завантаження, над панеллю вкладок видно один компактний рядок. Навігація не блокується.</div></div></div>
-  <div role="status" class="row" style="position:absolute;left:12px;right:12px;bottom:${TABBAR_H + safeBottom(w) + 10}px;z-index:40;gap:10px;height:44px;padding:0 6px 0 10px;border-radius:22px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.28 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5);font-size:14px">${ring(40, 26)}<span class="grow num">Завантаження 2 чеків · 40%</span><span class="iconbtn" style="width:36px;height:36px" aria-label="Показати завантаження">${icon('chevron-up', { size: 18 })}</span></div>
+  <div role="status" class="row" style="position:absolute;left:12px;right:12px;bottom:${TABBAR_H + safeBottom(w) + 10}px;z-index:40;gap:10px;height:52px;padding:0 4px 0 12px;border-radius:26px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.28 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5);font-size:14px">${ring(40, 26)}<span class="grow num">Завантаження 2 чеків · 40%</span><span class="iconbtn" aria-label="Показати завантаження">${icon('chevron-up', { size: 18 })}</span></div>
   ${tabBar('ADMIN', '/finance', { w })}`
   return phone({ w, h, inner })
 }
@@ -201,7 +169,7 @@ function netBars(W, H, { labelSize = 11, pad = 28 } = {}) {
 function partnerBars(W, H, { labelSize = 11, pad = 8 } = {}) {
   const max = 4.5,
     top = 14,
-    bottom = H - 22
+    bottom = H - 38
   const y = (v) => top + ((max - v) / max) * (bottom - top)
   const gw = (W - pad * 2) / PART.length
   const q = ['I кв', 'II кв', 'III кв', 'IV кв']
@@ -211,7 +179,10 @@ function partnerBars(W, H, { labelSize = 11, pad = 8 } = {}) {
         bw = gw * 0.32
       const one = (v, xx, c) =>
         `<rect x="${xx}" y="${y(v)}" width="${bw - 2}" height="${y(0) - y(v)}" rx="3" fill="${c}"/><text x="${xx + (bw - 2) / 2}" y="${y(v) - 4}" text-anchor="middle" font-size="${labelSize - 1}" font-weight="600" fill="var(--fg)">${v.toFixed(1).replace('.', ',')}</text>`
-      return `${one(a, x, 'var(--chart-1)')}${one(b, x + bw, 'var(--chart-2)')}<text x="${x + bw}" y="${H - 6}" text-anchor="middle" font-size="${labelSize}" fill="var(--muted-fg)">${q[i]}</text>`
+      // Series named directly under each bar: no legend lookup.
+      const ab = (t, xx) =>
+        `<text x="${xx + (bw - 2) / 2}" y="${H - 24}" text-anchor="middle" font-size="${labelSize - 1}" font-weight="600" fill="var(--fg)">${t}</text>`
+      return `${one(a, x, 'var(--chart-1)')}${one(b, x + bw, 'var(--chart-2)')}${ab('A', x)}${ab('B', x + bw)}<text x="${x + bw}" y="${H - 6}" text-anchor="middle" font-size="${labelSize}" fill="var(--muted-fg)">${q[i]}</text>`
     },
   ).join('')}</svg>`
 }
@@ -219,30 +190,21 @@ function partnerBars(W, H, { labelSize = 11, pad = 8 } = {}) {
 const legend = (items) =>
   `<div class="row" style="gap:14px;font-size:13px">${items.map(([c, t, shape]) => `<span class="row" style="gap:6px"><i style="width:10px;height:10px;border-radius:${shape === 'hatch' ? '2px' : '2px'};background:${c};${shape === 'hatch' ? 'background:repeating-linear-gradient(45deg,var(--chart-1) 0 1.5px,transparent 1.5px 4px);outline:1px solid var(--chart-1)' : ''}"></i>${t}</span>`).join('')}</div>`
 
-export function chartMobile(w, h) {
+export function chartMobile(w, h, { scrolled = 0 } = {}) {
   const card = (title, value, sub, chart, leg) =>
     `<div style="margin:0 16px 12px;padding:14px 14px 10px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted">${title}</div><div class="row" style="gap:8px;align-items:baseline;margin-top:2px"><span class="num" style="font-size:24px;font-weight:700;letter-spacing:-0.02em">${value}</span><span class="t-foot num" style="color:var(--positive)">${sub}</span></div><div style="margin-top:8px">${chart}</div>${leg}</div>`
-  const body = `<div style="padding:0 16px 10px"><div class="row" style="height:34px;border-radius:17px;background:var(--surface);border:1px solid var(--border);padding:2px;width:fit-content">${['3 міс', '6 міс', 'Рік'].map((t, i) => `<span style="height:28px;padding:0 14px;border-radius:14px;display:grid;place-items:center;font-size:14px;font-weight:600;${i === 1 ? 'background:var(--fg);color:var(--bg)' : ''}">${t}</span>`).join('')}</div></div>
+  const body = `<div style="padding:0 16px 10px">${segmented(['3 міс', '6 міс', 'Рік'], 1, { fit: true })}</div>
   ${card(
     'Чистий прибуток · 6 міс',
     '+25,9k $',
     '▲ 12% до попер.',
-    netBars(w - 60, w <= 320 ? 170 : 160),
+    netBars(w - 60, w <= 320 ? 200 : 300),
     legend([
       ['var(--chart-1)', 'Прибуток'],
       ['', 'Збиток', 'hatch'],
     ]),
   )}
-  ${card(
-    'Виплати партнерам · 2026',
-    '24,9k $',
-    '',
-    partnerBars(w - 60, 120),
-    legend([
-      ['var(--chart-1)', 'Партнер A'],
-      ['var(--chart-2)', 'Партнер B'],
-    ]),
-  )}`
+  ${card('Виплати партнерам · 2026', '24,9k $', '', partnerBars(w - 60, 150), '')}`
   // FAB hidden at 320 only so the static frame shows the chart; the live screen scrolls under it.
   return tabScreen({
     w,
@@ -253,6 +215,11 @@ export function chartMobile(w, h) {
     body,
     showFab: w > 320,
   })
+    .replace(
+      '<div class="content">',
+      `<div class="content"><div style="transform:translateY(-${scrolled}px)">`,
+    )
+    .replace('</div><nav class="tabbar"', '</div></div><nav class="tabbar"')
 }
 
 export function chartDesktop() {
@@ -264,12 +231,7 @@ export function chartDesktop() {
       ['', 'Збиток', 'hatch'],
     ],
   )}</div><div style="margin-top:10px">${netBars(720, 260, { labelSize: 12, pad: 34 })}</div>${tooltip}</div>
-  <div style="flex:1;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Виплати партнерам</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">24 900,00 $</div><div style="margin:10px 0 8px">${partnerBars(330, 228, { labelSize: 12 })}</div>${legend(
-    [
-      ['var(--chart-1)', 'Партнер A'],
-      ['var(--chart-2)', 'Партнер B'],
-    ],
-  )}</div></div>
+  <div style="flex:1;padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Виплати партнерам</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">24 900,00 $</div><div style="margin:10px 0 8px">${partnerBars(330, 252, { labelSize: 12 })}</div><div class="t-cap muted">A, B — партнери</div></div></div>
   <div class="row" style="gap:10px;margin-top:16px;flex-wrap:wrap">${[
     ['--chart-1', 'chart-1 · primary'],
     ['--chart-2', 'chart-2'],
@@ -302,7 +264,7 @@ export function ptr(w, h, stage) {
     stage === 'done'
       ? `<div role="status" class="t-cap muted" style="text-align:center;margin-top:-4px;margin-bottom:4px">Оновлено щойно</div>`
       : ''
-  const inner = `${topBar()}<div class="content">${largeTitle('Фінанси')}${ind}<div style="transform:translateY(${off}px)">${doneNote}${txnList(TXNS.slice(0, 3))}</div></div>`
+  const inner = `${topBar()}<div class="content">${largeTitle('Фінанси')}${ind}<div style="transform:translateY(${off}px)">${doneNote}${txnList(TXNS.slice(0, 3))}</div></div>${tabBar('ADMIN', '/finance', { w })}`
   return phone({ w, h, inner })
 }
 

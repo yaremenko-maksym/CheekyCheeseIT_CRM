@@ -45,7 +45,7 @@ export function listrowDesktop() {
         'background:var(--raised);color:var(--fg);box-shadow:inset 2px 0 0 var(--primary);font-weight:600',
       focus: 'color:var(--fg);outline:2px solid var(--primary);outline-offset:-2px',
     }[st]
-    return `<div class="row" style="gap:10px;height:34px;padding:0 10px;border-radius:8px;font-size:14px;font-weight:500;${s}"><span>${icon(ic, { size: 17 })}</span><span class="grow">${label}</span><span class="t-cap" style="color:oklch(0.64 0 0)">${st}</span></div>`
+    return `<div class="row" style="gap:10px;height:36px;padding:0 10px;border-radius:8px;font-size:14px;font-weight:500;${s}"><span>${icon(ic, { size: 17 })}</span><span class="grow">${label}</span><span class="t-cap" style="color:oklch(0.64 0 0)">${st}</span></div>`
   }
   const nav = `<div style="width:248px;padding:10px;border:1px solid var(--border);border-radius:14px;background:oklch(0.095 0.002 85)">${side('Дашборд', 'layout-dashboard', 'default')}${side('Фінанси', 'dollar-sign', 'active')}${side('Статистика', 'chart-column', 'hover')}${side('Користувачі', 'users', 'focus')}</div>`
   const table = tableRows().replace('padding:24px;background:var(--bg);width:960px', 'width:1040px')

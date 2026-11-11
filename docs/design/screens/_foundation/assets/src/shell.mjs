@@ -4,7 +4,6 @@ import { tabScreen, financeBody, peopleList } from './mobile.mjs'
 import {
   moreSheet,
   quickAddSheet,
-  txnQuickStep,
   loadingScreen,
   emptyScreen,
   errorScreen,
@@ -12,6 +11,7 @@ import {
   impersonationBanner,
 } from './mobile-overlays.mjs'
 import { tablet } from './tablet.mjs'
+import { moneyForm, primaryBtn, armedBtn } from './money-form.mjs'
 import { desktop, cmdk, shortcuts } from './desktop.mjs'
 
 const M = (name, w, h, body) => ({ name, w, h, dpr: 2, html: page(body, { width: w }) })
@@ -69,8 +69,20 @@ export function frames() {
     out.push(M('more-sheet-admin-320', 320, 568, moreSheet('ADMIN', 320, 568)))
     out.push(M('quick-add-admin-375', 375, 812, quickAddSheet('ADMIN', 375, 812)))
     out.push(M('quick-add-hr-320', 320, 568, quickAddSheet('HR', 320, 568)))
-    out.push(M('quick-add-txn-keyboard-375', 375, 812, txnQuickStep(375, 812)))
-    out.push(M('quick-add-txn-armed-375', 375, 812, txnQuickStep(375, 812, { armed: true })))
+    // Save during upload: an active button that says what a tap does; the armed state freezes the payload.
+    out.push(
+      M(
+        'quick-add-txn-keyboard-375',
+        375,
+        812,
+        moneyForm({
+          keyboard: 'decimal',
+          focus: 'amount',
+          footer: primaryBtn('Зберегти після завантаження чека'),
+        }),
+      ),
+    )
+    out.push(M('quick-add-txn-armed-375', 375, 812, moneyForm({ footer: armedBtn() })))
     out.push(M('state-loading-375', 375, 812, loadingScreen('ADMIN', 375, 812)))
     out.push(M('state-empty-375', 375, 812, emptyScreen(375, 812)))
     out.push(M('state-error-375', 375, 812, errorScreen(375, 812)))
@@ -85,7 +97,6 @@ export function frames() {
           title: 'Фінанси',
           body: financeBody(),
           banner: offlineBanner(),
-          fabDim: true,
         }),
       ),
     )
@@ -106,7 +117,8 @@ export function frames() {
   }
   if (typeof tablet === 'function') {
     out.push(D('tablet-rail-768', 768, 1024, tablet({ w: 768, h: 1024 })))
-    out.push(D('tablet-rail-more-768', 768, 1024, tablet({ w: 768, h: 1024, more: true })))
+    // A 768 × 700 window (Stage Manager / Split View): the destinations no longer fit, so «Ще» appears.
+    out.push(D('tablet-rail-more-768', 768, 700, tablet({ w: 768, h: 700, more: true })))
   }
   if (typeof desktop === 'function') {
     out.push(D('desktop-sidebar-1024', 1024, 768, desktop({ w: 1024, h: 768 })))
@@ -114,6 +126,8 @@ export function frames() {
       D('desktop-sidebar-collapsed-1024', 1024, 768, desktop({ w: 1024, h: 768, collapsed: true })),
     )
     out.push(D('desktop-sidebar-1440', 1440, 900, desktop({ w: 1440, h: 900 })))
+    // iPad landscape: desktop layout by width, touch density by pointer (44 rows, 48 inputs, 16 px text).
+    out.push(D('shell-touch-1180', 1180, 820, desktop({ w: 1180, h: 820, touch: true })))
     out.push(D('desktop-cmdk-1440', 1440, 900, desktop({ w: 1440, h: 900, overlay: cmdk() })))
     out.push(
       D('desktop-shortcuts-1440', 1440, 900, desktop({ w: 1440, h: 900, overlay: shortcuts() })),

@@ -1,6 +1,6 @@
 // Mobile (< 640) building blocks shared by the shell and primitive frames. Sample data is invented.
 import { icon, phone, safeBottom } from './base.mjs'
-import { DEST, TABS, QUICK_ADD } from './nav.mjs'
+import { DEST, TABS, QUICK_ADD, ACTIONS } from './nav.mjs'
 
 export const TABBAR_H = 50
 
@@ -15,10 +15,23 @@ export function tabBar(role, active, { w = 375, moreBadge = 3 } = {}) {
   return `<nav class="tabbar" aria-label="Основна навігація" style="padding-bottom:${safeBottom(w)}px"><div class="tabs">${tabs}${more}</div></nav>`
 }
 
-export function fab(role, w = 375, dim = false) {
-  if (!QUICK_ADD[role].length) return ''
-  return `<div class="fab" aria-label="Створити" ${dim ? 'aria-disabled="true"' : ''} style="bottom:${TABBAR_H + safeBottom(w) + 16}px;${dim ? 'opacity:0.4;box-shadow:none' : ''}">${icon('plus', { size: 26, stroke: 2.4 })}</div>`
+// Context «+»: on a tab whose screen owns a create action in the role's set, «+» opens that action
+// directly; elsewhere it opens the «Створити» menu. Offline it stays enabled (saving gives the definite alert).
+export const CONTEXT_ADD = {
+  '/finance': 'txn',
+  '/users': 'user',
+  '/interviews': 'interview',
+  '/vacancies': 'vacancy',
 }
+export function fab(role, w = 375, active = '') {
+  if (!QUICK_ADD[role].length) return ''
+  const direct = QUICK_ADD[role].includes(CONTEXT_ADD[active])
+    ? ACTIONS[CONTEXT_ADD[active]].label
+    : ''
+  return `<div class="fab" role="button" aria-label="${direct || 'Створити'}" ${direct ? '' : 'aria-haspopup="dialog"'} style="bottom:${TABBAR_H + safeBottom(w) + 16}px">${icon('plus', { size: 26, stroke: 2.4 })}</div>`
+}
+// Floating layer: toast and upload pill sit left of the FAB (16 + 56 + 8 = 80 px right inset) above the tab bar.
+export const FLOAT_RIGHT = 80
 
 export function topBar({
   back = false,
@@ -36,14 +49,14 @@ export function largeTitle(t, sub = '') {
 }
 
 export function searchField(ph = 'Пошук') {
-  return `<div style="padding:4px 16px 10px"><div class="row" style="gap:8px;height:40px;border-radius:12px;background:var(--surface);padding:0 12px;color:var(--muted-fg);font-size:16px">${icon('search', { size: 18 })}<span>${ph}</span></div></div>`
+  return `<div style="padding:4px 16px 10px"><div class="row" role="searchbox" style="gap:8px;height:44px;border-radius:12px;background:var(--surface);padding:0 12px;color:var(--placeholder);font-size:16px">${icon('search', { size: 18 })}<span>${ph}</span></div></div>`
 }
 
 export function chips(list, active = 0) {
   return `<div class="row" style="gap:8px;padding:0 16px 6px;overflow:hidden">${list
     .map(
       (c, i) =>
-        `<span class="row" style="gap:4px;height:34px;padding:0 14px;border-radius:17px;font-size:14px;font-weight:500;white-space:nowrap;${i === active ? 'background:var(--fg);color:var(--bg)' : 'background:var(--surface);color:var(--fg);border:1px solid var(--border)'}">${c}${c.endsWith('▾') ? '' : ''}</span>`,
+        `<span class="row" role="button" style="gap:4px;height:44px;padding:0 16px;border-radius:22px;font-size:15px;font-weight:500;white-space:nowrap;${i === active ? 'background:var(--fg);color:var(--bg)' : 'background:var(--surface);color:var(--fg);border:1px solid var(--border)'}">${c}${c.endsWith('▾') ? '' : ''}</span>`,
     )
     .join('')}</div>`
 }
@@ -175,9 +188,9 @@ export function tabScreen({
   overlay = '',
   moreBadge = 3,
   showFab = true,
-  fabDim = false,
 }) {
-  const inner = `${banner}${topBar()}<div class="content">${largeTitle(title, sub)}${body}<div style="height:${TABBAR_H + safeBottom(w) + 88}px"></div></div>${tabBar(role, active, { w, moreBadge })}${showFab ? fab(role, w, fabDim) : ''}`
+  // Tab-root lists end with tab bar + FAB clearance (56 + 16 + 8 above the bar) so «+» never covers a trailing value.
+  const inner = `${banner}${topBar()}<div class="content">${largeTitle(title, sub)}${body}<div style="height:${TABBAR_H + safeBottom(w) + 80}px"></div></div>${tabBar(role, active, { w, moreBadge })}${showFab ? fab(role, w, active) : ''}`
   return phone({ w, h, inner, overlay })
 }
 

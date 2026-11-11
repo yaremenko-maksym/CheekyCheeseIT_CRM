@@ -56,7 +56,7 @@ export const CSS = `
   --warning:oklch(0.78 0.15 55); --info:oklch(0.74 0.11 245);
   --chart-1:oklch(0.84 0.183 85.3); --chart-2:oklch(0.7 0.14 250); --chart-3:oklch(0.75 0.12 175);
   --chart-4:oklch(0.68 0.17 40); --chart-5:oklch(0.62 0 0); --chart-grid:oklch(0.22 0 0);
-  --scrim:oklch(0 0 0 / 0.6);
+  --scrim:oklch(0 0 0 / 0.6); --placeholder:oklch(0.6 0 0);
   --r-sm:6px; --r-md:8px; --r-lg:10px; --r-xl:14px; --r-sheet:20px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
@@ -131,6 +131,8 @@ html,body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-
 .btn.ghost{color:var(--fg)}
 .btn.sm{height:32px;padding:0 12px;font-size:13px;border-radius:8px}
 .btn.dis{opacity:0.45}
+/* coarse pointer (phone, tablet, touch laptop): every control is a real 44 px target */
+.touch .btn.sm{height:44px}
 /* sheet */
 .scrim{position:absolute;inset:0;background:var(--scrim);z-index:70}
 .sheet{position:absolute;left:0;right:0;bottom:0;z-index:75;background:var(--popover);border-radius:var(--r-sheet) var(--r-sheet) 0 0;border-top:1px solid var(--border);display:flex;flex-direction:column;box-shadow:0 -12px 40px oklch(0 0 0 / 0.5)}
@@ -145,8 +147,9 @@ html,body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-
 .input{height:48px;border-radius:var(--r-lg);background:var(--surface);border:1px solid var(--input-border);padding:0 14px;display:flex;align-items:center;gap:8px;font-size:16px;color:var(--fg)}
 .input.focus{border-color:var(--primary);box-shadow:0 0 0 3px oklch(0.84 0.183 85.3 / 0.28)}
 .input.error{border-color:var(--destructive);box-shadow:0 0 0 3px oklch(0.65 0.21 22.2 / 0.22)}
+.input.error.focus{box-shadow:0 0 0 3px oklch(0.65 0.21 22.2 / 0.45)}
 .input.disabled{opacity:0.5;border-style:dashed}
-.input .ph{color:oklch(0.6 0 0)}
+.input .ph{color:var(--placeholder)}
 .caret{display:inline-block;width:2px;height:20px;background:var(--primary);margin-left:1px;vertical-align:middle}
 .hint{font-size:13px;color:var(--muted-fg);display:flex;gap:6px;align-items:flex-start}
 .hint.err{color:var(--destructive)}
@@ -157,7 +160,9 @@ html,body{background:var(--bg);color:var(--fg);font-family:Inter,system-ui,sans-
 .kbd .krow{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .kbd .k{height:46px;border-radius:7px;background:oklch(0.36 0 0);display:grid;place-items:center;font-size:24px;font-weight:400;color:#fff}
 .kbd .k.alt{background:oklch(0.28 0 0);font-size:15px}
-.kbd .kbar{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;color:var(--fg);font-size:16px}
+.kbd .kbar{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;color:var(--fg);font-size:16px;position:relative}
+.kbd .kbar .sys{color:oklch(0.72 0.14 250);font-weight:600}
+.kbd .kbar .tag{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font:600 10px/12px Inter;letter-spacing:0.04em;text-transform:uppercase;color:oklch(0.6 0 0);border:1px dashed oklch(0.45 0 0);border-radius:4px;padding:2px 6px}
 /* toast */
 .toast{position:absolute;left:12px;right:12px;z-index:50;display:flex;align-items:center;gap:12px;min-height:52px;padding:8px 8px 8px 16px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.28 0.006 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.55);font-size:15px}
 /* desktop */
@@ -184,7 +189,46 @@ export function phone({ w = 375, h = 812, inner, overlay = '' }) {
   const status = se
     ? `<div class="status se"><span>9:41</span><span class="glyphs">${icon('wifi', { size: 13 })}<span class="t-cap">100%</span></span></div>`
     : `<div class="island"></div><div class="status" style="height:54px"><span>9:41</span><span class="glyphs">${icon('signal', { size: 16, stroke: 2.2 })}${icon('wifi', { size: 16, stroke: 2.2 })}${icon('battery-full', { size: 22, stroke: 1.6 })}</span></div>`
-  return `<div class="device${w < 360 ? ' narrow' : ''}" style="width:${w}px;height:${h}px" data-safe-top="${se ? 20 : 54}" data-safe-bottom="${se ? 0 : 34}">${status}${inner}${overlay}${se ? '' : '<div class="homebar"></div>'}</div>`
+  return `<div class="device touch${w < 360 ? ' narrow' : ''}" style="width:${w}px;height:${h}px" data-safe-top="${se ? 20 : 54}" data-safe-bottom="${se ? 0 : 34}">${status}${inner}${overlay}${se ? '' : '<div class="homebar"></div>'}</div>`
+}
+
+/** FormField: label above, 48 px input, hint or inline error below (aria-describedby in product code). */
+export function field({
+  label,
+  value = '',
+  ph = '',
+  state = '',
+  hint = '',
+  err = '',
+  lead = '',
+  suffix = '',
+  id = 'f',
+}) {
+  const shown = value || ph
+  const caret = state === 'focus' ? '<span class="caret"></span>' : ''
+  const msg = err
+    ? `<div class="hint err" id="${id}-e">${icon('circle-alert', { size: 15 })}<span>${err}</span></div>`
+    : hint
+      ? `<div class="hint" id="${id}-h">${hint}</div>`
+      : ''
+  return `<div class="field"><label for="${id}">${label}</label>
+  <div class="input ${state}" id="${id}" ${state.includes('error') ? 'aria-invalid="true"' : ''} ${state === 'disabled' ? 'aria-disabled="true"' : ''}>${lead}<span class="grow trunc ${value ? '' : 'ph'}">${state === 'focus' && !value ? caret + shown : shown + caret}</span>${suffix}</div>${msg}</div>`
 }
 
 export const safeBottom = (w) => (w <= 320 ? 0 : 34)
+
+/** iOS Safari's own form-assistant bar (˄ ˅ Готово). Drawn only so the layout height is honest: the app never builds it. */
+export const systemBar = (style = '') =>
+  `<div class="kbar" style="background:oklch(0.24 0 0);${style}"><span class="row" style="gap:18px;color:oklch(0.72 0.14 250)">${icon('chevron-up', { size: 22 })}${icon('chevron-down', { size: 22 })}</span><span class="tag">system · iOS Safari</span><span class="sys">Готово</span></div>`
+
+/** Segmented control: each option is a real 44 px target; the selected fill is drawn inside it. */
+export const segmented = (opts, on = 0, { fit = false, size = 14 } = {}) =>
+  `<div role="radiogroup" class="row" style="height:44px;border-radius:22px;background:var(--surface);border:1px solid var(--border);${fit ? 'width:fit-content' : ''}">${opts
+    .map(
+      (o, i) =>
+        `<span role="radio" aria-checked="${i === on}" class="${fit ? '' : 'grow'}" style="height:42px;display:grid;place-items:center;padding:0 3px"><span style="height:36px;padding:0 12px;border-radius:18px;display:grid;place-items:center;font-size:${size}px;font-weight:600;white-space:nowrap;${i === on ? 'background:var(--fg);color:var(--bg)' : 'color:var(--fg)'}">${o}</span></span>`,
+    )
+    .join('')}</div>`
+
+export const currencyPill = (c = 'USD') =>
+  `<span class="pill" role="button" aria-label="Валюта: ${c}" style="height:44px;padding:0 14px;border-radius:22px;font-size:15px;font-weight:600">${c} ${icon('chevron-down', { size: 15 })}</span>`

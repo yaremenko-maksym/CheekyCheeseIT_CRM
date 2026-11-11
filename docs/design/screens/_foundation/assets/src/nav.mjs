@@ -85,7 +85,8 @@ const ALLOWED = {
 // Tab bars exactly per the Task 0.8 brief table (4 destinations + «Ще»). Teamless SENIOR loses
 // /projects → «Документи» takes slot 4 (A1 decision, recorded in shell-v2.md).
 export const TABS = {
-  ADMIN: ['/finance', '/users', '/stats', '/'],
+  // ADMIN slot 4 = «Адмін»: /admin opens /admin/contracts (contract editing, owner daily task 3); «Дашборд» → «Ще».
+  ADMIN: ['/finance', '/users', '/stats', '/admin'],
   SENIOR: ['/', '/finance', '/team', '/projects'],
   SENIOR_TEAMLESS: ['/', '/finance', '/team', '/documents'],
   JUNIOR: ['/project', '/finance', '/legend', '/documents'],

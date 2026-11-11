@@ -1,52 +1,24 @@
 // Primitives v2, mobile part: ResponsiveSheet (mobile), ListRow, section header, FormField, keyboard-open.
-import { icon, phone, safeBottom } from './base.mjs'
+import { icon, phone, safeBottom, field, segmented } from './base.mjs'
+import { moneyForm, primaryBtn } from './money-form.mjs'
+export { field, segmented }
 import { tabScreen, financeBody, txnRow, TXNS, topBar, PEOPLE } from './mobile.mjs'
 import { sheet, closeBtn, safeTop } from './mobile-overlays.mjs'
 
-// ---------- FormField ----------
-export function field({
-  label,
-  value = '',
-  ph = '',
-  state = '',
-  hint = '',
-  err = '',
-  lead = '',
-  suffix = '',
-  id = 'f',
-}) {
-  const shown = value || ph
-  const caret = state === 'focus' ? '<span class="caret"></span>' : ''
-  const msg = err
-    ? `<div class="hint err" id="${id}-e">${icon('circle-alert', { size: 15 })}<span>${err}</span></div>`
-    : hint
-      ? `<div class="hint" id="${id}-h">${hint}</div>`
-      : ''
-  return `<div class="field"><label for="${id}">${label}</label>
-  <div class="input ${state}" id="${id}" ${state === 'error' ? 'aria-invalid="true"' : ''} ${state === 'disabled' ? 'aria-disabled="true"' : ''}>${lead}<span class="grow trunc ${value ? '' : 'ph'}">${state === 'focus' && !value ? caret + shown : shown + caret}</span>${suffix}</div>${msg}</div>`
-}
-
 const chevDown = `<span class="muted">${icon('chevron-down', { size: 18 })}</span>`
-
-export const segmented = (opts, on = 0, h = 36) =>
-  `<div role="radiogroup" class="row" style="height:${h}px;border-radius:${h / 2}px;background:var(--surface);border:1px solid var(--border);padding:2px">${opts
-    .map(
-      (o, i) =>
-        `<span role="radio" aria-checked="${i === on}" class="grow" style="height:${h - 6}px;border-radius:${(h - 6) / 2}px;display:grid;place-items:center;font-size:14px;font-weight:600;${i === on ? 'background:var(--fg);color:var(--bg)' : 'color:var(--fg)'}">${o}</span>`,
-    )
-    .join('')}</div>`
 
 export const toggle = (on = true, label = '') =>
   `<span role="switch" aria-checked="${on}" aria-label="${label}" style="width:51px;height:31px;border-radius:16px;flex:none;position:relative;background:${on ? 'var(--primary)' : 'oklch(0.32 0 0)'}"><i style="position:absolute;top:2px;${on ? 'right' : 'left'}:2px;width:27px;height:27px;border-radius:14px;background:${on ? 'var(--primary-fg)' : 'oklch(0.92 0 0)'}"></i></span>`
+
+// Pushed-page form: back + title, the primary in the same bottom bar as the money form.
+const stickyFooter = (w, label = 'Зберегти') =>
+  `<div style="position:absolute;left:0;right:0;bottom:0;padding:8px 16px ${safeBottom(w) + 8}px;background:var(--popover);border-top:1px solid var(--border)">${primaryBtn(label)}</div>`
 
 function formPage(w, h, title, fields, { footer = '', overlay = '' } = {}) {
   const inner = `${topBar({ back: true, title, bell: false, search: false })}
   <div class="content col" style="gap:18px;padding:12px 16px 0">${fields}</div>${footer}`
   return phone({ w, h, inner, overlay })
 }
-
-const stickyFooter = (w, label = 'Зберегти', dis = false) =>
-  `<div style="position:absolute;left:0;right:0;bottom:0;padding:10px 16px ${safeBottom(w) + 8}px;background:oklch(0.08 0 0 / 0.94);backdrop-filter:blur(16px);border-top:1px solid var(--border)"><span class="btn primary ${dis ? 'dis' : ''}" style="width:100%">${label}</span></div>`
 
 export function formStates(w, h) {
   const f = [
@@ -76,66 +48,17 @@ export function formStates(w, h) {
     }),
   ].join('')
   return formPage(w, h, 'Новий користувач', f, {
-    footer: stickyFooter(w, 'Надіслати запрошення', true),
+    footer: stickyFooter(w, 'Надіслати запрошення'),
   })
 }
 
-export function receiptPicker(state = 'empty') {
-  if (state === 'empty')
-    return `<div class="field"><label>Чек</label><div class="row" style="gap:12px;height:72px;padding:0 14px;border-radius:var(--r-lg);border:1.5px dashed var(--input-border);color:var(--fg)">
-    <span style="width:44px;height:44px;border-radius:12px;background:var(--surface);display:grid;place-items:center">${icon('camera', { size: 20 })}</span><span class="grow col" style="gap:2px"><span class="t-sub" style="font-weight:600">Додати чек</span><span class="t-foot muted">Камера, фото або файл · до 10 МБ</span></span></div></div>`
-  return ''
-}
+/** Pushed-screen variant of the canonical money form: no keyboard, optional fields expanded, empty receipt. */
+export const formMoney = (w, h) =>
+  moneyForm({ w, h, variant: 'page', receipt: 'empty', expanded: true })
 
-export function formMoney(w, h) {
-  const f = [
-    `<div class="field"><label for="amt">Сума</label><div class="input" id="amt" style="height:56px"><span class="grow num" style="font-size:24px;font-weight:700;letter-spacing:-0.02em">1 250,50</span><span class="pill" style="height:30px;font-size:14px;padding:0 10px">USD ${icon('chevron-down', { size: 13 })}</span></div></div>`,
-    `<div class="field"><label>Тип</label>${segmented(['Витрата', 'Дохід', 'Переказ'], 0, 40)}</div>`,
-    field({ id: 'p', label: 'Проєкт', value: 'Проєкт «Альфа»', suffix: chevDown }),
-    field({
-      id: 'dt',
-      label: 'Дата',
-      value: '11 листопада 2026',
-      lead: `<span class="muted">${icon('calendar', { size: 18 })}</span>`,
-    }),
-    receiptPicker('empty'),
-  ].join('')
-  return formPage(w, h, 'Нова транзакція', f, { footer: stickyFooter(w) })
-}
-
-function textKeyboard() {
-  const row = (keys, pad = 0) =>
-    `<div style="display:flex;gap:5px;padding:0 ${pad}px">${keys
-      .split('')
-      .map(
-        (k) =>
-          `<span style="flex:1;height:42px;border-radius:6px;background:oklch(0.36 0 0);display:grid;place-items:center;font-size:20px;color:#fff">${k}</span>`,
-      )
-      .join('')}</div>`
-  return `<div class="kbd" aria-hidden="true" style="padding:0 3px;gap:11px">
-  <div class="kbar" style="background:oklch(0.24 0 0);margin:0 -3px"><span class="row" style="gap:18px;color:var(--muted-fg)">${icon('chevron-up', { size: 22 })}${icon('chevron-down', { size: 22 })}</span><span style="color:var(--primary);font-weight:600">Готово</span></div>
-  ${row('йцукенгшщзх')}${row('фівапролджє')}<div style="display:flex;gap:5px"><span style="width:42px;height:42px;border-radius:6px;background:oklch(0.28 0 0);display:grid;place-items:center;color:#fff">${icon('arrow-big-up', { size: 20 })}</span><div class="grow">${row('ячсмитьбю')}</div><span style="width:42px;height:42px;border-radius:6px;background:oklch(0.28 0 0);display:grid;place-items:center;color:#fff">${icon('delete', { size: 20 })}</span></div>
-  <div style="display:flex;gap:5px"><span style="width:88px;height:42px;border-radius:6px;background:oklch(0.28 0 0);display:grid;place-items:center;color:#fff;font-size:15px">123</span><span class="grow" style="height:42px;border-radius:6px;background:oklch(0.36 0 0);display:grid;place-items:center;color:#fff;font-size:15px">пробіл</span><span style="width:88px;height:42px;border-radius:6px;background:oklch(0.28 0 0);display:grid;place-items:center;color:#fff;font-size:15px">Далі</span></div><div style="height:34px"></div></div>`
-}
-
-/** Keyboard open: the focused field scrolls above the keyboard, the primary action rides on top of it. */
-export function formKeyboard(w, h) {
-  const kbdH = 44 + 4 * 42 + 4 * 11 + 34
-  const f = [
-    field({ id: 'n', label: 'Опис', value: 'Оренда офісу за листопад' }),
-    field({
-      id: 'c',
-      label: 'Контрагент',
-      value: 'Офісний центр «Сиг',
-      state: 'focus',
-      hint: 'Видно лише адміністраторам',
-    }),
-  ].join('')
-  const inner = `${topBar({ back: true, title: 'Нова транзакція', bell: false, search: false })}
-  <div class="content col" style="gap:18px;padding:12px 16px 0"><div class="t-foot muted" style="text-align:center">Сума 1 250,50 USD · Витрата</div>${f}</div>
-  <div style="position:absolute;left:0;right:0;bottom:${kbdH}px;padding:8px 16px;background:var(--bg);border-top:1px solid var(--border);z-index:80"><span class="btn primary" style="width:100%">Зберегти</span></div>${textKeyboard()}`
-  return phone({ w, h, inner })
-}
+/** Keyboard open: the focused field scrolls above the keyboard; the bottom bar rides on top of it. */
+export const formKeyboard = (w, h) =>
+  moneyForm({ w, h, receipt: 'done', expanded: true, focus: 'note', keyboard: 'text', scroll: 250 })
 
 // ---------- ResponsiveSheet (mobile) ----------
 export function sheetMedium(w, h) {
@@ -167,34 +90,16 @@ export function sheetMedium(w, h) {
   })
 }
 
-export function sheetLarge(w, h) {
-  const body = `<div class="col" style="gap:18px;padding:8px 16px">${[
-    field({ id: 'l1', label: 'Опис', value: 'Оренда офісу' }),
-    `<div class="field"><label for="amt2">Сума</label><div class="input" id="amt2"><span class="grow num" style="font-weight:600">1 200,00</span><span class="muted">USD</span></div></div>`,
-    field({ id: 'l2', label: 'Проєкт', value: 'Проєкт «Альфа»', suffix: chevDown }),
-    field({ id: 'l3', label: 'Дата', value: '11 листопада 2026' }),
-    `<div class="field"><label>Нотатка</label><div class="input" style="height:88px;align-items:flex-start;padding-top:12px"><span class="ph">Необов’язково</span></div></div>`,
-  ].join('')}</div>`
-  const overlay = sheet({
+/** Large sheet = the canonical form in edit mode: «Скасувати» left, title centred, primary in the bottom bar. */
+export const sheetLarge = (w, h) =>
+  moneyForm({
     w,
     h,
-    top: safeTop(w) + 10,
     title: 'Редагувати',
-    lead: '<span style="font-size:17px">Скасувати</span>',
-    trail: '<span style="padding-right:8px">Готово</span>',
-    body,
+    receipt: 'done',
+    expanded: true,
+    footer: primaryBtn('Зберегти зміни'),
   })
-  return tabScreen({
-    w,
-    h,
-    role: 'ADMIN',
-    active: '/finance',
-    title: 'Фінанси',
-    body: financeBody(),
-    overlay,
-    showFab: false,
-  })
-}
 
 /** Irreversible action → confirm (never undo). Mobile = action sheet; ≥ 640 = centred dialog. */
 export function sheetConfirm(w, h) {
@@ -232,6 +137,13 @@ export function listVariants(w, h) {
   return phone({ w, h, inner })
 }
 
+// Visible «…» on every row with swipe / long-press actions; rows set -webkit-touch-callout: none.
+const withMore = (row) =>
+  row.replace(
+    /<\/div>$/,
+    `<span class="iconbtn" role="button" aria-label="Дії з транзакцією" aria-haspopup="menu" style="margin-right:-10px;color:var(--muted-fg)">${icon('ellipsis', { size: 20 })}</span></div>`,
+  )
+
 /** Swipe reveals trailing actions; every action is also reachable from the row's ⋯ / long-press menu (WCAG 2.5.1). */
 export function listSwipe(w, h) {
   const swiped = `<div class="lrow two" style="padding:0;overflow:hidden"><div class="row" style="position:absolute;right:0;top:0;bottom:0">
@@ -252,7 +164,7 @@ export function listSwipe(w, h) {
     <div role="menuitem" class="row" style="gap:12px;height:44px;padding:0 14px;color:var(--destructive);font-size:16px">${icon('trash-2', { size: 18 })}Видалити…</div></div>`
   const inner = `${topBar({ title: 'Свайп і меню', bell: false, search: false })}<div class="content">
   ${sec('Свайп ліворуч')}<div class="group">${txnRow(TXNS[1])}${swiped}${txnRow(TXNS[3])}</div>
-  ${sec('Довге натискання або ⋯')}<div class="group">${txnRow(TXNS[4]).replace('class="lrow two"', 'class="lrow two" style="background:var(--raised)"')}${txnRow(TXNS[5])}</div></div>${menu}`
+  ${sec('Довге натискання або «…»')}<div class="group">${withMore(txnRow(TXNS[4]).replace('class="lrow two"', 'class="lrow two" style="background:var(--raised)"'))}${withMore(txnRow(TXNS[5]))}</div></div>${menu}`
   return phone({ w, h, inner })
 }
 
