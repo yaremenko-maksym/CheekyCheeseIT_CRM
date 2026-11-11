@@ -83,11 +83,13 @@ type VerificationDtoFields = Pick<
 
 /**
  * An edit path (P10): `summary` or `experience.<i>.bullets.<j>`, in bounds of `content`. Returns
- * the text cap of that path (P8), or `null` when the path names no staged text.
+ * the text cap of that path (P8), or `null` when the path names no staged text. Indexes are
+ * canonical (no leading zero): the path is stored as sent in `staged_edited_paths`, and every
+ * consumer (render-gates `covers`, the regenerate prefix filter, the report) matches it exactly.
  */
 export function editPathCap(path: string, content: ResumeContent): number | null {
   if (path === 'summary') return RESUME_LIMITS.summary
-  const bullet = /^experience\.(\d+)\.bullets\.(\d+)$/u.exec(path)
+  const bullet = /^experience\.(0|[1-9]\d*)\.bullets\.(0|[1-9]\d*)$/u.exec(path)
   if (!bullet) return null
   const bullets = content.experience[Number(bullet[1])]?.bullets
   return bullets !== undefined && Number(bullet[2]) < bullets.length ? RESUME_LIMITS.bullet : null

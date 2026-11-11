@@ -307,16 +307,16 @@ async function writeBullets(
   }
 }
 
-/**
- * Stages 3 and 4: writes the summary and every item's bullets, gates each, regenerates a failing one
- * up to twice with feedback, then falls back (summary to '', bullets to the cleaned notes).
- */
 /** Model text as one renderable line: toRenderableText trims each line and drops blank edges. */
 function cleaner(template: GlyphFontSet): (text: string) => string {
   return (text) =>
     toRenderableText(text, template, { insertBreaks: false }).text.replace(/\s+/gu, ' ')
 }
 
+/**
+ * Stages 3 and 4: writes the summary and every item's bullets, gates each, regenerates a failing one
+ * up to twice with feedback, then falls back (summary to '', bullets to the cleaned notes).
+ */
 export async function writeGatedContent(
   input: ContentInput,
   deps: ContentDeps,

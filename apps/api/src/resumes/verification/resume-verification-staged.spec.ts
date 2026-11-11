@@ -103,11 +103,23 @@ describe('editPathCap / isRegeneratePath (P8, P10)', () => {
     }
   })
 
+  it('refuses a leading-zero index: an accepted path has one spelling (SR-H-1)', () => {
+    for (const path of [
+      'experience.01.bullets.0',
+      'experience.0.bullets.00',
+      'experience.00.bullets.0',
+      'experience.0.bullets.01',
+    ]) {
+      expect(editPathCap(path, STAGED)).toBeNull()
+    }
+  })
+
   it('reads multi-digit item and bullet indexes', () => {
-    const item = { ...STAGED.experience[0]!, bullets: Array.from({ length: 11 }, () => 'b') }
-    const wide = { ...STAGED, experience: Array.from({ length: 11 }, () => item) }
+    const item = { ...STAGED.experience[0]!, bullets: Array.from({ length: 101 }, () => 'b') }
+    const wide = { ...STAGED, experience: Array.from({ length: 101 }, () => item) }
     expect(editPathCap('experience.10.bullets.10', wide)).toBe(RESUME_LIMITS.bullet)
-    expect(editPathCap('experience.10.bullets.11', wide)).toBeNull()
+    expect(editPathCap('experience.100.bullets.100', wide)).toBe(RESUME_LIMITS.bullet)
+    expect(editPathCap('experience.10.bullets.101', wide)).toBeNull()
   })
 
   it('accepts summary and an in-bounds item as regenerate paths, nothing else', () => {
@@ -117,6 +129,7 @@ describe('editPathCap / isRegeneratePath (P8, P10)', () => {
     expect(isRegeneratePath('experience.2.bullets', STAGED)).toBe(false)
     expect(isRegeneratePath('experience.0.bullets.0', STAGED)).toBe(false)
     expect(isRegeneratePath('headline', STAGED)).toBe(false)
+    expect(isRegeneratePath('experience.01.bullets', STAGED)).toBe(false)
   })
 })
 
@@ -425,5 +438,27 @@ describe('ResumeVerificationService.regenerateStagedField', () => {
       svc.regenerateStagedField(row, { runId: RUN, path: 'experience.0.bullets.0' }),
     ).rejects.toBeInstanceOf(BadRequestException)
     expect(log).toHaveLength(0)
+  })
+})
+
+describe('leading-zero staged paths (SR-H-1) → 400, no query, no run', () => {
+  it('edit refuses experience.01.bullets.0 and experience.0.bullets.00', async () => {
+    for (const path of ['experience.01.bullets.0', 'experience.0.bullets.00']) {
+      const { svc, log, runner } = service([])
+      await expect(
+        svc.editStagedField(ROW, { runId: RUN, path, text: 'Led the team' }, 'h'),
+      ).rejects.toBeInstanceOf(BadRequestException)
+      expect(log).toHaveLength(0)
+      expect(runner.run).not.toHaveBeenCalled()
+    }
+  })
+
+  it('regenerate refuses experience.01.bullets', async () => {
+    const { svc, log, runner } = service([])
+    await expect(
+      svc.regenerateStagedField(ROW, { runId: RUN, path: 'experience.01.bullets' }),
+    ).rejects.toBeInstanceOf(BadRequestException)
+    expect(log).toHaveLength(0)
+    expect(runner.run).not.toHaveBeenCalled()
   })
 })

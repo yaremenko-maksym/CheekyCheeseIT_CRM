@@ -186,6 +186,7 @@ export class SeniorResumesController {
   /** Confirm the staged result (Task 15): ADMIN/HR only; 409 when it changed since it was shown. */
   @Post('confirm')
   @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   confirm(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Body() body: unknown,

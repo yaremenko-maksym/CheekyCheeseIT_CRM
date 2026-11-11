@@ -175,6 +175,7 @@ describe('regenerateTarget', () => {
     expect(regenerateTarget('summary')).toBe('summary')
     expect(regenerateTarget('experience.0.bullets')).toBe(0)
     expect(regenerateTarget('experience.10.bullets')).toBe(10)
+    expect(regenerateTarget('experience.100.bullets')).toBe(100)
   })
 
   it('refuses null, one bullet, and anything around the exact shape', () => {
@@ -186,6 +187,8 @@ describe('regenerateTarget', () => {
       'experience.0.bulletsx',
       'experience.a.bullets',
       'experience..bullets',
+      'experience.01.bullets',
+      'experience.00.bullets',
     ]) {
       expect(regenerateTarget(path)).toBeNull()
     }

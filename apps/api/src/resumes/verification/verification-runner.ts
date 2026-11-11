@@ -70,10 +70,13 @@ export type ResumeOwnerContacts = { displayName: string; email: string; contacts
 /** Kinds that start from the staged result of an earlier run instead of writing everything anew. */
 const FROM_STAGED = new Set<string | null>(['staged-edit', 'item'])
 
-/** `summary` → 'summary', `experience.<i>.bullets` → i; anything else → null. */
+/**
+ * `summary` → 'summary', `experience.<i>.bullets` → i; anything else → null. Indexes are canonical
+ * (no leading zero), so an accepted path has one spelling and exact-string path matching holds.
+ */
 export function regenerateTarget(path: string | null): 'summary' | number | null {
   if (path === 'summary') return 'summary'
-  const item = /^experience\.(\d+)\.bullets$/u.exec(String(path))
+  const item = /^experience\.(0|[1-9]\d*)\.bullets$/u.exec(String(path))
   return item ? Number(item[1]) : null
 }
 

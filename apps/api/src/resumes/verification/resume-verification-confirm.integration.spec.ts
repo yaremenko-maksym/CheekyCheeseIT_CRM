@@ -502,6 +502,8 @@ describe.skipIf(!hasDatabaseUrl())('Confirm, staged edit, regenerate — real DB
       { runId, path: 'experience.1.bullets.0', text: 'Built it' },
       { runId, path: 'experience.0.bullets.2', text: 'Built it' },
       { runId, path: 'headline', text: 'Built it' },
+      { runId, path: 'experience.00.bullets.0', text: 'Built it' },
+      { runId, path: 'experience.0.bullets.00', text: 'Built it' },
       { runId, path: 'experience.0.bullets.0', text: 'x'.repeat(501) },
     ]) {
       await expect(service.editStagedField(HR, OWNER_ID, input)).rejects.toBeInstanceOf(
@@ -623,7 +625,12 @@ describe.skipIf(!hasDatabaseUrl())('Confirm, staged edit, regenerate — real DB
   it('regenerate summary: the writer writes the summary; a bullet path is not a regenerate path', async () => {
     const row = await awaiting()
     const runId = row.verificationRunId as string
-    for (const path of ['experience.0.bullets.0', 'experience.1.bullets', 'headline']) {
+    for (const path of [
+      'experience.0.bullets.0',
+      'experience.1.bullets',
+      'experience.00.bullets',
+      'headline',
+    ]) {
       await expect(
         service.regenerateStagedField(HR, OWNER_ID, { runId, path }),
       ).rejects.toBeInstanceOf(BadRequestException)
