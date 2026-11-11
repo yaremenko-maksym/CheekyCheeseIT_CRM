@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { toast } from 'sonner'
-import { CalendarOff, CircleHelp, RefreshCw, TriangleAlert, X } from 'lucide-react'
+import { CalendarOff, Check, CircleHelp, RefreshCw, TriangleAlert, X } from 'lucide-react'
 import { formatRelativeTime, type JobQueueCardResponseDto } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { DialogOverlay, DialogPortal } from '@/components/ui/dialog'
@@ -30,14 +30,18 @@ const inside = (target: EventTarget | null, selector: string) =>
   target instanceof Element && target.closest(selector) !== null
 
 const CHIP = 'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs'
+/** A vacancy stack token no senior of the scope matches. */
+const STACK_CHIP = 'rounded-md border px-1.5 py-0.5 text-xs text-muted-foreground'
 
 function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
   const { t, i18n } = useLingui()
   const locale = useLocale()
-  const triage = card.eligibility === 'TRIAGE'
+  // an excluded vacancy is neither triage nor a zero match (UX-M-2): its seniors block says so
+  const triage = card.eligibility === 'TRIAGE' && card.noMatchReason !== 'EXCLUDED'
   const seniority = SENIORITY_LABEL[card.seniority]
   const closed = card.availability === 'CLOSED' || card.availability === 'EXPIRED'
   const firstSeenAgo = formatRelativeTime(card.firstSeenAt, locale)
+  const lastSeenAgo = formatRelativeTime(card.lastSeenAt, locale)
 
   return (
     <>
@@ -73,16 +77,42 @@ function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
       </p>
       <p data-testid="job-queue-card-meta" className="text-xs text-muted-foreground">
         {card.publishedAt ? (
-          <Trans>Опубліковано {formatRelativeTime(card.publishedAt, locale)}</Trans>
-        ) : (
-          <span className="inline-flex flex-wrap items-center gap-x-1">
-            <CalendarOff aria-hidden="true" className="size-3.5 shrink-0" />
-            <Trans>Дата публікації невідома</Trans>
-            <span className="whitespace-nowrap">
-              {' · '}
-              <Trans>вперше побачено {firstSeenAgo}</Trans>
-            </span>
+          <span className="whitespace-nowrap">
+            <Trans>Опубліковано {formatRelativeTime(card.publishedAt, locale)}</Trans>
           </span>
+        ) : (
+          <>
+            <span className="whitespace-nowrap">
+              <CalendarOff
+                aria-hidden="true"
+                data-testid="job-queue-card-meta-icon"
+                className="mr-1 inline-block size-3.5 align-[-0.2em]"
+              />
+              <Trans>Дата публікації невідома</Trans>
+            </span>
+            {/* the space before each «·» stays outside its nowrap span: it is the line's break point */}{' '}
+            <span className="whitespace-nowrap">
+              · <Trans>вперше побачено {firstSeenAgo}</Trans>
+            </span>
+          </>
+        )}{' '}
+        <span className="whitespace-nowrap">
+          · <Trans>востаннє бачили {lastSeenAgo}</Trans>
+        </span>
+      </p>
+      <p data-testid="job-queue-terms" className="text-xs text-muted-foreground">
+        {card.engagementForm === 'B2B' ? (
+          <Trans>
+            Форма співпраці: <span className="text-foreground">B2B</span>
+          </Trans>
+        ) : card.engagementForm === 'EMPLOYMENT' ? (
+          <Trans>
+            Форма співпраці: <span className="text-foreground">Трудовий договір</span>
+          </Trans>
+        ) : (
+          <Trans>
+            Форма співпраці: <span className="text-foreground">Не вказано</span>
+          </Trans>
         )}
       </p>
     </>
@@ -147,21 +177,58 @@ function CardBody({
         <PostingMarkdown markdown={card.descriptionMd} testId="job-queue-card-description" />
       </section>
       <AlsoSeenOn scope={scope} card={card} onAccessLost={onAccessLost} />
-      {card.matchedKeywords.length > 0 && (
-        <section data-testid="job-queue-card-stack" className="flex flex-col gap-2">
-          <h3 className="text-sm font-semibold">
-            <Trans>Збіг стеку</Trans>
-          </h3>
-          <div className="flex flex-wrap gap-1">
-            {card.matchedKeywords.map((keyword) => (
-              <span key={keyword} className={cn(HIT_CHIP, 'max-w-full truncate')} title={keyword}>
+      <VacancyStack card={card} />
+    </>
+  )
+}
+
+/**
+ * «Збіг стеку» (spec §5.1): the vacancy's stack, the tokens the scope's seniors match in the hit
+ * style. A row stored before the stack was kept (Task 7.3b) falls back to the matched tokens.
+ */
+function VacancyStack({ card }: { card: JobQueueCardResponseDto }) {
+  const stack = card.stackKeywords.length > 0 ? card.stackKeywords : card.matchedKeywords
+  if (stack.length === 0) return null
+  const hits = new Set(card.matchedKeywords.map((k) => k.toLowerCase()))
+  return (
+    <section data-testid="job-queue-card-stack" className="flex flex-col gap-2">
+      <h3 className="text-sm font-semibold">
+        <Trans>Збіг стеку</Trans>
+      </h3>
+      <div className="flex flex-wrap gap-1">
+        {stack.map((keyword) => {
+          const hit = hits.has(keyword.toLowerCase())
+          return (
+            <Fragment key={keyword}>
+              <span
+                data-testid="job-queue-card-stack-chip"
+                data-hit={hit}
+                className={cn(
+                  hit ? cn(HIT_CHIP, 'inline-flex items-center gap-1') : STACK_CHIP,
+                  'max-w-full [overflow-wrap:anywhere]',
+                )}
+                title={keyword}
+              >
+                {/* the hit style alone would be the only cue (SC 1.4.1) */}
+                {hit && (
+                  <Check
+                    aria-hidden="true"
+                    data-testid="job-queue-card-stack-hit-icon"
+                    className="size-3 shrink-0"
+                  />
+                )}
                 {keyword}
               </span>
-            ))}
-          </div>
-        </section>
-      )}
-    </>
+              {hit && (
+                <span className="sr-only">
+                  , <Trans context="job-queue stack chip, screen-reader suffix">збігається</Trans>
+                </span>
+              )}
+            </Fragment>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 
@@ -297,7 +364,12 @@ export function JobQueueCard({
             >
               <OpenOriginalButton scope={scope} card={card} />
               <div className="flex gap-2 sm:ml-auto">
-                <DismissMenu scope={scope} opportunityId={card.opportunityId} onClose={onClose} />
+                <DismissMenu
+                  scope={scope}
+                  opportunityId={card.opportunityId}
+                  dismissal={card.dismissal}
+                  onClose={onClose}
+                />
                 {scope.role === 'ADMIN' && (
                   <AdminVacancyMenu
                     scope={scope}

@@ -335,4 +335,67 @@ describe('field scoping — what each read binds', () => {
     expect(text).toContain('m.opportunity_id = dup.id')
     expect(params).toEqual(expect.arrayContaining([OPP, TEAM, 5]))
   })
+
+  it('a duplicate names only the live submissions of this scope, sorted (Task 7.3b)', () => {
+    const { text } = render(duplicateRows(team, OPP, 5))
+    expect(text).toContain(
+      `(SELECT coalesce(jsonb_agg(su.display_name ORDER BY su.display_name, su.id), '[]'::jsonb) FROM users su WHERE su.id IN (SELECT da.senior_id FROM job_queue_assignments da WHERE da.opportunity_id = dup.id AND da.state = 'TAKEN' AND da.team_id = $`,
+    )
+    expect(text).toContain('AS submitted_senior_names')
+    // each senior once: a STUDIO view sees every team's submission of the same senior
+    expect(render(duplicateRows(studio, OPP, 5)).text).toContain(
+      `da.state = 'TAKEN' AND TRUE)) AS submitted_senior_names`,
+    )
+  })
+
+  it('the card row carries last seen, the stack, the manual team and its own dismissal (Task 7.3b)', () => {
+    const { text, params } = render(cardRow(team, versions, OPP))
+    expect(text).toContain('o.last_observed_at, o.stack_keywords, o.manual_team_id')
+    // SPEC-H-1: the no-match reason reads own TRIAGE rows, the employer check and the evaluation
+    expect(text).toContain("count(*) FILTER (WHERE m.outcome = 'TRIAGE') AS triaged")
+    expect(text).toContain(
+      'stats.triaged, o.employer_verified, (o.evaluated_revision = o.revision) IS TRUE AS evaluated_current, o.evaluation_verdict,',
+    )
+    // SPEC-M-1: the primary source's own employment text, from its latest revision
+    expect(text).toContain(
+      "(SELECT rv.normalized->>'employmentType' FROM job_source_records sr JOIN job_source_record_revisions rv ON rv.id = sr.latest_revision_id WHERE sr.id = src.source_record_id) AS employment_type",
+    )
+    expect(text).toContain(
+      'LEFT JOIN LATERAL ( SELECT dm.version FROM job_queue_dismissals dm WHERE dm.opportunity_id = o.id AND dm.scope_kind = $',
+    )
+    expect(text).toContain('::job_queue_scope_kind AND dm.team_id IS NOT DISTINCT FROM $')
+    expect(text).toContain('dis.version AS dismissal_version')
+    expect(text).toContain('::uuid LIMIT 1 ) dis ON TRUE')
+    expect(params).toEqual(expect.arrayContaining([OPP, TEAM, 'TEAM']))
+  })
+
+  it("the card's dismissal binds the scope's own kind and team: a TEAM its id, a STUDIO null", () => {
+    const bound = (q: SQL, marker: string) => {
+      const { text, params } = render(q)
+      const at = new RegExp(`${marker} \\$(\\d+)`).exec(text)
+      expect(at).not.toBeNull()
+      return params[Number(at![1]) - 1]
+    }
+    expect(bound(cardRow(team, versions, OPP), 'dm.scope_kind =')).toBe('TEAM')
+    expect(bound(cardRow(team, versions, OPP), 'dm.team_id IS NOT DISTINCT FROM')).toBe(TEAM)
+    expect(bound(cardRow(studio, [], OPP), 'dm.scope_kind =')).toBe('STUDIO')
+    expect(bound(cardRow(studio, [], OPP), 'dm.team_id IS NOT DISTINCT FROM')).toBeNull()
+  })
+
+  it('card seniors name a team only in the STUDIO scope (Task 7.3b)', () => {
+    const t = render(seniorRows(team, versions, OPP, undefined, 201)).text
+    expect(t).not.toContain('team_members')
+    expect(t).not.toContain('AS team_name')
+    // nothing at all in either slot, not merely no team columns
+    expect(t).toMatch(/\) AS submitted_elsewhere FROM /)
+    expect(t).toContain('JOIN users u ON u.id = ms.senior_id LEFT JOIN job_queue_assignments a')
+    const s = render(seniorRows(studio, versions, OPP, undefined, 201)).text
+    expect(s).toContain(') AS submitted_elsewhere, st.id AS team_id, st.name AS team_name FROM ')
+    expect(s).toContain(
+      'JOIN users u ON u.id = ms.senior_id LEFT JOIN LATERAL ( SELECT t.id, t.name',
+    )
+    expect(s).toContain(
+      "LEFT JOIN LATERAL ( SELECT t.id, t.name FROM team_members tm JOIN teams t ON t.id = tm.team_id WHERE tm.user_id = ms.senior_id AND tm.left_at IS NULL ORDER BY t.archived_at IS NOT NULL, t.type <> 'SENIOR', t.name, t.id LIMIT 1) st ON TRUE",
+    )
+  })
 })

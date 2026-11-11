@@ -3943,6 +3943,10 @@ msgstr "{remaining} of {limit} left"
 msgid "Досягнення — по одному в рядку"
 msgstr "Achievements — one per line"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgid "востаннє бачили {lastSeenAgo}"
+msgstr "last seen {lastSeenAgo}"
+
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Аналіз скасовано"
 msgstr "Analysis cancelled"
@@ -5990,6 +5994,10 @@ msgstr "Accrual"
 msgid "Додати документ"
 msgstr "Upload document"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgid "Форма співпраці: <0>Не вказано</0>"
+msgstr "Contract type: <0>Not stated</0>"
+
 #: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
 msgid "Пауза до {when}"
 msgstr "Paused until {when}"
@@ -7574,6 +7582,10 @@ msgstr "Could not restore the document. Try again"
 msgid "Підтвердження"
 msgstr "Confirmation"
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Система не пропонує її сеньйорам: вакансія не пройшла автоматичний відбір. Відкрийте опис, якщо хочете оцінити її вручну."
+msgstr "The system does not offer it to seniors: the vacancy did not pass automatic screening. Open the description if you want to review it manually."
+
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Помилка аналізу"
 msgstr "Analysis failed"
@@ -7630,6 +7642,10 @@ msgstr "Maximum"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 msgid "Примітки"
 msgstr "Notes"
+
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Бажані: {nice}"
+msgstr "Nice to have: {nice}"
 
 #: apps/web/app/components/ui/month-picker.tsx
 msgid "Рік зарплати"
@@ -8704,6 +8720,10 @@ msgctxt "job source readiness"
 msgid "Заблоковано"
 msgstr "Blocked"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgid "Форма співпраці: <0>Трудовий договір</0>"
+msgstr "Contract type: <0>Employment contract</0>"
+
 #. placeholder {0}: impact.projectsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
 msgid "В архів піде профіль <0>{entityName}</0> разом з усіма проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Вхід у CRM для цього акаунта буде закрито."
@@ -9414,6 +9434,10 @@ msgstr "Processing…"
 msgid "Посилання на blockchain-explorer (etherscan.io, tronscan.org, bscscan.com та ін.)"
 msgstr "A link to a blockchain explorer (etherscan.io, tronscan.org, bscscan.com, etc.)"
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Вакансію відсіяно автоматичним відбором"
+msgstr "Filtered out by automatic screening"
+
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
@@ -9961,6 +9985,10 @@ msgstr "Unlinked recordings"
 msgid "Договір"
 msgstr "Contract"
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Чому збіг"
+msgstr "Why it matches"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/user-profile/tabs/DocumentsTab.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
@@ -9989,6 +10017,11 @@ msgstr "No drop teams without an active senior. Create a drop or choose “Creat
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Не вдалося підписати контракт"
 msgstr "Could not sign the contract"
+
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgctxt "job-queue stack chip, screen-reader suffix"
+msgid "збігається"
+msgstr "matches"
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Не вдалося зберегти аватар"
@@ -10056,6 +10089,10 @@ msgstr "Admin"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Метод оплати"
 msgstr "Payment method"
+
+#: apps/web/app/components/job-queue/PossibleDuplicates.tsx
+msgid "Уже подано: {seniors}"
+msgstr "Already submitted: {seniors}"
 
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Готових медіафайлів ще немає."
@@ -11329,6 +11366,10 @@ msgstr "PDF preview"
 msgid "Ліміт: {used} / {total, plural, one {# виклик моделі} few {# виклики моделі} many {# викликів моделі} other {# виклику моделі}}"
 msgstr "Quota: {used} / {total, plural, one {# model call} other {# model calls}}"
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Команда «{teamHeading}»"
+msgstr "Team “{teamHeading}”"
+
 #: apps/web/app/lib/axios-utils.ts
 msgid "Недостатньо прав для цієї дії."
 msgstr "You don't have permission for this action."
@@ -11778,6 +11819,10 @@ msgstr "all"
 msgid "Немає кого додати"
 msgstr "No one to add"
 
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "Обов’язкові: {required}"
+msgstr "Required: {required}"
+
 #: apps/web/app/hooks/use-senior-resume.ts
 msgid "Резюме видалено"
 msgstr "Resume deleted"
@@ -11929,6 +11974,10 @@ msgstr "the source prohibits automated collection"
 #: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
 msgid "Зберегти нотатку"
 msgstr "Save note"
+
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgid "Форма співпраці: <0>B2B</0>"
+msgstr "Contract type: <0>B2B</0>"
 
 #: apps/web/app/components/documents/upload-document-dialog.tsx
 msgid "Немає доступних проєктів"

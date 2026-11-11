@@ -77,7 +77,9 @@ describe('MatchedSeniors', () => {
     const chip = within(block).getByText('Node.js')
     expect(chip).toHaveClass('bg-yellow-subtle', 'text-primary')
     expect(within(block).getByText('React')).toHaveClass('bg-yellow-subtle')
-    expect(chip).toHaveClass('max-w-full', 'truncate')
+    // a long token wraps like the card's stack chips, it is never cut to an ellipsis
+    expect(chip).toHaveClass('max-w-full', '[overflow-wrap:anywhere]')
+    expect(chip).not.toHaveClass('truncate')
     expect(chip).toHaveAttribute('title', 'Node.js')
     expect(within(block).queryByText('Збіг неточний')).toBeNull()
   })
@@ -108,6 +110,7 @@ describe('MatchedSeniors', () => {
     renderBlock(
       cardFixture({
         eligibility: 'TRIAGE',
+        noMatchReason: 'TRIAGE',
         seniors: { items: [senior()], totalCount: 1, nextCursor: null },
       }),
     )
@@ -117,7 +120,13 @@ describe('MatchedSeniors', () => {
   })
 
   it('UX-L-5: no count over the stop-all state either', () => {
-    renderBlock(cardFixture({ stopListedSeniorCount: 2, seniors: { ...none, totalCount: 2 } }))
+    renderBlock(
+      cardFixture({
+        noMatchReason: 'STOP_LISTED',
+        stopListedSeniorCount: 2,
+        seniors: { ...none, totalCount: 2 },
+      }),
+    )
     expect(screen.getByTestId('job-queue-seniors-stop-all')).toBeVisible()
     expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent(/^Сеньйори зі збігом$/)
   })
@@ -131,7 +140,7 @@ describe('MatchedSeniors', () => {
     expect(notice.compareDocumentPosition(list)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     view.unmount()
     renderBlock(
-      cardFixture({ eligibility: 'TRIAGE', seniors: none }),
+      cardFixture({ eligibility: 'TRIAGE', noMatchReason: 'TRIAGE', seniors: none }),
       HR,
       undefined,
       <p data-testid="notice-slot">n</p>,
@@ -143,6 +152,7 @@ describe('MatchedSeniors', () => {
     renderBlock(
       cardFixture({
         eligibility: 'TRIAGE',
+        noMatchReason: 'TRIAGE',
         seniors: { items: [], totalCount: 0, nextCursor: null },
       }),
     )
@@ -262,7 +272,14 @@ describe('MatchedSeniors', () => {
   })
 
   it('all stop-listed (HR): the scoped empty state, no list', () => {
-    renderBlock(cardFixture({ matchedSeniorCount: 0, stopListedSeniorCount: 3, seniors: none }))
+    renderBlock(
+      cardFixture({
+        noMatchReason: 'STOP_LISTED',
+        matchedSeniorCount: 0,
+        stopListedSeniorCount: 3,
+        seniors: none,
+      }),
+    )
     const empty = screen.getByTestId('job-queue-seniors-stop-all')
     expect(empty).toHaveTextContent(
       'Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листаСтек збігається, проте вакансію їм не пропонують.',
@@ -276,7 +293,12 @@ describe('MatchedSeniors', () => {
 
   it('all stop-listed (ADMIN): the studio sentence', () => {
     renderBlock(
-      cardFixture({ matchedSeniorCount: 0, stopListedSeniorCount: 3, seniors: none }),
+      cardFixture({
+        noMatchReason: 'STOP_LISTED',
+        matchedSeniorCount: 0,
+        stopListedSeniorCount: 3,
+        seniors: none,
+      }),
       ADMIN,
     )
     expect(screen.getByTestId('job-queue-seniors-stop-all')).toHaveTextContent(
@@ -288,6 +310,7 @@ describe('MatchedSeniors', () => {
     renderBlock(
       cardFixture({
         eligibility: 'TRIAGE',
+        noMatchReason: 'STOP_LISTED',
         matchedSeniorCount: 0,
         stopListedSeniorCount: 2,
         seniors: none,
@@ -301,19 +324,31 @@ describe('MatchedSeniors', () => {
   })
 
   it('zero matches (HR / ADMIN): a different headline and scoped body', () => {
-    const hr = renderBlock(cardFixture({ matchedSeniorCount: 0, seniors: none }))
+    const hr = renderBlock(
+      cardFixture({ noMatchReason: 'NO_MATCH', matchedSeniorCount: 0, seniors: none }),
+    )
     expect(screen.getByTestId('job-queue-seniors-none')).toHaveTextContent(
       'Немає сеньйорів зі збігом стекуВакансія лишається в черзі, але жоден сеньйор із вашої команди не збігається за стеком.',
     )
     hr.unmount()
-    renderBlock(cardFixture({ matchedSeniorCount: 0, seniors: none }), ADMIN)
+    renderBlock(
+      cardFixture({ noMatchReason: 'NO_MATCH', matchedSeniorCount: 0, seniors: none }),
+      ADMIN,
+    )
     expect(screen.getByTestId('job-queue-seniors-none')).toHaveTextContent(
       'Немає сеньйорів зі збігом стекуВакансія лишається в черзі, але жоден сеньйор не збігається за стеком.',
     )
   })
 
   it('triage: the manual-review empty state, no names, no team wording', () => {
-    renderBlock(cardFixture({ eligibility: 'TRIAGE', matchedSeniorCount: 0, seniors: none }))
+    renderBlock(
+      cardFixture({
+        eligibility: 'TRIAGE',
+        noMatchReason: 'TRIAGE',
+        matchedSeniorCount: 0,
+        seniors: none,
+      }),
+    )
     const empty = screen.getByTestId('job-queue-seniors-triage')
     expect(empty).toHaveClass('rounded-lg', 'border', 'border-dashed', 'border-yellow-muted')
     expect(empty).toHaveTextContent(
@@ -321,6 +356,224 @@ describe('MatchedSeniors', () => {
     )
     expect(screen.queryByTestId('job-queue-seniors-none')).toBeNull()
     expect(screen.queryByTestId('job-queue-seniors-stop-all')).toBeNull()
+  })
+
+  it('CR2-M-1: a card the funnel excluded says so, neither triage nor a zero match', () => {
+    renderBlock(
+      cardFixture({
+        eligibility: 'TRIAGE',
+        noMatchReason: 'EXCLUDED',
+        matchedSeniorCount: 0,
+        seniors: none,
+      }),
+    )
+    const empty = screen.getByTestId('job-queue-seniors-excluded')
+    expect(empty).toHaveClass('rounded-lg', 'border')
+    expect(empty).not.toHaveClass('border-dashed')
+    expect(empty).toHaveTextContent(
+      'Вакансію відсіяно автоматичним відборомСистема не пропонує її сеньйорам: вакансія не пройшла автоматичний відбір. Відкрийте опис, якщо хочете оцінити її вручну.',
+    )
+    expect(screen.queryByTestId('job-queue-seniors-triage')).toBeNull()
+    expect(screen.queryByTestId('job-queue-seniors-none')).toBeNull()
+    expect(screen.queryByTestId('job-queue-seniors-stop-all')).toBeNull()
+  })
+
+  it('AC 5: a manual card nobody matches reads as a zero match, not as triage', () => {
+    // the API marks every zero-match card TRIAGE by eligibility; the reason tells them apart
+    renderBlock(
+      cardFixture({
+        eligibility: 'TRIAGE',
+        noMatchReason: 'NO_MATCH',
+        matchedSeniorCount: 0,
+        seniors: none,
+      }),
+    )
+    expect(screen.getByTestId('job-queue-seniors-none')).toBeVisible()
+    expect(screen.queryByTestId('job-queue-seniors-triage')).toBeNull()
+    expect(screen.queryByTestId('job-queue-seniors-stop-all')).toBeNull()
+  })
+
+  it('«Чому збіг» opens the evidence: required and nice-to-have keywords, ≥44 px target', async () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [
+            senior({
+              matchEvidence: [
+                { keyword: 'React', strength: 'CORE' },
+                { keyword: 'TypeScript', strength: 'CORE' },
+                { keyword: 'GraphQL', strength: 'OPTIONAL' },
+              ],
+            }),
+          ],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    const block = screen.getByTestId(`job-queue-senior-${S1}`)
+    const toggle = within(block).getByRole('button', { name: 'Чому збіг' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    // QA-LOW-1: ≥44 px at every width, no `sm:` override
+    expect(toggle).toHaveClass('min-h-11')
+    expect(toggle.className).not.toMatch(/\bsm:min-h-/)
+    // UX-L-3: the label is the accent colour, the chevron trails it
+    expect(toggle).toHaveClass('text-primary')
+    expect(within(block).queryByTestId(`job-queue-senior-evidence-${S1}`)).toBeNull()
+    const chevron = within(toggle).getByTestId('job-queue-senior-evidence-chevron')
+    // the label text is a bare text node, so order is read off the markup: text first, icon last
+    expect(toggle.innerHTML).toMatch(/^Чому збіг<svg\b[\s\S]*<\/svg>$/)
+    expect(chevron).toHaveClass('size-3.5', 'shrink-0', 'transition-transform')
+    expect(chevron).not.toHaveClass('rotate-180')
+
+    await userEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(chevron).toHaveClass('size-3.5', 'shrink-0', 'transition-transform', 'rotate-180')
+    const evidence = within(block).getByTestId(`job-queue-senior-evidence-${S1}`)
+    expect(toggle).toHaveAttribute('aria-controls', evidence.id)
+    // UX-L-3: the evidence reads as an indented quote
+    expect(evidence).toHaveClass('border-l-2', 'pl-3')
+    expect(evidence).toHaveTextContent(/^Обов’язкові: React, TypeScriptБажані: GraphQL$/)
+
+    await userEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(within(block).queryByTestId(`job-queue-senior-evidence-${S1}`)).toBeNull()
+  })
+
+  it('«Чому збіг» shows only the strengths present, and is absent without evidence', async () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [
+            senior({ matchEvidence: [{ keyword: 'Go', strength: 'OPTIONAL' }] }),
+            senior({ seniorId: S2, displayName: 'Ігор', matchEvidence: [] }),
+          ],
+          totalCount: 2,
+          nextCursor: null,
+        },
+      }),
+    )
+    await userEvent.click(
+      within(screen.getByTestId(`job-queue-senior-${S1}`)).getByRole('button', {
+        name: 'Чому збіг',
+      }),
+    )
+    expect(screen.getByTestId(`job-queue-senior-evidence-${S1}`)).toHaveTextContent(/^Бажані: Go$/)
+    expect(within(screen.getByTestId(`job-queue-senior-${S2}`)).queryByRole('button')).toBeNull()
+  })
+
+  it('reads «Чому збіг» in English', async () => {
+    await loadCatalog('en')
+    renderBlock(cardFixture())
+    const toggle = screen.getByRole('button', { name: 'Why it matches' })
+    await userEvent.click(toggle)
+    expect(screen.getByTestId(`job-queue-senior-evidence-${S1}`)).toHaveTextContent(
+      /^Required: React$/,
+    )
+  })
+
+  const ALPHA = { teamId: 'bbbbbbbb-0000-4000-8000-00000000000a', teamName: 'Альфа' }
+  const BETA = { teamId: 'bbbbbbbb-0000-4000-8000-00000000000b', teamName: 'Бета' }
+
+  it('ADMIN: seniors grouped under team headings, teams in first-seen order (§5.6)', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [
+            senior({ team: ALPHA }),
+            senior({ seniorId: S2, displayName: 'Ігор', team: BETA }),
+            senior({ seniorId: S3, displayName: 'Марта', team: ALPHA }),
+          ],
+          totalCount: 3,
+          nextCursor: null,
+        },
+      }),
+      ADMIN,
+    )
+    const headings = screen.getAllByRole('heading', { level: 4 })
+    expect(headings.map((h) => h.textContent)).toEqual(['Команда «Альфа»', 'Команда «Бета»'])
+    const rows = within(screen.getByTestId('job-queue-seniors-list')).getAllByRole('listitem')
+    expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual([
+      `job-queue-senior-${S1}`,
+      `job-queue-senior-${S3}`,
+      `job-queue-senior-${S2}`,
+    ])
+    expect(within(rows[0] as HTMLElement).getByRole('heading')).toBe(headings[0])
+    expect(within(rows[1] as HTMLElement).queryByRole('heading')).toBeNull()
+    expect(within(rows[2] as HTMLElement).getByRole('heading')).toBe(headings[1])
+  })
+
+  it('ADMIN: a senior with no live team leads the list without a heading', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [
+            senior({ team: ALPHA }),
+            senior({ seniorId: S2, displayName: 'Ігор', team: null }),
+          ],
+          totalCount: 2,
+          nextCursor: null,
+        },
+      }),
+      ADMIN,
+    )
+    const rows = within(screen.getByTestId('job-queue-seniors-list')).getAllByRole('listitem')
+    expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual([
+      `job-queue-senior-${S2}`,
+      `job-queue-senior-${S1}`,
+    ])
+    expect(within(rows[0]!).queryByRole('heading')).toBeNull()
+    expect(within(rows[1]!).getByRole('heading', { name: 'Команда «Альфа»' })).toBeVisible()
+  })
+
+  it('HR: no team headings, even if a team were present', () => {
+    renderBlock(
+      cardFixture({
+        seniors: { items: [senior({ team: ALPHA })], totalCount: 1, nextCursor: null },
+      }),
+    )
+    expect(screen.queryByRole('heading', { level: 4 })).toBeNull()
+    expect(screen.queryByText(/Команда/)).toBeNull()
+  })
+
+  it('reads the team heading in English', async () => {
+    await loadCatalog('en')
+    renderBlock(
+      cardFixture({
+        seniors: { items: [senior({ team: ALPHA })], totalCount: 1, nextCursor: null },
+      }),
+      ADMIN,
+    )
+    expect(screen.getByRole('heading', { level: 4 })).toHaveTextContent(/^Team “Альфа”$/)
+  })
+
+  it('ADMIN grouping: the keyboard hand-off lands on the new senior, not on its list index', async () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [
+            senior({ team: ALPHA }),
+            senior({ seniorId: S2, displayName: 'Ігор', team: BETA }),
+          ],
+          totalCount: 3,
+          nextCursor: 's-1',
+        },
+      }),
+      ADMIN,
+    )
+    seniorsHook.mockReturnValue(
+      idleContinuation([
+        {
+          items: [senior({ seniorId: S3, displayName: 'Марта', team: ALPHA })],
+          totalCount: 3,
+          nextCursor: null,
+        },
+      ]) as never,
+    )
+    screen.getByRole('button', { name: 'Показати ще (1)' }).focus()
+    await userEvent.keyboard('{Enter}')
+    // grouped, Марта sits second (under «Альфа»); index 2 is Ігор, who was already shown
+    expect(screen.getByTestId(`job-queue-senior-${S3}`)).toHaveFocus()
   })
 
   it('continues past the preview by its cursor, then page by page', async () => {
@@ -361,7 +614,7 @@ describe('MatchedSeniors', () => {
     )
     screen.getByRole('button', { name: 'Показати ще (1)' }).focus()
     await userEvent.keyboard('{Enter}')
-    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Показати ще/ })).toBeNull()
     const first = screen.getByTestId(`job-queue-senior-${S2}`)
     expect(first).toHaveFocus()
     expect(first).toHaveAttribute('tabindex', '-1')
@@ -400,14 +653,14 @@ describe('MatchedSeniors', () => {
     )
     screen.getByRole('button', { name: 'Показати ще (1)' }).focus()
     await userEvent.keyboard('{Enter}')
-    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Показати ще/ })).toBeNull()
     expect(document.body).toHaveFocus()
   })
 
   it('everything listed: no totals line and no continuation button', () => {
     renderBlock()
     expect(screen.queryByTestId('job-queue-seniors-shown')).toBeNull()
-    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Показати ще/ })).toBeNull()
     // no stop-listed senior: no stop-list note under the list
     expect(screen.queryByTestId('job-queue-stop-some')).toBeNull()
   })

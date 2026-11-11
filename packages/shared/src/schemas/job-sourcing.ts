@@ -2039,6 +2039,14 @@ export const jobQueueSeniorOptionsResponseSchema = z
   })
   .strict()
 
+/** One matched keyword: CORE = the vacancy's core stack, OPTIONAL = a nice-to-have. */
+export const jobQueueMatchEvidenceSchema = z
+  .object({
+    keyword: z.string().max(MAX_STACK_KEYWORD_CHARS),
+    strength: z.enum(['CORE', 'OPTIONAL']),
+  })
+  .strict()
+
 /** One of the viewer's own seniors on the card. */
 export const jobQueueCardSeniorSchema = z
   .object({
@@ -2047,8 +2055,19 @@ export const jobQueueCardSeniorSchema = z
     /** «Збіг неточний»: match confidence, not availability. */
     matchApproximate: z.boolean(),
     matchedKeywords: z.array(z.string().max(MAX_STACK_KEYWORD_CHARS)).max(200),
+    /** «Чому збіг» (§5.6): each matched keyword with its weight in the vacancy stack. */
+    matchEvidence: z.array(jobQueueMatchEvidenceSchema).max(200),
     /** Own scope: the full row. Another team's (shared senior only): the bare marker. */
     submission: z.union([jobQueueSubmissionSchema, jobQueueForeignSubmissionSchema]).nullable(),
+    /**
+     * ADMIN-only team heading (§5.6). Filled for the STUDIO scope only; a TEAM scope (every HR)
+     * omits the key, so HR never learns which other team a shared senior sits in.
+     */
+    team: z
+      .object({ teamId: z.string().uuid(), teamName: z.string().max(255) })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict()
 
@@ -2075,6 +2094,34 @@ const jobQueueDuplicatesPreviewSchema = jobPossibleDuplicatesPreviewSchema
   .extend({ items: z.array(jobPossibleDuplicateSchema.strict()).max(5) })
   .strict()
 
+/**
+ * The card's duplicates preview: each item also names the viewer's OWN-scope seniors already
+ * submitted to it (§5.5 «На схожу вакансію вже подано: <назва> · <senior>»). Another team's
+ * submissions never contribute a name.
+ */
+const jobQueueCardDuplicatesPreviewSchema = jobPossibleDuplicatesPreviewSchema
+  .extend({
+    items: z
+      .array(
+        jobPossibleDuplicateSchema
+          .extend({ submittedSeniorNames: z.array(z.string().max(255)).max(200) })
+          .strict(),
+      )
+      .max(5),
+  })
+  .strict()
+
+/**
+ * Why a card has no matched senior (§5.8): drives the four distinct empty states. EXCLUDED: the
+ * funnel excluded the vacancy at its current revision (CR2-M-1), so NO_MATCH means an OPEN verdict.
+ */
+export const jobQueueNoMatchReasonSchema = z.enum(['STOP_LISTED', 'TRIAGE', 'NO_MATCH', 'EXCLUDED'])
+export type JobQueueNoMatchReason = z.infer<typeof jobQueueNoMatchReasonSchema>
+
+/** §5.1 «Форма співпраці»: only a form the posting states unambiguously; null names none. */
+export const jobQueueEngagementFormSchema = z.enum(['B2B', 'EMPLOYMENT'])
+export type JobQueueEngagementForm = z.infer<typeof jobQueueEngagementFormSchema>
+
 /** GET `/job-queue/:id` — the latest canonical facts, authorized for the viewer. */
 export const jobQueueCardResponseSchema = jobQueueListItemSchema
   .extend({
@@ -2084,7 +2131,23 @@ export const jobQueueCardResponseSchema = jobQueueListItemSchema
     newerThanList: z.boolean(),
     seniors: jobQueueSeniorsContinuationSchema,
     sources: jobQueueSourcesContinuationSchema,
-    possibleDuplicates: jobQueueDuplicatesPreviewSchema.nullable(),
+    possibleDuplicates: jobQueueCardDuplicatesPreviewSchema.nullable(),
+    /** §5.1 «Остання поява»: when any source last observed the vacancy. */
+    lastSeenAt: z.string().datetime(),
+    /** §5.2 the full vacancy stack (the row carries only the matched subset). */
+    stackKeywords: z.array(z.string().max(MAX_STACK_KEYWORD_CHARS)).max(MAX_STACK_KEYWORDS),
+    /** Null when at least one senior matched. */
+    noMatchReason: jobQueueNoMatchReasonSchema.nullable(),
+    /** The primary source's stated engagement form; null when unknown, mixed or not stated. */
+    engagementForm: jobQueueEngagementFormSchema.nullable(),
+    /**
+     * The viewer's own-scope dismissal row, live or undone; null when never dismissed. Its
+     * `version` is what a re-hide after undo must send (`hidden` says whether it is live).
+     */
+    dismissal: z
+      .object({ scope: jobQueueScopeKindSchema, version: intColumnPositiveSchema })
+      .strict()
+      .nullable(),
   })
   .strict()
 

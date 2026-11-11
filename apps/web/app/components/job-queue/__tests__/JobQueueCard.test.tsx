@@ -47,6 +47,14 @@ function withCard(card: JobQueueCardResponseDto) {
   cardHook.mockReturnValue(cardResult({ data: card }))
 }
 
+/** One card, rendered: a fresh mount per call, so a test can unmount and show another. */
+function show(card: JobQueueCardResponseDto) {
+  withCard(card)
+  return render(<JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={vi.fn()} />, {
+    wrapper: Wrapper,
+  })
+}
+
 function renderCard(onClose = vi.fn()) {
   render(<JobQueueCard scope={SCOPE} opportunityId={OPP} onClose={onClose} />, {
     wrapper: Wrapper,
@@ -349,19 +357,175 @@ describe('JobQueueCard', () => {
     expect(within(desc).getByText('ok', { selector: 'strong' })).toBeVisible()
   })
 
-  it('«Збіг стеку»: the matched stack as hit chips', () => {
+  it('«Збіг стеку»: the vacancy stack, hit style on the matched tokens only', () => {
+    withCard(cardFixture({ stackKeywords: ['react', 'TypeScript', 'GraphQL'] }))
     renderCard()
     const stack = screen.getByTestId('job-queue-card-stack')
     expect(within(stack).getByRole('heading', { name: 'Збіг стеку' })).toBeVisible()
-    const chip = within(stack).getByText('TypeScript')
-    expect(chip).toHaveClass('bg-yellow-subtle', 'text-primary', 'max-w-full', 'truncate')
-    expect(chip).toHaveAttribute('title', 'TypeScript')
+    const chips = within(stack).getAllByTestId('job-queue-card-stack-chip')
+    expect(chips.map((c) => c.textContent)).toEqual(['react', 'TypeScript', 'GraphQL'])
+    const hit = within(stack).getByText('TypeScript')
+    expect(hit).toHaveClass(
+      'bg-yellow-subtle',
+      'text-primary',
+      'max-w-full',
+      '[overflow-wrap:anywhere]',
+    )
+    expect(hit).toHaveAttribute('title', 'TypeScript')
+    expect(hit).toHaveAttribute('data-hit', 'true')
+    // matched case-insensitively: the API lowercases the vacancy stack, not the senior's tokens
+    expect(within(stack).getByText('react')).toHaveAttribute('data-hit', 'true')
+    const plain = within(stack).getByText('GraphQL')
+    expect(plain).toHaveAttribute('data-hit', 'false')
+    expect(plain).not.toHaveClass('bg-yellow-subtle')
+    expect(plain).toHaveClass(
+      'rounded-md',
+      'border',
+      'px-1.5',
+      'py-0.5',
+      'text-xs',
+      'text-muted-foreground',
+      'max-w-full',
+      '[overflow-wrap:anywhere]',
+    )
+    // a hit is not told by its style alone: a screen reader hears it after the token (SC 1.4.1)
+    expect(stack).toHaveTextContent(/react, збігаєтьсяTypeScript, збігаєтьсяGraphQL$/)
+    const marks = within(stack).getAllByText(', збігається')
+    expect(marks).toHaveLength(2)
+    for (const mark of marks) expect(mark).toHaveClass('sr-only')
   })
 
-  it('no matched stack: no «Збіг стеку» block', () => {
-    withCard(cardFixture({ matchedKeywords: [] }))
+  it('UX-M-1: a matched stack chip carries a decorative check, a plain one does not (SC 1.4.1)', () => {
+    withCard(cardFixture({ stackKeywords: ['react', 'GraphQL'] }))
     renderCard()
+    const stack = screen.getByTestId('job-queue-card-stack')
+    // exactly one check, on the matched chip: it sits inside it, not on the plain one
+    const icon = within(stack).getByTestId('job-queue-card-stack-hit-icon')
+    expect(icon).toHaveAttribute('aria-hidden', 'true')
+    expect(within(stack).getByText('react')).toContainElement(icon)
+    expect(within(stack).getByText('GraphQL')).not.toContainElement(icon)
+    // the check and the token share one line: a flex row, centred, with a gap
+    expect(within(stack).getByText('react')).toHaveClass('inline-flex', 'items-center', 'gap-1')
+    expect(within(stack).getByText('GraphQL')).not.toHaveClass('inline-flex')
+  })
+
+  it('UX-L-5: a long stack token wraps inside the chip instead of an ellipsis', () => {
+    withCard(
+      cardFixture({
+        matchedKeywords: [],
+        stackKeywords: ['averyveryverylongstacktokenwithoutanybreakpointswhatsoever'],
+      }),
+    )
+    renderCard()
+    const chip = screen.getByTestId('job-queue-card-stack-chip')
+    expect(chip).toHaveClass('max-w-full', '[overflow-wrap:anywhere]')
+    expect(chip).not.toHaveClass('truncate')
+  })
+
+  it('no stack at all: no «Збіг стеку» block; a stack with no hit still shows', () => {
+    const first = show(cardFixture({ matchedKeywords: [], stackKeywords: [] }))
     expect(screen.queryByTestId('job-queue-card-stack')).toBeNull()
+    first.unmount()
+    show(cardFixture({ matchedKeywords: [], stackKeywords: ['Go'] }))
+    expect(screen.getByText('Go')).toHaveAttribute('data-hit', 'false')
+  })
+
+  it('a pre-7.3b row with no stored stack falls back to the matched tokens', () => {
+    show(cardFixture({ stackKeywords: [] }))
+    const chips = screen.getAllByTestId('job-queue-card-stack-chip')
+    expect(chips.map((c) => c.textContent)).toEqual(['React', 'TypeScript'])
+  })
+
+  it('meta: «востаннє бачили» always, however recent (SPEC-L-1: the design has no threshold)', () => {
+    const now = Date.now()
+    const old = show(cardFixture({ lastSeenAt: new Date(now - 3 * 86_400_000).toISOString() }))
+    expect(screen.getByTestId('job-queue-card-meta')).toHaveTextContent(/ · востаннє бачили /)
+    old.unmount()
+    show(cardFixture({ lastSeenAt: new Date(now - 60_000).toISOString() }))
+    expect(screen.getByTestId('job-queue-card-meta')).toHaveTextContent(/ · востаннє бачили /)
+  })
+
+  it('terms: «Форма співпраці» names B2B or employment, and «Не вказано» when none is stated', () => {
+    const b2b = show(cardFixture({ engagementForm: 'B2B' }))
+    expect(screen.getByTestId('job-queue-terms')).toHaveTextContent('Форма співпраці: B2B')
+    b2b.unmount()
+    const emp = show(cardFixture({ engagementForm: 'EMPLOYMENT' }))
+    expect(screen.getByTestId('job-queue-terms')).toHaveTextContent(
+      'Форма співпраці: Трудовий договір',
+    )
+    emp.unmount()
+    // design §5.1: the engagement form stays visible even when the posting states none
+    show(cardFixture({ engagementForm: null }))
+    expect(screen.getByTestId('job-queue-terms')).toHaveTextContent('Форма співпраці: Не вказано')
+  })
+
+  it.each([
+    ['B2B', 'B2B' as const, 'B2B'],
+    ['employment', 'EMPLOYMENT' as const, 'Трудовий договір'],
+    ['none stated', null, 'Не вказано'],
+  ])('UX-L-1: terms value stands out, the label stays muted (%s)', (_name, form, value) => {
+    show(cardFixture({ engagementForm: form }))
+    const terms = screen.getByTestId('job-queue-terms')
+    expect(terms).toHaveClass('text-muted-foreground')
+    expect(within(terms).getByText(value)).toHaveClass('text-foreground')
+  })
+
+  it('UX-L-1: the terms line reads in English with the value still emphasised', async () => {
+    await loadCatalog('en')
+    show(cardFixture({ engagementForm: 'EMPLOYMENT' }))
+    const terms = screen.getByTestId('job-queue-terms')
+    expect(terms).toHaveTextContent(/^Contract type: Employment contract$/)
+    expect(within(terms).getByText('Employment contract')).toHaveClass('text-foreground')
+  })
+
+  it('UX-M-2: an excluded vacancy has no «Потребує розгляду» badge; a triage one does', () => {
+    const excluded = show(
+      cardFixture({ eligibility: 'TRIAGE', noMatchReason: 'EXCLUDED', seniority: 'UNKNOWN' }),
+    )
+    expect(screen.queryByTestId('job-queue-card-badges')).toBeNull()
+    excluded.unmount()
+    const withRank = show(
+      cardFixture({ eligibility: 'TRIAGE', noMatchReason: 'EXCLUDED', seniority: 'SENIOR' }),
+    )
+    expect(screen.getByTestId('job-queue-card-badges')).not.toHaveTextContent('Потребує розгляду')
+    expect(screen.getByTestId('job-queue-card-badges')).toHaveTextContent('Сеньйор')
+    withRank.unmount()
+    show(cardFixture({ eligibility: 'TRIAGE', noMatchReason: 'TRIAGE', seniority: 'UNKNOWN' }))
+    expect(screen.getByTestId('job-queue-card-badges')).toHaveTextContent('Потребує розгляду')
+  })
+
+  it('UX-L-2 / QA-LOW-3: the meta phrases are inline runs that never break inside themselves', () => {
+    const known = show(cardFixture())
+    const meta = screen.getByTestId('job-queue-card-meta')
+    // no flex box around the text: a flex wrapper moved it off the line's baseline
+    expect(within(meta).getByText(/^Опубліковано /).className).not.toMatch(/flex/)
+    expect(within(meta).getByText(/^Опубліковано /)).toHaveClass('whitespace-nowrap')
+    expect(within(meta).getByText(/^· востаннє бачили /)).toHaveClass('whitespace-nowrap')
+    expect(within(meta).getByText(/^Опубліковано /).textContent).toMatch(/^\S.*\S$/)
+    expect(within(meta).getByText(/^· востаннє бачили /).textContent).toMatch(/^\S.*\S$/)
+    // QA4-MED-1: the line breaks between phrases, so the space before each «·» is outside the
+    // nowrap spans, in the paragraph's own text
+    expect(meta.textContent).toMatch(/\S · востаннє/)
+    known.unmount()
+    show(cardFixture({ publishedAt: null }))
+    const unknown = screen.getByTestId('job-queue-card-meta')
+    const date = within(unknown).getByText(/^Дата публікації невідома/)
+    expect(date).toHaveClass('whitespace-nowrap')
+    expect(date.className).not.toMatch(/flex/)
+    expect(date).toContainElement(within(unknown).getByTestId('job-queue-card-meta-icon'))
+    expect(within(unknown).getByText(/^· вперше побачено /)).toHaveClass('whitespace-nowrap')
+    expect(within(unknown).getByText(/^· востаннє бачили /)).toHaveClass('whitespace-nowrap')
+    for (const phrase of [
+      /^Дата публікації невідома/,
+      /^· вперше побачено /,
+      /^· востаннє бачили /,
+    ]) {
+      expect(within(unknown).getByText(phrase).textContent).toMatch(/^\S.*\S$/)
+    }
+    expect(unknown.textContent).toMatch(/невідома · вперше побачено .*\S · востаннє/)
+    const icon = within(unknown).getByTestId('job-queue-card-meta-icon')
+    expect(icon).toHaveAttribute('aria-hidden', 'true')
+    expect(icon).toHaveClass('inline-block')
   })
 
   it('the seniors come before the description (the decision surface first)', () => {

@@ -75,7 +75,8 @@ export const queueRowJoins = (
   CROSS JOIN LATERAL (
     SELECT count(*) FILTER (WHERE m.outcome = 'LEAD') AS matched,
            count(*) FILTER (WHERE m.outcome = 'EXCLUDED'
-                              AND m.evidence->>'stage' = 'SCOPED_RESTRICTIONS') AS stop_listed
+                              AND m.evidence->>'stage' = 'SCOPED_RESTRICTIONS') AS stop_listed,
+           count(*) FILTER (WHERE m.outcome = 'TRIAGE') AS triaged
     ${liveVersionRows(versions)}) stats
   CROSS JOIN LATERAL (
     SELECT count(*) AS submitted FROM job_queue_assignments a
@@ -128,10 +129,24 @@ export const cardRow = (
 ): SQL =>
   sql`SELECT ${queueRowColumns(versions)}, b.text AS description,
              (listed.opportunity_revision IS NOT NULL
-              AND listed.opportunity_revision < o.revision) AS newer_than_list
+              AND listed.opportunity_revision < o.revision) AS newer_than_list,
+             o.last_observed_at, o.stack_keywords, o.manual_team_id,
+             stats.triaged, o.employer_verified,
+             (o.evaluated_revision = o.revision) IS TRUE AS evaluated_current, o.evaluation_verdict,
+             (SELECT rv.normalized->>'employmentType' FROM job_source_records sr
+                JOIN job_source_record_revisions rv ON rv.id = sr.latest_revision_id
+               WHERE sr.id = src.source_record_id) AS employment_type,
+             dis.version AS dismissal_version
         FROM job_opportunities o
         ${queueRowJoins(scope, versions)}
         LEFT JOIN job_text_blobs b ON b.sha256 = o.description_sha256
+        LEFT JOIN LATERAL (
+          SELECT dm.version FROM job_queue_dismissals dm
+           WHERE dm.opportunity_id = o.id
+             AND dm.scope_kind = ${scope.kind}::job_queue_scope_kind
+             AND dm.team_id IS NOT DISTINCT FROM ${scope.kind === 'TEAM' ? scope.teamId : null}::uuid
+           LIMIT 1
+        ) dis ON TRUE
         LEFT JOIN LATERAL (
           SELECT e.opportunity_revision
             FROM job_queue_generations g
@@ -156,6 +171,18 @@ export const seniorTotal = (versions: readonly LiveSeniorVersion[], id: string):
   sql`SELECT count(*) AS total ${matchedSeniors(versions)} WHERE o.id = ${id}::uuid`
 
 /**
+ * ADMIN team heading (Task 7.3b, design §5.6): the senior's first live membership, in the picker's
+ * order (`seniorOptionRows`). Joined for the STUDIO scope ONLY: a TEAM scope never reads another
+ * team's name for a shared senior.
+ */
+const studioSeniorTeam = sql`
+  LEFT JOIN LATERAL (
+    SELECT t.id, t.name FROM team_members tm JOIN teams t ON t.id = tm.team_id
+     WHERE tm.user_id = ms.senior_id AND tm.left_at IS NULL
+     ORDER BY t.archived_at IS NOT NULL, t.type <> 'SENIOR', t.name, t.id
+     LIMIT 1) st ON TRUE`
+
+/**
  * The card's seniors. The own-scope join selects a submission's columns only when the row is the
  * scope's, so a foreign row's id, timestamps, version and actor never leave the database; for a
  * shared senior a foreign LIVE row becomes one boolean. `IS NOT TRUE` because a row with no team
@@ -175,9 +202,10 @@ export const seniorRows = (
                       WHERE f.opportunity_id = o.id AND f.senior_id = ms.senior_id
                         AND f.state = 'TAKEN'
                         AND (${scopedTeamRowPredicate(scope, sql`f.team_id`)}) IS NOT TRUE
-                    ) AS submitted_elsewhere
+                    ) AS submitted_elsewhere${scope.kind === 'STUDIO' ? sql`, st.id AS team_id, st.name AS team_name` : sql``}
        ${matchedSeniors(versions)}
         JOIN users u ON u.id = ms.senior_id
+        ${scope.kind === 'STUDIO' ? studioSeniorTeam : sql``}
         LEFT JOIN job_queue_assignments a
           ON a.opportunity_id = o.id AND a.senior_id = ms.senior_id
          AND ${scopedTeamRowPredicate(scope, sql`a.team_id`)}
@@ -204,10 +232,17 @@ export const sourceRows = (id: string, after: string | undefined, limit: number)
 
 /**
  * The possible-duplicate set (`possibleDuplicateJoin`, the one definition Task 6.3 shares), minus the
- * opportunity itself. `total` counts visible ones only.
+ * opportunity itself. `total` counts visible ones only. `submitted_senior_names` (Task 7.3b, §5.8)
+ * are the seniors of THIS scope's live submissions on the duplicate, each once (a STUDIO view may
+ * see one senior submitted by two teams): another team's never count for a TEAM scope.
  */
 export const duplicateRows = (scope: JobQueueScope, id: string, limit: number): SQL =>
-  sql`SELECT dup.id, dup.title, dup.employer_name, count(*) OVER () AS total
+  sql`SELECT dup.id, dup.title, dup.employer_name, count(*) OVER () AS total,
+             (SELECT coalesce(jsonb_agg(su.display_name ORDER BY su.display_name, su.id), '[]'::jsonb)
+                FROM users su
+               WHERE su.id IN (SELECT da.senior_id FROM job_queue_assignments da
+                                WHERE da.opportunity_id = dup.id AND da.state = 'TAKEN'
+                                  AND ${scopedTeamRowPredicate(scope, sql`da.team_id`)})) AS submitted_senior_names
         FROM job_opportunities o
         JOIN job_opportunities dup ON ${possibleDuplicateJoin('o', 'dup')} AND dup.id <> o.id
        WHERE o.id = ${id}::uuid
