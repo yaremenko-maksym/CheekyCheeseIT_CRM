@@ -6,6 +6,12 @@
 # and the fail-closed branch of the hook refused every Bash call.
 import importlib.util, os, posixpath, re, shlex, subprocess, sys
 
+# The hook reads the reasons below as UTF-8. On Windows a pipe gets the locale code
+# page (cp1251/cp1252) instead, and -I makes python ignore PYTHONIOENCODING /
+# PYTHONUTF8, so every Cyrillic reason reached the refusal as mojibake. Set it here.
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
+
 # The shared reading of a line continuation (SR-M-1 of #1294); loaded by absolute path,
 # as pre-bash-safety.sh does. A load failure kills the analyzer, and the hook refuses.
 _spec = importlib.util.spec_from_file_location(

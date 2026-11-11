@@ -6,6 +6,12 @@
 # 32767 characters, and this body had reached 32056 (a launch failure there is rc 126).
 import importlib.util, json, os, re, shlex, sys, urllib.parse
 
+# The hook reads UTF-8. On Windows a pipe gets the locale code page (cp1251/cp1252)
+# instead, and -I makes python ignore PYTHONIOENCODING / PYTHONUTF8, so a non-ASCII
+# message (the em dash of the BLOCK line) arrived garbled. Set it here.
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
+
 # By absolute path, not via sys.path — see the note in pre-bash-safety.sh.
 _spec = importlib.util.spec_from_file_location(
     "cmdscan", os.path.join(os.environ["CMDSCAN_LIB"], "cmdscan.py"))
