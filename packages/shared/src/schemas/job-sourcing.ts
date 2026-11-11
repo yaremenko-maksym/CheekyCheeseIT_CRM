@@ -2084,6 +2084,10 @@ const jobQueueCardDuplicatesPreviewSchema = jobPossibleDuplicatesPreviewSchema
 export const jobQueueNoMatchReasonSchema = z.enum(['STOP_LISTED', 'TRIAGE', 'NO_MATCH'])
 export type JobQueueNoMatchReason = z.infer<typeof jobQueueNoMatchReasonSchema>
 
+/** §5.1 «Форма співпраці»: only a form the posting states unambiguously; null names none. */
+export const jobQueueEngagementFormSchema = z.enum(['B2B', 'EMPLOYMENT'])
+export type JobQueueEngagementForm = z.infer<typeof jobQueueEngagementFormSchema>
+
 /** GET `/job-queue/:id` — the latest canonical facts, authorized for the viewer. */
 export const jobQueueCardResponseSchema = jobQueueListItemSchema
   .extend({
@@ -2100,6 +2104,8 @@ export const jobQueueCardResponseSchema = jobQueueListItemSchema
     stackKeywords: z.array(z.string().max(MAX_STACK_KEYWORD_CHARS)).max(MAX_STACK_KEYWORDS),
     /** Null when at least one senior matched. */
     noMatchReason: jobQueueNoMatchReasonSchema.nullable(),
+    /** The primary source's stated engagement form; null when unknown, mixed or not stated. */
+    engagementForm: jobQueueEngagementFormSchema.nullable(),
     /**
      * The viewer's own-scope dismissal row, live or undone; null when never dismissed. Its
      * `version` is what a re-hide after undo must send (`hidden` says whether it is live).

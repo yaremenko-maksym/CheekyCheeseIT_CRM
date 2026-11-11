@@ -92,6 +92,7 @@ const cardBody = (over: Record<string, unknown> = {}) => ({
   lastSeenAt: '2026-10-02T00:00:00.000Z',
   stackKeywords: ['react'],
   noMatchReason: null,
+  engagementForm: null,
   dismissal: null,
   ...over,
 })

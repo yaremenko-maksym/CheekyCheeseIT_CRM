@@ -75,7 +75,8 @@ export const queueRowJoins = (
   CROSS JOIN LATERAL (
     SELECT count(*) FILTER (WHERE m.outcome = 'LEAD') AS matched,
            count(*) FILTER (WHERE m.outcome = 'EXCLUDED'
-                              AND m.evidence->>'stage' = 'SCOPED_RESTRICTIONS') AS stop_listed
+                              AND m.evidence->>'stage' = 'SCOPED_RESTRICTIONS') AS stop_listed,
+           count(*) FILTER (WHERE m.outcome = 'TRIAGE') AS triaged
     ${liveVersionRows(versions)}) stats
   CROSS JOIN LATERAL (
     SELECT count(*) AS submitted FROM job_queue_assignments a
@@ -130,6 +131,11 @@ export const cardRow = (
              (listed.opportunity_revision IS NOT NULL
               AND listed.opportunity_revision < o.revision) AS newer_than_list,
              o.last_observed_at, o.stack_keywords, o.manual_team_id,
+             stats.triaged, o.employer_verified,
+             (o.evaluated_revision = o.revision) IS TRUE AS evaluated_current,
+             (SELECT rv.normalized->>'employmentType' FROM job_source_records sr
+                JOIN job_source_record_revisions rv ON rv.id = sr.latest_revision_id
+               WHERE sr.id = src.source_record_id) AS employment_type,
              dis.version AS dismissal_version
         FROM job_opportunities o
         ${queueRowJoins(scope, versions)}

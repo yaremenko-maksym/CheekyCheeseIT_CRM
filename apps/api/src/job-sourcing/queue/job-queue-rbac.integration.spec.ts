@@ -856,6 +856,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
           'descriptionMd',
           'dismissal',
           'eligibility',
+          'engagementForm',
           'firstSeenAt',
           'hidden',
           'lastSeenAt',

@@ -70,6 +70,7 @@ const CARD = {
   lastSeenAt: T,
   stackKeywords: [],
   noMatchReason: 'TRIAGE',
+  engagementForm: null,
   dismissal: null,
 }
 const SUBMISSION = {

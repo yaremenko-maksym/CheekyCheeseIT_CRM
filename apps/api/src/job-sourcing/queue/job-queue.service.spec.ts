@@ -763,19 +763,41 @@ describe('matchEvidence (Task 7.3b «Чому збіг»)', () => {
 })
 
 describe('noMatchReason (Task 7.3b, three empty states)', () => {
+  // A sourced card evaluated at its current revision, verified, with no row for any own senior.
+  const evaluated = {
+    matched: '0',
+    stop_listed: '0',
+    triaged: '0',
+    manual_team_id: null,
+    employer_verified: true,
+    evaluated_current: true,
+  }
   it('is null as soon as one senior matched, whatever else holds', () => {
-    expect(noMatchReason({ matched: '1', stop_listed: '3', manual_team_id: TEAM })).toBeNull()
+    expect(noMatchReason({ ...evaluated, matched: '1', stop_listed: '3', triaged: '2' })).toBeNull()
   })
   it('a stop-list on every matching senior is STOP_LISTED, a manual card included', () => {
-    expect(noMatchReason({ matched: '0', stop_listed: '1', manual_team_id: TEAM })).toBe(
+    expect(noMatchReason({ ...evaluated, stop_listed: '1', triaged: '1' })).toBe('STOP_LISTED')
+    expect(noMatchReason({ ...evaluated, stop_listed: '1', manual_team_id: TEAM })).toBe(
       'STOP_LISTED',
     )
   })
-  it('a manual card nobody matched is NO_MATCH: no classifier placed it', () => {
-    expect(noMatchReason({ matched: '0', stop_listed: '0', manual_team_id: TEAM })).toBe('NO_MATCH')
+  it('a TRIAGE row for an own senior is TRIAGE, however verified or evaluated (SPEC-H-1)', () => {
+    expect(noMatchReason({ ...evaluated, triaged: '1' })).toBe('TRIAGE')
+    expect(noMatchReason({ ...evaluated, triaged: '1', manual_team_id: TEAM })).toBe('TRIAGE')
   })
-  it('any other unmatched card is TRIAGE (granted, subscribed, or ADMIN studio triage)', () => {
-    expect(noMatchReason({ matched: '0', stop_listed: '0', manual_team_id: null })).toBe('TRIAGE')
+  it('a manual card nobody matched is NO_MATCH: it is never evaluated, a person placed it', () => {
+    const manual = { ...evaluated, manual_team_id: TEAM }
+    expect(noMatchReason({ ...manual, employer_verified: false, evaluated_current: false })).toBe(
+      'NO_MATCH',
+    )
+  })
+  it('a sourced card evaluated at its revision with no own row is NO_MATCH (SPEC-H-1)', () => {
+    expect(noMatchReason(evaluated)).toBe('NO_MATCH')
+  })
+  it('an unverified employer, or no evaluation at the current revision, is TRIAGE', () => {
+    expect(noMatchReason({ ...evaluated, employer_verified: false })).toBe('TRIAGE')
+    expect(noMatchReason({ ...evaluated, evaluated_current: false })).toBe('TRIAGE')
+    expect(noMatchReason({ ...evaluated, evaluated_current: null })).toBe('TRIAGE')
   })
 })
 
@@ -842,6 +864,10 @@ const cardDbRow = (over: Record<string, unknown> = {}) => ({
   last_observed_at: new Date('2026-11-03T00:00:00.000Z'),
   stack_keywords: ['go', 'react'],
   manual_team_id: null,
+  triaged: '0',
+  employer_verified: true,
+  evaluated_current: true,
+  employment_type: 'B2B',
   dismissal_version: null,
   ...over,
 })
@@ -902,6 +928,7 @@ describe('JobQueueService.card', () => {
       lastSeenAt: '2026-11-03T00:00:00.000Z',
       stackKeywords: ['go', 'react'],
       noMatchReason: null,
+      engagementForm: 'B2B',
       dismissal: null,
       seniors: {
         items: [
@@ -970,6 +997,15 @@ describe('JobQueueService.card', () => {
     expect(card.stackKeywords[59]).toBe('k58')
     const empty = await tailCard(teamScope, cardDbRow({ stack_keywords: null })).svc.card(user, OPP)
     expect(empty.stackKeywords).toEqual([])
+  })
+
+  it('the engagement form is mapped from the primary source text; unknown or none is null (SPEC-M-1)', async () => {
+    const form = async (employment_type: unknown) =>
+      (await tailCard(teamScope, cardDbRow({ employment_type })).svc.card(user, OPP)).engagementForm
+    expect(await form('Employment contract')).toBe('EMPLOYMENT')
+    expect(await form('b2b')).toBe('B2B')
+    expect(await form('full_time')).toBeNull()
+    expect(await form(null)).toBeNull()
   })
 
   it('the stack names each token once, deduped after clipping, before the cap', async () => {

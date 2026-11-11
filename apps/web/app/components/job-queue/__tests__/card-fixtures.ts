@@ -86,6 +86,7 @@ export function cardFixture(over: Partial<JobQueueCardResponseDto> = {}): JobQue
     lastSeenAt: '2026-11-02T10:00:00.000Z',
     stackKeywords: ['React', 'TypeScript', 'GraphQL'],
     noMatchReason: null,
+    engagementForm: null,
     dismissal: null,
     ...over,
   }

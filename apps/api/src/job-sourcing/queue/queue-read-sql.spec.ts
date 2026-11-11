@@ -351,6 +351,15 @@ describe('field scoping — what each read binds', () => {
   it('the card row carries last seen, the stack, the manual team and its own dismissal (Task 7.3b)', () => {
     const { text, params } = render(cardRow(team, versions, OPP))
     expect(text).toContain('o.last_observed_at, o.stack_keywords, o.manual_team_id')
+    // SPEC-H-1: the no-match reason reads own TRIAGE rows, the employer check and the evaluation
+    expect(text).toContain("count(*) FILTER (WHERE m.outcome = 'TRIAGE') AS triaged")
+    expect(text).toContain(
+      'stats.triaged, o.employer_verified, (o.evaluated_revision = o.revision) IS TRUE AS evaluated_current',
+    )
+    // SPEC-M-1: the primary source's own employment text, from its latest revision
+    expect(text).toContain(
+      "(SELECT rv.normalized->>'employmentType' FROM job_source_records sr JOIN job_source_record_revisions rv ON rv.id = sr.latest_revision_id WHERE sr.id = src.source_record_id) AS employment_type",
+    )
     expect(text).toContain(
       'LEFT JOIN LATERAL ( SELECT dm.version FROM job_queue_dismissals dm WHERE dm.opportunity_id = o.id AND dm.scope_kind = $',
     )

@@ -201,6 +201,12 @@ const evaluated = async (opp: string, verdict: 'OPEN' | 'EXCLUDED') => {
     [id(opp), verdict, opportunityInputsVersion(exclusions)],
   )
 }
+/** A verified employer needs a key (`ck_job_opportunities_verified_has_key`); its own id is unique. */
+const verifyEmployer = (opp: string) =>
+  sqlq(
+    `UPDATE job_opportunities SET employer_verified = TRUE, employer_key = id::text WHERE id = $1`,
+    [id(opp)],
+  )
 const grant = (opp: string, team: string) =>
   sqlq(
     `INSERT INTO job_opportunity_team_triage
@@ -1266,7 +1272,53 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       expect(card.noMatchReason).toBeNull()
     })
 
+    it('the engagement form is read from the primary source revision; none stated is null', async () => {
+      await mkOpp('opp73Form')
+      const { rows } = await sqlq(
+        `SELECT source_record_id FROM job_opportunity_sources WHERE opportunity_id = $1`,
+        [id('opp73Form')],
+      )
+      const rev = await sqlq(
+        `INSERT INTO job_source_record_revisions
+           (source_record_id, adapter_version, normalizer_version, content_hash, normalized, original_identity)
+         VALUES ($1, 'a', 'n', $2, $3::jsonb, '{}') RETURNING id`,
+        [rows[0].source_record_id, 'f'.repeat(64), JSON.stringify({ employmentType: 'B2B' })],
+      )
+      await sqlq(`UPDATE job_source_records SET latest_revision_id = $2 WHERE id = $1`, [
+        rows[0].source_record_id,
+        rev.rows[0].id,
+      ])
+      expect((await service.card(admin(), id('opp73Form'))).engagementForm).toBe('B2B')
+      // no revision on the source: the card states no form
+      expect((await service.card(admin(), id('oppExcluded'))).engagementForm).toBeNull()
+    })
+
+    it('no-match reason: an evaluated sourced card with no own row is a zero match (SPEC-H-1)', async () => {
+      await mkOpp('opp73Zero')
+      await evaluated('opp73Zero', 'OPEN')
+      await verifyEmployer('opp73Zero')
+      const zero = await service.card(admin(), id('opp73Zero'))
+      expect(zero).toMatchObject({ eligibility: 'TRIAGE', matchedSeniorCount: 0 })
+      expect(zero.noMatchReason).toBe('NO_MATCH')
+      // the same card, before any evaluation of its current revision, is still in triage
+      await sqlq(`UPDATE job_opportunities SET revision = revision + 1 WHERE id = $1`, [
+        id('opp73Zero'),
+      ])
+      expect((await service.card(admin(), id('opp73Zero'))).noMatchReason).toBe('TRIAGE')
+    })
+
+    it('no-match reason: an own TRIAGE match row keeps a verified, evaluated card in triage', async () => {
+      await mkOpp('opp73Triage')
+      await grant('opp73Triage', 'teamA')
+      await evaluated('opp73Triage', 'OPEN')
+      await verifyEmployer('opp73Triage')
+      await match('opp73Triage', 'senA', 'TRIAGE', { reasons: [] })
+      expect((await service.card(hrA(), id('opp73Triage'))).noMatchReason).toBe('TRIAGE')
+      expect((await service.card(admin(), id('opp73Triage'))).noMatchReason).toBe('TRIAGE')
+    })
+
     it('no-match reason: triage, stop-list and a manual card with no match are three answers', async () => {
+      // evaluated OPEN, but the employer is not verified: triage
       expect((await service.card(hrA(), id('oppGrant'))).noMatchReason).toBe('TRIAGE')
 
       await mkOpp('opp73Stop')

@@ -122,6 +122,7 @@ const card = {
   lastSeenAt: LATER,
   stackKeywords: ['react', 'typescript', 'aws'],
   noMatchReason: null,
+  engagementForm: 'B2B',
   dismissal: { scope: 'TEAM', version: 2 },
   seniors: { items: [senior], totalCount: 1, nextCursor: null },
   sources: {
@@ -755,6 +756,14 @@ describe('field bounds, both sides of each limit (CR-M-2)', () => {
     }
     no(jobQueueCardResponseSchema, { ...card, noMatchReason: 'OTHER' })
     no(jobQueueCardResponseSchema, { ...card, noMatchReason: undefined })
+  })
+
+  it('engagementForm: B2B, EMPLOYMENT or null; the raw provider text never passes', () => {
+    for (const form of ['B2B', 'EMPLOYMENT', null]) {
+      ok(jobQueueCardResponseSchema, { ...card, engagementForm: form })
+    }
+    no(jobQueueCardResponseSchema, { ...card, engagementForm: 'full_time' })
+    no(jobQueueCardResponseSchema, { ...card, engagementForm: undefined })
   })
 
   it('dismissal: null or { scope, version >= 1 }', () => {

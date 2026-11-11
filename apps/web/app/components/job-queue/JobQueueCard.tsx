@@ -32,8 +32,6 @@ const inside = (target: EventTarget | null, selector: string) =>
 const CHIP = 'inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs'
 /** A vacancy stack token no senior of the scope matches. */
 const STACK_CHIP = 'rounded-md border px-1.5 py-0.5 text-xs text-muted-foreground'
-/** «востаннє бачили» joins the meta once the vacancy has gone unseen this long (spec §5.1). */
-const LAST_SEEN_AFTER_MS = 86_400_000
 
 function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
   const { t, i18n } = useLingui()
@@ -42,9 +40,7 @@ function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
   const seniority = SENIORITY_LABEL[card.seniority]
   const closed = card.availability === 'CLOSED' || card.availability === 'EXPIRED'
   const firstSeenAgo = formatRelativeTime(card.firstSeenAt, locale)
-  const lastSeenAgo =
-    Date.now() - Date.parse(card.lastSeenAt) >= LAST_SEEN_AFTER_MS &&
-    formatRelativeTime(card.lastSeenAt, locale)
+  const lastSeenAgo = formatRelativeTime(card.lastSeenAt, locale)
 
   return (
     <>
@@ -91,13 +87,20 @@ function CardHeader({ card }: { card: JobQueueCardResponseDto }) {
             </span>
           </span>
         )}
-        {lastSeenAgo && (
-          <span className="whitespace-nowrap">
-            {' · '}
-            <Trans>востаннє бачили {lastSeenAgo}</Trans>
-          </span>
-        )}
+        <span className="whitespace-nowrap">
+          {' · '}
+          <Trans>востаннє бачили {lastSeenAgo}</Trans>
+        </span>
       </p>
+      {card.engagementForm && (
+        <p data-testid="job-queue-terms" className="text-xs text-muted-foreground">
+          {card.engagementForm === 'B2B' ? (
+            <Trans>Форма співпраці: B2B</Trans>
+          ) : (
+            <Trans>Форма співпраці: Трудовий договір</Trans>
+          )}
+        </p>
+      )}
     </>
   )
 }

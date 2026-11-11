@@ -404,28 +404,26 @@ describe('JobQueueCard', () => {
     expect(chips.map((c) => c.textContent)).toEqual(['React', 'TypeScript'])
   })
 
-  it('meta: «востаннє бачили» only when the vacancy was last seen a day or more ago', () => {
+  it('meta: «востаннє бачили» always, however recent (SPEC-L-1: the design has no threshold)', () => {
     const now = Date.now()
-    const first = show(cardFixture({ lastSeenAt: new Date(now - 3 * 86_400_000).toISOString() }))
+    const old = show(cardFixture({ lastSeenAt: new Date(now - 3 * 86_400_000).toISOString() }))
     expect(screen.getByTestId('job-queue-card-meta')).toHaveTextContent(/ · востаннє бачили /)
-    first.unmount()
-    show(cardFixture({ lastSeenAt: new Date(now - 3_600_000).toISOString() }))
-    expect(screen.getByTestId('job-queue-card-meta')).not.toHaveTextContent('востаннє')
+    old.unmount()
+    show(cardFixture({ lastSeenAt: new Date(now - 60_000).toISOString() }))
+    expect(screen.getByTestId('job-queue-card-meta')).toHaveTextContent(/ · востаннє бачили /)
   })
 
-  it('meta: «востаннє бачили» from exactly 24 h, not a millisecond before', () => {
-    const now = Date.parse('2026-11-11T12:00:00.000Z')
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(now)
-    try {
-      const day = show(cardFixture({ lastSeenAt: new Date(now - 86_400_000).toISOString() }))
-      expect(screen.getByTestId('job-queue-card-meta')).toHaveTextContent(/ · востаннє бачили /)
-      day.unmount()
-      show(cardFixture({ lastSeenAt: new Date(now - 86_399_999).toISOString() }))
-      expect(screen.getByTestId('job-queue-card-meta')).not.toHaveTextContent('востаннє')
-    } finally {
-      vi.useRealTimers()
-    }
+  it('terms: «Форма співпраці» names B2B or employment, and is absent when none is stated', () => {
+    const b2b = show(cardFixture({ engagementForm: 'B2B' }))
+    expect(screen.getByTestId('job-queue-terms')).toHaveTextContent('Форма співпраці: B2B')
+    b2b.unmount()
+    const emp = show(cardFixture({ engagementForm: 'EMPLOYMENT' }))
+    expect(screen.getByTestId('job-queue-terms')).toHaveTextContent(
+      'Форма співпраці: Трудовий договір',
+    )
+    emp.unmount()
+    show(cardFixture({ engagementForm: null }))
+    expect(screen.queryByTestId('job-queue-terms')).toBeNull()
   })
 
   it('the seniors come before the description (the decision surface first)', () => {

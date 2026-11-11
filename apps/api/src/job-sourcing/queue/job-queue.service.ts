@@ -25,6 +25,7 @@ import type { z } from 'zod'
 import { apiError } from '../../common/api-error'
 import type { Env } from '../../config/env'
 import { DatabaseService } from '../../database/database.service'
+import { engagementFormOf } from '../funnel/layer1'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
   assertCursorCurrent,
@@ -167,15 +168,17 @@ export function matchEvidence(
 }
 
 /**
- * Why a card has no matched senior (Task 7.3b, design §5.4–5.5). A stop-list wins; a manual card
- * was placed by a person, so nobody matching is a zero match; anything else unmatched reached the
- * viewer through triage (grant, subscription or studio triage). Unknown-stack versus known-but-
- * unmatched is not persisted for a team or studio view, so those stay TRIAGE.
+ * Why a card has no matched senior (Task 7.3b, design §5.4–5.5, SPEC-H-1), first that holds:
+ * a stop-list; an own senior's live TRIAGE row (the stack could not be judged); a manual card
+ * (never evaluated, a person placed it: nobody matching is a zero match); an unverified employer
+ * or no evaluation at the current revision (TRIAGE); else evaluated with no own row: NO_MATCH.
  */
 export function noMatchReason(r: Row): JobQueueNoMatchReason | null {
   if (count(r['matched']) > 0) return null
   if (count(r['stop_listed']) > 0) return 'STOP_LISTED'
-  return r['manual_team_id'] == null ? 'TRIAGE' : 'NO_MATCH'
+  if (count(r['triaged']) > 0) return 'TRIAGE'
+  if (r['manual_team_id'] != null) return 'NO_MATCH'
+  return r['employer_verified'] === true && r['evaluated_current'] === true ? 'NO_MATCH' : 'TRIAGE'
 }
 
 /** The union over the scope's LEAD seniors, never attributed. Sorted: the cap keeps a stable set. */
@@ -368,6 +371,9 @@ export class JobQueueService {
         ),
       ].slice(0, MAX_STACK_KEYWORDS),
       noMatchReason: noMatchReason(row),
+      engagementForm: engagementFormOf(
+        row['employment_type'] == null ? null : String(row['employment_type']),
+      ),
       dismissal:
         // A NONE scope never gets this far: `resolve` / `assertVisible` refuse it first.
         row['dismissal_version'] == null || scope.kind === 'NONE'

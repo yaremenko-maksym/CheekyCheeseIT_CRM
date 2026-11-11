@@ -7438,6 +7438,10 @@ msgstr "Співбесіду збережено"
 msgid "Підтвердження…"
 msgstr "Підтвердження…"
 
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgid "Форма співпраці: B2B"
+msgstr "Форма співпраці: B2B"
+
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Правка суми для цього рядка недоступна"
 msgstr "Правка суми для цього рядка недоступна"
@@ -7681,6 +7685,10 @@ msgstr "Створити"
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 msgid "Назад до списку"
 msgstr "Назад до списку"
+
+#: apps/web/app/components/job-queue/JobQueueCard.tsx
+msgid "Форма співпраці: Трудовий договір"
+msgstr "Форма співпраці: Трудовий договір"
 
 #. placeholder {0}: parts.length
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ExistingSalaryParts.tsx
