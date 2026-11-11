@@ -356,7 +356,7 @@ export const NEW_ROWS = [
     isNew: true,
   },
 ]
-/** Same amount, but an earlier row (fails the server-time test): «схожа», never a «збіг». */
+/** Same type, currency and amount, another description, an earlier row: «схожа · інший опис», muted, never a «збіг». */
 export const SIMILAR_ROW = {
   t: 'Обладнання · ноутбук',
   s: 'Витрата · 11.11.2026',
@@ -364,7 +364,7 @@ export const SIMILAR_ROW = {
   time: '14:29',
   ic: 'receipt',
   neg: true,
-  tag: 'схожа',
+  tag: 'схожа · інший опис',
 }
 
 /** Equal amount, created after the send, but the payload differs (the server trimmed the description): a warning «схожа». */
@@ -375,7 +375,7 @@ export const SIMILAR_AFTER = {
   time: '14:33',
   ic: 'receipt',
   neg: true,
-  tag: 'схожа',
+  tag: 'схожа · інший опис',
   warn: true,
 }
 
@@ -393,7 +393,8 @@ export const MATCH_ROW = {
  * «Перевірити список»: the list opens as a sheet over the kept form, refetched on open. It lists only rows
  * created from `t − 5 хв`, newest created first, without the list's filters or date sections. Only a row
  * whose every sent field matches and whose created_at >= t + offset − 5 s (offset from the `Date` header)
- * is highlighted («збіг»); an equal amount that fails either test is «схожа»; other new rows say «нова».
+ * is highlighted («збіг»); the same type, currency and amount with another field different is «схожа» (it
+ * names the field); a different type or currency is «нова», whatever the amount.
  * «Немає — створити ще раз» stays aria-disabled until 60 s after the failure arrived; then one automatic
  * refetch runs and the status region announces the unlock once. The countdown is never in a live region.
  * rows: 'none' (new rows, no match), 'match', 'similar' (a warning «схожа» after the send), 'empty', 'failed' (the refetch failed: an alert with
@@ -407,7 +408,7 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
     : rows === 'match'
       ? 'Схоже, це ваша транзакція: −1 250,50 USD, створена о 14:33. Перевірте її, перш ніж створювати ще раз.'
       : rows === 'similar'
-        ? 'У списку є схожа о 14:33: та сама сума, але інші дані. Перевірте її, перш ніж створювати ще раз.'
+        ? 'У списку є схожа о 14:33: та сама сума, інший опис. Перевірте її, перш ніж створювати ще раз.'
         : ready
           ? 'Список оновлено через хвилину після помилки. Якщо транзакції в ньому немає, її можна створити ще раз.'
           : 'Сервер міг зберегти транзакцію із запізненням. Через хвилину після помилки список оновиться сам, і тоді її можна буде створити ще раз.'
@@ -441,7 +442,7 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
     rows === 'none'
       ? `<div class="t-foot muted num" style="text-align:center">Збігів немає</div>`
       : ''
-  const footer = `<div style="display:grid;gap:8px;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)">${noMatch}<span class="btn ${rows === 'match' ? 'primary' : 'secondary'}" role="button"${rows === 'match' ? '' : ' aria-haspopup="dialog"'} style="width:100%">${icon('check', { size: 18 })}Є в списку — закрити чернетку</span>${recreate}</div>`
+  const footer = `<div style="display:grid;gap:8px;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)">${noMatch}<span class="btn ${rows === 'match' || rows === 'similar' ? 'primary' : 'secondary'}" role="button"${rows === 'match' ? '' : ' aria-haspopup="dialog"'} style="width:100%">${icon('check', { size: 18 })}Є в списку — закрити чернетку</span>${recreate}</div>`
   const sh = sheet({
     w,
     h,
@@ -683,6 +684,10 @@ export const confirmRecreate = (w, h) =>
       overSheet: true,
     }),
   )
+
+/** A warning «схожа» and no «збіг»: «Є в списку — закрити чернетку» is the one filled primary (its named confirm stays). */
+export const failureUnknownSimilar = (w, h) =>
+  failureUnknownList(w, h, { ready: true, rows: 'similar' })
 
 /** Empty list, «Є в списку — закрити чернетку» without a «збіг»: closing drops the frozen payload, so it asks. */
 export const failureUnknownEmpty = (w, h) =>

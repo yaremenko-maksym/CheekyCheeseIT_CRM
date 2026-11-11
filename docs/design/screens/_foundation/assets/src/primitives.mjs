@@ -7,6 +7,7 @@ import {
   uploadPillInflight,
   quickAddDrafts,
   sessionExpired,
+  failureUnknownSimilar,
 } from './money-form.mjs'
 import {
   sheetMedium,
@@ -168,6 +169,7 @@ export function frames() {
     M('alert-pagekill-sent-375', 375, 812, pageKillAlert(375, 812, 'sent')),
     M('check-sheet-boot-375', 375, 812, checkSheetBoot(375, 812)),
     M('alert-pagekill-failed-375', 375, 812, pageKillAlert(375, 812, 'failed')),
+    M('toast-error-unknown-similar-375', 375, 812, failureUnknownSimilar(375, 812)),
     M('confirm-recreate-375', 375, 812, confirmRecreate(375, 812)),
     M('alert-session-expired-375', 375, 812, sessionExpired(375, 812)),
     M('confirm-discard-draft-375', 375, 812, confirmDiscardDraft(375, 812)),
