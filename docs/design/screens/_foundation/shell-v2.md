@@ -16,7 +16,7 @@
 | design-gate    | **degraded** — Playwright renders of HTML prototypes (`assets/src/`), Claude Design not driven                                                      |
 | Status         | `captured` (mockups done; mockup-gate council pending)                                                                                              |
 | Sample data    | invented (names, amounts, counts)                                                                                                                   |
-| Contact sheet  | `assets/shell-v2/_contact-sheet.png`                                                                                                                |
+| Contact sheets | `assets/shell-v2/_contact-sheet.png` (phones) · `assets/shell-v2/_contact-sheet-wide.png` (tablet / desktop)                                        |
 
 ---
 
@@ -70,8 +70,18 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   above the tab bar. Hidden while the keyboard is open and while a sheet is open.
 - Menu: a medium sheet listing the role's actions (icon, label, one-line hint). Each row 64 px.
 - `quick-add-txn-keyboard-375`: «Нова транзакція» opens as a large sheet with the amount field focused,
-  the decimal keyboard up, and a keyboard accessory bar (Готово). The sheet content scrolls above the
-  keyboard; the focused field is never covered.
+  the decimal keyboard up, and a keyboard accessory bar (˄ ˅ previous / next field, «Готово»). The type
+  toggle is the role's create set, the same as `form-money-375` (ADMIN: Витрата / Дохід / Переказ). The
+  sheet content scrolls above the keyboard; the focused field is never covered. The frame is
+  illustrative; the Wave 1 finance spec owns the form.
+- **Save waits for the receipt upload.** While a receipt uploads, the save button is not a plain submit:
+  it shows the upload progress («Зберегти · чек 62%», a progress fill, `aria-disabled` and described by
+  the receipt status line). A tap arms the save: one request is sent automatically when the upload
+  reaches 100%, so a form without an idempotency key still sends exactly once. Until that request is
+  sent, the sheet stays dismissible (Скасувати, drag, scrim); dismissing cancels the armed save (nothing
+  was sent), the upload keeps going under the global upload pill, and the draft is kept for the session.
+  An upload failure disarms the save and shows its error on the receipt card; the user may replace the
+  file or remove it and save without a receipt.
 
 ### More sheet
 
@@ -82,6 +92,11 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 
 - **Loading** (`state-loading-375`): shell renders immediately; content area shows a layout-matching
   skeleton. The tab bar is interactive during loading.
+- **Empty** (`state-empty-375`): a centred block (icon tile, title, one line) names the next step («Натисніть
+  «+», щоб додати першу»); the «+» stays where it always is, so the screen has one entry point. A
+  filtered-empty list is different: it offers «Скинути фільтри» (`primitives-v2/listrow-empty-error-375`).
+- **Error** (`state-error-375`): `role="alert"` block «Не вдалося завантажити транзакції» + «Нічого не
+  змінено» + «Спробувати ще». The retry re-runs the read query only (safe); it is never a money write.
 - **Offline** (`state-offline-375`): a slim `role="status"` banner under the top bar («Немає з’єднання»),
   cached content stays visible, writes queue nothing (spec §4.5b: nothing survives a close).
 - **Impersonation** (`state-impersonation-375`): the existing banner, pinned under the top bar, with
@@ -104,7 +119,8 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 
 - 248 px, `bg-card`, grouped (overlines), 36 px rows, active row `bg-accent` + yellow icon + 2 px yellow
   leading bar. Footer: user row (avatar, name, role) opening the profile menu.
-- **Collapsible** to a 64 px icon rail (toggle at the top, `[` shortcut); every icon gets a tooltip with the
+- **Collapsible** to a 64 px icon rail (toggle at the top, or the single key `[`, which the SC 2.1.4 toggle in the `?` sheet can turn off and
+  which never fires inside a text field; the `?` sheet lists the same key); every icon gets a tooltip with the
   label and its `G` shortcut («Фінанси G F»). State stored on the device.
 
 ### Header
@@ -129,13 +145,13 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 
 | Frame                                | Width | Shows                                         |
 | ------------------------------------ | ----: | --------------------------------------------- |
-| `tabbar-admin-375.png`               |   375 | ADMIN tab bar, «Ще» badge, FAB menu           |
-| `tabbar-senior-375.png`              |   375 | SENIOR tab bar                                |
+| `tabbar-admin-375.png`               |   375 | ADMIN tab bar, «Ще» badge, «+»                |
+| `tabbar-senior-375.png`              |   375 | SENIOR tab bar, own-project rows only         |
 | `tabbar-senior-teamless-375.png`     |   375 | SENIOR without a team (Документи in slot 4)   |
-| `tabbar-junior-375.png`              |   375 | JUNIOR (no «+»)                               |
+| `tabbar-junior-375.png`              |   375 | JUNIOR (no «+»), own salary rows only         |
 | `tabbar-hr-375.png`                  |   375 | HR                                            |
 | `tabbar-accountant-375.png`          |   375 | ACCOUNTANT                                    |
-| `tabbar-drop-375.png`                |   375 | DROP                                          |
+| `tabbar-drop-375.png`                |   375 | DROP, drop income and payout rows only        |
 | `tabbar-admin-320.png`               |   320 | ADMIN at the narrowest width (labels fit)     |
 | `tabbar-hr-320.png`                  |   320 | HR at 320 (longest labels)                    |
 | `more-sheet-admin-375.png`           |   375 | More sheet, ADMIN (8 destinations)            |
@@ -143,8 +159,10 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 | `more-sheet-admin-320.png`           |   320 | More sheet at 320                             |
 | `quick-add-admin-375.png`            |   375 | Quick-add action menu (4 actions)             |
 | `quick-add-hr-320.png`               |   320 | Quick-add menu at 320                         |
-| `quick-add-txn-keyboard-375.png`     |   375 | «Нова транзакція» sheet with the keyboard up  |
+| `quick-add-txn-keyboard-375.png`     |   375 | Keyboard + accessory bar, save waits (62%)    |
 | `state-loading-375.png`              |   375 | Shell + skeleton                              |
+| `state-empty-375.png`                |   375 | Empty tab root                                |
+| `state-error-375.png`                |   375 | Load error with a safe re-fetch               |
 | `state-offline-375.png`              |   375 | Offline banner                                |
 | `state-impersonation-375.png`        |   375 | Impersonation banner                          |
 | `tablet-rail-768.png`                |   768 | Rail + two panes                              |
@@ -184,4 +202,9 @@ Re-render: `node assets/src/render.mjs shell [filter]`, then `assets/src/contact
 - The FAB sits above the tab bar, not inside it (tab bar = navigation only).
 - Tablet uses a rail with a popover «Ще», not a bottom sheet.
 - Sidebar collapse shortcut `[` and the `G <letter>` navigation shortcuts are proposals for the
-  implementation task.
+  implementation task. `[` was chosen over ⌘\ (task review fix round 1) and is guarded like every
+  single-key shortcut.
+- Finance rows in the role frames are role-plausible sample data (SENIOR: own project; DROP: drop income
+  and payouts; JUNIOR: own salary). What each role really sees is the existing RBAC, unchanged by v2.
+- The armed save after an upload and the session-scoped draft are proposals; the Wave 1 finance spec
+  confirms them per form.

@@ -6,6 +6,8 @@ import {
   quickAddSheet,
   txnQuickStep,
   loadingScreen,
+  emptyScreen,
+  errorScreen,
   offlineBanner,
   impersonationBanner,
 } from './mobile-overlays.mjs'
@@ -28,7 +30,7 @@ const ROLE_FRAMES = [
 export function frames() {
   const out = []
   for (const [slug, role, active, title] of ROLE_FRAMES) {
-    const body = active === '/interviews' ? peopleList() : financeBody()
+    const body = active === '/interviews' ? peopleList() : financeBody(role)
     out.push(M(`tabbar-${slug}-375`, 375, 812, tabScreen({ role, active, title, body })))
   }
   out.push(
@@ -69,6 +71,8 @@ export function frames() {
     out.push(M('quick-add-hr-320', 320, 568, quickAddSheet('HR', 320, 568)))
     out.push(M('quick-add-txn-keyboard-375', 375, 812, txnQuickStep(375, 812)))
     out.push(M('state-loading-375', 375, 812, loadingScreen('ADMIN', 375, 812)))
+    out.push(M('state-empty-375', 375, 812, emptyScreen(375, 812)))
+    out.push(M('state-error-375', 375, 812, errorScreen(375, 812)))
     out.push(
       M(
         'state-offline-375',

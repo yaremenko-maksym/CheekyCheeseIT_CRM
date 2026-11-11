@@ -276,19 +276,30 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
 ## 11. Interaction rules (spec §4.5b, binding for every screen)
 
 - **Never block.** Input feedback < 100 ms. Writes are optimistic where the action is reversible.
-- **Finance writes** are sent immediately and shown optimistically, with rollback and a visible error.
-  No double submit (the submit control disables while in flight). **No auto-retry of money creates.**
-  An unknown outcome may be resubmitted only with the same idempotency key. Four forms (expense,
-  admin-income, admin-transfer, company deposit) do not have the key yet; the first Wave 1 task adds it.
-- **Errors keep input.** A failed save shows an inline `role="alert"` above the form with the values
-  kept and a manual «Повторити» (reference: `primitives-v2/toast-error-375.png`).
+- **Finance writes** are sent immediately. No double submit (the submit control disables while in
+  flight). **No auto-retry of money creates.** A form that already sends an idempotency key is shown
+  optimistically, with rollback and a visible error, and an unknown outcome may be resubmitted only with
+  the same key.
+- **Carve-out — the four forms without a key** (expense, admin-income, admin-transfer, company
+  deposit) keep today's behaviour until the first Wave 1 task ships the key: **no optimistic insert**
+  (the row appears after the server confirms) and **no resubmit offer on an unknown outcome**.
+- **Two kinds of save failure, never merged.** A **definite** failure (the server answered 4xx / 5xx,
+  or the app knew it was offline before sending) wrote nothing: an inline `role="alert"` above the form,
+  values kept, a manual «Повторити збереження» (`primitives-v2/toast-error-definite-375.png`). An
+  **unknown** outcome (timeout, connection dropped after sending) on a form without a key: the alert
+  says the outcome is unknown and sends the user to the list to check before re-entering; **no retry
+  button** (`primitives-v2/toast-error-unknown-375.png`).
+- **Pull-to-refresh** (spec §4.2) is an in-app gesture on the list scroller only: it refetches that
+  list's query, **never reloads the page**, and is **off while a sheet is open**. Wave 0 proves on the
+  iOS Simulator that a sheet drag at `scrollTop` 0 and a pull on a list never reload the page.
 - **Undo** only where a reversible action already exists (toast with «Скасувати», 5 s).
 - **Filters live in the URL.** No saved filter views.
 - **Search covers loaded data only** (and Cmd+K navigation / page actions). No cross-entity server search.
 - **Uploads** are in-memory and non-blocking with a global progress indicator. Nothing survives an app
   close; the UI never claims otherwise.
 - **Keyboard (desktop):** Tab order follows reading order; Enter submits; Esc closes; single-key
-  shortcuts can be turned off in the `?` sheet (stored on the device, SC 2.1.4).
+  shortcuts (including `[` for the sidebar collapse) can be turned off in the `?` sheet (stored on the
+  device, SC 2.1.4) and never fire inside a text field.
 
 ---
 
@@ -348,3 +359,7 @@ listed, and anything the v2 screen shows must trace back to that list.
 - The FAB sits above the tab bar, not inside it. The tablet uses a rail with a popover More.
 - Money create errors show inline above the form, not as a floating toast (the toast covered the
   amount field at 375).
+- A 5xx counts as a definite failure (task review fix round 1, following spec §4.5b's split). If the
+  Wave 1 finance spec finds an endpoint that can commit and still answer 5xx, that endpoint's 5xx moves to
+  the unknown branch.
+- The sidebar collapse shortcut is `[` (single key, so it sits behind the SC 2.1.4 toggle), not ⌘\.

@@ -181,6 +181,124 @@ export function tabScreen({
   return phone({ w, h, inner, overlay })
 }
 
-export function financeBody() {
-  return `${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾', 'Період ▾'])}${txnList()}`
+// Role-plausible rows: a SENIOR sees only their own projects' money, a DROP only drop income and
+// payouts, a JUNIOR only their own salary. ADMIN and ACCOUNTANT see the company-wide TXNS above.
+const r = (day, t, s, a, time, ic, neg = false, att = false) => ({
+  day,
+  t,
+  s,
+  a,
+  time,
+  ic,
+  neg,
+  att,
+})
+const SENIOR_TXNS = [
+  r(
+    'Сьогодні',
+    'Оплата від клієнта',
+    'Дохід · Проєкт «Альфа»',
+    '+4 800,00 $',
+    '11:05',
+    'arrow-down-left',
+  ),
+  r(
+    'Сьогодні',
+    'Ліцензія IDE',
+    'Витрата · Проєкт «Альфа»',
+    '−24,90 $',
+    '09:40',
+    'receipt',
+    true,
+    true,
+  ),
+  r(
+    'Вчора',
+    'Виплата за жовтень',
+    'Виплата · Проєкт «Альфа»',
+    '−2 400,00 $',
+    '18:10',
+    'wallet',
+    true,
+  ),
+  r(
+    'Вчора',
+    'Тестові пристрої',
+    'Витрата · Проєкт «Альфа»',
+    '−180,00 $',
+    '12:30',
+    'receipt',
+    true,
+    true,
+  ),
+  r(
+    '9 листопада',
+    'Оплата від клієнта',
+    'Дохід · Проєкт «Альфа»',
+    '+3 900,00 $',
+    '10:00',
+    'arrow-down-left',
+  ),
+  r(
+    '9 листопада',
+    'Хмарний хостинг',
+    'Витрата · Проєкт «Альфа»',
+    '−42,00 $',
+    '08:15',
+    'receipt',
+    true,
+    true,
+  ),
+]
+const DROP_TXNS = [
+  r(
+    'Сьогодні',
+    'Надходження від клієнта',
+    'Дохід · Проєкт «Бета»',
+    '+2 600,00 $',
+    '10:20',
+    'arrow-down-left',
+  ),
+  r('Вчора', 'Виплата частки', 'Виплата · Проєкт «Бета»', '−2 340,00 $', '17:45', 'wallet', true),
+  r(
+    '6 листопада',
+    'Надходження від клієнта',
+    'Дохід · Проєкт «Бета»',
+    '+2 600,00 $',
+    '09:30',
+    'arrow-down-left',
+  ),
+  r(
+    '6 листопада',
+    'Виплата частки',
+    'Виплата · Проєкт «Бета»',
+    '−2 340,00 $',
+    '16:05',
+    'wallet',
+    true,
+  ),
+]
+const JUNIOR_TXNS = [
+  r('Сьогодні', 'Зарплата за жовтень', 'Зарплата · виплачено', '+1 200,00 $', '12:00', 'wallet'),
+  r('10 жовтня', 'Зарплата за вересень', 'Зарплата · виплачено', '+1 200,00 $', '12:00', 'wallet'),
+  r('10 вересня', 'Зарплата за серпень', 'Зарплата · виплачено', '+1 150,00 $', '12:00', 'wallet'),
+]
+const ROLE_FINANCE = {
+  SENIOR: [SENIOR_TXNS, ['Усі', 'Витрати', 'Доходи', 'Період ▾']],
+  SENIOR_TEAMLESS: [SENIOR_TXNS, ['Усі', 'Витрати', 'Доходи', 'Період ▾']],
+  DROP: [DROP_TXNS, ['Усі', 'Доходи', 'Виплати', 'Період ▾']],
+  JUNIOR: [JUNIOR_TXNS, ['Усі', 'Період ▾']],
+}
+
+export function financeBody(role = 'ADMIN') {
+  const [rows, chipList] = ROLE_FINANCE[role] ?? [
+    TXNS,
+    ['Усі', 'Витрати', 'Доходи', 'Проєкт ▾', 'Період ▾'],
+  ]
+  return `${searchField('Пошук транзакцій')}${chips(chipList)}${txnList(rows)}`
+}
+
+/** Interviews list body (HR): search, stage chips, people rows. */
+export function interviewsBody() {
+  return `${searchField('Пошук кандидатів')}${chips(['Усі', 'Скринінг', 'Технічна', 'Клієнт', 'Офер'])}${peopleList()}`
 }

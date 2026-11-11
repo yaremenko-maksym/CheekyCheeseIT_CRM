@@ -3,7 +3,7 @@
 import { icon, phone, safeBottom } from './base.mjs'
 import {
   tabScreen,
-  financeBody,
+  interviewsBody,
   txnList,
   txnRow,
   TXNS,
@@ -75,20 +75,53 @@ export function toastUndo(w, h) {
     role: 'HR',
     active: '/interviews',
     title: 'Співбесіди',
-    body: financeBody().replace(/Пошук транзакцій/, 'Пошук кандидатів'),
+    body: interviewsBody(),
     overlay: t,
     showFab: false,
   })
 }
 
-/** Money create failed: the error sits ABOVE the form (never over a field), values are kept, retry is manual (no auto-retry). */
-export function toastError(w, h) {
-  const alert = `<div role="alert" style="padding:12px 14px;border-radius:14px;background:oklch(0.2 0.04 22);border:1px solid oklch(0.38 0.09 22)"><div class="row" style="gap:10px;align-items:flex-start"><span style="color:var(--destructive);margin-top:1px">${icon('circle-alert', { size: 18 })}</span><div class="grow"><div style="font-size:15px;font-weight:600">Транзакцію не збережено</div><div class="t-foot" style="margin-top:2px;color:oklch(0.86 0.02 22)">Немає з’єднання. Введені дані збережено у формі — повторіть, коли мережа з’явиться.</div></div></div></div>`
-  const inner = `${topBar({ back: true, title: 'Нова транзакція', bell: false, search: false })}<div class="content col" style="gap:18px;padding:12px 16px 0">${alert}
+// Money create failed. Two cases, never merged (spec §4.5b):
+// definite — the server answered 4xx/5xx, or the app knew it was offline before sending: retry is safe;
+// unknown — the request left and no answer came back: on a form without an idempotency key the app
+// must not offer a resubmit; it sends the user to the list to check first.
+const errAlert = (title, text, tone = 22) =>
+  `<div role="alert" style="padding:12px 14px;border-radius:14px;background:oklch(0.2 0.04 ${tone});border:1px solid oklch(0.38 0.09 ${tone})"><div class="row" style="gap:10px;align-items:flex-start"><span style="color:${tone === 22 ? 'var(--destructive)' : 'var(--warning)'};margin-top:1px">${icon(tone === 22 ? 'circle-alert' : 'circle-help', { size: 18 })}</span><div class="grow"><div style="font-size:15px;font-weight:600">${title}</div><div class="t-foot" style="margin-top:2px;color:oklch(0.88 0.02 ${tone})">${text}</div></div></div></div>`
+const errForm = (w, h, alert, footer) =>
+  phone({
+    w,
+    h,
+    inner: `${topBar({ back: true, title: 'Нова транзакція', bell: false, search: false })}<div class="content col" style="gap:18px;padding:12px 16px 0">${alert}
   <div class="field"><label>Сума</label><div class="input" style="height:56px"><span class="grow num" style="font-size:24px;font-weight:700">1 250,50</span><span class="muted">USD</span></div></div>
   <div class="field"><label>Опис</label><div class="input"><span class="grow">Оренда офісу за листопад</span></div></div></div>
-  <div style="position:absolute;left:0;right:0;bottom:0;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border)"><span class="btn primary" style="width:100%">${icon('rotate-cw', { size: 18 })}Повторити збереження</span></div>`
-  return phone({ w, h, inner })
+  <div style="position:absolute;left:0;right:0;bottom:0;padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border)">${footer}</div>`,
+  })
+
+/** Definite failure (4xx/5xx or offline before send): nothing was written, so a manual retry is safe. */
+export function toastErrorDefinite(w, h) {
+  return errForm(
+    w,
+    h,
+    errAlert(
+      'Транзакцію не збережено',
+      'Сервер відхилив запит (помилка 503), запис не створено. Введені дані залишились у формі.',
+    ),
+    `<span class="btn primary" style="width:100%">${icon('rotate-cw', { size: 18 })}Повторити збереження</span>`,
+  )
+}
+
+/** Unknown outcome on a form without an idempotency key: no retry button; check the list first. */
+export function toastErrorUnknown(w, h) {
+  return errForm(
+    w,
+    h,
+    errAlert(
+      'Невідомо, чи транзакцію збережено',
+      'З’єднання обірвалося після надсилання. Перевірте список транзакцій, перш ніж вводити її знову.',
+      85,
+    ),
+    `<span class="btn secondary" style="width:100%">${icon('list', { size: 18 })}Відкрити список транзакцій</span>`,
+  )
 }
 
 // ---------- Upload indicator ----------

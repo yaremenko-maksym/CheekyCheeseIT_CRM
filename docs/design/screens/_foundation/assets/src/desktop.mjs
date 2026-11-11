@@ -85,7 +85,17 @@ th{position:sticky;top:0;background:var(--card);font-size:12px;font-weight:600;c
 td{height:40px;padding:0 12px;border-bottom:1px solid var(--separator);white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis}
 tbody tr:last-child td{border-bottom:0}`
 
-export function desktop({ w, h, collapsed = false, overlay = '' }) {
+// `content` replaces the page body under the header (skeleton / other screens); `active` + `crumb` follow it.
+export function desktop({
+  w,
+  h,
+  collapsed = false,
+  overlay = '',
+  content = '',
+  active = '/finance',
+  crumb = ['Гроші', 'Фінанси'],
+  cta = 'Нова транзакція',
+}) {
   const role = 'ADMIN'
   const filters = ['Тип', 'Проєкт', 'Період']
     .map(
@@ -95,13 +105,16 @@ export function desktop({ w, h, collapsed = false, overlay = '' }) {
     .join('')
   const main = `<main class="grow col" style="min-width:0">
   <header class="row" style="height:56px;flex:none;padding:0 20px 0 24px;gap:12px;border-bottom:1px solid var(--border)">
-    <div class="grow row" style="gap:8px;font-size:14px"><span class="muted">Гроші</span><span class="muted">${icon('chevron-right', { size: 14 })}</span><span style="font-weight:600">Фінанси</span></div>
+    <div class="grow row" style="gap:8px;font-size:14px"><span class="muted">${crumb[0]}</span><span class="muted">${icon('chevron-right', { size: 14 })}</span><span style="font-weight:600">${crumb[1]}</span></div>
     <span class="iconbtn" style="width:36px;height:36px" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 18 })}<i class="dot" style="top:7px;right:7px"></i></span>
-    <span class="btn primary" style="height:36px;font-size:14px;padding:0 14px;border-radius:9px">${icon('plus', { size: 16, stroke: 2.4 })}Нова транзакція<span class="kbdkey" style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)">C</span></span></header>
+    <span class="btn primary" style="height:36px;font-size:14px;padding:0 14px;border-radius:9px">${icon('plus', { size: 16, stroke: 2.4 })}${cta}<span class="kbdkey" style="background:oklch(0 0 0 / 0.12);border-color:oklch(0 0 0 / 0.2);color:var(--primary-fg)">C</span></span></header>
   <div class="col grow" style="min-height:0;padding:20px 24px 24px;gap:14px;${w >= 1440 ? 'max-width:1280px' : ''}">
-    <div class="row" style="gap:8px"><span class="row" style="gap:8px;height:32px;width:${w >= 1280 ? 300 : 220}px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:var(--muted-fg);font-size:13px">${icon('search', { size: 14 })}<span class="grow">Пошук транзакцій</span><span class="kbdkey">/</span></span>${filters}<span class="grow"></span><span class="t-foot muted num">312 транзакцій</span></div>
-    <div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)">${table(w)}</div></div></main>`
-  return `<style>${TABLE_CSS}</style><div class="device" style="width:${w}px;height:${h}px;flex-direction:row;position:relative">${sidebar(role, '/finance', collapsed)}${main}${overlay}</div>`
+    ${
+      content ||
+      `<div class="row" style="gap:8px"><span class="row" style="gap:8px;height:32px;width:${w >= 1280 ? 300 : 220}px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:var(--muted-fg);font-size:13px">${icon('search', { size: 14 })}<span class="grow">Пошук транзакцій</span><span class="kbdkey">/</span></span>${filters}<span class="grow"></span><span class="t-foot muted num">312 транзакцій</span></div>
+    <div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)">${table(w)}</div>`
+    }</div></main>`
+  return `<style>${TABLE_CSS}</style><div class="device" style="width:${w}px;height:${h}px;flex-direction:row;position:relative">${sidebar(role, active, collapsed)}${main}${overlay}</div>`
 }
 
 const SCRIM =
@@ -131,7 +144,7 @@ export function shortcuts() {
     <div class="grow"><div style="font-size:14px;font-weight:600">Односимвольні скорочення</div><div class="t-foot muted">Клавіші без ⌘/Ctrl. Ніколи не спрацьовують у текстовому полі. Налаштування зберігається на цьому пристрої.</div></div>
     <span role="switch" aria-checked="true" aria-label="Односимвольні скорочення" style="width:44px;height:26px;border-radius:13px;background:var(--primary);position:relative;flex:none"><i style="position:absolute;right:3px;top:3px;width:20px;height:20px;border-radius:10px;background:var(--primary-fg)"></i></span></div>
   <div class="row" style="gap:32px;padding:12px 24px 24px;align-items:flex-start">
-  ${col('Загальні', [row('Палітра команд', ['⌘', 'K']), row('Пошук на сторінці', ['/']), row('Ця довідка', ['?']), row('Закрити панель / діалог', ['Esc']), row('Згорнути бічну панель', ['⌘', '\\'])])}
+  ${col('Загальні', [row('Палітра команд', ['⌘', 'K']), row('Пошук на сторінці', ['/']), row('Ця довідка', ['?']), row('Закрити панель / діалог', ['Esc']), row('Згорнути бічну панель', ['['])])}
   ${col('Перехід', [row('Фінанси', ['G', 'потім', 'F']), row('Статистика', ['G', 'потім', 'S']), row('Користувачі', ['G', 'потім', 'U']), row('Дашборд', ['G', 'потім', 'H'])])}
   ${col('Списки', [row('Наступний рядок', ['J']), row('Попередній рядок', ['K']), row('Відкрити рядок', ['↵']), row('Створити', ['C']), row('Фільтр', ['F'])])}</div></div>`
 }
