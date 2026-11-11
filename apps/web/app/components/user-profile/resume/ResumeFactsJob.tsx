@@ -147,7 +147,7 @@ export function JobBlock({
           />
           {fieldError(`${base}.location`)}
         </div>
-        <div className="space-y-1.5" onBlur={startA11y.onBlur}>
+        <div className="space-y-1.5">
           <Label htmlFor={startA11y.id}>
             <Trans>Початок</Trans>
           </Label>
@@ -159,12 +159,13 @@ export function JobBlock({
             onChange={(start) => onPatch({ start })}
             aria-invalid={startA11y['aria-invalid']}
             aria-describedby={startA11y['aria-describedby']}
+            onClose={startA11y.onBlur}
             monthAriaLabel={t`Місяць початку, місце роботи ${position}`}
             yearAriaLabel={t`Рік початку, місце роботи ${position}`}
           />
           {fieldError(`${base}.start`)}
         </div>
-        <div className="space-y-1.5" onBlur={endA11y.onBlur}>
+        <div className="space-y-1.5">
           <Label htmlFor={endA11y.id}>
             <Trans>Кінець</Trans>
           </Label>
@@ -177,6 +178,7 @@ export function JobBlock({
             onChange={(end) => onPatch({ end })}
             aria-invalid={endA11y['aria-invalid']}
             aria-describedby={endA11y['aria-describedby']}
+            onClose={endA11y.onBlur}
             monthAriaLabel={t`Місяць завершення, місце роботи ${position}`}
             yearAriaLabel={t`Рік завершення, місце роботи ${position}`}
           />

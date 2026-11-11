@@ -149,6 +149,21 @@ describe('ResumeFactsForm', () => {
     expect(screen.getByLabelText('Цільова посада')).toHaveValue('Typed')
   })
 
+  it('own save shows no line, and edits typed while it was in flight stay', async () => {
+    putMock.mockReturnValueOnce(new Promise(() => undefined)) // the save stays in flight
+    const { rerender } = render(<Wired facts={EMPTY_RESUME_FACTS} />, { wrapper: Providers })
+    const headline = screen.getByLabelText('Цільова посада')
+    fireEvent.change(headline, { target: { value: 'Sent' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Зберегти чернетку' }))
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1))
+    fireEvent.change(headline, { target: { value: 'Sent and more' } })
+
+    // The refetch brings back exactly what this form sent.
+    rerender(<Wired facts={{ ...EMPTY_RESUME_FACTS, headline: 'Sent' }} />)
+    expect(screen.queryByTestId('resume-facts-server-changed')).not.toBeInTheDocument()
+    expect(headline).toHaveValue('Sent and more')
+  })
+
   it('new server facts under a dirty draft are announced and can be loaded', () => {
     const { rerender } = render(<Wired facts={EMPTY_RESUME_FACTS} />, { wrapper: Providers })
     expect(screen.queryByTestId('resume-facts-server-changed')).not.toBeInTheDocument()

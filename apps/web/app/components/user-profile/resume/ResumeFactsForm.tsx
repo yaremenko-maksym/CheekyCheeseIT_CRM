@@ -112,13 +112,17 @@ export function ResumeFactsForm({
   const [pending, setPending] = useState<'save' | 'submit' | null>(null)
   /** The server facts moved while the draft had unsaved edits (e.g. an extraction landed). */
   const [serverChanged, setServerChanged] = useState(false)
+  /** The last payload this form sent; its echo from the server is not an outside change. */
+  const [sent, setSent] = useState<ResumeFacts | null>(null)
 
   // A new server value replaces the draft only when nothing unsaved is in it.
-  // Otherwise the draft stays and the user is told the saved version moved.
+  // Otherwise the draft stays and the user is told the saved version moved,
+  // unless the new value is this form's own save (edits typed meanwhile stay).
   if (facts !== baseline) {
     const draftClean = same(cleanFacts(draft), cleanFacts(baseline))
+    const ownSave = sent !== null && same(cleanFacts(facts), sent)
     if (draftClean) setDraft(facts)
-    if (draftClean || same(cleanFacts(draft), cleanFacts(facts))) setServerChanged(false)
+    if (ownSave || draftClean || same(cleanFacts(draft), cleanFacts(facts))) setServerChanged(false)
     else if (!same(cleanFacts(facts), cleanFacts(baseline))) setServerChanged(true)
     setBaseline(facts)
   }
@@ -195,10 +199,15 @@ export function ResumeFactsForm({
       setPending(null)
     }
   }
-  const save = () => run('save', () => onSave(cleanFacts(draft), { silent: false }))
+  const send = (silent: boolean) => {
+    const payload = cleanFacts(draft)
+    setSent(payload)
+    return onSave(payload, { silent })
+  }
+  const save = () => run('save', () => send(false))
   const submit = () =>
     run('submit', async () => {
-      if (dirty) await onSave(cleanFacts(draft), { silent: true })
+      if (dirty) await send(true)
       await onSubmit()
     })
 
@@ -641,11 +650,11 @@ export function ResumeFactsForm({
                     <div className="grid flex-1 gap-3 sm:grid-cols-2">
                       <div className="space-y-1.5">
                         <Label htmlFor={factsFieldId(`links.${index}.label`)}>
-                          <Trans>Назва</Trans>
+                          <Trans context="resume">Назва</Trans>
                         </Label>
                         <Input
                           {...a11y(`links.${index}.label`)}
-                          aria-label={t`Назва посилання, рядок ${position}`}
+                          aria-label={t`Назва, посилання ${position}`}
                           value={link.label}
                           maxLength={RESUME_LIMITS.shortText}
                           onChange={(e) => set({ label: e.target.value })}
@@ -660,7 +669,7 @@ export function ResumeFactsForm({
                         <Input
                           {...a11y(`links.${index}.url`)}
                           type="url"
-                          aria-label={t`Посилання, рядок ${position}`}
+                          aria-label={t`Адреса посилання, рядок ${position}`}
                           placeholder={t`https://… або mailto:…`}
                           value={link.url}
                           onChange={(e) => set({ url: e.target.value })}

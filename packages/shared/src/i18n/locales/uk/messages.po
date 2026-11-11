@@ -852,10 +852,6 @@ msgstr "Усі сеньйори вашої команди зі збігом вн
 msgid "Завантажено ще {added}. Показано {shown}"
 msgstr "Завантажено ще {added}. Показано {shown}"
 
-#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
-msgid "Посилання, рядок {position}"
-msgstr "Посилання, рядок {position}"
-
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Особисту адресу видалено — увійти через неї більше не можна"
 msgstr "Особисту адресу видалено — увійти через неї більше не можна"
@@ -1543,6 +1539,10 @@ msgstr "Необов’язково. Канал для спілкування к
 #: apps/web/app/components/projects/project-approval-caption.ts
 msgid "Підтверджують: {drop}, {senior}"
 msgstr "Підтверджують: {drop}, {senior}"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Назва, посилання {position}"
+msgstr "Назва, посилання {position}"
 
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 msgid "Лише латиниця, починається з букви, макс. 50 символів"
@@ -5578,6 +5578,11 @@ msgstr "Відновлення…"
 #: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
 msgid "Додаткові змінні (заповніть нижче):"
 msgstr "Додаткові змінні (заповніть нижче):"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgctxt "resume"
+msgid "Назва"
+msgstr "Назва"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
 msgid "Для дат давніших за {days, plural, one {# день} few {# дні} many {# днів} other {# дня}}"
@@ -10289,7 +10294,6 @@ msgstr "Шаблон договору для ролі «{roleLabel}» опубл
 msgid "Реквізити для виплат"
 msgstr "Реквізити для виплат"
 
-#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
@@ -10312,6 +10316,10 @@ msgstr "Так, перейти"
 #: apps/web/app/lib/axios-utils.ts
 msgid "Конфлікт даних. Оновіть сторінку і спробуйте ще раз."
 msgstr "Конфлікт даних. Оновіть сторінку і спробуйте ще раз."
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Адреса посилання, рядок {position}"
+msgstr "Адреса посилання, рядок {position}"
 
 #: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
 msgid "Прибрати"
@@ -10407,10 +10415,6 @@ msgstr "Причина відмови *"
 #: apps/web/app/hooks/use-documents.ts
 msgid "Документ переміщено в кошик"
 msgstr "Документ переміщено в кошик"
-
-#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
-msgid "Назва посилання, рядок {position}"
-msgstr "Назва посилання, рядок {position}"
 
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Немає транзакцій у роботі. Додайте дохід, щоб почати."

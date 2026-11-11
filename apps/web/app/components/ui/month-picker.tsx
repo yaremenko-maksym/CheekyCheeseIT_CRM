@@ -29,6 +29,8 @@ interface MonthPickerFieldProps {
   /** Accessible names of the two selects; default to the salary wording. */
   monthAriaLabel?: string | undefined
   yearAriaLabel?: string | undefined
+  /** Called when either select closes (the field counts as visited then, not on open). */
+  onClose?: (() => void) | undefined
 }
 
 // 'YYYY-MM' -> months since year 0; split() on purpose, a Date round-trip drifts with TZ.
@@ -56,6 +58,7 @@ export function MonthPickerField({
   'data-testid': testId,
   monthAriaLabel,
   yearAriaLabel,
+  onClose,
 }: MonthPickerFieldProps) {
   const { t } = useLingui()
   const locale = useLocale()
@@ -88,6 +91,10 @@ export function MonthPickerField({
     return [...set].sort((a, b) => a - b)
   }, [minMonth, maxMonth, curYear, selYear])
 
+  const onOpenChange = (open: boolean) => {
+    if (!open) onClose?.()
+  }
+
   const emit = (y: number, m: number) => {
     const clamped = Math.min(Math.max(y * 12 + (m - 1), lo), hi)
     onChange(fromIndex(clamped))
@@ -101,6 +108,7 @@ export function MonthPickerField({
       <Select
         value={selMonth ? pad(selMonth) : ''}
         onValueChange={(m) => emit(monthYear, Number(m))}
+        onOpenChange={onOpenChange}
         disabled={disabled ?? false}
       >
         <SelectTrigger
@@ -133,6 +141,7 @@ export function MonthPickerField({
       <Select
         value={selYear ? String(selYear) : ''}
         onValueChange={(y) => emit(Number(y), selMonth ?? curMonth)}
+        onOpenChange={onOpenChange}
         disabled={disabled ?? false}
       >
         <SelectTrigger
