@@ -28,6 +28,8 @@ sheet() {
   magick montage -font "$font" -pointsize "$2" -fill '#d0d0d0' -label '%t' -background '#141414' \
     "${@:5}" -tile "$3" -geometry "$4" "$out"
   magick "$out" -strip -dither None -colors 256 -define png:compression-level=9 "PNG8:$out"
+  # Still over the ~400 KB budget (many tiles): quantise once more to 96 colours.
+  [ "$(stat -f%z "$out")" -le 409600 ] || magick "$out" -dither None -colors 96 -define png:compression-level=9 "PNG8:$out"
   echo "$out $(($(stat -f%z "$out") / 1024)) KB from $(($# - 4)) frames"
 }
 rm -f "$dir"/_contact-sheet*.png

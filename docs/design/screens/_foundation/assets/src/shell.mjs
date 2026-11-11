@@ -110,6 +110,7 @@ export function frames() {
           title: 'Фінанси',
           body: financeBody(),
           showFab: false,
+          scrolled: true,
         })
           .replace(
             '<div class="content">',
@@ -153,7 +154,7 @@ export function frames() {
     out.push(D('tablet-rail-768', 768, 1024, tablet({ w: 768, h: 1024 })))
     // A 768 × 700 window (Stage Manager / Split View): the destinations no longer fit, so «Ще» appears.
     out.push(D('tablet-rail-more-768', 768, 700, tablet({ w: 768, h: 700, more: true })))
-    // >= 900: rail 80 + list 320 + detail (600 at 1000); the selected row is marked only here.
+    // >= 900: rail 80 + list 360 + detail (560 at 1000); the selected row is marked only here.
     out.push(D('tablet-two-pane-1000', 1000, 768, tablet({ w: 1000, h: 768 })))
   }
   if (typeof desktop === 'function') {

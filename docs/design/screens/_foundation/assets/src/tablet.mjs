@@ -92,7 +92,7 @@ export function tablet({
   const twoPane = w >= 900
   const list =
     listPane ||
-    `<section aria-label="Транзакції" class="col" style="width:320px;flex:none;border-right:1px solid var(--border)">
+    `<section aria-label="Транзакції" class="col" style="width:360px;flex:none;border-right:1px solid var(--border)">
   <div class="row" style="height:56px;padding:0 8px 0 16px"><div class="grow t-title">Фінанси</div><span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></span></div>
   ${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾'])}
   <div class="sechead"><span class="t-over">Сьогодні</span></div>
@@ -119,7 +119,7 @@ export function tablet({
     .join('')}</div></section>`
   const listHtml = twoPane
     ? list
-    : list.replace('style="width:320px;flex:none;', 'style="flex:1;min-width:0;')
+    : list.replace('style="width:360px;flex:none;', 'style="flex:1;min-width:0;')
   return `<div class="device touch" style="width:${w}px;height:${h}px">
   <div class="row" style="height:24px;padding:0 20px;justify-content:space-between;font-size:13px;font-weight:600;flex:none"><span>9:41 вт 11 лист.</span><span class="row" style="gap:6px">${icon('wifi', { size: 14, stroke: 2.2 })}100%</span></div>
   <div class="row grow" style="align-items:stretch;min-height:0;position:relative">${rail(role, more ? 'more' : active, h)}${listHtml}${twoPane ? detail || detailPane() : ''}${more ? morePanel(role, h) : ''}${overlay}</div>

@@ -191,9 +191,17 @@ export function tabScreen({
   overlay = '',
   moreBadge = 3,
   showFab = true,
+  scrolled = false,
 }) {
+  // Scrolled past the large title: it collapses into the inline 44 px bar (title centred, hairline below).
+  const bar = scrolled
+    ? topBar({ title }).replace(
+        '<div class="topbar">',
+        '<div class="topbar" style="border-bottom:1px solid var(--separator)">',
+      )
+    : topBar()
   // Tab-root lists end with tab bar + FAB clearance (56 + 16 + 8 above the bar) so «+» never covers a trailing value.
-  const inner = `${banner}${topBar()}<div class="content">${largeTitle(title, sub)}${body}<div style="height:${TABBAR_H + safeBottom(w) + 80}px"></div></div>${tabBar(role, active, { w, moreBadge })}${showFab ? fab(role, w, active) : ''}`
+  const inner = `${banner}${bar}<div class="content">${largeTitle(title, sub)}${body}<div style="height:${TABBAR_H + safeBottom(w) + 80}px"></div></div>${tabBar(role, active, { w, moreBadge })}${showFab ? fab(role, w, active) : ''}`
   return phone({ w, h, inner, overlay })
 }
 

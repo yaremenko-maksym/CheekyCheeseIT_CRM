@@ -21,29 +21,29 @@
 
 ## 1. Component map
 
-| Primitive                 | Build on                                                                                                      | New?                         | Frames                                                                                                                                                                                                                              |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Bottom sheet (detents)    | Base UI Drawer (approved stack change, spec §4)                                                               | NEW `Sheet` mobile variant   | `sheet-medium-375`, `sheet-medium-320`, `sheet-large-375`                                                                                                                                                                           |
-| Action sheet (confirm)    | Base UI Drawer + `ui/alert-dialog.tsx` semantics                                                              | NEW variant                  | `sheet-confirm-375`                                                                                                                                                                                                                 |
-| PickerSheet               | Base UI Drawer + `ui/command.tsx` (search, listbox); replaces `ui/select.tsx` / `ui/role-select.tsx` on touch | NEW variant                  | `picker-sheet-375`                                                                                                                                                                                                                  |
-| TextEditor                | `ui/textarea.tsx` (autosize) + a chip row on `visualViewport`                                                 | NEW composite                | `form-longtext-375`                                                                                                                                                                                                                 |
-| Side panel                | `ui/sheet.tsx` (side = right)                                                                                 | restyle                      | `sheet-panel-768`, `sheet-panel-1024`, `sheet-panel-1440`                                                                                                                                                                           |
-| Confirm dialog            | `ui/alert-dialog.tsx`                                                                                         | restyle                      | `sheet-confirm-dialog-1024`                                                                                                                                                                                                         |
-| List row                  | —                                                                                                             | NEW `ListRow`                | `listrow-variants-375`, `listrow-swipe-375`, `listrow-sticky-320`, `listrow-empty-error-375`, `listrow-768`, `listrow-1440`                                                                                                         |
-| Section header            | —                                                                                                             | NEW `ListSection`            | `section-header-375`                                                                                                                                                                                                                |
-| Pushed detail page        | —                                                                                                             | NEW `DetailPage`             | `detail-txn-375`, `detail-person-375`                                                                                                                                                                                               |
-| Receipt viewer            | Base UI Dialog (full screen)                                                                                  | NEW                          | `detail-txn-receipt-375`                                                                                                                                                                                                            |
-| Table row states          | `ui/table.tsx`                                                                                                | restyle                      | `listrow-table-desktop`                                                                                                                                                                                                             |
-| Form field                | `ui/input.tsx`, `ui/label.tsx`                                                                                | restyle (16 px, 48 h mobile) | `form-states-375`, `form-add-user-375`, `formfield-768`, `formfield-1440`                                                                                                                                                           |
-| Money field + receipt     | `ui/amount-currency-input.tsx`, `ui/image-upload-field.tsx`                                                   | restyle                      | `form-money-375`, `form-receipt-link-375`, `form-receipt-usdt-375`, `form-keyboard-375`, `sheet-large-375` (one canonical form: `assets/src/money-form.mjs`)                                                                        |
-| Segmented control, switch | `ui/segmented-toggle.tsx`, `ui/switch.tsx`                                                                    | restyle                      | `form-money-375`, `sheet-medium-375`                                                                                                                                                                                                |
-| Undo toast                | `ui/sonner.tsx`                                                                                               | restyle                      | `toast-undo-375`, `toast-undo-768`, `toast-undo-1440`                                                                                                                                                                               |
-| Save error (inline)       | `ui/alert.tsx`                                                                                                | restyle                      | `toast-error-definite-375`, `toast-error-offline-375`, `toast-error-unknown-375`, `toast-error-unknown-list-375`                                                                                                                    |
-| Upload states + indicator | `ui/upload-progress.tsx`                                                                                      | restyle + global pill (NEW)  | `upload-states-375`, `upload-pill-armed-375`, `upload-pill-saved-375`, `upload-pill-failed-375`, `upload-pill-multi-375`, `toast-pill-stack-375`, `state-page-kill-375`, `listrow-draft-375`, `upload-pill-768`, `upload-pill-1440` |
-| Skeletons                 | `ui/skeleton.tsx`                                                                                             | restyle                      | `skeleton-mobile-375`, `skeleton-768`, `skeleton-1440`, `skeleton-table-desktop`                                                                                                                                                    |
-| Charts                    | the existing chart library on `--chart-*` tokens                                                              | restyle                      | `chart-mobile-375`, `chart-mobile-scrolled-375`, `chart-mobile-320`, `chart-desktop`                                                                                                                                                |
-| Pull-to-refresh           | —                                                                                                             | NEW `PullToRefresh`          | `ptr-pulling-375`, `ptr-armed-375`, `ptr-refreshing-375`, `ptr-done-375`                                                                                                                                                            |
-| Transitions               | View Transitions API + `motion` (`m.*`, LazyMotion)                                                           | NEW                          | `transition-storyboard`                                                                                                                                                                                                             |
+| Primitive                 | Build on                                                                                                      | New?                         | Frames                                                                                                                                                                                                                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bottom sheet (detents)    | Base UI Drawer (approved stack change, spec §4)                                                               | NEW `Sheet` mobile variant   | `sheet-medium-375`, `sheet-medium-320`, `sheet-large-375`                                                                                                                                                                                                                                                           |
+| Action sheet (confirm)    | Base UI Drawer + `ui/alert-dialog.tsx` semantics                                                              | NEW variant                  | `sheet-confirm-375`                                                                                                                                                                                                                                                                                                 |
+| PickerSheet               | Base UI Drawer + `ui/command.tsx` (search, listbox); replaces `ui/select.tsx` / `ui/role-select.tsx` on touch | NEW variant                  | `picker-sheet-375`                                                                                                                                                                                                                                                                                                  |
+| TextEditor                | `ui/textarea.tsx` (autosize) + a chip row on `visualViewport`                                                 | NEW composite                | `form-longtext-375`                                                                                                                                                                                                                                                                                                 |
+| Side panel                | `ui/sheet.tsx` (side = right)                                                                                 | restyle                      | `sheet-panel-768`, `sheet-panel-1024`, `sheet-panel-1440`                                                                                                                                                                                                                                                           |
+| Confirm dialog            | `ui/alert-dialog.tsx`                                                                                         | restyle                      | `sheet-confirm-dialog-1024`                                                                                                                                                                                                                                                                                         |
+| List row                  | —                                                                                                             | NEW `ListRow`                | `listrow-variants-375`, `listrow-swipe-375`, `listrow-sticky-320`, `listrow-empty-error-375`, `listrow-768`, `listrow-1440`                                                                                                                                                                                         |
+| Section header            | —                                                                                                             | NEW `ListSection`            | `section-header-375`                                                                                                                                                                                                                                                                                                |
+| Pushed detail page        | —                                                                                                             | NEW `DetailPage`             | `detail-txn-375`, `detail-person-375`                                                                                                                                                                                                                                                                               |
+| Receipt viewer            | Base UI Dialog (full screen)                                                                                  | NEW                          | `detail-txn-receipt-375`                                                                                                                                                                                                                                                                                            |
+| Table row states          | `ui/table.tsx`                                                                                                | restyle                      | `listrow-table-desktop`                                                                                                                                                                                                                                                                                             |
+| Form field                | `ui/input.tsx`, `ui/label.tsx`                                                                                | restyle (16 px, 48 h mobile) | `form-states-375`, `form-add-user-375`, `formfield-768`, `formfield-1440`                                                                                                                                                                                                                                           |
+| Money field + receipt     | `ui/amount-currency-input.tsx`, `ui/image-upload-field.tsx`                                                   | restyle                      | `form-money-375`, `form-receipt-link-375`, `form-receipt-usdt-375`, `form-keyboard-375`, `sheet-large-375` (one canonical form: `assets/src/money-form.mjs`)                                                                                                                                                        |
+| Segmented control, switch | `ui/segmented-toggle.tsx`, `ui/switch.tsx`                                                                    | restyle                      | `form-money-375`, `sheet-medium-375`                                                                                                                                                                                                                                                                                |
+| Undo toast                | `ui/sonner.tsx`                                                                                               | restyle                      | `toast-undo-375`, `toast-undo-768`, `toast-undo-1440`                                                                                                                                                                                                                                                               |
+| Save error (inline)       | `ui/alert.tsx`                                                                                                | restyle                      | `toast-error-definite-375`, `toast-error-offline-375`, `toast-error-unknown-375`, `toast-error-unknown-list-375`                                                                                                                                                                                                    |
+| Upload states + indicator | `ui/upload-progress.tsx`                                                                                      | restyle + global pill (NEW)  | `upload-states-375`, `upload-pill-armed-375`, `upload-pill-saved-375`, `upload-pill-failed-375`, `upload-pill-multi-375`, `toast-pill-stack-375`, `state-page-kill-375`, `alert-pagekill-sent-375`, `confirm-recreate-375`, `confirm-discard-draft-375`, `listrow-draft-375`, `upload-pill-768`, `upload-pill-1440` |
+| Skeletons                 | `ui/skeleton.tsx`                                                                                             | restyle                      | `skeleton-mobile-375`, `skeleton-768`, `skeleton-1440`, `skeleton-table-desktop`                                                                                                                                                                                                                                    |
+| Charts                    | the existing chart library on `--chart-*` tokens                                                              | restyle                      | `chart-mobile-375`, `chart-mobile-scrolled-375`, `chart-mobile-320`, `chart-desktop`                                                                                                                                                                                                                                |
+| Pull-to-refresh           | —                                                                                                             | NEW `PullToRefresh`          | `ptr-pulling-375`, `ptr-armed-375`, `ptr-refreshing-375`, `ptr-done-375`                                                                                                                                                                                                                                            |
+| Transitions               | View Transitions API + `motion` (`m.*`, LazyMotion)                                                           | NEW                          | `transition-storyboard`                                                                                                                                                                                                                                                                                             |
 
 ---
 
@@ -98,7 +98,7 @@ Pressed state `bg-accent`. Variants: navigation (chevron), value, toggle, destru
 **At 768 / 1440** (`listrow-768`, `listrow-1440`): the tablet keeps the touch row (56 / 64, target ≥ 44).
 **640–899 is a single pane with push**: the list takes the full width and a row pushes its detail, so
 there is no selected-row highlight (no `aria-current`, no `bg-raised`). From **≥ 900** list and detail
-sit side by side (`shell-v2/tablet-two-pane-1000`: rail 80, list 320, detail the rest, 600 at 1000)
+sit side by side (`shell-v2/tablet-two-pane-1000`: rail 80, list 360, detail the rest, 560 at 1000)
 and only there the selected row is `bg-raised` with `aria-current`. The desktop row is a 40 px table row (states default / hover / selected / focus ring 2 px /
 pending; the selected row carries a 2 px yellow leading bar plus `bg-accent` and `aria-selected`) and a
 36 px sidebar row; the full row is the hit area. Under `(pointer: coarse)` the table row is 52 and the
@@ -378,20 +378,76 @@ instant, sheet 280 ms up / 150 ms down, desktop 150 ms crossfade, reduced motion
 
 ## 8. Frames (all PNG under `assets/primitives-v2/`)
 
-`sheet-medium-375` · `sheet-medium-320` · `sheet-large-375` · `sheet-confirm-375` ·
-`listrow-variants-375` · `listrow-swipe-375` · `listrow-sticky-320` · `listrow-empty-error-375` ·
-`listrow-768` · `listrow-1440` · `section-header-375` · `form-states-375` · `formfield-768` ·
-`formfield-1440` · `form-money-375` · `form-keyboard-375` · `picker-sheet-375` · `form-longtext-375` · `sheet-panel-768` · `sheet-panel-1024` ·
-`sheet-panel-1440` · `sheet-confirm-dialog-1024` · `listrow-table-desktop` · `toast-undo-375` ·
-`toast-undo-768` · `toast-undo-1440` · `toast-error-definite-375` · `toast-error-offline-375` ·
-`toast-error-unknown-375` · `toast-error-unknown-list-375` · `upload-states-375` · `upload-pill-armed-375` ·
-`upload-pill-saved-375` · `upload-pill-failed-375` · `toast-pill-stack-375` · `state-page-kill-375` · `alert-pagekill-sent-375` · `confirm-recreate-375` · `confirm-discard-draft-375` ·
-`listrow-draft-375` · `upload-pill-768` · `upload-pill-1440` · `skeleton-mobile-375` · `skeleton-768` · `skeleton-1440` ·
-`skeleton-table-desktop` · `chart-mobile-375` · `chart-mobile-scrolled-375` · `chart-mobile-320` ·
-`chart-desktop` · `ptr-pulling-375` · `ptr-armed-375` · `ptr-refreshing-375` · `ptr-done-375` ·
-`transition-storyboard` (55 frames). Contact sheets: `_contact-sheet.png` (phones), `_contact-sheet-wide.png` (768 / 1024 /
-1440 and boards), `_contact-sheet-detail.png` (`chart-desktop` and `transition-storyboard` at native
-size).
+62 frames; phones and component crops render at 2×, full 768 / 1024 / 1440 screens and the storyboard at 1×. Every
+PNG is ≤ 400 KB.
+
+| Frame                          | Viewport (CSS px) | PNG (px)    |  KB | Round            |
+| ------------------------------ | ----------------- | ----------- | --: | ---------------- |
+| `sheet-medium-375`             | 375 × 812         | 750 × 1624  |  33 |                  |
+| `sheet-medium-320`             | 320 × 568         | 640 × 1136  |  25 |                  |
+| `sheet-large-375`              | 375 × 812         | 750 × 1624  |  33 |                  |
+| `sheet-confirm-375`            | 375 × 812         | 750 × 1624  |  44 |                  |
+| `listrow-variants-375`         | 375 × 812         | 750 × 1624  |  38 |                  |
+| `listrow-swipe-375`            | 375 × 812         | 750 × 1624  |  40 |                  |
+| `listrow-sticky-320`           | 320 × 568         | 640 × 1136  |  45 |                  |
+| `listrow-empty-error-375`      | 375 × 812         | 750 × 1624  |  41 |                  |
+| `listrow-768`                  | 768 × 400         | 1536 × 800  |  47 |                  |
+| `listrow-1440`                 | 1440 × 420        | 1440 × 420  |  23 |                  |
+| `section-header-375`           | 375 × 812         | 750 × 1624  |  30 |                  |
+| `form-states-375`              | 375 × 812         | 750 × 1624  |  32 | re-rendered (R3) |
+| `form-add-user-375`            | 375 × 812         | 750 × 1624  |  22 | new (R3)         |
+| `detail-txn-375`               | 375 × 812         | 750 × 1624  |  35 | new (R3)         |
+| `detail-txn-receipt-375`       | 375 × 812         | 750 × 1624  |  31 | new (R3)         |
+| `detail-person-375`            | 375 × 812         | 750 × 1624  |  26 | new (R3)         |
+| `formfield-768`                | 768 × 500         | 1536 × 1000 |  34 |                  |
+| `formfield-1440`               | 1440 × 360        | 1440 × 360  |  15 |                  |
+| `form-money-375`               | 375 × 812         | 750 × 1624  |  27 | re-rendered (R3) |
+| `form-receipt-link-375`        | 375 × 812         | 750 × 1624  |  30 | new (R3)         |
+| `form-receipt-usdt-375`        | 375 × 812         | 750 × 1624  |  35 | new (R3)         |
+| `picker-sheet-375`             | 375 × 812         | 750 × 1624  |  37 |                  |
+| `form-longtext-375`            | 375 × 667         | 750 × 1334  |  45 | re-rendered (R3) |
+| `form-keyboard-375`            | 375 × 812         | 750 × 1624  |  31 |                  |
+| `sheet-panel-768`              | 768 × 1024        | 768 × 1024  |  41 |                  |
+| `sheet-panel-1024`             | 1024 × 768        | 1024 × 768  |  42 |                  |
+| `sheet-panel-1440`             | 1440 × 900        | 1440 × 900  |  50 |                  |
+| `sheet-confirm-dialog-1024`    | 1024 × 768        | 1024 × 768  |  48 |                  |
+| `listrow-table-desktop`        | 960 × 300         | 1920 × 600  |  31 |                  |
+| `toast-undo-375`               | 375 × 812         | 750 × 1624  |  51 |                  |
+| `toast-undo-768`               | 768 × 1024        | 768 × 1024  |  29 |                  |
+| `toast-undo-1440`              | 1440 × 900        | 1440 × 900  |  34 |                  |
+| `toast-error-definite-375`     | 375 × 812         | 750 × 1624  |  38 |                  |
+| `toast-error-unknown-375`      | 375 × 812         | 750 × 1624  |  41 |                  |
+| `toast-error-unknown-list-375` | 375 × 812         | 750 × 1624  |  57 | re-rendered (R3) |
+| `toast-error-offline-375`      | 375 × 812         | 750 × 1624  |  37 |                  |
+| `upload-pill-armed-375`        | 375 × 812         | 750 × 1624  |  59 |                  |
+| `upload-pill-saved-375`        | 375 × 812         | 750 × 1624  |  57 | re-rendered (R3) |
+| `upload-pill-failed-375`       | 375 × 812         | 750 × 1624  |  58 | re-rendered (R3) |
+| `upload-pill-multi-375`        | 375 × 812         | 750 × 1624  |  58 | new (R3)         |
+| `toast-pill-stack-375`         | 375 × 812         | 750 × 1624  |  61 |                  |
+| `state-page-kill-375`          | 375 × 812         | 750 × 1624  |  55 |                  |
+| `alert-pagekill-sent-375`      | 375 × 812         | 750 × 1624  |  62 | re-rendered (R3) |
+| `confirm-recreate-375`         | 375 × 812         | 750 × 1624  |  49 | re-rendered (R3) |
+| `confirm-discard-draft-375`    | 375 × 812         | 750 × 1624  |  39 | fix 5            |
+| `listrow-draft-375`            | 375 × 812         | 750 × 1624  |  54 | re-rendered (R3) |
+| `upload-states-375`            | 375 × 812         | 750 × 1624  |  55 |                  |
+| `upload-pill-768`              | 768 × 1024        | 768 × 1024  |  41 |                  |
+| `upload-pill-1440`             | 1440 × 900        | 1440 × 900  |  58 |                  |
+| `skeleton-mobile-375`          | 375 × 812         | 750 × 1624  |  24 |                  |
+| `skeleton-768`                 | 768 × 1024        | 768 × 1024  |  18 |                  |
+| `skeleton-1440`                | 1440 × 900        | 1440 × 900  |  33 |                  |
+| `skeleton-table-desktop`       | 960 × 420         | 1920 × 904  |  23 |                  |
+| `chart-mobile-375`             | 375 × 812         | 750 × 1624  |  35 |                  |
+| `chart-mobile-scrolled-375`    | 375 × 812         | 750 × 1624  |  23 |                  |
+| `chart-mobile-320`             | 320 × 568         | 640 × 1136  |  29 |                  |
+| `chart-desktop`                | 1200 × 420        | 2400 × 934  |  46 |                  |
+| `transition-storyboard`        | 900 × 1200        | 900 × 2158  |  82 |                  |
+| `ptr-armed-375`                | 375 × 480         | 750 × 960   |  23 |                  |
+| `ptr-done-375`                 | 375 × 480         | 750 × 960   |  29 |                  |
+| `ptr-pulling-375`              | 375 × 480         | 750 × 960   |  26 |                  |
+| `ptr-refreshing-375`           | 375 × 480         | 750 × 960   |  25 |                  |
+
+Contact sheets: `_contact-sheet.png` (phones), `_contact-sheet-wide.png` (768 / 1024 / 1440 and boards),
+`_contact-sheet-detail.png` (`chart-desktop` and `transition-storyboard` at native size).
 
 Re-render: `node assets/src/render.mjs primitives [filter]`, then `assets/src/contact-sheet.sh primitives`.
 
