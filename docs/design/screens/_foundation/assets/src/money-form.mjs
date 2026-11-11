@@ -325,7 +325,8 @@ export const failureUnknown = (w, h) =>
       'Відповідь не надійшла. Форма й чек залишились. Перевірте список: якщо транзакції там немає, її можна створити ще раз.',
       85,
     ),
-    footer: `<span class="btn secondary" role="button" style="width:100%">${icon('list', { size: 18 })}Перевірити список</span>${discardBtn}`,
+    // The form is inert, so «Перевірити список» is the one filled primary.
+    footer: `<span class="btn primary" role="button" style="width:100%">${icon('list', { size: 18 })}Перевірити список</span>${discardBtn}`,
   })
 
 /** The send time of the sample draft (invented). */
@@ -680,24 +681,25 @@ export const confirmDiscardDraft = (w, h) =>
 
 // Pinned draft rows: one per unsaved draft (armed, in flight, failed, unknown), newest first.
 export const DRAFT = {
-  failed: { kind: 'failed', amount: AMOUNT, state: 'Не збережено · Витрата · чек додано' },
-  unknown: { kind: 'unknown', amount: AMOUNT, state: 'Результат невідомий · Витрата · чек додано' },
-  armed: { kind: 'armed', amount: '320,00', state: 'Збережеться після чека · Витрата · чек 62%' },
-  armed2: { kind: 'armed', amount: AMOUNT, state: 'Збережеться після чека · Витрата · чек 35%' },
+  failed: { kind: 'failed', amount: AMOUNT, state: 'Не збережено · Витрата' },
+  unknown: { kind: 'unknown', amount: AMOUNT, state: 'Результат невідомий · Витрата' },
+  armed: { kind: 'armed', amount: '320,00', state: 'Збережеться після чека · Витрата' },
+  armed2: { kind: 'armed', amount: AMOUNT, state: 'Збережеться після чека · Витрата' },
   inflight: {
     kind: 'inflight',
     amount: AMOUNT,
-    state: 'Зберігаємо… · Витрата · чек додано',
+    state: 'Зберігаємо… · Витрата',
     ic: 'loader-circle',
   },
-  failed2: { kind: 'failed', amount: '86,40', state: 'Не збережено · Витрата · чек додано' },
+  failed2: { kind: 'failed', amount: '86,40', state: 'Не збережено · Витрата' },
 }
 // A pinned row is never a primary (foundation §7.5): a tonal «Відкрити»; the tone marks failed / unknown.
 const TONE = { failed: 'var(--destructive)', unknown: 'var(--warning)' }
-const draftRow = ({ kind, amount, state, ic = '' }) => {
+// No icon tile on the phone row: «Результат невідомий · Витрата» must fit one line at 375 beside «Відкрити».
+const draftRow = ({ kind, amount, state }) => {
   const t = TONE[kind]
   const mix = (p) => (t ? `color-mix(in oklch, ${t} ${p}%, transparent)` : '')
-  return `<div style="padding:0 16px 8px"><div class="row" style="gap:12px;min-height:64px;padding:8px 8px 8px 12px;border-radius:14px;background:var(--card);border:1px solid ${t ? mix(40) : 'var(--border)'};box-shadow:inset 2px 0 0 ${t || 'var(--muted-fg)'}"><span style="width:36px;height:36px;border-radius:10px;background:${t ? mix(16) : 'var(--surface)'};color:${t || 'var(--muted-fg)'};display:grid;place-items:center;flex:none">${icon(ic || (t ? 'file-pen' : 'clock'), { size: 18 })}</span><span class="grow col" style="gap:2px;min-width:0"><span class="t-body num" style="font-weight:600">Чернетка <span style="white-space:nowrap">${amount} USD</span></span><span class="t-foot muted">${state}</span></span><a class="btn sm secondary" href="#" aria-label="Відкрити чернетку ${amount} USD" style="height:44px;${t ? `background:${mix(18)};border-color:${mix(45)}` : ''}">Відкрити</a></div></div>`
+  return `<div style="padding:0 16px 8px"><div class="row" style="gap:10px;min-height:64px;padding:8px 8px 8px 14px;border-radius:14px;background:var(--card);border:1px solid ${t ? mix(40) : 'var(--border)'};box-shadow:inset 2px 0 0 ${t || 'var(--muted-fg)'}"><span class="grow col" style="gap:2px;min-width:0"><span class="t-body num" style="font-weight:600;white-space:nowrap">${amount} USD</span><span class="t-foot muted trunc">${state}</span></span><a class="btn sm secondary" href="#" aria-label="Відкрити чернетку ${amount} USD" style="height:44px;padding:0 12px;${t ? `background:${mix(18)};border-color:${mix(45)}` : ''}">Відкрити</a></div></div>`
 }
 // The slot precedence (unknown > failed > in flight > armed) orders the rows; at most two show.
 const RANK = { unknown: 0, failed: 1, inflight: 2, armed: 3 }

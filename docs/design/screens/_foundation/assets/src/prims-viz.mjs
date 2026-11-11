@@ -25,7 +25,6 @@ import {
   NEW_ROWS,
   AMOUNT,
   DRAFT,
-  pinnedRows,
 } from './money-form.mjs'
 
 // ---------- ResponsiveSheet ≥ 640: right side panel; confirm = centred dialog ----------
@@ -69,32 +68,45 @@ const WARN = (p) => `color-mix(in oklch, var(--warning) ${p}%, transparent)`
  * The chooser off the phone (foundation §11): a menu, the drafts above, «Нова транзакція» last with the
  * initial focus (so `C` then Enter still creates). ↑ / ↓ move, Esc closes and returns focus to «+».
  */
-function chooserMenu({ drafts, pos, itemH }) {
+function chooserMenu({ drafts, pos, itemH, coarse = false }) {
   const tone = { failed: 'var(--destructive)', unknown: 'var(--warning)' }
   const item = (d) =>
     `<div role="menuitem" tabindex="-1" class="row" aria-label="Відкрити чернетку ${d.amount} USD, ${d.state.split(' · ')[0]}" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px"><span style="color:${tone[d.kind] || 'var(--muted-fg)'};display:grid">${icon('file-pen', { size: 18 })}</span><span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:14px;font-weight:600">Чернетка ${d.amount} USD</span><span class="t-cap muted trunc">${d.state.split(' · ')[0]}</span></span><span class="t-cap muted">Відкрити</span></div>`
   const items = drafts.map(item).join('')
   return `<div style="position:absolute;${pos};width:340px;z-index:90;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:12px;box-shadow:0 20px 50px oklch(0 0 0 / 0.6)">
-  <div id="ch-menu" role="menu" aria-label="Нова транзакція або чернетка" style="padding:6px">${items}<div role="separator" style="height:1px;margin:6px 4px;background:var(--border)"></div><div role="menuitem" tabindex="0" class="row" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px;background:var(--raised);box-shadow:inset 0 0 0 2px var(--primary)"><span style="color:var(--primary);display:grid">${icon('plus', { size: 18, stroke: 2.4 })}</span><span class="grow" style="font-size:14px;font-weight:600">Нова транзакція</span><span class="kbdkey">Enter</span></div></div>
-  <div aria-hidden="true" class="t-cap muted" style="padding:8px 16px;border-top:1px solid var(--border)">↑ ↓ чернетки · Esc закрити</div></div>`
+  <div id="ch-menu" role="menu" aria-label="Нова транзакція або чернетка" style="padding:6px">${items}<div role="separator" style="height:1px;margin:6px 4px;background:var(--border)"></div><div role="menuitem" tabindex="0" class="row" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px;background:var(--raised);box-shadow:inset 0 0 0 2px var(--primary)"><span style="color:var(--primary);display:grid">${icon('plus', { size: 18, stroke: 2.4 })}</span><span class="grow" style="font-size:14px;font-weight:600">Нова транзакція</span>${coarse ? '' : '<span class="kbdkey">Enter</span>'}</div></div>
+  ${coarse ? '' : '<div aria-hidden="true" class="t-cap muted" style="padding:8px 16px;border-top:1px solid var(--border)">↑ ↓ чернетки · Esc закрити</div>'}</div>`
 }
 
 /** Desktop with one unknown draft: the pill bottom-right, a pinned row in the 40 px table, the header dot. */
 export function draftsDesktop(w, h, { chooser = false } = {}) {
   const pill = `<div role="button" aria-label="Результат невідомий, ${AMOUNT} USD. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.42 0.09 85);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--primary);display:grid">${icon('circle-help', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">Результат невідомий</span><span class="t-cap muted num">${AMOUNT} USD · Відкрити</span></span></div>`
-  const row = `<tr><td colspan="6" style="padding:0;max-width:none;background:${WARN(7)};box-shadow:inset 2px 0 0 var(--warning)"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:var(--warning);display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600">Чернетка ${AMOUNT} USD</span><span class="grow muted trunc">Результат невідомий · Витрата · чек додано</span><button type="button" class="btn sm secondary" aria-label="Відкрити чернетку ${AMOUNT} USD" style="height:28px;font-size:13px;padding:0 12px;background:${WARN(18)};border-color:${WARN(45)}">Відкрити</button></div></td></tr>`
+  const row = `<tr><td colspan="6" style="padding:0;max-width:none;background:${WARN(7)};box-shadow:inset 2px 0 0 var(--warning)"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:var(--warning);display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600;white-space:nowrap">${AMOUNT} USD</span><span class="grow muted trunc">Результат невідомий · Витрата</span><button type="button" class="btn sm secondary" aria-label="Відкрити чернетку ${AMOUNT} USD" style="height:28px;font-size:13px;padding:0 12px;background:${WARN(18)};border-color:${WARN(45)}">Відкрити</button></div></td></tr>`
   const menu = chooser
     ? chooserMenu({ drafts: [DRAFT.unknown], pos: 'right:20px;top:52px', itemH: 40 })
     : ''
+  // On Фінанси every «+» opens a new form directly; the chooser lives on the other pages (Статистика).
+  const page = chooser
+    ? {
+        active: '/stats',
+        crumb: ['Гроші', 'Статистика'],
+        content: `<div style="padding:18px 20px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><div class="t-foot muted" style="font-size:13px">Чистий прибуток · 6 міс</div><div class="num" style="font-size:26px;font-weight:700;letter-spacing:-0.02em">+25 900,00 USD</div><div style="margin-top:10px">${netBars(1100, 300, { labelSize: 12, pad: 34 })}</div>${legend(
+          [
+            ['var(--chart-1)', 'Прибуток'],
+            ['', 'Збиток', 'hatch'],
+          ],
+        )}</div>`,
+      }
+    : {}
   return (
-    desktop({ w, h, overlay: pill + menu })
+    desktop({ w, h, overlay: pill + menu, ...page })
       // The scroller pads by the stack height + 24 (52 + 24 + 24), so the pill never covers the last row.
       .replace('padding:20px 24px 24px;', 'padding:20px 24px 100px;')
       .replace('<tr aria-selected="true" style="background:var(--raised)">', '<tr>')
       .replace('<tbody>', `<tbody>${row}`)
       .replace(
         '<span class="btn primary" style="height:36px',
-        `<span class="btn primary" aria-label="Нова транзакція, 1 чернетка потребує уваги" aria-haspopup="menu" aria-expanded="${chooser}"${chooser ? ' aria-controls="ch-menu"' : ''} style="position:relative;height:36px`,
+        `<span class="btn primary" aria-label="Нова транзакція, 1 чернетка потребує уваги"${chooser ? ' aria-haspopup="menu" aria-expanded="true" aria-controls="ch-menu"' : ''} style="position:relative;height:36px`,
       )
       .replace('C</span></span></header>', `C</span>${DOT}</span></header>`)
   )
@@ -102,14 +114,18 @@ export function draftsDesktop(w, h, { chooser = false } = {}) {
 
 /** Tablet: the rail «+» with the dot opens the chooser menu beside it; 44 px items (touch). */
 export function draftsChooserTablet(w, h) {
-  const drafts = [DRAFT.failed2, DRAFT.unknown]
   const menu = chooserMenu({
     drafts: [DRAFT.unknown, DRAFT.failed2],
     pos: 'left:88px;top:86px',
     itemH: 44,
+    coarse: true,
   })
-  return tablet({ w, h, overlay: menu })
-    .replace('<div class="sechead">', `${pinnedRows(drafts)}<div class="sechead">`)
+  const pill = `<div role="button" aria-label="2 чернетки потребують перевірки. Відкрити" class="row" style="position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;gap:10px;padding:0 14px 0 12px;border-radius:14px;background:oklch(0.2 0.006 85);border:1px solid oklch(0.38 0.09 22);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--destructive);display:grid">${icon('file-pen', { size: 20 })}</span><span class="grow col" style="gap:1px;min-width:0"><span style="font-size:13px;font-weight:600">2 потребують перевірки</span><span class="t-cap muted">Відкрити</span></span></div>`
+  // The list pads by the pill height + 48 (52 + 24 + 24), so the corner never covers the last row.
+  const list = `<section aria-label="Співбесіди" class="col" style="width:360px;flex:none;border-right:1px solid var(--border)">
+  <div class="row" style="height:56px;padding:0 8px 0 16px"><div class="grow t-title">Співбесіди</div></div>
+  <div style="flex:1;min-height:0;overflow:hidden;padding-bottom:100px">${interviewsBody()}</div></section>`
+  return tablet({ w, h, overlay: menu + pill, list, active: '/interviews' })
     .replace(
       '<div aria-label="Створити" style="width:52px;height:52px;',
       `<div role="button" aria-label="Створити, 2 чернетки потребують уваги" aria-haspopup="menu" aria-expanded="true" aria-controls="ch-menu" style="position:relative;width:52px;height:52px;`,
@@ -135,7 +151,7 @@ export function checkDialog(w, h) {
       85,
     ),
   })}</div>
-  <div style="padding:12px 20px 16px;border-top:1px solid var(--border)"><button type="button" class="btn secondary" style="width:100%">${icon('list', { size: 18 })}Перевірити список</button>${discardBtn}</div></aside>`
+  <div style="padding:12px 20px 16px;border-top:1px solid var(--border)"><button type="button" class="btn primary" style="width:100%">${icon('list', { size: 18 })}Перевірити список</button>${discardBtn}</div></aside>`
   const rows = [MATCH_ROW, ...NEW_ROWS].map((r) => txnRow(r)).join('')
   const dialog = `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.55);z-index:80"></div>
   <div role="dialog" aria-modal="true" aria-labelledby="ck-t" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:560px;z-index:90;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:16px;box-shadow:0 30px 80px oklch(0 0 0 / 0.7);overflow:hidden">
