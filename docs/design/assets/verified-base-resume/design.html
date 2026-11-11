@@ -1,0 +1,1693 @@
+<!doctype html>
+<html lang="uk" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Verified base resume — static mockup (Task 17, design-gate degraded)</title>
+    <!--
+      Static visual reference for Tasks 18-20. NOT code to paste: build with our shadcn/ui
+      components per docs/design/verified-base-resume.md. Tokens below are copied verbatim from
+      apps/web/app/styles/globals.css (.dark block). The emerald/amber values are the Tailwind v4
+      default palette steps the codebase already uses (bg-emerald-500/15, text-amber-300 ...).
+      ?s=<screen-id> shows one screen only (used for the screenshots).
+      All data is synthetic: "Alex Doe" and "Dana Smith" are invented.
+    -->
+    <style>
+      .dark {
+        --background: oklch(0.08 0 0);
+        --card: oklch(0.12 0 0);
+        --surface: oklch(0.16 0.006 85);
+        --foreground: oklch(0.97 0 0);
+        --card-foreground: oklch(0.97 0 0);
+        --popover: oklch(0.13 0 0);
+        --muted-foreground: oklch(0.58 0 0);
+        --primary: oklch(0.84 0.183 85.3);
+        --primary-foreground: oklch(0.08 0 0);
+        --yellow-muted: oklch(0.72 0.13 85.3);
+        --yellow-subtle: oklch(0.22 0.04 85.3);
+        --secondary: oklch(0.2 0 0);
+        --secondary-foreground: oklch(0.97 0 0);
+        --muted: oklch(0.16 0 0);
+        --accent: oklch(0.19 0.012 85);
+        --accent-foreground: oklch(0.97 0 0);
+        --destructive: oklch(0.65 0.21 22.2);
+        --border: oklch(0.22 0.004 85);
+        --input: oklch(0.16 0 0);
+        --ring: oklch(0.84 0.183 85.3);
+        --radius: 0.625rem;
+        /* Tailwind v4 default palette steps already used in apps/web */
+        --emerald-300: oklch(0.845 0.143 164.98);
+        --emerald-500: oklch(0.696 0.17 162.48);
+        --amber-300: oklch(0.879 0.169 91.6);
+        --amber-500: oklch(0.769 0.188 70.08);
+        /* The PDF paper inside thumbnails/preview: the light-theme --card (oklch(1 0 0)), not UI chrome */
+        --paper: oklch(1 0 0);
+        --paper-ink: oklch(0.12 0 0);
+        --paper-muted: oklch(0.5 0 0);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+      }
+      body {
+        background: var(--background);
+        color: var(--foreground);
+        font:
+          14px/1.5 'Inter',
+          system-ui,
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .tnum {
+        font-variant-numeric: tabular-nums;
+      }
+      .muted {
+        color: var(--muted-foreground);
+      }
+      .xs {
+        font-size: 12px;
+        line-height: 16px;
+      }
+      .sm {
+        font-size: 13px;
+      }
+      h1,
+      h2,
+      h3,
+      h4 {
+        margin: 0;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      h2 {
+        font-size: 16px;
+      }
+      h3 {
+        font-size: 14px;
+      }
+      p {
+        margin: 0;
+      }
+      .screen-label {
+        display: block;
+        padding: 6px 16px;
+        font:
+          600 11px/16px 'Inter',
+          system-ui,
+          sans-serif;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted-foreground);
+        border-bottom: 1px solid var(--border);
+      }
+      section[data-screen] {
+        border-bottom: 8px solid var(--muted);
+      }
+
+      /* Profile shell stub (context only, owned by UserProfileShell) */
+      .shell-head {
+        padding: 16px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 999px;
+        background: var(--yellow-subtle);
+        color: var(--primary);
+        display: grid;
+        place-items: center;
+        font-weight: 600;
+        flex: none;
+      }
+      .tabs {
+        display: flex;
+        gap: 4px;
+        padding: 0 16px;
+        border-bottom: 1px solid var(--border);
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+      .tab {
+        padding: 10px 12px;
+        color: var(--muted-foreground);
+        white-space: nowrap;
+        font-weight: 500;
+      }
+      .tab[aria-selected='true'] {
+        color: var(--foreground);
+        box-shadow: inset 0 -2px 0 var(--primary);
+      }
+
+      .page {
+        padding: 16px;
+        max-width: 1152px;
+      }
+      .stack {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .spacer {
+        flex: 1;
+      }
+
+      /* Card */
+      .card {
+        border: 1px solid var(--border);
+        background: var(--card);
+        color: var(--card-foreground);
+        border-radius: calc(var(--radius) + 4px);
+        box-shadow: 0 1px 2px oklch(0 0 0 / 0.3);
+      }
+      .card-h {
+        padding: 16px 16px 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .card-c {
+        padding: 16px;
+      }
+      .divide > * + * {
+        border-top: 1px solid var(--border);
+      }
+
+      /* Button */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        height: 36px;
+        padding: 0 16px;
+        border-radius: calc(var(--radius) - 2px);
+        font:
+          500 14px/1 'Inter',
+          system-ui,
+          sans-serif;
+        border: 1px solid transparent;
+        background: var(--primary);
+        color: var(--primary-foreground);
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .btn.outline {
+        background: transparent;
+        color: var(--foreground);
+        border-color: var(--border);
+      }
+      .btn.ghost {
+        background: transparent;
+        color: var(--foreground);
+      }
+      .btn.ghost.mutedtxt {
+        color: var(--muted-foreground);
+      }
+      .btn.sm {
+        height: 32px;
+        padding: 0 12px;
+        font-size: 12px;
+      }
+      .btn.icon {
+        width: 36px;
+        padding: 0;
+      }
+      .btn[disabled],
+      .btn[aria-disabled='true'] {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .btn:focus-visible,
+      .focus-demo {
+        outline: 2px solid var(--ring);
+        outline-offset: 2px;
+      }
+      .btn.block {
+        width: 100%;
+      }
+      svg.i {
+        width: 16px;
+        height: 16px;
+        flex: none;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      /* Badge */
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        border-radius: calc(var(--radius) - 2px);
+        border: 1px solid var(--border);
+        padding: 2px 10px;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 16px;
+        white-space: nowrap;
+      }
+      .badge.verified {
+        border-color: oklch(from var(--emerald-500) l c h / 0.3);
+        background: oklch(from var(--emerald-500) l c h / 0.15);
+        color: var(--emerald-300);
+      }
+      .badge.waiting {
+        border-color: transparent;
+        background: var(--yellow-subtle);
+        color: var(--primary);
+      }
+      .badge.busy {
+        border-color: oklch(from var(--primary) l c h / 0.3);
+        color: var(--primary);
+      }
+      .badge.failed {
+        border-color: oklch(from var(--amber-500) l c h / 0.4);
+        background: oklch(from var(--amber-500) l c h / 0.1);
+        color: var(--amber-300);
+      }
+      .badge.edited {
+        border-style: dashed;
+        color: var(--foreground);
+        font-weight: 500;
+      }
+      .badge.count {
+        background: var(--secondary);
+        border-color: transparent;
+      }
+
+      /* Inputs */
+      label.l {
+        display: block;
+        font-size: 12px;
+        font-weight: 500;
+        margin-bottom: 6px;
+      }
+      .input,
+      .textarea,
+      .select {
+        width: 100%;
+        min-height: 36px;
+        border: 1px solid var(--border);
+        background: var(--input);
+        color: var(--foreground);
+        border-radius: calc(var(--radius) - 2px);
+        padding: 8px 12px;
+        font:
+          14px/20px 'Inter',
+          system-ui,
+          sans-serif;
+      }
+      .textarea {
+        min-height: 84px;
+        white-space: pre-wrap;
+      }
+      /* Mobile touch targets: 44px below sm (responsive-design.md), 36/32px from sm up */
+      @media (max-width: 639px) {
+        .btn,
+        .btn.sm,
+        .seg button {
+          height: 44px;
+        }
+        .btn.icon {
+          width: 44px;
+        }
+      }
+      @media (max-width: 1023px) {
+        /* below lg the Text | PDF tabs switch the two panes; the mockup shows the Text tab */
+        .confirm .preview {
+          display: none;
+        }
+      }
+      div.textarea {
+        white-space: normal;
+      }
+      pre.textarea {
+        margin: 0;
+      }
+      .select {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .input.empty,
+      .textarea.empty {
+        color: var(--muted-foreground);
+      }
+      .invalid {
+        border-color: var(--destructive);
+      }
+      .field-err {
+        color: var(--destructive);
+        font-size: 12px;
+        margin-top: 6px;
+      }
+      .grid {
+        display: grid;
+        gap: 12px;
+      }
+      @media (min-width: 640px) {
+        .grid.c2 {
+          grid-template-columns: 1fr 1fr;
+        }
+        .grid.c3 {
+          grid-template-columns: 1fr 1fr 1fr;
+        }
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .chip {
+        background: var(--muted);
+        border-radius: 6px;
+        padding: 2px 8px;
+        font-size: 12px;
+      }
+      .switch {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 36px;
+      }
+      .switch i {
+        width: 36px;
+        height: 20px;
+        border-radius: 999px;
+        background: var(--secondary);
+        position: relative;
+        flex: none;
+      }
+      .switch i::after {
+        content: '';
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 999px;
+        background: var(--foreground);
+      }
+      .switch.on i {
+        background: var(--primary);
+      }
+      .switch.on i::after {
+        left: 18px;
+        background: var(--primary-foreground);
+      }
+
+      /* Facts layout: form + completeness panel */
+      .facts {
+        display: grid;
+        gap: 16px;
+      }
+      @media (min-width: 1024px) {
+        .facts {
+          grid-template-columns: minmax(0, 1fr) 304px;
+          align-items: start;
+        }
+        .facts .panel {
+          position: sticky;
+          top: 16px;
+          order: 2;
+        }
+      }
+      .panel .issues {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .issue {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        width: 100%;
+        min-height: 44px;
+        padding: 8px;
+        border-radius: calc(var(--radius) - 2px);
+        text-align: left;
+        background: none;
+        border: 0;
+        color: inherit;
+        font: inherit;
+      }
+      .issue:hover {
+        background: var(--accent);
+      }
+      .issue .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: var(--destructive);
+        margin-top: 7px;
+        flex: none;
+      }
+      .issue b {
+        display: block;
+        font-weight: 500;
+      }
+      .exp-item {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 12px;
+      }
+      .exp-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      @media (min-width: 1024px) {
+        .issues-toggle {
+          display: none;
+        }
+      }
+
+      /* Empty state */
+      .empty-grid {
+        display: grid;
+        gap: 12px;
+      }
+      @media (min-width: 640px) {
+        .empty-grid {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+      .choice {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .choice .ic {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        background: var(--muted);
+        display: grid;
+        place-items: center;
+      }
+
+      /* Progress */
+      .bar {
+        height: 4px;
+        border-radius: 999px;
+        background: var(--secondary);
+        overflow: hidden;
+      }
+      .bar i {
+        display: block;
+        height: 100%;
+        width: 40%;
+        background: var(--primary);
+        border-radius: 999px;
+        animation: slide 1.6s ease-in-out infinite;
+      }
+      @keyframes slide {
+        from {
+          transform: translateX(-100%);
+        }
+        to {
+          transform: translateX(250%);
+        }
+      }
+      .spin {
+        animation: rot 1s linear infinite;
+      }
+      @keyframes rot {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .bar i {
+          animation: none;
+          width: 100%;
+          opacity: 0.4;
+        }
+        .spin {
+          animation: none;
+        }
+      }
+      .stages {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .stages li {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        color: var(--muted-foreground);
+      }
+      .stages .mk {
+        width: 20px;
+        height: 20px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        flex: none;
+        display: grid;
+        place-items: center;
+      }
+      .stages .done {
+        color: var(--foreground);
+      }
+      .stages .done .mk {
+        background: var(--secondary);
+        border-color: transparent;
+      }
+      .stages .now {
+        color: var(--foreground);
+      }
+      .stages .now .mk {
+        border: 2px solid var(--primary);
+      }
+      .stages .sub {
+        display: block;
+      }
+
+      /* Confirm */
+      .confirm {
+        display: grid;
+        gap: 16px;
+      }
+      @media (min-width: 1024px) {
+        .confirm {
+          grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+          align-items: start;
+        }
+        .confirm .preview {
+          position: sticky;
+          top: 16px;
+        }
+        .seg.only-narrow {
+          display: none;
+        }
+      }
+      .pair {
+        display: grid;
+        gap: 12px;
+      }
+      @media (min-width: 640px) {
+        .pair {
+          grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+        }
+      }
+      .pair .src {
+        border-left: 2px solid var(--border);
+        padding-left: 12px;
+        color: var(--muted-foreground);
+      }
+      .pair .out {
+        border-left: 2px solid var(--primary);
+        padding-left: 12px;
+      }
+      .lbl {
+        display: block;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--muted-foreground);
+        margin-bottom: 4px;
+      }
+      .pair ul {
+        margin: 0;
+        padding-left: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .note {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        font-size: 12px;
+        color: var(--amber-300);
+        border: 1px solid oklch(from var(--amber-500) l c h / 0.3);
+        background: oklch(from var(--amber-500) l c h / 0.1);
+        border-radius: calc(var(--radius) - 2px);
+        padding: 8px 10px;
+      }
+      .seg {
+        display: inline-flex;
+        padding: 3px;
+        gap: 2px;
+        border-radius: var(--radius);
+        background: var(--muted);
+        align-self: flex-start;
+      }
+      .seg button {
+        height: 44px;
+        min-width: 88px;
+        border: 0;
+        border-radius: calc(var(--radius) - 3px);
+        background: none;
+        color: var(--muted-foreground);
+        font:
+          500 13px 'Inter',
+          system-ui,
+          sans-serif;
+      }
+      .seg button[aria-selected='true'] {
+        background: var(--card);
+        color: var(--foreground);
+      }
+      .pdf {
+        background: var(--paper);
+        color: var(--paper-ink);
+        aspect-ratio: 1 / 1.414;
+        border-radius: 4px;
+        padding: 9% 8%;
+        font-family: 'Inter', system-ui, sans-serif;
+        overflow: hidden;
+      }
+      .pdf-name {
+        font-size: 15px;
+        font-weight: 700;
+      }
+      .pdf-meta {
+        font-size: 8px;
+        color: var(--paper-muted);
+        margin-bottom: 6px;
+      }
+      .pdf-h {
+        font-size: 8px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin: 8px 0 3px;
+        border-bottom: 1px solid var(--yellow-muted);
+        padding-bottom: 1px;
+      }
+      .pdf-role {
+        font-size: 7px;
+        display: flex;
+        gap: 4px;
+        margin: 3px 0;
+      }
+      .pdf-role span {
+        margin-left: auto;
+        color: var(--paper-muted);
+      }
+      .ln {
+        height: 4px;
+        border-radius: 2px;
+        background: oklch(from var(--paper-muted) l c h / 0.25);
+        margin: 3px 0;
+      }
+      .ln.s {
+        width: 62%;
+      }
+      .written .card-h h3 {
+        overflow-wrap: anywhere;
+      }
+
+      /* Failure */
+      .fail {
+        border: 1px solid oklch(from var(--amber-500) l c h / 0.4);
+        background: oklch(from var(--amber-500) l c h / 0.1);
+        border-radius: calc(var(--radius) + 4px);
+        padding: 16px;
+      }
+      .fail-items {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .fail .issue .dot {
+        background: var(--amber-500);
+      }
+      .warn {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        font-size: 12px;
+      }
+      .warn svg {
+        color: var(--amber-500);
+        margin-top: 1px;
+      }
+
+      /* Template picker */
+      .tpl-grid {
+        display: grid;
+        gap: 12px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      @media (min-width: 768px) {
+        .tpl-grid {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+      }
+      @media (min-width: 1440px) {
+        .tpl-grid {
+          grid-template-columns: repeat(4, minmax(0, 200px));
+        }
+      }
+      .tpl-grid.busy {
+        grid-template-columns: minmax(0, 160px);
+        opacity: 0.5;
+      }
+      .tpl {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 8px;
+        text-align: left;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--card);
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+      }
+      .tpl[aria-checked='true'] {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 1px var(--primary);
+      }
+      .tpl-txt {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 0 2px 2px;
+      }
+      .tpl-txt b {
+        font-weight: 500;
+      }
+      .tpl-cur {
+        align-self: flex-start;
+        margin: 0 2px 2px;
+      }
+      .thumb {
+        display: flex;
+        flex-direction: column;
+        aspect-ratio: 1 / 1.414;
+        background: var(--paper);
+        border-radius: 4px;
+        padding: 12% 10%;
+        gap: 5%;
+        overflow: hidden;
+      }
+      .thumb i {
+        display: block;
+        height: 3%;
+        border-radius: 2px;
+        background: oklch(from var(--paper-muted) l c h / 0.3);
+        flex: none;
+      }
+      .thumb .nm {
+        height: 5%;
+        width: 55%;
+        background: var(--paper-ink);
+      }
+      .thumb .mt {
+        width: 75%;
+      }
+      .thumb .h {
+        width: 30%;
+        background: var(--paper-ink);
+        margin-top: 4%;
+      }
+      .thumb .s {
+        width: 60%;
+      }
+      .t-classic .nm,
+      .t-classic .mt {
+        align-self: center;
+      }
+      .t-classic .h {
+        align-self: center;
+      }
+      .t-modern .h {
+        width: 100%;
+        height: 2%;
+        background: var(--yellow-muted);
+      }
+      .t-compact {
+        gap: 3%;
+        padding: 9% 8%;
+      }
+      .t-compact .nm {
+        width: 45%;
+        height: 4%;
+      }
+      .t-technical .kv {
+        width: 100%;
+        background: linear-gradient(
+          90deg,
+          var(--paper-ink) 0 22%,
+          transparent 22% 26%,
+          oklch(from var(--paper-muted) l c h / 0.3) 26% 100%
+        );
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="shell-head">
+        <div class="avatar" aria-hidden="true">AD</div>
+        <div>
+          <div style="font-weight: 600">Alex Doe</div>
+          <div class="muted xs">SENIOR · alex.doe@example.test</div>
+        </div>
+      </div>
+      <nav class="tabs" role="tablist" aria-label="Профіль">
+        <span class="tab" role="tab">Огляд</span><span class="tab" role="tab">Проєкти</span
+        ><span class="tab" role="tab">Документи</span
+        ><span class="tab" role="tab" aria-selected="true">Резюме</span>
+      </nav>
+    </header>
+
+    <!-- ============================================================ 1. FACTS FORM -->
+    <section data-screen id="facts" aria-labelledby="facts-t">
+      <span class="screen-label">1 · Facts form + completeness panel · DRAFT, 3 issues</span>
+      <div class="page stack">
+        <div class="row">
+          <span class="badge">Чернетка</span>
+          <span class="muted xs">Факти змінено — надішліть на перевірку ще раз.</span>
+        </div>
+        <div class="facts">
+          <aside class="panel card" aria-labelledby="facts-t">
+            <div class="card-h">
+              <h2 id="facts-t">Що ще потрібно</h2>
+              <span class="badge count tnum">3 поля</span>
+              <span class="spacer"></span>
+              <button class="btn ghost sm issues-toggle" aria-expanded="true">Сховати</button>
+            </div>
+            <div class="card-c stack" style="gap: 12px">
+              <ul class="issues" aria-label="Незаповнені поля">
+                <li>
+                  <button class="issue">
+                    <span class="dot"></span
+                    ><span
+                      ><b>Навички</b
+                      ><span class="muted xs"
+                        >Потрібно щонайменше 5 навичок разом із технологіями з досвіду</span
+                      ></span
+                    >
+                  </button>
+                </li>
+                <li>
+                  <button class="issue focus-demo">
+                    <span class="dot"></span
+                    ><span
+                      ><b>Місце роботи 2 · Нотатки</b
+                      ><span class="muted xs"
+                        >Додайте хоча б одну нотатку про досягнення</span
+                      ></span
+                    >
+                  </button>
+                </li>
+                <li>
+                  <button class="issue">
+                    <span class="dot"></span
+                    ><span><b>Мови</b><span class="muted xs">Додайте англійську до мов</span></span>
+                  </button>
+                </li>
+              </ul>
+              <button class="btn block" disabled aria-describedby="submit-hint">
+                Надіслати на перевірку
+              </button>
+              <p id="submit-hint" class="muted xs">Спершу заповніть поля зі списку</p>
+              <button class="btn outline block">Зберегти чернетку</button>
+            </div>
+          </aside>
+
+          <div class="stack">
+            <div class="card">
+              <div class="card-h"><h2>Основне</h2></div>
+              <div class="card-c grid c2">
+                <div style="grid-column: 1 / -1">
+                  <label class="l">Цільова посада</label>
+                  <div class="input">Senior Backend Engineer</div>
+                </div>
+                <div>
+                  <label class="l">Місто</label>
+                  <div class="input">Lisbon</div>
+                </div>
+                <div>
+                  <label class="l">Країна</label>
+                  <div class="input">Portugal</div>
+                </div>
+                <div>
+                  <label class="l">Формат роботи</label>
+                  <div class="select">
+                    Віддалено
+                    <svg class="i muted" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-h">
+                <h2>Навички</h2>
+                <span class="muted xs tnum">3 + 1 з досвіду = 4 з 5</span>
+              </div>
+              <div class="card-c">
+                <label class="l" for="sk">По одній навичці в рядку</label>
+                <pre
+                  id="sk"
+                  class="textarea invalid"
+                  aria-invalid="true"
+                  aria-describedby="sk-err"
+                  style="min-height: 64px"
+                >
+Go
+PostgreSQL
+Kubernetes</pre>
+                <p id="sk-err" class="field-err">
+                  Потрібно щонайменше 5 навичок разом із технологіями з досвіду
+                </p>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-h">
+                <h2>Досвід роботи</h2>
+                <span class="spacer"></span
+                ><button class="btn outline sm">Додати місце роботи</button>
+              </div>
+              <div class="card-c stack" style="gap: 12px">
+                <div class="exp-item">
+                  <div class="exp-head">
+                    <h3>Місце роботи 1</h3>
+                    <span class="spacer"></span>
+                    <button
+                      class="btn ghost icon mutedtxt"
+                      aria-label="Перемістити місце роботи 1 вниз"
+                    >
+                      <svg class="i" viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6" /></svg>
+                    </button>
+                    <button class="btn ghost icon mutedtxt" aria-label="Видалити місце роботи 1">
+                      <svg class="i" viewBox="0 0 24 24">
+                        <path d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div class="grid c2">
+                    <div>
+                      <label class="l">Компанія</label>
+                      <div class="input">Northwind Labs</div>
+                    </div>
+                    <div>
+                      <label class="l">Посада</label>
+                      <div class="input">Senior Backend Engineer</div>
+                    </div>
+                    <div>
+                      <label class="l">Локація (необов’язково)</label>
+                      <div class="input empty">Remote</div>
+                    </div>
+                    <div class="grid c2" style="gap: 8px">
+                      <div>
+                        <label class="l">Початок</label>
+                        <div class="input tnum">03.2021</div>
+                      </div>
+                      <div>
+                        <label class="l">Кінець</label>
+                        <div class="input empty">—</div>
+                      </div>
+                    </div>
+                    <div style="grid-column: 1 / -1">
+                      <span class="switch on"><i></i>Працюю тут зараз</span>
+                    </div>
+                    <div style="grid-column: 1 / -1">
+                      <label class="l">Технології</label>
+                      <div class="input chips">
+                        <span class="chip">Node.js</span><span class="chip">PostgreSQL</span>
+                      </div>
+                    </div>
+                    <div style="grid-column: 1 / -1">
+                      <label class="l">Нотатки про досягнення — по одній у рядку</label>
+                      <pre class="textarea">
+led payments API rewrite, p95 400ms -> 80ms
+mentored 3 engineers
+moved CI to GitHub Actions, build 25 -> 9 min</pre>
+                    </div>
+                  </div>
+                </div>
+                <div class="exp-item">
+                  <div class="exp-head"><h3>Місце роботи 2</h3></div>
+                  <div class="grid c2">
+                    <div>
+                      <label class="l">Компанія</label>
+                      <div class="input">Contoso Retail</div>
+                    </div>
+                    <div>
+                      <label class="l">Посада</label>
+                      <div class="input">Backend Engineer</div>
+                    </div>
+                    <div class="grid c2" style="gap: 8px; grid-column: 1 / -1">
+                      <div>
+                        <label class="l">Початок</label>
+                        <div class="input tnum">06.2017</div>
+                      </div>
+                      <div>
+                        <label class="l">Кінець</label>
+                        <div class="input tnum">02.2021</div>
+                      </div>
+                    </div>
+                    <div style="grid-column: 1 / -1">
+                      <label class="l" for="n2">Нотатки про досягнення — по одній у рядку</label>
+                      <div
+                        id="n2"
+                        class="textarea empty invalid focus-demo"
+                        aria-invalid="true"
+                        aria-describedby="n2-err"
+                      >
+                        Що ви зробили і з яким результатом
+                      </div>
+                      <p id="n2-err" class="field-err">
+                        Додайте хоча б одну нотатку про досягнення
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-h">
+                <h2>Мови</h2>
+                <span class="spacer"></span><button class="btn outline sm">Додати мову</button>
+              </div>
+              <div class="card-c grid c2">
+                <div>
+                  <label class="l">Мова</label>
+                  <div class="input">Portuguese</div>
+                </div>
+                <div>
+                  <label class="l">Рівень</label>
+                  <div class="select">
+                    Рідна <svg class="i muted" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg>
+                  </div>
+                </div>
+                <p class="field-err" style="grid-column: 1 / -1; margin: 0">
+                  Додайте англійську до мов
+                </p>
+              </div>
+            </div>
+            <p class="muted xs">
+              Освіта і Посилання — ті самі рядкові редактори, що й зараз (див. специфікацію).
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ 2. EMPTY STATE -->
+    <section data-screen id="empty" aria-labelledby="empty-t">
+      <span class="screen-label">2 · Empty state · no resume row, viewer can edit</span>
+      <div class="page">
+        <div class="card" style="max-width: 720px">
+          <div class="card-h"><h2 id="empty-t">Резюме ще не заповнено</h2></div>
+          <div class="card-c stack" style="gap: 12px">
+            <p class="muted">
+              Заповніть факти вручну або завантажте наявне резюме — ми заповнимо поля з нього, а ви
+              перевірите.
+            </p>
+            <div class="empty-grid">
+              <div class="choice">
+                <div class="ic" aria-hidden="true">
+                  <svg class="i" viewBox="0 0 24 24">
+                    <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                  </svg>
+                </div>
+                <h3>Заповнити вручну</h3>
+                <p class="muted xs">
+                  Порожня форма фактів. Перевірка запускається, коли все заповнено.
+                </p>
+                <button class="btn" style="margin-top: auto">Заповнити вручну</button>
+              </div>
+              <div class="choice">
+                <div class="ic" aria-hidden="true">
+                  <svg class="i" viewBox="0 0 24 24">
+                    <path d="M12 15V3m-5 5 5-5 5 5M5 21h14" />
+                  </svg>
+                </div>
+                <h3>Завантажити, щоб заповнити</h3>
+                <p class="muted xs">
+                  PDF або DOCX, до 10 МБ. Файл бачите тільки ви і команда найму.
+                </p>
+                <button class="btn outline" style="margin-top: auto">
+                  Завантажити, щоб заповнити
+                </button>
+              </div>
+            </div>
+            <p class="muted xs">
+              Завантаження лише заповнює поля. Резюме стане перевіреним після перевірки й
+              підтвердження HR.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ 3. PROGRESS STAGES -->
+    <section data-screen id="progress" aria-labelledby="progress-t">
+      <span class="screen-label"
+        >3 · Progress stages · CHECKING, verificationBusy = true (form, submit, picker
+        disabled)</span
+      >
+      <div class="page stack">
+        <div
+          class="card progress-card"
+          role="status"
+          aria-live="polite"
+          aria-labelledby="progress-t"
+        >
+          <div class="card-h">
+            <svg
+              class="i spin"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              style="color: var(--primary)"
+            >
+              <path d="M21 12a9 9 0 1 1-6.2-8.6" />
+            </svg>
+            <h2 id="progress-t">Перевіряємо резюме</h2>
+            <span class="badge busy">Перевіряється</span>
+          </div>
+          <div class="card-c stack" style="gap: 12px">
+            <div class="bar" aria-hidden="true"><i></i></div>
+            <ol class="stages">
+              <li class="done">
+                <span class="mk" aria-hidden="true"
+                  ><svg class="i" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span
+                >У черзі
+              </li>
+              <li class="now">
+                <span class="mk" aria-hidden="true"></span
+                ><span
+                  ><b>Перевірка</b>
+                  <span class="muted xs sub"
+                    >Пишемо текст · Звіряємо з фактами · Збираємо PDF · ATS-перевірка · Візуальна
+                    перевірка</span
+                  ></span
+                >
+              </li>
+              <li><span class="mk" aria-hidden="true"></span>Підтвердження HR</li>
+            </ol>
+            <p class="muted xs">
+              Вкладку можна закрити — перевірка триває на сервері, результат з’явиться тут.
+            </p>
+          </div>
+        </div>
+        <div class="locked">
+          <p class="muted xs row">
+            <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="5" y="11" width="14" height="10" rx="2" />
+              <path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg
+            >Поки триває перевірка, редагування недоступне.
+          </p>
+          <div class="card" aria-disabled="true" style="opacity: 0.5">
+            <div class="card-h"><h2>Основне</h2></div>
+            <div class="card-c grid c2">
+              <div>
+                <label class="l">Цільова посада</label>
+                <div class="input">Senior Backend Engineer</div>
+              </div>
+              <div>
+                <label class="l">Місто</label>
+                <div class="input">Lisbon</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card" style="max-width: 560px">
+          <div class="card-h">
+            <h3>Варіант: перевірка нового шаблону (VERIFIED, verificationBusy)</h3>
+          </div>
+          <div class="card-c row">
+            <span class="badge verified"
+              ><svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M20 6 9 17l-5-5" /></svg
+              >Перевірено</span
+            >
+            <span class="badge busy">Перевіряємо новий шаблон</span>
+            <p class="muted xs" style="flex-basis: 100%">
+              Резюме лишається перевіреним, поки триває перевірка.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ 4. CONFIRM STEP -->
+    <section data-screen id="confirm" aria-labelledby="confirm-t">
+      <span class="screen-label"
+        >4 · Confirm step · AWAITING_CONFIRM, staged ≠ null, viewer HR (canConfirm)</span
+      >
+      <div class="page stack">
+        <div class="card">
+          <div class="card-c row" style="gap: 12px">
+            <span class="badge waiting">Чекає підтвердження</span>
+            <div style="min-width: 0; flex: 1 1 240px">
+              <h2 id="confirm-t">Перевірте написаний текст</h2>
+              <p class="muted xs">
+                Текст написано з ваших фактів. Підтвердьте, відредагуйте або згенеруйте заново.
+              </p>
+            </div>
+            <div class="row actions">
+              <button class="btn outline">Змінити факти</button>
+              <button class="btn">
+                <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M20 6 9 17l-5-5" /></svg
+                >Підтвердити
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="seg only-narrow" role="tablist" aria-label="Перегляд">
+          <button role="tab" aria-selected="true">Текст</button
+          ><button role="tab" aria-selected="false">PDF</button>
+        </div>
+
+        <div class="confirm">
+          <div class="stack written">
+            <article class="card" aria-labelledby="w-sum">
+              <div class="card-h">
+                <h3 id="w-sum">Про себе</h3>
+                <span
+                  class="badge edited"
+                  title="Цей текст змінила людина — перевірку фактів для нього не запускали."
+                  >Змінено вручну</span
+                >
+                <span class="spacer"></span>
+                <button class="btn ghost sm">
+                  <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg
+                  >Редагувати
+                </button>
+                <button class="btn ghost sm">
+                  <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M21 12a9 9 0 1 1-3-6.7L21 8m0-5v5h-5" /></svg
+                  >Згенерувати заново
+                </button>
+              </div>
+              <div class="card-c pair">
+                <div class="src">
+                  <span class="lbl">З фактів</span>
+                  <p class="sm">
+                    Senior Backend Engineer · 8 років · Node.js, PostgreSQL, Go, Kubernetes, AWS
+                  </p>
+                </div>
+                <div class="out">
+                  <span class="lbl">Написано</span>
+                  <p>
+                    Senior Backend Engineer with 8 years of building payment and retail backends in
+                    Node.js and Go. Rewrote a payments API to cut p95 latency from 400 ms to 80 ms,
+                    and moved CI to GitHub Actions, shortening builds from 25 to 9 minutes. Mentors
+                    engineers and owns services end to end on PostgreSQL, Kubernetes and AWS.
+                  </p>
+                </div>
+              </div>
+            </article>
+
+            <article class="card" aria-labelledby="w-e1">
+              <div class="card-h">
+                <div style="min-width: 0; flex: 1 1 200px">
+                  <h3 id="w-e1">Senior Backend Engineer · Northwind Labs</h3>
+                  <p class="muted xs tnum">Mar 2021 – Present</p>
+                </div>
+                <button class="btn ghost sm" aria-label="Редагувати пункти, місце роботи 1">
+                  <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg
+                  >Редагувати
+                </button>
+                <button class="btn ghost sm" aria-label="Згенерувати заново пункти, місце роботи 1">
+                  <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M21 12a9 9 0 1 1-3-6.7L21 8m0-5v5h-5" /></svg
+                  >Згенерувати заново
+                </button>
+              </div>
+              <div class="card-c pair">
+                <div class="src">
+                  <span class="lbl">Нотатки</span>
+                  <ul class="sm">
+                    <li>led payments API rewrite, p95 400ms -&gt; 80ms</li>
+                    <li>mentored 3 engineers</li>
+                    <li>moved CI to GitHub Actions, build 25 -&gt; 9 min</li>
+                  </ul>
+                </div>
+                <div class="out">
+                  <span class="lbl">Пункти</span>
+                  <ul>
+                    <li>
+                      Led the rewrite of the payments API, cutting p95 latency from 400 ms to 80 ms.
+                    </li>
+                    <li>Mentored 3 engineers.</li>
+                    <li>Moved CI to GitHub Actions, shortening builds from 25 to 9 minutes.</li>
+                  </ul>
+                </div>
+              </div>
+            </article>
+
+            <article class="card" aria-labelledby="w-e2">
+              <div class="card-h">
+                <div style="min-width: 0; flex: 1 1 200px">
+                  <h3 id="w-e2">Backend Engineer · Contoso Retail</h3>
+                  <p class="muted xs tnum">Jun 2017 – Feb 2021</p>
+                </div>
+                <button class="btn ghost sm" aria-label="Редагувати пункти, місце роботи 2">
+                  <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg
+                  >Редагувати
+                </button>
+                <button class="btn ghost sm" aria-label="Згенерувати заново пункти, місце роботи 2">
+                  <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M21 12a9 9 0 1 1-3-6.7L21 8m0-5v5h-5" /></svg
+                  >Згенерувати заново
+                </button>
+              </div>
+              <div class="card-c stack" style="gap: 12px">
+                <p class="note">
+                  <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 8v4m0 4h.01" /></svg
+                  >Згенерований текст не пройшов звірку з фактами — тут ваші нотатки як є.
+                </p>
+                <div class="pair">
+                  <div class="src">
+                    <span class="lbl">Нотатки</span>
+                    <ul class="sm">
+                      <li>built order sync between POS and warehouse, ~40k orders/day</li>
+                    </ul>
+                  </div>
+                  <div class="out">
+                    <span class="lbl">Пункти</span>
+                    <ul>
+                      <li>Built order sync between POS and warehouse, ~40k orders/day.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="card" aria-labelledby="w-edit">
+              <div class="card-h"><h3 id="w-edit">Стан: редагування поля (inline)</h3></div>
+              <div class="card-c stack" style="gap: 8px">
+                <label class="l" for="ed">Пункти, місце роботи 1 — по одному в рядку</label>
+                <pre
+                  id="ed"
+                  class="textarea invalid focus-demo"
+                  aria-invalid="true"
+                  aria-describedby="ed-err"
+                >
+Led the rewrite of the payments API, cutting p95 latency from 400 ms to 80 ms.
+Mentored 3 engineers. Reach me at +351 912 345 678.</pre>
+                <p id="ed-err" class="field-err">
+                  Текст не збережено: приберіть ім’я, email або телефон.
+                </p>
+                <div class="row">
+                  <button class="btn sm">Зберегти</button
+                  ><button class="btn outline sm">Скасувати</button>
+                  <span class="muted xs">Після збереження PDF перевіриться ще раз.</span>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <aside class="card preview" aria-labelledby="pv-t">
+            <div class="card-h">
+              <h3 id="pv-t">PDF до підтвердження</h3>
+              <span class="spacer"></span>
+              <button class="btn outline sm">
+                <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 3v12m-5-5 5 5 5-5M5 21h14" /></svg
+                >Завантажити PDF
+              </button>
+            </div>
+            <div class="card-c">
+              <div
+                class="pdf"
+                role="img"
+                aria-label="Попередній перегляд PDF резюме до підтвердження"
+              >
+                <div class="pdf-name">Alex Doe</div>
+                <div class="pdf-meta">
+                  Senior Backend Engineer · Lisbon, Portugal · alex.doe@example.test
+                </div>
+                <div class="pdf-h">Summary</div>
+                <div class="ln"></div>
+                <div class="ln"></div>
+                <div class="ln s"></div>
+                <div class="pdf-h">Experience</div>
+                <div class="pdf-role">
+                  <b>Senior Backend Engineer</b>, Northwind Labs<span>Mar 2021 – Present</span>
+                </div>
+                <div class="ln"></div>
+                <div class="ln s"></div>
+                <div class="ln"></div>
+                <div class="pdf-role">
+                  <b>Backend Engineer</b>, Contoso Retail<span>Jun 2017 – Feb 2021</span>
+                </div>
+                <div class="ln s"></div>
+                <div class="pdf-h">Skills</div>
+                <div class="ln"></div>
+                <div class="pdf-h">Languages</div>
+                <div class="ln s"></div>
+              </div>
+              <p class="muted xs" style="margin-top: 8px">Шаблон: Сучасний · 1 сторінка</p>
+            </div>
+          </aside>
+        </div>
+
+        <div class="card" style="max-width: 720px">
+          <div class="card-h">
+            <h3>Варіант: SENIOR дивиться своє резюме (canConfirm = false)</h3>
+          </div>
+          <div class="card-c row">
+            <span class="badge waiting">Чекає підтвердження</span>
+            <p class="muted xs" style="flex: 1 1 220px">
+              Резюме підтверджує HR. Ви можете змінити факти й надіслати знову.
+            </p>
+            <button class="btn outline">Змінити факти</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ 5. FAILURE PANEL -->
+    <section data-screen id="failure" aria-labelledby="fail-t">
+      <span class="screen-label"
+        >5 · Failure panel · FAILED + verificationErrorCode, and VERIFIED with a non-blocking
+        warning</span
+      >
+      <div class="page stack">
+        <div class="fail" role="alert" aria-labelledby="fail-t">
+          <div class="row" style="align-items: flex-start; flex-wrap: nowrap">
+            <svg
+              class="i"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              style="color: var(--amber-500); margin-top: 2px"
+            >
+              <path
+                d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"
+              />
+            </svg>
+            <div class="stack" style="gap: 8px; min-width: 0; flex: 1">
+              <div class="row">
+                <h2 id="fail-t">PDF не пройшов ATS-перевірку</h2>
+                <span class="badge failed">Не пройшло перевірку</span>
+              </div>
+              <p class="sm">
+                Частину тексту не вдалося прочитати з PDF так, як його читає ATS. Спробуйте інший
+                шаблон або скоротіть поля зі списку.
+              </p>
+              <ul class="fail-items">
+                <li>
+                  <button class="issue">
+                    <span class="dot"></span
+                    ><span
+                      ><b>Місце роботи 2 · Пункти</b
+                      ><span class="muted xs">не читається з PDF</span></span
+                    >
+                  </button>
+                </li>
+                <li>
+                  <button class="issue">
+                    <span class="dot"></span
+                    ><span><b>Навички</b><span class="muted xs">не читається з PDF</span></span>
+                  </button>
+                </li>
+              </ul>
+              <div class="row">
+                <button class="btn">Виправити факти</button
+                ><button class="btn outline">Перевірити ще раз</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fail" role="alert" aria-labelledby="fail2-t">
+          <div class="row" style="align-items: flex-start; flex-wrap: nowrap">
+            <svg
+              class="i"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              style="color: var(--amber-500); margin-top: 2px"
+            >
+              <path
+                d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"
+              />
+            </svg>
+            <div class="stack" style="gap: 8px; min-width: 0; flex: 1">
+              <div class="row">
+                <h2 id="fail2-t">Сервіс написання тексту недоступний</h2>
+                <span class="badge failed">Не пройшло перевірку</span>
+              </div>
+              <p class="sm">Це тимчасово. Спробуйте ще раз за кілька хвилин.</p>
+              <div class="row"><button class="btn">Перевірити ще раз</button></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-c stack" style="gap: 8px">
+            <div class="row">
+              <span class="badge verified"
+                ><svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M20 6 9 17l-5-5" /></svg
+                >Перевірено</span
+              >
+              <span class="muted xs tnum">Перевірено 10.11.2026 · Dana Smith</span>
+            </div>
+            <p class="warn" role="status">
+              <svg class="i" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 8v4m0 4h.01" />
+              </svg>
+              <span
+                ><b>Новий шаблон не пройшов перевірку — залишено попередній.</b> Резюме не
+                вміщується у 2 сторінки або остання сторінка майже порожня. Скоротіть нотатки або
+                змініть щільність в оформленні.</span
+              >
+            </p>
+          </div>
+        </div>
+        <div class="card" style="max-width: 560px">
+          <div class="card-c row">
+            <span class="badge">Чернетка</span>
+            <span class="muted xs">Факти змінено — надішліть на перевірку ще раз.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ 6. TEMPLATE PICKER -->
+    <section data-screen id="picker" aria-labelledby="pick-t">
+      <span class="screen-label"
+        >6 · Template thumbnail picker · inside the layout panel, VERIFIED resume</span
+      >
+      <div class="page">
+        <div class="card">
+          <div class="card-h"><h2 id="pick-t">Шаблон</h2></div>
+          <div class="card-c stack" style="gap: 12px">
+            <p class="muted xs">
+              Усі шаблони проходять ATS-перевірку. Мініатюри — на прикладі одного резюме.
+            </p>
+            <div class="tpl-grid" role="radiogroup" aria-labelledby="pick-t">
+              <button class="tpl" role="radio" aria-checked="false">
+                <span class="thumb t-classic" aria-hidden="true"
+                  ><i class="nm"></i><i class="mt"></i><i class="h"></i><i class="l"></i
+                  ><i class="l s"></i><i class="h"></i><i class="l"></i><i class="l"></i
+                  ><i class="l s"></i
+                ></span>
+                <span class="tpl-txt"
+                  ><b>Класичний</b
+                  ><span class="muted xs">Шрифт із засічками, ім’я по центру</span></span
+                >
+              </button>
+              <button class="tpl" role="radio" aria-checked="true">
+                <span class="thumb t-modern" aria-hidden="true"
+                  ><i class="nm"></i><i class="mt"></i><i class="h"></i><i class="l"></i
+                  ><i class="l s"></i><i class="h"></i><i class="l"></i><i class="l"></i
+                  ><i class="l s"></i
+                ></span>
+                <span class="tpl-txt"
+                  ><b>Сучасний</b
+                  ><span class="muted xs">Без засічок, акцентна лінія під заголовками</span></span
+                >
+                <span class="badge waiting tpl-cur">Поточний</span>
+              </button>
+              <button class="tpl focus-demo" role="radio" aria-checked="false">
+                <span class="thumb t-compact" aria-hidden="true"
+                  ><i class="nm"></i><i class="mt"></i><i class="h"></i><i class="l"></i
+                  ><i class="l"></i><i class="l s"></i><i class="h"></i><i class="l"></i
+                  ><i class="l"></i><i class="l"></i><i class="l s"></i><i class="h"></i
+                  ><i class="l"></i
+                ></span>
+                <span class="tpl-txt"
+                  ><b>Компактний</b><span class="muted xs">Щільніше, дати праворуч</span></span
+                >
+              </button>
+              <button class="tpl" role="radio" aria-checked="false">
+                <span class="thumb t-technical" aria-hidden="true"
+                  ><i class="nm"></i><i class="mt"></i><i class="h"></i><i class="l"></i
+                  ><i class="h"></i><i class="kv"></i><i class="kv"></i><i class="kv"></i
+                  ><i class="h"></i><i class="l"></i><i class="l s"></i
+                ></span>
+                <span class="tpl-txt"
+                  ><b>Технічний</b><span class="muted xs">Навички за категоріями</span></span
+                >
+              </button>
+            </div>
+            <p class="muted xs">
+              Зміна шаблону запустить перевірку макета. Резюме лишиться перевіреним, а якщо
+              перевірка не пройде — збереже попередній шаблон.
+            </p>
+            <div class="row" style="padding-top: 4px; border-top: 1px solid var(--border)">
+              <span class="muted xs">Варіант, поки триває перевірка:</span>
+              <div
+                class="tpl-grid busy"
+                role="radiogroup"
+                aria-disabled="true"
+                aria-label="Шаблон"
+                style="flex-basis: 100%"
+              >
+                <button class="tpl" role="radio" aria-checked="true" aria-disabled="true">
+                  <span class="thumb t-modern" aria-hidden="true"
+                    ><i class="nm"></i><i class="mt"></i><i class="h"></i><i class="l"></i
+                    ><i class="l s"></i></span
+                  ><span class="tpl-txt"><b>Сучасний</b></span>
+                </button>
+              </div>
+              <p class="muted xs">Шаблон можна змінити після перевірки.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <script>
+      const s = new URLSearchParams(location.search).get('s')
+      if (s)
+        document.querySelectorAll('section[data-screen]').forEach((e) => (e.hidden = e.id !== s))
+    </script>
+  </body>
+</html>
