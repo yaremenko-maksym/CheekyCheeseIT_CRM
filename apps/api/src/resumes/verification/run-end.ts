@@ -17,12 +17,7 @@ type RunEndDeps = { db: DatabaseService; s3: Pick<S3Service, 'delete'>; logger: 
  * stops without a FAILED write: the row is not its own any more. Model calls all come before the
  * run's upload, so there is no object of its own to delete either.
  */
-export class RunLost extends Error {
-  constructor() {
-    super('RUN_LOST')
-    this.name = 'RunLost'
-  }
-}
+export class RunLost extends Error {}
 
 /** True while `runId` still owns the row: the read before every model call (CD-3). */
 export async function ownsRun(db: DatabaseService, resumeId: string, runId: string) {

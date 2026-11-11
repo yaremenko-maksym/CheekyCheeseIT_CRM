@@ -229,4 +229,36 @@ describe('SeniorResumesService — a delete while a run owns the row (CD-4)', ()
     expect(s3.delete).not.toHaveBeenCalled()
     expect(remove).not.toHaveBeenCalled()
   })
+
+  it.each([
+    ['AWAITING_CONFIRM (its run id waits for the owner)', 'AWAITING_CONFIRM', RUN],
+    ['VERIFIED with no run', 'VERIFIED', null],
+    ['FAILED', 'FAILED', null],
+  ])('%s: the delete goes ahead', async (_label, status, runId) => {
+    const s3 = { delete: vi.fn() }
+    const remove = vi.fn(() => {
+      throw new Error('row delete reached')
+    })
+    const row = { ...ROW, verificationStatus: status, verificationRunId: runId }
+    const db = {
+      db: {
+        query: {
+          users: { findFirst: vi.fn(async () => OWNER) },
+          seniorResumes: { findFirst: vi.fn(async () => row) },
+        },
+        delete: remove,
+      },
+    }
+    const svc = new SeniorResumesService(
+      db as never,
+      s3 as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    )
+    const err = await refusal(svc.deleteResume(viewer(OWNER_ID, 'SENIOR'), OWNER_ID))
+    expect((err as Error).message).toBe('row delete reached')
+    expect(s3.delete.mock.calls.map((c) => c[0])).toEqual(['src', 'live.pdf'])
+  })
 })

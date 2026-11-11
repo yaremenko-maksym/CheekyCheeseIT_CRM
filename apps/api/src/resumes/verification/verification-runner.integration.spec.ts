@@ -337,7 +337,7 @@ describe.skipIf(!hasDatabaseUrl())('Verification run — real DB (Task 14)', () 
     for (const call of writeCalls) expect(call.feedback.join(' ')).not.toContain('Jane')
   })
 
-  it('6. a superseded run (run_id changed mid-run) writes nothing and deletes its object', async () => {
+  it('6. a superseded run (run_id changed mid-run) stops at its next model call: no write, no object (CD-3)', async () => {
     let ownRunId = ''
     writerReply = async (call) => {
       if (call.task === 'summary' && ownRunId === '') {
@@ -352,9 +352,12 @@ describe.skipIf(!hasDatabaseUrl())('Verification run — real DB (Task 14)', () 
     expect(row.stagedContent).toBeNull()
     expect(row.stagedPdfS3Key).toBeNull()
     expect(row.verificationReport).toBeNull()
-    const own = stagedPdfKey(resumeId, ownRunId)
-    expect(s3.upload.mock.calls.map((c) => c[0])).toEqual([own])
-    expect(s3.delete.mock.calls.map((c) => c[0])).toEqual([own])
+    expect(ownRunId).not.toBe('')
+    // the summary call was the last model call: the ownership read before the next one missed
+    expect(writer.write).toHaveBeenCalledTimes(1)
+    expect(vision.check).not.toHaveBeenCalled()
+    expect(s3.upload).not.toHaveBeenCalled()
+    expect(s3.delete).not.toHaveBeenCalled()
   })
 
   it('7. an unconfirmed vision finding does not fail the run', async () => {
