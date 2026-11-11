@@ -3469,7 +3469,7 @@ msgstr "The resume changed after the check. Refresh the page and check it again.
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_CUSTOM_TEMPLATE"
-msgstr "This resume template does not support verification. Choose a template from the catalog."
+msgstr "This resume template cannot be checked. Choose a template from the catalog."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts

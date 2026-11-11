@@ -49,7 +49,7 @@ export const RESUME_ERROR_MESSAGES: Record<ResumeErrorCode, MessageDescriptor> =
 export const RESUME_ERROR_FALLBACK_EN: Record<ResumeErrorCode, string> = {
   RESUME_CONFIRM_STALE: 'The resume changed after the check. Refresh the page and check it again.',
   RESUME_CUSTOM_TEMPLATE:
-    'This resume template does not support verification. Choose a template from the catalog.',
+    'This resume template cannot be checked. Choose a template from the catalog.',
   RESUME_INCOMPLETE: 'Fill in all required resume fields before the check.',
   RESUME_STAGED_TEXT_INVALID:
     'The text was not saved: {reason, select, NON_LATIN {use Latin letters only} CONTACT_IN_TEXT {remove the name, email or phone number} other {check the text}}.',
