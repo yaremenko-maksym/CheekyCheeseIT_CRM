@@ -346,6 +346,44 @@ describe('ReceiptInput — pick lifecycle (task-1316-fix3 A1–A4, B1)', () => {
     expect(post).not.toHaveBeenCalled()
   })
 
+  it('A2: one cancel between two picks still leaves the first pick stale (token only grows)', async () => {
+    installFakePreviewWorker(photo, 'manual')
+    const client = qc()
+    const { rerender } = render(tree(false, client))
+    const a = new File([new Uint8Array(8)], 'IMG_A.jpg', { type: 'image/jpeg' })
+    const b = new File([new Uint8Array(8)], 'IMG_B.jpg', { type: 'image/jpeg' })
+    pick(a)
+    rerender(tree(true, client)) // the only cancel of A
+    rerender(tree(false, client))
+    fireEvent.click(screen.getByTestId('harness-reset')) // back to file mode, no cancel
+    pick(b)
+    expect(pendingReplies).toHaveLength(2)
+
+    await act(async () => {
+      pendingReplies[0]!()
+      await Promise.resolve()
+    })
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(emitted.some((s) => s.fileName === 'IMG_A.jpg')).toBe(false)
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('explorerOnly flipping on in url mode keeps the typed link', () => {
+    const client = qc()
+    const { rerender } = render(tree(false, client))
+    fireEvent.click(screen.getByTestId('receipt-input-mode-url'))
+    fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
+      target: { value: 'https://etherscan.io/tx/0xabc' },
+    })
+    const before = emitted.length
+
+    rerender(tree(true, client))
+
+    expect(emitted.length).toBe(before)
+    expect(emitted.at(-1)?.externalUrl).toBe('https://etherscan.io/tx/0xabc')
+  })
+
   it('A3/A4: an unrelated rerender during the decode does not cancel the pick', async () => {
     installFakePreviewWorker(photo, 'manual')
     const client = qc()

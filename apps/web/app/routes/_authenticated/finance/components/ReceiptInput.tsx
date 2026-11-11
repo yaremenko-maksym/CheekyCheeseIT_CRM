@@ -233,7 +233,8 @@ export function ReceiptInput({
     // still runs and the file name is shown.
     const localPreview =
       file.type === '' || file.type.startsWith('image/')
-        ? await createImagePreviewUrl(file, RECEIPT_PREVIEW_MAX_EDGE, { fallback: 'none' })
+        ? // Stryker disable next-line ObjectLiteral,StringLiteral: equivalent — any fallback other than 'original' already resolves null
+          await createImagePreviewUrl(file, RECEIPT_PREVIEW_MAX_EDGE, { fallback: 'none' })
         : URL.createObjectURL(file)
     if (pick !== pickRef.current) {
       revokeBlobUrl(localPreview)

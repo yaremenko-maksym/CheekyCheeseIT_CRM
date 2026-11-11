@@ -129,8 +129,10 @@ describe('createImagePreviewUrl â€” fallbacks and wiring (task-1316-fix3 A6, B1â
 
   it('B2: a synchronous postMessage throw (DataCloneError) resolves null, never rejects', async () => {
     installFakePreviewWorker(photo, 'cloneError')
-    await expect(createImagePreviewUrl(photo, 1024, ORIGINAL)).resolves.toBeNull()
+    const result = createImagePreviewUrl(photo, 1024, ORIGINAL)
+    // Settled at once by the catch, not 10 s later by the timeout.
     expect(workerStats.terminated).toBe(1)
+    await expect(result).resolves.toBeNull()
   })
 
   it('B3: URL.createObjectURL throwing on the reply resolves null, never hangs', async () => {

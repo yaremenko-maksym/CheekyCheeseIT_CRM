@@ -180,6 +180,15 @@ describe('AvatarUploadDialog — pick token and source URL lifecycle (task-1316-
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:bounded-preview')
   })
 
+  it('B1: without OffscreenCanvas the cropper gets the original photo (fallback: original)', async () => {
+    vi.stubGlobal('OffscreenCanvas', undefined)
+    render(dialog(), { wrapper: I18nTestProvider })
+    pick()
+
+    const cropImg = await screen.findByRole('presentation')
+    expect(cropImg).toHaveAttribute('src', 'blob:original-full-size')
+  })
+
   it('A7: unmounting with two picks in flight leaves both stale — the older one is revoked', async () => {
     installFakePreviewWorker(photo, 'manual')
     const { unmount } = render(dialog(), { wrapper: I18nTestProvider })
