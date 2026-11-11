@@ -146,8 +146,8 @@ existing intake flow or its states.
   five are **not** ticked one by one (see Open questions, Q1). While `QUEUED`, "Queued" is the current
   step and the title is "Queued for the check".
 - Below the card: one line with a lock icon, "Editing is unavailable while the check runs.", and the
-  facts form at `opacity-50` inside `<fieldset disabled>` (inputs stay readable and in the tab order of
-  a disabled fieldset — i.e. skipped). The picker is disabled the same way.
+  facts form at `opacity-50` inside `<fieldset disabled>`: the values stay readable, the controls leave
+  the tab order. The picker is disabled the same way (§5.6).
 - Template run on VERIFIED (`VERIFIED` + busy): no big card. The bar shows the Verified badge plus a
   "Checking the new template" badge and the line "The resume stays verified while the check runs."
 - Announcements: the live region announces the title change once per status change (Queued → Checking
@@ -307,10 +307,11 @@ No new tokens. No raw hex. The emerald and amber steps are the Tailwind default 
   written/source rules are paired with "From the facts" / "Written" labels.
 - **Target size:** 44px tall on mobile for every button and tab (`h-11 sm:h-9`, icon `size-11 sm:size-9`,
   same pattern as the existing layout panel); ≥ 32px with ≥ 4px gaps from `sm` up. Issue rows ≥ 44px.
-- **Contrast** (on `--card` `oklch(0.12 0 0)`): `muted-foreground` ≈ 5.4:1, `text-emerald-300` and
-  `text-amber-300` on their 10–15% tints > 9:1, `text-primary` on `yellow-subtle` > 8:1,
-  `text-destructive` ≈ 4.9:1. Disabled controls at 50% are exempt (SC 1.4.3), but the reason line is
-  full contrast.
+- **Contrast** (computed from the `.dark` oklch tokens, tints composited over `--card`
+  `oklch(0.12 0 0)`): `muted-foreground` 4.74:1, `text-destructive` 5.67:1, `text-primary` on
+  `yellow-subtle` 10.48:1, `text-emerald-300` on `emerald-500/15` 11.18:1, `text-amber-300` on
+  `amber-500/10` 12.49:1. `muted-foreground` is the tightest pair: do not use it below 12px or on a tint.
+  Disabled controls at 50% are exempt (SC 1.4.3), but the reason line is full contrast.
 - **Motion:** spinner and bar stop under `prefers-reduced-motion`. No other motion.
 - **Keyboard:** issue rows are buttons (Enter / Space). Inline edit: Escape cancels, Ctrl/Cmd+Enter
   saves. The picker uses arrow keys (Radix).
