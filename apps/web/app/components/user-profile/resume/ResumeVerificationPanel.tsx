@@ -8,7 +8,7 @@
  * VERIFIED row is a template / formatting run: the DTO has no run-kind field,
  * so `isTemplateRun = verificationStatus === 'VERIFIED' && verificationBusy`.
  */
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Loader2, Lock } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { ResumeVerificationStatus, SeniorResumeDto } from '@crm/shared'
@@ -18,7 +18,13 @@ import { Card } from '@/components/ui/card'
 import { useSubmitResume } from '@/hooks/use-senior-resume'
 import { cn } from '@/lib/utils'
 import { focusFactsField } from './ResumeCompletenessPanel'
-import { CheckingBadge, ProgressBar, ResumeConfirmStep } from './ResumeConfirmStep'
+import {
+  CheckingBadge,
+  PROGRESS_FOCUS_IDS,
+  ProgressBar,
+  ResumeConfirmStep,
+  useFocusAfterRender,
+} from './ResumeConfirmStep'
 import { ResumeVerificationFailure } from './ResumeVerificationFailure'
 
 export interface ResumeVerificationPanelProps {
@@ -41,7 +47,21 @@ export function ResumeVerificationPanel({
   const { verificationStatus: status, verificationBusy: busy, staged } = resume
   const code = resume.verificationErrorCode
   const isTemplateRun = status === 'VERIFIED' && busy
-  const retry = () => void submit.mutateAsync().catch(() => {})
+  const focusAfterRender = useFocusAfterRender()
+  // The 409 "resume changed" notice (design §8); a new run starting clears it.
+  const [stale, setStale] = useState<string | null>(null)
+  if (busy && stale !== null) setStale(null)
+  const showStale = (message: string | null) => {
+    setStale(message)
+    if (message !== null) focusAfterRender([STALE_NOTICE_ID])
+  }
+  const retry = () => {
+    setStale(null)
+    void submit.mutateAsync().then(
+      () => focusAfterRender(PROGRESS_FOCUS_IDS),
+      () => {},
+    )
+  }
   // The template picker lands in the layout panel (Task 20); until then, go to the panel.
   const chooseTemplate = () => {
     const panel = document.querySelector<HTMLElement>('[data-testid="resume-layout-panel"]')
@@ -51,6 +71,17 @@ export function ResumeVerificationPanel({
 
   return (
     <div className="space-y-4 empty:hidden" data-testid="resume-verification-panel">
+      {stale !== null && (
+        <p
+          id={STALE_NOTICE_ID}
+          tabIndex={-1}
+          className="text-sm text-amber-700 dark:text-amber-400"
+          data-testid="resume-verification-stale"
+        >
+          {stale}
+        </p>
+      )}
+
       {busy && staged === null && (
         <ResumeVerificationProgress status={status} isTemplateRun={isTemplateRun} />
       )}
@@ -63,6 +94,8 @@ export function ResumeVerificationPanel({
           canConfirm={canConfirm}
           changingFacts={changingFacts}
           onChangeFacts={onChangeFacts}
+          onStale={showStale}
+          onConfirmed={() => focusAfterRender([VERIFICATION_STATUS_ID])}
         />
       )}
 
@@ -87,6 +120,10 @@ export function ResumeVerificationPanel({
     </div>
   )
 }
+
+const STALE_NOTICE_ID = 'resume-verification-stale'
+/** The toolbar badge wrapper: where focus lands after Confirm (design §8). */
+export const VERIFICATION_STATUS_ID = 'resume-verification-status'
 
 export interface ResumeVerificationProgressProps {
   status: ResumeVerificationStatus
@@ -229,7 +266,11 @@ export function VerificationBadge({ resume }: { resume: SeniorResumeDto }) {
       const date = resume.verifiedAt ? i18n.date(resume.verifiedAt, { dateStyle: 'medium' }) : null
       const name = resume.verifiedByName
       return (
-        <>
+        <span
+          id={VERIFICATION_STATUS_ID}
+          tabIndex={-1}
+          className="inline-flex min-w-0 flex-wrap items-center gap-2"
+        >
           <Badge
             variant="outline"
             className="border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
@@ -248,7 +289,7 @@ export function VerificationBadge({ resume }: { resume: SeniorResumeDto }) {
               )}
             </span>
           )}
-        </>
+        </span>
       )
     }
   }

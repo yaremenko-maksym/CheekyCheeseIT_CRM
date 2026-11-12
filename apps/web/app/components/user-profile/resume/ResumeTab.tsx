@@ -42,6 +42,7 @@ import {
   useSubmitResume,
   useUploadResumeSource,
 } from '@/hooks/use-senior-resume'
+import { PROGRESS_FOCUS_IDS, useFocusAfterRender } from './ResumeConfirmStep'
 import { ResumeFactsForm } from './ResumeFactsForm'
 import { ResumeIntake } from './ResumeIntake'
 import { ResumeLayoutPanel } from './ResumeLayoutPanel'
@@ -63,6 +64,7 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
   const { data, isLoading, isError } = useSeniorResume(userId)
   const saveFacts = useSaveResumeFacts(userId)
   const submit = useSubmitResume(userId)
+  const focusAfterRender = useFocusAfterRender()
   const uploadMutation = useUploadResumeSource(userId)
   const textMutation = useIngestResumeText(userId)
   const deleteMutation = useDeleteResume(userId)
@@ -336,7 +338,11 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
             displayName={displayName}
             disabled={verificationBusy}
             onSave={(facts, { silent }) => saveFacts.mutateAsync({ facts, silent })}
-            onSubmit={() => submit.mutateAsync()}
+            onSubmit={async () => {
+              await submit.mutateAsync()
+              // The Submit button sits in a now-disabled fieldset (design §8).
+              focusAfterRender(PROGRESS_FOCUS_IDS)
+            }}
             onDirtyChange={setIsDirty}
           />
         )

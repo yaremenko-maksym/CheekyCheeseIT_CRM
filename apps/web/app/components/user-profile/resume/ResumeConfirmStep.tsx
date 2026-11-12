@@ -7,7 +7,7 @@
  * Every action sends `staged.runId`; a stale one answers 409 and the hook
  * refetches, so the step always shows the server's current result.
  */
-import { useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Check, Download, Pencil, RefreshCw, TriangleAlert } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { mergeSkills, type SeniorResumeDto } from '@crm/shared'
@@ -29,6 +29,29 @@ import { getApiErrorCode, getUserFacingErrorMessage } from '@/lib/axios-utils'
 import { cn } from '@/lib/utils'
 
 type Staged = NonNullable<SeniorResumeDto['staged']>
+
+/** Focus targets after an action (design §8): the progress heading, else the busy confirm line. */
+export const PROGRESS_FOCUS_IDS = [
+  'resume-verification-progress-title',
+  'resume-confirm-checking',
+] as const
+
+/**
+ * Focus the first of the requested ids that exists after a render (design §8).
+ * The target appears only once the action's response is rendered, so the
+ * request waits for it instead of guessing a frame.
+ */
+export function useFocusAfterRender() {
+  const [ids, setIds] = useState<readonly string[] | null>(null)
+  useEffect(() => {
+    if (ids === null) return
+    const target = ids.map((id) => document.getElementById(id)).find((el) => el !== null)
+    if (!target) return
+    target.focus()
+    setIds(null)
+  })
+  return setIds
+}
 
 /** Badge "Checking" (design §7). */
 export function CheckingBadge({ children }: { children?: ReactNode }) {
@@ -56,6 +79,9 @@ export interface ResumeConfirmStepProps {
   /** The facts form is open below the step. */
   changingFacts: boolean
   onChangeFacts: () => void
+  /** A 409 "resume changed" message to show and focus; `null` when a new action starts. */
+  onStale: (message: string | null) => void
+  onConfirmed: () => void
 }
 
 export function ResumeConfirmStep({
@@ -65,6 +91,8 @@ export function ResumeConfirmStep({
   canConfirm,
   changingFacts,
   onChangeFacts,
+  onStale,
+  onConfirmed,
 }: ResumeConfirmStepProps) {
   const { t } = useLingui()
   const confirm = useConfirmResume(userId)
@@ -83,6 +111,14 @@ export function ResumeConfirmStep({
       ? getUserFacingErrorMessage(edit.error)
       : null
 
+  // Errors are toasted by the hooks; here only the stale run gets its focused notice.
+  const act = <T,>(request: Promise<T>, then?: () => void) => {
+    onStale(null)
+    void request.then(then, (e: unknown) => {
+      if (getApiErrorCode(e) === 'RESUME_CONFIRM_STALE') onStale(getUserFacingErrorMessage(e))
+    })
+  }
+
   const openEdit = (path: string) => {
     edit.reset()
     setEditing(path)
@@ -99,9 +135,7 @@ export function ResumeConfirmStep({
       error={editError}
       pending={edit.isPending}
       onCancel={() => closeEdit(path)}
-      onSave={(next) =>
-        edit.mutate({ runId, path, text: next }, { onSuccess: () => setEditing(null) })
-      }
+      onSave={(next) => act(edit.mutateAsync({ runId, path, text: next }), () => setEditing(null))}
     />
   )
   const regenerateButton = (path: string, ariaLabel?: string) => (
@@ -113,7 +147,7 @@ export function ResumeConfirmStep({
       disabled={locked}
       aria-label={ariaLabel}
       title={ariaLabel}
-      onClick={() => regenerate.mutate({ runId, path })}
+      onClick={() => act(regenerate.mutateAsync({ runId, path }))}
     >
       <RefreshCw className="mr-1.5 size-4" aria-hidden />
       <Trans>Згенерувати заново</Trans>
@@ -131,7 +165,13 @@ export function ResumeConfirmStep({
     <div className="space-y-4" data-testid="resume-confirm-step">
       <Card className="space-y-3 p-4">
         {busy && (
-          <div role="status" className="space-y-2" data-testid="resume-confirm-checking">
+          <div
+            role="status"
+            id="resume-confirm-checking"
+            tabIndex={-1}
+            className="space-y-2"
+            data-testid="resume-confirm-checking"
+          >
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               <CheckingBadge />
               <Trans>Оновлюємо й перевіряємо текст…</Trans>
@@ -183,7 +223,9 @@ export function ResumeConfirmStep({
                 type="button"
                 className="h-11 sm:h-9"
                 disabled={locked}
-                onClick={() => confirm.mutate({ runId, version: resume.version })}
+                onClick={() =>
+                  act(confirm.mutateAsync({ runId, version: resume.version }), onConfirmed)
+                }
                 data-testid="resume-confirm"
               >
                 <Check className="mr-1.5 size-4" aria-hidden />
@@ -326,7 +368,13 @@ export function ResumeConfirmStep({
           forceMount
           className="data-[state=inactive]:hidden lg:sticky lg:top-4 lg:data-[state=inactive]:block"
         >
-          <StagedPdf userId={userId} fingerprint={`${runId}:${resume.updatedAt}`} />
+          {/* The run writes the new staged PDF without a new runId or updatedAt:
+              never fetch mid-run, and key on the status so the finished run refetches. */}
+          <StagedPdf
+            userId={userId}
+            busy={busy}
+            fingerprint={`${runId}:${resume.verificationStatus}`}
+          />
         </TabsContent>
       </Tabs>
     </div>
@@ -477,27 +525,42 @@ function InlineEdit({
   )
 }
 
-function StagedPdf({ userId, fingerprint }: { userId: string; fingerprint: string }) {
+function StagedPdf({
+  userId,
+  busy,
+  fingerprint,
+}: {
+  userId: string
+  busy: boolean
+  fingerprint: string
+}) {
   const { t } = useLingui()
-  const { blobUrl, isLoading, hasError } = useResumePdfBlob(userId, true, fingerprint, 'staged-pdf')
+  const { blobUrl, isLoading, hasError } = useResumePdfBlob(
+    userId,
+    !busy,
+    fingerprint,
+    'staged-pdf',
+  )
   return (
     <Card className="space-y-3 p-4" data-testid="resume-staged-pdf">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h4 className="font-semibold">
           <Trans>PDF до підтвердження</Trans>
         </h4>
-        <Button asChild size="sm" variant="outline" className="h-11 sm:h-9">
-          <a href={`${API_BASE_URL}/users/${userId}/resume/staged-pdf`} download>
-            <Download className="mr-1.5 size-4" aria-hidden />
-            <Trans>Завантажити PDF</Trans>
-          </a>
-        </Button>
+        {!busy && (
+          <Button asChild size="sm" variant="outline" className="h-11 sm:h-9">
+            <a href={`${API_BASE_URL}/users/${userId}/resume/staged-pdf`} download>
+              <Download className="mr-1.5 size-4" aria-hidden />
+              <Trans>Завантажити PDF</Trans>
+            </a>
+          </Button>
+        )}
       </div>
       <PdfPreview
         blobUrl={blobUrl}
-        isLoading={isLoading}
+        isLoading={busy || isLoading}
         hasError={hasError}
-        filename={t`Резюме до підтвердження.pdf`}
+        filename={t`Резюме перед підтвердженням.pdf`}
         className="h-[60vh] max-h-[720px] min-h-[320px]"
         testId="resume-staged-pdf-object"
       />
