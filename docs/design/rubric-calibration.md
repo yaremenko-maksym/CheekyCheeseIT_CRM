@@ -1,7 +1,11 @@
-# Rubric calibration — CRM redesign v2 (DRAFT)
+# Rubric calibration — CRM redesign v2
 
-> **Status:** DRAFT (Task 0.8, 2026-11-11). Not yet calibrated. The calibration council round (spec §5)
-> runs after this draft lands; it fills the table in §5 and may move any anchor in §3.
+> **Status:** anchors council-reviewed (mockup council R1, fix round 3 F); benchmark calibration pending —
+> runs before the first implementation gate (Task 0.9). Master ruling 2026-11-12: the anchor review ran
+> inside mockup council R1; the benchmark scoring (plan step 1: 2–3 benchmark apps' public screenshots,
+> anchors adjusted until they land at 9–10, scores in the §5 table) runs as its own council before
+> Task 0.9, because nothing scores product code against the rubric before then. The §5 table stays empty
+> until that council runs.
 > **Authority:** `docs/superpowers/specs/2026-11-11-crm-redesign-v2-design.md` §5 (the gate) and
 > `docs/design/research/2026-11-11-mobile-benchmarks.md` § "Scoring rubric" (the 10 weighted criteria).
 > This file adds only the written anchors; it does not change criteria, weights or gates.

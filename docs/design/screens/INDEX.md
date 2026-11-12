@@ -28,17 +28,17 @@ status is `approved` (see `.claude/rules/common/design-gate.md`). The mockup lea
 sequential; from wave 3 on, design of wave N+1 may overlap implementation of wave N. Council scores and
 the per-round table go into each screen's row (spec §5) — the "Council" column.
 
-| Wave  | Scope                                                                                | Wave status                                 |
-| ----- | ------------------------------------------------------------------------------------ | ------------------------------------------- |
-| **0** | Foundation: PWA hardening, app shell, primitives, `foundation.md` v2, showcase route | in progress — shell + primitives `captured` |
-| **1** | Finance                                                                              | pending                                     |
-| **2** | People                                                                               | pending                                     |
-| **3** | Contracts & documents                                                                | pending                                     |
-| **4** | Stats & home                                                                         | pending                                     |
-| **5** | Projects & work                                                                      | pending                                     |
-| **6** | Recruiting                                                                           | pending                                     |
-| **7** | Admin                                                                                | pending                                     |
-| **8** | Auth, system, final pass                                                             | pending                                     |
+| Wave  | Scope                                                                                | Wave status                                              |
+| ----- | ------------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| **0** | Foundation: PWA hardening, app shell, primitives, `foundation.md` v2, showcase route | in progress — shell + primitives `approved` (2026-11-12) |
+| **1** | Finance                                                                              | pending                                                  |
+| **2** | People                                                                               | pending                                                  |
+| **3** | Contracts & documents                                                                | pending                                                  |
+| **4** | Stats & home                                                                         | pending                                                  |
+| **5** | Projects & work                                                                      | pending                                                  |
+| **6** | Recruiting                                                                           | pending                                                  |
+| **7** | Admin                                                                                | pending                                                  |
+| **8** | Auth, system, final pass                                                             | pending                                                  |
 
 Paths: relative to `apps/web/app/routes/_authenticated/` unless they start with `__root`, `login` or
 `invoice` (directly in `apps/web/app/routes/`). A layout route (`*/route.tsx`) belongs to the wave of its
@@ -46,17 +46,17 @@ first child screen. The modals / sheets of each screen are added in step 1 of th
 
 ### Wave 0 — Foundation
 
-| Surface                                                            | File                             | Artifact                                                                             | Status     | Council |
-| ------------------------------------------------------------------ | -------------------------------- | ------------------------------------------------------------------------------------ | ---------- | ------- |
-| Foundation v2 (tokens, rules)                                      | —                                | `docs/design/foundation.md`                                                          | `captured` | —       |
-| Rubric calibration                                                 | —                                | `docs/design/rubric-calibration.md` (draft)                                          | `captured` | —       |
-| App shell v2 (tab bar, More, quick-add, rail, sidebar, Cmd+K, `?`) | `_authenticated/route.tsx`       | `docs/design/screens/_foundation/shell-v2.md`                                        | `captured` | —       |
-| Nav sidebar (desktop + collapsed)                                  | `components/crm/nav-sidebar.tsx` | `shell-v2.md` (`desktop-sidebar-*`)                                                  | `captured` | —       |
-| Impersonation banner                                               | shell                            | `shell-v2.md` (`state-impersonation-375`)                                            | `captured` | —       |
-| Notifications bell (panel)                                         | shell                            | `shell-v2.md` (`notifications-375`, `notifications-empty-375`, `notifications-1440`) | `captured` | —       |
-| Root / PWA hardening                                               | `__root.tsx`                     | — (no visual surface beyond the shell states)                                        | `pending`  | —       |
-| Primitives v2                                                      | `components/ui/*`                | `docs/design/screens/_foundation/primitives-v2.md`                                   | `captured` | —       |
-| Showcase route                                                     | new (Wave 0 implementation)      | renders `primitives-v2.md`                                                           | `pending`  | —       |
+| Surface                                                            | File                             | Artifact                                                                                      | Status                                       | Council |
+| ------------------------------------------------------------------ | -------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------- | ------- |
+| Foundation v2 (tokens, rules)                                      | —                                | `docs/design/foundation.md`                                                                   | `captured`                                   | —       |
+| Rubric calibration                                                 | —                                | `docs/design/rubric-calibration.md` (anchors reviewed; benchmark calibration before Task 0.9) | `captured`                                   | —       |
+| App shell v2 (tab bar, More, quick-add, rail, sidebar, Cmd+K, `?`) | `_authenticated/route.tsx`       | `docs/design/screens/_foundation/shell-v2.md`                                                 | `approved` (2026-11-12, owner, at 9d1a2348f) | —       |
+| Nav sidebar (desktop + collapsed)                                  | `components/crm/nav-sidebar.tsx` | `shell-v2.md` (`desktop-sidebar-*`)                                                           | `approved` (2026-11-12, owner, at 9d1a2348f) | —       |
+| Impersonation banner                                               | shell                            | `shell-v2.md` (`state-impersonation-375`)                                                     | `approved` (2026-11-12, owner, at 9d1a2348f) | —       |
+| Notifications bell (panel)                                         | shell                            | `shell-v2.md` (`notifications-375`, `notifications-empty-375`, `notifications-1440`)          | `approved` (2026-11-12, owner, at 9d1a2348f) | —       |
+| Root / PWA hardening                                               | `__root.tsx`                     | — (no visual surface beyond the shell states)                                                 | `pending`                                    | —       |
+| Primitives v2                                                      | `components/ui/*`                | `docs/design/screens/_foundation/primitives-v2.md`                                            | `approved` (2026-11-12, owner, at 9d1a2348f) | —       |
+| Showcase route                                                     | new (Wave 0 implementation)      | renders `primitives-v2.md`                                                                    | `pending`                                    | —       |
 
 ### Wave 1 — Finance
 
