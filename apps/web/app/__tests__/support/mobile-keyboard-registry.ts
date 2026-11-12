@@ -547,6 +547,8 @@ export const EXEMPT_FIELDS: Record<string, string> = {
     'Work location ("Kyiv / remote") — free text.',
   'app/components/user-profile/resume/ResumeFactsJob.tsx#name:resumeFactsNotes':
     'Achievement notes, one per line — prose sentences.',
+  'app/components/user-profile/resume/ResumeConfirmStep.tsx#name:resumeStagedText':
+    'Hand edit of one written resume passage (the summary or a bullet) before HR confirms it — prose.',
 }
 
 /**

@@ -429,6 +429,7 @@ function InlineEdit({
       <Label htmlFor={id}>{label}</Label>
       <Textarea
         id={id}
+        name="resumeStagedText"
         autoFocus
         value={text}
         rows={3}
