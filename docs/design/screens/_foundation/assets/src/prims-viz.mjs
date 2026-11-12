@@ -459,12 +459,31 @@ export function transitions() {
 }
 
 /** List footer: the next page loading (3 skeleton rows) and failing (an inline retry; the loaded rows stay). */
-export function listFooter() {
+export function listFooter(w = 375) {
   const rows = TXNS.slice(0, 2)
     .map((r) => txnRow(r))
     .join('')
   const cap = (t) => `<div class="t-over" style="padding:14px 16px 6px">${t}</div>`
   const loading = `<div class="group">${rows}<div role="status" aria-label="Завантаження ще транзакцій" style="display:contents"><div aria-hidden="true" style="display:contents">${skRow().repeat(3)}</div></div></div>`
-  const failed = `<div class="group">${rows}<div class="lrow" role="alert" style="--inset:16px;gap:10px"><span style="color:var(--destructive);display:grid">${icon('circle-alert', { size: 18 })}</span><span class="grow t-foot" style="white-space:nowrap">Не вдалося завантажити ще</span><span class="btn sm secondary" role="button" style="height:44px">${icon('rotate-cw', { size: 16 })}Повторити</span></div></div>`
-  return `<div style="width:375px;padding:4px 0 16px;background:var(--bg)">${cap('Наступна сторінка · завантаження')}${loading}${cap('Наступна сторінка · помилка')}${failed}</div>`
+  const failed = `<div class="group">${rows}<div class="lrow" role="alert" style="--inset:16px;gap:10px"><span style="color:var(--destructive);display:grid">${icon('circle-alert', { size: 18 })}</span><span class="grow t-foot" style="min-width:0">Не вдалося завантажити ще</span><span class="btn sm secondary" role="button" style="height:44px;flex:none">Повторити</span></div></div>`
+  return `<div style="width:${w}px;padding:4px 0 16px;background:var(--bg)">${cap('Наступна сторінка · завантаження')}${loading}${cap('Наступна сторінка · помилка')}${failed}</div>`
+}
+
+/** Search on a paged list: a client-side filter says what it covered while more pages exist. */
+export function searchPaged(w, h) {
+  const rows = [
+    TXNS.find((r) => r.t === 'Хмарний хостинг'),
+    {
+      t: 'Хостинг серверів',
+      s: 'Витрата · 10.11.2026',
+      a: '−45,00 USD',
+      time: '09:10',
+      ic: 'receipt',
+      neg: true,
+    },
+  ]
+  const search = `<div style="padding:4px 16px 10px"><div class="row" role="searchbox" aria-label="Пошук транзакцій" style="gap:8px;height:44px;border-radius:12px;background:var(--surface);padding:0 4px 0 12px;font-size:16px"><span style="color:var(--placeholder);display:grid">${icon('search', { size: 18 })}</span><span class="grow">хостинг</span><span role="button" aria-label="Очистити пошук" style="width:44px;height:44px;display:grid;place-items:center;color:var(--muted-fg)">${icon('x', { size: 18 })}</span></div></div>`
+  const covered = `<div class="row" style="gap:12px;padding:12px 16px;justify-content:space-between"><span class="t-foot muted num" style="min-width:0">Шукали серед завантажених, до 9.11</span><span class="btn sm secondary" role="button" style="height:44px;flex:none">Шукати далі</span></div>`
+  const body = `${search}<div class="t-over" style="padding:6px 20px 8px">Результати</div><div class="group">${rows.map((r) => txnRow(r)).join('')}</div>${covered}`
+  return tabScreen({ w, h, role: 'ADMIN', active: '/finance', title: 'Фінанси', body })
 }

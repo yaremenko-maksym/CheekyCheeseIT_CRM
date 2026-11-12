@@ -126,7 +126,15 @@ loading shows 3 skeleton rows under the loaded ones (`role="status"` «Зава�
 `aria-hidden`). The next page failing shows one inline row in their place, «Не вдалося завантажити ще» with a
 44 px «Повторити» (`role="alert"`), and the loaded rows stay. The end of the list shows no footer. Back from a
 pushed detail restores the scroll position and every loaded page; it never resets to the first page. Like the
-group «Повторити», this one re-reads data only.
+group «Повторити», this one re-reads data only. The error copy wraps to two lines and is never clipped
+(`list-footer-320`). **What loads the next page:** it loads by itself when the last rows enter the viewport.
+After an error only «Повторити» retries; scrolling does not.
+
+**Search on a paged list** (`search-paged-375`): while more pages exist, a search filters only what is
+loaded, so it says what it covered. The results end with «Шукали серед завантажених, до 9.11 · Шукати
+далі»; with no results the same line replaces the plain empty text. «Шукати далі» loads the next page and
+keeps filtering. Where the list API accepts a search parameter, the search goes to the server and the line
+never appears (foundation §11 Wave 1 AC).
 
 **Swipe actions** (`listrow-swipe-375`): trailing edge only (no leading swipe: it collides with system
 back). Revealed actions «Змінити» (secondary) and «Видалити» (destructive), each ≥ 72 × row height. A
@@ -158,7 +166,8 @@ rows (`tel:`, `mailto:`, Telegram; the accessible name says the action, «Под
 «Робота» (Роль, Команда and Проєкти as link rows).
 
 **Sticky section header** (`listrow-sticky-320`, `section-header-375`): overline 12/16 uppercase, 92%
-translucent bar with blur while stuck; date sections show the day total on the right (`tabular-nums`).
+translucent bar with blur while stuck; date sections show the day total on the right (`tabular-nums`). A date header whose day continues past the
+loaded page hides its total until the next page loads (no extra request).
 Long titles truncate on one line with the full text as the accessible name.
 
 ---

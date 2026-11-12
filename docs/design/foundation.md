@@ -405,6 +405,8 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
     directly only when no draft exists in any state and no form is dirty; otherwise it raises the «Сесія
     завершилася» state (the session row below). A create that got a 401 writes its marker as `failed`, and
     «Увійти знову» turns `armed` markers into `failed`.
+  - **Wave 1 AC (search on paged lists):** where a list API accepts a search parameter, the search goes to
+    the server and the «Шукали серед завантажених» line never appears (primitives-v2 §3).
 - **Offline** never disables creation: the FAB stays enabled (no dim, no `aria-disabled`). Saving while
   offline gives the inline definite alert above with every value kept.
 - **Money drafts: one state model for any number of drafts.** A **draft** is a money create the user
