@@ -36,10 +36,14 @@ export const PROGRESS_FOCUS_IDS = [
   'resume-confirm-checking',
 ] as const
 
+/** A focus request older than this is dropped: its target was never going to render. */
+export const FOCUS_REQUEST_TTL_MS = 1000
+
 /**
  * Focus the first of the requested ids that exists after a render (design §8).
  * The target appears only once the action's response is rendered, so the
- * request waits for it instead of guessing a frame.
+ * request waits for it instead of guessing a frame, but only for
+ * FOCUS_REQUEST_TTL_MS: a later run's heading must never take focus out of the blue.
  */
 export function useFocusAfterRender() {
   const [ids, setIds] = useState<readonly string[] | null>(null)
@@ -50,6 +54,11 @@ export function useFocusAfterRender() {
     target.focus()
     setIds(null)
   })
+  useEffect(() => {
+    if (ids === null) return
+    const timer = setTimeout(() => setIds(null), FOCUS_REQUEST_TTL_MS)
+    return () => clearTimeout(timer)
+  }, [ids])
   return setIds
 }
 

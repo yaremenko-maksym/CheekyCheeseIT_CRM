@@ -58,7 +58,9 @@ export function ResumeVerificationPanel({
   const retry = () => {
     setStale(null)
     void submit.mutateAsync().then(
-      () => focusAfterRender(PROGRESS_FOCUS_IDS),
+      (data) => {
+        if (data.resume?.verificationBusy) focusAfterRender(PROGRESS_FOCUS_IDS)
+      },
       () => {},
     )
   }

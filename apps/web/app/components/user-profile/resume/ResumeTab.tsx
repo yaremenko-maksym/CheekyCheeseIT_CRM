@@ -339,9 +339,9 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
             disabled={verificationBusy}
             onSave={(facts, { silent }) => saveFacts.mutateAsync({ facts, silent })}
             onSubmit={async () => {
-              await submit.mutateAsync()
+              const answer = await submit.mutateAsync()
               // The Submit button sits in a now-disabled fieldset (design §8).
-              focusAfterRender(PROGRESS_FOCUS_IDS)
+              if (answer.resume?.verificationBusy) focusAfterRender(PROGRESS_FOCUS_IDS)
             }}
             onDirtyChange={setIsDirty}
           />

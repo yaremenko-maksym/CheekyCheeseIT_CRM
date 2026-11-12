@@ -242,7 +242,13 @@ function useStagedAction<TInput>(
       if (successText) toast.success(successText())
     },
     onError: (e: unknown) => {
-      if (inlineCode !== undefined && getApiErrorCode(e) === inlineCode) return
+      const code = getApiErrorCode(e)
+      if (inlineCode !== undefined && code === inlineCode) return
+      // Ruling R52: the confirm step's inline notice is the only message for a stale run.
+      if (code === 'RESUME_CONFIRM_STALE') {
+        void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
+        return
+      }
       onWriteError(e)
     },
   })
