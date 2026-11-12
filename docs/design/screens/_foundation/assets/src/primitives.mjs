@@ -78,7 +78,13 @@ import {
   skeletonTablet,
   skeletonDesktop,
 } from './prims-wide.mjs'
-import { board1440, board768, boardStageSheet, boardUndo } from './notif-board.mjs'
+import {
+  board1440,
+  board768,
+  boardStageSheet,
+  boardUndo,
+  boardHireConfirm,
+} from './notif-board.mjs'
 
 const M = (name, w, h, body) => ({ name, w, h, dpr: 2, html: page(body, { width: w }) })
 const D = (name, w, h, body, full = false) => ({
@@ -200,6 +206,7 @@ export function frames() {
     D('board-768', 768, 1024, board768()),
     M('board-stage-sheet-375', 375, 812, boardStageSheet(375, 812)),
     M('board-undo-375', 375, 812, boardUndo(375, 812)),
+    M('board-hire-confirm-375', 375, 812, boardHireConfirm(375, 812)),
     C('skeleton-table-desktop', 960, 420, skeletonTable()),
     C('list-footer-375', 375, 600, listFooter()),
     C('list-footer-320', 320, 600, listFooter(320)),

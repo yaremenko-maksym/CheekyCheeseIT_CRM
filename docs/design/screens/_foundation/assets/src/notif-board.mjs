@@ -5,6 +5,7 @@ import { sheet, closeBtn, stateBlock, skRow } from './mobile-overlays.mjs'
 import { desktop } from './desktop.mjs'
 import { tablet } from './tablet.mjs'
 import { toastUndo } from './prims-viz.mjs'
+import { actionConfirm } from './money-form.mjs'
 
 const NOTIFS = [
   {
@@ -229,4 +230,25 @@ export function boardUndo(w, h) {
       '<span class="pill wide-only ">Відмова</span>',
     )
   return toastUndo(w, h, { text: 'Олена Коваль → Відмова', ic: 'arrow-right-left', body })
+}
+
+/** board-hire-confirm-375: «Найнято» creates a project, so it is confirmed first and never undone. */
+export function boardHireConfirm(w, h) {
+  const overlay = actionConfirm(w, {
+    id: 'hc',
+    title: 'Перевести Олена Коваль у «Найнято»?',
+    desc: 'Буде створено проєкт.',
+    action: 'Перевести',
+    ink: 'var(--primary)',
+  })
+  return tabScreen({
+    w,
+    h,
+    role: 'HR',
+    active: '/interviews',
+    title: 'Співбесіди',
+    body: interviewsBody(),
+    overlay,
+    showFab: false,
+  })
 }
