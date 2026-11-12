@@ -75,6 +75,12 @@ its own state through the API.
 - A1 (Master): the E2E data comes from the shared dev/CI seed, not from API-side test fixtures, because opportunities
   have no create API; the seed already refuses a non-disposable DB (`seed-db-guard.ts`).
 - A1 (Master): new users and memberships rather than changing existing ones, so the existing specs keep their facts.
+- A1 (Coder): the card exposes one per-match uncertainty mark, `matchApproximate`. "Every uncertainty mark" becomes
+  OPTIONAL-only keywords (approximate), a null `published_at` and a stored `rankWarnings: ['UNKNOWN_DATE']`. The card
+  does not render rank warnings today.
+- A1 (Coder): the three new users are onboarded; without it the queue answers them 403 `ONBOARDING_REQUIRED`.
+- A1 (Coder): the job-queue phase runs after onboarding, the last writer of users and teams, so the match profile and
+  exclusion versions are the live ones.
 
 ## Zone
 
