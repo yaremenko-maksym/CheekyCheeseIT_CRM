@@ -738,7 +738,7 @@ test.describe('Резюме — подтверждение проверенно�
       canConfirm,
     )
 
-  test('HR подтверждает: уходит runId и версия', async ({ page }) => {
+  test('HR confirms: the request carries runId and version', async ({ page }) => {
     const bodies: unknown[] = []
     await mockAuthAs(page, USERS.hr)
     await page.route(`${API_GLOB}/users/${SENIOR_ID}`, (r) =>
@@ -760,7 +760,7 @@ test.describe('Резюме — подтверждение проверенно�
     expect(bodies[0]).toEqual({ runId: RUN_ID, version: 3 })
   })
 
-  test('синьор видит текст на подтверждении, но не кнопку «Підтвердити»', async ({ page }) => {
+  test('a senior sees the staged text but no Confirm button', async ({ page }) => {
     await mockAuthAs(page, USERS.senior)
     await page.route(`${API_GLOB}/users/me`, (r) => r.fulfill(json(buildSelfView(USERS.senior))))
     await mockResumeEndpoints(page, [awaiting(false)])
@@ -771,7 +771,7 @@ test.describe('Резюме — подтверждение проверенно�
     await expect(page.getByTestId('resume-confirm')).toHaveCount(0)
   })
 
-  test('FAILED называет причину и пункт резюме, форма фактов открыта', async ({ page }) => {
+  test('FAILED names the reason and the resume item, facts form open', async ({ page }) => {
     await openSeniorResumeAsAdmin(page, [
       resumeResponse({
         content: FILLED_CONTENT,

@@ -1205,10 +1205,6 @@ msgstr "Wed"
 msgid "Аналіз недоступний"
 msgstr "Analysis unavailable"
 
-#: apps/web/app/components/user-profile/resume/ResumeConfirmStep.tsx
-msgid "Резюме до підтвердження.pdf"
-msgstr "Resume for confirmation.pdf"
-
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Великий"
 msgstr "Large"
@@ -11439,6 +11435,10 @@ msgstr "By name"
 #: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "ФОП (UAH)"
 msgstr "Sole proprietor (UAH)"
+
+#: apps/web/app/components/user-profile/resume/ResumeConfirmStep.tsx
+msgid "Резюме перед підтвердженням.pdf"
+msgstr "Resume before confirmation.pdf"
 
 #: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Рік завершення"

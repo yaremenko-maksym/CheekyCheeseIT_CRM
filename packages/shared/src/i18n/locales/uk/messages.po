@@ -1205,10 +1205,6 @@ msgstr "Ср"
 msgid "Аналіз недоступний"
 msgstr "Аналіз недоступний"
 
-#: apps/web/app/components/user-profile/resume/ResumeConfirmStep.tsx
-msgid "Резюме до підтвердження.pdf"
-msgstr "Резюме до підтвердження.pdf"
-
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Великий"
 msgstr "Великий"
@@ -11439,6 +11435,10 @@ msgstr "За ім’ям"
 #: apps/web/app/components/users/user-dialog/PaymentRequisitesSection.tsx
 msgid "ФОП (UAH)"
 msgstr "ФОП (UAH)"
+
+#: apps/web/app/components/user-profile/resume/ResumeConfirmStep.tsx
+msgid "Резюме перед підтвердженням.pdf"
+msgstr "Резюме перед підтвердженням.pdf"
 
 #: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Рік завершення"

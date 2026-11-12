@@ -76,18 +76,18 @@ Empty state (`resume === null`, `canEdit`) replaces everything with `<ResumeInta
 
 Busy is **only** `verificationBusy === true`. Never infer it from `verificationReport` or the status.
 
-| DTO state                                              | Bar badge                        | What shows                                                                                                    |
-| ------------------------------------------------------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `resume === null`, `canEdit`                           | —                                | Empty state (screen 2)                                                                                        |
-| `resume === null`, `!canEdit`                          | —                                | Existing read-only "The resume is not filled in yet."                                                         |
-| `DRAFT`                                                | Draft (outline)                  | Facts form + completeness panel (screen 1). Line "The facts changed…" only when `verifiedVersion !== null`    |
-| `QUEUED` / `CHECKING`, `staged === null` (busy)        | Checking (primary outline)       | Progress (screen 3); form, Submit, picker, layout switches disabled                                           |
-| `QUEUED` / `CHECKING`, `staged !== null` (busy)        | Checking (primary outline)       | Confirm step **read-only**: progress line "Updating and checking the text…" at the top, every action disabled |
-| `AWAITING_CONFIRM`, `staged`                           | Awaiting confirmation            | Confirm step (screen 4); facts form collapsed behind "Change the facts"                                       |
-| `FAILED`                                               | Failed the check (amber)         | Failure panel (screen 5) above the facts form                                                                 |
-| `VERIFIED`, `verificationErrorCode === null`, not busy | Verified (emerald)               | Meta "Verified {date} · {name}", facts form, picker, layout panel                                             |
-| `VERIFIED` + busy (template or layout run)             | Verified + Checking the new look | Picker and layout switches disabled, small progress line; everything else stays usable read-only              |
-| `VERIFIED`, `verificationErrorCode !== null`, not busy | Verified (emerald)               | Non-blocking warning row `failure.templateWarning` + the code body                                            |
+| DTO state                                              | Bar badge                              | What shows                                                                                                    |
+| ------------------------------------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `resume === null`, `canEdit`                           | —                                      | Empty state (screen 2)                                                                                        |
+| `resume === null`, `!canEdit`                          | —                                      | Existing read-only "The resume is not filled in yet."                                                         |
+| `DRAFT`                                                | Draft (outline)                        | Facts form + completeness panel (screen 1). Line "The facts changed…" only when `verifiedVersion !== null`    |
+| `QUEUED` / `CHECKING`, `staged === null` (busy)        | Checking (primary outline)             | Progress (screen 3); form, Submit, picker, layout switches disabled                                           |
+| `QUEUED` / `CHECKING`, `staged !== null` (busy)        | Checking (primary outline)             | Confirm step **read-only**: progress line "Updating and checking the text…" at the top, every action disabled |
+| `AWAITING_CONFIRM`, `staged`                           | Awaiting confirmation                  | Confirm step (screen 4); facts form collapsed behind "Change the facts"                                       |
+| `FAILED`                                               | Failed the check (amber)               | Failure panel (screen 5) above the facts form                                                                 |
+| `VERIFIED`, `verificationErrorCode === null`, not busy | Verified (emerald)                     | Meta "Verified {date} · {name}", facts form, picker, layout panel                                             |
+| `VERIFIED` + busy (template or layout run)             | Verified + Checking the new formatting | Picker and layout switches disabled, small progress line; everything else stays usable read-only              |
+| `VERIFIED`, `verificationErrorCode !== null`, not busy | Verified (emerald)                     | Non-blocking warning row `failure.templateWarning` + the code body                                            |
 
 A staged edit or regenerate puts the row back to `QUEUED` (then `CHECKING`) and keeps `staged`
 non-null; there is no `AWAITING_CONFIRM` + busy state. The DTO does not say which block triggered the
@@ -157,7 +157,7 @@ hand" (the brief said "Fill in manually"; copy review agreed: one concept, one w
   facts form at `opacity-50` inside `<fieldset disabled>`: the values stay readable, the controls leave
   the tab order. The picker and the layout switches are disabled the same way (§5.6, §5.7).
 - Template or layout run on VERIFIED (`VERIFIED` + busy): no big card. The bar shows the Verified badge
-  plus a "Checking the new look" badge and the line "The resume stays verified while the check
+  plus a "Checking the new formatting" badge (uk "Перевіряємо нове оформлення") and the line "The resume stays verified while the check
   runs." The DTO does not tell a template run from a layout run, so this badge text covers both
   (`progress.templateRun` is neutral on purpose; see Q6).
 - Announcements: the live region announces the title change once per status change (Queued → Checking
@@ -521,6 +521,7 @@ manually"; copy review agreed: one concept, one wording).
 | `confirm.pdfTitle`                | PDF до підтвердження                                                                                                                 | PDF before confirmation                                                                                                             |
 | `confirm.pdfMeta`                 | Шаблон: {template} · {pages, plural, one {# сторінка} few {# сторінки} many {# сторінок} other {# сторінки}}                         | Template: {template} · {pages, plural, one {# page} other {# pages}}                                                                |
 | `confirm.pdfLabel` (aria)         | Попередній перегляд PDF резюме до підтвердження                                                                                      | Preview of the resume PDF before confirmation                                                                                       |
+| `confirm.pdfFilename`             | Резюме перед підтвердженням.pdf                                                                                                      | Resume before confirmation.pdf                                                                                                      |
 | `failure.fixFacts`                | Виправити факти                                                                                                                      | Fix the facts                                                                                                                       |
 | `failure.retry`                   | Перевірити ще раз                                                                                                                    | Check again                                                                                                                         |
 | `failure.more`                    | і ще {count}                                                                                                                         | and {count} more                                                                                                                    |
@@ -689,14 +690,14 @@ says whether the row is a button (focuses a facts field) or a plain resume-level
 
 ## 12. Open design questions
 
-| #   | Question                                                                                                                                                                          | Recommendation                                                                                       |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Q1  | The DTO has no current runner stage, so progress can only show Queued vs Check. Expose `verificationStage` (writing / entailment / render / ats / visual)?                        | Not for Task 18: ship the static list. Add the field later if HR asks "where is it stuck".           |
-| Q2  | How are the four thumbnails produced and served — PNGs committed to `apps/web/public` from the `current-job` fixture, or an API endpoint?                                         | Committed PNGs, regenerated by a script from the fixture when a template changes; no endpoint.       |
-| Q3  | Submit with unsaved changes: save then submit in one action (as specified), or force an explicit save first?                                                                      | One action (A1, see Assumptions).                                                                    |
-| Q4  | Gate reason codes are free strings in the report schema. Type them in `@crm/shared` so §10.5 is exhaustive?                                                                       | Yes: an enum next to `resumeVerificationReportSchema` and a typed map in web.                        |
-| Q5  | The 320px profile tab bar clips the last tab (pre-existing shell issue, not this feature).                                                                                        | Separate backlog item.                                                                               |
-| Q6  | The DTO does not say whether a VERIFIED run is a template run or a layout run, so the badge is neutral ("Checking the new look") and the warning names both. Expose the run kind? | Not for Task 18: the combined texts are correct for both. Add a field only if users find them vague. |
+| #   | Question                                                                                                                                                                                                                  | Recommendation                                                                                       |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Q1  | The DTO has no current runner stage, so progress can only show Queued vs Check. Expose `verificationStage` (writing / entailment / render / ats / visual)?                                                                | Not for Task 18: ship the static list. Add the field later if HR asks "where is it stuck".           |
+| Q2  | How are the four thumbnails produced and served — PNGs committed to `apps/web/public` from the `current-job` fixture, or an API endpoint?                                                                                 | Committed PNGs, regenerated by a script from the fixture when a template changes; no endpoint.       |
+| Q3  | Submit with unsaved changes: save then submit in one action (as specified), or force an explicit save first?                                                                                                              | One action (A1, see Assumptions).                                                                    |
+| Q4  | Gate reason codes are free strings in the report schema. Type them in `@crm/shared` so §10.5 is exhaustive?                                                                                                               | Yes: an enum next to `resumeVerificationReportSchema` and a typed map in web.                        |
+| Q5  | The 320px profile tab bar clips the last tab (pre-existing shell issue, not this feature).                                                                                                                                | Separate backlog item.                                                                               |
+| Q6  | The DTO does not say whether a VERIFIED run is a template run or a layout run, so the badge is neutral ("Checking the new formatting", uk "Перевіряємо нове оформлення") and the warning names both. Expose the run kind? | Not for Task 18: the combined texts are correct for both. Add a field only if users find them vague. |
 
 ## Assumptions
 
