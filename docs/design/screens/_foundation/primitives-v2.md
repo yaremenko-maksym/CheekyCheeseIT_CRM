@@ -89,7 +89,7 @@ form** at 400 px: the same field order, segmented type, currency pill, receipt a
 empty: the 44 px «Файл» / «Посилання» switch over the «Додати чек» tile, exactly as on the phone. Where
 drafts start, where the pill lives and where «Перевірити список» opens per size: `shell-v2.md` §4
 «Money drafts per size». Shortcut hints («Esc», «⌘↵») show **only
-under `(pointer: fine)`**: the 1024 / 1440 panels have them, the touch tablet does not. The table stays interactive next to it at ≥ 1440.
+under `(pointer: fine)`**: the 1024 / 1440 panels have them, the touch tablet does not. **Modality by width.** At ≥ 1440 the edit / create panel is **non-modal**: no `aria-modal`, no focus trap, no scrim, and the table beside it stays interactive. Clicking another row while the panel is dirty runs «Вийти без збереження?» first (§4); a clean panel swaps its content to the new row. Esc closes the panel only when focus is inside it. Below 1440 the panel is modal: focus trap, scrim, Esc closes. (Council R12 proposed a modal panel at every width; rejected, because the ≥ 1440 layout exists to keep the table usable beside the form.)
 
 **Confirm dialog** (`sheet-confirm-dialog-1024`): 420 px centred alert dialog; initial focus on
 «Скасувати»; Enter does not trigger the destructive action.
@@ -598,7 +598,7 @@ Re-render: `node assets/src/render.mjs primitives [filter]`, then `assets/src/co
 ## 9. A11y critical paths
 
 - Sheets, panels and dialogs: focus trap, Esc closes, focus returns to the trigger; drag has a button
-  alternative.
+  alternative. The one exception is the ≥ 1440 edit panel: non-modal, no trap (§2 Side panel).
 - The board never needs a drag: «Змінити етап» on every card (and `M` on a focused card) opens
   the «Етап» picker; the phone has no drag at all.
 - Swipe and long-press actions have a single-pointer path: the row's detail page, or a visible 44 px
