@@ -353,7 +353,7 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
     carries the duplicate risk.
     «Перевірити список» is the filled primary of a locked unknown draft (the form is inert) and opens
     the **check sheet** «Нові записи» over the kept form, refetched on open.
-    It names what to look for («Шукаємо: −1 250,50 USD · Витрата · надіслано 14:32») and lists **only
+    It names what to look for («Шукаємо: −1 250,50 USD · Витрата · без опису · надіслано 14:32»; the line carries the sent description («без опису» when it is empty), the project when one is set and the business date when it is not today, so the user can compare the field a «схожа» tag names. Row titles in the check sheet wrap to two lines and never truncate) and lists **only
     the current user's own rows created from `t − 5 хв`, newest created first** (sub-header «Лише ваші
     записи з 14:27»: ADMIN and ACCOUNTANT see every row, so a
     colleague's equal amount, a salary for example, must never read as «збіг»), without the list's

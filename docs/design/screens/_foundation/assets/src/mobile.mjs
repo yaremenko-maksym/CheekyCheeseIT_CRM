@@ -146,7 +146,7 @@ export const TXNS = [
   },
 ]
 
-export function txnRow(x, { compact = false } = {}) {
+export function txnRow(x, { compact = false, wrap = false } = {}) {
   // match: every sent field equal and created after the send by server time (full highlight + «збіг»);
   // tag: a muted label that never highlights («схожа», «раніше»); isNew: created after the send («нова» only)
   // a tag that names a difference («схожа · інший опис») takes its own line, so the title never truncates
@@ -160,7 +160,7 @@ export function txnRow(x, { compact = false } = {}) {
     ? ';background:oklch(0.84 0.183 85.3 / 0.1);box-shadow:inset 3px 0 0 var(--primary)'
     : ''
   return `<div class="lrow two" style="--inset:64px${hl}"><div class="lead">${icon(x.ic, { size: 18 })}</div>
-  <div class="grow col" style="gap:2px"><div class="t-body trunc" style="font-weight:500">${x.t}</div><div class="t-foot muted trunc row" style="gap:6px">${x.att ? icon('paperclip', { size: 13 }) : ''}<span class="trunc">${x.s}</span></div>${tagLine ? tagSpan : ''}</div>
+  <div class="grow col" style="gap:2px"><div class="t-body${wrap ? '' : ' trunc'}" style="font-weight:500${wrap ? ';overflow-wrap:anywhere' : ''}">${x.t}</div><div class="t-foot muted trunc row" style="gap:6px">${x.att ? icon('paperclip', { size: 13 }) : ''}<span class="trunc">${x.s}</span></div>${tagLine ? tagSpan : ''}</div>
   <div class="trail"><span class="amount ${x.neg ? '' : 'pos'}">${x.a}</span>${x.pending ? '<span class="pill warn" style="height:18px;font-size:11px">Очікує</span>' : x.tag ? (tagLine ? '' : tagSpan) : x.match ? `<span class="t-cap num" style="color:var(--primary);font-weight:600">збіг · ${x.time}</span>` : x.isNew ? `<span class="t-cap muted num">нова · ${x.time}</span>` : `<span class="t-cap muted num">${x.time}</span>`}</div>${compact ? '' : ''}</div>`
 }
 

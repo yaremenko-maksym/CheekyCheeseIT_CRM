@@ -346,7 +346,7 @@ must not share one UI (spec §4.5b):
   editable and a re-save sends one new request with no gate (nothing was saved). The leading control
   reads «Згорнути» and keeps the draft; under the footer primary sits «Видалити чернетку». The footer «Перевірити список», the filled primary of a locked unknown draft (the form is inert), opens the
   **check sheet** «Нові записи» **over the kept form** (`toast-error-unknown-list-375`), refetched on
-  open. The header names what to look for, «Шукаємо: −1 250,50 USD · Витрата · надіслано 14:32», and
+  open. The header names what to look for, «Шукаємо: −1 250,50 USD · Витрата · без опису · надіслано 14:32»; the line carries the sent description («без опису» when it is empty), the project when one is set and the business date when it is not today, so the user can compare the field a «схожа» tag names. Row titles in the check sheet wrap to two lines and never truncate, and
   the sheet lists **only the current user's own rows created from `t − 5 хв`, newest created first** («Лише ваші записи з
   14:27»: the margin absorbs a device clock that runs ahead of the server, and the sub-header names the
   real bound), without filters or date sections, each row with its business date and its server

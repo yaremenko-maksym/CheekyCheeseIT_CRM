@@ -424,9 +424,9 @@ export function failureUnknownList(w, h, { ready = false, rows = 'none' } = {}) 
     ? ''
     : rows === 'empty'
       ? `<div class="col" style="align-items:center;gap:6px;padding:28px 24px;text-align:center"><span class="muted">${icon('search', { size: 24 })}</span><div class="t-body num" style="font-weight:600">Нових записів з ${FROM} немає</div></div>`
-      : `<div class="group" style="margin-top:4px">${(rows === 'match' ? [MATCH_ROW, ...NEW_ROWS, SIMILAR_ROW] : rows === 'similar' ? [SIMILAR_AFTER, ...NEW_ROWS] : NEW_ROWS).map((r) => txnRow(r)).join('')}</div>`
+      : `<div class="group" style="margin-top:4px">${(rows === 'match' ? [MATCH_ROW, ...NEW_ROWS, SIMILAR_ROW] : rows === 'similar' ? [SIMILAR_AFTER, ...NEW_ROWS] : NEW_ROWS).map((r) => txnRow(r, { wrap: true })).join('')}</div>`
   const body = `<div class="col" style="gap:8px;padding:0 16px 8px">
-  <div class="t-sub num" style="font-weight:600">Шукаємо: −${AMOUNT} USD · Витрата · надіслано ${SENT_AT}</div>
+  <div class="t-sub num" style="font-weight:600">Шукаємо: −${AMOUNT} USD · Витрата · без опису · надіслано ${SENT_AT}</div>
   <div class="t-foot muted num">Лише ваші записи з ${FROM}</div>
   ${
     failed
@@ -478,7 +478,7 @@ export function checkSheetBoot(w, h) {
   <div class="t-sub num" style="font-weight:600">Транзакція о ${SENT_AT} · результат невідомий</div>
   <div class="t-foot muted num">Лише ваші записи з ${FROM}</div>
   <div class="row" style="gap:8px"><div role="status" class="grow t-foot muted row num" style="gap:6px">${icon('rotate-cw', { size: 14 })}Оновлено о 14:33:40</div><span class="btn sm secondary" role="button" style="height:44px">${icon('refresh-cw', { size: 16 })}Оновити</span></div>
-  <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Сервер міг зберегти транзакцію із запізненням. Список оновиться о 14:35:12</div></div><div class="group" style="margin-top:4px">${[...NEW_ROWS, BEFORE_ROW].map((r) => txnRow(r)).join('')}</div>`
+  <div class="t-foot" style="padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border)">Сервер міг зберегти транзакцію із запізненням. Список оновиться о 14:35:12</div></div><div class="group" style="margin-top:4px">${[...NEW_ROWS, BEFORE_ROW].map((r) => txnRow(r, { wrap: true })).join('')}</div>`
   const footer = `<div style="padding:10px 16px ${safeBottom(w) + 8}px;border-top:1px solid var(--border);background:var(--popover)"><span class="btn secondary" role="button" style="width:100%">Закрити</span></div>`
   const sh = sheet({
     w,
