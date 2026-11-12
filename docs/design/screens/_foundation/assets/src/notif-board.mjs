@@ -1,7 +1,7 @@
 // Notifications panel (shell-v2 §2 / §4) and the Board primitive (primitives-v2 §3). Invented sample data.
 import { icon, safeBottom } from './base.mjs'
 import { tabScreen, financeBody, interviewsBody } from './mobile.mjs'
-import { sheet, closeBtn, stateBlock } from './mobile-overlays.mjs'
+import { sheet, closeBtn, stateBlock, skRow } from './mobile-overlays.mjs'
 import { desktop } from './desktop.mjs'
 import { tablet } from './tablet.mjs'
 import { toastUndo } from './prims-viz.mjs'
@@ -30,20 +30,25 @@ const NOTIFS = [
 const notifRow = (n, more = false) =>
   `<div class="lrow two" style="--inset:64px;align-items:flex-start${more ? ';padding-right:4px' : ''}"><a href="#" class="row grow" style="gap:12px;align-items:flex-start;min-width:0;color:inherit;text-decoration:none"><div class="lead" style="margin-top:2px;position:relative">${icon(n.ic, { size: 18 })}${n.unread ? '<i aria-label="Непрочитане" style="position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:5px;background:var(--primary);box-shadow:0 0 0 2px var(--card)"></i>' : ''}</div><div class="grow col" style="gap:2px;min-width:0"><div class="t-body" style="font-weight:${n.unread ? 600 : 400};overflow-wrap:anywhere">${n.t}</div><div class="t-foot muted num" style="overflow-wrap:anywhere">${n.at} · ${n.s}</div></div></a>${more ? `<span class="iconbtn" role="button" aria-label="Дії зі сповіщенням" aria-haspopup="menu" style="color:var(--muted-fg)">${icon('ellipsis', { size: 20 })}</span>` : ''}</div>`
 
-// «Позначити всі прочитаними»: a text button with a 44 px hit area that adds no height (padding cancelled by margin).
+// «Прочитати все» (the shipped label): a text button with a 44 px hit area that adds no height (padding cancelled by margin).
 const markAll = (pad = 13) =>
-  `<a href="#" role="button" style="padding:${pad}px 8px;margin:-${pad}px -8px;font-size:13px;font-weight:600;color:var(--primary);text-decoration:none;white-space:nowrap">Позначити всі прочитаними</a>`
+  `<a href="#" role="button" style="padding:${pad}px 8px;margin:-${pad}px -8px;font-size:13px;font-weight:600;color:var(--primary);text-decoration:none;white-space:nowrap">Прочитати все</a>`
 
 const sec = (label, trail = '', pad = '14px 16px 8px') =>
   `<div class="row" style="justify-content:space-between;gap:12px;padding:${pad}"><span class="t-over num">${label}</span>${trail}</div>`
 
+// The server's `unreadCount` from GET /api/notifications, never the loaded rows: 14 unread, 2 of them on the first page.
+const UNREAD = 14
+const BELL = `Сповіщення, ${UNREAD} нових`
+
+// One newest-first list; the List footer auto-loads the next 10 at its end (here: the next page loading).
 function notifList(more = false) {
-  const unread = NOTIFS.filter((n) => n.unread)
-  const read = NOTIFS.filter((n) => !n.unread)
-  return `${sec(`Нові · ${unread.length}`, markAll(), '4px 16px 8px')}<div class="group">${unread.map((n) => notifRow(n, more)).join('')}</div>
-  ${sec('Раніше')}<div class="group">${read.map((n) => notifRow(n, more)).join('')}</div>
-  <a href="#" class="row" style="justify-content:center;gap:6px;min-height:44px;margin-top:8px;font-size:15px;color:var(--primary);text-decoration:none">Усе, що чекає рішення${icon('chevron-right', { size: 16 })}</a>`
+  return `${sec(`Нові · ${UNREAD}`, markAll(), '4px 16px 8px')}<div class="group">${NOTIFS.map((n) => notifRow(n, more)).join('')}<div role="status" aria-label="Завантаження ще сповіщень" style="display:contents"><div aria-hidden="true" style="display:contents">${skRow()}</div></div></div>`
 }
+
+// Pinned under the scrolling list, so paging never pushes it out of reach.
+const allLink = (pb = 0) =>
+  `<div style="flex:none;border-top:1px solid var(--border);padding-bottom:${pb}px"><a href="#" class="row" style="justify-content:center;gap:6px;min-height:44px;font-size:15px;color:var(--primary);text-decoration:none">Усе, що чекає рішення${icon('chevron-right', { size: 16 })}</a></div>`
 
 const EMPTY = () =>
   stateBlock({
@@ -56,9 +61,10 @@ const EMPTY = () =>
 export function notificationsSheet(w, h, { empty = false } = {}) {
   const body = empty ? EMPTY() : notifList(true)
   const top = Math.round(h * (empty ? 0.5 : 0.28))
-  const overlay = sheet({ w, h, top, title: 'Сповіщення', trail: closeBtn, body }).replace(
+  const footer = empty ? '' : allLink(safeBottom(w))
+  const overlay = sheet({ w, h, top, title: 'Сповіщення', trail: closeBtn, body, footer }).replace(
     '<div style="flex:1;min-height:0;overflow:hidden;overscroll-behavior:contain">',
-    `<div style="flex:1;min-height:0;overflow:hidden;overscroll-behavior:contain;padding-bottom:${safeBottom(w)}px">`,
+    `<div style="flex:1;min-height:0;overflow:hidden;overscroll-behavior:contain${empty ? `;padding-bottom:${safeBottom(w)}px` : ''}">`,
   )
   const screen = tabScreen({
     w,
@@ -71,23 +77,25 @@ export function notificationsSheet(w, h, { empty = false } = {}) {
     showFab: false,
   })
   // Nothing unread: the bell has no dot.
-  return empty ? screen.replace(/<i class="dot"[^>]*><\/i>/, '') : screen
+  return empty
+    ? screen.replace(/<i class="dot"[^>]*><\/i>/, '')
+    : screen.replace('Сповіщення, 2 нові', BELL)
 }
 
 /** Tablet and desktop: a non-modal popover anchored under the bell (no scrim; Esc and an outside click close it). */
 export function notificationsDesktop(w, h) {
-  const pop = `<div role="dialog" aria-label="Сповіщення" style="position:absolute;top:50px;right:206px;width:400px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:14px;box-shadow:0 24px 64px oklch(0 0 0 / 0.6);overflow:hidden;padding-bottom:8px">
+  const pop = `<div role="dialog" aria-label="Сповіщення" style="position:absolute;top:50px;right:206px;width:400px;z-index:70;background:var(--popover);border:1px solid oklch(0.28 0.006 85);border-radius:14px;box-shadow:0 24px 64px oklch(0 0 0 / 0.6);overflow:hidden;display:flex;flex-direction:column;max-height:640px">
   <div class="row" style="justify-content:space-between;gap:12px;height:48px;padding:0 16px;border-bottom:1px solid var(--border)"><span style="font-size:15px;font-weight:600">Сповіщення</span>${markAll(12)}</div>
-  <div style="padding-top:4px">${notifList()
+  <div style="padding-top:4px;flex:1;min-height:0;overflow:hidden">${notifList()
     .replace(
       /<div class="group">/g,
       '<div class="group" style="margin:0;border:0;border-radius:0;background:transparent">',
     )
     .replace(
-      sec(`Нові · 2`, markAll(), '4px 16px 8px'),
-      sec('Нові · 2', '', '8px 16px 4px'),
-    )}</div></div>`
-  return desktop({ w, h, overlay: pop })
+      sec(`Нові · ${UNREAD}`, markAll(), '4px 16px 8px'),
+      sec(`Нові · ${UNREAD}`, '', '8px 16px 4px'),
+    )}</div>${allLink()}</div>`
+  return desktop({ w, h, overlay: pop }).replace('Сповіщення, 2 нові', BELL)
 }
 
 // ---------- Board (desktop drag board; the phone has no drag) ----------
