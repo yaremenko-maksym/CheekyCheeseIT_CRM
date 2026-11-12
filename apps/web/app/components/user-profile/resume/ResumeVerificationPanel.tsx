@@ -270,6 +270,7 @@ export function VerificationBadge({ resume }: { resume: SeniorResumeDto }) {
           id={VERIFICATION_STATUS_ID}
           tabIndex={-1}
           className="inline-flex min-w-0 flex-wrap items-center gap-2"
+          data-testid="resume-verification-status"
         >
           <Badge
             variant="outline"

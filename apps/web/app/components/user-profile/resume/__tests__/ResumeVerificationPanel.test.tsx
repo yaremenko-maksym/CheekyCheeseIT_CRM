@@ -6,7 +6,7 @@
  * so a 409 is the error envelope the server sends and the refetch is a real
  * second GET, not a spy on the query client.
  */
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -29,7 +29,7 @@ vi.mock('@/lib/axios', () => ({ api: { get: getMock, post: postMock, put: putMoc
 vi.mock('sonner', () => ({ toast: { error: toastError, success: vi.fn() } }))
 
 import { useSeniorResume } from '@/hooks/use-senior-resume'
-import { ResumeVerificationPanel } from '../ResumeVerificationPanel'
+import { ResumeVerificationPanel, VerificationBadge } from '../ResumeVerificationPanel'
 
 const RUN_ID = '22222222-2222-4222-8222-222222222222'
 const USER = '33333333-3333-4333-8333-333333333333'
@@ -109,21 +109,28 @@ function makeResponse(
   return { resume, canEdit: true, canConfirm }
 }
 
-/** The panel fed by the real resume query, as ResumeTab feeds it. */
+/** The panel (and the toolbar badge) fed by the real resume query, as ResumeTab feeds them. */
 function Wired() {
   const { data } = useSeniorResume(USER)
   if (!data?.resume) return null
   return (
-    <ResumeVerificationPanel
-      userId={USER}
-      resume={data.resume}
-      canConfirm={data.canConfirm}
-      onChangeFacts={() => {}}
-    />
+    <>
+      <VerificationBadge resume={data.resume} />
+      <ResumeVerificationPanel
+        userId={USER}
+        resume={data.resume}
+        canConfirm={data.canConfirm}
+        onChangeFacts={() => {}}
+      />
+    </>
   )
 }
 
-function renderWired(response: SeniorResumeResponse) {
+const stagedPdfGets = () =>
+  getMock.mock.calls.filter(([url]) => url === `/users/${USER}/resume/staged-pdf`).length
+
+function renderWired(initial: SeniorResumeResponse) {
+  let response = initial
   // The staged PDF is a blob jsdom cannot show; only the resume GET answers.
   getMock.mockImplementation((url: string) =>
     url.endsWith('/staged-pdf')
@@ -138,7 +145,19 @@ function renderWired(response: SeniorResumeResponse) {
       <I18nTestProvider>{children}</I18nTestProvider>
     </QueryClientProvider>
   )
-  return render(<Wired />, { wrapper: wrap })
+  const view = render(<Wired />, { wrapper: wrap })
+  /** The POST answers `next`, and so does every resume GET after it. */
+  const postMovesServerTo = (next: SeniorResumeResponse) =>
+    postMock.mockImplementation(() => {
+      response = next
+      return Promise.resolve({ data: next })
+    })
+  /** The server moved on: the next resume GET answers `next`, and the query refetches now. */
+  const serverMovesTo = async (next: SeniorResumeResponse) => {
+    response = next
+    await act(() => qc.invalidateQueries())
+  }
+  return { ...view, serverMovesTo, postMovesServerTo }
 }
 
 beforeEach(async () => {
@@ -251,5 +270,137 @@ describe('ResumeVerificationPanel — failure panel', () => {
     expect(within(panel).getByText('Сторінка 2')).toBeInTheDocument()
     expect(within(panel).getByText('автоматична перевірка не пройдена')).toBeInTheDocument()
     expect(within(panel).queryByText('SOMETHING_NEW')).toBeNull()
+  })
+})
+
+describe('ResumeVerificationPanel — staged PDF', () => {
+  it('staged PDF refetches when the check finishes (CHECKING -> AWAITING_CONFIRM)', async () => {
+    const { serverMovesTo } = renderWired(makeResponse())
+    await waitFor(() => expect(stagedPdfGets()).toBe(1))
+
+    // A staged edit starts a run: same runId, the old PDF is still on the row.
+    await serverMovesTo(makeResponse({ verificationStatus: 'CHECKING', verificationBusy: true }))
+    expect(await screen.findByTestId('resume-confirm-checking')).toBeInTheDocument()
+    expect(stagedPdfGets()).toBe(1)
+
+    await serverMovesTo(makeResponse())
+    await waitFor(() => expect(screen.queryByTestId('resume-confirm-checking')).toBeNull())
+    await waitFor(() => expect(stagedPdfGets()).toBe(2))
+  })
+
+  it('no staged PDF fetch while busy', async () => {
+    renderWired(makeResponse({ verificationStatus: 'QUEUED', verificationBusy: true }))
+    const pdf = await screen.findByTestId('resume-staged-pdf')
+    expect(stagedPdfGets()).toBe(0)
+    // No download of a PDF the run is about to replace.
+    expect(within(pdf).queryByRole('link', { name: 'Завантажити PDF' })).toBeNull()
+  })
+})
+
+describe('ResumeVerificationPanel — rulings', () => {
+  it('a run with a staged result keeps the confirm step, read-only, progress line on top', async () => {
+    renderWired(makeResponse({ verificationStatus: 'CHECKING', verificationBusy: true }))
+    const step = await screen.findByTestId('resume-confirm-step')
+    const checking = within(step).getByTestId('resume-confirm-checking')
+    expect(checking).toHaveTextContent('Оновлюємо й перевіряємо текст…')
+    const buttons = within(step).getAllByRole('button')
+    // The line leads the step: it comes before every action in reading order.
+    for (const button of buttons) {
+      expect(checking.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      )
+    }
+    expect(buttons.map((b) => b.textContent)).toEqual(
+      expect.arrayContaining(['Підтвердити', 'Змінити факти', 'Згенерувати заново']),
+    )
+    for (const button of buttons) expect(button).toBeDisabled()
+    expect(screen.queryByTestId('resume-verification-progress')).toBeNull()
+  })
+
+  it('VERIFIED with a code shows the warning and keeps the VERIFIED view', async () => {
+    renderWired(
+      makeResponse({
+        verificationStatus: 'VERIFIED',
+        verificationErrorCode: 'ATS_CHECK_FAILED',
+        verifiedVersion: 3,
+        verifiedAt: '2026-11-02T10:00:00.000Z',
+        staged: null,
+      }),
+    )
+    const warning = await screen.findByTestId('resume-verification-warning')
+    expect(warning).toHaveTextContent(
+      'Зміна шаблону чи оформлення не пройшла перевірку — залишено попередній варіант.',
+    )
+    expect(screen.getByTestId('resume-verification-badge')).toHaveTextContent('Перевірено')
+    expect(screen.queryByTestId('resume-verification-failure')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('a template run shows the neutral progress line, not the progress card', async () => {
+    renderWired(
+      makeResponse({
+        verificationStatus: 'VERIFIED',
+        verificationBusy: true,
+        verifiedVersion: 3,
+        staged: null,
+      }),
+    )
+    const line = await screen.findByTestId('resume-verification-template-run')
+    expect(line).toHaveTextContent('Перевіряємо нове оформлення')
+    expect(screen.queryByTestId('resume-verification-progress')).toBeNull()
+    expect(screen.queryByTestId('resume-confirm-step')).toBeNull()
+  })
+})
+
+describe('ResumeVerificationPanel — focus (design §8)', () => {
+  it('after Submit focus moves to the progress heading', async () => {
+    const { postMovesServerTo } = renderWired(
+      makeResponse({
+        verificationStatus: 'FAILED',
+        verificationErrorCode: 'ATS_CHECK_FAILED',
+        staged: null,
+      }),
+    )
+    postMovesServerTo(
+      makeResponse({ verificationStatus: 'QUEUED', verificationBusy: true, staged: null }),
+    )
+    fireEvent.click(await screen.findByTestId('resume-verification-retry'))
+    const heading = await screen.findByRole('heading', { name: 'У черзі на перевірку' })
+    await waitFor(() => expect(heading).toHaveFocus())
+  })
+
+  it('after Confirm focus moves to the VERIFIED badge', async () => {
+    const { postMovesServerTo } = renderWired(makeResponse())
+    postMovesServerTo(
+      makeResponse({
+        verificationStatus: 'VERIFIED',
+        verifiedVersion: 3,
+        verifiedAt: '2026-11-02T10:00:00.000Z',
+        staged: null,
+      }),
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'Підтвердити' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('resume-verification-badge')).toHaveTextContent('Перевірено'),
+    )
+    const status = screen.getByTestId('resume-verification-status')
+    await waitFor(() => expect(status).toHaveFocus())
+    expect(status).toContainElement(screen.getByTestId('resume-verification-badge'))
+  })
+
+  it('after a 409 "resume changed" focus moves to the notice', async () => {
+    postMock.mockRejectedValue({
+      response: {
+        status: 409,
+        data: { statusCode: 409, code: 'RESUME_CONFIRM_STALE', message: 'stale' },
+      },
+    })
+    renderWired(makeResponse())
+    fireEvent.click(await screen.findByRole('button', { name: 'Підтвердити' }))
+    const notice = await screen.findByTestId('resume-verification-stale')
+    expect(notice).toHaveTextContent(
+      'Резюме змінилося після перевірки. Оновіть сторінку й перевірте його ще раз.',
+    )
+    await waitFor(() => expect(notice).toHaveFocus())
   })
 })
