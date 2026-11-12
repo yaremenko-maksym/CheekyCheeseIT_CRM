@@ -2,11 +2,20 @@
 // Mockup-only: the values mirror docs/design/foundation.md v2 §5; product code uses the
 // semantic Tailwind tokens from apps/web/app/styles/globals.css, never these literals.
 import { readFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 
+// The repo root is six levels up (src, assets, _foundation, screens, design, docs); lucide comes from apps/web.
+const REPO = join(dirname(fileURLToPath(import.meta.url)), '../../../../../..')
 const LUCIDE =
   process.env.LUCIDE_ICONS_DIR ??
-  '/Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/node_modules/.pnpm/lucide-react@1.52.0_ldrqq4ddkzwykih5vpyejmhynu/node_modules/lucide-react/dist/esm/icons'
+  join(
+    dirname(
+      createRequire(join(REPO, 'apps/web/package.json')).resolve('lucide-react/package.json'),
+    ),
+    'dist/esm/icons',
+  )
 
 const iconCache = new Map()
 function iconNode(name) {

@@ -1,21 +1,32 @@
 // Renders the Wave 0 HTML prototypes to PNG (design-gate: degraded — no Claude Design export).
 // Usage: node render.mjs <shell|primitives> [frame-name-filter]
 // Each frame = { name, w, h, dpr, html }. Output: ../<set>-v2/<name>.png, quantised to stay ≤ ~400 KB.
-import { mkdirSync, writeFileSync, statSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync, statSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createRequire } from 'node:module'
 import { execFileSync } from 'node:child_process'
 
+const here = dirname(fileURLToPath(import.meta.url))
+// playwright comes from apps/e2e (through @playwright/test); the repo root is six levels up from here.
 const PW =
   process.env.PLAYWRIGHT_MODULE ??
-  '/Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/node_modules/.pnpm/playwright@1.59.1/node_modules/playwright/index.mjs'
-const { chromium } = await import(PW)
-
-const here = dirname(fileURLToPath(import.meta.url))
+  join(
+    dirname(
+      createRequire(
+        createRequire(join(here, '../../../../../../apps/e2e/package.json')).resolve(
+          '@playwright/test/package.json',
+        ),
+      ).resolve('playwright/package.json'),
+    ),
+    'index.mjs',
+  )
+const { chromium } = await import(pathToFileURL(PW).href)
 const [set, filter] = process.argv.slice(2)
 const mod = await import(join(here, `${set}.mjs`))
 const outDir = join(here, '..', `${set === 'shell' ? 'shell' : 'primitives'}-v2`)
-const htmlDir = process.env.HTML_OUT ?? '/tmp/designer-w08/html'
+const htmlDir = process.env.HTML_OUT ?? mkdtempSync(join(tmpdir(), 'crm-render-'))
 mkdirSync(outDir, { recursive: true })
 mkdirSync(htmlDir, { recursive: true })
 

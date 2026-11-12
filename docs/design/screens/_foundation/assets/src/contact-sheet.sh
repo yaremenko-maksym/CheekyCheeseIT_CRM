@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Portable file size in bytes (macOS and Linux).
+size() { wc -c < "$1" | tr -d ' '; }
 # Builds the contact sheets of a frame set in ../<set>-v2/ (labelled tiles, each quantised ≤ ~400 KB):
 #   _contact-sheet.png         phones (-320 / -375), 6 per row
 #   _contact-sheet-wide.png    tablet, desktop and board frames, 3 per row at 620 px
@@ -29,14 +31,14 @@ sheet() {
     "${@:5}" -tile "$3" -geometry "$4" "$out"
   magick "$out" -strip -dither None -colors 256 -define png:compression-level=9 "PNG8:$out"
   # Still over the ~400 KB budget (many tiles): quantise once more to 96 colours.
-  [ "$(stat -f%z "$out")" -le 409600 ] || magick "$out" -dither None -colors 96 -define png:compression-level=9 "PNG8:$out"
+  [ "$(size "$out")" -le 409600 ] || magick "$out" -dither None -colors 96 -define png:compression-level=9 "PNG8:$out"
   # Still over (the phone sheet of a large set): scale the whole sheet to 90% and quantise again.
-  [ "$(stat -f%z "$out")" -le 409600 ] || magick "$out" -resize 90% -dither None -colors 96 -define png:compression-level=9 "PNG8:$out"
+  [ "$(size "$out")" -le 409600 ] || magick "$out" -resize 90% -dither None -colors 96 -define png:compression-level=9 "PNG8:$out"
   # Last step for the largest set: 80% of the original size and 64 colours, labels still legible.
-  [ "$(stat -f%z "$out")" -le 409600 ] || magick "$out" -resize 89% -dither None -colors 64 -define png:compression-level=9 "PNG8:$out"
+  [ "$(size "$out")" -le 409600 ] || magick "$out" -resize 89% -dither None -colors 64 -define png:compression-level=9 "PNG8:$out"
   # The phone sheet past ~55 frames: one more 90% step at 48 colours (about 72% of the original).
-  [ "$(stat -f%z "$out")" -le 409600 ] || magick "$out" -resize 90% -dither None -colors 48 -define png:compression-level=9 "PNG8:$out"
-  echo "$out $(($(stat -f%z "$out") / 1024)) KB from $(($# - 4)) frames"
+  [ "$(size "$out")" -le 409600 ] || magick "$out" -resize 90% -dither None -colors 48 -define png:compression-level=9 "PNG8:$out"
+  echo "$out $(($(size "$out") / 1024)) KB from $(($# - 4)) frames"
 }
 rm -f "$dir"/_contact-sheet*.png
 [ "${#phones[@]}" -eq 0 ] || sheet _contact-sheet.png 13 6x 300x400+10+10 "${phones[@]}"
