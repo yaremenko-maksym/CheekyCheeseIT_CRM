@@ -45,7 +45,7 @@ const versionsOf = (id: string): SeniorVersions => ({ profile: `p-${id}`, exclus
 const LIVE = new Map(
   [OLEKSIY_ID, SENIOR_SHARED_ID, ARTEM_ID, DMYTRO_ID].map((id) => [id, versionsOf(id)]),
 )
-// One studio-wide and one senior-owned keyword: only the studio-wide one versions an opportunity.
+// One studio-wide and one senior-owned keyword: the roster's exclusions, as the queue reads them.
 const STUDIO_WIDE = { seniorId: null, scope: 'GLOBAL', kind: 'KEYWORD', value: 'gambling' }
 const SENIOR_OWNED = { seniorId: OLEKSIY_ID, scope: 'GLOBAL', kind: 'KEYWORD', value: 'crypto' }
 const roster = (versions: ReadonlyMap<string, SeniorVersions>): RosterInputs => ({
@@ -86,14 +86,15 @@ describe('seedJobQueue — the rows it writes', () => {
     statements.filter((s) => s.text.startsWith(`INSERT INTO ${table} `)).map((s) => s.params)
   const text = (key: string) => SEED_QUEUE_OPPORTUNITIES.find((o) => o.key === key)!.description
   const sha = (key: string) => createHash('sha256').update(text(key), 'utf8').digest('hex')
-  const IV = opportunityInputsVersion([STUDIO_WIDE] as unknown as JobExclusionDto[])
+  // The call `JobQueueScopeService` makes: every roster exclusion, filtered inside.
+  const IV = opportunityInputsVersion([STUDIO_WIDE, SENIOR_OWNED] as unknown as JobExclusionDto[])
 
   it('stores each description once, keyed by its sha256', async () => {
     const keys = SEED_QUEUE_OPPORTUNITIES.map((o) => o.key)
     expect(into(await run(), 'job_text_blobs')).toEqual(keys.map((k) => [sha(k), text(k)]))
   })
 
-  it('writes every opportunity OPEN at the inputs version of the studio-wide exclusions only', async () => {
+  it('writes every opportunity OPEN at the inputs version the queue computes from the roster', async () => {
     expect(IV).not.toBe(opportunityInputsVersion([]))
     expect(into(await run(), 'job_opportunities')).toEqual([
       // title, title key, employer, employer key, verified, keywords..., sha, [published days], first-seen days, inputs version, role family
@@ -249,7 +250,14 @@ const goodFacts = (): JobQueueSeedFacts => ({
     sources: o.sourceCount,
   })).reverse(),
   leads: SEED_QUEUE_OPPORTUNITIES.flatMap((o) =>
-    o.leads.map((l) => ({ title: o.title, seniorId: l.seniorId, ...flat(versionsOf(l.seniorId)) })),
+    o.leads.map((l) => ({
+      title: o.title,
+      seniorId: l.seniorId,
+      ...flat(versionsOf(l.seniorId)),
+      ruleVersion: MATCH_RULE_VERSION,
+      matchRevision: 1,
+      revision: 1,
+    })),
   ).reverse(),
   memberships: [
     { userId: SENIOR_SHARED_ID, team: 'Team Marchenko' },
@@ -322,6 +330,25 @@ describe('jobQueueSeedProblems — every drift the queue would show silently', (
     const leads = f.leads.map((l) => (l.title === DATA ? { ...l, ...stale } : l))
     expect(jobQueueSeedProblems(withLeads(f, leads))).toEqual([
       `${DATA}: the match of ${DMYTRO_ID} is not at the live roster versions`,
+    ])
+  })
+
+  it('reports a match at another rule version', () => {
+    const f = goodFacts()
+    const leads = f.leads.map((l) => (l.title === DATA ? { ...l, ruleVersion: 'stale' } : l))
+    expect(jobQueueSeedProblems(withLeads(f, leads))).toEqual([
+      `${DATA}: the match of ${DMYTRO_ID} is not at the current rule version`,
+    ])
+  })
+
+  it.each([
+    ['an older match', { matchRevision: 1, revision: 2 }],
+    ['a newer match', { matchRevision: 2, revision: 1 }],
+  ])("reports %s than the opportunity's revision", (_, revisions) => {
+    const f = goodFacts()
+    const leads = f.leads.map((l) => (l.title === DATA ? { ...l, ...revisions } : l))
+    expect(jobQueueSeedProblems(withLeads(f, leads))).toEqual([
+      `${DATA}: the match of ${DMYTRO_ID} is not at the opportunity's revision`,
     ])
   })
 
@@ -404,8 +431,8 @@ describe('verifyJobQueueSeed — reads the facts back and fails the seed on a pr
     expect(statements.map((s) => s.text)).toMatchInlineSnapshot(`
       [
         "SELECT o.title, count(s.source_record_id)::int AS sources FROM job_opportunities o LEFT JOIN job_opportunity_sources s ON s.opportunity_id = o.id AND s.unlinked_at IS NULL WHERE o.title IN ($1, $2, $3, $4, $5) GROUP BY o.title",
-        "SELECT o.title, m.senior_id::text AS "seniorId", m.senior_profile_version AS profile, m.exclusion_version AS exclusion FROM job_opportunity_matches m JOIN job_opportunities o ON o.id = m.opportunity_id WHERE m.outcome = 'LEAD' AND o.title IN ($1, $2, $3, $4, $5)",
-        "SELECT tm.user_id::text AS "userId", t.name AS team FROM team_members tm JOIN teams t ON t.id = tm.team_id WHERE tm.left_at IS NULL AND tm.user_id IN ($1, $2, $3)",
+        "SELECT o.title, m.senior_id::text AS "seniorId", m.senior_profile_version AS profile, m.exclusion_version AS exclusion, m.rule_version AS "ruleVersion", m.opportunity_revision AS "matchRevision", o.revision FROM job_opportunity_matches m JOIN job_opportunities o ON o.id = m.opportunity_id WHERE m.outcome = 'LEAD' AND o.title IN ($1, $2, $3, $4, $5)",
+        "SELECT tm.user_id::text AS "userId", t.name AS team FROM team_members tm JOIN teams t ON t.id = tm.team_id WHERE tm.left_at IS NULL AND t.archived_at IS NULL AND t.type = 'SENIOR' AND tm.user_id IN ($1, $2, $3)",
       ]
     `)
     expect(log.mock.calls).toEqual([['  Job-queue seed opportunities: 5 (expected: 5)']])

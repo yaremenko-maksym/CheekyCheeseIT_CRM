@@ -31,9 +31,8 @@ const SOURCE_TYPES = ['GREENHOUSE_ATS', 'LEVER_ATS'] as const
 export async function seedJobQueue({ db }: SeedCtx): Promise<void> {
   console.log('\n[7b/8] Inserting job-queue opportunities...')
   const roster = await loadRoster(db)
-  const inputsVersion = opportunityInputsVersion(
-    roster.exclusions.filter((e) => e.seniorId === null),
-  )
+  // The exact call `JobQueueScopeService` makes, so the two inputs versions cannot diverge.
+  const inputsVersion = opportunityInputsVersion(roster.exclusions)
 
   for (const o of SEED_QUEUE_OPPORTUNITIES) {
     const sha = createHash('sha256').update(o.description).digest('hex')
@@ -113,8 +112,12 @@ export interface JobQueueSeedFacts {
     readonly seniorId: string
     readonly profile: string
     readonly exclusion: string
+    readonly ruleVersion: string
+    /** `opportunity_revision` of the match; the queue lists it only at the opportunity's `revision`. */
+    readonly matchRevision: number
+    readonly revision: number
   }[]
-  /** Active memberships of the `SEED_QUEUE_MEMBERSHIPS` users, by team name. */
+  /** Active memberships of the `SEED_QUEUE_MEMBERSHIPS` users in live SENIOR teams, by name. */
   readonly memberships: readonly { readonly userId: string; readonly team: string }[]
   /** The live versions the queue compares a match against (`loadRoster`). */
   readonly versions: ReadonlyMap<string, SeniorVersions>
@@ -137,6 +140,12 @@ export function jobQueueSeedProblems(f: JobQueueSeedFacts): string[] {
       const v = f.versions.get(l.seniorId)
       if (v?.profile !== l.profile || v.exclusion !== l.exclusion) {
         problems.push(`${o.title}: the match of ${l.seniorId} is not at the live roster versions`)
+      }
+      if (l.ruleVersion !== MATCH_RULE_VERSION) {
+        problems.push(`${o.title}: the match of ${l.seniorId} is not at the current rule version`)
+      }
+      if (l.matchRevision !== l.revision) {
+        problems.push(`${o.title}: the match of ${l.seniorId} is not at the opportunity's revision`)
       }
     }
   }
@@ -169,14 +178,17 @@ export async function verifyJobQueueSeed({ db }: SeedCtx): Promise<void> {
   )
   const leads = await db.execute(
     sql`SELECT o.title, m.senior_id::text AS "seniorId", m.senior_profile_version AS profile,
-               m.exclusion_version AS exclusion
+               m.exclusion_version AS exclusion, m.rule_version AS "ruleVersion",
+               m.opportunity_revision AS "matchRevision", o.revision
           FROM job_opportunity_matches m JOIN job_opportunities o ON o.id = m.opportunity_id
          WHERE m.outcome = 'LEAD' AND o.title IN ${titles}`,
   )
+  // Live SENIOR teams only, as the queue's `liveTeam` / `liveTeamIds` count them.
   const memberships = await db.execute(
     sql`SELECT tm.user_id::text AS "userId", t.name AS team
           FROM team_members tm JOIN teams t ON t.id = tm.team_id
-         WHERE tm.left_at IS NULL AND tm.user_id IN ${SEED_QUEUE_MEMBERSHIPS.map((m) => m.userId)}`,
+         WHERE tm.left_at IS NULL AND t.archived_at IS NULL AND t.type = 'SENIOR'
+           AND tm.user_id IN ${SEED_QUEUE_MEMBERSHIPS.map((m) => m.userId)}`,
   )
   const { versions } = await loadRoster(db)
   const problems = jobQueueSeedProblems({
