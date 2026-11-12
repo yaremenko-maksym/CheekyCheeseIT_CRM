@@ -296,6 +296,9 @@ interface AdminMenuEntry {
   dialog: (props: MenuDialogProps) => ReactNode
 }
 
+/** No dialog of the menu is open. */
+const CLOSED = -1
+
 /**
  * A «⋯» menu whose items each open a dialog: `header` scopes `item`, and every one of `more` is a
  * group of its own after it. The menu would hand focus back to its trigger as it closes, racing the
@@ -313,7 +316,10 @@ function AdminMenu({
   more?: AdminMenuEntry[]
 } & AdminMenuEntry) {
   const entries = [{ item, dialog }, ...more]
-  const [open, setOpen] = useState<number | null>(null)
+  const [open, setOpen] = useState(CLOSED)
+  // the open dialog's entry left with a refetch: the dialog unmounts (Radix hands focus back to «⋯»
+  // through `onCloseAutoFocus`), and forgetting it keeps it from reopening when the entry returns
+  if (open >= entries.length) setOpen(CLOSED)
   const trigger = useRef<HTMLButtonElement>(null)
   const opening = useRef(false)
   return (
@@ -367,7 +373,7 @@ function AdminMenu({
         <Fragment key={index}>
           {entry.dialog({
             open: open === index,
-            onOpenChange: (next) => setOpen(next ? index : null),
+            onOpenChange: (next) => setOpen(next ? index : CLOSED),
             trigger,
           })}
         </Fragment>
@@ -428,7 +434,8 @@ export function AdminVacancyMenu({
           }
         />
       )}
-      more={card.eligibility === 'TRIAGE' ? [assign] : []}
+      // a manual item (no source) has nothing a team could triage: the server refuses its grant (422)
+      more={card.eligibility === 'TRIAGE' && card.primarySource !== null ? [assign] : []}
     />
   )
 }
@@ -477,6 +484,8 @@ function TriageGrantForm({
   const teamField = useId()
   const reasonField = useId()
   const untilField = useId()
+  const emptyNote = useId()
+  const hint = useId()
   const [teamId, setTeamId] = useState('')
   const [reason, setReason] = useState('')
   const [until, setUntil] = useState(() => format(addDays(new Date(), GRANT_DAYS), DAY))
@@ -487,6 +496,8 @@ function TriageGrantForm({
   const offered = teams.data?.filter((team) => team.type === 'SENIOR')
   // a picked team that leaves the list (archived meanwhile) is no longer a valid choice
   const chosen = offered?.find((team) => team.id === teamId)
+  // loaded and empty, not loading: then the empty list alone explains the disabled «Призначити»
+  const none = offered?.length === 0
   const draft = GRANT_DRAFT.safeParse({
     teamId: chosen?.id,
     expectedOpportunityRevision: card.revision,
@@ -494,6 +505,7 @@ function TriageGrantForm({
     reason,
     expiresAt: endOfDay(parseISO(until)).toISOString(),
   })
+  const incomplete = !draft.success && !none
 
   const send = () => {
     // named now: the list may change before the answer, and the toast names what was sent
@@ -517,7 +529,7 @@ function TriageGrantForm({
   return (
     <>
       <AlertDialogHeader>
-        <AlertDialogTitle>
+        <AlertDialogTitle className="text-balance">
           <Trans>Призначити вакансію команді</Trans>
         </AlertDialogTitle>
         <AlertDialogDescription>
@@ -530,7 +542,12 @@ function TriageGrantForm({
             <Trans>Команда</Trans>
           </Label>
           <Select value={teamId} onValueChange={setTeamId}>
-            <SelectTrigger id={teamField} className="min-h-11 sm:min-h-9">
+            <SelectTrigger
+              id={teamField}
+              aria-required="true"
+              aria-describedby={none ? emptyNote : undefined}
+              className="min-h-11 sm:min-h-9"
+            >
               <SelectValue placeholder={t`Виберіть команду`} />
             </SelectTrigger>
             <SelectContent>
@@ -541,6 +558,11 @@ function TriageGrantForm({
               ))}
             </SelectContent>
           </Select>
+          {none && (
+            <p id={emptyNote} className="text-sm text-pretty text-muted-foreground">
+              <Trans>Немає команд, яким можна призначити вакансію.</Trans>
+            </p>
+          )}
           {teams.isError && (
             <div role="alert" className={BLOCKING}>
               <TriangleAlert
@@ -567,6 +589,7 @@ function TriageGrantForm({
           </Label>
           <Textarea
             id={reasonField}
+            aria-required="true"
             value={reason}
             maxLength={REASON_MAX}
             onChange={(event) => setReason(event.target.value)}
@@ -589,11 +612,17 @@ function TriageGrantForm({
           <div role="alert" className={BLOCKING}>
             <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
             <p className="text-pretty">
-              <Trans>Не вдалося призначити команді. Спробуйте ще раз.</Trans>
+              <Trans>Не вдалося призначити вакансію команді. Спробуйте ще раз.</Trans>
             </p>
           </div>
         )}
       </div>
+      {/* a disabled button's reason is in the text beside it (WCAG 3.3.2) */}
+      {incomplete && (
+        <p id={hint} className="text-sm text-pretty text-muted-foreground">
+          <Trans>Виберіть команду й вкажіть причину.</Trans>
+        </p>
+      )}
       <AlertDialogFooter>
         <AlertDialogCancel className="min-h-11 sm:min-h-9">
           <Trans>Не призначати</Trans>
@@ -603,6 +632,7 @@ function TriageGrantForm({
           type="button"
           className="min-h-11 aria-disabled:pointer-events-none aria-disabled:opacity-50 sm:min-h-9"
           disabled={!draft.success}
+          aria-describedby={incomplete ? hint : undefined}
           aria-disabled={pending || undefined}
           aria-busy={pending || undefined}
           onClick={pending ? undefined : send}

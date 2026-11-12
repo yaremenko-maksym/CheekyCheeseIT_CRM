@@ -7386,10 +7386,6 @@ msgstr "Видалити співбесіду?"
 msgid "Новий signing secret"
 msgstr "Новий signing secret"
 
-#: apps/web/app/components/job-queue/JobQueueActions.tsx
-msgid "Не вдалося призначити команді. Спробуйте ще раз."
-msgstr "Не вдалося призначити команді. Спробуйте ще раз."
-
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Немає доходів, що очікують валідації"
 msgstr "Немає доходів, що очікують валідації"
@@ -8340,6 +8336,10 @@ msgstr "Відстають"
 msgid "Сума: {0}"
 msgstr "Сума: {0}"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Немає команд, яким можна призначити вакансію."
+msgstr "Немає команд, яким можна призначити вакансію."
+
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Дані компанії"
 msgstr "Дані компанії"
@@ -8586,6 +8586,10 @@ msgstr "Некоректний запит. Перевірте введені д�
 #: apps/web/app/lib/documents-filter-sort.ts
 msgid "Спочатку більші"
 msgstr "Спочатку більші"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Не вдалося призначити вакансію команді. Спробуйте ще раз."
+msgstr "Не вдалося призначити вакансію команді. Спробуйте ще раз."
 
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Завжди"
@@ -11731,6 +11735,10 @@ msgstr "Підключення вимкнено"
 #: apps/web/app/routes/_authenticated/admin/sources.index.tsx
 msgid "Останній запуск: {lastRun}"
 msgstr "Останній запуск: {lastRun}"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Виберіть команду й вкажіть причину."
+msgstr "Виберіть команду й вкажіть причину."
 
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Найнято за місяць"

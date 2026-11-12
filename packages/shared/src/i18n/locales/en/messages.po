@@ -7386,10 +7386,6 @@ msgstr "Delete the interview?"
 msgid "Новий signing secret"
 msgstr "New signing secret"
 
-#: apps/web/app/components/job-queue/JobQueueActions.tsx
-msgid "Не вдалося призначити команді. Спробуйте ще раз."
-msgstr "Could not assign the vacancy to the team. Please try again."
-
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Немає доходів, що очікують валідації"
 msgstr "No income awaiting validation"
@@ -8340,6 +8336,10 @@ msgstr "Behind"
 msgid "Сума: {0}"
 msgstr "Amount: {0}"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Немає команд, яким можна призначити вакансію."
+msgstr "No team can take this vacancy."
+
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Дані компанії"
 msgstr "Company details"
@@ -8586,6 +8586,10 @@ msgstr "Invalid request. Check the data you entered and try again."
 #: apps/web/app/lib/documents-filter-sort.ts
 msgid "Спочатку більші"
 msgstr "Largest first"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Не вдалося призначити вакансію команді. Спробуйте ще раз."
+msgstr "Could not assign the vacancy to the team. Please try again."
 
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Завжди"
@@ -11431,7 +11435,7 @@ msgstr "· No senior assigned"
 
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Не вдалося завантажити команди."
-msgstr "Could not load the teams."
+msgstr "Could not load teams."
 
 #: apps/web/app/routes/_authenticated/documents/constants.ts
 #: apps/web/app/routes/_authenticated/team/index.tsx
@@ -11731,6 +11735,10 @@ msgstr "Connection disabled"
 #: apps/web/app/routes/_authenticated/admin/sources.index.tsx
 msgid "Останній запуск: {lastRun}"
 msgstr "Last run: {lastRun}"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Виберіть команду й вкажіть причину."
+msgstr "Choose a team and give a reason."
 
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Найнято за місяць"
