@@ -483,8 +483,12 @@ function TriageGrantForm({
   // a conflict refreshes the card (the hook invalidates the queue), so the retry sends its revision
   const [note, setNote] = useState<'conflict' | 'failed' | null>(null)
   const pending = grant.isPending
+  // the server grants triage to a live SENIOR team only (a DROP team is refused with 422)
+  const offered = teams.data?.filter((team) => team.type === 'SENIOR')
+  // a picked team that leaves the list (archived meanwhile) is no longer a valid choice
+  const chosen = offered?.find((team) => team.id === teamId)
   const draft = GRANT_DRAFT.safeParse({
-    teamId,
+    teamId: chosen?.id,
     expectedOpportunityRevision: card.revision,
     policyVersion: UNVERSIONED_POLICY,
     reason,
@@ -492,12 +496,13 @@ function TriageGrantForm({
   })
 
   const send = () => {
+    // named now: the list may change before the answer, and the toast names what was sent
+    const team = chosen!.name
     setNote(null)
     grant.mutate(
       { ...draft.data!, opportunityId: card.opportunityId },
       {
         onSuccess: () => {
-          const team = teams.data!.find((candidate) => candidate.id === teamId)!.name
           toast.success(t`Призначено: ${team}`, JOB_QUEUE_TOAST)
           onGranted()
         },
@@ -529,7 +534,7 @@ function TriageGrantForm({
               <SelectValue placeholder={t`Виберіть команду`} />
             </SelectTrigger>
             <SelectContent>
-              {teams.data?.map((team) => (
+              {offered?.map((team) => (
                 <SelectItem key={team.id} value={team.id}>
                   {team.name}
                 </SelectItem>

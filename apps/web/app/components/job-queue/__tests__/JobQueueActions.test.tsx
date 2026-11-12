@@ -1566,8 +1566,8 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
   const ALPHA = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
   const BETA = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
   const TEAMS = [
-    { id: ALPHA, name: 'Альфа' },
-    { id: BETA, name: 'Бета' },
+    { id: ALPHA, name: 'Альфа', type: 'SENIOR' },
+    { id: BETA, name: 'Бета', type: 'SENIOR' },
   ]
   const GRANT = `/job-queue/${OPP}/team-triage`
   const REASON = 'Стек збігається з командою'
@@ -1771,9 +1771,52 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     expect(client.getQueryData(['teams', { archived: 'active' }])).toEqual(TEAMS)
   })
 
+  it('the picker offers only SENIOR teams: a DROP team from /teams is not offered (the server refuses it)', async () => {
+    const user = userEvent.setup()
+    const drop = { id: '99999999-9999-4999-8999-999999999999', name: 'Дроп', type: 'DROP' }
+    get.mockResolvedValue({ data: [TEAMS[0], drop, TEAMS[1]] })
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await user.click(within(dialog).getByRole('combobox', { name: 'Команда' }))
+    const options = within(await screen.findByRole('listbox')).getAllByRole('option')
+    expect(options.map((option) => option.textContent)).toEqual(['Альфа', 'Бета'])
+  })
+
+  it('a grant that lands after the team list changed still names the team and closes the dialog', async () => {
+    const user = userEvent.setup()
+    let answer: (value: unknown) => void = () => {}
+    post.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)))
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    // the list refetched while the grant was in flight, and Бета is no longer in it
+    act(() => client.setQueryData(['teams', { archived: 'active' }], [TEAMS[0]]))
+    answer(granted())
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(toast.success).toHaveBeenCalledWith('Призначено: Бета', JOB_QUEUE_TOAST)
+  })
+
+  it('a picked team that leaves the list before the send cannot be sent: «Призначити» waits for a team again', async () => {
+    const user = userEvent.setup()
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    expect(assign(dialog)).toBeEnabled()
+    act(() => client.setQueryData(['teams', { archived: 'active' }], [TEAMS[0]]))
+    await waitFor(() => expect(assign(dialog)).toBeDisabled())
+    await pickTeam(user, dialog, 'Альфа')
+    expect(assign(dialog)).toBeEnabled()
+    expect(post).not.toHaveBeenCalled()
+  })
+
   it('a cached team list is used as is, with no request', async () => {
     const user = userEvent.setup()
-    client.setQueryData(['teams', { archived: 'active' }], [{ id: ALPHA, name: 'Кешована' }])
+    client.setQueryData(
+      ['teams', { archived: 'active' }],
+      [{ id: ALPHA, name: 'Кешована', type: 'SENIOR' }],
+    )
     renderCard(ADMIN)
     const dialog = await openAssign(user)
     await pickTeam(user, dialog, 'Кешована')
