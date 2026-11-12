@@ -7909,3 +7909,25 @@ that none is needed.
 a non-triage opportunity is refused.
 
 Sources: PR #1322 second-opinion panel (nim:step), confirmed by Master against the service.
+
+## 427. Triage grant dialog and the shared date picker: three layout lows (2026-11-12)
+
+**Symptoms.**
+
+- The triage grant dialog (`TriageGrantForm`) shows its "choose a team and give a reason" hint only while the form is
+  incomplete. The dialog is vertically centred, so when the last field is filled the hint leaves and the dialog jumps
+  (about 18 px, 28 px at 320) under the caret in the reason field.
+- With no SENIOR team to offer, the team picker still opens, as an empty sliver over the "no team can take this
+  vacancy" note.
+- The shared `DatePickerField` calendar renders 36 px day cells at 320 and 375, under the 44 px mobile target of the
+  design spec §11. Every date picker in the app has it, not only the grant dialog.
+
+**Status.** Web only, polish; the first two are one small PR on `TriageGrantForm` (keep the hint in the layout and
+toggle its visibility; disable the picker when the list is empty). The third is a separate change to the shared
+component and its callers' layouts. Deferred from PR #1322: a fix there would have restarted six required reviews for
+three lows.
+
+**Verify.** At 320 the grant dialog does not move when the reason is typed; the picker is disabled on an empty list;
+calendar day cells are at least 44 px on mobile in every date picker.
+
+Sources: PR #1322 design reviews (rounds 1 and 2: UX-L-1, UX-L-4, UX-L-5).
