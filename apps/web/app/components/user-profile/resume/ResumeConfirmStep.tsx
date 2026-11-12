@@ -75,10 +75,9 @@ export function ResumeConfirmStep({
   const locked = busy || confirm.isPending || edit.isPending || regenerate.isPending
   const runId = staged.runId
 
-  const edited = new Set(staged.editedPaths.map((p) => p.path))
+  const editedPaths = staged.editedPaths.map((p) => p.path)
+  const edited = new Set(editedPaths)
   const fallbacks = resume.verificationReport?.fallbacks ?? []
-  const fellBack = (prefix: string) =>
-    fallbacks.some((p) => p === prefix || p.startsWith(`${prefix}.`))
   const editError =
     getApiErrorCode(edit.error) === 'RESUME_STAGED_TEXT_INVALID'
       ? getUserFacingErrorMessage(edit.error)
@@ -222,7 +221,7 @@ export function ResumeConfirmStep({
             testId="resume-confirm-block-summary"
             title={<Trans>Про себе</Trans>}
             edited={edited.has('summary')}
-            fallback={fellBack('summary')}
+            fallback={underPath(fallbacks, 'summary')}
             actions={
               <>
                 <Button
@@ -260,8 +259,8 @@ export function ResumeConfirmStep({
                 testId={`resume-confirm-block-experience-${i}`}
                 title={[item.role, item.company].filter(Boolean).join(' · ')}
                 period={item.period}
-                edited={[...edited].some((p) => p === prefix || p.startsWith(`${prefix}.`))}
-                fallback={fellBack(`experience.${i}`)}
+                edited={underPath(editedPaths, prefix)}
+                fallback={underPath(fallbacks, `experience.${i}`)}
                 actions={regenerateButton(
                   prefix,
                   t`Згенерувати заново пункти, місце роботи ${position}`,
@@ -333,6 +332,10 @@ export function ResumeConfirmStep({
     </div>
   )
 }
+
+/** True when a report path is `prefix` itself or sits under it. */
+const underPath = (paths: readonly string[], prefix: string) =>
+  paths.some((p) => p === prefix || p.startsWith(`${prefix}.`))
 
 const editButtonId = (path: string) => `resume-confirm-edit-${path.replaceAll('.', '-')}`
 

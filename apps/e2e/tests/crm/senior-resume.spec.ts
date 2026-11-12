@@ -27,6 +27,7 @@ import {
   mockAuthAs,
   buildAdminViewingUser,
   buildSelfView,
+  buildHrViewingSenior,
   API_GLOB,
   API_RE,
 } from '../fixtures'
@@ -84,6 +85,9 @@ interface ResumeStub {
   verificationStatus?: string
   verifiedVersion?: number | null
   verificationBusy?: boolean
+  verificationErrorCode?: string | null
+  verificationReport?: unknown
+  staged?: unknown
 }
 
 /** Mirrors DEFAULT_RESUME_LAYOUT — the E2E package does not import @crm/shared. */
@@ -138,12 +142,12 @@ function resumeResponse(stub: ResumeStub | null, canEdit = true, canConfirm = fa
       // that never ran a check is a DRAFT with no staged result.
       facts: stub.facts ?? EMPTY_FACTS,
       verificationStatus: stub.verificationStatus ?? 'DRAFT',
-      verificationErrorCode: null,
-      verificationReport: null,
+      verificationErrorCode: stub.verificationErrorCode ?? null,
+      verificationReport: stub.verificationReport ?? null,
       verifiedVersion: stub.verifiedVersion ?? null,
       verifiedAt: null,
       verifiedByName: null,
-      staged: null,
+      staged: stub.staged ?? null,
       verificationBusy: stub.verificationBusy ?? false,
     },
     canEdit,
@@ -234,7 +238,7 @@ async function mockResumeEndpoints(
    * which is why it is being added to the SHARED helper rather than to the one
    * test that happened to notice.
    */
-  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/resume/pdf$`), (route) =>
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/resume/(staged-)?pdf$`), (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/pdf',
@@ -705,5 +709,92 @@ test.describe('Резюме синьора — оформление и PDF', () 
     const panel = page.getByTestId('resume-layout-panel')
     await expect(panel).toBeVisible()
     await expect(panel.getByRole('textbox')).toHaveCount(0)
+  })
+})
+
+/**
+ * verified-base-resume Task 19: the confirm step and the failure panel. Only a
+ * viewer the server marks `canConfirm` gets the Confirm button; the request
+ * carries the staged run and the version the reviewer looked at.
+ */
+test.describe('Резюме — подтверждение проверенного текста', () => {
+  const RUN_ID = 'bbbbbbbb-0000-4000-8000-000000000001'
+  const awaiting = (canConfirm: boolean) =>
+    resumeResponse(
+      {
+        content: FILLED_CONTENT,
+        version: 3,
+        verificationStatus: 'AWAITING_CONFIRM',
+        staged: {
+          runId: RUN_ID,
+          content: FILLED_CONTENT,
+          layout: DEFAULT_LAYOUT,
+          templateName: 'classic',
+          pdfAvailable: true,
+          editedPaths: [],
+        },
+      },
+      true,
+      canConfirm,
+    )
+
+  test('HR подтверждает: уходит runId и версия', async ({ page }) => {
+    const bodies: unknown[] = []
+    await mockAuthAs(page, USERS.hr)
+    await page.route(`${API_GLOB}/users/${SENIOR_ID}`, (r) =>
+      r.fulfill(json(buildHrViewingSenior(USERS.senior))),
+    )
+    await mockResumeEndpoints(page, [awaiting(true)])
+    await page.route(new RegExp(`${API_RE}/users/([^/?]+)/resume/confirm$`), async (route) => {
+      bodies.push(route.request().postDataJSON())
+      await route.fulfill(
+        json(resumeResponse({ content: FILLED_CONTENT, verificationStatus: 'VERIFIED' })),
+      )
+    })
+    await page.goto(`/profile/${SENIOR_ID}?tab=resume`)
+
+    await expect(page.getByTestId('resume-confirm-block-summary')).toBeVisible()
+    await expect(page.getByTestId('resume-facts-form')).toHaveCount(0)
+    await page.getByTestId('resume-confirm').click()
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0]).toEqual({ runId: RUN_ID, version: 3 })
+  })
+
+  test('синьор видит текст на подтверждении, но не кнопку «Підтвердити»', async ({ page }) => {
+    await mockAuthAs(page, USERS.senior)
+    await page.route(`${API_GLOB}/users/me`, (r) => r.fulfill(json(buildSelfView(USERS.senior))))
+    await mockResumeEndpoints(page, [awaiting(false)])
+    await page.goto('/profile?tab=resume')
+
+    await expect(page.getByTestId('resume-confirm-block-summary')).toBeVisible()
+    await expect(page.getByTestId('resume-confirm-change-facts')).toBeVisible()
+    await expect(page.getByTestId('resume-confirm')).toHaveCount(0)
+  })
+
+  test('FAILED называет причину и пункт резюме, форма фактов открыта', async ({ page }) => {
+    await openSeniorResumeAsAdmin(page, [
+      resumeResponse({
+        content: FILLED_CONTENT,
+        verificationStatus: 'FAILED',
+        verificationErrorCode: 'ATS_CHECK_FAILED',
+        verificationReport: {
+          gates: [
+            {
+              gate: 'ats',
+              ok: false,
+              items: [{ path: 'experience[0].bullets', reason: 'MISSING_TEXT' }],
+            },
+          ],
+          fallbacks: [],
+        },
+      }),
+    ])
+
+    const failure = page.getByTestId('resume-verification-failure')
+    await expect(failure).toContainText(assertInCatalog(uk, 'ATS не прочитав PDF'))
+    await expect(failure).toContainText(assertInCatalog(uk, 'текст не знайдено в PDF'))
+    await expect(failure).not.toContainText('ATS_CHECK_FAILED')
+    await expect(page.getByTestId('resume-verification-retry')).toBeEnabled()
+    await expect(page.getByTestId('resume-facts-form')).toBeVisible()
   })
 })
