@@ -90,6 +90,10 @@ export function receiptStateFromDocument(documentId: string | null): ReceiptStat
 }
 
 interface ReceiptInputProps {
+  /**
+   * Contract: pass back the exact object `onChange` gave you, unchanged. A copied
+   * or derived object is read as a new state and cancels an in-flight file pick.
+   */
   state: ReceiptState
   onChange: (next: ReceiptState) => void
   label?: string

@@ -541,9 +541,9 @@ describe('ReceiptInput — a pick that settles after its dialog closed (PR #1316
 
       await act(async () => {
         settle()[outcome]()
-        await Promise.resolve()
+        // a macrotask flush: a late onChange would have run before the negative assertion
+        await new Promise((r) => setTimeout(r, 0))
       })
-      await new Promise((r) => setTimeout(r, 0))
 
       expect(emitted.length).toBe(before)
       expect(screen.getByText('Натисніть, щоб вибрати файл')).toBeInTheDocument()
