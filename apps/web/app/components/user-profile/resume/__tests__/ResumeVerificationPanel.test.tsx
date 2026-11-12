@@ -124,7 +124,12 @@ function Wired() {
 }
 
 function renderWired(response: SeniorResumeResponse) {
-  getMock.mockResolvedValue({ data: response })
+  // The staged PDF is a blob jsdom cannot show; only the resume GET answers.
+  getMock.mockImplementation((url: string) =>
+    url.endsWith('/staged-pdf')
+      ? Promise.reject(new Error('no PDF in jsdom'))
+      : Promise.resolve({ data: response }),
+  )
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
@@ -181,7 +186,9 @@ describe('ResumeVerificationPanel — confirm step', () => {
         'Резюме змінилося після перевірки. Оновіть сторінку й перевірте його ще раз.',
       ),
     )
-    await waitFor(() => expect(getMock).toHaveBeenCalledTimes(2))
+    const resumeGets = () =>
+      getMock.mock.calls.filter(([url]) => url === `/users/${USER}/resume`).length
+    await waitFor(() => expect(resumeGets()).toBe(2))
   })
 
   it('fallbacks listed as "kept from your notes"', async () => {

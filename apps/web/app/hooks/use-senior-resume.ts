@@ -11,12 +11,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLingui } from '@lingui/react/macro'
 import type {
+  ConfirmResumeInput,
+  EditStagedFieldInput,
+  RegenerateStagedFieldInput,
   ResumeFacts,
   ResumeLayoutOptions,
   SeniorResumeResponse,
 } from '@crm/shared'
 import { api } from '@/lib/axios'
-import { getUserFacingErrorMessage } from '@/lib/axios-utils'
+import { getApiErrorCode, getUserFacingErrorMessage } from '@/lib/axios-utils'
 
 /** Same base the axios client uses — needed for plain <a href> downloads. */
 export const API_BASE_URL: string = import.meta.env.VITE_API_URL ?? '/api'
@@ -82,6 +85,8 @@ export function useResumePdfBlob(
   userId: string,
   enabled: boolean,
   fingerprint: string | null,
+  /** `staged-pdf` = the check run's PDF awaiting Confirm (same headers, same reason). */
+  file: 'pdf' | 'staged-pdf' = 'pdf',
 ): { blobUrl: string | null; isLoading: boolean; hasError: boolean } {
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -107,7 +112,10 @@ export function useResumePdfBlob(
     setHasError(false)
 
     void api
-      .get<Blob>(`/users/${userId}/resume/pdf`, { responseType: 'blob', signal: controller.signal })
+      .get<Blob>(`/users/${userId}/resume/${file}`, {
+        responseType: 'blob',
+        signal: controller.signal,
+      })
       .then((res) => {
         if (controller.signal.aborted) return
         // Release the previous document before replacing it, or every layout
@@ -127,7 +135,7 @@ export function useResumePdfBlob(
       })
 
     return () => controller.abort()
-  }, [userId, enabled, fingerprint])
+  }, [userId, enabled, fingerprint, file])
 
   useEffect(() => {
     const revoke = revokeRef
@@ -208,6 +216,69 @@ export function useSubmitResume(userId: string) {
     },
     onError,
   })
+}
+
+/**
+ * A confirm-step write (`POST confirm`, `PUT staged`, `POST staged/regenerate`).
+ * Each carries `staged.runId`; a stale runId or version answers 409, which
+ * toasts the catalog text ("the resume changed, review again") and refetches.
+ * `inlineCode` is an error the caller shows next to its field instead of a toast.
+ */
+function useStagedAction<TInput>(
+  userId: string,
+  key: string,
+  send: (input: TInput) => Promise<{ data: SeniorResumeResponse }>,
+  successText?: () => string,
+  inlineCode?: string,
+) {
+  const qc = useQueryClient()
+  const onWriteError = useResumeWriteError(userId)
+  return useMutation({
+    mutationKey: [key, userId],
+    mutationFn: (input: TInput) => send(input).then((r) => r.data),
+    onSuccess: (data) => {
+      qc.setQueryData(resumeQueryKey(userId), data)
+      void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
+      if (successText) toast.success(successText())
+    },
+    onError: (e: unknown) => {
+      if (inlineCode !== undefined && getApiErrorCode(e) === inlineCode) return
+      onWriteError(e)
+    },
+  })
+}
+
+/** `POST confirm` — ADMIN/HR only; the server promotes the staged result. */
+export function useConfirmResume(userId: string) {
+  const { t } = useLingui()
+  return useStagedAction(
+    userId,
+    'confirm-senior-resume',
+    (input: ConfirmResumeInput) => api.post(`/users/${userId}/resume/confirm`, input),
+    () => t`Резюме підтверджено`,
+  )
+}
+
+/** `PUT staged` — one staged text rewritten by hand; a rejected text shows under its field. */
+export function useEditStagedField(userId: string) {
+  const { t } = useLingui()
+  return useStagedAction(
+    userId,
+    'edit-senior-resume-staged',
+    (input: EditStagedFieldInput) => api.put(`/users/${userId}/resume/staged`, input),
+    () => t`Текст збережено`,
+    'RESUME_STAGED_TEXT_INVALID',
+  )
+}
+
+/** `POST staged/regenerate` — the model rewrites one staged path. */
+export function useRegenerateStagedField(userId: string) {
+  return useStagedAction(
+    userId,
+    'regenerate-senior-resume-staged',
+    (input: RegenerateStagedFieldInput) =>
+      api.post(`/users/${userId}/resume/staged/regenerate`, input),
+  )
 }
 
 export function useUploadResumeSource(userId: string) {

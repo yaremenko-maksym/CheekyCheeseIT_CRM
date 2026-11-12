@@ -39,7 +39,12 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import { ResumeCompletenessPanel, factsFieldId, issueFieldPath } from './ResumeCompletenessPanel'
+import {
+  ResumeCompletenessPanel,
+  factsFieldId,
+  focusFactsField,
+  issueFieldPath,
+} from './ResumeCompletenessPanel'
 import { FieldError, IconButton, JobBlock, RowBlock } from './ResumeFactsJob'
 
 /** Pure move helper — exported so the reorder rule is unit-testable. */
@@ -171,15 +176,7 @@ export function ResumeFactsForm({
 
   function focusPath(path: string) {
     const field = issueFieldPath(path)
-    if (field === null) return
-    const el = document.getElementById(factsFieldId(field))
-    if (!el) return
-    const target = el.matches('input, textarea, button')
-      ? el
-      : (el.querySelector<HTMLElement>('input, textarea, button') ?? el)
-    target.scrollIntoView?.({ block: 'center' })
-    target.focus()
-    touch(field)
+    if (field !== null && focusFactsField(field)) touch(field)
   }
 
   const patch = (changes: Partial<ResumeFacts>) => setDraft((d) => ({ ...d, ...changes }))

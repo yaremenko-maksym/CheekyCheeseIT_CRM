@@ -55,6 +55,21 @@ export function factsFieldId(fieldPath: string): string {
   return `resume-facts-${fieldPath.replaceAll('.', '-')}`
 }
 
+/**
+ * Focus a facts field (or the first control inside its wrapper) and scroll it
+ * into view. False when the field is not on screen.
+ */
+export function focusFactsField(fieldPath: string): boolean {
+  const el = document.getElementById(factsFieldId(fieldPath))
+  if (!el) return false
+  const target = el.matches('input, textarea, button')
+    ? el
+    : (el.querySelector<HTMLElement>('input, textarea, button') ?? el)
+  target.scrollIntoView?.({ block: 'center' })
+  target.focus()
+  return true
+}
+
 /** Row label, design §10.6: `{section} · {field}`, positions are index + 1. */
 export function useIssueLabel(): (path: string) => string {
   const { t } = useLingui()
@@ -109,6 +124,8 @@ export function useIssueLabel(): (path: string) => string {
     }
     if (section === 'links' && index !== undefined)
       return `${sections.links} · ${t`Посилання ${n}`}`
+    // Report-only (render / ATS / visual gates): a page of the PDF, not a field.
+    if (section === 'pages' && index !== undefined) return t`Сторінка ${n}`
     return sections[section] ?? t`Резюме загалом`
   }
 }
