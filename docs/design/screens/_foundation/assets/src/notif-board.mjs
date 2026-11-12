@@ -1,6 +1,6 @@
 // Notifications panel (shell-v2 §2 / §4) and the Board primitive (primitives-v2 §3). Invented sample data.
 import { icon, safeBottom } from './base.mjs'
-import { tabScreen, financeBody, interviewsBody } from './mobile.mjs'
+import { tabScreen, financeBody, interviewsBody, searchField } from './mobile.mjs'
 import { sheet, closeBtn, stateBlock, skRow } from './mobile-overlays.mjs'
 import { desktop } from './desktop.mjs'
 import { tablet } from './tablet.mjs'
@@ -217,6 +217,7 @@ export function board768() {
     '<div aria-hidden="true" style="position:absolute;top:0;right:0;bottom:0;width:48px;background:linear-gradient(to right, transparent, var(--bg));pointer-events:none"></div>'
   const pane = `<section aria-label="Співбесіди" class="col" style="flex:1;min-width:0">
   <div class="row" style="height:56px;padding:0 8px 0 16px;flex:none"><div class="grow t-title">Співбесіди</div><span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></span></div>
+  ${searchField('Пошук кандидатів').replace('padding:4px 16px 10px', 'padding:0 16px 10px;max-width:432px;flex:none')}
   <div class="row" style="gap:8px;padding:0 16px 12px;flex:none"><span class="t-foot muted num">12 активних · утримуйте картку, щоб перетягнути</span></div>
   <div style="position:relative;flex:1;min-height:0;overflow:hidden"><div class="row" style="gap:12px;align-items:flex-start;padding:0 16px;width:max-content">${cols}</div>${fade}</div></section>`
   return tablet({ w: 768, h: 1024, list: pane, active: '/interviews' })

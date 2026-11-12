@@ -351,7 +351,7 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
     the user discards the draft (`toast-error-unknown-375.png`). **A failed draft stays editable**:
     nothing was saved, so saving it again sends one new request with no gate; only an unknown draft
     carries the duplicate risk.
-    «Перевірити список» is the filled primary of a locked unknown draft (the form is inert) and opens
+    «Перевірити список» is the filled primary of a locked unknown draft (the form is read-only) and opens
     the **check sheet** «Нові записи» over the kept form, refetched on open.
     It names what to look for («Шукаємо: −1 250,50 USD · Витрата · без опису · надіслано 14:32»; the line carries the sent description («без опису» when it is empty), the project when one is set and the business date when it is not today, so the user can compare the field a «схожа» tag names. Row titles in the check sheet wrap to two lines and never truncate) and lists **only
     the current user's own rows created from `t − 5 хв`, newest created first** (sub-header «Лише ваші
@@ -513,7 +513,7 @@ palette, progressive disclosure, merged or split views.
 
 - new business data or new KPIs;
 - removing a capability;
-- changing business rules, the API or RBAC.
+- changing business rules or RBAC; API changes only through the Wave 1 ACs listed in §11.
 
 Every screen brief stays capture-grounded: the real screen is captured, its blocks and actions are
 listed, and anything the v2 screen shows must trace back to that list.
