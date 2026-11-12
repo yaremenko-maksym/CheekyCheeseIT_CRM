@@ -7,6 +7,7 @@ import {
   uploadPillInflight,
   quickAddDrafts,
   sessionExpired,
+  DRAFT,
   failureUnknownSimilar,
 } from './money-form.mjs'
 import {
@@ -168,6 +169,12 @@ export function frames() {
     M('drafts-two-unresolved-375', 375, 812, draftsTwoUnresolved(375, 812)),
     M('drafts-four-collapsed-375', 375, 812, draftsFourCollapsed(375, 812)),
     M('quick-add-drafts-375', 375, 812, quickAddDrafts(375, 812, chartMobile(375, 812))),
+    M(
+      'quick-add-drafts-three-320',
+      320,
+      568,
+      quickAddDrafts(320, 568, chartMobile(320, 568), [DRAFT.failed2, DRAFT.unknown, DRAFT.armed]),
+    ),
     M('toast-pill-stack-375', 375, 812, toastPillStack(375, 812)),
     M('state-page-kill-375', 375, 812, pageKillAlert(375, 812)),
     M('alert-pagekill-sent-375', 375, 812, pageKillAlert(375, 812, 'sent')),

@@ -75,12 +75,12 @@ function chooserMenu({ drafts, pos, itemH, coarse = false, role = '' }) {
   const tone = { failed: 'var(--destructive)', unknown: 'var(--warning)' }
   const item = (d) =>
     `<div role="menuitem" tabindex="-1" class="row" aria-label="Відкрити чернетку ${d.amount} USD, ${d.state.split(' · ')[0]}" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px"><span style="color:${tone[d.kind] || 'var(--muted-fg)'};display:grid">${icon('file-pen', { size: 18 })}</span><span class="grow col" style="gap:1px;min-width:0"><span class="num" style="font-size:14px;font-weight:600;white-space:nowrap">${d.amount} USD</span><span class="muted trunc" style="font-size:${coarse ? 13 : 12}px;line-height:${coarse ? 18 : 16}px">${d.state}</span></span><span class="t-cap muted">Відкрити</span></div>`
-  // At most 2 draft rows in any menu; from 3, «Усі чернетки (N)» opens Фінанси at the pinned rows.
+  // At most 2 draft rows in any menu; from 3, the header's text button «Усі чернетки (N)» opens Фінанси (no extra row).
   const all =
     drafts.length > 2
-      ? `<div role="menuitem" tabindex="-1" class="row" style="gap:10px;min-height:${itemH}px;padding:0 10px;border-radius:8px"><span class="grow num" style="font-size:14px">Усі чернетки (${drafts.length})</span>${icon('chevron-right', { size: 16 })}</div>`
+      ? `<span role="menuitem" tabindex="-1" class="num" style="padding:12px 8px;margin:-12px -8px;font-size:12px;font-weight:600;color:var(--primary)">Усі чернетки (${drafts.length})</span>`
       : ''
-  const items = `<div role="group" aria-labelledby="ch-drafts"><div id="ch-drafts" class="t-over" style="padding:6px 10px 4px">Чернетки</div>${drafts.slice(0, 2).map(item).join('')}${all}</div>`
+  const items = `<div role="group" aria-labelledby="ch-drafts"><div class="row" style="justify-content:space-between;padding:6px 10px 4px"><span id="ch-drafts" class="t-over">Чернетки</span>${all}</div>${drafts.slice(0, 2).map(item).join('')}</div>`
   // Touch: the initial focus is real but drawn only on :focus-visible, so no ring under (pointer: coarse).
   const focus = coarse ? '' : 'background:var(--raised);box-shadow:inset 0 0 0 2px var(--primary)'
   const act = (a, i) =>

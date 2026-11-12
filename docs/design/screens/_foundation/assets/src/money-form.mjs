@@ -663,8 +663,11 @@ export function actionConfirm(
     ${row(action, `border-top:1px solid var(--separator);color:${ink}`)}</div>
   ${row(cancel, 'background:var(--popover);border-radius:14px;border:1px solid var(--border)', focusCancel)}</div>`
 }
+// A 320 (SE) device has no home bar: the overlay then goes last inside the device.
 const overHome = (screen, overlay) =>
-  screen.replace('<div class="homebar">', `${overlay}<div class="homebar">`)
+  screen.includes('<div class="homebar">')
+    ? screen.replace('<div class="homebar">', `${overlay}<div class="homebar">`)
+    : screen.replace(/<\/div>\s*$/, `${overlay}</div>`)
 
 /**
  * A 401 with a dirty money form and a failed draft: its own state, never a save failure. The body names each
@@ -809,13 +812,20 @@ export const draftsFourCollapsed = (w, h) =>
     2,
   )
 
-/** Any «+» menu shows at most 2 draft rows; from 3, a last row «Усі чернетки (N)» opens Фінанси at the pinned rows. */
-const menuDraftRows = (drafts) => {
+/** Any «+» menu shows at most 2 draft rows (unresolved first). */
+const menuDraftRows = (drafts) => byRank(drafts).slice(0, 2).map(draftRow).join('')
+/**
+ * The «Чернетки» header; from 3 drafts it gains a trailing text button «Усі чернетки (N)» (opens Фінанси at the
+ * pinned rows). Its 44 px hit area comes from padding cancelled by a negative margin, so it adds no height.
+ */
+const menuDraftHead = (drafts) => {
+  const open = drafts.filter((d) => d.kind === 'failed' || d.kind === 'unknown').length
   const all =
     drafts.length > 2
-      ? `<div style="padding:0 16px 8px"><a href="#" class="row" style="justify-content:space-between;min-height:44px;padding:0 14px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font-size:15px;color:var(--fg);text-decoration:none"><span class="num">Усі чернетки (${drafts.length})</span>${icon('chevron-right', { size: 18 })}</a></div>`
+      ? `<a href="#" class="num" style="padding:13px 8px;margin:-13px -8px;font-size:13px;font-weight:600;color:var(--primary);text-decoration:none;white-space:nowrap">Усі чернетки (${drafts.length})</a>`
       : ''
-  return byRank(drafts).slice(0, 2).map(draftRow).join('') + all
+  const label = all ? 'Чернетки' : `Чернетки · ${open} потребують перевірки`
+  return `<div class="row" style="justify-content:space-between;gap:12px;padding:0 16px 8px"><span class="t-over">${label}</span>${all}</div>`
 }
 
 /**
@@ -823,10 +833,10 @@ const menuDraftRows = (drafts) => {
  * «Чернетки» section sits on top. A draft never hides other actions.
  * On Фінанси the FAB opens a new form directly. `base`: the tab screen behind the sheet.
  */
-export function quickAddDrafts(w, h, base) {
-  const rows = menuDraftRows([DRAFT.failed2, DRAFT.unknown])
+export function quickAddDrafts(w, h, base, drafts = [DRAFT.failed2, DRAFT.unknown]) {
+  const rows = menuDraftRows(drafts)
   const acts = `<div class="group" role="group" aria-label="Дії" style="margin-top:8px">${quickAddRows('ADMIN')}</div>`
-  const body = `<div class="t-over" style="padding:0 16px 8px">Чернетки · 2 потребують перевірки</div>${rows}${acts}`
+  const body = `${menuDraftHead(drafts)}${rows}${acts}`
   const listH = 52 + 26 + 2 * 72 + 8 + 4 * 64 + safeBottom(w) + 24
   const overlay = sheet({ w, h, top: h - listH, title: 'Створити', trail: closeBtn, body })
   return draftFab(overHome(base, overlay), 2, 'Створити')
