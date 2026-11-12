@@ -4,8 +4,9 @@ import {
   loadRoster,
   MATCH_RULE_VERSION,
   opportunityInputsVersion,
+  type SeniorVersions,
 } from '../../job-sourcing/runtime/recompute-inputs'
-import { leadEvidence, SEED_QUEUE_OPPORTUNITIES } from './job-queue.data'
+import { leadEvidence, SEED_QUEUE_MEMBERSHIPS, SEED_QUEUE_OPPORTUNITIES } from './job-queue.data'
 import type { SeedCtx } from './shared'
 
 /** Source namespace of every seeded record: keeps the identity keys apart from collected ones. */
@@ -35,7 +36,7 @@ export async function seedJobQueue({ db }: SeedCtx): Promise<void> {
   )
 
   for (const o of SEED_QUEUE_OPPORTUNITIES) {
-    const sha = createHash('sha256').update(o.description, 'utf8').digest('hex')
+    const sha = createHash('sha256').update(o.description).digest('hex')
     await db.execute(
       sql`INSERT INTO job_text_blobs (sha256, text) VALUES (${sha}, ${o.description})
           ON CONFLICT DO NOTHING`,
@@ -101,4 +102,89 @@ export async function seedJobQueue({ db }: SeedCtx): Promise<void> {
   console.log(
     `  ✓ ${SEED_QUEUE_OPPORTUNITIES.length} opportunities, ${leads} LEAD matches inserted`,
   )
+}
+
+/** What `verifyJobQueueSeed` reads back: the facts the queue's visibility depends on. */
+export interface JobQueueSeedFacts {
+  /** Active (`unlinked_at IS NULL`) source links per seeded title. */
+  readonly sources: readonly { readonly title: string; readonly sources: number }[]
+  readonly leads: readonly {
+    readonly title: string
+    readonly seniorId: string
+    readonly profile: string
+    readonly exclusion: string
+  }[]
+  /** Active memberships of the `SEED_QUEUE_MEMBERSHIPS` users, by team name. */
+  readonly memberships: readonly { readonly userId: string; readonly team: string }[]
+  /** The live versions the queue compares a match against (`loadRoster`). */
+  readonly versions: ReadonlyMap<string, SeniorVersions>
+}
+
+/** Every way the read-back seed differs from the contract; empty = the seed is what Task 7.6 needs. */
+export function jobQueueSeedProblems(f: JobQueueSeedFacts): string[] {
+  const problems: string[] = []
+  for (const o of SEED_QUEUE_OPPORTUNITIES) {
+    const sources = f.sources.find((r) => r.title === o.title)?.sources ?? 0
+    if (sources !== o.sourceCount) {
+      problems.push(`${o.title}: ${sources} linked sources, expected ${o.sourceCount}`)
+    }
+    const leads = f.leads.filter((l) => l.title === o.title)
+    const want = new Set(o.leads.map((l) => l.seniorId))
+    if (leads.length !== want.size || leads.some((l) => !want.has(l.seniorId))) {
+      problems.push(`${o.title}: LEAD seniors differ from the contract`)
+    }
+    for (const l of leads) {
+      const v = f.versions.get(l.seniorId)
+      if (v?.profile !== l.profile || v.exclusion !== l.exclusion) {
+        problems.push(`${o.title}: the match of ${l.seniorId} is not at the live roster versions`)
+      }
+    }
+  }
+  for (const m of SEED_QUEUE_MEMBERSHIPS) {
+    const teams = f.memberships
+      .filter((r) => r.userId === m.userId)
+      .map((r) => r.team)
+      .sort()
+      .join(', ')
+    if (teams !== m.teams.join(', ')) {
+      problems.push(`${m.who}: teams [${teams}], expected [${m.teams.join(', ')}]`)
+    }
+  }
+  return problems
+}
+
+/**
+ * Task 7.6a — fails the seed when the job-queue rows would not show the cards the Task 7.6 E2E
+ * expects: a missing title, an unlinked source, a moved match, a lost membership, or a match
+ * whose versions are no longer the live roster's (the queue hides such a match silently).
+ */
+export async function verifyJobQueueSeed({ db }: SeedCtx): Promise<void> {
+  const titles = SEED_QUEUE_OPPORTUNITIES.map((o) => o.title)
+  const sources = await db.execute(
+    sql`SELECT o.title, count(s.source_record_id)::int AS sources
+          FROM job_opportunities o
+          LEFT JOIN job_opportunity_sources s ON s.opportunity_id = o.id AND s.unlinked_at IS NULL
+         WHERE o.title IN ${titles}
+         GROUP BY o.title`,
+  )
+  const leads = await db.execute(
+    sql`SELECT o.title, m.senior_id::text AS "seniorId", m.senior_profile_version AS profile,
+               m.exclusion_version AS exclusion
+          FROM job_opportunity_matches m JOIN job_opportunities o ON o.id = m.opportunity_id
+         WHERE m.outcome = 'LEAD' AND o.title IN ${titles}`,
+  )
+  const memberships = await db.execute(
+    sql`SELECT tm.user_id::text AS "userId", t.name AS team
+          FROM team_members tm JOIN teams t ON t.id = tm.team_id
+         WHERE tm.left_at IS NULL AND tm.user_id IN ${SEED_QUEUE_MEMBERSHIPS.map((m) => m.userId)}`,
+  )
+  const { versions } = await loadRoster(db)
+  const problems = jobQueueSeedProblems({
+    sources: sources.rows as unknown as JobQueueSeedFacts['sources'],
+    leads: leads.rows as unknown as JobQueueSeedFacts['leads'],
+    memberships: memberships.rows as unknown as JobQueueSeedFacts['memberships'],
+    versions,
+  })
+  console.log(`  Job-queue seed opportunities: ${sources.rows.length} (expected: ${titles.length})`)
+  if (problems.length > 0) throw new Error(`job-queue seed incomplete: ${problems.join('; ')}`)
 }

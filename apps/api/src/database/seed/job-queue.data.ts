@@ -1,4 +1,4 @@
-import { ARTEM_ID, DMYTRO_ID, OLEKSIY_ID, SENIOR_SHARED_ID } from './ids'
+import { ARTEM_ID, DMYTRO_ID, HR0_ID, HR2_ID, OLEKSIY_ID, SENIOR_SHARED_ID } from './ids'
 
 /**
  * Task 7.6a — the job-queue rows the Task 7.6 E2E proves the rights scenarios on. The E2E finds
@@ -119,6 +119,20 @@ export const SEED_QUEUE_OPPORTUNITIES: readonly SeedQueueOpportunity[] = [
       },
     ],
   },
+]
+
+/**
+ * The team memberships of the job-queue E2E users (contract: U-HR2, U-HR0, S-SHARED), the
+ * active teams of each, by name and sorted. `verifyJobQueueSeed` fails the seed on any other set.
+ */
+export const SEED_QUEUE_MEMBERSHIPS: readonly {
+  readonly who: string
+  readonly userId: string
+  readonly teams: readonly string[]
+}[] = [
+  { who: 'U-HR2', userId: HR2_ID, teams: ['Team Kovalenko'] },
+  { who: 'U-HR0', userId: HR0_ID, teams: [] },
+  { who: 'S-SHARED', userId: SENIOR_SHARED_ID, teams: ['Team Kovalenko', 'Team Marchenko'] },
 ]
 
 /** The `job_opportunity_matches.evidence` of one LEAD, in the shape `evaluate` persists. */
