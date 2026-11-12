@@ -29,7 +29,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -49,6 +48,7 @@ import { ResumeLayoutPanel } from './ResumeLayoutPanel'
 import { ResumePdfPreview } from './ResumePdfPreview'
 import { ResumeReadOnlyView } from './ResumeReadOnlyView'
 import { ResumeStatusPanel } from './ResumeStatusPanel'
+import { ResumeVerificationPanel, VerificationBadge } from './ResumeVerificationPanel'
 
 export interface ResumeTabProps {
   userId: string
@@ -84,6 +84,11 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
   /** Set when the user chooses to type the facts instead of uploading a resume. */
   const [manualMode, setManualMode] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  /**
+   * The staged run whose facts the user reopened from the confirm step. Keyed by
+   * `runId`, so a new run (or a confirm) closes the form again on its own.
+   */
+  const [changingFactsFor, setChangingFactsFor] = useState<string | null>(null)
 
   useEffect(() => {
     onDirtyChange?.(isDirty)
@@ -236,6 +241,8 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
   }
 
   const isDraft = resume?.verificationStatus === 'DRAFT'
+  const staged = resume?.staged ?? null
+  const changingFacts = staged !== null && changingFactsFor === staged.runId
 
   return (
     <div className="space-y-4 pb-4" data-testid="resume-tab">
@@ -256,11 +263,7 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
         <div className="min-w-0 space-y-1">
           {resume && (
             <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              {isDraft && (
-                <Badge variant="outline" data-testid="resume-verification-badge">
-                  <Trans>Чернетка</Trans>
-                </Badge>
-              )}
+              <VerificationBadge resume={resume} />
               {/* `max-w-full` (not `min-w-0`) is what makes the line truncate — measured. */}
               <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
                 <History className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -305,15 +308,38 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
         />
       )}
 
-      {canEdit ? (
-        <ResumeFactsForm
-          facts={resume?.facts ?? EMPTY_RESUME_FACTS}
-          displayName={displayName}
-          disabled={verificationBusy}
-          onSave={(facts, { silent }) => saveFacts.mutateAsync({ facts, silent })}
-          onSubmit={() => submit.mutateAsync()}
-          onDirtyChange={setIsDirty}
+      {/* Progress, the confirm step and the failure panel (design §4/§5). */}
+      {canEdit && resume && (
+        <ResumeVerificationPanel
+          userId={userId}
+          resume={resume}
+          canConfirm={data?.canConfirm ?? false}
+          changingFacts={changingFacts}
+          onChangeFacts={() =>
+            setChangingFactsFor(changingFacts || staged === null ? null : staged.runId)
+          }
         />
+      )}
+
+      {canEdit && changingFacts && isDirty && (
+        <p className="text-sm text-amber-700 dark:text-amber-400" role="status">
+          <Trans>Зміна фактів скасує цей результат.</Trans>
+        </p>
+      )}
+
+      {/* With a staged result the confirm step replaces the form until the user
+          chooses "Change the facts". */}
+      {canEdit ? (
+        (staged === null || changingFacts) && (
+          <ResumeFactsForm
+            facts={resume?.facts ?? EMPTY_RESUME_FACTS}
+            displayName={displayName}
+            disabled={verificationBusy}
+            onSave={(facts, { silent }) => saveFacts.mutateAsync({ facts, silent })}
+            onSubmit={() => submit.mutateAsync()}
+            onDirtyChange={setIsDirty}
+          />
+        )
       ) : (
         <ResumeReadOnlyView content={content} />
       )}

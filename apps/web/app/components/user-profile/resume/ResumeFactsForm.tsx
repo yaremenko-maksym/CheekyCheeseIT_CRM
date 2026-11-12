@@ -136,6 +136,8 @@ export function ResumeFactsForm({
   useEffect(() => {
     onDirtyChange?.(dirty)
   }, [dirty, onDirtyChange])
+  // The confirm step can hide this form; a hidden form holds no unsaved edits.
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
   const nowMonth = monthOf(now ?? new Date())
   const issues = useMemo(

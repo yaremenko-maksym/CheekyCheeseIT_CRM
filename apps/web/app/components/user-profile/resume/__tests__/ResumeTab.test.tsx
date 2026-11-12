@@ -58,6 +58,10 @@ vi.mock('@/hooks/use-senior-resume', () => ({
   // No blob here: jsdom cannot load a blob iframe; the preview is covered elsewhere.
   useResumePdfBlob: () => ({ blobUrl: null, isLoading: false, hasError: false }),
   resumePdfUrl: (userId: string) => `/api/users/${userId}/resume/pdf`,
+  useConfirmResume: () => ({ mutate: vi.fn(), isPending: false }),
+  useEditStagedField: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
+  useRegenerateStagedField: () => ({ mutate: vi.fn(), isPending: false }),
+  API_BASE_URL: '/api',
 }))
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
@@ -327,6 +331,47 @@ describe('ResumeTab — facts form', () => {
     const unloadRegistrations = addSpy.mock.calls.filter(([type]) => type === 'beforeunload')
     expect(unloadRegistrations).toHaveLength(1)
     addSpy.mockRestore()
+  })
+})
+
+describe('ResumeTab — the confirm step (Task 19)', () => {
+  const awaiting = () =>
+    makeResponse({
+      ...(FILLED.resume as SeniorResumeDto),
+      verificationStatus: 'AWAITING_CONFIRM',
+      staged: {
+        runId: '22222222-2222-4222-8222-222222222222',
+        content: (FILLED.resume as SeniorResumeDto).content,
+        layout: DEFAULT_RESUME_LAYOUT,
+        templateName: 'classic',
+        pdfAvailable: true,
+        editedPaths: [],
+      },
+    })
+
+  it('a staged result replaces the facts form until "Змінити факти" reopens it', () => {
+    setData({ ...awaiting(), canConfirm: true })
+    render(tab())
+    expect(screen.getByTestId('resume-confirm')).toBeInTheDocument()
+    expect(screen.queryByTestId('resume-facts-form')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('resume-confirm-change-facts'))
+    expect(screen.getByTestId('resume-facts-form')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('resume-confirm-change-facts'))
+    expect(screen.queryByTestId('resume-facts-form')).not.toBeInTheDocument()
+  })
+
+  it('a VERIFIED resume shows its badge and who checked it', () => {
+    setData(
+      makeResponse({
+        ...(FILLED.resume as SeniorResumeDto),
+        verificationStatus: 'VERIFIED',
+        verifiedAt: '2026-11-01T10:00:00.000Z',
+        verifiedByName: 'Olena HR',
+      }),
+    )
+    render(tab())
+    expect(screen.getByTestId('resume-verified-meta')).toHaveTextContent('Olena HR')
+    expect(screen.getByTestId('resume-facts-form')).toBeInTheDocument()
   })
 })
 
