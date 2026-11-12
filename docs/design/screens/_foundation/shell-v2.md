@@ -143,8 +143,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   (`notifications-1440`). The bell reads «Сповіщення, 2 нові» and carries the unread dot while anything is
   unread.
 - **Content:** the latest 10 from the existing feed (`GET /api/notifications?limit=10`), «Нові · N» then
-  «Раніше». A row: icon tile, title (600 while unread; wraps, never truncates), one muted line, relative
-  time (`tabular-nums`), and a yellow dot while unread. The footer link «Усе, що чекає рішення» opens
+  «Раніше». A row: icon tile (a yellow dot on its corner while unread), title (600 while unread; wraps, never truncates) and one muted line that starts with the relative time (`tabular-nums`) and wraps, so an amount is never cut. The footer link «Усе, що чекає рішення» opens
   Чекають рішення.
 - **States:** the unread list; **empty**: «Сповіщень немає» and «Тут з’являться події за вашими проєктами,
   грошима та документами», with no «Позначити всі прочитаними» and no bell dot (`notifications-empty-375`);
@@ -152,8 +151,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   «Повторити», which re-reads only; a list loaded before stays visible under it.
 - **Mark read:** opening a row marks it read (optimistic; the dot goes at once). «Позначити всі
   прочитаними» is a text button in the list header (a 44 px hit area that adds no height); it shows only
-  while something is unread, marks every row read and asks nothing, because nothing is lost. The existing
-  per-row delete stays: a swipe action on the phone, a trailing icon on hover or focus at ≥ 640.
+  while something is unread, marks every row read and asks nothing, because nothing is lost. The existing per-row delete stays. Phone: a trailing swipe, plus a visible 44 px «…» («Дії зі сповіщенням») and a long-press that open the same menu; this is the pattern for a row without a pushed detail (primitives-v2 §3), because the target page carries no delete. At ≥ 640: a trailing delete icon that hover or focus reveals at a fine pointer and that is always visible at 44 px under a coarse pointer (foundation §13).
 - **Open the target:** a row is a link to its target (deep link). The panel closes, the target page is
   pushed, and back returns to the page the bell was opened on, never to the panel. A target the viewer
   can no longer see opens that page's own not-found state. Drafts and markers are untouched (foundation
@@ -343,7 +341,6 @@ Re-render: `node assets/src/render.mjs shell [filter]`, then `assets/src/contact
   and payouts; JUNIOR: own salary). What each role really sees is the existing RBAC, unchanged by v2.
 - The armed save after an upload (frozen payload, kept across a sheet dismiss, carried by the pill)
   and the in-memory draft are proposals; the Wave 1 finance spec confirms them per form. The draft row
-  is drawn (`primitives-v2/listrow-draft-375`). The two unknown-outcome exits are a provisional ruling;
-  the owner confirms them at PNG approval.
+  is drawn (`primitives-v2/listrow-draft-375`). The two unknown-outcome exits are owner-approved 2026-11-12.
 - The notifications header button reads «Позначити всі прочитаними» per the R10 brief; the shipped catalog says
   «Прочитати все». Wave 1 renames it in both `uk` and `en` (copy-reviewer).

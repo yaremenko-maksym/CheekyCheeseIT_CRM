@@ -389,8 +389,7 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
     returns, the sheet's one
     `role="status"` announces the unlock once («Оновлено о 14:34:01. Тепер можна створити ще раз»;
     with a «збіг» the status reads «Оновлено о 14:34:01. Знайдено збіг» and never announces the unlock; the unlock text shows only when there is no match)
-    (`primitives-v2/toast-error-unknown-375.png`, `toast-error-unknown-list-375.png`). Both exits are a
-    provisional ruling; the owner confirms them at PNG approval. Reached from elsewhere, the kept form is
+    (`primitives-v2/toast-error-unknown-375.png`, `toast-error-unknown-list-375.png`). Both exits are owner-approved 2026-11-12. Reached from elsewhere, the kept form is
     the pinned row «1 250,50 USD» · «Результат невідомий · Витрата» with a tonal «Відкрити»
     (`primitives-v2/listrow-draft-375.png`).
   - App 500/503 counts as definite only for endpoints that commit in one DB transaction and swallow post-commit errors; Wave 1 verifies this per endpoint (AC + test) before the form shows a retry.
@@ -524,6 +523,9 @@ listed, and anything the v2 screen shows must trace back to that list.
 
 - **Targets:** ≥ 44 × 44 for every coarse-pointer control, by pointer type, not width (HIG; §4);
   ≥ 24 × 24 for a fine pointer (SC 2.5.8). Small icons get an enlarged hit area.
+- **Hover never hides a control:** every control that hover or focus reveals at a fine pointer (the board's
+  «Змінити етап», a row's trailing delete, a table row's actions) is always visible under
+  `(pointer: coarse)`, with a 44 px hit area. Nothing depends on hover alone (primitives-v2 §3, §9).
 - **Contrast:** text 4.5:1, large text and UI parts 3:1. Measured values: §7. Do not lower them.
 - **Focus:** visible 2 px yellow ring with offset on every interactive element (SC 2.4.11 / 2.4.7);
   focus never hidden under the sticky header, tab bar or a toast (SC 2.4.11).
@@ -572,3 +574,5 @@ listed, and anything the v2 screen shows must trace back to that list.
   timeout. The Wave 1 client tells an app-originated 500 / 503 from a gateway one by the app's error
   envelope (a gateway page has none); without the envelope the response counts as unknown.
 - The sidebar collapse shortcut is `[` (single key, so it sits behind the SC 2.1.4 toggle), not ⌘\.
+- Owner-approved 2026-11-12 (final rulings): the unknown-outcome draft, «+» never blocks, the check
+  sheet, the app-owned boot guard, the 401 state, paged search and the detail pane.
