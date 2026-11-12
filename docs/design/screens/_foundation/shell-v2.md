@@ -141,7 +141,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   over the page the bell was tapped on (`notifications-375`). Tablet and desktop: a non-modal popover
   anchored under the bell, 400 px wide, no scrim; Esc, an outside click or the bell close it
   (`notifications-1440`). The bell reads «Сповіщення, 14 нових» and carries the unread dot while anything is unread. The popover is **non-modal**: Tab past its last control closes it and moves on to the next control after the bell; Esc closes it and returns focus to the bell.
-- **Content:** one newest-first list from the existing feed (`GET /api/notifications?limit=10`). The header «Нові · N» takes N from the response's server-computed `unreadCount`, never from the loaded rows, so it reads «Нові · 14» while the first page holds two unread rows; it and «Прочитати все» show only while N > 0. The panel pages inside itself with the List footer auto-load (primitives-v2 §3): reaching the end loads the next 10 (skeleton row, then the inline «Не вдалося завантажити ще · Повторити» on failure). The feed has no cursor yet: a `before` cursor (the last row's time) on the same endpoint is a Wave 1 API AC. A row: icon tile (a yellow dot on its corner while unread), title (600 while unread; wraps, never truncates) and one muted line that starts with the relative time (`tabular-nums`) and wraps, so an amount is never cut. The link «Усе, що чекає рішення» is pinned under the list (it never scrolls away while pages load) and opens Чекають рішення.
+- **Content:** one newest-first list from the existing feed (`GET /api/notifications?limit=10`). The count line «Непрочитаних: N» (muted body text, `tabular-nums`; not a section overline) takes N from the response's server-computed `unreadCount`, never from the loaded rows, so it reads «Непрочитаних: 14» while the first page holds two unread rows; it and «Прочитати все» show only while N > 0. The panel pages inside itself with the List footer auto-load (primitives-v2 §3): reaching the end loads the next 10 (skeleton row, then the inline «Не вдалося завантажити ще · Повторити» on failure). The feed has no cursor yet: a keyset `before` cursor `(created_at, id)` of the last row on the same endpoint is a Wave 1 API AC (a time alone skips rows that share it). **Poll:** the 30 s poll refetches only the first page (limit 10) and `unreadCount`, and merges rows by id; older pages are never refetched, and pages load only while the panel is open. **New while open:** a row that arrives while the panel is open never shifts the list; it waits behind a top chip «1 нове · Показати» (a 44 px button; it inserts the new rows and keeps focus where it was). A row: icon tile (a yellow dot on its corner while unread), title (600 while unread; wraps, never truncates) and one muted line that starts with the relative time (`tabular-nums`) and wraps, so an amount is never cut. The link «Усе, що чекає рішення» is pinned under the list (it never scrolls away while pages load) and opens Чекають рішення.
 - **States:** the unread list; **empty**: «Сповіщень немає» and «Тут з’являться події за вашими проєктами,
   грошима та документами», with no «Прочитати все», no pinned link and no bell dot (`notifications-empty-375`);
   **loading**: three skeleton rows; **error**: `role="alert"` «Не вдалося завантажити сповіщення» with
@@ -151,7 +151,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   pushed, and back returns to the page the bell was opened on, never to the panel. A target the viewer
   can no longer see opens that page's own not-found state. Drafts and markers are untouched (foundation §11, row «Open a notification»). With a dirty form open, the row's navigation first runs the dirty-close confirm (foundation §11, row «Navigate away with a dirty form»).
 - **A11y:** sheet and popover are `role="dialog"` «Сповіщення». Keyboard focus moves to the first row (no ring on touch). The phone sheet is modal (focus trap; Esc or the close button returns focus to the bell). The ≥ 640 popover is non-modal: no trap; Tab past its last control closes it and focus moves on in page order; Esc closes it and returns focus to the bell. A notification that arrives
-  while the panel is open is announced once, politely («1 нове сповіщення»), and never moves focus.
+  while the panel is open is announced once, politely («1 нове сповіщення»), and never moves focus or the rows (the «1 нове · Показати» chip above).
 
 ### Shell states
 
@@ -258,45 +258,45 @@ changes.
 
 ## 5. Frames (all PNG under `assets/shell-v2/`)
 
-| Frame                                | Width | Shows                                                                                                                 |
-| ------------------------------------ | ----: | --------------------------------------------------------------------------------------------------------------------- |
-| `tabbar-admin-375.png`               |   375 | ADMIN tab bar (tab 4 «Адмін»), «Ще» badge, «+»                                                                        |
-| `tabbar-senior-375.png`              |   375 | SENIOR tab bar, own-project rows only                                                                                 |
-| `tabbar-senior-teamless-375.png`     |   375 | SENIOR without a team (Документи in slot 4)                                                                           |
-| `tabbar-junior-375.png`              |   375 | JUNIOR (no «+»), own salary rows only                                                                                 |
-| `tabbar-hr-375.png`                  |   375 | HR                                                                                                                    |
-| `tabbar-accountant-375.png`          |   375 | ACCOUNTANT                                                                                                            |
-| `tabbar-drop-375.png`                |   375 | DROP, drop income and payout rows only                                                                                |
-| `tabbar-admin-320.png`               |   320 | ADMIN at the narrowest width (labels fit)                                                                             |
-| `tabbar-hr-320.png`                  |   320 | HR at 320 (longest labels)                                                                                            |
-| `more-sheet-admin-375.png`           |   375 | More sheet, ADMIN (8; «Дашборд» in Огляд)                                                                             |
-| `more-sheet-junior-375.png`          |   375 | More sheet, JUNIOR (short)                                                                                            |
-| `more-sheet-admin-320.png`           |   320 | More sheet at 320                                                                                                     |
-| `quick-add-admin-375.png`            |   375 | Quick-add menu from Статистика (4 actions)                                                                            |
-| `quick-add-hr-320.png`               |   320 | Quick-add menu at 320                                                                                                 |
-| `quick-add-txn-keyboard-375.png`     |   375 | Canonical money form, decimal keys + system bar                                                                       |
-| `quick-add-txn-armed-375.png`        |   375 | Save armed: «Згорнути», separate disarm, 62%                                                                          |
-| `quick-add-txn-armed-320.png`        |   320 | Armed at 320: 1 250 000,50 UAH, label wraps                                                                           |
-| `state-loading-375.png`              |   375 | Shell + skeleton                                                                                                      |
-| `state-scrolled-375.png`             |   375 | Scrolled: inline title, FAB slid out, amount readable                                                                 |
-| `state-empty-375.png`                |   375 | Empty tab root                                                                                                        |
-| `state-error-375.png`                |   375 | Load error with a safe re-fetch                                                                                       |
-| `state-offline-375.png`              |   375 | Offline banner, FAB stays enabled                                                                                     |
-| `state-impersonation-375.png`        |   375 | Impersonation banner                                                                                                  |
-| `tablet-rail-768.png`                |   768 | Rail with every destination, one pane                                                                                 |
-| `tablet-rail-more-768.png`           |   768 | 768 × 700 window: overflow «Ще» popover                                                                               |
-| `tablet-two-pane-1000.png`           |  1000 | ≥ 900: rail 80 · list 360 · detail 560 (detail body)                                                                  |
-| `desktop-sidebar-1024.png`           |  1024 | Sidebar + header + dense table                                                                                        |
-| `desktop-sidebar-collapsed-1024.png` |  1024 | Collapsed rail with tooltip                                                                                           |
-| `desktop-sidebar-1440.png`           |  1440 | Wide: extra column, selected-row bar                                                                                  |
-| `shell-touch-1180.png`               |  1180 | iPad landscape: desktop layout, touch density                                                                         |
-| `desktop-cmdk-1440.png`              |  1440 | Cmd+K palette                                                                                                         |
-| `desktop-cmdk-1024.png`              |  1024 | Cmd+K at the narrowest desktop                                                                                        |
-| `desktop-shortcuts-1440.png`         |  1440 | `?` shortcut sheet with the single-key toggle                                                                         |
-| `session-banner-375.png`             |   375 | After «Не зараз»: the persistent session banner, background requests paused                                           |
-| `notifications-375.png`              |   375 | Notifications panel, phone: medium sheet, «Нові · 14» (server count), «Прочитати все», next page loading, pinned link |
-| `notifications-empty-375.png`        |   375 | Notifications panel, empty: no mark-all, no bell dot                                                                  |
-| `notifications-1440.png`             |  1440 | Notifications popover under the bell (no scrim)                                                                       |
+| Frame                                | Width | Shows                                                                                                                        |
+| ------------------------------------ | ----: | ---------------------------------------------------------------------------------------------------------------------------- |
+| `tabbar-admin-375.png`               |   375 | ADMIN tab bar (tab 4 «Адмін»), «Ще» badge, «+»                                                                               |
+| `tabbar-senior-375.png`              |   375 | SENIOR tab bar, own-project rows only                                                                                        |
+| `tabbar-senior-teamless-375.png`     |   375 | SENIOR without a team (Документи in slot 4)                                                                                  |
+| `tabbar-junior-375.png`              |   375 | JUNIOR (no «+»), own salary rows only                                                                                        |
+| `tabbar-hr-375.png`                  |   375 | HR                                                                                                                           |
+| `tabbar-accountant-375.png`          |   375 | ACCOUNTANT                                                                                                                   |
+| `tabbar-drop-375.png`                |   375 | DROP, drop income and payout rows only                                                                                       |
+| `tabbar-admin-320.png`               |   320 | ADMIN at the narrowest width (labels fit)                                                                                    |
+| `tabbar-hr-320.png`                  |   320 | HR at 320 (longest labels)                                                                                                   |
+| `more-sheet-admin-375.png`           |   375 | More sheet, ADMIN (8; «Дашборд» in Огляд)                                                                                    |
+| `more-sheet-junior-375.png`          |   375 | More sheet, JUNIOR (short)                                                                                                   |
+| `more-sheet-admin-320.png`           |   320 | More sheet at 320                                                                                                            |
+| `quick-add-admin-375.png`            |   375 | Quick-add menu from Статистика (4 actions)                                                                                   |
+| `quick-add-hr-320.png`               |   320 | Quick-add menu at 320                                                                                                        |
+| `quick-add-txn-keyboard-375.png`     |   375 | Canonical money form, decimal keys + system bar                                                                              |
+| `quick-add-txn-armed-375.png`        |   375 | Save armed: «Згорнути», separate disarm, 62%                                                                                 |
+| `quick-add-txn-armed-320.png`        |   320 | Armed at 320: 1 250 000,50 UAH, label wraps                                                                                  |
+| `state-loading-375.png`              |   375 | Shell + skeleton                                                                                                             |
+| `state-scrolled-375.png`             |   375 | Scrolled: inline title, FAB slid out, amount readable                                                                        |
+| `state-empty-375.png`                |   375 | Empty tab root                                                                                                               |
+| `state-error-375.png`                |   375 | Load error with a safe re-fetch                                                                                              |
+| `state-offline-375.png`              |   375 | Offline banner, FAB stays enabled                                                                                            |
+| `state-impersonation-375.png`        |   375 | Impersonation banner                                                                                                         |
+| `tablet-rail-768.png`                |   768 | Rail with every destination, one pane                                                                                        |
+| `tablet-rail-more-768.png`           |   768 | 768 × 700 window: overflow «Ще» popover                                                                                      |
+| `tablet-two-pane-1000.png`           |  1000 | ≥ 900: rail 80 · list 360 · detail 560 (detail body)                                                                         |
+| `desktop-sidebar-1024.png`           |  1024 | Sidebar + header + dense table                                                                                               |
+| `desktop-sidebar-collapsed-1024.png` |  1024 | Collapsed rail with tooltip                                                                                                  |
+| `desktop-sidebar-1440.png`           |  1440 | Wide: extra column, selected-row bar                                                                                         |
+| `shell-touch-1180.png`               |  1180 | iPad landscape: desktop layout, touch density                                                                                |
+| `desktop-cmdk-1440.png`              |  1440 | Cmd+K palette                                                                                                                |
+| `desktop-cmdk-1024.png`              |  1024 | Cmd+K at the narrowest desktop                                                                                               |
+| `desktop-shortcuts-1440.png`         |  1440 | `?` shortcut sheet with the single-key toggle                                                                                |
+| `session-banner-375.png`             |   375 | After «Не зараз»: the persistent session banner, background requests paused                                                  |
+| `notifications-375.png`              |   375 | Notifications panel, phone: medium sheet, «Непрочитаних: 14» (server count), «Прочитати все», next page loading, pinned link |
+| `notifications-empty-375.png`        |   375 | Notifications panel, empty: no mark-all, no bell dot                                                                         |
+| `notifications-1440.png`             |  1440 | Notifications popover under the bell (no scrim)                                                                              |
 
 Re-render: `node assets/src/render.mjs shell [filter]`, then `assets/src/contact-sheet.sh shell`.
 
@@ -337,4 +337,4 @@ Re-render: `node assets/src/render.mjs shell [filter]`, then `assets/src/contact
 - The armed save after an upload (frozen payload, kept across a sheet dismiss, carried by the pill)
   and the in-memory draft are proposals; the Wave 1 finance spec confirms them per form. The draft row
   is drawn (`primitives-v2/listrow-draft-375`). The two unknown-outcome exits are owner-approved 2026-11-12.
-- The notifications list needs a `before` cursor on `GET /api/notifications` to page (Wave 1 API AC); `unreadCount` and `PATCH /read-all` already exist.
+- The notifications list needs a keyset `before` cursor `(created_at, id)` on `GET /api/notifications` to page (Wave 1 API AC); the 30 s poll refetches the first page and `unreadCount` only, merged by id; `unreadCount` and `PATCH /read-all` already exist.

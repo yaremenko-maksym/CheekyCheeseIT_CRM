@@ -35,8 +35,9 @@ const notifRow = (n, more = false) =>
 const markAll = (pad = 13) =>
   `<a href="#" role="button" style="padding:${pad}px 8px;margin:-${pad}px -8px;font-size:13px;font-weight:600;color:var(--primary);text-decoration:none;white-space:nowrap">Прочитати все</a>`
 
+// The count line «Непрочитаних: N» (server `unreadCount`): body text, not a section overline.
 const sec = (label, trail = '', pad = '14px 16px 8px') =>
-  `<div class="row" style="justify-content:space-between;gap:12px;padding:${pad}"><span class="t-over num">${label}</span>${trail}</div>`
+  `<div class="row" style="justify-content:space-between;gap:12px;padding:${pad}"><span class="num" style="font-size:13px;color:var(--muted-foreground)">${label}</span>${trail}</div>`
 
 // The server's `unreadCount` from GET /api/notifications, never the loaded rows: 14 unread, 2 of them on the first page.
 const UNREAD = 14
@@ -44,7 +45,7 @@ const BELL = `Сповіщення, ${UNREAD} нових`
 
 // One newest-first list; the List footer auto-loads the next 10 at its end (here: the next page loading).
 function notifList(more = false) {
-  return `${sec(`Нові · ${UNREAD}`, markAll(), '4px 16px 8px')}<div class="group">${NOTIFS.map((n) => notifRow(n, more)).join('')}<div role="status" aria-label="Завантаження ще сповіщень" style="display:contents"><div aria-hidden="true" style="display:contents">${skRow()}</div></div></div>`
+  return `${sec(`Непрочитаних: ${UNREAD}`, markAll(), '4px 16px 8px')}<div class="group">${NOTIFS.map((n) => notifRow(n, more)).join('')}<div role="status" aria-label="Завантаження ще сповіщень" style="display:contents"><div aria-hidden="true" style="display:contents">${skRow()}</div></div></div>`
 }
 
 // Pinned under the scrolling list, so paging never pushes it out of reach.
@@ -93,8 +94,8 @@ export function notificationsDesktop(w, h) {
       '<div class="group" style="margin:0;border:0;border-radius:0;background:transparent">',
     )
     .replace(
-      sec(`Нові · ${UNREAD}`, markAll(), '4px 16px 8px'),
-      sec(`Нові · ${UNREAD}`, '', '8px 16px 4px'),
+      sec(`Непрочитаних: ${UNREAD}`, markAll(), '4px 16px 8px'),
+      sec(`Непрочитаних: ${UNREAD}`, '', '8px 16px 4px'),
     )}</div>${allLink()}</div>`
   return desktop({ w, h, overlay: pop }).replace('Сповіщення, 2 нові', BELL)
 }
