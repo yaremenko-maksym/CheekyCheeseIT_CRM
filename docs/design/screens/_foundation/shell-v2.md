@@ -180,7 +180,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   продовжити.» shows «Увійти знову» and «Не зараз», and its body names each loss: the dirty form and its
   receipt, each draft by amount, and an unknown draft with «…та дані, надіслані о 14:32». With a loss named,
   the initial focus is on «Не зараз». It waits for an in-flight create. Draft markers survive the sign-in,
-  and «Увійти знову» turns `armed` ones into `failed` (foundation §11).
+  and «Увійти знову» turns `armed` ones into `failed` (foundation §11). After «Не зараз» the app pauses polls and background refetches, and the persistent banner «Сесія завершилася · Увійти знову» takes the offline-banner slot under the top bar (`session-banner-375`); only a user-started request brings the alert back.
 - **Impersonation** (`state-impersonation-375`): the existing banner, pinned under the top bar, with
   «Повернутися» (44 px); the tab bar shows the impersonated role's tabs.
 
@@ -299,6 +299,7 @@ changes.
 | `desktop-cmdk-1440.png`              |  1440 | Cmd+K palette                                                                     |
 | `desktop-cmdk-1024.png`              |  1024 | Cmd+K at the narrowest desktop                                                    |
 | `desktop-shortcuts-1440.png`         |  1440 | `?` shortcut sheet with the single-key toggle                                     |
+| `session-banner-375.png`             |   375 | After «Не зараз»: the persistent session banner, background requests paused       |
 | `notifications-375.png`              |   375 | Notifications panel, phone: medium sheet, «Нові · 2», «Позначити всі прочитаними» |
 | `notifications-empty-375.png`        |   375 | Notifications panel, empty: no mark-all, no bell dot                              |
 | `notifications-1440.png`             |  1440 | Notifications popover under the bell (no scrim)                                   |

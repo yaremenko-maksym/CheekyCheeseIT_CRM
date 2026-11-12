@@ -136,6 +136,12 @@ export function offlineBanner() {
   <span style="color:var(--warning)">${icon('wifi-off', { size: 16 })}</span><span class="grow">Немає з’єднання. Показано останні завантажені дані; збереження не пройде, введене залишиться у формі.</span></div>`
 }
 
+/** After «Не зараз» on the session alert: persistent, in the offline-banner slot; background requests pause. */
+export function sessionBanner() {
+  return `<div role="status" class="row" style="gap:8px;margin:0 12px 4px;padding:0 4px 0 12px;min-height:44px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font-size:14px;line-height:18px">
+  <span style="color:var(--warning);display:grid">${icon('lock', { size: 16 })}</span><span class="grow">Сесія завершилася</span><a href="#" role="button" style="display:grid;place-items:center;min-height:44px;padding:0 10px;font-weight:600;color:var(--primary);text-decoration:none">Увійти знову</a></div>`
+}
+
 export function impersonationBanner() {
   return `<div role="status" style="margin:0 12px 4px;padding:8px 12px;border-radius:12px;background:var(--yellow-subtle);border:1px solid oklch(0.34 0.07 85);font-size:14px;line-height:18px">
   <div class="row" style="gap:8px;color:var(--primary)">${icon('triangle-alert', { size: 16 })}<span class="grow">Ви увійшли як <b>«Оксана Бойко»</b> (HR)</span></div>

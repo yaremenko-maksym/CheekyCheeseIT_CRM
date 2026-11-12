@@ -670,7 +670,7 @@ const overHome = (screen, overlay) =>
     : screen.replace(/<\/div>\s*$/, `${overlay}</div>`)
 
 /**
- * A 401 with a dirty money form and a failed draft: its own state, never a save failure. The body names each
+ * A 401 with a dirty money form and an unknown draft: its own state, never a save failure. The body names each
  * loss, so the initial focus is on «Не зараз» (no ring on touch) and Enter does not sign in; the markers stay.
  */
 export const sessionExpired = (w, h) =>
@@ -679,7 +679,7 @@ export const sessionExpired = (w, h) =>
     actionConfirm(w, {
       id: 'se',
       title: 'Сесія завершилася. Увійдіть знову, щоб продовжити.',
-      desc: '<span style="display:block">Незбережені дані форми та вибраний чек буде втрачено.</span><span style="display:block;margin-top:4px">Чернетку 86,40 USD буде втрачено.</span>',
+      desc: '<span style="display:block">Незбережені дані форми та вибраний чек буде втрачено.</span><span style="display:block;margin-top:4px">Чернетку 1 250,50 USD та дані, надіслані о 14:32, буде втрачено.</span>',
       action: 'Увійти знову',
       cancel: 'Не зараз',
       ink: 'var(--primary)',

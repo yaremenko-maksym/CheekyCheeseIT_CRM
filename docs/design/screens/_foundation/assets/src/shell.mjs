@@ -8,6 +8,7 @@ import {
   emptyScreen,
   errorScreen,
   offlineBanner,
+  sessionBanner,
   impersonationBanner,
 } from './mobile-overlays.mjs'
 import { tablet } from './tablet.mjs'
@@ -133,6 +134,20 @@ export function frames() {
           title: 'Фінанси',
           body: financeBody(),
           banner: offlineBanner(),
+        }),
+      ),
+    )
+    out.push(
+      M(
+        'session-banner-375',
+        375,
+        812,
+        tabScreen({
+          role: 'ADMIN',
+          active: '/finance',
+          title: 'Фінанси',
+          body: financeBody(),
+          banner: sessionBanner(),
         }),
       ),
     )
