@@ -494,7 +494,7 @@ reference widths below. Mobile-first: the base is mobile, scale up with `sm` / `
   iOS Simulator that a sheet drag at `scrollTop` 0 and a pull on a list never reload the page.
 - **Undo** only where a reversible action already exists (toast with «Скасувати», 5 s).
 - **Filters live in the URL.** No saved filter views.
-- **Search covers loaded data only** (and Cmd+K navigation / page actions). No cross-entity server search.
+- **Search covers loaded data only** (and Cmd+K navigation / page actions), except where the list API takes a search parameter (§11 Wave 1 AC). No cross-entity server search.
 - **Uploads** are in-memory and non-blocking with a global progress indicator. Nothing survives an app
   close. An armed money save lost this way is reported at the next boot (the page-kill rows above).
 - **Keyboard (desktop):** Tab order follows reading order; Enter submits; Esc closes; single-key

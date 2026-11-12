@@ -128,13 +128,11 @@ loading shows 3 skeleton rows under the loaded ones (`role="status"` «Зава�
 44 px «Повторити» (`role="alert"`), and the loaded rows stay. The end of the list shows no footer. Back from a
 pushed detail restores the scroll position and every loaded page; it never resets to the first page. Like the
 group «Повторити», this one re-reads data only. The error copy wraps to two lines and is never clipped
-(`list-footer-320`). **What loads the next page:** it loads by itself when the last rows enter the viewport.
+(`list-footer-320`). **What loads the next page:** it loads by itself when the last rows enter the viewport, except while a search is active (below).
 After an error only «Повторити» retries; scrolling does not.
 
 **Search on a paged list** (`search-paged-375`): while more pages exist, a search filters only what is
-loaded, so it says what it covered. The results end with «Шукали серед завантажених, до 9.11 · Шукати
-далі»; with no results the same line replaces the plain empty text. «Шукати далі» loads the next page and
-keeps filtering. Where the list API accepts a search parameter, the search goes to the server and the line
+loaded, so it says what it covered. The results end with «Шукали серед завантажених, з 9.11 · Шукати далі» (the oldest loaded date; «з» reads as "since", where «до» would read as "before"); with no results the same line replaces the plain empty text. **While a search is active, auto-load is off**: reaching the end loads nothing by itself. «Шукати далі» loads pages until the first new match or 5 pages, whichever comes first, then the line updates its date; the button keeps its place, so another tap goes on. Where the list API accepts a search parameter, the search goes to the server and the line
 never appears (foundation §11 Wave 1 AC).
 
 **Swipe actions** (`listrow-swipe-375`): trailing edge only (no leading swipe: it collides with system
@@ -168,7 +166,7 @@ rows (`tel:`, `mailto:`, Telegram; the accessible name says the action, «Под
 **Sticky section header** (`listrow-sticky-320`, `section-header-375`): overline 12/16 uppercase, 92%
 translucent bar with blur while stuck; date sections show the day total on the right (`tabular-nums`). A date header whose day continues past the
 loaded page hides its total until the next page loads (no extra request).
-Long titles truncate on one line with the full text as the accessible name.
+**Row titles at < 640** wrap to two lines, then end with an ellipsis (the full text stays the accessible name); only the meta line truncates, on one line (`listrow-sticky-320`, `list-footer-375`, `list-footer-320`). A list-pane row at ≥ 640 follows the same rule (`listrow-768`); only a table cell truncates on one line, with the full text in a tooltip.
 
 **Board** (`board-1440`, `board-768`, `board-stage-sheet-375`, `board-undo-375`; today the interviews pipeline). At ≥ 640: one column per active stage, `minmax(180px, 1fr)` capped at 280 px, so the columns share the width and no stage is clipped while space is left (`board-1440`). Only when the stages do not fit at 180 px does the board scroll sideways: a fade on the clipped edge, plus a visible scrollbar for the mouse (`board-768`). The column header holds the stage name and its count
 (`tabular-nums`; the accessible name reads «Технічна, 2»). A card shows initials, the name (wraps, never

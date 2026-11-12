@@ -146,6 +146,10 @@ export const TXNS = [
   },
 ]
 
+// A phone list-row title wraps to two lines, then ellipsis; only the meta line truncates (primitives-v2 §3).
+const CLAMP2 =
+  'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere'
+
 export function txnRow(x, { compact = false, wrap = false } = {}) {
   // match: every sent field equal and created after the send by server time (full highlight + «збіг»);
   // tag: a muted label that never highlights («схожа», «раніше»); isNew: created after the send («нова» only)
@@ -160,7 +164,7 @@ export function txnRow(x, { compact = false, wrap = false } = {}) {
     ? ';background:oklch(0.84 0.183 85.3 / 0.1);box-shadow:inset 3px 0 0 var(--primary)'
     : ''
   return `<div class="lrow two" style="--inset:64px${hl}"><div class="lead">${icon(x.ic, { size: 18 })}</div>
-  <div class="grow col" style="gap:2px"><div class="t-body${wrap ? '' : ' trunc'}" style="font-weight:500${wrap ? ';overflow-wrap:anywhere' : ''}">${x.t}</div><div class="t-foot muted trunc row" style="gap:6px">${x.att ? icon('paperclip', { size: 13 }) : ''}<span class="trunc">${x.s}</span></div>${tagLine ? tagSpan : ''}</div>
+  <div class="grow col" style="gap:2px"><div class="t-body" style="font-weight:500;${wrap ? 'overflow-wrap:anywhere' : CLAMP2}">${x.t}</div><div class="t-foot muted trunc row" style="gap:6px">${x.att ? icon('paperclip', { size: 13 }) : ''}<span class="trunc">${x.s}</span></div>${tagLine ? tagSpan : ''}</div>
   <div class="trail"><span class="amount ${x.neg ? '' : 'pos'}">${x.a}</span>${x.pending ? '<span class="pill warn" style="height:18px;font-size:11px">Очікує</span>' : x.tag ? (tagLine ? '' : tagSpan) : x.match ? `<span class="t-cap num" style="color:var(--primary);font-weight:600">збіг · ${x.time}</span>` : x.isNew ? `<span class="t-cap muted num">нова · ${x.time}</span>` : `<span class="t-cap muted num">${x.time}</span>`}</div>${compact ? '' : ''}</div>`
 }
 
@@ -189,7 +193,7 @@ export const PEOPLE = [
 export function peopleList() {
   return `<div class="sechead"><span class="t-over">Цього тижня</span></div><div class="group">${PEOPLE.map(
     ([i, n, s, p, k]) =>
-      `<div class="lrow two" style="--inset:64px"><div class="lead av">${i}</div><div class="grow col" style="gap:2px"><div class="t-body trunc" style="font-weight:500">${n}</div><div class="t-foot muted trunc">${s}<span class="nw-only"> · ${p}</span></div></div><span class="pill wide-only ${k}">${p}</span>${icon('chevron-right', { size: 18, cls: 'chev' })}</div>`,
+      `<div class="lrow two" style="--inset:64px"><div class="lead av">${i}</div><div class="grow col" style="gap:2px"><div class="t-body" style="font-weight:500;${CLAMP2}">${n}</div><div class="t-foot muted trunc">${s}<span class="nw-only"> · ${p}</span></div></div><span class="pill wide-only ${k}">${p}</span>${icon('chevron-right', { size: 18, cls: 'chev' })}</div>`,
   ).join('')}</div>`
 }
 

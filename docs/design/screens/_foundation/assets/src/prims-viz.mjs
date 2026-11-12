@@ -487,7 +487,7 @@ export function searchPaged(w, h) {
     },
   ]
   const search = `<div style="padding:4px 16px 10px"><div class="row" role="searchbox" aria-label="Пошук транзакцій" style="gap:8px;height:44px;border-radius:12px;background:var(--surface);padding:0 4px 0 12px;font-size:16px"><span style="color:var(--placeholder);display:grid">${icon('search', { size: 18 })}</span><span class="grow">хостинг</span><span role="button" aria-label="Очистити пошук" style="width:44px;height:44px;display:grid;place-items:center;color:var(--muted-fg)">${icon('x', { size: 18 })}</span></div></div>`
-  const covered = `<div class="row" style="gap:12px;padding:12px 16px;justify-content:space-between"><span class="t-foot muted num" style="min-width:0">Шукали серед завантажених, до 9.11</span><span class="btn sm secondary" role="button" style="height:44px;flex:none">Шукати далі</span></div>`
+  const covered = `<div class="row" style="gap:12px;padding:12px 16px;justify-content:space-between"><span class="t-foot muted num" style="min-width:0">Шукали серед завантажених, з 9.11</span><span class="btn sm secondary" role="button" style="height:44px;flex:none">Шукати далі</span></div>`
   const body = `${search}<div class="t-over" style="padding:6px 20px 8px">Результати</div><div class="group">${rows.map((r) => txnRow(r)).join('')}</div>${covered}`
   return tabScreen({ w, h, role: 'ADMIN', active: '/finance', title: 'Фінанси', body })
 }
