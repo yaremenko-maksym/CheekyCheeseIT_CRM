@@ -34,6 +34,7 @@
 | Pushed detail page        | —                                                                                                             | NEW `DetailPage`             | `detail-txn-375`, `detail-person-375`                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Receipt viewer            | Base UI Dialog (full screen)                                                                                  | NEW                          | `detail-txn-receipt-375`                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Table row states          | `ui/table.tsx`                                                                                                | restyle                      | `listrow-table-desktop`                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Board                     | the existing dnd-kit board (`interviews/components/KanbanColumn.tsx`) + PickerSheet                           | restyle + NEW stage picker   | `board-1440`, `board-stage-sheet-375`                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Form field                | `ui/input.tsx`, `ui/label.tsx`                                                                                | restyle (16 px, 48 h mobile) | `form-states-375`, `form-add-user-375`, `formfield-768`, `formfield-1440`                                                                                                                                                                                                                                                                                                                                                                                                |
 | Money field + receipt     | `ui/amount-currency-input.tsx`, `ui/image-upload-field.tsx`                                                   | restyle                      | `form-money-375`, `form-receipt-link-375`, `form-receipt-usdt-375`, `form-receipt-usdt-empty-375`, `form-receipt-usdt-file-375`, `form-receipt-failed-375`, `form-keyboard-375`, `sheet-large-375` (one canonical form: `assets/src/money-form.mjs`)                                                                                                                                                                                                                     |
 | Segmented control, switch | `ui/segmented-toggle.tsx`, `ui/switch.tsx`                                                                    | restyle                      | `form-money-375`, `sheet-medium-375`                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -169,6 +170,29 @@ rows (`tel:`, `mailto:`, Telegram; the accessible name says the action, «Под
 translucent bar with blur while stuck; date sections show the day total on the right (`tabular-nums`). A date header whose day continues past the
 loaded page hides its total until the next page loads (no extra request).
 Long titles truncate on one line with the full text as the accessible name.
+
+**Board** (`board-1440`, `board-stage-sheet-375`; today the interviews pipeline). At ≥ 640: one column per
+active stage, 208 px wide, scrolling sideways. The column header holds the stage name and its count
+(`tabular-nums`; the accessible name reads «Технічна, 2»). A card shows initials, the name (wraps, never
+truncates), one muted line (role · project) and a date (`tabular-nums`). **Card states:** rest; hover or
+focus shows a 32 px «Змінити етап» button in the top-right corner (focus ring per foundation §13); the **drag
+source** stays in place at 35 % opacity with a dashed border; the **lifted card** follows the pointer,
+raised (`--raised`, shadow) and never rotated. The **drop target** column gets the yellow-subtle fill, a
+dashed `--primary` outline and a dashed slot where the card will land. A polite live region narrates the
+drag («Олена Коваль: над «Технічна». Відпустіть, щоб перемістити, або Esc, щоб скасувати.»); Esc cancels
+and the card goes back. A failed move returns the card to its column with an inline error on the card;
+nothing else moves.
+
+**Keyboard move:** Tab reaches each card and Enter opens it. `M` (only while a card has focus, so SC 2.1.4
+holds) or the card's «Змінити етап» button opens the «Етап» picker, a popover listbox at ≥ 640 with the
+current stage checked. Arrows and Enter move the card; focus stays on the moved card in its new column.
+The keyboard drag (dnd-kit Space-lift) is not the documented path.
+
+**Single pointer (SC 2.5.7) and the phone:** the «Змінити етап» button opens the same picker, so no move
+needs a drag. The phone has no drag: the board is the stage-filtered list, and a row's «Змінити етап»
+action (its detail page or the row menu) opens the «Етап» PickerSheet (`board-stage-sheet-375`). The sheet
+shows the candidate line under the title, the active stages with the current one checked, then
+«Завершити» with «Найнято» and «Відмова».
 
 ---
 
@@ -575,6 +599,8 @@ Re-render: `node assets/src/render.mjs primitives [filter]`, then `assets/src/co
 
 - Sheets, panels and dialogs: focus trap, Esc closes, focus returns to the trigger; drag has a button
   alternative.
+- The board never needs a drag: «Змінити етап» on every card (and `M` on a focused card) opens
+  the «Етап» picker; the phone has no drag at all.
 - Swipe and long-press actions have a single-pointer path: the row's detail page, or a visible 44 px
   «…» on rows without a detail.
 - The money-form primary is never disabled for validity; a tap moves focus to the first invalid field.
@@ -621,3 +647,4 @@ Re-render: `node assets/src/render.mjs primitives [filter]`, then `assets/src/co
   definite = 4xx + app 500 / 503; unknown = 502 / 504 / 524, a drop after send, a client timeout.
 - The 768 / 1440 toast, upload pill and skeleton frames show placement and metrics; the screen specs own
   the content.
+- The board's keyboard key `M` and the 208 px column are proposals; the interviews screen spec confirms them.

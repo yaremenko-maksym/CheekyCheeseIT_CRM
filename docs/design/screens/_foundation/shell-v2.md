@@ -135,6 +135,33 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 - Large bottom sheet, `--radius-sheet` top corners, drag handle, close button (44 px), drag-to-dismiss.
 - Grouped rows (56 px) in `bg-card` group containers; section overlines; trailing chevrons; badges.
 
+### Notifications panel (all sizes)
+
+- **Where:** the bell in the phone top bar, the tablet header and the desktop header. Phone: a medium sheet
+  over the page the bell was tapped on (`notifications-375`). Tablet and desktop: a non-modal popover
+  anchored under the bell, 400 px wide, no scrim; Esc, an outside click or the bell close it
+  (`notifications-1440`). The bell reads «Сповіщення, 2 нові» and carries the unread dot while anything is
+  unread.
+- **Content:** the latest 10 from the existing feed (`GET /api/notifications?limit=10`), «Нові · N» then
+  «Раніше». A row: icon tile, title (600 while unread; wraps, never truncates), one muted line, relative
+  time (`tabular-nums`), and a yellow dot while unread. The footer link «Усе, що чекає рішення» opens
+  Чекають рішення.
+- **States:** the unread list; **empty**: «Сповіщень немає» and «Тут з’являться події за вашими проєктами,
+  грошима та документами», with no «Позначити всі прочитаними» and no bell dot (`notifications-empty-375`);
+  **loading**: three skeleton rows; **error**: `role="alert"` «Не вдалося завантажити сповіщення» with
+  «Повторити», which re-reads only; a list loaded before stays visible under it.
+- **Mark read:** opening a row marks it read (optimistic; the dot goes at once). «Позначити всі
+  прочитаними» is a text button in the list header (a 44 px hit area that adds no height); it shows only
+  while something is unread, marks every row read and asks nothing, because nothing is lost. The existing
+  per-row delete stays: a swipe action on the phone, a trailing icon on hover or focus at ≥ 640.
+- **Open the target:** a row is a link to its target (deep link). The panel closes, the target page is
+  pushed, and back returns to the page the bell was opened on, never to the panel. A target the viewer
+  can no longer see opens that page's own not-found state. Drafts and markers are untouched (foundation
+  §11, row «Open a notification»).
+- **A11y:** sheet and popover are `role="dialog"` «Сповіщення». Keyboard focus moves to the first row (no
+  ring on touch); Tab stays inside; Esc closes and focus returns to the bell. A notification that arrives
+  while the panel is open is announced once, politely («1 нове сповіщення»), and never moves focus.
+
 ### Shell states
 
 - **Loading** (`state-loading-375`): shell renders immediately; content area shows a layout-matching
@@ -239,41 +266,44 @@ changes.
 
 ## 5. Frames (all PNG under `assets/shell-v2/`)
 
-| Frame                                | Width | Shows                                                 |
-| ------------------------------------ | ----: | ----------------------------------------------------- |
-| `tabbar-admin-375.png`               |   375 | ADMIN tab bar (tab 4 «Адмін»), «Ще» badge, «+»        |
-| `tabbar-senior-375.png`              |   375 | SENIOR tab bar, own-project rows only                 |
-| `tabbar-senior-teamless-375.png`     |   375 | SENIOR without a team (Документи in slot 4)           |
-| `tabbar-junior-375.png`              |   375 | JUNIOR (no «+»), own salary rows only                 |
-| `tabbar-hr-375.png`                  |   375 | HR                                                    |
-| `tabbar-accountant-375.png`          |   375 | ACCOUNTANT                                            |
-| `tabbar-drop-375.png`                |   375 | DROP, drop income and payout rows only                |
-| `tabbar-admin-320.png`               |   320 | ADMIN at the narrowest width (labels fit)             |
-| `tabbar-hr-320.png`                  |   320 | HR at 320 (longest labels)                            |
-| `more-sheet-admin-375.png`           |   375 | More sheet, ADMIN (8; «Дашборд» in Огляд)             |
-| `more-sheet-junior-375.png`          |   375 | More sheet, JUNIOR (short)                            |
-| `more-sheet-admin-320.png`           |   320 | More sheet at 320                                     |
-| `quick-add-admin-375.png`            |   375 | Quick-add menu from Статистика (4 actions)            |
-| `quick-add-hr-320.png`               |   320 | Quick-add menu at 320                                 |
-| `quick-add-txn-keyboard-375.png`     |   375 | Canonical money form, decimal keys + system bar       |
-| `quick-add-txn-armed-375.png`        |   375 | Save armed: «Згорнути», separate disarm, 62%          |
-| `quick-add-txn-armed-320.png`        |   320 | Armed at 320: 1 250 000,50 UAH, label wraps           |
-| `state-loading-375.png`              |   375 | Shell + skeleton                                      |
-| `state-scrolled-375.png`             |   375 | Scrolled: inline title, FAB slid out, amount readable |
-| `state-empty-375.png`                |   375 | Empty tab root                                        |
-| `state-error-375.png`                |   375 | Load error with a safe re-fetch                       |
-| `state-offline-375.png`              |   375 | Offline banner, FAB stays enabled                     |
-| `state-impersonation-375.png`        |   375 | Impersonation banner                                  |
-| `tablet-rail-768.png`                |   768 | Rail with every destination, one pane                 |
-| `tablet-rail-more-768.png`           |   768 | 768 × 700 window: overflow «Ще» popover               |
-| `tablet-two-pane-1000.png`           |  1000 | ≥ 900: rail 80 · list 360 · detail 560 (detail body)  |
-| `desktop-sidebar-1024.png`           |  1024 | Sidebar + header + dense table                        |
-| `desktop-sidebar-collapsed-1024.png` |  1024 | Collapsed rail with tooltip                           |
-| `desktop-sidebar-1440.png`           |  1440 | Wide: extra column, selected-row bar                  |
-| `shell-touch-1180.png`               |  1180 | iPad landscape: desktop layout, touch density         |
-| `desktop-cmdk-1440.png`              |  1440 | Cmd+K palette                                         |
-| `desktop-cmdk-1024.png`              |  1024 | Cmd+K at the narrowest desktop                        |
-| `desktop-shortcuts-1440.png`         |  1440 | `?` shortcut sheet with the single-key toggle         |
+| Frame                                | Width | Shows                                                                             |
+| ------------------------------------ | ----: | --------------------------------------------------------------------------------- |
+| `tabbar-admin-375.png`               |   375 | ADMIN tab bar (tab 4 «Адмін»), «Ще» badge, «+»                                    |
+| `tabbar-senior-375.png`              |   375 | SENIOR tab bar, own-project rows only                                             |
+| `tabbar-senior-teamless-375.png`     |   375 | SENIOR without a team (Документи in slot 4)                                       |
+| `tabbar-junior-375.png`              |   375 | JUNIOR (no «+»), own salary rows only                                             |
+| `tabbar-hr-375.png`                  |   375 | HR                                                                                |
+| `tabbar-accountant-375.png`          |   375 | ACCOUNTANT                                                                        |
+| `tabbar-drop-375.png`                |   375 | DROP, drop income and payout rows only                                            |
+| `tabbar-admin-320.png`               |   320 | ADMIN at the narrowest width (labels fit)                                         |
+| `tabbar-hr-320.png`                  |   320 | HR at 320 (longest labels)                                                        |
+| `more-sheet-admin-375.png`           |   375 | More sheet, ADMIN (8; «Дашборд» in Огляд)                                         |
+| `more-sheet-junior-375.png`          |   375 | More sheet, JUNIOR (short)                                                        |
+| `more-sheet-admin-320.png`           |   320 | More sheet at 320                                                                 |
+| `quick-add-admin-375.png`            |   375 | Quick-add menu from Статистика (4 actions)                                        |
+| `quick-add-hr-320.png`               |   320 | Quick-add menu at 320                                                             |
+| `quick-add-txn-keyboard-375.png`     |   375 | Canonical money form, decimal keys + system bar                                   |
+| `quick-add-txn-armed-375.png`        |   375 | Save armed: «Згорнути», separate disarm, 62%                                      |
+| `quick-add-txn-armed-320.png`        |   320 | Armed at 320: 1 250 000,50 UAH, label wraps                                       |
+| `state-loading-375.png`              |   375 | Shell + skeleton                                                                  |
+| `state-scrolled-375.png`             |   375 | Scrolled: inline title, FAB slid out, amount readable                             |
+| `state-empty-375.png`                |   375 | Empty tab root                                                                    |
+| `state-error-375.png`                |   375 | Load error with a safe re-fetch                                                   |
+| `state-offline-375.png`              |   375 | Offline banner, FAB stays enabled                                                 |
+| `state-impersonation-375.png`        |   375 | Impersonation banner                                                              |
+| `tablet-rail-768.png`                |   768 | Rail with every destination, one pane                                             |
+| `tablet-rail-more-768.png`           |   768 | 768 × 700 window: overflow «Ще» popover                                           |
+| `tablet-two-pane-1000.png`           |  1000 | ≥ 900: rail 80 · list 360 · detail 560 (detail body)                              |
+| `desktop-sidebar-1024.png`           |  1024 | Sidebar + header + dense table                                                    |
+| `desktop-sidebar-collapsed-1024.png` |  1024 | Collapsed rail with tooltip                                                       |
+| `desktop-sidebar-1440.png`           |  1440 | Wide: extra column, selected-row bar                                              |
+| `shell-touch-1180.png`               |  1180 | iPad landscape: desktop layout, touch density                                     |
+| `desktop-cmdk-1440.png`              |  1440 | Cmd+K palette                                                                     |
+| `desktop-cmdk-1024.png`              |  1024 | Cmd+K at the narrowest desktop                                                    |
+| `desktop-shortcuts-1440.png`         |  1440 | `?` shortcut sheet with the single-key toggle                                     |
+| `notifications-375.png`              |   375 | Notifications panel, phone: medium sheet, «Нові · 2», «Позначити всі прочитаними» |
+| `notifications-empty-375.png`        |   375 | Notifications panel, empty: no mark-all, no bell dot                              |
+| `notifications-1440.png`             |  1440 | Notifications popover under the bell (no scrim)                                   |
 
 Re-render: `node assets/src/render.mjs shell [filter]`, then `assets/src/contact-sheet.sh shell`.
 
@@ -284,6 +314,7 @@ Re-render: `node assets/src/render.mjs shell [filter]`, then `assets/src/contact
 - Focus order (mobile): top bar → content → FAB → tab bar. Desktop: skip link → sidebar → header → main.
 - Tab bar and rail are `nav` landmarks; sidebar is `nav` with group headings as `h2` (visually overlines).
 - More sheet and Cmd+K trap focus, close on Esc and scrim, and return focus to the trigger.
+- The notifications sheet and popover close on Esc and return focus to the bell; a row is a link.
 - Every coarse-pointer target ≥ 44 × 44, whatever the width; fine-pointer desktop rows 36 px with a
   full-row hit area.
 - Badge counts are in the accessible name; the offline banner is `role="status"`.
@@ -314,3 +345,5 @@ Re-render: `node assets/src/render.mjs shell [filter]`, then `assets/src/contact
   and the in-memory draft are proposals; the Wave 1 finance spec confirms them per form. The draft row
   is drawn (`primitives-v2/listrow-draft-375`). The two unknown-outcome exits are a provisional ruling;
   the owner confirms them at PNG approval.
+- The notifications header button reads «Позначити всі прочитаними» per the R10 brief; the shipped catalog says
+  «Прочитати все». Wave 1 renames it in both `uk` and `en` (copy-reviewer).

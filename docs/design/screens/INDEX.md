@@ -46,17 +46,17 @@ first child screen. The modals / sheets of each screen are added in step 1 of th
 
 ### Wave 0 — Foundation
 
-| Surface                                                            | File                             | Artifact                                           | Status     | Council |
-| ------------------------------------------------------------------ | -------------------------------- | -------------------------------------------------- | ---------- | ------- |
-| Foundation v2 (tokens, rules)                                      | —                                | `docs/design/foundation.md`                        | `captured` | —       |
-| Rubric calibration                                                 | —                                | `docs/design/rubric-calibration.md` (draft)        | `captured` | —       |
-| App shell v2 (tab bar, More, quick-add, rail, sidebar, Cmd+K, `?`) | `_authenticated/route.tsx`       | `docs/design/screens/_foundation/shell-v2.md`      | `captured` | —       |
-| Nav sidebar (desktop + collapsed)                                  | `components/crm/nav-sidebar.tsx` | `shell-v2.md` (`desktop-sidebar-*`)                | `captured` | —       |
-| Impersonation banner                                               | shell                            | `shell-v2.md` (`state-impersonation-375`)          | `captured` | —       |
-| Notifications bell (panel)                                         | shell                            | — (header icon only so far)                        | `pending`  | —       |
-| Root / PWA hardening                                               | `__root.tsx`                     | — (no visual surface beyond the shell states)      | `pending`  | —       |
-| Primitives v2                                                      | `components/ui/*`                | `docs/design/screens/_foundation/primitives-v2.md` | `captured` | —       |
-| Showcase route                                                     | new (Wave 0 implementation)      | renders `primitives-v2.md`                         | `pending`  | —       |
+| Surface                                                            | File                             | Artifact                                                                             | Status     | Council |
+| ------------------------------------------------------------------ | -------------------------------- | ------------------------------------------------------------------------------------ | ---------- | ------- |
+| Foundation v2 (tokens, rules)                                      | —                                | `docs/design/foundation.md`                                                          | `captured` | —       |
+| Rubric calibration                                                 | —                                | `docs/design/rubric-calibration.md` (draft)                                          | `captured` | —       |
+| App shell v2 (tab bar, More, quick-add, rail, sidebar, Cmd+K, `?`) | `_authenticated/route.tsx`       | `docs/design/screens/_foundation/shell-v2.md`                                        | `captured` | —       |
+| Nav sidebar (desktop + collapsed)                                  | `components/crm/nav-sidebar.tsx` | `shell-v2.md` (`desktop-sidebar-*`)                                                  | `captured` | —       |
+| Impersonation banner                                               | shell                            | `shell-v2.md` (`state-impersonation-375`)                                            | `captured` | —       |
+| Notifications bell (panel)                                         | shell                            | `shell-v2.md` (`notifications-375`, `notifications-empty-375`, `notifications-1440`) | `captured` | —       |
+| Root / PWA hardening                                               | `__root.tsx`                     | — (no visual surface beyond the shell states)                                        | `pending`  | —       |
+| Primitives v2                                                      | `components/ui/*`                | `docs/design/screens/_foundation/primitives-v2.md`                                   | `captured` | —       |
+| Showcase route                                                     | new (Wave 0 implementation)      | renders `primitives-v2.md`                                                           | `pending`  | —       |
 
 ### Wave 1 — Finance
 

@@ -13,6 +13,7 @@ import {
 import { tablet } from './tablet.mjs'
 import { moneyForm, primaryBtn, armedBtn } from './money-form.mjs'
 import { desktop, cmdk, shortcuts } from './desktop.mjs'
+import { notificationsSheet, notificationsDesktop } from './notif-board.mjs'
 
 const M = (name, w, h, body) => ({ name, w, h, dpr: 2, html: page(body, { width: w }) })
 const D = (name, w, h, body) => ({ name, w, h, dpr: 1, html: page(body, { width: w }) })
@@ -178,5 +179,10 @@ export function frames() {
       ),
     )
   }
+  out.push(
+    M('notifications-375', 375, 812, notificationsSheet(375, 812)),
+    M('notifications-empty-375', 375, 812, notificationsSheet(375, 812, { empty: true })),
+    D('notifications-1440', 1440, 900, notificationsDesktop(1440, 900)),
+  )
   return out
 }
