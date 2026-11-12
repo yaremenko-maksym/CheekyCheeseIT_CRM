@@ -2,9 +2,23 @@
 
 ## Agent: autotest
 
-## Status: blocked until Tasks 7.3b, 7.4b and 7.5 are merged
+## Status: wave 1 ready; wave 2 blocked on Task 7.6a
 
-## Blockers: Task 7.3b, Task 7.4b, Task 7.5
+## Blockers: Task 7.6a (the job-queue seed) for wave 2 only
+
+## Waves
+
+The seed has no job-queue data, so the real-API scenarios wait for Task 7.6a
+(`task-vacancy-7-6a-queue-seed.md`, its "Seed contract" lists the titles, users and memberships to find through the API).
+
+- **Wave 1 (now, no seed needed):** scenarios 7, 8, 9, 13 with mocked queue responses (rendering only; mocks
+  `.parse()`-valid against `@crm/shared`), and 11 on the real API (SENIOR dev-login, no data needed).
+- **Wave 2 (after 7.6a merges, rebase on main):** scenarios 1, 2, 3, 4, 5, 6, 10, 12 on the real API with the seed
+  rows. Add the new seed users to the e2e user fixtures. Every wave-2 test restores the state it created (undo a
+  submission or dismissal it made, revoke or let expire a grant), so a re-run on the same DB is green.
+
+Scenario 7's "availability change" part: if no senior availability field exists on `main`, record it as
+blocked in `.blocked.md` with what you found, and ship the rest of scenario 7.
 
 ## Priority: high
 
@@ -56,6 +70,7 @@ Mock mode is never used for a rights check.
 ## Assumptions
 
 - A1 (Master): the plan's "take" wording is replaced by the per-senior submission model (see Context).
+- A1 (Master): the work is split into two waves (see Waves) so the mock-only scenarios do not wait for the seed.
 
 ## Verification (AutoTest before `git push`)
 
