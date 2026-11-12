@@ -154,18 +154,30 @@ export function txnRow(x, { compact = false, wrap = false } = {}) {
   // match: every sent field equal and created after the send by server time (full highlight + «збіг»);
   // tag: a muted label that never highlights («схожа», «раніше»); isNew: created after the send («нова» only)
   // a tag that names a difference («схожа · інший опис») takes its own line, so the title never truncates
+  // The meta line spans the row under the title and the amount, time first: «14:20 · Витрата · Проєкт «Альфа»».
   const tagLine = x.tag && x.tag.includes(' · ')
-  const tagCss = `${tagLine ? 'white-space:nowrap;' : ''}${x.warn ? 'color:var(--warning);font-weight:600' : ''}`
-  const tagTone = tagCss ? ` style="${tagCss}"` : ''
-  const tagSpan = x.tag
-    ? `<span class="t-cap num${x.warn ? '' : ' muted'}"${tagTone}>${x.tag} · ${x.time}</span>`
+  const warn = x.warn ? ';color:var(--warning);font-weight:600' : ''
+  const mark = x.pending
+    ? '<span class="pill warn" style="display:inline-flex;vertical-align:middle;height:18px;font-size:11px;margin-right:6px">Очікує</span>'
+    : x.match
+      ? '<span style="color:var(--primary);font-weight:600">збіг</span> · '
+      : x.isNew
+        ? 'нова · '
+        : x.tag && !tagLine
+          ? `${warn ? `<span style="${warn.slice(1)}">${x.tag}</span>` : x.tag} · `
+          : ''
+  const clip = x.att
+    ? `<span style="display:inline-flex;vertical-align:-2px">${icon('paperclip', { size: 13 })}</span> `
+    : ''
+  const meta = `<div class="t-foot muted trunc">${mark}<span class="num">${x.time}</span> · ${clip}${x.s}</div>`
+  const tagRow = tagLine
+    ? `<span class="t-cap${x.warn ? '' : ' muted'}" style="white-space:nowrap${warn}">${x.tag}</span>`
     : ''
   const hl = x.match
     ? ';background:oklch(0.84 0.183 85.3 / 0.1);box-shadow:inset 3px 0 0 var(--primary)'
     : ''
   return `<div class="lrow two" style="--inset:64px${hl}"><div class="lead">${icon(x.ic, { size: 18 })}</div>
-  <div class="grow col" style="gap:2px"><div class="t-body" style="font-weight:500;${wrap ? 'overflow-wrap:anywhere' : CLAMP2}">${x.t}</div><div class="t-foot muted trunc row" style="gap:6px">${x.att ? icon('paperclip', { size: 13 }) : ''}<span class="trunc">${x.s}</span></div>${tagLine ? tagSpan : ''}</div>
-  <div class="trail"><span class="amount ${x.neg ? '' : 'pos'}">${x.a}</span>${x.pending ? '<span class="pill warn" style="height:18px;font-size:11px">Очікує</span>' : x.tag ? (tagLine ? '' : tagSpan) : x.match ? `<span class="t-cap num" style="color:var(--primary);font-weight:600">збіг · ${x.time}</span>` : x.isNew ? `<span class="t-cap muted num">нова · ${x.time}</span>` : `<span class="t-cap muted num">${x.time}</span>`}</div>${compact ? '' : ''}</div>`
+  <div class="grow col" style="gap:2px"><div class="row" style="align-items:flex-start;gap:12px"><div class="t-body grow" style="font-weight:500;${wrap ? 'overflow-wrap:anywhere' : CLAMP2}">${x.t}</div><span class="amount ${x.neg ? '' : 'pos'}" style="flex:none">${x.a}</span></div>${meta}${tagRow}</div>${compact ? '' : ''}</div>`
 }
 
 export function txnList(rows = TXNS, { stickyFirst = true } = {}) {
