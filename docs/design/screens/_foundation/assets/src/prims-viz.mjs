@@ -211,15 +211,19 @@ export function tableRows() {
 }
 
 // ---------- Toasts ----------
-export function toastUndo(w, h) {
-  const t = `<div class="toast" role="status" style="right:${FLOAT_RIGHT}px;bottom:${TABBAR_H + safeBottom(w) + 16}px;min-height:56px;overflow:hidden"><span style="color:var(--positive)">${icon('archive', { size: 18 })}</span><span class="grow">Співбесіду архівовано</span><span class="btn ghost" style="color:var(--primary);height:44px;padding:0 10px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
+export function toastUndo(
+  w,
+  h,
+  { text = 'Співбесіду архівовано', ic = 'archive', body = interviewsBody() } = {},
+) {
+  const t = `<div class="toast" role="status" style="right:${FLOAT_RIGHT}px;bottom:${TABBAR_H + safeBottom(w) + 16}px;min-height:56px;overflow:hidden"><span style="color:var(--positive)">${icon(ic, { size: 18 })}</span><span class="grow">${text}</span><span class="btn ghost" style="color:var(--primary);height:44px;padding:0 10px;font-size:15px">Скасувати</span><i style="position:absolute;left:0;bottom:0;height:2px;width:62%;background:var(--primary);opacity:0.7"></i></div>`
   return tabScreen({
     w,
     h,
     role: 'HR',
     active: '/interviews',
     title: 'Співбесіди',
-    body: interviewsBody(),
+    body,
     overlay: t,
     showFab: true,
   })

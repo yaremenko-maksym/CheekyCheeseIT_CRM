@@ -242,6 +242,7 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
 
 - 880 px dialog, three columns: Загальні · Перехід · Списки. Top: a switch «Однолітерні скорочення»
   (single-key shortcuts on/off), stored on the device (SC 2.1.4). With it off, only modifier shortcuts work.
+  «Списки» lists `M` «Змінити етап картки» (a focused board card, primitives-v2 §3).
 
 ### Money drafts per size (one model, three placements)
 

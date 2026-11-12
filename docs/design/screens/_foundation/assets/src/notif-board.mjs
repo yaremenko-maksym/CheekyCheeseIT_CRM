@@ -4,6 +4,7 @@ import { tabScreen, financeBody, interviewsBody } from './mobile.mjs'
 import { sheet, closeBtn, stateBlock } from './mobile-overlays.mjs'
 import { desktop } from './desktop.mjs'
 import { tablet } from './tablet.mjs'
+import { toastUndo } from './prims-viz.mjs'
 
 const NOTIFS = [
   {
@@ -209,4 +210,15 @@ export function board768() {
   <div class="row" style="gap:8px;padding:0 16px 12px;flex:none"><span class="t-foot muted num">12 активних · утримуйте картку, щоб перетягнути</span></div>
   <div style="position:relative;flex:1;min-height:0;overflow:hidden"><div class="row" style="gap:12px;align-items:flex-start;padding:0 16px;width:max-content">${cols}</div>${fade}</div></section>`
   return tablet({ w: 768, h: 1024, list: pane, active: '/interviews' })
+}
+
+/** board-undo-375: after a move (here the terminal «Відмова»), the row shows its new stage and the 5 s undo toast. */
+export function boardUndo(w, h) {
+  const body = interviewsBody()
+    .replace('<span class="nw-only"> · Етап 2</span>', '<span class="nw-only"> · Відмова</span>')
+    .replace(
+      '<span class="pill wide-only y">Етап 2</span>',
+      '<span class="pill wide-only ">Відмова</span>',
+    )
+  return toastUndo(w, h, { text: 'Олена Коваль → Відмова', ic: 'arrow-right-left', body })
 }
