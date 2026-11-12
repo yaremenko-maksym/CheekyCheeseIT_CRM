@@ -1,6 +1,17 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import {
+  Fragment,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react'
 import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
+import { useQuery } from '@tanstack/react-query'
+import { addDays, endOfDay, format, parseISO } from 'date-fns'
 import { toast } from 'sonner'
 import {
   Copy,
@@ -11,10 +22,11 @@ import {
   RefreshCw,
   TriangleAlert,
 } from 'lucide-react'
-import type {
-  JobQueueCardResponseDto,
-  JobQueueCardSeniorDto,
-  JobQueueSubmissionDto,
+import {
+  jobQueueTeamTriageGrantRequestSchema,
+  type JobQueueCardResponseDto,
+  type JobQueueCardSeniorDto,
+  type JobQueueSubmissionDto,
 } from '@crm/shared'
 import { openOriginalPosting } from '@/components/job-sourcing/open-original'
 import {
@@ -28,6 +40,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button, buttonVariants } from '@/components/ui/button'
+import { DatePickerField } from '@/components/ui/date-picker'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,10 +49,21 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
+import { TEAMS_QUERY } from '@/hooks/use-active-team'
 import {
   getJobQueuePossibleDuplicateConflict,
   isAccessLoss,
   useCancelJobQueueSubmission,
+  useGrantJobQueueTeamTriage,
   useMarkJobOpened,
   useSubmitJobQueueSenior,
   useSuppressJobQueueItem,
@@ -202,6 +226,33 @@ export function hasOpenSubmit(card: JobQueueCardResponseDto) {
   )
 }
 
+interface MenuDialogProps {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  trigger: RefObject<HTMLButtonElement | null>
+}
+
+/** An ADMIN dialog (§5.6): 320 px wide at least, and focus returns to the «⋯» that opened it. */
+function AdminDialogContent({
+  trigger,
+  children,
+}: {
+  trigger: MenuDialogProps['trigger']
+  children: ReactNode
+}) {
+  return (
+    <AlertDialogContent
+      className="max-w-[calc(100%-2rem)] rounded-lg sm:max-w-lg"
+      onCloseAutoFocus={(event) => {
+        event.preventDefault()
+        trigger.current?.focus()
+      }}
+    >
+      {children}
+    </AlertDialogContent>
+  )
+}
+
 /** The ADMIN confirm (§5.6): the safe button takes the initial focus; focus then returns to `trigger`. */
 function ConfirmDialog({
   open,
@@ -212,10 +263,7 @@ function ConfirmDialog({
   keep,
   confirm,
   onConfirm,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  trigger: RefObject<HTMLButtonElement | null>
+}: MenuDialogProps & {
   title: ReactNode
   body: ReactNode
   keep: ReactNode
@@ -224,13 +272,7 @@ function ConfirmDialog({
 }) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent
-        className="max-w-[calc(100%-2rem)] rounded-lg sm:max-w-lg"
-        onCloseAutoFocus={(event) => {
-          event.preventDefault()
-          trigger.current?.focus()
-        }}
-      >
+      <AdminDialogContent trigger={trigger}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{body}</AlertDialogDescription>
@@ -244,31 +286,40 @@ function ConfirmDialog({
             {confirm}
           </AlertDialogAction>
         </AlertDialogFooter>
-      </AlertDialogContent>
+      </AdminDialogContent>
     </AlertDialog>
   )
 }
 
+interface AdminMenuEntry {
+  item: ReactNode
+  dialog: (props: MenuDialogProps) => ReactNode
+}
+
+/** No dialog of the menu is open. */
+const CLOSED = -1
+
 /**
- * A «⋯» menu that opens a confirm. The menu would hand focus back to its trigger as it closes,
- * racing the dialog's own initial focus; it yields while the dialog opens.
+ * A «⋯» menu whose items each open a dialog: `header` scopes `item`, and every one of `more` is a
+ * group of its own after it. The menu would hand focus back to its trigger as it closes, racing the
+ * dialog's own initial focus; it yields while a dialog opens.
  */
 function AdminMenu({
   label,
   header,
   item,
   dialog,
+  more = [],
 }: {
   label: string
   header?: ReactNode
-  item: ReactNode
-  dialog: (props: {
-    open: boolean
-    onOpenChange: (open: boolean) => void
-    trigger: RefObject<HTMLButtonElement | null>
-  }) => ReactNode
-}) {
-  const [open, setOpen] = useState(false)
+  more?: AdminMenuEntry[]
+} & AdminMenuEntry) {
+  const entries = [{ item, dialog }, ...more]
+  const [open, setOpen] = useState(CLOSED)
+  // the open dialog's entry left with a refetch: the dialog unmounts (Radix hands focus back to «⋯»
+  // through `onCloseAutoFocus`), and forgetting it keeps it from reopening when the entry returns
+  if (open >= entries.length) setOpen(CLOSED)
   const trigger = useRef<HTMLButtonElement>(null)
   const opening = useRef(false)
   return (
@@ -302,34 +353,55 @@ function AdminMenu({
               <DropdownMenuSeparator />
             </>
           )}
-          <DropdownMenuItem
-            className="min-h-11 sm:min-h-0"
-            onSelect={() => {
-              opening.current = true
-              setOpen(true)
-            }}
-          >
-            {item}
-          </DropdownMenuItem>
+          {entries.map((entry, index) => (
+            <Fragment key={index}>
+              {index > 0 && <DropdownMenuSeparator />}
+              <DropdownMenuItem
+                className="min-h-11 sm:min-h-0"
+                onSelect={() => {
+                  opening.current = true
+                  setOpen(index)
+                }}
+              >
+                {entry.item}
+              </DropdownMenuItem>
+            </Fragment>
+          ))}
         </DropdownMenuContent>
       </DropdownMenu>
-      {dialog({ open, onOpenChange: setOpen, trigger })}
+      {entries.map((entry, index) => (
+        <Fragment key={index}>
+          {entry.dialog({
+            open: open === index,
+            onOpenChange: (next) => setOpen(next ? index : CLOSED),
+            trigger,
+          })}
+        </Fragment>
+      ))}
     </>
   )
 }
 
-/** ADMIN vacancy-level «⋯» (§5.6): suppress for every team. Triage assign is not offered (A2). */
+/**
+ * ADMIN vacancy-level «⋯» (§5.6): suppress for every team and, on a triage item only, assign it to
+ * one team.
+ */
 export function AdminVacancyMenu({
   scope,
-  opportunityId,
+  card,
   onClose,
 }: {
   scope: QueueScopeSignature
-  opportunityId: string
+  card: JobQueueCardResponseDto
   onClose: () => void
 }) {
   const { t } = useLingui()
   const suppress = useSuppressJobQueueItem(scope)
+  const { opportunityId } = card
+  const assign: AdminMenuEntry = {
+    item: <Trans>Призначити команді…</Trans>,
+    dialog: (props) => <TriageGrantDialog {...props} scope={scope} card={card} />,
+  }
   return (
     <AdminMenu
       label={t`Дії адміністратора`}
@@ -362,7 +434,213 @@ export function AdminVacancyMenu({
           }
         />
       )}
+      // a manual item (no source) has nothing a team could triage: the server refuses its grant (422)
+      more={card.eligibility === 'TRIAGE' && card.primarySource !== null ? [assign] : []}
     />
+  )
+}
+
+/** Master A1: no server source of policy versions exists, and real ones start at 1, so 0 stamps the grant «unversioned». */
+const UNVERSIONED_POLICY = 0
+/** Coder A1: a grant lasts the queue's own 14-day freshness window by default; the actor may change it. */
+const GRANT_DAYS = 14
+const DAY = 'yyyy-MM-dd'
+const GRANT_DRAFT = jobQueueTeamTriageGrantRequestSchema.omit({ idempotencyKey: true })
+const REASON_MAX = jobQueueTeamTriageGrantRequestSchema.shape.reason.maxLength ?? undefined
+
+/**
+ * ADMIN «Призначити команді…» (§5.6, Task 7.4b): one team sees this triage item until the end of the
+ * chosen day. The request lives here, outside the form, so an answer that lands after Escape still
+ * reports; the form remounts empty on every open.
+ */
+function TriageGrantDialog({
+  open,
+  onOpenChange,
+  trigger,
+  scope,
+  card,
+}: MenuDialogProps & { scope: QueueScopeSignature; card: JobQueueCardResponseDto }) {
+  const grant = useGrantJobQueueTeamTriage(scope)
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AdminDialogContent trigger={trigger}>
+        <TriageGrantForm card={card} grant={grant} onGranted={() => onOpenChange(false)} />
+      </AdminDialogContent>
+    </AlertDialog>
+  )
+}
+
+function TriageGrantForm({
+  card,
+  grant,
+  onGranted,
+}: {
+  card: JobQueueCardResponseDto
+  grant: ReturnType<typeof useGrantJobQueueTeamTriage>
+  onGranted: () => void
+}) {
+  const { t } = useLingui()
+  const teams = useQuery(TEAMS_QUERY)
+  const teamField = useId()
+  const reasonField = useId()
+  const untilField = useId()
+  const emptyNote = useId()
+  const hint = useId()
+  const [teamId, setTeamId] = useState('')
+  const [reason, setReason] = useState('')
+  const [until, setUntil] = useState(() => format(addDays(new Date(), GRANT_DAYS), DAY))
+  // a conflict refreshes the card (the hook invalidates the queue), so the retry sends its revision
+  const [note, setNote] = useState<'conflict' | 'failed' | null>(null)
+  const pending = grant.isPending
+  // the server grants triage to a live SENIOR team only (a DROP team is refused with 422)
+  const offered = teams.data?.filter((team) => team.type === 'SENIOR')
+  // a picked team that leaves the list (archived meanwhile) is no longer a valid choice
+  const chosen = offered?.find((team) => team.id === teamId)
+  // loaded and empty, not loading: then the empty list alone explains the disabled «Призначити»
+  const none = offered?.length === 0
+  const draft = GRANT_DRAFT.safeParse({
+    teamId: chosen?.id,
+    expectedOpportunityRevision: card.revision,
+    policyVersion: UNVERSIONED_POLICY,
+    reason,
+    expiresAt: endOfDay(parseISO(until)).toISOString(),
+  })
+  const incomplete = !draft.success && !none
+
+  const send = () => {
+    // named now: the list may change before the answer, and the toast names what was sent
+    const team = chosen!.name
+    setNote(null)
+    grant.mutate(
+      { ...draft.data!, opportunityId: card.opportunityId },
+      {
+        onSuccess: () => {
+          toast.success(t`Призначено: ${team}`, JOB_QUEUE_TOAST)
+          onGranted()
+        },
+        onError: (error) => {
+          if (isQueueConflict(error)) setNote('conflict')
+          else if (!isAccessLoss(error)) setNote('failed')
+        },
+      },
+    )
+  }
+
+  return (
+    <>
+      <AlertDialogHeader>
+        <AlertDialogTitle className="text-balance">
+          <Trans>Призначити вакансію команді</Trans>
+        </AlertDialogTitle>
+        <AlertDialogDescription>
+          <Trans>Команда бачитиме цю вакансію у своїй черзі до кінця вибраного дня.</Trans>
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <div className="flex min-w-0 flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <Label htmlFor={teamField}>
+            <Trans>Команда</Trans>
+          </Label>
+          <Select value={teamId} onValueChange={setTeamId}>
+            <SelectTrigger
+              id={teamField}
+              aria-required="true"
+              aria-describedby={none ? emptyNote : undefined}
+              className="min-h-11 sm:min-h-9"
+            >
+              <SelectValue placeholder={t`Виберіть команду`} />
+            </SelectTrigger>
+            <SelectContent>
+              {offered?.map((team) => (
+                <SelectItem key={team.id} value={team.id}>
+                  {team.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {none && (
+            <p id={emptyNote} className="text-sm text-pretty text-muted-foreground">
+              <Trans>Немає команд, яким можна призначити вакансію.</Trans>
+            </p>
+          )}
+          {teams.isError && (
+            <div role="alert" className={BLOCKING}>
+              <TriangleAlert
+                aria-hidden="true"
+                className="mt-0.5 size-4 shrink-0 text-destructive"
+              />
+              <p className="min-w-0 flex-1 text-pretty">
+                <Trans>Не вдалося завантажити команди.</Trans>
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11 shrink-0 sm:min-h-9"
+                onClick={() => void teams.refetch()}
+              >
+                <Trans>Спробувати ще раз</Trans>
+              </Button>
+            </div>
+          )}
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor={reasonField}>
+            <Trans>Причина</Trans>
+          </Label>
+          <Textarea
+            id={reasonField}
+            aria-required="true"
+            value={reason}
+            maxLength={REASON_MAX}
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor={untilField}>
+            <Trans>Діє до</Trans>
+          </Label>
+          <DatePickerField
+            id={untilField}
+            value={until}
+            onChange={setUntil}
+            minDate={format(new Date(), DAY)}
+            className="min-h-11 sm:min-h-9"
+          />
+        </div>
+        {note === 'conflict' && <ConflictNote />}
+        {note === 'failed' && (
+          <div role="alert" className={BLOCKING}>
+            <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
+            <p className="text-pretty">
+              <Trans>Не вдалося призначити вакансію команді. Спробуйте ще раз.</Trans>
+            </p>
+          </div>
+        )}
+      </div>
+      {/* a disabled button's reason is in the text beside it (WCAG 3.3.2) */}
+      {incomplete && (
+        <p id={hint} className="text-sm text-pretty text-muted-foreground">
+          <Trans>Виберіть команду й вкажіть причину.</Trans>
+        </p>
+      )}
+      <AlertDialogFooter>
+        <AlertDialogCancel className="min-h-11 sm:min-h-9">
+          <Trans>Не призначати</Trans>
+        </AlertDialogCancel>
+        {/* `aria-disabled` while pending, as in DuplicateConfirm: a disabled button drops focus to <body> */}
+        <Button
+          type="button"
+          className="min-h-11 aria-disabled:pointer-events-none aria-disabled:opacity-50 sm:min-h-9"
+          disabled={!draft.success}
+          aria-describedby={incomplete ? hint : undefined}
+          aria-disabled={pending || undefined}
+          aria-busy={pending || undefined}
+          onClick={pending ? undefined : send}
+        >
+          <Trans>Призначити</Trans>
+        </Button>
+      </AlertDialogFooter>
+    </>
   )
 }
 

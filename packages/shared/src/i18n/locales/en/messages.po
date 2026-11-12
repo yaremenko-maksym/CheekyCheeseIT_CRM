@@ -449,6 +449,10 @@ msgstr "The persona is not filled in. Click “Create”."
 msgid "Транзакцію не прийнято"
 msgstr "The transaction was rejected"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Призначити вакансію команді"
+msgstr "Assign this vacancy to a team"
+
 #: apps/web/app/routes/_authenticated/routing/components/EarningsSparkline.tsx
 msgid "Заробітку за останні місяці ще немає"
 msgstr "No earnings in the last months yet"
@@ -515,6 +519,10 @@ msgstr "The row is included in a submitted payout request — the amount is alre
 #: apps/web/app/routes/_authenticated/pending/index.tsx
 msgid "Повторити завантаження"
 msgstr "Retry loading"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Не призначати"
+msgstr "Don’t assign"
 
 #: apps/web/app/components/users/HrChipsField.tsx
 msgid "HR ще немає — спершу додайте HR"
@@ -1601,6 +1609,10 @@ msgstr "overridden at the team level"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Перевірка в блокчейні…"
 msgstr "Checking on the blockchain…"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Діє до"
+msgstr "Valid until"
 
 #: apps/web/app/components/users/user-dialog/FinanceSection.tsx
 msgid "Місячна зарплата"
@@ -4135,6 +4147,7 @@ msgstr "Contract — preview.pdf"
 msgid "Підключення увімкнено"
 msgstr "Connection enabled"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
 #: apps/web/app/components/job-queue/JobQueueCard.tsx
 #: apps/web/app/components/job-queue/JobQueueFilters.tsx
 #: apps/web/app/components/job-queue/JobQueueList.tsx
@@ -5135,6 +5148,10 @@ msgstr "Could not retrieve the password — try again"
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Якщо він потрібен для роботи, напишіть адміністратору"
 msgstr "If you need it for work, contact an admin"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Виберіть команду"
+msgstr "Choose a team"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Навігація"
@@ -6214,6 +6231,7 @@ msgstr "Owner"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
 #: apps/web/app/components/job-queue/TeamSwitcher.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
@@ -6222,6 +6240,10 @@ msgstr "Owner"
 #: apps/web/app/components/users/user-dialog/TeamSection.tsx
 msgid "Команда"
 msgstr "Team"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Причина"
+msgstr "Reason"
 
 #: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 msgid "Видалити відгук"
@@ -8159,6 +8181,7 @@ msgstr "Could not upload the document. Try again"
 msgid "Оплатити"
 msgstr "Pay"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
 msgid "Призначити"
@@ -8312,6 +8335,10 @@ msgstr "Behind"
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Сума: {0}"
 msgstr "Amount: {0}"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Немає команд, яким можна призначити вакансію."
+msgstr "No team can take this vacancy."
 
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Дані компанії"
@@ -8559,6 +8586,10 @@ msgstr "Invalid request. Check the data you entered and try again."
 #: apps/web/app/lib/documents-filter-sort.ts
 msgid "Спочатку більші"
 msgstr "Largest first"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Не вдалося призначити вакансію команді. Спробуйте ще раз."
+msgstr "Could not assign the vacancy to the team. Please try again."
 
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Завжди"
@@ -9299,6 +9330,10 @@ msgstr "Fri"
 msgid "Поточний token розширення буде відкликано одразу. Активні або повторні media upload запити з ним перестануть проходити, доки новий token не буде збережено в розширенні."
 msgstr "The current extension token will be revoked immediately. Active or retried media upload requests using it will fail until the new token is saved in the extension."
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Команда бачитиме цю вакансію у своїй черзі до кінця вибраного дня."
+msgstr "The team will see this vacancy in its queue until the end of the chosen day."
+
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/users/index.tsx
@@ -9847,6 +9882,10 @@ msgstr "This section is available only to the “{roleLabel}” role"
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "Мітка (необов’язково)"
 msgstr "Label (optional)"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Призначити команді…"
+msgstr "Assign to a team…"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
 msgid "Надіслати повторно"
@@ -10573,6 +10612,10 @@ msgstr "Balances aligned"
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 msgid "Завантажено ще {added}. Показано {shown} із {total}"
 msgstr "Loaded {added} more. Showing {shown} of {total}"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Призначено: {team}"
+msgstr "Assigned to {team}"
 
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx
 msgid "Назва і опис вакансії для лендингу іншими мовами."
@@ -11390,6 +11433,10 @@ msgstr "Profession"
 msgid "· Сеньйора не призначено"
 msgstr "· No senior assigned"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Не вдалося завантажити команди."
+msgstr "Could not load teams."
+
 #: apps/web/app/routes/_authenticated/documents/constants.ts
 #: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/users/index.tsx
@@ -11688,6 +11735,10 @@ msgstr "Connection disabled"
 #: apps/web/app/routes/_authenticated/admin/sources.index.tsx
 msgid "Останній запуск: {lastRun}"
 msgstr "Last run: {lastRun}"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Виберіть команду й вкажіть причину."
+msgstr "Choose a team and give a reason."
 
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Найнято за місяць"

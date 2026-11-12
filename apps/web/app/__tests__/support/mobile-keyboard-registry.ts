@@ -323,6 +323,10 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   'app/routes/_authenticated/admin/sources.$sourceId.tsx#id:source-note':
     'Free-text ADMIN note on a job source (a provider announcement or a decision) — arbitrary prose, no numeric/contact taxonomy class applies.',
 
+  // ---- job-queue/JobQueueActions.tsx (Task 7.4b) ----
+  'app/components/job-queue/JobQueueActions.tsx#1':
+    'Free-text ADMIN reason for assigning a triage vacancy to one team (why this team should see it) — arbitrary prose, no numeric/contact taxonomy class applies.',
+
   // ---- job-sourcing/JobSuggestionDialog.tsx ----
   'testid:job-exclusion-input':
     'Company name or stop-word the user types to exclude a vacancy («EPAM», «gambling», «ТОВ Ромашка») — arbitrary free text in any alphabet; no numeric/contact taxonomy class applies and autofill would offer the wrong kind of value.',
