@@ -10,6 +10,7 @@ import { seedProjects } from './seed/projects'
 import { seedInterviews } from './seed/interviews'
 import { seedFinance } from './seed/finance'
 import { seedOnboarding } from './seed/onboarding'
+import { seedJobQueue } from './seed/job-queue'
 import { verifySeed } from './seed/verify'
 import type { SeedCtx } from './seed/shared'
 
@@ -71,6 +72,9 @@ async function main() {
 
   // ---- 7. Onboarding: ToS + contract templates + signed contracts ----
   await seedOnboarding(ctx)
+
+  // ---- 7b. Job queue (Task 7.6a): last writer of users/teams first, so match versions are live ----
+  await seedJobQueue(ctx)
 
   // ---- 8. Final verification queries ----
   await verifySeed(ctx)
