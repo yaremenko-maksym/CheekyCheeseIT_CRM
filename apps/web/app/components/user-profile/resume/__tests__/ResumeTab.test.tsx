@@ -373,6 +373,46 @@ describe('ResumeTab — the confirm step (Task 19)', () => {
     expect(screen.getByTestId('resume-verified-meta')).toHaveTextContent('Olena HR')
     expect(screen.getByTestId('resume-facts-form')).toBeInTheDocument()
   })
+
+  it('after the facts-form Submit focus moves to the progress heading', async () => {
+    const complete: SeniorResumeDto = {
+      ...(FILLED.resume as SeniorResumeDto),
+      facts: {
+        ...EMPTY_RESUME_FACTS,
+        headline: 'Backend Engineer',
+        skills: ['TypeScript', 'Node.js', 'PostgreSQL', 'React', 'Docker'],
+        experience: [
+          {
+            company: 'Acme',
+            role: 'Lead Engineer',
+            location: null,
+            start: '2021-01',
+            end: '2024-06',
+            current: false,
+            technologies: [],
+            notes: ['Led a team of five people'],
+          },
+        ],
+        languages: [{ name: 'English', level: 'C1' }],
+      },
+    }
+    setData(makeResponse(complete))
+    // The server answers busy; the mocked query serves the same state on the next render.
+    submitMock.mockImplementation(() => {
+      const busy = makeResponse({
+        ...complete,
+        verificationStatus: 'QUEUED',
+        verificationBusy: true,
+      })
+      setData(busy)
+      return Promise.resolve(busy)
+    })
+    render(tab())
+    fireEvent.click(screen.getByTestId('resume-facts-submit'))
+    const heading = await screen.findByRole('heading', { name: 'У черзі на перевірку' })
+    await waitFor(() => expect(heading).toHaveFocus())
+    expect(submitMock).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('ResumeTab — a viewer without write access', () => {

@@ -29,6 +29,7 @@ vi.mock('@/lib/axios', () => ({ api: { get: getMock, post: postMock, put: putMoc
 vi.mock('sonner', () => ({ toast: { error: toastError, success: vi.fn() } }))
 
 import { useSeniorResume } from '@/hooks/use-senior-resume'
+import { FOCUS_REQUEST_TTL_MS, useFocusAfterRender } from '../ResumeConfirmStep'
 import { ResumeVerificationPanel, VerificationBadge } from '../ResumeVerificationPanel'
 
 const RUN_ID = '22222222-2222-4222-8222-222222222222'
@@ -200,14 +201,28 @@ describe('ResumeVerificationPanel — confirm step', () => {
     })
     renderWired(makeResponse())
     fireEvent.click(await screen.findByRole('button', { name: 'Підтвердити' }))
-    await waitFor(() =>
-      expect(toastError).toHaveBeenCalledWith(
-        'Резюме змінилося після перевірки. Оновіть сторінку й перевірте його ще раз.',
-      ),
-    )
     const resumeGets = () =>
       getMock.mock.calls.filter(([url]) => url === `/users/${USER}/resume`).length
     await waitFor(() => expect(resumeGets()).toBe(2))
+    // Ruling R52: the inline notice is the only message for a stale run, no toast.
+    expect(await screen.findByTestId('resume-verification-stale')).toHaveTextContent(
+      'Резюме змінилося після перевірки. Оновіть сторінку й перевірте його ще раз.',
+    )
+    expect(toastError).not.toHaveBeenCalled()
+  })
+
+  it('a non-stale error on confirm still toasts', async () => {
+    postMock.mockRejectedValue({
+      response: {
+        status: 409,
+        data: { statusCode: 409, code: 'RESUME_VERIFICATION_BUSY', message: 'busy' },
+      },
+    })
+    renderWired(makeResponse())
+    fireEvent.click(await screen.findByRole('button', { name: 'Підтвердити' }))
+    await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1))
+    expect(toastError.mock.calls[0]?.[0]).not.toBe('busy')
+    expect(screen.queryByTestId('resume-verification-stale')).toBeNull()
   })
 
   it('fallbacks listed as "kept from your notes"', async () => {
@@ -402,5 +417,49 @@ describe('ResumeVerificationPanel — focus (design §8)', () => {
       'Резюме змінилося після перевірки. Оновіть сторінку й перевірте його ще раз.',
     )
     await waitFor(() => expect(notice).toHaveFocus())
+  })
+})
+
+describe('useFocusAfterRender', () => {
+  function Probe({ show }: { show: boolean }) {
+    const focusAfterRender = useFocusAfterRender()
+    return (
+      <>
+        <button type="button" onClick={() => focusAfterRender(['probe-target'])}>
+          ask
+        </button>
+        {show && (
+          <h3 id="probe-target" tabIndex={-1}>
+            target
+          </h3>
+        )}
+      </>
+    )
+  }
+
+  it('focuses a target that renders within the TTL', () => {
+    vi.useFakeTimers()
+    try {
+      const { rerender } = render(<Probe show={false} />)
+      fireEvent.click(screen.getByRole('button', { name: 'ask' }))
+      act(() => vi.advanceTimersByTime(FOCUS_REQUEST_TTL_MS - 1))
+      rerender(<Probe show />)
+      expect(screen.getByRole('heading', { name: 'target' })).toHaveFocus()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('focus request expires when no target renders', () => {
+    vi.useFakeTimers()
+    try {
+      const { rerender } = render(<Probe show={false} />)
+      fireEvent.click(screen.getByRole('button', { name: 'ask' }))
+      act(() => vi.advanceTimersByTime(FOCUS_REQUEST_TTL_MS))
+      rerender(<Probe show />)
+      expect(screen.getByRole('heading', { name: 'target' })).not.toHaveFocus()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
