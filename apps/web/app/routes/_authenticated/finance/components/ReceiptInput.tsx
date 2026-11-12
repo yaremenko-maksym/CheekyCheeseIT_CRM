@@ -139,13 +139,27 @@ export function ReceiptInput({
   // upload that completes after its pick went stale does not call onChange.
   const [preparing, setPreparing] = useState(false)
   const pickRef = useRef(0)
+  // The receipt this component expects from the parent while a pick is live:
+  // the state at the pick, then each state the pick emitted. `null` = no live pick.
+  const ownStateRef = useRef<ReceiptState | null>(null)
   function cancelPick() {
     pickRef.current += 1
+    ownStateRef.current = null
     setPreparing(false)
     progress.reset()
   }
+  function emit(next: ReceiptState) {
+    if (ownStateRef.current) ownStateRef.current = next
+    onChange(next)
+  }
   // Stryker disable next-line ArrayDeclaration: any constant deps list still runs the cleanup only on unmount
   useEffect(() => cancelPick, [])
+  // A parent that replaces the receipt mid-pick (a dialog resetting its form on
+  // close, while the content still animates out) cancels the pick: its late
+  // preview or upload must not write into the next session of the dialog.
+  useEffect(() => {
+    if (ownStateRef.current && state !== ownStateRef.current) cancelPick()
+  }, [state])
 
   // task-receipts-frontend: when explorerOnly flips true while the user has
   // a file selected, auto-normalize to an empty url-mode state — a file
@@ -189,7 +203,7 @@ export function ReceiptInput({
   const resolvedUrl = downloadQuery.data?.url
   useEffect(() => {
     if (resolvedUrl && state.documentId && !state.previewUrl) {
-      onChange({ ...state, previewUrl: resolvedUrl })
+      emit({ ...state, previewUrl: resolvedUrl })
     }
   }, [resolvedUrl, state.documentId])
 
@@ -223,6 +237,7 @@ export function ReceiptInput({
 
     progress.prepare()
     const pick = ++pickRef.current
+    ownStateRef.current = state
     setPreparing(true)
     // Local objectURL for the preview while the upload is in flight. Images go
     // through a bounded-size copy: a full-resolution phone photo in the DOM
@@ -241,7 +256,7 @@ export function ReceiptInput({
       return
     }
     setPreparing(false)
-    onChange({
+    emit({
       mode: 'file',
       documentId: null,
       externalUrl: '',
@@ -269,6 +284,7 @@ export function ReceiptInput({
       // Revoke the local blob — we'll use the presigned URL going forward
       // (downloadQuery is enabled for state.documentId on next render).
       revokeBlobUrl(localPreview)
+      ownStateRef.current = null // settled: the pick is no longer live
       onChange({
         mode: 'file',
         documentId: doc.id,
@@ -292,6 +308,7 @@ export function ReceiptInput({
       }
       progress.error(getApiErrorMessage(err, t`Не вдалося завантажити чек`))
       revokeBlobUrl(localPreview)
+      ownStateRef.current = null // settled: the pick is no longer live
       onChange(emptyReceiptState())
     }
   }
@@ -397,7 +414,11 @@ export function ReceiptInput({
                     <div className="text-sm font-medium truncate">
                       {state.fileName || t`Документ`}
                     </div>
-                    <div className="text-xs text-muted-foreground">{t`Файл завантажено`}</div>
+                    {/* Only an uploaded document is "uploaded": a pick still in
+                        flight (or one whose preview broke) shows just its name. */}
+                    {state.documentId && (
+                      <div className="text-xs text-muted-foreground">{t`Файл завантажено`}</div>
+                    )}
                   </div>
                 </div>
               )}

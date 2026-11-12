@@ -483,3 +483,89 @@ describe('ReceiptInput — stale upload progress (task-1316-fix3 B4)', () => {
     expect(screen.getByTestId('receipt-input-progress')).toHaveTextContent('Обробка…')
   })
 })
+
+describe('ReceiptInput — a pick that settles after its dialog closed (PR #1316 QA step 3b)', () => {
+  const fileInput = () => screen.getByTestId('receipt-input-file')
+  const pick = (file: File = photo) => fireEvent.change(fileInput(), { target: { files: [file] } })
+  // The dialog closing: its parent resets the receipt while the content is
+  // still mounted for the exit animation (CreateTransactionDialog.resetForm).
+  const closeDialog = () => fireEvent.click(screen.getByTestId('harness-reset'))
+  const serverError = () =>
+    Object.assign(new Error('Request failed with status code 500'), {
+      isAxiosError: true,
+      response: { status: 500, data: {} },
+    })
+
+  function holdUpload() {
+    let settle!: { ok: () => void; fail: () => void }
+    post.mockReturnValue(
+      new Promise((resolve, reject) => {
+        settle = {
+          ok: () =>
+            resolve({ data: { id: 'doc-1', name: 'IMG_0001.jpg', mimeType: 'image/jpeg' } }),
+          fail: () => reject(serverError()),
+        }
+      }),
+    )
+    return () => settle
+  }
+
+  it('close mid-preview: the late preview is dropped, nothing uploads, the reopened form is empty', async () => {
+    installFakePreviewWorker(photo, 'manual')
+    renderHarness()
+    pick()
+    closeDialog()
+    await finishDecodes()
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(emitted.some((s) => s.fileName === 'IMG_0001.jpg')).toBe(false)
+    expect(post).not.toHaveBeenCalled()
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:bounded-preview')
+    expect(screen.queryByAltText('Прев’ю чека')).toBeNull()
+    expect(screen.getByText('Натисніть, щоб вибрати файл')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['success', 'ok'],
+    ['500', 'fail'],
+  ] as const)(
+    'close mid-upload: its late %s does not write into the reset form',
+    async (_l, outcome) => {
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      const settle = holdUpload()
+      renderHarness()
+      pick()
+      await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+      closeDialog()
+      const before = emitted.length
+
+      await act(async () => {
+        settle()[outcome]()
+        await Promise.resolve()
+      })
+      await new Promise((r) => setTimeout(r, 0))
+
+      expect(emitted.length).toBe(before)
+      expect(screen.getByText('Натисніть, щоб вибрати файл')).toBeInTheDocument()
+    },
+  )
+
+  it('a failed upload (500) never claims «Файл завантажено», even when its preview broke', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const settle = holdUpload()
+    renderHarness()
+    pick()
+    // The blob URL got revoked under the card: it falls back to the file block.
+    fireEvent.error(await screen.findByAltText('Прев’ю чека'))
+    expect(screen.getByText('IMG_0001.jpg')).toBeInTheDocument()
+    expect(screen.queryByText('Файл завантажено')).toBeNull()
+
+    await act(async () => settle().fail())
+
+    await waitFor(() =>
+      expect(screen.getByTestId('receipt-input-progress-idle')).toBeInTheDocument(),
+    )
+    expect(screen.queryByText('Файл завантажено')).toBeNull()
+    expect(emitted.at(-1)).toEqual(emptyReceiptState())
+  })
+})
