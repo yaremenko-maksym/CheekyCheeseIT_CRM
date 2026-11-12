@@ -643,31 +643,45 @@ export function pageKillAlert(w, h, phase = 'armed') {
  */
 export function actionConfirm(
   w,
-  { id, title, desc, action, cancel = 'Скасувати', ink = 'var(--destructive)', overSheet = false },
+  {
+    id,
+    title,
+    desc,
+    action,
+    cancel = 'Скасувати',
+    ink = 'var(--destructive)',
+    overSheet = false,
+    focusCancel = false,
+  },
 ) {
   const z = overSheet ? [76, 77] : [70, 75]
-  const row = (label, style) =>
-    `<button type="button" style="appearance:none;margin:0;border:0;background:none;font:inherit;color:inherit;width:100%;cursor:pointer;height:56px;display:grid;place-items:center;font-size:17px;font-weight:600;${style}">${label}</button>`
+  const row = (label, style, focus = false) =>
+    `<button type="button"${focus ? ' data-initial-focus' : ''} style="appearance:none;margin:0;border:0;background:none;font:inherit;color:inherit;width:100%;cursor:pointer;height:56px;display:grid;place-items:center;font-size:17px;font-weight:600;${style}">${label}</button>`
   return `<div class="scrim" style="z-index:${z[0]}"></div><div role="alertdialog" aria-modal="true" aria-labelledby="${id}-t" aria-describedby="${id}-d" style="position:absolute;left:8px;right:8px;bottom:${safeBottom(w) + 8}px;z-index:${z[1]};display:grid;gap:8px">
   <div style="background:var(--popover);border-radius:14px;border:1px solid var(--border);overflow:hidden;text-align:center">
     <div style="padding:16px 20px 14px"><div id="${id}-t" class="t-sub num" style="font-weight:600">${title}</div><div id="${id}-d" class="t-foot muted" style="margin-top:4px">${desc}</div></div>
     ${row(action, `border-top:1px solid var(--separator);color:${ink}`)}</div>
-  ${row(cancel, 'background:var(--popover);border-radius:14px;border:1px solid var(--border)')}</div>`
+  ${row(cancel, 'background:var(--popover);border-radius:14px;border:1px solid var(--border)', focusCancel)}</div>`
 }
 const overHome = (screen, overlay) =>
   screen.replace('<div class="homebar">', `${overlay}<div class="homebar">`)
 
-/** A 401 with a dirty money form: its own state, never a save failure; the markers survive the sign-in. */
+/**
+ * A 401 with a dirty money form and a failed draft: its own state, never a save failure. The body names each
+ * loss, so the initial focus is on «Не зараз» (no ring on touch) and Enter does not sign in; the markers stay.
+ */
 export const sessionExpired = (w, h) =>
   overHome(
     moneyForm({ w, h, receipt: 'done' }),
     actionConfirm(w, {
       id: 'se',
       title: 'Сесія завершилася. Увійдіть знову, щоб продовжити.',
-      desc: 'Незбережені дані форми та вибраний чек буде втрачено.',
+      desc: '<span style="display:block">Незбережені дані форми та вибраний чек буде втрачено.</span><span style="display:block;margin-top:4px">Чернетку 86,40 USD буде втрачено.</span>',
       action: 'Увійти знову',
+      cancel: 'Не зараз',
       ink: 'var(--primary)',
       overSheet: true,
+      focusCancel: true,
     }),
   )
 

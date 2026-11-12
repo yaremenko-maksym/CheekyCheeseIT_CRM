@@ -93,6 +93,11 @@ under `(pointer: fine)`**: the 1024 / 1440 panels have them, the touch tablet do
 **Confirm dialog** (`sheet-confirm-dialog-1024`): 420 px centred alert dialog; initial focus on
 «Скасувати»; Enter does not trigger the destructive action.
 
+**Session alert** (`alert-session-expired-375`): the action sheet built the same way, «Увійти знову» and
+«Не зараз». The secondary never reads «Скасувати», because the form behind it uses that word to discard.
+When the body names a loss (a dirty form, a draft by amount, an unknown draft's sent data), the initial
+focus is on «Не зараз» and Enter does not sign in. When and why it shows: foundation §11.
+
 ---
 
 ## 3. Lists
