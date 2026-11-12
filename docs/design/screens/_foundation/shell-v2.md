@@ -171,9 +171,9 @@ tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, gro
   sign-in directly only when no draft exists in any state (armed, in flight, failed or unknown) and no form is
   dirty. Otherwise, on any tab, sheet open or closed, the alert «Сесія завершилася. Увійдіть знову, щоб
   продовжити.» shows «Увійти знову» and «Не зараз», and its body names each loss: the dirty form and its
-  receipt, each draft by amount, and an unknown draft with «…та дані, надіслані о 14:32». With a loss named,
+  receipt, each draft by amount, and an unknown draft by its sent time without «втрачено» («Чернетка 86,40 USD, надіслана о 14:32: введене не збережеться, позначка лишиться…»), because its marker survives the sign-in. With a loss named,
   the initial focus is on «Не зараз». It waits for an in-flight create. Draft markers survive the sign-in,
-  and «Увійти знову» turns `armed` ones into `failed` (foundation §11). After «Не зараз» the app pauses polls and background refetches, and the persistent banner «Сесія завершилася · Увійти знову» takes the offline-banner slot under the top bar (`session-banner-375`); only a user-started request brings the alert back.
+  and «Увійти знову» turns `armed` ones into `failed` (foundation §11). After «Не зараз» the app pauses polls and background refetches, and the persistent banner «Сесія завершилася · Увійти знову» takes the offline-banner slot under the top bar (`session-banner-375`); only a user-started request brings the alert back. While the banner shows, opening a create or edit form («+», `C`, an edit action) or the banner's «Увійти знову» runs the loss check first: a named loss brings the alert back, no loss goes straight to sign-in. **One banner at a time:** the slot holds session over offline, and offline returns only after sign-in if the device is still offline.
 - **Impersonation** (`state-impersonation-375`): the existing banner, pinned under the top bar, with
   «Повернутися» (44 px); the tab bar shows the impersonated role's tabs.
 

@@ -96,7 +96,7 @@ under `(pointer: fine)`**: the 1024 / 1440 panels have them, the touch tablet do
 
 **Session alert** (`alert-session-expired-375`): the action sheet built the same way, «Увійти знову» and
 «Не зараз». The secondary never reads «Скасувати», because the form behind it uses that word to discard.
-When the body names a loss (a dirty form, a draft by amount, an unknown draft's sent data), the initial
+When the body names a loss (a dirty form, a draft by amount, an unknown draft's sent data; the unknown draft never reads «втрачено», because its marker stays), the initial
 focus is on «Не зараз» and Enter does not sign in. When and why it shows, and the banner after «Не зараз»: foundation §11.
 
 ---

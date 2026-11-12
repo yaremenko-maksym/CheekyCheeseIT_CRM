@@ -679,7 +679,7 @@ export const sessionExpired = (w, h) =>
     actionConfirm(w, {
       id: 'se',
       title: 'Сесія завершилася. Увійдіть знову, щоб продовжити.',
-      desc: '<span style="display:block">Незбережені дані форми та вибраний чек буде втрачено.</span><span style="display:block;margin-top:4px">Чернетку 1 250,50 USD та дані, надіслані о 14:32, буде втрачено.</span>',
+      desc: '<span style="display:block">Незбережені дані форми та вибраний чек буде втрачено.</span><span style="display:block;margin-top:4px">Чернетка 86,40 USD, надіслана о 14:32: введене не збережеться, позначка лишиться. Після входу перевірте список.</span>',
       action: 'Увійти знову',
       cancel: 'Не зараз',
       ink: 'var(--primary)',
