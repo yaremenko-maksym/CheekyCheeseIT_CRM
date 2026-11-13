@@ -462,6 +462,27 @@ describe('ResumeVerificationPanel — focus (design §8)', () => {
     await waitFor(() => expect(heading).toHaveFocus())
   })
 
+  it('the focused progress heading keeps focus as the run moves QUEUED -> CHECKING (QA-4)', async () => {
+    const { postMovesServerTo, serverMovesTo } = renderWired(
+      makeResponse({
+        verificationStatus: 'FAILED',
+        verificationErrorCode: 'ATS_CHECK_FAILED',
+        staged: null,
+      }),
+    )
+    postMovesServerTo(
+      makeResponse({ verificationStatus: 'QUEUED', verificationBusy: true, staged: null }),
+    )
+    fireEvent.click(await screen.findByTestId('resume-verification-retry'))
+    const queued = await screen.findByRole('heading', { name: 'У черзі на перевірку' })
+    await waitFor(() => expect(queued).toHaveFocus())
+    await serverMovesTo(
+      makeResponse({ verificationStatus: 'CHECKING', verificationBusy: true, staged: null }),
+    )
+    const checking = await screen.findByRole('heading', { name: /Перевіряємо резюме/ })
+    expect(checking).toHaveFocus()
+  })
+
   it('after Confirm focus moves to the VERIFIED badge', async () => {
     const { postMovesServerTo } = renderWired(makeResponse())
     postMovesServerTo(
