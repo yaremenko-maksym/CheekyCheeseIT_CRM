@@ -160,6 +160,20 @@ describe('ResumeVerificationService.submit', () => {
     expect(runner.run).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['a phone', 'Call +380 67 123 45 67'],
+    ['the senior’s full name (R62)', 'jane DOE led the payments team'],
+  ])('%s in a note is 422 RESUME_INCOMPLETE and starts nothing', async (_label, note) => {
+    const { svc, runner, log } = service([])
+    const experience = [{ ...FACTS.experience[0]!, notes: [note] }]
+    const row = { ...ROW, facts: { ...FACTS, experience } } as SeniorResume
+    const err = await refusal(svc.submit(row, 'Jane Doe', 'v'))
+    expect(err.getStatus()).toBe(422)
+    expect(err.getResponse()).toMatchObject({ code: 'RESUME_INCOMPLETE' })
+    expect(log).toHaveLength(0)
+    expect(runner.run).not.toHaveBeenCalled()
+  })
+
   it('a write that misses on a row that still exists is 409 and starts nothing', async () => {
     const { svc, s3, runner, log } = service([[], [{ id: 'r-1' }]])
     const err = await refusal(svc.submit(ROW, 'Jane Doe', 'v'))

@@ -290,6 +290,52 @@ describe('checkResumeCompleteness', () => {
     ])
   })
 
+  describe('CONTACT_IN_TEXT: the senior’s full name', () => {
+    const NAMED = { ...CTX, displayName: 'Oleksiy Kovalenko' }
+    const noteIssues = (note: string, ctx = NAMED) =>
+      checkResumeCompleteness(makeFacts({ experience: [makeExperience({ notes: [note] })] }), ctx)
+    const flagged = [{ path: 'experience.0.notes.0', code: 'CONTACT_IN_TEXT' }]
+
+    it('flags the full name in a note', () => {
+      expect(noteIssues('Oleksiy Kovalenko led billing')).toEqual(flagged)
+    })
+
+    it('flags the reversed order', () => {
+      expect(noteIssues('Led billing with Kovalenko Oleksiy')).toEqual(flagged)
+    })
+
+    it('flags a different case and extra whitespace', () => {
+      expect(noteIssues('built by oleksiy   KOVALENKO')).toEqual(flagged)
+    })
+
+    it('does not flag the surname or the first name alone', () => {
+      expect(noteIssues('Kovalenko led billing')).toEqual([])
+      expect(noteIssues('Oleksiy led billing')).toEqual([])
+    })
+
+    it('does not flag the name inside a longer word', () => {
+      expect(noteIssues('Oleksiy Kovalenkovich led billing')).toEqual([])
+      expect(noteIssues('XOleksiy Kovalenko led billing')).toEqual([])
+    })
+
+    it('a one-token display name adds no name check', () => {
+      expect(noteIssues('Oleksiy led billing', { ...CTX, displayName: 'Oleksiy' })).toEqual([])
+    })
+
+    it('flags the name in the headline, a skill and a technology too', () => {
+      const facts = makeFacts({
+        headline: 'Oleksiy Kovalenko, Backend Engineer',
+        skills: ['kovalenko oleksiy', 'JavaScript', 'TypeScript', 'React', 'Node.js'],
+        experience: [makeExperience({ technologies: ['Oleksiy Kovalenko'] })],
+      })
+      expect(checkResumeCompleteness(facts, NAMED)).toEqual([
+        { path: 'headline', code: 'CONTACT_IN_TEXT' },
+        { path: 'skills.0', code: 'CONTACT_IN_TEXT' },
+        { path: 'experience.0.technologies.0', code: 'CONTACT_IN_TEXT' },
+      ])
+    })
+  })
+
   const nonLatinCases: Array<{ name: string; facts: ResumeFacts; path: string }> = [
     {
       name: 'headline',

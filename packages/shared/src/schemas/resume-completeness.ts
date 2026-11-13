@@ -88,8 +88,30 @@ function isBlank(text: string): boolean {
   return text.trim() === ''
 }
 
-function containsContactData(text: string): boolean {
-  return findPhoneSpans(text).length > 0 || RESUME_EMAIL_PATTERN.test(text)
+type ContactCheck = (text: string) => boolean
+
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * Phone, email, or the senior's full name (first and last token, either order,
+ * whole words, any case or spacing). A one-token name adds no name check: a
+ * first name or surname alone is a common word too often.
+ */
+function contactCheck(displayName: string): ContactCheck {
+  const tokens = displayName.trim().split(/\s+/).filter(Boolean).map(escapeRegExp)
+  const first = tokens[0]
+  const last = tokens[tokens.length - 1]
+  const name =
+    tokens.length >= 2 && first !== undefined && last !== undefined
+      ? new RegExp(
+          `(?<![\\p{L}\\p{N}])(?:${first}\\s+${last}|${last}\\s+${first})(?![\\p{L}\\p{N}])`,
+          'iu',
+        )
+      : null
+  return (text) =>
+    findPhoneSpans(text).length > 0 ||
+    RESUME_EMAIL_PATTERN.test(text) ||
+    (name !== null && name.test(text))
 }
 
 function checkExperienceItem(
@@ -97,6 +119,7 @@ function checkExperienceItem(
   index: number,
   nowMonth: string,
   issues: CompletenessIssue[],
+  containsContactData: ContactCheck,
 ): void {
   const base = `experience.${index}`
 
@@ -163,6 +186,7 @@ export function checkResumeCompleteness(
   ctx: { displayName: string; now: Date },
 ): CompletenessIssue[] {
   const issues: CompletenessIssue[] = []
+  const containsContactData = contactCheck(ctx.displayName)
   const nowMonth = `${ctx.now.getUTCFullYear()}-${String(ctx.now.getUTCMonth() + 1).padStart(2, '0')}`
 
   if (!isLatinScript(ctx.displayName)) issues.push({ path: 'displayName', code: 'NAME_NON_LATIN' })
@@ -191,7 +215,7 @@ export function checkResumeCompleteness(
 
   if (facts.experience.length === 0) issues.push({ path: 'experience', code: 'NO_EXPERIENCE' })
   facts.experience.forEach((item, index) => {
-    checkExperienceItem(item, index, nowMonth, issues)
+    checkExperienceItem(item, index, nowMonth, issues, containsContactData)
   })
 
   facts.education.forEach((item, index) => {
