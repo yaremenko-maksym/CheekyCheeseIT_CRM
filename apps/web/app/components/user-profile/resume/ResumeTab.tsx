@@ -39,6 +39,7 @@ import {
   useSaveResumeFacts,
   useSaveResumeLayout,
   useSeniorResume,
+  useSetResumeTemplate,
   useSubmitResume,
   useUploadResumeSource,
 } from '@/hooks/use-senior-resume'
@@ -69,6 +70,7 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
   const textMutation = useIngestResumeText(userId)
   const deleteMutation = useDeleteResume(userId)
   const layoutMutation = useSaveResumeLayout(userId)
+  const templateMutation = useSetResumeTemplate(userId)
   // `resume` is null until the senior has one; `canEdit` sits OUTSIDE it
   // precisely so the empty state still knows whether to offer the upload UI.
   const resume = data?.resume ?? null
@@ -357,8 +359,13 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
         <ResumeLayoutPanel
           layout={resume.layout}
           canEdit={canEdit}
-          isSaving={layoutMutation.isPending}
+          isSaving={layoutMutation.isPending || templateMutation.isPending}
           onSave={(layout) => layoutMutation.mutate(layout)}
+          templateName={resume.templateName}
+          hasCustomTemplate={resume.hasCustomTemplate}
+          verified={resume.verificationStatus === 'VERIFIED'}
+          busy={verificationBusy}
+          onTemplateChange={(name) => templateMutation.mutate(name)}
         />
       )}
 

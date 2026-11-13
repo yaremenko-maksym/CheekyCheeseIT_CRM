@@ -16,6 +16,10 @@
  * Every change is a save: the server re-renders the PDF as a background job and
  * the preview catches up on its own (the query polls while a render is in
  * flight). Nothing here waits on a typesetter.
+ *
+ * The template picker sits on top (design §5.6): a catalog name, never source.
+ * On VERIFIED a template or layout write starts a template run (no Confirm);
+ * while any run is busy every control here is locked, since writes answer 409.
  */
 import { useState } from 'react'
 import { ArrowDown, ArrowUp, Eye, EyeOff, RotateCcw } from 'lucide-react'
@@ -30,10 +34,12 @@ import {
   type ResumeFontScale,
   type ResumeLayoutOptions,
   type ResumeSectionKey,
+  type ResumeTemplateName,
 } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { SegmentedToggle } from '@/components/ui/segmented-toggle'
 import { cn } from '@/lib/utils'
+import { ResumeTemplatePicker } from './ResumeTemplatePicker'
 
 /**
  * HOVER LABELS ON THE ICON-ONLY BUTTONS — what works, and what does not.
@@ -76,8 +82,16 @@ const SECTION_LABEL_MESSAGES: Record<ResumeSectionKey, MessageDescriptor> = {
 export interface ResumeLayoutPanelProps {
   layout: ResumeLayoutOptions
   canEdit: boolean
+  /** A layout or template write is in flight. */
   isSaving: boolean
   onSave: (layout: ResumeLayoutOptions) => void
+  templateName: ResumeTemplateName
+  hasCustomTemplate: boolean
+  /** VERIFIED: a write starts a template run, and the notes say so. */
+  verified: boolean
+  /** `verificationBusy`: every write answers 409, so every control is locked. */
+  busy: boolean
+  onTemplateChange: (name: ResumeTemplateName) => void
 }
 
 /** Move `key` one step in `order`, returning a NEW array. */
@@ -96,7 +110,17 @@ export function moveSection(
   return next
 }
 
-export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeLayoutPanelProps) {
+export function ResumeLayoutPanel({
+  layout,
+  canEdit,
+  isSaving,
+  onSave,
+  templateName,
+  hasCustomTemplate,
+  verified,
+  busy,
+  onTemplateChange,
+}: ResumeLayoutPanelProps) {
   const { t, i18n } = useLingui()
   // Runtime-only (need `t`) — defined inside the component, not at module
   // level, same reasoning as `SECTION_LABEL_MESSAGES` above.
@@ -115,6 +139,7 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
   // section existed must not render a short list here either.
   const [draft, setDraft] = useState<ResumeLayoutOptions>(() => normalizeResumeLayout(layout))
 
+  const locked = !canEdit || isSaving || busy
   const dirty = JSON.stringify(draft) !== JSON.stringify(normalizeResumeLayout(layout))
 
   const update = (patch: Partial<ResumeLayoutOptions>): void => {
@@ -134,7 +159,15 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
       data-testid="resume-layout-panel"
       className="rounded-xl border border-border/60 bg-card/50 p-4 sm:p-5"
     >
-      <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
+      <ResumeTemplatePicker
+        value={hasCustomTemplate ? null : templateName}
+        disabled={locked}
+        busy={busy}
+        verified={verified}
+        onChange={onTemplateChange}
+      />
+
+      <header className="mb-4 mt-5 flex border-t border-border/60 pt-5 flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="text-sm font-semibold">
             <Trans>Оформлення</Trans>
@@ -150,7 +183,7 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
               variant="ghost"
               size="sm"
               data-testid="resume-layout-reset"
-              disabled={isSaving}
+              disabled={isSaving || busy}
               onClick={() => setDraft(DEFAULT_RESUME_LAYOUT)}
             >
               <RotateCcw className="mr-1.5 size-3.5" />
@@ -160,7 +193,7 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
               type="button"
               size="sm"
               data-testid="resume-layout-save"
-              disabled={!dirty || isSaving}
+              disabled={!dirty || isSaving || busy}
               onClick={() => onSave(draft)}
             >
               {isSaving ? t`Зберігаємо…` : t`Застосувати`}
@@ -199,7 +232,7 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
                       aria-label={hidden ? t`Показати «${label}»` : t`Приховати «${label}»`}
                       title={hidden ? t`Показати «${label}»` : t`Приховати «${label}»`}
                       data-testid={`resume-layout-toggle-${key}`}
-                      disabled={!canEdit || isSaving}
+                      disabled={locked}
                       onClick={() => toggleHidden(key)}
                     >
                       {hidden ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
@@ -212,7 +245,7 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
                       aria-label={t`Перемістити «${label}» вгору`}
                       title={t`Перемістити «${label}» вгору`}
                       data-testid={`resume-layout-up-${key}`}
-                      disabled={!canEdit || isSaving || index === 0}
+                      disabled={locked || index === 0}
                       onClick={() =>
                         update({ sectionOrder: moveSection(draft.sectionOrder, key, -1) })
                       }
@@ -227,7 +260,7 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
                       aria-label={t`Перемістити «${label}» вниз`}
                       title={t`Перемістити «${label}» вниз`}
                       data-testid={`resume-layout-down-${key}`}
-                      disabled={!canEdit || isSaving || index === draft.sectionOrder.length - 1}
+                      disabled={locked || index === draft.sectionOrder.length - 1}
                       onClick={() =>
                         update({ sectionOrder: moveSection(draft.sectionOrder, key, 1) })
                       }
@@ -253,7 +286,7 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
               ariaLabel={t`Щільність верстки`}
               layoutId="resume-density"
               size="sm"
-              disabled={!canEdit || isSaving}
+              disabled={locked}
               testId="resume-layout-density"
             />
           </div>
@@ -268,11 +301,24 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
               ariaLabel={t`Розмір шрифту`}
               layoutId="resume-font-scale"
               size="sm"
-              disabled={!canEdit || isSaving}
+              disabled={locked}
               testId="resume-layout-font-scale"
             />
           </div>
         </div>
+        {verified && !busy && (
+          <p className="text-xs text-muted-foreground">
+            <Trans>
+              Зміна оформлення запустить перевірку макета. Резюме лишиться перевіреним, а якщо
+              перевірка не пройде — збереже попереднє оформлення.
+            </Trans>
+          </p>
+        )}
+        {busy && (
+          <p className="text-xs text-muted-foreground" data-testid="resume-layout-busy">
+            <Trans>Змінити оформлення можна після перевірки.</Trans>
+          </p>
+        )}
       </div>
     </section>
   )

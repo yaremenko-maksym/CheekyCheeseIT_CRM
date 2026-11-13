@@ -16,6 +16,7 @@ import type {
   RegenerateStagedFieldInput,
   ResumeFacts,
   ResumeLayoutOptions,
+  ResumeTemplateName,
   SeniorResumeResponse,
 } from '@crm/shared'
 import { api } from '@/lib/axios'
@@ -285,6 +286,21 @@ export function useRegenerateStagedField(userId: string) {
     'regenerate-senior-resume-staged',
     (input: RegenerateStagedFieldInput) =>
       api.post(`/users/${userId}/resume/staged/regenerate`, input),
+  )
+}
+
+/**
+ * `PUT template` — a catalog template by name. On VERIFIED the server starts a
+ * template run (no Confirm); in AWAITING_CONFIRM it drops the staged result.
+ */
+export function useSetResumeTemplate(userId: string) {
+  const { t } = useLingui()
+  return useStagedAction(
+    userId,
+    'set-senior-resume-template',
+    (templateName: ResumeTemplateName) =>
+      api.put(`/users/${userId}/resume/template`, { templateName }),
+    () => t`Шаблон змінено`,
   )
 }
 
