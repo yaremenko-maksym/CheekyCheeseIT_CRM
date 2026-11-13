@@ -117,7 +117,8 @@ export function MonthPickerField({
           aria-label={monthAriaLabel ?? t`Місяць зарплати`}
           aria-invalid={invalid}
           aria-describedby={describedBy}
-          className={cn('h-9 min-w-0 flex-1 text-sm', invalidCls)}
+          // px-2 + a 76 px year: en "September" + "2020" fit a 196 px row (320 px job card).
+          className={cn('h-9 min-w-0 flex-1 px-2 text-sm', invalidCls)}
           data-testid="create-transaction-salary-month-select"
         >
           <SelectValue placeholder={t`Місяць`} />
@@ -149,7 +150,7 @@ export function MonthPickerField({
           aria-label={yearAriaLabel ?? t`Рік зарплати`}
           aria-invalid={invalid}
           aria-describedby={describedBy}
-          className={cn('h-9 w-[5.5rem] shrink-0 text-sm tabular-nums', invalidCls)}
+          className={cn('h-9 w-[4.75rem] shrink-0 px-2 text-sm tabular-nums', invalidCls)}
           data-testid="create-transaction-salary-year-select"
         >
           <SelectValue placeholder={t`Рік`} />

@@ -101,9 +101,10 @@ async function openResume(
   viewer: 'hr' | 'senior',
   initial: Answer,
   next: { facts?: (facts: unknown) => Answer; submit?: Answer; confirm?: Answer } = {},
+  locale: 'uk' | 'en' = 'uk',
 ) {
   const server = { current: initial, sent: [] as { path: string; body: unknown }[] }
-  await mockAuthAs(page, viewer === 'hr' ? USERS.hr : USERS.senior)
+  await mockAuthAs(page, { ...(viewer === 'hr' ? USERS.hr : USERS.senior), locale })
   await (viewer === 'hr'
     ? page.route(`${API_GLOB}/users/${SENIOR_ID}`, (r) =>
         r.fulfill(json(buildHrViewingSenior(USERS.senior))),
@@ -329,6 +330,120 @@ test.describe('Verified base resume — check and confirm', () => {
     expect(fit.sideways).toBeLessThanOrEqual(1)
     expect(fit.right).toBeLessThanOrEqual(fit.edge)
   })
+
+  // QA-6 for en: the longest en month ("September") and the en placeholder fit the trigger.
+  for (const width of [320, 768, 1024, 1440]) {
+    test(`${width} px en month and year triggers show the whole value and placeholder`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 })
+      const [job] = COMPLETE_FACTS.experience
+      const facts = {
+        ...COMPLETE_FACTS,
+        experience: [{ ...job, start: '2020-09', end: null, current: false }],
+      }
+      await openResume(page, 'hr', hr({ facts }), {}, 'en')
+      const form = page.getByTestId('resume-facts-form')
+      const triggers = form.locator('button[role="combobox"]')
+      await expect(form.getByText('September', { exact: true })).toBeVisible()
+      await expect(form.getByText('Month', { exact: true })).toBeVisible()
+
+      // The text's own extent (a Range) ends inside its clipping span (not cut) and at least
+      // 2 px before the chevron (not jammed against it).
+      const fit = await triggers.evaluateAll((buttons) =>
+        buttons.flatMap((button) => {
+          const span = button.querySelector('span')
+          const text = span?.textContent?.trim() ?? ''
+          const chevron = button.querySelector('svg')
+          if (!span || !chevron || !['September', 'Month', '2020', 'Year'].includes(text)) return []
+          const range = document.createRange()
+          range.selectNodeContents(span)
+          const textRight = range.getBoundingClientRect().right
+          // The month + year row stays inside its job grid (at 320 it once pushed the track 9 px out).
+          const grid = button.closest('.grid')
+          return [
+            {
+              text,
+              cut: textRight - span.getBoundingClientRect().right > 0.5,
+              gap: chevron.getBoundingClientRect().left - textRight,
+              out: grid ? grid.scrollWidth - grid.clientWidth : -1,
+            },
+          ]
+        }),
+      )
+      expect(fit.map((f) => f.text).sort()).toEqual(['2020', 'Month', 'September', 'Year'])
+      expect(fit.filter((f) => f.cut || f.gap < 2 || f.out !== 0)).toEqual([])
+    })
+  }
+
+  // Enough chips to wrap onto two rows at 320, so cross-row overlap is measured too.
+  const TECHS = [
+    'Node.js',
+    'TypeScript',
+    'PostgreSQL',
+    'Redis',
+    'Docker',
+    'Kubernetes',
+    'AWS',
+    'GraphQL',
+  ]
+
+  // R65 (WCAG 2.5.8): a chip's remove target is at least 24 px, never covers its own label,
+  // and never overlaps another chip's target (chips wrap onto two rows at 320).
+  for (const width of [320, 1440]) {
+    test(`${width} px skill chip remove targets cover no label and no other target`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 })
+      const [job] = COMPLETE_FACTS.experience
+      await openResume(
+        page,
+        'hr',
+        hr({ facts: { ...COMPLETE_FACTS, experience: [{ ...job, technologies: TECHS }] } }),
+      )
+      const removes = page.getByTestId('resume-facts-form').getByTestId('tech-chip-remove')
+      await expect(removes.first()).toBeVisible()
+
+      const targets = await removes.evaluateAll((buttons) =>
+        buttons.map((button) => {
+          const box = button.getBoundingClientRect()
+          const after = getComputedStyle(button, '::after')
+          const rect = {
+            left: box.left + parseFloat(after.left),
+            right: box.right - parseFloat(after.right),
+            top: box.top + parseFloat(after.top),
+            bottom: box.bottom - parseFloat(after.bottom),
+          }
+          const label = button.previousElementSibling?.getBoundingClientRect() ?? null
+          // A tap on the last pixel of the label lands on the label, not on the remove button.
+          const labelEndHit = label
+            ? document
+                .elementFromPoint(label.right - 1, label.top + label.height / 2)
+                ?.closest('button') === button
+            : true
+          return { rect, label, labelEndHit }
+        }),
+      )
+      expect(targets.length).toBe(TECHS.length)
+      if (width === 320) {
+        expect(new Set(targets.map((t) => Math.round(t.rect.top))).size).toBeGreaterThan(1)
+      }
+      const overlap = (
+        a: { left: number; right: number; top: number; bottom: number },
+        b: { left: number; right: number; top: number; bottom: number },
+      ) =>
+        Math.min(a.right, b.right) > Math.max(a.left, b.left) &&
+        Math.min(a.bottom, b.bottom) > Math.max(a.top, b.top)
+      for (const [i, { rect, label, labelEndHit }] of targets.entries()) {
+        expect(rect.right - rect.left).toBeGreaterThanOrEqual(24)
+        expect(rect.bottom - rect.top).toBeGreaterThanOrEqual(24)
+        expect(label).not.toBeNull()
+        expect(label && overlap(rect, label)).toBe(false)
+        expect(labelEndHit).toBe(false)
+        for (const other of targets.slice(i + 1)) expect(overlap(rect, other.rect)).toBe(false)
+      }
+    })
+  }
 })
 
 /** Page-level scroll plus every control that pokes out of `scope` (stays on screen but clipped). */

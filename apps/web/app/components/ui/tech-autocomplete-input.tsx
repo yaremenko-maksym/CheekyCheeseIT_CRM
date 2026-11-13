@@ -174,15 +174,17 @@ export function TechAutocompleteInput({
             <Badge
               key={tag}
               variant="outline"
-              className="h-6 gap-1 py-0 pl-2 pr-1 text-xs font-normal"
+              className="h-6 gap-2 py-0 pl-2 pr-1 text-xs font-normal"
             >
               <span className="leading-none">{tag}</span>
               <button
                 type="button"
                 onClick={() => removeTag(tag)}
-                // The glyph stays 16 px; the after: layer makes the target 44 px (32 from sm).
-                className="relative flex h-4 w-4 items-center justify-center rounded-sm after:absolute after:-inset-3.5 after:content-[''] sm:after:-inset-2 transition-colors hover:bg-destructive/20 hover:text-destructive focus:outline-none focus:ring-1 focus:ring-ring"
+                // R65: a 32x28 target. Left stops at the label (gap-2); right and vertical stop
+                // halfway into the 6 px chip gap, so no label or neighbouring target is covered.
+                className="relative flex h-4 w-4 items-center justify-center rounded-sm after:absolute after:-inset-x-2 after:-inset-y-1.5 after:content-[''] transition-colors hover:bg-destructive/20 hover:text-destructive focus:outline-none focus:ring-1 focus:ring-ring"
                 aria-label={t`Видалити ${tag}`}
+                data-testid="tech-chip-remove"
               >
                 <X className="h-3 w-3" />
               </button>

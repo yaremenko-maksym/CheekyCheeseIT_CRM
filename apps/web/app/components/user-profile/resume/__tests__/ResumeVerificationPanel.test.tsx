@@ -317,6 +317,38 @@ describe('ResumeVerificationPanel — failure panel', () => {
     expect(within(panel).getByText('автоматична перевірка не пройдена')).toBeInTheDocument()
     expect(within(panel).queryByText('SOMETHING_NEW')).toBeNull()
   })
+
+  it.each(['ATS_CHECK_FAILED', 'GLYPH_CHECK_FAILED', 'VISUAL_CHECK_FAILED'] as const)(
+    'FAILED %s without a report shows the whole-resume line its body points at (CR-L-3)',
+    async (code) => {
+      renderWired(
+        makeResponse({
+          verificationStatus: 'FAILED',
+          verificationErrorCode: code,
+          staged: null,
+          verificationReport: null,
+        }),
+      )
+      const panel = await screen.findByRole('alert')
+      const items = within(panel).getByTestId('resume-verification-items')
+      expect(within(items).getByText('Резюме загалом')).toBeInTheDocument()
+      expect(within(items).getByText('автоматична перевірка не пройдена')).toBeInTheDocument()
+      expect(within(items).queryByRole('button')).toBeNull()
+    },
+  )
+
+  it('FAILED RENDER_FAILED without a report shows no list (its body names none)', async () => {
+    renderWired(
+      makeResponse({
+        verificationStatus: 'FAILED',
+        verificationErrorCode: 'RENDER_FAILED',
+        staged: null,
+        verificationReport: null,
+      }),
+    )
+    const panel = await screen.findByRole('alert')
+    expect(within(panel).queryByTestId('resume-verification-items')).toBeNull()
+  })
 })
 
 describe('ResumeVerificationPanel — staged PDF', () => {

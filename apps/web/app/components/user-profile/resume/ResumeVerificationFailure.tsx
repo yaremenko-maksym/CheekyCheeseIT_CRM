@@ -164,6 +164,9 @@ export function resolveReportPath(raw: string): { labelPath: string; field: stri
   return field ? { labelPath: section, field } : { labelPath: '', field: null }
 }
 
+/** The "whole resume" line, for a list code whose report names no item (R63). */
+const WHOLE_RESUME_ROW: FailingRow = { labelPath: '', field: null, reason: '' }
+
 const MAX_ROWS = 8
 
 export interface ResumeVerificationFailureProps {
@@ -193,7 +196,9 @@ export function ResumeVerificationFailure({
     ? i18n._(entry.body)
     : translateApiError('RESUME_CUSTOM_TEMPLATE', undefined)
 
-  const rows = failingRows(report)
+  const failing = failingRows(report)
+  // R63: these bodies say "the fields in the list", so their list is never empty.
+  const rows = LIST_CODES.has(code) && failing.length === 0 ? [WHOLE_RESUME_ROW] : failing
   if (variant === 'warning') {
     return (
       <div
@@ -212,13 +217,7 @@ export function ResumeVerificationFailure({
             {body}
           </p>
         </div>
-        {/* R63: these bodies say "the fields in the list", so the list is shown (never empty). */}
-        {LIST_CODES.has(code) && (
-          <FailingFieldList
-            rows={rows.length > 0 ? rows : [{ labelPath: '', field: null, reason: '' }]}
-            onFocusField={onFocusField}
-          />
-        )}
+        {LIST_CODES.has(code) && <FailingFieldList rows={rows} onFocusField={onFocusField} />}
       </div>
     )
   }
