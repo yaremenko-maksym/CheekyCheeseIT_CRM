@@ -359,7 +359,8 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
         <ResumeLayoutPanel
           layout={resume.layout}
           canEdit={canEdit}
-          isSaving={layoutMutation.isPending || templateMutation.isPending}
+          isSaving={layoutMutation.isPending}
+          isSavingTemplate={templateMutation.isPending}
           onSave={(layout) => layoutMutation.mutate(layout)}
           templateName={resume.templateName}
           hasCustomTemplate={resume.hasCustomTemplate}

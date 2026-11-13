@@ -22,7 +22,7 @@
  * while any run is busy every control here is locked, since writes answer 409.
  */
 import { useState } from 'react'
-import { ArrowDown, ArrowUp, Eye, EyeOff, RotateCcw } from 'lucide-react'
+import { ArrowDown, ArrowUp, Eye, EyeOff, RotateCcw, TriangleAlert } from 'lucide-react'
 import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { MessageDescriptor } from '@lingui/core'
@@ -82,8 +82,10 @@ const SECTION_LABEL_MESSAGES: Record<ResumeSectionKey, MessageDescriptor> = {
 export interface ResumeLayoutPanelProps {
   layout: ResumeLayoutOptions
   canEdit: boolean
-  /** A layout or template write is in flight. */
+  /** A layout save is in flight: Apply reads "Зберігаємо…". */
   isSaving: boolean
+  /** A template write is in flight: the controls lock, Apply keeps its label. */
+  isSavingTemplate: boolean
   onSave: (layout: ResumeLayoutOptions) => void
   templateName: ResumeTemplateName
   hasCustomTemplate: boolean
@@ -91,7 +93,7 @@ export interface ResumeLayoutPanelProps {
   verified: boolean
   /** `verificationBusy`: every write answers 409, so every control is locked. */
   busy: boolean
-  /** A staged result awaits confirmation: a template pick discards it. */
+  /** A staged result awaits confirmation: a template pick or a layout Apply discards it. */
   staged: boolean
   onTemplateChange: (name: ResumeTemplateName) => void
 }
@@ -116,6 +118,7 @@ export function ResumeLayoutPanel({
   layout,
   canEdit,
   isSaving,
+  isSavingTemplate,
   onSave,
   templateName,
   hasCustomTemplate,
@@ -140,10 +143,20 @@ export function ResumeLayoutPanel({
 
   // Normalised locally as well as on the server: a layout saved before a
   // section existed must not render a short list here either.
-  const [draft, setDraft] = useState<ResumeLayoutOptions>(() => normalizeResumeLayout(layout))
+  const serverLayout = normalizeResumeLayout(layout)
+  const serverKey = JSON.stringify(serverLayout)
+  const [draft, setDraft] = useState<ResumeLayoutOptions>(serverLayout)
+  // A server layout change (a failed run kept the old one, a refetch) resets the
+  // draft. Edits are locked while busy, so no unsaved draft is lost here.
+  const [syncedKey, setSyncedKey] = useState(serverKey)
+  if (syncedKey !== serverKey) {
+    setSyncedKey(serverKey)
+    setDraft(serverLayout)
+  }
 
-  const locked = !canEdit || isSaving || busy
-  const dirty = JSON.stringify(draft) !== JSON.stringify(normalizeResumeLayout(layout))
+  const saving = isSaving || isSavingTemplate
+  const locked = !canEdit || saving || busy
+  const dirty = JSON.stringify(draft) !== serverKey
 
   const update = (patch: Partial<ResumeLayoutOptions>): void => {
     setDraft((current) => ({ ...current, ...patch }))
@@ -162,6 +175,16 @@ export function ResumeLayoutPanel({
       data-testid="resume-layout-panel"
       className="rounded-xl border border-border/60 bg-card/50 p-4 sm:p-5"
     >
+      {/* R59: one warning for the whole panel, a pick and an Apply both discard. */}
+      {canEdit && staged && !busy && (
+        <p
+          data-testid="resume-template-discards-staged"
+          className="mb-4 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400"
+        >
+          <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" aria-hidden />
+          <Trans>Зміна шаблону чи оформлення скасує цей результат.</Trans>
+        </p>
+      )}
       {/* Spec §11: a viewer who cannot edit gets no picker. */}
       {canEdit && (
         <ResumeTemplatePicker
@@ -169,7 +192,6 @@ export function ResumeLayoutPanel({
           disabled={locked}
           busy={busy}
           verified={verified}
-          staged={staged}
           onChange={onTemplateChange}
         />
       )}
@@ -195,7 +217,7 @@ export function ResumeLayoutPanel({
               variant="ghost"
               size="sm"
               data-testid="resume-layout-reset"
-              disabled={isSaving || busy}
+              disabled={saving || busy}
               onClick={() => setDraft(DEFAULT_RESUME_LAYOUT)}
             >
               <RotateCcw className="mr-1.5 size-3.5" />
@@ -205,7 +227,7 @@ export function ResumeLayoutPanel({
               type="button"
               size="sm"
               data-testid="resume-layout-save"
-              disabled={!dirty || isSaving || busy}
+              disabled={!dirty || saving || busy}
               onClick={() => onSave(draft)}
             >
               {isSaving ? t`Зберігаємо…` : t`Застосувати`}
@@ -318,7 +340,7 @@ export function ResumeLayoutPanel({
             />
           </div>
         </div>
-        {verified && !busy && (
+        {canEdit && verified && !busy && (
           <p className="text-xs text-muted-foreground">
             <Trans>
               Зміна оформлення запустить перевірку макета. Резюме лишиться перевіреним, а якщо
@@ -326,7 +348,7 @@ export function ResumeLayoutPanel({
             </Trans>
           </p>
         )}
-        {busy && (
+        {canEdit && busy && (
           <p className="text-xs text-muted-foreground" data-testid="resume-layout-busy">
             <Trans>Змінити оформлення можна після перевірки.</Trans>
           </p>

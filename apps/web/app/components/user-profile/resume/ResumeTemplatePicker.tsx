@@ -6,7 +6,6 @@
  */
 import { useRef } from 'react'
 import * as RadioGroupPrimitive from '@radix-ui/react-radio-group'
-import { TriangleAlert } from 'lucide-react'
 import type { MessageDescriptor } from '@lingui/core'
 import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
@@ -53,8 +52,6 @@ export interface ResumeTemplatePickerProps {
   busy: boolean
   /** The resume is VERIFIED: a pick starts a template run, and the note says so. */
   verified: boolean
-  /** A staged result awaits confirmation: a pick discards it, and the warning says so. */
-  staged: boolean
   onChange: (name: ResumeTemplateName) => void
 }
 
@@ -65,7 +62,6 @@ export function ResumeTemplatePicker({
   disabled,
   busy,
   verified,
-  staged,
   onChange,
 }: ResumeTemplatePickerProps) {
   const { i18n } = useLingui()
@@ -90,15 +86,6 @@ export function ResumeTemplatePicker({
       {value === null && (
         <p className="text-xs text-muted-foreground" data-testid="resume-template-custom-note">
           {translateApiError('RESUME_CUSTOM_TEMPLATE', undefined)}
-        </p>
-      )}
-      {staged && !busy && (
-        <p
-          data-testid="resume-template-discards-staged"
-          className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400"
-        >
-          <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" aria-hidden />
-          <Trans>Зміна шаблону скасує цей результат.</Trans>
         </p>
       )}
       <RadioGroup
