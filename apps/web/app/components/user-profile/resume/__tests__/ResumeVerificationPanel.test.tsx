@@ -477,6 +477,8 @@ describe('ResumeVerificationPanel — staged edits (fix round 3)', () => {
     fireEvent.keyDown(box, { key: 'Enter', metaKey: true, repeat: true })
     await waitFor(() => expect(screen.getByRole('button', { name: 'Зберегти' })).toBeDisabled())
     fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true })
+    // The mutation calls the api a few microtasks after the key: let them run.
+    await act(async () => {})
     expect(putMock).toHaveBeenCalledTimes(1)
     await act(async () => answer({ data: nextRun() }))
   })
@@ -568,5 +570,26 @@ describe('useFocusAfterRender', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('waits for a disabled target to be enabled', () => {
+    // A staged Save answers before the pending render ends: the Edit button is still disabled.
+    function Gate({ enabled }: { enabled: boolean }) {
+      const focusAfterRender = useFocusAfterRender()
+      return (
+        <>
+          <button type="button" onClick={() => focusAfterRender(['gate-target'])}>
+            ask
+          </button>
+          <button id="gate-target" type="button" disabled={!enabled}>
+            target
+          </button>
+        </>
+      )
+    }
+    const { rerender } = render(<Gate enabled={false} />)
+    fireEvent.click(screen.getByRole('button', { name: 'ask' }))
+    rerender(<Gate enabled />)
+    expect(screen.getByRole('button', { name: 'target' })).toHaveFocus()
   })
 })
