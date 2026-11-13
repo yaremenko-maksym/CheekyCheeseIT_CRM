@@ -8,6 +8,7 @@
  * integration spec and the E2E run, not here.
  */
 import {
+  act,
   fireEvent,
   render as rtlRender,
   screen,
@@ -30,21 +31,34 @@ function render(ui: ReactElement, options?: RenderOptions) {
   return rtlRender(ui, { wrapper: I18nTestProvider, ...options })
 }
 
-const { saveFactsMock, submitMock, saveLayoutMock, uploadMock, ingestTextMock, deleteMock, state } =
-  vi.hoisted(() => ({
-    saveFactsMock: vi.fn(),
-    submitMock: vi.fn(),
-    saveLayoutMock: vi.fn(),
-    uploadMock: vi.fn(),
-    ingestTextMock: vi.fn(),
-    deleteMock: vi.fn(),
-    state: {
-      resumeData: { resume: null, canEdit: true, canConfirm: false } as unknown,
-      isLoading: false,
-      // Mutable so a test can observe the delete confirm button's isPending-driven text.
-      deleteIsPending: false,
-    },
-  }))
+const {
+  saveFactsMock,
+  submitMock,
+  saveLayoutMock,
+  uploadMock,
+  ingestTextMock,
+  deleteMock,
+  confirmMock,
+  editMock,
+  regenerateMock,
+  state,
+} = vi.hoisted(() => ({
+  confirmMock: vi.fn(),
+  editMock: vi.fn(),
+  regenerateMock: vi.fn(),
+  saveFactsMock: vi.fn(),
+  submitMock: vi.fn(),
+  saveLayoutMock: vi.fn(),
+  uploadMock: vi.fn(),
+  ingestTextMock: vi.fn(),
+  deleteMock: vi.fn(),
+  state: {
+    resumeData: { resume: null, canEdit: true, canConfirm: false } as unknown,
+    isLoading: false,
+    // Mutable so a test can observe the delete confirm button's isPending-driven text.
+    deleteIsPending: false,
+  },
+}))
 
 vi.mock('@/hooks/use-senior-resume', () => ({
   useSeniorResume: () => ({ data: state.resumeData, isLoading: state.isLoading, isError: false }),
@@ -58,9 +72,15 @@ vi.mock('@/hooks/use-senior-resume', () => ({
   // No blob here: jsdom cannot load a blob iframe; the preview is covered elsewhere.
   useResumePdfBlob: () => ({ blobUrl: null, isLoading: false, hasError: false }),
   resumePdfUrl: (userId: string) => `/api/users/${userId}/resume/pdf`,
-  useConfirmResume: () => ({ mutate: vi.fn(), isPending: false }),
-  useEditStagedField: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
-  useRegenerateStagedField: () => ({ mutate: vi.fn(), isPending: false }),
+  // The confirm step calls mutateAsync; each answers the current state by default.
+  useConfirmResume: () => ({ mutateAsync: confirmMock, isPending: false }),
+  useEditStagedField: () => ({
+    mutateAsync: editMock,
+    reset: vi.fn(),
+    isPending: false,
+    error: null,
+  }),
+  useRegenerateStagedField: () => ({ mutateAsync: regenerateMock, isPending: false }),
   API_BASE_URL: '/api',
 }))
 
@@ -135,6 +155,8 @@ beforeEach(async () => {
   state.deleteIsPending = false
   saveFactsMock.mockResolvedValue(undefined)
   submitMock.mockResolvedValue(undefined)
+  for (const write of [confirmMock, editMock, regenerateMock])
+    write.mockImplementation(() => Promise.resolve(state.resumeData))
   await loadCatalog('uk')
 })
 
@@ -353,11 +375,54 @@ describe('ResumeTab — the confirm step (Task 19)', () => {
     setData({ ...awaiting(), canConfirm: true })
     render(tab())
     expect(screen.getByTestId('resume-confirm')).toBeInTheDocument()
-    expect(screen.queryByTestId('resume-facts-form')).not.toBeInTheDocument()
+    expect(screen.getByTestId('resume-facts-form')).not.toBeVisible()
     fireEvent.click(screen.getByTestId('resume-confirm-change-facts'))
-    expect(screen.getByTestId('resume-facts-form')).toBeInTheDocument()
+    expect(screen.getByTestId('resume-facts-form')).toBeVisible()
     fireEvent.click(screen.getByTestId('resume-confirm-change-facts'))
-    expect(screen.queryByTestId('resume-facts-form')).not.toBeInTheDocument()
+    expect(screen.getByTestId('resume-facts-form')).not.toBeVisible()
+  })
+
+  it('collapsing Change the facts keeps the draft', () => {
+    setData({ ...awaiting(), canConfirm: true })
+    render(tab())
+    const toggle = screen.getByTestId('resume-confirm-change-facts')
+    fireEvent.click(toggle)
+    fireEvent.change(screen.getByLabelText('Цільова посада'), {
+      target: { value: 'Staff Engineer' },
+    })
+    expect(screen.getByText('Зміна фактів скасує цей результат.')).toBeInTheDocument()
+    fireEvent.click(toggle)
+    // Collapsed: the amber warning goes with the form, the draft does not.
+    expect(screen.queryByText('Зміна фактів скасує цей результат.')).toBeNull()
+    fireEvent.click(toggle)
+    expect(screen.getByLabelText('Цільова посада')).toHaveValue('Staff Engineer')
+    expect(screen.getByText('Зміна фактів скасує цей результат.')).toBeInTheDocument()
+  })
+
+  it('Edit and Regenerate are disabled while Change the facts is open', async () => {
+    setData({ ...awaiting(), canConfirm: true })
+    render(tab())
+    const toggle = screen.getByTestId('resume-confirm-change-facts')
+    const step = within(screen.getByTestId('resume-confirm-step'))
+    const writes = () => [
+      ...step.getAllByRole('button', { name: /^Редагувати/ }),
+      ...step.getAllByRole('button', { name: /Згенерувати заново/ }),
+    ]
+    fireEvent.click(toggle)
+    expect(writes().length).toBeGreaterThan(1)
+    for (const button of writes()) expect(button).toBeDisabled()
+    // Ruling R55: Confirm and the toggle itself stay available.
+    expect(step.getByRole('button', { name: 'Підтвердити' })).toBeEnabled()
+    expect(toggle).toBeEnabled()
+    fireEvent.click(toggle)
+    for (const button of writes()) expect(button).toBeEnabled()
+    fireEvent.click(step.getByRole('button', { name: 'Згенерувати заново' }))
+    await waitFor(() =>
+      expect(regenerateMock).toHaveBeenCalledWith({
+        runId: '22222222-2222-4222-8222-222222222222',
+        path: 'summary',
+      }),
+    )
   })
 
   it('a VERIFIED resume shows its badge and who checked it', () => {
@@ -374,28 +439,29 @@ describe('ResumeTab — the confirm step (Task 19)', () => {
     expect(screen.getByTestId('resume-facts-form')).toBeInTheDocument()
   })
 
+  const complete: SeniorResumeDto = {
+    ...(FILLED.resume as SeniorResumeDto),
+    facts: {
+      ...EMPTY_RESUME_FACTS,
+      headline: 'Backend Engineer',
+      skills: ['TypeScript', 'Node.js', 'PostgreSQL', 'React', 'Docker'],
+      experience: [
+        {
+          company: 'Acme',
+          role: 'Lead Engineer',
+          location: null,
+          start: '2021-01',
+          end: '2024-06',
+          current: false,
+          technologies: [],
+          notes: ['Led a team of five people'],
+        },
+      ],
+      languages: [{ name: 'English', level: 'C1' }],
+    },
+  }
+
   it('after the facts-form Submit focus moves to the progress heading', async () => {
-    const complete: SeniorResumeDto = {
-      ...(FILLED.resume as SeniorResumeDto),
-      facts: {
-        ...EMPTY_RESUME_FACTS,
-        headline: 'Backend Engineer',
-        skills: ['TypeScript', 'Node.js', 'PostgreSQL', 'React', 'Docker'],
-        experience: [
-          {
-            company: 'Acme',
-            role: 'Lead Engineer',
-            location: null,
-            start: '2021-01',
-            end: '2024-06',
-            current: false,
-            technologies: [],
-            notes: ['Led a team of five people'],
-          },
-        ],
-        languages: [{ name: 'English', level: 'C1' }],
-      },
-    }
     setData(makeResponse(complete))
     // The server answers busy; the mocked query serves the same state on the next render.
     submitMock.mockImplementation(() => {
@@ -412,6 +478,23 @@ describe('ResumeTab — the confirm step (Task 19)', () => {
     const heading = await screen.findByRole('heading', { name: 'У черзі на перевірку' })
     await waitFor(() => expect(heading).toHaveFocus())
     expect(submitMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('a non-busy Submit answer moves no focus, even when a run starts soon after', async () => {
+    setData(makeResponse(complete))
+    submitMock.mockImplementation(() => Promise.resolve(makeResponse(complete)))
+    const view = render(tab())
+    const submitButton = screen.getByTestId('resume-facts-submit')
+    submitButton.focus()
+    fireEvent.click(submitButton)
+    await waitFor(() => expect(submitMock).toHaveBeenCalledTimes(1))
+    await act(async () => {})
+    expect(submitButton).toHaveFocus()
+    // Within the focus TTL another run starts: its heading must not take focus.
+    setData(makeResponse({ ...complete, verificationStatus: 'QUEUED', verificationBusy: true }))
+    view.rerender(tab())
+    const heading = await screen.findByRole('heading', { name: 'У черзі на перевірку' })
+    expect(heading).not.toHaveFocus()
   })
 })
 

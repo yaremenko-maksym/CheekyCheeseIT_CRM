@@ -147,9 +147,9 @@ function renderWired(initial: SeniorResumeResponse) {
     </QueryClientProvider>
   )
   const view = render(<Wired />, { wrapper: wrap })
-  /** The POST answers `next`, and so does every resume GET after it. */
-  const postMovesServerTo = (next: SeniorResumeResponse) =>
-    postMock.mockImplementation(() => {
+  /** The write (POST unless named) answers `next`, and so does every resume GET after it. */
+  const postMovesServerTo = (next: SeniorResumeResponse, write = postMock) =>
+    write.mockImplementation(() => {
       response = next
       return Promise.resolve({ data: next })
     })
@@ -201,11 +201,23 @@ describe('ResumeVerificationPanel — confirm step', () => {
     })
     renderWired(makeResponse())
     fireEvent.click(await screen.findByRole('button', { name: 'Підтвердити' }))
+    // The refetch answers what the server holds now: a newer staged result.
+    const newer = makeResponse({
+      version: 4,
+      staged: { ...STAGED, content: { ...STAGED.content, summary: 'A newer staged summary.' } },
+    })
+    getMock.mockImplementation((url: string) =>
+      url.endsWith('/staged-pdf')
+        ? Promise.reject(new Error('no PDF in jsdom'))
+        : Promise.resolve({ data: newer }),
+    )
     const resumeGets = () =>
       getMock.mock.calls.filter(([url]) => url === `/users/${USER}/resume`).length
     await waitFor(() => expect(resumeGets()).toBe(2))
-    // Ruling R52: the inline notice is the only message for a stale run, no toast.
-    expect(await screen.findByTestId('resume-verification-stale')).toHaveTextContent(
+    expect(await screen.findByText('A newer staged summary.')).toBeInTheDocument()
+    // Ruling R52: the inline notice is the only message for a stale run, and it
+    // stays once the refetched result is on screen. No toast.
+    expect(screen.getByTestId('resume-verification-stale')).toHaveTextContent(
       'Резюме змінилося після перевірки. Оновіть сторінку й перевірте його ще раз.',
     )
     expect(toastError).not.toHaveBeenCalled()
@@ -221,7 +233,10 @@ describe('ResumeVerificationPanel — confirm step', () => {
     renderWired(makeResponse())
     fireEvent.click(await screen.findByRole('button', { name: 'Підтвердити' }))
     await waitFor(() => expect(toastError).toHaveBeenCalledTimes(1))
-    expect(toastError.mock.calls[0]?.[0]).not.toBe('busy')
+    // The uk catalog text for the code, never the server's English message.
+    expect(toastError).toHaveBeenCalledWith(
+      'Резюме зараз перевіряється. Зачекайте, доки перевірка завершиться.',
+    )
     expect(screen.queryByTestId('resume-verification-stale')).toBeNull()
   })
 
@@ -417,6 +432,98 @@ describe('ResumeVerificationPanel — focus (design §8)', () => {
       'Резюме змінилося після перевірки. Оновіть сторінку й перевірте його ще раз.',
     )
     await waitFor(() => expect(notice).toHaveFocus())
+  })
+  it('a non-busy retry answer moves no focus, even when a run starts soon after', async () => {
+    const { postMovesServerTo, serverMovesTo } = renderWired(
+      makeResponse({
+        verificationStatus: 'FAILED',
+        verificationErrorCode: 'ATS_CHECK_FAILED',
+        staged: null,
+      }),
+    )
+    postMovesServerTo(makeResponse({ verificationStatus: 'DRAFT', staged: null }))
+    const retry = await screen.findByTestId('resume-verification-retry')
+    retry.focus()
+    fireEvent.click(retry)
+    await waitFor(() => expect(screen.queryByTestId('resume-verification-retry')).toBeNull())
+    // Within the focus TTL another run starts: its heading must not take focus.
+    await serverMovesTo(
+      makeResponse({ verificationStatus: 'QUEUED', verificationBusy: true, staged: null }),
+    )
+    const heading = await screen.findByRole('heading', { name: 'У черзі на перевірку' })
+    expect(heading).not.toHaveFocus()
+  })
+})
+
+describe('ResumeVerificationPanel — staged edits (fix round 3)', () => {
+  const NEXT_RUN = '44444444-4444-4444-8444-444444444444'
+  const nextRun = (overrides: Partial<SeniorResumeDto> = {}) =>
+    makeResponse({ staged: { ...STAGED, runId: NEXT_RUN }, ...overrides })
+
+  async function openSummaryEdit() {
+    fireEvent.click(await screen.findByRole('button', { name: 'Редагувати' }))
+    return screen.getByRole('textbox', { name: 'Про себе' })
+  }
+
+  it('Cmd+Enter while saving sends one request', async () => {
+    let answer: (value: { data: SeniorResumeResponse }) => void = () => {}
+    putMock.mockImplementation(
+      () => new Promise<{ data: SeniorResumeResponse }>((resolve) => (answer = resolve)),
+    )
+    renderWired(makeResponse())
+    const box = await openSummaryEdit()
+    fireEvent.keyDown(box, { key: 'Enter', metaKey: true })
+    // A held key repeats before the pending render lands.
+    fireEvent.keyDown(box, { key: 'Enter', metaKey: true, repeat: true })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Зберегти' })).toBeDisabled())
+    fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true })
+    expect(putMock).toHaveBeenCalledTimes(1)
+    await act(async () => answer({ data: nextRun() }))
+  })
+
+  it('a new run closes the open inline edit', async () => {
+    const { serverMovesTo } = renderWired(makeResponse())
+    await openSummaryEdit()
+    expect(
+      screen.getByRole('button', { name: 'Редагувати пункт 1, місце роботи 1' }),
+    ).toBeDisabled()
+    await serverMovesTo(nextRun())
+    await waitFor(() => expect(screen.queryByRole('textbox', { name: 'Про себе' })).toBeNull())
+    expect(screen.getByRole('button', { name: 'Редагувати' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Редагувати пункт 1, місце роботи 1' })).toBeEnabled()
+  })
+
+  it('Regenerate is disabled while an inline edit is open', async () => {
+    renderWired(makeResponse())
+    await openSummaryEdit()
+    for (const button of screen.getAllByRole('button', { name: /Згенерувати заново/ }))
+      expect(button).toBeDisabled()
+  })
+
+  it('a busy Save answer moves focus to the checking line', async () => {
+    const { postMovesServerTo } = renderWired(makeResponse())
+    postMovesServerTo(nextRun({ verificationStatus: 'QUEUED', verificationBusy: true }), putMock)
+    await openSummaryEdit()
+    fireEvent.click(screen.getByRole('button', { name: 'Зберегти' }))
+    const checking = await screen.findByTestId('resume-confirm-checking')
+    await waitFor(() => expect(checking).toHaveFocus())
+  })
+
+  it('a non-busy Save answer gives focus back to the block Edit button', async () => {
+    const { postMovesServerTo } = renderWired(makeResponse())
+    postMovesServerTo(nextRun(), putMock)
+    await openSummaryEdit()
+    fireEvent.click(screen.getByRole('button', { name: 'Зберегти' }))
+    const editButton = await screen.findByRole('button', { name: 'Редагувати' })
+    await waitFor(() => expect(editButton).toHaveFocus())
+  })
+
+  it('a busy Regenerate answer moves focus to the checking line', async () => {
+    const { postMovesServerTo } = renderWired(makeResponse())
+    postMovesServerTo(nextRun({ verificationStatus: 'QUEUED', verificationBusy: true }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Згенерувати заново' }))
+    const checking = await screen.findByTestId('resume-confirm-checking')
+    await waitFor(() => expect(checking).toHaveFocus())
   })
 })
 
