@@ -6,7 +6,7 @@
  * the server's answer really produces. Only the PDF blob hook is stubbed: jsdom
  * cannot load a blob into a viewer.
  */
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
@@ -247,6 +247,25 @@ describe('review fixes (fix round 1)', () => {
     expect(putMock).not.toHaveBeenCalled()
     // The stored template stays the checked one while focus browses.
     expect(classic).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('a click after an arrow key released outside the picker sends PUT template', async () => {
+    serve(makeResponse())
+    putMock.mockResolvedValue({ data: makeResponse({ templateName: 'compact' }) })
+    renderTab()
+    const classic = await screen.findByRole('radio', { name: 'Класичний' })
+    classic.focus()
+    // Arrow down inside the group, released outside it: no keyup reaches the group.
+    fireEvent.keyDown(classic, { key: 'ArrowRight' })
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Сучасний' })).toHaveFocus())
+    fireEvent.keyUp(document.body, { key: 'ArrowRight' })
+    await userEvent.click(screen.getByRole('radio', { name: 'Стислий' }))
+    await waitFor(() =>
+      expect(putMock).toHaveBeenCalledWith('/users/senior-1/resume/template', {
+        templateName: 'compact',
+      }),
+    )
+    expect(putMock).toHaveBeenCalledTimes(1)
   })
 
   it('Space on a focused tile sends PUT template', async () => {

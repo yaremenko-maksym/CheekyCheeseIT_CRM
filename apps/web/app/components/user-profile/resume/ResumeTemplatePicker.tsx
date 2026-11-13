@@ -95,7 +95,7 @@ export function ResumeTemplatePicker({
       {staged && !busy && (
         <p
           data-testid="resume-template-discards-staged"
-          className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300"
+          className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400"
         >
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" aria-hidden />
           <Trans>Зміна шаблону скасує цей результат.</Trans>
@@ -111,8 +111,16 @@ export function ResumeTemplatePicker({
         onKeyUpCapture={() => {
           arrowRef.current = false
         }}
+        // A key released outside the group never reaches it; focus leaving the
+        // group clears the flag. Arrow moves between tiles keep focus inside.
+        onBlurCapture={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget)) arrowRef.current = false
+        }}
         onValueChange={(next) => {
-          if (!arrowRef.current) commit(resumeTemplateNameSchema.parse(next))
+          // Consume the flag: one arrow press swallows at most one change.
+          const fromArrow = arrowRef.current
+          arrowRef.current = false
+          if (!fromArrow) commit(resumeTemplateNameSchema.parse(next))
         }}
         className="grid grid-cols-2 gap-3 md:grid-cols-4"
       >
