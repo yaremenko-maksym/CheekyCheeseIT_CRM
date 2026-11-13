@@ -318,6 +318,14 @@ describe('ResumeVerificationPanel — staged PDF', () => {
     await waitFor(() => expect(stagedPdfGets()).toBe(2))
   })
 
+  it('names the template of the staged PDF', async () => {
+    renderWired(makeResponse({ staged: { ...STAGED, templateName: 'modern' } }))
+    const pdf = await screen.findByTestId('resume-staged-pdf')
+    expect(within(pdf).getByTestId('resume-staged-pdf-template')).toHaveTextContent(
+      'Шаблон: Сучасний',
+    )
+  })
+
   it('no staged PDF fetch while busy', async () => {
     renderWired(makeResponse({ verificationStatus: 'QUEUED', verificationBusy: true }))
     const pdf = await screen.findByTestId('resume-staged-pdf')

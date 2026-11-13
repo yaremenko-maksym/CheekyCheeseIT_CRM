@@ -61,6 +61,15 @@ const { ResumePdfPreview } = await import('../ResumePdfPreview')
  */
 const TEXT_INPUT_ROLE = 'textbox' as const
 
+/** The template picker's props, at rest: a DRAFT on the default template. */
+const PICKER_PROPS = {
+  templateName: 'classic',
+  hasCustomTemplate: false,
+  verified: false,
+  busy: false,
+  onTemplateChange: vi.fn(),
+} as const
+
 function renderPanel(overrides: Partial<ResumeLayoutOptions> = {}, canEdit = true) {
   const onSave = vi.fn()
   render(
@@ -69,6 +78,7 @@ function renderPanel(overrides: Partial<ResumeLayoutOptions> = {}, canEdit = tru
       canEdit={canEdit}
       isSaving={false}
       onSave={onSave}
+      {...PICKER_PROPS}
     />,
   )
   return { onSave }
@@ -295,6 +305,7 @@ describe('save button text follows isSaving, exactly', () => {
         canEdit={true}
         isSaving={true}
         onSave={vi.fn()}
+        {...PICKER_PROPS}
       />,
     )
     expect(screen.getByTestId('resume-layout-save')).toHaveTextContent('Зберігаємо…')

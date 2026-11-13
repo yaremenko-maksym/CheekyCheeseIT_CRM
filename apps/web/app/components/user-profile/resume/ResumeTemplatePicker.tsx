@@ -34,8 +34,10 @@ export function useTemplateLabel(): (name: ResumeTemplateName) => string {
   return (name) => i18n._(TEMPLATE_MESSAGES[name].name)
 }
 
-/** Focus target of the failure panel's "Choose a template" button. */
-export const TEMPLATE_PICKER_ID = 'resume-template-picker'
+/** A tile's DOM id: the failure panel's "Choose a template" focuses one. */
+export function templateTileId(name: ResumeTemplateName): string {
+  return `resume-template-tile-${name}`
+}
 
 export interface ResumeTemplatePickerProps {
   /** The stored catalog template; `null` while a personal template is stored. */
@@ -74,14 +76,12 @@ export function ResumeTemplatePicker({
         </p>
       )}
       <RadioGroup
-        id={TEMPLATE_PICKER_ID}
-        tabIndex={-1}
         aria-labelledby="resume-template-picker-title"
         aria-disabled={disabled}
         disabled={disabled}
         value={value ?? ''}
         onValueChange={(next) => onChange(resumeTemplateNameSchema.parse(next))}
-        className="grid grid-cols-2 gap-3 outline-none md:grid-cols-4"
+        className="grid grid-cols-2 gap-3 md:grid-cols-4"
       >
         {RESUME_TEMPLATE_NAMES.map((name) => {
           const current = name === value
@@ -89,6 +89,7 @@ export function ResumeTemplatePicker({
             <RadioGroupPrimitive.Item
               key={name}
               value={name}
+              id={templateTileId(name)}
               data-testid={`resume-template-${name}`}
               className={cn(
                 'flex flex-col gap-2 rounded-lg border border-border/60 p-2 text-left transition-colors xl:max-w-[200px]',

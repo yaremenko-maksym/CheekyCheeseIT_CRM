@@ -25,6 +25,7 @@ import {
   ResumeConfirmStep,
   useFocusAfterRender,
 } from './ResumeConfirmStep'
+import { templateTileId } from './ResumeTemplatePicker'
 import { ResumeVerificationFailure } from './ResumeVerificationFailure'
 
 export interface ResumeVerificationPanelProps {
@@ -64,11 +65,11 @@ export function ResumeVerificationPanel({
       () => {},
     )
   }
-  // The template picker lands in the layout panel (Task 20); until then, go to the panel.
+  // The picker's current tile (the first one under a personal template), as Radix focuses it.
   const chooseTemplate = () => {
-    const panel = document.querySelector<HTMLElement>('[data-testid="resume-layout-panel"]')
-    panel?.scrollIntoView?.({ block: 'start' })
-    panel?.querySelector<HTMLElement>('button:not([disabled])')?.focus()
+    const tile = templateTileId(resume.hasCustomTemplate ? 'classic' : resume.templateName)
+    document.getElementById(tile)?.scrollIntoView?.({ block: 'center' })
+    focusAfterRender([tile])
   }
 
   return (

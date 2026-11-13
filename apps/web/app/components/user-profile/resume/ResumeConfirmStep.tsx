@@ -10,7 +10,12 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Check, Download, Pencil, RefreshCw, TriangleAlert } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { mergeSkills, type SeniorResumeDto, type SeniorResumeResponse } from '@crm/shared'
+import {
+  mergeSkills,
+  type ResumeTemplateName,
+  type SeniorResumeDto,
+  type SeniorResumeResponse,
+} from '@crm/shared'
 import { PdfPreview } from '@/components/documents/pdf-preview'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -27,6 +32,7 @@ import {
 } from '@/hooks/use-senior-resume'
 import { getApiErrorCode, getUserFacingErrorMessage } from '@/lib/axios-utils'
 import { cn } from '@/lib/utils'
+import { useTemplateLabel } from './ResumeTemplatePicker'
 
 type Staged = NonNullable<SeniorResumeDto['staged']>
 
@@ -401,6 +407,7 @@ export function ResumeConfirmStep({
             userId={userId}
             busy={busy}
             fingerprint={`${runId}:${resume.verificationStatus}`}
+            templateName={staged.templateName}
           />
         </TabsContent>
       </Tabs>
@@ -558,12 +565,16 @@ function StagedPdf({
   userId,
   busy,
   fingerprint,
+  templateName,
 }: {
   userId: string
   busy: boolean
   fingerprint: string
+  templateName: ResumeTemplateName
 }) {
   const { t } = useLingui()
+  // The DTO carries no page count, so the meta line names the template only.
+  const template = useTemplateLabel()(templateName)
   const { blobUrl, isLoading, hasError } = useResumePdfBlob(
     userId,
     !busy,
@@ -573,9 +584,14 @@ function StagedPdf({
   return (
     <Card className="space-y-3 p-4" data-testid="resume-staged-pdf">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h4 className="font-semibold">
-          <Trans>PDF до підтвердження</Trans>
-        </h4>
+        <div>
+          <h4 className="font-semibold">
+            <Trans>PDF до підтвердження</Trans>
+          </h4>
+          <p className="text-xs text-muted-foreground" data-testid="resume-staged-pdf-template">
+            <Trans>Шаблон: {template}</Trans>
+          </p>
+        </div>
         {!busy && (
           <Button asChild size="sm" variant="outline" className="h-11 sm:h-9">
             <a href={`${API_BASE_URL}/users/${userId}/resume/staged-pdf`} download>

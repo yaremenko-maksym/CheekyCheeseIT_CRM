@@ -199,3 +199,26 @@ describe('ResumeTemplatePicker in the layout panel', () => {
     expect(within(panel).queryByText('Поточний')).toBeNull()
   })
 })
+
+describe('the failure panel reaches the picker', () => {
+  const failed = (overrides: Partial<SeniorResumeDto>) =>
+    makeResponse({
+      verificationStatus: 'FAILED',
+      verificationReport: { gates: [], fallbacks: [] },
+      ...overrides,
+    })
+
+  it('"Обрати шаблон" moves focus to the current template tile', async () => {
+    serve(failed({ templateName: 'compact', verificationErrorCode: 'RENDER_FAILED' }))
+    renderTab()
+    await userEvent.click(await screen.findByRole('button', { name: 'Обрати шаблон' }))
+    await waitFor(() => expect(screen.getByRole('radio', { name: /Стислий/ })).toHaveFocus())
+  })
+
+  it('with a personal template it focuses the first catalog tile', async () => {
+    serve(failed({ hasCustomTemplate: true, verificationErrorCode: 'CUSTOM_TEMPLATE' }))
+    renderTab()
+    await userEvent.click(await screen.findByRole('button', { name: 'Обрати шаблон' }))
+    await waitFor(() => expect(screen.getByRole('radio', { name: /Класичний/ })).toHaveFocus())
+  })
+})

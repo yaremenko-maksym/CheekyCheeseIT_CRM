@@ -136,7 +136,8 @@ export function ResumeFactsForm({
   useEffect(() => {
     onDirtyChange?.(dirty)
   }, [dirty, onDirtyChange])
-  // The confirm step can hide this form; a hidden form holds no unsaved edits.
+  // Unmount clears the flag. Under a staged result the form stays mounted but
+  // `hidden` (R56) and keeps its draft, so a hidden form still reports dirty.
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
   const nowMonth = monthOf(now ?? new Date())

@@ -711,6 +711,10 @@ msgstr "Створити новий проєкт на основі співбе�
 msgid "Проєктна робота"
 msgstr "Проєктна робота"
 
+#: apps/web/app/hooks/use-senior-resume.ts
+msgid "Шаблон змінено"
+msgstr "Шаблон змінено"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/ObligationPreviewBanner.tsx
 msgid "буде створена частка "
 msgstr "буде створена частка "
@@ -3915,6 +3919,10 @@ msgstr "Пропонує {proposer}"
 msgid "Зростання відповіді"
 msgstr "Зростання відповіді"
 
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Без засічок, акцентна лінія під заголовками"
+msgstr "Без засічок, акцентна лінія під заголовками"
+
 #: apps/web/app/components/user-profile/tabs/InterviewsTab.tsx
 msgid "Дошка співбесід цього сеньйора"
 msgstr "Дошка співбесід цього сеньйора"
@@ -4544,6 +4552,10 @@ msgstr "Очікує вашого рішення"
 msgid "Вільно"
 msgstr "Вільно"
 
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Навички за категоріями"
+msgstr "Навички за категоріями"
+
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Вкладку можна закрити — розпізнавання триває на сервері, результат з’явиться тут."
 msgstr "Вкладку можна закрити — розпізнавання триває на сервері, результат з’явиться тут."
@@ -4806,6 +4818,10 @@ msgstr "Ставка"
 msgid "Нотатку не можна редагувати — вона залишається в історії джерела. Зафіксуйте оголошення провайдера або рішення."
 msgstr "Нотатку не можна редагувати — вона залишається в історії джерела. Зафіксуйте оголошення провайдера або рішення."
 
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Класичний"
+msgstr "Класичний"
+
 #: apps/web/app/routes/_authenticated/projects/components/ProjectCreateDialog.tsx
 msgid "— виберіть сеньйора —"
 msgstr "— виберіть сеньйора —"
@@ -5066,6 +5082,10 @@ msgstr "Ви отримуєте виплати лише в USDT (мережа Et
 #: apps/web/app/components/documents/document-card.tsx
 msgid "Відкрити документ «{displayName}»"
 msgstr "Відкрити документ «{displayName}»"
+
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Стислий"
+msgstr "Стислий"
 
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "PDF рахунку"
@@ -5725,6 +5745,10 @@ msgstr "Не вдалося завантажити фінансове зведе
 msgid "Рахунок"
 msgstr "Рахунок"
 
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Сучасний"
+msgstr "Сучасний"
+
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Підключень Meeting Recorder поки немає"
 msgstr "Підключень Meeting Recorder поки немає"
@@ -6131,6 +6155,10 @@ msgstr "Проєкти"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 msgid "(до отримання: {0})"
 msgstr "(до отримання: {0})"
+
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Дати праворуч, менше відступів"
+msgstr "Дати праворуч, менше відступів"
 
 #: apps/web/app/routes/_authenticated/team/team-detail/components/RotateSeniorDialog.tsx
 #: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
@@ -6841,6 +6869,10 @@ msgstr "Іван Іваненко"
 msgid "Редагувати"
 msgstr "Редагувати"
 
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Усі шаблони каталогу підтримують перевірку. Мініатюри — на прикладі одного резюме."
+msgstr "Усі шаблони каталогу підтримують перевірку. Мініатюри — на прикладі одного резюме."
+
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Підписання…"
 msgstr "Підписання…"
@@ -6970,6 +7002,10 @@ msgstr "Що ви зробили і з яким результатом"
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 msgid "Показати пароль"
 msgstr "Показати пароль"
+
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Шаблон"
+msgstr "Шаблон"
 
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Замітки"
@@ -7672,6 +7708,10 @@ msgstr "Вихідний файл"
 msgid "Сума розрахунку"
 msgstr "Сума розрахунку"
 
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Поточний"
+msgstr "Поточний"
+
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "Зберегти реквізити"
 msgstr "Зберегти реквізити"
@@ -8236,6 +8276,10 @@ msgstr "Склад команди"
 msgid "Вбудований перегляд PDF недоступний. <0>Завантажити контракт</0>"
 msgstr "Вбудований перегляд PDF недоступний. <0>Завантажити контракт</0>"
 
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Технічний"
+msgstr "Технічний"
+
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Не вдалося обрізати зображення"
 msgstr "Не вдалося обрізати зображення"
@@ -8251,6 +8295,10 @@ msgstr "Немає активного шаблону контракту для �
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Реквізити оновлено"
 msgstr "Реквізити оновлено"
+
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Шрифт із засічками, ім’я по центру"
+msgstr "Шрифт із засічками, ім’я по центру"
 
 #: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 msgid "Спершу заповніть поля зі списку"
@@ -9795,6 +9843,10 @@ msgstr "Київ"
 msgid "Немає зобов’язань"
 msgstr "Немає зобов’язань"
 
+#: apps/web/app/components/user-profile/resume/ResumeConfirmStep.tsx
+msgid "Шаблон: {template}"
+msgstr "Шаблон: {template}"
+
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Сб"
 msgstr "Сб"
@@ -11016,6 +11068,10 @@ msgstr "Замінити секрет"
 msgid "Заповніть факти вручну або завантажте резюме — ми заповнимо з нього поля, а ви переглянете."
 msgstr "Заповніть факти вручну або завантажте резюме — ми заповнимо з нього поля, а ви переглянете."
 
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Зміна шаблону запустить перевірку макета. Резюме лишиться перевіреним, а якщо перевірка не пройде — збереже попередній шаблон."
+msgstr "Зміна шаблону запустить перевірку макета. Резюме лишиться перевіреним, а якщо перевірка не пройде — збереже попередній шаблон."
+
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Активних проєктів"
 msgstr "Активних проєктів"
@@ -11800,6 +11856,10 @@ msgstr "прихований розділ потрапив у PDF"
 msgid "Остання подія"
 msgstr "Остання подія"
 
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Шаблон можна змінити після перевірки."
+msgstr "Шаблон можна змінити після перевірки."
+
 #: apps/web/app/components/job-queue/MatchedSeniors.tsx
 msgid "Подано: {who} · {when}"
 msgstr "Подано: {who} · {when}"
@@ -12532,6 +12592,10 @@ msgstr "Ви працюватимете від імені цього корис�
 msgid "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
 msgstr "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
 
+#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
+msgid "Зміна оформлення запустить перевірку макета. Резюме лишиться перевіреним, а якщо перевірка не пройде — збереже попереднє оформлення."
+msgstr "Зміна оформлення запустить перевірку макета. Резюме лишиться перевіреним, а якщо перевірка не пройде — збереже попереднє оформлення."
+
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Додати дохід"
 msgstr "Додати дохід"
@@ -12641,6 +12705,10 @@ msgstr "Збереження…"
 #: apps/web/app/components/documents/document-labels.ts
 msgid "рахунок"
 msgstr "рахунок"
+
+#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
+msgid "Змінити оформлення можна після перевірки."
+msgstr "Змінити оформлення можна після перевірки."
 
 #: apps/web/app/components/users/HrChipsField.tsx
 msgid "Єдиний HR у системі"

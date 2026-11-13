@@ -65,6 +65,8 @@ vi.mock('@/hooks/use-senior-resume', () => ({
   useSaveResumeFacts: () => ({ mutateAsync: saveFactsMock, isPending: false }),
   useSubmitResume: () => ({ mutateAsync: submitMock, isPending: false }),
   useSaveResumeLayout: () => ({ mutate: saveLayoutMock, isPending: false }),
+  // Covered by ResumeTemplatePicker.test.tsx over the real hook.
+  useSetResumeTemplate: () => ({ mutate: vi.fn(), isPending: false }),
   useUploadResumeSource: () => ({ mutate: uploadMock, isPending: false }),
   useIngestResumeText: () => ({ mutate: ingestTextMock, isPending: false }),
   useDeleteResume: () => ({ mutate: deleteMock, isPending: state.deleteIsPending }),
