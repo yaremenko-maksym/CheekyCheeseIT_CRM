@@ -703,9 +703,7 @@ test.describe('Резюме синьора — оформление и PDF', () 
   test('шаблон недоступен для правки из интерфейса', async ({ page }) => {
     await openSeniorResumeAsAdmin(page, [resumeResponse({ content: FILLED_CONTENT })])
 
-    // The panel offers switches only. A textarea here would mean template
-    // source had become editable from a browser, which is the one thing the
-    // layout/data split exists to prevent.
+    // Switches only: a textarea would make template source editable from a browser.
     const panel = page.getByTestId('resume-layout-panel')
     await expect(panel).toBeVisible()
     await expect(panel.getByRole('textbox')).toHaveCount(0)
@@ -754,7 +752,9 @@ test.describe('Резюме — подтверждение проверенно�
     await page.goto(`/profile/${SENIOR_ID}?tab=resume`)
 
     await expect(page.getByTestId('resume-confirm-block-summary')).toBeVisible()
-    await expect(page.getByTestId('resume-facts-form')).toBeHidden()
+    const form = page.getByTestId('resume-facts-form') // R56: hidden, not unmounted
+    await expect(form).toBeAttached()
+    await expect(form).toBeHidden()
     await page.getByTestId('resume-confirm').click()
     await expect.poll(() => bodies.length).toBe(1)
     expect(bodies[0]).toEqual({ runId: RUN_ID, version: 3 })
