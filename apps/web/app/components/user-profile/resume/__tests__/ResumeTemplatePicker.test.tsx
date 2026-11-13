@@ -297,7 +297,7 @@ describe('review fixes (fix round 1)', () => {
     expect(putMock).toHaveBeenCalledTimes(1)
   })
 
-  it('on AWAITING_CONFIRM the picker warns that a pick discards the result', async () => {
+  it('on AWAITING_CONFIRM the layout panel warns that a change discards the result', async () => {
     const base = makeResponse()
     serve(
       makeResponse({
@@ -314,8 +314,10 @@ describe('review fixes (fix round 1)', () => {
       }),
     )
     renderTab()
-    const picker = await screen.findByTestId('resume-template-picker')
-    expect(within(picker).getByText('Зміна шаблону скасує цей результат.')).toBeInTheDocument()
+    const panel = await screen.findByTestId('resume-layout-panel')
+    expect(
+      within(panel).getByText('Зміна шаблону чи оформлення скасує цей результат.'),
+    ).toBeInTheDocument()
     // Picking stays allowed.
     expect(screen.getByRole('radio', { name: 'Сучасний' })).not.toHaveAttribute(
       'aria-disabled',
@@ -327,7 +329,7 @@ describe('review fixes (fix round 1)', () => {
     serve(makeResponse())
     renderTab()
     await screen.findByTestId('resume-template-picker')
-    expect(screen.queryByText('Зміна шаблону скасує цей результат.')).toBeNull()
+    expect(screen.queryByText('Зміна шаблону чи оформлення скасує цей результат.')).toBeNull()
   })
 
   it('focus stays on the picked tile while the template run is busy', async () => {

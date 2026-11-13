@@ -368,6 +368,10 @@ msgstr "Awaiting validation"
 msgid "Записів ще немає."
 msgstr "No entries yet."
 
+#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
+msgid "Зміна шаблону чи оформлення скасує цей результат."
+msgstr "Changing the template or formatting discards this result."
+
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Не вдалося змінити статус відгуку. Спробуйте ще раз"
 msgstr "Could not change the application status. Try again"
@@ -1011,8 +1015,8 @@ msgid "Підключено"
 msgstr "Connected"
 
 #: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
-msgid "Зміна шаблону скасує цей результат."
-msgstr "Changing the template discards this result."
+#~ msgid "Зміна шаблону скасує цей результат."
+#~ msgstr "Changing the template discards this result."
 
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Налаштувати signing secret"

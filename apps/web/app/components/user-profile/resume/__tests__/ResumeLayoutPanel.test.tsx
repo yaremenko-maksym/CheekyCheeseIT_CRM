@@ -13,7 +13,7 @@ import {
   within,
   type RenderOptions,
 } from '@testing-library/react'
-import type { ReactElement } from 'react'
+import type { ComponentProps, ReactElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
@@ -68,6 +68,7 @@ const PICKER_PROPS = {
   verified: false,
   busy: false,
   staged: false,
+  isSavingTemplate: false,
   onTemplateChange: vi.fn(),
 } as const
 
@@ -454,5 +455,66 @@ describe('ResumePdfPreview', () => {
     )
     const frame = await screen.findByTitle('Попередній перегляд: Резюме — Іван Іваненко.pdf')
     expect(frame).toBeInTheDocument()
+  })
+})
+
+describe('review fixes 3', () => {
+  const panel = (props: Partial<ComponentProps<typeof ResumeLayoutPanel>> = {}) => (
+    <ResumeLayoutPanel
+      layout={DEFAULT_RESUME_LAYOUT}
+      canEdit={true}
+      isSaving={false}
+      onSave={vi.fn()}
+      {...PICKER_PROPS}
+      {...props}
+    />
+  )
+
+  it('the draft follows a server layout change', () => {
+    const { rerender } = render(panel())
+    // A local edit, then the server answers a different layout (a failed run kept the old one).
+    fireEvent.click(screen.getByTestId('resume-layout-toggle-summary'))
+    expect(screen.getByTestId('resume-layout-save')).toBeEnabled()
+    rerender(panel({ layout: { ...DEFAULT_RESUME_LAYOUT, hiddenSections: ['links'] } }))
+    expect(screen.getByTestId('resume-layout-toggle-links')).toHaveAccessibleName(
+      'Показати «Посилання»',
+    )
+    expect(screen.getByTestId('resume-layout-toggle-summary')).toHaveAccessibleName(
+      'Приховати «Про себе»',
+    )
+    expect(screen.getByTestId('resume-layout-save')).toBeDisabled()
+  })
+
+  it('the staged warning also covers a layout change', () => {
+    render(panel({ staged: true }))
+    const warning = screen.getByTestId('resume-template-discards-staged')
+    expect(warning).toHaveTextContent('Зміна шаблону чи оформлення скасує цей результат.')
+    // One line for the whole panel, not inside the picker.
+    expect(screen.getByTestId('resume-template-picker')).not.toContainElement(warning)
+    expect(screen.getByTestId('resume-layout-panel')).toContainElement(warning)
+  })
+
+  it('no staged warning while busy or for a viewer who cannot edit', () => {
+    const { rerender } = render(panel({ staged: true, busy: true }))
+    expect(screen.queryByTestId('resume-template-discards-staged')).toBeNull()
+    rerender(panel({ staged: true, canEdit: false }))
+    expect(screen.queryByTestId('resume-template-discards-staged')).toBeNull()
+  })
+
+  it('a viewer who cannot edit sees neither the VERIFIED note nor the busy line', () => {
+    const { rerender } = render(panel({ canEdit: false, verified: true }))
+    expect(screen.queryByText(/Зміна оформлення запустить перевірку макета/)).toBeNull()
+    rerender(panel({ canEdit: false, verified: true, busy: true }))
+    expect(screen.queryByTestId('resume-layout-busy')).toBeNull()
+    // Control: an editor does see them.
+    rerender(panel({ verified: true }))
+    expect(screen.getByText(/Зміна оформлення запустить перевірку макета/)).toBeInTheDocument()
+  })
+
+  it('a template write locks Apply but keeps its label', () => {
+    render(panel({ isSavingTemplate: true }))
+    expect(screen.getByTestId('resume-layout-save')).toHaveTextContent('Застосувати')
+    expect(screen.getByTestId('resume-layout-reset')).toBeDisabled()
+    expect(screen.getByTestId('resume-layout-toggle-summary')).toBeDisabled()
   })
 })
