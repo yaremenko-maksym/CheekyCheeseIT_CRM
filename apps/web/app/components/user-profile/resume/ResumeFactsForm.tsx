@@ -377,7 +377,7 @@ export function ResumeFactsForm({
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0 pb-3">
             <CardTitle className="text-base">
               <Trans>Досвід роботи</Trans>
             </CardTitle>
@@ -417,7 +417,7 @@ export function ResumeFactsForm({
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0 pb-3">
             <CardTitle className="text-base">
               <Trans>Освіта</Trans>
             </CardTitle>
@@ -532,7 +532,7 @@ export function ResumeFactsForm({
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0 pb-3">
             <CardTitle className="text-base">
               <Trans>Мови</Trans>
             </CardTitle>
@@ -621,7 +621,7 @@ export function ResumeFactsForm({
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0 pb-3">
             <CardTitle className="text-base">
               <Trans context="resume">Посилання</Trans>
             </CardTitle>
