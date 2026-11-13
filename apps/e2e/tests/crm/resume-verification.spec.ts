@@ -275,16 +275,70 @@ test.describe('Verified base resume — check and confirm', () => {
     await expect(form).toBeVisible()
     await expect(page.locator('input[name="resumeFactsCompany"]')).toHaveValue('Acme Payments')
 
-    const overflow = await form.evaluate((facts) => {
-      const root = document.documentElement
-      const edge = facts.getBoundingClientRect().right + 1
-      // Page-level scroll alone misses a control that pokes out of its card but stays on screen.
-      const outside = Array.from(facts.querySelectorAll('button, input, textarea, select'))
-        .filter((el) => el.getBoundingClientRect().right > edge)
-        .map((el) => el.textContent?.trim() || el.getAttribute('name') || el.tagName)
-      return { page: root.scrollWidth - root.clientWidth, outside }
-    })
+    const overflow = await overflowOf(form)
     expect(overflow.page).toBeLessThanOrEqual(1)
     expect(overflow.outside).toEqual([])
   })
+
+  test('320 px has no horizontal overflow on the empty state', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 900 })
+    await openResume(page, 'hr', resumeResponse(null, true, true))
+    const intake = page.getByTestId('resume-intake')
+    await expect(page.getByTestId('resume-fill-manually')).toBeVisible()
+
+    const overflow = await overflowOf(intake)
+    expect(overflow.page).toBeLessThanOrEqual(1)
+    expect(overflow.outside).toEqual([])
+    // The tiles themselves stay inside the viewport (QA-2: the right border was clipped at 344).
+    const tilesRight = await intake.evaluate((el) =>
+      Math.max(
+        ...Array.from(el.querySelectorAll('div')).map((d) => d.getBoundingClientRect().right),
+      ),
+    )
+    expect(tilesRight).toBeLessThanOrEqual(320)
+  })
+
+  test('768 px VERIFIED action bar does not scroll sideways', async ({ page }) => {
+    await page.setViewportSize({ width: 768, height: 900 })
+    await openResume(
+      page,
+      'hr',
+      hr({
+        version: 3,
+        hasSourceFile: true,
+        verificationStatus: 'VERIFIED',
+        verifiedVersion: 3,
+        verifiedAt: '2026-11-13T10:00:00.000Z',
+        verifiedByName: USERS.hr.displayName,
+      }),
+    )
+    const del = page.getByTestId('resume-delete')
+    await expect(del).toBeVisible()
+
+    const fit = await del.evaluate((button) => {
+      const main = document.querySelector('main')
+      const scrollers = [document.documentElement, main, main?.parentElement].filter(
+        (el): el is HTMLElement => el instanceof HTMLElement,
+      )
+      return {
+        sideways: Math.max(...scrollers.map((el) => el.scrollWidth - el.clientWidth)),
+        right: button.getBoundingClientRect().right,
+        edge: (main ?? document.documentElement).getBoundingClientRect().right,
+      }
+    })
+    expect(fit.sideways).toBeLessThanOrEqual(1)
+    expect(fit.right).toBeLessThanOrEqual(fit.edge)
+  })
 })
+
+/** Page-level scroll plus every control that pokes out of `scope` (stays on screen but clipped). */
+function overflowOf(scope: ReturnType<Page['getByTestId']>) {
+  return scope.evaluate((root) => {
+    const edge = root.getBoundingClientRect().right + 1
+    const outside = Array.from(root.querySelectorAll('button, input, textarea, select'))
+      .filter((el) => el.getBoundingClientRect().right > edge)
+      .map((el) => el.textContent?.trim() || el.getAttribute('name') || el.tagName)
+    const doc = document.documentElement
+    return { page: doc.scrollWidth - doc.clientWidth, outside }
+  })
+}
