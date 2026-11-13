@@ -67,6 +67,7 @@ const PICKER_PROPS = {
   hasCustomTemplate: false,
   verified: false,
   busy: false,
+  staged: false,
   onTemplateChange: vi.fn(),
 } as const
 

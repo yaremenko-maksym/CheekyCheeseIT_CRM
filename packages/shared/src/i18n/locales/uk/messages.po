@@ -1010,6 +1010,10 @@ msgstr "Використовуватиметься український бан
 msgid "Підключено"
 msgstr "Підключено"
 
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Зміна шаблону скасує цей результат."
+msgstr "Зміна шаблону скасує цей результат."
+
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Налаштувати signing secret"
 msgstr "Налаштувати signing secret"

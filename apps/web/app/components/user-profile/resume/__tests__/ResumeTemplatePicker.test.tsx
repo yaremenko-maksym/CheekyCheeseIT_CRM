@@ -172,7 +172,8 @@ describe('ResumeTemplatePicker in the layout panel', () => {
       'aria-disabled',
       'true',
     )
-    for (const tile of within(picker).getAllByRole('radio')) expect(tile).toBeDisabled()
+    for (const tile of within(picker).getAllByRole('radio'))
+      expect(tile).toHaveAttribute('aria-disabled', 'true')
     expect(screen.getByText('Шаблон можна змінити після перевірки.')).toBeInTheDocument()
     expect(screen.getByText('Змінити оформлення можна після перевірки.')).toBeInTheDocument()
     expect(screen.getByTestId('resume-layout-up-skills')).toBeDisabled()
@@ -220,5 +221,131 @@ describe('the failure panel reaches the picker', () => {
     renderTab()
     await userEvent.click(await screen.findByRole('button', { name: 'Обрати шаблон' }))
     await waitFor(() => expect(screen.getByRole('radio', { name: /Класичний/ })).toHaveFocus())
+  })
+})
+
+describe('review fixes (fix round 1)', () => {
+  const verified = {
+    verificationStatus: 'VERIFIED' as const,
+    verifiedVersion: 3,
+    verifiedAt: '2026-11-10T11:00:00.000Z',
+    verifiedByName: 'Hanna HR',
+  }
+
+  it('arrow keys move focus without sending PUT template', async () => {
+    serve(makeResponse())
+    renderTab()
+    const classic = await screen.findByRole('radio', { name: 'Класичний' })
+    classic.focus()
+    // Hold the key: Radix moves focus on a timer and checks the tile it lands
+    // on only while the arrow is still down, as in a real browser.
+    await userEvent.keyboard('{ArrowRight>}')
+    expect(screen.getByRole('radio', { name: 'Сучасний' })).toHaveFocus()
+    await userEvent.keyboard('{/ArrowRight}{ArrowRight>}')
+    expect(screen.getByRole('radio', { name: 'Стислий' })).toHaveFocus()
+    await userEvent.keyboard('{/ArrowRight}')
+    expect(putMock).not.toHaveBeenCalled()
+    // The stored template stays the checked one while focus browses.
+    expect(classic).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('Space on a focused tile sends PUT template', async () => {
+    serve(makeResponse())
+    putMock.mockResolvedValue({ data: makeResponse({ templateName: 'modern' }) })
+    renderTab()
+    ;(await screen.findByRole('radio', { name: 'Класичний' })).focus()
+    await userEvent.keyboard('{ArrowRight}')
+    await userEvent.keyboard(' ')
+    await waitFor(() =>
+      expect(putMock).toHaveBeenCalledWith('/users/senior-1/resume/template', {
+        templateName: 'modern',
+      }),
+    )
+    expect(putMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('Enter on a focused tile sends PUT template', async () => {
+    serve(makeResponse())
+    putMock.mockResolvedValue({ data: makeResponse({ templateName: 'technical' }) })
+    renderTab()
+    ;(await screen.findByRole('radio', { name: 'Технічний' })).focus()
+    await userEvent.keyboard('{Enter}')
+    await waitFor(() =>
+      expect(putMock).toHaveBeenCalledWith('/users/senior-1/resume/template', {
+        templateName: 'technical',
+      }),
+    )
+    expect(putMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('on AWAITING_CONFIRM the picker warns that a pick discards the result', async () => {
+    const base = makeResponse()
+    serve(
+      makeResponse({
+        verificationStatus: 'AWAITING_CONFIRM',
+        verificationReport: { gates: [], fallbacks: [] },
+        staged: {
+          runId: '22222222-2222-4222-8222-222222222222',
+          content: base.resume!.content,
+          layout: DEFAULT_RESUME_LAYOUT,
+          templateName: 'classic',
+          pdfAvailable: true,
+          editedPaths: [],
+        },
+      }),
+    )
+    renderTab()
+    const picker = await screen.findByTestId('resume-template-picker')
+    expect(within(picker).getByText('Зміна шаблону скасує цей результат.')).toBeInTheDocument()
+    // Picking stays allowed.
+    expect(screen.getByRole('radio', { name: 'Сучасний' })).not.toHaveAttribute(
+      'aria-disabled',
+      'true',
+    )
+  })
+
+  it('a DRAFT picker shows no discard warning', async () => {
+    serve(makeResponse())
+    renderTab()
+    await screen.findByTestId('resume-template-picker')
+    expect(screen.queryByText('Зміна шаблону скасує цей результат.')).toBeNull()
+  })
+
+  it('focus stays on the picked tile while the template run is busy', async () => {
+    serve(makeResponse(verified))
+    const running = makeResponse({ ...verified, verificationBusy: true })
+    putMock.mockImplementation(() => {
+      serve(running)
+      return Promise.resolve({ data: running })
+    })
+    renderTab()
+    const technical = await screen.findByRole('radio', { name: 'Технічний' })
+    await userEvent.click(technical)
+    expect(await screen.findByText('Шаблон можна змінити після перевірки.')).toBeInTheDocument()
+    expect(technical).toHaveFocus()
+    expect(technical).toHaveAttribute('aria-disabled', 'true')
+    // Inert while busy: another pick sends nothing.
+    await userEvent.click(screen.getByRole('radio', { name: 'Сучасний' }))
+    await userEvent.keyboard('{Enter}')
+    expect(putMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('a tile is named by the template; the description and badge describe it', async () => {
+    serve(makeResponse())
+    renderTab()
+    const classic = await screen.findByRole('radio', { name: 'Класичний' })
+    expect(classic).toHaveAccessibleName('Класичний')
+    expect(classic).toHaveAccessibleDescription('Шрифт із засічками, ім’я по центру Поточний')
+    expect(screen.getByRole('radio', { name: 'Сучасний' })).toHaveAccessibleDescription(
+      'Без засічок, акцентна лінія під заголовками',
+    )
+  })
+
+  it('a viewer who cannot edit sees no picker', async () => {
+    serve({ ...makeResponse(), canEdit: false })
+    renderTab()
+    await screen.findByTestId('resume-layout-panel')
+    expect(screen.queryByTestId('resume-template-picker')).toBeNull()
+    expect(screen.queryByRole('radiogroup', { name: 'Шаблон' })).toBeNull()
   })
 })

@@ -365,6 +365,7 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
           hasCustomTemplate={resume.hasCustomTemplate}
           verified={resume.verificationStatus === 'VERIFIED'}
           busy={verificationBusy}
+          staged={resume.staged !== null}
           onTemplateChange={(name) => templateMutation.mutate(name)}
         />
       )}

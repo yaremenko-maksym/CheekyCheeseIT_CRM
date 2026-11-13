@@ -171,7 +171,12 @@ test.describe('Resume — template picker', () => {
       'href',
       /\/users\/[^/]+\/resume\/pdf$/,
     )
-    await expect(page.getByTestId('resume-template-technical')).toBeDisabled()
+    // aria-disabled, not native: the picked tile keeps focus through the run.
+    await expect(page.getByTestId('resume-template-technical')).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    )
+    await expect(page.getByTestId('resume-template-technical')).toBeFocused()
     await expect(page.getByTestId('resume-template-picker')).toContainText(
       assertInCatalog(uk, 'Шаблон можна змінити після перевірки.'),
     )

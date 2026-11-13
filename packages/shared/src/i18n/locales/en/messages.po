@@ -1010,6 +1010,10 @@ msgstr "A Ukrainian sole-proprietor bank account will be used."
 msgid "Підключено"
 msgstr "Connected"
 
+#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
+msgid "Зміна шаблону скасує цей результат."
+msgstr "Changing the template discards this result."
+
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Налаштувати signing secret"
 msgstr "Set up signing secret"

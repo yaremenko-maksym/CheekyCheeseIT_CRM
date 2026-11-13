@@ -4,7 +4,9 @@
  * Apply button. The thumbnails are static PNGs of one synthetic resume
  * (`apps/api/scripts/render-resume-thumbnails.ts`), so the tiles differ only by look.
  */
+import { useRef } from 'react'
 import * as RadioGroupPrimitive from '@radix-ui/react-radio-group'
+import { TriangleAlert } from 'lucide-react'
 import type { MessageDescriptor } from '@lingui/core'
 import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
@@ -42,22 +44,37 @@ export function templateTileId(name: ResumeTemplateName): string {
 export interface ResumeTemplatePickerProps {
   /** The stored catalog template; `null` while a personal template is stored. */
   value: ResumeTemplateName | null
+  /**
+   * A write is pending or a run is busy. Tiles turn `aria-disabled`, not
+   * natively disabled, so the focused tile keeps focus (spec §8).
+   */
   disabled: boolean
   /** A check run is in flight (`verificationBusy`): the picker says when it opens again. */
   busy: boolean
   /** The resume is VERIFIED: a pick starts a template run, and the note says so. */
   verified: boolean
+  /** A staged result awaits confirmation: a pick discards it, and the warning says so. */
+  staged: boolean
   onChange: (name: ResumeTemplateName) => void
 }
+
+const ARROW_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
 
 export function ResumeTemplatePicker({
   value,
   disabled,
   busy,
   verified,
+  staged,
   onChange,
 }: ResumeTemplatePickerProps) {
   const { i18n } = useLingui()
+  // Radix checks the tile an arrow key focuses. Here a pick is a write, so an
+  // arrow only moves focus (manual activation, R58): click, Space or Enter commits.
+  const arrowRef = useRef(false)
+  const commit = (name: ResumeTemplateName) => {
+    if (!disabled && name !== value) onChange(name)
+  }
   return (
     <div data-testid="resume-template-picker" className="space-y-3">
       <div>
@@ -75,26 +92,50 @@ export function ResumeTemplatePicker({
           {translateApiError('RESUME_CUSTOM_TEMPLATE', undefined)}
         </p>
       )}
+      {staged && !busy && (
+        <p
+          data-testid="resume-template-discards-staged"
+          className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300"
+        >
+          <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" aria-hidden />
+          <Trans>Зміна шаблону скасує цей результат.</Trans>
+        </p>
+      )}
       <RadioGroup
         aria-labelledby="resume-template-picker-title"
-        aria-disabled={disabled}
-        disabled={disabled}
+        aria-disabled={disabled || undefined}
         value={value ?? ''}
-        onValueChange={(next) => onChange(resumeTemplateNameSchema.parse(next))}
+        onKeyDownCapture={(e) => {
+          arrowRef.current = ARROW_KEYS.has(e.key)
+        }}
+        onKeyUpCapture={() => {
+          arrowRef.current = false
+        }}
+        onValueChange={(next) => {
+          if (!arrowRef.current) commit(resumeTemplateNameSchema.parse(next))
+        }}
         className="grid grid-cols-2 gap-3 md:grid-cols-4"
       >
         {RESUME_TEMPLATE_NAMES.map((name) => {
           const current = name === value
+          const id = templateTileId(name)
           return (
             <RadioGroupPrimitive.Item
               key={name}
               value={name}
-              id={templateTileId(name)}
+              id={id}
               data-testid={`resume-template-${name}`}
+              aria-disabled={disabled || undefined}
+              aria-labelledby={`${id}-name`}
+              aria-describedby={current ? `${id}-desc ${id}-current` : `${id}-desc`}
+              // Radix keeps Enter inert on a radio; here Enter commits as Space does.
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commit(name)
+              }}
               className={cn(
                 'flex flex-col gap-2 rounded-lg border border-border/60 p-2 text-left transition-colors xl:max-w-[200px]',
                 'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                'disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent',
+                'aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-transparent',
                 current && 'border-primary ring-1 ring-primary',
               )}
             >
@@ -104,12 +145,17 @@ export function ResumeTemplatePicker({
                 loading="lazy"
                 className="aspect-[1/1.414] w-full rounded-sm object-cover object-top"
               />
-              <span className="text-sm font-medium">{i18n._(TEMPLATE_MESSAGES[name].name)}</span>
-              <span className="text-xs text-muted-foreground">
+              <span id={`${id}-name`} className="text-sm font-medium">
+                {i18n._(TEMPLATE_MESSAGES[name].name)}
+              </span>
+              <span id={`${id}-desc`} className="text-xs text-muted-foreground">
                 {i18n._(TEMPLATE_MESSAGES[name].desc)}
               </span>
               {current && (
-                <Badge className="w-fit border-transparent bg-yellow-subtle text-primary hover:bg-yellow-subtle">
+                <Badge
+                  id={`${id}-current`}
+                  className="w-fit border-transparent bg-yellow-subtle text-primary hover:bg-yellow-subtle"
+                >
                   <Trans>Поточний</Trans>
                 </Badge>
               )}

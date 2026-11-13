@@ -91,6 +91,8 @@ export interface ResumeLayoutPanelProps {
   verified: boolean
   /** `verificationBusy`: every write answers 409, so every control is locked. */
   busy: boolean
+  /** A staged result awaits confirmation: a template pick discards it. */
+  staged: boolean
   onTemplateChange: (name: ResumeTemplateName) => void
 }
 
@@ -119,6 +121,7 @@ export function ResumeLayoutPanel({
   hasCustomTemplate,
   verified,
   busy,
+  staged,
   onTemplateChange,
 }: ResumeLayoutPanelProps) {
   const { t, i18n } = useLingui()
@@ -159,15 +162,24 @@ export function ResumeLayoutPanel({
       data-testid="resume-layout-panel"
       className="rounded-xl border border-border/60 bg-card/50 p-4 sm:p-5"
     >
-      <ResumeTemplatePicker
-        value={hasCustomTemplate ? null : templateName}
-        disabled={locked}
-        busy={busy}
-        verified={verified}
-        onChange={onTemplateChange}
-      />
+      {/* Spec §11: a viewer who cannot edit gets no picker. */}
+      {canEdit && (
+        <ResumeTemplatePicker
+          value={hasCustomTemplate ? null : templateName}
+          disabled={locked}
+          busy={busy}
+          verified={verified}
+          staged={staged}
+          onChange={onTemplateChange}
+        />
+      )}
 
-      <header className="mb-4 mt-5 flex border-t border-border/60 pt-5 flex-wrap items-center justify-between gap-2">
+      <header
+        className={cn(
+          'mb-4 flex flex-wrap items-center justify-between gap-2',
+          canEdit && 'mt-5 border-t border-border/60 pt-5',
+        )}
+      >
         <div>
           <h3 className="text-sm font-semibold">
             <Trans>Оформлення</Trans>
