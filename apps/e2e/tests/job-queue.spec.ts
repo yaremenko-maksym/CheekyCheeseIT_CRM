@@ -1,15 +1,31 @@
-import type { Page } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
+import type { Browser, Page } from '@playwright/test'
 import { test, expect, loginViaApi, REAL_API_BASE, SEED_EMAILS } from './fixtures'
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 import {
   MOCK_IDS,
+  SEED_PEOPLE,
+  SEED_QUEUE,
+  SEED_TEAMS,
   apiError,
   serverFailure,
+  cancelLiveSubmission,
   card,
   cardSenior,
+  grantTriage,
+  jobSource,
   listItem,
   listResponse,
   mockJobQueue,
+  mockJobSources,
+  queueCard,
+  queueList,
+  queueRow,
+  revokeTriage,
+  seniorNamed,
+  teamIdByName,
+  undoLiveDismissal,
+  visibleTitles,
 } from '../fixtures/job-queue'
 
 /**
@@ -338,5 +354,429 @@ test.describe('scenario 13 — mobile 375 px (mocked)', () => {
     )
     // exactly one call, to the original, issued inside the click dispatch
     expect(calls).toEqual([{ url: card().primarySource!.url, inGesture: true }])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Wave 2 — the REAL API on the Task 7.6a seed: scenarios 1-6, 10, 12
+// ---------------------------------------------------------------------------
+// Every row and person is found through the API by its seed title / display name. Every write a
+// test makes (a submission, a hide, a triage grant) is undone through the API, before (a crashed
+// earlier run) and after, so the suite stays green on a re-run against the same database. No
+// test touches a senior's stack or a team's members: match versions are frozen at seed time.
+test.describe('wave 2 — real API on the 7.6a seed', () => {
+  // one database per shard: a write here would race a parallel worker's visibility read
+  test.describe.configure({ mode: 'serial' })
+
+  const ROW = (id: string) => `job-queue-row-${id}`
+  // a row's own testid ends in its uuid; its parts (`job-queue-row-line`, …) share the prefix
+  const ANY_ROW = /^job-queue-row-[0-9a-f]{8}-[0-9a-f-]{27}$/
+
+  /** Runs `fn` as another seed user in a context of its own (its own cookie and cache). */
+  async function asActor<T>(
+    browser: Browser,
+    email: string,
+    fn: (page: Page) => Promise<T>,
+  ): Promise<T> {
+    const ctx = await browser.newContext()
+    try {
+      const page = await ctx.newPage()
+      await loginViaApi(page, email)
+      return await fn(page)
+    } finally {
+      await ctx.close()
+    }
+  }
+
+  async function rowId(page: Page, title: string, scope: { teamId?: string } = {}) {
+    const row = await queueRow(page.request, title, scope)
+    if (!row) throw new Error(`"${title}" is not in this actor's «Нові» tab`)
+    return row.opportunityId
+  }
+
+  test('1/5: each seeded actor is authorized for exactly its own vacancies (API)', async ({
+    page,
+  }) => {
+    const Q = SEED_QUEUE
+    const expected: [string, string[]][] = [
+      [SEED_EMAILS.admin, Object.values(Q)],
+      [SEED_EMAILS.hrA, [Q.reactPlatform, Q.unsafeDescription, Q.uncertainMatch]],
+      [SEED_EMAILS.hrB, [Q.reactPlatform, Q.dataPipeline]],
+      [SEED_EMAILS.hr3, [Q.reactPlatform]],
+      [SEED_EMAILS.hr2, [Q.reactPlatform, Q.unsafeDescription, Q.uncertainMatch]],
+      [SEED_EMAILS.hr0, []],
+    ]
+    for (const [email, titles] of expected) {
+      await loginViaApi(page, email)
+      // `visibleTitles` throws on any status but 200: the teamless HR is answered, not refused
+      expect({ email, titles: await visibleTitles(page.request) }).toEqual({
+        email,
+        titles: [...titles].sort(),
+      })
+    }
+  })
+
+  test('1: HR opens the queue from the menu; the card shows its sources and own-team seniors', async ({
+    page,
+  }) => {
+    const uk = await loadMessages('uk')
+    await loginViaApi(page, SEED_EMAILS.hrA)
+    const teamId = await teamIdByName(page.request, SEED_TEAMS.kovalenko)
+    const id = await rowId(page, SEED_QUEUE.reactPlatform, { teamId })
+    const api = await queueCard(page.request, id, { teamId })
+
+    await page.goto('/')
+    await page
+      .getByRole('navigation', { name: assertInCatalog(uk, 'Основна навігація') })
+      .getByRole('link', { name: assertInCatalog(uk, 'Черга зовнішніх вакансій') })
+      .click()
+    await expect(page).toHaveURL(/\/job-queue/)
+    await expect(page.getByTestId(ANY_ROW)).toHaveCount(3)
+    await page.getByTestId(ROW(id)).click()
+
+    const cardEl = page.getByTestId('job-queue-card')
+    await expect(cardEl).toBeVisible()
+    // the seed links two sources: the primary opens the original, the other is «Також опубліковано»
+    const others = api.sources.items.filter(
+      (s) => s.sourceRecordId !== api.primarySource?.sourceRecordId,
+    )
+    expect(others).toHaveLength(1)
+    for (const s of others) {
+      await expect(cardEl.getByTestId(`job-queue-source-row-${s.sourceRecordId}`)).toBeVisible()
+    }
+    // own team's two matched seniors; Team Kravchenko's match on the same vacancy is never shown
+    for (const name of [SEED_PEOPLE.oleksiy, SEED_PEOPLE.taras]) {
+      await expect(
+        cardEl.getByTestId(`job-queue-senior-${seniorNamed(api, name).seniorId}`),
+      ).toContainText(name)
+    }
+    await expect(cardEl.getByTestId('job-queue-seniors')).not.toContainText(SEED_PEOPLE.artem)
+  })
+
+  test.describe('2-4: one submission, seen from three teams', () => {
+    let teamId = ''
+    let id = ''
+    let taras = ''
+    const clean = (browser: Browser) =>
+      asActor(browser, SEED_EMAILS.hrA, (p) =>
+        cancelLiveSubmission(p.request, id, SEED_PEOPLE.taras, { teamId }),
+      )
+
+    test.beforeAll(async ({ browser }) => {
+      await asActor(browser, SEED_EMAILS.hrA, async (p) => {
+        teamId = await teamIdByName(p.request, SEED_TEAMS.kovalenko)
+        const row =
+          (await queueRow(p.request, SEED_QUEUE.reactPlatform, { teamId })) ??
+          (await queueRow(p.request, SEED_QUEUE.reactPlatform, { teamId, tab: 'SUBMITTED' }))
+        if (!row) throw new Error('React Platform is not visible to Team Kovalenko')
+        id = row.opportunityId
+        taras = seniorNamed(await queueCard(p.request, id, { teamId }), SEED_PEOPLE.taras).seniorId
+      })
+      await clean(browser)
+    })
+    test.afterAll(async ({ browser }) => clean(browser))
+
+    test('2: «Записати подачу» moves the vacancy from «Нові» to «Подані» for the team', async ({
+      page,
+    }) => {
+      await loginViaApi(page, SEED_EMAILS.hrA)
+      await page.goto(`/job-queue?teamId=${teamId}`)
+      await page.getByTestId(ROW(id)).click()
+      const submit = page.getByTestId(`job-queue-submit-${taras}`)
+      await expect(submit).toBeEnabled()
+
+      await submit.click()
+
+      await expect(page.getByTestId(`job-queue-senior-submitted-${taras}`)).toContainText(
+        SEED_PEOPLE.anna,
+      )
+      await page.goto(`/job-queue?teamId=${teamId}&tab=SUBMITTED`)
+      await expect(page.getByTestId(ROW(id))).toBeVisible()
+      await page.goto(`/job-queue?teamId=${teamId}&tab=NEW`)
+      await expect(page.getByTestId(ANY_ROW).first()).toBeVisible()
+      await expect(page.getByTestId(ROW(id))).toHaveCount(0)
+    })
+
+    test('3: a second HR of the same team sees «Подано» with the submitter name', async ({
+      page,
+    }) => {
+      await loginViaApi(page, SEED_EMAILS.hr2)
+      await page.goto(`/job-queue?teamId=${teamId}&tab=SUBMITTED`)
+      await page.getByTestId(ROW(id)).click()
+      await expect(page.getByTestId(`job-queue-senior-submitted-${taras}`)).toContainText(
+        SEED_PEOPLE.anna,
+      )
+      await expect(page.getByTestId(`job-queue-submit-${taras}`)).toHaveCount(0)
+    })
+
+    test('4: another team sharing the senior sees a nameless «Подано»; a team without him sees nothing', async ({
+      page,
+      browser,
+    }) => {
+      const uk = await loadMessages('uk')
+      // Team Marchenko shares Taras: it learns he is taken, never by whom
+      await loginViaApi(page, SEED_EMAILS.hrB)
+      expect(seniorNamed(await queueCard(page.request, id), SEED_PEOPLE.taras).submission).toEqual({
+        submittedElsewhere: true,
+      })
+      await page.goto('/job-queue')
+      await page.getByTestId(ROW(id)).click()
+      const badge = page.getByTestId(`job-queue-senior-submitted-${taras}`)
+      await expect(badge).toHaveText(assertInCatalog(uk, 'Подано'))
+      await expect(badge).not.toContainText(SEED_PEOPLE.anna)
+      await expect(page.getByTestId(`job-queue-submit-${taras}`)).toHaveCount(0)
+
+      // Team Kravchenko matches only Artem: for it the vacancy is untouched
+      await asActor(browser, SEED_EMAILS.hr3, async (p) => {
+        const artem = seniorNamed(await queueCard(p.request, id), SEED_PEOPLE.artem)
+        expect(artem.submission).toBeNull()
+        await p.goto('/job-queue')
+        await p.getByTestId(ROW(id)).click()
+        await expect(p.getByTestId(`job-queue-submit-${artem.seniorId}`)).toBeEnabled()
+        await expect(p.getByTestId(/^job-queue-senior-submitted-/)).toHaveCount(0)
+      })
+    })
+  })
+
+  test('5: an HR with no team gets an empty, authorized queue', async ({ page }) => {
+    await loginViaApi(page, SEED_EMAILS.hr0)
+    const list = await queueList(page.request)
+    expect([list.items, list.counts]).toEqual([[], { NEW: 0, SUBMITTED: 0, HIDDEN: 0 }])
+
+    await page.goto('/job-queue')
+    await expect(page.getByTestId('job-queue-no-team')).toBeVisible()
+    await expect(page.getByTestId(ANY_ROW)).toHaveCount(0)
+  })
+
+  test.describe('6: scoped hide and undo', () => {
+    let teamId = ''
+    let id = ''
+    const clean = (browser: Browser) =>
+      asActor(browser, SEED_EMAILS.hrA, (p) => undoLiveDismissal(p.request, id, { teamId }))
+
+    test.beforeAll(async ({ browser }) => {
+      await asActor(browser, SEED_EMAILS.hrA, async (p) => {
+        teamId = await teamIdByName(p.request, SEED_TEAMS.kovalenko)
+        const row =
+          (await queueRow(p.request, SEED_QUEUE.uncertainMatch, { teamId })) ??
+          (await queueRow(p.request, SEED_QUEUE.uncertainMatch, { teamId, tab: 'HIDDEN' }))
+        if (!row) throw new Error('Uncertain Match is not visible to Team Kovalenko')
+        id = row.opportunityId
+      })
+      await clean(browser)
+    })
+    test.afterAll(async ({ browser }) => clean(browser))
+
+    test('6: «Приховати» → «Скасувати» → reload → «Приховати» again succeeds', async ({ page }) => {
+      const uk = await loadMessages('uk')
+      await loginViaApi(page, SEED_EMAILS.hrA)
+
+      // a full navigation each time: the session forgets the dismissal version, so the second
+      // hide must take it from the card's own `dismissal` (an undone row keeps its version)
+      const hide = async () => {
+        await page.goto(`/job-queue?teamId=${teamId}`)
+        await page.getByTestId(ROW(id)).click()
+        await page
+          .getByTestId('job-queue-card-footer')
+          .getByRole('button', { name: assertInCatalog(uk, 'Приховати') })
+          .click()
+        await page.getByRole('menuitem', { name: assertInCatalog(uk, 'Нерелевантна') }).click()
+        const toast = page
+          .locator('[data-sonner-toast]')
+          .filter({ hasText: assertInCatalog(uk, 'Приховано') })
+        await expect(toast).toBeVisible()
+        await expect(page.getByTestId(ROW(id))).toHaveCount(0)
+        return toast
+      }
+
+      const toast = await hide()
+      await toast.getByRole('button', { name: assertInCatalog(uk, 'Скасувати') }).click()
+      await expect(page.getByTestId(ROW(id))).toBeVisible()
+      expect(await queueRow(page.request, SEED_QUEUE.uncertainMatch, { teamId })).toBeDefined()
+
+      await hide()
+      expect(
+        await queueRow(page.request, SEED_QUEUE.uncertainMatch, { teamId, tab: 'HIDDEN' }),
+      ).toBeDefined()
+    })
+  })
+
+  test.describe('10: the queue cache does not outlive the account', () => {
+    /** Records every queue row id the page ever renders, from the first paint on. */
+    const recordRows = (page: Page) =>
+      page.addInitScript(() => {
+        const seen = new Set<string>()
+        ;(window as unknown as { __queueRowsSeen: Set<string> }).__queueRowsSeen = seen
+        new MutationObserver(() => {
+          document.querySelectorAll('[data-testid^="job-queue-row-"]').forEach((el) => {
+            const id = el.getAttribute('data-testid') ?? ''
+            if (/^job-queue-row-[0-9a-f]{8}-[0-9a-f-]{27}$/.test(id)) seen.add(id)
+          })
+        }).observe(document, { childList: true, subtree: true })
+      })
+    const rowsSeen = (page: Page) =>
+      page.evaluate(() => [
+        ...(window as unknown as { __queueRowsSeen: Set<string> }).__queueRowsSeen,
+      ])
+    /** The persisted TanStack cache (`lib/persister.ts`, idb-keyval's default store) as text. */
+    const persisted = (page: Page) =>
+      page.evaluate(
+        () =>
+          new Promise<string>((resolve, reject) => {
+            const open = indexedDB.open('keyval-store')
+            open.onerror = () => reject(open.error)
+            open.onsuccess = () => {
+              const db = open.result
+              if (!db.objectStoreNames.contains('keyval')) return resolve('')
+              const get = db.transaction('keyval').objectStore('keyval').get('crm-query-cache')
+              get.onerror = () => reject(get.error)
+              get.onsuccess = () =>
+                resolve(get.result === undefined ? '' : JSON.stringify(get.result))
+            }
+          }),
+      )
+
+    test('10a: logout purges the cache; the next account never paints the previous rows', async ({
+      page,
+    }) => {
+      await loginViaApi(page, SEED_EMAILS.hrA)
+      await page.goto('/job-queue')
+      await expect(page.getByTestId(ANY_ROW)).toHaveCount(3)
+      // queue answers are never written to the persisted cache (the `__root.tsx` allow-list)
+      expect(await persisted(page)).not.toContain(SEED_QUEUE.reactPlatform)
+
+      await page.getByTestId('header-user-menu-trigger').click()
+      await page.getByTestId('header-user-menu-logout').click()
+      await expect(page).toHaveURL(/\/login/)
+      const after = await persisted(page)
+      for (const title of Object.values(SEED_QUEUE)) expect(after).not.toContain(title)
+
+      await recordRows(page)
+      await loginViaApi(page, SEED_EMAILS.hr0)
+      await page.goto('/job-queue')
+      await expect(page.getByTestId('job-queue-no-team')).toBeVisible()
+      expect(await rowsSeen(page)).toEqual([])
+    })
+
+    test('10b: an account change without logout never paints the previous account rows', async ({
+      page,
+    }) => {
+      await loginViaApi(page, SEED_EMAILS.hrA)
+      // the two vacancies only Team Kovalenko sees: Team Marchenko must never paint them
+      const annaOnly = [
+        await rowId(page, SEED_QUEUE.unsafeDescription),
+        await rowId(page, SEED_QUEUE.uncertainMatch),
+      ]
+      await page.goto('/job-queue')
+      for (const id of annaOnly) await expect(page.getByTestId(ROW(id))).toBeVisible()
+
+      await recordRows(page)
+      await loginViaApi(page, SEED_EMAILS.hrB)
+      await page.goto('/job-queue')
+      await expect(page.getByTestId(ANY_ROW)).toHaveCount(2)
+      const seen = await rowsSeen(page)
+      expect(seen.length).toBeGreaterThan(0)
+      for (const id of annaOnly) expect(seen).not.toContain(ROW(id))
+    })
+  })
+
+  test.describe('12: ADMIN source switch and triage assign', () => {
+    test('12a: only ADMIN gets the source panel; the API refuses HR reads and writes', async ({
+      page,
+    }) => {
+      await loginViaApi(page, SEED_EMAILS.admin)
+      await page.goto('/job-queue')
+      await expect(page.getByTestId('job-source-section')).toBeVisible()
+
+      await loginViaApi(page, SEED_EMAILS.hrA)
+      await page.goto('/job-queue')
+      await expect(page.getByTestId(ANY_ROW).first()).toBeVisible()
+      await expect(page.getByTestId('job-source-section')).toHaveCount(0)
+      const sources = `${REAL_API_BASE}/api/job-sourcing/sources`
+      for (const res of [
+        await page.request.get(sources),
+        await page.request.patch(`${sources}/${randomUUID()}`, { data: { enabled: false } }),
+      ]) {
+        expect([res.status(), ((await res.json()) as { code?: string }).code]).toEqual([
+          403,
+          'FORBIDDEN_INSUFFICIENT_ROLE',
+        ])
+      }
+    })
+
+    // The seed has no `job_sources` row and no API creates one: the switch's rendering runs on a
+    // mocked source list under a REAL ADMIN session; its RBAC is the real-API case 12a above.
+    const openSources = async (page: Page) => {
+      await page.goto('/job-queue')
+      await page.getByTestId('job-source-section-title').click()
+      return page.getByTestId('job-source-card').getByRole('switch')
+    }
+
+    test('12b: ADMIN switches a source off and back on (source list mocked)', async ({ page }) => {
+      await loginViaApi(page, SEED_EMAILS.admin)
+      await mockJobSources(page, jobSource())
+      const toggle = await openSources(page)
+      await expect(toggle).toBeChecked()
+
+      await toggle.click()
+      await expect(toggle).not.toBeChecked()
+      await toggle.click()
+      await expect(toggle).toBeChecked()
+    })
+
+    test('12c: a readiness refusal keeps the source off and says why (source list mocked)', async ({
+      page,
+    }) => {
+      await loginViaApi(page, SEED_EMAILS.admin)
+      await mockJobSources(
+        page,
+        jobSource({
+          enabled: false,
+          readiness: 'CANDIDATE',
+          readinessReason: 'AUTH_DEADLINE_PASSED: the authorization window closed',
+        }),
+        'JOB_SOURCE_NOT_READY',
+      )
+      const toggle = await openSources(page)
+      await expect(toggle).not.toBeChecked()
+
+      await toggle.click()
+
+      await expect(page.getByTestId('job-source-enable-failure')).toBeVisible()
+      await expect(toggle).not.toBeChecked()
+    })
+
+    test('12d: a triage grant shows the vacancy to the granted team only', async ({
+      page,
+      browser,
+    }) => {
+      await loginViaApi(page, SEED_EMAILS.admin)
+      const team = await teamIdByName(page.request, SEED_TEAMS.kravchenko)
+      const row = await queueRow(page.request, SEED_QUEUE.unclearStack)
+      if (!row) throw new Error('the triage vacancy is not in the ADMIN «Нові» tab')
+      const id = row.opportunityId
+      const notSeen = (email: string) =>
+        asActor(browser, email, async (p) =>
+          expect(await visibleTitles(p.request)).not.toContain(SEED_QUEUE.unclearStack),
+        )
+      await notSeen(SEED_EMAILS.hr3)
+
+      const grant = await grantTriage(page.request, id, team, row.revision)
+      try {
+        await asActor(browser, SEED_EMAILS.hr3, async (p) => {
+          await p.goto('/job-queue')
+          await expect(p.getByTestId(ROW(id))).toBeVisible()
+        })
+        await asActor(browser, SEED_EMAILS.hrB, async (p) => {
+          expect(await visibleTitles(p.request)).not.toContain(SEED_QUEUE.unclearStack)
+          await p.goto('/job-queue')
+          await expect(p.getByTestId(ANY_ROW)).toHaveCount(2)
+          await expect(p.getByTestId(ROW(id))).toHaveCount(0)
+        })
+      } finally {
+        await revokeTriage(page.request, id, team, grant.grantVersion)
+      }
+      await notSeen(SEED_EMAILS.hr3)
+    })
   })
 })
