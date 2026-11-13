@@ -178,6 +178,12 @@ export interface QueueMocks {
   list?: Answer[]
   /** GET `/job-queue/:id` answers, in order (the last one repeats). */
   card?: Answer[]
+  /**
+   * The card once a submit POST has arrived: every card GET before the submit answers `card`, every
+   * one after answers this. Driven by the action, not by how many GETs the page happened to make
+   * (`gcTime: 0` and the scoped key can refetch the card before the click).
+   */
+  cardAfterSubmit?: Answer
   /** POST `/job-queue/:id/submissions` answers, in order (the last one repeats). */
   submit?: Answer[]
 }
@@ -207,6 +213,7 @@ export async function mockJobQueue(page: Page, mocks: QueueMocks = {}) {
     ],
   )
   const uuid = '[0-9a-f-]{36}'
+  let submitted = false
 
   await page.route(new RegExp(`${API_RE}/job-queue`), (r) =>
     answer(r, { status: 501, body: serverFailure(501) }),
@@ -220,8 +227,11 @@ export async function mockJobQueue(page: Page, mocks: QueueMocks = {}) {
       }),
     }),
   )
-  await page.route(new RegExp(`${API_RE}/job-queue/${uuid}(\\?|$)`), (r) => answer(r, cardAnswer()))
+  await page.route(new RegExp(`${API_RE}/job-queue/${uuid}(\\?|$)`), (r) =>
+    answer(r, submitted && mocks.cardAfterSubmit ? mocks.cardAfterSubmit : cardAnswer()),
+  )
   await page.route(new RegExp(`${API_RE}/job-queue/${uuid}/submissions(\\?|$)`), (r) => {
+    submitted = true
     const a = submit()
     // a parsed `{ submission }` body is wrapped as a 201, a Canned answer passes as-is
     return answer(r, isCanned(a) ? a : { status: 201, body: a })
@@ -365,23 +375,30 @@ export async function undoLiveDismissal(
 }
 
 /** ADMIN: grants a team triage access to a vacancy for a day; returns what the revoke needs. */
-export async function grantTriage(
+/**
+ * Revokes whatever live grant `teamId` holds on the vacancy; `null` when there is none. No API
+ * reads a grant, and a revoke matches only the live version (grant 1, revoke 2, re-grant 3, …,
+ * anything else is a 409 with no effect), so the odd versions are walked up to `maxVersion`.
+ */
+export async function revokeLiveTriage(
   req: APIRequestContext,
   opportunityId: string,
   teamId: string,
-  expectedOpportunityRevision: number,
-): Promise<{ grantVersion: number }> {
-  const res = await req.post(`${QUEUE_API}/${opportunityId}/team-triage`, {
-    data: {
-      teamId,
-      expectedOpportunityRevision,
-      policyVersion: 0,
-      reason: 'Task 7.6 E2E triage grant',
-      expiresAt: new Date(Date.now() + 24 * 3600_000).toISOString(),
-      idempotencyKey: randomUUID(),
-    },
-  })
-  return jobQueueTeamTriageGrantSchema.parse(await ok(res, 201, 'grant team triage'))
+  maxVersion = 199,
+): Promise<number | null> {
+  for (let version = 1; version <= maxVersion; version += 2) {
+    const res = await req.delete(`${QUEUE_API}/${opportunityId}/team-triage/${teamId}`, {
+      data: {
+        expectedGrantVersion: version,
+        reason: 'Task 7.6 E2E pre-clean',
+        idempotencyKey: randomUUID(),
+      },
+    })
+    if (res.status() === 409) continue
+    jobQueueTeamTriageGrantSchema.parse(await ok(res, 200, 'revoke live team triage'))
+    return version
+  }
+  return null
 }
 
 export async function revokeTriage(
