@@ -368,9 +368,10 @@ export function ResumeConfirmStep({
                             </div>
                           ) : (
                             <>
-                              <p className="break-words">
+                              {/* A div, not a p: the Badge renders a div (QA-8 validateDOMNesting). */}
+                              <div className="break-words">
                                 {bullet} {edited.has(path) && <EditedBadge small />}
-                              </p>
+                              </div>
                               <Button
                                 id={editButtonId(path)}
                                 type="button"

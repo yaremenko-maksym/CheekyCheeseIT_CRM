@@ -263,6 +263,22 @@ describe('ResumeVerificationPanel — confirm step', () => {
     const job = screen.getByTestId('resume-confirm-block-experience-0')
     expect(within(job).queryByText('Змінено вручну')).toBeNull()
   })
+
+  it('an edited bullet badge is not nested in a <p> (QA-8 validateDOMNesting)', async () => {
+    renderWired(
+      makeResponse({
+        staged: { ...STAGED, editedPaths: [{ path: 'experience.0.bullets.1', userId: USER }] },
+      }),
+    )
+    const job = await screen.findByTestId('resume-confirm-block-experience-0')
+    const badge = within(job).getAllByText('Змінено вручну').at(-1)
+    expect(badge).toBeDefined()
+    // The DOM nesting IS the behaviour under test; no Testing Library query expresses it.
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(badge?.closest('p')).toBeNull()
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(job.querySelector('p div')).toBeNull()
+  })
 })
 
 describe('ResumeVerificationPanel — failure panel', () => {

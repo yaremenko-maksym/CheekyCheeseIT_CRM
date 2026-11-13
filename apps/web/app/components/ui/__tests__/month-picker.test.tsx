@@ -223,22 +223,33 @@ describe('MonthPickerField', () => {
     }
   })
 
-  it('empty value: placeholders shown and exactly the 5 default years, ascending', async () => {
+  it('empty value: placeholders shown and exactly the 5 default years, newest first', async () => {
     await loadCatalog('uk')
     render(<Harness />)
     expect(screen.getByTestId(MONTH)).toHaveTextContent('Місяць')
     expect(screen.getByTestId(YEAR)).toHaveTextContent('Рік')
     await user().click(screen.getByTestId(YEAR))
     const years = (await screen.findAllByRole('option')).map((o) => o.textContent)
-    expect(years).toEqual(['2023', '2024', '2025', '2026', '2027'])
+    expect(years).toEqual(['2027', '2026', '2025', '2024', '2023'])
   })
 
-  it('an out-of-range stored year is merged into the list in ascending order', async () => {
+  it('an out-of-range stored year is merged into the list, newest first', async () => {
     await loadCatalog('uk')
     render(<Harness initial="2019-05" />)
     await user().click(screen.getByTestId(YEAR))
     const years = (await screen.findAllByRole('option')).map((o) => o.textContent)
-    expect(years).toEqual(['2019', '2023', '2024', '2025', '2026', '2027'])
+    expect(years).toEqual(['2027', '2026', '2025', '2024', '2023', '2019'])
+  })
+
+  it('a long range (resume: 1970 to now) lists the current year first and keeps every year (QA-10)', async () => {
+    await loadCatalog('uk')
+    render(<Harness minMonth="1970-01" maxMonth="2026-10" />)
+    await user().click(screen.getByTestId(YEAR))
+    const years = (await screen.findAllByRole('option')).map((o) => o.textContent)
+    expect(years).toHaveLength(57)
+    expect(years[0]).toBe('2026')
+    expect(years[1]).toBe('2025')
+    expect(years.at(-1)).toBe('1970')
   })
 
   it('follows prop and locale changes without a remount', async () => {
@@ -263,7 +274,7 @@ describe('MonthPickerField', () => {
     render(<Harness initial="2025-06" minMonth="2025-03" maxMonth="2026-02" />)
     await user().click(screen.getByTestId(YEAR))
     const years = (await screen.findAllByRole('option')).map((o) => o.textContent)
-    expect(years).toEqual(['2025', '2026'])
+    expect(years).toEqual(['2026', '2025'])
   })
 
   it('disabled disables both triggers', async () => {

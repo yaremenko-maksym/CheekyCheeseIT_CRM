@@ -88,7 +88,8 @@ export function MonthPickerField({
     const set = new Set<number>()
     for (let y = first; y <= last; y++) set.add(y)
     if (selYear) set.add(selYear)
-    return [...set].sort((a, b) => a - b)
+    // Newest first: recent years are the usual pick (QA-10; the resume range starts at 1970).
+    return [...set].sort((a, b) => b - a)
   }, [minMonth, maxMonth, curYear, selYear])
 
   const onOpenChange = (open: boolean) => {
