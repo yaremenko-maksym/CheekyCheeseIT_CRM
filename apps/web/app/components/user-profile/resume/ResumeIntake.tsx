@@ -76,7 +76,7 @@ export function ResumeIntake({
         onClick={() => fileInputRef.current?.click()}
         disabled={isBusy}
         data-testid="resume-upload-button"
-        className="min-h-11"
+        className="h-auto min-h-11 whitespace-normal"
       >
         <FileUp className="mr-2 h-4 w-4" aria-hidden />
         {variant === 'empty' ? (
@@ -90,7 +90,7 @@ export function ResumeIntake({
         onClick={() => setMode((m) => (m === 'text' ? 'idle' : 'text'))}
         disabled={isBusy}
         data-testid="resume-paste-toggle"
-        className="min-h-11"
+        className="h-auto min-h-11 whitespace-normal"
       >
         <ClipboardType className="mr-2 h-4 w-4" aria-hidden />
         <Trans>Вставити текстом</Trans>
@@ -128,7 +128,8 @@ export function ResumeIntake({
               переглянете.
             </Trans>
           </p>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          {/* minmax(0,1fr): a long button label wraps instead of widening the tile past 320 px (QA-2). */}
+          <div className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2">
             {onFillManually && (
               <div className="flex flex-col gap-3 rounded-lg border bg-card p-4">
                 <PencilLine className="h-6 w-6 text-muted-foreground" aria-hidden />
@@ -139,7 +140,7 @@ export function ResumeIntake({
                   onClick={onFillManually}
                   disabled={isBusy}
                   data-testid="resume-fill-manually"
-                  className="mt-auto min-h-11"
+                  className="mt-auto h-auto min-h-11 whitespace-normal"
                 >
                   <Trans>Заповнити вручну</Trans>
                 </Button>

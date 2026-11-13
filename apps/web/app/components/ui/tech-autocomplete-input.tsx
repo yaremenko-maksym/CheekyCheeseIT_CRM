@@ -180,7 +180,8 @@ export function TechAutocompleteInput({
               <button
                 type="button"
                 onClick={() => removeTag(tag)}
-                className="flex h-4 w-4 items-center justify-center rounded-sm transition-colors hover:bg-destructive/20 hover:text-destructive focus:outline-none focus:ring-1 focus:ring-ring"
+                // The glyph stays 16 px; the after: layer makes the target 44 px (32 from sm).
+                className="relative flex h-4 w-4 items-center justify-center rounded-sm after:absolute after:-inset-3.5 after:content-[''] sm:after:-inset-2 transition-colors hover:bg-destructive/20 hover:text-destructive focus:outline-none focus:ring-1 focus:ring-ring"
                 aria-label={t`Видалити ${tag}`}
               >
                 <X className="h-3 w-3" />

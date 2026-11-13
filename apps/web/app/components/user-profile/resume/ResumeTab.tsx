@@ -146,7 +146,7 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
    */
   const sourceAndDangerActions =
     resume && (resume.hasSourceFile || canEdit) ? (
-      <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
         {resume.hasSourceFile && sourceQuery.data?.url && (
           <Button asChild variant="outline" className="min-h-11">
             <a
@@ -262,16 +262,16 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
         />
       )}
 
-      {/* Toolbar */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      {/* Toolbar. Below lg the actions take their own row (design §9; QA-3: Delete overflowed at 768). */}
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0 space-y-1">
           {resume && (
             <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <VerificationBadge resume={resume} />
-              {/* `max-w-full` (not `min-w-0`) is what makes the line truncate — measured. */}
+              {/* `max-w-full` keeps the line inside the bar; it wraps, never truncates (QA-11). */}
               <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
                 <History className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                <span className="truncate">
+                <span className="min-w-0 break-words">
                   {resume.updatedByName ? (
                     <Trans>
                       Версія {resume.version} · останній редактор: {resume.updatedByName}

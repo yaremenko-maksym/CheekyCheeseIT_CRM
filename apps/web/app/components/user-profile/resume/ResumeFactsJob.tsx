@@ -79,7 +79,8 @@ export function JobBlock({
 
   return (
     <div className="space-y-3 rounded-lg border p-3" data-testid={`resume-facts-job-${index}`}>
-      <div className="flex items-center justify-between gap-2">
+      {/* flex-wrap: at 320 the actions drop below the title, as on the facts card headers (QA-11). */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-semibold">
           <Trans>Місце роботи {position}</Trans>
         </p>
@@ -147,7 +148,7 @@ export function JobBlock({
           />
           {fieldError(`${base}.location`)}
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 lg:col-span-2 xl:col-span-1">
           <Label htmlFor={startA11y.id}>
             <Trans>Початок</Trans>
           </Label>
@@ -165,7 +166,7 @@ export function JobBlock({
           />
           {fieldError(`${base}.start`)}
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 lg:col-span-2 xl:col-span-1">
           <Label htmlFor={endA11y.id}>
             <Trans>Кінець</Trans>
           </Label>
@@ -187,7 +188,9 @@ export function JobBlock({
       </div>
 
       <div className="flex min-h-11 items-center gap-2">
+        {/* The track stays 36x20; the after: layer makes the target 44 px (32 from sm), design §8 (QA-7). */}
         <Switch
+          className="relative after:absolute after:-inset-x-1.5 after:-inset-y-3.5 after:content-[''] sm:after:-inset-y-2 sm:after:inset-x-0"
           id={currentId}
           checked={job.current}
           onCheckedChange={(current) => onPatch(current ? { current, end: null } : { current })}
