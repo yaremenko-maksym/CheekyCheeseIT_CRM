@@ -330,9 +330,10 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
       )}
 
       {/* With a staged result the confirm step replaces the form until the user
-          chooses "Change the facts". */}
+          chooses "Change the facts". Ruling R56: collapsed, the form is hidden,
+          not unmounted, so a draft survives collapse and reopen. */}
       {canEdit ? (
-        (staged === null || changingFacts) && (
+        <div hidden={staged !== null && !changingFacts}>
           <ResumeFactsForm
             facts={resume?.facts ?? EMPTY_RESUME_FACTS}
             displayName={displayName}
@@ -345,7 +346,7 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
             }}
             onDirtyChange={setIsDirty}
           />
-        )
+        </div>
       ) : (
         <ResumeReadOnlyView content={content} />
       )}

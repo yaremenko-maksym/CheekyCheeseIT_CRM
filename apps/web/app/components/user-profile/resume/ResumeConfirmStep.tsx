@@ -10,7 +10,7 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Check, Download, Pencil, RefreshCw, TriangleAlert } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { mergeSkills, type SeniorResumeDto } from '@crm/shared'
+import { mergeSkills, type SeniorResumeDto, type SeniorResumeResponse } from '@crm/shared'
 import { PdfPreview } from '@/components/documents/pdf-preview'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -50,7 +50,8 @@ export function useFocusAfterRender() {
   useEffect(() => {
     if (ids === null) return
     const target = ids.map((id) => document.getElementById(id)).find((el) => el !== null)
-    if (!target) return
+    // A disabled button cannot take focus yet: wait for the render that enables it.
+    if (!target || target.matches(':disabled')) return
     target.focus()
     setIds(null)
   })
@@ -107,10 +108,16 @@ export function ResumeConfirmStep({
   const confirm = useConfirmResume(userId)
   const edit = useEditStagedField(userId)
   const regenerate = useRegenerateStagedField(userId)
-  const [editing, setEditing] = useState<string | null>(null)
   const busy = resume.verificationBusy
   const locked = busy || confirm.isPending || edit.isPending || regenerate.isPending
   const runId = staged.runId
+  // Keyed by run: a new run closes the open inline edit, whose path may be gone.
+  const [editingAt, setEditingAt] = useState<{ runId: string; path: string } | null>(null)
+  const editing = editingAt?.runId === runId ? editingAt.path : null
+  const setEditing = (path: string | null) => setEditingAt(path === null ? null : { runId, path })
+  // Ruling R55: a staged write starts a new run and would discard the facts being changed.
+  const blockLocked = locked || editing !== null || changingFacts
+  const focusAfterRender = useFocusAfterRender()
 
   const editedPaths = staged.editedPaths.map((p) => p.path)
   const edited = new Set(editedPaths)
@@ -121,7 +128,7 @@ export function ResumeConfirmStep({
       : null
 
   // Errors are toasted by the hooks; here only the stale run gets its focused notice.
-  const act = <T,>(request: Promise<T>, then?: () => void) => {
+  const act = <T,>(request: Promise<T>, then?: (data: T) => void) => {
     onStale(null)
     void request.then(then, (e: unknown) => {
       if (getApiErrorCode(e) === 'RESUME_CONFIRM_STALE') onStale(getUserFacingErrorMessage(e))
@@ -135,16 +142,27 @@ export function ResumeConfirmStep({
   const closeEdit = (path: string) => {
     setEditing(null)
     // Give focus back to the block's Edit button once it is rendered again.
-    requestAnimationFrame(() => document.getElementById(editButtonId(path))?.focus())
+    focusAfterRender([editButtonId(path)])
+  }
+  // Ruling R54: a busy answer focuses the checking line, as Submit focuses the progress heading.
+  const focusChecking = (data: SeniorResumeResponse) => {
+    if (data.resume?.verificationBusy) focusAfterRender(['resume-confirm-checking'])
   }
   const inlineEdit = (path: string, label: string, text: string) => (
     <InlineEdit
       label={label}
       initial={text}
       error={editError}
-      pending={edit.isPending}
+      saveDisabled={edit.isPending || changingFacts}
       onCancel={() => closeEdit(path)}
-      onSave={(next) => act(edit.mutateAsync({ runId, path, text: next }), () => setEditing(null))}
+      onSave={(next) =>
+        act(edit.mutateAsync({ runId, path, text: next }), (data) => {
+          if (data.resume?.verificationBusy) {
+            setEditing(null)
+            focusChecking(data)
+          } else closeEdit(path)
+        })
+      }
     />
   )
   const regenerateButton = (path: string, ariaLabel?: string) => (
@@ -153,10 +171,10 @@ export function ResumeConfirmStep({
       variant="ghost"
       size="sm"
       className="h-11 sm:h-9"
-      disabled={locked}
+      disabled={blockLocked}
       aria-label={ariaLabel}
       title={ariaLabel}
-      onClick={() => act(regenerate.mutateAsync({ runId, path }))}
+      onClick={() => act(regenerate.mutateAsync({ runId, path }), focusChecking)}
     >
       <RefreshCw className="mr-1.5 size-4" aria-hidden />
       <Trans>Згенерувати заново</Trans>
@@ -281,7 +299,7 @@ export function ResumeConfirmStep({
                   variant="ghost"
                   size="sm"
                   className="h-11 sm:h-9"
-                  disabled={locked || editing !== null}
+                  disabled={blockLocked}
                   onClick={() => openEdit('summary')}
                 >
                   <Pencil className="mr-1.5 size-4" aria-hidden />
@@ -353,7 +371,7 @@ export function ResumeConfirmStep({
                                 variant="ghost"
                                 size="icon"
                                 className="size-11 sm:size-9"
-                                disabled={locked || editing !== null}
+                                disabled={blockLocked}
                                 aria-label={editLabel}
                                 title={editLabel}
                                 onClick={() => openEdit(path)}
@@ -471,14 +489,14 @@ function InlineEdit({
   label,
   initial,
   error,
-  pending,
+  saveDisabled,
   onSave,
   onCancel,
 }: {
   label: string
   initial: string
   error: string | null
-  pending: boolean
+  saveDisabled: boolean
   onSave: (text: string) => void
   onCancel: () => void
 }) {
@@ -498,7 +516,9 @@ function InlineEdit({
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Escape') onCancel()
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) onSave(text)
+          // The Save button's guard, for the shortcut: one request, never a repeat.
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !saveDisabled && !e.repeat)
+            onSave(text)
         }}
       />
       {/* The catalog text only: the server never echoes the matched text, and neither do we. */}
@@ -512,7 +532,7 @@ function InlineEdit({
           type="button"
           size="sm"
           className="h-11 sm:h-9"
-          disabled={pending}
+          disabled={saveDisabled}
           onClick={() => onSave(text)}
         >
           <Trans>Зберегти</Trans>

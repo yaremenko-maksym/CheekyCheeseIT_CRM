@@ -220,8 +220,9 @@ export function useSubmitResume(userId: string) {
 
 /**
  * A confirm-step write (`POST confirm`, `PUT staged`, `POST staged/regenerate`).
- * Each carries `staged.runId`; a stale runId or version answers 409, which
- * toasts the catalog text ("the resume changed, review again") and refetches.
+ * Each carries `staged.runId`; a stale runId or version answers 409
+ * (RESUME_CONFIRM_STALE), which shows the confirm step's inline notice instead
+ * of a toast (ruling R52) and refetches. Every other error toasts.
  * `inlineCode` is an error the caller shows next to its field instead of a toast.
  */
 function useStagedAction<TInput>(

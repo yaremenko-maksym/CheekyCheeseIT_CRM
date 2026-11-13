@@ -754,7 +754,7 @@ test.describe('Резюме — подтверждение проверенно�
     await page.goto(`/profile/${SENIOR_ID}?tab=resume`)
 
     await expect(page.getByTestId('resume-confirm-block-summary')).toBeVisible()
-    await expect(page.getByTestId('resume-facts-form')).toHaveCount(0)
+    await expect(page.getByTestId('resume-facts-form')).toBeHidden()
     await page.getByTestId('resume-confirm').click()
     await expect.poll(() => bodies.length).toBe(1)
     expect(bodies[0]).toEqual({ runId: RUN_ID, version: 3 })
