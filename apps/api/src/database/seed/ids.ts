@@ -26,3 +26,8 @@ export const DROP3_ID = 'f6b7a8d9-e0f1-4a2b-9c4d-5e6f7a8b9c44'
 export const DROP4_ID = 'a7c8b9e0-f1a2-4b3c-ad5e-6f7a8b9c0d55'
 export const DROP5_ID = 'b8d9c0f1-a2b3-4c4d-be6f-7a8b9c0d1e66'
 export const DROP6_ID = 'c9e0d1a2-b3c4-4d5e-8f7a-8b9c0d1e2f77'
+// Job-queue E2E users (Task 7.6a): a second HR of Team Kovalenko, an HR with no team and a
+// SENIOR shared by Team Kovalenko and Team Marchenko.
+export const HR2_ID = 'd5a6e7f8-a9b0-4c1d-8e2f-3a4b5c6d7e01'
+export const HR0_ID = 'e6b7f8a9-b0c1-4d2e-9f3a-4b5c6d7e8f02'
+export const SENIOR_SHARED_ID = 'f7c8a9b0-c1d2-4e3f-a04b-5c6d7e8f9a03'

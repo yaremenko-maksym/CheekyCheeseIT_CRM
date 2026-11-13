@@ -26,6 +26,9 @@ import {
   DROP4_ID,
   DROP5_ID,
   DROP6_ID,
+  HR2_ID,
+  HR0_ID,
+  SENIOR_SHARED_ID,
 } from './ids'
 import { d } from './shared'
 import type { SeedCtx } from './shared'
@@ -236,6 +239,34 @@ export async function seedOnboarding({ db }: SeedCtx): Promise<void> {
       signedAt: d(2025, 11, 1),
       contractNum: 17,
       payRequisite: '0x4B0897b0513fdC7C541B6d9D7E929C4e5364D2dB',
+      method: 'USDT ERC-20',
+    },
+    // Task 7.6a job-queue E2E users: onboarded, so the queue answers them, not ONBOARDING_REQUIRED
+    {
+      userId: HR2_ID,
+      role: 'HR',
+      legalName: 'Бондар Ірина Петрівна',
+      signedAt: d(2025, 11, 15),
+      contractNum: 18,
+      payRequisite: 'UA213223130000026007233566005 (monobank)',
+      method: 'Bank UAH FOP',
+    },
+    {
+      userId: HR0_ID,
+      role: 'HR',
+      legalName: 'Мороз Юлія Андріївна',
+      signedAt: d(2025, 11, 15),
+      contractNum: 19,
+      payRequisite: 'UA213223130000026007233566006 (ПриватБанк)',
+      method: 'Bank UAH FOP',
+    },
+    {
+      userId: SENIOR_SHARED_ID,
+      role: 'SENIOR',
+      legalName: 'Савчук Тарас Миколайович',
+      signedAt: d(2025, 11, 15),
+      contractNum: 20,
+      payRequisite: '0x1aE0EA34a72D944a8C7603FfB3eC30a6669E454C',
       method: 'USDT ERC-20',
     },
   ]
