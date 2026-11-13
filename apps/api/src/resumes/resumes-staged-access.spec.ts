@@ -141,6 +141,27 @@ describe('SeniorResumesService — Task 15 allowed paths', () => {
     }
   })
 
+  it('a staged key whose object is gone is 404 DOCUMENT_NOT_FOUND, not a 500 (QA-12)', async () => {
+    const { svc, s3 } = build(ROW)
+    s3.getObject.mockRejectedValueOnce(
+      Object.assign(new Error('The specified key does not exist.'), {
+        name: 'NoSuchKey',
+        $metadata: { httpStatusCode: 404 },
+      }),
+    )
+    const err = await refusal(svc.getStagedPdf(viewer(OWNER_ID, 'SENIOR'), OWNER_ID))
+    expect(err).toBeInstanceOf(HttpException)
+    expect((err as HttpException).getStatus()).toBe(404)
+    expect((err as HttpException).getResponse()).toMatchObject({ code: 'DOCUMENT_NOT_FOUND' })
+  })
+
+  it('any other storage failure of the staged PDF is rethrown as is', async () => {
+    const { svc, s3 } = build(ROW)
+    const outage = Object.assign(new Error('socket hang up'), { name: 'TimeoutError' })
+    s3.getObject.mockRejectedValueOnce(outage)
+    expect(await refusal(svc.getStagedPdf(viewer(OWNER_ID, 'SENIOR'), OWNER_ID))).toBe(outage)
+  })
+
   it('the live PDF of a senior with no resume row is the same 404', async () => {
     const { svc, typst } = build(undefined)
     const err = await refusal(svc.getRenderedPdf(viewer(OWNER_ID, 'SENIOR'), OWNER_ID))
