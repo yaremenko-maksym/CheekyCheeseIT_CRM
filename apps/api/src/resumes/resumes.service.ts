@@ -52,7 +52,7 @@ import {
 import { DatabaseService } from '../database/database.service'
 import { seniorResumes, type SeniorResume, type User } from '../database/schema'
 import { S3Service, presignTtlForCategory } from '../documents/s3.service'
-import { isS3NotFound } from '../documents/s3-not-found.util'
+import { isS3NoSuchKey } from '../documents/s3-not-found.util'
 import { ResumeAiService } from './resume-ai.service'
 import { canAccessResume, canConfirmResume, type ResumeAccessMode } from './resume-access'
 import { apiError } from '../common/api-error'
@@ -260,7 +260,7 @@ export class SeniorResumesService {
     if (!row?.stagedPdfS3Key) throw noResume()
     const pdfBuffer = await this.s3.getObject(row.stagedPdfS3Key).catch((error: unknown) => {
       // A key whose object is gone (cleanup raced the read) is a missing file, not a server fault.
-      if (isS3NotFound(error)) throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
+      if (isS3NoSuchKey(error)) throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
       throw error
     })
     return { pdfBuffer, displayName: target.displayName }

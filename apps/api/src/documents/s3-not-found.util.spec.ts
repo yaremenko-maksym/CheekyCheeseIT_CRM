@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isS3NotFound } from './s3-not-found.util'
+import { isS3NoSuchKey, isS3NotFound } from './s3-not-found.util'
 
 describe('isS3NotFound', () => {
   it.each([
@@ -17,5 +17,26 @@ describe('isS3NotFound', () => {
     ['a string', 'NoSuchKey'],
   ])('is false for %s', (_label, error) => {
     expect(isS3NotFound(error)).toBe(false)
+  })
+})
+
+// GetObject names a missing object NoSuchKey; a missing bucket is also HTTP 404 and must not pass.
+describe('isS3NoSuchKey', () => {
+  it.each([
+    ['a NoSuchKey name', { name: 'NoSuchKey', $metadata: { httpStatusCode: 404 } }],
+    ['a NoSuchKey code', { name: 'S3ServiceException', Code: 'NoSuchKey' }],
+  ])('is true for %s', (_label, error) => {
+    expect(isS3NoSuchKey(error)).toBe(true)
+  })
+
+  it.each([
+    ['NoSuchBucket with HTTP 404', { name: 'NoSuchBucket', $metadata: { httpStatusCode: 404 } }],
+    ['a NoSuchBucket code', { name: 'S3ServiceException', Code: 'NoSuchBucket' }],
+    ['a HEAD NotFound', { name: 'NotFound', $metadata: { httpStatusCode: 404 } }],
+    ['a bare HTTP 404', { name: 'Unknown', $metadata: { httpStatusCode: 404 } }],
+    ['null', null],
+    ['a string', 'NoSuchKey'],
+  ])('is false for %s', (_label, error) => {
+    expect(isS3NoSuchKey(error)).toBe(false)
   })
 })

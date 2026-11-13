@@ -162,6 +162,26 @@ describe('SeniorResumesService — Task 15 allowed paths', () => {
     expect(await refusal(svc.getStagedPdf(viewer(OWNER_ID, 'SENIOR'), OWNER_ID))).toBe(outage)
   })
 
+  it('a missing bucket is not a missing file: NoSuchBucket (HTTP 404) is rethrown (CR-M-2)', async () => {
+    const { svc, s3 } = build(ROW)
+    const noBucket = Object.assign(new Error('The specified bucket does not exist'), {
+      name: 'NoSuchBucket',
+      $metadata: { httpStatusCode: 404 },
+    })
+    s3.getObject.mockRejectedValueOnce(noBucket)
+    expect(await refusal(svc.getStagedPdf(viewer(OWNER_ID, 'SENIOR'), OWNER_ID))).toBe(noBucket)
+  })
+
+  it('a NoSuchKey carried in `Code` (not `name`) is still 404 DOCUMENT_NOT_FOUND', async () => {
+    const { svc, s3 } = build(ROW)
+    s3.getObject.mockRejectedValueOnce(
+      Object.assign(new Error('missing'), { name: 'S3ServiceException', Code: 'NoSuchKey' }),
+    )
+    const err = await refusal(svc.getStagedPdf(viewer(OWNER_ID, 'SENIOR'), OWNER_ID))
+    expect((err as HttpException).getStatus()).toBe(404)
+    expect((err as HttpException).getResponse()).toMatchObject({ code: 'DOCUMENT_NOT_FOUND' })
+  })
+
   it('the live PDF of a senior with no resume row is the same 404', async () => {
     const { svc, typst } = build(undefined)
     const err = await refusal(svc.getRenderedPdf(viewer(OWNER_ID, 'SENIOR'), OWNER_ID))

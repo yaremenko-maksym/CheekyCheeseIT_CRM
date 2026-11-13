@@ -92,26 +92,30 @@ type ContactCheck = (text: string) => boolean
 
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
+/** NFC, and the typographic apostrophe as the ASCII one: "O’Neil" and an NFD "José" match. */
+const normaliseName = (text: string): string => text.normalize('NFC').replace(/\u2019/g, "'")
+
 /**
- * Phone, email, or the senior's full name (first and last token, either order,
- * whole words, any case or spacing). A one-token name adds no name check: a
- * first name or surname alone is a common word too often.
+ * Phone, email, or the senior's full name, whole words, any case or spacing:
+ * every token of the display name in order, or its first and last token in
+ * either order. A one-token name adds no name check: a first name or surname
+ * alone is a common word too often.
  */
 function contactCheck(displayName: string): ContactCheck {
-  const tokens = displayName.trim().split(/\s+/).filter(Boolean).map(escapeRegExp)
+  const tokens = normaliseName(displayName).trim().split(/\s+/).filter(Boolean).map(escapeRegExp)
   const first = tokens[0]
   const last = tokens[tokens.length - 1]
   const name =
     tokens.length >= 2 && first !== undefined && last !== undefined
       ? new RegExp(
-          `(?<![\\p{L}\\p{N}])(?:${first}\\s+${last}|${last}\\s+${first})(?![\\p{L}\\p{N}])`,
+          `(?<![\\p{L}\\p{N}])(?:${tokens.join('\\s+')}|${first}\\s+${last}|${last}\\s+${first})(?![\\p{L}\\p{N}])`,
           'iu',
         )
       : null
   return (text) =>
     findPhoneSpans(text).length > 0 ||
     RESUME_EMAIL_PATTERN.test(text) ||
-    (name !== null && name.test(text))
+    (name !== null && name.test(normaliseName(text)))
 }
 
 function checkExperienceItem(

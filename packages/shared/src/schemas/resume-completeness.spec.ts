@@ -318,6 +318,30 @@ describe('checkResumeCompleteness', () => {
       expect(noteIssues('XOleksiy Kovalenko led billing')).toEqual([])
     })
 
+    it('flags a 3-token display name typed verbatim (CR-M-1)', () => {
+      const ctx = { ...CTX, displayName: 'Oleksiy Petrovych Kovalenko' }
+      expect(noteIssues('Oleksiy Petrovych Kovalenko led billing', ctx)).toEqual(flagged)
+      expect(noteIssues('led by oleksiy  petrovych KOVALENKO', ctx)).toEqual(flagged)
+      // First + last, either order, still flags with a middle name in the display name.
+      expect(noteIssues('Kovalenko Oleksiy led billing', ctx)).toEqual(flagged)
+      // A middle name alone, or with only one other token, is not the full name.
+      expect(noteIssues('Petrovych Kovalenko led billing', ctx)).toEqual([])
+    })
+
+    it('matches across Unicode normalisation forms (CR-L-1)', () => {
+      const nfc = { ...CTX, displayName: 'José Müller'.normalize('NFC') }
+      expect(noteIssues('Built by José Müller'.normalize('NFD'), nfc)).toEqual(flagged)
+      const nfd = { ...CTX, displayName: 'José Müller'.normalize('NFD') }
+      expect(noteIssues('Built by José Müller'.normalize('NFC'), nfd)).toEqual(flagged)
+    })
+
+    it('treats the ASCII and typographic apostrophes as equal (CR-L-1)', () => {
+      const ascii = { ...CTX, displayName: "Sean O'Neil" }
+      expect(noteIssues('Built by Sean O’Neil', ascii)).toEqual(flagged)
+      const curly = { ...CTX, displayName: 'Sean O’Neil' }
+      expect(noteIssues("Built by Sean O'Neil", curly)).toEqual(flagged)
+    })
+
     it('a one-token display name adds no name check', () => {
       expect(noteIssues('Oleksiy led billing', { ...CTX, displayName: 'Oleksiy' })).toEqual([])
     })
