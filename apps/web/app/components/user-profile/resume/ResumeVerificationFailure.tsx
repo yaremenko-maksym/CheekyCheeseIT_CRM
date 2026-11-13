@@ -188,38 +188,41 @@ export function ResumeVerificationFailure({
   disabled,
 }: ResumeVerificationFailureProps) {
   const { i18n } = useLingui()
-  const issueLabel = useIssueLabel()
   const entry = VERIFICATION_CODES[code]
   const body = entry.body
     ? i18n._(entry.body)
     : translateApiError('RESUME_CUSTOM_TEMPLATE', undefined)
 
+  const rows = failingRows(report)
   if (variant === 'warning') {
     return (
       <div
         role="status"
-        className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm"
+        className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm"
         data-testid="resume-verification-warning"
       >
-        <Info className="mt-0.5 size-4 shrink-0 text-amber-500" aria-hidden />
-        <p className="min-w-0">
-          <span className="font-semibold">
-            <Trans>
-              Зміна шаблону чи оформлення не пройшла перевірку — залишено попередній варіант.
-            </Trans>
-          </span>{' '}
-          {body}
-        </p>
+        <div className="flex items-start gap-2">
+          <Info className="mt-0.5 size-4 shrink-0 text-amber-500" aria-hidden />
+          <p className="min-w-0">
+            <span className="font-semibold">
+              <Trans>
+                Зміна шаблону чи оформлення не пройшла перевірку — залишено попередній варіант.
+              </Trans>
+            </span>{' '}
+            {body}
+          </p>
+        </div>
+        {/* R63: these bodies say "the fields in the list", so the list is shown (never empty). */}
+        {LIST_CODES.has(code) && (
+          <FailingFieldList
+            rows={rows.length > 0 ? rows : [{ labelPath: '', field: null, reason: '' }]}
+            onFocusField={onFocusField}
+          />
+        )}
       </div>
     )
   }
 
-  const rows = (report?.gates ?? [])
-    .filter((gate) => !gate.ok)
-    .flatMap((gate) => gate.items)
-    .map((item) => ({ ...resolveReportPath(item.path), reason: item.reason }))
-  const shown = rows.slice(0, MAX_ROWS)
-  const more = rows.length - shown.length
   const firstField = rows.find((row) => row.field !== null)?.field ?? null
   const fixFacts = () => {
     if (firstField === null || !onFocusField(firstField)) onFocusField('headline')
@@ -244,24 +247,7 @@ export function ResumeVerificationFailure({
         </div>
       </div>
 
-      {shown.length > 0 && (
-        <ul className="mt-3 space-y-1" data-testid="resume-verification-items">
-          {shown.map(({ labelPath, field, reason }, i) => (
-            <IssueRow
-              key={`${labelPath}:${reason}:${i}`}
-              tone="amber"
-              label={issueLabel(labelPath)}
-              text={i18n._(REASONS[reason] ?? GENERIC_REASON)}
-              onFocus={field === null ? null : () => void onFocusField(field)}
-            />
-          ))}
-          {more > 0 && (
-            <li className="px-2 text-xs text-muted-foreground">
-              <Trans>і ще {more}</Trans>
-            </li>
-          )}
-        </ul>
-      )}
+      {rows.length > 0 && <FailingFieldList rows={rows} onFocusField={onFocusField} />}
 
       <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         {entry.actions.fixFacts && (
@@ -294,5 +280,53 @@ export function ResumeVerificationFailure({
         )}
       </div>
     </section>
+  )
+}
+
+/** Codes whose body points at "the fields in the list" (ATS / glyph / visual gates). */
+const LIST_CODES: ReadonlySet<ResumeVerificationErrorCode> = new Set([
+  'ATS_CHECK_FAILED',
+  'GLYPH_CHECK_FAILED',
+  'VISUAL_CHECK_FAILED',
+])
+
+type FailingRow = ReturnType<typeof resolveReportPath> & { reason: string }
+
+function failingRows(report: ResumeVerificationReport | null): FailingRow[] {
+  return (report?.gates ?? [])
+    .filter((gate) => !gate.ok)
+    .flatMap((gate) => gate.items)
+    .map((item) => ({ ...resolveReportPath(item.path), reason: item.reason }))
+}
+
+/** The failing report items, at most MAX_ROWS, plus an "and N more" line. */
+function FailingFieldList({
+  rows,
+  onFocusField,
+}: {
+  rows: FailingRow[]
+  onFocusField: (field: string) => boolean
+}) {
+  const { i18n } = useLingui()
+  const issueLabel = useIssueLabel()
+  const shown = rows.slice(0, MAX_ROWS)
+  const more = rows.length - shown.length
+  return (
+    <ul className="mt-3 space-y-1" data-testid="resume-verification-items">
+      {shown.map(({ labelPath, field, reason }, i) => (
+        <IssueRow
+          key={`${labelPath}:${reason}:${i}`}
+          tone="amber"
+          label={issueLabel(labelPath)}
+          text={i18n._(REASONS[reason] ?? GENERIC_REASON)}
+          onFocus={field === null ? null : () => void onFocusField(field)}
+        />
+      ))}
+      {more > 0 && (
+        <li className="px-2 text-xs text-muted-foreground">
+          <Trans>і ще {more}</Trans>
+        </li>
+      )}
+    </ul>
   )
 }

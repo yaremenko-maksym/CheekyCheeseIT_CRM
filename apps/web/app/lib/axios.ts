@@ -17,6 +17,8 @@ export const api = axios.create({
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // The caller aborted it (e.g. a dev StrictMode effect re-run): not a failure, nothing to log.
+    if (axios.isCancel(error)) return Promise.reject(error)
     if (error.response?.status === 401) {
       window.location.href = '/login'
     }

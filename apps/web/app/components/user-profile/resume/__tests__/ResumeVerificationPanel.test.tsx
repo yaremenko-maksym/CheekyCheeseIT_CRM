@@ -374,6 +374,61 @@ describe('ResumeVerificationPanel — rulings', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
+  it('the VERIFIED warning lists the failing fields its body points at (R63)', async () => {
+    renderWired(
+      makeResponse({
+        verificationStatus: 'VERIFIED',
+        verificationErrorCode: 'VISUAL_CHECK_FAILED',
+        verifiedVersion: 3,
+        staged: null,
+        verificationReport: {
+          gates: [
+            {
+              gate: 'visual',
+              ok: false,
+              items: [{ path: 'experience.0.bullets.0', reason: 'overflow' }],
+            },
+          ],
+          fallbacks: [],
+        },
+      }),
+    )
+    const warning = await screen.findByTestId('resume-verification-warning')
+    const items = within(warning).getByTestId('resume-verification-items')
+    const row = within(items).getByRole('button', { name: /Місце роботи 1 · Пункти/ })
+    expect(row).toHaveTextContent('текст виходить за поле')
+  })
+
+  it('a VERIFIED warning without item paths shows the whole-resume line, never an empty list', async () => {
+    renderWired(
+      makeResponse({
+        verificationStatus: 'VERIFIED',
+        verificationErrorCode: 'GLYPH_CHECK_FAILED',
+        verifiedVersion: 3,
+        staged: null,
+        verificationReport: null,
+      }),
+    )
+    const warning = await screen.findByTestId('resume-verification-warning')
+    const items = within(warning).getByTestId('resume-verification-items')
+    expect(within(items).getByText('Резюме загалом')).toBeInTheDocument()
+    expect(within(items).getByText('автоматична перевірка не пройдена')).toBeInTheDocument()
+    expect(within(items).queryByRole('button')).toBeNull()
+  })
+
+  it('a VERIFIED warning whose body names no list shows none', async () => {
+    renderWired(
+      makeResponse({
+        verificationStatus: 'VERIFIED',
+        verificationErrorCode: 'RENDER_FAILED',
+        verifiedVersion: 3,
+        staged: null,
+      }),
+    )
+    const warning = await screen.findByTestId('resume-verification-warning')
+    expect(within(warning).queryByTestId('resume-verification-items')).toBeNull()
+  })
+
   it('a template run shows the neutral progress line, not the progress card', async () => {
     renderWired(
       makeResponse({
