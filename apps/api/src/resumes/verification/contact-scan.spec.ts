@@ -142,6 +142,11 @@ describe('scanContacts — phones and emails', () => {
     // the pattern stops at `_`; the context address, found later, runs on
     const long = { fullName: 'Mark Levin', emails: ['ml@x.io_old'] }
     expect(scanContacts('ml@x.io_old', long)).toEqual([{ kind: 'email', match: 'ml@x.io_old' }])
+    // the mirror: the pattern hit, found first, is the longer one; the context address inside it loses
+    const short = { fullName: 'Jane Doe', emails: ['jane@site.com'] }
+    expect(scanContacts('mail jane@site.com.ua', short)).toEqual([
+      { kind: 'email', match: 'jane@site.com.ua' },
+    ])
   })
 
   it('ignores blank context emails', () => {

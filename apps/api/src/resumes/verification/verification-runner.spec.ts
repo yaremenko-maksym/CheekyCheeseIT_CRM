@@ -406,6 +406,13 @@ describe('VerificationRunner.run', () => {
     expect(s3.delete).not.toHaveBeenCalled()
   })
 
+  it('a won promote over a row whose lock read found nothing deletes nothing', async () => {
+    const { run, log } = runner([...START, [], [{ id: RESUME }]])
+    await run()
+    expect(log.at(-1)?.set?.verificationStatus).toBe('AWAITING_CONFIRM')
+    expect(s3.delete).not.toHaveBeenCalled()
+  })
+
   it('a won FAILED CAS over a row whose lock read found nothing deletes nothing', async () => {
     writer.write.mockResolvedValueOnce({ kind: 'unavailable', reason: 'TIMEOUT' } as WriterReply)
     const { run, log } = runner([...START, [], [{ id: RESUME }]])
@@ -529,6 +536,12 @@ describe('VerificationRunner.run', () => {
     const late = runner([...START, [{ key: null }], [{ id: RESUME }]])
     await late.run()
     expect(late.log.at(-1)?.set?.verificationErrorCode).toBe('STALLED')
+    // The budget is no gate: it stops the run before any gate finished, so the report holds none.
+    const report = late.log.at(-1)?.set?.verificationReport as { gates: unknown[] }
+    expect(report.gates).toEqual([])
+    expect(logs.map((l) => (l.startsWith('{') ? JSON.parse(l) : l))).toContainEqual(
+      expect.objectContaining({ code: 'STALLED', provider: null, cause: 'RUN_BUDGET' }),
+    )
   })
 
   it('an unexpected error ends the run STALLED and deletes the derived key', async () => {
@@ -542,6 +555,10 @@ describe('VerificationRunner.run', () => {
     })
     expect(s3.delete.mock.calls).toEqual([[KEY]])
     expect(logs).toContain(`Verification run ${RUN} of resume ${RESUME} crashed (Error)`)
+    // FR-A-2: no provider, the error class as the cause.
+    expect(logs.map((l) => (l.startsWith('{') ? JSON.parse(l) : l))).toContainEqual(
+      expect.objectContaining({ code: 'STALLED', provider: null, cause: 'Error' }),
+    )
   })
 
   it('when even the FAILED write throws, run still resolves and cleans up', async () => {
@@ -825,6 +842,12 @@ describe('VerificationRunner.run — template kind (Task 16)', () => {
     await run()
     return { content, log }
   }
+
+  it('a won promote over a row whose lock read found nothing deletes nothing', async () => {
+    const { log } = await templateRun([[], [{ id: RESUME }]])
+    expect(log.at(-1)?.set).toHaveProperty('verifiedVersion')
+    expect(s3.delete).not.toHaveBeenCalled()
+  })
 
   it('pass: claimed on VERIFIED by its start time, no writer, the new look promoted under a CAS', async () => {
     const { content, log } = await templateRun([[{ key: LIVE_KEY }], [{ id: RESUME }]])

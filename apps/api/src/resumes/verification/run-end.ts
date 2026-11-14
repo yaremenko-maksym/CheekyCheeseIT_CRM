@@ -39,7 +39,7 @@ export async function ownsRun(db: DatabaseService, resumeId: string, runId: stri
 }
 
 /** The staged kinds: they start from an AWAITING_CONFIRM result, so there is one to keep. */
-const KEEPS_PREVIOUS = new Set(['staged-edit', 'item'])
+const KEEPS_PREVIOUS: ReadonlySet<string | null> = new Set(['staged-edit', 'item'])
 
 /**
  * FAILED on this run id: run fields and staged columns cleared, the old object deleted after commit.
@@ -73,8 +73,9 @@ export async function failRun(
     kind = current?.kind ?? null
     const template = kind === 'template'
     const snapshot =
-      KEEPS_PREVIOUS.has(kind ?? '') && INFRA_CODES.has(code)
-        ? readSnapshot(current?.previous)
+      KEEPS_PREVIOUS.has(kind) && INFRA_CODES.has(code)
+        ? // Stryker disable next-line OptionalChaining: a staged kind was read from this row, so it is defined here; the `?.` is type narrowing only
+          readSnapshot(current?.previous)
         : null
     const [updated] = await tx
       .update(seniorResumes)
@@ -90,7 +91,8 @@ export async function failRun(
               verificationErrorCode: code,
               // CD-6: a template row stays VERIFIED, so it keeps the confirmed run's fallbacks.
               verificationReport: template
-                ? { ...report, fallbacks: storedFallbacks(current?.report) }
+                ? // Stryker disable next-line OptionalChaining: a template kind was read from this row, so it is defined here; the `?.` is type narrowing only
+                  { ...report, fallbacks: storedFallbacks(current?.report) }
                 : report,
               ...CLEARED_RUN,
               ...CLEARED_STAGED,

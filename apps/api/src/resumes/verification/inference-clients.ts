@@ -40,7 +40,7 @@ export type EntailmentClaim = { id: string; text: string; sources: string[] }
 export type Unavailable = {
   kind: 'unavailable'
   reason: InferenceErrorCode | 'INVALID_INPUT'
-  status?: number
+  status?: number | undefined
 }
 const unavailable = (reason: Unavailable['reason']): Unavailable => ({
   kind: 'unavailable',
@@ -54,10 +54,11 @@ export const VISUAL_PROVIDER = 'extraction-worker:/visual-check'
 export const ENTAILMENT_PROVIDER = 'jev'
 
 /** A coded `unavailable` as a run-failure origin: provider, reason, and the HTTP status if any. */
-export const unavailableOrigin = (provider: string, reply: Unavailable): RunOrigin =>
-  reply.status === undefined
-    ? { provider, reason: reply.reason }
-    : { provider, reason: reply.reason, status: reply.status }
+export const unavailableOrigin = (provider: string, reply: Unavailable): RunOrigin => ({
+  provider,
+  reason: reply.reason,
+  status: reply.status,
+})
 
 /** The worker transport, or undefined when its env is unset or invalid. */
 function workerTransport(): ExtractionWorkerTransport | undefined {
@@ -89,9 +90,7 @@ async function callWorker<T>(
   const res = await post(route, { body, timeoutMs: WORKER_ADAPTER_TIMEOUT_MS })
   if (res.kind === 'timeout') return unavailable('TIMEOUT')
   if (res.kind !== 'ok') {
-    return res.status === undefined
-      ? unavailable('PROVIDER_ERROR')
-      : { ...unavailable('PROVIDER_ERROR'), status: res.status }
+    return { ...unavailable('PROVIDER_ERROR'), status: res.status }
   }
   const reply = replySchema.safeParse(parseJson(res.text))
   return reply.success ? reply.data : unavailable('INVALID_OUTPUT')

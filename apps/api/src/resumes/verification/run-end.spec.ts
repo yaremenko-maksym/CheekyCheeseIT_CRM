@@ -155,4 +155,20 @@ describe('failRun keeps the previous staged result on an infra failure (FR-A-2)'
       kept: false,
     })
   })
+
+  it('a run that lost the row to another run keeps nothing and logs it as not kept', async () => {
+    const db = fakeRunDb([
+      [{ key: KEPT_KEY, kind: 'item', live: null, report: REPORT, previous: SNAPSHOT }],
+      [],
+    ])
+    const logger = { warn: vi.fn() }
+    const deps = { db: db.service, s3: { delete: vi.fn() }, logger: logger as unknown as Logger }
+    await expect(failRun(deps, RESUME, RUN, 'WRITER_UNAVAILABLE', FAILED_REPORT)).resolves.toBe(
+      null,
+    )
+    expect(JSON.parse(String(logger.warn.mock.calls[0]?.[0]))).toMatchObject({
+      kind: 'item',
+      kept: false,
+    })
+  })
 })

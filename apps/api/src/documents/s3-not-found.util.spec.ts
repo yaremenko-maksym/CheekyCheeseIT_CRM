@@ -39,4 +39,8 @@ describe('isS3NoSuchKey', () => {
   ])('is false for %s', (_label, error) => {
     expect(isS3NoSuchKey(error)).toBe(false)
   })
+
+  it('is false for a function, even one named NoSuchKey: only an error object counts', () => {
+    expect(isS3NoSuchKey(function NoSuchKey() {})).toBe(false)
+  })
 })

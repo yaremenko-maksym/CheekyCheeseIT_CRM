@@ -287,7 +287,9 @@ describe('SeniorResumesService — a delete while a run owns the row (CD-4)', ()
     const remove = vi.fn(() => {
       throw new Error('row delete reached')
     })
-    const row = { ...ROW, verificationStatus: status, verificationRunId: runId }
+    // P5: a waiting staged PDF is a third copy of the CV and goes with the other two.
+    const stagedPdfS3Key = status === 'AWAITING_CONFIRM' ? 'staged.pdf' : null
+    const row = { ...ROW, verificationStatus: status, verificationRunId: runId, stagedPdfS3Key }
     const db = {
       db: {
         query: {
@@ -307,6 +309,8 @@ describe('SeniorResumesService — a delete while a run owns the row (CD-4)', ()
     )
     const err = await refusal(svc.deleteResume(viewer(OWNER_ID, 'SENIOR'), OWNER_ID))
     expect((err as Error).message).toBe('row delete reached')
-    expect(s3.delete.mock.calls.map((c) => c[0])).toEqual(['src', 'live.pdf'])
+    expect(s3.delete.mock.calls.map((c) => c[0])).toEqual(
+      stagedPdfS3Key ? ['src', 'live.pdf', stagedPdfS3Key] : ['src', 'live.pdf'],
+    )
   })
 })

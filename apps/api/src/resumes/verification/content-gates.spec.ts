@@ -679,6 +679,8 @@ describe('writeGatedContent', () => {
     deps.entailment.score = vi.fn(async () => 'unavailable' as const)
     await expect(writeGatedContent(input(), deps)).rejects.toMatchObject({
       code: 'ENTAILMENT_UNAVAILABLE',
+      // No gate ran to the end: the report carries no gate of its own.
+      gates: [],
       origin: { provider: 'jev', reason: 'UNAVAILABLE' },
     })
   })

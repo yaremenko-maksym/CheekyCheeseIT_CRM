@@ -560,9 +560,10 @@ export class ResumeVerificationService {
     viewerId: string,
   ): Promise<SeniorResume> {
     const staged = this.stagedOf(row, input.runId)
-    const cap = editPathCap(input.path, staged)
+    // A path that names no text has no room: any text is over it.
+    const cap = editPathCap(input.path, staged) ?? 0
     // A blank text would skip the EMPTY content gate a model text passes (FR-A-3).
-    if (cap === null || input.text.trim() === '' || input.text.length > cap) {
+    if (input.text.trim() === '' || input.text.length > cap) {
       throw new BadRequestException()
     }
     if (!isLatinScript(input.text)) {

@@ -31,7 +31,7 @@ export const INFRA_CODES: ReadonlySet<string> = new Set([
  * Where a run failure came from, for the log only (FR-A-2): the provider route or model, the coded
  * reason it answered and its HTTP status. Never a message: a provider message can echo the input.
  */
-export type RunOrigin = { provider: string | null; reason: string; status?: number }
+export type RunOrigin = { provider: string | null; reason: string; status?: number | undefined }
 
 type StagedRow = {
   stagedContent: unknown
