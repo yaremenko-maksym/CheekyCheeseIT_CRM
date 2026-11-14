@@ -45,22 +45,22 @@ one before that decision.
 State as of 2026-11-14. "No recorded run" means no dated entry exists in this file or elsewhere in the repository
 (checked by a repository-wide search for the measurement id); it is not a negative result.
 
-| ID    | Question                                         | Unlocks                                                | State                                                                 |
-| ----- | ------------------------------------------------ | ------------------------------------------------------ | --------------------------------------------------------------------- |
-| MP-01 | Which permitted HTML routes need JS rendering?   | HTML engine (5.1)                                      | no recorded run                                                       |
-| MP-02 | Response size / pagination per source            | per-source byte cap or list+detail mode (2.2)          | no recorded run                                                       |
-| MP-03 | Which model route extracts well enough, at what cost | route, model, fallback settings (5.2)              | local candidate only (see MP-04 entry); hosted routes not measured    |
-| MP-04 | Can a local model run on the target host?        | local vs hosted (5.2)                                  | **FAIL, 2026-11-08** — local runtime withdrawn                        |
-| MP-05 | Host headroom and worker needs                   | resource, lease and timeout caps (2.5, 4.2, 4.6)       | no recorded run; run-ownership caps wait on it                        |
-| MP-06 | Do unchanged postings create revisions?          | normalizer fixes (2.1)                                 | no recorded run (needs shadow collection)                             |
-| MP-07 | Storage growth                                   | retention, disk / backup budget (1.4)                  | no recorded run (needs shadow collection)                             |
-| MP-08 | Relevance good enough to expand?                 | expansion gate (8.2)                                   | no labelled corpus yet                                                |
-| MP-09 | Triage share and backlog age                     | triage ceiling (8.2)                                   | needs live HR traffic (wave 2+)                                       |
-| MP-10 | Configurations worth their cost?                 | cadence / disable (8.2)                                | needs live traffic (wave 3+)                                          |
-| MP-11 | Any source close to blocking us?                 | per-host gap, ceiling, pause rules (2.2)               | continuous once any source runs                                       |
-| MP-12 | Associations correct?                            | association rules (4.3)                                | no labelled pairs yet                                                 |
-| MP-13 | Queue queries fast at projected volume?          | indexes, generation retention (6.2)                    | no recorded run at MP-07 size (backlog 351)                           |
-| MP-14 | Queue freshness                                  | source cadence (2.5)                                   | needs live traffic (wave 3+)                                          |
+| ID    | Question                                             | Unlocks                                          | State                                                              |
+| ----- | ---------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------ |
+| MP-01 | Which permitted HTML routes need JS rendering?       | HTML engine (5.1)                                | no recorded run                                                    |
+| MP-02 | Response size / pagination per source                | per-source byte cap or list+detail mode (2.2)    | no recorded run                                                    |
+| MP-03 | Which model route extracts well enough, at what cost | route, model, fallback settings (5.2)            | local candidate only (see MP-04 entry); hosted routes not measured |
+| MP-04 | Can a local model run on the target host?            | local vs hosted (5.2)                            | **FAIL, 2026-11-08** — local runtime withdrawn                     |
+| MP-05 | Host headroom and worker needs                       | resource, lease and timeout caps (2.5, 4.2, 4.6) | no recorded run; run-ownership caps wait on it                     |
+| MP-06 | Do unchanged postings create revisions?              | normalizer fixes (2.1)                           | no recorded run (needs shadow collection)                          |
+| MP-07 | Storage growth                                       | retention, disk / backup budget (1.4)            | no recorded run (needs shadow collection)                          |
+| MP-08 | Relevance good enough to expand?                     | expansion gate (8.2)                             | no labelled corpus yet                                             |
+| MP-09 | Triage share and backlog age                         | triage ceiling (8.2)                             | needs live HR traffic (wave 2+)                                    |
+| MP-10 | Configurations worth their cost?                     | cadence / disable (8.2)                          | needs live traffic (wave 3+)                                       |
+| MP-11 | Any source close to blocking us?                     | per-host gap, ceiling, pause rules (2.2)         | continuous once any source runs                                    |
+| MP-12 | Associations correct?                                | association rules (4.3)                          | no labelled pairs yet                                              |
+| MP-13 | Queue queries fast at projected volume?              | indexes, generation retention (6.2)              | no recorded run at MP-07 size (backlog 351)                        |
+| MP-14 | Queue freshness                                      | source cadence (2.5)                             | needs live traffic (wave 3+)                                       |
 
 **Order that unblocks the first activation wave (Task 8.2):** MP-05 baseline and MP-02 for the wave-1 sources first
 (they freeze the caps), then MP-06 / MP-07 from a shadow run, then MP-13 at MP-07 size. MP-01 matters only once an HTML
