@@ -966,6 +966,35 @@ describe('grantRefusal (backlog 426)', () => {
     )
   })
 
+  it('CR-H-1: a single-digit day and month are written with two digits each', () => {
+    const expiresAt = new Date(2026, 2, 5, 23, 59, 59, 999).toISOString()
+    expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'uk')).toBe(
+      'Ця команда вже має доступ до вакансії до 05.03.2026.',
+    )
+    expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'en-US')).toBe(
+      'Ця команда вже має доступ до вакансії до 03/05/2026.',
+    )
+  })
+
+  it('CR-L-1: a 400 naming the 90-day ceiling asks for an earlier day; another 400 is not explained', () => {
+    const invalid = (code: string) =>
+      httpError(400, {
+        statusCode: 400,
+        message: 'Validation failed',
+        errors: [
+          { path: 'reason', message: 'x' },
+          { path: 'expiresAt', code, message: code },
+        ],
+      })
+    expect(grantRefusal(invalid('TRIAGE_EXPIRY_BEYOND_CEILING'), 'uk')).toBe(
+      'Доступ надається щонайбільше на 90 днів — оберіть ранішу дату',
+    )
+    expect(grantRefusal(invalid('VALIDATION_FAILED_FORM'), 'uk')).toBeNull()
+    expect(
+      grantRefusal(httpError(400, { statusCode: 400, message: 'Validation failed' }), 'uk'),
+    ).toBeNull()
+  })
+
   it('an expiry the envelope does not carry is a dash, never «Invalid Date»', () => {
     expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED'), 'uk')).toBe(
       'Ця команда вже має доступ до вакансії до —.',
@@ -1602,7 +1631,12 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
   /** The studio card's server-side triage policy version (backlog 425). */
   const POLICY = 5
   const triage = (over: Partial<JobQueueCardResponseDto> = {}) =>
-    cardFixture({ eligibility: 'TRIAGE', triagePolicyVersion: POLICY, ...over })
+    cardFixture({
+      eligibility: 'TRIAGE',
+      triagePolicyVersion: POLICY,
+      triageGrantable: true,
+      ...over,
+    })
   /** The end of a November 2026 day in the actor's own time zone: a grant lasts through it. */
   const endOf = (day: number) => new Date(2026, 10, day, 23, 59, 59, 999).toISOString()
   const granted = (teamId = BETA) => ({
@@ -1676,9 +1710,9 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     expect(within(menu).getAllByRole('separator')).toHaveLength(1)
   })
 
-  it('SPEC-L-1: a manual triage card (no source) gets the studio hide alone: the server refuses its grant', async () => {
+  it('SPEC-L-1, CR-M-1: a triage card the server would not grant (manual, EXCLUDED, a live LEAD) gets the studio hide alone', async () => {
     const user = userEvent.setup()
-    setCard(triage({ primarySource: null }))
+    setCard(triage({ primarySource: null, triageGrantable: false }))
     renderCard(ADMIN)
     await user.click(screen.getByRole('button', { name: 'Дії адміністратора' }))
     const menu = await screen.findByRole('menu')
@@ -1792,9 +1826,21 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
   })
 
-  it("backlog 425: a card without a policy version (an ADMIN in one team's queue) gets the studio hide alone", async () => {
+  it("SPEC-H-1: an ADMIN in one team's queue gets the item and sends the studio policy version", async () => {
     const user = userEvent.setup()
-    setCard(cardFixture({ eligibility: 'TRIAGE' }))
+    post.mockResolvedValue(granted())
+    setCard(triage({ triagePolicyVersion: 7 }))
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    expect(sent(GRANT)[0]).toMatchObject({ policyVersion: 7 })
+  })
+
+  it('CR-M-1: a card that does not say it is grantable gets the studio hide alone', async () => {
+    const user = userEvent.setup()
+    setCard(triage({ triageGrantable: undefined }))
     renderCard(ADMIN)
     await user.click(screen.getByRole('button', { name: 'Дії адміністратора' }))
     const menu = await screen.findByRole('menu')
@@ -2039,6 +2085,26 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
     expect(sent(GRANT)[0]).toMatchObject({
       expiresAt: new Date(2027, 1, 8, 23, 59, 59, 999).toISOString(),
+    })
+  })
+
+  it('CR-L-1: just after midnight the last day ends 5 minutes inside the ceiling, for a browser clock running ahead', async () => {
+    vi.setSystemTime(new Date(2026, 10, 11, 0, 3))
+    const user = userEvent.setup()
+    post.mockResolvedValue(granted())
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await user.click(within(dialog).getByRole('button', { name: 'Діє до' }))
+    const panel = within(await screen.findByRole('dialog'))
+    for (let month = 0; month < 3; month++)
+      await user.click(panel.getByRole('button', { name: 'Go to the Next Month' }))
+    await user.click(panel.getByRole('button', { name: /, 8-е лютого 2027/ }))
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    // 2026-11-11 00:03 + 90 days - 5 minutes = 2027-02-08 23:58, before the end of the day
+    expect(sent(GRANT)[0]).toMatchObject({
+      expiresAt: new Date(2027, 1, 8, 23, 58).toISOString(),
     })
   })
 

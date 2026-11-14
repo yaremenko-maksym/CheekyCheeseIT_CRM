@@ -70,7 +70,12 @@ import {
   useSuppressJobQueueItem,
   type QueueScopeSignature,
 } from '@/hooks/use-job-queue'
-import { getApiErrorCode, parseApiErrorEnvelope, translateApiError } from '@/lib/axios-utils'
+import {
+  getApiErrorCode,
+  parseApiErrorEnvelope,
+  translateApiError,
+  translateZodCode,
+} from '@/lib/axios-utils'
 import { cn } from '@/lib/utils'
 import { ownSubmission, ownTaken, submittedElsewhere } from './MatchedSeniors'
 
@@ -435,15 +440,9 @@ export function AdminVacancyMenu({
           }
         />
       )}
-      // a manual item (no source) has nothing a team could triage: the server refuses its grant (422)
-      // only the studio card carries the triage policy version the grant must echo (backlog 425)
-      more={
-        card.eligibility === 'TRIAGE' &&
-        card.primarySource !== null &&
-        card.triagePolicyVersion !== undefined
-          ? [assign]
-          : []
-      }
+      // the server says whether its grant would accept the item (no manual card, not EXCLUDED, no
+      // live LEAD of any studio senior), from the grant's own check: no grant it refuses is offered
+      more={card.eligibility === 'TRIAGE' && card.triageGrantable === true ? [assign] : []}
     />
   )
 }
@@ -452,6 +451,8 @@ export function AdminVacancyMenu({
 const GRANT_DAYS = 14
 const DAY = 'yyyy-MM-dd'
 const DAY_MS = 86_400_000
+/** CR-L-1: a browser clock this far ahead of the server still lands inside the server's ceiling. */
+const CLOCK_SKEW_MS = 5 * 60_000
 const GRANT_DRAFT = jobQueueTeamTriageGrantRequestSchema.omit({ idempotencyKey: true })
 const REASON_MAX = jobQueueTeamTriageGrantRequestSchema.shape.reason.maxLength ?? undefined
 
@@ -477,11 +478,26 @@ function TriageGrantDialog({
   )
 }
 
+/** A 400 whose field issues include the 90-day ceiling (`ZodExceptionFilter`'s `errors[]`). */
+function beyondCeiling(error: unknown): boolean {
+  const errors = (error as { response?: { data?: { errors?: unknown } } } | null)?.response?.data
+    ?.errors
+  return (
+    Array.isArray(errors) &&
+    errors.some(
+      (issue: unknown) =>
+        (issue as { code?: unknown } | null)?.code === 'TRIAGE_EXPIRY_BEYOND_CEILING',
+    )
+  )
+}
+
 /**
  * The text of a grant refusal the server explains (backlog 426), or `null` for any other answer: a
- * second grant names the live grant's expiry, an item no longer on triage asks for a refresh.
+ * second grant names the live grant's expiry, an item no longer on triage asks for a refresh, an
+ * expiry past the 90-day ceiling asks for an earlier day (CR-L-1).
  */
 export function grantRefusal(error: unknown, locale: string): string | null {
+  if (beyondCeiling(error)) return translateZodCode('TRIAGE_EXPIRY_BEYOND_CEILING')
   const envelope = parseApiErrorEnvelope(error)
   if (envelope?.code === 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE')
     return translateApiError(envelope.code, undefined)
@@ -533,11 +549,12 @@ function TriageGrantForm({
     expectedOpportunityRevision: card.revision,
     policyVersion: card.triagePolicyVersion,
     reason,
-    // the server's ceiling is a duration, so a DST shift cannot push the last day past it
+    // the server's ceiling is a duration, so a DST shift cannot push the last day past it; the
+    // margin covers a browser clock that runs ahead of the server's (CR-L-1)
     expiresAt: new Date(
       Math.min(
         endOfDay(parseISO(until)).getTime(),
-        Date.now() + JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS * DAY_MS,
+        Date.now() + JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS * DAY_MS - CLOCK_SKEW_MS,
       ),
     ).toISOString(),
   })
