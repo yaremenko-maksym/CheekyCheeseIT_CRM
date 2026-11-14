@@ -8,6 +8,13 @@ import { describe, expect, it } from 'vitest'
 import { redactContacts, scanContacts, type ContactContext } from './contact-scan'
 import { hasContact } from './content-gates'
 
+/** CPU time this process spent, in ms. A ReDoS burns CPU; a loaded machine only stretches the
+ * wall clock, so a wall-clock bound fails on load and says nothing about the pattern. */
+const cpuMs = (): number => {
+  const { user, system } = process.cpuUsage()
+  return (user + system) / 1000
+}
+
 const ctx: ContactContext = { fullName: 'Mark Levin', emails: ['mark.levin@example.com'] }
 
 describe('scanContacts — names', () => {
@@ -483,9 +490,9 @@ describe('labelled Telegram handles (SR-M-1)', () => {
     ['a.', 'a.'.repeat(25_000)],
     ['a-.', 'a-.'.repeat(16_667)],
   ])('a 50k-character %j repeat is redacted in under 500 ms (SR-L-3, R91)', (_, text) => {
-    const started = performance.now()
+    const started = cpuMs()
     redactContacts(text, ctx)
-    expect(performance.now() - started).toBeLessThan(500)
+    expect(cpuMs() - started).toBeLessThan(500)
   })
 
   it('leaves a bare @package alone', () => {
@@ -571,17 +578,17 @@ describe('fix round 3: Unicode hosts, unlabelled handles, handle links, bounds',
     ['тг - ', 'тг - '.repeat(10_000)],
     ['Telegram @', 'Telegram @'.repeat(5_000)],
   ])('a 50k-character %j repeat is redacted in under 500 ms (R91)', (_, input) => {
-    const started = performance.now()
+    const started = cpuMs()
     redactContacts(input, ctx)
-    expect(performance.now() - started).toBeLessThan(500)
+    expect(cpuMs() - started).toBeLessThan(500)
   })
 
   // Linear, but Unicode classes cost ~10x ASCII on Node 22, so the Cyrillic case runs at 10k:
   // five times the longest field (2000).
   it('a 10k-character Cyrillic host repeat is redacted in under 500 ms (R91)', () => {
-    const started = performance.now()
+    const started = cpuMs()
     redactContacts('пример.'.repeat(1_429), ctx)
-    expect(performance.now() - started).toBeLessThan(500)
+    expect(cpuMs() - started).toBeLessThan(500)
   })
 })
 
@@ -597,9 +604,9 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
 
   it('600 notes of 500 Cyrillic characters in 63-letter labels are redacted in under 500 ms (SR3-M-1)', () => {
     const note = `${'п'.repeat(63)}.`.repeat(8).slice(0, 500)
-    const started = performance.now()
+    const started = cpuMs()
     for (let i = 0; i < 600; i++) redactContacts(note, ctx)
-    expect(performance.now() - started).toBeLessThan(500)
+    expect(cpuMs() - started).toBeLessThan(500)
   })
 
   it.each([
@@ -635,9 +642,9 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
   )
 
   it('50k spaces are redacted in under 500 ms (SR3-L-3)', () => {
-    const started = performance.now()
+    const started = cpuMs()
     redactContacts(' '.repeat(50_000), ctx)
-    expect(performance.now() - started).toBeLessThan(500)
+    expect(cpuMs() - started).toBeLessThan(500)
   })
 })
 
@@ -660,9 +667,9 @@ describe('fix round 5: an email glued to the next one by a local-part character'
     ['a@', 'a@'.repeat(25_000)],
     ['a.a@b.', 'a.a@b.'.repeat(8_334)],
   ])('a 50k-character %j repeat is redacted in under 500 ms (SR4-M-1)', (_, input) => {
-    const started = performance.now()
+    const started = cpuMs()
     redactContacts(input, ctx)
-    expect(performance.now() - started).toBeLessThan(500)
+    expect(cpuMs() - started).toBeLessThan(500)
   })
 
   it.each([
@@ -674,17 +681,17 @@ describe('fix round 5: an email glued to the next one by a local-part character'
   ])(
     'an email starting with an astral letter, %j, is redacted and the scan ends (SR5-H-1)',
     (text, redacted) => {
-      const started = performance.now()
+      const started = cpuMs()
       expect(redactContacts(text, [])).toBe(redacted)
       expect(scanContacts(text, ctx).map((h) => h.kind)).toEqual(['email'])
-      expect(performance.now() - started).toBeLessThan(500)
+      expect(cpuMs() - started).toBeLessThan(500)
     },
   )
 
   it('50k characters of "1," are redacted in under 500 ms (SR4-L-1)', () => {
-    const started = performance.now()
+    const started = cpuMs()
     redactContacts('1,'.repeat(25_000), ctx)
-    expect(performance.now() - started).toBeLessThan(500)
+    expect(cpuMs() - started).toBeLessThan(500)
   })
 })
 
@@ -731,9 +738,9 @@ describe('fix round 7: separators, marks, atext, ports, label words', () => {
   )
 
   it('50k characters of "Telegram handle" are redacted in under 500 ms (SO7-5)', () => {
-    const started = performance.now()
+    const started = cpuMs()
     redactContacts('Telegram handle'.repeat(3_334), ctx)
-    expect(performance.now() - started).toBeLessThan(500)
+    expect(cpuMs() - started).toBeLessThan(500)
   })
 })
 

@@ -14,6 +14,13 @@ import {
   normaliseTelegramHandle,
 } from './resume-completeness'
 
+/** CPU time this process spent, in ms. A ReDoS burns CPU; a loaded machine only stretches the
+ * wall clock, so a wall-clock bound fails on load and says nothing about the pattern. */
+const cpuMs = (): number => {
+  const { user, system } = process.cpuUsage()
+  return (user + system) / 1000
+}
+
 const CTX = { displayName: 'José Müller', now: new Date('2026-11-10T00:00:00Z') }
 
 /** The URL hit: group 1 for the bare form (its pattern consumes one boundary character), else the match. */
@@ -191,17 +198,17 @@ describe('linear time on the new branches (R91)', () => {
     ['a-.', 'a-.'.repeat(16_667)],
     ['тг - ', 'тг - '.repeat(10_000)],
   ])('a 50k-character %s input is checked in under 500 ms', (_, note) => {
-    const started = performance.now()
+    const started = cpuMs()
     issuesOf(note)
-    expect(performance.now() - started).toBeLessThan(500)
+    expect(cpuMs() - started).toBeLessThan(500)
   })
 
   // Linear, but Unicode classes cost ~10x ASCII on Node 22 (50k Cyrillic ≈ 300 ms for the URL
   // pattern alone), so the Cyrillic case runs at 10k: five times the longest field (2000).
   it('a 10k-character Cyrillic host repeat is checked in under 500 ms', () => {
-    const started = performance.now()
+    const started = cpuMs()
     issuesOf('пример.'.repeat(1_429))
-    expect(performance.now() - started).toBeLessThan(500)
+    expect(cpuMs() - started).toBeLessThan(500)
   })
 
   // SR3-L-3: the phone lookahead runs only where a phone can start, so a long separator run
@@ -214,9 +221,9 @@ describe('linear time on the new branches (R91)', () => {
     ['tg: + spaces', `tg:${' '.repeat(50_000)}`],
     ['Telegram:@ + spaces', `Telegram:@${' '.repeat(50_000)}`],
   ])('a 50k-character %s input is checked in under 500 ms (SR3-L-3)', (_, note) => {
-    const started = performance.now()
+    const started = cpuMs()
     issuesOf(note)
-    expect(performance.now() - started).toBeLessThan(500)
+    expect(cpuMs() - started).toBeLessThan(500)
   })
 })
 
@@ -246,9 +253,9 @@ describe('fix round 4', () => {
           notes: Array<string>(20).fill(note),
         })),
       }
-      const started = performance.now()
+      const started = cpuMs()
       checkResumeCompleteness(facts, CTX)
-      expect(performance.now() - started).toBeLessThan(500)
+      expect(cpuMs() - started).toBeLessThan(500)
     })
   })
 
@@ -310,9 +317,9 @@ describe('fix round 4', () => {
 
 describe('fix round 5', () => {
   it('50k characters of "1," are checked in under 500 ms (SR4-L-1)', () => {
-    const started = performance.now()
+    const started = cpuMs()
     issuesOf('1,'.repeat(25_000))
-    expect(performance.now() - started).toBeLessThan(500)
+    expect(cpuMs() - started).toBeLessThan(500)
   })
 })
 
@@ -420,9 +427,9 @@ describe('fix round 7', () => {
       ['tg + spaces', `tg${' '.repeat(50_000)}`],
       ['Telegram nick + spaces', `Telegram nick${' '.repeat(50_000)}`],
     ])('50k characters of %j are checked in under 500 ms', (_, input) => {
-      const started = performance.now()
+      const started = cpuMs()
       issuesOf(input)
-      expect(performance.now() - started).toBeLessThan(500)
+      expect(cpuMs() - started).toBeLessThan(500)
     })
   })
 })
