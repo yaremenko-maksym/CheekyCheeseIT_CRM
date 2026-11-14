@@ -7544,3 +7544,48 @@ in CI, so the failure is environment-dependent (timezone or locale suspected, no
 **Verify.** `pnpm --filter @crm/api test -- report` in WSL with an empty `DATABASE_URL`: zero failures.
 
 Sources: PR #1308 DevOps report.
+
+## 406. Teams: JUNIOR add-to-team check loads every project with members (gardener 2026-11-14)
+
+**Symptoms.** In `team-membership.util.ts`, adding a JUNIOR to a team calls `deps.fetchAllProjects()` and scans every
+project's member list in JS to answer one question: does this user have an active project membership. Work grows with
+projects × members (a growing table) for a single-user check. Related to 370 (the `teams.findAll` load-all), but a
+separate call site.
+
+**Status.** Human-planned (RBAC path: the JUNIOR active-project rule must keep its exact meaning, `leftAt IS NULL`).
+Replace with one `EXISTS` query on `project_members` for `userId` with `leftAt IS NULL`; keep the error code
+`JUNIOR_ALREADY_ON_ANOTHER_PROJECT`.
+
+**Verify.** The team-membership unit tests still pass, and the JUNIOR branch issues one bounded query instead of
+calling `fetchAllProjects`.
+
+Sources: gardener 2026-11-14 complexity scan.
+
+## 407. Invoices: project names resolved one `findFirst` per linked project (gardener 2026-11-14)
+
+**Symptoms.** `InvoiceCreationService` resolves `projectNames` with an awaited `projects.findFirst` per distinct
+`projectId` of the linked incomes; `InvoicesService` has the same per-row `findFirst` in a loop. N+1 on the invoice
+path; N is bounded by the linked incomes of one invoice, and a code comment already calls it tolerated.
+
+**Status.** Low priority (finance path, so security-reviewer on the fix). The PDF body does not render `projectNames`
+(`buildDescription` in `invoice-pdf-render.util.ts` keeps it only for audit and logging), so a batched
+`inArray(projects.id, ids)` query does not touch the signed PDF; keep the first-seen order for the log line anyway.
+
+**Verify.** A unit test asserts one projects query per invoice build and the same `projectNames` array as before.
+
+Sources: gardener 2026-11-14 complexity scan.
+
+## 408. Team-member insert: one row per call, spread across services (gardener 2026-11-14)
+
+**Symptoms.** `insert(teamMembers).values({ teamId, userId })` runs one row per awaited call inside loops in
+`TeamsService.createTeam`, `TeamsService.createDropTeam`, `RejoinTeamService` and `UserCreationService`; single-row
+inserts also sit in the `TeamsService` senior rotation and senior assignment paths, `team-membership.util.ts` and
+`team-reconcile.service.ts`. Bounded (a team has few members), so not a hot path; the cost is duplicated
+membership-write logic, not latency.
+
+**Status.** Low priority. A shared "add members" helper with one multi-row insert is a dedup candidate; the specs that
+mock `insert` for these services change with it (count them before starting).
+
+**Verify.** `git grep -n "insert(teamMembers)" -- apps/api/src ':!*.spec.ts'` lists only the shared helper.
+
+Sources: gardener 2026-11-14 complexity scan.
