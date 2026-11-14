@@ -105,6 +105,7 @@ const cancelled = { ...submitted, state: 'RELEASED', cancelledAt: LATER, version
 const senior = {
   seniorId: U2,
   displayName: 'Taras S.',
+  availability: null,
   matchApproximate: false,
   matchedKeywords: ['typescript'],
   matchEvidence: [{ keyword: 'typescript', strength: 'CORE' }],

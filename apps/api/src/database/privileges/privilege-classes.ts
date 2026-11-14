@@ -245,6 +245,8 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     'recording_media_artifacts',
     'recording_media_uploads',
     'salary_month_initializations',
+    // Senior availability (vacancy-queue design §5.2): the senior or ADMIN upserts it. Staged; see STAGED_RELATIONS.
+    'senior_availability',
     'senior_resumes',
     'signed_contracts',
     'team_members',
@@ -403,6 +405,8 @@ export const STAGED_RELATIONS: Record<string, { file: string }> = {
   // Extraction model health (ADR 2026-11-03 §5.3): staged until the collection-run call site.
   job_model_route_daily: { file: 'drizzle/manual-staged/2026-11-06_job_model_health.sql' },
   job_model_health_flags: { file: 'drizzle/manual-staged/2026-11-06_job_model_health.sql' },
+  // Senior availability on the HR queue card (vacancy-queue design §5.2): staged until DevOps wires it.
+  senior_availability: { file: 'drizzle/manual-staged/2026-11-14_senior_availability.sql' },
 }
 
 /**

@@ -221,6 +221,14 @@ export function toSubmission(r: Row): SeniorsPage['items'][number]['submission']
   return r['submitted_elsewhere'] === true ? { submittedElsewhere: true } : null
 }
 
+/** «Вільно з {d}» / «Зайнято» (§5.2); no row is `null`. The CHECK pairs FREE with its day. */
+export function toAvailability(r: Row): SeniorsPage['items'][number]['availability'] {
+  if (r['availability_status'] === 'BUSY') return { status: 'BUSY' }
+  if (r['availability_status'] === 'FREE' && typeof r['available_from'] === 'string')
+    return { status: 'FREE', availableFrom: r['available_from'] }
+  return null
+}
+
 /** The ADMIN team heading is read for the STUDIO scope only; a TEAM scope never carries the key. */
 const toSenior =
   (scope: JobQueueScope) =>
@@ -229,6 +237,7 @@ const toSenior =
     return {
       seniorId: String(r['senior_id']),
       displayName: String(r['display_name']).slice(0, 255),
+      availability: toAvailability(r),
       matchApproximate: facts.approximate,
       matchedKeywords: facts.keywords,
       matchEvidence: matchEvidence(r['evidence']),

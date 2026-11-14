@@ -11,6 +11,7 @@ export function senior(over: Partial<JobQueueCardSeniorDto> = {}): JobQueueCardS
   return {
     seniorId: 'aaaaaaaa-0000-4000-8000-000000000001',
     displayName: 'Олена Коваль',
+    availability: null,
     matchApproximate: false,
     matchedKeywords: ['React'],
     matchEvidence: [{ keyword: 'React', strength: 'CORE' }],

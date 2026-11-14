@@ -17,6 +17,7 @@ import {
   matchFacts,
   JobQueueService,
   noMatchReason,
+  toAvailability,
   toListItem,
   toSubmission,
 } from './job-queue.service'
@@ -819,6 +820,26 @@ describe('noMatchReason (Task 7.3b, four empty states)', () => {
   })
 })
 
+describe('toAvailability (senior availability, design §5.2)', () => {
+  it('FREE carries its day as the SQL text (never a Date)', () => {
+    expect(toAvailability({ availability_status: 'FREE', available_from: '2026-11-01' })).toEqual({
+      status: 'FREE',
+      availableFrom: '2026-11-01',
+    })
+  })
+  it('BUSY carries no day', () => {
+    expect(toAvailability({ availability_status: 'BUSY', available_from: null })).toEqual({
+      status: 'BUSY',
+    })
+  })
+  it('no row (both NULL from the LEFT JOIN) is null', () => {
+    expect(toAvailability({ availability_status: null, available_from: null })).toBeNull()
+  })
+  it('a FREE row without a day (the CHECK forbids it) is not shown as free', () => {
+    expect(toAvailability({ availability_status: 'FREE', available_from: null })).toBeNull()
+  })
+})
+
 describe('toSubmission', () => {
   const own = {
     opportunity_id: OPP,
@@ -954,6 +975,7 @@ describe('JobQueueService.card', () => {
           {
             seniorId: SEN,
             displayName: 'Senior One',
+            availability: null,
             matchApproximate: false,
             matchedKeywords: ['Go'],
             matchEvidence: [{ keyword: 'Go', strength: 'CORE' }],

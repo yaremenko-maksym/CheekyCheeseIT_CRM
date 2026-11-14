@@ -186,7 +186,8 @@ const studioSeniorTeam = sql`
  * The card's seniors. The own-scope join selects a submission's columns only when the row is the
  * scope's, so a foreign row's id, timestamps, version and actor never leave the database; for a
  * shared senior a foreign LIVE row becomes one boolean. `IS NOT TRUE` because a row with no team
- * (an ADMIN's STUDIO submission) compares NULL against a team.
+ * (an ADMIN's STUDIO submission) compares NULL against a team. The availability is the senior's
+ * own field (§5.2), read only for a senior the scope already sees, so it adds no visibility.
  */
 export const seniorRows = (
   scope: JobQueueScope,
@@ -196,6 +197,7 @@ export const seniorRows = (
   limit: number,
 ): SQL =>
   sql`SELECT ms.senior_id, o.id AS opportunity_id, ms.evidence, u.display_name,
+             sa.status AS availability_status, sa.available_from::text AS available_from,
              a.id AS submission_id, a.state AS submission_state, a.taken_at, a.released_at,
              a.version AS submission_version, by_user.display_name AS submitted_by_name,
              EXISTS (SELECT 1 FROM job_queue_assignments f
@@ -205,6 +207,7 @@ export const seniorRows = (
                     ) AS submitted_elsewhere${scope.kind === 'STUDIO' ? sql`, st.id AS team_id, st.name AS team_name` : sql``}
        ${matchedSeniors(versions)}
         JOIN users u ON u.id = ms.senior_id
+        LEFT JOIN senior_availability sa ON sa.user_id = ms.senior_id
         ${scope.kind === 'STUDIO' ? studioSeniorTeam : sql``}
         LEFT JOIN job_queue_assignments a
           ON a.opportunity_id = o.id AND a.senior_id = ms.senior_id

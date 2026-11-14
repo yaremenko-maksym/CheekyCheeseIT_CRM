@@ -145,6 +145,9 @@ BEGIN
   IF to_regclass('public.job_model_route_daily') IS NOT NULL THEN
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.job_model_route_daily TO crm_app;
   END IF;
+  IF to_regclass('public.senior_availability') IS NOT NULL THEN
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.senior_availability TO crm_app;
+  END IF;
 END
 $staged$;
 --   crm_collector: nothing.
