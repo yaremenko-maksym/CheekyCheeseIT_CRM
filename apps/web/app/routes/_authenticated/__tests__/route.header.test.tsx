@@ -151,22 +151,28 @@ describe('CrmLayout header (routes/_authenticated/route.tsx)', () => {
 })
 
 describe('_authenticated beforeLoad (Task 7.6c)', () => {
+  // The router's own preload/navigation lanes: route.preload.test.ts (CR-M-2).
   const beforeLoad = Route.options.beforeLoad as unknown as (ctx: {
     location: { pathname: string }
-    preload: boolean
+    buildLocation: () => { pathname: string }
   }) => unknown
+  const currentIs = (pathname: string) => () => ({ pathname })
 
   it('awaits the session revalidation for the pathname being entered', () => {
     const check = Promise.resolve()
     revalidateSession.mockReturnValue(check)
-    expect(beforeLoad({ location: { pathname: '/job-queue' }, preload: false })).toBe(check)
+    expect(
+      beforeLoad({ location: { pathname: '/job-queue' }, buildLocation: currentIs('/job-queue') }),
+    ).toBe(check)
     expect(revalidateSession).toHaveBeenCalledWith('/job-queue')
   })
 
-  it('skips the revalidation for a hover preload (CR-M-1)', () => {
+  it('skips the revalidation for a hover preload: its target is not the current location', () => {
     revalidateSession.mockClear()
 
-    expect(beforeLoad({ location: { pathname: '/job-queue' }, preload: true })).toBeUndefined()
+    expect(
+      beforeLoad({ location: { pathname: '/projects' }, buildLocation: currentIs('/job-queue') }),
+    ).toBeUndefined()
     expect(revalidateSession).not.toHaveBeenCalled()
   })
 })
