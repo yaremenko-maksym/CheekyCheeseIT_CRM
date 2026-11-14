@@ -1,5 +1,8 @@
 # App-shell — Foundation (Phase 0 north-star)
 
+> **Superseded (v1, archived).** The CRM redesign v2 shell is `docs/design/screens/_foundation/shell-v2.md`.
+> This file is kept as the record of the v1 program and is no longer a build reference.
+
 > Per-screen artifact (CRM redesign). Coder-ready spec on our shadcn/ui + tokens. Headless agents
 > rely ONLY on this file + `assets/` (they have no browser access). Template: `docs/design/screens/_TEMPLATE.md`.
 > Direction: `docs/design/foundation.md`. Program: `docs/superpowers/specs/2026-06-22-crm-redesign-program.md`.
