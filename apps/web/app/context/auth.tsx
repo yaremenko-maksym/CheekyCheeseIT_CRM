@@ -46,30 +46,42 @@ const isAuthMe = (q: Query) => q.queryKey[0] === 'auth' && q.queryKey[1] === 'me
  * Task 7.6c: the session cookie can change under an open page (a sign-in in another tab), and the
  * cached `auth/me` user — which every scoped query key derives from — would never notice. The
  * `_authenticated` route awaits this in `beforeLoad`, so a changed user id purges every other query
- * and the persisted copy BEFORE the next route renders. One request per pathname change (search
- * changes and preloads skip it); nothing before the first `auth/me` answer (AuthProvider owns that).
+ * and the persisted copy BEFORE the next route renders. One request per pathname change: a repeat
+ * of the same pathname (a search change, or the click after the hover preload — the router reports
+ * an active layout's preload as `preload: false`) reuses the last check, waiting for it if in
+ * flight. Nothing before the first `auth/me` answer (AuthProvider owns that).
  */
 export function createSessionRevalidator(queryClient: QueryClient) {
   let lastPathname: string | null = null
-  return async (pathname: string): Promise<void> => {
-    if (pathname === lastPathname) return
-    lastPathname = pathname
+  let lastCheck: Promise<void> = Promise.resolve()
+  let generation = 0
+  const check = async (): Promise<void> => {
     const previous = queryClient.getQueryData<SessionUser | null>(AUTH_ME_KEY)
     if (!previous) return
+    // A request of its own, not a deduped `fetchQuery`: the router pushes the URL before
+    // `beforeLoad` settles, so an earlier request may still be in flight under the OLD cookie.
+    const mine = ++generation
     let current: SessionUser | null
     try {
-      current = await queryClient.fetchQuery({
-        queryKey: AUTH_ME_KEY,
-        queryFn: fetchMe,
-        staleTime: 0,
-      })
+      current = await fetchMe()
     } catch {
       return // network failure: keep the cache (offline use); the server still enforces access
     }
+    if (mine !== generation) return // a later navigation asked after us: its answer wins
+    // AuthProvider's own request may also predate the cookie change; its late answer must not land
+    await queryClient.cancelQueries({ queryKey: AUTH_ME_KEY, exact: true })
+    queryClient.setQueryData(AUTH_ME_KEY, current)
     if (current?.id === previous.id) return
     // reset, not remove: mounted observers (header, bell) drop the old data and refetch as the new user
     void queryClient.resetQueries({ predicate: (q) => !isAuthMe(q) }).catch(() => {})
     await idbDel(PERSIST_KEY).catch(() => {})
+  }
+  return (pathname: string): Promise<void> => {
+    if (pathname !== lastPathname) {
+      lastPathname = pathname
+      lastCheck = check()
+    }
+    return lastCheck
   }
 }
 

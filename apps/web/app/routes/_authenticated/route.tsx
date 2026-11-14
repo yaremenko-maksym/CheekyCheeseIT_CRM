@@ -36,8 +36,7 @@ import type { OnboardingStatusDto } from '@crm/shared'
 const revalidateSession = createSessionRevalidator(queryClient)
 
 export const Route = createFileRoute('/_authenticated')({
-  beforeLoad: ({ location, preload }) =>
-    preload ? undefined : revalidateSession(location.pathname),
+  beforeLoad: ({ location }) => revalidateSession(location.pathname),
   component: CrmRoot,
 })
 

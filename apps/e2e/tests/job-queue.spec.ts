@@ -709,7 +709,7 @@ test.describe('wave 2 — real API on the 7.6a seed', () => {
       await expect.poll(() => rowsSeen(page)).toEqual([])
     })
 
-    test('10b: an account change in the open page still paints the previous account rows (product gap, Task 7.6c)', async ({
+    test('10b: an account change in the open page never paints the previous account rows', async ({
       page,
     }) => {
       await loginViaApi(page, SEED_EMAILS.hrA)
@@ -729,10 +729,9 @@ test.describe('wave 2 — real API on the 7.6a seed', () => {
       await loginViaApi(page, SEED_EMAILS.hrB)
       await nav(page, 'Черга зовнішніх вакансій')
       await expect(page.getByTestId(ANY_ROW).first()).toBeVisible()
-      // product gap: Task 7.6c flips this to not.toContain. Nothing purges the query cache when
-      // the session cookie changes under an open page — `useJobQueue` keys on the `auth/me` user,
-      // which is not refetched — so Team Marchenko's HR is shown Team Kovalenko's cached rows.
-      await expect.poll(() => rowsSeen(page)).toEqual(expect.arrayContaining(annaOnly.map(ROW)))
+      // Task 7.6c: the route change revalidates `auth/me` and purges the cache before the queue renders
+      const seen = await rowsSeen(page)
+      for (const id of annaOnly) expect(seen).not.toContain(ROW(id))
     })
   })
 

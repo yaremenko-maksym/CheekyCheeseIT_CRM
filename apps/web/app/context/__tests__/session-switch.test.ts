@@ -45,6 +45,62 @@ describe('createSessionRevalidator', () => {
     expect(idbDel).toHaveBeenCalledWith(PERSIST_KEY)
   })
 
+  it('does not reuse an auth/me answer already in flight under the previous cookie', async () => {
+    const qc = seeded()
+    // the previous navigation's request left before the cookie changed and answers late, as Anna
+    let answerAsAnna: (v: unknown) => void = () => {}
+    apiGet.mockReturnValueOnce(new Promise((resolve) => (answerAsAnna = resolve)))
+    const revalidate = createSessionRevalidator(qc)
+    const stale = revalidate('/projects')
+    meReturns(kateryna)
+
+    const current = revalidate('/job-queue')
+    answerAsAnna({ status: 200, data: anna })
+    await Promise.all([stale, current])
+
+    expect(qc.getQueryData(QUEUE_KEY)).toBeUndefined()
+    expect(qc.getQueryData(['auth', 'me'])).toEqual(kateryna)
+    expect(idbDel).toHaveBeenCalledWith(PERSIST_KEY)
+  })
+
+  it("drops AuthProvider's own auth/me request still in flight from before the cookie change", async () => {
+    const qc = seeded()
+    let answerAsAnna: (v: unknown) => void = () => {}
+    const late = qc
+      .fetchQuery({
+        queryKey: ['auth', 'me'],
+        queryFn: () => new Promise((resolve) => (answerAsAnna = resolve)),
+        staleTime: 0,
+      })
+      .catch(() => {})
+    meReturns(kateryna)
+
+    await createSessionRevalidator(qc)('/job-queue')
+    answerAsAnna(anna)
+    await late
+
+    expect(qc.getQueryData(['auth', 'me'])).toEqual(kateryna)
+    expect(qc.getQueryData(QUEUE_KEY)).toBeUndefined()
+  })
+
+  it('a repeat of the same path waits for the revalidation in flight (hover preload, then click)', async () => {
+    const qc = seeded()
+    let answerAsKateryna: (v: unknown) => void = () => {}
+    apiGet.mockReturnValueOnce(new Promise((resolve) => (answerAsKateryna = resolve)))
+    const revalidate = createSessionRevalidator(qc)
+    void revalidate('/job-queue') // the router runs the layout's beforeLoad on hover preload too
+
+    let clickSettled = false
+    const click = revalidate('/job-queue').then(() => (clickSettled = true))
+    await Promise.resolve()
+    expect(clickSettled).toBe(false)
+
+    answerAsKateryna({ status: 200, data: kateryna })
+    await click
+    expect(qc.getQueryData(QUEUE_KEY)).toBeUndefined()
+    expect(apiGet).toHaveBeenCalledTimes(1)
+  })
+
   it('purges when the session is gone (401)', async () => {
     const qc = seeded()
     apiGet.mockResolvedValue({ status: 401, data: {} })
