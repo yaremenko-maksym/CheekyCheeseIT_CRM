@@ -1,4 +1,4 @@
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
@@ -25,13 +25,16 @@ interface ImpersonationBannerProps {
  */
 export function ImpersonationBanner({ user, onStopped }: ImpersonationBannerProps) {
   const { t } = useLingui()
+  const queryClient = useQueryClient()
   const stopMutation = useMutation({
     mutationFn: async () => {
       await api.post('/auth/stop-impersonating')
     },
     onSuccess: async () => {
       // Hard reload to root so all queries re-fetch as the restored admin. The impersonated
-      // user's persisted copy goes first, so the reload cannot restore it (PR #1330 SR-M-1).
+      // user's persisted copy goes first, so the reload cannot restore it (PR #1330 SR-M-1). The
+      // cache is emptied before that, so a throttled persist write lands empty (PR #1334 SR-L-3).
+      queryClient.clear()
       await purgePersistedBeforeReload()
       window.location.href = '/admin/login-as'
     },

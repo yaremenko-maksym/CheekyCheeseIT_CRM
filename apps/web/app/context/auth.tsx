@@ -56,8 +56,13 @@ const REVALIDATE_TIMEOUT_MS = 3000 // a hung check counts as a network failure, 
  * the page being left are still mounted then, and refetching them as an account with fewer rights
  * answers 403. Their refetch waits for the returned `settle`, which the layout calls once the
  * navigation is done: only the observers still mounted then (header, bell, the new page) refetch.
+ * `onSwitch` hears every change of id, before the purge.
  */
-function watchSessionOwner(queryClient: QueryClient, navigating: () => boolean): () => void {
+function watchSessionOwner(
+  queryClient: QueryClient,
+  navigating: () => boolean,
+  onSwitch: () => void,
+): () => void {
   const cached = queryClient.getQueryData<SessionUser | null>(AUTH_ME_KEY)
   let owner = cached === undefined ? undefined : (cached?.id ?? null)
   let purged: Set<Query> | null = null
@@ -81,6 +86,7 @@ function watchSessionOwner(queryClient: QueryClient, navigating: () => boolean):
     owner = id
     setPersistedCacheOwner(id)
     if (previous === undefined || previous === id) return
+    onSwitch()
     // reset, not remove: mounted observers (header, bell) drop the old data and stay subscribed
     const matched = queryClient.getQueryCache().findAll({ predicate: (q) => !isAuthMe(q) })
     notifyManager.batch(() => matched.forEach((q) => q.reset()))
@@ -101,21 +107,36 @@ function watchSessionOwner(queryClient: QueryClient, navigating: () => boolean):
  * reuses that check; a later visit to the same pathname asks again. A check overtaken by newer
  * ones waits for all of them, so no navigation renders before the newest answer is applied and an
  * older answer never lands after a newer one; if every newer one fails, the overtaken answer still
- * lands. A check that fails or takes over
+ * lands, unless `auth/me` changed user after it was sent (AuthProvider's own answer, PR #1334
+ * SR-L-1). A check that fails or takes over
  * `REVALIDATE_TIMEOUT_MS` keeps the cache. Nothing before the first `auth/me` answer
  * (AuthProvider owns that). Create one per client: it subscribes to its cache.
  *
  * A switch found by a check defers the refetch of the purged queries until `settled()`: the layout
- * calls it once the router is idle again (backlog 433, see `watchSessionOwner`).
+ * calls it once the router is idle again (backlog 433, see `watchSessionOwner`). A switch that lands
+ * after that, with no navigation asked since (an overtaken check), refetches at once (SR-L-2).
  */
 export function createSessionRevalidator(queryClient: QueryClient) {
   const REUSE_MS = 1000 // hover preload, then click
-  // checks in flight, by sequence: a purge while any runs belongs to a navigation not yet rendered
-  const inflight = new Map<number, Promise<void>>()
-  const settled = watchSessionOwner(queryClient, () => inflight.size > 0)
+  const inflight = new Map<number, Promise<void>>() // checks in flight, by sequence
   let last: { pathname: string; check: Promise<void>; settledAt: number | null } | null = null
   let asked = 0 // sequence of the newest check
-  let landed = 0 // sequence of the newest check whose answer is in `auth/me`
+  let rendered = 0 // `asked` when the router last went idle: those navigations are on screen
+  let floor = 1 // a check below this sequence is stale: `auth/me` took a newer answer
+  // A purge while a check runs belongs to a navigation not yet rendered, unless no navigation was
+  // asked since the router went idle. Any switch outdates every check sent before it (SR-L-1); a
+  // check's own landing lowers that again to its own sequence, below.
+  const refetchPurged = watchSessionOwner(
+    queryClient,
+    () => inflight.size > 0 && asked > rendered,
+    () => {
+      floor = asked + 1
+    },
+  )
+  const settled = () => {
+    rendered = asked
+    refetchPurged()
+  }
   const newerThan = (mine: number) =>
     [...inflight].filter(([seq]) => seq > mine).map(([, running]) => running)
   const answer = async (mine: number): Promise<void> => {
@@ -134,12 +155,13 @@ export function createSessionRevalidator(queryClient: QueryClient) {
     }
     // AuthProvider's own request may also predate the cookie change; its late answer must not land
     await queryClient.cancelQueries({ queryKey: AUTH_ME_KEY, exact: true })
-    // A newer answer is already in (it landed while we waited, or before ours even arrived): ours
-    // is stale. Ours lands only if every newer check failed.
-    // Stryker disable next-line EqualityOperator: `landed === mine` never holds here (only this check assigns `mine`, below), so `>` and `>=` are the same test
-    if (landed > mine) return
+    // A newer answer is already in: a newer check's (it landed while we waited, or before ours
+    // even arrived), or any switch of user since ours was sent. Ours lands only if every newer
+    // check failed and nothing else changed the user.
+    if (mine < floor) return
     queryClient.setQueryData(AUTH_ME_KEY, current) // a changed id purges in `watchSessionOwner`
-    landed = mine
+    // after the write: our own switch must not outdate a check asked after ours was sent
+    floor = mine + 1
   }
   const check = async (): Promise<void> => {
     if (!queryClient.getQueryData<SessionUser | null>(AUTH_ME_KEY)) return

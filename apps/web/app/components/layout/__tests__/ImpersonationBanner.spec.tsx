@@ -138,6 +138,30 @@ describe('ImpersonationBanner', () => {
     await waitFor(() => expect(window.location.href).toBe('/admin/login-as'))
   })
 
+  it('B12. empties the query cache before deleting the persisted copy, so a pending write cannot restore the impersonated rows (SR-L-3)', async () => {
+    const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    qc.setQueryData(['projects', 'senior-uuid'], [{ id: 'impersonated-project' }])
+    let cachedAtDelete: number | null = null
+    idbDel.mockImplementation(() => {
+      cachedAtDelete = qc.getQueryCache().getAll().length
+      return Promise.resolve()
+    })
+    vi.mocked(api.post).mockResolvedValue({ data: {} })
+    const user = userEvent.setup()
+    render(
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <ImpersonationBanner user={MOCK_USER} onStopped={vi.fn()} />
+        </QueryClientProvider>
+      </I18nTestProvider>,
+    )
+
+    await user.click(screen.getByTestId('impersonation-banner-return'))
+
+    await waitFor(() => expect(window.location.href).toBe('/admin/login-as'))
+    expect(cachedAtDelete).toBe(0)
+  })
+
   it('B11. still reloads as the admin when deleting the persisted cache never answers (backlog 433)', async () => {
     idbDel.mockReturnValue(new Promise<void>(() => {}))
     vi.mocked(api.post).mockResolvedValue({ data: {} })

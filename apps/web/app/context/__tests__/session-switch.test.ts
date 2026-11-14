@@ -525,6 +525,25 @@ describe('refetch after an account switch (backlog 433): the page being left nev
     expect(queueFn).toHaveBeenCalledTimes(1)
   })
 
+  it('a superseded check that lands after the router went idle refetches at once (SR-L-2)', async () => {
+    const qc = seeded()
+    const { queueFn } = mountQueue(qc)
+    let answerAsKateryna: (v: unknown) => void = () => {}
+    apiGet
+      .mockReturnValueOnce(new Promise((resolve) => (answerAsKateryna = resolve)))
+      .mockRejectedValueOnce(new Error('timeout of 3000ms exceeded'))
+    const revalidate = createSessionRevalidator(qc)
+    const older = revalidate('/job-queue')
+    await revalidate('/projects') // the newer check fails, its navigation renders
+    revalidate.settled() // the router is idle: nothing was purged yet
+
+    answerAsKateryna({ status: 200, data: kateryna })
+    await older
+
+    expect(qc.getQueryData(['auth', 'me'])).toEqual(kateryna)
+    await waitFor(() => expect(queueFn).toHaveBeenCalledTimes(1))
+  })
+
   it('a superseded check still lands its answer when the newer check fails', async () => {
     const qc = seeded()
     let answerAsKateryna: (v: unknown) => void = () => {}
@@ -542,6 +561,28 @@ describe('refetch after an account switch (backlog 433): the page being left nev
 
     expect(qc.getQueryData(['auth', 'me'])).toEqual(kateryna)
     expect(qc.getQueryData(QUEUE_KEY)).toBeUndefined()
+  })
+
+  it("an older check never lands over AuthProvider's own answer that came after it was sent (SR-L-1)", async () => {
+    const qc = seeded()
+    let answerAsAnna: (v: unknown) => void = () => {}
+    let failNewer: (e: unknown) => void = () => {}
+    apiGet
+      .mockReturnValueOnce(new Promise((resolve) => (answerAsAnna = resolve)))
+      .mockReturnValueOnce(new Promise((_, reject) => (failNewer = reject)))
+    const revalidate = createSessionRevalidator(qc)
+    const older = revalidate('/job-queue') // sent before the cookie changed
+    const newer = revalidate('/projects')
+
+    // AuthProvider's own refetch answers under the new cookie and applies Kateryna
+    await qc.fetchQuery({ queryKey: ['auth', 'me'], queryFn: () => kateryna, staleTime: 0 })
+    qc.setQueryData(QUEUE_KEY, { rows: ['kateryna-only-row'] })
+    failNewer(new Error('timeout of 3000ms exceeded'))
+    answerAsAnna({ status: 200, data: anna })
+    await Promise.all([older, newer])
+
+    expect(qc.getQueryData(['auth', 'me'])).toEqual(kateryna)
+    expect(qc.getQueryData(QUEUE_KEY)).toEqual({ rows: ['kateryna-only-row'] })
   })
 
   it('a superseded answer never overwrites the newer answer that landed', async () => {
