@@ -835,6 +835,16 @@ describe('checkResumeCompleteness — URLs and labelled handles (SR-H-1, SR-M-1)
     expect([1, 2].map(() => RESUME_URL_PATTERN.test('t.me/jose'))).toEqual([true, true])
   })
 
+  it.each([
+    ['see https://gitlab.com/jose now', 'https://gitlab.com/jose'],
+    ['see www.jose-portfolio.site now', 'www.jose-portfolio.site'],
+    ['see sub.domain.io/a now', 'sub.domain.io/a'],
+    ['see web3.io/x now', 'web3.io/x'],
+    ['see jose.com/work now', 'jose.com/work'],
+  ])('the URL match in %j is exactly %j, the span redaction replaces', (text, url) => {
+    expect(RESUME_URL_PATTERN.exec(text)?.[0]).toBe(url)
+  })
+
   it('a label needs a handle of at least five characters', () => {
     expect(RESUME_TELEGRAM_LABEL_PATTERN.test('tg: abcd')).toBe(false)
     expect(RESUME_TELEGRAM_LABEL_PATTERN.test('tg: abcde')).toBe(true)
