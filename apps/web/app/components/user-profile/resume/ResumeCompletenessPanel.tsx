@@ -81,6 +81,7 @@ export function useIssueLabel(): (path: string) => string {
     experience: t`Досвід роботи`,
     education: t`Освіта`,
     languages: t`Мови`,
+    // Stryker disable next-line ObjectLiteral,StringLiteral: Lingui's descriptor macro must read this object as a literal at compile time (the `{}` mutant makes the transform throw before any test runs)
     links: t({ message: 'Посилання', context: 'resume' }),
     summary: t`Про себе`,
     displayName: t`Ім’я в профілі`,
@@ -94,6 +95,7 @@ export function useIssueLabel(): (path: string) => string {
     end: t`Кінець`,
     period: t`Період`,
     notes: t`Нотатки`,
+    // Stryker disable next-line ObjectLiteral,StringLiteral: Lingui's descriptor macro must read this object as a literal at compile time (the `{}` mutant makes the transform throw before any test runs)
     technologies: t({ message: 'Технології', context: 'resume' }),
     bullets: t`Пункти`,
   }

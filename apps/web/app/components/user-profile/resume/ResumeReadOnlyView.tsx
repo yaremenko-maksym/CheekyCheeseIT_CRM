@@ -12,6 +12,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 export function ResumeReadOnlyView({ content }: { content: ResumeContent }) {
   const { t } = useLingui()
+  // Stryker disable next-line ObjectLiteral,StringLiteral: Lingui's descriptor macro must read this object as a literal at compile time (the `{}` mutant makes the transform throw before any test runs)
+  const linksTitle = t({ message: 'Посилання', context: 'resume' })
   return (
     <>
       <Section id="summary" title={t`Про себе`}>
@@ -85,7 +87,7 @@ export function ResumeReadOnlyView({ content }: { content: ResumeContent }) {
         )}
       </Section>
 
-      <Section id="links" title={t({ message: 'Посилання', context: 'resume' })}>
+      <Section id="links" title={linksTitle}>
         {content.links.length > 0 ? (
           <ul className="space-y-1.5 text-sm" data-testid="resume-links-view">
             {content.links.map((item, i) => (

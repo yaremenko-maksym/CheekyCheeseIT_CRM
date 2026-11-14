@@ -76,6 +76,7 @@ const SECTION_LABEL_MESSAGES: Record<ResumeSectionKey, MessageDescriptor> = {
   experience: msg`Досвід роботи`,
   education: msg`Освіта`,
   languages: msg`Мови`,
+  // Stryker disable next-line ObjectLiteral,StringLiteral: Lingui's descriptor macro must read this object as a literal at compile time (the `{}` mutant makes the transform throw before any test runs)
   links: msg({ message: 'Посилання', context: 'resume' }),
 } satisfies Record<ResumeSectionKey, MessageDescriptor>
 
