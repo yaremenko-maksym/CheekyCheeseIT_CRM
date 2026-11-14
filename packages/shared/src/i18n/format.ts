@@ -82,6 +82,7 @@ export function formatDate(
     shortYYUtc: { day: '2-digit', month: '2-digit', year: '2-digit', timeZone: 'UTC' },
     // A numeric date with a four-digit year (05.03.2026 / 05/03/2026) in the reader's LOCAL day: an
     // instant that ends a local day (a triage grant's expiry) reads as that day, never the next one in UTC.
+    // Stryker disable next-line ObjectLiteral: `{}` falls back to Intl's defaults, which for uk-UA and en-GB (the only two tags INTL_TAG maps) render the same 05.03.2026 / 05/03/2026 today; the explicit options pin that shape against an ICU default change, which no test on today's ICU can observe (CR-L-2)
     shortYYYY: { day: '2-digit', month: '2-digit', year: 'numeric' },
     dateTimeWithYear: {
       day: 'numeric',
