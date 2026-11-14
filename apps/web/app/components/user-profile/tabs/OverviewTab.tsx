@@ -40,6 +40,7 @@ import { ProfileEditFields } from '../self-edit/ProfileEditFields'
 import { AdminNoteDialog } from '../admin-actions/AdminNoteDialog'
 import { ProfileCredentialsSection } from '../ProfileCredentialsSection'
 import { LanguageSection } from '../LanguageSection'
+import { SeniorAvailabilitySection } from '@/components/senior-availability/SeniorAvailabilitySection'
 import { useLocale } from '@/lib/i18n'
 
 export interface OverviewTabProps {
@@ -725,6 +726,12 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
       {/* task-i18n-stage2 (Task 7): self-service interface language switch —
           own profile only, same gate as "Личные данные" above. */}
       {mode === 'self' && <SelfLanguageSection />}
+
+      {/* vacancy-queue design §5.2: a senior's availability, set by the senior or an ADMIN (the API
+          enforces the same pair); HR reads it on the queue card only. */}
+      {user.role === 'SENIOR' &&
+        user.archivedAt === null &&
+        (mode === 'self' || me?.role === 'ADMIN') && <SeniorAvailabilitySection userId={user.id} />}
 
       {/* Legend moved to project detail page (per-project, subject excluded).
           See apps/web/app/components/projects/ProjectLegendSection.tsx */}

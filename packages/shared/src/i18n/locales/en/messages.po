@@ -533,6 +533,10 @@ msgstr "No HR yet — add one first"
 msgid "Покинути вкладку «{0}»?"
 msgstr "Leave the “{0}” tab?"
 
+#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
+msgid "Не вдалося зберегти доступність. Спробуйте ще раз"
+msgstr "Could not save availability. Please try again"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
 #: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
@@ -3884,6 +3888,10 @@ msgstr "The old file/link will be deleted with no way to restore it."
 msgid "Джерела вакансій"
 msgstr "Job sources"
 
+#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
+msgid "Не вдалося завантажити доступність"
+msgstr "Could not load availability"
+
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Період, наприклад 2021 — наст. час"
 msgstr "Period, e.g. 2021 — present"
@@ -4431,6 +4439,10 @@ msgstr "Variable key (Latin letters, camelCase)"
 msgid "Бекстори"
 msgstr "Backstory"
 
+#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
+msgid "Вільно з"
+msgstr "Free from"
+
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Оберіть, зберегти зміни чи закрити без збереження."
 msgstr "Choose whether to save the changes or close without saving."
@@ -4464,6 +4476,7 @@ msgstr "Enter {0}"
 msgid "Очікує вашого рішення"
 msgstr "Awaiting your decision"
 
+#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Вільно"
 msgstr "Relaxed"
@@ -4748,6 +4761,11 @@ msgstr "The team has {0, plural, one {# HR/accountant} other {# HR/accountants}}
 msgid "Аналіз готовий"
 msgstr "Analysis ready"
 
+#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
+#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
+msgid "Доступність"
+msgstr "Availability"
+
 #: apps/web/app/routes/_authenticated/documents.tsx
 msgid "Документи вам не відкриті. Потрібен доступ — напишіть адміну"
 msgstr "You don’t have access to documents. Ask an admin if you need it"
@@ -4827,6 +4845,7 @@ msgid "Розпізнати текст"
 msgstr "Recognize the text"
 
 #: apps/web/app/components/documents/upload-document-dialog.tsx
+#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
 #: apps/web/app/components/ui/upload-progress.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Завантаження…"
@@ -6585,6 +6604,10 @@ msgstr "Used <0>{usedText}</0>"
 msgid "Додаткові поля для повнішої розмітки вакансії в пошуку Google."
 msgstr "Additional fields for fuller vacancy markup in Google search."
 
+#: apps/web/app/components/senior-availability/SeniorAvailabilityLabel.tsx
+msgid "Вільно з {day}"
+msgstr "Free from {day}"
+
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Новий"
 msgstr "New"
@@ -8127,6 +8150,11 @@ msgstr "No active contract template for this role"
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Реквізити оновлено"
 msgstr "Payment details updated"
+
+#: apps/web/app/components/senior-availability/SeniorAvailabilityLabel.tsx
+#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
+msgid "Зайнято"
+msgstr "Busy"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
@@ -11576,6 +11604,10 @@ msgstr "Managed from project settings."
 msgid "Спочатку виберіть область"
 msgstr "Select an area first"
 
+#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
+msgid "Доступність збережено"
+msgstr "Availability saved"
+
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Сповіщень немає"
 msgstr "No notifications"
@@ -11837,6 +11869,7 @@ msgstr "Could not read the file"
 
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
+#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminNoteDialog.tsx
 #: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
@@ -12495,6 +12528,7 @@ msgstr "Deletion reason (required)"
 msgid "Створити media token"
 msgstr "Create media token"
 
+#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
 #: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
 msgid "Не вказано"
 msgstr "Not set"

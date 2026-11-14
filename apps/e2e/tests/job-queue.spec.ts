@@ -144,6 +144,30 @@ test.describe('scenario 7 — card states (mocked)', () => {
     await expect(page.getByTestId('job-queue-seniors-none')).toBeVisible()
     await expect(page.getByTestId('job-queue-seniors-triage')).toBeHidden()
   })
+
+  test('7f: the senior’s availability changes while the card is open: the refetched card shows the new one', async ({
+    asHr: page,
+  }) => {
+    const uk = await loadMessages('uk')
+    await mockJobQueue(page, {
+      card: [
+        card({}, [cardSenior({ availability: { status: 'FREE', availableFrom: '2026-11-01' } })]),
+      ],
+      // the senior marked themself busy meanwhile; the conflict refetch is what reveals it
+      cardAfterSubmit: card({ revision: 2 }, [cardSenior({ availability: { status: 'BUSY' } })]),
+      submit: [{ status: 409, body: apiError(409, 'JOB_QUEUE_VERSION_CONFLICT') }],
+    })
+    await openCard(page)
+    const availability = page.getByTestId(`job-queue-senior-availability-${MOCK_IDS.seniorA}`)
+    await expect(availability).toHaveAttribute('data-availability', 'FREE')
+    // the day is Intl-formatted (`formatDay`), not a catalog string
+    await expect(availability).toContainText('1 листопада')
+
+    await page.getByTestId(`job-queue-submit-${MOCK_IDS.seniorA}`).click()
+
+    await expect(availability).toHaveAttribute('data-availability', 'BUSY')
+    await expect(availability).toHaveText(assertInCatalog(uk, 'Зайнято'))
+  })
 })
 
 // ---------------------------------------------------------------------------
