@@ -801,9 +801,7 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
     expect(
       await screen.findByText('Особистий email має відрізнятися від робочого'),
     ).toBeInTheDocument()
-    expect(screen.getByTestId('user-dialog-personal-email').className).toContain(
-      'border-destructive',
-    )
+    expect(screen.getByTestId('user-dialog-personal-email')).toHaveClass('border-destructive')
   })
 
   it('clears the inline error once an invalid personalEmail is fixed to a genuinely different, valid one', async () => {

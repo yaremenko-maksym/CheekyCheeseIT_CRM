@@ -279,25 +279,49 @@ test.describe('Verified base resume — check and confirm', () => {
     const overflow = await overflowOf(form)
     expect(overflow.page).toBeLessThanOrEqual(1)
     expect(overflow.outside).toEqual([])
+    // FF2-3: the layout panel (template picker, toggles, section rows) fits 320 too.
+    const panel = page.getByTestId('resume-layout-panel')
+    await expect(panel).toBeVisible()
+    const panelOverflow = await overflowOf(panel)
+    expect(panelOverflow.outside).toEqual([])
+    expect(await panel.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
   })
 
-  test('320 px has no horizontal overflow on the empty state', async ({ page }) => {
-    await page.setViewportSize({ width: 320, height: 900 })
-    await openResume(page, 'hr', resumeResponse(null, true, true))
-    const intake = page.getByTestId('resume-intake')
-    await expect(page.getByTestId('resume-fill-manually')).toBeVisible()
+  for (const width of [320, 768]) {
+    test(`${width} px has no horizontal overflow on the empty state`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 })
+      await openResume(page, 'hr', resumeResponse(null, true, true))
+      const intake = page.getByTestId('resume-intake')
+      await expect(page.getByTestId('resume-fill-manually')).toBeVisible()
 
-    const overflow = await overflowOf(intake)
-    expect(overflow.page).toBeLessThanOrEqual(1)
-    expect(overflow.outside).toEqual([])
-    // The tiles themselves stay inside the viewport (QA-2: the right border was clipped at 344).
-    const tilesRight = await intake.evaluate((el) =>
-      Math.max(
-        ...Array.from(el.querySelectorAll('div')).map((d) => d.getBoundingClientRect().right),
-      ),
-    )
-    expect(tilesRight).toBeLessThanOrEqual(320)
-  })
+      const overflow = await overflowOf(intake)
+      expect(overflow.page).toBeLessThanOrEqual(1)
+      expect(overflow.outside).toEqual([])
+      // The tiles themselves stay inside the viewport (QA-2: the right border was clipped at 344).
+      const tilesRight = await intake.evaluate((el) =>
+        Math.max(
+          ...Array.from(el.querySelectorAll('div')).map((d) => d.getBoundingClientRect().right),
+        ),
+      )
+      expect(tilesRight).toBeLessThanOrEqual(width)
+      // FF2-1: every button, and what it paints (icon, label), stays inside its own tile.
+      const tiles = page.getByTestId('resume-intake-tile')
+      await expect(tiles).toHaveCount(2)
+      const escaped = await tiles.evaluateAll((all) =>
+        all.flatMap((tile) => {
+          const box = tile.getBoundingClientRect()
+          return Array.from(tile.querySelectorAll('button')).flatMap((button) => {
+            const range = document.createRange()
+            range.selectNodeContents(button)
+            return [button.getBoundingClientRect(), range.getBoundingClientRect()]
+              .filter((r) => r.left < box.left - 1 || r.right > box.right + 1)
+              .map(() => button.textContent?.trim() ?? '')
+          })
+        }),
+      )
+      expect(escaped).toEqual([])
+    })
+  }
 
   test('768 px VERIFIED action bar does not scroll sideways', async ({ page }) => {
     await page.setViewportSize({ width: 768, height: 900 })

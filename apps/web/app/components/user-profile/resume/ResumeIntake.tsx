@@ -136,7 +136,10 @@ export function ResumeIntake({
           {/* minmax(0,1fr): a long button label wraps instead of widening the tile past 320 px (QA-2). */}
           <div className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2">
             {onFillManually && (
-              <div className="flex flex-col gap-3 rounded-lg border bg-card p-4">
+              <div
+                className="flex flex-col gap-3 rounded-lg border bg-card p-4"
+                data-testid="resume-intake-tile"
+              >
                 <div
                   className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground"
                   aria-hidden
@@ -160,7 +163,10 @@ export function ResumeIntake({
                 </Button>
               </div>
             )}
-            <div className="flex flex-col gap-3 rounded-lg border bg-card p-4">
+            <div
+              className="flex flex-col gap-3 rounded-lg border bg-card p-4"
+              data-testid="resume-intake-tile"
+            >
               <div
                 className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground"
                 aria-hidden

@@ -130,12 +130,14 @@ function Wired() {
 const stagedPdfGets = () =>
   getMock.mock.calls.filter(([url]) => url === `/users/${USER}/resume/staged-pdf`).length
 
-function renderWired(initial: SeniorResumeResponse) {
+function renderWired(initial: SeniorResumeResponse, stagedPdf?: Blob) {
   let response = initial
-  // The staged PDF is a blob jsdom cannot show; only the resume GET answers.
+  // The staged PDF is a blob jsdom cannot show; unless a test passes one, only the resume GET answers.
   getMock.mockImplementation((url: string) =>
     url.endsWith('/staged-pdf')
-      ? Promise.reject(new Error('no PDF in jsdom'))
+      ? stagedPdf
+        ? Promise.resolve({ data: stagedPdf })
+        : Promise.reject(new Error('no PDF in jsdom'))
       : Promise.resolve({ data: response }),
   )
   const qc = new QueryClient({
@@ -401,6 +403,21 @@ describe('ResumeVerificationPanel — staged PDF', () => {
     expect(within(pdf).getByTestId('resume-staged-pdf-template')).toHaveTextContent(
       'Шаблон: Сучасний',
     )
+  })
+
+  it('gives the staged PDF preview its own accessible name, not the filename default', async () => {
+    // jsdom has no object URLs; the hook only needs a string back. jsdom logs that it skips the iframe load.
+    Object.assign(URL, { createObjectURL: vi.fn(() => 'about:blank'), revokeObjectURL: vi.fn() })
+    try {
+      renderWired(makeResponse(), new Blob(['%PDF'], { type: 'application/pdf' }))
+      const object = await screen.findByTestId('resume-staged-pdf-object')
+      expect(
+        await within(object).findByTitle('Попередній перегляд PDF резюме до підтвердження'),
+      ).toHaveAccessibleName('Попередній перегляд PDF резюме до підтвердження')
+    } finally {
+      Reflect.deleteProperty(URL, 'createObjectURL')
+      Reflect.deleteProperty(URL, 'revokeObjectURL')
+    }
   })
 
   it('no staged PDF fetch while busy', async () => {

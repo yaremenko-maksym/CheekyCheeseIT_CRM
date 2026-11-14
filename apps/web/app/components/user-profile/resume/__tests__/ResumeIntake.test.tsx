@@ -58,13 +58,15 @@ describe('the empty state offers two choices (design §5.2)', () => {
     ).toBeInTheDocument()
   })
 
-  it('F-10: empty variant renders solid card, tiles with bold titles and one-line buttons', () => {
+  it('F-10: empty variant renders solid card, tiles with bold titles; the upload label wraps inside its tile', () => {
     renderIntake({ onFillManually: vi.fn() })
     const intake = screen.getByTestId('resume-intake')
     expect(intake).not.toHaveClass('border-dashed')
     expect(screen.getAllByText('Заповнити вручну')).toHaveLength(2)
     expect(screen.getAllByText('Завантажити, щоб заповнити')).toHaveLength(2)
-    expect(screen.getByTestId('resume-upload-button')).toHaveClass('whitespace-nowrap')
+    // FF2-1: the long upload label wraps at 768 / 320 instead of painting past the tile; 44 px min target.
+    expect(screen.getByTestId('resume-upload-button')).toHaveClass('whitespace-normal', 'min-h-11')
+    expect(screen.getByTestId('resume-upload-button')).not.toHaveClass('whitespace-nowrap')
     expect(screen.getByTestId('resume-fill-manually')).toHaveClass('whitespace-nowrap')
   })
 
