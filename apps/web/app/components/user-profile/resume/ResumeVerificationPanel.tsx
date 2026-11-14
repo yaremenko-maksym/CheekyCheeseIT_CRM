@@ -115,9 +115,7 @@ export function ResumeVerificationPanel({
         staged !== null &&
         !busy &&
         code !== null &&
-        KEPT_ON.has(code) && (
-          <KeptResultNotice code={code} onRetry={retry} disabled={submit.isPending || isDirty} />
-        )}
+        KEPT_ON.has(code) && <KeptResultNotice code={code} />}
 
       {/* Should not happen (staged comes with a staged PDF), but never a dead end. */}
       {status === 'AWAITING_CONFIRM' && staged === null && !busy && (
@@ -157,37 +155,22 @@ const KEPT_ON: ReadonlySet<ResumeVerificationErrorCode> = new Set([
   'STALLED',
 ])
 
-/** One line beside the kept result: which check was unavailable, that nothing was lost, Retry. */
-function KeptResultNotice({
-  code,
-  onRetry,
-  disabled,
-}: {
-  code: ResumeVerificationErrorCode
-  onRetry: () => void
-  disabled: boolean
-}) {
+/**
+ * One line beside the kept result: which check was unavailable, that nothing was lost, how to go on.
+ * No Retry here: Retry is `submit`, which drops the kept result and starts a full run (8b, FX-1).
+ */
+function KeptResultNotice({ code }: { code: ResumeVerificationErrorCode }) {
   const { i18n } = useLingui()
   const title = i18n._(VERIFICATION_CODES[code].title)
   return (
     <p
       role="status"
-      className="flex flex-wrap items-center gap-2 text-sm text-amber-700 dark:text-amber-400"
+      className="text-sm text-amber-700 dark:text-amber-400"
       data-testid="resume-verification-kept"
     >
-      <span>
-        <Trans>{title}. Попередній результат збережено.</Trans>
-      </span>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="h-11 sm:h-9"
-        disabled={disabled}
-        onClick={onRetry}
-      >
-        <Trans>Перевірити ще раз</Trans>
-      </Button>
+      <Trans>
+        {title}. Попередній результат збережено. Повторіть правку або згенеруйте текст заново.
+      </Trans>
     </p>
   )
 }

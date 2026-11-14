@@ -7875,7 +7875,6 @@ msgstr "Рік зарплати"
 
 #: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
 #: apps/web/app/components/user-profile/resume/ResumeVerificationPanel.tsx
-#: apps/web/app/components/user-profile/resume/ResumeVerificationPanel.tsx
 msgid "Перевірити ще раз"
 msgstr "Перевірити ще раз"
 
@@ -10112,10 +10111,6 @@ msgstr "Мітка (необов’язково)"
 msgid "Надіслати повторно"
 msgstr "Надіслати повторно"
 
-#: apps/web/app/components/user-profile/resume/ResumeVerificationPanel.tsx
-msgid "{title}. Попередній результат збережено."
-msgstr "{title}. Попередній результат збережено."
-
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Погіршення"
 msgstr "Погіршення"
@@ -10569,6 +10564,10 @@ msgstr "Вакансію оновлено після побудови списк
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Користувачів поки немає"
 msgstr "Користувачів поки немає"
+
+#: apps/web/app/components/user-profile/resume/ResumeVerificationPanel.tsx
+msgid "{title}. Попередній результат збережено. Повторіть правку або згенеруйте текст заново."
+msgstr "{title}. Попередній результат збережено. Повторіть правку або згенеруйте текст заново."
 
 #: apps/web/app/components/user-profile/resume/ResumeVerificationPanel.tsx
 msgid "Перевірено {date}"
