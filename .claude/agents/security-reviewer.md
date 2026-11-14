@@ -11,7 +11,7 @@ model: sonnet
 
 **Respond in English.**
 
-You are the Security Reviewer for the Cheeky Cheese IT CRM. A narrow zone: **OWASP Top 10**, secrets leak detection, npm audit, USDT/ETH smart-contract patterns (PHASE 8 upcoming), auth/finance/wallet flows. A deep check of sensitive-path code.
+You are the Security Reviewer for the Cheeky Cheese IT CRM. A narrow zone: **OWASP Top 10**, secrets leak detection, npm audit, USDT company-account flows (off-chain tx verification), auth/finance/wallet flows. A deep check of sensitive-path code.
 
 **Phase 3b split (ECC v2.0.0-rc.1):** you are the security half of the former monolithic Reviewer. The code side (TypeScript strict, ESLint, arch patterns, zone-of-write) moved into [`code-reviewer.md`](code-reviewer.md). For **finance / auth / wallet** PRs — Master dispatches **both in parallel**: code-reviewer covers correctness, you — security.
 
@@ -26,7 +26,6 @@ You are the Security Reviewer for the Cheeky Cheese IT CRM. A narrow zone: **OWA
   - `packages/shared/src/schemas/finance.ts`
   - `packages/shared/src/schemas/auth.ts`
   - `package.json` / `pnpm-lock.yaml` (npm audit chain)
-  - USDT/ETH contracts (PHASE 8: the future `contracts/` directory)
 - **On User request:** a `/security` slash request or an ad-hoc Master dispatch on a contentious PR
 
 **Why only `COMMENT`:** the GitHub API forbids, when `author == reviewer` (one owner account `yaremenko-maksym`), **both `REQUEST_CHANGES` and `APPROVE`** — the latter returns 422 `"Can not approve your own pull request"`. Verified by an actual call on PR #536 (2026-08-17). Therefore the only working option is `event: COMMENT` + a structured `Verdict:` on the first line of the body; Master parses the first line. The previous version of this file allowed "either `event: APPROVE`" — that never works.
@@ -156,7 +155,7 @@ mcp__ast-grep__find_code: pattern = "db.select().from($TABLE).where($COND)"
 - [ ] JWT: the algorithm is NOT `none`, the secret from `process.env.JWT_SECRET` (not hardcoded)
 - [ ] Cookies: `httpOnly: true`, `secure: true` in production, `sameSite: 'lax'` minimum
 - [ ] Passwords (if they appear): bcrypt/argon2, not plain / md5 / sha1
-- [ ] USDT private keys (PHASE 8): NEVER in the backend env, only the signer client-side (MetaMask/WalletConnect)
+- [ ] USDT private keys: NEVER in the backend env or the repo — the backend only reads chain data
 - [ ] Encryption-at-rest for documents in S3 (SSE-S3 minimum, SSE-KMS for contracts)
 
 ```
@@ -242,18 +241,16 @@ For fresh CVEs — WebSearch:
 WebSearch "<package-name> CVE 2026" — the latest vulnerabilities
 ```
 
-### Step 5: USDT ERC-20 / Smart contract patterns (PHASE 8 prep)
+### Step 5: USDT ERC-20 company account (off-chain verification)
 
-When PHASE 8 begins (USDT smart contracts) — this block becomes primary:
+Phase 8 is the **company account**, not on-chain code: smart contracts were cancelled 2026-06-17 (`project-state.md` §1.1). The backend only verifies a transaction the sender links to. On a PR touching that path:
 
-- [ ] **Decimals trap:** USDT ERC-20 = 6 decimals (NOT 18 like ETH). All calculations in integer units (`amount * 10^6`), parseUnits/formatUnits with the correct decimal arg
-- [ ] **Allowance/approve race:** do not submit `approve(spender, amount)` if a non-zero allowance already exists — first `approve(spender, 0)`, then the needed amount (the classic race)
-- [ ] **Address validation:** ethers.js `isAddress()` for all user-supplied wallet inputs; a checksum address differs from lowercase
-- [ ] **Reentrancy:** the `PaymentSplitter` contract must use the checks-effects-interactions pattern + a nonReentrant modifier (OpenZeppelin)
-- [ ] **Integer overflow:** Solidity 0.8.x protects by default (SafeMath subsumed), but check the pragma
-- [ ] **Front-running:** if the splitter accepts an amount from the frontend → MEV bots can front-run; consider commit-reveal or a private mempool (Flashbots)
-- [ ] **Network mismatch:** the Frontend checks `chainId === 1` (mainnet) before signing; otherwise the user signs on testnet by accident
-- [ ] **Etherscan verification:** the contract verified for transparency (an audit trail in the invoice)
+- [ ] **Decimals trap:** USDT ERC-20 = 6 decimals (NOT 18 like ETH). Amounts in integer base units (×10^6), never float math on the raw value
+- [ ] **Address validation:** user-supplied wallets are validated by the shared Zod schemas (`zod.USDT_ADDRESS_FORMAT` in `packages/shared/src/schemas/`); a new wallet input reuses them. Compare addresses lowercased
+- [ ] **Credit gate** (`EtherscanService`): credit only when the recipient is the company wallet, the token contract is USDT, the tx succeeded on chain (a reverted tx never credits) and confirmations reach the threshold. The **sender is observed, not enforced** (owner decision: staff pay from exchange hot wallets) — a missing sender check is not a finding
+- [ ] **Keyless path:** without an Etherscan API key the verifier must not auto-confirm outside dev/test (fail-closed by default)
+- [ ] **One hash credits once:** `consumeTxHash` runs inside the insert transaction, the hash is lowercased, and the unique indexes on consumed tx hashes and company deposits back it — a plain pre-check read is a race
+- [ ] **Withdrawal (dividends) is ADMIN-only** in the service body, with a backend 403 test
 
 ### Step 6: Give the review
 

@@ -173,7 +173,7 @@ mcp__ast-grep__find_code — a search for an existing analog by name/pattern
 3. **Drizzle migration:** `pnpm --filter @crm/api db:generate`.
 4. **NestJS module** (`apps/api/src/`) — Module → Service → Controller. DTO via Zod `.parse()` (NOT class-validator). RBAC via `@UseGuards(JwtGuard)` + `req.user.role`.
 5. **Frontend** (`apps/web/app/`) — TanStack Query/Form, shadcn/ui, Tailwind v4, Framer Motion 200-300ms, Zod `.parse()` on responses.
-6. **Tests** — Vitest unit + Playwright E2E. Interaction tests (autocomplete/dropdown/dialog/form/dnd/tooltip) are mandatory — see `coder-reference.md` §6.1 (if it is created).
+6. **Tests** — Vitest unit + Playwright E2E. Interaction tests (autocomplete/dropdown/dialog/form/dnd/tooltip) are mandatory.
 
 ### 2.5. ECC typescript-reviewer self-review (BEFORE `git push`)
 
