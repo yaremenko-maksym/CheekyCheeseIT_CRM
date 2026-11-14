@@ -2148,6 +2148,12 @@ export const jobQueueCardResponseSchema = jobQueueListItemSchema
       .object({ scope: jobQueueScopeKindSchema, version: intColumnPositiveSchema })
       .strict()
       .nullable(),
+    /**
+     * STUDIO (ADMIN) only: the triage policy version a team-triage grant must send back. It changes
+     * on every team-membership, senior-profile or exclusion write, so a grant made from a card read
+     * before such a write is a version conflict (backlog 425). Absent for a TEAM scope.
+     */
+    triagePolicyVersion: intColumnPositiveSchema.optional(),
   })
   .strict()
 
@@ -2288,12 +2294,17 @@ export const jobQueueTeamTriageGrantRequestSchema = z
     teamId: z.string().uuid(),
     // `job_opportunities.revision` starts at 1, so 0 can never match.
     expectedOpportunityRevision: intColumnPositiveSchema,
-    policyVersion: intColumnCountSchema,
+    /** The card's `triagePolicyVersion`; a stale one is `JOB_QUEUE_VERSION_CONFLICT` (backlog 425). */
+    policyVersion: intColumnPositiveSchema,
     reason: triageReasonSchema,
+    /** At most `JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS` ahead of the server's clock (backlog 426). */
     expiresAt: z.string().datetime(),
     idempotencyKey: z.string().uuid(),
   })
   .strict()
+
+/** The ceiling of a triage grant's expiry, counted from the server's clock (owner decision, backlog 426). */
+export const JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS = 90
 
 /** DELETE `/job-queue/:id/team-triage/:teamId` (ADMIN; 200 + the revoked grant). */
 export const jobQueueTeamTriageRevokeRequestSchema = z
