@@ -15,6 +15,13 @@ import {
 const NOW = new Date('2026-11-10T00:00:00Z')
 const CTX = { displayName: 'José Müller', now: NOW }
 
+/** The URL hit: group 1 for the bare form (its pattern consumes one boundary character), else the match. */
+const urlHit = (text: string): string | undefined => {
+  const m = RESUME_URL_PATTERN.exec(text)
+  return m?.[1] ?? m?.[0]
+}
+const emailHit = (text: string): string | undefined => RESUME_EMAIL_PATTERN.exec(text)?.[1]
+
 const BASE_EXPERIENCE: ResumeFactsExperience = {
   company: 'Acme',
   role: 'Engineer',
@@ -669,9 +676,7 @@ describe('RESUME_EMAIL_PATTERN', () => {
   )
 
   it('matches the whole local part, not its last character', () => {
-    expect('mail jane.doe@example.com today'.match(RESUME_EMAIL_PATTERN)?.[0]).toBe(
-      'jane.doe@example.com',
-    )
+    expect(emailHit('mail jane.doe@example.com today')).toBe('jane.doe@example.com')
   })
 
   it.each(['jane at example dot com', 'no-address-here', 'a@b.c'])('does not flag %s', (text) => {
@@ -756,9 +761,9 @@ describe('checkResumeCompleteness — the Telegram handle of the senior', () => 
     )
   })
 
-  it('keeps an @ inside a stored handle: mark@dev hits mark@dev, not markdev (CR-L-4)', () => {
+  it('a stored mark@dev is no Telegram username, so it adds no handle check (SR3-L-2, was CR-L-4)', () => {
     const ctx = { ...CTX, telegram: 'mark@dev' }
-    expect(checkResumeCompleteness(noteWith('ping mark@dev'), ctx)).toEqual(flagged)
+    expect(checkResumeCompleteness(noteWith('ping mark@dev'), ctx)).toEqual([])
     expect(checkResumeCompleteness(noteWith('ping markdev'), ctx)).toEqual([])
   })
 
@@ -780,9 +785,10 @@ describe('normaliseTelegramHandle', () => {
     ['T.ME/mark_dev', 'mark_dev'],
     ['https://t.me/mark_dev', 'mark_dev'],
     ['http://telegram.me/@mark_dev', 'mark_dev'],
-    ['mark@dev', 'mark@dev'],
-    ['mark_t.me/dev', 'mark_t.me'],
-    ['@', ''],
+    // SR3-L-2: not a Telegram username (a letter, then 4+ of [A-Za-z0-9_]) gives no handle
+    ['mark@dev', undefined],
+    ['mark_t.me/dev', undefined],
+    ['@', undefined],
     ['tg:mark_dev', 'mark_dev'],
     ['TG : @mark_dev', 'mark_dev'],
     ['telegram: mark_dev', 'mark_dev'],
@@ -860,7 +866,7 @@ describe('checkResumeCompleteness — URLs and labelled handles (SR-H-1, SR-M-1)
     ['see web3.io/x now', 'web3.io/x'],
     ['see jose.com/work now', 'jose.com/work'],
   ])('the URL match in %j is exactly %j, the span redaction replaces', (text, url) => {
-    expect(RESUME_URL_PATTERN.exec(text)?.[0]).toBe(url)
+    expect(urlHit(text)).toBe(url)
   })
 
   it.each([
@@ -868,46 +874,48 @@ describe('checkResumeCompleteness — URLs and labelled handles (SR-H-1, SR-M-1)
     ['a://b', 'a://b'],
     [`a${'b'.repeat(30)}://x`, `a${'b'.repeat(30)}://x`],
     [`${'a'.repeat(63)}.com/x`, `${'a'.repeat(63)}.com/x`],
-    [`${'a'.repeat(64)}.com/x`, `${'a'.repeat(63)}.com/x`],
     [`${'a.'.repeat(10)}com/x`, `${'a.'.repeat(10)}com/x`],
     [`b.${'a.'.repeat(20)}com/x`, `${'a.'.repeat(20)}com/x`],
     ['a.bc/x', 'a.bc/x'],
     [`a.${'b'.repeat(24)}/x`, `a.${'b'.repeat(24)}/x`],
     ['foo.jsx/x', 'foo.jsx/x'],
   ])('the URL match in %j is exactly %j (bounds, SR-L-3, SR-L-4)', (text, url) => {
-    expect(RESUME_URL_PATTERN.exec(text)?.[0]).toBe(url)
+    expect(urlHit(text)).toBe(url)
   })
 
   it.each([
     `a${'b'.repeat(31)}://x`,
+    // SR3-M-1: a match starts at a label boundary, so a 64-letter label is no tail of 63
+    `${'a'.repeat(64)}.com/x`,
     'a.b/x',
     `a.${'b'.repeat(25)}/x`,
     'johndoe.dev',
     'github.com',
   ])('no URL in %j (bounds; a bare domain with no path is not one)', (text) => {
-    expect(RESUME_URL_PATTERN.exec(text)).toBeNull()
+    expect(urlHit(text)).toBeUndefined()
   })
 
   it.each(['package.json/scripts', 'React.memo/useMemo', 'Vue.config/x', 'ASP.NET/Core'])(
     'reads %s as a URL: an accepted false positive of the any-TLD path form',
     (text) => {
-      expect(RESUME_URL_PATTERN.exec(text)?.[0]).toBe(text)
+      expect(urlHit(text)).toBe(text)
     },
   )
 
   it.each([
     [`${'a'.repeat(64)}@b.co`, `${'a'.repeat(64)}@b.co`],
-    [`${'a'.repeat(65)}@b.co`, `${'a'.repeat(64)}@b.co`],
+    // A local part matches whole, however long: it has no bound since its left boundary (SR3-M-1).
+    [`${'a'.repeat(65)}@b.co`, `${'a'.repeat(65)}@b.co`],
     [`x@${'a'.repeat(63)}.co`, `x@${'a'.repeat(63)}.co`],
     [`x@${'a.'.repeat(10)}co`, `x@${'a.'.repeat(10)}co`],
   ])('the email match in %j is exactly %j (bounds, SR-L-3)', (text, email) => {
-    expect(RESUME_EMAIL_PATTERN.exec(text)?.[0]).toBe(email)
+    expect(emailHit(text)).toBe(email)
   })
 
   it.each([`x@${'a'.repeat(64)}.co`, `x@${'a.'.repeat(21)}co`])(
     'no email in %j (bounds)',
     (text) => {
-      expect(RESUME_EMAIL_PATTERN.exec(text)).toBeNull()
+      expect(emailHit(text)).toBeUndefined()
     },
   )
 

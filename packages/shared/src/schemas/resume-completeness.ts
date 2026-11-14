@@ -44,9 +44,11 @@ export type CompletenessIssue = { path: string; code: CompletenessCode }
  * separator for the same reason.
  *
  * Stateless on purpose (no `g` flag): the same pattern is reused by the API, so
- * `.test()` on a shared RegExp must not depend on an earlier call's lastIndex.
+ * `.test()` on a shared RegExp must not depend on an earlier call's lastIndex. The first
+ * lookahead runs the digit-count one only where a phone can start; without it a long run of
+ * separators is rescanned from each of its positions (quadratic).
  */
-export const RESUME_PHONE_PATTERN = /(?=(?:[^\d\p{L}]*\d){9,})[+(]?\d[\d\s().–-]{7,}\d/u
+export const RESUME_PHONE_PATTERN = /(?=[+(]?\d)(?=(?:[^\d\p{L}]*\d){9,})[+(]?\d[\d\s().–-]{7,}\d/u
 
 /** A full date: `YYYY-MM-DD` / `YYYY.MM.DD` / `YYYY/MM/DD` or `DD-MM-YYYY` / `DD.MM.YYYY` / `DD/MM/YYYY`. */
 const FULL_DATE = String.raw`(?:(?:19|20)\d\d[-./](?:0[1-9]|1[0-2])[-./](?:0[1-9]|[12]\d|3[01])|(?:0[1-9]|[12]\d|3[01])[-./](?:0[1-9]|1[0-2])[-./](?:19|20)\d\d)`
@@ -70,26 +72,29 @@ export function findPhoneSpans(text: string): Array<{ start: number; end: number
 
 /**
  * An email address shape: local part with the common punctuation, and a dot TLD of letters or
- * punycode (`xn--p1ai`). Every run in front of a required token is bounded (local part 64, RFC
- * 5321; host labels 63, at most 20), so a long `a.a.a…` without an `@` costs linear time, not
- * quadratic. A longer local part matches only its last 64 characters; the API redaction widens
- * the span over the rest.
+ * punycode (`xn--p1ai`). The local part starts after the text start or any character that is not
+ * a local-part one, which the pattern consumes, so its hit is group 1: a run of local-part
+ * characters is tried from its start only, and a long `a.a.a…` or a Cyrillic paragraph without an
+ * `@` costs linear time, not quadratic. So the local part needs no bound and matches whole, however
+ * long. Host labels are bounded (63, at most 20) for the same reason.
  */
 export const RESUME_EMAIL_PATTERN =
-  /[\p{L}\p{N}._%+-]{1,64}@(?:[\p{L}\p{N}-]{1,63}\.){1,20}(?:[Xx][Nn]--[\p{L}\p{N}-]{1,59}|\p{L}{2,})/u
+  /(?:^|[^\p{L}\p{N}._%+-])([\p{L}\p{N}._%+-]+@(?:[\p{L}\p{N}-]{1,63}\.){1,20}(?:[Xx][Nn]--[\p{L}\p{N}-]{1,59}|\p{L}{2,}))/u
 
 /**
  * A URL: any `scheme://…`, any `www.…`, or `label.tld/path` with Unicode labels and any 2–24
  * letter TLD in any case and script (`bit.ly/x`, `GitHub.Com/x`, `иван.рф/cv`) or a punycode TLD
  * (`example.xn--p1ai/cv`), except `js` / `ts` right before the slash (`Express.js/Nest`,
- * `Node.js/Express`). `ASP.NET/Core` reads as a URL, which is accepted. The bare form has no left
- * boundary (`foo_github.com/x` hits). Runs are bounded as in the email pattern (scheme 31, labels
- * 63 × 20), so the scan stays linear. Stateless (no `g`), like the phone pattern.
+ * `Node.js/Express`). `ASP.NET/Core` reads as a URL, which is accepted. The bare form starts after
+ * the text start or any character that is not a label one (`foo_github.com/x` hits `github.com/x`);
+ * it consumes that character, so its hit is group 1, and a run of label characters is tried from
+ * its start only, never from each of its letters. Runs are bounded as in the email pattern
+ * (scheme 31, labels 63 × 20), so the scan stays linear. Stateless (no `g`), like the phone pattern.
  * shortcut: a bare domain with no path (`johndoe.dev`, `github.com`) is not a URL, because
  * `Socket.io` is a skill; upgrade to a domain allow-list if such leaks show up.
  */
 export const RESUME_URL_PATTERN =
-  /\b(?:[A-Za-z][\w+.-]{0,30}:\/\/\S+|[Ww]{3}\.\S+)|(?:[\p{L}\p{N}-]{1,63}\.){1,20}(?![Jj][Ss]\/|[Tt][Ss]\/)(?:[Xx][Nn]--[\p{L}\p{N}-]{1,59}|\p{L}{2,24})\/\S*/u
+  /\b(?:[A-Za-z][\w+.-]{0,30}:\/\/\S+|[Ww]{3}\.\S+)|(?:^|[^\p{L}\p{N}-])((?:[\p{L}\p{N}-]{1,63}\.){1,20}(?![Jj][Ss]\/|[Tt][Ss]\/)(?:[Xx][Nn]--[\p{L}\p{N}-]{1,59}|\p{L}{2,24})\/\S*)/u
 
 /** `word` in any case without the `i` flag, which would also let `\p{Ll}` match a capital. */
 function anyCase(word: string): string {
@@ -97,16 +102,20 @@ function anyCase(word: string): string {
 }
 
 /**
- * After a label: a colon or an en / em dash, then optional `@`s (`tg: mark_dev`, `tg—mark_dev`);
+ * After a label: a colon (also the fullwidth `：`) or a dash other than the hyphen (U+2010, U+2012,
+ * the en / em dash, U+2015, the minus U+2212), then optional `@`s (`tg: mark_dev`, `tg—mark_dev`);
  * or nothing / a hyphen, then at least one `@` (`TG @mark_dev`, `Telegram - @mark_dev`), so
- * `Telegram bots`, `TG integration` and `Telegram-integration` are not handles. Each branch has
- * one way to split its spaces, so a label followed by a long run of spaces stays linear.
+ * `Telegram bots`, `TG integration` and `Telegram-integration` are not handles. Spaces may follow
+ * the `@`s (`Telegram:@ mark_dev`). Each branch has one way to split its spaces, so a label
+ * followed by a long run of spaces stays linear.
+ * shortcut: a punctuation-wrapped label (`Telegram (@x)`, `Telegram | @x`, `Telegram.@x`, `tg/@x`)
+ * is not caught; upgrade if seen in real resumes.
  */
-const LABEL_HANDLE = String.raw`(?:\s*[:–—]\s*@*|\s*(?:-\s*)?@+)[A-Za-z]\w{4,}`
+const LABEL_HANDLE = String.raw`(?:\s*[:：‐‒–—―−]\s*(?:@+\s*)?|\s*(?:-\s*)?@+\s*)[A-Za-z]\w{4,}`
 
 /**
- * A labelled Telegram handle that need not be the stored one: `tg`, `тг`, `telegram` or
- * `телеграм`, any case, then `LABEL_HANDLE` and a handle as Telegram allows it (a letter first,
+ * A labelled Telegram handle that need not be the stored one: `tg`, `тг`, `telegram`,
+ * `телеграм` or `телеграмм`, any case, then `LABEL_HANDLE` and a handle as Telegram allows it (a letter first,
  * 5+ characters), so `tg:12345` is not one. `telegram` / `телеграм` may be glued (`MyTelegram:`).
  * The short `tg` / `тг` must start a word or follow a camel-case join (`PersonalTG:`, `моїТГ:`),
  * so `xtg:` is not one; that prefix stands in for a lookbehind (Safari < 16.4), and group 1 is the
@@ -115,25 +124,22 @@ const LABEL_HANDLE = String.raw`(?:\s*[:–—]\s*@*|\s*(?:-\s*)?@+)[A-Za-z]\w{4
  * upgrade if seen in real resumes.
  */
 export const RESUME_TELEGRAM_LABEL_PATTERN = new RegExp(
-  String.raw`(?:^|[^\p{L}\p{N}]|\p{Ll}(?=[TТ]))((?:${anyCase('tg')}|${anyCase('тг')})${LABEL_HANDLE})|(?:${anyCase('telegram')}|${anyCase('телеграм')})${LABEL_HANDLE}`,
+  String.raw`(?:^|[^\p{L}\p{N}]|\p{Ll}(?=[TТ]))((?:${anyCase('tg')}|${anyCase('тг')})${LABEL_HANDLE})|(?:${anyCase('telegram')}|${anyCase('телеграм')}[мМ]?)${LABEL_HANDLE}`,
   'u',
 )
 
 /**
  * A stored `users.telegram` as Telegram spells the handle: trimmed, without a
  * `tg://resolve?domain=` link, a `tg:` / `telegram:` label, an `http(s)://`, a `www.`, a `t.me/`
- * or `telegram.me/` prefix, or leading `@`s, and cut at the first `/`, `?`, `#` or `&`
- * (`t.me/mark_dev?start=1`). Empty when nothing is left.
+ * (also `t.me/s/`) or `telegram.me/` prefix, or leading `@`s, and ending at the first `/`, `?`,
+ * `#` or `&` (`t.me/mark_dev?start=1`). Undefined unless that is a Telegram username (a letter,
+ * then 4+ of `[A-Za-z0-9_]`): an invite link (`t.me/joinchat/…`, `t.me/+…`) or a stray word would
+ * otherwise redact every occurrence of it.
  */
 export function normaliseTelegramHandle(stored: string | null | undefined): string | undefined {
-  // No `^` needed: the second branch is all optional, so the first (only replaced) match starts at 0.
-  return stored
-    ?.trim()
-    .replace(
-      /(?:tg:\/\/resolve\?domain=|(?:(?:tg|telegram)\s*:\s*)?(?:https?:\/\/)?(?:www\.)?(?:(?:t|telegram)\.me\/)?)@*/i,
-      '',
-    )
-    .replace(/[/?#&].*/s, '')
+  return /^(?:tg:\/\/resolve\?domain=|(?:(?:tg|telegram)\s*:\s*)?(?:https?:\/\/)?(?:www\.)?(?:(?:t|telegram)\.me\/(?:s\/)?)?)@*(?!joinchat(?:$|[/?#&]))([A-Za-z]\w{4,})(?:$|[/?#&])/i.exec(
+    stored?.trim() ?? '',
+  )?.[1]
 }
 
 const LETTER_PATTERN = /\p{L}/u
