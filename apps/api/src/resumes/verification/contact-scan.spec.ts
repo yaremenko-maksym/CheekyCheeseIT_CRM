@@ -375,14 +375,18 @@ describe('the Telegram handle of the senior', () => {
     expect(redactContacts('x@mark_dev', tg)).toBe('x@[REDACTED]')
   })
 
-  it.each(['t.me/mark_dev', 'https://t.me/mark_dev', 'telegram.me/@mark_dev', '@@mark_dev'])(
-    'a handle stored as %j still hits the written @ form (CR-L-3)',
-    (telegram) => {
-      expect(scanContacts('ping @mark_dev', { ...ctx, telegram })).toEqual([
-        { kind: 'telegram', match: '@mark_dev' },
-      ])
-    },
-  )
+  it.each([
+    't.me/mark_dev',
+    'https://t.me/mark_dev',
+    'telegram.me/@mark_dev',
+    '@@mark_dev',
+    'tg:mark_dev',
+    'www.t.me/mark_dev',
+  ])('a handle stored as %j still hits the written @ form (CR-L-3)', (telegram) => {
+    expect(scanContacts('ping @mark_dev', { ...ctx, telegram })).toEqual([
+      { kind: 'telegram', match: '@mark_dev' },
+    ])
+  })
 
   it('keeps an @ inside a stored handle: mark@dev hits mark@dev, not markdev (CR-L-4)', () => {
     const stored = { ...ctx, telegram: 'mark@dev' }
@@ -416,6 +420,10 @@ describe('URLs (SR-H-1)', () => {
     ...['com', 'net', 'org', 'io', 'dev', 'me', 'ua', 'co', 'app', 'ai', 'in'].map(
       (tld) => `mark.${tld}/work`,
     ),
+    'bit.ly/x',
+    'johndoe.tech/cv',
+    'GITHUB.COM/X',
+    'GitHub.Com/x',
   ])('redacts %s with no context of the senior', (url) => {
     expect(scanContacts(`see ${url} now`, ctx)).toEqual([{ kind: 'url', match: url }])
     expect(redactContacts(`see ${url} now`, [])).toBe('see [REDACTED] now')
@@ -428,6 +436,8 @@ describe('URLs (SR-H-1)', () => {
     'Charts in D3.js and Three.js',
     'Express.js/Nest backend',
     'mark.dev without a path',
+    'Node.js/Express and Express.JS/Nest',
+    'github.com',
   ])('leaves a tech name alone: %s', (text) => {
     expect(scanContacts(text, ctx)).toEqual([])
     expect(redactContacts(text, [])).toBe(text)
@@ -442,6 +452,28 @@ describe('labelled Telegram handles (SR-M-1)', () => {
       expect(redactContacts(`Acme (${text})`, [])).toBe('Acme ([REDACTED])')
     },
   )
+
+  it('redacts only the label hit, not the character in front of it (SR-L-5)', () => {
+    expect(scanContacts('(tg:mark_dev)', ctx)).toEqual([{ kind: 'telegram', match: 'tg:mark_dev' }])
+    expect(redactContacts('Reach tg: @mark_dev now', [])).toBe('Reach [REDACTED] now')
+  })
+
+  it.each(['Debug tg:12345', 'xtg: other_one'])('leaves %s alone (SR-L-5)', (text) => {
+    expect(scanContacts(text, ctx)).toEqual([])
+  })
+
+  it('a URL glued to a word is still redacted (SR-L-4)', () => {
+    expect(redactContacts('see foo_github.com/x', [])).toBe('see foo_[REDACTED]')
+  })
+
+  it.each([
+    ['a.', 'a.'.repeat(25_000)],
+    ['a-.', 'a-.'.repeat(16_667)],
+  ])('a 50k-character %j repeat is redacted in under 100 ms (SR-L-3)', (_, text) => {
+    const started = performance.now()
+    redactContacts(text, ctx)
+    expect(performance.now() - started).toBeLessThan(100)
+  })
 
   it('leaves a bare @package alone', () => {
     const text = 'used @angular/core and @nestjs/common'

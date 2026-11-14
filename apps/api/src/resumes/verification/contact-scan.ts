@@ -160,7 +160,9 @@ function findSpans(text: string, ctx: ContactContext): Span[] {
   const spans: Span[] = []
   for (const [kind, pattern] of contactPatterns(ctx)) {
     for (const m of plain.matchAll(pattern)) {
-      spans.push({ kind, start: m.index, end: m.index + m[0].length })
+      // The label pattern consumes one boundary character in front; its group 1 is the hit.
+      const end = m.index + m[0].length
+      spans.push({ kind, start: end - (m[1] ?? m[0]).length, end })
     }
   }
   for (const span of findPhoneSpans(plain)) spans.push({ kind: 'phone', ...span })

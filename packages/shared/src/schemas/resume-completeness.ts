@@ -68,30 +68,50 @@ export function findPhoneSpans(text: string): Array<{ start: number; end: number
   return spans
 }
 
-/** An email address shape: local part with the common punctuation, and a dot TLD. */
-export const RESUME_EMAIL_PATTERN = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/u
+/**
+ * An email address shape: local part with the common punctuation, and a dot TLD. Every run in
+ * front of a required token is bounded (local part 64, RFC 5321; host labels 63, at most 10), so
+ * a long `a.a.a…` without an `@` costs linear time, not quadratic.
+ */
+export const RESUME_EMAIL_PATTERN =
+  /[\p{L}\p{N}._%+-]{1,64}@(?:[\p{L}\p{N}-]{1,63}\.){1,10}\p{L}{2,}/u
 
 /**
- * A URL: any `scheme://…`, any `www.…`, or `label.tld/path` for a common TLD (`t.me/x`,
- * `github.com/x`). The bare form needs the `/` and a lowercase TLD, so `Socket.IO`, `ASP.NET`,
- * `Node.js` and `Express.js/Nest` are not URLs. Stateless (no `g`), like the phone pattern.
+ * A URL: any `scheme://…`, any `www.…`, or `label.tld/path` with any 2–24 letter TLD in any
+ * case (`bit.ly/x`, `GitHub.Com/x`), except `js` / `ts` right before the slash
+ * (`Express.js/Nest`, `Node.js/Express`). `ASP.NET/Core` reads as a URL, which is accepted. The
+ * bare form has no left boundary (`foo_github.com/x` hits). Runs are bounded as in the email
+ * pattern (scheme 31, labels 63 × 10), so the scan stays linear. Stateless (no `g`), like the
+ * phone pattern.
+ * shortcut: a bare domain with no path (`johndoe.dev`, `github.com`) is not a URL, because
+ * `Socket.io` is a skill; upgrade to a domain allow-list if such leaks show up.
  */
 export const RESUME_URL_PATTERN =
-  /\b(?:[A-Za-z][\w+.-]*:\/\/\S+|[Ww]{3}\.\S+|(?:[A-Za-z\d-]+\.)+(?:com|net|org|io|dev|me|ua|co|app|ai|in)\/\S*)/u
+  /\b(?:[A-Za-z][\w+.-]{0,30}:\/\/\S+|[Ww]{3}\.\S+)|(?:[A-Za-z\d-]{1,63}\.){1,10}(?![Jj][Ss]\/|[Tt][Ss]\/)[A-Za-z]{2,24}\/\S*/u
 
 /**
  * A labelled Telegram handle that need not be the stored one: `tg:`, `telegram:` or `телеграм:`,
- * any case, optional spaces and `@`. A bare `@handle` is not one (`@angular/core`, `@nestjs/common`).
+ * any case, optional spaces and `@`, then a handle as Telegram allows it (a letter first, 5+
+ * characters), so `tg:12345` is not one. The label starts a word: `(?:^|[^\p{L}\p{N}])` stands in
+ * for a lookbehind (Safari < 16.4), so group 1 is the hit without that character. A bare
+ * `@handle` is not one (`@angular/core`, `@nestjs/common`).
  */
-export const RESUME_TELEGRAM_LABEL_PATTERN = /(?:tg|telegram|телеграм)\s*:\s*@*\w{5,}/iu
+export const RESUME_TELEGRAM_LABEL_PATTERN =
+  /(?:^|[^\p{L}\p{N}])((?:tg|telegram|телеграм)\s*:\s*@*[a-z]\w{4,})/iu
 
 /**
- * A stored `users.telegram` as Telegram spells the handle: trimmed, without an `http(s)://`,
- * a `t.me/` or `telegram.me/` prefix, or leading `@`s. Empty when nothing is left.
+ * A stored `users.telegram` as Telegram spells the handle: trimmed, without a `tg:` /
+ * `telegram:` label, an `http(s)://`, a `www.`, a `t.me/` or `telegram.me/` prefix, or leading
+ * `@`s. Empty when nothing is left.
  */
 export function normaliseTelegramHandle(stored: string | null | undefined): string | undefined {
   // No `^` needed: every part is optional, so the first (only replaced) match always starts at 0.
-  return stored?.trim().replace(/(?:https?:\/\/)?(?:(?:t|telegram)\.me\/)?@*/i, '')
+  return stored
+    ?.trim()
+    .replace(
+      /(?:(?:tg|telegram)\s*:\s*)?(?:https?:\/\/)?(?:www\.)?(?:(?:t|telegram)\.me\/)?@*/i,
+      '',
+    )
 }
 
 const LETTER_PATTERN = /\p{L}/u

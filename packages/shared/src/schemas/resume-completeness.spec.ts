@@ -742,15 +742,19 @@ describe('checkResumeCompleteness — the Telegram handle of the senior', () => 
     },
   )
 
-  it.each(['t.me/jose_dev', 'https://t.me/jose_dev', 'telegram.me/@jose_dev', '@@jose_dev'])(
-    'normalises a stored %j to the bare handle (CR-L-3)',
-    (telegram) => {
-      // `@jose_dev` alone is no URL and no labelled handle, so only the stored handle can flag it
-      expect(checkResumeCompleteness(noteWith('ping @jose_dev'), { ...CTX, telegram })).toEqual(
-        flagged,
-      )
-    },
-  )
+  it.each([
+    't.me/jose_dev',
+    'https://t.me/jose_dev',
+    'telegram.me/@jose_dev',
+    '@@jose_dev',
+    'tg:jose_dev',
+    'www.t.me/jose_dev',
+  ])('normalises a stored %j to the bare handle (CR-L-3)', (telegram) => {
+    // `@jose_dev` alone is no URL and no labelled handle, so only the stored handle can flag it
+    expect(checkResumeCompleteness(noteWith('ping @jose_dev'), { ...CTX, telegram })).toEqual(
+      flagged,
+    )
+  })
 
   it('keeps an @ inside a stored handle: mark@dev hits mark@dev, not markdev (CR-L-4)', () => {
     const ctx = { ...CTX, telegram: 'mark@dev' }
@@ -779,6 +783,11 @@ describe('normaliseTelegramHandle', () => {
     ['mark@dev', 'mark@dev'],
     ['mark_t.me/dev', 'mark_t.me/dev'],
     ['@', ''],
+    ['tg:mark_dev', 'mark_dev'],
+    ['TG : @mark_dev', 'mark_dev'],
+    ['telegram: mark_dev', 'mark_dev'],
+    ['www.t.me/mark_dev', 'mark_dev'],
+    ['https://www.telegram.me/@mark_dev', 'mark_dev'],
   ])('%j becomes %j', (stored, handle) => {
     expect(normaliseTelegramHandle(stored)).toBe(handle)
   })
@@ -802,6 +811,11 @@ describe('checkResumeCompleteness — URLs and labelled handles (SR-H-1, SR-M-1)
       (tld) => `see jose.${tld}/work`,
     ),
     'see sub.domain.io/',
+    'see bit.ly/x',
+    'see johndoe.tech/cv',
+    'see GITHUB.COM/X',
+    'see GitHub.Com/x',
+    'see foo_github.com/x',
   ])('flags a URL: %s', (note) => {
     expect(checkResumeCompleteness(noteWith(note), CTX)).toEqual(flagged)
   })
@@ -814,6 +828,10 @@ describe('checkResumeCompleteness — URLs and labelled handles (SR-H-1, SR-M-1)
     'used @angular/core and @nestjs/common',
     'Telegram bots: a pager',
     'jose.dev without a path',
+    'Node.js/Express and Express.JS/Nest',
+    'typed in x.Ts/y',
+    'Debug tg:12345',
+    'see xtg: jose_dev',
   ])('does not flag a tech name or a package: %s', (note) => {
     expect(checkResumeCompleteness(noteWith(note), CTX)).toEqual([])
   })
@@ -843,6 +861,72 @@ describe('checkResumeCompleteness — URLs and labelled handles (SR-H-1, SR-M-1)
     ['see jose.com/work now', 'jose.com/work'],
   ])('the URL match in %j is exactly %j, the span redaction replaces', (text, url) => {
     expect(RESUME_URL_PATTERN.exec(text)?.[0]).toBe(url)
+  })
+
+  it.each([
+    ['see foo_github.com/x', 'github.com/x'],
+    ['a://b', 'a://b'],
+    [`a${'b'.repeat(30)}://x`, `a${'b'.repeat(30)}://x`],
+    [`${'a'.repeat(63)}.com/x`, `${'a'.repeat(63)}.com/x`],
+    [`${'a'.repeat(64)}.com/x`, `${'a'.repeat(63)}.com/x`],
+    [`${'a.'.repeat(10)}com/x`, `${'a.'.repeat(10)}com/x`],
+    [`b.${'a.'.repeat(10)}com/x`, `${'a.'.repeat(10)}com/x`],
+    ['a.bc/x', 'a.bc/x'],
+    [`a.${'b'.repeat(24)}/x`, `a.${'b'.repeat(24)}/x`],
+    ['foo.jsx/x', 'foo.jsx/x'],
+  ])('the URL match in %j is exactly %j (bounds, SR-L-3, SR-L-4)', (text, url) => {
+    expect(RESUME_URL_PATTERN.exec(text)?.[0]).toBe(url)
+  })
+
+  it.each([
+    `a${'b'.repeat(31)}://x`,
+    'a.b/x',
+    `a.${'b'.repeat(25)}/x`,
+    'johndoe.dev',
+    'github.com',
+  ])('no URL in %j (bounds; a bare domain with no path is not one)', (text) => {
+    expect(RESUME_URL_PATTERN.exec(text)).toBeNull()
+  })
+
+  it.each(['package.json/scripts', 'React.memo/useMemo', 'Vue.config/x', 'ASP.NET/Core'])(
+    'reads %s as a URL: an accepted false positive of the any-TLD path form',
+    (text) => {
+      expect(RESUME_URL_PATTERN.exec(text)?.[0]).toBe(text)
+    },
+  )
+
+  it.each([
+    [`${'a'.repeat(64)}@b.co`, `${'a'.repeat(64)}@b.co`],
+    [`${'a'.repeat(65)}@b.co`, `${'a'.repeat(64)}@b.co`],
+    [`x@${'a'.repeat(63)}.co`, `x@${'a'.repeat(63)}.co`],
+    [`x@${'a.'.repeat(10)}co`, `x@${'a.'.repeat(10)}co`],
+  ])('the email match in %j is exactly %j (bounds, SR-L-3)', (text, email) => {
+    expect(RESUME_EMAIL_PATTERN.exec(text)?.[0]).toBe(email)
+  })
+
+  it.each([`x@${'a'.repeat(64)}.co`, `x@${'a.'.repeat(11)}co`])(
+    'no email in %j (bounds)',
+    (text) => {
+      expect(RESUME_EMAIL_PATTERN.exec(text)).toBeNull()
+    },
+  )
+
+  it.each([
+    ['a.', 'a.'.repeat(25_000)],
+    ['a-.', 'a-.'.repeat(16_667)],
+  ])('a 50k-character %j repeat is checked in under 100 ms (SR-L-3)', (_, note) => {
+    const started = performance.now()
+    checkResumeCompleteness(noteWith(note), CTX)
+    expect(performance.now() - started).toBeLessThan(100)
+  })
+
+  it('a label hit starts at the label, not at the boundary character (SR-L-5)', () => {
+    expect(RESUME_TELEGRAM_LABEL_PATTERN.exec('(tg:jose_dev)')?.[1]).toBe('tg:jose_dev')
+    expect(RESUME_TELEGRAM_LABEL_PATTERN.exec('tg: @mark_dev')?.[1]).toBe('tg: @mark_dev')
+  })
+
+  it('a label followed by a plain word is flagged: ambiguous, accepted (SR-L-5)', () => {
+    expect(checkResumeCompleteness(noteWith('Telegram: payments'), CTX)).toEqual(flagged)
   })
 
   it('a label needs a handle of at least five characters', () => {
