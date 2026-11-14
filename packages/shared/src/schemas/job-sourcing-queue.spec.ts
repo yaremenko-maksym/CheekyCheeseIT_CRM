@@ -1138,7 +1138,7 @@ describe('triage write request bodies (r5 Task 6.4b)', () => {
   const grant = {
     teamId: U2,
     expectedOpportunityRevision: 1,
-    policyVersion: 0,
+    policyVersion: 1,
     reason: 'triage',
     expiresAt: LATER,
     idempotencyKey: U3,
@@ -1200,6 +1200,10 @@ describe('triage write request bodies (r5 Task 6.4b)', () => {
       { ...grant, expectedOpportunityRevision: PG_INT_MAX + 1 },
       ['expectedOpportunityRevision'],
     )
+    // Backlog 425: the grant carries the card's server-side version, which starts at 1.
+    refusedAt(jobQueueTeamTriageGrantRequestSchema, { ...grant, policyVersion: 0 }, [
+      'policyVersion',
+    ])
     refusedAt(jobQueueTeamTriageGrantRequestSchema, { ...grant, policyVersion: -1 }, [
       'policyVersion',
     ])

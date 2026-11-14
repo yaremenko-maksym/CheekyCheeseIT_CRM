@@ -3333,6 +3333,16 @@ msgstr "Цього сеньйора не можна подати на цю ва�
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_TRIAGE_ALREADY_GRANTED"
+msgstr "Ця команда вже має доступ до вакансії до {expiresAt}."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_TRIAGE_NOT_ELIGIBLE"
+msgstr "Цю вакансію не можна призначити команді: вона не на розгляді. Оновіть картку."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_VERSION_CONFLICT"
 msgstr "Дані змінилися. Оновіть картку й повторіть."
 
