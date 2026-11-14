@@ -34,17 +34,14 @@ import type { OnboardingStatusDto } from '@crm/shared'
 // Task 7.6c: awaited before the next route renders, so a session that changed under the open page
 // (another tab's sign-in) never paints the previous account's cached rows. A hover preload renders
 // nothing, so it sends no check (PR #1330 CR-M-1). This layout is already active on a hover inside
-// the CRM, so the router passes it `preload: false` (CR-M-2); a preload is told apart instead by its
-// target: a real navigation has already made `location` the router's current one (`buildLocation({})`
-// rebuilds the current one), a preload has not. This also covers the `preload: true` case.
-// shortcut: a preload of the current pathname with other search params still checks; harmless.
+// the CRM, so the router passes it `preload: false` (CR-M-2); `context.isNavigation` tells a real
+// load from a preload by identity instead (`lib/router-context.ts`), so it covers `preload: true`
+// too and no spelling of a real URL can skip the check (SR-M-1, CR-M-3).
 const revalidateSession = createSessionRevalidator(queryClient)
 
 export const Route = createFileRoute('/_authenticated')({
-  beforeLoad: ({ location, buildLocation }) =>
-    location.pathname === buildLocation({}).pathname
-      ? revalidateSession(location.pathname)
-      : undefined,
+  beforeLoad: ({ location, context }) =>
+    context.isNavigation(location) ? revalidateSession(location.pathname) : undefined,
   component: CrmRoot,
 })
 
