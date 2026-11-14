@@ -55,13 +55,14 @@ const isAuthMe = (q: Query) => q.queryKey[0] === 'auth' && q.queryKey[1] === 'me
 export function createSessionRevalidator(queryClient: QueryClient) {
   const REUSE_MS = 1000 // hover preload, then click
   let last: { pathname: string; check: Promise<void>; settledAt: number | null } | null = null
-  let generation = 0
+  let latest: symbol | undefined
   const check = async (): Promise<void> => {
     const previous = queryClient.getQueryData<SessionUser | null>(AUTH_ME_KEY)
     if (!previous) return
     // A request of its own, not a deduped `fetchQuery`: the router pushes the URL before
     // `beforeLoad` settles, so an earlier request may still be in flight under the OLD cookie.
-    const mine = ++generation
+    const mine = Symbol()
+    latest = mine
     let current: SessionUser | null
     try {
       current = await fetchMe()
@@ -69,7 +70,8 @@ export function createSessionRevalidator(queryClient: QueryClient) {
       return // network failure: keep the cache (offline use); the server still enforces access
     }
     // a later check asked after us: its answer wins, and this navigation waits for it
-    if (mine !== generation) return last?.check
+    // `last` is never null here: it is assigned synchronously, before `fetchMe` can answer
+    if (mine !== latest) return last!.check
     // AuthProvider's own request may also predate the cookie change; its late answer must not land
     await queryClient.cancelQueries({ queryKey: AUTH_ME_KEY, exact: true })
     queryClient.setQueryData(AUTH_ME_KEY, current)
