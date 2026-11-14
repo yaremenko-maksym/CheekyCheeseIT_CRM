@@ -1,7 +1,8 @@
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { AuthProvider } from '@/context/auth'
+import { AuthProvider, createSessionRevalidator } from '@/context/auth'
+import { queryClient } from '@/lib/query-client'
 import { NotificationsProvider } from '@/context/notifications'
 import { useOnboardingGate } from '@/context/onboarding'
 import { LogOut, Menu, UserCircle } from 'lucide-react'
@@ -30,7 +31,13 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import type { OnboardingStatusDto } from '@crm/shared'
 
+// Task 7.6c: awaited before the next route renders, so a session that changed under the open page
+// (another tab's sign-in) never paints the previous account's cached rows.
+const revalidateSession = createSessionRevalidator(queryClient)
+
 export const Route = createFileRoute('/_authenticated')({
+  beforeLoad: ({ location, preload }) =>
+    preload ? undefined : revalidateSession(location.pathname),
   component: CrmRoot,
 })
 
@@ -269,12 +276,7 @@ function CrmLayout() {
                     <Badge
                       variant={
                         user.role.toLowerCase() as
-                          | 'admin'
-                          | 'senior'
-                          | 'junior'
-                          | 'hr'
-                          | 'accountant'
-                          | 'drop'
+                          'admin' | 'senior' | 'junior' | 'hr' | 'accountant' | 'drop'
                       }
                       data-testid="header-user-menu-role-badge"
                     >

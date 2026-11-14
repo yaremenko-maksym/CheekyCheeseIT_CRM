@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, type ReactNode } from 'react'
 import { useQuery, useQueryClient, useIsRestoring } from '@tanstack/react-query'
+import type { Query, QueryClient } from '@tanstack/react-query'
 import { del as idbDel } from 'idb-keyval'
 import type { Locale, SessionUser } from '@crm/shared'
 import { api } from '../lib/axios'
@@ -36,6 +37,40 @@ async function fetchMe(): Promise<SessionUser | null> {
   }
   // API already validates shape via JWT — trust the response and cast directly
   return res.data
+}
+
+const AUTH_ME_KEY = ['auth', 'me'] as const
+const isAuthMe = (q: Query) => q.queryKey[0] === 'auth' && q.queryKey[1] === 'me'
+
+/**
+ * Task 7.6c: the session cookie can change under an open page (a sign-in in another tab), and the
+ * cached `auth/me` user — which every scoped query key derives from — would never notice. The
+ * `_authenticated` route awaits this in `beforeLoad`, so a changed user id purges every other query
+ * and the persisted copy BEFORE the next route renders. One request per pathname change (search
+ * changes and preloads skip it); nothing before the first `auth/me` answer (AuthProvider owns that).
+ */
+export function createSessionRevalidator(queryClient: QueryClient) {
+  let lastPathname: string | null = null
+  return async (pathname: string): Promise<void> => {
+    if (pathname === lastPathname) return
+    lastPathname = pathname
+    const previous = queryClient.getQueryData<SessionUser | null>(AUTH_ME_KEY)
+    if (!previous) return
+    let current: SessionUser | null
+    try {
+      current = await queryClient.fetchQuery({
+        queryKey: AUTH_ME_KEY,
+        queryFn: fetchMe,
+        staleTime: 0,
+      })
+    } catch {
+      return // network failure: keep the cache (offline use); the server still enforces access
+    }
+    if (current?.id === previous.id) return
+    // reset, not remove: mounted observers (header, bell) drop the old data and refetch as the new user
+    void queryClient.resetQueries({ predicate: (q) => !isAuthMe(q) }).catch(() => {})
+    await idbDel(PERSIST_KEY).catch(() => {})
+  }
 }
 
 export function AuthProvider({ children, skip }: { children: ReactNode; skip?: boolean }) {

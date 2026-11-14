@@ -50,6 +50,7 @@ const MOCK_USER: SessionUser = {
 vi.mock('@/context/auth', () => ({
   useAuth: () => ({ user: MOCK_USER, isLoading: false }),
   AuthProvider: ({ children }: React.PropsWithChildren) => children,
+  createSessionRevalidator: () => async () => {},
 }))
 
 vi.mock('@/context/notifications', () => ({
