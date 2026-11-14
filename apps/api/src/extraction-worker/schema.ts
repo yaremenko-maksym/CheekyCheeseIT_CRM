@@ -41,14 +41,15 @@ function isJsonObject(text: string): boolean {
 export const resumeWriteBodySchema = z
   .object({
     task: z.enum(['summary', 'bullets']),
-    payload: z.string().min(1).max(MAX_WORKER_INPUT_CHARS).refine(isJsonObject),
+    // `abort`: an oversize payload stops here, before the JSON parse of the refine.
+    payload: z.string().min(1).max(MAX_WORKER_INPUT_CHARS, { abort: true }).refine(isJsonObject),
     // One line each: a line break could fake a `FACTS` or `FEEDBACK` heading in the user message.
     feedback: z
       .array(
         z
           .string()
           .min(1)
-          .max(1000)
+          .max(1000, { abort: true })
           .regex(/^[^\r\n]*$/),
       )
       .max(20),

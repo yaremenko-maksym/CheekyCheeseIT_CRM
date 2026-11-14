@@ -76,6 +76,7 @@ describe('resume-write — refusals reach no route', () => {
     const { app, calls } = setup()
     const res = await post(app, body({ payload: jsonOf(MAX_WORKER_INPUT_CHARS + 1) }))
     expect(res.statusCode).toBe(400)
+    expect(res.json()).toEqual({ error: 'BAD_REQUEST' })
     expect(calls).toHaveLength(0)
   })
 
