@@ -982,6 +982,7 @@ describe('grantRefusal (backlog 426)', () => {
         statusCode: 400,
         message: 'Validation failed',
         errors: [
+          null,
           { path: 'reason', message: 'x' },
           { path: 'expiresAt', code, message: code },
         ],
@@ -993,6 +994,12 @@ describe('grantRefusal (backlog 426)', () => {
     expect(
       grantRefusal(httpError(400, { statusCode: 400, message: 'Validation failed' }), 'uk'),
     ).toBeNull()
+  })
+
+  it('CR-L-1: an error with no response, no body or no field list is not explained, never a crash', () => {
+    for (const error of [null, undefined, new Error('network'), { response: {} }]) {
+      expect(grantRefusal(error, 'uk')).toBeNull()
+    }
   })
 
   it('an expiry the envelope does not carry is a dash, never «Invalid Date»', () => {

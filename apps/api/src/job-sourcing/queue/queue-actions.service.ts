@@ -950,7 +950,8 @@ export class JobQueueActionsService {
     const { rows } = await this.scopes.policy(() =>
       tx.execute(triageIneligibleRow(versions, opportunity)),
     )
-    return rows[0]?.['ineligible'] === true
+    // fails closed: no answer is never read as «eligible»
+    return rows[0]?.['ineligible'] !== false
   }
 
   /** Backlog 425 / SR-M-1: the studio policy the ADMIN's card was read under is still current. */

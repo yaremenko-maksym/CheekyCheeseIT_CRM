@@ -1500,6 +1500,12 @@ describe('grantTeamTriage (r5 Task 6.4b)', () => {
     noTriageWrites(h.hits)
   })
 
+  it('no eligibility answer fails closed: 422 NOT_ELIGIBLE, nothing written', async () => {
+    const h = harness({ triageEligible: [] }, STUDIO_SCOPE)
+    await expectCode(h.svc.grantTeamTriage(ADMIN, OPP, body), 422, 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE')
+    noTriageWrites(h.hits)
+  })
+
   it('an expiry more than 90 days after the server clock is a 400 before any read (426)', async () => {
     const ceiling = new Date(Date.parse(NOW) + 90 * 24 * 60 * 60 * 1000).toISOString()
     const beyond = new Date(Date.parse(ceiling) + 1).toISOString()
