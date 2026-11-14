@@ -506,6 +506,8 @@ describe('ResumeTab — the confirm step (Task 19)', () => {
       return Promise.resolve(busy)
     })
     render(tab())
+    // Keyboard (or a Chrome mouse click) leaves focus on Submit: the lock-line handoff must not win.
+    screen.getByTestId('resume-facts-submit').focus()
     fireEvent.click(screen.getByTestId('resume-facts-submit'))
     const heading = await screen.findByRole('heading', { name: 'У черзі на перевірку' })
     await waitFor(() => expect(heading).toHaveFocus())
@@ -542,6 +544,19 @@ describe('ResumeTab — the confirm step (Task 19)', () => {
     await waitFor(() => expect(lock).toHaveFocus())
     expect(document.body).not.toHaveFocus()
     expect(screen.getByRole('heading', { name: 'У черзі на перевірку' })).not.toHaveFocus()
+  })
+
+  it('a template re-check started elsewhere moves focus from the unmounted panel to its status line', async () => {
+    const verified = { ...complete, verificationStatus: 'VERIFIED' as const, verifiedVersion: 1 }
+    setData(makeResponse(verified))
+    const view = render(tab())
+    screen.getByTestId('resume-facts-submit').focus()
+    // VERIFIED + busy is a template run: there is no lock line, the status line takes focus.
+    setData(makeResponse({ ...verified, verificationBusy: true }))
+    view.rerender(tab())
+    const status = await screen.findByTestId('resume-verification-template-run')
+    await waitFor(() => expect(status).toHaveFocus())
+    expect(document.body).not.toHaveFocus()
   })
 })
 

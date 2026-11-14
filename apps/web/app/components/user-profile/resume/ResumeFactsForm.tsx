@@ -46,7 +46,12 @@ import {
   issueFieldPath,
 } from './ResumeCompletenessPanel'
 import { FieldError, IconButton, JobBlock, RowBlock } from './ResumeFactsJob'
-import { BUSY_LOCK_ID, useFocusAfterRender } from './ResumeConfirmStep'
+import {
+  BUSY_LOCK_ID,
+  FOCUS_REQUEST_TTL_MS,
+  TEMPLATE_RUN_STATUS_ID,
+  useFocusAfterRender,
+} from './ResumeConfirmStep'
 
 /** Pure move helper — exported so the reorder rule is unit-testable. */
 export function moveItem<T>(items: readonly T[], from: number, to: number): T[] {
@@ -96,6 +101,7 @@ export interface ResumeFactsFormProps {
   /** A check is running: values stay readable, nothing is editable. */
   disabled: boolean
   onSave: (facts: ResumeFacts, options: { silent: boolean }) => Promise<unknown>
+  /** Resolves `true` when the caller moved focus itself (a run started), so the form leaves it. */
   onSubmit: () => Promise<unknown>
   onDirtyChange?: (dirty: boolean) => void
   /** Injected in tests; the live form reads the clock. */
@@ -147,10 +153,13 @@ export function ResumeFactsForm({
   // the node, so a focus still inside it is seen and handed to the lock line instead of <body>.
   const focusAfterRender = useFocusAfterRender()
   const panelNode = useRef<HTMLDivElement | null>(null)
+  // A busy local Submit answer asks ResumeTab for the progress heading (§8); the unmount must not override it.
+  const localSubmitAt = useRef(-Infinity)
   const panelRef = useCallback(
     (node: HTMLDivElement | null) => {
-      if (node === null && panelNode.current?.contains(document.activeElement)) {
-        focusAfterRender([BUSY_LOCK_ID, 'resume-confirm-checking'])
+      const ownSubmit = Date.now() - localSubmitAt.current < FOCUS_REQUEST_TTL_MS
+      if (node === null && !ownSubmit && panelNode.current?.contains(document.activeElement)) {
+        focusAfterRender([BUSY_LOCK_ID, TEMPLATE_RUN_STATUS_ID, 'resume-confirm-checking'])
       }
       panelNode.current = node
     },
@@ -227,7 +236,8 @@ export function ResumeFactsForm({
   const submit = () =>
     run('submit', async () => {
       if (dirty) await send(true)
-      await onSubmit()
+      // `true`: the parent asked for the progress heading; the panel unmount must not take it back.
+      if ((await onSubmit()) === true) localSubmitAt.current = Date.now()
     })
 
   const ownSkills = mergeSkills(draft.skills, []).length

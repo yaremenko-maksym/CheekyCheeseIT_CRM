@@ -403,7 +403,9 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
             onSubmit={async () => {
               const answer = await submit.mutateAsync()
               // The completeness panel with the Submit button unmounts while a check runs (design §8).
-              if (answer.resume?.verificationBusy) focusAfterRender(PROGRESS_FOCUS_IDS)
+              if (!answer.resume?.verificationBusy) return false
+              focusAfterRender(PROGRESS_FOCUS_IDS)
+              return true
             }}
             onDirtyChange={handleFactsDirty}
           />

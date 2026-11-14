@@ -24,6 +24,7 @@ import {
   PROGRESS_FOCUS_IDS,
   ProgressBar,
   ResumeConfirmStep,
+  TEMPLATE_RUN_STATUS_ID,
   useFocusAfterRender,
 } from './ResumeConfirmStep'
 import { templateTileId } from './ResumeTemplatePicker'
@@ -144,7 +145,9 @@ export function ResumeVerificationProgress({
     return (
       <div
         role="status"
-        className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+        id={TEMPLATE_RUN_STATUS_ID}
+        tabIndex={-1}
+        className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         data-testid="resume-verification-template-run"
       >
         <CheckingBadge>

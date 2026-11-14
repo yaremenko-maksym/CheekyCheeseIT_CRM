@@ -170,6 +170,8 @@ test.describe('Verified base resume — check and confirm', () => {
     const progress = page.getByTestId('resume-verification-progress')
     await expect(progress).toContainText(assertInCatalog(uk, 'У черзі на перевірку'))
     await expect(page.locator('input[name="resumeFactsHeadline"]')).toBeDisabled()
+    // §8: the click left focus on Submit; the progress heading takes it, not the busy lock line.
+    await expect(page.locator('#resume-verification-progress-title')).toBeFocused()
 
     server.current = hr({ version: 2, verificationStatus: 'CHECKING', verificationBusy: true })
     await expect(progress).toContainText(assertInCatalog(uk, 'Перевіряємо резюме'))

@@ -77,6 +77,8 @@ export const PROGRESS_FOCUS_IDS = [
 
 /** The busy lock line under the progress card: where focus goes when a remote run unmounts the focused Submit panel. */
 export const BUSY_LOCK_ID = 'resume-verification-busy-lock'
+/** The template-run status line (VERIFIED + busy): it has no lock line, so this takes that focus instead. */
+export const TEMPLATE_RUN_STATUS_ID = 'resume-verification-template-run'
 
 /** A focus request older than this is dropped: its target was never going to render. */
 export const FOCUS_REQUEST_TTL_MS = 1000
