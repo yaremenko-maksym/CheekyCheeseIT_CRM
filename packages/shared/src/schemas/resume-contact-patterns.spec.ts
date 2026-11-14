@@ -380,6 +380,10 @@ describe('fix round 7', () => {
     it('a port of 6 digits is no port', () => {
       expect(urlHit('see a.com:123456/x now')).toBeUndefined()
     })
+
+    it('a punycode TLD ends at the first character that is not a label one', () => {
+      expect(urlHit('example.xn--p1ai and/or')).toBeUndefined()
+    })
   })
 
   describe('one word between the Telegram label and its separator (SO7-5)', () => {
