@@ -486,7 +486,7 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   TRIAGE_EXPIRY_BEYOND_CEILING: /* i18n */ {
     id: 'zod-error.TRIAGE_EXPIRY_BEYOND_CEILING',
-    message: 'Доступ надається щонайбільше на 90 днів — оберіть ранішу дату',
+    message: 'Доступ діє щонайбільше 90 днів — виберіть ранішу дату',
   },
 }
 
@@ -573,7 +573,7 @@ export const ZOD_ERROR_FALLBACK_EN: Record<ZodErrorCode, string> = {
   CONTRACT_DOCUMENT_PROJECT_REQUIRED: "Choose a project — a contract can't be uploaded without one",
   TEAM_TELEGRAM_LINK_FORMAT: 'The link must start with https://t.me/',
   SALARY_OR_SHARE_REQUIRED: "Enter the salary or the senior's share — at least one of the two",
-  TRIAGE_EXPIRY_BEYOND_CEILING: 'Access lasts at most 90 days — choose an earlier date',
+  TRIAGE_EXPIRY_BEYOND_CEILING: 'Access lasts no more than 90 days — choose an earlier date',
 }
 
 /**

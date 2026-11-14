@@ -1778,7 +1778,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
           {
             path: 'expiresAt',
             code: 'TRIAGE_EXPIRY_BEYOND_CEILING',
-            message: 'Access lasts at most 90 days — choose an earlier date',
+            message: 'Access lasts no more than 90 days — choose an earlier date',
           },
         ])
       }

@@ -959,20 +959,21 @@ describe('grantRefusal (backlog 426)', () => {
   it('names the live grant expiry as a local calendar day in the given locale', () => {
     const expiresAt = new Date(2026, 10, 25, 23, 59, 59, 999).toISOString()
     expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'uk')).toBe(
-      'Ця команда вже має доступ до вакансії до 25.11.2026.',
+      'Ця команда вже має доступ до вакансії до 25.11.2026. Виберіть іншу команду.',
     )
-    expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'en-US')).toBe(
-      'Ця команда вже має доступ до вакансії до 11/25/2026.',
+    // QA-MED-2: `en` is the studio's en-GB day order, never the US one
+    expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'en')).toBe(
+      'Ця команда вже має доступ до вакансії до 25/11/2026. Виберіть іншу команду.',
     )
   })
 
   it('CR-H-1: a single-digit day and month are written with two digits each', () => {
     const expiresAt = new Date(2026, 2, 5, 23, 59, 59, 999).toISOString()
     expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'uk')).toBe(
-      'Ця команда вже має доступ до вакансії до 05.03.2026.',
+      'Ця команда вже має доступ до вакансії до 05.03.2026. Виберіть іншу команду.',
     )
-    expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'en-US')).toBe(
-      'Ця команда вже має доступ до вакансії до 03/05/2026.',
+    expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'en')).toBe(
+      'Ця команда вже має доступ до вакансії до 05/03/2026. Виберіть іншу команду.',
     )
   })
 
@@ -988,7 +989,7 @@ describe('grantRefusal (backlog 426)', () => {
         ],
       })
     expect(grantRefusal(invalid('TRIAGE_EXPIRY_BEYOND_CEILING'), 'uk')).toBe(
-      'Доступ надається щонайбільше на 90 днів — оберіть ранішу дату',
+      'Доступ діє щонайбільше 90 днів — виберіть ранішу дату',
     )
     expect(grantRefusal(invalid('VALIDATION_FAILED_FORM'), 'uk')).toBeNull()
     expect(
@@ -1004,7 +1005,7 @@ describe('grantRefusal (backlog 426)', () => {
 
   it('an expiry the envelope does not carry is a dash, never «Invalid Date»', () => {
     expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED'), 'uk')).toBe(
-      'Ця команда вже має доступ до вакансії до —.',
+      'Ця команда вже має доступ до вакансії до —. Виберіть іншу команду.',
     )
   })
 
@@ -1633,6 +1634,9 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
   ]
   const DROP = { id: '99999999-9999-4999-8999-999999999999', name: 'Дроп', type: 'DROP' }
   const GRANT = `/job-queue/${OPP}/team-triage`
+  /** The uk refusal of an item that left triage (a live LEAD, or EXCLUDED), as a pattern body. */
+  const NOT_ELIGIBLE =
+    'Цю вакансію вже не можна призначити на розгляд команді: для неї знайшовся сеньйор або її вилучено з черги\\. Картку оновлено — закрийте вікно\\.'
   const REASON = 'Стек збігається з командою'
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
   /** The studio card's server-side triage policy version (backlog 425). */
@@ -1873,7 +1877,9 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     await fill(user, dialog)
     await user.click(assign(dialog))
     const note = await within(dialog).findByTestId('job-queue-grant-refused')
-    expect(note).toHaveTextContent(/^Ця команда вже має доступ до вакансії до 25\.11\.2026\.$/)
+    expect(note).toHaveTextContent(
+      /^Ця команда вже має доступ до вакансії до 25\.11\.2026\. Виберіть іншу команду\.$/,
+    )
     expect(note).toHaveAttribute('role', 'alert')
     expect(within(dialog).queryByTestId('job-queue-conflict')).toBeNull()
     expect(screen.getByRole('alertdialog')).toBe(dialog)
@@ -1892,9 +1898,43 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     await fill(user, dialog)
     await user.click(assign(dialog))
     expect(await within(dialog).findByTestId('job-queue-grant-refused')).toHaveTextContent(
-      /^Цю вакансію не можна призначити команді: вона не на розгляді\. Оновіть картку\.$/,
+      new RegExp(`^${NOT_ELIGIBLE}$`),
     )
     expect(within(dialog).queryByTestId('job-queue-conflict')).toBeNull()
+  })
+
+  it('QA-MED-1: the refusal is still seen when the refetch drops the item and its dialog: a toast names it', async () => {
+    const user = userEvent.setup()
+    post.mockRejectedValueOnce(coded(422, 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE'))
+    const { rerender } = renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await within(dialog).findByTestId('job-queue-grant-refused')
+    expect(toast.error).not.toHaveBeenCalled()
+    // the hook's refetch: the server no longer offers the grant, so the item and its dialog go
+    setCard(triage({ triageGrantable: false }))
+    rerender()
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(toast.error).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(toast.error).mock.calls[0]![0]).toMatch(new RegExp(`^${NOT_ELIGIBLE}$`))
+    expect(vi.mocked(toast.error).mock.calls[0]![1]).toBe(JOB_QUEUE_TOAST)
+  })
+
+  it('QA-MED-1: a refusal the actor saw and closed is not repeated as a toast', async () => {
+    const user = userEvent.setup()
+    post.mockRejectedValueOnce(coded(422, 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE'))
+    const { rerender } = renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await within(dialog).findByTestId('job-queue-grant-refused')
+    await user.click(within(dialog).getByRole('button', { name: 'Не призначати' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    setCard(triage({ triageGrantable: false }))
+    rerender()
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+    expect(toast.error).not.toHaveBeenCalled()
   })
 
   it('a failed grant says so in the dialog and keeps it; a retry that loses access says nothing', async () => {

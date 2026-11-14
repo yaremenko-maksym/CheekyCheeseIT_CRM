@@ -143,11 +143,12 @@ export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDe
   },
   JOB_QUEUE_TRIAGE_ALREADY_GRANTED: /* i18n */ {
     id: 'api-error.JOB_QUEUE_TRIAGE_ALREADY_GRANTED',
-    message: 'Ця команда вже має доступ до вакансії до {expiresAt}.',
+    message: 'Ця команда вже має доступ до вакансії до {expiresAt}. Виберіть іншу команду.',
   },
   JOB_QUEUE_TRIAGE_NOT_ELIGIBLE: /* i18n */ {
     id: 'api-error.JOB_QUEUE_TRIAGE_NOT_ELIGIBLE',
-    message: 'Цю вакансію не можна призначити команді: вона не на розгляді. Оновіть картку.',
+    message:
+      'Цю вакансію вже не можна призначити на розгляд команді: для неї знайшовся сеньйор або її вилучено з черги. Картку оновлено — закрийте вікно.',
   },
 }
 
@@ -175,7 +176,8 @@ export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string
     'The source is paused because the provider refused access: clear the pause first, then switch it on',
   JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND:
     'Triage subscription not found. Refresh the page and try again.',
-  JOB_QUEUE_TRIAGE_ALREADY_GRANTED: 'This team already has access to the job until {expiresAt}.',
+  JOB_QUEUE_TRIAGE_ALREADY_GRANTED:
+    'This team already has access to the job until {expiresAt}. Choose another team.',
   JOB_QUEUE_TRIAGE_NOT_ELIGIBLE:
-    'This job cannot be assigned to a team: it is not a triage item. Refresh the card.',
+    'This job can no longer be assigned to a team for triage: a senior now matches it, or it was removed from the queue. The card is up to date — close this window.',
 }

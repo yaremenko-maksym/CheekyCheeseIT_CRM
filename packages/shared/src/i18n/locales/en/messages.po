@@ -3334,12 +3334,12 @@ msgstr "This senior cannot be submitted to this job from this team. Choose anoth
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_TRIAGE_ALREADY_GRANTED"
-msgstr "This team already has access to the job until {expiresAt}."
+msgstr "This team already has access to the job until {expiresAt}. Choose another team."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_TRIAGE_NOT_ELIGIBLE"
-msgstr "This job cannot be assigned to a team: it is not a triage item. Refresh the card."
+msgstr "This job can no longer be assigned to a team for triage: a senior now matches it, or it was removed from the queue. The card is up to date — close this window."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
@@ -13393,7 +13393,7 @@ msgstr "Amount is too small — minimum 0.000001"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TRIAGE_EXPIRY_BEYOND_CEILING"
-msgstr "Access lasts at most 90 days — choose an earlier date"
+msgstr "Access lasts no more than 90 days — choose an earlier date"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts

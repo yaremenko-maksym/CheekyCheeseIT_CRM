@@ -23,8 +23,10 @@ import {
   TriangleAlert,
 } from 'lucide-react'
 import {
+  formatDate,
   JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS,
   jobQueueTeamTriageGrantRequestSchema,
+  type Locale,
   type JobQueueCardResponseDto,
   type JobQueueCardSeniorDto,
   type JobQueueSubmissionDto,
@@ -76,6 +78,7 @@ import {
   translateApiError,
   translateZodCode,
 } from '@/lib/axios-utils'
+import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { ownSubmission, ownTaken, submittedElsewhere } from './MatchedSeniors'
 
@@ -469,10 +472,31 @@ function TriageGrantDialog({
   card,
 }: MenuDialogProps & { scope: QueueScopeSignature; card: JobQueueCardResponseDto }) {
   const grant = useGrantJobQueueTeamTriage(scope)
+  // QA-MED-1: a refusal's refetch can drop the item, and this dialog with it, while it is open;
+  // the refusal it was showing then goes to a toast, so it is never lost
+  const shown = useRef<string | null>(null)
+  useEffect(
+    () => () => {
+      if (shown.current !== null) toast.error(shown.current, JOB_QUEUE_TOAST)
+    },
+    [],
+  )
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        // the actor closed it: the refusal was seen
+        if (!next) shown.current = null
+        onOpenChange(next)
+      }}
+    >
       <AdminDialogContent trigger={trigger}>
-        <TriageGrantForm card={card} grant={grant} onGranted={() => onOpenChange(false)} />
+        <TriageGrantForm
+          card={card}
+          grant={grant}
+          onGranted={() => onOpenChange(false)}
+          onRefused={(text) => (shown.current = text)}
+        />
       </AdminDialogContent>
     </AlertDialog>
   )
@@ -493,10 +517,10 @@ function beyondCeiling(error: unknown): boolean {
 
 /**
  * The text of a grant refusal the server explains (backlog 426), or `null` for any other answer: a
- * second grant names the live grant's expiry, an item no longer on triage asks for a refresh, an
- * expiry past the 90-day ceiling asks for an earlier day (CR-L-1).
+ * second grant names the live grant's expiry, an item no longer on triage says the card has
+ * moved on, an expiry past the 90-day ceiling asks for an earlier day (CR-L-1).
  */
-export function grantRefusal(error: unknown, locale: string): string | null {
+export function grantRefusal(error: unknown, locale: Locale): string | null {
   if (beyondCeiling(error)) return translateZodCode('TRIAGE_EXPIRY_BEYOND_CEILING')
   const envelope = parseApiErrorEnvelope(error)
   if (envelope?.code === 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE')
@@ -504,14 +528,7 @@ export function grantRefusal(error: unknown, locale: string): string | null {
   if (envelope?.code !== 'JOB_QUEUE_TRIAGE_ALREADY_GRANTED') return null
   const expiresAt = envelope.params?.['expiresAt']
   // the grant ends at the end of a local day, so the local calendar day is the one the ADMIN chose
-  const until =
-    typeof expiresAt === 'string'
-      ? new Date(expiresAt).toLocaleDateString(locale, {
-          day: '2-digit',
-          month: '2-digit',
-          year: 'numeric',
-        })
-      : '—'
+  const until = typeof expiresAt === 'string' ? formatDate(expiresAt, locale, 'shortYYYY') : '—'
   return translateApiError(envelope.code, { expiresAt: until })
 }
 
@@ -519,12 +536,16 @@ function TriageGrantForm({
   card,
   grant,
   onGranted,
+  onRefused,
 }: {
   card: JobQueueCardResponseDto
   grant: ReturnType<typeof useGrantJobQueueTeamTriage>
   onGranted: () => void
+  /** The refusal text now shown in the dialog, or `null` once it is cleared. */
+  onRefused: (text: string | null) => void
 }) {
-  const { t, i18n } = useLingui()
+  const { t } = useLingui()
+  const locale = useLocale()
   const teams = useQuery(TEAMS_QUERY)
   const teamField = useId()
   const reasonField = useId()
@@ -564,6 +585,7 @@ function TriageGrantForm({
     // named now: the list may change before the answer, and the toast names what was sent
     const team = chosen!.name
     setNote(null)
+    onRefused(null)
     grant.mutate(
       { ...draft.data!, opportunityId: card.opportunityId },
       {
@@ -572,7 +594,8 @@ function TriageGrantForm({
           onGranted()
         },
         onError: (error) => {
-          const refused = grantRefusal(error, i18n.locale)
+          const refused = grantRefusal(error, locale)
+          onRefused(refused)
           if (refused !== null) setNote({ refused })
           else if (isQueueConflict(error)) setNote('conflict')
           else if (!isAccessLoss(error)) setNote('failed')

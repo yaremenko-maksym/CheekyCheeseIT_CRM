@@ -3334,12 +3334,12 @@ msgstr "Цього сеньйора не можна подати на цю ва�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_TRIAGE_ALREADY_GRANTED"
-msgstr "Ця команда вже має доступ до вакансії до {expiresAt}."
+msgstr "Ця команда вже має доступ до вакансії до {expiresAt}. Виберіть іншу команду."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_TRIAGE_NOT_ELIGIBLE"
-msgstr "Цю вакансію не можна призначити команді: вона не на розгляді. Оновіть картку."
+msgstr "Цю вакансію вже не можна призначити на розгляд команді: для неї знайшовся сеньйор або її вилучено з черги. Картку оновлено — закрийте вікно."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
@@ -13393,7 +13393,7 @@ msgstr "Сума занадто мала — мінімум 0.000001"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TRIAGE_EXPIRY_BEYOND_CEILING"
-msgstr "Доступ надається щонайбільше на 90 днів — оберіть ранішу дату"
+msgstr "Доступ діє щонайбільше 90 днів — виберіть ранішу дату"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts

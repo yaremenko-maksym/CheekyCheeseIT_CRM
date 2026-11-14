@@ -50,6 +50,7 @@ export function formatDate(
     | 'dateTime'
     | 'shortYY'
     | 'shortYYUtc'
+    | 'shortYYYY'
     | 'dateTimeWithYear' = 'short',
 ): string {
   // `new Date(x)` accepts a `Date` exactly as well as a date string — a
@@ -66,6 +67,7 @@ export function formatDate(
     | 'dateTime'
     | 'shortYY'
     | 'shortYYUtc'
+    | 'shortYYYY'
     | 'dateTimeWithYear',
     Intl.DateTimeFormatOptions
   > = {
@@ -78,6 +80,9 @@ export function formatDate(
     // Date-only business fields (UTC-midnight encoded): the shortYY shape pinned to
     // UTC, so the stored day is the day shown in every reader timezone.
     shortYYUtc: { day: '2-digit', month: '2-digit', year: '2-digit', timeZone: 'UTC' },
+    // The shortYY shape with the full year, in the reader's LOCAL day: an instant that ends a
+    // local day (a triage grant's expiry) reads as that day, never the next one in UTC.
+    shortYYYY: { day: '2-digit', month: '2-digit', year: 'numeric' },
     dateTimeWithYear: {
       day: 'numeric',
       month: 'short',
