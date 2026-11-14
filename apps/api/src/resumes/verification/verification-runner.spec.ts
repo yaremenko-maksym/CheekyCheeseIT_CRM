@@ -230,7 +230,7 @@ describe('VerificationRunner.run', () => {
     expect(claim?.where?.params).toEqual([RESUME, RUN, 'QUEUED'])
     expect(log.map((q) => q.columns)).toEqual([
       undefined,
-      ['displayName', 'email', 'legalFullName'],
+      ['displayName', 'email', 'legalFullName', 'telegram'],
       ['email'],
       ['key'],
       ['id'],
@@ -287,6 +287,23 @@ describe('VerificationRunner.run', () => {
     expect(sent).toContain('Mail [REDACTED] for ops')
     expect(sent).not.toContain('corp.x')
     expect(sent).not.toContain('home.y')
+  })
+
+  it('the owner Telegram handle is redacted in the write payload (B7)', async () => {
+    const item = FACTS.experience[0] as ResumeFacts['experience'][number]
+    const notes = ['Ping @jane_tg_7 for billing', 'Led the payments team']
+    const row = { ...ROW, facts: { ...FACTS, experience: [{ ...item, notes }] } }
+    const { run } = runner([
+      [row],
+      [{ ...USER, telegram: 'jane_tg_7' }],
+      [],
+      [{ key: null }],
+      [{ id: RESUME }],
+    ])
+    await run()
+    const sent = payloads.join('\n')
+    expect(sent).toContain('Ping [REDACTED] for billing')
+    expect(sent).not.toContain('jane_tg_7')
   })
 
   it('a legal name equal to the display name or empty adds no context', async () => {
