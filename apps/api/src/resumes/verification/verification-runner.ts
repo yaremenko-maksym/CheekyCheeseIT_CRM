@@ -280,7 +280,8 @@ export class VerificationRunner {
       next = { content: fresh.content, items: fresh.gate.items, fallbacks: fresh.fallbacks }
     }
     // Carried findings came from the typed producers; a code from an older build is kept as stored,
-    // so the gate stays failed and the web shows its generic line (R46).
+    // so the gate stays failed and the web shows its generic line (R46). The cast is safe: nothing
+    // here reads `reason`, and the items only go back into the report, whose schema stores a string.
     const carried = (previous?.gates.find((g) => g.gate === 'content')?.items ??
       []) as GateResult['items']
     const items = [...keep(carried), ...next.items]

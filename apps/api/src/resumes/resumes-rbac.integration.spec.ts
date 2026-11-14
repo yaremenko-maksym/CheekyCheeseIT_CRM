@@ -1944,6 +1944,9 @@ describe.skipIf(!hasDatabaseUrl())(
 
         const row = await rowOf(SENIOR_A.id)
         expect(row.errorCode).toBe('MODEL_INVALID_JSON')
+        // the panel shows errorMessage verbatim after the catalog line: it must not be Russian (CR-M-1)
+        expect(row.errorMessage).toMatch(/\S/)
+        expect(row.errorMessage).not.toMatch(/\p{Script=Cyrillic}/u)
         expect(row.lastExtractionTokens).toBe(7)
         expect(row.facts).toEqual(before.facts)
         expect(row.version).toBe(before.version)

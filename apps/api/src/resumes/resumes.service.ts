@@ -614,7 +614,7 @@ export class SeniorResumesService {
         resumeId,
         runId,
         'MODEL_INVALID_JSON',
-        'Модель вернула данные вне допустимых значений. Проверьте и заполните поля вручную.',
+        'The model returned values outside the allowed ranges. Check the fields and fill them in by hand.',
         null,
         result.tokensUsed,
       )
