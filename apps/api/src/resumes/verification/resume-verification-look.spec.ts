@@ -69,6 +69,14 @@ describe('a look write on a VERIFIED row starts a template run', () => {
     await svc.setLayout(verified, SPACIOUS, 'hr-1')
     expect(log[0]?.set).toMatchObject({ stagedLayout: SPACIOUS, stagedTemplateName: 'modern' })
   })
+
+  it('deletes no staged PDF: the template run leaves the column, so the row still names it', async () => {
+    const named = { ...verified, stagedPdfS3Key: 'resumes/r-1/staged/run-0.pdf' } as SeniorResume
+    const { svc, s3, log } = service([[named]])
+    await svc.setTemplate(named, 'classic', 'hr-1')
+    expect(log[0]?.set).not.toHaveProperty('stagedPdfS3Key')
+    expect(s3.delete).not.toHaveBeenCalled()
+  })
 })
 
 describe('a look write on a row that is not VERIFIED', () => {
@@ -139,5 +147,56 @@ describe('the facts a DTO shows', () => {
     expect(warn).toHaveBeenCalledWith(
       'Stored resume facts failed validation — mapping from content',
     )
+  })
+})
+
+describe('the verification fields a DTO shows', () => {
+  function withVerifier(displayName: string) {
+    const findFirst = vi.fn(async () => ({ displayName }))
+    const db = { db: { query: { users: { findFirst } } } }
+    const svc = new ResumeVerificationService(db as never, {} as never, {} as never)
+    return { svc, findFirst }
+  }
+  const HR_ID = '00000000-0000-4000-8000-000000000001'
+  const STAGED_ROW = {
+    ...ROW,
+    verificationStatus: 'AWAITING_CONFIRM',
+    verificationErrorCode: 'WRITER_UNAVAILABLE',
+    verifiedVersion: 3,
+    verifiedAt: new Date('2026-11-01T10:00:00.000Z'),
+    verifiedByUserId: 'u-9',
+    stagedPdfS3Key: 'resumes/r-1/staged/run-1.pdf',
+    verificationRunId: 'run-1',
+    stagedTemplateName: 'classic',
+    stagedEditedPaths: [{ path: 'summary', userId: HR_ID }],
+  } as unknown as SeniorResume
+
+  it('stored values reach the DTO, and a staged PDF with its run makes the confirm step', async () => {
+    const { svc, findFirst } = withVerifier('Olena K.')
+    const dto = await svc.toDtoFields(STAGED_ROW)
+    expect(findFirst).toHaveBeenCalledTimes(1)
+    expect(dto).toMatchObject({
+      verificationStatus: 'AWAITING_CONFIRM',
+      verificationErrorCode: 'WRITER_UNAVAILABLE',
+      verificationReport: { gates: [], fallbacks: ['summary'] },
+      verifiedVersion: 3,
+      verifiedAt: '2026-11-01T10:00:00.000Z',
+      verifiedByName: 'Olena K.',
+      staged: {
+        runId: 'run-1',
+        templateName: 'classic',
+        pdfAvailable: true,
+        editedPaths: [{ path: 'summary', userId: HR_ID }],
+      },
+    })
+  })
+
+  it.each([
+    ['a staged PDF without a run (a swept row)', { verificationRunId: null }],
+    ['a run without a staged PDF (a template run)', { stagedPdfS3Key: null }],
+  ])('%s makes no confirm step', async (_, patch) => {
+    const { svc } = withVerifier('Olena K.')
+    const dto = await svc.toDtoFields({ ...STAGED_ROW, ...patch } as SeniorResume)
+    expect(dto.staged).toBeNull()
   })
 })
