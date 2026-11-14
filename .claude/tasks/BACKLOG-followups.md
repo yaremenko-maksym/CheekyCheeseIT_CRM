@@ -7506,3 +7506,21 @@ file with the shared render helper, before adding to it.
 case count for these files is unchanged after the split.
 
 Sources: verified-base-resume review (Task 23 brief).
+
+## 402. A failed delete of a superseded resume source leaves an unswept CV in R2 (2026-11-14)
+
+**Symptoms.** When a senior's resume source is replaced, or an upload loses its queue CAS, the
+resumes service deletes the object nobody points at. If that delete fails it only logs a warning
+("Superseded resume source not deleted" / "Unreferenced resume source not deleted"). The CV stays
+under the per-user `senior-resumes/<userId>/` prefix. No job sweeps that prefix, and user erasure
+does not walk it, so personal data outlives the row that referenced it.
+
+**Candidate fixes.** A periodic sweep of `senior-resumes/` that deletes every object no
+`senior_resumes` row references (source key or staged/current PDF key), with a grace age so an
+in-flight upload is not taken. Or an erasure-by-user that deletes the whole `senior-resumes/<userId>/`
+prefix, run with account deletion.
+
+**Verify.** Force the superseded-source delete to fail (stub `s3.delete` to throw), replace the
+source, run the sweep: the orphan is gone, and the referenced source and PDFs are still there.
+
+Sources: verified-base-resume security review, finding SR-L-4 (Task 23 fix round 1).
