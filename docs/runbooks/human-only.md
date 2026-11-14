@@ -224,6 +224,51 @@ SELECT status, skip_reason, attempts, sent_at IS NOT NULL AS stamped, last_error
 **Where to move:** nowhere. This is a "once after enabling the channel" check, and automating it would
 mean sending real emails from CI.
 
+### 8. Vacancy sourcing: activation flags and restart in production (added 2026-11-14)
+
+**Why a human:** the `JOB_*_ENABLED` flags are not written by `deploy.yml`; they live only in
+`/opt/crm/.env.production`, and agents have no SSH by default. Activation is an owner decision (A3, plan Task 8.2).
+**Automated:** nothing yet. The flags, their meaning and their rollback are in `docs/runbooks/vacancy-sourcing.md` §9
+and §14; the per-source switch is an ADMIN button, not an env key.
+**Human remainder:** per wave, one line — set the named flag in `.env.production`, recreate the `api` container (`docs/runbooks/vacancy-sourcing.md` §9; a plain
+`docker restart` does not reload the env file), reply with
+`/api/health` `commit`.
+**Where to move:** write the flags from repository variables in the `deploy.yml` env step, so a flag change is a
+reviewed PR and the server file stops being the source of truth.
+
+### 9. Vacancy sourcing: source credentials and quota meters (added 2026-11-14)
+
+**Why a human:** API keys (`JOOBLE_API_KEY`, `RAPIDAPI_KEY`, `THEIRSTACK_API_KEY`, `REED_API_KEY`; the worker's
+`GEMINI_API_KEY`, `GROQ_API_KEY`) are obtained under the owner's accounts and their terms; agents never enter
+credentials (item 3). The quota value behind each `job_account_meters` row is the owner's reading of the provider's
+terms.
+**Automated:** verification — `scripts/devops/check-job-source-credentials.sh` sends one real request for Jooble,
+Adzuna, Careerjet and RapidAPI only (RapidAPI: 200 requests a month); TheirStack, Reed and the model keys have no check
+yet; a
+quota source without a meter row is refused `METER_MISSING`, so a missing step fails closed.
+**Human remainder:** obtain the key, put it in the server env file, state the quota (unit, limit, reset); the meter row
+itself goes in as a `deploy.yml` DDL step (item 1). Rotation: replace the key, recreate the `api` container, re-run the check script where one exists.
+**Where to move:** nowhere for the credential itself; the meter row is already automatable.
+
+### 10. Vacancy sourcing: read-only production checks (added 2026-11-14)
+
+**Why a human:** plan Task 8.3 reads production aggregates and the API log; that needs `ssh crm-vps`.
+**Automated:** the queries and the log greps are ready in `docs/runbooks/vacancy-sourcing.md` §13; the build
+fingerprint is public (`GET /api/health`, field `commit`).
+**Human remainder:** either run §13 and paste the output, or grant an agent read-only SSH for that session in the chat.
+The agent then uses a `default_transaction_read_only=on` session and aggregates only.
+**Where to move:** a read-only database role plus a `workflow_dispatch` job that runs §13.2 and posts the counts. The
+job does not exist yet.
+
+### 11. Vacancy sourcing: calendar reviews (added 2026-11-14)
+
+**Why a human:** a source's terms are read by a person; no code reminder exists.
+**Automated:** `DEADLINE_NEAR` health event 30 days before `RECRUITEE_TOKEN_DEADLINE` (2027-02-10), if the Recruitee
+source is enabled by then.
+**Human remainder:** 2027-01-15 catalog review (every enabled source and every owner-accepted risk in
+`providers/owner-decisions.ts`); 2027-02-10 Recruitee token deadline decision.
+**Where to move:** a scheduled task that opens an issue on each date.
+
 ---
 
 ## What is NOT written here
