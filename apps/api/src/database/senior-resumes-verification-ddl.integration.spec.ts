@@ -53,6 +53,7 @@ const ADDED = config.columns.filter((c) =>
     'staged_template_name',
     'staged_pdf_s3_key',
     'staged_edited_paths',
+    'staged_previous',
   ].includes(c.name),
 )
 

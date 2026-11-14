@@ -111,12 +111,13 @@ describe('ResumeWriterClient', () => {
     })
   })
 
-  it('a non-2xx is PROVIDER_ERROR', async () => {
+  it('a non-2xx is PROVIDER_ERROR with its status (FR-A-2)', async () => {
     workerEnv()
-    stubFetch({ error: 'BAD_REQUEST' }, 400)
+    stubFetch({ error: 'BAD_REQUEST' }, 503)
     await expect(new ResumeWriterClient().write('summary', '{}', [])).resolves.toEqual({
       kind: 'unavailable',
       reason: 'PROVIDER_ERROR',
+      status: 503,
     })
   })
 
@@ -135,6 +136,7 @@ describe('ResumeWriterClient', () => {
     await expect(new ResumeWriterClient().write('summary', '[1]', ['a\nb'])).resolves.toEqual({
       kind: 'unavailable',
       reason: 'PROVIDER_ERROR',
+      status: 400,
     })
   })
 })

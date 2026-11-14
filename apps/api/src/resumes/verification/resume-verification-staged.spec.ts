@@ -535,3 +535,39 @@ describe('an extraction in flight: staged edit, regenerate and confirm are 409 b
     },
   )
 })
+
+describe('a staged run snapshots the result it replaces (FR-A-2)', () => {
+  const row = {
+    ...ROW,
+    stagedLayout: { density: 'compact' },
+    stagedTemplateName: 'modern',
+    stagedEditedPaths: [{ path: 'summary', userId: HR0 }],
+    verificationKind: 'full',
+    verificationTargetPath: null,
+    verificationBaseVersion: 7,
+  } as unknown as SeniorResume
+  const SNAPSHOT = {
+    content: STAGED,
+    layout: { density: 'compact' },
+    templateName: 'modern',
+    pdfKey: 'resumes/r-1/staged/run.pdf',
+    editedPaths: [{ path: 'summary', userId: HR0 }],
+    runId: RUN,
+    kind: 'full',
+    targetPath: null,
+    baseVersion: 7,
+    report: ROW.verificationReport,
+  }
+
+  it('staged-edit: the start UPDATE writes the previous staged result', async () => {
+    const { svc, log } = service([OWNER, [], [row]])
+    await svc.editStagedField(row, { runId: RUN, path: 'summary', text: 'New summary.' }, HR1)
+    expect(log[2]?.set?.['stagedPrevious']).toEqual(SNAPSHOT)
+  })
+
+  it('item: the start UPDATE writes the previous staged result', async () => {
+    const { svc, log } = service([[row]])
+    await svc.regenerateStagedField(row, { runId: RUN, path: 'summary' })
+    expect(log[0]?.set?.['stagedPrevious']).toEqual(SNAPSHOT)
+  })
+})

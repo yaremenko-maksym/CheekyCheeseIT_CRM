@@ -670,6 +670,7 @@ describe('writeGatedContent', () => {
     await expect(writeGatedContent(input(), deps)).rejects.toMatchObject({
       name: 'RunFailure',
       code: 'WRITER_UNAVAILABLE',
+      origin: { provider: 'extraction-worker:/resume-write', reason: 'TIMEOUT' },
     })
   })
 
@@ -678,6 +679,7 @@ describe('writeGatedContent', () => {
     deps.entailment.score = vi.fn(async () => 'unavailable' as const)
     await expect(writeGatedContent(input(), deps)).rejects.toMatchObject({
       code: 'ENTAILMENT_UNAVAILABLE',
+      origin: { provider: 'jev', reason: 'UNAVAILABLE' },
     })
   })
 

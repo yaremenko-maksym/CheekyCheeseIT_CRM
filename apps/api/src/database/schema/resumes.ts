@@ -149,6 +149,11 @@ export const seniorResumes = pgTable(
       .$type<{ path: string; userId: string }[]>()
       .notNull()
       .default([]),
+    /**
+     * The staged result a staged-edit or item run replaces, written by its start UPDATE. An infra
+     * failure of that run restores it whole (FR-A-2); every other end of the run clears it.
+     */
+    stagedPrevious: jsonb('staged_previous').$type<Record<string, unknown>>(),
 
     updatedByUserId: uuid('updated_by_user_id').references(() => users.id, {
       onDelete: 'set null',

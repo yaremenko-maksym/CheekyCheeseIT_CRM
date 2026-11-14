@@ -8,7 +8,17 @@ import type { ResumeVerificationErrorCode, ResumeVerificationReport } from '@crm
 import type { DatabaseService } from '../../database/database.service'
 import { seniorResumes } from '../../database/schema'
 import type { S3Service } from '../../documents/s3.service'
-import { CLEARED_RUN, CLEARED_STAGED, deleteStagedQuietly, storedFallbacks } from './run-columns'
+import {
+  CLEARED_RUN,
+  CLEARED_STAGED,
+  deleteStagedQuietly,
+  INFRA_CODES,
+  readSnapshot,
+  restoredColumns,
+  stagedPdfKey,
+  storedFallbacks,
+  type RunOrigin,
+} from './run-columns'
 
 type RunEndDeps = { db: DatabaseService; s3: Pick<S3Service, 'delete'>; logger: Logger }
 
@@ -28,9 +38,15 @@ export async function ownsRun(db: DatabaseService, resumeId: string, runId: stri
   return row !== undefined
 }
 
+/** The staged kinds: they start from an AWAITING_CONFIRM result, so there is one to keep. */
+const KEEPS_PREVIOUS = new Set(['staged-edit', 'item'])
+
 /**
  * FAILED on this run id: run fields and staged columns cleared, the old object deleted after commit.
  * A template run keeps VERIFIED and the live columns (Task 16): its CAS also needs the base version.
+ * A staged-edit or item run on an infra code (a provider down, the run budget) goes back to the
+ * result it started from, whole, with the code kept for the UI (FR-A-2); only its own upload goes.
+ * One structured warn line names the run, the code and the origin; never resume text.
  */
 export async function failRun(
   deps: RunEndDeps,
@@ -38,7 +54,10 @@ export async function failRun(
   runId: string,
   code: ResumeVerificationErrorCode,
   report: ResumeVerificationReport,
+  origin: RunOrigin | null = null,
 ): Promise<{ old: string | null; live: string | null } | null> {
+  let kind: string | null = null
+  let kept = false
   const won = await deps.db.db.transaction(async (tx) => {
     const [current] = await tx
       .select({
@@ -46,23 +65,37 @@ export async function failRun(
         kind: seniorResumes.verificationKind,
         live: seniorResumes.pdfS3Key,
         report: seniorResumes.verificationReport,
+        previous: seniorResumes.stagedPrevious,
       })
       .from(seniorResumes)
       .where(eq(seniorResumes.id, resumeId))
       .for('update')
-    const template = current?.kind === 'template'
+    kind = current?.kind ?? null
+    const template = kind === 'template'
+    const snapshot =
+      KEEPS_PREVIOUS.has(kind ?? '') && INFRA_CODES.has(code)
+        ? readSnapshot(current?.previous)
+        : null
     const [updated] = await tx
       .update(seniorResumes)
-      .set({
-        ...(template ? {} : { verificationStatus: 'FAILED' as const }),
-        verificationErrorCode: code,
-        // CD-6: a template row stays VERIFIED, so it keeps the confirmed run's fallbacks.
-        verificationReport: template
-          ? { ...report, fallbacks: storedFallbacks(current.report) }
-          : report,
-        ...CLEARED_RUN,
-        ...CLEARED_STAGED,
-      })
+      .set(
+        snapshot
+          ? {
+              verificationStatus: 'AWAITING_CONFIRM' as const,
+              verificationErrorCode: code,
+              ...restoredColumns(snapshot),
+            }
+          : {
+              ...(template ? {} : { verificationStatus: 'FAILED' as const }),
+              verificationErrorCode: code,
+              // CD-6: a template row stays VERIFIED, so it keeps the confirmed run's fallbacks.
+              verificationReport: template
+                ? { ...report, fallbacks: storedFallbacks(current?.report) }
+                : report,
+              ...CLEARED_RUN,
+              ...CLEARED_STAGED,
+            },
+      )
       .where(
         and(
           eq(seniorResumes.id, resumeId),
@@ -73,8 +106,25 @@ export async function failRun(
         ),
       )
       .returning({ id: seniorResumes.id })
-    return updated ? { old: current?.key ?? null, live: current?.live ?? null } : null
+    if (!updated) return null
+    kept = snapshot !== null
+    // The kept PDF stays; this run's own key goes (FR-A-2).
+    const old = snapshot ? stagedPdfKey(resumeId, runId) : (current?.key ?? null)
+    return { old, live: current?.live ?? null }
   })
+  deps.logger.warn(
+    JSON.stringify({
+      event: 'resume_verification_run_failed',
+      runId,
+      resumeId,
+      kind,
+      code,
+      provider: origin?.provider ?? null,
+      cause: origin?.reason ?? null,
+      status: origin?.status ?? null,
+      kept,
+    }),
+  )
   if (won !== null) await deleteStagedQuietly(deps.s3, deps.logger, won.old)
   return won
 }

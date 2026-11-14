@@ -11,7 +11,7 @@ import { MAX_PDF_PAGES } from '../resume-source.util'
 import { loadCatalogTemplate, type ResumeRenderInput } from '../resume-typst.service'
 import type { ContactContext } from './contact-scan'
 import { redactAll, RunFailure, type GateResult } from './content-gates'
-import type { VisualReply } from './inference-clients'
+import { unavailableOrigin, VISUAL_PROVIDER, type VisualReply } from './inference-clients'
 
 export interface RenderDeps {
   typst: {
@@ -265,7 +265,11 @@ export async function visualGate(
   await deps.beforeModelCall()
   const first = await deps.vision.check(pngs)
   if (first.kind === 'unavailable') {
-    throw new RunFailure('VISUAL_CHECK_UNAVAILABLE', [{ gate: 'visual', ok: false, items: [] }])
+    throw new RunFailure(
+      'VISUAL_CHECK_UNAVAILABLE',
+      [{ gate: 'visual', ok: false, items: [] }],
+      unavailableOrigin(VISUAL_PROVIDER, first),
+    )
   }
   if (first.findings.length === 0) return { gate: 'visual', ok: true, items: [] }
   await deps.beforeModelCall()

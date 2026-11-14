@@ -58,7 +58,13 @@ import { seniorResumes, teamMembers, type SeniorResume } from '../../database/sc
 import { resolveTemplateName } from '../resume-typst.service'
 import { hasContact } from './content-gates'
 import { contentToFacts } from './derive-content'
-import { CLEARED_RUN, renderOwnerKey, storedFallbacks, storedOwnerKey } from './run-columns'
+import {
+  CLEARED_RUN,
+  renderOwnerKey,
+  stagedSnapshot,
+  storedFallbacks,
+  storedOwnerKey,
+} from './run-columns'
 import {
   CLEARED_STAGED,
   deleteStagedQuietly,
@@ -627,7 +633,8 @@ export class ResumeVerificationService {
    * The start UPDATE of a staged-edit or item run, like submit's: QUEUED with a new run id, the
    * kind, the target path and `base_version = version`. It matches the run id the caller saw and
    * AWAITING_CONFIRM (0 rows → 409 RESUME_CONFIRM_STALE). The staged PDF stays until stage 9
-   * replaces it, so the last one is still shown. The run starts off the request path.
+   * replaces it, so the last one is still shown. The run starts off the request path. The result it
+   * replaces is snapshotted in `staged_previous` (FR-A-2).
    */
   private async startStagedRun(
     row: SeniorResume,
@@ -641,6 +648,9 @@ export class ResumeVerificationService {
       .update(seniorResumes)
       .set({
         ...staged,
+        // The result this run replaces, kept for an infra failure (FR-A-2). The read matches the
+        // row: staged columns change only with the run id this UPDATE matches.
+        stagedPrevious: stagedSnapshot(row),
         verificationStatus: 'QUEUED',
         verificationRunId: runId,
         verificationKind: kind,

@@ -37,7 +37,7 @@ import {
   type Accepted,
   type RenderDeps,
 } from './render-gates'
-import { deleteStagedQuietly, renderOwnerKey, stagedPdfKey } from './run-columns'
+import { deleteStagedQuietly, renderOwnerKey, stagedPdfKey, type RunOrigin } from './run-columns'
 import { failRun, ownsRun, RunLost } from './run-end'
 import { claimTemplateRun, promoteTemplateRun, templateContent } from './template-run'
 
@@ -130,7 +130,9 @@ export class VerificationRunner {
       const name = err instanceof Error ? err.name : 'unknown'
       this.logger.error(`Verification run ${runId} of resume ${resumeId} crashed (${name})`)
       const empty = { gates: [], fallbacks: [] }
-      const failed = await this.fail(resumeId, runId, 'STALLED', empty).catch(() => {
+      // The error class only: a message can carry query parameters, and so resume text (FR-A-2).
+      const origin = { provider: null, reason: name }
+      const failed = await this.fail(resumeId, runId, 'STALLED', empty, origin).catch(() => {
         this.logger.error(`Verification run ${runId} of resume ${resumeId}: FAILED not written`)
         return null
       })
@@ -145,7 +147,9 @@ export class VerificationRunner {
     if (!row) return
     const startedAt = Date.now()
     const beforeModelCall = async () => {
-      if (Date.now() - startedAt > VERIFICATION_RUN_BUDGET_MS) throw new RunFailure('STALLED')
+      if (Date.now() - startedAt > VERIFICATION_RUN_BUDGET_MS) {
+        throw new RunFailure('STALLED', [], { provider: null, reason: 'RUN_BUDGET' })
+      }
       if (!(await ownsRun(this.db, resumeId, runId))) throw new RunLost()
     }
     const gates: GateResult[] = []
@@ -245,8 +249,9 @@ export class VerificationRunner {
         return
       }
       if (!(err instanceof RunFailure)) throw err
-      this.logger.warn(`Verification run ${runId} of resume ${resumeId} failed: ${err.code}`)
-      await this.fail(resumeId, runId, err.code, { gates: [...gates, ...err.gates], fallbacks })
+      // failRun writes the one structured warn line (FR-A-2).
+      const report = { gates: [...gates, ...err.gates], fallbacks }
+      await this.fail(resumeId, runId, err.code, report, err.origin)
     }
   }
 
@@ -340,6 +345,7 @@ export class VerificationRunner {
           stagedLayout: accepted.layout,
           stagedTemplateName: templateName,
           stagedPdfS3Key: key,
+          stagedPrevious: null,
           // A staged-edit or item run keeps the record of what a person wrote (Task 15).
           ...(keepEditedPaths ? {} : { stagedEditedPaths: [] }),
           verificationStatus: 'AWAITING_CONFIRM',
@@ -370,8 +376,9 @@ export class VerificationRunner {
     runId: string,
     code: ResumeVerificationErrorCode,
     report: ResumeVerificationReport,
+    origin: RunOrigin | null = null,
   ) {
-    return failRun(this.templateDeps(), resumeId, runId, code, report)
+    return failRun(this.templateDeps(), resumeId, runId, code, report, origin)
   }
 
   private deleteQuietly(key: string | null): Promise<void> {

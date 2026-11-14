@@ -14,6 +14,7 @@ import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { z } from 'zod'
 import type { Env } from '../../config/env'
+import type { RunOrigin } from './run-columns'
 import {
   bulletsReplySchema,
   findingsReplySchema,
@@ -32,13 +33,31 @@ export { resumeWriteInput }
 export type WriterTask = 'summary' | 'bullets'
 export type EntailmentClaim = { id: string; text: string; sources: string[] }
 
-/** `INVALID_INPUT`: the client refused the request before sending it. */
-export type Unavailable = { kind: 'unavailable'; reason: InferenceErrorCode | 'INVALID_INPUT' }
+/**
+ * `INVALID_INPUT`: the client refused the request before sending it. `status`: the HTTP status of a
+ * non-2xx worker answer, for the log only (FR-A-2).
+ */
+export type Unavailable = {
+  kind: 'unavailable'
+  reason: InferenceErrorCode | 'INVALID_INPUT'
+  status?: number
+}
 const unavailable = (reason: Unavailable['reason']): Unavailable => ({
   kind: 'unavailable',
   reason,
 })
 const reasonSchema = z.enum(INFERENCE_ERROR_CODES)
+
+/** The provider ids a failed run logs (FR-A-2): the worker route, or the entailment service. */
+export const WRITER_PROVIDER = 'extraction-worker:/resume-write'
+export const VISUAL_PROVIDER = 'extraction-worker:/visual-check'
+export const ENTAILMENT_PROVIDER = 'jev'
+
+/** A coded `unavailable` as a run-failure origin: provider, reason, and the HTTP status if any. */
+export const unavailableOrigin = (provider: string, reply: Unavailable): RunOrigin =>
+  reply.status === undefined
+    ? { provider, reason: reply.reason }
+    : { provider, reason: reply.reason, status: reply.status }
 
 /** The worker transport, or undefined when its env is unset or invalid. */
 function workerTransport(): ExtractionWorkerTransport | undefined {
@@ -69,7 +88,11 @@ async function callWorker<T>(
   // The transport never throws: a network error is a `transport` result.
   const res = await post(route, { body, timeoutMs: WORKER_ADAPTER_TIMEOUT_MS })
   if (res.kind === 'timeout') return unavailable('TIMEOUT')
-  if (res.kind !== 'ok') return unavailable('PROVIDER_ERROR')
+  if (res.kind !== 'ok') {
+    return res.status === undefined
+      ? unavailable('PROVIDER_ERROR')
+      : { ...unavailable('PROVIDER_ERROR'), status: res.status }
+  }
   const reply = replySchema.safeParse(parseJson(res.text))
   return reply.success ? reply.data : unavailable('INVALID_OUTPUT')
 }

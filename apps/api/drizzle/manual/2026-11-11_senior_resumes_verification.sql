@@ -6,7 +6,8 @@
 --   row starts as DRAFT, spec §3), the run columns (run id, kind, target path, base version, queued/started
 --   timestamps, error code, report), verified_version/at/by, and the staged columns written only by a check
 --   run (staged_content, staged_layout, staged_template_name, staged_pdf_s3_key, staged_edited_paths
---   default '[]'). Fully additive: no existing column is touched. Re-runnable: guarded CREATE TYPE and
+--   default '[]', staged_previous: the staged result a staged run replaces, restored on an infra
+--   failure). Fully additive: no existing column is touched. Re-runnable: guarded CREATE TYPE and
 --   ADD COLUMN IF NOT EXISTS.
 --
 -- The Drizzle declaration of the same objects is seniorResumes in apps/api/src/database/schema/resumes.ts
@@ -51,7 +52,8 @@ ALTER TABLE senior_resumes
   ADD COLUMN IF NOT EXISTS staged_layout jsonb,
   ADD COLUMN IF NOT EXISTS staged_template_name text,
   ADD COLUMN IF NOT EXISTS staged_pdf_s3_key text,
-  ADD COLUMN IF NOT EXISTS staged_edited_paths jsonb DEFAULT '[]'::jsonb NOT NULL;
+  ADD COLUMN IF NOT EXISTS staged_edited_paths jsonb DEFAULT '[]'::jsonb NOT NULL,
+  ADD COLUMN IF NOT EXISTS staged_previous jsonb;
 
 -- Drizzle's FK name for verified_by_user_id, so db:push and this file agree.
 DO $$

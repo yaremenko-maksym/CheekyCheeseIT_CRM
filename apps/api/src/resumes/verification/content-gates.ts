@@ -10,12 +10,16 @@ import { redactContacts, scanContacts, scanContexts, type ContactContext } from 
 import { yearsOfExperience } from './derive-content'
 import { findUngroundedTokens, type FactSource } from './fact-gate'
 import {
+  ENTAILMENT_PROVIDER,
   ENTAILMENT_THRESHOLD,
   resumeWriteInput,
+  unavailableOrigin,
+  WRITER_PROVIDER,
   type EntailmentClaim,
   type WriterReply,
   type WriterTask,
 } from './inference-clients'
+import type { RunOrigin } from './run-columns'
 
 /** One entry of `verification_report.gates`: a run writes only the shared reason codes (R46). */
 export type GateResult = {
@@ -29,6 +33,8 @@ export class RunFailure extends Error {
   constructor(
     readonly code: ResumeVerificationErrorCode,
     readonly gates: GateResult[] = [],
+    /** The provider that failed, for the log only (FR-A-2). */
+    readonly origin: RunOrigin | null = null,
   ) {
     super(code)
     this.name = 'RunFailure'
@@ -221,7 +227,12 @@ async function gateTexts(
   for (const group of groupClaims(claims)) {
     await deps.beforeModelCall()
     const scores = await deps.entailment.score(group)
-    if (scores === 'unavailable') throw new RunFailure('ENTAILMENT_UNAVAILABLE')
+    if (scores === 'unavailable') {
+      throw new RunFailure('ENTAILMENT_UNAVAILABLE', [], {
+        provider: ENTAILMENT_PROVIDER,
+        reason: 'UNAVAILABLE',
+      })
+    }
     for (const claim of group) {
       // a missing score never reads as supported
       if ((scores.get(claim.id) ?? 0) < ENTAILMENT_THRESHOLD) {
@@ -257,7 +268,9 @@ async function write(
 ): Promise<Exclude<WriterReply, { kind: 'unavailable' }>> {
   await deps.beforeModelCall()
   const reply = await deps.writer.write(task, JSON.stringify(sent.payload), sent.feedback)
-  if (reply.kind === 'unavailable') throw new RunFailure('WRITER_UNAVAILABLE')
+  if (reply.kind === 'unavailable') {
+    throw new RunFailure('WRITER_UNAVAILABLE', [], unavailableOrigin(WRITER_PROVIDER, reply))
+  }
   return reply
 }
 

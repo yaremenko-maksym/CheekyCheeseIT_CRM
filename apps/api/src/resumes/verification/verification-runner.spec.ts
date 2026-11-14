@@ -171,6 +171,7 @@ describe('constants', () => {
       stagedTemplateName: null,
       stagedPdfS3Key: null,
       stagedEditedPaths: [],
+      stagedPrevious: null,
     })
   })
 })
@@ -382,10 +383,21 @@ describe('VerificationRunner.run', () => {
       verificationBaseVersion: null,
       ...CLEARED_STAGED,
     })
-    expect([lock?.columns, fail?.columns]).toEqual([['key', 'kind', 'live', 'report'], ['id']])
+    expect([lock?.columns, fail?.columns]).toEqual([
+      ['key', 'kind', 'live', 'report', 'previous'],
+      ['id'],
+    ])
     expect(s3.upload).not.toHaveBeenCalled()
     expect(s3.delete.mock.calls).toEqual([[OLD_KEY]])
-    expect(logs).toContain(`Verification run ${RUN} of resume ${RESUME} failed: WRITER_UNAVAILABLE`)
+    // FR-A-2: the one structured line carries the writer route and the coded reason.
+    expect(logs.map((l) => (l.startsWith('{') ? JSON.parse(l) : l))).toContainEqual(
+      expect.objectContaining({
+        event: 'resume_verification_run_failed',
+        code: 'WRITER_UNAVAILABLE',
+        provider: 'extraction-worker:/resume-write',
+        cause: 'TIMEOUT',
+      }),
+    )
   })
 
   it('a lost FAILED CAS deletes nothing', async () => {

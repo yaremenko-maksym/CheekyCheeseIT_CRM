@@ -537,11 +537,18 @@ describe('visualGate', () => {
   })
 
   it('vision unavailable on the first call is VISUAL_CHECK_UNAVAILABLE', async () => {
-    const d = deps({ vision: [{ kind: 'unavailable', reason: 'TIMEOUT' }] } as never)
+    const d = deps({
+      vision: [{ kind: 'unavailable', reason: 'PROVIDER_ERROR', status: 502 }],
+    } as never)
     const err = await failure(visualGate(accepted, 'classic', CONTACTS, d))
     expect(err).toMatchObject({
       code: 'VISUAL_CHECK_UNAVAILABLE',
       gates: [{ gate: 'visual', ok: false, items: [] }],
+    })
+    expect(err.origin).toEqual({
+      provider: 'extraction-worker:/visual-check',
+      reason: 'PROVIDER_ERROR',
+      status: 502,
     })
     expect(d.vision.check).toHaveBeenCalledTimes(1)
   })
