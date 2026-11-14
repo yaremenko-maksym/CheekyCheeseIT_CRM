@@ -501,6 +501,10 @@ function TriageGrantDialog({
   )
 }
 
+/** The live grant's expiry as a local calendar day (QA-MED-2): uk 05.03.2026, en 05/03/2026. */
+// Stryker disable next-line StringLiteral: `shortYYYY` is Intl's default numeric date in the local day, and an unknown style reaches Intl.DateTimeFormat as those same defaults, so "" renders identical text; format.spec.ts pins shortYYYY to the local day under Kyiv and Los Angeles
+const EXPIRY_STYLE = 'shortYYYY'
+
 /** A 400 whose field issues include the 90-day ceiling (`ZodExceptionFilter`'s `errors[]`). */
 function beyondCeiling(error: unknown): boolean {
   const errors = (error as { response?: { data?: { errors?: unknown } } } | null)?.response?.data
@@ -527,7 +531,7 @@ export function grantRefusal(error: unknown, locale: Locale): string | null {
   if (envelope?.code !== 'JOB_QUEUE_TRIAGE_ALREADY_GRANTED') return null
   const expiresAt = envelope.params?.['expiresAt']
   // the grant ends at the end of a local day, so the local calendar day is the one the ADMIN chose
-  const until = typeof expiresAt === 'string' ? formatDate(expiresAt, locale, 'shortYYYY') : '—'
+  const until = typeof expiresAt === 'string' ? formatDate(expiresAt, locale, EXPIRY_STYLE) : '—'
   return translateApiError(envelope.code, { expiresAt: until })
 }
 
