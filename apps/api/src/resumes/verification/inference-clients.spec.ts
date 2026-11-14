@@ -479,6 +479,14 @@ describe('scoreEntailment', () => {
       cause: 'Error',
     })
   })
+
+  it('a port that throws a non-Error logs the cause unknown, never its value', async () => {
+    const port: DecisionPort = { decide: () => Promise.reject('jane@x.test') }
+    await expect(scoreEntailment(port, claims(1))).resolves.toEqual({
+      kind: 'unavailable',
+      cause: 'unknown',
+    })
+  })
 })
 
 const config = (key: string | undefined) =>

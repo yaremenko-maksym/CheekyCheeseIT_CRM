@@ -403,6 +403,7 @@ export class ResumeVerificationService {
         .for('update')
       const kind = current?.kind ?? null
       // A staged run keeps the result it started from; an unreadable snapshot is a full clear.
+      // Stryker disable next-line OptionalChaining: a staged kind was read from this row, so it is defined here; the `?.` is type narrowing only
       const snapshot = KEEPS_PREVIOUS.has(kind) ? readSnapshot(current?.previous) : null
       const [updated] = await tx
         .update(seniorResumes)
