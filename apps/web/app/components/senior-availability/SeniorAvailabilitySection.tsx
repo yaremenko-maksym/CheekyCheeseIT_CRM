@@ -129,7 +129,7 @@ function AvailabilityForm({
         disabled={body === null || save.isPending}
         data-testid="senior-availability-save"
       >
-        <Trans>Зберегти</Trans>
+        <Trans>Зберегти доступність</Trans>
       </Button>
     </form>
   )
