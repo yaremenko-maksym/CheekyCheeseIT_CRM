@@ -13392,6 +13392,11 @@ msgstr "Сума занадто мала — мінімум 0.000001"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.TRIAGE_EXPIRY_BEYOND_CEILING"
+msgstr "Доступ надається щонайбільше на 90 днів — оберіть ранішу дату"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TX_HASH_FORMAT"
 msgstr "Хеш транзакції: 0x + 64 hex — або посилання на Etherscan"
 

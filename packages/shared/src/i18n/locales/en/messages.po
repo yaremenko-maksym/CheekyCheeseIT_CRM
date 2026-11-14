@@ -13392,6 +13392,11 @@ msgstr "Amount is too small — minimum 0.000001"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.TRIAGE_EXPIRY_BEYOND_CEILING"
+msgstr "Access lasts at most 90 days — choose an earlier date"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TX_HASH_FORMAT"
 msgstr "Transaction hash: 0x + 64 hex — or an Etherscan link"
 
