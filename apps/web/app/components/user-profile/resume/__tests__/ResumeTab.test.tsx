@@ -546,6 +546,19 @@ describe('ResumeTab — the confirm step (Task 19)', () => {
     expect(screen.getByRole('heading', { name: 'У черзі на перевірку' })).not.toHaveFocus()
   })
 
+  it('a run started elsewhere moves focus from a disabled facts field to the lock line', async () => {
+    setData(makeResponse(complete))
+    const view = render(tab())
+    const headline = screen.getByLabelText('Цільова посада')
+    headline.focus()
+    expect(headline).toHaveFocus()
+    // No local submit: the refetch disables the fieldset under the focused field.
+    setData(makeResponse({ ...complete, verificationStatus: 'QUEUED', verificationBusy: true }))
+    view.rerender(tab())
+    const lock = await screen.findByTestId('resume-verification-busy-lock')
+    await waitFor(() => expect(lock).toHaveFocus())
+  })
+
   it('a template re-check started elsewhere moves focus from the unmounted panel to its status line', async () => {
     const verified = { ...complete, verificationStatus: 'VERIFIED' as const, verifiedVersion: 1 }
     setData(makeResponse(verified))

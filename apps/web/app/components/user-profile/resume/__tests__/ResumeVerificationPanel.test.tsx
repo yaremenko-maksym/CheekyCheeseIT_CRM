@@ -132,14 +132,10 @@ const stagedPdfGets = () =>
 
 function renderWired(initial: SeniorResumeResponse, stagedPdf?: Blob) {
   let response = initial
-  // The staged PDF is a blob jsdom cannot show; unless a test passes one, only the resume GET answers.
-  getMock.mockImplementation((url: string) =>
-    url.endsWith('/staged-pdf')
-      ? stagedPdf
-        ? Promise.resolve({ data: stagedPdf })
-        : Promise.reject(new Error('no PDF in jsdom'))
-      : Promise.resolve({ data: response }),
-  )
+  getMock.mockImplementation(async (url: string) => {
+    if (!url.endsWith('/staged-pdf')) return { data: response }
+    return stagedPdf ? { data: stagedPdf } : Promise.reject(new Error('no staged PDF here'))
+  })
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
@@ -406,17 +402,20 @@ describe('ResumeVerificationPanel — staged PDF', () => {
   })
 
   it('gives the staged PDF preview its own accessible name, not the filename default', async () => {
-    // jsdom has no object URLs; the hook only needs a string back. jsdom logs that it skips the iframe load.
-    Object.assign(URL, { createObjectURL: vi.fn(() => 'about:blank'), revokeObjectURL: vi.fn() })
+    // happy-dom's URL inherits real object-URL statics: spy them and unmount before restoring,
+    // so the hook's unmount revoke lands on the spy, not on the real method.
+    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:staged')
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const name = 'Попередній перегляд PDF резюме до підтвердження'
     try {
-      renderWired(makeResponse(), new Blob(['%PDF'], { type: 'application/pdf' }))
+      const view = renderWired(makeResponse(), new Blob(['%PDF'], { type: 'application/pdf' }))
       const object = await screen.findByTestId('resume-staged-pdf-object')
-      expect(
-        await within(object).findByTitle('Попередній перегляд PDF резюме до підтвердження'),
-      ).toHaveAccessibleName('Попередній перегляд PDF резюме до підтвердження')
+      expect(await within(object).findByTitle(name)).toHaveAccessibleName(name)
+      view.unmount()
+      expect(revoke).toHaveBeenCalledWith('blob:staged')
     } finally {
-      Reflect.deleteProperty(URL, 'createObjectURL')
-      Reflect.deleteProperty(URL, 'revokeObjectURL')
+      create.mockRestore()
+      revoke.mockRestore()
     }
   })
 

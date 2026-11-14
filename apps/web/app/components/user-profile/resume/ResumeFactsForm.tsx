@@ -13,7 +13,7 @@
  * result lands in the fields — and never wipes an edit in progress. A failed
  * write (409 while a check runs) leaves the draft as it is.
  */
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import {
@@ -155,16 +155,28 @@ export function ResumeFactsForm({
   const panelNode = useRef<HTMLDivElement | null>(null)
   // A busy local Submit answer asks ResumeTab for the progress heading (§8); the unmount must not override it.
   const localSubmitAt = useRef(-Infinity)
-  const panelRef = useCallback(
-    (node: HTMLDivElement | null) => {
+  const handOffFocusFrom = useCallback(
+    (scope: HTMLElement | null) => {
       const ownSubmit = Date.now() - localSubmitAt.current < FOCUS_REQUEST_TTL_MS
-      if (node === null && !ownSubmit && panelNode.current?.contains(document.activeElement)) {
+      if (!ownSubmit && scope?.contains(document.activeElement)) {
         focusAfterRender([BUSY_LOCK_ID, TEMPLATE_RUN_STATUS_ID, 'resume-confirm-checking'])
       }
-      panelNode.current = node
     },
     [focusAfterRender],
   )
+  const panelRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node === null) handOffFocusFrom(panelNode.current)
+      panelNode.current = node
+    },
+    [handOffFocusFrom],
+  )
+  // The same run disables the fieldset; the browser then drops a focused field's focus to <body>.
+  // Before paint the field still holds it, so it is handed to the same target.
+  const fieldsetRef = useRef<HTMLFieldSetElement>(null)
+  useLayoutEffect(() => {
+    if (disabled) handOffFocusFrom(fieldsetRef.current)
+  }, [disabled, handOffFocusFrom])
 
   const nowMonth = monthOf(now ?? new Date())
   const issues = useMemo(
@@ -273,6 +285,7 @@ export function ResumeFactsForm({
       )}
 
       <fieldset
+        ref={fieldsetRef}
         disabled={disabled}
         className={cn('min-w-0 space-y-4 lg:order-1', disabled && 'opacity-50')}
         data-testid="resume-facts-form"
