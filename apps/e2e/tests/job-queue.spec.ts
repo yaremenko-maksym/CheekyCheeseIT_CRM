@@ -201,12 +201,16 @@ test.describe('scenario 9 — list states (mocked)', () => {
   }) => {
     const uk = await loadMessages('uk')
     const gone = { status: 409, body: apiError(409, 'JOB_QUEUE_REFRESH_REQUIRED') }
-    // the query retries once on its own, so the first two answers are the stale generation
-    await mockJobQueue(page, { list: [gone, gone, listResponse([listItem()])] })
+    // stale until the click, however many times the query retries or refetches before it
+    const queue = await mockJobQueue(page, {
+      list: [gone],
+      listAfterRecover: listResponse([listItem()]),
+    })
     await page.goto('/job-queue')
     const notice = page.getByTestId('job-queue-refresh')
     await expect(notice).toBeVisible()
 
+    queue.recover()
     await notice
       .getByRole('button', { name: assertInCatalog(uk, 'Показати оновлений список') })
       .click()
@@ -228,12 +232,16 @@ test.describe('scenario 9 — list states (mocked)', () => {
   test('9c: a failed load shows the error state; retry loads the list', async ({ asHr: page }) => {
     const uk = await loadMessages('uk')
     const down = { status: 500, body: serverFailure(500) }
-    // the query retries once on its own, so the first two answers are the failure
-    await mockJobQueue(page, { list: [down, down, listResponse([listItem()])] })
+    // down until the click, however many times the query retries or refetches before it
+    const queue = await mockJobQueue(page, {
+      list: [down],
+      listAfterRecover: listResponse([listItem()]),
+    })
     await page.goto('/job-queue')
     const error = page.getByTestId('job-queue-error')
     await expect(error).toBeVisible()
 
+    queue.recover()
     await error.getByRole('button', { name: assertInCatalog(uk, 'Спробувати ще раз') }).click()
 
     await expect(page.getByTestId(`job-queue-row-${OPP}`)).toBeVisible()
@@ -683,26 +691,27 @@ test.describe('wave 2 — real API on the 7.6a seed', () => {
       await page.getByTestId('header-user-menu-trigger').click()
       await page.getByTestId('header-user-menu-logout').click()
       await expect(page).toHaveURL(/\/login/)
-      const after = await persisted(page)
-      expect(after.keys).toEqual([])
-      for (const title of Object.values(SEED_QUEUE)) expect(after.raw).not.toContain(title)
+      // the purge and the redirect race: read the store until it settles, not once
+      await expect
+        .poll(async () => {
+          const after = await persisted(page)
+          const titles = Object.values(SEED_QUEUE).filter((t) => after.raw.includes(t))
+          return { keys: after.keys, titles }
+        })
+        .toEqual({ keys: [], titles: [] })
 
       // logout itself is a hard navigation, so the next document starts from IndexedDB alone
       await page.addInitScript(watchRows)
       await loginViaApi(page, SEED_EMAILS.hr0)
       await page.goto('/job-queue')
       await expect(page.getByTestId('job-queue-no-team')).toBeVisible()
-      expect(await rowsSeen(page)).toEqual([])
+      // the observer keeps every row ever painted, so the final state is the whole history
+      await expect.poll(() => rowsSeen(page)).toEqual([])
     })
 
-    test('10b: an account change in the open page never paints the previous account rows', async ({
+    test('10b: an account change in the open page still paints the previous account rows (product gap, Task 7.6c)', async ({
       page,
     }) => {
-      // PRODUCT GAP (reported to Master, Coder zone): nothing purges the query cache when the
-      // session cookie changes under an open page — `useJobQueue` keys on the `auth/me` user,
-      // which is not refetched, so Team Marchenko's HR is shown Team Kovalenko's cached rows.
-      // Remove `test.fail` once the app purges on account change; the test then passes.
-      test.fail(true, 'product gap: no cache purge on an in-page account change')
       await loginViaApi(page, SEED_EMAILS.hrA)
       // the two vacancies only Team Kovalenko sees: Team Marchenko must never paint them
       const annaOnly = [
@@ -720,8 +729,10 @@ test.describe('wave 2 — real API on the 7.6a seed', () => {
       await loginViaApi(page, SEED_EMAILS.hrB)
       await nav(page, 'Черга зовнішніх вакансій')
       await expect(page.getByTestId(ANY_ROW).first()).toBeVisible()
-      const seen = await rowsSeen(page)
-      for (const id of annaOnly) expect(seen).not.toContain(ROW(id))
+      // product gap: Task 7.6c flips this to not.toContain. Nothing purges the query cache when
+      // the session cookie changes under an open page — `useJobQueue` keys on the `auth/me` user,
+      // which is not refetched — so Team Marchenko's HR is shown Team Kovalenko's cached rows.
+      await expect.poll(() => rowsSeen(page)).toEqual(expect.arrayContaining(annaOnly.map(ROW)))
     })
   })
 
@@ -824,6 +835,9 @@ test.describe('wave 2 — real API on the 7.6a seed', () => {
           await asActor(browser, SEED_EMAILS.admin, (p) =>
             revokeTriage(p.request, id, team, version),
           )
+        } else if (await sees(browser, SEED_EMAILS.hr3)) {
+          // the grant landed but the test died before it read the version
+          await asActor(browser, SEED_EMAILS.admin, (p) => revokeLiveTriage(p.request, id, team))
         }
         expect(await sees(browser, SEED_EMAILS.hr3)).toBe(false)
       })

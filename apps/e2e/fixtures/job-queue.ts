@@ -176,6 +176,12 @@ function sequence(answers: Answer[]): () => Answer {
 export interface QueueMocks {
   /** GET `/job-queue` answers, in order (the last one repeats). */
   list?: Answer[]
+  /**
+   * The list once the test calls `recover()` on the returned handle: every list GET before it
+   * answers `list`, every one after answers this — so the query's own retries and refetches cannot
+   * consume the failure before the user's refresh / retry click.
+   */
+  listAfterRecover?: Answer
   /** GET `/job-queue/:id` answers, in order (the last one repeats). */
   card?: Answer[]
   /**
@@ -193,7 +199,10 @@ export interface QueueMocks {
  * `/job-queue` call these mocks do not name gets a 501 — never `route.continue()`, so a mocked
  * spec cannot reach the real API by accident.
  */
-export async function mockJobQueue(page: Page, mocks: QueueMocks = {}) {
+export async function mockJobQueue(
+  page: Page,
+  mocks: QueueMocks = {},
+): Promise<{ recover: () => void }> {
   const list = sequence(mocks.list ?? [listResponse([listItem()])])
   const cardAnswer = sequence(mocks.card ?? [card()])
   const submit = sequence(
@@ -214,11 +223,14 @@ export async function mockJobQueue(page: Page, mocks: QueueMocks = {}) {
   )
   const uuid = '[0-9a-f-]{36}'
   let submitted = false
+  let recovered = false
 
   await page.route(new RegExp(`${API_RE}/job-queue`), (r) =>
     answer(r, { status: 501, body: serverFailure(501) }),
   )
-  await page.route(new RegExp(`${API_RE}/job-queue(\\?|$)`), (r) => answer(r, list()))
+  await page.route(new RegExp(`${API_RE}/job-queue(\\?|$)`), (r) =>
+    answer(r, recovered && mocks.listAfterRecover ? mocks.listAfterRecover : list()),
+  )
   await page.route(new RegExp(`${API_RE}/job-queue/seniors(\\?|$)`), (r) =>
     answer(r, {
       status: 200,
@@ -239,6 +251,11 @@ export async function mockJobQueue(page: Page, mocks: QueueMocks = {}) {
   await page.route(new RegExp(`${API_RE}/job-queue/${uuid}/opened(\\?|$)`), (r) =>
     r.fulfill({ status: 204 }),
   )
+  return {
+    recover: () => {
+      recovered = true
+    },
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -374,26 +391,33 @@ export async function undoLiveDismissal(
   jobQueueDismissalResponseSchema.parse(await ok(res, 200, 'undo dismissal'))
 }
 
-/** ADMIN: grants a team triage access to a vacancy for a day; returns what the revoke needs. */
 /**
  * Revokes whatever live grant `teamId` holds on the vacancy; `null` when there is none. No API
- * reads a grant, and a revoke matches only the live version (grant 1, revoke 2, re-grant 3, …,
- * anything else is a 409 with no effect), so the odd versions are walked up to `maxVersion`.
+ * reads a grant, and a revoke matches only the grant's current version (anything else is a 409
+ * with no effect), so every version is tried up to `maxVersion` — no assumption about which
+ * versions a live grant can carry. A 429 is retried with a bounded backoff; only a 409 means
+ * "not this version", any other status throws.
  */
 export async function revokeLiveTriage(
   req: APIRequestContext,
   opportunityId: string,
   teamId: string,
-  maxVersion = 199,
+  maxVersion = 200,
 ): Promise<number | null> {
-  for (let version = 1; version <= maxVersion; version += 2) {
-    const res = await req.delete(`${QUEUE_API}/${opportunityId}/team-triage/${teamId}`, {
+  const revoke = (version: number) =>
+    req.delete(`${QUEUE_API}/${opportunityId}/team-triage/${teamId}`, {
       data: {
         expectedGrantVersion: version,
         reason: 'Task 7.6 E2E pre-clean',
         idempotencyKey: randomUUID(),
       },
     })
+  for (let version = 1; version <= maxVersion; version += 1) {
+    let res = await revoke(version)
+    for (let retry = 0; res.status() === 429 && retry < 5; retry += 1) {
+      await new Promise((r) => setTimeout(r, 250 * 2 ** retry))
+      res = await revoke(version)
+    }
     if (res.status() === 409) continue
     jobQueueTeamTriageGrantSchema.parse(await ok(res, 200, 'revoke live team triage'))
     return version
