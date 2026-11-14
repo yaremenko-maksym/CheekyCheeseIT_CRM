@@ -7,7 +7,7 @@ import { ZodError } from 'zod'
 import type { DatabaseService } from '../../database/database.service'
 import { requestFingerprint } from './queue-actions'
 import { JobQueueActionsService } from './queue-actions.service'
-import type { JobQueueScope } from './queue-scope'
+import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
 import type { JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -58,7 +58,9 @@ const PATTERNS = {
   lockTarget: /SELECT id FROM job_opportunities WHERE id = /,
   earlier:
     /SELECT reason, after_version, created_at, opportunity_id, subscription_id FROM job_queue_actions/,
-  triageTarget: /SELECT revision, manual_team_id FROM job_opportunities/,
+  triageTarget:
+    /SELECT revision, manual_team_id FROM job_opportunities WHERE id = .* FOR NO KEY UPDATE/,
+  triageEligible: /AS ineligible FROM job_opportunities o WHERE o\.id = /,
   grantRead: /FROM job_opportunity_team_triage WHERE/,
   grantUpsert: /INSERT INTO job_opportunity_team_triage/,
   grantRevoke: /UPDATE job_opportunity_team_triage/,
@@ -156,6 +158,7 @@ const DEFAULTS: Partial<Record<Statement, Rows>> = {
   log: [],
   name: [{ display_name: 'Rita Recruiter' }],
   triageTarget: [{ revision: 4, manual_team_id: null }],
+  triageEligible: [{ ineligible: false }],
   grantRead: [],
   grantUpsert: [],
   grantRevoke: [],
@@ -192,6 +195,9 @@ function harness(
     resolve: vi.fn(async () => scope),
     assertVisible: vi.fn(async () => undefined),
     policy: vi.fn(<T>(fn: () => Promise<T>) => fn()),
+    liveVersions: vi.fn(async (): Promise<LiveSeniorVersion[]> => []),
+    // the triage policy version the grant bodies below were read under (backlog 425)
+    triagePolicyVersion: vi.fn(async () => 2),
   }
   const svc = new JobQueueActionsService(
     { db: { transaction, execute } } as unknown as DatabaseService,
@@ -1386,6 +1392,7 @@ describe('grantTeamTriage (r5 Task 6.4b)', () => {
       'triageTarget',
       'actor',
       'earlier',
+      'triageEligible',
       'team',
       'grantRead',
       'grantUpsert',
@@ -1424,10 +1431,7 @@ describe('grantTeamTriage (r5 Task 6.4b)', () => {
     )
   })
 
-  it('a live grant, a stale revision and a lost upsert are the version conflict', async () => {
-    const live = harness({ grantRead: [{ ...GRANT_ROW, live: true }] }, STUDIO_SCOPE)
-    await expectStale(live.svc.grantTeamTriage(ADMIN, OPP, body))
-    noTriageWrites(live.hits)
+  it('a stale revision and a lost upsert are the version conflict', async () => {
     const stale = harness({ triageTarget: [{ revision: 5, manual_team_id: null }] }, STUDIO_SCOPE)
     await expectStale(stale.svc.grantTeamTriage(ADMIN, OPP, body))
     expect(stale.hits).not.toContain('grantRead')
@@ -1460,6 +1464,69 @@ describe('grantTeamTriage (r5 Task 6.4b)', () => {
       'JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED',
     )
     expect(malformed.hits).toEqual([])
+  })
+
+  it('a live grant of the team is ALREADY_GRANTED with its expiry, and writes nothing (426)', async () => {
+    const live = harness({ grantRead: [{ ...GRANT_ROW, live: true }] }, STUDIO_SCOPE)
+    const r = await refusal(live.svc.grantTeamTriage(ADMIN, OPP, body))
+    expect(r.status).toBe(409)
+    expect(r.body['code']).toBe('JOB_QUEUE_TRIAGE_ALREADY_GRANTED')
+    expect(r.body['params']).toEqual({ expiresAt: T2 })
+    noTriageWrites(live.hits)
+  })
+
+  it('a policy version other than the live one is the version conflict, before eligibility (425)', async () => {
+    const h = harness({ grantUpsert: [GRANT_ROW] }, STUDIO_SCOPE)
+    h.scopes.triagePolicyVersion.mockResolvedValueOnce(3)
+    await expectStale(h.svc.grantTeamTriage(ADMIN, OPP, body))
+    expect(h.scopes.liveVersions).toHaveBeenCalledWith(STUDIO_SCOPE, h.tx)
+    expect(h.scopes.triagePolicyVersion).toHaveBeenCalledWith([], h.tx)
+    expect(h.hits).not.toContain('triageEligible')
+    noTriageWrites(h.hits)
+  })
+
+  it('an item the shared fragment calls ineligible (LEAD, EXCLUDED) is 422 NOT_ELIGIBLE (426)', async () => {
+    const versions = [{ seniorId: SENIOR, profile: 'p', exclusion: 'e' }]
+    const h = harness({ triageEligible: [{ ineligible: true }] }, STUDIO_SCOPE)
+    h.scopes.liveVersions.mockResolvedValueOnce(versions)
+    await expectCode(h.svc.grantTeamTriage(ADMIN, OPP, body), 422, 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE')
+    // the STUDIO roster the policy version was checked for, then the opportunity
+    expect(h.param('triageEligible')).toEqual([
+      JSON.stringify([{ senior_id: SENIOR, profile: 'p', exclusion: 'e' }]),
+      expect.any(String),
+      OPP,
+    ])
+    expect(h.hits).not.toContain('team')
+    noTriageWrites(h.hits)
+  })
+
+  it('no eligibility answer fails closed: 422 NOT_ELIGIBLE, nothing written', async () => {
+    const h = harness({ triageEligible: [] }, STUDIO_SCOPE)
+    await expectCode(h.svc.grantTeamTriage(ADMIN, OPP, body), 422, 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE')
+    noTriageWrites(h.hits)
+  })
+
+  it('an expiry more than 90 days after the server clock is a 400 before any read (426)', async () => {
+    const ceiling = new Date(Date.parse(NOW) + 90 * 24 * 60 * 60 * 1000).toISOString()
+    const beyond = new Date(Date.parse(ceiling) + 1).toISOString()
+    const h = harness({ grantUpsert: [GRANT_ROW] }, STUDIO_SCOPE)
+    const error = await h.svc.grantTeamTriage(ADMIN, OPP, { ...body, expiresAt: beyond }).then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect(error).toBeInstanceOf(ZodError)
+    expect((error as ZodError).issues).toEqual([
+      {
+        code: 'custom',
+        path: ['expiresAt'],
+        message: 'zod.TRIAGE_EXPIRY_BEYOND_CEILING',
+        input: beyond,
+      },
+    ])
+    expect(h.hits).toEqual([])
+    const atCeiling = harness({ grantUpsert: [GRANT_ROW] }, STUDIO_SCOPE)
+    await atCeiling.svc.grantTeamTriage(ADMIN, OPP, { ...body, expiresAt: ceiling })
+    expect(atCeiling.param('grantUpsert')[6]).toBe(ceiling)
   })
 
   it('anyone resolving to a team scope or none is a 403 before any read', async () => {
@@ -1663,6 +1730,37 @@ describe('subscribeTeamTriage (r5 Task 6.4b)', () => {
     expect(h.calls.find((c) => PATTERNS.subDuplicate.test(c.text))?.text).toMatch(
       /revoked_at IS NULL AND expires_at > clock_timestamp\(\) AND source_types @> .* AND source_types <@ /,
     )
+  })
+
+  it('a policy version other than the live one is the version conflict, before the team lock (SR-M-1)', async () => {
+    const h = harness({ subInsert: [SUB_ROW] }, STUDIO_SCOPE)
+    h.scopes.triagePolicyVersion.mockResolvedValueOnce(3)
+    await expectStale(h.svc.subscribeTeamTriage(ADMIN, body))
+    expect(h.scopes.liveVersions).toHaveBeenCalledWith(STUDIO_SCOPE, h.tx)
+    expect(h.scopes.triagePolicyVersion).toHaveBeenCalledWith([], h.tx)
+    expect(h.hits).toEqual(['actor', 'earlier'])
+  })
+
+  it('an expiry more than 90 days after the server clock is a 400 before any read (SR-M-1)', async () => {
+    const ceiling = new Date(Date.parse(NOW) + 90 * 24 * 60 * 60 * 1000).toISOString()
+    const beyond = new Date(Date.parse(ceiling) + 1).toISOString()
+    const h = harness({ subInsert: [SUB_ROW] }, STUDIO_SCOPE)
+    const error = await h.svc.subscribeTeamTriage(ADMIN, { ...body, expiresAt: beyond }).then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect((error as ZodError).issues).toEqual([
+      {
+        code: 'custom',
+        path: ['expiresAt'],
+        message: 'zod.TRIAGE_EXPIRY_BEYOND_CEILING',
+        input: beyond,
+      },
+    ])
+    expect(h.hits).toEqual([])
+    const atCeiling = harness({ subInsert: [SUB_ROW] }, STUDIO_SCOPE)
+    await atCeiling.svc.subscribeTeamTriage(ADMIN, { ...body, expiresAt: ceiling })
+    expect(atCeiling.param('subInsert')[6]).toBe(ceiling)
   })
 
   it('an empty source set (all sources) is its own rule key (CR-M-3)', async () => {

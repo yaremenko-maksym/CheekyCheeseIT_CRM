@@ -3333,6 +3333,16 @@ msgstr "This senior cannot be submitted to this job from this team. Choose anoth
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_TRIAGE_ALREADY_GRANTED"
+msgstr "This team already has access to the job until {expiresAt}."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
+msgid "api-error.JOB_QUEUE_TRIAGE_NOT_ELIGIBLE"
+msgstr "This job cannot be assigned to a team: it is not a triage item. Refresh the card."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_VERSION_CONFLICT"
 msgstr "The data has changed. Refresh the card and try again."
 
@@ -13379,6 +13389,11 @@ msgstr "No more than 6 decimals — otherwise the amount is rounded"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TRANSACTION_AMOUNT_TOO_SMALL"
 msgstr "Amount is too small — minimum 0.000001"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.TRIAGE_EXPIRY_BEYOND_CEILING"
+msgstr "Access lasts at most 90 days — choose an earlier date"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts

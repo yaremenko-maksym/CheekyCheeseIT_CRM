@@ -2148,6 +2148,19 @@ export const jobQueueCardResponseSchema = jobQueueListItemSchema
       .object({ scope: jobQueueScopeKindSchema, version: intColumnPositiveSchema })
       .strict()
       .nullable(),
+    /**
+     * ADMIN only (any view scope): the studio-wide triage policy version a team-triage grant or
+     * subscription must send back. It changes on every team-membership, senior-profile or exclusion
+     * write, so a write made from a card read before such a write is a version conflict (backlog
+     * 425). Absent for an HR.
+     */
+    triagePolicyVersion: intColumnPositiveSchema.optional(),
+    /**
+     * ADMIN only, next to `triagePolicyVersion`: whether the grant would accept this item (no
+     * manual card, not EXCLUDED at its revision, no live LEAD of any studio senior). The server
+     * computes it from the same predicate the grant checks, so the web offers no refused grant.
+     */
+    triageGrantable: z.boolean().optional(),
   })
   .strict()
 
@@ -2282,15 +2295,37 @@ export const jobQueueRecomputeResponseSchema = z.object({ runId: z.string().uuid
  * the reason and the per-actor idempotency key every queue write carries.
  */
 
+/** The ceiling of a triage grant's expiry, counted from the server's clock (owner decision, backlog 426). */
+export const JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS = 90
+
+/**
+ * Backlog 426: `expiresAt` ends at most `JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS` after `now`. The one
+ * predicate the request schemas and the service's own re-check (at the server's clock) share. An
+ * unparsable value is never within it.
+ */
+export function withinTriageGrantCeiling(expiresAt: string, now: number): boolean {
+  return Date.parse(expiresAt) <= now + JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS * 86_400_000
+}
+
+/** A grant or subscription expiry: an ISO instant within the ceiling of the parsing clock. */
+const triageExpirySchema = z
+  .string()
+  .datetime()
+  .refine((expiresAt) => withinTriageGrantCeiling(expiresAt, Date.now()), {
+    message: 'zod.TRIAGE_EXPIRY_BEYOND_CEILING',
+  })
+
 /** POST `/job-queue/:id/team-triage` (ADMIN; 201 + the grant). */
 export const jobQueueTeamTriageGrantRequestSchema = z
   .object({
     teamId: z.string().uuid(),
     // `job_opportunities.revision` starts at 1, so 0 can never match.
     expectedOpportunityRevision: intColumnPositiveSchema,
-    policyVersion: intColumnCountSchema,
+    /** The card's `triagePolicyVersion`; a stale one is `JOB_QUEUE_VERSION_CONFLICT` (backlog 425). */
+    policyVersion: intColumnPositiveSchema,
     reason: triageReasonSchema,
-    expiresAt: z.string().datetime(),
+    /** At most `JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS` ahead of the server's clock (backlog 426). */
+    expiresAt: triageExpirySchema,
     idempotencyKey: z.string().uuid(),
   })
   .strict()
@@ -2306,7 +2341,13 @@ export const jobQueueTeamTriageRevokeRequestSchema = z
 
 /** POST `/job-queue/team-triage-subscriptions` (ADMIN; 201 + the subscription). */
 export const jobQueueTeamTriageSubscribeRequestSchema =
-  createJobQueueTeamTriageSubscriptionSchema.extend({ idempotencyKey: z.string().uuid() })
+  createJobQueueTeamTriageSubscriptionSchema.extend({
+    /** Any ADMIN card's `triagePolicyVersion` (studio-wide); a stale one is a version conflict (SR-M-1). */
+    policyVersion: intColumnPositiveSchema,
+    /** The grant's ceiling applies to a standing rule too (SR-M-1). */
+    expiresAt: triageExpirySchema,
+    idempotencyKey: z.string().uuid(),
+  })
 
 /** DELETE `/job-queue/team-triage-subscriptions/:id` (ADMIN; 200 + the revoked subscription). */
 export const jobQueueTeamTriageUnsubscribeRequestSchema = revokeJobQueueTeamTriageSubscriptionSchema

@@ -72,6 +72,7 @@ function harness(scope: JobQueueScope, ...answers: Rows[]) {
     assertVisible: vi.fn(async () => undefined),
     liveVersions: vi.fn(async () => versions),
     policy: vi.fn(<T>(fn: () => Promise<T>) => fn()),
+    triagePolicyVersion: vi.fn(async () => 7),
   }
   const transaction = vi.fn(<T>(fn: (tx: unknown) => Promise<T>, _config?: unknown) =>
     fn({ execute }),
@@ -1002,6 +1003,56 @@ describe('JobQueueService.card', () => {
     // Unreachable in production (NONE is refused before the read); the type still has no scope.
     const noScope = await tailCard({ kind: 'NONE' }, cardDbRow({ dismissal_version: 3 })).svc.card(user, OPP) // prettier-ignore
     expect(noScope.dismissal).toBeNull()
+  })
+
+  it('an ADMIN card in any view scope carries the studio grant inputs (425, SPEC-H-1, CR-M-1)', async () => {
+    const admin = { ...user, role: 'ADMIN' } as SessionUser
+    const studioVersions: LiveSeniorVersion[] = [
+      { seniorId: ACTOR, profile: 'p2', exclusion: 'e2' },
+    ]
+    const grantable = (answer: Rows) =>
+      harness(teamScope, [cardDbRow()], [], [{ total: '0' }], [], [{ total: '0' }], [], answer)
+    // an ADMIN viewing one team: the STUDIO roster, never the team's own versions
+    const team = grantable([{ grantable: true }])
+    team.scopes.liveVersions.mockResolvedValueOnce(versions).mockResolvedValueOnce(studioVersions)
+    const card = await team.svc.card(admin, OPP, { teamId: TEAM })
+    expect(card.triagePolicyVersion).toBe(7)
+    expect(card.triageGrantable).toBe(true)
+    expect(team.scopes.liveVersions).toHaveBeenLastCalledWith({ kind: 'STUDIO' }, team.db)
+    expect(team.scopes.triagePolicyVersion).toHaveBeenCalledWith(studioVersions, team.db)
+    const last = team.compiled(team.execute.mock.calls.length - 1)
+    expect(last.text).toContain('(o.manual_team_id IS NULL AND NOT ((o.evaluated_revision')
+    expect(last.params).toEqual([
+      JSON.stringify([{ senior_id: ACTOR, profile: 'p2', exclusion: 'e2' }]),
+      expect.any(String),
+      OPP,
+    ])
+    // a STUDIO card reuses its own live versions; an item the fragment refuses is not grantable
+    const studio = harness(
+      { kind: 'STUDIO' },
+      [cardDbRow()],
+      [],
+      [{ total: '0' }],
+      [],
+      [{ total: '0' }],
+      [],
+      [{ grantable: false }],
+    )
+    const refused = await studio.svc.card(admin, OPP)
+    expect(refused.triageGrantable).toBe(false)
+    expect(studio.scopes.liveVersions).toHaveBeenCalledTimes(1)
+    expect(studio.scopes.triagePolicyVersion).toHaveBeenCalledWith(versions, studio.db)
+    expect((await grantable([]).svc.card(admin, OPP)).triageGrantable).toBe(false)
+  })
+
+  it('an HR card carries neither, whatever its scope (425)', async () => {
+    for (const scope of [teamScope, { kind: 'STUDIO' } as const]) {
+      const h = tailCard(scope, cardDbRow())
+      const card = await h.svc.card(user, OPP)
+      expect(card).not.toHaveProperty('triagePolicyVersion')
+      expect(card).not.toHaveProperty('triageGrantable')
+      expect(h.scopes.triagePolicyVersion).not.toHaveBeenCalled()
+    }
   })
 
   it('an unmatched card states its reason; the stack is clipped and capped (Task 7.3b)', async () => {

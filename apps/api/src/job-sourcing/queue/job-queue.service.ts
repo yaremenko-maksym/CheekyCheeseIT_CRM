@@ -48,6 +48,7 @@ import {
   seniorTotal,
   sourceRows,
   sourceTotal,
+  triageGrantableRow,
 } from './queue-read-sql'
 import {
   canonicalUuid,
@@ -55,6 +56,7 @@ import {
   type JobQueueScope,
   listableOpportunityPredicate,
   type LiveSeniorVersion,
+  STUDIO_SCOPE,
 } from './queue-scope'
 import { JobQueueScopeService } from './queue-scope.service'
 
@@ -336,6 +338,27 @@ export class JobQueueService {
     })
   }
 
+  /**
+   * ADMIN only, in any view scope (SPEC-H-1): what the «Призначити команді…» grant needs. The grant
+   * always runs under STUDIO, so both are read for the STUDIO roster even when the ADMIN views one
+   * team: the studio-wide policy version it must send back (backlog 425), and whether the grant
+   * would accept the item, by the grant's own eligibility fragment (CR-M-1).
+   */
+  private async triageGrant(
+    scope: JobQueueScope,
+    versions: readonly LiveSeniorVersion[],
+    id: string,
+  ): Promise<{ triagePolicyVersion: number; triageGrantable: boolean }> {
+    const db = this.database.db
+    const studio =
+      scope.kind === 'STUDIO' ? versions : await this.scopes.liveVersions(STUDIO_SCOPE, db)
+    const { rows } = await this.scopes.policy(() => db.execute(triageGrantableRow(studio, id)))
+    return {
+      triagePolicyVersion: await this.scopes.triagePolicyVersion(studio, db),
+      triageGrantable: rows[0]?.['grantable'] === true,
+    }
+  }
+
   /** The latest canonical facts of one visible opportunity. A miss of any kind is the same 404. */
   async card(
     user: SessionUser,
@@ -361,7 +384,9 @@ export class JobQueueService {
     // Visible a moment ago, or without any active source link: the same answer as a miss.
     if (facts === null) throw notFound()
     const { row, ...parts } = facts
+    const triage = user.role === 'ADMIN' ? await this.triageGrant(scope, versions, id) : {}
     return jobQueueCardResponseSchema.parse({
+      ...triage,
       ...toListItem(row),
       descriptionMd: String(row['description'] ?? '').slice(0, DESCRIPTION_MD_MAX),
       newerThanList: row['newer_than_list'] === true,

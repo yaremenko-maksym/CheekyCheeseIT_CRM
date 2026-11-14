@@ -17,7 +17,7 @@ import {
 } from '@/hooks/use-job-queue'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { JobQueueCard } from '../JobQueueCard'
-import { hasOpenSubmit, JOB_QUEUE_TOAST } from '../JobQueueActions'
+import { grantRefusal, hasOpenSubmit, JOB_QUEUE_TOAST } from '../JobQueueActions'
 import {
   cardFixture,
   idleContinuation,
@@ -952,6 +952,68 @@ describe('hasOpenSubmit', () => {
   })
 })
 
+describe('grantRefusal (backlog 426)', () => {
+  const refusal = (code: string, params?: Record<string, string>) =>
+    httpError(409, { statusCode: 409, code, message: code, ...(params ? { params } : {}) })
+
+  it('names the live grant expiry as a local calendar day in the given locale', () => {
+    const expiresAt = new Date(2026, 10, 25, 23, 59, 59, 999).toISOString()
+    expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'uk')).toBe(
+      'Ця команда вже має доступ до вакансії до 25.11.2026.',
+    )
+    expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'en-US')).toBe(
+      'Ця команда вже має доступ до вакансії до 11/25/2026.',
+    )
+  })
+
+  it('CR-H-1: a single-digit day and month are written with two digits each', () => {
+    const expiresAt = new Date(2026, 2, 5, 23, 59, 59, 999).toISOString()
+    expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'uk')).toBe(
+      'Ця команда вже має доступ до вакансії до 05.03.2026.',
+    )
+    expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'en-US')).toBe(
+      'Ця команда вже має доступ до вакансії до 03/05/2026.',
+    )
+  })
+
+  it('CR-L-1: a 400 naming the 90-day ceiling asks for an earlier day; another 400 is not explained', () => {
+    const invalid = (code: string) =>
+      httpError(400, {
+        statusCode: 400,
+        message: 'Validation failed',
+        errors: [
+          null,
+          { path: 'reason', message: 'x' },
+          { path: 'expiresAt', code, message: code },
+        ],
+      })
+    expect(grantRefusal(invalid('TRIAGE_EXPIRY_BEYOND_CEILING'), 'uk')).toBe(
+      'Доступ надається щонайбільше на 90 днів — оберіть ранішу дату',
+    )
+    expect(grantRefusal(invalid('VALIDATION_FAILED_FORM'), 'uk')).toBeNull()
+    expect(
+      grantRefusal(httpError(400, { statusCode: 400, message: 'Validation failed' }), 'uk'),
+    ).toBeNull()
+  })
+
+  it('CR-L-1: an error with no response, no body or no field list is not explained, never a crash', () => {
+    for (const error of [null, undefined, new Error('network'), { response: {} }]) {
+      expect(grantRefusal(error, 'uk')).toBeNull()
+    }
+  })
+
+  it('an expiry the envelope does not carry is a dash, never «Invalid Date»', () => {
+    expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED'), 'uk')).toBe(
+      'Ця команда вже має доступ до вакансії до —.',
+    )
+  })
+
+  it('any other answer is not a refusal it explains', () => {
+    expect(grantRefusal(refusal('JOB_QUEUE_VERSION_CONFLICT'), 'uk')).toBeNull()
+    expect(grantRefusal(httpError(500, {}), 'uk')).toBeNull()
+  })
+})
+
 describe('«Приховати» (AC 6, §5.9)', () => {
   const DISMISS = `/job-queue/${OPP}/dismiss`
   const UNDO = `/job-queue/${OPP}/undo`
@@ -1573,8 +1635,15 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
   const GRANT = `/job-queue/${OPP}/team-triage`
   const REASON = 'Стек збігається з командою'
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+  /** The studio card's server-side triage policy version (backlog 425). */
+  const POLICY = 5
   const triage = (over: Partial<JobQueueCardResponseDto> = {}) =>
-    cardFixture({ eligibility: 'TRIAGE', ...over })
+    cardFixture({
+      eligibility: 'TRIAGE',
+      triagePolicyVersion: POLICY,
+      triageGrantable: true,
+      ...over,
+    })
   /** The end of a November 2026 day in the actor's own time zone: a grant lasts through it. */
   const endOf = (day: number) => new Date(2026, 10, day, 23, 59, 59, 999).toISOString()
   const granted = (teamId = BETA) => ({
@@ -1583,7 +1652,7 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
       opportunityId: OPP,
       teamId,
       assignedBy: '33333333-3333-4333-8333-333333333333',
-      policyVersion: 0,
+      policyVersion: POLICY,
       opportunityRevision: 3,
       grantVersion: 1,
       evidence: { reason: REASON },
@@ -1648,9 +1717,9 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     expect(within(menu).getAllByRole('separator')).toHaveLength(1)
   })
 
-  it('SPEC-L-1: a manual triage card (no source) gets the studio hide alone: the server refuses its grant', async () => {
+  it('SPEC-L-1, CR-M-1: a triage card the server would not grant (manual, EXCLUDED, a live LEAD) gets the studio hide alone', async () => {
     const user = userEvent.setup()
-    setCard(triage({ primarySource: null }))
+    setCard(triage({ primarySource: null, triageGrantable: false }))
     renderCard(ADMIN)
     await user.click(screen.getByRole('button', { name: 'Дії адміністратора' }))
     const menu = await screen.findByRole('menu')
@@ -1698,7 +1767,7 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     expect(screen.queryByText('Призначити команді…')).toBeNull()
   })
 
-  it('AC 2: a grant sends every schema field (card revision, unversioned policy, team, reason, expiry) and a fresh key per attempt', async () => {
+  it('AC 2: a grant sends every schema field (card revision, policy version, team, reason, expiry) and a fresh key per attempt', async () => {
     const user = userEvent.setup()
     post.mockResolvedValue(granted())
     const { onClose } = renderCard(ADMIN)
@@ -1711,7 +1780,7 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     expect(body).toEqual({
       teamId: BETA,
       expectedOpportunityRevision: 3,
-      policyVersion: 0,
+      policyVersion: POLICY,
       reason: REASON,
       expiresAt: endOf(25),
       idempotencyKey: expect.stringMatching(UUID),
@@ -1762,6 +1831,70 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     expect(sent(GRANT)).toHaveLength(2)
     answer(granted())
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+  })
+
+  it("SPEC-H-1: an ADMIN in one team's queue gets the item and sends the studio policy version", async () => {
+    const user = userEvent.setup()
+    post.mockResolvedValue(granted())
+    setCard(triage({ triagePolicyVersion: 7 }))
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    expect(sent(GRANT)[0]).toMatchObject({ policyVersion: 7 })
+  })
+
+  it('CR-M-1: a card that does not say it is grantable gets the studio hide alone', async () => {
+    const user = userEvent.setup()
+    setCard(triage({ triageGrantable: undefined }))
+    renderCard(ADMIN)
+    await user.click(screen.getByRole('button', { name: 'Дії адміністратора' }))
+    const menu = await screen.findByRole('menu')
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Приховати для всіх…'])
+  })
+
+  it('backlog 426: a team that already has access is told until when, in the dialog, with no conflict note', async () => {
+    const user = userEvent.setup()
+    post.mockRejectedValueOnce(
+      httpError(409, {
+        statusCode: 409,
+        code: 'JOB_QUEUE_TRIAGE_ALREADY_GRANTED',
+        message: 'already granted',
+        params: { expiresAt: endOf(25) },
+      }),
+    )
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    const note = await within(dialog).findByTestId('job-queue-grant-refused')
+    expect(note).toHaveTextContent(/^Ця команда вже має доступ до вакансії до 25\.11\.2026\.$/)
+    expect(note).toHaveAttribute('role', 'alert')
+    expect(within(dialog).queryByTestId('job-queue-conflict')).toBeNull()
+    expect(screen.getByRole('alertdialog')).toBe(dialog)
+    expect(toast.success).not.toHaveBeenCalled()
+    // the next attempt starts clean
+    post.mockReturnValueOnce(new Promise(() => {}))
+    await user.click(assign(dialog))
+    await waitFor(() => expect(within(dialog).queryByTestId('job-queue-grant-refused')).toBeNull())
+  })
+
+  it('backlog 426: an item no longer on triage is refused with its own note', async () => {
+    const user = userEvent.setup()
+    post.mockRejectedValueOnce(coded(422, 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE'))
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    expect(await within(dialog).findByTestId('job-queue-grant-refused')).toHaveTextContent(
+      /^Цю вакансію не можна призначити команді: вона не на розгляді\. Оновіть картку\.$/,
+    )
+    expect(within(dialog).queryByTestId('job-queue-conflict')).toBeNull()
   })
 
   it('a failed grant says so in the dialog and keeps it; a retry that loses access says nothing', async () => {
@@ -1939,6 +2072,47 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     await user.click(assign(dialog))
     await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
     expect(sent(GRANT)[0]).toMatchObject({ expiresAt: endOf(20) })
+  })
+
+  it('backlog 426: the last day offered is 89 days on, the last whole day inside the 90-day ceiling', async () => {
+    const user = userEvent.setup()
+    post.mockResolvedValue(granted())
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await user.click(within(dialog).getByRole('button', { name: 'Діє до' }))
+    const panel = within(await screen.findByRole('dialog'))
+    for (let month = 0; month < 3; month++)
+      await user.click(panel.getByRole('button', { name: 'Go to the Next Month' }))
+    // 2026-11-11 + 89 days = 2027-02-08
+    expect(panel.getByRole('button', { name: /, 8-е лютого 2027/ })).toBeEnabled()
+    expect(panel.getByRole('button', { name: /, 9-е лютого 2027/ })).toBeDisabled()
+    await user.click(panel.getByRole('button', { name: /, 8-е лютого 2027/ }))
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    expect(sent(GRANT)[0]).toMatchObject({
+      expiresAt: new Date(2027, 1, 8, 23, 59, 59, 999).toISOString(),
+    })
+  })
+
+  it('CR-L-1: just after midnight the last day ends 5 minutes inside the ceiling, for a browser clock running ahead', async () => {
+    vi.setSystemTime(new Date(2026, 10, 11, 0, 3))
+    const user = userEvent.setup()
+    post.mockResolvedValue(granted())
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await user.click(within(dialog).getByRole('button', { name: 'Діє до' }))
+    const panel = within(await screen.findByRole('dialog'))
+    for (let month = 0; month < 3; month++)
+      await user.click(panel.getByRole('button', { name: 'Go to the Next Month' }))
+    await user.click(panel.getByRole('button', { name: /, 8-е лютого 2027/ }))
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    // 2026-11-11 00:03 + 90 days - 5 minutes = 2027-02-08 23:58, before the end of the day
+    expect(sent(GRANT)[0]).toMatchObject({
+      expiresAt: new Date(2027, 1, 8, 23, 58).toISOString(),
+    })
   })
 
   it('AC 4: the dialog traps focus, «Не призначати» takes the initial focus, Escape returns focus to «⋯»', async () => {

@@ -18,6 +18,9 @@ import {
   seniorTotal,
   sourceRows,
   sourceTotal,
+  triageGrantableRow,
+  triageIneligibleRow,
+  triagePolicyVersion,
 } from './queue-read-sql'
 import { MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
 import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
@@ -159,6 +162,54 @@ describe('filterIdentity', () => {
     const q = query({ eligibility: ['TRIAGE', 'LEAD'] })
     filterIdentity(q)
     expect(q.eligibility).toEqual(['TRIAGE', 'LEAD'])
+  })
+})
+
+describe('the triage eligibility fragment the grant and the ADMIN card share (426, CR-M-1)', () => {
+  const ineligible =
+    "((o.evaluated_revision = o.revision AND o.evaluation_verdict = 'EXCLUDED') IS TRUE OR EXISTS (SELECT 1 FROM job_opportunity_matches m JOIN jsonb_to_recordset($1::jsonb) AS v(senior_id uuid, profile text, exclusion text) ON v.senior_id = m.senior_id WHERE m.opportunity_id = o.id AND m.opportunity_revision = o.revision AND m.senior_profile_version = v.profile AND m.exclusion_version = v.exclusion AND m.rule_version = $2 AND m.outcome = 'LEAD'))"
+  const params = [
+    JSON.stringify([{ senior_id: SEN, profile: 'p', exclusion: 'e' }]),
+    MATCH_RULE_VERSION,
+    OPP,
+  ]
+  it('the grant reads EXCLUDED-at-revision or a live LEAD of the given roster', () => {
+    expect(render(triageIneligibleRow(versions, OPP))).toEqual({
+      text: `SELECT ${ineligible} AS ineligible FROM job_opportunities o WHERE o.id = $3::uuid`,
+      params,
+    })
+  })
+  it('the card adds only the manual-card refusal, and negates the same fragment', () => {
+    expect(render(triageGrantableRow(versions, OPP))).toEqual({
+      text: `SELECT (o.manual_team_id IS NULL AND NOT ${ineligible}) AS grantable FROM job_opportunities o WHERE o.id = $3::uuid`,
+      params,
+    })
+  })
+})
+
+describe('triagePolicyVersion (backlog 425)', () => {
+  const base = triagePolicyVersion(versions, 'm1')
+  it('is a positive int the policy_version column holds', () => {
+    expect(Number.isInteger(base)).toBe(true)
+    expect(base).toBeGreaterThanOrEqual(1)
+    expect(base).toBeLessThanOrEqual(2147483647)
+  })
+  it('is the first 32 bits of sha-256(studio signature, membership), folded into 1..2^31-1', () => {
+    const hex = createHash('sha256')
+      .update(JSON.stringify([policySignature(studio, versions), 'm1']))
+      .digest('hex')
+    expect(base).toBe((Number.parseInt(hex.slice(0, 8), 16) % 2147483647) + 1)
+  })
+  it('is stable for the same inputs', () => {
+    expect(triagePolicyVersion([...versions], 'm1')).toBe(base)
+  })
+  it.each([
+    ['another membership', versions, 'm2'],
+    ['another profile version', [{ ...versions[0], profile: 'p2' }], 'm1'],
+    ['another exclusion version', [{ ...versions[0], exclusion: 'e2' }], 'm1'],
+    ['a roster without the senior', [], 'm1'],
+  ])('changes with %s', (_label, v, membership) => {
+    expect(triagePolicyVersion(v as LiveSeniorVersion[], membership)).not.toBe(base)
   })
 })
 

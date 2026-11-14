@@ -8,6 +8,7 @@ import {
   type LiveSeniorVersion,
   possibleDuplicateJoin,
   scopedTeamRowPredicate,
+  STUDIO_SCOPE,
   visibleOpportunityPredicate,
 } from './queue-scope'
 
@@ -40,6 +41,25 @@ export const liveVersionRows = (versions: readonly LiveSeniorVersion[]): SQL =>
   sql`FROM job_opportunity_matches m
        JOIN ${versionRows(versions)} ON v.senior_id = m.senior_id
       WHERE ${liveMatch}`
+
+/**
+ * Backlog 426 — `o` is not a triage item: EXCLUDED at its current revision, or a live LEAD of a
+ * senior in `versions` (the STUDIO roster). The grant refuses it and the ADMIN card's
+ * `triageGrantable` reads the same fragment, so the web never offers a grant the server refuses.
+ */
+const triageIneligible = (versions: readonly LiveSeniorVersion[]): SQL =>
+  sql`((o.evaluated_revision = o.revision AND o.evaluation_verdict = 'EXCLUDED') IS TRUE
+       OR EXISTS (SELECT 1 ${liveVersionRows(versions)} AND m.outcome = 'LEAD'))`
+
+/** The grant's eligibility read of one opportunity: `ineligible` (backlog 426). */
+export const triageIneligibleRow = (versions: readonly LiveSeniorVersion[], id: string): SQL =>
+  sql`SELECT ${triageIneligible(versions)} AS ineligible
+        FROM job_opportunities o WHERE o.id = ${id}::uuid`
+
+/** The ADMIN card's `triageGrantable`: no manual card (the grant's other refusal) and eligible. */
+export const triageGrantableRow = (versions: readonly LiveSeniorVersion[], id: string): SQL =>
+  sql`SELECT (o.manual_team_id IS NULL AND NOT ${triageIneligible(versions)}) AS grantable
+        FROM job_opportunities o WHERE o.id = ${id}::uuid`
 
 /**
  * The scope's integer rank: `evaluate` persists a score per senior only (the TEAM and STUDIO
@@ -350,4 +370,23 @@ export function policySignature(
   return createHash('sha256')
     .update(JSON.stringify([scope.kind, team, MATCH_RULE_VERSION, versions]))
     .digest('hex')
+}
+
+/**
+ * Backlog 425 — the triage policy version a team-triage grant is checked against: a positive 31-bit
+ * fold (the `policy_version` int column) of the STUDIO policy signature (every roster senior's
+ * profile, team ids included, and exclusion versions) and of the active membership of every live
+ * SENIOR team (`membershipDigest`, HR members included). A membership, senior-profile or exclusion
+ * write changes it; it is derived on read, never stored, so no write path has to bump a counter.
+ * shortcut: a fold can collide (2^-31 per change), letting one stale grant through; the grant is
+ * still shown only through `visibleOpportunityPredicate`'s live checks. Store a counter if that matters.
+ */
+export function triagePolicyVersion(
+  versions: readonly LiveSeniorVersion[],
+  membershipDigest: string,
+): number {
+  const hex = createHash('sha256')
+    .update(JSON.stringify([policySignature(STUDIO_SCOPE, versions), membershipDigest]))
+    .digest('hex')
+  return (Number.parseInt(hex.slice(0, 8), 16) % 0x7fffffff) + 1
 }

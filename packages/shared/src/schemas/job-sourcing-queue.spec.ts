@@ -4,8 +4,10 @@
  * so a test that genuinely asserts nothing is still caught.
  */
 /* eslint vitest/expect-expect: ["error", { assertFunctionNames: ["expect", "expectOnlyIssue", "refusedAt"] }] */
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS,
+  withinTriageGrantCeiling,
   jobQueueActionKindSchema,
   jobQueueActionWorkerSchema,
   jobQueueAssignmentSchema,
@@ -1138,7 +1140,7 @@ describe('triage write request bodies (r5 Task 6.4b)', () => {
   const grant = {
     teamId: U2,
     expectedOpportunityRevision: 1,
-    policyVersion: 0,
+    policyVersion: 1,
     reason: 'triage',
     expiresAt: LATER,
     idempotencyKey: U3,
@@ -1148,7 +1150,7 @@ describe('triage write request bodies (r5 Task 6.4b)', () => {
     teamId: U2,
     roleFamily: 'DATA',
     sourceTypes: [],
-    policyVersion: 0,
+    policyVersion: 1,
     expiresAt: LATER,
     reason: 'standing triage',
     idempotencyKey: U3,
@@ -1200,6 +1202,10 @@ describe('triage write request bodies (r5 Task 6.4b)', () => {
       { ...grant, expectedOpportunityRevision: PG_INT_MAX + 1 },
       ['expectedOpportunityRevision'],
     )
+    // Backlog 425: the grant carries the card's server-side version, which starts at 1.
+    refusedAt(jobQueueTeamTriageGrantRequestSchema, { ...grant, policyVersion: 0 }, [
+      'policyVersion',
+    ])
     refusedAt(jobQueueTeamTriageGrantRequestSchema, { ...grant, policyVersion: -1 }, [
       'policyVersion',
     ])
@@ -1226,6 +1232,71 @@ describe('triage write request bodies (r5 Task 6.4b)', () => {
       expect(issuesOf(schema.safeParse({ ...body, reason: '\u0085' }))).toEqual([
         { code: 'custom', message: 'must not be blank', path: ['reason'] },
       ])
+  })
+
+  it('a subscription carries a server-side policy version too, which starts at 1 (SR-M-1)', () => {
+    refusedAt(jobQueueTeamTriageSubscribeRequestSchema, { ...subscribe, policyVersion: 0 }, [
+      'policyVersion',
+    ])
+    // the stored rule keeps its own column bound: only the request is versioned
+    expect(
+      createJobQueueTeamTriageSubscriptionSchema.safeParse({
+        teamId: U2,
+        roleFamily: 'DATA',
+        sourceTypes: [],
+        policyVersion: 0,
+        expiresAt: LATER,
+        reason: 'standing triage',
+      }).success,
+    ).toBe(true)
+  })
+
+  describe('the 90-day expiry ceiling, at the parsing clock (backlog 426, SPEC-M-1, SR-M-1)', () => {
+    const now = Date.parse('2026-03-05T08:30:00.000Z')
+    const at = (ms: number) => new Date(ms).toISOString()
+    const ceiling = now + 90 * 86_400_000
+    const BEYOND = {
+      code: 'custom',
+      message: 'zod.TRIAGE_EXPIRY_BEYOND_CEILING',
+      path: ['expiresAt'],
+    }
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('is 90 days', () => {
+      expect(JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS).toBe(90)
+    })
+
+    it('accepts exactly the ceiling and refuses one millisecond past it, on grant and subscribe', () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(now)
+      for (const [schema, body] of [
+        [jobQueueTeamTriageGrantRequestSchema, grant],
+        [jobQueueTeamTriageSubscribeRequestSchema, subscribe],
+      ] as const) {
+        expect(schema.safeParse({ ...body, expiresAt: at(ceiling) }).success).toBe(true)
+        expect(issuesOf(schema.safeParse({ ...body, expiresAt: at(ceiling + 1) }))).toEqual([
+          BEYOND,
+        ])
+      }
+    })
+
+    it('counts from the clock at parse time, not at import time', () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(now + 86_400_000)
+      expect(
+        jobQueueTeamTriageGrantRequestSchema.safeParse({ ...grant, expiresAt: at(ceiling + 1) })
+          .success,
+      ).toBe(true)
+    })
+
+    it('the shared predicate: the boundary, and an unparsable value is never within', () => {
+      expect(withinTriageGrantCeiling(at(ceiling), now)).toBe(true)
+      expect(withinTriageGrantCeiling(at(ceiling + 1), now)).toBe(false)
+      expect(withinTriageGrantCeiling(at(ceiling - 1), now)).toBe(true)
+      expect(withinTriageGrantCeiling('not a date', now)).toBe(false)
+    })
   })
 })
 

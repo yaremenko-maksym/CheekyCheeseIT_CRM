@@ -37,6 +37,12 @@ export const JOB_SOURCING_ERROR_CODES = [
   'JOB_SOURCE_AUTH_PAUSED',
   // r5 Task 6.4b, 404: the ADMIN unsubscribe names a subscription that does not exist.
   'JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND',
+  // Backlog 426, 409: the team already holds a live grant on this opportunity; `expiresAt` is that
+  // grant's expiry (ISO instant), so the dialog can say until when. Revoke first to change it.
+  'JOB_QUEUE_TRIAGE_ALREADY_GRANTED',
+  // Backlog 426, 422: the opportunity is not a triage item (a live LEAD match, or EXCLUDED at its
+  // current revision), so the ADMIN grant is refused.
+  'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE',
 ] as const
 export type JobSourcingErrorCode = (typeof JOB_SOURCING_ERROR_CODES)[number]
 
@@ -58,6 +64,8 @@ export const JOB_SOURCING_ERROR_PARAMS = {
   JOB_SOURCE_NOT_READY: [],
   JOB_SOURCE_AUTH_PAUSED: [],
   JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND: [],
+  JOB_QUEUE_TRIAGE_ALREADY_GRANTED: ['expiresAt'],
+  JOB_QUEUE_TRIAGE_NOT_ELIGIBLE: [],
 } as const satisfies Record<JobSourcingErrorCode, readonly string[]>
 
 export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDescriptor> = {
@@ -133,6 +141,14 @@ export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDe
     id: 'api-error.JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND',
     message: 'Підписку на розгляд не знайдено. Оновіть сторінку й повторіть.',
   },
+  JOB_QUEUE_TRIAGE_ALREADY_GRANTED: /* i18n */ {
+    id: 'api-error.JOB_QUEUE_TRIAGE_ALREADY_GRANTED',
+    message: 'Ця команда вже має доступ до вакансії до {expiresAt}.',
+  },
+  JOB_QUEUE_TRIAGE_NOT_ELIGIBLE: /* i18n */ {
+    id: 'api-error.JOB_QUEUE_TRIAGE_NOT_ELIGIBLE',
+    message: 'Цю вакансію не можна призначити команді: вона не на розгляді. Оновіть картку.',
+  },
 }
 
 export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string> = {
@@ -159,4 +175,7 @@ export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string
     'The source is paused because the provider refused access: clear the pause first, then switch it on',
   JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND:
     'Triage subscription not found. Refresh the page and try again.',
+  JOB_QUEUE_TRIAGE_ALREADY_GRANTED: 'This team already has access to the job until {expiresAt}.',
+  JOB_QUEUE_TRIAGE_NOT_ELIGIBLE:
+    'This job cannot be assigned to a team: it is not a triage item. Refresh the card.',
 }

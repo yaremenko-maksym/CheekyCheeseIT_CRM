@@ -5,6 +5,7 @@ import { apiError } from '../../common/api-error'
 import { isDeadlock } from '../../database/pg-errors'
 import { loadRoster, opportunityInputsVersion } from '../runtime/recompute-inputs'
 import type { SqlExecutor } from '../scheduling/host-state'
+import { triagePolicyVersion } from './queue-read-sql'
 import {
   canonicalUuid,
   isJobQueueRole,
@@ -141,6 +142,30 @@ export class JobQueueScopeService {
       profile: v.profile,
       exclusion: v.exclusion,
     }))
+  }
+
+  /**
+   * Backlog 425 — the studio-wide triage policy version (`triagePolicyVersion`) for `versions`, the
+   * STUDIO scope's `liveVersions` read through the same executor. The membership part is one
+   * aggregate: every active member of every live SENIOR team, in a stable order.
+   */
+  async triagePolicyVersion(
+    versions: readonly LiveSeniorVersion[],
+    db: SqlExecutor,
+  ): Promise<number> {
+    const { rows } = await this.policy(() =>
+      db.execute(
+        sql`SELECT md5(COALESCE(string_agg(tm.team_id::text || ':' || tm.user_id::text, ','
+                                           ORDER BY tm.team_id, tm.user_id), '')) AS digest
+              FROM team_members tm JOIN teams t ON t.id = tm.team_id
+             WHERE tm.left_at IS NULL AND t.archived_at IS NULL AND t.type = 'SENIOR'`,
+      ),
+    )
+    // An aggregate always answers one row; a missing digest is not a version, so fail closed.
+    const digest = rows[0]?.['digest']
+    if (typeof digest !== 'string')
+      throw apiError('JOB_QUEUE_POLICY_UNAVAILABLE', HttpStatus.SERVICE_UNAVAILABLE)
+    return triagePolicyVersion(versions, digest)
   }
 
   /**
