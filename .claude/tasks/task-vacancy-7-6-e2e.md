@@ -74,7 +74,7 @@ Mock mode is never used for a rights check.
 - A1 (Master): the real-API scenarios use the shared seed of Task 7.6a, not API-side fixtures, because opportunities have no create API.
 - A1 (AutoTest): the row selector matches a row's own test id only, since inner parts share the `job-queue-row-` prefix.
 - A1 (AutoTest): scenario 6 hides React Platform (visible to every team) rather than Uncertain Match, so the "another team still sees it" check is meaningful.
-- Product gap found by scenario 10b (no cache clear when the session cookie changes under an open page): its own Coder task, `task-vacancy-7-6c-session-switch-cache.md`; 10b is `test.fail` until then.
+- Product gap found by scenario 10b (no cache clear when the session cookie changes under an open page): its own Coder task, `task-vacancy-7-6c-session-switch-cache.md`; 10b asserts the leak itself until then.
 - Blocked sub-case (no `.blocked.md`: the rest of the task is not blocked): scenario 7 senior availability, because the seed and schema have no availability field on `main`; it goes to the phase-end decision brief (A3 migration).
 
 ## Verification (AutoTest before `git push`)
