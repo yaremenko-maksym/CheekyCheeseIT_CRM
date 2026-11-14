@@ -1021,7 +1021,9 @@ describe('JobQueueService.card', () => {
     expect(team.scopes.liveVersions).toHaveBeenLastCalledWith({ kind: 'STUDIO' }, team.db)
     expect(team.scopes.triagePolicyVersion).toHaveBeenCalledWith(studioVersions, team.db)
     const last = team.compiled(team.execute.mock.calls.length - 1)
-    expect(last.text).toContain('(o.manual_team_id IS NULL AND NOT ((o.evaluated_revision')
+    expect(last.text).toContain(
+      "(o.manual_team_id IS NULL AND NOT (o.availability IN ('CLOSED', 'EXPIRED') OR (o.evaluated_revision",
+    )
     expect(last.params).toEqual([
       JSON.stringify([{ senior_id: ACTOR, profile: 'p2', exclusion: 'e2' }]),
       expect.any(String),
@@ -1043,6 +1045,16 @@ describe('JobQueueService.card', () => {
     expect(studio.scopes.liveVersions).toHaveBeenCalledTimes(1)
     expect(studio.scopes.triagePolicyVersion).toHaveBeenCalledWith(versions, studio.db)
     expect((await grantable([]).svc.card(admin, OPP)).triageGrantable).toBe(false)
+  })
+
+  it('a manual ADMIN card skips the grantable read, with the same fields (PR #1332 SO-2)', async () => {
+    const admin = { ...user, role: 'ADMIN' } as SessionUser
+    const h = tailCard({ kind: 'STUDIO' }, cardDbRow({ manual_team_id: TEAM }))
+    const card = await h.svc.card(admin, OPP)
+    expect(card.triageGrantable).toBe(false)
+    expect(card.triagePolicyVersion).toBe(7)
+    const texts = h.execute.mock.calls.map((_, i) => h.compiled(i).text)
+    expect(texts.some((t) => t.includes('AS grantable'))).toBe(false)
   })
 
   it('an HR card carries neither, whatever its scope (425)', async () => {

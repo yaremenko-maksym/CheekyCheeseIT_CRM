@@ -348,14 +348,20 @@ export class JobQueueService {
     scope: JobQueueScope,
     versions: readonly LiveSeniorVersion[],
     id: string,
+    manual: boolean,
   ): Promise<{ triagePolicyVersion: number; triageGrantable: boolean }> {
     const db = this.database.db
     const studio =
       scope.kind === 'STUDIO' ? versions : await this.scopes.liveVersions(STUDIO_SCOPE, db)
-    const { rows } = await this.scopes.policy(() => db.execute(triageGrantableRow(studio, id)))
+    // a manual card is never grantable (the grant's first refusal): its eligibility is not read
+    const grantable =
+      !manual &&
+      (await this.scopes.policy(() => db.execute(triageGrantableRow(studio, id)))).rows[0]?.[
+        'grantable'
+      ] === true
     return {
       triagePolicyVersion: await this.scopes.triagePolicyVersion(studio, db),
-      triageGrantable: rows[0]?.['grantable'] === true,
+      triageGrantable: grantable,
     }
   }
 
@@ -384,7 +390,10 @@ export class JobQueueService {
     // Visible a moment ago, or without any active source link: the same answer as a miss.
     if (facts === null) throw notFound()
     const { row, ...parts } = facts
-    const triage = user.role === 'ADMIN' ? await this.triageGrant(scope, versions, id) : {}
+    const triage =
+      user.role === 'ADMIN'
+        ? await this.triageGrant(scope, versions, id, row['manual_team_id'] != null)
+        : {}
     return jobQueueCardResponseSchema.parse({
       ...triage,
       ...toListItem(row),

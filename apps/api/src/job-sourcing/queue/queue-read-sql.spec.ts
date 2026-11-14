@@ -167,13 +167,13 @@ describe('filterIdentity', () => {
 
 describe('the triage eligibility fragment the grant and the ADMIN card share (426, CR-M-1)', () => {
   const ineligible =
-    "((o.evaluated_revision = o.revision AND o.evaluation_verdict = 'EXCLUDED') IS TRUE OR EXISTS (SELECT 1 FROM job_opportunity_matches m JOIN jsonb_to_recordset($1::jsonb) AS v(senior_id uuid, profile text, exclusion text) ON v.senior_id = m.senior_id WHERE m.opportunity_id = o.id AND m.opportunity_revision = o.revision AND m.senior_profile_version = v.profile AND m.exclusion_version = v.exclusion AND m.rule_version = $2 AND m.outcome = 'LEAD'))"
+    "(o.availability IN ('CLOSED', 'EXPIRED') OR (o.evaluated_revision = o.revision AND o.evaluation_verdict = 'EXCLUDED') IS TRUE OR EXISTS (SELECT 1 FROM job_opportunity_matches m JOIN jsonb_to_recordset($1::jsonb) AS v(senior_id uuid, profile text, exclusion text) ON v.senior_id = m.senior_id WHERE m.opportunity_id = o.id AND m.opportunity_revision = o.revision AND m.senior_profile_version = v.profile AND m.exclusion_version = v.exclusion AND m.rule_version = $2 AND m.outcome = 'LEAD'))"
   const params = [
     JSON.stringify([{ senior_id: SEN, profile: 'p', exclusion: 'e' }]),
     MATCH_RULE_VERSION,
     OPP,
   ]
-  it('the grant reads EXCLUDED-at-revision or a live LEAD of the given roster', () => {
+  it('the grant reads CLOSED/EXPIRED, EXCLUDED-at-revision or a live LEAD of the given roster', () => {
     expect(render(triageIneligibleRow(versions, OPP))).toEqual({
       text: `SELECT ${ineligible} AS ineligible FROM job_opportunities o WHERE o.id = $3::uuid`,
       params,

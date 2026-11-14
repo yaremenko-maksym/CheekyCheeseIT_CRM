@@ -43,12 +43,16 @@ export const liveVersionRows = (versions: readonly LiveSeniorVersion[]): SQL =>
       WHERE ${liveMatch}`
 
 /**
- * Backlog 426 — `o` is not a triage item: EXCLUDED at its current revision, or a live LEAD of a
+ * Backlog 426 — `o` is not a triage item: CLOSED / EXPIRED (no team would see the grant, as
+ * `visibleOpportunityPredicate` hides it), EXCLUDED at its current revision, or a live LEAD of a
  * senior in `versions` (the STUDIO roster). The grant refuses it and the ADMIN card's
  * `triageGrantable` reads the same fragment, so the web never offers a grant the server refuses.
+ * By design, an item not yet evaluated OPEN at its current revision is eligible: the grant takes
+ * effect once it is evaluated OPEN.
  */
 const triageIneligible = (versions: readonly LiveSeniorVersion[]): SQL =>
-  sql`((o.evaluated_revision = o.revision AND o.evaluation_verdict = 'EXCLUDED') IS TRUE
+  sql`(o.availability IN ('CLOSED', 'EXPIRED')
+       OR (o.evaluated_revision = o.revision AND o.evaluation_verdict = 'EXCLUDED') IS TRUE
        OR EXISTS (SELECT 1 ${liveVersionRows(versions)} AND m.outcome = 'LEAD'))`
 
 /** The grant's eligibility read of one opportunity: `ineligible` (backlog 426). */
