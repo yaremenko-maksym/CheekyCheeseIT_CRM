@@ -925,6 +925,23 @@ describe('checkResumeCompleteness — URLs and labelled handles (SR-H-1, SR-M-1)
     expect(RESUME_TELEGRAM_LABEL_PATTERN.exec('tg: @mark_dev')?.[1]).toBe('tg: @mark_dev')
   })
 
+  it.each([
+    ['MyTelegram: mark_dev', 'Telegram: mark_dev'],
+    ['PersonalTG: mark_dev', 'TG: mark_dev'],
+    ['PersonalTg: mark_dev', 'Tg: mark_dev'],
+    ['моїТелеграм: mark_dev', 'Телеграм: mark_dev'],
+  ])('a label glued to a word still hits: %j gives %j (SR-L-5b)', (text, hit) => {
+    const m = RESUME_TELEGRAM_LABEL_PATTERN.exec(text)
+    expect(m?.[1] ?? m?.[0]).toBe(hit)
+  })
+
+  it.each(['personaltg: mark_dev', 'xtg: mark_dev', 'Debug tg:12345', 'SomeTG:12345'])(
+    'no label in %j: a lowercase join or a handle starting with a digit (SR-L-5b)',
+    (text) => {
+      expect(RESUME_TELEGRAM_LABEL_PATTERN.exec(text)).toBeNull()
+    },
+  )
+
   it('a label followed by a plain word is flagged: ambiguous, accepted (SR-L-5)', () => {
     expect(checkResumeCompleteness(noteWith('Telegram: payments'), CTX)).toEqual(flagged)
   })

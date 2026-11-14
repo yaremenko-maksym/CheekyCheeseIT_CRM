@@ -458,6 +458,13 @@ describe('labelled Telegram handles (SR-M-1)', () => {
     expect(redactContacts('Reach tg: @mark_dev now', [])).toBe('Reach [REDACTED] now')
   })
 
+  it.each([
+    ['MyTelegram: mark_dev', 'Telegram: mark_dev'],
+    ['PersonalTG: mark_dev', 'TG: mark_dev'],
+  ])('a label glued to a word still hits: %j gives %j (SR-L-5b)', (text, match) => {
+    expect(scanContacts(text, ctx)).toEqual([{ kind: 'telegram', match }])
+  })
+
   it.each(['Debug tg:12345', 'xtg: other_one'])('leaves %s alone (SR-L-5)', (text) => {
     expect(scanContacts(text, ctx)).toEqual([])
   })

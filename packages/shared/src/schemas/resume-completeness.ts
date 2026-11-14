@@ -89,15 +89,25 @@ export const RESUME_EMAIL_PATTERN =
 export const RESUME_URL_PATTERN =
   /\b(?:[A-Za-z][\w+.-]{0,30}:\/\/\S+|[Ww]{3}\.\S+)|(?:[A-Za-z\d-]{1,63}\.){1,10}(?![Jj][Ss]\/|[Tt][Ss]\/)[A-Za-z]{2,24}\/\S*/u
 
+/** `word` in any case without the `i` flag, which would also let `\p{Ll}` match a capital. */
+function anyCase(word: string): string {
+  return [...word].map((c) => `[${c.toLowerCase()}${c.toUpperCase()}]`).join('')
+}
+
+const LABEL_HANDLE = String.raw`\s*:\s*@*[A-Za-z]\w{4,}`
+
 /**
  * A labelled Telegram handle that need not be the stored one: `tg:`, `telegram:` or `телеграм:`,
  * any case, optional spaces and `@`, then a handle as Telegram allows it (a letter first, 5+
- * characters), so `tg:12345` is not one. The label starts a word: `(?:^|[^\p{L}\p{N}])` stands in
- * for a lookbehind (Safari < 16.4), so group 1 is the hit without that character. A bare
- * `@handle` is not one (`@angular/core`, `@nestjs/common`).
+ * characters), so `tg:12345` is not one. `telegram` / `телеграм` may be glued (`MyTelegram:`).
+ * The short `tg` must start a word or follow a camel-case join (`PersonalTG:`), so `xtg:` is not
+ * one; that prefix stands in for a lookbehind (Safari < 16.4), and group 1 is the `tg` hit
+ * without it. A bare `@handle` is not one (`@angular/core`, `@nestjs/common`).
  */
-export const RESUME_TELEGRAM_LABEL_PATTERN =
-  /(?:^|[^\p{L}\p{N}])((?:tg|telegram|телеграм)\s*:\s*@*[a-z]\w{4,})/iu
+export const RESUME_TELEGRAM_LABEL_PATTERN = new RegExp(
+  String.raw`(?:^|[^\p{L}\p{N}]|\p{Ll}(?=T))(${anyCase('tg')}${LABEL_HANDLE})|(?:${anyCase('telegram')}|${anyCase('телеграм')})${LABEL_HANDLE}`,
+  'u',
+)
 
 /**
  * A stored `users.telegram` as Telegram spells the handle: trimmed, without a `tg:` /
