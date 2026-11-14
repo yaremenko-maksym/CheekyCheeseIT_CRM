@@ -224,7 +224,7 @@ export const userEmails = pgTable(
  * method, unconditionally, from the moment it is created).
  *
  * Stores a HASH of the token, never the token itself (mirrors
- * `invoice-pdf.utils.ts` / `resume-typst.service.ts`'s existing
+ * `sha256Hex` in `common/pdf/pdf.utils.ts` / `resume-typst.service.ts`'s existing
  * `createHash('sha256')` convention in this codebase) — a DB read (backup,
  * replica, compromised credential) must not be enough to mint a working
  * invite link on its own.
