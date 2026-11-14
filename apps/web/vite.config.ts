@@ -72,6 +72,8 @@ export default defineConfig({
     },
   },
   resolve: {
+    // One React copy for every importer, whatever pnpm's hoist layout holds.
+    dedupe: ['react', 'react-dom'],
     alias: {
       '@crm/shared': path.resolve(monorepoRoot, 'packages/shared/src/index.ts'),
       // task-i18n-stage2 (Task 6) — see the matching alias + comment in
@@ -292,7 +294,13 @@ export default defineConfig({
       // ~3.2 MB parsed on first paint → 9 s dashboard + main-thread jank).
       autoCodeSplitting: true,
     }),
-    react({ babel: { plugins: ['@lingui/babel-plugin-lingui-macro'] } }),
+    // Lingui macro BEFORE the React Compiler: compiler-first rewrites <Trans> children, so the
+    // macro hashes a different message id and the catalog lookup falls back to the source text.
+    react({
+      babel: {
+        plugins: ['@lingui/babel-plugin-lingui-macro', ['babel-plugin-react-compiler', {}]],
+      },
+    }),
     lingui(),
     tailwindcss(),
     tsConfigPaths(),

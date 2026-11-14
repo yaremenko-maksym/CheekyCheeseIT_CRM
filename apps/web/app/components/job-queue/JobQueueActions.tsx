@@ -706,7 +706,7 @@ function DuplicateConfirm({
   pending: boolean
   /** G3-1: a newer revision or a closed vacancy blocks the write; keeping is still possible */
   blocked: boolean
-  keepRef: RefObject<HTMLButtonElement>
+  keepRef: RefObject<HTMLButtonElement | null>
   onKeep: () => void
   onConfirm: () => void
 }) {
