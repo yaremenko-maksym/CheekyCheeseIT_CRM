@@ -21,6 +21,12 @@ const cpuMs = (): number => {
   return (user + system) / 1000
 }
 
+/** The time budget. Under Stryker it is unbounded: instrumenting every expression stretches the
+ * clock with no change to a pattern, and a mutant that makes one super-linear is still caught
+ * there by Stryker's own timeout. Every other run (unit, pre-push, CI) holds the 500 ms. */
+const BUDGET_MS =
+  process.env['STRYKER_MUTATOR_WORKER'] === undefined ? 500 : Number.POSITIVE_INFINITY
+
 const CTX = { displayName: 'José Müller', now: new Date('2026-11-10T00:00:00Z') }
 
 /** The URL hit: group 1 for the bare form (its pattern consumes one boundary character), else the match. */
@@ -200,7 +206,7 @@ describe('linear time on the new branches (R91)', () => {
   ])('a 50k-character %s input is checked in under 500 ms', (_, note) => {
     const started = cpuMs()
     issuesOf(note)
-    expect(cpuMs() - started).toBeLessThan(500)
+    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
   })
 
   // Linear, but Unicode classes cost ~10x ASCII on Node 22 (50k Cyrillic ≈ 300 ms for the URL
@@ -208,7 +214,7 @@ describe('linear time on the new branches (R91)', () => {
   it('a 10k-character Cyrillic host repeat is checked in under 500 ms', () => {
     const started = cpuMs()
     issuesOf('пример.'.repeat(1_429))
-    expect(cpuMs() - started).toBeLessThan(500)
+    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
   })
 
   // SR3-L-3: the phone lookahead runs only where a phone can start, so a long separator run
@@ -223,7 +229,7 @@ describe('linear time on the new branches (R91)', () => {
   ])('a 50k-character %s input is checked in under 500 ms (SR3-L-3)', (_, note) => {
     const started = cpuMs()
     issuesOf(note)
-    expect(cpuMs() - started).toBeLessThan(500)
+    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
   })
 })
 
@@ -255,7 +261,7 @@ describe('fix round 4', () => {
       }
       const started = cpuMs()
       checkResumeCompleteness(facts, CTX)
-      expect(cpuMs() - started).toBeLessThan(500)
+      expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
     })
   })
 
@@ -319,7 +325,7 @@ describe('fix round 5', () => {
   it('50k characters of "1," are checked in under 500 ms (SR4-L-1)', () => {
     const started = cpuMs()
     issuesOf('1,'.repeat(25_000))
-    expect(cpuMs() - started).toBeLessThan(500)
+    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
   })
 })
 
@@ -429,7 +435,7 @@ describe('fix round 7', () => {
     ])('50k characters of %j are checked in under 500 ms', (_, input) => {
       const started = cpuMs()
       issuesOf(input)
-      expect(cpuMs() - started).toBeLessThan(500)
+      expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
     })
   })
 })
