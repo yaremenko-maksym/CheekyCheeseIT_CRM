@@ -198,7 +198,7 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     'job_dirty_work',
     'job_exclusion_filters',
     // Extraction model health (ADR 2026-11-03 §5.3): upserted counters and flipped flags, so not
-    // A-log. Staged until the collection-run call site; see STAGED_RELATIONS.
+    // A-log. Promoted to manual/ (backlog 434).
     'job_model_health_flags',
     'job_model_route_daily',
     'job_opportunities',
@@ -265,14 +265,14 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
   // UPDATE/DELETE/TRUNCATE against any of them in `apps/api/src` outside specs.
   'A-log': [
     // Source-fetch-strategy U4: the append-only health event log. SELECT+INSERT is exactly the
-    // ADR's class for it; its forward DDL (`manual-staged/2026-10-31_job_source_health_events.sql`)
-    // also installs ENABLE ALWAYS triggers refusing every UPDATE/DELETE/TRUNCATE. It is A-log
-    // rather than B deliberately: class B inherits the crm_retention_owner SELECT+DELETE grant
-    // (RETENTION_OWNER_CLASSES), and this log has no retention path — it is evidence, never pruned
-    // (ADR "Rollback"). STAGED (not on production until the U4-D wiring PR), so it is listed in
-    // STAGED_RELATIONS below; part 9 of the check asserts triggers on class B only, so the triggers
-    // are pinned by the catalog check once U4-D promotes it to B and declares them in
-    // `appendOnlyTriggers`.
+    // ADR's class for it; its forward DDL (`manual/2026-10-31_job_source_health_events.sql`) also
+    // installs ENABLE ALWAYS triggers refusing every UPDATE/DELETE/TRUNCATE. It is A-log rather
+    // than B deliberately and permanently (owner decision, backlog 434): class B inherits the
+    // crm_retention_owner SELECT+DELETE grant (RETENTION_OWNER_CLASSES), and this log has no
+    // retention path — it is evidence, never pruned (ADR "Rollback"). Promoted to manual/ by
+    // backlog 434. Part 9 of the check asserts triggers on class B only, so the triggers are pinned
+    // by the file's own closing check, and job-source-health-events-ddl.integration.spec.ts proves
+    // crm_app holds no UPDATE/DELETE on it.
     'job_source_health_events',
     'meeting_recorder_audit_log',
     'project_audit_log',
@@ -370,9 +370,9 @@ export const MANUAL_DDL_RELATIONS: Record<string, { file: string | null; why: st
 
 /**
  * Tables the Drizzle schema DECLARES whose forward DDL is still STAGED in
- * `drizzle/manual-staged/`. Today: `job_source_health_events` (source-fetch-strategy U4),
- * `job_model_route_daily` and `job_model_health_flags` (extraction model router, task 5.4c-4).
- * (`job_source_record_inventory_misses` (Task 4.6 S8a) and `job_bridge_deliveries` (Task 4.6 S6b) were promoted to `drizzle/manual/` by slice S6f. The
+ * `drizzle/manual-staged/`. Today: none. (`job_source_health_events`, `job_model_route_daily` and
+ * `job_model_health_flags` were promoted to `drizzle/manual/` by backlog 434.
+ * `job_source_record_inventory_misses` (Task 4.6 S8a) and `job_bridge_deliveries` (Task 4.6 S6b) were promoted to `drizzle/manual/` by slice S6f. The
  * record-store tables were promoted to `drizzle/manual/` by Task 4.6 S0. The tx_date Kyiv-day
  * backfill is not staged: it
  * lives in `drizzle/manual/`, was wired into the deploy by #1174, applied once on production, then
@@ -393,17 +393,7 @@ export const MANUAL_DDL_RELATIONS: Record<string, { file: string | null; why: st
  * regenerate. `privilege-classes.spec.ts` fails while an entry names a file that is not in
  * `manual-staged/`, so a stale entry cannot outlive the move.
  */
-export const STAGED_RELATIONS: Record<string, { file: string }> = {
-  // Source-fetch-strategy U4: the Drizzle schema declares `jobSourceHealthEvents`, but its forward
-  // DDL is staged until the U4-D wiring PR moves it to `manual/`. Until then production has no such
-  // table, so its A-log grant is emitted guarded by `to_regclass` and the check marks it OPTIONAL.
-  job_source_health_events: {
-    file: 'drizzle/manual-staged/2026-10-31_job_source_health_events.sql',
-  },
-  // Extraction model health (ADR 2026-11-03 §5.3): staged until the collection-run call site.
-  job_model_route_daily: { file: 'drizzle/manual-staged/2026-11-06_job_model_health.sql' },
-  job_model_health_flags: { file: 'drizzle/manual-staged/2026-11-06_job_model_health.sql' },
-}
+export const STAGED_RELATIONS: Record<string, { file: string }> = {}
 
 /**
  * Class D column-level `SELECT` for the collector. A class D table listed here gets NO

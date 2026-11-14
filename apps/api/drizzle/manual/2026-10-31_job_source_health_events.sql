@@ -15,22 +15,20 @@
 --
 -- The privilege manifest class is `A-log` (SELECT, INSERT; `privilege-classes.ts`), so `crm_app`
 -- can append and read, never rewrite — the grant is the floor, the triggers are the second lock
--- that also binds the table owner. The crm_app grant is emitted guarded by `to_regclass`
--- (STAGED_RELATIONS), so applying `2026-10-18_db_grants.sql` on a database that does not yet have
--- this table is a no-op rather than a 42P01.
+-- that also binds the table owner. Since backlog 434 the grant is unconditional, so this file MUST
+-- be applied before `2026-10-18_db_grants.sql` (which fails with 42P01 without the table).
 --
 -- WHY A-log AND NOT class B: class B inherits the `crm_retention_owner` SELECT+DELETE grant
 -- (RETENTION_OWNER_CLASSES), and this log has no retention path. A-log is SELECT+INSERT with no
 -- such inheritance. The catalog check's part 9 asserts triggers on class B tables only, so these
--- triggers are not pinned by the generated check while A-log; U4-D promotes the table to B and
--- declares the trigger names in `appendOnlyTriggers` when it moves this file to `manual/`.
+-- triggers are pinned by this file's closing check, not by the generated check. A-log is final
+-- (owner decision, backlog 434): the table is NOT promoted to class B.
 --
--- WHY THIS FILE IS STAGED, NOT IN manual/
--- ---------------------------------------
--- Production DDL ships staged (backlog 337). The DevOps companion U4-D moves it to manual/, adds
--- its apply step to scripts/devops/deploy-stack-on-vps.sh AFTER U2's file (section 10's metric
--- columns are a sibling, not a dependency, but the order is fixed by the chain), with
--- --single-transaction, adds it to the hard-required and scp lists and the runbook.
+-- PROMOTED TO manual/ BY BACKLOG 434
+-- --------------------------------
+-- Applied by scripts/devops/deploy-stack-on-vps.sh AFTER U2's file (section 10's metric columns are
+-- a sibling, not a dependency, but the order is fixed by the chain), with --single-transaction.
+--   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 --
 -- RE-RUNNABLE: the table is `CREATE TABLE IF NOT EXISTS` (its inline constraints and FKs come with
 -- it, or are skipped whole on a second apply), the index is `IF NOT EXISTS`, every function is

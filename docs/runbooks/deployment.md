@@ -648,8 +648,18 @@ rather than trust the numbers, they shift whenever a file is added above):
 | 59       | `2026-10-25_job_record_store.sql`                      | Creates the job record-store tables, so before the grants. One transaction                                                |
 | 60       | `2026-10-27_transactions_tx_date_not_null.sql`         | Permanent, idempotent; fails the deploy on any NULL `tx_date` before the swap. Creates no relation. One transaction       |
 | 60b      | `2026-11-02_job_source_records_source_id.sql`          | Adds `job_source_records.source_id` + FK + index, backfills; after the record store, grants nothing. One transaction      |
+| 60c      | `2026-10-31_job_run_metrics_slowdown.sql`              | Run-metrics columns + `job_sources.slowdown_level` (backlog 434). Creates no relation. One transaction                    |
+| 60d      | `2026-10-31_job_source_health_events.sql`              | Creates append-only `job_source_health_events` (A-log); before the grants (unconditional grant). One transaction          |
+| 60e      | `2026-11-02_job_sources_inventory_uniqueness.sql`      | ATS `(type, namespace)` unique index; fails on a duplicate or empty namespace (audit first). One transaction              |
+| 60f      | `2026-11-04_job_queue_submissions_per_senior.sql`      | Per-senior `job_queue_assignments` key; hand-applied before backlog 434, re-apply is a no-op. One transaction             |
+| 60g      | `2026-11-04_job_opportunities_evaluation_verdict.sql`  | Verdict enum + evaluation columns; hand-applied before backlog 434, re-apply is a no-op. One transaction                  |
+| 60h      | `2026-11-05_job_opportunities_role_family.sql`         | `job_opportunities.role_family`; hand-applied before backlog 434, re-apply is a no-op. One transaction                    |
+| 60i      | `2026-11-05_job_opportunities_manual_team.sql`         | `manual_team_id` + `resume_id` FKs; hand-applied before backlog 434, re-apply is a no-op. One transaction                 |
+| 60j      | `2026-11-06_job_model_health.sql`                      | Creates the two model-health tables (class A); before the grants (unconditional grant). One transaction                   |
 | 61       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                   |
 | 62       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                         |
+| 62a      | `2026-11-02_job_dirty_work_pending_partial.sql`        | `CREATE INDEX CONCURRENTLY`, so NOT one transaction; creates no relation. Check `indisvalid` after a failed run           |
+| 62b      | `2026-11-03_job_dirty_work_partition_partial.sql`      | `CREATE INDEX CONCURRENTLY`, so NOT one transaction; creates no relation. Check `indisvalid` after a failed run           |
 | 65       | `2026-10-18_db_privileges_check.sql`                   | First run: before the container swap, so a drift fails while the old API serves                                           |
 | 66       | `2026-10-04_multiple_salary_transactions_activate.sql` | Breaking half, must follow the swap and the health gate; creates no relation                                              |
 | (end)    | `2026-10-18_db_privileges_check.sql` (second run)      | The last database step, after the post-cutover `drop_cascade_origin` marker re-run, so the END state is what is validated |
@@ -1110,6 +1120,16 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-10-31_job_bridge_deliveries.sql \
     apps/api/drizzle/manual/2026-11-01_job_source_record_inventory_misses.sql \
     apps/api/drizzle/manual/2026-11-02_job_source_records_source_id.sql \
+    apps/api/drizzle/manual/2026-10-31_job_run_metrics_slowdown.sql \
+    apps/api/drizzle/manual/2026-10-31_job_source_health_events.sql \
+    apps/api/drizzle/manual/2026-11-02_job_sources_inventory_uniqueness.sql \
+    apps/api/drizzle/manual/2026-11-04_job_queue_submissions_per_senior.sql \
+    apps/api/drizzle/manual/2026-11-04_job_opportunities_evaluation_verdict.sql \
+    apps/api/drizzle/manual/2026-11-05_job_opportunities_role_family.sql \
+    apps/api/drizzle/manual/2026-11-05_job_opportunities_manual_team.sql \
+    apps/api/drizzle/manual/2026-11-06_job_model_health.sql \
+    apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql \
+    apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \

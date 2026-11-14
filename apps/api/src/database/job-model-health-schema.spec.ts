@@ -1,5 +1,5 @@
 /**
- * The model-health vocabularies live three times: the Drizzle CHECK lists, the staged SQL (written
+ * The model-health vocabularies live three times: the Drizzle CHECK lists, the forward SQL (written
  * by hand) and the router's route names. This holds them to each other, with no database: a value
  * added to one but not the others fails here rather than at an INSERT. The columns and constraints
  * themselves are compared in `job-model-health-ddl.integration.spec.ts`.
@@ -17,8 +17,8 @@ import {
   MODEL_ROUTE_VALUES,
 } from './schema'
 
-const STAGED_FILE = 'drizzle/manual-staged/2026-11-06_job_model_health.sql'
-const ddl = readFileSync(join(__dirname, '..', '..', STAGED_FILE), 'utf8')
+const DDL_FILE = 'drizzle/manual/2026-11-06_job_model_health.sql'
+const ddl = readFileSync(join(__dirname, '..', '..', DDL_FILE), 'utf8')
 
 describe('job_model_route_daily and job_model_health_flags vocabularies', () => {
   it('the route list is the router providers, so a new provider cannot fail its counter', () => {
@@ -51,10 +51,10 @@ describe('job_model_route_daily and job_model_health_flags vocabularies', () => 
   })
 
   it.each(['job_model_route_daily', 'job_model_health_flags'])(
-    '%s is class A and staged until its wiring PR',
+    '%s is class A and no longer staged (promoted to manual/, backlog 434)',
     (table) => {
       expect(PRIVILEGE_CLASSES.A).toContain(table)
-      expect(STAGED_RELATIONS[table]).toEqual({ file: STAGED_FILE })
+      expect(STAGED_RELATIONS[table]).toBeUndefined()
     },
   )
 })

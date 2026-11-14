@@ -10,7 +10,7 @@ import { type ClaimConsumer, dirtyWorkStatements } from '../job-sourcing/ownersh
 
 /**
  * Backlog 347 (1) (STAGED/DARK) — the staged forward DDL
- * `manual-staged/2026-11-03_job_dirty_work_partition_partial.sql` against a REAL Postgres.
+ * `manual/2026-11-03_job_dirty_work_partition_partial.sql` against a REAL Postgres.
  *
  * The file adds TWO partial btree indexes on `job_dirty_work (status, created_at)`, one per
  * `claimDirtyBatch` reason partition: `idx_job_dirty_work_pending_match` and
@@ -33,7 +33,7 @@ const FILE = join(
   '..',
   '..',
   'drizzle',
-  'manual-staged',
+  'manual',
   '2026-11-03_job_dirty_work_partition_partial.sql',
 )
 const SCHEMA = 'ddl_job_dirty_work_partition_partial'

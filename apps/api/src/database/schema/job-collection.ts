@@ -605,14 +605,14 @@ export const jobDirtyWork = pgTable(
     // filter `reason <> 'DETAIL_FETCH'` against the index above and would scan past every queued
     // DETAIL_FETCH row; this partial index lets them skip that backlog entirely. Shipped staged —
     // the prod CONCURRENTLY apply is a separate deploy-wiring step (see
-    // manual-staged/2026-11-02_job_dirty_work_pending_partial.sql).
+    // manual/2026-11-02_job_dirty_work_pending_partial.sql).
     index('idx_job_dirty_work_pending_generic')
       .on(t.status, t.createdAt)
       .where(sql`${t.reason} <> 'DETAIL_FETCH'`),
     // Backlog 347 (1) (STAGED/DARK): one partial index per `claimDirtyBatch` reason partition, so
     // the match claim never walks the unclaimed AVAILABILITY pile (and vice versa). Each WHERE is
     // exactly `dirtyConsumerPredicate(<consumer>, reason, { inline: true })` — not imported here
-    // (the store imports the schema). Prod apply: manual-staged/2026-11-03_job_dirty_work_partition_partial.sql.
+    // (the store imports the schema). Prod apply: manual/2026-11-03_job_dirty_work_partition_partial.sql.
     index('idx_job_dirty_work_pending_match')
       .on(t.status, t.createdAt)
       .where(

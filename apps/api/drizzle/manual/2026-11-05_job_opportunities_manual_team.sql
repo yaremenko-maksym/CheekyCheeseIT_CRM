@@ -54,6 +54,7 @@
 -- Production DDL ships staged. It is DARK: `manual-staged/` is never applied in prod (deploy.yml
 -- refuses a file out of manual-staged/). Promotion and deploy wiring are an OWNER-ONLY later step.
 --
+--   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 -- APPLY WITH `psql -v ON_ERROR_STOP=1 --single-transaction -f <this file>`: `SET LOCAL
 -- lock_timeout` only binds inside a transaction, and the closing check is all-or-nothing only if
 -- a failure rolls back everything above it.

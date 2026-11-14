@@ -31,6 +31,7 @@
 -- Production DDL ships staged (backlog 337). The DevOps companion U2-D moves it to manual/,
 -- adds its apply step to scripts/devops/deploy-stack-on-vps.sh AFTER the store migration,
 -- with --single-transaction, adds it to the hard-required and scp lists and the runbook.
+--   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 --
 -- RE-RUNNABLE: every step is IF NOT EXISTS or guarded by a catalog lookup, and the closing
 -- block refuses to finish unless the result is exactly the intended state (a same-named

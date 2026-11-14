@@ -266,9 +266,9 @@ export const jobSources = pgTable(
      * ATS board adapters (`INVENTORY_SOURCE_TYPES`); every other provider sets a non-null scope `query`
      * (or `window`) marker to force WINDOW.
      *
-     * STAGED/DARK: the forward DDL lives in `manual-staged/`, NOT applied in production. Promote +
-     * deploy wiring is a separate step gated on a prod `(type, namespace)` duplicate audit among these
-     * ATS types (which must also catch an existing ATS row with an empty namespace — SR-M-1).
+     * Forward DDL: `manual/2026-11-02_job_sources_inventory_uniqueness.sql` (promoted by backlog 434).
+     * Its apply fails the deploy on a prod `(type, namespace)` duplicate among these ATS types or an
+     * ATS row with an empty namespace (SR-M-1), so the deploy is preceded by that audit.
      */
     uniqueIndex('uq_job_sources_inventory_type_namespace')
       .on(t.type, t.namespace)

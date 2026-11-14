@@ -7,7 +7,7 @@ import { ALL_TABLE_PRIVILEGES, PRIVILEGE_CLASSES, ROLES } from './privileges/pri
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
- * The staged forward DDL `manual-staged/2026-11-06_job_model_health.sql` against a REAL Postgres
+ * The staged forward DDL `manual/2026-11-06_job_model_health.sql` against a REAL Postgres
  * (ADR §5.3, task 5.4c-4): re-runnable, column for column and CHECK for CHECK what `db:push` builds,
  * class A for `crm_app`, and page text refused by the constraint.
  *
@@ -15,14 +15,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/<scratch> \
  *     pnpm --filter @crm/api exec vitest run job-model-health-ddl.integration
  */
-const FILE = join(
-  __dirname,
-  '..',
-  '..',
-  'drizzle',
-  'manual-staged',
-  '2026-11-06_job_model_health.sql',
-)
+const FILE = join(__dirname, '..', '..', 'drizzle', 'manual', '2026-11-06_job_model_health.sql')
 const SCHEMA = 'ddl_job_model_health'
 const COUNTERS = 'job_model_route_daily'
 const FLAGS = 'job_model_health_flags'
