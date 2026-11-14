@@ -79,9 +79,8 @@ export function ResumeIntake({
         onClick={() => fileInputRef.current?.click()}
         disabled={isBusy}
         data-testid="resume-upload-button"
-        className={
-          variant === 'empty' ? 'h-11 whitespace-nowrap' : 'h-auto min-h-11 whitespace-normal'
-        }
+        // Wraps when the tile is narrower than the label (768 / 320); the 44 px target stays (§8).
+        className="h-auto min-h-11 whitespace-normal"
       >
         <FileUp className="mr-2 h-4 w-4 shrink-0" aria-hidden />
         {variant === 'empty' ? (

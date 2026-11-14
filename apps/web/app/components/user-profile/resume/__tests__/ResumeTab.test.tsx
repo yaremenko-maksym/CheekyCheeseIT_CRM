@@ -526,7 +526,22 @@ describe('ResumeTab — the confirm step (Task 19)', () => {
     setData(makeResponse({ ...complete, verificationStatus: 'QUEUED', verificationBusy: true }))
     view.rerender(tab())
     const heading = await screen.findByRole('heading', { name: 'У черзі на перевірку' })
+    // Submit held focus and unmounted: focus lands on the lock line, never on the heading.
+    await waitFor(() => expect(screen.getByTestId('resume-verification-busy-lock')).toHaveFocus())
     expect(heading).not.toHaveFocus()
+  })
+
+  it('a run started elsewhere moves focus from the unmounted Submit to the lock line', async () => {
+    setData(makeResponse(complete))
+    const view = render(tab())
+    screen.getByTestId('resume-facts-submit').focus()
+    // No local submit: a refetch brings another actor's run.
+    setData(makeResponse({ ...complete, verificationStatus: 'QUEUED', verificationBusy: true }))
+    view.rerender(tab())
+    const lock = await screen.findByTestId('resume-verification-busy-lock')
+    await waitFor(() => expect(lock).toHaveFocus())
+    expect(document.body).not.toHaveFocus()
+    expect(screen.getByRole('heading', { name: 'У черзі на перевірку' })).not.toHaveFocus()
   })
 })
 

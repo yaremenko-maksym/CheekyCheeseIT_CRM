@@ -19,6 +19,7 @@ import { useSubmitResume } from '@/hooks/use-senior-resume'
 import { cn } from '@/lib/utils'
 import { focusFactsField } from './ResumeCompletenessPanel'
 import {
+  BUSY_LOCK_ID,
   CheckingBadge,
   PROGRESS_FOCUS_IDS,
   ProgressBar,
@@ -199,7 +200,12 @@ export function ResumeVerificationProgress({
           <Trans>Вкладку можна закрити: перевірка йде на сервері, результат буде тут.</Trans>
         </p>
       </Card>
-      <p className="flex items-center gap-2 text-xs text-muted-foreground">
+      <p
+        id={BUSY_LOCK_ID}
+        tabIndex={-1}
+        className="flex items-center gap-2 text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        data-testid="resume-verification-busy-lock"
+      >
         <Lock className="size-4 shrink-0" aria-hidden />
         <Trans>Поки триває перевірка, редагування недоступне.</Trans>
       </p>

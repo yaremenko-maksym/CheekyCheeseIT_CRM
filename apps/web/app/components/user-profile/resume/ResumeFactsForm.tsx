@@ -13,7 +13,7 @@
  * result lands in the fields — and never wipes an edit in progress. A failed
  * write (409 while a check runs) leaves the draft as it is.
  */
-import { useEffect, useId, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import {
@@ -46,6 +46,7 @@ import {
   issueFieldPath,
 } from './ResumeCompletenessPanel'
 import { FieldError, IconButton, JobBlock, RowBlock } from './ResumeFactsJob'
+import { BUSY_LOCK_ID, useFocusAfterRender } from './ResumeConfirmStep'
 
 /** Pure move helper — exported so the reorder rule is unit-testable. */
 export function moveItem<T>(items: readonly T[], from: number, to: number): T[] {
@@ -142,6 +143,20 @@ export function ResumeFactsForm({
   // `hidden` (R56) and keeps its draft, so a hidden form still reports dirty.
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
+  // A run started elsewhere unmounts the panel (§5.3). React detaches this ref before it removes
+  // the node, so a focus still inside it is seen and handed to the lock line instead of <body>.
+  const focusAfterRender = useFocusAfterRender()
+  const panelNode = useRef<HTMLDivElement | null>(null)
+  const panelRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node === null && panelNode.current?.contains(document.activeElement)) {
+        focusAfterRender([BUSY_LOCK_ID, 'resume-confirm-checking'])
+      }
+      panelNode.current = node
+    },
+    [focusAfterRender],
+  )
+
   const nowMonth = monthOf(now ?? new Date())
   const issues = useMemo(
     () => checkResumeCompleteness(draft, { displayName, now: now ?? new Date() }),
@@ -234,7 +249,7 @@ export function ResumeFactsForm({
     >
       {/* While a run is busy only the lock line and the disabled form stay (§5.3). */}
       {!disabled && (
-        <div className="lg:order-2">
+        <div className="lg:order-2" ref={panelRef}>
           <ResumeCompletenessPanel
             issues={issues}
             onFocusPath={focusPath}
