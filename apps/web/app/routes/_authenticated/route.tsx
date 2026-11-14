@@ -115,6 +115,13 @@ function CrmLayout() {
     }
   }, [user, isLoading, location.pathname, navigate])
 
+  // Backlog 433: an account switch found on a route change purges at once but refetches only here,
+  // after the commit that unmounted the page being left, so its queries never ask as the new user.
+  const routerIdle = useRouterState({ select: (s) => s.status === 'idle' })
+  useEffect(() => {
+    if (routerIdle) revalidateSession.settled()
+  }, [routerIdle, location.href])
+
   const handleToggle = () => {
     setCollapsed((prev) => {
       const next = !prev

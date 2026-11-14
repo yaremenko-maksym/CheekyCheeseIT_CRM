@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, type ReactNode } from 'react'
-import { useQuery, useQueryClient, useIsRestoring } from '@tanstack/react-query'
+import { notifyManager, useQuery, useQueryClient, useIsRestoring } from '@tanstack/react-query'
 import type { Query, QueryClient } from '@tanstack/react-query'
 import { del as idbDel } from 'idb-keyval'
 import type { Locale, SessionUser } from '@crm/shared'
@@ -51,10 +51,28 @@ const REVALIDATE_TIMEOUT_MS = 3000 // a hung check counts as a network failure, 
  * an outside `setQueryData`) purges every other query and the persisted copy, synchronously,
  * before observers re-render. The first answer after a page load is compared with the restored
  * cache's owner instead (SR-M-1, `lib/persister.ts`).
+ *
+ * Backlog 433: the purge is immediate, the refetch is not while `navigating()` is true. Queries of
+ * the page being left are still mounted then, and refetching them as an account with fewer rights
+ * answers 403. Their refetch waits for the returned `settle`, which the layout calls once the
+ * navigation is done: only the observers still mounted then (header, bell, the new page) refetch.
  */
-function watchSessionOwner(queryClient: QueryClient): void {
+function watchSessionOwner(queryClient: QueryClient, navigating: () => boolean): () => void {
   const cached = queryClient.getQueryData<SessionUser | null>(AUTH_ME_KEY)
   let owner = cached === undefined ? undefined : (cached?.id ?? null)
+  let purged: Set<Query> | null = null
+  const refetchPurged = () => {
+    const queries = purged
+    purged = null
+    if (!queries) return
+    // cancelRefetch false: a query the new page mounted is already fetching, do not ask twice
+    void queryClient
+      .refetchQueries(
+        { type: 'active', predicate: (q) => queries.has(q) },
+        { cancelRefetch: false },
+      )
+      .catch(() => {})
+  }
   queryClient.getQueryCache().subscribe((event) => {
     if (event.type !== 'updated' || event.action.type !== 'success' || !isAuthMe(event.query))
       return
@@ -63,10 +81,14 @@ function watchSessionOwner(queryClient: QueryClient): void {
     owner = id
     setPersistedCacheOwner(id)
     if (previous === undefined || previous === id) return
-    // reset, not remove: mounted observers (header, bell) drop the old data and refetch as the new user
-    void queryClient.resetQueries({ predicate: (q) => !isAuthMe(q) }).catch(() => {})
+    // reset, not remove: mounted observers (header, bell) drop the old data and stay subscribed
+    const matched = queryClient.getQueryCache().findAll({ predicate: (q) => !isAuthMe(q) })
+    notifyManager.batch(() => matched.forEach((q) => q.reset()))
+    purged = new Set([...(purged ?? []), ...matched])
     void idbDel(PERSIST_KEY).catch(() => {})
+    if (!navigating()) refetchPurged()
   })
+  return refetchPurged
 }
 
 /**
@@ -76,42 +98,57 @@ function watchSessionOwner(queryClient: QueryClient): void {
  * user BEFORE the next route renders. The same pathname within `REUSE_MS` of the last check (the
  * click after a hover preload — the router reports an active layout's preload as `preload: false`)
  * reuses that check; a later visit to the same pathname asks again. A check overtaken by a newer
- * one waits for that one, so no navigation renders before the newest answer is applied. A check
- * that fails or takes over `REVALIDATE_TIMEOUT_MS` keeps the cache. Nothing before the first
- * `auth/me` answer (AuthProvider owns that). Create one per client: it subscribes to its cache.
+ * one waits for that one, so no navigation renders before the newest answer is applied; if the
+ * newer one fails, the overtaken answer still lands. A check that fails or takes over
+ * `REVALIDATE_TIMEOUT_MS` keeps the cache. Nothing before the first `auth/me` answer
+ * (AuthProvider owns that). Create one per client: it subscribes to its cache.
+ *
+ * A switch found by a check defers the refetch of the purged queries until `settled()`: the layout
+ * calls it once the router is idle again (backlog 433, see `watchSessionOwner`).
  */
 export function createSessionRevalidator(queryClient: QueryClient) {
   const REUSE_MS = 1000 // hover preload, then click
-  watchSessionOwner(queryClient)
+  let pending = 0 // checks in flight: a purge during one belongs to a navigation not yet rendered
+  const settled = watchSessionOwner(queryClient, () => pending > 0)
   let last: { pathname: string; check: Promise<void>; settledAt: number | null } | null = null
-  let latest: symbol | undefined
+  let asked = 0 // sequence of the newest check
+  let applied = 0 // sequence of the newest check whose answer landed
   const check = async (): Promise<void> => {
     if (!queryClient.getQueryData<SessionUser | null>(AUTH_ME_KEY)) return
     // A request of its own, not a deduped `fetchQuery`: the router pushes the URL before
     // `beforeLoad` settles, so an earlier request may still be in flight under the OLD cookie.
-    const mine = Symbol()
-    latest = mine
+    const mine = ++asked
     let current: SessionUser | null
     try {
       current = await fetchMe(REVALIDATE_TIMEOUT_MS)
     } catch {
       return // network failure or timeout: keep the cache (offline use); the server still enforces access
     }
-    // a later check asked after us: its answer wins, and this navigation waits for it
-    // `last` is never null here: it is assigned synchronously, before `fetchMe` can answer
-    if (mine !== latest) return last!.check
+    // a later check asked after us: its answer wins, and this navigation waits for it; ours lands
+    // only if no later answer did (the later check failed). `last` is never null here: it is
+    // assigned synchronously, before `fetchMe` can answer
+    if (mine !== asked) {
+      await last!.check
+      if (applied > mine) return
+    }
+    applied = mine
     // AuthProvider's own request may also predate the cookie change; its late answer must not land
     await queryClient.cancelQueries({ queryKey: AUTH_ME_KEY, exact: true })
     queryClient.setQueryData(AUTH_ME_KEY, current) // a changed id purges in `watchSessionOwner`
   }
-  return (pathname: string): Promise<void> => {
+  const revalidate = (pathname: string): Promise<void> => {
     const fresh = last?.settledAt == null || Date.now() - last.settledAt < REUSE_MS
     if (last && last.pathname === pathname && fresh) return last.check
     const entry: NonNullable<typeof last> = { pathname, check: Promise.resolve(), settledAt: null }
-    entry.check = check().finally(() => (entry.settledAt = Date.now()))
+    pending++
+    entry.check = check().finally(() => {
+      pending--
+      entry.settledAt = Date.now()
+    })
     last = entry
     return entry.check
   }
+  return Object.assign(revalidate, { settled })
 }
 
 export function AuthProvider({ children, skip }: { children: ReactNode; skip?: boolean }) {
