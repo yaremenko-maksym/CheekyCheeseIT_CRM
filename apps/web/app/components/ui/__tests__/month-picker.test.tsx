@@ -291,10 +291,11 @@ describe('MonthPickerField', () => {
   it('month trigger flexes to fill; year trigger is a fixed-width tabular column', async () => {
     await loadCatalog('uk')
     render(<Harness initial="2026-10" />)
-    expect(screen.getByTestId(MONTH)).toHaveClass('h-9', 'min-w-0', 'flex-1', 'text-sm')
+    expect(screen.getByTestId(MONTH)).toHaveClass('h-9', 'min-w-0', 'flex-1', 'px-2', 'text-sm')
     expect(screen.getByTestId(YEAR)).toHaveClass(
       'h-9',
-      'w-[5.5rem]',
+      'w-[4.75rem]',
+      'px-2',
       'shrink-0',
       'text-sm',
       'tabular-nums',

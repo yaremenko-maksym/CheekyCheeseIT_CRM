@@ -344,6 +344,34 @@ test.describe('Резюме — факты', () => {
     await expect(headline).toHaveValue('Draft that is easy to lose')
   })
 
+  // The flake's race, made deterministic: the edit and the tab click land before any
+  // further render. The dirty flag must already have reached the profile guard.
+  test('клик по вкладке сразу после правки (одна задача) всё равно спрашивает', async ({
+    page,
+  }) => {
+    await openSeniorResumeAsAdmin(page, [resumeResponse({ content: FILLED_CONTENT })])
+    const headline = page.locator('input[name="resumeFactsHeadline"]')
+    await expect(headline).toBeVisible()
+
+    await page.evaluate(
+      (tabLabel) => {
+        const input = document.querySelector<HTMLInputElement>('input[name="resumeFactsHeadline"]')
+        const tab = Array.from(document.querySelectorAll('button')).find(
+          (button) => button.textContent?.trim() === tabLabel,
+        )
+        const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+        if (!input || !tab || !setValue) throw new Error('resume form or tab not rendered')
+        setValue.call(input, 'Draft that is easy to lose')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        tab.click()
+      },
+      assertInCatalog(uk, 'Огляд'),
+    )
+
+    await expect(page.getByTestId('contract-dirty-guard-dialog')).toBeVisible()
+    await expect(headline).toHaveValue('Draft that is easy to lose')
+  })
+
   test('добавление места работы не стирает черновик', async ({ page }) => {
     await openSeniorResumeAsAdmin(page, [resumeResponse({ content: FILLED_CONTENT })])
 

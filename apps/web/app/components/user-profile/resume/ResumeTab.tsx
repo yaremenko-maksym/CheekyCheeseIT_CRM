@@ -15,7 +15,7 @@
  * protected by the profile shell's dirty-guard dialog plus one `beforeunload`
  * handler here. A viewer without write access sees the resume text read-only.
  */
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { FileText, History, Trash2 } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { EMPTY_RESUME_CONTENT, EMPTY_RESUME_FACTS } from '@crm/shared'
@@ -98,6 +98,15 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
     onDirtyChange?.(isDirty)
     return () => onDirtyChange?.(false)
   }, [isDirty, onDirtyChange])
+  // The form's flag goes to the profile guard in the same commit, not after a
+  // re-render of this tab: a tab click right after an edit must still be guarded.
+  const handleFactsDirty = useCallback(
+    (dirty: boolean) => {
+      setIsDirty(dirty)
+      onDirtyChange?.(dirty)
+    },
+    [onDirtyChange],
+  )
 
   /** ONE `beforeunload` handler for the whole tab. */
   useEffect(() => {
@@ -346,7 +355,7 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
               // The Submit button sits in a now-disabled fieldset (design §8).
               if (answer.resume?.verificationBusy) focusAfterRender(PROGRESS_FOCUS_IDS)
             }}
-            onDirtyChange={setIsDirty}
+            onDirtyChange={handleFactsDirty}
           />
         </div>
       ) : (
