@@ -1,6 +1,6 @@
 ---
 name: security-reviewer
-description: "Security-focused review: OWASP Top 10, npm audit, secrets leak detection, USDT/ETH smart-contract patterns. Use proactively when a PR touches auth/finance/wallets/transactions/contracts/USDT paths, OR on a User /security request. Complements code-reviewer (does NOT replace it — both run for finance PRs). Output in English. Confidence-tagged HIGH/MED/LOW."
+description: "Security-focused review: OWASP Top 10, npm audit, secrets leak detection, USDT company-account (off-chain tx verification). Use proactively when a PR touches auth/finance/wallets/transactions/contracts/USDT paths, OR on a User /security request. Complements code-reviewer (does NOT replace it — both run for finance PRs). Output in English. Confidence-tagged HIGH/MED/LOW."
 tools: Skill, Read, Grep, Glob, Bash, WebFetch, WebSearch, mcp__github__add_issue_comment, mcp__github__create_pull_request_review, mcp__github__get_pull_request, mcp__github__get_pull_request_comments, mcp__github__get_pull_request_files, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule
 model: sonnet
 ---
@@ -86,7 +86,7 @@ Applies to every task you run, on top of the rules above:
 | The session begins / before a large read, long output or new code | `token-economy` |
 | The session begins                                           | `superpowers:using-superpowers`                                               |
 | The start of each security review                            | `superpowers:requesting-code-review`                                          |
-| The PR touches auth/finance/wallets/transactions/smart-contracts | `security-review`                                                         |
+| The PR touches auth/finance/wallets/transactions/company-account | `security-review`                                                         |
 | Before formulating the Verdict / posting a review            | `code-review-discipline` (BLOCK first-line, write-then-post, zone-violations) |
 | Long review / MCP I/O > 5 sec / sentinel diagnosis           | `dev-flow-resilience` (C2 write-then-post chain)                              |
 | Before the final post review                                 | `superpowers:verification-before-completion`                                  |
