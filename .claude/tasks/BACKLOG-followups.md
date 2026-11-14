@@ -7589,7 +7589,8 @@ mock `insert` for these services change with it (count them before starting).
 **Verify.** `git grep -n "insert(teamMembers)" -- apps/api/src ':!*.spec.ts'` lists only the shared helper.
 
 Sources: gardener 2026-11-14 complexity scan.
-## 409. Hooks: an inline `python3 -c` body past 32 KB refuses every Bash call on Windows (2026-11-11)
+
+## 428. Hooks: an inline `python3 -c` body past 32 KB refuses every Bash call on Windows (2026-11-11)
 
 **Symptoms.** After `pre:bash:cross-agent-blast` grew its analyzer, every Bash call in a Windows session whose checkout was on
 `origin/main` was refused with `INTERNAL ERROR: the analyzer did not run (rc=126)`, even `echo ok`. Windows caps a whole
@@ -7605,7 +7606,7 @@ still exits 2. On Linux CI the size guard fails when an inline `-c` body of any 
 
 Sources: Master session 2026-11-11 (vacancy-sourcing Phase 7).
 
-## 410. Mutation gate under WSL: `SourceBudgetPanel` AC7 test times out at concurrency 4 (2026-11-11)
+## 429. Mutation gate under WSL: `SourceBudgetPanel` AC7 test times out at concurrency 4 (2026-11-11)
 
 **Symptoms.** The `@crm/web` dry run of `scripts/devops/mutation-gate.mjs --changed` in WSL failed in the initial test run with
 `SourceBudgetPanel (AC7) still names the source and its trigger while it is broken — Hook timed out in 10000ms` at
@@ -7619,7 +7620,7 @@ longer hook timeout scoped to this file with a written reason).
 
 Sources: PR #1312 mutation run.
 
-## 411. Windows pre-push: API suite fails for environment reasons, pushes go through WSL (2026-11-11)
+## 430. Windows pre-push: API suite fails for environment reasons, pushes go through WSL (2026-11-11)
 
 **Symptoms.** On the owner's Windows machine the pre-push hook's `@crm/api` test run fails on cases that pass in WSL and in CI,
 so feature branches of the vacancy-sourcing epic were pushed from WSL worktrees fed by `git bundle`. The failing cases were not
@@ -7633,7 +7634,7 @@ includes the `@crm/api` suite) completes with that suite green.
 
 Sources: vacancy-sourcing Phase 7 pushes (branches changing `apps/api`).
 
-## 412. WSL: a fresh clone hangs on a credential prompt during `git fetch` / `git push` (2026-11-11)
+## 431. WSL: a fresh clone hangs on a credential prompt during `git fetch` / `git push` (2026-11-11)
 
 **Symptoms.** A new clone inside WSL without the owner's configured credential helper waits forever for a username on HTTPS
 fetch or push, which reads as a hung agent. Working around it needs `GIT_TERMINAL_PROMPT=0` (fail fast) and worktrees of the
@@ -7646,7 +7647,7 @@ bundle hand-off. Do not print or copy the helper's value.
 
 Sources: vacancy-sourcing Phase 7 pushes.
 
-## 413. `JobSuggestionDialog` still renders Russian visible strings (2026-11-11)
+## 432. `JobSuggestionDialog` still renders Russian visible strings (2026-11-11)
 
 **Symptoms.** The job-sourcing suggestion dialog (`JobSuggestionDialog`) shows hard-coded Russian text, not Lingui macros with
 `uk` source and `en`, so the dialog does not follow the UI locale.
@@ -7931,3 +7932,20 @@ three lows.
 calendar day cells are at least 44 px on mobile in every date picker.
 
 Sources: PR #1322 design reviews (rounds 1 and 2: UX-L-1, UX-L-4, UX-L-5).
+
+## 433. Session switch: stale-page queries refetch as the new user and 403 (QA-MED-1 of #1330, 2026-11-14)
+
+**Symptoms.** When the signed-in user changes under an open page, `watchSessionOwner` resets every query except
+`auth/me`; the still-mounted queries of the old page refetch with the new cookie. If the new account has fewer
+rights, the console shows a burst of 403s (about 5 for HR to JUNIOR, 1 for ADMIN to HR). No previous-account data
+shows; the noise appears until the next navigation.
+
+**Fix direction.** Tie the refetch to the router lifecycle: purge now, let queries of the page being left refetch only
+after the navigation settles, or skip refetch for queries the new role cannot read. `resetQueries` without refetch
+alone breaks the header and bell queries.
+
+**Verify.** Switch HR to JUNIOR in a second tab, navigate in the first: no 403 in the console, and no previous-account
+rows (job-queue scenario 10b stays green).
+
+Sources: manual-qa on #1330 (QA-MED-1); also from the same review: sonnet panel lows (an `idbDel` that never settles
+blocks the impersonation reload; a superseded check discards its answer when the newer one fails).

@@ -1382,14 +1382,14 @@ and preserves state; no toggle clears policy/cost state; `uk`/`en` labels; ui-ux
 stand via `POST /api/auth/dev-login`; data via `mcp__postgres__query` on the scratch/QA DB, never hardcoded, never the
 live DB.
 
-- [ ] Scenarios: HR opens «Черга вакансій» from the menu; card shows sources and matched seniors; take → moves from
+- [x] Scenarios: HR opens «Черга вакансій» from the menu; card shows sources and matched seniors; take → moves from
       «Нові» to «У роботі»; same-team second HR sees «вже взято <name>», foreign-team HR sees it masked; no-team HR
       sees an empty authorized queue; scoped dismissal/undo; availability change while open; uncertainty warnings and
       triage items; unsafe HTML/link/image protection; expired generation refresh; empty/error/loading/partial health;
       cache purge on logout/account change; SENIOR direct URL redirected (defense-in-depth only — the backend guard is
       proven by Task 6.4); mobile 375: no horizontal scroll, full-screen card, ≥ 44 px targets, gesture-safe open
       (pattern: `job-sourcing-mobile.spec.ts`); mock mode never used for rights checks.
-- [ ] Run locally `pnpm --filter @crm/e2e test -- job-queue` three times green (zero-flake policy); explicit commit.
+- [x] Run locally `pnpm --filter @crm/e2e test -- job-queue` three times green (zero-flake policy); explicit commit.
 
 **Definition of done (Phase 7):** ui-ux-designer Mode B `Design Review:` + `Fidelity: PASS` on 320/375/768/1024/1280/
 1440/1920; manual-qa live pass (mobile + desktop, console, RBAC); copy-reviewer `Copy Review: PASS` on uk + en;
