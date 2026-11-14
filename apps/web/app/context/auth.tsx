@@ -1,9 +1,10 @@
 import { createContext, useContext, useEffect, type ReactNode } from 'react'
 import { useQuery, useQueryClient, useIsRestoring } from '@tanstack/react-query'
+import type { Query, QueryClient } from '@tanstack/react-query'
 import { del as idbDel } from 'idb-keyval'
 import type { Locale, SessionUser } from '@crm/shared'
 import { api } from '../lib/axios'
-import { PERSIST_KEY } from '../lib/persister'
+import { PERSIST_KEY, setPersistedCacheOwner, takeRestoredCacheOwner } from '../lib/persister'
 import {
   activateLocale,
   clearConfirmedUserLocaleIfSettled,
@@ -23,8 +24,10 @@ const AuthContext = createContext<AuthContextValue>({
   invalidate: () => {},
 })
 
-async function fetchMe(): Promise<SessionUser | null> {
+// `timeout` 0 is axios's "no timeout"; only the route-change revalidation sets one
+async function fetchMe(timeout = 0): Promise<SessionUser | null> {
   const res = await api.get<SessionUser>('/auth/me', {
+    timeout,
     validateStatus: (status) => status === 200 || status === 401,
   })
   if (res.status !== 200) {
@@ -36,6 +39,79 @@ async function fetchMe(): Promise<SessionUser | null> {
   }
   // API already validates shape via JWT — trust the response and cast directly
   return res.data
+}
+
+const AUTH_ME_KEY = ['auth', 'me'] as const
+const isAuthMe = (q: Query) => q.queryKey[0] === 'auth' && q.queryKey[1] === 'me'
+const REVALIDATE_TIMEOUT_MS = 3000 // a hung check counts as a network failure, not a blocked navigation
+
+/**
+ * PR #1330 CR-H-1: every scoped query key derives from the `auth/me` user, so ANY answer that
+ * changes its id (the revalidator below, a refetch on reconnect or remount, `invalidateQueries`,
+ * an outside `setQueryData`) purges every other query and the persisted copy, synchronously,
+ * before observers re-render. The first answer after a page load is compared with the restored
+ * cache's owner instead (SR-M-1, `lib/persister.ts`).
+ */
+function watchSessionOwner(queryClient: QueryClient): void {
+  const cached = queryClient.getQueryData<SessionUser | null>(AUTH_ME_KEY)
+  let owner = cached === undefined ? undefined : (cached?.id ?? null)
+  queryClient.getQueryCache().subscribe((event) => {
+    if (event.type !== 'updated' || event.action.type !== 'success' || !isAuthMe(event.query))
+      return
+    const id = (event.query.state.data as SessionUser | null)?.id ?? null
+    const previous = owner === undefined ? takeRestoredCacheOwner() : owner
+    owner = id
+    setPersistedCacheOwner(id)
+    if (previous === undefined || previous === id) return
+    // reset, not remove: mounted observers (header, bell) drop the old data and refetch as the new user
+    void queryClient.resetQueries({ predicate: (q) => !isAuthMe(q) }).catch(() => {})
+    void idbDel(PERSIST_KEY).catch(() => {})
+  })
+}
+
+/**
+ * Task 7.6c: the session cookie can change under an open page (a sign-in in another tab), and the
+ * cached `auth/me` user would never notice. The `_authenticated` route awaits this in `beforeLoad`:
+ * it fetches a fresh answer and writes it to `auth/me`, so `watchSessionOwner` purges a changed
+ * user BEFORE the next route renders. The same pathname within `REUSE_MS` of the last check (the
+ * click after a hover preload — the router reports an active layout's preload as `preload: false`)
+ * reuses that check; a later visit to the same pathname asks again. A check overtaken by a newer
+ * one waits for that one, so no navigation renders before the newest answer is applied. A check
+ * that fails or takes over `REVALIDATE_TIMEOUT_MS` keeps the cache. Nothing before the first
+ * `auth/me` answer (AuthProvider owns that). Create one per client: it subscribes to its cache.
+ */
+export function createSessionRevalidator(queryClient: QueryClient) {
+  const REUSE_MS = 1000 // hover preload, then click
+  watchSessionOwner(queryClient)
+  let last: { pathname: string; check: Promise<void>; settledAt: number | null } | null = null
+  let latest: symbol | undefined
+  const check = async (): Promise<void> => {
+    if (!queryClient.getQueryData<SessionUser | null>(AUTH_ME_KEY)) return
+    // A request of its own, not a deduped `fetchQuery`: the router pushes the URL before
+    // `beforeLoad` settles, so an earlier request may still be in flight under the OLD cookie.
+    const mine = Symbol()
+    latest = mine
+    let current: SessionUser | null
+    try {
+      current = await fetchMe(REVALIDATE_TIMEOUT_MS)
+    } catch {
+      return // network failure or timeout: keep the cache (offline use); the server still enforces access
+    }
+    // a later check asked after us: its answer wins, and this navigation waits for it
+    // `last` is never null here: it is assigned synchronously, before `fetchMe` can answer
+    if (mine !== latest) return last!.check
+    // AuthProvider's own request may also predate the cookie change; its late answer must not land
+    await queryClient.cancelQueries({ queryKey: AUTH_ME_KEY, exact: true })
+    queryClient.setQueryData(AUTH_ME_KEY, current) // a changed id purges in `watchSessionOwner`
+  }
+  return (pathname: string): Promise<void> => {
+    const fresh = last?.settledAt == null || Date.now() - last.settledAt < REUSE_MS
+    if (last && last.pathname === pathname && fresh) return last.check
+    const entry: NonNullable<typeof last> = { pathname, check: Promise.resolve(), settledAt: null }
+    entry.check = check().finally(() => (entry.settledAt = Date.now()))
+    last = entry
+    return entry.check
+  }
 }
 
 export function AuthProvider({ children, skip }: { children: ReactNode; skip?: boolean }) {
@@ -54,7 +130,7 @@ export function AuthProvider({ children, skip }: { children: ReactNode; skip?: b
 
   const { data, isPending, isFetching } = useQuery({
     queryKey: ['auth', 'me'],
-    queryFn: fetchMe,
+    queryFn: () => fetchMe(),
     enabled: typeof window !== 'undefined' && !skip,
     retry: false,
     staleTime: 5 * 60 * 1000,

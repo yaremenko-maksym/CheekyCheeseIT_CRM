@@ -17,3 +17,6 @@ export function createQueryClient() {
     },
   })
 }
+
+/** The app's single client: `__root.tsx` provides it, `_authenticated`'s `beforeLoad` revalidates the session on it. */
+export const queryClient = createQueryClient()

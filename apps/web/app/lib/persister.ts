@@ -208,12 +208,50 @@ type Serialize = NonNullable<Parameters<typeof createAsyncStoragePersister>[0]['
 type StoragePersister = ReturnType<typeof createAsyncStoragePersister>
 type RestoredClient = Awaited<ReturnType<StoragePersister['restoreClient']>>
 
+/**
+ * SR-M-1 (PR #1330 fix-round 1): whose data the cache holds. One IndexedDB key serves every tab
+ * and account of this origin, so `serialize` writes the owner's user id beside `clientState`, and
+ * `restoreClient` remembers the restored owner for `context/auth.tsx` to compare with the first
+ * `auth/me` answer after a page load.
+ */
+let cacheOwner: string | null = null
+let restoredOwner: string | null | undefined
+
+export function setPersistedCacheOwner(id: string | null): void {
+  cacheOwner = id
+}
+
+/** One-shot: the owner of the non-empty cache this page restored (`null` = not recorded), else `undefined`. */
+export function takeRestoredCacheOwner(): string | null | undefined {
+  const owner = restoredOwner
+  restoredOwner = undefined
+  return owner
+}
+
+function noteRestoredOwner(client: RestoredClient): void {
+  restoredOwner = undefined
+  if (!client) return
+  const { owner, clientState } = client as unknown as {
+    owner?: unknown
+    clientState?: { queries?: unknown }
+  }
+  const queries = clientState?.queries
+  if (!Array.isArray(queries) || queries.length === 0) return
+  restoredOwner = typeof owner === 'string' ? owner : null
+  // the restored rows stay in the cache until the first answer says whose session this is
+  cacheOwner = restoredOwner
+}
+
 const serialize: Serialize = (client) => {
   if (client === null || typeof client !== 'object') {
     return JSON.stringify(stripSensitiveFields(client))
   }
   const c = client as unknown as { clientState?: unknown; [k: string]: unknown }
-  return JSON.stringify({ ...c, clientState: markStrippedQueries(c.clientState) })
+  return JSON.stringify({
+    ...c,
+    owner: cacheOwner,
+    clientState: markStrippedQueries(c.clientState),
+  })
 }
 
 /**
@@ -261,6 +299,9 @@ const baseAsyncPersister = createAsyncStoragePersister({
 export const persister: StoragePersister = {
   persistClient: baseAsyncPersister.persistClient,
   removeClient: baseAsyncPersister.removeClient,
-  restoreClient: async () =>
-    forceRefetchOfStrippedQueries(await baseAsyncPersister.restoreClient()),
+  restoreClient: async () => {
+    const restored = await baseAsyncPersister.restoreClient()
+    noteRestoredOwner(restored)
+    return forceRefetchOfStrippedQueries(restored)
+  },
 }

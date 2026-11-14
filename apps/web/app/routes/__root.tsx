@@ -1,16 +1,15 @@
 import { Fragment } from 'react'
-import { createRootRoute, Outlet } from '@tanstack/react-router'
+import { createRootRouteWithContext, Outlet } from '@tanstack/react-router'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import type { Query } from '@tanstack/react-query'
 import { I18nProvider } from '@lingui/react'
-import { createQueryClient } from '../lib/query-client'
+import { queryClient } from '../lib/query-client'
 import { persister } from '../lib/persister'
+import type { RouterContext } from '../lib/router-context'
 import { i18n, useLocale } from '../lib/i18n'
 import { TelemetryProvider } from '../lib/telemetry'
 import { Toaster } from '../components/ui/sonner'
 import '../styles/globals.css'
-
-const queryClient = createQueryClient()
 
 // Build version buster — invalidates the persisted cache when the build changes
 // so stale serialised query shapes don't break a new deploy. VITE_BUILD_VERSION
@@ -52,7 +51,7 @@ export function shouldDehydrateMutation(): boolean {
   return false
 }
 
-export const Route = createRootRoute({
+export const Route = createRootRouteWithContext<RouterContext>()({
   component: RootDocument,
 })
 
