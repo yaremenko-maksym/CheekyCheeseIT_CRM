@@ -46,6 +46,7 @@
 --   2. STILL REQUIRED: `SELECT count(*) FROM job_queue_assignments` = 0 on production, re-measured
 --      immediately before the apply.
 --
+--   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 -- APPLY WITH `psql -v ON_ERROR_STOP=1 --single-transaction -f <this file>`: `SET LOCAL
 -- lock_timeout` only binds inside a transaction, and the closing check is all-or-nothing only if
 -- a failure rolls back everything above it.

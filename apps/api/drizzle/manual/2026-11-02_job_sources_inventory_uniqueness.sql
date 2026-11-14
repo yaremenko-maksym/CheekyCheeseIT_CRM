@@ -41,6 +41,7 @@
 -- do not already share a `(type, namespace)` AND no ATS source already holds an empty namespace
 -- (either would make this apply fail — loud and transactional), and on the flag-flip of
 -- JOB_AVAILABILITY_RECONCILE_ENABLED this constraint is a precondition for.
+--   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 --
 -- RE-RUNNABLE: the index is `CREATE UNIQUE INDEX IF NOT EXISTS`, the CHECK is added under a
 -- `pg_constraint` existence guard (ADD CONSTRAINT IF NOT EXISTS is not native PG), and the closing

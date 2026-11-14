@@ -28,6 +28,7 @@
 -- --------------------------------
 -- Applied by scripts/devops/deploy-stack-on-vps.sh AFTER U2's file (section 10's metric columns are
 -- a sibling, not a dependency, but the order is fixed by the chain), with --single-transaction.
+--   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 --
 -- RE-RUNNABLE: the table is `CREATE TABLE IF NOT EXISTS` (its inline constraints and FKs come with
 -- it, or are skipped whole on a second apply), the index is `IF NOT EXISTS`, every function is

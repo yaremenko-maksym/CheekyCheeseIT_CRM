@@ -15,6 +15,7 @@
 -- WHY THIS FILE IS STAGED
 --   Nothing reads or writes these tables until the collection-run call site (task 5.5b). The owner
 --   applies this DDL then; that PR moves the file to manual/ and drops its STAGED_RELATIONS entries.
+--   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 --   Rollback: drop the two tables.
 
 SET LOCAL lock_timeout = '10s';
