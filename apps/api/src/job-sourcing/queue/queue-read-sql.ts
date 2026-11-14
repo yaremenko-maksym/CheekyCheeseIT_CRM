@@ -207,12 +207,12 @@ export const seniorRows = (
                     ) AS submitted_elsewhere${scope.kind === 'STUDIO' ? sql`, st.id AS team_id, st.name AS team_name` : sql``}
        ${matchedSeniors(versions)}
         JOIN users u ON u.id = ms.senior_id
-        LEFT JOIN senior_availability sa ON sa.user_id = ms.senior_id
         ${scope.kind === 'STUDIO' ? studioSeniorTeam : sql``}
         LEFT JOIN job_queue_assignments a
           ON a.opportunity_id = o.id AND a.senior_id = ms.senior_id
          AND ${scopedTeamRowPredicate(scope, sql`a.team_id`)}
         LEFT JOIN users by_user ON by_user.id = a.assignee_id
+        LEFT JOIN senior_availability sa ON sa.user_id = ms.senior_id
        WHERE o.id = ${id}::uuid
          AND ${after === undefined ? sql`TRUE` : sql`ms.senior_id > ${after}::uuid`}
        ORDER BY ms.senior_id

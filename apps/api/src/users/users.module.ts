@@ -11,6 +11,8 @@ import { TelemetryModule } from '../telemetry/telemetry.module'
 import { TosModule } from '../tos/tos.module'
 import { AuditInterceptor } from '../common/interceptors/audit.interceptor'
 import { UsersController } from './users.controller'
+import { SeniorAvailabilityController } from './senior-availability.controller'
+import { SeniorAvailabilityService } from './senior-availability.service'
 import { UsersAccessService } from './users-access.service'
 import { AuditLogService } from './audit-log.service'
 import { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
@@ -45,7 +47,7 @@ import { TeamReconcileService } from './team-reconcile.service'
     ContactModule,
     TelemetryModule,
   ],
-  controllers: [UsersController],
+  controllers: [UsersController, SeniorAvailabilityController],
   providers: [
     UsersService,
     UserArchiveService,
@@ -54,6 +56,7 @@ import { TeamReconcileService } from './team-reconcile.service'
     AuditLogService,
     AuditInterceptor,
     PersonalEmailInviteMailerService,
+    SeniorAvailabilityService,
   ],
   exports: [UsersService, UsersAccessService, AuditLogService],
 })

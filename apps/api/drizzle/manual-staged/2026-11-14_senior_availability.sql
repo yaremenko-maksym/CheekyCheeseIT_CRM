@@ -54,7 +54,7 @@
 
 SET LOCAL lock_timeout = '10s';
 
-CREATE TABLE IF NOT EXISTS "senior_availability" (
+CREATE TABLE IF NOT EXISTS senior_availability (
   "user_id" uuid PRIMARY KEY NOT NULL,
   "status" text NOT NULL,
   "available_from" date,
