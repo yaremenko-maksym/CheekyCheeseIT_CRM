@@ -62,7 +62,10 @@ function CrmLayout() {
   const navigate = useNavigate()
   const handleLogout = useLogout()
   const { t } = useLingui()
-  const location = useRouterState({ select: (s) => s.location })
+  // The RENDERED location, not the one still loading: `beforeLoad` awaits the session check, and a
+  // branch swap (onboarding vs full layout) on a pending path remounts the page still shown, whose
+  // own redirect then cancels that load, over and over (PR #1330 QA-HIGH-1, React #185).
+  const location = useRouterState({ select: (s) => s.resolvedLocation ?? s.location })
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false
     return localStorage.getItem('sidebar-collapsed') === 'true'
