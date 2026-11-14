@@ -10,14 +10,15 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLingui } from '@lingui/react/macro'
-import type {
-  ConfirmResumeInput,
-  EditStagedFieldInput,
-  RegenerateStagedFieldInput,
-  ResumeFacts,
-  ResumeLayoutOptions,
-  ResumeTemplateName,
-  SeniorResumeResponse,
+import {
+  seniorResumeResponseSchema,
+  type ConfirmResumeInput,
+  type EditStagedFieldInput,
+  type RegenerateStagedFieldInput,
+  type ResumeFacts,
+  type ResumeLayoutOptions,
+  type ResumeTemplateName,
+  type SeniorResumeResponse,
 } from '@crm/shared'
 import { api } from '@/lib/axios'
 import { getApiErrorCode, getUserFacingErrorMessage } from '@/lib/axios-utils'
@@ -27,6 +28,11 @@ export const API_BASE_URL: string = import.meta.env.VITE_API_URL ?? '/api'
 
 const POLL_INTERVAL_MS = 2500
 
+/** Every JSON resume endpoint answers this envelope; a malformed body throws before it reaches the cache. */
+function parseResponse(res: { data: unknown }): SeniorResumeResponse {
+  return seniorResumeResponseSchema.parse(res.data)
+}
+
 export function resumeQueryKey(userId: string): [string, string] {
   return ['senior-resume', userId]
 }
@@ -35,7 +41,7 @@ export function useSeniorResume(userId: string | undefined, enabled = true) {
   return useQuery({
     queryKey: resumeQueryKey(userId ?? ''),
     queryFn: () =>
-      api.get<SeniorResumeResponse>(`/users/${userId}/resume`).then((r) => r.data),
+      api.get(`/users/${userId}/resume`).then(parseResponse),
     enabled: enabled && !!userId,
     // Personal data + a state machine that moves on the server: never serve a
     // stale snapshot from cache when the tab is re-opened.
@@ -154,21 +160,22 @@ export function useResumePdfBlob(
 export function useSaveResumeLayout(userId: string) {
   const qc = useQueryClient()
   const { t } = useLingui()
+  const onError = useResumeWriteError(userId)
   return useMutation({
     mutationKey: ['save-senior-resume-layout', userId],
     mutationFn: (layout: ResumeLayoutOptions) =>
-      api.put<SeniorResumeResponse>(`/users/${userId}/resume/layout`, { layout }).then((r) => r.data),
+      api.put(`/users/${userId}/resume/layout`, { layout }).then(parseResponse),
     onSuccess: (data) => {
       qc.setQueryData(resumeQueryKey(userId), data)
       void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
       toast.success(t`Оформлення оновлено`)
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError,
   })
 }
 
 /**
- * A facts or submit write failed. Every error toasts its catalog text (409
+ * A resume write failed (facts, submit, layout, upload, text, delete). Every error toasts its catalog text (409
  * RESUME_VERIFICATION_BUSY / RESUME_ALREADY_VERIFIED, 422 RESUME_INCOMPLETE /
  * RESUME_CUSTOM_TEMPLATE) and
  * refetches: a busy answer means the server state moved, and the UI must
@@ -190,9 +197,7 @@ export function useSaveResumeFacts(userId: string) {
   return useMutation({
     mutationKey: ['save-senior-resume-facts', userId],
     mutationFn: ({ facts }: { facts: ResumeFacts; silent?: boolean }) =>
-      api
-        .put<SeniorResumeResponse>(`/users/${userId}/resume/facts`, { facts })
-        .then((r) => r.data),
+      api.put(`/users/${userId}/resume/facts`, { facts }).then(parseResponse),
     onSuccess: (data, { silent }) => {
       qc.setQueryData(resumeQueryKey(userId), data)
       void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
@@ -210,7 +215,7 @@ export function useSubmitResume(userId: string) {
   return useMutation({
     mutationKey: ['submit-senior-resume', userId],
     mutationFn: () =>
-      api.post<SeniorResumeResponse>(`/users/${userId}/resume/submit`).then((r) => r.data),
+      api.post(`/users/${userId}/resume/submit`).then(parseResponse),
     onSuccess: (data) => {
       qc.setQueryData(resumeQueryKey(userId), data)
       void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
@@ -230,7 +235,7 @@ export function useSubmitResume(userId: string) {
 function useStagedAction<TInput>(
   userId: string,
   key: string,
-  send: (input: TInput) => Promise<{ data: SeniorResumeResponse }>,
+  send: (input: TInput) => Promise<{ data: unknown }>,
   successText?: () => string,
   inlineCode?: string,
 ) {
@@ -238,7 +243,7 @@ function useStagedAction<TInput>(
   const onWriteError = useResumeWriteError(userId)
   return useMutation({
     mutationKey: [key, userId],
-    mutationFn: (input: TInput) => send(input).then((r) => r.data),
+    mutationFn: (input: TInput) => send(input).then(parseResponse),
     onSuccess: (data) => {
       qc.setQueryData(resumeQueryKey(userId), data)
       void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
@@ -308,43 +313,43 @@ export function useSetResumeTemplate(userId: string) {
 export function useUploadResumeSource(userId: string) {
   const qc = useQueryClient()
   const { t } = useLingui()
+  const onError = useResumeWriteError(userId)
   return useMutation({
     mutationKey: ['upload-senior-resume', userId],
     mutationFn: (file: File) => {
       const form = new FormData()
       form.append('file', file, file.name)
       return api
-        .post<SeniorResumeResponse>(`/users/${userId}/resume/source`, form, {
+        .post(`/users/${userId}/resume/source`, form, {
           // Let axios set the multipart boundary automatically — same cast as
           // useUploadDocument (axios types forbid an explicit `undefined`
           // under exactOptionalPropertyTypes, but it is what clears the
           // client's default JSON Content-Type).
           headers: { 'Content-Type': undefined as unknown as string },
         })
-        .then((r) => r.data)
+        .then(parseResponse)
     },
     onSuccess: (data) => {
       qc.setQueryData(resumeQueryKey(userId), data)
       toast.success(t`Файл завантажено, розпізнаємо резюме`)
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError,
   })
 }
 
 export function useIngestResumeText(userId: string) {
   const qc = useQueryClient()
   const { t } = useLingui()
+  const onError = useResumeWriteError(userId)
   return useMutation({
     mutationKey: ['ingest-senior-resume-text', userId],
     mutationFn: (text: string) =>
-      api
-        .post<SeniorResumeResponse>(`/users/${userId}/resume/text`, { text })
-        .then((r) => r.data),
+      api.post(`/users/${userId}/resume/text`, { text }).then(parseResponse),
     onSuccess: (data) => {
       qc.setQueryData(resumeQueryKey(userId), data)
       toast.success(t`Текст прийнято, розпізнаємо резюме`)
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError,
   })
 }
 
@@ -359,16 +364,17 @@ export function useIngestResumeText(userId: string) {
 export function useDeleteResume(userId: string) {
   const qc = useQueryClient()
   const { t } = useLingui()
+  const onError = useResumeWriteError(userId)
   return useMutation({
     mutationKey: ['delete-senior-resume', userId],
     mutationFn: () =>
-      api.delete<SeniorResumeResponse>(`/users/${userId}/resume`).then((r) => r.data),
+      api.delete(`/users/${userId}/resume`).then(parseResponse),
     onSuccess: (data) => {
       qc.setQueryData(resumeQueryKey(userId), data)
       qc.removeQueries({ queryKey: ['senior-resume-source', userId] })
       toast.success(t`Резюме видалено`)
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError,
   })
 }
 
