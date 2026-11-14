@@ -7946,3 +7946,28 @@ rows (job-queue scenario 10b stays green).
 
 Sources: manual-qa on #1330 (QA-MED-1); also from the same review: sonnet panel lows (an `idbDel` that never settles
 blocks the impersonation reload; a superseded check discards its answer when the newer one fails).
+
+## 434. Production schema drift: code reads columns of unapplied staged DDL (Phase 8.3 check, 2026-11-14)
+
+**Symptoms.** Six files of `apps/api/drizzle/manual-staged/` have no objects in production: the run metrics and
+`job_sources.slowdown_level` (`2026-10-31_job_run_metrics_slowdown`), `job_source_health_events`, the two partial
+`job_dirty_work` index files, `uq_job_sources_inventory_type_namespace`, and the model-health tables. The Drizzle schema
+declares them, so every query that selects the whole row or names them fails with `42703` / `42P01`:
+
+- observed: `JobSourceHealthService.runDetectorPass` fails on every 10-minute tick (`column 'bytes_read' does not
+exist`), logged as `Job sourcing cron step failed [tick: health detector pass]`;
+- inferred from the code, not yet seen in a log: `JobSourcingService.collectAll` (the 05:00 Kyiv DOU run and the
+  ADMIN manual collect) and `listSources` (`/admin/sources`) select every `job_sources` column, so they fail since #1200.
+
+Separately, `job_postings` and `job_suggestions` hold 0 rows in production; whether that is this drift or an older cause
+is not established. No migration ledger exists, so nothing reports drift; it was found by object presence checks.
+
+**Status.** Owner decision (A3, prod DDL): promote the missing staged files through `deploy.yml` steps. The
+health-events file carries the open U4 security decision (append-only, not privilege class B). Phase 8 decision brief
+item 1. Blocks every activation wave (`docs/runbooks/vacancy-sourcing.md` §11.0).
+
+**Verify.** `docs/runbooks/vacancy-sourcing.md` §13.1 object presence finds every object; a day of API log has 0
+`db_state=42703` / `42P01`; the 05:00 DOU run writes `job_postings` rows; `/admin/sources` loads as ADMIN. A guard that
+fails CI when the Drizzle schema declares a column no applied `manual/` file creates would stop the next one.
+
+Sources: Master read-only production check, 2026-11-14 (owner-permitted SSH).

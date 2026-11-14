@@ -1397,6 +1397,12 @@ code-reviewer confirms all verdicts.
 
 # Phase 8 — Rollout and verification
 
+> **Status 2026-11-14:** 8.1 written (`docs/runbooks/vacancy-sourcing.md`, `vacancy-sourcing-measurements.md`,
+> `human-only.md` items 8–11). 8.2 is a checklist (runbook §11) and an owner decision brief
+> (`.claude/tasks/task-vacancy-8-rollout.md`); nothing is enabled. 8.3 first read-only production run recorded in
+> runbook §13.3: it found schema drift against `manual-staged/` (backlog 434), which blocks every activation wave.
+> Coverage of each bullet below: runbook §15.
+
 ### Task 8.1: Runbook and human-only notes
 
 **Files:** `docs/runbooks/vacancy-sourcing.md`, `docs/runbooks/vacancy-sourcing-measurements.md`,

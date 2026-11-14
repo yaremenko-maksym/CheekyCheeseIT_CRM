@@ -4,7 +4,7 @@
 (collection → records → opportunities → `/job-queue`).
 **Plan:** `docs/superpowers/plans/2026-10-10-vacancy-sourcing-plan.r5.md` (Phase 8) and its `-design.r5.md` sibling.
 **Measurements:** `docs/runbooks/vacancy-sourcing-measurements.md`. **Human-only steps:** `docs/runbooks/human-only.md`
-items 9–12.
+items 8–11.
 **Addresses:** symbols and file paths, never line numbers. Find a symbol with `grep -rn <symbol> apps/api/src`.
 
 ---
@@ -143,7 +143,7 @@ action. Split recovery exists only inside the resolver (`revokedPairs`); reopen 
 - **Attribution** (`Attribution`): `LINK_BACK_REQUIRED` (RemoteOK, Remotive, Arbeitnow, Muse), `CREDIT_REQUIRED`
   (Himalayas, Jobicy), else `NONE_RECORDED`; `checkAttribution` checks fixtures. Whether the UI renders the
   attribution is **not verified** — check before a `LINK_BACK_REQUIRED` source is enabled.
-- **Credentials** (human-only item 10): `JOOBLE_API_KEY`, `RAPIDAPI_KEY` (JSearch), `THEIRSTACK_API_KEY`,
+- **Credentials** (human-only item 9): `JOOBLE_API_KEY`, `RAPIDAPI_KEY` (JSearch), `THEIRSTACK_API_KEY`,
   `REED_API_KEY`; read only by `quota-credentials.ts`; not written by `deploy.yml`. One real request per key:
   `scripts/devops/check-job-source-credentials.sh`.
 - **Dice:** `DICE_HTML` is blocked like every HTML type; its denied route stays off — no adapter will be written for it.
@@ -188,7 +188,7 @@ Earlier triggers for a catalog review: any `ACCESS_CHANGED` transition, a terms 
   them. The API reaches the worker through `EXTRACTION_WORKER_URL` + `EXTRACTION_WORKER_SECRET`; both absent = no model
   path (the production state). The API's own `OPENROUTER_API_KEY` / `JEV_API_KEY` serve resumes and relevance, not
   vacancy extraction.
-- **Rotation:** routes rotate in process memory on failure; credential rotation is a human step (human-only item 10).
+- **Rotation:** routes rotate in process memory on failure; credential rotation is a human step (human-only item 9).
   Limits come from each provider's free tier; exhaustion pauses the route, and the cycle stops `PARTIAL` with its
   checkpoint kept.
 - **Engine:** no browser service exists in any compose file. The extraction compose project
@@ -227,3 +227,226 @@ pause. Model health flags: `job_model_health_flags`. Weekly report: Monday 09:00
 isolation errors, parse-validity collapse beyond `SCHEMA_DRIFT`, a rising 403/429 **share** (MP-11). Thresholds are a
 code constant, not a versioned policy with an owner and a version. There is deliberately no "20 % daily errors" gate.
 Each missing alert blocks only the activation wave that needs it (§11).
+
+## 11. Phased activation checklist (Task 8.2 — prepared, nothing enabled)
+
+**Who:** the owner decides each step (A3); DevOps executes the env and deploy parts; an ADMIN flips the source switch.
+**Rule:** the full portfolio is preserved; a small first wave is risk control, not scope reduction. "The queue filled
+up" is not acceptance. Each configuration is enabled only after its terms, auth, fixture, identity, coverage, cost,
+security and quality gates pass. An unknown value blocks only the feature that needs it.
+
+### 11.0 Preconditions (block every wave)
+
+- [ ] Production schema matches the code: every object of `apps/api/drizzle/manual-staged/` that the running code reads
+      is applied through a `deploy.yml` step (human-only item 1), and §13.1 shows no missing object. **Open on
+      2026-11-14 (§13.3).**
+- [ ] §13.2 finds no `42703` (undefined column) or `42P01` (undefined table) in the API log for a full day.
+- [ ] The DOU legacy run of 05:00 Kyiv completes and `job_postings` receives rows (§13.3: zero rows on 2026-11-14).
+- [ ] The owner decisions of the Phase 8 decision brief that the wave depends on are recorded in this file.
+
+### 11.1 Policy freeze (before the first non-DOU source)
+
+Record each value here with owner, reviewer, version and date. A value copied from the 2026-10-04 trial or from a
+provider's marketing page is not an entitlement.
+
+| Policy                                                                        | Source of the value        | Frozen value | Owner / version |
+| ----------------------------------------------------------------------------- | -------------------------- | ------------ | --------------- |
+| Cadence, attempt, retry, lease, concurrency, window                           | MP-05, code defaults §2    | —            | —               |
+| Coverage per source (`FULL_INVENTORY` / `WINDOW`)                             | adapter contract, MP-02    | —            | —               |
+| Account quota: units, limit, reset, uncertainty handling                      | provider terms             | —            | —               |
+| Expiry, recheck, missing-observation rule                                     | §7 defaults                | —            | —               |
+| Browsing generations (ttl, entries, retention)                                | MP-13                      | —            | —               |
+| New-store retention durations                                                 | MP-07, legal memo          | —            | —               |
+| Quality and alert thresholds                                                  | MP-08, `HEALTH_THRESHOLDS` | —            | —               |
+| Model daily budget                                                            | stays disabled             | disabled     | —               |
+| Canonical authority, triage grant validity, cycle membership, cursor contract | backlog 425, 426           | —            | —               |
+
+### 11.2 Waves
+
+| Wave | Configurations                                                                                       | Minimum observation                      | Gate to the next wave            |
+| ---- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------- | -------------------------------- |
+| 1    | verified DOU bridge + Greenhouse / Lever / Ashby boards + one ready free API (Arbeitnow recommended) | 24 h non-HTML                            | §11.3 metrics, no safety failure |
+| 2    | other ready JSON / RSS / ATS sources                                                                 | 24 h each                                | same                             |
+| 3    | credentialed quota APIs, only after meters reconcile                                                 | 24 h; enough requests for sparse sources | meters reconciled                |
+| 4    | permitted HTML, one source at a time (needs MP-01 and an engine decision)                            | 3 nights each                            | same                             |
+
+Health does not require non-empty results. Dice's denied route stays off in every wave.
+
+### 11.3 Steps inside a wave
+
+1. Disabled-by-default deploy (the code is already in this state).
+2. Scratch environment: backfill and shadow comparison against fixtures (`DATABASE_URL` inline, never the live DB).
+3. ADMIN-only review of the queue for the wave's sources.
+4. Limited HR teams and sources.
+5. Expand by metrics: false merges, extraction accuracy and completeness, relevance false negatives, precision@10 and
+   @20, usable active opportunities, discovery latency, wasted HR time, cost. The triage share and backlog age (MP-09)
+   ceiling blocks expansion.
+6. Per-configuration yield (MP-10); a low-yield configuration is re-cadenced or disabled through an audited ADMIN
+   action.
+
+**Safety tests, every wave:** zero unauthorized visibility (real HR, no-team and foreign-team requests; UI mocks are
+not evidence), no exclusion leaks, no legacy DOU regression, no identity corruption.
+
+**Evaluation corpus:** authentic permitted samples with recorded capture and adapter versions, independent labels,
+stratified, split by employer and job lineage, thresholds frozen before validation.
+
+### 11.4 Per-source enable procedure (ADMIN, after the owner's "go" for that source)
+
+1. The source's ADMIN card under `/admin/sources`: readiness is not `BLOCKED`; attribution is rendered if
+   `LINK_BACK_REQUIRED`.
+2. Credentialed source: the key is in `/opt/crm/.env.production` (human-only item 9) and a meter row exists.
+3. Toggle on. A refusal (`JOB_SOURCE_NOT_READY`, `JOB_SOURCE_AUTH_PAUSED`) is the gate working; do not work around it.
+4. After the first tick: the §13.2 run aggregates show a run for that source; record the run id in the measurement log.
+5. Rollback: toggle off (§14). History and records are kept.
+
+## 12. Dry-run instructions (disposable environments only)
+
+Each is exercised on a scratch database and a local stack, never on production. Record the run id in the measurement
+log.
+
+- **Restoration:** restore a production backup into a scratch database, start the API against it, open
+  `/admin/sources` and `/job-queue` as ADMIN; both load without a database error.
+- **Cleanup:** with `NEW_STORE_CLEANUP_DISABLED` lifted only in the scratch build, run the retention crons by hand and
+  compare row counts before and after; queue actions younger than two years are untouched.
+- **Claim conflict:** two HR sessions take the same opportunity; the second gets `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED`
+  or `JOB_QUEUE_VERSION_CONFLICT`, and `job_queue_actions` holds exactly one `TAKEN` row.
+- **Partial-run recovery:** kill the API during a run; after restart `recoverExpired` ends it `LEASE_EXPIRED`, and the
+  next tick claims the source again from its checkpoint.
+- **Generation refresh:** keep a list open past the 15 min ttl; the next page answers `JOB_QUEUE_REFRESH_REQUIRED` and
+  the client reloads to a new generation.
+- **Egress denial and restart controls** (when a worker or engine is introduced): reuse the "Checks" section of
+  `docs/runbooks/extraction-worker.md` on an equivalent isolated host.
+
+## 13. Post-deploy checks (Task 8.3, read-only)
+
+Production access is the owner's (`ssh crm-vps`); an agent runs these only with the owner's explicit permission in the
+chat. Every query runs in a read-only session, and the first line proves where it connected:
+
+```bash
+ssh crm-vps 'docker exec -i -e PGOPTIONS="-c default_transaction_read_only=on" crm-postgres-1 \
+  psql -U crm_user -d crm_db -At -F "|" -v ON_ERROR_STOP=1' < checks.sql
+```
+
+```sql
+SELECT current_database(), current_setting('default_transaction_read_only');  -- expect crm_db|on
+```
+
+Aggregates only. No row-level personal data leaves the server.
+
+### 13.1 Build fingerprint and schema
+
+- `GET https://app.cheekycheese.tech/api/health` answers `{ status, timestamp, commit, buildTime }`. The field is
+  `commit` (built from the `GIT_COMMIT` build argument). It must equal the short sha of the merged `main` head, and
+  `docker ps` must show the same tag on `crm-api-1` and `crm-nginx-1`.
+- **There is no migration ledger** (planned by ADR `2026-10-17-db-least-privilege-roles`, not built), so applied
+  migration versions and checksums cannot be read from a table. The check is object presence: for each file in
+  `apps/api/drizzle/manual-staged/` and the newest files in `manual/`, query `information_schema.columns`,
+  `information_schema.tables` and `pg_indexes` for the objects the file creates. Row counts alone are insufficient.
+- The source catalog agrees with the typed manifest: `job_sources` grouped by `type`, `enabled`, `readiness`, compared
+  with `MANIFEST_DEFINITIONS` (31 types; 36 rows on 2026-11-14).
+
+### 13.2 Aggregates
+
+```sql
+-- sources: last attempt / success / nonempty / cooldown / failures
+SELECT type, enabled, readiness, admin_state, last_attempt_at, last_success_at, last_nonempty_at,
+       cooldown_until, consecutive_failures, last_error_code
+FROM job_sources ORDER BY type;
+-- runs by outcome and coverage, last 7 days
+SELECT outcome, coverage, count(*) FROM job_collection_runs
+WHERE started_at > now() - interval '7 days' GROUP BY 1, 2;
+-- checkpoints held by partial runs
+SELECT count(*) FROM job_collection_runs WHERE checkpoint IS NOT NULL AND outcome = 'PARTIAL';
+-- accounts: used / reserved / uncertain
+SELECT account_key, unit, window_kind, limit_amount, used, reserved, uncertain, resets_at FROM job_account_meters;
+-- uniqueness (each must return 0)
+SELECT count(*) FROM (SELECT attempt_id FROM job_collection_runs GROUP BY 1 HAVING count(*) > 1) d;
+SELECT count(*) FROM (SELECT source_type, namespace, identity_key FROM job_source_records
+                      GROUP BY 1, 2, 3 HAVING count(*) > 1) d;
+-- active associations
+SELECT count(*) FROM job_opportunity_sources WHERE unlinked_at IS NULL;
+-- cycles that should have closed
+SELECT count(*) FROM job_collection_cycles WHERE status = 'OPEN' AND started_at < now() - interval '3 hours';
+-- DOU bridge
+SELECT status, outcome, count(*) FROM job_bridge_deliveries GROUP BY 1, 2;
+```
+
+API log, last day (`docker logs --since 24h crm-api-1`): count `db_state=42703`, `db_state=42P01` and
+`Job sourcing cron step failed`. Each must be 0 before any wave. `docker logs` covers only the current container, so
+after a deploy the window starts at the restart.
+
+**Not checkable yet (not built):** DOU shadow decisions against fixtures, backfill checksums and decision joins, cost
+against provider usage. Each becomes a check when its feature lands; until then the plan's 8.3 items that need them are
+open, not passed.
+
+### 13.3 Recorded run — 2026-11-14 (production, read-only, owner-permitted)
+
+- `/api/health` `commit` = `5a22902` = `origin/main`; `crm-api-1` and `crm-nginx-1` run tag `5a22902`.
+- `job_sources`: 36 rows — 1 enabled (`CANDIDATE`, the DOU row), 20 disabled `CANDIDATE`, 15 disabled `BLOCKED`.
+  `DOU_RSS` has `last_attempt_at` empty and 0 failures.
+- New store: 0 records, 0 opportunities, 0 active associations, 0 assignments, 0 queue actions, 0 bridge deliveries,
+  0 meters, 0 reservations, 0 runs; 2084 closed cycles (one per tick), 0 open.
+- Legacy store: `job_postings` 0 rows, `job_suggestions` 0 rows. Cause not established.
+- **Schema drift — objects absent in production that the code expects:**
+  - `job_sources.slowdown_level` and the run metrics columns (`request_count`, `bytes_read`, `last_http_status`, …) of
+    `manual-staged/2026-10-31_job_run_metrics_slowdown.sql`;
+  - the table of `2026-10-31_job_source_health_events.sql`;
+  - the partial indexes of `2026-11-02_job_dirty_work_pending_partial.sql` and
+    `2026-11-03_job_dirty_work_partition_partial.sql`;
+  - `uq_job_sources_inventory_type_namespace` of `2026-11-02_job_sources_inventory_uniqueness.sql`;
+  - the tables of `2026-11-06_job_model_health.sql`.
+- Present although staged: the columns of `2026-11-04_job_opportunities_evaluation_verdict.sql`,
+  `2026-11-04_job_queue_submissions_per_senior.sql` (with `uq_job_queue_assignments_opportunity_senior`),
+  `2026-11-05_job_opportunities_manual_team.sql` and `2026-11-05_job_opportunities_role_family.sql`. How they were
+  applied is not recorded (no ledger).
+- **Effect observed:** every tick logs `Job sourcing cron step failed [tick: health detector pass]` with
+  `db_state=42703 … column 'bytes_read' does not exist`.
+- **Effect inferred, not yet seen in a log:** `JobSourcingService.collectAll` (the 05:00 DOU run and the manual
+  collect) and `listSources` (`/admin/sources`) select every `job_sources` column, `slowdown_level` included, so they
+  fail with `42703` since #1200 was deployed. The API container had restarted minutes before the check, so no 05:00 log
+  was available. Verify: the API log after 05:00 Kyiv, or open `/admin/sources` as ADMIN.
+
+## 14. Rollback (all of v1)
+
+**Order:** ADMIN disable / fence new source owners → disable queue and consumer flags → stop isolated browser or model
+workers and revoke only their secrets → redeploy a compatible old API / UI only if needed. Reservations for sent
+requests stay conservative until reconciled; source records, revisions, tombstones and legacy IDs stay intact. No
+blanket revert without checking new-schema / old-binary and enum compatibility.
+
+| Component       | Action                                                                                     | Evidence it worked                                                                   |
+| --------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| One source      | ADMIN switch off (`PATCH /job-sourcing/sources/:id`)                                       | `admin_state_history` has `DISABLED`; its `STARTED` runs end `CANCELLED`; no new run |
+| New portfolio   | switch off every non-DOU source                                                            | §13.2: no run except DOU; the DOU legacy path untouched                              |
+| New queue       | flags off (§9) and restart; the route stays mounted and authorized                         | assignment, dismissal and `job_queue_actions` row counts unchanged                   |
+| Projection      | `JOB_MATCH_RECONCILIATION_ENABLED`, `JOB_AVAILABILITY_RECONCILE_ENABLED` off               | `job_dirty_work` stops moving; DOU delivery continues; replay later                  |
+| DOU bridge      | `JOB_QUEUE_BRIDGE_ENABLED` off and restart                                                 | the 05:00 run completes on the legacy path; `job_bridge_deliveries` stops growing    |
+| Schema          | none: additive DDL stays; no DROP, no type or decision rollback                            | —                                                                                    |
+| Model worker    | stop its compose project only, revoke its keys                                             | the API keeps running; never a whole-stack `compose down`                            |
+| Bad association | not built as an ADMIN action: a Coder task (unlink / split, rebuild facts, hold conflicts) | —                                                                                    |
+
+Exercise rollback drills on the scratch environment of §12 first; a drill must preserve shadow decisions and backfill
+checksums once those exist.
+
+## 15. Spec coverage (self-check, 2026-11-14)
+
+| Plan item                                                                           | Where                      | State                                          |
+| ----------------------------------------------------------------------------------- | -------------------------- | ---------------------------------------------- |
+| 8.1 components, scheduling, catch-up                                                | §1, §2                     | documented                                     |
+| 8.1 run / coverage / status meanings; manual and ADMIN limits                       | §3, §4                     | documented                                     |
+| 8.1 quota units, reconciliation, uncertain debit                                    | §5                         | documented; reconciliation not built           |
+| 8.1 source policy, attribution, auth expiry                                         | §6                         | documented; UI attribution not verified        |
+| 8.1 update, reopen, retention, generations, backfill, merge / split, claim conflict | §7, §12                    | documented; ADMIN split and reopen not built   |
+| 8.1 aggregate-only queries                                                          | §13.2                      | documented                                     |
+| 8.1 scratch / load / egress / rollback checks with run ids                          | §12, measurement log       | instructions only; no run yet                  |
+| 8.1 capacity and credentials human-only                                             | `human-only.md` items 8–11 | documented                                     |
+| 8.1 pinned engine services, digests, licence                                        | §8                         | no engine exists                               |
+| 8.1 model endpoint separation, key rotation, limits                                 | §8                         | documented                                     |
+| 8.1 v1 alerts, frozen thresholds, suppression                                       | §10                        | partly built; gaps listed                      |
+| 8.1 catalog review 2027-01-15, Recruitee deadline                                   | §6                         | dates recorded; no code reminder               |
+| 8.2 phased activation                                                               | §11, decision brief        | checklist prepared; nothing enabled            |
+| 8.3 build fingerprint and migrations                                                | §13.1, §13.3               | run 2026-11-14; schema drift found             |
+| 8.3 aggregates                                                                      | §13.2, §13.3               | run 2026-11-14                                 |
+| 8.3 shadow decisions, backfill checksums, rollback drills                           | §13.2, §14                 | not checkable: not built                       |
+| 8.3 egress, reopen, partial recovery, generation, claim audit, alert delivery       | §12                        | instructions only; no run yet                  |
+| 8.3 quality report                                                                  | measurement log            | no sample yet; nothing called production-ready |
+| Rollback                                                                            | §14                        | documented; drills not run                     |
