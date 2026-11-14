@@ -541,7 +541,7 @@ function TriageGrantForm({
           <Label htmlFor={teamField}>
             <Trans>Команда</Trans>
           </Label>
-          <Select value={teamId} onValueChange={setTeamId}>
+          <Select value={teamId} onValueChange={setTeamId} disabled={none}>
             <SelectTrigger
               id={teamField}
               aria-required="true"
@@ -618,11 +618,13 @@ function TriageGrantForm({
         )}
       </div>
       {/* a disabled button's reason is in the text beside it (WCAG 3.3.2) */}
-      {incomplete && (
-        <p id={hint} className="text-sm text-pretty text-muted-foreground">
-          <Trans>Виберіть команду й вкажіть причину.</Trans>
-        </p>
-      )}
+      {/* kept in the layout and only hidden: removing it moved the centred dialog under the caret */}
+      <p
+        id={hint}
+        className={cn('text-sm text-pretty text-muted-foreground', !incomplete && 'invisible')}
+      >
+        <Trans>Виберіть команду й вкажіть причину.</Trans>
+      </p>
       <AlertDialogFooter>
         <AlertDialogCancel className="min-h-11 sm:min-h-9">
           <Trans>Не призначати</Trans>
