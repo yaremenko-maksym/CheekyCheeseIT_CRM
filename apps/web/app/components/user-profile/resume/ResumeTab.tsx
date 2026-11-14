@@ -56,11 +56,13 @@ export interface ResumeTabProps {
   userId: string
   /** The senior's profile name: the completeness check needs it (R32). */
   displayName: string
+  /** The senior's Telegram handle: the completeness check flags it like a phone. */
+  telegram?: string | null | undefined
   /** Bubbles unsaved-edit state to UserProfileShell's tab-switch guard. */
   onDirtyChange?: (dirty: boolean) => void
 }
 
-export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps) {
+export function ResumeTab({ userId, displayName, telegram, onDirtyChange }: ResumeTabProps) {
   const { t } = useLingui()
   const { data, isLoading, isError } = useSeniorResume(userId)
   const saveFacts = useSaveResumeFacts(userId)
@@ -398,6 +400,7 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
           <ResumeFactsForm
             facts={resume?.facts ?? EMPTY_RESUME_FACTS}
             displayName={displayName}
+            telegram={telegram}
             disabled={verificationBusy}
             onSave={(facts, { silent }) => saveFacts.mutateAsync({ facts, silent })}
             onSubmit={async () => {

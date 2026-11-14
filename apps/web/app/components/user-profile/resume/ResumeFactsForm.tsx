@@ -98,6 +98,8 @@ export interface ResumeFactsFormProps {
   facts: ResumeFacts
   /** The profile name: the check needs it, the form cannot change it. */
   displayName: string
+  /** The profile Telegram handle: the check flags it in the text, like the API does. */
+  telegram?: string | null | undefined
   /** A check is running: values stay readable, nothing is editable. */
   disabled: boolean
   onSave: (facts: ResumeFacts, options: { silent: boolean }) => Promise<unknown>
@@ -111,6 +113,7 @@ export interface ResumeFactsFormProps {
 export function ResumeFactsForm({
   facts,
   displayName,
+  telegram,
   disabled,
   onSave,
   onSubmit,
@@ -180,8 +183,8 @@ export function ResumeFactsForm({
 
   const nowMonth = monthOf(now ?? new Date())
   const issues = useMemo(
-    () => checkResumeCompleteness(draft, { displayName, now: now ?? new Date() }),
-    [draft, displayName, now],
+    () => checkResumeCompleteness(draft, { displayName, telegram, now: now ?? new Date() }),
+    [draft, displayName, telegram, now],
   )
 
   const errorsByField = useMemo(() => {

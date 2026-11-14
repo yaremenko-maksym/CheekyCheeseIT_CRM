@@ -448,6 +448,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
                 <ResumeTab
                   userId={profileUser.id}
                   displayName={profileUser.displayName}
+                  telegram={profileUser.telegram}
                   onDirtyChange={handleResumeDirtyChange}
                 />
               )}

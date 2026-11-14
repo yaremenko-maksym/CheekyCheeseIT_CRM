@@ -36,13 +36,14 @@ function Providers({ children }: { children: ReactNode }) {
 }
 
 /** The form wired to the real hooks, exactly as ResumeTab wires it. */
-function Wired({ facts }: { facts: ResumeFacts }) {
+function Wired({ facts, telegram }: { facts: ResumeFacts; telegram?: string | null }) {
   const save = useSaveResumeFacts('senior-1')
   const submit = useSubmitResume('senior-1')
   return (
     <ResumeFactsForm
       facts={facts}
       displayName="Alex Doe"
+      telegram={telegram}
       disabled={false}
       now={NOW}
       onSave={(next) => save.mutateAsync({ facts: next })}
@@ -111,6 +112,20 @@ describe('ResumeFactsForm', () => {
       fireEvent.click(within(list).getByRole('button', { name }))
       expect(field()).toHaveFocus()
     }
+  })
+
+  it("the senior's Telegram handle in a note is an issue, as the server counts it", () => {
+    const [job] = COMPLETE.experience
+    const facts = { ...COMPLETE, experience: [{ ...job!, notes: ['Ping @alex_doe_tg'] }] }
+    const issues = () => screen.queryByRole('list', { name: 'Незаповнені поля' })
+    const { unmount } = render(<Wired facts={facts} />, { wrapper: Providers })
+    expect(issues()).toBeNull()
+    unmount()
+    render(<Wired facts={facts} telegram="alex_doe_tg" />, { wrapper: Providers })
+    const rows = within(issues()!).getAllByRole('button')
+    expect(rows.map((row) => row.textContent)).toEqual([
+      expect.stringMatching(/^Місце роботи 1 · Нотатки/),
+    ])
   })
 
   it('a link the server would refuse keeps Submit disabled and shows its error after blur (R66)', () => {
