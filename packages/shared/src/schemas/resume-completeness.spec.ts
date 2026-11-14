@@ -700,3 +700,38 @@ describe('isLatinScript', () => {
     expect(isLatinScript('Dʼаngelo')).toBe(false) // Cyrillic а
   })
 })
+
+describe('checkResumeCompleteness — the Telegram handle of the senior', () => {
+  const noteWith = (note: string) => makeFacts({ experience: [makeExperience({ notes: [note] })] })
+  const flagged = [{ path: 'experience.0.notes.0', code: 'CONTACT_IN_TEXT' }]
+
+  it.each(['ping @jose_dev', 'ping JOSE_DEV', 'see t.me/jose_dev.'])(
+    'flags the handle with or without its @, any case: %s',
+    (note) => {
+      const ctx = { ...CTX, telegram: '@Jose_Dev' }
+      expect(checkResumeCompleteness(noteWith(note), ctx)).toEqual(flagged)
+    },
+  )
+
+  it('flags the @ form when the handle is stored without it', () => {
+    const ctx = { ...CTX, telegram: 'jose_dev' }
+    expect(checkResumeCompleteness(noteWith('ping @jose_dev'), ctx)).toEqual(flagged)
+  })
+
+  it.each(['jose_dev2 shipped', 'xjose_dev shipped', 'a@jose_dev shipped'])(
+    'does not flag a longer token: %s',
+    (note) => {
+      const ctx = { ...CTX, telegram: 'jose_dev' }
+      expect(checkResumeCompleteness(noteWith(note), ctx)).toEqual([])
+    },
+  )
+
+  it('matches the stored handle literally, not as a pattern', () => {
+    const ctx = { ...CTX, telegram: 'jose.dev' }
+    expect(checkResumeCompleteness(noteWith('josexdev shipped'), ctx)).toEqual([])
+  })
+
+  it.each([null, undefined, '', '  ', '@'])('a telegram of %j changes nothing', (telegram) => {
+    expect(checkResumeCompleteness(noteWith('ping @jose_dev'), { ...CTX, telegram })).toEqual([])
+  })
+})

@@ -105,12 +105,13 @@ const normaliseName = (text: string): string =>
   text.normalize('NFC').replace(/[\u2019\u02BC]/g, "'")
 
 /**
- * Phone, email, or the senior's full name, whole words, any case or spacing:
+ * Phone, email, the senior's Telegram handle (whole token, with or without its
+ * `@`, any case), or the senior's full name, whole words, any case or spacing:
  * every token of the display name in order, or its first and last token in
  * either order. A one-token name adds no name check: a first name or surname
  * alone is a common word too often.
  */
-function contactCheck(displayName: string): ContactCheck {
+function contactCheck(displayName: string, telegram: string | null | undefined): ContactCheck {
   const tokens = normaliseName(displayName).trim().split(/\s+/).filter(Boolean).map(escapeRegExp)
   const first = tokens[0]
   const last = tokens[tokens.length - 1]
@@ -122,9 +123,14 @@ function contactCheck(displayName: string): ContactCheck {
           'iu',
         )
       : null
+  const handle = (telegram ?? '').trim().replace(/^@/, '')
+  // A Telegram username is `[A-Za-z0-9_]`, so `\w` is its boundary; no lookbehind (Safari < 16.4).
+  const handleTest =
+    handle === '' ? null : new RegExp(`(?:^|[^\\w@])@?${escapeRegExp(handle)}(?:$|[^\\w])`, 'i')
   return (text) =>
     findPhoneSpans(text).length > 0 ||
     RESUME_EMAIL_PATTERN.test(text) ||
+    (handleTest !== null && handleTest.test(text)) ||
     (name !== null && name.test(normaliseName(text)))
 }
 
@@ -197,10 +203,10 @@ function checkExperienceItem(
  */
 export function checkResumeCompleteness(
   facts: ResumeFacts,
-  ctx: { displayName: string; now: Date },
+  ctx: { displayName: string; telegram?: string | null | undefined; now: Date },
 ): CompletenessIssue[] {
   const issues: CompletenessIssue[] = []
-  const containsContactData = contactCheck(ctx.displayName)
+  const containsContactData = contactCheck(ctx.displayName, ctx.telegram)
   const nowMonth = `${ctx.now.getUTCFullYear()}-${String(ctx.now.getUTCMonth() + 1).padStart(2, '0')}`
 
   if (!isLatinScript(ctx.displayName)) issues.push({ path: 'displayName', code: 'NAME_NON_LATIN' })
