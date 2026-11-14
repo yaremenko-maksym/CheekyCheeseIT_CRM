@@ -12,6 +12,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { USERS, mockAuthAs, buildAdminViewingUser, API_GLOB, API_RE } from '../fixtures'
 import { loadMessages, assertInCatalog } from '../../fixtures/catalog'
+import { EMPTY_FACTS, json, resumeResponse, type ResumeStub } from '../fixtures/senior-resume-mocks'
 
 let uk: Record<string, string>
 test.beforeAll(async () => {
@@ -20,66 +21,22 @@ test.beforeAll(async () => {
 
 const SENIOR_ID = USERS.senior.id
 
-/** Mirrors the DTO (the E2E package does not import @crm/shared). */
-function resumeResponse(overrides: Record<string, unknown> = {}) {
-  return {
-    canEdit: true,
-    canConfirm: true,
-    resume: {
-      id: 'aaaaaaaa-0000-4000-8000-000000000002',
-      userId: SENIOR_ID,
-      content: {
-        summary: 'Senior developer with eight years of experience.',
-        skills: ['TypeScript'],
-        experience: [],
-        education: [],
-        languages: [],
-        links: [],
-      },
-      status: 'READY',
-      errorCode: null,
-      errorMessage: null,
-      quotaResetsAt: null,
-      sourceFileName: null,
-      sourceFileSizeBytes: null,
-      hasSourceFile: false,
-      version: 3,
-      updatedByUserId: null,
-      updatedByName: null,
-      createdAt: '2026-11-10T10:00:00.000Z',
-      updatedAt: '2026-11-10T10:00:00.000Z',
-      layout: {
-        sectionOrder: ['summary', 'skills', 'experience', 'education', 'languages', 'links'],
-        hiddenSections: [],
-        density: 'normal',
-        fontScale: 'normal',
-      },
-      templateName: 'classic',
-      hasCustomTemplate: false,
-      renderStatus: 'READY',
-      renderError: null,
-      pdfUpToDate: true,
-      facts: {
-        headline: 'Backend Engineer',
-        location: { city: '', country: '' },
-        workFormat: null,
-        skills: [],
-        experience: [],
-        education: [],
-        languages: [],
-        links: [],
-      },
-      verificationStatus: 'DRAFT',
-      verificationErrorCode: null,
-      verificationReport: null,
-      verifiedVersion: null,
-      verifiedAt: null,
-      verifiedByName: null,
-      staged: null,
-      verificationBusy: false,
-      ...overrides,
-    },
-  }
+/** The row these cases start from; each case overrides the verification half. */
+const BASE: ResumeStub = {
+  content: {
+    summary: 'Senior developer with eight years of experience.',
+    skills: ['TypeScript'],
+    experience: [],
+    education: [],
+    languages: [],
+    links: [],
+  },
+  version: 3,
+  facts: { ...EMPTY_FACTS, headline: 'Backend Engineer' },
+}
+
+function resume(stub: ResumeStub = {}) {
+  return resumeResponse({ ...BASE, ...stub }, true, true)
 }
 
 const VERIFIED = {
@@ -89,10 +46,6 @@ const VERIFIED = {
   verifiedByName: 'Hanna HR',
 }
 
-function json(body: unknown) {
-  return { status: 200, contentType: 'application/json', body: JSON.stringify(body) }
-}
-
 /**
  * GET answers the current server state; PUT template records its body and
  * moves the server to `afterPut`. The PDF is mocked too: an unmocked call in CI
@@ -100,8 +53,8 @@ function json(body: unknown) {
  */
 async function openResume(
   page: Page,
-  initial: ReturnType<typeof resumeResponse>,
-  afterPut: ReturnType<typeof resumeResponse>,
+  initial: ReturnType<typeof resume>,
+  afterPut: ReturnType<typeof resume>,
 ): Promise<{ bodies: unknown[] }> {
   const bodies: unknown[] = []
   let current = initial
@@ -130,11 +83,7 @@ async function openResume(
 
 test.describe('Resume — template picker', () => {
   test('on a DRAFT row a pick sends PUT template with the name', async ({ page }) => {
-    const { bodies } = await openResume(
-      page,
-      resumeResponse(),
-      resumeResponse({ templateName: 'modern' }),
-    )
+    const { bodies } = await openResume(page, resume(), resume({ templateName: 'modern' }))
     const picker = page.getByTestId('resume-template-picker')
     await expect(picker.getByRole('radio')).toHaveCount(4)
     await expect(page.getByTestId('resume-template-classic')).toHaveAttribute(
@@ -155,8 +104,8 @@ test.describe('Resume — template picker', () => {
   test('on a VERIFIED row a pick starts the check and keeps the previous PDF', async ({ page }) => {
     const { bodies } = await openResume(
       page,
-      resumeResponse(VERIFIED),
-      resumeResponse({ ...VERIFIED, verificationBusy: true }),
+      resume(VERIFIED),
+      resume({ ...VERIFIED, verificationBusy: true }),
     )
     await expect(page.getByTestId('resume-download-pdf')).toBeVisible()
 

@@ -27,6 +27,7 @@ export interface ResumeStub {
   hasSourceFile?: boolean
   version?: number
   layout?: unknown
+  templateName?: string
   renderStatus?: string
   renderError?: string | null
   pdfUpToDate?: boolean
@@ -84,7 +85,7 @@ export function resumeResponse(stub: ResumeStub | null, canEdit = true, canConfi
       // is never in the DTO — only its label — which is what keeps it out of
       // reach of anything running in a browser.
       layout: stub.layout ?? DEFAULT_LAYOUT,
-      templateName: 'classic',
+      templateName: stub.templateName ?? 'classic',
       hasCustomTemplate: false,
       renderStatus: stub.renderStatus ?? 'READY',
       renderError: stub.renderError ?? null,
