@@ -68,7 +68,8 @@ export function regenerateTarget(path: string | null): 'summary' | number | null
 
 /**
  * The header contacts and one contact context per distinct name (display and legal), each with
- * every email of the user. The one builder of contact contexts for a resume owner.
+ * every email and the Telegram handle of the user. The one builder of contact contexts for a resume
+ * owner.
  */
 export async function loadOwnerContacts(
   db: DatabaseService,
@@ -79,6 +80,7 @@ export async function loadOwnerContacts(
       displayName: users.displayName,
       email: users.email,
       legalFullName: users.legalFullName,
+      telegram: users.telegram,
     })
     .from(users)
     .where(eq(users.id, userId))
@@ -96,7 +98,7 @@ export async function loadOwnerContacts(
   return {
     displayName: user.displayName,
     email: user.email,
-    contacts: names.map((fullName) => ({ fullName, emails })),
+    contacts: names.map((fullName) => ({ fullName, emails, telegram: user.telegram })),
   }
 }
 

@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { redactContacts, scanContacts, type ContactContext } from './contact-scan'
+import { hasContact } from './content-gates'
 
 const ctx: ContactContext = { fullName: 'Mark Levin', emails: ['mark.levin@example.com'] }
 
@@ -336,5 +337,53 @@ describe('scanContacts — serialized text and spelling variants (fix round 1)',
       { kind: 'email', match: 'mark+cv@example.com' },
       { kind: 'email', match: 'MARK.LEVIN@EXAMPLE.COM' },
     ])
+  })
+})
+
+describe('the Telegram handle of the senior', () => {
+  const tg: ContactContext = { ...ctx, telegram: '@Mark_Dev' }
+
+  it('hits the handle with and without its @, in any case', () => {
+    expect(scanContacts('ping @mark_dev or MARK_DEV', tg)).toEqual([
+      { kind: 'telegram', match: '@mark_dev' },
+      { kind: 'telegram', match: 'MARK_DEV' },
+    ])
+  })
+
+  it('a handle stored without its @ still hits the written @ form', () => {
+    expect(scanContacts('tg @mark_dev', { ...ctx, telegram: 'mark_dev' })).toEqual([
+      { kind: 'telegram', match: '@mark_dev' },
+    ])
+  })
+
+  it('hits only the whole handle', () => {
+    expect(scanContacts('mark_dev2, xmark_dev, a@mark_dev', tg)).toEqual([])
+  })
+
+  it('matches the stored handle literally, not as a pattern', () => {
+    expect(scanContacts('markxdev', { ...ctx, telegram: 'mark.dev' })).toEqual([])
+  })
+
+  it('is redacted in a company name and flagged in a note', () => {
+    expect(redactContacts('Acme (tg: @mark_dev)', tg)).toBe('Acme (tg: [REDACTED])')
+    expect(hasContact('Reach me at mark_dev', [tg])).toBe(true)
+  })
+
+  it.each([null, undefined, '', '  ', '@'])('a telegram of %j changes nothing', (telegram) => {
+    const text = 'Acme (tg: @mark_dev)'
+    expect(scanContacts(text, { ...ctx, telegram })).toEqual([])
+    expect(redactContacts(text, { ...ctx, telegram })).toBe(text)
+  })
+})
+
+describe('no context of the senior', () => {
+  it('redactContacts still redacts every email and phone', () => {
+    expect(redactContacts('mail a@b.io or +380671234567', [])).toBe('mail [REDACTED] or [REDACTED]')
+  })
+
+  it('hasContact still flags every email and phone', () => {
+    expect(hasContact('mail a@b.io', [])).toBe(true)
+    expect(hasContact('call +380671234567', [])).toBe(true)
+    expect(hasContact('no contacts here', [])).toBe(false)
   })
 })

@@ -1698,6 +1698,34 @@ describe.skipIf(!hasDatabaseUrl())(
           expect(row.updatedByUserId).toBe(viewer.id)
           expect(runner.run.mock.calls).toEqual([[row.id, row.verificationRunId]])
         })
+
+        it("the senior's Telegram handle in a note makes the facts incomplete: 422, nothing queued", async () => {
+          const experience = COMPLETE.experience.map((item) => ({
+            ...item,
+            notes: ['Led the payments team, ping SENIOR_TG_A'],
+          }))
+          await service.saveFacts(session(SENIOR_A), SENIOR_A.id, { ...COMPLETE, experience })
+          await dbSvc.db
+            .update(users)
+            .set({ telegram: '@senior_tg_a' })
+            .where(eq(users.id, SENIOR_A.id))
+          try {
+            const err: unknown = await service.submit(session(SENIOR_A), SENIOR_A.id).then(
+              () => null,
+              (e: unknown) => e,
+            )
+            expect((err as HttpException).getStatus()).toBe(422)
+            expect((err as HttpException).getResponse()).toMatchObject({
+              code: 'RESUME_INCOMPLETE',
+            })
+            expect(runner.run).not.toHaveBeenCalled()
+          } finally {
+            await dbSvc.db
+              .update(users)
+              .set({ telegram: SENIOR_A.telegram ?? null })
+              .where(eq(users.id, SENIOR_A.id))
+          }
+        })
       })
 
       it('legacy row without facts reads mapped facts and status DRAFT', async () => {
@@ -1874,6 +1902,26 @@ describe.skipIf(!hasDatabaseUrl())(
         const uploadedKey = s3.upload.mock.calls.at(-1)?.[0] as string
         expect(s3.delete).toHaveBeenCalledWith(uploadedKey)
         expect((await rowOf(SENIOR_A.id)).sourceS3Key).not.toBe(uploadedKey)
+      })
+
+      it('a failed delete of the superseded source still answers with the new source in place', async () => {
+        const previousKey = `senior-resumes/${SENIOR_A.id}/previous-source`
+        await setState(SENIOR_A.id, { sourceS3Key: previousKey })
+        s3.delete.mockRejectedValueOnce(new Error('storage down'))
+
+        const queued = await service.uploadSource(session(HR_USER), SENIOR_A.id, {
+          buffer: buildDocx(['Иван Петров', 'Синьор']),
+          mimetype: RESUME_DOCX_MIME,
+          originalname: 'cv.docx',
+        })
+        expect(queued.resume?.status).toBe('QUEUED')
+        const uploadedKey = s3.upload.mock.calls.at(-1)?.[0] as string
+        expect(s3.delete).toHaveBeenCalledWith(previousKey)
+        expect((await rowOf(SENIOR_A.id)).sourceS3Key).toBe(uploadedKey)
+        // The extraction of the new source still starts.
+        await vi.waitFor(async () => {
+          expect((await rowOf(SENIOR_A.id)).status).not.toMatch(/^(QUEUED|RUNNING)$/)
+        })
       })
 
       it('extracted facts outside the schema range fail the run and store nothing', async () => {

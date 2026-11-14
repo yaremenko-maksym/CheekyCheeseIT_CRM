@@ -1,7 +1,7 @@
 import { MAX_EXTRACTION_INPUT_CHARS } from '@crm/inference'
 import type { ResumeContent, ResumeFacts, ResumeVerificationErrorCode } from '@crm/shared'
 import { toRenderableText, type GlyphFontSet } from '../resume-glyphs'
-import { redactContacts, scanContacts, type ContactContext } from './contact-scan'
+import { redactContacts, scanContacts, scanContexts, type ContactContext } from './contact-scan'
 import { yearsOfExperience } from './derive-content'
 import { findUngroundedTokens, type FactSource } from './fact-gate'
 import {
@@ -81,9 +81,12 @@ export function redactAll(text: string, contacts: readonly ContactContext[]): st
   return redactContacts(text, contacts)
 }
 
-/** A name, an email or a phone of the senior in `text` (or a redaction marker left in it). */
+/** A name, an email, a phone or the Telegram handle in `text` (or a redaction marker left in it). */
 export function hasContact(text: string, contacts: readonly ContactContext[]): boolean {
-  return text.includes(REDACTED) || contacts.some((ctx) => scanContacts(text, ctx).length > 0)
+  return (
+    text.includes(REDACTED) ||
+    scanContexts(contacts).some((ctx) => scanContacts(text, ctx).length > 0)
+  )
 }
 
 /** Note text as a fallback bullet list: whitespace collapsed, blanks dropped. */

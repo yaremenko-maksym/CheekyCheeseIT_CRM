@@ -385,9 +385,14 @@ export class SeniorResumesService {
       return this.verification.resolveMiss(row.id)
     }
 
-    // Replacing the source must not leave the previous object orphaned in R2.
+    // Replacing the source must not leave the previous object orphaned in R2. The new source is
+    // already committed: a failed delete leaves an orphan to log, never a 500 for a stored upload.
     if (previousKey && previousKey !== key) {
-      await this.s3.delete(previousKey)
+      try {
+        await this.s3.delete(previousKey)
+      } catch {
+        this.logger.warn(`Superseded resume source not deleted: ${previousKey}`)
+      }
     }
 
     this.startExtraction(row.id, () => this.extraction.extract(file.buffer, detected))
@@ -1115,12 +1120,12 @@ export class SeniorResumesService {
     return this.toResponse(await this.verification.saveFacts(existing, facts, viewer.id), viewer)
   }
 
-  /** POST submit — queue the check run; the senior's display name feeds the completeness check. */
+  /** POST submit — queue the check run; the owner's name and Telegram feed the completeness check. */
   async submit(viewer: SessionUser, targetUserId: string): Promise<SeniorResumeResponse> {
     const target = await this.assertAccess(viewer, targetUserId, 'write')
     const existing = await this.ensureRow(targetUserId)
     return this.toResponse(
-      await this.verification.submit(existing, target.displayName, viewer.id),
+      await this.verification.submit(existing, target.displayName, viewer.id, target.telegram),
       viewer,
     )
   }

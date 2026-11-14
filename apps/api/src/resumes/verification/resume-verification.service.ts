@@ -407,7 +407,12 @@ export class ResumeVerificationService {
    * the request path. 422 for a custom template or incomplete facts (P7: no issue list), 409 while a
    * check or an extraction runs (P5a). From AWAITING_CONFIRM the old staged object goes after commit.
    */
-  async submit(row: SeniorResume, displayName: string, viewerId: string): Promise<SeniorResume> {
+  async submit(
+    row: SeniorResume,
+    displayName: string,
+    viewerId: string,
+    telegram: string | null = null,
+  ): Promise<SeniorResume> {
     if (row.templateSource !== null) {
       throw apiError('RESUME_CUSTOM_TEMPLATE', HttpStatus.UNPROCESSABLE_ENTITY)
     }
@@ -415,7 +420,7 @@ export class ResumeVerificationService {
       throw apiError('RESUME_VERIFICATION_BUSY', HttpStatus.CONFLICT)
     }
     const facts = this.factsOf(row)
-    if (checkResumeCompleteness(facts, { displayName, now: new Date() }).length > 0) {
+    if (checkResumeCompleteness(facts, { displayName, telegram, now: new Date() }).length > 0) {
       throw apiError('RESUME_INCOMPLETE', HttpStatus.UNPROCESSABLE_ENTITY)
     }
     const runId = randomUUID()

@@ -2,7 +2,7 @@
  * Contact scan (verified-base-resume Task 9).
  *
  * Text bound for a third-party AI writer passes through here first: a senior's
- * phone, email and name are found and replaced by `[REDACTED]`. A missed
+ * phone, email, Telegram handle and name are found and replaced by `[REDACTED]`. A missed
  * contact is a leak, so every recognisable email and phone counts, not only the
  * senior's own. Pure: no I/O, no Nest providers.
  */
@@ -12,10 +12,23 @@ export interface ContactContext {
   fullName: string
   /** `users.email` plus every `user_emails` row. */
   emails: string[]
+  /** `users.telegram`, stored with or without its `@`; null or absent adds no match. */
+  telegram?: string | null | undefined
+}
+
+/** No context of the senior: the generic email and phone patterns still run. */
+const NO_CONTEXT: ContactContext = { fullName: '', emails: [] }
+
+/** The contexts to scan with; an empty list still scans with `NO_CONTEXT`. */
+export function scanContexts(
+  ctx: ContactContext | readonly ContactContext[],
+): readonly ContactContext[] {
+  const list = Array.isArray(ctx) ? ctx : [ctx]
+  return list.length > 0 ? list : [NO_CONTEXT]
 }
 
 export interface ContactHit {
-  kind: 'phone' | 'email' | 'name'
+  kind: 'phone' | 'email' | 'name' | 'telegram'
   match: string
 }
 
@@ -103,14 +116,28 @@ function namePatterns(fullName: string): RegExp[] {
   return sources.filter(Boolean).map(wholeToken)
 }
 
-/** Email patterns; phones come from `findPhoneSpans`, the rule completeness uses too. */
+/**
+ * The handle as a whole token, with or without its `@`, any case: `ivan_dev` is not in
+ * `ivan_dev2` or `xivan_dev`. A Telegram username is `[A-Za-z0-9_]`, so `\w` is its boundary.
+ */
+function telegramPattern(telegram: string | null | undefined): RegExp | null {
+  const handle = (telegram ?? '').trim().replace(/^@/u, '')
+  return handle === '' ? null : new RegExp(`(?<![\\w@])@?${escapeRegExp(handle)}(?!\\w)`, 'giu')
+}
+
+/** Email and Telegram patterns; phones come from `findPhoneSpans`, the rule completeness uses too. */
 function contactPatterns(ctx: ContactContext): [ContactHit['kind'], RegExp][] {
   const global = (p: RegExp) => new RegExp(p.source, `${p.flags}g`)
   const literalEmails = ctx.emails
     .map((email) => email.normalize('NFC').trim())
     .filter(Boolean)
     .map((email): [ContactHit['kind'], RegExp] => ['email', new RegExp(escapeRegExp(email), 'giu')])
-  return [['email', global(RESUME_EMAIL_PATTERN)], ...literalEmails]
+  const telegram = telegramPattern(ctx.telegram)
+  return [
+    ['email', global(RESUME_EMAIL_PATTERN)],
+    ...literalEmails,
+    ...(telegram ? [['telegram', telegram] as [ContactHit['kind'], RegExp]] : []),
+  ]
 }
 
 /** Every raw hit on the NFC text, sorted by start, longer first on a tie. */
@@ -172,8 +199,8 @@ export function redactContacts(
   const merged: { start: number; end: number }[] = []
   // Several contexts (display and legal name) merge their spans before any replacement: redacting one
   // context's surname first would break the other's full-name match and leak its first names.
-  const spans = (Array.isArray(ctx) ? ctx : [ctx])
-    .flatMap((c: ContactContext) => findSpans(nfc, c))
+  const spans = scanContexts(ctx)
+    .flatMap((c) => findSpans(nfc, c))
     // by start only: the merge below keeps the furthest end, so a tie needs no order
     .sort((a, b) => a.start - b.start)
   for (const { start, end } of spans) {
