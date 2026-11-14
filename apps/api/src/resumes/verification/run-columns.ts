@@ -116,6 +116,8 @@ export function warnRunFailed(
     kind: string | null
     code: string
     origin: RunOrigin | null
+    /** SO-1: false when another run or the sweep won the row; the failure is real, the write is not. */
+    applied: boolean
     kept: boolean
   },
 ): void {
@@ -129,6 +131,7 @@ export function warnRunFailed(
       provider: line.origin?.provider ?? null,
       cause: line.origin?.reason ?? null,
       status: line.origin?.status ?? null,
+      applied: line.applied,
       kept: line.kept,
     }),
   )

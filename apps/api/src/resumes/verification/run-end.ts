@@ -113,7 +113,8 @@ export async function failRun(
     const old = snapshot ? stagedPdfKey(resumeId, runId) : (current?.key ?? null)
     return { old, live: current?.live ?? null }
   })
-  warnRunFailed(deps.logger, { runId, resumeId, kind, code, origin, kept })
+  // SO-1: the provider failure is logged either way; `applied` says whether this run wrote it.
+  warnRunFailed(deps.logger, { runId, resumeId, kind, code, origin, applied: won !== null, kept })
   if (won !== null) await deleteStagedQuietly(deps.s3, deps.logger, won.old)
   return won
 }

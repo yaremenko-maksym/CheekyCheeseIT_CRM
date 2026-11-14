@@ -4,6 +4,7 @@ import {
   decisionRequestSchema,
   INFERENCE_ERROR_CODES,
   MAX_DECISION_QUESTIONS,
+  type BoundedResult,
   type DecisionPort,
   type DecisionRequest,
   type ExtractionWorkerRoute,
@@ -85,6 +86,17 @@ function parseJson(text: string): unknown {
 }
 
 /** One call to a worker route; every failure is a coded `unavailable`, never a throw. */
+/**
+ * FY-1: which failure it was, value-free. A non-2xx answer, a body over the cap and a network
+ * error (by its class) log apart; a refused route or URL stays the bare `transport`.
+ */
+function transportTag(res: Exclude<BoundedResult, { kind: 'ok' | 'timeout' }>): string {
+  if (res.kind !== 'transport') return res.kind
+  if (res.tooLarge === true) return 'too_large'
+  if (res.status !== undefined) return 'http'
+  return res.errorName === undefined ? 'transport' : `transport:${res.errorName}`
+}
+
 async function callWorker<T>(
   post: ExtractionWorkerTransport | undefined,
   route: ExtractionWorkerRoute,
@@ -96,7 +108,7 @@ async function callWorker<T>(
   const res = await post(route, { body, timeoutMs: WORKER_ADAPTER_TIMEOUT_MS })
   if (res.kind === 'timeout') return { ...unavailable('TIMEOUT'), transport: res.kind }
   if (res.kind !== 'ok') {
-    return { ...unavailable('PROVIDER_ERROR'), status: res.status, transport: res.kind }
+    return { ...unavailable('PROVIDER_ERROR'), status: res.status, transport: transportTag(res) }
   }
   const reply = replySchema.safeParse(parseJson(res.text))
   return reply.success ? reply.data : { ...unavailable('INVALID_OUTPUT'), transport: 'reply' }

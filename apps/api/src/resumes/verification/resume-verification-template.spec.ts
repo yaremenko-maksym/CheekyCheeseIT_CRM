@@ -38,6 +38,7 @@ const sweptLine = (runId: string, resumeId: string, kind: string | null, kept: b
     provider: null,
     cause: 'SWEPT',
     status: null,
+    applied: true,
     kept,
   })
 

@@ -13,6 +13,7 @@ import {
   WRITER_PROVIDER,
 } from './inference-clients'
 import { WORKER_ADAPTER_TIMEOUT_MS } from '../../job-sourcing/structuring/model-extraction-wiring'
+import { DEFAULT_MAX_BYTES } from '@crm/inference'
 
 const URL_ = 'http://crm-extraction-worker:3100'
 const SECRET = 'SECRET-MARKER-0123456789abcdef-0123456789'
@@ -123,7 +124,7 @@ describe('ResumeWriterClient', () => {
       kind: 'unavailable',
       reason: 'PROVIDER_ERROR',
       status: 503,
-      transport: 'transport',
+      transport: 'http',
     })
   })
 
@@ -133,7 +134,7 @@ describe('ResumeWriterClient', () => {
     await expect(new ResumeWriterClient().write('summary', '{}', [])).resolves.toEqual({
       kind: 'unavailable',
       reason: 'PROVIDER_ERROR',
-      transport: 'transport',
+      transport: 'transport:Error',
     })
   })
 
@@ -143,7 +144,7 @@ describe('ResumeWriterClient', () => {
     await expect(new ResumeWriterClient().write('summary', '[1]', ['a\nb'])).resolves.toEqual({
       kind: 'unavailable',
       reason: 'PROVIDER_ERROR',
-      transport: 'transport',
+      transport: 'http',
       status: 400,
     })
   })
@@ -151,30 +152,45 @@ describe('ResumeWriterClient', () => {
 
 describe('the logged cause of a worker failure (FX-3)', () => {
   it('each failure shape logs a distinct cause; the status rides beside it, never a body', async () => {
+    const hang = (_url: string, init: { signal: AbortSignal }): Promise<never> =>
+      new Promise((_res, rej) => init.signal.addEventListener('abort', () => rej(new Error('x'))))
     const shapes: [string, () => void][] = [
       ['no worker env', () => {}],
       ['a worker-coded timeout', () => stubFetch({ kind: 'unavailable', reason: 'TIMEOUT' })],
+      ['a local timeout', () => vi.stubGlobal('fetch', hang)],
       ['a reply that fails its schema', () => stubFetch('not json')],
       ['a non-2xx', () => stubFetch({ error: 'secret body' }, 503)],
       ['a rate limit', () => stubFetch({ error: 'secret body' }, 429)],
-      ['a network error', () => vi.stubGlobal('fetch', () => Promise.reject(new Error('x')))],
+      ['a body over the cap', () => stubFetch('x'.repeat(DEFAULT_MAX_BYTES + 1))],
+      [
+        'a network error',
+        () => vi.stubGlobal('fetch', () => Promise.reject(new TypeError('secret body'))),
+      ],
     ]
     const origins = []
     for (const [name, arrange] of shapes) {
       vi.unstubAllEnvs()
       if (name !== 'no worker env') workerEnv()
       arrange()
-      const reply = await new ResumeWriterClient().write('summary', '{}', [])
+      const local = name === 'a local timeout'
+      if (local) vi.useFakeTimers()
+      const pending = new ResumeWriterClient().write('summary', '{}', [])
+      if (local) await vi.advanceTimersByTimeAsync(WORKER_ADAPTER_TIMEOUT_MS)
+      const reply = await pending
+      if (local) vi.useRealTimers()
       if (reply.kind !== 'unavailable') throw new Error(`${name}: expected unavailable`)
       origins.push(unavailableOrigin(WRITER_PROVIDER, reply))
     }
     expect(origins.map((o) => [o.reason, o.status])).toEqual([
       ['NOT_CONFIGURED:unset', undefined],
       ['TIMEOUT', undefined],
+      ['TIMEOUT:timeout', undefined],
       ['INVALID_OUTPUT:reply', undefined],
-      ['PROVIDER_ERROR:transport', 503],
+      ['PROVIDER_ERROR:http', 503],
       ['PROVIDER_ERROR:rate_limited', 429],
-      ['PROVIDER_ERROR:transport', undefined],
+      ['PROVIDER_ERROR:too_large', 200],
+      // FY-1: the error class, never its message.
+      ['PROVIDER_ERROR:transport:TypeError', undefined],
     ])
     expect(JSON.stringify(origins)).not.toContain('secret body')
   })

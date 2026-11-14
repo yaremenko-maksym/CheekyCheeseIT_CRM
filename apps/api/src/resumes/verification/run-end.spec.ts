@@ -138,6 +138,7 @@ describe('failRun keeps the previous staged result on an infra failure (FR-A-2)'
       provider: 'extraction-worker:/resume-write',
       cause: 'PROVIDER_ERROR',
       status: 503,
+      applied: true,
       kept: true,
     })
     expect(line).not.toContain('jane@unit.spec')
@@ -156,7 +157,7 @@ describe('failRun keeps the previous staged result on an infra failure (FR-A-2)'
     })
   })
 
-  it('a run that lost the row to another run keeps nothing and logs it as not kept', async () => {
+  it('a run that lost the row logs the real failure as not applied and not kept (SO-1)', async () => {
     const db = fakeRunDb([
       [{ key: KEPT_KEY, kind: 'item', live: null, report: REPORT, previous: SNAPSHOT }],
       [],
@@ -166,9 +167,13 @@ describe('failRun keeps the previous staged result on an infra failure (FR-A-2)'
     await expect(failRun(deps, RESUME, RUN, 'WRITER_UNAVAILABLE', FAILED_REPORT)).resolves.toBe(
       null,
     )
+    expect(logger.warn).toHaveBeenCalledTimes(1)
     expect(JSON.parse(String(logger.warn.mock.calls[0]?.[0]))).toMatchObject({
       kind: 'item',
+      code: 'WRITER_UNAVAILABLE',
+      applied: false,
       kept: false,
     })
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('"kept":true')
   })
 })

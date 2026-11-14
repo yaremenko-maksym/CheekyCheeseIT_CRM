@@ -26,7 +26,7 @@ export type BoundedResult =
   /** `aborted` marks the caller's `signal`, never the timer (SR-L-38): an abort is not a timeout. */
   | { kind: 'timeout'; aborted?: true }
   /** `tooLarge` marks a 2xx whose body exceeded `maxBytes`. */
-  | { kind: 'transport'; status?: number; text?: string; tooLarge?: true }
+  | { kind: 'transport'; status?: number; text?: string; tooLarge?: true; errorName?: string }
 
 export interface BoundedRequestOptions {
   url: string
@@ -186,8 +186,10 @@ async function request(
     }
     if (read.kind === 'too_large') return { kind: 'transport', status, tooLarge: true }
     return { kind: 'ok', status, text: read.text }
-  } catch {
-    return controller.signal.aborted ? stopped() : { kind: 'transport' }
+  } catch (err) {
+    if (controller.signal.aborted) return stopped()
+    // The class only, never the message: a message can carry the URL or a body.
+    return { kind: 'transport', errorName: err instanceof Error ? err.name : 'unknown' }
   } finally {
     clearTimeout(timer)
     signal?.removeEventListener('abort', onAbort)

@@ -374,6 +374,8 @@ export class ResumeVerificationService {
         kind: won.kind,
         code: 'STALLED',
         origin: { provider: null, reason: 'SWEPT' },
+        // SO-1: only a won row reaches here (`if (!won) continue` above).
+        applied: true,
         kept: won.kept,
       })
       await this.deleteStagedObject(won.key)
