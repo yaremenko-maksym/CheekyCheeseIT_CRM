@@ -230,7 +230,11 @@ export function ResumeCompletenessPanel({
         </p>
         {!clean && (
           <div className="flex items-center gap-1">
-            <Badge variant="secondary" className="tabular-nums" aria-hidden>
+            <Badge
+              variant="secondary"
+              className="shrink-0 whitespace-nowrap tabular-nums"
+              aria-hidden
+            >
               <Plural
                 value={issues.length}
                 one="# поле"

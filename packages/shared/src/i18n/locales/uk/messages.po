@@ -1225,6 +1225,10 @@ msgstr "Великий"
 msgid "Хеш транзакції має містити щонайменше 10 символів"
 msgstr "Хеш транзакції має містити щонайменше 10 символів"
 
+#: apps/web/app/components/user-profile/resume/ResumeVerificationPanel.tsx
+msgid "очікує"
+msgstr "очікує"
+
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Внутрішні замітки…"
 msgstr "Внутрішні замітки…"
@@ -4153,6 +4157,10 @@ msgstr "Пароль акаунта"
 msgid "Браузер не підтримує перегляд PDF."
 msgstr "Браузер не підтримує перегляд PDF."
 
+#: apps/web/app/components/user-profile/resume/ResumeVerificationPanel.tsx
+msgid "триває"
+msgstr "триває"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Крок 1 з 2: вибір доходів до виплати"
 msgstr "Крок 1 з 2: вибір доходів до виплати"
@@ -4529,6 +4537,10 @@ msgstr "Бекстори"
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Оберіть, зберегти зміни чи закрити без збереження."
 msgstr "Оберіть, зберегти зміни чи закрити без збереження."
+
+#: apps/web/app/components/user-profile/resume/ResumeConfirmStep.tsx
+msgid "{count, plural, one {# рік} few {# роки} many {# років} other {# року}}"
+msgstr "{count, plural, one {# рік} few {# роки} many {# років} other {# року}}"
 
 #: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Видалити мову {position}"
@@ -12485,6 +12497,10 @@ msgstr "Нова команда сеньйора. Оберіть склад ни
 #: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Telegram-чат"
 msgstr "Telegram-чат"
+
+#: apps/web/app/components/user-profile/resume/ResumeVerificationPanel.tsx
+msgid "готово"
+msgstr "готово"
 
 #: apps/web/app/routes/_authenticated/interviews/constants.ts
 #: apps/web/app/routes/_authenticated/projects/constants.ts

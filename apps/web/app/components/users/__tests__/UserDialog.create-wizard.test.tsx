@@ -778,13 +778,13 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
     const input = screen.getByTestId('user-dialog-personal-email')
     expect(input).toHaveAttribute('spellcheck', 'false')
     // Baseline: untouched field carries no destructive style.
-    expect(input.className).not.toContain('border-destructive')
+    expect(input).not.toHaveClass('border-destructive')
 
     await user.type(input, 'not-an-email')
     await user.tab()
 
     expect(await screen.findByText('Введіть email у форматі name@domain')).toBeInTheDocument()
-    expect(input.className).toContain('border-destructive')
+    expect(input).toHaveClass('border-destructive')
   })
 
   it('shows the exact duplicate-email error when personalEmail matches the (untrimmed, differently-cased) work email', async () => {
@@ -825,7 +825,7 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
         screen.queryByText('Особистий email має відрізнятися від робочого'),
       ).not.toBeInTheDocument()
     })
-    expect(input.className).not.toContain('border-destructive')
+    expect(input).not.toHaveClass('border-destructive')
   })
 
   // Note on intent: this types a padded value on purpose, but the padding
@@ -869,7 +869,7 @@ describe('UserDialog — personalEmail field (§4.4)', () => {
     await waitFor(() => {
       expect(screen.queryByText('Введіть email у форматі name@domain')).not.toBeInTheDocument()
     })
-    expect(input.className).not.toContain('border-destructive')
+    expect(input).not.toHaveClass('border-destructive')
 
     await fillStep1AndAdvance(user)
 

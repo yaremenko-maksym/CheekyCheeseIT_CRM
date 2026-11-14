@@ -9,7 +9,7 @@
  * so `isTemplateRun = verificationStatus === 'VERIFIED' && verificationBusy`.
  */
 import { useState, type ReactNode } from 'react'
-import { Loader2, Lock } from 'lucide-react'
+import { Check, Loader2, Lock } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { ResumeVerificationStatus, SeniorResumeDto } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
@@ -199,8 +199,8 @@ export function ResumeVerificationProgress({
           <Trans>Вкладку можна закрити: перевірка йде на сервері, результат буде тут.</Trans>
         </p>
       </Card>
-      <p className="flex items-center gap-2 text-sm">
-        <Lock className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      <p className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Lock className="size-4 shrink-0" aria-hidden />
         <Trans>Поки триває перевірка, редагування недоступне.</Trans>
       </p>
     </div>
@@ -219,16 +219,31 @@ function Stage({
       aria-current={state === 'current' ? 'step' : undefined}
       className={cn('flex items-start gap-2', state === 'pending' && 'text-muted-foreground')}
     >
+      {/* progress-*.png: done = check, current = primary ring, pending = empty outline. */}
       <span
         aria-hidden
         className={cn(
-          'mt-1.5 size-2 shrink-0 rounded-full',
-          state === 'done' && 'bg-primary',
-          state === 'current' && 'bg-primary ring-4 ring-primary/20',
-          state === 'pending' && 'bg-secondary',
+          'flex size-5 shrink-0 items-center justify-center rounded-full',
+          state === 'done' && 'bg-secondary text-foreground',
+          state === 'current' && 'border-2 border-primary',
+          state === 'pending' && 'border border-border',
         )}
-      />
-      <span className={cn('min-w-0', state === 'current' && 'font-medium')}>{children}</span>
+      >
+        {state === 'done' && <Check className="size-3.5" />}
+      </span>
+      <span className={cn('min-w-0', state === 'current' && 'font-medium')}>
+        {children}
+        <span className="sr-only">
+          {' '}
+          {state === 'done' ? (
+            <Trans>готово</Trans>
+          ) : state === 'current' ? (
+            <Trans>триває</Trans>
+          ) : (
+            <Trans>очікує</Trans>
+          )}
+        </span>
+      </span>
     </li>
   )
 }

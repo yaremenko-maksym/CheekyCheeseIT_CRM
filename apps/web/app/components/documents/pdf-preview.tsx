@@ -96,7 +96,7 @@ export function PdfPreview({
       {/* Loading overlay */}
       {showLoader && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-xl bg-muted/80">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground motion-reduce:animate-none" />
           <p className="text-sm text-muted-foreground">
             <Trans>Завантаження PDF…</Trans>
           </p>

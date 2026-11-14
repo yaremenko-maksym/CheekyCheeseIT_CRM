@@ -20,6 +20,8 @@ interface MonthPickerFieldProps {
   /** 'YYYY-MM' inclusive; undefined = unbounded. */
   maxMonth?: string | undefined
   disabled?: boolean | undefined
+  /** Extra classes for both triggers (a taller mobile target). */
+  triggerClassName?: string | undefined
   /** Applied to the month trigger (label target). */
   id?: string | undefined
   'aria-invalid'?: boolean | undefined
@@ -59,6 +61,7 @@ export function MonthPickerField({
   monthAriaLabel,
   yearAriaLabel,
   onClose,
+  triggerClassName,
 }: MonthPickerFieldProps) {
   const { t } = useLingui()
   const locale = useLocale()
@@ -118,7 +121,7 @@ export function MonthPickerField({
           aria-invalid={invalid}
           aria-describedby={describedBy}
           // px-2 + a 76 px year: en "September" + "2020" fit a 196 px row (320 px job card).
-          className={cn('h-9 min-w-0 flex-1 px-2 text-sm', invalidCls)}
+          className={cn('h-9 min-w-0 flex-1 px-2 text-sm', invalidCls, triggerClassName)}
           data-testid="create-transaction-salary-month-select"
         >
           <SelectValue placeholder={t`Місяць`} />
@@ -150,7 +153,11 @@ export function MonthPickerField({
           aria-label={yearAriaLabel ?? t`Рік зарплати`}
           aria-invalid={invalid}
           aria-describedby={describedBy}
-          className={cn('h-9 w-[4.75rem] shrink-0 px-2 text-sm tabular-nums', invalidCls)}
+          className={cn(
+            'h-9 w-[4.75rem] shrink-0 px-2 text-sm tabular-nums',
+            invalidCls,
+            triggerClassName,
+          )}
           data-testid="create-transaction-salary-year-select"
         >
           <SelectValue placeholder={t`Рік`} />

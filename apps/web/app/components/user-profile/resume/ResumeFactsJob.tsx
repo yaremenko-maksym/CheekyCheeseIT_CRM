@@ -161,6 +161,7 @@ export function JobBlock({
             aria-invalid={startA11y['aria-invalid']}
             aria-describedby={startA11y['aria-describedby']}
             onClose={startA11y.onBlur}
+            triggerClassName="h-11 sm:h-9"
             monthAriaLabel={t`Місяць початку, місце роботи ${position}`}
             yearAriaLabel={t`Рік початку, місце роботи ${position}`}
           />
@@ -180,6 +181,7 @@ export function JobBlock({
             aria-invalid={endA11y['aria-invalid']}
             aria-describedby={endA11y['aria-describedby']}
             onClose={endA11y.onBlur}
+            triggerClassName="h-11 sm:h-9"
             monthAriaLabel={t`Місяць завершення, місце роботи ${position}`}
             yearAriaLabel={t`Рік завершення, місце роботи ${position}`}
           />

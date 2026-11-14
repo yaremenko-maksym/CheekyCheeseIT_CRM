@@ -167,6 +167,20 @@ beforeEach(async () => {
 })
 
 describe('ResumeVerificationPanel — confirm step', () => {
+  it('F-1: the facts summary reads headline · years · top skills', async () => {
+    renderWired(makeResponse())
+    // 2021-01..2024-06 is 42 months: 3 whole years.
+    expect(await screen.findByText('Backend Engineer · 3 роки · TypeScript')).toBeInTheDocument()
+  })
+
+  it('F-4: both tab panels, Tab stops by Radix design, show a visible focus ring', async () => {
+    renderWired(makeResponse())
+    await screen.findByTestId('resume-confirm-step')
+    const panels = screen.getAllByRole('tabpanel', { hidden: true })
+    expect(panels).toHaveLength(2)
+    for (const panel of panels) expect(panel).toHaveClass('focus-visible:ring-2')
+  })
+
   it('SENIOR sees no Confirm button', async () => {
     renderWired(makeResponse({}, false))
     expect(await screen.findByText('Перегляньте текст резюме')).toBeInTheDocument()
@@ -384,6 +398,18 @@ describe('ResumeVerificationPanel — staged PDF', () => {
 })
 
 describe('ResumeVerificationPanel — rulings', () => {
+  it('F-3: each progress stage names its state for screen readers', async () => {
+    renderWired(
+      makeResponse({ verificationStatus: 'CHECKING', verificationBusy: true, staged: null }),
+    )
+    const progress = await screen.findByTestId('resume-verification-progress')
+    const [queued, check, hr] = within(progress).getAllByRole('listitem')
+    expect(queued).toHaveTextContent(/У черзі.*готово/)
+    expect(check).toHaveTextContent(/Перевірка.*триває/)
+    expect(check).toHaveAttribute('aria-current', 'step')
+    expect(hr).toHaveTextContent(/Підтвердження HR.*очікує/)
+  })
+
   it('a run with a staged result keeps the confirm step, read-only, progress line on top', async () => {
     renderWired(makeResponse({ verificationStatus: 'CHECKING', verificationBusy: true }))
     const step = await screen.findByTestId('resume-confirm-step')

@@ -9,6 +9,7 @@
  */
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { Check, Download, Pencil, RefreshCw, TriangleAlert } from 'lucide-react'
+import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
 import {
   mergeSkills,
@@ -35,6 +36,38 @@ import { cn } from '@/lib/utils'
 import { useTemplateLabel } from './ResumeTemplatePicker'
 
 type Staged = NonNullable<SeniorResumeDto['staged']>
+
+/** `{count}` years for the confirm summary (§10 `confirm.years`). Module-level `msg`: `plural()` breaks under Stryker. */
+const YEARS = msg`{count, plural, one {# рік} few {# роки} many {# років} other {# року}}`
+
+const monthIndex = (month: string) => Number(month.slice(0, 4)) * 12 + Number(month.slice(5, 7)) - 1
+
+/**
+ * Whole years of experience (§5.4): the sum of non-overlapping months, both edge months counted,
+ * rounded down. A current job runs to `now`; a job without a start, or without an end that is
+ * not current, is skipped.
+ */
+export function experienceYears(
+  experience: readonly { start: string | null; end: string | null; current: boolean }[],
+  now: Date = new Date(),
+): number {
+  const thisMonth = now.getFullYear() * 12 + now.getMonth()
+  const spans = experience
+    .flatMap((job) => {
+      if (job.start === null) return []
+      const end = job.current ? thisMonth : job.end === null ? null : monthIndex(job.end)
+      return end === null ? [] : [[monthIndex(job.start), end] as const]
+    })
+    .sort((a, b) => a[0] - b[0])
+  let months = 0
+  let covered = -Infinity
+  for (const [from, to] of spans) {
+    const start = Math.max(from, covered + 1)
+    if (to >= start) months += to - start + 1
+    covered = Math.max(covered, to)
+  }
+  return Math.floor(months / 12)
+}
 
 /** Focus targets after an action (design §8): the progress heading, else the busy confirm line. */
 export const PROGRESS_FOCUS_IDS = [
@@ -110,7 +143,7 @@ export function ResumeConfirmStep({
   onStale,
   onConfirmed,
 }: ResumeConfirmStepProps) {
-  const { t } = useLingui()
+  const { t, i18n } = useLingui()
   const confirm = useConfirmResume(userId)
   const edit = useEditStagedField(userId)
   const regenerate = useRegenerateStagedField(userId)
@@ -192,7 +225,14 @@ export function ResumeConfirmStep({
     facts.skills,
     facts.experience.map((job) => job.technologies),
   ).slice(0, 5)
-  const summaryFacts = [facts.headline, topSkills.join(', ')].filter(Boolean).join(' · ')
+  const years = experienceYears(facts.experience)
+  const summaryFacts = [
+    facts.headline,
+    years > 0 ? i18n._(YEARS.id, { count: years }) : '',
+    topSkills.join(', '),
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
     <div className="space-y-4" data-testid="resume-confirm-step">
@@ -290,7 +330,7 @@ export function ResumeConfirmStep({
         <TabsContent
           value="text"
           forceMount
-          className="space-y-4 data-[state=inactive]:hidden lg:data-[state=inactive]:block"
+          className="space-y-4 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=inactive]:hidden lg:data-[state=inactive]:block"
         >
           <WrittenBlock
             testId="resume-confirm-block-summary"
@@ -400,7 +440,7 @@ export function ResumeConfirmStep({
         <TabsContent
           value="pdf"
           forceMount
-          className="data-[state=inactive]:hidden lg:sticky lg:top-4 lg:data-[state=inactive]:block"
+          className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=inactive]:hidden lg:sticky lg:top-4 lg:data-[state=inactive]:block"
         >
           {/* The run writes the new staged PDF without a new runId or updatedAt:
               never fetch mid-run, and key on the status so the finished run refetches. */}

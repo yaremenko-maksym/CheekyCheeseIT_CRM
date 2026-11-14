@@ -80,7 +80,7 @@ export function ResumePdfPreview({ resume, pdfUrl, fileName }: ResumePdfPreviewP
         data-testid="resume-pdf-pending"
         className="rounded-xl border border-border/60 bg-card/50 p-6 text-center"
       >
-        <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" />
+        <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground motion-reduce:animate-none" />
         <p className="mt-3 text-sm font-medium">
           <Trans>Готуємо PDF за шаблоном</Trans>
         </p>

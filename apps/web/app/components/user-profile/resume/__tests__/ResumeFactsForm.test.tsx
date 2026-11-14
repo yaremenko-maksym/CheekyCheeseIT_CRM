@@ -329,7 +329,8 @@ describe('ResumeFactsForm', () => {
     )
     expect(screen.getByLabelText('Цільова посада')).toHaveValue('Backend Engineer')
     expect(screen.getByLabelText('Цільова посада')).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Надіслати на перевірку' })).toBeDisabled()
+    // §5.3: while busy the completeness panel and its Submit are not shown at all (F-9).
+    expect(screen.queryByRole('button', { name: 'Надіслати на перевірку' })).toBeNull()
   })
 })
 

@@ -173,7 +173,7 @@ describe('FinanceSection — SENIOR', () => {
     fireEvent.click(screen.getByTestId('senior-out'))
     fireEvent.blur(screen.getByRole('spinbutton'))
     expect(await screen.findByText('Вкажіть від 1 до 100')).toBeInTheDocument()
-    expect(screen.getByRole('spinbutton').className).toContain('border-destructive')
+    expect(screen.getByRole('spinbutton')).toHaveClass('border-destructive')
   })
 
   it('does not surface the range error before the field is touched', async () => {
@@ -281,7 +281,7 @@ describe('FinanceSection — DROP', () => {
     fireEvent.blur(screen.getByRole('spinbutton'))
     expect(await screen.findByText('Вкажіть від 0 до 100')).toBeInTheDocument()
     expect(screen.queryByText('Скільки дроп залишає собі з кожної виплати')).not.toBeInTheDocument()
-    expect(screen.getByRole('spinbutton').className).toContain('border-destructive')
+    expect(screen.getByRole('spinbutton')).toHaveClass('border-destructive')
   })
 })
 

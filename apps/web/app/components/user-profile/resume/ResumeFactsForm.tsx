@@ -229,18 +229,23 @@ export function ResumeFactsForm({
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_304px] lg:items-start">
-      <div className="lg:order-2">
-        <ResumeCompletenessPanel
-          issues={issues}
-          onFocusPath={focusPath}
-          onSubmit={() => void submit()}
-          onSaveDraft={() => void save()}
-          canSave={dirty}
-          disabled={disabled}
-          pending={pending}
-        />
-      </div>
+    <div
+      className={cn('grid gap-4 lg:items-start', !disabled && 'lg:grid-cols-[minmax(0,1fr)_304px]')}
+    >
+      {/* While a run is busy only the lock line and the disabled form stay (§5.3). */}
+      {!disabled && (
+        <div className="lg:order-2">
+          <ResumeCompletenessPanel
+            issues={issues}
+            onFocusPath={focusPath}
+            onSubmit={() => void submit()}
+            onSaveDraft={() => void save()}
+            canSave={dirty}
+            disabled={disabled}
+            pending={pending}
+          />
+        </div>
+      )}
 
       <fieldset
         disabled={disabled}

@@ -223,6 +223,19 @@ describe('MonthPickerField', () => {
     }
   })
 
+  it('triggerClassName sizes both triggers (resume facts: 44px on mobile, F-5)', async () => {
+    await loadCatalog('uk')
+    render(
+      <I18nTestProvider>
+        <MonthPickerField value="2026-10" onChange={() => {}} triggerClassName="h-11 sm:h-9" />
+      </I18nTestProvider>,
+    )
+    for (const id of [MONTH, YEAR]) {
+      expect(screen.getByTestId(id)).toHaveClass('h-11', 'sm:h-9')
+      expect(screen.getByTestId(id)).not.toHaveClass('h-9')
+    }
+  })
+
   it('empty value: placeholders shown and exactly the 5 default years, newest first', async () => {
     await loadCatalog('uk')
     render(<Harness />)

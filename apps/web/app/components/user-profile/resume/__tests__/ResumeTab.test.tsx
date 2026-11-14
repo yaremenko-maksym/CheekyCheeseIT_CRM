@@ -298,7 +298,7 @@ describe('ResumeTab — facts form', () => {
     ).toBeInTheDocument()
   })
 
-  it('while a check runs the form is read-only and Submit is disabled', () => {
+  it('while a check runs the form is read-only and the completeness panel is gone (F-9)', () => {
     setData(
       makeResponse({
         ...(FILLED.resume as SeniorResumeDto),
@@ -308,7 +308,8 @@ describe('ResumeTab — facts form', () => {
     )
     render(tab())
     expect(screen.getByLabelText('Цільова посада')).toBeDisabled()
-    expect(screen.getByTestId('resume-facts-submit')).toBeDisabled()
+    expect(screen.queryByTestId('resume-completeness-panel')).toBeNull()
+    expect(screen.queryByTestId('resume-facts-submit')).toBeNull()
   })
 
   it('a report from an earlier check does not lock the form: only verificationBusy does', () => {

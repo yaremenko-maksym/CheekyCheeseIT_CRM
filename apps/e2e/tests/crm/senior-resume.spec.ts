@@ -332,7 +332,9 @@ test.describe('Резюме — факты', () => {
     ])
 
     await expect(page.locator('input[name="resumeFactsHeadline"]')).toBeDisabled()
-    await expect(page.getByTestId('resume-facts-submit')).toBeDisabled()
+    // Design §5.3 (F-9): while busy the completeness panel with Submit is not shown.
+    await expect(page.getByTestId('resume-completeness-panel')).toHaveCount(0)
+    await expect(page.getByTestId('resume-facts-submit')).toHaveCount(0)
   })
 
   test('уход с вкладки с несохранёнными фактами спрашивает подтверждение', async ({ page }) => {

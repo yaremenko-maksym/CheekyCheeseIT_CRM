@@ -74,15 +74,16 @@ export const RESUME_EMAIL_PATTERN = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]
 const LETTER_PATTERN = /\p{L}/u
 const LATIN_LETTER_PATTERN = /\p{Script=Latin}/u
 
+/** Typographic and Ukrainian apostrophes: U+02BC is a modifier letter, not a script letter. */
+const APOSTROPHES = '\u2019\u02BC'
+
 /**
  * True when every letter in `text` is Latin-script. Digits, punctuation,
  * symbols, spaces and the empty string pass — `C++ 17` and `Node.js 18` are
  * legitimate skill/technology text, while `José Müller` passes through the same
- * check as `Engineer`.
+ * check as `Engineer`. The apostrophes U+2019 and U+02BC are
+ * accepted too (`Dʼangelo`).
  */
-/** Typographic and Ukrainian apostrophes: U+02BC is a modifier letter, not a script letter. */
-const APOSTROPHES = '\u2019\u02BC'
-
 export function isLatinScript(text: string): boolean {
   for (const char of text) {
     if (APOSTROPHES.includes(char)) continue
