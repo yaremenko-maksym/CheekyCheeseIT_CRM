@@ -2325,6 +2325,32 @@ docker compose \
   < "$JOB_SOURCE_ID_FILE"
 echo "==> job source record source_id applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-11_senior_resumes_verification.sql
+# Adds the verified-base-resume columns (facts, verification_*, verified_*, staged_*) and the
+# resume_verification_status enum to senior_resumes. Every senior-resume read and the extraction
+# cron select these columns, so they MUST exist before the container swap below, or the new image
+# answers 500 on the whole resume surface. Needs senior_resumes and users (FK); additive and
+# re-runnable (guarded CREATE TYPE, ADD COLUMN IF NOT EXISTS, guarded constraint). Creates no
+# relation, so it grants nothing; applied before the grants file. One transaction: the file uses
+# SET LOCAL lock_timeout, which only takes effect inside a transaction.
+SENIOR_RESUMES_VERIFICATION_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-11_senior_resumes_verification.sql"
+
+if [ ! -f "$SENIOR_RESUMES_VERIFICATION_FILE" ]; then
+  echo "ERROR: DDL file not found at $SENIOR_RESUMES_VERIFICATION_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying senior resumes verification (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$SENIOR_RESUMES_VERIFICATION_FILE"
+echo "==> senior resumes verification applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file
