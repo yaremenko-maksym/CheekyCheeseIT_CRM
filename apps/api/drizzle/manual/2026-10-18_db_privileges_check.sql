@@ -107,6 +107,7 @@ BEGIN
     ('recording_media_artifacts', 'A', false),
     ('recording_media_uploads', 'A', false),
     ('salary_month_initializations', 'A', false),
+    ('senior_availability', 'A', true),
     ('senior_resumes', 'A', false),
     ('signed_contracts', 'A', false),
     ('team_members', 'A', false),
@@ -233,6 +234,7 @@ BEGIN
     ('recording_media_artifacts', 'A', false),
     ('recording_media_uploads', 'A', false),
     ('salary_month_initializations', 'A', false),
+    ('senior_availability', 'A', true),
     ('senior_resumes', 'A', false),
     ('signed_contracts', 'A', false),
     ('team_members', 'A', false),
@@ -528,6 +530,7 @@ BEGIN
     ('recording_media_artifacts', 'A', false),
     ('recording_media_uploads', 'A', false),
     ('salary_month_initializations', 'A', false),
+    ('senior_availability', 'A', true),
     ('senior_resumes', 'A', false),
     ('signed_contracts', 'A', false),
     ('team_members', 'A', false),
@@ -735,6 +738,7 @@ BEGIN
     ('recording_media_artifacts', 'A', false),
     ('recording_media_uploads', 'A', false),
     ('salary_month_initializations', 'A', false),
+    ('senior_availability', 'A', true),
     ('senior_resumes', 'A', false),
     ('signed_contracts', 'A', false),
     ('team_members', 'A', false),
@@ -1123,7 +1127,7 @@ $check$;
 DO $ok$
 BEGIN
   RAISE NOTICE 'db-privileges check passed: % relations classified, roles %, %, %',
-    86, 'crm_app', 'crm_collector', 'crm_retention_owner';
+    87, 'crm_app', 'crm_collector', 'crm_retention_owner';
 END
 $ok$;
 
