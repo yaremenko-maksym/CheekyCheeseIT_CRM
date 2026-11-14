@@ -518,11 +518,14 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       { expectedSubscriptionVersion: 1, reason: `${TAG} guard`, idempotencyKey: randomUUID() },
     ],
   ]
-  const inADay = () => new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-  const grantBody = (team: string, revision = 1) => ({
+  const inDays = (days: number) => new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
+  const inADay = () => inDays(1)
+  // `policyVersion` 1 is never checked where it is the default: a non-ADMIN or malformed write is
+  // refused first. An ADMIN grant that must pass sends the card's `triagePolicyVersion`.
+  const grantBody = (team: string, revision = 1, policyVersion = 1) => ({
     teamId: id(team),
     expectedOpportunityRevision: revision,
-    policyVersion: 1,
+    policyVersion,
     reason: `${TAG} grant`,
     expiresAt: inADay(),
     idempotencyKey: randomUUID(),
@@ -624,6 +627,10 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
         ['DELETE', '/team-triage-subscriptions/nope', unsubscribe],
         ['POST', `/${opp}/team-triage`, { ...grantBody('teamA'), expectedOpportunityRevision: 0 }],
         ['POST', `/${opp}/team-triage`, { ...grantBody('teamA'), extra: 1 }],
+        // backlog 425: a real policy version starts at 1, so the old «unversioned» 0 is malformed
+        ['POST', `/${opp}/team-triage`, { ...grantBody('teamA'), policyVersion: 0 }],
+        // backlog 426: the 90-day ceiling, counted from the server's clock
+        ['POST', `/${opp}/team-triage`, { ...grantBody('teamA'), expiresAt: inDays(91) }],
         ['DELETE', `/${opp}/team-triage/${id('teamA')}`, { ...revoke, expectedGrantVersion: 0 }],
         // SR-L-2: only an upper-case layer-1 family, never UNKNOWN.
         ['POST', '/team-triage-subscriptions', subscribeBody('teamA', 'UNKNOWN')],
@@ -1645,6 +1652,13 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     }
     let granted: ReturnType<typeof grantBody>
     let subscriptionId = ''
+    /** The ADMIN card's triage policy version (backlog 425), read fresh: earlier writes move it. */
+    const cardPolicy = async (opp: string) => {
+      const card = await get(`/${id(opp)}`, 'admin')
+      expect(card.status).toBe(200)
+      expect(card.json['triagePolicyVersion']).toEqual(expect.any(Number))
+      return Number(card.json['triagePolicyVersion'])
+    }
 
     beforeAll(async () => {
       await mkUser('hrG', 'HR')
@@ -1658,10 +1672,48 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       await subOpp('oppTriageSub', 'DATA')
     })
 
+    it('a membership change between the card read and the grant is a version conflict (425)', async () => {
+      const read = await cardPolicy('oppGrant')
+      await mkUser('hrG2', 'HR')
+      await join('teamG', 'hrG2')
+      const a = await post(`/${id('oppGrant')}/team-triage`, 'admin', grantBody('teamG', 1, read))
+      expect(a.status).toBe(409)
+      expect(a.json['code']).toBe(VERSION_CONFLICT)
+      expect(await triageActions('teamG')).toEqual([])
+      expect(await triageRows()).toEqual([])
+      expect(await cardPolicy('oppGrant')).not.toBe(read)
+    })
+
+    it('a non-triage opportunity is refused: a live LEAD or an EXCLUDED verdict (426)', async () => {
+      const lead = await post(
+        `/${id('oppOnlyA')}/team-triage`,
+        'admin',
+        grantBody('teamG', 1, await cardPolicy('oppOnlyA')),
+      )
+      expect(lead.status).toBe(422)
+      expect(lead.json['code']).toBe('JOB_QUEUE_TRIAGE_NOT_ELIGIBLE')
+      await mkOpp('oppExcluded')
+      await sqlq(
+        `UPDATE job_opportunities
+            SET evaluated_revision = 1, evaluation_verdict = 'EXCLUDED', evaluated_inputs_version = $2
+          WHERE id = $1`,
+        [id('oppExcluded'), liveInputs],
+      )
+      const excluded = await post(
+        `/${id('oppExcluded')}/team-triage`,
+        'admin',
+        grantBody('teamG', 1, await cardPolicy('oppExcluded')),
+      )
+      expect(excluded.status).toBe(422)
+      expect(excluded.json['code']).toBe('JOB_QUEUE_TRIAGE_NOT_ELIGIBLE')
+      expect(await triageActions('teamG')).toEqual([])
+      expect(await triageRows()).toEqual([])
+    })
+
     it('grant: 201 with the grant, one audit row, and the team generation retired', async () => {
       expect((await get(`?${search}`, 'hrG')).status).toBe(200)
       expect(await publishedGenerations('teamG')).toHaveLength(1)
-      const body = grantBody('teamG')
+      const body = grantBody('teamG', 1, await cardPolicy('oppGrant'))
       granted = body
       const a = await post(`/${id('oppGrant')}/team-triage`, 'admin', body)
       expect(a.status).toBe(201)
@@ -1669,7 +1721,7 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
         opportunityId: id('oppGrant'),
         teamId: id('teamG'),
         assignedBy: id('admin'),
-        policyVersion: 1,
+        policyVersion: body.policyVersion,
         opportunityRevision: 1,
         grantVersion: 1,
         evidence: { reason: `${TAG} grant` },
@@ -1720,11 +1772,27 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(await triageActions('teamG')).toHaveLength(1)
     })
 
-    it('stale versions and a live grant are a 409, and write nothing', async () => {
+    it('a second grant to the team is ALREADY_GRANTED with the live expiry (426)', async () => {
+      const opp = id('oppGrant')
+      const again = await post(
+        `/${opp}/team-triage`,
+        'admin',
+        grantBody('teamG', 1, await cardPolicy('oppGrant')),
+      )
+      expect(again.status).toBe(409)
+      expect(again.json['code']).toBe('JOB_QUEUE_TRIAGE_ALREADY_GRANTED')
+      expect(again.json['params']).toEqual({ expiresAt: granted.expiresAt })
+      expect(await triageActions('teamG')).toHaveLength(1)
+    })
+
+    it('stale versions are a 409, and write nothing', async () => {
       const opp = id('oppGrant')
       const refused = [
-        await post(`/${opp}/team-triage`, 'admin', grantBody('teamG', 2)),
-        await post(`/${opp}/team-triage`, 'admin', grantBody('teamG')),
+        await post(
+          `/${opp}/team-triage`,
+          'admin',
+          grantBody('teamG', 2, await cardPolicy('oppGrant')),
+        ),
         await del(`/${opp}/team-triage/${id('teamG')}`, 'admin', {
           expectedGrantVersion: 2,
           reason: `${TAG} stale`,

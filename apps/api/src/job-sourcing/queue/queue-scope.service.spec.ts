@@ -5,7 +5,8 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { exclusionVersion, profileVersion } from '../runtime/recompute-inputs'
 import type { SqlExecutor } from '../scheduling/host-state'
-import { type JobQueueScope, NONE_SCOPE, STUDIO_SCOPE } from './queue-scope'
+import { triagePolicyVersion } from './queue-read-sql'
+import { type JobQueueScope, type LiveSeniorVersion, NONE_SCOPE, STUDIO_SCOPE } from './queue-scope'
 import { describeFailure, JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -33,6 +34,8 @@ function bound(execute: unknown) {
     assertVisible: (scope: JobQueueScope, id: string, db: SqlExecutor = pool) =>
       real.assertVisible(scope, id, db),
     liveVersions: (scope: JobQueueScope, db: SqlExecutor = pool) => real.liveVersions(scope, db),
+    triagePolicyVersion: (versions: readonly LiveSeniorVersion[], db: SqlExecutor = pool) =>
+      real.triagePolicyVersion(versions, db),
   }
 }
 
@@ -124,6 +127,24 @@ describe('JobQueueScopeService.liveVersions', () => {
     vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
     const { svc } = harness(new Error('connection lost'))
     await expectCode(svc.liveVersions(STUDIO_SCOPE), 503, 'JOB_QUEUE_POLICY_UNAVAILABLE')
+  })
+})
+
+describe('JobQueueScopeService.triagePolicyVersion (backlog 425)', () => {
+  it("folds the versions with the live SENIOR teams' active membership digest", async () => {
+    const { svc, compiled } = harness([{ digest: 'abc' }])
+    const version = await svc.triagePolicyVersion([SEN_1_VERSIONS])
+    expect(version).toBe(triagePolicyVersion([SEN_1_VERSIONS], 'abc'))
+    expect(compiled(0).text).toContain(
+      "WHERE tm.left_at IS NULL AND t.archived_at IS NULL AND t.type = 'SENIOR'",
+    )
+    expect(compiled(0).text).toContain('ORDER BY tm.team_id, tm.user_id')
+  })
+
+  it('fails closed when the membership cannot be read', async () => {
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    const { svc } = harness(new Error('connection lost'))
+    await expectCode(svc.triagePolicyVersion([]), 503, 'JOB_QUEUE_POLICY_UNAVAILABLE')
   })
 })
 

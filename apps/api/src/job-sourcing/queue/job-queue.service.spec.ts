@@ -72,6 +72,7 @@ function harness(scope: JobQueueScope, ...answers: Rows[]) {
     assertVisible: vi.fn(async () => undefined),
     liveVersions: vi.fn(async () => versions),
     policy: vi.fn(<T>(fn: () => Promise<T>) => fn()),
+    triagePolicyVersion: vi.fn(async () => 7),
   }
   const transaction = vi.fn(<T>(fn: (tx: unknown) => Promise<T>, _config?: unknown) =>
     fn({ execute }),
@@ -1002,6 +1003,15 @@ describe('JobQueueService.card', () => {
     // Unreachable in production (NONE is refused before the read); the type still has no scope.
     const noScope = await tailCard({ kind: 'NONE' }, cardDbRow({ dismissal_version: 3 })).svc.card(user, OPP) // prettier-ignore
     expect(noScope.dismissal).toBeNull()
+  })
+
+  it('only a STUDIO card carries the triage policy version, read for its live versions (425)', async () => {
+    const studio = tailCard({ kind: 'STUDIO' }, cardDbRow())
+    expect((await studio.svc.card(user, OPP)).triagePolicyVersion).toBe(7)
+    expect(studio.scopes.triagePolicyVersion).toHaveBeenCalledWith(versions, studio.db)
+    const team = tailCard(teamScope, cardDbRow())
+    expect(await team.svc.card(user, OPP)).not.toHaveProperty('triagePolicyVersion')
+    expect(team.scopes.triagePolicyVersion).not.toHaveBeenCalled()
   })
 
   it('an unmatched card states its reason; the stack is clipped and capped (Task 7.3b)', async () => {

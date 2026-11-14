@@ -18,6 +18,7 @@ import {
   seniorTotal,
   sourceRows,
   sourceTotal,
+  triagePolicyVersion,
 } from './queue-read-sql'
 import { MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
 import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
@@ -159,6 +160,32 @@ describe('filterIdentity', () => {
     const q = query({ eligibility: ['TRIAGE', 'LEAD'] })
     filterIdentity(q)
     expect(q.eligibility).toEqual(['TRIAGE', 'LEAD'])
+  })
+})
+
+describe('triagePolicyVersion (backlog 425)', () => {
+  const base = triagePolicyVersion(versions, 'm1')
+  it('is a positive int the policy_version column holds', () => {
+    expect(Number.isInteger(base)).toBe(true)
+    expect(base).toBeGreaterThanOrEqual(1)
+    expect(base).toBeLessThanOrEqual(2147483647)
+  })
+  it('is the first 32 bits of sha-256(studio signature, membership), folded into 1..2^31-1', () => {
+    const hex = createHash('sha256')
+      .update(JSON.stringify([policySignature(studio, versions), 'm1']))
+      .digest('hex')
+    expect(base).toBe((Number.parseInt(hex.slice(0, 8), 16) % 2147483647) + 1)
+  })
+  it('is stable for the same inputs', () => {
+    expect(triagePolicyVersion([...versions], 'm1')).toBe(base)
+  })
+  it.each([
+    ['another membership', versions, 'm2'],
+    ['another profile version', [{ ...versions[0], profile: 'p2' }], 'm1'],
+    ['another exclusion version', [{ ...versions[0], exclusion: 'e2' }], 'm1'],
+    ['a roster without the senior', [], 'm1'],
+  ])('changes with %s', (_label, v, membership) => {
+    expect(triagePolicyVersion(v as LiveSeniorVersion[], membership)).not.toBe(base)
   })
 })
 
