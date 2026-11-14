@@ -101,6 +101,39 @@ export const restoredColumns = (s: StagedSnapshot) => ({
   stagedPrevious: null,
 })
 
+/** The staged kinds: they start from an AWAITING_CONFIRM result, so there is one to keep. */
+export const KEEPS_PREVIOUS: ReadonlySet<string | null> = new Set(['staged-edit', 'item'])
+
+/**
+ * The one structured warn line of a run that ended without passing (FR-A-2): the run, the code and
+ * where it came from, and whether the previous result was kept. Never resume text.
+ */
+export function warnRunFailed(
+  logger: Logger,
+  line: {
+    runId: string
+    resumeId: string
+    kind: string | null
+    code: string
+    origin: RunOrigin | null
+    kept: boolean
+  },
+): void {
+  logger.warn(
+    JSON.stringify({
+      event: 'resume_verification_run_failed',
+      runId: line.runId,
+      resumeId: line.resumeId,
+      kind: line.kind,
+      code: line.code,
+      provider: line.origin?.provider ?? null,
+      cause: line.origin?.reason ?? null,
+      status: line.origin?.status ?? null,
+      kept: line.kept,
+    }),
+  )
+}
+
 /** Clearing the run fields a terminal write ends: the row is no longer owned by a run. */
 export const CLEARED_RUN = {
   verificationRunId: null,

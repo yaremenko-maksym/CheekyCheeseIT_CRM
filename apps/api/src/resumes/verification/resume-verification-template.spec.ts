@@ -27,6 +27,20 @@ function sweep(results: unknown[][]) {
   return { swept: () => service.sweepStalledVerifications(NOW), log: db.log, db: db.service.db }
 }
 
+/** The run-failed warn line a swept row writes (FR-A-2): the same shape as `failRun`'s. */
+const sweptLine = (runId: string, resumeId: string, kind: string | null, kept: boolean) =>
+  JSON.stringify({
+    event: 'resume_verification_run_failed',
+    runId,
+    resumeId,
+    kind,
+    code: 'STALLED',
+    provider: null,
+    cause: 'SWEPT',
+    status: null,
+    kept,
+  })
+
 const CLEARED = {
   verificationErrorCode: 'STALLED',
   verificationReport: { gates: [], fallbacks: [] },
@@ -74,7 +88,7 @@ describe('sweepStalledVerifications', () => {
     expect([lock?.locked, lock?.inTransaction, lock?.columns]).toEqual([
       true,
       true,
-      ['key', 'report'],
+      ['key', 'report', 'kind', 'previous'],
     ])
     expect(lock?.where?.params).toEqual(['r-1'])
     expect(update?.inTransaction).toBe(true)
@@ -91,7 +105,7 @@ describe('sweepStalledVerifications', () => {
     ])
     expect(update?.where?.sql).toContain('"verification_run_id" is not null')
     expect(s3.delete.mock.calls).toEqual([[STAGED_KEY], ['resumes/r-1/staged/run-1.pdf']])
-    expect(logs).toEqual(['Verification run run-1 of resume r-1 swept: STALLED'])
+    expect(logs).toEqual([sweptLine('run-1', 'r-1', null, false)])
   })
 
   it('a stalled template run on VERIFIED: the status is not written, the derived key goes', async () => {
@@ -160,7 +174,7 @@ describe('sweepStalledVerifications', () => {
       'Verification sweep of resume r-1 failed (TypeError)',
       'Verification sweep of resume r-2 failed (unknown)',
     ])
-    expect(logs).toEqual(['Verification run run-3 of resume r-3 swept: STALLED'])
+    expect(logs).toEqual([sweptLine('run-3', 'r-3', null, false)])
   })
 
   it('a staged key equal to the derived one is deleted once; a lost CAS deletes and counts nothing', async () => {
@@ -198,6 +212,74 @@ describe('sweepStalledVerifications', () => {
     ])
     expect(await swept()).toBe(1)
     expect(s3.delete.mock.calls).toEqual([['resumes/r-1/staged/run-1.pdf']])
+  })
+})
+
+describe('the sweep of a staged run (FX-2): the result it started from comes back', () => {
+  const KEPT_KEY = 'resumes/r-1/staged/run-0.pdf'
+  const SNAPSHOT = {
+    content: { summary: 'Kept.' },
+    layout: null,
+    templateName: 'classic',
+    pdfKey: KEPT_KEY,
+    editedPaths: [],
+    runId: 'run-0',
+    kind: 'full',
+    targetPath: null,
+    baseVersion: 3,
+    report: { gates: [], fallbacks: [] },
+  }
+
+  it.each(['staged-edit', 'item'])(
+    '%s with a snapshot: AWAITING_CONFIRM STALLED, the kept PDF stays, only its own upload goes',
+    async (kind) => {
+      const { swept, log } = sweep([
+        [{ id: 'r-1', runId: 'run-1', status: 'CHECKING' }],
+        [{ key: KEPT_KEY, report: null, kind, previous: SNAPSHOT }],
+        [{ id: 'r-1' }],
+      ])
+      expect(await swept()).toBe(1)
+      expect(log.at(-1)?.set).toEqual({
+        verificationStatus: 'AWAITING_CONFIRM',
+        verificationErrorCode: 'STALLED',
+        verificationRunId: 'run-0',
+        verificationKind: 'full',
+        verificationTargetPath: null,
+        verificationBaseVersion: 3,
+        verificationReport: { gates: [], fallbacks: [] },
+        stagedContent: { summary: 'Kept.' },
+        stagedLayout: null,
+        stagedTemplateName: 'classic',
+        stagedPdfS3Key: KEPT_KEY,
+        stagedEditedPaths: [],
+        stagedPrevious: null,
+      })
+      expect(s3.delete.mock.calls).toEqual([['resumes/r-1/staged/run-1.pdf']])
+      expect(logs).toEqual([sweptLine('run-1', 'r-1', kind, true)])
+    },
+  )
+
+  it('an unreadable snapshot falls back to FAILED with a full clear', async () => {
+    const { swept, log } = sweep([
+      [{ id: 'r-1', runId: 'run-1', status: 'CHECKING' }],
+      [{ key: KEPT_KEY, report: null, kind: 'item', previous: { ...SNAPSHOT, pdfKey: null } }],
+      [{ id: 'r-1' }],
+    ])
+    expect(await swept()).toBe(1)
+    expect(log.at(-1)?.set).toEqual({ verificationStatus: 'FAILED', ...CLEARED })
+    expect(s3.delete.mock.calls).toEqual([[KEPT_KEY], ['resumes/r-1/staged/run-1.pdf']])
+    expect(logs).toEqual([sweptLine('run-1', 'r-1', 'item', false)])
+  })
+
+  it('a full run stays FAILED even with a snapshot on the row', async () => {
+    const { swept, log } = sweep([
+      [{ id: 'r-1', runId: 'run-1', status: 'QUEUED' }],
+      [{ key: null, report: null, kind: 'full', previous: SNAPSHOT }],
+      [{ id: 'r-1' }],
+    ])
+    expect(await swept()).toBe(1)
+    expect(log.at(-1)?.set).toEqual({ verificationStatus: 'FAILED', ...CLEARED })
+    expect(logs).toEqual([sweptLine('run-1', 'r-1', 'full', false)])
   })
 })
 

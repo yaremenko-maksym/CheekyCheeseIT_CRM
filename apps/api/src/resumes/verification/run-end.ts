@@ -13,10 +13,12 @@ import {
   CLEARED_STAGED,
   deleteStagedQuietly,
   INFRA_CODES,
+  KEEPS_PREVIOUS,
   readSnapshot,
   restoredColumns,
   stagedPdfKey,
   storedFallbacks,
+  warnRunFailed,
   type RunOrigin,
 } from './run-columns'
 
@@ -37,9 +39,6 @@ export async function ownsRun(db: DatabaseService, resumeId: string, runId: stri
     .where(and(eq(seniorResumes.id, resumeId), eq(seniorResumes.verificationRunId, runId)))
   return row !== undefined
 }
-
-/** The staged kinds: they start from an AWAITING_CONFIRM result, so there is one to keep. */
-const KEEPS_PREVIOUS: ReadonlySet<string | null> = new Set(['staged-edit', 'item'])
 
 /**
  * FAILED on this run id: run fields and staged columns cleared, the old object deleted after commit.
@@ -114,19 +113,7 @@ export async function failRun(
     const old = snapshot ? stagedPdfKey(resumeId, runId) : (current?.key ?? null)
     return { old, live: current?.live ?? null }
   })
-  deps.logger.warn(
-    JSON.stringify({
-      event: 'resume_verification_run_failed',
-      runId,
-      resumeId,
-      kind,
-      code,
-      provider: origin?.provider ?? null,
-      cause: origin?.reason ?? null,
-      status: origin?.status ?? null,
-      kept,
-    }),
-  )
+  warnRunFailed(deps.logger, { runId, resumeId, kind, code, origin, kept })
   if (won !== null) await deleteStagedQuietly(deps.s3, deps.logger, won.old)
   return won
 }

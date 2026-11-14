@@ -60,10 +60,14 @@ import { hasContact } from './content-gates'
 import { contentToFacts } from './derive-content'
 import {
   CLEARED_RUN,
+  KEEPS_PREVIOUS,
+  readSnapshot,
   renderOwnerKey,
+  restoredColumns,
   stagedSnapshot,
   storedFallbacks,
   storedOwnerKey,
+  warnRunFailed,
 } from './run-columns'
 import {
   CLEARED_STAGED,
@@ -329,9 +333,12 @@ export class ResumeVerificationService {
    * The stalled-run sweep (Task 16, cron): the process of a run died. The runner fails an over-budget
    * run itself (P2), so only a run queued before `now - VERIFICATION_DEADLINE_MS` is reaped. Each
    * UPDATE repeats the selection predicate on the status and run id read, so a run that ended in
-   * between is not touched. QUEUED / CHECKING → FAILED `STALLED` (the runner's FAILED rule); VERIFIED
-   * with a template run → run and staged columns cleared, `STALLED`, still VERIFIED. After commit the
-   * staged object goes, and the run's derived key too (a crash between upload and CAS).
+   * between is not touched. QUEUED / CHECKING → FAILED `STALLED` (the runner's FAILED rule); a staged
+   * run (`staged-edit` / `item`) with a readable snapshot → back to the result it started from,
+   * AWAITING_CONFIRM `STALLED`, like `failRun` (FR-A-2, FX-2); VERIFIED with a template run → run and
+   * staged columns cleared, `STALLED`, still VERIFIED. After commit the staged object goes (none for a
+   * restored row: its PDF is the kept one), and the run's derived key too (a crash between upload and
+   * CAS). Each swept row writes the run-failed warn line.
    * Returns the number of rows reaped.
    */
   async sweepStalledVerifications(now: Date): Promise<number> {
@@ -350,7 +357,7 @@ export class ResumeVerificationService {
       .where(stalled)
     let swept = 0
     for (const { id, runId, status } of rows) {
-      let won: { key: string | null } | null
+      let won: { key: string | null; kind: string | null; kept: boolean } | null
       try {
         won = await this.sweepRow(id, runId as string, status, stalled)
       } catch (err) {
@@ -361,7 +368,14 @@ export class ResumeVerificationService {
       }
       if (!won) continue
       swept += 1
-      this.logger.warn(`Verification run ${runId} of resume ${id} swept: STALLED`)
+      warnRunFailed(this.logger, {
+        runId: runId as string,
+        resumeId: id,
+        kind: won.kind,
+        code: 'STALLED',
+        origin: { provider: null, reason: 'SWEPT' },
+        kept: won.kept,
+      })
       await this.deleteStagedObject(won.key)
       const derived = stagedPdfKey(id, runId as string)
       if (derived !== won.key) await this.deleteStagedObject(derived)
@@ -375,26 +389,42 @@ export class ResumeVerificationService {
     runId: string,
     status: SeniorResume['verificationStatus'],
     stalled: SQL | undefined,
-  ): Promise<{ key: string | null } | null> {
+  ): Promise<{ key: string | null; kind: string | null; kept: boolean } | null> {
     return this.db.db.transaction(async (tx) => {
       const [current] = await tx
-        .select({ key: seniorResumes.stagedPdfS3Key, report: seniorResumes.verificationReport })
+        .select({
+          key: seniorResumes.stagedPdfS3Key,
+          report: seniorResumes.verificationReport,
+          kind: seniorResumes.verificationKind,
+          previous: seniorResumes.stagedPrevious,
+        })
         .from(seniorResumes)
         .where(eq(seniorResumes.id, id))
         .for('update')
+      const kind = current?.kind ?? null
+      // A staged run keeps the result it started from; an unreadable snapshot is a full clear.
+      const snapshot = KEEPS_PREVIOUS.has(kind) ? readSnapshot(current?.previous) : null
       const [updated] = await tx
         .update(seniorResumes)
-        .set({
-          ...(status === 'VERIFIED' ? {} : { verificationStatus: 'FAILED' as const }),
-          verificationErrorCode: 'STALLED',
-          // A VERIFIED row still shows the confirmed text: its fallbacks stay on record (SR-L-2).
-          verificationReport: {
-            gates: [],
-            fallbacks: status === 'VERIFIED' ? storedFallbacks(current?.report) : [],
-          },
-          ...CLEARED_RUN,
-          ...CLEARED_STAGED,
-        })
+        .set(
+          snapshot
+            ? {
+                verificationStatus: 'AWAITING_CONFIRM' as const,
+                verificationErrorCode: 'STALLED',
+                ...restoredColumns(snapshot),
+              }
+            : {
+                ...(status === 'VERIFIED' ? {} : { verificationStatus: 'FAILED' as const }),
+                verificationErrorCode: 'STALLED',
+                // A VERIFIED row still shows the confirmed text: its fallbacks stay on record (SR-L-2).
+                verificationReport: {
+                  gates: [],
+                  fallbacks: status === 'VERIFIED' ? storedFallbacks(current?.report) : [],
+                },
+                ...CLEARED_RUN,
+                ...CLEARED_STAGED,
+              },
+        )
         .where(
           and(
             eq(seniorResumes.id, id),
@@ -404,7 +434,9 @@ export class ResumeVerificationService {
           ),
         )
         .returning({ id: seniorResumes.id })
-      return updated ? { key: current?.key ?? null } : null
+      if (!updated) return null
+      // A restored row's staged key is the kept PDF: only the run's derived key goes (the caller).
+      return { key: snapshot ? null : (current?.key ?? null), kind, kept: snapshot !== null }
     })
   }
 
