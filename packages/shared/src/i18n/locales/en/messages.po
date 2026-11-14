@@ -4294,6 +4294,7 @@ msgid "дати у неправильному форматі"
 msgstr "dates in the wrong format"
 
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
+#: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Завантажити, щоб заповнити"
 msgstr "Upload to prefill"
 
@@ -5012,6 +5013,7 @@ msgstr "Show more"
 msgid "Переглянутий"
 msgstr "Viewed"
 
+#: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Заповнити вручну"
 msgstr "Fill in by hand"
@@ -8207,7 +8209,6 @@ msgid "Немає проєктів без активного джуніора"
 msgstr "No projects without an active junior"
 
 #: apps/web/app/components/documents/pdf-preview.tsx
-#: apps/web/app/components/documents/pdf-preview.tsx
 msgid "Попередній перегляд: {filename}"
 msgstr "Preview: {filename}"
 
@@ -9862,6 +9863,10 @@ msgstr "Transfer direction"
 #: apps/web/app/components/user-profile/resume/ResumeVerificationPanel.tsx
 msgid "Перевірка"
 msgstr "Check"
+
+#: apps/web/app/components/user-profile/resume/ResumeConfirmStep.tsx
+msgid "Попередній перегляд PDF резюме до підтвердження"
+msgstr "Preview of the resume PDF before confirmation"
 
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Частка в проєкті «{projectName}» тепер {percent}%"

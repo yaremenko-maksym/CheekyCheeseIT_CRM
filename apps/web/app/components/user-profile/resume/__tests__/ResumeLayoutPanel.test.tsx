@@ -517,4 +517,12 @@ describe('review fixes 3', () => {
     expect(screen.getByTestId('resume-layout-reset')).toBeDisabled()
     expect(screen.getByTestId('resume-layout-toggle-summary')).toBeDisabled()
   })
+
+  it('F-14: Reset, Apply and segmented options have h-11 sm:h-9 for 44px mobile touch targets', () => {
+    render(panel())
+    expect(screen.getByTestId('resume-layout-reset')).toHaveClass('h-11', 'sm:h-9')
+    expect(screen.getByTestId('resume-layout-save')).toHaveClass('h-11', 'sm:h-9')
+    expect(screen.getByTestId('resume-layout-density-compact')).toHaveClass('h-11', 'sm:h-9')
+    expect(screen.getByTestId('resume-layout-font-scale-normal')).toHaveClass('h-11', 'sm:h-9')
+  })
 })

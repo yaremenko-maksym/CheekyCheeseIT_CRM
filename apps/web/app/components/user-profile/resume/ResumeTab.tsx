@@ -402,7 +402,7 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
             onSave={(facts, { silent }) => saveFacts.mutateAsync({ facts, silent })}
             onSubmit={async () => {
               const answer = await submit.mutateAsync()
-              // The Submit button sits in a now-disabled fieldset (design §8).
+              // The completeness panel with the Submit button unmounts while a check runs (design §8).
               if (answer.resume?.verificationBusy) focusAfterRender(PROGRESS_FOCUS_IDS)
             }}
             onDirtyChange={handleFactsDirty}

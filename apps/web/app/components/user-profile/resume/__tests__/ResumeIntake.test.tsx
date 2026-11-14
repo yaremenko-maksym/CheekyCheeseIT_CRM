@@ -58,6 +58,16 @@ describe('the empty state offers two choices (design §5.2)', () => {
     ).toBeInTheDocument()
   })
 
+  it('F-10: empty variant renders solid card, tiles with bold titles and one-line buttons', () => {
+    renderIntake({ onFillManually: vi.fn() })
+    const intake = screen.getByTestId('resume-intake')
+    expect(intake).not.toHaveClass('border-dashed')
+    expect(screen.getAllByText('Заповнити вручну')).toHaveLength(2)
+    expect(screen.getAllByText('Завантажити, щоб заповнити')).toHaveLength(2)
+    expect(screen.getByTestId('resume-upload-button')).toHaveClass('whitespace-nowrap')
+    expect(screen.getByTestId('resume-fill-manually')).toHaveClass('whitespace-nowrap')
+  })
+
   it('the compact variant has no "fill by hand" tile', () => {
     renderIntake({ variant: 'compact', onFillManually: vi.fn() })
     expect(screen.queryByRole('button', { name: 'Заповнити вручну' })).toBeNull()
@@ -65,9 +75,11 @@ describe('the empty state offers two choices (design §5.2)', () => {
 })
 
 describe('accessible names on the hidden file input and the paste textarea', () => {
-  it('the file input carries the exact aria-label', () => {
+  it('the file input carries the exact aria-label and tabIndex={-1}', () => {
     renderIntake()
-    expect(screen.getByTestId('resume-file-input')).toHaveAttribute('aria-label', 'Файл резюме')
+    const input = screen.getByTestId('resume-file-input')
+    expect(input).toHaveAttribute('aria-label', 'Файл резюме')
+    expect(input).toHaveAttribute('tabIndex', '-1')
   })
 
   it('opening the paste box shows the exact placeholder and aria-label', () => {

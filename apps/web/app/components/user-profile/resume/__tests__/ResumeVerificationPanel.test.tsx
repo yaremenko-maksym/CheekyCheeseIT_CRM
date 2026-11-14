@@ -173,6 +173,21 @@ describe('ResumeVerificationPanel — confirm step', () => {
     expect(await screen.findByText('Backend Engineer · 3 роки · TypeScript')).toBeInTheDocument()
   })
 
+  it('FF1: the facts summary omits the years segment when experience is empty', async () => {
+    renderWired(
+      makeResponse({
+        facts: {
+          ...EMPTY_RESUME_FACTS,
+          headline: 'Backend Engineer',
+          skills: ['TypeScript'],
+          experience: [],
+        },
+      }),
+    )
+    expect(await screen.findByText('Backend Engineer · TypeScript')).toBeInTheDocument()
+    expect(screen.queryByText(/0 років/)).not.toBeInTheDocument()
+  })
+
   it('F-4: both tab panels, Tab stops by Radix design, show a visible focus ring', async () => {
     renderWired(makeResponse())
     await screen.findByTestId('resume-confirm-step')
@@ -404,10 +419,10 @@ describe('ResumeVerificationPanel — rulings', () => {
     )
     const progress = await screen.findByTestId('resume-verification-progress')
     const [queued, check, hr] = within(progress).getAllByRole('listitem')
-    expect(queued).toHaveTextContent(/У черзі.*готово/)
-    expect(check).toHaveTextContent(/Перевірка.*триває/)
+    expect(queued).toHaveTextContent(/готово.*У черзі/)
+    expect(check).toHaveTextContent(/триває.*Перевірка/)
     expect(check).toHaveAttribute('aria-current', 'step')
-    expect(hr).toHaveTextContent(/Підтвердження HR.*очікує/)
+    expect(hr).toHaveTextContent(/очікує.*Підтвердження HR/)
   })
 
   it('a run with a staged result keeps the confirm step, read-only, progress line on top', async () => {

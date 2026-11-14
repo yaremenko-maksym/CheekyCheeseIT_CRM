@@ -36,4 +36,23 @@ describe('experienceYears (F-1, confirm summary)', () => {
   it('a job without a start, or without an end that is not current, is skipped', () => {
     expect(experienceYears([job(null, '2020-12'), job('2010-01', null)], NOW)).toBe(0)
   })
+
+  it('FF2: end before start contributes 0 months', () => {
+    expect(experienceYears([job('2022-01', '2021-01')], NOW)).toBe(0)
+  })
+
+  it('FF2: adjacent jobs are counted without gap or double count', () => {
+    // 2020-01..2020-12 (12) + 2021-01..2021-12 (12) = 24 months = 2 years.
+    expect(experienceYears([job('2020-01', '2020-12'), job('2021-01', '2021-12')], NOW)).toBe(2)
+  })
+
+  it('FF2: a job nested in another is not double-counted', () => {
+    // 2020-01..2023-12 (48) containing 2021-01..2022-12 = 48 months = 4 years.
+    expect(experienceYears([job('2020-01', '2023-12'), job('2021-01', '2022-12')], NOW)).toBe(4)
+  })
+
+  it('FF2: current job with a future start contributes 0 months', () => {
+    // start 2027-01 is after NOW (2026-11)
+    expect(experienceYears([job('2027-01', null, true)], NOW)).toBe(0)
+  })
 })

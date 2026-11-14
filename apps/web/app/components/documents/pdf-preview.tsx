@@ -28,6 +28,8 @@ export interface PdfPreviewProps {
   hasError: boolean
   /** Имя файла для download-атрибута кнопки «Завантажити PDF». */
   filename?: string
+  /** Accessible label / title for the preview iframe (defaults to `Попередній перегляд: ${filename}`). */
+  label?: string
   className?: string
   /** data-testid для Playwright E2E. */
   testId?: string
@@ -38,6 +40,7 @@ export function PdfPreview({
   isLoading,
   hasError,
   filename = 'document.pdf',
+  label,
   className,
   testId = 'document-pdf-preview',
 }: PdfPreviewProps) {
@@ -47,6 +50,7 @@ export function PdfPreview({
   const [iframeReady, setIframeReady] = useState(false)
   const [iframeFallback, setIframeFallback] = useState(false)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const previewLabel = label ?? t`Попередній перегляд: ${filename}`
 
   // Сброс iframe-состояния при смене blobUrl (новый документ)
   useEffect(() => {
@@ -107,8 +111,8 @@ export function PdfPreview({
       {showIframe && (
         <iframe
           src={blobUrl}
-          title={t`Попередній перегляд: ${filename}`}
-          aria-label={t`Попередній перегляд: ${filename}`}
+          title={previewLabel}
+          aria-label={previewLabel}
           tabIndex={0}
           className={cn('h-full w-full rounded-xl border-0', !iframeReady && 'invisible')}
           onLoad={() => {

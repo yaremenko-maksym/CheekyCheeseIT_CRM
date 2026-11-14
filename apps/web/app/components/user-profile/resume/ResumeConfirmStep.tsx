@@ -647,6 +647,7 @@ function StagedPdf({
         isLoading={busy || isLoading}
         hasError={hasError}
         filename={t`Резюме перед підтвердженням.pdf`}
+        label={t`Попередній перегляд PDF резюме до підтвердження`}
         className="h-[60vh] max-h-[720px] min-h-[320px]"
         testId="resume-staged-pdf-object"
       />

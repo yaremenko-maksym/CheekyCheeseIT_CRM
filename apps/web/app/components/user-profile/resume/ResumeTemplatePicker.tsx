@@ -109,7 +109,7 @@ export function ResumeTemplatePicker({
           arrowRef.current = false
           if (!fromArrow) commit(resumeTemplateNameSchema.parse(next))
         }}
-        className="grid grid-cols-2 gap-3 md:grid-cols-4"
+        className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-[repeat(4,200px)]"
       >
         {RESUME_TEMPLATE_NAMES.map((name) => {
           const current = name === value
@@ -128,7 +128,7 @@ export function ResumeTemplatePicker({
                 if (e.key === 'Enter') commit(name)
               }}
               className={cn(
-                'flex flex-col gap-2 rounded-lg border border-border/60 p-2 text-left transition-colors xl:max-w-[200px]',
+                'flex flex-col gap-2 rounded-lg border border-border/60 p-2 text-left transition-colors',
                 'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                 'aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-transparent',
                 current && 'border-primary ring-1 ring-primary',

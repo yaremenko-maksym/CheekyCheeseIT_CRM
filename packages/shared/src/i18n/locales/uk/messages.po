@@ -4294,6 +4294,7 @@ msgid "дати у неправильному форматі"
 msgstr "дати у неправильному форматі"
 
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
+#: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Завантажити, щоб заповнити"
 msgstr "Завантажити, щоб заповнити"
 
@@ -5012,6 +5013,7 @@ msgstr "Показати ще"
 msgid "Переглянутий"
 msgstr "Переглянутий"
 
+#: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Заповнити вручну"
 msgstr "Заповнити вручну"
@@ -8207,7 +8209,6 @@ msgid "Немає проєктів без активного джуніора"
 msgstr "Немає проєктів без активного джуніора"
 
 #: apps/web/app/components/documents/pdf-preview.tsx
-#: apps/web/app/components/documents/pdf-preview.tsx
 msgid "Попередній перегляд: {filename}"
 msgstr "Попередній перегляд: {filename}"
 
@@ -9862,6 +9863,10 @@ msgstr "Напрямок переказу"
 #: apps/web/app/components/user-profile/resume/ResumeVerificationPanel.tsx
 msgid "Перевірка"
 msgstr "Перевірка"
+
+#: apps/web/app/components/user-profile/resume/ResumeConfirmStep.tsx
+msgid "Попередній перегляд PDF резюме до підтвердження"
+msgstr "Попередній перегляд PDF резюме до підтвердження"
 
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Частка в проєкті «{projectName}» тепер {percent}%"

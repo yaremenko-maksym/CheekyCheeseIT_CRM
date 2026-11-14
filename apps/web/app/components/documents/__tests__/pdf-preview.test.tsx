@@ -231,6 +231,17 @@ describe('PdfPreview on desktop (state matrix)', () => {
     expect(screen.queryByText(UK.blocked)).toBeNull()
   })
 
+  it('F-12: uses custom label prop for iframe title and aria-label when provided', () => {
+    renderPreview({
+      blobUrl: 'blob:x',
+      isLoading: false,
+      hasError: false,
+      label: 'Попередній перегляд PDF резюме до підтвердження',
+    })
+    const iframe = screen.getByTitle('Попередній перегляд PDF резюме до підтвердження')
+    expect(iframe).toHaveAttribute('aria-label', 'Попередній перегляд PDF резюме до підтвердження')
+  })
+
   it('after the 3 s iframe timeout: fallback only (download), no iframe, no loader, no open button', () => {
     renderPreview({ blobUrl: 'blob:x', isLoading: false, hasError: false, filename: 'a.pdf' })
     act(() => {

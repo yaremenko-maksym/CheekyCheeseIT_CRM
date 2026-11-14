@@ -79,9 +79,11 @@ export function ResumeIntake({
         onClick={() => fileInputRef.current?.click()}
         disabled={isBusy}
         data-testid="resume-upload-button"
-        className="h-auto min-h-11 whitespace-normal"
+        className={
+          variant === 'empty' ? 'h-11 whitespace-nowrap' : 'h-auto min-h-11 whitespace-normal'
+        }
       >
-        <FileUp className="mr-2 h-4 w-4" aria-hidden />
+        <FileUp className="mr-2 h-4 w-4 shrink-0" aria-hidden />
         {variant === 'empty' ? (
           <Trans>Завантажити, щоб заповнити</Trans>
         ) : (
@@ -105,7 +107,7 @@ export function ResumeIntake({
     <div
       className={
         variant === 'empty'
-          ? 'max-w-[720px] rounded-lg border border-dashed bg-muted/30 px-4 py-8 sm:px-6'
+          ? 'max-w-[720px] rounded-lg border bg-card px-4 py-6 sm:p-6'
           : 'rounded-lg border bg-muted/20 p-4'
       }
       data-testid="resume-intake"
@@ -115,6 +117,7 @@ export function ResumeIntake({
         type="file"
         accept={ACCEPTED_EXTENSIONS.join(',')}
         className="sr-only"
+        tabIndex={-1}
         onChange={handleFileChosen}
         data-testid="resume-file-input"
         aria-label={t`Файл резюме`}
@@ -122,7 +125,7 @@ export function ResumeIntake({
 
       {variant === 'empty' ? (
         <>
-          <h3 className="text-base font-medium">
+          <h3 className="text-base font-semibold">
             <Trans>Резюме ще не заповнено</Trans>
           </h3>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -135,7 +138,15 @@ export function ResumeIntake({
           <div className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2">
             {onFillManually && (
               <div className="flex flex-col gap-3 rounded-lg border bg-card p-4">
-                <PencilLine className="h-6 w-6 text-muted-foreground" aria-hidden />
+                <div
+                  className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground"
+                  aria-hidden
+                >
+                  <PencilLine className="size-4" />
+                </div>
+                <h4 className="font-semibold text-foreground">
+                  <Trans>Заповнити вручну</Trans>
+                </h4>
                 <p className="text-sm text-muted-foreground">
                   <Trans>Порожня форма фактів. Перевірка запускається, коли все заповнено.</Trans>
                 </p>
@@ -144,14 +155,22 @@ export function ResumeIntake({
                   autoFocus={focusFillManually}
                   disabled={isBusy}
                   data-testid="resume-fill-manually"
-                  className="mt-auto h-auto min-h-11 whitespace-normal"
+                  className="mt-auto h-11 whitespace-nowrap"
                 >
                   <Trans>Заповнити вручну</Trans>
                 </Button>
               </div>
             )}
             <div className="flex flex-col gap-3 rounded-lg border bg-card p-4">
-              <FileUp className="h-6 w-6 text-muted-foreground" aria-hidden />
+              <div
+                className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground"
+                aria-hidden
+              >
+                <FileUp className="size-4" />
+              </div>
+              <h4 className="font-semibold text-foreground">
+                <Trans>Завантажити, щоб заповнити</Trans>
+              </h4>
               <p className="text-sm text-muted-foreground">
                 <Trans>PDF або DOCX, до {MAX_MB} МБ. Файл бачите тільки ви і команда найму.</Trans>
               </p>

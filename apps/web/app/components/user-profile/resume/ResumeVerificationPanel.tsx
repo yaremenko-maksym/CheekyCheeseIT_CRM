@@ -232,9 +232,7 @@ function Stage({
         {state === 'done' && <Check className="size-3.5" />}
       </span>
       <span className={cn('min-w-0', state === 'current' && 'font-medium')}>
-        {children}
         <span className="sr-only">
-          {' '}
           {state === 'done' ? (
             <Trans>готово</Trans>
           ) : state === 'current' ? (
@@ -242,7 +240,9 @@ function Stage({
           ) : (
             <Trans>очікує</Trans>
           )}
+          {': '}
         </span>
+        {children}
       </span>
     </li>
   )

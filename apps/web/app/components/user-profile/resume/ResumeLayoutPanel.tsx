@@ -219,6 +219,7 @@ export function ResumeLayoutPanel({
               data-testid="resume-layout-reset"
               disabled={saving || busy}
               onClick={() => setDraft(DEFAULT_RESUME_LAYOUT)}
+              className="h-11 sm:h-9"
             >
               <RotateCcw className="mr-1.5 size-3.5" />
               <Trans>Скинути</Trans>
@@ -229,6 +230,7 @@ export function ResumeLayoutPanel({
               data-testid="resume-layout-save"
               disabled={!dirty || saving || busy}
               onClick={() => onSave(draft)}
+              className="h-11 sm:h-9"
             >
               {isSaving ? t`Зберігаємо…` : t`Застосувати`}
             </Button>
@@ -320,6 +322,7 @@ export function ResumeLayoutPanel({
               ariaLabel={t`Щільність верстки`}
               layoutId="resume-density"
               size="sm"
+              itemClassName="h-11 sm:h-9"
               disabled={locked}
               testId="resume-layout-density"
             />
@@ -335,6 +338,7 @@ export function ResumeLayoutPanel({
               ariaLabel={t`Розмір шрифту`}
               layoutId="resume-font-scale"
               size="sm"
+              itemClassName="h-11 sm:h-9"
               disabled={locked}
               testId="resume-layout-font-scale"
             />
