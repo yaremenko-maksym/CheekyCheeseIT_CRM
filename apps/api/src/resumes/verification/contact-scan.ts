@@ -168,13 +168,20 @@ function findSpans(text: string, ctx: ContactContext): Span[] {
   }
   // The email pattern consumes its boundary too, so an email glued to the next by a local-part
   // character (`a@b.com-c@d.com`) would hide the second: resume one past each hit's start, and
-  // the overlapping hits merge on redaction. Group 1 is the hit.
+  // the overlapping hits merge on redaction. Group 1 is the hit. The step is one code point: a
+  // `lastIndex` inside a surrogate pair (`𝐚@b.com`) snaps back to the pair's start under the `u`
+  // flag, the same hit comes back, and the loop never ends (SR5-H-1).
   const email = new RegExp(RESUME_EMAIL_PATTERN.source, 'gu')
+  let previous = -1
   for (let m = email.exec(plain); m; m = email.exec(plain)) {
     const end = m.index + m[0].length
     const start = end - (m[1] ?? m[0]).length
+    // Defensive: the step below always moves past `start`, so this never fires unless it breaks.
+    // Stryker disable next-line ConditionalExpression,EqualityOperator: unreachable while the code-point step is right; it only bounds the loop if a later edit breaks that step
+    if (start <= previous) break
+    previous = start
     spans.push({ kind: 'email', start, end })
-    email.lastIndex = start + 1
+    email.lastIndex = start + ((plain.codePointAt(start) ?? 0) >= 0x10000 ? 2 : 1)
   }
   for (const span of findPhoneSpans(plain)) spans.push({ kind: 'phone', ...span })
   const folded = foldAccents(plain)

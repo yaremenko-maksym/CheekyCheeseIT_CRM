@@ -659,6 +659,22 @@ describe('fix round 5: an email glued to the next one by a local-part character'
     expect(performance.now() - started).toBeLessThan(500)
   })
 
+  it.each([
+    ['𝐚@b.com', '[REDACTED]'],
+    ['𝐚@b.com-𝐜@d.com', '[REDACTED]'],
+    ['x 𝐚𝐛@b.com y', 'x [REDACTED] y'],
+    // U+10000, the first astral code point, is a letter
+    ['\u{10000}@b.com-\u{10000}@d.com', '[REDACTED]'],
+  ])(
+    'an email starting with an astral letter, %j, is redacted and the scan ends (SR5-H-1)',
+    (text, redacted) => {
+      const started = performance.now()
+      expect(redactContacts(text, [])).toBe(redacted)
+      expect(scanContacts(text, ctx).map((h) => h.kind)).toEqual(['email'])
+      expect(performance.now() - started).toBeLessThan(500)
+    },
+  )
+
   it('50k characters of "1," are redacted in under 500 ms (SR4-L-1)', () => {
     const started = performance.now()
     redactContacts('1,'.repeat(25_000), ctx)
