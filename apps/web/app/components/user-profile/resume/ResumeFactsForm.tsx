@@ -86,6 +86,10 @@ function cleanFacts(facts: ResumeFacts): ResumeFacts {
   }
 }
 
+/** Client-only React keys for draft jobs; kept beside the draft, so they never reach the API (FR-W-5). */
+let jobKeySeq = 0
+const nextJobKey = () => ++jobKeySeq
+
 const same = (a: ResumeFacts, b: ResumeFacts) => JSON.stringify(a) === JSON.stringify(b)
 
 const lines = (value: string) => value.split('\n')
@@ -129,6 +133,7 @@ export function ResumeFactsForm({
   const [serverChanged, setServerChanged] = useState(false)
   /** The last payload this form sent; its echo from the server is not an outside change. */
   const [sent, setSent] = useState<ResumeFacts | null>(null)
+  const [jobKeys, setJobKeys] = useState(() => facts.experience.map(() => nextJobKey()))
 
   // A new server value replaces the draft only when nothing unsaved is in it.
   // Otherwise the draft stays and the user is told the saved version moved,
@@ -142,6 +147,11 @@ export function ResumeFactsForm({
     if (ownSave || draftClean || same(cleanFacts(draft), cleanFacts(facts))) setServerChanged(false)
     else if (!same(cleanFacts(facts), cleanFacts(baseline))) setServerChanged(true)
     setBaseline(facts)
+  }
+
+  // A draft replaced wholesale (server value, discard) with another job count gets fresh keys.
+  if (jobKeys.length !== draft.experience.length) {
+    setJobKeys(draft.experience.map(() => nextJobKey()))
   }
 
   const dirty = !same(cleanFacts(draft), cleanFacts(baseline))
@@ -438,7 +448,10 @@ export function ResumeFactsForm({
               id={factsFieldId('experience.add')}
               className="h-11 sm:h-9"
               disabled={draft.experience.length >= RESUME_LIMITS.experience}
-              onClick={() => patch({ experience: [...draft.experience, { ...EMPTY_JOB }] })}
+              onClick={() => {
+                patch({ experience: [...draft.experience, { ...EMPTY_JOB }] })
+                setJobKeys((keys) => [...keys, nextJobKey()])
+              }}
               data-testid="resume-facts-experience-add"
             >
               <Plus className="mr-1.5 size-4" aria-hidden />
@@ -449,7 +462,7 @@ export function ResumeFactsForm({
             {fieldError('experience.add')}
             {draft.experience.map((job, index) => (
               <JobBlock
-                key={index}
+                key={jobKeys[index] ?? `new-${index}`}
                 job={job}
                 index={index}
                 count={draft.experience.length}
@@ -457,10 +470,14 @@ export function ResumeFactsForm({
                 a11y={a11y}
                 fieldError={fieldError}
                 onPatch={(changes) => patchJob(index, changes)}
-                onMove={(to) => patch({ experience: moveItem(draft.experience, index, to) })}
-                onRemove={() =>
+                onMove={(to) => {
+                  patch({ experience: moveItem(draft.experience, index, to) })
+                  setJobKeys((keys) => moveItem(keys, index, to))
+                }}
+                onRemove={() => {
                   patch({ experience: draft.experience.filter((_, i) => i !== index) })
-                }
+                  setJobKeys((keys) => keys.filter((_, i) => i !== index))
+                }}
               />
             ))}
           </CardContent>

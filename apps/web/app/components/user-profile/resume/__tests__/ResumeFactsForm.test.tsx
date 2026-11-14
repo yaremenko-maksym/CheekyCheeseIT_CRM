@@ -349,6 +349,20 @@ describe('ResumeFactsForm', () => {
   })
 })
 
+describe('stable job keys (FR-W-5)', () => {
+  it('removing job 1 leaves the uncommitted technology text with the job that typed it', () => {
+    const [job] = ONE_JOB.experience
+    const two = { ...ONE_JOB, experience: [job!, { ...job!, role: 'Second role' }] }
+    render(<Wired facts={two} />, { wrapper: Providers })
+    fireEvent.change(screen.getByPlaceholderText('Технології, місце роботи 2'), {
+      target: { value: 'Kotl' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Видалити місце роботи 1' }))
+    expect(screen.getByLabelText('Посада, місце роботи 1')).toHaveValue('Second role')
+    expect(screen.getByPlaceholderText('Технології, місце роботи 1')).toHaveValue('Kotl')
+  })
+})
+
 describe('moveItem', () => {
   it('moves an element and leaves out-of-range moves as a copy', () => {
     expect(moveItem(['a', 'b', 'c'], 0, 1)).toEqual(['b', 'a', 'c'])
