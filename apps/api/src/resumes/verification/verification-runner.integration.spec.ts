@@ -256,6 +256,8 @@ describe.skipIf(!hasDatabaseUrl())('Verification run — real DB (Task 14)', () 
         { gate: 'visual', ok: true, items: [] },
       ],
       fallbacks: [],
+      // the owner name/email digest confirm compares against (B10): a sha256 hex, never the PII
+      ownerKey: expect.stringMatching(/^[\da-f]{64}$/),
     })
     // the live columns are untouched until the human confirms
     expect(row.content).toEqual(expect.objectContaining({ summary: '' }))
