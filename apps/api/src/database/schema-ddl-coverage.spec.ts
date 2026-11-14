@@ -17,13 +17,19 @@ import { is } from 'drizzle-orm'
 import { index, integer, pgTable, PgTable, text, uuid } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
 import * as schema from './schema'
-import { ddlCreatedObjects, uncreatedSchemaObjects } from './schema-ddl-coverage'
+import {
+  ddlCreatedObjects,
+  declaredSchemaObjects,
+  uncreatedSchemaObjects,
+} from './schema-ddl-coverage'
 
 const MANUAL_DIR = join(__dirname, '..', '..', 'drizzle', 'manual')
 const manualSql = readdirSync(MANUAL_DIR)
   .filter((f) => f.endsWith('.sql'))
   .map((f) => readFileSync(join(MANUAL_DIR, f), 'utf8'))
-const schemaTables = Object.values(schema).filter((v): v is PgTable => is(v, PgTable))
+const schemaTables: PgTable[] = (Object.values(schema) as unknown[]).filter((v): v is PgTable =>
+  is(v, PgTable),
+)
 
 /**
  * PRE-MANUAL BASELINE. These 25 tables predate the `drizzle/manual/` discipline: production got
@@ -230,6 +236,124 @@ describe('ddlCreatedObjects / uncreatedSchemaObjects', () => {
       'probe.extra',
       'probe.id',
       'probe.note',
+    ])
+  })
+
+  it('does not read table-level constraints or clauses as columns', () => {
+    const tableWithClauses = `CREATE TABLE IF NOT EXISTS "probe" (
+      id uuid,
+      note text,
+      PRIMARY KEY (id),
+      UNIQUE (note),
+      FOREIGN KEY (id) REFERENCES other (id),
+      CHECK (length(note) > 0),
+      EXCLUDE USING gist (id WITH =),
+      LIKE other_table
+    );`
+    expect(ddlCreatedObjects([tableWithClauses])).toEqual(
+      new Set(['probe', 'probe.id', 'probe.note']),
+    )
+  })
+
+  it('strips block comments completely so column names adjacent to them are parsed correctly', () => {
+    const withBlockComments = `CREATE TABLE probe (
+      id uuid,
+      /* inline comment */
+      note text
+    );`
+    expect(ddlCreatedObjects([withBlockComments])).toEqual(
+      new Set(['probe', 'probe.id', 'probe.note']),
+    )
+  })
+
+  it('handles quotes with commas and parentheses without misinterpreting them as column boundaries', () => {
+    const withQuotedDefaults = `CREATE TABLE probe (
+      id uuid,
+      greeting text DEFAULT 'hello, (world)',
+      farewell text DEFAULT 'foo)bar',
+      note text
+    );`
+    expect(ddlCreatedObjects([withQuotedDefaults])).toEqual(
+      new Set(['probe', 'probe.id', 'probe.greeting', 'probe.farewell', 'probe.note']),
+    )
+  })
+
+  it('handles unclosed quotes gracefully', () => {
+    const unclosedQuote = `CREATE TABLE probe ( id uuid, bad text DEFAULT 'unclosed`
+    expect(ddlCreatedObjects([unclosedQuote])).toEqual(new Set(['probe', 'probe.id']))
+  })
+
+  it('does not split on commas inside nested expressions at depth > 1', () => {
+    const withNestedCommas = `CREATE TABLE probe (
+      id uuid,
+      num integer CHECK (num IN (1, 2, 3) AND fn(val_a, val_b) > 0),
+      note text
+    );`
+    expect(ddlCreatedObjects([withNestedCommas])).toEqual(
+      new Set(['probe', 'probe.id', 'probe.num', 'probe.note']),
+    )
+  })
+
+  it('recognises CREATE TABLE variations (no IF NOT EXISTS, no space before paren, multiple spaces)', () => {
+    const noIfNotExists = `CREATE TABLE probe ( id uuid );`
+    const noSpaceParen = `CREATE TABLE probe( id uuid );`
+    const multiSpace = `CREATE   TABLE   IF   NOT   EXISTS   probe (\n  id uuid\n);`
+    expect(ddlCreatedObjects([noIfNotExists])).toEqual(new Set(['probe', 'probe.id']))
+    expect(ddlCreatedObjects([noSpaceParen])).toEqual(new Set(['probe', 'probe.id']))
+    expect(ddlCreatedObjects([multiSpace])).toEqual(new Set(['probe', 'probe.id']))
+  })
+
+  it('ignores empty items and non-word items in CREATE TABLE definition', () => {
+    const withEmptyAndNonWord = `CREATE TABLE probe (
+      id uuid,
+      ,
+      # non-word line
+      !invalid text,
+      note text,
+    );`
+    expect(ddlCreatedObjects([withEmptyAndNonWord])).toEqual(
+      new Set(['probe', 'probe.id', 'probe.note']),
+    )
+  })
+
+  it('recognises ALTER TABLE variations (IF EXISTS, ONLY, multiple spaces)', () => {
+    const ifExists = `ALTER TABLE IF EXISTS probe ADD COLUMN extra integer;`
+    const only = `ALTER TABLE ONLY probe ADD COLUMN extra integer;`
+    const ifExistsOnly = `ALTER TABLE IF EXISTS ONLY probe ADD COLUMN extra integer;`
+    const multiSpace = `ALTER   TABLE   IF   EXISTS   ONLY   probe   ADD COLUMN extra integer;`
+    expect(ddlCreatedObjects([ifExists])).toEqual(new Set(['probe.extra']))
+    expect(ddlCreatedObjects([only])).toEqual(new Set(['probe.extra']))
+    expect(ddlCreatedObjects([ifExistsOnly])).toEqual(new Set(['probe.extra']))
+    expect(ddlCreatedObjects([multiSpace])).toEqual(new Set(['probe.extra']))
+  })
+
+  it('recognises ADD COLUMN variations (without IF NOT EXISTS, multiple spaces)', () => {
+    const plainAdd = `ALTER TABLE probe ADD COLUMN extra integer;`
+    const multiSpace = `ALTER TABLE probe ADD   COLUMN   IF   NOT   EXISTS   extra integer;`
+    expect(ddlCreatedObjects([plainAdd])).toEqual(new Set(['probe.extra']))
+    expect(ddlCreatedObjects([multiSpace])).toEqual(new Set(['probe.extra']))
+  })
+
+  it('recognises CREATE INDEX variations (UNIQUE, plain index, ON ONLY, multiple spaces)', () => {
+    const uniqueIx = `CREATE UNIQUE INDEX idx_probe_unique ON probe (note);`
+    const plainIx = `CREATE INDEX idx_probe_plain ON probe (note);`
+    const onOnly = `CREATE INDEX idx_probe_only ON ONLY probe (note);`
+    const multiSpace = `CREATE   UNIQUE   INDEX   CONCURRENTLY   IF   NOT   EXISTS   idx_probe_multi   ON   ONLY   probe (note);`
+    expect(ddlCreatedObjects([uniqueIx])).toEqual(new Set(['probe#idx_probe_unique']))
+    expect(ddlCreatedObjects([plainIx])).toEqual(new Set(['probe#idx_probe_plain']))
+    expect(ddlCreatedObjects([onOnly])).toEqual(new Set(['probe#idx_probe_only']))
+    expect(ddlCreatedObjects([multiSpace])).toEqual(new Set(['probe#idx_probe_multi']))
+  })
+
+  it('handles tables with unnamed indexes without emitting dummy index keys', () => {
+    const tableWithUnnamedIndex = pgTable(
+      'unnamed_ix_probe',
+      { id: uuid('id').primaryKey() },
+      (c) => [index().on(c.id)],
+    )
+    expect(declaredSchemaObjects([tableWithUnnamedIndex])).toEqual([
+      'unnamed_ix_probe',
+      'unnamed_ix_probe.id',
     ])
   })
 })

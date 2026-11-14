@@ -37,7 +37,7 @@ function topLevelItems(sql: string, open: number): string[] {
   const items: string[] = []
   let depth = 0
   let start = open + 1
-  for (let i = open; i < sql.length; i++) {
+  for (let i = open; i !== sql.length; i++) {
     const ch = sql[i]
     if (ch === "'") {
       i = sql.indexOf("'", i + 1)
@@ -58,18 +58,21 @@ function topLevelItems(sql: string, open: number): string[] {
 export function ddlCreatedObjects(sqlTexts: readonly string[]): Set<string> {
   const created = new Set<string>()
   for (const sql of sqlTexts.map(normalise)) {
-    for (const { 0: whole, 1: table = '', index } of sql.matchAll(
-      /create\s+table\s+(?:if\s+not\s+exists\s+)?(\w+)\s*\(/g,
-    )) {
+    for (const match of sql.matchAll(/create\s+table\s+(?:if\s+not\s+exists\s+)?(\w+)\s*\(/g)) {
+      const whole = match[0]!
+      const table = match[1]!
+      const index = match.index
       created.add(table)
       for (const item of topLevelItems(sql, index + whole.length - 1)) {
         const col = /^\s*(\w+)/.exec(item)?.[1]
         if (col && !NOT_A_COLUMN.has(col)) created.add(`${table}.${col}`)
       }
     }
-    for (const { 1: table, 2: actions = '' } of sql.matchAll(
+    for (const match of sql.matchAll(
       /alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?(\w+)([^;]*)/g,
     )) {
+      const table = match[1]!
+      const actions = match[2]!
       for (const { 1: col } of actions.matchAll(/add\s+column\s+(?:if\s+not\s+exists\s+)?(\w+)/g)) {
         created.add(`${table}.${col}`)
       }
