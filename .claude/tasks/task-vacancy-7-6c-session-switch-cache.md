@@ -4,7 +4,7 @@
 
 ## Status: ready
 
-## Blockers: none (the 7.6 suite on PR #1324 carries the failing proof as `test.fail`)
+## Blockers: none (the 7.6 suite on PR #1324 asserts the leak itself in scenario 10b)
 
 ## Priority: high (a data-visibility leak across accounts)
 
@@ -29,8 +29,9 @@ must not see.
 
 ## Seed / proof
 
-The failing proof is scenario 10b in `apps/e2e/tests/job-queue.spec.ts`, marked `test.fail(true, 'product gap: …')` on
-PR #1324. Once this fix is in, 10b turns red as an unexpected pass: **delete that `test.fail` line in this PR** (the
+The failing proof is scenario 10b in `apps/e2e/tests/job-queue.spec.ts`, which on PR #1324 asserts the leak
+(`arrayContaining` of the previous account's rows, comment `product gap: Task 7.6c flips this`). Once this fix is in,
+10b turns red: **flip that assertion to `not.toContain` and rename the test title (it says «still paints …») in this PR** (the
 only edit allowed in `apps/e2e`; Master grants this cross-zone exception here). Rebase on `main` after #1324 merges, or
 on its branch if it is still open (say which).
 
@@ -42,14 +43,14 @@ on its branch if it is still open (say which).
        approach that fits the existing auth code and record it in the PR body.
 2. [ ] A unit/component test fails without the change and passes with it (a user id change on revalidation clears the
        cache and the persisted copy).
-3. [ ] Scenario 10b passes without `test.fail`; the three `job-queue` runs are green (paste counts).
+3. [ ] Scenario 10b asserts that no previous-account row renders and passes; the three `job-queue` runs are green (paste counts).
 4. [ ] No extra request on every render: the revalidation is bounded (focus or route change, deduplicated).
 5. [ ] Logout and impersonation behaviour is unchanged (their existing tests stay green).
 
 ## Assumptions
 
 - A1 (Master): this is its own PR, not part of #1324, because #1324 is the AutoTest zone and this is `apps/web`.
-- A1 (Master): the single `apps/e2e` edit (delete the `test.fail` line) is allowed here so the proof and the fix land together.
+- A1 (Master): the single `apps/e2e` edit (flip the 10b assertion and title) is allowed here so the proof and the fix land together.
 
 ## Zone
 
