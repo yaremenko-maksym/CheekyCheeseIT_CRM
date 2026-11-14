@@ -111,33 +111,35 @@ function watchSessionOwner(queryClient: QueryClient, navigating: () => boolean):
 export function createSessionRevalidator(queryClient: QueryClient) {
   const REUSE_MS = 1000 // hover preload, then click
   // checks in flight, by sequence: a purge while any runs belongs to a navigation not yet rendered
-  const inflight = new Map<number, Promise<boolean>>()
+  const inflight = new Map<number, Promise<void>>()
   const settled = watchSessionOwner(queryClient, () => inflight.size > 0)
   let last: { pathname: string; check: Promise<void>; settledAt: number | null } | null = null
   let asked = 0 // sequence of the newest check
+  let landed = 0 // sequence of the newest check whose answer is in `auth/me`
   const newerThan = (mine: number) =>
     [...inflight].filter(([seq]) => seq > mine).map(([, running]) => running)
-  /** Resolves true when this check's answer landed in `auth/me`. */
-  const answer = async (mine: number): Promise<boolean> => {
+  const answer = async (mine: number): Promise<void> => {
     // A request of its own, not a deduped `fetchQuery`: the router pushes the URL before
     // `beforeLoad` settles, so an earlier request may still be in flight under the OLD cookie.
     let current: SessionUser | null
     try {
       current = await fetchMe(REVALIDATE_TIMEOUT_MS)
     } catch {
-      return false // network failure or timeout: keep the cache (offline use); the server still enforces access
+      return // network failure or timeout: keep the cache (offline use); the server still enforces access
     }
     // Checks asked after us (even while we wait) are waited for, so this navigation renders only
-    // after the newest answer. A newer check lands only after waiting for every check newer than
-    // itself, so "one landed" means the newest answer is in: ours is older and is dropped. Ours
-    // lands only if every newer check failed.
+    // after the newest answer.
     for (let newer = newerThan(mine); newer.length > 0; newer = newerThan(mine)) {
-      if ((await Promise.all(newer)).some(Boolean)) return false
+      await Promise.all(newer)
     }
     // AuthProvider's own request may also predate the cookie change; its late answer must not land
     await queryClient.cancelQueries({ queryKey: AUTH_ME_KEY, exact: true })
+    // A newer answer is already in (it landed while we waited, or before ours even arrived): ours
+    // is stale. Ours lands only if every newer check failed.
+    // Stryker disable next-line EqualityOperator: `landed === mine` never holds here (only this check assigns `mine`, below), so `>` and `>=` are the same test
+    if (landed > mine) return
     queryClient.setQueryData(AUTH_ME_KEY, current) // a changed id purges in `watchSessionOwner`
-    return true
+    landed = mine
   }
   const check = async (): Promise<void> => {
     if (!queryClient.getQueryData<SessionUser | null>(AUTH_ME_KEY)) return

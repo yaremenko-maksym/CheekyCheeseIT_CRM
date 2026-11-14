@@ -705,4 +705,23 @@ describe('refetch after an account switch (backlog 433): the page being left nev
     await Promise.all([first, second, third])
     expect(landed).toEqual(['user-ivan'])
   })
+
+  it('an older answer arriving after every newer check finished never lands over the newer one', async () => {
+    const qc = seeded()
+    const ivan = { id: 'user-ivan', role: 'JUNIOR' }
+    let answerFirst: (v: unknown) => void = () => {}
+    apiGet
+      .mockReturnValueOnce(new Promise((resolve) => (answerFirst = resolve)))
+      .mockResolvedValueOnce({ status: 200, data: ivan })
+    const revalidate = createSessionRevalidator(qc)
+    const landed = landedAnswers(qc)
+    const first = revalidate('/job-queue')
+    await revalidate('/projects') // the newer check lands and leaves before the older one answers
+    expect(landed).toEqual(['user-ivan'])
+
+    answerFirst({ status: 200, data: kateryna })
+    await first
+    expect(landed).toEqual(['user-ivan'])
+    expect(qc.getQueryData(['auth', 'me'])).toEqual(ivan)
+  })
 })
