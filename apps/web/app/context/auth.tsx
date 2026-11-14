@@ -46,14 +46,15 @@ const isAuthMe = (q: Query) => q.queryKey[0] === 'auth' && q.queryKey[1] === 'me
  * Task 7.6c: the session cookie can change under an open page (a sign-in in another tab), and the
  * cached `auth/me` user — which every scoped query key derives from — would never notice. The
  * `_authenticated` route awaits this in `beforeLoad`, so a changed user id purges every other query
- * and the persisted copy BEFORE the next route renders. One request per pathname change: a repeat
- * of the same pathname (a search change, or the click after the hover preload — the router reports
- * an active layout's preload as `preload: false`) reuses the last check, waiting for it if in
- * flight. Nothing before the first `auth/me` answer (AuthProvider owns that).
+ * and the persisted copy BEFORE the next route renders. A repeat of the same pathname (the click
+ * after the hover preload — the router reports an active layout's preload as `preload: false`)
+ * reuses the last check while it is in flight or for `REUSE_MS` after it settles; anything later
+ * asks again. A check overtaken by a newer one waits for that one, so no navigation renders before
+ * the newest answer is applied. Nothing before the first `auth/me` answer (AuthProvider owns that).
  */
 export function createSessionRevalidator(queryClient: QueryClient) {
-  let lastPathname: string | null = null
-  let lastCheck: Promise<void> = Promise.resolve()
+  const REUSE_MS = 1000 // hover preload, then click
+  let last: { pathname: string; check: Promise<void>; settledAt: number | null } | null = null
   let generation = 0
   const check = async (): Promise<void> => {
     const previous = queryClient.getQueryData<SessionUser | null>(AUTH_ME_KEY)
@@ -67,7 +68,8 @@ export function createSessionRevalidator(queryClient: QueryClient) {
     } catch {
       return // network failure: keep the cache (offline use); the server still enforces access
     }
-    if (mine !== generation) return // a later navigation asked after us: its answer wins
+    // a later check asked after us: its answer wins, and this navigation waits for it
+    if (mine !== generation) return last?.check
     // AuthProvider's own request may also predate the cookie change; its late answer must not land
     await queryClient.cancelQueries({ queryKey: AUTH_ME_KEY, exact: true })
     queryClient.setQueryData(AUTH_ME_KEY, current)
@@ -77,11 +79,12 @@ export function createSessionRevalidator(queryClient: QueryClient) {
     await idbDel(PERSIST_KEY).catch(() => {})
   }
   return (pathname: string): Promise<void> => {
-    if (pathname !== lastPathname) {
-      lastPathname = pathname
-      lastCheck = check()
-    }
-    return lastCheck
+    const fresh = last?.settledAt == null || Date.now() - last.settledAt < REUSE_MS
+    if (last && last.pathname === pathname && fresh) return last.check
+    const entry: NonNullable<typeof last> = { pathname, check: Promise.resolve(), settledAt: null }
+    entry.check = check().finally(() => (entry.settledAt = Date.now()))
+    last = entry
+    return entry.check
   }
 }
 

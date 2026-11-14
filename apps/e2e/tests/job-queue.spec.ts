@@ -723,6 +723,8 @@ test.describe('wave 2 — real API on the 7.6a seed', () => {
       // leave the queue client-side: the document and its in-memory cache stay alive
       await nav(page, 'Проєкти')
       await expect(page).toHaveURL(/\/projects/)
+      // the URL moves before the route settles: watch only once the queue page has unmounted
+      await expect(page.getByTestId(ANY_ROW)).toHaveCount(0)
       await page.evaluate(watchRows)
 
       // another account takes the cookie (another tab's sign-in), no reload

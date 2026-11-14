@@ -101,6 +101,46 @@ describe('createSessionRevalidator', () => {
     expect(apiGet).toHaveBeenCalledTimes(1)
   })
 
+  it('a superseded check waits for the newer one instead of letting its navigation render unpurged', async () => {
+    const qc = seeded()
+    let answerAsAnna: (v: unknown) => void = () => {}
+    let answerAsKateryna: (v: unknown) => void = () => {}
+    apiGet
+      .mockReturnValueOnce(new Promise((resolve) => (answerAsAnna = resolve)))
+      .mockReturnValueOnce(new Promise((resolve) => (answerAsKateryna = resolve)))
+    const revalidate = createSessionRevalidator(qc)
+    let navigationSettled = false
+    const navigation = revalidate('/job-queue').then(() => (navigationSettled = true))
+    void revalidate('/projects') // a hover preload of another link while the navigation waits
+
+    answerAsAnna({ status: 200, data: anna }) // the older request, sent under the old cookie
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(navigationSettled).toBe(false)
+
+    answerAsKateryna({ status: 200, data: kateryna })
+    await navigation
+    expect(qc.getQueryData(QUEUE_KEY)).toBeUndefined()
+  })
+
+  it('a settled check of the same path is reused only briefly (hover, then click); later it asks again', async () => {
+    const qc = seeded()
+    meReturns(anna)
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    const revalidate = createSessionRevalidator(qc)
+    await revalidate('/job-queue')
+    await revalidate('/job-queue')
+    expect(apiGet).toHaveBeenCalledTimes(1)
+
+    // the cookie changes; a filter change on the same path a while later must still see it
+    meReturns(kateryna)
+    now.mockReturnValue(1_000_000 + 5_000)
+    await revalidate('/job-queue')
+    now.mockRestore()
+
+    expect(apiGet).toHaveBeenCalledTimes(2)
+    expect(qc.getQueryData(QUEUE_KEY)).toBeUndefined()
+  })
+
   it('purges when the session is gone (401)', async () => {
     const qc = seeded()
     apiGet.mockResolvedValue({ status: 401, data: {} })
