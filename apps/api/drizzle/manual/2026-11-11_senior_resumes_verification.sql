@@ -15,9 +15,10 @@
 -- PRIVILEGE CLASS
 --   No new relation: the columns inherit senior_resumes' existing grants.
 --
--- WHY THIS FILE IS STAGED
---   The deploy wiring (copy + apply in .github/workflows/deploy.yml) is DevOps' zone. The PR that wires it
---   moves this file to manual/, before the image that reads these columns serves traffic.
+-- WHY THIS FILE WAS STAGED
+--   It sat in manual-staged/ until the deploy wired it. It now lives in manual/: the deploy copies and
+--   applies it (.github/workflows/deploy.yml, DevOps' zone) before the image that reads these columns
+--   serves traffic.
 --   Rollback: drop the added columns, then the type.
 
 SET LOCAL lock_timeout = '10s';

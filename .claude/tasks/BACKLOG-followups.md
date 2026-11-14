@@ -7497,10 +7497,15 @@ Sources: verified-base-resume pre-push runs (Task 23 brief); item 195.
 ## 401. `ResumeVerificationPanel.test.tsx` is at the 800-line limit (2026-11-14)
 
 **Symptoms.** The panel test file is at 799 lines, so the next staged-PDF case pushes it over the
-file-size limit.
+file-size limit. `packages/shared/src/schemas/resume-completeness.spec.ts` is over it already (961
+lines, R101).
+
+Files: `apps/web/app/components/user-profile/resume/__tests__/ResumeVerificationPanel.test.tsx`,
+`packages/shared/src/schemas/resume-completeness.spec.ts`.
 
 **Candidate fixes.** Move the staged-PDF block (preview, download, template line) into its own test
-file with the shared render helper, before adding to it.
+file with the shared render helper, before adding to it. Split the completeness spec by concern
+(contact patterns, completeness codes).
 
 **Verify.** `wc -l` of every `ResumeVerificationPanel*.test.tsx` is at most 800, and the web suite
 case count for these files is unchanged after the split.
@@ -7524,3 +7529,63 @@ prefix, run with account deletion.
 source, run the sweep: the orphan is gone, and the referenced source and PDFs are still there.
 
 Sources: verified-base-resume security review, finding SR-L-4 (Task 23 fix round 1).
+
+## 403. A VERIFIED resume is not re-checked after a rename or a Telegram change (2026-11-14)
+
+**Symptoms.** Verification redacts the senior's display name, legal name and stored Telegram handle from the
+resume text before any model call, and confirm detects a display-name change only while the run is still
+awaiting confirm. Once a resume is VERIFIED, a later change of the display name, legal name or Telegram handle
+does not reopen it. The verified PDF and facts may then carry the new name or handle in free text, and nothing
+re-runs the contact scan against the new values.
+
+**Candidate fixes.** On a profile update that changes any redaction input, mark the senior's VERIFIED resume
+stale (a status or a flag) so HR sees "re-check needed", and re-run only the contact scan against the stored
+facts. Or store the owner fingerprint on the verified report and compare it on every read that feeds a model.
+
+**Verify.** Verify a resume, rename the senior, open the resume: it shows the stale state, and a re-check with the
+new name finds a hit seeded in the facts.
+
+Sources: verified-base-resume second-opinion, finding SO23-6 (Task 23). Owner note in the PR.
+
+## 404. Russian API messages in the resumes area should become codes + catalog lines (2026-11-14)
+
+**Symptoms.** Some stored or returned strings in the resumes area are Russian text, not codes: the PDF render
+error message, the extraction `errorMessage`, the resolve-miss message, and `NotFoundException('Резюме не найдено')`
+in the verification service (reused from main). The web shows them verbatim, so an `en` user sees Russian and the
+`uk` default is not the catalog's wording.
+
+**Candidate fixes.** Move each to an API error code in `packages/shared/src/schemas/api-errors/`, keep an English
+fallback `message`, and show the catalog line for the code in the web.
+
+**Verify.** `grep -rnP '[\x{0400}-\x{04FF}]' apps/api/src/resumes --include=*.ts` (non-test) finds no user-facing
+string; the status panel shows the catalog line in both locales.
+
+Sources: verified-base-resume Task 23 rulings R78 and R88.
+
+## 405. Contact scanner: normalise zero-width and fullwidth characters before matching (2026-11-14)
+
+**Symptoms.** The contact patterns in `packages/shared/src/schemas/resume-completeness.ts` match on NFC text
+only. A contact written with zero-width characters (U+200B..U+200D, U+2060, U+FEFF) between its letters, or in
+fullwidth forms (`ｊｏｈｎ＠ｘ．ｃｏｍ`), is neither flagged by the completeness check nor redacted before the
+model call. The code carries a `shortcut:` comment for this.
+
+**Candidate fixes.** Add one normalisation pass shared by both sides: NFKC, then strip `\p{Cf}`, keeping an
+index map back to the original text so redaction spans still land on the original characters.
+
+**Verify.** `j​ohn@x.com` and the fullwidth form are both flagged by `checkResumeCompleteness` and come back
+redacted from `redactContacts`; the completeness-vs-redaction fuzz stays clean.
+
+Sources: verified-base-resume second-opinion (Task 23, ruling R103).
+
+## 406. Contact scanner: years-only lists flag as a phone (2026-11-14)
+
+**Symptoms.** `2019 · 2020 · 2021`, `1999—2003—2007` and the en-dash form match `RESUME_PHONE_PATTERN`
+(9+ digits joined by separators), so submit is blocked with CONTACT_IN_TEXT and HR must rephrase.
+
+**Candidate fixes.** Before reporting a phone hit, drop a match whose digit groups are all 4-digit years in
+1950..2099 joined by a separator. Keep the redaction side unchanged (over-redaction is the safe direction) or
+apply the same guard on both sides so they agree.
+
+**Verify.** The three year lists are not flagged; `+380 67 123 45 67` and `067-123-45-67` still are.
+
+Sources: verified-base-resume Task 23 round 7, ruling R105.

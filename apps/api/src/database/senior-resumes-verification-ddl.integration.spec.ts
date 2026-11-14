@@ -7,8 +7,8 @@ import { resumeVerificationStatusEnum, seniorResumes } from './schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
- * Verified base resume (Task 13) — the staged forward DDL
- * `manual-staged/2026-11-11_senior_resumes_verification.sql` against a REAL Postgres.
+ * Verified base resume (Task 13) — the forward DDL
+ * `manual/2026-11-11_senior_resumes_verification.sql` against a REAL Postgres.
  *
  * Applied TWICE into a scratch schema holding a stub of `senior_resumes` with one existing row
  * (`users` resolves to `public` through the search path), one transaction each. The columns, the
@@ -25,7 +25,7 @@ const FILE = join(
   '..',
   '..',
   'drizzle',
-  'manual-staged',
+  'manual',
   '2026-11-11_senior_resumes_verification.sql',
 )
 const SCHEMA = 'ddl_senior_resumes_verification'
