@@ -3339,7 +3339,7 @@ msgstr "Ця команда вже має доступ до вакансії д�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_TRIAGE_NOT_ELIGIBLE"
-msgstr "Цю вакансію вже не можна призначити на розгляд команді: для неї знайшовся сеньйор або її вилучено з черги. Картку оновлено — закрийте вікно."
+msgstr "Цю вакансію вже не можна призначити на розгляд команді: для неї знайшовся сеньйор або її вилучено з черги. Картку оновлено."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts

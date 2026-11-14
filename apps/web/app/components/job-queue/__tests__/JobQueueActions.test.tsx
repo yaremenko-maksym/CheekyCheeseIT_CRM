@@ -1636,7 +1636,7 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
   const GRANT = `/job-queue/${OPP}/team-triage`
   /** The uk refusal of an item that left triage (a live LEAD, or EXCLUDED), as a pattern body. */
   const NOT_ELIGIBLE =
-    'Цю вакансію вже не можна призначити на розгляд команді: для неї знайшовся сеньйор або її вилучено з черги\\. Картку оновлено — закрийте вікно\\.'
+    'Цю вакансію вже не можна призначити на розгляд команді: для неї знайшовся сеньйор або її вилучено з черги\\. Картку оновлено\\.'
   const REASON = 'Стек збігається з командою'
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
   /** The studio card's server-side triage policy version (backlog 425). */

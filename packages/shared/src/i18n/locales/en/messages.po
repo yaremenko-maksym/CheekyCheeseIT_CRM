@@ -3339,7 +3339,7 @@ msgstr "This team already has access to the job until {expiresAt}. Choose anothe
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_TRIAGE_NOT_ELIGIBLE"
-msgstr "This job can no longer be assigned to a team for triage: a senior now matches it, or it was removed from the queue. The card is up to date — close this window."
+msgstr "This job can no longer be assigned to a team for triage: a senior now matches it, or it was removed from the queue. The card is now up to date."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts

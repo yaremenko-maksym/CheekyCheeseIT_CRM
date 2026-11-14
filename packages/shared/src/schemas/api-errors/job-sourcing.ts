@@ -148,7 +148,7 @@ export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDe
   JOB_QUEUE_TRIAGE_NOT_ELIGIBLE: /* i18n */ {
     id: 'api-error.JOB_QUEUE_TRIAGE_NOT_ELIGIBLE',
     message:
-      'Цю вакансію вже не можна призначити на розгляд команді: для неї знайшовся сеньйор або її вилучено з черги. Картку оновлено — закрийте вікно.',
+      'Цю вакансію вже не можна призначити на розгляд команді: для неї знайшовся сеньйор або її вилучено з черги. Картку оновлено.',
   },
 }
 
@@ -179,5 +179,5 @@ export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string
   JOB_QUEUE_TRIAGE_ALREADY_GRANTED:
     'This team already has access to the job until {expiresAt}. Choose another team.',
   JOB_QUEUE_TRIAGE_NOT_ELIGIBLE:
-    'This job can no longer be assigned to a team for triage: a senior now matches it, or it was removed from the queue. The card is up to date — close this window.',
+    'This job can no longer be assigned to a team for triage: a senior now matches it, or it was removed from the queue. The card is now up to date.',
 }
