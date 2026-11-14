@@ -145,6 +145,7 @@ describe('router: image requests go only to vision-capable pairs', () => {
   })
 
   it.each([
+    ['an empty image list', []],
     ['an image outside the base64 alphabet', ['iVBOR*0KGgo=']],
     ['an image whose length is not a multiple of 4', ['iVBORw0KGgo']],
     ['an empty image', ['']],

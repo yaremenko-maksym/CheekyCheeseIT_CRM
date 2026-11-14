@@ -299,10 +299,12 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     if (req.smallDose !== undefined && req.smallDose.groups.length > MAX_SMALL_DOSE_GROUPS) {
       return finish({ ok: false, code: 'PROVIDER_ERROR' }, false)
     }
-    // Images are checked here too, not only by the caller: strict base64, inside the request cap.
+    // Images are checked here too, not only by the caller: at least one, strict base64, inside the
+    // request cap. An empty list is no vision request.
     if (
       images !== undefined &&
-      (images.some((b64) => b64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) ||
+      (images.length === 0 ||
+        images.some((b64) => b64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) ||
         images.reduce((n, b64) => n + b64.length, 0) > MAX_IMAGE_REQUEST_CHARS)
     ) {
       return finish({ ok: false, code: 'PROVIDER_ERROR' }, false)
