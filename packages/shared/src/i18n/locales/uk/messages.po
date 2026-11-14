@@ -3334,12 +3334,12 @@ msgstr "Цього сеньйора не можна подати на цю ва�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_TRIAGE_ALREADY_GRANTED"
-msgstr "Ця команда вже має доступ до вакансії до {expiresAt}. Виберіть іншу команду."
+msgstr "Ця команда вже бачить цю вакансію до кінця {expiresAt}. Виберіть іншу команду."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts
 msgid "api-error.JOB_QUEUE_TRIAGE_NOT_ELIGIBLE"
-msgstr "Цю вакансію вже не можна призначити на розгляд команді: для неї знайшовся сеньйор або її вилучено з черги. Картку оновлено."
+msgstr "Цю вакансію вже не можна призначити команді: для неї знайшовся сеньйор або її прибрали з черги."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/job-sourcing.ts

@@ -502,7 +502,7 @@ function TriageGrantDialog({
 }
 
 /** The live grant's expiry as a local calendar day (QA-MED-2): uk 05.03.2026, en 05/03/2026. */
-// Stryker disable next-line StringLiteral: `shortYYYY` is Intl's default numeric date in the local day, and an unknown style reaches Intl.DateTimeFormat as those same defaults, so "" renders identical text; format.spec.ts pins shortYYYY to the local day under Kyiv and Los Angeles
+// Stryker disable next-line StringLiteral: `shortYYYY` spells out the 2-digit day and month and the numeric year Intl's uk-UA and en-GB defaults already give, and an unknown style reaches Intl.DateTimeFormat as those same defaults, so "" renders identical text; format.spec.ts pins shortYYYY to the local day under Kyiv and Los Angeles
 const EXPIRY_STYLE = 'shortYYYY'
 
 /** A 400 whose field issues include the 90-day ceiling (`ZodExceptionFilter`'s `errors[]`). */
@@ -588,6 +588,7 @@ function TriageGrantForm({
     // named now: the list may change before the answer, and the toast names what was sent
     const team = chosen!.name
     setNote(null)
+    onRefused(null)
     grant.mutate(
       { ...draft.data!, opportunityId: card.opportunityId },
       {

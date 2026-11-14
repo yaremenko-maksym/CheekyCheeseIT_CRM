@@ -959,21 +959,21 @@ describe('grantRefusal (backlog 426)', () => {
   it('names the live grant expiry as a local calendar day in the given locale', () => {
     const expiresAt = new Date(2026, 10, 25, 23, 59, 59, 999).toISOString()
     expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'uk')).toBe(
-      'Ця команда вже має доступ до вакансії до 25.11.2026. Виберіть іншу команду.',
+      'Ця команда вже бачить цю вакансію до кінця 25.11.2026. Виберіть іншу команду.',
     )
     // QA-MED-2: `en` is the studio's en-GB day order, never the US one
     expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'en')).toBe(
-      'Ця команда вже має доступ до вакансії до 25/11/2026. Виберіть іншу команду.',
+      'Ця команда вже бачить цю вакансію до кінця 25/11/2026. Виберіть іншу команду.',
     )
   })
 
   it('CR-H-1: a single-digit day and month are written with two digits each', () => {
     const expiresAt = new Date(2026, 2, 5, 23, 59, 59, 999).toISOString()
     expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'uk')).toBe(
-      'Ця команда вже має доступ до вакансії до 05.03.2026. Виберіть іншу команду.',
+      'Ця команда вже бачить цю вакансію до кінця 05.03.2026. Виберіть іншу команду.',
     )
     expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'en')).toBe(
-      'Ця команда вже має доступ до вакансії до 05/03/2026. Виберіть іншу команду.',
+      'Ця команда вже бачить цю вакансію до кінця 05/03/2026. Виберіть іншу команду.',
     )
   })
 
@@ -1005,7 +1005,7 @@ describe('grantRefusal (backlog 426)', () => {
 
   it('an expiry the envelope does not carry is a dash, never «Invalid Date»', () => {
     expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED'), 'uk')).toBe(
-      'Ця команда вже має доступ до вакансії до —. Виберіть іншу команду.',
+      'Ця команда вже бачить цю вакансію до кінця —. Виберіть іншу команду.',
     )
   })
 
@@ -1636,7 +1636,7 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
   const GRANT = `/job-queue/${OPP}/team-triage`
   /** The uk refusal of an item that left triage (a live LEAD, or EXCLUDED), as a pattern body. */
   const NOT_ELIGIBLE =
-    'Цю вакансію вже не можна призначити на розгляд команді: для неї знайшовся сеньйор або її вилучено з черги\\. Картку оновлено\\.'
+    'Цю вакансію вже не можна призначити команді: для неї знайшовся сеньйор або її прибрали з черги\\.'
   const REASON = 'Стек збігається з командою'
   const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
   /** The studio card's server-side triage policy version (backlog 425). */
@@ -1880,7 +1880,7 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     await user.click(assign(dialog))
     const note = await within(dialog).findByTestId('job-queue-grant-refused')
     expect(note).toHaveTextContent(
-      /^Ця команда вже має доступ до вакансії до 25\.11\.2026\. Виберіть іншу команду\.$/,
+      /^Ця команда вже бачить цю вакансію до кінця 25\.11\.2026\. Виберіть іншу команду\.$/,
     )
     expect(note).toHaveAttribute('role', 'alert')
     expect(within(dialog).queryByTestId('job-queue-conflict')).toBeNull()
@@ -1936,6 +1936,24 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     setCard(triage({ triageGrantable: false }))
     rerender()
     await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('CR-L-1: a retry clears the refusal it replaced, so a dialog dropped during the retry toasts nothing', async () => {
+    const user = userEvent.setup()
+    post.mockRejectedValueOnce(coded(422, 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE'))
+    const { rerender } = renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await within(dialog).findByTestId('job-queue-grant-refused')
+    // the retry is still in flight when the refetch drops the item and its dialog
+    post.mockReturnValueOnce(new Promise(() => {}))
+    await user.click(assign(dialog))
+    await waitFor(() => expect(within(dialog).queryByTestId('job-queue-grant-refused')).toBeNull())
+    setCard(triage({ triageGrantable: false }))
+    rerender()
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
     expect(toast.error).not.toHaveBeenCalled()
   })
 

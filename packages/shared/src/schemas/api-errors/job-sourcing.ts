@@ -143,22 +143,22 @@ export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDe
   },
   JOB_QUEUE_TRIAGE_ALREADY_GRANTED: /* i18n */ {
     id: 'api-error.JOB_QUEUE_TRIAGE_ALREADY_GRANTED',
-    message: 'Ця команда вже має доступ до вакансії до {expiresAt}. Виберіть іншу команду.',
+    message: 'Ця команда вже бачить цю вакансію до кінця {expiresAt}. Виберіть іншу команду.',
   },
   JOB_QUEUE_TRIAGE_NOT_ELIGIBLE: /* i18n */ {
     id: 'api-error.JOB_QUEUE_TRIAGE_NOT_ELIGIBLE',
     message:
-      'Цю вакансію вже не можна призначити на розгляд команді: для неї знайшовся сеньйор або її вилучено з черги. Картку оновлено.',
+      'Цю вакансію вже не можна призначити команді: для неї знайшовся сеньйор або її прибрали з черги.',
   },
 }
 
 export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string> = {
-  JOB_OPPORTUNITY_NOT_FOUND: 'External job not found',
+  JOB_OPPORTUNITY_NOT_FOUND: 'External vacancy not found',
   JOB_SOURCE_RECORD_NOT_FOUND: 'Source record not found',
-  JOB_SOURCE_RECORD_ALREADY_LINKED: 'This source record is already linked to a job',
-  JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED: 'This job cannot be assigned to the team for triage',
+  JOB_SOURCE_RECORD_ALREADY_LINKED: 'This source record is already linked to a vacancy',
+  JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED: 'This vacancy cannot be assigned to the team for triage',
   JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED:
-    'This senior has already been submitted to a similar job. Review it and confirm to log the submission.',
+    'This senior has already been submitted to a similar vacancy. Review it and confirm to log the submission.',
   JOB_QUEUE_REFRESH_REQUIRED: 'The list is out of date. Refresh it.',
   JOB_QUEUE_CURSOR_MALFORMED: 'This page of the list could not be opened. Refresh the list.',
   JOB_QUEUE_VERSION_CONFLICT: 'The data has changed. Refresh the card and try again.',
@@ -166,9 +166,9 @@ export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string
     'This request was already made with different data. Refresh the card and try again.',
   JOB_QUEUE_POLICY_UNAVAILABLE: 'Access could not be checked. Try again later.',
   JOB_QUEUE_SENIOR_INELIGIBLE:
-    'This senior cannot be submitted to this job from this team. Choose another senior or another team.',
+    'This senior cannot be submitted to this vacancy from this team. Choose another senior or another team.',
   JOB_QUEUE_RESUME_UNUSABLE: 'This resume cannot be used for this senior. Choose another one.',
-  JOB_QUEUE_MANUAL_DUPLICATE: 'A job with this link already exists. No new card was created.',
+  JOB_QUEUE_MANUAL_DUPLICATE: 'A vacancy with this link already exists. No new card was created.',
   JOB_SOURCE_NOT_FOUND: 'The source was not found',
   JOB_SOURCE_NOT_READY:
     'The source is not ready yet: finish its setup (readiness check, connection, quota meter), then switch it on',
@@ -177,7 +177,7 @@ export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string
   JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND:
     'Triage subscription not found. Refresh the page and try again.',
   JOB_QUEUE_TRIAGE_ALREADY_GRANTED:
-    'This team already has access to the job until {expiresAt}. Choose another team.',
+    'This team can already see this vacancy until the end of {expiresAt}. Choose another team.',
   JOB_QUEUE_TRIAGE_NOT_ELIGIBLE:
-    'This job can no longer be assigned to a team for triage: a senior now matches it, or it was removed from the queue. The card is now up to date.',
+    'This vacancy can no longer be assigned to a team: a senior now matches it, or it has left the queue.',
 }
