@@ -80,9 +80,9 @@ export function formatDate(
     // Date-only business fields (UTC-midnight encoded): the shortYY shape pinned to
     // UTC, so the stored day is the day shown in every reader timezone.
     shortYYUtc: { day: '2-digit', month: '2-digit', year: '2-digit', timeZone: 'UTC' },
-    // The shortYY shape with the full year, in the reader's LOCAL day: an instant that ends a
-    // local day (a triage grant's expiry) reads as that day, never the next one in UTC.
-    shortYYYY: { day: '2-digit', month: '2-digit', year: 'numeric' },
+    // Intl's own numeric date (05.03.2026 / 05/03/2026) in the reader's LOCAL day: an instant that
+    // ends a local day (a triage grant's expiry) reads as that day, never the next one in UTC.
+    shortYYYY: {},
     dateTimeWithYear: {
       day: 'numeric',
       month: 'short',

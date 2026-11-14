@@ -479,22 +479,21 @@ function TriageGrantDialog({
     () => () => {
       if (shown.current !== null) toast.error(shown.current, JOB_QUEUE_TOAST)
     },
+    // Stryker disable next-line ArrayDeclaration: any constant dependency list runs the cleanup on unmount only
     [],
   )
+  // no trigger opens this dialog, so every change Radix reports is a close: a refusal was seen
+  const close = () => {
+    shown.current = null
+    onOpenChange(false)
+  }
   return (
-    <AlertDialog
-      open={open}
-      onOpenChange={(next) => {
-        // the actor closed it: the refusal was seen
-        if (!next) shown.current = null
-        onOpenChange(next)
-      }}
-    >
+    <AlertDialog open={open} onOpenChange={close}>
       <AdminDialogContent trigger={trigger}>
         <TriageGrantForm
           card={card}
           grant={grant}
-          onGranted={() => onOpenChange(false)}
+          onGranted={close}
           onRefused={(text) => (shown.current = text)}
         />
       </AdminDialogContent>
@@ -585,7 +584,6 @@ function TriageGrantForm({
     // named now: the list may change before the answer, and the toast names what was sent
     const team = chosen!.name
     setNote(null)
-    onRefused(null)
     grant.mutate(
       { ...draft.data!, opportunityId: card.opportunityId },
       {

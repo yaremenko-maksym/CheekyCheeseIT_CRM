@@ -1744,6 +1744,8 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     rerender()
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
     await waitFor(() => expect(trigger).toHaveFocus())
+    // nothing was refused, so nothing is raised as it goes
+    expect(toast.error).not.toHaveBeenCalled()
   })
 
   it('CR-M-1: the card turning triage again does not reopen the dialog by itself', async () => {
