@@ -271,7 +271,6 @@ shadcn/ui примитивы на базе Radix UI + Tailwind. (Исключе�
 | InterviewDetailSheet         | `routes/_authenticated/interviews/components/InterviewDetailSheet.tsx`         | Sheet/modal деталей собеседования с инфо кандидата                  |
 | CreateInterviewDialog        | `routes/_authenticated/interviews/components/CreateInterviewDialog.tsx`        | Форма создания собеседования (кандидат/проект/дата)                 |
 | KanbanColumn                 | `routes/_authenticated/interviews/components/KanbanColumn.tsx`                 | Колонка kanban статуса (applied/interview/offered/hired/archived)   |
-| ArchiveSection               | `routes/_authenticated/interviews/components/ArchiveSection.tsx`               | Секция архива в kanban-борде собеседований                          |
 
 **ИТОГО 103 композитных файла** (включая все строки/виджеты выше; полный список покрывает finance, dashboards, documents, invoices, user-profile, users/team, projects, archive, contracts/onboarding, layout, admin, interviews).
 

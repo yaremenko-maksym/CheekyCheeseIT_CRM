@@ -9623,10 +9623,6 @@ msgstr "{0, plural, one {# without income} other {# without income}}"
 msgid "Старий:"
 msgstr "Old:"
 
-#: apps/web/app/routes/_authenticated/interviews/components/ArchiveSection.tsx
-msgid "Сюди потрапляють завершені співбесіди"
-msgstr "Finished interviews land here"
-
 #. placeholder {0}: sourceLabel(source.sourceType)
 #: apps/web/app/components/job-queue/JobQueueRow.tsx
 msgid "Джерело: {0}"
