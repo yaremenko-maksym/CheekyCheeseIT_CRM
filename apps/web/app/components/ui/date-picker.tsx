@@ -125,6 +125,8 @@ export function DatePickerField({
               ...(maxDate ? [{ after: parseISO(maxDate) }] : []),
             ]
           }
+          {...(minDate ? { startMonth: parseISO(minDate) } : {})}
+          {...(maxDate ? { endMonth: parseISO(maxDate) } : {})}
           initialFocus
           locale={dateFnsLocale}
         />

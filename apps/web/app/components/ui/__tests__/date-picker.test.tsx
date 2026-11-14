@@ -144,6 +144,48 @@ describe('DatePickerField — minDate/maxDate bounds (owner addendum, 2026-08)',
     expect(panel.getByRole('button', { name: /, 4-е серпня 2026/ })).toBeDisabled()
     expect(panel.getByRole('button', { name: /, 29-е серпня 2026/ })).not.toBeDisabled()
   })
+
+  it('with a max date, the next arrow is disabled in the max month; without bounds, unchanged', async () => {
+    const user = userEvent.setup({ delay: null })
+
+    const { unmount } = renderPicker({
+      value: '2026-08-07',
+      onChange: () => {},
+      maxDate: '2026-08-10',
+    })
+    await user.click(screen.getByRole('button', { name: /07 серп/i }))
+    const panel = within(screen.getByRole('dialog'))
+    const [, nextBtn] = panel.getAllByRole('button', { name: '' })
+    expect(nextBtn).toBeDisabled()
+    unmount()
+
+    renderPicker({ value: '2026-08-07', onChange: () => {} })
+    await user.click(screen.getByRole('button', { name: /07 серп/i }))
+    const unboundPanel = within(screen.getByRole('dialog'))
+    const [, unboundNextBtn] = unboundPanel.getAllByRole('button', { name: '' })
+    expect(unboundNextBtn).not.toBeDisabled()
+  })
+
+  it('with a min date, the previous arrow is disabled in the min month; without bounds, unchanged', async () => {
+    const user = userEvent.setup({ delay: null })
+
+    const { unmount } = renderPicker({
+      value: '2026-08-07',
+      onChange: () => {},
+      minDate: '2026-08-05',
+    })
+    await user.click(screen.getByRole('button', { name: /07 серп/i }))
+    const panel = within(screen.getByRole('dialog'))
+    const [prevBtn] = panel.getAllByRole('button', { name: '' })
+    expect(prevBtn).toBeDisabled()
+    unmount()
+
+    renderPicker({ value: '2026-08-07', onChange: () => {} })
+    await user.click(screen.getByRole('button', { name: /07 серп/i }))
+    const unboundPanel = within(screen.getByRole('dialog'))
+    const [unboundPrevBtn] = unboundPanel.getAllByRole('button', { name: '' })
+    expect(unboundPrevBtn).not.toBeDisabled()
+  })
 })
 
 describe('DatePickerField — calendar opens on the SELECTED month, not "today" (regression, 2026-09-01)', () => {
