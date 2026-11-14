@@ -166,6 +166,8 @@ describe('the logged cause of a worker failure (FX-3)', () => {
         'a network error',
         () => vi.stubGlobal('fetch', () => Promise.reject(new TypeError('secret body'))),
       ],
+      // A URL the worker allow-policy refuses: no request, no class to log.
+      ['a refused url', () => vi.stubEnv('EXTRACTION_WORKER_URL', 'http://not-the-worker:3100')],
     ]
     const origins = []
     for (const [name, arrange] of shapes) {
@@ -191,6 +193,7 @@ describe('the logged cause of a worker failure (FX-3)', () => {
       ['PROVIDER_ERROR:too_large', 200],
       // FY-1: the error class, never its message.
       ['PROVIDER_ERROR:transport:TypeError', undefined],
+      ['PROVIDER_ERROR:transport', undefined],
     ])
     expect(JSON.stringify(origins)).not.toContain('secret body')
   })
