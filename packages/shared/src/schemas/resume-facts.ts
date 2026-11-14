@@ -42,7 +42,8 @@ export type ResumeFactsExperience = z.infer<typeof resumeFactsExperienceSchema>
 export const RESUME_WORK_FORMATS = ['remote', 'hybrid', 'onsite'] as const
 export const RESUME_LANGUAGE_LEVELS = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2', 'native'] as const
 
-const resumeYear = z.number().int().min(1950).max(2100)
+/** An education year; the completeness check reads its bounds (R66). */
+export const resumeYear = z.number().int().min(1950).max(2100)
 
 export const resumeFactsSchema = z.object({
   headline: shortText,

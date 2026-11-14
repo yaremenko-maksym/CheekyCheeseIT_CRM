@@ -33,6 +33,8 @@ export const COMPLETENESS_MESSAGES: Record<CompletenessCode, MessageDescriptor> 
   NON_LATIN: msg`Пишіть лише латиницею — резюме англійською`,
   NAME_NON_LATIN: msg`Ім’я в профілі має бути латиницею. Змініть його в профілі`,
   CONTACT_IN_TEXT: msg`Приберіть ім’я, email або телефон — контакти не потрапляють у текст резюме`,
+  LINK_INVALID: msg`Вкажіть назву й адресу https:// або mailto:`,
+  YEAR_INVALID: msg`Рік має бути між 1950 і 2100`,
 }
 
 /**

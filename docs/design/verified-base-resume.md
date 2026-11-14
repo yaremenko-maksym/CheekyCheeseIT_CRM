@@ -565,7 +565,7 @@ the body is kept.
 messages from §10.1: the first under the inline edit field, the second as a toast followed by a refetch
 of the live issues. `RESUME_CUSTOM_TEMPLATE` is both the picker note and the CUSTOM_TEMPLATE body.
 
-### 10.4 Completeness codes (all 15)
+### 10.4 Completeness codes (all 17)
 
 The panel row is `<field label>` (§10.6) on line one and this text on line two; the same text goes under
 the field. `END_BEFORE_START` also fires on `education.<i>.endYear`; the same text fits both.
@@ -587,6 +587,8 @@ the field. `END_BEFORE_START` also fires on `education.<i>.endYear`; the same te
 | `NON_LATIN`        | Пишіть лише латиницею — резюме англійською                                              | Use Latin letters only — the resume is in English                               |
 | `NAME_NON_LATIN`   | Ім’я в профілі має бути латиницею. Змініть його в профілі                               | The profile name must be in Latin letters. Change it in the profile             |
 | `CONTACT_IN_TEXT`  | Приберіть ім’я, email або телефон — контакти не потрапляють у текст резюме              | Remove the name, email or phone number — contacts never go into the resume text |
+| `LINK_INVALID`     | Вкажіть назву й адресу https:// або mailto:                                             | Enter a label and an https:// or mailto: address                                |
+| `YEAR_INVALID`     | Рік має бути між 1950 і 2100                                                            | The year must be between 1950 and 2100                                          |
 
 ### 10.5 Gate reason codes (`verificationReport.gates[].items[].reason`)
 

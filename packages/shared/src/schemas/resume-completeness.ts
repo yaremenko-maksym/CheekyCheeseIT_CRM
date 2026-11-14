@@ -9,7 +9,8 @@
  * `now` is injected rather than read from the clock, so the future-start check
  * is testable and the server can freeze one timestamp for a whole check run.
  */
-import type { ResumeFacts, ResumeFactsExperience } from './resume-facts'
+import { isSafeResumeUrl } from './resume'
+import { resumeYear, type ResumeFacts, type ResumeFactsExperience } from './resume-facts'
 import { mergeSkills } from './resume-skills'
 
 export const COMPLETENESS_CODES = [
@@ -28,6 +29,8 @@ export const COMPLETENESS_CODES = [
   'NON_LATIN',
   'NAME_NON_LATIN',
   'CONTACT_IN_TEXT',
+  'LINK_INVALID',
+  'YEAR_INVALID',
 ] as const
 export type CompletenessCode = (typeof COMPLETENESS_CODES)[number]
 
@@ -92,8 +95,9 @@ type ContactCheck = (text: string) => boolean
 
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-/** NFC, and the typographic apostrophe as the ASCII one: "O’Neil" and an NFD "José" match. */
-const normaliseName = (text: string): string => text.normalize('NFC').replace(/\u2019/g, "'")
+/** NFC, and the typographic and Ukrainian (U+02BC) apostrophes as the ASCII one: "O’Neil" and an NFD "José" match. */
+const normaliseName = (text: string): string =>
+  text.normalize('NFC').replace(/[\u2019\u02BC]/g, "'")
 
 /**
  * Phone, email, or the senior's full name, whole words, any case or spacing:
@@ -233,6 +237,13 @@ export function checkResumeCompleteness(
     if (item.endYear !== null && item.endYear < (item.startYear ?? item.endYear)) {
       issues.push({ path: `education.${index}.endYear`, code: 'END_BEFORE_START' })
     }
+    // A year the facts schema refuses would only surface as a 400 on save (R66).
+    for (const key of ['startYear', 'endYear'] as const) {
+      const year = item[key]
+      if (year !== null && !resumeYear.safeParse(year).success) {
+        issues.push({ path: `education.${index}.${key}`, code: 'YEAR_INVALID' })
+      }
+    }
   })
 
   if (!facts.languages.some((language) => language.name.trim().toLowerCase() === 'english')) {
@@ -242,6 +253,12 @@ export function checkResumeCompleteness(
     if (!isLatinScript(language.name)) {
       issues.push({ path: `languages.${index}.name`, code: 'NON_LATIN' })
     }
+  })
+
+  facts.links.forEach((link, index) => {
+    if (isBlank(link.label)) issues.push({ path: `links.${index}.label`, code: 'LINK_INVALID' })
+    if (!isSafeResumeUrl(link.url))
+      issues.push({ path: `links.${index}.url`, code: 'LINK_INVALID' })
   })
 
   return issues

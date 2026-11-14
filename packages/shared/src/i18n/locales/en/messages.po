@@ -1410,6 +1410,7 @@ msgstr "PAYMENTS TO THE COMPANY"
 msgid "Підтверджені доходи, які ви ще не перерахували"
 msgstr "Confirmed income you have not transferred yet"
 
+#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Незбережені зміни"
 msgstr "Unsaved changes"
@@ -2034,6 +2035,7 @@ msgstr "Location (optional)"
 msgid "Секрет має починатися з whsec_ і містити 24–64 байти Base64"
 msgstr "The secret must start with whsec_ and contain 24–64 bytes of Base64"
 
+#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Є незбережені зміни — якщо перейти, їх буде втрачено"
 msgstr "You have unsaved changes — leaving now will lose them"
@@ -3906,6 +3908,7 @@ msgstr "Manual-confirmation method"
 msgid "Приховані"
 msgstr "Hidden"
 
+#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Залишитися"
 msgstr "Stay"
@@ -4024,6 +4027,10 @@ msgstr "Drop's share (%)"
 #: apps/web/app/routes/_authenticated/pending/index.tsx
 msgid "Частки"
 msgstr "Shares"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Рік має бути між 1950 і 2100"
+msgstr "The year must be between 1950 and 2100"
 
 #: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
 msgid "Рідна"
@@ -5291,6 +5298,7 @@ msgstr "Payment type"
 msgid "Немає доступу до цієї черги"
 msgstr "No access to this queue"
 
+#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Покинути"
 msgstr "Leave"
@@ -6534,6 +6542,10 @@ msgstr " · all"
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 msgid "Усі вакансії показано: {shown}"
 msgstr "All vacancies shown: {shown}"
+
+#: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
+msgid "Вкажіть назву й адресу https:// або mailto:"
+msgstr "Enter a label and an https:// or mailto: address"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/create-transaction/AdminIncomeReceiverField.tsx
 msgid "Весь дохід (gross) піде обраному отримувачу. Компанія автоматично створить зобов’язання виплатити сеньйору та дропу їхні частки."
@@ -12744,6 +12756,7 @@ msgid "Підтвердити розрахунок"
 msgstr "Confirm the settlement"
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 #: apps/web/app/components/users/user-dialog/UserDialogFooter.tsx
 #: apps/web/app/components/users/user-dialog/WizardStep3.tsx
 msgid "Назад"

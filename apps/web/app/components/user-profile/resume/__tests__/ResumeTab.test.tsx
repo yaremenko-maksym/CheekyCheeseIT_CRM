@@ -179,6 +179,33 @@ describe('ResumeTab — empty state', () => {
     expect(screen.getByLabelText('Цільова посада')).toHaveValue('')
   })
 
+  it('"Назад" from the empty form returns to the upload choice (G18-4)', () => {
+    render(tab())
+    fireEvent.click(screen.getByTestId('resume-fill-manually'))
+    fireEvent.click(screen.getByTestId('resume-manual-back'))
+    expect(screen.queryByTestId('resume-facts-form')).not.toBeInTheDocument()
+    expect(screen.getByTestId('resume-intake')).toBeInTheDocument()
+  })
+
+  it('"Назад" with typed facts asks first; staying keeps them, leaving drops them', () => {
+    render(tab())
+    fireEvent.click(screen.getByTestId('resume-fill-manually'))
+    fireEvent.change(screen.getByLabelText('Цільова посада'), { target: { value: 'Typed' } })
+    fireEvent.click(screen.getByTestId('resume-manual-back'))
+    const dialog = screen.getByRole('alertdialog')
+    expect(dialog).toHaveTextContent('Є незбережені зміни — якщо перейти, їх буде втрачено')
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Залишитися' }))
+    expect(screen.getByLabelText('Цільова посада')).toHaveValue('Typed')
+
+    fireEvent.click(screen.getByTestId('resume-manual-back'))
+    fireEvent.click(
+      within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Покинути' }),
+    )
+    expect(screen.queryByTestId('resume-facts-form')).not.toBeInTheDocument()
+    expect(screen.getByTestId('resume-intake')).toBeInTheDocument()
+  })
+
   it('shows a read-only message instead of the upload UI when the viewer cannot edit', () => {
     setData({ resume: null, canEdit: false, canConfirm: false })
     render(tab())

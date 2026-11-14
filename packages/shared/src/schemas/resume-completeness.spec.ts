@@ -290,6 +290,80 @@ describe('checkResumeCompleteness', () => {
     ])
   })
 
+  describe('LINK_INVALID (R66)', () => {
+    const linkIssues = (label: string, url: string) =>
+      checkResumeCompleteness(makeFacts({ links: [{ label, url }] }), CTX)
+
+    it('a complete https or mailto link passes', () => {
+      expect(linkIssues('Portfolio', 'https://example.com/jose')).toEqual([])
+      expect(linkIssues('Mail', 'mailto:jose@example.com')).toEqual([])
+    })
+
+    it('flags an empty label at the label', () => {
+      expect(linkIssues('  ', 'https://example.com/jose')).toEqual([
+        { path: 'links.0.label', code: 'LINK_INVALID' },
+      ])
+    })
+
+    it('flags an empty url at the url', () => {
+      expect(linkIssues('Portfolio', '')).toEqual([{ path: 'links.0.url', code: 'LINK_INVALID' }])
+    })
+
+    it('flags a url the server refuses (not https or mailto)', () => {
+      expect(linkIssues('Site', 'http://example.com')).toEqual([
+        { path: 'links.0.url', code: 'LINK_INVALID' },
+      ])
+      expect(linkIssues('Site', 'javascript:alert(1)')).toEqual([
+        { path: 'links.0.url', code: 'LINK_INVALID' },
+      ])
+    })
+
+    it('names the index of the bad link', () => {
+      const facts = makeFacts({
+        links: [
+          { label: 'Portfolio', url: 'https://example.com/jose' },
+          { label: '', url: 'ftp://x' },
+        ],
+      })
+      expect(checkResumeCompleteness(facts, CTX)).toEqual([
+        { path: 'links.1.label', code: 'LINK_INVALID' },
+        { path: 'links.1.url', code: 'LINK_INVALID' },
+      ])
+    })
+  })
+
+  describe('YEAR_INVALID (R66)', () => {
+    const yearIssues = (startYear: number | null, endYear: number | null) =>
+      checkResumeCompleteness(
+        makeFacts({ education: [{ institution: 'KPI', degree: 'BSc', startYear, endYear }] }),
+        CTX,
+      )
+
+    it('the schema bounds 1950 and 2100 pass, and so does an empty year', () => {
+      expect(yearIssues(1950, 2100)).toEqual([])
+      expect(yearIssues(null, null)).toEqual([])
+    })
+
+    it('flags a start year below 1950', () => {
+      expect(yearIssues(1949, 2019)).toEqual([
+        { path: 'education.0.startYear', code: 'YEAR_INVALID' },
+      ])
+    })
+
+    it('flags an end year above 2100', () => {
+      expect(yearIssues(2015, 2101)).toEqual([
+        { path: 'education.0.endYear', code: 'YEAR_INVALID' },
+      ])
+    })
+
+    it('flags a typo-length year at both ends', () => {
+      expect(yearIssues(201, 20190)).toEqual([
+        { path: 'education.0.startYear', code: 'YEAR_INVALID' },
+        { path: 'education.0.endYear', code: 'YEAR_INVALID' },
+      ])
+    })
+  })
+
   describe('CONTACT_IN_TEXT: the senior’s full name', () => {
     const NAMED = { ...CTX, displayName: 'Oleksiy Kovalenko' }
     const noteIssues = (note: string, ctx = NAMED) =>
@@ -340,6 +414,14 @@ describe('checkResumeCompleteness', () => {
       expect(noteIssues('Built by Sean O’Neil', ascii)).toEqual(flagged)
       const curly = { ...CTX, displayName: 'Sean O’Neil' }
       expect(noteIssues("Built by Sean O'Neil", curly)).toEqual(flagged)
+    })
+
+    it('treats the Ukrainian apostrophe U+02BC as the ASCII one (QF3-1)', () => {
+      const ascii = { ...CTX, displayName: "Oles' Mar'yan" }
+      // U+02BC is a letter outside the Latin script, so NON_LATIN fires too; only the name match is pinned here.
+      expect(noteIssues('Built by Oles\u02BC Mar\u02BCyan', ascii)).toContainEqual(flagged[0])
+      const modifier = { ...CTX, displayName: 'Oles\u02BC Mar\u02BCyan' }
+      expect(noteIssues("Built by Oles' Mar'yan", modifier)).toContainEqual(flagged[0])
     })
 
     it('a one-token display name adds no name check', () => {

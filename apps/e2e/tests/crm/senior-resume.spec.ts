@@ -44,6 +44,12 @@ import { loadMessages, assertInCatalog } from '../../fixtures/catalog'
 // still Russian on purpose). The 3 lines below click/assert UserProfileShell's
 // own "Огляд"/"Залишитися" chrome (already migrated in THIS PR), so they must
 // stay in sync — every other Резюме/Черновик string here is untouched.
+// The browser speaks the mocked users' locale (`uk`). With the default en-US the app
+// first renders in `en` (pre-login locale), then `/auth/me` activates `uk` and
+// `<Fragment key={locale}>` in `__root.tsx` remounts the tree, dropping anything typed
+// before the catalog landed (measured: 7-8 of 80 runs under CPU x4/x8, 0 of 80 with uk-UA).
+test.use({ locale: 'uk-UA' })
+
 let uk: Record<string, string>
 test.beforeAll(async () => {
   uk = await loadMessages('uk')

@@ -126,6 +126,8 @@ export function ResumeFactsForm({
   if (facts !== baseline) {
     const draftClean = same(cleanFacts(draft), cleanFacts(baseline))
     const ownSave = sent !== null && same(cleanFacts(facts), sent)
+    // The echo is consumed once: a later equal payload is someone else's save.
+    if (ownSave) setSent(null)
     if (draftClean) setDraft(facts)
     if (ownSave || draftClean || same(cleanFacts(draft), cleanFacts(facts))) setServerChanged(false)
     else if (!same(cleanFacts(facts), cleanFacts(baseline))) setServerChanged(true)

@@ -16,7 +16,7 @@
  * handler here. A viewer without write access sees the resume text read-only.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { FileText, History, Trash2 } from 'lucide-react'
+import { ArrowLeft, FileText, History, Trash2 } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { EMPTY_RESUME_CONTENT, EMPTY_RESUME_FACTS } from '@crm/shared'
 import {
@@ -88,6 +88,8 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
   /** Set when the user chooses to type the facts instead of uploading a resume. */
   const [manualMode, setManualMode] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  /** "Back" from the empty manual form with typed facts: confirm before dropping them. */
+  const [confirmBack, setConfirmBack] = useState(false)
   /**
    * The staged run whose facts the user reopened from the confirm step. Keyed by
    * `runId`, so a new run (or a confirm) closes the form again on its own.
@@ -259,6 +261,47 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
 
   return (
     <div className="space-y-4 pb-4" data-testid="resume-tab">
+      {/* No resume yet and the form was chosen by hand: the way back to the upload choice. */}
+      {resume === null && (
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-11 sm:h-9"
+            onClick={() => (isDirty ? setConfirmBack(true) : setManualMode(false))}
+            data-testid="resume-manual-back"
+          >
+            <ArrowLeft className="mr-2 size-4" aria-hidden />
+            <Trans>Назад</Trans>
+          </Button>
+          <AlertDialog open={confirmBack} onOpenChange={setConfirmBack}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  <Trans>Незбережені зміни</Trans>
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  <Trans>Є незбережені зміни — якщо перейти, їх буде втрачено</Trans>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>
+                  <Trans>Залишитися</Trans>
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    setConfirmBack(false)
+                    setManualMode(false)
+                  }}
+                >
+                  <Trans>Покинути</Trans>
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </>
+      )}
       {/* Extraction banner: progress or an actionable failure. Never blocks the form. */}
       {resume && (
         <ResumeStatusPanel

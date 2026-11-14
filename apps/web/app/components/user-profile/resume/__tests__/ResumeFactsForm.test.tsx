@@ -5,7 +5,7 @@
  * The 409 case runs the REAL save/submit hooks over a stubbed `api`, so the
  * toast text is the one the error envelope maps to, not a value the test made up.
  */
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -67,6 +67,26 @@ const ONE_JOB: ResumeFacts = {
   ],
 }
 
+/** Facts with no completeness issue for "Alex Doe" at NOW. */
+const COMPLETE: ResumeFacts = {
+  ...EMPTY_RESUME_FACTS,
+  headline: 'Backend Engineer',
+  skills: ['Go', 'Kubernetes', 'PostgreSQL', 'Docker', 'gRPC'],
+  experience: [
+    {
+      company: 'Acme',
+      role: 'Backend Engineer',
+      location: null,
+      start: '2020-01',
+      end: null,
+      current: true,
+      technologies: [],
+      notes: ['Built the billing service'],
+    },
+  ],
+  languages: [{ name: 'English', level: 'C1' }],
+}
+
 beforeEach(async () => {
   vi.clearAllMocks()
   await loadCatalog('uk')
@@ -91,6 +111,23 @@ describe('ResumeFactsForm', () => {
       fireEvent.click(within(list).getByRole('button', { name }))
       expect(field()).toHaveFocus()
     }
+  })
+
+  it('a link the server would refuse keeps Submit disabled and shows its error after blur (R66)', () => {
+    render(<Wired facts={COMPLETE} />, { wrapper: Providers })
+    const submit = screen.getByRole('button', { name: 'Надіслати на перевірку' })
+    expect(submit).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Додати посилання' }))
+    fireEvent.change(screen.getByLabelText('Назва, посилання 1'), { target: { value: 'Site' } })
+    const url = screen.getByLabelText('Адреса посилання, рядок 1')
+    fireEvent.change(url, { target: { value: 'http://example.com' } })
+    expect(submit).toBeDisabled()
+
+    expect(url).not.toHaveAttribute('aria-invalid')
+    fireEvent.blur(url)
+    expect(url).toHaveAttribute('aria-invalid', 'true')
+    expect(url).toHaveAccessibleDescription('Вкажіть назву й адресу https:// або mailto:')
   })
 
   it('409 from save shows "a check is running" and keeps the form values', async () => {
@@ -162,6 +199,35 @@ describe('ResumeFactsForm', () => {
     rerender(<Wired facts={{ ...EMPTY_RESUME_FACTS, headline: 'Sent' }} />)
     expect(screen.queryByTestId('resume-facts-server-changed')).not.toBeInTheDocument()
     expect(headline).toHaveValue('Sent and more')
+  })
+
+  it('a later outside change back to the old sent payload is still announced (G18-2)', async () => {
+    putMock.mockReturnValueOnce(new Promise(() => undefined))
+    const { rerender } = render(<Wired facts={EMPTY_RESUME_FACTS} />, { wrapper: Providers })
+    const headline = screen.getByLabelText('Цільова посада')
+    fireEvent.change(headline, { target: { value: 'Sent' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Зберегти чернетку' }))
+    await waitFor(() => expect(putMock).toHaveBeenCalledTimes(1))
+    fireEvent.change(headline, { target: { value: 'Sent and more' } })
+    const sentFacts = { ...EMPTY_RESUME_FACTS, headline: 'Sent' }
+    rerender(<Wired facts={sentFacts} />) // the echo, consumed
+    rerender(<Wired facts={{ ...EMPTY_RESUME_FACTS, headline: 'Q' }} />) // someone else saves
+    expect(screen.getByTestId('resume-facts-server-changed')).toBeInTheDocument()
+
+    // Someone saves the old text again: an outside change, not this form's echo.
+    rerender(<Wired facts={{ ...sentFacts }} />)
+    expect(screen.getByTestId('resume-facts-server-changed')).toBeInTheDocument()
+    expect(headline).toHaveValue('Sent and more')
+  })
+
+  it('a keystroke and new server facts in one act keep the keystroke', () => {
+    const { rerender } = render(<Wired facts={EMPTY_RESUME_FACTS} />, { wrapper: Providers })
+    const headline = screen.getByLabelText('Цільова посада')
+    act(() => {
+      fireEvent.change(headline, { target: { value: 'Typed' } })
+      rerender(<Wired facts={{ ...EMPTY_RESUME_FACTS, skills: ['Go'] }} />)
+    })
+    expect(headline).toHaveValue('Typed')
   })
 
   it('new server facts under a dirty draft are announced and can be loaded', () => {
