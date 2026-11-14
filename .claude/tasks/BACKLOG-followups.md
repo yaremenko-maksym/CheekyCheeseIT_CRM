@@ -7589,3 +7589,360 @@ mock `insert` for these services change with it (count them before starting).
 **Verify.** `git grep -n "insert(teamMembers)" -- apps/api/src ':!*.spec.ts'` lists only the shared helper.
 
 Sources: gardener 2026-11-14 complexity scan.
+
+## 428. Hooks: an inline `python3 -c` body past 32 KB refuses every Bash call on Windows (2026-11-11)
+
+**Symptoms.** After `pre:bash:cross-agent-blast` grew its analyzer, every Bash call in a Windows session whose checkout was on
+`origin/main` was refused with `INTERNAL ERROR: the analyzer did not run (rc=126)`, even `echo ok`. Windows caps a whole
+command line at 32767 characters; the analyzer was passed as one `-c` argument, so `python3.exe` never launched, and the
+fail-closed branch turned that into a refusal of everything. Linux CI has a far higher limit, so the guard tests stayed green.
+Agents on older checkouts were unaffected, which is why it surfaced only for the orchestrator.
+
+**Status.** DevOps, branch `fix/cross-agent-blast-windows-argmax`: the analyzer runs from a file under `.claude/hooks/lib/`,
+and a guard test caps the size of any inline `-c` body of a hook.
+
+**Verify.** On Windows Git Bash, with the checkout on `main`: `echo ok` runs, and a broadcast-kill payload fed to the hook
+still exits 2. On Linux CI the size guard fails when an inline `-c` body of any hook exceeds its cap.
+
+Sources: Master session 2026-11-11 (vacancy-sourcing Phase 7).
+
+## 429. Mutation gate under WSL: `SourceBudgetPanel` AC7 test times out at concurrency 4 (2026-11-11)
+
+**Symptoms.** The `@crm/web` dry run of `scripts/devops/mutation-gate.mjs --changed` in WSL failed in the initial test run with
+`SourceBudgetPanel (AC7) still names the source and its trigger while it is broken — Hook timed out in 10000ms` at
+`MUTATION_CONCURRENCY=4`. The same job in CI passed on the same head; at concurrency 2 the WSL run is green. The same family as
+the load-dependent flake recorded for the CP-28 / CP-29 cases above.
+
+**Status.** Coder (web tests): the test's setup hook must not depend on machine load (no real timers in the hook body, or a
+longer hook timeout scoped to this file with a written reason).
+
+**Verify.** Three WSL dry runs of the web mutation gate in a row at `MUTATION_CONCURRENCY=4` without a hook timeout.
+
+Sources: PR #1312 mutation run.
+
+## 430. Windows pre-push: API suite fails for environment reasons, pushes go through WSL (2026-11-11)
+
+**Symptoms.** On the owner's Windows machine the pre-push hook's `@crm/api` test run fails on cases that pass in WSL and in CI,
+so feature branches of the vacancy-sourcing epic were pushed from WSL worktrees fed by `git bundle`. The failing cases were not
+captured.
+
+**Status.** DevOps: capture the failing test names and error text on the first Windows run, then decide between fixing the
+cases and documenting WSL as the supported push host.
+
+**Verify.** `DATABASE_URL= git push` from Windows Git Bash of a feature branch that changes `apps/api` (so the pre-push run
+includes the `@crm/api` suite) completes with that suite green.
+
+Sources: vacancy-sourcing Phase 7 pushes (branches changing `apps/api`).
+
+## 431. WSL: a fresh clone hangs on a credential prompt during `git fetch` / `git push` (2026-11-11)
+
+**Symptoms.** A new clone inside WSL without the owner's configured credential helper waits forever for a username on HTTPS
+fetch or push, which reads as a hung agent. Working around it needs `GIT_TERMINAL_PROMPT=0` (fail fast) and worktrees of the
+one WSL clone that has a helper configured.
+
+**Status.** DevOps: document the WSL push recipe in a runbook (`docs/runbooks/`), with `GIT_TERMINAL_PROMPT=0` and the
+bundle hand-off. Do not print or copy the helper's value.
+
+**Verify.** Following the runbook from a fresh WSL shell pushes a branch without any interactive prompt.
+
+Sources: vacancy-sourcing Phase 7 pushes.
+
+## 432. `JobSuggestionDialog` still renders Russian visible strings (2026-11-11)
+
+**Symptoms.** The job-sourcing suggestion dialog (`JobSuggestionDialog`) shows hard-coded Russian text, not Lingui macros with
+`uk` source and `en`, so the dialog does not follow the UI locale.
+
+**Status.** Coder: migrate the module's visible strings to Lingui (`uk` + `en`); copy-reviewer per language.
+
+**Verify.** The Lingui `no-unlocalized-strings` lint covers the dialog's file with no exemption and passes (the
+`check-no-russian-letters` script scans `apps/api` and the catalogs, not `apps/web`); the dialog renders fully in `uk` and in
+`en`.
+
+Sources: vacancy-sourcing Phase 7 reviews.
+
+## 411. `noMatchReason` has no real-DB case for another team's TRIAGE / LEAD rows (2026-11-11)
+
+**Symptoms.** The job-queue card's `noMatchReason` for an HR actor counts only the actor's own team's match rows. Today that is
+pinned only by a unit spec on the SQL text, not by an integration case on a real database. A regression in the team scoping
+would let another team's TRIAGE or LEAD row change what HR sees, and no real-DB test would fail.
+
+**Status.** Coder: add one case to the job-queue service integration spec. A senior who belongs only to team B gets a TRIAGE
+match row (and, in a second case, a LEAD row) on an opportunity; HR of team A must still get `NO_MATCH`. Scratch DB only.
+
+**Verify.** The integration spec has such a case, it runs on a scratch database (non-zero case count), and it fails when the
+team predicate is removed from the `noMatchReason` stats.
+
+Sources: PR #1313 security review round 2 (SR2-L-1).
+
+## 412. Quota bar: a meter's `resetsAt` is not shown (2026-11-11)
+
+**Symptoms.** `QuotaBar` shows used / reserved / uncertain of the limit, but not when the meter window resets, although
+the `meter.resetsAt` field is in the ADMIN source projection. An admin sees a full bar with no hint when it empties.
+
+**Status.** Coder: add the reset time under the bar for a meter with a non-null `resetsAt` (uk + en, Lingui), the same
+wording as the legacy budget row («оновиться …»). Copy review on the new string.
+
+**Verify.** A unit test renders a meter with `resetsAt` and finds the formatted reset time; a meter with `resetsAt: null`
+shows none.
+
+Sources: PR #1312 copy review round 4 (COPY4-L-2 follow-up).
+
+## 413. Errors without an API error code show the raw server text (2026-11-11)
+
+**Symptoms.** `getUserFacingErrorMessage` translates an error envelope by its code; without a code it returns
+`extractBackendMessage` verbatim (by design, for validation details and business rules). A backend text written in
+English or Russian therefore reaches a `uk` user as is. Seen on the source switch refusal path; the helper is app-wide
+and older than that PR.
+
+**Status.** Decide first (A2): either every endpoint a user can hit returns an envelope code, or the backend-message
+fallback is limited to known validation shapes and the rest gets the generic localized message. Check the callers that
+rely on the backend text before changing the helper.
+
+**Verify.** A unit test feeds the helper an error with no code and a plain backend `message`, and the expected output is
+the one the decision names.
+
+Sources: PR #1312 manual QA round 4 (QA4-LOW-2).
+
+## 414. Job queue: the list row still shows «Потребує розгляду» for an excluded opportunity (2026-11-11)
+
+**Symptoms.** `JobQueueCard` hides the triage badge when `noMatchReason` is `EXCLUDED` (Task 7.3b, UX-M-2). `JobQueueRow`
+derives its badge from `eligibility === 'TRIAGE'` alone, so the same opportunity shows the badge in the list and not on
+the card.
+
+**Status.** Coder: one rule for both. Either the list item carries `noMatchReason` (or an equivalent flag) and the row
+applies the card's rule, or the decision is recorded that the list keeps the coarse badge. Check the list payload first.
+
+**Verify.** A unit test renders a row and a card for the same excluded TRIAGE item and both agree on the badge.
+
+Sources: PR #1313 code review round 4 (CR4-L-1).
+
+## 415. Job queue: stack keywords have no canonical casing (2026-11-11)
+
+**Symptoms.** Stack chips show keywords as stored, in lowercase («typescript», «postgresql»). CSS capitalisation would
+misspell names like TypeScript, so the card keeps the raw token.
+
+**Status.** Coder: a small casing map for known keywords in `@crm/shared` (display only; matching stays lowercase),
+used by the card and the senior «Збіг за:» chips. Unknown tokens stay as stored.
+
+**Verify.** A unit test maps «typescript» to «TypeScript» and leaves an unknown token unchanged.
+
+Sources: PR #1313 ui-ux review round 3 (UX-L-4, Master A1).
+
+## 416. Job queue: the triage empty state names the employer (2026-11-11)
+
+**Symptoms.** For a TRIAGE card with a verified employer, the empty state wording points at the employer as the reason,
+although the triage reason may be elsewhere.
+
+**Status.** Copy first (copy-reviewer, uk + en): a neutral wording. Then Coder swaps the catalog entries.
+
+**Verify.** The empty state of a TRIAGE card with a verified employer does not name the employer.
+
+Sources: PR #1313 manual QA round 3 (QA-LOW-2, Master A1).
+
+## 417. Job queue card: the «Опис» heading renders over an empty description (2026-11-11)
+
+**Symptoms.** `JobQueueCard` always renders the «Опис» `h3` above `PostingMarkdown`. The card response schema allows an
+empty `descriptionMd` (only the job-suggestion request refuses one), so a card can show the heading with nothing under it.
+
+**Status.** Coder: hide the section, or show a short muted «Опис відсутній» / "No description" line (copy review on the
+new string; design §5.1 first).
+
+**Verify.** A unit test renders a card with `descriptionMd: ''` and finds neither an empty «Опис» section nor a heading
+without content.
+
+Sources: Phase 7 Task 7.3 review notes (Master).
+
+## 418. Source switch card: two quotas beside a meter, one of them unlabelled (2026-11-11)
+
+**Symptoms.** A source with an account meter shows the meter as a bar; its own per-source budget row appears only when
+the budget is `MISCONFIGURED` or `EXHAUSTED`. So an `ACTIVE` per-source cap that is nearly spent shows nothing, and when
+the row does appear, its window («на місяць» / «на добу») and reset time belong to the per-source budget while the bar
+belongs to the meter, with nothing on the card telling the two apart. A healthy legacy-counter source also lost its
+window label: the bar carries no window. A meter that is full while the per-source budget is `ACTIVE` shows a full bar
+and no exhausted line (the missing meter reset time is item 412).
+
+**Status.** Design first (Mode A, `docs/design/vacancy-queue.md` §7, §8): label the bar as the account meter and the row
+as the source cap, show each window, and decide whether a nearly spent cap is shown. Then Coder (uk + en, Lingui) and
+copy review.
+
+**Verify.** Unit tests: a metered source with an `ACTIVE` budget and a metered source with an `EXHAUSTED` budget in a
+different window each render both labels and both windows; a full meter with an `ACTIVE` budget renders an exhausted
+state.
+
+Sources: PR #1321 copy review (COPY-4), code review (CR-L-1), second-opinion panel (claude:sonnet, gemini), live QA
+(QA LOW 2: «Ліміт вичерпано» above a meter bar at 24% reads as a contradiction), design review (UX-01: both
+quotas are called «Ліміт»).
+
+## 419. Source switch card: limit wording beside the bar (2026-11-11)
+
+**Symptoms.** en uses "Limit reached" / "The limit is misconfigured" directly above "Quota:", so one concept has two
+words (uk keeps «Ліміт»). «Ліміт вичерпано на місяць» / "Limit reached per month" can read as "exhausted for a month",
+and the en is not grammatical. The trigger line «(за розкладом)» / «(за кнопкою)» is a parenthetical with no subject,
+more visible now that it is its own line.
+
+**Status.** Copy (uk + en): one term for the limit, a window phrase that reads as "for this month" / "this month's
+limit", and a subject for the trigger line (new msgids). Copy review on the result.
+
+**Verify.** `pnpm i18n:extract` diff holds only the reworded ids; the card tests assert the new strings.
+
+Sources: PR #1321 copy review (COPY-1, COPY-2, COPY-3).
+
+## 420. Source switch card: a «Працює» chip beside «збір зупинено» (2026-11-11)
+
+**Symptoms.** A source whose per-source budget is `MISCONFIGURED` keeps the enabled-state chip «Працює» while the
+budget row says «збір зупинено», so the card states two opposite things about the same source.
+
+**Status.** Design first (`docs/design/vacancy-queue.md` §7, §8): decide whether the chip reflects the switch only or
+the effective collection state, then Coder (uk + en) and copy review.
+
+**Verify.** A unit test renders an enabled source with a `MISCONFIGURED` budget and asserts the chip and the budget row
+agree.
+
+Sources: PR #1321 live QA (QA LOW 3), design review (UX-02: the state chip ignores the budget state).
+
+## 421. Job sources list: no stable order, a toggled source moves to the end (2026-11-11)
+
+**Symptoms.** The sources list response has no explicit sort, so after a toggle the changed source can come back last
+and the card jumps under the pointer. The web list renders the API order as is.
+
+**Status.** Coder: give the list query an explicit, stable order (for example by source key) and pin it in the API
+spec. API change, not web.
+
+**Verify.** An integration spec toggles one source and asserts the list order is unchanged.
+
+Sources: PR #1321 live QA (QA LOW 1; pre-existing, not from that PR).
+
+## 422. Cross-agent blast hook: the worktree ownership ledger is inactive on native Windows (2026-11-11)
+
+**Symptoms.** `pre:bash:cross-agent-blast` records a worktree as owned only when the agent's working directory matches
+the Linux scratchpad shape (`/tmp/claude-<id>/...`). On native Windows the harness scratchpad is `/tmp/claude/<hash>/...`,
+so `record_owned` never runs, and every removal of an agent's own worktree is refused as `WORKTREE-UNRECORDED`. It fails
+closed (safe) but makes the ledger useless on Windows; agents report their checkouts to the owner instead.
+
+**Status.** DevOps: derive the own-scratchpad root from both spellings, with a test per spelling. Pre-existing, not from
+PR #1317.
+
+**Verify.** In the blast suite, an agent whose scratchpad is spelled `/tmp/claude/<hash>/` creates and then removes its
+own worktree: the removal is allowed; a sibling's stays refused.
+
+Sources: PR #1317 rounds 3-4 (Master).
+
+## 423. Cross-agent blast hook: the ownership ledger is a plain file any sibling can append to (2026-11-11)
+
+**Symptoms.** The ledger that `is_owned` reads lives in the session-shared scratchpad. A sibling agent that deliberately
+appends `<its id>\t<victim path>` to it is then allowed to remove the victim's worktree. The hook's threat model is an
+accidental command, not a deliberate forgery, so this is defense in depth.
+
+**Status.** Decide first (DevOps + security-reviewer): either move the ledger out of agent-writable space, or have
+`pre:bash:cross-agent-blast` refuse any command that writes to the ledger path. Pre-existing, not from PR #1317.
+
+A narrower variant of the same gap: `is_owned` ignores a recorded line naming the session directory itself, but not
+one naming `<session>/scratchpad` (where sibling checkouts actually live) or its `/private` spelling. Such a line still
+lets its owner remove any sibling under it. It needs a line written on purpose or left by an older hook version. Fix
+with the item above, or in `is_owned`: skip a recorded path that equals the hook's cwd or is an ancestor of it, or
+require at least two path components below `own_scratch`.
+
+**Verify.** A blast-suite case: a sibling appends a forged line, then its removal of the victim is still refused. A
+second case: a ledger line naming the scratchpad directory itself (the smoke suite's `$SCR`), then a sibling's removal
+is refused with `WORKTREE-UNRECORDED`.
+
+Sources: PR #1317 round 4 panel (nim:step), reproduced by the panel reviewer, not by Master; PR #1317 round 5
+security review (SR5-L-1, the scratchpad-directory variant).
+
+## 424. Hook size guard and blast suite: three small limits (2026-11-11)
+
+**Symptoms.**
+
+- `check-hook-inline-python-size.py` heredoc resync: after a comment containing an apostrophe (`# don't`) a later
+  `case … a)` line can be misread, so a body behind it is silently not measured. No live hook hits it today.
+- The same guard reports UNMEASURED for a hook whose last word is a closed multi-line quoted word with no final
+  newline: a false positive that fails closed.
+- `test-pre-bash-cross-agent-blast.sh` `run_hook_reason` prints the decoded reason through a cp1252 pipe on native
+  Windows; printing the hook's emoji raises, the reason is empty and one assertion fails. Green on Linux CI.
+- The guard's shell-keyword skip in `catch_all()` (it picks the command word after `if`, `then`, `while`, `do`, `!` …)
+  is pinned by no test: every keyword case uses `"$PY"`, which `python_like()` matches by itself. Reverting the skip
+  keeps the size suite green. Untested forms: `if sudo -E "$RUNTIME" -c '<big>'`, `then timeout 5 "$INTERP" -c '<big>'`,
+  `while nice -n 5 "$RUNTIME" -c '<big>'` (must be UNMEASURED) and `if git -C "$PYDIR" -c user.name=x commit …` (must
+  stay clean).
+
+**Status.** DevOps, one PR, one red test each.
+
+**Verify.** Each case above has a guard or suite test that fails before the fix.
+
+Sources: PR #1317 round 4 code review (CR4-L-3, CR4-L-4) and panel (nim:step); round 5 code review (CR5-L-1).
+
+## 425. Job queue triage grants: the policy version is a client stamp, never checked (2026-11-11)
+
+**Symptoms.** `POST /job-queue/:id/team-triage` stores the client-sent `policyVersion` as an audit stamp; no server
+value validates it. The plan says policy versions bump on membership / exclusion writes and a stale one is a conflict,
+but no such version exists. Task 7.4b sends `0` ("unversioned"), so a grant is not invalidated when team membership
+changes after the ADMIN opened the card.
+
+**Status.** Owner decision (RBAC, A3): implement server-side policy versioning (a migration plus the conflict check),
+or accept the stamp and drop the field from the contract. Listed in the Phase 7 decision brief.
+
+**Verify.** If implemented: an integration spec bumps membership between card load and grant, and the grant answers
+409 `JOB_QUEUE_VERSION_CONFLICT`.
+
+Sources: PR #1313 spec review (SPEC-M-2), Task 7.4b brief (Master).
+
+## 426. Job queue triage grants: a re-grant dead-ends, and the server trusts the client for triage-only (2026-11-12)
+
+**Symptoms.**
+
+- A grant to a team that already holds a live grant on the opportunity answers 409 `JOB_QUEUE_VERSION_CONFLICT`
+  (`grantTeamTriage`, the "current grant is live" branch). That is the same code as a stale card revision, so the
+  «Призначити команді…» dialog shows «Дані змінилися. Оновіть картку й повторіть.»; the refresh changes nothing and
+  every retry fails the same way. The card exposes no grants, so the client cannot pre-empt it.
+- `grantTeamTriage` checks ADMIN, the revision, a manual card and a live SENIOR team, but not that the opportunity is
+  in triage (`eligibility`). The triage-only rule lives only in the web menu; an ADMIN's crafted request can grant a
+  LEAD or EXCLUDED opportunity.
+- No expiry ceiling on either side: a multi-year grant is accepted.
+
+**Status.** API + web, one PR. Decide (A2): a distinct 409 code for "this team already has access" (the dialog then
+says until when), or treat a re-grant as an extension. Add the server-side eligibility check. Pick a ceiling, or record
+that none is needed.
+
+**Verify.** An integration spec: two grants to the same team, the second answers the new code (or extends); a grant on
+a non-triage opportunity is refused.
+
+Sources: PR #1322 second-opinion panel (nim:step), confirmed by Master against the service.
+
+## 427. Triage grant dialog and the shared date picker: three layout lows (2026-11-12)
+
+**Symptoms.**
+
+- The triage grant dialog (`TriageGrantForm`) shows its "choose a team and give a reason" hint only while the form is
+  incomplete. The dialog is vertically centred, so when the last field is filled the hint leaves and the dialog jumps
+  (about 18 px, 28 px at 320) under the caret in the reason field.
+- With no SENIOR team to offer, the team picker still opens, as an empty sliver over the "no team can take this
+  vacancy" note.
+- The shared `DatePickerField` calendar renders 36 px day cells at 320 and 375, under the 44 px mobile target of the
+  design spec §11. Every date picker in the app has it, not only the grant dialog.
+
+**Status.** Web only, polish; the first two are one small PR on `TriageGrantForm` (keep the hint in the layout and
+toggle its visibility; disable the picker when the list is empty). The third is a separate change to the shared
+component and its callers' layouts. Deferred from PR #1322: a fix there would have restarted six required reviews for
+three lows.
+
+**Verify.** At 320 the grant dialog does not move when the reason is typed; the picker is disabled on an empty list;
+calendar day cells are at least 44 px on mobile in every date picker.
+
+Sources: PR #1322 design reviews (rounds 1 and 2: UX-L-1, UX-L-4, UX-L-5).
+
+## 433. Session switch: stale-page queries refetch as the new user and 403 (QA-MED-1 of #1330, 2026-11-14)
+
+**Symptoms.** When the signed-in user changes under an open page, `watchSessionOwner` resets every query except
+`auth/me`; the still-mounted queries of the old page refetch with the new cookie. If the new account has fewer
+rights, the console shows a burst of 403s (about 5 for HR to JUNIOR, 1 for ADMIN to HR). No previous-account data
+shows; the noise appears until the next navigation.
+
+**Fix direction.** Tie the refetch to the router lifecycle: purge now, let queries of the page being left refetch only
+after the navigation settles, or skip refetch for queries the new role cannot read. `resetQueries` without refetch
+alone breaks the header and bell queries.
+
+**Verify.** Switch HR to JUNIOR in a second tab, navigate in the first: no 403 in the console, and no previous-account
+rows (job-queue scenario 10b stays green).
+
+Sources: manual-qa on #1330 (QA-MED-1); also from the same review: sonnet panel lows (an `idbDel` that never settles
+blocks the impersonation reload; a superseded check discards its answer when the newer one fails).

@@ -333,6 +333,13 @@ Triage: dashed note + the senior block shows the empty state with the triage rea
 placed nobody). Zero matches: plain empty state «Немає сеньйорів зі збігом стеку» + «Вакансія лишається в черзі, але
 жоден сеньйор із вашої команди не збігається за стеком.» The two empties differ in **icon and headline** (users vs ban).
 
+Excluded by screening (`noMatchReason: EXCLUDED`, PR #1313 CR2-M-1): an opportunity the automatic screening excluded at its
+current revision is hidden from the list, but an ADMIN can open it by id. Its senior block shows a fourth empty state, with
+the same layout and tokens as the other empties: «Вакансію відсіяно автоматичним відбором» + «Система не пропонує її
+сеньйорам: вакансія не пройшла автоматичний відбір. Відкрийте опис, якщо хочете оцінити її вручну.» (en "Filtered out by
+automatic screening" + "The system does not offer it to seniors: the vacancy did not pass automatic screening. Open the
+description if you want to review it manually."). It never says «немає збігу стеку» and never blames the employer check.
+
 ### 5.6 ADMIN
 
 - Studio scope: the senior block is grouped under **team headings** («Команда «Альфа»») — rendered for ADMIN only.
@@ -355,8 +362,9 @@ placed nobody). Zero matches: plain empty state «Немає сеньйорів 
 
 ### 5.8 Possible duplicate and the per-senior confirm
 
-The duplicate note says «У черзі є схожа вакансія» and lists a bounded preview; the line **«На схожу вакансію вже подано: <назва> ·
-<senior>»** (team-neutral wording, so it reads correctly for ADMIN too) appears only when **own team** submitted there. Duplicates in other
+The duplicate note says «У черзі є схожа вакансія» and lists a bounded preview; each listed duplicate gets the line **«Уже подано: {seniors}»**
+(en "Already submitted: {seniors}"; `{seniors}` is the comma-separated list of own-team submitted seniors; team-neutral wording, so it reads correctly for ADMIN too; the list item already shows the duplicate's
+title, so the line does not repeat it — COPY-M-1 of PR #1313) only when **own team** submitted there. Duplicates in other
 teams are not mentioned. When the actor presses «Записати подачу» for a senior who was already submitted to a similar vacancy by the own
 team (`confirmPossibleDuplicate` required, or the 409 `POSSIBLE_DUPLICATE_CLAIMED`), the **senior's block expands inline** (the
 «Записати подачу» button is replaced) — no second dialog: «Цього сеньйора вже подано на схожу вакансію · Ви впевнені, що це інша
@@ -396,7 +404,7 @@ Length rule: measure the longer language at 320 px; Ukrainian is ≈15–30 % lo
 | card terms                         | Форма співпраці · Трудовий договір · B2B · Не вказано · Зарплату не вказано                                                                                                                                                                   | Contract type · Employment contract · B2B · Not stated · Salary not listed                                                                                                                                                                   |
 | availability / uncertainty         | Вільно з {d} · Зайнято · Збіг неточний                                                                                                                                                                                                        | Free from {d} · Busy · Match is approximate                                                                                                                                                                                                  |
 | stop-list                          | Виключено за стоп-листом: {n} · Усі сеньйори вашої команди зі збігом внесли компанію до стоп-листа (ADMIN: без «вашої команди»)                                                                                                               | Excluded by stop-list: {n} · Every matching senior on your team has stop-listed this company (ADMIN: without "on your team")                                                                                                                 |
-| duplicate                          | У черзі є схожа вакансія · На схожу вакансію вже подано: {t} · Цього сеньйора вже подано на схожу вакансію · Не записувати · Так, записати все одно                                                                                           | There is a similar vacancy in the queue · Already submitted to a similar vacancy: {t} · This senior is already submitted to a similar vacancy · Don't log it · Yes, log it anyway                                                            |
+| duplicate                          | У черзі є схожа вакансія · Уже подано: {seniors} · Цього сеньйора вже подано на схожу вакансію · Не записувати · Так, записати все одно                                                                                                       | There is a similar vacancy in the queue · Already submitted: {seniors} · This senior is already submitted to a similar vacancy · Don't log it · Yes, log it anyway                                                                           |
 | footer                             | Відкрити оригінал · Приховати · Також опубліковано на:                                                                                                                                                                                        | Open original · Hide · Also listed on:                                                                                                                                                                                                       |
 | hide reasons                       | Нерелевантна · Спам · Мертве посилання                                                                                                                                                                                                        | Not relevant · Spam · Dead link                                                                                                                                                                                                              |
 | hide scope                         | Буде приховано для вашої команди / для всієї студії                                                                                                                                                                                           | Will be hidden for your team / for the whole studio                                                                                                                                                                                          |
