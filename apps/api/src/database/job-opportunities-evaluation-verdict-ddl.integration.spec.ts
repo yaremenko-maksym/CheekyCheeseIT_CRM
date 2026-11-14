@@ -7,7 +7,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * SR-M-2 (STAGED/DARK) — the staged forward DDL
- * `manual-staged/2026-11-04_job_opportunities_evaluation_verdict.sql` against a REAL Postgres.
+ * `manual/2026-11-04_job_opportunities_evaluation_verdict.sql` against a REAL Postgres.
  *
  * Applied TWICE into a scratch schema holding a stub of `job_opportunities`, one transaction each.
  * What it leaves — the enum, the two nullable columns, the pair CHECK — equals what `db:push`
@@ -23,7 +23,7 @@ const FILE = join(
   '..',
   '..',
   'drizzle',
-  'manual-staged',
+  'manual',
   '2026-11-04_job_opportunities_evaluation_verdict.sql',
 )
 const SCHEMA = 'ddl_job_opportunities_evaluation'

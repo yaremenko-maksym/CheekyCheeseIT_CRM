@@ -7,7 +7,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * r5 Phase 6 (STAGED/DARK) — the staged forward DDL
- * `manual-staged/2026-11-05_job_opportunities_manual_team.sql` against a REAL Postgres.
+ * `manual/2026-11-05_job_opportunities_manual_team.sql` against a REAL Postgres.
  *
  * Applied TWICE into a scratch schema holding stubs of `job_opportunities` and
  * `job_queue_assignments` (`teams` and `senior_resumes` resolve to `public` through the search
@@ -24,7 +24,7 @@ const FILE = join(
   '..',
   '..',
   'drizzle',
-  'manual-staged',
+  'manual',
   '2026-11-05_job_opportunities_manual_team.sql',
 )
 const SCHEMA = 'ddl_job_opportunities_manual_team'

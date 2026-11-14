@@ -7,7 +7,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * r5 Task 6.4c (STAGED/DARK) — the staged forward DDL
- * `manual-staged/2026-11-05_job_opportunities_role_family.sql` against a REAL Postgres.
+ * `manual/2026-11-05_job_opportunities_role_family.sql` against a REAL Postgres.
  *
  * Applied TWICE into a scratch schema holding a stub of `job_opportunities`, one transaction each.
  * What it leaves — the nullable column and its bounded CHECK — equals what `db:push` declares in
@@ -23,7 +23,7 @@ const FILE = join(
   '..',
   '..',
   'drizzle',
-  'manual-staged',
+  'manual',
   '2026-11-05_job_opportunities_role_family.sql',
 )
 const SCHEMA = 'ddl_job_opportunities_role_family'

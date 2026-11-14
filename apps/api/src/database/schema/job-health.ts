@@ -6,8 +6,9 @@
  * pass writes a row only when a source's `(state, reason)` changes, so the log grows with change,
  * not with time.
  *
- * APPEND-ONLY. `crm_app` holds `SELECT, INSERT` only (privilege class B), and
- * `drizzle/manual-staged/2026-10-31_job_source_health_events.sql` adds `ENABLE ALWAYS` triggers
+ * APPEND-ONLY. `crm_app` holds `SELECT, INSERT` only (privilege class A-log, never B: B
+ * would add the retention owner's DELETE), and
+ * `drizzle/manual/2026-10-31_job_source_health_events.sql` adds `ENABLE ALWAYS` triggers
  * that refuse every `UPDATE`, `DELETE` and `TRUNCATE` (the `job_queue_actions` pattern) — with no
  * retention exception, because the events are evidence and are never pruned (ADR "Rollback").
  *
@@ -185,7 +186,7 @@ export type NewJobSourceHealthEvent = typeof jobSourceHealthEvents.$inferInsert
  * The extraction model's health on the collection side (ADR 2026-11-03 §5.3). Neither table above
  * can host it: this signal is global, not per source. Both are meant for codes only. The CHECKs hold
  * the format, which an upper-snake string can still pass; the closed list of codes is the handler's
- * (`attemptSchema`). Forward DDL: `manual-staged/2026-11-06_job_model_health.sql`.
+ * (`attemptSchema`). Forward DDL: `manual/2026-11-06_job_model_health.sql`.
  */
 export const MODEL_ROUTE_VALUES = ['gemini', 'groq', 'local'] as const
 

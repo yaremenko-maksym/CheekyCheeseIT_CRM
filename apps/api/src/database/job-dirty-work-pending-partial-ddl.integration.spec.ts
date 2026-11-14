@@ -7,7 +7,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * CR-M-4 (STAGED/DARK) — the staged forward DDL
- * `manual-staged/2026-11-02_job_dirty_work_pending_partial.sql` against a REAL Postgres.
+ * `manual/2026-11-02_job_dirty_work_pending_partial.sql` against a REAL Postgres.
  *
  * The file adds ONE object: `idx_job_dirty_work_pending_generic`, a PARTIAL btree index on
  * `(status, created_at)` WHERE `reason <> 'DETAIL_FETCH'` — the generic-pending claim scan with the
@@ -29,7 +29,7 @@ const FILE = join(
   '..',
   '..',
   'drizzle',
-  'manual-staged',
+  'manual',
   '2026-11-02_job_dirty_work_pending_partial.sql',
 )
 const SCHEMA = 'ddl_job_dirty_work_pending_partial'

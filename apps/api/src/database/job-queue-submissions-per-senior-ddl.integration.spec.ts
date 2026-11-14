@@ -7,7 +7,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * r5 Phase 6 T0 (STAGED/DARK) — the staged forward DDL
- * `manual-staged/2026-11-04_job_queue_submissions_per_senior.sql` against a REAL Postgres.
+ * `manual/2026-11-04_job_queue_submissions_per_senior.sql` against a REAL Postgres.
  *
  * AC 2 (idempotent, equals db:push): the file is applied TWICE into a scratch schema holding a
  * stub of `job_queue_assignments` as production has it (the shipped studio-wide
@@ -28,7 +28,7 @@ const FILE = join(
   '..',
   '..',
   'drizzle',
-  'manual-staged',
+  'manual',
   '2026-11-04_job_queue_submissions_per_senior.sql',
 )
 const SCHEMA = 'ddl_job_queue_submissions_per_senior'

@@ -200,8 +200,8 @@ const TRIAGE_KINDS = sql.raw(
 
 /**
  * A SUBMISSION: one senior logged as submitted to one opportunity (owner
- * queue-model decision 2026-10-18, r5 §4 "Queue model"; staged forward DDL
- * `manual-staged/2026-11-04_job_queue_submissions_per_senior.sql`). The table
+ * queue-model decision 2026-10-18, r5 §4 "Queue model"; forward DDL
+ * `manual/2026-11-04_job_queue_submissions_per_senior.sql`). The table
  * keeps its Phase-1 name. UNIQUE(opportunity, senior) replaced the shipped
  * UNIQUE(opportunity): there is NO studio-wide claim any more — several
  * seniors (of one team or of several) may be submitted to one opportunity

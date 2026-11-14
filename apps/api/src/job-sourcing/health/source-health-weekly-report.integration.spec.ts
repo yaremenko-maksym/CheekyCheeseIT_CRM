@@ -28,7 +28,7 @@ const STAGED_FILE = join(
   '..',
   '..',
   'drizzle',
-  'manual-staged',
+  'manual',
   '2026-10-31_job_source_health_events.sql',
 )
 const HOUR_MS = 3_600_000

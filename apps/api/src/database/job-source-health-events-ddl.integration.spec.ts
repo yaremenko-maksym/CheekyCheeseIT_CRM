@@ -9,7 +9,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * Source-fetch-strategy U4 — the staged forward DDL
- * `manual-staged/2026-10-31_job_source_health_events.sql` against a REAL Postgres.
+ * `manual/2026-10-31_job_source_health_events.sql` against a REAL Postgres.
  *
  *  - Applied TWICE into a scratch schema (with stub FK targets), as the deploy would; the second
  *    apply changes nothing (re-runnable).
@@ -29,7 +29,7 @@ const FILE = join(
   '..',
   '..',
   'drizzle',
-  'manual-staged',
+  'manual',
   '2026-10-31_job_source_health_events.sql',
 )
 const SCHEMA = 'ddl_job_source_health_events'
