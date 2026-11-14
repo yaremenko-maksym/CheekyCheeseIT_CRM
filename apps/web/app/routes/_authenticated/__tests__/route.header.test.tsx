@@ -151,14 +151,22 @@ describe('CrmLayout header (routes/_authenticated/route.tsx)', () => {
 })
 
 describe('_authenticated beforeLoad (Task 7.6c)', () => {
+  const beforeLoad = Route.options.beforeLoad as unknown as (ctx: {
+    location: { pathname: string }
+    preload: boolean
+  }) => unknown
+
   it('awaits the session revalidation for the pathname being entered', () => {
     const check = Promise.resolve()
     revalidateSession.mockReturnValue(check)
-    const beforeLoad = Route.options.beforeLoad as unknown as (ctx: {
-      location: { pathname: string }
-    }) => unknown
-
-    expect(beforeLoad({ location: { pathname: '/job-queue' } })).toBe(check)
+    expect(beforeLoad({ location: { pathname: '/job-queue' }, preload: false })).toBe(check)
     expect(revalidateSession).toHaveBeenCalledWith('/job-queue')
+  })
+
+  it('skips the revalidation for a hover preload (CR-M-1)', () => {
+    revalidateSession.mockClear()
+
+    expect(beforeLoad({ location: { pathname: '/job-queue' }, preload: true })).toBeUndefined()
+    expect(revalidateSession).not.toHaveBeenCalled()
   })
 })

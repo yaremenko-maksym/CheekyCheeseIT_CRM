@@ -32,11 +32,13 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import type { OnboardingStatusDto } from '@crm/shared'
 
 // Task 7.6c: awaited before the next route renders, so a session that changed under the open page
-// (another tab's sign-in) never paints the previous account's cached rows.
+// (another tab's sign-in) never paints the previous account's cached rows. A hover preload renders
+// nothing, so it sends no check (PR #1330 CR-M-1).
 const revalidateSession = createSessionRevalidator(queryClient)
 
 export const Route = createFileRoute('/_authenticated')({
-  beforeLoad: ({ location }) => revalidateSession(location.pathname),
+  beforeLoad: ({ location, preload }) =>
+    preload ? undefined : revalidateSession(location.pathname),
   component: CrmRoot,
 })
 

@@ -78,6 +78,8 @@ import {
   stripSensitiveFields,
   SENSITIVE_PERSISTED_FIELDS,
   markStrippedQueries,
+  setPersistedCacheOwner,
+  takeRestoredCacheOwner,
 } from './persister'
 
 // ---------------------------------------------------------------------------
@@ -494,5 +496,62 @@ describe('persister — defensive guards for malformed/legacy persisted shapes (
       clientWithBadQueries as unknown as undefined,
     )
     await expect(persister.restoreClient()).resolves.toEqual(clientWithBadQueries)
+  })
+})
+
+// SR-M-1 (PR #1330 fix-round 1): the persisted cache records whose data it holds, so the first
+// auth/me answer after a page load can tell a cache another account's tab saved.
+describe('persister — cache owner', () => {
+  const serialize = (client: unknown) => {
+    const fn = hoisted.capturedOptionsRef.current?.serialize
+    if (!fn) throw new Error('serialize was not captured')
+    return JSON.parse(fn(client)) as { owner?: unknown }
+  }
+  const restoreWith = (client: unknown) => {
+    hoisted.mockPersisterInstance.restoreClient.mockResolvedValueOnce(client as undefined)
+    return persister.restoreClient()
+  }
+  const withQueries = (owner: unknown, queries: unknown[] = [{ queryKey: ['projects'] }]) => ({
+    timestamp: 1,
+    buster: 'v1',
+    owner,
+    clientState: { queries, mutations: [] },
+  })
+
+  it('writes the current owner next to the cache', () => {
+    setPersistedCacheOwner('user-anna')
+    expect(serialize({ clientState: { queries: [] } }).owner).toBe('user-anna')
+    setPersistedCacheOwner(null)
+    expect(serialize({ clientState: { queries: [] } }).owner).toBeNull()
+  })
+
+  it("reports a restored non-empty cache's owner once, then nothing", async () => {
+    await restoreWith(withQueries('user-anna'))
+    expect(takeRestoredCacheOwner()).toBe('user-anna')
+    expect(takeRestoredCacheOwner()).toBeUndefined()
+  })
+
+  it('reports a restored non-empty cache with no string owner as null (unknown owner)', async () => {
+    await restoreWith(withQueries(undefined))
+    expect(takeRestoredCacheOwner()).toBeNull()
+    await restoreWith(withQueries(42))
+    expect(takeRestoredCacheOwner()).toBeNull()
+  })
+
+  it('reports nothing for an empty or missing restored cache', async () => {
+    await restoreWith(withQueries('user-anna', []))
+    expect(takeRestoredCacheOwner()).toBeUndefined()
+    await restoreWith(withQueries('user-anna'))
+    await restoreWith(undefined)
+    expect(takeRestoredCacheOwner()).toBeUndefined()
+    await restoreWith({ timestamp: 1, buster: 'v1' })
+    expect(takeRestoredCacheOwner()).toBeUndefined()
+  })
+
+  it('labels later writes with the restored owner until the session says otherwise', async () => {
+    setPersistedCacheOwner(null)
+    await restoreWith(withQueries('user-anna'))
+    expect(serialize({ clientState: { queries: [] } }).owner).toBe('user-anna')
+    takeRestoredCacheOwner()
   })
 })

@@ -5,14 +5,21 @@
  * the new account never paints the previous account's cached rows.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { QueryClient } from '@tanstack/react-query'
+import { createElement } from 'react'
+import { render, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
-const { apiGet, idbDel } = vi.hoisted(() => ({ apiGet: vi.fn(), idbDel: vi.fn() }))
+const { apiGet, idbDel, idbGet, idbSet } = vi.hoisted(() => ({
+  apiGet: vi.fn(),
+  idbDel: vi.fn(),
+  idbGet: vi.fn(),
+  idbSet: vi.fn(),
+}))
 vi.mock('../../lib/axios', () => ({ api: { get: apiGet } }))
-vi.mock('idb-keyval', () => ({ del: idbDel }))
+vi.mock('idb-keyval', () => ({ del: idbDel, get: idbGet, set: idbSet }))
 
-import { createSessionRevalidator } from '../auth'
-import { PERSIST_KEY } from '../../lib/persister'
+import { AuthProvider, createSessionRevalidator } from '../auth'
+import { PERSIST_KEY, persister } from '../../lib/persister'
 
 const anna = { id: 'user-anna', role: 'HR' }
 const kateryna = { id: 'user-kateryna', role: 'HR' }
@@ -234,7 +241,7 @@ describe('createSessionRevalidator', () => {
     expect(apiGet).not.toHaveBeenCalled()
   })
 
-  it('asks once per pathname: a repeat of the same path (search change) sends no request', async () => {
+  it('a repeat of the same path within 1s reuses one check; another path asks again', async () => {
     const qc = seeded()
     meReturns(anna)
     const revalidate = createSessionRevalidator(qc)
@@ -244,5 +251,201 @@ describe('createSessionRevalidator', () => {
     await revalidate('/projects')
 
     expect(apiGet).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('session owner watch (CR-H-1): a changed auth/me user purges, whoever wrote it', () => {
+  it('purges when other code wrote the new user to auth/me before the route change', async () => {
+    const qc = seeded()
+    const revalidate = createSessionRevalidator(qc)
+    // e.g. refetchOnReconnect, invalidateQueries(['auth','me']) or AuthProvider remounting
+    qc.setQueryData(['auth', 'me'], kateryna)
+    meReturns(kateryna)
+
+    await revalidate('/job-queue')
+
+    expect(qc.getQueryData(QUEUE_KEY)).toBeUndefined()
+    expect(qc.getQueryData(['auth', 'me'])).toEqual(kateryna)
+    expect(idbDel).toHaveBeenCalledWith(PERSIST_KEY)
+  })
+
+  it('purges on an auth/me refetch answering as another user, with no route change at all', async () => {
+    const qc = seeded()
+    createSessionRevalidator(qc)
+
+    await qc.fetchQuery({ queryKey: ['auth', 'me'], queryFn: () => kateryna, staleTime: 0 })
+
+    expect(qc.getQueryData(QUEUE_KEY)).toBeUndefined()
+    expect(idbDel).toHaveBeenCalledWith(PERSIST_KEY)
+  })
+
+  it('ignores other queries and non-answer auth/me events (new query, reset, invalidate)', async () => {
+    const qc = seeded()
+    createSessionRevalidator(qc)
+
+    qc.setQueryData(['projects'], { id: 'not-a-user' })
+    await qc.invalidateQueries({ queryKey: ['auth', 'me'], refetchType: 'none' })
+    await qc.resetQueries({ queryKey: ['auth', 'me'], exact: true })
+
+    expect(qc.getQueryData(QUEUE_KEY)).toEqual({ rows: ['anna-only-row'] })
+    expect(qc.getQueryData(['projects'])).toEqual({ id: 'not-a-user' })
+    expect(idbDel).not.toHaveBeenCalled()
+  })
+
+  it('a later answer as the same user after a reset keeps the cache', async () => {
+    const qc = seeded()
+    createSessionRevalidator(qc)
+    await qc.resetQueries({ queryKey: ['auth', 'me'], exact: true })
+
+    qc.setQueryData(['auth', 'me'], anna)
+
+    expect(qc.getQueryData(QUEUE_KEY)).toEqual({ rows: ['anna-only-row'] })
+    expect(idbDel).not.toHaveBeenCalled()
+  })
+
+  it('labels the persisted cache with the user auth/me now answers for', async () => {
+    vi.useFakeTimers()
+    try {
+      const qc = seeded()
+      createSessionRevalidator(qc)
+      qc.setQueryData(['auth', 'me'], kateryna)
+
+      const client = { timestamp: 1, buster: '', clientState: { queries: [], mutations: [] } }
+      await persister.persistClient(client as Parameters<typeof persister.persistClient>[0])
+      await vi.advanceTimersByTimeAsync(1000) // the persister throttles writes
+
+      expect(idbSet).toHaveBeenCalledWith(PERSIST_KEY, expect.any(String))
+      expect(JSON.parse(idbSet.mock.lastCall?.[1] as string).owner).toBe('user-kateryna')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('treats a signed-out answer as an owner too: a sign-in after it purges', async () => {
+    const qc = new QueryClient()
+    qc.setQueryData(['auth', 'me'], null)
+    qc.setQueryData(QUEUE_KEY, { rows: ['signed-out-row'] })
+    createSessionRevalidator(qc)
+
+    qc.setQueryData(['auth', 'me'], kateryna)
+
+    expect(qc.getQueryData(QUEUE_KEY)).toBeUndefined()
+  })
+
+  it('keeps purging on every later switch, not only the first', async () => {
+    const qc = seeded()
+    createSessionRevalidator(qc)
+    qc.setQueryData(['auth', 'me'], kateryna)
+    qc.setQueryData(QUEUE_KEY, { rows: ['kateryna-only-row'] })
+
+    qc.setQueryData(['auth', 'me'], anna)
+
+    expect(qc.getQueryData(QUEUE_KEY)).toBeUndefined()
+  })
+})
+
+describe('session revalidation request (CR-M-1)', () => {
+  it('a failed or timed-out check leaves an auth/me request already in flight alone', async () => {
+    const qc = seeded()
+    let answer: (v: unknown) => void = () => {}
+    const inFlight = qc.fetchQuery({
+      queryKey: ['auth', 'me'],
+      queryFn: () => new Promise((resolve) => (answer = resolve)),
+      staleTime: 0,
+    })
+    apiGet.mockRejectedValue(new Error('timeout of 3000ms exceeded'))
+
+    await createSessionRevalidator(qc)('/job-queue')
+
+    expect(qc.getQueryState(['auth', 'me'])?.fetchStatus).toBe('fetching')
+    answer(anna)
+    await expect(inFlight).resolves.toEqual(anna)
+  })
+
+  it("AuthProvider's own auth/me request is the session answer, with no timeout", async () => {
+    meReturns(anna)
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    render(
+      createElement(
+        QueryClientProvider,
+        { client: qc },
+        createElement(AuthProvider, { children: null }),
+      ),
+    )
+
+    await waitFor(() => expect(qc.getQueryData(['auth', 'me'])).toEqual(anna))
+    expect(apiGet).toHaveBeenCalledWith('/auth/me', expect.objectContaining({ timeout: 0 }))
+  })
+
+  it('gives up on /auth/me after 3s, so a hung request cannot block the navigation', async () => {
+    const qc = seeded()
+    meReturns(anna)
+
+    await createSessionRevalidator(qc)('/job-queue')
+
+    expect(apiGet).toHaveBeenCalledWith('/auth/me', expect.objectContaining({ timeout: 3000 }))
+  })
+})
+
+describe('restored cache owner (SR-M-1): the first auth/me answer after a page load', () => {
+  const restoredBlob = (owner?: unknown, queries: unknown[] = [{ queryKey: QUEUE_KEY }]) =>
+    JSON.stringify({ timestamp: 1, buster: '', owner, clientState: { queries, mutations: [] } })
+
+  // a fresh page: the persisted cache is restored first, then AuthProvider's auth/me answers
+  async function pageLoad(blob: string | undefined) {
+    idbGet.mockResolvedValueOnce(blob)
+    await persister.restoreClient()
+    const qc = new QueryClient()
+    qc.setQueryData(QUEUE_KEY, { rows: ['restored-row'] })
+    createSessionRevalidator(qc)
+    return qc
+  }
+
+  it("purges a restored cache another user's tab saved", async () => {
+    const qc = await pageLoad(restoredBlob('user-anna'))
+
+    qc.setQueryData(['auth', 'me'], kateryna)
+
+    expect(qc.getQueryData(QUEUE_KEY)).toBeUndefined()
+    expect(idbDel).toHaveBeenCalledWith(PERSIST_KEY)
+  })
+
+  it('purges a non-empty restored cache with no owner recorded', async () => {
+    const qc = await pageLoad(restoredBlob(undefined))
+
+    qc.setQueryData(['auth', 'me'], kateryna)
+
+    expect(qc.getQueryData(QUEUE_KEY)).toBeUndefined()
+  })
+
+  it('keeps a restored cache the same user saved', async () => {
+    const qc = await pageLoad(restoredBlob('user-kateryna'))
+
+    qc.setQueryData(['auth', 'me'], kateryna)
+
+    expect(qc.getQueryData(QUEUE_KEY)).toEqual({ rows: ['restored-row'] })
+    expect(idbDel).not.toHaveBeenCalled()
+  })
+
+  it('purges nothing when nothing was restored', async () => {
+    const qc = await pageLoad(undefined)
+
+    qc.setQueryData(['auth', 'me'], kateryna)
+
+    expect(qc.getQueryData(QUEUE_KEY)).toEqual({ rows: ['restored-row'] })
+    expect(idbDel).not.toHaveBeenCalled()
+  })
+
+  it('compares only the first answer: the restored owner is not consulted again', async () => {
+    const qc = await pageLoad(restoredBlob('user-anna'))
+    qc.setQueryData(['auth', 'me'], kateryna)
+    qc.setQueryData(QUEUE_KEY, { rows: ['kateryna-only-row'] })
+    idbDel.mockClear()
+
+    qc.setQueryData(['auth', 'me'], kateryna)
+
+    expect(qc.getQueryData(QUEUE_KEY)).toEqual({ rows: ['kateryna-only-row'] })
+    expect(idbDel).not.toHaveBeenCalled()
   })
 })

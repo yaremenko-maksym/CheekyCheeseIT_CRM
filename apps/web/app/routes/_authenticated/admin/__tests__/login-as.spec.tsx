@@ -46,6 +46,9 @@ import { loadCatalog, I18nTestProvider } from '@/test/i18n'
  * frontend filtering & dialog UX logic.
  */
 
+const { idbDel } = vi.hoisted(() => ({ idbDel: vi.fn() }))
+vi.mock('idb-keyval', () => ({ del: idbDel }))
+
 vi.mock('@/lib/axios', () => ({
   api: {
     get: vi.fn(),
@@ -313,6 +316,40 @@ describe('LoginAsPage — confirm dialog (real render, real useMutation)', () =>
     await user.click(screen.getByTestId('login-as-confirm-ok'))
 
     expect(api.post).toHaveBeenCalledWith('/auth/impersonate', { userId: SENIOR_USER.id })
+  })
+
+  it("L10b. on success deletes the admin's persisted cache before reloading as the target (SR-M-1)", async () => {
+    Object.defineProperty(window, 'location', {
+      writable: true,
+      value: { href: '/admin/login-as' },
+    })
+    let deleted: () => void = () => {}
+    idbDel.mockReturnValue(new Promise<void>((resolve) => (deleted = resolve)))
+    vi.mocked(api.post).mockResolvedValue({ data: {} })
+    const user = userEvent.setup()
+    await openDialogFor(user, SENIOR_USER.id)
+
+    await user.click(screen.getByTestId('login-as-confirm-ok'))
+
+    await waitFor(() => expect(idbDel).toHaveBeenCalledWith('crm-query-cache'))
+    expect(window.location.href).toBe('/admin/login-as')
+    deleted()
+    await waitFor(() => expect(window.location.href).toBe('/'))
+  })
+
+  it('L10c. still reloads as the target when deleting the persisted cache fails', async () => {
+    Object.defineProperty(window, 'location', {
+      writable: true,
+      value: { href: '/admin/login-as' },
+    })
+    idbDel.mockRejectedValue(new Error('idb unavailable'))
+    vi.mocked(api.post).mockResolvedValue({ data: {} })
+    const user = userEvent.setup()
+    await openDialogFor(user, SENIOR_USER.id)
+
+    await user.click(screen.getByTestId('login-as-confirm-ok'))
+
+    await waitFor(() => expect(window.location.href).toBe('/'))
   })
 
   it('L11. confirm OK shows the pending catalog label while in-flight, not the idle one (MUT-1)', async () => {
