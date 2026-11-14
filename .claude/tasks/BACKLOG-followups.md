@@ -7842,9 +7842,6 @@ lets its owner remove any sibling under it. It needs a line written on purpose o
 with the item above, or in `is_owned`: skip a recorded path that equals the hook's cwd or is an ancestor of it, or
 require at least two path components below `own_scratch`.
 
-**Status.** Decide first (DevOps + security-reviewer): either move the ledger out of agent-writable space, or have
-`pre:bash:cross-agent-blast` refuse any command that writes to the ledger path. Pre-existing, not from PR #1317.
-
 **Verify.** A blast-suite case: a sibling appends a forged line, then its removal of the victim is still refused. A
 second case: a ledger line naming the scratchpad directory itself (the smoke suite's `$SCR`), then a sibling's removal
 is refused with `WORKTREE-UNRECORDED`.

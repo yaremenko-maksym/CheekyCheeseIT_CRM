@@ -2,7 +2,7 @@
 
 ## Agent: autotest
 
-## Status: wave 1 ready; wave 2 blocked on Task 7.6a
+## Status: done (merged as #1324; availability-change sub-case of scenario 7 deferred, see the phase-end brief)
 
 ## Blockers: Task 7.6a (the job-queue seed) for wave 2 only
 

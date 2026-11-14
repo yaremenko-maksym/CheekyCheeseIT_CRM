@@ -2,7 +2,7 @@
 
 ## Agent: coder
 
-## Status: ready
+## Status: done (merged as #1323)
 
 ## Blockers: none (Tasks 7.3b, 7.4b, 7.5, 7.5b are merged)
 

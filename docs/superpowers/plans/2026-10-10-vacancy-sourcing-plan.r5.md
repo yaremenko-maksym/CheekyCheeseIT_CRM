@@ -1382,7 +1382,7 @@ and preserves state; no toggle clears policy/cost state; `uk`/`en` labels; ui-ux
 stand via `POST /api/auth/dev-login`; data via `mcp__postgres__query` on the scratch/QA DB, never hardcoded, never the
 live DB.
 
-- [x] Scenarios: HR opens «Черга вакансій» from the menu; card shows sources and matched seniors; take → moves from
+- [x] Scenarios (the «availability change while open» sub-case is deferred: the senior-availability field is not on main, see the phase-end brief): HR opens «Черга вакансій» from the menu; card shows sources and matched seniors; take → moves from
       «Нові» to «У роботі»; same-team second HR sees «вже взято <name>», foreign-team HR sees it masked; no-team HR
       sees an empty authorized queue; scoped dismissal/undo; availability change while open; uncertainty warnings and
       triage items; unsafe HTML/link/image protection; expired generation refresh; empty/error/loading/partial health;

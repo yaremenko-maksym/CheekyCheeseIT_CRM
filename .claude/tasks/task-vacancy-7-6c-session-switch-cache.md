@@ -2,7 +2,7 @@
 
 ## Agent: coder
 
-## Status: ready
+## Status: done (merged as #1330, bd161791)
 
 ## Blockers: none (the 7.6 suite on PR #1324 asserts the leak itself in scenario 10b)
 
