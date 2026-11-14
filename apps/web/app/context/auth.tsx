@@ -84,7 +84,8 @@ function watchSessionOwner(queryClient: QueryClient, navigating: () => boolean):
     // reset, not remove: mounted observers (header, bell) drop the old data and stay subscribed
     const matched = queryClient.getQueryCache().findAll({ predicate: (q) => !isAuthMe(q) })
     notifyManager.batch(() => matched.forEach((q) => q.reset()))
-    purged = new Set([...(purged ?? []), ...matched])
+    const queries = (purged ??= new Set<Query>())
+    matched.forEach((q) => queries.add(q))
     void idbDel(PERSIST_KEY).catch(() => {})
     if (!navigating()) refetchPurged()
   })
@@ -97,9 +98,10 @@ function watchSessionOwner(queryClient: QueryClient, navigating: () => boolean):
  * it fetches a fresh answer and writes it to `auth/me`, so `watchSessionOwner` purges a changed
  * user BEFORE the next route renders. The same pathname within `REUSE_MS` of the last check (the
  * click after a hover preload — the router reports an active layout's preload as `preload: false`)
- * reuses that check; a later visit to the same pathname asks again. A check overtaken by a newer
- * one waits for that one, so no navigation renders before the newest answer is applied; if the
- * newer one fails, the overtaken answer still lands. A check that fails or takes over
+ * reuses that check; a later visit to the same pathname asks again. A check overtaken by newer
+ * ones waits for all of them, so no navigation renders before the newest answer is applied and an
+ * older answer never lands after a newer one; if every newer one fails, the overtaken answer still
+ * lands. A check that fails or takes over
  * `REVALIDATE_TIMEOUT_MS` keeps the cache. Nothing before the first `auth/me` answer
  * (AuthProvider owns that). Create one per client: it subscribes to its cache.
  *
@@ -108,41 +110,47 @@ function watchSessionOwner(queryClient: QueryClient, navigating: () => boolean):
  */
 export function createSessionRevalidator(queryClient: QueryClient) {
   const REUSE_MS = 1000 // hover preload, then click
-  let pending = 0 // checks in flight: a purge during one belongs to a navigation not yet rendered
-  const settled = watchSessionOwner(queryClient, () => pending > 0)
+  // checks in flight, by sequence: a purge while any runs belongs to a navigation not yet rendered
+  const inflight = new Map<number, Promise<boolean>>()
+  const settled = watchSessionOwner(queryClient, () => inflight.size > 0)
   let last: { pathname: string; check: Promise<void>; settledAt: number | null } | null = null
   let asked = 0 // sequence of the newest check
-  let applied = 0 // sequence of the newest check whose answer landed
-  const check = async (): Promise<void> => {
-    if (!queryClient.getQueryData<SessionUser | null>(AUTH_ME_KEY)) return
+  const newerThan = (mine: number) =>
+    [...inflight].filter(([seq]) => seq > mine).map(([, running]) => running)
+  /** Resolves true when this check's answer landed in `auth/me`. */
+  const answer = async (mine: number): Promise<boolean> => {
     // A request of its own, not a deduped `fetchQuery`: the router pushes the URL before
     // `beforeLoad` settles, so an earlier request may still be in flight under the OLD cookie.
-    const mine = ++asked
     let current: SessionUser | null
     try {
       current = await fetchMe(REVALIDATE_TIMEOUT_MS)
     } catch {
-      return // network failure or timeout: keep the cache (offline use); the server still enforces access
+      return false // network failure or timeout: keep the cache (offline use); the server still enforces access
     }
-    // a later check asked after us: its answer wins, and this navigation waits for it; ours lands
-    // only if no later answer did (the later check failed). `last` is never null here: it is
-    // assigned synchronously, before `fetchMe` can answer
-    if (mine !== asked) {
-      await last!.check
-      if (applied > mine) return
+    // Checks asked after us (even while we wait) are waited for, so this navigation renders only
+    // after the newest answer. A newer check lands only after waiting for every check newer than
+    // itself, so "one landed" means the newest answer is in: ours is older and is dropped. Ours
+    // lands only if every newer check failed.
+    for (let newer = newerThan(mine); newer.length > 0; newer = newerThan(mine)) {
+      if ((await Promise.all(newer)).some(Boolean)) return false
     }
-    applied = mine
     // AuthProvider's own request may also predate the cookie change; its late answer must not land
     await queryClient.cancelQueries({ queryKey: AUTH_ME_KEY, exact: true })
     queryClient.setQueryData(AUTH_ME_KEY, current) // a changed id purges in `watchSessionOwner`
+    return true
+  }
+  const check = async (): Promise<void> => {
+    if (!queryClient.getQueryData<SessionUser | null>(AUTH_ME_KEY)) return
+    const mine = ++asked
+    const running = answer(mine).finally(() => inflight.delete(mine))
+    inflight.set(mine, running)
+    await running
   }
   const revalidate = (pathname: string): Promise<void> => {
     const fresh = last?.settledAt == null || Date.now() - last.settledAt < REUSE_MS
     if (last && last.pathname === pathname && fresh) return last.check
     const entry: NonNullable<typeof last> = { pathname, check: Promise.resolve(), settledAt: null }
-    pending++
     entry.check = check().finally(() => {
-      pending--
       entry.settledAt = Date.now()
     })
     last = entry

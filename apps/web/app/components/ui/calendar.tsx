@@ -29,7 +29,7 @@ function monthNames(locale: Locale, style: 'short' | 'long'): string[] {
 
 type Picker = 'month' | 'year' | null
 
-function CustomMonthCaption({ calendarMonth }: MonthCaptionProps) {
+function CustomMonthCaption({ calendarMonth, className }: MonthCaptionProps) {
   const { goToMonth, previousMonth, nextMonth } = useDayPicker()
   const [picker, setPicker] = useState<Picker>(null)
   const locale = useLocale()
@@ -67,11 +67,12 @@ function CustomMonthCaption({ calendarMonth }: MonthCaptionProps) {
 
   const navBtn = cn(
     buttonVariants({ variant: 'outline' }),
-    'h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 shrink-0',
+    // design spec §11: 44 px touch target under `sm`, the compact 28 px from there
+    'size-11 sm:size-7 bg-transparent p-0 opacity-50 hover:opacity-100 shrink-0',
   )
 
   return (
-    <div className="flex items-center justify-between w-full h-7 gap-1">
+    <div className={cn(className, 'flex items-center justify-between w-full h-11 sm:h-7 gap-1')}>
       {/* Prev arrow */}
       <button
         type="button"

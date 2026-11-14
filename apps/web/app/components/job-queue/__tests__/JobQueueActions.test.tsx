@@ -1854,6 +1854,7 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     expect(team).not.toHaveAttribute('aria-describedby')
     const hint = within(dialog).getByText('Виберіть команду й вкажіть причину.')
     expect(assign(dialog)).toHaveAttribute('aria-describedby', hint.id)
+    expect(hint).toHaveClass('text-sm', 'text-pretty', 'text-muted-foreground')
     expect(team).toBeEnabled()
     await pickTeam(user, dialog, 'Бета')
     expect(hint).not.toHaveClass('invisible')
