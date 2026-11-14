@@ -161,7 +161,11 @@ export class JobQueueScopeService {
              WHERE tm.left_at IS NULL AND t.archived_at IS NULL AND t.type = 'SENIOR'`,
       ),
     )
-    return triagePolicyVersion(versions, String(rows[0]?.['digest']))
+    // An aggregate always answers one row; a missing digest is not a version, so fail closed.
+    const digest = rows[0]?.['digest']
+    if (typeof digest !== 'string')
+      throw apiError('JOB_QUEUE_POLICY_UNAVAILABLE', HttpStatus.SERVICE_UNAVAILABLE)
+    return triagePolicyVersion(versions, digest)
   }
 
   /**

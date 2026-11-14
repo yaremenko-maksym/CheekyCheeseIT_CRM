@@ -146,6 +146,15 @@ describe('JobQueueScopeService.triagePolicyVersion (backlog 425)', () => {
     const { svc } = harness(new Error('connection lost'))
     await expectCode(svc.triagePolicyVersion([]), 503, 'JOB_QUEUE_POLICY_UNAVAILABLE')
   })
+
+  it('fails closed when the aggregate answers no digest', async () => {
+    await expectCode(harness([]).svc.triagePolicyVersion([]), 503, 'JOB_QUEUE_POLICY_UNAVAILABLE')
+    await expectCode(
+      harness([{ digest: null }]).svc.triagePolicyVersion([]),
+      503,
+      'JOB_QUEUE_POLICY_UNAVAILABLE',
+    )
+  })
 })
 
 afterEach(() => {
