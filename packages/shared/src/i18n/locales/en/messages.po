@@ -11869,7 +11869,6 @@ msgstr "Could not read the file"
 
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
-#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminNoteDialog.tsx
 #: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
@@ -12632,6 +12631,10 @@ msgstr "#{0} of {1}"
 #: apps/web/app/components/job-sourcing/SourceSwitchCard.tsx
 msgid "Працює"
 msgstr "Running"
+
+#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
+msgid "Зберегти доступність"
+msgstr "Save availability"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Оформлення"
