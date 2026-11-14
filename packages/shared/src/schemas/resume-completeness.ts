@@ -202,11 +202,16 @@ const normaliseName = (text: string): string =>
  * alone is a common word too often.
  */
 function contactCheck(displayName: string, telegram: string | null | undefined): ContactCheck {
-  const tokens = normaliseName(displayName).trim().split(/\s+/).filter(Boolean).map(escapeRegExp)
+  // Split on each whitespace character: the filter drops the empty pieces a run or an edge leaves.
+  const tokens = normaliseName(displayName).split(/\s/).filter(Boolean).map(escapeRegExp)
   const first = tokens[0]
   const last = tokens[tokens.length - 1]
   const name =
-    tokens.length >= 2 && first !== undefined && last !== undefined
+    tokens.length >= 2 &&
+    // Stryker disable next-line ConditionalExpression: type narrowing only — two or more tokens means both are defined, so forcing either guard true changes no result
+    first !== undefined &&
+    // Stryker disable next-line ConditionalExpression: as above, two or more tokens means the last one is defined
+    last !== undefined
       ? new RegExp(
           // No lookbehind: it throws on Safari < 16.4.
           `(?:^|[^\\p{L}\\p{N}])(?:${tokens.join('\\s+')}|${first}\\s+${last}|${last}\\s+${first})(?:$|[^\\p{L}\\p{N}])`,
