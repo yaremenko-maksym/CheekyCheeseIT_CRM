@@ -203,7 +203,7 @@ async function gateTexts(
       failures.push({
         index,
         reason: 'CONTACT_IN_TEXT',
-        detail: 'it contains a name, an email address or a phone number',
+        detail: 'it contains a name, an email address, a phone number, a link or a Telegram handle',
       })
     } else {
       const ungrounded = findUngroundedTokens(text, source)

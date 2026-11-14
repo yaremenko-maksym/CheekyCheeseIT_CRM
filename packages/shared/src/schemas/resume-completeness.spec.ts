@@ -4,9 +4,12 @@ import type { ResumeFacts, ResumeFactsExperience } from './resume-facts'
 import {
   RESUME_EMAIL_PATTERN,
   RESUME_PHONE_PATTERN,
+  RESUME_TELEGRAM_LABEL_PATTERN,
+  RESUME_URL_PATTERN,
   checkResumeCompleteness,
   findPhoneSpans,
   isLatinScript,
+  normaliseTelegramHandle,
 } from './resume-completeness'
 
 const NOW = new Date('2026-11-10T00:00:00Z')
@@ -723,13 +726,37 @@ describe('checkResumeCompleteness — the Telegram handle of the senior', () => 
     expect(checkResumeCompleteness(noteWith('ping @jose_dev'), ctx)).toEqual(flagged)
   })
 
-  it.each(['jose_dev2 shipped', 'xjose_dev shipped', 'a@jose_dev shipped'])(
+  it.each(['jose_dev2 shipped', 'xjose_dev shipped', 'jose_devx shipped'])(
     'does not flag a longer token: %s',
     (note) => {
       const ctx = { ...CTX, telegram: 'jose_dev' }
       expect(checkResumeCompleteness(noteWith(note), ctx)).toEqual([])
     },
   )
+
+  it.each(['ping @@jose_dev', 'ping x@jose_dev', 'ping @jose_dev!'])(
+    'flags the handle behind extra @s or a glued word (SR-L-1): %s',
+    (note) => {
+      const ctx = { ...CTX, telegram: 'jose_dev' }
+      expect(checkResumeCompleteness(noteWith(note), ctx)).toEqual(flagged)
+    },
+  )
+
+  it.each(['t.me/jose_dev', 'https://t.me/jose_dev', 'telegram.me/@jose_dev', '@@jose_dev'])(
+    'normalises a stored %j to the bare handle (CR-L-3)',
+    (telegram) => {
+      // `@jose_dev` alone is no URL and no labelled handle, so only the stored handle can flag it
+      expect(checkResumeCompleteness(noteWith('ping @jose_dev'), { ...CTX, telegram })).toEqual(
+        flagged,
+      )
+    },
+  )
+
+  it('keeps an @ inside a stored handle: mark@dev hits mark@dev, not markdev (CR-L-4)', () => {
+    const ctx = { ...CTX, telegram: 'mark@dev' }
+    expect(checkResumeCompleteness(noteWith('ping mark@dev'), ctx)).toEqual(flagged)
+    expect(checkResumeCompleteness(noteWith('ping markdev'), ctx)).toEqual([])
+  })
 
   it('matches the stored handle literally, not as a pattern', () => {
     const ctx = { ...CTX, telegram: 'jose.dev' }
@@ -738,5 +765,78 @@ describe('checkResumeCompleteness — the Telegram handle of the senior', () => 
 
   it.each([null, undefined, '', '  ', '@'])('a telegram of %j changes nothing', (telegram) => {
     expect(checkResumeCompleteness(noteWith('ping @jose_dev'), { ...CTX, telegram })).toEqual([])
+  })
+})
+
+describe('normaliseTelegramHandle', () => {
+  it.each([
+    ['  @mark_dev ', 'mark_dev'],
+    ['@@mark_dev', 'mark_dev'],
+    ['t.me/mark_dev', 'mark_dev'],
+    ['T.ME/mark_dev', 'mark_dev'],
+    ['https://t.me/mark_dev', 'mark_dev'],
+    ['http://telegram.me/@mark_dev', 'mark_dev'],
+    ['mark@dev', 'mark@dev'],
+    ['mark_t.me/dev', 'mark_t.me/dev'],
+    ['@', ''],
+  ])('%j becomes %j', (stored, handle) => {
+    expect(normaliseTelegramHandle(stored)).toBe(handle)
+  })
+
+  it.each([null, undefined])('%j stays absent', (stored) => {
+    expect(normaliseTelegramHandle(stored)).toBeUndefined()
+  })
+})
+
+describe('checkResumeCompleteness — URLs and labelled handles (SR-H-1, SR-M-1)', () => {
+  const noteWith = (note: string) => makeFacts({ experience: [makeExperience({ notes: [note] })] })
+  const flagged = [{ path: 'experience.0.notes.0', code: 'CONTACT_IN_TEXT' }]
+
+  it.each([
+    'see https://gitlab.com/jose',
+    'see ftp://files.example/cv',
+    'see www.jose-portfolio.site',
+    'see WWW.example.org',
+    'ping t.me/jose',
+    ...['com', 'net', 'org', 'io', 'dev', 'me', 'ua', 'co', 'app', 'ai', 'in'].map(
+      (tld) => `see jose.${tld}/work`,
+    ),
+    'see sub.domain.io/',
+  ])('flags a URL: %s', (note) => {
+    expect(checkResumeCompleteness(noteWith(note), CTX)).toEqual(flagged)
+  })
+
+  it.each([
+    'Built on Node.js and Next.js',
+    'Vue.js, Socket.IO, ASP.NET and .NET',
+    'Charts in D3.js and Three.js',
+    'Express.js/Nest backend',
+    'used @angular/core and @nestjs/common',
+    'Telegram bots: a pager',
+    'jose.dev without a path',
+  ])('does not flag a tech name or a package: %s', (note) => {
+    expect(checkResumeCompleteness(noteWith(note), CTX)).toEqual([])
+  })
+
+  it.each([
+    'tg: jose_x',
+    'TG:@jose_x',
+    'telegram : @@jose_x',
+    'Телеграм: jose_x',
+    'ТЕЛЕГРАМ:jose_x',
+  ])('flags a labelled handle that is not the stored one: %s', (note) => {
+    // a Cyrillic label also fails the Latin-script check, so only the contact code is asserted
+    expect(checkResumeCompleteness(noteWith(note), CTX)).toContainEqual(flagged[0])
+  })
+
+  it('the shared patterns are stateless: repeated tests give the same answer', () => {
+    expect(RESUME_URL_PATTERN.flags).not.toContain('g')
+    expect(RESUME_TELEGRAM_LABEL_PATTERN.flags).not.toContain('g')
+    expect([1, 2].map(() => RESUME_URL_PATTERN.test('t.me/jose'))).toEqual([true, true])
+  })
+
+  it('a label needs a handle of at least five characters', () => {
+    expect(RESUME_TELEGRAM_LABEL_PATTERN.test('tg: abcd')).toBe(false)
+    expect(RESUME_TELEGRAM_LABEL_PATTERN.test('tg: abcde')).toBe(true)
   })
 })

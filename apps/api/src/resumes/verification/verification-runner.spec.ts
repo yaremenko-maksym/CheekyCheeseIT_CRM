@@ -312,6 +312,18 @@ describe('VerificationRunner.run', () => {
     expect(sent).not.toContain('jane_tg_7')
   })
 
+  it('a URL or a labelled handle in notes never reaches the model input (SR-H-1, SR-M-1)', async () => {
+    const item = FACTS.experience[0] as ResumeFacts['experience'][number]
+    const notes = ['Demo at https://demo.example.dev/x and t.me/jane_bot', 'Ask tg: @other_hr_9']
+    const row = { ...ROW, facts: { ...FACTS, experience: [{ ...item, notes }] } }
+    const { run } = runner([[row], [USER], [], [{ key: null }], [{ id: RESUME }]])
+    await run()
+    const sent = payloads.join('\n')
+    expect(sent).toContain('Demo at [REDACTED] and [REDACTED]')
+    expect(sent).toContain('Ask [REDACTED]')
+    expect(sent).not.toMatch(/demo\.example|t\.me|other_hr_9/)
+  })
+
   it('a legal name equal to the display name or empty adds no context', async () => {
     for (const legalFullName of [null, '  ', 'Jane Doe']) {
       const { run, log } = runner([

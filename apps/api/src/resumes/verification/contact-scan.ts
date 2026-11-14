@@ -2,17 +2,23 @@
  * Contact scan (verified-base-resume Task 9).
  *
  * Text bound for a third-party AI writer passes through here first: a senior's
- * phone, email, Telegram handle and name are found and replaced by `[REDACTED]`. A missed
+ * phone, email, URL, Telegram handle and name are found and replaced by `[REDACTED]`. A missed
  * contact is a leak, so every recognisable email and phone counts, not only the
  * senior's own. Pure: no I/O, no Nest providers.
  */
-import { findPhoneSpans, RESUME_EMAIL_PATTERN } from '@crm/shared'
+import {
+  findPhoneSpans,
+  normaliseTelegramHandle,
+  RESUME_EMAIL_PATTERN,
+  RESUME_TELEGRAM_LABEL_PATTERN,
+  RESUME_URL_PATTERN,
+} from '@crm/shared'
 
 export interface ContactContext {
   fullName: string
   /** `users.email` plus every `user_emails` row. */
   emails: string[]
-  /** `users.telegram`, stored with or without its `@`; null or absent adds no match. */
+  /** `users.telegram`, as stored (`@h`, `h`, `t.me/h`); null or absent adds no match. */
   telegram?: string | null | undefined
 }
 
@@ -29,7 +35,7 @@ export function scanContexts(
 }
 
 export interface ContactHit {
-  kind: 'phone' | 'email' | 'name' | 'telegram'
+  kind: 'phone' | 'email' | 'name' | 'telegram' | 'url'
   match: string
 }
 
@@ -118,16 +124,20 @@ function namePatterns(fullName: string): RegExp[] {
 }
 
 /**
- * The handle as a whole token, with or without its `@`, any case: `ivan_dev` is not in
- * `ivan_dev2` or `xivan_dev`. A Telegram username is `[A-Za-z0-9_]`, so `\w` is its boundary.
+ * The handle as a whole token, with any `@`s in front, any case: `ivan_dev` is not in
+ * `ivan_dev2` or `xivan_dev`, but `@@ivan_dev` and `x@ivan_dev` hit. A Telegram username is
+ * `[A-Za-z0-9_]`, so `\w` is its boundary. A handle equal to a skill word redacts that word too:
+ * availability, not a leak.
  */
 function telegramPattern(telegram: string | null | undefined): RegExp | null {
-  // Stryker disable next-line Regex: equivalent — telegramSchema (`^@?[a-zA-Z0-9_]{5,32}$`) allows an @ only in front, so an unanchored /@/ strips the same one
-  const handle = telegram?.trim().replace(/^@/u, '')
-  return !handle ? null : new RegExp(`(?<![\\w@])@?${escapeRegExp(handle)}(?!\\w)`, 'giu')
+  const handle = normaliseTelegramHandle(telegram)
+  return !handle ? null : new RegExp(`(?<!\\w)@*${escapeRegExp(handle)}(?!\\w)`, 'giu')
 }
 
-/** Email and Telegram patterns; phones come from `findPhoneSpans`, the rule completeness uses too. */
+/**
+ * Email, URL, labelled-handle and Telegram patterns; phones come from `findPhoneSpans`. The
+ * generic ones are shared with completeness, so a contact it flags is one this redacts.
+ */
 function contactPatterns(ctx: ContactContext): [ContactHit['kind'], RegExp][] {
   const global = (p: RegExp) => new RegExp(p.source, `${p.flags}g`)
   const literalEmails = ctx.emails
@@ -137,6 +147,8 @@ function contactPatterns(ctx: ContactContext): [ContactHit['kind'], RegExp][] {
   const telegram = telegramPattern(ctx.telegram)
   return [
     ['email', global(RESUME_EMAIL_PATTERN)],
+    ['url', global(RESUME_URL_PATTERN)],
+    ['telegram', global(RESUME_TELEGRAM_LABEL_PATTERN)],
     ...literalEmails,
     ...(telegram ? [['telegram', telegram] as [ContactHit['kind'], RegExp]] : []),
   ]

@@ -71,6 +71,29 @@ export function findPhoneSpans(text: string): Array<{ start: number; end: number
 /** An email address shape: local part with the common punctuation, and a dot TLD. */
 export const RESUME_EMAIL_PATTERN = /[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.[\p{L}]{2,}/u
 
+/**
+ * A URL: any `scheme://…`, any `www.…`, or `label.tld/path` for a common TLD (`t.me/x`,
+ * `github.com/x`). The bare form needs the `/` and a lowercase TLD, so `Socket.IO`, `ASP.NET`,
+ * `Node.js` and `Express.js/Nest` are not URLs. Stateless (no `g`), like the phone pattern.
+ */
+export const RESUME_URL_PATTERN =
+  /\b(?:[A-Za-z][\w+.-]*:\/\/\S+|[Ww]{3}\.\S+|(?:[A-Za-z\d-]+\.)+(?:com|net|org|io|dev|me|ua|co|app|ai|in)\/\S*)/u
+
+/**
+ * A labelled Telegram handle that need not be the stored one: `tg:`, `telegram:` or `телеграм:`,
+ * any case, optional spaces and `@`. A bare `@handle` is not one (`@angular/core`, `@nestjs/common`).
+ */
+export const RESUME_TELEGRAM_LABEL_PATTERN = /(?:tg|telegram|телеграм)\s*:\s*@*\w{5,}/iu
+
+/**
+ * A stored `users.telegram` as Telegram spells the handle: trimmed, without an `http(s)://`,
+ * a `t.me/` or `telegram.me/` prefix, or leading `@`s. Empty when nothing is left.
+ */
+export function normaliseTelegramHandle(stored: string | null | undefined): string | undefined {
+  // Stryker disable next-line Regex: equivalent — every group is optional, so even unanchored the first match is at index 0
+  return stored?.trim().replace(/^(?:https?:\/\/)?(?:(?:t|telegram)\.me\/)?@*/i, '')
+}
+
 const LETTER_PATTERN = /\p{L}/u
 const LATIN_LETTER_PATTERN = /\p{Script=Latin}/u
 
@@ -123,15 +146,16 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
           'iu',
         )
       : null
-  // Stryker disable next-line Regex: equivalent — telegramSchema (`^@?[a-zA-Z0-9_]{5,32}$`) allows an @ only in front, so an unanchored /@/ strips the same one
-  const handle = telegram?.trim().replace(/^@/, '')
-  // A Telegram username is `[A-Za-z0-9_]`, so `\w` is its boundary; no lookbehind (Safari < 16.4).
-  const handleTest = !handle
-    ? null
-    : new RegExp(`(?:^|[^\\w@])@?${escapeRegExp(handle)}(?:$|[^\\w])`, 'i')
+  const handle = normaliseTelegramHandle(telegram)
+  // A Telegram username is `[A-Za-z0-9_]`, so `\w` is its boundary; any `@`s in front (`@@h`,
+  // `x@h`) still hit. `(?:^|\W)` stands in for a lookbehind (Safari < 16.4). A handle equal to a
+  // skill word flags that word too: availability, not a leak.
+  const handleTest = !handle ? null : new RegExp(`(?:^|\\W)@*${escapeRegExp(handle)}(?:$|\\W)`, 'i')
   return (text) =>
     findPhoneSpans(text).length > 0 ||
     RESUME_EMAIL_PATTERN.test(text) ||
+    RESUME_URL_PATTERN.test(text) ||
+    RESUME_TELEGRAM_LABEL_PATTERN.test(text) ||
     (handleTest !== null && handleTest.test(text)) ||
     (name !== null && name.test(normaliseName(text)))
 }

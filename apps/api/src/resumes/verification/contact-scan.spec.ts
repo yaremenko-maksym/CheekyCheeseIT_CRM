@@ -363,7 +363,31 @@ describe('the Telegram handle of the senior', () => {
   })
 
   it('hits only the whole handle', () => {
-    expect(scanContacts('mark_dev2, xmark_dev, a@mark_dev', tg)).toEqual([])
+    expect(scanContacts('mark_dev2, xmark_dev, mark_devx', tg)).toEqual([])
+  })
+
+  it('hits the handle behind extra @s or glued to a word (SR-L-1)', () => {
+    expect(scanContacts('ping @@mark_dev or x@mark_dev', tg)).toEqual([
+      { kind: 'telegram', match: '@@mark_dev' },
+      // the @ after a word char is outside the lookbehind, so only the handle itself is the hit
+      { kind: 'telegram', match: 'mark_dev' },
+    ])
+    expect(redactContacts('x@mark_dev', tg)).toBe('x@[REDACTED]')
+  })
+
+  it.each(['t.me/mark_dev', 'https://t.me/mark_dev', 'telegram.me/@mark_dev', '@@mark_dev'])(
+    'a handle stored as %j still hits the written @ form (CR-L-3)',
+    (telegram) => {
+      expect(scanContacts('ping @mark_dev', { ...ctx, telegram })).toEqual([
+        { kind: 'telegram', match: '@mark_dev' },
+      ])
+    },
+  )
+
+  it('keeps an @ inside a stored handle: mark@dev hits mark@dev, not markdev (CR-L-4)', () => {
+    const stored = { ...ctx, telegram: 'mark@dev' }
+    expect(scanContacts('ping mark@dev', stored)).toEqual([{ kind: 'telegram', match: 'mark@dev' }])
+    expect(scanContacts('ping markdev', stored)).toEqual([])
   })
 
   it('matches the stored handle literally, not as a pattern', () => {
@@ -371,14 +395,58 @@ describe('the Telegram handle of the senior', () => {
   })
 
   it('is redacted in a company name and flagged in a note', () => {
-    expect(redactContacts('Acme (tg: @mark_dev)', tg)).toBe('Acme (tg: [REDACTED])')
+    expect(redactContacts('Acme (ping @mark_dev)', tg)).toBe('Acme (ping [REDACTED])')
     expect(hasContact('Reach me at mark_dev', [tg])).toBe(true)
   })
 
   it.each([null, undefined, '', '  ', '@'])('a telegram of %j changes nothing', (telegram) => {
-    const text = 'Acme (tg: @mark_dev)'
+    const text = 'Acme (ping @mark_dev)'
     expect(scanContacts(text, { ...ctx, telegram })).toEqual([])
     expect(redactContacts(text, { ...ctx, telegram })).toBe(text)
+  })
+})
+
+describe('URLs (SR-H-1)', () => {
+  it.each([
+    'https://gitlab.com/mark',
+    'ftp://files.example/cv',
+    'www.mark-portfolio.site',
+    'WWW.example.org',
+    't.me/mark',
+    ...['com', 'net', 'org', 'io', 'dev', 'me', 'ua', 'co', 'app', 'ai', 'in'].map(
+      (tld) => `mark.${tld}/work`,
+    ),
+  ])('redacts %s with no context of the senior', (url) => {
+    expect(scanContacts(`see ${url} now`, ctx)).toEqual([{ kind: 'url', match: url }])
+    expect(redactContacts(`see ${url} now`, [])).toBe('see [REDACTED] now')
+    expect(hasContact(`see ${url}`, [])).toBe(true)
+  })
+
+  it.each([
+    'Built on Node.js and Next.js',
+    'Vue.js, Socket.IO, ASP.NET and .NET',
+    'Charts in D3.js and Three.js',
+    'Express.js/Nest backend',
+    'mark.dev without a path',
+  ])('leaves a tech name alone: %s', (text) => {
+    expect(scanContacts(text, ctx)).toEqual([])
+    expect(redactContacts(text, [])).toBe(text)
+  })
+})
+
+describe('labelled Telegram handles (SR-M-1)', () => {
+  it.each(['tg: other_one', 'TG:@other_one', 'telegram : @@other_one', 'Телеграм: other_one'])(
+    'redacts %s though it is not the stored handle',
+    (text) => {
+      expect(scanContacts(text, ctx)).toEqual([{ kind: 'telegram', match: text }])
+      expect(redactContacts(`Acme (${text})`, [])).toBe('Acme ([REDACTED])')
+    },
+  )
+
+  it('leaves a bare @package alone', () => {
+    const text = 'used @angular/core and @nestjs/common'
+    expect(scanContacts(text, ctx)).toEqual([])
+    expect(hasContact(text, [])).toBe(false)
   })
 })
 

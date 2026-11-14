@@ -561,7 +561,7 @@ describe('writeGatedContent', () => {
       (c) => c.task === 'bullets' && c.payload.experience[0]?.company === 'Globex',
     )
     expect(globex[1]?.feedback).toEqual([
-      'Bullet 1: it contains a name, an email address or a phone number.',
+      'Bullet 1: it contains a name, an email address, a phone number, a link or a Telegram handle.',
     ])
   })
 
