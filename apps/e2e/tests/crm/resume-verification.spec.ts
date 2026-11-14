@@ -425,9 +425,9 @@ test.describe('Verified base resume — check and confirm', () => {
         }),
       )
       expect(targets.length).toBe(TECHS.length)
-      if (width === 320) {
-        expect(new Set(targets.map((t) => Math.round(t.rect.top))).size).toBeGreaterThan(1)
-      }
+      // At 320 the chips wrap, so adjacent rows are part of the check.
+      const rows = new Set(targets.map((t) => Math.round(t.rect.top))).size
+      expect(rows).toBeGreaterThan(width === 320 ? 1 : 0)
       const overlap = (
         a: { left: number; right: number; top: number; bottom: number },
         b: { left: number; right: number; top: number; bottom: number },

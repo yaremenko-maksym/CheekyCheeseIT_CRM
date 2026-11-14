@@ -334,6 +334,8 @@ test.describe('Резюме — факты', () => {
 
     const headline = page.locator('input[name="resumeFactsHeadline"]')
     await headline.fill('Draft that is easy to lose')
+    // The precondition, asserted: an edit that did not land fails here, not as a missing guard.
+    await expect(headline).toHaveValue('Draft that is easy to lose')
     await page.getByRole('button', { name: assertInCatalog(uk, 'Огляд'), exact: true }).click()
 
     const guard = page.getByTestId('contract-dirty-guard-dialog')
