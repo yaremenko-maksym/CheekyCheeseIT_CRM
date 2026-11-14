@@ -282,7 +282,10 @@ describe.skipIf(!hasDatabaseUrl())('Confirm, staged edit, regenerate — real DB
     await service.confirm(HR, OWNER_ID, confirmInput(row))
     // The stale read still says AWAITING_CONFIRM, so only the UPDATE's WHERE can refuse it.
     await rejectsWith(
-      verification.confirm(row, confirmInput(row), HR_ID, 'fp'),
+      verification.confirm(row, confirmInput(row), HR_ID, 'fp', {
+        displayName: NAME,
+        email: EMAIL,
+      }),
       409,
       'RESUME_CONFIRM_STALE',
     )
@@ -295,7 +298,10 @@ describe.skipIf(!hasDatabaseUrl())('Confirm, staged edit, regenerate — real DB
     await rejectsWith(service.confirm(HR, OWNER_ID, confirmInput(row)), 409, 'RESUME_CONFIRM_STALE')
     // the version moved under the stale row: the CAS refuses it too
     await rejectsWith(
-      verification.confirm(row, confirmInput(row), HR_ID, 'fp'),
+      verification.confirm(row, confirmInput(row), HR_ID, 'fp', {
+        displayName: NAME,
+        email: EMAIL,
+      }),
       409,
       'RESUME_CONFIRM_STALE',
     )
@@ -303,6 +309,30 @@ describe.skipIf(!hasDatabaseUrl())('Confirm, staged edit, regenerate — real DB
     expect(after.verificationStatus).toBe('DRAFT')
     expect(after.verifiedVersion).toBeNull()
     expect(after.pdfS3Key).toBe(OLD_LIVE_KEY)
+  })
+
+  it('2b. a profile name change between the run and the confirm → 409, nothing promoted', async () => {
+    const row = await awaiting()
+    await dbSvc.db.update(users).set({ displayName: 'Jane Renamed' }).where(eq(users.id, OWNER_ID))
+    try {
+      await rejectsWith(
+        service.confirm(HR, OWNER_ID, confirmInput(row)),
+        409,
+        'RESUME_CONFIRM_STALE',
+      )
+    } finally {
+      await dbSvc.db.update(users).set({ displayName: NAME }).where(eq(users.id, OWNER_ID))
+    }
+    const after = await rowOf()
+    expect(after.verificationStatus).toBe('AWAITING_CONFIRM')
+    expect(after.verifiedVersion).toBeNull()
+    expect(after.pdfS3Key).toBe(OLD_LIVE_KEY)
+    // The same row with the name back confirms: only the name made it stale.
+    const out = await service.confirm(HR, OWNER_ID, confirmInput(row))
+    expect((await rowOf()).verificationStatus).toBe('VERIFIED')
+    // The owner key stays in the row and never reaches a response.
+    expect(row.verificationReport?.ownerKey).toMatch(/^[0-9a-f]{64}$/u)
+    expect(JSON.stringify(out)).not.toContain('ownerKey')
   })
 
   it('3. SENIOR cannot confirm their own resume (403), row untouched', async () => {

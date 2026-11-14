@@ -58,7 +58,7 @@ import { seniorResumes, teamMembers, type SeniorResume } from '../../database/sc
 import { resolveTemplateName } from '../resume-typst.service'
 import { hasContact } from './content-gates'
 import { contentToFacts } from './derive-content'
-import { CLEARED_RUN, storedFallbacks } from './run-columns'
+import { CLEARED_RUN, renderOwnerKey, storedFallbacks, storedOwnerKey } from './run-columns'
 import {
   CLEARED_STAGED,
   deleteStagedQuietly,
@@ -468,18 +468,24 @@ export class ResumeVerificationService {
    * the version, AWAITING_CONFIRM and no custom template promotes the staged result to the live
    * columns and sets VERIFIED with `verified_version` = the new version. `pdfFingerprint` is the
    * caller's fingerprint of the promoted render input (P11): the live PDF endpoint then serves the
-   * checked PDF instead of re-rendering it. A miss is 409 RESUME_CONFIRM_STALE. The replaced live
-   * PDF object goes after commit.
+   * checked PDF instead of re-rendering it. `owner` is the name and email that fingerprint was
+   * taken with: a staged PDF rendered with other ones is stale too. A miss is 409
+   * RESUME_CONFIRM_STALE. The replaced live PDF object goes after commit.
    */
   async confirm(
     row: SeniorResume,
     input: ConfirmResumeInput,
     viewerId: string,
     pdfFingerprint: string,
+    owner: { displayName: string; email: string },
   ): Promise<SeniorResume> {
     this.assertNoExtraction(row)
     // The fingerprint was taken from this read, so it must be the staged result being confirmed.
     if (row.verificationStatus !== 'AWAITING_CONFIRM' || row.verificationRunId !== input.runId) {
+      throw apiError('RESUME_CONFIRM_STALE', HttpStatus.CONFLICT)
+    }
+    // The staged PDF shows the owner as the run read them; a profile change since then is stale.
+    if (storedOwnerKey(row.verificationReport) !== renderOwnerKey(owner)) {
       throw apiError('RESUME_CONFIRM_STALE', HttpStatus.CONFLICT)
     }
     const now = new Date()

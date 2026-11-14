@@ -25,6 +25,7 @@ import {
 } from '../../test/resume-run-fakes'
 import type { ResumeRenderInput } from '../resume-typst.service'
 import type { EntailmentClaim, VisualReply, WriterReply, WriterTask } from './inference-clients'
+import { renderOwnerKey } from './run-columns'
 import {
   CLEARED_STAGED,
   deleteStagedQuietly,
@@ -244,7 +245,12 @@ describe('VerificationRunner.run', () => {
       verificationStatus: 'AWAITING_CONFIRM',
       verificationErrorCode: null,
     })
-    const report = stage?.set?.verificationReport as { gates: { gate: string; ok: boolean }[] }
+    const report = stage?.set?.verificationReport as {
+      gates: { gate: string; ok: boolean }[]
+      ownerKey?: string
+    }
+    // The owner the PDF was rendered with, for the confirm's staleness check (B10).
+    expect(report.ownerKey).toBe(renderOwnerKey(USER))
     expect(report.gates.map((g) => [g.gate, g.ok])).toEqual([
       ['content', true],
       ['ats', true],

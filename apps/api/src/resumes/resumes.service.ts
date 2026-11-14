@@ -1151,7 +1151,7 @@ export class SeniorResumesService {
     }
     const fingerprint = this.typst.fingerprint(this.renderInputFor(promoted, target))
     return this.toResponse(
-      await this.verification.confirm(existing, input, viewer.id, fingerprint),
+      await this.verification.confirm(existing, input, viewer.id, fingerprint, target),
       viewer,
     )
   }

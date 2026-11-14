@@ -130,7 +130,10 @@ export const seniorResumes = pgTable(
     verificationStartedAt: timestamp('verification_started_at', { withTimezone: true }),
     /** ResumeVerificationErrorCode (packages/shared). */
     verificationErrorCode: text('verification_error_code'),
-    verificationReport: jsonb('verification_report').$type<ResumeVerificationReport>(),
+    /** The shared report plus the run's owner key (`renderOwnerKey`); the response drops the key. */
+    verificationReport: jsonb('verification_report').$type<
+      ResumeVerificationReport & { ownerKey?: string }
+    >(),
     verifiedVersion: integer('verified_version'),
     verifiedAt: timestamp('verified_at', { withTimezone: true }),
     verifiedByUserId: uuid('verified_by_user_id').references(() => users.id, {

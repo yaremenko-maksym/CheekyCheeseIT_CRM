@@ -37,7 +37,7 @@ import {
   type Accepted,
   type RenderDeps,
 } from './render-gates'
-import { deleteStagedQuietly, stagedPdfKey } from './run-columns'
+import { deleteStagedQuietly, renderOwnerKey, stagedPdfKey } from './run-columns'
 import { failRun, ownsRun, RunLost } from './run-end'
 import { claimTemplateRun, promoteTemplateRun, templateContent } from './template-run'
 
@@ -227,7 +227,8 @@ export class VerificationRunner {
           runId,
           accepted,
           templateName,
-          report,
+          // The confirm refuses this staged result once the owner's name or email changed (P11).
+          { ...report, ownerKey: renderOwnerKey(owner) },
           FROM_STAGED.has(row.verificationKind),
         )
         return
@@ -319,7 +320,7 @@ export class VerificationRunner {
     runId: string,
     accepted: Accepted,
     templateName: ResumeTemplateName,
-    report: ResumeVerificationReport,
+    report: ResumeVerificationReport & { ownerKey: string },
     keepEditedPaths: boolean,
   ): Promise<void> {
     const key = stagedPdfKey(row.id, runId)

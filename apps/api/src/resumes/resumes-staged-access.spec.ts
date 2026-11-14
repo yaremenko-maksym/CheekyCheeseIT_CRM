@@ -218,7 +218,14 @@ describe('SeniorResumesService — Task 15 allowed paths', () => {
     expect(rendered?.layout.hiddenSections).toEqual(['languages'])
     expect(rendered?.templateName).toBe('modern')
     expect(rendered?.displayName).toBe('Jane Doe')
-    expect(verification.confirm).toHaveBeenCalledWith(ROW, input, hr.id, 'fp-staged')
+    // The owner the fingerprint was taken with goes to the CAS too: its name and email (B10).
+    expect(verification.confirm).toHaveBeenCalledWith(
+      ROW,
+      input,
+      hr.id,
+      'fp-staged',
+      expect.objectContaining({ displayName: 'Jane Doe', email: rendered?.email }),
+    )
   })
 
   it('a row without staged look fields fingerprints the live ones', async () => {

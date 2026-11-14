@@ -17,6 +17,7 @@ import {
   ResumeVerificationService,
 } from './resume-verification.service'
 import { CLEARED_STAGED } from './verification-runner'
+import { renderOwnerKey } from './run-columns'
 
 const RUN = 'a15e0000-0000-4000-8000-000000000001'
 const HR0 = 'a15e0000-0000-4000-8000-0000000000b0'
@@ -54,7 +55,14 @@ const ROW = {
   stagedPdfS3Key: 'resumes/r-1/staged/run.pdf',
   pdfS3Key: 'resumes/r-1/live.pdf',
   version: 7,
+  verificationReport: {
+    gates: [],
+    fallbacks: [],
+    ownerKey: renderOwnerKey({ displayName: 'Jane Doe', email: 'jane@unit.spec' }),
+  },
 } as unknown as SeniorResume
+/** The owner the staged run rendered with, as the confirm reads it. */
+const OWNER_REF = { displayName: 'Jane Doe', email: 'jane@unit.spec' }
 
 const dialect = new PgDialect()
 const OWNER = [{ displayName: 'Jane Doe', email: 'jane@unit.spec', legalFullName: null }]
@@ -139,7 +147,7 @@ describe('ResumeVerificationService.confirm', () => {
   it('promotes in one locked transaction with a CAS on run, version, status and template', async () => {
     const won = { ...ROW, verificationStatus: 'VERIFIED' }
     const { svc, s3, log } = service([[{ key: 'resumes/r-1/live.pdf' }], [won]])
-    const out = await svc.confirm(ROW, input, HR1, 'fp-1')
+    const out = await svc.confirm(ROW, input, HR1, 'fp-1', OWNER_REF)
     expect(out).toBe(won)
     expect(log.map((q) => [q.op, q.locked, q.inTransaction])).toEqual([
       ['select', true, true],
@@ -179,7 +187,7 @@ describe('ResumeVerificationService.confirm', () => {
 
   it('locks the live key only, and promotes the staged columns with version + 1', async () => {
     const { svc, log } = service([[{ key: null }], [ROW]])
-    await svc.confirm(ROW, input, HR1, 'fp')
+    await svc.confirm(ROW, input, HR1, 'fp', OWNER_REF)
     expect(log[0]?.columns).toEqual(['key'])
     const set = log[1]?.set as Record<string, SQL>
     const compiled = (key: string) => dialect.sqlToQuery(set[key] as SQL).sql
@@ -193,19 +201,19 @@ describe('ResumeVerificationService.confirm', () => {
 
   it('a row gone from the locked read still confirms and deletes nothing', async () => {
     const { svc, s3 } = service([[], [ROW]])
-    await expect(svc.confirm(ROW, input, HR1, 'fp')).resolves.toBe(ROW)
+    await expect(svc.confirm(ROW, input, HR1, 'fp', OWNER_REF)).resolves.toBe(ROW)
     expect(s3.delete).not.toHaveBeenCalled()
   })
 
   it('a CAS miss answers 409 and deletes nothing', async () => {
     const { svc, s3 } = service([[{ key: 'resumes/r-1/live.pdf' }], []])
-    await expectCode(svc.confirm(ROW, input, HR1, 'fp'), 409, 'RESUME_CONFIRM_STALE')
+    await expectCode(svc.confirm(ROW, input, HR1, 'fp', OWNER_REF), 409, 'RESUME_CONFIRM_STALE')
     expect(s3.delete).not.toHaveBeenCalled()
   })
 
   it('a row with no live PDF deletes nothing after a confirm', async () => {
     const { svc, s3 } = service([[{ key: null }], [ROW]])
-    await svc.confirm(ROW, input, HR1, 'fp')
+    await svc.confirm(ROW, input, HR1, 'fp', OWNER_REF)
     expect(s3.delete).not.toHaveBeenCalled()
   })
 
@@ -215,9 +223,30 @@ describe('ResumeVerificationService.confirm', () => {
       { ...ROW, verificationRunId: 'a15e0000-0000-4000-8000-000000000002' },
     ] as SeniorResume[]) {
       const { svc, log } = service([])
-      await expectCode(svc.confirm(row, input, HR1, 'fp'), 409, 'RESUME_CONFIRM_STALE')
+      await expectCode(svc.confirm(row, input, HR1, 'fp', OWNER_REF), 409, 'RESUME_CONFIRM_STALE')
       expect(log).toHaveLength(0)
     }
+  })
+
+  it.each([
+    ['a changed display name', { ...OWNER_REF, displayName: 'Jane Smith' }],
+    ['a changed email', { ...OWNER_REF, email: 'jane@other.spec' }],
+  ])('%s since the run is 409 RESUME_CONFIRM_STALE before any query (B10)', async (_l, owner) => {
+    const { svc, s3, log } = service([])
+    await expectCode(svc.confirm(ROW, input, HR1, 'fp', owner), 409, 'RESUME_CONFIRM_STALE')
+    expect(log).toHaveLength(0)
+    expect(s3.delete).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['no report', null],
+    ['a report from before the owner key', { gates: [], fallbacks: [] }],
+    ['a malformed owner key', { gates: [], fallbacks: [], ownerKey: 7 }],
+  ])('%s is 409 RESUME_CONFIRM_STALE: the run must be repeated', async (_l, verificationReport) => {
+    const { svc, log } = service([])
+    const row = { ...ROW, verificationReport } as unknown as SeniorResume
+    await expectCode(svc.confirm(row, input, HR1, 'fp', OWNER_REF), 409, 'RESUME_CONFIRM_STALE')
+    expect(log).toHaveLength(0)
   })
 })
 
@@ -483,7 +512,7 @@ describe('an extraction in flight: staged edit, regenerate and confirm are 409 b
         'RESUME_VERIFICATION_BUSY',
       )
       await expectCode(
-        svc.confirm(row, { runId: RUN, version: 7 }, HR1, 'fp-1'),
+        svc.confirm(row, { runId: RUN, version: 7 }, HR1, 'fp-1', OWNER_REF),
         409,
         'RESUME_VERIFICATION_BUSY',
       )
