@@ -62,7 +62,7 @@ screen) is already captured in `assets/` — used as a functionality checklist f
 | Surface (route/modal)             | File                               | Artifact                                                      | Status     |
 | --------------------------------- | ---------------------------------- | ------------------------------------------------------------- | ---------- |
 | Kanban board (`/interviews`)      | `index.tsx` + `KanbanColumn.tsx`   | `docs/design/screens/interviews/kanban.md`                    | `approved` |
-| Archive                           | `ArchiveSection.tsx`               | `docs/design/screens/interviews/archive.md`                   | `pending`  |
+| Archive                           | — (component removed 2026-11-14)   | `docs/design/screens/interviews/archive.md`                   | `pending`  |
 | Interview detail (sheet)          | `InterviewDetailSheet.tsx`         | `docs/design/screens/interviews/interview-detail.md`          | `pending`  |
 | Create interview (modal)          | `CreateInterviewDialog.tsx`        | `docs/design/screens/interviews/create-interview.md`          | `pending`  |
 | Create project from hired (modal) | `CreateProjectFromHiredDialog.tsx` | `docs/design/screens/interviews/create-project-from-hired.md` | `pending`  |
