@@ -16,6 +16,22 @@ import { get, set, del } from 'idb-keyval'
 /** Must match the key deleted in use-logout.ts → idbDel('crm-query-cache'). */
 export const PERSIST_KEY = 'crm-query-cache'
 
+/** How long a reload waits for the persisted copy to go before it reloads anyway. */
+export const PURGE_BEFORE_RELOAD_MS = 1500
+
+/**
+ * Deletes the persisted copy before a hard reload (impersonation start / stop), settling within
+ * `PURGE_BEFORE_RELOAD_MS` even when IndexedDB never answers (backlog 433), so the reload is never
+ * stuck. A copy that survives is still refused after the reload: its owner is not the new
+ * `auth/me` user (SR-M-1, `takeRestoredCacheOwner`).
+ */
+export function purgePersistedBeforeReload(): Promise<void> {
+  return Promise.race([
+    del(PERSIST_KEY).catch(() => {}),
+    new Promise<void>((resolve) => setTimeout(resolve, PURGE_BEFORE_RELOAD_MS)),
+  ])
+}
+
 /**
  * idb-keyval adapter conforming to the AsyncStorage interface expected by
  * createAsyncStoragePersister. The adapter translates idb-keyval's (key)

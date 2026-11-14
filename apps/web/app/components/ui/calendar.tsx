@@ -29,7 +29,7 @@ function monthNames(locale: Locale, style: 'short' | 'long'): string[] {
 
 type Picker = 'month' | 'year' | null
 
-function CustomMonthCaption({ calendarMonth }: MonthCaptionProps) {
+function CustomMonthCaption({ calendarMonth, className }: MonthCaptionProps) {
   const { goToMonth, previousMonth, nextMonth } = useDayPicker()
   const [picker, setPicker] = useState<Picker>(null)
   const locale = useLocale()
@@ -67,11 +67,12 @@ function CustomMonthCaption({ calendarMonth }: MonthCaptionProps) {
 
   const navBtn = cn(
     buttonVariants({ variant: 'outline' }),
-    'h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 shrink-0',
+    // design spec §11: 44 px touch target under `sm`, the compact 28 px from there
+    'size-11 sm:size-7 bg-transparent p-0 opacity-50 hover:opacity-100 shrink-0',
   )
 
   return (
-    <div className="flex items-center justify-between w-full h-7 gap-1">
+    <div className={cn(className, 'flex items-center justify-between w-full h-11 sm:h-7 gap-1')}>
       {/* Prev arrow */}
       <button
         type="button"
@@ -169,21 +170,22 @@ export function Calendar({
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
-      className={cn('p-3', className)}
+      // backlog 427: 44 px day cells under `sm` need the whole 320 px width (7 × 44 = 308), so no side padding there
+      className={cn('px-0 py-3 sm:p-3', className)}
       classNames={{
         months: 'flex flex-col sm:flex-row space-y-4 sm:space-x-4 sm:space-y-0',
         month: 'space-y-4',
-        month_caption: 'flex justify-center relative items-center',
+        month_caption: 'flex justify-center relative items-center px-2 sm:px-0',
         caption_label: 'hidden',
         nav: 'hidden',
         month_grid: 'w-full border-collapse space-y-1',
         weekdays: 'flex',
-        weekday: 'text-muted-foreground rounded-md w-9 font-normal text-[0.8rem]',
+        weekday: 'text-muted-foreground rounded-md w-11 sm:w-9 font-normal text-[0.8rem]',
         week: 'flex w-full mt-2',
-        day: 'h-9 w-9 text-center text-sm p-0 relative [&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20',
+        day: 'size-11 sm:size-9 text-center text-sm p-0 relative [&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20',
         day_button: cn(
           buttonVariants({ variant: 'ghost' }),
-          'h-9 w-9 p-0 font-normal aria-selected:opacity-100',
+          'size-11 sm:size-9 p-0 font-normal aria-selected:opacity-100',
         ),
         range_end: 'day-range-end',
         selected:

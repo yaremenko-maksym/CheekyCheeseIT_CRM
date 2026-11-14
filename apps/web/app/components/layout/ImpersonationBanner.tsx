@@ -3,9 +3,8 @@ import { motion } from 'framer-motion'
 import { AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { del as idbDel } from 'idb-keyval'
 import { api } from '@/lib/axios'
-import { PERSIST_KEY } from '@/lib/persister'
+import { purgePersistedBeforeReload } from '@/lib/persister'
 import { Button } from '@/components/ui/button'
 import { useRoleLabel } from '@/components/ui/role-select'
 import type { SessionUser } from '@crm/shared'
@@ -33,7 +32,7 @@ export function ImpersonationBanner({ user, onStopped }: ImpersonationBannerProp
     onSuccess: async () => {
       // Hard reload to root so all queries re-fetch as the restored admin. The impersonated
       // user's persisted copy goes first, so the reload cannot restore it (PR #1330 SR-M-1).
-      await idbDel(PERSIST_KEY).catch(() => {})
+      await purgePersistedBeforeReload()
       window.location.href = '/admin/login-as'
     },
     onError: (err: unknown) => {

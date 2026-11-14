@@ -7,7 +7,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createElement } from 'react'
 import { render, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, QueryObserver } from '@tanstack/react-query'
 
 const { apiGet, idbDel, idbGet, idbSet } = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -447,5 +447,262 @@ describe('restored cache owner (SR-M-1): the first auth/me answer after a page l
 
     expect(qc.getQueryData(QUEUE_KEY)).toEqual({ rows: ['kateryna-only-row'] })
     expect(idbDel).not.toHaveBeenCalled()
+  })
+})
+
+describe('refetch after an account switch (backlog 433): the page being left never asks as the new user', () => {
+  /** A mounted observer of the old account's queue (the page still on screen), counting its fetches. */
+  function mountQueue(qc: QueryClient) {
+    const queueFn = vi.fn(() => Promise.resolve({ rows: ['kateryna-row'] }))
+    const observer = new QueryObserver(qc, {
+      queryKey: QUEUE_KEY,
+      queryFn: queueFn,
+      staleTime: Infinity,
+    })
+    const unsubscribe = observer.subscribe(() => {})
+    return { queueFn, unsubscribe }
+  }
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  it('a switch found on a route change purges at once but refetches only once the navigation settles', async () => {
+    const qc = seeded()
+    const { queueFn } = mountQueue(qc)
+    meReturns(kateryna)
+    const revalidate = createSessionRevalidator(qc)
+
+    await revalidate('/projects')
+    await tick()
+
+    expect(qc.getQueryData(QUEUE_KEY)).toBeUndefined()
+    expect(queueFn).not.toHaveBeenCalled()
+    revalidate.settled()
+    await waitFor(() => expect(queueFn).toHaveBeenCalledTimes(1))
+    expect(qc.getQueryData(QUEUE_KEY)).toEqual({ rows: ['kateryna-row'] })
+  })
+
+  it('a query unmounted by the navigation is purged and never refetched', async () => {
+    const qc = seeded()
+    const { queueFn, unsubscribe } = mountQueue(qc)
+    meReturns(kateryna)
+    const revalidate = createSessionRevalidator(qc)
+
+    await revalidate('/projects')
+    unsubscribe() // the router rendered /projects: the queue page is gone
+    revalidate.settled()
+    await tick()
+
+    expect(queueFn).not.toHaveBeenCalled()
+    expect(qc.getQueryData(QUEUE_KEY)).toBeUndefined()
+  })
+
+  it('a switch with no route change (an auth/me refetch) refetches the mounted queries at once', async () => {
+    const qc = seeded()
+    const { queueFn } = mountQueue(qc)
+    createSessionRevalidator(qc)
+
+    await qc.fetchQuery({ queryKey: ['auth', 'me'], queryFn: () => kateryna, staleTime: 0 })
+
+    await waitFor(() => expect(queueFn).toHaveBeenCalledTimes(1))
+  })
+
+  it('settling with no switch behind it fetches nothing; a repeated settle does not refetch again', async () => {
+    const qc = seeded()
+    const { queueFn } = mountQueue(qc)
+    meReturns(anna)
+    const revalidate = createSessionRevalidator(qc)
+
+    await revalidate('/projects')
+    revalidate.settled()
+    await tick()
+    expect(queueFn).not.toHaveBeenCalled()
+
+    meReturns(kateryna)
+    await revalidate('/job-queue')
+    revalidate.settled()
+    revalidate.settled()
+    await waitFor(() => expect(queueFn).toHaveBeenCalledTimes(1))
+    await tick()
+    expect(queueFn).toHaveBeenCalledTimes(1)
+  })
+
+  it('a superseded check still lands its answer when the newer check fails', async () => {
+    const qc = seeded()
+    let answerAsKateryna: (v: unknown) => void = () => {}
+    let failNewer: (e: unknown) => void = () => {}
+    apiGet
+      .mockReturnValueOnce(new Promise((resolve) => (answerAsKateryna = resolve)))
+      .mockReturnValueOnce(new Promise((_, reject) => (failNewer = reject)))
+    const revalidate = createSessionRevalidator(qc)
+    const older = revalidate('/job-queue')
+    const newer = revalidate('/projects')
+
+    answerAsKateryna({ status: 200, data: kateryna })
+    failNewer(new Error('timeout of 3000ms exceeded'))
+    await Promise.all([older, newer])
+
+    expect(qc.getQueryData(['auth', 'me'])).toEqual(kateryna)
+    expect(qc.getQueryData(QUEUE_KEY)).toBeUndefined()
+  })
+
+  it('a superseded answer never overwrites the newer answer that landed', async () => {
+    const qc = seeded()
+    const ivan = { id: 'user-ivan', role: 'JUNIOR' }
+    let answerOlder: (v: unknown) => void = () => {}
+    let answerNewer: (v: unknown) => void = () => {}
+    apiGet
+      .mockReturnValueOnce(new Promise((resolve) => (answerOlder = resolve)))
+      .mockReturnValueOnce(new Promise((resolve) => (answerNewer = resolve)))
+    const revalidate = createSessionRevalidator(qc)
+    const older = revalidate('/job-queue')
+    const newer = revalidate('/projects')
+
+    answerOlder({ status: 200, data: kateryna })
+    answerNewer({ status: 200, data: ivan })
+    await Promise.all([older, newer])
+
+    expect(qc.getQueryData(['auth', 'me'])).toEqual(ivan)
+  })
+
+  it('a switch with no route change after a finished check still refetches at once (no navigation left pending)', async () => {
+    const qc = seeded()
+    const { queueFn } = mountQueue(qc)
+    meReturns(anna)
+    const revalidate = createSessionRevalidator(qc)
+    await revalidate('/projects') // a check ran and finished; settled() is never called
+
+    await qc.fetchQuery({ queryKey: ['auth', 'me'], queryFn: () => kateryna, staleTime: 0 })
+
+    await waitFor(() => expect(queueFn).toHaveBeenCalledTimes(1))
+  })
+
+  it('settling refetches only the purged queries, never auth/me itself', async () => {
+    const qc = seeded()
+    const meFn = vi.fn(() => Promise.resolve(kateryna))
+    new QueryObserver(qc, {
+      queryKey: ['auth', 'me'],
+      queryFn: meFn,
+      staleTime: Infinity,
+    }).subscribe(() => {})
+    const { queueFn } = mountQueue(qc)
+    meReturns(kateryna)
+    const revalidate = createSessionRevalidator(qc)
+
+    await revalidate('/projects')
+    revalidate.settled()
+    await waitFor(() => expect(queueFn).toHaveBeenCalledTimes(1))
+    await tick()
+
+    expect(meFn).not.toHaveBeenCalled()
+  })
+
+  it('settling does not refetch a purged query that got data with no page observing it (a loader prefetch)', async () => {
+    const qc = seeded()
+    const { queueFn, unsubscribe } = mountQueue(qc)
+    meReturns(kateryna)
+    const revalidate = createSessionRevalidator(qc)
+
+    await revalidate('/projects')
+    unsubscribe()
+    await qc.prefetchQuery({ queryKey: QUEUE_KEY, queryFn: queueFn })
+    revalidate.settled()
+    await tick()
+
+    expect(queueFn).toHaveBeenCalledTimes(1) // the prefetch only
+  })
+
+  it('settling does not cancel and re-ask a request already in flight for the new page', async () => {
+    const qc = seeded()
+    let answerSecond: (v: unknown) => void = () => {}
+    const queueFn = vi
+      .fn<() => Promise<unknown>>()
+      .mockResolvedValueOnce({ rows: ['kateryna-row'] })
+      .mockReturnValueOnce(new Promise((resolve) => (answerSecond = resolve)))
+      .mockResolvedValue({ rows: ['asked-again'] })
+    const observer = new QueryObserver(qc, {
+      queryKey: QUEUE_KEY,
+      queryFn: queueFn,
+      staleTime: Infinity,
+    })
+    observer.subscribe(() => {})
+    meReturns(kateryna)
+    const revalidate = createSessionRevalidator(qc)
+
+    await revalidate('/projects')
+    await observer.refetch() // the new page already shows the new account's rows...
+    const second = observer.refetch() // ...and asks for them again (focus, reconnect)
+    revalidate.settled()
+    answerSecond({ rows: ['kateryna-second'] })
+    await second
+    await tick()
+
+    // cancelling the request in flight to ask again would be a third call
+    expect(queueFn).toHaveBeenCalledTimes(2)
+    expect(qc.getQueryData(QUEUE_KEY)).toEqual({ rows: ['kateryna-second'] })
+  })
+
+  /** Ids of every `auth/me` answer written to the cache, in order. */
+  function landedAnswers(qc: QueryClient): string[] {
+    const landed: string[] = []
+    qc.getQueryCache().subscribe((event) => {
+      if (event.type !== 'updated' || event.action.type !== 'success') return
+      if (event.query.queryKey[0] !== 'auth') return
+      landed.push((event.query.state.data as { id: string }).id)
+    })
+    return landed
+  }
+
+  it('of three overlapping checks an older answer never lands before or after a newer one (CR-L-4)', async () => {
+    const qc = seeded()
+    const ivan = { id: 'user-ivan', role: 'JUNIOR' }
+    let answerFirst: (v: unknown) => void = () => {}
+    let answerSecond: (v: unknown) => void = () => {}
+    let failThird: (e: unknown) => void = () => {}
+    apiGet
+      .mockReturnValueOnce(new Promise((resolve) => (answerFirst = resolve)))
+      .mockReturnValueOnce(new Promise((resolve) => (answerSecond = resolve)))
+      .mockReturnValueOnce(new Promise((_, reject) => (failThird = reject)))
+    const revalidate = createSessionRevalidator(qc)
+    const landed = landedAnswers(qc)
+    let firstSettled = false
+    const first = revalidate('/job-queue').then(() => (firstSettled = true))
+    const second = revalidate('/projects')
+    const third = revalidate('/teams')
+
+    answerFirst({ status: 200, data: kateryna })
+    failThird(new Error('timeout of 3000ms exceeded'))
+    await tick()
+    expect(qc.getQueryData(['auth', 'me'])).toEqual(anna) // the second check is still out
+    expect(firstSettled).toBe(false)
+
+    answerSecond({ status: 200, data: ivan })
+    await Promise.all([first, second, third])
+    expect(landed).toEqual(['user-ivan'])
+  })
+
+  it('an overtaken check also waits for a check asked while it was already waiting', async () => {
+    const qc = seeded()
+    const ivan = { id: 'user-ivan', role: 'JUNIOR' }
+    let answerFirst: (v: unknown) => void = () => {}
+    let failSecond: (e: unknown) => void = () => {}
+    let answerThird: (v: unknown) => void = () => {}
+    apiGet
+      .mockReturnValueOnce(new Promise((resolve) => (answerFirst = resolve)))
+      .mockReturnValueOnce(new Promise((_, reject) => (failSecond = reject)))
+      .mockReturnValueOnce(new Promise((resolve) => (answerThird = resolve)))
+    const revalidate = createSessionRevalidator(qc)
+    const landed = landedAnswers(qc)
+    const first = revalidate('/job-queue')
+    const second = revalidate('/projects')
+
+    answerFirst({ status: 200, data: kateryna })
+    await tick() // the first check now waits for the second
+    const third = revalidate('/teams')
+    failSecond(new Error('timeout of 3000ms exceeded'))
+    await tick()
+    expect(landed).toEqual([])
+
+    answerThird({ status: 200, data: ivan })
+    await Promise.all([first, second, third])
+    expect(landed).toEqual(['user-ivan'])
   })
 })

@@ -138,6 +138,19 @@ describe('ImpersonationBanner', () => {
     await waitFor(() => expect(window.location.href).toBe('/admin/login-as'))
   })
 
+  it('B11. still reloads as the admin when deleting the persisted cache never answers (backlog 433)', async () => {
+    idbDel.mockReturnValue(new Promise<void>(() => {}))
+    vi.mocked(api.post).mockResolvedValue({ data: {} })
+    const user = userEvent.setup()
+    render(<ImpersonationBanner user={MOCK_USER} onStopped={vi.fn()} />, { wrapper })
+
+    await user.click(screen.getByTestId('impersonation-banner-return'))
+
+    await waitFor(() => expect(idbDel).toHaveBeenCalledWith('crm-query-cache'))
+    expect(window.location.href).toBe('/')
+    await waitFor(() => expect(window.location.href).toBe('/admin/login-as'), { timeout: 3000 })
+  })
+
   it('B10. still reloads as the admin when deleting the persisted cache fails', async () => {
     idbDel.mockRejectedValue(new Error('idb unavailable'))
     vi.mocked(api.post).mockResolvedValue({ data: {} })

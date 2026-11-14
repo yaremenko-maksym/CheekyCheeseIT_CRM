@@ -1835,7 +1835,10 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     const empty = await within(dialog).findByText('Немає команд, яким можна призначити вакансію.')
     expect(team).toHaveAttribute('aria-describedby', empty.id)
     // the empty list explains the disabled button alone: no second hint beside it
-    expect(within(dialog).queryByText('Виберіть команду й вкажіть причину.')).toBeNull()
+    expect(within(dialog).getByText('Виберіть команду й вкажіть причину.')).toHaveClass('invisible')
+    expect(assign(dialog)).not.toHaveAttribute('aria-describedby')
+    // UX-L-4 (backlog 427): nothing to pick, so the picker does not open an empty list
+    expect(team).toBeDisabled()
     await user.type(within(dialog).getByRole('textbox', { name: 'Причина' }), REASON)
     expect(assign(dialog)).toBeDisabled()
   })
@@ -1851,10 +1854,14 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     expect(team).not.toHaveAttribute('aria-describedby')
     const hint = within(dialog).getByText('Виберіть команду й вкажіть причину.')
     expect(assign(dialog)).toHaveAttribute('aria-describedby', hint.id)
+    expect(hint).toHaveClass('text-sm', 'text-pretty', 'text-muted-foreground')
+    expect(team).toBeEnabled()
     await pickTeam(user, dialog, 'Бета')
-    expect(within(dialog).getByText('Виберіть команду й вкажіть причину.')).toBeVisible()
+    expect(hint).not.toHaveClass('invisible')
     await user.type(reason, REASON)
-    expect(within(dialog).queryByText('Виберіть команду й вкажіть причину.')).toBeNull()
+    // UX-L-1 (backlog 427): hidden, not removed, so the centred dialog keeps its height under the caret
+    expect(within(dialog).getByText('Виберіть команду й вкажіть причину.')).toBe(hint)
+    expect(hint).toHaveClass('invisible')
     expect(assign(dialog)).toBeEnabled()
     expect(assign(dialog)).not.toHaveAttribute('aria-describedby')
   })
