@@ -47,10 +47,11 @@ const MOCK_USER: SessionUser = {
   impersonating: false,
 }
 
+const { revalidateSession } = vi.hoisted(() => ({ revalidateSession: vi.fn() }))
 vi.mock('@/context/auth', () => ({
   useAuth: () => ({ user: MOCK_USER, isLoading: false }),
   AuthProvider: ({ children }: React.PropsWithChildren) => children,
-  createSessionRevalidator: () => async () => {},
+  createSessionRevalidator: () => revalidateSession,
 }))
 
 vi.mock('@/context/notifications', () => ({
@@ -146,5 +147,18 @@ describe('CrmLayout header (routes/_authenticated/route.tsx)', () => {
     await user.click(screen.getByTestId('header-user-menu-trigger'))
     expect(screen.getByTestId('header-user-menu-profile')).toHaveTextContent('Профіль')
     expect(screen.getByTestId('header-user-menu-logout')).toHaveTextContent('Вийти')
+  })
+})
+
+describe('_authenticated beforeLoad (Task 7.6c)', () => {
+  it('awaits the session revalidation for the pathname being entered', () => {
+    const check = Promise.resolve()
+    revalidateSession.mockReturnValue(check)
+    const beforeLoad = Route.options.beforeLoad as unknown as (ctx: {
+      location: { pathname: string }
+    }) => unknown
+
+    expect(beforeLoad({ location: { pathname: '/job-queue' } })).toBe(check)
+    expect(revalidateSession).toHaveBeenCalledWith('/job-queue')
   })
 })

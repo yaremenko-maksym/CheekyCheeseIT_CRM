@@ -63,6 +63,43 @@ describe('createSessionRevalidator', () => {
     expect(idbDel).toHaveBeenCalledWith(PERSIST_KEY)
   })
 
+  it('purges every query but exactly auth/me, including keys sharing one segment with it', async () => {
+    const qc = seeded()
+    qc.setQueryData(['auth', 'other'], 'anna-auth-data')
+    qc.setQueryData(['x', 'me'], 'anna-x-data')
+    meReturns(kateryna)
+
+    await createSessionRevalidator(qc)('/job-queue')
+
+    expect(qc.getQueryData(['auth', 'me'])).toEqual(kateryna)
+    expect(qc.getQueryData(['auth', 'other'])).toBeUndefined()
+    expect(qc.getQueryData(['x', 'me'])).toBeUndefined()
+  })
+
+  it('cancels only the exact auth/me request, not other requests in flight', async () => {
+    const qc = seeded()
+    const inFlight = (queryKey: string[]) => {
+      let answer: (v: string) => void = () => {}
+      const result = qc.fetchQuery({
+        queryKey,
+        queryFn: () => new Promise<string>((resolve) => (answer = resolve)),
+      })
+      return { result, answer: (v: string) => answer(v) }
+    }
+    const projects = inFlight(['projects'])
+    const nested = inFlight(['auth', 'me', 'extra'])
+    meReturns(anna)
+
+    await createSessionRevalidator(qc)('/job-queue')
+
+    expect(qc.getQueryState(['projects'])?.fetchStatus).toBe('fetching')
+    expect(qc.getQueryState(['auth', 'me', 'extra'])?.fetchStatus).toBe('fetching')
+    projects.answer('projects-data')
+    nested.answer('nested-data')
+    await expect(projects.result).resolves.toBe('projects-data')
+    await expect(nested.result).resolves.toBe('nested-data')
+  })
+
   it("drops AuthProvider's own auth/me request still in flight from before the cookie change", async () => {
     const qc = seeded()
     let answerAsAnna: (v: unknown) => void = () => {}
@@ -139,6 +176,24 @@ describe('createSessionRevalidator', () => {
 
     expect(apiGet).toHaveBeenCalledTimes(2)
     expect(qc.getQueryData(QUEUE_KEY)).toBeUndefined()
+  })
+
+  it('a settled check is no longer reused once exactly REUSE_MS (1s) has passed', async () => {
+    const qc = seeded()
+    meReturns(anna)
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    const revalidate = createSessionRevalidator(qc)
+    await revalidate('/job-queue')
+
+    now.mockReturnValue(1_000_000 + 999)
+    await revalidate('/job-queue')
+    expect(apiGet).toHaveBeenCalledTimes(1)
+
+    now.mockReturnValue(1_000_000 + 1_000)
+    await revalidate('/job-queue')
+    now.mockRestore()
+
+    expect(apiGet).toHaveBeenCalledTimes(2)
   })
 
   it('purges when the session is gone (401)', async () => {
