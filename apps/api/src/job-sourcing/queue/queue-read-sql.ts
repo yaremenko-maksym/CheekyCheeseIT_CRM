@@ -8,6 +8,7 @@ import {
   type LiveSeniorVersion,
   possibleDuplicateJoin,
   scopedTeamRowPredicate,
+  STUDIO_SCOPE,
   visibleOpportunityPredicate,
 } from './queue-scope'
 
@@ -350,4 +351,23 @@ export function policySignature(
   return createHash('sha256')
     .update(JSON.stringify([scope.kind, team, MATCH_RULE_VERSION, versions]))
     .digest('hex')
+}
+
+/**
+ * Backlog 425 — the triage policy version a team-triage grant is checked against: a positive 31-bit
+ * fold (the `policy_version` int column) of the STUDIO policy signature (every roster senior's
+ * profile, team ids included, and exclusion versions) and of the active membership of every live
+ * SENIOR team (`membershipDigest`, HR members included). A membership, senior-profile or exclusion
+ * write changes it; it is derived on read, never stored, so no write path has to bump a counter.
+ * shortcut: a fold can collide (2^-31 per change), letting one stale grant through; the grant is
+ * still shown only through `visibleOpportunityPredicate`'s live checks. Store a counter if that matters.
+ */
+export function triagePolicyVersion(
+  versions: readonly LiveSeniorVersion[],
+  membershipDigest: string,
+): number {
+  const hex = createHash('sha256')
+    .update(JSON.stringify([policySignature(STUDIO_SCOPE, versions), membershipDigest]))
+    .digest('hex')
+  return (Number.parseInt(hex.slice(0, 8), 16) % 0x7fffffff) + 1
 }

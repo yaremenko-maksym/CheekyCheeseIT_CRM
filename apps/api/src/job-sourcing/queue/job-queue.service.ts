@@ -361,7 +361,13 @@ export class JobQueueService {
     // Visible a moment ago, or without any active source link: the same answer as a miss.
     if (facts === null) throw notFound()
     const { row, ...parts } = facts
+    // ADMIN only: the version the «Призначити команді…» grant sends back (backlog 425)
+    const triage =
+      scope.kind === 'STUDIO'
+        ? { triagePolicyVersion: await this.scopes.triagePolicyVersion(versions, this.database.db) }
+        : {}
     return jobQueueCardResponseSchema.parse({
+      ...triage,
       ...toListItem(row),
       descriptionMd: String(row['description'] ?? '').slice(0, DESCRIPTION_MD_MAX),
       newerThanList: row['newer_than_list'] === true,

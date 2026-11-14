@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { ForbiddenException, HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common'
 import {
+  JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS,
   jobQueueDismissalResponseSchema,
   jobQueueDismissReasonSchema,
   jobQueuePossibleDuplicateConflictSchema,
@@ -47,8 +48,10 @@ import {
   type WriteScope,
 } from './queue-actions'
 import { invalidateTeamGenerations } from './queue-generation'
+import { liveVersionRows } from './queue-read-sql'
 import {
   canonicalUuid,
+  type LiveSeniorVersion,
   possibleDuplicateJoin,
   scopedTeamRowPredicate,
   visibleOpportunityPredicate,
@@ -73,6 +76,15 @@ const triageNotAllowed = () =>
   apiError('JOB_TRIAGE_ASSIGNMENT_NOT_ALLOWED', HttpStatus.UNPROCESSABLE_ENTITY)
 const subscriptionNotFound = () =>
   apiError('JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND', HttpStatus.NOT_FOUND)
+const triageNotEligible = () =>
+  apiError('JOB_QUEUE_TRIAGE_NOT_ELIGIBLE', HttpStatus.UNPROCESSABLE_ENTITY)
+/** The team's own grant, so its expiry names nothing foreign; ADMIN-only route. */
+const alreadyGranted = (expiresAt: unknown) =>
+  apiError('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', HttpStatus.CONFLICT, {
+    expiresAt: isoInstant(expiresAt),
+  })
+
+const DAY_MS = 24 * 60 * 60 * 1000
 
 const GRANT_COLUMNS = sql`id, opportunity_id, team_id, assigned_by, evidence, policy_version,
   opportunity_revision, grant_version, expires_at, revoked_at, created_at`
@@ -100,14 +112,17 @@ const TRIAGE_SUBSCRIPTION_LOCK_CLASS = 0x74726961
  */
 function refuseElapsed(expiresAt: string): void {
   if (Date.parse(expiresAt) > Date.now()) return
-  throw new ZodError([
-    {
-      code: 'custom',
-      path: ['expiresAt'],
-      message: 'expiresAt must be in the future',
-      input: expiresAt,
-    },
-  ])
+  refuseExpiry(expiresAt, 'expiresAt must be in the future')
+}
+
+/** Backlog 426: a grant ends at most `JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS` after the server's now. */
+function refuseBeyondCeiling(expiresAt: string): void {
+  if (Date.parse(expiresAt) <= Date.now() + JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS * DAY_MS) return
+  refuseExpiry(expiresAt, `expiresAt must be at most ${JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS} days ahead`)
+}
+
+function refuseExpiry(expiresAt: string, message: string): never {
+  throw new ZodError([{ code: 'custom', path: ['expiresAt'], message, input: expiresAt }])
 }
 
 function withoutFragment(raw: string): string {
@@ -660,10 +675,14 @@ export class JobQueueActionsService {
     if (opportunity === null) throw notFound()
     if (teamId === null) throw triageNotAllowed()
     refuseElapsed(request.expiresAt)
+    refuseBeyondCeiling(request.expiresAt)
     return this.write(async (tx) => {
       const scope = await this.adminScope(user, tx)
       const { rows } = await tx.execute(
-        sql`SELECT revision, manual_team_id FROM job_opportunities
+        sql`SELECT revision, manual_team_id,
+                   (evaluated_revision = revision AND evaluation_verdict = 'EXCLUDED') IS TRUE
+                     AS excluded
+              FROM job_opportunities
              WHERE id = ${opportunity}::uuid FOR NO KEY UPDATE`,
       )
       const target = rows[0]
@@ -685,9 +704,17 @@ export class JobQueueActionsService {
       if (target['manual_team_id'] !== null) throw triageNotAllowed()
       if (Number(target['revision']) !== request.expectedOpportunityRevision)
         throw versionConflict()
+      // Backlog 425: the policy the card was read under (membership, profiles, exclusions) is current.
+      const versions = await this.scopes.liveVersions(scope, tx)
+      if ((await this.scopes.triagePolicyVersion(versions, tx)) !== request.policyVersion)
+        throw versionConflict()
+      // Backlog 426: triage items only — the card's own `eligibility` rule, plus not EXCLUDED.
+      if (target['excluded'] === true || (await this.hasLiveLead(tx, opportunity, versions)))
+        throw triageNotEligible()
       if (!(await this.lockLiveTeam(tx, teamId))) throw triageNotAllowed()
       const current = (await this.grantRow(tx, opportunity, teamId, true))[0]
-      if (current !== undefined && current['live'] === true) throw versionConflict()
+      if (current !== undefined && current['live'] === true)
+        throw alreadyGranted(current['expires_at'])
       const written = await tx.execute(
         sql`INSERT INTO job_opportunity_team_triage
               (opportunity_id, team_id, assigned_by, evidence, policy_version, opportunity_revision,
@@ -909,6 +936,22 @@ export class JobQueueActionsService {
       ),
     )
     return team.rows.length > 0
+  }
+
+  /** The card's `eligibility = LEAD`: a live LEAD match of any roster senior (STUDIO `versions`). */
+  private async hasLiveLead(
+    tx: SqlExecutor,
+    opportunity: string,
+    versions: readonly LiveSeniorVersion[],
+  ): Promise<boolean> {
+    const { rows } = await this.scopes.policy(() =>
+      tx.execute(
+        sql`SELECT 1 FROM job_opportunities o
+             WHERE o.id = ${opportunity}::uuid
+               AND EXISTS (SELECT 1 ${liveVersionRows(versions)} AND m.outcome = 'LEAD')`,
+      ),
+    )
+    return rows.length > 0
   }
 
   private async grantRow(
