@@ -8,7 +8,7 @@ import { LedgerFixtures } from '../test/ledger-fixtures'
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
- * Source-fetch-strategy U4 — the staged forward DDL
+ * Source-fetch-strategy U4 — the forward DDL
  * `manual/2026-10-31_job_source_health_events.sql` against a REAL Postgres.
  *
  *  - Applied TWICE into a scratch schema (with stub FK targets), as the deploy would; the second
@@ -176,6 +176,19 @@ describe.skipIf(!hasDatabaseUrl())('U4 staged DDL: job_source_health_events', ()
       SELECT: true,
       INSERT: true,
       UPDATE: false,
+      DELETE: false,
+    })
+  })
+
+  it('is NOT class B: the retention owner holds nothing on it, so no prune path exists (backlog 434)', async () => {
+    expect(PRIVILEGE_CLASSES.B).not.toContain(TABLE)
+    const { rows } = await session.admin.query(
+      `SELECT p, has_table_privilege($1, 'public.' || $2, p) AS held
+         FROM unnest(ARRAY['SELECT','DELETE']) p`,
+      [ROLES.retentionOwner, TABLE],
+    )
+    expect(Object.fromEntries(rows.map((r) => [r['p'], r['held']]))).toEqual({
+      SELECT: false,
       DELETE: false,
     })
   })
