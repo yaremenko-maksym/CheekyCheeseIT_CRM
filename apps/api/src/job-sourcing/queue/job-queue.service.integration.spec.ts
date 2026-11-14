@@ -586,6 +586,23 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       expect(raw).not.toContain(id('senB'))
     })
 
+    it('senior availability (§5.2): null when never set, then follows each change', async () => {
+      const availabilityOfA = async () =>
+        seniorOn(await service.card(hrA(), id('oppShared')), 'senA')?.availability
+      expect(await availabilityOfA()).toBeNull()
+      await sqlq(
+        `INSERT INTO senior_availability (user_id, status, available_from) VALUES ($1, 'FREE', '2026-11-01')`,
+        [id('senA')],
+      )
+      expect(await availabilityOfA()).toEqual({ status: 'FREE', availableFrom: '2026-11-01' })
+      await sqlq(
+        `UPDATE senior_availability SET status = 'BUSY', available_from = NULL WHERE user_id = $1`,
+        [id('senA')],
+      )
+      expect(await availabilityOfA()).toEqual({ status: 'BUSY' })
+      await sqlq(`DELETE FROM senior_availability WHERE user_id = $1`, [id('senA')])
+    })
+
     it('the rank: a foreign senior score cannot move a row in this team', async () => {
       await mkOpp('oppRankLow', { firstSeen: '2020-01-02T00:00:00Z' })
       await lead('oppRankLow', 'senA', 10)
