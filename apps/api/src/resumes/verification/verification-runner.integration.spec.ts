@@ -30,7 +30,13 @@ import {
   splitPages,
 } from '../../test/resume-run-fakes'
 import type { ResumeRenderInput } from '../resume-typst.service'
-import type { EntailmentClaim, VisualReply, WriterReply, WriterTask } from './inference-clients'
+import type {
+  EntailmentClaim,
+  EntailmentScores,
+  VisualReply,
+  WriterReply,
+  WriterTask,
+} from './inference-clients'
 import { ResumeVerificationService } from './resume-verification.service'
 import { stagedPdfKey, VerificationRunner } from './verification-runner'
 
@@ -119,7 +125,7 @@ const writer = {
 }
 const entailment = {
   score: vi.fn(
-    async (claims: EntailmentClaim[]): Promise<Map<string, number> | 'unavailable'> =>
+    async (claims: EntailmentClaim[]): Promise<EntailmentScores> =>
       new Map(claims.map((c) => [c.id, 0.95])),
   ),
 }
@@ -522,7 +528,10 @@ describe.skipIf(!hasDatabaseUrl())('Verification run — real DB (Task 14)', () 
 
   it.each([
     ['the writer', () => (writerReply = () => ({ kind: 'unavailable', reason: 'TIMEOUT' }))],
-    ['entailment', () => entailment.score.mockResolvedValueOnce('unavailable')],
+    [
+      'entailment',
+      () => entailment.score.mockResolvedValueOnce({ kind: 'unavailable', cause: 'TIMEOUT' }),
+    ],
     ['the ATS stage', () => (world.omitEmail = true)],
     ['the vision check', () => (visionReplies = [{ kind: 'unavailable', reason: 'TIMEOUT' }])],
   ])('15. a run that fails at %s uploads nothing', async (_stage, arrange) => {

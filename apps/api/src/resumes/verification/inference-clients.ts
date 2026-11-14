@@ -34,13 +34,16 @@ export type WriterTask = 'summary' | 'bullets'
 export type EntailmentClaim = { id: string; text: string; sources: string[] }
 
 /**
- * `INVALID_INPUT`: the client refused the request before sending it. `status`: the HTTP status of a
- * non-2xx worker answer, for the log only (FR-A-2).
+ * `INVALID_INPUT`: the client refused the request before sending it. For the log only (FR-A-2, FX-3):
+ * `status` is the HTTP status of a non-2xx worker answer; `transport` names a failure on this side of
+ * the worker (no transport, the transport result kind, or a reply that failed its schema), so it is
+ * told apart from the same code coded by the worker itself.
  */
 export type Unavailable = {
   kind: 'unavailable'
   reason: InferenceErrorCode | 'INVALID_INPUT'
   status?: number | undefined
+  transport?: string | undefined
 }
 const unavailable = (reason: Unavailable['reason']): Unavailable => ({
   kind: 'unavailable',
@@ -53,10 +56,13 @@ export const WRITER_PROVIDER = 'extraction-worker:/resume-write'
 export const VISUAL_PROVIDER = 'extraction-worker:/visual-check'
 export const ENTAILMENT_PROVIDER = 'jev'
 
-/** A coded `unavailable` as a run-failure origin: provider, reason, and the HTTP status if any. */
+/**
+ * A coded `unavailable` as a run-failure origin: provider, reason (with the transport side, if any)
+ * and the HTTP status if any. Codes only: never a message or a reply body.
+ */
 export const unavailableOrigin = (provider: string, reply: Unavailable): RunOrigin => ({
   provider,
-  reason: reply.reason,
+  reason: reply.transport === undefined ? reply.reason : `${reply.reason}:${reply.transport}`,
   status: reply.status,
 })
 
@@ -85,15 +91,15 @@ async function callWorker<T>(
   body: string,
   replySchema: z.ZodType<T>,
 ): Promise<T | Unavailable> {
-  if (post === undefined) return unavailable('NOT_CONFIGURED')
+  if (post === undefined) return { ...unavailable('NOT_CONFIGURED'), transport: 'unset' }
   // The transport never throws: a network error is a `transport` result.
   const res = await post(route, { body, timeoutMs: WORKER_ADAPTER_TIMEOUT_MS })
-  if (res.kind === 'timeout') return unavailable('TIMEOUT')
+  if (res.kind === 'timeout') return { ...unavailable('TIMEOUT'), transport: res.kind }
   if (res.kind !== 'ok') {
-    return { ...unavailable('PROVIDER_ERROR'), status: res.status }
+    return { ...unavailable('PROVIDER_ERROR'), status: res.status, transport: res.kind }
   }
   const reply = replySchema.safeParse(parseJson(res.text))
-  return reply.success ? reply.data : unavailable('INVALID_OUTPUT')
+  return reply.success ? reply.data : { ...unavailable('INVALID_OUTPUT'), transport: 'reply' }
 }
 
 const unavailableReplySchema = z
@@ -180,6 +186,15 @@ export const ENTAILMENT_QUESTION =
 export const ENTAILMENT_THRESHOLD = 0.8
 
 /**
+ * Entailment could not score the claims (fails closed). `cause` is for the log only (FX-3): the
+ * adapter's error code, the class of a thrown error, or which reply or request check failed. Never a
+ * message, a claim or Jev text.
+ */
+export type EntailmentUnavailable = { kind: 'unavailable'; cause: string }
+const noScore = (cause: string): EntailmentUnavailable => ({ kind: 'unavailable', cause })
+export type EntailmentScores = Map<string, number> | EntailmentUnavailable
+
+/**
  * A noul answer as a support score. `value ? probability : 1 - probability`, except that a `false`
  * answer is capped at its lower reading: the adapter reports `probability` as P(true), so `1 - p` of
  * a confident `false` would read as supported. A `false` answer never reaches the threshold.
@@ -191,13 +206,13 @@ function supportScore(value: boolean, probability: number): number {
 /**
  * Scores every claim with Jev, ⌈n/50⌉ requests. Fails closed: a duplicate or unacceptable id (no
  * request sent), a failed chunk, a thrown port, a non-noul answer, or a reply with a missing or extra
- * id makes the whole call `'unavailable'`, so a missing score never reads as supported.
+ * id makes the whole call unavailable, so a missing score never reads as supported.
  */
 export async function scoreEntailment(
   port: DecisionPort,
   claims: readonly EntailmentClaim[],
-): Promise<Map<string, number> | 'unavailable'> {
-  if (new Set(claims.map((c) => c.id)).size !== claims.length) return 'unavailable'
+): Promise<EntailmentScores> {
+  if (new Set(claims.map((c) => c.id)).size !== claims.length) return noScore('DUPLICATE_ID')
   const requests: DecisionRequest[] = []
   for (let i = 0; i < claims.length; i += MAX_DECISION_QUESTIONS) {
     const chunk = claims.slice(i, i + MAX_DECISION_QUESTIONS)
@@ -211,7 +226,7 @@ export async function scoreEntailment(
         instructions: `${ENTAILMENT_QUESTION} The statement and its source statements are under the key ${JSON.stringify(c.id)} of the state.`,
       })),
     })
-    if (!req.success) return 'unavailable'
+    if (!req.success) return noScore('INVALID_REQUEST')
     requests.push(req.data)
   }
   const scores = new Map<string, number>()
@@ -219,13 +234,14 @@ export async function scoreEntailment(
     let r
     try {
       r = await port.decide(req)
-    } catch {
-      return 'unavailable'
+    } catch (err) {
+      return noScore(err instanceof Error ? err.name : 'unknown')
     }
-    if (!r.ok || r.answers.length !== req.questions.length) return 'unavailable'
+    if (!r.ok) return noScore(r.code)
+    if (r.answers.length !== req.questions.length) return noScore('ANSWER_COUNT')
     const asked = new Set(req.questions.map((q) => q.id))
     for (const a of r.answers) {
-      if (a.kind !== 'noul' || !asked.delete(a.id)) return 'unavailable'
+      if (a.kind !== 'noul' || !asked.delete(a.id)) return noScore('INVALID_ANSWER')
       scores.set(a.id, supportScore(a.value, a.probability))
     }
   }
@@ -248,8 +264,8 @@ export class ResumeEntailmentClient {
     this.port = apiKey ? createJevDecisionAdapter({ apiKey }) : undefined
   }
 
-  score(claims: EntailmentClaim[]): Promise<Map<string, number> | 'unavailable'> {
-    if (this.port === undefined) return Promise.resolve('unavailable')
+  score(claims: EntailmentClaim[]): Promise<EntailmentScores> {
+    if (this.port === undefined) return Promise.resolve(noScore('NOT_CONFIGURED'))
     return scoreEntailment(this.port, claims)
   }
 }

@@ -8,7 +8,9 @@ import {
   ResumeEntailmentClient,
   ResumeWriterClient,
   scoreEntailment,
+  unavailableOrigin,
   VisualCheckClient,
+  WRITER_PROVIDER,
 } from './inference-clients'
 import { WORKER_ADAPTER_TIMEOUT_MS } from '../../job-sourcing/structuring/model-extraction-wiring'
 
@@ -47,6 +49,7 @@ describe('ResumeWriterClient', () => {
     await expect(new ResumeWriterClient().write('summary', '{}', [])).resolves.toEqual({
       kind: 'unavailable',
       reason: 'NOT_CONFIGURED',
+      transport: 'unset',
     })
     expect(calls).toHaveLength(0)
   })
@@ -58,6 +61,7 @@ describe('ResumeWriterClient', () => {
     await expect(new ResumeWriterClient().write('summary', '{}', [])).resolves.toEqual({
       kind: 'unavailable',
       reason: 'NOT_CONFIGURED',
+      transport: 'unset',
     })
   })
 
@@ -108,6 +112,7 @@ describe('ResumeWriterClient', () => {
     await expect(new ResumeWriterClient().write(task, '{}', [])).resolves.toEqual({
       kind: 'unavailable',
       reason: 'INVALID_OUTPUT',
+      transport: 'reply',
     })
   })
 
@@ -118,6 +123,7 @@ describe('ResumeWriterClient', () => {
       kind: 'unavailable',
       reason: 'PROVIDER_ERROR',
       status: 503,
+      transport: 'transport',
     })
   })
 
@@ -127,6 +133,7 @@ describe('ResumeWriterClient', () => {
     await expect(new ResumeWriterClient().write('summary', '{}', [])).resolves.toEqual({
       kind: 'unavailable',
       reason: 'PROVIDER_ERROR',
+      transport: 'transport',
     })
   })
 
@@ -136,8 +143,40 @@ describe('ResumeWriterClient', () => {
     await expect(new ResumeWriterClient().write('summary', '[1]', ['a\nb'])).resolves.toEqual({
       kind: 'unavailable',
       reason: 'PROVIDER_ERROR',
+      transport: 'transport',
       status: 400,
     })
+  })
+})
+
+describe('the logged cause of a worker failure (FX-3)', () => {
+  it('each failure shape logs a distinct cause; the status rides beside it, never a body', async () => {
+    const shapes: [string, () => void][] = [
+      ['no worker env', () => {}],
+      ['a worker-coded timeout', () => stubFetch({ kind: 'unavailable', reason: 'TIMEOUT' })],
+      ['a reply that fails its schema', () => stubFetch('not json')],
+      ['a non-2xx', () => stubFetch({ error: 'secret body' }, 503)],
+      ['a rate limit', () => stubFetch({ error: 'secret body' }, 429)],
+      ['a network error', () => vi.stubGlobal('fetch', () => Promise.reject(new Error('x')))],
+    ]
+    const origins = []
+    for (const [name, arrange] of shapes) {
+      vi.unstubAllEnvs()
+      if (name !== 'no worker env') workerEnv()
+      arrange()
+      const reply = await new ResumeWriterClient().write('summary', '{}', [])
+      if (reply.kind !== 'unavailable') throw new Error(`${name}: expected unavailable`)
+      origins.push(unavailableOrigin(WRITER_PROVIDER, reply))
+    }
+    expect(origins.map((o) => [o.reason, o.status])).toEqual([
+      ['NOT_CONFIGURED:unset', undefined],
+      ['TIMEOUT', undefined],
+      ['INVALID_OUTPUT:reply', undefined],
+      ['PROVIDER_ERROR:transport', 503],
+      ['PROVIDER_ERROR:rate_limited', 429],
+      ['PROVIDER_ERROR:transport', undefined],
+    ])
+    expect(JSON.stringify(origins)).not.toContain('secret body')
   })
 })
 
@@ -147,6 +186,7 @@ describe('VisualCheckClient', () => {
     await expect(new VisualCheckClient().check([PNG])).resolves.toEqual({
       kind: 'unavailable',
       reason: 'NOT_CONFIGURED',
+      transport: 'unset',
     })
     expect(calls).toHaveLength(0)
   })
@@ -208,6 +248,7 @@ describe('VisualCheckClient', () => {
     await expect(new VisualCheckClient().check([PNG])).resolves.toEqual({
       kind: 'unavailable',
       reason: 'INVALID_OUTPUT',
+      transport: 'reply',
     })
   })
 
@@ -223,7 +264,11 @@ describe('VisualCheckClient', () => {
     )
     const r = new VisualCheckClient().check([PNG])
     await vi.advanceTimersByTimeAsync(WORKER_ADAPTER_TIMEOUT_MS)
-    await expect(r).resolves.toEqual({ kind: 'unavailable', reason: 'TIMEOUT' })
+    await expect(r).resolves.toEqual({
+      kind: 'unavailable',
+      reason: 'TIMEOUT',
+      transport: 'timeout',
+    })
     vi.useRealTimers()
   })
 
@@ -315,22 +360,29 @@ describe('scoreEntailment', () => {
   it('a duplicate claim id is unavailable and sends nothing', async () => {
     const port = fakePort()
     const dup = [...claims(2), { id: 'c0', text: 'again', sources: [] }]
-    await expect(scoreEntailment(port, dup)).resolves.toBe('unavailable')
+    await expect(scoreEntailment(port, dup)).resolves.toEqual({
+      kind: 'unavailable',
+      cause: 'DUPLICATE_ID',
+    })
     expect(port.requests).toHaveLength(0)
   })
 
   it('a duplicate id in another chunk of 50 is unavailable and sends nothing', async () => {
     const port = fakePort()
     const dup = [...claims(60), { id: 'c0', text: 'again', sources: [] }]
-    await expect(scoreEntailment(port, dup)).resolves.toBe('unavailable')
+    await expect(scoreEntailment(port, dup)).resolves.toEqual({
+      kind: 'unavailable',
+      cause: 'DUPLICATE_ID',
+    })
     expect(port.requests).toHaveLength(0)
   })
 
   it('an id Jev does not accept is unavailable and sends nothing', async () => {
     const port = fakePort()
-    await expect(scoreEntailment(port, [{ id: '', text: 't', sources: [] }])).resolves.toBe(
-      'unavailable',
-    )
+    await expect(scoreEntailment(port, [{ id: '', text: 't', sources: [] }])).resolves.toEqual({
+      kind: 'unavailable',
+      cause: 'INVALID_REQUEST',
+    })
     expect(port.requests).toHaveLength(0)
   })
 
@@ -344,7 +396,10 @@ describe('scoreEntailment', () => {
             .map((q) => ({ id: q.id, kind: 'noul' as const, value: true, probability: 1 })),
         }),
     }
-    await expect(scoreEntailment(port, claims(3))).resolves.toBe('unavailable')
+    await expect(scoreEntailment(port, claims(3))).resolves.toEqual({
+      kind: 'unavailable',
+      cause: 'ANSWER_COUNT',
+    })
   })
 
   it('a reply with an extra question id is unavailable', async () => {
@@ -360,7 +415,10 @@ describe('scoreEntailment', () => {
           })),
         }),
     }
-    await expect(scoreEntailment(port, claims(2))).resolves.toBe('unavailable')
+    await expect(scoreEntailment(port, claims(2))).resolves.toEqual({
+      kind: 'unavailable',
+      cause: 'ANSWER_COUNT',
+    })
   })
 
   it('a reply that answers one id twice instead of another is unavailable', async () => {
@@ -376,7 +434,10 @@ describe('scoreEntailment', () => {
           })),
         }),
     }
-    await expect(scoreEntailment(port, claims(2))).resolves.toBe('unavailable')
+    await expect(scoreEntailment(port, claims(2))).resolves.toEqual({
+      kind: 'unavailable',
+      cause: 'INVALID_ANSWER',
+    })
   })
 
   it('a non-noul answer is unavailable', async () => {
@@ -392,7 +453,10 @@ describe('scoreEntailment', () => {
           })),
         }),
     }
-    await expect(scoreEntailment(port, claims(1))).resolves.toBe('unavailable')
+    await expect(scoreEntailment(port, claims(1))).resolves.toEqual({
+      kind: 'unavailable',
+      cause: 'INVALID_ANSWER',
+    })
   })
 
   it('one failed chunk makes the whole call unavailable', async () => {
@@ -402,12 +466,18 @@ describe('scoreEntailment', () => {
       decide: (req) =>
         ++n === 2 ? Promise.resolve({ ok: false, code: 'TIMEOUT' }) : ok.decide(req),
     }
-    await expect(scoreEntailment(port, claims(120))).resolves.toBe('unavailable')
+    await expect(scoreEntailment(port, claims(120))).resolves.toEqual({
+      kind: 'unavailable',
+      cause: 'TIMEOUT',
+    })
   })
 
   it('a throwing port is unavailable, never a throw', async () => {
     const port: DecisionPort = { decide: () => Promise.reject(new Error('boom')) }
-    await expect(scoreEntailment(port, claims(1))).resolves.toBe('unavailable')
+    await expect(scoreEntailment(port, claims(1))).resolves.toEqual({
+      kind: 'unavailable',
+      cause: 'Error',
+    })
   })
 })
 
@@ -420,16 +490,18 @@ const config = (key: string | undefined) =>
 describe('ResumeEntailmentClient', () => {
   it('a missing JEV_API_KEY is unavailable and sends nothing', async () => {
     const calls = stubFetch({})
-    await expect(new ResumeEntailmentClient(config(undefined)).score(claims(1))).resolves.toBe(
-      'unavailable',
-    )
+    await expect(new ResumeEntailmentClient(config(undefined)).score(claims(1))).resolves.toEqual({
+      kind: 'unavailable',
+      cause: 'NOT_CONFIGURED',
+    })
     expect(calls).toHaveLength(0)
   })
 
   it('a missing JEV_API_KEY is unavailable even for no claims', async () => {
-    await expect(new ResumeEntailmentClient(config(undefined)).score([])).resolves.toBe(
-      'unavailable',
-    )
+    await expect(new ResumeEntailmentClient(config(undefined)).score([])).resolves.toEqual({
+      kind: 'unavailable',
+      cause: 'NOT_CONFIGURED',
+    })
   })
 
   it('with a key it asks Jev, and its noul reply is scored', async () => {

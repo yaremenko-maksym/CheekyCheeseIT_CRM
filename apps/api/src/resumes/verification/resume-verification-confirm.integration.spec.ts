@@ -36,7 +36,12 @@ import {
 } from '../../test/resume-run-fakes'
 import type { ResumeRenderInput } from '../resume-typst.service'
 import { SeniorResumesService } from '../resumes.service'
-import type { EntailmentClaim, WriterReply, WriterTask } from './inference-clients'
+import type {
+  EntailmentClaim,
+  EntailmentScores,
+  WriterReply,
+  WriterTask,
+} from './inference-clients'
 import { ResumeVerificationService } from './resume-verification.service'
 import { stagedPdfKey, VerificationRunner } from './verification-runner'
 
@@ -110,7 +115,7 @@ const writer = {
 }
 const entailment = {
   score: vi.fn(
-    async (claims: EntailmentClaim[]): Promise<Map<string, number> | 'unavailable'> =>
+    async (claims: EntailmentClaim[]): Promise<EntailmentScores> =>
       new Map(claims.map((c) => [c.id, 0.95])),
   ),
 }

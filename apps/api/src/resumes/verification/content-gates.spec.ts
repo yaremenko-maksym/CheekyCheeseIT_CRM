@@ -676,12 +676,13 @@ describe('writeGatedContent', () => {
 
   it('entailment unavailable fails closed with ENTAILMENT_UNAVAILABLE', async () => {
     const deps = fakeDeps({})
-    deps.entailment.score = vi.fn(async () => 'unavailable' as const)
+    deps.entailment.score = vi.fn(async () => ({ kind: 'unavailable' as const, cause: 'TIMEOUT' }))
     await expect(writeGatedContent(input(), deps)).rejects.toMatchObject({
       code: 'ENTAILMENT_UNAVAILABLE',
       // No gate ran to the end: the report carries no gate of its own.
       gates: [],
-      origin: { provider: 'jev', reason: 'UNAVAILABLE' },
+      // The entailment's own cause, not a constant (FX-3).
+      origin: { provider: 'jev', reason: 'TIMEOUT' },
     })
   })
 

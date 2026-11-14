@@ -16,6 +16,7 @@ import {
   unavailableOrigin,
   WRITER_PROVIDER,
   type EntailmentClaim,
+  type EntailmentScores,
   type WriterReply,
   type WriterTask,
 } from './inference-clients'
@@ -43,7 +44,7 @@ export class RunFailure extends Error {
 
 export interface ContentDeps {
   writer: { write(task: WriterTask, payload: string, feedback: string[]): Promise<WriterReply> }
-  entailment: { score(claims: EntailmentClaim[]): Promise<Map<string, number> | 'unavailable'> }
+  entailment: { score(claims: EntailmentClaim[]): Promise<EntailmentScores> }
   /** Runs before every model call; throws `RunFailure('STALLED')` past the run budget. */
   beforeModelCall(): Promise<void>
 }
@@ -227,10 +228,10 @@ async function gateTexts(
   for (const group of groupClaims(claims)) {
     await deps.beforeModelCall()
     const scores = await deps.entailment.score(group)
-    if (scores === 'unavailable') {
+    if (!(scores instanceof Map)) {
       throw new RunFailure('ENTAILMENT_UNAVAILABLE', [], {
         provider: ENTAILMENT_PROVIDER,
-        reason: 'UNAVAILABLE',
+        reason: scores.cause,
       })
     }
     for (const claim of group) {
