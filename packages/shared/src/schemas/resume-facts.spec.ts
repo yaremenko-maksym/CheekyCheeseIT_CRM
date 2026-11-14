@@ -280,6 +280,16 @@ describe('request bodies', () => {
     ).toBe(false)
   })
 
+  it.each(['', '   ', '\n\t'])('a staged edit with blank text %j is rejected (FR-A-3)', (text) => {
+    expect(editStagedFieldSchema.safeParse({ runId: RUN_ID, path: 'summary', text }).success).toBe(
+      false,
+    )
+    expect(
+      editStagedFieldSchema.safeParse({ runId: RUN_ID, path: 'experience.0.bullets.0', text })
+        .success,
+    ).toBe(false)
+  })
+
   it('staged-field bodies need a uuid runId', () => {
     expect(
       editStagedFieldSchema.safeParse({ runId: RUN_ID, path: 'summary', text: 'x' }).success,

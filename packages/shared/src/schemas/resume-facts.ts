@@ -192,7 +192,11 @@ export const editStagedFieldSchema = z.object({
   runId: z.uuid(),
   path: shortText,
   // The larger of the summary/bullet caps; the server enforces the per-path cap.
-  text: z.string().max(RESUME_LIMITS.summary),
+  // Not blank: a staged edit skips the EMPTY content gate a model text passes.
+  text: z
+    .string()
+    .max(RESUME_LIMITS.summary)
+    .refine((text) => text.trim() !== ''),
 })
 export type EditStagedFieldInput = z.infer<typeof editStagedFieldSchema>
 

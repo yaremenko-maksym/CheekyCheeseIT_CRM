@@ -759,11 +759,12 @@ describe('writeGatedField (Task 15 item run)', () => {
     expect(out.fallbacks).toEqual([])
   })
 
-  it('a summary still failing after two regenerations becomes "" and is a fallback (P10)', async () => {
+  it('a summary still failing after two regenerations keeps the previous one and is a fallback (FR-A-4)', async () => {
     const deps = fakeDeps({ summary: [ok('   ')] })
     const out = await writeGatedField(input(), deps, 'summary', base())
     expect(deps.calls).toHaveLength(3)
-    expect(out.content.summary).toBe('')
+    expect(out.content.summary).toBe('Hand summary.')
+    expect(out.content.experience).toEqual(base().experience)
     expect(out.fallbacks).toEqual(['summary'])
     expect(out.gate).toEqual({
       gate: 'content',

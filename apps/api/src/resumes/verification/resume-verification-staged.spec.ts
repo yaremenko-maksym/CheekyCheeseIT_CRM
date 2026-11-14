@@ -327,6 +327,20 @@ describe('ResumeVerificationService.editStagedField', () => {
     expect(log).toHaveLength(0)
   })
 
+  it.each([
+    ['summary', ''],
+    ['summary', '   '],
+    ['experience.0.bullets.1', ''],
+    ['experience.0.bullets.1', ' \n '],
+  ])('a blank text at %s (%j) is 400 and nothing is staged (FR-A-3)', async (path, text) => {
+    const { svc, log, runner } = service([])
+    await expect(svc.editStagedField(ROW, { runId: RUN, path, text }, 'h')).rejects.toBeInstanceOf(
+      BadRequestException,
+    )
+    expect(log).toHaveLength(0)
+    expect(runner.run).not.toHaveBeenCalled()
+  })
+
   it('rewrites the summary only when the path is summary', async () => {
     const { svc, log } = service([OWNER, [], [ROW]])
     await svc.editStagedField(ROW, { runId: RUN, path: 'summary', text: 'New summary.' }, HR1)

@@ -383,7 +383,8 @@ export async function writeGatedField(
   let failures: Failure[]
   if (target === 'summary') {
     const written = await writeSummary(input, payload, deps, clean)
-    content = { ...base, summary: written.summary }
+    // A summary failing every attempt keeps the previous one, as failed bullets fall back (FR-A-4).
+    content = { ...base, summary: written.failures.length > 0 ? base.summary : written.summary }
     path = 'summary'
     failures = written.failures
   } else {

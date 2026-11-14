@@ -555,7 +555,10 @@ export class ResumeVerificationService {
   ): Promise<SeniorResume> {
     const staged = this.stagedOf(row, input.runId)
     const cap = editPathCap(input.path, staged)
-    if (cap === null || input.text.length > cap) throw new BadRequestException()
+    // A blank text would skip the EMPTY content gate a model text passes (FR-A-3).
+    if (cap === null || input.text.trim() === '' || input.text.length > cap) {
+      throw new BadRequestException()
+    }
     if (!isLatinScript(input.text)) {
       throw apiError('RESUME_STAGED_TEXT_INVALID', HttpStatus.UNPROCESSABLE_ENTITY, {
         reason: 'NON_LATIN',
