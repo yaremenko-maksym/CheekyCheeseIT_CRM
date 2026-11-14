@@ -123,10 +123,12 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
           'iu',
         )
       : null
-  const handle = (telegram ?? '').trim().replace(/^@/, '')
+  // Stryker disable next-line Regex: equivalent — telegramSchema (`^@?[a-zA-Z0-9_]{5,32}$`) allows an @ only in front, so an unanchored /@/ strips the same one
+  const handle = telegram?.trim().replace(/^@/, '')
   // A Telegram username is `[A-Za-z0-9_]`, so `\w` is its boundary; no lookbehind (Safari < 16.4).
-  const handleTest =
-    handle === '' ? null : new RegExp(`(?:^|[^\\w@])@?${escapeRegExp(handle)}(?:$|[^\\w])`, 'i')
+  const handleTest = !handle
+    ? null
+    : new RegExp(`(?:^|[^\\w@])@?${escapeRegExp(handle)}(?:$|[^\\w])`, 'i')
   return (text) =>
     findPhoneSpans(text).length > 0 ||
     RESUME_EMAIL_PATTERN.test(text) ||

@@ -350,6 +350,12 @@ describe('the Telegram handle of the senior', () => {
     ])
   })
 
+  it('a handle stored with surrounding spaces still hits', () => {
+    expect(scanContacts('tg @mark_dev', { ...ctx, telegram: '  @mark_dev ' })).toEqual([
+      { kind: 'telegram', match: '@mark_dev' },
+    ])
+  })
+
   it('a handle stored without its @ still hits the written @ form', () => {
     expect(scanContacts('tg @mark_dev', { ...ctx, telegram: 'mark_dev' })).toEqual([
       { kind: 'telegram', match: '@mark_dev' },

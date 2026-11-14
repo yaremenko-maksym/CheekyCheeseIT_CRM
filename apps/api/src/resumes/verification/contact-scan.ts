@@ -17,6 +17,7 @@ export interface ContactContext {
 }
 
 /** No context of the senior: the generic email and phone patterns still run. */
+// Stryker disable next-line StringLiteral,ArrayDeclaration: equivalent — the placeholder only has to match nothing: a blank name yields no pattern (namePatterns filters it) and an empty list no email literal, so any other unmatched value scans the same
 const NO_CONTEXT: ContactContext = { fullName: '', emails: [] }
 
 /** The contexts to scan with; an empty list still scans with `NO_CONTEXT`. */
@@ -121,8 +122,9 @@ function namePatterns(fullName: string): RegExp[] {
  * `ivan_dev2` or `xivan_dev`. A Telegram username is `[A-Za-z0-9_]`, so `\w` is its boundary.
  */
 function telegramPattern(telegram: string | null | undefined): RegExp | null {
-  const handle = (telegram ?? '').trim().replace(/^@/u, '')
-  return handle === '' ? null : new RegExp(`(?<![\\w@])@?${escapeRegExp(handle)}(?!\\w)`, 'giu')
+  // Stryker disable next-line Regex: equivalent — telegramSchema (`^@?[a-zA-Z0-9_]{5,32}$`) allows an @ only in front, so an unanchored /@/ strips the same one
+  const handle = telegram?.trim().replace(/^@/u, '')
+  return !handle ? null : new RegExp(`(?<![\\w@])@?${escapeRegExp(handle)}(?!\\w)`, 'giu')
 }
 
 /** Email and Telegram patterns; phones come from `findPhoneSpans`, the rule completeness uses too. */

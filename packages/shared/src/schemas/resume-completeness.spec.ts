@@ -713,6 +713,11 @@ describe('checkResumeCompleteness — the Telegram handle of the senior', () => 
     },
   )
 
+  it('flags the handle when it is stored with surrounding spaces', () => {
+    const ctx = { ...CTX, telegram: '  @jose_dev ' }
+    expect(checkResumeCompleteness(noteWith('ping @jose_dev'), ctx)).toEqual(flagged)
+  })
+
   it('flags the @ form when the handle is stored without it', () => {
     const ctx = { ...CTX, telegram: 'jose_dev' }
     expect(checkResumeCompleteness(noteWith('ping @jose_dev'), ctx)).toEqual(flagged)
