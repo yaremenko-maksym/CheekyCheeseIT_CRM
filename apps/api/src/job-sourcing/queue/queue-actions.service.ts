@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { ForbiddenException, HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common'
 import {
-  JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS,
+  withinTriageGrantCeiling,
   jobQueueDismissalResponseSchema,
   jobQueueDismissReasonSchema,
   jobQueuePossibleDuplicateConflictSchema,
@@ -48,7 +48,7 @@ import {
   type WriteScope,
 } from './queue-actions'
 import { invalidateTeamGenerations } from './queue-generation'
-import { liveVersionRows } from './queue-read-sql'
+import { triageIneligibleRow } from './queue-read-sql'
 import {
   canonicalUuid,
   type LiveSeniorVersion,
@@ -84,8 +84,6 @@ const alreadyGranted = (expiresAt: unknown) =>
     expiresAt: isoInstant(expiresAt),
   })
 
-const DAY_MS = 24 * 60 * 60 * 1000
-
 const GRANT_COLUMNS = sql`id, opportunity_id, team_id, assigned_by, evidence, policy_version,
   opportunity_revision, grant_version, expires_at, revoked_at, created_at`
 // `to_jsonb`: node-postgres does not parse an enum array, it hands back the literal `{A,B}`.
@@ -115,10 +113,14 @@ function refuseElapsed(expiresAt: string): void {
   refuseExpiry(expiresAt, 'expiresAt must be in the future')
 }
 
-/** Backlog 426: a grant ends at most `JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS` after the server's now. */
+/**
+ * Backlog 426 / SR-M-1: a grant or subscription ends at most `JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS`
+ * after the server's now. The request schema checks the same predicate at parse time; this re-check
+ * holds for any caller that bypasses the pipe. The `zod.` code lets the dialog name the ceiling.
+ */
 function refuseBeyondCeiling(expiresAt: string): void {
-  if (Date.parse(expiresAt) <= Date.now() + JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS * DAY_MS) return
-  refuseExpiry(expiresAt, `expiresAt must be at most ${JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS} days ahead`)
+  if (withinTriageGrantCeiling(expiresAt, Date.now())) return
+  refuseExpiry(expiresAt, 'zod.TRIAGE_EXPIRY_BEYOND_CEILING')
 }
 
 function refuseExpiry(expiresAt: string, message: string): never {
@@ -679,10 +681,7 @@ export class JobQueueActionsService {
     return this.write(async (tx) => {
       const scope = await this.adminScope(user, tx)
       const { rows } = await tx.execute(
-        sql`SELECT revision, manual_team_id,
-                   (evaluated_revision = revision AND evaluation_verdict = 'EXCLUDED') IS TRUE
-                     AS excluded
-              FROM job_opportunities
+        sql`SELECT revision, manual_team_id FROM job_opportunities
              WHERE id = ${opportunity}::uuid FOR NO KEY UPDATE`,
       )
       const target = rows[0]
@@ -705,12 +704,13 @@ export class JobQueueActionsService {
       if (Number(target['revision']) !== request.expectedOpportunityRevision)
         throw versionConflict()
       // Backlog 425: the policy the card was read under (membership, profiles, exclusions) is current.
-      const versions = await this.scopes.liveVersions(scope, tx)
-      if ((await this.scopes.triagePolicyVersion(versions, tx)) !== request.policyVersion)
-        throw versionConflict()
-      // Backlog 426: triage items only — the card's own `eligibility` rule, plus not EXCLUDED.
-      if (target['excluded'] === true || (await this.hasLiveLead(tx, opportunity, versions)))
-        throw triageNotEligible()
+      const versions = await this.assertTriagePolicy(tx, scope, request.policyVersion)
+      // Backlog 426: triage items only, by the fragment the ADMIN card's `triageGrantable` reads.
+      // SR-L-1: no lock on the match rows is needed. Their only writer (`installMatches`, from the
+      // recompute worker) runs under `FOR NO KEY UPDATE` of this opportunity row, which conflicts
+      // with the lock taken above. Each statement here reads after that lock was granted (READ
+      // COMMITTED), so this read sees every committed recompute, and none can commit before ours.
+      if (await this.isTriageIneligible(tx, opportunity, versions)) throw triageNotEligible()
       if (!(await this.lockLiveTeam(tx, teamId))) throw triageNotAllowed()
       const current = (await this.grantRow(tx, opportunity, teamId, true))[0]
       if (current !== undefined && current['live'] === true)
@@ -812,6 +812,7 @@ export class JobQueueActionsService {
     if (teamId === null) throw triageNotAllowed()
     const sourceTypes = [...new Set(request.sourceTypes)].sort()
     refuseElapsed(request.expiresAt)
+    refuseBeyondCeiling(request.expiresAt)
     return this.write(async (tx) => {
       const scope = await this.adminScope(user, tx)
       await this.lockActor(tx, user, scope)
@@ -829,6 +830,8 @@ export class JobQueueActionsService {
       if (earlier !== null) {
         return subscriptionAnswer((await this.subscriptionRow(tx, earlier.subscription))[0])
       }
+      // SR-M-1: the stored `policy_version` is the server's, as on a grant, never a client stamp.
+      await this.assertTriagePolicy(tx, scope, request.policyVersion)
       if (!(await this.lockLiveTeam(tx, teamId))) throw triageNotAllowed()
       const sourceArray = sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(sourceTypes)}::jsonb))::job_source_type[]`
       await tx.execute(
@@ -938,20 +941,28 @@ export class JobQueueActionsService {
     return team.rows.length > 0
   }
 
-  /** The card's `eligibility = LEAD`: a live LEAD match of any roster senior (STUDIO `versions`). */
-  private async hasLiveLead(
+  /** Not a triage item (`triageIneligibleRow`: EXCLUDED, or a live LEAD of a STUDIO senior). */
+  private async isTriageIneligible(
     tx: SqlExecutor,
     opportunity: string,
     versions: readonly LiveSeniorVersion[],
   ): Promise<boolean> {
     const { rows } = await this.scopes.policy(() =>
-      tx.execute(
-        sql`SELECT 1 FROM job_opportunities o
-             WHERE o.id = ${opportunity}::uuid
-               AND EXISTS (SELECT 1 ${liveVersionRows(versions)} AND m.outcome = 'LEAD')`,
-      ),
+      tx.execute(triageIneligibleRow(versions, opportunity)),
     )
-    return rows.length > 0
+    return rows[0]?.['ineligible'] === true
+  }
+
+  /** Backlog 425 / SR-M-1: the studio policy the ADMIN's card was read under is still current. */
+  private async assertTriagePolicy(
+    tx: SqlExecutor,
+    scope: WriteScope,
+    policyVersion: number,
+  ): Promise<readonly LiveSeniorVersion[]> {
+    const versions = await this.scopes.liveVersions(scope, tx)
+    if ((await this.scopes.triagePolicyVersion(versions, tx)) !== policyVersion)
+      throw versionConflict()
+    return versions
   }
 
   private async grantRow(

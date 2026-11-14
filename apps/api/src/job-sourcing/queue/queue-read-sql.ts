@@ -43,6 +43,25 @@ export const liveVersionRows = (versions: readonly LiveSeniorVersion[]): SQL =>
       WHERE ${liveMatch}`
 
 /**
+ * Backlog 426 — `o` is not a triage item: EXCLUDED at its current revision, or a live LEAD of a
+ * senior in `versions` (the STUDIO roster). The grant refuses it and the ADMIN card's
+ * `triageGrantable` reads the same fragment, so the web never offers a grant the server refuses.
+ */
+const triageIneligible = (versions: readonly LiveSeniorVersion[]): SQL =>
+  sql`((o.evaluated_revision = o.revision AND o.evaluation_verdict = 'EXCLUDED') IS TRUE
+       OR EXISTS (SELECT 1 ${liveVersionRows(versions)} AND m.outcome = 'LEAD'))`
+
+/** The grant's eligibility read of one opportunity: `ineligible` (backlog 426). */
+export const triageIneligibleRow = (versions: readonly LiveSeniorVersion[], id: string): SQL =>
+  sql`SELECT ${triageIneligible(versions)} AS ineligible
+        FROM job_opportunities o WHERE o.id = ${id}::uuid`
+
+/** The ADMIN card's `triageGrantable`: no manual card (the grant's other refusal) and eligible. */
+export const triageGrantableRow = (versions: readonly LiveSeniorVersion[], id: string): SQL =>
+  sql`SELECT (o.manual_team_id IS NULL AND NOT ${triageIneligible(versions)}) AS grantable
+        FROM job_opportunities o WHERE o.id = ${id}::uuid`
+
+/**
  * The scope's integer rank: `evaluate` persists a score per senior only (the TEAM and STUDIO
  * projections are dropped by `matchRows`), so it is derived here as the best senior's score plus
  * the same match term `rankScore` uses for the seniors beyond the first. No LEAD ranks 0, after

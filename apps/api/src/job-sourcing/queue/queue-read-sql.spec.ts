@@ -18,6 +18,8 @@ import {
   seniorTotal,
   sourceRows,
   sourceTotal,
+  triageGrantableRow,
+  triageIneligibleRow,
   triagePolicyVersion,
 } from './queue-read-sql'
 import { MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
@@ -160,6 +162,28 @@ describe('filterIdentity', () => {
     const q = query({ eligibility: ['TRIAGE', 'LEAD'] })
     filterIdentity(q)
     expect(q.eligibility).toEqual(['TRIAGE', 'LEAD'])
+  })
+})
+
+describe('the triage eligibility fragment the grant and the ADMIN card share (426, CR-M-1)', () => {
+  const ineligible =
+    "((o.evaluated_revision = o.revision AND o.evaluation_verdict = 'EXCLUDED') IS TRUE OR EXISTS (SELECT 1 FROM job_opportunity_matches m JOIN jsonb_to_recordset($1::jsonb) AS v(senior_id uuid, profile text, exclusion text) ON v.senior_id = m.senior_id WHERE m.opportunity_id = o.id AND m.opportunity_revision = o.revision AND m.senior_profile_version = v.profile AND m.exclusion_version = v.exclusion AND m.rule_version = $2 AND m.outcome = 'LEAD'))"
+  const params = [
+    JSON.stringify([{ senior_id: SEN, profile: 'p', exclusion: 'e' }]),
+    MATCH_RULE_VERSION,
+    OPP,
+  ]
+  it('the grant reads EXCLUDED-at-revision or a live LEAD of the given roster', () => {
+    expect(render(triageIneligibleRow(versions, OPP))).toEqual({
+      text: `SELECT ${ineligible} AS ineligible FROM job_opportunities o WHERE o.id = $3::uuid`,
+      params,
+    })
+  })
+  it('the card adds only the manual-card refusal, and negates the same fragment', () => {
+    expect(render(triageGrantableRow(versions, OPP))).toEqual({
+      text: `SELECT (o.manual_team_id IS NULL AND NOT ${ineligible}) AS grantable FROM job_opportunities o WHERE o.id = $3::uuid`,
+      params,
+    })
   })
 })
 
