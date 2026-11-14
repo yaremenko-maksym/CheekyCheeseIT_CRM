@@ -323,7 +323,7 @@ describe('ResumeVerificationPanel — failure panel', () => {
               items: [
                 { path: 'experience[0].bullets[0]', reason: 'MISSING_TEXT' },
                 { path: '', reason: 'HEADING_ORDER' },
-                { path: 'pages[1]', reason: 'SOMETHING_NEW' },
+                { path: 'pages[1]', reason: 'toString' },
               ],
             },
           ],
@@ -339,10 +339,10 @@ describe('ResumeVerificationPanel — failure panel', () => {
     // An empty path is a resume-level line, never a field link.
     expect(within(panel).getByText('Резюме загалом')).toBeInTheDocument()
     expect(within(panel).queryByRole('button', { name: /Резюме загалом/ })).toBeNull()
-    // A page row with an unknown reason gets the generic line, not the raw code.
+    // An unknown reason (here an Object prototype key) gets the generic line, not the raw code.
     expect(within(panel).getByText('Сторінка 2')).toBeInTheDocument()
     expect(within(panel).getByText('автоматична перевірка не пройдена')).toBeInTheDocument()
-    expect(within(panel).queryByText('SOMETHING_NEW')).toBeNull()
+    expect(within(panel).queryByText('toString')).toBeNull()
   })
 
   it.each(['ATS_CHECK_FAILED', 'GLYPH_CHECK_FAILED', 'VISUAL_CHECK_FAILED'] as const)(

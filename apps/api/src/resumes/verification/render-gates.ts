@@ -1,6 +1,7 @@
 import type {
   ResumeContent,
   ResumeLayoutOptions,
+  ResumeReportReason,
   ResumeSectionKey,
   ResumeTemplateName,
 } from '@crm/shared'
@@ -121,7 +122,7 @@ async function measure(
   pdf: Buffer,
   input: Omit<AtsCheckInput, 'pages' | 'pdfBytes'>,
   deps: RenderDeps,
-): Promise<{ other: AtsFailure[]; layout: string[] }> {
+): Promise<{ other: AtsFailure[]; layout: ResumeReportReason[] }> {
   try {
     if ((await deps.extraction.countRenderedPages(pdf)) > MAX_PDF_PAGES) {
       return { other: [], layout: ['TOO_MANY_PAGES'] }
@@ -130,7 +131,9 @@ async function measure(
     const { failures } = checkResumeAts({ ...input, pages, pdfBytes: pdf.length })
     const other = failures.filter((f) => !LAYOUT_CODES.has(f.code))
     // Stryker disable next-line MethodExpression: equivalent — the caller reads `layout` only when `other` is empty, and then every failure is a layout code
-    const layout = failures.filter((f) => LAYOUT_CODES.has(f.code)).map((f) => f.code as string)
+    const layout: ResumeReportReason[] = failures
+      .filter((f) => LAYOUT_CODES.has(f.code))
+      .map((f) => f.code)
     // Read only when `other` is empty, like the codes above.
     if (lastPageUnderfilled(pages)) layout.push('LAST_PAGE_UNDERFILLED')
     return { other, layout }

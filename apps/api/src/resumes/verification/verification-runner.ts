@@ -279,10 +279,11 @@ export class VerificationRunner {
       const fresh = await writeGatedField(input, deps, field, staged.data)
       next = { content: fresh.content, items: fresh.gate.items, fallbacks: fresh.fallbacks }
     }
-    const items = [
-      ...keep(previous?.gates.find((g) => g.gate === 'content')?.items ?? []),
-      ...next.items,
-    ]
+    // Carried findings came from the typed producers; a code from an older build is kept as stored,
+    // so the gate stays failed and the web shows its generic line (R46).
+    const carried = (previous?.gates.find((g) => g.gate === 'content')?.items ??
+      []) as GateResult['items']
+    const items = [...keep(carried), ...next.items]
     return {
       content: next.content,
       gate: { gate: 'content', ok: items.length === 0, items },

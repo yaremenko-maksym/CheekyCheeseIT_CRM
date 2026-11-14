@@ -11,7 +11,12 @@ import { Info, TriangleAlert } from 'lucide-react'
 import type { MessageDescriptor } from '@lingui/core'
 import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
-import type { ResumeVerificationErrorCode, ResumeVerificationReport } from '@crm/shared'
+import {
+  resumeReportReasonSchema,
+  type ResumeReportReason,
+  type ResumeVerificationErrorCode,
+  type ResumeVerificationReport,
+} from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { translateApiError } from '@/lib/axios-utils'
@@ -88,8 +93,11 @@ export const VERIFICATION_CODES: Record<
 const PAGES = msg`більше 2 сторінок`
 const LARGE = msg`файл більший за 1 МБ`
 
-/** Gate reason codes (§10.5). Free strings in the report: an unknown one gets the generic line (R46). */
-const REASONS: Record<string, MessageDescriptor> = {
+/**
+ * Gate reason codes (§10.5), one line per code of `ResumeReportReason`. `BAD_INDEX` deliberately reads
+ * as the generic line. A stored report may hold a code this build does not know: it gets the generic line too (R46).
+ */
+const REASONS: Record<Exclude<ResumeReportReason, 'BAD_INDEX'>, MessageDescriptor> = {
   EMPTY: msg`порожньо`,
   UNGROUNDED: msg`немає у фактах`,
   NON_LATIN: msg`не латиницею`,
@@ -120,6 +128,11 @@ const REASONS: Record<string, MessageDescriptor> = {
   'cut-off': msg`текст обрізано`,
 }
 const GENERIC_REASON = msg`автоматична перевірка не пройдена`
+
+const reasonMessage = (reason: string): MessageDescriptor => {
+  const known = resumeReportReasonSchema.safeParse(reason)
+  return known.success && known.data !== 'BAD_INDEX' ? REASONS[known.data] : GENERIC_REASON
+}
 
 /** Report path → the facts field it points at; `$&` = the path itself (§10.6). */
 const FIELD_RULES: Array<[RegExp, string]> = [
@@ -318,7 +331,7 @@ function FailingFieldList({
           key={`${labelPath}:${reason}:${i}`}
           tone="amber"
           label={issueLabel(labelPath)}
-          text={i18n._(REASONS[reason] ?? GENERIC_REASON)}
+          text={i18n._(reasonMessage(reason))}
           onFocus={field === null ? null : () => void onFocusField(field)}
         />
       ))}

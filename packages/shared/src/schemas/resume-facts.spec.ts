@@ -9,6 +9,7 @@ import {
   regenerateStagedFieldSchema,
   resumeFactsSchema,
   resumeMonthSchema,
+  resumeReportReasonSchema,
   resumeTemplateNameSchema,
   resumeVerificationErrorCodeSchema,
   resumeVerificationReportSchema,
@@ -210,8 +211,12 @@ describe('verification schemas', () => {
     expect(resumeVerificationStatusSchema.safeParse('READY').success).toBe(false)
     expect(resumeVerificationErrorCodeSchema.parse('STALLED')).toBe('STALLED')
     expect(resumeVerificationErrorCodeSchema.safeParse('UNKNOWN').success).toBe(false)
+    expect(resumeReportReasonSchema.parse('cut-off')).toBe('cut-off')
+    expect(resumeReportReasonSchema.parse('LAST_PAGE_UNDERFILLED')).toBe('LAST_PAGE_UNDERFILLED')
+    expect(resumeReportReasonSchema.safeParse('missing').success).toBe(false)
   })
 
+  // The stored report keeps a free reason string, so a row written by an older build still parses.
   it('a report with gates and fallbacks parses', () => {
     const report = {
       gates: [

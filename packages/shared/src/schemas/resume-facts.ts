@@ -122,6 +122,46 @@ export const resumeVerificationErrorCodeSchema = z.enum([
 ])
 export type ResumeVerificationErrorCode = z.infer<typeof resumeVerificationErrorCodeSchema>
 
+/**
+ * The gate reason codes a verification run writes into `items[].reason` today (design §10.5, R46):
+ * the content gates, the ATS checker, the glyph and layout gates, and the visual checks (lower-case,
+ * as the visual gate sends them). Producers are typed by it; the stored report keeps a plain string,
+ * so a row from an older run with another code still parses and the web shows its generic line.
+ */
+export const RESUME_REPORT_REASONS = [
+  'EMPTY',
+  'UNGROUNDED',
+  'NON_LATIN',
+  'CONTACT_IN_TEXT',
+  'NOT_SUPPORTED',
+  'HUMAN_EDITED',
+  'BAD_INDEX',
+  'MISSING_TEXT',
+  'HEADING_MISSING',
+  'HEADING_ORDER',
+  'HIDDEN_SECTION_PRESENT',
+  'ITEM_ORDER',
+  'PERIOD_FORMAT',
+  'CONTACT_NOT_IN_BODY',
+  'REPLACEMENT_CHAR',
+  'LIGATURE',
+  'LETTER_SPACED',
+  'TOO_MANY_PAGES',
+  'TOO_LARGE',
+  'UNREADABLE',
+  'DROPPED_GLYPHS',
+  'LAST_PAGE_UNDERFILLED',
+  'overflow',
+  'overlap',
+  'ragged',
+  'orphan',
+  'broken-bullet',
+  'uneven-spacing',
+  'cut-off',
+] as const
+export const resumeReportReasonSchema = z.enum(RESUME_REPORT_REASONS)
+export type ResumeReportReason = z.infer<typeof resumeReportReasonSchema>
+
 export const resumeVerificationReportSchema = z.object({
   gates: z.array(
     z.object({

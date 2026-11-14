@@ -1,5 +1,10 @@
 import { MAX_EXTRACTION_INPUT_CHARS } from '@crm/inference'
-import type { ResumeContent, ResumeFacts, ResumeVerificationErrorCode } from '@crm/shared'
+import type {
+  ResumeContent,
+  ResumeFacts,
+  ResumeReportReason,
+  ResumeVerificationErrorCode,
+} from '@crm/shared'
 import { toRenderableText, type GlyphFontSet } from '../resume-glyphs'
 import { redactContacts, scanContacts, scanContexts, type ContactContext } from './contact-scan'
 import { yearsOfExperience } from './derive-content'
@@ -12,8 +17,12 @@ import {
   type WriterTask,
 } from './inference-clients'
 
-/** One entry of `verification_report.gates`. */
-export type GateResult = { gate: string; ok: boolean; items: { path: string; reason: string }[] }
+/** One entry of `verification_report.gates`: a run writes only the shared reason codes (R46). */
+export type GateResult = {
+  gate: string
+  ok: boolean
+  items: { path: string; reason: ResumeReportReason }[]
+}
 
 /** Ends the run FAILED with `code`; `gates` are the stage results gathered so far. */
 export class RunFailure extends Error {
@@ -66,7 +75,7 @@ export interface WritingPayload {
   experience: PayloadItem[]
 }
 
-type Failure = { index: number; reason: string; detail: string }
+type Failure = { index: number; reason: ResumeReportReason; detail: string }
 
 /** The first draft and two regenerations. */
 const MAX_ATTEMPTS = 3
