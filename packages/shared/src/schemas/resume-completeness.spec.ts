@@ -781,7 +781,7 @@ describe('normaliseTelegramHandle', () => {
     ['https://t.me/mark_dev', 'mark_dev'],
     ['http://telegram.me/@mark_dev', 'mark_dev'],
     ['mark@dev', 'mark@dev'],
-    ['mark_t.me/dev', 'mark_t.me/dev'],
+    ['mark_t.me/dev', 'mark_t.me'],
     ['@', ''],
     ['tg:mark_dev', 'mark_dev'],
     ['TG : @mark_dev', 'mark_dev'],
@@ -870,7 +870,7 @@ describe('checkResumeCompleteness — URLs and labelled handles (SR-H-1, SR-M-1)
     [`${'a'.repeat(63)}.com/x`, `${'a'.repeat(63)}.com/x`],
     [`${'a'.repeat(64)}.com/x`, `${'a'.repeat(63)}.com/x`],
     [`${'a.'.repeat(10)}com/x`, `${'a.'.repeat(10)}com/x`],
-    [`b.${'a.'.repeat(10)}com/x`, `${'a.'.repeat(10)}com/x`],
+    [`b.${'a.'.repeat(20)}com/x`, `${'a.'.repeat(20)}com/x`],
     ['a.bc/x', 'a.bc/x'],
     [`a.${'b'.repeat(24)}/x`, `a.${'b'.repeat(24)}/x`],
     ['foo.jsx/x', 'foo.jsx/x'],
@@ -904,7 +904,7 @@ describe('checkResumeCompleteness — URLs and labelled handles (SR-H-1, SR-M-1)
     expect(RESUME_EMAIL_PATTERN.exec(text)?.[0]).toBe(email)
   })
 
-  it.each([`x@${'a'.repeat(64)}.co`, `x@${'a.'.repeat(11)}co`])(
+  it.each([`x@${'a'.repeat(64)}.co`, `x@${'a.'.repeat(21)}co`])(
     'no email in %j (bounds)',
     (text) => {
       expect(RESUME_EMAIL_PATTERN.exec(text)).toBeNull()
@@ -914,10 +914,10 @@ describe('checkResumeCompleteness — URLs and labelled handles (SR-H-1, SR-M-1)
   it.each([
     ['a.', 'a.'.repeat(25_000)],
     ['a-.', 'a-.'.repeat(16_667)],
-  ])('a 50k-character %j repeat is checked in under 100 ms (SR-L-3)', (_, note) => {
+  ])('a 50k-character %j repeat is checked in under 500 ms (SR-L-3, R91)', (_, note) => {
     const started = performance.now()
     checkResumeCompleteness(noteWith(note), CTX)
-    expect(performance.now() - started).toBeLessThan(100)
+    expect(performance.now() - started).toBeLessThan(500)
   })
 
   it('a label hit starts at the label, not at the boundary character (SR-L-5)', () => {

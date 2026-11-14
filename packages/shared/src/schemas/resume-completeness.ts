@@ -69,59 +69,71 @@ export function findPhoneSpans(text: string): Array<{ start: number; end: number
 }
 
 /**
- * An email address shape: local part with the common punctuation, and a dot TLD. Every run in
- * front of a required token is bounded (local part 64, RFC 5321; host labels 63, at most 10), so
- * a long `a.a.a…` without an `@` costs linear time, not quadratic.
+ * An email address shape: local part with the common punctuation, and a dot TLD of letters or
+ * punycode (`xn--p1ai`). Every run in front of a required token is bounded (local part 64, RFC
+ * 5321; host labels 63, at most 20), so a long `a.a.a…` without an `@` costs linear time, not
+ * quadratic. A longer local part matches only its last 64 characters; the API redaction widens
+ * the span over the rest.
  */
 export const RESUME_EMAIL_PATTERN =
-  /[\p{L}\p{N}._%+-]{1,64}@(?:[\p{L}\p{N}-]{1,63}\.){1,10}\p{L}{2,}/u
+  /[\p{L}\p{N}._%+-]{1,64}@(?:[\p{L}\p{N}-]{1,63}\.){1,20}(?:[Xx][Nn]--[\p{L}\p{N}-]{1,59}|\p{L}{2,})/u
 
 /**
- * A URL: any `scheme://…`, any `www.…`, or `label.tld/path` with any 2–24 letter TLD in any
- * case (`bit.ly/x`, `GitHub.Com/x`), except `js` / `ts` right before the slash
- * (`Express.js/Nest`, `Node.js/Express`). `ASP.NET/Core` reads as a URL, which is accepted. The
- * bare form has no left boundary (`foo_github.com/x` hits). Runs are bounded as in the email
- * pattern (scheme 31, labels 63 × 10), so the scan stays linear. Stateless (no `g`), like the
- * phone pattern.
+ * A URL: any `scheme://…`, any `www.…`, or `label.tld/path` with Unicode labels and any 2–24
+ * letter TLD in any case and script (`bit.ly/x`, `GitHub.Com/x`, `иван.рф/cv`) or a punycode TLD
+ * (`example.xn--p1ai/cv`), except `js` / `ts` right before the slash (`Express.js/Nest`,
+ * `Node.js/Express`). `ASP.NET/Core` reads as a URL, which is accepted. The bare form has no left
+ * boundary (`foo_github.com/x` hits). Runs are bounded as in the email pattern (scheme 31, labels
+ * 63 × 20), so the scan stays linear. Stateless (no `g`), like the phone pattern.
  * shortcut: a bare domain with no path (`johndoe.dev`, `github.com`) is not a URL, because
  * `Socket.io` is a skill; upgrade to a domain allow-list if such leaks show up.
  */
 export const RESUME_URL_PATTERN =
-  /\b(?:[A-Za-z][\w+.-]{0,30}:\/\/\S+|[Ww]{3}\.\S+)|(?:[A-Za-z\d-]{1,63}\.){1,10}(?![Jj][Ss]\/|[Tt][Ss]\/)[A-Za-z]{2,24}\/\S*/u
+  /\b(?:[A-Za-z][\w+.-]{0,30}:\/\/\S+|[Ww]{3}\.\S+)|(?:[\p{L}\p{N}-]{1,63}\.){1,20}(?![Jj][Ss]\/|[Tt][Ss]\/)(?:[Xx][Nn]--[\p{L}\p{N}-]{1,59}|\p{L}{2,24})\/\S*/u
 
 /** `word` in any case without the `i` flag, which would also let `\p{Ll}` match a capital. */
 function anyCase(word: string): string {
   return [...word].map((c) => `[${c.toLowerCase()}${c.toUpperCase()}]`).join('')
 }
 
-const LABEL_HANDLE = String.raw`\s*:\s*@*[A-Za-z]\w{4,}`
+/**
+ * After a label: a colon or an en / em dash, then optional `@`s (`tg: mark_dev`, `tg—mark_dev`);
+ * or nothing / a hyphen, then at least one `@` (`TG @mark_dev`, `Telegram - @mark_dev`), so
+ * `Telegram bots`, `TG integration` and `Telegram-integration` are not handles. Each branch has
+ * one way to split its spaces, so a label followed by a long run of spaces stays linear.
+ */
+const LABEL_HANDLE = String.raw`(?:\s*[:–—]\s*@*|\s*(?:-\s*)?@+)[A-Za-z]\w{4,}`
 
 /**
- * A labelled Telegram handle that need not be the stored one: `tg:`, `telegram:` or `телеграм:`,
- * any case, optional spaces and `@`, then a handle as Telegram allows it (a letter first, 5+
- * characters), so `tg:12345` is not one. `telegram` / `телеграм` may be glued (`MyTelegram:`).
- * The short `tg` must start a word or follow a camel-case join (`PersonalTG:`), so `xtg:` is not
- * one; that prefix stands in for a lookbehind (Safari < 16.4), and group 1 is the `tg` hit
- * without it. A bare `@handle` is not one (`@angular/core`, `@nestjs/common`).
+ * A labelled Telegram handle that need not be the stored one: `tg`, `тг`, `telegram` or
+ * `телеграм`, any case, then `LABEL_HANDLE` and a handle as Telegram allows it (a letter first,
+ * 5+ characters), so `tg:12345` is not one. `telegram` / `телеграм` may be glued (`MyTelegram:`).
+ * The short `tg` / `тг` must start a word or follow a camel-case join (`PersonalTG:`, `моїТГ:`),
+ * so `xtg:` is not one; that prefix stands in for a lookbehind (Safari < 16.4), and group 1 is the
+ * short-label hit without it. A bare `@handle` is not one (`@angular/core`, `@nestjs/common`).
+ * shortcut: a glued all-caps (`MYTG:`) or all-lowercase (`mytg:`) short label is not caught;
+ * upgrade if seen in real resumes.
  */
 export const RESUME_TELEGRAM_LABEL_PATTERN = new RegExp(
-  String.raw`(?:^|[^\p{L}\p{N}]|\p{Ll}(?=T))(${anyCase('tg')}${LABEL_HANDLE})|(?:${anyCase('telegram')}|${anyCase('телеграм')})${LABEL_HANDLE}`,
+  String.raw`(?:^|[^\p{L}\p{N}]|\p{Ll}(?=[TТ]))((?:${anyCase('tg')}|${anyCase('тг')})${LABEL_HANDLE})|(?:${anyCase('telegram')}|${anyCase('телеграм')})${LABEL_HANDLE}`,
   'u',
 )
 
 /**
- * A stored `users.telegram` as Telegram spells the handle: trimmed, without a `tg:` /
- * `telegram:` label, an `http(s)://`, a `www.`, a `t.me/` or `telegram.me/` prefix, or leading
- * `@`s. Empty when nothing is left.
+ * A stored `users.telegram` as Telegram spells the handle: trimmed, without a
+ * `tg://resolve?domain=` link, a `tg:` / `telegram:` label, an `http(s)://`, a `www.`, a `t.me/`
+ * or `telegram.me/` prefix, or leading `@`s, and cut at the first `/`, `?`, `#` or `&`
+ * (`t.me/mark_dev?start=1`). Empty when nothing is left.
  */
 export function normaliseTelegramHandle(stored: string | null | undefined): string | undefined {
-  // No `^` needed: every part is optional, so the first (only replaced) match always starts at 0.
+  // No `^` needed: the second branch is all optional, so the first (only replaced) match starts at 0.
   return stored
     ?.trim()
     .replace(
-      /(?:(?:tg|telegram)\s*:\s*)?(?:https?:\/\/)?(?:www\.)?(?:(?:t|telegram)\.me\/)?@*/i,
+      /(?:tg:\/\/resolve\?domain=|(?:(?:tg|telegram)\s*:\s*)?(?:https?:\/\/)?(?:www\.)?(?:(?:t|telegram)\.me\/)?)@*/i,
       '',
     )
+    .replace(/[/?#&].*/s, '')
 }
 
 const LETTER_PATTERN = /\p{L}/u
