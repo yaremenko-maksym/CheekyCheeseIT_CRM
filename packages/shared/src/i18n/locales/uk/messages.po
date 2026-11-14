@@ -368,10 +368,6 @@ msgstr "Очікує валідації"
 msgid "Записів ще немає."
 msgstr "Записів ще немає."
 
-#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
-msgid "Зміна шаблону чи оформлення скасує цей результат."
-msgstr "Зміна шаблону чи оформлення скасує цей результат."
-
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Не вдалося змінити статус відгуку. Спробуйте ще раз"
 msgstr "Не вдалося змінити статус відгуку. Спробуйте ще раз"
@@ -594,10 +590,6 @@ msgstr "Деталі рахунку"
 #: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Команда дропа"
 msgstr "Команда дропа"
-
-#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
-msgid "Завантажити збережену"
-msgstr "Завантажити збережену"
 
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Частка сеньйора на рівні команди"
@@ -957,6 +949,10 @@ msgstr "Сервіс написання тексту недоступний"
 msgid "Порожня форма фактів. Перевірка запускається, коли все заповнено."
 msgstr "Порожня форма фактів. Перевірка запускається, коли все заповнено."
 
+#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
+msgid "Зміна шаблону чи оформлення скасує результат цієї перевірки."
+msgstr "Зміна шаблону чи оформлення скасує результат цієї перевірки."
+
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Не вдалося оновити signing secret"
 msgstr "Не вдалося оновити signing secret"
@@ -1213,6 +1209,10 @@ msgstr "Перевірка…"
 msgid "Ср"
 msgstr "Ср"
 
+#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+msgid "Зміна фактів скасує результат цієї перевірки."
+msgstr "Зміна фактів скасує результат цієї перевірки."
+
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Аналіз недоступний"
 msgstr "Аналіз недоступний"
@@ -1422,6 +1422,10 @@ msgstr "Незбережені зміни"
 #: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 msgid "Кінець не може бути раніше за початок"
 msgstr "Кінець не може бути раніше за початок"
+
+#: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
+msgid "Перевірка тривала надто довго й зупинилась. Запустіть її ще раз — факти збережено."
+msgstr "Перевірка тривала надто довго й зупинилась. Запустіть її ще раз — факти збережено."
 
 #. placeholder {0}: formatDate(salaryMeta.changedAt, locale, 'long')
 #: apps/web/app/routes/_authenticated/project.tsx
@@ -7932,10 +7936,6 @@ msgstr "Відновити все"
 msgid "Адресу не налаштовано"
 msgstr "Адресу не налаштовано"
 
-#: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
-msgid "Перевірка не відповідала надто довго. Запустіть її ще раз — факти збережено."
-msgstr "Перевірка не відповідала надто довго. Запустіть її ще раз — факти збережено."
-
 #: apps/web/app/routes/_authenticated/team/team-detail/components/TeamNotFound.tsx
 msgid "Команду не знайдено"
 msgstr "Команду не знайдено"
@@ -9892,10 +9892,6 @@ msgstr "Шаблон: {template}"
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Сб"
 msgstr "Сб"
-
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
-msgid "Зміна фактів скасує цей результат."
-msgstr "Зміна фактів скасує цей результат."
 
 #: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
@@ -13281,6 +13277,10 @@ msgstr "Старт"
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Вибрати зображення"
 msgstr "Вибрати зображення"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Завантажити збережену версію"
+msgstr "Завантажити збережену версію"
 
 #: apps/web/app/components/users/AccountantChipField.tsx
 msgid "Бухгалтерів ще немає — спершу додайте бухгалтера"

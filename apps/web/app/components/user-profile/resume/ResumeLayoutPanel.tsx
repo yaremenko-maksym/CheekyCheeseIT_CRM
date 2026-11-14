@@ -182,7 +182,7 @@ export function ResumeLayoutPanel({
           className="mb-4 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400"
         >
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" aria-hidden />
-          <Trans>Зміна шаблону чи оформлення скасує цей результат.</Trans>
+          <Trans>Зміна шаблону чи оформлення скасує результат цієї перевірки.</Trans>
         </p>
       )}
       {/* Spec §11: a viewer who cannot edit gets no picker. */}

@@ -422,13 +422,13 @@ describe('ResumeTab — the confirm step (Task 19)', () => {
     fireEvent.change(screen.getByLabelText('Цільова посада'), {
       target: { value: 'Staff Engineer' },
     })
-    expect(screen.getByText('Зміна фактів скасує цей результат.')).toBeInTheDocument()
+    expect(screen.getByText('Зміна фактів скасує результат цієї перевірки.')).toBeInTheDocument()
     fireEvent.click(toggle)
     // Collapsed: the amber warning goes with the form, the draft does not.
-    expect(screen.queryByText('Зміна фактів скасує цей результат.')).toBeNull()
+    expect(screen.queryByText('Зміна фактів скасує результат цієї перевірки.')).toBeNull()
     fireEvent.click(toggle)
     expect(screen.getByLabelText('Цільова посада')).toHaveValue('Staff Engineer')
-    expect(screen.getByText('Зміна фактів скасує цей результат.')).toBeInTheDocument()
+    expect(screen.getByText('Зміна фактів скасує результат цієї перевірки.')).toBeInTheDocument()
   })
 
   it('Edit and Regenerate are disabled while Change the facts is open', async () => {

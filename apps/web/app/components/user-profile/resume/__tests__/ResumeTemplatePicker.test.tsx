@@ -316,7 +316,7 @@ describe('review fixes (fix round 1)', () => {
     renderTab()
     const panel = await screen.findByTestId('resume-layout-panel')
     expect(
-      within(panel).getByText('Зміна шаблону чи оформлення скасує цей результат.'),
+      within(panel).getByText('Зміна шаблону чи оформлення скасує результат цієї перевірки.'),
     ).toBeInTheDocument()
     // Picking stays allowed.
     expect(screen.getByRole('radio', { name: 'Сучасний' })).not.toHaveAttribute(
@@ -329,7 +329,9 @@ describe('review fixes (fix round 1)', () => {
     serve(makeResponse())
     renderTab()
     await screen.findByTestId('resume-template-picker')
-    expect(screen.queryByText('Зміна шаблону чи оформлення скасує цей результат.')).toBeNull()
+    expect(
+      screen.queryByText('Зміна шаблону чи оформлення скасує результат цієї перевірки.'),
+    ).toBeNull()
   })
 
   it('focus stays on the picked tile while the template run is busy', async () => {

@@ -488,7 +488,9 @@ describe('review fixes 3', () => {
   it('the staged warning also covers a layout change', () => {
     render(panel({ staged: true }))
     const warning = screen.getByTestId('resume-template-discards-staged')
-    expect(warning).toHaveTextContent('Зміна шаблону чи оформлення скасує цей результат.')
+    expect(warning).toHaveTextContent(
+      'Зміна шаблону чи оформлення скасує результат цієї перевірки.',
+    )
     // One line for the whole panel, not inside the picker.
     expect(screen.getByTestId('resume-template-picker')).not.toContainElement(warning)
     expect(screen.getByTestId('resume-layout-panel')).toContainElement(warning)

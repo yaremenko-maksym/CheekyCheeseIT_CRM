@@ -281,7 +281,7 @@ describe('ResumeFactsForm', () => {
     expect(line).toHaveTextContent('Збережена версія змінилася.')
     expect(screen.getByLabelText('Цільова посада')).toHaveValue('Typed')
 
-    fireEvent.click(within(line).getByRole('button', { name: 'Завантажити збережену' }))
+    fireEvent.click(within(line).getByRole('button', { name: 'Завантажити збережену версію' }))
     expect(screen.getByLabelText('Цільова посада')).toHaveValue('Server')
     expect(screen.queryByTestId('resume-facts-server-changed')).not.toBeInTheDocument()
   })

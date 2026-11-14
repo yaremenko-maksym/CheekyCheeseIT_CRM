@@ -368,10 +368,6 @@ msgstr "Awaiting validation"
 msgid "Записів ще немає."
 msgstr "No entries yet."
 
-#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
-msgid "Зміна шаблону чи оформлення скасує цей результат."
-msgstr "Changing the template or formatting discards this result."
-
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Не вдалося змінити статус відгуку. Спробуйте ще раз"
 msgstr "Could not change the application status. Try again"
@@ -594,10 +590,6 @@ msgstr "Invoice details"
 #: apps/web/app/routes/_authenticated/team/team-detail/components/TeamDetailHeader.tsx
 msgid "Команда дропа"
 msgstr "Drop's team"
-
-#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
-msgid "Завантажити збережену"
-msgstr "Load the saved version"
 
 #: apps/web/app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx
 msgid "Частка сеньйора на рівні команди"
@@ -957,6 +949,10 @@ msgstr "The writing service is unavailable"
 msgid "Порожня форма фактів. Перевірка запускається, коли все заповнено."
 msgstr "An empty facts form. Checking starts once everything is filled in."
 
+#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
+msgid "Зміна шаблону чи оформлення скасує результат цієї перевірки."
+msgstr "Changing the template or the layout discards the result of this check."
+
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Не вдалося оновити signing secret"
 msgstr "Couldn't update the signing secret"
@@ -1213,6 +1209,10 @@ msgstr "Checking…"
 msgid "Ср"
 msgstr "Wed"
 
+#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+msgid "Зміна фактів скасує результат цієї перевірки."
+msgstr "Changing the facts discards the result of this check."
+
 #: apps/web/app/routes/_authenticated/interviews/components/RecordingDetailDialog.tsx
 msgid "Аналіз недоступний"
 msgstr "Analysis unavailable"
@@ -1422,6 +1422,10 @@ msgstr "Unsaved changes"
 #: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 msgid "Кінець не може бути раніше за початок"
 msgstr "The end cannot be before the start"
+
+#: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
+msgid "Перевірка тривала надто довго й зупинилась. Запустіть її ще раз — факти збережено."
+msgstr "The check ran too long and stopped. Start it again — the facts are saved."
 
 #. placeholder {0}: formatDate(salaryMeta.changedAt, locale, 'long')
 #: apps/web/app/routes/_authenticated/project.tsx
@@ -7932,10 +7936,6 @@ msgstr "Restore all"
 msgid "Адресу не налаштовано"
 msgstr "Address not configured"
 
-#: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
-msgid "Перевірка не відповідала надто довго. Запустіть її ще раз — факти збережено."
-msgstr "The check did not respond for too long. Start it again — the facts are saved."
-
 #: apps/web/app/routes/_authenticated/team/team-detail/components/TeamNotFound.tsx
 msgid "Команду не знайдено"
 msgstr "Team not found"
@@ -9892,10 +9892,6 @@ msgstr "Template: {template}"
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Сб"
 msgstr "Sat"
-
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
-msgid "Зміна фактів скасує цей результат."
-msgstr "Changing the facts discards this result."
 
 #: apps/web/app/components/user-profile/resume/ResumeCompletenessPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
@@ -13281,6 +13277,10 @@ msgstr "Start"
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Вибрати зображення"
 msgstr "Choose an image"
+
+#: apps/web/app/components/user-profile/resume/ResumeFactsForm.tsx
+msgid "Завантажити збережену версію"
+msgstr "Load the saved version"
 
 #: apps/web/app/components/users/AccountantChipField.tsx
 msgid "Бухгалтерів ще немає — спершу додайте бухгалтера"

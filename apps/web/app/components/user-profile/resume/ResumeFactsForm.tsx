@@ -316,7 +316,7 @@ export function ResumeFactsForm({
                 setServerChanged(false)
               }}
             >
-              <Trans>Завантажити збережену</Trans>
+              <Trans>Завантажити збережену версію</Trans>
             </Button>
           </div>
         )}

@@ -388,7 +388,7 @@ export function ResumeTab({ userId, displayName, telegram, onDirtyChange }: Resu
 
       {canEdit && changingFacts && isDirty && (
         <p className="text-sm text-amber-700 dark:text-amber-400" role="status">
-          <Trans>Зміна фактів скасує цей результат.</Trans>
+          <Trans>Зміна фактів скасує результат цієї перевірки.</Trans>
         </p>
       )}
 
