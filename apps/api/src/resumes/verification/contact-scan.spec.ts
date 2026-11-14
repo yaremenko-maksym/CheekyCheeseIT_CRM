@@ -388,9 +388,9 @@ describe('the Telegram handle of the senior', () => {
     ])
   })
 
-  it('keeps an @ inside a stored handle: mark@dev hits mark@dev, not markdev (CR-L-4)', () => {
+  it('a stored mark@dev is no Telegram username, so it adds no handle hit (SR3-L-2, was CR-L-4)', () => {
     const stored = { ...ctx, telegram: 'mark@dev' }
-    expect(scanContacts('ping mark@dev', stored)).toEqual([{ kind: 'telegram', match: 'mark@dev' }])
+    expect(scanContacts('ping mark@dev', stored)).toEqual([])
     expect(scanContacts('ping markdev', stored)).toEqual([])
   })
 
@@ -575,6 +575,62 @@ describe('fix round 3: Unicode hosts, unlabelled handles, handle links, bounds',
   it('a 10k-character Cyrillic host repeat is redacted in under 500 ms (R91)', () => {
     const started = performance.now()
     redactContacts('пример.'.repeat(1_429), ctx)
+    expect(performance.now() - started).toBeLessThan(500)
+  })
+})
+
+describe('fix round 4: label-boundary URLs and emails, label separators, handle links', () => {
+  it.each([
+    ['see foo_github.com/x now', 'see foo_[REDACTED] now', 'github.com/x'],
+    ['(sub.domain.io/a, b)', '([REDACTED] b)', 'sub.domain.io/a,'],
+    ['mail:ivan@example.io now', 'mail:[REDACTED] now', 'ivan@example.io'],
+  ])('redacts only the group-1 hit in %j (SR3-M-1)', (text, redacted, match) => {
+    expect(redactContacts(text, [])).toBe(redacted)
+    expect(scanContacts(text, ctx).map((h) => h.match)).toEqual([match])
+  })
+
+  it('600 notes of 500 Cyrillic characters in 63-letter labels are redacted in under 500 ms (SR3-M-1)', () => {
+    const note = `${'п'.repeat(63)}.`.repeat(8).slice(0, 500)
+    const started = performance.now()
+    for (let i = 0; i < 600; i++) redactContacts(note, ctx)
+    expect(performance.now() - started).toBeLessThan(500)
+  })
+
+  it.each([
+    'Telegram：mark_dev',
+    'tg‐mark_dev',
+    'tg‒mark_dev',
+    'tg ― mark_dev',
+    'Telegram − @mark_dev',
+    'Telegram:@ mark_dev',
+    'Телеграмм: mark_dev',
+  ])('redacts the labelled handle %j (SR3-L-1)', (label) => {
+    expect(redactContacts(`Acme (${label})`, [])).toBe('Acme ([REDACTED])')
+  })
+
+  it.each(['Telegram (@mark_dev)', 'Telegram | @mark_dev', 'Telegram.@mark_dev', 'tg/@mark_dev'])(
+    'leaves the punctuation-wrapped label %j to the stored-handle check (SR3-L-1 shortcut)',
+    (text) => {
+      expect(redactContacts(text, [])).toBe(text)
+    },
+  )
+
+  it('a stored t.me/s/ link redacts the handle, not the word s (SR3-L-2)', () => {
+    const stored = { ...ctx, telegram: 't.me/s/mark_dev' }
+    expect(redactContacts('Acme (ask mark_dev)', stored)).toBe('Acme (ask [REDACTED])')
+    expect(redactContacts('Built 5 s services', stored)).toBe('Built 5 s services')
+  })
+
+  it.each(['t.me/joinchat/AbCdEf', 't.me/s'])(
+    'a stored %j adds no handle hit (SR3-L-2)',
+    (telegram) => {
+      expect(scanContacts('ping AbCdEf joinchat s', { ...ctx, telegram })).toEqual([])
+    },
+  )
+
+  it('50k spaces are redacted in under 500 ms (SR3-L-3)', () => {
+    const started = performance.now()
+    redactContacts(' '.repeat(50_000), ctx)
     expect(performance.now() - started).toBeLessThan(500)
   })
 })

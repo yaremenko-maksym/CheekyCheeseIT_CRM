@@ -154,22 +154,16 @@ function contactPatterns(ctx: ContactContext): [ContactHit['kind'], RegExp][] {
   ]
 }
 
-/** An email local-part character, as in `RESUME_EMAIL_PATTERN`. */
-const LOCAL_PART_CHAR = /[\p{L}\p{N}._%+-]/u
-
 /** Every raw hit on the NFC text, sorted by start, longer first on a tie. */
 function findSpans(text: string, ctx: ContactContext): Span[] {
   const plain = text.replace(APOSTROPHES, "'")
   const spans: Span[] = []
   for (const [kind, pattern] of contactPatterns(ctx)) {
     for (const m of plain.matchAll(pattern)) {
-      // The label pattern consumes one boundary character in front; its group 1 is the hit.
+      // The email, bare-URL and label patterns consume one boundary character in front; their
+      // group 1 is the hit.
       const end = m.index + m[0].length
-      let start = end - (m[1] ?? m[0]).length
-      // The pattern bounds the local part at 64; widen over the rest of a longer one. `charAt(-1)`
-      // is '', so the loop stops at the text start without a bound check.
-      if (kind === 'email') while (LOCAL_PART_CHAR.test(plain.charAt(start - 1))) start--
-      spans.push({ kind, start, end })
+      spans.push({ kind, start: end - (m[1] ?? m[0]).length, end })
     }
   }
   for (const span of findPhoneSpans(plain)) spans.push({ kind: 'phone', ...span })
