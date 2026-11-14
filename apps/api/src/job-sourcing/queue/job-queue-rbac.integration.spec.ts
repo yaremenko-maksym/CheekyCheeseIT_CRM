@@ -907,6 +907,16 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(card.raw).not.toContain(`${TAG}-k`)
     })
 
+    it('the triage grant inputs are ADMIN only: an HR card carries neither, with or without its teamId (SR-M-2)', async () => {
+      for (const url of [`/${id('oppOnlyA')}`, `/${id('oppOnlyA')}?teamId=${id('teamA')}`]) {
+        const card = await get(url, 'hrA')
+        expect(card.status, url).toBe(200)
+        expect(card.json, url).not.toHaveProperty('triagePolicyVersion')
+        expect(card.json, url).not.toHaveProperty('triageGrantable')
+        expect(card.raw, url).not.toContain('triage')
+      }
+    })
+
     it('foreign HR, no-team HR and a foreign teamId: the same 404 as a missing opportunity', async () => {
       for (const url of [
         `/${id('oppOnlyA')}`,
