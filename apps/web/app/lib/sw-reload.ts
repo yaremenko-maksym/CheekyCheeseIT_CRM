@@ -18,6 +18,12 @@ export interface SWReloadOptions {
   alreadyReloading: boolean
   /** true if the tab is currently visible; a reload must not interrupt use. */
   pageVisible: boolean
+  /**
+   * true while a dialog is open or a write request (upload, mutation) is in
+   * flight. The iOS photo picker / camera hides the page; reloading then would
+   * wipe the form the user is filling (task-ios-file-input-freeze).
+   */
+  userBusy?: boolean
 }
 
 /**
@@ -28,6 +34,7 @@ export interface SWReloadOptions {
  *     no reload needed.
  *   - A reload is already in progress: do not duplicate it.
  *   - The page is visible: do not reload (defer until the tab is hidden).
+ *   - The user is busy (open dialog / write in flight): defer to a later hide.
  *   - Otherwise: reload.
  *
  * Pure (deterministic) function without side effects; DOM / window live in client.tsx.
@@ -36,9 +43,30 @@ export function shouldReloadOnControllerChange({
   hadControllerAtLoad,
   alreadyReloading,
   pageVisible,
+  userBusy = false,
 }: SWReloadOptions): boolean {
   if (!hadControllerAtLoad) return false
   if (alreadyReloading) return false
   if (pageVisible) return false
+  if (userBusy) return false
   return true
+}
+
+/**
+ * Polls for a redeploy every `intervalMs` and re-checks a deferred reload on
+ * each tick. `controllerchange` / `visibilitychange` alone miss the case where
+ * the write settles or the dialog closes while the tab is already hidden — no
+ * event fires after that, so the tick is what finally reloads it.
+ */
+export function pollForUpdates(
+  registration: Pick<ServiceWorkerRegistration, 'update'>,
+  onTick: () => void,
+  intervalMs = 60_000,
+): ReturnType<typeof setInterval> {
+  return setInterval(() => {
+    registration.update().catch(() => {
+      // update() can fail offline — ignore it.
+    })
+    onTick()
+  }, intervalMs)
 }

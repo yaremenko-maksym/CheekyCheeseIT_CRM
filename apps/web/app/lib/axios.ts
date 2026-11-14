@@ -1,4 +1,4 @@
-import axios from 'axios'
+import axios, { getAdapter, type AxiosAdapter } from 'axios'
 import { getUserFacingErrorMessage, stripQueryString } from './axios-utils'
 
 // Dot access — hotfix (task-telemetry-env-gate): `import.meta.env['VITE_API_URL']`
@@ -12,6 +12,36 @@ export const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+})
+
+// Write requests (uploads, mutations) still in flight — read by the deferred
+// SW reload in client.tsx so a redeploy never reloads mid-upload.
+let pendingWrites = 0
+export const pendingWriteCount = (): number => pendingWrites
+const isWrite = (method: string | undefined) =>
+  !!method && !['get', 'head', 'options'].includes(method.toLowerCase())
+
+// Counted around the adapter, not in the interceptors: the adapter's own
+// `finally` releases each write exactly once whatever the error looks like.
+// A write that fails before the adapter (a throwing transformRequest) never
+// left the browser, so it is never counted.
+const counted = new WeakSet<AxiosAdapter>()
+api.interceptors.request.use((config) => {
+  if (!isWrite(config.method)) return config
+  if (counted.has(config.adapter as AxiosAdapter)) return config // a retry; has() is false for a name or list
+  const inner = config.adapter
+  const wrapper: AxiosAdapter = async (c) => {
+    pendingWrites++
+    try {
+      // The runtime takes the config too (the fetch adapter is built per config); the .d.ts omits it.
+      return await (getAdapter as (a: typeof inner, c: unknown) => AxiosAdapter)(inner, c)(c)
+    } finally {
+      pendingWrites--
+    }
+  }
+  counted.add(wrapper)
+  config.adapter = wrapper
+  return config
 })
 
 api.interceptors.response.use(

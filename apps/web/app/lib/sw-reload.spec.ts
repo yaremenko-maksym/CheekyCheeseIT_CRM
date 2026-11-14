@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { shouldReloadOnControllerChange } from './sw-reload'
+import { describe, expect, it, vi } from 'vitest'
+import { pollForUpdates, shouldReloadOnControllerChange } from './sw-reload'
 
 describe('shouldReloadOnControllerChange', () => {
   it('returns false on first-ever SW install (no controller at load)', () => {
@@ -50,5 +50,55 @@ describe('shouldReloadOnControllerChange', () => {
         pageVisible: true,
       }),
     ).toBe(false)
+  })
+
+  // task-ios-file-input-freeze: the iOS photo picker / camera hides and
+  // re-shows the page. A pending SW update must not reload (and wipe) a form
+  // that is open or an upload that is still in flight at that moment.
+  it('returns false on a hidden page while the user is busy (open dialog / write in flight)', () => {
+    expect(
+      shouldReloadOnControllerChange({
+        hadControllerAtLoad: true,
+        alreadyReloading: false,
+        pageVisible: false,
+        userBusy: true,
+      }),
+    ).toBe(false)
+  })
+
+  it('reloads on a hidden page once the user is no longer busy', () => {
+    expect(
+      shouldReloadOnControllerChange({
+        hadControllerAtLoad: true,
+        alreadyReloading: false,
+        pageVisible: false,
+        userBusy: false,
+      }),
+    ).toBe(true)
+  })
+})
+
+describe('pollForUpdates', () => {
+  it('checks for an update AND re-runs the deferred reload on every tick', async () => {
+    vi.useFakeTimers()
+    try {
+      const update = vi.fn().mockRejectedValue(new Error('offline'))
+      const onTick = vi.fn()
+      const id = pollForUpdates({ update }, onTick, 60_000)
+
+      await vi.advanceTimersByTimeAsync(59_999)
+      expect(update).not.toHaveBeenCalled()
+      expect(onTick).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(1)
+      expect(update).toHaveBeenCalledTimes(1)
+      expect(onTick).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(onTick).toHaveBeenCalledTimes(2)
+      clearInterval(id)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
