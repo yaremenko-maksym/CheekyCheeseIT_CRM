@@ -17,6 +17,7 @@ import {
   type CrmAppSession,
   openCrmAppSession,
 } from '../../database/__test-helpers__/crm-app-session'
+import { untilBlocked } from '../../test/record-store-fixtures'
 import { DatabaseService } from '../../database/database.service'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ZodExceptionFilter } from '../../zod-exception.filter'
@@ -176,9 +177,9 @@ async function mkOpp(key: string, o: { dup?: boolean; description?: string } = {
   )
 }
 /** A LEAD match stamped with the senior's live versions: what makes it visible to their teams. */
-function lead(opp: string, senior: string) {
+function lead(opp: string, senior: string, q: typeof sqlq = sqlq) {
   const v = live.get(id(senior)) as SeniorVersions
-  return sqlq(
+  return q(
     `INSERT INTO job_opportunity_matches
        (opportunity_id, senior_id, opportunity_revision, senior_profile_version,
         exclusion_version, rule_version, outcome, evidence)
@@ -530,11 +531,12 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
     expiresAt: inADay(),
     idempotencyKey: randomUUID(),
   })
-  const subscribeBody = (team: string, roleFamily: string) => ({
+  // SR-M-1: an ADMIN subscription that must pass sends the card's `triagePolicyVersion` too.
+  const subscribeBody = (team: string, roleFamily: string, policyVersion = 1) => ({
     teamId: id(team),
     roleFamily,
     sourceTypes: ['GREENHOUSE_ATS'],
-    policyVersion: 1,
+    policyVersion,
     expiresAt: inADay(),
     reason: `${TAG} subscribe`,
     idempotencyKey: randomUUID(),
@@ -636,6 +638,13 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
         ['POST', '/team-triage-subscriptions', subscribeBody('teamA', 'UNKNOWN')],
         ['POST', '/team-triage-subscriptions', subscribeBody('teamA', 'software')],
         ['POST', '/team-triage-subscriptions', { ...subscribeBody('teamA', 'DATA'), reason: '' }],
+        // SR-M-1: the same 90-day ceiling, and a real policy version
+        [
+          'POST',
+          '/team-triage-subscriptions',
+          { ...subscribeBody('teamA', 'DATA'), expiresAt: inDays(91) },
+        ],
+        ['POST', '/team-triage-subscriptions', subscribeBody('teamA', 'DATA', 0)],
       ]
       for (const [method, url, body] of refused) {
         expect((await call(method, url, 'admin', body)).status, `${method} ${url}`).toBe(400)
@@ -1708,6 +1717,63 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(excluded.json['code']).toBe('JOB_QUEUE_TRIAGE_NOT_ELIGIBLE')
       expect(await triageActions('teamG')).toEqual([])
       expect(await triageRows()).toEqual([])
+      // CR-M-1: the card says so before anyone tries
+      for (const opp of ['oppOnlyA', 'oppExcluded']) {
+        expect((await get(`/${id(opp)}`, 'admin')).json['triageGrantable'], opp).toBe(false)
+      }
+      expect((await get(`/${id('oppGrant')}`, 'admin')).json['triageGrantable']).toBe(true)
+    })
+
+    it('SR-L-1: a live LEAD committed while the grant waits for the row lock is still refused', async () => {
+      await mkOpp('oppRace')
+      const policy = await cardPolicy('oppRace')
+      expect((await get(`/${id('oppRace')}`, 'admin')).json['triageGrantable']).toBe(true)
+      const holder = await session.admin.connect()
+      try {
+        await holder.query('BEGIN')
+        // what the recompute worker holds while it installs matches (recompute-worker.ts)
+        await holder.query('SELECT 1 FROM job_opportunities WHERE id = $1 FOR NO KEY UPDATE', [
+          id('oppRace'),
+        ])
+        await lead('oppRace', 'senA', (text, params) => holder.query(text, params))
+        const grant = post(`/${id('oppRace')}/team-triage`, 'admin', grantBody('teamG', 1, policy))
+        await untilBlocked(session.admin)
+        await holder.query('COMMIT')
+        const a = await grant
+        expect(a.status).toBe(422)
+        expect(a.json['code']).toBe('JOB_QUEUE_TRIAGE_NOT_ELIGIBLE')
+      } finally {
+        await holder.query('ROLLBACK').catch(() => undefined)
+        holder.release()
+      }
+      expect(await triageActions('teamG')).toEqual([])
+      expect(await triageRows()).toEqual([])
+    })
+
+    it('the 90-day ceiling is a 400 naming its code, on grant and subscribe, and writes nothing (SR-M-1)', async () => {
+      const policy = await cardPolicy('oppGrant')
+      const refused = [
+        await post(`/${id('oppGrant')}/team-triage`, 'admin', {
+          ...grantBody('teamG', 1, policy),
+          expiresAt: inDays(91),
+        }),
+        await post('/team-triage-subscriptions', 'admin', {
+          ...subscribeBody('teamT', 'DATA', policy),
+          expiresAt: inDays(91),
+        }),
+      ]
+      for (const a of refused) {
+        expect(a.status).toBe(400)
+        expect(a.json['errors']).toEqual([
+          {
+            path: 'expiresAt',
+            code: 'TRIAGE_EXPIRY_BEYOND_CEILING',
+            message: 'Access lasts at most 90 days — choose an earlier date',
+          },
+        ])
+      }
+      expect(await triageActions('teamG')).toEqual([])
+      expect(await triageActions('teamT')).toEqual([])
     })
 
     it('grant: 201 with the grant, one audit row, and the team generation retired', async () => {
@@ -1851,15 +1917,32 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(await inAnyTab('hrG', 'oppGrant')).toBe(false)
     })
 
+    it('subscribe: a stale policy version is a 409 and writes nothing (SR-M-1)', async () => {
+      const read = await cardPolicy('oppTriageSub')
+      const a = await post(
+        '/team-triage-subscriptions',
+        'admin',
+        subscribeBody('teamT', 'DATA', read === 1 ? 2 : 1),
+      )
+      expect(a.status).toBe(409)
+      expect(a.json['code']).toBe(VERSION_CONFLICT)
+      expect(await triageActions('teamT')).toEqual([])
+    })
+
     it('subscribe: 201, audited by subscription, and the matching family shows to the team', async () => {
       await hiddenFrom('hrT', 'oppTriageSub')
-      const a = await post('/team-triage-subscriptions', 'admin', subscribeBody('teamT', 'DATA'))
+      const policy = await cardPolicy('oppTriageSub')
+      const a = await post(
+        '/team-triage-subscriptions',
+        'admin',
+        subscribeBody('teamT', 'DATA', policy),
+      )
       expect(a.status).toBe(201)
       expect(a.json).toMatchObject({
         teamId: id('teamT'),
         roleFamily: 'DATA',
         sourceTypes: ['GREENHOUSE_ATS'],
-        policyVersion: 1,
+        policyVersion: policy,
         subscriptionVersion: 1,
         revokedAt: null,
       })
@@ -1879,6 +1962,11 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(await inAnyTab('hrT', 'oppTriageSub')).toBe(true)
       expect((await get(`/${id('oppTriageSub')}`, 'hrT')).status).toBe(200)
       await hiddenFrom('hrG', 'oppTriageSub')
+      // SPEC-H-1: an ADMIN in that team's queue gets the studio grant inputs on the card
+      const viaTeam = await get(`/${id('oppTriageSub')}?teamId=${id('teamT')}`, 'admin')
+      expect(viaTeam.status).toBe(200)
+      expect(viaTeam.json['triagePolicyVersion']).toBe(await cardPolicy('oppTriageSub'))
+      expect(viaTeam.json['triageGrantable']).toBe(true)
     })
 
     it('unsubscribe: a stale version is a 409; the current one revokes, audited, and hides it', async () => {
@@ -1931,19 +2019,19 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       const first = await post(
         '/team-triage-subscriptions',
         'admin',
-        subscribeBody('teamT', 'DATA'),
+        subscribeBody('teamT', 'DATA', await cardPolicy('oppTriageSub')),
       )
       expect(first.status).toBe(201)
       expect(first.json).toMatchObject({ roleFamily: 'DATA', sourceTypes: ['GREENHOUSE_ATS'] })
       const twin = await post('/team-triage-subscriptions', 'admin', {
-        ...subscribeBody('teamT', 'DATA'),
+        ...subscribeBody('teamT', 'DATA', await cardPolicy('oppTriageSub')),
         sourceTypes: ['GREENHOUSE_ATS', 'GREENHOUSE_ATS'],
       })
       expect(twin.status).toBe(409)
       expect(twin.json['code']).toBe(VERSION_CONFLICT)
       expect(await triageActions('teamT')).toHaveLength(3)
       const wider = await post('/team-triage-subscriptions', 'admin', {
-        ...subscribeBody('teamT', 'DATA'),
+        ...subscribeBody('teamT', 'DATA', await cardPolicy('oppTriageSub')),
         sourceTypes: [],
       })
       expect(wider.status).toBe(201)
