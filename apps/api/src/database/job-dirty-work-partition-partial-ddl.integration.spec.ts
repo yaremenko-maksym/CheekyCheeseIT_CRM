@@ -54,6 +54,22 @@ async function applyFile(): Promise<void> {
     await client.query(statement)
 }
 
+/** The file's two `DO` blocks: the INVALID-leftover sweep and the closing check (CR-M-1). */
+function doBlocks(): { sweep: string; finalCheck: string } {
+  const blocks = readFileSync(FILE, 'utf8').match(/DO \$\$\nDECLARE[\s\S]*?\nEND \$\$;/g)
+  if (blocks?.length !== 2) throw new Error(`expected 2 DO blocks, found ${blocks?.length ?? 0}`)
+  return { sweep: blocks[0]!, finalCheck: blocks[1]! }
+}
+
+/** Marks an index INVALID — the state an interrupted CONCURRENTLY build leaves behind. */
+async function invalidate(index: string): Promise<void> {
+  await client.query(
+    `UPDATE pg_index SET indisvalid = false
+      WHERE indexrelid = format('%I.%I', $1::text, $2::text)::regclass`,
+    [SCHEMA, index],
+  )
+}
+
 /** The indexes this file adds, read from one schema and schema-normalised for comparison. */
 async function addedIndexes(schema: string) {
   const { rows } = await client.query(
@@ -147,6 +163,32 @@ describe.skipIf(!hasDatabaseUrl())(
 
     it('a second apply changes nothing (IF NOT EXISTS)', async () => {
       const before = await addedIndexes(SCHEMA)
+      await applyFile()
+      expect(await addedIndexes(SCHEMA)).toEqual(before)
+    })
+
+    it('the next apply sweeps an INVALID leftover and rebuilds it (CR-M-1)', async () => {
+      const before = await addedIndexes(SCHEMA)
+      await invalidate(INDEX.MATCH)
+      const broken = await addedIndexes(SCHEMA)
+      expect(broken.find((r) => r.name === INDEX.MATCH)?.valid).toBe(false)
+      // Without the sweep, `IF NOT EXISTS` sees the name, skips, and the file exits 0.
+      await applyFile()
+      expect(await addedIndexes(SCHEMA)).toEqual(before)
+    })
+
+    it('the closing check refuses an INVALID or a missing index (CR-M-1)', async () => {
+      const before = await addedIndexes(SCHEMA)
+      const { finalCheck } = doBlocks()
+      await client.query(finalCheck)
+      await invalidate(INDEX.AVAILABILITY)
+      await expect(client.query(finalCheck)).rejects.toThrow(
+        /idx_job_dirty_work_pending_availability is INVALID/,
+      )
+      await client.query(`DROP INDEX ${SCHEMA}.${INDEX.AVAILABILITY}`)
+      await expect(client.query(finalCheck)).rejects.toThrow(
+        /idx_job_dirty_work_pending_availability is MISSING/,
+      )
       await applyFile()
       expect(await addedIndexes(SCHEMA)).toEqual(before)
     })
