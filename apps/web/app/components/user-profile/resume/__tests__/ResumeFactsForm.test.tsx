@@ -130,6 +130,32 @@ describe('ResumeFactsForm', () => {
     expect(url).toHaveAccessibleDescription('Вкажіть назву й адресу https:// або mailto:')
   })
 
+  it('an out-of-range start year shows its error text after blur (QF4-1)', () => {
+    render(<Wired facts={COMPLETE} />, { wrapper: Providers })
+    fireEvent.click(screen.getByRole('button', { name: 'Додати освіту' }))
+    const start = screen.getByLabelText('Рік початку, освіта 1')
+    fireEvent.change(start, { target: { value: '1949' } })
+    fireEvent.blur(start)
+    expect(start).toHaveAttribute('aria-invalid', 'true')
+    expect(start).toHaveAccessibleDescription('Рік має бути між 1950 і 2100')
+  })
+
+  it('a failed save is not an echo: the same payload from outside is announced (QF4-5)', async () => {
+    putMock.mockRejectedValueOnce(new Error('network'))
+    const { rerender } = render(<Wired facts={EMPTY_RESUME_FACTS} />, { wrapper: Providers })
+    const headline = screen.getByLabelText('Цільова посада')
+    fireEvent.change(headline, { target: { value: 'Sent' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Зберегти чернетку' }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Зберегти чернетку' })).toBeEnabled(),
+    )
+    fireEvent.change(headline, { target: { value: 'Sent and more' } })
+
+    rerender(<Wired facts={{ ...EMPTY_RESUME_FACTS, headline: 'Sent' }} />)
+    expect(screen.getByTestId('resume-facts-server-changed')).toBeInTheDocument()
+    expect(headline).toHaveValue('Sent and more')
+  })
+
   it('409 from save shows "a check is running" and keeps the form values', async () => {
     putMock.mockRejectedValueOnce({
       isAxiosError: true,

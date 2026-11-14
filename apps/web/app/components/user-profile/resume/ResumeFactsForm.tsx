@@ -197,6 +197,8 @@ export function ResumeFactsForm({
       await action()
     } catch {
       // The hook already toasted the catalog text and refetched; the draft stays.
+      // A refused payload has no echo coming, so a later equal value is someone else's.
+      setSent(null)
     } finally {
       setPending(null)
     }
@@ -507,6 +509,7 @@ export function ResumeFactsForm({
                           onChange={(e) => set({ startYear: year(e.target.value) })}
                           name="resumeFactsEducationStartYear"
                         />
+                        {fieldError(`${base}.startYear`)}
                       </div>
                       <div className="space-y-1.5">
                         <Label htmlFor={factsFieldId(`${base}.endYear`)}>

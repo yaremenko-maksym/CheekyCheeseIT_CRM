@@ -282,8 +282,9 @@ export function ResumeVerificationFailure({
   )
 }
 
-/** Codes whose body points at "the fields in the list" (ATS / glyph / visual gates). */
+/** Codes whose body points at "the fields in the list" (incomplete facts, ATS / glyph / visual gates). */
 const LIST_CODES: ReadonlySet<ResumeVerificationErrorCode> = new Set([
+  'INCOMPLETE',
   'ATS_CHECK_FAILED',
   'GLYPH_CHECK_FAILED',
   'VISUAL_CHECK_FAILED',

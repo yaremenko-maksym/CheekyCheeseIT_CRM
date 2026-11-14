@@ -590,6 +590,9 @@ the field. `END_BEFORE_START` also fires on `education.<i>.endYear`; the same te
 | `LINK_INVALID`     | Вкажіть назву й адресу https:// або mailto:                                             | Enter a label and an https:// or mailto: address                                |
 | `YEAR_INVALID`     | Рік має бути між 1950 і 2100                                                            | The year must be between 1950 and 2100                                          |
 
+`LINK_INVALID` refuses what `resumeLinkSchema` refuses (url length and scheme, label length), plus a blank
+label: that one is deliberately stricter than the server (R66), since a link needs a name on the page.
+
 ### 10.5 Gate reason codes (`verificationReport.gates[].items[].reason`)
 
 Second line of a failure-panel row. Read from the producers on the branch: the content gates

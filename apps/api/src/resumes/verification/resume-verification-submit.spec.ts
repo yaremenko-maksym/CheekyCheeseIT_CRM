@@ -174,6 +174,25 @@ describe('ResumeVerificationService.submit', () => {
     expect(runner.run).not.toHaveBeenCalled()
   })
 
+  it.each([
+    [
+      'a link the server would refuse (LINK_INVALID)',
+      { links: [{ label: 'Site', url: 'http://x.com' }] },
+    ],
+    [
+      'an education year out of range (YEAR_INVALID)',
+      { education: [{ ...FACTS.education[0]!, startYear: 1949 }] },
+    ],
+  ])('%s is 422 RESUME_INCOMPLETE and starts nothing', async (_label, over) => {
+    const { svc, runner, log } = service([])
+    const row = { ...ROW, facts: { ...FACTS, ...over } } as SeniorResume
+    const err = await refusal(svc.submit(row, 'Jane Doe', 'v'))
+    expect(err.getStatus()).toBe(422)
+    expect(err.getResponse()).toMatchObject({ code: 'RESUME_INCOMPLETE' })
+    expect(log).toHaveLength(0)
+    expect(runner.run).not.toHaveBeenCalled()
+  })
+
   it('a write that misses on a row that still exists is 409 and starts nothing', async () => {
     const { svc, s3, runner, log } = service([[], [{ id: 'r-1' }]])
     const err = await refusal(svc.submit(ROW, 'Jane Doe', 'v'))

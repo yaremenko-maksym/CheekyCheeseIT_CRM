@@ -9,7 +9,7 @@
  * `now` is injected rather than read from the clock, so the future-start check
  * is testable and the server can freeze one timestamp for a whole check run.
  */
-import { isSafeResumeUrl } from './resume'
+import { resumeLinkSchema } from './resume'
 import { resumeYear, type ResumeFacts, type ResumeFactsExperience } from './resume-facts'
 import { mergeSkills } from './resume-skills'
 
@@ -80,8 +80,12 @@ const LATIN_LETTER_PATTERN = /\p{Script=Latin}/u
  * legitimate skill/technology text, while `José Müller` passes through the same
  * check as `Engineer`.
  */
+/** Typographic and Ukrainian apostrophes: U+02BC is a modifier letter, not a script letter. */
+const APOSTROPHES = '\u2019\u02BC'
+
 export function isLatinScript(text: string): boolean {
   for (const char of text) {
+    if (APOSTROPHES.includes(char)) continue
     if (LETTER_PATTERN.test(char) && !LATIN_LETTER_PATTERN.test(char)) return false
   }
   return true
@@ -112,7 +116,8 @@ function contactCheck(displayName: string): ContactCheck {
   const name =
     tokens.length >= 2 && first !== undefined && last !== undefined
       ? new RegExp(
-          `(?<![\\p{L}\\p{N}])(?:${tokens.join('\\s+')}|${first}\\s+${last}|${last}\\s+${first})(?![\\p{L}\\p{N}])`,
+          // No lookbehind: it throws on Safari < 16.4.
+          `(?:^|[^\\p{L}\\p{N}])(?:${tokens.join('\\s+')}|${first}\\s+${last}|${last}\\s+${first})(?:$|[^\\p{L}\\p{N}])`,
           'iu',
         )
       : null
@@ -256,9 +261,13 @@ export function checkResumeCompleteness(
   })
 
   facts.links.forEach((link, index) => {
-    if (isBlank(link.label)) issues.push({ path: `links.${index}.label`, code: 'LINK_INVALID' })
-    if (!isSafeResumeUrl(link.url))
+    // A blank label is stricter than the schema on purpose (R66): a link needs a name on the page.
+    if (isBlank(link.label) || !resumeLinkSchema.shape.label.safeParse(link.label).success) {
+      issues.push({ path: `links.${index}.label`, code: 'LINK_INVALID' })
+    }
+    if (!resumeLinkSchema.shape.url.safeParse(link.url).success) {
       issues.push({ path: `links.${index}.url`, code: 'LINK_INVALID' })
+    }
   })
 
   return issues

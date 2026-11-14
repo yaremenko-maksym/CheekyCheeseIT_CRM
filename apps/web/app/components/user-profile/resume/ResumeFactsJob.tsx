@@ -188,7 +188,7 @@ export function JobBlock({
       </div>
 
       <div className="flex min-h-11 items-center gap-2">
-        {/* The track stays 36x20; the after: layer makes the target 44 px (32 from sm), design §8 (QA-7). */}
+        {/* The track stays 36x20; the after: layer makes the target 48x48 (36x36 from sm), design §8 (QA-7). */}
         <Switch
           className="relative after:absolute after:-inset-x-1.5 after:-inset-y-3.5 after:content-[''] sm:after:-inset-y-2 sm:after:inset-x-0"
           id={currentId}

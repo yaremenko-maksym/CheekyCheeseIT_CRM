@@ -90,6 +90,12 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
   const [confirmDelete, setConfirmDelete] = useState(false)
   /** "Back" from the empty manual form with typed facts: confirm before dropping them. */
   const [confirmBack, setConfirmBack] = useState(false)
+  /** Set on the way back from the manual form, so focus lands on "Заповнити вручну", not <body>. */
+  const [backFromManual, setBackFromManual] = useState(false)
+  const leaveManual = () => {
+    setBackFromManual(true)
+    setManualMode(false)
+  }
   /**
    * The staged run whose facts the user reopened from the confirm step. Keyed by
    * `runId`, so a new run (or a confirm) closes the form again on its own.
@@ -237,6 +243,7 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
             onUploadFile={(file) => uploadMutation.mutate(file)}
             onSubmitText={(text) => textMutation.mutate(text)}
             onFillManually={() => setManualMode(true)}
+            focusFillManually={backFromManual}
             isBusy={isBusy}
           />
         ) : (
@@ -269,7 +276,7 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
             variant="outline"
             size="sm"
             className="h-11 sm:h-9"
-            onClick={() => (isDirty ? setConfirmBack(true) : setManualMode(false))}
+            onClick={() => (isDirty ? setConfirmBack(true) : leaveManual())}
             data-testid="resume-manual-back"
           >
             <ArrowLeft className="mr-2 size-4" aria-hidden />
@@ -292,7 +299,7 @@ export function ResumeTab({ userId, displayName, onDirtyChange }: ResumeTabProps
                 <AlertDialogAction
                   onClick={() => {
                     setConfirmBack(false)
-                    setManualMode(false)
+                    leaveManual()
                   }}
                 >
                   <Trans>Покинути</Trans>

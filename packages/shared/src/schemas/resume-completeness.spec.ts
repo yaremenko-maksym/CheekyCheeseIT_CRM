@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { RESUME_LIMITS } from './resume'
 import type { ResumeFacts, ResumeFactsExperience } from './resume-facts'
 import {
   RESUME_EMAIL_PATTERN,
@@ -318,6 +319,18 @@ describe('checkResumeCompleteness', () => {
       ])
     })
 
+    it('refuses exactly what the link schema refuses: url length and label length (QF4-2)', () => {
+      const url = (length: number) =>
+        `https://e.com/${'a'.repeat(length - 'https://e.com/'.length)}`
+      expect(url(500)).toHaveLength(500)
+      expect(linkIssues('Site', url(500))).toEqual([])
+      expect(linkIssues('Site', url(501))).toEqual([{ path: 'links.0.url', code: 'LINK_INVALID' }])
+      expect(linkIssues('x'.repeat(RESUME_LIMITS.shortText), url(30))).toEqual([])
+      expect(linkIssues('x'.repeat(RESUME_LIMITS.shortText + 1), url(30))).toEqual([
+        { path: 'links.0.label', code: 'LINK_INVALID' },
+      ])
+    })
+
     it('names the index of the bad link', () => {
       const facts = makeFacts({
         links: [
@@ -418,10 +431,15 @@ describe('checkResumeCompleteness', () => {
 
     it('treats the Ukrainian apostrophe U+02BC as the ASCII one (QF3-1)', () => {
       const ascii = { ...CTX, displayName: "Oles' Mar'yan" }
-      // U+02BC is a letter outside the Latin script, so NON_LATIN fires too; only the name match is pinned here.
-      expect(noteIssues('Built by Oles\u02BC Mar\u02BCyan', ascii)).toContainEqual(flagged[0])
+      expect(noteIssues('Built by Oles\u02BC Mar\u02BCyan', ascii)).toEqual(flagged)
       const modifier = { ...CTX, displayName: 'Oles\u02BC Mar\u02BCyan' }
-      expect(noteIssues("Built by Oles' Mar'yan", modifier)).toContainEqual(flagged[0])
+      expect(noteIssues("Built by Oles' Mar'yan", modifier)).toEqual(flagged)
+    })
+
+    it('matches the name at the very start and end of the text, never inside a word', () => {
+      expect(noteIssues('Jos\u00E9 M\u00FCller', CTX)).toEqual(flagged)
+      expect(noteIssues('XJos\u00E9 M\u00FCller', CTX)).toEqual([])
+      expect(noteIssues('Jos\u00E9 M\u00FCllers', CTX)).toEqual([])
     })
 
     it('a one-token display name adds no name check', () => {
@@ -674,5 +692,11 @@ describe('isLatinScript', () => {
 
   it.each(['Інженер', 'Київ', '日本語', 'hello Іван'])('rejects %s', (text) => {
     expect(isLatinScript(text)).toBe(false)
+  })
+
+  it('accepts the U+02BC and U+2019 apostrophes, still rejects a Cyrillic letter (QF3-1)', () => {
+    expect(isLatinScript('Dʼangelo')).toBe(true)
+    expect(isLatinScript('O’Neil')).toBe(true)
+    expect(isLatinScript('Dʼаngelo')).toBe(false) // Cyrillic а
   })
 })

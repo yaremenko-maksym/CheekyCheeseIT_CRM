@@ -179,15 +179,16 @@ describe('ResumeTab — empty state', () => {
     expect(screen.getByLabelText('Цільова посада')).toHaveValue('')
   })
 
-  it('"Назад" from the empty form returns to the upload choice (G18-4)', () => {
+  it('"Назад" from the empty form returns to the upload choice (G18-4)', async () => {
     render(tab())
     fireEvent.click(screen.getByTestId('resume-fill-manually'))
     fireEvent.click(screen.getByTestId('resume-manual-back'))
     expect(screen.queryByTestId('resume-facts-form')).not.toBeInTheDocument()
     expect(screen.getByTestId('resume-intake')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('resume-fill-manually')).toHaveFocus())
   })
 
-  it('"Назад" with typed facts asks first; staying keeps them, leaving drops them', () => {
+  it('"Назад" with typed facts asks first; staying keeps them, leaving drops them', async () => {
     render(tab())
     fireEvent.click(screen.getByTestId('resume-fill-manually'))
     fireEvent.change(screen.getByLabelText('Цільова посада'), { target: { value: 'Typed' } })
@@ -204,6 +205,7 @@ describe('ResumeTab — empty state', () => {
     )
     expect(screen.queryByTestId('resume-facts-form')).not.toBeInTheDocument()
     expect(screen.getByTestId('resume-intake')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByTestId('resume-fill-manually')).toHaveFocus())
   })
 
   it('shows a read-only message instead of the upload UI when the viewer cannot edit', () => {

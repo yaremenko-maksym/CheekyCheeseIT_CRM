@@ -447,6 +447,21 @@ describe('ResumeVerificationPanel — rulings', () => {
     expect(row).toHaveTextContent('текст виходить за поле')
   })
 
+  it('FAILED INCOMPLETE with no gate items shows the whole-resume line its body points at (SO-3)', async () => {
+    renderWired(
+      makeResponse({
+        verificationStatus: 'FAILED',
+        verificationErrorCode: 'INCOMPLETE',
+        staged: null,
+        verificationReport: { gates: [], fallbacks: [] },
+      }),
+    )
+    const panel = await screen.findByRole('alert')
+    expect(panel).toHaveTextContent('заповніть поля зі списку')
+    const items = within(panel).getByTestId('resume-verification-items')
+    expect(within(items).getByText('Резюме загалом')).toBeInTheDocument()
+  })
+
   it('a VERIFIED warning without item paths shows the whole-resume line, never an empty list', async () => {
     renderWired(
       makeResponse({

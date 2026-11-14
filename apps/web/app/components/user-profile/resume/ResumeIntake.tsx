@@ -27,6 +27,8 @@ interface ResumeIntakeProps {
   variant?: 'empty' | 'compact'
   /** Empty state only: open the empty facts form instead of uploading. */
   onFillManually?: () => void
+  /** Focus "Заповнити вручну" on mount: the user came back here from the manual form. */
+  focusFillManually?: boolean
 }
 
 const ACCEPTED_EXTENSIONS = ['.pdf', '.docx']
@@ -38,6 +40,7 @@ export function ResumeIntake({
   isBusy,
   variant = 'empty',
   onFillManually,
+  focusFillManually = false,
 }: ResumeIntakeProps) {
   const { t } = useLingui()
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -138,6 +141,7 @@ export function ResumeIntake({
                 </p>
                 <Button
                   onClick={onFillManually}
+                  autoFocus={focusFillManually}
                   disabled={isBusy}
                   data-testid="resume-fill-manually"
                   className="mt-auto h-auto min-h-11 whitespace-normal"
