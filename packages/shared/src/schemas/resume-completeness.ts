@@ -90,8 +90,8 @@ export const RESUME_TELEGRAM_LABEL_PATTERN = /(?:tg|telegram|телеграм)\s
  * a `t.me/` or `telegram.me/` prefix, or leading `@`s. Empty when nothing is left.
  */
 export function normaliseTelegramHandle(stored: string | null | undefined): string | undefined {
-  // Stryker disable next-line Regex: equivalent — every group is optional, so even unanchored the first match is at index 0
-  return stored?.trim().replace(/^(?:https?:\/\/)?(?:(?:t|telegram)\.me\/)?@*/i, '')
+  // No `^` needed: every part is optional, so the first (only replaced) match always starts at 0.
+  return stored?.trim().replace(/(?:https?:\/\/)?(?:(?:t|telegram)\.me\/)?@*/i, '')
 }
 
 const LETTER_PATTERN = /\p{L}/u
