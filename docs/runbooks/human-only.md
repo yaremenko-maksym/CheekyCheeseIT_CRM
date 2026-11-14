@@ -230,7 +230,8 @@ mean sending real emails from CI.
 `/opt/crm/.env.production`, and agents have no SSH by default. Activation is an owner decision (A3, plan Task 8.2).
 **Automated:** nothing yet. The flags, their meaning and their rollback are in `docs/runbooks/vacancy-sourcing.md` §9
 and §14; the per-source switch is an ADMIN button, not an env key.
-**Human remainder:** per wave, one line — set the named flag in `.env.production`, restart `crm-api-1`, reply with
+**Human remainder:** per wave, one line — set the named flag in `.env.production`, recreate the `api` container (`docs/runbooks/vacancy-sourcing.md` §9; a plain
+`docker restart` does not reload the env file), reply with
 `/api/health` `commit`.
 **Where to move:** write the flags from repository variables in the `deploy.yml` env step, so a flag change is a
 reviewed PR and the server file stops being the source of truth.
@@ -241,10 +242,12 @@ reviewed PR and the server file stops being the source of truth.
 `GEMINI_API_KEY`, `GROQ_API_KEY`) are obtained under the owner's accounts and their terms; agents never enter
 credentials (item 3). The quota value behind each `job_account_meters` row is the owner's reading of the provider's
 terms.
-**Automated:** verification — `scripts/devops/check-job-source-credentials.sh` sends one real request per key; a
+**Automated:** verification — `scripts/devops/check-job-source-credentials.sh` sends one real request for Jooble,
+Adzuna, Careerjet and RapidAPI only (RapidAPI: 200 requests a month); TheirStack, Reed and the model keys have no check
+yet; a
 quota source without a meter row is refused `METER_MISSING`, so a missing step fails closed.
 **Human remainder:** obtain the key, put it in the server env file, state the quota (unit, limit, reset); the meter row
-itself goes in as a `deploy.yml` DDL step (item 1). Rotation: replace the key, restart, re-run the check script.
+itself goes in as a `deploy.yml` DDL step (item 1). Rotation: replace the key, recreate the `api` container, re-run the check script where one exists.
 **Where to move:** nowhere for the credential itself; the meter row is already automatable.
 
 ### 10. Vacancy sourcing: read-only production checks (added 2026-11-14)

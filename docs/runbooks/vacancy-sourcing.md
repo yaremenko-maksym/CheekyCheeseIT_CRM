@@ -42,7 +42,8 @@ path and the ADMIN source list** (§13.3, decision brief item 1).
 **Two paths, never mixed.** DOU goes through `JobSourcingService.collectAll` → `DouRssProvider` → legacy tables and
 never through ledger claims (`claimGate` refuses `LEGACY`). Every other type goes through the ledger. With
 `JOB_QUEUE_BRIDGE_ENABLED=true` the DOU run additionally opens a cycle, claims a legacy run (`claimLegacyRun`), enqueues
-`job_bridge_deliveries` and stores DOU observations in the new store; the flag on without a ledger throws at startup.
+`job_bridge_deliveries` and stores DOU observations in the new store; the flag on without a wired ledger makes each DOU
+run throw (`JOB_QUEUE_BRIDGE_ENABLED is on but no run ledger is wired`) — at run time, not at startup.
 
 **Why a source does not run** — the claim refusals in `ledger-policy.ts`: `MANIFEST_ENTRY_MISSING`, `NOT_ACTIVATABLE`,
 `READINESS_BLOCKED`, `TRANSPORT_NOT_WIRED`, `METER_MISSING`, `HOST_KEY_MISSING`, `HOST_PAUSED`, `HOST_BUSY`,
@@ -62,7 +63,9 @@ is `UNREGISTERED` > `BLOCKED` > `NOT_VERIFIED` > `ACTIVATABLE`; **an `enabled` f
 
 Server-time crons (no `timeZone`): match reconciliation `17 */6 * * *`, availability reconciliation `37 */6 * * *`,
 queue-action retention `15 4 * * *`, generation retention `25 4 * * *`, legacy vacancy retention `0 3 * * *` and
-`0 4 * * 1`. Each is gated by its flag (§9) except queue-action retention, which is statutory and always runs.
+`0 4 * * 1`. Match and availability reconciliation and generation retention are gated by their flags (§9);
+queue-action retention is statutory and always runs; the legacy vacancy retention crons (`VacanciesRetentionCronService`)
+have no flag and always run.
 
 **Catch-up is not a replay.** A missed slot is not re-run; the next tick picks the source up through
 `next_attempt_at` (`scheduling/due-policy.ts`, `next-slot.ts`; early slack `MAX_EARLY_DUE_SLACK_MS` 10 min). The repeated
@@ -138,21 +141,23 @@ action. Split recovery exists only inside the resolver (`revokedPairs`); reopen 
 - **Catalog:** 31 `job_source_type` values; production holds 36 `job_sources` rows (1 DOU, 35 manifest rows, all
   disabled). Dispositions: `DOU_RSS` legacy; 23 reporting types; 7 `*_HTML` types `BLOCKED` until Task 5.6.
 - **Blocked by status constant** (`*_SOURCE_STATUS`): Jooble, JSearch, Reed, TheirStack (key required); Muse,
-  Working Nomads (terms unclear). Owner-accepted risk (2026-10-24): Jobgether, HN Hiring, Remotive
-  (`providers/owner-decisions.ts`).
+  Working Nomads (terms unclear). Owner-accepted risk (2026-10-24): Jobgether, HN Hiring, Remotive,
+  SmartRecruiters (`providers/owner-decisions.ts`).
 - **Attribution** (`Attribution`): `LINK_BACK_REQUIRED` (RemoteOK, Remotive, Arbeitnow, Muse), `CREDIT_REQUIRED`
   (Himalayas, Jobicy), else `NONE_RECORDED`; `checkAttribution` checks fixtures. Whether the UI renders the
   attribution is **not verified** — check before a `LINK_BACK_REQUIRED` source is enabled.
 - **Credentials** (human-only item 9): `JOOBLE_API_KEY`, `RAPIDAPI_KEY` (JSearch), `THEIRSTACK_API_KEY`,
-  `REED_API_KEY`; read only by `quota-credentials.ts`; not written by `deploy.yml`. One real request per key:
-  `scripts/devops/check-job-source-credentials.sh`.
+  `REED_API_KEY`; read only by `quota-credentials.ts`; not written by `deploy.yml`. One real request per key with
+  `scripts/devops/check-job-source-credentials.sh <jooble|adzuna|careerjet|rapidapi>` — it covers only those four;
+  `THEIRSTACK_API_KEY`, `REED_API_KEY` and the worker's model keys have **no** check script yet. RapidAPI has a hard
+  cap of 200 requests a month: run the check once per rotation, never in a loop.
 - **Dice:** `DICE_HTML` is blocked like every HTML type; its denied route stays off — no adapter will be written for it.
 
 **Review dates** (no code enforces them; the owner's calendar does):
 
 | Date       | What                                                                                |
 | ---------- | ----------------------------------------------------------------------------------- |
-| 2027-01-10 | Recruitee: `DEADLINE_NEAR` fires 30 days before `RECRUITEE_TOKEN_DEADLINE`          |
+| 2027-01-11 | Recruitee: `DEADLINE_NEAR` fires 30 days before `RECRUITEE_TOKEN_DEADLINE`          |
 | 2027-01-15 | Catalog review: re-read terms of every enabled source and every owner-accepted risk |
 | 2027-02-10 | `RECRUITEE_TOKEN_DEADLINE` — public board requires an employer token from this date |
 
@@ -198,17 +203,20 @@ Earlier triggers for a catalog review: any `ACCESS_CHANGED` transition, a terms 
 ## 9. Flags and environment (activation switches)
 
 All boolean flags are read from `apps/api/src/config/env.ts`, default `false`, and are **not written by
-`deploy.yml`**; a value in production exists only if set by hand in `/opt/crm/.env.production`.
+`deploy.yml`**; a value in production exists only if set by hand in `/opt/crm/.env.production`. The API reads that file
+through compose `env_file` when its container is **created**, so a change takes effect only after the container is
+recreated: `cd /opt/crm && docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml up -d --no-deps api`. A plain `docker restart crm-api-1` keeps the old values. "Recreate" below means
+this command.
 
-| Key                                  | Turns on                                  | Rollback by        |
-| ------------------------------------ | ----------------------------------------- | ------------------ |
-| `JOB_QUEUE_BRIDGE_ENABLED`           | DOU bridge into the new store             | flag off + restart |
-| `JOB_MATCH_RECONCILIATION_ENABLED`   | match recompute and reconciliation writes | flag off           |
-| `JOB_AVAILABILITY_RECONCILE_ENABLED` | availability consumer                     | flag off           |
-| `JOB_DETAIL_GONE_CLOSURE_ENABLED`    | Greenhouse detail-gone closure            | flag off           |
-| `JOB_QUEUE_GENERATION_PURGE_ENABLED` | generation purge                          | flag off           |
-| `JOB_COLLECTION_WINDOW_MS`           | window length (default 1 h, max 2 h)      | unset              |
-| `JOB_MATCH_THRESHOLD`                | match threshold (default 0.2)             | unset              |
+| Key                                  | Turns on                                  | Rollback by         |
+| ------------------------------------ | ----------------------------------------- | ------------------- |
+| `JOB_QUEUE_BRIDGE_ENABLED`           | DOU bridge into the new store             | flag off + recreate |
+| `JOB_MATCH_RECONCILIATION_ENABLED`   | match recompute and reconciliation writes | flag off + recreate |
+| `JOB_AVAILABILITY_RECONCILE_ENABLED` | availability consumer                     | flag off + recreate |
+| `JOB_DETAIL_GONE_CLOSURE_ENABLED`    | Greenhouse detail-gone closure            | flag off + recreate |
+| `JOB_QUEUE_GENERATION_PURGE_ENABLED` | generation purge                          | flag off + recreate |
+| `JOB_COLLECTION_WINDOW_MS`           | window length (default 1 h, max 2 h)      | unset               |
+| `JOB_MATCH_THRESHOLD`                | match threshold (default 0.2)             | unset               |
 
 There is no feature flag for the HR queue UI: the route is always mounted. Per-source activation is the ADMIN switch
 (§4), never an env key.
@@ -217,7 +225,8 @@ There is no feature flag for the HR queue UI: the route is always mounted. Per-s
 
 **What exists.** The detector pass (`runDetectorPass`, end of each tick) writes `job_source_health_events` only on a
 change, and `SourceHealthAlertService.alertOnTransition` notifies active ADMINs on entry into `FAILING`, `CAPPED`,
-`BLOCKED`, `EMPTY`, `PAUSED`, `DEGRADED` (at most 3 emails per source per Kyiv day, in-app beyond). An unchanged state
+`BLOCKED`, `EMPTY`, `PAUSED`, `DEGRADED` — `DEGRADED` alerts only with reason `SCHEMA_DRIFT` (`health-alert-policy.ts`); its other reasons are
+recorded but notify nobody (at most 3 emails per source per Kyiv day, in-app beyond). An unchanged state
 emits nothing, so notifications are suppressed by construction. Thresholds: `HEALTH_THRESHOLDS`
 (`health/detectors.ts`) — volume drop 0.3 over 7 days of history, silence 4× the cadence, 2 empty runs, 10 % invalid
 records, slowdown 3×, deadline 30 days. Access: the latest 401/403/451 → `ACCESS_CHANGED`, 429 → `THROTTLED` and a host
@@ -306,7 +315,8 @@ log.
 
 - **Restoration:** restore a production backup into a scratch database, start the API against it, open
   `/admin/sources` and `/job-queue` as ADMIN; both load without a database error.
-- **Cleanup:** with `NEW_STORE_CLEANUP_DISABLED` lifted only in the scratch build, run the retention crons by hand and
+- **Cleanup:** `NEW_STORE_CLEANUP_DISABLED` is a code constant (`retention.ts`), not an env key: in a scratch build only,
+  pass a policy with `newStoreCleanupEnabled: true`, run the retention crons by hand and
   compare row counts before and after; queue actions younger than two years are untouched.
 - **Claim conflict:** two HR sessions take the same opportunity; the second gets `JOB_QUEUE_POSSIBLE_DUPLICATE_CLAIMED`
   or `JOB_QUEUE_VERSION_CONFLICT`, and `job_queue_actions` holds exactly one `TAKEN` row.
@@ -326,6 +336,10 @@ chat. Every query runs in a read-only session, and the first line proves where i
 ssh crm-vps 'docker exec -i -e PGOPTIONS="-c default_transaction_read_only=on" crm-postgres-1 \
   psql -U crm_user -d crm_db -At -F "|" -v ON_ERROR_STOP=1' < checks.sql
 ```
+
+`checks.sql` is a local file assembled from the §13.1 and §13.2 queries; it is not versioned. The read-only setting is a
+session default, not a guarantee: a `SET`, `BEGIN READ WRITE` or `SET TRANSACTION READ WRITE` in the file switches it
+off. Read the file before you pipe it, and it must contain only `SELECT`.
 
 ```sql
 SELECT current_database(), current_setting('default_transaction_read_only');  -- expect crm_db|on
@@ -356,7 +370,7 @@ FROM job_sources ORDER BY type;
 SELECT outcome, coverage, count(*) FROM job_collection_runs
 WHERE started_at > now() - interval '7 days' GROUP BY 1, 2;
 -- checkpoints held by partial runs
-SELECT count(*) FROM job_collection_runs WHERE checkpoint IS NOT NULL AND outcome = 'PARTIAL';
+SELECT count(*) FROM job_collection_runs WHERE checkpoint <> '{}'::jsonb AND outcome = 'PARTIAL';
 -- accounts: used / reserved / uncertain
 SELECT account_key, unit, window_kind, limit_amount, used, reserved, uncertain, resets_at FROM job_account_meters;
 -- uniqueness (each must return 0)
@@ -417,9 +431,9 @@ blanket revert without checking new-schema / old-binary and enum compatibility.
 | --------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
 | One source      | ADMIN switch off (`PATCH /job-sourcing/sources/:id`)                                       | `admin_state_history` has `DISABLED`; its `STARTED` runs end `CANCELLED`; no new run |
 | New portfolio   | switch off every non-DOU source                                                            | §13.2: no run except DOU; the DOU legacy path untouched                              |
-| New queue       | flags off (§9) and restart; the route stays mounted and authorized                         | assignment, dismissal and `job_queue_actions` row counts unchanged                   |
+| New queue       | flags off (§9) and recreate; the route stays mounted and authorized                        | assignment, dismissal and `job_queue_actions` row counts unchanged                   |
 | Projection      | `JOB_MATCH_RECONCILIATION_ENABLED`, `JOB_AVAILABILITY_RECONCILE_ENABLED` off               | `job_dirty_work` stops moving; DOU delivery continues; replay later                  |
-| DOU bridge      | `JOB_QUEUE_BRIDGE_ENABLED` off and restart                                                 | the 05:00 run completes on the legacy path; `job_bridge_deliveries` stops growing    |
+| DOU bridge      | `JOB_QUEUE_BRIDGE_ENABLED` off and recreate                                                | the 05:00 run completes on the legacy path; `job_bridge_deliveries` stops growing    |
 | Schema          | none: additive DDL stays; no DROP, no type or decision rollback                            | —                                                                                    |
 | Model worker    | stop its compose project only, revoke its keys                                             | the API keeps running; never a whole-stack `compose down`                            |
 | Bad association | not built as an ADMIN action: a Coder task (unlink / split, rebuild facts, hold conflicts) | —                                                                                    |

@@ -17,7 +17,7 @@ one before that decision.
 3. **Network traffic obeys the access hygiene of Task 2.2**: bounded requests, the per-host gap, stop at the first
    challenge, 403 on an allowed route, or 429 without `Retry-After`. External GETs to job sites need the owner's
    explicit "go" in the chat.
-4. **An entry names its run ID** (the `job_source_runs` run id, a CI run URL, or a harness output directory) so a
+4. **An entry names its run ID** (the `job_collection_runs` run id, a CI run URL, or a harness output directory) so a
    reader can find the raw data. A number without a run ID is a claim, not a measurement.
 5. **A missing measurement blocks only the decision it feeds** (plan §8). It never blocks unrelated work.
 6. **Public text aggregates only**: no candidate, employer contact or personal data in an entry.

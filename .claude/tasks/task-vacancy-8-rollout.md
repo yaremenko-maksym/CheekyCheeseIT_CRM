@@ -68,8 +68,7 @@ Still running: nothing.
 ❓ 5 — Backlog 426: a re-grant dead-ends; server trusts the client for triage-only
 ➡️ I recommend: a distinct 409 JOB_QUEUE_TRIAGE_ALREADY_GRANTED (dialog says until when),
    a server-side triage-eligibility check, a 90-day ceiling.
-🔓 Reversible · ⏱ silence until 2026-11-17 18:00 → I take the recommendation, record it in
-   "Assumptions", rollback = one PR
+🔒 RBAC (server-side eligibility) — A3, not decided by silence.
 
 ❓ 6 — Backlog 433: 403 burst after a session switch
 ➡️ I recommend: refetch only after navigation settles; one small web PR together with backlog 427.
@@ -85,3 +84,11 @@ Still running: nothing.
 ➡️ I recommend: the dev seed inserts the generated manifest rows, all disabled.
 🔓 Reversible · ⏱ silence until 2026-11-17 18:00 → I take the recommendation, rollback = one PR
 ```
+
+## Owner answers (chat, 2026-11-14)
+
+- Item 1: build, merge when every required review passes on the current head (prod DDL approved) — PR #1333.
+- Item 3: build now — branch `feat/senior-availability`.
+- Items 4, 5: build (RBAC, security review) — PR #1332.
+- Item 6 (433 + 427): build — PR #1334.
+- Items 2, 7, 8: open; item 2 stays "not now" until item 1 is deployed.
