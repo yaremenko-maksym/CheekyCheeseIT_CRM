@@ -681,3 +681,52 @@ describe('fix round 5: an email glued to the next one by a local-part character'
     expect(performance.now() - started).toBeLessThan(500)
   })
 })
+
+describe('fix round 7: separators, marks, atext, ports, label words', () => {
+  it.each(['‑', '—', '·'])('redacts a phone separated by %j whole (SO7-1)', (sep) => {
+    const phone = ['+380', '67', '123', '45', '67'].join(sep)
+    expect(scanContacts(`call ${phone} now`, ctx)).toEqual([{ kind: 'phone', match: phone }])
+    expect(redactContacts(`call ${phone} now`, [])).toBe('call [REDACTED] now')
+  })
+
+  it('leaves an em-dash date range alone (SO7-1)', () => {
+    expect(redactContacts('Acme 2015-01-01 — 2019-12-31', [])).toBe('Acme 2015-01-01 — 2019-12-31')
+  })
+
+  it.each([
+    ['john@परीक्षा.भारत', 'email'],
+    ['ผู้ใช้@ตัวอย่าง.ไทย', 'email'],
+    ['x́y@x.com', 'email'],
+    ['उदाहरण.भारत/x', 'url'],
+    ['john&doe@x.com', 'email'],
+    ["o'brien@x.com", 'email'],
+    ['o’brien@x.com', 'email'],
+    ['example.com:8080/cv', 'url'],
+    ['a.com:80/x', 'url'],
+  ])('redacts %j whole as one %s (SO7-2, SO7-3, SO7-4)', (contact, kind) => {
+    expect(scanContacts(`see ${contact} now`, ctx)).toEqual([{ kind, match: contact }])
+    expect(redactContacts(`see ${contact} now`, [])).toBe('see [REDACTED] now')
+  })
+
+  it.each([
+    'Telegram handle: other_one',
+    'TG nick: other_one',
+    'Telegram ID: other_one',
+    'Телеграм нік: other_one',
+  ])('redacts the labelled handle %j with a word before the separator (SO7-5)', (label) => {
+    expect(redactContacts(`Acme (${label})`, [])).toBe('Acme ([REDACTED])')
+  })
+
+  it.each(['Telegram bots', 'TG integration', 'Telegram user base'])(
+    'leaves %j alone (SO7-5)',
+    (plain) => {
+      expect(redactContacts(plain, [])).toBe(plain)
+    },
+  )
+
+  it('50k characters of "Telegram handle" are redacted in under 500 ms (SO7-5)', () => {
+    const started = performance.now()
+    redactContacts('Telegram handle'.repeat(3_334), ctx)
+    expect(performance.now() - started).toBeLessThan(500)
+  })
+})

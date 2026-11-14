@@ -177,8 +177,10 @@ function findSpans(text: string, ctx: ContactContext): Span[] {
     const end = m.index + m[0].length
     const start = end - (m[1] ?? m[0]).length
     // Defensive: the step below always moves past `start`, so this never fires unless it breaks.
-    // Stryker disable next-line ConditionalExpression,EqualityOperator: unreachable while the code-point step is right; it only bounds the loop if a later edit breaks that step
-    if (start <= previous) break
+    // It throws rather than breaks, so a broken step fails the field closed instead of leaving
+    // the rest of the text unscanned.
+    // Stryker disable next-line ConditionalExpression,EqualityOperator,BlockStatement,StringLiteral: unreachable while the code-point step is right; it only fails the scan closed if a later edit breaks that step
+    if (start <= previous) throw new Error('email scan did not advance')
     previous = start
     spans.push({ kind: 'email', start, end })
     email.lastIndex = start + ((plain.codePointAt(start) ?? 0) >= 0x10000 ? 2 : 1)

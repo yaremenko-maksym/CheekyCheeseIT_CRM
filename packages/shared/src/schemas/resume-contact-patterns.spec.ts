@@ -10,6 +10,7 @@ import {
   RESUME_TELEGRAM_LABEL_PATTERN,
   RESUME_URL_PATTERN,
   checkResumeCompleteness,
+  findPhoneSpans,
   normaliseTelegramHandle,
 } from './resume-completeness'
 
@@ -312,5 +313,112 @@ describe('fix round 5', () => {
     const started = performance.now()
     issuesOf('1,'.repeat(25_000))
     expect(performance.now() - started).toBeLessThan(500)
+  })
+})
+
+describe('fix round 7', () => {
+  describe('more phone separators (SO7-1)', () => {
+    it.each(['‑', '‐', '‒', '—', '―', '−', '·'])(
+      'a phone separated by %j is one whole phone',
+      (sep) => {
+        const phone = ['+380', '67', '123', '45', '67'].join(sep)
+        expect(findPhoneSpans(`call ${phone} now`)).toEqual([{ start: 5, end: 5 + phone.length }])
+        expect(issuesOf(`call ${phone} now`)).toEqual([contactIssue])
+      },
+    )
+
+    it.each(['2015-01-01 — 2019-12-31', '2015-01-01 − 2019-12-31', '01.02.2015 · 01.02.2019'])(
+      'the date range %j stays clean',
+      (dates) => {
+        expect(issuesOf(`Acme, ${dates}`)).toEqual([])
+      },
+    )
+
+    it.each(['10/100/1000 users', 'build_123_456_789'])(
+      '%j is no phone (/ and _ are no separators)',
+      (text) => {
+        expect(findPhoneSpans(text)).toEqual([])
+      },
+    )
+  })
+
+  describe('combining marks in hosts and local parts (SO7-2)', () => {
+    it.each(['john@परीक्षा.भारत', 'ผู้ใช้@ตัวอย่าง.ไทย', 'x́y@x.com'])(
+      '%j is one whole email',
+      (email) => {
+        expect(emailHit(`mail ${email} now`)).toBe(email)
+        expect(issuesOf(`mail ${email} now`)).toContainEqual(contactIssue)
+      },
+    )
+
+    it('उदाहरण.भारत/x is one whole URL', () => {
+      expect(urlHit('see उदाहरण.भारत/x now')).toBe('उदाहरण.भारत/x')
+      expect(issuesOf('see उदाहरण.भारत/x now')).toContainEqual(contactIssue)
+    })
+  })
+
+  describe('RFC 5322 atext in the local part (SO7-3)', () => {
+    it.each(['john&doe@x.com', "o'brien@x.com", 'a!b#c$d*e/f=g?h^i`j{k|l}m~n@x.com'])(
+      '%j is one whole email',
+      (email) => {
+        expect(emailHit(`mail ${email} now`)).toBe(email)
+        expect(issuesOf(`mail ${email} now`)).toEqual([contactIssue])
+      },
+    )
+  })
+
+  describe('a bare URL with a port (SO7-4)', () => {
+    it.each(['example.com:8080/cv', 'a.com:80/x'])('%j is one whole URL', (url) => {
+      expect(urlHit(`see ${url} now`)).toBe(url)
+      expect(issuesOf(`see ${url} now`)).toEqual([contactIssue])
+    })
+
+    it.each(['Vue.config/x', 'React.memo/useMemo'])('%j is still a URL as before', (url) => {
+      expect(urlHit(url)).toBe(url)
+    })
+
+    it('a port of 6 digits is no port', () => {
+      expect(urlHit('see a.com:123456/x now')).toBeUndefined()
+    })
+  })
+
+  describe('one word between the Telegram label and its separator (SO7-5)', () => {
+    const labelHit = (text: string) => {
+      const m = RESUME_TELEGRAM_LABEL_PATTERN.exec(text)
+      return m?.[1] ?? m?.[0]
+    }
+
+    it.each([
+      'Telegram handle: mark_dev',
+      'Telegram username: mark_dev',
+      'Telegram user: mark_dev',
+      'TG nick: mark_dev',
+      'TG nickname — mark_dev',
+      'Telegram ID: mark_dev',
+      'Telegram id @mark_dev',
+      'Телеграм нік: mark_dev',
+      'тг ник: mark_dev',
+      'Телеграмм нікнейм: mark_dev',
+    ])('%j is a labelled handle', (text) => {
+      expect(labelHit(`Acme (${text})`)).toBe(text)
+      expect(issuesOf(`Acme (${text})`)).toContainEqual(contactIssue)
+    })
+
+    it.each(['Telegram bots', 'TG integration', 'Telegram user base', 'TG identity: builder'])(
+      '%j stays clean',
+      (text) => {
+        expect(labelHit(text)).toBeUndefined()
+      },
+    )
+
+    it.each([
+      ['Telegram handle', 'Telegram handle'.repeat(3_334)],
+      ['tg + spaces', `tg${' '.repeat(50_000)}`],
+      ['Telegram nick + spaces', `Telegram nick${' '.repeat(50_000)}`],
+    ])('50k characters of %j are checked in under 500 ms', (_, input) => {
+      const started = performance.now()
+      issuesOf(input)
+      expect(performance.now() - started).toBeLessThan(500)
+    })
   })
 })
