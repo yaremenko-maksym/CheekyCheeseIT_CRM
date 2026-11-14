@@ -192,6 +192,8 @@ export interface ResumeVerificationFailureProps {
   onChooseTemplate: () => void
   /** A retry is in flight, or the viewer cannot act. */
   disabled: boolean
+  /** Retry only: the facts form has unsaved changes, and a retry would check the stale saved facts. */
+  retryDisabled?: boolean
 }
 
 export function ResumeVerificationFailure({
@@ -202,6 +204,7 @@ export function ResumeVerificationFailure({
   onRetry,
   onChooseTemplate,
   disabled,
+  retryDisabled = false,
 }: ResumeVerificationFailureProps) {
   const { i18n } = useLingui()
   const entry = VERIFICATION_CODES[code]
@@ -272,7 +275,7 @@ export function ResumeVerificationFailure({
             type="button"
             variant={entry.actions.fixFacts ? 'outline' : 'default'}
             className="h-11 sm:h-9"
-            disabled={disabled}
+            disabled={disabled || retryDisabled}
             onClick={onRetry}
             data-testid="resume-verification-retry"
           >

@@ -139,7 +139,8 @@ export function ResumeTab({ userId, displayName, telegram, onDirtyChange }: Resu
     )
   }
 
-  if (isError) {
+  // A failed background refetch keeps the cached resume and the form with its draft (FR-W-2).
+  if (isError && !data) {
     return (
       <p className="rounded-lg border bg-muted/30 px-6 py-10 text-center text-sm text-muted-foreground">
         <Trans>Не вдалося відкрити резюме. Оновіть сторінку.</Trans>
@@ -380,6 +381,7 @@ export function ResumeTab({ userId, displayName, telegram, onDirtyChange }: Resu
           resume={resume}
           canConfirm={data?.canConfirm ?? false}
           changingFacts={changingFacts}
+          isDirty={isDirty}
           onChangeFacts={() =>
             setChangingFactsFor(changingFacts || staged === null ? null : staged.runId)
           }

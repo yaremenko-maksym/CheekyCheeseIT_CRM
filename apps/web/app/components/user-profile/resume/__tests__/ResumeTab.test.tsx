@@ -55,13 +55,18 @@ const {
   state: {
     resumeData: { resume: null, canEdit: true, canConfirm: false } as unknown,
     isLoading: false,
+    isError: false,
     // Mutable so a test can observe the delete confirm button's isPending-driven text.
     deleteIsPending: false,
   },
 }))
 
 vi.mock('@/hooks/use-senior-resume', () => ({
-  useSeniorResume: () => ({ data: state.resumeData, isLoading: state.isLoading, isError: false }),
+  useSeniorResume: () => ({
+    data: state.resumeData,
+    isLoading: state.isLoading,
+    isError: state.isError,
+  }),
   useSaveResumeFacts: () => ({ mutateAsync: saveFactsMock, isPending: false }),
   useSubmitResume: () => ({ mutateAsync: submitMock, isPending: false }),
   useSaveResumeLayout: () => ({ mutate: saveLayoutMock, isPending: false }),
@@ -154,6 +159,7 @@ beforeEach(async () => {
   vi.clearAllMocks()
   state.resumeData = { resume: null, canEdit: true, canConfirm: false }
   state.isLoading = false
+  state.isError = false
   state.deleteIsPending = false
   saveFactsMock.mockResolvedValue(undefined)
   submitMock.mockResolvedValue(undefined)
@@ -754,5 +760,41 @@ describe('ResumeTab — deleting the resume', () => {
     fireEvent.click(screen.getByTestId('resume-delete'))
     expect(screen.getByTestId('resume-delete-confirm')).toHaveTextContent('Видаляємо…')
     expect(screen.getByTestId('resume-delete-confirm')).toBeDisabled()
+  })
+})
+
+describe('ResumeTab — a failed refetch and a dirty Retry (FR-W-1, FR-W-2)', () => {
+  it('a failed background refetch with cached data keeps the form and its draft', () => {
+    setData(FILLED)
+    const { rerender } = render(tab())
+    fireEvent.change(screen.getByLabelText('Цільова посада'), { target: { value: 'Changed' } })
+    state.isError = true
+    rerender(tab())
+    expect(screen.getByTestId('resume-facts-form')).toBeInTheDocument()
+    expect(screen.getByLabelText('Цільова посада')).toHaveValue('Changed')
+  })
+
+  it('an error with no data still shows the error line', () => {
+    state.resumeData = undefined
+    state.isError = true
+    render(tab())
+    expect(screen.getByText('Не вдалося відкрити резюме. Оновіть сторінку.')).toBeInTheDocument()
+  })
+
+  it('Retry on FAILED waits while the facts have unsaved changes, so stale facts are never submitted', () => {
+    setData(
+      makeResponse({
+        facts: { ...EMPTY_RESUME_FACTS, headline: 'Backend Engineer' },
+        verificationStatus: 'FAILED',
+        verificationErrorCode: 'RENDER_FAILED',
+      }),
+    )
+    render(tab())
+    expect(screen.getByTestId('resume-verification-retry')).toBeEnabled()
+    fireEvent.change(screen.getByLabelText('Цільова посада'), { target: { value: 'Changed' } })
+    const retry = screen.getByTestId('resume-verification-retry')
+    expect(retry).toBeDisabled()
+    fireEvent.click(retry)
+    expect(submitMock).not.toHaveBeenCalled()
   })
 })

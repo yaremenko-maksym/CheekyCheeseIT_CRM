@@ -37,6 +37,8 @@ export interface ResumeVerificationPanelProps {
   /** The facts form is open below the confirm step. */
   changingFacts?: boolean
   onChangeFacts: () => void
+  /** The facts form has unsaved changes: Retry would check the saved facts, so it waits for Save (FR-W-1). */
+  isDirty?: boolean
 }
 
 export function ResumeVerificationPanel({
@@ -45,6 +47,7 @@ export function ResumeVerificationPanel({
   canConfirm,
   changingFacts = false,
   onChangeFacts,
+  isDirty = false,
 }: ResumeVerificationPanelProps) {
   const submit = useSubmitResume(userId)
   const { verificationStatus: status, verificationBusy: busy, staged } = resume
@@ -106,7 +109,12 @@ export function ResumeVerificationPanel({
 
       {/* Should not happen (staged comes with a staged PDF), but never a dead end. */}
       {status === 'AWAITING_CONFIRM' && staged === null && !busy && (
-        <Button type="button" className="h-11 sm:h-9" disabled={submit.isPending} onClick={retry}>
+        <Button
+          type="button"
+          className="h-11 sm:h-9"
+          disabled={submit.isPending || isDirty}
+          onClick={retry}
+        >
           <Trans>Перевірити ще раз</Trans>
         </Button>
       )}
@@ -120,6 +128,7 @@ export function ResumeVerificationPanel({
           onRetry={retry}
           onChooseTemplate={chooseTemplate}
           disabled={submit.isPending}
+          retryDisabled={isDirty}
         />
       )}
     </div>
