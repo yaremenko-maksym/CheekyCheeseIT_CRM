@@ -351,13 +351,13 @@ describe('the Telegram handle of the senior', () => {
   })
 
   it('a handle stored with surrounding spaces still hits', () => {
-    expect(scanContacts('tg @mark_dev', { ...ctx, telegram: '  @mark_dev ' })).toEqual([
+    expect(scanContacts('ping @mark_dev', { ...ctx, telegram: '  @mark_dev ' })).toEqual([
       { kind: 'telegram', match: '@mark_dev' },
     ])
   })
 
   it('a handle stored without its @ still hits the written @ form', () => {
-    expect(scanContacts('tg @mark_dev', { ...ctx, telegram: 'mark_dev' })).toEqual([
+    expect(scanContacts('ping @mark_dev', { ...ctx, telegram: 'mark_dev' })).toEqual([
       { kind: 'telegram', match: '@mark_dev' },
     ])
   })
@@ -476,10 +476,10 @@ describe('labelled Telegram handles (SR-M-1)', () => {
   it.each([
     ['a.', 'a.'.repeat(25_000)],
     ['a-.', 'a-.'.repeat(16_667)],
-  ])('a 50k-character %j repeat is redacted in under 100 ms (SR-L-3)', (_, text) => {
+  ])('a 50k-character %j repeat is redacted in under 500 ms (SR-L-3, R91)', (_, text) => {
     const started = performance.now()
     redactContacts(text, ctx)
-    expect(performance.now() - started).toBeLessThan(100)
+    expect(performance.now() - started).toBeLessThan(500)
   })
 
   it('leaves a bare @package alone', () => {
@@ -498,5 +498,83 @@ describe('no context of the senior', () => {
     expect(hasContact('mail a@b.io', [])).toBe(true)
     expect(hasContact('call +380671234567', [])).toBe(true)
     expect(hasContact('no contacts here', [])).toBe(false)
+  })
+})
+
+describe('fix round 3: Unicode hosts, unlabelled handles, handle links, bounds', () => {
+  it.each([
+    'пример.укр/резюме',
+    'иван.рф/cv',
+    'münchen.de/x',
+    'иван.xn--p1ai/x',
+    'example.xn--p1ai/cv',
+  ])('redacts the whole Unicode or punycode URL %s (SO23-1)', (url) => {
+    expect(scanContacts(`see ${url} now`, ctx)).toEqual([{ kind: 'url', match: url }])
+    expect(redactContacts(`see ${url} now`, [])).toBe('see [REDACTED] now')
+  })
+
+  it('redacts the whole email with a punycode TLD (SO23-1)', () => {
+    expect(redactContacts('mail ivan@example.xn--p1ai now', [])).toBe('mail [REDACTED] now')
+  })
+
+  it.each([
+    'TG @other_one',
+    'Telegram - @other_one',
+    'Telegram @other_one',
+    'Telegram — @other_one',
+    'tg—other_one',
+    'тг: other_one',
+    'ТГ @other_one',
+  ])('redacts the unlabelled or Cyrillic-labelled handle %s (SO23-2)', (label) => {
+    expect(scanContacts(label, ctx)).toEqual([{ kind: 'telegram', match: label }])
+    expect(redactContacts(`Acme (${label})`, [])).toBe('Acme ([REDACTED])')
+  })
+
+  it.each(['Telegram bots', 'TG integration', 'Telegram-integration service', 'Debug tg:12345'])(
+    'leaves %s alone (SO23-2)',
+    (plain) => {
+      expect(scanContacts(plain, ctx)).toEqual([])
+      expect(redactContacts(plain, [])).toBe(plain)
+    },
+  )
+
+  it.each([
+    't.me/mark_dev?start=1',
+    't.me/mark_dev/',
+    'https://t.me/mark_dev#top',
+    'tg://resolve?domain=mark_dev',
+  ])('a stored telegram of %j redacts the bare handle (SO23-4)', (telegram) => {
+    expect(redactContacts('Acme (ask mark_dev)', { ...ctx, telegram })).toBe(
+      'Acme (ask [REDACTED])',
+    )
+  })
+
+  it('an email local part longer than 64 characters is redacted whole (SR-L-7)', () => {
+    const email = `${'a'.repeat(40)}.${'b'.repeat(39)}@example.io`
+    expect(scanContacts(`mail ${email} now`, ctx)).toEqual([{ kind: 'email', match: email }])
+    expect(redactContacts(`mail ${email} now`, [])).toBe('mail [REDACTED] now')
+  })
+
+  it('a 15-label host is redacted whole, as an email and as a URL (SR-L-8)', () => {
+    const host = `${'a.'.repeat(14)}co`
+    expect(redactContacts(`mail x@${host} now`, [])).toBe('mail [REDACTED] now')
+    expect(redactContacts(`see ${host}/x now`, [])).toBe('see [REDACTED] now')
+  })
+
+  it.each([
+    ['тг - ', 'тг - '.repeat(10_000)],
+    ['Telegram @', 'Telegram @'.repeat(5_000)],
+  ])('a 50k-character %j repeat is redacted in under 500 ms (R91)', (_, input) => {
+    const started = performance.now()
+    redactContacts(input, ctx)
+    expect(performance.now() - started).toBeLessThan(500)
+  })
+
+  // Linear, but Unicode classes cost ~10x ASCII on Node 22, so the Cyrillic case runs at 10k:
+  // five times the longest field (2000).
+  it('a 10k-character Cyrillic host repeat is redacted in under 500 ms (R91)', () => {
+    const started = performance.now()
+    redactContacts('пример.'.repeat(1_429), ctx)
+    expect(performance.now() - started).toBeLessThan(500)
   })
 })

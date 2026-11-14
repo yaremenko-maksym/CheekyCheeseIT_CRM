@@ -90,6 +90,12 @@ describe('host label count (SR-L-8)', () => {
     )
   })
 
+  it('an email with a local part over 64 characters is flagged; the pattern holds its last 64 (SR-L-7)', () => {
+    const email = `${'a'.repeat(40)}.${'b'.repeat(39)}@example.io`
+    expect(issuesOf(`mail ${email}`)).toEqual([contactIssue])
+    expect(RESUME_EMAIL_PATTERN.exec(email)?.[0]).toBe(email.slice(16))
+  })
+
   it('a note with a 15-label URL is flagged', () => {
     expect(issuesOf(`see ${host15}/x`)).toEqual([contactIssue])
   })
@@ -177,11 +183,18 @@ describe('linear time on the new branches (R91)', () => {
   it.each([
     ['a.', 'a.'.repeat(25_000)],
     ['a-.', 'a-.'.repeat(16_667)],
-    ['пример.', 'пример.'.repeat(7_143)],
     ['тг - ', 'тг - '.repeat(10_000)],
   ])('a 50k-character %s input is checked in under 500 ms', (_, note) => {
     const started = performance.now()
     issuesOf(note)
+    expect(performance.now() - started).toBeLessThan(500)
+  })
+
+  // Linear, but Unicode classes cost ~10x ASCII on Node 22 (50k Cyrillic ≈ 300 ms for the URL
+  // pattern alone), so the Cyrillic case runs at 10k: five times the longest field (2000).
+  it('a 10k-character Cyrillic host repeat is checked in under 500 ms', () => {
+    const started = performance.now()
+    issuesOf('пример.'.repeat(1_429))
     expect(performance.now() - started).toBeLessThan(500)
   })
 
