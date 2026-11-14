@@ -1010,10 +1010,6 @@ msgstr "A Ukrainian sole-proprietor bank account will be used."
 msgid "Підключено"
 msgstr "Connected"
 
-#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
-#~ msgid "Зміна шаблону скасує цей результат."
-#~ msgstr "Changing the template discards this result."
-
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Налаштувати signing secret"
 msgstr "Set up signing secret"
@@ -7879,6 +7875,7 @@ msgstr "Salary year"
 
 #: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
 #: apps/web/app/components/user-profile/resume/ResumeVerificationPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeVerificationPanel.tsx
 msgid "Перевірити ще раз"
 msgstr "Check again"
 
@@ -10114,6 +10111,10 @@ msgstr "Label (optional)"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
 msgid "Надіслати повторно"
 msgstr "Resubmit"
+
+#: apps/web/app/components/user-profile/resume/ResumeVerificationPanel.tsx
+msgid "{title}. Попередній результат збережено."
+msgstr "{title}. The previous result was kept."
 
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Погіршення"

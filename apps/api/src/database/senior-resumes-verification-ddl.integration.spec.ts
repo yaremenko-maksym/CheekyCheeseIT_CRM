@@ -131,9 +131,9 @@ describe.skipIf(!hasDatabaseUrl())('staged DDL: senior_resumes verification colu
     }
   })
 
-  it('adds the 18 columns Drizzle declares, same type and nullability', async () => {
+  it('adds the 19 columns Drizzle declares, same type and nullability', async () => {
     const { columns } = await touchedObjects()
-    expect(ADDED).toHaveLength(18)
+    expect(ADDED).toHaveLength(19)
     expect(columns.map((c) => [c['name'], c['type'], c['not_null']])).toEqual(
       ADDED.map((c) => [c.name, c.getSQLType(), c.notNull]),
     )

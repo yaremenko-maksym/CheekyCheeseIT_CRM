@@ -11,7 +11,11 @@
 import { useState, type ReactNode } from 'react'
 import { Check, Loader2, Lock } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
-import type { ResumeVerificationStatus, SeniorResumeDto } from '@crm/shared'
+import type {
+  ResumeVerificationErrorCode,
+  ResumeVerificationStatus,
+  SeniorResumeDto,
+} from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -28,7 +32,7 @@ import {
   useFocusAfterRender,
 } from './ResumeConfirmStep'
 import { templateTileId } from './ResumeTemplatePicker'
-import { ResumeVerificationFailure } from './ResumeVerificationFailure'
+import { ResumeVerificationFailure, VERIFICATION_CODES } from './ResumeVerificationFailure'
 
 export interface ResumeVerificationPanelProps {
   userId: string
@@ -107,6 +111,14 @@ export function ResumeVerificationPanel({
         />
       )}
 
+      {status === 'AWAITING_CONFIRM' &&
+        staged !== null &&
+        !busy &&
+        code !== null &&
+        KEPT_ON.has(code) && (
+          <KeptResultNotice code={code} onRetry={retry} disabled={submit.isPending || isDirty} />
+        )}
+
       {/* Should not happen (staged comes with a staged PDF), but never a dead end. */}
       {status === 'AWAITING_CONFIRM' && staged === null && !busy && (
         <Button
@@ -136,6 +148,49 @@ export function ResumeVerificationPanel({
 }
 
 const STALE_NOTICE_ID = 'resume-verification-stale'
+
+/** The codes a staged run ends on with the previous result kept (FR-A-2): a check was unavailable. */
+const KEPT_ON: ReadonlySet<ResumeVerificationErrorCode> = new Set([
+  'VISUAL_CHECK_UNAVAILABLE',
+  'WRITER_UNAVAILABLE',
+  'ENTAILMENT_UNAVAILABLE',
+  'STALLED',
+])
+
+/** One line beside the kept result: which check was unavailable, that nothing was lost, Retry. */
+function KeptResultNotice({
+  code,
+  onRetry,
+  disabled,
+}: {
+  code: ResumeVerificationErrorCode
+  onRetry: () => void
+  disabled: boolean
+}) {
+  const { i18n } = useLingui()
+  const title = i18n._(VERIFICATION_CODES[code].title)
+  return (
+    <p
+      role="status"
+      className="flex flex-wrap items-center gap-2 text-sm text-amber-700 dark:text-amber-400"
+      data-testid="resume-verification-kept"
+    >
+      <span>
+        <Trans>{title}. Попередній результат збережено.</Trans>
+      </span>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-11 sm:h-9"
+        disabled={disabled}
+        onClick={onRetry}
+      >
+        <Trans>Перевірити ще раз</Trans>
+      </Button>
+    </p>
+  )
+}
 /** The toolbar badge wrapper: where focus lands after Confirm (design §8). */
 export const VERIFICATION_STATUS_ID = 'resume-verification-status'
 

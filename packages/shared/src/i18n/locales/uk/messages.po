@@ -1010,10 +1010,6 @@ msgstr "Використовуватиметься український бан
 msgid "Підключено"
 msgstr "Підключено"
 
-#: apps/web/app/components/user-profile/resume/ResumeTemplatePicker.tsx
-#~ msgid "Зміна шаблону скасує цей результат."
-#~ msgstr "Зміна шаблону скасує цей результат."
-
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Налаштувати signing secret"
 msgstr "Налаштувати signing secret"
@@ -7879,6 +7875,7 @@ msgstr "Рік зарплати"
 
 #: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
 #: apps/web/app/components/user-profile/resume/ResumeVerificationPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeVerificationPanel.tsx
 msgid "Перевірити ще раз"
 msgstr "Перевірити ще раз"
 
@@ -10114,6 +10111,10 @@ msgstr "Мітка (необов’язково)"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
 msgid "Надіслати повторно"
 msgstr "Надіслати повторно"
+
+#: apps/web/app/components/user-profile/resume/ResumeVerificationPanel.tsx
+msgid "{title}. Попередній результат збережено."
+msgstr "{title}. Попередній результат збережено."
 
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Погіршення"
