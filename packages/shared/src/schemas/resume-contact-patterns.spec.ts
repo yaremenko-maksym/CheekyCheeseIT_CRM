@@ -291,6 +291,7 @@ describe('fix round 4', () => {
       ['t.me/s/mark_dev', 'mark_dev'],
       ['https://t.me/s/mark_dev', 'mark_dev'],
       ['t.me/joinchat/AbCdEf', undefined],
+      ['t.me/joinchat', undefined],
       ['t.me/s', undefined],
       ['t.me/+AbCdEf', undefined],
       ['mark', undefined],

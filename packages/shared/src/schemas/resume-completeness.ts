@@ -137,8 +137,9 @@ export const RESUME_TELEGRAM_LABEL_PATTERN = new RegExp(
  * otherwise redact every occurrence of it.
  */
 export function normaliseTelegramHandle(stored: string | null | undefined): string | undefined {
+  if (!stored) return undefined
   return /^(?:tg:\/\/resolve\?domain=|(?:(?:tg|telegram)\s*:\s*)?(?:https?:\/\/)?(?:www\.)?(?:(?:t|telegram)\.me\/(?:s\/)?)?)@*(?!joinchat(?:$|[/?#&]))([A-Za-z]\w{4,})(?:$|[/?#&])/i.exec(
-    stored?.trim() ?? '',
+    stored.trim(),
   )?.[1]
 }
 
