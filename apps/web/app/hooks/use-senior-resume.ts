@@ -169,7 +169,8 @@ export function useSaveResumeLayout(userId: string) {
 
 /**
  * A facts or submit write failed. Every error toasts its catalog text (409
- * RESUME_VERIFICATION_BUSY, 422 RESUME_INCOMPLETE / RESUME_CUSTOM_TEMPLATE) and
+ * RESUME_VERIFICATION_BUSY / RESUME_ALREADY_VERIFIED, 422 RESUME_INCOMPLETE /
+ * RESUME_CUSTOM_TEMPLATE) and
  * refetches: a busy answer means the server state moved, and the UI must
  * become that state rather than keep guessing.
  */

@@ -3622,6 +3622,11 @@ msgstr "Повернутися до команди може лише сеньй�
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_ALREADY_VERIFIED"
+msgstr "Резюме вже підтверджено. Змініть факти, щоб надіслати його знову."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_CONFIRM_STALE"
 msgstr "Резюме змінилося після перевірки. Оновіть сторінку й перевірте його ще раз."
 

@@ -3622,6 +3622,11 @@ msgstr "Only a senior can rejoin a team"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_ALREADY_VERIFIED"
+msgstr "The resume is already verified. Change the facts to submit it again."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_CONFIRM_STALE"
 msgstr "The resume changed after the check. Refresh the page and check it again."
 

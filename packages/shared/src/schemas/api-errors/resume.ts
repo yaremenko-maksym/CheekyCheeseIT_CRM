@@ -2,9 +2,10 @@ import type { MessageDescriptor } from '@lingui/core'
 
 /**
  * Verified base resume — error codes for the facts / verification / confirm
- * flow. 5 codes; only RESUME_STAGED_TEXT_INVALID takes a param (`reason`).
+ * flow. 6 codes; only RESUME_STAGED_TEXT_INVALID takes a param (`reason`).
  */
 export const RESUME_ERROR_CODES = [
+  'RESUME_ALREADY_VERIFIED',
   'RESUME_CONFIRM_STALE',
   'RESUME_CUSTOM_TEMPLATE',
   'RESUME_INCOMPLETE',
@@ -14,6 +15,7 @@ export const RESUME_ERROR_CODES = [
 export type ResumeErrorCode = (typeof RESUME_ERROR_CODES)[number]
 
 export const RESUME_ERROR_PARAMS = {
+  RESUME_ALREADY_VERIFIED: [],
   RESUME_CONFIRM_STALE: [],
   RESUME_CUSTOM_TEMPLATE: [],
   RESUME_INCOMPLETE: [],
@@ -23,6 +25,10 @@ export const RESUME_ERROR_PARAMS = {
 } as const satisfies Record<ResumeErrorCode, readonly string[]>
 
 export const RESUME_ERROR_MESSAGES: Record<ResumeErrorCode, MessageDescriptor> = {
+  RESUME_ALREADY_VERIFIED: /* i18n */ {
+    id: 'api-error.RESUME_ALREADY_VERIFIED',
+    message: 'Резюме вже підтверджено. Змініть факти, щоб надіслати його знову.',
+  },
   RESUME_CONFIRM_STALE: /* i18n */ {
     id: 'api-error.RESUME_CONFIRM_STALE',
     message: 'Резюме змінилося після перевірки. Оновіть сторінку й перевірте його ще раз.',
@@ -47,6 +53,7 @@ export const RESUME_ERROR_MESSAGES: Record<ResumeErrorCode, MessageDescriptor> =
 }
 
 export const RESUME_ERROR_FALLBACK_EN: Record<ResumeErrorCode, string> = {
+  RESUME_ALREADY_VERIFIED: 'The resume is already verified. Change the facts to submit it again.',
   RESUME_CONFIRM_STALE: 'The resume changed after the check. Refresh the page and check it again.',
   RESUME_CUSTOM_TEMPLATE:
     'This resume template cannot be checked. Choose a template from the catalog.',

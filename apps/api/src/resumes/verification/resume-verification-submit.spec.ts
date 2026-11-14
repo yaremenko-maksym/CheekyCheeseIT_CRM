@@ -147,6 +147,17 @@ describe('ResumeVerificationService.submit', () => {
     expect(log).toHaveLength(0)
   })
 
+  it('an idle VERIFIED resume is 409 RESUME_ALREADY_VERIFIED and starts nothing', async () => {
+    const { svc, s3, runner, log } = service([])
+    const row = { ...ROW, verificationStatus: 'VERIFIED' } as SeniorResume
+    const err = await refusal(svc.submit(row, 'Jane Doe', 'v'))
+    expect(err.getStatus()).toBe(409)
+    expect(err.getResponse()).toMatchObject({ code: 'RESUME_ALREADY_VERIFIED' })
+    expect(log).toHaveLength(0)
+    expect(runner.run).not.toHaveBeenCalled()
+    expect(s3.delete).not.toHaveBeenCalled()
+  })
+
   it('an incomplete resume is 422 RESUME_INCOMPLETE without the issue list (P7)', async () => {
     const { svc, runner, log } = service([])
     const row = { ...ROW, facts: { ...FACTS, experience: [] } } as SeniorResume

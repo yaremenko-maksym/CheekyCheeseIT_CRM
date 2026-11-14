@@ -405,7 +405,8 @@ export class ResumeVerificationService {
   /**
    * POST submit (202): from DRAFT, FAILED or AWAITING_CONFIRM, queue a full check run and start it off
    * the request path. 422 for a custom template or incomplete facts (P7: no issue list), 409 while a
-   * check or an extraction runs (P5a). From AWAITING_CONFIRM the old staged object goes after commit.
+   * check or an extraction runs (P5a), 409 RESUME_ALREADY_VERIFIED on an idle VERIFIED row. From
+   * AWAITING_CONFIRM the old staged object goes after commit.
    */
   async submit(
     row: SeniorResume,
@@ -418,6 +419,10 @@ export class ResumeVerificationService {
     }
     if (isVerificationBusy(row) || EXTRACTION_BUSY.includes(row.status)) {
       throw apiError('RESUME_VERIFICATION_BUSY', HttpStatus.CONFLICT)
+    }
+    // Nothing is busy: the facts are checked and confirmed already, a facts change resets to DRAFT.
+    if (row.verificationStatus === 'VERIFIED') {
+      throw apiError('RESUME_ALREADY_VERIFIED', HttpStatus.CONFLICT)
     }
     const facts = this.factsOf(row)
     if (checkResumeCompleteness(facts, { displayName, telegram, now: new Date() }).length > 0) {
