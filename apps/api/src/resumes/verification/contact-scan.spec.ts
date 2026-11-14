@@ -3,6 +3,7 @@
  * reach a third-party AI writer. A missed contact is a leak, so the scan is
  * deliberately greedy and redaction is checked by re-scanning its own output.
  */
+import { checkResumeCompleteness, type ResumeFacts } from '@crm/shared'
 import { describe, expect, it } from 'vitest'
 import { redactContacts, scanContacts, type ContactContext } from './contact-scan'
 import { hasContact } from './content-gates'
@@ -729,4 +730,30 @@ describe('fix round 7: separators, marks, atext, ports, label words', () => {
     redactContacts('Telegram handle'.repeat(3_334), ctx)
     expect(performance.now() - started).toBeLessThan(500)
   })
+})
+
+describe('redactContacts agrees with the completeness contact check on NFD text (SR7-L-1)', () => {
+  const FACTS: ResumeFacts = {
+    headline: 'Senior Frontend Engineer',
+    location: { city: 'Kyiv', country: 'Ukraine' },
+    workFormat: 'remote',
+    skills: ['JavaScript', 'TypeScript', 'React', 'Node.js', 'PostgreSQL'],
+    experience: [],
+    education: [],
+    languages: [],
+    links: [],
+  }
+  const now = new Date('2026-11-10T00:00:00Z')
+
+  it.each(['x@y.é', 'see a.é/x now', 'Aétg: mark_dev'])(
+    '%j is flagged and redacted, or neither',
+    (text) => {
+      const flagged = checkResumeCompleteness(
+        { ...FACTS, headline: text },
+        { displayName: ctx.fullName, now },
+      ).some((issue) => issue.code === 'CONTACT_IN_TEXT')
+      const redacted = redactContacts(text, ctx) !== text.normalize('NFC')
+      expect(flagged).toBe(redacted)
+    },
+  )
 })

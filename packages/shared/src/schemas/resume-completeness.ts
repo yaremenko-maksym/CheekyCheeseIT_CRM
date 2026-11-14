@@ -218,13 +218,18 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
   // `x@h`) still hit. `(?:^|\W)` stands in for a lookbehind (Safari < 16.4). A handle equal to a
   // skill word flags that word too: availability, not a leak.
   const handleTest = !handle ? null : new RegExp(`(?:^|\\W)@*${escapeRegExp(handle)}(?:$|\\W)`, 'i')
-  return (text) =>
-    findPhoneSpans(text).length > 0 ||
-    RESUME_EMAIL_PATTERN.test(text) ||
-    RESUME_URL_PATTERN.test(text) ||
-    RESUME_TELEGRAM_LABEL_PATTERN.test(text) ||
-    (handleTest !== null && handleTest.test(text)) ||
-    (name !== null && name.test(normaliseName(text)))
+  return (raw) => {
+    // NFC, as the API contact scan redacts: a decomposed contact is flagged exactly when it is redacted.
+    const text = raw.normalize('NFC')
+    return (
+      findPhoneSpans(text).length > 0 ||
+      RESUME_EMAIL_PATTERN.test(text) ||
+      RESUME_URL_PATTERN.test(text) ||
+      RESUME_TELEGRAM_LABEL_PATTERN.test(text) ||
+      (handleTest !== null && handleTest.test(text)) ||
+      (name !== null && name.test(normaliseName(text)))
+    )
+  }
 }
 
 function checkExperienceItem(

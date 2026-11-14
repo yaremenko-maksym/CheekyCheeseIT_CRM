@@ -959,3 +959,20 @@ describe('checkResumeCompleteness — URLs and labelled handles (SR-H-1, SR-M-1)
     expect(RESUME_TELEGRAM_LABEL_PATTERN.test('tg: abcde')).toBe(true)
   })
 })
+
+describe('checkResumeCompleteness — NFC, as the API redacts (SR7-L-1)', () => {
+  // Decomposed (NFD) forms: the combining acute U+0301 follows a plain `e`.
+  const DECOMPOSED = ['x@y.é', 'see a.é/x now', 'Aétg: mark_dev']
+
+  it.each(DECOMPOSED)('flags %j exactly as its NFC form', (text) => {
+    const flagged = (headline: string) =>
+      checkResumeCompleteness(makeFacts({ headline }), CTX).some(
+        (issue) => issue.code === 'CONTACT_IN_TEXT',
+      )
+    expect(flagged(text)).toBe(flagged(text.normalize('NFC')))
+  })
+
+  it('does not flag the decomposed email whose NFC TLD is one letter', () => {
+    expect(checkResumeCompleteness(makeFacts({ headline: 'x@y.é' }), CTX)).toEqual([])
+  })
+})
