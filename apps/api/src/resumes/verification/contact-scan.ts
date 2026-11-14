@@ -135,8 +135,9 @@ function telegramPattern(telegram: string | null | undefined): RegExp | null {
 }
 
 /**
- * Email, URL, labelled-handle and Telegram patterns; phones come from `findPhoneSpans`. The
- * generic ones are shared with completeness, so a contact it flags is one this redacts.
+ * URL, labelled-handle, literal-email and Telegram patterns; generic emails and phones are
+ * scanned in `findSpans`. The generic ones are shared with completeness, so a contact it flags is
+ * one this redacts.
  */
 function contactPatterns(ctx: ContactContext): [ContactHit['kind'], RegExp][] {
   const global = (p: RegExp) => new RegExp(p.source, `${p.flags}g`)
@@ -146,7 +147,6 @@ function contactPatterns(ctx: ContactContext): [ContactHit['kind'], RegExp][] {
     .map((email): [ContactHit['kind'], RegExp] => ['email', new RegExp(escapeRegExp(email), 'giu')])
   const telegram = telegramPattern(ctx.telegram)
   return [
-    ['email', global(RESUME_EMAIL_PATTERN)],
     ['url', global(RESUME_URL_PATTERN)],
     ['telegram', global(RESUME_TELEGRAM_LABEL_PATTERN)],
     ...literalEmails,
@@ -160,11 +160,21 @@ function findSpans(text: string, ctx: ContactContext): Span[] {
   const spans: Span[] = []
   for (const [kind, pattern] of contactPatterns(ctx)) {
     for (const m of plain.matchAll(pattern)) {
-      // The email, bare-URL and label patterns consume one boundary character in front; their
-      // group 1 is the hit.
+      // The bare-URL and label patterns consume one boundary character in front; their group 1
+      // is the hit.
       const end = m.index + m[0].length
       spans.push({ kind, start: end - (m[1] ?? m[0]).length, end })
     }
+  }
+  // The email pattern consumes its boundary too, so an email glued to the next by a local-part
+  // character (`a@b.com-c@d.com`) would hide the second: resume one past each hit's start, and
+  // the overlapping hits merge on redaction. Group 1 is the hit.
+  const email = new RegExp(RESUME_EMAIL_PATTERN.source, 'gu')
+  for (let m = email.exec(plain); m; m = email.exec(plain)) {
+    const end = m.index + m[0].length
+    const start = end - (m[1] ?? m[0]).length
+    spans.push({ kind: 'email', start, end })
+    email.lastIndex = start + 1
   }
   for (const span of findPhoneSpans(plain)) spans.push({ kind: 'phone', ...span })
   const folded = foldAccents(plain)

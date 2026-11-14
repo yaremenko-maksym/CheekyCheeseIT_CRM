@@ -48,7 +48,7 @@ export type CompletenessIssue = { path: string; code: CompletenessCode }
  * lookahead runs the digit-count one only where a phone can start; without it a long run of
  * separators is rescanned from each of its positions (quadratic).
  */
-export const RESUME_PHONE_PATTERN = /(?=[+(]?\d)(?=(?:[^\d\p{L}]*\d){9,})[+(]?\d[\d\s().–-]{7,}\d/u
+export const RESUME_PHONE_PATTERN = /(?=[+(]?\d)(?=(?:[^\d\p{L}]*\d){9})[+(]?\d[\d\s().–-]{7,}\d/u
 
 /** A full date: `YYYY-MM-DD` / `YYYY.MM.DD` / `YYYY/MM/DD` or `DD-MM-YYYY` / `DD.MM.YYYY` / `DD/MM/YYYY`. */
 const FULL_DATE = String.raw`(?:(?:19|20)\d\d[-./](?:0[1-9]|1[0-2])[-./](?:0[1-9]|[12]\d|3[01])|(?:0[1-9]|[12]\d|3[01])[-./](?:0[1-9]|1[0-2])[-./](?:19|20)\d\d)`

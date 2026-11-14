@@ -634,3 +634,34 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
     expect(performance.now() - started).toBeLessThan(500)
   })
 })
+
+describe('fix round 5: an email glued to the next one by a local-part character', () => {
+  it.each(['a@b.com-c@d.com', 'a@b.com.c@d.com', 'x@y.ua1ivan@gmail.com'])(
+    'redacts both addresses in %j (SR4-M-1)',
+    (glued) => {
+      expect(redactContacts(`mail ${glued} now`, [])).toBe('mail [REDACTED] now')
+    },
+  )
+
+  it('a URL is still found once, not from inside its own hit (SR4-M-1)', () => {
+    expect(scanContacts('see sub.domain.io/a now', ctx)).toEqual([
+      { kind: 'url', match: 'sub.domain.io/a' },
+    ])
+  })
+
+  it.each([
+    ['a@b.co-', 'a@b.co-'.repeat(7_143)],
+    ['a@', 'a@'.repeat(25_000)],
+    ['a.a@b.', 'a.a@b.'.repeat(8_334)],
+  ])('a 50k-character %j repeat is redacted in under 500 ms (SR4-M-1)', (_, input) => {
+    const started = performance.now()
+    redactContacts(input, ctx)
+    expect(performance.now() - started).toBeLessThan(500)
+  })
+
+  it('50k characters of "1," are redacted in under 500 ms (SR4-L-1)', () => {
+    const started = performance.now()
+    redactContacts('1,'.repeat(25_000), ctx)
+    expect(performance.now() - started).toBeLessThan(500)
+  })
+})

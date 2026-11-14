@@ -306,3 +306,11 @@ describe('fix round 4', () => {
     })
   })
 })
+
+describe('fix round 5', () => {
+  it('50k characters of "1," are checked in under 500 ms (SR4-L-1)', () => {
+    const started = performance.now()
+    issuesOf('1,'.repeat(25_000))
+    expect(performance.now() - started).toBeLessThan(500)
+  })
+})
