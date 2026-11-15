@@ -231,6 +231,8 @@ export function AuthProvider({ children, skip }: { children: ReactNode; skip?: b
   // app stays in the active locale rather than on a pending screen forever. Scoped to the user it
   // failed for: this provider outlives a session switch (PR #1343 SO-1).
   const [failedLocale, setFailedLocale] = useState<{ userId: string; locale: Locale } | null>(null)
+  const hasFailed = (userId: string, locale: Locale) =>
+    failedLocale?.userId === userId && failedLocale.locale === locale
   // The session's `locale` still has to be activated. Activating it remounts everything below
   // `LocaleScopedApp`'s `<Fragment key={locale}>` (`routes/__root.tsx`), so until then consumers
   // see `isLoading` and render their pending UI: nothing the user could interact with is torn
@@ -238,9 +240,7 @@ export function AuthProvider({ children, skip }: { children: ReactNode; skip?: b
   // same key remounts this provider on every activation. A background refetch carrying a locale
   // changed elsewhere waits the same way mid-session: the remount would tear the page down anyway.
   const sessionLocaleToApply =
-    !!data?.locale &&
-    !(failedLocale?.userId === data.id && failedLocale.locale === data.locale) &&
-    needsActivation(data.locale)
+    !!data?.locale && !hasFailed(data.id, data.locale) && needsActivation(data.locale)
   // isLoading = true while IndexedDB is being restored, while the auth query is in flight, OR
   // while the session locale is still to be activated. This prevents the guard from seeing
   // user=null prematurely during the restore window.
@@ -275,6 +275,8 @@ export function AuthProvider({ children, skip }: { children: ReactNode; skip?: b
     }
     if (!needsActivation(data.locale)) return
     const { locale, id: userId } = data
+    // no retry of a failed locale for the same user (A1): a late success would remount the tree (CR-L)
+    if (hasFailed(userId, locale)) return
     // One release per attempt: a late rejection after the timeout is not reported twice
     let settled = false
     const release = (reason: unknown) => {
@@ -291,8 +293,13 @@ export function AuthProvider({ children, skip }: { children: ReactNode; skip?: b
     activateLocale(locale)
       .catch(release)
       .finally(() => clearTimeout(timer))
-    // a success remounts this provider: no timeout may fire for an attempt that is gone
-    return () => clearTimeout(timer)
+    // a success remounts this provider: an attempt that is gone (unmount, or superseded by
+    // another user / locale) is retired, so neither its timeout nor a late rejection reports or
+    // overwrites the failure of the attempt that replaced it (CR-M-3)
+    return () => {
+      settled = true
+      clearTimeout(timer)
+    }
     // keyed by user too: another user with the same locale re-attempts (SO-1)
   }, [data?.locale, data?.id])
 
