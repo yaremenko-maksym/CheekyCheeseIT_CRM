@@ -8,7 +8,7 @@
  * This is the central contract of the isRestoring Option A fix in auth.tsx.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { renderHook } from '@testing-library/react'
+import { renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 
 // ---------------------------------------------------------------------------
