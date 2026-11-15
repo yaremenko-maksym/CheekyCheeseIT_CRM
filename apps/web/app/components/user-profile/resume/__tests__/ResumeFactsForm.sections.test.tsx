@@ -8,16 +8,23 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { EMPTY_RESUME_FACTS, type ResumeFacts, type ResumeFactsExperience } from '@crm/shared'
+import {
+  EMPTY_RESUME_FACTS,
+  RESUME_LIMITS,
+  type ResumeFacts,
+  type ResumeFactsExperience,
+} from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { ResumeFactsForm, moveItem, type ResumeFactsFormProps } from '../ResumeFactsForm'
+
+const STUB_JOBS_AT = RESUME_LIMITS.experience - 1 // render-heavy cap test only; every other test renders 0-2 jobs
 
 vi.mock('../ResumeFactsJob', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../ResumeFactsJob')>()
   return {
     ...actual,
     JobBlock: (props: Parameters<typeof actual.JobBlock>[0]) =>
-      props.count >= 29 ? null : actual.JobBlock(props),
+      props.count >= STUB_JOBS_AT ? null : <actual.JobBlock {...props} />,
   }
 })
 
