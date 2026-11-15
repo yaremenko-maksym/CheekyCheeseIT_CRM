@@ -221,9 +221,9 @@ const CLUSTER_PATTERN =
   /[\u1100-\u11FF\uA960-\uA97F\uD7B0-\uD7FF]+|[^\u2800\p{Cf}\p{Default_Ignorable_Code_Point}](?:[\u2800\p{Cf}\p{Default_Ignorable_Code_Point}]*\p{M})*/gu
 
 /**
- * Normalise text for contact scanning: strip invisible characters (`INVISIBLE_PATTERN`), then NFKC,
- * maintaining offset maps (`from` and `to`) from each code unit back to its cluster in the
- * original string. No visible character NFKC-maps to an invisible one, so one strip suffices.
+ * Normalise text for contact scanning: strip invisible characters (default-ignorables + U+2800),
+ * then NFKC per cluster, maintaining offset maps (`from` and `to`) from each code unit back to
+ * its cluster in the original string. No visible character NFKC-maps to an invisible one, so one strip suffices.
  */
 export function normaliseContactText(text: string): {
   text: string
