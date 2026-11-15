@@ -156,6 +156,8 @@ describe('ResumeOrphanSweepCron', () => {
     const result = await make().sweep(NOW)
 
     expect(bucket.deleteOrThrow.mock.calls).toEqual([['senior-resumes/u/past']])
+    // The listing alone decides young: neither young key reaches the HEAD re-check.
+    expect(bucket.headLastModified.mock.calls).toEqual([['senior-resumes/u/past']])
     expect(result).toMatchObject({ deleted: 1, young: 2 })
   })
 
