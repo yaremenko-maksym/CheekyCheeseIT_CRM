@@ -32,9 +32,15 @@
  * the client side.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { configure, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+// Every plan on screen waits out the dialog's real 400 ms debounce first, which spends 40% of the
+// default 1 000 ms `findBy` budget before React renders at all; at load ~150 the rest ran out
+// (CP-4, CP-10 red). The budget is a wait, not an assertion: no test here bounds HOW FAST a plan
+// appears, and every absence check uses its own explicit sleep, so a longer wait weakens nothing.
+configure({ asyncUtilTimeout: 5000 })
 
 import type { CascadeEditPreviewResponse, TransactionDto } from '@crm/shared'
 

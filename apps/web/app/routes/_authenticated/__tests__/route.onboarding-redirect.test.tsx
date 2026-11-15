@@ -5,7 +5,7 @@
  * `/project` (index.tsx), the layout redirects a not-onboarded user to `/onboarding`.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { type PropsWithChildren, type ReactNode } from 'react'
 import { QueryClientProvider, useQuery } from '@tanstack/react-query'
 import {
@@ -141,9 +141,19 @@ function renderCrmAt(path: string) {
 }
 
 async function expectOnboarding({ crm, errors }: ReturnType<typeof renderCrmAt>) {
-  expect(await screen.findByText('onboarding wizard', {}, { timeout: 3000 })).toBeInTheDocument()
+  // The layout swaps to its onboarding-only branch when the location RESOLVES, so the wizard mounts
+  // twice: one wizard node is removed after it first appears, on every run (measured). Holding the
+  // FIRST node found raced that swap and read it detached under load; query the settled page.
+  await waitFor(
+    () => {
+      expect(crm.state.location.pathname).toBe('/onboarding')
+      expect(screen.getByText('onboarding wizard')).toBeInTheDocument()
+    },
+    { timeout: 3000 },
+  )
   await act(() => new Promise((settle) => setTimeout(settle, 50))) // no redirect left in flight
   expect(crm.state.location.pathname).toBe('/onboarding')
+  expect(screen.getByText('onboarding wizard')).toBeInTheDocument()
   expect(errors.mock.calls.flat().join(' ')).not.toMatch(/Maximum update depth/)
   errors.mockRestore()
 }

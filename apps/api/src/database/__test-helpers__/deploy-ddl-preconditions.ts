@@ -153,9 +153,11 @@ export async function dropRolesCreatedReportingLeaks(
     try {
       await dropRolesCreated(pool, [role])
     } catch (error) {
-      if ((error as { code?: string }).code !== '2BP01') throw error
+      const { code, detail } = error as { code?: string; detail?: string }
+      if (code !== '2BP01') throw error
+      // pg names the other database only in `detail` ("N objects in database X").
       console.warn(
-        `[deploy-ddl-preconditions] left ${role} in place: a database other than this one still depends on it (2BP01)`,
+        `[deploy-ddl-preconditions] left ${role} in place: a database other than this one still depends on it (2BP01)${detail ? `: ${detail}` : ''}`,
       )
       keptForOtherDatabases.add(role)
     }
