@@ -40,17 +40,17 @@
 --     behind a reader queues the hot queue behind itself, so it fails fast instead;
 --   * the CREATE (section 2) runs under `lock_timeout = '5min'`, set right before it: it takes only
 --     ShareUpdateExclusive (no reader or writer of the queue waits on it) and then waits out every
---     transaction older than its own snapshot. 5 min tolerates normal transactions, and ONE such wait
---     fits inside the 30-minute ssh-action cut below: a transaction open longer than 5 min fails the build
---     loudly inside the deploy window (INVALID index, section 3 fails the deploy, the next deploy's
---     sweep drops and rebuilds it) instead of the step being killed mid-build. The timeout bounds
---     each wait, not the statement; `statement_timeout` bounds the whole build. Waits add up: the two
---     dirty-work files run three builds in one deploy step, and each build waits at several points
---     and once per older transaction. Each single wait is at most 5 min, but the total has no fixed
---     cap below `statement_timeout = '30min'` per build, so a chain of transactions each open just
---     under 5 min can still pass the 30-minute ssh-action cut. The 30-minute cut covers the realistic
---     case (about one long transaction per build); if the step is cut anyway, the next deploy's sweep
---     drops the INVALID index and rebuilds it.
+--     transaction older than its own snapshot. 5 min tolerates normal transactions, and ONE such wait fits
+--     inside the 30-minute ssh-action cut below: a transaction still open 5 min after the build starts
+--     waiting on it fails the build loudly inside the deploy window (INVALID index, section 3 fails the
+--     deploy, the next deploy's sweep drops and rebuilds it) instead of the step being killed mid-build. The
+--     timeout bounds each wait, not the statement; `statement_timeout` bounds the whole build. Waits add up:
+--     the two dirty-work files run three builds in one deploy step, and each build waits at several points
+--     and once per older transaction. Each single wait is at most 5 min, but the total has no fixed cap
+--     below `statement_timeout = '30min'` per build, so a chain of transactions each open just under 5 min
+--     can still pass the 30-minute ssh-action cut. The 30-minute cut covers the realistic case (about one
+--     long transaction per build); if the step is cut anyway, the next deploy's sweep drops the INVALID
+--     index and rebuilds it.
 --
 -- A CONCURRENTLY build waits for every transaction holding an old snapshot. In a deploy through
 -- GitHub Actions ssh-action (which pins `command_timeout: 30m`, PR #1338), the step has an explicit
