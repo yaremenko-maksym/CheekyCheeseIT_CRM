@@ -489,7 +489,8 @@ function TriageGrantDialog({
   }
   // 1340-CR-L-r2-1: a closed dialog stays mounted through its exit animation, invisible already
   const visible = useRef(open)
-  useEffect(() => {
+  // layout, not passive: a refusal landing between the commit and a passive effect saw a stale `true`
+  useLayoutEffect(() => {
     visible.current = open
   }, [open])
   return (

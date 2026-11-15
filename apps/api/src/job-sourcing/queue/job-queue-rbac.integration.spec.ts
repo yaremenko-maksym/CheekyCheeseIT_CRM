@@ -1495,6 +1495,12 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(items[0]?.submission?.['state']).toBe('TAKEN')
       expect(page.json['totalCount']).toBe(1)
       expect(page.json['nextCursor']).toBeNull()
+      // SR-M-1: another team's HR gets the missing-opportunity 404, not the card's seniors
+      for (const who of ['hrM2', 'hrA']) {
+        const foreign = await get(`/${id('cardHr')}/seniors`, who)
+        expect(foreign.status, who).toBe(404)
+        expect(foreign.json['code']).toBe(NOT_FOUND)
+      }
     })
 
     it('a card created after the list was generated is listed at once, for ADMIN and the team (1340-QA-OUT-1)', async () => {
@@ -1510,6 +1516,8 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       ids['cardFresh'] = (await cards('fresh'))[0]?.id as string
       expect(await inAnyTab('hrM', 'cardFresh')).toBe(true)
       expect(await inAnyTab('admin', 'cardFresh')).toBe(true)
+      // SR-M-2: the studio-wide retire widens nothing: another team still does not list the card
+      expect(await inAnyTab('hrM2', 'cardFresh')).toBe(false)
     })
 
     it('a retry with the same key answers the same submission and writes nothing more', async () => {
