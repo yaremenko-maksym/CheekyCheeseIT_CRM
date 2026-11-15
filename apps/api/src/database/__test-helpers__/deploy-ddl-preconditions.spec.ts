@@ -131,14 +131,19 @@ describe("productionRetentionOwnerGrants — the retention owner's shipped grant
  * to the SQLSTATE its `DROP ROLE` fails with; `existing` is what `pg_roles` holds after
  * the drops (a fake, so the test states it rather than computing it).
  */
-function fakeRolePool(opts: { refuse?: Record<string, string>; existing?: string[] }) {
+function fakeRolePool(opts: {
+  refuse?: Record<string, string>
+  detail?: Record<string, string>
+  existing?: string[]
+}) {
   const sent: string[] = []
   const pool = {
     query: vi.fn(async (sql: string) => {
       sent.push(sql)
       const dropRole = /^DROP ROLE IF EXISTS (\w+)$/.exec(sql)
       const code = dropRole ? opts.refuse?.[dropRole[1] ?? ''] : undefined
-      if (code) throw Object.assign(new Error(`refused (${code})`), { code })
+      const detail = dropRole ? opts.detail?.[dropRole[1] ?? ''] : undefined
+      if (code) throw Object.assign(new Error(`refused (${code})`), { code, detail })
       if (sql.includes('pg_catalog.pg_roles')) {
         return { rows: (opts.existing ?? []).map((rolname) => ({ rolname })) }
       }
@@ -179,6 +184,22 @@ describe('dropRolesCreatedReportingLeaks — role teardown (SPEC-L-1 of PR #1339
     expect(sent).toContain('DROP ROLE IF EXISTS crm_collector')
     expect(warn).toHaveBeenCalledWith(
       '[deploy-ddl-preconditions] left crm_app in place: a database other than this one still depends on it (2BP01)',
+    )
+    warn.mockRestore()
+  })
+
+  it('names the other database from the pg error detail in the 2BP01 warning', async () => {
+    // Postgres puts WHICH database holds the dependents in `detail`, not in `message`; a
+    // warning without it says "somewhere else" and sends the reader to find out where.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { pool } = fakeRolePool({
+      refuse: { crm_app: '2BP01' },
+      detail: { crm_app: '3 objects in database crm_qa' },
+    })
+
+    await dropRolesCreatedReportingLeaks(pool, ['crm_app'])
+    expect(warn).toHaveBeenCalledWith(
+      '[deploy-ddl-preconditions] left crm_app in place: a database other than this one still depends on it (2BP01): 3 objects in database crm_qa',
     )
     warn.mockRestore()
   })
