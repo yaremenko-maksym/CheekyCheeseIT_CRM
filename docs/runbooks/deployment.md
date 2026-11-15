@@ -1374,15 +1374,17 @@ commands are the owner's, through `ssh crm-vps`; SELECT only):
 
 5. No transaction open longer than the `CREATE INDEX CONCURRENTLY` lock timeout. The two dirty-work
    files run their sweep under `lock_timeout = '10s'` and each `CREATE INDEX CONCURRENTLY` under
-   `lock_timeout = '5min'` (the waits of the three builds add up to 15 min at worst, inside the
-   step's 30-minute ssh-action `command_timeout`), so the query below flags exactly the
-   transactions that would outlast the build's wait. **Expect 0 rows** right before the deploy. If a
+   `lock_timeout = '5min'` (a cap on each single wait, not on the build), so the query below flags
+   exactly the transactions that would outlast one wait. **Expect 0 rows** right before the deploy. If a
    row is there when the deploy runs, the build waits up to 5 min for it, then fails with
    `canceling statement due to lock timeout`, leaves the index INVALID and fails the deploy before the
    container swap (the old API keeps serving); end that transaction and re-run the deploy, whose sweep
-   drops the INVALID index and rebuilds it (next paragraph). The waits of the three builds add up
-   within one deploy step (3 × 5 min = 15 min worst case), which is why the ssh-action step pins
-   `command_timeout: 30m` instead of the action's 10-minute default.
+   drops the INVALID index and rebuilds it (next paragraph). The waits add up within one deploy
+   step: each of the three builds waits at several points and once per older transaction, so a chain
+   of transactions each just under 5 min has no fixed total below `statement_timeout = '30min'` per
+   build. The ssh-action step pins `command_timeout: 30m` instead of the action's 10-minute default;
+   that covers the realistic case (about one long transaction per build). If the step is cut anyway,
+   the next deploy's sweep repairs the INVALID index.
 
    ```sql
    SELECT pid, state, now() - xact_start AS age FROM pg_stat_activity

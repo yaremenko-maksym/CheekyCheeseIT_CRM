@@ -3111,7 +3111,8 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           envs: IMAGE_TAG,GH_ACTOR,GHCR_TOKEN,CRM_CSP_MODE
-          # Worst case: 3 × 5 min CIC lock waits = 15 min, plus the step's normal runtime; 30m replaces the 10 m default.
+          # 30m replaces the 10 m default: each CIC lock wait is capped at 5 min, but a build waits once per older
+          # transaction, so the total has no fixed cap; a cut step is repaired by the next deploy's sweep.
           command_timeout: 30m
           # A DISPATCH, deliberately tens of bytes long. The 137 KB it runs
           # travelled as a file via the scp step above. Full story in the header
