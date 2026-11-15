@@ -158,8 +158,10 @@ afterAll(async () => {
 function renderInput(templateSource: string): ResumeRenderInput {
   return {
     displayName: 'Іван Петренко',
+    email: 'ivan.petrenko@example.com',
     content: EMPTY_RESUME_CONTENT,
     layout: DEFAULT_RESUME_LAYOUT,
+    templateName: 'classic',
     templateSource,
   }
 }

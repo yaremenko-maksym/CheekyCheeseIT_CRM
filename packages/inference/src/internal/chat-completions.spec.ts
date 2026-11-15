@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { FetchLike } from '../http/bounded-request'
-import { parseJsonOrNull, sendChatCompletion, type ChatCompletionOptions } from './chat-completions'
+import {
+  buildChatMessages,
+  parseJsonOrNull,
+  sendChatCompletion,
+  type ChatCompletionOptions,
+} from './chat-completions'
 
 describe('parseJsonOrNull', () => {
   it('parses JSON and turns anything else into null', () => {
@@ -128,5 +133,30 @@ describe('sendChatCompletion (legacy local / openrouter call, behaviour pinned)'
         code: 'RATE_LIMITED',
       },
     )
+  })
+})
+
+describe('buildChatMessages — image parts (visual check)', () => {
+  it('sends the input as a text part, then each page as an image_url data URL', () => {
+    const messages = buildChatMessages({
+      instruction: 'look',
+      input: 'checklist',
+      images: ['QUJD', 'REVG'],
+    })
+    expect(messages).toStrictEqual([
+      { role: 'system', content: 'look' },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'checklist' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,QUJD' } },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,REVG' } },
+        ],
+      },
+    ])
+  })
+
+  it('without images the user content stays a plain string', () => {
+    expect(buildChatMessages({ input: 'x' })[1]).toStrictEqual({ role: 'user', content: 'x' })
   })
 })

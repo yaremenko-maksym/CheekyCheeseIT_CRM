@@ -273,6 +273,37 @@ export class ResumeTextExtractionService {
     }
   }
 
+  /**
+   * The text layer of a PDF we rendered ourselves, one string per page with
+   * its line breaks kept — the input of the ATS gate (`resume-ats-checker`).
+   * Same worker, sandbox, page and content limits, and concurrency gate as
+   * `extract`; each page is normalised line by line.
+   */
+  async extractRenderedPages(pdf: Buffer): Promise<string[]> {
+    await this.acquireSlot()
+    try {
+      return await this.readPdf(pdf, async () =>
+        (await this.runWorker(pdf, RESUME_PDF_MIME, undefined, undefined, true)).map(
+          normalizeExtractedText,
+        ),
+      )
+    } finally {
+      this.releaseSlot()
+    }
+  }
+
+  /**
+   * The page count of a PDF we rendered ourselves, from the xref and catalogue
+   * only (no content stream, no worker). The verification run reads it first:
+   * `extractRenderedPages` refuses a document over `MAX_PDF_PAGES`, and an
+   * overflowing render is a layout failure to repair, not an unreadable file.
+   */
+  async countRenderedPages(pdf: Buffer): Promise<number> {
+    const { getDocumentProxy } = await import('unpdf')
+    const proxy = await getDocumentProxy(new Uint8Array(pdf))
+    return proxy.numPages
+  }
+
   /** Concurrency gate — see `MAX_CONCURRENT_EXTRACTIONS`. */
   private acquireSlot(): Promise<void> {
     if (this.running < MAX_CONCURRENT_EXTRACTIONS) {
@@ -292,11 +323,14 @@ export class ResumeTextExtractionService {
     this.waiting.shift()?.()
   }
 
-  private async extractFromPdf(
-    buffer: Buffer,
-    timeoutMs?: number,
-    cpuSeconds?: number,
-  ): Promise<string> {
+  private extractFromPdf(buffer: Buffer, timeoutMs?: number, cpuSeconds?: number): Promise<string> {
+    return this.readPdf(buffer, async () =>
+      normalizeExtractedText(await this.runWorker(buffer, RESUME_PDF_MIME, timeoutMs, cpuSeconds)),
+    )
+  }
+
+  /** The PDF guards shared by `extract` and `extractRenderedPages`, then `parse` in the worker. */
+  private async readPdf<T>(buffer: Buffer, parse: () => Promise<T>): Promise<T> {
     // Imported lazily so a broken/absent optional parser can never take the
     // whole Nest bootstrap down — extraction is a background job, not a
     // boot-critical dependency.
@@ -321,9 +355,7 @@ export class ResumeTextExtractionService {
           err instanceof RangeError ? err.message : 'Не удалось прочитать PDF-файл',
         )
       }
-      return normalizeExtractedText(
-        await this.runWorker(buffer, RESUME_PDF_MIME, timeoutMs, cpuSeconds),
-      )
+      return await parse()
     } catch (err: unknown) {
       if (err instanceof ResumeFileUnreadableError) throw err
       this.logger.warn(`PDF extraction failed: ${err instanceof Error ? err.message : 'unknown'}`)
@@ -342,12 +374,26 @@ export class ResumeTextExtractionService {
    * The worker caps the text before it crosses the pipe, so the API process
    * never holds the 50 MiB an honest 52 KB DOCX can expand into.
    */
+  private runWorker(
+    buffer: Buffer,
+    mime: ResumeSourceMime,
+    timeoutMs?: number,
+    cpuSeconds?: number,
+  ): Promise<string>
+  private runWorker(
+    buffer: Buffer,
+    mime: ResumeSourceMime,
+    timeoutMs: number | undefined,
+    cpuSeconds: number | undefined,
+    pages: true,
+  ): Promise<string[]>
   private async runWorker(
     buffer: Buffer,
     mime: ResumeSourceMime,
     timeoutMs: number = EXTRACTION_TIMEOUT_MS,
     cpuSeconds: number = EXTRACTION_CPU_SECONDS,
-  ): Promise<string> {
+    pages = false,
+  ): Promise<string | string[]> {
     // ── THE SEAM MAY ONLY TIGHTEN THE LIMIT, NEVER LOOSEN IT ──────────────
     //
     // `cpuSeconds` reaches `ulimit -t` as a STRING in a shell, and a shell
@@ -387,6 +433,7 @@ export class ResumeTextExtractionService {
           filePath,
           mime,
           String(RESUME_LIMITS.extractionRawChars),
+          ...(pages ? ['pages'] : []),
         ],
         cwd: dir,
         // Only what node needs to start. The database URL, the S3 credentials
@@ -433,12 +480,21 @@ export class ResumeTextExtractionService {
         throw new ResumeFileUnreadableError('Не удалось прочитать файл резюме')
       }
 
-      const parsed = JSON.parse(result.stdout) as { ok: boolean; text?: string; error?: string }
-      if (!parsed.ok || typeof parsed.text !== 'string') {
+      const parsed = JSON.parse(result.stdout) as {
+        ok: boolean
+        text?: unknown
+        pages?: unknown
+        error?: string
+      }
+      const value = pages ? parsed.pages : parsed.text
+      const valid = pages
+        ? Array.isArray(value) && value.every((page) => typeof page === 'string')
+        : typeof value === 'string'
+      if (!parsed.ok || !valid) {
         this.logger.warn(`Extraction worker reported: ${parsed.error ?? 'unknown'}`)
         throw new ResumeFileUnreadableError('Не удалось прочитать файл резюме')
       }
-      return parsed.text
+      return value as string | string[]
     } finally {
       await rm(dir, { recursive: true, force: true }).catch(() => undefined)
     }

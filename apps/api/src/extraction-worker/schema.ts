@@ -6,7 +6,15 @@ import {
 } from '@crm/inference'
 import { z } from 'zod'
 import { buildRouterConfig, extractionWorkerEnvSchema } from '../inference/build-inference-config'
-import { isUsableWorkerSecret } from './link-contract'
+import {
+  isUsableWorkerSecret,
+  MAX_PAGE_BYTES,
+  MAX_PAGE_CHARS,
+  MAX_PAGES,
+  visualCheckBodySchema,
+} from './link-contract'
+
+export { MAX_PAGE_BYTES, MAX_PAGES, visualCheckBodySchema }
 
 /** The delimited user message from `buildExtractionPrompt`, bounded by the port's own input cap. */
 export const MAX_WORKER_INPUT_CHARS = MAX_EXTRACTION_INPUT_CHARS
@@ -19,6 +27,38 @@ export const extractBodySchema = z
     tableVersion: z.string().min(1).max(64),
   })
   .strict()
+
+/** The facts arrive as one JSON object; an array, a primitive or a non-JSON string is refused. */
+function isJsonObject(text: string): boolean {
+  const parsed = parseJson(text)
+  return typeof parsed?.value === 'object' && parsed.value !== null && !Array.isArray(parsed.value)
+}
+
+/**
+ * `resume-write` data only: the task, the caller-redacted facts (spec §5.2) and the gate feedback on
+ * the previous draft. The instruction is the worker's own; nothing here can replace it.
+ */
+export const resumeWriteBodySchema = z
+  .object({
+    task: z.enum(['summary', 'bullets']),
+    // `abort`: an oversize payload stops here, before the JSON parse of the refine.
+    payload: z.string().min(1).max(MAX_WORKER_INPUT_CHARS, { abort: true }).refine(isJsonObject),
+    // One line each: a line break could fake a `FACTS` or `FEEDBACK` heading in the user message.
+    feedback: z
+      .array(
+        z
+          .string()
+          .min(1)
+          .max(1000, { abort: true })
+          .regex(/^[^\r\n]*$/),
+      )
+      .max(20),
+  })
+  .strict()
+export type ResumeWriteBody = z.infer<typeof resumeWriteBodySchema>
+
+/** The route's body limit: the pages at their cap plus the JSON around them. */
+export const VISUAL_CHECK_BODY_LIMIT = MAX_PAGES * MAX_PAGE_CHARS + 1024
 
 /** `preflight` takes nothing: no body, or an empty JSON object. */
 export const preflightBodySchema = z.union([z.undefined(), z.object({}).strict()])

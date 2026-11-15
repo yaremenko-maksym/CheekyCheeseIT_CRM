@@ -339,6 +339,8 @@ const PACKAGES = [
       'src/main.ts',
       'src/**/*.module.ts',
       'src/test/**',
+      // ATS suite fixtures + helpers (verified-base-resume Task 7): test-only, run by `test:ats`, not the unit suite.
+      'src/**/__ats__/**',
       'src/db/**',
       // ── DECLARATIVE DRIZZLE SCHEMA DEFINITIONS — PATH-SCOPED EXCLUSION ────────
       // OWNER DECISION 2026-10-13 ("Исключить schema/** из mutation-гейта").

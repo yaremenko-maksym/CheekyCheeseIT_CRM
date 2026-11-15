@@ -35,6 +35,7 @@ function Harness(props: {
   minMonth?: string | undefined
   maxMonth?: string | undefined
   onChange?: ((v: string) => void) | undefined
+  onClose?: (() => void) | undefined
 }) {
   const [v, setV] = useState(props.initial ?? '')
   return (
@@ -44,6 +45,7 @@ function Harness(props: {
         minMonth={props.minMonth}
         maxMonth={props.maxMonth}
         data-testid="create-transaction-salary-month"
+        onClose={props.onClose}
         onChange={(n) => {
           props.onChange?.(n)
           setV(n)
@@ -194,6 +196,22 @@ describe('MonthPickerField', () => {
     expect(screen.getByTestId(MONTH)).toHaveFocus()
   })
 
+  it('onClose fires when a select closes, never when it opens', async () => {
+    await loadCatalog('uk')
+    const onClose = vi.fn()
+    render(<Harness initial="2026-10" onClose={onClose} />)
+    const u = user()
+    for (const trigger of [MONTH, YEAR]) {
+      await u.tab()
+      expect(screen.getByTestId(trigger)).toHaveFocus()
+      await u.keyboard('{Enter}')
+      expect(await screen.findByRole('listbox')).toBeInTheDocument()
+      expect(onClose).toHaveBeenCalledTimes(trigger === MONTH ? 0 : 1)
+      await u.keyboard('{Escape}')
+      expect(onClose).toHaveBeenCalledTimes(trigger === MONTH ? 1 : 2)
+    }
+  })
+
   it('exposes accessible names and invalid state', async () => {
     await loadCatalog('uk')
     render(<Harness initial="2026-10" />)
@@ -223,22 +241,46 @@ describe('MonthPickerField', () => {
     }
   })
 
-  it('empty value: placeholders shown and exactly the 5 default years, ascending', async () => {
+  it('triggerClassName sizes both triggers (resume facts: 44px on mobile, F-5)', async () => {
+    await loadCatalog('uk')
+    render(
+      <I18nTestProvider>
+        <MonthPickerField value="2026-10" onChange={() => {}} triggerClassName="h-11 sm:h-9" />
+      </I18nTestProvider>,
+    )
+    for (const id of [MONTH, YEAR]) {
+      expect(screen.getByTestId(id)).toHaveClass('h-11', 'sm:h-9')
+      expect(screen.getByTestId(id)).not.toHaveClass('h-9')
+    }
+  })
+
+  it('empty value: placeholders shown and exactly the 5 default years, newest first', async () => {
     await loadCatalog('uk')
     render(<Harness />)
     expect(screen.getByTestId(MONTH)).toHaveTextContent('Місяць')
     expect(screen.getByTestId(YEAR)).toHaveTextContent('Рік')
     await user().click(screen.getByTestId(YEAR))
     const years = (await screen.findAllByRole('option')).map((o) => o.textContent)
-    expect(years).toEqual(['2023', '2024', '2025', '2026', '2027'])
+    expect(years).toEqual(['2027', '2026', '2025', '2024', '2023'])
   })
 
-  it('an out-of-range stored year is merged into the list in ascending order', async () => {
+  it('an out-of-range stored year is merged into the list, newest first', async () => {
     await loadCatalog('uk')
     render(<Harness initial="2019-05" />)
     await user().click(screen.getByTestId(YEAR))
     const years = (await screen.findAllByRole('option')).map((o) => o.textContent)
-    expect(years).toEqual(['2019', '2023', '2024', '2025', '2026', '2027'])
+    expect(years).toEqual(['2027', '2026', '2025', '2024', '2023', '2019'])
+  })
+
+  it('a long range (resume: 1970 to now) lists the current year first and keeps every year (QA-10)', async () => {
+    await loadCatalog('uk')
+    render(<Harness minMonth="1970-01" maxMonth="2026-10" />)
+    await user().click(screen.getByTestId(YEAR))
+    const years = (await screen.findAllByRole('option')).map((o) => o.textContent)
+    expect(years).toHaveLength(57)
+    expect(years[0]).toBe('2026')
+    expect(years[1]).toBe('2025')
+    expect(years.at(-1)).toBe('1970')
   })
 
   it('follows prop and locale changes without a remount', async () => {
@@ -263,7 +305,7 @@ describe('MonthPickerField', () => {
     render(<Harness initial="2025-06" minMonth="2025-03" maxMonth="2026-02" />)
     await user().click(screen.getByTestId(YEAR))
     const years = (await screen.findAllByRole('option')).map((o) => o.textContent)
-    expect(years).toEqual(['2025', '2026'])
+    expect(years).toEqual(['2026', '2025'])
   })
 
   it('disabled disables both triggers', async () => {
@@ -280,10 +322,22 @@ describe('MonthPickerField', () => {
   it('month trigger flexes to fill; year trigger is a fixed-width tabular column', async () => {
     await loadCatalog('uk')
     render(<Harness initial="2026-10" />)
-    expect(screen.getByTestId(MONTH)).toHaveClass('h-9', 'min-w-0', 'flex-1', 'text-sm')
+    // Neither trigger shrinks below its text; the row wraps instead (CI fonts cut a fixed budget).
+    expect(screen.getByRole('group')).toHaveClass('flex', 'flex-wrap', 'gap-2')
+    expect(screen.getByTestId(MONTH)).toHaveClass(
+      'h-9',
+      'min-w-fit',
+      'flex-1',
+      'gap-1',
+      'px-2',
+      'text-sm',
+    )
     expect(screen.getByTestId(YEAR)).toHaveClass(
       'h-9',
-      'w-[5.5rem]',
+      'w-[4.75rem]',
+      'min-w-fit',
+      'gap-1',
+      'px-2',
       'shrink-0',
       'text-sm',
       'tabular-nums',

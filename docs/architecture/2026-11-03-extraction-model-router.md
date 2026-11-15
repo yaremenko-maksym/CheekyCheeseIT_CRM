@@ -567,7 +567,7 @@ Designed twice (SR-H-46):
   their own owner-created `0600` env files, never `.env.production`: the API loads that file through `env_file`, and the
   `write-env` deploy job writes it.
 - **Data only, strict schema.** `extract` takes the bounded delimited input from `buildExtractionPrompt` and a table version;
-  `preflight` takes nothing and runs the fixed call of §5.3. A foreign field is refused, and a version mismatch too (two images
+  `preflight` takes nothing and runs the fixed call of §5.3; `/resume-write` takes the task, the caller-redacted facts and the gate feedback. A foreign field is refused, and a version mismatch too (two images
   mid-deploy). No URL, host, provider, model, key, instruction or schema crosses: `EXTRACTION_SYSTEM_PROMPT`,
   `modelReplySchema`, the field-group table and `merge` are one checked-in module both workers import, and the extraction
   worker builds the `ExtractionRequest` from its copy. So this is no general prompt relay in authority, though not in content:

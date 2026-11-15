@@ -1,0 +1,22 @@
+José Müller
+jose.mueller@example.com
+Summary
+Software engineer who has worked with teams in Zürich, Málaga and Kraków.
+Skills
+TypeScript
+PostgreSQL
+Docker
+Experience
+Senior Developer
+Señora Pérez Ingeniería
+Sep 2020 – Feb 2025
+• Migrated the Señora Pérez Ingeniería billing system to PostgreSQL
+• Led code reviews for the Zürich team
+Education
+Universität Köln
+Diploma in Computer Science
+2010 – 2015
+Languages
+English — C1 · German — B1
+Links
+GitHub

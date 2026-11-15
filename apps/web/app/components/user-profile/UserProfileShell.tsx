@@ -445,7 +445,12 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
                 />
               )}
               {activeTab === 'resume' && visibleTabs.includes('resume') && (
-                <ResumeTab userId={profileUser.id} onDirtyChange={handleResumeDirtyChange} />
+                <ResumeTab
+                  userId={profileUser.id}
+                  displayName={profileUser.displayName}
+                  telegram={profileUser.telegram}
+                  onDirtyChange={handleResumeDirtyChange}
+                />
               )}
               {
                 // This whole three-clause condition is over-determined by

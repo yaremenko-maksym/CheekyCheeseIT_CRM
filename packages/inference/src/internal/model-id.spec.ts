@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isValidProviderModelId, parseGeminiModelId } from './model-id'
+import { isValidProviderModelId, isVisionCapable, parseGeminiModelId } from './model-id'
 
 describe('parseGeminiModelId (ADR §3.4 Gemini family pattern)', () => {
   it.each([
@@ -60,5 +60,18 @@ describe('parseGeminiModelId (ADR §3.4 Gemini family pattern)', () => {
   it('applies the same limit when a stored id is validated (SR-M-1)', () => {
     expect(isValidProviderModelId('gemini', geminiOfLength(128))).toBe(true)
     expect(isValidProviderModelId('gemini', geminiOfLength(129))).toBe(false)
+  })
+})
+
+describe('isVisionCapable (vision routes research, decision input 1)', () => {
+  it.each([
+    ['gemini', 'gemini-2.5-flash', true],
+    ['gemini', 'gemini-3-pro-preview', true],
+    ['gemini', 'gemma-3-27b-it', false],
+    ['groq', 'openai/gpt-oss-120b', false],
+    ['groq', 'gemini-2.5-flash', false],
+    ['local', 'gemini-2.5-flash', false],
+  ] as const)('%s %s -> %s', (provider, id, expected) => {
+    expect(isVisionCapable(provider, id)).toBe(expected)
   })
 })

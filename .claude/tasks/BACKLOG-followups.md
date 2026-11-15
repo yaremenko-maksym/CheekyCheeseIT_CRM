@@ -7999,3 +7999,171 @@ Sources: Master read-only production check, 2026-11-14 (owner-permitted SSH).
 (`db:push` on it is a no-op); a fresh worktree runs the web unit suite after one bootstrap command.
 
 Sources: Master, wave 1-3 coder and manual-qa reports (2026-11-14/15).
+
+## 436. No per-process cap on concurrent resume verification runs (R36, 2026-11-14)
+
+**Symptoms.** Every submit, staged edit, regenerate and template run of `ResumeVerificationService`
+fires its own detached `VerificationRunner.run`. Nothing bounds how many runs one API process holds
+at once; only the Typst render gate bounds the renders. Many seniors submitting together means many
+parallel model calls. This is a cost risk, not a correctness one: each run still claims its row by
+compare-and-set.
+
+**Candidate fixes.** A small in-process semaphore around the run body (queued runs wait, the sweep
+still owns stalled ones), sized by an env value.
+
+**Verify.** Submit more resumes at once than the chosen cap with a fake writer that blocks; the count
+of runs past their claim at the same moment never exceeds the cap.
+
+Sources: verified-base-resume review R36 (Task 23).
+
+## 437. The profile tab bar clips its last tab at 320 px (2026-11-14)
+
+**Symptoms.** On `/profile` at 320 px wide the `AnimatedTabs` bar of `UserProfileShell` shows its
+last visible tab cut at the right edge when the viewer sees all tabs
+(including Resume).
+
+**Candidate fixes.** Let the tab list scroll horizontally with a visible edge fade, or wrap it.
+
+**Verify.** A 320 px screenshot of `/profile?tab=resume` for a viewer with every tab: each tab label
+is fully inside the viewport or reachable by a horizontal scroll that shows it whole.
+
+Sources: verified-base-resume manual QA (Task 23 brief).
+
+## 438. First visit remounts the whole app when the session locale differs (2026-11-14)
+
+**Symptoms.** `client.tsx` activates the pre-login locale; `context/auth.tsx` then activates the
+session's own locale. `LocaleScopedApp` keys the outlet by the locale, so on a first visit whose
+session locale differs from the pre-login one the whole route tree mounts twice: local state set in
+between is lost and mount-time requests run again.
+
+**Candidate fixes.** Resolve the session locale before the first mount of the outlet, or keep the
+pre-login locale in step with the session (store it on login).
+
+**Verify.** With an `en` session and a `uk` pre-login locale, open a CRM page in a fresh browser
+profile: the page root mounts once (a mount counter or a request log of its first query shows one
+call).
+
+Sources: verified-base-resume manual QA (Task 23 brief).
+
+## 439. `cascade-impact-panel.test.tsx` is still timing-flaky under load (recurrence of 195, 2026-11-14)
+
+**Symptoms.** The verified-base-resume branch saw this web test fail under a loaded full run and
+pass alone, the pattern item 195 describes. It is not related to the resume code.
+
+**Candidate fixes.** The ones in item 195: isolate the overlay and scroll-lock cleanup, or run the
+file sequentially.
+
+**Verify.** Three full `@crm/web` runs in a row on a loaded machine with no failure of this file.
+
+Sources: verified-base-resume pre-push runs (Task 23 brief); item 195.
+
+## 440. `ResumeVerificationPanel.test.tsx` is at the 800-line limit (2026-11-14)
+
+**Symptoms.** The panel test file is at 799 lines, so the next staged-PDF case pushes it over the
+file-size limit. `packages/shared/src/schemas/resume-completeness.spec.ts` is over it already (961
+lines, R101).
+
+Files: `apps/web/app/components/user-profile/resume/__tests__/ResumeVerificationPanel.test.tsx`,
+`packages/shared/src/schemas/resume-completeness.spec.ts`.
+
+**Candidate fixes.** Move the staged-PDF block (preview, download, template line) into its own test
+file with the shared render helper, before adding to it. Split the completeness spec by concern
+(contact patterns, completeness codes).
+
+**Verify.** `wc -l` of every `ResumeVerificationPanel*.test.tsx` is at most 800, and the web suite
+case count for these files is unchanged after the split.
+
+Sources: verified-base-resume review (Task 23 brief).
+
+## 441. A failed delete of a superseded resume source leaves an unswept CV in R2 (2026-11-14)
+
+**Symptoms.** When a senior's resume source is replaced, or an upload loses its queue CAS, the
+resumes service deletes the object nobody points at. If that delete fails it only logs a warning
+("Superseded resume source not deleted" / "Unreferenced resume source not deleted"). The CV stays
+under the per-user `senior-resumes/<userId>/` prefix. No job sweeps that prefix, and user erasure
+does not walk it, so personal data outlives the row that referenced it.
+
+**Candidate fixes.** A periodic sweep of `senior-resumes/` that deletes every object no
+`senior_resumes` row references (source key or staged/current PDF key), with a grace age so an
+in-flight upload is not taken. Or an erasure-by-user that deletes the whole `senior-resumes/<userId>/`
+prefix, run with account deletion.
+
+**Verify.** Force the superseded-source delete to fail (stub `s3.delete` to throw), replace the
+source, run the sweep: the orphan is gone, and the referenced source and PDFs are still there.
+
+Sources: verified-base-resume security review, finding SR-L-4 (Task 23 fix round 1).
+
+## 442. A VERIFIED resume is not re-checked after a rename or a Telegram change (2026-11-14)
+
+**Symptoms.** Verification redacts the senior's display name, legal name and stored Telegram handle from the
+resume text before any model call, and confirm detects a display-name change only while the run is still
+awaiting confirm. Once a resume is VERIFIED, a later change of the display name, legal name or Telegram handle
+does not reopen it. The verified PDF and facts may then carry the new name or handle in free text, and nothing
+re-runs the contact scan against the new values.
+
+**Candidate fixes.** On a profile update that changes any redaction input, mark the senior's VERIFIED resume
+stale (a status or a flag) so HR sees "re-check needed", and re-run only the contact scan against the stored
+facts. Or store the owner fingerprint on the verified report and compare it on every read that feeds a model.
+
+**Verify.** Verify a resume, rename the senior, open the resume: it shows the stale state, and a re-check with the
+new name finds a hit seeded in the facts.
+
+Sources: verified-base-resume second-opinion, finding SO23-6 (Task 23). Owner note in the PR.
+
+## 443. Russian API messages in the resumes area should become codes + catalog lines (2026-11-14)
+
+**Symptoms.** Some stored or returned strings in the resumes area are Russian text, not codes: the PDF render
+error message, the extraction `errorMessage`, the resolve-miss message, and `NotFoundException('Резюме не найдено')`
+in the verification service (reused from main). The web shows them verbatim, so an `en` user sees Russian and the
+`uk` default is not the catalog's wording.
+
+**Candidate fixes.** Move each to an API error code in `packages/shared/src/schemas/api-errors/`, keep an English
+fallback `message`, and show the catalog line for the code in the web.
+
+**Verify.** `grep -rnP '[\x{0400}-\x{04FF}]' apps/api/src/resumes --include=*.ts` (non-test) finds no user-facing
+string; the status panel shows the catalog line in both locales.
+
+Sources: verified-base-resume Task 23 rulings R78 and R88.
+
+## 444. Contact scanner: normalise zero-width and fullwidth characters before matching (2026-11-14)
+
+**Symptoms.** The contact patterns in `packages/shared/src/schemas/resume-completeness.ts` match on NFC text
+only. A contact written with zero-width characters (U+200B..U+200D, U+2060, U+FEFF) between its letters, or in
+fullwidth forms (`ｊｏｈｎ＠ｘ．ｃｏｍ`), is neither flagged by the completeness check nor redacted before the
+model call. The code carries a `shortcut:` comment for this.
+
+**Candidate fixes.** Add one normalisation pass shared by both sides: NFKC, then strip `\p{Cf}`, keeping an
+index map back to the original text so redaction spans still land on the original characters.
+
+**Verify.** `j​ohn@x.com` and the fullwidth form are both flagged by `checkResumeCompleteness` and come back
+redacted from `redactContacts`; the completeness-vs-redaction fuzz stays clean.
+
+Sources: verified-base-resume second-opinion (Task 23, ruling R103).
+
+## 445. Contact scanner: years-only lists flag as a phone (2026-11-14)
+
+**Symptoms.** `2019 · 2020 · 2021`, `1999—2003—2007` and the en-dash form match `RESUME_PHONE_PATTERN`
+(9+ digits joined by separators), so submit is blocked with CONTACT_IN_TEXT and HR must rephrase.
+
+**Candidate fixes.** Before reporting a phone hit, drop a match whose digit groups are all 4-digit years in
+1950..2099 joined by a separator. Keep the redaction side unchanged (over-redaction is the safe direction) or
+apply the same guard on both sides so they agree.
+
+**Verify.** The three year lists are not flagged; `+380 67 123 45 67` and `067-123-45-67` still are.
+
+Sources: verified-base-resume Task 23 round 7, ruling R105.
+
+## 446. Resume confirm step: the kept-result notice sits too far from the action (2026-11-14)
+
+**Symptoms.** After a staged edit or regenerate whose check was unavailable, the row comes back AWAITING_CONFIRM on
+the previous result, and the kept-result notice (`resume-verification-kept`) renders below the whole confirm step.
+The user acts on a field near the top, sees the text go back, and does not see the line that says why.
+
+**Candidate fix.** In the CRM redesign, move the notice next to the action that triggered it (the edited or
+regenerated field), or pin it at the top of the confirm step. Owner rule: no layout work in the verified-base-resume
+PR, so this waits for the redesign.
+
+**Verify.** After a kept failure on a field, the notice is visible without scrolling, next to that field, at 320 px
+and at 1440 px.
+
+Sources: verified-base-resume Task 26 manual QA, finding QA-L-2.

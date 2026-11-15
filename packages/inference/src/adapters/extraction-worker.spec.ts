@@ -4,8 +4,10 @@ import type { ExtractionRequest } from '../contracts/extraction'
 import type { FetchLike } from '../http/bounded-request'
 import {
   createExtractionWorkerAdapter,
+  createExtractionWorkerTransport,
   PREFLIGHT_TIMEOUT_MS,
   type ExtractionWorkerReply,
+  type ExtractionWorkerRoute,
 } from './extraction-worker'
 
 const SECRET = 'SECRET-MARKER-0123456789abcdef-0123456789'
@@ -135,6 +137,18 @@ describe('extraction-worker adapter — what crosses', () => {
     )
     await port.extract(request())
     expect(replies[0]?.health).toEqual(health)
+  })
+})
+
+describe('extraction-worker adapter — images do not cross /extract', () => {
+  it('a request with images is NOT_CONFIGURED and reaches no worker', async () => {
+    const f = fakeFetch(async () => reply({ ok: true, data: { title: 't' } }))
+    const { port } = setup(f)
+    expect(await port.extract(request({ images: ['iVBORw0KGgo='] }))).toEqual({
+      ok: false,
+      code: 'NOT_CONFIGURED',
+    })
+    expect(f.sent).toHaveLength(0)
   })
 })
 
@@ -372,4 +386,35 @@ describe('extraction-worker adapter — preflight (ADR §5.3)', () => {
       vi.useRealTimers()
     }
   })
+})
+
+describe('createExtractionWorkerTransport — route allow-list (SR-M-1)', () => {
+  const BASE = 'http://crm-extraction-worker:3100'
+
+  it.each(['/extract', '/preflight', '/resume-write', '/visual-check'] as const)(
+    '%s is sent to the worker with the secret',
+    async (route) => {
+      const fetchImpl = vi.fn<FetchLike>(() =>
+        Promise.resolve({ status: 200, body: null, text: () => Promise.resolve('{}') }),
+      )
+      const post = createExtractionWorkerTransport({ baseUrl: BASE, secret: SECRET, fetchImpl })
+      const res = await post(route, { body: '{}', timeoutMs: 1000 })
+      expect(res.kind).toBe('ok')
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
+      expect(fetchImpl.mock.calls[0]?.[0]).toBe(BASE + route)
+      expect(fetchImpl.mock.calls[0]?.[1]?.headers?.authorization).toBe(`Bearer ${SECRET}`)
+    },
+  )
+
+  it.each(['/admin', '/extract/../admin', '', '/EXTRACT', '//evil.example/x'])(
+    'route %j is refused without a request',
+    async (route) => {
+      const fetchImpl = vi.fn<FetchLike>()
+      const post = createExtractionWorkerTransport({ baseUrl: BASE, secret: SECRET, fetchImpl })
+      await expect(
+        post(route as ExtractionWorkerRoute, { body: '{}', timeoutMs: 1000 }),
+      ).resolves.toEqual({ kind: 'transport' })
+      expect(fetchImpl).not.toHaveBeenCalled()
+    },
+  )
 })

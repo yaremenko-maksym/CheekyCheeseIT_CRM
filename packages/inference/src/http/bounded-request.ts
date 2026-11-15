@@ -26,7 +26,7 @@ export type BoundedResult =
   /** `aborted` marks the caller's `signal`, never the timer (SR-L-38): an abort is not a timeout. */
   | { kind: 'timeout'; aborted?: true }
   /** `tooLarge` marks a 2xx whose body exceeded `maxBytes`. */
-  | { kind: 'transport'; status?: number; text?: string; tooLarge?: true }
+  | { kind: 'transport'; status?: number; text?: string; tooLarge?: true; errorName?: string }
 
 export interface BoundedRequestOptions {
   url: string
@@ -124,8 +124,10 @@ export function boundedRequestToLocalRuntime(opts: BoundedRequestOptions): Promi
 }
 
 /**
- * Package-internal entry for the extraction-worker adapter only (ADR §2.4): additionally allows
- * plain HTTP to loopback or the one constant worker host. Not re-exported from the package index.
+ * Package-internal entry for the extraction worker only (ADR §2.4): additionally allows plain HTTP
+ * to loopback or the one constant worker host. Not re-exported from the package index. Its one
+ * direct caller is `createExtractionWorkerTransport`, which is exported and reaches only the
+ * worker's four routes (a runtime allow-list); the extraction-worker adapter goes through it.
  */
 export function boundedRequestToExtractionWorker(
   opts: BoundedRequestOptions,
@@ -184,8 +186,10 @@ async function request(
     }
     if (read.kind === 'too_large') return { kind: 'transport', status, tooLarge: true }
     return { kind: 'ok', status, text: read.text }
-  } catch {
-    return controller.signal.aborted ? stopped() : { kind: 'transport' }
+  } catch (err) {
+    if (controller.signal.aborted) return stopped()
+    // The class only, never the message: a message can carry the URL or a body.
+    return { kind: 'transport', errorName: err instanceof Error ? err.name : 'unknown' }
   } finally {
     clearTimeout(timer)
     signal?.removeEventListener('abort', onAbort)
