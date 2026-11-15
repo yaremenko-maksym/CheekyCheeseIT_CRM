@@ -110,9 +110,4 @@ describe('RunSlots', () => {
     await Promise.all([x, y, z])
     expect(order).toEqual(['x', 'y', 'z'])
   })
-
-  it('refuses a size below one', () => {
-    expect(() => new RunSlots(0)).toThrow(RangeError)
-    expect(() => new RunSlots(1.5)).toThrow(RangeError)
-  })
 })

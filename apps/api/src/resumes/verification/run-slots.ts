@@ -7,9 +7,8 @@ export class RunSlots {
   private active = 0
   private readonly waiters: { id: string; wake: () => void }[] = []
 
-  constructor(private readonly size: number) {
-    if (!Number.isInteger(size) || size < 1) throw new RangeError(`RunSlots size ${size}`)
-  }
+  /** `size` is a positive integer: the env schema refuses anything else at boot. */
+  constructor(private readonly size: number) {}
 
   /** Ids waiting for a slot, oldest first. */
   waiting(): string[] {

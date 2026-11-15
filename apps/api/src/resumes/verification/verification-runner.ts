@@ -128,6 +128,7 @@ export class VerificationRunner {
     @Optional() config?: ConfigService<Env, true>,
   ) {
     this.slots = new RunSlots(
+      // Stryker disable next-line ObjectLiteral,BooleanLiteral: equivalent — `infer` only types the return; get() returns the same value
       config?.get('RESUME_VERIFICATION_MAX_CONCURRENT_RUNS', { infer: true }) ??
         DEFAULT_RESUME_VERIFICATION_MAX_CONCURRENT_RUNS,
     )
