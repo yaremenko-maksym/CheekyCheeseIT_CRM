@@ -4,7 +4,12 @@ import type { Query, QueryClient } from '@tanstack/react-query'
 import { del as idbDel } from 'idb-keyval'
 import type { Locale, SessionUser } from '@crm/shared'
 import { api } from '../lib/axios'
-import { PERSIST_KEY, setPersistedCacheOwner, takeRestoredCacheOwner } from '../lib/persister'
+import {
+  PERSIST_KEY,
+  purgePersistedBeforeReload,
+  setPersistedCacheOwner,
+  takeRestoredCacheOwner,
+} from '../lib/persister'
 import {
   activateLocale,
   clearConfirmedUserLocaleIfSettled,
@@ -33,8 +38,9 @@ async function fetchMe(timeout = 0): Promise<SessionUser | null> {
   if (res.status !== 200) {
     // Session expired / unauthenticated — purge any persisted query cache so a
     // stale user's data can't linger in IndexedDB after a 401 (security review
-    // PR #140: clear on session-expiry, not only on explicit logout). Best-effort.
-    void idbDel(PERSIST_KEY).catch(() => {})
+    // PR #140: clear on session-expiry, not only on explicit logout). Best-effort. Logout's path:
+    // stop persisting first, so no save lands after the delete (one-way: this page is signed out).
+    void purgePersistedBeforeReload()
     return null
   }
   // API already validates shape via JWT — trust the response and cast directly

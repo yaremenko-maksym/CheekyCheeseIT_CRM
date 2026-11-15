@@ -204,14 +204,29 @@ describe('createSessionRevalidator', () => {
     expect(apiGet).toHaveBeenCalledTimes(2)
   })
 
-  it('purges when the session is gone (401)', async () => {
-    const qc = seeded()
-    apiGet.mockResolvedValue({ status: 401, data: {} })
+  it('purges when the session is gone (401), and stops persisting first as logout does', async () => {
+    // the stop is one-way for the page: fresh modules, so the other cases keep persisting
+    vi.resetModules()
+    const fresh = await import('../auth')
+    const store = await import('../../lib/persister')
+    vi.useFakeTimers()
+    vi.setSystemTime(Date.now() + 60_000) // the persister's throttle is idle: a save runs at once
+    try {
+      idbSet.mockReset().mockResolvedValue(undefined)
+      apiGet.mockResolvedValue({ status: 401, data: {} })
+      const qc = seeded()
+      await fresh.createSessionRevalidator(qc)('/job-queue')
+      expect(qc.getQueryData(QUEUE_KEY)).toBeUndefined()
+      expect(idbDel).toHaveBeenCalledWith(PERSIST_KEY)
 
-    await createSessionRevalidator(qc)('/job-queue')
+      const client = { timestamp: 1, buster: '', clientState: { queries: [], mutations: [] } }
+      await store.persister.persistClient(client as Parameters<typeof persister.persistClient>[0])
+      await vi.advanceTimersByTimeAsync(1000)
 
-    expect(qc.getQueryData(QUEUE_KEY)).toBeUndefined()
-    expect(idbDel).toHaveBeenCalledWith(PERSIST_KEY)
+      expect(idbSet).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('keeps the cache when the same user is still signed in', async () => {
