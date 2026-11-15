@@ -11,6 +11,7 @@ import {
   i18n,
   isLocaleConfirmedByUser,
 } from '../lib/i18n'
+import { reportClientError, sanitizeErrorForReport } from '../lib/telemetry/errors'
 
 interface AuthContextValue {
   user: SessionUser | null
@@ -49,6 +50,10 @@ async function fetchMe(timeout = 0): Promise<SessionUser | null> {
 function needsActivation(sessionLocale: Locale): boolean {
   return sessionLocale !== i18n.locale && !isLocaleConfirmedByUser(i18n.locale as Locale)
 }
+
+// A catalog import that never settles must not hold the pending UI forever; a chunk load slower
+// than this is treated as failed (PR #1343 SR-L-1)
+const LOCALE_ACTIVATION_TIMEOUT_MS = 10_000
 
 const AUTH_ME_KEY = ['auth', 'me'] as const
 const isAuthMe = (q: Query) => q.queryKey[0] === 'auth' && q.queryKey[1] === 'me'
@@ -222,19 +227,23 @@ export function AuthProvider({ children, skip }: { children: ReactNode; skip?: b
     ...(skip ? { initialData: null } : {}),
   })
 
-  // isLoading = true while IndexedDB is being restored OR while the auth
-  // query is in-flight.  This prevents the guard from seeing user=null
-  // prematurely during the restore window.
-  // A session locale whose catalog failed to load: released from the wait below, the app stays in
-  // the active locale rather than on a pending screen forever.
-  const [failedLocale, setFailedLocale] = useState<Locale | null>(null)
+  // A session locale whose catalog failed (or timed out) to load: released from the wait below, the
+  // app stays in the active locale rather than on a pending screen forever. Scoped to the user it
+  // failed for: this provider outlives a session switch (PR #1343 SO-1).
+  const [failedLocale, setFailedLocale] = useState<{ userId: string; locale: Locale } | null>(null)
   // The session's `locale` still has to be activated. Activating it remounts everything below
   // `LocaleScopedApp`'s `<Fragment key={locale}>` (`routes/__root.tsx`), so until then consumers
   // see `isLoading` and render their pending UI: nothing the user could interact with is torn
   // down by that remount at first login. `i18n.locale` read in render is current because that
-  // same key remounts this provider on every activation.
+  // same key remounts this provider on every activation. A background refetch carrying a locale
+  // changed elsewhere waits the same way mid-session: the remount would tear the page down anyway.
   const sessionLocaleToApply =
-    !!data?.locale && data.locale !== failedLocale && needsActivation(data.locale)
+    !!data?.locale &&
+    !(failedLocale?.userId === data.id && failedLocale.locale === data.locale) &&
+    needsActivation(data.locale)
+  // isLoading = true while IndexedDB is being restored, while the auth query is in flight, OR
+  // while the session locale is still to be activated. This prevents the guard from seeing
+  // user=null prematurely during the restore window.
   const isLoading = isRestoring || (isPending && isFetching) || sessionLocaleToApply
 
   // task-i18n-stage2 (Task 6): the session's own `locale` is the source of
@@ -265,9 +274,29 @@ export function AuthProvider({ children, skip }: { children: ReactNode; skip?: b
       return
     }
     if (!needsActivation(data.locale)) return
-    const locale = data.locale
-    activateLocale(locale).catch(() => setFailedLocale(locale))
-  }, [data?.locale])
+    const { locale, id: userId } = data
+    // One release per attempt: a late rejection after the timeout is not reported twice
+    let settled = false
+    const release = (reason: unknown) => {
+      if (settled) return
+      settled = true
+      const { message, stack } = sanitizeErrorForReport(reason)
+      reportClientError(`Session locale ${locale} failed to activate: ${message}`, { stack })
+      setFailedLocale({ userId, locale })
+    }
+    const timer = setTimeout(
+      () => release(new Error(`timed out after ${LOCALE_ACTIVATION_TIMEOUT_MS} ms`)),
+      LOCALE_ACTIVATION_TIMEOUT_MS,
+    )
+    activateLocale(locale)
+      .then(() => {
+        settled = true
+      }, release)
+      .finally(() => clearTimeout(timer))
+    // a success remounts this provider: no timeout may fire for an attempt that is gone
+    return () => clearTimeout(timer)
+    // keyed by user too: another user with the same locale re-attempts (SO-1)
+  }, [data?.locale, data?.id])
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
 

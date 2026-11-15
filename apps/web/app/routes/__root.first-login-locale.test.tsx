@@ -118,14 +118,14 @@ describe('first login — the server locale applies without destroying user stat
     await waitFor(() => expect(i18n.locale).toBe('uk'))
     const input = await screen.findByTestId('probe-input')
     fireEvent.change(input, { target: { value: 'typed by the user' } })
-    // Let any trailing activation / re-render land before judging what survived.
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 20))
-    })
 
-    expect(interactiveMounts).toBe(1)
-    expect(screen.getByTestId<HTMLInputElement>('probe-input').value).toBe('typed by the user')
+    // Only an activation changes the `<Fragment key>`, and the effect that would start a second one
+    // has already run with the commit that showed the input: one call means no remount is coming.
     expect(activateLocale).toHaveBeenCalledTimes(1)
+    await waitFor(() =>
+      expect(screen.getByTestId<HTMLInputElement>('probe-input').value).toBe('typed by the user'),
+    )
+    expect(interactiveMounts).toBe(1)
   })
 
   it('renders the page at once, with no activation, when the session locale already matches', async () => {
