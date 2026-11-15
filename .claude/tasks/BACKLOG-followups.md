@@ -8051,7 +8051,7 @@ Sources: verified-base-resume manual QA (Task 23 brief).
 
 ## 439. `cascade-impact-panel.test.tsx` is still timing-flaky under load (recurrence of 195, 2026-11-14)
 
-**Closed (2026-11-15).** PR #1350 (cleans up overlay and scroll-lock in beforeEach/afterEach and runs describe sequentially). Reopen if the Verify check below fails.
+**Closed (2026-11-15).** PR #1350 (cleans up overlay and scroll-lock state in beforeEach/afterEach). Reopen if the Verify check below fails.
 
 **Symptoms.** The verified-base-resume branch saw this web test fail under a loaded full run and
 pass alone, the pattern item 195 describes. It is not related to the resume code.
