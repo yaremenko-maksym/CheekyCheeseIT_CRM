@@ -121,6 +121,20 @@ describe('AuthProvider — isRestoring race-fix', () => {
     expect(result.current.user).toEqual(mockUser)
   })
 
+  it('isLoading=false during a background refetch of a resolved session (no skeleton flash)', () => {
+    const mockUser = {
+      id: 'a0000000-0000-4000-8000-000000000001',
+      email: 'admin@cheekycheese.dev',
+      displayName: 'Admin User',
+      role: 'ADMIN',
+    }
+    queryResult = { data: mockUser, isPending: false, isFetching: true }
+
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    expect(result.current.isLoading).toBe(false)
+  })
+
   it('isLoading=false and user=null when auth/me returns null (unauthenticated)', () => {
     isRestoringValue = false
     queryResult = { data: null, isPending: false, isFetching: false }
