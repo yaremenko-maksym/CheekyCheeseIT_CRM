@@ -8,6 +8,7 @@ import {
   type DayPickerProps,
   type MonthCaptionProps,
 } from 'react-day-picker'
+import { useLingui } from '@lingui/react/macro'
 import type { Locale } from '@crm/shared'
 import { cn } from '@/lib/utils'
 import { buttonVariants } from '@/components/ui/button'
@@ -33,6 +34,7 @@ function CustomMonthCaption({ calendarMonth, className }: MonthCaptionProps) {
   const { goToMonth, previousMonth, nextMonth } = useDayPicker()
   const [picker, setPicker] = useState<Picker>(null)
   const locale = useLocale()
+  const { t } = useLingui()
   const monthsShort = useMemo(() => monthNames(locale, 'short'), [locale])
   const monthsFull = useMemo(() => monthNames(locale, 'long'), [locale])
 
@@ -76,6 +78,7 @@ function CustomMonthCaption({ calendarMonth, className }: MonthCaptionProps) {
       {/* Prev arrow */}
       <button
         type="button"
+        aria-label={t`Попередній місяць`}
         disabled={!previousMonth}
         onClick={() => previousMonth && goToMonth(previousMonth)}
         className={navBtn}
@@ -151,6 +154,7 @@ function CustomMonthCaption({ calendarMonth, className }: MonthCaptionProps) {
       {/* Next arrow */}
       <button
         type="button"
+        aria-label={t`Наступний місяць`}
         disabled={!nextMonth}
         onClick={() => nextMonth && goToMonth(nextMonth)}
         className={navBtn}

@@ -155,14 +155,16 @@ describe('DatePickerField — minDate/maxDate bounds (owner addendum, 2026-08)',
     })
     await user.click(screen.getByRole('button', { name: /07 серп/i }))
     const panel = within(screen.getByRole('dialog'))
-    const [, nextBtn] = panel.getAllByRole('button', { name: '' })
+    const nextBtn = panel.getByRole('button', { name: /^(?:next month|наступний місяць)$/i })
     expect(nextBtn).toBeDisabled()
     unmount()
 
     renderPicker({ value: '2026-08-07', onChange: () => {} })
     await user.click(screen.getByRole('button', { name: /07 серп/i }))
     const unboundPanel = within(screen.getByRole('dialog'))
-    const [, unboundNextBtn] = unboundPanel.getAllByRole('button', { name: '' })
+    const unboundNextBtn = unboundPanel.getByRole('button', {
+      name: /^(?:next month|наступний місяць)$/i,
+    })
     expect(unboundNextBtn).not.toBeDisabled()
   })
 
@@ -176,15 +178,28 @@ describe('DatePickerField — minDate/maxDate bounds (owner addendum, 2026-08)',
     })
     await user.click(screen.getByRole('button', { name: /07 серп/i }))
     const panel = within(screen.getByRole('dialog'))
-    const [prevBtn] = panel.getAllByRole('button', { name: '' })
+    const prevBtn = panel.getByRole('button', { name: /^(?:previous month|попередній місяць)$/i })
     expect(prevBtn).toBeDisabled()
     unmount()
 
     renderPicker({ value: '2026-08-07', onChange: () => {} })
     await user.click(screen.getByRole('button', { name: /07 серп/i }))
     const unboundPanel = within(screen.getByRole('dialog'))
-    const [unboundPrevBtn] = unboundPanel.getAllByRole('button', { name: '' })
+    const unboundPrevBtn = unboundPanel.getByRole('button', {
+      name: /^(?:previous month|попередній місяць)$/i,
+    })
     expect(unboundPrevBtn).not.toBeDisabled()
+  })
+
+  it('both month navigation arrows have a non-empty accessible name', async () => {
+    const user = userEvent.setup({ delay: null })
+    renderPicker({ value: '2026-08-07', onChange: () => {} })
+    await user.click(screen.getByRole('button', { name: /07 серп/i }))
+    const panel = within(screen.getByRole('dialog'))
+    const prevBtn = panel.getByRole('button', { name: /^(?:previous month|попередній місяць)$/i })
+    const nextBtn = panel.getByRole('button', { name: /^(?:next month|наступний місяць)$/i })
+    expect(prevBtn).toHaveAccessibleName()
+    expect(nextBtn).toHaveAccessibleName()
   })
 })
 

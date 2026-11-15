@@ -55,6 +55,10 @@ msgstr "Очікує підтвердження бухгалтером (готі
 msgid "Не вдалося завантажити налаштування"
 msgstr "Не вдалося завантажити налаштування"
 
+#: apps/web/app/components/ui/calendar.tsx
+msgid "Попередній місяць"
+msgstr "Попередній місяць"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Ручне підтвердження"
 msgstr "Ручне підтвердження"
@@ -8416,6 +8420,10 @@ msgstr "На цю адресу одразу піде запрошення. Ув�
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Крок 2 з 2. Заявку на виплату створено. Гроші ще не надіслано."
 msgstr "Крок 2 з 2. Заявку на виплату створено. Гроші ще не надіслано."
+
+#: apps/web/app/components/ui/calendar.tsx
+msgid "Наступний місяць"
+msgstr "Наступний місяць"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx

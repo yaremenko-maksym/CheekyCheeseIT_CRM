@@ -55,6 +55,10 @@ msgstr "Awaiting accountant confirmation (cash)"
 msgid "Не вдалося завантажити налаштування"
 msgstr "Could not load the settings"
 
+#: apps/web/app/components/ui/calendar.tsx
+msgid "Попередній місяць"
+msgstr "Previous month"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Ручне підтвердження"
 msgstr "Manual confirmation"
@@ -8416,6 +8420,10 @@ msgstr "An invitation goes to this address right away. The employee can sign in 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Крок 2 з 2. Заявку на виплату створено. Гроші ще не надіслано."
 msgstr "Step 2 of 2. The payout request has been created. The money has not been sent yet."
+
+#: apps/web/app/components/ui/calendar.tsx
+msgid "Наступний місяць"
+msgstr "Next month"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
