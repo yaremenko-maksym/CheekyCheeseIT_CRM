@@ -656,6 +656,7 @@ rather than trust the numbers, they shift whenever a file is added above):
 | 60h      | `2026-11-05_job_opportunities_role_family.sql`         | `job_opportunities.role_family`; hand-applied before backlog 434, re-apply is a no-op. One transaction                    |
 | 60i      | `2026-11-05_job_opportunities_manual_team.sql`         | `manual_team_id` + `resume_id` FKs; hand-applied before backlog 434, re-apply is a no-op. One transaction                 |
 | 60j      | `2026-11-06_job_model_health.sql`                      | Creates the two model-health tables (class A); before the grants (unconditional grant). One transaction                   |
+| 60k      | `2026-11-14_senior_availability.sql`                   | Creates `senior_availability` (class A); before the grants (unconditional grant). One transaction                         |
 | 61       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                   |
 | 62       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                         |
 | 62a      | `2026-11-02_job_dirty_work_pending_partial.sql`        | `CREATE INDEX CONCURRENTLY`, so NOT one transaction; creates no relation. Sweeps + refuses an INVALID index (§9)          |
@@ -1128,6 +1129,7 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-11-05_job_opportunities_role_family.sql \
     apps/api/drizzle/manual/2026-11-05_job_opportunities_manual_team.sql \
     apps/api/drizzle/manual/2026-11-06_job_model_health.sql \
+    apps/api/drizzle/manual/2026-11-14_senior_availability.sql \
     apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql \
     apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql \
     scripts/devops/check-security-headers.sh \

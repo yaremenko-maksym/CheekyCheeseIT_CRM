@@ -6,6 +6,7 @@
 export * from './schema/documents'
 export * from './schema/enums'
 export * from './schema/users'
+export * from './schema/senior-availability'
 export * from './schema/projects'
 export * from './schema/interviews'
 export * from './schema/finance'

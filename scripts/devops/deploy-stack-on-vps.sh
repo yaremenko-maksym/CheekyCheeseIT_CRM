@@ -2493,6 +2493,27 @@ docker compose \
   < "$JOB_MODEL_HEALTH_FILE"
 echo "==> job model health applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-14_senior_availability.sql
+# Creates senior_availability (class A). MUST precede the grants file:
+# its grants are unconditional and fail on a missing table.
+SENIOR_AVAILABILITY_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-14_senior_availability.sql"
+
+if [ ! -f "$SENIOR_AVAILABILITY_FILE" ]; then
+  echo "ERROR: DDL file not found at $SENIOR_AVAILABILITY_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying senior availability (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$SENIOR_AVAILABILITY_FILE"
+echo "==> senior availability applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file

@@ -5,6 +5,7 @@ import { z } from 'zod'
 // skill while this contract allowed 100 — and the gap surfaced as a 400 on
 // GET /suggestions for the first senior with a filled-in resume.
 import { MAX_STACK_KEYWORD_CHARS, MAX_STACK_KEYWORDS } from '../utils/stack-keywords'
+import { seniorAvailabilitySchema } from './senior-availability'
 
 /**
  * task-job-sourcing-slice1 — semi-automatic applying to external vacancies.
@@ -2052,6 +2053,8 @@ export const jobQueueCardSeniorSchema = z
   .object({
     seniorId: z.string().uuid(),
     displayName: z.string().max(255),
+    /** «Вільно з {d}» / «Зайнято» (§5.2): the senior's own availability; `null` = never set. */
+    availability: seniorAvailabilitySchema.nullable(),
     /** «Збіг неточний»: match confidence, not availability. */
     matchApproximate: z.boolean(),
     matchedKeywords: z.array(z.string().max(MAX_STACK_KEYWORD_CHARS)).max(200),

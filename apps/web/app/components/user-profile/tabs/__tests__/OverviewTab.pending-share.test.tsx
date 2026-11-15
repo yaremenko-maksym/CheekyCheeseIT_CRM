@@ -35,6 +35,10 @@ i18n.activate('uk')
 vi.mock('@/hooks/use-admin-note', () => ({
   useSetAdminNote: () => ({ mutate: vi.fn(), isPending: false }),
 }))
+// the availability setter fetches on mount; its own tests cover it (no network here)
+vi.mock('@/components/senior-availability/SeniorAvailabilitySection', () => ({
+  SeniorAvailabilitySection: () => null,
+}))
 
 /**
  * task-648-fix-round-3 (COPY-H-8): the banner's gate is now the READER, so
