@@ -25,6 +25,7 @@ describe('auditActionSchema — every member is a real, distinct literal', () =>
     'legal_name_change',
     'personal_email_invite_resend',
     'personal_email_changed',
+    'availability_change',
   ] as const
 
   it.each(MEMBERS)('accepts %s', (member) => {

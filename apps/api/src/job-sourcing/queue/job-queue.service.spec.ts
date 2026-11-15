@@ -839,6 +839,14 @@ describe('toAvailability (senior availability, design §5.2)', () => {
   it('a FREE row without a day (the CHECK forbids it) is not shown as free', () => {
     expect(toAvailability({ availability_status: 'FREE', available_from: null })).toBeNull()
   })
+  it('a BUSY row never carries a day, even if one is present', () => {
+    expect(toAvailability({ availability_status: 'BUSY', available_from: '2026-11-01' })).toEqual({
+      status: 'BUSY',
+    })
+  })
+  it('an unknown status with a day present is not shown (CR-H-1)', () => {
+    expect(toAvailability({ availability_status: 'AWAY', available_from: '2026-11-01' })).toBeNull()
+  })
 })
 
 describe('toSubmission', () => {
