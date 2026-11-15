@@ -1,5 +1,5 @@
 -- =============================================================================
--- The health event log (source fetch strategy U4) — prod forward DDL (STAGED)
+-- The health event log (source fetch strategy U4) — prod forward DDL
 -- =============================================================================
 --
 -- WHAT THIS FILE DOES

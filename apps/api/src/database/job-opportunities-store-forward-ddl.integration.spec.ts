@@ -130,18 +130,18 @@ const PART_6_TABLES = ['job_source_hosts']
 /**
  * Source fetch strategy U2. The six run metric columns and `job_sources.slowdown_level`, each with
  * its CHECK, are declared in Drizzle, so the `db:push` reference carries them, and production gets
- * them ONLY through this file. Applied after PART_6, as the deploy will. STAGED (`readPart` falls
- * back to `manual-staged/`).
+ * them ONLY through this file. Applied after PART_6, as the deploy will. PROMOTED (lives in `manual/`),
+ * so `readPart` finds it directly.
  */
 const PART_7_MIGRATION = '2026-10-31_job_run_metrics_slowdown.sql'
 /** The `job_sources` column PART_7 adds: not one of part 1's, so not in its header list. */
 const PART_7_JOB_SOURCES_COLUMNS = ['slowdown_level']
 /**
- * SR-M-4 (STAGED/DARK). The partial unique index `uq_job_sources_inventory_type_namespace` and the
+ * SR-M-4. The partial unique index `uq_job_sources_inventory_type_namespace` and the
  * partial CHECK `ck_job_sources_inventory_namespace_nonempty` (both keyed on `type IN (…)`, NO
- * column) are declared in Drizzle, so the `db:push` reference carries them, and production would get
- * them ONLY through this file. Applied after PART_7, as the deploy would. STAGED (`readPart` falls
- * back to `manual-staged/`). Adds NO `job_sources` column.
+ * column) are declared in Drizzle, so the `db:push` reference carries them, and production gets
+ * them ONLY through this file. Applied after PART_7, as the deploy will. PROMOTED (lives in `manual/`),
+ * so `readPart` finds it directly. Adds NO `job_sources` column.
  */
 const PART_8_MIGRATION = '2026-11-02_job_sources_inventory_uniqueness.sql'
 /** The index PART_8 creates; the reference counts it beside part 2's, PART_5's and PART_6's. */
@@ -157,11 +157,11 @@ const PART_9_MIGRATION = '2026-11-02_job_source_records_source_id.sql'
 /** The index PART_9 creates; the reference counts it beside the earlier parts'. */
 const PART_9_INDEXES = ['idx_job_source_records_source'] as const
 /**
- * PART_10 — CR-M-4 (STAGED/DARK): the generic-pending partial index
+ * PART_10 — CR-M-4: the generic-pending partial index
  * `idx_job_dirty_work_pending_generic` on `job_dirty_work (status, created_at) WHERE reason <>
  * 'DETAIL_FETCH'`, declared in Drizzle (`job-collection.ts`), so the `db:push` reference carries it
- * and production gets it ONLY through this file. Applied after PART_9, as the deploy would. STAGED
- * (`readPart` falls back to `manual-staged/`). It is the one later part built with `CREATE INDEX
+ * and production gets it ONLY through this file. Applied after PART_9, as the deploy will. PROMOTED
+ * (lives in `manual/`), so `readPart` finds it directly. It is the one later part built with `CREATE INDEX
  * CONCURRENTLY`, which `applyParts` runs statement-by-statement in autocommit (not a transaction),
  * exactly as part 2's concurrent builds are.
  */
@@ -169,11 +169,11 @@ const PART_10_MIGRATION = '2026-11-02_job_dirty_work_pending_partial.sql'
 /** The index PART_10 creates; the reference counts it beside part 2's, PART_5/6/8/9's. */
 const PART_10_INDEXES = ['idx_job_dirty_work_pending_generic'] as const
 /**
- * PART_11 — backlog 347 (1) (STAGED/DARK): the reason-partition partial indexes on
+ * PART_11 — backlog 347 (1): the reason-partition partial indexes on
  * `job_dirty_work (status, created_at)`, declared in Drizzle (`job-collection.ts`) so the
  * `db:push` reference carries them; production gets them ONLY through this file. Applied after
- * PART_10, as the deploy would; `CREATE INDEX CONCURRENTLY`, run statement-by-statement in
- * autocommit by `applyParts`, like PART_10.
+ * PART_10, as the deploy will. PROMOTED (lives in `manual/`), so `readPart` finds it directly;
+ * `CREATE INDEX CONCURRENTLY`, run statement-by-statement in autocommit by `applyParts`, like PART_10.
  */
 const PART_11_MIGRATION = '2026-11-03_job_dirty_work_partition_partial.sql'
 const PART_11_INDEXES = [
@@ -181,33 +181,36 @@ const PART_11_INDEXES = [
   'idx_job_dirty_work_pending_availability',
 ] as const
 /**
- * PART_12 — r5 Phase 6 T0 (STAGED/DARK): `job_queue_assignments` becomes a per-senior
+ * PART_12 — r5 Phase 6 T0: `job_queue_assignments` becomes a per-senior
  * submission — `senior_id` + its FK, UNIQUE(opportunity_id) replaced by
  * UNIQUE(opportunity_id, senior_id). Declared in Drizzle (`job-queue.ts`, `senior_id` LAST so
  * the column rank matches an `ADD COLUMN`); production gets it ONLY through this file. Applied
- * after PART_11, as the deploy would. Adds no standalone index (the UNIQUE replaces one).
+ * after PART_11, as the deploy will. PROMOTED (lives in `manual/`), so `readPart` finds it
+ * directly. Adds no standalone index (the UNIQUE replaces one).
  */
 const PART_12_MIGRATION = '2026-11-04_job_queue_submissions_per_senior.sql'
 /**
- * PART_13 — r5 Task 6.1 SR-M-1/2 (STAGED/DARK): `job_opportunities` gains `evaluated_revision`,
+ * PART_13 — r5 Task 6.1 SR-M-1/2: `job_opportunities` gains `evaluated_revision`,
  * `evaluation_verdict` (the new enum `job_opportunity_verdict`), `evaluated_inputs_version` and
  * their all-or-none CHECK. Declared in
  * Drizzle last, so the column rank matches an `ADD COLUMN`; production gets them ONLY through this
- * file. Applied after PART_12, as the deploy would. Adds no standalone index.
+ * file. Applied after PART_12, as the deploy will. PROMOTED (lives in `manual/`), so `readPart`
+ * finds it directly. Adds no standalone index.
  */
 const PART_13_MIGRATION = '2026-11-04_job_opportunities_evaluation_verdict.sql'
 /**
- * PART_14 — r5 Task 6.4c (STAGED/DARK): `job_opportunities` gains `role_family` and its
+ * PART_14 — r5 Task 6.4c: `job_opportunities` gains `role_family` and its
  * bounded CHECK. Declared in Drizzle last, so the column rank matches an `ADD COLUMN`; production
- * gets it ONLY through this file. Applied after PART_13, as the deploy would. Adds no index.
+ * gets it ONLY through this file. Applied after PART_13, as the deploy will. PROMOTED (lives in
+ * `manual/`), so `readPart` finds it directly. Adds no index.
  */
 const PART_14_MIGRATION = '2026-11-05_job_opportunities_role_family.sql'
 /**
- * PART_15 — r5 Phase 6 (STAGED/DARK): `job_opportunities` gains `manual_team_id` and its
+ * PART_15 — r5 Phase 6: `job_opportunities` gains `manual_team_id` and its
  * RESTRICT FK to `teams` (the manual card's owner team); `job_queue_assignments` gains
  * `resume_id` and its SET NULL FK to `senior_resumes`. Each declared in Drizzle last, so the column
  * rank matches an `ADD COLUMN`; production gets them ONLY through this file. Applied after PART_14,
- * as the deploy would. Adds no index.
+ * as the deploy will. PROMOTED (lives in `manual/`), so `readPart` finds it directly. Adds no index.
  */
 const PART_15_MIGRATION = '2026-11-05_job_opportunities_manual_team.sql'
 const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { PoolClient } from 'pg'
+import { Pool, type PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type CrmAppSession, openCrmAppSession } from './__test-helpers__/crm-app-session'
 import { splitSqlStatements } from './manual-sql-statements'
@@ -39,8 +39,106 @@ const INDEX = 'idx_job_dirty_work_pending_generic'
 
 let session: CrmAppSession
 let client: PoolClient
+let pool: Pool
 
 const unqualify = (text: string, schema: string) => text.split(`${schema}.`).join('public.')
+
+/** Collects the server's NOTICEs for the duration of one call. */
+async function withNotices<T>(
+  c: PoolClient,
+  run: () => Promise<T>,
+): Promise<{ result: T; notices: string[] }> {
+  const notices: string[] = []
+  const listener = (message: { message?: string }): void => {
+    if (message.message) notices.push(message.message)
+  }
+  c.on('notice', listener)
+  try {
+    const result = await run()
+    return { result, notices }
+  } finally {
+    c.off('notice', listener)
+  }
+}
+
+/**
+ * Reuses the store-indexes parkConcurrentBuild pattern: holds an open REPEATABLE READ snapshot
+ * on the target table so Postgres stalls the concurrent build in its `waiting for old snapshots` phase.
+ */
+async function parkConcurrentBuild(
+  p: Pool,
+  indexName: string,
+): Promise<{ release: () => Promise<void> }> {
+  const holder = await p.connect()
+  const builder = await p.connect()
+  await builder.query(`SET search_path TO ${SCHEMA}, public`)
+  await holder.query(`SET search_path TO ${SCHEMA}, public`)
+
+  const definition = await holder.query(
+    `SELECT pg_get_indexdef(i.indexrelid) AS def
+       FROM pg_index i
+       JOIN pg_class ic ON ic.oid = i.indexrelid
+       JOIN pg_class c ON c.oid = i.indrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND ic.relname = $1`,
+    [indexName],
+  )
+  if (definition.rowCount !== 1) {
+    throw new Error(`no reference definition for index ${indexName}`)
+  }
+  const create = String(definition.rows[0]['def'])
+    .replace(
+      /^CREATE (UNIQUE )?INDEX /,
+      (_m, unique) => `CREATE ${unique ?? ''}INDEX CONCURRENTLY `,
+    )
+    .replace(/ ON public\./, ' ON ')
+
+  await holder.query('BEGIN ISOLATION LEVEL REPEATABLE READ')
+  await holder.query(`SELECT count(*) FROM ${TABLE}`)
+
+  const building = builder.query(create).catch((error: Error) => {
+    return error
+  })
+
+  const deadline = Date.now() + 20_000
+  for (;;) {
+    const progress = await p.query(
+      `SELECT count(*)::int AS n FROM pg_stat_progress_create_index
+        WHERE datid = (SELECT oid FROM pg_database WHERE datname = current_database())`,
+    )
+    const index = await p.query(
+      `SELECT i.indisvalid FROM pg_index i
+         JOIN pg_class c ON c.oid = i.indexrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = $1 AND c.relname = $2`,
+      [SCHEMA, indexName],
+    )
+    if (
+      progress.rows[0]['n'] > 0 &&
+      index.rowCount === 1 &&
+      index.rows[0]['indisvalid'] === false
+    ) {
+      break
+    }
+    if (Date.now() > deadline) {
+      await holder.query('ROLLBACK').catch(() => undefined)
+      await building
+      holder.release()
+      builder.release()
+      throw new Error(`build of ${indexName} did not park within 20s`)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+
+  return {
+    release: async () => {
+      await holder.query('COMMIT').catch(() => undefined)
+      await building
+      holder.release()
+      builder.release()
+    },
+  }
+}
 
 /**
  * Applies the file statement by statement in autocommit, the way `psql < file` does: no
@@ -101,6 +199,7 @@ describe.skipIf(!hasDatabaseUrl())(
     beforeAll(async () => {
       session = await openCrmAppSession()
       client = await session.admin.connect()
+      pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
       const { rows } = await client.query(`SELECT current_database() AS db`)
       if (rows[0].db === 'crm_db') throw new Error('refusing the live database')
       await client.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`)
@@ -123,6 +222,7 @@ describe.skipIf(!hasDatabaseUrl())(
         await client?.query(`SET search_path = public`)
         await client?.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`)
         client?.release()
+        await pool?.end()
       } finally {
         await session.close()
       }
@@ -156,6 +256,20 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await isValid()).toBe(true)
       expect(await addedIndex(SCHEMA)).toEqual(before)
     })
+
+    it('spares an index whose build is still running, and the build completes (LOW)', async () => {
+      await client.query(`DROP INDEX IF EXISTS ${SCHEMA}.${INDEX}`)
+      const parked = await parkConcurrentBuild(pool, INDEX)
+      try {
+        const { sweep } = doBlocks()
+        const { notices } = await withNotices(client, () => client.query(sweep))
+        expect(notices.join('\n')).not.toMatch(/dropping INVALID index/)
+        expect(await isValid()).toBe(false)
+      } finally {
+        await parked.release()
+      }
+      expect(await isValid()).toBe(true)
+    }, 180_000)
 
     it('the closing check refuses an INVALID or a missing index (CR-M-1)', async () => {
       const { finalCheck } = doBlocks()

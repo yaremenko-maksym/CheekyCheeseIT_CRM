@@ -43,13 +43,23 @@
 -- the indexes, every later one is a no-op. Needed before `JOB_AVAILABILITY_RECONCILE_ENABLED` is
 -- turned on in production.
 --
--- WHY CONCURRENTLY
--- ----------------
+-- WHY CONCURRENTLY, LOCK TIMEOUT, AND DEPLOY BOUNDS (CR-M-4 / SR-M-2, SR-M-3)
+-- -------------------------------------------------------------------------
 -- `job_dirty_work` is a hot queue; building these must not take an exclusive lock on it, so they
 -- are `CREATE INDEX CONCURRENTLY`, as in manual/2026-11-02_job_dirty_work_pending_partial.sql.
--- A CONCURRENTLY build waits for every transaction holding a snapshot to finish (twice); a
--- long-running transaction delays it, it does not block writers. `statement_timeout` bounds that
--- wait so a transaction left open by the old API fails the deploy in bounded time.
+--
+-- `lock_timeout = '10s'` stays tight: the sweep's non-concurrent `DROP INDEX` takes ACCESS EXCLUSIVE
+-- on `job_dirty_work` while the old API still serves, and `CREATE INDEX CONCURRENTLY IF NOT EXISTS`
+-- acquires ShareUpdateExclusive on the table before checking existence. Waiting for a lock is what
+-- blocks other sessions, so `lock_timeout` fails fast instead of queuing the hot queue behind it.
+--
+-- A CONCURRENTLY build waits for every transaction holding an old snapshot (twice). In a deploy through
+-- GitHub Actions ssh-action (which sets no explicit `command_timeout`), the step has a default 10-minute
+-- timeout, which cuts the step if a build stalls and may leave the build running in the background.
+-- `statement_timeout = '30min'` bounds a manual apply. If a cut deploy or interrupted build leaves an
+-- INVALID index, section 3's closing check fails the deploy loudly before the container swap, and the
+-- deployment runbook's INVALID-index query (docs/runbooks/deployment.md §9) identifies it for the
+-- operator; the next deploy's sweep drops and rebuilds the abandoned index once no build is in flight.
 --
 -- INVALID LEFTOVERS, AND WHY RE-RUNNING THIS FILE IS THE REPAIR (CR-M-1 / SR-M-1, PR #1333)
 -- -------------------------------------------------------------------------------------------
@@ -79,6 +89,7 @@
 -- integration specs are their coverage.
 -- =============================================================================
 
+SET lock_timeout = '10s';
 SET statement_timeout = '30min';
 
 -- 1. Drop ABANDONED invalid leftovers of the indexes below, never one whose build is in progress.
