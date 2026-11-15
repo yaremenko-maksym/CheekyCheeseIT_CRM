@@ -8,6 +8,7 @@ import {
   GENERATION_POLICY,
   generationById,
   invalidateGenerationsForManualCard,
+  invalidateTeamGenerations,
   purgeExpiredGenerations,
 } from './queue-generation'
 import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
@@ -234,5 +235,19 @@ describe('invalidateGenerationsForManualCard', () => {
     expect(h.compiled(2).text).toContain("SET status = 'INVALIDATED'")
     expect(h.compiled(2).params).toEqual([TEAM])
     expect(h.execute).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('invalidateTeamGenerations', () => {
+  it("waits on the team's publish lock before it retires the team's generation", async () => {
+    // 1345-CR-L-r2-1: a triage grant or subscription write retires the list a racing publish may be
+    // building from the pre-write job set, so the retire waits for that publish to commit.
+    const h = harness([], [])
+    await invalidateTeamGenerations(h.database.db, TEAM)
+    expect(h.compiled(0).text).toBe('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))')
+    expect(h.compiled(0).params).toEqual([`job-queue-generation:TEAM:${TEAM}`])
+    expect(h.compiled(1).text).toContain("SET status = 'INVALIDATED'")
+    expect(h.compiled(1).params).toEqual([TEAM])
+    expect(h.execute).toHaveBeenCalledTimes(2)
   })
 })

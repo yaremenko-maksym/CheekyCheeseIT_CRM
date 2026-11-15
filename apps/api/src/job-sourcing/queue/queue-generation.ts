@@ -171,8 +171,13 @@ async function publish(
  * does not carry either, so the write retires the team's published generation itself: the team's
  * next read publishes anew. A removal would show at once anyway (entries are re-checked against
  * visibility); an addition would otherwise wait for the TTL. The next publish deletes the row.
+ *
+ * It first takes the team's publish lock, as the manual-card retire does, so a publish that read the
+ * job set before the write committed is published before this retire. The caller's row locks come
+ * first and do not deadlock: a publish holding this lock only reads them, or takes `FOR KEY SHARE`.
  */
 export async function invalidateTeamGenerations(db: SqlExecutor, teamId: string): Promise<void> {
+  await lockScopePublish(db, `TEAM:${teamId}`)
   await db.execute(
     sql`UPDATE job_queue_generations
            SET status = 'INVALIDATED', invalidated_at = clock_timestamp()
