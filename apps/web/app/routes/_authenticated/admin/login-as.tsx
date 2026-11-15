@@ -70,7 +70,8 @@ function LoginAsPageContent({ meId }: { meId: string }) {
     onSuccess: async () => {
       // Hard reload to root — flushes all cached queries so the new session
       // starts fresh as the impersonated user. The admin's persisted copy goes
-      // too, so the reload cannot restore it (PR #1330 SR-M-1).
+      // too, so the reload cannot restore it (PR #1330 SR-M-1); the purge stops every later
+      // persist write before it deletes, so nothing puts it back (PR #1334 SO-4).
       queryClient.clear()
       await purgePersistedBeforeReload()
       window.location.href = '/'

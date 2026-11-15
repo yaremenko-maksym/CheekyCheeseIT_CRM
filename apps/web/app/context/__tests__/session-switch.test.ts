@@ -604,6 +604,52 @@ describe('refetch after an account switch (backlog 433): the page being left nev
     expect(qc.getQueryData(['auth', 'me'])).toEqual(ivan)
   })
 
+  it("a superseded check that drops its answer leaves AuthProvider's later auth/me request alone (SO-1)", async () => {
+    const qc = seeded()
+    const ivan = { id: 'user-ivan', role: 'JUNIOR' }
+    let answerOlder: (v: unknown) => void = () => {}
+    apiGet
+      .mockReturnValueOnce(new Promise((resolve) => (answerOlder = resolve)))
+      .mockResolvedValueOnce({ status: 200, data: kateryna })
+    const revalidate = createSessionRevalidator(qc)
+    const older = revalidate('/job-queue')
+    await revalidate('/projects') // the newer check lands Kateryna
+
+    // AuthProvider asks again after the newer answer landed; the stale check must not cancel it
+    let answerFresh: (v: unknown) => void = () => {}
+    const fresh = qc.fetchQuery({
+      queryKey: ['auth', 'me'],
+      queryFn: () => new Promise((resolve) => (answerFresh = resolve)),
+      staleTime: 0,
+    })
+    answerOlder({ status: 200, data: anna })
+    await older
+    answerFresh(ivan)
+
+    await expect(fresh).resolves.toEqual(ivan)
+    expect(qc.getQueryData(['auth', 'me'])).toEqual(ivan)
+  })
+
+  it('a check whose cancel is still settling when a newer check lands drops its own answer (SO-1)', async () => {
+    const qc = seeded()
+    let releaseCancel: () => void = () => {}
+    vi.spyOn(qc, 'cancelQueries').mockImplementationOnce(
+      () => new Promise<void>((resolve) => (releaseCancel = resolve)),
+    )
+    apiGet
+      .mockResolvedValueOnce({ status: 200, data: anna })
+      .mockResolvedValueOnce({ status: 200, data: kateryna })
+    const revalidate = createSessionRevalidator(qc)
+    const older = revalidate('/job-queue')
+    await vi.waitFor(() => expect(qc.cancelQueries).toHaveBeenCalledTimes(1)) // older is cancelling
+
+    await revalidate('/projects') // asked later, lands Kateryna meanwhile
+    releaseCancel()
+    await older
+
+    expect(qc.getQueryData(['auth', 'me'])).toEqual(kateryna)
+  })
+
   it('a switch with no route change after a finished check still refetches at once (no navigation left pending)', async () => {
     const qc = seeded()
     const { queueFn } = mountQueue(qc)

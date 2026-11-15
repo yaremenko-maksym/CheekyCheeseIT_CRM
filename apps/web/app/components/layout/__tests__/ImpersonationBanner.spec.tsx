@@ -138,7 +138,7 @@ describe('ImpersonationBanner', () => {
     await waitFor(() => expect(window.location.href).toBe('/admin/login-as'))
   })
 
-  it('B12. empties the query cache before deleting the persisted copy, so a pending write cannot restore the impersonated rows (SR-L-3)', async () => {
+  it('B12. empties the query cache before deleting the persisted copy (SR-L-3); the purge itself stops later writes (persister.spec, SO-4)', async () => {
     const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
     qc.setQueryData(['projects', 'senior-uuid'], [{ id: 'impersonated-project' }])
     let cachedAtDelete: number | null = null

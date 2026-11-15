@@ -153,12 +153,14 @@ export function createSessionRevalidator(queryClient: QueryClient) {
     for (let newer = newerThan(mine); newer.length > 0; newer = newerThan(mine)) {
       await Promise.all(newer)
     }
-    // AuthProvider's own request may also predate the cookie change; its late answer must not land
-    await queryClient.cancelQueries({ queryKey: AUTH_ME_KEY, exact: true })
     // A newer answer is already in: a newer check's (it landed while we waited, or before ours
     // even arrived), or any switch of user since ours was sent. Ours lands only if every newer
-    // check failed and nothing else changed the user.
+    // check failed and nothing else changed the user. Checked before the cancel: a check that
+    // drops its answer leaves AuthProvider's request, possibly fresher than ours, alone (SO-1).
     if (mine < floor) return
+    // AuthProvider's own request may also predate the cookie change; its late answer must not land
+    await queryClient.cancelQueries({ queryKey: AUTH_ME_KEY, exact: true })
+    if (mine < floor) return // the cancel yields: a newer answer may have landed meanwhile
     queryClient.setQueryData(AUTH_ME_KEY, current) // a changed id purges in `watchSessionOwner`
     // after the write: our own switch must not outdate a check asked after ours was sent
     floor = mine + 1

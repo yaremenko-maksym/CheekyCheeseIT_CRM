@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { format, parseISO, type Locale as DateFnsLocale } from 'date-fns'
+import { format, max, min, parseISO, type Locale as DateFnsLocale } from 'date-fns'
 import { uk, enGB } from 'date-fns/locale'
 import { CalendarIcon } from 'lucide-react'
 import { useLingui } from '@lingui/react/macro'
@@ -125,8 +125,14 @@ export function DatePickerField({
               ...(maxDate ? [{ after: parseISO(maxDate) }] : []),
             ]
           }
-          {...(minDate ? { startMonth: parseISO(minDate) } : {})}
-          {...(maxDate ? { endMonth: parseISO(maxDate) } : {})}
+          // Navigation bounds widen to a saved value outside [minDate, maxDate], so the calendar
+          // still opens on its month (the day itself stays disabled above).
+          {...(minDate
+            ? { startMonth: min([parseISO(minDate), selected ?? parseISO(minDate)]) }
+            : {})}
+          {...(maxDate
+            ? { endMonth: max([parseISO(maxDate), selected ?? parseISO(maxDate)]) }
+            : {})}
           initialFocus
           locale={dateFnsLocale}
         />

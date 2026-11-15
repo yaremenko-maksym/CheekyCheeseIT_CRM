@@ -585,4 +585,31 @@ describe('purgePersistedBeforeReload (backlog 433): a reload is never stuck on I
       vi.useRealTimers()
     }
   })
+
+  it('leaves no timer behind when the delete wins the race (SO-3)', async () => {
+    vi.useFakeTimers()
+    try {
+      hoisted.mockDel.mockResolvedValueOnce(undefined)
+      await purgePersistedBeforeReload()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops every later write, so a throttled persist cannot put the cache back after the delete (SO-4)', async () => {
+    // the stop is one-way for the page (a reload follows it): a fresh module, unstopped
+    vi.resetModules()
+    const { purgePersistedBeforeReload: purgeFresh } = await import('./persister')
+    const storage = hoisted.capturedOptionsRef.current?.storage
+    hoisted.mockSet.mockClear()
+    await storage?.setItem(PERSIST_KEY, '{"before":"purge"}')
+    expect(hoisted.mockSet).toHaveBeenCalledTimes(1)
+    hoisted.mockSet.mockClear()
+
+    await purgeFresh()
+    await storage?.setItem(PERSIST_KEY, '{"impersonated":"rows"}')
+
+    expect(hoisted.mockSet).not.toHaveBeenCalled()
+  })
 })

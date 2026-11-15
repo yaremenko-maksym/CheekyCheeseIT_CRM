@@ -32,8 +32,9 @@ export function ImpersonationBanner({ user, onStopped }: ImpersonationBannerProp
     },
     onSuccess: async () => {
       // Hard reload to root so all queries re-fetch as the restored admin. The impersonated
-      // user's persisted copy goes first, so the reload cannot restore it (PR #1330 SR-M-1). The
-      // cache is emptied before that, so a throttled persist write lands empty (PR #1334 SR-L-3).
+      // user's persisted copy goes first, so the reload cannot restore it (PR #1330 SR-M-1):
+      // the purge stops every later persist write before it deletes, so neither a throttled write
+      // nor a refetch of a still-mounted query can put it back (PR #1334 SR-L-3, SO-4).
       queryClient.clear()
       await purgePersistedBeforeReload()
       window.location.href = '/admin/login-as'
