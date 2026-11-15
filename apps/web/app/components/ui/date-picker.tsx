@@ -3,7 +3,7 @@ import { format, max, min, parseISO, type Locale as DateFnsLocale } from 'date-f
 import { uk, enGB } from 'date-fns/locale'
 import { CalendarIcon } from 'lucide-react'
 import { useLingui } from '@lingui/react/macro'
-import type { Locale } from '@crm/shared'
+import { formatDate, type Locale } from '@crm/shared'
 import { Calendar } from './calendar'
 import { Button } from './button'
 import { Popover, PopoverContent, PopoverTrigger } from './popover'
@@ -74,9 +74,7 @@ export function DatePickerField({
         >
           <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
           <span className="truncate">
-            {selected
-              ? format(selected, 'dd MMM yyyy', { locale: dateFnsLocale })
-              : effectivePlaceholder}
+            {selected ? formatDate(selected, locale, 'dayMonthYear') : effectivePlaceholder}
           </span>
         </Button>
       </PopoverTrigger>
