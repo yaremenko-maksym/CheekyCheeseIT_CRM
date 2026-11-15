@@ -8178,11 +8178,11 @@ Sources: verified-base-resume Task 26 manual QA, finding QA-L-2.
 
 ## 447. Resume PDF download returns 500 when the stored PDF object is missing (2026-11-16)
 
-**Problem.** `GET /api/users/:userId/resume/pdf` reads `pdf_s3_key` with `S3Service.getObject` and lets a
+**Symptoms.** `GET /api/users/:userId/resume/pdf` reads `pdf_s3_key` with `S3Service.getObject` and lets a
 `NoSuchKey` through as a 500. The row still says the PDF is ready, the same fingerprint means no re-render is
 queued, so the download stays broken until the source changes.
 
-**Fix.** In `getRenderedPdf`, on `NoSuchKey` for the current PDF, queue a re-render and answer the existing
+**Candidate fix.** In `getRenderedPdf`, on `NoSuchKey` for the current PDF, queue a re-render and answer the existing
 202 "not ready" state (or a clear not-ready error code), instead of a 500.
 
 **Verify.** With the row's `pdf_s3_key` object deleted from the bucket, the endpoint answers 202 (not 500), and
@@ -8192,11 +8192,11 @@ Sources: PR #1352 (orphan sweep, backlog 441) fix round 1.
 
 ## 448. Staged resume PDFs under `resumes/<id>/staged/` have no orphan sweep (2026-11-16)
 
-**Problem.** `ResumeOrphanSweepCron` lists only `senior-resumes/`. Staged PDFs are written to
+**Symptoms.** `ResumeOrphanSweepCron` lists only `senior-resumes/`. Staged PDFs are written to
 `resumes/<resumeId>/staged/<runId>.pdf` (`stagedPdfKey`), so a staged PDF whose cleanup delete failed stays in
 R2 with nothing left to reach it.
 
-**Fix.** Extend the same sweep to the `resumes/` prefix (keys matching `resumes/<id>/staged/`), with its own
+**Candidate fix.** Extend the same sweep to the `resumes/` prefix (keys matching `resumes/<id>/staged/`), with its own
 referenced set (`staged_pdf_s3_key` and `staged_previous->'pdfKey'`), the same 24 h grace, HEAD re-check and cap.
 
 **Verify.** An aged staged PDF no row points at is deleted; the row's current staged PDF, the
