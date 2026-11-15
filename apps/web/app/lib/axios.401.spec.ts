@@ -47,4 +47,16 @@ describe('axios.ts interceptor — 401', () => {
     }
     expect(setMock).not.toHaveBeenCalled()
   })
+
+  // CR-H-1: idb-keyval opens IndexedDB synchronously, so a blocked storage throws before any promise
+  it('still goes to /login when deleting the persisted copy throws synchronously', async () => {
+    Object.defineProperty(window, 'location', { configurable: true, value: { href: '' } })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    delMock.mockImplementationOnce(() => {
+      throw new DOMException('blocked', 'SecurityError')
+    })
+
+    await expect(api.get('/projects', { adapter: unauthorized })).rejects.toBeDefined()
+    await vi.waitFor(() => expect(window.location.href).toBe('/login'))
+  })
 })
