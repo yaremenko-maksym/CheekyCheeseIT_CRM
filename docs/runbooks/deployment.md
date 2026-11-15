@@ -656,6 +656,7 @@ rather than trust the numbers, they shift whenever a file is added above):
 | 60h      | `2026-11-05_job_opportunities_role_family.sql`         | `job_opportunities.role_family`; hand-applied before backlog 434, re-apply is a no-op. One transaction                    |
 | 60i      | `2026-11-05_job_opportunities_manual_team.sql`         | `manual_team_id` + `resume_id` FKs; hand-applied before backlog 434, re-apply is a no-op. One transaction                 |
 | 60j      | `2026-11-06_job_model_health.sql`                      | Creates the two model-health tables (class A); before the grants (unconditional grant). One transaction                   |
+| 60k      | `2026-11-14_senior_availability.sql`                   | Creates `senior_availability` (class A); before the grants (unconditional grant). One transaction                         |
 | 61       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                   |
 | 62       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                         |
 | 62a      | `2026-11-02_job_dirty_work_pending_partial.sql`        | `CREATE INDEX CONCURRENTLY`, so NOT one transaction; creates no relation. Sweeps + refuses an INVALID index (§9)          |
@@ -1128,6 +1129,7 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-11-05_job_opportunities_role_family.sql \
     apps/api/drizzle/manual/2026-11-05_job_opportunities_manual_team.sql \
     apps/api/drizzle/manual/2026-11-06_job_model_health.sql \
+    apps/api/drizzle/manual/2026-11-14_senior_availability.sql \
     apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql \
     apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql \
     scripts/devops/check-security-headers.sh \
@@ -1374,13 +1376,18 @@ commands are the owner's, through `ssh crm-vps`; SELECT only):
 
 5. No transaction open longer than the `CREATE INDEX CONCURRENTLY` lock timeout. The two dirty-work
    files run their sweep under `lock_timeout = '10s'` and each `CREATE INDEX CONCURRENTLY` under
-   `lock_timeout = '5min'` (one wait fits inside the 10-minute ssh-action cut; the waits of the three
-   builds share that cut and can add up past it), so the query below flags exactly the
-   transactions that would outlast the build's wait. **Expect 0 rows** right before the deploy. If a
-   row is there when the deploy runs, the build waits up to 5 min for it, then fails with
+   `lock_timeout = '5min'` (a cap on each single wait, not on the build), so the query below is a
+   heuristic: it flags the transactions already open longer than one wait. **Expect 0 rows** right before the deploy. If such a
+   transaction is still open 5 min after the build starts waiting on it, the build fails with
    `canceling statement due to lock timeout`, leaves the index INVALID and fails the deploy before the
    container swap (the old API keeps serving); end that transaction and re-run the deploy, whose sweep
-   drops the INVALID index and rebuilds it (next paragraph).
+   drops the INVALID index and rebuilds it (next paragraph). The waits add up within one deploy
+   step: each of the three builds waits at several points and once per older transaction, so the only
+   cap on a build's total wait is `statement_timeout = '30min'`, and a chain of transactions each
+   just under 5 min can pass the step's cut. The ssh-action step pins `command_timeout: 30m` instead of the action's 10-minute default;
+   that covers the realistic case (about one long transaction per build). If the step is cut anyway,
+   the build may run on in the background; once no build is in flight, the next deploy's sweep drops
+   and rebuilds the INVALID index (until then section 3 fails the deploy).
 
    ```sql
    SELECT pid, state, now() - xact_start AS age FROM pg_stat_activity

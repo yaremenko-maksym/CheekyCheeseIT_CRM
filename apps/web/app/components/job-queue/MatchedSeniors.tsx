@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { useJobQueueSeniors, type QueueScopeSignature } from '@/hooks/use-job-queue'
 import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { SeniorAvailabilityLabel } from '@/components/senior-availability/SeniorAvailabilityLabel'
 import { PreviewContinuation } from './PreviewContinuation'
 
 const SENIORS_PAGE = 200
@@ -139,6 +140,12 @@ function SeniorBlock({
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="font-medium [overflow-wrap:anywhere]">{senior.displayName}</span>
+          {senior.availability !== null && (
+            <SeniorAvailabilityLabel
+              availability={senior.availability}
+              testId={`job-queue-senior-availability-${senior.seniorId}`}
+            />
+          )}
           {senior.matchApproximate && (
             <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
               <Info aria-hidden="true" className="size-3.5 shrink-0" />

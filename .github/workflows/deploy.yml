@@ -682,6 +682,7 @@ jobs:
             apps/api/drizzle/manual/2026-11-05_job_opportunities_role_family.sql \
             apps/api/drizzle/manual/2026-11-05_job_opportunities_manual_team.sql \
             apps/api/drizzle/manual/2026-11-06_job_model_health.sql \
+            apps/api/drizzle/manual/2026-11-14_senior_availability.sql \
             apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql \
             apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql \
             scripts/devops/check-security-headers.sh \
@@ -2893,6 +2894,19 @@ jobs:
           # apps/api/drizzle/manual/2026-11-06_job_model_health.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-11-06_job_model_health.sql
 
+      - name: Copy senior availability DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-14_senior_availability.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-14_senior_availability.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-14_senior_availability.sql
+
       - name: Copy job dirty work pending partial index DDL via SCP
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -3111,6 +3125,10 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           envs: IMAGE_TAG,GH_ACTOR,GHCR_TOKEN,CRM_CSP_MODE
+          # 30m replaces the 10 m default: each CIC lock wait is capped at 5 min, but a build waits once per older
+          # transaction, so only statement_timeout (30min per build) caps a build's waits. A cut step's build may run
+          # on in the background; once it has ended, the next deploy's sweep drops and rebuilds an INVALID index.
+          command_timeout: 30m
           # A DISPATCH, deliberately tens of bytes long. The 137 KB it runs
           # travelled as a file via the scp step above. Full story in the header
           # of scripts/devops/deploy-stack-on-vps.sh; the part that matters here

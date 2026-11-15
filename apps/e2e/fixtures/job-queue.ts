@@ -79,6 +79,7 @@ export function cardSenior(overrides: Partial<QueueCardSenior> = {}): QueueCardS
   return jobQueueCardSeniorSchema.parse({
     seniorId: MOCK_IDS.seniorA,
     displayName: 'Senior Alpha',
+    availability: null,
     matchApproximate: false,
     matchedKeywords: ['React'],
     matchEvidence: [{ keyword: 'React', strength: 'CORE' }],

@@ -194,6 +194,31 @@ describe('MatchedSeniors', () => {
     ).toBeVisible()
   })
 
+  it('availability (§5.2): «Вільно з {day}», «Зайнято», nothing when unset', () => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [
+            senior({ availability: { status: 'FREE', availableFrom: '2099-11-01' } }),
+            senior({ seniorId: S2, displayName: 'Ігор', availability: { status: 'BUSY' } }),
+            senior({ seniorId: S3, displayName: 'Олена', availability: null }),
+          ],
+          totalCount: 3,
+          nextCursor: null,
+        },
+      }),
+    )
+    const free = screen.getByTestId(`job-queue-senior-availability-${S1}`)
+    // §5.2: a short month (SPEC-L-1); a far-future day so it never turns into «free now»
+    expect(free).toHaveTextContent(/^Вільно з 1 лист\.$/)
+    expect(free).toHaveAttribute('data-availability', 'FREE')
+    const busy = screen.getByTestId(`job-queue-senior-availability-${S2}`)
+    expect(busy).toHaveTextContent('Зайнято')
+    expect(busy).toHaveAttribute('data-availability', 'BUSY')
+    expect(screen.queryByTestId(`job-queue-senior-availability-${S3}`)).toBeNull()
+    expect(screen.getByTestId(`job-queue-senior-${S3}`)).not.toHaveTextContent('Зайнято')
+  })
+
   it('an own submission shows «Подано · …», with the submitter when the API names one', () => {
     renderBlock(
       cardFixture({

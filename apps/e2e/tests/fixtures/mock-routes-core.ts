@@ -135,6 +135,12 @@ export async function mockCoreRoutes(page: Page, user: MockUser) {
     ]),
   )
 
+  // /users/:id/availability — the senior-availability card on a senior's overview: never set
+  // on GET; a PUT is echoed back (the shape is the request body)
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/availability$`), (r) =>
+    jsonOk(r, r.request().method() === 'PUT' ? r.request().postDataJSON() : null),
+  )
+
   // /users/:id — profile shell expects UserWithPermissionsResponse shape for view mode
   await page.route(new RegExp(`${API_RE}/users/([^/?]+)$`), (r) => {
     const id = r.request().url().split('/').at(-1)

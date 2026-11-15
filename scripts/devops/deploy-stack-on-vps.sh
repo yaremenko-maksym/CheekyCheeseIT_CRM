@@ -2493,6 +2493,27 @@ docker compose \
   < "$JOB_MODEL_HEALTH_FILE"
 echo "==> job model health applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-14_senior_availability.sql
+# Creates senior_availability (class A). MUST precede the grants file:
+# its grants are unconditional and fail on a missing table.
+SENIOR_AVAILABILITY_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-14_senior_availability.sql"
+
+if [ ! -f "$SENIOR_AVAILABILITY_FILE" ]; then
+  echo "ERROR: DDL file not found at $SENIOR_AVAILABILITY_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying senior availability (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$SENIOR_AVAILABILITY_FILE"
+echo "==> senior availability applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file
@@ -2555,8 +2576,10 @@ docker compose \
 echo "==> job opportunities store indexes applied successfully"
 
 # Source: apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql
-# CREATE INDEX CONCURRENTLY: no --single-transaction (cannot run in a transaction block). An
-# interrupted build leaves an INVALID index that IF NOT EXISTS keeps: check pg_index.indisvalid.
+# CREATE INDEX CONCURRENTLY: no --single-transaction (cannot run in a transaction block). Since
+# #1333 the file opens with a sweep that drops an abandoned INVALID index and closes with a check
+# that raises on NOT indisvalid; the interrupted-build case is therefore handled by the sweep +
+# closing check, not by IF NOT EXISTS keeping an INVALID index.
 JOB_DIRTY_WORK_PENDING_PARTIAL_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql"
 
 if [ ! -f "$JOB_DIRTY_WORK_PENDING_PARTIAL_FILE" ]; then
@@ -2576,8 +2599,9 @@ docker compose \
 echo "==> job dirty work pending partial index applied successfully"
 
 # Source: apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql
-# CREATE INDEX CONCURRENTLY: no --single-transaction. Same INVALID-index caveat as above; the
-# repair (DROP INDEX CONCURRENTLY, re-apply) is in the file header.
+# CREATE INDEX CONCURRENTLY: no --single-transaction. Same since-#1333 handling as the pending
+# partial file above: the sweep drops an abandoned INVALID index and the closing check raises on
+# NOT indisvalid; the repair is the next deploy's re-apply of this file.
 JOB_DIRTY_WORK_PARTITION_PARTIAL_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql"
 
 if [ ! -f "$JOB_DIRTY_WORK_PARTITION_PARTIAL_FILE" ]; then

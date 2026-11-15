@@ -245,6 +245,8 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     'recording_media_artifacts',
     'recording_media_uploads',
     'salary_month_initializations',
+    // Senior availability (vacancy-queue design §5.2): the senior or ADMIN upserts it.
+    'senior_availability',
     'senior_resumes',
     'signed_contracts',
     'team_members',

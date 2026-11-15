@@ -144,6 +144,31 @@ test.describe('scenario 7 — card states (mocked)', () => {
     await expect(page.getByTestId('job-queue-seniors-none')).toBeVisible()
     await expect(page.getByTestId('job-queue-seniors-triage')).toBeHidden()
   })
+
+  test('7f: the senior’s availability changes while the card is open: the refetched card shows the new one', async ({
+    asHr: page,
+  }) => {
+    const uk = await loadMessages('uk')
+    await mockJobQueue(page, {
+      card: [
+        // far future: a day that is today or past reads as plain «Вільно» (free now)
+        card({}, [cardSenior({ availability: { status: 'FREE', availableFrom: '2099-11-01' } })]),
+      ],
+      // the senior marked themself busy meanwhile; the conflict refetch is what reveals it
+      cardAfterSubmit: card({ revision: 2 }, [cardSenior({ availability: { status: 'BUSY' } })]),
+      submit: [{ status: 409, body: apiError(409, 'JOB_QUEUE_VERSION_CONFLICT') }],
+    })
+    await openCard(page)
+    const availability = page.getByTestId(`job-queue-senior-availability-${MOCK_IDS.seniorA}`)
+    await expect(availability).toHaveAttribute('data-availability', 'FREE')
+    // the day is Intl-formatted (`formatDate` 'dayMonth', short month per §5.2), not a catalog string
+    await expect(availability).toContainText('1 лист.')
+
+    await page.getByTestId(`job-queue-submit-${MOCK_IDS.seniorA}`).click()
+
+    await expect(availability).toHaveAttribute('data-availability', 'BUSY')
+    await expect(availability).toHaveText(assertInCatalog(uk, 'Зайнято'))
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -763,7 +788,17 @@ test.describe('wave 2 — real API on the 7.6a seed', () => {
 
     // The seed has no `job_sources` row and no API creates one: the switch's rendering runs on a
     // mocked source list under a REAL ADMIN session; its RBAC is the real-API case 12a above.
+    //
+    // The `pref_locale` cookie is load-bearing. Headless Chromium has no cookie and an `en-US`
+    // navigator, so the page first renders in `en`; the seeded ADMIN's `uk` then arrives with
+    // `auth/me` and `<Fragment key={locale}>` (`routes/__root.tsx`) remounts the whole tree a few
+    // hundred ms after first paint. An early click on the title opened the FIRST `<details>`; the
+    // remount replaced it with a closed one, so the switch was "not found" (12b/12c flaked 1 in 2-3
+    // runs). Pinned to the user's own locale, as for a returning user, nothing remounts.
     const openSources = async (page: Page) => {
+      await page
+        .context()
+        .addCookies([{ name: 'pref_locale', value: 'uk', domain: 'localhost', path: '/' }])
       await page.goto('/job-queue')
       await page.getByTestId('job-source-section-title').click()
       return page.getByTestId('job-source-card').getByRole('switch')
