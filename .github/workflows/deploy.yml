@@ -3112,7 +3112,8 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           envs: IMAGE_TAG,GH_ACTOR,GHCR_TOKEN,CRM_CSP_MODE
           # 30m replaces the 10 m default: each CIC lock wait is capped at 5 min, but a build waits once per older
-          # transaction, so the total has no fixed cap; a cut step is repaired by the next deploy's sweep.
+          # transaction, so only statement_timeout (30min per build) caps a build's waits. A cut step's build may run
+          # on in the background; once it has ended, the next deploy's sweep drops and rebuilds an INVALID index.
           command_timeout: 30m
           # A DISPATCH, deliberately tens of bytes long. The 137 KB it runs
           # travelled as a file via the scp step above. Full story in the header
