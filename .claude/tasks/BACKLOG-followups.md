@@ -8081,6 +8081,8 @@ Sources: verified-base-resume review (Task 23 brief).
 
 ## 441. A failed delete of a superseded resume source leaves an unswept CV in R2 (2026-11-14)
 
+**Closed (2026-11-15).** PR #1352 (a daily `ResumeOrphanSweepCron` deletes every `senior-resumes/` object no `senior_resumes` row references once it is older than 24 h). Reopen if the Verify check below fails.
+
 **Symptoms.** When a senior's resume source is replaced, or an upload loses its queue CAS, the
 resumes service deletes the object nobody points at. If that delete fails it only logs a warning
 ("Superseded resume source not deleted" / "Unreferenced resume source not deleted"). The CV stays
