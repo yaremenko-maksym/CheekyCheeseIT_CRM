@@ -1155,7 +1155,10 @@ describe.skipIf(!hasDatabaseUrl())(
               .select({ status: seniorResumes.pdfRenderStatus })
               .from(seniorResumes)
               .where(eq(seniorResumes.userId, SENIOR_A.id))
-            expect(['READY', 'FAILED']).toContain(row?.status)
+            expect(
+              ['READY', 'FAILED'],
+              `render did not reach READY/FAILED within 10 s (last status: ${row?.status ?? 'no row'})`,
+            ).toContain(row?.status)
           },
           { timeout: 10_000, interval: 20 },
         )
@@ -1198,6 +1201,11 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(served.ready).toBe(false)
         // ...and the fingerprint mismatch is what noticed, so nothing stale went out.
         expect(s3.getObject).not.toHaveBeenCalled()
+
+        // The re-queue kicked a detached render. Drain it here: left running, it
+        // reaches `typst.render` during the NEXT test and consumes that test's
+        // `mockImplementationOnce`.
+        await settle()
       })
 
       it('a render superseded while it ran erases its own output instead of stranding it', async () => {
