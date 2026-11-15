@@ -4,11 +4,10 @@ import { Trans, useLingui } from '@lingui/react/macro'
 import { AuthProvider, createSessionRevalidator } from '@/context/auth'
 import { queryClient } from '@/lib/query-client'
 import { NotificationsProvider } from '@/context/notifications'
-import { useOnboardingGate } from '@/context/onboarding'
+import { fetchOnboardingStatus, useOnboardingGate } from '@/context/onboarding'
 import { LogOut, Menu, UserCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/auth'
-import { api } from '@/lib/axios'
 import { useLogout } from '@/lib/use-logout'
 import { NavSidebar } from '@/components/crm/nav-sidebar'
 import { isRouteAllowed, resolveRoleHome } from '@/lib/route-access'
@@ -78,10 +77,7 @@ function CrmLayout() {
   // Onboarding gate: fetch status after user is authenticated
   const { data: onboardingStatus } = useQuery<OnboardingStatusDto>({
     queryKey: ['onboarding-status'],
-    queryFn: async () => {
-      const res = await api.get<OnboardingStatusDto>('/onboarding/status')
-      return res.data
-    },
+    queryFn: fetchOnboardingStatus,
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
   })

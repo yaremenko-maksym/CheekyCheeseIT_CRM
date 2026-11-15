@@ -61,7 +61,14 @@ function CrmDashboard() {
       void navigate({ to: '/project', replace: true })
     }
   }, [user?.role, juniorMayLeave, navigate])
-  if (user?.role === 'JUNIOR') return null
+  // a pending placeholder, not a blank screen, until the status is in (a hang errors at its timeout)
+  if (user?.role === 'JUNIOR') {
+    return (
+      <div data-testid="junior-hub-pending" aria-busy="true" className="flex-1 px-6 py-4">
+        <div className="h-28 w-full animate-pulse rounded-lg bg-muted" />
+      </div>
+    )
+  }
 
   // DROP role: платёжный хаб вместо общего дашборда.
   if (user?.role === 'DROP') {
