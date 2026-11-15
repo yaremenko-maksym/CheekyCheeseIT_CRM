@@ -128,10 +128,11 @@ describe('ResumeOrphanSweepCron', () => {
       referenced: 4,
       young: 0,
       undated: 0,
+      gone: 0,
       complete: true,
     })
     expect(log).toHaveBeenCalledWith(
-      'Resume orphan sweep: listed=5 deleted=1 failed=0 referenced=4 young=0 undated=0 complete=true',
+      'Resume orphan sweep: listed=5 deleted=1 failed=0 referenced=4 young=0 undated=0 gone=0 complete=true',
     )
   })
 
@@ -281,7 +282,7 @@ describe('ResumeOrphanSweepCron', () => {
     bucket.headLastModified.mockResolvedValueOnce(null)
     const result = await make().sweep(NOW)
     expect(bucket.deleteOrThrow).not.toHaveBeenCalled()
-    expect(result).toMatchObject({ deleted: 0, failed: 0, young: 0, complete: true })
+    expect(result).toMatchObject({ deleted: 0, failed: 0, young: 0, gone: 1, complete: true })
     expect(warn).not.toHaveBeenCalled()
   })
 

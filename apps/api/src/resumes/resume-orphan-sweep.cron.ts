@@ -45,6 +45,8 @@ export interface OrphanSweepResult {
   young: number
   /** Objects listed without a LastModified. */
   undated: number
+  /** Unreferenced aged objects already gone by the re-check right before the delete. */
+  gone: number
   /** False when the run stopped early (a failure or the cap). */
   complete: boolean
 }
@@ -92,6 +94,7 @@ export class ResumeOrphanSweepCron {
       referenced: 0,
       young: 0,
       undated: 0,
+      gone: 0,
       complete: false,
     }
     let token: string | undefined
@@ -131,7 +134,10 @@ export class ResumeOrphanSweepCron {
             // Re-check the age: a render may have re-uploaded this key since the page was listed,
             // and its row write may land after `referencedKeys()` read the table.
             const modified = await this.s3.headLastModified(key)
-            if (modified === null) continue // gone already: nothing to delete
+            if (modified === null) {
+              r.gone += 1 // gone already: nothing to delete
+              continue
+            }
             if (modified.getTime() >= cutoff) {
               r.young += 1
               continue
@@ -179,7 +185,7 @@ export class ResumeOrphanSweepCron {
 
   private summary(r: OrphanSweepResult): void {
     this.logger.log(
-      `Resume orphan sweep: listed=${r.listed} deleted=${r.deleted} failed=${r.failed} referenced=${r.referenced} young=${r.young} undated=${r.undated} complete=${r.complete}`,
+      `Resume orphan sweep: listed=${r.listed} deleted=${r.deleted} failed=${r.failed} referenced=${r.referenced} young=${r.young} undated=${r.undated} gone=${r.gone} complete=${r.complete}`,
     )
   }
 }
