@@ -583,7 +583,10 @@ export function useRevokeJobQueueTeamTriage(scope: QueueScopeSignature) {
   )
 }
 
-/** ADMIN: a standing triage subscription for a team. */
+/**
+ * ADMIN: a standing triage subscription for a team. `policyVersion` is the studio triage policy
+ * version any ADMIN card carries (`triagePolicyVersion`); a stale one is a 409 (SR-M-1).
+ */
 export function useSubscribeJobQueueTeamTriage(scope: QueueScopeSignature) {
   return useQueueWrite(
     scope,

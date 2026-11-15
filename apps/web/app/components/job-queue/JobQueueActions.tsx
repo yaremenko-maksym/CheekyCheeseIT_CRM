@@ -23,7 +23,10 @@ import {
   TriangleAlert,
 } from 'lucide-react'
 import {
+  formatDate,
+  JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS,
   jobQueueTeamTriageGrantRequestSchema,
+  type Locale,
   type JobQueueCardResponseDto,
   type JobQueueCardSeniorDto,
   type JobQueueSubmissionDto,
@@ -69,7 +72,13 @@ import {
   useSuppressJobQueueItem,
   type QueueScopeSignature,
 } from '@/hooks/use-job-queue'
-import { getApiErrorCode } from '@/lib/axios-utils'
+import {
+  getApiErrorCode,
+  parseApiErrorEnvelope,
+  translateApiError,
+  translateZodCode,
+} from '@/lib/axios-utils'
+import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { ownSubmission, ownTaken, submittedElsewhere } from './MatchedSeniors'
 
@@ -434,17 +443,19 @@ export function AdminVacancyMenu({
           }
         />
       )}
-      // a manual item (no source) has nothing a team could triage: the server refuses its grant (422)
-      more={card.eligibility === 'TRIAGE' && card.primarySource !== null ? [assign] : []}
+      // the server says whether its grant would accept the item (no manual card, not EXCLUDED, no
+      // live LEAD of any studio senior), from the grant's own check: no grant it refuses is offered
+      more={card.eligibility === 'TRIAGE' && card.triageGrantable === true ? [assign] : []}
     />
   )
 }
 
-/** Master A1: no server source of policy versions exists, and real ones start at 1, so 0 stamps the grant «unversioned». */
-const UNVERSIONED_POLICY = 0
 /** Coder A1: a grant lasts the queue's own 14-day freshness window by default; the actor may change it. */
 const GRANT_DAYS = 14
 const DAY = 'yyyy-MM-dd'
+const DAY_MS = 86_400_000
+/** CR-L-1: a browser clock this far ahead of the server still lands inside the server's ceiling. */
+const CLOCK_SKEW_MS = 5 * 60_000
 const GRANT_DRAFT = jobQueueTeamTriageGrantRequestSchema.omit({ idempotencyKey: true })
 const REASON_MAX = jobQueueTeamTriageGrantRequestSchema.shape.reason.maxLength ?? undefined
 
@@ -461,25 +472,83 @@ function TriageGrantDialog({
   card,
 }: MenuDialogProps & { scope: QueueScopeSignature; card: JobQueueCardResponseDto }) {
   const grant = useGrantJobQueueTeamTriage(scope)
+  // QA-MED-1: a refusal's refetch can drop the item, and this dialog with it, while it is open;
+  // the refusal it was showing then goes to a toast, so it is never lost
+  const shown = useRef<string | null>(null)
+  useEffect(
+    () => () => {
+      if (shown.current !== null) toast.error(shown.current, JOB_QUEUE_TOAST)
+    },
+    // Stryker disable next-line ArrayDeclaration: any constant dependency list runs the cleanup on unmount only
+    [],
+  )
+  // no trigger opens this dialog, so every change Radix reports is a close: a refusal was seen
+  const close = () => {
+    shown.current = null
+    onOpenChange(false)
+  }
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
+    <AlertDialog open={open} onOpenChange={close}>
       <AdminDialogContent trigger={trigger}>
-        <TriageGrantForm card={card} grant={grant} onGranted={() => onOpenChange(false)} />
+        <TriageGrantForm
+          card={card}
+          grant={grant}
+          onGranted={close}
+          onRefused={(text) => (shown.current = text)}
+        />
       </AdminDialogContent>
     </AlertDialog>
   )
+}
+
+/** The live grant's expiry as a local calendar day (QA-MED-2): uk 05.03.2026, en 05/03/2026. */
+// Stryker disable next-line StringLiteral: `shortYYYY` spells out the 2-digit day and month and the numeric year Intl's uk-UA and en-GB defaults already give, and an unknown style reaches Intl.DateTimeFormat as those same defaults, so "" renders identical text; format.spec.ts pins shortYYYY to the local day under Kyiv and Los Angeles
+const EXPIRY_STYLE = 'shortYYYY'
+
+/** A 400 whose field issues include the 90-day ceiling (`ZodExceptionFilter`'s `errors[]`). */
+function beyondCeiling(error: unknown): boolean {
+  const errors = (error as { response?: { data?: { errors?: unknown } } } | null)?.response?.data
+    ?.errors
+  return (
+    Array.isArray(errors) &&
+    errors.some(
+      (issue: unknown) =>
+        (issue as { code?: unknown } | null)?.code === 'TRIAGE_EXPIRY_BEYOND_CEILING',
+    )
+  )
+}
+
+/**
+ * The text of a grant refusal the server explains (backlog 426), or `null` for any other answer: a
+ * second grant names the live grant's expiry, an item no longer on triage says the card has
+ * moved on, an expiry past the 90-day ceiling asks for an earlier day (CR-L-1).
+ */
+export function grantRefusal(error: unknown, locale: Locale): string | null {
+  if (beyondCeiling(error)) return translateZodCode('TRIAGE_EXPIRY_BEYOND_CEILING')
+  const envelope = parseApiErrorEnvelope(error)
+  if (envelope?.code === 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE')
+    return translateApiError(envelope.code, undefined)
+  if (envelope?.code !== 'JOB_QUEUE_TRIAGE_ALREADY_GRANTED') return null
+  const expiresAt = envelope.params?.['expiresAt']
+  // the grant ends at the end of a local day, so the local calendar day is the one the ADMIN chose
+  const until = typeof expiresAt === 'string' ? formatDate(expiresAt, locale, EXPIRY_STYLE) : '—'
+  return translateApiError(envelope.code, { expiresAt: until })
 }
 
 function TriageGrantForm({
   card,
   grant,
   onGranted,
+  onRefused,
 }: {
   card: JobQueueCardResponseDto
   grant: ReturnType<typeof useGrantJobQueueTeamTriage>
   onGranted: () => void
+  /** The refusal text now shown in the dialog, or `null` once it is cleared. */
+  onRefused: (text: string | null) => void
 }) {
   const { t } = useLingui()
+  const locale = useLocale()
   const teams = useQuery(TEAMS_QUERY)
   const teamField = useId()
   const reasonField = useId()
@@ -489,8 +558,9 @@ function TriageGrantForm({
   const [teamId, setTeamId] = useState('')
   const [reason, setReason] = useState('')
   const [until, setUntil] = useState(() => format(addDays(new Date(), GRANT_DAYS), DAY))
-  // a conflict refreshes the card (the hook invalidates the queue), so the retry sends its revision
-  const [note, setNote] = useState<'conflict' | 'failed' | null>(null)
+  // a conflict refreshes the card (the hook invalidates the queue), so the retry sends its revision;
+  // a refusal the server explains (already granted, no longer triage) shows its own text
+  const [note, setNote] = useState<'conflict' | 'failed' | { refused: string } | null>(null)
   const pending = grant.isPending
   // the server grants triage to a live SENIOR team only (a DROP team is refused with 422)
   const offered = teams.data?.filter((team) => team.type === 'SENIOR')
@@ -501,9 +571,16 @@ function TriageGrantForm({
   const draft = GRANT_DRAFT.safeParse({
     teamId: chosen?.id,
     expectedOpportunityRevision: card.revision,
-    policyVersion: UNVERSIONED_POLICY,
+    policyVersion: card.triagePolicyVersion,
     reason,
-    expiresAt: endOfDay(parseISO(until)).toISOString(),
+    // the server's ceiling is a duration, so a DST shift cannot push the last day past it; the
+    // margin covers a browser clock that runs ahead of the server's (CR-L-1)
+    expiresAt: new Date(
+      Math.min(
+        endOfDay(parseISO(until)).getTime(),
+        Date.now() + JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS * DAY_MS - CLOCK_SKEW_MS,
+      ),
+    ).toISOString(),
   })
   const incomplete = !draft.success && !none
 
@@ -511,6 +588,7 @@ function TriageGrantForm({
     // named now: the list may change before the answer, and the toast names what was sent
     const team = chosen!.name
     setNote(null)
+    onRefused(null)
     grant.mutate(
       { ...draft.data!, opportunityId: card.opportunityId },
       {
@@ -519,7 +597,10 @@ function TriageGrantForm({
           onGranted()
         },
         onError: (error) => {
-          if (isQueueConflict(error)) setNote('conflict')
+          const refused = grantRefusal(error, locale)
+          onRefused(refused)
+          if (refused !== null) setNote({ refused })
+          else if (isQueueConflict(error)) setNote('conflict')
           else if (!isAccessLoss(error)) setNote('failed')
         },
       },
@@ -604,10 +685,18 @@ function TriageGrantForm({
             value={until}
             onChange={setUntil}
             minDate={format(new Date(), DAY)}
+            // the last whole day that ends inside the server's ceiling
+            maxDate={format(addDays(new Date(), JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS - 1), DAY)}
             className="min-h-11 sm:min-h-9"
           />
         </div>
         {note === 'conflict' && <ConflictNote />}
+        {typeof note === 'object' && note !== null && (
+          <div role="alert" data-testid="job-queue-grant-refused" className={BLOCKING}>
+            <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
+            <p className="text-pretty">{note.refused}</p>
+          </div>
+        )}
         {note === 'failed' && (
           <div role="alert" className={BLOCKING}>
             <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />

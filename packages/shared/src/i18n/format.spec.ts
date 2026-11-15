@@ -166,6 +166,13 @@ describe('format', () => {
   it("the shortYY style (instants) keeps the reader's local day", () => {
     expect(formatDate(new Date(2026, 6, 31, 12, 0), 'en', 'shortYY')).toBe('31/07/26')
   })
+  it("the shortYYYY style (instants) keeps the reader's local day, with a four-digit year", () => {
+    // the last minute of a local day stays that day in every host timezone
+    expect(formatDate(new Date(2026, 10, 25, 23, 59, 59, 999), 'en', 'shortYYYY')).toBe(
+      '25/11/2026',
+    )
+    expect(formatDate(new Date(2026, 2, 5, 0, 0), 'uk', 'shortYYYY')).toBe('05.03.2026')
+  })
   it('formatMonthLabel falls back to an em dash for missing input, and to the raw key when unparseable', () => {
     expect(formatMonthLabel(null, 'uk')).toBe('—')
     expect(formatMonthLabel(undefined, 'uk')).toBe('—')
