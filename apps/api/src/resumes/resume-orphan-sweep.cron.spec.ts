@@ -324,6 +324,20 @@ describe('ResumeOrphanSweepCron', () => {
     expect(await cron.sweep(NOW)).toMatchObject({ complete: true })
   })
 
+  it('the scheduler handler ignores what cron passes and sweeps with the current time', async () => {
+    vi.useFakeTimers({ now: NOW })
+    try {
+      bucket.objects.set('senior-resumes/u/young', new Date(NOW.getTime() - HOUR))
+      bucket.objects.set('senior-resumes/u/old', OLD)
+      const cron = make()
+      // What `cron` hands `onTick`: its onComplete callback.
+      await (cron.handleSweep as (...args: unknown[]) => Promise<void>).call(cron, () => undefined)
+      expect(bucket.deleteOrThrow.mock.calls).toEqual([['senior-resumes/u/old']])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('defaults "now" to the current time', async () => {
     vi.useFakeTimers({ now: NOW })
     try {

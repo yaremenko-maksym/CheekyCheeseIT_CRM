@@ -147,6 +147,8 @@ describe.skipIf(!hasDatabaseUrl())('ResumeOrphanSweepCron — real DB (backlog 4
     expect(second).not.toBe(first)
     expect(bucket.delete).toHaveBeenCalledWith(first)
     expect(bucket.objects.has(first)).toBe(true)
+    // Only the two sources were stored: no detached render added a key to the bucket.
+    expect(bucket.upload.mock.calls.map(([key]) => key)).toEqual([first, second])
 
     // A current PDF, a staged PDF and the staged result a run may restore, on the same row.
     const [row] = await dbSvc.db

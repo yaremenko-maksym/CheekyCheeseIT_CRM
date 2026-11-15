@@ -56,8 +56,16 @@ export class ResumeOrphanSweepCron {
     private readonly s3: S3Service,
   ) {}
 
-  /** Never throws: every failure is caught and logged inside, so the scheduler keeps running. */
+  /**
+   * The scheduler entry point. Zero-argument on purpose: `cron` calls `onTick(onComplete)` and
+   * `@nestjs/schedule` forwards it, so `sweep` decorated directly would get that as its `now`.
+   */
   @Cron('45 5 * * *')
+  async handleSweep(): Promise<void> {
+    await this.sweep()
+  }
+
+  /** Never throws: every failure is caught and logged inside, so the scheduler keeps running. */
   async sweep(now: Date = new Date()): Promise<OrphanSweepResult | null> {
     if (this.running) {
       this.logger.log('Resume orphan sweep skipped: a run is already in progress')
