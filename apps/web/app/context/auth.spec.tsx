@@ -363,6 +363,22 @@ describe('AuthProvider — locale activation from /auth/me', () => {
     expect(activateLocale).toHaveBeenLastCalledWith('en')
   })
 
+  it('still waits for a different session locale of the same user after a failed one', async () => {
+    vi.mocked(activateLocale).mockRejectedValueOnce(new Error('chunk load failed'))
+    queryResult = { data: { ...mockUser, locale: 'en' }, isPending: false, isFetching: false }
+    const { result, rerender } = renderHook(() => useAuth(), { wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    // The user switched to `en` by other means, and the session now says `uk`
+    vi.mocked(activateLocale).mockReturnValueOnce(new Promise<void>(() => {}))
+    i18n.load('en', {})
+    i18n.activate('en')
+    queryResult = { data: { ...mockUser, locale: 'uk' }, isPending: false, isFetching: false }
+    rerender()
+
+    expect(result.current.isLoading).toBe(true)
+  })
+
   describe('a catalog load that never settles (PR #1343 SR-L-1)', () => {
     beforeEach(() => {
       vi.useFakeTimers()
@@ -392,6 +408,38 @@ describe('AuthProvider — locale activation from /auth/me', () => {
         'Session locale en failed to activate: timed out after 10000 ms',
         { stack: expect.any(String) },
       )
+    })
+
+    it('reports once when the activation rejects after the timeout already released the wait', async () => {
+      let reject: (reason: unknown) => void = () => {}
+      vi.mocked(activateLocale).mockReturnValueOnce(
+        new Promise<void>((_, rejectLate) => {
+          reject = rejectLate
+        }),
+      )
+      queryResult = { data: { ...mockUser, locale: 'en' }, isPending: false, isFetching: false }
+      renderHook(() => useAuth(), { wrapper })
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+      await act(async () => {
+        reject(new Error('chunk load failed'))
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(reportClientError).toHaveBeenCalledTimes(1)
+    })
+
+    it('reports no timeout for an attempt whose provider unmounted (the success remount)', async () => {
+      vi.mocked(activateLocale).mockReturnValueOnce(new Promise<void>(() => {}))
+      queryResult = { data: { ...mockUser, locale: 'en' }, isPending: false, isFetching: false }
+      const { unmount } = renderHook(() => useAuth(), { wrapper })
+
+      unmount()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+      expect(reportClientError).not.toHaveBeenCalled()
     })
 
     it('does not report a timeout for an activation that settled in time', async () => {

@@ -289,9 +289,7 @@ export function AuthProvider({ children, skip }: { children: ReactNode; skip?: b
       LOCALE_ACTIVATION_TIMEOUT_MS,
     )
     activateLocale(locale)
-      .then(() => {
-        settled = true
-      }, release)
+      .catch(release)
       .finally(() => clearTimeout(timer))
     // a success remounts this provider: no timeout may fire for an attempt that is gone
     return () => clearTimeout(timer)

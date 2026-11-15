@@ -122,9 +122,7 @@ describe('first login — the server locale applies without destroying user stat
     // Only an activation changes the `<Fragment key>`, and the effect that would start a second one
     // has already run with the commit that showed the input: one call means no remount is coming.
     expect(activateLocale).toHaveBeenCalledTimes(1)
-    await waitFor(() =>
-      expect(screen.getByTestId<HTMLInputElement>('probe-input').value).toBe('typed by the user'),
-    )
+    expect(screen.getByTestId<HTMLInputElement>('probe-input').value).toBe('typed by the user')
     expect(interactiveMounts).toBe(1)
   })
 
