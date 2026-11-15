@@ -8606,6 +8606,7 @@ msgid "Спочатку більші"
 msgstr "Спочатку більші"
 
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Не вдалося призначити вакансію команді. Спробуйте ще раз."
 msgstr "Не вдалося призначити вакансію команді. Спробуйте ще раз."
 

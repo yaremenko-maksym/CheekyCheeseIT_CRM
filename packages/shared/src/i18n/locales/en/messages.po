@@ -8606,6 +8606,7 @@ msgid "Спочатку більші"
 msgstr "Largest first"
 
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Не вдалося призначити вакансію команді. Спробуйте ще раз."
 msgstr "Could not assign the vacancy to the team. Please try again."
 
