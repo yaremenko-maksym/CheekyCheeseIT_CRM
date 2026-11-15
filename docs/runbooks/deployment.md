@@ -1380,7 +1380,9 @@ commands are the owner's, through `ssh crm-vps`; SELECT only):
    row is there when the deploy runs, the build waits up to 5 min for it, then fails with
    `canceling statement due to lock timeout`, leaves the index INVALID and fails the deploy before the
    container swap (the old API keeps serving); end that transaction and re-run the deploy, whose sweep
-   drops the INVALID index and rebuilds it (next paragraph).
+   drops the INVALID index and rebuilds it (next paragraph). The waits of the three builds add up
+   within one deploy step (3 × 5 min = 15 min worst case), which is why the ssh-action step now pins an
+   explicit `command_timeout` covering the worst case.
 
    ```sql
    SELECT pid, state, now() - xact_start AS age FROM pg_stat_activity
