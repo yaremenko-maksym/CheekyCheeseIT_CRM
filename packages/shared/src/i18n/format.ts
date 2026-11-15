@@ -40,6 +40,7 @@ const INTL_TAG: Record<Locale, string> = { uk: 'uk-UA', en: 'en-GB' }
  * timestamp is a moment the reader checks against their own clock.
  *
  * PR #1337 (SPEC-L-1) — added 'dayMonth': day + short month, no year, UTC.
+ * QA-LOW-1 — added 'dayMonthYear': the date picker's field, in the reader's local day.
  */
 export function formatDate(
   value: Date | string,
@@ -54,7 +55,8 @@ export function formatDate(
     | 'shortYYUtc'
     | 'shortYYYY'
     | 'dateTimeWithYear'
-    | 'dayMonth' = 'short',
+    | 'dayMonth'
+    | 'dayMonthYear' = 'short',
 ): string {
   // `new Date(x)` accepts a `Date` exactly as well as a date string — a
   // Date passed through its own constructor keeps the same instant
@@ -72,7 +74,8 @@ export function formatDate(
     | 'shortYYUtc'
     | 'shortYYYY'
     | 'dateTimeWithYear'
-    | 'dayMonth',
+    | 'dayMonth'
+    | 'dayMonthYear',
     Intl.DateTimeFormatOptions
   > = {
     short: { timeZone: 'UTC' },
@@ -98,6 +101,9 @@ export function formatDate(
     // A date-only day with a short month and no year (1 лист. / 1 Nov): a senior's «Вільно з {d}»
     // (vacancy-queue design §5.2). UTC, so a stored bare day reads as written in every timezone.
     dayMonth: { day: 'numeric', month: 'short', timeZone: 'UTC' },
+    // The date picker's field (28 лист. 2026 р. / 28 Nov 2026), QA-LOW-1: the same short month as
+    // `dayMonth`. LOCAL, because the picker holds its day as a local midnight.
+    dayMonthYear: { day: '2-digit', month: 'short', year: 'numeric' },
   }
   return new Intl.DateTimeFormat(INTL_TAG[locale], STYLE_OPTS[style]).format(d)
 }

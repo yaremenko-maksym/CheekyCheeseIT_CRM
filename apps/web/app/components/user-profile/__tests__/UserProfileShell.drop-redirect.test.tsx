@@ -32,6 +32,16 @@ vi.mock('@/context/auth', () => ({
   useAuth: () => ({ user: viewerRole ? { id: 'viewer-1', role: viewerRole } : null }),
 }))
 
+// QA-1343-A: the shell reads the onboarding gate (it only gates the self profile); no QueryClient here
+vi.mock('@/context/onboarding', () => ({
+  useOnboardingGate: () => ({
+    isComplete: true,
+    isPending: false,
+    isError: false,
+    refetch: vi.fn(),
+  }),
+}))
+
 vi.mock('@/hooks/use-active-team', () => ({
   useActiveTeam: () => ({ isTeamless: false }),
 }))

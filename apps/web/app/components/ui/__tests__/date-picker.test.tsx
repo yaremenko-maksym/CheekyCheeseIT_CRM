@@ -274,3 +274,23 @@ describe('DatePickerField — calendar opens on the SELECTED month, not "today" 
     },
   )
 })
+
+// QA-LOW-1: the trigger shows the date the way every other date in the app does (`formatDate`),
+// so November is «лист.» here as in «Вільно з 28 лист.», never date-fns' «листоп.»
+describe('DatePickerField — the trigger reads like the rest of the app (QA-LOW-1)', () => {
+  it('uk: «28 лист. 2026 р.»', () => {
+    renderPicker({ value: '2026-11-28', onChange: vi.fn() })
+    expect(screen.getByRole('button')).toHaveTextContent(/^28 лист\. 2026 р\.$/)
+  })
+
+  it('en: «28 Nov 2026»', async () => {
+    await loadCatalog('en')
+    renderPicker({ value: '2026-11-28', onChange: vi.fn() })
+    expect(screen.getByRole('button')).toHaveTextContent(/^28 Nov 2026$/)
+  })
+
+  it('a single-digit day keeps two digits: «05 бер. 2026 р.»', () => {
+    renderPicker({ value: '2026-03-05', onChange: vi.fn() })
+    expect(screen.getByRole('button')).toHaveTextContent(/^05 бер\. 2026 р\.$/)
+  })
+})
