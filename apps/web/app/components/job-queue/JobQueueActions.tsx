@@ -487,12 +487,18 @@ function TriageGrantDialog({
     shown.current = null
     onOpenChange(false)
   }
+  // 1340-CR-L-r2-1: a closed dialog stays mounted through its exit animation, invisible already
+  const visible = useRef(open)
+  useEffect(() => {
+    visible.current = open
+  }, [open])
   return (
     <AlertDialog open={open} onOpenChange={close}>
       <AdminDialogContent trigger={trigger}>
         <TriageGrantForm
           card={card}
           grant={grant}
+          visible={visible}
           onGranted={close}
           onRefused={(text) => (shown.current = text)}
         />
@@ -538,11 +544,14 @@ export function grantRefusal(error: unknown, locale: Locale): string | null {
 function TriageGrantForm({
   card,
   grant,
+  visible,
   onGranted,
   onRefused,
 }: {
   card: JobQueueCardResponseDto
   grant: ReturnType<typeof useGrantJobQueueTeamTriage>
+  /** Whether the dialog is open, so seen; `false` while it plays its close animation. */
+  visible: RefObject<boolean>
   onGranted: () => void
   /** The refusal text now shown in the dialog, or `null` once it is cleared. */
   onRefused: (text: string | null) => void
@@ -562,7 +571,8 @@ function TriageGrantForm({
   // a refusal the server explains (already granted, no longer triage) shows its own text
   const [note, setNote] = useState<'conflict' | 'failed' | { refused: string } | null>(null)
   const pending = grant.isPending
-  // CR-M-2: React clears this ref when the form unmounts; an answer landing then toasts instead
+  // CR-M-2: React clears this ref when the form unmounts; an answer landing then (or while the
+  // closed dialog animates out) toasts instead
   const body = useRef<HTMLDivElement>(null)
   // the server grants triage to a live SENIOR team only (a DROP team is refused with 422)
   const offered = teams.data?.filter((team) => team.type === 'SENIOR')
@@ -600,7 +610,7 @@ function TriageGrantForm({
       },
       (error: unknown) => {
         const refused = grantRefusal(error, locale)
-        if (body.current === null) {
+        if (body.current === null || !visible.current) {
           if (refused !== null) toast.error(refused, JOB_QUEUE_TOAST)
           else if (!isQueueConflict(error) && !isAccessLoss(error))
             toast.error(
