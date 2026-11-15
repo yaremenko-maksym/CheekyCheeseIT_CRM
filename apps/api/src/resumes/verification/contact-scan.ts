@@ -8,6 +8,7 @@
  */
 import {
   findPhoneSpans,
+  normaliseContactText,
   normaliseTelegramHandle,
   RESUME_EMAIL_PATTERN,
   RESUME_TELEGRAM_LABEL_PATTERN,
@@ -154,16 +155,17 @@ function contactPatterns(ctx: ContactContext): [ContactHit['kind'], RegExp][] {
   ]
 }
 
-/** Every raw hit on the NFC text, sorted by start, longer first on a tie. */
-function findSpans(text: string, ctx: ContactContext): Span[] {
-  const plain = text.replace(APOSTROPHES, "'")
-  const spans: Span[] = []
+/** Every raw hit on the normalised text, mapped back to the original text offsets, sorted by start, longer first on a tie. */
+function findSpans(norm: ReturnType<typeof normaliseContactText>, ctx: ContactContext): Span[] {
+  const normText = norm.text
+  const plain = normText.replace(APOSTROPHES, "'")
+  const rawSpans: Span[] = []
   for (const [kind, pattern] of contactPatterns(ctx)) {
     for (const m of plain.matchAll(pattern)) {
       // The bare-URL and label patterns consume one boundary character in front; their group 1
       // is the hit.
       const end = m.index + m[0].length
-      spans.push({ kind, start: end - (m[1] ?? m[0]).length, end })
+      rawSpans.push({ kind, start: end - (m[1] ?? m[0]).length, end })
     }
   }
   // The email pattern consumes its boundary too, so an email glued to the next by a local-part
@@ -182,25 +184,32 @@ function findSpans(text: string, ctx: ContactContext): Span[] {
     // Stryker disable next-line ConditionalExpression,EqualityOperator,BlockStatement,StringLiteral: unreachable while the code-point step is right; it only fails the scan closed if a later edit breaks that step
     if (start <= previous) throw new Error('email scan did not advance')
     previous = start
-    spans.push({ kind: 'email', start, end })
+    rawSpans.push({ kind: 'email', start, end })
     email.lastIndex = start + ((plain.codePointAt(start) ?? 0) >= 0x10000 ? 2 : 1)
   }
-  for (const span of findPhoneSpans(plain)) spans.push({ kind: 'phone', ...span })
+  for (const span of findPhoneSpans(plain)) rawSpans.push({ kind: 'phone', ...span })
   const folded = foldAccents(plain)
   for (const pattern of namePatterns(ctx.fullName)) {
     for (const m of folded.text.matchAll(pattern)) {
       const start = folded.from[m.index] ?? 0
-      const end = folded.to[m.index + m[0].length - 1] ?? text.length
-      spans.push({ kind: 'name', start, end })
+      const end = folded.to[m.index + m[0].length - 1] ?? normText.length
+      rawSpans.push({ kind: 'name', start, end })
     }
   }
+  const spans: Span[] = rawSpans.map((s) => ({
+    kind: s.kind,
+    // Stryker disable next-line ConditionalExpression: fallback only if index is out of bounds
+    start: norm.from[s.start] ?? 0,
+    // Stryker disable next-line ConditionalExpression: fallback only if index is out of bounds
+    end: norm.to[s.end - 1] ?? normText.length,
+  }))
   return spans.sort((a, b) => a.start - b.start || b.end - a.end)
 }
 
 /**
  * Contacts in `text`, in text order. Of overlapping hits only the first-starting
- * (longest on a tie) is reported. Both sides are NFC-normalised, so `match` is
- * the NFC form of the substring as written.
+ * (longest on a tie) is reported. Both sides are normalised, so `match` is
+ * the original substring as written.
  *
  * Contract (both functions): call on each raw string field BEFORE
  * `JSON.stringify`, never on serialized JSON; that also keeps every input small.
@@ -210,19 +219,22 @@ function findSpans(text: string, ctx: ContactContext): Span[] {
  * not hit Latin text, so the caller passes the name in the text's script.
  */
 export function scanContacts(text: string, ctx: ContactContext): ContactHit[] {
-  const nfc = text.normalize('NFC')
+  const norm = normaliseContactText(text)
   const hits: ContactHit[] = []
   let reachedEnd = 0
-  for (const span of findSpans(nfc, ctx)) {
+  for (const span of findSpans(norm, ctx)) {
     if (span.start < reachedEnd) continue
-    hits.push({ kind: span.kind, match: nfc.slice(span.start, span.end) })
+    hits.push({
+      kind: span.kind,
+      match: text.slice(span.start, span.end).normalize('NFC'),
+    })
     reachedEnd = span.end
   }
   return hits
 }
 
 /**
- * `text` (NFC) with every contact replaced by `[REDACTED]`. Overlapping and
+ * `text` with every contact replaced by `[REDACTED]`. Overlapping and
  * adjacent hits merge into one replacement, so the result is a fixed point:
  * redacting it again, or scanning it, finds nothing. Same contract as
  * `scanContacts`: one raw field at a time, before serialization.
@@ -231,12 +243,12 @@ export function redactContacts(
   text: string,
   ctx: ContactContext | readonly ContactContext[],
 ): string {
-  const nfc = text.normalize('NFC')
+  const norm = normaliseContactText(text)
   const merged: { start: number; end: number }[] = []
   // Several contexts (display and legal name) merge their spans before any replacement: redacting one
   // context's surname first would break the other's full-name match and leak its first names.
   const spans = scanContexts(ctx)
-    .flatMap((c) => findSpans(nfc, c))
+    .flatMap((c) => findSpans(norm, c))
     // by start only: the merge below keeps the furthest end, so a tie needs no order
     .sort((a, b) => a.start - b.start)
   for (const { start, end } of spans) {
@@ -244,11 +256,12 @@ export function redactContacts(
     if (last && start <= last.end) last.end = Math.max(last.end, end)
     else merged.push({ start, end })
   }
+  if (merged.length === 0) return text.normalize('NFC')
   let result = ''
   let cursor = 0
   for (const { start, end } of merged) {
-    result += `${nfc.slice(cursor, start)}[REDACTED]`
+    result += `${text.slice(cursor, start)}[REDACTED]`
     cursor = end
   }
-  return result + nfc.slice(cursor)
+  return result + text.slice(cursor)
 }

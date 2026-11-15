@@ -60,16 +60,35 @@ const FULL_DATE = String.raw`(?:(?:19|20)\d\d[-./](?:0[1-9]|1[0-2])[-./](?:0[1-9
 const DATES_ONLY = new RegExp(String.raw`^${FULL_DATE}(?:[\s().·‐‑‒–—―−-]+${FULL_DATE})*$`)
 
 /**
+ * A phone candidate made only of 4-digit years in 1950..2099 joined by separators
+ * (`2019 · 2020 · 2021`, `1999—2003—2007`).
+ */
+function isYearsOnly(match: string): boolean {
+  if (match.includes('+')) return false
+  const digits = match.match(/\d+/gu)
+  return (
+    // Stryker disable next-line ConditionalExpression: digits is non-null because RESUME_PHONE_PATTERN requires 9+ digits
+    digits !== null &&
+    digits.every((group) => {
+      const year = Number(group)
+      return group.length === 4 && year >= 1950 && year <= 2099
+    })
+  )
+}
+
+/**
  * Every phone in `text` as `[start, end)` offsets: `RESUME_PHONE_PATTERN` runs,
- * minus runs that are only full dates. The one rule both the completeness check
- * and the API contact scan use. A bare ten-digit run stays a phone: a UA mobile
- * `0671234567` has that shape, and a missed phone is a leak.
+ * minus runs that are only full dates or year lists. The one rule both the
+ * completeness check and the API contact scan use. A bare ten-digit run stays
+ * a phone: a UA mobile `0671234567` has that shape, and a missed phone is a leak.
  */
 export function findPhoneSpans(text: string): Array<{ start: number; end: number }> {
   const spans: Array<{ start: number; end: number }> = []
   // A fresh global copy per call, so the exported pattern stays stateless.
   for (const m of text.matchAll(new RegExp(RESUME_PHONE_PATTERN.source, 'gu'))) {
-    if (!DATES_ONLY.test(m[0])) spans.push({ start: m.index, end: m.index + m[0].length })
+    if (!DATES_ONLY.test(m[0]) && !isYearsOnly(m[0])) {
+      spans.push({ start: m.index, end: m.index + m[0].length })
+    }
   }
   return spans
 }
@@ -99,9 +118,6 @@ export const RESUME_EMAIL_PATTERN =
  * (scheme 31, labels 63 × 20), so the scan stays linear. Stateless (no `g`), like the phone pattern.
  * shortcut: a bare domain with no path (`johndoe.dev`, `github.com`) is not a URL, because
  * `Socket.io` is a skill; upgrade to a domain allow-list if such leaks show up.
- * shortcut: zero-width (U+200B) or fullwidth (`／`, `：`) characters inside a scheme or label are
- * not normalised, so they split a URL; upgrade to an NFKC + `\p{Cf}`-strip pass with offset mapping
- * (backlog).
  */
 export const RESUME_URL_PATTERN =
   /\b(?:[A-Za-z][\w+.-]{0,30}:\/\/\S+|[Ww]{3}\.\S+)|(?:^|[^\p{L}\p{M}\p{N}-])((?:[\p{L}\p{M}\p{N}-]{1,63}\.){1,20}(?![Jj][Ss]\/|[Tt][Ss]\/)(?:[Xx][Nn]--[\p{L}\p{M}\p{N}-]{1,59}|[\p{L}\p{M}]{2,24})(?::\d{1,5})?\/\S*)/u
@@ -195,6 +211,30 @@ const normaliseName = (text: string): string =>
   text.normalize('NFC').replace(/[\u2019\u02BC]/g, "'")
 
 /**
+ * Normalise text for contact scanning: NFKC, then strip format characters (`\p{Cf}`:
+ * zero-width spaces, word joiners, etc.), maintaining offset maps (`from` and `to`)
+ * back to the original string.
+ */
+export function normaliseContactText(text: string): {
+  text: string
+  from: number[]
+  to: number[]
+} {
+  let normalised = ''
+  const from: number[] = []
+  const to: number[] = []
+  for (const { 0: cluster, index } of text.matchAll(/(?:\P{M}|\p{M})\p{M}*/gu)) {
+    const piece = cluster.normalize('NFKC').replace(/\p{Cf}/gu, '')
+    normalised += piece
+    for (let k = 0; k < piece.length; k++) {
+      from.push(index)
+      to.push(index + cluster.length)
+    }
+  }
+  return { text: normalised, from, to }
+}
+
+/**
  * Phone, email, the senior's Telegram handle (whole token, with or without its
  * `@`, any case), or the senior's full name, whole words, any case or spacing:
  * every token of the display name in order, or its first and last token in
@@ -224,8 +264,8 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
   // skill word flags that word too: availability, not a leak.
   const handleTest = !handle ? null : new RegExp(`(?:^|\\W)@*${escapeRegExp(handle)}(?:$|\\W)`, 'i')
   return (raw) => {
-    // NFC, as the API contact scan redacts: a decomposed contact is flagged exactly when it is redacted.
-    const text = raw.normalize('NFC')
+    // NFKC with \p{Cf} stripped, as the API contact scan matches.
+    const { text } = normaliseContactText(raw)
     return (
       findPhoneSpans(text).length > 0 ||
       RESUME_EMAIL_PATTERN.test(text) ||
