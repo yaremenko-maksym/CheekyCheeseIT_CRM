@@ -53,6 +53,7 @@ class FakeBucket {
   readonly deleteOrThrow = vi.fn(async (key: string) => {
     this.objects.delete(key)
   })
+  readonly headLastModified = vi.fn(async (key: string) => this.objects.get(key) ?? null)
   readonly listObjects = vi.fn(async (_token: string | undefined, prefix: string) => ({
     objects: [...this.objects]
       .filter(([key]) => key.startsWith(prefix))

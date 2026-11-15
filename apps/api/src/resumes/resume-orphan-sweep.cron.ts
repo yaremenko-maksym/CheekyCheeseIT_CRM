@@ -10,6 +10,10 @@
  *     `source_s3_key`, `pdf_s3_key`, `staged_pdf_s3_key`, `staged_previous->'pdfKey'`;
  *   - its `LastModified` is older than ORPHAN_GRACE_MS, so an upload whose row write has not
  *     landed yet is never taken. An object listed without a `LastModified` is kept.
+ *     The age is read twice: from the listing, then by a HEAD right before the delete. A render
+ *     re-uploads a fingerprinted key before it writes `pdf_s3_key`, so an old orphan's key can
+ *     turn live after its page was listed; the HEAD sees the fresh date and keeps it. A key gone
+ *     by the HEAD is skipped; a failed HEAD counts as a failed delete.
  *
  * The referenced set is reloaded for every listing page, AFTER that page is listed: a render
  * re-uploads a deterministic key, so a snapshot taken at the start of the run could be stale by
@@ -124,6 +128,14 @@ export class ResumeOrphanSweepCron {
             return r
           }
           try {
+            // Re-check the age: a render may have re-uploaded this key since the page was listed,
+            // and its row write may land after `referencedKeys()` read the table.
+            const modified = await this.s3.headLastModified(key)
+            if (modified === null) continue // gone already: nothing to delete
+            if (modified.getTime() >= cutoff) {
+              r.young += 1
+              continue
+            }
             await this.s3.deleteOrThrow(key)
             r.deleted += 1
           } catch (err: unknown) {
@@ -145,7 +157,7 @@ export class ResumeOrphanSweepCron {
   }
 
   /** Every key any row can still reach. One row per user, so the whole table is small. */
-  private async referencedKeys(): Promise<Set<unknown>> {
+  private async referencedKeys(): Promise<Set<string>> {
     const rows = await this.db.db
       .select({
         source: seniorResumes.sourceS3Key,
@@ -154,12 +166,13 @@ export class ResumeOrphanSweepCron {
         previous: seniorResumes.stagedPrevious,
       })
       .from(seniorResumes)
-    // Nulls and non-string values land in the set too; no listed key can equal them.
-    const keys = new Set<unknown>()
+    const keys = new Set<string>()
     for (const row of rows) {
-      keys.add(row.source).add(row.pdf).add(row.staged)
       // `staged_previous` is the staged result a running staged-edit or item run may restore.
-      keys.add((row.previous as { pdfKey?: unknown } | null)?.pdfKey)
+      const previous = (row.previous as { pdfKey?: unknown } | null)?.pdfKey
+      for (const key of [row.source, row.pdf, row.staged, previous]) {
+        if (typeof key === 'string') keys.add(key)
+      }
     }
     return keys
   }

@@ -52,6 +52,9 @@ class FakeBucket {
     this.objects.delete(key)
   })
 
+  /** The age re-check right before a delete: the current date, or null once the object is gone. */
+  readonly headLastModified = vi.fn(async (key: string) => this.objects.get(key) ?? null)
+
   /** The swallowing delete must never be the one the sweep uses. */
   readonly delete = vi.fn()
 }
@@ -234,6 +237,87 @@ describe('ResumeOrphanSweepCron', () => {
     expect(warn).toHaveBeenCalledTimes(1)
     expect(warn).toHaveBeenCalledWith(
       'Resume orphan sweep stopped: stage=references reason="connection terminated" deleted=0 failed=0',
+    )
+  })
+
+  it('a key the listing saw as old but a render re-uploaded since is not deleted', async () => {
+    bucket.objects.set('senior-resumes/u/rerendered', OLD)
+    bucket.objects.set('senior-resumes/u/orphan', OLD)
+    // The render re-uploads the fingerprinted key after the page was listed.
+    bucket.listObjects.mockImplementationOnce(async () => {
+      const objects = [...bucket.objects.keys()].map((key) => ({
+        key,
+        sizeBytes: 1,
+        lastModified: OLD,
+      }))
+      bucket.objects.set('senior-resumes/u/rerendered', new Date(NOW.getTime() - HOUR))
+      return { objects, nextContinuationToken: undefined }
+    })
+    const result = await make().sweep(NOW)
+    expect(bucket.headLastModified.mock.calls).toEqual([
+      ['senior-resumes/u/rerendered'],
+      ['senior-resumes/u/orphan'],
+    ])
+    expect(bucket.deleteOrThrow.mock.calls).toEqual([['senior-resumes/u/orphan']])
+    expect(result).toMatchObject({ deleted: 1, failed: 0, young: 1, complete: true })
+  })
+
+  it('the re-check keeps an object exactly 24 h old and deletes one a millisecond older', async () => {
+    bucket.objects.set('senior-resumes/u/a', OLD)
+    bucket.objects.set('senior-resumes/u/b', OLD)
+    const edge = NOW.getTime() - ORPHAN_GRACE_MS
+    bucket.headLastModified
+      .mockResolvedValueOnce(new Date(edge))
+      .mockResolvedValueOnce(new Date(edge - 1))
+    const result = await make().sweep(NOW)
+    expect(bucket.deleteOrThrow.mock.calls).toEqual([['senior-resumes/u/b']])
+    expect(result).toMatchObject({ deleted: 1, young: 1 })
+  })
+
+  it('an object gone by the re-check is skipped: no delete, not failed, no warning', async () => {
+    bucket.objects.set('senior-resumes/u/gone', OLD)
+    bucket.headLastModified.mockResolvedValueOnce(null)
+    const result = await make().sweep(NOW)
+    expect(bucket.deleteOrThrow).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ deleted: 0, failed: 0, young: 0, complete: true })
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('a failed re-check counts as failed, is logged by key, and the next key is still processed', async () => {
+    bucket.objects.set('senior-resumes/u/a', OLD)
+    bucket.objects.set('senior-resumes/u/b', OLD)
+    bucket.headLastModified.mockRejectedValueOnce(new Error('HeadObject timed out'))
+    const result = await make().sweep(NOW)
+    expect(bucket.deleteOrThrow.mock.calls).toEqual([['senior-resumes/u/b']])
+    expect(result).toMatchObject({ deleted: 1, failed: 1, complete: true })
+    expect(warn).toHaveBeenCalledWith(
+      'Resume orphan not deleted: key=senior-resumes/u/a reason="HeadObject timed out"',
+    )
+  })
+
+  it('the referenced set holds only the string keys rows point at', async () => {
+    rows = [
+      {
+        source_s3_key: 'senior-resumes/u/s',
+        pdf_s3_key: null,
+        staged_pdf_s3_key: 'senior-resumes/u/st',
+        staged_previous: { pdfKey: 7 },
+      },
+      {
+        source_s3_key: null,
+        pdf_s3_key: 'senior-resumes/u/p',
+        staged_pdf_s3_key: null,
+        staged_previous: { pdfKey: 'senior-resumes/u/prev' },
+      },
+    ]
+    const cron = make() as unknown as { referencedKeys(): Promise<Set<string>> }
+    expect(await cron.referencedKeys()).toEqual(
+      new Set([
+        'senior-resumes/u/s',
+        'senior-resumes/u/st',
+        'senior-resumes/u/p',
+        'senior-resumes/u/prev',
+      ]),
     )
   })
 
