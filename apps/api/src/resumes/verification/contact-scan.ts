@@ -7,7 +7,11 @@
  * senior's own. Pure: no I/O, no Nest providers.
  */
 import {
+  CONTACT_APOSTROPHES,
+  CONTACT_NAME_GAP,
   findPhoneSpans,
+  findWholeTokens,
+  foldAccents,
   normaliseContactText,
   normaliseTelegramHandle,
   RESUME_EMAIL_PATTERN,
@@ -46,100 +50,41 @@ interface Span {
   end: number
 }
 
-/** Token characters, as in the ATS checker and `mentionsSkill`: `Levin` is not in `Levine` or `Levin#`. */
-const TOKEN_CHAR = '[\\p{L}\\p{N}#+]'
-
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
 }
 
-/** A JSON-style escape (`\n`, `\t`, a `\u` code): its final letter or digit is not part of a name. */
-const ESCAPE = String.raw`\\(?:[bfnrt]|u[\dA-Fa-f]{4})`
-/** Whitespace between name parts, raw or escaped. */
-const NAME_GAP = String.raw`(?:\s|\\[nrt])+`
-
-/** Curly apostrophes read as `'`, one code unit for one, so offsets stay valid. */
-const APOSTROPHES = /[’ʼ‘]/gu
-
-function wholeToken(source: string): RegExp {
-  return new RegExp(`(?:(?<!${TOKEN_CHAR})|(?<=${ESCAPE}))${source}(?!${TOKEN_CHAR})`, 'giu')
-}
-
 /**
- * Letters NFD does not decompose and `/iu` does not case-fold to the mapped form
- * (`/ss/iu` misses `ẞ`), folded by hand; `ß` becomes two code units.
+ * The full name (any whitespace between parts) and the surname alone, never the first name, as
+ * `findWholeTokens` sources; accent-folded, so they run on `foldAccents` text.
  */
-const UNDECOMPOSED: Record<string, string> = {
-  ł: 'l',
-  Ł: 'L',
-  ø: 'o',
-  Ø: 'O',
-  đ: 'd',
-  Đ: 'D',
-  ß: 'ss',
-  ẞ: 'SS',
-  ı: 'i',
-  æ: 'ae',
-  Æ: 'AE',
-  œ: 'oe',
-  Œ: 'OE',
-  þ: 'th',
-  Þ: 'TH',
-  ħ: 'h',
-  Ħ: 'H',
-}
-
-/**
- * `text` without accents (NFD, marks dropped, plus `UNDECOMPOSED`), and for each
- * of its code units the span of the NFC character, marks included, it came from.
- */
-function foldAccents(text: string): { text: string; from: number[]; to: number[] } {
-  let folded = ''
-  const from: number[] = []
-  const to: number[] = []
-  for (const { 0: cluster, index } of text.matchAll(/\P{M}\p{M}*/gu)) {
-    // A cluster is one base letter plus marks, so after the marks go it is one key.
-    const base = cluster.normalize('NFD').replace(/\p{M}/gu, '')
-    const piece = UNDECOMPOSED[base] ?? base
-    folded += piece
-    for (let k = 0; k < piece.length; k++) {
-      from.push(index)
-      to.push(index + cluster.length)
-    }
-  }
-  return { text: folded, from, to }
-}
-
-/**
- * The full name (any whitespace between parts) and the surname alone, never
- * the first name; accent-folded, so they run on `foldAccents` text.
- */
-function namePatterns(fullName: string): RegExp[] {
+function nameSources(fullName: string): string[] {
   // Normalised like the text, so a name with a ligature, a ZWNJ or fullwidth letters matches itself.
-  const name = foldAccents(normaliseContactText(fullName).text.replace(APOSTROPHES, "'")).text
+  const name = foldAccents(
+    normaliseContactText(fullName).text.replace(CONTACT_APOSTROPHES, "'"),
+  ).text
   const parts = name.trim().split(/\s+/u)
   const surname = parts.at(-1) ?? ''
-  const sources = [parts.map(escapeRegExp).join(NAME_GAP)]
+  const sources = [parts.map(escapeRegExp).join(CONTACT_NAME_GAP)]
   if (surname.replace(/\P{L}/gu, '').length >= 2) sources.push(escapeRegExp(surname))
   // a blank name leaves an empty source, which would match everywhere
-  return sources.filter(Boolean).map(wholeToken)
+  return sources.filter(Boolean)
 }
 
 /**
- * The handle as a whole token, with any `@`s in front, any case: `ivan_dev` is not in
- * `ivan_dev2` or `xivan_dev`, but `@@ivan_dev` and `x@ivan_dev` hit. A Telegram username is
- * `[A-Za-z0-9_]`, so `\w` is its boundary. A handle equal to a skill word redacts that word too:
- * availability, not a leak.
+ * The handle as a `findWholeTokens` source, with any `@`s in front: `ivan_dev` is not in
+ * `ivan_dev2` or `xivan_dev`, but `@@ivan_dev` and `x@ivan_dev` hit. A handle equal to a skill
+ * word redacts that word too: availability, not a leak.
  */
-function telegramPattern(telegram: string | null | undefined): RegExp | null {
+function telegramSource(telegram: string | null | undefined): string | null {
   const handle = normaliseTelegramHandle(telegram && normaliseContactText(telegram).text)
-  return !handle ? null : new RegExp(`(?<!\\w)@*${escapeRegExp(handle)}(?!\\w)`, 'giu')
+  return !handle ? null : `@*${escapeRegExp(handle)}`
 }
 
 /**
- * URL, labelled-handle, literal-email and Telegram patterns; generic emails and phones are
- * scanned in `findSpans`. The generic ones are shared with completeness, so a contact it flags is
- * one this redacts.
+ * URL, labelled-handle and literal-email patterns; generic emails, phones, names and the stored
+ * handle are scanned in `findSpans`. The generic ones, and the name and handle boundaries, are
+ * shared with completeness, so a contact it flags is one this redacts.
  */
 function contactPatterns(ctx: ContactContext): [ContactHit['kind'], RegExp][] {
   const global = (p: RegExp) => new RegExp(p.source, `${p.flags}g`)
@@ -147,12 +92,10 @@ function contactPatterns(ctx: ContactContext): [ContactHit['kind'], RegExp][] {
     .map((email) => normaliseContactText(email).text.trim())
     .filter(Boolean)
     .map((email): [ContactHit['kind'], RegExp] => ['email', new RegExp(escapeRegExp(email), 'giu')])
-  const telegram = telegramPattern(ctx.telegram)
   return [
     ['url', global(RESUME_URL_PATTERN)],
     ['telegram', global(RESUME_TELEGRAM_LABEL_PATTERN)],
     ...literalEmails,
-    ...(telegram ? [['telegram', telegram] as [ContactHit['kind'], RegExp]] : []),
   ]
 }
 
@@ -163,7 +106,7 @@ function findSpans(
   ctx: ContactContext,
 ): Span[] {
   const normText = norm.text
-  const plain = normText.replace(APOSTROPHES, "'")
+  const plain = normText.replace(CONTACT_APOSTROPHES, "'")
   const rawSpans: Span[] = []
   for (const [kind, pattern] of contactPatterns(ctx)) {
     for (const m of plain.matchAll(pattern)) {
@@ -171,6 +114,12 @@ function findSpans(
       // is the hit.
       const end = m.index + m[0].length
       rawSpans.push({ kind, start: end - (m[1] ?? m[0]).length, end })
+    }
+  }
+  const handle = telegramSource(ctx.telegram)
+  if (handle !== null) {
+    for (const span of findWholeTokens(plain, norm.gaps, handle, 'handle')) {
+      rawSpans.push({ kind: 'telegram', ...span })
     }
   }
   // The email pattern consumes its boundary too, so an email glued to the next by a local-part
@@ -193,11 +142,11 @@ function findSpans(
     email.lastIndex = start + ((plain.codePointAt(start) ?? 0) >= 0x10000 ? 2 : 1)
   }
   for (const span of findPhoneSpans(plain)) rawSpans.push({ kind: 'phone', ...span })
-  const folded = foldAccents(plain)
-  for (const pattern of namePatterns(ctx.fullName)) {
-    for (const m of folded.text.matchAll(pattern)) {
-      const start = folded.from[m.index] ?? 0
-      const end = folded.to[m.index + m[0].length - 1] ?? normText.length
+  const folded = foldAccents(plain, norm.gaps)
+  for (const source of nameSources(ctx.fullName)) {
+    for (const span of findWholeTokens(folded.text, folded.gaps, source, 'name')) {
+      const start = folded.from[span.start] ?? 0
+      const end = folded.to[span.end - 1] ?? normText.length
       rawSpans.push({ kind: 'name', start, end })
     }
   }

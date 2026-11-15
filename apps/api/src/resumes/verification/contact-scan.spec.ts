@@ -41,8 +41,9 @@ describe('scanContacts — names', () => {
     expect(scanContacts('Levine and Levins and SLevin', ctx)).toEqual([])
   })
 
-  it('treats # and + as word characters at the boundary', () => {
-    expect(scanContacts('Levin# Levin+ #Levin', ctx)).toEqual([])
+  it('treats # and + as boundaries, as the completeness check does (PR #1351 round 3, SR-M-1)', () => {
+    expect(redactContacts('Levin# Levin+ #Levin', ctx)).toBe('[REDACTED]# [REDACTED]+ #[REDACTED]')
+    expect(redactContacts('Mark Levin#', ctx)).toBe('[REDACTED]#')
   })
 
   it('matches a diacritic surname whatever the Unicode normalisation of either side', () => {

@@ -206,90 +206,213 @@ type ContactCheck = (text: string) => boolean
 
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-/** NFC, and the typographic and Ukrainian (U+02BC) apostrophes as the ASCII one: "O’Neil" and an NFD "José" match. */
-const normaliseName = (text: string): string =>
-  text.normalize('NFC').replace(/[\u2019\u02BC]/g, "'")
+/** The typographic, reversed and Ukrainian (U+02BC) apostrophes, read as `'` one code unit for one, so offsets stay valid. */
+export const CONTACT_APOSTROPHES = /[’ʼ‘]/gu
 
-/** Invisible characters that split a contact: format characters, default-ignorables (variation selectors, CGJ, Hangul fillers), and Braille blank (U+2800). */
-const INVISIBLE_PATTERN = /[\u2800\p{Cf}\p{Default_Ignorable_Code_Point}]/gu
+/** NFC, and the apostrophes as the ASCII one: "O’Neil" and an NFD "José" match. */
+const normaliseName = (text: string): string =>
+  text.normalize('NFC').replace(CONTACT_APOSTROPHES, "'")
+
 /**
- * A conjoining Hangul jamo run or a visible character plus the marks after it, invisibles between
- * them included, so a base letter composes with its mark once they go. Invisibles not followed
- * by a mark start no cluster.
+ * Characters that split a contact without showing: format characters (`Cf`), the other
+ * default-ignorables (variation selectors, CGJ, Hangul fillers), and U+2800 BRAILLE PATTERN BLANK,
+ * a symbol (`So`) stripped on purpose because it renders blank.
+ */
+const INVISIBLE_PATTERN = /[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]/gu
+/**
+ * A conjoining Hangul jamo run or a visible character plus the marks after it, the characters of
+ * `INVISIBLE_PATTERN` between them included, so jamo compose into a syllable and a base letter
+ * with its mark once those go. A stripped character not followed by a mark or a jamo starts no
+ * cluster.
  */
 const CLUSTER_PATTERN =
-  /[\u1100-\u11FF\uA960-\uA97F\uD7B0-\uD7FF]+|[^\u2800\p{Cf}\p{Default_Ignorable_Code_Point}](?:[\u2800\p{Cf}\p{Default_Ignorable_Code_Point}]*\p{M})*/gu
+  /[ᄀ-ᇿꥠ-꥿ힰ-퟿](?:[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]*[ᄀ-ᇿꥠ-꥿ힰ-퟿])*|[^⠀\p{Cf}\p{Default_Ignorable_Code_Point}](?:[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]*\p{M})*/gu
 
 /**
- * Normalise text for contact scanning: strip invisible characters (default-ignorables + U+2800),
- * then NFKC per cluster, maintaining offset maps (`from` and `to`) from each code unit back to
- * its cluster in the original string. No visible character NFKC-maps to an invisible one, so one strip suffices.
+ * Normalise text for contact scanning: strip the characters of `INVISIBLE_PATTERN`, then NFKC per
+ * cluster, maintaining offset maps (`from` and `to`) from each code unit back to its cluster in the
+ * original string. No visible character NFKC-maps to a stripped one, so one strip suffices.
+ * `gaps` holds each normalised offset where a stripped character sat between two characters
+ * (not inside a composed one): `findWholeTokens` counts it as a token boundary, so a name glued to
+ * the next word by a zero-width space still stands alone, as it did before the strip.
  */
 export function normaliseContactText(text: string): {
   text: string
   from: number[]
   to: number[]
+  gaps: Set<number>
 } {
   let normalised = ''
   const from: number[] = []
   const to: number[] = []
+  const gaps = new Set<number>()
+  let cursor = 0
   for (const { 0: cluster, index } of text.matchAll(CLUSTER_PATTERN)) {
+    // Stripped characters between clusters: the next character starts after a gap.
+    if (index > cursor) gaps.add(normalised.length)
     const piece = cluster.replace(INVISIBLE_PATTERN, '').normalize('NFKC')
+    // One inside a cluster is a gap only where it falls between two composed characters
+    // (`가나` as jamo with a ZWSP between the syllables), never inside one (`ᄀ`, ZWSP, `ᅡ`).
+    for (const { index: at } of cluster.matchAll(INVISIBLE_PATTERN)) {
+      const head = cluster.slice(0, at).replace(INVISIBLE_PATTERN, '').normalize('NFKC')
+      if (piece.startsWith(head)) gaps.add(normalised.length + head.length)
+    }
     normalised += piece
     for (let k = 0; k < piece.length; k++) {
       from.push(index)
       to.push(index + cluster.length)
     }
+    cursor = index + cluster.length
   }
-  return { text: normalised, from, to }
+  return { text: normalised, from, to, gaps }
+}
+
+/**
+ * Letters NFD does not decompose and `/iu` does not case-fold to the mapped form
+ * (`/ss/iu` misses `ẞ`), folded by hand; `ß` becomes two code units.
+ */
+const UNDECOMPOSED: Record<string, string> = {
+  ł: 'l',
+  Ł: 'L',
+  ø: 'o',
+  Ø: 'O',
+  đ: 'd',
+  Đ: 'D',
+  ß: 'ss',
+  ẞ: 'SS',
+  ı: 'i',
+  æ: 'ae',
+  Æ: 'AE',
+  œ: 'oe',
+  Œ: 'OE',
+  þ: 'th',
+  Þ: 'TH',
+  ħ: 'h',
+  Ħ: 'H',
+}
+
+/**
+ * `text` without accents (NFD, marks dropped, plus `UNDECOMPOSED`), for each of its code units the
+ * span of the character, marks included, it came from, and `gaps` (offsets of `text`) carried to
+ * folded offsets. Names are matched on this on both sides, so `Muller` hits `Müller`.
+ */
+export function foldAccents(
+  text: string,
+  gaps: ReadonlySet<number> = new Set(),
+): { text: string; from: number[]; to: number[]; gaps: Set<number> } {
+  let folded = ''
+  const from: number[] = []
+  const to: number[] = []
+  const foldedGaps = new Set<number>()
+  for (const { 0: cluster, index } of text.matchAll(/\P{M}\p{M}*/gu)) {
+    if (gaps.has(index)) foldedGaps.add(folded.length)
+    // A cluster is one base letter plus marks, so after the marks go it is one key.
+    const base = cluster.normalize('NFD').replace(/\p{M}/gu, '')
+    const piece = UNDECOMPOSED[base] ?? base
+    folded += piece
+    for (let k = 0; k < piece.length; k++) {
+      from.push(index)
+      to.push(index + cluster.length)
+    }
+  }
+  return { text: folded, from, to, gaps: foldedGaps }
+}
+
+/** Whitespace between name parts, raw or JSON-escaped (`\n`, `\r`, `\t`). */
+export const CONTACT_NAME_GAP = String.raw`(?:\s|\\[nrt])+`
+
+/**
+ * The one token boundary of both sides (completeness and the API redaction). A name is a token of
+ * letters and digits (`Levin` is not in `Levine` or `Levin7`, but is in `Levin#`); it may also
+ * start right after a JSON-style escape (`\n`, a `\u` code), whose last letter is not part of it.
+ * A Telegram username is `[A-Za-z0-9_]`, so `\w` is its boundary, and it has no escape rule.
+ */
+const TOKEN_BOUNDARY = {
+  name: {
+    before: /[\p{L}\p{N}]$/u,
+    after: /^[\p{L}\p{N}]/u,
+    escape: /\\(?:[bfnrt]|u[\dA-Fa-f]{4})$/u,
+  },
+  handle: { before: /\w$/u, after: /^\w/u, escape: null },
+} as const
+
+/**
+ * Every hit of `source` (any case) in `text` that stands as a whole token: each edge is the text
+ * edge, a non-token character, or a gap (`normaliseContactText`). Only the edges may use a gap; a
+ * gap inside a hit changes nothing (`Iv`, ZWNJ, `an` is `Ivan`). Every start is tried, one code
+ * point apart, so a hit refused at its edges hides no later overlapping one. No lookbehind: it
+ * throws on Safari < 16.4, and the completeness check runs in the browser.
+ */
+export function findWholeTokens(
+  text: string,
+  gaps: ReadonlySet<number>,
+  source: string,
+  kind: keyof typeof TOKEN_BOUNDARY,
+): Array<{ start: number; end: number }> {
+  const boundary = TOKEN_BOUNDARY[kind]
+  const spans: Array<{ start: number; end: number }> = []
+  const pattern = new RegExp(source, 'giu')
+  for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
+    const start = m.index
+    const end = start + m[0].length
+    const before = text.slice(Math.max(0, start - 6), start)
+    if (
+      (gaps.has(start) ||
+        !boundary.before.test(before) ||
+        (boundary.escape?.test(before) ?? false)) &&
+      (gaps.has(end) || !boundary.after.test(text.slice(end, end + 2)))
+    ) {
+      spans.push({ start, end })
+    }
+    // One code point on: a lastIndex inside a surrogate pair snaps back under `u` and never moves.
+    pattern.lastIndex = start + ((text.codePointAt(start) ?? 0) >= 0x10000 ? 2 : 1)
+  }
+  return spans
 }
 
 /**
  * Phone, email, the senior's Telegram handle (whole token, with or without its
- * `@`, any case), or the senior's full name, whole words, any case or spacing:
+ * `@`, any case), or the senior's full name, whole words, any case, accents or spacing:
  * every token of the display name in order, or its first and last token in
- * either order. A one-token name adds no name check: a first name or surname
- * alone is a common word too often.
+ * either order. A one-token name adds a name check only when it is two or more
+ * precomposed Hangul syllables (Korean names are often written as one token);
+ * any other single token adds none: a first name or surname alone is a common word too often.
+ * Names and the handle use `findWholeTokens`, the boundary the API redaction uses, so a name this
+ * flags is one the API redacts.
  */
 function contactCheck(displayName: string, telegram: string | null | undefined): ContactCheck {
   // Split on each whitespace character: the filter drops the empty pieces a run or an edge leaves.
   // Context values are normalised like the text, so a name or handle written with a ligature, a
   // zero-width joiner or fullwidth letters still matches itself written the same way.
-  const tokens = normaliseName(normaliseContactText(displayName).text)
-    .split(/\s/)
-    .filter(Boolean)
-    .map(escapeRegExp)
+  const tokens = normaliseName(normaliseContactText(displayName).text).split(/\s/).filter(Boolean)
   const first = tokens[0]
-  const last = tokens[tokens.length - 1]
-  const name =
-    (tokens.length >= 2 ||
-      // Stryker disable next-line ConditionalExpression,EqualityOperator,LogicalOperator: Korean names often have no spaces between tokens
-      (tokens.length === 1 && /^[\uAC00-\uD7A3]{2,}$/u.test(tokens[0] ?? ''))) &&
-    // Stryker disable next-line ConditionalExpression: type narrowing only — two or more tokens means both are defined, so forcing either guard true changes no result
+  const last = tokens.at(-1)
+  const names =
+    (tokens.length >= 2 || /^[가-힣]{2,}$/u.test(first ?? '')) &&
+    // Stryker disable next-line ConditionalExpression: type narrowing only — the line above passes only with one token or more, so first is defined and forcing this guard true changes no result
     first !== undefined &&
-    // Stryker disable next-line ConditionalExpression: as above, two or more tokens means the last one is defined
+    // Stryker disable next-line ConditionalExpression: as above, one token or more means the last one is defined
     last !== undefined
-      ? new RegExp(
-          // No lookbehind: it throws on Safari < 16.4.
-          `(?:^|[^\\p{L}\\p{N}])(?:${tokens.join('\\s+')}|${first}\\s+${last}|${last}\\s+${first})(?:$|[^\\p{L}\\p{N}])`,
-          'iu',
+      ? [tokens, [first, last], [last, first]].map((parts) =>
+          parts.map((part) => escapeRegExp(foldAccents(part).text)).join(CONTACT_NAME_GAP),
         )
-      : null
+      : []
   const handle = normaliseTelegramHandle(telegram && normaliseContactText(telegram).text)
-  // A Telegram username is `[A-Za-z0-9_]`, so `\w` is its boundary; any `@`s in front (`@@h`,
-  // `x@h`) still hit. `(?:^|\W)` stands in for a lookbehind (Safari < 16.4). A handle equal to a
-  // skill word flags that word too: availability, not a leak.
-  const handleTest = !handle ? null : new RegExp(`(?:^|\\W)@*${escapeRegExp(handle)}(?:$|\\W)`, 'i')
+  // Any `@`s in front (`@@h`, `x@h`) still hit. A handle equal to a skill word flags that word
+  // too: availability, not a leak.
+  const handleSource = handle ? `@*${escapeRegExp(handle)}` : null
   return (raw) => {
-    // Strip default-ignorables (+ U+2800), then NFKC per cluster, as the API contact scan matches.
-    const { text } = normaliseContactText(raw)
+    // Strip invisibles (default-ignorables and U+2800), then NFKC per cluster, as the API scan does.
+    const { text, gaps } = normaliseContactText(raw)
+    const plain = text.replace(CONTACT_APOSTROPHES, "'")
+    const folded = foldAccents(plain, gaps)
     return (
       findPhoneSpans(text).length > 0 ||
       RESUME_EMAIL_PATTERN.test(text) ||
       RESUME_URL_PATTERN.test(text) ||
       RESUME_TELEGRAM_LABEL_PATTERN.test(text) ||
-      (handleTest !== null && handleTest.test(text)) ||
-      (name !== null && name.test(normaliseName(text)))
+      (handleSource !== null && findWholeTokens(plain, gaps, handleSource, 'handle').length > 0) ||
+      names.some((source) => findWholeTokens(folded.text, folded.gaps, source, 'name').length > 0)
     )
   }
 }
