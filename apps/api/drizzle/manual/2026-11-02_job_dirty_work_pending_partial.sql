@@ -32,10 +32,19 @@
 -- is `CREATE INDEX CONCURRENTLY`, exactly as the other `job_dirty_work` indexes are built in
 -- manual/2026-10-17_job_opportunities_store_indexes.sql.
 --
--- `lock_timeout = '10s'` stays tight: the sweep's non-concurrent `DROP INDEX` takes ACCESS EXCLUSIVE
--- on `job_dirty_work` while the old API still serves, and `CREATE INDEX CONCURRENTLY IF NOT EXISTS`
--- acquires ShareUpdateExclusive on the table before checking existence. Waiting for a lock is what
--- blocks other sessions, so `lock_timeout` fails fast instead of queuing the hot queue behind it.
+-- TWO LOCK TIMEOUTS, ONE PER STATEMENT KIND (CR-M-1 / SR-M-1 of PR #1333). `lock_timeout` bounds
+-- EVERY lock wait, and a CONCURRENTLY build's waits for older transactions are lock waits too, so
+-- one session-wide value cannot serve both:
+--   * the sweep (section 1) runs under `lock_timeout = '10s'`: its non-concurrent `DROP INDEX`
+--     takes ACCESS EXCLUSIVE on `job_dirty_work` while the old API still serves, and a DROP queued
+--     behind a reader queues the hot queue behind itself, so it fails fast instead;
+--   * the CREATE (section 2) runs under `lock_timeout = '5min'`, set right before it: it takes only
+--     ShareUpdateExclusive (no reader or writer of the queue waits on it) and then waits out every
+--     transaction older than its own snapshot. 5 min tolerates normal transactions and stays under
+--     the 10-minute ssh-action cut below: a transaction open longer than 5 min fails the build
+--     loudly inside the deploy window (INVALID index, section 3 fails the deploy, the next deploy's
+--     sweep drops and rebuilds it) instead of the step being killed mid-build. The timeout bounds
+--     each wait, not the statement; `statement_timeout` bounds the whole build.
 --
 -- A CONCURRENTLY build waits for every transaction holding an old snapshot. In a deploy through
 -- GitHub Actions ssh-action (which sets no explicit `command_timeout`), the step has a default 10-minute
@@ -73,6 +82,7 @@
 -- integration spec is its coverage.
 -- =============================================================================
 
+-- The sweep's bound (see TWO LOCK TIMEOUTS above); section 2 raises it for the CREATE.
 SET lock_timeout = '10s';
 SET statement_timeout = '30min';
 
@@ -116,6 +126,9 @@ BEGIN
 END $$;
 
 -- 2. The index.
+-- The CREATE's bound (see TWO LOCK TIMEOUTS above): long enough for normal transactions to end,
+-- under the 10-minute ssh-action cut.
+SET lock_timeout = '5min';
 CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_job_dirty_work_pending_generic"
   ON "job_dirty_work" USING btree ("status", "created_at")
   WHERE "reason" <> 'DETAIL_FETCH';

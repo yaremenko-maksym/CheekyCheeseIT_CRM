@@ -1372,8 +1372,14 @@ commands are the owner's, through `ssh crm-vps`; SELECT only):
     WHERE c.relname IN ('idx_job_dirty_work_pending_generic','idx_job_dirty_work_pending_match','idx_job_dirty_work_pending_availability');
    ```
 
-5. No long transaction that would stall `CREATE INDEX CONCURRENTLY`. **Expect 0 rows** right before
-   the deploy.
+5. No transaction open longer than the `CREATE INDEX CONCURRENTLY` lock timeout. The two dirty-work
+   files run their sweep under `lock_timeout = '10s'` and each `CREATE INDEX CONCURRENTLY` under
+   `lock_timeout = '5min'` (under the 10-minute ssh-action cut), so the query below flags exactly the
+   transactions that would outlast the build's wait. **Expect 0 rows** right before the deploy. If a
+   row is there when the deploy runs, the build waits up to 5 min for it, then fails with
+   `canceling statement due to lock timeout`, leaves the index INVALID and fails the deploy before the
+   container swap (the old API keeps serving); end that transaction and re-run the deploy, whose sweep
+   drops the INVALID index and rebuilds it (next paragraph).
 
    ```sql
    SELECT pid, state, now() - xact_start AS age FROM pg_stat_activity

@@ -130,7 +130,7 @@ export async function withNotices<T>(
   run: () => Promise<T>,
 ): Promise<{ result: T; notices: string[] }> {
   const notices: string[] = []
-  const listener = (message: { message?: string }): void => {
+  const listener = (message: { message?: string | undefined }): void => {
     if (message.message) notices.push(message.message)
   }
   client.on('notice', listener)

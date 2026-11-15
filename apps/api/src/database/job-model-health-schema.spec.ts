@@ -35,14 +35,14 @@ describe('job_model_route_daily and job_model_health_flags vocabularies', () => 
     ])
   })
 
-  it('the staged SQL carries the same lists and the same code alphabet', () => {
+  it('the forward DDL in manual/ carries the same lists and the same code alphabet', () => {
     const inList = (values: readonly string[]) => values.map((v) => `'${v}'`).join(', ')
     expect(ddl).toContain(`IN (${inList(MODEL_ROUTE_VALUES)})`)
     expect(ddl).toContain(`IN (${inList(MODEL_HEALTH_FLAG_VALUES)})`)
     expect(ddl).toContain(`"code" ~ '^[A-Z][A-Z0-9_]{0,63}$'`)
   })
 
-  it('every CHECK the Drizzle schema declares is named in the staged SQL', () => {
+  it('every CHECK the Drizzle schema declares is named in the forward DDL in manual/', () => {
     const names = [jobModelRouteDaily, jobModelHealthFlags].flatMap((t) =>
       getTableConfig(t).checks.map((c) => c.name),
     )
