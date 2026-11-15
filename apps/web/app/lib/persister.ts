@@ -34,20 +34,49 @@ let persistingStopped = false
  * a refetch under the old cookie (SO-4). Settles within `PURGE_BEFORE_RELOAD_MS` even when
  * IndexedDB never answers (backlog 433), so the reload is never stuck. A copy that survives a
  * failed delete is still refused after the reload: its owner is not the new `auth/me` user
- * (SR-M-1, `takeRestoredCacheOwner`).
+ * (SR-M-1, `takeRestoredCacheOwner`), and the next boot deletes it instead of restoring it
+ * (`PURGE_PENDING_KEY`, 1340-SR-L-r2-2).
  */
 export function purgePersistedBeforeReload(): Promise<void> {
   persistingStopped = true
+  // cleared only once the delete succeeds; a failed or unfinished delete is retried on the next boot
+  markPurgePending(true)
   let timer: ReturnType<typeof setTimeout> | undefined
   return Promise.race([
-    // `del` can throw synchronously (IndexedDB blocked) — keep it inside the chain (CR-H-1)
-    Promise.resolve()
-      .then(() => del(PERSIST_KEY))
-      .catch(() => {}),
+    deletePersisted().catch(() => {}),
     new Promise<void>((resolve) => {
       timer = setTimeout(resolve, PURGE_BEFORE_RELOAD_MS)
     }),
   ]).finally(() => clearTimeout(timer))
+}
+
+/** localStorage marker of a purge whose delete has not succeeded yet (1340-SR-L-r2-2). */
+export const PURGE_PENDING_KEY = 'crm-query-cache-purge-pending'
+
+// localStorage throws when storage is disabled; the purge then stays best-effort, as before
+function markPurgePending(pending: boolean): void {
+  try {
+    if (pending) localStorage.setItem(PURGE_PENDING_KEY, '1')
+    else localStorage.removeItem(PURGE_PENDING_KEY)
+  } catch {
+    // no marker: the owner check (`takeRestoredCacheOwner`) still refuses a foreign copy
+  }
+}
+
+function purgePending(): boolean {
+  try {
+    return localStorage.getItem(PURGE_PENDING_KEY) !== null
+  } catch {
+    return false
+  }
+}
+
+/** Deletes the persisted copy, then clears the pending marker; rejects if the delete fails. */
+function deletePersisted(): Promise<void> {
+  // `del` can throw synchronously (IndexedDB blocked) — keep it inside the chain (CR-H-1)
+  return Promise.resolve()
+    .then(() => del(PERSIST_KEY))
+    .then(() => markPurgePending(false))
 }
 
 /**
@@ -335,6 +364,11 @@ export const persister: StoragePersister = {
   persistClient: baseAsyncPersister.persistClient,
   removeClient: baseAsyncPersister.removeClient,
   restoreClient: async () => {
+    // a copy an earlier purge failed to delete is deleted now and never restored (1340-SR-L-r2-2)
+    if (purgePending()) {
+      await deletePersisted().catch(() => {})
+      return undefined
+    }
     const restored = await baseAsyncPersister.restoreClient()
     noteRestoredOwner(restored)
     return forceRefetchOfStrippedQueries(restored)
