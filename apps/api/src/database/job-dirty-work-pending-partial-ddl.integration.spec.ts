@@ -2,7 +2,12 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { Pool, type PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { type CrmAppSession, openCrmAppSession } from './__test-helpers__/crm-app-session'
+import { parkConcurrentBuild, withNotices } from './__test-helpers__/concurrent-index-build'
+import {
+  type CrmAppSession,
+  openCrmAppSession,
+  resolveConnectionPlan,
+} from './__test-helpers__/crm-app-session'
 import { splitSqlStatements } from './manual-sql-statements'
 import { hasDatabaseUrl } from '../test/require-real-db'
 
@@ -36,109 +41,13 @@ const FILE = join(
 const SCHEMA = 'ddl_job_dirty_work_pending_partial'
 const TABLE = 'job_dirty_work'
 const INDEX = 'idx_job_dirty_work_pending_generic'
+const DIRTY_WORK_PARK = { schema: SCHEMA, searchPath: `${SCHEMA}, public`, table: TABLE }
 
 let session: CrmAppSession
 let client: PoolClient
 let pool: Pool
 
 const unqualify = (text: string, schema: string) => text.split(`${schema}.`).join('public.')
-
-/** Collects the server's NOTICEs for the duration of one call. */
-async function withNotices<T>(
-  c: PoolClient,
-  run: () => Promise<T>,
-): Promise<{ result: T; notices: string[] }> {
-  const notices: string[] = []
-  const listener = (message: { message?: string }): void => {
-    if (message.message) notices.push(message.message)
-  }
-  c.on('notice', listener)
-  try {
-    const result = await run()
-    return { result, notices }
-  } finally {
-    c.off('notice', listener)
-  }
-}
-
-/**
- * Reuses the store-indexes parkConcurrentBuild pattern: holds an open REPEATABLE READ snapshot
- * on the target table so Postgres stalls the concurrent build in its `waiting for old snapshots` phase.
- */
-async function parkConcurrentBuild(
-  p: Pool,
-  indexName: string,
-): Promise<{ release: () => Promise<void> }> {
-  const holder = await p.connect()
-  const builder = await p.connect()
-  await builder.query(`SET search_path TO ${SCHEMA}, public`)
-  await holder.query(`SET search_path TO ${SCHEMA}, public`)
-
-  const definition = await holder.query(
-    `SELECT pg_get_indexdef(i.indexrelid) AS def
-       FROM pg_index i
-       JOIN pg_class ic ON ic.oid = i.indexrelid
-       JOIN pg_class c ON c.oid = i.indrelid
-       JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = 'public' AND ic.relname = $1`,
-    [indexName],
-  )
-  if (definition.rowCount !== 1) {
-    throw new Error(`no reference definition for index ${indexName}`)
-  }
-  const create = String(definition.rows[0]['def'])
-    .replace(
-      /^CREATE (UNIQUE )?INDEX /,
-      (_m, unique) => `CREATE ${unique ?? ''}INDEX CONCURRENTLY `,
-    )
-    .replace(/ ON public\./, ' ON ')
-
-  await holder.query('BEGIN ISOLATION LEVEL REPEATABLE READ')
-  await holder.query(`SELECT count(*) FROM ${TABLE}`)
-
-  const building = builder.query(create).catch((error: Error) => {
-    return error
-  })
-
-  const deadline = Date.now() + 20_000
-  for (;;) {
-    const progress = await p.query(
-      `SELECT count(*)::int AS n FROM pg_stat_progress_create_index
-        WHERE datid = (SELECT oid FROM pg_database WHERE datname = current_database())`,
-    )
-    const index = await p.query(
-      `SELECT i.indisvalid FROM pg_index i
-         JOIN pg_class c ON c.oid = i.indexrelid
-         JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = $1 AND c.relname = $2`,
-      [SCHEMA, indexName],
-    )
-    if (
-      progress.rows[0]['n'] > 0 &&
-      index.rowCount === 1 &&
-      index.rows[0]['indisvalid'] === false
-    ) {
-      break
-    }
-    if (Date.now() > deadline) {
-      await holder.query('ROLLBACK').catch(() => undefined)
-      await building
-      holder.release()
-      builder.release()
-      throw new Error(`build of ${indexName} did not park within 20s`)
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50))
-  }
-
-  return {
-    release: async () => {
-      await holder.query('COMMIT').catch(() => undefined)
-      await building
-      holder.release()
-      builder.release()
-    },
-  }
-}
 
 /**
  * Applies the file statement by statement in autocommit, the way `psql < file` does: no
@@ -199,7 +108,9 @@ describe.skipIf(!hasDatabaseUrl())(
     beforeAll(async () => {
       session = await openCrmAppSession()
       client = await session.admin.connect()
-      pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+      // CR-M-2: the builder pool is the SWEEPER's role (`session.admin`'s URL), so the parked build
+      // is visible to the sweep and a pass means the in-progress check spared it.
+      pool = new Pool({ connectionString: resolveConnectionPlan(process.env).ownerUrl })
       const { rows } = await client.query(`SELECT current_database() AS db`)
       if (rows[0].db === 'crm_db') throw new Error('refusing the live database')
       await client.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`)
@@ -259,10 +170,16 @@ describe.skipIf(!hasDatabaseUrl())(
 
     it('spares an index whose build is still running, and the build completes (LOW)', async () => {
       await client.query(`DROP INDEX IF EXISTS ${SCHEMA}.${INDEX}`)
-      const parked = await parkConcurrentBuild(pool, INDEX)
+      const parked = await parkConcurrentBuild(pool, { ...DIRTY_WORK_PARK, indexName: INDEX })
       try {
         const { sweep } = doBlocks()
+        // The sweep's own bound, as the file sets it: a sweep that wrongly DROPs the in-flight
+        // index fails in 10 s instead of queueing behind the build it is blocking.
+        await client.query(`SET lock_timeout = '10s'`)
         const { notices } = await withNotices(client, () => client.query(sweep))
+        // CR-M-2: the sweep SAW the build (no masked-progress early return), so sparing it is the
+        // in-progress check's doing, not an invisible build's.
+        expect(notices.join('\n')).not.toMatch(/NOTHING is swept/)
         expect(notices.join('\n')).not.toMatch(/dropping INVALID index/)
         expect(await isValid()).toBe(false)
       } finally {
@@ -285,5 +202,28 @@ describe.skipIf(!hasDatabaseUrl())(
       await applyFile()
       expect(await isValid()).toBe(true)
     })
+
+    it('a transaction open longer than the sweep lock_timeout does not fail the build (CR-M-1 of PR #1333)', async () => {
+      // Real timeouts, not scaled-down ones: the snapshot is held 12 s, past the sweep's 10 s
+      // lock_timeout and well inside the CIC's 5 min one. Under one session-wide 10 s timeout the
+      // CIC's wait for this older snapshot is cancelled and the apply fails.
+      const holder = await pool.connect()
+      try {
+        await client.query(`DROP INDEX IF EXISTS ${SCHEMA}.${INDEX}`)
+        await holder.query('BEGIN ISOLATION LEVEL REPEATABLE READ')
+        await holder.query(`SELECT count(*) FROM ${SCHEMA}.${TABLE}`)
+        const applying = applyFile().then(
+          () => undefined,
+          (error: Error) => error,
+        )
+        await new Promise((resolve) => setTimeout(resolve, 12_000))
+        await holder.query('COMMIT')
+        expect(await applying).toBeUndefined()
+      } finally {
+        await holder.query('ROLLBACK').catch(() => undefined)
+        holder.release()
+      }
+      expect(await isValid()).toBe(true)
+    }, 60_000)
   },
 )

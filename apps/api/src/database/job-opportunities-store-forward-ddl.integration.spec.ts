@@ -65,6 +65,7 @@ import { Pool, type PoolClient } from 'pg'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { splitSqlStatements } from './manual-sql-statements'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
+import { parkConcurrentBuild, withNotices } from './__test-helpers__/concurrent-index-build'
 import {
   dropRolesCreated,
   existingDeployRoles,
@@ -228,6 +229,7 @@ const UNPRIVILEGED_ROLE = 'ddl_forward_ddl_probe'
 const PARKABLE_TABLE = 'job_opportunities'
 const PARKED_INDEX = 'idx_job_opportunities_availability'
 const OTHER_INDEX_SAME_TABLE = 'idx_job_opportunities_candidate_key'
+const STORE_PARK = { schema: SCHEMA, searchPath: SCHEMA, table: PARKABLE_TABLE }
 
 /** The Drizzle modules that, between them, declare exactly this store's tables. */
 const STORE_MODULES = [
@@ -519,128 +521,6 @@ function part2Blocks(): { sweep: string; finalCheck: string } {
     throw new Error(`expected 2 DO blocks in ${PART_2}, found ${blocks?.length ?? 0}`)
   }
   return { sweep: blocks[0]!, finalCheck: blocks[1]! }
-}
-
-/**
- * Parks a `CREATE INDEX CONCURRENTLY` in its "waiting for old snapshots" phase, which
- * is the state where the index row EXISTS with `indisvalid = false` while a build is
- * genuinely in progress — the state the sweep has to tell apart from an abandoned
- * leftover.
- *
- * Deterministic, and not a timing trick: a concurrent build must wait out every
- * transaction holding a snapshot older than its own, so a third session sitting in
- * REPEATABLE READ parks it for as long as that session lives, whatever the table size.
- * Returns the handles the caller must settle.
- */
-async function parkConcurrentBuild(
-  pool: Pool,
-  indexName: string,
-): Promise<{ release: () => Promise<void> }> {
-  const holder = await pool.connect()
-  const builder = await pool.connect()
-  await builder.query(`SET search_path TO ${SCHEMA}`)
-  await holder.query(`SET search_path TO ${SCHEMA}`)
-
-  // The definition is taken from the REFERENCE catalog, never written out here: an
-  // approximation of it would rebuild the index with the wrong columns and leave the
-  // schema silently diverged for every test that runs afterwards. (It did, once.)
-  const definition = await holder.query(
-    `SELECT pg_get_indexdef(i.indexrelid) AS def
-       FROM pg_index i
-       JOIN pg_class ic ON ic.oid = i.indexrelid
-       JOIN pg_class c ON c.oid = i.indrelid
-       JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = 'public' AND ic.relname = $1`,
-    [indexName],
-  )
-  if (definition.rowCount !== 1) {
-    throw new Error(`no reference definition for index ${indexName}`)
-  }
-  // Only the `ON public.<table>` qualification is rewritten — not every occurrence of the
-  // string anywhere in the definition, which would also hit a predicate or an operator
-  // class that happened to name the schema (CR-L-10).
-  const create = String(definition.rows[0]['def'])
-    .replace(
-      /^CREATE (UNIQUE )?INDEX /,
-      (_m, unique) => `CREATE ${unique ?? ''}INDEX CONCURRENTLY `,
-    )
-    .replace(/ ON public\./, ' ON ')
-
-  await holder.query('BEGIN ISOLATION LEVEL REPEATABLE READ')
-  await holder.query(`SELECT count(*) FROM ${PARKABLE_TABLE}`)
-
-  // Deliberately not awaited: this call does not return until the holder commits.
-  const building = builder.query(create).catch((error: Error) => {
-    // Surfaced by the assertions on the index's state; swallowing here keeps an
-    // expected cancellation from becoming an unhandled rejection.
-    return error
-  })
-
-  // Polled through the POOL, never through `holder`: the holder is sitting in a
-  // REPEATABLE READ transaction, so its view of `pg_index` is frozen at a snapshot taken
-  // before the build existed and it can never see the new index row. (It cost a run to
-  // learn that `pg_stat_progress_create_index` is NOT frozen — it reads shared memory —
-  // so the progress count moved while the catalog lookup stayed empty forever.)
-  const deadline = Date.now() + 20_000
-  for (;;) {
-    const progress = await pool.query(
-      `SELECT count(*)::int AS n FROM pg_stat_progress_create_index
-        WHERE datid = (SELECT oid FROM pg_database WHERE datname = current_database())`,
-    )
-    const index = await pool.query(
-      `SELECT i.indisvalid FROM pg_index i
-         JOIN pg_class c ON c.oid = i.indexrelid
-         JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = $1 AND c.relname = $2`,
-      [SCHEMA, indexName],
-    )
-    if (
-      progress.rows[0]['n'] > 0 &&
-      index.rowCount === 1 &&
-      index.rows[0]['indisvalid'] === false
-    ) {
-      break
-    }
-    if (Date.now() > deadline) {
-      // CR-L-9: the ROLLBACK first, so the build can finish, then AWAIT it before either
-      // client goes back to the pool. Releasing a client whose query is still running
-      // hands a busy connection to the next caller, and the failure surfaces somewhere
-      // unrelated — which is the worst way for a timeout path to fail.
-      await holder.query('ROLLBACK').catch(() => undefined)
-      await building
-      holder.release()
-      builder.release()
-      throw new Error(`build of ${indexName} did not park within 20s`)
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50))
-  }
-
-  return {
-    release: async () => {
-      await holder.query('COMMIT').catch(() => undefined)
-      await building
-      holder.release()
-      builder.release()
-    },
-  }
-}
-
-/** Collects the server's NOTICEs for the duration of one call. */
-async function withNotices<T>(
-  client: PoolClient,
-  run: () => Promise<T>,
-): Promise<{ result: T; notices: string[] }> {
-  const notices: string[] = []
-  const listener = (message: { message?: string }): void => {
-    if (message.message) notices.push(message.message)
-  }
-  client.on('notice', listener)
-  try {
-    const result = await run()
-    return { result, notices }
-  } finally {
-    client.off('notice', listener)
-  }
 }
 
 /**
@@ -1174,7 +1054,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
 
     it('spares an index whose build is still running, and the build completes', async () => {
       await client.query(`DROP INDEX IF EXISTS ${PARKED_INDEX}`)
-      const parked = await parkConcurrentBuild(pool, PARKED_INDEX)
+      const parked = await parkConcurrentBuild(pool, { ...STORE_PARK, indexName: PARKED_INDEX })
       try {
         // The SWEEP alone, not the whole of part 2 — and the reason is a property worth
         // knowing: `CREATE INDEX CONCURRENTLY IF NOT EXISTS` takes ShareUpdateExclusive
@@ -1214,7 +1094,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
       // This is not hypothetical maintenance work: the deploy connects as a superuser
       // today, and r5 Task 1.3c introduces least-privileged roles.
       await client.query(`DROP INDEX IF EXISTS ${PARKED_INDEX}`)
-      const parked = await parkConcurrentBuild(pool, PARKED_INDEX)
+      const parked = await parkConcurrentBuild(pool, { ...STORE_PARK, indexName: PARKED_INDEX })
       const probe = await pool.connect()
       try {
         await probe.query(`SET search_path TO ${SCHEMA}`)
@@ -1262,7 +1142,10 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
           WHERE indexrelid = format('%I.%I', $1::text, $2::text)::regclass`,
         [SCHEMA, PARKED_INDEX],
       )
-      const parked = await parkConcurrentBuild(pool, OTHER_INDEX_SAME_TABLE)
+      const parked = await parkConcurrentBuild(pool, {
+        ...STORE_PARK,
+        indexName: OTHER_INDEX_SAME_TABLE,
+      })
       try {
         // Sweep then final check, for the lock reason explained in the test above.
         const { sweep, finalCheck } = part2Blocks()
