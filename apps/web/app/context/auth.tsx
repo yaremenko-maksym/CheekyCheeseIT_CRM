@@ -84,12 +84,17 @@ function watchSessionOwner(
     const id = (event.query.state.data as SessionUser | null)?.id ?? null
     const previous = owner === undefined ? takeRestoredCacheOwner() : owner
     owner = id
-    setPersistedCacheOwner(id)
-    if (previous === undefined || previous === id) return
+    if (previous === undefined || previous === id) {
+      setPersistedCacheOwner(id)
+      return
+    }
     onSwitch()
     // reset, not remove: mounted observers (header, bell) drop the old data and stay subscribed
     const matched = queryClient.getQueryCache().findAll({ predicate: (q) => !isAuthMe(q) })
     notifyManager.batch(() => matched.forEach((q) => q.reset()))
+    // Only now: each reset runs the persister at once, and a save serialized mid-reset still holds
+    // the old rows, so it must name their owner; the next load as the new user refuses it (SR-H-1)
+    setPersistedCacheOwner(id)
     const queries = (purged ??= new Set<Query>())
     matched.forEach((q) => queries.add(q))
     void idbDel(PERSIST_KEY).catch(() => {})

@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createElement } from 'react'
 import { render, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider, QueryObserver } from '@tanstack/react-query'
+import { persistQueryClientSubscribe } from '@tanstack/react-query-persist-client'
 
 const { apiGet, idbDel, idbGet, idbSet } = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -316,6 +317,37 @@ describe('session owner watch (CR-H-1): a changed auth/me user purges, whoever w
 
       expect(idbSet).toHaveBeenCalledWith(PERSIST_KEY, expect.any(String))
       expect(JSON.parse(idbSet.mock.lastCall?.[1] as string).owner).toBe('user-kateryna')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a persist written during the purge never labels the old rows with the new owner (PR #1334 SR-H-1)', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(Date.now() + 60_000) // the persister's throttle is idle: the next save runs at once
+    try {
+      idbSet.mockReset().mockResolvedValue(undefined)
+      const qc = seeded()
+      qc.setQueryData(['projects', 'user-anna', 'list'], [{ name: 'anna-only-project' }])
+      // the app's order: the `_authenticated` route module subscribes before PersistQueryClientProvider
+      createSessionRevalidator(qc)
+      qc.setQueryData(['auth', 'me'], anna) // Anna's answer landed: the cache is labelled hers
+      const unsubscribe = persistQueryClientSubscribe({ queryClient: qc, persister })
+
+      qc.setQueryData(['auth', 'me'], kateryna)
+      await vi.advanceTimersByTimeAsync(1000) // the immediate save and the throttled one after it
+
+      // per write: [owner label, carries one of Anna's rows]
+      const writes = idbSet.mock.calls.map(([, value]) => [
+        JSON.parse(value as string).owner,
+        /anna-only-(row|project)/.test(value as string),
+      ])
+      // the save the first reset runs still holds Anna's project; the next one is clean
+      expect(writes).toEqual([
+        ['user-anna', true],
+        ['user-kateryna', false],
+      ])
+      unsubscribe()
     } finally {
       vi.useRealTimers()
     }
