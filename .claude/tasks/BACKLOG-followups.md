@@ -7871,7 +7871,9 @@ security review (SR5-L-1, the scratchpad-directory variant).
 
 Sources: PR #1317 round 4 code review (CR4-L-3, CR4-L-4) and panel (nim:step); round 5 code review (CR5-L-1).
 
-## 425. Job queue triage grants: the policy version is a client stamp, never checked (2026-11-11)
+## 425. Job queue triage grants: the policy version is a client stamp, never checked — closed (2026-11-11)
+
+**Closed (2026-11-15).** PR #1332 (`a3e9b4582`) added server-side policy versioning: a grant on a stale version answers 409 `JOB_QUEUE_VERSION_CONFLICT`. Reopen if the Verify spec below fails.
 
 **Symptoms.** `POST /job-queue/:id/team-triage` stores the client-sent `policyVersion` as an audit stamp; no server
 value validates it. The plan says policy versions bump on membership / exclusion writes and a stale one is a conflict,
@@ -7886,7 +7888,9 @@ or accept the stamp and drop the field from the contract. Listed in the Phase 7 
 
 Sources: PR #1313 spec review (SPEC-M-2), Task 7.4b brief (Master).
 
-## 426. Job queue triage grants: a re-grant dead-ends, and the server trusts the client for triage-only (2026-11-12)
+## 426. Job queue triage grants: a re-grant dead-ends, and the server trusts the client for triage-only — closed (2026-11-12)
+
+**Closed (2026-11-15).** PR #1332 (`a3e9b4582`) added a distinct re-grant code, the server-side eligibility check and an expiry ceiling. Reopen if the Verify spec below fails.
 
 **Symptoms.**
 
@@ -7908,7 +7912,9 @@ a non-triage opportunity is refused.
 
 Sources: PR #1322 second-opinion panel (nim:step), confirmed by Master against the service.
 
-## 427. Triage grant dialog and the shared date picker: three layout lows (2026-11-12)
+## 427. Triage grant dialog and the shared date picker: three layout lows — closed (2026-11-12)
+
+**Closed (2026-11-15).** PR #1334 (`7218076ca`) fixed all three: the hint keeps its layout slot, the picker is disabled on an empty list, and the shared calendar and date picker meet the 44 px mobile target. Reopen if a Verify check below fails.
 
 **Symptoms.**
 
@@ -7932,6 +7938,8 @@ Sources: PR #1322 design reviews (rounds 1 and 2: UX-L-1, UX-L-4, UX-L-5).
 
 ## 433. Session switch: stale-page queries refetch as the new user and 403 (QA-MED-1 of #1330, 2026-11-14)
 
+**Closed (2026-11-15).** PR #1334 (`7218076ca`) ties the refetch to the router lifecycle. Reopen if the Verify check below shows a 403.
+
 **Symptoms.** When the signed-in user changes under an open page, `watchSessionOwner` resets every query except
 `auth/me`; the still-mounted queries of the old page refetch with the new cookie. If the new account has fewer
 rights, the console shows a burst of 403s (about 5 for HR to JUNIOR, 1 for ADMIN to HR). No previous-account data
@@ -7948,6 +7956,8 @@ Sources: manual-qa on #1330 (QA-MED-1); also from the same review: sonnet panel 
 blocks the impersonation reload; a superseded check discards its answer when the newer one fails).
 
 ## 434. Production schema drift: code reads columns of unapplied staged DDL (Phase 8.3 check, 2026-11-14)
+
+**Closed in code (2026-11-15).** PR #1333 (`3bce1d999`) promoted the six staged files through `deploy.yml`; the deploy of that commit succeeded, and PR #1338 (`dcfa2d6b5`) fits the three CIC builds inside the ssh-action window. The production Verify check below (object presence, a day of log) is still open: it needs owner-permitted read-only SSH (`docs/runbooks/vacancy-sourcing.md` §13.1).
 
 **Symptoms.** Six files of `apps/api/drizzle/manual-staged/` have no objects in production: the run metrics and
 `job_sources.slowdown_level` (`2026-10-31_job_run_metrics_slowdown`), `job_source_health_events`, the two partial
@@ -7971,3 +7981,21 @@ item 1. Blocks every activation wave (`docs/runbooks/vacancy-sourcing.md` §11.0
 fails CI when the Drizzle schema declares a column no applied `manual/` file creates would stop the next one.
 
 Sources: Master read-only production check, 2026-11-14 (owner-permitted SSH).
+
+## 435. Local stand gaps seen during the 2026-11-15 found-along-the-way waves (2026-11-15)
+
+**Symptoms.**
+
+- TanStack Router logs a `_nonReactive` error from `loadRouteMatch` on some navigations in dev. Not reproduced on
+  demand; the router pair is EXACT-pinned (`.claude/rules/common/version-pins.md`), so a fix is a pin decision.
+- The shared local `crm_qa` database is behind the Drizzle schema: agents create per-task scratch databases instead.
+- A fresh worktree needs `pnpm install --frozen-lockfile` and `pnpm --filter @crm/web build` (for `routeTree.gen.ts`)
+  before `db:push` and web tests work; agents keep rediscovering it.
+
+**Status.** Owner call: the router item touches version pins; the other two are local-stand hygiene (refresh
+`crm_qa` from the schema, or document scratch databases as the norm; a worktree bootstrap script).
+
+**Verify.** No `_nonReactive` error in a dev session over the job-queue flow; `crm_qa` matches the schema
+(`db:push` on it is a no-op); a fresh worktree runs the web unit suite after one bootstrap command.
+
+Sources: Master, wave 1-3 coder and manual-qa reports (2026-11-14/15).
