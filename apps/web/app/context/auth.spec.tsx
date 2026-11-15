@@ -379,6 +379,23 @@ describe('AuthProvider — locale activation from /auth/me', () => {
     expect(result.current.isLoading).toBe(true)
   })
 
+  // PR #1343 CR-L: a failed locale is not retried for the same user (A1), even when the session
+  // leaves it and comes back to it: a late success would remount the tree under the user.
+  it('does not re-attempt a failed locale when the same user returns to it', async () => {
+    vi.mocked(activateLocale).mockRejectedValueOnce(new Error('chunk load failed'))
+    queryResult = { data: { ...mockUser, locale: 'en' }, isPending: false, isFetching: false }
+    const { result, rerender } = renderHook(() => useAuth(), { wrapper })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    queryResult = { data: { ...mockUser, locale: 'uk' }, isPending: false, isFetching: false }
+    rerender()
+    queryResult = { data: { ...mockUser, locale: 'en' }, isPending: false, isFetching: false }
+    rerender()
+
+    expect(result.current.isLoading).toBe(false)
+    expect(activateLocale).toHaveBeenCalledTimes(1)
+  })
+
   describe('a catalog load that never settles (PR #1343 SR-L-1)', () => {
     beforeEach(() => {
       vi.useFakeTimers()
@@ -438,6 +455,57 @@ describe('AuthProvider — locale activation from /auth/me', () => {
       unmount()
       await act(async () => {
         await vi.advanceTimersByTimeAsync(10_000)
+      })
+      expect(reportClientError).not.toHaveBeenCalled()
+    })
+
+    // PR #1343 CR-M-3: an attempt superseded by another session is retired; its late rejection
+    // must neither report nor overwrite the new user's failure, or B is pinned to the skeleton.
+    it('ignores a late rejection of an attempt superseded by another user', async () => {
+      let rejectA: (reason: unknown) => void = () => {}
+      vi.mocked(activateLocale).mockReturnValueOnce(
+        new Promise<void>((_, rejectLate) => {
+          rejectA = rejectLate
+        }),
+      )
+      queryResult = { data: { ...mockUser, locale: 'en' }, isPending: false, isFetching: false }
+      const { result, rerender } = renderHook(() => useAuth(), { wrapper })
+
+      vi.mocked(activateLocale).mockReturnValueOnce(new Promise<void>(() => {}))
+      const userB = { ...mockUser, id: 'b0000000-0000-4000-8000-000000000002', locale: 'en' }
+      queryResult = { data: userB, isPending: false, isFetching: false }
+      rerender()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000)
+      })
+      expect(result.current.isLoading).toBe(false)
+
+      await act(async () => {
+        rejectA(new Error('chunk load failed'))
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      expect(reportClientError).toHaveBeenCalledTimes(1)
+      expect(reportClientError).toHaveBeenCalledWith(
+        'Session locale en failed to activate: timed out after 10000 ms',
+        { stack: expect.any(String) },
+      )
+      expect(result.current.isLoading).toBe(false)
+    })
+
+    it('reports nothing for an activation that rejects after its provider unmounted', async () => {
+      let reject: (reason: unknown) => void = () => {}
+      vi.mocked(activateLocale).mockReturnValueOnce(
+        new Promise<void>((_, rejectLate) => {
+          reject = rejectLate
+        }),
+      )
+      queryResult = { data: { ...mockUser, locale: 'en' }, isPending: false, isFetching: false }
+      const { unmount } = renderHook(() => useAuth(), { wrapper })
+
+      unmount()
+      await act(async () => {
+        reject(new Error('chunk load failed'))
+        await vi.advanceTimersByTimeAsync(0)
       })
       expect(reportClientError).not.toHaveBeenCalled()
     })
