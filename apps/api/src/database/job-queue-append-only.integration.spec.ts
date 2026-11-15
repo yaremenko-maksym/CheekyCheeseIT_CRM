@@ -9,8 +9,7 @@ import {
   GRANTS_DDL,
   applyDeployDdlFile,
   applyProductionRetentionOwnerGrants,
-  dropRolesCreated,
-  existingDeployRoles,
+  dropRolesCreatedReportingLeaks,
   installDeployRoles,
   productionRetentionOwnerGrants,
   revokeRetentionOwnerActionLogPrivileges,
@@ -366,10 +365,11 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       // Leave the cluster as this suite found it. A no-op on CI, where a sibling
       // creates the roles first; on a fresh cluster it is what stops this suite
       // leaking them.
+      // A role another database of the cluster still depends on (2BP01) is logged and left,
+      // not a teardown failure: see `dropRolesCreatedReportingLeaks`.
       let leaked: string[] = []
       try {
-        await dropRolesCreated(pool, rolesCreatedHere)
-        if (rolesCreatedHere.length > 0) leaked = await existingDeployRoles(pool)
+        leaked = await dropRolesCreatedReportingLeaks(pool, rolesCreatedHere)
       } finally {
         await pool.end()
       }

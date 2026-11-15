@@ -67,8 +67,7 @@ import { splitSqlStatements } from './manual-sql-statements'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
 import { parkConcurrentBuild, withNotices } from './__test-helpers__/concurrent-index-build'
 import {
-  dropRolesCreated,
-  existingDeployRoles,
+  dropRolesCreatedReportingLeaks,
   installDeployRoles,
 } from './__test-helpers__/deploy-ddl-preconditions'
 
@@ -1262,8 +1261,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
     }, 180_000)
 
     afterAll(async () => {
-      await dropRolesCreated(pool, rolesCreatedHere)
-      const leaked = rolesCreatedHere.length > 0 ? await existingDeployRoles(pool) : []
+      const leaked = await dropRolesCreatedReportingLeaks(pool, rolesCreatedHere)
       if (leaked.length > 0) {
         throw new Error(`teardown left role(s) behind in the cluster: ${leaked.join(', ')}`)
       }
