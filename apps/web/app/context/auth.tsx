@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { notifyManager, useQuery, useQueryClient, useIsRestoring } from '@tanstack/react-query'
 import type { Query, QueryClient } from '@tanstack/react-query'
 import { del as idbDel } from 'idb-keyval'
@@ -39,6 +39,15 @@ async function fetchMe(timeout = 0): Promise<SessionUser | null> {
   }
   // API already validates shape via JWT — trust the response and cast directly
   return res.data
+}
+
+/**
+ * The session's `locale` differs from the active one and the user did not just pick the active one
+ * on this device (`isLocaleConfirmedByUser`, see `AuthProvider`'s locale effect). `i18n.locale` is
+ * typed as plain `string` by `@lingui/core`, the same cast `useLocale()` applies.
+ */
+function needsActivation(sessionLocale: Locale): boolean {
+  return sessionLocale !== i18n.locale && !isLocaleConfirmedByUser(i18n.locale as Locale)
 }
 
 const AUTH_ME_KEY = ['auth', 'me'] as const
@@ -216,7 +225,17 @@ export function AuthProvider({ children, skip }: { children: ReactNode; skip?: b
   // isLoading = true while IndexedDB is being restored OR while the auth
   // query is in-flight.  This prevents the guard from seeing user=null
   // prematurely during the restore window.
-  const isLoading = isRestoring || (isPending && isFetching)
+  // A session locale whose catalog failed to load: released from the wait below, the app stays in
+  // the active locale rather than on a pending screen forever.
+  const [failedLocale, setFailedLocale] = useState<Locale | null>(null)
+  // The session's `locale` still has to be activated. Activating it remounts everything below
+  // `LocaleScopedApp`'s `<Fragment key={locale}>` (`routes/__root.tsx`), so until then consumers
+  // see `isLoading` and render their pending UI: nothing the user could interact with is torn
+  // down by that remount at first login. `i18n.locale` read in render is current because that
+  // same key remounts this provider on every activation.
+  const sessionLocaleToApply =
+    !!data?.locale && data.locale !== failedLocale && needsActivation(data.locale)
+  const isLoading = isRestoring || (isPending && isFetching) || sessionLocaleToApply
 
   // task-i18n-stage2 (Task 6): the session's own `locale` is the source of
   // truth once known — it can differ from the pre-login guess `client.tsx`
@@ -245,10 +264,9 @@ export function AuthProvider({ children, skip }: { children: ReactNode; skip?: b
       clearConfirmedUserLocaleIfSettled(data.locale)
       return
     }
-    // `i18n.locale` is typed as plain `string` by `@lingui/core` — same cast
-    // `useLocale()` (`lib/i18n.ts`) already applies to it.
-    if (isLocaleConfirmedByUser(i18n.locale as Locale)) return
-    void activateLocale(data.locale)
+    if (!needsActivation(data.locale)) return
+    const locale = data.locale
+    activateLocale(locale).catch(() => setFailedLocale(locale))
   }, [data?.locale])
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })

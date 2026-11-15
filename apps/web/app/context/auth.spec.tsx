@@ -153,7 +153,8 @@ describe('AuthProvider — locale activation from /auth/me', () => {
   beforeEach(() => {
     isRestoringValue = false
     queryResult = { data: undefined, isPending: false, isFetching: false }
-    vi.mocked(activateLocale).mockClear()
+    // A promise, as the real one returns: the effect chains `.catch` on it.
+    vi.mocked(activateLocale).mockClear().mockResolvedValue(undefined)
     // Real i18n singleton, no dynamic .po import needed — `.load()` with an
     // empty catalog is enough for `.activate()` to accept the locale (same
     // pattern as `i18n-smoke.test.tsx`).
@@ -183,6 +184,45 @@ describe('AuthProvider — locale activation from /auth/me', () => {
     renderHook(() => useAuth(), { wrapper })
 
     expect(activateLocale).toHaveBeenCalledWith('en')
+  })
+
+  // First login on a device whose pre-login locale differs from the profile's: consumers keep their
+  // pending UI until the session locale is active, so the remount it causes destroys no user state.
+  it('keeps isLoading=true while a differing session locale is being activated', () => {
+    queryResult = { data: { ...mockUser, locale: 'en' }, isPending: false, isFetching: false }
+
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    expect(result.current.isLoading).toBe(true)
+  })
+
+  it('keeps isLoading=false when the session locale already matches (no extra wait)', () => {
+    queryResult = { data: { ...mockUser, locale: 'uk' }, isPending: false, isFetching: false }
+
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    expect(result.current.isLoading).toBe(false)
+  })
+
+  it('keeps isLoading=false when the active locale was just confirmed by the user on this device', () => {
+    markLocaleConfirmedByUser('en')
+    i18n.load('en', {})
+    i18n.activate('en')
+    queryResult = { data: { ...mockUser, locale: 'uk' }, isPending: false, isFetching: false }
+
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    expect(result.current.isLoading).toBe(false)
+  })
+
+  it('releases isLoading when the session catalog fails to load, staying in the active locale', async () => {
+    vi.mocked(activateLocale).mockRejectedValueOnce(new Error('chunk load failed'))
+    queryResult = { data: { ...mockUser, locale: 'en' }, isPending: false, isFetching: false }
+
+    const { result } = renderHook(() => useAuth(), { wrapper })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(i18n.locale).toBe('uk')
   })
 
   it('does not call activateLocale when the session locale already matches the active one', () => {
