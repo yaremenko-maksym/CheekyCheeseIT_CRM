@@ -154,6 +154,11 @@ export const seniorResumes = pgTable(
      * failure of that run restores it whole (FR-A-2); every other end of the run clears it.
      */
     stagedPrevious: jsonb('staged_previous').$type<Record<string, unknown>>(),
+    /**
+     * Set when a redaction input of the owner (display name, legal name, Telegram) changes while the
+     * resume is VERIFIED (backlog 442); a confirmed verification clears it. NULL = nothing to re-check.
+     */
+    recheckNeededAt: timestamp('recheck_needed_at', { withTimezone: true }),
 
     updatedByUserId: uuid('updated_by_user_id').references(() => users.id, {
       onDelete: 'set null',
