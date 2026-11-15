@@ -6,8 +6,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen } from '@testing-library/react'
-import { useEffect, type PropsWithChildren, type ReactNode } from 'react'
-import { QueryClientProvider } from '@tanstack/react-query'
+import { type PropsWithChildren, type ReactNode } from 'react'
+import { QueryClientProvider, useQuery } from '@tanstack/react-query'
 import {
   createMemoryHistory,
   createRootRouteWithContext,
@@ -15,7 +15,6 @@ import {
   createRouter,
   Outlet,
   RouterProvider,
-  useNavigate,
   type ParsedLocation,
 } from '@tanstack/react-router'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
@@ -35,9 +34,13 @@ vi.mock('@/components/users/UserAvatar', () => ({ UserAvatar: () => null }))
 vi.mock('@/components/brand-mark', () => ({ BrandMark: () => null }))
 
 import { queryClient } from '@/lib/query-client'
-import { useAuth } from '@/context/auth'
 import { navigationContext, type RouterContext } from '@/lib/router-context'
 import { Route } from '../route'
+import { Route as IndexRoute } from '../index'
+
+// the real `/`: it sends a JUNIOR on to their own hub
+const IndexPage = IndexRoute.options.component!
+const Index = () => <IndexPage />
 
 const user = (id: string, role: string) => ({
   id,
@@ -77,14 +80,10 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-function Index() {
-  // index.tsx: a JUNIOR is sent from `/` to their own hub
-  const { user: current } = useAuth()
-  const navigate = useNavigate()
-  useEffect(() => {
-    if (current?.role === 'JUNIOR') void navigate({ to: '/project', replace: true })
-  }, [current?.role, navigate])
-  return <div>dashboard</div>
+function MyProject() {
+  // project.tsx: the JUNIOR hub asks for its projects, an endpoint the API refuses before onboarding
+  useQuery({ queryKey: ['projects', 'junior'], queryFn: () => apiGet('/projects') })
+  return <div>my project</div>
 }
 
 // The tree is built at runtime with the app's real layout, so its route types are not the app's
@@ -122,7 +121,7 @@ function crmAt(path: string): CrmTestRouter {
     routeTree: root.addChildren([
       layout.addChildren([
         page('/', Index),
-        page('/project', () => <div>my project</div>),
+        page('/project', MyProject),
         page('/job-queue', () => <div>job queue</div>),
         page('/onboarding', () => <div>onboarding wizard</div>),
       ]),
@@ -175,5 +174,52 @@ describe('_authenticated: a not-onboarded user lands on /onboarding (QA-HIGH-1)'
     me = ivan // another tab signed in as ivan
     await act(() => crm.crm.navigate({ to: '/' }))
     await expectOnboarding(crm)
+  })
+
+  // PR #1334 QA-LOW-2: the switch purges the onboarding status, and `/` sends the JUNIOR on to
+  // `/project`, whose own session check races the status refetch. When the check won, the hub
+  // asked for `/projects` as the not-onboarded account (403) before the redirect.
+  it.each([
+    ['as fast as', 10],
+    ['slower than', 30],
+  ])(
+    'a switch to a not-onboarded JUNIOR (status %s auth/me) never asks for the hub projects',
+    async (_, statusMs) => {
+      apiGet.mockImplementation((url: string) => {
+        if (url === '/auth/me') return answer(me, 10)
+        if (url === '/onboarding/status')
+          return answer(me === anna ? onboarded : notOnboarded, statusMs)
+        return answer(null)
+      })
+      me = anna
+      const crm = renderCrmAt('/job-queue')
+      expect(await screen.findByText('job queue', {}, { timeout: 3000 })).toBeInTheDocument()
+
+      me = ivan
+      await act(() => crm.crm.navigate({ to: '/' }))
+      await expectOnboarding(crm)
+      expect(apiGet).not.toHaveBeenCalledWith('/projects')
+    },
+  )
+
+  // the other side of the same gate: `/` still sends a JUNIOR to their hub once the status is in
+  it('an onboarded JUNIOR is sent on from / to their hub', async () => {
+    apiGet.mockImplementation((url: string) =>
+      url === '/onboarding/status' ? answer(onboarded) : answer(url === '/auth/me' ? me : null),
+    )
+    const { crm } = renderCrmAt('/')
+    expect(await screen.findByText('my project', {}, { timeout: 3000 })).toBeInTheDocument()
+    expect(crm.state.location.pathname).toBe('/project')
+  })
+
+  it('a JUNIOR whose onboarding status fails is still sent on to their hub', async () => {
+    apiGet.mockImplementation((url: string) =>
+      url === '/onboarding/status'
+        ? Promise.reject(new Error('status down'))
+        : answer(url === '/auth/me' ? me : null),
+    )
+    const { crm } = renderCrmAt('/')
+    expect(await screen.findByText('my project', {}, { timeout: 4000 })).toBeInTheDocument()
+    expect(crm.state.location.pathname).toBe('/project')
   })
 })

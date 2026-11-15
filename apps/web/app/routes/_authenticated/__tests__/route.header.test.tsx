@@ -47,7 +47,10 @@ const MOCK_USER: SessionUser = {
   impersonating: false,
 }
 
-const { revalidateSession } = vi.hoisted(() => ({ revalidateSession: vi.fn() }))
+const { revalidateSession, routerState } = vi.hoisted(() => ({
+  revalidateSession: Object.assign(vi.fn(), { settled: vi.fn() }),
+  routerState: { status: 'idle', location: { pathname: '/', href: '/' } },
+}))
 vi.mock('@/context/auth', () => ({
   useAuth: () => ({ user: MOCK_USER, isLoading: false }),
   AuthProvider: ({ children }: React.PropsWithChildren) => children,
@@ -64,7 +67,8 @@ vi.mock('@tanstack/react-router', async () => {
   return {
     ...actual,
     useNavigate: () => vi.fn(),
-    useRouterState: () => ({ pathname: '/' }),
+    useRouterState: ({ select }: { select: (s: typeof routerState) => unknown }) =>
+      select(routerState),
     Outlet: () => <div data-testid="mock-outlet" />,
     Link: ({
       children,
@@ -147,6 +151,19 @@ describe('CrmLayout header (routes/_authenticated/route.tsx)', () => {
     await user.click(screen.getByTestId('header-user-menu-trigger'))
     expect(screen.getByTestId('header-user-menu-profile')).toHaveTextContent('Профіль')
     expect(screen.getByTestId('header-user-menu-logout')).toHaveTextContent('Вийти')
+  })
+})
+
+describe('refetch after an account switch (backlog 433)', () => {
+  it('lets the purged queries refetch only once the router is idle again', () => {
+    revalidateSession.settled.mockClear()
+    routerState.status = 'pending'
+    const { rerender } = render(<CrmRoot />)
+    expect(revalidateSession.settled).not.toHaveBeenCalled()
+
+    routerState.status = 'idle'
+    rerender(<CrmRoot />)
+    expect(revalidateSession.settled).toHaveBeenCalledTimes(1)
   })
 })
 

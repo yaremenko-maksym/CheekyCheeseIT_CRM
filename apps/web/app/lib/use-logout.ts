@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { del as idbDel } from 'idb-keyval'
 import { api } from '@/lib/axios'
 import { resetLocaleConfirmation } from '@/lib/i18n'
+import { purgePersistedBeforeReload } from '@/lib/persister'
 
 /**
  * Полный логаут: серверная сессия + все клиентские данные пользователя.
@@ -27,10 +27,10 @@ export function useLogout(): () => void {
         // 1. Сбросить TanStack Query in-memory кеш
         queryClient.clear()
 
-        // 2. Удалить persist-ключ TanStack Query из IndexedDB.
-        //    Точечное удаление по ключу из persister.ts ('crm-query-cache') —
-        //    не трогаем другие IDB-данные.
-        await idbDel('crm-query-cache')
+        // 2. Delete only the persisted query cache key (PERSIST_KEY), no other IDB data. The purge
+        //    stops every later persist write first, so a save `clear()` itself started cannot land
+        //    after the delete with the previous user's rows (PR #1334 SR-L-2)
+        await purgePersistedBeforeReload()
 
         // 3. Удалить SW runtime кеши (api-cache + media-cache)
         //    Precache-стор ('workbox-precache-*') не трогаем

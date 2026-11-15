@@ -5,16 +5,47 @@
  * @tanstack/query-async-storage-persister to create a Persister compatible
  * with PersistQueryClientProvider.
  *
- * KEY CONTRACT: The storage key MUST match the key deleted by use-logout.ts
- * (idbDel('crm-query-cache')). Both must stay in sync — changing the key here
- * without updating use-logout.ts causes a security leak: stale user data
- * survives logout on shared devices.
+ * KEY CONTRACT: logout (use-logout.ts), impersonation start / stop and a 401
+ * delete exactly `PERSIST_KEY`; logout and impersonation go through
+ * `purgePersistedBeforeReload` below. A key deleted anywhere else must be this
+ * constant, or stale user data survives logout on shared devices.
  */
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister'
 import { get, set, del } from 'idb-keyval'
 
-/** Must match the key deleted in use-logout.ts → idbDel('crm-query-cache'). */
+/** The one persisted key; every purge deletes exactly this (see KEY CONTRACT above). */
 export const PERSIST_KEY = 'crm-query-cache'
+
+/** How long a reload waits for the persisted copy to go before it reloads anyway. */
+export const PURGE_BEFORE_RELOAD_MS = 1500
+
+/**
+ * Set by `purgePersistedBeforeReload` (SO-4); this page then never writes the persisted copy again.
+ * One-way on purpose: if the reload it precedes is cancelled (the browser's "Leave site?" prompt
+ * answered Stay), persistence stays off silently until the next full load. That fails safe, an
+ * account switch never leaves a copy behind, and costs only the offline cache of that page.
+ */
+let persistingStopped = false
+
+/**
+ * Stops persisting, then deletes the persisted copy before a hard reload (impersonation start /
+ * stop, logout). No write lands after the delete: `PersistQueryClientProvider` exposes no unsubscribe, so
+ * the storage adapter below drops every later `setItem`, including a throttled persist or one from
+ * a refetch under the old cookie (SO-4). Settles within `PURGE_BEFORE_RELOAD_MS` even when
+ * IndexedDB never answers (backlog 433), so the reload is never stuck. A copy that survives a
+ * failed delete is still refused after the reload: its owner is not the new `auth/me` user
+ * (SR-M-1, `takeRestoredCacheOwner`).
+ */
+export function purgePersistedBeforeReload(): Promise<void> {
+  persistingStopped = true
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    del(PERSIST_KEY).catch(() => {}),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, PURGE_BEFORE_RELOAD_MS)
+    }),
+  ]).finally(() => clearTimeout(timer))
+}
 
 /**
  * idb-keyval adapter conforming to the AsyncStorage interface expected by
@@ -23,7 +54,8 @@ export const PERSIST_KEY = 'crm-query-cache'
  */
 const idbStorage = {
   getItem: (key: string) => get<string>(key),
-  setItem: (key: string, value: string) => set(key, value),
+  setItem: (key: string, value: string) =>
+    persistingStopped ? Promise.resolve() : set(key, value),
   removeItem: (key: string) => del(key),
 }
 

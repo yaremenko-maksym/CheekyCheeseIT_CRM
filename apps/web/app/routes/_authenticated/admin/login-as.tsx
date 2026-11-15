@@ -6,10 +6,9 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { UserProfileDto } from '@crm/shared'
-import { del as idbDel } from 'idb-keyval'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
-import { PERSIST_KEY } from '@/lib/persister'
+import { purgePersistedBeforeReload } from '@/lib/persister'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
@@ -71,9 +70,10 @@ function LoginAsPageContent({ meId }: { meId: string }) {
     onSuccess: async () => {
       // Hard reload to root — flushes all cached queries so the new session
       // starts fresh as the impersonated user. The admin's persisted copy goes
-      // too, so the reload cannot restore it (PR #1330 SR-M-1).
+      // too, so the reload cannot restore it (PR #1330 SR-M-1); the purge stops every later
+      // persist write before it deletes, so nothing puts it back (PR #1334 SO-4).
       queryClient.clear()
-      await idbDel(PERSIST_KEY).catch(() => {})
+      await purgePersistedBeforeReload()
       window.location.href = '/'
     },
     onError: (err: unknown) => {

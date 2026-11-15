@@ -80,6 +80,8 @@ import {
   markStrippedQueries,
   setPersistedCacheOwner,
   takeRestoredCacheOwner,
+  purgePersistedBeforeReload,
+  PURGE_BEFORE_RELOAD_MS,
 } from './persister'
 
 // ---------------------------------------------------------------------------
@@ -553,5 +555,61 @@ describe('persister — cache owner', () => {
     await restoreWith(withQueries('user-anna'))
     expect(serialize({ clientState: { queries: [] } }).owner).toBe('user-anna')
     takeRestoredCacheOwner()
+  })
+})
+
+describe('purgePersistedBeforeReload (backlog 433): a reload is never stuck on IndexedDB', () => {
+  it('settles when the delete settles, and deletes exactly the persisted key', async () => {
+    hoisted.mockDel.mockResolvedValueOnce(undefined)
+    await purgePersistedBeforeReload()
+    expect(hoisted.mockDel).toHaveBeenCalledWith('crm-query-cache')
+  })
+
+  it('settles when the delete fails', async () => {
+    hoisted.mockDel.mockRejectedValueOnce(new Error('idb unavailable'))
+    await expect(purgePersistedBeforeReload()).resolves.toBeUndefined()
+  })
+
+  it('settles after 1.5 s when the delete never answers, not before', async () => {
+    vi.useFakeTimers()
+    try {
+      hoisted.mockDel.mockReturnValueOnce(new Promise(() => {}))
+      let settled = false
+      void purgePersistedBeforeReload().then(() => (settled = true))
+      expect(PURGE_BEFORE_RELOAD_MS).toBe(1500)
+      await vi.advanceTimersByTimeAsync(1499)
+      expect(settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(settled).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('leaves no timer behind when the delete wins the race (SO-3)', async () => {
+    vi.useFakeTimers()
+    try {
+      hoisted.mockDel.mockResolvedValueOnce(undefined)
+      await purgePersistedBeforeReload()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops every later write, so a throttled persist cannot put the cache back after the delete (SO-4)', async () => {
+    // the stop is one-way for the page (a reload follows it): a fresh module, unstopped
+    vi.resetModules()
+    const { purgePersistedBeforeReload: purgeFresh } = await import('./persister')
+    const storage = hoisted.capturedOptionsRef.current?.storage
+    hoisted.mockSet.mockClear()
+    await storage?.setItem(PERSIST_KEY, '{"before":"purge"}')
+    expect(hoisted.mockSet).toHaveBeenCalledTimes(1)
+    hoisted.mockSet.mockClear()
+
+    await purgeFresh()
+    await storage?.setItem(PERSIST_KEY, '{"impersonated":"rows"}')
+
+    expect(hoisted.mockSet).not.toHaveBeenCalled()
   })
 })
