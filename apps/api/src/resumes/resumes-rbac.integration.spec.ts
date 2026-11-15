@@ -1137,8 +1137,29 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── The render job: state, freshness and supersession, against a real DB ──
 
     describe('rendered PDF', () => {
-      /** Drain the detached render kicked off by a save. */
-      const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 50))
+      /**
+       * Drain the detached render kicked off by a save: wait until the row
+       * reaches a terminal render state.
+       *
+       * This used to be a fixed 50 ms sleep, which raced the detached job — its
+       * claim is an UPDATE, and on a loaded CI Postgres that UPDATE alone can
+       * outlast 50 ms, so the assertion ran before `typst.render` was reached
+       * ("expected 1 times, but got 0 times"). Waiting on the state the job
+       * writes is deterministic. It cannot end early on a previous render's
+       * READY: the save awaits its own QUEUED write before it returns.
+       */
+      const settle = async (): Promise<void> => {
+        await vi.waitFor(
+          async () => {
+            const [row] = await dbSvc.db
+              .select({ status: seniorResumes.pdfRenderStatus })
+              .from(seniorResumes)
+              .where(eq(seniorResumes.userId, SENIOR_A.id))
+            expect(['READY', 'FAILED']).toContain(row?.status)
+          },
+          { timeout: 10_000, interval: 20 },
+        )
+      }
 
       it('a save queues a render and the finished PDF is served from storage', async () => {
         typst.render.mockClear()
