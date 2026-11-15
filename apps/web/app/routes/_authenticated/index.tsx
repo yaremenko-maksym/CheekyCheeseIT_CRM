@@ -6,6 +6,7 @@ import { Trans, useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/context/auth'
+import { useOnboardingGate } from '@/context/onboarding'
 import { useAdminSummary, ADMIN_SUMMARY_QUERY_KEY } from '@/hooks/use-admin-summary'
 import { useQueryClient } from '@tanstack/react-query'
 import { KpiCard } from './finance/components/KpiCards'
@@ -48,13 +49,18 @@ const item = {
 function CrmDashboard() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const onboarding = useOnboardingGate()
+  // PR #1334 QA-LOW-2: only once the onboarding status is in. A not-onboarded JUNIOR is the
+  // layout's to send to /onboarding; leaving earlier raced that redirect and opened the hub, which
+  // asked the API for its projects as the not-onboarded account (403). A failed status still leaves.
+  const juniorMayLeave = onboarding.isComplete || onboarding.isError
 
   // JUNIOR UX: JUNIOR имеет собственный хаб «Мой проект» — редиректим с корня.
   useEffect(() => {
-    if (user?.role === 'JUNIOR') {
+    if (user?.role === 'JUNIOR' && juniorMayLeave) {
       void navigate({ to: '/project', replace: true })
     }
-  }, [user?.role, navigate])
+  }, [user?.role, juniorMayLeave, navigate])
   if (user?.role === 'JUNIOR') return null
 
   // DROP role: платёжный хаб вместо общего дашборда.
