@@ -2555,8 +2555,10 @@ docker compose \
 echo "==> job opportunities store indexes applied successfully"
 
 # Source: apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql
-# CREATE INDEX CONCURRENTLY: no --single-transaction (cannot run in a transaction block). An
-# interrupted build leaves an INVALID index that IF NOT EXISTS keeps: check pg_index.indisvalid.
+# CREATE INDEX CONCURRENTLY: no --single-transaction (cannot run in a transaction block). Since
+# #1333 the file opens with a sweep that drops an abandoned INVALID index and closes with a check
+# that raises on NOT indisvalid; the interrupted-build case is therefore handled by the sweep +
+# closing check, not by IF NOT EXISTS keeping an INVALID index.
 JOB_DIRTY_WORK_PENDING_PARTIAL_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql"
 
 if [ ! -f "$JOB_DIRTY_WORK_PENDING_PARTIAL_FILE" ]; then
@@ -2576,8 +2578,9 @@ docker compose \
 echo "==> job dirty work pending partial index applied successfully"
 
 # Source: apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql
-# CREATE INDEX CONCURRENTLY: no --single-transaction. Same INVALID-index caveat as above; the
-# repair (DROP INDEX CONCURRENTLY, re-apply) is in the file header.
+# CREATE INDEX CONCURRENTLY: no --single-transaction. Same since-#1333 handling as the pending
+# partial file above: the sweep drops an abandoned INVALID index and the closing check raises on
+# NOT indisvalid; the repair is the next deploy's re-apply of this file.
 JOB_DIRTY_WORK_PARTITION_PARTIAL_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql"
 
 if [ ! -f "$JOB_DIRTY_WORK_PARTITION_PARTIAL_FILE" ]; then

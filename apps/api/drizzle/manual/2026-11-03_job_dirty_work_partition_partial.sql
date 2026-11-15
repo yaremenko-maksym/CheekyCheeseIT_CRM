@@ -56,21 +56,26 @@
 --     behind a reader queues the hot queue behind itself, so it fails fast instead;
 --   * the CREATE (section 2) runs under `lock_timeout = '5min'`, set right before it: it takes only
 --     ShareUpdateExclusive (no reader or writer of the queue waits on it) and then waits out every
---     transaction older than its own snapshot. 5 min tolerates normal transactions, and ONE such wait
---     fits inside the 10-minute ssh-action cut below: a transaction open longer than 5 min fails the build
---     loudly inside the deploy window (INVALID index, section 3 fails the deploy, the next deploy's
---     sweep drops and rebuilds it) instead of the step being killed mid-build. The timeout bounds
---     each wait, not the statement; `statement_timeout` bounds the whole build. Waits add up: the two
---     dirty-work files run three builds in one deploy step and each build may wait more than once,
---     so several long transactions in a row can still reach the 10-minute cut first (the case below).
+--     transaction older than its own snapshot. 5 min tolerates normal transactions, and ONE such wait fits
+--     inside the 30-minute ssh-action cut below: a transaction still open 5 min after the build starts
+--     waiting on it fails the build loudly inside the deploy window (INVALID index, section 3 fails the
+--     deploy, the next deploy's sweep drops and rebuilds it) instead of the step being killed mid-build. The
+--     timeout bounds each wait, not the statement; `statement_timeout` bounds the whole build. Waits add up:
+--     the two dirty-work files run three builds in one deploy step, and each build waits at several points
+--     and once per older transaction. Each single wait is at most 5 min, but the total has no fixed cap
+--     below `statement_timeout = '30min'` per build, so a chain of transactions each open just under 5 min
+--     can still pass the 30-minute ssh-action cut. The 30-minute cut covers the realistic case (about one
+--     long transaction per build); if the step is cut anyway, the next deploy's sweep drops the INVALID
+--     index and rebuilds it.
 --
 -- A CONCURRENTLY build waits for every transaction holding an old snapshot (twice). In a deploy through
--- GitHub Actions ssh-action (which sets no explicit `command_timeout`), the step has a default 10-minute
--- timeout, which cuts the step if a build stalls and may leave the build running in the background.
--- `statement_timeout = '30min'` bounds a manual apply. If a cut deploy or interrupted build leaves an
--- INVALID index, section 3's closing check fails the deploy loudly before the container swap, and the
--- deployment runbook's INVALID-index query (docs/runbooks/deployment.md §9) identifies it for the
--- operator; the next deploy's sweep drops and rebuilds the abandoned index once no build is in flight.
+-- GitHub Actions ssh-action (which pins `command_timeout: 30m`, PR #1338), the step has an explicit
+-- 30-minute cut, which cuts the step if a build stalls and may leave the build running in the
+-- background. `statement_timeout = '30min'` bounds a manual apply. If a cut deploy or interrupted
+-- build leaves an INVALID index, section 3's closing check fails the deploy loudly before the
+-- container swap, and the deployment runbook's INVALID-index query (docs/runbooks/deployment.md §9)
+-- identifies it for the operator; the next deploy's sweep drops and rebuilds the abandoned index
+-- once no build is in flight.
 --
 -- INVALID LEFTOVERS, AND WHY RE-RUNNING THIS FILE IS THE REPAIR (CR-M-1 / SR-M-1, PR #1333)
 -- -------------------------------------------------------------------------------------------
@@ -146,7 +151,7 @@ END $$;
 
 -- 2. The indexes.
 -- The CREATE's bound (see TWO LOCK TIMEOUTS above): long enough for normal transactions to end;
--- one wait fits inside the 10-minute ssh-action cut, but waits add up (see above).
+-- one wait fits inside the 30-minute ssh-action cut, but waits add up (see above).
 SET lock_timeout = '5min';
 CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_job_dirty_work_pending_match"
   ON "job_dirty_work" USING btree ("status", "created_at")
