@@ -6,7 +6,7 @@ import { insertBackdatedJobQueueActionAsTableOwner } from '../database/__test-he
 import {
   applyDeployDdlFile,
   APPEND_ONLY_TRIGGERS_DDL,
-  dropRolesCreated,
+  dropRolesCreatedReportingLeaks,
   installDeployRoles,
 } from '../database/__test-helpers__/deploy-ddl-preconditions'
 import type { DatabaseService } from '../database/database.service'
@@ -165,7 +165,10 @@ describe('JobQueueActionRetentionCronService — against the real catalog', () =
       await q(`DELETE FROM job_opportunities WHERE id = $1`, [opportunityId])
       await q(`DELETE FROM users WHERE id = $1`, [actorId])
       await q(`REVOKE SELECT, INSERT ON job_queue_actions FROM crm_app`)
-      await dropRolesCreated(pool, rolesCreatedHere)
+      const leaked = await dropRolesCreatedReportingLeaks(pool, rolesCreatedHere)
+      if (leaked.length > 0) {
+        throw new Error(`teardown left role(s) behind in the cluster: ${leaked.join(', ')}`)
+      }
     } finally {
       await pool.end()
     }

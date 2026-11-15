@@ -111,6 +111,14 @@ const TEST_USER_IDS = [
   DROP_USER.id,
 ]
 
+/**
+ * How long a test waits for a DETACHED job (extraction, render) to reach the state it
+ * asserts. `vi.waitFor` defaults to 1 s, and a detached job's claim is a DB round trip:
+ * on a loaded host (a load average of 100+ was measured locally) that alone outlasts
+ * 1 s and the wait times out on a job that was about to finish.
+ */
+const DETACHED_JOB_WAIT = { timeout: 10_000, interval: 20 } as const
+
 /** SENIOR_B's real, recognisable resume — the thing a broken check would leak. */
 const SENIOR_B_SECRET = 'СЕКРЕТНОЕ РЕЗЮМЕ ВТОРОГО СЕНЬОРА'
 const SENIOR_B_CONTENT: ResumeContent = { ...EMPTY_RESUME_CONTENT, summary: SENIOR_B_SECRET }
@@ -448,7 +456,7 @@ describe.skipIf(!hasDatabaseUrl())(
         await vi.waitFor(async () => {
           const dto = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
           expect(dto.resume?.status).toBe('READY')
-        })
+        }, DETACHED_JOB_WAIT)
         const done = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
         expect(done.resume?.content.summary).toBe('извлечено')
         // The text handed to the model really came out of the DOCX.
@@ -466,7 +474,7 @@ describe.skipIf(!hasDatabaseUrl())(
         await vi.waitFor(async () => {
           const dto = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
           expect(dto.resume?.status).toBe('FAILED')
-        })
+        }, DETACHED_JOB_WAIT)
         const failed = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
         expect(failed.resume?.errorCode).toBe('NO_TEXT')
         expect(failed.resume?.errorMessage).toMatch(/вставьте текст/i)
@@ -486,7 +494,7 @@ describe.skipIf(!hasDatabaseUrl())(
         await vi.waitFor(async () => {
           const dto = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
           expect(dto.resume?.status).toBe('FAILED')
-        })
+        }, DETACHED_JOB_WAIT)
         const failed = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
         expect(failed.resume?.errorCode).toBe('QUOTA_EXCEEDED')
         expect(failed.resume?.quotaResetsAt).toBe(resetAt)
@@ -595,7 +603,7 @@ describe.skipIf(!hasDatabaseUrl())(
             .from(seniorResumes)
             .where(eq(seniorResumes.userId, SENIOR_A.id))
           expect(row?.status).toBe(status)
-        })
+        }, DETACHED_JOB_WAIT)
       }
 
       it('R-INT-10a. a manual save during extraction is not overwritten by the model', async () => {
@@ -614,7 +622,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
         // ...and only now does the model answer, with something else entirely.
         model.resolve(extracted('придумано моделью'))
-        await vi.waitFor(() => expect(ai.extractStructure).toHaveBeenCalled())
+        await vi.waitFor(() => expect(ai.extractStructure).toHaveBeenCalled(), DETACHED_JOB_WAIT)
         await new Promise((r) => setTimeout(r, 50))
 
         const after = await service.getForUser(session(HR_USER), SENIOR_A.id)
@@ -651,7 +659,7 @@ describe.skipIf(!hasDatabaseUrl())(
         await vi.waitFor(async () => {
           const dto = await service.getForUser(session(HR_USER), SENIOR_A.id)
           expect(dto.resume?.status).toBe('READY')
-        })
+        }, DETACHED_JOB_WAIT)
         first.resolve(extracted('первый файл — уже удалён'))
         await new Promise((r) => setTimeout(r, 50))
 
@@ -693,7 +701,10 @@ describe.skipIf(!hasDatabaseUrl())(
 
         // A newer submission takes the row while the old run is still loading.
         await service.ingestText(session(HR_USER), SENIOR_A.id, 'Новый вариант резюме. '.repeat(20))
-        await vi.waitFor(() => expect(ai.extractStructure).toHaveBeenCalledTimes(1))
+        await vi.waitFor(
+          () => expect(ai.extractStructure).toHaveBeenCalledTimes(1),
+          DETACHED_JOB_WAIT,
+        )
 
         // Now the stale run finishes loading — and must stop before spending.
         slowLoad.resolve('Текст устаревшего прогона. '.repeat(20))
@@ -725,7 +736,7 @@ describe.skipIf(!hasDatabaseUrl())(
         await vi.waitFor(async () => {
           const dto = await service.getForUser(session(HR_USER), SENIOR_A.id)
           expect(dto.resume?.status).toBe('READY')
-        })
+        }, DETACHED_JOB_WAIT)
 
         const after = await service.getForUser(session(HR_USER), SENIOR_A.id)
         expect(after.resume?.content.summary).toBe('распознано моделью')
@@ -774,7 +785,7 @@ describe.skipIf(!hasDatabaseUrl())(
         await vi.waitFor(async () => {
           const dto = await service.getForUser(session(HR_USER), SENIOR_A.id)
           expect(dto.resume?.status).toBe('READY')
-        })
+        }, DETACHED_JOB_WAIT)
         const dto = await service.getForUser(session(HR_USER), SENIOR_A.id)
         expect(dto.resume?.content.summary).toBe('поднято подметателем')
       })
@@ -919,7 +930,7 @@ describe.skipIf(!hasDatabaseUrl())(
         await vi.waitFor(async () => {
           const dto = await service.getForUser(session(HR_USER), SENIOR_A.id)
           expect(dto.resume?.status).toBe('FAILED')
-        })
+        }, DETACHED_JOB_WAIT)
 
         const dto = await service.getForUser(session(HR_USER), SENIOR_A.id)
         expect(dto.resume?.errorMessage).not.toMatch(/NoSuchKey|bucket|https?:/i)
@@ -1137,8 +1148,29 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── The render job: state, freshness and supersession, against a real DB ──
 
     describe('rendered PDF', () => {
-      /** Drain the detached render kicked off by a save. */
-      const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 50))
+      /**
+       * Drain the detached render kicked off by a save: wait until the row
+       * reaches a terminal render state.
+       *
+       * This used to be a fixed 50 ms sleep, which raced the detached job — its
+       * claim is an UPDATE, and on a loaded CI Postgres that UPDATE alone can
+       * outlast 50 ms, so the assertion ran before `typst.render` was reached
+       * ("expected 1 times, but got 0 times"). Waiting on the state the job
+       * writes is deterministic. It cannot end early on a previous render's
+       * READY: the save awaits its own QUEUED write before it returns.
+       */
+      const settle = async (): Promise<void> => {
+        await vi.waitFor(async () => {
+          const [row] = await dbSvc.db
+            .select({ status: seniorResumes.pdfRenderStatus })
+            .from(seniorResumes)
+            .where(eq(seniorResumes.userId, SENIOR_A.id))
+          expect(
+            ['READY', 'FAILED'],
+            `render did not reach READY/FAILED within ${DETACHED_JOB_WAIT.timeout} ms (last status: ${row?.status ?? 'no row'})`,
+          ).toContain(row?.status)
+        }, DETACHED_JOB_WAIT)
+      }
 
       it('a save queues a render and the finished PDF is served from storage', async () => {
         typst.render.mockClear()
@@ -1177,6 +1209,11 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(served.ready).toBe(false)
         // ...and the fingerprint mismatch is what noticed, so nothing stale went out.
         expect(s3.getObject).not.toHaveBeenCalled()
+
+        // The re-queue kicked a detached render. Drain it here: left running, it
+        // reaches `typst.render` during the NEXT test and consumes that test's
+        // `mockImplementationOnce`.
+        await settle()
       })
 
       it('a render superseded while it ran erases its own output instead of stranding it', async () => {
