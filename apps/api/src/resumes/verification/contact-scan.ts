@@ -115,7 +115,8 @@ function foldAccents(text: string): { text: string; from: number[]; to: number[]
  * the first name; accent-folded, so they run on `foldAccents` text.
  */
 function namePatterns(fullName: string): RegExp[] {
-  const name = foldAccents(fullName.normalize('NFC').replace(APOSTROPHES, "'")).text
+  // Normalised like the text, so a name with a ligature, a ZWNJ or fullwidth letters matches itself.
+  const name = foldAccents(normaliseContactText(fullName).text.replace(APOSTROPHES, "'")).text
   const parts = name.trim().split(/\s+/u)
   const surname = parts.at(-1) ?? ''
   const sources = [parts.map(escapeRegExp).join(NAME_GAP)]
@@ -131,7 +132,7 @@ function namePatterns(fullName: string): RegExp[] {
  * availability, not a leak.
  */
 function telegramPattern(telegram: string | null | undefined): RegExp | null {
-  const handle = normaliseTelegramHandle(telegram)
+  const handle = normaliseTelegramHandle(telegram && normaliseContactText(telegram).text)
   return !handle ? null : new RegExp(`(?<!\\w)@*${escapeRegExp(handle)}(?!\\w)`, 'giu')
 }
 
@@ -143,7 +144,7 @@ function telegramPattern(telegram: string | null | undefined): RegExp | null {
 function contactPatterns(ctx: ContactContext): [ContactHit['kind'], RegExp][] {
   const global = (p: RegExp) => new RegExp(p.source, `${p.flags}g`)
   const literalEmails = ctx.emails
-    .map((email) => email.normalize('NFC').trim())
+    .map((email) => normaliseContactText(email).text.trim())
     .filter(Boolean)
     .map((email): [ContactHit['kind'], RegExp] => ['email', new RegExp(escapeRegExp(email), 'giu')])
   const telegram = telegramPattern(ctx.telegram)
@@ -156,7 +157,11 @@ function contactPatterns(ctx: ContactContext): [ContactHit['kind'], RegExp][] {
 }
 
 /** Every raw hit on the normalised text, mapped back to the original text offsets, sorted by start, longer first on a tie. */
-function findSpans(norm: ReturnType<typeof normaliseContactText>, ctx: ContactContext): Span[] {
+function findSpans(
+  text: string,
+  norm: ReturnType<typeof normaliseContactText>,
+  ctx: ContactContext,
+): Span[] {
   const normText = norm.text
   const plain = normText.replace(APOSTROPHES, "'")
   const rawSpans: Span[] = []
@@ -201,7 +206,7 @@ function findSpans(norm: ReturnType<typeof normaliseContactText>, ctx: ContactCo
     // Stryker disable next-line ConditionalExpression: fallback only if index is out of bounds
     start: norm.from[s.start] ?? 0,
     // Stryker disable next-line ConditionalExpression: fallback only if index is out of bounds
-    end: norm.to[s.end - 1] ?? normText.length,
+    end: norm.to[s.end - 1] ?? text.length,
   }))
   return spans.sort((a, b) => a.start - b.start || b.end - a.end)
 }
@@ -222,7 +227,7 @@ export function scanContacts(text: string, ctx: ContactContext): ContactHit[] {
   const norm = normaliseContactText(text)
   const hits: ContactHit[] = []
   let reachedEnd = 0
-  for (const span of findSpans(norm, ctx)) {
+  for (const span of findSpans(text, norm, ctx)) {
     if (span.start < reachedEnd) continue
     hits.push({
       kind: span.kind,
@@ -234,7 +239,7 @@ export function scanContacts(text: string, ctx: ContactContext): ContactHit[] {
 }
 
 /**
- * `text` with every contact replaced by `[REDACTED]`. Overlapping and
+ * `text` (NFC) with every contact replaced by `[REDACTED]`. Overlapping and
  * adjacent hits merge into one replacement, so the result is a fixed point:
  * redacting it again, or scanning it, finds nothing. Same contract as
  * `scanContacts`: one raw field at a time, before serialization.
@@ -248,7 +253,7 @@ export function redactContacts(
   // Several contexts (display and legal name) merge their spans before any replacement: redacting one
   // context's surname first would break the other's full-name match and leak its first names.
   const spans = scanContexts(ctx)
-    .flatMap((c) => findSpans(norm, c))
+    .flatMap((c) => findSpans(text, norm, c))
     // by start only: the merge below keeps the furthest end, so a tie needs no order
     .sort((a, b) => a.start - b.start)
   for (const { start, end } of spans) {
@@ -256,12 +261,11 @@ export function redactContacts(
     if (last && start <= last.end) last.end = Math.max(last.end, end)
     else merged.push({ start, end })
   }
-  if (merged.length === 0) return text.normalize('NFC')
   let result = ''
   let cursor = 0
   for (const { start, end } of merged) {
-    result += `${text.slice(cursor, start)}[REDACTED]`
+    result += `${text.slice(cursor, start).normalize('NFC')}[REDACTED]`
     cursor = end
   }
-  return result + text.slice(cursor)
+  return result + text.slice(cursor).normalize('NFC')
 }

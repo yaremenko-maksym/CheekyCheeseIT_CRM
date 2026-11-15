@@ -126,3 +126,62 @@ describe('findPhoneSpans — year lists (Task 445 AC 3)', () => {
     ])
   })
 })
+
+const issuesFor = (note: string, displayName: string, telegram?: string) =>
+  checkResumeCompleteness(
+    { ...FACTS, experience: FACTS.experience.map((e) => ({ ...e, notes: [note] })) },
+    { displayName, telegram, now: NOW },
+  ).filter((i) => i.code === 'CONTACT_IN_TEXT')
+
+const FLAGGED = [{ path: 'experience.0.notes.0', code: 'CONTACT_IN_TEXT' }]
+
+describe('checkResumeCompleteness — context values normalised like the text (PR #1351 finding 1)', () => {
+  it.each(['Ana Griﬃn', 'Ana Mar‌ia', 'Ａｎａ Ｇｒｉｆｆｉｎ'])(
+    'flags the full name %j written the same way in the text',
+    (name) => {
+      expect(issuesFor(`written by ${name} today`, name)).toEqual(FLAGGED)
+    },
+  )
+
+  it('flags the Telegram handle stored in fullwidth forms', () => {
+    expect(issuesFor('ping mark_dev now', 'Mark Levin', 'ｍａｒｋ＿ｄｅｖ')).toEqual(FLAGGED)
+  })
+})
+
+describe('normaliseContactText — default-ignorable characters (PR #1351 finding 2)', () => {
+  it.each(['︀', '️', '͏', '᠋', '᠌', '᠍', 'ㅤ', 'ﾠ'])(
+    'strips %j inside a phone, which is then flagged',
+    (c) => {
+      const input = `067${c}123${c}4567`
+      const res = normaliseContactText(input)
+      expect(res.text).toBe('0671234567')
+      expect(res.to[res.to.length - 1]).toBe(input.length)
+      expect(noteIssues(`call ${input}`)).toEqual(FLAGGED)
+    },
+  )
+
+  it('lets a base letter compose with a mark across a stripped CGJ, mapped to the whole cluster', () => {
+    const res = normaliseContactText('xe͏́y')
+    expect(res.text).toBe('xéy')
+    expect(res.from).toEqual([0, 1, 4])
+    expect(res.to).toEqual([1, 4, 5])
+  })
+
+  it('leaves no orphan cluster for a stripped variation selector', () => {
+    const res = normaliseContactText('1️2')
+    expect(res.text).toBe('12')
+    expect(res.from).toEqual([0, 2])
+    expect(res.to).toEqual([2, 3])
+  })
+
+  it('still strips a format character that is not default-ignorable (U+0600)', () => {
+    expect(normaliseContactText('a؀b').text).toBe('ab')
+  })
+
+  it('maps nothing to invisible characters at the edges', () => {
+    const res = normaliseContactText('​ab​')
+    expect(res.text).toBe('ab')
+    expect(res.from).toEqual([1, 2])
+    expect(res.to).toEqual([2, 3])
+  })
+})

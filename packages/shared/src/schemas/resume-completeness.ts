@@ -210,10 +210,22 @@ const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/
 const normaliseName = (text: string): string =>
   text.normalize('NFC').replace(/[\u2019\u02BC]/g, "'")
 
+/** Invisible characters that split a contact: format characters and default-ignorables (variation selectors, CGJ, Hangul fillers). */
+const INVISIBLE = String.raw`[\p{Cf}\p{Default_Ignorable_Code_Point}]`
+const INVISIBLE_PATTERN = new RegExp(INVISIBLE, 'gu')
 /**
- * Normalise text for contact scanning: NFKC, then strip format characters (`\p{Cf}`:
- * zero-width spaces, word joiners, etc.), maintaining offset maps (`from` and `to`)
- * back to the original string.
+ * A visible character plus the marks after it, invisibles between them included, so a base
+ * letter composes with its mark once they go. Invisibles not followed by a mark start no cluster.
+ */
+const CLUSTER_PATTERN = new RegExp(
+  String.raw`[^\p{Cf}\p{Default_Ignorable_Code_Point}](?:${INVISIBLE}*\p{M})*`,
+  'gu',
+)
+
+/**
+ * Normalise text for contact scanning: strip invisible characters (`INVISIBLE`), then NFKC,
+ * maintaining offset maps (`from` and `to`) from each code unit back to its cluster in the
+ * original string. No visible character NFKC-maps to an invisible one, so one strip suffices.
  */
 export function normaliseContactText(text: string): {
   text: string
@@ -223,8 +235,8 @@ export function normaliseContactText(text: string): {
   let normalised = ''
   const from: number[] = []
   const to: number[] = []
-  for (const { 0: cluster, index } of text.matchAll(/(?:\P{M}|\p{M})\p{M}*/gu)) {
-    const piece = cluster.normalize('NFKC').replace(/\p{Cf}/gu, '')
+  for (const { 0: cluster, index } of text.matchAll(CLUSTER_PATTERN)) {
+    const piece = cluster.replace(INVISIBLE_PATTERN, '').normalize('NFKC')
     normalised += piece
     for (let k = 0; k < piece.length; k++) {
       from.push(index)
@@ -243,7 +255,12 @@ export function normaliseContactText(text: string): {
  */
 function contactCheck(displayName: string, telegram: string | null | undefined): ContactCheck {
   // Split on each whitespace character: the filter drops the empty pieces a run or an edge leaves.
-  const tokens = normaliseName(displayName).split(/\s/).filter(Boolean).map(escapeRegExp)
+  // Context values are normalised like the text, so a name or handle written with a ligature, a
+  // zero-width joiner or fullwidth letters still matches itself written the same way.
+  const tokens = normaliseName(normaliseContactText(displayName).text)
+    .split(/\s/)
+    .filter(Boolean)
+    .map(escapeRegExp)
   const first = tokens[0]
   const last = tokens[tokens.length - 1]
   const name =
@@ -258,7 +275,7 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
           'iu',
         )
       : null
-  const handle = normaliseTelegramHandle(telegram)
+  const handle = normaliseTelegramHandle(telegram && normaliseContactText(telegram).text)
   // A Telegram username is `[A-Za-z0-9_]`, so `\w` is its boundary; any `@`s in front (`@@h`,
   // `x@h`) still hit. `(?:^|\W)` stands in for a lookbehind (Safari < 16.4). A handle equal to a
   // skill word flags that word too: availability, not a leak.
