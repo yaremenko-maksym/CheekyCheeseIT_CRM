@@ -6,7 +6,7 @@ import { type CrmAppSession, openCrmAppSession } from './__test-helpers__/crm-ap
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
- * r5 Phase 6 T0 (STAGED/DARK) — the staged forward DDL
+ * r5 Phase 6 T0 (promoted by backlog 434) — the forward DDL
  * `manual/2026-11-04_job_queue_submissions_per_senior.sql` against a REAL Postgres.
  *
  * AC 2 (idempotent, equals db:push): the file is applied TWICE into a scratch schema holding a
@@ -83,7 +83,7 @@ async function createStub(): Promise<void> {
   )
 }
 
-describe.skipIf(!hasDatabaseUrl())('Phase 6 T0 staged DDL: per-senior submissions', () => {
+describe.skipIf(!hasDatabaseUrl())('Phase 6 T0 forward DDL: per-senior submissions', () => {
   beforeAll(async () => {
     session = await openCrmAppSession()
     client = await session.admin.connect()

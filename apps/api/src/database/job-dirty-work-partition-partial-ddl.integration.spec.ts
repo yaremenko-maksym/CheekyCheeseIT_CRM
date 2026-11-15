@@ -9,7 +9,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
 import { type ClaimConsumer, dirtyWorkStatements } from '../job-sourcing/ownership/dirty-work.store'
 
 /**
- * Backlog 347 (1) (STAGED/DARK) — the staged forward DDL
+ * Backlog 347 (1) (promoted by backlog 434) — the forward DDL
  * `manual/2026-11-03_job_dirty_work_partition_partial.sql` against a REAL Postgres.
  *
  * The file adds TWO partial btree indexes on `job_dirty_work (status, created_at)`, one per
@@ -112,7 +112,7 @@ async function claimPlanIndexes(consumer: ClaimConsumer): Promise<string[]> {
 }
 
 describe.skipIf(!hasDatabaseUrl())(
-  'backlog 347 staged DDL: reason-partition partial indexes on job_dirty_work',
+  'backlog 347 forward DDL: reason-partition partial indexes on job_dirty_work',
   () => {
     beforeAll(async () => {
       session = await openCrmAppSession()

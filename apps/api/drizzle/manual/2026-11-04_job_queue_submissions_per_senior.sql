@@ -1,5 +1,5 @@
 -- =============================================================================
--- Per-senior queue submissions (r5 Phase 6, T0) — prod forward DDL (STAGED)
+-- Per-senior queue submissions (r5 Phase 6, T0) — prod forward DDL
 -- =============================================================================
 --
 -- WHAT THIS FILE DOES
@@ -25,26 +25,32 @@
 -- derive, so the guard below refuses to run on one instead of inventing a value.
 --
 -- No grant: `job_queue_assignments` is class A in `privilege-classes.ts` (table-level grants cover a
--- new column), and this is an ALTER of an existing relation, so it is NOT in STAGED_RELATIONS.
+-- new column), and this is an ALTER of an existing relation, so it was never in STAGED_RELATIONS.
 --
 -- The Drizzle declaration is `jobQueueAssignments` (schema/job-queue.ts);
 -- job-queue-submissions-per-senior-ddl.integration.spec.ts applies this file TWICE into a scratch
 -- schema, compares the objects with `db:push`, and proves the per-senior uniqueness.
 --
--- WHY THIS FILE IS STAGED, NOT IN manual/
--- ---------------------------------------
--- Production DDL ships staged. It is DARK: `manual-staged/` is never applied in prod (deploy.yml
--- refuses a file out of manual-staged/). Promotion and deploy wiring are an OWNER-ONLY later step.
+-- PROMOTED TO manual/ BY BACKLOG 434
+-- --------------------------------
+-- Applied by scripts/devops/deploy-stack-on-vps.sh on EVERY deploy, after the source_id DDL and
+-- before the grants, with --single-transaction. Its objects (`senior_id`, its FK and the per-senior
+-- UNIQUE) were applied in production BY HAND before the promotion, so the first deploy is a
+-- re-apply: a no-op when they match this file, and a loud, rolled-back failure before the container
+-- swap when they do not (pre-deploy checks: docs/runbooks/deployment.md §9, "Promoted job DDL
+-- (backlog 434)").
 --
--- PROMOTION GATE
--- --------------
+-- PROMOTION GATE (both met at the backlog-434 promotion)
+-- -------------------------------------------------------
 --   1. OWNER DECISION A3: ANSWERED 2026-11-04, option (a). `team_members` lets one senior belong to
 --      SEVERAL teams. A submission is a fact about the SENIOR: it is shown to every team the senior
 --      belongs to, without a name; another team sees only `{ submittedElsewhere: true }`, never the
 --      foreign row. UNIQUE(opportunity_id, senior_id) stands, so this file is promoted as written.
 --      The submit path is unblocked by this decision.
---   2. STILL REQUIRED: `SELECT count(*) FROM job_queue_assignments` = 0 on production, re-measured
---      immediately before the apply.
+--   2. EMPTY TABLE, only while `senior_id` is absent: the file refuses to add the NOT NULL column to
+--      a non-empty `job_queue_assignments`. In production the column was hand-applied before
+--      backlog 434, so the refusal does not fire there; on a database without the column,
+--      `SELECT count(*) FROM job_queue_assignments` must be 0 before the apply.
 --
 --   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 -- APPLY WITH `psql -v ON_ERROR_STOP=1 --single-transaction -f <this file>`: `SET LOCAL

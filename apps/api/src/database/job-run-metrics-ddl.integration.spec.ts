@@ -12,7 +12,7 @@ import { LedgerFixtures } from '../test/ledger-fixtures'
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
- * Source fetch strategy U2 AC 1 and the CHECK half of AC 3 — the staged forward DDL
+ * Source fetch strategy U2 AC 1 and the CHECK half of AC 3 — the forward DDL
  * `manual/2026-10-31_job_run_metrics_slowdown.sql` against a REAL Postgres.
  *
  *  - It is applied TWICE into a scratch schema holding stubs of the two tables it alters, as the
@@ -96,7 +96,7 @@ const sqlstate = async (run: () => Promise<unknown>): Promise<string | undefined
   }
 }
 
-describe.skipIf(!hasDatabaseUrl())('U2 staged DDL: run metrics and slowdown_level', () => {
+describe.skipIf(!hasDatabaseUrl())('U2 forward DDL: run metrics and slowdown_level', () => {
   beforeAll(async () => {
     session = await openCrmAppSession()
     client = await session.admin.connect()

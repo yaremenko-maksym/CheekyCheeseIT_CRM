@@ -87,7 +87,7 @@ const sqlstate = async (run: () => Promise<unknown>): Promise<string | undefined
   }
 }
 
-describe.skipIf(!hasDatabaseUrl())('U4 staged DDL: job_source_health_events', () => {
+describe.skipIf(!hasDatabaseUrl())('U4 forward DDL: job_source_health_events', () => {
   beforeAll(async () => {
     session = await openCrmAppSession()
     client = await session.admin.connect()

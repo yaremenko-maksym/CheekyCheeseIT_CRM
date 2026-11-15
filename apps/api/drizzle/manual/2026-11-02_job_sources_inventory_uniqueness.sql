@@ -1,5 +1,5 @@
 -- =============================================================================
--- Inventory-scoped (type, namespace) uniqueness (SR-M-4) — prod forward DDL (STAGED)
+-- Inventory-scoped (type, namespace) uniqueness (SR-M-4) — prod forward DDL
 -- =============================================================================
 --
 -- WHAT THIS FILE DOES
@@ -27,20 +27,23 @@
 --
 -- No grant: `job_sources` is class A in `privilege-classes.ts`, so `crm_app`'s existing table-level
 -- grants already cover these objects, and `2026-10-18_db_privileges_check.sql` needs no change.
--- This is an ALTER to an existing relation, not a new table, so it is NOT in STAGED_RELATIONS
+-- This is an ALTER to an existing relation, not a new table, so it was never in STAGED_RELATIONS
 -- (which guards GRANTs for whole new tables); the forward-DDL integration spec is its coverage.
 --
 -- The Drizzle declaration is `jobSources` (schema/job-sourcing.ts);
 -- job-sources-inventory-uniqueness-ddl.integration.spec.ts applies this file twice into a scratch
 -- schema, compares the new objects with `db:push`, and exercises the index + CHECK.
 --
--- WHY THIS FILE IS STAGED, NOT IN manual/
--- ---------------------------------------
--- Production DDL ships staged (backlog 337). It is DARK: `manual-staged/` is never applied in prod.
--- The promote + deploy wiring is a SEPARATE later step, gated on a prod audit that two ATS sources
--- do not already share a `(type, namespace)` AND no ATS source already holds an empty namespace
--- (either would make this apply fail — loud and transactional), and on the flag-flip of
--- JOB_AVAILABILITY_RECONCILE_ENABLED this constraint is a precondition for.
+-- PROMOTED TO manual/ BY BACKLOG 434
+-- --------------------------------
+-- Applied by scripts/devops/deploy-stack-on-vps.sh on EVERY deploy, after the source_id DDL and
+-- before the grants, with --single-transaction. It was not applied in production before the
+-- promotion; the first deploy adds the index and the CHECK, every later one is a no-op.
+-- PRE-DEPLOY AUDIT (read-only; the query is in docs/runbooks/deployment.md §9, "Promoted job DDL
+-- (backlog 434)"): two ATS sources sharing a `(type, namespace)`, or an ATS source with an empty
+-- namespace, make this apply fail — loud and transactional, before the container swap. The audit
+-- must return 0 rows. The constraint is a precondition for turning JOB_AVAILABILITY_RECONCILE_ENABLED
+-- on.
 --   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 --
 -- RE-RUNNABLE: the index is `CREATE UNIQUE INDEX IF NOT EXISTS`, the CHECK is added under a

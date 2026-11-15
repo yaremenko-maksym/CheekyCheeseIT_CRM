@@ -7,7 +7,7 @@ import { splitSqlStatements } from './manual-sql-statements'
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
- * CR-M-4 (STAGED/DARK) — the staged forward DDL
+ * CR-M-4 (promoted by backlog 434) — the forward DDL
  * `manual/2026-11-02_job_dirty_work_pending_partial.sql` against a REAL Postgres.
  *
  * The file adds ONE object: `idx_job_dirty_work_pending_generic`, a PARTIAL btree index on
@@ -15,8 +15,8 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  * detail backlog excluded (so a generic claimer skips it after the ON_DEMAND flip).
  *
  * It is built with `CREATE INDEX CONCURRENTLY`, which CANNOT run inside a transaction block, so —
- * unlike the transactional staged files — this file is applied as a SINGLE AUTOCOMMIT query, never
- * wrapped in BEGIN/COMMIT. The deploy wiring runs it the same way.
+ * unlike the transactional files — this file is applied statement by statement in AUTOCOMMIT, never
+ * wrapped in BEGIN/COMMIT. The deploy wiring runs it the same way (`psql < file`).
  *
  * AC (forward DDL reproduces db:push): the file is applied into a scratch schema holding a stub of
  * `job_dirty_work`; the index it creates equals — object for object, schema-normalised — what
@@ -96,7 +96,7 @@ async function isValid(): Promise<boolean | undefined> {
 }
 
 describe.skipIf(!hasDatabaseUrl())(
-  'CR-M-4 staged DDL: generic-pending partial index excluding DETAIL_FETCH',
+  'CR-M-4 forward DDL: generic-pending partial index excluding DETAIL_FETCH',
   () => {
     beforeAll(async () => {
       session = await openCrmAppSession()

@@ -6,7 +6,7 @@ import { type CrmAppSession, openCrmAppSession } from './__test-helpers__/crm-ap
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
- * SR-M-2 (STAGED/DARK) — the staged forward DDL
+ * SR-M-2 (promoted by backlog 434) — the forward DDL
  * `manual/2026-11-04_job_opportunities_evaluation_verdict.sql` against a REAL Postgres.
  *
  * Applied TWICE into a scratch schema holding a stub of `job_opportunities`, one transaction each.
@@ -83,7 +83,7 @@ async function createStub(): Promise<void> {
   )
 }
 
-describe.skipIf(!hasDatabaseUrl())('SR-M-2 staged DDL: opportunity evaluation record', () => {
+describe.skipIf(!hasDatabaseUrl())('SR-M-2 forward DDL: opportunity evaluation record', () => {
   beforeAll(async () => {
     session = await openCrmAppSession()
     client = await session.admin.connect()

@@ -13,7 +13,7 @@
  * retention exception, because the events are evidence and are never pruned (ADR "Rollback").
  *
  * The states and reasons are the value lists of section 10, pinned here as CHECK constraints
- * rather than pg enums (a text + CHECK column needs no `CREATE TYPE`, so the staged forward DDL is
+ * rather than pg enums (a text + CHECK column needs no `CREATE TYPE`, so the forward DDL is
  * re-runnable with a plain `CREATE TABLE IF NOT EXISTS`). The TypeScript side of the same lists is
  * `job-sourcing/health/types.ts`; the two must agree, and `job-source-health-schema.spec.ts` holds
  * them to each other.

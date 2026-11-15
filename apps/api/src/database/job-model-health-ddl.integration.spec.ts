@@ -7,7 +7,7 @@ import { ALL_TABLE_PRIVILEGES, PRIVILEGE_CLASSES, ROLES } from './privileges/pri
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
- * The staged forward DDL `manual/2026-11-06_job_model_health.sql` against a REAL Postgres
+ * The forward DDL `manual/2026-11-06_job_model_health.sql` against a REAL Postgres
  * (ADR §5.3, task 5.4c-4): re-runnable, column for column and CHECK for CHECK what `db:push` builds,
  * class A for `crm_app`, and page text refused by the constraint.
  *
@@ -71,7 +71,7 @@ const sqlstate = async (run: () => Promise<unknown>): Promise<string | undefined
 }
 
 describe.skipIf(!hasDatabaseUrl())(
-  'staged DDL: job_model_route_daily, job_model_health_flags',
+  'forward DDL: job_model_route_daily, job_model_health_flags',
   () => {
     beforeAll(async () => {
       session = await openCrmAppSession()

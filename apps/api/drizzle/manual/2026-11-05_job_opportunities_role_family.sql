@@ -1,5 +1,5 @@
 -- =============================================================================
--- Opportunity role family (r5 Task 6.4c) — prod forward DDL (STAGED)
+-- Opportunity role family (r5 Task 6.4c) — prod forward DDL
 -- =============================================================================
 --
 -- WHAT THIS FILE DOES
@@ -16,7 +16,7 @@
 -- verdict, so it can never describe a different revision than `evaluated_revision`. A NULL never
 -- equals anything, so an unclassified or never-evaluated opportunity fails closed.
 --
--- BACKFILL: NOT HERE. After promotion EVERY existing row is NULL, so no subscription shows anything
+-- BACKFILL: NOT HERE. On the first apply EVERY existing row is NULL, so no subscription shows anything
 -- until the row is re-evaluated. The code carries the backfill: the default inputs version now also
 -- names `EVALUATION_RECORD_VERSION` ('rf.1'), so every stored `evaluated_inputs_version` is stale at
 -- once. The match reconciliation sweep (`reconcileOnce`) treats an OPEN or UNKNOWN opportunity with
@@ -32,7 +32,8 @@
 -- live inputs version) until its recompute lands, exactly as a MATCH_RULE_VERSION change does.
 -- STUDIO and the LEAD branch do not read these columns.
 --
--- SIZE IT FIRST (owner step): read `SELECT count(*) FROM job_opportunities` before promoting. The
+-- SIZE IT FIRST (owner step): read `SELECT count(*) FROM job_opportunities` before the first apply
+-- (in production that was the hand apply, before backlog 434). The
 -- backfill shares the one MATCH FIFO at 2,000 per 6-hour tick, so revision recomputes and exclusion
 -- fan-outs queue behind it: about 12.5 days at 100,000 opportunities.
 --
@@ -43,17 +44,20 @@
 -- backfills it reads `evaluated_inputs_version`).
 --
 -- No grant: `job_opportunities` is class A in `privilege-classes.ts` (table-level grants cover a new
--- column), and this is an ALTER of an existing relation, so it is NOT in STAGED_RELATIONS.
+-- column), and this is an ALTER of an existing relation, so it was never in STAGED_RELATIONS.
 --
 -- The Drizzle declaration is `jobOpportunities` (schema/job-opportunities.ts).
 -- job-opportunities-role-family-ddl.integration.spec.ts applies this file twice into a scratch
 -- schema and compares the objects with `db:push`; job-opportunities-store-forward-ddl.integration.spec.ts
 -- chains it after the 2026-11-04 evaluation-verdict file.
 --
--- WHY THIS FILE IS STAGED, NOT IN manual/
--- ---------------------------------------
--- Production DDL ships staged. It is DARK: `manual-staged/` is never applied in prod (deploy.yml
--- refuses a file out of manual-staged/). Promotion and deploy wiring are an OWNER-ONLY later step.
+-- PROMOTED TO manual/ BY BACKLOG 434
+-- --------------------------------
+-- Applied by scripts/devops/deploy-stack-on-vps.sh on EVERY deploy, after the source_id DDL and
+-- before the grants, with --single-transaction. Its objects (`role_family` and its CHECK) were
+-- applied in production BY HAND before the promotion, so the first deploy is a re-apply: a no-op
+-- when they match this file, and a loud, rolled-back failure before the container swap when they do
+-- not (pre-deploy checks: docs/runbooks/deployment.md §9, "Promoted job DDL (backlog 434)").
 --
 --   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 -- APPLY WITH `psql -v ON_ERROR_STOP=1 --single-transaction -f <this file>`: `SET LOCAL

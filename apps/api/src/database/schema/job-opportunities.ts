@@ -292,7 +292,7 @@ export const jobOpportunities = pgTable(
     /**
      * SR-M-2: the revision the recompute last evaluated, written with `evaluationVerdict` and the
      * match rows in one transaction (`installMatches`). NULL = never evaluated. Production gets both
-     * columns ONLY through the staged forward DDL; declared last so the rank matches an ADD COLUMN.
+     * columns ONLY through the forward DDL in manual/; declared last so the rank matches an ADD COLUMN.
      */
     evaluatedRevision: integer('evaluated_revision'),
     /** The opportunity-level result at `evaluatedRevision`; a per-senior stop-list is not one. */
@@ -306,13 +306,13 @@ export const jobOpportunities = pgTable(
      * r5 Task 6.4c: layer 1's role family at `evaluatedRevision` (`opportunityRoleFamily`), written
      * with the evaluation record; NULL = never evaluated or UNKNOWN. A triage subscription matches
      * it by equality, so NULL never matches. Bounded like the subscription's `role_family`.
-     * Production gets it ONLY through the staged forward DDL; declared last (ADD COLUMN rank).
+     * Production gets it ONLY through the forward DDL in manual/; declared last (ADD COLUMN rank).
      */
     roleFamily: text('role_family'),
     /**
      * r5 Phase 6: the team a MANUAL card (POST /job-queue/manual) belongs to; NULL = a sourced
      * opportunity. Only this team sees the card (`visibleOpportunityPredicate`, MANUAL branch), and
-     * no automatic branch shows a row where it is set. Production gets it ONLY through the staged
+     * no automatic branch shows a row where it is set. Production gets it ONLY through the manual/
      * forward DDL; declared last (ADD COLUMN rank).
      */
     manualTeamId: uuid('manual_team_id'),
