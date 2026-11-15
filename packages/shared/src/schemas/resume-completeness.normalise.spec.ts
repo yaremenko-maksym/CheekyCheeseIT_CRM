@@ -184,4 +184,30 @@ describe('normaliseContactText — default-ignorable characters (PR #1351 findin
     expect(res.from).toEqual([1, 2])
     expect(res.to).toEqual([2, 3])
   })
+
+  it('strips Braille pattern blank (U+2800) inside a phone: 067\u28001234567, which is then flagged', () => {
+    const input = '067\u28001234567'
+    const res = normaliseContactText(input)
+    expect(res.text).toBe('0671234567')
+    expect(res.to[res.to.length - 1]).toBe(input.length)
+    expect(noteIssues(`call ${input}`)).toEqual(FLAGGED)
+  })
+
+  it('composes a run of conjoining Hangul jamo (U+1100-11FF) as one cluster into precomposed syllables', () => {
+    const res = normaliseContactText('\u1100\u1161\u1102\u1161')
+    expect(res.text).toBe('가나')
+    expect(res.from).toEqual([0, 0])
+    expect(res.to).toEqual([4, 4])
+  })
+
+  it('flags Korean name 가나 written as jamo in the text, stored precomposed (and the reverse)', () => {
+    expect(issuesFor('written by \u1100\u1161\u1102\u1161 today', '가나')).toEqual(FLAGGED)
+    expect(issuesFor('written by 가나 today', '\u1100\u1161\u1102\u1161')).toEqual(FLAGGED)
+    expect(issuesFor('written by \u1100\u1161 \u1102\u1161 today', '가 나')).toEqual(FLAGGED)
+    expect(issuesFor('written by 가 나 today', '\u1100\u1161 \u1102\u1161')).toEqual(FLAGGED)
+    // Anchors and length boundary: non-Hangul or single syllable does not match
+    expect(issuesFor('written by x가나 today', 'x가나')).toEqual([])
+    expect(issuesFor('written by 가나x today', '가나x')).toEqual([])
+    expect(issuesFor('written by 가 today', '가')).toEqual([])
+  })
 })

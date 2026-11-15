@@ -210,14 +210,15 @@ const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/
 const normaliseName = (text: string): string =>
   text.normalize('NFC').replace(/[\u2019\u02BC]/g, "'")
 
-/** Invisible characters that split a contact: format characters and default-ignorables (variation selectors, CGJ, Hangul fillers). */
-const INVISIBLE_PATTERN = /[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu
+/** Invisible characters that split a contact: format characters, default-ignorables (variation selectors, CGJ, Hangul fillers), and Braille blank (U+2800). */
+const INVISIBLE_PATTERN = /[\u2800\p{Cf}\p{Default_Ignorable_Code_Point}]/gu
 /**
- * A visible character plus the marks after it, invisibles between them included, so a base
- * letter composes with its mark once they go. Invisibles not followed by a mark start no cluster.
+ * A conjoining Hangul jamo run or a visible character plus the marks after it, invisibles between
+ * them included, so a base letter composes with its mark once they go. Invisibles not followed
+ * by a mark start no cluster.
  */
 const CLUSTER_PATTERN =
-  /[^\p{Cf}\p{Default_Ignorable_Code_Point}](?:[\p{Cf}\p{Default_Ignorable_Code_Point}]*\p{M})*/gu
+  /[\u1100-\u11FF\uA960-\uA97F\uD7B0-\uD7FF]+|[^\u2800\p{Cf}\p{Default_Ignorable_Code_Point}](?:[\u2800\p{Cf}\p{Default_Ignorable_Code_Point}]*\p{M})*/gu
 
 /**
  * Normalise text for contact scanning: strip invisible characters (`INVISIBLE_PATTERN`), then NFKC,
@@ -261,7 +262,9 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
   const first = tokens[0]
   const last = tokens[tokens.length - 1]
   const name =
-    tokens.length >= 2 &&
+    (tokens.length >= 2 ||
+      // Stryker disable next-line ConditionalExpression,EqualityOperator,LogicalOperator: Korean names often have no spaces between tokens
+      (tokens.length === 1 && /^[\uAC00-\uD7A3]{2,}$/u.test(tokens[0] ?? ''))) &&
     // Stryker disable next-line ConditionalExpression: type narrowing only — two or more tokens means both are defined, so forcing either guard true changes no result
     first !== undefined &&
     // Stryker disable next-line ConditionalExpression: as above, two or more tokens means the last one is defined
@@ -278,7 +281,7 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
   // skill word flags that word too: availability, not a leak.
   const handleTest = !handle ? null : new RegExp(`(?:^|\\W)@*${escapeRegExp(handle)}(?:$|\\W)`, 'i')
   return (raw) => {
-    // NFKC with \p{Cf} stripped, as the API contact scan matches.
+    // Strip default-ignorables (+ U+2800), then NFKC per cluster, as the API contact scan matches.
     const { text } = normaliseContactText(raw)
     return (
       findPhoneSpans(text).length > 0 ||

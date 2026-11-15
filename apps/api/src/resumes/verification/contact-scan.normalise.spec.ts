@@ -60,7 +60,7 @@ describe('redactContacts and scanContacts — year lists (Task 445 AC 3)', () =>
 })
 
 /** A name, written the same odd way in the context and in the text (PR #1351 fix round 1, finding 1). */
-const ODD_NAMES = ['Ana Griﬃn', 'Ana Mar‌ia', 'Ａｎａ Ｇｒｉｆｆｉｎ']
+const ODD_NAMES = ['Ana Griﬃn', 'Ana Mar‌ia', 'Ａｎａ Ｇｒｉｆｆｉｎ', '가나']
 
 describe('context values are normalised like the text (PR #1351 finding 1)', () => {
   it.each(ODD_NAMES)('redacts the full name %j written the same way in the text', (fullName) => {
@@ -87,6 +87,21 @@ describe('context values are normalised like the text (PR #1351 finding 1)', () 
       }),
     ).toBe('ping [REDACTED] now')
   })
+
+  it('redacts name 가나 written as jamo in the text, stored precomposed (and the reverse)', () => {
+    expect(
+      redactContacts('by \u1100\u1161\u1102\u1161 today', { fullName: '가나', emails: [] }),
+    ).toBe('by [REDACTED] today')
+    expect(
+      scanContacts('by \u1100\u1161\u1102\u1161 today', { fullName: '가나', emails: [] }),
+    ).toEqual([{ kind: 'name', match: '가나' }])
+    expect(
+      redactContacts('by 가나 today', { fullName: '\u1100\u1161\u1102\u1161', emails: [] }),
+    ).toBe('by [REDACTED] today')
+    expect(
+      scanContacts('by 가나 today', { fullName: '\u1100\u1161\u1102\u1161', emails: [] }),
+    ).toEqual([{ kind: 'name', match: '가나' }])
+  })
 })
 
 /** Invisible characters outside `\p{Cf}`: variation selectors, CGJ, Mongolian FVS, Hangul fillers (finding 2). */
@@ -99,6 +114,13 @@ describe('default-ignorable characters do not split a contact (PR #1351 finding 
       expect(redactContacts(`call 067${c}123${c}4567 now`, ctx)).toBe('call [REDACTED] now')
     },
   )
+
+  it('redacts a phone split by Braille pattern blank (U+2800): 067\u28001234567', () => {
+    expect(redactContacts('call 067\u28001234567 now', ctx)).toBe('call [REDACTED] now')
+    expect(scanContacts('call 067\u28001234567 now', ctx)).toEqual([
+      { kind: 'phone', match: '067\u28001234567' },
+    ])
+  })
 })
 
 describe('redactContacts output is always NFC (PR #1351 finding 3)', () => {
@@ -128,6 +150,8 @@ describe('flagged implies redacted, redaction is final and idempotent (PR #1351)
   const TRICKY = [
     ...ODD_NAMES.map((name) => `by ${name}`),
     ...IGNORABLES.map((c) => `call 067${c}123${c}4567`),
+    'call 067\u28001234567',
+    'by \u1100\u1161\u1102\u1161',
     'j​ohn@x.com',
     'ｊｏｈｎ＠ｘ．ｃｏｍ',
     'see github.com​/repo',
