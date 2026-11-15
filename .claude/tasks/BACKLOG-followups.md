@@ -8053,6 +8053,8 @@ Sources: verified-base-resume manual QA (Task 23 brief).
 
 ## 439. `cascade-impact-panel.test.tsx` is still timing-flaky under load (recurrence of 195, 2026-11-14)
 
+**Closed (2026-11-15).** PR #1350 (cleans up overlay and scroll-lock state in beforeEach/afterEach). Reopen if the Verify check below fails.
+
 **Symptoms.** The verified-base-resume branch saw this web test fail under a loaded full run and
 pass alone, the pattern item 195 describes. It is not related to the resume code.
 
@@ -8064,6 +8066,8 @@ file sequentially.
 Sources: verified-base-resume pre-push runs (Task 23 brief); item 195.
 
 ## 440. `ResumeVerificationPanel.test.tsx` is at the 800-line limit (2026-11-14)
+
+**Closed (2026-11-15).** PR #1350 (moves staged-PDF block to ResumeVerificationPanel.staged-pdf.test.tsx with shared render helper and splits contact patterns into resume-completeness.contacts.spec.ts). Reopen if the Verify check below fails.
 
 **Symptoms.** The panel test file is at 799 lines, so the next staged-PDF case pushes it over the
 file-size limit. `packages/shared/src/schemas/resume-completeness.spec.ts` is over it already (961

@@ -32,8 +32,8 @@
  * the client side.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { configure, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, configure, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 // Every plan on screen waits out the dialog's real 400 ms debounce first, which spends 40% of the
@@ -172,6 +172,11 @@ function typeAmount(value: string) {
 // calls `useLocale()`/`useLingui()` — outside this file's own perimeter
 // (`_authenticated/finance/**` migrates in a later wave).
 beforeEach(async () => {
+  cleanup()
+  document.body.removeAttribute('data-scroll-locked')
+  document.body.removeAttribute('aria-hidden')
+  document.body.style.pointerEvents = ''
+  document.body.innerHTML = ''
   vi.clearAllMocks()
   vi.useRealTimers()
   getEditCascadePreviewMock.mockResolvedValue(planWith([SENIOR_SHARE]))
@@ -179,7 +184,15 @@ beforeEach(async () => {
   await loadCatalog('uk')
 })
 
-describe('cascade preview — the client half of the loop', () => {
+afterEach(() => {
+  cleanup()
+  document.body.removeAttribute('data-scroll-locked')
+  document.body.removeAttribute('aria-hidden')
+  document.body.style.pointerEvents = ''
+  document.body.innerHTML = ''
+})
+
+describe.sequential('cascade preview — the client half of the loop', () => {
   // task-mutation-gate follow-up (PR #613, backlog 121). `cascadePanelEngaged`
   // starts `false` — the panel is not shown just because a PAID row's dialog
   // opened, only once its amount has actually needed a plan. `PAID_TX`'s
