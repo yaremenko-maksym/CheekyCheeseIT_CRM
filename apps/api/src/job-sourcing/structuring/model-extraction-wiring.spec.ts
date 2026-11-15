@@ -9,12 +9,14 @@ import {
   WORKER_HOLD_MS,
   WORKER_STRUCTURER_TIMEOUT_MS,
   buildModelExtraction,
+  readExtractionWorkerEnv,
   type ModelExtractionWiring,
 } from './model-extraction-wiring'
 import { EXTRACTION_SYSTEM_PROMPT } from './prompt-envelope'
 import { smallDoseFor } from './small-dose-table'
 
 const SECRET = 'SECRET-MARKER-0123456789abcdef-0123456789'
+const URL_ = 'http://crm-extraction-worker:3100'
 const ENV = {
   EXTRACTION_WORKER_URL: 'http://crm-extraction-worker:3100',
   EXTRACTION_WORKER_SECRET: SECRET,
@@ -446,5 +448,29 @@ describe('the timeout and hold derive from the router call ceiling (AC3, ADR §5
     expect(fetches).toBe(1)
     await vi.advanceTimersByTimeAsync(1)
     expect(fetches).toBe(2)
+  })
+})
+
+describe('readExtractionWorkerEnv', () => {
+  it('a valid worker with a bad local window names only the window key', () => {
+    const r = buildModelExtraction({ ...ENV, EXTRACTION_LOCAL_CONTEXT_TOKENS: '0' }, OPTS)
+    expect(r).toEqual({ ok: false, keys: ['EXTRACTION_LOCAL_CONTEXT_TOKENS'] })
+  })
+
+  it('reads the address and the secret, the trailing slash cut', () => {
+    expect(
+      readExtractionWorkerEnv({
+        EXTRACTION_WORKER_URL: `${URL_}/`,
+        EXTRACTION_WORKER_SECRET: SECRET,
+      }),
+    ).toEqual({ kind: 'ok', url: URL_, secret: SECRET })
+  })
+
+  it('neither key is unset, one bad key is invalid by name', () => {
+    expect(readExtractionWorkerEnv({ EXTRACTION_WORKER_URL: '' })).toEqual({ kind: 'unset' })
+    expect(readExtractionWorkerEnv({ EXTRACTION_WORKER_URL: URL_ })).toEqual({
+      kind: 'invalid',
+      keys: ['EXTRACTION_WORKER_SECRET'],
+    })
   })
 })

@@ -9,9 +9,14 @@
  * only stripped quotes and newlines — so the very same string was defused going
  * in and passed through intact coming out. Now there is one definition, and
  * these tests hold both ends to it.
+ *
+ * The Task 15 routes are thin: they parse the body, pass the viewer through, and the staged PDF
+ * goes out as a PDF attachment named by `resumeContentDisposition`.
  */
-import { describe, expect, it } from 'vitest'
-import { resumeContentDisposition } from './resumes.controller'
+import { ForbiddenException } from '@nestjs/common'
+import { describe, expect, it, vi } from 'vitest'
+import type { SessionUser } from '@crm/shared'
+import { resumeContentDisposition, SeniorResumesController } from './resumes.controller'
 import { sanitizeFileName } from './resumes.service'
 
 describe('sanitizeFileName', () => {
@@ -94,4 +99,125 @@ describe('resumeContentDisposition', () => {
   it('falls back for a display name that reduces to nothing', () => {
     expect(resumeContentDisposition('   ')).toContain('resume.pdf')
   })
+})
+
+describe('SeniorResumesController — Task 15 routes', () => {
+  const USER = 'a15e0000-0000-4000-8000-0000000000a1'
+  const RUN = 'a15e0000-0000-4000-8000-000000000001'
+  const viewer = { id: 'v', email: 'v@unit.spec', role: 'HR' } as SessionUser
+  const service = {
+    confirm: vi.fn(async (..._args: unknown[]) => 'confirmed'),
+    editStagedField: vi.fn(async (..._args: unknown[]) => 'edited'),
+    regenerateStagedField: vi.fn(async (..._args: unknown[]) => 'regenerated'),
+    getStagedPdf: vi.fn(async (..._args: unknown[]) => ({
+      pdfBuffer: Buffer.from('%PDF'),
+      displayName: 'Jane Doe',
+    })),
+  }
+  const controller = new SeniorResumesController(service as never)
+
+  it('confirm, edit and regenerate parse the body and pass the viewer through', async () => {
+    await expect(controller.confirm(USER, { runId: RUN, version: 3 }, viewer)).resolves.toBe(
+      'confirmed',
+    )
+    expect(service.confirm).toHaveBeenCalledWith(viewer, USER, { runId: RUN, version: 3 })
+    const edit = { runId: RUN, path: 'summary', text: 'New.' }
+    await expect(controller.editStaged(USER, edit, viewer)).resolves.toBe('edited')
+    expect(service.editStagedField).toHaveBeenCalledWith(viewer, USER, edit)
+    const regen = { runId: RUN, path: 'summary' }
+    await expect(controller.regenerateStaged(USER, regen, viewer)).resolves.toBe('regenerated')
+    expect(service.regenerateStagedField).toHaveBeenCalledWith(viewer, USER, regen)
+    expect(() => controller.confirm(USER, { runId: 'nope', version: 3 }, viewer)).toThrow()
+  })
+
+  it('staged-pdf is sent as a PDF attachment under the owner name', async () => {
+    const headers: Record<string, string> = {}
+    const reply = {
+      header(name: string, value: string) {
+        headers[name] = value
+        return reply
+      },
+      send: vi.fn(async (_body: Buffer) => undefined),
+    }
+    await controller.getStagedPdf(USER, viewer, reply as never)
+    expect(service.getStagedPdf).toHaveBeenCalledWith(viewer, USER)
+    expect(headers).toEqual({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': resumeContentDisposition('Jane Doe'),
+    })
+    expect(reply.send.mock.calls[0]?.[0]?.toString()).toBe('%PDF')
+  })
+})
+
+/**
+ * SR-L-4. `uploadSource` used to drain the whole multipart body before the service said 403, so a
+ * caller with no write right (a SENIOR on their own resume, a JUNIOR) could stream up to the size
+ * limit for nothing. The write check now runs before the body is touched; the service keeps its own.
+ *
+ * MUTATION: move the `canAccessResume(..., 'write')` check below the `req.parts()` loop — the SENIOR
+ * and JUNIOR cases go red, because the reader spy is called.
+ */
+describe('uploadSource refuses a caller without write rights BEFORE reading the body (SR-L-4)', () => {
+  const OWNER = 'a15e0000-0000-4000-8000-0000000000b2'
+  const filePart = {
+    type: 'file' as const,
+    fieldname: 'file',
+    mimetype: 'application/pdf',
+    filename: 'cv.pdf',
+    toBuffer: async () => Buffer.from('%PDF-1.4 x'),
+  }
+  const setup = () => {
+    const service = { uploadSource: vi.fn(async (..._args: unknown[]) => 'queued') }
+    const parts = vi.fn(async function* () {
+      yield filePart
+    })
+    const isMultipart = vi.fn(() => true)
+    const req = { isMultipart, parts }
+    return {
+      service,
+      parts,
+      isMultipart,
+      req,
+      controller: new SeniorResumesController(service as never),
+    }
+  }
+
+  it.each([
+    ['a SENIOR on their own resume', { id: OWNER, email: 's@unit.spec', role: 'SENIOR' }],
+    [
+      'a JUNIOR',
+      { id: 'a15e0000-0000-4000-8000-0000000000c3', email: 'j@unit.spec', role: 'JUNIOR' },
+    ],
+  ])('%s gets 403 and the multipart reader is never called', async (_name, user) => {
+    const { service, parts, isMultipart, req, controller } = setup()
+    await expect(
+      controller.uploadSource(OWNER, req as never, user as SessionUser),
+    ).rejects.toBeInstanceOf(ForbiddenException)
+    expect(parts).not.toHaveBeenCalled()
+    expect(isMultipart).not.toHaveBeenCalled()
+    expect(service.uploadSource).not.toHaveBeenCalled()
+  })
+
+  it('an HR reads the file and hands it to the service, which keeps its own check', async () => {
+    const { service, parts, req, controller } = setup()
+    const hr = { id: 'h', email: 'h@unit.spec', role: 'HR' } as SessionUser
+    await expect(controller.uploadSource(OWNER, req as never, hr)).resolves.toBe('queued')
+    expect(parts).toHaveBeenCalledOnce()
+    expect(service.uploadSource).toHaveBeenCalledWith(hr, OWNER, {
+      buffer: Buffer.from('%PDF-1.4 x'),
+      mimetype: 'application/pdf',
+      originalname: 'cv.pdf',
+    })
+  })
+})
+
+describe('look writes on VERIFIED start a model run: throttled like the other run starts (CD-5)', () => {
+  it.each(['updateLayout', 'updateTemplate'] as const)(
+    '%s is throttled at 10 per minute',
+    (name) => {
+      const handler = SeniorResumesController.prototype[name]
+      expect(Reflect.getMetadata('THROTTLER:LIMITdefault', handler)).toBe(10)
+      expect(Reflect.getMetadata('THROTTLER:TTLdefault', handler)).toBe(60_000)
+    },
+  )
 })

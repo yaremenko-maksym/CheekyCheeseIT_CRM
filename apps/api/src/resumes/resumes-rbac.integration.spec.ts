@@ -33,27 +33,30 @@
  * unreachable throws in beforeAll (reports FAILED) — neither case can look
  * like "passed" with zero assertions.
  */
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
+import { ForbiddenException, HttpException, NotFoundException } from '@nestjs/common'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { createHash, randomUUID } from 'node:crypto'
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
   EMPTY_RESUME_CONTENT,
+  EMPTY_RESUME_FACTS,
   RESUME_DOCX_MIME,
   type ResumeContent,
+  type ResumeFacts,
   type SessionUser,
 } from '@crm/shared'
 import * as schema from '../database/schema'
-import { seniorResumes, users, type User } from '../database/schema'
+import { seniorResumes, teamMembers, teams, users, type User } from '../database/schema'
 import { DatabaseService } from '../database/database.service'
 import {
   SeniorResumesService,
   STUCK_EXTRACTION_TIMEOUT_MS,
   STUCK_RENDER_TIMEOUT_MS,
 } from './resumes.service'
+import { ResumeVerificationService } from './verification/resume-verification.service'
 import { buildDocx, buildPdfWithText } from '../test/resume-fixtures'
 import { hasDatabaseUrl } from '../test/require-real-db'
 
@@ -156,6 +159,20 @@ function makeRow(overrides: Partial<User>): User {
   } as User
 }
 
+/** A model result whose marker survives into the facts (as an experience company). */
+function extractedContent(marker: string): ResumeContent {
+  return {
+    ...EMPTY_RESUME_CONTENT,
+    summary: marker,
+    experience: [{ company: marker, role: 'Engineer', period: '', bullets: [] }],
+  }
+}
+
+/** The marker an extraction left in the facts. */
+function factsMarker(response: { resume: { facts: ResumeFacts } | null }): string | undefined {
+  return response.resume?.facts.experience[0]?.company
+}
+
 function session(user: User): SessionUser {
   return { id: user.id, email: user.email, role: user.role } as SessionUser
 }
@@ -174,6 +191,8 @@ describe.skipIf(!hasDatabaseUrl())(
     }
     let ai: { extractStructure: ReturnType<typeof vi.fn> }
     let typst: { fingerprint: ReturnType<typeof vi.fn>; render: ReturnType<typeof vi.fn> }
+    /** The check run is Task 14's own spec: here a submit only queues it. */
+    const runner = { run: vi.fn().mockResolvedValue(undefined) }
 
     beforeAll(async () => {
       try {
@@ -205,7 +224,7 @@ describe.skipIf(!hasDatabaseUrl())(
       ai = {
         extractStructure: vi.fn().mockResolvedValue({
           ok: true,
-          content: { ...EMPTY_RESUME_CONTENT, summary: 'извлечено' },
+          content: extractedContent('извлечено'),
           tokensUsed: 42,
         }),
       }
@@ -234,6 +253,7 @@ describe.skipIf(!hasDatabaseUrl())(
         // Real extraction service — the file fixtures are real PDFs/DOCX.
         new (await import('./resume-text-extraction.service')).ResumeTextExtractionService(),
         typst as never,
+        new ResumeVerificationService(dbSvc, s3 as never, runner as never),
       )
 
       await db
@@ -313,8 +333,9 @@ describe.skipIf(!hasDatabaseUrl())(
 
     // ── R-INT-3: SENIOR — own resume ──────────────────────────────────────────
 
-    it('R-INT-3. SENIOR reads and writes their OWN resume', async () => {
-      const saved = await service.updateContent(session(SENIOR_A), SENIOR_A.id, {
+    // [owner 2026-11-14] A SENIOR only VIEWS their resume; ADMIN and HR write it.
+    it('R-INT-3. SENIOR reads their OWN resume, read-only (canEdit=false)', async () => {
+      const saved = await service.updateContent(session(HR_USER), SENIOR_A.id, {
         ...EMPTY_RESUME_CONTENT,
         summary: 'моё резюме',
       })
@@ -323,6 +344,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
       const read = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
       expect(read.resume?.content.summary).toBe('моё резюме')
+      expect(read.canEdit).toBe(false)
     })
 
     // ── R-INT-4: SENIOR -> ANOTHER SENIOR (existing id!) — denied everywhere ───
@@ -389,6 +411,89 @@ describe.skipIf(!hasDatabaseUrl())(
       })
     })
 
+    // ── R-INT-4b: [owner 2026-11-14] SENIOR — own resume is read-only ──────────
+    // A SENIOR only VIEWS their resume: every write endpoint answers the owner 403, and the
+    // stored row is untouched. Reads (GET, PDF, status) stay open — R-INT-3 and R-INT-13.
+
+    describe('R-INT-4b. SENIOR A cannot write their OWN resume (403, row unchanged)', () => {
+      const own = () => session(SENIOR_A)
+      const writes: Array<[string, () => Promise<unknown>]> = [
+        ['PUT /', () => service.updateContent(own(), SENIOR_A.id, EMPTY_RESUME_CONTENT)],
+        [
+          'POST source',
+          () =>
+            service.uploadSource(own(), SENIOR_A.id, {
+              buffer: Buffer.from('%PDF-1.4 x'),
+              originalName: 'cv.pdf',
+              mimeType: 'application/pdf',
+            } as never),
+        ],
+        ['POST text', () => service.ingestText(own(), SENIOR_A.id, 'a'.repeat(200))],
+        ['DELETE', () => service.deleteResume(own(), SENIOR_A.id)],
+        ['PUT layout', () => service.updateLayout(own(), SENIOR_A.id, DEFAULT_RESUME_LAYOUT)],
+        ['PUT facts', () => service.saveFacts(own(), SENIOR_A.id, EMPTY_RESUME_FACTS)],
+        ['POST submit', () => service.submit(own(), SENIOR_A.id)],
+        [
+          'POST confirm',
+          () =>
+            service.confirm(own(), SENIOR_A.id, {
+              runId: '0b9a1c3e-0000-4000-8000-0000000000cc',
+              version: 1,
+            }),
+        ],
+        [
+          'PUT staged',
+          () =>
+            service.editStagedField(own(), SENIOR_A.id, {
+              runId: '0b9a1c3e-0000-4000-8000-0000000000cc',
+              path: 'summary',
+              text: 'x',
+            }),
+        ],
+        [
+          'POST staged/regenerate',
+          () =>
+            service.regenerateStagedField(own(), SENIOR_A.id, {
+              runId: '0b9a1c3e-0000-4000-8000-0000000000cc',
+              path: 'summary',
+            }),
+        ],
+        ['PUT template', () => service.setTemplate(own(), SENIOR_A.id, 'modern')],
+      ]
+
+      it.each(writes)('%s is 403 and the row is unchanged', async (_name, call) => {
+        await service.updateContent(session(HR_USER), SENIOR_A.id, {
+          ...EMPTY_RESUME_CONTENT,
+          summary: 'HR wrote this',
+        })
+        // The written columns only: the save's PDF render runs in the background.
+        const snapshot = () =>
+          dbSvc.db
+            .select({
+              version: seniorResumes.version,
+              content: seniorResumes.content,
+              facts: seniorResumes.facts,
+              layout: seniorResumes.layout,
+              templateName: seniorResumes.templateName,
+              status: seniorResumes.status,
+              verificationStatus: seniorResumes.verificationStatus,
+              sourceS3Key: seniorResumes.sourceS3Key,
+              updatedByUserId: seniorResumes.updatedByUserId,
+            })
+            .from(seniorResumes)
+            .where(eq(seniorResumes.userId, SENIOR_A.id))
+        const [before] = await snapshot()
+
+        await expect(call()).rejects.toBeInstanceOf(ForbiddenException)
+
+        const [after] = await snapshot()
+        expect(before?.updatedByUserId).toBe(HR_USER.id)
+        expect(after).toEqual(before)
+        const read = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
+        expect(read.resume?.content.summary).toBe('HR wrote this')
+      })
+    })
+
     // ── R-INT-5..7: roles with no resume surface at all ───────────────────────
 
     it('R-INT-5. JUNIOR is denied a foreign senior resume', async () => {
@@ -417,14 +522,14 @@ describe.skipIf(!hasDatabaseUrl())(
 
     // ── Empty state still carries the permission signal ──────────────────────
 
-    it('a senior with NO resume row yet still gets canEdit=true (so the upload UI shows)', async () => {
+    it('a senior with NO resume row yet gets canEdit=false; ADMIN gets true (upload UI)', async () => {
       // SENIOR_A's row may exist from an earlier test in this file — drop it so
       // this exercises the genuine "never created" path.
       await dbSvc.db.delete(seniorResumes).where(eq(seniorResumes.userId, SENIOR_A.id))
 
       const own = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
       expect(own.resume).toBeNull()
-      expect(own.canEdit).toBe(true)
+      expect(own.canEdit).toBe(false)
 
       const asAdmin = await service.getForUser(session(ADMIN_USER), SENIOR_A.id)
       expect(asAdmin.resume).toBeNull()
@@ -443,7 +548,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
     describe('R-INT-9. extraction state machine (AC3)', () => {
       it('upload answers immediately with QUEUED and reaches READY once the model returns', async () => {
-        const queued = await service.uploadSource(session(SENIOR_A), SENIOR_A.id, {
+        const queued = await service.uploadSource(session(HR_USER), SENIOR_A.id, {
           buffer: buildDocx(['Иван Петров', 'Синьор-разработчик в Acme, 2019–2024, TypeScript']),
           mimetype: 'application/msword', // deliberately WRONG — bytes win
           originalname: 'резюме.docx',
@@ -458,14 +563,14 @@ describe.skipIf(!hasDatabaseUrl())(
           expect(dto.resume?.status).toBe('READY')
         }, DETACHED_JOB_WAIT)
         const done = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
-        expect(done.resume?.content.summary).toBe('извлечено')
+        expect(factsMarker(done)).toBe('извлечено')
         // The text handed to the model really came out of the DOCX.
         expect(String(ai.extractStructure.mock.calls.at(-1)?.[0])).toContain('Иван Петров')
       })
 
       it('a text-layer-less file ends in FAILED/NO_TEXT with actionable copy, not silence', async () => {
         const { buildEmptyPdf } = await import('../test/resume-fixtures')
-        await service.uploadSource(session(SENIOR_A), SENIOR_A.id, {
+        await service.uploadSource(session(HR_USER), SENIOR_A.id, {
           buffer: await buildEmptyPdf(1),
           mimetype: 'application/pdf',
           originalname: 'scan.pdf',
@@ -489,7 +594,7 @@ describe.skipIf(!hasDatabaseUrl())(
           quotaResetsAt: resetAt,
           tokensUsed: null,
         })
-        await service.ingestText(session(SENIOR_A), SENIOR_A.id, 'Иван Петров, синьор. '.repeat(20))
+        await service.ingestText(session(HR_USER), SENIOR_A.id, 'Иван Петров, синьор. '.repeat(20))
 
         await vi.waitFor(async () => {
           const dto = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
@@ -501,7 +606,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
         // AC5: manual completion still works while the quota is exhausted, and
         // saving clears the banner.
-        const manual = await service.updateContent(session(SENIOR_A), SENIOR_A.id, {
+        const manual = await service.updateContent(session(HR_USER), SENIOR_A.id, {
           ...EMPTY_RESUME_CONTENT,
           summary: 'заполнено руками',
         })
@@ -512,13 +617,13 @@ describe.skipIf(!hasDatabaseUrl())(
 
       it('version grows by exactly one per save', async () => {
         const before = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
-        const after = await service.updateContent(session(SENIOR_A), SENIOR_A.id, {
+        const after = await service.updateContent(session(HR_USER), SENIOR_A.id, {
           ...EMPTY_RESUME_CONTENT,
           summary: 'ещё правка',
         })
         expect(after.resume?.version).toBe((before.resume?.version ?? 0) + 1)
-        expect(after.resume?.updatedByUserId).toBe(SENIOR_A.id)
-        expect(after.resume?.updatedByName).toBe(SENIOR_A.displayName)
+        expect(after.resume?.updatedByUserId).toBe(HR_USER.id)
+        expect(after.resume?.updatedByName).toBe(HR_USER.displayName)
       })
 
       it('sweeps a row abandoned in RUNNING into FAILED/STALLED', async () => {
@@ -560,7 +665,7 @@ describe.skipIf(!hasDatabaseUrl())(
       it('AC2: a renamed executable is rejected before anything is stored', async () => {
         s3.upload.mockClear()
         await expect(
-          service.uploadSource(session(SENIOR_A), SENIOR_A.id, {
+          service.uploadSource(session(HR_USER), SENIOR_A.id, {
             buffer: Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 0x07, 0x00, 0x00, 0x01]),
             mimetype: 'application/pdf',
             originalname: 'резюме.pdf',
@@ -592,7 +697,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
       const extracted = (summary: string) => ({
         ok: true as const,
-        content: { ...EMPTY_RESUME_CONTENT, summary },
+        content: extractedContent(summary),
         tokensUsed: 7,
       })
 
@@ -664,7 +769,7 @@ describe.skipIf(!hasDatabaseUrl())(
         await new Promise((r) => setTimeout(r, 50))
 
         const after = await service.getForUser(session(HR_USER), SENIOR_A.id)
-        expect(after.resume?.content.summary).toBe('второй файл')
+        expect(factsMarker(after)).toBe('второй файл')
       })
 
       /**
@@ -714,7 +819,7 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(ai.extractStructure).toHaveBeenCalledTimes(1)
         ai.extractStructure.mockResolvedValue({
           ok: true,
-          content: { ...EMPTY_RESUME_CONTENT, summary: 'извлечено' },
+          content: extractedContent('извлечено'),
           tokensUsed: 42,
         })
       })
@@ -739,7 +844,7 @@ describe.skipIf(!hasDatabaseUrl())(
         }, DETACHED_JOB_WAIT)
 
         const after = await service.getForUser(session(HR_USER), SENIOR_A.id)
-        expect(after.resume?.content.summary).toBe('распознано моделью')
+        expect(factsMarker(after)).toBe('распознано моделью')
         expect(after.resume?.version).toBe((before.resume?.version ?? 0) + 1)
       })
     })
@@ -762,7 +867,7 @@ describe.skipIf(!hasDatabaseUrl())(
         s3.getObject.mockResolvedValueOnce(docx)
         ai.extractStructure.mockResolvedValueOnce({
           ok: true,
-          content: { ...EMPTY_RESUME_CONTENT, summary: 'поднято подметателем' },
+          content: extractedContent('поднято подметателем'),
           tokensUsed: 11,
         })
 
@@ -787,7 +892,7 @@ describe.skipIf(!hasDatabaseUrl())(
           expect(dto.resume?.status).toBe('READY')
         }, DETACHED_JOB_WAIT)
         const dto = await service.getForUser(session(HR_USER), SENIOR_A.id)
-        expect(dto.resume?.content.summary).toBe('поднято подметателем')
+        expect(factsMarker(dto)).toBe('поднято подметателем')
       })
 
       it('R-INT-11b. a stale QUEUED row with no stored file is failed, not left spinning', async () => {
@@ -1014,17 +1119,17 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(after.resume).toBeNull()
       })
 
-      it('R-INT-12c. SENIOR erases their OWN resume', async () => {
-        await service.updateContent(session(SENIOR_A), SENIOR_A.id, {
+      it('R-INT-12c. HR erases a senior resume; the senior then sees it gone', async () => {
+        await service.updateContent(session(HR_USER), SENIOR_A.id, {
           ...EMPTY_RESUME_CONTENT,
           summary: 'моё резюме',
         })
-        const after = await service.deleteResume(session(SENIOR_A), SENIOR_A.id)
+        const after = await service.deleteResume(session(HR_USER), SENIOR_A.id)
         expect(after.resume).toBeNull()
 
         const reread = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
         expect(reread.resume).toBeNull()
-        expect(reread.canEdit).toBe(true) // still may create a new one
+        expect(reread.canEdit).toBe(false) // [owner 2026-11-14] only ADMIN/HR create one
       })
 
       it('R-INT-12d. SENIOR A must not erase SENIOR B’s resume', async () => {
@@ -1175,7 +1280,7 @@ describe.skipIf(!hasDatabaseUrl())(
       it('a save queues a render and the finished PDF is served from storage', async () => {
         typst.render.mockClear()
 
-        await service.updateContent(session(SENIOR_A), SENIOR_A.id, {
+        await service.updateContent(session(HR_USER), SENIOR_A.id, {
           ...EMPTY_RESUME_CONTENT,
           summary: 'резюме для рендера',
         })
@@ -1192,7 +1297,7 @@ describe.skipIf(!hasDatabaseUrl())(
       })
 
       it('a stale PDF is never served as the current one — it is re-queued', async () => {
-        await service.updateContent(session(SENIOR_A), SENIOR_A.id, {
+        await service.updateContent(session(HR_USER), SENIOR_A.id, {
           ...EMPTY_RESUME_CONTENT,
           summary: 'первая версия',
         })
@@ -1239,7 +1344,7 @@ describe.skipIf(!hasDatabaseUrl())(
           return Buffer.from('%PDF-1.7 superseded')
         })
 
-        await service.runRender(resumeId, 'Синьор А')
+        await service.runRender(resumeId, { displayName: 'Синьор А', email: SENIOR_A.email })
 
         // The bytes were written, then found to belong to nobody — so they are
         // erased. Left alone they would be an unreferenced CV in the bucket.
@@ -1286,7 +1391,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
         s3.upload.mockRejectedValueOnce(new Error('storage unreachable'))
 
-        await service.runRender(resumeId, 'Синьор А')
+        await service.runRender(resumeId, { displayName: 'Синьор А', email: SENIOR_A.email })
 
         const [after] = await dbSvc.db
           .select()
@@ -1407,10 +1512,664 @@ describe.skipIf(!hasDatabaseUrl())(
 
         const response = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
 
-        expect(response.resume?.templateName).toBe('Личный')
+        // A non-catalog label maps to the default catalog template (spec §6).
+        expect(response.resume?.templateName).toBe('classic')
         expect(response.resume?.hasCustomTemplate).toBe(true)
         expect(JSON.stringify(response)).not.toContain('СЕКРЕТНЫЙ ШАБЛОН')
         expect(JSON.stringify(response)).not.toContain('#let render')
+      })
+    })
+
+    // ── Verified base resume (Task 13): facts, status rule, 409 while busy ──────
+
+    describe('verified base resume — facts, DRAFT reset, 409 while busy', () => {
+      const FACTS: ResumeFacts = {
+        ...EMPTY_RESUME_FACTS,
+        headline: 'Senior Backend Engineer',
+        skills: ['TypeScript'],
+      }
+      const RUN_ID = '0b9a1c3e-0000-4000-8000-0000000000aa'
+      const OTHER_RUN_ID = '0b9a1c3e-0000-4000-8000-0000000000bb'
+      /** Run-scoped, like the runner writes it: `resumes/<id>/staged/<runId>.pdf`. */
+      let stagedKey = ''
+
+      async function rowOf(userId: string) {
+        const [row] = await dbSvc.db
+          .select()
+          .from(seniorResumes)
+          .where(eq(seniorResumes.userId, userId))
+        if (!row) throw new Error('row missing')
+        return row
+      }
+
+      function setState(userId: string, patch: Partial<typeof seniorResumes.$inferInsert>) {
+        return dbSvc.db.update(seniorResumes).set(patch).where(eq(seniorResumes.userId, userId))
+      }
+
+      async function expectBusy(promise: Promise<unknown>) {
+        const err: unknown = await promise.then(
+          () => null,
+          (e: unknown) => e,
+        )
+        expect(err).toBeInstanceOf(HttpException)
+        expect((err as HttpException).getStatus()).toBe(409)
+        expect((err as HttpException).getResponse()).toMatchObject({
+          code: 'RESUME_VERIFICATION_BUSY',
+        })
+      }
+
+      const awaiting = () => ({
+        verificationStatus: 'AWAITING_CONFIRM' as const,
+        verificationRunId: RUN_ID,
+        verificationKind: 'full',
+        stagedContent: { ...EMPTY_RESUME_CONTENT, summary: 'staged summary' },
+        stagedLayout: DEFAULT_RESUME_LAYOUT,
+        stagedTemplateName: 'modern',
+        stagedPdfS3Key: stagedKey,
+        stagedEditedPaths: [{ path: 'summary', userId: HR_USER.id }],
+      })
+
+      beforeEach(async () => {
+        await dbSvc.db.delete(seniorResumes).where(eq(seniorResumes.userId, SENIOR_A.id))
+        await service.saveFacts(session(HR_USER), SENIOR_A.id, FACTS)
+        stagedKey = `resumes/${(await rowOf(SENIOR_A.id)).id}/staged/${RUN_ID}.pdf`
+        s3.delete.mockClear()
+      })
+
+      it('PUT facts bumps version and sets DRAFT', async () => {
+        await setState(SENIOR_A.id, {
+          verificationStatus: 'FAILED',
+          verificationErrorCode: 'STALLED',
+        })
+        const before = await rowOf(SENIOR_A.id)
+
+        const saved = await service.saveFacts(session(HR_USER), SENIOR_A.id, {
+          ...FACTS,
+          headline: 'Staff Engineer',
+        })
+
+        expect(saved.resume?.version).toBe(before.version + 1)
+        expect(saved.resume?.verificationStatus).toBe('DRAFT')
+        expect(saved.resume?.verificationErrorCode).toBeNull()
+        expect(saved.resume?.facts.headline).toBe('Staff Engineer')
+        expect((await rowOf(SENIOR_A.id)).facts?.headline).toBe('Staff Engineer')
+      })
+
+      it('PUT facts while CHECKING returns 409 and leaves the row unchanged', async () => {
+        await setState(SENIOR_A.id, { verificationStatus: 'CHECKING', verificationRunId: RUN_ID })
+        const before = await rowOf(SENIOR_A.id)
+
+        await expectBusy(
+          service.saveFacts(session(HR_USER), SENIOR_A.id, { ...FACTS, headline: 'changed' }),
+        )
+
+        expect(await rowOf(SENIOR_A.id)).toEqual(before)
+      })
+
+      it('PUT content, layout and template while QUEUED all return 409', async () => {
+        await setState(SENIOR_A.id, { verificationStatus: 'QUEUED', verificationRunId: RUN_ID })
+        const before = await rowOf(SENIOR_A.id)
+
+        await expectBusy(
+          service.updateContent(session(HR_USER), SENIOR_A.id, {
+            ...EMPTY_RESUME_CONTENT,
+            summary: 'x',
+          }),
+        )
+        await expectBusy(
+          service.updateLayout(session(HR_USER), SENIOR_A.id, {
+            ...DEFAULT_RESUME_LAYOUT,
+            density: 'compact',
+          }),
+        )
+        await expectBusy(service.setTemplate(session(HR_USER), SENIOR_A.id, 'modern'))
+        expect(await rowOf(SENIOR_A.id)).toEqual(before)
+      })
+
+      it('CD-4: DELETE while QUEUED returns 409; the row and its keys stay', async () => {
+        await setState(SENIOR_A.id, {
+          verificationStatus: 'QUEUED',
+          verificationRunId: RUN_ID,
+          stagedPdfS3Key: stagedKey,
+        })
+        const before = await rowOf(SENIOR_A.id)
+
+        await expectBusy(service.deleteResume(session(HR_USER), SENIOR_A.id))
+
+        expect(await rowOf(SENIOR_A.id)).toEqual(before)
+        expect(s3.delete).not.toHaveBeenCalled()
+      })
+
+      it('facts edit in AWAITING_CONFIRM clears staged columns', async () => {
+        await setState(SENIOR_A.id, awaiting())
+        const shown = await service.getForUser(session(HR_USER), SENIOR_A.id)
+        expect(shown.resume?.staged).toMatchObject({
+          runId: RUN_ID,
+          templateName: 'modern',
+          pdfAvailable: true,
+          editedPaths: [{ path: 'summary', userId: HR_USER.id }],
+        })
+        expect(shown.resume?.staged?.content.summary).toBe('staged summary')
+
+        const saved = await service.saveFacts(session(HR_USER), SENIOR_A.id, FACTS)
+
+        expect(saved.resume?.verificationStatus).toBe('DRAFT')
+        expect(saved.resume?.staged).toBeNull()
+        const row = await rowOf(SENIOR_A.id)
+        expect(row).toMatchObject({
+          verificationRunId: null,
+          stagedContent: null,
+          stagedLayout: null,
+          stagedTemplateName: null,
+          stagedPdfS3Key: null,
+          stagedEditedPaths: [],
+        })
+        expect(s3.delete).toHaveBeenCalledWith(stagedKey)
+      })
+
+      it('a run landing between the read and the write: 409, row unchanged, its PDF kept', async () => {
+        await setState(SENIOR_A.id, awaiting())
+        const stale = await rowOf(SENIOR_A.id)
+        // A newer run's result landed after our read: new run id, new staged key.
+        const newKey = `resumes/${stale.id}/staged/${OTHER_RUN_ID}.pdf`
+        await setState(SENIOR_A.id, { verificationRunId: OTHER_RUN_ID, stagedPdfS3Key: newKey })
+        const before = await rowOf(SENIOR_A.id)
+        const verification = new ResumeVerificationService(dbSvc, s3 as never, runner as never)
+
+        await expectBusy(verification.saveFacts(stale, { ...FACTS, headline: 'raced' }, HR_USER.id))
+        await expectBusy(verification.setTemplate(stale, 'technical', HR_USER.id))
+
+        expect(await rowOf(SENIOR_A.id)).toEqual(before)
+        expect(s3.delete).not.toHaveBeenCalled()
+      })
+
+      it('a failed staged-object delete is logged and does not fail the write', async () => {
+        await setState(SENIOR_A.id, awaiting())
+        s3.delete.mockRejectedValueOnce(new Error('storage down'))
+
+        const saved = await service.saveFacts(session(HR_USER), SENIOR_A.id, FACTS)
+
+        expect(saved.resume?.verificationStatus).toBe('DRAFT')
+        expect((await rowOf(SENIOR_A.id)).stagedPdfS3Key).toBeNull()
+      })
+
+      it("HR may PUT a senior's facts; SENIOR A may not touch SENIOR B's (403)", async () => {
+        const own = await service.saveFacts(session(HR_USER), SENIOR_A.id, {
+          ...FACTS,
+          headline: 'mine',
+        })
+        expect(own.resume?.facts.headline).toBe('mine')
+        expect(own.canConfirm).toBe(true) // HR, unlike the senior, may confirm
+
+        const bBefore = await rowOf(SENIOR_B.id)
+        await expect(
+          service.saveFacts(session(SENIOR_A), SENIOR_B.id, FACTS),
+        ).rejects.toBeInstanceOf(ForbiddenException)
+        await expect(
+          service.setTemplate(session(SENIOR_A), SENIOR_B.id, 'modern'),
+        ).rejects.toBeInstanceOf(ForbiddenException)
+        expect(await rowOf(SENIOR_B.id)).toEqual(bBefore)
+      })
+
+      it('ACCOUNTANT gets 403', async () => {
+        await expect(
+          service.saveFacts(session(ACCOUNTANT_USER), SENIOR_A.id, FACTS),
+        ).rejects.toBeInstanceOf(ForbiddenException)
+        await expect(
+          service.setTemplate(session(ACCOUNTANT_USER), SENIOR_A.id, 'modern'),
+        ).rejects.toBeInstanceOf(ForbiddenException)
+        await expect(
+          service.saveFacts(session(JUNIOR_USER), SENIOR_A.id, FACTS),
+        ).rejects.toBeInstanceOf(ForbiddenException)
+      })
+
+      it('ADMIN and HR may confirm, the senior may not (canConfirm)', async () => {
+        expect((await service.getForUser(session(ADMIN_USER), SENIOR_A.id)).canConfirm).toBe(true)
+        expect((await service.getForUser(session(HR_USER), SENIOR_A.id)).canConfirm).toBe(true)
+        expect((await service.getForUser(session(SENIOR_A), SENIOR_A.id)).canConfirm).toBe(false)
+      })
+
+      describe('POST submit: who may queue the check run', () => {
+        // Complete facts and a Latin display name, so an accepted submit passes the completeness
+        // check and a refusal can only come from the access rule.
+        const COMPLETE: ResumeFacts = {
+          ...FACTS,
+          location: { city: 'Lisbon', country: 'Portugal' },
+          skills: ['TypeScript', 'NestJS', 'PostgreSQL', 'Docker', 'Kafka'],
+          experience: [
+            {
+              company: 'Acme Corp',
+              role: 'Tech Lead',
+              location: null,
+              start: '2021-03',
+              end: null,
+              current: true,
+              technologies: ['TypeScript'],
+              notes: ['Led the payments team'],
+            },
+          ],
+          languages: [{ name: 'English', level: 'C1' }],
+        }
+
+        beforeEach(async () => {
+          await service.saveFacts(session(HR_USER), SENIOR_A.id, COMPLETE)
+          await dbSvc.db
+            .update(users)
+            .set({ displayName: 'Senior First' })
+            .where(eq(users.id, SENIOR_A.id))
+          runner.run.mockClear()
+        })
+
+        afterEach(async () => {
+          await dbSvc.db
+            .update(users)
+            .set({ displayName: SENIOR_A.displayName })
+            .where(eq(users.id, SENIOR_A.id))
+        })
+
+        it("SENIOR on another senior's resume is 403 and queues nothing", async () => {
+          // B's row is made submittable like A's, so only the access rule can stop the submit.
+          const seeded = await rowOf(SENIOR_B.id)
+          await service.saveFacts(session(ADMIN_USER), SENIOR_B.id, COMPLETE)
+          await dbSvc.db
+            .update(users)
+            .set({ displayName: 'Senior Second' })
+            .where(eq(users.id, SENIOR_B.id))
+          try {
+            const bBefore = await rowOf(SENIOR_B.id)
+            await expect(service.submit(session(SENIOR_A), SENIOR_B.id)).rejects.toBeInstanceOf(
+              ForbiddenException,
+            )
+            expect(await rowOf(SENIOR_B.id)).toEqual(bBefore)
+            expect(runner.run).not.toHaveBeenCalled()
+          } finally {
+            await setState(SENIOR_B.id, {
+              facts: seeded.facts,
+              verificationStatus: seeded.verificationStatus,
+              version: seeded.version,
+            })
+            await dbSvc.db
+              .update(users)
+              .set({ displayName: SENIOR_B.displayName })
+              .where(eq(users.id, SENIOR_B.id))
+          }
+        })
+
+        it.each([
+          // [owner 2026-11-14] a SENIOR only views their resume, so their own submit is refused too.
+          ['SENIOR on their own resume', SENIOR_A],
+          ['JUNIOR', JUNIOR_USER],
+          ['ACCOUNTANT', ACCOUNTANT_USER],
+        ])('%s is 403 and queues nothing', async (_role, viewer) => {
+          const before = await rowOf(SENIOR_A.id)
+          await expect(service.submit(session(viewer), SENIOR_A.id)).rejects.toBeInstanceOf(
+            ForbiddenException,
+          )
+          expect(await rowOf(SENIOR_A.id)).toEqual(before)
+          expect(runner.run).not.toHaveBeenCalled()
+        })
+
+        it.each([
+          ['HR', HR_USER],
+          ['ADMIN', ADMIN_USER],
+        ])('%s is accepted: the row is QUEUED and the runner starts once', async (_who, viewer) => {
+          const out = await service.submit(session(viewer), SENIOR_A.id)
+
+          expect(out.resume?.verificationStatus).toBe('QUEUED')
+          const row = await rowOf(SENIOR_A.id)
+          expect(row.verificationStatus).toBe('QUEUED')
+          expect(row.verificationKind).toBe('full')
+          expect(row.updatedByUserId).toBe(viewer.id)
+          expect(runner.run.mock.calls).toEqual([[row.id, row.verificationRunId]])
+        })
+
+        // SO20-2 [owner 2026-11-14]: one resume, one template — a catalog pick clears a
+        // hand-set template source, so the custom-template refusal is gone after a pick.
+        it('a catalog pick clears a hand-set template source: the catalog template renders, submit queues', async () => {
+          await setState(SENIOR_A.id, { templateSource: '#let render(data) = []' })
+          const refused: unknown = await service.submit(session(HR_USER), SENIOR_A.id).then(
+            () => null,
+            (e: unknown) => e,
+          )
+          expect((refused as HttpException).getResponse()).toMatchObject({
+            code: 'RESUME_CUSTOM_TEMPLATE',
+          })
+
+          typst.render.mockClear()
+          const picked = await service.setTemplate(session(HR_USER), SENIOR_A.id, 'modern')
+
+          expect((await rowOf(SENIOR_A.id)).templateSource).toBeNull()
+          expect(picked.resume?.hasCustomTemplate).toBe(false)
+          expect(picked.resume?.templateName).toBe('modern')
+          await vi.waitFor(() =>
+            expect(typst.render).toHaveBeenCalledWith(
+              expect.objectContaining({ templateSource: null, templateName: 'modern' }),
+              expect.anything(),
+            ),
+          )
+          const out = await service.submit(session(HR_USER), SENIOR_A.id)
+          expect(out.resume?.verificationStatus).toBe('QUEUED')
+        })
+
+        it("the senior's Telegram handle in a note makes the facts incomplete: 422, nothing queued", async () => {
+          const experience = COMPLETE.experience.map((item) => ({
+            ...item,
+            notes: ['Led the payments team, ping SENIOR_TG_A'],
+          }))
+          await service.saveFacts(session(HR_USER), SENIOR_A.id, { ...COMPLETE, experience })
+          await dbSvc.db
+            .update(users)
+            .set({ telegram: '@senior_tg_a' })
+            .where(eq(users.id, SENIOR_A.id))
+          try {
+            const err: unknown = await service.submit(session(HR_USER), SENIOR_A.id).then(
+              () => null,
+              (e: unknown) => e,
+            )
+            expect((err as HttpException).getStatus()).toBe(422)
+            expect((err as HttpException).getResponse()).toMatchObject({
+              code: 'RESUME_INCOMPLETE',
+            })
+            expect(runner.run).not.toHaveBeenCalled()
+          } finally {
+            await dbSvc.db
+              .update(users)
+              .set({ telegram: SENIOR_A.telegram ?? null })
+              .where(eq(users.id, SENIOR_A.id))
+          }
+        })
+      })
+
+      it('legacy row without facts reads mapped facts and status DRAFT', async () => {
+        await setState(SENIOR_B.id, {
+          facts: null,
+          verificationStatus: 'DRAFT',
+          content: {
+            ...EMPTY_RESUME_CONTENT,
+            experience: [
+              { company: 'Acme', role: 'Developer', period: '2019 – 2021', bullets: ['Built X'] },
+            ],
+          },
+        })
+
+        const read = await service.getForUser(session(ADMIN_USER), SENIOR_B.id)
+
+        expect(read.resume?.verificationStatus).toBe('DRAFT')
+        expect(read.resume?.facts.experience).toEqual([
+          expect.objectContaining({ company: 'Acme', role: 'Developer', notes: ['Built X'] }),
+        ])
+        // Reads never write: the mapping is persisted only by the first facts save.
+        expect((await rowOf(SENIOR_B.id)).facts).toBeNull()
+      })
+
+      it('PUT layout on DRAFT writes it without a run', async () => {
+        const before = await rowOf(SENIOR_A.id)
+
+        const saved = await service.updateLayout(session(HR_USER), SENIOR_A.id, {
+          ...DEFAULT_RESUME_LAYOUT,
+          density: 'compact',
+        })
+
+        expect(saved.resume?.layout.density).toBe('compact')
+        expect(saved.resume?.version).toBe(before.version + 1)
+        expect(saved.resume?.verificationStatus).toBe('DRAFT')
+        expect(saved.resume?.verificationBusy).toBe(false)
+        expect((await rowOf(SENIOR_A.id)).verificationRunId).toBeNull()
+      })
+
+      it('PUT layout on VERIFIED does not set DRAFT', async () => {
+        const start = await rowOf(SENIOR_A.id)
+        await setState(SENIOR_A.id, {
+          verificationStatus: 'VERIFIED',
+          verifiedVersion: start.version,
+          verifiedAt: new Date(),
+          verifiedByUserId: HR_USER.id,
+        })
+
+        const saved = await service.updateLayout(session(HR_USER), SENIOR_A.id, {
+          ...DEFAULT_RESUME_LAYOUT,
+          density: 'relaxed',
+        })
+
+        // P1: a template run starts; status, live layout and version stay.
+        expect(saved.resume?.verificationStatus).toBe('VERIFIED')
+        expect(saved.resume?.layout.density).toBe(start.layout.density)
+        expect(saved.resume?.version).toBe(start.version)
+        expect(saved.resume?.verificationBusy).toBe(true)
+        expect(saved.resume?.verifiedByName).toBe(HR_USER.displayName)
+        expect(saved.resume?.staged).toBeNull() // no staged PDF yet: no confirm step
+        const row = await rowOf(SENIOR_A.id)
+        expect(row.verificationRunId).not.toBeNull()
+        expect(row.verificationKind).toBe('template')
+        expect(row.verificationBaseVersion).toBe(start.version)
+        expect(row.stagedLayout?.density).toBe('relaxed')
+        expect(row.stagedTemplateName).toBe(start.templateName)
+        expect(row.verificationQueuedAt).not.toBeNull()
+
+        // The run makes the row busy: a facts write now answers 409.
+        await expectBusy(service.saveFacts(session(HR_USER), SENIOR_A.id, FACTS))
+      })
+
+      it('PUT template on VERIFIED stages the template and keeps the live one', async () => {
+        const start = await rowOf(SENIOR_A.id)
+        await setState(SENIOR_A.id, {
+          verificationStatus: 'VERIFIED',
+          verifiedVersion: start.version,
+          templateName: 'classic',
+        })
+
+        const saved = await service.setTemplate(session(HR_USER), SENIOR_A.id, 'technical')
+
+        expect(saved.resume?.templateName).toBe('classic')
+        const row = await rowOf(SENIOR_A.id)
+        expect(row.stagedTemplateName).toBe('technical')
+        expect(row.verificationKind).toBe('template')
+      })
+
+      it('PUT template in AWAITING_CONFIRM returns to DRAFT and drops the staged PDF', async () => {
+        await setState(SENIOR_A.id, awaiting())
+        const before = await rowOf(SENIOR_A.id)
+
+        const saved = await service.setTemplate(session(HR_USER), SENIOR_A.id, 'compact')
+
+        expect(saved.resume?.templateName).toBe('compact')
+        expect(saved.resume?.verificationStatus).toBe('DRAFT')
+        expect(saved.resume?.version).toBe(before.version + 1)
+        expect(saved.resume?.staged).toBeNull()
+        expect(s3.delete).toHaveBeenCalledWith(stagedKey)
+      })
+
+      it('PUT template on FAILED writes it and keeps FAILED', async () => {
+        await setState(SENIOR_A.id, { verificationStatus: 'FAILED' })
+        const before = await rowOf(SENIOR_A.id)
+
+        const saved = await service.setTemplate(session(HR_USER), SENIOR_A.id, 'modern')
+
+        expect(saved.resume?.templateName).toBe('modern')
+        expect(saved.resume?.verificationStatus).toBe('FAILED')
+        expect(saved.resume?.version).toBe(before.version + 1)
+      })
+
+      it('extraction result lands in facts, content unchanged', async () => {
+        await setState(SENIOR_A.id, {
+          ...awaiting(),
+          content: { ...EMPTY_RESUME_CONTENT, summary: 'live summary' },
+        })
+        const before = await rowOf(SENIOR_A.id)
+        ai.extractStructure.mockResolvedValueOnce({
+          ok: true,
+          content: {
+            ...EMPTY_RESUME_CONTENT,
+            summary: 'extracted summary',
+            experience: [
+              { company: 'ExtractedCo', role: 'Lead', period: '', bullets: ['Shipped Y'] },
+            ],
+          },
+          tokensUsed: 7,
+        })
+
+        await service.ingestText(session(HR_USER), SENIOR_A.id, 'a'.repeat(200))
+        await vi.waitFor(async () => {
+          expect((await rowOf(SENIOR_A.id)).status).toBe('READY')
+        })
+
+        const row = await rowOf(SENIOR_A.id)
+        expect((row.content as ResumeContent).summary).toBe('live summary')
+        expect(row.facts?.experience[0]).toMatchObject({
+          company: 'ExtractedCo',
+          notes: ['Shipped Y'],
+        })
+        expect(row.verificationStatus).toBe('DRAFT')
+        expect(row.version).toBe(before.version + 1)
+        expect(row.stagedPdfS3Key).toBeNull()
+        expect(s3.delete).toHaveBeenCalledWith(stagedKey)
+      })
+
+      it('upload while CHECKING returns 409 before storing anything', async () => {
+        await setState(SENIOR_A.id, { verificationStatus: 'CHECKING', verificationRunId: RUN_ID })
+
+        await expectBusy(
+          service.uploadSource(session(HR_USER), SENIOR_A.id, {
+            buffer: buildDocx(['Иван Петров', 'Синьор']),
+            mimetype: RESUME_DOCX_MIME,
+            originalname: 'cv.docx',
+          }),
+        )
+        expect(s3.upload).not.toHaveBeenCalled()
+      })
+
+      it('a run starting during the upload still answers 409 when the cleanup delete fails', async () => {
+        s3.upload.mockImplementationOnce(async () => {
+          await setState(SENIOR_A.id, { verificationStatus: 'CHECKING', verificationRunId: RUN_ID })
+        })
+        s3.delete.mockRejectedValueOnce(new Error('storage down'))
+
+        await expectBusy(
+          service.uploadSource(session(HR_USER), SENIOR_A.id, {
+            buffer: buildDocx(['Иван Петров', 'Синьор']),
+            mimetype: RESUME_DOCX_MIME,
+            originalname: 'cv.docx',
+          }),
+        )
+        const uploadedKey = s3.upload.mock.calls.at(-1)?.[0] as string
+        expect(s3.delete).toHaveBeenCalledWith(uploadedKey)
+        expect((await rowOf(SENIOR_A.id)).sourceS3Key).not.toBe(uploadedKey)
+      })
+
+      it('a failed delete of the superseded source still answers with the new source in place', async () => {
+        const previousKey = `senior-resumes/${SENIOR_A.id}/previous-source`
+        await setState(SENIOR_A.id, { sourceS3Key: previousKey })
+        s3.delete.mockRejectedValueOnce(new Error('storage down'))
+
+        const queued = await service.uploadSource(session(HR_USER), SENIOR_A.id, {
+          buffer: buildDocx(['Иван Петров', 'Синьор']),
+          mimetype: RESUME_DOCX_MIME,
+          originalname: 'cv.docx',
+        })
+        expect(queued.resume?.status).toBe('QUEUED')
+        const uploadedKey = s3.upload.mock.calls.at(-1)?.[0] as string
+        expect(s3.delete).toHaveBeenCalledWith(previousKey)
+        expect((await rowOf(SENIOR_A.id)).sourceS3Key).toBe(uploadedKey)
+        // The extraction of the new source still starts.
+        await vi.waitFor(async () => {
+          expect((await rowOf(SENIOR_A.id)).status).not.toMatch(/^(QUEUED|RUNNING)$/)
+        })
+      })
+
+      it('extracted facts outside the schema range fail the run and store nothing', async () => {
+        const before = await rowOf(SENIOR_A.id)
+        ai.extractStructure.mockResolvedValueOnce({
+          ok: true,
+          content: {
+            ...EMPTY_RESUME_CONTENT,
+            experience: [
+              { company: 'OldCo', role: 'Clerk', period: '1900-05 — 2005-01', bullets: [] },
+            ],
+          },
+          tokensUsed: 7,
+        })
+
+        await service.ingestText(session(HR_USER), SENIOR_A.id, 'a'.repeat(200))
+        await vi.waitFor(async () => {
+          expect((await rowOf(SENIOR_A.id)).status).toBe('FAILED')
+        })
+
+        const row = await rowOf(SENIOR_A.id)
+        expect(row.errorCode).toBe('MODEL_INVALID_JSON')
+        // the panel shows errorMessage verbatim after the catalog line: it must not be Russian (CR-M-1)
+        expect(row.errorMessage).toMatch(/\S/)
+        expect(row.errorMessage).not.toMatch(/\p{Script=Cyrillic}/u)
+        expect(row.lastExtractionTokens).toBe(7)
+        expect(row.facts).toEqual(before.facts)
+        expect(row.version).toBe(before.version)
+        expect(row.verificationStatus).toBe(before.verificationStatus)
+      })
+
+      it('pasted text while QUEUED returns 409 and starts no extraction', async () => {
+        await setState(SENIOR_A.id, { verificationStatus: 'QUEUED', verificationRunId: RUN_ID })
+        const before = await rowOf(SENIOR_A.id)
+
+        await expectBusy(service.ingestText(session(HR_USER), SENIOR_A.id, 'a'.repeat(200)))
+
+        expect(await rowOf(SENIOR_A.id)).toEqual(before)
+        expect(ai.extractStructure).not.toHaveBeenCalled()
+      })
+
+      it('deleting a resume also deletes its staged PDF', async () => {
+        await setState(SENIOR_A.id, awaiting())
+
+        await service.deleteResume(session(HR_USER), SENIOR_A.id)
+
+        expect(s3.delete).toHaveBeenCalledWith(stagedKey)
+        expect(
+          await dbSvc.db.select().from(seniorResumes).where(eq(seniorResumes.userId, SENIOR_A.id)),
+        ).toEqual([])
+      })
+
+      it('new resume in a team using classic×2, modern×1 gets compact or technical deterministically', async () => {
+        // sha256(...11) mod 4 = 3 -> the walk starts at `technical` (unit spec).
+        const newcomer = makeRow({
+          id: '7b3d91c4-2e5f-4a00-aa00-000000000011',
+          email: 'resume-team-newcomer@test.spec',
+          role: 'SENIOR',
+        })
+        const peers = ['12', '13', '14'].map((n) =>
+          makeRow({
+            id: `7b3d91c4-2e5f-4a00-aa00-0000000000${n}`,
+            email: `resume-team-peer-${n}@test.spec`,
+            role: 'SENIOR',
+          }),
+        )
+        const all = [newcomer, ...peers]
+        const [team] = await dbSvc.db
+          .insert(teams)
+          .values({ name: 'resume-template-pick-team' })
+          .returning({ id: teams.id })
+        if (!team) throw new Error('team not created')
+        try {
+          await dbSvc.db
+            .insert(users)
+            .values(all.map((u) => ({ ...u, googleId: `test-resume-rbac-${u.id}` })))
+            .onConflictDoNothing()
+          await dbSvc.db
+            .insert(teamMembers)
+            .values(all.map((u) => ({ teamId: team.id, userId: u.id })))
+          await dbSvc.db.insert(seniorResumes).values(
+            ['classic', 'classic', 'modern'].map((templateName, i) => ({
+              userId: peers[i]!.id,
+              templateName,
+            })),
+          )
+
+          const saved = await service.saveFacts(session(HR_USER), newcomer.id, FACTS)
+
+          expect(saved.resume?.templateName).toBe('technical')
+        } finally {
+          const ids = all.map((u) => u.id)
+          await dbSvc.db.delete(seniorResumes).where(inArray(seniorResumes.userId, ids))
+          await dbSvc.db.delete(teams).where(eq(teams.id, team.id))
+          await dbSvc.db.delete(users).where(inArray(users.id, ids))
+        }
       })
     })
   },

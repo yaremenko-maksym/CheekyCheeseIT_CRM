@@ -17,6 +17,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
 import type { Env } from '../../../config/env'
+import { isS3NotFound } from '../../../documents/s3-not-found.util'
 
 const DEFAULT_PART_URL_TTL_SECONDS = 15 * 60
 const DEFAULT_PLAYBACK_URL_TTL_SECONDS = 30 * 60
@@ -186,7 +187,7 @@ export class RecordingMediaStorageService {
       }
       return { bytes: result.ContentLength, mimeType: result.ContentType }
     } catch (error: unknown) {
-      if (isNotFound(error)) return null
+      if (isS3NotFound(error)) return null
       throw new ServiceUnavailableException('MEDIA_STORAGE_UNAVAILABLE')
     }
   }
@@ -329,14 +330,4 @@ export class RecordingMediaStorageService {
 function isMissingUpload(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false
   return (error as { name?: string }).name === 'NoSuchUpload'
-}
-
-function isNotFound(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false
-  const candidate = error as { name?: string; $metadata?: { httpStatusCode?: number } }
-  return (
-    candidate.name === 'NotFound' ||
-    candidate.name === 'NoSuchKey' ||
-    candidate.$metadata?.httpStatusCode === 404
-  )
 }

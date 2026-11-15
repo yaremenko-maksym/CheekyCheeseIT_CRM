@@ -65,7 +65,7 @@ describe('ContactsSection', () => {
     fireEvent.blur(telegram)
     await Promise.resolve()
     expect(screen.queryByText(TELEGRAM_ERROR)).not.toBeInTheDocument()
-    expect(telegram.className).not.toContain('border-destructive')
+    expect(telegram).not.toHaveClass('border-destructive')
   })
 
   it('flags an invalid telegram handle only after it is dirty and blurred', async () => {
@@ -75,7 +75,7 @@ describe('ContactsSection', () => {
     fireEvent.change(telegram, { target: { value: 'ab' } })
     fireEvent.blur(telegram)
     expect(await screen.findByText(TELEGRAM_ERROR)).toBeInTheDocument()
-    expect(telegram.className).toContain('border-destructive')
+    expect(telegram).toHaveClass('border-destructive')
   })
 
   it('does not validate a pristine empty telegram on blur', async () => {

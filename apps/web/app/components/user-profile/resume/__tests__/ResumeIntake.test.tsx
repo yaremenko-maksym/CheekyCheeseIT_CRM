@@ -30,9 +30,11 @@ function renderIntake(overrides: Partial<ComponentProps<typeof ResumeIntake>> = 
 }
 
 describe('the upload button reads the state it is actually in', () => {
-  it('"empty" variant (also the default, no prop passed): "Завантажити файл", not "Замінити файл"', () => {
+  it('"empty" variant (also the default, no prop passed): upload only prefills, not "Замінити файл"', () => {
     renderIntake()
-    expect(screen.getByTestId('resume-upload-button')).toHaveTextContent('Завантажити файл')
+    expect(screen.getByTestId('resume-upload-button')).toHaveTextContent(
+      'Завантажити, щоб заповнити',
+    )
     expect(screen.getByTestId('resume-upload-button')).not.toHaveTextContent('Замінити файл')
   })
 
@@ -43,10 +45,43 @@ describe('the upload button reads the state it is actually in', () => {
   })
 })
 
+describe('the empty state offers two choices (design §5.2)', () => {
+  it('"Заповнити вручну" opens the empty facts form; the note says upload only prefills', () => {
+    const onFillManually = vi.fn()
+    renderIntake({ onFillManually })
+    fireEvent.click(screen.getByRole('button', { name: 'Заповнити вручну' }))
+    expect(onFillManually).toHaveBeenCalledTimes(1)
+    expect(
+      screen.getByText(
+        'Завантаження лише заповнює поля. Статус «Перевірено» резюме отримає після перевірки й підтвердження HR.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('F-10: empty variant renders solid card, tiles with bold titles; the upload label wraps inside its tile', () => {
+    renderIntake({ onFillManually: vi.fn() })
+    const intake = screen.getByTestId('resume-intake')
+    expect(intake).not.toHaveClass('border-dashed')
+    expect(screen.getAllByText('Заповнити вручну')).toHaveLength(2)
+    expect(screen.getAllByText('Завантажити, щоб заповнити')).toHaveLength(2)
+    // FF2-1: the long upload label wraps at 768 / 320 instead of painting past the tile; 44 px min target.
+    expect(screen.getByTestId('resume-upload-button')).toHaveClass('whitespace-normal', 'min-h-11')
+    expect(screen.getByTestId('resume-upload-button')).not.toHaveClass('whitespace-nowrap')
+    expect(screen.getByTestId('resume-fill-manually')).toHaveClass('whitespace-nowrap')
+  })
+
+  it('the compact variant has no "fill by hand" tile', () => {
+    renderIntake({ variant: 'compact', onFillManually: vi.fn() })
+    expect(screen.queryByRole('button', { name: 'Заповнити вручну' })).toBeNull()
+  })
+})
+
 describe('accessible names on the hidden file input and the paste textarea', () => {
-  it('the file input carries the exact aria-label', () => {
+  it('the file input carries the exact aria-label and tabIndex={-1}', () => {
     renderIntake()
-    expect(screen.getByTestId('resume-file-input')).toHaveAttribute('aria-label', 'Файл резюме')
+    const input = screen.getByTestId('resume-file-input')
+    expect(input).toHaveAttribute('aria-label', 'Файл резюме')
+    expect(input).toHaveAttribute('tabIndex', '-1')
   })
 
   it('opening the paste box shows the exact placeholder and aria-label', () => {
@@ -55,5 +90,82 @@ describe('accessible names on the hidden file input and the paste textarea', () 
     const textarea = screen.getByTestId('resume-text-input')
     expect(textarea).toHaveAttribute('placeholder', 'Вставте сюди текст резюме цілком')
     expect(textarea).toHaveAttribute('aria-label', 'Текст резюме')
+  })
+})
+
+describe('the two variants weigh the buttons differently', () => {
+  it('empty: upload is outlined and paste is a ghost, neither is primary', () => {
+    renderIntake()
+    const upload = screen.getByTestId('resume-upload-button')
+    const paste = screen.getByTestId('resume-paste-toggle')
+    expect(upload).toHaveClass('border')
+    expect(upload).not.toHaveClass('bg-primary')
+    expect(paste).not.toHaveClass('border')
+    expect(paste).not.toHaveClass('bg-primary')
+  })
+
+  it('compact: upload is primary and paste is outlined', () => {
+    renderIntake({ variant: 'compact' })
+    expect(screen.getByTestId('resume-upload-button')).toHaveClass('bg-primary')
+    const paste = screen.getByTestId('resume-paste-toggle')
+    expect(paste).toHaveClass('border')
+    expect(paste).not.toHaveClass('bg-primary')
+  })
+
+  it('compact: the footnote states the file limits, not the verification rule', () => {
+    renderIntake({ variant: 'compact' })
+    expect(screen.getByText(/^PDF або DOCX, до \d+ МБ/)).toBeInTheDocument()
+    expect(screen.queryByText(/Завантаження лише заповнює поля/)).toBeNull()
+  })
+})
+
+describe('the buttons act', () => {
+  it('the upload button opens the file picker', () => {
+    renderIntake()
+    const input = screen.getByTestId('resume-file-input')
+    const click = vi.spyOn(input, 'click').mockImplementation(() => undefined)
+    fireEvent.click(screen.getByTestId('resume-upload-button'))
+    expect(click).toHaveBeenCalledTimes(1)
+  })
+
+  it('the paste toggle opens and then closes the paste box', () => {
+    renderIntake()
+    const toggle = screen.getByTestId('resume-paste-toggle')
+    fireEvent.click(toggle)
+    expect(screen.getByTestId('resume-text-input')).toBeInTheDocument()
+    fireEvent.click(toggle)
+    expect(screen.queryByTestId('resume-text-input')).toBeNull()
+    fireEvent.click(toggle)
+    expect(screen.getByTestId('resume-text-input')).toBeInTheDocument()
+  })
+
+  it('submitting pasted text sends it trimmed and closes the box', () => {
+    const { onSubmitText } = renderIntake()
+    fireEvent.click(screen.getByTestId('resume-paste-toggle'))
+    const text = 'Senior TypeScript developer with ten years of backend work'
+    fireEvent.change(screen.getByTestId('resume-text-input'), { target: { value: `  ${text}  ` } })
+    fireEvent.click(screen.getByTestId('resume-text-submit'))
+    expect(onSubmitText).toHaveBeenCalledWith(text)
+    expect(screen.queryByTestId('resume-text-input')).toBeNull()
+  })
+
+  it('"Скасувати" closes the box and drops the text', () => {
+    renderIntake()
+    fireEvent.click(screen.getByTestId('resume-paste-toggle'))
+    fireEvent.change(screen.getByTestId('resume-text-input'), { target: { value: 'draft' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Скасувати' }))
+    expect(screen.queryByTestId('resume-text-input')).toBeNull()
+    fireEvent.click(screen.getByTestId('resume-paste-toggle'))
+    expect(screen.getByTestId('resume-text-input')).toHaveValue('')
+  })
+
+  it('"Заповнити вручну" does not take focus by default', () => {
+    renderIntake({ onFillManually: vi.fn() })
+    expect(screen.getByTestId('resume-fill-manually')).not.toHaveFocus()
+  })
+
+  it('"Заповнити вручну" takes focus when the user came back from the form', () => {
+    renderIntake({ onFillManually: vi.fn(), focusFillManually: true })
+    expect(screen.getByTestId('resume-fill-manually')).toHaveFocus()
   })
 })

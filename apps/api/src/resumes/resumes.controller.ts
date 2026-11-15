@@ -8,12 +8,17 @@
  *   POST   /api/users/:userId/resume/text       paste plain text -> QUEUED
  *   GET    /api/users/:userId/resume/source     presigned download of the original
  *   GET    /api/users/:userId/resume/pdf        rendered PDF on our template
+ *   POST   /api/users/:userId/resume/confirm    promote the staged result (ADMIN/HR)
+ *   PUT    /api/users/:userId/resume/staged     edit one staged text -> staged-edit run
+ *   POST   /api/users/:userId/resume/staged/regenerate  one staged path -> item run
+ *   GET    /api/users/:userId/resume/staged-pdf the staged PDF awaiting Confirm
  *   DELETE /api/users/:userId/resume            erase the row + the stored file
  *
  * Auth: the global JwtAuthGuard (AppModule APP_GUARD) authenticates. There is
  * deliberately NO `@Roles()` decorator here: the §4 table is per-TARGET
- * ("SENIOR may write their OWN resume"), which a role-only guard cannot
- * express — RolesGuard would happily let SENIOR A write SENIOR B's resume.
+ * ("SENIOR may read their OWN resume"; [owner 2026-11-14] only ADMIN and HR
+ * write), which a role-only guard cannot express — RolesGuard would happily
+ * let SENIOR A read SENIOR B's resume.
  * The real check lives in SeniorResumesService.assertAccess and is a
  * comparison of ids.
  */
@@ -22,8 +27,10 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Header,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -34,13 +41,19 @@ import {
 import { Throttle } from '@nestjs/throttler'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import {
+  confirmResumeSchema,
+  editStagedFieldSchema,
   ingestResumeTextSchema,
+  regenerateStagedFieldSchema,
   updateResumeContentSchema,
+  updateResumeFactsSchema,
   updateResumeLayoutSchema,
+  updateResumeTemplateSchema,
   type SessionUser,
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
-import { SeniorResumesService, sanitizeFileName } from './resumes.service'
+import { canAccessResume } from './resume-access'
+import { NO_ACCESS, SeniorResumesService, sanitizeFileName } from './resumes.service'
 
 /** Minimal shape of a multipart part as returned by @fastify/multipart. */
 interface MultipartField {
@@ -83,6 +96,10 @@ export class SeniorResumesController {
     @Req() req: FastifyRequest,
     @CurrentUser() user: SessionUser,
   ) {
+    // SR-L-4: refuse before the body is read, so a caller without write rights cannot stream up to
+    // the size limit for a 403. The service's assertAccess stays the authority (target role, 404).
+    // Stryker disable next-line StringLiteral: equivalent — any mode but 'read' refuses a SENIOR, and ADMIN/HR ignore it
+    if (!canAccessResume(user, userId, 'write')) throw new ForbiddenException(NO_ACCESS)
     if (!req.isMultipart()) {
       throw new BadRequestException('Ожидается multipart/form-data')
     }
@@ -145,6 +162,8 @@ export class SeniorResumesController {
    * task, not through the API.
    */
   @Put('layout')
+  // On VERIFIED a look write starts a template run (model calls): throttled like submit.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   updateLayout(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Body() body: unknown,
@@ -152,6 +171,90 @@ export class SeniorResumesController {
   ) {
     const { layout } = updateResumeLayoutSchema.parse(body)
     return this.service.updateLayout(user, userId, layout)
+  }
+
+  /** The facts HR enters (spec §3). Same write rule; 409 while a check runs. */
+  @Put('facts')
+  updateFacts(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const { facts } = updateResumeFactsSchema.parse(body)
+    return this.service.saveFacts(user, userId, facts)
+  }
+
+  /** Starts the check run (Task 14): 202, the run goes on off the request path; 409 while busy. */
+  @Post('submit')
+  @HttpCode(202)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  submit(@Param('userId', ParseUUIDPipe) userId: string, @CurrentUser() user: SessionUser) {
+    return this.service.submit(user, userId)
+  }
+
+  /** Confirm the staged result (Task 15): ADMIN/HR only; 409 when it changed since it was shown. */
+  @Post('confirm')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  confirm(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    return this.service.confirm(user, userId, confirmResumeSchema.parse(body))
+  }
+
+  /** Rewrite one staged text by hand; a staged-edit run re-checks it (202). */
+  @Put('staged')
+  @HttpCode(202)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  editStaged(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    return this.service.editStagedField(user, userId, editStagedFieldSchema.parse(body))
+  }
+
+  /** Regenerate one staged path with the model; an item run (202). */
+  @Post('staged/regenerate')
+  @HttpCode(202)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  regenerateStaged(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    return this.service.regenerateStagedField(user, userId, regenerateStagedFieldSchema.parse(body))
+  }
+
+  /** The staged PDF awaiting Confirm; 404 like the live PDF when absent or not readable. */
+  @Get('staged-pdf')
+  @Header('Cache-Control', 'private, no-store')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  async getStagedPdf(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @CurrentUser() user: SessionUser,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    const result = await this.service.getStagedPdf(user, userId)
+    await reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', resumeContentDisposition(result.displayName))
+      .send(result.pdfBuffer)
+  }
+
+  /** A catalog template (spec §6) — a name from the enum, never template source. */
+  @Put('template')
+  // On VERIFIED a look write starts a template run (model calls): throttled like submit.
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  updateTemplate(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const { templateName } = updateResumeTemplateSchema.parse(body)
+    return this.service.setTemplate(user, userId, templateName)
   }
 
   /**

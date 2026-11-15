@@ -52,6 +52,8 @@ export type ClassifiedChatOptions = {
   instruction?: string | undefined
   input: string
   correction?: string | undefined
+  /** Base64 PNG pages; the router passes them only to a vision-capable pair. */
+  images?: readonly string[] | undefined
   maxTokens: number
   structuredOutput: StructuredOutput
   timeoutMs?: number

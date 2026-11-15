@@ -348,9 +348,9 @@ describe('ProjectCreateDialog + useCreateProjectForm', () => {
     const name = screen.getByPlaceholderText('AI Platform v2')
     const company = screen.getByPlaceholderText('TechCorp AI')
     expect(screen.getByText('Назва проєкту').className).not.toContain('text-destructive')
-    expect(name.className).not.toContain('border-destructive')
+    expect(name).not.toHaveClass('border-destructive')
     expect(screen.getByText('Компанія').className).not.toContain('text-destructive')
-    expect(company.className).not.toContain('border-destructive')
+    expect(company).not.toHaveClass('border-destructive')
 
     fireEvent.change(name, { target: { value: '   ' } })
     fireEvent.blur(name)
@@ -359,15 +359,15 @@ describe('ProjectCreateDialog + useCreateProjectForm', () => {
 
     expect(destructiveParagraphs()).toBe(2)
     expect(screen.getByText('Назва проєкту').className).toContain('text-destructive')
-    expect(name.className).toContain('border-destructive')
+    expect(name).toHaveClass('border-destructive')
     expect(name.className).toContain('focus-visible:ring-destructive/30')
     expect(screen.getByText('Компанія').className).toContain('text-destructive')
-    expect(company.className).toContain('border-destructive')
+    expect(company).toHaveClass('border-destructive')
 
     fireEvent.change(name, { target: { value: 'Ok' } })
     fireEvent.blur(name)
     expect(destructiveParagraphs()).toBe(1)
-    expect(name.className).not.toContain('border-destructive')
+    expect(name).not.toHaveClass('border-destructive')
   })
 
   it('shows the senior validation message after blur on an empty senior', () => {
@@ -380,7 +380,7 @@ describe('ProjectCreateDialog + useCreateProjectForm', () => {
     const message = screen.getByText('Виберіть сеньйора')
     expect(message.tagName).toBe('P')
     expect(message.className).toContain('text-xs text-destructive')
-    expect(senior.className).toContain('border-destructive')
+    expect(senior).toHaveClass('border-destructive')
     expect(senior.className).not.toContain('border-input')
     expect(screen.getByText('Сеньйор').className).toContain('text-destructive')
     fireEvent.change(senior, { target: { value: SENIOR_ID } })

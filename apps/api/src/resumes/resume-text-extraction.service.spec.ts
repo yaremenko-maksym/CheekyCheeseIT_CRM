@@ -1583,3 +1583,14 @@ describe('normalizeExtractedText', () => {
     expect(normalizeExtractedText('a\u000Bb\u000Cc\u001Bd')).toBe('abcd')
   })
 })
+
+describe('countRenderedPages (Task 14)', () => {
+  it('counts the pages, past the extraction cap too', async () => {
+    expect(await service.countRenderedPages(await buildEmptyPdf(1))).toBe(1)
+    expect(await service.countRenderedPages(await buildEmptyPdf(3))).toBe(3)
+    // Over MAX_PDF_PAGES is a layout failure to repair, so the count must not refuse it.
+    expect(await service.countRenderedPages(await buildEmptyPdf(MAX_PDF_PAGES + 1))).toBe(
+      MAX_PDF_PAGES + 1,
+    )
+  })
+})

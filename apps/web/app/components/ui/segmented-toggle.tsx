@@ -102,6 +102,8 @@ export interface SegmentedToggleProps<V extends string> {
   role?: 'radiogroup' | 'tablist'
   /** Test id on the container; per-button test ids are `${testId}-${value}`. */
   testId?: string
+  /** Additional classes applied to each option button (e.g. touch-target overrides). */
+  itemClassName?: string
 }
 
 export function SegmentedToggle<V extends string>({
@@ -116,6 +118,7 @@ export function SegmentedToggle<V extends string>({
   variant = 'pill',
   role,
   testId,
+  itemClassName,
 }: SegmentedToggleProps<V>) {
   // Auto-generate a layoutId when caller doesn't supply one. We use a ref so
   // the value is stable across re-renders within a single mount lifecycle.
@@ -272,6 +275,7 @@ export function SegmentedToggle<V extends string>({
               'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
               sizeStyles,
               touchTargetStyles,
+              itemClassName,
               'font-medium',
               active ? activeTextClass : 'text-muted-foreground hover:text-foreground',
               buttonDisabled && 'cursor-not-allowed opacity-50 hover:text-muted-foreground',

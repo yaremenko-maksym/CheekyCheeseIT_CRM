@@ -30,6 +30,11 @@ export function isValidProviderModelId(provider: 'gemini' | 'groq' | 'local', id
   return isValidModelId(id)
 }
 
+/** Whether a pair may receive image parts (vision routes research): Gemini family only. */
+export function isVisionCapable(provider: 'gemini' | 'groq' | 'local', id: string): boolean {
+  return provider === 'gemini' && GEMINI_MODEL_PATTERN.test(id)
+}
+
 export type GeminiModelId = { id: string; version: string; variant: string }
 
 /** A provider-supplied Gemini id, `models/` prefix stripped, validated by the family pattern; else null. */
