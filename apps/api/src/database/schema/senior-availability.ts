@@ -1,7 +1,7 @@
 /**
  * A senior's own availability (vacancy-queue design §5.2), shown on the HR queue card.
- * Its own table, not a `users` column: the forward DDL is staged
- * (`drizzle/manual-staged/2026-11-14_senior_availability.sql`), and a `users` column would make
+ * Its own table, not a `users` column: the forward DDL
+ * (`drizzle/manual/2026-11-14_senior_availability.sql`) runs on deploy, and a `users` column would make
  * every whole-row `users` read fail with 42703 on a database that has not run it yet. A missing
  * table fails only the queue card and the availability endpoints.
  */

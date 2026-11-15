@@ -123,6 +123,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.recording_media_artifacts,
   public.recording_media_uploads,
   public.salary_month_initializations,
+  public.senior_availability,
   public.senior_resumes,
   public.signed_contracts,
   public.team_members,

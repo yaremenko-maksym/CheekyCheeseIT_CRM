@@ -1,5 +1,5 @@
 -- =============================================================================
--- Senior availability (vacancy-queue design §5.2) — prod forward DDL (STAGED)
+-- Senior availability (vacancy-queue design §5.2) — prod forward DDL
 -- =============================================================================
 --
 -- WHAT THIS FILE DOES
@@ -25,13 +25,14 @@
 --
 -- PRIVILEGE CLASS
 --   Class A: crm_app upserts, so SELECT+INSERT+UPDATE+DELETE; the collector has no grant. The grant
---   lives in the generated manual/2026-10-18_db_grants.sql, guarded by to_regclass while this file is
---   staged (STAGED_RELATIONS in privilege-classes.ts).
+--   lives in the generated manual/2026-10-18_db_grants.sql and is unconditional and required (the
+--   deploy applies this file BEFORE the grants).
 --
--- WHY THIS FILE IS STAGED, NOT IN manual/
---   Production DDL ships staged. It is DARK: `manual-staged/` is never applied in prod. The DevOps
---   wiring PR moves this file to `manual/`, wires it into deploy.yml, removes the STAGED_RELATIONS
---   entry and regenerates the privilege files.
+-- APPLIED BY THE DEPLOY ON EVERY RUN
+--   Lives in manual/ so scripts/devops/deploy-stack-on-vps.sh applies it on every deploy, before the
+--   grants, with --single-transaction. It was never applied in production before; the first deploy
+--   creates the table, every later one is a no-op.
+--   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 --
 -- The Drizzle declaration is `seniorAvailability` (schema/senior-availability.ts).
 -- senior-availability-ddl.integration.spec.ts applies this file twice into a scratch schema and

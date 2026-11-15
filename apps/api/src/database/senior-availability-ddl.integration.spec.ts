@@ -7,7 +7,7 @@ import { ALL_TABLE_PRIVILEGES, PRIVILEGE_CLASSES, ROLES } from './privileges/pri
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
- * The staged forward DDL `manual-staged/2026-11-14_senior_availability.sql` against a REAL Postgres
+ * The forward DDL `manual/2026-11-14_senior_availability.sql` against a REAL Postgres
  * (vacancy-queue design §5.2): re-runnable, column for column and constraint for constraint what
  * `db:push` builds, class A for `crm_app`, and the FREE ↔ day pairing refused by the CHECK.
  *
@@ -15,14 +15,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/<scratch> \
  *     pnpm --filter @crm/api exec vitest run senior-availability-ddl.integration
  */
-const FILE = join(
-  __dirname,
-  '..',
-  '..',
-  'drizzle',
-  'manual-staged',
-  '2026-11-14_senior_availability.sql',
-)
+const FILE = join(__dirname, '..', '..', 'drizzle', 'manual', '2026-11-14_senior_availability.sql')
 const SCHEMA = 'ddl_senior_availability'
 const TABLE = 'senior_availability'
 const USER_ID = '5a110014-0000-4000-bb00-000000000001'
@@ -77,7 +70,7 @@ const sqlstate = async (run: () => Promise<unknown>): Promise<string | undefined
   }
 }
 
-describe.skipIf(!hasDatabaseUrl())('staged DDL: senior_availability', () => {
+describe.skipIf(!hasDatabaseUrl())('manual DDL: senior_availability', () => {
   beforeAll(async () => {
     session = await openCrmAppSession()
     client = await session.admin.connect()
