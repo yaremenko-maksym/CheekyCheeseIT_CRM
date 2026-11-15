@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Put, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Put, UseGuards } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
@@ -13,7 +13,10 @@ import { SeniorAvailabilityService } from './senior-availability.service'
 @Controller('users')
 @UseGuards(RolesGuard)
 export class SeniorAvailabilityController {
-  constructor(private readonly availability: SeniorAvailabilityService) {}
+  // explicit token: the HTTP spec runs under vitest, which emits no `design:paramtypes`
+  constructor(
+    @Inject(SeniorAvailabilityService) private readonly availability: SeniorAvailabilityService,
+  ) {}
 
   @Get(':id/availability')
   @Roles('ADMIN', 'SENIOR')

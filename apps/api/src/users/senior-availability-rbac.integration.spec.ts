@@ -20,8 +20,9 @@ import { ZodError } from 'zod'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { DatabaseService } from '../database/database.service'
 import * as schema from '../database/schema'
-import { seniorAvailability, users } from '../database/schema'
+import { seniorAvailability, userAuditLog, users } from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { AuditLogService } from './audit-log.service'
 import { SeniorAvailabilityService } from './senior-availability.service'
 
 const ID = {
@@ -62,7 +63,7 @@ describe.skipIf(!hasDatabaseUrl())('senior availability RBAC (real DB)', () => {
     db = drizzle(pool, { schema })
     const dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
     Object.assign(dbSvc, { pool, db })
-    service = new SeniorAvailabilityService(dbSvc)
+    service = new SeniorAvailabilityService(dbSvc, new AuditLogService(dbSvc))
     const user = (id: string, role: (typeof users.$inferInsert)['role'], archived = false) => ({
       id,
       email: `savail-${id}@test.spec`,
@@ -100,6 +101,26 @@ describe.skipIf(!hasDatabaseUrl())('senior availability RBAC (real DB)', () => {
   it('ADMIN → an active SENIOR: read and write', async () => {
     expect(await service.set(ID.admin, ID.senB, FREE)).toEqual(FREE)
     expect(await service.get(ID.admin, ID.senB)).toEqual(FREE)
+  })
+
+  it('every change leaves an audit row with the real actor; a no-op save leaves none (SR-L-2)', async () => {
+    const audit = () =>
+      db
+        .select({ actorId: userAuditLog.actorId, changes: userAuditLog.changes })
+        .from(userAuditLog)
+        .where(eq(userAuditLog.targetId, ID.senB))
+        .orderBy(userAuditLog.createdAt)
+    const before = (await audit()).length
+    await service.set(ID.admin, ID.senB, { status: 'BUSY' })
+    const rows = await audit()
+    expect(rows).toHaveLength(before + 1)
+    expect(rows.at(-1)).toEqual({
+      actorId: ID.admin,
+      changes: { availability: { before: FREE, after: { status: 'BUSY' } } },
+    })
+    await service.set(ID.admin, ID.senB, { status: 'BUSY' })
+    expect(await audit()).toHaveLength(before + 1)
+    await service.set(ID.admin, ID.senB, FREE)
   })
 
   it('SENIOR → another senior: 403 on read and write, the row is untouched', async () => {

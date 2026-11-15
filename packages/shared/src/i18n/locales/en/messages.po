@@ -537,10 +537,6 @@ msgstr "No HR yet — add one first"
 msgid "Покинути вкладку «{0}»?"
 msgstr "Leave the “{0}” tab?"
 
-#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
-msgid "Не вдалося зберегти доступність. Спробуйте ще раз"
-msgstr "Could not save availability. Please try again"
-
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
 #: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
@@ -954,6 +950,10 @@ msgstr "Could not load the source."
 msgid "Минулий місяць"
 msgstr "Last month"
 
+#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
+msgid "Не вдалося зберегти доступність. Спробуйте ще раз."
+msgstr "Could not save availability. Please try again."
+
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Не вдалося оновити signing secret"
 msgstr "Couldn't update the signing secret"
@@ -1010,6 +1010,12 @@ msgstr "A Ukrainian sole-proprietor bank account will be used."
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Підключено"
 msgstr "Connected"
+
+#: apps/web/app/components/senior-availability/SeniorAvailabilityLabel.tsx
+#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
+msgctxt "senior availability"
+msgid "Вільно"
+msgstr "Available"
 
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "{label}, рядок {position}"
@@ -4490,7 +4496,6 @@ msgstr "Enter {0}"
 msgid "Очікує вашого рішення"
 msgstr "Awaiting your decision"
 
-#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Вільно"
 msgstr "Relaxed"

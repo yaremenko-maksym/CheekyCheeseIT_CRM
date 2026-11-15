@@ -151,7 +151,8 @@ test.describe('scenario 7 — card states (mocked)', () => {
     const uk = await loadMessages('uk')
     await mockJobQueue(page, {
       card: [
-        card({}, [cardSenior({ availability: { status: 'FREE', availableFrom: '2026-11-01' } })]),
+        // far future: a day that is today or past reads as plain «Вільно» (free now)
+        card({}, [cardSenior({ availability: { status: 'FREE', availableFrom: '2099-11-01' } })]),
       ],
       // the senior marked themself busy meanwhile; the conflict refetch is what reveals it
       cardAfterSubmit: card({ revision: 2 }, [cardSenior({ availability: { status: 'BUSY' } })]),
@@ -160,8 +161,8 @@ test.describe('scenario 7 — card states (mocked)', () => {
     await openCard(page)
     const availability = page.getByTestId(`job-queue-senior-availability-${MOCK_IDS.seniorA}`)
     await expect(availability).toHaveAttribute('data-availability', 'FREE')
-    // the day is Intl-formatted (`formatDay`), not a catalog string
-    await expect(availability).toContainText('1 листопада')
+    // the day is Intl-formatted (`formatDate` 'dayMonth', short month per §5.2), not a catalog string
+    await expect(availability).toContainText('1 лист.')
 
     await page.getByTestId(`job-queue-submit-${MOCK_IDS.seniorA}`).click()
 

@@ -537,10 +537,6 @@ msgstr "HR ще немає — спершу додайте HR"
 msgid "Покинути вкладку «{0}»?"
 msgstr "Покинути вкладку «{0}»?"
 
-#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
-msgid "Не вдалося зберегти доступність. Спробуйте ще раз"
-msgstr "Не вдалося зберегти доступність. Спробуйте ще раз"
-
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
 #: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
@@ -954,6 +950,10 @@ msgstr "Не вдалося завантажити джерело."
 msgid "Минулий місяць"
 msgstr "Минулий місяць"
 
+#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
+msgid "Не вдалося зберегти доступність. Спробуйте ще раз."
+msgstr "Не вдалося зберегти доступність. Спробуйте ще раз."
+
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Не вдалося оновити signing secret"
 msgstr "Не вдалося оновити signing secret"
@@ -1010,6 +1010,12 @@ msgstr "Використовуватиметься український бан
 #: apps/web/app/routes/_authenticated/admin/integrations.index.tsx
 msgid "Підключено"
 msgstr "Підключено"
+
+#: apps/web/app/components/senior-availability/SeniorAvailabilityLabel.tsx
+#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
+msgctxt "senior availability"
+msgid "Вільно"
+msgstr "Вільно"
 
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "{label}, рядок {position}"
@@ -4490,7 +4496,6 @@ msgstr "Введіть {0}"
 msgid "Очікує вашого рішення"
 msgstr "Очікує вашого рішення"
 
-#: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Вільно"
 msgstr "Вільно"

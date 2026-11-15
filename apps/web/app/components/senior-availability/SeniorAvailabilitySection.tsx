@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { toast } from 'sonner'
@@ -67,8 +67,6 @@ function AvailabilityForm({
 }) {
   const { t } = useLingui()
   const qc = useQueryClient()
-  const [status, setStatus] = useState<Status>(saved?.status ?? 'FREE')
-  const [day, setDay] = useState(saved?.status === 'FREE' ? saved.availableFrom : '')
   const save = useMutation({
     mutationFn: (body: SeniorAvailabilityDto) =>
       api
@@ -78,17 +76,25 @@ function AvailabilityForm({
       qc.setQueryData(availabilityKey(userId), next)
       toast.success(t`Доступність збережено`)
     },
-    onError: () => toast.error(t`Не вдалося зберегти доступність. Спробуйте ще раз`),
+    onError: () => toast.error(t`Не вдалося зберегти доступність. Спробуйте ще раз.`),
   })
-  const body: SeniorAvailabilityDto | null =
-    status === 'BUSY' ? { status } : day !== '' ? { status, availableFrom: day } : null
+  const form = useForm({
+    defaultValues: {
+      status: saved?.status ?? ('FREE' as Status),
+      day: saved?.status === 'FREE' ? saved.availableFrom : '',
+    },
+    onSubmit: ({ value }) => {
+      const body = toBody(value.status, value.day)
+      if (body !== null) save.mutate(body)
+    },
+  })
 
   return (
     <form
       className="space-y-3"
       onSubmit={(e) => {
         e.preventDefault()
-        if (body !== null) save.mutate(body)
+        void form.handleSubmit()
       }}
     >
       <p className="text-sm" data-testid="senior-availability-current">
@@ -100,37 +106,64 @@ function AvailabilityForm({
           <SeniorAvailabilityLabel availability={saved} className="text-sm" />
         )}
       </p>
-      <SegmentedToggle<Status>
-        value={status}
-        onChange={setStatus}
-        ariaLabel={t`Доступність`}
-        testId="senior-availability-status"
-        options={[
-          { value: 'FREE', label: t`Вільно`, testIdSuffix: 'free' },
-          { value: 'BUSY', label: t`Зайнято`, testIdSuffix: 'busy' },
-        ]}
-      />
-      {status === 'FREE' && (
-        <div className="space-y-1.5">
-          <Label htmlFor="senior-availability-from">
-            <Trans>Вільно з</Trans>
-          </Label>
-          <DatePickerField
-            id="senior-availability-from"
-            value={day}
-            onChange={setDay}
-            data-testid="senior-availability-from"
+      <form.Field name="status">
+        {(field) => (
+          <SegmentedToggle<Status>
+            value={field.state.value}
+            onChange={field.handleChange}
+            ariaLabel={t`Доступність`}
+            testId="senior-availability-status"
+            options={[
+              // own context: the bare «Вільно» is the resume density option («Relaxed») in English
+              {
+                value: 'FREE',
+                label: t({ message: 'Вільно', context: 'senior availability' }),
+                testIdSuffix: 'free',
+              },
+              { value: 'BUSY', label: t`Зайнято`, testIdSuffix: 'busy' },
+            ]}
           />
-        </div>
-      )}
-      <Button
-        type="submit"
-        size="sm"
-        disabled={body === null || save.isPending}
-        data-testid="senior-availability-save"
-      >
-        <Trans>Зберегти доступність</Trans>
-      </Button>
+        )}
+      </form.Field>
+      <form.Subscribe selector={(st) => st.values.status}>
+        {(status) =>
+          status === 'FREE' && (
+            <form.Field name="day">
+              {(field) => (
+                <div className="space-y-1.5">
+                  <Label htmlFor="senior-availability-from">
+                    <Trans>Вільно з</Trans>
+                  </Label>
+                  <DatePickerField
+                    id="senior-availability-from"
+                    value={field.state.value}
+                    onChange={field.handleChange}
+                    data-testid="senior-availability-from"
+                  />
+                </div>
+              )}
+            </form.Field>
+          )
+        }
+      </form.Subscribe>
+      <form.Subscribe selector={(st) => toBody(st.values.status, st.values.day)}>
+        {(body) => (
+          <Button
+            type="submit"
+            size="sm"
+            disabled={body === null || save.isPending}
+            data-testid="senior-availability-save"
+          >
+            <Trans>Зберегти доступність</Trans>
+          </Button>
+        )}
+      </form.Subscribe>
     </form>
   )
+}
+
+/** The wire body for the draft; FREE without a day cannot be saved. */
+function toBody(status: Status, day: string): SeniorAvailabilityDto | null {
+  if (status === 'BUSY') return { status }
+  return day !== '' ? { status, availableFrom: day } : null
 }

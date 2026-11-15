@@ -199,7 +199,7 @@ describe('MatchedSeniors', () => {
       cardFixture({
         seniors: {
           items: [
-            senior({ availability: { status: 'FREE', availableFrom: '2026-11-01' } }),
+            senior({ availability: { status: 'FREE', availableFrom: '2099-11-01' } }),
             senior({ seniorId: S2, displayName: 'Ігор', availability: { status: 'BUSY' } }),
             senior({ seniorId: S3, displayName: 'Олена', availability: null }),
           ],
@@ -209,7 +209,8 @@ describe('MatchedSeniors', () => {
       }),
     )
     const free = screen.getByTestId(`job-queue-senior-availability-${S1}`)
-    expect(free).toHaveTextContent('Вільно з 1 листопада')
+    // §5.2: a short month (SPEC-L-1); a far-future day so it never turns into «free now»
+    expect(free).toHaveTextContent(/^Вільно з 1 лист\.$/)
     expect(free).toHaveAttribute('data-availability', 'FREE')
     const busy = screen.getByTestId(`job-queue-senior-availability-${S2}`)
     expect(busy).toHaveTextContent('Зайнято')

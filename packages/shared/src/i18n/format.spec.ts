@@ -52,6 +52,12 @@ describe('format', () => {
     expect(month).not.toBe(formatDate(d, 'uk'))
     expect(month).not.toBe(formatDate(d, 'uk', 'long'))
   })
+  it('the dayMonth style is the day and a short month, no year, on the UTC day (PR #1337)', () => {
+    expect(formatDate('2026-11-01', 'uk', 'dayMonth')).toBe('1 лист.')
+    expect(formatDate('2026-11-01', 'en', 'dayMonth')).toBe('1 Nov')
+    // a bare day is UTC midnight: a late-UTC instant still reads as the 1st, not the 2nd
+    expect(formatDate('2026-11-01T23:30:00Z', 'en', 'dayMonth')).toBe('1 Nov')
+  })
   it("the monthYear style is a full month name + year with no day, unlike 'long'", () => {
     const d = new Date(Date.UTC(2026, 4, 19))
     const monthYear = formatDate(d, 'uk', 'monthYear')

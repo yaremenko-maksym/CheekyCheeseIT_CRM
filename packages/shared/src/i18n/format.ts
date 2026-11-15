@@ -38,6 +38,8 @@ const INTL_TAG: Record<Locale, string> = { uk: 'uk-UA', en: 'en-GB' }
  * quota-reset moment 'dateTime' was built for. Same LOCAL-time family as
  * 'dateTime' (no `timeZone` override) for the same reason: a signature
  * timestamp is a moment the reader checks against their own clock.
+ *
+ * PR #1337 (SPEC-L-1) — added 'dayMonth': day + short month, no year, UTC.
  */
 export function formatDate(
   value: Date | string,
@@ -51,7 +53,8 @@ export function formatDate(
     | 'shortYY'
     | 'shortYYUtc'
     | 'shortYYYY'
-    | 'dateTimeWithYear' = 'short',
+    | 'dateTimeWithYear'
+    | 'dayMonth' = 'short',
 ): string {
   // `new Date(x)` accepts a `Date` exactly as well as a date string — a
   // Date passed through its own constructor keeps the same instant
@@ -68,7 +71,8 @@ export function formatDate(
     | 'shortYY'
     | 'shortYYUtc'
     | 'shortYYYY'
-    | 'dateTimeWithYear',
+    | 'dateTimeWithYear'
+    | 'dayMonth',
     Intl.DateTimeFormatOptions
   > = {
     short: { timeZone: 'UTC' },
@@ -91,6 +95,9 @@ export function formatDate(
       hour: '2-digit',
       minute: '2-digit',
     },
+    // A date-only day with a short month and no year (1 лист. / 1 Nov): a senior's «Вільно з {d}»
+    // (vacancy-queue design §5.2). UTC, so a stored bare day reads as written in every timezone.
+    dayMonth: { day: 'numeric', month: 'short', timeZone: 'UTC' },
   }
   return new Intl.DateTimeFormat(INTL_TAG[locale], STYLE_OPTS[style]).format(d)
 }
