@@ -2229,8 +2229,11 @@ describe('createManualCard (r5 Phase 6)', () => {
       'duplicates',
       'insert',
       'log',
+      // 1340-QA-OUT-1: the card's team and the studio list it at once, not after the TTL
+      'invalidate',
       'name',
     ])
+    expect(h.param('invalidate')).toEqual([TEAM_A])
     expect(h.scopes.resolve).toHaveBeenCalledWith(HR, TEAM_A, h.tx)
     expect(h.scopes.assertVisible).not.toHaveBeenCalled()
   })
