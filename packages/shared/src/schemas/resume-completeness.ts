@@ -211,19 +211,16 @@ const normaliseName = (text: string): string =>
   text.normalize('NFC').replace(/[\u2019\u02BC]/g, "'")
 
 /** Invisible characters that split a contact: format characters and default-ignorables (variation selectors, CGJ, Hangul fillers). */
-const INVISIBLE = String.raw`[\p{Cf}\p{Default_Ignorable_Code_Point}]`
-const INVISIBLE_PATTERN = new RegExp(INVISIBLE, 'gu')
+const INVISIBLE_PATTERN = /[\p{Cf}\p{Default_Ignorable_Code_Point}]/gu
 /**
  * A visible character plus the marks after it, invisibles between them included, so a base
  * letter composes with its mark once they go. Invisibles not followed by a mark start no cluster.
  */
-const CLUSTER_PATTERN = new RegExp(
-  String.raw`[^\p{Cf}\p{Default_Ignorable_Code_Point}](?:${INVISIBLE}*\p{M})*`,
-  'gu',
-)
+const CLUSTER_PATTERN =
+  /[^\p{Cf}\p{Default_Ignorable_Code_Point}](?:[\p{Cf}\p{Default_Ignorable_Code_Point}]*\p{M})*/gu
 
 /**
- * Normalise text for contact scanning: strip invisible characters (`INVISIBLE`), then NFKC,
+ * Normalise text for contact scanning: strip invisible characters (`INVISIBLE_PATTERN`), then NFKC,
  * maintaining offset maps (`from` and `to`) from each code unit back to its cluster in the
  * original string. No visible character NFKC-maps to an invisible one, so one strip suffices.
  */
