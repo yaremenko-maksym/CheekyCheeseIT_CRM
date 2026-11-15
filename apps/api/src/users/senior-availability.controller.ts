@@ -31,6 +31,6 @@ export class SeniorAvailabilityController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() body: unknown,
   ) {
-    return this.availability.set(currentUser.id, id, body)
+    return this.availability.set(currentUser.id, id, body, currentUser.impersonatorId)
   }
 }

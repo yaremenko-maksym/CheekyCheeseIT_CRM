@@ -29,7 +29,14 @@ describe('SeniorAvailabilityController', () => {
     const { svc, ctl } = make()
     const body = { status: 'BUSY' }
     await expect(ctl.set(VIEWER, TARGET, body)).resolves.toEqual({ status: 'BUSY' })
-    expect(svc.set).toHaveBeenCalledWith(VIEWER.id, TARGET, body)
+    expect(svc.set).toHaveBeenCalledWith(VIEWER.id, TARGET, body, undefined)
+  })
+
+  it('PUT under impersonation hands the real operator to the service for the audit row', async () => {
+    const { svc, ctl } = make()
+    const OPERATOR = '5a110014-0000-4000-bb00-0000000000a9'
+    await ctl.set({ ...VIEWER, impersonatorId: OPERATOR }, TARGET, { status: 'BUSY' })
+    expect(svc.set).toHaveBeenCalledWith(VIEWER.id, TARGET, { status: 'BUSY' }, OPERATOR)
   })
 
   it.each(['get', 'set'] as const)('%s is gated to ADMIN and SENIOR', (handler) => {

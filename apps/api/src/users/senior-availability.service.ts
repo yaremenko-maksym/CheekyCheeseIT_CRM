@@ -27,9 +27,11 @@ export function toAvailabilityDto(
  * whether the target exists. HR sees a senior's availability only on the queue card, inside its
  * own scope (`seniorRows`), never here. The viewer's role is read fresh, not taken from the token.
  *
- * Every change is audit-logged (`availability_change`, actor = the viewer) in the same transaction
- * as the write. `record()` is called directly, not via `@AuditLog`: that interceptor diffs the
- * `users` row, which an availability write never touches.
+ * Every change is audit-logged (`availability_change`) in the same transaction as the write. The
+ * actor is the real operator (`impersonatorId ?? viewer`, as `AuditInterceptor` does), and an
+ * impersonated write carries the same `__impersonation` marker. `record()` is called directly,
+ * not via `@AuditLog`: that interceptor diffs the `users` row, which an availability write never
+ * touches.
  */
 @Injectable()
 export class SeniorAvailabilityService {
@@ -43,7 +45,12 @@ export class SeniorAvailabilityService {
     return this.read(this.db.db, targetId)
   }
 
-  async set(viewerId: string, targetId: string, body: unknown): Promise<SeniorAvailabilityDto> {
+  async set(
+    viewerId: string,
+    targetId: string,
+    body: unknown,
+    impersonatorId?: string,
+  ): Promise<SeniorAvailabilityDto> {
     const dto = seniorAvailabilitySchema.parse(body)
     await this.authorize(viewerId, targetId)
     const availableFrom = dto.status === 'FREE' ? dto.availableFrom : null
@@ -59,10 +66,13 @@ export class SeniorAvailabilityService {
       if (JSON.stringify(before) === JSON.stringify(dto)) return
       await this.auditLog.record(
         {
-          actorId: viewerId,
+          actorId: impersonatorId ?? viewerId,
           targetId,
           action: 'availability_change',
-          changes: { availability: { before, after: dto } },
+          changes: {
+            availability: { before, after: dto },
+            ...(impersonatorId ? { __impersonation: { before: null, after: true } } : {}),
+          },
         },
         tx,
       )

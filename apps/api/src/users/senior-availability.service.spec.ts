@@ -177,6 +177,19 @@ describe('SeniorAvailabilityService.set', () => {
     })
   })
 
+  it('an ADMIN impersonating a senior is the audited actor, and the row is marked', async () => {
+    await makeService().set(SEN_A, SEN_A, { status: 'BUSY' }, ADMIN)
+    expect(record.mock.calls[0]![0]).toEqual({
+      actorId: ADMIN,
+      targetId: SEN_A,
+      action: 'availability_change',
+      changes: {
+        availability: { before: null, after: { status: 'BUSY' } },
+        __impersonation: { before: null, after: true },
+      },
+    })
+  })
+
   it('saving the value already stored writes no audit row', async () => {
     storedRows = [{ status: 'BUSY', availableFrom: null }]
     await makeService().set(SEN_A, SEN_A, { status: 'BUSY' })
