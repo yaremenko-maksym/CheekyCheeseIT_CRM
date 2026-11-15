@@ -91,6 +91,7 @@ type VerificationDtoFields = Pick<
   | 'verifiedVersion'
   | 'verifiedAt'
   | 'verifiedByName'
+  | 'recheckNeededAt'
   | 'staged'
   | 'verificationBusy'
 >
@@ -568,6 +569,8 @@ export class ResumeVerificationService {
           verifiedAt: now,
           verifiedByUserId: viewerId,
           verificationStatus: 'VERIFIED',
+          // Backlog 442: this confirm read the owner as they are now, so a pending re-check is done.
+          recheckNeededAt: null,
           verificationRunId: null,
           verificationKind: null,
           verificationTargetPath: null,
@@ -773,6 +776,7 @@ export class ResumeVerificationService {
       verifiedVersion: row.verifiedVersion,
       verifiedAt: row.verifiedAt?.toISOString() ?? null,
       verifiedByName: verifier?.displayName ?? null,
+      recheckNeededAt: row.recheckNeededAt?.toISOString() ?? null,
       // P4: only a staged PDF makes a confirm step; a template run shows none.
       staged:
         row.stagedPdfS3Key !== null && runId !== null

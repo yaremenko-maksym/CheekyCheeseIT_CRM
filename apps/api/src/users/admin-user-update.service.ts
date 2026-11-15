@@ -15,6 +15,7 @@ import {
 import { buildAdminUserUpdateSet } from './user-update.util'
 import { assertAvatarDocument } from './user-avatar.util'
 import { updateUserRow } from './user-write.util'
+import { markResumeRecheckNeeded } from '../resumes/verification/recheck-flag'
 
 type AppRole = 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
 
@@ -191,6 +192,7 @@ export class AdminUserUpdateService {
       // blocked (that edit is settlement, not a new entitlement).
       const u = await updateUserRow(tx, id, existing, set)
       await markUserEditDirty(tx, id, existing, set)
+      await markResumeRecheckNeeded(tx, id, existing, set)
 
       // task-pending-share (position 5): a requested base-share change opens
       // a proposal instead of writing `seniorSharePercent` directly — see

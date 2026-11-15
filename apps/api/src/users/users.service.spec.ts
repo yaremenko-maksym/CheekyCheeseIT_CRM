@@ -2324,15 +2324,19 @@ describe('UsersService.updateProfile — locale (task-i18n-stage2)', () => {
   // default-parameter, not a "no row" signal), so an ad-hoc update-chain
   // mock is simpler here than fighting that default.
   it('throws USER_NOT_FOUND when the update affects no row', async () => {
-    const db = {
-      db: {
-        update: vi.fn().mockReturnValue({
-          set: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([]) }),
-          }),
+    // A name write runs in a transaction and reads the row it replaces (backlog 442): none here.
+    const inner: Record<string, unknown> = {
+      select: vi.fn().mockReturnValue({
+        from: () => ({ where: vi.fn().mockResolvedValue([]) }),
+      }),
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([]) }),
         }),
-      },
-    } as unknown as DrizzleDb
+      }),
+    }
+    inner['transaction'] = (cb: (tx: unknown) => Promise<unknown>) => cb(inner)
+    const db = { db: inner } as unknown as DrizzleDb
     const service = makeUsersService(db)
 
     await expect(service.updateProfile('ghost', { displayName: 'X' })).rejects.toMatchObject({

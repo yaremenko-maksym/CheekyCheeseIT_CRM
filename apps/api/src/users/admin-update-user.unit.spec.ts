@@ -507,7 +507,8 @@ describe('UsersService.adminUpdateUser — email change checks', () => {
   it('no email in the body: no email probes', async () => {
     const h = makeHarness()
     await edit(h, { displayName: 'N' }, 'admin-1')
-    expect(ops(h.log)).toEqual(['select', 'tx-begin', 'update', 'tx-end'])
+    // The second update is the resume re-check flag of a real rename (backlog 442).
+    expect(ops(h.log)).toEqual(['select', 'tx-begin', 'update', 'update', 'tx-end'])
   })
 
   it('409 USER_EMAIL_EXISTS when findByEmail returns ANOTHER user; nothing after the probe', async () => {
