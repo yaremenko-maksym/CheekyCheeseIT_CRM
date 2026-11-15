@@ -39,7 +39,8 @@ import { Route } from '../route'
 import { Route as IndexRoute } from '../index'
 
 // the real `/`: it sends a JUNIOR on to their own hub
-const Index = IndexRoute.options.component!
+const IndexPage = IndexRoute.options.component!
+const Index = () => <IndexPage />
 
 const user = (id: string, role: string) => ({
   id,
