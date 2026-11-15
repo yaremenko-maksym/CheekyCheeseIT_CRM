@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/context/auth'
 import { useOnboardingGate } from '@/context/onboarding'
 import { useAdminSummary, ADMIN_SUMMARY_QUERY_KEY } from '@/hooks/use-admin-summary'
@@ -65,7 +66,7 @@ function CrmDashboard() {
   if (user?.role === 'JUNIOR') {
     return (
       <div data-testid="junior-hub-pending" aria-busy="true" className="flex-1 px-6 py-4">
-        <div className="h-28 w-full animate-pulse rounded-lg bg-muted" />
+        <Skeleton className="h-28 w-full rounded-lg" />
       </div>
     )
   }

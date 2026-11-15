@@ -192,7 +192,7 @@ const matchedSeniors = (scope: JobQueueScope, versions: readonly LiveSeniorVersi
          SELECT m.senior_id, m.evidence ${liveVersionRows(versions)}
             AND m.outcome IN ('LEAD', 'TRIAGE')
          UNION ALL
-         SELECT DISTINCT ta.senior_id, NULL::jsonb FROM job_queue_assignments ta
+         SELECT ta.senior_id, NULL::jsonb FROM job_queue_assignments ta
            JOIN ${versionRows(versions)} ON v.senior_id = ta.senior_id
           WHERE o.manual_team_id IS NOT NULL AND ta.opportunity_id = o.id
             AND ta.state = 'TAKEN' AND ${scopedTeamRowPredicate(scope, sql`ta.team_id`)}) ms`

@@ -562,6 +562,8 @@ function TriageGrantForm({
   // a refusal the server explains (already granted, no longer triage) shows its own text
   const [note, setNote] = useState<'conflict' | 'failed' | { refused: string } | null>(null)
   const pending = grant.isPending
+  // CR-M-2: React clears this ref when the form unmounts; an answer landing then toasts instead
+  const body = useRef<HTMLDivElement>(null)
   // the server grants triage to a live SENIOR team only (a DROP team is refused with 422)
   const offered = teams.data?.filter((team) => team.type === 'SENIOR')
   // a picked team that leaves the list (archived meanwhile) is no longer a valid choice
@@ -598,6 +600,15 @@ function TriageGrantForm({
       },
       (error: unknown) => {
         const refused = grantRefusal(error, locale)
+        if (body.current === null) {
+          if (refused !== null) toast.error(refused, JOB_QUEUE_TOAST)
+          else if (!isQueueConflict(error) && !isAccessLoss(error))
+            toast.error(
+              t`Не вдалося призначити вакансію команді. Спробуйте ще раз.`,
+              JOB_QUEUE_TOAST,
+            )
+          return
+        }
         onRefused(refused)
         if (refused !== null) setNote({ refused })
         else if (isQueueConflict(error)) setNote('conflict')
@@ -616,7 +627,7 @@ function TriageGrantForm({
           <Trans>Команда бачитиме цю вакансію у своїй черзі до кінця вибраного дня.</Trans>
         </AlertDialogDescription>
       </AlertDialogHeader>
-      <div className="flex min-w-0 flex-col gap-4">
+      <div ref={body} className="flex min-w-0 flex-col gap-4">
         <div className="flex flex-col gap-2">
           <Label htmlFor={teamField}>
             <Trans>Команда</Trans>

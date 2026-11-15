@@ -415,8 +415,9 @@ export function MatchedSeniors({
     <section data-testid="job-queue-seniors" className="flex flex-col gap-2">
       <h3 className="flex items-baseline gap-2 text-sm font-semibold">
         <Trans>Сеньйори зі збігом</Trans>
-        {/* UX-L-5: `totalCount` counts the scope's LEAD and TRIAGE matches, so a triage card can
-            carry one while showing no list; the count belongs to a rendered list only */}
+        {/* UX-L-5: `totalCount` counts the scope's LEAD and TRIAGE matches plus, on a manual card,
+            its own TAKEN seniors, so a triage card can carry one while showing no list; the count
+            belongs to a rendered list only */}
         {listed && (
           <span className="ml-auto text-muted-foreground tabular-nums">
             {card.seniors.totalCount}

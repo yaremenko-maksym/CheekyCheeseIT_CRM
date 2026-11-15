@@ -376,7 +376,7 @@ describe('field scoping — what each read binds', () => {
     ]) {
       const { text, params } = render(q)
       expect(text).toContain(
-        'UNION ALL SELECT DISTINCT ta.senior_id, NULL::jsonb FROM job_queue_assignments ta JOIN jsonb_to_recordset(',
+        'UNION ALL SELECT ta.senior_id, NULL::jsonb FROM job_queue_assignments ta JOIN jsonb_to_recordset(',
       )
       expect(text).toContain(
         "ON v.senior_id = ta.senior_id WHERE o.manual_team_id IS NOT NULL AND ta.opportunity_id = o.id AND ta.state = 'TAKEN' AND ta.team_id = $",
