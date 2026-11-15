@@ -41,12 +41,14 @@ describe('persister — a failed purge is retried on the next boot (1340-SR-L-r2
     const first = await boot()
     await first.purgePersistedBeforeReload()
     expect(delMock).toHaveBeenCalledTimes(1)
+    expect(localStorage.getItem('crm-query-cache-purge-pending')).toBe('1')
 
     const second = await boot()
     expect(await second.persister.restoreClient()).toBeUndefined()
     expect(delMock).toHaveBeenCalledTimes(2)
     expect(delMock).toHaveBeenLastCalledWith(second.PERSIST_KEY)
     expect(second.takeRestoredCacheOwner()).toBeUndefined()
+    expect(localStorage.getItem('crm-query-cache-purge-pending')).toBeNull()
 
     // retried successfully: the boot after that restores normally, with no further delete
     const third = await boot()
@@ -77,6 +79,7 @@ describe('persister — a failed purge is retried on the next boot (1340-SR-L-r2
 
   it('control: a purge whose delete succeeded leaves nothing for the next boot to retry', async () => {
     await (await boot()).purgePersistedBeforeReload()
+    expect(localStorage.getItem('crm-query-cache-purge-pending')).toBeNull()
     const next = await boot()
     expect(await next.persister.restoreClient()).toBeDefined()
     expect(delMock).toHaveBeenCalledTimes(1)

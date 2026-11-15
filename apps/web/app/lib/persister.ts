@@ -51,7 +51,7 @@ export function purgePersistedBeforeReload(): Promise<void> {
 }
 
 /** localStorage marker of a purge whose delete has not succeeded yet (1340-SR-L-r2-2). */
-export const PURGE_PENDING_KEY = 'crm-query-cache-purge-pending'
+const PURGE_PENDING_KEY = 'crm-query-cache-purge-pending'
 
 // localStorage throws when storage is disabled; the purge then stays best-effort, as before
 function markPurgePending(pending: boolean): void {

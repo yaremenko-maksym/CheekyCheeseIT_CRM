@@ -1939,7 +1939,7 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     expect(toast.error).not.toHaveBeenCalled()
   })
 
-  // 1340-CR-L-r2-1: Radix keeps the closed content mounted for its exit animation (~200 ms); jsdom
+  // 1340-CR-L-r2-1: Radix keeps the closed content mounted for its exit animation (~200 ms); happy-dom
   // runs no CSS, so the content reports an exit animation it never ends — the form stays mounted
   it('a refusal that lands during the close animation (closed, still mounted) still toasts', async () => {
     const real = window.getComputedStyle.bind(window)
