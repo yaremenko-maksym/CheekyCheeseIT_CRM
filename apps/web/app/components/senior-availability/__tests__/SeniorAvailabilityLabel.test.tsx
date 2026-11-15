@@ -18,7 +18,7 @@ function renderLabel(availability: SeniorAvailabilityDto) {
   const label = screen.getByTestId('label')
   // eslint-disable-next-line testing-library/no-node-access -- the dot is aria-hidden and has no text: its shape is the only thing to read
   const dot = label.firstElementChild
-  return { label, filled: dot?.classList.contains('bg-current') }
+  return { label, dot, filled: dot?.classList.contains('bg-current') }
 }
 
 describe('SeniorAvailabilityLabel', () => {
@@ -45,8 +45,12 @@ describe('SeniorAvailabilityLabel', () => {
       status: 'BUSY',
       availableFrom: '2099-11-01',
     } as unknown as SeniorAvailabilityDto
-    const { label, filled } = renderLabel(stray)
+    const { label, dot, filled } = renderLabel(stray)
     expect(label).toHaveTextContent(/^Зайнято$/)
+    // the hollow dot is only a ring: without the round border it would not show at all
+    expect(dot).toHaveClass('rounded-full', 'border', 'border-current')
+    // secondary meta text, the dot inline before it
+    expect(label).toHaveClass('inline-flex', 'text-muted-foreground')
     expect(label).toHaveAttribute('data-availability', 'BUSY')
     expect(filled).toBe(false)
   })

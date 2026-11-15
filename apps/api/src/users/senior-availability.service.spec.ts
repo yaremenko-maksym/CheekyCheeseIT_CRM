@@ -5,6 +5,7 @@
  * `senior-availability.controller.integration.spec.ts`.
  */
 import { ForbiddenException, HttpException } from '@nestjs/common'
+import { sql } from 'drizzle-orm'
 import { ZodError } from 'zod'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseService } from '../database/database.service'
@@ -34,7 +35,17 @@ const record = vi.fn()
 
 function fakeConn() {
   return {
-    select: () => ({ from: () => ({ where: () => Promise.resolve(storedRows) }) }),
+    // projects like SQL does: only the selected columns come back
+    select: (cols: Record<string, unknown>) => ({
+      from: () => ({
+        where: () =>
+          Promise.resolve(
+            storedRows.map((r) =>
+              Object.fromEntries(Object.keys(cols).map((k) => [k, r[k as keyof typeof r]])),
+            ),
+          ),
+      }),
+    }),
     insert: () => ({
       values: (v: unknown) => {
         inserted.push(v)
@@ -148,6 +159,8 @@ describe('SeniorAvailabilityService.set', () => {
     expect(await outcome(() => makeService().set(SEN_A, SEN_A, free))).toEqual({ ok: free })
     expect(inserted).toEqual([{ userId: SEN_A, status: 'FREE', availableFrom: '2026-12-01' }])
     expect(upsertSet[0]).toMatchObject({ status: 'FREE', availableFrom: '2026-12-01' })
+    // an update stamps the row with the database clock
+    expect((upsertSet[0] as { updatedAt: unknown }).updatedAt).toEqual(sql`now()`)
     expect(record).toHaveBeenCalledTimes(1)
     expect(record.mock.calls[0]![0]).toEqual({
       actorId: SEN_A,

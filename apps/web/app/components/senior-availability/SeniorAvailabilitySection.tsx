@@ -117,6 +117,7 @@ function AvailabilityForm({
               // own context: the bare «Вільно» is the resume density option («Relaxed») in English
               {
                 value: 'FREE',
+                // Stryker disable next-line ObjectLiteral,StringLiteral: Lingui's t() macro must read this descriptor as a literal at compile time; an instrumented literal misses the en entry and the dry run fails before any mutant
                 label: t({ message: 'Вільно', context: 'senior availability' }),
                 testIdSuffix: 'free',
               },
