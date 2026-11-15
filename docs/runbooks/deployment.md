@@ -1374,7 +1374,8 @@ commands are the owner's, through `ssh crm-vps`; SELECT only):
 
 5. No transaction open longer than the `CREATE INDEX CONCURRENTLY` lock timeout. The two dirty-work
    files run their sweep under `lock_timeout = '10s'` and each `CREATE INDEX CONCURRENTLY` under
-   `lock_timeout = '5min'` (under the 10-minute ssh-action cut), so the query below flags exactly the
+   `lock_timeout = '5min'` (one wait fits inside the 10-minute ssh-action cut; the waits of the three
+   builds share that cut and can add up past it), so the query below flags exactly the
    transactions that would outlast the build's wait. **Expect 0 rows** right before the deploy. If a
    row is there when the deploy runs, the build waits up to 5 min for it, then fails with
    `canceling statement due to lock timeout`, leaves the index INVALID and fails the deploy before the
