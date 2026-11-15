@@ -763,7 +763,17 @@ test.describe('wave 2 — real API on the 7.6a seed', () => {
 
     // The seed has no `job_sources` row and no API creates one: the switch's rendering runs on a
     // mocked source list under a REAL ADMIN session; its RBAC is the real-API case 12a above.
+    //
+    // The `pref_locale` cookie is load-bearing. Headless Chromium has no cookie and an `en-US`
+    // navigator, so the page first renders in `en`; the seeded ADMIN's `uk` then arrives with
+    // `auth/me` and `<Fragment key={locale}>` (`routes/__root.tsx`) remounts the whole tree a few
+    // hundred ms after first paint. An early click on the title opened the FIRST `<details>`; the
+    // remount replaced it with a closed one, so the switch was "not found" (12b/12c flaked 1 in 2-3
+    // runs). Pinned to the user's own locale, as for a returning user, nothing remounts.
     const openSources = async (page: Page) => {
+      await page
+        .context()
+        .addCookies([{ name: 'pref_locale', value: 'uk', domain: 'localhost', path: '/' }])
       await page.goto('/job-queue')
       await page.getByTestId('job-source-section-title').click()
       return page.getByTestId('job-source-card').getByRole('switch')
