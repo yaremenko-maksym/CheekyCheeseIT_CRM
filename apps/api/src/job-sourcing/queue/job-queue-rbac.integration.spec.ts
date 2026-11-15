@@ -1462,6 +1462,26 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       ])
     })
 
+    it('the card lists its submitted senior as TAKEN: a manual card has no match row (found on PR #1332)', async () => {
+      const card = await get(`/${id('cardHr')}`, 'hrM')
+      expect(card.status).toBe(200)
+      const seniors = card.json['seniors'] as {
+        items: Array<{
+          seniorId: string
+          matchApproximate: boolean
+          matchedKeywords: string[]
+          submission: unknown
+        }>
+        totalCount: number
+      }
+      expect(seniors.items.map((s) => s.seniorId)).toEqual([id('senM')])
+      expect(seniors.items[0]?.matchedKeywords).toEqual([])
+      // CR-M-1: TAKEN-only is no match at all, never «Збіг неточний»
+      expect(seniors.items[0]?.matchApproximate).toBe(false)
+      expect((seniors.items[0]?.submission as Record<string, unknown>)['state']).toBe('TAKEN')
+      expect(seniors.totalCount).toBe(1)
+    })
+
     it('a retry with the same key answers the same submission and writes nothing more', async () => {
       const request = body('retry', 'teamM', 'senM', resumes['senM'] as string)
       const first = await post('/manual', 'hrM', request)

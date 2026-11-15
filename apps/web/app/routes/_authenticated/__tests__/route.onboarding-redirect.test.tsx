@@ -33,6 +33,7 @@ vi.mock('@/components/layout/ImpersonationBanner', () => ({ ImpersonationBanner:
 vi.mock('@/components/users/UserAvatar', () => ({ UserAvatar: () => null }))
 vi.mock('@/components/brand-mark', () => ({ BrandMark: () => null }))
 
+import { ONBOARDING_STATUS_TIMEOUT_MS } from '@/context/onboarding'
 import { queryClient } from '@/lib/query-client'
 import { navigationContext, type RouterContext } from '@/lib/router-context'
 import { Route } from '../route'
@@ -231,5 +232,26 @@ describe('_authenticated: a not-onboarded user lands on /onboarding (QA-HIGH-1)'
     const { crm } = renderCrmAt('/')
     expect(await screen.findByText('my project', {}, { timeout: 4000 })).toBeInTheDocument()
     expect(crm.state.location.pathname).toBe('/project')
+  })
+
+  // A status request that never settles left the JUNIOR on a blank `/` for good. The mock stands
+  // for axios: a request without a `timeout` hangs forever, one with a timeout fails at it (here at
+  // once, so the test does not wait the real 2 × 8 s).
+  it('a JUNIOR whose onboarding status hangs sees a placeholder, then is sent on to their hub', async () => {
+    apiGet.mockImplementation((url: string, config?: { timeout?: number }) => {
+      if (url !== '/onboarding/status') return answer(url === '/auth/me' ? me : null)
+      if (!config?.timeout) return new Promise(() => {})
+      return Promise.reject(new Error(`timeout of ${config.timeout}ms exceeded`))
+    })
+    const { crm } = renderCrmAt('/')
+    expect(
+      await screen.findByTestId('junior-hub-pending', {}, { timeout: 3000 }),
+    ).toBeInTheDocument()
+    expect(await screen.findByText('my project', {}, { timeout: 4000 })).toBeInTheDocument()
+    expect(crm.state.location.pathname).toBe('/project')
+    expect(apiGet).toHaveBeenCalledWith('/onboarding/status', {
+      timeout: ONBOARDING_STATUS_TIMEOUT_MS,
+    })
+    expect(ONBOARDING_STATUS_TIMEOUT_MS).toBe(8000)
   })
 })

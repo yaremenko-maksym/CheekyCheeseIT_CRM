@@ -240,7 +240,8 @@ const toSenior =
       seniorId: String(r['senior_id']),
       displayName: String(r['display_name']).slice(0, 255),
       availability: toAvailability(r),
-      matchApproximate: facts.approximate,
+      // a match row's evidence is NOT NULL: NULL is a manual card's TAKEN-only senior, no match at all
+      matchApproximate: r['evidence'] !== null && facts.approximate,
       matchedKeywords: facts.keywords,
       matchEvidence: matchEvidence(r['evidence']),
       submission: toSubmission(r),
@@ -513,7 +514,7 @@ export class JobQueueService {
     const { rows } = await this.database.db.execute(
       seniorRows(scope, versions, id, after, SENIOR_PREVIEW_MAX + 1),
     )
-    const total = await this.database.db.execute(seniorTotal(versions, id))
+    const total = await this.database.db.execute(seniorTotal(scope, versions, id))
     const page = rows.slice(0, SENIOR_PREVIEW_MAX)
     return {
       items: page.map(toSenior(scope)),

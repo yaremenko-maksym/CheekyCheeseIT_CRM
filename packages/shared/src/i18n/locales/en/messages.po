@@ -3906,7 +3906,7 @@ msgstr "The old file/link will be deleted with no way to restore it."
 #: apps/web/app/components/job-sourcing/SourceBudgetPanel.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 msgid "Джерела вакансій"
-msgstr "Job sources"
+msgstr "Vacancy sources"
 
 #: apps/web/app/components/senior-availability/SeniorAvailabilitySection.tsx
 msgid "Не вдалося завантажити доступність"
@@ -4230,7 +4230,7 @@ msgstr "in archive"
 
 #: apps/web/app/routes/_authenticated/admin/sources.$sourceId.tsx
 msgid "Остання вакансія:"
-msgstr "Newest posting:"
+msgstr "Newest vacancy:"
 
 #. placeholder {0}: editingUser?.displayName
 #: apps/web/app/components/users/user-dialog/EmailChangeWarningDialog.tsx
@@ -4315,7 +4315,7 @@ msgstr "Leave empty to keep it unchanged"
 
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Немає нових вакансій"
-msgstr "No new postings"
+msgstr "No new vacancies"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
@@ -5451,7 +5451,7 @@ msgstr "Source “{source}”: {state, select, FAILING {requests are failing.} C
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
 msgid "email.notification.SOURCE_HEALTH_ALERT.subject"
-msgstr "Job source failure: “{source}”"
+msgstr "Vacancy source failure: “{source}”"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
@@ -5461,12 +5461,12 @@ msgstr "Week starting {weekStart}."
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
 msgid "email.notification.SOURCE_HEALTH_WEEKLY_REPORT.line.measured"
-msgstr "{source}: {state, select, BLOCKED {blocked} CAPPED {reset needed} PAUSED {paused} FAILING {failing} EMPTY {empty answer} DEGRADED {degraded} SILENT {no new jobs} other {healthy}}{hasChanges, select, yes {; state changes: {transitions}} other {}}; runs: {runs}; freshness: median {p50} min, 90th percentile {p90} min; requests: {requests}; received: {megabytes} MB."
+msgstr "{source}: {state, select, BLOCKED {blocked} CAPPED {reset needed} PAUSED {paused} FAILING {failing} EMPTY {empty answer} DEGRADED {degraded} SILENT {no new vacancies} other {healthy}}{hasChanges, select, yes {; state changes: {transitions}} other {}}; runs: {runs}; freshness: median {p50} min, 90th percentile {p90} min; requests: {requests}; received: {megabytes} MB."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
 msgid "email.notification.SOURCE_HEALTH_WEEKLY_REPORT.line.unmeasured"
-msgstr "{source}: {state, select, BLOCKED {blocked} CAPPED {reset needed} PAUSED {paused} FAILING {failing} EMPTY {empty answer} DEGRADED {degraded} SILENT {no new jobs} other {healthy}}{hasChanges, select, yes {; state changes: {transitions}} other {}}; runs: {runs}; freshness not measurable; requests: {requests}; received: {megabytes} MB."
+msgstr "{source}: {state, select, BLOCKED {blocked} CAPPED {reset needed} PAUSED {paused} FAILING {failing} EMPTY {empty answer} DEGRADED {degraded} SILENT {no new vacancies} other {healthy}}{hasChanges, select, yes {; state changes: {transitions}} other {}}; runs: {runs}; freshness not measurable; requests: {requests}; received: {megabytes} MB."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
@@ -6381,7 +6381,7 @@ msgstr "Select the projects and income entries to include in the payout request.
 
 #: apps/web/app/routes/_authenticated/admin/sources.index.tsx
 msgid "Стан зовнішніх джерел вакансій: що зараз справне, наскільки свіжі дані та з якою періодичністю ми їх збираємо. Відкрийте джерело, щоб побачити історію запусків і подій."
-msgstr "The health of external job sources: what is healthy now, how fresh the data is, and how often we collect it. Open a source to see its run and event history."
+msgstr "The health of external vacancy sources: what is healthy now, how fresh the data is, and how often we collect it. Open a source to see its run and event history."
 
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Документ підписано"
@@ -8639,6 +8639,7 @@ msgid "Спочатку більші"
 msgstr "Largest first"
 
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Не вдалося призначити вакансію команді. Спробуйте ще раз."
 msgstr "Could not assign the vacancy to the team. Please try again."
 
@@ -9137,7 +9138,7 @@ msgstr "{source} — {state, select, FAILING {requests are failing} CAPPED {{has
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry/messages.ts
 msgid "notification.SOURCE_HEALTH_ALERT.title"
-msgstr "Job source failure"
+msgstr "Vacancy source failure"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry/messages.ts
@@ -13497,7 +13498,7 @@ msgstr "Variable value must not exceed 2000 characters"
 
 #: apps/web/app/routes/_authenticated/admin/sources.index.tsx
 msgid "Остання вакансія: {newest}"
-msgstr "Newest posting: {newest}"
+msgstr "Newest vacancy: {newest}"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx

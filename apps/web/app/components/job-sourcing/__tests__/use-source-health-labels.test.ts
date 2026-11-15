@@ -156,3 +156,15 @@ describe('useSourceHealthLabels', () => {
     ).toBe('кожні 24 год · 08:30, 14:00')
   })
 })
+
+// Found on PR #1332: the en health copy said "jobs" / "postings" where the vacancy flow says "vacancy"
+describe('useSourceHealthLabels — en', () => {
+  beforeAll(async () => {
+    await loadCatalog('en')
+  })
+
+  it('names the silent-source reason in the vacancy-flow term', () => {
+    const { result } = renderHook(() => useSourceHealthLabels(), { wrapper: I18nTestProvider })
+    expect(result.current.reasonLabel('NO_NEW_ITEMS')).toBe('No new vacancies')
+  })
+})

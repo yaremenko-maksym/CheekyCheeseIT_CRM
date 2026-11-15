@@ -1957,6 +1957,73 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     expect(toast.error).not.toHaveBeenCalled()
   })
 
+  // PR #1332 manual QA: per-call `mutate` callbacks are dropped on unmount, so a grant saved after
+  // the user left the page lost its success toast; the refusal path already toasts on unmount
+  it('a grant that succeeds after the dialog unmounted still toasts its success', async () => {
+    const user = userEvent.setup()
+    let answer: (value: unknown) => void = () => {}
+    post.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)))
+    const view = renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    view.unmount()
+    answer(granted())
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Призначено: Бета', JOB_QUEUE_TOAST),
+    )
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  // CR-M-2: an error that lands after the dialog unmounted has no dialog to show it in
+  it.each([
+    [
+      'a refusal',
+      () => coded(422, 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE'),
+      new RegExp(`^${NOT_ELIGIBLE}$`),
+    ],
+    [
+      'a 500',
+      () => httpError(500, {}),
+      /^Не вдалося призначити вакансію команді\. Спробуйте ще раз\.$/,
+    ],
+  ])('%s that lands after the dialog unmounted still toasts', async (_, error, text) => {
+    const user = userEvent.setup()
+    let fail: (reason: unknown) => void = () => {}
+    post.mockReturnValueOnce(new Promise((_resolve, reject) => (fail = reject)))
+    const view = renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    view.unmount()
+    fail(error())
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(toast.error).mock.calls[0]).toEqual([
+      expect.stringMatching(text),
+      JOB_QUEUE_TOAST,
+    ])
+  })
+
+  it.each([
+    ['a conflict', () => coded(409, 'JOB_QUEUE_VERSION_CONFLICT')],
+    ['an access loss', () => coded(403, 'FORBIDDEN')],
+  ])('%s that lands after the dialog unmounted toasts nothing', async (_, error) => {
+    const user = userEvent.setup()
+    let fail: (reason: unknown) => void = () => {}
+    post.mockReturnValueOnce(new Promise((_resolve, reject) => (fail = reject)))
+    const view = renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    view.unmount()
+    fail(error())
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
   it('a failed grant says so in the dialog and keeps it; a retry that loses access says nothing', async () => {
     const user = userEvent.setup()
     post.mockRejectedValueOnce(httpError(500, {}))

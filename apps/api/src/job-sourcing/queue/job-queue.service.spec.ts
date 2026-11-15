@@ -1264,6 +1264,19 @@ describe('JobQueueService continuations', () => {
     expect(h.compiled(0).text).not.toContain('ms.senior_id > $')
   })
 
+  it('seniors: a TAKEN-only senior of a manual card (NULL evidence) is no match, not an approximate one (CR-M-1)', async () => {
+    const h = harness(
+      teamScope,
+      [seniorDbRow({ evidence: null }), seniorDbRow({ senior_id: SEN_2, evidence: {} })],
+      [{ total: '2' }],
+    )
+    const page = await h.svc.seniors(user, OPP, { teamId: TEAM })
+    expect(page.items.map((s) => [s.matchApproximate, s.matchedKeywords])).toEqual([
+      [false, []],
+      [true, []],
+    ])
+  })
+
   it('seniors: a cursor resumes after its key', async () => {
     const h = harness(teamScope, [], [{ total: '1' }])
     const page = await h.svc.seniors(user, OPP, { cursor: seekCursor('SEN') })

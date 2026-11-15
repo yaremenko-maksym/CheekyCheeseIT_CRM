@@ -40,7 +40,10 @@ export function purgePersistedBeforeReload(): Promise<void> {
   persistingStopped = true
   let timer: ReturnType<typeof setTimeout> | undefined
   return Promise.race([
-    del(PERSIST_KEY).catch(() => {}),
+    // `del` can throw synchronously (IndexedDB blocked) — keep it inside the chain (CR-H-1)
+    Promise.resolve()
+      .then(() => del(PERSIST_KEY))
+      .catch(() => {}),
     new Promise<void>((resolve) => {
       timer = setTimeout(resolve, PURGE_BEFORE_RELOAD_MS)
     }),

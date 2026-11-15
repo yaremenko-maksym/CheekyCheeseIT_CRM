@@ -480,7 +480,7 @@ const GOLDEN: Record<Locale, Golden> = {
       button: 'Open',
     },
     SOURCE_HEALTH_ALERT: {
-      subject: 'Job source failure: “remotive_api”',
+      subject: 'Vacancy source failure: “remotive_api”',
       text: 'Source “remotive_api”: requests are failing.\nDetails are in the CRM.',
       button: 'Open the CRM',
     },

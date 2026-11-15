@@ -334,7 +334,7 @@ describe('три замороженных типа — реестр, не зам
       subjectId: null,
       data: { sourceName: 'remotive_api', state: 'FAILING' },
     }
-    expect(renderNotification(stored, EN).title).toBe('Job source failure')
+    expect(renderNotification(stored, EN).title).toBe('Vacancy source failure')
     expect(renderNotification(stored, UK).title).toBe('Збій джерела вакансій')
     const weekly = {
       ...stored,

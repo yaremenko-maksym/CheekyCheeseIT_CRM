@@ -364,9 +364,28 @@ describe('field scoping — what each read binds', () => {
   })
 
   it('the senior total counts the same matched set', () => {
-    const { text, params } = render(seniorTotal(versions, OPP))
+    const { text, params } = render(seniorTotal(team, versions, OPP))
     expect(text).toContain(`m.outcome IN ('LEAD', 'TRIAGE')`)
     expect(params).toContain(OPP)
+  })
+
+  it("a manual card's own TAKEN submissions join the senior set, team-scoped (found on PR #1332)", () => {
+    for (const q of [
+      seniorTotal(team, versions, OPP),
+      seniorRows(team, versions, OPP, undefined, 201),
+    ]) {
+      const { text, params } = render(q)
+      expect(text).toContain(
+        'UNION ALL SELECT ta.senior_id, NULL::jsonb FROM job_queue_assignments ta JOIN jsonb_to_recordset(',
+      )
+      expect(text).toContain(
+        "ON v.senior_id = ta.senior_id WHERE o.manual_team_id IS NOT NULL AND ta.opportunity_id = o.id AND ta.state = 'TAKEN' AND ta.team_id = $",
+      )
+      expect(params).toContain(TEAM)
+    }
+    expect(render(seniorTotal(studio, versions, OPP)).text).toContain(
+      "ta.state = 'TAKEN' AND TRUE) ms",
+    )
   })
 
   it('sources are the active links of this opportunity', () => {

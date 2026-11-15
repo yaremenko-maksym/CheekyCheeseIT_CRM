@@ -86,7 +86,8 @@ vi.mock('@/lib/use-logout', () => ({
   useLogout: () => vi.fn(),
 }))
 
-vi.mock('@/context/onboarding', () => ({
+vi.mock('@/context/onboarding', async (importActual) => ({
+  ...(await importActual<typeof import('@/context/onboarding')>()),
   useOnboardingGate: () => ({ isComplete: true }),
 }))
 
