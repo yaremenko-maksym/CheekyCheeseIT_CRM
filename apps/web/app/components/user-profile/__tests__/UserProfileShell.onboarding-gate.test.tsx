@@ -34,11 +34,11 @@ import { UserProfileShell } from '../UserProfileShell'
 
 const answer = (data: unknown) => Promise.resolve({ status: 200, data })
 
-function renderSelf() {
+function renderShell(mode: 'self' | 'view') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
-      <UserProfileShell mode="self" userId="junior-1" tab="overview" onTabChange={() => {}} />
+      <UserProfileShell mode={mode} userId="target-1" tab="overview" onTabChange={() => {}} />
     </QueryClientProvider>,
     { wrapper: I18nTestProvider },
   )
@@ -58,7 +58,7 @@ describe('UserProfileShell — the self profile waits for onboarding (QA-1343-A)
         ? answer({ requiresContract: true, requiresTos: true })
         : answer(null),
     )
-    renderSelf()
+    renderShell('self')
     await act(() => new Promise((settle) => setTimeout(settle, 100))) // both answers are in
     expect(asked('/users/me')).toBe(false)
     expect(screen.queryByText('Профіль не знайдено')).not.toBeInTheDocument()
@@ -70,15 +70,38 @@ describe('UserProfileShell — the self profile waits for onboarding (QA-1343-A)
         ? answer({ requiresContract: false, requiresTos: false })
         : answer(null),
     )
-    renderSelf()
+    renderShell('self')
     await waitFor(() => expect(asked('/users/me')).toBe(true))
+  })
+
+  it('another profile does not wait for the gate: its own answer shows at once', async () => {
+    apiGet.mockImplementation((url: string) =>
+      url === '/onboarding/status'
+        ? answer({ requiresContract: true, requiresTos: true })
+        : answer(null),
+    )
+    renderShell('view')
+    // the viewed profile's own answer (none here) shows, not a skeleton held by the gate
+    expect(await screen.findByText('Профіль не знайдено')).toBeInTheDocument()
+  })
+
+  it('another profile never asks for /users/me, onboarded or not', async () => {
+    apiGet.mockImplementation((url: string) =>
+      url === '/onboarding/status'
+        ? answer({ requiresContract: false, requiresTos: false })
+        : answer(null),
+    )
+    renderShell('view')
+    await waitFor(() => expect(asked('/users/target-1')).toBe(true))
+    await act(() => new Promise((settle) => setTimeout(settle, 50)))
+    expect(asked('/users/me')).toBe(false)
   })
 
   it('the status failed: still asks for /users/me (a broken status never locks the profile)', async () => {
     apiGet.mockImplementation((url: string) =>
       url === '/onboarding/status' ? Promise.reject(new Error('down')) : answer(null),
     )
-    renderSelf()
+    renderShell('self')
     await waitFor(() => expect(asked('/users/me')).toBe(true))
   })
 })

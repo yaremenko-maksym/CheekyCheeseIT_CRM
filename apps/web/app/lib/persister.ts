@@ -67,8 +67,9 @@ function purgePending(): boolean {
   try {
     return localStorage.getItem(PURGE_PENDING_KEY) !== null
   } catch {
-    return false
+    // storage disabled: nothing could have been marked
   }
+  return false
 }
 
 /** Deletes the persisted copy, then clears the pending marker; rejects if the delete fails. */
