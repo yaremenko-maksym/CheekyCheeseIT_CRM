@@ -90,6 +90,9 @@ beforeEach(async () => {
   catalogGate = null
   interactiveMounts = 0
   resetLocaleConfirmation()
+  // Warm the `uk` chunk first: a cold transform of it can outlast `waitFor`'s timeout, and a
+  // late activation would then leak into the next test.
+  await loadCatalog('uk')
   await loadCatalog('en') // the pre-login locale `client.tsx` picked
   vi.mocked(activateLocale).mockClear()
   vi.mocked(api.get).mockResolvedValue({ status: 200, data: sessionUser })
