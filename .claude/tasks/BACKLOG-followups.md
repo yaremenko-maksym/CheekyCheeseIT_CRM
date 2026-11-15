@@ -8018,6 +8018,8 @@ Sources: verified-base-resume review R36 (Task 23).
 
 ## 437. The profile tab bar clips its last tab at 320 px (2026-11-14)
 
+**Parked (2026-11-15).** Owner: waits for the CRM redesign v2.
+
 **Symptoms.** On `/profile` at 320 px wide the `AnimatedTabs` bar of `UserProfileShell` shows its
 last visible tab cut at the right edge when the viewer sees all tabs
 (including Resume).
@@ -8030,6 +8032,8 @@ is fully inside the viewport or reachable by a horizontal scroll that shows it w
 Sources: verified-base-resume manual QA (Task 23 brief).
 
 ## 438. First visit remounts the whole app when the session locale differs (2026-11-14)
+
+**Closed (2026-11-15).** PR #1343 (`a589d002b`) holds the auth loading state until the session locale is active, so the keyed remount in `LocaleScopedApp` runs under the pending UI. Reopen if the Verify check below shows two mounts.
 
 **Symptoms.** `client.tsx` activates the pre-login locale; `context/auth.tsx` then activates the
 session's own locale. `LocaleScopedApp` keys the outlet by the locale, so on a first visit whose
@@ -8154,6 +8158,8 @@ apply the same guard on both sides so they agree.
 Sources: verified-base-resume Task 23 round 7, ruling R105.
 
 ## 446. Resume confirm step: the kept-result notice sits too far from the action (2026-11-14)
+
+**Parked (2026-11-15).** Owner: waits for the CRM redesign v2.
 
 **Symptoms.** After a staged edit or regenerate whose check was unavailable, the row comes back AWAITING_CONFIRM on
 the previous result, and the kept-result notice (`resume-verification-kept`) renders below the whole confirm step.
