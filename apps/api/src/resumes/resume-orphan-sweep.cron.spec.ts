@@ -164,7 +164,11 @@ describe('ResumeOrphanSweepCron', () => {
   })
 
   it('never deletes a listed key outside the senior-resumes/ prefix', async () => {
-    bucket.foreign.push('documents/someone-else.pdf', 'senior-resumesX/u/a')
+    // Aged, so only the prefix check can keep them.
+    for (const k of ['documents/someone-else.pdf', 'senior-resumesX/u/a']) {
+      bucket.foreign.push(k)
+      bucket.objects.set(k, OLD)
+    }
     const result = await make().sweep(NOW)
     expect(bucket.deleteOrThrow).not.toHaveBeenCalled()
     expect(result).toMatchObject({ listed: 2, deleted: 0 })
@@ -250,6 +254,16 @@ describe('ResumeOrphanSweepCron', () => {
     expect(result).toMatchObject({ deleted: 2, failed: 1, complete: true })
     expect(warn).toHaveBeenCalledWith(
       'Resume orphan not deleted: key=senior-resumes/u/b reason="DeleteObject failed for senior-resumes/u/b"',
+    )
+  })
+
+  it('a non-Error rejection is logged as "unknown error"', async () => {
+    bucket.objects.set('senior-resumes/u/a', OLD)
+    bucket.deleteOrThrow.mockRejectedValueOnce('boom')
+    const result = await make().sweep(NOW)
+    expect(result).toMatchObject({ deleted: 0, failed: 1 })
+    expect(warn).toHaveBeenCalledWith(
+      'Resume orphan not deleted: key=senior-resumes/u/a reason="unknown error"',
     )
   })
 

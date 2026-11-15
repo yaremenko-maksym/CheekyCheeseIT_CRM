@@ -83,6 +83,7 @@ export class ResumeOrphanSweepCron {
       complete: false,
     }
     let token: string | undefined
+    // Stryker disable next-line StringLiteral: equivalent, the loop's first statement overwrites it before any read
     let stage = 'list'
     try {
       do {
@@ -136,7 +137,7 @@ export class ResumeOrphanSweepCron {
   }
 
   /** Every key any row can still reach. One row per user, so the whole table is small. */
-  private async referencedKeys(): Promise<Set<string>> {
+  private async referencedKeys(): Promise<Set<unknown>> {
     const rows = await this.db.db
       .select({
         source: seniorResumes.sourceS3Key,
@@ -145,13 +146,12 @@ export class ResumeOrphanSweepCron {
         previous: seniorResumes.stagedPrevious,
       })
       .from(seniorResumes)
-    const keys = new Set<string>()
+    // Nulls and non-string values land in the set too; no listed key can equal them.
+    const keys = new Set<unknown>()
     for (const row of rows) {
+      keys.add(row.source).add(row.pdf).add(row.staged)
       // `staged_previous` is the staged result a running staged-edit or item run may restore.
-      const previous: unknown = (row.previous as { pdfKey?: unknown } | null)?.pdfKey
-      for (const key of [row.source, row.pdf, row.staged, previous]) {
-        if (typeof key === 'string') keys.add(key)
-      }
+      keys.add((row.previous as { pdfKey?: unknown } | null)?.pdfKey)
     }
     return keys
   }
