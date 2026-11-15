@@ -2157,8 +2157,9 @@ export const jobQueueCardResponseSchema = jobQueueListItemSchema
     triagePolicyVersion: intColumnPositiveSchema.optional(),
     /**
      * ADMIN only, next to `triagePolicyVersion`: whether the grant would accept this item (no
-     * manual card, not EXCLUDED at its revision, no live LEAD of any studio senior). The server
-     * computes it from the same predicate the grant checks, so the web offers no refused grant.
+     * manual card, not CLOSED / EXPIRED, not EXCLUDED at its revision, no live LEAD of any studio
+     * senior). The server computes it from the same predicate the grant checks, so the web offers
+     * no refused grant.
      */
     triageGrantable: z.boolean().optional(),
   })

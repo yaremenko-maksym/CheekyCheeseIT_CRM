@@ -941,7 +941,7 @@ export class JobQueueActionsService {
     return team.rows.length > 0
   }
 
-  /** Not a triage item (`triageIneligibleRow`: EXCLUDED, or a live LEAD of a STUDIO senior). */
+  /** Not a triage item (`triageIneligibleRow`: CLOSED / EXPIRED, EXCLUDED, or a live STUDIO LEAD). */
   private async isTriageIneligible(
     tx: SqlExecutor,
     opportunity: string,

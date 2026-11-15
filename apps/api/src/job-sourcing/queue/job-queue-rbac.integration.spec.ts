@@ -1734,6 +1734,27 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect((await get(`/${id('oppGrant')}`, 'admin')).json['triageGrantable']).toBe(true)
     })
 
+    it('a CLOSED or EXPIRED opportunity is refused: no team could see the grant (PR #1332 SO-1)', async () => {
+      for (const availability of ['CLOSED', 'EXPIRED']) {
+        const opp = `oppGone${availability}`
+        await mkOpp(opp)
+        // studio-wide: any ADMIN card's version is the grant's
+        const policy = await cardPolicy('oppGrant')
+        await sqlq(`UPDATE job_opportunities SET availability = $2 WHERE id = $1`, [
+          id(opp),
+          availability,
+        ])
+        const a = await post(`/${id(opp)}/team-triage`, 'admin', grantBody('teamG', 1, policy))
+        expect(a.status, availability).toBe(422)
+        expect(a.json['code']).toBe('JOB_QUEUE_TRIAGE_NOT_ELIGIBLE')
+        const card = await get(`/${id(opp)}`, 'admin')
+        expect(card.status, availability).toBe(200)
+        expect(card.json['triageGrantable'], availability).toBe(false)
+      }
+      expect(await triageActions('teamG')).toEqual([])
+      expect(await triageRows()).toEqual([])
+    })
+
     it('SR-L-1: a live LEAD committed while the grant waits for the row lock is still refused', async () => {
       await mkOpp('oppRace')
       const policy = await cardPolicy('oppRace')
