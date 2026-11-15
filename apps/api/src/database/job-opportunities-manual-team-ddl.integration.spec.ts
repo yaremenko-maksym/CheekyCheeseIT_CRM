@@ -6,8 +6,8 @@ import { type CrmAppSession, openCrmAppSession } from './__test-helpers__/crm-ap
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
- * r5 Phase 6 (STAGED/DARK) — the staged forward DDL
- * `manual-staged/2026-11-05_job_opportunities_manual_team.sql` against a REAL Postgres.
+ * r5 Phase 6 (promoted by backlog 434) — the forward DDL
+ * `manual/2026-11-05_job_opportunities_manual_team.sql` against a REAL Postgres.
  *
  * Applied TWICE into a scratch schema holding stubs of `job_opportunities` and
  * `job_queue_assignments` (`teams` and `senior_resumes` resolve to `public` through the search
@@ -24,7 +24,7 @@ const FILE = join(
   '..',
   '..',
   'drizzle',
-  'manual-staged',
+  'manual',
   '2026-11-05_job_opportunities_manual_team.sql',
 )
 const SCHEMA = 'ddl_job_opportunities_manual_team'
@@ -82,7 +82,7 @@ async function createStub(): Promise<void> {
   }
 }
 
-describe.skipIf(!hasDatabaseUrl())('Phase 6 staged DDL: manual card owner team + resume', () => {
+describe.skipIf(!hasDatabaseUrl())('Phase 6 forward DDL: manual card owner team + resume', () => {
   beforeAll(async () => {
     session = await openCrmAppSession()
     client = await session.admin.connect()

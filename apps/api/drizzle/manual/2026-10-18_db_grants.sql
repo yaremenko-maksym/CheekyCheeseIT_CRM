@@ -84,6 +84,8 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.job_collection_runs,
   public.job_dirty_work,
   public.job_exclusion_filters,
+  public.job_model_health_flags,
+  public.job_model_route_daily,
   public.job_opportunities,
   public.job_opportunity_identity_tokens,
   public.job_opportunity_matches,
@@ -136,36 +138,18 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.vacancies,
   public.vacancy_applications
   TO crm_app;
--- staged relations (drizzle/manual-staged/): granted only where they exist.
-DO $staged$
-BEGIN
-  IF to_regclass('public.job_model_health_flags') IS NOT NULL THEN
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.job_model_health_flags TO crm_app;
-  END IF;
-  IF to_regclass('public.job_model_route_daily') IS NOT NULL THEN
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.job_model_route_daily TO crm_app;
-  END IF;
-END
-$staged$;
 --   crm_collector: nothing.
 --   crm_retention_owner: nothing.
 
 -- class A-log — Existing audit log, not yet append-only (ADR §2). Add rows, never rewrite them.
 GRANT SELECT, INSERT ON TABLE
+  public.job_source_health_events,
   public.meeting_recorder_audit_log,
   public.project_audit_log,
   public.team_audit_log,
   public.transaction_audit_log,
   public.user_audit_log
   TO crm_app;
--- staged relations (drizzle/manual-staged/): granted only where they exist.
-DO $staged$
-BEGIN
-  IF to_regclass('public.job_source_health_events') IS NOT NULL THEN
-    GRANT SELECT, INSERT ON TABLE public.job_source_health_events TO crm_app;
-  END IF;
-END
-$staged$;
 --   crm_collector: nothing.
 --   crm_retention_owner: nothing.
 

@@ -9,12 +9,15 @@
 --
 -- PRIVILEGE CLASS
 --   Class A: crm_app upserts counters and flips flags, so SELECT+INSERT+UPDATE+DELETE; the collector
---   has no grant. The grant lives in the generated manual/2026-10-18_db_grants.sql, guarded by
---   to_regclass while this file is staged.
+--   has no grant. The grant lives in the generated manual/2026-10-18_db_grants.sql and is
+--   unconditional and required since backlog 434 (the deploy applies this file BEFORE the grants).
 --
--- WHY THIS FILE IS STAGED
---   Nothing reads or writes these tables until the collection-run call site (task 5.5b). The owner
---   applies this DDL then; that PR moves the file to manual/ and drops its STAGED_RELATIONS entries.
+-- PROMOTED TO manual/ BY BACKLOG 434
+--   Applied by scripts/devops/deploy-stack-on-vps.sh on EVERY deploy, after the source_id DDL and
+--   before the grants, with --single-transaction; its STAGED_RELATIONS entries are gone. It was not
+--   applied in production before the promotion; the first deploy creates the two tables, every
+--   later one is a no-op.
+--   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 --   Rollback: drop the two tables.
 
 SET LOCAL lock_timeout = '10s';

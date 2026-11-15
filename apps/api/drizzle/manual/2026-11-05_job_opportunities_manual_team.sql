@@ -1,5 +1,5 @@
 -- =============================================================================
--- Manual job card owner team + submission resume (r5 Phase 6) — prod forward DDL (STAGED)
+-- Manual job card owner team + submission resume (r5 Phase 6) — prod forward DDL
 -- =============================================================================
 --
 -- WHAT THIS FILE DOES
@@ -40,7 +40,7 @@
 --
 -- No grant: `job_opportunities` and `job_queue_assignments` are class A in `privilege-classes.ts`
 -- (table-level grants cover a new column), and these are ALTERs of existing relations, so neither
--- is in STAGED_RELATIONS.
+-- was ever in STAGED_RELATIONS.
 --
 -- The Drizzle declarations are `jobOpportunities.manualTeamId` (schema/job-opportunities.ts) and
 -- `jobQueueAssignments.resumeId` (schema/job-queue.ts), each declared last so the column rank
@@ -49,11 +49,16 @@
 -- schema and compares the objects with `db:push`; job-opportunities-store-forward-ddl.integration.spec.ts
 -- chains it after the role-family file.
 --
--- WHY THIS FILE IS STAGED, NOT IN manual/
--- ---------------------------------------
--- Production DDL ships staged. It is DARK: `manual-staged/` is never applied in prod (deploy.yml
--- refuses a file out of manual-staged/). Promotion and deploy wiring are an OWNER-ONLY later step.
+-- PROMOTED TO manual/ BY BACKLOG 434
+-- --------------------------------
+-- Applied by scripts/devops/deploy-stack-on-vps.sh on EVERY deploy, after the source_id DDL and
+-- before the grants, with --single-transaction. Its objects (`manual_team_id`, `resume_id` and
+-- their FKs) were applied in production BY HAND before the promotion, so the first deploy is a
+-- re-apply: a no-op when they match this file, and a loud, rolled-back failure before the container
+-- swap when they do not (pre-deploy checks: docs/runbooks/deployment.md §9, "Promoted job DDL
+-- (backlog 434)").
 --
+--   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 -- APPLY WITH `psql -v ON_ERROR_STOP=1 --single-transaction -f <this file>`: `SET LOCAL
 -- lock_timeout` only binds inside a transaction, and the closing check is all-or-nothing only if
 -- a failure rolls back everything above it.

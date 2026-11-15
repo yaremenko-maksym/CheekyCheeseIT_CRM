@@ -1,5 +1,5 @@
 -- =============================================================================
--- Opportunity evaluated revision + verdict (r5 Task 6.1 SR-M-2) — prod forward DDL (STAGED)
+-- Opportunity evaluated revision + verdict (r5 Task 6.1 SR-M-2) — prod forward DDL
 -- =============================================================================
 --
 -- WHAT THIS FILE DOES
@@ -24,7 +24,7 @@
 -- lands at the new digest. The sweep re-enqueues them under `RECONCILE:EVAL:`, at most 2,000 per
 -- 6-hour tick, so N granted-or-not opportunities take up to N / 2,000 ticks to show again.
 --
--- BACKFILL: NONE HERE. After promotion EVERY existing row is NULL, so every granted opportunity is
+-- BACKFILL: NONE HERE. On the first apply EVERY existing row is NULL, so every granted opportunity is
 -- HIDDEN from its team until its recompute (STUDIO and the LEAD branch do not read these columns).
 -- The recompute is triggered by the match reconciliation sweep (`reconcileOnce`), which treats an
 -- OPEN or UNKNOWN opportunity whose evaluated_revision differs from its revision, or whose
@@ -34,7 +34,8 @@
 -- That needs JOB_MATCH_RECONCILIATION_ENABLED=true, and it drains at most 2,000 opportunities per
 -- 6-hour tick, so N opportunities take about N / 2,000 ticks.
 --
--- SIZE IT FIRST (owner step): read `SELECT count(*) FROM job_opportunities` before promoting. The
+-- SIZE IT FIRST (owner step): read `SELECT count(*) FROM job_opportunities` before the first apply
+-- (in production that was the hand apply, before backlog 434). The
 -- backfill shares the one MATCH FIFO at 2,000 per 6-hour tick, so revision recomputes and exclusion
 -- fan-outs queue behind it: about 12.5 days at 100,000 opportunities.
 --
@@ -46,7 +47,7 @@
 -- the queue is exposed.
 --
 -- No grant: `job_opportunities` is class A in `privilege-classes.ts` (table-level grants cover a new
--- column), and this is an ALTER of an existing relation, so it is NOT in STAGED_RELATIONS.
+-- column), and this is an ALTER of an existing relation, so it was never in STAGED_RELATIONS.
 --
 -- The Drizzle declaration is `jobOpportunities` (schema/job-opportunities.ts) and
 -- `jobOpportunityVerdictEnum` (schema/enums.ts). job-opportunities-evaluation-verdict-ddl.integration.spec.ts
@@ -54,11 +55,16 @@
 -- job-opportunities-store-forward-ddl.integration.spec.ts chains it after the 2026-11-04
 -- submissions file.
 --
--- WHY THIS FILE IS STAGED, NOT IN manual/
--- ---------------------------------------
--- Production DDL ships staged. It is DARK: `manual-staged/` is never applied in prod (deploy.yml
--- refuses a file out of manual-staged/). Promotion and deploy wiring are an OWNER-ONLY later step.
+-- PROMOTED TO manual/ BY BACKLOG 434
+-- --------------------------------
+-- Applied by scripts/devops/deploy-stack-on-vps.sh on EVERY deploy, after the source_id DDL and
+-- before the grants, with --single-transaction. Its objects (the verdict type, the three columns
+-- and the pair CHECK) were applied in production BY HAND before the promotion, so the first deploy
+-- is a re-apply: a no-op when they match this file, and a loud, rolled-back failure before the
+-- container swap when they do not (pre-deploy checks: docs/runbooks/deployment.md §9, "Promoted job
+-- DDL (backlog 434)").
 --
+--   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 -- APPLY WITH `psql -v ON_ERROR_STOP=1 --single-transaction -f <this file>`: `SET LOCAL
 -- lock_timeout` only binds inside a transaction, and the closing check is all-or-nothing only if
 -- a failure rolls back everything above it. ADD COLUMN without a default is catalog-only; ADD

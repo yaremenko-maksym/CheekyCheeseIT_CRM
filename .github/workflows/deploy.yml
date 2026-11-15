@@ -674,6 +674,16 @@ jobs:
             apps/api/drizzle/manual/2026-10-31_job_bridge_deliveries.sql \
             apps/api/drizzle/manual/2026-11-01_job_source_record_inventory_misses.sql \
             apps/api/drizzle/manual/2026-11-02_job_source_records_source_id.sql \
+            apps/api/drizzle/manual/2026-10-31_job_run_metrics_slowdown.sql \
+            apps/api/drizzle/manual/2026-10-31_job_source_health_events.sql \
+            apps/api/drizzle/manual/2026-11-02_job_sources_inventory_uniqueness.sql \
+            apps/api/drizzle/manual/2026-11-04_job_queue_submissions_per_senior.sql \
+            apps/api/drizzle/manual/2026-11-04_job_opportunities_evaluation_verdict.sql \
+            apps/api/drizzle/manual/2026-11-05_job_opportunities_role_family.sql \
+            apps/api/drizzle/manual/2026-11-05_job_opportunities_manual_team.sql \
+            apps/api/drizzle/manual/2026-11-06_job_model_health.sql \
+            apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql \
+            apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -2778,6 +2788,136 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-11-02_job_source_records_source_id.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-11-02_job_source_records_source_id.sql
+
+      - name: Copy job run metrics slowdown DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-31_job_run_metrics_slowdown.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-31_job_run_metrics_slowdown.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-10-31_job_run_metrics_slowdown.sql
+
+      - name: Copy job source health events DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-31_job_source_health_events.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-31_job_source_health_events.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-10-31_job_source_health_events.sql
+
+      - name: Copy job sources inventory uniqueness DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-02_job_sources_inventory_uniqueness.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-02_job_sources_inventory_uniqueness.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-02_job_sources_inventory_uniqueness.sql
+
+      - name: Copy job queue submissions per senior DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-04_job_queue_submissions_per_senior.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-04_job_queue_submissions_per_senior.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-04_job_queue_submissions_per_senior.sql
+
+      - name: Copy job opportunities evaluation verdict DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-04_job_opportunities_evaluation_verdict.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-04_job_opportunities_evaluation_verdict.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-04_job_opportunities_evaluation_verdict.sql
+
+      - name: Copy job opportunities role family DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-05_job_opportunities_role_family.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-05_job_opportunities_role_family.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-05_job_opportunities_role_family.sql
+
+      - name: Copy job opportunities manual team DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-05_job_opportunities_manual_team.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-05_job_opportunities_manual_team.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-05_job_opportunities_manual_team.sql
+
+      - name: Copy job model health DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-06_job_model_health.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-06_job_model_health.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-06_job_model_health.sql
+
+      - name: Copy job dirty work pending partial index DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql
+
+      - name: Copy job dirty work partition partial indexes DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql
 
       # Multipart salary changes one invariant in two deploy phases. The prepare
       # migration is backward-compatible with the currently-running API; the

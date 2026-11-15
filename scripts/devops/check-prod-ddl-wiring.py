@@ -1269,6 +1269,14 @@ PINNED_SINGLE_TX_FILES = {
     "2026-10-31_job_bridge_deliveries.sql",
     "2026-11-01_job_source_record_inventory_misses.sql",
     "2026-11-02_job_source_records_source_id.sql",
+    "2026-10-31_job_run_metrics_slowdown.sql",
+    "2026-10-31_job_source_health_events.sql",
+    "2026-11-02_job_sources_inventory_uniqueness.sql",
+    "2026-11-04_job_queue_submissions_per_senior.sql",
+    "2026-11-04_job_opportunities_evaluation_verdict.sql",
+    "2026-11-05_job_opportunities_role_family.sql",
+    "2026-11-05_job_opportunities_manual_team.sql",
+    "2026-11-06_job_model_health.sql",
 }
 
 

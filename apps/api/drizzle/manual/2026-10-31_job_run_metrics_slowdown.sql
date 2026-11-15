@@ -1,5 +1,5 @@
 -- =============================================================================
--- Run metrics and the slow-down (source fetch strategy U2) — prod forward DDL (STAGED)
+-- Run metrics and the slow-down (source fetch strategy U2) — prod forward DDL
 -- =============================================================================
 --
 -- WHAT THIS FILE DOES
@@ -26,11 +26,13 @@
 -- after the T8 file and compares the catalog with `db:push`;
 -- job-run-metrics-ddl.integration.spec.ts applies it twice and checks crm_app's access.
 --
--- WHY THIS FILE IS STAGED, NOT IN manual/
--- ---------------------------------------
--- Production DDL ships staged (backlog 337). The DevOps companion U2-D moves it to manual/,
--- adds its apply step to scripts/devops/deploy-stack-on-vps.sh AFTER the store migration,
--- with --single-transaction, adds it to the hard-required and scp lists and the runbook.
+-- PROMOTED TO manual/ BY BACKLOG 434
+-- --------------------------------
+-- Applied by scripts/devops/deploy-stack-on-vps.sh on EVERY deploy, after the source_id DDL and
+-- before the grants, with --single-transaction. It was not applied in production before the
+-- promotion (the health tick failed on the missing `bytes_read`); the first deploy adds the
+-- columns, every later one is a no-op.
+--   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 --
 -- RE-RUNNABLE: every step is IF NOT EXISTS or guarded by a catalog lookup, and the closing
 -- block refuses to finish unless the result is exactly the intended state (a same-named

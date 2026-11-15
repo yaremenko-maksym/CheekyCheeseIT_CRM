@@ -30,13 +30,13 @@ import { SourceHealthAlertService } from './source-health-alert.service'
  * service directly with events at FIXED instants, so no result depends on the wall clock.
  * NEVER crm_db; DATABASE_URL points at a scratch database, inline.
  */
-const STAGED_FILE = join(
+const HEALTH_EVENTS_DDL_FILE = join(
   __dirname,
   '..',
   '..',
   '..',
   'drizzle',
-  'manual-staged',
+  'manual',
   '2026-10-31_job_source_health_events.sql',
 )
 
@@ -137,7 +137,7 @@ describe.skipIf(!hasDatabaseUrl())('U5a ADMIN alerts on health transitions', () 
     const { rows } = await admin.query(`SELECT current_database() AS db`)
     if (rows[0].db === 'crm_db') throw new Error('refusing the live database')
     await admin.query('BEGIN')
-    await admin.query(readFileSync(STAGED_FILE, 'utf8'))
+    await admin.query(readFileSync(HEALTH_EVENTS_DDL_FILE, 'utf8'))
     await admin.query('COMMIT')
     startedAt = (await admin.query(`SELECT clock_timestamp() AS t`)).rows[0].t as Date
     fx = new LedgerFixtures(admin, `u5a${Date.now().toString(36)}`)
