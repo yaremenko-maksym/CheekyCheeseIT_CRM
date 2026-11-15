@@ -256,4 +256,32 @@ describe('Calendar — showOutsideDays / selected styling (MUT-1)', () => {
       expect(nav).toHaveClass('size-11', 'sm:size-7')
     }
   })
+
+  // PR #1334 QA-LOW-1: an arrow at the bound looked the same as one that pages (both opacity 0.5).
+  // jsdom has no computed style, so the two states are pinned through the classes that make them.
+  it('a disabled month arrow looks unavailable, an enabled one fully interactive', async () => {
+    await loadCatalog('uk')
+    render(
+      <Calendar
+        mode="single"
+        defaultMonth={new Date(Date.UTC(2026, 8, 15))}
+        endMonth={new Date(Date.UTC(2026, 8, 1))}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    const previous = screen.getByRole('button', { name: 'Попередній місяць' })
+    const next = screen.getByRole('button', { name: 'Наступний місяць' })
+    expect(next).toBeDisabled()
+    expect(previous).toBeEnabled()
+    for (const arrow of [previous, next]) {
+      expect(arrow).not.toHaveClass('opacity-50')
+      expect(arrow).toHaveClass(
+        'disabled:opacity-30',
+        'disabled:cursor-not-allowed',
+        'disabled:pointer-events-auto',
+        'disabled:hover:bg-transparent',
+      )
+      expect(arrow).not.toHaveClass('disabled:opacity-50', 'disabled:pointer-events-none')
+    }
+  })
 })

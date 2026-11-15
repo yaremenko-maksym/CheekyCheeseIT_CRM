@@ -70,7 +70,9 @@ function CustomMonthCaption({ calendarMonth, className }: MonthCaptionProps) {
   const navBtn = cn(
     buttonVariants({ variant: 'outline' }),
     // design spec §11: 44 px touch target under `sm`, the compact 28 px from there
-    'size-11 sm:size-7 bg-transparent p-0 opacity-50 hover:opacity-100 shrink-0',
+    'size-11 sm:size-7 bg-transparent p-0 shrink-0',
+    // at a bound: faded and not-allowed, and no hover, so it never reads as clickable (QA-LOW-1)
+    'disabled:opacity-30 disabled:cursor-not-allowed disabled:pointer-events-auto disabled:hover:bg-transparent disabled:hover:text-inherit',
   )
 
   return (
