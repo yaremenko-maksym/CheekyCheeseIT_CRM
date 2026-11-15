@@ -183,16 +183,25 @@ export const cardRow = (
 
 /**
  * The scope's own seniors matched on the opportunity. EXCLUDED and no-match stay out alike, so who
- * stop-listed it cannot be derived from this list.
+ * stop-listed it cannot be derived from this list. A manual card has no match row at all, so its
+ * rows are the scope's own seniors with a live (TAKEN) submission to it, without evidence.
  */
-const matchedSeniors = (versions: readonly LiveSeniorVersion[]): SQL =>
+const matchedSeniors = (scope: JobQueueScope, versions: readonly LiveSeniorVersion[]): SQL =>
   sql`FROM job_opportunities o
        CROSS JOIN LATERAL (
          SELECT m.senior_id, m.evidence ${liveVersionRows(versions)}
-            AND m.outcome IN ('LEAD', 'TRIAGE')) ms`
+            AND m.outcome IN ('LEAD', 'TRIAGE')
+         UNION ALL
+         SELECT DISTINCT ta.senior_id, NULL::jsonb FROM job_queue_assignments ta
+           JOIN ${versionRows(versions)} ON v.senior_id = ta.senior_id
+          WHERE o.manual_team_id IS NOT NULL AND ta.opportunity_id = o.id
+            AND ta.state = 'TAKEN' AND ${scopedTeamRowPredicate(scope, sql`ta.team_id`)}) ms`
 
-export const seniorTotal = (versions: readonly LiveSeniorVersion[], id: string): SQL =>
-  sql`SELECT count(*) AS total ${matchedSeniors(versions)} WHERE o.id = ${id}::uuid`
+export const seniorTotal = (
+  scope: JobQueueScope,
+  versions: readonly LiveSeniorVersion[],
+  id: string,
+): SQL => sql`SELECT count(*) AS total ${matchedSeniors(scope, versions)} WHERE o.id = ${id}::uuid`
 
 /**
  * ADMIN team heading (Task 7.3b, design §5.6): the senior's first live membership, in the picker's
@@ -227,7 +236,7 @@ export const seniorRows = (
                         AND f.state = 'TAKEN'
                         AND (${scopedTeamRowPredicate(scope, sql`f.team_id`)}) IS NOT TRUE
                     ) AS submitted_elsewhere${scope.kind === 'STUDIO' ? sql`, st.id AS team_id, st.name AS team_name` : sql``}
-       ${matchedSeniors(versions)}
+       ${matchedSeniors(scope, versions)}
         JOIN users u ON u.id = ms.senior_id
         ${scope.kind === 'STUDIO' ? studioSeniorTeam : sql``}
         LEFT JOIN job_queue_assignments a

@@ -504,7 +504,7 @@ export class JobQueueService {
     const { rows } = await this.database.db.execute(
       seniorRows(scope, versions, id, after, SENIOR_PREVIEW_MAX + 1),
     )
-    const total = await this.database.db.execute(seniorTotal(versions, id))
+    const total = await this.database.db.execute(seniorTotal(scope, versions, id))
     const page = rows.slice(0, SENIOR_PREVIEW_MAX)
     return {
       items: page.map(toSenior(scope)),
