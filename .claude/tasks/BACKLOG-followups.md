@@ -8002,6 +8002,8 @@ Sources: Master, wave 1-3 coder and manual-qa reports (2026-11-14/15).
 
 ## 436. No per-process cap on concurrent resume verification runs (R36, 2026-11-14)
 
+**Closed (2026-11-15).** PR #1349 (a FIFO in-process semaphore sized by `RESUME_VERIFICATION_MAX_CONCURRENT_RUNS`, default 3, bounds the run bodies; the stalled-run sweep ages a row from its claim and skips runs waiting for a slot). Reopen if the Verify check below fails.
+
 **Symptoms.** Every submit, staged edit, regenerate and template run of `ResumeVerificationService`
 fires its own detached `VerificationRunner.run`. Nothing bounds how many runs one API process holds
 at once; only the Typst render gate bounds the renders. Many seniors submitting together means many
