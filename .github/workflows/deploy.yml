@@ -3111,7 +3111,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           envs: IMAGE_TAG,GH_ACTOR,GHCR_TOKEN,CRM_CSP_MODE
-          # Worst case: 3 x 5min CIC waits = 15min + the step's normal runtime -> 30m (was ssh-action default 10m).
+          # Worst case: 3 × 5 min CIC lock waits = 15 min, plus the step's normal runtime; 30m replaces the 10 m default.
           command_timeout: 30m
           # A DISPATCH, deliberately tens of bytes long. The 137 KB it runs
           # travelled as a file via the scp step above. Full story in the header
