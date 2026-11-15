@@ -93,8 +93,9 @@ describe('sweepStalledVerifications', () => {
     expect(await swept()).toBe(0)
     expect(runner.waitingRunIds).toHaveBeenCalledTimes(1)
     const [select, , update] = log
-    const skip = 'and "senior_resumes"."verification_run_id" not in ($5, $6))'
-    expect(select?.where?.sql.endsWith(skip)).toBe(true)
+    expect(
+      select?.where?.sql.endsWith('and "senior_resumes"."verification_run_id" not in ($5, $6))'),
+    ).toBe(true)
     expect(select?.where?.params).toEqual([
       CUTOFF,
       'QUEUED',
@@ -103,7 +104,9 @@ describe('sweepStalledVerifications', () => {
       'run-7',
       'run-8',
     ])
-    expect(update?.where?.sql).toContain(skip)
+    expect(update?.where?.sql).toContain(
+      'and "senior_resumes"."verification_run_id" not in ($6, $7))',
+    )
     expect(update?.where?.params?.slice(0, 7)).toEqual([
       'r-1',
       CUTOFF,

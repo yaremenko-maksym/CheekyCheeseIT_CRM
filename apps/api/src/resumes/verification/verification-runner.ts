@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable, Logger, Optional } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { and, eq, sql } from 'drizzle-orm'
 import {
   normalizeResumeLayout,
@@ -11,6 +12,7 @@ import {
   type ResumeVerificationErrorCode,
   type ResumeVerificationReport,
 } from '@crm/shared'
+import { DEFAULT_RESUME_VERIFICATION_MAX_CONCURRENT_RUNS, type Env } from '../../config/env'
 import { DatabaseService } from '../../database/database.service'
 import { seniorResumes, userEmails, users, type SeniorResume } from '../../database/schema'
 import { S3Service } from '../../documents/s3.service'
@@ -39,6 +41,7 @@ import {
 } from './render-gates'
 import { deleteStagedQuietly, renderOwnerKey, stagedPdfKey, type RunOrigin } from './run-columns'
 import { failRun, ownsRun, RunLost } from './run-end'
+import { RunSlots } from './run-slots'
 import { claimTemplateRun, promoteTemplateRun, templateContent } from './template-run'
 
 /** A run past this is STALLED, checked before every model call (P2). */
@@ -111,6 +114,8 @@ export async function loadOwnerContacts(
 @Injectable()
 export class VerificationRunner {
   private readonly logger = new Logger(VerificationRunner.name)
+  /** The per-process cap on runs past their claim (backlog 436). */
+  private readonly slots: RunSlots
 
   constructor(
     private readonly db: DatabaseService,
@@ -120,10 +125,31 @@ export class VerificationRunner {
     private readonly writer: ResumeWriterClient,
     private readonly vision: VisualCheckClient,
     private readonly entailment: ResumeEntailmentClient,
-  ) {}
+    @Optional() config?: ConfigService<Env, true>,
+  ) {
+    this.slots = new RunSlots(
+      config?.get('RESUME_VERIFICATION_MAX_CONCURRENT_RUNS', { infer: true }) ??
+        DEFAULT_RESUME_VERIFICATION_MAX_CONCURRENT_RUNS,
+    )
+  }
 
-  /** Never rejects: the caller fires it with `void`. An unexpected error ends the run STALLED. */
-  async run(resumeId: string, runId: string): Promise<void> {
+  /**
+   * Run ids waiting for a slot in this process, oldest first. Their rows are QUEUED and alive, so
+   * the stalled-run sweep skips them; the list dies with the process, so a dead one's rows are reaped.
+   */
+  waitingRunIds(): string[] {
+    return this.slots.waiting()
+  }
+
+  /**
+   * Never rejects: the caller fires it with `void`. Waits for a slot first (FIFO, backlog 436), so
+   * the wait is not charged to the run budget. An unexpected error ends the run STALLED.
+   */
+  run(resumeId: string, runId: string): Promise<void> {
+    return this.slots.hold(runId, () => this.runInSlot(resumeId, runId))
+  }
+
+  private async runInSlot(resumeId: string, runId: string): Promise<void> {
     try {
       await this.execute(resumeId, runId)
     } catch (err) {
