@@ -268,8 +268,6 @@ assert_green "[script] the child receives the script path, --changed and the par
 
 # 11 -- a catchable signal sent to the parent reaches the child (no orphaned Node 22
 # Stryker run). The child signals ITS parent, then waits for the forwarded TERM.
-# It signals at once, on purpose: that also pins the parent's handlers being installed
-# BEFORE spawn (a TERM landing between spawn and process.on killed the parent silently).
 NVM_SIG="$WS/nvm-sig"
 make_child_nvm "$NVM_SIG" 'trap "echo CHILD-GOT-TERM; exit 9" TERM; kill -TERM $PPID; sleep 5 & wait $!; echo CHILD-NOT-SIGNALLED; exit 0'
 assert_red "[script] SIGTERM to the parent is forwarded to the child" \
