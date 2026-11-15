@@ -1,3 +1,5 @@
+import { PgDialect } from 'drizzle-orm/pg-core'
+import type { SQL } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
 import type { DrizzleTx } from '../../database/types'
 import { markResumeRecheckNeeded, redactionInputChanged } from './recheck-flag'
@@ -34,22 +36,27 @@ describe('redactionInputChanged (backlog 442)', () => {
 /** A tx double: the locked select answers `before`; every call is logged in order. */
 function fakeTx(before: Record<string, string | null> | undefined) {
   const log: string[] = []
+  const seen: { columns?: string[]; flagWhere?: { sql: string; params: unknown[] } } = {}
   const forFn = vi.fn((mode: string) => {
     log.push(`select for ${mode}`)
     return Promise.resolve(before ? [before] : [])
   })
   const tx = {
-    select: () => ({ from: () => ({ where: () => ({ for: forFn }) }) }),
+    select: (cols: Record<string, unknown>) => {
+      seen.columns = Object.keys(cols)
+      return { from: () => ({ where: () => ({ for: forFn }) }) }
+    },
     update: () => ({
       set: (v: Record<string, unknown>) => ({
-        where: () => {
+        where: (w: SQL) => {
           log.push(`update ${Object.keys(v).join(',')}`)
+          seen.flagWhere = new PgDialect().sqlToQuery(w)
           return Promise.resolve()
         },
       }),
     }),
   }
-  return { tx: tx as unknown as DrizzleTx, log, forFn }
+  return { tx: tx as unknown as DrizzleTx, log, forFn, seen }
 }
 
 describe('markResumeRecheckNeeded (backlog 442, AC7)', () => {
@@ -58,6 +65,14 @@ describe('markResumeRecheckNeeded (backlog 442, AC7)', () => {
     await markResumeRecheckNeeded(tx, 'u1', { displayName: 'Olena M' })
     expect(forFn).toHaveBeenCalledWith('update')
     expect(log).toEqual(['select for update', 'update recheckNeededAt'])
+  })
+
+  it('reads all three redaction inputs and flags only the VERIFIED resume of that user', async () => {
+    const { tx, seen } = fakeTx(existing)
+    await markResumeRecheckNeeded(tx, 'u1', { legalFullName: 'Мороз Олена' })
+    expect(seen.columns).toEqual(['displayName', 'legalFullName', 'telegram'])
+    expect(seen.flagWhere?.params).toEqual(['u1', 'VERIFIED'])
+    expect(seen.flagWhere?.sql).toContain('"verification_status" = $2')
   })
 
   it('an unchanged value: the locked read, no flag', async () => {

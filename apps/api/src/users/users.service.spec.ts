@@ -14,6 +14,7 @@ import { hashInviteToken } from './invite-token.util'
 import type { UsersAccessService } from './users-access.service'
 import { UsersService } from './users.service'
 import { markSeniorDirty } from '../job-sourcing/dirty-producers'
+import { markResumeRecheckNeeded } from '../resumes/verification/recheck-flag'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
 
@@ -2344,6 +2345,39 @@ describe('UsersService.updateProfile — locale (task-i18n-stage2)', () => {
     await expect(service.updateProfile('ghost', { displayName: 'X' })).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
     })
+  })
+})
+
+describe('UsersService.updateProfile — resume re-check flag (backlog 442)', () => {
+  const flag = () => vi.mocked(markResumeRecheckNeeded)
+  const tx = (db: DrizzleDb) => db.db.transaction as unknown as ReturnType<typeof vi.fn>
+  beforeEach(() => {
+    flag().mockClear()
+    vi.mocked(markSeniorDirty).mockClear()
+  })
+
+  it('a display name write marks in a transaction, before the UPDATE, and no roster row', async () => {
+    const db = makeDb({ updatedUser: makeUser() })
+    await makeUsersService(db).updateProfile('user-1', { displayName: 'New Name' })
+    expect(tx(db)).toHaveBeenCalledTimes(1)
+    expect(flag()).toHaveBeenCalledTimes(1)
+    expect(flag().mock.calls[0]?.[1]).toBe('user-1')
+    expect(flag().mock.calls[0]?.[2]).toMatchObject({ displayName: 'New Name' })
+    expect(vi.mocked(markSeniorDirty)).not.toHaveBeenCalled()
+  })
+
+  it('a Telegram-only write marks too', async () => {
+    const db = makeDb({ updatedUser: makeUser() })
+    await makeUsersService(db).updateProfile('user-1', { telegram: '@new' })
+    expect(tx(db)).toHaveBeenCalledTimes(1)
+    expect(flag().mock.calls[0]?.[2]).toMatchObject({ telegram: '@new' })
+  })
+
+  it('a write without a name or Telegram: no transaction, no mark', async () => {
+    const db = makeDb({ updatedUser: makeUser() })
+    await makeUsersService(db).updateProfile('user-1', { phone: '+380000000000' })
+    expect(tx(db)).not.toHaveBeenCalled()
+    expect(flag()).not.toHaveBeenCalled()
   })
 })
 
