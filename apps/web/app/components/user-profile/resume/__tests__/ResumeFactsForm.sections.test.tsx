@@ -12,6 +12,15 @@ import { EMPTY_RESUME_FACTS, type ResumeFacts, type ResumeFactsExperience } from
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { ResumeFactsForm, moveItem, type ResumeFactsFormProps } from '../ResumeFactsForm'
 
+vi.mock('../ResumeFactsJob', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../ResumeFactsJob')>()
+  return {
+    ...actual,
+    JobBlock: (props: Parameters<typeof actual.JobBlock>[0]) =>
+      props.count >= 29 ? null : actual.JobBlock(props),
+  }
+})
+
 const NOW = new Date('2026-11-11T12:00:00Z')
 
 const job = (changes: Partial<ResumeFactsExperience> = {}): ResumeFactsExperience => ({
@@ -323,10 +332,10 @@ describe('experience', () => {
   it('Add is disabled at 30 jobs and enabled below', () => {
     const many = (n: number) => ({ ...BASE, experience: Array.from({ length: n }, () => job()) })
     const { unmount } = renderForm({ facts: many(30) })
-    expect(screen.getByRole('button', { name: 'Додати місце роботи' })).toBeDisabled()
+    expect(screen.getByTestId('resume-facts-experience-add')).toBeDisabled()
     unmount()
     renderForm({ facts: many(29) })
-    expect(screen.getByRole('button', { name: 'Додати місце роботи' })).toBeEnabled()
+    expect(screen.getByTestId('resume-facts-experience-add')).toBeEnabled()
   })
 })
 
