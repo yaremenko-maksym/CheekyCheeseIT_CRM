@@ -1957,6 +1957,25 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     expect(toast.error).not.toHaveBeenCalled()
   })
 
+  // PR #1332 manual QA: per-call `mutate` callbacks are dropped on unmount, so a grant saved after
+  // the user left the page lost its success toast; the refusal path already toasts on unmount
+  it('a grant that succeeds after the dialog unmounted still toasts its success', async () => {
+    const user = userEvent.setup()
+    let answer: (value: unknown) => void = () => {}
+    post.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)))
+    const view = renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    view.unmount()
+    answer(granted())
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Призначено: Бета', JOB_QUEUE_TOAST),
+    )
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
   it('a failed grant says so in the dialog and keeps it; a retry that loses access says nothing', async () => {
     const user = userEvent.setup()
     post.mockRejectedValueOnce(httpError(500, {}))

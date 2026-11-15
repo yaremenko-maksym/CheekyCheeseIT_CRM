@@ -589,20 +589,19 @@ function TriageGrantForm({
     const team = chosen!.name
     setNote(null)
     onRefused(null)
-    grant.mutate(
-      { ...draft.data!, opportunityId: card.opportunityId },
-      {
-        onSuccess: () => {
-          toast.success(t`Призначено: ${team}`, JOB_QUEUE_TOAST)
-          onGranted()
-        },
-        onError: (error) => {
-          const refused = grantRefusal(error, locale)
-          onRefused(refused)
-          if (refused !== null) setNote({ refused })
-          else if (isQueueConflict(error)) setNote('conflict')
-          else if (!isAccessLoss(error)) setNote('failed')
-        },
+    // the promise settles after an unmount too (per-call `mutate` callbacks do not), so the success
+    // toast survives the user leaving the page, as the submit's does (QA-MED-1 r3)
+    void grant.mutateAsync({ ...draft.data!, opportunityId: card.opportunityId }).then(
+      () => {
+        toast.success(t`Призначено: ${team}`, JOB_QUEUE_TOAST)
+        onGranted()
+      },
+      (error: unknown) => {
+        const refused = grantRefusal(error, locale)
+        onRefused(refused)
+        if (refused !== null) setNote({ refused })
+        else if (isQueueConflict(error)) setNote('conflict')
+        else if (!isAccessLoss(error)) setNote('failed')
       },
     )
   }
