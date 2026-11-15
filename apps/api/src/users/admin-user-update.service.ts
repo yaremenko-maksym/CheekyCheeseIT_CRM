@@ -190,9 +190,10 @@ export class AdminUserUpdateService {
       // employee's IBAN so their earned payout can be sent resubmits the whole
       // form, unchanged `role` and `monthlySalary` included, and must not be
       // blocked (that edit is settlement, not a new entitlement).
+      // Backlog 442: before the UPDATE, so its locked read sees the values this write replaces.
+      await markResumeRecheckNeeded(tx, id, set)
       const u = await updateUserRow(tx, id, existing, set)
       await markUserEditDirty(tx, id, existing, set)
-      await markResumeRecheckNeeded(tx, id, existing, set)
 
       // task-pending-share (position 5): a requested base-share change opens
       // a proposal instead of writing `seniorSharePercent` directly — see

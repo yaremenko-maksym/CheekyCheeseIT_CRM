@@ -103,6 +103,7 @@ function makeResponse(
     verifiedVersion: null,
     verifiedAt: null,
     verifiedByName: null,
+    recheckNeededAt: null,
     staged: STAGED,
     verificationBusy: false,
     ...overrides,

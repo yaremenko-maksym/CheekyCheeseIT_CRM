@@ -1,7 +1,6 @@
 import { and, eq } from 'drizzle-orm'
-import type { DatabaseService } from '../../database/database.service'
 import type { DrizzleTx } from '../../database/types'
-import { seniorResumes } from '../../database/schema'
+import { seniorResumes, users } from '../../database/schema'
 
 /**
  * The owner columns a verification run redacts from the resume text (`loadOwnerContacts`), minus
@@ -19,17 +18,28 @@ export const redactionInputChanged = (
 
 /**
  * Backlog 442: a user row edit that really changes a redaction input flags the owner's VERIFIED
- * resume "re-check needed". Called inside the transaction of the user write, so the flag commits
- * with it. A resume in any other status is not flagged: its next confirm reads the new values.
+ * resume "re-check needed". Call it inside the transaction of the user write and BEFORE its
+ * UPDATE: it reads the values the write replaces under `FOR UPDATE`, so a concurrent writer cannot
+ * make the compare stale, and the flag commits or rolls back with the write. A resume in any other
+ * status is not flagged: its next confirm reads the new values.
  */
 export async function markResumeRecheckNeeded(
-  db: DatabaseService['db'] | DrizzleTx,
+  tx: DrizzleTx,
   userId: string,
-  existing: RedactionInputs,
   set: Readonly<Record<string, unknown>>,
 ): Promise<void> {
-  if (!redactionInputChanged(existing, set)) return
-  await db
+  if (!REDACTION_INPUTS.some((c) => c in set)) return
+  const [before] = await tx
+    .select({
+      displayName: users.displayName,
+      legalFullName: users.legalFullName,
+      telegram: users.telegram,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .for('update')
+  if (!before || !redactionInputChanged(before, set)) return
+  await tx
     .update(seniorResumes)
     .set({ recheckNeededAt: new Date() })
     .where(and(eq(seniorResumes.userId, userId), eq(seniorResumes.verificationStatus, 'VERIFIED')))

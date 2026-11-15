@@ -22,6 +22,11 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import { getTableName, type SQL } from 'drizzle-orm'
 import { UsersService } from './users.service'
 import { markUserEditDirty } from '../job-sourcing/dirty-producers'
+
+// Backlog 442: the resume re-check flag has its own real-DB spec (resume-recheck-flag.integration.spec).
+vi.mock('../resumes/verification/recheck-flag', () => ({
+  markResumeRecheckNeeded: vi.fn().mockResolvedValue(undefined),
+}))
 // r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
 vi.mock('../job-sourcing/dirty-producers')
 
@@ -507,8 +512,7 @@ describe('UsersService.adminUpdateUser — email change checks', () => {
   it('no email in the body: no email probes', async () => {
     const h = makeHarness()
     await edit(h, { displayName: 'N' }, 'admin-1')
-    // The second update is the resume re-check flag of a real rename (backlog 442).
-    expect(ops(h.log)).toEqual(['select', 'tx-begin', 'update', 'update', 'tx-end'])
+    expect(ops(h.log)).toEqual(['select', 'tx-begin', 'update', 'tx-end'])
   })
 
   it('409 USER_EMAIL_EXISTS when findByEmail returns ANOTHER user; nothing after the probe', async () => {

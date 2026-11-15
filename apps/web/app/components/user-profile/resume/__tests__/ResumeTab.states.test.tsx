@@ -85,6 +85,7 @@ function response(overrides: Partial<SeniorResumeDto> = {}, canEdit = true): Sen
     verifiedVersion: null,
     verifiedAt: null,
     verifiedByName: null,
+    recheckNeededAt: null,
     staged: null,
     verificationBusy: false,
     ...overrides,

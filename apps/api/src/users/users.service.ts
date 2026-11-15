@@ -535,21 +535,15 @@ export class UsersService {
     if (data.locale !== undefined) set.locale = data.locale
 
     // r5 4.6 S5: a REAL stack change commits with its roster dirty row (CR-M-1). Backlog 442: a
-    // name or Telegram write commits with the resume re-check flag, against the row it replaces.
+    // name or Telegram write commits with the resume re-check flag (locked read before the UPDATE).
     const identity = 'displayName' in set || 'telegram' in set
     const rows =
       !stackChanged && !identity
         ? await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
         : await this.db.db.transaction(async (tx) => {
-            const [before] = identity
-              ? await tx
-                  .select({ displayName: users.displayName, telegram: users.telegram })
-                  .from(users)
-                  .where(eq(users.id, id))
-              : []
+            await markResumeRecheckNeeded(tx, id, set)
             const written = await tx.update(users).set(set).where(eq(users.id, id)).returning()
             if (stackChanged) await markSeniorDirty(tx, id, 'senior.stack') // a missing or non-SENIOR user: no-op
-            if (before) await markResumeRecheckNeeded(tx, id, before, set)
             return written
           })
     const updated = rows[0]

@@ -16,6 +16,11 @@ import { UsersService } from './users.service'
 import { markSeniorDirty } from '../job-sourcing/dirty-producers'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
+
+// Backlog 442: the resume re-check flag has its own real-DB spec (resume-recheck-flag.integration.spec).
+vi.mock('../resumes/verification/recheck-flag', () => ({
+  markResumeRecheckNeeded: vi.fn().mockResolvedValue(undefined),
+}))
 // r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
 vi.mock('../job-sourcing/dirty-producers')
 
@@ -2324,11 +2329,8 @@ describe('UsersService.updateProfile — locale (task-i18n-stage2)', () => {
   // default-parameter, not a "no row" signal), so an ad-hoc update-chain
   // mock is simpler here than fighting that default.
   it('throws USER_NOT_FOUND when the update affects no row', async () => {
-    // A name write runs in a transaction and reads the row it replaces (backlog 442): none here.
+    // A name write runs in a transaction (backlog 442); this one passes through.
     const inner: Record<string, unknown> = {
-      select: vi.fn().mockReturnValue({
-        from: () => ({ where: vi.fn().mockResolvedValue([]) }),
-      }),
       update: vi.fn().mockReturnValue({
         set: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([]) }),

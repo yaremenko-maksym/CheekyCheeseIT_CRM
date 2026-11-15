@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
-import { redactionInputChanged } from './recheck-flag'
+import { describe, expect, it, vi } from 'vitest'
+import type { DrizzleTx } from '../../database/types'
+import { markResumeRecheckNeeded, redactionInputChanged } from './recheck-flag'
 
 const existing = { displayName: 'Olena K', legalFullName: 'Коваль Олена', telegram: '@olena' }
 
@@ -27,5 +28,53 @@ describe('redactionInputChanged (backlog 442)', () => {
   it('an absent existing value counts as null', () => {
     expect(redactionInputChanged({}, { legalFullName: null })).toBe(false)
     expect(redactionInputChanged({}, { legalFullName: 'Коваль Олена' })).toBe(true)
+  })
+})
+
+/** A tx double: the locked select answers `before`; every call is logged in order. */
+function fakeTx(before: Record<string, string | null> | undefined) {
+  const log: string[] = []
+  const forFn = vi.fn((mode: string) => {
+    log.push(`select for ${mode}`)
+    return Promise.resolve(before ? [before] : [])
+  })
+  const tx = {
+    select: () => ({ from: () => ({ where: () => ({ for: forFn }) }) }),
+    update: () => ({
+      set: (v: Record<string, unknown>) => ({
+        where: () => {
+          log.push(`update ${Object.keys(v).join(',')}`)
+          return Promise.resolve()
+        },
+      }),
+    }),
+  }
+  return { tx: tx as unknown as DrizzleTx, log, forFn }
+}
+
+describe('markResumeRecheckNeeded (backlog 442, AC7)', () => {
+  it('reads the replaced values FOR UPDATE, then flags the resume on a real change', async () => {
+    const { tx, log, forFn } = fakeTx(existing)
+    await markResumeRecheckNeeded(tx, 'u1', { displayName: 'Olena M' })
+    expect(forFn).toHaveBeenCalledWith('update')
+    expect(log).toEqual(['select for update', 'update recheckNeededAt'])
+  })
+
+  it('an unchanged value: the locked read, no flag', async () => {
+    const { tx, log } = fakeTx(existing)
+    await markResumeRecheckNeeded(tx, 'u1', { telegram: '@olena' })
+    expect(log).toEqual(['select for update'])
+  })
+
+  it('a write without a redaction input: no read, no flag', async () => {
+    const { tx, log } = fakeTx(existing)
+    await markResumeRecheckNeeded(tx, 'u1', { phone: '+380' })
+    expect(log).toEqual([])
+  })
+
+  it('a missing user: no flag', async () => {
+    const { tx, log } = fakeTx(undefined)
+    await markResumeRecheckNeeded(tx, 'u1', { displayName: 'X' })
+    expect(log).toEqual(['select for update'])
   })
 })
