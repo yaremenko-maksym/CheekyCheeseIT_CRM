@@ -1482,6 +1482,36 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
       expect(seniors.totalCount).toBe(1)
     })
 
+    it('the seniors continuation of a manual card lists its submitted senior as TAKEN (1340-SR-L-r2-1)', async () => {
+      const page = await get(`/${id('cardHr')}/seniors`, 'hrM')
+      expect(page.status).toBe(200)
+      const items = page.json['items'] as Array<{
+        seniorId: string
+        matchApproximate: boolean
+        submission: Record<string, unknown> | null
+      }>
+      expect(items.map((s) => s.seniorId)).toEqual([id('senM')])
+      expect(items[0]?.matchApproximate).toBe(false)
+      expect(items[0]?.submission?.['state']).toBe('TAKEN')
+      expect(page.json['totalCount']).toBe(1)
+      expect(page.json['nextCursor']).toBeNull()
+    })
+
+    it('a card created after the list was generated is listed at once, for ADMIN and the team (1340-QA-OUT-1)', async () => {
+      for (const who of ['admin', 'hrM'])
+        for (const tab of ['NEW', 'SUBMITTED', 'HIDDEN'])
+          expect((await get(`?${search}&tab=${tab}`, who)).status).toBe(200)
+      const a = await post(
+        '/manual',
+        'hrM',
+        body('fresh', 'teamM', 'senM', resumes['senM'] as string),
+      )
+      expect(a.status).toBe(201)
+      ids['cardFresh'] = (await cards('fresh'))[0]?.id as string
+      expect(await inAnyTab('hrM', 'cardFresh')).toBe(true)
+      expect(await inAnyTab('admin', 'cardFresh')).toBe(true)
+    })
+
     it('a retry with the same key answers the same submission and writes nothing more', async () => {
       const request = body('retry', 'teamM', 'senM', resumes['senM'] as string)
       const first = await post('/manual', 'hrM', request)

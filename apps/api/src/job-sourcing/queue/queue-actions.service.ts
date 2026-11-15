@@ -47,7 +47,7 @@ import {
   scopeTeamId,
   type WriteScope,
 } from './queue-actions'
-import { invalidateTeamGenerations } from './queue-generation'
+import { invalidateGenerationsForManualCard, invalidateTeamGenerations } from './queue-generation'
 import { triageIneligibleRow } from './queue-read-sql'
 import {
   canonicalUuid,
@@ -373,6 +373,7 @@ export class JobQueueActionsService {
         key: request.idempotencyKey,
         replay: { fp: fingerprint, submissionId: row.id, submittedAt: row.takenAt, resumeId },
       })
+      await invalidateGenerationsForManualCard(tx, teamId)
       return jobQueueSubmissionResponseSchema.parse({
         submission: {
           id: row.id,

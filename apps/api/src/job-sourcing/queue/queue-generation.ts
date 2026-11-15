@@ -177,6 +177,23 @@ export async function invalidateTeamGenerations(db: SqlExecutor, teamId: string)
 }
 
 /**
+ * 1340-QA-OUT-1 — a manual card is an addition to its team and to the studio, and neither published
+ * generation can hold it, so the create retires both: the team's and every STUDIO one (ADMIN's).
+ * Without it the card stayed out of both lists until the TTL ran out.
+ */
+export async function invalidateGenerationsForManualCard(
+  db: SqlExecutor,
+  teamId: string,
+): Promise<void> {
+  await db.execute(
+    sql`UPDATE job_queue_generations
+           SET status = 'INVALIDATED', invalidated_at = clock_timestamp()
+         WHERE status = 'PUBLISHED'
+           AND (scope_kind = 'STUDIO' OR (scope_kind = 'TEAM' AND team_id = ${teamId}::uuid))`,
+  )
+}
+
+/**
  * Retention (MP-13): an expired generation serves nobody, yet only the next publication of its scope
  * would remove it, so an idle scope's row stayed for good and held its team undeletable. Invalidate
  * first, because the Task 1.3 trigger refuses any other DELETE; entries go by cascade. A crash between
