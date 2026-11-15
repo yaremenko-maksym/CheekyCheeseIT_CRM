@@ -8131,6 +8131,8 @@ Sources: verified-base-resume Task 23 rulings R78 and R88.
 
 ## 444. Contact scanner: normalise zero-width and fullwidth characters before matching (2026-11-14)
 
+**Closed (2026-11-15).** PR #1351 (normalise zero-width and fullwidth characters before contact matching). Reopen if the Verify check below fails.
+
 **Symptoms.** The contact patterns in `packages/shared/src/schemas/resume-completeness.ts` match on NFC text
 only. A contact written with zero-width characters (U+200B..U+200D, U+2060, U+FEFF) between its letters, or in
 fullwidth forms (`ｊｏｈｎ＠ｘ．ｃｏｍ`), is neither flagged by the completeness check nor redacted before the
@@ -8145,6 +8147,8 @@ redacted from `redactContacts`; the completeness-vs-redaction fuzz stays clean.
 Sources: verified-base-resume second-opinion (Task 23, ruling R103).
 
 ## 445. Contact scanner: years-only lists flag as a phone (2026-11-14)
+
+**Closed (2026-11-15).** PR #1351 (drop candidate phone matches whose digit groups are all 4-digit years in 1950..2099). Reopen if the Verify check below fails.
 
 **Symptoms.** `2019 · 2020 · 2021`, `1999—2003—2007` and the en-dash form match `RESUME_PHONE_PATTERN`
 (9+ digits joined by separators), so submit is blocked with CONTACT_IN_TEXT and HR must rephrase.
