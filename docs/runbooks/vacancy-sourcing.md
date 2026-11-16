@@ -91,9 +91,13 @@ after MP-05.**
 - **Cooldown:** `job_sources.cooldown_until`, `consecutive_failures`, `next_attempt_at`. **Host pause:**
   `job_source_hosts.paused_until` (24 h to 720 h).
 - **Checkpoint:** `job_collection_runs.checkpoint` (bounded cursors); a `config_version` bump invalidates it.
-- **Readiness** (`job_source_readiness`): `CANDIDATE`, `VERIFIED`, `BLOCKED`. The stored value is a seed-time snapshot;
-  live readiness is computed by `manifest.activation.ts` at `now`. The seed never writes `VERIFIED`: it is earned by a
-  smoke run.
+- **Readiness** (`job_source_readiness`): `CANDIDATE`, `VERIFIED`, `BLOCKED`. The stored value is rewritten on EVERY
+  deploy by step 5 of the manifest delta (`2026-10-24_job_sources_manifest_delta.sql`) for every row a manifest entry
+  claims, in both directions: an owner decision unblocks, a prohibition blocks. A `CANDIDATE` entry never overwrites
+  `VERIFIED`; a `BLOCKED` one does. The delta derives readiness at its fixed seed clock, so a deadline that passes later
+  is not written to the column; live readiness is computed by `manifest.activation.ts` at `now`, and enable and every
+  run check that live answer. A row whose manifest entry was removed is not refreshed (enable refuses it with
+  `MANIFEST_ENTRY_MISSING`). The seed never writes `VERIFIED`: it is earned by a smoke run.
 - **Admin state:** `ACTIVE`, `PAUSED`, `RETIRED`; history in `admin_state_history` (`ENABLED`, `DISABLED`,
   `RESET_FAILURES`).
 - **Health** (`HEALTH_STATE_VALUES`): `BLOCKED`, `CAPPED`, `PAUSED`, `FAILING`, `EMPTY`, `DEGRADED`, `SILENT`,
