@@ -396,3 +396,237 @@ it('every role group has at least one dictionary entry', ...) // one hint per gr
 
 **PR 1 done when:** `pnpm --filter @crm/shared test`, `pnpm --filter @crm/api test -- role-classifier`
 and `pnpm typecheck` are green. Final commit trailer: `ac_verified: 1.1,1.2,1.3,1.4`.
+
+---
+
+## PR 2 — Storage, ingest classification, backfill, users API (`feat/roles-2-storage`)
+
+**Security-reviewer: mandatory.** This PR changes the users write path (`POST /users`,
+`PATCH /users/:id`, `PATCH /users/me`).
+
+**Ships safely because:**
+
+- Matching does not read the new columns. Only `EVALUATION_RECORD_VERSION` changes, and evaluation
+  output stays byte-identical.
+- Roles are optional on every write. The web forms keep sending `techStack` only, under the existing
+  stack floor.
+
+### Task 2.1: Forward DDL + Drizzle schema + DDL spec
+
+**Files:**
+
+- Create: `apps/api/drizzle/manual/2026-11-17_technical_roles.sql`
+- Modify: `apps/api/src/database/schema/users.ts`, `apps/api/src/database/schema/job-opportunities.ts`
+- Create: `apps/api/src/database/schema/job-role-classifications.ts`. Register it in
+  `apps/api/src/database/schema.ts`.
+- Modify: `apps/api/src/database/privileges/privilege-classes.ts`
+- Test: `apps/api/src/database/technical-roles-forward-ddl.integration.spec.ts`, plus the existing
+  `privilege-classes.spec.ts`
+
+**Interfaces:**
+
+- Produces these columns and objects. The names are final; later tasks use them verbatim.
+  - `users.technical_roles text[] NOT NULL DEFAULT '{}'` with
+    `ck_users_technical_roles_known CHECK (technical_roles <@ ARRAY[<33 senior-selectable ids>]::text[])`.
+  - `job_opportunities` gets 3 columns:
+    - `technical_roles text[] NOT NULL DEFAULT '{}'`
+    - `role_status text NULL`. NULL means "not classified by any version yet".
+    - `role_classifier_version text NULL`
+  - `job_opportunities` constraints and index:
+    - `ck_job_opportunities_technical_roles_known`: `technical_roles` is contained in the 34 ids.
+    - `ck_job_opportunities_role_status`: `role_status` is NULL or one of the 5 values.
+    - `ck_job_opportunities_roles_iff_status`: when `role_status` is not NULL, the roles are
+      non-empty exactly when the status is `RULE` or `AI`.
+    - `idx_job_opportunities_technical_roles USING gin (technical_roles)`.
+  - `job_role_classifications`, the AI cache:
+    - `title_key text NOT NULL`
+    - `description_sha256 text NOT NULL`
+    - `classifier_version text NOT NULL`
+    - `outcome text NOT NULL CHECK (outcome IN ('AI','UNCLEAR','FAILED'))`
+    - `technical_roles text[] NOT NULL DEFAULT '{}'` (same 34-id CHECK)
+    - `confidence numeric(4,3) NULL`
+    - `model text NULL`
+    - `attempts integer NOT NULL DEFAULT 0`
+    - `next_attempt_at timestamptz NULL`
+    - `created_at`, `updated_at timestamptz NOT NULL DEFAULT now()`
+    - `PRIMARY KEY (title_key, description_sha256, classifier_version)`
+  - Drizzle: `users.technicalRoles`, `jobOpportunities.technicalRoles` / `roleStatus` /
+    `roleClassifierVersion`, and `jobRoleClassifications`.
+  - Privileges: `job_role_classifications` in `PRIVILEGE_CLASSES` class A (a cron updates it, so not
+    B), plus a `MANUAL_DDL_RELATIONS` entry that points at the SQL file.
+- SQL file header: follow `2026-11-16_senior_resumes_recheck_needed.sql` (WHAT / PRIVILEGE CLASS /
+  APPLY / Rollback). Add `SET LOCAL lock_timeout = '10s'`. Use `IF NOT EXISTS` everywhere so a re-run
+  is a no-op. The CHECK id lists must be literal copies of `SENIOR_SELECTABLE_ROLES` /
+  `TECHNICAL_ROLES`.
+- Rollback line: drop the 3 opportunity columns, `users.technical_roles` and the table. Nothing else
+  reads them in this PR.
+
+- [ ] **Step 1: Write the failing DDL spec** in the pattern of
+      `senior-resumes-recheck-ddl.integration.spec.ts`. Apply the SQL file to a scratch database
+      twice. Assert:
+  - `applying twice is a no-op`
+  - `users.technical_roles refuses SOFTWARE_ENGINEER and an unknown id`
+  - `job_opportunities refuses roles with status PENDING, and empty roles with status RULE`
+  - `job_role_classifications refuses outcome 'MAYBE'`
+  - `the GIN index exists` (`pg_indexes`)
+  - `the CHECK id lists equal SENIOR_SELECTABLE_ROLES / TECHNICAL_ROLES` (parse `pg_get_constraintdef`)
+- [ ] **Step 2: Run** `DATABASE_URL=<scratch url> pnpm --filter @crm/api test -- technical-roles-forward-ddl`.
+      Expected: FAIL. Confirm the target first with `SELECT current_database()`, which must not
+      return `crm_db`.
+- [ ] **Step 3: Implement** the SQL file, the Drizzle declarations and the privilege entries.
+- [ ] **Step 4: Run** the DDL spec and `pnpm --filter @crm/api test -- privilege-classes`. Expected:
+      PASS, and the privilege spec reports `job_role_classifications` as classified.
+- [ ] **Step 5: Commit** `feat(db): technical roles columns and role classification cache`.
+
+### Task 2.2: Deploy wiring (DevOps zone; dispatch DevOps)
+
+**Files:** `.github/workflows/deploy.yml` (rollback preflight list + SCP step for manual SQL files),
+`scripts/devops/deploy-stack-on-vps.sh` (apply block), `docs/runbooks/deployment.md` (one row in each
+of the 2 manual-DDL tables).
+
+- Apply order: before the container swap, because the new code selects the new columns. Use the same
+  `psql -v ON_ERROR_STOP=1 --single-transaction` form as the neighbouring blocks.
+- [ ] **Step 1:** Add the file name to every list that names `2026-11-16_senior_resumes_recheck_needed.sql`.
+      Grep for that name, and the count of hits must double.
+- [ ] **Step 2: Verify** with `bash -n scripts/devops/deploy-stack-on-vps.sh` and the repo's
+      workflow lint (actionlint, if CI runs it). Expected: no errors.
+- [ ] **Step 3: Commit** `infra(deploy): apply technical roles DDL` (a DevOps commit inside PR 2).
+
+### Task 2.3: Classify at ingest + lazy backfill
+
+**Files:**
+
+- Create: `apps/api/src/job-sourcing/store/opportunity-roles.ts`
+- Modify: `apps/api/src/job-sourcing/store/canonical.store.ts` (`createOpportunity`, `refreshOpportunity`)
+- Modify: `apps/api/src/job-sourcing/runtime/recompute-worker.ts` (`recomputeOpportunity`)
+- Modify: `apps/api/src/job-sourcing/runtime/recompute-inputs.ts`: `EVALUATION_RECORD_VERSION = 'rf.2'`
+- Test: `apps/api/src/job-sourcing/store/opportunity-roles.spec.ts` (unit, fake executor), plus
+  `apps/api/src/job-sourcing/store/opportunity-roles.integration.spec.ts`
+
+**Interfaces:**
+
+- Consumes:
+  - `classifyRoles` and `ROLE_CLASSIFIER_VERSION` (Task 1.4).
+  - `CanonicalFields.title`, `.titleKey`, `.stackKeywords` and `.descriptionSha256`
+    (`store/canonical-plan.ts`).
+- Produces:
+  - `type RoleStatus = 'RULE' | 'AI' | 'PENDING' | 'UNCLEAR' | 'NON_IT'`
+  - `type OpportunityRoles = { status: RoleStatus; roles: readonly TechnicalRole[]; classifierVersion: string }`
+  - `deriveOpportunityRoles(tx: SqlExecutor, f: { title: string; titleKey: string; tags: readonly string[]; descriptionSha256: string | null }): Promise<OpportunityRoles>`
+    1. Run `classifyRoles`: `ROLES` → `RULE`; `NON_IT` → `NON_IT`.
+    2. If that gives `UNCLASSIFIED` and `descriptionSha256` is not null, look up
+       `job_role_classifications` at the current version:
+       - an `AI` row gives `AI` and its roles
+       - an `UNCLEAR` row gives `UNCLEAR`
+       - a `FAILED` row or no row gives `PENDING`
+    3. With `descriptionSha256` null there is **no lookup**. The result is `PENDING`.
+  - `writeOpportunityRoles(tx: SqlExecutor, opportunityId: string, r: OpportunityRoles): Promise<void>`:
+    an UPDATE of the 3 columns only. It never touches `revision`.
+- Store rules:
+  - `createOpportunity` writes the 3 columns in its INSERT.
+  - `refreshOpportunity` re-derives only when `title`, `stack_keywords` or `description_sha256` is
+    distinct from the stored row. Otherwise it keeps an existing `AI` / `UNCLEAR` answer.
+  - The 3 columns stay **out** of the `IS DISTINCT FROM` tuple that bumps `revision`.
+- Recompute rule: under the existing `FOR NO KEY UPDATE` lock, before `loadOpportunity`, a row whose
+  `role_classifier_version` is NULL or not `ROLE_CLASSIFIER_VERSION` is re-derived and written. This
+  is the backfill. The `rf.2` bump makes the reconciliation sweep re-enqueue every OPEN/UNKNOWN
+  opportunity. That sweep needs `JOB_MATCH_RECONCILIATION_ENABLED=true`, which `deploy.yml` sets
+  for prod.
+
+- [ ] **Step 1: Write the failing tests**
+
+```ts
+// opportunity-roles.spec.ts
+it('RULE for a classified title, no cache read', ...)            // executor records 0 SELECTs
+it('NON_IT for an excluded phrase', ...)
+it('PENDING and no cache lookup when descriptionSha256 is null', ...) // Review Focus 2
+it('AI roles from an AI cache row at the current version only', ...)  // an rc.0 row is ignored
+it('UNCLEAR from an UNCLEAR cache row; PENDING from a FAILED row', ...)
+// opportunity-roles.integration.spec.ts (scratch DB)
+it('createOpportunity stores roles, status and classifier version', ...)
+it('refreshOpportunity with an unchanged title keeps an AI answer and does not bump revision', ...)
+it('a reclassification-only write never changes revision', ...)
+it('recompute backfills a NULL role_status row under the lock and leaves revision unchanged', ...)
+it('evaluation output is unchanged by this PR', ...) // same EvaluationResult before/after for a fixture opportunity
+```
+
+- [ ] **Step 2: Run** `pnpm --filter @crm/api test -- opportunity-roles` (unit) and the integration file
+      with a scratch `DATABASE_URL`. Expected: FAIL.
+- [ ] **Step 3: Implement** both functions and the 3 call sites.
+- [ ] **Step 4: Run** the same commands, plus `pnpm --filter @crm/api test -- canonical recompute`.
+      Expected: PASS. Existing canonical-store and recompute specs stay green with a non-zero count.
+- [ ] **Step 5: Commit** `feat(job-sourcing): classify vacancy roles at ingest and backfill lazily`.
+
+### Task 2.4: Users API accepts roles (optional, SENIOR only)
+
+**Files:**
+
+- Modify: `packages/shared/src/schemas/users.ts`:
+  - `technicalRoles: seniorRolesSchema.optional()` on `createUserSchema`, `hrCreateSeniorSchema`,
+    `updateProfileSchema` and `adminUpdateUserSchema`
+  - `technicalRoles: z.array(technicalRoleSchema).default([])` on `userProfileSchema` and
+    `profileOverviewDataSchema`
+- Modify: `packages/shared/src/schemas/api-errors/auth-users-projects.ts`, `zod-errors.ts` and the
+  catalogs: add the new code `TECHNICAL_ROLES_SENIOR_ONLY` (uk + en; copy-reviewer).
+- Modify: `apps/api/src/users/role-guards.util.ts`, `users.service.ts` (`updateProfile`,
+  `USER_LIST_PROJECTION`), `user-creation.service.ts` and `admin-user-update.service.ts`.
+- Test: the existing specs plus one new spec:
+  - existing `admin-update-user.unit.spec.ts`, `create-user.unit.spec.ts`, `users.service.spec.ts`
+  - new `apps/api/src/users/senior-roles.realdb.integration.spec.ts`, in the pattern of
+    `drop-profile-rbac.integration.spec.ts`
+
+**Interfaces:**
+
+- Produces:
+  - `assertSeniorOnlyRoles(effectiveRole: Role, roles: readonly string[] | undefined): void`: throws
+    `apiError('TECHNICAL_ROLES_SENIOR_ONLY', 400)` when roles are non-empty and the role is not
+    `SENIOR`.
+  - `rolesChanged(next: readonly string[] | undefined, current: readonly string[]): boolean`. It works
+    like `techStackChanged`; compare sorted.
+  - Reads return `technicalRoles`. A stored role is kept when a SENIOR becomes another role. It is
+    harmless, because `loadRoster` reads only `SENIOR` (an A1 assumption).
+  - **No role floor in this PR** (Review Focus 1). `assertSeniorTechFloor` stays exactly as it is.
+- Endpoints and their existing guards are unchanged:
+
+  | Endpoint                | Who may call it                  |
+  | ----------------------- | -------------------------------- |
+  | `POST /users`           | ADMIN, HR                        |
+  | `PATCH /users/:id`      | ADMIN                            |
+  | `PATCH /users/me`       | self                             |
+  | `PATCH /users/:id/role` | ADMIN; does **not** accept roles |
+
+- [ ] **Step 1: Write the failing tests**
+
+```ts
+it('ADMIN PATCH /users/:id sets technicalRoles on a SENIOR and returns them sorted', ...)
+it('ADMIN PATCH /users/:id with technicalRoles on a JUNIOR -> 400 TECHNICAL_ROLES_SENIOR_ONLY', ...)
+it('PATCH /users/:id with SOFTWARE_ENGINEER -> 400 (zod)', ...)
+it('HR POST /users creating a SENIOR may set technicalRoles', ...)
+it('a SENIOR PATCH /users/me sets own technicalRoles', ...)
+it('roles are optional: a SENIOR write with techStack only still passes the stack floor', ...) // Review Focus 1
+// RBAC 403 (real HTTP guard path, integration):
+it('HR PATCH /users/:id with technicalRoles -> 403', ...)
+it('JUNIOR / ACCOUNTANT / SENIOR PATCH /users/:id with technicalRoles -> 403', ...)
+it('a SENIOR cannot set another user roles through PATCH /users/me (body has no id; target is self)', ...)
+it('unauthenticated PATCH /users/me -> 401', ...)
+```
+
+- [ ] **Step 2: Run** `pnpm --filter @crm/api test -- admin-update-user create-user users.service senior-roles`.
+      Use a scratch `DATABASE_URL` for the realdb file. Expected: FAIL.
+- [ ] **Step 3: Implement.** Thread `technicalRoles` through the 3 services next to `techStack`.
+      Call `assertSeniorOnlyRoles` with the effective role, i.e. after any role change in the same
+      write.
+- [ ] **Step 4: Run** the same command and `pnpm --filter @crm/web typecheck`. Expected: PASS. The web
+      compiles unchanged, because the field is optional.
+- [ ] **Step 5: Commit** `feat(users): accept technical roles for seniors`.
+
+**PR 2 done when:** all of Tasks 2.1–2.4 are green, plus `pnpm typecheck` and `pnpm --filter @crm/api test`.
+Security-reviewer verdict is recorded. Trailer: `ac_verified: 2.1,2.2,2.3,2.4`.
+
+**Deploy (owner merges):** steps (a) and (b). Verify after deploy with read-only SELECTs (owner, on
+prod):
+
+```sql
+SELECT role_status, count(*) FROM job_opportunities GROUP BY 1;          -- NULL shrinks per 6-hour tick
+SELECT count(*) FROM users WHERE role = 'SENIOR' AND cardinality(technical_roles) = 0;
+```
