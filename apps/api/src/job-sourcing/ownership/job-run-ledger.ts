@@ -23,11 +23,12 @@ import {
 import type { JobSourceRegistry } from '../registry/job-source-registry'
 import { MAX_EARLY_DUE_SLACK_MS } from '../scheduling/due-policy'
 import { dueSourcesPredicate } from '../scheduling/due-sources.query'
-import { type SqlExecutor, claimHostSlot } from '../scheduling/host-state'
+import { type SqlExecutor, claimHostSlot, hostOpenPredicate } from '../scheduling/host-state'
 import type { LedgerCatalog } from './ledger-catalog'
 import { type LegacyClaimInput, claimLegacy, isLegacyKind } from './legacy-run-claim'
 import {
   AUTH_PAUSE_CODE,
+  type ClaimPurpose,
   type ClaimRefusal,
   type EnableRefusal,
   type LedgerOptions,
@@ -38,6 +39,7 @@ import {
   enableRefusal,
   endingEffect,
   isSweepable,
+  enableWindowMinutes,
   manualTermRefusal,
   nextAttemptAt,
   nextSlowdownLevel,
@@ -224,6 +226,20 @@ const RUN_ACCOUNT_KEY = sql.raw(
 const NOT_RUNNING = sql.raw(`NOT EXISTS (SELECT 1 FROM job_collection_runs r
     WHERE r.outcome = 'STARTED' AND (r.source_id = job_sources.id OR r.account_key =
       COALESCE((SELECT m.account_key FROM job_account_meters m WHERE m.id = job_sources.account_meter_id), '#source:' || job_sources.id::text)))`)
+
+/**
+ * `claimSource`'s `t_due`: the MANUAL due predicate, or for `ENABLE_CATCH_UP` its host term alone.
+ * The predicate carries the trigger-mode term too, which that purpose drops; every other term of
+ * it is its own `t_*` column already, so nothing else is relaxed.
+ */
+export function manualDueTerm(
+  purpose: ClaimPurpose | undefined,
+  maxConsecutiveFailures: number,
+): SQL {
+  return purpose === 'ENABLE_CATCH_UP'
+    ? hostOpenPredicate()
+    : dueSourcesPredicate('MANUAL', { maxConsecutiveFailures })
+}
 
 /**
  * The busy-host FILTER (SR-M-19): no non-expired STARTED run on the source's host. A filter, not a
@@ -451,13 +467,16 @@ export class JobRunLedger {
   /**
    * The manual claim (ADR "claimSource"): the same steps for one named source, minus the cadence
    * term and nothing else, under `lock_timeout` (SR-L-16) -- it returns a refusal rather than
-   * waiting behind a `finish`. A manual refusal moves nothing.
+   * waiting behind a `finish`. A manual refusal moves nothing. `purpose: 'ENABLE_CATCH_UP'` (only
+   * the ADMIN enable fetch passes it) also drops the trigger-mode term: a SCHEDULED-only source
+   * is claimable by it, never by a human "run now".
    */
   async claimSource(input: {
     readonly cycleId: string
     readonly owner: string
     readonly sourceId: string
     readonly actor: string
+    readonly purpose?: ClaimPurpose
   }): Promise<ManualClaim> {
     this.assertOwner(input.owner)
     if (!UUID.test(input.sourceId)) return { kind: 'REFUSED', reason: 'NOT_FOUND' }
@@ -479,7 +498,7 @@ export class JobRunLedger {
                 job_sources.trigger_mode IN ('BOTH', 'MANUAL') AS t_trigger,
                 job_sources.consecutive_failures < ${this.options.maxConsecutiveFailures} AS t_cap,
                 (job_sources.cooldown_until IS NULL OR job_sources.cooldown_until <= clock_timestamp()) AS t_cool,
-                ${dueSourcesPredicate('MANUAL', { maxConsecutiveFailures: this.options.maxConsecutiveFailures })} AS t_due,
+                ${manualDueTerm(input.purpose, this.options.maxConsecutiveFailures)} AS t_due,
                 ${NOT_RUNNING} AS t_idle
               FROM job_sources WHERE job_sources.id = ${input.sourceId}::uuid FOR UPDATE OF job_sources`,
         )
@@ -489,7 +508,7 @@ export class JobRunLedger {
         if (this.registry.get(row['type'] as JobSourceType)?.contract !== 'REPORTING') {
           throw new Rollback('NOT_ACTIVATABLE')
         }
-        const term = manualTermRefusal(row)
+        const term = manualTermRefusal(row, input.purpose)
         if (term !== null) throw new Rollback(term)
         const verdict = await this.gateAndHost(tx, row, false)
         if (verdict.kind === 'REFUSED') throw new Rollback(verdict.reason)
@@ -1054,15 +1073,21 @@ export class JobRunLedger {
    * moves `enabled` and appends ONE `ENABLED` / `DISABLED` entry to `admin_state_history` in SQL
    * (like `resetFailures`, never read-modify-write); a no-op (already that value) writes nothing.
    *
-   *  - Enable never touches the quota, the failure counter, the cooldown, the due time, the
-   *    reasons or the readiness: it is refused `NOT_READY` unless the stored readiness and the
+   *  - Enable never touches the quota, the failure counter, the cooldown, the reasons or the
+   *    readiness. It arms an EMPTY slot only, and only for a scheduled source (a catalog entry with
+   *    a fetch profile): a NULL `next_attempt_at` becomes now (a seeded source is never due
+   *    otherwise), and the slot is never moved earlier -- a backoff stands -- nor sooner than
+   *    `enableWindowMinutes` after `last_attempt_at`. A null-profile or LEGACY source stays
+   *    unscheduled. It is refused
+   *    `NOT_READY` unless the stored readiness and the
    *    manual claim gate both pass (a LEGACY source has no gate), and `AUTH_PAUSED` while an
    *    `ACCESS_POLICY` refusal stands (only `resetFailures` clears it).
    *  - Disable ends every STARTED run of the source `CANCELLED` / `CANCELLED` (the shutdown
    *    ending, NEUTRAL: no failure, no backoff), settling its reservations as `finish` does, so
    *    the owner is fenced: its heartbeat, `assertOwned` and `finish` all see a run that is no
    *    longer STARTED. Queued work cannot start: every claim path refuses a disabled source.
-   *    `job_sources`' scheduling columns are left alone, so a later enable resumes where it was.
+   *    Disable leaves `job_sources`' scheduling columns alone, so a later enable resumes where it
+   *    was (enable arms or defers the slot only as above).
    *
    * RBAC is the caller's (T9 service).
    */
@@ -1096,17 +1121,38 @@ export class JobRunLedger {
         if (refusal !== null) return { kind: 'REFUSED', reason: refusal }
       }
       const kind = input.enabled ? 'ENABLED' : 'DISABLED'
+      // Only a SCHEDULED source (a catalog entry with a fetch profile) is armed: a null-profile one
+      // would be claimed by the tick only to be refused `NOT_SCHEDULED` into `last_error_code`.
+      const manifestId = row['manifest_id']
+      const entry = typeof manifestId === 'string' ? this.catalog.entry(manifestId) : undefined
+      const arm = input.enabled && entry !== undefined && entry.fetchProfile !== null
+      // SR-H-1: never sooner than the last attempt's window (the enable fetch's freshness rule), so
+      // enable -> disable (the cancel leaves the slot) -> enable gives the tick no second fetch.
+      // GREATEST ignores a NULL `last_attempt_at`: a never-attempted source is due now.
+      const windowMinutes = enableWindowMinutes(entry)
       await tx.execute(
         sql`UPDATE job_sources
                SET enabled = ${input.enabled},
                    admin_state_history = admin_state_history || jsonb_build_array(jsonb_build_object(
                      'kind', ${kind}::text, 'actor', ${input.actor}::text, 'at', clock_timestamp())),
+                   next_attempt_at = CASE WHEN ${arm}::boolean
+                     THEN GREATEST(COALESCE(next_attempt_at, clock_timestamp()),
+                                   last_attempt_at + make_interval(mins => ${windowMinutes}::int))
+                     ELSE next_attempt_at END,
                    updated_at = clock_timestamp()
              WHERE id = ${input.sourceId}::uuid`,
       )
       const cancelledRuns = input.enabled ? 0 : await this.cancelRunsOf(tx, input.sourceId)
       return { kind: 'SWITCHED', changed: true, cancelledRuns }
     }, READ_COMMITTED)
+  }
+
+  /**
+   * Whether `claimSource` can claim this type at all: only the REPORTING contract (its first
+   * term refuses everything else `NOT_ACTIVATABLE`). The enable fetch asks before opening a cycle.
+   */
+  isReportingType(type: string): boolean {
+    return this.registry.get(type as JobSourceType)?.contract === 'REPORTING'
   }
 
   /** The manual claim gate on the locked row; null for a LEGACY source (it has no gate). */
