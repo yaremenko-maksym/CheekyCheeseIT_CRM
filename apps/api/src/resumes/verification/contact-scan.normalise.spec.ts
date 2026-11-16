@@ -1,7 +1,7 @@
 /**
  * Contact scanner: zero-width / fullwidth normalisation (task 444) and year lists (task 445).
  */
-import { checkResumeCompleteness, type ResumeFacts } from '@crm/shared'
+import { checkResumeCompleteness, normaliseContactText, type ResumeFacts } from '@crm/shared'
 import { describe, expect, it } from 'vitest'
 import { redactContacts, scanContacts } from './contact-scan'
 
@@ -173,5 +173,102 @@ describe('flagged implies redacted, redaction is final and idempotent (PR #1351)
       expect(flagged(once, c.fullName, c.telegram)).toBe(false)
       expect(redactContacts(once, c)).toBe(once)
     }
+  })
+})
+
+describe('a stripped invisible is a token boundary (PR #1351 round 3, SR-H-1)', () => {
+  const ivan = { fullName: 'Ivan Petrenko', emails: [], telegram: '@ivan_dev' }
+
+  it.each(['​', '⁠', '﻿', '­', '⠀'].map((c) => [c.codePointAt(0), c]))(
+    'redacts the name glued to the next word by code point %i',
+    (_code, c) => {
+      expect(redactContacts(`Ivan Petrenko${c}Senior`, ivan)).toBe(`[REDACTED]${c}Senior`)
+    },
+  )
+
+  it.each([
+    ['1​Petrenko', '1​[REDACTED]'],
+    ['0671234567​Ivan Petrenko', '[REDACTED]​[REDACTED]'],
+    ['@ivan_dev​senior', '[REDACTED]​senior'],
+    ['by Iv‌an Petrenko', 'by [REDACTED]'],
+    ['by Iv‌an Petrenko​Senior', 'by [REDACTED]​Senior'],
+    ['Ivan PetrenkoSenior', 'Ivan PetrenkoSenior'],
+  ])('redacts %j as %j', (text, redacted) => {
+    expect(redactContacts(text, ivan)).toBe(redacted)
+  })
+
+  it('redacts a jamo-written name with an invisible inside the run (CR-L-2)', () => {
+    const gana = { fullName: '가나', emails: [] }
+    expect(redactContacts('by 가‍나 today', gana)).toBe('by [REDACTED] today')
+  })
+})
+
+describe('completeness flags a name iff the API redacts it (PR #1351 round 3, SR-M-1)', () => {
+  const FACTS: ResumeFacts = {
+    headline: '',
+    location: { city: 'Kyiv', country: 'Ukraine' },
+    workFormat: 'remote',
+    skills: [],
+    experience: [],
+    education: [],
+    languages: [],
+    links: [],
+  }
+  const now = new Date('2026-11-10T00:00:00Z')
+  const flagged = (text: string, displayName: string) =>
+    checkResumeCompleteness({ ...FACTS, headline: text }, { displayName, now }).some(
+      (issue) => issue.code === 'CONTACT_IN_TEXT',
+    )
+  /** mulberry32: a full-period PRNG, so every atom pair comes up (an LCG's low bits cycle). */
+  const prng = (seed: number) => () => {
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+  // No `@` or `.`, and too few digits for a phone: only the name can flag or redact.
+  const ATOMS = ['a', 'Z', '가', '7', '#', '+', ' ', '-', ',', '́', '\\n']
+  const INVISIBLES = ['​', '⁠', '﻿', '­', '⠀', '‌']
+  const INSIDE = ['', '', '‌', '​', '⠀']
+
+  it.each([
+    ['김민준', 1],
+    ['김 민준', 2],
+    ['Ivan Petrenko', 3],
+  ] as const)('for %j over 5000 generated texts', (fullName, seed) => {
+    const random = prng(seed)
+    const pick = <T>(list: readonly T[]): T => list[Math.floor(random() * list.length)] as T
+    const atoms = () =>
+      Array.from({ length: Math.floor(random() * 4) }, () => pick([...ATOMS, ...INVISIBLES])).join(
+        '',
+      )
+    const parts = fullName.split(' ')
+    const firstToken = parts[0] ?? ''
+    let flaggedCount = 0
+    for (let i = 0; i < 5000; i++) {
+      // an invisible inside each token of two letters or more, at an interior position
+      const rendered = parts
+        .map((part) => {
+          const at = 1 + Math.floor(random() * (part.length - 1))
+          return part.length > 1 ? part.slice(0, at) + pick(INSIDE) + part.slice(at) : part
+        })
+        .join(' ')
+      const text = `${atoms()}${rendered}${atoms()}`
+      const flags = flagged(text, fullName)
+      const redacted = redactContacts(text, { fullName, emails: [] })
+      if (flags) flaggedCount++
+      // flagged implies redacted, for every context
+      expect([text, flags && !redacted.includes('[REDACTED]')]).toEqual([text, false])
+      // the API redacts the full name (its first token goes) iff completeness flags it; for one
+      // token the full name is the surname, so any redaction is the full name
+      const fullNameRedacted =
+        parts.length === 1
+          ? redacted.includes('[REDACTED]')
+          : !normaliseContactText(redacted).text.includes(firstToken)
+      expect([text, fullNameRedacted]).toEqual([text, flags])
+    }
+    // both outcomes come up, so the property is not vacuous
+    expect(flaggedCount).toBeGreaterThan(500)
+    expect(flaggedCount).toBeLessThan(4500)
   })
 })
