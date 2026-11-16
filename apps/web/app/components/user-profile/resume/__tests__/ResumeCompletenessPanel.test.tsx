@@ -69,6 +69,43 @@ describe('ResumeCompletenessPanel', () => {
     expect(screen.getByRole('button', { name: 'Надіслати на перевірку' })).toBeDisabled()
   })
 
+  it('disables Submit with the already-verified reason when alreadyVerified is set and facts are not changed (backlog 452)', () => {
+    const { onSubmit } = renderPanel({ alreadyVerified: true })
+    const submit = screen.getByRole('button', { name: 'Надіслати на перевірку' })
+    expect(submit).toBeDisabled()
+    expect(submit).toHaveAccessibleDescription(
+      'Резюме вже підтверджено. Змініть факти, щоб надіслати його знову.',
+    )
+    // The polite region announces the refusal, not "ready to send".
+    expect(screen.getByTestId('resume-completeness-live')).toHaveTextContent(
+      'Резюме вже підтверджено. Змініть факти, щоб надіслати його знову.',
+    )
+    fireEvent.click(submit)
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('enables Submit when alreadyVerified is set but canSave is true because facts changed (backlog 452)', () => {
+    const { onSubmit } = renderPanel({ alreadyVerified: true, canSave: true })
+    const submit = screen.getByRole('button', { name: 'Надіслати на перевірку' })
+    expect(submit).toBeEnabled()
+    expect(submit).not.toHaveAttribute('aria-describedby')
+    expect(screen.queryByTestId('resume-facts-submit-already-verified')).not.toBeInTheDocument()
+    expect(screen.getByTestId('resume-completeness-live')).toHaveTextContent(
+      'Усе заповнено — можна надсилати',
+    )
+    fireEvent.click(submit)
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows only the completeness reason when an already-verified resume still lists issues (backlog 452)', () => {
+    renderPanel({ alreadyVerified: true, issues: [{ path: 'headline', code: 'HEADLINE_MISSING' }] })
+    const submit = screen.getByRole('button', { name: 'Надіслати на перевірку' })
+    expect(submit).toBeDisabled()
+    expect(submit).toHaveAccessibleDescription('Спершу заповніть поля зі списку')
+    expect(screen.queryByTestId('resume-facts-submit-already-verified')).not.toBeInTheDocument()
+    expect(screen.getByTestId('resume-completeness-live')).toHaveTextContent('1 поле')
+  })
+
   it('labels each row by its field and its code text', () => {
     const { onFocusField } = renderPanel({
       issues: [{ path: 'experience.1.notes', code: 'NO_NOTES' }],

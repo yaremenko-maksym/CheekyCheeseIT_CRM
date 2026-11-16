@@ -406,6 +406,7 @@ export function ResumeTab({ userId, displayName, telegram, onDirtyChange }: Resu
             displayName={displayName}
             telegram={telegram}
             disabled={verificationBusy}
+            alreadyVerified={resume?.verificationStatus === 'VERIFIED' && !resume.recheckNeededAt}
             onSave={(facts, { silent }) => saveFacts.mutateAsync({ facts, silent })}
             onSubmit={async () => {
               const answer = await submit.mutateAsync()

@@ -2499,6 +2499,11 @@ msgid "api-error.DOCUMENT_UPLOAD_SELF_ONLY"
 msgstr "You can only upload your own documents"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_TOO_MANY_PARTS"
+msgstr "Too many files in one upload. Attach one file and try again."
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_ARCHIVE_ADMIN_ONLY"
 msgstr "Only an admin can archive a drop"
@@ -3982,6 +3987,11 @@ msgstr "No resume file was attached. Attach one and try again."
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_UPLOAD_NOT_MULTIPART"
 msgstr "Could not upload the file. Try again."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_UPLOAD_TOO_MANY_PARTS"
+msgstr "Too many files in one upload. Attach one resume file and try again."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts

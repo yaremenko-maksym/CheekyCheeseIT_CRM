@@ -115,6 +115,11 @@ export interface ResumeFactsFormProps {
   onDirtyChange?: (dirty: boolean) => void
   /** Injected in tests; the live form reads the clock. */
   now?: Date
+  /**
+   * Backlog 452: the resume is VERIFIED and not flagged for re-check.
+   * If facts have not changed, the server refuses submit with 409 RESUME_ALREADY_VERIFIED.
+   */
+  alreadyVerified?: boolean
 }
 
 export function ResumeFactsForm({
@@ -122,6 +127,7 @@ export function ResumeFactsForm({
   displayName,
   telegram,
   disabled,
+  alreadyVerified = false,
   onSave,
   onSubmit,
   onDirtyChange,
@@ -302,6 +308,7 @@ export function ResumeFactsForm({
             canSave={dirty}
             disabled={disabled}
             pending={pending}
+            alreadyVerified={alreadyVerified}
           />
         </div>
       )}
