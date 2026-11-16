@@ -303,6 +303,51 @@ describe('uploadSource refuses a malformed upload by code (backlog 443)', () => 
     expect(service.uploadSource).not.toHaveBeenCalled()
   })
 
+  it('a file part under another field name is skipped, so no resume file is 400 RESUME_UPLOAD_NO_FILE', async () => {
+    const { service, run } = upload([
+      { type: 'file', fieldname: 'avatar', toBuffer: () => Promise.resolve(Buffer.from('x')) },
+    ])
+    await expect(run()).rejects.toMatchObject({
+      status: 400,
+      response: { code: 'RESUME_UPLOAD_NO_FILE' },
+    })
+    expect(service.uploadSource).not.toHaveBeenCalled()
+  })
+
+  it('a text field named "file" is skipped, not read as the file (NO_FILE, not UNREADABLE)', async () => {
+    const { service, run } = upload([{ type: 'field', fieldname: 'file' }])
+    await expect(run()).rejects.toMatchObject({
+      status: 400,
+      response: { code: 'RESUME_UPLOAD_NO_FILE' },
+    })
+    expect(service.uploadSource).not.toHaveBeenCalled()
+  })
+
+  it('a second file part is ignored: the first file wins', async () => {
+    const { service, run } = upload([
+      { type: 'file', fieldname: 'file', toBuffer: () => Promise.resolve(Buffer.from('first')) },
+      { type: 'file', fieldname: 'file', toBuffer: () => Promise.resolve(Buffer.from('second')) },
+    ])
+    await run()
+    expect(service.uploadSource).toHaveBeenCalledWith(
+      hr,
+      OWNER,
+      expect.objectContaining({ buffer: Buffer.from('first') }),
+    )
+  })
+
+  it('a file with no mimetype or filename gets application/octet-stream and "resume"', async () => {
+    const { service, run } = upload([
+      { type: 'file', fieldname: 'file', toBuffer: () => Promise.resolve(Buffer.from('x')) },
+    ])
+    await run()
+    expect(service.uploadSource).toHaveBeenCalledWith(hr, OWNER, {
+      buffer: Buffer.from('x'),
+      mimetype: 'application/octet-stream',
+      originalname: 'resume',
+    })
+  })
+
   // QA-LOW-4: @fastify/multipart's toBuffer throws FST_REQ_FILE_TOO_LARGE (413, no code) past the 10 MB limit.
   it('a file over the multipart size limit is 413 RESUME_FILE_TOO_LARGE with its MB cap', async () => {
     const tooLarge = Object.assign(new Error('request file too large'), {
