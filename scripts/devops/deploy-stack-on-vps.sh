@@ -2540,6 +2540,31 @@ docker compose \
   < "$SENIOR_RESUMES_VERIFICATION_FILE"
 echo "==> senior resumes verification applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql
+# Adds recheck_needed_at to senior_resumes. Every senior-resume read selects this column, so it
+# MUST exist before the container swap below, or the new image answers 500 on the whole resume
+# surface. Needs 2026-11-11_senior_resumes_verification.sql applied first (same table, same deploy
+# step); additive and re-runnable (ADD COLUMN IF NOT EXISTS). Creates no relation, so it grants
+# nothing; applied before the grants file. One transaction: the file uses SET LOCAL lock_timeout,
+# which only takes effect inside a transaction.
+SENIOR_RESUMES_RECHECK_NEEDED_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql"
+
+if [ ! -f "$SENIOR_RESUMES_RECHECK_NEEDED_FILE" ]; then
+  echo "ERROR: DDL file not found at $SENIOR_RESUMES_RECHECK_NEEDED_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying senior resumes recheck needed (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$SENIOR_RESUMES_RECHECK_NEEDED_FILE"
+echo "==> senior resumes recheck needed applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file
