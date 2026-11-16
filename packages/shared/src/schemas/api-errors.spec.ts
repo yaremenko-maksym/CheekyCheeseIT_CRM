@@ -127,6 +127,14 @@ describe('api-errors', () => {
     }
   })
 
+  it('SENIOR_MIN_ROLES is registered in auth-users-projects with its English fallback', () => {
+    expect(AUTH_USERS_PROJECTS_ERROR_CODES).toContain('SENIOR_MIN_ROLES')
+    expect(API_ERROR_MESSAGES.SENIOR_MIN_ROLES.id).toBe('api-error.SENIOR_MIN_ROLES')
+    expect(API_ERROR_FALLBACK_EN.SENIOR_MIN_ROLES).toBe(
+      'A senior needs at least one technical role',
+    )
+  })
+
   it('every code has a non-empty English fallback', () => {
     for (const code of API_ERROR_CODES) {
       expect(API_ERROR_FALLBACK_EN[code].length).toBeGreaterThan(0)

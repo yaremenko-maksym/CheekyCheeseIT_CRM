@@ -4010,6 +4010,11 @@ msgstr "Для сеньйора й адміністратора доступни
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SENIOR_MIN_ROLES"
+msgstr "Сеньйору потрібна щонайменше одна технічна роль"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SENIOR_MIN_TECHNOLOGIES"
 msgstr "Сеньйору потрібно щонайменше 3 різні технології"
 
@@ -12080,6 +12085,231 @@ msgstr "Посада для клієнта"
 msgid "покриття {coverage}% · {monthLabel}"
 msgstr "покриття {coverage}% · {monthLabel}"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.ADJACENT_ANALYSIS_DESIGN"
+msgstr "Аналітика та продуктовий дизайн"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.ARCHITECTURE_LEADERSHIP"
+msgstr "Архітектура та технічне лідерство"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.BLOCKCHAIN"
+msgstr "Блокчейн"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.DATA_AI"
+msgstr "Дані та AI"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.EMBEDDED_HARDWARE"
+msgstr "Вбудовані системи та апаратне забезпечення"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.GAME"
+msgstr "Ігри та графіка"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.INFRASTRUCTURE_OPERATIONS"
+msgstr "Інфраструктура та експлуатація"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.MOBILE"
+msgstr "Мобільна розробка"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.QUALITY_ASSURANCE"
+msgstr "Забезпечення якості"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.SECURITY"
+msgstr "Безпека"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.SOFTWARE_ENGINEERING"
+msgstr "Розробка ПЗ"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.AI_ENGINEER"
+msgstr "AI-інженер (LLM-застосунки)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.ANDROID_ENGINEER"
+msgstr "Android-розробник"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.BACKEND_ENGINEER"
+msgstr "Бекенд-розробник"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.BLOCKCHAIN_ENGINEER"
+msgstr "Blockchain-розробник"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.BUSINESS_ANALYST"
+msgstr "Бізнес-аналітик (IT)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.BUSINESS_APPLICATIONS_ENGINEER"
+msgstr "Розробник ERP/CRM та low-code платформ"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.CROSS_PLATFORM_MOBILE_ENGINEER"
+msgstr "Розробник крос-платформних мобільних застосунків"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.CTO"
+msgstr "Технічний директор (CTO)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.DATA_ANALYST"
+msgstr "Аналітик даних"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.DATA_ENGINEER"
+msgstr "Інженер даних"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.DATA_SCIENTIST"
+msgstr "Data Scientist (науковець з даних)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.DATABASE_ENGINEER"
+msgstr "Інженер баз даних (DBA)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.DESKTOP_ENGINEER"
+msgstr "Розробник десктопних застосунків"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.DEVOPS_ENGINEER"
+msgstr "DevOps-інженер"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.EMBEDDED_ENGINEER"
+msgstr "Розробник вбудованих систем"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.ENGINEERING_MANAGER"
+msgstr "Керівник розробки (Engineering Manager)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.FRONTEND_ENGINEER"
+msgstr "Фронтенд-розробник"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.FULLSTACK_ENGINEER"
+msgstr "Фулстек-розробник"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.GAME_DEVELOPER"
+msgstr "Розробник ігор"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.HARDWARE_ENGINEER"
+msgstr "Інженер апаратного забезпечення"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.IOS_ENGINEER"
+msgstr "iOS-розробник"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.ML_ENGINEER"
+msgstr "Інженер машинного навчання"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.NETWORK_ENGINEER"
+msgstr "Мережевий інженер"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.PENETRATION_TESTER"
+msgstr "Пентестер"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.QA_AUTOMATION_ENGINEER"
+msgstr "Інженер з автоматизації тестування"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.QA_ENGINEER"
+msgstr "QA-інженер (мануальне тестування)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.SECURITY_ANALYST"
+msgstr "Аналітик з кібербезпеки"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.SECURITY_ENGINEER"
+msgstr "Інженер з кібербезпеки"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.SITE_RELIABILITY_ENGINEER"
+msgstr "Інженер з надійності (SRE)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.SOFTWARE_ARCHITECT"
+msgstr "Архітектор ПЗ"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.SOFTWARE_ENGINEER"
+msgstr "Інженер-програміст (загальний)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.SUPPORT_ENGINEER"
+msgstr "Інженер технічної підтримки"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.SYSTEM_ADMINISTRATOR"
+msgstr "Системний адміністратор"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.UI_UX_DESIGNER"
+msgstr "UI/UX-дизайнер"
+
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 msgid "Перегляд зарплати"
@@ -14439,6 +14669,11 @@ msgstr "Вкажіть зарплату або частку сеньйора —
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.SENDER_RECEIVER_SAME"
 msgstr "Відправник і отримувач не можуть збігатися"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.SENIOR_MIN_ROLES"
+msgstr "Сеньйору потрібна щонайменше одна технічна роль"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts

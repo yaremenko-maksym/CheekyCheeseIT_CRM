@@ -3,6 +3,7 @@
  * into (research `docs/architecture/research/2026-11-16-it-role-taxonomy.md` §1). Technology and
  * seniority are separate axes. Ids are stable: deprecate one, never rename it.
  */
+import type { MessageDescriptor } from '@lingui/core'
 import { z } from 'zod'
 
 /** The 34 roles, in research §1.1–§1.11 order. This order is the canonical sort order. */
@@ -201,3 +202,159 @@ export function rolesMatch(
   const matched = vacancy.filter((role) => widened.has(role))
   return { matched, widened: matched.length > 0 && !matched.some((role) => own.has(role)) }
 }
+
+/* eslint-disable lingui/no-unlocalized-strings --
+   label descriptor registry — `message:` literals are the i18n source (read by `lingui extract`).
+   Block-scoped so the schemas above stay checked. */
+/**
+ * Role labels. The uk text is the research §1 "UK (proposed)" column; the en text lives in the en
+ * catalog. Every uk label is a proposal that goes through copy-reviewer.
+ */
+export const TECHNICAL_ROLE_LABELS: Record<TechnicalRole, MessageDescriptor> = {
+  SOFTWARE_ENGINEER: /* i18n */ {
+    id: 'technical-role.SOFTWARE_ENGINEER',
+    message: 'Інженер-програміст (загальний)',
+  },
+  BACKEND_ENGINEER: /* i18n */ {
+    id: 'technical-role.BACKEND_ENGINEER',
+    message: 'Бекенд-розробник',
+  },
+  FRONTEND_ENGINEER: /* i18n */ {
+    id: 'technical-role.FRONTEND_ENGINEER',
+    message: 'Фронтенд-розробник',
+  },
+  FULLSTACK_ENGINEER: /* i18n */ {
+    id: 'technical-role.FULLSTACK_ENGINEER',
+    message: 'Фулстек-розробник',
+  },
+  DESKTOP_ENGINEER: /* i18n */ {
+    id: 'technical-role.DESKTOP_ENGINEER',
+    message: 'Розробник десктопних застосунків',
+  },
+  BUSINESS_APPLICATIONS_ENGINEER: /* i18n */ {
+    id: 'technical-role.BUSINESS_APPLICATIONS_ENGINEER',
+    message: 'Розробник ERP/CRM та low-code платформ',
+  },
+  IOS_ENGINEER: /* i18n */ { id: 'technical-role.IOS_ENGINEER', message: 'iOS-розробник' },
+  ANDROID_ENGINEER: /* i18n */ {
+    id: 'technical-role.ANDROID_ENGINEER',
+    message: 'Android-розробник',
+  },
+  CROSS_PLATFORM_MOBILE_ENGINEER: /* i18n */ {
+    id: 'technical-role.CROSS_PLATFORM_MOBILE_ENGINEER',
+    message: 'Розробник крос-платформних мобільних застосунків',
+  },
+  DATA_ENGINEER: /* i18n */ { id: 'technical-role.DATA_ENGINEER', message: 'Інженер даних' },
+  DATABASE_ENGINEER: /* i18n */ {
+    id: 'technical-role.DATABASE_ENGINEER',
+    message: 'Інженер баз даних (DBA)',
+  },
+  DATA_ANALYST: /* i18n */ { id: 'technical-role.DATA_ANALYST', message: 'Аналітик даних' },
+  DATA_SCIENTIST: /* i18n */ {
+    id: 'technical-role.DATA_SCIENTIST',
+    message: 'Data Scientist (науковець з даних)',
+  },
+  ML_ENGINEER: /* i18n */ {
+    id: 'technical-role.ML_ENGINEER',
+    message: 'Інженер машинного навчання',
+  },
+  AI_ENGINEER: /* i18n */ {
+    id: 'technical-role.AI_ENGINEER',
+    message: 'AI-інженер (LLM-застосунки)',
+  },
+  DEVOPS_ENGINEER: /* i18n */ { id: 'technical-role.DEVOPS_ENGINEER', message: 'DevOps-інженер' },
+  SITE_RELIABILITY_ENGINEER: /* i18n */ {
+    id: 'technical-role.SITE_RELIABILITY_ENGINEER',
+    message: 'Інженер з надійності (SRE)',
+  },
+  SYSTEM_ADMINISTRATOR: /* i18n */ {
+    id: 'technical-role.SYSTEM_ADMINISTRATOR',
+    message: 'Системний адміністратор',
+  },
+  NETWORK_ENGINEER: /* i18n */ {
+    id: 'technical-role.NETWORK_ENGINEER',
+    message: 'Мережевий інженер',
+  },
+  SUPPORT_ENGINEER: /* i18n */ {
+    id: 'technical-role.SUPPORT_ENGINEER',
+    message: 'Інженер технічної підтримки',
+  },
+  QA_ENGINEER: /* i18n */ {
+    id: 'technical-role.QA_ENGINEER',
+    message: 'QA-інженер (мануальне тестування)',
+  },
+  QA_AUTOMATION_ENGINEER: /* i18n */ {
+    id: 'technical-role.QA_AUTOMATION_ENGINEER',
+    message: 'Інженер з автоматизації тестування',
+  },
+  SECURITY_ENGINEER: /* i18n */ {
+    id: 'technical-role.SECURITY_ENGINEER',
+    message: 'Інженер з кібербезпеки',
+  },
+  SECURITY_ANALYST: /* i18n */ {
+    id: 'technical-role.SECURITY_ANALYST',
+    message: 'Аналітик з кібербезпеки',
+  },
+  PENETRATION_TESTER: /* i18n */ { id: 'technical-role.PENETRATION_TESTER', message: 'Пентестер' },
+  EMBEDDED_ENGINEER: /* i18n */ {
+    id: 'technical-role.EMBEDDED_ENGINEER',
+    message: 'Розробник вбудованих систем',
+  },
+  HARDWARE_ENGINEER: /* i18n */ {
+    id: 'technical-role.HARDWARE_ENGINEER',
+    message: 'Інженер апаратного забезпечення',
+  },
+  GAME_DEVELOPER: /* i18n */ { id: 'technical-role.GAME_DEVELOPER', message: 'Розробник ігор' },
+  BLOCKCHAIN_ENGINEER: /* i18n */ {
+    id: 'technical-role.BLOCKCHAIN_ENGINEER',
+    message: 'Blockchain-розробник',
+  },
+  SOFTWARE_ARCHITECT: /* i18n */ {
+    id: 'technical-role.SOFTWARE_ARCHITECT',
+    message: 'Архітектор ПЗ',
+  },
+  ENGINEERING_MANAGER: /* i18n */ {
+    id: 'technical-role.ENGINEERING_MANAGER',
+    message: 'Керівник розробки (Engineering Manager)',
+  },
+  CTO: /* i18n */ { id: 'technical-role.CTO', message: 'Технічний директор (CTO)' },
+  BUSINESS_ANALYST: /* i18n */ {
+    id: 'technical-role.BUSINESS_ANALYST',
+    message: 'Бізнес-аналітик (IT)',
+  },
+  UI_UX_DESIGNER: /* i18n */ { id: 'technical-role.UI_UX_DESIGNER', message: 'UI/UX-дизайнер' },
+}
+
+/** Group labels. The uk group names are authored here (research has none): copy-reviewer. */
+export const TECHNICAL_ROLE_GROUP_LABELS: Record<TechnicalRoleGroup, MessageDescriptor> = {
+  SOFTWARE_ENGINEERING: /* i18n */ {
+    id: 'technical-role-group.SOFTWARE_ENGINEERING',
+    message: 'Розробка ПЗ',
+  },
+  MOBILE: /* i18n */ { id: 'technical-role-group.MOBILE', message: 'Мобільна розробка' },
+  DATA_AI: /* i18n */ { id: 'technical-role-group.DATA_AI', message: 'Дані та AI' },
+  INFRASTRUCTURE_OPERATIONS: /* i18n */ {
+    id: 'technical-role-group.INFRASTRUCTURE_OPERATIONS',
+    message: 'Інфраструктура та експлуатація',
+  },
+  QUALITY_ASSURANCE: /* i18n */ {
+    id: 'technical-role-group.QUALITY_ASSURANCE',
+    message: 'Забезпечення якості',
+  },
+  SECURITY: /* i18n */ { id: 'technical-role-group.SECURITY', message: 'Безпека' },
+  EMBEDDED_HARDWARE: /* i18n */ {
+    id: 'technical-role-group.EMBEDDED_HARDWARE',
+    message: 'Вбудовані системи та апаратне забезпечення',
+  },
+  GAME: /* i18n */ { id: 'technical-role-group.GAME', message: 'Ігри та графіка' },
+  BLOCKCHAIN: /* i18n */ { id: 'technical-role-group.BLOCKCHAIN', message: 'Блокчейн' },
+  ARCHITECTURE_LEADERSHIP: /* i18n */ {
+    id: 'technical-role-group.ARCHITECTURE_LEADERSHIP',
+    message: 'Архітектура та технічне лідерство',
+  },
+  ADJACENT_ANALYSIS_DESIGN: /* i18n */ {
+    id: 'technical-role-group.ADJACENT_ANALYSIS_DESIGN',
+    message: 'Аналітика та продуктовий дизайн',
+  },
+}
+/* eslint-enable lingui/no-unlocalized-strings */

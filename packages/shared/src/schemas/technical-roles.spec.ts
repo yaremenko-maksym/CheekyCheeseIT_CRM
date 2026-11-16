@@ -1,8 +1,13 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { createI18n } from '../i18n/catalog'
 import {
   ROLE_WIDENING,
   SENIOR_SELECTABLE_ROLES,
+  TECHNICAL_ROLE_GROUP_LABELS,
   TECHNICAL_ROLE_GROUPS,
+  TECHNICAL_ROLE_LABELS,
   TECHNICAL_ROLES,
   rolesMatch,
   seniorRolesSchema,
@@ -148,5 +153,49 @@ describe('technical roles', () => {
   it('rolesMatch on an empty match is { matched: [], widened: false }', () => {
     expect(rolesMatch(['QA_ENGINEER'], ['DATA_ANALYST'])).toEqual({ matched: [], widened: false })
     expect(rolesMatch(['QA_ENGINEER'], [])).toEqual({ matched: [], widened: false })
+  })
+})
+
+describe('technical role labels', () => {
+  const EN_CATALOG = readFileSync(
+    join(__dirname, '..', 'i18n', 'locales', 'en', 'messages.po'),
+    'utf-8',
+  )
+  const enText = (id: string) =>
+    EN_CATALOG.match(
+      new RegExp(`msgid "${id.replace('.', '\\.')}"\\nmsgstr "((?:[^"\\\\]|\\\\.)*)"`),
+    )?.[1]
+
+  it('every role and group has a label descriptor with a stable id', () => {
+    expect(Object.keys(TECHNICAL_ROLE_LABELS).sort()).toEqual([...TECHNICAL_ROLES].sort())
+    for (const role of TECHNICAL_ROLES) {
+      expect(TECHNICAL_ROLE_LABELS[role].id).toBe(`technical-role.${role}`)
+      expect(TECHNICAL_ROLE_LABELS[role].message?.length ?? 0).toBeGreaterThan(0)
+    }
+    expect(Object.keys(TECHNICAL_ROLE_GROUP_LABELS).sort()).toEqual(
+      TECHNICAL_ROLE_GROUPS.map((g) => g.id).sort(),
+    )
+    for (const { id } of TECHNICAL_ROLE_GROUPS) {
+      expect(TECHNICAL_ROLE_GROUP_LABELS[id].id).toBe(`technical-role-group.${id}`)
+      expect(TECHNICAL_ROLE_GROUP_LABELS[id].message?.length ?? 0).toBeGreaterThan(0)
+    }
+  })
+
+  it('every label id has a non-empty en translation in the catalog', () => {
+    const ids = [
+      ...Object.values(TECHNICAL_ROLE_LABELS),
+      ...Object.values(TECHNICAL_ROLE_GROUP_LABELS),
+    ].map((d) => d.id)
+    expect(ids).toHaveLength(45)
+    for (const id of ids) expect(enText(id), id).toMatch(/\S/)
+  })
+
+  it('renders the research labels in both locales', () => {
+    const uk = createI18n('uk')
+    const en = createI18n('en')
+    expect(uk._(TECHNICAL_ROLE_LABELS.BACKEND_ENGINEER)).toBe('Бекенд-розробник')
+    expect(en._(TECHNICAL_ROLE_LABELS.BACKEND_ENGINEER)).toBe('Back-end Engineer')
+    expect(en._(TECHNICAL_ROLE_LABELS.QA_AUTOMATION_ENGINEER)).toBe('QA Automation Engineer / SDET')
+    expect(en._(TECHNICAL_ROLE_GROUP_LABELS.DATA_AI)).toBe('Data & AI')
   })
 })
