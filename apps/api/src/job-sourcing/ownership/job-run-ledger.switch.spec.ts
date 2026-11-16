@@ -152,6 +152,27 @@ describe('setEnabled — the locked read', () => {
 })
 
 describe('setEnabled — enable', () => {
+  it('arms the slot (param true) only for a source whose entry has a fetch profile', async () => {
+    const armed = harness({ source: source() })
+    await armed.ledger.setEnabled({ sourceId: SOURCE, actor: ACTOR, enabled: true })
+    expect(updates(armed.statements)[0]?.params).toEqual([true, 'ENABLED', ACTOR, true, SOURCE])
+
+    const nullProfile = new SpecCatalog()
+    nullProfile.add(MANIFEST, { fetchProfile: null })
+    const unarmed = harness({ source: source() }, nullProfile)
+    expect(
+      await unarmed.ledger.setEnabled({ sourceId: SOURCE, actor: ACTOR, enabled: true }),
+    ).toMatchObject({ kind: 'SWITCHED', changed: true })
+    expect(updates(unarmed.statements)[0]?.params).toEqual([true, 'ENABLED', ACTOR, false, SOURCE])
+  })
+
+  it('isReportingType: true only for a registered REPORTING contract', () => {
+    const h = harness({ source: source() })
+    expect(h.ledger.isReportingType('REMOTIVE_API')).toBe(true)
+    expect(h.ledger.isReportingType('DOU_RSS')).toBe(false)
+    expect(h.ledger.isReportingType('NOT_A_TYPE')).toBe(false)
+  })
+
   it('a ready source is switched on with one ENABLED entry and nothing else written', async () => {
     const h = harness({ source: source() })
     expect(await h.ledger.setEnabled({ sourceId: SOURCE, actor: ACTOR, enabled: true })).toEqual({

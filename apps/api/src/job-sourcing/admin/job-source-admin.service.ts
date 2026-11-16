@@ -155,7 +155,8 @@ export class JobSourceAdminService {
         FROM job_sources s WHERE s.id = ${sourceId}::uuid`,
     )
     const row = rows[0]
-    if (row === undefined) return
+    // A LEGACY (DOU) source: `claimSource` would refuse it `NOT_ACTIVATABLE`, so no cycle at all.
+    if (row === undefined || !this.ledger.isReportingType(String(row['type']))) return
     const manifestId = row['manifest_id']
     const entry = typeof manifestId === 'string' ? this.ledger.catalog.entry(manifestId) : undefined
     const fresh = isFreshForEnable({

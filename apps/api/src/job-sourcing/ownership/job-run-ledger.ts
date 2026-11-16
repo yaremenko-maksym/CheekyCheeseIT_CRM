@@ -1055,8 +1055,10 @@ export class JobRunLedger {
    * (like `resetFailures`, never read-modify-write); a no-op (already that value) writes nothing.
    *
    *  - Enable never touches the quota, the failure counter, the cooldown, the reasons or the
-   *    readiness. It arms an EMPTY slot only: a NULL `next_attempt_at` becomes now (a seeded source
-   *    is never due otherwise), an existing slot (a backoff included) is kept. It is refused
+   *    readiness. It arms an EMPTY slot only, and only for a scheduled source (a catalog entry with
+   *    a fetch profile): a NULL `next_attempt_at` becomes now (a seeded source is never due
+   *    otherwise), an existing slot (a backoff included) is kept, a null-profile or LEGACY source
+   *    stays unscheduled. It is refused
    *    `NOT_READY` unless the stored readiness and the
    *    manual claim gate both pass (a LEGACY source has no gate), and `AUTH_PAUSED` while an
    *    `ACCESS_POLICY` refusal stands (only `resetFailures` clears it).
@@ -1099,12 +1101,17 @@ export class JobRunLedger {
         if (refusal !== null) return { kind: 'REFUSED', reason: refusal }
       }
       const kind = input.enabled ? 'ENABLED' : 'DISABLED'
+      // Only a SCHEDULED source (a catalog entry with a fetch profile) is armed: a null-profile one
+      // would be claimed by the tick only to be refused `NOT_SCHEDULED` into `last_error_code`.
+      const manifestId = row['manifest_id']
+      const entry = typeof manifestId === 'string' ? this.catalog.entry(manifestId) : undefined
+      const arm = input.enabled && entry !== undefined && entry.fetchProfile !== null
       await tx.execute(
         sql`UPDATE job_sources
                SET enabled = ${input.enabled},
                    admin_state_history = admin_state_history || jsonb_build_array(jsonb_build_object(
                      'kind', ${kind}::text, 'actor', ${input.actor}::text, 'at', clock_timestamp())),
-                   next_attempt_at = CASE WHEN ${input.enabled}::boolean
+                   next_attempt_at = CASE WHEN ${arm}::boolean
                      THEN COALESCE(next_attempt_at, clock_timestamp()) ELSE next_attempt_at END,
                    updated_at = clock_timestamp()
              WHERE id = ${input.sourceId}::uuid`,
@@ -1112,6 +1119,14 @@ export class JobRunLedger {
       const cancelledRuns = input.enabled ? 0 : await this.cancelRunsOf(tx, input.sourceId)
       return { kind: 'SWITCHED', changed: true, cancelledRuns }
     }, READ_COMMITTED)
+  }
+
+  /**
+   * Whether `claimSource` can claim this type at all: only the REPORTING contract (its first
+   * term refuses everything else `NOT_ACTIVATABLE`). The enable fetch asks before opening a cycle.
+   */
+  isReportingType(type: string): boolean {
+    return this.registry.get(type as JobSourceType)?.contract === 'REPORTING'
   }
 
   /** The manual claim gate on the locked row; null for a LEGACY source (it has no gate). */
