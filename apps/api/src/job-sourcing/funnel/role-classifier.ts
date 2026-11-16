@@ -3,9 +3,14 @@
  * §3.2 hints and §3.3 non-role words. The patterns are a port of the research Appendix A scratch
  * classifier (what the dry run executed), so every trap of §3.4 is a keyword or a rule here.
  *
- * Port notes: Python 3 `\b` / `\w` are Unicode-aware, JS ones are ASCII-only, so `rx` rewrites them
- * to Unicode letter/digit classes (Cyrillic titles depend on it). A role pattern that does not open
- * with `\b` is bounded on the left only (`(?<![a-z0-9])backend` matches "backends"), as in the run.
+ * Port notes: Python 3 `\b` / `\w` / `\W` are Unicode-aware, JS ones are ASCII-only, so `rx`
+ * rewrites them to Unicode letter/digit classes (Cyrillic titles depend on it). Every role keyword is
+ * bounded on the left (`(?<![a-z0-9])backend` matches "backends"), as in the run; for a keyword that
+ * opens with `\b` the extra bound changes nothing. Deviations from the appendix, each without a
+ * change in the result unless stated: keywords another keyword of the same role already covers are
+ * dropped (`бекенд` ⊂ `бек[\s-]?енд`), the architect front-end domain is dropped (the front-end role
+ * keyword already matches it), and the job-noun gate also accepts `директор` so the Cyrillic CTO
+ * keyword can fire (a change: the appendix left "Технічний директор" unclassified).
  */
 import { sortRoles, type TechnicalRole } from '@crm/shared'
 
@@ -17,13 +22,18 @@ export type RoleClassification =
 const W = String.raw`[\p{L}\p{N}_]`
 const WORD_BOUNDARY = String.raw`(?:(?<=${W})(?!${W})|(?<!${W})(?=${W}))`
 
-/** Compiles a Python-flavoured pattern with Unicode `\b` / `\w`. */
+/** Compiles a Python-flavoured pattern with Unicode `\b` / `\w` / `\W`. */
 const rx = (pattern: RegExp): RegExp =>
-  new RegExp(pattern.source.replace(/\\b/g, WORD_BOUNDARY).replace(/\\w/g, W), 'u')
+  new RegExp(
+    pattern.source
+      .replace(/\\b/g, WORD_BOUNDARY)
+      .replace(/\\w/g, W)
+      .replace(/\\W/g, String.raw`[^\p{L}\p{N}_]`),
+    'u',
+  )
 
-/** A role keyword: `\b` on both sides when written so, otherwise bounded on the left only. */
-const keyword = (pattern: RegExp): RegExp =>
-  pattern.source.startsWith('\\b') ? rx(pattern) : rx(new RegExp(`(?<![a-z0-9])${pattern.source}`))
+/** A keyword bounded on the left only: `(?<![a-z0-9])backend` matches "backends". */
+const keyword = (pattern: RegExp): RegExp => rx(new RegExp(`(?<![a-z0-9])${pattern.source}`))
 
 type SpecificRole = Exclude<TechnicalRole, 'SOFTWARE_ENGINEER'>
 
@@ -35,8 +45,6 @@ const ROLE_PATTERNS: Record<SpecificRole, readonly RegExp[]> = {
     /integration (developer|engineer)/,
     /бек[\s-]?енд/,
     /бэк[\s-]?енд/,
-    /бекенд/,
-    /бэкенд/,
   ],
   FRONTEND_ENGINEER: [
     /front[\s-]?end/,
@@ -48,7 +56,6 @@ const ROLE_PATTERNS: Record<SpecificRole, readonly RegExp[]> = {
     /верстальщик/,
     /верстальник/,
     /фронт[\s-]?енд/,
-    /фронтенд/,
   ],
   FULLSTACK_ENGINEER: [/full[\s-]?stack/, /фулл?[\s-]?стек/],
   DESKTOP_ENGINEER: [/desktop/, /wpf/, /winforms/, /qt developer/],
@@ -229,7 +236,7 @@ const ROLE_PATTERNS: Record<SpecificRole, readonly RegExp[]> = {
     /devsecops/,
     /cloud security/,
     /product security/,
-    /cyber\s?security engineer/,
+    /cybersecurity engineer/,
     /security architect/,
     /information security/,
   ],
@@ -376,7 +383,7 @@ const ENG_NOUN = rx(
   /(developer|engineer|programmer|architect|devops|\bqa\b|tester|scientist|analyst|administrator|\bsre\b|\bdba\b|розробник|разработчик|програміст|программист|інженер|инженер)/,
 )
 const JOB_NOUN = rx(
-  /(developer|engineer|programmer|architect|designer|analyst|administrator|admin\b|tester|\bqa\b|aqa|sdet|scientist|\bdba\b|\bsre\b|devops|pentester|hacker|\bcto\b|head of|director|vp\b|development manager|r&d manager|lead\b|specialist|expert|consultant|researcher|\bdev\b|розробник|разработчик|програміст|программист|тестувальник|тестировщик|адміністратор|администратор|аналітик|аналитик|архітектор|архитектор|дизайнер|інженер|инженер|сисадм|верстальщик|верстальник)/,
+  /(developer|engineer|programmer|architect|designer|analyst|administrator|admin\b|tester|\bqa\b|aqa|sdet|scientist|\bdba\b|\bsre\b|devops|pentester|hacker|\bcto\b|head of|director|vp\b|development manager|r&d manager|lead\b|specialist|expert|consultant|researcher|\bdev\b|розробник|разработчик|програміст|программист|тестувальник|тестировщик|адміністратор|администратор|аналітик|аналитик|архітектор|архитектор|дизайнер|інженер|инженер|сисадм|верстальщик|верстальник|директор)/,
 )
 const AI_FOCUS = rx(/\b(llm|genai|generative|agent|rag|prompt)/)
 const HINT_NOUN = rx(
@@ -412,7 +419,6 @@ const ARCHITECT_DOMAINS: readonly { pattern: RegExp; role: TechnicalRole }[] = [
   { pattern: rx(/network/), role: 'NETWORK_ENGINEER' },
   { pattern: rx(/\b(ml|ai|machine learning)\b/), role: 'ML_ENGINEER' },
   { pattern: rx(/\b(salesforce|sap|erp|crm)\b/), role: 'BUSINESS_APPLICATIONS_ENGINEER' },
-  { pattern: rx(/(front[\s-]?end)/), role: 'FRONTEND_ENGINEER' },
   { pattern: rx(/mobile/), role: 'CROSS_PLATFORM_MOBILE_ENGINEER' },
 ]
 
@@ -556,9 +562,9 @@ export function classifyRoles(input: {
   const t = input.title.toLowerCase()
   if (isExcluded(t)) return { kind: 'NON_IT' }
   const fromTitle = rolesFromTitle(t)
-  const generic =
-    fromTitle.length === 0 || (fromTitle.length === 1 && fromTitle[0] === 'SOFTWARE_ENGINEER')
-  const roles =
-    generic && rolesFromBoard(input.tags).length > 0 ? rolesFromBoard(input.tags) : fromTitle
+  // SOFTWARE_ENGINEER never comes with another role, so "generic" = empty or exactly [SOFTWARE_ENGINEER]
+  const generic = fromTitle.every((role) => role === 'SOFTWARE_ENGINEER')
+  const fromBoard = generic ? rolesFromBoard(input.tags) : []
+  const roles = fromBoard.length > 0 ? fromBoard : fromTitle
   return roles.length > 0 ? { kind: 'ROLES', roles: sortRoles(roles) } : { kind: 'UNCLASSIFIED' }
 }

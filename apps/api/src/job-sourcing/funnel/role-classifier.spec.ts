@@ -46,6 +46,16 @@ describe('classifyRoles', () => {
     expect(classifyRoles({ title: 'Team Lead', tags: [] })).toEqual({ kind: 'UNCLASSIFIED' })
   })
 
+  it('the fixture table is well-formed', () => {
+    expect(ROLE_TITLE_CASES.length).toBeGreaterThanOrEqual(120)
+    const malformed = ROLE_TITLE_CASES.filter(
+      ({ title, tags }) =>
+        title.trim() === '' ||
+        (tags !== undefined && (tags.length === 0 || tags.some((tag) => tag.trim() === ''))),
+    )
+    expect(malformed).toEqual([])
+  })
+
   it('carries a version for re-classification', () => {
     expect(ROLE_CLASSIFIER_VERSION).toBe('rc.1')
   })
