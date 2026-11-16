@@ -65,15 +65,10 @@ const DATES_ONLY = new RegExp(String.raw`^${FULL_DATE}(?:[\s().·‐‑‒–—
  */
 function isYearsOnly(match: string): boolean {
   if (match.includes('+')) return false
-  const digits = match.match(/\d+/gu)
-  return (
-    // Stryker disable next-line ConditionalExpression: digits is non-null because RESUME_PHONE_PATTERN requires 9+ digits
-    digits !== null &&
-    digits.every((group) => {
-      const year = Number(group)
-      return group.length === 4 && year >= 1950 && year <= 2099
-    })
-  )
+  return Array.from(match.matchAll(/\d+/gu), ([group]) => group).every((group) => {
+    const year = Number(group)
+    return group.length === 4 && year >= 1950 && year <= 2099
+  })
 }
 
 /**

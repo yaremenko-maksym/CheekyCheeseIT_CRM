@@ -82,7 +82,7 @@ describe('normaliseContactText gaps', () => {
 
   it('a gap after a syllable composed across an earlier invisible still counts', () => {
     // the first ZWSP is inside the syllable, the second between the syllables
-    expect([...normaliseContactText('ᄀ​ᅡ​나').gaps]).toEqual([1])
+    expect([...normaliseContactText('\u1100\u200B\u1161\u200B\u1102\u1161').gaps]).toEqual([1])
   })
 
   it('a jamo run does not reach over a visible character', () => {
