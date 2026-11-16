@@ -1121,6 +1121,10 @@ jobs:
             printf 'TURNSTILE_SECRET_KEY=%s\n'    "$TURNSTILE_SECRET_KEY" >> /opt/crm/.env.production
             printf 'TELEMETRY_DIGEST_TOKEN=%s\n'  "$TELEMETRY_DIGEST_TOKEN" >> /opt/crm/.env.production
             printf 'TELEMETRY_SESSION_SALT=%s\n'  "$TELEMETRY_SESSION_SALT" >> /opt/crm/.env.production
+            # Not a secret: job-match reconciliation (job-sourcing cron, read by the api
+            # container via env_file .env.production). The api env default is false, so
+            # without this line collected records never reach job_opportunities / HR queue.
+            printf 'JOB_MATCH_RECONCILIATION_ENABLED=true\n' >> /opt/crm/.env.production
 
             # task-google-indexing-api: all three OPTIONAL — the API's env schema
             # treats them as optional and the indexing service no-ops (one boot
