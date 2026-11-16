@@ -752,12 +752,11 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
   })
 
   // Live rows: each stored name has 4 split parts (MAX_RUN_PARTS 8 builds runs), and two short whole
-  // tokens (1-2 letters, so no lone source) sit in the prose with a non-joiner between them: ` (` or
-  // `(` `)`. The real RUN_GAP accepts only whitespace and one joiner there, so the row passes; a wildcard
-  // gap matches and the row fails. The joiner rows (`.`, `_`, U+00B7, `e.g.`) keep the joiner in the
-  // prose, and the two stored parts are separated by ` (` or `(` `)` (non-joiner text), so the real
-  // RUN_GAP still does not bridge them. Examples `v1.2.3` and `2024-05-01` stay green under the wildcard too (no
-  // short whole token pair), so they are dropped (PR #1362 fix 4, fix 5).
+  // tokens (1-2 letters, so no lone source) sit in the prose with a bracket in the gap between them:
+  // ` (`, `. (` or `) `. The real RUN_GAP (whitespace and at most one joiner) does not match a bracket,
+  // so the row passes; a wildcard gap matches and the row fails. The joiner rows (`.`, `_`, U+00B7,
+  // `e.g.`) keep the joiner in the prose next to the gap. Examples `v1.2.3` and `2024-05-01` stay green
+  // under the wildcard too (no short whole token pair), so they are dropped (PR #1362 fix 4, fix 5).
   it.each([
     ['J (Mi) Smith', 'Ivan Kot\u{200B}J\u{200B}Mi'],
     ['ak (ca) name', 'Ivan Kot\u{200B}ak\u{200B}ca'],
