@@ -3,7 +3,7 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SpecCatalog, specRegistry } from '../../test/ledger-fixtures'
 import type { MeterDb } from '../metering/account-meter.store'
-import { JobRunLedger } from './job-run-ledger'
+import { JobRunLedger, manualDueTerm } from './job-run-ledger'
 
 /**
  * r5 Task 6.5 — `setEnabled` and the extended `resetFailures` on a scripted transaction, so the
@@ -444,5 +444,21 @@ describe('resetFailures — clears an access pause, audited (Task 6.5)', () => {
     expect(reset?.params).toEqual(
       expect.arrayContaining(['ACCESS_POLICY', ACTOR, 'rekeyed', SOURCE]),
     )
+  })
+})
+
+describe('manualDueTerm — the t_due term of claimSource', () => {
+  it('a human claim: the whole MANUAL due predicate, its trigger-mode term included', () => {
+    const q = dialect.sqlToQuery(manualDueTerm(undefined, 2))
+    expect(q.sql).toContain('"job_sources"."trigger_mode"')
+    expect(q.sql).toContain('job_source_hosts')
+    expect(q.params).toEqual(expect.arrayContaining(['BOTH', 'MANUAL', 2]))
+  })
+
+  it('ENABLE_CATCH_UP: the host term alone, no trigger-mode term', () => {
+    const q = dialect.sqlToQuery(manualDueTerm('ENABLE_CATCH_UP', 2))
+    expect(q.sql).toContain('job_source_hosts')
+    expect(q.sql).not.toContain('trigger_mode')
+    expect(q.params).toEqual([])
   })
 })

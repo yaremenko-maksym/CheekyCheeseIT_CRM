@@ -115,10 +115,12 @@ describe('JobSourceAdminService.setEnabled — immediate fetch on enable', () =>
       actor: ADMIN.id,
     })
     expect(h.runSource).toHaveBeenCalledTimes(1)
+    // The catch-up purpose: the claim drops ONLY its trigger-mode term (a SCHEDULED source fetches).
     expect(h.runSource).toHaveBeenCalledWith({
       cycleId: 'cycle-1',
       sourceId: SOURCE,
       actor: ADMIN.id,
+      purpose: 'ENABLE_CATCH_UP',
     })
     expect(h.closeCycle).toHaveBeenCalledWith('cycle-1')
     expect(warn).not.toHaveBeenCalled()

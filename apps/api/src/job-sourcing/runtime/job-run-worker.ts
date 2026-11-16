@@ -11,6 +11,7 @@ import type {
   RunEnding,
 } from '../ownership/job-run-ledger'
 import type { LedgerCatalog } from '../ownership/ledger-catalog'
+import type { ClaimPurpose } from '../ownership/ledger-policy'
 import { type RunHandle, isRunFenced } from '../ownership/run-ownership'
 import {
   type CollectionBatch,
@@ -452,8 +453,16 @@ export class JobRunWorker {
     return this.active
   }
 
-  /** The manual path: one named source, claimed under the actor's manual cycle. */
-  async runSource(input: { cycleId: string; sourceId: string; actor: string }) {
+  /**
+   * The manual path: one named source, claimed under the actor's manual cycle. `purpose` goes to
+   * `claimSource` as is (`ENABLE_CATCH_UP`: the ADMIN enable fetch only).
+   */
+  async runSource(input: {
+    cycleId: string
+    sourceId: string
+    actor: string
+    purpose?: ClaimPurpose
+  }) {
     await this.start()
     if (this.active >= this.options.poolSize) {
       return { kind: 'REFUSED' as const, reason: 'POOL_FULL' as const }

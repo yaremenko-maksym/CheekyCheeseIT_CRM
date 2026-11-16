@@ -140,7 +140,9 @@ export class JobSourceAdminService {
 
   /**
    * Owner request: a freshly enabled source with no recent attempt fetches NOW, through the existing
-   * manual path (`claimSource` keeps every gate). Freshness is the last ATTEMPT (`last_attempt_at`,
+   * manual path. `claimSource` keeps every gate but the trigger-mode one: `ENABLE_CATCH_UP` is a
+   * system act on the ADMIN's own enable, so a SCHEDULED-only source (every seeded one) fetches
+   * too; a human "run now" on it is still refused `TRIGGER_MODE`. Freshness is the last ATTEMPT (`last_attempt_at`,
    * stamped on every claim), so an enable/disable loop cannot start a fetch per enable (SR-H-1). A
    * refusal or a failure is logged; the slot `setEnabled` armed lets the next tick pick the source
    * up. No tick double fetch: a tick during the run is single-flight (`NOT_RUNNING`, no write), the
@@ -174,7 +176,12 @@ export class JobSourceAdminService {
       actor,
     })
     try {
-      const result = await worker.runSource({ cycleId, sourceId, actor })
+      const result = await worker.runSource({
+        cycleId,
+        sourceId,
+        actor,
+        purpose: 'ENABLE_CATCH_UP',
+      })
       if (result.kind === 'REFUSED') {
         this.logger.warn(`enable fetch refused: ${tag} reason=${String(result.reason)}`)
       }

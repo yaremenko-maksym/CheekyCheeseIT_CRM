@@ -339,15 +339,25 @@ export type ManualRefusal =
   | 'CONFLICT'
 
 /**
+ * Why a manual claim is made. `ENABLE_CATCH_UP`: the fetch an ADMIN enable starts on a stale
+ * source (PR #1363) -- a system act, not a human "run now", so a SCHEDULED-only source takes it
+ * too. It relaxes ONLY the trigger-mode term; absent, the claim is the human one.
+ */
+export type ClaimPurpose = 'ENABLE_CATCH_UP'
+
+/**
  * The first failing term of the MANUAL due predicate, in `isDue`'s order, or null when all pass.
  * Each `t_*` is a boolean the claim's SQL computed on the locked row against the database clock;
- * anything but a literal `true` refuses (a NULL included).
+ * anything but a literal `true` refuses (a NULL included). `ENABLE_CATCH_UP` skips `t_trigger`.
  */
-export function manualTermRefusal(row: Readonly<Record<string, unknown>>): ManualRefusal | null {
+export function manualTermRefusal(
+  row: Readonly<Record<string, unknown>>,
+  purpose?: ClaimPurpose,
+): ManualRefusal | null {
   if (row['t_enabled'] !== true) return 'DISABLED'
   if (row['t_active'] !== true) return 'NOT_ACTIVE'
   if (row['t_manifest'] !== true) return 'NO_MANIFEST_ENTRY'
-  if (row['t_trigger'] !== true) return 'TRIGGER_MODE'
+  if (purpose !== 'ENABLE_CATCH_UP' && row['t_trigger'] !== true) return 'TRIGGER_MODE'
   if (row['t_cap'] !== true) return 'FAILURE_CAP'
   if (row['t_cool'] !== true) return 'COOLING_DOWN'
   if (row['t_idle'] !== true) return 'ALREADY_RUNNING'

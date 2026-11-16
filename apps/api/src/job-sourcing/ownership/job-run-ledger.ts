@@ -23,11 +23,12 @@ import {
 import type { JobSourceRegistry } from '../registry/job-source-registry'
 import { MAX_EARLY_DUE_SLACK_MS } from '../scheduling/due-policy'
 import { dueSourcesPredicate } from '../scheduling/due-sources.query'
-import { type SqlExecutor, claimHostSlot } from '../scheduling/host-state'
+import { type SqlExecutor, claimHostSlot, hostOpenPredicate } from '../scheduling/host-state'
 import type { LedgerCatalog } from './ledger-catalog'
 import { type LegacyClaimInput, claimLegacy, isLegacyKind } from './legacy-run-claim'
 import {
   AUTH_PAUSE_CODE,
+  type ClaimPurpose,
   type ClaimRefusal,
   type EnableRefusal,
   type LedgerOptions,
@@ -225,6 +226,20 @@ const RUN_ACCOUNT_KEY = sql.raw(
 const NOT_RUNNING = sql.raw(`NOT EXISTS (SELECT 1 FROM job_collection_runs r
     WHERE r.outcome = 'STARTED' AND (r.source_id = job_sources.id OR r.account_key =
       COALESCE((SELECT m.account_key FROM job_account_meters m WHERE m.id = job_sources.account_meter_id), '#source:' || job_sources.id::text)))`)
+
+/**
+ * `claimSource`'s `t_due`: the MANUAL due predicate, or for `ENABLE_CATCH_UP` its host term alone.
+ * The predicate carries the trigger-mode term too, which that purpose drops; every other term of
+ * it is its own `t_*` column already, so nothing else is relaxed.
+ */
+export function manualDueTerm(
+  purpose: ClaimPurpose | undefined,
+  maxConsecutiveFailures: number,
+): SQL {
+  return purpose === 'ENABLE_CATCH_UP'
+    ? hostOpenPredicate()
+    : dueSourcesPredicate('MANUAL', { maxConsecutiveFailures })
+}
 
 /**
  * The busy-host FILTER (SR-M-19): no non-expired STARTED run on the source's host. A filter, not a
@@ -452,13 +467,16 @@ export class JobRunLedger {
   /**
    * The manual claim (ADR "claimSource"): the same steps for one named source, minus the cadence
    * term and nothing else, under `lock_timeout` (SR-L-16) -- it returns a refusal rather than
-   * waiting behind a `finish`. A manual refusal moves nothing.
+   * waiting behind a `finish`. A manual refusal moves nothing. `purpose: 'ENABLE_CATCH_UP'` (only
+   * the ADMIN enable fetch passes it) also drops the trigger-mode term: a SCHEDULED-only source
+   * is claimable by it, never by a human "run now".
    */
   async claimSource(input: {
     readonly cycleId: string
     readonly owner: string
     readonly sourceId: string
     readonly actor: string
+    readonly purpose?: ClaimPurpose
   }): Promise<ManualClaim> {
     this.assertOwner(input.owner)
     if (!UUID.test(input.sourceId)) return { kind: 'REFUSED', reason: 'NOT_FOUND' }
@@ -480,7 +498,7 @@ export class JobRunLedger {
                 job_sources.trigger_mode IN ('BOTH', 'MANUAL') AS t_trigger,
                 job_sources.consecutive_failures < ${this.options.maxConsecutiveFailures} AS t_cap,
                 (job_sources.cooldown_until IS NULL OR job_sources.cooldown_until <= clock_timestamp()) AS t_cool,
-                ${dueSourcesPredicate('MANUAL', { maxConsecutiveFailures: this.options.maxConsecutiveFailures })} AS t_due,
+                ${manualDueTerm(input.purpose, this.options.maxConsecutiveFailures)} AS t_due,
                 ${NOT_RUNNING} AS t_idle
               FROM job_sources WHERE job_sources.id = ${input.sourceId}::uuid FOR UPDATE OF job_sources`,
         )
@@ -490,7 +508,7 @@ export class JobRunLedger {
         if (this.registry.get(row['type'] as JobSourceType)?.contract !== 'REPORTING') {
           throw new Rollback('NOT_ACTIVATABLE')
         }
-        const term = manualTermRefusal(row)
+        const term = manualTermRefusal(row, input.purpose)
         if (term !== null) throw new Rollback(term)
         const verdict = await this.gateAndHost(tx, row, false)
         if (verdict.kind === 'REFUSED') throw new Rollback(verdict.reason)

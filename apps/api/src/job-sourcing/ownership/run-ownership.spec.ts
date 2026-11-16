@@ -142,4 +142,25 @@ describe('manualTermRefusal — the manual due terms, first failure wins', () =>
   it('the earlier term wins when two fail', () => {
     expect(manualTermRefusal({ ...pass, t_cap: false, t_cool: false })).toBe('FAILURE_CAP')
   })
+
+  describe('ENABLE_CATCH_UP (the ADMIN enable fetch): drops the trigger-mode term only', () => {
+    const scheduledOnly = { ...pass, t_trigger: false }
+
+    it('a SCHEDULED-only source is claimable by the catch-up, refused for a human run now', () => {
+      expect(manualTermRefusal(scheduledOnly, 'ENABLE_CATCH_UP')).toBeNull()
+      expect(manualTermRefusal(scheduledOnly)).toBe('TRIGGER_MODE')
+    })
+
+    it.each([
+      ['t_enabled', 'DISABLED'],
+      ['t_active', 'NOT_ACTIVE'],
+      ['t_manifest', 'NO_MANIFEST_ENTRY'],
+      ['t_cap', 'FAILURE_CAP'],
+      ['t_cool', 'COOLING_DOWN'],
+      ['t_idle', 'ALREADY_RUNNING'],
+      ['t_due', 'HOST_PAUSED'],
+    ])('every other term still refuses: %s false is %s', (term, reason) => {
+      expect(manualTermRefusal({ ...scheduledOnly, [term]: false }, 'ENABLE_CATCH_UP')).toBe(reason)
+    })
+  })
 })
