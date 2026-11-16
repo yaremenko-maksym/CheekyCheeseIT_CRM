@@ -55,10 +55,23 @@ describe('a bare mark at a name edge is flagged, as on main (SR-H-3)', () => {
   it.each([
     ['XIvan Petrenkoः', 'Ivan Petrenko'],
     ['Ivan Petrenkoxः', 'Ivan Petrenko'],
-    ['Ivanःx', 'Ivan'],
+    ['Ivanः', 'Ivan'],
+    [' Petrenko', ' Ivan Petrenko'],
     ['Ivan Olegovychःx', 'Ivan Olegovych Petrenko'],
   ])('does not flag %j for %j', (text, displayName) => {
     expect(flags(text, displayName)).toBe(false)
+  })
+
+  it('reads every apostrophe as the ASCII one, on both checks', () => {
+    // the main-era check: the mark glues `x` to the name for the other one
+    expect(flags('O’Neil Smithःx', "O'Neil Smith")).toBe(true)
+    // the boundary check: the invisible stands where main needed whitespace
+    expect(flags('by O’Neil​Smith today', "O'Neil Smith")).toBe(true)
+    expect(flags("by O'Neil​Smith today", 'O’Neil Smith')).toBe(true)
+    expect(contactNameParts('O’Neil  Smith')).toEqual([
+      ["O'Neil", 'Smith'],
+      ["O'Neil", 'Smith'],
+    ])
   })
 
   it('flags the stored handle next to a character NFKC turns into a word character', () => {

@@ -462,7 +462,8 @@ export function findWholeTokens(
  */
 export function contactNameParts(name: string): string[][] {
   const parts = (text: string) =>
-    normaliseContactText(text).text.replace(CONTACT_APOSTROPHES, "'").split(/\s+/u).filter(Boolean)
+    // each whitespace character splits; the filter drops the empty pieces a run or an edge leaves
+    normaliseContactText(text).text.replace(CONTACT_APOSTROPHES, "'").split(/\s/u).filter(Boolean)
   return [parts(name), parts(name.replace(INVISIBLE_PATTERN, ' '))]
 }
 
