@@ -123,6 +123,9 @@ for the indicator DTO. PR 3 can deploy after PR 2 in either order with step (d).
 - Create `apps/api/src/database/schema/job-role-classifications.ts`. Register it in `apps/api/src/database/schema.ts`.
 - Modify `apps/api/src/database/privileges/privilege-classes.ts`: put `job_role_classifications` in
   class A. No `MANUAL_DDL_RELATIONS` entry: the table is declared in the Drizzle schema.
+- Regenerate `apps/api/drizzle/manual/2026-10-18_db_grants.sql` and
+  `apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql` with
+  `pnpm --filter @crm/api db:privileges:generate` (Task 2.1, Step 3b).
 - Create `apps/api/src/database/technical-roles-forward-ddl.integration.spec.ts`.
 - Create `apps/api/src/job-sourcing/store/opportunity-roles.ts`: `deriveOpportunityRoles`,
   `writeOpportunityRoles`.
@@ -1173,11 +1176,17 @@ it('HR of team A gets 403 / empty for team B queue as today', ...) // RBAC regre
   - `enqueueDirty` inserts a new row. `job_dirty_work.retry_count` defaults to `0`
     (`schema/job-collection.ts`). A retry after a FAILED/DEFERRED row is a new key
     (`enqueueReason` returns `base:<period>`), so it is a new row with `retry_count = 0` too.
-  - The post-run drain claims with `freshOnly: true`, which is exactly `retry_count = 0`
-    (`dirty-work.store.ts`), with `untilIdle: true` under a 60 s budget per pass. So every
-    collection run drains the surplus.
+  - The post-run drain claims with `freshOnly: true`. Its only extra predicate is
+    `retry_count = 0` (`dirty-work.store.ts`, the claim query). It runs with `untilIdle: true` under
+    `MATCH_DRAIN_BUDGET_MS` (60 s) per pass. So each collection run drains up to 60 s of the
+    surplus, plus one more pass when another run ends during it (`drainAgain`).
+  - A `requestDrain` that arrives during the boot sweep sets `drainAfterSweep`, so a drain pass
+    follows the sweep at once.
   - Only a row that failed an attempt during the drain (`retry_count > 0`) waits for the 6 h tick.
     That is today's retry design, not a gap.
+  - The time to empty the surplus depends on the collection cadence and the row count, and neither
+    is measured here. The owner SELECTs below are the measure: repeat the `job_dirty_work` count
+    until it reaches 0.
   - A bounded boot loop would add code and a new log line for no gain.
 - Every deploy now costs one extra sweep. A sweep enqueues only stale rows, so a repeat sweep is cheap.
 
@@ -1215,6 +1224,7 @@ it('the boot sweep retires queue snapshots when it recomputed rows', ...)
 SELECT count(*) FROM job_opportunities WHERE manual_team_id IS NULL;   -- rows to recompute
 SELECT evaluation_verdict, count(*) FROM job_opportunities GROUP BY 1;
 SELECT count(*) FROM job_opportunity_matches WHERE outcome = 'LEAD';
+SELECT count(*) FROM job_dirty_work WHERE status = 'PENDING' AND reason LIKE 'RECONCILE:%'; -- surplus left to drain
 ```
 
 Expected: the `LEAD` count is > 0 once the first drains finish, and each senior's queue is non-empty
