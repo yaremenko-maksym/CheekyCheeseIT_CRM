@@ -140,6 +140,37 @@ describe('the clauses only main matches, on the original text', () => {
   })
 })
 
+describe("main's spans map back through the NFC offsets", () => {
+  // `x™tg: mark_dev` is a label only main's pass reads (NFKC glues `TM` to `tg`), so its span
+  // comes through the NFC maps; the text before it is NFD, a conjoining jamo pair, leading marks
+  // or two Bengali marks that NFC composes into one.
+  it.each([
+    ['é x™tg: mark_dev', 'é x™[REDACTED]'],
+    ['́́x™tg: mark_dev', '́́x™[REDACTED]'],
+    ['ো x™tg: mark_dev', 'ো x™[REDACTED]'],
+    ['가 x™tg: mark_dev', '가 x™[REDACTED]'],
+    ['x™tg: mark_dev́́ ok', 'x™[REDACTED]́́ ok'],
+  ])('redacts %j as %j', (text, redacted) => {
+    expect(redactContacts(text, IVAN)).toBe(redacted)
+  })
+})
+
+describe('rules both passes share (each pass alone would still redact these)', () => {
+  it.each([
+    [{ fullName: 'Wei Li', emails: [] }, 'by Li today', 'by [REDACTED] today'],
+    [{ fullName: 'Wei Li', emails: [] }, 'by Wei today', 'by Wei today'],
+    [
+      { fullName: 'O’Neil Smith', emails: [] },
+      "by O'Neil Smith and Smith",
+      'by [REDACTED] and [REDACTED]',
+    ],
+    [IVAN, 'ping ivan_dev now, @ivan_dev too', 'ping [REDACTED] now, [REDACTED] too'],
+    [IVAN, 'ping ivan_dev2 and xivan_dev', 'ping ivan_dev2 and xivan_dev'],
+  ])('with %j redacts %j as %j', (ctx, text, redacted) => {
+    expect(redactContacts(text, ctx)).toBe(redacted)
+  })
+})
+
 describe('never worse than main, on random text (SR-H-4)', () => {
   const ATOMS = [
     'Ivan',
@@ -226,6 +257,10 @@ describe('the split reading of a stored name (finding 5, CR-M-3, Addenda B and C
     // the joined reading has one part: the split parts are the name, a two-letter surname included
     ['Wei\u200BLi', 'Li, Wei Li, Li Wei', '[REDACTED], [REDACTED], [REDACTED]'],
     ['Wei\u200BLi', 'by Wei today', 'by Wei today'],
+    // Assumption (Addendum C vs CR-M-3): with a joined reading of two parts, a two-letter split
+    // part is read as a fragment, so `Li` here neither pairs nor stands alone, as `in` must not
+    ['Ivan Petrenko\u200BLi', 'Ivan Li, Li Ivan, Li', 'Ivan Li, Li Ivan, Li'],
+    ['Ivan Petrenko\u200BLi', 'by Ivan Petrenko', 'by [REDACTED]'],
   ])('stored %j redacts %j as %j', (fullName, text, redacted) => {
     expect(redactContacts(text, stored(fullName))).toBe(redacted)
   })

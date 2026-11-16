@@ -568,22 +568,23 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
   const handleSource = handle ? `@*${escapeRegExp(handle)}` : null
   // Main's check, on the NFC text: no lookbehind (it throws on Safari < 16.4), so `(?:^|…)` in front.
   // It is a guarantee, not a second detector: the own check above flags every text it flags on all
-  // inputs tried (every code point beside the name, inside it and beside the handle, brute-forced in
-  // PR #1351 round 6), so the mutants that only weaken it are not observable.
-  // Stryker disable next-line Regex: equivalent — main's check only adds to the own check, see above
+  // inputs tried (for `Ivan Petrenko` / `ivan_dev`, each code point up to U+20000, U+3001–U+F8FF
+  // skipped, beside the name, inside it and beside the handle, PR #1351 round 6), so the mutants that
+  // only weaken it are masked: a measurement, not a proof.
+  // Stryker disable next-line Regex: masked by the own check, see the note above
   const rawOrders = nameOrders(normaliseName(displayName).split(/\s/).filter(Boolean))
   const rawName =
-    // Stryker disable next-line ConditionalExpression: equivalent — main's check only adds to the own check, see above
+    // Stryker disable next-line ConditionalExpression: masked by the own check, see the note above
     rawOrders.length > 0
       ? new RegExp(
-          // Stryker disable next-line StringLiteral: equivalent — main's check only adds to the own check, see above
+          // Stryker disable next-line StringLiteral: masked by the own check, see the note above
           `(?:^|[^\\p{L}\\p{N}])(?:${rawOrders.map((parts) => parts.map(escapeRegExp).join('\\s+')).join('|')})(?:$|[^\\p{L}\\p{N}])`,
           'iu',
         )
       : null
   const rawHandle = normaliseTelegramHandle(telegram)
   const rawHandleTest = rawHandle
-    ? // Stryker disable next-line StringLiteral: equivalent — main's check only adds to the own check, see above
+    ? // Stryker disable next-line StringLiteral: masked by the own check, see the note above
       new RegExp(`(?:^|\\W)@*${escapeRegExp(rawHandle)}(?:$|\\W)`, 'i')
     : null
   return (raw) => {
@@ -606,9 +607,9 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
       names.some(
         (source) => findWholeTokens(folded.text, folded.gaps, source, 'name').length > 0,
       ) ||
-      // Stryker disable next-line LogicalOperator: equivalent — main's check only adds to the own check, see above
+      // Stryker disable next-line LogicalOperator: masked by the own check, see the note above
       (rawHandleTest?.test(nfc) ?? false) ||
-      // Stryker disable next-line LogicalOperator: equivalent — main's check only adds to the own check, see above
+      // Stryker disable next-line LogicalOperator: masked by the own check, see the note above
       (rawName?.test(normaliseName(nfc)) ?? false)
     )
   }
