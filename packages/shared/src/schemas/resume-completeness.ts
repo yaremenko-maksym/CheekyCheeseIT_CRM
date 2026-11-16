@@ -631,8 +631,8 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
     const unfolded = NON_ASCII_DIGIT.test(raw) ? normaliseContactText(raw, false).text : text
     return (
       // the generic patterns on the folded text too: a mark on a digit (`067`, acute) splits a phone
-      // in `text`, and the fold drops it (453e)
-      [text, folded.text, unfolded].some(
+      // in `text`, and the fold drops it (453e). Each distinct form once: most text is all three.
+      [...new Set([text, folded.text, unfolded])].some(
         (scanned) =>
           findPhoneSpans(scanned).length > 0 ||
           RESUME_EMAIL_PATTERN.test(scanned) ||

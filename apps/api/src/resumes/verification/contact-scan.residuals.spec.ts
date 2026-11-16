@@ -152,7 +152,8 @@ describe('the gate refuses split parts joined by a hyphen or a comma (453a)', ()
 describe('the gate refuses non-adjacent split parts (453b)', () => {
   const liYuBo: ContactContext = { fullName: 'Ivan Li\u{200B}Yu\u{200B}Bo', emails: [] }
 
-  it.each(['Li Bo', 'Bo Li', 'Li-Bo', 'Bo, Li', 'Li Yu Bo', 'Yu Bo', 'Bo Yu Li'])(
+  // `LI BO`: the in-text filter on the parts folds case like the match does
+  it.each(['Li Bo', 'Bo Li', 'Li-Bo', 'Bo, Li', 'Li Yu Bo', 'Yu Bo', 'Bo Yu Li', 'LI BO', 'bo li'])(
     'refuses %j',
     (text) => {
       expect(scanContacts(`by ${text} today`, liYuBo).map((hit) => hit.kind)).toEqual(['name'])
