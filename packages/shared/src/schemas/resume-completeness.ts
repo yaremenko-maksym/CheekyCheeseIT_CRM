@@ -210,10 +210,11 @@ const normaliseName = (text: string): string =>
 
 /**
  * Characters that split a contact without showing: format characters (`Cf`), the other
- * default-ignorables (variation selectors, CGJ, Hangul fillers), and U+2800 BRAILLE PATTERN BLANK,
- * a symbol (`So`) stripped on purpose because it renders blank.
+ * default-ignorables (variation selectors, CGJ, Hangul fillers), U+2800 BRAILLE PATTERN BLANK,
+ * a symbol (`So`) stripped on purpose because it renders blank, and the C0 and C1 controls other
+ * than the whitespace ones (`\t\n\v\f\r`), U+0085 included: `P`, NUL, `etrenko` is the name.
  */
-const INVISIBLE_PATTERN = /[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]/gu
+const INVISIBLE_PATTERN = /[⠀\x00-\x08\x0E-\x1F\x7F-\x9F\p{Cf}\p{Default_Ignorable_Code_Point}]/gu
 /**
  * A conjoining Hangul jamo run or a visible character plus the marks after it, the characters of
  * `INVISIBLE_PATTERN` between them included, so jamo compose into a syllable and a base letter
@@ -221,16 +222,17 @@ const INVISIBLE_PATTERN = /[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]/gu
  * cluster.
  */
 const CLUSTER_PATTERN =
-  /[ᄀ-ᇿꥠ-꥿ힰ-퟿](?:[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]*[ᄀ-ᇿꥠ-꥿ힰ-퟿])*|[^⠀\p{Cf}\p{Default_Ignorable_Code_Point}](?:[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]*\p{M})*/gu
+  /[ᄀ-ᇿꥠ-꥿ힰ-퟿](?:[⠀\x00-\x08\x0E-\x1F\x7F-\x9F\p{Cf}\p{Default_Ignorable_Code_Point}]*[ᄀ-ᇿꥠ-꥿ힰ-퟿])*|[^⠀\x00-\x08\x0E-\x1F\x7F-\x9F\p{Cf}\p{Default_Ignorable_Code_Point}](?:[⠀\x00-\x08\x0E-\x1F\x7F-\x9F\p{Cf}\p{Default_Ignorable_Code_Point}]*\p{M})*/gu
 /** A `CLUSTER_PATTERN` hit that is a jamo run. No anchor needed: the other branch never takes a jamo, so its clusters hold none. */
 const isJamoRun = (cluster: string): boolean => /[ᄀ-ᇿꥠ-꥿ힰ-퟿]/u.test(cluster)
 
 /** Whether one character (the loop hands it one code point) is in `INVISIBLE_PATTERN`; no `g` flag, so `.test` keeps no state. */
-const INVISIBLE_CHAR = /[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]/u
+const INVISIBLE_CHAR = /[⠀\x00-\x08\x0E-\x1F\x7F-\x9F\p{Cf}\p{Default_Ignorable_Code_Point}]/u
 
 /** A character `normaliseContactText` has to cluster: a stripped one, a mark or a conjoining jamo. */
 // Stryker disable next-line Regex: the `\P` forms are equivalent (more text goes to the cluster loop, which returns the same); the `[^…]` form is killed when unsuppressed
-const CLUSTERED_CHAR = /[⠀\p{Cf}\p{Default_Ignorable_Code_Point}\p{M}ᄀ-ᇿꥠ-꥿ힰ-퟿]/u
+const CLUSTERED_CHAR =
+  /[⠀\x00-\x08\x0E-\x1F\x7F-\x9F\p{Cf}\p{Default_Ignorable_Code_Point}\p{M}ᄀ-ᇿꥠ-꥿ힰ-퟿]/u
 
 /** The offset maps of text in which every code point is its own cluster and maps to itself. */
 function identityMaps(text: string): { from: number[]; to: number[] } {
@@ -317,6 +319,11 @@ export function normaliseContactText(text: string): {
     const piece = stripped.normalize('NFKC')
     if (isJamoRun(cluster)) addJamoRunGaps(cluster, normalised.length, gaps)
     else if (stripped.length < cluster.length) gaps.add(normalised.length + piece.length)
+    // A compatibility character (`™`, `²`, `ｘ`, `ﬁ`) is an edge on both sides, as it was before
+    // NFKC made letters of it: `Petrenko™` still ends the name (PR #1351 round 6, SR-H-4).
+    if (piece !== stripped.normalize('NFC')) {
+      gaps.add(normalised.length).add(normalised.length + piece.length)
+    }
     normalised += piece
     for (let k = 0; k < piece.length; k++) {
       from.push(index)
@@ -385,11 +392,10 @@ export function foldAccents(
       from.push(index)
       to.push(index + cluster.length)
     }
-    // A gap on one of the marks (stripped before a mark that follows a jamo run) counts after the
-    // letter the mark now joins.
-    for (let k = index + 1; k < index + cluster.length; k++) {
-      if (gaps.has(k)) foldedGaps.add(folded.length)
-    }
+    // A mark left in normalised text is bare (`o`, U+0903): no letter took it, so it is an edge
+    // after the letter, as main's check read it (SR-M-4). That covers a gap on one of the marks
+    // too (stripped before a mark that follows a jamo run).
+    if (/\p{M}/u.test(cluster)) foldedGaps.add(folded.length)
   }
   return { text: folded, from, to, gaps: foldedGaps }
 }
@@ -458,13 +464,24 @@ export function findWholeTokens(
 /**
  * The parts of a stored name, normalised like the text, read two ways: split on whitespace after
  * the strip (`Iv`, ZWNJ, `an` is one part), and split on whitespace and the stripped characters
- * (`Ivan`, ZWSP, `Petrenko` is two). Both sides check both readings.
+ * (`Ivan`, ZWSP, `Petrenko` is two). A control character splits in both (`Ivan`, U+0085,
+ * `Petrenko`). Both sides check both readings, the split one only when it is new and keeps the
+ * surname: for `Ivan Petr`, ZWNJ, `in` it would make `in` the surname (PR #1351 round 6, CR-M-3).
  */
 export function contactNameParts(name: string): string[][] {
   const parts = (text: string) =>
-    // each whitespace character splits; the filter drops the empty pieces a run or an edge leaves
-    normaliseContactText(text).text.replace(CONTACT_APOSTROPHES, "'").split(/\s/u).filter(Boolean)
-  return [parts(name), parts(name.replace(INVISIBLE_PATTERN, ' '))]
+    // each whitespace or control character splits; the filter drops the empty pieces a run or an
+    // edge leaves
+    normaliseContactText(text.replace(/\p{Cc}/gu, ' '))
+      .text.replace(CONTACT_APOSTROPHES, "'")
+      .split(/\s/u)
+      .filter(Boolean)
+  const joined = parts(name)
+  const split = parts(name.replace(INVISIBLE_PATTERN, ' '))
+  return split.join(' ') === joined.join(' ') ||
+    (joined.length >= 2 && split.at(-1) !== joined.at(-1))
+    ? [joined]
+    : [joined, split]
 }
 
 /**

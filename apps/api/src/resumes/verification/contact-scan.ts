@@ -102,43 +102,15 @@ function contactPatterns(ctx: ContactContext): [ContactHit['kind'], RegExp][] {
   ]
 }
 
-/** A hit on the folded text as a span of the normalised text, marks of its last letter included. */
-function foldedSpan(
-  kind: ContactHit['kind'],
-  folded: ReturnType<typeof foldAccents>,
-  span: { start: number; end: number },
-  length: number,
-): Span {
-  return { kind, start: folded.from[span.start] ?? 0, end: folded.to[span.end - 1] ?? length }
-}
-
-/** Every raw hit on the normalised text, mapped back to the original text offsets, sorted by start, longer first on a tie. */
-function findSpans(
-  text: string,
-  norm: ReturnType<typeof normaliseContactText>,
-  ctx: ContactContext,
-): Span[] {
-  const normText = norm.text
-  const plain = normText.replace(CONTACT_APOSTROPHES, "'")
-  const rawSpans: Span[] = []
+/** URL, label, literal-email, email and phone hits on `plain`, in its offsets. */
+function patternSpans(plain: string, ctx: ContactContext): Span[] {
+  const spans: Span[] = []
   for (const [kind, pattern] of contactPatterns(ctx)) {
     for (const m of plain.matchAll(pattern)) {
       // The bare-URL and label patterns consume one boundary character in front; their group 1
       // is the hit.
       const end = m.index + m[0].length
-      rawSpans.push({ kind, start: end - (m[1] ?? m[0]).length, end })
-    }
-  }
-  const folded = foldAccents(plain, norm.gaps)
-  const handle = telegramSource(ctx.telegram)
-  if (handle !== null) {
-    for (const span of findWholeTokens(plain, norm.gaps, handle, 'handle')) {
-      rawSpans.push({ kind: 'telegram', ...span })
-    }
-    // On the folded text too, as completeness does: a mark composed into the last letter
-    // (`ivan_dee`, ZWSP, acute, `x`) is folded off there.
-    for (const span of findWholeTokens(folded.text, folded.gaps, handle, 'handle')) {
-      rawSpans.push(foldedSpan('telegram', folded, span, normText.length))
+      spans.push({ kind, start: end - (m[1] ?? m[0]).length, end })
     }
   }
   // The email pattern consumes its boundary too, so an email glued to the next by a local-part
@@ -157,10 +129,117 @@ function findSpans(
     // Stryker disable next-line ConditionalExpression,EqualityOperator,BlockStatement,StringLiteral: unreachable while the code-point step is right; it only fails the scan closed if a later edit breaks that step
     if (start <= previous) throw new Error('email scan did not advance')
     previous = start
-    rawSpans.push({ kind: 'email', start, end })
+    spans.push({ kind: 'email', start, end })
     email.lastIndex = start + ((plain.codePointAt(start) ?? 0) >= 0x10000 ? 2 : 1)
   }
-  for (const span of findPhoneSpans(plain)) rawSpans.push({ kind: 'phone', ...span })
+  for (const span of findPhoneSpans(plain)) spans.push({ kind: 'phone', ...span })
+  return spans
+}
+
+/*
+ * Main's name and handle matcher (main @ 267885ded), run on the NFC text beside the normalised
+ * scan, so the redaction never loses a span main had (PR #1351 round 6, SR-H-4). NFKC turns a
+ * compatibility character next to a contact into a letter (`Petrenko™` reads `PetrenkoTM`), and
+ * that glues it to the contact there; on NFC text it is still an edge.
+ */
+
+/** Token characters, as in the ATS checker and `mentionsSkill`: `Levin` is not in `Levine` or `Levin#`. */
+const MAIN_TOKEN_CHAR = '[\\p{L}\\p{N}#+]'
+/** A JSON-style escape (`\n`, `\t`, a `\u` code): its final letter or digit is not part of a name. */
+const MAIN_ESCAPE = String.raw`\\(?:[bfnrt]|u[\dA-Fa-f]{4})`
+/** Whitespace between name parts, raw or escaped. */
+const MAIN_NAME_GAP = String.raw`(?:\s|\\[nrt])+`
+
+function mainWholeToken(source: string): RegExp {
+  return new RegExp(
+    `(?:(?<!${MAIN_TOKEN_CHAR})|(?<=${MAIN_ESCAPE}))${source}(?!${MAIN_TOKEN_CHAR})`,
+    'giu',
+  )
+}
+
+/** Main's full-name and surname patterns, accent-folded, for `foldAccents` text of NFC text. */
+function mainNamePatterns(fullName: string): RegExp[] {
+  const name = foldAccents(fullName.normalize('NFC').replace(CONTACT_APOSTROPHES, "'")).text
+  const parts = name.trim().split(/\s+/u)
+  const surname = parts.at(-1) ?? ''
+  const sources = [parts.map(escapeRegExp).join(MAIN_NAME_GAP)]
+  if (surname.replace(/\P{L}/gu, '').length >= 2) sources.push(escapeRegExp(surname))
+  // a blank name leaves an empty source, which would match everywhere
+  return sources.filter(Boolean).map(mainWholeToken)
+}
+
+/** Main's spans on NFC `nfc`: the generic patterns, the handle (`\w` boundary) and the name. */
+function mainSpans(nfc: string, ctx: ContactContext): Span[] {
+  const plain = nfc.replace(CONTACT_APOSTROPHES, "'")
+  const spans = patternSpans(plain, ctx)
+  const handle = normaliseTelegramHandle(ctx.telegram)
+  if (handle) {
+    for (const m of plain.matchAll(new RegExp(`(?<!\\w)@*${escapeRegExp(handle)}(?!\\w)`, 'giu'))) {
+      spans.push({ kind: 'telegram', start: m.index, end: m.index + m[0].length })
+    }
+  }
+  const folded = foldAccents(plain)
+  for (const pattern of mainNamePatterns(ctx.fullName)) {
+    for (const m of folded.text.matchAll(pattern)) {
+      spans.push(
+        foldedSpan('name', folded, { start: m.index, end: m.index + m[0].length }, nfc.length),
+      )
+    }
+  }
+  return spans
+}
+
+/**
+ * One code point and the characters NFC may compose into it: marks, vowel and trailing Hangul
+ * jamo, and U+16D67 (a Kirat Rai vowel that is a letter). No other character composes backwards
+ * or reorders, so these chunks normalise apart exactly as the whole text does.
+ */
+const NFC_CHUNK = /[^\p{M}ᅠ-ᇿힰ-퟿\u{16D67}][\p{M}ᅠ-ᇿힰ-퟿\u{16D67}]*|[\p{M}ᅠ-ᇿힰ-퟿\u{16D67}]+/gu
+
+/** For each code unit of `text.normalize('NFC')`, the span of `text` it came from. */
+function nfcMaps(text: string): { from: number[]; to: number[] } {
+  const from: number[] = []
+  const to: number[] = []
+  for (const { 0: chunk, index } of text.matchAll(NFC_CHUNK)) {
+    for (let k = chunk.normalize('NFC').length; k > 0; k--) {
+      from.push(index)
+      to.push(index + chunk.length)
+    }
+  }
+  return { from, to }
+}
+
+/** A hit on the folded text as a span of the normalised text, marks of its last letter included. */
+function foldedSpan(
+  kind: ContactHit['kind'],
+  folded: ReturnType<typeof foldAccents>,
+  span: { start: number; end: number },
+  length: number,
+): Span {
+  return { kind, start: folded.from[span.start] ?? 0, end: folded.to[span.end - 1] ?? length }
+}
+
+/** Every raw hit on the normalised text, mapped back to the original text offsets, sorted by start, longer first on a tie. */
+function findSpans(
+  text: string,
+  norm: ReturnType<typeof normaliseContactText>,
+  ctx: ContactContext,
+): Span[] {
+  const normText = norm.text
+  const plain = normText.replace(CONTACT_APOSTROPHES, "'")
+  const rawSpans = patternSpans(plain, ctx)
+  const folded = foldAccents(plain, norm.gaps)
+  const handle = telegramSource(ctx.telegram)
+  if (handle !== null) {
+    for (const span of findWholeTokens(plain, norm.gaps, handle, 'handle')) {
+      rawSpans.push({ kind: 'telegram', ...span })
+    }
+    // On the folded text too, as completeness does: a mark composed into the last letter
+    // (`ivan_dee`, ZWSP, acute, `x`) is folded off there.
+    for (const span of findWholeTokens(folded.text, folded.gaps, handle, 'handle')) {
+      rawSpans.push(foldedSpan('telegram', folded, span, normText.length))
+    }
+  }
   for (const source of nameSources(ctx.fullName)) {
     for (const span of findWholeTokens(folded.text, folded.gaps, source, 'name')) {
       rawSpans.push(foldedSpan('name', folded, span, normText.length))
@@ -173,6 +252,20 @@ function findSpans(
     // Stryker disable next-line ConditionalExpression: fallback only if index is out of bounds
     end: norm.to[s.end - 1] ?? text.length,
   }))
+  // Main's spans, on the same text: the normalised scan may only add redactions (SR-H-4).
+  const nfc = text.normalize('NFC')
+  // Stryker disable next-line ConditionalExpression: `false` is equivalent — the maps of NFC text are the identity
+  const maps = nfc === text ? null : nfcMaps(text)
+  for (const s of mainSpans(nfc, ctx)) {
+    if (maps === null) spans.push(s)
+    // Stryker disable next-line ConditionalExpression: fallback only if index is out of bounds
+    else
+      spans.push({
+        kind: s.kind,
+        start: maps.from[s.start] ?? 0,
+        end: maps.to[s.end - 1] ?? text.length,
+      })
+  }
   return spans.sort((a, b) => a.start - b.start || b.end - a.end)
 }
 
