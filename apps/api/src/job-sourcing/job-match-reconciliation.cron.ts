@@ -10,51 +10,56 @@ import {
   RECONCILE_PERIOD_HOURS,
   reconcileOnce,
 } from './runtime/reconciliation'
+import { invalidateGenerationsForNewJobs } from './queue/queue-generation'
 import { RecomputeWorker } from './runtime/recompute-worker'
 
 /** Every RECONCILE_PERIOD_HOURS at :17, a minute no other cron holds. */
 export const MATCH_RECONCILIATION_CRON = `17 */${RECONCILE_PERIOD_HOURS} * * *`
 /** Expired leases returned to the queue per tick (the store's own ceiling). */
 export const RECONCILE_RECOVER_BATCH = 1000
-/** The dirty-work drain: every 2 minutes (even minutes, so never on the sweep's :17). UTC. */
-export const MATCH_DRAIN_CRON = '*/2 * * * *'
 /**
- * A drain tick starts no new batch after this long; the batch in flight finishes. Bounded by time,
- * not by a batch count, so a backlog of thousands clears within a few ticks.
+ * A post-run drain starts no new batch after this long; the batch in flight finishes. Bounded by
+ * time, not by a batch count: it shares the database and the event loop with the collection window,
+ * and whatever it leaves is drained after the next run ends (or by the sweep).
  */
 export const MATCH_DRAIN_BUDGET_MS = 60_000
 
 /**
- * Match reconciliation (r5 Task 4.6 S4b) in two crons, one service:
+ * Match reconciliation (r5 Task 4.6 S4b): the post-run drain and the 6-hourly safety net, one service.
  *
- *   DRAIN (`MATCH_DRAIN_CRON`, every 2 min): run the S4a recompute worker until a batch comes back
- *     short or `MATCH_DRAIN_BUDGET_MS` has passed. This is what turns collected records into
- *     opportunities and matches within minutes of a collection run.
+ *   DRAIN (`requestDrain`, no cron): `JobRunWorker` calls it after every run ends. It runs the S4a
+ *     recompute worker until a batch comes back short or `MATCH_DRAIN_BUDGET_MS` has passed, so the
+ *     records a run persisted are opportunities and matches within the same collection window, and
+ *     retires the published queue snapshots when anything was recomputed.
  *   SWEEP (`MATCH_RECONCILIATION_CRON`, every RECONCILE_PERIOD_HOURS): the safety net. Recover expired
  *     leases (`recoverExpiredDirty`, SR-M-1: a crashed worker's rows are retried, not stuck), scan for
- *     stale opportunities (`reconcileOnce`), then drain at most RECONCILE_MAX_DRAIN_BATCHES batches.
+ *     stale opportunities (`reconcileOnce`), then drain at most RECONCILE_MAX_DRAIN_BATCHES batches
+ *     (whatever the post-run drains left).
  *
- * FLAG: `JOB_MATCH_RECONCILIATION_ENABLED`, default OFF (see `config/env.ts`), gates both crons.
+ * FLAG: `JOB_MATCH_RECONCILIATION_ENABLED`, default OFF (see `config/env.ts`), gates both.
  * STALENESS (SR-M-2, CR-M-1, SPEC-L-1): a sweep scans at most 100,000 opportunities per tick (the
  * cursor carries the rest), so a stale opportunity is found within P x ceil(N / 100,000) with
- * P = RECONCILE_PERIOD_HOURS (6 h); once enqueued, the drain recomputes it within minutes, at the
- * worker's throughput. An opportunity that fails every recompute never converges by design: after
+ * P = RECONCILE_PERIOD_HOURS (6 h); once enqueued it is recomputed after the next run ends. An
+ * opportunity that fails every recompute never converges by design: after
  * RECONCILE_MAX_FAILED_PERIODS failed rows the sweep gives up and logs one warn line. Full
  * derivation: `runtime/reconciliation.ts`.
- * NO OVERLAP: one worker, never two drainers. A drain tick is skipped while a sweep or another drain
- * runs; a sweep tick WAITS for an in-flight drain (bounded by the budget plus one batch) instead of
- * being skipped, so the 6-hourly safety net is never lost to the drain. A sweep tick during a sweep
- * is skipped. The cursor lives in memory: a restart rescans from the start, which is cheap because
- * enqueueing is idempotent and a sweep is bounded pages.
- * Never rethrows (C-23): an unhandled rejection in a `@Cron` handler kills the scheduler.
+ * NO OVERLAP: one worker, never two drainers. A drain request while a sweep runs is dropped; a sweep
+ * tick WAITS for an in-flight drain (bounded by the budget plus one batch) instead of being skipped,
+ * so the 6-hourly safety net is never lost to a drain. A sweep tick during a sweep is skipped. The
+ * cursor lives in memory: a restart rescans from the start, which is cheap because enqueueing is
+ * idempotent and a sweep is bounded pages.
+ * Never rejects (C-23): an unhandled rejection in a `@Cron` handler kills the scheduler, and a
+ * drain failure must never reach the run that triggered it.
  */
 @Injectable()
 export class JobMatchReconciliationCronService {
   private readonly logger = new Logger(JobMatchReconciliationCronService.name)
   private running = false
   private cursor: string | null = null
-  /** The in-flight drain tick; it never rejects. */
+  /** The in-flight post-run drain; it never rejects. */
   private drainTick: Promise<void> | null = null
+  /** A run ended while the drain was running: it makes one more pass. */
+  private drainAgain = false
 
   constructor(
     @Inject(DatabaseService) private readonly db: DatabaseService,
@@ -66,34 +71,62 @@ export class JobMatchReconciliationCronService {
     return this.config?.get('JOB_MATCH_RECONCILIATION_ENABLED', { infer: true }) === true
   }
 
-  @Cron(MATCH_DRAIN_CRON)
-  async handleDrain(): Promise<void> {
-    if (!this.enabled() || this.running || this.drainTick !== null) return
-    const tick = this.runDrainTick()
-    this.drainTick = tick
-    try {
-      await tick
-    } finally {
-      this.drainTick = null
+  /**
+   * The post-run step (`JobRunWorker` calls it after every run ends, scheduled or manual): recompute
+   * the MATCH dirty work the run produced, so its records are opportunities and matches seconds
+   * later. Single-flight: a request while a drain runs asks that drain for one more pass (within its
+   * budget) and shares its promise; a request while a sweep runs is dropped (the sweep drains, the
+   * next run or sweep takes the rest). The promise never rejects.
+   */
+  requestDrain(): Promise<void> {
+    if (!this.enabled() || this.running) return Promise.resolve()
+    if (this.drainTick !== null) {
+      this.drainAgain = true
+      return this.drainTick
     }
+    const tick = this.runDrainTick().finally(() => {
+      this.drainTick = null
+    })
+    this.drainTick = tick
+    return tick
   }
 
   private async runDrainTick(): Promise<void> {
     const startedAt = performance.now()
+    const elapsed = () => performance.now() - startedAt
+    // Filled batch by batch, so a failure still reports (and retires for) what was done before it.
+    const tally: DrainTally = { claimed: 0, done: 0, batches: 0 }
+    let invalidated = 0
     try {
-      const { claimed, batches } = await this.drain({ budgetMs: MATCH_DRAIN_BUDGET_MS })
-      // Counts only, no personal data; an idle tick (nothing claimed) stays silent.
-      if (claimed > 0)
-        this.logger.log(
-          `Match drain: recomputed=${claimed} batches=${batches} ` +
-            `durationMs=${Math.round(performance.now() - startedAt)}`,
-        )
+      do {
+        this.drainAgain = false
+        await this.drain({ deadline: startedAt + MATCH_DRAIN_BUDGET_MS }, tally)
+      } while (this.drainAgain && elapsed() < MATCH_DRAIN_BUDGET_MS)
     } catch (err: unknown) {
       this.logger.error(
-        `Match drain failed; will retry next tick${dbErrorLogSuffix(err)}`,
+        `Match drain failed after recomputed=${tally.claimed} batches=${tally.batches}; the rest stays pending ` +
+          `for the next run or the sweep${dbErrorLogSuffix(err)}`,
         safeErrorStack(err),
       )
     }
+    // New or recomputed opportunities (also those of a drain that failed later): retire every
+    // published queue snapshot, so the next read lists them instead of a snapshot taken before them.
+    if (tally.done > 0)
+      try {
+        invalidated = await invalidateGenerationsForNewJobs(this.db.db)
+      } catch (err: unknown) {
+        this.logger.error(
+          `Match drain: queue snapshots not retired; fresh vacancies show when they expire` +
+            dbErrorLogSuffix(err),
+          safeErrorStack(err),
+        )
+      }
+    // Counts only, no personal data; an idle drain (nothing claimed) stays silent.
+    if (tally.claimed > 0)
+      this.logger.log(
+        `Match drain: recomputed=${tally.claimed} done=${tally.done} batches=${tally.batches} ` +
+          `generationsInvalidated=${invalidated} durationMs=${Math.round(elapsed())}`,
+      )
   }
 
   @Cron(MATCH_RECONCILIATION_CRON)
@@ -107,7 +140,7 @@ export class JobMatchReconciliationCronService {
     const startedAt = performance.now()
     try {
       // Wait for (never skip over) an in-flight drain: one drainer at a time. It never rejects.
-      await this.drainTick
+      if (this.drainTick !== null) await this.drainTick
       const recovered = await recoverExpiredDirty(this.db.db, {
         batchSize: RECONCILE_RECOVER_BATCH,
       })
@@ -139,22 +172,30 @@ export class JobMatchReconciliationCronService {
 
   /**
    * Run the recompute worker until a batch comes back short (fewer than a full batch), or the batch
-   * cap is reached, or the time budget has passed (checked before each new batch; the first always runs).
+   * cap is reached, or the deadline (a `performance.now()` value) has passed: checked before each new
+   * batch, so the first always runs and the batch in flight finishes.
    */
-  private async drain(limit: {
-    maxBatches?: number
-    budgetMs?: number
-  }): Promise<{ claimed: number; batches: number }> {
-    const { maxBatches = Number.POSITIVE_INFINITY, budgetMs = Number.POSITIVE_INFINITY } = limit
-    const startedAt = performance.now()
-    let claimed = 0
+  private async drain(
+    limit: { maxBatches?: number; deadline?: number },
+    tally: DrainTally = { claimed: 0, done: 0, batches: 0 },
+  ): Promise<DrainTally> {
+    const { maxBatches = Number.POSITIVE_INFINITY, deadline } = limit
     let batches = 0
     do {
       const r = await this.worker.runOnce()
       batches += 1
-      claimed += r.claimed
+      tally.batches += 1
+      tally.claimed += r.claimed
+      tally.done += r.done
       if (r.claimed < DIRTY_BATCH_DEFAULT) break
-    } while (batches < maxBatches && performance.now() - startedAt < budgetMs)
-    return { claimed, batches }
+    } while (batches < maxBatches && (deadline === undefined || performance.now() < deadline))
+    return tally
   }
+}
+
+/** What a drain has processed so far: rows claimed, rows DONE, batches run. */
+interface DrainTally {
+  claimed: number
+  done: number
+  batches: number
 }

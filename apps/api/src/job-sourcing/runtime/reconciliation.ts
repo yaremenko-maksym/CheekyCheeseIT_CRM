@@ -23,9 +23,9 @@ import {
  * to the next tick), so with P = `RECONCILE_PERIOD_HOURS` (6 h) a stale opportunity is enqueued
  * within P x ceil(N / 100,000) for N opportunities: one period when N <= 100,000. The drain is no
  * longer the bottleneck: besides the sweep tick's own capped drain (`RECONCILE_MAX_DRAIN_BATCHES` x
- * 200 = 2,000 rows), the cron's 2-minute drain (`MATCH_DRAIN_CRON`) runs the worker for up to
- * `MATCH_DRAIN_BUDGET_MS` per tick until the backlog is empty, so enqueued rows are recomputed within
- * minutes at the worker's throughput (`job-match-reconciliation.cron.ts`).
+ * 200 = 2,000 rows), every collection run ends with a drain of up to `MATCH_DRAIN_BUDGET_MS`
+ * (`requestDrain` in `job-match-reconciliation.cron.ts`), so enqueued rows are recomputed after the
+ * next run ends, at the worker's throughput.
  * EXCEPTION BY DESIGN (CR-M-4, SR-M-3): an opportunity whose recompute fails every time never
  * converges. After `RECONCILE_MAX_FAILED_PERIODS` failed rows in its lineage the sweep stops
  * re-enqueueing it (see GIVING UP); it is retried only after its revision or the roster changes.

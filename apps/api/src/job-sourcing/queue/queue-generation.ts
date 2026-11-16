@@ -209,6 +209,32 @@ export async function invalidateGenerationsForManualCard(
 }
 
 /**
+ * The post-run match drain recomputed opportunities: new ones, or changed matches, are an addition
+ * no published generation holds, so the drain retires every published one (each STUDIO and each
+ * TEAM), the way a manual card does for its scopes. The next read of each scope publishes anew;
+ * the next publish of a scope deletes its retired row. Without it a snapshot published before the
+ * drain hid every fresh vacancy until the TTL ran out.
+ *
+ * It takes the STUDIO publish lock and then every team's, in id order (a publish takes one lock, a
+ * manual card STUDIO then one team, so the order cannot deadlock), so a publish that read the job
+ * set before the drain committed is published before this retire. Returns the rows retired.
+ */
+export async function invalidateGenerationsForNewJobs(db: DatabaseService['db']): Promise<number> {
+  return db.transaction(async (tx) => {
+    await lockScopePublish(tx, 'STUDIO')
+    const { rows: teams } = await tx.execute(sql`SELECT id FROM teams ORDER BY id`)
+    for (const t of teams) await lockScopePublish(tx, `TEAM:${String(t['id'])}`)
+    const { rows } = await tx.execute(
+      sql`UPDATE job_queue_generations
+             SET status = 'INVALIDATED', invalidated_at = clock_timestamp()
+           WHERE status = 'PUBLISHED'
+       RETURNING id`,
+    )
+    return rows.length
+  })
+}
+
+/**
  * Retention (MP-13): an expired generation serves nobody, yet only the next publication of its scope
  * would remove it, so an idle scope's row stayed for good and held its team undeletable. Invalidate
  * first, because the Task 1.3 trigger refuses any other DELETE; entries go by cascade. A crash between
