@@ -20,11 +20,13 @@ const tooLarge = () =>
 // Backlog 450: the documents upload owns its size limit and answers it with its own coded 413.
 describe('DocumentsController.upload — multipart limits', () => {
   it('passes the per-route fileSize limit DOCUMENT_MAX_BYTES (10 MB) to req.parts', async () => {
-    const { req, run } = upload(async function* () {
+    const { service, req, run } = upload(async function* () {
+      yield { type: 'field', fieldname: 'category', value: 'SCAN' }
       yield { type: 'file', fieldname: 'file', toBuffer: () => Promise.resolve(Buffer.from('x')) }
     })
     await run()
     expect(req.parts).toHaveBeenCalledWith({ limits: { fileSize: DOCUMENT_MAX_BYTES } })
+    expect(service.upload).toHaveBeenCalledTimes(1)
     expect(DOCUMENT_MAX_BYTES).toBe(10 * 1024 * 1024)
   })
 
