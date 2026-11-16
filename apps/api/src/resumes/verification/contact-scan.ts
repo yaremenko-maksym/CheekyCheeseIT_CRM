@@ -67,10 +67,22 @@ function escapeRegExp(value: string): string {
  * the split reading too, every order and every lone part of three letters or more; it drops only a
  * lone part shorter than three letters, and only when the joined reading has two or more parts, so a
  * fragment such as `in` or `an` does not refuse ordinary text (round 8, SR-M-1). A three-letter
- * fragment such as `son` still refuses: accepted.
+ * fragment such as `son` still refuses: accepted. The gate scan also keeps each run of two or more
+ * consecutive parts after the first, both ways, when the run has three letters or more, so two short
+ * parts that form the whole surname still refuse (`Ivan Li`, ZWSP, `Yu` refuses `Li Yu` and `Yu Li`;
+ * round 9, SR-M-2).
  */
 /** A last name part is a lone source from two letters on, in both passes (main's rule). */
 const isSurnameSource = (part: string): boolean => part.replace(/\P{L}/gu, '').length >= 2
+
+/** The gate's runs: two or more consecutive split parts after the first, both ways, three letters or more. */
+function splitNameRuns(parts: readonly string[]): string[][] {
+  const rest = parts.slice(1)
+  return rest
+    .flatMap((_, end) => rest.slice(0, end).map((_part, start) => rest.slice(start, end + 1)))
+    .filter((run) => run.join('').replace(/\P{L}/gu, '').length >= 3)
+    .flatMap((run) => [run, [...run].reverse()])
+}
 
 function nameSources(fullName: string, failClosed: boolean): string[] {
   // Normalised like the text, so a name with a ligature, a ZWNJ or fullwidth letters matches itself.
@@ -85,7 +97,9 @@ function nameSources(fullName: string, failClosed: boolean): string[] {
         (part) => !shortFragments || part.replace(/\P{L}/gu, '').length >= 3,
       )
       return [
-        ...splitNameOrders(parts).map((order) => fold(order).join(CONTACT_NAME_GAP)),
+        ...[...splitNameOrders(parts), ...(failClosed ? [] : splitNameRuns(parts))].map((order) =>
+          fold(order).join(CONTACT_NAME_GAP),
+        ),
         ...fold(lone),
       ]
     }

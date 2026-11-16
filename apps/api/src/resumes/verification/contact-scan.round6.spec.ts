@@ -554,6 +554,8 @@ describe('the gate scan keeps the split reading but its short fragments (round 8
     // every full-name order and every lone part of three letters or more still refuses
     ['Ivan Petrenko\u200BKovalenko', 'Ivan Kovalenko', 'Ivan Kovalenko', '[REDACTED]'],
     ['Ivan Petrenko\u200BKovalenko', 'Kovalenko', 'Kovalenko', '[REDACTED]'],
+    // the first split part alone, not only the last (round 9, spec coverage)
+    ['Ivan Petrenko\u200BKovalenko', 'Petrenko', 'Petrenko', '[REDACTED]'],
     // accepted cost: a three-letter fragment refuses ordinary text, as in round 6
     [
       'Ivan Peter\u200Cson',
@@ -577,5 +579,42 @@ describe('the gate scan keeps the split reading but its short fragments (round 8
   ])('stored %j still refuses %j, which main flags', (fullName, text) => {
     expect(scanContacts(text, stored(fullName))).toEqual([{ kind: 'name', match: 'in' }])
     expect(hasContact(text, [stored(fullName)])).toBe(true)
+  })
+})
+
+describe('the gate scan keeps runs of short split parts that form the surname (round 9, SR-M-2)', () => {
+  const stored = (fullName: string): ContactContext => ({ fullName, emails: [] })
+
+  it.each([
+    // two short parts are the whole surname, so the run refuses, both ways
+    ['Ivan Li​Yu', 'Li Yu', 'Li Yu', '[REDACTED] [REDACTED]'],
+    ['Ivan Li​Yu', 'Yu Li', 'Yu Li', '[REDACTED] [REDACTED]'],
+    ['Ivan Kovalenko​Li​Yu', 'Li Yu', 'Li Yu', '[REDACTED] [REDACTED]'],
+    // three letters are enough
+    ['Ivan Li​U', 'by Li U today', 'Li U', 'by [REDACTED] U today'],
+    // the first name joins no run: the longest hit is still the first-name pair
+    ['Ivan Kovalenko​Li​Yu', 'Ivan Kovalenko Li', 'Ivan Kovalenko', '[REDACTED] [REDACTED]'],
+  ])('stored %j refuses %j on %j, redacted as %j', (fullName, text, match, redacted) => {
+    // the redaction is the round-8 redaction: runs are a gate-only source
+    expect(redactContacts(text, stored(fullName))).toBe(redacted)
+    expect(scanContacts(text, stored(fullName))).toEqual([{ kind: 'name', match }])
+    expect(hasContact(text, [stored(fullName)])).toBe(true)
+  })
+
+  it.each([
+    // a lone part under three letters still passes (Addendum A)
+    ['Ivan Li​Yu', 'by Li today', 'by [REDACTED] today'],
+    ['Ivan Li​Yu', 'by Yu today', 'by [REDACTED] today'],
+    // a run of two letters passes: the letters of the run decide
+    ['Ivan O​U', 'by O U today', 'by O U today'],
+    [
+      'Ivan Petr‌in',
+      'Senior engineer in Kyiv since 2020',
+      'Senior engineer [REDACTED] Kyiv since 2020',
+    ],
+  ])('stored %j passes %j, still redacted as %j', (fullName, text, redacted) => {
+    expect(redactContacts(text, stored(fullName))).toBe(redacted)
+    expect(scanContacts(text, stored(fullName))).toEqual([])
+    expect(hasContact(text, [stored(fullName)])).toBe(false)
   })
 })
