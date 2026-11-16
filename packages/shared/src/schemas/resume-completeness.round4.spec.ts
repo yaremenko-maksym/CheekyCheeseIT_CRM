@@ -80,7 +80,8 @@ describe('an invisible plus a mark at a token edge (SR-H-2)', () => {
     })
     expect(foldAccents('áb', new Set([1]))).toMatchObject({ gaps: new Set([1]) })
     expect(foldAccents('ab', new Set([1]))).toMatchObject({ gaps: new Set([1]) })
-    expect(foldAccents('ab́', new Set([0]))).toMatchObject({ gaps: new Set([0]) })
+    // `b` takes no acute, so the bare mark is an edge after it too (round 6, SR-M-4)
+    expect(foldAccents('ab́', new Set([0]))).toMatchObject({ gaps: new Set([0, 2]) })
     // a gap at the text end has no letter after it to start
     expect(foldAccents('ab', new Set([2]))).toMatchObject({ gaps: new Set() })
   })

@@ -68,10 +68,8 @@ describe('a bare mark at a name edge is flagged, as on main (SR-H-3)', () => {
     // the boundary check: the invisible stands where main needed whitespace
     expect(flags('by O’Neil​Smith today', "O'Neil Smith")).toBe(true)
     expect(flags("by O'Neil​Smith today", 'O’Neil Smith')).toBe(true)
-    expect(contactNameParts('O’Neil  Smith')).toEqual([
-      ["O'Neil", 'Smith'],
-      ["O'Neil", 'Smith'],
-    ])
+    // equal readings are one reading (round 6, CR-M-5)
+    expect(contactNameParts('O’Neil  Smith')).toEqual([["O'Neil", 'Smith']])
   })
 
   it('flags the stored handle next to a character NFKC turns into a word character', () => {
@@ -154,7 +152,7 @@ describe('a stored name split only by an invisible (round 5, finding 3)', () => 
       ['Ivan', 'Petrenko'],
       ['Iv', 'an', 'Petrenko'],
     ])
-    expect(contactNameParts('  ')).toEqual([[], []])
+    expect(contactNameParts('  ')).toEqual([[]])
   })
 
   it.each(['​', '⁠', '﻿', '­'])(
