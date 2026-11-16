@@ -1101,6 +1101,8 @@ export class JobRunLedger {
                SET enabled = ${input.enabled},
                    admin_state_history = admin_state_history || jsonb_build_array(jsonb_build_object(
                      'kind', ${kind}::text, 'actor', ${input.actor}::text, 'at', clock_timestamp())),
+                   next_attempt_at = CASE WHEN ${input.enabled}::boolean
+                     THEN COALESCE(next_attempt_at, clock_timestamp()) ELSE next_attempt_at END,
                    updated_at = clock_timestamp()
              WHERE id = ${input.sourceId}::uuid`,
       )
