@@ -167,9 +167,9 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'JOOBLE_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
-      payloadVerified: false,
+      payloadVerified: true,
       quotaDeclared: true,
       floorHours: 0,
       banScope: 'HOST',
@@ -179,9 +179,9 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'JSEARCH_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
-      payloadVerified: false,
+      payloadVerified: true,
       quotaDeclared: true,
       floorHours: 0,
       banScope: 'HOST',
@@ -191,9 +191,9 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'THEIRSTACK_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
-      payloadVerified: false,
+      payloadVerified: true,
       quotaDeclared: true,
       floorHours: 0,
       banScope: 'HOST',
@@ -215,9 +215,9 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'REED_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
-      payloadVerified: false,
+      payloadVerified: true,
       quotaDeclared: true,
       floorHours: 0,
       banScope: 'HOST',
@@ -602,7 +602,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'jooble.api.senior-developer-remote',
       type: 'JOOBLE_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 10080,
@@ -618,7 +618,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'jsearch.rapidapi.backend',
       type: 'JSEARCH_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 1440,
@@ -629,7 +629,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'jsearch.rapidapi.frontend',
       type: 'JSEARCH_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 1440,
@@ -640,7 +640,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'jsearch.rapidapi.ai-engineer',
       type: 'JSEARCH_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 1440,
@@ -651,7 +651,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'theirstack.api.senior',
       type: 'THEIRSTACK_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 5760,
@@ -678,7 +678,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'reed.api.senior-developer-remote',
       type: 'REED_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 1440,

@@ -333,6 +333,11 @@ const ALLOWED_HITS: Array<{ file: string; reason: string; hits: string[] }> = [
     hits: ['+@'],
   },
   {
+    file: 'trim-keyed-captures.mjs',
+    reason: 'the regex source of the redaction',
+    hits: ['+@'],
+  },
+  {
     file: '__raw-captures__/3.2/an-terms.html',
     reason: 'Alpine.js directives (@click, @mouseenter ...) in the committed terms page',
     hits: [

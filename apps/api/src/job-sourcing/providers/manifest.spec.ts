@@ -135,6 +135,22 @@ function editJson(path: string, edit: (o: Record<string, unknown>) => void): voi
 }
 const rebuildOn = (fixtureRoot: string) => buildManifest({ ...real(), fixtureRoot })
 
+/** Every sentinel marker at once: what a hand-written unit example's provenance said. */
+const toSentinel = (o: Record<string, unknown>) => {
+  o['fetchedAt'] = '1970-01-01T00:00:00.000Z'
+  o['termsCheckedAt'] = '1970-01-01T00:00:00.000Z'
+  o['httpStatus'] = 0
+  o['rawSha256'] = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+  o['trimmedBy'] = 'none: written by hand from public descriptions'
+  o['notes'] = 'SENTINEL: UNIT EXAMPLE ONLY, NOT A CAPTURE'
+}
+/** A copy of the fixtures in which the Jooble capture has been turned back into a sentinel. */
+const joobleSentinelCopy = () => {
+  const root = fixtureCopy()
+  editJson(join(root, 'jooble', 'search-smoke.provenance.json'), toSentinel)
+  return root
+}
+
 /** A thunk that builds the manifest with one type's definition changed. */
 function withDefinition(typeName: string, change: (d: TypeDefinition) => TypeDefinition) {
   return () =>
@@ -681,10 +697,11 @@ describe('readiness is derived from provenance, not retyped', () => {
     ['MUSE_API', ['STATUS_CONSTANT_BLOCKED']],
     ['SMARTRECRUITERS_ATS', ['NO_API_CAPTURE']],
     ['WORKINGNOMADS_API', ['STATUS_CONSTANT_BLOCKED']],
-    ['JOOBLE_API', ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED']],
-    ['JSEARCH_API', ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED']],
-    ['REED_API', ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED']],
-    ['THEIRSTACK_API', ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED']],
+    // Captured by the owner's smoke: only the key is left, and the runtime lifts that one.
+    ['JOOBLE_API', ['KEY_REQUIRED']],
+    ['JSEARCH_API', ['KEY_REQUIRED']],
+    ['REED_API', ['KEY_REQUIRED']],
+    ['THEIRSTACK_API', ['KEY_REQUIRED']],
   ])('%s is blocked for exactly these reasons', (t, codes) => {
     expect(type(t).blockers.map((b) => b.code)).toEqual(codes)
   })
@@ -878,14 +895,26 @@ describe('the strength of an employer claim is read, and a partial one is not "v
 // ---------------------------------------------------------------------------
 
 describe('a provenance file that says "nothing was captured" is never read as a capture', () => {
-  const KEYED = ['JOOBLE_API', 'JSEARCH_API', 'REED_API', 'THEIRSTACK_API']
-
-  it.each(KEYED)('%s: sentinel evidence, no terms date, payload not verified', (t) => {
+  it.each([
+    ['JOOBLE_API', '2026-11-16T21:59:58.000Z'],
+    ['JSEARCH_API', '2026-11-16T21:59:59.000Z'],
+    ['REED_API', '2026-11-16T21:59:55.000Z'],
+    ['THEIRSTACK_API', '2026-11-16T22:00:36.000Z'],
+  ])('%s: the smoke capture is the evidence, its terms date is kept, payload verified', (t, at) => {
     const x = type(t)
-    expect(x.payloadVerified).toBe(false)
+    expect(x.payloadVerified).toBe(true)
     expect(x.fixtures.map((f) => [f.evidence, f.httpStatus, f.termsCheckedAt])).toEqual([
+      ['CAPTURE', 200, at],
+    ])
+  })
+
+  it('a sentinel is not a capture: the source is not ready on it', () => {
+    const t = rebuildOn(joobleSentinelCopy()).types.find((x) => x.type === 'JOOBLE_API')!
+    expect(t.payloadVerified).toBe(false)
+    expect(t.fixtures.map((f) => [f.evidence, f.httpStatus, f.termsCheckedAt])).toEqual([
       ['SENTINEL', 0, null],
     ])
+    expect(t.blockers.map((b) => b.code)).toEqual(['KEY_REQUIRED', 'NO_CAPTURE'])
   })
 
   it('a real capture next to it is verified', () => {
@@ -903,12 +932,12 @@ describe('a provenance file that says "nothing was captured" is never read as a 
   }
 
   it("flipping a sentinel to a real capture changes the entry's status", () => {
-    const root = fixtureCopy()
-    editJson(join(root, 'jooble', 'doc-example.provenance.json'), realCapture)
+    const root = joobleSentinelCopy()
+    editJson(join(root, 'jooble', 'search-smoke.provenance.json'), realCapture)
     const flipped = rebuildOn(root)
     expect(flipped.types.find((t) => t.type === 'JOOBLE_API')!.payloadVerified).toBe(true)
     expect(flipped.types.find((t) => t.type === 'JOOBLE_API')!.blockers.map((b) => b.code)).toEqual(
-      ['KEY_REQUIRED', 'STATUS_CONSTANT_BLOCKED'],
+      ['KEY_REQUIRED'],
     )
   })
 
@@ -945,8 +974,8 @@ describe('a provenance file that says "nothing was captured" is never read as a 
       },
     ],
   ])('a half-flipped file (%s) still reads as a sentinel', (_what, edit) => {
-    const root = fixtureCopy()
-    editJson(join(root, 'jooble', 'doc-example.provenance.json'), edit)
+    const root = joobleSentinelCopy()
+    editJson(join(root, 'jooble', 'search-smoke.provenance.json'), edit)
     expect(rebuildOn(root).types.find((t) => t.type === 'JOOBLE_API')!.payloadVerified).toBe(false)
   })
 
@@ -1124,7 +1153,14 @@ describe('authentication and attribution agree with what the provenance says', (
       { termsUrl: 'https://remoteok.com/api', termsCheckedAt: '2026-10-23T20:10:00.000Z' },
     ])
     expect(type('JSEARCH_API').policyRefs).toEqual([
-      { termsUrl: 'https://www.openwebninja.com/api/jsearch', termsCheckedAt: null },
+      {
+        termsUrl: 'https://www.openwebninja.com/api/jsearch',
+        termsCheckedAt: '2026-11-16T21:59:59.000Z',
+      },
+    ])
+    const sentinel = rebuildOn(joobleSentinelCopy()).types.find((x) => x.type === 'JOOBLE_API')!
+    expect(sentinel.policyRefs).toEqual([
+      { termsUrl: 'https://jooble.org/info/terms', termsCheckedAt: null },
     ])
   })
 })
@@ -1519,7 +1555,10 @@ describe('exact behaviour: constants, markers and boundaries', () => {
       const g = none.types.find((t) => t.type === 'GREENHOUSE_ATS')!
       expect(g.blockers).toEqual([{ code: 'NO_CAPTURE', detail: 'no fixture was committed' }])
       expect(g.payloadVerified).toBe(false)
-      expect(type('JSEARCH_API').blockers[1]).toEqual({
+      const sentinelOnly = rebuildOn(joobleSentinelCopy()).types.find(
+        (x) => x.type === 'JOOBLE_API',
+      )!
+      expect(sentinelOnly.blockers[1]).toEqual({
         code: 'NO_CAPTURE',
         detail: 'every fixture is a hand-written unit example',
       })

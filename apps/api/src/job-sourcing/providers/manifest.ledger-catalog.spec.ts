@@ -1,3 +1,6 @@
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { FIXTURE_ROOT } from '../../test/fixture-provenance'
 import { buildManifest } from './manifest'
@@ -65,8 +68,28 @@ describe('buildLedgerCatalog', () => {
   })
 
   it('an unverified payload is reported, not hidden', () => {
+    // The real JSearch fixture is the smoke capture; turned back into a sentinel, it is reported.
+    const root = mkdtempSync(join(tmpdir(), 'ledger-catalog-fixtures-'))
+    try {
+      cpSync(FIXTURE_ROOT, root, { recursive: true })
+      const file = join(root, 'jsearch', 'search-v2-smoke.provenance.json')
+      const p = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
+      writeFileSync(file, JSON.stringify({ ...p, notes: `SENTINEL: ${String(p['notes'])}` }))
+      const sentinel = buildLedgerCatalog(
+        buildManifest({
+          definitions: MANIFEST_DEFINITIONS,
+          adapters: MANIFEST_VALIDATION_ADAPTERS,
+          fixtureRoot: root,
+        }),
+      )
+      expect(sentinel.entry('jsearch.rapidapi.backend')?.activationFacts(NOW).payloadVerified).toBe(
+        false,
+      )
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
     expect(catalog.entry('jsearch.rapidapi.backend')?.activationFacts(NOW).payloadVerified).toBe(
-      false,
+      true,
     )
   })
 
