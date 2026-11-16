@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable, Logger, Optional } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { and, eq, sql } from 'drizzle-orm'
 import {
   normalizeResumeLayout,
@@ -11,6 +12,7 @@ import {
   type ResumeVerificationErrorCode,
   type ResumeVerificationReport,
 } from '@crm/shared'
+import { DEFAULT_RESUME_VERIFICATION_MAX_CONCURRENT_RUNS, type Env } from '../../config/env'
 import { DatabaseService } from '../../database/database.service'
 import { seniorResumes, userEmails, users, type SeniorResume } from '../../database/schema'
 import { S3Service } from '../../documents/s3.service'
@@ -37,8 +39,15 @@ import {
   type Accepted,
   type RenderDeps,
 } from './render-gates'
-import { deleteStagedQuietly, renderOwnerKey, stagedPdfKey, type RunOrigin } from './run-columns'
+import {
+  deleteStagedQuietly,
+  renderOwnerKey,
+  stagedPdfKey,
+  storedOwnerKey,
+  type RunOrigin,
+} from './run-columns'
 import { failRun, ownsRun, RunLost } from './run-end'
+import { RunSlots } from './run-slots'
 import { claimTemplateRun, promoteTemplateRun, templateContent } from './template-run'
 
 /** A run past this is STALLED, checked before every model call (P2). */
@@ -49,12 +58,32 @@ export const VERIFICATION_DEADLINE_MS =
 
 export { CLEARED_STAGED, deleteStagedQuietly, stagedPdfKey } from './run-columns'
 
-export type ResumeOwnerContacts = { displayName: string; email: string; contacts: ContactContext[] }
+export type ResumeOwnerContacts = {
+  displayName: string
+  email: string
+  legalFullName: string | null
+  telegram: string | null
+  contacts: ContactContext[]
+}
 
 /** Kinds that start from the staged result of an earlier run instead of writing everything anew. */
 const FROM_STAGED = new Set<string | null>(['staged-edit', 'item'])
 /** Kinds rendered with the staged look; a template run renders the requested one (Task 16). */
 const STAGED_LOOK = new Set<string | null>([...FROM_STAGED, 'template'])
+
+/**
+ * The owner key a staged result is stamped with. A full run scanned every text against `owner`. A
+ * staged-edit or item run re-checks one text only, so the rest was scanned against the owner of
+ * the run before: it carries that run's key (none: never matches), and an owner change since then
+ * stays stale at the confirm (backlog 442).
+ */
+export function stagedOwnerKey(
+  row: Pick<SeniorResume, 'verificationKind' | 'verificationReport'>,
+  owner: Parameters<typeof renderOwnerKey>[0],
+): string {
+  if (!FROM_STAGED.has(row.verificationKind)) return renderOwnerKey(owner)
+  return storedOwnerKey(row.verificationReport) ?? ''
+}
 
 /**
  * `summary` → 'summary', `experience.<i>.bullets` → i; anything else → null. Indexes are canonical
@@ -98,6 +127,8 @@ export async function loadOwnerContacts(
   return {
     displayName: user.displayName,
     email: user.email,
+    legalFullName: user.legalFullName,
+    telegram: user.telegram,
     contacts: names.map((fullName) => ({ fullName, emails, telegram: user.telegram })),
   }
 }
@@ -111,6 +142,8 @@ export async function loadOwnerContacts(
 @Injectable()
 export class VerificationRunner {
   private readonly logger = new Logger(VerificationRunner.name)
+  /** The per-process cap on runs past their claim (backlog 436). */
+  private readonly slots: RunSlots
 
   constructor(
     private readonly db: DatabaseService,
@@ -120,10 +153,32 @@ export class VerificationRunner {
     private readonly writer: ResumeWriterClient,
     private readonly vision: VisualCheckClient,
     private readonly entailment: ResumeEntailmentClient,
-  ) {}
+    @Optional() config?: ConfigService<Env, true>,
+  ) {
+    this.slots = new RunSlots(
+      // Stryker disable next-line ObjectLiteral,BooleanLiteral: equivalent — `infer` only types the return; get() returns the same value
+      config?.get('RESUME_VERIFICATION_MAX_CONCURRENT_RUNS', { infer: true }) ??
+        DEFAULT_RESUME_VERIFICATION_MAX_CONCURRENT_RUNS,
+    )
+  }
 
-  /** Never rejects: the caller fires it with `void`. An unexpected error ends the run STALLED. */
-  async run(resumeId: string, runId: string): Promise<void> {
+  /**
+   * Run ids waiting for a slot in this process, oldest first. Their rows are QUEUED and alive, so
+   * the stalled-run sweep skips them; the list dies with the process, so a dead one's rows are reaped.
+   */
+  waitingRunIds(): string[] {
+    return this.slots.waiting()
+  }
+
+  /**
+   * Never rejects: the caller fires it with `void`. Waits for a slot first (FIFO, backlog 436), so
+   * the wait is not charged to the run budget. An unexpected error ends the run STALLED.
+   */
+  run(resumeId: string, runId: string): Promise<void> {
+    return this.slots.hold(runId, () => this.runInSlot(resumeId, runId))
+  }
+
+  private async runInSlot(resumeId: string, runId: string): Promise<void> {
     try {
       await this.execute(resumeId, runId)
     } catch (err) {
@@ -231,8 +286,8 @@ export class VerificationRunner {
           runId,
           accepted,
           templateName,
-          // The confirm refuses this staged result once the owner's name or email changed (P11).
-          { ...report, ownerKey: renderOwnerKey(owner) },
+          // The confirm refuses this staged result once an owner input changed (P11, backlog 442).
+          { ...report, ownerKey: stagedOwnerKey(row, owner) },
           FROM_STAGED.has(row.verificationKind),
         )
         return

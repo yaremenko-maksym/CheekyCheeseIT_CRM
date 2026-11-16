@@ -83,6 +83,13 @@ async function publishedGeneration(
     : null
 }
 
+/** The per-scope publish lock, held from the publish's read of the job set to its commit. */
+async function lockScopePublish(tx: SqlExecutor, scopeKey: string): Promise<void> {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtextextended(${`job-queue-generation:${scopeKey}`}, 0))`,
+  )
+}
+
 /** The scope's current generation, published on the spot when there is no usable one. */
 export async function currentGeneration(
   database: DatabaseService,
@@ -94,10 +101,7 @@ export async function currentGeneration(
   const current = await publishedGeneration(database.db, scope, signature, now)
   if (current !== null) return current
   return database.db.transaction(async (tx) => {
-    const scopeKey = scope.kind === 'TEAM' ? `TEAM:${scope.teamId}` : 'STUDIO'
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`job-queue-generation:${scopeKey}`}, 0))`,
-    )
+    await lockScopePublish(tx, scope.kind === 'TEAM' ? `TEAM:${scope.teamId}` : 'STUDIO')
     const raced = await publishedGeneration(tx, scope, signature, now)
     return raced ?? publish(tx, scope, versions, signature, now)
   })
@@ -167,12 +171,40 @@ async function publish(
  * does not carry either, so the write retires the team's published generation itself: the team's
  * next read publishes anew. A removal would show at once anyway (entries are re-checked against
  * visibility); an addition would otherwise wait for the TTL. The next publish deletes the row.
+ *
+ * It first takes the team's publish lock, as the manual-card retire does, so a publish that read the
+ * job set before the write committed is published before this retire. The caller's row locks come
+ * first and do not deadlock: a publish holding this lock only reads them, or takes `FOR KEY SHARE`.
  */
 export async function invalidateTeamGenerations(db: SqlExecutor, teamId: string): Promise<void> {
+  await lockScopePublish(db, `TEAM:${teamId}`)
   await db.execute(
     sql`UPDATE job_queue_generations
            SET status = 'INVALIDATED', invalidated_at = clock_timestamp()
          WHERE status = 'PUBLISHED' AND scope_kind = 'TEAM' AND team_id = ${teamId}::uuid`,
+  )
+}
+
+/**
+ * 1340-QA-OUT-1 — a manual card is an addition to its team and to the studio, and neither published
+ * generation can hold it, so the create retires both: the team's and every STUDIO one (ADMIN's).
+ * Without it the card stayed out of both lists until the TTL ran out.
+ *
+ * It first takes both publish locks, studio then team (a publish takes one), so a publish that read
+ * the job set before the card committed is published before this retire, and a later one reads the
+ * card. It runs inside the create's transaction, so the locks hold until the card commits.
+ */
+export async function invalidateGenerationsForManualCard(
+  db: SqlExecutor,
+  teamId: string,
+): Promise<void> {
+  await lockScopePublish(db, 'STUDIO')
+  await lockScopePublish(db, `TEAM:${teamId}`)
+  await db.execute(
+    sql`UPDATE job_queue_generations
+           SET status = 'INVALIDATED', invalidated_at = clock_timestamp()
+         WHERE status = 'PUBLISHED'
+           AND (scope_kind = 'STUDIO' OR (scope_kind = 'TEAM' AND team_id = ${teamId}::uuid))`,
   )
 }
 

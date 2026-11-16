@@ -86,6 +86,10 @@ describe('draftReset', () => {
       stagedEditedPaths: [],
     })
   })
+
+  it('clears the re-check flag: a DRAFT has nothing verified to re-check (backlog 442)', () => {
+    expect(draftReset()).toHaveProperty('recheckNeededAt', null)
+  })
 })
 
 // The SQL each write guard renders, read by hand against the WHERE the brief asks

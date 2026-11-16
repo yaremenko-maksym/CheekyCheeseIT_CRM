@@ -52,6 +52,14 @@ describe('format', () => {
     expect(month).not.toBe(formatDate(d, 'uk'))
     expect(month).not.toBe(formatDate(d, 'uk', 'long'))
   })
+  it('the dayMonthYear style is the picker field: two-digit day, short month, year, local day (QA-LOW-1)', () => {
+    const d = new Date(2026, 10, 28) // local 28 Nov 2026, as the picker holds it
+    expect(formatDate(d, 'uk', 'dayMonthYear')).toBe('28 лист. 2026 р.')
+    expect(formatDate(d, 'en', 'dayMonthYear')).toBe('28 Nov 2026')
+    expect(formatDate(new Date(2026, 2, 5), 'en', 'dayMonthYear')).toBe('05 Mar 2026')
+    expect(formatDate(new Date(2026, 10, 30, 23, 59), 'en', 'dayMonthYear')).toBe('30 Nov 2026')
+  })
+
   it('the dayMonth style is the day and a short month, no year, on the UTC day (PR #1337)', () => {
     expect(formatDate('2026-11-01', 'uk', 'dayMonth')).toBe('1 лист.')
     expect(formatDate('2026-11-01', 'en', 'dayMonth')).toBe('1 Nov')

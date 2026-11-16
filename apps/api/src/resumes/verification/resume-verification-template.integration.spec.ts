@@ -205,6 +205,7 @@ describe.skipIf(!hasDatabaseUrl())(
           pending.push(p)
           return p
         },
+        waitingRunIds: () => runner.waitingRunIds(),
       }
       verification = new ResumeVerificationService(dbSvc, s3 as never, tracked as never)
       service = new SeniorResumesService(
@@ -502,6 +503,23 @@ describe.skipIf(!hasDatabaseUrl())(
       expect((await rowOf()).verificationStatus).toBe('QUEUED')
       expect(s3.delete).not.toHaveBeenCalled()
       await setState({ verificationQueuedAt: queuedPast(now, 1_000) })
+      expect(await verification.sweepStalledVerifications(now)).toBe(1)
+      expect((await rowOf()).verificationStatus).toBe('FAILED')
+    })
+
+    it('6b. sweep times a claimed run from its claim, not its queue (backlog 436)', async () => {
+      const now = new Date()
+      // Queued past the deadline, but it waited for a slot: claimed just under the deadline.
+      await setState({
+        verificationStatus: 'CHECKING',
+        verificationRunId: 'a16e0000-0000-4000-8000-00000000c00b',
+        verificationKind: 'full',
+        verificationQueuedAt: queuedPast(now, 60_000),
+        verificationStartedAt: queuedPast(now, -1_000),
+      })
+      expect(await verification.sweepStalledVerifications(now)).toBe(0)
+      expect((await rowOf()).verificationStatus).toBe('CHECKING')
+      await setState({ verificationStartedAt: queuedPast(now, 1_000) })
       expect(await verification.sweepStalledVerifications(now)).toBe(1)
       expect((await rowOf()).verificationStatus).toBe('FAILED')
     })

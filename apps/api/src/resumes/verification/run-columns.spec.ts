@@ -1,6 +1,6 @@
 import type { Logger } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
-import { deleteStagedQuietly, readSnapshot } from './run-columns'
+import { deleteStagedQuietly, readSnapshot, renderOwnerKey, storedOwnerKey } from './run-columns'
 
 /** A snapshot as startStagedRun stores it (FR-A-2). */
 const STORED = {
@@ -64,5 +64,41 @@ describe('deleteStagedQuietly', () => {
     const log = logger()
     await deleteStagedQuietly(s3, log, 'k')
     expect(log.warn).toHaveBeenCalledWith('Staged resume PDF not deleted: k')
+  })
+})
+
+describe('renderOwnerKey (P11, backlog 442)', () => {
+  const OWNER = {
+    displayName: 'Olena Koval',
+    email: 'olena@unit.spec',
+    legalFullName: 'Коваль Олена',
+    telegram: '@olena_k',
+  }
+
+  it('is the sha256 of the four owner inputs, in order', () => {
+    // sha256 of '["Jane","j@x.io",null,null]', computed outside the code.
+    expect(
+      renderOwnerKey({ displayName: 'Jane', email: 'j@x.io', legalFullName: null, telegram: null }),
+    ).toBe('0823f7d0956964e253170487d2c6dd79ee14a0e34f3b6f4aa3a1aa8769469519')
+  })
+
+  it.each([
+    ['the display name', { displayName: 'Olena Moroz' }],
+    ['the email', { email: 'olena2@unit.spec' }],
+    ['the legal name', { legalFullName: 'Мороз Олена' }],
+    ['the Telegram handle', { telegram: '@olena_new' }],
+    ['a cleared legal name', { legalFullName: null }],
+    ['a cleared Telegram handle', { telegram: null }],
+  ])('changes when %s changes', (_what, change) => {
+    expect(renderOwnerKey({ ...OWNER, ...change })).not.toBe(renderOwnerKey(OWNER))
+  })
+
+  it('a key of the old two-field format no longer matches: such a staged result is stale', () => {
+    // sha256 of '["Jane","j@x.io"]', the key a run stored before backlog 442.
+    const old = '3be78c6cf72b3eaa0912a3398cdc204aed4eeca0f07742bbde2b5e1513fccb9f'
+    expect(storedOwnerKey({ ownerKey: old })).toBe(old)
+    expect(
+      renderOwnerKey({ displayName: 'Jane', email: 'j@x.io', legalFullName: null, telegram: null }),
+    ).not.toBe(old)
   })
 })

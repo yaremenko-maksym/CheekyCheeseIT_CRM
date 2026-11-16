@@ -8002,6 +8002,8 @@ Sources: Master, wave 1-3 coder and manual-qa reports (2026-11-14/15).
 
 ## 436. No per-process cap on concurrent resume verification runs (R36, 2026-11-14)
 
+**Closed (2026-11-15).** PR #1349 (a FIFO in-process semaphore sized by `RESUME_VERIFICATION_MAX_CONCURRENT_RUNS`, default 3, bounds the run bodies; the stalled-run sweep ages a row from its claim and skips runs waiting for a slot). Reopen if the Verify check below fails.
+
 **Symptoms.** Every submit, staged edit, regenerate and template run of `ResumeVerificationService`
 fires its own detached `VerificationRunner.run`. Nothing bounds how many runs one API process holds
 at once; only the Typst render gate bounds the renders. Many seniors submitting together means many
@@ -8018,6 +8020,8 @@ Sources: verified-base-resume review R36 (Task 23).
 
 ## 437. The profile tab bar clips its last tab at 320 px (2026-11-14)
 
+**Parked (2026-11-15).** Owner: waits for the CRM redesign v2.
+
 **Symptoms.** On `/profile` at 320 px wide the `AnimatedTabs` bar of `UserProfileShell` shows its
 last visible tab cut at the right edge when the viewer sees all tabs
 (including Resume).
@@ -8030,6 +8034,8 @@ is fully inside the viewport or reachable by a horizontal scroll that shows it w
 Sources: verified-base-resume manual QA (Task 23 brief).
 
 ## 438. First visit remounts the whole app when the session locale differs (2026-11-14)
+
+**Closed (2026-11-15).** PR #1343 (`a589d002b`) holds the auth loading state until the session locale is active, so the keyed remount in `LocaleScopedApp` runs under the pending UI. Reopen if the Verify check below shows two mounts.
 
 **Symptoms.** `client.tsx` activates the pre-login locale; `context/auth.tsx` then activates the
 session's own locale. `LocaleScopedApp` keys the outlet by the locale, so on a first visit whose
@@ -8047,6 +8053,8 @@ Sources: verified-base-resume manual QA (Task 23 brief).
 
 ## 439. `cascade-impact-panel.test.tsx` is still timing-flaky under load (recurrence of 195, 2026-11-14)
 
+**Closed (2026-11-15).** PR #1350 (cleans up overlay and scroll-lock state in beforeEach/afterEach). Reopen if the Verify check below fails.
+
 **Symptoms.** The verified-base-resume branch saw this web test fail under a loaded full run and
 pass alone, the pattern item 195 describes. It is not related to the resume code.
 
@@ -8058,6 +8066,8 @@ file sequentially.
 Sources: verified-base-resume pre-push runs (Task 23 brief); item 195.
 
 ## 440. `ResumeVerificationPanel.test.tsx` is at the 800-line limit (2026-11-14)
+
+**Closed (2026-11-15).** PR #1350 (moves staged-PDF block to ResumeVerificationPanel.staged-pdf.test.tsx with shared render helper and splits contact patterns into resume-completeness.contacts.spec.ts). Reopen if the Verify check below fails.
 
 **Symptoms.** The panel test file is at 799 lines, so the next staged-PDF case pushes it over the
 file-size limit. `packages/shared/src/schemas/resume-completeness.spec.ts` is over it already (961
@@ -8077,6 +8087,8 @@ Sources: verified-base-resume review (Task 23 brief).
 
 ## 441. A failed delete of a superseded resume source leaves an unswept CV in R2 (2026-11-14)
 
+**Closed (2026-11-15).** PR #1352 (a daily `ResumeOrphanSweepCron` deletes every `senior-resumes/` object no `senior_resumes` row references once it is older than 24 h). Reopen if the Verify check below fails.
+
 **Symptoms.** When a senior's resume source is replaced, or an upload loses its queue CAS, the
 resumes service deletes the object nobody points at. If that delete fails it only logs a warning
 ("Superseded resume source not deleted" / "Unreferenced resume source not deleted"). The CV stays
@@ -8094,6 +8106,8 @@ source, run the sweep: the orphan is gone, and the referenced source and PDFs ar
 Sources: verified-base-resume security review, finding SR-L-4 (Task 23 fix round 1).
 
 ## 442. A VERIFIED resume is not re-checked after a rename or a Telegram change (2026-11-14)
+
+**Closed (2026-11-15).** PR #1353 (a real change of display name, legal name or Telegram stamps `senior_resumes.recheck_needed_at` on a VERIFIED resume, confirm clears it, the panel shows a "re-check needed" badge). Reopen if the Verify check below fails.
 
 **Symptoms.** Verification redacts the senior's display name, legal name and stored Telegram handle from the
 resume text before any model call, and confirm detects a display-name change only while the run is still
@@ -8155,6 +8169,8 @@ Sources: verified-base-resume Task 23 round 7, ruling R105.
 
 ## 446. Resume confirm step: the kept-result notice sits too far from the action (2026-11-14)
 
+**Parked (2026-11-15).** Owner: waits for the CRM redesign v2.
+
 **Symptoms.** After a staged edit or regenerate whose check was unavailable, the row comes back AWAITING_CONFIRM on
 the previous result, and the kept-result notice (`resume-verification-kept`) renders below the whole confirm step.
 The user acts on a field near the top, sees the text go back, and does not see the line that says why.
@@ -8167,3 +8183,31 @@ PR, so this waits for the redesign.
 and at 1440 px.
 
 Sources: verified-base-resume Task 26 manual QA, finding QA-L-2.
+
+## 447. Resume PDF download returns 500 when the stored PDF object is missing (2026-11-16)
+
+**Symptoms.** `GET /api/users/:userId/resume/pdf` reads `pdf_s3_key` with `S3Service.getObject` and lets a
+`NoSuchKey` through as a 500. The row still says the PDF is ready, the same fingerprint means no re-render is
+queued, so the download stays broken until the source changes.
+
+**Candidate fix.** In `getRenderedPdf`, on `NoSuchKey` for the current PDF, queue a re-render and answer the existing
+202 "not ready" state (or a clear not-ready error code), instead of a 500.
+
+**Verify.** With the row's `pdf_s3_key` object deleted from the bucket, the endpoint answers 202 (not 500), and
+after the render lands the same endpoint returns the PDF.
+
+Sources: PR #1352 (orphan sweep, backlog 441) fix round 1.
+
+## 448. Staged resume PDFs under `resumes/<id>/staged/` have no orphan sweep (2026-11-16)
+
+**Symptoms.** `ResumeOrphanSweepCron` lists only `senior-resumes/`. Staged PDFs are written to
+`resumes/<resumeId>/staged/<runId>.pdf` (`stagedPdfKey`), so a staged PDF whose cleanup delete failed stays in
+R2 with nothing left to reach it.
+
+**Candidate fix.** Extend the same sweep to the `resumes/` prefix (keys matching `resumes/<id>/staged/`), with its own
+referenced set (`staged_pdf_s3_key` and `staged_previous->'pdfKey'`), the same 24 h grace, HEAD re-check and cap.
+
+**Verify.** An aged staged PDF no row points at is deleted; the row's current staged PDF, the
+`staged_previous` PDF and a staged PDF younger than 24 h stay.
+
+Sources: PR #1352 (orphan sweep, backlog 441) fix round 1.

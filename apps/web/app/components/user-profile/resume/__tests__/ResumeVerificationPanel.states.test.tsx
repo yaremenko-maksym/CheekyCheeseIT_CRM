@@ -68,6 +68,7 @@ function dto(overrides: Partial<SeniorResumeDto> = {}): SeniorResumeDto {
     verifiedVersion: null,
     verifiedAt: null,
     verifiedByName: null,
+    recheckNeededAt: null,
     staged: null,
     verificationBusy: false,
     ...overrides,
@@ -356,5 +357,23 @@ describe('VerificationBadge', () => {
       'Перевірено 1 лист. 2026 р. · Olena',
     )
     expect(screen.getByTestId('resume-verification-status')).toHaveAttribute('tabindex', '-1')
+    expect(screen.queryByTestId('resume-recheck-needed')).not.toBeInTheDocument()
+  })
+
+  // Backlog 442: an identity change after verification flags the resume.
+  it('VERIFIED with a re-check flag: the re-check notice next to the status', () => {
+    render(
+      <VerificationBadge
+        resume={dto({
+          verificationStatus: 'VERIFIED',
+          verifiedAt: '2026-11-01T10:00:00.000Z',
+          recheckNeededAt: '2026-11-02T10:00:00.000Z',
+        })}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    expect(
+      within(screen.getByTestId('resume-verification-status')).getByTestId('resume-recheck-needed'),
+    ).toHaveTextContent('Потрібна повторна перевірка')
   })
 })

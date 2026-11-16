@@ -1939,6 +1939,44 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     expect(toast.error).not.toHaveBeenCalled()
   })
 
+  // 1340-CR-L-r2-1: Radix keeps the closed content mounted for its exit animation (~200 ms); happy-dom
+  // runs no CSS, so the content reports an exit animation it never ends — the form stays mounted
+  it('a refusal that lands during the close animation (closed, still mounted) still toasts', async () => {
+    const real = window.getComputedStyle.bind(window)
+    const styles = vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) => {
+      const style = real(el, pseudo)
+      if (!(el instanceof HTMLElement) || el.getAttribute('role') !== 'alertdialog') return style
+      return new Proxy(style, {
+        get: (target, key) => {
+          if (key === 'animationName') return el.dataset['state'] === 'closed' ? 'exit' : 'enter'
+          const value: unknown = Reflect.get(target, key, target)
+          return typeof value === 'function' ? value.bind(target) : value
+        },
+      })
+    })
+    try {
+      const user = userEvent.setup()
+      let fail: (reason: unknown) => void = () => {}
+      post.mockReturnValueOnce(new Promise((_resolve, reject) => (fail = reject)))
+      renderCard(ADMIN)
+      const dialog = await openAssign(user)
+      await fill(user, dialog)
+      await user.click(assign(dialog))
+      await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+      await user.keyboard('{Escape}')
+      await waitFor(() => expect(dialog).toHaveAttribute('data-state', 'closed'))
+      expect(dialog).toBeInTheDocument()
+      fail(coded(422, 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE'))
+      await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+      expect(vi.mocked(toast.error).mock.calls[0]).toEqual([
+        expect.stringMatching(new RegExp(`^${NOT_ELIGIBLE}$`)),
+        JOB_QUEUE_TOAST,
+      ])
+    } finally {
+      styles.mockRestore()
+    }
+  })
+
   it('CR-L-1: a retry clears the refusal it replaced, so a dialog dropped during the retry toasts nothing', async () => {
     const user = userEvent.setup()
     post.mockRejectedValueOnce(coded(422, 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE'))
@@ -2195,13 +2233,13 @@ describe('ADMIN «Призначити команді…» on a triage card (Tas
     renderCard(ADMIN)
     const dialog = await openAssign(user)
     const until = within(dialog).getByRole('button', { name: 'Діє до' })
-    expect(until).toHaveTextContent('25 листоп. 2026')
+    expect(until).toHaveTextContent('25 лист. 2026 р.')
     await user.click(until)
     const panel = within(await screen.findByRole('dialog'))
     expect(panel.getByRole('button', { name: /, 10-е листопада 2026/ })).toBeDisabled()
     expect(panel.getByRole('button', { name: /, 11-е листопада 2026/ })).toBeEnabled()
     await user.click(panel.getByRole('button', { name: /, 20-е листопада 2026/ }))
-    expect(until).toHaveTextContent('20 листоп. 2026')
+    expect(until).toHaveTextContent('20 лист. 2026 р.')
     await fill(user, dialog)
     await user.click(assign(dialog))
     await waitFor(() => expect(sent(GRANT)).toHaveLength(1))

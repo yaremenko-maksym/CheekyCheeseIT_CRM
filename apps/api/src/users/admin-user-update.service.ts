@@ -15,6 +15,7 @@ import {
 import { buildAdminUserUpdateSet } from './user-update.util'
 import { assertAvatarDocument } from './user-avatar.util'
 import { updateUserRow } from './user-write.util'
+import { markResumeRecheckNeeded } from '../resumes/verification/recheck-flag'
 
 type AppRole = 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
 
@@ -189,6 +190,8 @@ export class AdminUserUpdateService {
       // employee's IBAN so their earned payout can be sent resubmits the whole
       // form, unchanged `role` and `monthlySalary` included, and must not be
       // blocked (that edit is settlement, not a new entitlement).
+      // Backlog 442: before the UPDATE, so its locked read sees the values this write replaces.
+      await markResumeRecheckNeeded(tx, id, set)
       const u = await updateUserRow(tx, id, existing, set)
       await markUserEditDirty(tx, id, existing, set)
 

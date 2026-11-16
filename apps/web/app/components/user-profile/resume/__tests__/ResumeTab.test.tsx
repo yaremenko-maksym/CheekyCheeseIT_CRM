@@ -132,6 +132,7 @@ function makeResponse(
     verifiedVersion: null,
     verifiedAt: null,
     verifiedByName: null,
+    recheckNeededAt: null,
     staged: null,
     verificationBusy: false,
     ...overrides,

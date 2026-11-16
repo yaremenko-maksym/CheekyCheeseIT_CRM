@@ -46,6 +46,7 @@ const verified = (busy: boolean) => ({
       verifiedVersion: 2,
       verifiedAt: '2026-11-10T10:00:00.000Z',
       verifiedByName: null,
+      recheckNeededAt: null,
       staged: null,
       verificationBusy: busy,
     },

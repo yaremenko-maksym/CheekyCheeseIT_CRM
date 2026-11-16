@@ -17,7 +17,10 @@ const CUTOFF = new Date(NOW.getTime() - VERIFICATION_DEADLINE_MS)
 const STAGED_KEY = 'resumes/r-1/staged/run-0.pdf'
 
 const s3 = { delete: vi.fn(async (_key: string) => {}) }
-const runner = { run: vi.fn(async (_id: string, _runId: string) => {}) }
+const runner = {
+  run: vi.fn(async (_id: string, _runId: string) => {}),
+  waitingRunIds: vi.fn((): string[] => []),
+}
 let logs: string[]
 let errors: string[]
 
@@ -66,16 +69,53 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks())
 
 describe('sweepStalledVerifications', () => {
-  it('selects run rows of QUEUED, CHECKING or VERIFIED queued before now minus the deadline', async () => {
+  it('selects run rows of QUEUED, CHECKING or VERIFIED started (else queued) before now minus the deadline', async () => {
     const { swept, log } = sweep([[]])
     expect(await swept()).toBe(0)
     expect(log).toHaveLength(1)
     const [select] = log
     expect(select?.columns).toEqual(['id', 'runId', 'status'])
+    // The clock starts at the claim when there is one: a run that waited for a slot (backlog 436)
+    // gets its whole budget from its claim, as the runner measures it.
     expect(select?.where?.sql).toBe(
-      '("senior_resumes"."verification_run_id" is not null and "senior_resumes"."verification_queued_at" < $1 and "senior_resumes"."verification_status" in ($2, $3, $4))',
+      '("senior_resumes"."verification_run_id" is not null and coalesce("senior_resumes"."verification_started_at", "senior_resumes"."verification_queued_at") < $1 and "senior_resumes"."verification_status" in ($2, $3, $4))',
     )
-    expect(select?.where?.params).toEqual([CUTOFF.toISOString(), 'QUEUED', 'CHECKING', 'VERIFIED'])
+    expect(select?.where?.params).toEqual([CUTOFF, 'QUEUED', 'CHECKING', 'VERIFIED'])
+  })
+
+  it('skips the runs waiting for a slot in this process, in the select and in the CAS (backlog 436)', async () => {
+    runner.waitingRunIds.mockReturnValueOnce(['run-7', 'run-8'])
+    const { swept, log } = sweep([
+      [{ id: 'r-1', runId: 'run-1', status: 'QUEUED' }],
+      [{ key: null }],
+      [],
+    ])
+    expect(await swept()).toBe(0)
+    expect(runner.waitingRunIds).toHaveBeenCalledTimes(1)
+    const [select, , update] = log
+    expect(
+      select?.where?.sql.endsWith('and "senior_resumes"."verification_run_id" not in ($5, $6))'),
+    ).toBe(true)
+    expect(select?.where?.params).toEqual([
+      CUTOFF,
+      'QUEUED',
+      'CHECKING',
+      'VERIFIED',
+      'run-7',
+      'run-8',
+    ])
+    expect(update?.where?.sql).toContain(
+      'and "senior_resumes"."verification_run_id" not in ($6, $7))',
+    )
+    expect(update?.where?.params?.slice(0, 7)).toEqual([
+      'r-1',
+      CUTOFF,
+      'QUEUED',
+      'CHECKING',
+      'VERIFIED',
+      'run-7',
+      'run-8',
+    ])
   })
 
   it('CHECKING → FAILED STALLED under a CAS repeating the selection; staged and derived keys go', async () => {
@@ -97,7 +137,7 @@ describe('sweepStalledVerifications', () => {
     expect(update?.set).toEqual({ verificationStatus: 'FAILED', ...CLEARED })
     expect(update?.where?.params).toEqual([
       'r-1',
-      CUTOFF.toISOString(),
+      CUTOFF,
       'QUEUED',
       'CHECKING',
       'VERIFIED',

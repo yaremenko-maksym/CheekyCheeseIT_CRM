@@ -7,8 +7,6 @@
  * second GET, not a spy on the query client.
  */
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
@@ -17,7 +15,16 @@ import {
   type SeniorResumeDto,
   type SeniorResumeResponse,
 } from '@crm/shared'
-import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+import { loadCatalog } from '@/test/i18n'
+import { FOCUS_REQUEST_TTL_MS, useFocusAfterRender } from '../ResumeConfirmStep'
+import { ResumeVerificationPanel, VerificationBadge } from '../ResumeVerificationPanel'
+import {
+  RUN_ID,
+  USER,
+  STAGED,
+  createRenderWired,
+  makeResponse,
+} from './ResumeVerificationPanel.render'
 
 const { getMock, postMock, putMock, toastError } = vi.hoisted(() => ({
   getMock: vi.fn(),
@@ -28,136 +35,7 @@ const { getMock, postMock, putMock, toastError } = vi.hoisted(() => ({
 vi.mock('@/lib/axios', () => ({ api: { get: getMock, post: postMock, put: putMock } }))
 vi.mock('sonner', () => ({ toast: { error: toastError, success: vi.fn() } }))
 
-import { useSeniorResume } from '@/hooks/use-senior-resume'
-import { FOCUS_REQUEST_TTL_MS, useFocusAfterRender } from '../ResumeConfirmStep'
-import { ResumeVerificationPanel, VerificationBadge } from '../ResumeVerificationPanel'
-
-const RUN_ID = '22222222-2222-4222-8222-222222222222'
-const USER = '33333333-3333-4333-8333-333333333333'
-
-const STAGED: NonNullable<SeniorResumeDto['staged']> = {
-  runId: RUN_ID,
-  content: {
-    ...EMPTY_RESUME_CONTENT,
-    summary: 'Backend engineer with five years of TypeScript.',
-    experience: [
-      {
-        company: 'Acme',
-        role: 'Lead Engineer',
-        period: '2021 - 2024',
-        bullets: ['Led a team of five', 'Cut build time in half'],
-      },
-    ],
-  },
-  layout: DEFAULT_RESUME_LAYOUT,
-  templateName: 'classic',
-  pdfAvailable: true,
-  editedPaths: [],
-}
-
-function makeResponse(
-  overrides: Partial<SeniorResumeDto> = {},
-  canConfirm = true,
-): SeniorResumeResponse {
-  const resume: SeniorResumeDto = {
-    id: '11111111-1111-4111-8111-111111111111',
-    userId: USER,
-    content: EMPTY_RESUME_CONTENT,
-    status: 'READY',
-    errorCode: null,
-    errorMessage: null,
-    quotaResetsAt: null,
-    sourceFileName: null,
-    sourceFileSizeBytes: null,
-    hasSourceFile: false,
-    version: 3,
-    updatedByUserId: null,
-    updatedByName: null,
-    createdAt: '2026-11-01T10:00:00.000Z',
-    updatedAt: '2026-11-01T10:00:00.000Z',
-    layout: DEFAULT_RESUME_LAYOUT,
-    templateName: 'classic',
-    hasCustomTemplate: false,
-    renderStatus: 'READY',
-    renderError: null,
-    pdfUpToDate: true,
-    facts: {
-      ...EMPTY_RESUME_FACTS,
-      headline: 'Backend Engineer',
-      experience: [
-        {
-          company: 'Acme',
-          role: 'Lead Engineer',
-          location: null,
-          start: '2021-01',
-          end: '2024-06',
-          current: false,
-          technologies: ['TypeScript'],
-          notes: ['Led a team of five people'],
-        },
-      ],
-    },
-    verificationStatus: 'AWAITING_CONFIRM',
-    verificationErrorCode: null,
-    verificationReport: { gates: [], fallbacks: [] },
-    verifiedVersion: null,
-    verifiedAt: null,
-    verifiedByName: null,
-    staged: STAGED,
-    verificationBusy: false,
-    ...overrides,
-  }
-  return { resume, canEdit: true, canConfirm }
-}
-
-/** The panel (and the toolbar badge) fed by the real resume query, as ResumeTab feeds them. */
-function Wired() {
-  const { data } = useSeniorResume(USER)
-  if (!data?.resume) return null
-  return (
-    <>
-      <VerificationBadge resume={data.resume} />
-      <ResumeVerificationPanel
-        userId={USER}
-        resume={data.resume}
-        canConfirm={data.canConfirm}
-        onChangeFacts={() => {}}
-      />
-    </>
-  )
-}
-
-const stagedPdfGets = () =>
-  getMock.mock.calls.filter(([url]) => url === `/users/${USER}/resume/staged-pdf`).length
-
-function renderWired(initial: SeniorResumeResponse, stagedPdf?: Blob) {
-  let response = initial
-  getMock.mockImplementation(async (url: string) => {
-    if (!url.endsWith('/staged-pdf')) return { data: response }
-    return stagedPdf ? { data: stagedPdf } : Promise.reject(new Error('no staged PDF here'))
-  })
-  const qc = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  })
-  const wrap = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={qc}>
-      <I18nTestProvider>{children}</I18nTestProvider>
-    </QueryClientProvider>
-  )
-  const view = render(<Wired />, { wrapper: wrap })
-  /** The write (POST unless named) answers `next`, and so does every resume GET after it. */
-  const postMovesServerTo = (next: SeniorResumeResponse, write = postMock) =>
-    write.mockImplementation(() => {
-      response = next
-      return Promise.resolve({ data: next })
-    })
-  /** The server moved on: the next resume GET answers `next`, and the query refetches now. */
-  const serverMovesTo = async (next: SeniorResumeResponse) => {
-    response = next
-    await act(() => qc.invalidateQueries())
-  }
-  return { ...view, serverMovesTo, postMovesServerTo }
-}
+const renderWired = createRenderWired(getMock, postMock)
 
 beforeEach(async () => {
   vi.clearAllMocks()
@@ -375,56 +253,6 @@ describe('ResumeVerificationPanel — failure panel', () => {
     )
     const panel = await screen.findByRole('alert')
     expect(within(panel).queryByTestId('resume-verification-items')).toBeNull()
-  })
-})
-
-describe('ResumeVerificationPanel — staged PDF', () => {
-  it('staged PDF refetches when the check finishes (CHECKING -> AWAITING_CONFIRM)', async () => {
-    const { serverMovesTo } = renderWired(makeResponse())
-    await waitFor(() => expect(stagedPdfGets()).toBe(1))
-
-    // A staged edit starts a run: same runId, the old PDF is still on the row.
-    await serverMovesTo(makeResponse({ verificationStatus: 'CHECKING', verificationBusy: true }))
-    expect(await screen.findByTestId('resume-confirm-checking')).toBeInTheDocument()
-    expect(stagedPdfGets()).toBe(1)
-
-    await serverMovesTo(makeResponse())
-    await waitFor(() => expect(screen.queryByTestId('resume-confirm-checking')).toBeNull())
-    await waitFor(() => expect(stagedPdfGets()).toBe(2))
-  })
-
-  it('names the template of the staged PDF', async () => {
-    renderWired(makeResponse({ staged: { ...STAGED, templateName: 'modern' } }))
-    const pdf = await screen.findByTestId('resume-staged-pdf')
-    expect(within(pdf).getByTestId('resume-staged-pdf-template')).toHaveTextContent(
-      'Шаблон: Сучасний',
-    )
-  })
-
-  it('gives the staged PDF preview its own accessible name, not the filename default', async () => {
-    // happy-dom's URL inherits real object-URL statics: spy them and unmount before restoring,
-    // so the hook's unmount revoke lands on the spy, not on the real method.
-    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:staged')
-    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-    const name = 'Попередній перегляд PDF резюме до підтвердження'
-    try {
-      const view = renderWired(makeResponse(), new Blob(['%PDF'], { type: 'application/pdf' }))
-      const object = await screen.findByTestId('resume-staged-pdf-object')
-      expect(await within(object).findByTitle(name)).toHaveAccessibleName(name)
-      view.unmount()
-      expect(revoke).toHaveBeenCalledWith('blob:staged')
-    } finally {
-      create.mockRestore()
-      revoke.mockRestore()
-    }
-  })
-
-  it('no staged PDF fetch while busy', async () => {
-    renderWired(makeResponse({ verificationStatus: 'QUEUED', verificationBusy: true }))
-    const pdf = await screen.findByTestId('resume-staged-pdf')
-    expect(stagedPdfGets()).toBe(0)
-    // No download of a PDF the run is about to replace.
-    expect(within(pdf).queryByRole('link', { name: 'Завантажити PDF' })).toBeNull()
   })
 })
 

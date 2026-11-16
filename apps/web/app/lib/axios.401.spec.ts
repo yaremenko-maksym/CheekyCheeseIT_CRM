@@ -4,7 +4,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import settle from 'axios/unsafe/core/settle.js'
-import type { AxiosRequestConfig, AxiosResponse } from 'axios'
+import { isAxiosError, type AxiosRequestConfig, type AxiosResponse } from 'axios'
 
 const { delMock, setMock } = vi.hoisted(() => ({
   delMock: vi.fn((_key?: string) => Promise.resolve()),
@@ -56,7 +56,10 @@ describe('axios.ts interceptor — 401', () => {
       throw new DOMException('blocked', 'SecurityError')
     })
 
-    await expect(api.get('/projects', { adapter: unauthorized })).rejects.toBeDefined()
+    // the caller gets the 401 itself, never the storage failure (1340-CR-L-r2-2)
+    const rejected: unknown = await api.get('/projects', { adapter: unauthorized }).catch((e) => e)
+    expect(isAxiosError(rejected)).toBe(true)
+    expect(rejected).toMatchObject({ response: { status: 401 }, config: { url: '/projects' } })
     await vi.waitFor(() => expect(window.location.href).toBe('/login'))
   })
 })

@@ -193,6 +193,17 @@ describe('the verification fields a DTO shows', () => {
     stagedEditedPaths: [{ path: 'summary', userId: HR_ID }],
   } as unknown as SeniorResume
 
+  it('the re-check flag reaches the DTO as an ISO string, null when unset (backlog 442)', async () => {
+    const { svc } = withVerifier('Olena K.')
+    const flagged = await svc.toDtoFields({
+      ...STAGED_ROW,
+      recheckNeededAt: new Date('2026-11-02T08:00:00.000Z'),
+    } as SeniorResume)
+    expect(flagged.recheckNeededAt).toBe('2026-11-02T08:00:00.000Z')
+    const clean = await svc.toDtoFields({ ...STAGED_ROW, recheckNeededAt: null } as SeniorResume)
+    expect(clean.recheckNeededAt).toBeNull()
+  })
+
   it('stored values reach the DTO, and a staged PDF with its run makes the confirm step', async () => {
     const { svc, findFirst } = withVerifier('Olena K.')
     const dto = await svc.toDtoFields(STAGED_ROW)

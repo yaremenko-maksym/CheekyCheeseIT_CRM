@@ -72,6 +72,7 @@ const PATTERNS = {
   invalidate: /UPDATE job_queue_generations/,
   triageLog: /INSERT INTO job_queue_actions \(kind, opportunity_id, subscription_id/,
   blob: /INSERT INTO job_text_blobs/,
+  publishLock: /pg_advisory_xact_lock\(hashtextextended/,
   advisoryLock: /pg_advisory_xact_lock/,
   urlTaken: /SELECT 1 FROM job_opportunities WHERE application_url_key/,
   card: /INSERT INTO job_opportunities/,
@@ -168,6 +169,7 @@ const DEFAULTS: Partial<Record<Statement, Rows>> = {
   subInsert: [],
   subRevoke: [],
   invalidate: [],
+  publishLock: [],
   triageLog: [],
 }
 
@@ -1346,7 +1348,7 @@ describe('grantTeamTriage (r5 Task 6.4b)', () => {
     idempotencyKey: KEY,
   }
   const FP = requestFingerprint(['TRIAGE_GRANTED', OPP, TEAM_B, 4, 2, 'Fits the team', T2])
-  const WRITE_HITS: Statement[] = ['grantUpsert', 'triageLog', 'invalidate']
+  const WRITE_HITS: Statement[] = ['grantUpsert', 'triageLog', 'publishLock', 'invalidate']
   const noTriageWrites = (hits: Statement[]) =>
     expect(hits.filter((x) => WRITE_HITS.includes(x))).toEqual([])
   useServerClock()
@@ -1397,6 +1399,7 @@ describe('grantTeamTriage (r5 Task 6.4b)', () => {
       'grantRead',
       'grantUpsert',
       'triageLog',
+      'publishLock',
       'invalidate',
     ])
     expect(h.scopes.resolve).toHaveBeenCalledWith(ADMIN, undefined, h.tx)
@@ -1413,6 +1416,8 @@ describe('grantTeamTriage (r5 Task 6.4b)', () => {
       KEY,
       JSON.stringify({ fp: FP }),
     ])
+    // 1345-CR-L-r2-1: the retire waits on the team's publish lock, after the grant's row locks.
+    expect(h.param('publishLock')).toEqual([`job-queue-generation:TEAM:${TEAM_B}`])
     expect(h.param('invalidate')).toEqual([TEAM_B])
   })
 
@@ -1587,6 +1592,7 @@ describe('revokeTeamTriage (r5 Task 6.4b)', () => {
       'earlier',
       'grantRevoke',
       'triageLog',
+      'publishLock',
       'invalidate',
     ])
     expect(h.param('grantRevoke')).toEqual(['No longer relevant', OPP, TEAM_B, 1])
@@ -1696,6 +1702,7 @@ describe('subscribeTeamTriage (r5 Task 6.4b)', () => {
       'subDuplicate',
       'subInsert',
       'triageLog',
+      'publishLock',
       'invalidate',
     ])
     expect(h.param('advisoryLock')).toEqual([0x74726961, `${TEAM_B}:SOFTWARE`])
@@ -1896,7 +1903,15 @@ describe('unsubscribeTeamTriage (r5 Task 6.4b)', () => {
       subscriptionVersion: 2,
       revokedAt: T2,
     })
-    expect(h.hits).toEqual(['subLock', 'actor', 'earlier', 'subRevoke', 'triageLog', 'invalidate'])
+    expect(h.hits).toEqual([
+      'subLock',
+      'actor',
+      'earlier',
+      'subRevoke',
+      'triageLog',
+      'publishLock',
+      'invalidate',
+    ])
     expect(h.param('subLock')).toEqual([SUB_ID])
     expect(h.param('subRevoke')).toEqual([ADMIN_ID, 'Team reshaped', SUB_ID, 1])
     expect(h.param('triageLog')).toEqual([
@@ -2229,8 +2244,14 @@ describe('createManualCard (r5 Phase 6)', () => {
       'duplicates',
       'insert',
       'log',
+      // 1340-QA-OUT-1: the card's team and the studio list it at once, not after the TTL;
+      // CR-M-1: behind the studio's and the team's publish locks, in that order
+      'publishLock',
+      'publishLock',
+      'invalidate',
       'name',
     ])
+    expect(h.param('invalidate')).toEqual([TEAM_A])
     expect(h.scopes.resolve).toHaveBeenCalledWith(HR, TEAM_A, h.tx)
     expect(h.scopes.assertVisible).not.toHaveBeenCalled()
   })

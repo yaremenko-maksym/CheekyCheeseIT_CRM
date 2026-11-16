@@ -26,7 +26,19 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { createHash, randomUUID } from 'node:crypto'
-import { and, eq, inArray, isNotNull, isNull, lt, ne, notInArray, sql, type SQL } from 'drizzle-orm'
+import {
+  and,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  notInArray,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm'
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core'
 import {
   DEFAULT_RESUME_LAYOUT,
@@ -54,7 +66,7 @@ import { apiError } from '../../common/api-error'
 import { DatabaseService } from '../../database/database.service'
 import { describeDbError } from '../../database/pg-errors'
 import { S3Service } from '../../documents/s3.service'
-import { seniorResumes, teamMembers, type SeniorResume } from '../../database/schema'
+import { seniorResumes, teamMembers, users, type SeniorResume } from '../../database/schema'
 import { resolveTemplateName } from '../resume-typst.service'
 import { hasContact } from './content-gates'
 import { contentToFacts } from './derive-content'
@@ -91,6 +103,7 @@ type VerificationDtoFields = Pick<
   | 'verifiedVersion'
   | 'verifiedAt'
   | 'verifiedByName'
+  | 'recheckNeededAt'
   | 'staged'
   | 'verificationBusy'
 >
@@ -183,6 +196,8 @@ export function draftReset() {
     verificationStartedAt: null,
     verificationErrorCode: null,
     verificationReport: null,
+    // Backlog 442: a DRAFT has nothing verified to re-check; its next confirm reads the owner anew.
+    recheckNeededAt: null,
     ...CLEARED_STAGED,
   }
 }
@@ -343,13 +358,23 @@ export class ResumeVerificationService {
    * staged columns cleared, `STALLED`, still VERIFIED. After commit the staged object goes (none for a
    * restored row: its PDF is the kept one), and the run's derived key too (a crash between upload and
    * CAS). Each swept row writes the run-failed warn line.
+   * The clock starts at the claim when there is one, else at the queue: a run that waited for a
+   * slot of the per-process cap (backlog 436) keeps its whole budget, as the runner measures it from
+   * its claim. A run still waiting for a slot in this process is alive, so it is skipped; the list
+   * dies with the process, so the rows of a dead process are still reaped.
    * Returns the number of rows reaped.
    */
   async sweepStalledVerifications(now: Date): Promise<number> {
+    const waiting = this.runner.waitingRunIds()
     const stalled = and(
       isNotNull(seniorResumes.verificationRunId),
-      lt(seniorResumes.verificationQueuedAt, new Date(now.getTime() - VERIFICATION_DEADLINE_MS)),
+      lt(
+        sql`coalesce(${seniorResumes.verificationStartedAt}, ${seniorResumes.verificationQueuedAt})`,
+        new Date(now.getTime() - VERIFICATION_DEADLINE_MS),
+      ),
       inArray(seniorResumes.verificationStatus, ['QUEUED', 'CHECKING', 'VERIFIED']),
+      // No waiting run, no extra term: the predicate stays the one the select and the CAS share.
+      waiting.length > 0 ? notInArray(seniorResumes.verificationRunId, waiting) : undefined,
     )
     const rows = await this.db.db
       .select({
@@ -450,7 +475,8 @@ export class ResumeVerificationService {
   /**
    * POST submit (202): from DRAFT, FAILED or AWAITING_CONFIRM, queue a full check run and start it off
    * the request path. 422 for a custom template or incomplete facts (P7: no issue list), 409 while a
-   * check or an extraction runs (P5a), 409 RESUME_ALREADY_VERIFIED on an idle VERIFIED row. From
+   * check or an extraction runs (P5a), 409 RESUME_ALREADY_VERIFIED on an idle VERIFIED row unless it
+   * is flagged "re-check needed" (backlog 442: the flag stays until the confirm). From
    * AWAITING_CONFIRM the old staged object goes after commit.
    */
   async submit(
@@ -466,7 +492,7 @@ export class ResumeVerificationService {
       throw apiError('RESUME_VERIFICATION_BUSY', HttpStatus.CONFLICT)
     }
     // Nothing is busy: the facts are checked and confirmed already, a facts change resets to DRAFT.
-    if (row.verificationStatus === 'VERIFIED') {
+    if (row.verificationStatus === 'VERIFIED' && !row.recheckNeededAt) {
       throw apiError('RESUME_ALREADY_VERIFIED', HttpStatus.CONFLICT)
     }
     const facts = this.factsOf(row)
@@ -495,7 +521,13 @@ export class ResumeVerificationService {
       .where(
         and(
           draftWriteGuard(row),
-          inArray(seniorResumes.verificationStatus, ['DRAFT', 'FAILED', 'AWAITING_CONFIRM']),
+          or(
+            inArray(seniorResumes.verificationStatus, ['DRAFT', 'FAILED', 'AWAITING_CONFIRM']),
+            and(
+              eq(seniorResumes.verificationStatus, 'VERIFIED'),
+              isNotNull(seniorResumes.recheckNeededAt),
+            ),
+          ),
           notInArray(seniorResumes.status, EXTRACTION_BUSY),
           isNull(seniorResumes.templateSource),
           eq(seniorResumes.version, row.version),
@@ -514,7 +546,8 @@ export class ResumeVerificationService {
    * columns and sets VERIFIED with `verified_version` = the new version. `pdfFingerprint` is the
    * caller's fingerprint of the promoted render input (P11): the live PDF endpoint then serves the
    * checked PDF instead of re-rendering it. `owner` is the name and email that fingerprint was
-   * taken with: a staged PDF rendered with other ones is stale too. A miss is 409
+   * taken with, plus the legal name and Telegram the run redacted: a staged result of another owner
+   * state is stale too (backlog 442). A miss is 409
    * RESUME_CONFIRM_STALE. The replaced live PDF object goes after commit.
    */
   async confirm(
@@ -522,19 +555,33 @@ export class ResumeVerificationService {
     input: ConfirmResumeInput,
     viewerId: string,
     pdfFingerprint: string,
-    owner: { displayName: string; email: string },
+    owner: Parameters<typeof renderOwnerKey>[0],
   ): Promise<SeniorResume> {
     this.assertNoExtraction(row)
     // The fingerprint was taken from this read, so it must be the staged result being confirmed.
     if (row.verificationStatus !== 'AWAITING_CONFIRM' || row.verificationRunId !== input.runId) {
       throw apiError('RESUME_CONFIRM_STALE', HttpStatus.CONFLICT)
     }
-    // The staged PDF shows the owner as the run read them; a profile change since then is stale.
+    // The staged result shows and redacts the owner as the run read them; a change since is stale.
     if (storedOwnerKey(row.verificationReport) !== renderOwnerKey(owner)) {
       throw apiError('RESUME_CONFIRM_STALE', HttpStatus.CONFLICT)
     }
     const now = new Date()
     const result = await this.db.db.transaction(async (tx) => {
+      // Backlog 442: the owner again, under FOR SHARE, so an identity edit cannot commit between
+      // this check and the UPDATE (its locked read is FOR NO KEY UPDATE: they conflict). Users first,
+      // then the resume: the order of `markResumeRecheckNeeded`, so the two never deadlock.
+      const [locked] = await tx
+        .select({
+          displayName: users.displayName,
+          email: users.email,
+          legalFullName: users.legalFullName,
+          telegram: users.telegram,
+        })
+        .from(users)
+        .where(eq(users.id, row.userId))
+        .for('share')
+      if (!locked || storedOwnerKey(row.verificationReport) !== renderOwnerKey(locked)) return null
       const [current] = await tx
         .select({ key: seniorResumes.pdfS3Key })
         .from(seniorResumes)
@@ -558,6 +605,8 @@ export class ResumeVerificationService {
           verifiedAt: now,
           verifiedByUserId: viewerId,
           verificationStatus: 'VERIFIED',
+          // Backlog 442: this confirm read the owner as they are now, so a pending re-check is done.
+          recheckNeededAt: null,
           verificationRunId: null,
           verificationKind: null,
           verificationTargetPath: null,
@@ -763,6 +812,7 @@ export class ResumeVerificationService {
       verifiedVersion: row.verifiedVersion,
       verifiedAt: row.verifiedAt?.toISOString() ?? null,
       verifiedByName: verifier?.displayName ?? null,
+      recheckNeededAt: row.recheckNeededAt?.toISOString() ?? null,
       // P4: only a staged PDF makes a confirm step; a template run shows none.
       staged:
         row.stagedPdfS3Key !== null && runId !== null

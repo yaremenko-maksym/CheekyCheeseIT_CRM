@@ -8,9 +8,25 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { EMPTY_RESUME_FACTS, type ResumeFacts, type ResumeFactsExperience } from '@crm/shared'
+import {
+  EMPTY_RESUME_FACTS,
+  RESUME_LIMITS,
+  type ResumeFacts,
+  type ResumeFactsExperience,
+} from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { ResumeFactsForm, moveItem, type ResumeFactsFormProps } from '../ResumeFactsForm'
+
+const STUB_JOBS_AT = RESUME_LIMITS.experience - 1 // render-heavy cap test only; every other test renders 0-2 jobs
+
+vi.mock('../ResumeFactsJob', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../ResumeFactsJob')>()
+  return {
+    ...actual,
+    JobBlock: (props: Parameters<typeof actual.JobBlock>[0]) =>
+      props.count >= STUB_JOBS_AT ? null : <actual.JobBlock {...props} />,
+  }
+})
 
 const NOW = new Date('2026-11-11T12:00:00Z')
 
@@ -323,10 +339,10 @@ describe('experience', () => {
   it('Add is disabled at 30 jobs and enabled below', () => {
     const many = (n: number) => ({ ...BASE, experience: Array.from({ length: n }, () => job()) })
     const { unmount } = renderForm({ facts: many(30) })
-    expect(screen.getByRole('button', { name: 'Додати місце роботи' })).toBeDisabled()
+    expect(screen.getByTestId('resume-facts-experience-add')).toBeDisabled()
     unmount()
     renderForm({ facts: many(29) })
-    expect(screen.getByRole('button', { name: 'Додати місце роботи' })).toBeEnabled()
+    expect(screen.getByTestId('resume-facts-experience-add')).toBeEnabled()
   })
 })
 

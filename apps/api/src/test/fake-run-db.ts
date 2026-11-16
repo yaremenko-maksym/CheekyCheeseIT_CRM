@@ -13,6 +13,8 @@ export type LoggedQuery = {
   /** The keys of the `select` or `returning` column object; `undefined` when none was passed. */
   columns?: string[]
   locked: boolean
+  /** The row-lock strength (`for(...)`), when the query took one. */
+  lock?: string
   inTransaction: boolean
 }
 
@@ -42,6 +44,7 @@ export function fakeRunDb(results: unknown[][]) {
         },
         for(mode: string) {
           q.locked = mode === 'update'
+          q.lock = mode
           return chain
         },
         then<T>(resolve: (rows: unknown[]) => T, reject?: (err: unknown) => T) {
