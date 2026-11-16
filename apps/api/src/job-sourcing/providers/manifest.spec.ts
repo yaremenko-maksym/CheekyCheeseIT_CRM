@@ -619,6 +619,41 @@ describe('readiness is derived from provenance, not retyped', () => {
     )
   })
 
+  it('a keyed type whose credential the runtime checks may say "not blocked"; KEY_REQUIRED stays', () => {
+    for (const type of ['JOOBLE_API', 'JSEARCH_API', 'REED_API', 'THEIRSTACK_API'] as const) {
+      const t = manifest.types.find((x) => x.type === type)!
+      expect(t.status?.value.blocked).toBe(false)
+      expect(t.blockers.map((b) => b.code)).toEqual(['KEY_REQUIRED'])
+    }
+  })
+
+  it('"not blocked" over KEY_REQUIRED fails the build for a type the runtime has no credential for', () => {
+    const root = fixtureCopy()
+    for (const f of ['page-1', 'empty-page']) {
+      editJson(join(root, 'arbeitnow', `${f}.provenance.json`), (o) => {
+        o['permission'] = 'KEY_REQUIRED'
+      })
+    }
+    const definitions = MANIFEST_DEFINITIONS.map((d) =>
+      d.type === 'ARBEITNOW_API'
+        ? {
+            ...d,
+            auth: 'API_KEY' as const,
+            status: {
+              symbol: d.status!.symbol,
+              value: { ...d.status!.value, permission: 'KEY_REQUIRED' as const, blocked: false },
+            },
+          }
+        : d,
+    )
+    expect(refusal(() => buildManifest({ ...real(), definitions, fixtureRoot: root }))).toEqual(
+      refused(
+        'STATUS_CONSTANT_DISAGREES',
+        'ARBEITNOW_SOURCE_STATUS.blocked is false but the provenance permission KEY_REQUIRED is not a ready one',
+      ),
+    )
+  })
+
   it('a constant for a type that has no fixture to reconcile with fails the build', () => {
     expect(
       refusal(

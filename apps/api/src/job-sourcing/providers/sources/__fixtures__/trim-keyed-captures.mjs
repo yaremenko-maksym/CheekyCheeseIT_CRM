@@ -22,10 +22,14 @@ const PHONE =
 const PERSON_PROFILE = /linkedin\.com\/in\//i
 const redactString = (s) =>
   s.replace(EMAIL, 'redacted@example.invalid').replace(PHONE, '[redacted-phone]')
+// A raw-JSON number (see `parse`) is a frozen object: walking it would rebuild it as
+// `{ rawJSON: "<digits>" }` and turn the id into an object, so it is kept as it is.
 const redact = (v) =>
   typeof v === 'string'
     ? redactString(v)
-    : Array.isArray(v)
+    : JSON.isRawJSON(v)
+      ? v
+      : Array.isArray(v)
       ? v.map(redact)
       : v && typeof v === 'object'
         ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, redact(x)]))
@@ -64,7 +68,7 @@ async function format(text, filepath) {
 const REDACTION =
   'E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted.'
 const SMOKE =
-  "Taken by the owner-authorized controlled authenticated smoke (workflow verify-job-source-credentials.yml, run 43964860057, ONE request per source); the key travelled in a header or the request body, never in a logged URL, and the script refuses to keep a body or header in which the key appears. permission KEY_REQUIRED: the source answers only with the CRM's own key, which the runtime checks before every run."
+  "Taken by the owner-authorized controlled authenticated smoke (workflow verify-job-source-credentials.yml, run 43964860057, ONE request per source); the key travelled in a header, or (Jooble only) in the path of a request URL that was never logged, and the script refuses to keep a body or header in which the key appears. permission KEY_REQUIRED: the source answers only with the CRM's own key, which the runtime checks before every run."
 
 async function emit({ dir, name, svc, url, produce, check, termsUrl, termsCheckedAt, notes }) {
   const rawBytes = readFileSync(join(rawDir, `${svc}.body`))
@@ -102,7 +106,10 @@ async function emit({ dir, name, svc, url, produce, check, termsUrl, termsChecke
 const joobleIdsKept = (raw) => (v) => {
   if (typeof v !== 'string') return
   for (const id of raw.match(/"id":\s*(-?\d+)/g).map((m) => m.split(':')[1].trim())) {
-    if (!v.includes(id)) throw new Error(`jooble id ${id} was not kept as written`)
+    // As a JSON number, not merely its digits somewhere in the text.
+    if (!new RegExp(`"id":\\s*${id}[,\\s}]`).test(v)) {
+      throw new Error(`jooble id ${id} was not kept as written`)
+    }
   }
 }
 

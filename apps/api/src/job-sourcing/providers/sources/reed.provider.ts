@@ -14,12 +14,10 @@ import { requireApiKey, withSecrets } from './quota-provider'
 /**
  * Reed (`GET https://www.reed.co.uk/api/1.0/search`), the UK job board's Jobseeker API.
  *
- * STATUS: BLOCKED. No key is provisioned and none may be. Reed's page documents the endpoint, the
- * Basic-auth rule and the query parameters, but names response fields only as labels ("Job Id",
- * "Employer Name"), so the JSON field names and the `dd/MM/yyyy` date format are from the API's
- * widely published shape, not from a response (provenance file). Reed's terms, any quota and any
- * UK-only eligibility rule were not found on any page that could be read without a key. See
- * `REED_SOURCE_STATUS`.
+ * STATUS: KEY-GATED, verified by the owner's controlled smoke of 2026-11-16 (provenance of
+ * `__fixtures__/reed/search-smoke.json`): the JSON field names read below, the numeric `jobId` and
+ * the `dd/MM/yyyy` dates are as this adapter expects. `locationName` is sometimes a POSTCODE
+ * ("PR77NR") rather than a town; it is carried as written. See `REED_SOURCE_STATUS`.
  *
  * - AUTH is HTTP Basic with the key as the USERNAME and an empty password: `base64("<key>:")`. That
  *   encoding is NOT `base64("<key>")`, which is the form the loop's redaction already knows, so the
@@ -36,10 +34,10 @@ import { requireApiKey, withSecrets } from './quota-provider'
  */
 
 export const REED_SOURCE_STATUS = {
-  blocked: true,
+  blocked: false,
   permission: 'KEY_REQUIRED',
   reason:
-    'no API key is provisioned and none may be before the owner runs a controlled authenticated smoke; response field names and the date format are not verified against a response, and Reed terms/eligibility were not found',
+    'runs only with the Reed key (REED_API_KEY); the controlled authenticated smoke of 2026-11-16 verified the field names and the date format; the developer page states no usage terms',
 } as const
 
 export const REED_ADAPTER_VERSION = 'reed-1'

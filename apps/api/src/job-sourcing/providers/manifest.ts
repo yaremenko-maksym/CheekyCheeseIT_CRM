@@ -24,6 +24,7 @@ import {
   hostRequestBudgetProblem,
   isValidHostKey,
 } from './manifest.hosts'
+import { hasKeyedCredential } from '../quota-credentials'
 import { isWellFormedDecision, liftsUnclear, type OwnerDecision } from './owner-decisions'
 import type { DetailMode } from './detail-mode'
 import {
@@ -575,7 +576,10 @@ function reconcileStatus(
   }
   // `UNCLEAR` is the one non-ready permission an owner decision can make runnable.
   const readyByDecision = permission === 'UNCLEAR' && unclearLifted
-  if (!value.blocked && !READY_PERMISSIONS.has(permission) && !readyByDecision) {
+  // `KEY_REQUIRED` stays a blocker of the manifest, and the runtime lifts it only for a type whose
+  // credential it can read (`keyProvisioned`), so only such a type may say "not blocked".
+  const keyGated = permission === 'KEY_REQUIRED' && hasKeyedCredential(def.type)
+  if (!value.blocked && !READY_PERMISSIONS.has(permission) && !readyByDecision && !keyGated) {
     throw new ManifestError(
       'STATUS_CONSTANT_DISAGREES',
       `${symbol}.blocked is false but the provenance permission ${permission} is not a ready one`,
