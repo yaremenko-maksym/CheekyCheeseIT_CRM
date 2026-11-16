@@ -38,7 +38,7 @@ afterEach(() => {
 })
 
 describe('a run whose every record the store refuses', () => {
-  it('does not read as SUCCEEDED, fails as PERSISTENCE, and stores no validator', async () => {
+  it('ends PARTIAL with a PERSISTENCE report, never SUCCEEDED, and stores no validator', async () => {
     gateOverride.refuseAll = true
     const authentic = sourceFixture('arbeitnow', 'page-1') as Record<string, unknown>
     const body = { ...authentic, links: { ...(authentic['links'] as object), next: null } }

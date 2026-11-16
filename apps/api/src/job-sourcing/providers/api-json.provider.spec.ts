@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import type { SourceObservation } from '../normalize/observation'
 
@@ -361,6 +361,10 @@ describe('the envelope', () => {
 })
 
 describe('a run whose every record the store refuses stores nothing and is not a success', () => {
+  afterEach(() => {
+    storeGate.refuseAll = false
+  })
+
   const REFUSED_MESSAGE = 'the store refused every observation the run read (1); none was stored'
 
   it('one page, all refused: PARTIAL with a PERSISTENCE report, nothing saved, no validator', async () => {
@@ -374,7 +378,6 @@ describe('a run whose every record the store refuses stores nothing and is not a
     expect(batch.requests.at(-1)?.error?.code).toBe('PERSISTENCE')
     expect(batch.requests.at(-1)?.error?.message).toBe(REFUSED_MESSAGE)
     expect(h.singlePage.count).toBe(0)
-    storeGate.refuseAll = false
   })
 
   it('all refused, then the next page fails: the page failure stands and no PERSISTENCE is added', async () => {
@@ -387,7 +390,6 @@ describe('a run whose every record the store refuses stores nothing and is not a
     expect(batch.observations).toHaveLength(0)
     expect(batch.requests.some((r) => r.error?.code === 'PERSISTENCE')).toBe(false)
     expect(batch.requests.at(-1)?.status).toBe(500)
-    storeGate.refuseAll = false
   })
 
   it('all refused on a cursor cycle: the run still reports PERSISTENCE', async () => {
@@ -402,7 +404,6 @@ describe('a run whose every record the store refuses stores nothing and is not a
 
     expect(batch.requests.some((r) => r.error?.code === 'PERSISTENCE')).toBe(true)
     expect(batch.outcome).not.toBe('SUCCEEDED')
-    storeGate.refuseAll = false
   })
 
   it('all refused on a page cap: the run still reports PERSISTENCE', async () => {
@@ -412,7 +413,26 @@ describe('a run whose every record the store refuses stores nothing and is not a
 
     expect(batch.requests.some((r) => r.error?.code === 'PERSISTENCE')).toBe(true)
     expect(batch.outcome).not.toBe('SUCCEEDED')
-    storeGate.refuseAll = false
+  })
+
+  it('refused page 1, then a clean empty page 2: the PERSISTENCE report names page 1, once', async () => {
+    storeGate.refuseAll = true
+    const h = harness({ pages: [{ body: { jobs: [job('1')], next: 'c2' } }, onePage([])] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    const persistence = batch.requests.filter((r) => r.error?.code === 'PERSISTENCE')
+    expect(persistence).toHaveLength(1)
+    expect(persistence[0]?.page).toBe(1)
+    expect(batch.observations).toHaveLength(0)
+    expect(batch.outcome).not.toBe('SUCCEEDED')
+  })
+
+  it('a clean run refuses nothing: no PERSISTENCE report', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.requests.some((r) => r.error?.code === 'PERSISTENCE')).toBe(false)
+    expect(batch.outcome).toBe('SUCCEEDED')
   })
 })
 
