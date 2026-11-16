@@ -21,18 +21,17 @@ export function encodeResumeMessage<C extends ResumeErrorCode>(
   code: C,
   ...args: [ParamsFor<C>] extends [never] ? [] : [params: ParamsFor<C>]
 ): string {
-  return JSON.stringify(args[0] === undefined ? { code } : { code, params: args[0] })
+  // JSON.stringify drops an undefined `params`, so a code without params stays `{"code":...}`.
+  return JSON.stringify({ code, params: args[0] })
 }
 
 /** The code and params of a stored message, or `null` for legacy free text. */
 export function decodeResumeMessage(stored: string | null): StoredResumeMessage | null {
-  if (stored === null) return null
-  let raw: unknown
   try {
-    raw = JSON.parse(stored)
+    // String(null) is "null", which parses to null and fails the schema.
+    const parsed = storedResumeMessageSchema.safeParse(JSON.parse(String(stored)))
+    return parsed.success ? parsed.data : null
   } catch {
     return null
   }
-  const parsed = storedResumeMessageSchema.safeParse(raw)
-  return parsed.success ? parsed.data : null
 }
