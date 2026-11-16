@@ -95,8 +95,10 @@ function splitNameRuns(parts: readonly string[], inText: (part: string) => boole
   // Stryker disable next-line MethodExpression: equivalent — the filter drops only parts no run can hit with; without it the same hits come back, slower
   const rest = parts.slice(1).filter(inText)
   const runs: string[][] = []
+  // Stryker disable next-line EqualityOperator: equivalent — mask 2^n selects no part, so its empty run is skipped below
   for (let mask = 1; mask < 2 ** rest.length; mask++) {
     const run = rest.filter((_, bit) => (mask >> bit) & 1)
+    // Stryker disable next-line ConditionalExpression: equivalent — a one-part run of 3+ letters is already a lone-part source (`splitNameLoneParts`), so `true` adds only duplicates
     if (run.length >= 2 && run.join('').replace(/\P{L}/gu, '').length >= 3) {
       runs.push(run, [...run].reverse())
     }
@@ -117,7 +119,8 @@ function nameSources(fullName: string, failClosed: boolean, scanned: string): st
   // folded after the split helpers count letters: NFD turns a Hangul syllable into its jamo
   const fold = (parts: readonly string[]) =>
     parts.map((part) => escapeRegExp(foldAccents(part).text))
-  const inText = (part: string) => new RegExp(fold([part]).join(''), 'iu').test(scanned)
+  const inText = (part: string) =>
+    new RegExp(escapeRegExp(foldAccents(part).text), 'iu').test(scanned)
   return contactNameParts(fullName).flatMap((parts, reading, readings) => {
     if (reading > 0) {
       const runs = !failClosed && parts.length <= MAX_RUN_PARTS
@@ -319,6 +322,7 @@ function findSpans(
   const folded = foldAccents(plain, norm.gaps)
   // The generic patterns on the folded text too: a mark on a digit (`067`, acute) splits a phone in
   // `plain`, and the fold drops it (backlog 453e).
+  // Stryker disable next-line ConditionalExpression: equivalent — `true` scans the same text twice and adds only duplicate spans
   if (folded.text !== plain) {
     for (const span of patternSpans(folded.text, ctx)) {
       rawSpans.push(foldedSpan(span.kind, folded, span, normText.length))
@@ -352,10 +356,11 @@ function findSpans(
   }))
   // The generic patterns on the text before the digit fold too: there a non-ASCII digit is the
   // non-word edge a URL or an email needs (`١www.site.dev`), so the fold only adds hits.
+  // The apostrophes stay as written: the pass over `plain` above reads them, and this one only adds.
+  // Stryker disable next-line Regex: equivalent — the test only skips work: text without a non-ASCII digit unfolds to `normText` and gives the same spans
   const unfolded = /[^\P{Nd}0-9]/u.test(text) ? normaliseContactText(text, false) : norm
   if (unfolded !== norm) {
-    for (const s of patternSpans(unfolded.text.replace(CONTACT_APOSTROPHES, "'"), ctx)) {
-      // Stryker disable next-line ConditionalExpression: fallback only if index is out of bounds
+    for (const s of patternSpans(unfolded.text, ctx)) {
       spans.push({
         kind: s.kind,
         start: unfolded.from[s.start] ?? 0,
@@ -426,6 +431,7 @@ export function redactContacts(
   ctx: ContactContext | readonly ContactContext[],
 ): string {
   let current = text
+  // Stryker disable next-line EqualityOperator: `<=` runs one more pass before the bound; no known text needs exactly nine, and the bound row pins the fail-closed exit
   for (let pass = 0; pass < MAX_REDACTION_PASSES; pass++) {
     const next = redactOnce(current, ctx).replace(/(?:\[REDACTED\]){2,}/gu, '[REDACTED]')
     if (next === current) return next

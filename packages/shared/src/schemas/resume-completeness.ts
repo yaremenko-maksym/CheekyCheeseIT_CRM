@@ -329,6 +329,7 @@ export function normaliseContactText(
   // Stryker disable next-line ConditionalExpression,BlockStatement: `false` and `{}` are equivalent (the loop returns the same); the `true` forms are killed when unsuppressed
   if (
     !CLUSTERED_CHAR.test(text) &&
+    // Stryker disable next-line ConditionalExpression,LogicalOperator: equivalent — each form only skips the fast path, or takes it for digits NFKC keeps, and the loop returns the same
     (!digits || !NON_ASCII_DIGIT.test(text)) &&
     text.normalize('NFKC') === text
   ) {

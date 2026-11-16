@@ -117,6 +117,7 @@ describe('non-ASCII digits and marks on digits are phones (453c, 453e)', () => {
   // the differential against main: the fold must not take away the edge a non-ASCII digit was
   it.each([
     ['١www.site.devBo', '١[REDACTED]'],
+    ['١www.site.dev today', '١[REDACTED] today'],
     // the NFKC pass reads `xhttps://x.io/p` and takes the fullwidth `x` too
     ['@١ｘhttps://x.io/p', '@١[REDACTED]'],
   ])('a URL after a non-ASCII digit %j is still redacted, as on main', (text, redacted) => {
