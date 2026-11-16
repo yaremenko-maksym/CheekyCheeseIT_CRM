@@ -578,7 +578,8 @@ function reconcileStatus(
   const readyByDecision = permission === 'UNCLEAR' && unclearLifted
   // `KEY_REQUIRED` stays a blocker of the manifest, and the runtime lifts it only for a type whose
   // credential it can read (`keyProvisioned`), so only such a type may say "not blocked".
-  const keyGated = permission === 'KEY_REQUIRED' && hasKeyedCredential(def.type)
+  const known = jobSourceTypeSchema.safeParse(def.type)
+  const keyGated = permission === 'KEY_REQUIRED' && known.success && hasKeyedCredential(known.data)
   if (!value.blocked && !READY_PERMISSIONS.has(permission) && !readyByDecision && !keyGated) {
     throw new ManifestError(
       'STATUS_CONSTANT_DISAGREES',
