@@ -70,8 +70,8 @@ function escapeRegExp(value: string): string {
  * fragment such as `son` still refuses: accepted. The gate scan also keeps each run of two or more
  * parts after the first, both ways, when the run has three letters or more, so two short parts that
  * form the whole surname still refuse (`Ivan Li`, ZWSP, `Yu` refuses `Li Yu` and `Yu Li`; round 9,
- * SR-M-2). A run is any ordered subsequence, adjacent or not, and its parts may be joined by a hyphen
- * or a comma (`Li-Yu`, `Li, Bo`; backlog 453). Runs grow with 2^parts, and the stored name is
+ * SR-M-2). A run is any ordered subsequence, adjacent or not, and its parts may be joined by a dash,
+ * a comma, a period, an underscore or a middle dot (`RUN_GAP`; `Li-Yu`, `Li, Bo`; backlog 453, fix 10). Runs grow with 2^parts, and the stored name is
  * HR-edited, so past `MAX_RUN_PARTS` split parts the gate takes no runs and drops no short fragment:
  * round 7's stricter gate, linear in the part count and fail-closed (round 9, Addendum A). The
  * redaction reads a digit next to a name as an edge (`Petrenko1990`, backlog 453d); the gate keeps
@@ -98,8 +98,12 @@ function splitNameRuns(parts: readonly string[], inText: (part: string) => boole
   // Stryker disable next-line EqualityOperator: equivalent — mask 2^n selects no part, so its empty run is skipped below
   for (let mask = 1; mask < 2 ** rest.length; mask++) {
     const run = rest.filter((_, bit) => (mask >> bit) & 1)
-    // Stryker disable next-line ConditionalExpression: equivalent — a one-part run of 3+ letters is already a lone-part source (`splitNameLoneParts`), so `true` adds only duplicates
-    if (run.length >= 2 && run.join('').replace(/\P{L}/gu, '').length >= 3) {
+    // Own line, so the one equivalent form is the only one suppressed: `>= 1` adds a one-part run of 3+
+    // letters, already a lone-part source (`splitNameLoneParts`), so it adds only duplicates
+    // Stryker disable next-line EqualityOperator: equivalent — `>= 1` adds only duplicates of `splitNameLoneParts`, see above
+    const multi = run.length >= 2
+    const letters = run.join('').replace(/\P{L}/gu, '').length >= 3
+    if (multi && letters) {
       runs.push(run, [...run].reverse())
     }
   }
@@ -107,11 +111,12 @@ function splitNameRuns(parts: readonly string[], inText: (part: string) => boole
 }
 
 /**
- * Between the parts of a gate run: `CONTACT_NAME_GAP`, or one hyphen or comma with optional
- * whitespace around it (`Li-Yu`, `Li, Yu`; backlog 453a). In the one capture group, so an empty
- * match still has to sit on a gap.
+ * Between the parts of a gate run: `CONTACT_NAME_GAP`, or one dash, comma, period, underscore or
+ * middle dot with optional whitespace around it (`Li-Yu`, `Li, Yu`, `Li–Yu`, `Li.Yu`; backlog 453a).
+ * The dash family is U+2010-U+2015 and U+2212; `/` and `;` stay out (no false-positive measure yet).
+ * In the one capture group, so an empty match still has to sit on a gap.
  */
-const RUN_GAP = String.raw`((?:\s|\\[nrt])*(?:[-‐‑,](?:\s|\\[nrt])*)?)`
+const RUN_GAP = String.raw`((?:\s|\\[nrt])*(?:[\-‐-―−,._·](?:\s|\\[nrt])*)?)`
 
 /** The name sources for the folded text `scanned`: the gate's runs are built only of parts in it. */
 function nameSources(fullName: string, failClosed: boolean, scanned: string): string[] {

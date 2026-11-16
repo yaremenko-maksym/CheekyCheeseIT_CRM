@@ -11,7 +11,7 @@ const ctx = {
   telegram: 'mark_dev',
 }
 
-describe('redactContacts and scanContacts — zero-width and fullwidth (Task 444 AC 2)', () => {
+describe('redactContacts and scanContacts \u{2014} zero-width and fullwidth (Task 444 AC 2)', () => {
   it('redacts email with zero-width characters: j\\u200Bohn@x.com', () => {
     expect(redactContacts('j\u200Bohn@x.com', ctx)).toBe('[REDACTED]')
     expect(redactContacts('email: j\u200Bohn@x.com ok', ctx)).toBe('email: [REDACTED] ok')
@@ -39,16 +39,17 @@ describe('redactContacts and scanContacts — zero-width and fullwidth (Task 444
   })
 })
 
-describe('redactContacts and scanContacts — year lists (Task 445 AC 3)', () => {
-  it.each(['2019 · 2020 · 2021', '1999—2003—2007', '1999–2003–2007'])(
-    'does not redact year lists: %s',
-    (years) => {
-      expect(redactContacts(`Active in ${years} on projects`, ctx)).toBe(
-        `Active in ${years} on projects`,
-      )
-      expect(scanContacts(years, ctx)).toEqual([])
-    },
-  )
+describe('redactContacts and scanContacts \u{2014} year lists (Task 445 AC 3)', () => {
+  it.each([
+    '2019 \u{00B7} 2020 \u{00B7} 2021',
+    '1999\u{2014}2003\u{2014}2007',
+    '1999\u{2013}2003\u{2013}2007',
+  ])('does not redact year lists: %s', (years) => {
+    expect(redactContacts(`Active in ${years} on projects`, ctx)).toBe(
+      `Active in ${years} on projects`,
+    )
+    expect(scanContacts(years, ctx)).toEqual([])
+  })
 
   it.each([
     ['+380 67 123 45 67', 'call [REDACTED]'],
@@ -160,7 +161,7 @@ describe('flagged implies redacted, redaction is final and idempotent (PR #1351)
     'Cafe\u0301 call 0671234567',
     'Марк Levin, +380 67 123 45 67',
     'Ana Griffin ｇｉｔｈｕｂ．ｃｏｍ／ana',
-    '2019 · 2020 · 2021',
+    '2019 \u{00B7} 2020 \u{00B7} 2021',
     'Senior Frontend Engineer',
   ]
   const contexts = ODD_NAMES.map((fullName) => ({ fullName, emails: [], telegram: 'mark_dev' }))

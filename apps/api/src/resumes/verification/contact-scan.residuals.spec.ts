@@ -54,7 +54,7 @@ describe('the redaction is a fixed point (449)', () => {
       '_',
       '\u{200B}',
       '\u{0301}',
-      '١',
+      '\u{0661}',
     ]
     let seed = 449
     const next = () => (seed = (seed * 48271) % 2147483647)
@@ -78,7 +78,7 @@ describe('a digit next to a name part is an edge for the redaction (453d)', () =
     ['Petrenko1990', '[REDACTED]1990'],
     ['1990Petrenko', '1990[REDACTED]'],
     ['by Ivan Petrenko2020.', 'by [REDACTED]2020.'],
-    ['Petrenko١٩٩٠', '[REDACTED]١٩٩٠'],
+    ['Petrenko\u{0661}\u{0669}\u{0669}\u{0660}', '[REDACTED]\u{0661}\u{0669}\u{0669}\u{0660}'],
   ])('%j reads %j', (text, redacted) => {
     expect(redactContacts(text, IVAN)).toBe(redacted)
   })
@@ -92,8 +92,14 @@ describe('a digit next to a name part is an edge for the redaction (453d)', () =
 
 describe('non-ASCII digits and marks on digits are phones (453c, 453e)', () => {
   it.each([
-    ['call ٠٦٧١٢٣٤٥٦٧', 'call [REDACTED]'],
-    ['call ۰۶۷ ۱۲۳ ۴۵ ۶۷ now', 'call [REDACTED] now'],
+    [
+      'call \u{0660}\u{0666}\u{0667}\u{0661}\u{0662}\u{0663}\u{0664}\u{0665}\u{0666}\u{0667}',
+      'call [REDACTED]',
+    ],
+    [
+      'call \u{06F0}\u{06F6}\u{06F7} \u{06F1}\u{06F2}\u{06F3} \u{06F4}\u{06F5} \u{06F6}\u{06F7} now',
+      'call [REDACTED] now',
+    ],
     ['call 067\u{0301} 123 45 67', 'call [REDACTED]'],
     ['call 06\u{0300}7 123 45 67', 'call [REDACTED]'],
     ['call \u{104A0}\u{104A6}\u{104A7}1234567', 'call [REDACTED]'],
@@ -107,19 +113,22 @@ describe('non-ASCII digits and marks on digits are phones (453c, 453e)', () => {
     expect(redactContacts('by Petrin\u{0301} now', petrin)).toBe('by [REDACTED] now')
     expect(redactContacts('by Petrin\u{0353} now', petrin)).toBe('by [REDACTED] now')
     expect(scanContacts('by Petrin\u{0353}', petrin).map((hit) => hit.kind)).toEqual(['name'])
+    // S2 (AC6): the gate row for the mark the task names; the leak on main is recorded in the PR body
+    expect(scanContacts('by Petrin\u{0301}', petrin).map((hit) => hit.kind)).toEqual(['name'])
   })
 
   it('a year list in Arabic-Indic digits is not a phone', () => {
-    const years = '٢٠١٩ · ٢٠٢٠ · ٢٠٢١'
+    const years =
+      '\u{0662}\u{0660}\u{0661}\u{0669} \u{00B7} \u{0662}\u{0660}\u{0662}\u{0660} \u{00B7} \u{0662}\u{0660}\u{0662}\u{0661}'
     expect(redactContacts(years, [])).toBe(years)
   })
 
   // the differential against main: the fold must not take away the edge a non-ASCII digit was
   it.each([
-    ['١www.site.devBo', '١[REDACTED]'],
-    ['١www.site.dev today', '١[REDACTED] today'],
+    ['\u{0661}www.site.devBo', '\u{0661}[REDACTED]'],
+    ['\u{0661}www.site.dev today', '\u{0661}[REDACTED] today'],
     // the NFKC pass reads `xhttps://x.io/p` and takes the fullwidth `x` too
-    ['@١ｘhttps://x.io/p', '@١[REDACTED]'],
+    ['@\u{0661}ｘhttps://x.io/p', '@\u{0661}[REDACTED]'],
   ])('a URL after a non-ASCII digit %j is still redacted, as on main', (text, redacted) => {
     expect(redactContacts(text, [])).toBe(redacted)
     expect(scanContacts(text, IVAN).map((hit) => hit.kind)).toEqual(['url'])
@@ -129,12 +138,27 @@ describe('non-ASCII digits and marks on digits are phones (453c, 453e)', () => {
 describe('the gate refuses split parts joined by a hyphen or a comma (453a)', () => {
   const liYu: ContactContext = { fullName: 'Ivan Li\u{200B}Yu', emails: [] }
 
-  it.each(['Li Yu', 'Li-Yu', 'Li - Yu', 'Li, Yu', 'Li ,Yu', 'Yu-Li', 'Yu, Li', 'Li‐Yu'])(
+  it.each(['Li Yu', 'Li-Yu', 'Li - Yu', 'Li, Yu', 'Li ,Yu', 'Yu-Li', 'Yu, Li', 'Li\u{2010}Yu'])(
     'refuses %j',
     (text) => {
       expect(scanContacts(`by ${text} today`, liYu).map((hit) => hit.kind)).toEqual(['name'])
     },
   )
+
+  // one row per joiner the run gap takes beyond the hyphen and comma above (backlog 453a, fix item 10)
+  it.each([
+    'Li\u{2012}Yu',
+    'Li\u{2013}Yu',
+    'Li\u{2014}Yu',
+    'Li\u{2015}Yu',
+    'Li\u{2011}Yu',
+    'Li\u{2212}Yu',
+    'Li.Yu',
+    'Li_Yu',
+    'Li\u{00B7}Yu',
+  ])('refuses %j: joiner added with the dash family and . _ middle dot', (text) => {
+    expect(scanContacts(`by ${text} today`, liYu).map((hit) => hit.kind)).toEqual(['name'])
+  })
 
   it.each(['Li; Yu', 'Li / Yu', 'Li--Yu', 'Li,, Yu', 'Li and Yu'])(
     'passes %j: not a joiner the gate takes',
