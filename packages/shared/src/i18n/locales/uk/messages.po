@@ -3771,7 +3771,7 @@ msgstr "Сервіс розпізнавання недоступний. Спро
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_AI_VALUES_OUT_OF_RANGE"
-msgstr "Модель повернула значення поза допустимими межами. Перевірте поля й заповніть їх вручну."
+msgstr "Частину даних резюме розпізнано неправильно. Перевірте поля й заповніть їх вручну."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
@@ -3826,12 +3826,12 @@ msgstr "Не вдалося прочитати DOCX-файл. Завантажт
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_DOCX_UNSUPPORTED"
-msgstr "Цей DOCX збережено у непідтримуваному форматі. Збережіть його ще раз у Word або вставте текст."
+msgstr "Цей файл DOCX збережено у непідтримуваному форматі. Збережіть його ще раз у Word або вставте текст."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
-msgid "api-error.RESUME_EXTRACTION_FAILED"
-msgstr "Не вдалося розпізнати резюме. Спробуйте ще раз або заповніть його вручну."
+msgid "api-error.RESUME_ERROR_DETAILS_UNAVAILABLE"
+msgstr "Подробиці цієї помилки недоступні."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
@@ -3976,7 +3976,7 @@ msgstr "Текст не збережено: {reason, select, NON_LATIN {пиші
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_UPLOAD_NO_FILE"
-msgstr "Файл резюме не додано. Додайте файл резюме."
+msgstr "Файл резюме не додано. Додайте його й спробуйте ще раз."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts

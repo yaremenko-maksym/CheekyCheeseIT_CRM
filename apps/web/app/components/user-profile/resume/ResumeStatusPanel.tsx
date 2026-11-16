@@ -121,7 +121,7 @@ export function ResumeStatusPanel({
         {/* Server copy is plain text; React escapes it. Never dangerouslySetInnerHTML. */}
         {errorMessage && (
           <p className="text-xs break-words text-muted-foreground">
-            {resumeMessageText(errorMessage, 'RESUME_EXTRACTION_FAILED')}
+            {resumeMessageText(errorMessage, 'RESUME_ERROR_DETAILS_UNAVAILABLE')}
           </p>
         )}
         <p className="text-xs text-muted-foreground">

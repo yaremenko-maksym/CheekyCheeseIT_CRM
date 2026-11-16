@@ -3771,7 +3771,7 @@ msgstr "The recognition service is unavailable. Try later or fill in the resume 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_AI_VALUES_OUT_OF_RANGE"
-msgstr "The model returned values outside the allowed ranges. Check the fields and fill them in by hand."
+msgstr "Some resume data was recognized incorrectly. Check the fields and fill them in by hand."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
@@ -3826,12 +3826,12 @@ msgstr "The DOCX file could not be read. Upload another file or paste the text."
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_DOCX_UNSUPPORTED"
-msgstr "This DOCX is saved in an unsupported format. Save it again in Word or paste the text."
+msgstr "This DOCX file is saved in an unsupported format. Save it again in Word or paste the text."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
-msgid "api-error.RESUME_EXTRACTION_FAILED"
-msgstr "The resume could not be recognized. Try again or fill it in by hand."
+msgid "api-error.RESUME_ERROR_DETAILS_UNAVAILABLE"
+msgstr "No details are available for this error."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
@@ -3976,7 +3976,7 @@ msgstr "The text was not saved: {reason, select, NON_LATIN {use Latin letters on
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_UPLOAD_NO_FILE"
-msgstr "No resume file was attached. Attach the resume file."
+msgstr "No resume file was attached. Attach one and try again."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts

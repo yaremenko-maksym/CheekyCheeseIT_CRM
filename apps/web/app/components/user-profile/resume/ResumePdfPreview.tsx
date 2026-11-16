@@ -62,9 +62,9 @@ export function ResumePdfPreview({ resume, pdfUrl, fileName }: ResumePdfPreviewP
             <p className="font-medium">
               <Trans>Не вдалося зібрати PDF</Trans>
             </p>
-            <p className="mt-1 text-muted-foreground">
+            <p className="mt-1 break-words text-muted-foreground">
               {resume.renderError ? (
-                resumeMessageText(resume.renderError, 'RESUME_RENDER_FAILED')
+                resumeMessageText(resume.renderError, 'RESUME_ERROR_DETAILS_UNAVAILABLE')
               ) : (
                 <Trans>
                   Верстка резюме не зібралася. Змініть оформлення або зверніться до адміністратора.

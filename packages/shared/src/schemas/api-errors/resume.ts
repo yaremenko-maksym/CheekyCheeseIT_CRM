@@ -57,7 +57,7 @@ export const RESUME_ERROR_CODES = [
   'RESUME_DOCX_CONTENT_TOO_LARGE',
   'RESUME_PDF_TOO_BUSY',
   'RESUME_AI_VALUES_OUT_OF_RANGE',
-  'RESUME_EXTRACTION_FAILED',
+  'RESUME_ERROR_DETAILS_UNAVAILABLE',
 ] as const
 export type ResumeErrorCode = (typeof RESUME_ERROR_CODES)[number]
 
@@ -112,8 +112,8 @@ export const RESUME_ERROR_PARAMS = {
   RESUME_DOCX_CONTENT_TOO_LARGE: ['mb'],
   RESUME_PDF_TOO_BUSY: ['max'],
   RESUME_AI_VALUES_OUT_OF_RANGE: [],
-  // The generic line for a stored extraction message the web cannot render (unknown code, missing param).
-  RESUME_EXTRACTION_FAILED: [],
+  // The generic fallback line for a stored message this build cannot render (unknown code, missing param).
+  RESUME_ERROR_DETAILS_UNAVAILABLE: [],
 } as const satisfies Record<ResumeErrorCode, readonly string[]>
 
 export const RESUME_ERROR_MESSAGES: Record<ResumeErrorCode, MessageDescriptor> = {
@@ -152,7 +152,7 @@ export const RESUME_ERROR_MESSAGES: Record<ResumeErrorCode, MessageDescriptor> =
   },
   RESUME_UPLOAD_NO_FILE: /* i18n */ {
     id: 'api-error.RESUME_UPLOAD_NO_FILE',
-    message: 'Файл резюме не додано. Додайте файл резюме.',
+    message: 'Файл резюме не додано. Додайте його й спробуйте ще раз.',
   },
   RESUME_NO_ACCESS: /* i18n */ {
     id: 'api-error.RESUME_NO_ACCESS',
@@ -274,7 +274,7 @@ export const RESUME_ERROR_MESSAGES: Record<ResumeErrorCode, MessageDescriptor> =
   RESUME_DOCX_UNSUPPORTED: /* i18n */ {
     id: 'api-error.RESUME_DOCX_UNSUPPORTED',
     message:
-      'Цей DOCX збережено у непідтримуваному форматі. Збережіть його ще раз у Word або вставте текст.',
+      'Цей файл DOCX збережено у непідтримуваному форматі. Збережіть його ще раз у Word або вставте текст.',
   },
   RESUME_DOCX_TOO_MANY_FILES: /* i18n */ {
     id: 'api-error.RESUME_DOCX_TOO_MANY_FILES',
@@ -321,12 +321,11 @@ export const RESUME_ERROR_MESSAGES: Record<ResumeErrorCode, MessageDescriptor> =
   },
   RESUME_AI_VALUES_OUT_OF_RANGE: /* i18n */ {
     id: 'api-error.RESUME_AI_VALUES_OUT_OF_RANGE',
-    message:
-      'Модель повернула значення поза допустимими межами. Перевірте поля й заповніть їх вручну.',
+    message: 'Частину даних резюме розпізнано неправильно. Перевірте поля й заповніть їх вручну.',
   },
-  RESUME_EXTRACTION_FAILED: /* i18n */ {
-    id: 'api-error.RESUME_EXTRACTION_FAILED',
-    message: 'Не вдалося розпізнати резюме. Спробуйте ще раз або заповніть його вручну.',
+  RESUME_ERROR_DETAILS_UNAVAILABLE: /* i18n */ {
+    id: 'api-error.RESUME_ERROR_DETAILS_UNAVAILABLE',
+    message: 'Подробиці цієї помилки недоступні.',
   },
 }
 
@@ -341,7 +340,7 @@ export const RESUME_ERROR_FALLBACK_EN: Record<ResumeErrorCode, string> = {
   RESUME_VERIFICATION_BUSY: 'The resume is being checked right now. Wait until the check finishes.',
   RESUME_UPLOAD_NOT_MULTIPART: 'Could not upload the file. Try again.',
   RESUME_UPLOAD_UNREADABLE: 'The uploaded file could not be read. Upload it again.',
-  RESUME_UPLOAD_NO_FILE: 'No resume file was attached. Attach the resume file.',
+  RESUME_UPLOAD_NO_FILE: 'No resume file was attached. Attach one and try again.',
   RESUME_NO_ACCESS: 'You have no access to this user’s resume.',
   RESUME_NOT_CREATED: 'The resume has not been created yet.',
   RESUME_NOT_FOUND: 'The resume was not found. Refresh the page.',
@@ -386,7 +385,7 @@ export const RESUME_ERROR_FALLBACK_EN: Record<ResumeErrorCode, string> = {
   RESUME_DOCX_UNREADABLE: 'The DOCX file could not be read. Upload another file or paste the text.',
   RESUME_DOCX_CORRUPT: 'The DOCX file is damaged. Save it again or paste the text.',
   RESUME_DOCX_UNSUPPORTED:
-    'This DOCX is saved in an unsupported format. Save it again in Word or paste the text.',
+    'This DOCX file is saved in an unsupported format. Save it again in Word or paste the text.',
   RESUME_DOCX_TOO_MANY_FILES:
     'The DOCX holds too many inner files (over {max}), which does not look like a resume.',
   RESUME_DOCX_TOO_LARGE:
@@ -406,6 +405,6 @@ export const RESUME_ERROR_FALLBACK_EN: Record<ResumeErrorCode, string> = {
   RESUME_PDF_TOO_BUSY:
     'The PDF has too many text operations (the limit is {max}), which does not look like a resume.',
   RESUME_AI_VALUES_OUT_OF_RANGE:
-    'The model returned values outside the allowed ranges. Check the fields and fill them in by hand.',
-  RESUME_EXTRACTION_FAILED: 'The resume could not be recognized. Try again or fill it in by hand.',
+    'Some resume data was recognized incorrectly. Check the fields and fill them in by hand.',
+  RESUME_ERROR_DETAILS_UNAVAILABLE: 'No details are available for this error.',
 }

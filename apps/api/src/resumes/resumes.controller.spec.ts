@@ -13,8 +13,10 @@
  * The Task 15 routes are thin: they parse the body, pass the viewer through, and the staged PDF
  * goes out as a PDF attachment named by `resumeContentDisposition`.
  */
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionUser } from '@crm/shared'
+import { RESUME_SOURCE_MAX_BYTES, type SessionUser } from '@crm/shared'
 import {
   pendingPdfBody,
   resumeContentDisposition,
@@ -256,8 +258,8 @@ describe('pendingPdfBody — the 202 body while the PDF is not ready (backlog 44
   it('a stored code this build cannot render falls back to the generic render failure', () => {
     const generic = {
       status: 'FAILED',
-      code: 'RESUME_RENDER_FAILED',
-      message: 'The resume PDF could not be built. Try later.',
+      code: 'RESUME_ERROR_DETAILS_UNAVAILABLE',
+      message: 'No details are available for this error.',
     }
     expect(pendingPdfBody('FAILED', '{"code":"RESUME_FROM_THE_FUTURE"}')).toEqual(generic)
     expect(pendingPdfBody('FAILED', '{"code":"RESUME_RENDER_TIMEOUT"}')).toEqual(generic)
@@ -333,5 +335,10 @@ describe('uploadSource refuses a malformed upload by code (backlog 443)', () => 
       response: { code: 'RESUME_UPLOAD_NO_FILE' },
     })
     expect(service.uploadSource).not.toHaveBeenCalled()
+  })
+
+  it('the multipart upload limit in main.ts matches RESUME_SOURCE_MAX_BYTES (code review r2 finding 1)', () => {
+    const mainSrc = readFileSync(join(__dirname, '../main.ts'), 'utf8')
+    expect(mainSrc).toMatch(/fileSize:\s*RESUME_SOURCE_MAX_BYTES/)
   })
 })

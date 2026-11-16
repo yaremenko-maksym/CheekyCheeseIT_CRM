@@ -179,7 +179,7 @@ describe('FAILED — the stored message is a code, shown as the catalog line (ba
     )
   })
 
-  const GENERIC_UK = 'Не вдалося розпізнати резюме. Спробуйте ще раз або заповніть його вручну.'
+  const GENERIC_UK = 'Подробиці цієї помилки недоступні.'
 
   it('QA-LOW-3: our JSON shape with an unknown code shows the generic line, not the JSON', () => {
     renderPanel({ status: 'FAILED', errorCode: 'NO_TEXT', errorMessage: '{"code":"RESUME_NEW"}' })

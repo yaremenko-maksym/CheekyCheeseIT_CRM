@@ -75,7 +75,7 @@ describe('ResumeAiService', () => {
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('unreachable')
     expect(result.code).toBe('MODEL_INVALID_JSON')
-    expect(decodeResumeMessage(result.message, 'RESUME_EXTRACTION_FAILED')).toEqual({
+    expect(decodeResumeMessage(result.message, 'RESUME_ERROR_DETAILS_UNAVAILABLE')).toEqual({
       code: 'RESUME_AI_INVALID_ANSWER',
     })
   })
@@ -134,7 +134,7 @@ describe('ResumeAiService', () => {
     expect(result.code).toBe('QUOTA_EXCEEDED')
     expect(result.quotaResetsAt).not.toBeNull()
     expect(new Date(result.quotaResetsAt as string).getUTCHours()).toBe(0)
-    expect(decodeResumeMessage(result.message, 'RESUME_EXTRACTION_FAILED')).toEqual({
+    expect(decodeResumeMessage(result.message, 'RESUME_ERROR_DETAILS_UNAVAILABLE')).toEqual({
       code: 'RESUME_AI_QUOTA_EXCEEDED',
     })
   })
@@ -167,7 +167,7 @@ describe('ResumeAiService', () => {
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('unreachable')
     expect(result.code).toBe('AI_NOT_CONFIGURED')
-    expect(decodeResumeMessage(result.message, 'RESUME_EXTRACTION_FAILED')).toEqual({
+    expect(decodeResumeMessage(result.message, 'RESUME_ERROR_DETAILS_UNAVAILABLE')).toEqual({
       code: 'RESUME_AI_NOT_CONFIGURED',
     })
   })
@@ -181,7 +181,7 @@ describe('ResumeAiService', () => {
     if (result.ok) throw new Error('unreachable')
     expect(result.code).toBe('MODEL_ERROR')
     expect(result.message).not.toContain('tok-1')
-    expect(decodeResumeMessage(result.message, 'RESUME_EXTRACTION_FAILED')).toEqual({
+    expect(decodeResumeMessage(result.message, 'RESUME_ERROR_DETAILS_UNAVAILABLE')).toEqual({
       code: 'RESUME_AI_UNAVAILABLE',
     })
   })

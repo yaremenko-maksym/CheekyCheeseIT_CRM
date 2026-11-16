@@ -446,13 +446,27 @@ describe('ResumePdfPreview', () => {
     expect(screen.getByTestId('resume-pdf-failed')).not.toHaveTextContent('RESUME_RENDER_TIMEOUT')
   })
 
-  it('a coded render error this build cannot render shows the generic render line (QA-LOW-2/3)', () => {
-    render(
+  it('a coded render error this build cannot render shows the generic render line (QA-LOW-2/3, QA-LOW-6)', () => {
+    const { rerender } = render(
       <ResumePdfPreview
         resume={dto({
           renderStatus: 'FAILED',
           pdfUpToDate: false,
           renderError: '{"code":"RESUME_RENDER_TIMEOUT"}',
+        })}
+        pdfUrl="/api/users/u1/resume/pdf"
+      />,
+    )
+    expect(screen.getByTestId('resume-pdf-failed')).toHaveTextContent(
+      'Подробиці цієї помилки недоступні.',
+    )
+
+    rerender(
+      <ResumePdfPreview
+        resume={dto({
+          renderStatus: 'FAILED',
+          pdfUpToDate: false,
+          renderError: '{"code":"RESUME_RENDER_FAILED"}',
         })}
         pdfUrl="/api/users/u1/resume/pdf"
       />,

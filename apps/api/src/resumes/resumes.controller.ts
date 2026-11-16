@@ -353,7 +353,7 @@ export function pendingPdfBody(
   const decoded =
     stored === null
       ? { code: 'RESUME_PDF_PREPARING' as const }
-      : decodeResumeMessage(stored, 'RESUME_RENDER_FAILED')
+      : decodeResumeMessage(stored, 'RESUME_ERROR_DETAILS_UNAVAILABLE')
   if (decoded === null) return { status, message: String(stored) }
   return { status, ...decoded, message: interpolate(decoded.code, decoded.params) }
 }
