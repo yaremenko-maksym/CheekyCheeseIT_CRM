@@ -81,7 +81,7 @@ describe('non-ASCII decimal digits fold to ASCII (453c)', () => {
   })
 
   // the differential against main: the fold must not take away the edge a non-ASCII digit was
-  it.each(['\u{0661}www.site.devBo', '\u{06F7}\u{06F7}www.site.dev№\u{0661}'])(
+  it.each(['\u{0661}www.site.devBo', '\u{06F7}\u{06F7}www.site.dev\u{2116}\u{0661}'])(
     'a URL after a non-ASCII digit %j still flags, as on main',
     (text) => {
       expect(flags(text)).toBe(true)

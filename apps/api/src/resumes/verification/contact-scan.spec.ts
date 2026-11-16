@@ -30,7 +30,7 @@ const MIN_ARM_MS = 20
 const RATIO_ABSENT = 4
 const RATIO_PRESENT = 64
 
-/** The first of 1, 2, 4, … 64 repeats at which `arm(repeats)` costs `MIN_ARM_MS` or more, so a fast
+/** The first of 1, 2, 4, \u{2026} 64 repeats at which `arm(repeats)` costs `MIN_ARM_MS` or more, so a fast
  * machine runs a longer window instead of a noisier ratio. The last one is returned unmeasured.
  * Each step takes the faster of two runs: one GC pause or JIT tier-up in a single run once read
  * 20 ms where the timed run then took 6.6 ms. */
@@ -66,14 +66,18 @@ describe('scanContacts \u{2014} names', () => {
   })
 
   it('matches a diacritic surname whatever the Unicode normalisation of either side', () => {
-    const muller = { fullName: 'Anna Müller', emails: [] }
-    expect(scanContacts('by MÜLLER', muller)).toEqual([{ kind: 'name', match: 'MÜLLER' }])
-    // decomposed u + combining diaeresis in the text
-    expect(scanContacts('by Mu\u0308ller', muller)).toEqual([{ kind: 'name', match: 'Müller' }])
-    // decomposed in the context, composed in the text
-    expect(scanContacts('by Müller', { fullName: 'Anna Mu\u0308ller', emails: [] })).toEqual([
-      { kind: 'name', match: 'Müller' },
+    const muller = { fullName: 'Anna M\u{00FC}ller', emails: [] }
+    expect(scanContacts('by M\u{00DC}LLER', muller)).toEqual([
+      { kind: 'name', match: 'M\u{00DC}LLER' },
     ])
+    // decomposed u + combining diaeresis in the text
+    expect(scanContacts('by Mu\u0308ller', muller)).toEqual([
+      { kind: 'name', match: 'M\u{00FC}ller' },
+    ])
+    // decomposed in the context, composed in the text
+    expect(scanContacts('by M\u{00FC}ller', { fullName: 'Anna Mu\u0308ller', emails: [] })).toEqual(
+      [{ kind: 'name', match: 'M\u{00FC}ller' }],
+    )
   })
 
   it('accepts any whitespace between the parts of the context name', () => {
@@ -144,7 +148,7 @@ describe('scanContacts \u{2014} phones and emails', () => {
     ])
   })
 
-  it('hits any email the pattern recognises, not only the senior’s', () => {
+  it('hits any email the pattern recognises, not only the senior\u{2019}s', () => {
     expect(scanContacts('write to a@b.io or c@d.dev', ctx)).toEqual([
       { kind: 'email', match: 'a@b.io' },
       { kind: 'email', match: 'c@d.dev' },
@@ -166,8 +170,8 @@ describe('scanContacts \u{2014} phones and emails', () => {
 
   it('normalises a context email before the literal match', () => {
     const nfd = { fullName: 'Mark Levin', emails: ['mu\u0308ller@intranet'] }
-    expect(scanContacts('ping müller@intranet', nfd)).toEqual([
-      { kind: 'email', match: 'müller@intranet' },
+    expect(scanContacts('ping m\u{00FC}ller@intranet', nfd)).toEqual([
+      { kind: 'email', match: 'm\u{00FC}ller@intranet' },
     ])
   })
 
@@ -230,7 +234,7 @@ describe('redactContacts', () => {
 
   it('leaves nothing for a re-scan to find', () => {
     expect(scanContacts(redactContacts(sample, ctx), ctx)).toEqual([])
-    const muller = { fullName: 'Anna Müller', emails: [] }
+    const muller = { fullName: 'Anna M\u{00FC}ller', emails: [] }
     expect(scanContacts(redactContacts('by Mu\u0308ller', muller), muller)).toEqual([])
   })
 })
@@ -239,7 +243,7 @@ describe('scanContacts \u{2014} serialized text and spelling variants (fix round
   const name = (match: string) => ({ kind: 'name', match })
 
   it('treats a JSON escape before the surname as a boundary', () => {
-    expect(scanContacts('…it.\\nLevin reviewed', ctx)).toEqual([name('Levin')])
+    expect(scanContacts('\u{2026}it.\\nLevin reviewed', ctx)).toEqual([name('Levin')])
     expect(scanContacts('it\\tLevin, it\\rLevin, \\"Levin\\"', ctx)).toEqual([
       name('Levin'),
       name('Levin'),
@@ -263,96 +267,98 @@ describe('scanContacts \u{2014} serialized text and spelling variants (fix round
 
   it('matches curly apostrophes against a straight one, both ways', () => {
     const straight = { fullName: "Sean O'Brien", emails: [] }
-    expect(scanContacts('by O’Brien, Oʼbrien and O‘Brien', straight)).toEqual([
-      name('O’Brien'),
-      name('Oʼbrien'),
-      name('O‘Brien'),
+    expect(scanContacts('by O\u{2019}Brien, O\u{02BC}brien and O\u{2018}Brien', straight)).toEqual([
+      name('O\u{2019}Brien'),
+      name('O\u{02BC}brien'),
+      name('O\u{2018}Brien'),
     ])
-    expect(scanContacts("by O'Brien", { fullName: 'Sean O’Brien', emails: [] })).toEqual([
+    expect(scanContacts("by O'Brien", { fullName: 'Sean O\u{2019}Brien', emails: [] })).toEqual([
       name("O'Brien"),
     ])
   })
 
   it('hits a possessive surname', () => {
-    expect(scanContacts("Levin's code and Levin’s tests", ctx)).toEqual([
+    expect(scanContacts("Levin's code and Levin\u{2019}s tests", ctx)).toEqual([
       name('Levin'),
       name('Levin'),
     ])
   })
 
   it('matches the accent-folded spelling of a name, both ways, and reports it as written', () => {
-    const accented = { fullName: 'Anna Müller', emails: [] }
+    const accented = { fullName: 'Anna M\u{00FC}ller', emails: [] }
     expect(scanContacts('by Muller', accented)).toEqual([name('Muller')])
-    expect(scanContacts('by Müller', { fullName: 'Anna Muller', emails: [] })).toEqual([
-      name('Müller'),
+    expect(scanContacts('by M\u{00FC}ller', { fullName: 'Anna Muller', emails: [] })).toEqual([
+      name('M\u{00FC}ller'),
     ])
     // known limit: a transliteration is not a fold
     expect(scanContacts('by Mueller', accented)).toEqual([])
   })
 
   it.each([
-    ['ł', 'l'],
-    ['Ł', 'L'],
-    ['ø', 'o'],
-    ['Ø', 'O'],
-    ['đ', 'd'],
-    ['Đ', 'D'],
-    ['ß', 'ss'],
-    ['ẞ', 'SS'],
-    ['ı', 'i'],
-    ['æ', 'ae'],
-    ['Æ', 'AE'],
-    ['œ', 'oe'],
-    ['Œ', 'OE'],
-    ['þ', 'th'],
-    ['Þ', 'TH'],
-    ['ħ', 'h'],
-    ['Ħ', 'H'],
+    ['\u{0142}', 'l'],
+    ['\u{0141}', 'L'],
+    ['\u{00F8}', 'o'],
+    ['\u{00D8}', 'O'],
+    ['\u{0111}', 'd'],
+    ['\u{0110}', 'D'],
+    ['\u{00DF}', 'ss'],
+    ['\u{1E9E}', 'SS'],
+    ['\u{0131}', 'i'],
+    ['\u{00E6}', 'ae'],
+    ['\u{00C6}', 'AE'],
+    ['\u{0153}', 'oe'],
+    ['\u{0152}', 'OE'],
+    ['\u{00FE}', 'th'],
+    ['\u{00DE}', 'TH'],
+    ['\u{0127}', 'h'],
+    ['\u{0126}', 'H'],
   ])('folds %s to %s', (letter, folded) => {
     expect(
       redactContacts(`by Qu${folded}q, ok`, { fullName: `Ann Qu${letter}q`, emails: [] }),
     ).toBe('by [REDACTED], ok')
   })
 
-  it('folds capital ẞ, which /iu does not case-fold to ss', () => {
-    expect(redactContacts('by STRAUẞ, ok', { fullName: 'Max Strauß', emails: [] })).toBe(
-      'by [REDACTED], ok',
-    )
+  it('folds capital \u{1E9E}, which /iu does not case-fold to ss', () => {
+    expect(
+      redactContacts('by STRAU\u{1E9E}, ok', { fullName: 'Max Strau\u{00DF}', emails: [] }),
+    ).toBe('by [REDACTED], ok')
   })
 
-  it('folds dotless ı', () => {
-    expect(redactContacts('by Yildiz, ok', { fullName: 'Ece Yıldız', emails: [] })).toBe(
-      'by [REDACTED], ok',
-    )
+  it('folds dotless \u{0131}', () => {
+    expect(
+      redactContacts('by Yildiz, ok', { fullName: 'Ece Y\u{0131}ld\u{0131}z', emails: [] }),
+    ).toBe('by [REDACTED], ok')
   })
 
-  it('folds the ligatures æ and œ', () => {
-    expect(redactContacts('by Baekoe, ok', { fullName: 'Ann Bækœ', emails: [] })).toBe(
-      'by [REDACTED], ok',
-    )
+  it('folds the ligatures \u{00E6} and \u{0153}', () => {
+    expect(
+      redactContacts('by Baekoe, ok', { fullName: 'Ann B\u{00E6}k\u{0153}', emails: [] }),
+    ).toBe('by [REDACTED], ok')
   })
 
-  it('folds letters without a Unicode decomposition: ł ø đ ß', () => {
-    const polish = { fullName: 'Jan Wałęsa', emails: [] }
+  it('folds letters without a Unicode decomposition: \u{0142} \u{00F8} \u{0111} \u{00DF}', () => {
+    const polish = { fullName: 'Jan Wa\u{0142}\u{0119}sa', emails: [] }
     expect(scanContacts('by Walesa', polish)).toEqual([name('Walesa')])
-    expect(scanContacts('by WAŁĘSA', { fullName: 'Jan Walesa', emails: [] })).toEqual([
-      name('WAŁĘSA'),
-    ])
-    expect(scanContacts('by Sorensen', { fullName: 'Ib Sørensen', emails: [] })).toEqual([
+    expect(scanContacts('by WA\u{0141}\u{0118}SA', { fullName: 'Jan Walesa', emails: [] })).toEqual(
+      [name('WA\u{0141}\u{0118}SA')],
+    )
+    expect(scanContacts('by Sorensen', { fullName: 'Ib S\u{00F8}rensen', emails: [] })).toEqual([
       name('Sorensen'),
     ])
-    expect(scanContacts('by Dorde', { fullName: 'Ana Đorđe', emails: [] })).toEqual([name('Dorde')])
-    expect(redactContacts('by Strasse, ok', { fullName: 'Max Straße', emails: [] })).toBe(
+    expect(scanContacts('by Dorde', { fullName: 'Ana \u{0110}or\u{0111}e', emails: [] })).toEqual([
+      name('Dorde'),
+    ])
+    expect(redactContacts('by Strasse, ok', { fullName: 'Max Stra\u{00DF}e', emails: [] })).toBe(
       'by [REDACTED], ok',
     )
-    expect(redactContacts('by Straße, ok', { fullName: 'Max Strasse', emails: [] })).toBe(
+    expect(redactContacts('by Stra\u{00DF}e, ok', { fullName: 'Max Strasse', emails: [] })).toBe(
       'by [REDACTED], ok',
     )
   })
 
   it('redacts a folded match on its original span', () => {
-    const bronte = { fullName: 'Zoë Brontë', emails: [] }
-    expect(redactContacts('Zoe Bronte and Brontë, then Bronte.', bronte)).toBe(
+    const bronte = { fullName: 'Zo\u{00EB} Bront\u{00EB}', emails: [] }
+    expect(redactContacts('Zoe Bronte and Bront\u{00EB}, then Bronte.', bronte)).toBe(
       '[REDACTED] and [REDACTED], then [REDACTED].',
     )
     // a mark NFC cannot compose stays inside the span it belongs to
@@ -490,13 +496,15 @@ describe('URLs (SR-H-1)', () => {
 })
 
 describe('labelled Telegram handles (SR-M-1)', () => {
-  it.each(['tg: other_one', 'TG:@other_one', 'telegram : @@other_one', 'Телеграм: other_one'])(
-    'redacts %s though it is not the stored handle',
-    (text) => {
-      expect(scanContacts(text, ctx)).toEqual([{ kind: 'telegram', match: text }])
-      expect(redactContacts(`Acme (${text})`, [])).toBe('Acme ([REDACTED])')
-    },
-  )
+  it.each([
+    'tg: other_one',
+    'TG:@other_one',
+    'telegram : @@other_one',
+    '\u{0422}\u{0435}\u{043B}\u{0435}\u{0433}\u{0440}\u{0430}\u{043C}: other_one',
+  ])('redacts %s though it is not the stored handle', (text) => {
+    expect(scanContacts(text, ctx)).toEqual([{ kind: 'telegram', match: text }])
+    expect(redactContacts(`Acme (${text})`, [])).toBe('Acme ([REDACTED])')
+  })
 
   it('redacts only the label hit, not the character in front of it (SR-L-5)', () => {
     expect(scanContacts('(tg:mark_dev)', ctx)).toEqual([{ kind: 'telegram', match: 'tg:mark_dev' }])
@@ -548,10 +556,10 @@ describe('no context of the senior', () => {
 
 describe('fix round 3: Unicode hosts, unlabelled handles, handle links, bounds', () => {
   it.each([
-    'пример.укр/резюме',
-    'иван.рф/cv',
-    'münchen.de/x',
-    'иван.xn--p1ai/x',
+    '\u{043F}\u{0440}\u{0438}\u{043C}\u{0435}\u{0440}.\u{0443}\u{043A}\u{0440}/\u{0440}\u{0435}\u{0437}\u{044E}\u{043C}\u{0435}',
+    '\u{0438}\u{0432}\u{0430}\u{043D}.\u{0440}\u{0444}/cv',
+    'm\u{00FC}nchen.de/x',
+    '\u{0438}\u{0432}\u{0430}\u{043D}.xn--p1ai/x',
     'example.xn--p1ai/cv',
   ])('redacts the whole Unicode or punycode URL %s (SO23-1)', (url) => {
     expect(scanContacts(`see ${url} now`, ctx)).toEqual([{ kind: 'url', match: url }])
@@ -568,8 +576,8 @@ describe('fix round 3: Unicode hosts, unlabelled handles, handle links, bounds',
     'Telegram @other_one',
     'Telegram \u{2014} @other_one',
     'tg\u{2014}other_one',
-    'тг: other_one',
-    'ТГ @other_one',
+    '\u{0442}\u{0433}: other_one',
+    '\u{0422}\u{0413} @other_one',
   ])('redacts the unlabelled or Cyrillic-labelled handle %s (SO23-2)', (label) => {
     expect(scanContacts(label, ctx)).toEqual([{ kind: 'telegram', match: label }])
     expect(redactContacts(`Acme (${label})`, [])).toBe('Acme ([REDACTED])')
@@ -607,7 +615,7 @@ describe('fix round 3: Unicode hosts, unlabelled handles, handle links, bounds',
   })
 
   it.each([
-    ['тг - ', 'тг - '.repeat(10_000)],
+    ['\u{0442}\u{0433} - ', '\u{0442}\u{0433} - '.repeat(10_000)],
     ['Telegram @', 'Telegram @'.repeat(5_000)],
   ])('a 50k-character %j repeat is redacted in under 500 ms (R91)', (_, input) => {
     const started = cpuMs()
@@ -619,7 +627,7 @@ describe('fix round 3: Unicode hosts, unlabelled handles, handle links, bounds',
   // five times the longest field (2000).
   it('a 10k-character Cyrillic host repeat is redacted in under 500 ms (R91)', () => {
     const started = cpuMs()
-    redactContacts('пример.'.repeat(1_429), ctx)
+    redactContacts('\u{043F}\u{0440}\u{0438}\u{043C}\u{0435}\u{0440}.'.repeat(1_429), ctx)
     expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
   })
 })
@@ -639,7 +647,7 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
     // same 300k characters as 600 notes of 500 and as 75 notes of 4000: a linear scan costs the
     // same for both, backtracking that is quadratic in the note costs the long notes about 8x.
     const run = (count: number, length: number): number => {
-      const note = `${'п'.repeat(63)}.`.repeat(Math.ceil(length / 64)).slice(0, length)
+      const note = `${'\u{043F}'.repeat(63)}.`.repeat(Math.ceil(length / 64)).slice(0, length)
       const started = cpuMs()
       for (let i = 0; i < count; i++) redactContacts(note, ctx)
       return cpuMs() - started
@@ -688,8 +696,9 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
   it('the gate at its run bound stays bounded and the in-text filter keeps absent parts free (PR #1362 fix 1)', () => {
     // Parts no text holds (Qa, Jx, ...): the in-text filter leaves no run, so 8 of them cost like 1.
     // The same 8 appended to the text build the full run set (2^7 subsets, both orders). At
-    // MAX_RUN_PARTS = 16 the present16 arm builds 2^15 subsets per scan, so this test does not fail by
-    // an assertion: it ends by the 90 s test timeout. The plain 9-part row below fails at once instead.
+    // MAX_RUN_PARTS = 16 the present16 arm builds 2^15 subsets per scan. The scan is synchronous, so the
+    // 90 s test timeout cannot stop it: it runs to completion and the test is then reported timed out,
+    // not failed by an assertion. The plain 9-part row below is the fast guard and fails at once.
     const pool = [
       'Qa',
       'Jx',
@@ -742,15 +751,17 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
     expect(scanContacts('J K L', { fullName, emails: [] })).toEqual([])
   })
 
+  // Live rows: each stored name has 4 split parts (MAX_RUN_PARTS 8 builds runs), and two short whole
+  // tokens (1-2 letters, so no lone source) sit in the prose with a non-joiner between them: ` (` or
+  // `(` `)`. The real RUN_GAP accepts only whitespace and one joiner there, so the row passes; a wildcard
+  // gap matches and the row fails. The examples `J. Smith` and `snake_case_name` have only joiners
+  // between their tokens, so as written they cannot be live (PR #1362 fix 4).
   it.each([
-    ['J. Smith', 'Anna Ko​J​Li​Pe​Ru​Sa​To​Qz'],
-    ['e.g.', 'Ivan Ka​e​g​Mo​Ra​Le​Pi​So'],
-    ['v1.2.3', 'Ivan Ka​v1​2​3​Mo​Ra​Le​Pi'],
-    ['snake_case_name', 'Ivan Ko​q​x​Mo​Ra​Le​Pi​So'],
-    ['2024-05-01', 'Ivan Ka​20​24​Mo​Ra​Le​Pi​So'],
-    ['col·laboració', 'Ivan Ko​q​x​Mo​Ra​Le​Pi​So'],
+    ['J (Mi) Smith', 'Ivan Kot\u{200B}J\u{200B}Mi'],
+    ['ak (ca) name', 'Ivan Kot\u{200B}ak\u{200B}ca'],
+    ['ol (ab) laboraci\u{00F3}', 'Ivan Kot\u{200B}ol\u{200B}ab'],
   ])(
-    'prose %j is not refused by the joiners . _ - and middle dot, with short parts not adjacent in the text (PR #1362 fix 4)',
+    'prose %j is not refused, with the short parts not adjacent (PR #1362 fix 4)',
     (text, fullName) => {
       expect(scanContacts(text, { fullName, emails: [] })).toEqual([])
     },
@@ -776,13 +787,13 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
   })
 
   it.each([
-    'Telegram：mark_dev',
+    'Telegram\u{FF1A}mark_dev',
     'tg\u{2010}mark_dev',
     'tg\u{2012}mark_dev',
     'tg \u{2015} mark_dev',
     'Telegram \u{2212} @mark_dev',
     'Telegram:@ mark_dev',
-    'Телеграмм: mark_dev',
+    '\u{0422}\u{0435}\u{043B}\u{0435}\u{0433}\u{0440}\u{0430}\u{043C}\u{043C}: mark_dev',
   ])('redacts the labelled handle %j (SR3-L-1)', (label) => {
     expect(redactContacts(`Acme (${label})`, [])).toBe('Acme ([REDACTED])')
   })
@@ -839,9 +850,9 @@ describe('fix round 5: an email glued to the next one by a local-part character'
   })
 
   it.each([
-    ['𝐚@b.com', '[REDACTED]'],
-    ['𝐚@b.com-𝐜@d.com', '[REDACTED]'],
-    ['x 𝐚𝐛@b.com y', 'x [REDACTED] y'],
+    ['\u{1D41A}@b.com', '[REDACTED]'],
+    ['\u{1D41A}@b.com-\u{1D41C}@d.com', '[REDACTED]'],
+    ['x \u{1D41A}\u{1D41B}@b.com y', 'x [REDACTED] y'],
     // U+10000, the first astral code point, is a letter
     ['\u{10000}@b.com-\u{10000}@d.com', '[REDACTED]'],
   ])(
@@ -878,13 +889,19 @@ describe('fix round 7: separators, marks, atext, ports, label words', () => {
   })
 
   it.each([
-    ['john@परीक्षा.भारत', 'email'],
-    ['ผู้ใช้@ตัวอย่าง.ไทย', 'email'],
+    [
+      'john@\u{092A}\u{0930}\u{0940}\u{0915}\u{094D}\u{0937}\u{093E}.\u{092D}\u{093E}\u{0930}\u{0924}',
+      'email',
+    ],
+    [
+      '\u{0E1C}\u{0E39}\u{0E49}\u{0E43}\u{0E0A}\u{0E49}@\u{0E15}\u{0E31}\u{0E27}\u{0E2D}\u{0E22}\u{0E48}\u{0E32}\u{0E07}.\u{0E44}\u{0E17}\u{0E22}',
+      'email',
+    ],
     ['x\u0301y@x.com', 'email'],
-    ['उदाहरण.भारत/x', 'url'],
+    ['\u{0909}\u{0926}\u{093E}\u{0939}\u{0930}\u{0923}.\u{092D}\u{093E}\u{0930}\u{0924}/x', 'url'],
     ['john&doe@x.com', 'email'],
     ["o'brien@x.com", 'email'],
-    ['o’brien@x.com', 'email'],
+    ['o\u{2019}brien@x.com', 'email'],
     ['example.com:8080/cv', 'url'],
     ['a.com:80/x', 'url'],
   ])('redacts %j whole as one %s (SO7-2, SO7-3, SO7-4)', (contact, kind) => {
@@ -896,7 +913,7 @@ describe('fix round 7: separators, marks, atext, ports, label words', () => {
     'Telegram handle: other_one',
     'TG nick: other_one',
     'Telegram ID: other_one',
-    'Телеграм нік: other_one',
+    '\u{0422}\u{0435}\u{043B}\u{0435}\u{0433}\u{0440}\u{0430}\u{043C} \u{043D}\u{0456}\u{043A}: other_one',
   ])('redacts the labelled handle %j with a word before the separator (SO7-5)', (label) => {
     expect(redactContacts(`Acme (${label})`, [])).toBe('Acme ([REDACTED])')
   })

@@ -128,7 +128,7 @@ describe('non-ASCII digits and marks on digits are phones (453c, 453e)', () => {
     ['\u{0661}www.site.devBo', '\u{0661}[REDACTED]'],
     ['\u{0661}www.site.dev today', '\u{0661}[REDACTED] today'],
     // the NFKC pass reads `xhttps://x.io/p` and takes the fullwidth `x` too
-    ['@\u{0661}ｘhttps://x.io/p', '@\u{0661}[REDACTED]'],
+    ['@\u{0661}\u{FF58}https://x.io/p', '@\u{0661}[REDACTED]'],
   ])('a URL after a non-ASCII digit %j is still redacted, as on main', (text, redacted) => {
     expect(redactContacts(text, [])).toBe(redacted)
     expect(scanContacts(text, IVAN).map((hit) => hit.kind)).toEqual(['url'])

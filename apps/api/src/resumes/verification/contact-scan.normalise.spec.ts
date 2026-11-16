@@ -17,17 +17,35 @@ describe('redactContacts and scanContacts \u{2014} zero-width and fullwidth (Tas
     expect(redactContacts('email: j\u200Bohn@x.com ok', ctx)).toBe('email: [REDACTED] ok')
   })
 
-  it('redacts email with fullwidth characters: ｊｏｈｎ＠ｘ．ｃｏｍ', () => {
-    expect(redactContacts('ｊｏｈｎ＠ｘ．ｃｏｍ', ctx)).toBe('[REDACTED]')
-    expect(redactContacts('reach ｊｏｈｎ＠ｘ．ｃｏｍ now', ctx)).toBe('reach [REDACTED] now')
+  it('redacts email with fullwidth characters: \u{FF4A}\u{FF4F}\u{FF48}\u{FF4E}\u{FF20}\u{FF58}\u{FF0E}\u{FF43}\u{FF4F}\u{FF4D}', () => {
+    expect(
+      redactContacts(
+        '\u{FF4A}\u{FF4F}\u{FF48}\u{FF4E}\u{FF20}\u{FF58}\u{FF0E}\u{FF43}\u{FF4F}\u{FF4D}',
+        ctx,
+      ),
+    ).toBe('[REDACTED]')
+    expect(
+      redactContacts(
+        'reach \u{FF4A}\u{FF4F}\u{FF48}\u{FF4E}\u{FF20}\u{FF58}\u{FF0E}\u{FF43}\u{FF4F}\u{FF4D} now',
+        ctx,
+      ),
+    ).toBe('reach [REDACTED] now')
   })
 
   it('scans email with zero-width and fullwidth characters', () => {
     expect(scanContacts('j\u200Bohn@x.com', ctx)).toEqual([
       { kind: 'email', match: 'j\u200Bohn@x.com' },
     ])
-    expect(scanContacts('ｊｏｈｎ＠ｘ．ｃｏｍ', ctx)).toEqual([
-      { kind: 'email', match: 'ｊｏｈｎ＠ｘ．ｃｏｍ' },
+    expect(
+      scanContacts(
+        '\u{FF4A}\u{FF4F}\u{FF48}\u{FF4E}\u{FF20}\u{FF58}\u{FF0E}\u{FF43}\u{FF4F}\u{FF4D}',
+        ctx,
+      ),
+    ).toEqual([
+      {
+        kind: 'email',
+        match: '\u{FF4A}\u{FF4F}\u{FF48}\u{FF4E}\u{FF20}\u{FF58}\u{FF0E}\u{FF43}\u{FF4F}\u{FF4D}',
+      },
     ])
   })
 
@@ -61,7 +79,12 @@ describe('redactContacts and scanContacts \u{2014} year lists (Task 445 AC 3)', 
 })
 
 /** A name, written the same odd way in the context and in the text (PR #1351 fix round 1, finding 1). */
-const ODD_NAMES = ['Ana Griﬃn', 'Ana Mar\u200Cia', 'Ａｎａ Ｇｒｉｆｆｉｎ', '가나']
+const ODD_NAMES = [
+  'Ana Gri\u{FB03}n',
+  'Ana Mar\u200Cia',
+  '\u{FF21}\u{FF4E}\u{FF41} \u{FF27}\u{FF52}\u{FF49}\u{FF46}\u{FF46}\u{FF49}\u{FF4E}',
+  '\u{AC00}\u{B098}',
+]
 
 describe('context values are normalised like the text (PR #1351 finding 1)', () => {
   it.each(ODD_NAMES)('redacts the full name %j written the same way in the text', (fullName) => {
@@ -74,9 +97,9 @@ describe('context values are normalised like the text (PR #1351 finding 1)', () 
   })
 
   it('redacts a literal email with a ligature that the generic email pattern does not match', () => {
-    expect(redactContacts('mail ana@ﬁrm now', { fullName: '', emails: ['ana@ﬁrm'] })).toBe(
-      'mail [REDACTED] now',
-    )
+    expect(
+      redactContacts('mail ana@\u{FB01}rm now', { fullName: '', emails: ['ana@\u{FB01}rm'] }),
+    ).toBe('mail [REDACTED] now')
   })
 
   it('redacts the Telegram handle stored in fullwidth forms', () => {
@@ -84,24 +107,36 @@ describe('context values are normalised like the text (PR #1351 finding 1)', () 
       redactContacts('ping mark_dev now', {
         fullName: '',
         emails: [],
-        telegram: 'ｍａｒｋ＿ｄｅｖ',
+        telegram: '\u{FF4D}\u{FF41}\u{FF52}\u{FF4B}\u{FF3F}\u{FF44}\u{FF45}\u{FF56}',
       }),
     ).toBe('ping [REDACTED] now')
   })
 
-  it('redacts name 가나 written as jamo in the text, stored precomposed (and the reverse)', () => {
+  it('redacts name \u{AC00}\u{B098} written as jamo in the text, stored precomposed (and the reverse)', () => {
     expect(
-      redactContacts('by \u1100\u1161\u1102\u1161 today', { fullName: '가나', emails: [] }),
+      redactContacts('by \u1100\u1161\u1102\u1161 today', {
+        fullName: '\u{AC00}\u{B098}',
+        emails: [],
+      }),
     ).toBe('by [REDACTED] today')
     expect(
-      scanContacts('by \u1100\u1161\u1102\u1161 today', { fullName: '가나', emails: [] }),
-    ).toEqual([{ kind: 'name', match: '가나' }])
+      scanContacts('by \u1100\u1161\u1102\u1161 today', {
+        fullName: '\u{AC00}\u{B098}',
+        emails: [],
+      }),
+    ).toEqual([{ kind: 'name', match: '\u{AC00}\u{B098}' }])
     expect(
-      redactContacts('by 가나 today', { fullName: '\u1100\u1161\u1102\u1161', emails: [] }),
+      redactContacts('by \u{AC00}\u{B098} today', {
+        fullName: '\u1100\u1161\u1102\u1161',
+        emails: [],
+      }),
     ).toBe('by [REDACTED] today')
     expect(
-      scanContacts('by 가나 today', { fullName: '\u1100\u1161\u1102\u1161', emails: [] }),
-    ).toEqual([{ kind: 'name', match: '가나' }])
+      scanContacts('by \u{AC00}\u{B098} today', {
+        fullName: '\u1100\u1161\u1102\u1161',
+        emails: [],
+      }),
+    ).toEqual([{ kind: 'name', match: '\u{AC00}\u{B098}' }])
   })
 })
 
@@ -126,7 +161,7 @@ describe('default-ignorable characters do not split a contact (PR #1351 finding 
 
 describe('redactContacts output is always NFC (PR #1351 finding 3)', () => {
   it('composes a decomposed letter outside a redacted phone', () => {
-    expect(redactContacts('Cafe\u0301 call 0671234567', ctx)).toBe('Café call [REDACTED]')
+    expect(redactContacts('Cafe\u0301 call 0671234567', ctx)).toBe('Caf\u{00E9} call [REDACTED]')
   })
 })
 
@@ -154,13 +189,13 @@ describe('flagged implies redacted, redaction is final and idempotent (PR #1351)
     'call 067\u28001234567',
     'by \u1100\u1161\u1102\u1161',
     'j\u200Bohn@x.com',
-    'ｊｏｈｎ＠ｘ．ｃｏｍ',
+    '\u{FF4A}\u{FF4F}\u{FF48}\u{FF4E}\u{FF20}\u{FF58}\u{FF0E}\u{FF43}\u{FF4F}\u{FF4D}',
     'see github.com\u200B/repo',
-    'ping ｍａｒｋ＿ｄｅｖ',
+    'ping \u{FF4D}\u{FF41}\u{FF52}\u{FF4B}\u{FF3F}\u{FF44}\u{FF45}\u{FF56}',
     'tg: @mark_dev',
     'Cafe\u0301 call 0671234567',
-    'Марк Levin, +380 67 123 45 67',
-    'Ana Griffin ｇｉｔｈｕｂ．ｃｏｍ／ana',
+    '\u{041C}\u{0430}\u{0440}\u{043A} Levin, +380 67 123 45 67',
+    'Ana Griffin \u{FF47}\u{FF49}\u{FF54}\u{FF48}\u{FF55}\u{FF42}\u{FF0E}\u{FF43}\u{FF4F}\u{FF4D}\u{FF0F}ana',
     '2019 \u{00B7} 2020 \u{00B7} 2021',
     'Senior Frontend Engineer',
   ]
@@ -199,7 +234,7 @@ describe('a stripped invisible is a token boundary (PR #1351 round 3, SR-H-1)', 
   })
 
   it('redacts a jamo-written name with an invisible inside the run (CR-L-2)', () => {
-    const gana = { fullName: '가나', emails: [] }
+    const gana = { fullName: '\u{AC00}\u{B098}', emails: [] }
     expect(redactContacts('by \u1100\u1161\u200D\u1102\u1161 today', gana)).toBe(
       'by [REDACTED] today',
     )
@@ -230,13 +265,13 @@ describe('completeness flags exactly the names the API redacts, a bare mark incl
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
   // No `@` or `.`, and too few digits for a phone: only the name can flag or redact.
-  const ATOMS = ['a', 'Z', '가', '7', '#', '+', ' ', '-', ',', '\u0301', '\u0903', '\\n']
+  const ATOMS = ['a', 'Z', '\u{AC00}', '7', '#', '+', ' ', '-', ',', '\u0301', '\u0903', '\\n']
   const INVISIBLES = ['\u200B', '\u2060', '\uFEFF', '\u00AD', '\u2800', '\u200C']
   const INSIDE = ['', '', '\u200C', '\u200B', '\u2800']
 
   it.each([
-    ['김민준', 1],
-    ['김 민준', 2],
+    ['\u{AE40}\u{BBFC}\u{C900}', 1],
+    ['\u{AE40} \u{BBFC}\u{C900}', 2],
     ['Ivan Petrenko', 3],
   ] as const)('for %j over 5000 generated texts', (fullName, seed) => {
     const random = prng(seed)
