@@ -39,7 +39,13 @@ import {
   type Accepted,
   type RenderDeps,
 } from './render-gates'
-import { deleteStagedQuietly, renderOwnerKey, stagedPdfKey, type RunOrigin } from './run-columns'
+import {
+  deleteStagedQuietly,
+  renderOwnerKey,
+  stagedPdfKey,
+  storedOwnerKey,
+  type RunOrigin,
+} from './run-columns'
 import { failRun, ownsRun, RunLost } from './run-end'
 import { RunSlots } from './run-slots'
 import { claimTemplateRun, promoteTemplateRun, templateContent } from './template-run'
@@ -52,12 +58,32 @@ export const VERIFICATION_DEADLINE_MS =
 
 export { CLEARED_STAGED, deleteStagedQuietly, stagedPdfKey } from './run-columns'
 
-export type ResumeOwnerContacts = { displayName: string; email: string; contacts: ContactContext[] }
+export type ResumeOwnerContacts = {
+  displayName: string
+  email: string
+  legalFullName: string | null
+  telegram: string | null
+  contacts: ContactContext[]
+}
 
 /** Kinds that start from the staged result of an earlier run instead of writing everything anew. */
 const FROM_STAGED = new Set<string | null>(['staged-edit', 'item'])
 /** Kinds rendered with the staged look; a template run renders the requested one (Task 16). */
 const STAGED_LOOK = new Set<string | null>([...FROM_STAGED, 'template'])
+
+/**
+ * The owner key a staged result is stamped with. A full run scanned every text against `owner`. A
+ * staged-edit or item run re-checks one text only, so the rest was scanned against the owner of
+ * the run before: it carries that run's key (none: never matches), and an owner change since then
+ * stays stale at the confirm (backlog 442).
+ */
+export function stagedOwnerKey(
+  row: Pick<SeniorResume, 'verificationKind' | 'verificationReport'>,
+  owner: Parameters<typeof renderOwnerKey>[0],
+): string {
+  if (!FROM_STAGED.has(row.verificationKind)) return renderOwnerKey(owner)
+  return storedOwnerKey(row.verificationReport) ?? ''
+}
 
 /**
  * `summary` → 'summary', `experience.<i>.bullets` → i; anything else → null. Indexes are canonical
@@ -101,6 +127,8 @@ export async function loadOwnerContacts(
   return {
     displayName: user.displayName,
     email: user.email,
+    legalFullName: user.legalFullName,
+    telegram: user.telegram,
     contacts: names.map((fullName) => ({ fullName, emails, telegram: user.telegram })),
   }
 }
@@ -258,8 +286,8 @@ export class VerificationRunner {
           runId,
           accepted,
           templateName,
-          // The confirm refuses this staged result once the owner's name or email changed (P11).
-          { ...report, ownerKey: renderOwnerKey(owner) },
+          // The confirm refuses this staged result once an owner input changed (P11, backlog 442).
+          { ...report, ownerKey: stagedOwnerKey(row, owner) },
           FROM_STAGED.has(row.verificationKind),
         )
         return

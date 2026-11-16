@@ -58,14 +58,26 @@ const ROW = {
   verificationReport: {
     gates: [],
     fallbacks: [],
-    ownerKey: renderOwnerKey({ displayName: 'Jane Doe', email: 'jane@unit.spec' }),
+    ownerKey: renderOwnerKey({
+      displayName: 'Jane Doe',
+      email: 'jane@unit.spec',
+      legalFullName: null,
+      telegram: null,
+    }),
   },
 } as unknown as SeniorResume
 /** The owner the staged run rendered with, as the confirm reads it. */
-const OWNER_REF = { displayName: 'Jane Doe', email: 'jane@unit.spec' }
+const OWNER_REF = {
+  displayName: 'Jane Doe',
+  email: 'jane@unit.spec',
+  legalFullName: null,
+  telegram: null,
+}
 
 const dialect = new PgDialect()
-const OWNER = [{ displayName: 'Jane Doe', email: 'jane@unit.spec', legalFullName: null }]
+const OWNER = [
+  { displayName: 'Jane Doe', email: 'jane@unit.spec', legalFullName: null, telegram: null },
+]
 
 function service(results: unknown[][]) {
   const db = fakeRunDb(results)
@@ -146,14 +158,18 @@ describe('ResumeVerificationService.confirm', () => {
 
   it('promotes in one locked transaction with a CAS on run, version, status and template', async () => {
     const won = { ...ROW, verificationStatus: 'VERIFIED' }
-    const { svc, s3, log } = service([[{ key: 'resumes/r-1/live.pdf' }], [won]])
+    const { svc, s3, log } = service([OWNER, [{ key: 'resumes/r-1/live.pdf' }], [won]])
     const out = await svc.confirm(ROW, input, HR1, 'fp-1', OWNER_REF)
     expect(out).toBe(won)
-    expect(log.map((q) => [q.op, q.locked, q.inTransaction])).toEqual([
-      ['select', true, true],
-      ['update', false, true],
+    expect(log.map((q) => [q.op, q.lock, q.inTransaction])).toEqual([
+      ['select', 'share', true],
+      ['select', 'update', true],
+      ['update', undefined, true],
     ])
-    const update = log[1]
+    // Backlog 442: the owner is read again under FOR SHARE, first, inside the transaction.
+    expect(log[0]?.columns).toEqual(['displayName', 'email', 'legalFullName', 'telegram'])
+    expect(log[0]?.where?.params).toEqual([ROW.userId])
+    const update = log[2]
     expect(update?.set).toMatchObject({
       pdfFingerprint: 'fp-1',
       pdfRenderStatus: 'READY',
@@ -186,10 +202,10 @@ describe('ResumeVerificationService.confirm', () => {
   })
 
   it('locks the live key only, and promotes the staged columns with version + 1', async () => {
-    const { svc, log } = service([[{ key: null }], [ROW]])
+    const { svc, log } = service([OWNER, [{ key: null }], [ROW]])
     await svc.confirm(ROW, input, HR1, 'fp', OWNER_REF)
-    expect(log[0]?.columns).toEqual(['key'])
-    const set = log[1]?.set as Record<string, SQL>
+    expect(log[1]?.columns).toEqual(['key'])
+    const set = log[2]?.set as Record<string, SQL>
     const compiled = (key: string) => dialect.sqlToQuery(set[key] as SQL).sql
     expect(compiled('content')).toBe('"senior_resumes"."staged_content"')
     expect(compiled('layout')).toBe('"senior_resumes"."staged_layout"')
@@ -200,19 +216,39 @@ describe('ResumeVerificationService.confirm', () => {
   })
 
   it('a row gone from the locked read still confirms and deletes nothing', async () => {
-    const { svc, s3 } = service([[], [ROW]])
+    const { svc, s3 } = service([OWNER, [], [ROW]])
     await expect(svc.confirm(ROW, input, HR1, 'fp', OWNER_REF)).resolves.toBe(ROW)
     expect(s3.delete).not.toHaveBeenCalled()
   })
 
   it('a CAS miss answers 409 and deletes nothing', async () => {
-    const { svc, s3 } = service([[{ key: 'resumes/r-1/live.pdf' }], []])
+    const { svc, s3 } = service([OWNER, [{ key: 'resumes/r-1/live.pdf' }], []])
     await expectCode(svc.confirm(ROW, input, HR1, 'fp', OWNER_REF), 409, 'RESUME_CONFIRM_STALE')
     expect(s3.delete).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['a Telegram handle', { telegram: '@jane' }],
+    ['a legal name', { legalFullName: 'Jana Kowalska' }],
+    ['a display name', { displayName: 'Jane Smith' }],
+  ])(
+    '%s changed after the caller read the owner: 409 from the locked read, no UPDATE (backlog 442)',
+    async (_l, change) => {
+      const { svc, s3, log } = service([[{ ...OWNER[0], ...change }]])
+      await expectCode(svc.confirm(ROW, input, HR1, 'fp', OWNER_REF), 409, 'RESUME_CONFIRM_STALE')
+      expect(log.map((q) => [q.op, q.lock])).toEqual([['select', 'share']])
+      expect(s3.delete).not.toHaveBeenCalled()
+    },
+  )
+
+  it('an owner gone at the locked read: 409, no UPDATE', async () => {
+    const { svc, log } = service([[]])
+    await expectCode(svc.confirm(ROW, input, HR1, 'fp', OWNER_REF), 409, 'RESUME_CONFIRM_STALE')
+    expect(log).toHaveLength(1)
+  })
+
   it('a row with no live PDF deletes nothing after a confirm', async () => {
-    const { svc, s3 } = service([[{ key: null }], [ROW]])
+    const { svc, s3 } = service([OWNER, [{ key: null }], [ROW]])
     await svc.confirm(ROW, input, HR1, 'fp', OWNER_REF)
     expect(s3.delete).not.toHaveBeenCalled()
   })
@@ -231,6 +267,8 @@ describe('ResumeVerificationService.confirm', () => {
   it.each([
     ['a changed display name', { ...OWNER_REF, displayName: 'Jane Smith' }],
     ['a changed email', { ...OWNER_REF, email: 'jane@other.spec' }],
+    ['a set legal name (backlog 442)', { ...OWNER_REF, legalFullName: 'Jana Kowalska' }],
+    ['a set Telegram handle (backlog 442)', { ...OWNER_REF, telegram: '@jane' }],
   ])('%s since the run is 409 RESUME_CONFIRM_STALE before any query (B10)', async (_l, owner) => {
     const { svc, s3, log } = service([])
     await expectCode(svc.confirm(ROW, input, HR1, 'fp', owner), 409, 'RESUME_CONFIRM_STALE')

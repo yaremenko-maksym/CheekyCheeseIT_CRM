@@ -334,6 +334,7 @@ describe('senior resume response', () => {
     verifiedVersion: 3,
     verifiedAt: '2026-11-10T09:00:00.000Z',
     verifiedByName: 'Ганна',
+    recheckNeededAt: '2026-11-12T08:00:00.000Z',
     staged: {
       runId: RUN_ID,
       content: EMPTY_RESUME_CONTENT,
@@ -348,6 +349,17 @@ describe('senior resume response', () => {
   it('keeps every DTO field, the staged result and both viewer flags', () => {
     const body = { resume, canEdit: true, canConfirm: false }
     expect(seniorResumeResponseSchema.parse(body)).toEqual(body)
+  })
+
+  // Backlog 442: an older payload without the key still parses, as "no re-check needed".
+  it('a missing recheckNeededAt parses as null', () => {
+    const { recheckNeededAt: _omit, ...older } = resume
+    const parsed = seniorResumeResponseSchema.parse({
+      resume: older,
+      canEdit: true,
+      canConfirm: false,
+    })
+    expect(parsed.resume?.recheckNeededAt).toBeNull()
   })
 
   it('rejects a staged edited path without a uuid author', () => {
