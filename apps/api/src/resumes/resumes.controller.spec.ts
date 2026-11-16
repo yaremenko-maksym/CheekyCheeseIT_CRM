@@ -323,6 +323,43 @@ describe('uploadSource refuses a malformed upload by code (backlog 443)', () => 
     expect(service.uploadSource).not.toHaveBeenCalled()
   })
 
+  // Backlog 450 fix 1: req.parts() waits for each file stream, so an unread skipped file hangs the request.
+  it('drains every skipped file part and stores the real file', async () => {
+    const skippedOther = { resume: vi.fn() }
+    const skippedSecond = { resume: vi.fn() }
+    const real = { resume: vi.fn() }
+    const { service, run } = upload([
+      { type: 'field', fieldname: 'note' },
+      {
+        type: 'file',
+        fieldname: 'other',
+        file: skippedOther,
+        toBuffer: () => Promise.resolve(Buffer.from('x')),
+      },
+      {
+        type: 'file',
+        fieldname: 'file',
+        file: real,
+        toBuffer: () => Promise.resolve(Buffer.from('real')),
+      },
+      {
+        type: 'file',
+        fieldname: 'file',
+        file: skippedSecond,
+        toBuffer: () => Promise.resolve(Buffer.from('y')),
+      },
+    ])
+    await run()
+    expect(skippedOther.resume).toHaveBeenCalledTimes(1)
+    expect(skippedSecond.resume).toHaveBeenCalledTimes(1)
+    expect(real.resume).not.toHaveBeenCalled()
+    expect(service.uploadSource).toHaveBeenCalledWith(
+      hr,
+      OWNER,
+      expect.objectContaining({ buffer: Buffer.from('real') }),
+    )
+  })
+
   it('a second file part is ignored: the first file wins', async () => {
     const { service, run } = upload([
       { type: 'file', fieldname: 'file', toBuffer: () => Promise.resolve(Buffer.from('first')) },
@@ -391,6 +428,32 @@ describe('uploadSource refuses a malformed upload by code (backlog 443)', () => 
     })
     expect(service.uploadSource).not.toHaveBeenCalled()
   })
+
+  // Backlog 450: a second file part / too many parts is the plugin's own 413 with no code.
+  it.each(['FST_FILES_LIMIT', 'FST_PARTS_LIMIT'])(
+    'the multipart iterator rejecting with %s is 413 RESUME_UPLOAD_TOO_MANY_PARTS',
+    async (code) => {
+      const limit = Object.assign(new Error('reach limit'), { code, statusCode: 413 })
+      const service = { uploadSource: vi.fn(async (..._args: unknown[]) => 'queued') }
+      const req = {
+        isMultipart: () => true,
+        parts: vi.fn(async function* () {
+          yield { type: 'field', fieldname: 'x' }
+          throw limit
+        }),
+      }
+      const controller = new SeniorResumesController(service as never)
+      const err = await controller
+        .uploadSource(OWNER, req as never, hr as SessionUser)
+        .catch((e: unknown) => e)
+      expect(err).toMatchObject({
+        status: 413,
+        response: { code: 'RESUME_UPLOAD_TOO_MANY_PARTS' },
+      })
+      expect((err as { response: { params?: unknown } }).response.params).toBeUndefined()
+      expect(service.uploadSource).not.toHaveBeenCalled()
+    },
+  )
 
   it('any other read failure of the file part is rethrown as it is', async () => {
     const broken = new Error('socket hang up')
