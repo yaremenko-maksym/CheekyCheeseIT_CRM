@@ -23,7 +23,7 @@ listed as "not read". An absence of a prohibition is not a permission.
 
 | Source               | Verdict                   | Working public endpoint (2026-11-16)                             |
 | -------------------- | ------------------------- | ---------------------------------------------------------------- |
-| Ashby posting API    | UNCLEAR-accepted          | yes, per board (fixtures 2026-10-24; not re-fetched)             |
+| Ashby posting API    | UNCLEAR-accepted          | yes: `linear` board 200 `application/json` (484 574 bytes)       |
 | Djinni RSS           | UNCLEAR-accepted          | yes: `/jobs/rss/` 200 `application/rss+xml`                      |
 | We Work Remotely RSS | **ALLOWED** (attribution) | yes: `/remote-jobs.rss` 200 `application/rss+xml`                |
 | Working Nomads API   | UNCLEAR-accepted          | yes: `/api/exposed_jobs/` 200 `application/json`                 |
@@ -38,8 +38,8 @@ risk acceptance.
 ## 1. Ashby public job posting API — UNCLEAR-accepted
 
 **Endpoint:** `https://api.ashbyhq.com/posting-api/job-board/{JOB_BOARD_NAME}`, no credentials.
-Working per the fixtures captured 2026-10-24 (`linear` board 200 JSON). Not re-fetched for this
-research.
+`https://api.ashbyhq.com/posting-api/job-board/linear?includeCompensation=true` answered 200
+`application/json`, 484 574 bytes, 2026-11-16.
 
 **Facts:**
 
@@ -61,6 +61,13 @@ research.
   Service in order to build a competitive product or service". It never mentions the posting API,
   scraping, crawling or robots. — [Ashby Customer Terms of Service](https://www.ashbyhq.com/resources/terms),
   2026-11-16
+- The legal index [Terms and Policies](https://www.ashbyhq.com/resources/terms-and-policies)
+  lists: terms, privacy, SLA, GDPR, AI-features terms, referral agreement, design-partner terms,
+  product-specific terms, modern-slavery statement, security, report abuse, vulnerability
+  disclosure. No website or API terms of use for non-customers. The
+  [Product Specific Terms](https://www.ashbyhq.com/resources/product-specific-terms) ("Last
+  updated June 24, 2026") "apply in addition to your Terms of Service or Master Services Agreement
+  with Ashby", i.e. to customers, and do not mention the posting API. — 2026-11-16
 - `https://www.ashbyhq.com/robots.txt` is `User-agent: * / Allow: /`;
   `https://api.ashbyhq.com/robots.txt` answers HTTP 401 (body 12 bytes). — fetched 2026-11-16
 
@@ -90,10 +97,19 @@ contact allowed here).
     access, RSS, copying or aggregating vacancies. — 2026-11-16
   - Employer terms, [djinni.co/pricing.html](https://djinni.co/pricing.html?lang=en) (the
     "complete version" linked from [guide.djinni.co/terms-of-use](https://guide.djinni.co/terms-of-use)):
-    success-fee pricing, verification, communication rules. Nothing on automated access. It also
-    says: "Djinni does not cooperate with recruiting agencies and freelancers." That sentence
-    governs who may post vacancies and hire through Djinni; it does not address reading the
-    public RSS feed. — 2026-11-16
+    success-fee pricing, verification, communication rules (English page read whole). Nothing on
+    automated access to vacancies or RSS. Two employer-side lines are relevant: "Djinni does not
+    cooperate with recruiting agencies and freelancers.", and among the grounds to block an
+    employer account: "obtaining contacts and personal data of candidates by parsing, phishing or
+    posting fake jobs". The second forbids parsing **candidate** data by an employer account; it
+    does not address the public vacancy RSS feed. — 2026-11-16
+  - Services Agreement template (`Djinni - Services Agreement .docx`, linked from
+    [guide.djinni.co/legal](https://guide.djinni.co/legal)): a bilingual contract for paying
+    customers who ask for a signed contract. It defines the "Contractor's Database" as "djinni.co
+    website ... with dataset which is created and maintained (updated) by the Contractor based on
+    the publicly available sources". It binds only signatories; a keyword search (scraping,
+    automated, robot, crawl, parsing, copy, RSS, aggregate, licence) found no clause on automated
+    access. — 2026-11-16
 - Neither page carries a "last updated" date.
 - `https://djinni.co/robots.txt` disallows only `/jobs2`, `/q`, `/developers`, `/free-jobs`,
   `/set_lang`; `/jobs/rss/` is not disallowed. — 2026-11-16
@@ -102,9 +118,9 @@ contact allowed here).
 **Why UNCLEAR:** the binding terms are now read and are silent on automated access; the feed is
 published and linked by Djinni itself. There is no grant either.
 
-**Note for the owner (not a permission question):** the employer-side line about recruiting
-agencies matters if the CRM ever posts vacancies or contacts candidates on Djinni; it does not
-change the RSS verdict.
+**Note for the owner (not a permission question):** the employer-side lines about recruiting
+agencies and about parsing candidate data matter if the CRM ever posts vacancies, contacts
+candidates or reads candidate profiles on Djinni; they do not change the RSS verdict.
 
 **Smallest owner decision:** none beyond the 2026-11-16 risk acceptance. Update the fixture
 `termsUrl` from the guide page to `https://djinni.co/pricing.html` and
@@ -127,11 +143,16 @@ listed on the RSS page.
   [web.archive.org/web/20261025102519/https://weworkremotely.com/remote-job-rss-feed](https://web.archive.org/web/20261025102519/https://weworkremotely.com/remote-job-rss-feed),
   fetched 2026-11-16
 - The Terms and Conditions ("Updated October 23, 2026"), Wayback snapshot of 2026-11-13 08:58:56
-  UTC, have no clause on scraping, robots, RSS or automated access. The IP clause grants a
+  UTC, have no clause on scraping, robots, RSS, automated access, or a personal / non-commercial
+  use limit (case-insensitive search). The IP clause grants a
   "non-transferable, non-sublicensable, non-exclusive, revocable, limited-purpose right to access
   and use the Materials that we make available to you." —
   [web.archive.org/web/20261113085856/https://weworkremotely.com/terms-and-conditions](https://web.archive.org/web/20261113085856/https://weworkremotely.com/terms-and-conditions),
   fetched 2026-11-16
+- The terms defer to the Community Guidelines for appropriate uses; the
+  [Wayback copy of 2026-06-10](https://web.archive.org/web/20260610084146/https://weworkremotely.com/community-guidelines)
+  (3 257 characters of text) is about posting and applying for jobs and says nothing on feeds or
+  automated access. — fetched 2026-11-16
 - `robots.txt` allows `/` and disallows only account, admin and token paths. — 2026-11-16
 - The WWR "API" (Wayback 2023-06-01) is a job-**posting** API that needs "a special token"; it
   is not a reading channel and is not relevant to collection.
@@ -164,8 +185,11 @@ evidence. Fixture `termsUrl` should move from `/terms` to `/terms-and-conditions
   account with others). c) Reverse engineer, decompile, disassemble, or hack any part of the
   Service. d) Access or use the Service to build a competitive product or service. e) Circumvent
   or breach any security measures or use the Service through invalid credentials. ..."
-- No clause on scraping, robots, crawling, the API or reuse of listings. The only "automated"
-  mention is "We do not use automated decision-making tools ... to moderate content."
+- No clause on scraping, robots, crawling, the API or reuse of listings, and no personal /
+  non-commercial / internal-use limit, no download or systematic-retrieval clause (case-insensitive
+  search over the whole page). The only licence clause is §4.7 "License to Us" (users' content to
+  Working Nomads). The only "automated" mention is "We do not use automated decision-making tools
+  ... to moderate content."
 - `robots.txt` is `User-agent: * / Disallow:` (empty), i.e. allows everything. — 2026-11-16
 
 **Why not FORBIDDEN:** §3.1(b) "commercially exploit the Service" is the closest clause; its own
@@ -222,7 +246,9 @@ allows technically.
 
 **Smallest owner decision:** either (a) the owner registers an app at
 `themuse.com/developers/api/v2/apps` under a Muse account (A3: an external sign-up), after which
-the source is usable with a link back and display-oriented storage; or (b) keep The Muse disabled.
+the precondition is met; storage stays unaddressed by §3.1(b) and exposed to §3.3(g), so it would
+then fall under the owner's risk acceptance like the UNCLEAR sources, with a link back (§3.4); or
+(b) keep The Muse disabled.
 
 ## 6. EU Remote Jobs — FORBIDDEN (and no feed exists)
 
@@ -282,9 +308,9 @@ shown only to internal recruiters, not republished. Against each verdict:
   A change after those snapshots would not be seen here. The Muse terms snapshot is from
   2025-04-23; the page says "Last Modified: 7/25/2015", so a change since is unlikely but not
   verified.
-- **Ashby:** no Ashby-wide website or API terms beyond the customer terms were found; whether
-  such a document exists is not established.
+- **Ashby:** the Terms and Policies index lists no website or API terms for non-customers; no
+  such document was found anywhere else either.
 - **Djinni:** neither Terms of Use page carries a date, so the version in force cannot be pinned.
 - **EU Remote Jobs:** the ToS page carries no date.
-- **Ashby and The Muse endpoints** were not re-fetched on 2026-11-16; their working state rests on
-  the 2026-10-24 fixtures.
+- **The Muse endpoint** was not re-fetched on 2026-11-16 (moot while the precondition is unmet);
+  its working state rests on the 2026-10-24 fixtures.
