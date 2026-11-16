@@ -47,7 +47,7 @@ let fetchSpy: ReturnType<typeof vi.spyOn>
  */
 let finishRuns = false
 const worker = {
-  runSource: async (input: { cycleId: string; sourceId: string; actor: string }) => {
+  runSource: async (input: Parameters<JobRunWorker['runSource']>[0]) => {
     const claim = await ledger.claimSource({ ...input, owner: 'spec-worker' })
     if (claim.kind === 'REFUSED') return claim
     if (finishRuns) {
@@ -145,7 +145,10 @@ describe.skipIf(!hasDatabaseUrl())('enable fetch on a real database, as crm_app'
   })
 
   it('an attempt 10 min ago on an hourly profile is fresh: no cycle, no run', async () => {
-    const id = await kit.reporting({ enabled: false }, { fetchProfile: HOURLY })
+    const id = await kit.reporting(
+      { enabled: false, triggerMode: 'SCHEDULED' },
+      { fetchProfile: HOURLY },
+    )
     await attemptedAgo(id, '10 minutes')
     await toggle(id, true)
     expect(await enableCycles(id)).toEqual([])
@@ -153,16 +156,39 @@ describe.skipIf(!hasDatabaseUrl())('enable fetch on a real database, as crm_app'
   })
 
   it('an attempt 2 h ago on an hourly profile is stale: one run, its MANUAL cycle closed', async () => {
-    const id = await kit.reporting({ enabled: false }, { fetchProfile: HOURLY })
+    const id = await kit.reporting(
+      { enabled: false, triggerMode: 'SCHEDULED' },
+      { fetchProfile: HOURLY },
+    )
     await attemptedAgo(id, '2 hours')
     await toggle(id, true)
     expect(await runCount(id)).toBe(1)
     expect(await enableCycles(id)).toEqual(['CLOSED'])
   })
 
+  it('a stale BOTH source is fetched the same way: one run', async () => {
+    const id = await kit.reporting(
+      { enabled: false, triggerMode: 'BOTH' },
+      { fetchProfile: HOURLY },
+    )
+    await attemptedAgo(id, '2 hours')
+    await toggle(id, true)
+    expect(await runCount(id)).toBe(1)
+    expect(await enableCycles(id)).toEqual(['CLOSED'])
+  })
+
+  it('a human "run now" on the same SCHEDULED source is still refused TRIGGER_MODE', async () => {
+    const id = await kit.reporting(
+      { enabled: true, triggerMode: 'SCHEDULED' },
+      { fetchProfile: HOURLY },
+    )
+    expect(await kit.claimManual(id)).toEqual({ kind: 'REFUSED', reason: 'TRIGGER_MODE' })
+    expect(await runCount(id)).toBe(0)
+  })
+
   it('enable -> disable -> enable inside the window starts exactly ONE run; no tick double fetch', async () => {
     const id = await kit.reporting(
-      { enabled: false, nextAttemptSql: 'NULL' },
+      { enabled: false, triggerMode: 'SCHEDULED', nextAttemptSql: 'NULL' },
       { fetchProfile: HOURLY },
     )
     await toggle(id, true)
@@ -184,7 +210,7 @@ describe.skipIf(!hasDatabaseUrl())('enable fetch on a real database, as crm_app'
 
   it('a finished immediate run advances the armed slot: the next tick does not fetch again', async () => {
     const id = await kit.reporting(
-      { enabled: false, nextAttemptSql: 'NULL' },
+      { enabled: false, triggerMode: 'SCHEDULED', nextAttemptSql: 'NULL' },
       { fetchProfile: HOURLY },
     )
     finishRuns = true
@@ -204,7 +230,7 @@ describe.skipIf(!hasDatabaseUrl())('enable fetch on a real database, as crm_app'
 
   it('a null-profile source is not armed by enable (no NOT_SCHEDULED on the next tick)', async () => {
     const id = await kit.reporting(
-      { enabled: false, nextAttemptSql: 'NULL' },
+      { enabled: false, triggerMode: 'SCHEDULED', nextAttemptSql: 'NULL' },
       { fetchProfile: null },
     )
     await attemptedAgo(id, '1 hour') // fresh for the 24 h window: no immediate fetch here
@@ -218,7 +244,7 @@ describe.skipIf(!hasDatabaseUrl())('enable fetch on a real database, as crm_app'
 
   it('a never-attempted null-profile source still gets the immediate fetch', async () => {
     const id = await kit.reporting(
-      { enabled: false, nextAttemptSql: 'NULL' },
+      { enabled: false, triggerMode: 'SCHEDULED', nextAttemptSql: 'NULL' },
       { fetchProfile: null },
     )
     await toggle(id, true)
