@@ -84,6 +84,7 @@ export function snapshotReadinessAt(
  */
 export function catalogFromSnapshot(
   snapshot: LedgerCatalogSnapshot,
+  // Stryker disable next-line ArrowFunction: equivalent — `() => undefined` is falsy as well; the default is asserted by the "without a key reader" case in production-catalog.spec
   keyProvisioned: (type: JobSourceType) => boolean = () => false,
 ): LedgerCatalog {
   const types = new Map(snapshot.types.map((t) => [t.type, t]))

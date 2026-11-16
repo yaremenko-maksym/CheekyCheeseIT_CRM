@@ -103,11 +103,11 @@ const LINK_ID = /^\/(?:away|desc)\/(-?\d+)$/
  * the number the parse produced: a link that names another posting is never an identity.
  */
 export function joobleLinkId(link: string, id: Item['id']): string | null {
-  if (typeof id !== 'number') return null
   const url = new URL(link)
   if (url.hostname !== 'jooble.org') return null
-  const digits = LINK_ID.exec(url.pathname)?.[1]
-  return digits !== undefined && Number(digits) === id ? digits : null
+  const m = LINK_ID.exec(url.pathname)
+  // A number is never `===` a string id, so only an id the parse produced as a number matches.
+  return m !== null && Number(m[1]) === id ? (m[1] ?? null) : null
 }
 
 const joobleIdOf = (item: Item): string | null =>

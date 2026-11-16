@@ -670,6 +670,32 @@ describe('readiness is derived from provenance, not retyped', () => {
     )
   })
 
+  it('a keyed type lifts only KEY_REQUIRED: "not blocked" over another permission fails the build', () => {
+    const root = fixtureCopy()
+    editJson(join(root, 'jooble', 'search-smoke.provenance.json'), (o) => {
+      o['permission'] = 'UNCLEAR'
+    })
+    const definitions = MANIFEST_DEFINITIONS.map((d) =>
+      d.type === 'JOOBLE_API'
+        ? {
+            ...d,
+            auth: 'NONE' as const,
+            ownerDecisions: [],
+            status: {
+              symbol: d.status!.symbol,
+              value: { ...d.status!.value, permission: 'UNCLEAR' as const, blocked: false },
+            },
+          }
+        : d,
+    )
+    expect(refusal(() => buildManifest({ ...real(), definitions, fixtureRoot: root }))).toEqual(
+      refused(
+        'STATUS_CONSTANT_DISAGREES',
+        'JOOBLE_SOURCE_STATUS.blocked is false but the provenance permission UNCLEAR is not a ready one',
+      ),
+    )
+  })
+
   it('a constant for a type that has no fixture to reconcile with fails the build', () => {
     expect(
       refusal(

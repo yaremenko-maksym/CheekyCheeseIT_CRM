@@ -58,7 +58,7 @@ export function keyProvisioned(
   const provider = QUOTA_PROVIDER_OF_TYPE[type]
   return (
     provider !== undefined &&
-    hasKeyedCredential(type) &&
+    QUOTA_PROVIDER_ENV_KEY[provider] !== null &&
     readQuotaCredential(provider, read).configured
   )
 }

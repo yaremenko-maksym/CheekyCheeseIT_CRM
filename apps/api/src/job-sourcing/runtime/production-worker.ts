@@ -75,6 +75,7 @@ export function createProductionLedger(
   registry: JobSourceRegistry,
   config?: ConfigService<Env, true>,
 ): JobRunLedger {
+  // Stryker disable next-line ObjectLiteral,BooleanLiteral: `infer` only types the value; the key read is asserted in production-worker.spec
   const read = (key: QuotaEnvKey) => config?.get(key, { infer: true })
   return new JobRunLedger(
     db,

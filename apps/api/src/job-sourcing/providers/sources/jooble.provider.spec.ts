@@ -296,6 +296,8 @@ describe('joobleLinkId', () => {
     ['https://jooble.org/jobs/-6876573728492742391', BIG, null],
     ['https://jooble.org/desc/-6876573728492742391/extra', BIG, null],
     ['https://jooble.org/desc/x-6876573728492742391', BIG, null],
+    // The id path is the whole path, not a tail of another one.
+    ['https://jooble.org/jobs/desc/-6876573728492742391', BIG, null],
     ['https://example.test/desc/-6876573728492742391', BIG, null],
     ['https://jooble.org/desc/4821937', '4821937', null],
     ['https://jooble.org/desc/4821937', null, null],

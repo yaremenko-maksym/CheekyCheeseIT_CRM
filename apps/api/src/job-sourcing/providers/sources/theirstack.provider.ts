@@ -144,8 +144,10 @@ const theirstackNativeId = (item: Item): string => String(item.id)
  * carried `http://www.indeed.com/job/...` in `url` and the `https://` posting in `source_url`.
  */
 export function theirstackPostingUrl(item: Pick<Item, 'url' | 'source_url'>): string {
-  if (checkStoredLink(item.url).ok || item.source_url === null) return item.url
-  return checkStoredLink(item.source_url).ok ? item.source_url : item.url
+  // `checkStoredLink` refuses a null `source_url`, so `?? item.url` only satisfies the type.
+  return !checkStoredLink(item.url).ok && checkStoredLink(item.source_url).ok
+    ? (item.source_url ?? item.url)
+    : item.url
 }
 
 function makeSpec(
