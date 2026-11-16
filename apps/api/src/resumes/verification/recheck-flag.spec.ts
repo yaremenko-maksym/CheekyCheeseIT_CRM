@@ -60,11 +60,11 @@ function fakeTx(before: Record<string, string | null> | undefined) {
 }
 
 describe('markResumeRecheckNeeded (backlog 442, AC7)', () => {
-  it('reads the replaced values FOR UPDATE, then flags the resume on a real change', async () => {
+  it('reads the replaced values FOR NO KEY UPDATE, then flags the resume on a real change', async () => {
     const { tx, log, forFn } = fakeTx(existing)
     await markResumeRecheckNeeded(tx, 'u1', { displayName: 'Olena M' })
-    expect(forFn).toHaveBeenCalledWith('update')
-    expect(log).toEqual(['select for update', 'update recheckNeededAt'])
+    expect(forFn).toHaveBeenCalledWith('no key update')
+    expect(log).toEqual(['select for no key update', 'update recheckNeededAt'])
   })
 
   it('reads all three redaction inputs and flags only the VERIFIED resume of that user', async () => {
@@ -78,7 +78,7 @@ describe('markResumeRecheckNeeded (backlog 442, AC7)', () => {
   it('an unchanged value: the locked read, no flag', async () => {
     const { tx, log } = fakeTx(existing)
     await markResumeRecheckNeeded(tx, 'u1', { telegram: '@olena' })
-    expect(log).toEqual(['select for update'])
+    expect(log).toEqual(['select for no key update'])
   })
 
   it('a write without a redaction input: no read, no flag', async () => {
@@ -90,6 +90,6 @@ describe('markResumeRecheckNeeded (backlog 442, AC7)', () => {
   it('a missing user: no flag', async () => {
     const { tx, log } = fakeTx(undefined)
     await markResumeRecheckNeeded(tx, 'u1', { displayName: 'X' })
-    expect(log).toEqual(['select for update'])
+    expect(log).toEqual(['select for no key update'])
   })
 })

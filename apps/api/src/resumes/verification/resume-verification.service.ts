@@ -66,7 +66,7 @@ import { apiError } from '../../common/api-error'
 import { DatabaseService } from '../../database/database.service'
 import { describeDbError } from '../../database/pg-errors'
 import { S3Service } from '../../documents/s3.service'
-import { seniorResumes, teamMembers, type SeniorResume } from '../../database/schema'
+import { seniorResumes, teamMembers, users, type SeniorResume } from '../../database/schema'
 import { resolveTemplateName } from '../resume-typst.service'
 import { hasContact } from './content-gates'
 import { contentToFacts } from './derive-content'
@@ -492,7 +492,7 @@ export class ResumeVerificationService {
       throw apiError('RESUME_VERIFICATION_BUSY', HttpStatus.CONFLICT)
     }
     // Nothing is busy: the facts are checked and confirmed already, a facts change resets to DRAFT.
-    if (row.verificationStatus === 'VERIFIED' && row.recheckNeededAt === null) {
+    if (row.verificationStatus === 'VERIFIED' && !row.recheckNeededAt) {
       throw apiError('RESUME_ALREADY_VERIFIED', HttpStatus.CONFLICT)
     }
     const facts = this.factsOf(row)
@@ -568,6 +568,20 @@ export class ResumeVerificationService {
     }
     const now = new Date()
     const result = await this.db.db.transaction(async (tx) => {
+      // Backlog 442: the owner again, under FOR SHARE, so an identity edit cannot commit between
+      // this check and the UPDATE (its locked read is FOR NO KEY UPDATE: they conflict). Users first,
+      // then the resume: the order of `markResumeRecheckNeeded`, so the two never deadlock.
+      const [locked] = await tx
+        .select({
+          displayName: users.displayName,
+          email: users.email,
+          legalFullName: users.legalFullName,
+          telegram: users.telegram,
+        })
+        .from(users)
+        .where(eq(users.id, row.userId))
+        .for('share')
+      if (!locked || storedOwnerKey(row.verificationReport) !== renderOwnerKey(locked)) return null
       const [current] = await tx
         .select({ key: seniorResumes.pdfS3Key })
         .from(seniorResumes)
