@@ -215,6 +215,7 @@ describe.skipIf(!hasDatabaseUrl())(
       s3 = {
         upload: vi.fn().mockResolvedValue(undefined),
         delete: vi.fn().mockResolvedValue(undefined),
+        listObjects: vi.fn().mockResolvedValue({ objects: [], nextContinuationToken: undefined }),
         getObject: vi.fn(),
         getPresignedDownloadUrl: vi.fn().mockResolvedValue({
           url: 'https://example.invalid/s',
@@ -1103,8 +1104,7 @@ describe.skipIf(!hasDatabaseUrl())(
        * The rendered PDF is a second, complete copy of the same personal data
        * sitting in object storage under a different key. An erase that took only
        * the uploaded original would report success while leaving the whole CV
-       * behind — and nothing sweeps the `senior-resumes/` prefix, so it would
-       * stay for good.
+       * behind until the orphan sweep's 24 h grace runs out.
        */
       it('R-INT-12a2. erasing takes the RENDERED PDF with it, not just the original', async () => {
         const sourceKey = await giveSeniorBaStoredResume()

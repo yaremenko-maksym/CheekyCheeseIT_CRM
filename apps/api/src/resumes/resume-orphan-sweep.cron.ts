@@ -2,9 +2,13 @@
  * ResumeOrphanSweepCron — deletes CVs under `senior-resumes/` (backlog 441) and staged PDFs under
  * `resumes/<id>/staged/` (backlog 448) that no row points at.
  *
- * The resumes service deletes a superseded or unreferenced source, and a superseded PDF, right
- * after the write that unreferences it. When that delete fails it only logs, and the object — a
- * full CV — stays in R2 with nothing left to reach it. This job is the retry for all of them.
+ * Orphans come from three places, and this job collects all of them:
+ *   - the resumes service deletes a superseded or unreferenced source right after the write that
+ *     unreferences it; when that delete fails it only logs;
+ *   - a render superseded while its row still exists leaves its upload here on purpose: a newer
+ *     run of the same input writes the same key, so deleting it at once could erase the live PDF;
+ *   - a Typst failure clears `pdf_s3_key`, so the older PDF it pointed at is unreferenced.
+ * A deleted resume does not wait for this job: `deleteResume` erases the row's own prefixes.
  *
  * An object is deleted only when BOTH hold:
  *   - no `senior_resumes` row references its key, in any column that can hold one:
@@ -23,8 +27,8 @@
  * the time a later page is deleted. Fail safe: a listing or DB failure stops the run, deleting
  * nothing more; a single failed delete is logged and the rest go on.
  *
- * Daily, not hourly: orphans appear only when a storage delete fails, and the 24 h grace means an
- * orphan waits a day anyway; each run lists the whole prefix, which R2 bills per request.
+ * Daily, not hourly: the 24 h grace means an orphan waits a day anyway, and each run lists the
+ * whole prefix, which R2 bills per request.
  */
 import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'

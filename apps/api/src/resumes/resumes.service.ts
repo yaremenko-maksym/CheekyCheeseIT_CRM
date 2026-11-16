@@ -56,6 +56,7 @@ import {
   notVerificationBusy,
 } from './verification/resume-verification.service'
 import { contentToFacts } from './verification/derive-content'
+import { stagedPdfPrefix } from './verification/run-columns'
 import {
   ResumeRenderError,
   ResumeTypstService,
@@ -95,6 +96,10 @@ const noResume = () => apiError('RESUME_NOT_CREATED', HttpStatus.NOT_FOUND)
  * PROCESS that owned it is gone, not that it is slow.
  */
 export const STUCK_RENDER_TIMEOUT_MS = 2 * 60 * 1000
+
+/** Every rendered PDF of one resume row lives under this prefix (`<prefix><fp16>.pdf`). */
+const renderedPdfPrefix = (userId: string, resumeId: string): string =>
+  `senior-resumes/${userId}/pdf/${resumeId}-`
 
 /** The stored `pdf_render_error` of a failed upload: says nothing about the render input. */
 const RENDER_STORAGE_FAILED = encodeResumeMessage('RESUME_RENDER_STORAGE_FAILED')
@@ -462,8 +467,12 @@ export class SeniorResumesService {
    * are using it. Read key, delete object, delete row — and an upload landing in
    * that window replaces `source_s3_key`, so we erase the old object and then
    * drop the row that pointed at the NEW one. The user is told "deleted" while
-   * their raw resume stays in the bucket, unreferenced and unreachable: nothing
-   * sweeps the `senior-resumes/` prefix, so it would sit there for good.
+   * their raw resume stays in the bucket, unreferenced and unreachable until the
+   * orphan sweep's 24 h grace runs out.
+   *
+   * Once the row is gone, every PDF under the row's own prefixes goes too: a Typst
+   * failure clears the key of the older PDF and a superseded render leaves its
+   * upload, so the bucket can hold copies the row no longer cites.
    *
    * So the row is only removed while its key still matches the object we just
    * erased (`source_s3_key IS NOT DISTINCT FROM <what we deleted>` — NULL-safe,
@@ -516,6 +525,8 @@ export class SeniorResumesService {
         .returning({ id: seniorResumes.id })
 
       if (removed.length > 0) {
+        await this.deleteUnder(row.id, renderedPdfPrefix(row.userId, row.id))
+        await this.deleteUnder(row.id, stagedPdfPrefix(row.id))
         this.logger.log(`Resume of ${targetUserId} deleted by ${viewer.id}`)
         return this.emptyResponse(viewer, targetUserId)
       }
@@ -528,6 +539,25 @@ export class SeniorResumesService {
     }
 
     throw apiError('RESUME_DELETE_BUSY', HttpStatus.CONFLICT)
+  }
+
+  /**
+   * Delete every object under `prefix`. A failure is logged and swallowed, like `s3.delete`:
+   * the row is already gone, and the orphan sweep takes what is left.
+   */
+  private async deleteUnder(resumeId: string, prefix: string): Promise<void> {
+    try {
+      let token: string | undefined
+      do {
+        const page = await this.s3.listObjects(token, prefix)
+        for (const { key } of page.objects) await this.s3.delete(key)
+        token = page.nextContinuationToken
+      } while (token)
+    } catch (err: unknown) {
+      this.logger.warn(
+        `Resume ${resumeId}: could not list ${prefix} for deletion: ${err instanceof Error ? err.message : 'unknown'}`,
+      )
+    }
   }
 
   // ==========================================================================
@@ -938,7 +968,7 @@ export class SeniorResumesService {
       return
     }
 
-    const key = `senior-resumes/${row.userId}/pdf/${row.id}-${fingerprint.slice(0, 16)}.pdf`
+    const key = `${renderedPdfPrefix(row.userId, row.id)}${fingerprint.slice(0, 16)}.pdf`
     try {
       await this.s3.upload(key, pdf, 'application/pdf', 'RESUME')
     } catch (err: unknown) {
@@ -984,9 +1014,18 @@ export class SeniorResumesService {
       .returning({ id: seniorResumes.id })
 
     if (written.length === 0) {
-      // Superseded mid-render. Not deleted here: a newer run of the SAME input writes this very
-      // key and may land it at any moment, so a delete could erase the live PDF. If the row never
-      // points at it, the orphan sweep (24 h grace, re-checked before each delete) removes it.
+      // Superseded mid-render. While the row exists the upload is not deleted here: a newer run of
+      // the SAME input writes this very key and may land it at any moment, so a delete could erase
+      // the live PDF; the orphan sweep (24 h grace, re-checked before each delete) takes it. A row
+      // deleted mid-render has no newer run, and its delete has already listed its prefix.
+      const current = await this.db.db.query.seniorResumes.findFirst({
+        where: eq(seniorResumes.id, resumeId),
+        columns: { id: true },
+      })
+      if (!current) {
+        await this.s3.delete(key)
+        return
+      }
       this.logger.log(`Resume ${resumeId}: render superseded — leaving ${key} to the orphan sweep`)
       return
     }

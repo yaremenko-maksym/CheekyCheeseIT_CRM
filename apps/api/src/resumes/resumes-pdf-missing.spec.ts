@@ -15,6 +15,12 @@ const OWNER = { id: OWNER_ID, role: 'SENIOR', displayName: 'Jane Doe', email: 'j
 const FP = 'fp0123456789abcdef-rest'
 const KEY = `senior-resumes/${OWNER_ID}/pdf/r-1-fp0123456789abcd.pdf`
 const viewer = { id: OWNER_ID, email: OWNER.email, role: 'SENIOR' } as SessionUser
+/** Deleting is an HR / ADMIN action: a senior only reads their own resume. */
+const hr = {
+  id: 'a4470000-0000-4000-8000-0000000000b2',
+  email: 'hr@unit.spec',
+  role: 'HR',
+} as SessionUser
 
 const noSuchKey = () =>
   Object.assign(new Error('The specified key does not exist.'), {
@@ -44,24 +50,35 @@ function build(overrides: Record<string, unknown> = {}) {
     ...overrides,
   }
   const updates: Record<string, unknown>[] = []
-  /** When set, the next update matches no row: a run disowned before its terminal write. */
-  const control = { rejectNext: false }
+  /**
+   * `rejectNext`: the next update matches no row (a run disowned before its terminal write).
+   * `gone`: the row was deleted; reads find nothing, updates match nothing.
+   */
+  const control = { rejectNext: false, gone: false }
   const db = {
     db: {
       query: {
         users: { findFirst: vi.fn(async () => OWNER) },
-        seniorResumes: { findFirst: vi.fn(async () => ({ ...row })) },
+        seniorResumes: { findFirst: vi.fn(async () => (control.gone ? undefined : { ...row })) },
       },
       update: () => ({
         set: (values: Record<string, unknown>) => ({
           where: () => {
-            if (control.rejectNext) {
+            if (control.rejectNext || control.gone) {
               control.rejectNext = false
               return Object.assign(Promise.resolve(), { returning: async () => [] })
             }
             updates.push(values)
             Object.assign(row, values)
             return Object.assign(Promise.resolve(), { returning: async () => [{ ...row }] })
+          },
+        }),
+      }),
+      delete: () => ({
+        where: () => ({
+          returning: async () => {
+            control.gone = true
+            return [{ id: row.id }]
           },
         }),
       }),
@@ -75,7 +92,13 @@ function build(overrides: Record<string, unknown> = {}) {
       return body
     }),
     upload: vi.fn(async (key: string, body: Buffer) => void objects.set(key, body)),
-    delete: vi.fn(async () => undefined),
+    delete: vi.fn(async (key: string) => void objects.delete(key)),
+    listObjects: vi.fn(async (_token: string | undefined, prefix: string) => ({
+      objects: [...objects.keys()]
+        .filter((key) => key.startsWith(prefix))
+        .map((key) => ({ key, sizeBytes: 1, lastModified: new Date(0) })),
+      nextContinuationToken: undefined,
+    })),
   }
   const typst = {
     fingerprint: vi.fn(() => FP),
@@ -248,12 +271,6 @@ describe('getRenderedPdf — the current PDF object is missing (backlog 447)', (
       return built
     }
 
-    it('deletes nothing of its own: both runs wrote KEY, and the newer one made it live', async () => {
-      const { s3, objects } = await racedRuns(() => undefined)
-      expect(s3.delete.mock.calls).toEqual([[OLD_KEY]]) // only the newer run's own cleanup
-      expect(objects.has(KEY)).toBe(true)
-    })
-
     it('leaves its upload to the orphan sweep even when the row has moved on to another key', async () => {
       const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined)
       const { s3 } = await racedRuns((row) => {
@@ -265,6 +282,25 @@ describe('getRenderedPdf — the current PDF object is missing (backlog 447)', (
       )
       log.mockRestore()
     })
+  })
+
+  it('a render whose resume was deleted mid-render deletes its own upload at once', async () => {
+    const { svc, typst, s3, objects, control } = build({ pdfRenderStatus: 'QUEUED' })
+    let release!: () => void
+    typst.render.mockImplementationOnce(
+      (_input: unknown, onStart: () => void) =>
+        new Promise<Buffer>((resolve) => {
+          onStart()
+          release = () => resolve(Buffer.from('%PDF late'))
+        }),
+    )
+    const run = svc.runRender('r-1', OWNER as never)
+    await vi.waitFor(() => expect(release).toBeDefined())
+    control.gone = true
+    release()
+    await run
+    expect(s3.delete.mock.calls).toEqual([[KEY]])
+    expect(objects.has(KEY)).toBe(false)
   })
 
   describe('a Typst failure leaves no stale key behind it (SPEC-1)', () => {
@@ -313,6 +349,32 @@ describe('getRenderedPdf — the current PDF object is missing (backlog 447)', (
       s3.getObject.mockClear()
       expect(await svc.getRenderedPdf(viewer, OWNER_ID)).toMatchObject({ ready: false })
       expect(s3.getObject).not.toHaveBeenCalledWith(OLD_KEY)
+    })
+
+    it('deleting the resume afterwards erases the older PDF and staged copies the row no longer cites', async () => {
+      const { svc, objects } = await typstFailsOnX()
+      const staged = 'resumes/r-1/staged/run-0.pdf'
+      const otherRow = `senior-resumes/${OWNER_ID}/pdf/r-10-0000000000000000.pdf`
+      objects.set(staged, Buffer.from('%PDF confirmed earlier'))
+      objects.set(otherRow, Buffer.from('%PDF not this row'))
+      objects.set('resumes/r-10/staged/run-0.pdf', Buffer.from('%PDF not this row'))
+      await svc.deleteResume(hr, OWNER_ID)
+      expect([...objects.keys()].sort()).toEqual([otherRow, 'resumes/r-10/staged/run-0.pdf'].sort())
+    })
+
+    it('a listing failure does not fail the delete: logged, like a failed object delete', async () => {
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+      const { svc, s3, control } = await typstFailsOnX()
+      s3.listObjects.mockRejectedValue(new Error('R2 unavailable'))
+      expect(await svc.deleteResume(hr, OWNER_ID)).toMatchObject({ resume: null })
+      expect(control.gone).toBe(true)
+      expect(warn).toHaveBeenCalledWith(
+        `Resume r-1: could not list senior-resumes/${OWNER_ID}/pdf/r-1- for deletion: R2 unavailable`,
+      )
+      expect(warn).toHaveBeenCalledWith(
+        'Resume r-1: could not list resumes/r-1/staged/ for deletion: R2 unavailable',
+      )
+      warn.mockRestore()
     })
 
     it.each(['QUEUED', 'RUNNING'] as const)(
