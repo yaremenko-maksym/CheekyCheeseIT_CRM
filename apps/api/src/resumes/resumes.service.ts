@@ -596,7 +596,7 @@ export class SeniorResumesService {
         resumeId,
         runId,
         'MODEL_INVALID_JSON',
-        'The model returned values outside the allowed ranges. Check the fields and fill them in by hand.',
+        encodeResumeMessage('RESUME_AI_VALUES_OUT_OF_RANGE'),
         null,
         result.tokensUsed,
       )

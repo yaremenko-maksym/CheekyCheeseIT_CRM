@@ -2111,9 +2111,8 @@ describe.skipIf(!hasDatabaseUrl())(
 
         const row = await rowOf(SENIOR_A.id)
         expect(row.errorCode).toBe('MODEL_INVALID_JSON')
-        // the panel shows errorMessage verbatim after the catalog line: it must not be Russian (CR-M-1)
-        expect(row.errorMessage).toMatch(/\S/)
-        expect(row.errorMessage).not.toMatch(/\p{Script=Cyrillic}/u)
+        // a code, not text: the panel renders the catalog line in the viewer's locale (CR-H-1)
+        expect(row.errorMessage).toBe('{"code":"RESUME_AI_VALUES_OUT_OF_RANGE"}')
         expect(row.lastExtractionTokens).toBe(7)
         expect(row.facts).toEqual(before.facts)
         expect(row.version).toBe(before.version)

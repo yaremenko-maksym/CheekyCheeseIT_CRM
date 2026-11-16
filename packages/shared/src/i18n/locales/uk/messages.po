@@ -3821,7 +3821,7 @@ msgstr "Не вдалося прочитати DOCX-файл. Завантажт
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_DOCX_UNSUPPORTED"
-msgstr "Цей DOCX збережено у форматі, який ми не читаємо. Збережіть його ще раз у Word або вставте текст."
+msgstr "Цей DOCX збережено у непідтримуваному форматі. Збережіть його ще раз у Word або вставте текст."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
@@ -3941,7 +3941,7 @@ msgstr "Не вдалося зібрати PDF: верстка не вклала
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_SENIOR_ONLY"
-msgstr "Резюме ведеться лише для синьйорів."
+msgstr "Резюме ведеться лише для сеньйорів."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
@@ -3966,12 +3966,12 @@ msgstr "Текст не збережено: {reason, select, NON_LATIN {пиші
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_UPLOAD_NO_FILE"
-msgstr "У запиті немає поля «file». Додайте файл резюме."
+msgstr "Файл резюме не додано. Додайте файл резюме."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_UPLOAD_NOT_MULTIPART"
-msgstr "Надішліть файл як multipart/form-data."
+msgstr "Не вдалося завантажити файл. Спробуйте ще раз."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts

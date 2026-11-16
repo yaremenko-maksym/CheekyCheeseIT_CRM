@@ -3821,7 +3821,7 @@ msgstr "The DOCX file could not be read. Upload another file or paste the text."
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_DOCX_UNSUPPORTED"
-msgstr "This DOCX is saved in a format we cannot read. Save it again in Word or paste the text."
+msgstr "This DOCX is saved in an unsupported format. Save it again in Word or paste the text."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
@@ -3966,12 +3966,12 @@ msgstr "The text was not saved: {reason, select, NON_LATIN {use Latin letters on
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_UPLOAD_NO_FILE"
-msgstr "The request has no “file” field. Attach the resume file."
+msgstr "No resume file was attached. Attach the resume file."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_UPLOAD_NOT_MULTIPART"
-msgstr "Send the file as multipart/form-data."
+msgstr "Could not upload the file. Try again."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts

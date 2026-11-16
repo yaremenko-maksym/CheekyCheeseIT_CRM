@@ -12,21 +12,49 @@ describe('resume stored message (backlog 443)', () => {
     )
   })
 
+  const decode = (stored: string | null) => decodeResumeMessage(stored, 'RESUME_EXTRACTION_FAILED')
+
   it('decodes what it encoded', () => {
-    expect(decodeResumeMessage('{"code":"RESUME_DOCX_TOO_LARGE","params":{"mb":50}}')).toEqual({
+    expect(decode('{"code":"RESUME_DOCX_TOO_LARGE","params":{"mb":50}}')).toEqual({
       code: 'RESUME_DOCX_TOO_LARGE',
       params: { mb: 50 },
     })
-    expect(decodeResumeMessage('{"code":"RESUME_RENDER_FAILED"}')).toEqual({
-      code: 'RESUME_RENDER_FAILED',
+    expect(decode('{"code":"RESUME_RENDER_FAILED"}')).toEqual({ code: 'RESUME_RENDER_FAILED' })
+  })
+
+  it('a legacy Russian row, null, broken JSON and non-object JSON decode to null (shown verbatim)', () => {
+    expect(decode('Не удалось собрать PDF резюме.')).toBeNull()
+    expect(decode(null)).toBeNull()
+    expect(decode('{not json')).toBeNull()
+    expect(decode('123')).toBeNull()
+    expect(decode('[]')).toBeNull()
+    expect(decode('{"message":"no code key"}')).toBeNull()
+    expect(decode('{"code":42}')).toBeNull()
+  })
+
+  // QA-LOW-3: our JSON shape with a code this build does not know shows the area's generic line.
+  it('our shape with an unknown code decodes to the fallback code', () => {
+    expect(decode('{"code":"GENERIC"}')).toEqual({ code: 'RESUME_EXTRACTION_FAILED' })
+    expect(
+      decodeResumeMessage('{"code":"RESUME_FROM_THE_FUTURE"}', 'RESUME_RENDER_FAILED'),
+    ).toEqual({ code: 'RESUME_RENDER_FAILED' })
+  })
+
+  // QA-LOW-2: a line rendered without its param would read "larger than  MB".
+  it('a known code missing a required param, or with a malformed one, decodes to the fallback code', () => {
+    expect(decode('{"code":"RESUME_FILE_TOO_LARGE"}')).toEqual({ code: 'RESUME_EXTRACTION_FAILED' })
+    expect(decode('{"code":"RESUME_FILE_TOO_LARGE","params":{"max":10}}')).toEqual({
+      code: 'RESUME_EXTRACTION_FAILED',
+    })
+    expect(decode('{"code":"RESUME_NO_TEXT","params":{"x":{}}}')).toEqual({
+      code: 'RESUME_EXTRACTION_FAILED',
     })
   })
 
-  it('a legacy Russian row, null, broken JSON and a foreign code all decode to null', () => {
-    expect(decodeResumeMessage('Не удалось собрать PDF резюме.')).toBeNull()
-    expect(decodeResumeMessage(null)).toBeNull()
-    expect(decodeResumeMessage('{not json')).toBeNull()
-    expect(decodeResumeMessage('{"code":"GENERIC"}')).toBeNull()
-    expect(decodeResumeMessage('{"code":"RESUME_NO_TEXT","params":{"x":{}}}')).toBeNull()
+  it('a param the line does not need does not demote a valid code', () => {
+    expect(decode('{"code":"RESUME_NO_TEXT","params":{"x":1}}')).toEqual({
+      code: 'RESUME_NO_TEXT',
+      params: { x: 1 },
+    })
   })
 })

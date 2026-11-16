@@ -252,6 +252,16 @@ describe('pendingPdfBody — the 202 body while the PDF is not ready (backlog 44
       message: 'Не удалось собрать PDF резюме.',
     })
   })
+
+  it('a stored code this build cannot render falls back to the generic render failure', () => {
+    const generic = {
+      status: 'FAILED',
+      code: 'RESUME_RENDER_FAILED',
+      message: 'The resume PDF could not be built. Try later.',
+    }
+    expect(pendingPdfBody('FAILED', '{"code":"RESUME_FROM_THE_FUTURE"}')).toEqual(generic)
+    expect(pendingPdfBody('FAILED', '{"code":"RESUME_RENDER_TIMEOUT"}')).toEqual(generic)
+  })
 })
 
 describe('uploadSource refuses a malformed upload by code (backlog 443)', () => {
@@ -283,6 +293,30 @@ describe('uploadSource refuses a malformed upload by code (backlog 443)', () => 
       response: { code: 'RESUME_UPLOAD_UNREADABLE' },
     })
     expect(service.uploadSource).not.toHaveBeenCalled()
+  })
+
+  // QA-LOW-4: @fastify/multipart's toBuffer throws FST_REQ_FILE_TOO_LARGE (413, no code) past the 10 MB limit.
+  it('a file over the multipart size limit is 413 RESUME_FILE_TOO_LARGE with its MB cap', async () => {
+    const tooLarge = Object.assign(new Error('request file too large'), {
+      code: 'FST_REQ_FILE_TOO_LARGE',
+      statusCode: 413,
+    })
+    const { service, run } = upload([
+      { type: 'file', fieldname: 'file', toBuffer: () => Promise.reject(tooLarge) },
+    ])
+    await expect(run()).rejects.toMatchObject({
+      status: 413,
+      response: { code: 'RESUME_FILE_TOO_LARGE', params: { mb: 10 } },
+    })
+    expect(service.uploadSource).not.toHaveBeenCalled()
+  })
+
+  it('any other read failure of the file part is rethrown as it is', async () => {
+    const broken = new Error('socket hang up')
+    const { run } = upload([
+      { type: 'file', fieldname: 'file', toBuffer: () => Promise.reject(broken) },
+    ])
+    await expect(run()).rejects.toBe(broken)
   })
 
   it('a body without a "file" field is 400 RESUME_UPLOAD_NO_FILE', async () => {

@@ -477,7 +477,7 @@ function readCentralDirectory(
 
   const declaredEntries = readU16LE(buf, eocd + 10)
   const cdOffset = readU32LE(buf, eocd + 16)
-  // Stryker disable next-line ConditionalExpression,LogicalOperator: unreachable — the EOCD found above starts at most 22 bytes before the end, so both reads are in range and never null.
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: unreachable — the EOCD found above starts at least 22 bytes before the end, so both reads are in range and never null.
   if (declaredEntries === null || cdOffset === null) throw corruptDocx()
   if (cdOffset === ZIP64_SENTINEL) throw unsupportedDocx()
   if (declaredEntries > MAX_ZIP_ENTRIES) {

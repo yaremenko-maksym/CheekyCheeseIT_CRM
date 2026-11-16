@@ -49,6 +49,8 @@ import {
   updateResumeLayoutSchema,
   updateResumeTemplateSchema,
   decodeResumeMessage,
+  RESUME_SOURCE_MAX_BYTES,
+  type ResumeErrorCode,
   type SessionUser,
 } from '@crm/shared'
 import { apiError, interpolate } from '../common/api-error'
@@ -111,7 +113,9 @@ export class SeniorResumesController {
       if (file) continue // first file wins
       if (!part.toBuffer) throw apiError('RESUME_UPLOAD_UNREADABLE', HttpStatus.BAD_REQUEST)
       file = {
-        buffer: await part.toBuffer(),
+        buffer: await part.toBuffer().catch((err: unknown) => {
+          throw tooLargeUpload(err)
+        }),
         mimetype: part.mimetype ?? 'application/octet-stream',
         originalname: part.filename ?? 'resume',
       }
@@ -319,6 +323,18 @@ export function resumeContentDisposition(displayName: string): string {
 }
 
 /**
+ * QA-LOW-4. Past the global multipart `fileSize` limit (main.ts) `toBuffer` throws
+ * `FST_REQ_FILE_TOO_LARGE`, a 413 with no code; the resume upload answers it with its own coded
+ * 413. Any other failure goes on as it is.
+ */
+function tooLargeUpload(err: unknown): unknown {
+  if ((err as { code?: unknown } | null)?.code !== 'FST_REQ_FILE_TOO_LARGE') return err
+  return apiError('RESUME_FILE_TOO_LARGE', HttpStatus.PAYLOAD_TOO_LARGE, {
+    mb: Math.floor(RESUME_SOURCE_MAX_BYTES / 1024 / 1024),
+  })
+}
+
+/**
  * The 202 body of `GET resume/pdf` while no current PDF exists (backlog 443).
  * `stored` is the row's `pdf_render_error` (FAILED) or null (still building).
  * It carries the code and params for a client with a catalog and the English
@@ -330,12 +346,14 @@ export function pendingPdfBody(
   stored: string | null,
 ): {
   status: string
-  code?: string
+  code?: ResumeErrorCode
   params?: Record<string, string | number> | undefined
   message: string
 } {
   const decoded =
-    stored === null ? { code: 'RESUME_PDF_PREPARING' as const } : decodeResumeMessage(stored)
+    stored === null
+      ? { code: 'RESUME_PDF_PREPARING' as const }
+      : decodeResumeMessage(stored, 'RESUME_RENDER_FAILED')
   if (decoded === null) return { status, message: String(stored) }
   return { status, ...decoded, message: interpolate(decoded.code, decoded.params) }
 }
