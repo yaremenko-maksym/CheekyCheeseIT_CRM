@@ -37,13 +37,16 @@ export const SENIOR_RESUMES_PREFIX = 'senior-resumes/'
 export const STAGED_RESUMES_PREFIX = 'resumes/'
 /** Only `stagedPdfKey`'s shape is swept under `resumes/`; anything else there is not ours to delete. */
 const STAGED_PDF_KEY = /^resumes\/[^/]+\/staged\/[^/]+\.pdf$/
-/** Swept in order, one shared result and cap; a failure in either stops the whole run. */
+/** Swept in order into one result, each with its own cap; a failure in either stops the whole run. */
 const SWEPT: ReadonlyArray<{ prefix: string; owns: (key: string) => boolean }> = [
   { prefix: SENIOR_RESUMES_PREFIX, owns: (key) => key.startsWith(SENIOR_RESUMES_PREFIX) },
   { prefix: STAGED_RESUMES_PREFIX, owns: (key) => STAGED_PDF_KEY.test(key) },
 ]
 export const ORPHAN_GRACE_MS = 24 * 60 * 60 * 1000
-/** Delete attempts per run (failed ones count): bounds the run if the referenced set ever reads empty. */
+/**
+ * Delete attempts per prefix per run (failed ones count): bounds the run if the referenced set ever
+ * reads empty. Per prefix, so a backlog under `senior-resumes/` cannot starve the staged sweep.
+ */
 export const MAX_ORPHAN_DELETES_PER_RUN = 500
 
 export interface OrphanSweepResult {
@@ -110,8 +113,10 @@ export class ResumeOrphanSweepCron {
     }
     // Stryker disable next-line StringLiteral: equivalent, the loop's first statement overwrites it before any read
     let stage = 'list'
+    let capped = false
     try {
       for (const { prefix, owns } of SWEPT) {
+        const attemptsBefore = r.deleted + r.failed
         let token: string | undefined
         do {
           stage = 'list'
@@ -135,12 +140,13 @@ export class ResumeOrphanSweepCron {
               r.referenced += 1
               continue
             }
-            if (r.deleted + r.failed >= MAX_ORPHAN_DELETES_PER_RUN) {
+            if (r.deleted + r.failed - attemptsBefore >= MAX_ORPHAN_DELETES_PER_RUN) {
               this.logger.warn(
-                `Resume orphan sweep hit the cap of ${MAX_ORPHAN_DELETES_PER_RUN} deletes; the rest waits for the next run`,
+                `Resume orphan sweep hit the cap of ${MAX_ORPHAN_DELETES_PER_RUN} deletes under ${prefix}; the rest waits for the next run`,
               )
-              this.summary(r)
-              return r
+              capped = true
+              token = undefined // ends this prefix's listing; the next prefix still runs
+              break
             }
             try {
               // Re-check the age: a render may have re-uploaded this key since the page was listed,
@@ -170,7 +176,7 @@ export class ResumeOrphanSweepCron {
       this.summary(r)
       return r
     }
-    r.complete = true
+    r.complete = !capped
     this.summary(r)
     return r
   }

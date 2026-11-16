@@ -372,7 +372,7 @@ describe('ResumeOrphanSweepCron', () => {
       complete: false,
     })
     expect(warn).toHaveBeenCalledWith(
-      'Resume orphan sweep hit the cap of 500 deletes; the rest waits for the next run',
+      'Resume orphan sweep hit the cap of 500 deletes under senior-resumes/; the rest waits for the next run',
     )
   })
 
@@ -511,25 +511,39 @@ describe('ResumeOrphanSweepCron', () => {
       expect(result).toMatchObject({ deleted: 0, complete: true })
     })
 
-    it('the cap is shared: a run that used it on senior-resumes/ does not list resumes/', async () => {
+    it('each prefix has its own cap: staged keys are reached when senior-resumes/ alone exceeds it', async () => {
+      bucket.pageSize = 100 // more pages after the cap: the capped prefix must stop listing
       for (let n = 0; n < MAX_ORPHAN_DELETES_PER_RUN + 1; n++) {
         bucket.objects.set(`senior-resumes/u/${String(n).padStart(4, '0')}`, OLD)
       }
       bucket.objects.set(staged('orphan'), OLD)
       const result = await make().sweep(NOW)
-      expect(bucket.listObjects.mock.calls.map((c) => c[1])).not.toContain('resumes/')
-      expect(bucket.objects.has(staged('orphan'))).toBe(true)
-      expect(result).toMatchObject({ deleted: MAX_ORPHAN_DELETES_PER_RUN, complete: false })
+      expect(bucket.objects.has(staged('orphan'))).toBe(false)
+      expect(bucket.objects.has('senior-resumes/u/0500')).toBe(true)
+      expect(result).toMatchObject({ deleted: MAX_ORPHAN_DELETES_PER_RUN + 1, complete: false })
+      expect(warn).toHaveBeenCalledTimes(1)
     })
 
-    it('the cap counts deletes across both prefixes', async () => {
+    it('the staged prefix stops at its own cap', async () => {
+      for (let n = 0; n < MAX_ORPHAN_DELETES_PER_RUN + 1; n++) {
+        bucket.objects.set(staged(String(n).padStart(4, '0')), OLD)
+      }
+      const result = await make().sweep(NOW)
+      expect(bucket.deleteOrThrow).toHaveBeenCalledTimes(MAX_ORPHAN_DELETES_PER_RUN)
+      expect(result).toMatchObject({ deleted: MAX_ORPHAN_DELETES_PER_RUN, complete: false })
+      expect(warn).toHaveBeenCalledWith(
+        'Resume orphan sweep hit the cap of 500 deletes under resumes/; the rest waits for the next run',
+      )
+    })
+
+    it('exactly the cap under each prefix is a complete run', async () => {
       for (let n = 0; n < MAX_ORPHAN_DELETES_PER_RUN; n++) {
         bucket.objects.set(`senior-resumes/u/${String(n).padStart(4, '0')}`, OLD)
+        bucket.objects.set(staged(String(n).padStart(4, '0')), OLD)
       }
-      bucket.objects.set(staged('orphan'), OLD)
       const result = await make().sweep(NOW)
-      expect(bucket.objects.has(staged('orphan'))).toBe(true)
-      expect(result).toMatchObject({ deleted: MAX_ORPHAN_DELETES_PER_RUN, complete: false })
+      expect(result).toMatchObject({ deleted: 2 * MAX_ORPHAN_DELETES_PER_RUN, complete: true })
+      expect(warn).not.toHaveBeenCalled()
     })
 
     it('a listing failure on resumes/ stops the run after senior-resumes/ was swept', async () => {
