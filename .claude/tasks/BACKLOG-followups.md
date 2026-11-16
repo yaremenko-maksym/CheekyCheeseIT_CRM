@@ -8346,6 +8346,7 @@ Sources: PR #1362 security review (SR-L-1), code and second-opinion reviews on t
 
 **Symptoms.** Stored `Ivan Li Yu`: `Li, Ivan` and `Ivan-Li` pass the gate. A surname with glued digits (`Surname1990`)
 passes the gate, while redaction reads the digit as an edge (453d). The gate keeps main's token rule for digits.
+The same class, measured 2026-11-16: stored `Li Yu Chen` (one reading `LiYu Chen`, the other `Li`, `Yu`, `Chen`) lets `Li - Yu` pass, while `Ivan Kot Li Yu` refuses it. The first stored part never takes part in a gate run, and while runs are active two-letter parts are not lone sources, so a first part with one more part has no source at all.
 
 **Candidate fix.** Decide the first-name-plus-one-part reading and the digit edge for the gate separately; each needs a
 false-positive measurement, since a first name alone is a common word.

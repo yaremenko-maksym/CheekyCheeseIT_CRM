@@ -754,12 +754,18 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
   // Live rows: each stored name has 4 split parts (MAX_RUN_PARTS 8 builds runs), and two short whole
   // tokens (1-2 letters, so no lone source) sit in the prose with a non-joiner between them: ` (` or
   // `(` `)`. The real RUN_GAP accepts only whitespace and one joiner there, so the row passes; a wildcard
-  // gap matches and the row fails. The examples `J. Smith` and `snake_case_name` have only joiners
-  // between their tokens, so as written they cannot be live (PR #1362 fix 4).
+  // gap matches and the row fails. The joiner rows (`.`, `_`, U+00B7, `e.g.`) keep the joiner next to
+  // a stored part, but the two stored parts are separated by ` (` or `(` `)`, so the real RUN_GAP still
+  // does not bridge them. Examples `v1.2.3` and `2024-05-01` stay green under the wildcard too (no
+  // short whole token pair), so they are dropped (PR #1362 fix 4, fix 5).
   it.each([
     ['J (Mi) Smith', 'Ivan Kot\u{200B}J\u{200B}Mi'],
     ['ak (ca) name', 'Ivan Kot\u{200B}ak\u{200B}ca'],
     ['ol (ab) laboraci\u{00F3}', 'Ivan Kot\u{200B}ol\u{200B}ab'],
+    ['J. (Mi) Smith', 'Ivan Kot\u{200B}J\u{200B}Mi'],
+    ['see e.g. (Mi) this', 'Ivan Kot\u{200B}g\u{200B}Mi'],
+    ['snake_ (ca) se', 'Ivan Kot\u{200B}ca\u{200B}se'],
+    ['col\u{00B7}la (ab) boraci\u{00F3}', 'Ivan Kot\u{200B}la\u{200B}ab'],
   ])(
     'prose %j is not refused, with the short parts not adjacent (PR #1362 fix 4)',
     (text, fullName) => {
