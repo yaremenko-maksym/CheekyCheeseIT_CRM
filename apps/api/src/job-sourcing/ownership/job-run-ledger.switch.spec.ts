@@ -163,12 +163,13 @@ describe('setEnabled — enable', () => {
     expect(updates(h.statements)).toHaveLength(1)
     expect(update?.params).toEqual(expect.arrayContaining([true, 'ENABLED', ACTOR, SOURCE]))
     expect(update?.sql).toContain('admin_state_history = admin_state_history || jsonb_build_array')
-    // Enable never resets quota, failures, cooldown, the due time, the reasons or readiness.
+    // Enable arms the due time only when it is unset (never moves an existing slot).
+    expect(update?.sql).toContain('COALESCE(next_attempt_at, clock_timestamp())')
+    // Enable never resets quota, failures, cooldown, the reasons or readiness.
     for (const column of [
       'budget_used',
       'consecutive_failures',
       'cooldown_until',
-      'next_attempt_at',
       'last_error_code',
       'disabled_reason',
       'readiness',

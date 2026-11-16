@@ -1,9 +1,12 @@
+import { randomUUID } from 'node:crypto'
 import {
   ForbiddenException,
   HttpStatus,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common'
 import type {
   CreateJobSourceNoteDto,
@@ -29,7 +32,9 @@ import { jobCollectionRuns, jobSourceHealthEvents, jobSources, users } from '../
 import { type LatestTransition, latestHealthTransitions } from '../health/latest-transitions'
 import { JobRunLedger } from '../ownership/job-run-ledger'
 import { CLAIM_REFUSALS, nextAttemptAt } from '../ownership/ledger-policy'
+import { JobRunWorker } from '../runtime/job-run-worker'
 import { MAX_CONSECUTIVE_FAILURES } from '../scheduling/due-policy'
+import { isFreshForEnable } from './enable-fetch-freshness'
 import { correlateEvents, freshnessWindowStart, summarizeProfile } from './source-page-derivation'
 
 /** How many recent runs / events the detail page carries — bounded, newest first. */
@@ -61,7 +66,11 @@ export class JobSourceAdminService {
   constructor(
     @Inject(DatabaseService) private readonly database: DatabaseService,
     @Inject(JobRunLedger) private readonly ledger: JobRunLedger,
+    /** Optional: absent in specs that only exercise the ledger writes; then no immediate fetch. */
+    @Optional() @Inject(JobRunWorker) private readonly worker?: JobRunWorker,
   ) {}
+
+  private readonly logger = new Logger(JobSourceAdminService.name)
 
   private assertAdmin(user: SessionUser): void {
     if (user.role !== 'ADMIN') {
@@ -112,11 +121,54 @@ export class JobSourceAdminService {
         HttpStatus.CONFLICT,
       )
     }
+    if (body.enabled && outcome.changed && this.worker !== undefined) {
+      // Fire-and-forget: the response never waits for the fetch, and a failure never reaches it.
+      void this.fetchIfStale(id, actor.id, this.worker).catch((error: unknown) =>
+        this.logger.warn(`enable fetch failed: source=${id} reason=${String(error)}`),
+      )
+    }
     return {
       id,
       enabled: body.enabled,
       changed: outcome.changed,
       cancelledRuns: outcome.cancelledRuns,
+    }
+  }
+
+  /**
+   * Owner request: a freshly enabled source with no recent data fetches NOW, through the existing
+   * manual path (`claimSource` keeps every gate). A refusal is logged; the slot `setEnabled` armed
+   * lets the next tick pick the source up.
+   */
+  private async fetchIfStale(sourceId: string, actor: string, worker: JobRunWorker): Promise<void> {
+    const { rows } = await this.database.db.execute(sql`
+      SELECT s.type, s.manifest_id,
+             (SELECT (extract(epoch FROM max(r.ended_at)) * 1000)::float8
+                FROM job_collection_runs r
+               WHERE r.source_id = s.id AND r.outcome = 'SUCCEEDED') AS last_success_ms,
+             (extract(epoch FROM clock_timestamp()) * 1000)::float8 AS now_ms
+        FROM job_sources s WHERE s.id = ${sourceId}::uuid`)
+    const row = rows[0]
+    if (row === undefined) return
+    const manifestId = row['manifest_id']
+    const entry = typeof manifestId === 'string' ? this.ledger.catalog.entry(manifestId) : undefined
+    const last = row['last_success_ms']
+    const fresh = isFreshForEnable({
+      lastSuccessEndedAtMs: typeof last === 'number' ? last : null,
+      nowMs: Number(row['now_ms']),
+      intervalMinutes: entry?.fetchProfile?.intervalMinutes ?? null,
+    })
+    if (fresh) return
+    const { cycleId } = await this.ledger.openCycle({
+      trigger: 'MANUAL',
+      triggerKey: `enable-fetch:${sourceId}:${randomUUID()}`,
+      actor,
+    })
+    const result = await worker.runSource({ cycleId, sourceId, actor })
+    if (result.kind === 'REFUSED') {
+      this.logger.warn(
+        `enable fetch refused: source_type=${String(row['type'])} reason=${String(result.reason)}`,
+      )
     }
   }
 
