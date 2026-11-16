@@ -481,23 +481,31 @@ export function contactNameParts(name: string): string[][] {
   return split.join(' ') === joined.join(' ') ? [joined] : [joined, split]
 }
 
+/** Letters in a name part; marks, digits and punctuation do not count. */
+const nameLetters = (part: string): number => part.replace(/\P{L}/gu, '').length
+
 /**
- * A part of the split reading that stands for a name: three letters or more. An invisible inside a
- * stored part leaves a fragment (`Ivan Petr`, ZWNJ, `in` gives `in`), and a fragment is a common
- * word (PR #1351 round 6, finding 5, CR-M-3).
+ * The fewest letters a part of the split reading needs to pair or stand alone. A joined reading of
+ * one part means the invisible was the only separator, so the split reading is the real name and
+ * keeps the joined reading's rule: a surname of two letters or more (`Wei`, ZWSP, `Li`). A joined
+ * reading of two or more parts means the invisible sits inside a real part and leaves a fragment
+ * (`Ivan Petr`, ZWNJ, `in` gives `in`), and a fragment is a common word: three letters or more
+ * (PR #1351 round 6, finding 5, CR-M-3, Addendum C).
  */
-const isNamePart = (part: string): boolean => part.replace(/\P{L}/gu, '').length >= 3
+const splitPartLetters = (joinedLength: number): number => (joinedLength > 1 ? 3 : 2)
 
 /**
  * The part orders of the split reading: every part in order, and the first part with each later
- * name part, both ways, when the first is one too. Stored `Ivan Petrenko`, ZWSP, `Kovalenko` hits
- * `Ivan Kovalenko` and `Ivan Petrenko`; stored `Ivan Petr`, ZWNJ, `in` never pairs `Ivan` with `in`.
+ * part, both ways. With a joined reading of two or more parts, both parts of a pair need three
+ * letters: stored `Ivan Petrenko`, ZWSP, `Kovalenko` hits `Ivan Kovalenko`, and stored `Ivan Petr`,
+ * ZWNJ, `in` never pairs `Ivan` with `in`. With a joined reading of one part every pair is kept.
  */
-export function splitNameOrders(parts: readonly string[]): string[][] {
+export function splitNameOrders(parts: readonly string[], joinedLength: number): string[][] {
+  const fits = (part: string) => joinedLength <= 1 || nameLetters(part) >= 3
   const [first, ...rest] = parts
   const pairs =
-    first !== undefined && isNamePart(first)
-      ? rest.filter(isNamePart).flatMap((part) => [
+    first !== undefined && fits(first)
+      ? rest.filter(fits).flatMap((part) => [
           [first, part],
           [part, first],
         ])
@@ -505,9 +513,10 @@ export function splitNameOrders(parts: readonly string[]): string[][] {
   return [[...parts], ...pairs]
 }
 
-/** The parts of the split reading the API redacts alone: each name part after the first. */
-export function splitNameLoneParts(parts: readonly string[]): string[] {
-  return parts.slice(1).filter(isNamePart)
+/** The parts of the split reading the API redacts alone: each part after the first that is long enough. */
+export function splitNameLoneParts(parts: readonly string[], joinedLength: number): string[] {
+  const letters = splitPartLetters(joinedLength)
+  return parts.slice(1).filter((part) => nameLetters(part) >= letters)
 }
 
 /**
@@ -543,8 +552,12 @@ function nameOrders(tokens: string[]): string[][] {
 function contactCheck(displayName: string, telegram: string | null | undefined): ContactCheck {
   // Context values are normalised like the text, so a name or handle written with a ligature, a
   // zero-width joiner or fullwidth letters still matches itself written the same way.
-  const names = contactNameParts(displayName)
-    .flatMap((parts, reading) => (reading === 0 ? nameOrders(parts) : splitNameOrders(parts)))
+  const readings = contactNameParts(displayName)
+  const joinedLength = readings[0]?.length ?? 0
+  const names = readings
+    .flatMap((parts, reading) =>
+      reading === 0 ? nameOrders(parts) : splitNameOrders(parts, joinedLength),
+    )
     .map((parts) =>
       parts.map((part) => escapeRegExp(foldAccents(part).text)).join(CONTACT_NAME_GAP),
     )

@@ -68,11 +68,13 @@ function nameSources(fullName: string): string[] {
   // folded after the split helpers count letters: NFD turns a Hangul syllable into its jamo
   const fold = (parts: readonly string[]) =>
     parts.map((part) => escapeRegExp(foldAccents(part).text))
-  return contactNameParts(fullName).flatMap((parts, reading) => {
+  const readings = contactNameParts(fullName)
+  const joinedLength = readings[0]?.length ?? 0
+  return readings.flatMap((parts, reading) => {
     if (reading > 0) {
       return [
-        ...splitNameOrders(parts).map((order) => fold(order).join(CONTACT_NAME_GAP)),
-        ...fold(splitNameLoneParts(parts)),
+        ...splitNameOrders(parts, joinedLength).map((order) => fold(order).join(CONTACT_NAME_GAP)),
+        ...fold(splitNameLoneParts(parts, joinedLength)),
       ]
     }
     const folded = fold(parts)
