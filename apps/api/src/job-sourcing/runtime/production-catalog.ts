@@ -77,24 +77,37 @@ export function snapshotReadinessAt(
   return { status: blockerCodes.length === 0 ? 'CANDIDATE' : 'BLOCKED', blockerCodes }
 }
 
-export function catalogFromSnapshot(snapshot: LedgerCatalogSnapshot): LedgerCatalog {
+/**
+ * @param keyProvisioned whether a type's own key is set (`keyProvisioned` in `quota-credentials`).
+ *   The manifest emits `KEY_REQUIRED` whatever; it is met here, and only for such a type. The
+ *   default (no key reader) leaves every `KEY_REQUIRED` standing, as the manifest catalog does.
+ */
+export function catalogFromSnapshot(
+  snapshot: LedgerCatalogSnapshot,
+  keyProvisioned: (type: JobSourceType) => boolean = () => false,
+): LedgerCatalog {
   const types = new Map(snapshot.types.map((t) => [t.type, t]))
   const entries = new Map<string, LedgerCatalogEntry>()
   for (const e of snapshot.entries) {
     const t = types.get(e.type)
     // An entry whose type the snapshot does not describe is not resolved: the claim refuses it.
     if (t === undefined) continue
+    const met = keyProvisioned(e.type)
+    const lift = <S extends { readonly blockerCodes: readonly string[] }>(s: S): S =>
+      met ? { ...s, blockerCodes: s.blockerCodes.filter((c) => c !== 'KEY_REQUIRED') } : s
+    const type = lift(t)
+    const entry = lift(e)
     entries.set(e.id, {
       type: e.type,
       activationFacts: (at) => {
-        const r = snapshotReadinessAt(t, at)
+        const r = snapshotReadinessAt(type, at)
         return {
           readiness: r.status,
           blockerCodes: r.blockerCodes,
           payloadVerified: t.payloadVerified,
         }
       },
-      entryReadiness: (at) => snapshotReadinessAt(e, at).status,
+      entryReadiness: (at) => snapshotReadinessAt(entry, at).status,
       quotaDeclared: t.quotaDeclared,
       fetchProfile: e.fetchProfile,
       floorHours: t.floorHours,
@@ -136,7 +149,9 @@ export function sourceDeadlines(
   return { policyUntil: earliest('POLICY_EXPIRES'), authUntil: earliest('AUTH_REQUIRED_FROM') }
 }
 
-/** The catalog the production worker runs with. */
-export function productionLedgerCatalog(): LedgerCatalog {
-  return catalogFromSnapshot(LEDGER_CATALOG_SNAPSHOT)
+/** The catalog the production worker runs with; `keyProvisioned` as in `catalogFromSnapshot`. */
+export function productionLedgerCatalog(
+  keyProvisioned?: (type: JobSourceType) => boolean,
+): LedgerCatalog {
+  return catalogFromSnapshot(LEDGER_CATALOG_SNAPSHOT, keyProvisioned)
 }

@@ -107,9 +107,13 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     // `createProductionWorker`.
     {
       provide: JobRunLedger,
-      useFactory: (db: DatabaseService, registry: JobSourceRegistry) =>
-        createProductionLedger(lateBoundDb(db), registry),
-      inject: [DatabaseService, JobSourceRegistry],
+      // The ledger lifts KEY_REQUIRED for a keyed type whose key ConfigService holds.
+      useFactory: (
+        db: DatabaseService,
+        registry: JobSourceRegistry,
+        config: ConfigService<Env, true> | undefined,
+      ) => createProductionLedger(lateBoundDb(db), registry, config),
+      inject: [DatabaseService, JobSourceRegistry, { token: ConfigService, optional: true }],
     },
     {
       provide: JobRunWorker,

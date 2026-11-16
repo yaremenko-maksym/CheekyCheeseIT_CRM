@@ -116,6 +116,23 @@ describe('createProductionLedger', () => {
       floorHours: 6,
     })
   })
+
+  it('lifts KEY_REQUIRED only for a type whose key the config holds', () => {
+    const NOW = new Date('2026-11-17T00:00:00Z')
+    const readiness = (l: typeof LEDGER, id: string) => {
+      const f = l.catalog.entry(id)!.activationFacts(NOW)
+      return [f.readiness, f.blockerCodes]
+    }
+    const keyed = createProductionLedger(untouchable, new JobSourceRegistry([]), config)
+    // The config holds RAPIDAPI_KEY only.
+    expect(readiness(keyed, 'jsearch.rapidapi.backend')).toEqual(['CANDIDATE', []])
+    expect(readiness(keyed, 'jooble.api.senior-developer-remote')).toEqual([
+      'BLOCKED',
+      ['KEY_REQUIRED'],
+    ])
+    // No config, no key: the blocker stands.
+    expect(readiness(LEDGER, 'jsearch.rapidapi.backend')).toEqual(['BLOCKED', ['KEY_REQUIRED']])
+  })
 })
 
 describe('createProductionWorker', () => {
