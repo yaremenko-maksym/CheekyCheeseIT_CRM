@@ -5,8 +5,11 @@
  *
  * Port notes: Python 3 `\b` / `\w` / `\W` are Unicode-aware, JS ones are ASCII-only, so `rx`
  * rewrites them to Unicode letter/digit classes (Cyrillic titles depend on it). Every role keyword is
- * bounded on the left (`(?<![a-z0-9])backend` matches "backends"), as in the run; for a keyword that
- * opens with `\b` the extra bound changes nothing. Keywords the appendix could never fire are
+ * bounded on the left (`backend` matches "backends"), as in the run, but by a Unicode letter or
+ * digit where the run used ASCII `(?<![a-z0-9])`; for a keyword that opens with `\b` the extra
+ * bound changes nothing. Deviations from the run, each pinned by a fixture row: `автотест` (QA
+ * automation), Cyrillic engineer + security domain → SECURITY_ENGINEER, `go to` is not Go, and an
+ * architect re-adds back-end as well as front-end. Keywords the appendix could never fire are
  * dropped without a change in result: those another keyword of the same role already covers
  * (`бекенд` ⊂ `бек[\s-]?енд`) and the Cyrillic CTO keywords, which no job noun admits ("директор" is
  * not one, so "Технічний директор" stays unclassified as in the run).
@@ -31,8 +34,11 @@ const rx = (pattern: RegExp): RegExp =>
     'u',
   )
 
-/** A keyword bounded on the left only: `(?<![a-z0-9])backend` matches "backends". */
-const keyword = (pattern: RegExp): RegExp => rx(new RegExp(`(?<![a-z0-9])${pattern.source}`))
+/**
+ * A keyword bounded on the left only: `backend` matches "backends". The bound is Unicode, so
+ * `мобільн` does not fire inside "автомобільний" (the run's `(?<![a-z0-9])` was ASCII-only).
+ */
+const keyword = (pattern: RegExp): RegExp => rx(new RegExp(String.raw`(?<!\w)` + pattern.source))
 
 type SpecificRole = Exclude<TechnicalRole, 'SOFTWARE_ENGINEER'>
 
@@ -227,6 +233,7 @@ const ROLE_PATTERNS: Record<SpecificRole, readonly RegExp[]> = {
     /software development engineer in test/,
     /performance test/,
     /load test/,
+    /автотест/,
   ],
   SECURITY_ENGINEER: [
     /security engineer/,
@@ -238,6 +245,9 @@ const ROLE_PATTERNS: Record<SpecificRole, readonly RegExp[]> = {
     /cybersecurity engineer/,
     /security architect/,
     /information security/,
+    // an engineer noun + a security domain (research §1.6 uk label «Інженер з кібербезпеки»)
+    /інженер\w* з (кібербезпек|інформаційн\w* безпек)/,
+    /инженер\w* по (кибербезопасн|информационн\w* безопасн)/,
   ],
   SECURITY_ANALYST: [
     /security analyst/,
@@ -247,10 +257,10 @@ const ROLE_PATTERNS: Record<SpecificRole, readonly RegExp[]> = {
     /\bgrc\b/,
     /security operations/,
     /digital forensic/,
-    /кібербезпек/,
-    /кибербезопасн/,
-    /інформаційн\w* безпек/,
-    /информационн\w* безопасн/,
+    /(?<!інженер\w* з )кібербезпек/,
+    /(?<!инженер\w* по )кибербезопасн/,
+    /(?<!інженер\w* з )інформаційн\w* безпек/,
+    /(?<!инженер\w* по )информационн\w* безопасн/,
   ],
   PENETRATION_TESTER: [
     /penetration test/,
@@ -367,7 +377,7 @@ const GENERIC_KEYWORDS = [
   /разработчик/,
   /програміст/,
   /программист/,
-].map((p) => rx(new RegExp(`(?<![a-z0-9])${p.source}`)))
+].map(keyword)
 const GENERIC_NOUN = rx(
   /(software|developer|programmer|розробник|разработчик|програміст|программист|\bswe\b)/,
 )
@@ -395,7 +405,7 @@ const HINT_NOUN = rx(
 const TECH_HINTS: readonly { pattern: RegExp; role: TechnicalRole | null }[] = [
   {
     pattern: rx(
-      /\b(java|golang|go|python|php|ruby|rails|scala|elixir|rust|node\.?js|nestjs|django|laravel|spring)\b/,
+      /\b(java|golang|go(?![\s-]to\b)|python|php|ruby|rails|scala|elixir|rust|node\.?js|nestjs|django|laravel|spring)\b/,
     ),
     role: 'BACKEND_ENGINEER',
   },
@@ -416,8 +426,10 @@ const ARCHITECT_DOMAINS: readonly { pattern: RegExp; role: TechnicalRole }[] = [
   { pattern: rx(/network/), role: 'NETWORK_ENGINEER' },
   { pattern: rx(/\b(ml|ai|machine learning)\b/), role: 'ML_ENGINEER' },
   { pattern: rx(/\b(salesforce|sap|erp|crm)\b/), role: 'BUSINESS_APPLICATIONS_ENGINEER' },
-  // re-adds FRONTEND_ENGINEER after fullstack precedence dropped it, as the run did
+  // re-add FRONTEND / BACKEND after fullstack precedence dropped them; the run re-added only
+  // front-end, and §3.4 states no outcome for a "Frontend/Backend Architect"
   { pattern: rx(/(front[\s-]?end)/), role: 'FRONTEND_ENGINEER' },
+  { pattern: rx(/(back[\s-]?end)/), role: 'BACKEND_ENGINEER' },
   { pattern: rx(/mobile/), role: 'CROSS_PLATFORM_MOBILE_ENGINEER' },
 ]
 
@@ -427,7 +439,8 @@ const ARCHITECT_DOMAINS: readonly { pattern: RegExp; role: TechnicalRole }[] = [
  * board but a `hint` or a broader parent on another (`JavaScript`, `QA`, `Security`, `Support`,
  * `Design`), and technology tags that name no role (`SQL`, `Kotlin`, `C++`).
  */
-const EQ_BOARD_CATEGORIES: Readonly<Record<string, TechnicalRole>> = Object.fromEntries(
+// a Map, not an object: a tag like `constructor` must not read an `Object.prototype` member
+const EQ_BOARD_CATEGORIES: ReadonlyMap<string, TechnicalRole> = new Map(
   (
     [
       ['SOFTWARE_ENGINEER', ['software-development']],
@@ -548,7 +561,9 @@ function rolesFromTitle(t: string): TechnicalRole[] {
 
 /** Step 9: roles from `eq` board categories; SOFTWARE_ENGINEER only when nothing else is named. */
 function rolesFromBoard(tags: readonly string[]): TechnicalRole[] {
-  const found = new Set(tags.flatMap((tag) => EQ_BOARD_CATEGORIES[tag.trim().toLowerCase()] ?? []))
+  const found = new Set(
+    tags.flatMap((tag) => EQ_BOARD_CATEGORIES.get(tag.trim().toLowerCase()) ?? []),
+  )
   if (found.size > 1) found.delete('SOFTWARE_ENGINEER')
   return [...found]
 }
