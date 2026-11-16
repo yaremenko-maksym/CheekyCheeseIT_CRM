@@ -687,9 +687,9 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
 
   it('the gate at its run bound stays bounded and the in-text filter keeps absent parts free (PR #1362 fix 1)', () => {
     // Parts no text holds (Qa, Jx, ...): the in-text filter leaves no run, so 8 of them cost like 1.
-    // The same 8 appended to the text build the full run set (2^7 subsets, both orders). 16 parts
-    // are one past the bound: no run is built, so the test fails if MAX_RUN_PARTS is raised to 16,
-    // which would build 2^15 subsets for the 16-part name.
+    // The same 8 appended to the text build the full run set (2^7 subsets, both orders). At
+    // MAX_RUN_PARTS = 16 the present16 arm builds 2^15 subsets per scan, so this test does not fail by
+    // an assertion: it ends by the 90 s test timeout. The plain 9-part row below fails at once instead.
     const pool = [
       'Qa',
       'Jx',
@@ -731,6 +731,30 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
     expect(present8 / ref).toBeLessThan(RATIO_PRESENT)
     expect(present16 / ref).toBeLessThan(RATIO_PRESENT)
   })
+
+  it('a 9-part split name builds no run at MAX_RUN_PARTS 8: the bound is pinned, and raising it fails at once (PR #1362 fix 2)', () => {
+    // Split reading: Ivan, J, K, L, M, N, O, P, Q (nine parts). Past 8 parts every part of two letters
+    // or more is a lone source, so only single letters can refuse through a run. At MAX_RUN_PARTS 8
+    // no run is built and `J K L` is not refused; at 9 to 15, or 16, the run `JKL` is built and this
+    // row fails at once, without a timing wait.
+    const zwsp = String.fromCharCode(0x200b)
+    const fullName = ['Ivan', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q'].join(zwsp)
+    expect(scanContacts('J K L', { fullName, emails: [] })).toEqual([])
+  })
+
+  it.each([
+    ['J. Smith', 'Anna Ko​J​Li​Pe​Ru​Sa​To​Qz'],
+    ['e.g.', 'Ivan Ka​e​g​Mo​Ra​Le​Pi​So'],
+    ['v1.2.3', 'Ivan Ka​v1​2​3​Mo​Ra​Le​Pi'],
+    ['snake_case_name', 'Ivan Ko​q​x​Mo​Ra​Le​Pi​So'],
+    ['2024-05-01', 'Ivan Ka​20​24​Mo​Ra​Le​Pi​So'],
+    ['col·laboració', 'Ivan Ko​q​x​Mo​Ra​Le​Pi​So'],
+  ])(
+    'prose %j is not refused by the joiners . _ - and middle dot, with short parts not adjacent in the text (PR #1362 fix 4)',
+    (text, fullName) => {
+      expect(scanContacts(text, { fullName, emails: [] })).toEqual([])
+    },
+  )
 
   it('notes of one cluster full of invisibles are redacted in time linear in their length (PR #1351 round 4, CR-M-2)', () => {
     // A letter followed by (ZWSP, acute) pairs and a jamo run with a ZWSP between its jamo are

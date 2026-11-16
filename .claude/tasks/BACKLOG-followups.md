@@ -8324,6 +8324,20 @@ staged edits are checked only by this gate (nothing redacts them afterwards), so
 addition needs a false-positive measurement over clean text first: count new refusals on the pass corpus, and keep the
 joiner only at zero.
 
+**More joiners to measure the same way.** `|`, `:`, `+`, `~`, and a repeated joiner (`Li - Yu`, `Li ... Yu`, `Li -- Yu`):
+`RUN_GAP` takes one joiner per gap, so a doubled one passes today. Repeated forms are a separate measurement from the
+single joiner, because a repeat widens the gap the pattern accepts.
+
+**Dash code points, checked against NFKC.** `normaliseContactText` applies NFKC before the match, so a code point NFKC
+already maps onto a listed form needs no entry. Checked in Node 2026-11-16: U+2011 NFKC-folds to U+2010 and U+2026
+folds to `...`; both are covered once their folded form is. Not folded, so each needs its own entry in `RUN_GAP`:
+U+058A (Armenian hyphen), U+2E3A (two-em dash), U+2E3B (three-em dash), U+301C (wave dash). Add the ones that pass the
+false-positive measure, and no others.
+
+**Perf.** The `splitNameRuns` doc comment quotes 4.6x for a text holding every part, measured by hand against main. No
+test pins it: add a perf case with the parts repeated many times in the text, both bound-side (8 parts) and past the
+bound, before the joiner set grows, so the run cost is measured at its worst and not only on the perf spec's text.
+
 **Verify.** `scanContacts('by Li / Yu today', ctx)` refuses; the pass corpus of `contact-scan*.spec.ts` gives zero new refusals.
 
 Sources: PR #1362 security review (SR-L-1), code and second-opinion reviews on the same branch.
