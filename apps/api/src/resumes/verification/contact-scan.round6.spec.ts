@@ -617,4 +617,14 @@ describe('the gate scan keeps runs of short split parts that form the surname (r
     expect(scanContacts(text, stored(fullName))).toEqual([])
     expect(hasContact(text, [stored(fullName)])).toBe(false)
   })
+
+  it('takes runs up to 8 split parts; past that the gate drops no short fragment (Addendum A)', () => {
+    const eight = stored('Ivan Kovalenko​Li​Yu​Bo​Li​Yu​Bo')
+    const nine = stored('Ivan Kovalenko​Li​Yu​Bo​Li​Yu​Bo​Li')
+    expect(scanContacts('Bo Yu', eight)).toEqual([{ kind: 'name', match: 'Bo Yu' }])
+    expect(scanContacts('by Li today', eight)).toEqual([])
+    // round 7's stricter gate: a lone two-letter part refuses
+    expect(scanContacts('by Li today', nine)).toEqual([{ kind: 'name', match: 'Li' }])
+    expect(redactContacts('by Li today', nine)).toBe('by [REDACTED] today')
+  })
 })

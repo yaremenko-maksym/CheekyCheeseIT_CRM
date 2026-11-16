@@ -70,10 +70,15 @@ function escapeRegExp(value: string): string {
  * fragment such as `son` still refuses: accepted. The gate scan also keeps each run of two or more
  * consecutive parts after the first, both ways, when the run has three letters or more, so two short
  * parts that form the whole surname still refuse (`Ivan Li`, ZWSP, `Yu` refuses `Li Yu` and `Yu Li`;
- * round 9, SR-M-2).
+ * round 9, SR-M-2). Runs grow with the square of the part count, and the stored name is HR-edited, so
+ * past `MAX_RUN_PARTS` split parts the gate takes no runs and drops no short fragment: round 7's
+ * stricter gate, linear in the part count and fail-closed (round 9, Addendum A).
  */
 /** A last name part is a lone source from two letters on, in both passes (main's rule). */
 const isSurnameSource = (part: string): boolean => part.replace(/\P{L}/gu, '').length >= 2
+
+/** Split parts up to which the gate builds runs: 8 parts give at most 42 run sources. */
+const MAX_RUN_PARTS = 8
 
 /** The gate's runs: two or more consecutive split parts after the first, both ways, three letters or more. */
 function splitNameRuns(parts: readonly string[]): string[][] {
@@ -91,13 +96,14 @@ function nameSources(fullName: string, failClosed: boolean): string[] {
     parts.map((part) => escapeRegExp(foldAccents(part).text))
   return contactNameParts(fullName).flatMap((parts, reading, readings) => {
     if (reading > 0) {
+      const runs = !failClosed && parts.length <= MAX_RUN_PARTS
       // Stryker disable next-line OptionalChaining: equivalent — contactNameParts always returns the joined reading first, so readings[0] is defined
-      const shortFragments = !failClosed && (readings[0]?.length ?? 0) > 1
+      const shortFragments = runs && (readings[0]?.length ?? 0) > 1
       const lone = splitNameLoneParts(parts).filter(
         (part) => !shortFragments || part.replace(/\P{L}/gu, '').length >= 3,
       )
       return [
-        ...[...splitNameOrders(parts), ...(failClosed ? [] : splitNameRuns(parts))].map((order) =>
+        ...[...splitNameOrders(parts), ...(runs ? splitNameRuns(parts) : [])].map((order) =>
           fold(order).join(CONTACT_NAME_GAP),
         ),
         ...fold(lone),
