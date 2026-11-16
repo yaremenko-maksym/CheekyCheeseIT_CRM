@@ -88,7 +88,7 @@ export interface RecomputeBatch {
 /** The worker's port to the database; `createRecomputeSteps` is the real one. */
 export interface RecomputeSteps {
   /** `freshOnly`: only rows never attempted (`ClaimOptions.freshOnly`). */
-  claim(owner: string, batchSize: number, freshOnly?: boolean): Promise<ClaimedDirtyWork[]>
+  claim(owner: string, batchSize: number, freshOnly: boolean): Promise<ClaimedDirtyWork[]>
   /** Process one held row and complete it, in one transaction with any write it makes. */
   process(work: ClaimedDirtyWork, batch: RecomputeBatch): Promise<CompleteOutcome>
   fail(work: ClaimedDirtyWork, code: string, opts: RetryOptions): Promise<FailOutcome>
@@ -148,7 +148,7 @@ export class RecomputeWorker {
       batchSize = DIRTY_BATCH_DEFAULT,
       yieldEvery = RECOMPUTE_YIELD_EVERY,
     } = this.options
-    const claimed = await this.steps.claim(owner, batchSize, opts.freshOnly)
+    const claimed = await this.steps.claim(owner, batchSize, opts.freshOnly === true)
     const report: RecomputeReport = {
       claimed: claimed.length,
       done: 0,

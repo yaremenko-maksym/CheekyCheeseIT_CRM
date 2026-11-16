@@ -54,7 +54,7 @@ interface Fake {
   steps: RecomputeSteps
   processed: string[]
   failed: [string, string, RetryOptions][]
-  claims: [string, number][]
+  claims: [string, number, boolean][]
   batches: RecomputeBatch[]
 }
 
@@ -65,8 +65,8 @@ function fakeSteps(
 ): Fake {
   const f: Fake = { processed: [], failed: [], claims: [], batches: [], steps: undefined as never }
   f.steps = {
-    async claim(owner, batchSize) {
-      f.claims.push([owner, batchSize])
+    async claim(owner, batchSize, freshOnly) {
+      f.claims.push([owner, batchSize, freshOnly])
       return claimed
     },
     async process(w, batch) {
@@ -97,10 +97,13 @@ describe('RecomputeWorker.runOnce: claim and ordering', () => {
       failed: 0,
       fenced: 0,
     })
-    expect(f.claims).toEqual([['spec-owner', 200]])
+    expect(f.claims).toEqual([['spec-owner', 200, false]])
     expect(f.processed).toEqual([])
     await worker(f, { batchSize: 7 }).runOnce()
-    expect(f.claims[1]).toEqual(['spec-owner', 7])
+    expect(f.claims[1]).toEqual(['spec-owner', 7, false])
+    // CR-H-1: the post-run drain asks for rows never attempted
+    await worker(f).runOnce({ freshOnly: true })
+    expect(f.claims[2]).toEqual(['spec-owner', 200, true])
   })
 
   it('resolves the batch records before any opportunity, keeping claim order within a kind', async () => {

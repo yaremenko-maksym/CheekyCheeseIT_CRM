@@ -340,7 +340,7 @@ describe('requestDrain: the post-run match drain', () => {
     expect(String(log.mock.calls[0]?.[0])).toContain('generationsInvalidated=0')
   })
 
-  it('a request while a sweep runs is dropped (the sweep drains)', async () => {
+  it('a request while a sweep runs is deferred: the sweep drains, then one fresh-only drain runs after it', async () => {
     const { svc, runOnce } = make(true, [])
     let release!: () => void
     reconcile.mockImplementationOnce(() => new Promise((r) => (release = () => r(report()))))
@@ -351,7 +351,31 @@ describe('requestDrain: the post-run match drain', () => {
     expect(runOnce).not.toHaveBeenCalled()
     release()
     await sweep
-    expect(runOnce).toHaveBeenCalledTimes(1)
+    await new Promise((r) => setImmediate(r))
+    // the sweep's own drain claims retries too; the deferred post-run drain only fresh rows
+    expect(runOnce.mock.calls).toEqual([[{ freshOnly: false }], [{ freshOnly: true }]])
+    // the deferral is spent: the next sweep drains once and starts no drain after it
+    await svc.handleReconciliation()
+    await new Promise((r) => setImmediate(r))
+    expect(runOnce).toHaveBeenCalledTimes(3)
+  })
+
+  it('item 7: a request while the sweep is in its retire step still gets a drain pass', async () => {
+    const { svc, runOnce } = make(true, [3])
+    let release!: (n: number) => void
+    invalidate.mockImplementationOnce(() => new Promise((r) => (release = r)))
+    const sweep = svc.handleReconciliation()
+    for (let k = 0; k < 20 && invalidate.mock.calls.length === 0; k++) await Promise.resolve()
+    expect(invalidate).toHaveBeenCalledTimes(1)
+    // the sweep's drain is over: this run's rows would wait for the next run or sweep
+    const calls = runOnce.mock.calls.length
+    await svc.requestDrain()
+    expect(runOnce).toHaveBeenCalledTimes(calls)
+    release(1)
+    await sweep
+    await new Promise((r) => setImmediate(r))
+    expect(runOnce).toHaveBeenCalledTimes(calls + 1)
+    expect(runOnce).toHaveBeenLastCalledWith({ freshOnly: true })
   })
 
   it('a sweep tick waits for an in-flight drain, then runs (never skipped, never concurrent)', async () => {
@@ -404,7 +428,7 @@ describe('requestDrain: the post-run match drain', () => {
     expect(runOnce).toHaveBeenCalledTimes(2)
   })
 
-  it('a request whose drain has spent its budget buys no extra pass', async () => {
+  it('CR-M-1: a request after the budget was spent gets its own pass, with a fresh budget', async () => {
     const { svc, runOnce } = make(true, [])
     let release!: () => void
     runOnce.mockReset()
@@ -417,10 +441,42 @@ describe('requestDrain: the post-run match drain', () => {
       .mockReturnValueOnce(1000)
       .mockReturnValue(1000 + MATCH_DRAIN_BUDGET_MS)
     const first = svc.requestDrain()
-    void svc.requestDrain()
+    expect(svc.requestDrain()).toBe(first)
     release()
     await first
-    expect(runOnce).toHaveBeenCalledTimes(1)
+    expect(runOnce).toHaveBeenCalledTimes(2)
+  })
+
+  it('SPEC-L-1: a request during the retire step gets one more pass, then the drain settles', async () => {
+    const { svc, runOnce } = make(true, [3])
+    let release!: (n: number) => void
+    invalidate.mockImplementationOnce(() => new Promise((r) => (release = r)))
+    const first = svc.requestDrain()
+    for (let k = 0; k < 20 && invalidate.mock.calls.length === 0; k++) await Promise.resolve()
+    expect(invalidate).toHaveBeenCalledTimes(1)
+    // pass 1: the short batch completed rows, then an empty one
+    expect(runOnce).toHaveBeenCalledTimes(2)
+    expect(svc.requestDrain()).toBe(first)
+    release(1)
+    await first
+    // pass 2 (nothing done: no second retire), and no third
+    expect(runOnce).toHaveBeenCalledTimes(3)
+    expect(invalidate).toHaveBeenCalledTimes(1)
+    // settled: a later request starts a new drain
+    const next = svc.requestDrain()
+    expect(next).not.toBe(first)
+    await next
+    expect(runOnce).toHaveBeenCalledTimes(4)
+  })
+
+  it('CR-H-1: the post-run drain claims fresh rows only; the sweep claims retries too', async () => {
+    const { svc, runOnce } = make(true, [200, 13])
+    await svc.requestDrain()
+    expect(runOnce.mock.calls.length).toBeGreaterThan(0)
+    for (const call of runOnce.mock.calls) expect(call).toEqual([{ freshOnly: true }])
+    runOnce.mockClear()
+    await svc.handleReconciliation()
+    expect(runOnce.mock.calls).toEqual([[{ freshOnly: false }]])
   })
 
   it('the sweep retires the queue snapshots when its own drain completed rows, not otherwise', async () => {
