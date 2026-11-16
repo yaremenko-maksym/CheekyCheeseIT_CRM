@@ -573,18 +573,16 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
   // only weaken it are masked: a measurement, not a proof.
   // Stryker disable next-line Regex: masked by the own check, see the note above
   const rawOrders = nameOrders(normaliseName(displayName).split(/\s/).filter(Boolean))
+  // Stryker disable next-line StringLiteral: masked by the own check, see the note above
+  const rawSource = rawOrders.map((parts) => parts.map(escapeRegExp).join('\\s+')).join('|')
   const rawName =
-    // Stryker disable next-line ConditionalExpression: masked by the own check, see the note above
+    // Stryker disable next-line ConditionalExpression: masked by the own check, see the note above; the `true` form is killed when applied by hand (1 test fails)
     rawOrders.length > 0
-      ? new RegExp(
-          // Stryker disable next-line StringLiteral: masked by the own check, see the note above
-          `(?:^|[^\\p{L}\\p{N}])(?:${rawOrders.map((parts) => parts.map(escapeRegExp).join('\\s+')).join('|')})(?:$|[^\\p{L}\\p{N}])`,
-          'iu',
-        )
+      ? new RegExp(`(?:^|[^\\p{L}\\p{N}])(?:${rawSource})(?:$|[^\\p{L}\\p{N}])`, 'iu')
       : null
   const rawHandle = normaliseTelegramHandle(telegram)
   const rawHandleTest = rawHandle
-    ? // Stryker disable next-line StringLiteral: masked by the own check, see the note above
+    ? // Stryker disable next-line StringLiteral: the `'i'` flag is masked by the own check, see the note above; the empty-template form is killed when applied by hand (22 tests fail)
       new RegExp(`(?:^|\\W)@*${escapeRegExp(rawHandle)}(?:$|\\W)`, 'i')
     : null
   return (raw) => {
