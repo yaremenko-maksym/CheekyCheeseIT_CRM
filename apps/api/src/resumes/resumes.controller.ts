@@ -64,6 +64,8 @@ interface MultipartField {
   fieldname: string
   value?: unknown
   toBuffer?: () => Promise<Buffer>
+  /** The file part's stream; a skipped file must be drained or `req.parts()` never moves on. */
+  file?: { resume: () => unknown }
   mimetype?: string
   filename?: string
 }
@@ -112,9 +114,15 @@ export class SeniorResumesController {
       for await (const part of req.parts({
         limits: { fileSize: RESUME_SOURCE_MAX_BYTES, files: 1 },
       }) as AsyncIterable<MultipartField>) {
-        if (part.type !== 'file' || part.fieldname !== 'file') continue
+        if (part.type !== 'file' || part.fieldname !== 'file') {
+          part.file?.resume() // a skipped file part must be drained; a field has no stream
+          continue
+        }
         // Guard only: `files: 1` already rejects a second file part, so this is a guard for a future change to `files`.
-        if (file) continue // first file wins
+        if (file) {
+          part.file?.resume()
+          continue // first file wins
+        }
         if (!part.toBuffer) throw apiError('RESUME_UPLOAD_UNREADABLE', HttpStatus.BAD_REQUEST)
         file = {
           buffer: await part.toBuffer(),
@@ -124,7 +132,7 @@ export class SeniorResumesController {
       }
     } catch (err) {
       // The iterator and toBuffer both reject with the size error; one mapping covers both.
-      throw tooLargeUpload(err)
+      throw uploadLimitError(err)
     }
     if (!file) throw apiError('RESUME_UPLOAD_NO_FILE', HttpStatus.BAD_REQUEST)
 
@@ -331,10 +339,15 @@ export function resumeContentDisposition(displayName: string): string {
 /**
  * QA-LOW-4. Past the per-route `fileSize` limit passed to `req.parts` (see `uploadSource`), the
  * multipart plugin throws `FST_REQ_FILE_TOO_LARGE`, a 413 with no code; the resume upload answers
- * it with its own coded 413. Any other failure goes on as it is.
+ * it with its own coded 413. Backlog 450: a second file part (`FST_FILES_LIMIT`) or too many parts
+ * (`FST_PARTS_LIMIT`) is the plugin's uncoded 413 too and gets one coded 413. Any other failure goes on as it is.
  */
-function tooLargeUpload(err: unknown): unknown {
-  if ((err as { code?: unknown } | null)?.code !== 'FST_REQ_FILE_TOO_LARGE') return err
+function uploadLimitError(err: unknown): unknown {
+  const code = (err as { code?: unknown } | null)?.code
+  if (code === 'FST_FILES_LIMIT' || code === 'FST_PARTS_LIMIT') {
+    return apiError('RESUME_UPLOAD_TOO_MANY_PARTS', HttpStatus.PAYLOAD_TOO_LARGE)
+  }
+  if (code !== 'FST_REQ_FILE_TOO_LARGE') return err
   return apiError('RESUME_FILE_TOO_LARGE', HttpStatus.PAYLOAD_TOO_LARGE, {
     mb: Math.floor(RESUME_SOURCE_MAX_BYTES / 1024 / 1024),
   })

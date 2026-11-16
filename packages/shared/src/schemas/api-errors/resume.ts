@@ -17,6 +17,7 @@ export const RESUME_ERROR_CODES = [
   'RESUME_UPLOAD_NOT_MULTIPART',
   'RESUME_UPLOAD_UNREADABLE',
   'RESUME_UPLOAD_NO_FILE',
+  'RESUME_UPLOAD_TOO_MANY_PARTS',
   'RESUME_NO_ACCESS',
   'RESUME_NOT_CREATED',
   'RESUME_NOT_FOUND',
@@ -72,6 +73,7 @@ export const RESUME_ERROR_PARAMS = {
   RESUME_UPLOAD_NOT_MULTIPART: [],
   RESUME_UPLOAD_UNREADABLE: [],
   RESUME_UPLOAD_NO_FILE: [],
+  RESUME_UPLOAD_TOO_MANY_PARTS: [],
   RESUME_NO_ACCESS: [],
   RESUME_NOT_CREATED: [],
   RESUME_NOT_FOUND: [],
@@ -153,6 +155,10 @@ export const RESUME_ERROR_MESSAGES: Record<ResumeErrorCode, MessageDescriptor> =
   RESUME_UPLOAD_NO_FILE: /* i18n */ {
     id: 'api-error.RESUME_UPLOAD_NO_FILE',
     message: 'Файл резюме не додано. Додайте його й спробуйте ще раз.',
+  },
+  RESUME_UPLOAD_TOO_MANY_PARTS: /* i18n */ {
+    id: 'api-error.RESUME_UPLOAD_TOO_MANY_PARTS',
+    message: 'Забагато файлів. Додайте лише один файл резюме й спробуйте ще раз.',
   },
   RESUME_NO_ACCESS: /* i18n */ {
     id: 'api-error.RESUME_NO_ACCESS',
@@ -341,6 +347,8 @@ export const RESUME_ERROR_FALLBACK_EN: Record<ResumeErrorCode, string> = {
   RESUME_UPLOAD_NOT_MULTIPART: 'Could not upload the file. Try again.',
   RESUME_UPLOAD_UNREADABLE: 'The uploaded file could not be read. Upload it again.',
   RESUME_UPLOAD_NO_FILE: 'No resume file was attached. Attach one and try again.',
+  RESUME_UPLOAD_TOO_MANY_PARTS:
+    'Too many files in one upload. Attach one resume file and try again.',
   RESUME_NO_ACCESS: 'You have no access to this user’s resume.',
   RESUME_NOT_CREATED: 'The resume has not been created yet.',
   RESUME_NOT_FOUND: 'The resume was not found. Refresh the page.',
