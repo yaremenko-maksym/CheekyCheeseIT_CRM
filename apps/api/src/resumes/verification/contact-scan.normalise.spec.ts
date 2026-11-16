@@ -243,17 +243,24 @@ describe('completeness flags exactly the names the API redacts, a bare mark incl
         '',
       )
     const parts = fullName.split(' ')
+    // an invisible as the only gap between the parts gives the SR-M-4 shape with a bare-mark atom
+    // after it (`Ivan`, ZWSP, `Petrenko`, U+0903, `x`), round 7 SPEC-L-2
+    const BETWEEN = [' ', ' ', '​', '⁠']
     const firstToken = parts[0] ?? ''
     let flaggedCount = 0
+    let shapeCount = 0
     for (let i = 0; i < 5000; i++) {
+      const gap = pick(BETWEEN)
       // an invisible inside each token of two letters or more, at an interior position
       const rendered = parts
         .map((part) => {
           const at = 1 + Math.floor(random() * (part.length - 1))
           return part.length > 1 ? part.slice(0, at) + pick(INSIDE) + part.slice(at) : part
         })
-        .join(' ')
-      const text = `${atoms()}${rendered}${atoms()}`
+        .join(gap)
+      const after = atoms()
+      const text = `${atoms()}${rendered}${after}`
+      if (gap !== ' ' && after.startsWith('ः')) shapeCount++
       const flags = flagged(text, fullName)
       const redacted = redactContacts(text, { fullName, emails: [] })
       if (flags) flaggedCount++
@@ -269,5 +276,7 @@ describe('completeness flags exactly the names the API redacts, a bare mark incl
     // both outcomes come up, so the property is not vacuous
     expect(flaggedCount).toBeGreaterThan(500)
     expect(flaggedCount).toBeLessThan(4500)
+    // an invisible gap with a bare mark after the name comes up for every name of two parts
+    expect(shapeCount).toBeGreaterThan(parts.length > 1 ? 20 : -1)
   })
 })

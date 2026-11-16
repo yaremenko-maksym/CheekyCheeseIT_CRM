@@ -241,42 +241,51 @@ describe('control characters and a bare mark (findings 3, 4, SR-M-4)', () => {
   })
 })
 
-describe('the split reading of a stored name (finding 5, CR-M-3, Addenda B and C)', () => {
+describe('the split reading of a stored name is redacted whole, fail-closed (round 7)', () => {
   const stored = (fullName: string): ContactContext => ({ fullName, emails: [] })
 
   it.each([
-    // the joined reading has two parts: a fragment under three letters never pairs or stands alone
-    ['Ivan Petrenko\u200BKovalenko', 'Ivan Kovalenko', '[REDACTED]'],
-    ['Ivan Petrenko\u200BKovalenko', 'Kovalenko Ivan', '[REDACTED]'],
-    ['Ivan Petrenko\u200BKovalenko', 'Petrenko', '[REDACTED]'],
-    ['Ivan Petrenko\u200BKovalenko', 'Kovalenko', '[REDACTED]'],
+    // the joined reading has two parts: every pair of the first part and every later part of two
+    // letters or more is redacted (finding 1, Addendum B)
+    ['Ivan Petrenko​Kovalenko', 'Ivan Kovalenko', '[REDACTED]'],
+    ['Ivan Petrenko​Kovalenko', 'Kovalenko Ivan', '[REDACTED]'],
+    ['Ivan Petrenko​Kovalenko', 'Petrenko', '[REDACTED]'],
+    ['Ivan Petrenko​Kovalenko', 'Kovalenko', '[REDACTED]'],
+    ['Ivan Petrenko​Li', 'Ivan Li, Li Ivan, Li', '[REDACTED], [REDACTED], [REDACTED]'],
+    ['Ivan Petrenko​Li', 'by Ivan Petrenko', 'by [REDACTED]'],
+    ['Li Petrenko​Kovalenko', 'by Li Kovalenko today', 'by [REDACTED] today'],
+    ['Li Petrenko​Kovalenko', 'Kovalenko Li', '[REDACTED]'],
+    ['Ivan​Olegovych Petrenko', 'Ivan Petrenko, Ivan Olegovych Petrenko', '[REDACTED], [REDACTED]'],
+    // over-redaction accepted: a fragment of a real part is redacted as a part (CR-M-3, CR-M-7)
     [
-      'Ivan Petr\u200Cin',
+      'Ivan Petr‌in',
       'Ivan in Kyiv since 2020, Ivan Petrin',
-      'Ivan in Kyiv since 2020, [REDACTED]',
+      '[REDACTED] Kyiv since 2020, [REDACTED]',
     ],
-    ['Ivan Petren\u200Cko', 'ok ko, Ivan ko, Ivan Petrenko', 'ok ko, Ivan ko, [REDACTED]'],
+    ['Ivan Petr‌in', 'log in now', 'log [REDACTED] now'],
     [
-      'Ivan\u200BOlegovych Petrenko',
-      'Ivan Petrenko, Ivan Olegovych Petrenko',
-      '[REDACTED], [REDACTED]',
+      'Ivan Peter‌son',
+      'his son, Ivan son, Ivan Peterson',
+      'his [REDACTED], [REDACTED], [REDACTED]',
     ],
-    // the joined reading has one part: the split parts are the name, a two-letter surname included
-    ['Wei\u200BLi', 'Li, Wei Li, Li Wei', '[REDACTED], [REDACTED], [REDACTED]'],
-    ['Wei\u200BLi', 'by Wei today', 'by Wei today'],
-    // Assumption (Addendum C vs CR-M-3): with a joined reading of two parts, a two-letter split
-    // part is read as a fragment, so `Li` here neither pairs nor stands alone, as `in` must not
-    ['Ivan Petrenko\u200BLi', 'Ivan Li, Li Ivan, Li', 'Ivan Li, Li Ivan, Li'],
-    ['Ivan Petrenko\u200BLi', 'by Ivan Petrenko', 'by [REDACTED]'],
+    ['Ivan Petren‌ko', 'ok ko, Ivan ko, Ivan Petrenko', 'ok [REDACTED], [REDACTED], [REDACTED]'],
+    // the joined reading has one part: the split parts are the name, a two-letter surname included;
+    // the first part never stands alone, as on the joined reading
+    ['Wei​Li', 'Li, Wei Li, Li Wei', '[REDACTED], [REDACTED], [REDACTED]'],
+    ['Wei​Li', 'by Li today', 'by [REDACTED] today'],
+    ['Wei​Li', 'by Wei today', 'by Wei today'],
+    // a one-letter part neither stands alone nor shields the pair
+    ['Wei​Y', 'by Y today, Wei Y', 'by Y today, [REDACTED]'],
   ])('stored %j redacts %j as %j', (fullName, text, redacted) => {
     expect(redactContacts(text, stored(fullName))).toBe(redacted)
   })
 
-  it('Ivan Kovalenko is flagged and its redacted output keeps no name part', () => {
-    const ctx = stored('Ivan Petrenko\u200BKovalenko')
+  it('a split-reading hit is a name hit and its redacted output keeps no name part', () => {
+    const ctx = stored('Ivan Petrenko​Kovalenko')
     for (const text of ['Ivan Kovalenko', 'Petrenko']) {
-      expect(scanContacts(text, ctx).length).toBeGreaterThan(0)
+      expect(scanContacts(text, ctx).map((hit) => hit.kind)).toEqual(['name'])
       expect(redactContacts(text, ctx)).not.toMatch(/Ivan|Petrenko|Kovalenko/u)
     }
+    expect(scanContacts('by Li today', stored('Wei​Li'))).toEqual([{ kind: 'name', match: 'Li' }])
   })
 })

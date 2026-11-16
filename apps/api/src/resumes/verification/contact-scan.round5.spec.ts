@@ -33,6 +33,7 @@ describe('a stored name split only by an invisible (finding 3)', () => {
   it('an invisible inside a stored part still matches the part written whole', () => {
     const stored: ContactContext = { fullName: 'Iv‌an Petrenko', emails: [] }
     expect(redactContacts('by Ivan Petrenko today', stored)).toBe('by [REDACTED] today')
-    expect(redactContacts('by Iv an today', stored)).toBe('by Iv an today')
+    // round 7: the split reading is redacted whole, fail-closed, so its fragments pair too
+    expect(redactContacts('by Iv an today', stored)).toBe('by [REDACTED] today')
   })
 })

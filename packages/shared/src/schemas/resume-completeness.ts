@@ -465,8 +465,8 @@ export function findWholeTokens(
  * The parts of a stored name, normalised like the text, read two ways: split on whitespace after
  * the strip (`Iv`, ZWNJ, `an` is one part), and split on whitespace and the stripped characters
  * (`Ivan`, ZWSP, `Petrenko` is two). A control character splits in both (`Ivan`, U+0085,
- * `Petrenko`). Both sides check both readings; equal readings are one (CR-M-5). The split reading
- * is checked through `splitNameOrders` and `splitNameLoneParts`, so a fragment never stands alone.
+ * `Petrenko`). Equal readings are one (CR-M-5). The split reading is checked through
+ * `splitNameOrders` and `splitNameLoneParts`; which side takes it is noted above `splitNameOrders`.
  */
 export function contactNameParts(name: string): string[][] {
   const parts = (text: string) =>
@@ -484,39 +484,36 @@ export function contactNameParts(name: string): string[][] {
 /** Letters in a name part; marks, digits and punctuation do not count. */
 const nameLetters = (part: string): number => part.replace(/\P{L}/gu, '').length
 
-/**
- * The fewest letters a part of the split reading needs to pair or stand alone. A joined reading of
- * one part means the invisible was the only separator, so the split reading is the real name and
- * keeps the joined reading's rule: a surname of two letters or more (`Wei`, ZWSP, `Li`). A joined
- * reading of two or more parts means the invisible sits inside a real part and leaves a fragment
- * (`Ivan Petr`, ZWNJ, `in` gives `in`), and a fragment is a common word: three letters or more
- * (PR #1351 round 6, finding 5, CR-M-3, Addendum C).
+/*
+ * The two sides read the split reading differently (PR #1351 round 7). With a joined reading of two
+ * or more parts, the invisible sits inside a real part and its fragments are artefacts (`Ivan Petr`,
+ * ZWNJ, `in` gives `in`); with a joined reading of one part, the invisible was the only separator
+ * and the split reading is the real name (`Wei`, ZWSP, `Li`). The redaction is fail-closed and
+ * always takes the whole split reading, a fragment such as `in` included. Completeness takes it only
+ * for a joined reading of one part, so `Ivan in Kyiv since 2020` stays submittable.
  */
-const splitPartLetters = (joinedLength: number): number => (joinedLength > 1 ? 3 : 2)
 
 /**
  * The part orders of the split reading: every part in order, and the first part with each later
- * part, both ways. With a joined reading of two or more parts, both parts of a pair need three
- * letters: stored `Ivan Petrenko`, ZWSP, `Kovalenko` hits `Ivan Kovalenko`, and stored `Ivan Petr`,
- * ZWNJ, `in` never pairs `Ivan` with `in`. With a joined reading of one part every pair is kept.
+ * part, both ways, whatever their length. A two-part reading is its own first pair, so it is not
+ * repeated.
  */
-export function splitNameOrders(parts: readonly string[], joinedLength: number): string[][] {
-  const fits = (part: string) => joinedLength <= 1 || nameLetters(part) >= 3
+export function splitNameOrders(parts: readonly string[]): string[][] {
   const [first, ...rest] = parts
   const pairs =
-    first !== undefined && fits(first)
-      ? rest.filter(fits).flatMap((part) => [
+    // Stryker disable next-line ConditionalExpression: equivalent — `first` is undefined only for an empty reading, whose `rest` is empty, so the pairs are empty either way
+    first === undefined
+      ? []
+      : rest.flatMap((part) => [
           [first, part],
           [part, first],
         ])
-      : []
-  return [[...parts], ...pairs]
+  return parts.length === 2 ? pairs : [[...parts], ...pairs]
 }
 
-/** The parts of the split reading the API redacts alone: each part after the first that is long enough. */
-export function splitNameLoneParts(parts: readonly string[], joinedLength: number): string[] {
-  const letters = splitPartLetters(joinedLength)
-  return parts.slice(1).filter((part) => nameLetters(part) >= letters)
+/** The parts of the split reading the API redacts alone: each part after the first with two letters or more. */
+export function splitNameLoneParts(parts: readonly string[]): string[] {
+  return parts.slice(1).filter((part) => nameLetters(part) >= 2)
 }
 
 /**
@@ -556,9 +553,11 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
   // Stryker disable next-line OptionalChaining: equivalent — contactNameParts always returns the joined reading first, so readings[0] is defined
   const joinedLength = readings[0]?.length ?? 0
   const names = readings
-    .flatMap((parts, reading) =>
-      reading === 0 ? nameOrders(parts) : splitNameOrders(parts, joinedLength),
-    )
+    .flatMap((parts, reading) => {
+      if (reading === 0) return nameOrders(parts)
+      // the split reading only when it is the real name, see above splitNameOrders
+      return joinedLength > 1 ? [] : splitNameOrders(parts)
+    })
     .map((parts) =>
       parts.map((part) => escapeRegExp(foldAccents(part).text)).join(CONTACT_NAME_GAP),
     )

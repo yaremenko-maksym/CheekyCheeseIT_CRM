@@ -60,8 +60,9 @@ function escapeRegExp(value: string): string {
 /**
  * The name sources for `findWholeTokens`, accent-folded, so they run on `foldAccents` text. The
  * joined reading of `contactNameParts` gives the full name (any whitespace between parts) and the
- * surname alone, never the first name. The split reading gives every order of `splitNameOrders`
- * and the lone parts of `splitNameLoneParts`, so a fragment such as `in` never stands alone.
+ * surname alone, never the first name. The split reading is taken whole, fail-closed: every order
+ * of `splitNameOrders` and every lone part of `splitNameLoneParts`, so a fragment such as `in`
+ * (stored `Ivan Petr`, ZWNJ, `in`) is redacted too (PR #1351 round 7).
  */
 /** A last name part is a lone source from two letters on, in both passes (main's rule). */
 const isSurnameSource = (part: string): boolean => part.replace(/\P{L}/gu, '').length >= 2
@@ -71,14 +72,11 @@ function nameSources(fullName: string): string[] {
   // folded after the split helpers count letters: NFD turns a Hangul syllable into its jamo
   const fold = (parts: readonly string[]) =>
     parts.map((part) => escapeRegExp(foldAccents(part).text))
-  const readings = contactNameParts(fullName)
-  // Stryker disable next-line OptionalChaining: equivalent — contactNameParts always returns the joined reading first, so readings[0] is defined
-  const joinedLength = readings[0]?.length ?? 0
-  return readings.flatMap((parts, reading) => {
+  return contactNameParts(fullName).flatMap((parts, reading) => {
     if (reading > 0) {
       return [
-        ...splitNameOrders(parts, joinedLength).map((order) => fold(order).join(CONTACT_NAME_GAP)),
-        ...fold(splitNameLoneParts(parts, joinedLength)),
+        ...splitNameOrders(parts).map((order) => fold(order).join(CONTACT_NAME_GAP)),
+        ...fold(splitNameLoneParts(parts)),
       ]
     }
     const folded = fold(parts)

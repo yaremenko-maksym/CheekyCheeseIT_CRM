@@ -1,8 +1,8 @@
 /**
  * PR #1351 fix round 6: control characters split a stored name and vanish from the text (findings
- * 3, 4), a bare mark is an edge (SR-M-4), equal readings are one (CR-M-5), and the split reading
- * keeps every full-name order while a fragment never pairs or stands alone (finding 5, CR-M-3,
- * Addenda B and C).
+ * 3, 4), a bare mark is an edge (SR-M-4), equal readings are one (CR-M-5). Round 7: completeness
+ * takes the split reading only for a joined reading of one part, so a fragment never flags (CR-M-3,
+ * CR-M-7); the split helpers keep every pair, deduped (finding 8).
  */
 import { describe, expect, it } from 'vitest'
 import type { ResumeFacts } from './resume-facts'
@@ -95,104 +95,102 @@ describe('readings (CR-M-5)', () => {
     expect(contactNameParts('Wei​Li')).toEqual([['WeiLi'], ['Wei', 'Li']])
   })
 })
-
-describe('split reading, joined reading of two or more parts (Addendum B)', () => {
-  it('orders: every part, and the first with each part of three letters or more', () => {
-    expect(splitNameOrders(['Ivan', 'Petrenko', 'Kovalenko'], 2)).toEqual([
+describe('split helpers (round 7)', () => {
+  it('orders: every part, and the first with each later part both ways, whatever its length', () => {
+    expect(splitNameOrders(['Ivan', 'Petrenko', 'Kovalenko'])).toEqual([
       ['Ivan', 'Petrenko', 'Kovalenko'],
       ['Ivan', 'Petrenko'],
       ['Petrenko', 'Ivan'],
       ['Ivan', 'Kovalenko'],
       ['Kovalenko', 'Ivan'],
     ])
-    expect(splitNameOrders(['Ivan', 'Petr', 'in'], 2)).toEqual([
-      ['Ivan', 'Petr', 'in'],
-      ['Ivan', 'Petr'],
-      ['Petr', 'Ivan'],
+    expect(splitNameOrders(['Iv', 'an', 'Li'])).toEqual([
+      ['Iv', 'an', 'Li'],
+      ['Iv', 'an'],
+      ['an', 'Iv'],
+      ['Iv', 'Li'],
+      ['Li', 'Iv'],
     ])
-    expect(splitNameOrders(['Iv', 'an', 'Petrenko'], 2)).toEqual([['Iv', 'an', 'Petrenko']])
-    // three letters is enough; punctuation does not count as a letter
-    expect(splitNameOrders(['Ivan', 'Kim'], 2)).toEqual([
-      ['Ivan', 'Kim'],
-      ['Ivan', 'Kim'],
-      ['Kim', 'Ivan'],
+    expect(splitNameOrders([])).toEqual([[]])
+  })
+
+  it('orders: a two-part reading is its own first pair, listed once (finding 8)', () => {
+    expect(splitNameOrders(['Wei', 'Li'])).toEqual([
+      ['Wei', 'Li'],
+      ['Li', 'Wei'],
     ])
-    expect(splitNameOrders(['Ivan', "d'"], 2)).toEqual([['Ivan', "d'"]])
-    expect(splitNameOrders([], 2)).toEqual([[]])
-  })
-
-  it('lone parts: each later part of three letters or more', () => {
-    expect(splitNameLoneParts(['Ivan', 'Petrenko', 'Kovalenko'], 2)).toEqual([
-      'Petrenko',
-      'Kovalenko',
+    expect(splitNameOrders(['Ivan', "d'"])).toEqual([
+      ['Ivan', "d'"],
+      ["d'", 'Ivan'],
     ])
-    expect(splitNameLoneParts(['Ivan', 'Petr', 'in'], 2)).toEqual(['Petr'])
-    expect(splitNameLoneParts(['Ivan', 'Petren', 'ko'], 2)).toEqual(['Petren'])
-    expect(splitNameLoneParts(['Ivan', 'Kim', "d'", 'o-'], 2)).toEqual(['Kim'])
   })
 
-  it('stored Ivan Petrenko, ZWSP, Kim: a three-letter part pairs', () => {
-    expect(flags('Ivan Kim', 'Ivan Petrenko​Kim')).toBe(true)
+  it('lone parts: each part after the first with two letters or more', () => {
+    expect(splitNameLoneParts(['Ivan', 'Petrenko', 'Kovalenko'])).toEqual(['Petrenko', 'Kovalenko'])
+    expect(splitNameLoneParts(['Ivan', 'Petr', 'in'])).toEqual(['Petr', 'in'])
+    // punctuation and marks do not count as letters
+    expect(splitNameLoneParts(['Ivan', 'Y', "d'", 'o-', 'Li'])).toEqual(['Li'])
+    expect(splitNameLoneParts(['Wei', 'Li'])).toEqual(['Li'])
+    expect(splitNameLoneParts([])).toEqual([])
   })
+})
 
-  it('stored Ivan Petrenko, ZWSP, Kovalenko: every two-part order of real parts is flagged', () => {
-    const stored = 'Ivan Petrenko​Kovalenko'
-    expect(flags('Ivan Kovalenko', stored)).toBe(true)
-    expect(flags('Kovalenko Ivan', stored)).toBe(true)
-    expect(flags('Ivan Petrenko', stored)).toBe(true)
-    expect(flags('Ivan PetrenkoKovalenko', stored)).toBe(true)
-    // a surname alone is never flagged (a common word too often); the API redacts it
-    expect(flags('Petrenko', stored)).toBe(false)
-  })
-
-  it('stored Ivan Petr, ZWNJ, in: the fragment never pairs', () => {
+describe('completeness ignores the split reading of a joined reading of two or more parts (round 7)', () => {
+  it('stored Ivan Petr, ZWNJ, in: the fragment never flags (CR-M-3)', () => {
     const stored = 'Ivan Petr‌in'
     expect(flags('Ivan in Kyiv since 2020', stored)).toBe(false)
+    expect(flags('Ivan Petr', stored)).toBe(false)
     expect(flags('Ivan Petrin', stored)).toBe(true)
-    expect(flags('Ivan Petr', stored)).toBe(true)
   })
 
-  it('stored Ivan Petren, ZWNJ, ko: the fragment never pairs', () => {
+  it('stored Ivan Peter, ZWNJ, son: the fragment never flags (CR-M-7)', () => {
+    const stored = 'Ivan Peter‌son'
+    expect(flags('Ivan son is here', stored)).toBe(false)
+    expect(flags('his son Ivan', stored)).toBe(false)
+    expect(flags('Ivan Peterson', stored)).toBe(true)
+  })
+
+  it('stored Ivan Petren, ZWNJ, ko: the fragment never flags', () => {
     const stored = 'Ivan Petren‌ko'
     expect(flags('Ivan ko', stored)).toBe(false)
     expect(flags('Ivan Petrenko', stored)).toBe(true)
   })
 
-  it('stored Ivan, ZWSP, Olegovych Petrenko still hits', () => {
+  it('stored Ivan Petrenko, ZWSP, Kovalenko: only the joined orders flag; the API redacts the rest', () => {
+    const stored = 'Ivan Petrenko​Kovalenko'
+    expect(flags('Ivan PetrenkoKovalenko', stored)).toBe(true)
+    expect(flags('PetrenkoKovalenko Ivan', stored)).toBe(true)
+    expect(flags('Ivan Kovalenko', stored)).toBe(false)
+    expect(flags('Ivan Petrenko', stored)).toBe(false)
+    expect(flags('Petrenko', stored)).toBe(false)
+  })
+
+  it('stored Li Petrenko, ZWSP, Kovalenko: only the joined orders flag', () => {
+    const stored = 'Li Petrenko​Kovalenko'
+    expect(flags('Li PetrenkoKovalenko', stored)).toBe(true)
+    expect(flags('Li Kovalenko', stored)).toBe(false)
+  })
+
+  it('stored Ivan, ZWSP, Olegovych Petrenko: only the joined reading flags', () => {
     const stored = 'Ivan​Olegovych Petrenko'
-    expect(flags('Ivan Petrenko', stored)).toBe(true)
-    expect(flags('Ivan Olegovych Petrenko', stored)).toBe(true)
+    expect(flags('IvanOlegovych Petrenko', stored)).toBe(true)
+    expect(flags('Ivan Petrenko', stored)).toBe(false)
+    expect(flags('Ivan Olegovych Petrenko', stored)).toBe(false)
   })
 })
 
-describe('split reading, joined reading of one part (Addendum C)', () => {
-  it('orders: every pair, whatever its length', () => {
-    expect(splitNameOrders(['Wei', 'Li'], 1)).toEqual([
-      ['Wei', 'Li'],
-      ['Wei', 'Li'],
-      ['Li', 'Wei'],
-    ])
-    expect(splitNameOrders(['Li', 'Wei'], 1)).toEqual([
-      ['Li', 'Wei'],
-      ['Li', 'Wei'],
-      ['Wei', 'Li'],
-    ])
-  })
-
-  it('lone parts: each later part of two letters or more', () => {
-    expect(splitNameLoneParts(['Wei', 'Li'], 1)).toEqual(['Li'])
-    expect(splitNameLoneParts(['Wei', 'Y'], 1)).toEqual([])
-  })
-
+describe('completeness takes the split reading of a joined reading of one part (round 7)', () => {
   it('stored Wei, ZWSP, Li: both orders are flagged', () => {
     expect(flags('Wei Li', 'Wei​Li')).toBe(true)
     expect(flags('Li Wei', 'Wei​Li')).toBe(true)
     // one token of Latin letters is a single word, never flagged alone (as on main); the API redacts it
     expect(flags('WeiLi', 'Wei​Li')).toBe(false)
+    // a lone part is not flagged, as a lone surname is not on main; the API redacts it
+    expect(flags('by Li today', 'Wei​Li')).toBe(false)
   })
 
-  it('an empty split reading orders to one empty order and no lone part', () => {
-    expect(splitNameOrders([], 0)).toEqual([[]])
-    expect(splitNameLoneParts([], 0)).toEqual([])
+  it('stored Iv, ZWSP, an: a pair of short parts still flags both orders', () => {
+    expect(flags('Iv an', 'Iv​an')).toBe(true)
+    expect(flags('an Iv', 'Iv​an')).toBe(true)
   })
 })
