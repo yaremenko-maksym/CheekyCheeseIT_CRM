@@ -3,7 +3,7 @@
  * double: the refusals and their order, the queued write and its guard, and what happens after it.
  * Two concurrent submits on a real Postgres are in verification-runner.integration.spec.ts.
  */
-import { HttpException, NotFoundException } from '@nestjs/common'
+import { HttpException } from '@nestjs/common'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
@@ -237,7 +237,9 @@ describe('ResumeVerificationService.submit', () => {
 
   it('a write that misses on a deleted row is 404', async () => {
     const { svc } = service([[], []])
-    await expect(svc.submit(ROW, 'Jane Doe', 'v')).rejects.toBeInstanceOf(NotFoundException)
+    const err = await refusal(svc.submit(ROW, 'Jane Doe', 'v'))
+    expect(err.getStatus()).toBe(404)
+    expect(err.getResponse()).toMatchObject({ code: 'RESUME_NOT_FOUND' })
   })
 
   it('from DRAFT with no staged object deletes nothing', async () => {

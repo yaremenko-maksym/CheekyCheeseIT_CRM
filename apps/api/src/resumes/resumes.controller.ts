@@ -23,14 +23,13 @@
  * comparison of ids.
  */
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
-  ForbiddenException,
   Get,
   Header,
   HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Post,
@@ -49,11 +48,15 @@ import {
   updateResumeFactsSchema,
   updateResumeLayoutSchema,
   updateResumeTemplateSchema,
+  decodeResumeMessage,
+  RESUME_SOURCE_MAX_BYTES,
+  type StoredResumeMessage,
   type SessionUser,
 } from '@crm/shared'
+import { apiError, interpolate } from '../common/api-error'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { canAccessResume } from './resume-access'
-import { NO_ACCESS, SeniorResumesService, sanitizeFileName } from './resumes.service'
+import { noAccess, SeniorResumesService, sanitizeFileName } from './resumes.service'
 
 /** Minimal shape of a multipart part as returned by @fastify/multipart. */
 interface MultipartField {
@@ -99,23 +102,31 @@ export class SeniorResumesController {
     // SR-L-4: refuse before the body is read, so a caller without write rights cannot stream up to
     // the size limit for a 403. The service's assertAccess stays the authority (target role, 404).
     // Stryker disable next-line StringLiteral: equivalent — any mode but 'read' refuses a SENIOR, and ADMIN/HR ignore it
-    if (!canAccessResume(user, userId, 'write')) throw new ForbiddenException(NO_ACCESS)
+    if (!canAccessResume(user, userId, 'write')) throw noAccess()
     if (!req.isMultipart()) {
-      throw new BadRequestException('Ожидается multipart/form-data')
+      throw apiError('RESUME_UPLOAD_NOT_MULTIPART', HttpStatus.BAD_REQUEST)
     }
 
     let file: { buffer: Buffer; mimetype: string; originalname: string } | null = null
-    for await (const part of req.parts() as AsyncIterable<MultipartField>) {
-      if (part.type !== 'file' || part.fieldname !== 'file') continue
-      if (file) continue // first file wins
-      if (!part.toBuffer) throw new BadRequestException('Файл не удалось прочитать')
-      file = {
-        buffer: await part.toBuffer(),
-        mimetype: part.mimetype ?? 'application/octet-stream',
-        originalname: part.filename ?? 'resume',
+    try {
+      for await (const part of req.parts({
+        limits: { fileSize: RESUME_SOURCE_MAX_BYTES, files: 1 },
+      }) as AsyncIterable<MultipartField>) {
+        if (part.type !== 'file' || part.fieldname !== 'file') continue
+        // Guard only: `files: 1` already rejects a second file part, so this is a guard for a future change to `files`.
+        if (file) continue // first file wins
+        if (!part.toBuffer) throw apiError('RESUME_UPLOAD_UNREADABLE', HttpStatus.BAD_REQUEST)
+        file = {
+          buffer: await part.toBuffer(),
+          mimetype: part.mimetype ?? 'application/octet-stream',
+          originalname: part.filename ?? 'resume',
+        }
       }
+    } catch (err) {
+      // The iterator and toBuffer both reject with the size error; one mapping covers both.
+      throw tooLargeUpload(err)
     }
-    if (!file) throw new BadRequestException('В запросе нет поля "file"')
+    if (!file) throw apiError('RESUME_UPLOAD_NO_FILE', HttpStatus.BAD_REQUEST)
 
     return this.service.uploadSource(user, userId, file)
   }
@@ -281,12 +292,7 @@ export class SeniorResumesController {
     const result = await this.service.getRenderedPdf(user, userId)
 
     if (!result.ready) {
-      await reply.code(202).send({
-        status: result.status,
-        message:
-          result.message ??
-          'Готовим PDF по шаблону резюме. Обновите страницу через несколько секунд.',
-      })
+      await reply.code(202).send(pendingPdfBody(result.status, result.message))
       return
     }
 
@@ -320,4 +326,40 @@ export function resumeContentDisposition(displayName: string): string {
   const ascii = `${safe.replace(/[^\x20-\x7E]/g, '_')}.pdf`
   const utf8 = encodeURIComponent(`Резюме — ${safe}.pdf`)
   return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`
+}
+
+/**
+ * QA-LOW-4. Past the per-route `fileSize` limit passed to `req.parts` (see `uploadSource`), the
+ * multipart plugin throws `FST_REQ_FILE_TOO_LARGE`, a 413 with no code; the resume upload answers
+ * it with its own coded 413. Any other failure goes on as it is.
+ */
+function tooLargeUpload(err: unknown): unknown {
+  if ((err as { code?: unknown } | null)?.code !== 'FST_REQ_FILE_TOO_LARGE') return err
+  return apiError('RESUME_FILE_TOO_LARGE', HttpStatus.PAYLOAD_TOO_LARGE, {
+    mb: Math.floor(RESUME_SOURCE_MAX_BYTES / 1024 / 1024),
+  })
+}
+
+/**
+ * The 202 body of `GET resume/pdf` while no current PDF exists (backlog 443).
+ * `stored` is the row's `pdf_render_error` (FAILED) or null (still building).
+ * It carries the code and params for a client with a catalog and the English
+ * line in `message` for one without. A row written before codes existed holds
+ * Russian text; that text goes out as it is, with no code.
+ */
+export function pendingPdfBody(
+  status: 'QUEUED' | 'RUNNING' | 'FAILED',
+  stored: string | null,
+): {
+  status: string
+  code?: StoredResumeMessage['code']
+  params?: Record<string, string | number> | undefined
+  message: string
+} {
+  const decoded =
+    stored === null
+      ? { code: 'RESUME_PDF_PREPARING' as const }
+      : decodeResumeMessage(stored, 'RESUME_ERROR_DETAILS_UNAVAILABLE')
+  if (decoded === null) return { status, message: String(stored) }
+  return { status, ...decoded, message: interpolate(decoded.code, decoded.params) }
 }

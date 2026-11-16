@@ -13,10 +13,13 @@
  * The Task 15 routes are thin: they parse the body, pass the viewer through, and the staged PDF
  * goes out as a PDF attachment named by `resumeContentDisposition`.
  */
-import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionUser } from '@crm/shared'
-import { resumeContentDisposition, SeniorResumesController } from './resumes.controller'
+import { RESUME_SOURCE_MAX_BYTES, type SessionUser } from '@crm/shared'
+import {
+  pendingPdfBody,
+  resumeContentDisposition,
+  SeniorResumesController,
+} from './resumes.controller'
 import { sanitizeFileName } from './resumes.service'
 
 describe('sanitizeFileName', () => {
@@ -192,7 +195,7 @@ describe('uploadSource refuses a caller without write rights BEFORE reading the 
     const { service, parts, isMultipart, req, controller } = setup()
     await expect(
       controller.uploadSource(OWNER, req as never, user as SessionUser),
-    ).rejects.toBeInstanceOf(ForbiddenException)
+    ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
     expect(parts).not.toHaveBeenCalled()
     expect(isMultipart).not.toHaveBeenCalled()
     expect(service.uploadSource).not.toHaveBeenCalled()
@@ -203,6 +206,9 @@ describe('uploadSource refuses a caller without write rights BEFORE reading the 
     const hr = { id: 'h', email: 'h@unit.spec', role: 'HR' } as SessionUser
     await expect(controller.uploadSource(OWNER, req as never, hr)).resolves.toBe('queued')
     expect(parts).toHaveBeenCalledOnce()
+    expect(parts).toHaveBeenCalledWith({
+      limits: { fileSize: RESUME_SOURCE_MAX_BYTES, files: 1 },
+    })
     expect(service.uploadSource).toHaveBeenCalledWith(hr, OWNER, {
       buffer: Buffer.from('%PDF-1.4 x'),
       mimetype: 'application/pdf',
@@ -220,4 +226,203 @@ describe('look writes on VERIFIED start a model run: throttled like the other ru
       expect(Reflect.getMetadata('THROTTLER:TTLdefault', handler)).toBe(60_000)
     },
   )
+})
+
+describe('pendingPdfBody — the 202 body while the PDF is not ready (backlog 443)', () => {
+  it('a row with no render error says the PDF is being prepared, by code', () => {
+    expect(pendingPdfBody('QUEUED', null)).toEqual({
+      status: 'QUEUED',
+      code: 'RESUME_PDF_PREPARING',
+      message:
+        'The PDF is being built from the resume template. Refresh the page in a few seconds.',
+    })
+  })
+
+  it('a stored code carries its params and the English fallback', () => {
+    expect(
+      pendingPdfBody('FAILED', '{"code":"RESUME_RENDER_TIMEOUT","params":{"seconds":20}}'),
+    ).toEqual({
+      status: 'FAILED',
+      code: 'RESUME_RENDER_TIMEOUT',
+      params: { seconds: 20 },
+      message: 'The PDF could not be built: the layout did not finish within 20 s.',
+    })
+  })
+
+  it('a legacy free-text error passes through verbatim, with no code', () => {
+    expect(pendingPdfBody('FAILED', 'Не удалось собрать PDF резюме.')).toEqual({
+      status: 'FAILED',
+      message: 'Не удалось собрать PDF резюме.',
+    })
+  })
+
+  it('a stored code this build cannot render falls back to the details-unavailable line', () => {
+    const generic = {
+      status: 'FAILED',
+      code: 'RESUME_ERROR_DETAILS_UNAVAILABLE',
+      message: 'No details are available for this error.',
+    }
+    expect(pendingPdfBody('FAILED', '{"code":"RESUME_FROM_THE_FUTURE"}')).toEqual(generic)
+    expect(pendingPdfBody('FAILED', '{"code":"RESUME_RENDER_TIMEOUT"}')).toEqual(generic)
+  })
+})
+
+describe('uploadSource refuses a malformed upload by code (backlog 443)', () => {
+  const OWNER = 'a15e0000-0000-4000-8000-0000000000b2'
+  const hr = { id: 'a15e0000-0000-4000-8000-0000000000c4', email: 'hr@unit.spec', role: 'HR' }
+  const upload = (parts: unknown[], multipart = true) => {
+    const service = { uploadSource: vi.fn(async (..._args: unknown[]) => 'queued') }
+    const partsSpy = vi.fn(async function* () {
+      yield* parts
+    })
+    const req = {
+      isMultipart: () => multipart,
+      parts: partsSpy,
+    }
+    const controller = new SeniorResumesController(service as never)
+    return {
+      service,
+      parts: partsSpy,
+      run: () => controller.uploadSource(OWNER, req as never, hr as SessionUser),
+    }
+  }
+
+  it('a body that is not multipart is 400 RESUME_UPLOAD_NOT_MULTIPART', async () => {
+    await expect(upload([], false).run()).rejects.toMatchObject({
+      status: 400,
+      response: { code: 'RESUME_UPLOAD_NOT_MULTIPART' },
+    })
+  })
+
+  it('a file part that cannot be read is 400 RESUME_UPLOAD_UNREADABLE', async () => {
+    const { service, run } = upload([{ type: 'file', fieldname: 'file' }])
+    await expect(run()).rejects.toMatchObject({
+      status: 400,
+      response: { code: 'RESUME_UPLOAD_UNREADABLE' },
+    })
+    expect(service.uploadSource).not.toHaveBeenCalled()
+  })
+
+  it('a file part under another field name is skipped, so no resume file is 400 RESUME_UPLOAD_NO_FILE', async () => {
+    const { service, run } = upload([
+      { type: 'file', fieldname: 'avatar', toBuffer: () => Promise.resolve(Buffer.from('x')) },
+    ])
+    await expect(run()).rejects.toMatchObject({
+      status: 400,
+      response: { code: 'RESUME_UPLOAD_NO_FILE' },
+    })
+    expect(service.uploadSource).not.toHaveBeenCalled()
+  })
+
+  it('a text field named "file" is skipped, not read as the file (NO_FILE, not UNREADABLE)', async () => {
+    const { service, run } = upload([{ type: 'field', fieldname: 'file' }])
+    await expect(run()).rejects.toMatchObject({
+      status: 400,
+      response: { code: 'RESUME_UPLOAD_NO_FILE' },
+    })
+    expect(service.uploadSource).not.toHaveBeenCalled()
+  })
+
+  it('a second file part is ignored: the first file wins', async () => {
+    const { service, run } = upload([
+      { type: 'file', fieldname: 'file', toBuffer: () => Promise.resolve(Buffer.from('first')) },
+      { type: 'file', fieldname: 'file', toBuffer: () => Promise.resolve(Buffer.from('second')) },
+    ])
+    await run()
+    expect(service.uploadSource).toHaveBeenCalledWith(
+      hr,
+      OWNER,
+      expect.objectContaining({ buffer: Buffer.from('first') }),
+    )
+  })
+
+  it('a file with no mimetype or filename gets application/octet-stream and "resume"', async () => {
+    const { service, run } = upload([
+      { type: 'file', fieldname: 'file', toBuffer: () => Promise.resolve(Buffer.from('x')) },
+    ])
+    await run()
+    expect(service.uploadSource).toHaveBeenCalledWith(hr, OWNER, {
+      buffer: Buffer.from('x'),
+      mimetype: 'application/octet-stream',
+      originalname: 'resume',
+    })
+  })
+
+  // QA-LOW-4: @fastify/multipart's toBuffer throws FST_REQ_FILE_TOO_LARGE (413, no code) past the 10 MB limit.
+  it('a file over the multipart size limit is 413 RESUME_FILE_TOO_LARGE with its MB cap', async () => {
+    const tooLarge = Object.assign(new Error('request file too large'), {
+      code: 'FST_REQ_FILE_TOO_LARGE',
+      statusCode: 413,
+    })
+    const { service, run } = upload([
+      { type: 'file', fieldname: 'file', toBuffer: () => Promise.reject(tooLarge) },
+    ])
+    await expect(run()).rejects.toMatchObject({
+      status: 413,
+      response: { code: 'RESUME_FILE_TOO_LARGE', params: { mb: 10 } },
+    })
+    expect(service.uploadSource).not.toHaveBeenCalled()
+  })
+
+  // Round 4: the iterator can reject too (an oversize part skipped while reading the stream).
+  it('the multipart iterator rejecting with FST_REQ_FILE_TOO_LARGE is the same coded 413', async () => {
+    const tooLarge = Object.assign(new Error('request file too large'), {
+      code: 'FST_REQ_FILE_TOO_LARGE',
+      statusCode: 413,
+    })
+    const service = { uploadSource: vi.fn(async (..._args: unknown[]) => 'queued') }
+    const req = {
+      isMultipart: () => true,
+      parts: vi.fn(async function* () {
+        yield {
+          type: 'file',
+          fieldname: 'skipped',
+          toBuffer: () => Promise.resolve(Buffer.alloc(0)),
+        }
+        throw tooLarge
+      }),
+    }
+    const controller = new SeniorResumesController(service as never)
+    await expect(
+      controller.uploadSource(OWNER, req as never, hr as SessionUser),
+    ).rejects.toMatchObject({
+      status: 413,
+      response: { code: 'RESUME_FILE_TOO_LARGE', params: { mb: 10 } },
+    })
+    expect(service.uploadSource).not.toHaveBeenCalled()
+  })
+
+  it('any other read failure of the file part is rethrown as it is', async () => {
+    const broken = new Error('socket hang up')
+    const { run } = upload([
+      { type: 'file', fieldname: 'file', toBuffer: () => Promise.reject(broken) },
+    ])
+    await expect(run()).rejects.toBe(broken)
+  })
+
+  it('a non-object rejection is rethrown as it is, not turned into a TypeError', async () => {
+    const { run } = upload([
+      { type: 'file', fieldname: 'file', toBuffer: () => Promise.reject(null) },
+    ])
+    await expect(run()).rejects.toBeNull()
+  })
+
+  it('a body without a "file" field is 400 RESUME_UPLOAD_NO_FILE', async () => {
+    const { service, run } = upload([{ type: 'field', fieldname: 'note' }])
+    await expect(run()).rejects.toMatchObject({
+      status: 400,
+      response: { code: 'RESUME_UPLOAD_NO_FILE' },
+    })
+    expect(service.uploadSource).not.toHaveBeenCalled()
+  })
+
+  it('passes RESUME_SOURCE_MAX_BYTES and single-file limit to req.parts (finding 1)', async () => {
+    const { parts, run } = upload([
+      { type: 'file', fieldname: 'file', toBuffer: async () => Buffer.from('%PDF') },
+    ])
+    await run()
+    expect(parts).toHaveBeenCalledWith({
+      limits: { fileSize: RESUME_SOURCE_MAX_BYTES, files: 1 },
+    })
+  })
 })

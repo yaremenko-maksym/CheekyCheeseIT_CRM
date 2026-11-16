@@ -3745,6 +3745,36 @@ msgstr "Повернутися до команди може лише сеньй�
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_AI_ERROR"
+msgstr "Сервіс розпізнавання повернув помилку. Заповніть резюме вручну."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_AI_INVALID_ANSWER"
+msgstr "Не вдалося правильно розпізнати резюме. Перевірте поля й заповніть їх вручну."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_AI_NOT_CONFIGURED"
+msgstr "Автоматичне розпізнавання недоступне: сервіс ШІ не налаштовано. Заповніть резюме вручну."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_AI_QUOTA_EXCEEDED"
+msgstr "Вичерпано добовий ліміт безкоштовних запитів до ШІ."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_AI_UNAVAILABLE"
+msgstr "Сервіс розпізнавання недоступний. Спробуйте пізніше або заповніть резюме вручну."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_AI_VALUES_OUT_OF_RANGE"
+msgstr "Частину даних резюме розпізнано неправильно. Перевірте поля й заповніть їх вручну."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_ALREADY_VERIFIED"
 msgstr "Резюме вже підтверджено. Змініть факти, щоб надіслати його знову."
 
@@ -3755,8 +3785,88 @@ msgstr "Резюме змінилося після перевірки. Онов�
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_CREATE_FAILED"
+msgstr "Не вдалося створити резюме. Спробуйте ще раз."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_CUSTOM_TEMPLATE"
 msgstr "Цей шаблон резюме не підтримує перевірку. Оберіть шаблон із каталогу."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_DELETE_BUSY"
+msgstr "Резюме саме зараз змінюється. Повторіть видалення за кілька секунд."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_DOCX_CONTENT_TOO_LARGE"
+msgstr "Текст усередині DOCX більший за {mb} МБ — це не схоже на резюме."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_DOCX_CORRUPT"
+msgstr "DOCX-файл пошкоджено. Збережіть його ще раз або вставте текст."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_DOCX_TOO_LARGE"
+msgstr "Розпакований DOCX більший за {mb} МБ — це не схоже на резюме."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_DOCX_TOO_MANY_FILES"
+msgstr "У DOCX забагато вкладених файлів (понад {max}) — це не схоже на резюме."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_DOCX_UNREADABLE"
+msgstr "Не вдалося прочитати DOCX-файл. Завантажте інший файл або вставте текст."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_DOCX_UNSUPPORTED"
+msgstr "Цей файл DOCX збережено у непідтримуваному форматі. Збережіть його ще раз у Word або вставте текст."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_ERROR_DETAILS_UNAVAILABLE"
+msgstr "Подробиці цієї помилки недоступні."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_EXTRACTION_STALLED_FILE"
+msgstr "Розпізнавання перервалося (сервіс перезапустився). Завантажте файл ще раз або заповніть резюме вручну."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_EXTRACTION_STALLED_TEXT"
+msgstr "Розпізнавання перервалося (сервіс перезапустився). Вставте текст резюме ще раз або заповніть форму вручну."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_FILE_EMPTY"
+msgstr "Файл порожній. Оберіть інший файл."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_FILE_TOO_COMPLEX"
+msgstr "Документ надто складний для автоматичної обробки. Вставте текст резюме вручну."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_FILE_TOO_LARGE"
+msgstr "Файл більший за {mb} МБ. Завантажте менший файл або вставте текст."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_FILE_UNREADABLE"
+msgstr "Не вдалося прочитати файл резюме. Завантажте інший файл або вставте текст."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_FILE_UNSUPPORTED"
+msgstr "Підтримуються лише PDF і DOCX. Вміст файлу не відповідає жодному з цих форматів."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
@@ -3765,8 +3875,118 @@ msgstr "Заповніть усі потрібні поля резюме пер�
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_NO_ACCESS"
+msgstr "Немає доступу до резюме цього користувача."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_NO_TEXT"
+msgstr "З файлу не вдалося витягти текст (імовірно, це скан або картинка). Вставте текст резюме вручну."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_NOT_CREATED"
+msgstr "Резюме ще не створено."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_NOT_FOUND"
+msgstr "Резюме не знайдено. Оновіть сторінку."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_PDF_PREPARING"
+msgstr "Готуємо PDF за шаблоном резюме. Оновіть сторінку за кілька секунд."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_PDF_TOO_BUSY"
+msgstr "У PDF забагато текстових операцій (межа {max}) — це не схоже на резюме."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_PDF_TOO_LARGE"
+msgstr "Вміст PDF після розпакування більший за {mb} МБ — це не схоже на резюме."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_PDF_TOO_MANY_PAGES"
+msgstr "У PDF понад {max} сторінок — це не схоже на резюме."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_PDF_UNREADABLE"
+msgstr "Не вдалося прочитати PDF-файл. Завантажте інший файл або вставте текст."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_RENDER_BLANK_PAGE"
+msgstr "Шаблон резюме зібрався в порожню сторінку — імовірно, у ньому є символ, який не відображається доступними шрифтами. Перевірте оформлення або зверніться до адміністратора."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_RENDER_FAILED"
+msgstr "Не вдалося зібрати PDF резюме. Спробуйте пізніше."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_RENDER_MISSING_GLYPHS"
+msgstr "У шаблоні резюме є символи, які не відображаються доступними шрифтами: {glyphs}. Замініть їх або додайте шрифт із цими гліфами."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_RENDER_STORAGE_FAILED"
+msgstr "PDF зібрано, але не збережено у сховищі. Спробуйте пізніше."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_RENDER_TEMPLATE_FAILED"
+msgstr "Не вдалося зібрати PDF за шаблоном резюме. Перевірте оформлення або зверніться до адміністратора."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_RENDER_TIMEOUT"
+msgstr "Не вдалося зібрати PDF: верстка не вклалася в {seconds} с."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_SENIOR_ONLY"
+msgstr "Резюме ведеться лише для сеньйорів."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_SOURCE_CORRUPT"
+msgstr "Оригінал файлу пошкоджено. Завантажте файл ще раз або вставте текст."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_SOURCE_LOAD_FAILED"
+msgstr "Не вдалося прочитати оригінал файлу резюме. Завантажте його ще раз або вставте текст."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_SOURCE_MISSING"
+msgstr "Оригінал файлу резюме не завантажено."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_STAGED_TEXT_INVALID"
 msgstr "Текст не збережено: {reason, select, NON_LATIN {пишіть лише латиницею} CONTACT_IN_TEXT {приберіть ім’я, email або телефон} other {перевірте текст}}."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_UPLOAD_NO_FILE"
+msgstr "Файл резюме не додано. Додайте його й спробуйте ще раз."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_UPLOAD_NOT_MULTIPART"
+msgstr "Не вдалося завантажити файл. Спробуйте ще раз."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_UPLOAD_UNREADABLE"
+msgstr "Не вдалося прочитати надісланий файл. Завантажте його ще раз."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts

@@ -68,7 +68,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { RESUME_DOCX_MIME, RESUME_LIMITS, RESUME_PDF_MIME } from '@crm/shared'
+import { RESUME_DOCX_MIME, RESUME_LIMITS, RESUME_PDF_MIME, encodeResumeMessage } from '@crm/shared'
 import { resolveAssetPath } from '../common/assets.util'
 import { runSandboxed } from './sandboxed-process'
 import {
@@ -77,6 +77,7 @@ import {
   inspectPdfContent,
   normalizeExtractedText,
   type ResumeSourceMime,
+  ResumeSourceRefusal,
 } from './resume-source.util'
 
 /**
@@ -196,10 +197,9 @@ export const MAX_CONCURRENT_EXTRACTIONS = 2
  *
  * Deliberately does NOT name a number of seconds: that made the message a
  * function of a test seam (`timeoutMs`), so a spec exercising the path with a
- * 300 ms budget produced "не уложился в 0.3 с" — true, and nonsense to a user.
+ * 300 ms budget produced a "did not finish in 0.3 s" line — true, and nonsense to a user.
  */
-const TOO_COMPLEX_MESSAGE =
-  'Документ слишком сложный для автоматической обработки. Вставьте текст резюме вручную.'
+const TOO_COMPLEX_MESSAGE = encodeResumeMessage('RESUME_FILE_TOO_COMPLEX')
 
 /** Thrown for every "we cannot read this file" case — mapped to UNREADABLE_FILE. */
 export class ResumeFileUnreadableError extends Error {
@@ -261,7 +261,7 @@ export class ResumeTextExtractionService {
     options: { timeoutMs?: number; cpuSeconds?: number } = {},
   ): Promise<string> {
     if (mime !== RESUME_PDF_MIME && mime !== RESUME_DOCX_MIME) {
-      throw new ResumeFileUnreadableError('Неподдерживаемый формат файла')
+      throw new ResumeFileUnreadableError(encodeResumeMessage('RESUME_FILE_UNSUPPORTED'))
     }
     await this.acquireSlot()
     try {
@@ -341,7 +341,7 @@ export class ResumeTextExtractionService {
       const proxy = await getDocumentProxy(new Uint8Array(buffer))
       if (proxy.numPages > MAX_PDF_PAGES) {
         throw new ResumeFileUnreadableError(
-          `В PDF больше ${MAX_PDF_PAGES} страниц — это не похоже на резюме`,
+          encodeResumeMessage('RESUME_PDF_TOO_MANY_PAGES', { max: MAX_PDF_PAGES }),
         )
       }
       // Still worth refusing an obviously abusive document before paying to
@@ -352,14 +352,16 @@ export class ResumeTextExtractionService {
         await inspectPdfContent(buffer, proxy.numPages)
       } catch (err: unknown) {
         throw new ResumeFileUnreadableError(
-          err instanceof RangeError ? err.message : 'Не удалось прочитать PDF-файл',
+          err instanceof ResumeSourceRefusal
+            ? err.message
+            : encodeResumeMessage('RESUME_PDF_UNREADABLE'),
         )
       }
       return await parse()
     } catch (err: unknown) {
       if (err instanceof ResumeFileUnreadableError) throw err
       this.logger.warn(`PDF extraction failed: ${err instanceof Error ? err.message : 'unknown'}`)
-      throw new ResumeFileUnreadableError('Не удалось прочитать PDF-файл')
+      throw new ResumeFileUnreadableError(encodeResumeMessage('RESUME_PDF_UNREADABLE'))
     }
   }
 
@@ -477,7 +479,7 @@ export class ResumeTextExtractionService {
         this.logger.warn(
           `Extraction worker exited ${String(result.code)}: ${result.stderr.slice(0, 500)}`,
         )
-        throw new ResumeFileUnreadableError('Не удалось прочитать файл резюме')
+        throw new ResumeFileUnreadableError(encodeResumeMessage('RESUME_FILE_UNREADABLE'))
       }
 
       const parsed = JSON.parse(result.stdout) as {
@@ -492,7 +494,7 @@ export class ResumeTextExtractionService {
         : typeof value === 'string'
       if (!parsed.ok || !valid) {
         this.logger.warn(`Extraction worker reported: ${parsed.error ?? 'unknown'}`)
-        throw new ResumeFileUnreadableError('Не удалось прочитать файл резюме')
+        throw new ResumeFileUnreadableError(encodeResumeMessage('RESUME_FILE_UNREADABLE'))
       }
       return value as string | string[]
     } finally {
@@ -532,7 +534,9 @@ export class ResumeTextExtractionService {
       await inspectDocxZip(buffer)
     } catch (err: unknown) {
       throw new ResumeFileUnreadableError(
-        err instanceof RangeError ? err.message : 'Не удалось прочитать DOCX-файл',
+        err instanceof ResumeSourceRefusal
+          ? err.message
+          : encodeResumeMessage('RESUME_DOCX_UNREADABLE'),
       )
     }
 
@@ -543,7 +547,7 @@ export class ResumeTextExtractionService {
     } catch (err: unknown) {
       if (err instanceof ResumeFileUnreadableError) throw err
       this.logger.warn(`DOCX extraction failed: ${err instanceof Error ? err.message : 'unknown'}`)
-      throw new ResumeFileUnreadableError('Не удалось прочитать DOCX-файл')
+      throw new ResumeFileUnreadableError(encodeResumeMessage('RESUME_DOCX_UNREADABLE'))
     }
   }
 }

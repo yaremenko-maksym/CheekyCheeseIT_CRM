@@ -35,6 +35,7 @@ import {
   isSafeResumeUrl,
   resumeContentSchema,
   type ResumeContent,
+  encodeResumeMessage,
   type ResumeFailureCode,
 } from '@crm/shared'
 import type { Env } from '../config/env'
@@ -108,8 +109,7 @@ export class ResumeAiService {
       return {
         ok: false,
         code: 'AI_NOT_CONFIGURED',
-        message:
-          'Автоматическое распознавание недоступно: сервис ИИ не настроен. Заполните резюме вручную.',
+        message: encodeResumeMessage('RESUME_AI_NOT_CONFIGURED'),
         quotaResetsAt: null,
         tokensUsed: null,
       }
@@ -137,7 +137,8 @@ export class ResumeAiService {
     return {
       ok: false,
       code: 'MODEL_INVALID_JSON',
-      message: `Модель вернула некорректный ответ (${truncate(lastParseError, 300)}). Проверьте и заполните поля вручную.`,
+      // The parse error itself is logged per attempt above; the user gets the code only.
+      message: encodeResumeMessage('RESUME_AI_INVALID_ANSWER'),
       quotaResetsAt: null,
       tokensUsed,
     }
@@ -187,7 +188,7 @@ export class ResumeAiService {
       return {
         ok: false,
         code: 'MODEL_ERROR',
-        message: 'Сервис распознавания недоступен. Попробуйте позже или заполните резюме вручную.',
+        message: encodeResumeMessage('RESUME_AI_UNAVAILABLE'),
         quotaResetsAt: null,
         tokensUsed: null,
       }
@@ -202,7 +203,7 @@ export class ResumeAiService {
       return {
         ok: false,
         code: 'QUOTA_EXCEEDED',
-        message: 'Исчерпан суточный лимит бесплатных запросов к ИИ.',
+        message: encodeResumeMessage('RESUME_AI_QUOTA_EXCEEDED'),
         quotaResetsAt: nextUtcMidnight().toISOString(),
         tokensUsed: null,
       }
@@ -216,7 +217,7 @@ export class ResumeAiService {
       return {
         ok: false,
         code: 'MODEL_ERROR',
-        message: 'Сервис распознавания вернул ошибку. Заполните резюме вручную.',
+        message: encodeResumeMessage('RESUME_AI_ERROR'),
         quotaResetsAt: null,
         tokensUsed: null,
       }
@@ -254,10 +255,10 @@ export class ResumeAiService {
     raw: string,
   ): { ok: true; content: ResumeContent } | { ok: false; error: string } {
     const json = extractJsonObject(raw)
-    if (json === null) return { ok: false, error: 'ответ не содержит JSON-объекта' }
+    if (json === null) return { ok: false, error: 'the answer holds no JSON object' }
 
     const value = safeJsonParse<unknown>(json)
-    if (value === null) return { ok: false, error: 'JSON не разбирается' }
+    if (value === null) return { ok: false, error: 'the JSON does not parse' }
 
     // Coerce shape BEFORE validating: a small model routinely emits `null` for
     // an absent array or a bare string where a list is expected. Coercion is

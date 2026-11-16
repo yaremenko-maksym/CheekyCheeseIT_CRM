@@ -141,7 +141,7 @@ describe('resolveMiss', () => {
     const { svc, log } = service([[], []])
     const err = await refusal(svc.setTemplate(ROW, 'classic', 'hr-1'))
     expect(err.getStatus()).toBe(404)
-    expect(err.message).toBe('Резюме не найдено')
+    expect(err.getResponse()).toMatchObject({ code: 'RESUME_NOT_FOUND' })
     expect(log[1]?.columns).toEqual(['id'])
   })
 

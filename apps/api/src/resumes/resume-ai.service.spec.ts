@@ -7,6 +7,7 @@
  * and no credential is needed (task §Границы).
  */
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import { decodeResumeMessage } from '@crm/shared'
 import {
   ResumeAiService,
   coerceToContentShape,
@@ -74,7 +75,9 @@ describe('ResumeAiService', () => {
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('unreachable')
     expect(result.code).toBe('MODEL_INVALID_JSON')
-    expect(result.message).toMatch(/вручную/)
+    expect(decodeResumeMessage(result.message, 'RESUME_ERROR_DETAILS_UNAVAILABLE')).toEqual({
+      code: 'RESUME_AI_INVALID_ANSWER',
+    })
   })
 
   it('AC4: a valid second attempt after an invalid first one succeeds', async () => {
@@ -89,6 +92,18 @@ describe('ResumeAiService', () => {
     expect(result.content.skills).toEqual(['TypeScript'])
     // Tokens from BOTH calls are accumulated so the real spend is visible.
     expect(result.tokensUsed).toBe(240)
+  })
+
+  it.each([
+    ['an answer with no JSON object', 'no json here', 'the answer holds no JSON object'],
+    ['an answer whose JSON does not parse', '{"summary": }', 'the JSON does not parse'],
+  ])('the retry tells the model what was wrong with %s', async (_name, first, reason) => {
+    fetchSpy.mockResolvedValueOnce(aiResponse(first)).mockResolvedValueOnce(aiResponse(VALID_JSON))
+
+    await makeService().extractStructure('a'.repeat(200))
+
+    const retryBody = (fetchSpy.mock.calls[1]?.[1] as RequestInit | undefined)?.body
+    expect(String(retryBody)).toContain(reason)
   })
 
   it('succeeds on the first attempt and reports token usage', async () => {
@@ -119,6 +134,9 @@ describe('ResumeAiService', () => {
     expect(result.code).toBe('QUOTA_EXCEEDED')
     expect(result.quotaResetsAt).not.toBeNull()
     expect(new Date(result.quotaResetsAt as string).getUTCHours()).toBe(0)
+    expect(decodeResumeMessage(result.message, 'RESUME_ERROR_DETAILS_UNAVAILABLE')).toEqual({
+      code: 'RESUME_AI_QUOTA_EXCEEDED',
+    })
   })
 
   it('AC5: error code 3040 inside a non-429 body is also recognised as the quota wall', async () => {
@@ -149,7 +167,9 @@ describe('ResumeAiService', () => {
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('unreachable')
     expect(result.code).toBe('AI_NOT_CONFIGURED')
-    expect(result.message).toMatch(/вручную/)
+    expect(decodeResumeMessage(result.message, 'RESUME_ERROR_DETAILS_UNAVAILABLE')).toEqual({
+      code: 'RESUME_AI_NOT_CONFIGURED',
+    })
   })
 
   it('transport failure -> MODEL_ERROR, and the token never appears in the error', async () => {
@@ -161,6 +181,9 @@ describe('ResumeAiService', () => {
     if (result.ok) throw new Error('unreachable')
     expect(result.code).toBe('MODEL_ERROR')
     expect(result.message).not.toContain('tok-1')
+    expect(decodeResumeMessage(result.message, 'RESUME_ERROR_DETAILS_UNAVAILABLE')).toEqual({
+      code: 'RESUME_AI_UNAVAILABLE',
+    })
   })
 
   it('caps the text sent to the model (token economy)', async () => {

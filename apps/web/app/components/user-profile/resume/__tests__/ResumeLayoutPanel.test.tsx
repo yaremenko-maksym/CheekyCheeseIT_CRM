@@ -429,6 +429,53 @@ describe('ResumePdfPreview', () => {
     expect(screen.queryByTestId('resume-pdf-pending')).not.toBeInTheDocument()
   })
 
+  it('shows a coded render error as the catalog line, params filled (backlog 443)', () => {
+    render(
+      <ResumePdfPreview
+        resume={dto({
+          renderStatus: 'FAILED',
+          pdfUpToDate: false,
+          renderError: '{"code":"RESUME_RENDER_TIMEOUT","params":{"seconds":20}}',
+        })}
+        pdfUrl="/api/users/u1/resume/pdf"
+      />,
+    )
+    expect(screen.getByTestId('resume-pdf-failed')).toHaveTextContent(
+      'Не вдалося зібрати PDF: верстка не вклалася в 20 с.',
+    )
+    expect(screen.getByTestId('resume-pdf-failed')).not.toHaveTextContent('RESUME_RENDER_TIMEOUT')
+  })
+
+  it('a coded render error this build cannot render shows the details-unavailable line (QA-LOW-2/3, QA-LOW-6)', () => {
+    const { rerender } = render(
+      <ResumePdfPreview
+        resume={dto({
+          renderStatus: 'FAILED',
+          pdfUpToDate: false,
+          renderError: '{"code":"RESUME_RENDER_TIMEOUT"}',
+        })}
+        pdfUrl="/api/users/u1/resume/pdf"
+      />,
+    )
+    expect(screen.getByTestId('resume-pdf-failed')).toHaveTextContent(
+      'Подробиці цієї помилки недоступні.',
+    )
+
+    rerender(
+      <ResumePdfPreview
+        resume={dto({
+          renderStatus: 'FAILED',
+          pdfUpToDate: false,
+          renderError: '{"code":"RESUME_RENDER_FAILED"}',
+        })}
+        pdfUrl="/api/users/u1/resume/pdf"
+      />,
+    )
+    expect(screen.getByTestId('resume-pdf-failed')).toHaveTextContent(
+      'Не вдалося зібрати PDF резюме. Спробуйте пізніше.',
+    )
+  })
+
   /**
    * `filename` feeds the shared `PdfPreview`'s `title`/`aria-label`
    * (`Попередній перегляд: ${filename}`) — the ONLY place `resume` / `Резюме —

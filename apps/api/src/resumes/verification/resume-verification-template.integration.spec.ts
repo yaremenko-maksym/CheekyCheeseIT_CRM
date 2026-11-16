@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
-import { HttpException, NotFoundException } from '@nestjs/common'
+import { HttpException } from '@nestjs/common'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
@@ -660,7 +660,10 @@ describe.skipIf(!hasDatabaseUrl())(
         edited: after.stagedEditedPaths,
       }).toEqual({ content: null, layout: null, template: null, key: null, edited: [] })
       expect(stored.has(stagedKey)).toBe(false)
-      await expect(service.getStagedPdf(OWNER, OWNER_ID)).rejects.toBeInstanceOf(NotFoundException)
+      await expect(service.getStagedPdf(OWNER, OWNER_ID)).rejects.toMatchObject({
+        status: 404,
+        response: { code: 'RESUME_NOT_CREATED' },
+      })
       release()
       await drain()
       expect((await rowOf()).verificationStatus).toBe('FAILED')

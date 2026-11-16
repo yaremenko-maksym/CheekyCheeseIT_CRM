@@ -62,6 +62,7 @@ import {
   type ResumeContent,
   type ResumeLayoutOptions,
   type ResumeTemplateName,
+  encodeResumeMessage,
 } from '@crm/shared'
 import { resolveAssetPath } from '../common/assets.util'
 import {
@@ -313,14 +314,14 @@ export class ResumeTypstService {
 
       if (result.timedOut) {
         throw new ResumeRenderError(
-          `Не удалось собрать PDF: вёрстка не уложилась в ${RENDER_TIMEOUT_MS / 1000} с.`,
+          encodeResumeMessage('RESUME_RENDER_TIMEOUT', { seconds: RENDER_TIMEOUT_MS / 1000 }),
           result.stderr,
         )
       }
       if (result.code !== 0) {
         this.logger.warn(`Typst exited ${String(result.code)}: ${result.stderr}`)
         throw new ResumeRenderError(
-          'Не удалось собрать PDF по шаблону резюме. Проверьте оформление или обратитесь к администратору.',
+          encodeResumeMessage('RESUME_RENDER_TEMPLATE_FAILED'),
           result.stderr,
         )
       }
@@ -328,7 +329,10 @@ export class ResumeTypstService {
       if (format === 'png') return await readPngPages(dir)
       const pdf = await readFile(outPath)
       if (pdf.subarray(0, 5).toString('latin1') !== '%PDF-') {
-        throw new ResumeRenderError('Сборка PDF завершилась, но файл не является PDF.')
+        throw new ResumeRenderError(
+          encodeResumeMessage('RESUME_RENDER_FAILED'),
+          'the render finished, but the file is not a PDF',
+        )
       }
       await assertDocumentIsNotBlank(pdf)
       return [pdf]
@@ -336,7 +340,7 @@ export class ResumeTypstService {
       if (err instanceof ResumeRenderError) throw err
       const detail = err instanceof Error ? err.message : 'unknown'
       this.logger.error(`Resume render failed: ${detail}`)
-      throw new ResumeRenderError('Не удалось собрать PDF резюме.', detail)
+      throw new ResumeRenderError(encodeResumeMessage('RESUME_RENDER_FAILED'), detail)
     } finally {
       // The directory holds personal data (the whole CV, in clear). It goes
       // away on every path, including the timeout and the throw.
@@ -671,7 +675,7 @@ async function assertDocumentIsNotBlank(pdf: Buffer): Promise<void> {
     return
   }
   throw new ResumeRenderError(
-    'Шаблон резюме собрался в пустую страницу — вероятно, в нём есть символ, который не отрисовывается доступными шрифтами. Проверьте оформление или обратитесь к администратору.',
+    encodeResumeMessage('RESUME_RENDER_BLANK_PAGE'),
     'render produced a PDF with zero text-showing operators',
   )
 }
@@ -680,7 +684,7 @@ function assertTemplateIsDrawable(template: string, fontSet: GlyphFontSet): void
   const missing = findUnrenderable(template, fontSet)
   if (missing.length === 0) return
   throw new ResumeRenderError(
-    `В шаблоне резюме есть символы, которые не отрисовываются доступными шрифтами: ${missing.join(' ')}. Замените их или добавьте шрифт с этими глифами.`,
+    encodeResumeMessage('RESUME_RENDER_MISSING_GLYPHS', { glyphs: missing.join(' ') }),
     `undrawable template glyphs: ${missing.map((ch) => `U+${(ch.codePointAt(0) ?? 0).toString(16).toUpperCase()}`).join(', ')}`,
   )
 }

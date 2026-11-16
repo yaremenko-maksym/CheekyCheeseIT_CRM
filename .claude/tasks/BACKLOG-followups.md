@@ -8126,6 +8126,8 @@ Sources: verified-base-resume second-opinion, finding SO23-6 (Task 23). Owner no
 
 ## 443. Russian API messages in the resumes area should become codes + catalog lines (2026-11-14)
 
+**Closed (2026-11-15).** PR #1354 (resumes API errors and stored error messages become shared `RESUME_*` codes shown through the uk/en catalog). Reopen if the Verify check below fails.
+
 **Symptoms.** Some stored or returned strings in the resumes area are Russian text, not codes: the PDF render
 error message, the extraction `errorMessage`, the resolve-miss message, and `NotFoundException('Резюме не найдено')`
 in the verification service (reused from main). The web shows them verbatim, so an `en` user sees Russian and the
