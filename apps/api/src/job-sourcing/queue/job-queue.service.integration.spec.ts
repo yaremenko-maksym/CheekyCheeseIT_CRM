@@ -25,7 +25,7 @@ import {
 import { JobQueueService } from './job-queue.service'
 import { JobQueueActionsService } from './queue-actions.service'
 import { parseCursor, signCursor } from './queue-cursor'
-import { purgeExpiredGenerations } from './queue-generation'
+import { invalidateGenerationsForNewJobs, purgeExpiredGenerations } from './queue-generation'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -926,6 +926,31 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       expect((await service.list(hrA(), q())).items.map((i) => i.opportunityId)).toContain(
         id('oppLate'),
       )
+    })
+
+    it('the post-run drain retires the snapshots: a fresh vacancy lists at once, without the TTL', async () => {
+      await service.list(hrA(), q())
+      await service.list(admin(), q())
+      const [teamBefore] = await publishedOf('teamA')
+      await mkOpp('oppDrained')
+      await lead('oppDrained', 'senA')
+      expect((await service.list(hrA(), q())).items.map((i) => i.opportunityId)).not.toContain(
+        id('oppDrained'),
+      )
+
+      // The drain's retire, as the API role (`crm_app`) the drain runs as.
+      expect(await invalidateGenerationsForNewJobs(session.databaseService.db)).toBeGreaterThan(0)
+      expect(await publishedOf('teamA')).toEqual([])
+
+      expect((await service.list(hrA(), q())).items.map((i) => i.opportunityId)).toContain(
+        id('oppDrained'),
+      )
+      expect((await service.list(admin(), q())).items.map((i) => i.opportunityId)).toContain(
+        id('oppDrained'),
+      )
+      const [teamAfter] = await publishedOf('teamA')
+      expect(teamAfter).toBeDefined()
+      expect(teamAfter).not.toBe(teamBefore)
     })
 
     it('an expired head is never served: the first page republishes, a cursor must refresh', async () => {
