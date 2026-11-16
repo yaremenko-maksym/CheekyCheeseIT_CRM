@@ -120,7 +120,9 @@ export function ResumeStatusPanel({
         </p>
         {/* Server copy is plain text; React escapes it. Never dangerouslySetInnerHTML. */}
         {errorMessage && (
-          <p className="text-xs text-muted-foreground">{resumeMessageText(errorMessage)}</p>
+          <p className="text-xs break-words text-muted-foreground">
+            {resumeMessageText(errorMessage, 'RESUME_EXTRACTION_FAILED')}
+          </p>
         )}
         <p className="text-xs text-muted-foreground">
           {errorCode === 'QUOTA_EXCEEDED' && when ? (

@@ -3770,6 +3770,11 @@ msgstr "Сервіс розпізнавання недоступний. Спро
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_AI_VALUES_OUT_OF_RANGE"
+msgstr "Модель повернула значення поза допустимими межами. Перевірте поля й заповніть їх вручну."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_ALREADY_VERIFIED"
 msgstr "Резюме вже підтверджено. Змініть факти, щоб надіслати його знову."
 
@@ -3822,6 +3827,11 @@ msgstr "Не вдалося прочитати DOCX-файл. Завантажт
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_DOCX_UNSUPPORTED"
 msgstr "Цей DOCX збережено у непідтримуваному форматі. Збережіть його ще раз у Word або вставте текст."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_EXTRACTION_FAILED"
+msgstr "Не вдалося розпізнати резюме. Спробуйте ще раз або заповніть його вручну."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts

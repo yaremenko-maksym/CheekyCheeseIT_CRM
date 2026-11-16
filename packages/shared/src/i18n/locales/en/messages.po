@@ -3770,6 +3770,11 @@ msgstr "The recognition service is unavailable. Try later or fill in the resume 
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_AI_VALUES_OUT_OF_RANGE"
+msgstr "The model returned values outside the allowed ranges. Check the fields and fill them in by hand."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_ALREADY_VERIFIED"
 msgstr "The resume is already verified. Change the facts to submit it again."
 
@@ -3822,6 +3827,11 @@ msgstr "The DOCX file could not be read. Upload another file or paste the text."
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_DOCX_UNSUPPORTED"
 msgstr "This DOCX is saved in an unsupported format. Save it again in Word or paste the text."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_EXTRACTION_FAILED"
+msgstr "The resume could not be recognized. Try again or fill it in by hand."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts

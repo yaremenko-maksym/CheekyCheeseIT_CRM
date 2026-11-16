@@ -446,6 +446,22 @@ describe('ResumePdfPreview', () => {
     expect(screen.getByTestId('resume-pdf-failed')).not.toHaveTextContent('RESUME_RENDER_TIMEOUT')
   })
 
+  it('a coded render error this build cannot render shows the generic render line (QA-LOW-2/3)', () => {
+    render(
+      <ResumePdfPreview
+        resume={dto({
+          renderStatus: 'FAILED',
+          pdfUpToDate: false,
+          renderError: '{"code":"RESUME_RENDER_TIMEOUT"}',
+        })}
+        pdfUrl="/api/users/u1/resume/pdf"
+      />,
+    )
+    expect(screen.getByTestId('resume-pdf-failed')).toHaveTextContent(
+      'Не вдалося зібрати PDF резюме. Спробуйте пізніше.',
+    )
+  })
+
   /**
    * `filename` feeds the shared `PdfPreview`'s `title`/`aria-label`
    * (`Попередній перегляд: ${filename}`) — the ONLY place `resume` / `Резюме —

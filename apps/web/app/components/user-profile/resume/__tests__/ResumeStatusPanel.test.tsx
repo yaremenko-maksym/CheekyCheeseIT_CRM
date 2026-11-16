@@ -178,4 +178,27 @@ describe('FAILED — the stored message is a code, shown as the catalog line (ba
       'Из файла не удалось извлечь текст',
     )
   })
+
+  const GENERIC_UK = 'Не вдалося розпізнати резюме. Спробуйте ще раз або заповніть його вручну.'
+
+  it('QA-LOW-3: our JSON shape with an unknown code shows the generic line, not the JSON', () => {
+    renderPanel({ status: 'FAILED', errorCode: 'NO_TEXT', errorMessage: '{"code":"RESUME_NEW"}' })
+    const panel = screen.getByTestId('resume-failed')
+    expect(panel).toHaveTextContent(GENERIC_UK)
+    expect(panel).not.toHaveTextContent('RESUME_NEW')
+  })
+
+  it('QA-LOW-2: a code missing the param its line needs shows the generic line, not a gap', () => {
+    renderPanel({
+      status: 'FAILED',
+      errorCode: 'UNREADABLE_FILE',
+      errorMessage: '{"code":"RESUME_FILE_TOO_LARGE"}',
+    })
+    expect(screen.getByTestId('resume-failed')).toHaveTextContent(GENERIC_UK)
+  })
+
+  it('JSON that is not our shape is old text and stays verbatim', () => {
+    renderPanel({ status: 'FAILED', errorCode: 'NO_TEXT', errorMessage: '{"note":"x"}' })
+    expect(screen.getByTestId('resume-failed')).toHaveTextContent('{"note":"x"}')
+  })
 })
