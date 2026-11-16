@@ -459,8 +459,9 @@ PY
 # Date: is the fixture's fetchedAt), the HTTP code and the sha256 of the body.
 # Never a second request. FAIL-CLOSED: if any secret appears in the body or
 # the headers, nothing is kept and only that fact is printed (never the
-# match). The files go to a short-lived artifact, never to stdout: the job
-# log of this public repository is public.
+# match). LOCAL USE ONLY: never set it in a workflow of this public
+# repository (an artifact there is public, and responses carry third-party
+# personal data); nothing of the response is ever printed to stdout.
 capture_raw() {
   local svc="$1"
   shift
@@ -475,7 +476,9 @@ capture_raw() {
     fi
   done
   [ -f "$BODY_FILE" ] && cp "$BODY_FILE" "$CAPTURE_DIR/${svc}.body"
-  [ -f "$HDR_FILE" ] && cp "$HDR_FILE" "$CAPTURE_DIR/${svc}.hdr"
+  # Only the Date: header is kept (it is the fixture's fetchedAt): never a
+  # cookie, an account id or a rate-limit header.
+  [ -f "$HDR_FILE" ] && { grep -i '^date:' "$HDR_FILE" || true; } >"$CAPTURE_DIR/${svc}.hdr"
   local digest="-"
   if [ -f "$BODY_FILE" ]; then
     digest="$(python3 -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$BODY_FILE")"
