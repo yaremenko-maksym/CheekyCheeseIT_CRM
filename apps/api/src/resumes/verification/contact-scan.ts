@@ -64,9 +64,11 @@ function nameSources(fullName: string): string[] {
   // Normalised like the text, so a name with a ligature, a ZWNJ or fullwidth letters matches itself.
   return contactNameParts(fullName).flatMap((parts) => {
     const folded = parts.map((part) => foldAccents(part).text)
-    const surname = folded.at(-1) ?? ''
+    const surname = folded.at(-1)
     const sources = [folded.map(escapeRegExp).join(CONTACT_NAME_GAP)]
-    if (surname.replace(/\P{L}/gu, '').length >= 2) sources.push(escapeRegExp(surname))
+    if (surname !== undefined && surname.replace(/\P{L}/gu, '').length >= 2) {
+      sources.push(escapeRegExp(surname))
+    }
     // a blank name leaves an empty source, which would match everywhere
     return sources.filter(Boolean)
   })

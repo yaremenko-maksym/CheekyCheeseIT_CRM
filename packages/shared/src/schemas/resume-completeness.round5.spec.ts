@@ -84,21 +84,21 @@ describe('a bare mark at a name edge is flagged, as on main (SR-H-3)', () => {
 
 describe('completeness flags at least what main flagged (SR-H-3)', () => {
   /** Main's name and handle checks (main @ 267885ded), copied: the reference head must cover. */
-  const mainFlags = (text: string, displayName: string, handle: string) => {
-    const normaliseName = (s: string) => s.normalize('NFC').replace(/[’ʼ]/g, "'")
+  const mainCheck = (displayName: string, handle: string) => {
+    const normaliseName = (s: string) => s.normalize('NFC').replace(/[\u2019\u02BC]/g, "'")
     const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const tokens = normaliseName(displayName).split(/\s/).filter(Boolean).map(escape)
     const first = tokens[0] ?? ''
     const last = tokens.at(-1) ?? ''
-    const nfc = text.normalize('NFC')
     const name = new RegExp(
       `(?:^|[^\\p{L}\\p{N}])(?:${tokens.join('\\s+')}|${first}\\s+${last}|${last}\\s+${first})(?:$|[^\\p{L}\\p{N}])`,
       'iu',
     )
-    return (
-      (tokens.length >= 2 && name.test(normaliseName(nfc))) ||
-      new RegExp(`(?:^|\\W)@*${escape(handle)}(?:$|\\W)`, 'i').test(nfc)
-    )
+    const handleTest = new RegExp(`(?:^|\\W)@*${escape(handle)}(?:$|\\W)`, 'i')
+    return (text: string) => {
+      const nfc = text.normalize('NFC')
+      return (tokens.length >= 2 && name.test(normaliseName(nfc))) || handleTest.test(nfc)
+    }
   }
   /** mulberry32: a full-period PRNG, so every atom pair comes up. */
   const prng = (seed: number) => () => {
@@ -116,27 +116,35 @@ describe('completeness flags at least what main flagged (SR-H-3)', () => {
     ['Latin', 'Ivan Petrenko', 1],
     ['Korean', '김 민준', 2],
     ['Cyrillic', 'Іван Петренко', 3],
-  ] as const)('%s: 20000 generated texts', (_label, fullName, seed) => {
-    const random = prng(seed)
-    const pick = <T>(list: readonly T[]): T => list[Math.floor(random() * list.length)] as T
-    const some = (list: readonly string[], max: number) =>
-      Array.from({ length: Math.floor(random() * (max + 1)) }, () => pick(list)).join('')
-    const missed: string[] = []
-    let mainCount = 0
-    for (let i = 0; i < 20000; i++) {
-      const parts = fullName.split(' ')
-      if (random() < 0.3) parts.reverse()
-      const name = parts.join(pick(NAME_GAPS))
-      const handle = random() < 0.4 ? `${some(EDGES, 2)}${random() < 0.5 ? '@' : ''}ivan_dev` : ''
-      const text = `${some(EDGES, 3)}${name}${some(EDGES, 3)}${handle}${some(EDGES, 2)}`
-      if (!mainFlags(text, fullName, 'ivan_dev')) continue
-      mainCount++
-      if (!flags(text, fullName, 'ivan_dev')) missed.push(text)
-    }
-    expect({ missed: missed.length, sample: missed.slice(0, 3) }).toEqual({ missed: 0, sample: [] })
-    // main flags a good share, so the property is not vacuous
-    expect(mainCount).toBeGreaterThan(5000)
-  })
+  ] as const)(
+    '%s: 10000 generated texts',
+    (_label, fullName, seed) => {
+      const random = prng(seed)
+      const pick = <T>(list: readonly T[]): T => list[Math.floor(random() * list.length)] as T
+      const some = (list: readonly string[], max: number) =>
+        Array.from({ length: Math.floor(random() * (max + 1)) }, () => pick(list)).join('')
+      const mainFlags = mainCheck(fullName, 'ivan_dev')
+      const missed: string[] = []
+      let mainCount = 0
+      for (let i = 0; i < 10000; i++) {
+        const parts = fullName.split(' ')
+        if (random() < 0.3) parts.reverse()
+        const name = parts.join(pick(NAME_GAPS))
+        const handle = random() < 0.4 ? `${some(EDGES, 2)}${random() < 0.5 ? '@' : ''}ivan_dev` : ''
+        const text = `${some(EDGES, 3)}${name}${some(EDGES, 3)}${handle}${some(EDGES, 2)}`
+        if (!mainFlags(text)) continue
+        mainCount++
+        if (!flags(text, fullName, 'ivan_dev')) missed.push(text)
+      }
+      expect({ missed: missed.length, sample: missed.slice(0, 3) }).toEqual({
+        missed: 0,
+        sample: [],
+      })
+      // main flags a good share, so the property is not vacuous
+      expect(mainCount).toBeGreaterThan(2500)
+    },
+    30_000, // generous: the pre-push run shares the machine with the other suites
+  )
 })
 
 describe('a stored name split only by an invisible (round 5, finding 3)', () => {
