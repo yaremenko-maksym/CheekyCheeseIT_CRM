@@ -9,7 +9,12 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { ConfigService } from '@nestjs/config'
-import { DeleteObjectCommand, ListObjectsV2Command, PutObjectCommand } from '@aws-sdk/client-s3'
+import {
+  DeleteObjectCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+} from '@aws-sdk/client-s3'
 import { cacheControlForCategory, DEFAULT_PRESIGN_TTL_SEC, S3Service } from './s3.service'
 
 // Hoisted mocks
@@ -332,6 +337,51 @@ describe('S3Service.deleteOrThrow', () => {
     const service = new S3Service(makeConfig())
     sendSpy.mockRejectedValue(new Error('R2 unreachable'))
     await expect(service.deleteOrThrow('k')).rejects.toThrow('R2 unreachable')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// headLastModified: the resume orphan sweep re-checks an object's age right
+// before deleting it (PR #1352, fix round 1).
+// ---------------------------------------------------------------------------
+
+describe('S3Service.headLastModified', () => {
+  it('sends HeadObjectCommand for the bucket and key and returns LastModified', async () => {
+    const service = new S3Service(makeConfig())
+    const modified = new Date('2026-11-15T05:00:00.000Z')
+    sendSpy.mockResolvedValue({ LastModified: modified })
+    await expect(service.headLastModified('senior-resumes/u/a')).resolves.toBe(modified)
+    const cmd = sendSpy.mock.calls[0]![0] as HeadObjectCommand
+    expect(cmd).toBeInstanceOf(HeadObjectCommand)
+    expect(cmd.input).toEqual({ Bucket: 'crm-documents', Key: 'senior-resumes/u/a' })
+  })
+
+  it('returns null when the object has no LastModified', async () => {
+    const service = new S3Service(makeConfig())
+    sendSpy.mockResolvedValue({})
+    await expect(service.headLastModified('k')).resolves.toBeNull()
+  })
+
+  it('returns null when the object is gone (NotFound or HTTP 404)', async () => {
+    const service = new S3Service(makeConfig())
+    sendSpy.mockRejectedValueOnce(Object.assign(new Error('NotFound'), { name: 'NotFound' }))
+    await expect(service.headLastModified('k')).resolves.toBeNull()
+    sendSpy.mockRejectedValueOnce(
+      Object.assign(new Error('Unknown'), { name: 'Unknown', $metadata: { httpStatusCode: 404 } }),
+    )
+    await expect(service.headLastModified('k')).resolves.toBeNull()
+  })
+
+  it('rethrows any other error (403, transport)', async () => {
+    const service = new S3Service(makeConfig())
+    const forbidden = Object.assign(new Error('Forbidden'), {
+      name: 'Forbidden',
+      $metadata: { httpStatusCode: 403 },
+    })
+    sendSpy.mockRejectedValueOnce(forbidden)
+    await expect(service.headLastModified('k')).rejects.toBe(forbidden)
+    sendSpy.mockRejectedValueOnce(new Error('R2 unreachable'))
+    await expect(service.headLastModified('k')).rejects.toThrow('R2 unreachable')
   })
 })
 
