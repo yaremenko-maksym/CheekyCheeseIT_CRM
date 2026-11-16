@@ -343,13 +343,23 @@ export class ResumeVerificationService {
    * staged columns cleared, `STALLED`, still VERIFIED. After commit the staged object goes (none for a
    * restored row: its PDF is the kept one), and the run's derived key too (a crash between upload and
    * CAS). Each swept row writes the run-failed warn line.
+   * The clock starts at the claim when there is one, else at the queue: a run that waited for a
+   * slot of the per-process cap (backlog 436) keeps its whole budget, as the runner measures it from
+   * its claim. A run still waiting for a slot in this process is alive, so it is skipped; the list
+   * dies with the process, so the rows of a dead process are still reaped.
    * Returns the number of rows reaped.
    */
   async sweepStalledVerifications(now: Date): Promise<number> {
+    const waiting = this.runner.waitingRunIds()
     const stalled = and(
       isNotNull(seniorResumes.verificationRunId),
-      lt(seniorResumes.verificationQueuedAt, new Date(now.getTime() - VERIFICATION_DEADLINE_MS)),
+      lt(
+        sql`coalesce(${seniorResumes.verificationStartedAt}, ${seniorResumes.verificationQueuedAt})`,
+        new Date(now.getTime() - VERIFICATION_DEADLINE_MS),
+      ),
       inArray(seniorResumes.verificationStatus, ['QUEUED', 'CHECKING', 'VERIFIED']),
+      // No waiting run, no extra term: the predicate stays the one the select and the CAS share.
+      waiting.length > 0 ? notInArray(seniorResumes.verificationRunId, waiting) : undefined,
     )
     const rows = await this.db.db
       .select({

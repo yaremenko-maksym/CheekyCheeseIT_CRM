@@ -8,7 +8,8 @@
  *     points the child process at the SAME `assets/fonts` directory, so the
  *     resume and every invoice/contract share one set of embedded faces (and
  *     one answer to "which glyphs exist" — see resume-glyphs.ts).
- *   - `ScheduleModule.forRoot()` for the stuck-extraction sweep, exactly like
+ *   - `ScheduleModule.forRoot()` for the stuck-extraction sweep and the daily
+ *     `senior-resumes/` orphan sweep, exactly like
  *     FinanceModule (SalaryCron) and VacanciesModule (retention cron).
  *
  * `SeniorResumesService` is exported for the follow-up task
@@ -21,6 +22,7 @@ import { DocumentsModule } from '../documents/documents.module'
 import { PdfModule } from '../common/pdf/pdf.module'
 import { ResumeAiService } from './resume-ai.service'
 import { ResumeExtractionCronService } from './resume-extraction.cron'
+import { ResumeOrphanSweepCron } from './resume-orphan-sweep.cron'
 import { ResumeTypstService } from './resume-typst.service'
 import { ResumeTextExtractionService } from './resume-text-extraction.service'
 import { SeniorResumesController } from './resumes.controller'
@@ -44,6 +46,7 @@ import {
     ResumeTextExtractionService,
     ResumeTypstService,
     ResumeExtractionCronService,
+    ResumeOrphanSweepCron,
     ResumeWriterClient,
     VisualCheckClient,
     ResumeEntailmentClient,
