@@ -83,10 +83,13 @@ const MAX_RUN_PARTS = 8
 /** The gate's runs: two or more consecutive split parts after the first, both ways, three letters or more. */
 function splitNameRuns(parts: readonly string[]): string[][] {
   const rest = parts.slice(1)
-  return rest
-    .flatMap((_, end) => rest.slice(0, end).map((_part, start) => rest.slice(start, end + 1)))
-    .filter((run) => run.join('').replace(/\P{L}/gu, '').length >= 3)
-    .flatMap((run) => [run, [...run].reverse()])
+  return (
+    rest
+      // Stryker disable next-line MethodExpression: equivalent — without the slice, `start >= end` adds only empty runs (no letters, filtered) and one-part runs, which equal lone parts the gate already takes
+      .flatMap((_, end) => rest.slice(0, end).map((_part, start) => rest.slice(start, end + 1)))
+      .filter((run) => run.join('').replace(/\P{L}/gu, '').length >= 3)
+      .flatMap((run) => [run, [...run].reverse()])
+  )
 }
 
 function nameSources(fullName: string, failClosed: boolean): string[] {

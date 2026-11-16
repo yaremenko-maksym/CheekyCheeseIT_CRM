@@ -607,6 +607,8 @@ describe('the gate scan keeps runs of short split parts that form the surname (r
     ['Ivan Li​Yu', 'by Yu today', 'by [REDACTED] today'],
     // a run of two letters passes: the letters of the run decide
     ['Ivan O​U', 'by O U today', 'by O U today'],
+    // a digit in the run is no letter
+    ['Ivan O​U2', 'by O U2 today', 'by O U2 today'],
     [
       'Ivan Petr‌in',
       'Senior engineer in Kyiv since 2020',
