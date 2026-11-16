@@ -10,7 +10,7 @@ import {
   type ResumeFacts,
 } from '@crm/shared'
 import { describe, expect, it } from 'vitest'
-import { redactContacts, type ContactContext } from './contact-scan'
+import { redactContacts, scanContacts, type ContactContext } from './contact-scan'
 
 /** 김민준 written as conjoining jamo. */
 const KIM_JAMO = '김민준'
@@ -41,6 +41,13 @@ describe('an invisible plus a mark at a name or handle edge (SR-H-2)', () => {
     expect(redactContacts('ping ivan_dee​́x', dee)).toBe('ping [REDACTED]x')
     expect(redactContacts('ping ivan_dev́x', ivan)).toBe('ping [REDACTED]x')
     expect(redactContacts('ping ivan_deex', dee)).toBe('ping ivan_deex')
+    // found on the folded text only, and still reported as the handle, as written
+    expect(scanContacts('ping ivan_dee​́x', dee)).toEqual([{ kind: 'telegram', match: 'ivan_dee​́' }])
+  })
+
+  it('a blank name redacts nothing, a gap in the text included', () => {
+    const blank: ContactContext = { fullName: ' ', emails: [] }
+    expect(redactContacts('Senior​developer', blank)).toBe('Senior​developer')
   })
 })
 
