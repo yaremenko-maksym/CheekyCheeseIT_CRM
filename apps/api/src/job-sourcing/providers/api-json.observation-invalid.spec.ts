@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fakeCollectionContext } from '../../test/fake-collection-context'
 import { sourceFixture } from '../../test/source-fixtures'
 import type { SourceObservation } from '../normalize/observation'
@@ -13,11 +13,15 @@ import { arbeitnowProvider } from './sources/arbeitnow.provider'
 
 const REFUSED = 'inside-solutions-engineer-454685'
 
+// Mutable so one test can make the gate throw something that is NOT the per-record refusal.
+const gateOverride: { error: Error | null } = { error: null }
+
 vi.mock('../store/record-payload', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../store/record-payload')>()
   return {
     ...actual,
     validateObservation: (o: SourceObservation) => {
+      if (gateOverride.error !== null) throw gateOverride.error
       if (o.identity.nativeId === REFUSED)
         throw new RangeError('validateObservation: description over the display limit')
       actual.validateObservation(o)
@@ -26,6 +30,25 @@ vi.mock('../store/record-payload', async (importOriginal) => {
 })
 
 const NOW = new Date('2026-10-24T03:00:00Z')
+
+afterEach(() => {
+  gateOverride.error = null
+})
+
+describe('a non-RangeError from the store gate', () => {
+  it('propagates instead of being counted as one invalid record', async () => {
+    gateOverride.error = new Error('boom: not a per-record refusal')
+    const authentic = sourceFixture('arbeitnow', 'page-1') as Record<string, unknown>
+    const body = { ...authentic, links: { ...(authentic['links'] as object), next: null } }
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ status: 200, bodyText: JSON.stringify(body) }],
+    })
+    await expect(
+      arbeitnowProvider.collectReport(arbeitnowProvider.parseConfig({ configVersion: 1 }), f.ctx),
+    ).rejects.toThrow('boom: not a per-record refusal')
+  })
+})
 
 describe('a record the store gate refuses', () => {
   it('is counted invalid and skipped with a sample; the other six persist and the run succeeds', async () => {

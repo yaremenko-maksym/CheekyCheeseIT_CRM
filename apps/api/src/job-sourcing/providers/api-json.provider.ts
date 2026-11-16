@@ -1552,8 +1552,9 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
   }
 
   if (items.length > limits.maxItemsPerPage) {
-    // The provider ignored the page size we asked for. Treating it as drift rather than silently
-    // truncating keeps us from reporting a coverage we did not have.
+    // More items than the cap: drift (the provider ignored the page size we asked for) or a board
+    // over an unpaged source's cap. Treated as a failure rather than silently truncated, so we never
+    // report a coverage we did not have.
     return {
       ok: false,
       counts,
@@ -1608,8 +1609,11 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     try {
       validateObservation(result.observation)
     } catch (error) {
+      // Only the store's per-record display-limit refusal (a RangeError) is this item's fault. Any
+      // other throw is not a bad record, so it propagates instead of being skipped as invalid.
+      if (!(error instanceof RangeError)) throw error
       counts.invalid += 1
-      addSample(at.page, `OBSERVATION_INVALID: ${(error as Error).message}`, item)
+      addSample(at.page, `OBSERVATION_INVALID: ${error.message}`, item)
       continue
     }
 
