@@ -426,8 +426,12 @@ and `pnpm typecheck` are green. Final commit trailer: `ac_verified: 1.1,1.2,1.3,
 - Create: `apps/api/src/database/schema/job-role-classifications.ts`. Register it in
   `apps/api/src/database/schema.ts`.
 - Modify: `apps/api/src/database/privileges/privilege-classes.ts`
+- Regenerate (generated from `PRIVILEGE_CLASSES`, never hand-edited):
+  - `apps/api/drizzle/manual/2026-10-18_db_grants.sql`
+  - `apps/api/drizzle/manual/2026-10-18_db_privileges_check.sql`
 - Test: `apps/api/src/database/technical-roles-forward-ddl.integration.spec.ts`, plus the existing
-  `privilege-classes.spec.ts`
+  `privilege-classes.spec.ts` and `generate-privilege-sql.spec.ts`. The second fails while the
+  committed files differ from the generator output.
 
 **Interfaces:**
 
@@ -483,8 +487,12 @@ and `pnpm typecheck` are green. Final commit trailer: `ac_verified: 1.1,1.2,1.3,
       Expected: FAIL. Confirm the target first with `SELECT current_database()`, which must not
       return `crm_db`.
 - [ ] **Step 3: Implement** the SQL file, the Drizzle declarations and the privilege entries.
-- [ ] **Step 4: Run** the DDL spec and `pnpm --filter @crm/api test -- privilege-classes`. Expected:
-      PASS, and the privilege spec reports `job_role_classifications` as classified.
+- [ ] **Step 3b: Regenerate the privilege SQL.** Run `pnpm --filter @crm/api db:privileges:generate`
+      (`write-privilege-sql.ts`). It rewrites `2026-10-18_db_grants.sql` and
+      `2026-10-18_db_privileges_check.sql` in `apps/api/drizzle/manual/`. Check with `git diff --stat`
+      that both files changed and that the diff names `job_role_classifications`. Stage both by name.
+- [ ] **Step 4: Run** the DDL spec and `pnpm --filter @crm/api test -- generate-privilege-sql privilege-classes`.
+      Expected: PASS, and the privilege spec reports `job_role_classifications` as classified.
 - [ ] **Step 5: Commit** `feat(db): technical roles columns and role classification cache`.
 
 ### Task 2.2: Deploy wiring (DevOps zone; dispatch DevOps)
@@ -777,8 +785,8 @@ it('server.spec: /classify-roles requires the worker secret like /resume-write',
   - `runRoleAiPass(deps: { db: Database; client: RoleClassifierClient; log: Logger; now: () => Date; onDemandTypes: ... }): Promise<{ classified: number; unclear: number; failed: number; stoppedBy: string | null }>`
   - `JobRoleAiCronService.tick()`. It returns unless `JOB_ROLE_AI_ENABLED === true`, and it uses the
     same `running` overlap guard as `JobMatchReconciliationCronService`.
-- Candidate SQL: a candidate must meet every condition below. Order by `last_seen_at DESC`, or by the
-  column the queue already sorts on, and take at most `ROLE_AI_PASS_LIMIT`.
+- Candidate SQL: a candidate must meet every condition below. Order by `last_observed_at DESC`
+  (`job_opportunities.last_observed_at`), and take at most `ROLE_AI_PASS_LIMIT`.
   - `role_status = 'PENDING'`
   - `role_classifier_version = ROLE_CLASSIFIER_VERSION`
   - the opportunity is active (OPEN/UNKNOWN)
@@ -966,6 +974,12 @@ it('roster readiness issues still return RETRYABLE ROSTER_NOT_READY', ...)
   - It selects `u.technical_roles`.
   - It adds `LEFT JOIN senior_resumes r ON r.user_id = u.id` for `r.content -> 'skills'` and
     `r.facts -> 'experience'`.
+  - The `GROUP BY` becomes `GROUP BY u.id, r.id`. The query aggregates `team_ids` with
+    `array_agg`, and Postgres refuses `r.content` / `r.facts` under `GROUP BY u.id` alone: functional
+    dependency covers only the grouped table's primary key. `r.id` is the primary key of
+    `senior_resumes`, so it covers both columns. `senior_resumes.user_id` is `UNIQUE`
+    (`schema/resumes.ts`), so the join adds at most one row per senior. The team aggregation is not
+    multiplied, and a senior without a resume keeps one group with `r.id` NULL.
   - `skills` = `mergeSkills(content.skills, facts.experience[].technologies)` mapped through
     `canonicalSkill`, sorted and deduplicated. An empty list gives `null`.
   - It parses defensively, like `getSeniorStack`: a non-array is `[]`.
@@ -1001,8 +1015,15 @@ it('opportunityInputsVersion changes when role_status goes PENDING -> AI', ...)
   - `SeniorDirtyReason`: replace `'senior.stack'` with `'senior.roles'` and add `'senior.resume'`.
   - `markUserEditDirty` reads `technicalRoles` through `rolesChanged`.
   - Add `markSeniorResumeDirty(tx, userId)`, which calls `markSeniorDirty(tx, userId, 'senior.resume')`.
-- Modify `apps/api/src/users/users.service.ts`, at the `updateProfile` call that today marks
-  `senior.stack` when `stackChanged`. It now marks on a roles change.
+- Modify `apps/api/src/users/users.service.ts` `updateProfile`:
+  - Compute `rolesChanged` with `rolesChanged(data.technicalRoles, self.technicalRoles)` (Task 2.4)
+    when `'technicalRoles' in data`. Otherwise it is `false`. Today `self` (`findById`) is loaded
+    only inside the `'techStack' in data` branch. Load it once when either field is present.
+  - The guard that picks the plain `UPDATE` over the transaction becomes `!rolesChanged && !identity`
+    (today `!stackChanged && !identity`). Without this, a roles-only self-edit takes the plain
+    `UPDATE` and never marks the senior dirty.
+  - Inside the transaction, `if (rolesChanged) await markSeniorDirty(tx, id, 'senior.roles')`
+    replaces the `senior.stack` mark. `stackChanged` stays only for `assertSeniorTechFloor`.
 - Modify the resume write sites that change `content` or `facts`:
   - in `apps/api/src/resumes/resumes.service.ts`: `updateContent`, `runExtraction` (the `facts`
     write) and `deleteResume`
@@ -1018,6 +1039,8 @@ it('opportunityInputsVersion changes when role_status goes PENDING -> AI', ...)
 - [ ] **Step 1: Write the failing tests:**
   - `a real roles change marks senior.roles; an unchanged resubmit marks nothing`
   - `a techStack change no longer marks a SENIOR dirty`
+  - `a SENIOR self-edit of technicalRoles alone runs in a transaction and marks senior.roles dirty`
+    (`users.service.spec.ts`; the plain-UPDATE branch must not be taken)
   - `each listed resume write marks senior.resume in the same transaction` (one case per site)
   - `a render/status-only resume write marks nothing` (pick `markRenderStarted`)
 - [ ] **Step 2: Run** `pnpm --filter @crm/api test -- dirty-producers resume-dirty` with a scratch
@@ -1144,7 +1167,18 @@ it('HR of team A gets 403 / empty for team B queue as today', ...) // RBAC regre
   - holds the `running` flag, so a cron tick or a `requestDrain` during the boot sweep is skipped or
     deferred as today
 - The rows past the sweep's 2,000-row drain are recomputed by the post-run drains of the next
-  collection runs.
+  collection runs. No boot loop is needed, because those rows are fresh:
+  - `reconcileOnce` enqueues every stale opportunity in the one sweep (up to 500 pages × 200), not
+    only 2,000. Only the drain inside `handleReconciliation` is capped at 2,000.
+  - `enqueueDirty` inserts a new row. `job_dirty_work.retry_count` defaults to `0`
+    (`schema/job-collection.ts`). A retry after a FAILED/DEFERRED row is a new key
+    (`enqueueReason` returns `base:<period>`), so it is a new row with `retry_count = 0` too.
+  - The post-run drain claims with `freshOnly: true`, which is exactly `retry_count = 0`
+    (`dirty-work.store.ts`), with `untilIdle: true` under a 60 s budget per pass. So every
+    collection run drains the surplus.
+  - Only a row that failed an attempt during the drain (`retry_count > 0`) waits for the 6 h tick.
+    That is today's retry design, not a gap.
+  - A bounded boot loop would add code and a new log line for no gain.
 - Every deploy now costs one extra sweep. A sweep enqueues only stale rows, so a repeat sweep is cheap.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1180,7 +1214,7 @@ it('the boot sweep retires queue snapshots when it recomputed rows', ...)
 ```sql
 SELECT count(*) FROM job_opportunities WHERE manual_team_id IS NULL;   -- rows to recompute
 SELECT evaluation_verdict, count(*) FROM job_opportunities GROUP BY 1;
-SELECT count(*) FROM job_opportunity_matches WHERE status = 'LEAD';
+SELECT count(*) FROM job_opportunity_matches WHERE outcome = 'LEAD';
 ```
 
 Expected: the `LEAD` count is > 0 once the first drains finish, and each senior's queue is non-empty
