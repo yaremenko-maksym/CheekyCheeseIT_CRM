@@ -80,7 +80,7 @@ SELECT $manifest${"sources":[
   {"manifest_id":"djinni.rss.rust","type":"DJINNI_RSS","config":{"primaryKeyword":"Rust"},"namespace":"","manifest_version":1,"policy_version":1,"config_version":1,"min_interval_hours":24,"budget_limit":null,"budget_window":null,"readiness":"CANDIDATE","readiness_reason":null,"legacy":false},
   {"manifest_id":"wwr.rss.all-jobs","type":"WWR_RSS","config":{},"namespace":"","manifest_version":1,"policy_version":1,"config_version":1,"min_interval_hours":24,"budget_limit":null,"budget_window":null,"readiness":"CANDIDATE","readiness_reason":null,"legacy":false},
   {"manifest_id":"wwr.rss.devops","type":"WWR_RSS","config":{"category":"remote-devops-sysadmin-jobs"},"namespace":"","manifest_version":1,"policy_version":1,"config_version":1,"min_interval_hours":24,"budget_limit":null,"budget_window":null,"readiness":"CANDIDATE","readiness_reason":null,"legacy":false},
-  {"manifest_id":"euremotejobs.rss.feed","type":"EUREMOTEJOBS_RSS","config":{},"namespace":"","manifest_version":1,"policy_version":1,"config_version":1,"min_interval_hours":24,"budget_limit":null,"budget_window":null,"readiness":"CANDIDATE","readiness_reason":null,"legacy":true}
+  {"manifest_id":"euremotejobs.rss.feed","type":"EUREMOTEJOBS_RSS","config":{},"namespace":"","manifest_version":1,"policy_version":1,"config_version":1,"min_interval_hours":24,"budget_limit":null,"budget_window":null,"readiness":"BLOCKED","readiness_reason":"PERMISSION_PROHIBITED: a fixture records permission PROHIBITED","legacy":true}
 ],"typeBlocks":[
   {"type":"WORKINGNOMADS_API","reason":"STATUS_CONSTANT_BLOCKED: blocked: no documented permission - the terms say nothing either way on automated access"},
   {"type":"SMARTRECRUITERS_ATS","reason":"NO_API_CAPTURE: none of postings-list.json is a real capture of the API payload"},
@@ -88,7 +88,8 @@ SELECT $manifest${"sources":[
   {"type":"JSEARCH_API","reason":"KEY_REQUIRED: a fixture records permission KEY_REQUIRED; NO_CAPTURE: every fixture is a hand-written unit example; STATUS_CONSTANT_BLOCKED: no RapidAPI key is provisioned and none may be before the owner runs a controlled authenticated smoke; payload shapes and the num_pages billing rule are not verified against a response"},
   {"type":"THEIRSTACK_API","reason":"KEY_REQUIRED: a fixture records permission KEY_REQUIRED; NO_CAPTURE: every fixture is a hand-written unit example; STATUS_CONSTANT_BLOCKED: no API key is provisioned and none may be before the owner runs a controlled authenticated smoke; payload shapes are from the published API reference, not from a response"},
   {"type":"MUSE_API","reason":"STATUS_CONSTANT_BLOCKED: terms section 2.2 requires a registered app and section 3.1 licenses display only; no app is registered and storing postings is not addressed; owner decision required"},
-  {"type":"REED_API","reason":"KEY_REQUIRED: a fixture records permission KEY_REQUIRED; NO_CAPTURE: every fixture is a hand-written unit example; STATUS_CONSTANT_BLOCKED: no API key is provisioned and none may be before the owner runs a controlled authenticated smoke; response field names and the date format are not verified against a response, and Reed terms/eligibility were not found"}
+  {"type":"REED_API","reason":"KEY_REQUIRED: a fixture records permission KEY_REQUIRED; NO_CAPTURE: every fixture is a hand-written unit example; STATUS_CONSTANT_BLOCKED: no API key is provisioned and none may be before the owner runs a controlled authenticated smoke; response field names and the date format are not verified against a response, and Reed terms/eligibility were not found"},
+  {"type":"EUREMOTEJOBS_RSS","reason":"PERMISSION_PROHIBITED: a fixture records permission PROHIBITED"}
 ]}$manifest$::jsonb AS doc;
 
 CREATE TEMP TABLE _jsm_sources AS

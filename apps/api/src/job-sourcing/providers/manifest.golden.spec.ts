@@ -71,7 +71,7 @@ const TYPES: TypeRow[] = [
   ['MUSE_API', 'The Muse', 'NONE', 'LINK_BACK_REQUIRED', 'public-jobs', 'CATEGORY', 5],
   ['REED_API', 'Reed', 'API_KEY', 'NONE_RECORDED', 'jobseeker-search', 'SEARCH', 1],
   ['DJINNI_RSS', 'Djinni', 'NONE', 'NONE_RECORDED', 'rss-primary-keyword', 'FEED_WINDOW', 1],
-  ['WWR_RSS', 'We Work Remotely', 'NONE', 'NONE_RECORDED', 'rss', 'FEED_WINDOW', 1],
+  ['WWR_RSS', 'We Work Remotely', 'NONE', 'LINK_BACK_REQUIRED', 'rss', 'FEED_WINDOW', 1],
   [
     'EUREMOTEJOBS_RSS',
     'EU Remote Jobs',

@@ -221,6 +221,7 @@ describe('the generated seed delta', () => {
       'THEIRSTACK_API',
       'MUSE_API',
       'REED_API',
+      'EUREMOTEJOBS_RSS',
     ])
   })
 })

@@ -119,7 +119,7 @@ export const ASHBY_OWNER_DECISION: OwnerDecision = Object.freeze({
   decidedAt: '2026-11-16',
   decision: 'ACCEPT_RISK',
   endpointVariant: 'posting-api',
-  scope: `Exactly the public Ashby posting API (api.ashbyhq.com/posting-api/job-board/{board}?includeCompensation=true), whose robots.txt answers 401 and states no verdict; the vendor publishes no limit, so the manifest budget (2 a minute, 120 an hour per host) stays binding. ${NO_EVASION}`,
+  scope: `Exactly the public Ashby posting API (api.ashbyhq.com/posting-api/job-board/{board}?includeCompensation=true), whose robots.txt answers 401 and states no verdict; the vendor publishes no limit, so the manifest budget (2 a minute, 120 an hour per host) stays binding. Residual risk knowingly accepted, NOT resolved: Ashby documents the API as the board owner's own tool ("If you host your own careers page, you can use this data to populate it") and offers third parties a separate dedicated partner feed. ${NO_EVASION}`,
   reference: ALL_SOURCES_REFERENCE,
 })
 
@@ -127,23 +127,7 @@ export const DJINNI_OWNER_DECISION: OwnerDecision = Object.freeze({
   decidedAt: '2026-11-16',
   decision: 'ACCEPT_RISK',
   endpointVariant: 'rss-primary-keyword',
-  scope: `Exactly djinni.co/jobs/rss/?primary_keyword= (the RSS feed the public /jobs/ page links, not disallowed by robots.txt), with the binding Terms of Use never located; the manifest fetch profile stays binding and no other djinni.co path is requested. ${NO_EVASION}`,
-  reference: ALL_SOURCES_REFERENCE,
-})
-
-export const WWR_OWNER_DECISION: OwnerDecision = Object.freeze({
-  decidedAt: '2026-11-16',
-  decision: 'ACCEPT_RISK',
-  endpointVariant: 'rss',
-  scope: `Exactly weworkremotely.com/remote-jobs.rss and weworkremotely.com/categories/{category}.rss; the manifest fetch profile stays binding and no other weworkremotely.com path is requested. ${NO_EVASION}`,
-  reference: ALL_SOURCES_REFERENCE,
-})
-
-export const EUREMOTEJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
-  decidedAt: '2026-11-16',
-  decision: 'ACCEPT_RISK',
-  endpointVariant: 'wp-job-manager-feed',
-  scope: `Exactly euremotejobs.com/jobs/feed/, the URL the adapter requests (recorded as a WordPress comments feed, not a job feed); the documented /?feed=job_feed answered 401 and is not requested or worked around. The manifest fetch profile stays binding. ${NO_EVASION}`,
+  scope: `Exactly djinni.co/jobs/rss/?primary_keyword= (the RSS feed the public /jobs/ page links, not disallowed by robots.txt), the Terms of Use (djinni.co/terms-of-use, the employer terms at djinni.co/pricing.html) say nothing on automated access, RSS or copying vacancies and carry no date, so the version in force cannot be pinned; that gap is knowingly accepted as risk, NOT resolved. The manifest fetch profile stays binding and no other djinni.co path is requested. ${NO_EVASION}`,
   reference: ALL_SOURCES_REFERENCE,
 })
 
