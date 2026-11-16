@@ -29,7 +29,7 @@ const flags = (text: string, displayName = 'Ivan Petrenko', telegram?: string) =
     { displayName, telegram, now: new Date('2026-11-10T00:00:00Z') },
   ).some((issue) => issue.code === 'CONTACT_IN_TEXT')
 
-const INVISIBLES = ['​', '⁠', '﻿', '­', '⠀']
+const INVISIBLES = ['\u200B', '\u2060', '\uFEFF', '\u00AD', '\u2800']
 
 describe('a stripped invisible is a token boundary (SR-H-1)', () => {
   it.each(INVISIBLES.map((c) => [c.codePointAt(0)?.toString(16), c]))(
@@ -40,21 +40,21 @@ describe('a stripped invisible is a token boundary (SR-H-1)', () => {
   )
 
   it('flags the name after a digit and an invisible: 1\\u200BIvan Petrenko', () => {
-    expect(flags('1​Ivan Petrenko')).toBe(true)
+    expect(flags('1\u200BIvan Petrenko')).toBe(true)
   })
 
   it('flags the full name after a letter and an invisible', () => {
-    expect(flags('x​Ivan Petrenko')).toBe(true)
+    expect(flags('x\u200BIvan Petrenko')).toBe(true)
   })
 
   it('flags the stored handle glued to the next word: @ivan_dev\\u200Bsenior', () => {
-    expect(flags('ping @ivan_dev​senior', 'Mark Levin', '@ivan_dev')).toBe(true)
-    expect(flags('ping ivan_dev​', 'Mark Levin', '@ivan_dev')).toBe(true)
+    expect(flags('ping @ivan_dev\u200Bsenior', 'Mark Levin', '@ivan_dev')).toBe(true)
+    expect(flags('ping ivan_dev\u200B', 'Mark Levin', '@ivan_dev')).toBe(true)
   })
 
   it('still matches a name with an invisible inside it: Iv\\u200Can', () => {
-    expect(flags('by Iv‌an Petrenko')).toBe(true)
-    expect(flags('by Iv‌an Petrenko​Senior')).toBe(true)
+    expect(flags('by Iv\u200Can Petrenko')).toBe(true)
+    expect(flags('by Iv\u200Can Petrenko\u200BSenior')).toBe(true)
   })
 
   it('without an invisible the glued name is not a token', () => {
@@ -70,15 +70,21 @@ describe('a stripped invisible is a token boundary (SR-H-1)', () => {
 
 describe('normaliseContactText gaps', () => {
   it('records a gap where stripped characters sat between clusters, once per run', () => {
-    expect([...normaliseContactText('ab​⁠cd​').gaps]).toEqual([2])
+    expect([...normaliseContactText('ab\u200B\u2060cd\u200B').gaps]).toEqual([2])
     expect([...normaliseContactText('abcd').gaps]).toEqual([])
   })
 
   it('records no gap inside a composed character', () => {
-    // e, ZWJ, acute compose into one letter, with a gap after it (round 4, SR-H-2); ᄀ, ZWSP, ᅡ
+    // e, ZWJ, acute compose into one letter, with a gap after it (round 4, SR-H-2); \u1100, ZWSP, \u1161
     // into one syllable
-    expect(normaliseContactText('xe‍́y')).toMatchObject({ text: 'xéy', gaps: new Set([2]) })
-    expect(normaliseContactText('ᄀ​ᅡ')).toMatchObject({ text: '가', gaps: new Set() })
+    expect(normaliseContactText('xe\u200D\u0301y')).toMatchObject({
+      text: 'xéy',
+      gaps: new Set([2]),
+    })
+    expect(normaliseContactText('\u1100\u200B\u1161')).toMatchObject({
+      text: '가',
+      gaps: new Set(),
+    })
   })
 
   it('a gap after a syllable composed across an earlier invisible still counts', () => {
@@ -87,15 +93,15 @@ describe('normaliseContactText gaps', () => {
   })
 
   it('a jamo run does not reach over a visible character', () => {
-    expect(normaliseContactText('ᄀxᅡ')).toMatchObject({
-      text: 'ᄀxᅡ',
+    expect(normaliseContactText('\u1100x\u1161')).toMatchObject({
+      text: '\u1100x\u1161',
       from: [0, 1, 2],
       to: [1, 2, 3],
     })
   })
 
   it('records a gap between two syllables of one jamo run', () => {
-    expect(normaliseContactText('가​나')).toMatchObject({
+    expect(normaliseContactText('\u1100\u1161\u200B\u1102\u1161')).toMatchObject({
       text: '가나',
       gaps: new Set([1]),
     })
@@ -175,7 +181,7 @@ describe('findWholeTokens', () => {
 describe('one boundary with the API redaction (SR-M-1)', () => {
   // `김민준`, acute, `7` is flagged too since round 5 (SR-H-3): the redaction misses it, and the
   // check main had reads the mark as an edge, so Submit refuses it, as on main.
-  it.each(['+김민준', '김민준#', '김민준́7', 'Ivan Petrenko#', '#Petrenko Ivan'])(
+  it.each(['+김민준', '김민준#', '김민준\u03017', 'Ivan Petrenko#', '#Petrenko Ivan'])(
     'flags %j',
     (text) => {
       const name = text.includes('김') ? '김민준' : 'Ivan Petrenko'
@@ -216,12 +222,12 @@ describe('a single-token name (CR-M-1)', () => {
 
 describe('an invisible inside a jamo run (CR-L-2)', () => {
   it('a name written as jamo with an invisible between them is still found', () => {
-    expect(flags('by ᄀ‍ᅡ나 today', '가나')).toBe(true)
-    expect(flags('by 가​나 today', '가나')).toBe(true)
+    expect(flags('by \u1100\u200D\u1161\u1102\u1161 today', '가나')).toBe(true)
+    expect(flags('by \u1100\u1161\u200B\u1102\u1161 today', '가나')).toBe(true)
   })
 
   it('a gap between two jamo syllables is a boundary, one inside a syllable is not', () => {
-    expect(flags('가​나다', '나다')).toBe(true)
-    expect(flags('ᄀ​ᅡ나다', '나다')).toBe(false)
+    expect(flags('\u1100\u1161\u200B\u1102\u1161\u1103\u1161', '나다')).toBe(true)
+    expect(flags('\u1100\u200B\u1161\u1102\u1161\u1103\u1161', '나다')).toBe(false)
   })
 })

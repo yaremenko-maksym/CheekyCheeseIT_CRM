@@ -56,7 +56,7 @@ describe('a compatibility character is an edge on both sides (SR-H-4)', () => {
     ['Petrenko™x', 'PetrenkoTMx', [8, 10]],
     ['a²b', 'a2b', [1, 2]],
     ['ﬁx', 'fix', [0, 2]],
-    ['a​b', 'ab', [1]],
+    ['a\u200Bb', 'ab', [1]],
   ] as const)('normalises %j to %j with gaps %j', (text, normalised, gaps) => {
     const result = normaliseContactText(text)
     expect(result.text).toBe(normalised)
@@ -73,8 +73,8 @@ describe('main check keeps its apostrophe fold', () => {
 
 describe('a bare mark is an edge (SR-M-4)', () => {
   it('flags a name glued to a bare mark, behind a zero-width space', () => {
-    expect(flags('Ivan​Petrenkoःx')).toBe(true)
-    expect(flags('Ivan Petrenkoःx')).toBe(true)
+    expect(flags('Ivan\u200BPetrenko\u0903x')).toBe(true)
+    expect(flags('Ivan Petrenko\u0903x')).toBe(true)
   })
 
   it('a precomposed accent stays part of the word', () => {
@@ -88,11 +88,11 @@ describe('readings (CR-M-5)', () => {
   })
 
   it('a name with an invisible has the joined and the split reading', () => {
-    expect(contactNameParts('Ivan Petr‌in')).toEqual([
+    expect(contactNameParts('Ivan Petr\u200Cin')).toEqual([
       ['Ivan', 'Petrin'],
       ['Ivan', 'Petr', 'in'],
     ])
-    expect(contactNameParts('Wei​Li')).toEqual([['WeiLi'], ['Wei', 'Li']])
+    expect(contactNameParts('Wei\u200BLi')).toEqual([['WeiLi'], ['Wei', 'Li']])
   })
 })
 describe('split helpers (round 7)', () => {
@@ -137,27 +137,27 @@ describe('split helpers (round 7)', () => {
 
 describe('completeness ignores the split reading of a joined reading of two or more parts (round 7)', () => {
   it('stored Ivan Petr, ZWNJ, in: the fragment never flags (CR-M-3)', () => {
-    const stored = 'Ivan Petr‌in'
+    const stored = 'Ivan Petr\u200Cin'
     expect(flags('Ivan in Kyiv since 2020', stored)).toBe(false)
     expect(flags('Ivan Petr', stored)).toBe(false)
     expect(flags('Ivan Petrin', stored)).toBe(true)
   })
 
   it('stored Ivan Peter, ZWNJ, son: the fragment never flags (CR-M-7)', () => {
-    const stored = 'Ivan Peter‌son'
+    const stored = 'Ivan Peter\u200Cson'
     expect(flags('Ivan son is here', stored)).toBe(false)
     expect(flags('his son Ivan', stored)).toBe(false)
     expect(flags('Ivan Peterson', stored)).toBe(true)
   })
 
   it('stored Ivan Petren, ZWNJ, ko: the fragment never flags', () => {
-    const stored = 'Ivan Petren‌ko'
+    const stored = 'Ivan Petren\u200Cko'
     expect(flags('Ivan ko', stored)).toBe(false)
     expect(flags('Ivan Petrenko', stored)).toBe(true)
   })
 
   it('stored Ivan Petrenko, ZWSP, Kovalenko: only the joined orders flag; the API redacts the rest', () => {
-    const stored = 'Ivan Petrenko​Kovalenko'
+    const stored = 'Ivan Petrenko\u200BKovalenko'
     expect(flags('Ivan PetrenkoKovalenko', stored)).toBe(true)
     expect(flags('PetrenkoKovalenko Ivan', stored)).toBe(true)
     expect(flags('Ivan Kovalenko', stored)).toBe(false)
@@ -166,13 +166,13 @@ describe('completeness ignores the split reading of a joined reading of two or m
   })
 
   it('stored Li Petrenko, ZWSP, Kovalenko: only the joined orders flag', () => {
-    const stored = 'Li Petrenko​Kovalenko'
+    const stored = 'Li Petrenko\u200BKovalenko'
     expect(flags('Li PetrenkoKovalenko', stored)).toBe(true)
     expect(flags('Li Kovalenko', stored)).toBe(false)
   })
 
   it('stored Ivan, ZWSP, Olegovych Petrenko: only the joined reading flags', () => {
-    const stored = 'Ivan​Olegovych Petrenko'
+    const stored = 'Ivan\u200BOlegovych Petrenko'
     expect(flags('IvanOlegovych Petrenko', stored)).toBe(true)
     expect(flags('Ivan Petrenko', stored)).toBe(false)
     expect(flags('Ivan Olegovych Petrenko', stored)).toBe(false)
@@ -181,16 +181,16 @@ describe('completeness ignores the split reading of a joined reading of two or m
 
 describe('completeness takes the split reading of a joined reading of one part (round 7)', () => {
   it('stored Wei, ZWSP, Li: both orders are flagged', () => {
-    expect(flags('Wei Li', 'Wei​Li')).toBe(true)
-    expect(flags('Li Wei', 'Wei​Li')).toBe(true)
+    expect(flags('Wei Li', 'Wei\u200BLi')).toBe(true)
+    expect(flags('Li Wei', 'Wei\u200BLi')).toBe(true)
     // one token of Latin letters is a single word, never flagged alone (as on main); the API redacts it
-    expect(flags('WeiLi', 'Wei​Li')).toBe(false)
+    expect(flags('WeiLi', 'Wei\u200BLi')).toBe(false)
     // a lone part is not flagged, as a lone surname is not on main; the API redacts it
-    expect(flags('by Li today', 'Wei​Li')).toBe(false)
+    expect(flags('by Li today', 'Wei\u200BLi')).toBe(false)
   })
 
   it('stored Iv, ZWSP, an: a pair of short parts still flags both orders', () => {
-    expect(flags('Iv an', 'Iv​an')).toBe(true)
-    expect(flags('an Iv', 'Iv​an')).toBe(true)
+    expect(flags('Iv an', 'Iv\u200Ban')).toBe(true)
+    expect(flags('an Iv', 'Iv\u200Ban')).toBe(true)
   })
 })

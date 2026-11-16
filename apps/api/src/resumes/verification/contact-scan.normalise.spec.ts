@@ -60,7 +60,7 @@ describe('redactContacts and scanContacts — year lists (Task 445 AC 3)', () =>
 })
 
 /** A name, written the same odd way in the context and in the text (PR #1351 fix round 1, finding 1). */
-const ODD_NAMES = ['Ana Griﬃn', 'Ana Mar‌ia', 'Ａｎａ Ｇｒｉｆｆｉｎ', '가나']
+const ODD_NAMES = ['Ana Griﬃn', 'Ana Mar\u200Cia', 'Ａｎａ Ｇｒｉｆｆｉｎ', '가나']
 
 describe('context values are normalised like the text (PR #1351 finding 1)', () => {
   it.each(ODD_NAMES)('redacts the full name %j written the same way in the text', (fullName) => {
@@ -105,7 +105,7 @@ describe('context values are normalised like the text (PR #1351 finding 1)', () 
 })
 
 /** Invisible characters outside `\p{Cf}`: variation selectors, CGJ, Mongolian FVS, Hangul fillers (finding 2). */
-const IGNORABLES = ['︀', '️', '͏', '᠋', '᠌', '᠍', 'ㅤ', 'ﾠ']
+const IGNORABLES = ['\uFE00', '\uFE0F', '\u034F', '\u180B', '\u180C', '\u180D', '\u3164', '\uFFA0']
 
 describe('default-ignorable characters do not split a contact (PR #1351 finding 2)', () => {
   it.each(IGNORABLES.map((c) => [c.codePointAt(0)?.toString(16), c]))(
@@ -125,7 +125,7 @@ describe('default-ignorable characters do not split a contact (PR #1351 finding 
 
 describe('redactContacts output is always NFC (PR #1351 finding 3)', () => {
   it('composes a decomposed letter outside a redacted phone', () => {
-    expect(redactContacts('Café call 0671234567', ctx)).toBe('Café call [REDACTED]')
+    expect(redactContacts('Cafe\u0301 call 0671234567', ctx)).toBe('Café call [REDACTED]')
   })
 })
 
@@ -152,12 +152,12 @@ describe('flagged implies redacted, redaction is final and idempotent (PR #1351)
     ...IGNORABLES.map((c) => `call 067${c}123${c}4567`),
     'call 067\u28001234567',
     'by \u1100\u1161\u1102\u1161',
-    'j​ohn@x.com',
+    'j\u200Bohn@x.com',
     'ｊｏｈｎ＠ｘ．ｃｏｍ',
-    'see github.com​/repo',
+    'see github.com\u200B/repo',
     'ping ｍａｒｋ＿ｄｅｖ',
     'tg: @mark_dev',
-    'Café call 0671234567',
+    'Cafe\u0301 call 0671234567',
     'Марк Levin, +380 67 123 45 67',
     'Ana Griffin ｇｉｔｈｕｂ．ｃｏｍ／ana',
     '2019 · 2020 · 2021',
@@ -179,7 +179,7 @@ describe('flagged implies redacted, redaction is final and idempotent (PR #1351)
 describe('a stripped invisible is a token boundary (PR #1351 round 3, SR-H-1)', () => {
   const ivan = { fullName: 'Ivan Petrenko', emails: [], telegram: '@ivan_dev' }
 
-  it.each(['​', '⁠', '﻿', '­', '⠀'].map((c) => [c.codePointAt(0), c]))(
+  it.each(['\u200B', '\u2060', '\uFEFF', '\u00AD', '\u2800'].map((c) => [c.codePointAt(0), c]))(
     'redacts the name glued to the next word by code point %i',
     (_code, c) => {
       expect(redactContacts(`Ivan Petrenko${c}Senior`, ivan)).toBe(`[REDACTED]${c}Senior`)
@@ -187,11 +187,11 @@ describe('a stripped invisible is a token boundary (PR #1351 round 3, SR-H-1)', 
   )
 
   it.each([
-    ['1​Petrenko', '1​[REDACTED]'],
-    ['0671234567​Ivan Petrenko', '[REDACTED]​[REDACTED]'],
-    ['@ivan_dev​senior', '[REDACTED]​senior'],
-    ['by Iv‌an Petrenko', 'by [REDACTED]'],
-    ['by Iv‌an Petrenko​Senior', 'by [REDACTED]​Senior'],
+    ['1\u200BPetrenko', '1\u200B[REDACTED]'],
+    ['0671234567\u200BIvan Petrenko', '[REDACTED]\u200B[REDACTED]'],
+    ['@ivan_dev\u200Bsenior', '[REDACTED]\u200Bsenior'],
+    ['by Iv\u200Can Petrenko', 'by [REDACTED]'],
+    ['by Iv\u200Can Petrenko\u200BSenior', 'by [REDACTED]\u200BSenior'],
     ['Ivan PetrenkoSenior', 'Ivan PetrenkoSenior'],
   ])('redacts %j as %j', (text, redacted) => {
     expect(redactContacts(text, ivan)).toBe(redacted)
@@ -199,7 +199,9 @@ describe('a stripped invisible is a token boundary (PR #1351 round 3, SR-H-1)', 
 
   it('redacts a jamo-written name with an invisible inside the run (CR-L-2)', () => {
     const gana = { fullName: '가나', emails: [] }
-    expect(redactContacts('by 가‍나 today', gana)).toBe('by [REDACTED] today')
+    expect(redactContacts('by \u1100\u1161\u200D\u1102\u1161 today', gana)).toBe(
+      'by [REDACTED] today',
+    )
   })
 })
 
@@ -227,9 +229,9 @@ describe('completeness flags exactly the names the API redacts, a bare mark incl
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
   // No `@` or `.`, and too few digits for a phone: only the name can flag or redact.
-  const ATOMS = ['a', 'Z', '가', '7', '#', '+', ' ', '-', ',', '́', 'ः', '\\n']
-  const INVISIBLES = ['​', '⁠', '﻿', '­', '⠀', '‌']
-  const INSIDE = ['', '', '‌', '​', '⠀']
+  const ATOMS = ['a', 'Z', '가', '7', '#', '+', ' ', '-', ',', '\u0301', '\u0903', '\\n']
+  const INVISIBLES = ['\u200B', '\u2060', '\uFEFF', '\u00AD', '\u2800', '\u200C']
+  const INSIDE = ['', '', '\u200C', '\u200B', '\u2800']
 
   it.each([
     ['김민준', 1],
@@ -245,7 +247,7 @@ describe('completeness flags exactly the names the API redacts, a bare mark incl
     const parts = fullName.split(' ')
     // an invisible as the only gap between the parts gives the SR-M-4 shape with a bare-mark atom
     // after it (`Ivan`, ZWSP, `Petrenko`, U+0903, `x`), round 7 SPEC-L-2
-    const BETWEEN = [' ', ' ', '​', '⁠']
+    const BETWEEN = [' ', ' ', '\u200B', '\u2060']
     const firstToken = parts[0] ?? ''
     let flaggedCount = 0
     let shapeCount = 0
@@ -260,7 +262,7 @@ describe('completeness flags exactly the names the API redacts, a bare mark incl
         .join(gap)
       const after = atoms()
       const text = `${atoms()}${rendered}${after}`
-      if (gap !== ' ' && after.startsWith('ः')) shapeCount++
+      if (gap !== ' ' && after.startsWith('\u0903')) shapeCount++
       const flags = flagged(text, fullName)
       const redacted = redactContacts(text, { fullName, emails: [] })
       if (flags) flaggedCount++

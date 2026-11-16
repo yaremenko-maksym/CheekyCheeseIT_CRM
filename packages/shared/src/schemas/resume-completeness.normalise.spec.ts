@@ -136,7 +136,7 @@ const issuesFor = (note: string, displayName: string, telegram?: string) =>
 const FLAGGED = [{ path: 'experience.0.notes.0', code: 'CONTACT_IN_TEXT' }]
 
 describe('checkResumeCompleteness — context values normalised like the text (PR #1351 finding 1)', () => {
-  it.each(['Ana Griﬃn', 'Ana Mar‌ia', 'Ａｎａ Ｇｒｉｆｆｉｎ'])(
+  it.each(['Ana Griﬃn', 'Ana Mar\u200Cia', 'Ａｎａ Ｇｒｉｆｆｉｎ'])(
     'flags the full name %j written the same way in the text',
     (name) => {
       expect(issuesFor(`written by ${name} today`, name)).toEqual(FLAGGED)
@@ -149,7 +149,7 @@ describe('checkResumeCompleteness — context values normalised like the text (P
 })
 
 describe('normaliseContactText — default-ignorable characters (PR #1351 finding 2)', () => {
-  it.each(['︀', '️', '͏', '᠋', '᠌', '᠍', 'ㅤ', 'ﾠ'])(
+  it.each(['\uFE00', '\uFE0F', '\u034F', '\u180B', '\u180C', '\u180D', '\u3164', '\uFFA0'])(
     'strips %j inside a phone, which is then flagged',
     (c) => {
       const input = `067${c}123${c}4567`
@@ -161,25 +161,25 @@ describe('normaliseContactText — default-ignorable characters (PR #1351 findin
   )
 
   it('lets a base letter compose with a mark across a stripped CGJ, mapped to the whole cluster', () => {
-    const res = normaliseContactText('xe͏́y')
+    const res = normaliseContactText('xe\u034F\u0301y')
     expect(res.text).toBe('xéy')
     expect(res.from).toEqual([0, 1, 4])
     expect(res.to).toEqual([1, 4, 5])
   })
 
   it('leaves no orphan cluster for a stripped variation selector', () => {
-    const res = normaliseContactText('1️2')
+    const res = normaliseContactText('1\uFE0F2')
     expect(res.text).toBe('12')
     expect(res.from).toEqual([0, 2])
     expect(res.to).toEqual([2, 3])
   })
 
   it('still strips a format character that is not default-ignorable (U+0600)', () => {
-    expect(normaliseContactText('a؀b').text).toBe('ab')
+    expect(normaliseContactText('a\u0600b').text).toBe('ab')
   })
 
   it('maps nothing to invisible characters at the edges', () => {
-    const res = normaliseContactText('​ab​')
+    const res = normaliseContactText('\u200Bab\u200B')
     expect(res.text).toBe('ab')
     expect(res.from).toEqual([1, 2])
     expect(res.to).toEqual([2, 3])

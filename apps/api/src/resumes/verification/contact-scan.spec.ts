@@ -635,7 +635,7 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
   it('notes of one cluster full of invisibles are redacted in time linear in their length (PR #1351 round 4, CR-M-2)', () => {
     // A letter followed by (ZWSP, acute) pairs and a jamo run with a ZWSP between its jamo are
     // one cluster each, however long: re-normalising the cluster per invisible is quadratic.
-    const shapes = ['​́', 'ᄀ​ᅡ']
+    const shapes = ['\u200B\u0301', '\u1100\u200B\u1161']
     const run = (count: number, length: number): number => {
       const notes = shapes.map((shape) =>
         `q${shape.repeat(Math.ceil(length / shape.length))}`.slice(0, length),
@@ -751,7 +751,7 @@ describe('fix round 7: separators, marks, atext, ports, label words', () => {
   it.each([
     ['john@परीक्षा.भारत', 'email'],
     ['ผู้ใช้@ตัวอย่าง.ไทย', 'email'],
-    ['x́y@x.com', 'email'],
+    ['x\u0301y@x.com', 'email'],
     ['उदाहरण.भारत/x', 'url'],
     ['john&doe@x.com', 'email'],
     ["o'brien@x.com", 'email'],
@@ -799,7 +799,7 @@ describe('redactContacts agrees with the completeness contact check on NFD text 
   }
   const now = new Date('2026-11-10T00:00:00Z')
 
-  it.each(['x@y.é', 'see a.é/x now', 'Aétg: mark_dev'])(
+  it.each(['x@y.e\u0301', 'see a.e\u0301/x now', 'Ae\u0301tg: mark_dev'])(
     '%j is flagged and redacted, or neither',
     (text) => {
       const flagged = checkResumeCompleteness(

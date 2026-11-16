@@ -9,16 +9,16 @@ describe('a Cyrillic stress mark is folded off (CR-H-1)', () => {
   const ivan: ContactContext = { fullName: 'Иван Петренко', emails: [] }
 
   it.each([
-    ['Senior Ива́н Петре́нко here', 'Senior [REDACTED] here'],
-    ['Senior Петре́нко here', 'Senior [REDACTED] here'],
-    ['Senior Петренко́ here', 'Senior [REDACTED] here'],
+    ['Senior Ива\u0301н Петре\u0301нко here', 'Senior [REDACTED] here'],
+    ['Senior Петре\u0301нко here', 'Senior [REDACTED] here'],
+    ['Senior Петренко\u0301 here', 'Senior [REDACTED] here'],
   ])('redacts %j as %j', (text, redacted) => {
     expect(redactContacts(text, ivan)).toBe(redacted)
   })
 })
 
 describe('a stored name split only by an invisible (finding 3)', () => {
-  it.each(['​', '⁠', '﻿', '­'])(
+  it.each(['\u200B', '\u2060', '\uFEFF', '\u00AD'])(
     'redacts the name written with a space when it is stored with %j between the parts',
     (c) => {
       const stored: ContactContext = { fullName: `Ivan${c}Petrenko`, emails: [] }
@@ -31,7 +31,7 @@ describe('a stored name split only by an invisible (finding 3)', () => {
   )
 
   it('an invisible inside a stored part still matches the part written whole', () => {
-    const stored: ContactContext = { fullName: 'Iv‌an Petrenko', emails: [] }
+    const stored: ContactContext = { fullName: 'Iv\u200Can Petrenko', emails: [] }
     expect(redactContacts('by Ivan Petrenko today', stored)).toBe('by [REDACTED] today')
     // round 7: the split reading is redacted whole, fail-closed, so its fragments pair too
     expect(redactContacts('by Iv an today', stored)).toBe('by [REDACTED] today')

@@ -27,47 +27,47 @@ describe('a Cyrillic stress mark is folded off (CR-H-1)', () => {
   // `е` + U+0301 has no precomposed form, so NFKC keeps the mark and only the fold drops it. The
   // texts hold none of `p`, `{`, `M`, `}`: the class read without its `u` flag would match those.
   it('foldAccents drops it', () => {
-    expect(foldAccents('Петре́нко').text).toBe('Петренко')
-    expect(foldAccents('Ива́н').text).toBe('Иван')
+    expect(foldAccents('Петре\u0301нко').text).toBe('Петренко')
+    expect(foldAccents('Ива\u0301н').text).toBe('Иван')
   })
 
   it('a name written with stress marks is flagged', () => {
-    expect(flags('Senior Ива́н Петре́нко here', 'Иван Петренко')).toBe(true)
-    expect(flags('Senior Иван Петре́нко here', 'Иван Петренко')).toBe(true)
+    expect(flags('Senior Ива\u0301н Петре\u0301нко here', 'Иван Петренко')).toBe(true)
+    expect(flags('Senior Иван Петре\u0301нко here', 'Иван Петренко')).toBe(true)
   })
 })
 
 describe('a bare mark at a name edge is flagged, as on main (SR-H-3)', () => {
   it.each([
-    ['Ivan Petrenkoःx', 'Ivan Petrenko'],
-    ['ivan PETRENKOःx', 'Ivan Petrenko'],
-    ['Senior̈Ivan Petrenko', 'Ivan Petrenko'],
-    ['Ivan ﻿Petrenkoःé/', 'Ivan Petrenko'],
-    ['Petrenko Ivanःx', 'Ivan Petrenko'],
-    ['Ivan Olegovych Petrenkoःx', 'Ivan Olegovych Petrenko'],
-    ['Ivan Petrenkoःx', 'Ivan Olegovych Petrenko'],
-    ['김 민준́7', '김 민준'],
-    ['김민준́7', '김민준'],
+    ['Ivan Petrenko\u0903x', 'Ivan Petrenko'],
+    ['ivan PETRENKO\u0903x', 'Ivan Petrenko'],
+    ['Senior\u0308Ivan Petrenko', 'Ivan Petrenko'],
+    ['Ivan \uFEFFPetrenko\u0903é/', 'Ivan Petrenko'],
+    ['Petrenko Ivan\u0903x', 'Ivan Petrenko'],
+    ['Ivan Olegovych Petrenko\u0903x', 'Ivan Olegovych Petrenko'],
+    ['Ivan Petrenko\u0903x', 'Ivan Olegovych Petrenko'],
+    ['김 민준\u03017', '김 민준'],
+    ['김민준\u03017', '김민준'],
   ])('flags %j for %j', (text, displayName) => {
     expect(flags(text, displayName)).toBe(true)
   })
 
   it.each([
-    ['XIvan Petrenkoः', 'Ivan Petrenko'],
-    ['Ivan Petrenkoxः', 'Ivan Petrenko'],
-    ['Ivanः', 'Ivan'],
+    ['XIvan Petrenko\u0903', 'Ivan Petrenko'],
+    ['Ivan Petrenkox\u0903', 'Ivan Petrenko'],
+    ['Ivan\u0903', 'Ivan'],
     [' Petrenko', ' Ivan Petrenko'],
-    ['Ivan Olegovychःx', 'Ivan Olegovych Petrenko'],
+    ['Ivan Olegovych\u0903x', 'Ivan Olegovych Petrenko'],
   ])('does not flag %j for %j', (text, displayName) => {
     expect(flags(text, displayName)).toBe(false)
   })
 
   it('reads every apostrophe as the ASCII one, on both checks', () => {
     // the main-era check: the mark glues `x` to the name for the other one
-    expect(flags('O’Neil Smithःx', "O'Neil Smith")).toBe(true)
+    expect(flags('O’Neil Smith\u0903x', "O'Neil Smith")).toBe(true)
     // the boundary check: the invisible stands where main needed whitespace
-    expect(flags('by O’Neil​Smith today', "O'Neil Smith")).toBe(true)
-    expect(flags("by O'Neil​Smith today", 'O’Neil Smith')).toBe(true)
+    expect(flags('by O’Neil\u200BSmith today', "O'Neil Smith")).toBe(true)
+    expect(flags("by O'Neil\u200BSmith today", 'O’Neil Smith')).toBe(true)
     // equal readings are one reading (round 6, CR-M-5)
     expect(contactNameParts('O’Neil  Smith')).toEqual([["O'Neil", 'Smith']])
   })
@@ -106,8 +106,8 @@ describe('completeness flags at least what main flagged (SR-H-3)', () => {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
   /** Spacing (Mc), enclosing (Me), non-composing and composing (Mn) and astral marks. */
-  const BARE_MARKS = ['ः', '⃝', 'ְ', '́', '̈', '\u{1D167}']
-  const EDGES = [' ', ',', 'x', '7', '가', '#', '​', '﻿', '²', ...BARE_MARKS]
+  const BARE_MARKS = ['\u0903', '\u20DD', '\u05B0', '\u0301', '\u0308', '\u{1D167}']
+  const EDGES = [' ', ',', 'x', '7', '가', '#', '\u200B', '\uFEFF', '²', ...BARE_MARKS]
   const NAME_GAPS = [' ', '\n', '\t', '  ']
 
   it.each([
@@ -147,15 +147,15 @@ describe('completeness flags at least what main flagged (SR-H-3)', () => {
 
 describe('a stored name split only by an invisible (round 5, finding 3)', () => {
   it('is read both ways: joined after the strip, and split at the invisible', () => {
-    expect(contactNameParts('Ivan​Petrenko')).toEqual([['IvanPetrenko'], ['Ivan', 'Petrenko']])
-    expect(contactNameParts('Iv‌an Petrenko')).toEqual([
+    expect(contactNameParts('Ivan\u200BPetrenko')).toEqual([['IvanPetrenko'], ['Ivan', 'Petrenko']])
+    expect(contactNameParts('Iv\u200Can Petrenko')).toEqual([
       ['Ivan', 'Petrenko'],
       ['Iv', 'an', 'Petrenko'],
     ])
     expect(contactNameParts('  ')).toEqual([[]])
   })
 
-  it.each(['​', '⁠', '﻿', '­'])(
+  it.each(['\u200B', '\u2060', '\uFEFF', '\u00AD'])(
     'flags the name written with a space when it is stored with %j between the parts',
     (c) => {
       expect(flags('by Ivan Petrenko today', `Ivan${c}Petrenko`)).toBe(true)
@@ -166,7 +166,7 @@ describe('a stored name split only by an invisible (round 5, finding 3)', () => 
   )
 
   it('an invisible inside a stored part still matches the part written whole', () => {
-    expect(flags('by Ivan Petrenko today', 'Iv‌an Petrenko')).toBe(true)
-    expect(flags('by Ivan today', 'Ivan​')).toBe(false)
+    expect(flags('by Ivan Petrenko today', 'Iv\u200Can Petrenko')).toBe(true)
+    expect(flags('by Ivan today', 'Ivan\u200B')).toBe(false)
   })
 })

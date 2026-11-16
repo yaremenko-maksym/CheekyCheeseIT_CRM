@@ -367,7 +367,7 @@ describe('fix round 7', () => {
   })
 
   describe('combining marks in hosts and local parts (SO7-2)', () => {
-    it.each(['john@परीक्षा.भारत', 'ผู้ใช้@ตัวอย่าง.ไทย', 'x́y@x.com'])(
+    it.each(['john@परीक्षा.भारत', 'ผู้ใช้@ตัวอย่าง.ไทย', 'x\u0301y@x.com'])(
       '%j is one whole email',
       (email) => {
         expect(emailHit(`mail ${email} now`)).toBe(email)
