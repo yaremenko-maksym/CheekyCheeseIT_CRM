@@ -855,7 +855,7 @@ it('JOB_ROLE_AI_ENABLED defaults to false and parses "true"', ...)
 - [ ] `.github/workflows/deploy.yml`: append `JOB_ROLE_AI_ENABLED=true` next to the line that sets
       `JOB_MATCH_RECONCILIATION_ENABLED=true`, but **only** once the extraction worker env
       (`EXTRACTION_WORKER_URL`, `EXTRACTION_WORKER_SECRET`) is wired for the API in prod. Until then,
-      leave it unset. That is an owner decision (Open decisions, item 1).
+      leave it unset. That is an owner decision (plan Owner decisions, item 1).
 - [ ] Commit `infra(deploy): enable role AI pass`.
 
 **PR 3 done when:** Tasks 3.1–3.3 are green, plus `pnpm typecheck` and `pnpm --filter @crm/api test`.
@@ -1061,7 +1061,7 @@ it('opportunityInputsVersion changes when role_status goes PENDING -> AI', ...)
 - Rule: next to the existing `DETAIL_FETCH` branch (`verdict.kind === 'EVALUATED' && projections.length > 0`).
   - Also enqueue `DETAIL_FETCH` for each `onDemandMissing` record when
     `roles.status === 'PENDING' && loaded.detailPending`, **and** `JOB_ROLE_AI_ENABLED` is true.
-  - While AI is off, a detail fetch buys nothing, so it is not made (Open decisions, item 2).
+  - While AI is off, a detail fetch buys nothing, so it is not made (plan Owner decisions, item 2).
 - [ ] **Step 1:** Write the failing tests:
   - `PENDING with detail pending enqueues DETAIL_FETCH when the AI step is enabled` (Review Focus 5)
   - `… and enqueues nothing when it is disabled`
@@ -1078,7 +1078,7 @@ it('opportunityInputsVersion changes when role_status goes PENDING -> AI', ...)
   `skillOverlap: z.discriminatedUnion('kind', [z.object({ kind: z.literal('OVERLAP'), matched: z.array(z.string()), total: z.number().int().positive() }), z.object({ kind: z.literal('NO_RESUME') })]).nullable()`.
 - Modify `apps/api/src/job-sourcing/queue/job-queue.service.ts` (`matchFacts`, `matchEvidence`, `toSenior`).
 - Modify `apps/api/src/job-sourcing/queue/queue-scope.ts`, the STUDIO branch of
-  `listableOpportunityPredicate` (Open decisions, item 4).
+  `listableOpportunityPredicate` (plan Owner decisions, item 4).
 - Modify `apps/web/app/components/job-queue/__tests__/card-fixtures.ts`: add `skillOverlap: null` to
   `senior()`.
   - `jobQueueCardSeniorSchema` is `.strict()`, and the new key is required (nullable, not optional).
@@ -1463,7 +1463,7 @@ real route paths, taken from `routeTree.gen.ts`.
 ### Task 6.1: AI flag goes on only when the worker is wired
 
 - [ ] **Step 1:** Merging PR 3 leaves `JOB_ROLE_AI_ENABLED` unset (false) in `deploy.yml`.
-- [ ] **Step 2:** The DevOps follow-up sets it `true` only with the worker's env (Open decision 1).
+- [ ] **Step 2:** The DevOps follow-up sets it `true` only with the worker's env (plan Owner decision 1).
 - [ ] **Step 3:** Verify after that deploy, with the owner's SELECT
       `SELECT outcome, count(*) FROM job_role_classifications GROUP BY 1`.
       Expected: rows appear within 2 ticks. With the provider unset, `role_status = 'PENDING'` rows
@@ -1479,7 +1479,10 @@ real route paths, taken from `routeTree.gen.ts`.
 
 ---
 
-## Open decisions (A2 — batch for the owner)
+## Owner decisions (A2 — decided 2026-11-16)
+
+The owner accepted all 5 recommendations below on 2026-11-16 and chose subagent-driven execution,
+one PR at a time (PR 1 → PR 5), each reviewed before the next starts.
 
 1. **Wire the extraction worker's env and turn on `JOB_ROLE_AI_ENABLED` in prod.**
    - Recommendation: yes, as a DevOps follow-up after PR 3.
@@ -1528,12 +1531,12 @@ real route paths, taken from `routeTree.gen.ts`.
 2. `experience[].technologies` lives in `senior_resumes.facts`, not in `content`.
 3. The STUDIO list shows ADMIN opportunities that are not yet evaluated (correction 1 says so
    itself). So a fresh `PENDING` row reaches ADMIN before its first evaluation, which contradicts
-   owner decision 1. Fix in the plan: Task 4.5, Open decision 4.
+   owner decision 1. Fix in the plan: Task 4.5, plan Owner decision 4.
 4. "The window is minutes" is false.
    - Stale matches are enqueued only by the 6-hourly sweep's `reconcileOnce`.
    - The PR 4 version bump makes every TEAM `LEAD` fail closed until its row is recomputed.
    - Fix in the plan: the roles are set before PR 4 (Task 6.2), and a sweep runs at boot (Task 4.6,
-     Open decision 5).
+     plan Owner decision 5).
 5. The evidence shape needs a no-resume marker. Without it, "no resume" cannot be told apart from
    "0 of n".
 6. The spec does not name the resume write sites (6+). Task 4.3 lists them.
@@ -1543,7 +1546,7 @@ real route paths, taken from `routeTree.gen.ts`.
    Fix in the plan: the role change goes through `PATCH /users/:id`.
 9. The inference port returns no model id, so `model` stays NULL.
 10. The spec has no reason code for a per-senior role mismatch. Fix in the plan: `ROLE_MISMATCH`.
-11. Team triage grants never fire once the unknown-stack TRIAGE is gone (Open decision 3).
+11. Team triage grants never fire once the unknown-stack TRIAGE is gone (plan Owner decision 3).
 12. The spec has no error code for giving roles to a non-SENIOR. Fix in the plan:
     `TECHNICAL_ROLES_SENIOR_ONLY`.
 
