@@ -328,6 +328,7 @@ export function normaliseContactText(
   // and maps to itself, so the per-cluster loop below would return the text unchanged.
   // Stryker disable next-line ConditionalExpression,BlockStatement: `false` and `{}` are equivalent (the loop returns the same); the `true` forms are killed when unsuppressed
   if (
+    // Stryker disable next-line ConditionalExpression: equivalent — `false` only skips the fast path, and the loop returns the same
     !CLUSTERED_CHAR.test(text) &&
     // Stryker disable next-line ConditionalExpression,LogicalOperator: equivalent — each form only skips the fast path, or takes it for digits NFKC keeps, and the loop returns the same
     (!digits || !NON_ASCII_DIGIT.test(text)) &&

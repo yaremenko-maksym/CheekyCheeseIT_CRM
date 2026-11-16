@@ -359,6 +359,7 @@ function findSpans(
   // The apostrophes stay as written: the pass over `plain` above reads them, and this one only adds.
   // Stryker disable next-line Regex: equivalent — the test only skips work: text without a non-ASCII digit unfolds to `normText` and gives the same spans
   const unfolded = /[^\P{Nd}0-9]/u.test(text) ? normaliseContactText(text, false) : norm
+  // Stryker disable next-line ConditionalExpression: equivalent — `true` re-scans `normText`, which differs from `plain` only in same-width apostrophes, so its spans are the plain pass's or inside them
   if (unfolded !== norm) {
     for (const s of patternSpans(unfolded.text, ctx)) {
       spans.push({
