@@ -755,7 +755,7 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
   // tokens (1-2 letters, so no lone source) sit in the prose with a bracket in the gap between them:
   // ` (`, `. (` or `) `. The real RUN_GAP (whitespace and at most one joiner) does not match a bracket,
   // so the row passes; a wildcard gap matches and the row fails. The joiner rows (`.`, `_`, U+00B7,
-  // `e.g.`) keep the joiner in the prose next to the gap. Examples `v1.2.3` and `2024-05-01` stay green
+  // `e.g.`) keep the joiner in the prose. Examples `v1.2.3` and `2024-05-01` stay green
   // under the wildcard too (no short whole token pair), so they are dropped (PR #1362 fix 4, fix 5).
   it.each([
     ['J (Mi) Smith', 'Ivan Kot\u{200B}J\u{200B}Mi'],
