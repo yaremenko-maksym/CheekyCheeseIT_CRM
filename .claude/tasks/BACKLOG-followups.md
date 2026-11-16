@@ -8324,7 +8324,7 @@ staged edits are checked only by this gate (nothing redacts them afterwards), so
 addition needs a false-positive measurement over clean text first: count new refusals on the pass corpus, and keep the
 joiner only at zero.
 
-**More joiners to measure the same way.** `|`, `:`, `+`, `~`, and a repeated joiner (`Li - Yu`, `Li ... Yu`, `Li -- Yu`):
+**More joiners to measure the same way.** `|`, `:`, `+`, `~`, and a repeated joiner (`Li -- Yu`, `Li ... Yu`; both pass today, checked 2026-11-16, while a single `Li - Yu` is refused):
 `RUN_GAP` takes one joiner per gap, so a doubled one passes today. Repeated forms are a separate measurement from the
 single joiner, because a repeat widens the gap the pattern accepts.
 
