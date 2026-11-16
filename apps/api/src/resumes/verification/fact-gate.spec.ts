@@ -135,6 +135,12 @@ describe('findUngroundedTokens — fix round 1', () => {
     expect(findUngroundedTokens('a swift rollout', src('a rollout'))).toEqual([])
     expect(findUngroundedTokens('spark interest', src('interest'))).toEqual([])
     expect(findUngroundedTokens('team unity', src('team'))).toEqual([])
+    expect(findUngroundedTokens('an unreal pace', src('an pace'))).toEqual([])
+    expect(findUngroundedTokens('the solidity of the design', src('the design'))).toEqual([])
+    expect(findUngroundedTokens('a flutter of tasks', src('a tasks'))).toEqual([])
+    expect(findUngroundedTokens('a playwright by night', src('a by night'))).toEqual([])
+    expect(findUngroundedTokens('selenium intake', src('intake'))).toEqual([])
+    expect(findUngroundedTokens('an android in a film', src('an in a film'))).toEqual([])
   })
 
   it('still flags the capitalised role-stack skill when the source lacks it', () => {
