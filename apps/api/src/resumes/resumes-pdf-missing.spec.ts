@@ -1,0 +1,168 @@
+/**
+ * Backlog 447: the live PDF's object is gone from the bucket while the row still says it is ready.
+ *
+ * The bucket is an in-memory map and the DB a one-row double whose updates apply in place, so the
+ * real `runRender` re-uploads the deterministic key and the next request serves it.
+ */
+import { describe, expect, it, vi } from 'vitest'
+import { DEFAULT_RESUME_LAYOUT, type SessionUser } from '@crm/shared'
+import { SeniorResumesService } from './resumes.service'
+
+const OWNER_ID = 'a4470000-0000-4000-8000-0000000000a1'
+const OWNER = { id: OWNER_ID, role: 'SENIOR', displayName: 'Jane Doe', email: 'jane@unit.spec' }
+const FP = 'fp0123456789abcdef-rest'
+const KEY = `senior-resumes/${OWNER_ID}/pdf/r-1-fp0123456789abcd.pdf`
+const viewer = { id: OWNER_ID, email: OWNER.email, role: 'SENIOR' } as SessionUser
+
+const noSuchKey = () =>
+  Object.assign(new Error('The specified key does not exist.'), {
+    name: 'NoSuchKey',
+    $metadata: { httpStatusCode: 404 },
+  })
+
+function build(overrides: Record<string, unknown> = {}) {
+  const row: Record<string, unknown> = {
+    id: 'r-1',
+    userId: OWNER_ID,
+    content: {
+      summary: 'Live.',
+      skills: [],
+      experience: [],
+      education: [],
+      languages: [],
+      links: [],
+    },
+    layout: DEFAULT_RESUME_LAYOUT,
+    templateName: 'classic',
+    templateSource: null,
+    pdfS3Key: KEY,
+    pdfFingerprint: FP,
+    pdfRenderStatus: 'READY',
+    pdfRenderError: null,
+    ...overrides,
+  }
+  const updates: Record<string, unknown>[] = []
+  const db = {
+    db: {
+      query: {
+        users: { findFirst: vi.fn(async () => OWNER) },
+        seniorResumes: { findFirst: vi.fn(async () => ({ ...row })) },
+      },
+      update: () => ({
+        set: (values: Record<string, unknown>) => ({
+          where: () => {
+            updates.push(values)
+            Object.assign(row, values)
+            return Object.assign(Promise.resolve(), { returning: async () => [{ ...row }] })
+          },
+        }),
+      }),
+    },
+  }
+  const objects = new Map<string, Buffer>()
+  const s3 = {
+    getObject: vi.fn(async (key: string) => {
+      const body = objects.get(key)
+      if (!body) throw noSuchKey()
+      return body
+    }),
+    upload: vi.fn(async (key: string, body: Buffer) => void objects.set(key, body)),
+    delete: vi.fn(async () => undefined),
+  }
+  const typst = {
+    fingerprint: vi.fn(() => FP),
+    render: vi.fn(async (_input: unknown, onStart: () => void) => {
+      onStart()
+      return Buffer.from('%PDF re-rendered')
+    }),
+  }
+  const svc = new SeniorResumesService(
+    db as never,
+    s3 as never,
+    {} as never,
+    {} as never,
+    typst as never,
+    {} as never,
+  )
+  return { svc, row, updates, objects, s3, typst }
+}
+
+describe('getRenderedPdf — the current PDF object is missing (backlog 447)', () => {
+  it('answers not-ready QUEUED instead of a 500, and serves the PDF once the re-render lands', async () => {
+    const { svc, row, s3, typst } = build()
+
+    const first = await svc.getRenderedPdf(viewer, OWNER_ID)
+    expect(first).toEqual({ ready: false, status: 'QUEUED', message: null })
+
+    await vi.waitFor(() => expect(row.pdfRenderStatus).toBe('READY'))
+    expect(typst.render).toHaveBeenCalledTimes(1)
+    expect(s3.upload).toHaveBeenCalledWith(KEY, expect.any(Buffer), 'application/pdf', 'RESUME')
+    // Same key as before: the row's old key is not deleted out from under the new object.
+    expect(s3.delete).not.toHaveBeenCalled()
+
+    const second = await svc.getRenderedPdf(viewer, OWNER_ID)
+    expect(second).toMatchObject({ ready: true, displayName: 'Jane Doe' })
+    expect((second as { pdfBuffer: Buffer }).pdfBuffer.toString()).toBe('%PDF re-rendered')
+  })
+
+  it('a NoSuchKey carried in `Code` (not `name`) is re-queued the same way', async () => {
+    const { svc, s3, updates } = build()
+    s3.getObject.mockRejectedValueOnce(
+      Object.assign(new Error('missing'), { name: 'S3ServiceException', Code: 'NoSuchKey' }),
+    )
+    expect(await svc.getRenderedPdf(viewer, OWNER_ID)).toEqual({
+      ready: false,
+      status: 'QUEUED',
+      message: null,
+    })
+    expect(updates[0]).toMatchObject({ pdfRenderStatus: 'QUEUED', pdfRenderRunId: null })
+  })
+
+  it.each(['QUEUED', 'RUNNING'] as const)(
+    'a render already %s is reported, not re-queued (polling must not disown it)',
+    async (status) => {
+      const { svc, updates, typst } = build({ pdfRenderStatus: status })
+      expect(await svc.getRenderedPdf(viewer, OWNER_ID)).toEqual({
+        ready: false,
+        status,
+        message: null,
+      })
+      expect(updates).toEqual([])
+      expect(typst.render).not.toHaveBeenCalled()
+    },
+  )
+
+  it('a FAILED render of the same input reports the failure instead of re-rendering', async () => {
+    const { svc, updates } = build({ pdfRenderStatus: 'FAILED', pdfRenderError: 'RESUME_X' })
+    expect(await svc.getRenderedPdf(viewer, OWNER_ID)).toEqual({
+      ready: false,
+      status: 'FAILED',
+      message: 'RESUME_X',
+    })
+    expect(updates).toEqual([])
+  })
+
+  it('a present object is served as before, nothing queued', async () => {
+    const { svc, objects, updates } = build()
+    objects.set(KEY, Buffer.from('%PDF stored'))
+    const out = await svc.getRenderedPdf(viewer, OWNER_ID)
+    expect((out as { pdfBuffer: Buffer }).pdfBuffer.toString()).toBe('%PDF stored')
+    expect(updates).toEqual([])
+  })
+
+  it.each([
+    ['an outage', Object.assign(new Error('socket hang up'), { name: 'TimeoutError' })],
+    [
+      'NoSuchBucket (HTTP 404)',
+      Object.assign(new Error('The specified bucket does not exist'), {
+        name: 'NoSuchBucket',
+        $metadata: { httpStatusCode: 404 },
+      }),
+    ],
+  ])('any other storage error (%s) goes on unchanged, nothing queued', async (_name, error) => {
+    const { svc, s3, updates } = build()
+    s3.getObject.mockRejectedValueOnce(error)
+    await expect(svc.getRenderedPdf(viewer, OWNER_ID)).rejects.toBe(error)
+    expect(updates).toEqual([])
+  })
+})

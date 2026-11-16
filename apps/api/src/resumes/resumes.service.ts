@@ -220,10 +220,15 @@ export class SeniorResumesService {
 
     const wanted = this.typst.fingerprint(this.renderInputFor(row, target))
     if (row.pdfS3Key && row.pdfFingerprint === wanted) {
-      return {
-        ready: true,
-        pdfBuffer: await this.s3.getObject(row.pdfS3Key),
-        displayName: target.displayName,
+      const pdfBuffer = await this.s3.getObject(row.pdfS3Key).catch((error: unknown) => {
+        if (isS3NoSuchKey(error)) return null
+        throw error
+      })
+      if (pdfBuffer) return { ready: true, pdfBuffer, displayName: target.displayName }
+      // Backlog 447: the row says ready but the object is gone, so it is re-rendered below. A
+      // render already queued or running is left alone: re-queuing disowns it on every poll.
+      if (row.pdfRenderStatus === 'QUEUED' || row.pdfRenderStatus === 'RUNNING') {
+        return { ready: false, status: row.pdfRenderStatus, message: null }
       }
     }
 
