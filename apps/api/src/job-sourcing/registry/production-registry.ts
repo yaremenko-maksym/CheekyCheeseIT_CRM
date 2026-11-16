@@ -1,4 +1,3 @@
-import type { JobSourceType } from '@crm/shared'
 import type { ConfigService } from '@nestjs/config'
 import type { Env } from '../../config/env'
 import type { DouRssProvider } from '../dou.provider'
@@ -34,10 +33,10 @@ import { REPORTING_WIRING } from './reporting-wiring'
 type ReadKey = (key: QuotaEnvKey) => string | undefined
 
 /**
- * Every REPORTING provider the application can run, one per type, built for production. Only the
- * types with a `REPORTING_WIRING` entry are registered (see `createProductionRegistry`); a provider
- * here without wiring would never be claimed (`TRANSPORT_NOT_WIRED`), so the spec keeps this list
- * and the wiring equal. Reed and Working Nomads are deliberately absent (see `reporting-wiring.ts`).
+ * Every REPORTING provider the application can run, one per type, built for production. Each is
+ * registered with its `REPORTING_WIRING` entry (see `createProductionRegistry`); a provider here
+ * without wiring would never be claimed (`TRANSPORT_NOT_WIRED`), so the spec keeps this list and
+ * the wiring equal. Reed and Working Nomads are deliberately absent (see `reporting-wiring.ts`).
  *
  * Keyed adapters get their credential from the validated env. An absent key builds an
  * UNCONFIGURED credential: the adapter refuses before any reservation or request.
@@ -94,8 +93,9 @@ export function createProductionRegistry(
   const read: ReadKey = (key) => config?.get(key, { infer: true })
   const adapters: RegisteredAdapter[] = [new LegacyDouAdapter(dou)]
   for (const provider of reportingProviders(read)) {
-    const wiring = REPORTING_WIRING[provider.type as JobSourceType]
-    if (wiring !== undefined) adapters.push(new ReportingAdapter(provider, wiring))
+    // No wiring = an unwired adapter the ledger refuses (`TRANSPORT_NOT_WIRED`); the spec keeps
+    // this list equal to `REPORTING_WIRING`, so none is registered that way.
+    adapters.push(new ReportingAdapter(provider, REPORTING_WIRING[provider.type]))
   }
   return new JobSourceRegistry(adapters)
 }
