@@ -145,9 +145,12 @@ export const CLEARED_RUN = {
   verificationBaseVersion: null,
 }
 
+/** Every staged PDF of one resume lives under this prefix. */
+export const stagedPdfPrefix = (resumeId: string): string => `resumes/${resumeId}/staged/`
+
 /** Where a run's staged PDF lives: derived from the ids, so a crashed run can still clean up. */
 export const stagedPdfKey = (resumeId: string, runId: string): string =>
-  `resumes/${resumeId}/staged/${runId}.pdf`
+  `${stagedPdfPrefix(resumeId)}${runId}.pdf`
 
 /** A stored report's fallbacks, read through its schema: a malformed report has none (SR-L-4). */
 export const storedFallbacks = (report: unknown): string[] =>

@@ -8192,6 +8192,8 @@ Sources: verified-base-resume Task 26 manual QA, finding QA-L-2.
 
 ## 447. Resume PDF download returns 500 when the stored PDF object is missing (2026-11-16)
 
+**Closed (2026-11-16).** PR #1360 (a missing live PDF object re-queues the render and answers 202 QUEUED instead of a 500). Reopen if the Verify check below fails.
+
 **Symptoms.** `GET /api/users/:userId/resume/pdf` reads `pdf_s3_key` with `S3Service.getObject` and lets a
 `NoSuchKey` through as a 500. The row still says the PDF is ready, the same fingerprint means no re-render is
 queued, so the download stays broken until the source changes.
@@ -8205,6 +8207,8 @@ after the render lands the same endpoint returns the PDF.
 Sources: PR #1352 (orphan sweep, backlog 441) fix round 1.
 
 ## 448. Staged resume PDFs under `resumes/<id>/staged/` have no orphan sweep (2026-11-16)
+
+**Closed (2026-11-16).** PR #1360 (the orphan sweep also deletes aged unreferenced `resumes/<id>/staged/<run>.pdf` objects). Reopen if the Verify check below fails.
 
 **Symptoms.** `ResumeOrphanSweepCron` lists only `senior-resumes/`. Staged PDFs are written to
 `resumes/<resumeId>/staged/<runId>.pdf` (`stagedPdfKey`), so a staged PDF whose cleanup delete failed stays in
@@ -8255,6 +8259,21 @@ answers 413 `DOCUMENT_TOO_LARGE` with `maxMb: 10`; other multipart failures are 
 
 Sources: verified-base-resume follow-up (PR #1354, QA-LOW-4 coded 413 for the resume size limit).
 
+## 451. Resume PDF download file name is always Russian (2026-11-16)
+
+**Closed (2026-11-16).** PR #1360 (the PDF download is named by the viewer locale through `@RequestLocale()`). Reopen if the Verify check below fails.
+
+**Symptoms.** `resumeContentDisposition` always names the downloaded PDF `Резюме — <name>.pdf` in the
+`filename*` slot, on both `GET /api/users/:userId/resume/pdf` and `.../resume/staged-pdf`, so an `en` user
+saves a file with a non-English name.
+
+**Fix.** The two routes read the viewer's locale with `@RequestLocale()` (stored user locale, then the
+`pref_locale` cookie, then `Accept-Language`, then `uk`) and pass it to `resumeContentDisposition`: `uk` keeps
+`Резюме — <name>.pdf`, `en` gets `Resume — <name>.pdf`. The ASCII `filename=` fallback is unchanged.
+
+**Verify.** With locale `uk` the decoded `filename*` is `Резюме — <name>.pdf`, with `en` it is
+`Resume — <name>.pdf`, on both routes; the `filename=` slot holds only printable ASCII in both.
+
 ## 452. Submit stays enabled for a verified resume the server refuses (2026-11-16)
 
 **Closed (2026-11-16).** PR #1359 (disable resume submit when verified and unflagged). Reopen if the Verify check below fails.
@@ -8264,3 +8283,12 @@ Sources: verified-base-resume follow-up (PR #1354, QA-LOW-4 coded 413 for the re
 **Fix.** Disable the completeness Submit button whenever the resume is VERIFIED, `recheckNeededAt` is falsy, and there are no unsaved fact edits (`!canSave`). Display the localized explanation via `aria-describedby` using the existing `RESUME_ALREADY_VERIFIED` catalog string.
 
 **Verify.** With a VERIFIED resume with `recheckNeededAt: null` and unchanged facts, the Submit button is disabled, references the accessible reason via `aria-describedby`, and no 409 request is sent on click. Editing any fact enables the button so changes can be saved and resubmitted.
+
+## 455. Re-check badge has no hint for the senior (parked for redesign v2, 2026-11-16)
+
+**Symptoms.** QA-LOW-2 on PR #1353: the senior sees the re-check badge on a resume, but no text says what it
+means or that nothing is needed from them.
+
+**Decision.** Owner, 2026-11-16: wait for redesign v2, same as items 437 and 446; do not add the hint before.
+
+**Verify.** The redesigned resume screen gives the badge a readable, accessible explanation in uk and en.

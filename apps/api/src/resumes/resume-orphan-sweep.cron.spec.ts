@@ -12,6 +12,7 @@ import {
   ORPHAN_GRACE_MS,
   ResumeOrphanSweepCron,
   SENIOR_RESUMES_PREFIX,
+  STAGED_RESUMES_PREFIX,
 } from './resume-orphan-sweep.cron'
 
 const NOW = new Date('2026-11-15T05:00:00.000Z')
@@ -93,6 +94,7 @@ describe('ResumeOrphanSweepCron', () => {
 
   it('constants: daily sweep of senior-resumes/ with a 24 h grace and a 500 cap', () => {
     expect(SENIOR_RESUMES_PREFIX).toBe('senior-resumes/')
+    expect(STAGED_RESUMES_PREFIX).toBe('resumes/')
     expect(ORPHAN_GRACE_MS).toBe(24 * HOUR)
     expect(MAX_ORPHAN_DELETES_PER_RUN).toBe(500)
   })
@@ -177,7 +179,8 @@ describe('ResumeOrphanSweepCron', () => {
     }
     const result = await make().sweep(NOW)
     expect(bucket.deleteOrThrow).not.toHaveBeenCalled()
-    expect(result).toMatchObject({ listed: 2, deleted: 0 })
+    // The fake returns the foreign keys on the first page of each of the two prefixes.
+    expect(result).toMatchObject({ listed: 4, deleted: 0 })
   })
 
   it('walks every page with the continuation token', async () => {
@@ -188,6 +191,7 @@ describe('ResumeOrphanSweepCron', () => {
       [undefined, 'senior-resumes/'],
       ['1|senior-resumes/u/2', 'senior-resumes/'],
       ['2|senior-resumes/u/4', 'senior-resumes/'],
+      [undefined, 'resumes/'],
     ])
     expect(result).toMatchObject({ listed: 5, deleted: 5, complete: true })
   })
@@ -368,7 +372,7 @@ describe('ResumeOrphanSweepCron', () => {
       complete: false,
     })
     expect(warn).toHaveBeenCalledWith(
-      'Resume orphan sweep hit the cap of 500 deletes; the rest waits for the next run',
+      'Resume orphan sweep hit the cap of 500 deletes under senior-resumes/; the rest waits for the next run',
     )
   })
 
@@ -435,5 +439,142 @@ describe('ResumeOrphanSweepCron', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  describe('staged PDFs under resumes/<id>/staged/ (backlog 448)', () => {
+    const staged = (run: string) => `resumes/r-1/staged/${run}.pdf`
+
+    it('deletes an aged staged PDF no row points at; current, previous and young ones stay', async () => {
+      const young = new Date(NOW.getTime() - 23 * HOUR)
+      for (const run of ['orphan', 'current', 'previous']) bucket.objects.set(staged(run), OLD)
+      bucket.objects.set(staged('young'), young)
+      rows = [
+        {
+          staged_pdf_s3_key: staged('current'),
+          staged_previous: { pdfKey: staged('previous') },
+        },
+      ]
+
+      const result = await make().sweep(NOW)
+
+      expect(bucket.listObjects.mock.calls).toEqual([
+        [undefined, 'senior-resumes/'],
+        [undefined, 'resumes/'],
+      ])
+      expect(bucket.deleteOrThrow.mock.calls).toEqual([[staged('orphan')]])
+      expect(bucket.headLastModified.mock.calls).toEqual([[staged('orphan')]])
+      expect(result).toEqual({
+        listed: 4,
+        deleted: 1,
+        failed: 0,
+        referenced: 2,
+        young: 1,
+        undated: 0,
+        gone: 0,
+        complete: true,
+      })
+    })
+
+    it('a confirmed staged key now held by pdf_s3_key is the live PDF and stays', async () => {
+      bucket.objects.set(staged('confirmed'), OLD)
+      rows = [{ pdf_s3_key: staged('confirmed'), staged_pdf_s3_key: null }]
+      const result = await make().sweep(NOW)
+      expect(bucket.deleteOrThrow).not.toHaveBeenCalled()
+      expect(result).toMatchObject({ referenced: 1, deleted: 0 })
+    })
+
+    it('the HEAD re-check keeps a staged key re-written since the listing', async () => {
+      bucket.objects.set(staged('rewritten'), OLD)
+      bucket.headLastModified.mockResolvedValueOnce(new Date(NOW.getTime() - HOUR))
+      const result = await make().sweep(NOW)
+      expect(bucket.deleteOrThrow).not.toHaveBeenCalled()
+      expect(result).toMatchObject({ young: 1, deleted: 0 })
+    })
+
+    it('never deletes anything under resumes/ that is not a staged PDF', async () => {
+      for (const k of [
+        'resumes/r-1/other.pdf',
+        'resumes/r-1/staged/run.txt',
+        'resumes/r-1/staged/nested/run.pdf',
+        'resumes/a/b/staged/run.pdf',
+        'resumes/r-1/staged/run.pdf.bak',
+        'resumes/r-1/staged/runxpdf',
+        'resumes/staged/run.pdf',
+        'xresumes/r-1/staged/run.pdf',
+      ]) {
+        bucket.objects.set(k, OLD)
+        if (!k.startsWith('resumes/')) bucket.foreign.push(k)
+      }
+      const result = await make().sweep(NOW)
+      expect(bucket.deleteOrThrow).not.toHaveBeenCalled()
+      expect(bucket.headLastModified).not.toHaveBeenCalled()
+      expect(result).toMatchObject({ deleted: 0, complete: true })
+    })
+
+    it('each prefix has its own cap: staged keys are reached when senior-resumes/ alone exceeds it', async () => {
+      bucket.pageSize = 100 // more pages after the cap: the capped prefix must stop listing
+      for (let n = 0; n < MAX_ORPHAN_DELETES_PER_RUN + 1; n++) {
+        bucket.objects.set(`senior-resumes/u/${String(n).padStart(4, '0')}`, OLD)
+      }
+      bucket.objects.set(staged('orphan'), OLD)
+      const result = await make().sweep(NOW)
+      expect(bucket.objects.has(staged('orphan'))).toBe(false)
+      expect(bucket.objects.has('senior-resumes/u/0500')).toBe(true)
+      expect(result).toMatchObject({ deleted: MAX_ORPHAN_DELETES_PER_RUN + 1, complete: false })
+      expect(warn).toHaveBeenCalledTimes(1)
+    })
+
+    it("the staged cap counts only the staged prefix's attempts, failed ones included", async () => {
+      bucket.objects.set('senior-resumes/u/fails', OLD)
+      bucket.failDelete.add('senior-resumes/u/fails')
+      for (let n = 0; n < MAX_ORPHAN_DELETES_PER_RUN + 1; n++) {
+        bucket.objects.set(staged(String(n).padStart(4, '0')), OLD)
+      }
+      const result = await make().sweep(NOW)
+      expect(result).toMatchObject({
+        deleted: MAX_ORPHAN_DELETES_PER_RUN,
+        failed: 1,
+        complete: false,
+      })
+    })
+
+    it('the staged prefix stops at its own cap', async () => {
+      for (let n = 0; n < MAX_ORPHAN_DELETES_PER_RUN + 1; n++) {
+        bucket.objects.set(staged(String(n).padStart(4, '0')), OLD)
+      }
+      const result = await make().sweep(NOW)
+      expect(bucket.deleteOrThrow).toHaveBeenCalledTimes(MAX_ORPHAN_DELETES_PER_RUN)
+      expect(result).toMatchObject({ deleted: MAX_ORPHAN_DELETES_PER_RUN, complete: false })
+      expect(warn).toHaveBeenCalledWith(
+        'Resume orphan sweep hit the cap of 500 deletes under resumes/; the rest waits for the next run',
+      )
+    })
+
+    it('exactly the cap under each prefix is a complete run', async () => {
+      for (let n = 0; n < MAX_ORPHAN_DELETES_PER_RUN; n++) {
+        bucket.objects.set(`senior-resumes/u/${String(n).padStart(4, '0')}`, OLD)
+        bucket.objects.set(staged(String(n).padStart(4, '0')), OLD)
+      }
+      const result = await make().sweep(NOW)
+      expect(result).toMatchObject({ deleted: 2 * MAX_ORPHAN_DELETES_PER_RUN, complete: true })
+      expect(warn).not.toHaveBeenCalled()
+    })
+
+    it('a listing failure on resumes/ stops the run after senior-resumes/ was swept', async () => {
+      bucket.objects.set('senior-resumes/u/orphan', OLD)
+      bucket.objects.set(staged('orphan'), OLD)
+      const list = bucket.listObjects.getMockImplementation()!
+      bucket.listObjects.mockImplementation(async (token, prefix) => {
+        if (prefix === 'resumes/') throw new Error('ListObjectsV2 timed out')
+        return list(token, prefix)
+      })
+      const result = await make().sweep(NOW)
+      expect(bucket.deleteOrThrow.mock.calls).toEqual([['senior-resumes/u/orphan']])
+      expect(bucket.objects.has(staged('orphan'))).toBe(true)
+      expect(result).toMatchObject({ deleted: 1, complete: false })
+      expect(warn).toHaveBeenCalledWith(
+        'Resume orphan sweep stopped: stage=list reason="ListObjectsV2 timed out" deleted=1 failed=0',
+      )
+    })
   })
 })
