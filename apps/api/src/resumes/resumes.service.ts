@@ -96,6 +96,9 @@ const noResume = () => apiError('RESUME_NOT_CREATED', HttpStatus.NOT_FOUND)
  */
 export const STUCK_RENDER_TIMEOUT_MS = 2 * 60 * 1000
 
+/** The stored `pdf_render_error` of a failed upload: says nothing about the render input. */
+const RENDER_STORAGE_FAILED = encodeResumeMessage('RESUME_RENDER_STORAGE_FAILED')
+
 export interface ResumeSourceFile {
   buffer: Buffer
   /** Client-declared type. Advisory ONLY — the real check is on the bytes. */
@@ -219,26 +222,40 @@ export class SeniorResumesService {
     if (!row) throw noResume()
 
     const wanted = this.typst.fingerprint(this.renderInputFor(row, target))
-    if (row.pdfS3Key && row.pdfFingerprint === wanted) {
+    // A Typst failure records the failed input's fingerprint but keeps the OLDER pdfS3Key, so a
+    // matching fingerprint no longer vouches for that key. A storage failure records nothing
+    // about the input: its fingerprint and key still belong together.
+    const inputFailed =
+      row.pdfRenderStatus === 'FAILED' && row.pdfRenderError !== RENDER_STORAGE_FAILED
+    if (row.pdfS3Key && row.pdfFingerprint === wanted && !inputFailed) {
       const pdfBuffer = await this.s3.getObject(row.pdfS3Key).catch((error: unknown) => {
         if (isS3NoSuchKey(error)) return null
         throw error
       })
       if (pdfBuffer) return { ready: true, pdfBuffer, displayName: target.displayName }
       // Backlog 447: the row says ready but the object is gone, so it is re-rendered below. A
-      // render already queued or running is left alone: re-queuing disowns it on every poll.
-      if (row.pdfRenderStatus === 'QUEUED' || row.pdfRenderStatus === 'RUNNING') {
-        return { ready: false, status: row.pdfRenderStatus, message: null }
-      }
+      // queued render, or one running and younger than the stuck-render cutoff, is left alone:
+      // re-queuing disowns it on every poll.
+      if (row.pdfRenderStatus === 'QUEUED') return { ready: false, status: 'QUEUED', message: null }
+      if (this.renderIsFresh(row)) return { ready: false, status: 'RUNNING', message: null }
     }
 
-    if (row.pdfRenderStatus === 'FAILED' && row.pdfFingerprint === wanted) {
+    if (inputFailed && row.pdfFingerprint === wanted) {
       return { ready: false, status: 'FAILED', message: row.pdfRenderError }
     }
 
     // Stale or never built — make sure something is working on it.
     await this.enqueueRender(row.id, target)
     return { ready: false, status: 'QUEUED', message: null }
+  }
+
+  /** RUNNING and started within STUCK_RENDER_TIMEOUT_MS; one not yet started has no age (NULL). */
+  private renderIsFresh(row: SeniorResume): boolean {
+    return (
+      row.pdfRenderStatus === 'RUNNING' &&
+      row.pdfRenderStartedAt !== null &&
+      row.pdfRenderStartedAt.getTime() >= Date.now() - STUCK_RENDER_TIMEOUT_MS
+    )
   }
 
   /**
@@ -945,7 +962,7 @@ export class SeniorResumesService {
       // marked "this content is doomed". Recovery is the same motion as a
       // render failure — the next explicit save re-renders and re-uploads
       // from scratch.
-      const message = encodeResumeMessage('RESUME_RENDER_STORAGE_FAILED')
+      const message = RENDER_STORAGE_FAILED
       this.logger.warn(
         `Resume ${resumeId}: PDF upload failed — ${err instanceof Error ? err.message : 'unknown'}`,
       )
@@ -969,7 +986,13 @@ export class SeniorResumesService {
     if (written.length === 0) {
       // Superseded mid-render. The row now points elsewhere, so this object is
       // unreferenced the moment it is written — erase it rather than leave a
-      // PDF of someone's CV in the bucket that no code path can reach.
+      // PDF of someone's CV in the bucket that no code path can reach. Unless a
+      // newer run of the SAME input already landed this very key: then it is live.
+      const current = await this.db.db.query.seniorResumes.findFirst({
+        where: eq(seniorResumes.id, resumeId),
+        columns: { pdfS3Key: true },
+      })
+      if (current?.pdfS3Key === key) return
       this.logger.log(`Resume ${resumeId}: render superseded — discarding ${key}`)
       await this.s3.delete(key)
       return
