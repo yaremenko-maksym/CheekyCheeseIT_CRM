@@ -3745,6 +3745,31 @@ msgstr "Only a senior can rejoin a team"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_AI_ERROR"
+msgstr "The recognition service returned an error. Fill in the resume by hand."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_AI_INVALID_ANSWER"
+msgstr "The model returned an invalid answer. Check the fields and fill them in by hand."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_AI_NOT_CONFIGURED"
+msgstr "Automatic recognition is unavailable: the AI service is not set up. Fill in the resume by hand."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_AI_QUOTA_EXCEEDED"
+msgstr "The daily limit of free AI requests is used up."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_AI_UNAVAILABLE"
+msgstr "The recognition service is unavailable. Try later or fill in the resume by hand."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_ALREADY_VERIFIED"
 msgstr "The resume is already verified. Change the facts to submit it again."
 
@@ -3755,8 +3780,78 @@ msgstr "The resume changed after the check. Refresh the page and check it again.
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_CREATE_FAILED"
+msgstr "The resume could not be created. Try again."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_CUSTOM_TEMPLATE"
 msgstr "This resume template cannot be checked. Choose a template from the catalog."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_DELETE_BUSY"
+msgstr "The resume is being changed right now. Try deleting it again in a few seconds."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_DOCX_CORRUPT"
+msgstr "The DOCX file is damaged. Save it again or paste the text."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_DOCX_TOO_LARGE"
+msgstr "The unpacked DOCX is larger than {mb} MB, which does not look like a resume."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_DOCX_TOO_MANY_FILES"
+msgstr "The DOCX holds too many inner files (over {max}), which does not look like a resume."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_DOCX_UNREADABLE"
+msgstr "The DOCX file could not be read. Upload another file or paste the text."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_DOCX_UNSUPPORTED"
+msgstr "This DOCX is saved in a format we cannot read. Save it again in Word or paste the text."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_EXTRACTION_STALLED_FILE"
+msgstr "Recognition stopped (the service restarted). Upload the file again or fill in the resume by hand."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_EXTRACTION_STALLED_TEXT"
+msgstr "Recognition stopped (the service restarted). Paste the resume text again or fill in the form by hand."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_FILE_EMPTY"
+msgstr "The file is empty. Choose another file."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_FILE_TOO_COMPLEX"
+msgstr "The document is too complex to process automatically. Paste the resume text by hand."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_FILE_TOO_LARGE"
+msgstr "The file is larger than {mb} MB. Upload a smaller file or paste the text."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_FILE_UNREADABLE"
+msgstr "The resume file could not be read. Upload another file or paste the text."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_FILE_UNSUPPORTED"
+msgstr "Only PDF and DOCX are supported. The file content matches neither format."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
@@ -3765,8 +3860,113 @@ msgstr "Fill in all required resume fields before the check."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_NO_ACCESS"
+msgstr "You have no access to this user’s resume."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_NO_TEXT"
+msgstr "No text could be taken from the file (it is probably a scan or an image). Paste the resume text by hand."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_NOT_CREATED"
+msgstr "The resume has not been created yet."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_NOT_FOUND"
+msgstr "The resume was not found. Refresh the page."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_PDF_PREPARING"
+msgstr "The PDF is being built from the resume template. Refresh the page in a few seconds."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_PDF_TOO_LARGE"
+msgstr "The PDF content is larger than {mb} MB once unpacked, which does not look like a resume."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_PDF_TOO_MANY_PAGES"
+msgstr "The PDF has more than {max} pages, which does not look like a resume."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_PDF_UNREADABLE"
+msgstr "The PDF file could not be read. Upload another file or paste the text."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_RENDER_BLANK_PAGE"
+msgstr "The resume template built a blank page. It probably holds a character the available fonts cannot draw. Check the layout or contact an administrator."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_RENDER_FAILED"
+msgstr "The resume PDF could not be built. Try later."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_RENDER_MISSING_GLYPHS"
+msgstr "The resume template holds characters the available fonts cannot draw: {glyphs}. Replace them or add a font with these glyphs."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_RENDER_STORAGE_FAILED"
+msgstr "The PDF was built but not saved to storage. Try later."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_RENDER_TEMPLATE_FAILED"
+msgstr "The PDF could not be built from the resume template. Check the layout or contact an administrator."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_RENDER_TIMEOUT"
+msgstr "The PDF could not be built: the layout did not finish within {seconds} s."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_SENIOR_ONLY"
+msgstr "Resumes are kept for seniors only."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_SOURCE_CORRUPT"
+msgstr "The original file is damaged. Upload the file again or paste the text."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_SOURCE_LOAD_FAILED"
+msgstr "The original resume file could not be read. Upload it again or paste the text."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_SOURCE_MISSING"
+msgstr "The original resume file has not been uploaded."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_STAGED_TEXT_INVALID"
 msgstr "The text was not saved: {reason, select, NON_LATIN {use Latin letters only} CONTACT_IN_TEXT {remove the name, email or phone number} other {check the text}}."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_UPLOAD_NO_FILE"
+msgstr "The request has no “file” field. Attach the resume file."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_UPLOAD_NOT_MULTIPART"
+msgstr "Send the file as multipart/form-data."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_UPLOAD_UNREADABLE"
+msgstr "The uploaded file could not be read. Upload it again."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts

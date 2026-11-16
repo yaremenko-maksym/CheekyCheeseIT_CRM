@@ -26,7 +26,7 @@ export function encodeResumeMessage<C extends ResumeErrorCode>(
 
 /** The code and params of a stored message, or `null` for legacy free text. */
 export function decodeResumeMessage(stored: string | null): StoredResumeMessage | null {
-  if (stored === null || !stored.startsWith('{')) return null
+  if (stored === null) return null
   let raw: unknown
   try {
     raw = JSON.parse(stored)
