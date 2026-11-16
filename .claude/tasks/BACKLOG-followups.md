@@ -8314,7 +8314,7 @@ and the in-text filter keeps absent parts free`.
 
 Sources: PR #1351 (contact scanner normalisation, backlog 444/445) security review residuals.
 
-## 455. Contact gate passes split-name parts joined by `/`, `;` and other joiners (2026-11-16)
+## 456. Contact gate passes split-name parts joined by `/`, `;` and other joiners (2026-11-16)
 
 **Symptoms.** The gate (`scanContacts`, behind `hasContact`) refuses split name parts only when a run joins them with
 whitespace, a dash, a comma, a period, an underscore or a middle dot. `Li / Yu` and `Li; Yu` pass. Model output and
@@ -8328,7 +8328,7 @@ joiner only at zero.
 
 Sources: PR #1362 security review (SR-L-1), code and second-opinion reviews on the same branch.
 
-## 456. Contact gate misses a first name plus one part, and a surname with glued digits (2026-11-16)
+## 457. Contact gate misses a first name plus one part, and a surname with glued digits (2026-11-16)
 
 **Symptoms.** Stored `Ivan Li Yu`: `Li, Ivan` and `Ivan-Li` pass the gate. A surname with glued digits (`Surname1990`)
 passes the gate, while redaction reads the digit as an edge (453d). The gate keeps main's token rule for digits.
@@ -8340,7 +8340,7 @@ false-positive measurement, since a first name alone is a common word.
 
 Sources: PR #1362 security review (SR-L-1 scope note), PR #1351 round 7 gate notes.
 
-## 457. The `@*handle` pattern is quadratic on a long run of `@` (2026-11-16)
+## 458. The `@*handle` pattern is quadratic on a long run of `@` (2026-11-16)
 
 **Symptoms.** The handle source `@*handle` (`telegramSource` in `contact-scan.ts`) backtracks quadratically on a long
 run of `@` before the handle. The same on main. The 2000-character edit cap bounds it to about 15 ms on the gate, so it
@@ -8353,7 +8353,7 @@ once), keeping the `@@ivan_dev` and `x@ivan_dev` rows.
 
 Sources: PR #1362 security review (SR-L-2).
 
-## 458. #1360 follow-ups: render claim, pre-change Typst failures, keyless re-queue, orphan source delete (2026-11-16)
+## 459. #1360 follow-ups: render claim, pre-change Typst failures, keyless re-queue, orphan source delete (2026-11-16)
 
 **Symptoms.** (a) A render claimed but not started re-queues on every poll; a claim-time column is needed. (b) Pre-change
 Typst failures keep a stale key and fingerprint pair; this is an owner data-fix decision. (c) A keyless row re-queues on
