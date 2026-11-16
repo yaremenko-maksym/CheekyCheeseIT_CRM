@@ -23,10 +23,10 @@ import { productionLedgerCatalog } from './production-catalog'
  * context without `ConfigService` (a wiring spec) never runs one. The heartbeat pool is opened on
  * the first heartbeat.
  *
- * !! PROVIDING THIS MAKES NO SOURCE RUNNABLE. Nothing calls the worker until T5's handlers; the
- * registry holds DOU only (the ledger refuses it `NOT_ACTIVATABLE`), and a reporting adapter
- * registered later is refused `TRANSPORT_NOT_WIRED` unless it is built with its `REPORTING_WIRING`
- * entry (T6), whose hosts the transport is pinned to.
+ * !! PROVIDING THIS MAKES NO SOURCE RUNNABLE. The cron handlers (`JobSourcingCronService`) drive
+ * it; the ledger claims only an enabled source whose registered REPORTING adapter carries its
+ * `REPORTING_WIRING` entry (T6, the hosts the transport is pinned to) and whose manifest entry is
+ * ready (`claimGate`). DOU is refused `NOT_ACTIVATABLE` (it stays on the legacy loop).
  */
 /**
  * The app's database, read at the moment of each call. `DatabaseService` opens its pool and sets

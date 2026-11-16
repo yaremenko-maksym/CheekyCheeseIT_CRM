@@ -63,10 +63,20 @@ describe('createProductionRegistry covers exactly the wired REPORTING types (AC1
     expect(registry.get('WORKINGNOMADS_API')).toBeUndefined()
   })
 
-  it('Greenhouse carries collectDetail exactly when its manifest entry is ON_DEMAND', () => {
-    const onDemand = productionLedgerCatalog().onDemandTypes().includes('GREENHOUSE_ATS')
+  it('Greenhouse carries collectDetail exactly when GREENHOUSE_ATS is ON_DEMAND', () => {
+    const detailOf = (onDemand: readonly JobSourceType[]) =>
+      typeof (
+        reportingOf(
+          createProductionRegistry(new DouRssProvider(), undefined, onDemand),
+          'GREENHOUSE_ATS',
+        ).provider as { collectDetail?: unknown }
+      ).collectDetail
+    expect(detailOf(['GREENHOUSE_ATS'])).toBe('function')
+    expect(detailOf(['LEVER_ATS'])).toBe('undefined')
+    // The default is the production catalog's ON_DEMAND set.
+    const prodOnDemand = productionLedgerCatalog().onDemandTypes().includes('GREENHOUSE_ATS')
     const provider = reportingOf(registry, 'GREENHOUSE_ATS').provider as { collectDetail?: unknown }
-    expect(typeof provider.collectDetail === 'function').toBe(onDemand)
+    expect(typeof provider.collectDetail === 'function').toBe(prodOnDemand)
   })
 })
 

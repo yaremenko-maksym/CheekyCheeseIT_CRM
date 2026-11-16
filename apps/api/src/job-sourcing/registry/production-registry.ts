@@ -1,3 +1,4 @@
+import type { JobSourceType } from '@crm/shared'
 import type { ConfigService } from '@nestjs/config'
 import type { Env } from '../../config/env'
 import type { DouRssProvider } from '../dou.provider'
@@ -41,14 +42,15 @@ type ReadKey = (key: QuotaEnvKey) => string | undefined
  * Keyed adapters get their credential from the validated env. An absent key builds an
  * UNCONFIGURED credential: the adapter refuses before any reservation or request.
  */
-function reportingProviders(read: ReadKey): readonly ReportingJobSourceProvider[] {
+function reportingProviders(
+  read: ReadKey,
+  onDemand: readonly JobSourceType[],
+): readonly ReportingJobSourceProvider[] {
   const credential = (provider: QuotaProvider) => ({
     credential: readQuotaCredential(provider, read),
   })
   // U10: Greenhouse carries `collectDetail` only once its manifest entry is flipped to ON_DEMAND.
-  const greenhouseMode = productionLedgerCatalog().onDemandTypes().includes('GREENHOUSE_ATS')
-    ? 'ON_DEMAND'
-    : 'IN_LIST'
+  const greenhouseMode = onDemand.includes('GREENHOUSE_ATS') ? 'ON_DEMAND' : 'IN_LIST'
   return [
     arbeitnowProvider,
     ashbyProvider,
@@ -84,15 +86,17 @@ function reportingProviders(read: ReadKey): readonly ReportingJobSourceProvider[
  *
  * The ONE place a registry is made from a bare DOU provider: the module's factory and
  * `resolveRegistry` (the service's constructor) both go through it, so they cannot disagree.
- * `config` absent (hand-built specs) = every keyed adapter unconfigured.
+ * `config` absent (hand-built specs) = every keyed adapter unconfigured. `onDemand` defaults to the
+ * production catalog's ON_DEMAND types (a spec passes its own to reach both Greenhouse modes).
  */
 export function createProductionRegistry(
   dou: DouRssProvider,
   config?: ConfigService<Env, true>,
+  onDemand: readonly JobSourceType[] = productionLedgerCatalog().onDemandTypes(),
 ): JobSourceRegistry {
   const read: ReadKey = (key) => config?.get(key, { infer: true })
   const adapters: RegisteredAdapter[] = [new LegacyDouAdapter(dou)]
-  for (const provider of reportingProviders(read)) {
+  for (const provider of reportingProviders(read, onDemand)) {
     // No wiring = an unwired adapter the ledger refuses (`TRANSPORT_NOT_WIRED`); the spec keeps
     // this list equal to `REPORTING_WIRING`, so none is registered that way.
     adapters.push(new ReportingAdapter(provider, REPORTING_WIRING[provider.type]))

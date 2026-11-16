@@ -103,8 +103,8 @@ import { JobRunLedger } from './ownership/job-run-ledger'
       inject: [DouRssProvider, { token: ConfigService, optional: true }],
     },
     // r5 Task 2.5 T7: THE run ledger (production catalog) and the run worker over it. The T9 admin
-    // service resets failures through this same ledger. Nothing calls the worker until T5's
-    // handlers; see `createProductionWorker`.
+    // service resets failures through this same ledger. The cron handlers drive the worker; see
+    // `createProductionWorker`.
     {
       provide: JobRunLedger,
       useFactory: (db: DatabaseService, registry: JobSourceRegistry) =>
