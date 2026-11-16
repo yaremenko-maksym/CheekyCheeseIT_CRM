@@ -1054,15 +1054,18 @@ export class JobRunLedger {
    * moves `enabled` and appends ONE `ENABLED` / `DISABLED` entry to `admin_state_history` in SQL
    * (like `resetFailures`, never read-modify-write); a no-op (already that value) writes nothing.
    *
-   *  - Enable never touches the quota, the failure counter, the cooldown, the due time, the
-   *    reasons or the readiness: it is refused `NOT_READY` unless the stored readiness and the
+   *  - Enable never touches the quota, the failure counter, the cooldown, the reasons or the
+   *    readiness. It arms an EMPTY slot only: a NULL `next_attempt_at` becomes now (a seeded source
+   *    is never due otherwise), an existing slot (a backoff included) is kept. It is refused
+   *    `NOT_READY` unless the stored readiness and the
    *    manual claim gate both pass (a LEGACY source has no gate), and `AUTH_PAUSED` while an
    *    `ACCESS_POLICY` refusal stands (only `resetFailures` clears it).
    *  - Disable ends every STARTED run of the source `CANCELLED` / `CANCELLED` (the shutdown
    *    ending, NEUTRAL: no failure, no backoff), settling its reservations as `finish` does, so
    *    the owner is fenced: its heartbeat, `assertOwned` and `finish` all see a run that is no
    *    longer STARTED. Queued work cannot start: every claim path refuses a disabled source.
-   *    `job_sources`' scheduling columns are left alone, so a later enable resumes where it was.
+   *    Disable leaves `job_sources`' scheduling columns alone, so a later enable resumes where it
+   *    was (only an empty slot is armed, see above).
    *
    * RBAC is the caller's (T9 service).
    */

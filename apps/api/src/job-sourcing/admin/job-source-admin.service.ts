@@ -34,7 +34,7 @@ import { JobRunLedger } from '../ownership/job-run-ledger'
 import { CLAIM_REFUSALS, nextAttemptAt } from '../ownership/ledger-policy'
 import { JobRunWorker } from '../runtime/job-run-worker'
 import { MAX_CONSECUTIVE_FAILURES } from '../scheduling/due-policy'
-import { isFreshForEnable } from './enable-fetch-freshness'
+import { isFreshForEnable, msOrNull } from './enable-fetch-freshness'
 import { correlateEvents, freshnessWindowStart, summarizeProfile } from './source-page-derivation'
 
 /** How many recent runs / events the detail page carries — bounded, newest first. */
@@ -123,8 +123,11 @@ export class JobSourceAdminService {
     }
     if (body.enabled && outcome.changed && this.worker !== undefined) {
       // Fire-and-forget: the response never waits for the fetch, and a failure never reaches it.
+      // The last-resort guard: the read or `openCycle` threw (the run itself is caught inside).
       void this.fetchIfStale(id, actor.id, this.worker).catch((error: unknown) =>
-        this.logger.warn(`enable fetch failed: source=${id} reason=${String(error)}`),
+        this.logger.warn(
+          `enable fetch failed: source_id=${id} source_type=unknown reason=${String(error)}`,
+        ),
       )
     }
     return {
@@ -136,39 +139,50 @@ export class JobSourceAdminService {
   }
 
   /**
-   * Owner request: a freshly enabled source with no recent data fetches NOW, through the existing
-   * manual path (`claimSource` keeps every gate). A refusal is logged; the slot `setEnabled` armed
-   * lets the next tick pick the source up.
+   * Owner request: a freshly enabled source with no recent attempt fetches NOW, through the existing
+   * manual path (`claimSource` keeps every gate). Freshness is the last ATTEMPT (`last_attempt_at`,
+   * stamped on every claim), so an enable/disable loop cannot start a fetch per enable (SR-H-1). A
+   * refusal or a failure is logged; the slot `setEnabled` armed lets the next tick pick the source
+   * up. The run's own end (`finish`, or the disable cancel) moves `next_attempt_at` to the next
+   * cadence slot, so that tick does not fetch again. The MANUAL cycle is always closed.
    */
   private async fetchIfStale(sourceId: string, actor: string, worker: JobRunWorker): Promise<void> {
-    const { rows } = await this.database.db.execute(sql`
-      SELECT s.type, s.manifest_id,
-             (SELECT (extract(epoch FROM max(r.ended_at)) * 1000)::float8
-                FROM job_collection_runs r
-               WHERE r.source_id = s.id AND r.outcome = 'SUCCEEDED') AS last_success_ms,
+    const { rows } = await this.database.db.execute(
+      // Stryker disable next-line StringLiteral: raw SQL text -- only a real Postgres can tell it apart; job-source-enable-fetch.integration.spec.ts runs it against one
+      sql`SELECT s.type, s.manifest_id,
+             (extract(epoch FROM s.last_attempt_at) * 1000)::float8 AS last_attempt_ms,
              (extract(epoch FROM clock_timestamp()) * 1000)::float8 AS now_ms
-        FROM job_sources s WHERE s.id = ${sourceId}::uuid`)
+        FROM job_sources s WHERE s.id = ${sourceId}::uuid`,
+    )
     const row = rows[0]
     if (row === undefined) return
     const manifestId = row['manifest_id']
     const entry = typeof manifestId === 'string' ? this.ledger.catalog.entry(manifestId) : undefined
-    const last = row['last_success_ms']
     const fresh = isFreshForEnable({
-      lastSuccessEndedAtMs: typeof last === 'number' ? last : null,
-      nowMs: Number(row['now_ms']),
+      lastAttemptAtMs: msOrNull(row['last_attempt_ms']),
+      nowMs: msOrNull(row['now_ms']),
       intervalMinutes: entry?.fetchProfile?.intervalMinutes ?? null,
+      floorHours: entry?.floorHours ?? 0,
     })
     if (fresh) return
+    const tag = `source_id=${sourceId} source_type=${String(row['type'])}`
     const { cycleId } = await this.ledger.openCycle({
       trigger: 'MANUAL',
       triggerKey: `enable-fetch:${sourceId}:${randomUUID()}`,
       actor,
     })
-    const result = await worker.runSource({ cycleId, sourceId, actor })
-    if (result.kind === 'REFUSED') {
-      this.logger.warn(
-        `enable fetch refused: source_type=${String(row['type'])} reason=${String(result.reason)}`,
-      )
+    try {
+      const result = await worker.runSource({ cycleId, sourceId, actor })
+      if (result.kind === 'REFUSED') {
+        this.logger.warn(`enable fetch refused: ${tag} reason=${String(result.reason)}`)
+      }
+    } catch (error: unknown) {
+      this.logger.warn(`enable fetch failed: ${tag} reason=${String(error)}`)
+    } finally {
+      // `runSource` awaited the run to its end; `closeCycle` is idempotent.
+      await this.ledger.closeCycle(cycleId).catch((error: unknown) => {
+        this.logger.warn(`enable fetch cycle close failed: ${tag} reason=${String(error)}`)
+      })
     }
   }
 
