@@ -99,6 +99,7 @@ function splitNameRuns(parts: readonly string[], inText: (part: string) => boole
   for (let mask = 1; mask < 2 ** rest.length; mask++) {
     const run = rest.filter((_, bit) => (mask >> bit) & 1)
     const letters = run.join('').replace(/\P{L}/gu, '').length >= 3
+    // Stryker disable next-line ConditionalExpression: equivalent for `true` — a one-part run of 3+ letters is already a lone source (`splitNameLoneParts`), so it adds only duplicates; `false` is killed by the residuals tests (verified by hand, 26 fail)
     if (run.length >= 2 && letters) {
       runs.push(run, [...run].reverse())
     }
