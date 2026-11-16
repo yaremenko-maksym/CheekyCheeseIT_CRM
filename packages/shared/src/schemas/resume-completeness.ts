@@ -234,6 +234,23 @@ const CLUSTERED_CHAR =
   // Stryker disable next-line Regex: the `\P` forms are equivalent (more text goes to the cluster loop, which returns the same); the `[^…]` form is killed when unsuppressed
   /[⠀\x00-\x08\x0E-\x1F\x7F-\x9F\p{Cf}\p{Default_Ignorable_Code_Point}\p{M}ᄀ-ᇿꥠ-꥿ힰ-퟿]/u
 
+/** A decimal digit other than `0-9` (`٣`, `۳`, `३`): a phone written in it is still a phone (453c). */
+const NON_ASCII_DIGIT = /[^\P{Nd}0-9]/u
+
+/**
+ * `text` with every non-ASCII decimal digit as its ASCII digit, one code point for one. Unicode
+ * assigns `Nd` in contiguous blocks of 0..9 (pinned in the residuals spec), so a digit's value is
+ * its distance from the start of its block, modulo ten for the blocks of several sets.
+ */
+function foldDigits(text: string): string {
+  return text.replace(new RegExp(NON_ASCII_DIGIT.source, 'gu'), (digit) => {
+    const cp = digit.codePointAt(0) ?? 0
+    let zero = cp
+    while (NON_ASCII_DIGIT.test(String.fromCodePoint(zero - 1))) zero--
+    return String((cp - zero) % 10)
+  })
+}
+
 /** The offset maps of text in which every code point is its own cluster and maps to itself. */
 function identityMaps(text: string): { from: number[]; to: number[] } {
   const from: number[] = []
@@ -294,8 +311,14 @@ function addJamoRunGaps(run: string, at: number, gaps: Set<number>): void {
  * the next word by a zero-width space still stands alone, as it did before the strip. A letter that
  * took a stripped character and a mark (`o`, ZWSP, acute) ends at a gap too: before the strip the
  * invisible split the letter from the mark, and the mark from the next word.
+ * `digits` folds non-ASCII digits to ASCII (453c). Pass `false` for the text main scanned: there a
+ * non-ASCII digit is a non-word edge (`١www.site.dev` has a `\b` before `www`), so the generic
+ * patterns run on both forms and the fold only adds hits.
  */
-export function normaliseContactText(text: string): {
+export function normaliseContactText(
+  text: string,
+  digits = true,
+): {
   text: string
   from: number[]
   to: number[]
@@ -304,7 +327,13 @@ export function normaliseContactText(text: string): {
   // Most text has nothing to cluster and is NFKC already: every code point is then its own cluster
   // and maps to itself, so the per-cluster loop below would return the text unchanged.
   // Stryker disable next-line ConditionalExpression,BlockStatement: `false` and `{}` are equivalent (the loop returns the same); the `true` forms are killed when unsuppressed
-  if (!CLUSTERED_CHAR.test(text) && text.normalize('NFKC') === text) {
+  if (
+    // Stryker disable next-line ConditionalExpression: equivalent — `false` only skips the fast path, and the loop returns the same
+    !CLUSTERED_CHAR.test(text) &&
+    // Stryker disable next-line LogicalOperator: equivalent — `&&` only narrows the fast path; the loop returns the same text for any text the fast path takes, so skipping it is never wrong
+    (!digits || !NON_ASCII_DIGIT.test(text)) &&
+    text.normalize('NFKC') === text
+  ) {
     return { text, ...identityMaps(text), gaps: new Set() }
   }
   let normalised = ''
@@ -316,12 +345,14 @@ export function normaliseContactText(text: string): {
     // Stripped characters between clusters: the next character starts after a gap.
     if (index > cursor) gaps.add(normalised.length)
     const stripped = cluster.replace(INVISIBLE_PATTERN, '')
-    const piece = stripped.normalize('NFKC')
+    const compatible = stripped.normalize('NFKC')
+    // A digit stays a digit, so the fold comes after the edge test below and adds no edge.
+    const piece = digits ? foldDigits(compatible) : compatible
     if (isJamoRun(cluster)) addJamoRunGaps(cluster, normalised.length, gaps)
     else if (stripped.length < cluster.length) gaps.add(normalised.length + piece.length)
     // A compatibility character (`™`, `²`, `ｘ`, `ﬁ`) is an edge on both sides, as it was before
     // NFKC made letters of it: `Petrenko™` still ends the name (PR #1351 round 6, SR-H-4).
-    if (piece !== stripped.normalize('NFC')) {
+    if (compatible !== stripped.normalize('NFC')) {
       gaps.add(normalised.length).add(normalised.length + piece.length)
     }
     normalised += piece
@@ -420,6 +451,15 @@ const TOKEN_BOUNDARY = {
     escape: /\\(?:[bfnrt]|u[\dA-Fa-f]{4})$/u,
   },
   handle: { before: /\w$/u, after: /^\w/u, escape: null },
+  /**
+   * The API redaction's name boundary: fail-closed, so a digit is an edge too (`Petrenko1990`,
+   * backlog 453d). Completeness and the API gate keep `name`, main's token.
+   */
+  redactedName: {
+    before: /\p{L}$/u,
+    after: /^\p{L}/u,
+    escape: /\\(?:[bfnrt]|u[\dA-Fa-f]{4})$/u,
+  },
 } as const
 
 /**
@@ -589,11 +629,18 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
     const plain = text.replace(CONTACT_APOSTROPHES, "'")
     const folded = foldAccents(plain, gaps)
     const nfc = raw.normalize('NFC')
+    // the text before the digit fold too: a non-ASCII digit there is the edge a URL needs
+    const unfolded = NON_ASCII_DIGIT.test(raw) ? normaliseContactText(raw, false).text : text
     return (
-      findPhoneSpans(text).length > 0 ||
-      RESUME_EMAIL_PATTERN.test(text) ||
-      RESUME_URL_PATTERN.test(text) ||
-      RESUME_TELEGRAM_LABEL_PATTERN.test(text) ||
+      // the generic patterns on the folded text too: a mark on a digit (`067`, acute) splits a phone
+      // in `text`, and the fold drops it (453e). Each distinct form once: most text is all three.
+      [...new Set([text, folded.text, unfolded])].some(
+        (scanned) =>
+          findPhoneSpans(scanned).length > 0 ||
+          RESUME_EMAIL_PATTERN.test(scanned) ||
+          RESUME_URL_PATTERN.test(scanned) ||
+          RESUME_TELEGRAM_LABEL_PATTERN.test(scanned),
+      ) ||
       // The handle on the plain and on the folded text: a mark after its last letter is a boundary
       // (`ivan_dev`, acute, `x`), and one composed into that letter is folded off.
       (handleSource !== null &&

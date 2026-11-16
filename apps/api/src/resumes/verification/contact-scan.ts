@@ -68,34 +68,65 @@ function escapeRegExp(value: string): string {
  * lone part shorter than three letters, and only when the joined reading has two or more parts, so a
  * fragment such as `in` or `an` does not refuse ordinary text (round 8, SR-M-1). A three-letter
  * fragment such as `son` still refuses: accepted. The gate scan also keeps each run of two or more
- * consecutive parts after the first, both ways, when the run has three letters or more, so two short
- * parts that form the whole surname still refuse (`Ivan Li`, ZWSP, `Yu` refuses `Li Yu` and `Yu Li`;
- * round 9, SR-M-2). Runs grow with the square of the part count, and the stored name is HR-edited, so
- * past `MAX_RUN_PARTS` split parts the gate takes no runs and drops no short fragment: round 7's
- * stricter gate, linear in the part count and fail-closed (round 9, Addendum A).
+ * parts after the first, both ways, when the run has three letters or more, so two short parts that
+ * form the whole surname still refuse (`Ivan Li`, ZWSP, `Yu` refuses `Li Yu` and `Yu Li`; round 9,
+ * SR-M-2). A run is any ordered subsequence, adjacent or not, and its parts may be joined by a dash,
+ * a comma, a period, an underscore or a middle dot (`RUN_GAP`; `Li-Yu`, `Li, Bo`; backlog 453, fix 10). Runs grow with 2^parts, and the stored name is
+ * HR-edited, so past `MAX_RUN_PARTS` split parts the gate takes no runs and drops no short fragment:
+ * round 7's stricter gate, linear in the part count and fail-closed (round 9, Addendum A). The
+ * redaction reads a digit next to a name as an edge (`Petrenko1990`, backlog 453d); the gate keeps
+ * main's token, in which a digit is part of the word.
  */
 /** A last name part is a lone source from two letters on, in both passes (main's rule). */
 const isSurnameSource = (part: string): boolean => part.replace(/\P{L}/gu, '').length >= 2
 
-/** Split parts up to which the gate builds runs: 8 parts give at most 42 run sources. */
+/** Split parts up to which the gate builds runs: 8 parts give at most 120 subsequences, 240 sources. */
 const MAX_RUN_PARTS = 8
 
-/** The gate's runs: two or more consecutive split parts after the first, both ways, three letters or more. */
-function splitNameRuns(parts: readonly string[]): string[][] {
-  const rest = parts.slice(1)
-  const between = (start: number, end: number) => rest.slice(start, end + 1)
-  // Stryker disable next-line MethodExpression: equivalent — without the slice, `start >= end` adds only empty runs (no letters, filtered) and one-part runs, which equal lone parts the gate already takes
-  const runs = rest.flatMap((_, end) => rest.slice(0, end).map((_p, start) => between(start, end)))
+/**
+ * The gate's runs: every ordered subsequence of two or more split parts after the first, adjacent
+ * or not (`Li Bo` of `Li`, ZWSP, `Yu`, ZWSP, `Bo`; backlog 453b), both ways, three letters or more.
+ * One subset per bit mask of the parts after the first, so at most 2^7 under `MAX_RUN_PARTS`. Only
+ * the parts `inText` finds take part: a run hits only where each of its parts does, so the others
+ * add no hit. Measured at 8 parts against main: 0.7x on the perf spec's text (3.9x without the
+ * filter), 4.6x on a text holding every part, still linear in the text.
+ */
+function splitNameRuns(parts: readonly string[], inText: (part: string) => boolean): string[][] {
+  // Stryker disable next-line MethodExpression: equivalent — the filter drops only parts no run can hit with; without it the same hits come back, slower
+  const rest = parts.slice(1).filter(inText)
+  const runs: string[][] = []
+  // Stryker disable next-line EqualityOperator: equivalent — mask 2^n selects no part, so its empty run is skipped below
+  for (let mask = 1; mask < 2 ** rest.length; mask++) {
+    const run = rest.filter((_, bit) => (mask >> bit) & 1)
+    // Own line, so the one suppression covers only the `multi` check: `true` adds a one-part run of 3+
+    // letters, already a lone source (`splitNameLoneParts`), so only duplicates; `false` is hidden too
+    // (Stryker suppresses the whole mutator), and is killed by hand (26 tests fail)
+    // Stryker disable next-line ConditionalExpression: equivalent for `true` — see the comment above; `false` is killed by hand
+    const multi = run.length >= 2
+    const letters = run.join('').replace(/\P{L}/gu, '').length >= 3
+    if (multi && letters) {
+      runs.push(run, [...run].reverse())
+    }
+  }
   return runs
-    .filter((run) => run.join('').replace(/\P{L}/gu, '').length >= 3)
-    .flatMap((run) => [run, [...run].reverse()])
 }
 
-function nameSources(fullName: string, failClosed: boolean): string[] {
+/**
+ * Between the parts of a gate run: `CONTACT_NAME_GAP`, or one dash, comma, period, underscore or
+ * middle dot with optional whitespace around it (`Li-Yu`, `Li, Yu`, `Li–Yu`, `Li.Yu`; backlog 453a).
+ * The dash family is U+2010-U+2015 and U+2212; `/` and `;` stay out (no false-positive measure yet).
+ * In the one capture group, so an empty match still has to sit on a gap.
+ */
+const RUN_GAP = String.raw`((?:\s|\\[nrt])*(?:[\-‐-―−,._·](?:\s|\\[nrt])*)?)`
+
+/** The name sources for the folded text `scanned`: the gate's runs are built only of parts in it. */
+function nameSources(fullName: string, failClosed: boolean, scanned: string): string[] {
   // Normalised like the text, so a name with a ligature, a ZWNJ or fullwidth letters matches itself.
   // folded after the split helpers count letters: NFD turns a Hangul syllable into its jamo
   const fold = (parts: readonly string[]) =>
     parts.map((part) => escapeRegExp(foldAccents(part).text))
+  const inText = (part: string) =>
+    new RegExp(escapeRegExp(foldAccents(part).text), 'iu').test(scanned)
   return contactNameParts(fullName).flatMap((parts, reading, readings) => {
     if (reading > 0) {
       const runs = !failClosed && parts.length <= MAX_RUN_PARTS
@@ -105,9 +136,8 @@ function nameSources(fullName: string, failClosed: boolean): string[] {
         (part) => !shortFragments || part.replace(/\P{L}/gu, '').length >= 3,
       )
       return [
-        ...[...splitNameOrders(parts), ...(runs ? splitNameRuns(parts) : [])].map((order) =>
-          fold(order).join(CONTACT_NAME_GAP),
-        ),
+        ...splitNameOrders(parts).map((order) => fold(order).join(CONTACT_NAME_GAP)),
+        ...(runs ? splitNameRuns(parts, inText) : []).map((run) => fold(run).join(RUN_GAP)),
         ...fold(lone),
       ]
     }
@@ -296,6 +326,14 @@ function findSpans(
   const plain = normText.replace(CONTACT_APOSTROPHES, "'")
   const rawSpans = patternSpans(plain, ctx)
   const folded = foldAccents(plain, norm.gaps)
+  // The generic patterns on the folded text too: a mark on a digit (`067`, acute) splits a phone in
+  // `plain`, and the fold drops it (backlog 453e).
+  // Stryker disable next-line ConditionalExpression: equivalent — `true` scans the same text twice and adds only duplicate spans
+  if (folded.text !== plain) {
+    for (const span of patternSpans(folded.text, ctx)) {
+      rawSpans.push(foldedSpan(span.kind, folded, span, normText.length))
+    }
+  }
   const handle = telegramSource(ctx.telegram)
   if (handle !== null) {
     // Stryker disable next-line BlockStatement: no leak measured without it, not an equivalence — the folded-text loop below and main's handle arm redact the same letters; the handle is pinned by the round-6 handle rows
@@ -308,8 +346,10 @@ function findSpans(
       rawSpans.push(foldedSpan('telegram', folded, span, normText.length))
     }
   }
-  for (const source of nameSources(ctx.fullName, failClosed)) {
-    for (const span of findWholeTokens(folded.text, folded.gaps, source, 'name')) {
+  // the redaction reads a digit as an edge too (backlog 453d); the gate keeps main's token
+  const nameKind = failClosed ? 'redactedName' : 'name'
+  for (const source of nameSources(ctx.fullName, failClosed, folded.text)) {
+    for (const span of findWholeTokens(folded.text, folded.gaps, source, nameKind)) {
       rawSpans.push(foldedSpan('name', folded, span, normText.length))
     }
   }
@@ -320,6 +360,21 @@ function findSpans(
     // Stryker disable next-line ConditionalExpression: fallback only if index is out of bounds
     end: norm.to[s.end - 1] ?? text.length,
   }))
+  // The generic patterns on the text before the digit fold too: there a non-ASCII digit is the
+  // non-word edge a URL or an email needs (`١www.site.dev`), so the fold only adds hits.
+  // The apostrophes stay as written: the pass over `plain` above reads them, and this one only adds.
+  // Stryker disable next-line Regex: equivalent — the test only skips work: text without a non-ASCII digit unfolds to `normText` and gives the same spans
+  const unfolded = /[^\P{Nd}0-9]/u.test(text) ? normaliseContactText(text, false) : norm
+  // Stryker disable next-line ConditionalExpression: equivalent — `true` re-scans `normText`, which differs from `plain` only in same-width apostrophes, so its spans are the plain pass's or inside them
+  if (unfolded !== norm) {
+    for (const s of patternSpans(unfolded.text, ctx)) {
+      spans.push({
+        kind: s.kind,
+        start: unfolded.from[s.start] ?? 0,
+        end: unfolded.to[s.end - 1] ?? text.length,
+      })
+    }
+  }
   // Main's spans, on the same text: the normalised scan may only add redactions (SR-H-4). Its name
   // and handle arms add no redaction measured today; keep the union as the guard against a future
   // regression of the own pass, not dead code (round 7). In the gate scan the name arm adds the
@@ -367,17 +422,33 @@ export function scanContacts(text: string, ctx: ContactContext): ContactHit[] {
   return hits
 }
 
+/** Passes `redactContacts` runs before it gives up on a field and redacts it whole. */
+const MAX_REDACTION_PASSES = 8
+
 /**
- * `text` (NFC) with every contact replaced by `[REDACTED]`. Overlapping and
- * adjacent hits merge into one replacement. Not yet a fixed point: a contact
- * glued to another one (`0671234567Petrenko`) can survive one pass and fall to
- * a second (backlog 449). Same contract as `scanContacts`: one raw field at a
- * time, before serialization.
+ * `text` (NFC) with every contact replaced by `[REDACTED]`. Overlapping and adjacent hits merge
+ * into one replacement. A fixed point: a contact glued to another one (`@ivan_dev0671234567`) is a
+ * whole token only once the other is gone, so the pass runs again on its own result until nothing
+ * changes; placeholders a later pass writes next to an earlier one merge too (backlog 449). A field
+ * still changing after `MAX_REDACTION_PASSES` is redacted whole: fail-closed. Same contract as
+ * `scanContacts`: one raw field at a time, before serialization.
  */
 export function redactContacts(
   text: string,
   ctx: ContactContext | readonly ContactContext[],
 ): string {
+  let current = text
+  // Stryker disable next-line EqualityOperator: `<=` runs one more pass before the bound; no known text needs exactly nine, and the bound row pins the fail-closed exit
+  for (let pass = 0; pass < MAX_REDACTION_PASSES; pass++) {
+    const next = redactOnce(current, ctx).replace(/(?:\[REDACTED\]){2,}/gu, '[REDACTED]')
+    if (next === current) return next
+    current = next
+  }
+  return '[REDACTED]'
+}
+
+/** One pass of `redactContacts`: the spans of `redactedSpans` replaced, the rest NFC. */
+function redactOnce(text: string, ctx: ContactContext | readonly ContactContext[]): string {
   let result = ''
   let cursor = 0
   for (const { start, end } of redactedSpans(text, ctx)) {
@@ -387,7 +458,10 @@ export function redactContacts(
   return result + text.slice(cursor).normalize('NFC')
 }
 
-/** The spans of `text` that `redactContacts` replaces, merged, in text order and original offsets. */
+/**
+ * The spans of `text` that one pass of `redactContacts` replaces, merged, in text order and
+ * original offsets. One pass only: a contact a later pass finds is not among them.
+ */
 export function redactedSpans(
   text: string,
   ctx: ContactContext | readonly ContactContext[],
