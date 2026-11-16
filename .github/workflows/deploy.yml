@@ -1070,6 +1070,8 @@ jobs:
             mkdir -p /opt/crm
             # All variables below come from the envs: list above (SSH env channel).
             # No ${{ secrets.* }} interpolation happens here — safe from injection.
+            # Create (or keep) the file owner-only before any secret is written (SR LOW, PR #1355).
+            (umask 077; touch /opt/crm/.env.production; chmod 600 /opt/crm/.env.production)
             cat > /opt/crm/.env.production << 'ENVEOF'
             NODE_ENV=production
             API_PORT=3001
