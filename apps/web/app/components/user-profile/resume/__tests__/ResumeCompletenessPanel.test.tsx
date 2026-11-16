@@ -84,8 +84,18 @@ describe('ResumeCompletenessPanel', () => {
     const { onSubmit } = renderPanel({ alreadyVerified: true, canSave: true })
     const submit = screen.getByRole('button', { name: 'Надіслати на перевірку' })
     expect(submit).toBeEnabled()
+    expect(submit).not.toHaveAttribute('aria-describedby')
+    expect(screen.queryByTestId('resume-facts-submit-already-verified')).not.toBeInTheDocument()
     fireEvent.click(submit)
     expect(onSubmit).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows only the completeness reason when an already-verified resume still lists issues (backlog 452)', () => {
+    renderPanel({ alreadyVerified: true, issues: [{ path: 'headline', code: 'HEADLINE_MISSING' }] })
+    const submit = screen.getByRole('button', { name: 'Надіслати на перевірку' })
+    expect(submit).toBeDisabled()
+    expect(submit).toHaveAccessibleDescription('Спершу заповніть поля зі списку')
+    expect(screen.queryByTestId('resume-facts-submit-already-verified')).not.toBeInTheDocument()
   })
 
   it('labels each row by its field and its code text', () => {
