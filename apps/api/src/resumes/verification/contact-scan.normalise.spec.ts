@@ -264,16 +264,21 @@ describe('completeness flags exactly the names the API redacts, a bare mark incl
       const text = `${atoms()}${rendered}${after}`
       if (gap !== ' ' && after.startsWith('\u0903')) shapeCount++
       const flags = flagged(text, fullName)
-      const redacted = redactContacts(text, { fullName, emails: [] })
       if (flags) flaggedCount++
       // Completeness flags exactly the texts whose full name the API redacts (its first token goes;
       // for one token the full name is the surname, so any redaction is the full name). A bare mark
       // next to the name (U+0301, U+0903) is an edge on both sides since round 6 (SR-M-4, CR-M-4).
-      const fullNameRedacted =
-        parts.length === 1
+      const fullNameRedacted = (input: string) => {
+        const redacted = redactContacts(input, { fullName, emails: [] })
+        return parts.length === 1
           ? redacted.includes('[REDACTED]')
           : !normaliseContactText(redacted).text.includes(firstToken)
-      expect([text, flags]).toEqual([text, fullNameRedacted])
+      }
+      // Since backlog 453d the redaction alone reads a digit as an edge (`7Ivan Petrenko`), so the
+      // exact match holds with the digit read as a letter (`q`: no mark composes with it), and on
+      // the text itself the redaction takes every name completeness flags.
+      expect([text, flags]).toEqual([text, fullNameRedacted(text.replaceAll('7', 'q'))])
+      expect([text, !flags || fullNameRedacted(text)]).toEqual([text, true])
     }
     // both outcomes come up, so the property is not vacuous
     expect(flaggedCount).toBeGreaterThan(500)

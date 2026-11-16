@@ -77,19 +77,32 @@ function escapeRegExp(value: string): string {
 /** A last name part is a lone source from two letters on, in both passes (main's rule). */
 const isSurnameSource = (part: string): boolean => part.replace(/\P{L}/gu, '').length >= 2
 
-/** Split parts up to which the gate builds runs: 8 parts give at most 42 run sources. */
+/** Split parts up to which the gate builds runs: 8 parts give at most 120 subsequences, 240 sources. */
 const MAX_RUN_PARTS = 8
 
-/** The gate's runs: two or more consecutive split parts after the first, both ways, three letters or more. */
+/**
+ * The gate's runs: every ordered subsequence of two or more split parts after the first, adjacent
+ * or not (`Li Bo` of `Li`, ZWSP, `Yu`, ZWSP, `Bo`; backlog 453b), both ways, three letters or more.
+ * One subset per bit mask of the parts after the first, so at most 2^7 under `MAX_RUN_PARTS`.
+ */
 function splitNameRuns(parts: readonly string[]): string[][] {
   const rest = parts.slice(1)
-  const between = (start: number, end: number) => rest.slice(start, end + 1)
-  // Stryker disable next-line MethodExpression: equivalent — without the slice, `start >= end` adds only empty runs (no letters, filtered) and one-part runs, which equal lone parts the gate already takes
-  const runs = rest.flatMap((_, end) => rest.slice(0, end).map((_p, start) => between(start, end)))
+  const runs: string[][] = []
+  for (let mask = 1; mask < 2 ** rest.length; mask++) {
+    const run = rest.filter((_, bit) => (mask >> bit) & 1)
+    if (run.length >= 2 && run.join('').replace(/\P{L}/gu, '').length >= 3) {
+      runs.push(run, [...run].reverse())
+    }
+  }
   return runs
-    .filter((run) => run.join('').replace(/\P{L}/gu, '').length >= 3)
-    .flatMap((run) => [run, [...run].reverse()])
 }
+
+/**
+ * Between the parts of a gate run: `CONTACT_NAME_GAP`, or one hyphen or comma with optional
+ * whitespace around it (`Li-Yu`, `Li, Yu`; backlog 453a). In the one capture group, so an empty
+ * match still has to sit on a gap.
+ */
+const RUN_GAP = String.raw`((?:\s|\\[nrt])*(?:[-‐‑,](?:\s|\\[nrt])*)?)`
 
 function nameSources(fullName: string, failClosed: boolean): string[] {
   // Normalised like the text, so a name with a ligature, a ZWNJ or fullwidth letters matches itself.
@@ -105,9 +118,8 @@ function nameSources(fullName: string, failClosed: boolean): string[] {
         (part) => !shortFragments || part.replace(/\P{L}/gu, '').length >= 3,
       )
       return [
-        ...[...splitNameOrders(parts), ...(runs ? splitNameRuns(parts) : [])].map((order) =>
-          fold(order).join(CONTACT_NAME_GAP),
-        ),
+        ...splitNameOrders(parts).map((order) => fold(order).join(CONTACT_NAME_GAP)),
+        ...(runs ? splitNameRuns(parts) : []).map((run) => fold(run).join(RUN_GAP)),
         ...fold(lone),
       ]
     }
@@ -296,6 +308,13 @@ function findSpans(
   const plain = normText.replace(CONTACT_APOSTROPHES, "'")
   const rawSpans = patternSpans(plain, ctx)
   const folded = foldAccents(plain, norm.gaps)
+  // The generic patterns on the folded text too: a mark on a digit (`067`, acute) splits a phone in
+  // `plain`, and the fold drops it (backlog 453e).
+  if (folded.text !== plain) {
+    for (const span of patternSpans(folded.text, ctx)) {
+      rawSpans.push(foldedSpan(span.kind, folded, span, normText.length))
+    }
+  }
   const handle = telegramSource(ctx.telegram)
   if (handle !== null) {
     // Stryker disable next-line BlockStatement: no leak measured without it, not an equivalence — the folded-text loop below and main's handle arm redact the same letters; the handle is pinned by the round-6 handle rows
@@ -308,8 +327,10 @@ function findSpans(
       rawSpans.push(foldedSpan('telegram', folded, span, normText.length))
     }
   }
+  // the redaction reads a digit as an edge too (backlog 453d); the gate keeps main's token
+  const nameKind = failClosed ? 'redactedName' : 'name'
   for (const source of nameSources(ctx.fullName, failClosed)) {
-    for (const span of findWholeTokens(folded.text, folded.gaps, source, 'name')) {
+    for (const span of findWholeTokens(folded.text, folded.gaps, source, nameKind)) {
       rawSpans.push(foldedSpan('name', folded, span, normText.length))
     }
   }
@@ -367,17 +388,32 @@ export function scanContacts(text: string, ctx: ContactContext): ContactHit[] {
   return hits
 }
 
+/** Passes `redactContacts` runs before it gives up on a field and redacts it whole. */
+const MAX_REDACTION_PASSES = 8
+
 /**
- * `text` (NFC) with every contact replaced by `[REDACTED]`. Overlapping and
- * adjacent hits merge into one replacement. Not yet a fixed point: a contact
- * glued to another one (`0671234567Petrenko`) can survive one pass and fall to
- * a second (backlog 449). Same contract as `scanContacts`: one raw field at a
- * time, before serialization.
+ * `text` (NFC) with every contact replaced by `[REDACTED]`. Overlapping and adjacent hits merge
+ * into one replacement. A fixed point: a contact glued to another one (`@ivan_dev0671234567`) is a
+ * whole token only once the other is gone, so the pass runs again on its own result until nothing
+ * changes; placeholders a later pass writes next to an earlier one merge too (backlog 449). A field
+ * still changing after `MAX_REDACTION_PASSES` is redacted whole: fail-closed. Same contract as
+ * `scanContacts`: one raw field at a time, before serialization.
  */
 export function redactContacts(
   text: string,
   ctx: ContactContext | readonly ContactContext[],
 ): string {
+  let current = text
+  for (let pass = 0; pass < MAX_REDACTION_PASSES; pass++) {
+    const next = redactOnce(current, ctx).replace(/(?:\[REDACTED\]){2,}/gu, '[REDACTED]')
+    if (next === current) return next
+    current = next
+  }
+  return '[REDACTED]'
+}
+
+/** One pass of `redactContacts`: the spans of `redactedSpans` replaced, the rest NFC. */
+function redactOnce(text: string, ctx: ContactContext | readonly ContactContext[]): string {
   let result = ''
   let cursor = 0
   for (const { start, end } of redactedSpans(text, ctx)) {
@@ -387,7 +423,10 @@ export function redactContacts(
   return result + text.slice(cursor).normalize('NFC')
 }
 
-/** The spans of `text` that `redactContacts` replaces, merged, in text order and original offsets. */
+/**
+ * The spans of `text` that one pass of `redactContacts` replaces, merged, in text order and
+ * original offsets. One pass only: a contact a later pass finds is not among them.
+ */
 export function redactedSpans(
   text: string,
   ctx: ContactContext | readonly ContactContext[],
