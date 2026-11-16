@@ -651,7 +651,9 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     const dense = buildPdfWithRawContentStream(
       repeatedBuffer(' Tj', (MAX_PDF_TEXT_OPERATORS + 1000) * 3),
     )
-    await expect(inspectPdfContent(dense, 1)).rejects.toThrow(/RESUME_PDF_TOO_BUSY/)
+    await expect(inspectPdfContent(dense, 1)).rejects.toThrow(
+      `{"code":"RESUME_PDF_TOO_BUSY","params":{"max":${MAX_PDF_TEXT_OPERATORS}}}`,
+    )
 
     // ' TjX' never matches (a delimiter must follow `Tj`), so the early exit
     // never fires and every byte is walked — the residual cost that the
@@ -1606,6 +1608,114 @@ describe('countRenderedPages (Task 14)', () => {
     // Over MAX_PDF_PAGES is a layout failure to repair, so the count must not refuse it.
     expect(await service.countRenderedPages(await buildEmptyPdf(MAX_PDF_PAGES + 1))).toBe(
       MAX_PDF_PAGES + 1,
+    )
+  })
+})
+
+/**
+ * Backlog 443: every refusal of the two inspectors carries an exact resume
+ * error code (and its params), because that JSON is what lands in
+ * `error_message` and what the web turns into a catalog line. A regex on the
+ * code alone would let a wrong cap or a swapped code through.
+ */
+describe('inspectDocxZip / inspectPdfContent refuse by exact code (backlog 443)', () => {
+  const CORRUPT = '{"code":"RESUME_DOCX_CORRUPT"}'
+  const UNSUPPORTED = '{"code":"RESUME_DOCX_UNSUPPORTED"}'
+  const oneEntry = () => buildZip([{ name: 'a.xml', data: Buffer.from('x') }])
+
+  it('a buffer with no end-of-directory record is corrupt, not unsupported', async () => {
+    await expect(inspectDocxZip(Buffer.alloc(40, 0xff))).rejects.toThrow(CORRUPT)
+  })
+
+  it('a bare 22-byte ZIP64 tail record at offset 0 is unsupported', async () => {
+    const eocd = Buffer.alloc(22)
+    eocd.writeUInt32LE(0x06054b50, 0)
+    eocd.writeUInt16LE(1, 10)
+    eocd.writeUInt32LE(0xffffffff, 16)
+    await expect(inspectDocxZip(eocd)).rejects.toThrow(UNSUPPORTED)
+  })
+
+  it('an archive with no entries is corrupt', async () => {
+    await expect(inspectDocxZip(buildZip([]))).rejects.toThrow(CORRUPT)
+  })
+
+  it('the declared total refuses with the default cap in MB', async () => {
+    await expect(inspectDocxZip(buildDocxZipBomb())).rejects.toThrow(
+      '{"code":"RESUME_DOCX_TOO_LARGE","params":{"mb":20}}',
+    )
+  })
+
+  it('a declared total equal to the cap passes; one byte over refuses', async () => {
+    const zip = buildZip([{ name: 'a.xml', data: Buffer.from('xx') }])
+    await expect(inspectDocxZip(zip, 2, 2)).resolves.toMatchObject({ actualUncompressedBytes: 2 })
+    await expect(inspectDocxZip(zip, 1, 1)).rejects.toThrow(
+      '{"code":"RESUME_DOCX_TOO_LARGE","params":{"mb":0}}',
+    )
+  })
+
+  it('a local header whose name runs past the buffer is corrupt', async () => {
+    const zip = oneEntry()
+    zip.writeUInt16LE(0xffff, 26)
+    await expect(inspectDocxZip(zip)).rejects.toThrow(CORRUPT)
+  })
+
+  it('a stored entry whose data starts exactly at the end of the buffer is empty, not corrupt', async () => {
+    const zip = oneEntry()
+    zip.writeUInt16LE(zip.length - 30, 26)
+    await expect(inspectDocxZip(zip)).resolves.toMatchObject({ actualUncompressedBytes: 0 })
+  })
+
+  it('a deflate entry that does not inflate is corrupt', async () => {
+    const zip = buildZip([{ name: 'a.xml', data: Buffer.from('hello hello'), deflate: true }])
+    zip[30 + 'a.xml'.length] = 0xff // reserved block type: zlib refuses it
+    await expect(inspectDocxZip(zip)).rejects.toThrow(CORRUPT)
+  })
+
+  it('the real expansion refuses with the cap that was spent, in MB', async () => {
+    await expect(
+      inspectDocxZip(buildDocxLyingAboutSize(4 * 1024 * 1024), 1024 * 1024, 8 * 1024 * 1024),
+    ).rejects.toThrow('{"code":"RESUME_DOCX_TOO_LARGE","params":{"mb":1}}')
+  })
+
+  /** Unfiltered content streams: what is between the keywords is what is charged. */
+  const rawPdf = (...bodies: string[]) =>
+    Buffer.from(
+      '%PDF-1.7\n' +
+        bodies.map((b) => `<< /Length ${b.length} >>\nstream\n${b}endstream\n`).join(''),
+      'latin1',
+    )
+  const TOO_LARGE = '{"code":"RESUME_PDF_TOO_LARGE","params":{"mb":0}}'
+
+  it('decoded content equal to the cap passes; one byte over refuses', async () => {
+    const pdf = rawPdf('x'.repeat(10))
+    await expect(inspectPdfContent(pdf, 1, 10)).resolves.toMatchObject({ contentBytes: 10 })
+    await expect(inspectPdfContent(pdf, 1, 9)).rejects.toThrow(TOO_LARGE)
+  })
+
+  it('a further stream after the budget is spent refuses, even an empty one', async () => {
+    await expect(inspectPdfContent(rawPdf('x'.repeat(10), ''), 1, 10)).rejects.toThrow(TOO_LARGE)
+  })
+
+  it('a Flate stream that inflates past the budget refuses', async () => {
+    const pdf = buildPdfWithRawContentStream('x'.repeat(100))
+    await expect(inspectPdfContent(pdf, 1, 50)).rejects.toThrow(TOO_LARGE)
+  })
+
+  it('operators summed across streams: equal to the cap passes, one over refuses', async () => {
+    const pdf = rawPdf(' Tj Tj Tj\n', ' Tj Tj Tj\n')
+    await expect(inspectPdfContent(pdf, 1, 1000, 6)).resolves.toMatchObject({ textOperators: 6 })
+    await expect(inspectPdfContent(pdf, 1, 1000, 5)).rejects.toThrow(
+      '{"code":"RESUME_PDF_TOO_BUSY","params":{"max":5}}',
+    )
+  })
+
+  it('pages that share a stream multiply its operators against the cap', async () => {
+    const pdf = rawPdf(' Tj Tj Tj\n')
+    await expect(inspectPdfContent(pdf, 2, 1000, 6)).resolves.toMatchObject({
+      amplifiedOperators: 6,
+    })
+    await expect(inspectPdfContent(pdf, 2, 1000, 5)).rejects.toThrow(
+      '{"code":"RESUME_PDF_TOO_BUSY","params":{"max":5}}',
     )
   })
 })
