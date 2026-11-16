@@ -14,6 +14,7 @@ import {
   EMPTY_RESUME_CONTENT,
   EMPTY_RESUME_FACTS,
   type ResumeContent,
+  type ResumeFacts,
   type SeniorResumeDto,
   type SeniorResumeResponse,
 } from '@crm/shared'
@@ -101,7 +102,7 @@ const tab = (onDirtyChange?: (dirty: boolean) => void) => (
   <ResumeTab userId="senior-1" displayName="Alex Doe" {...(onDirtyChange && { onDirtyChange })} />
 )
 
-const COMPLETE_FACTS = {
+const COMPLETE_FACTS: ResumeFacts = {
   ...EMPTY_RESUME_FACTS,
   headline: 'Backend Engineer',
   skills: ['TypeScript', 'Node.js', 'PostgreSQL', 'React', 'Docker'],
