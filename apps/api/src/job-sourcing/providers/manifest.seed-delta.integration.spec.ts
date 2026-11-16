@@ -284,6 +284,89 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     expect(await readiness('jsearch.rapidapi.backend')).toBe('BLOCKED') // manifest: BLOCKED wins (key required)
   })
 
+  describe('step 5: a redeploy refreshes the stored readiness of a claimed row', () => {
+    // Everything an admin or the runtime owns: the refresh must leave all of it as it was.
+    const untouched = async (id: string) => {
+      const r = (await byManifestId(id))!
+      return [
+        r['enabled'],
+        r['admin_state'],
+        r['admin_state_history'],
+        r['budget_limit'],
+        r['budget_used'],
+        r['min_interval_hours'],
+        r['consecutive_failures'],
+        r['cooldown_until'],
+        r['next_attempt_at'],
+        r['config_version'],
+      ]
+    }
+    const stamp = async (id: string, readiness: string, reason: string | null) => {
+      await client.query(
+        `UPDATE job_sources SET readiness = $2::job_source_readiness, readiness_reason = $3,
+                enabled = true, budget_used = 4, updated_at = '2026-01-01T00:00:00Z'
+          WHERE manifest_id = $1`,
+        [id, readiness, reason],
+      )
+    }
+    const stored = async (id: string) => {
+      const r = (await byManifestId(id))!
+      return [r['readiness'], r['readiness_reason']]
+    }
+
+    it('unblocks a row the owner cleared (a stale PERMISSION_UNCLEAR becomes CANDIDATE, no reason)', async () => {
+      await applySeedThenDelta()
+      await stamp('wwr.rss.all-jobs', 'BLOCKED', 'PERMISSION_UNCLEAR: stale, from an older deploy')
+      const kept = await untouched('wwr.rss.all-jobs')
+      await client.query(delta())
+      expect(await stored('wwr.rss.all-jobs')).toEqual(['CANDIDATE', null])
+      expect(await untouched('wwr.rss.all-jobs')).toEqual(kept)
+      expect((await byManifestId('wwr.rss.all-jobs'))!['enabled']).toBe(true)
+    })
+
+    it('blocks a row the manifest now prohibits (a stale CANDIDATE becomes BLOCKED with the reason)', async () => {
+      await applySeedThenDelta()
+      await stamp('euremotejobs.rss.feed', 'CANDIDATE', null)
+      const kept = await untouched('euremotejobs.rss.feed')
+      await client.query(delta())
+      const [readiness, reason] = await stored('euremotejobs.rss.feed')
+      expect(readiness).toBe('BLOCKED')
+      expect(String(reason)).toMatch(/^PERMISSION_PROHIBITED: /)
+      expect(await untouched('euremotejobs.rss.feed')).toEqual(kept)
+    })
+
+    it('replaces a stale reason on a row that stays BLOCKED (EU Remote Jobs: UNCLEAR -> PROHIBITED)', async () => {
+      await applySeedThenDelta()
+      await stamp('euremotejobs.rss.feed', 'BLOCKED', 'PERMISSION_UNCLEAR: stale')
+      await client.query(delta())
+      const [readiness, reason] = await stored('euremotejobs.rss.feed')
+      expect(readiness).toBe('BLOCKED')
+      expect(String(reason)).toMatch(/^PERMISSION_PROHIBITED: /)
+      expect(String(reason)).not.toContain('PERMISSION_UNCLEAR')
+    })
+
+    it('keeps a smoke-earned VERIFIED against a CANDIDATE entry, and downgrades it for a BLOCKED one', async () => {
+      await applySeedThenDelta()
+      await stamp('remoteok.api.latest', 'VERIFIED', null)
+      await stamp('jsearch.rapidapi.backend', 'VERIFIED', null)
+      await client.query(delta())
+      expect(await stored('remoteok.api.latest')).toEqual(['VERIFIED', null])
+      const [readiness, reason] = await stored('jsearch.rapidapi.backend')
+      expect(readiness).toBe('BLOCKED')
+      expect(reason).not.toBeNull()
+    })
+
+    it('moves updated_at only on a row whose readiness really changed', async () => {
+      await applySeedThenDelta()
+      await stamp('wwr.rss.all-jobs', 'BLOCKED', 'PERMISSION_UNCLEAR: stale')
+      await stamp('wwr.rss.devops', 'CANDIDATE', null) // already what the manifest says
+      await client.query(delta())
+      const at = async (id: string) => new Date(String((await byManifestId(id))!['updated_at']))
+      expect((await at('wwr.rss.all-jobs')).getTime()).toBeGreaterThan(Date.parse('2026-02-01'))
+      expect((await at('wwr.rss.devops')).toISOString()).toBe('2026-01-01T00:00:00.000Z')
+    })
+  })
+
   it('a config revision raises config_version, replaces the config, and keeps the admin state', async () => {
     await applySeedThenDelta()
     await client.query(

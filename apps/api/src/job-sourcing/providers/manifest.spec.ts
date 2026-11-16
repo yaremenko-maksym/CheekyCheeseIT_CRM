@@ -1080,6 +1080,7 @@ describe('authentication and attribution agree with what the provenance says', (
       ['JOBICY_API', 'CREDIT_REQUIRED'],
       ['ARBEITNOW_API', 'LINK_BACK_REQUIRED'],
       ['MUSE_API', 'LINK_BACK_REQUIRED'],
+      ['WWR_RSS', 'LINK_BACK_REQUIRED'],
     ])
   })
 

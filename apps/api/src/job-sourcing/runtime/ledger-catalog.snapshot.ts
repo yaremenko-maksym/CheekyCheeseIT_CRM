@@ -251,7 +251,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'EUREMOTEJOBS_RSS',
-      blockerCodes: [],
+      blockerCodes: ['PERMISSION_PROHIBITED'],
       deadlines: [],
       payloadVerified: true,
       quotaDeclared: false,
@@ -753,7 +753,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'euremotejobs.rss.feed',
       type: 'EUREMOTEJOBS_RSS',
-      blockerCodes: [],
+      blockerCodes: ['PERMISSION_PROHIBITED'],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 1440,
