@@ -404,7 +404,7 @@ export function findWholeTokens(
     const before = text.slice(Math.max(0, start - 6), start)
     const { indices } = m
     if (
-      // Stryker disable next-line OptionalChaining: equivalent — the `d` flag always sets indices and every group of a source takes part
+      // Stryker disable next-line OptionalChaining,UnaryOperator: equivalent — the `d` flag always sets indices and every group of a source takes part, so neither the chain nor the -1 fallback is reached
       !m.some((group, g) => group === '' && !gaps.has(indices?.[g]?.[0] ?? -1)) &&
       (gaps.has(start) ||
         !boundary.before.test(before) ||
