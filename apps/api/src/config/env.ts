@@ -176,10 +176,11 @@ const envSchema = z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
 
-    // JOB_MATCH_RECONCILIATION_ENABLED: switch for the periodic match reconciliation (r5 Task 4.6
-    //   S4b): sweep every RECONCILE_PERIOD_HOURS, enqueue stale opportunities, drain the recompute
-    //   worker. **Default false**: unlike the collection crons (always on) it activates the
-    //   recompute worker's writes to `job_opportunity_matches`, which nothing reads yet. May run
+    // JOB_MATCH_RECONCILIATION_ENABLED: switch for the match reconciliation (r5 Task 4.6 S4b): drain
+    //   the recompute worker right after every collection run ends (collected records ->
+    //   opportunities -> matches, which feed the HR/ADMIN job queue), and every
+    //   RECONCILE_PERIOD_HOURS sweep for stale opportunities as the safety net. **Default false**: unlike the collection crons (always on) it activates
+    //   the recompute worker's writes to `job_opportunities` / `job_opportunity_matches`. May run
     //   alongside JOB_AVAILABILITY_RECONCILE_ENABLED: each consumes its own disjoint `reason`
     //   partition of `job_dirty_work`.
     JOB_MATCH_RECONCILIATION_ENABLED: z

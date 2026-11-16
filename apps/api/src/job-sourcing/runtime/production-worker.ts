@@ -10,7 +10,7 @@ import { JobRunLedger } from '../ownership/job-run-ledger'
 import { secretsForType } from '../quota-credentials'
 import type { JobSourceRegistry } from '../registry/job-source-registry'
 import { recordHostBan } from '../scheduling/host-state'
-import { JobRunWorker, type WorkerOptions } from './job-run-worker'
+import { JobRunWorker, type WorkerDeps, type WorkerOptions } from './job-run-worker'
 import { productionLedgerCatalog } from './production-catalog'
 
 /**
@@ -77,6 +77,7 @@ export function createProductionWorker(
   registry: JobSourceRegistry,
   config: ConfigService<Env, true> | undefined,
   options: Partial<Omit<WorkerOptions, 'owner'>> = {},
+  onRunEnded?: WorkerDeps['onRunEnded'],
 ): JobRunWorker {
   const requireConfig = (): ConfigService<Env, true> => {
     if (config === undefined) throw new Error('the run worker needs ConfigService to run')
@@ -106,6 +107,7 @@ export function createProductionWorker(
       catalog,
       db,
       recordBan: (ban) => recordHostBan(db, ban),
+      onRunEnded,
       secretsFor: (type) =>
         // Stryker disable next-line ObjectLiteral,BooleanLiteral: `infer` only types the value; the key read is asserted in production-worker.spec
         secretsForType(type, (key) => requireConfig().get(key, { infer: true })),

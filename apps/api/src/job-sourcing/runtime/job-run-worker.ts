@@ -155,6 +155,13 @@ export interface WorkerDeps {
    * fake so the tail wiring (scope branching, list-then-tail) can be exercised without a database.
    */
   readonly detailTailPortFactory?: (deps: DetailTailPortDeps) => DetailTailPort
+  /**
+   * The post-run step, called once after every run ends (scheduled and manual alike), after the run
+   * has released its slot: production wires the match drain (`requestDrain`), which turns the
+   * records the run persisted into opportunities and matches. Not awaited: the run's report never
+   * waits for it, and a throw is logged, never the run's.
+   */
+  readonly onRunEnded?: ((report: RunReport) => unknown) | undefined
 }
 
 /** A thrown value's class name, the only part of a foreign error the worker logs. */
@@ -472,10 +479,25 @@ export class JobRunWorker {
   /** Run one claimed run to its end. Never throws. `scope` undefined reads as `LIST_AND_DETAIL`. */
   async runClaimed(run: ClaimedRun, scope?: RunScope): Promise<RunReport> {
     this.active += 1
+    let report: RunReport
     try {
-      return await this.execute(run, scope)
+      report = await this.execute(run, scope)
     } finally {
       this.active -= 1
+    }
+    this.notifyRunEnded(report)
+    return report
+  }
+
+  /** `onRunEnded`, isolated from the run: a throw or a rejection is logged by class name only. */
+  private notifyRunEnded(report: RunReport): void {
+    const failed = (error: unknown) =>
+      this.logger.error(`post-run step failed (${nameOf(error)}); the run is unaffected`)
+    try {
+      const result = this.deps.onRunEnded?.(report)
+      if (result instanceof Promise) result.catch(failed)
+    } catch (error: unknown) {
+      failed(error)
     }
   }
 

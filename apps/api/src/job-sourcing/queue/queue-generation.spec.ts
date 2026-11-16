@@ -8,6 +8,7 @@ import {
   GENERATION_POLICY,
   generationById,
   invalidateGenerationsForManualCard,
+  invalidateGenerationsForNewJobs,
   invalidateTeamGenerations,
   purgeExpiredGenerations,
 } from './queue-generation'
@@ -235,6 +236,34 @@ describe('invalidateGenerationsForManualCard', () => {
     expect(h.compiled(2).text).toContain("SET status = 'INVALIDATED'")
     expect(h.compiled(2).params).toEqual([TEAM])
     expect(h.execute).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('invalidateGenerationsForNewJobs', () => {
+  it('bounds every lock wait, takes the studio lock, then every team lock in id order in one statement, then retires every published one', async () => {
+    const h = harness([], [], [], [{ id: 'g1' }, { id: 'g2' }])
+    await expect(invalidateGenerationsForNewJobs(h.database.db)).resolves.toBe(2)
+    expect(h.transaction).toHaveBeenCalledTimes(1)
+    expect(h.compiled(0).text).toBe("SET LOCAL lock_timeout = '5000ms'")
+    expect(h.compiled(1).text).toBe('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))')
+    expect(h.compiled(1).params).toEqual(['job-queue-generation:STUDIO'])
+    // CR-M-2: one round trip for all teams, keyed exactly as `lockScopePublish('TEAM:<id>')`
+    expect(h.compiled(2).text).toBe(
+      "SELECT pg_advisory_xact_lock(hashtextextended('job-queue-generation:TEAM:' || t.id::text, 0)) FROM (SELECT id FROM teams ORDER BY id) t",
+    )
+    expect(h.compiled(2).params).toEqual([])
+    expect(h.compiled(3).text).toContain("SET status = 'INVALIDATED'")
+    expect(h.compiled(3).text).toContain("WHERE status = 'PUBLISHED' RETURNING id")
+    expect(h.compiled(3).params).toEqual([])
+    expect(h.execute).toHaveBeenCalledTimes(4)
+  })
+
+  it('takes the lock timeout it is given', async () => {
+    const h = harness([], [], [], [])
+    await expect(
+      invalidateGenerationsForNewJobs(h.database.db, { lockTimeoutMs: 250 }),
+    ).resolves.toBe(0)
+    expect(h.compiled(0).text).toBe("SET LOCAL lock_timeout = '250ms'")
   })
 })
 

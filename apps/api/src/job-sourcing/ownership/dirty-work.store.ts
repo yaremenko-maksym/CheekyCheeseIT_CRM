@@ -198,6 +198,12 @@ export interface ClaimOptions {
   readonly leaseMs?: number
   /** Kinds to claim; default `CLAIMABLE_KINDS`. A kind with no version source is refused. */
   readonly kinds?: readonly JobDirtyWorkEntityKind[]
+  /**
+   * Only rows never attempted (`retry_count = 0`). The post-run match drain claims this way: a
+   * failed row is retried by the next sweep, so its attempts stay spread over sweep periods instead
+   * of being spent by back-to-back drains (PR #1366 CR-H-1).
+   */
+  readonly freshOnly?: boolean
 }
 
 export interface RetryOptions {
@@ -291,6 +297,7 @@ export const dirtyWorkStatements = {
     leaseMs: number,
     kinds: readonly JobDirtyWorkEntityKind[],
     consumer: ClaimConsumer,
+    freshOnly = false,
   ): SQL =>
     sql`WITH picked AS (
           SELECT id FROM job_dirty_work
@@ -306,7 +313,12 @@ export const dirtyWorkStatements = {
              AND reason <> ${DETAIL_FETCH_LITERAL}
              -- Inline literals too (backlog 347 (1)): this is the exact predicate of
              -- idx_job_dirty_work_pending_match / _availability, so the claim skips the other pile.
-             AND ${dirtyConsumerPredicate(consumer, sql`reason`, { inline: true })}
+             AND ${dirtyConsumerPredicate(consumer, sql`reason`, { inline: true })}${
+               freshOnly
+                 ? sql`
+             AND retry_count = 0`
+                 : sql``
+             }
            ORDER BY created_at, id
            LIMIT ${batchSize}
            FOR UPDATE SKIP LOCKED)
@@ -486,7 +498,7 @@ export async function claimDirtyBatch(
   const leaseMs = boundedInt('leaseMs', opts.leaseMs ?? DIRTY_LEASE_DEFAULT_MS, DIRTY_LEASE_MAX_MS)
   const kinds = claimKinds(opts.kinds ?? CLAIMABLE_KINDS)
   const { rows } = await db.execute(
-    dirtyWorkStatements.claim(opts.owner, batchSize, leaseMs, kinds, opts.consumer),
+    dirtyWorkStatements.claim(opts.owner, batchSize, leaseMs, kinds, opts.consumer, opts.freshOnly),
   )
   // The batch is picked oldest-first; the order of the returned rows carries no meaning.
   return rows.map((r) => ({
