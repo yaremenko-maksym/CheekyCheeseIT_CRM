@@ -35,7 +35,9 @@ export const MATCH_DRAIN_BUDGET_MS = 60_000
  *     and retires the published queue snapshots when anything was recomputed. A run that ended
  *     during a pass (its drain, or its retire) buys one more pass with a fresh budget.
  *     RETRIES are the sweep's (CR-H-1): a failed row is back in PENDING at once with no backoff, so
- *     back-to-back drains would spend its attempts in minutes; the sweep keeps them a period apart.
+ *     back-to-back drains would spend its attempts in minutes. The sweep retries it once per tick
+ *     when its drain ends on a short batch; a sweep drain of full batches may re-claim it within
+ *     the tick (the sweep's behaviour before the post-run drain existed).
  *   SWEEP (`MATCH_RECONCILIATION_CRON`, every RECONCILE_PERIOD_HOURS): the safety net. Recover expired
  *     leases (`recoverExpiredDirty`, SR-M-1: a crashed worker's rows are retried, not stuck), scan for
  *     stale opportunities (`reconcileOnce`), then drain at most RECONCILE_MAX_DRAIN_BATCHES batches
