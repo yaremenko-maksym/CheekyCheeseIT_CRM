@@ -17,6 +17,7 @@ import type { ResumeFailureCode, ResumeExtractionStatus, Locale } from '@crm/sha
 import { formatDate } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { useLocale } from '@/lib/i18n'
+import { resumeMessageText } from './resumeMessage'
 
 const DEFAULT_FAILURE_HINT = msg`Заповніть розділи вручну або спробуйте завантажити файл ще раз.`
 
@@ -118,7 +119,9 @@ export function ResumeStatusPanel({
           <Trans>Резюме не розпізнано автоматично</Trans>
         </p>
         {/* Server copy is plain text; React escapes it. Never dangerouslySetInnerHTML. */}
-        {errorMessage && <p className="text-xs text-muted-foreground">{errorMessage}</p>}
+        {errorMessage && (
+          <p className="text-xs text-muted-foreground">{resumeMessageText(errorMessage)}</p>
+        )}
         <p className="text-xs text-muted-foreground">
           {errorCode === 'QUOTA_EXCEEDED' && when ? (
             <Trans>

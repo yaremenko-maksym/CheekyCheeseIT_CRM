@@ -143,3 +143,39 @@ describe('FAILED — each failure code has its own, actionable hint', () => {
     expect(panel).not.toHaveTextContent('Ліміт оновиться')
   })
 })
+
+describe('FAILED — the stored message is a code, shown as the catalog line (backlog 443)', () => {
+  const NO_TEXT = '{"code":"RESUME_NO_TEXT"}'
+
+  it('uk: the catalog line, not the code', () => {
+    renderPanel({ status: 'FAILED', errorCode: 'NO_TEXT', errorMessage: NO_TEXT })
+    const panel = screen.getByTestId('resume-failed')
+    expect(panel).toHaveTextContent(
+      'З файлу не вдалося витягти текст (імовірно, це скан або картинка). Вставте текст резюме вручну.',
+    )
+    expect(panel).not.toHaveTextContent('RESUME_NO_TEXT')
+  })
+
+  it('en: the English catalog line, params filled', async () => {
+    await loadCatalog('en')
+    renderPanel({
+      status: 'FAILED',
+      errorCode: 'UNREADABLE_FILE',
+      errorMessage: '{"code":"RESUME_PDF_TOO_MANY_PAGES","params":{"max":30}}',
+    })
+    expect(screen.getByTestId('resume-failed')).toHaveTextContent(
+      'The PDF has more than 30 pages, which does not look like a resume.',
+    )
+  })
+
+  it('a legacy row written before the codes is shown verbatim', () => {
+    renderPanel({
+      status: 'FAILED',
+      errorCode: 'NO_TEXT',
+      errorMessage: 'Из файла не удалось извлечь текст',
+    })
+    expect(screen.getByTestId('resume-failed')).toHaveTextContent(
+      'Из файла не удалось извлечь текст',
+    )
+  })
+})

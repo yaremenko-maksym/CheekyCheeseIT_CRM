@@ -25,6 +25,7 @@ import type { SeniorResumeDto } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { PdfPreview } from '@/components/documents/pdf-preview'
 import { useResumePdfBlob } from '@/hooks/use-senior-resume'
+import { resumeMessageText } from './resumeMessage'
 
 export interface ResumePdfPreviewProps {
   resume: SeniorResumeDto
@@ -62,7 +63,9 @@ export function ResumePdfPreview({ resume, pdfUrl, fileName }: ResumePdfPreviewP
               <Trans>Не вдалося зібрати PDF</Trans>
             </p>
             <p className="mt-1 text-muted-foreground">
-              {resume.renderError ?? (
+              {resume.renderError ? (
+                resumeMessageText(resume.renderError)
+              ) : (
                 <Trans>
                   Верстка резюме не зібралася. Змініть оформлення або зверніться до адміністратора.
                 </Trans>
