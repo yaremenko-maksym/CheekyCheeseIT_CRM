@@ -319,6 +319,13 @@ describe('uploadSource refuses a malformed upload by code (backlog 443)', () => 
     await expect(run()).rejects.toBe(broken)
   })
 
+  it('a non-object rejection is rethrown as it is, not turned into a TypeError', async () => {
+    const { run } = upload([
+      { type: 'file', fieldname: 'file', toBuffer: () => Promise.reject(null) },
+    ])
+    await expect(run()).rejects.toBeNull()
+  })
+
   it('a body without a "file" field is 400 RESUME_UPLOAD_NO_FILE', async () => {
     const { service, run } = upload([{ type: 'field', fieldname: 'note' }])
     await expect(run()).rejects.toMatchObject({
