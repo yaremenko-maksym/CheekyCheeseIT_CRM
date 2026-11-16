@@ -215,6 +215,7 @@ describe.skipIf(!hasDatabaseUrl())(
       s3 = {
         upload: vi.fn().mockResolvedValue(undefined),
         delete: vi.fn().mockResolvedValue(undefined),
+        listObjects: vi.fn().mockResolvedValue({ objects: [], nextContinuationToken: undefined }),
         getObject: vi.fn(),
         getPresignedDownloadUrl: vi.fn().mockResolvedValue({
           url: 'https://example.invalid/s',
@@ -1103,8 +1104,7 @@ describe.skipIf(!hasDatabaseUrl())(
        * The rendered PDF is a second, complete copy of the same personal data
        * sitting in object storage under a different key. An erase that took only
        * the uploaded original would report success while leaving the whole CV
-       * behind — and nothing sweeps the `senior-resumes/` prefix, so it would
-       * stay for good.
+       * behind until the orphan sweep's 24 h grace runs out.
        */
       it('R-INT-12a2. erasing takes the RENDERED PDF with it, not just the original', async () => {
         const sourceKey = await giveSeniorBaStoredResume()
@@ -1334,7 +1334,7 @@ describe.skipIf(!hasDatabaseUrl())(
         await settle()
       })
 
-      it('a render superseded while it ran erases its own output instead of stranding it', async () => {
+      it('a render superseded while it ran leaves its output to the orphan sweep (PR #1360 round 2)', async () => {
         const row = await dbSvc.db
           .select()
           .from(seniorResumes)
@@ -1359,10 +1359,10 @@ describe.skipIf(!hasDatabaseUrl())(
 
         await service.runRender(resumeId, { displayName: 'Синьор А', email: SENIOR_A.email })
 
-        // The bytes were written, then found to belong to nobody — so they are
-        // erased. Left alone they would be an unreferenced CV in the bucket.
+        // Not erased here: a newer run of the same input writes the same key, so a delete could
+        // remove the live PDF. An object no row cites is the orphan sweep's (24 h grace).
         const erased = s3.delete.mock.calls.map(([key]: [string]) => key)
-        expect(erased.some((key) => key.includes('/pdf/'))).toBe(true)
+        expect(erased).toEqual([])
         const after = await dbSvc.db
           .select()
           .from(seniorResumes)

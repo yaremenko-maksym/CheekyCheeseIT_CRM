@@ -1,13 +1,20 @@
 /**
- * ResumeOrphanSweepCron — deletes CVs under `senior-resumes/` that no row points at (backlog 441).
+ * ResumeOrphanSweepCron — deletes CVs under `senior-resumes/` (backlog 441) and staged PDFs under
+ * `resumes/<id>/staged/` (backlog 448) that no row points at.
  *
- * The resumes service deletes a superseded or unreferenced source, and a superseded PDF, right
- * after the write that unreferences it. When that delete fails it only logs, and the object — a
- * full CV — stays in R2 with nothing left to reach it. This job is the retry for all of them.
+ * Orphans come from three places, and this job collects all of them:
+ *   - the resumes service deletes a superseded or unreferenced source right after the write that
+ *     unreferences it; when that delete fails it only logs;
+ *   - a render superseded while its row still exists leaves its upload here on purpose: a newer
+ *     run of the same input writes the same key, so deleting it at once could erase the live PDF;
+ *   - a Typst failure clears `pdf_s3_key`, so the older PDF it pointed at is unreferenced.
+ * A deleted resume does not wait for this job: `deleteResume` erases the row's own prefixes.
  *
  * An object is deleted only when BOTH hold:
  *   - no `senior_resumes` row references its key, in any column that can hold one:
- *     `source_s3_key`, `pdf_s3_key`, `staged_pdf_s3_key`, `staged_previous->'pdfKey'`;
+ *     `source_s3_key`, `pdf_s3_key`, `staged_pdf_s3_key`, `staged_previous->'pdfKey'`. The staged
+ *     prefix is checked against the same set: Confirm moves the staged key into `pdf_s3_key`, so a
+ *     staged-path key can be the live PDF;
  *   - its `LastModified` is older than ORPHAN_GRACE_MS, so an upload whose row write has not
  *     landed yet is never taken. An object listed without a `LastModified` is kept.
  *     The age is read twice: from the listing, then by a HEAD right before the delete. A render
@@ -20,8 +27,8 @@
  * the time a later page is deleted. Fail safe: a listing or DB failure stops the run, deleting
  * nothing more; a single failed delete is logged and the rest go on.
  *
- * Daily, not hourly: orphans appear only when a storage delete fails, and the 24 h grace means an
- * orphan waits a day anyway; each run lists the whole prefix, which R2 bills per request.
+ * Daily, not hourly: the 24 h grace means an orphan waits a day anyway, and each run lists the
+ * whole prefix, which R2 bills per request.
  */
 import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
@@ -31,8 +38,19 @@ import { seniorResumes } from '../database/schema'
 import { S3Service } from '../documents/s3.service'
 
 export const SENIOR_RESUMES_PREFIX = 'senior-resumes/'
+export const STAGED_RESUMES_PREFIX = 'resumes/'
+/** Only `stagedPdfKey`'s shape is swept under `resumes/`; anything else there is not ours to delete. */
+const STAGED_PDF_KEY = /^resumes\/[^/]+\/staged\/[^/]+\.pdf$/
+/** Swept in order into one result, each with its own cap; a failure in either stops the whole run. */
+const SWEPT: ReadonlyArray<{ prefix: string; owns: (key: string) => boolean }> = [
+  { prefix: SENIOR_RESUMES_PREFIX, owns: (key) => key.startsWith(SENIOR_RESUMES_PREFIX) },
+  { prefix: STAGED_RESUMES_PREFIX, owns: (key) => STAGED_PDF_KEY.test(key) },
+]
 export const ORPHAN_GRACE_MS = 24 * 60 * 60 * 1000
-/** Delete attempts per run (failed ones count): bounds the run if the referenced set ever reads empty. */
+/**
+ * Delete attempts per prefix per run (failed ones count): bounds the run if the referenced set ever
+ * reads empty. Per prefix, so a backlog under `senior-resumes/` cannot starve the staged sweep.
+ */
 export const MAX_ORPHAN_DELETES_PER_RUN = 500
 
 export interface OrphanSweepResult {
@@ -97,59 +115,64 @@ export class ResumeOrphanSweepCron {
       gone: 0,
       complete: false,
     }
-    let token: string | undefined
     // Stryker disable next-line StringLiteral: equivalent, the loop's first statement overwrites it before any read
     let stage = 'list'
+    let capped = false
     try {
-      do {
-        stage = 'list'
-        const page = await this.s3.listObjects(token, SENIOR_RESUMES_PREFIX)
-        token = page.nextContinuationToken
-        r.listed += page.objects.length
-        const aged: string[] = []
-        for (const obj of page.objects) {
-          if (!obj.key.startsWith(SENIOR_RESUMES_PREFIX)) continue
-          // S3Service.listObjects turns a missing LastModified into epoch 0: unknown age, keep it.
-          if (obj.lastModified.getTime() === 0) r.undated += 1
-          else if (obj.lastModified.getTime() >= cutoff) r.young += 1
-          else aged.push(obj.key)
-        }
-        if (aged.length === 0) continue
+      for (const { prefix, owns } of SWEPT) {
+        const attemptsBefore = r.deleted + r.failed
+        let token: string | undefined
+        do {
+          stage = 'list'
+          const page = await this.s3.listObjects(token, prefix)
+          token = page.nextContinuationToken
+          r.listed += page.objects.length
+          const aged: string[] = []
+          for (const obj of page.objects) {
+            if (!owns(obj.key)) continue
+            // S3Service.listObjects turns a missing LastModified into epoch 0: unknown age, keep it.
+            if (obj.lastModified.getTime() === 0) r.undated += 1
+            else if (obj.lastModified.getTime() >= cutoff) r.young += 1
+            else aged.push(obj.key)
+          }
+          if (aged.length === 0) continue
 
-        stage = 'references'
-        const referenced = await this.referencedKeys()
-        for (const key of aged) {
-          if (referenced.has(key)) {
-            r.referenced += 1
-            continue
-          }
-          if (r.deleted + r.failed >= MAX_ORPHAN_DELETES_PER_RUN) {
-            this.logger.warn(
-              `Resume orphan sweep hit the cap of ${MAX_ORPHAN_DELETES_PER_RUN} deletes; the rest waits for the next run`,
-            )
-            this.summary(r)
-            return r
-          }
-          try {
-            // Re-check the age: a render may have re-uploaded this key since the page was listed,
-            // and its row write may land after `referencedKeys()` read the table.
-            const modified = await this.s3.headLastModified(key)
-            if (modified === null) {
-              r.gone += 1 // gone already: nothing to delete
+          stage = 'references'
+          const referenced = await this.referencedKeys()
+          for (const key of aged) {
+            if (referenced.has(key)) {
+              r.referenced += 1
               continue
             }
-            if (modified.getTime() >= cutoff) {
-              r.young += 1
-              continue
+            if (r.deleted + r.failed - attemptsBefore >= MAX_ORPHAN_DELETES_PER_RUN) {
+              this.logger.warn(
+                `Resume orphan sweep hit the cap of ${MAX_ORPHAN_DELETES_PER_RUN} deletes under ${prefix}; the rest waits for the next run`,
+              )
+              capped = true
+              token = undefined // ends this prefix's listing; the next prefix still runs
+              break
             }
-            await this.s3.deleteOrThrow(key)
-            r.deleted += 1
-          } catch (err: unknown) {
-            r.failed += 1
-            this.logger.warn(`Resume orphan not deleted: key=${key} reason="${reason(err)}"`)
+            try {
+              // Re-check the age: a render may have re-uploaded this key since the page was listed,
+              // and its row write may land after `referencedKeys()` read the table.
+              const modified = await this.s3.headLastModified(key)
+              if (modified === null) {
+                r.gone += 1 // gone already: nothing to delete
+                continue
+              }
+              if (modified.getTime() >= cutoff) {
+                r.young += 1
+                continue
+              }
+              await this.s3.deleteOrThrow(key)
+              r.deleted += 1
+            } catch (err: unknown) {
+              r.failed += 1
+              this.logger.warn(`Resume orphan not deleted: key=${key} reason="${reason(err)}"`)
+            }
           }
-        }
-      } while (token)
+        } while (token)
+      }
     } catch (err: unknown) {
       this.logger.warn(
         `Resume orphan sweep stopped: stage=${stage} reason="${reason(err)}" deleted=${r.deleted} failed=${r.failed}`,
@@ -157,7 +180,7 @@ export class ResumeOrphanSweepCron {
       this.summary(r)
       return r
     }
-    r.complete = true
+    r.complete = !capped
     this.summary(r)
     return r
   }

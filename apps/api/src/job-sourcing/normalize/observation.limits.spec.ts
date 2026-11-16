@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { validateObservation } from '../store/record-payload'
 import {
   MAX_OBSERVED_DATES,
   buildSourceObservation,
@@ -76,6 +77,16 @@ describe('description: displayTruncated is decided per kind', () => {
     const cut = desc({ description: ' '.repeat(100_001) })
     expect(cut.truncated).toBe(true)
     expect(cut.value).toHaveLength(100_000)
+  })
+
+  it('html: the stored markdown never passes the display limit, so the store accepts it (ARBEITNOW 2026-11-16)', () => {
+    // htmlToMarkdown cuts at 20 000 and appends an ellipsis: 20 001 chars, which validateObservation refused.
+    const over = ok({ description: 'd'.repeat(20_001) })
+    expect(over.normalized.descriptionMd).toHaveLength(20_000)
+    expect(over.normalized.descriptionMd.endsWith('d…')).toBe(true)
+    expect(() => validateObservation(over)).not.toThrow()
+    const at = ok({ description: 'd'.repeat(20_000) })
+    expect(at.normalized.descriptionMd).toBe('d'.repeat(20_000))
   })
 
   it('records description display truncation as evidence only when it happened', () => {

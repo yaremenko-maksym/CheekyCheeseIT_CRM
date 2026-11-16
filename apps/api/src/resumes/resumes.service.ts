@@ -56,6 +56,7 @@ import {
   notVerificationBusy,
 } from './verification/resume-verification.service'
 import { contentToFacts } from './verification/derive-content'
+import { stagedPdfPrefix } from './verification/run-columns'
 import {
   ResumeRenderError,
   ResumeTypstService,
@@ -95,6 +96,13 @@ const noResume = () => apiError('RESUME_NOT_CREATED', HttpStatus.NOT_FOUND)
  * PROCESS that owned it is gone, not that it is slow.
  */
 export const STUCK_RENDER_TIMEOUT_MS = 2 * 60 * 1000
+
+/** Every rendered PDF of one resume row lives under this prefix (`<prefix><fp16>.pdf`). */
+const renderedPdfPrefix = (userId: string, resumeId: string): string =>
+  `senior-resumes/${userId}/pdf/${resumeId}-`
+
+/** The stored `pdf_render_error` of a failed upload: says nothing about the render input. */
+const RENDER_STORAGE_FAILED = encodeResumeMessage('RESUME_RENDER_STORAGE_FAILED')
 
 export interface ResumeSourceFile {
   buffer: Buffer
@@ -219,21 +227,40 @@ export class SeniorResumesService {
     if (!row) throw noResume()
 
     const wanted = this.typst.fingerprint(this.renderInputFor(row, target))
-    if (row.pdfS3Key && row.pdfFingerprint === wanted) {
-      return {
-        ready: true,
-        pdfBuffer: await this.s3.getObject(row.pdfS3Key),
-        displayName: target.displayName,
-      }
+    // A Typst failure records the failed input's fingerprint and clears pdfS3Key; a row failed
+    // before that change may still hold the OLDER key, so a matching fingerprint does not vouch for
+    // it. A storage failure records nothing about the input: its fingerprint and key belong together.
+    const inputFailed =
+      row.pdfRenderStatus === 'FAILED' && row.pdfRenderError !== RENDER_STORAGE_FAILED
+    if (row.pdfS3Key && row.pdfFingerprint === wanted && !inputFailed) {
+      const pdfBuffer = await this.s3.getObject(row.pdfS3Key).catch((error: unknown) => {
+        if (isS3NoSuchKey(error)) return null
+        throw error
+      })
+      if (pdfBuffer) return { ready: true, pdfBuffer, displayName: target.displayName }
+      // Backlog 447: the row says ready but the object is gone, so it is re-rendered below. A
+      // queued render, or one running and younger than the stuck-render cutoff, is left alone:
+      // re-queuing disowns it on every poll.
+      if (row.pdfRenderStatus === 'QUEUED') return { ready: false, status: 'QUEUED', message: null }
+      if (this.renderIsFresh(row)) return { ready: false, status: 'RUNNING', message: null }
     }
 
-    if (row.pdfRenderStatus === 'FAILED' && row.pdfFingerprint === wanted) {
+    if (inputFailed && row.pdfFingerprint === wanted) {
       return { ready: false, status: 'FAILED', message: row.pdfRenderError }
     }
 
     // Stale or never built — make sure something is working on it.
     await this.enqueueRender(row.id, target)
     return { ready: false, status: 'QUEUED', message: null }
+  }
+
+  /** RUNNING and started within STUCK_RENDER_TIMEOUT_MS; one not yet started has no age (NULL). */
+  private renderIsFresh(row: SeniorResume): boolean {
+    return (
+      row.pdfRenderStatus === 'RUNNING' &&
+      row.pdfRenderStartedAt !== null &&
+      row.pdfRenderStartedAt.getTime() >= Date.now() - STUCK_RENDER_TIMEOUT_MS
+    )
   }
 
   /**
@@ -440,8 +467,12 @@ export class SeniorResumesService {
    * are using it. Read key, delete object, delete row — and an upload landing in
    * that window replaces `source_s3_key`, so we erase the old object and then
    * drop the row that pointed at the NEW one. The user is told "deleted" while
-   * their raw resume stays in the bucket, unreferenced and unreachable: nothing
-   * sweeps the `senior-resumes/` prefix, so it would sit there for good.
+   * their raw resume stays in the bucket, unreferenced and unreachable until the
+   * orphan sweep's 24 h grace runs out.
+   *
+   * Once the row is gone, every PDF under the row's own prefixes goes too: a Typst
+   * failure clears the key of the older PDF and a superseded render leaves its
+   * upload, so the bucket can hold copies the row no longer cites.
    *
    * So the row is only removed while its key still matches the object we just
    * erased (`source_s3_key IS NOT DISTINCT FROM <what we deleted>` — NULL-safe,
@@ -494,6 +525,8 @@ export class SeniorResumesService {
         .returning({ id: seniorResumes.id })
 
       if (removed.length > 0) {
+        await this.deleteUnder(row.id, renderedPdfPrefix(row.userId, row.id))
+        await this.deleteUnder(row.id, stagedPdfPrefix(row.id))
         this.logger.log(`Resume of ${targetUserId} deleted by ${viewer.id}`)
         return this.emptyResponse(viewer, targetUserId)
       }
@@ -506,6 +539,25 @@ export class SeniorResumesService {
     }
 
     throw apiError('RESUME_DELETE_BUSY', HttpStatus.CONFLICT)
+  }
+
+  /**
+   * Delete every object under `prefix`. A failure is logged and swallowed, like `s3.delete`:
+   * the row is already gone, and the orphan sweep takes what is left.
+   */
+  private async deleteUnder(resumeId: string, prefix: string): Promise<void> {
+    try {
+      let token: string | undefined
+      do {
+        const page = await this.s3.listObjects(token, prefix)
+        for (const { key } of page.objects) await this.s3.delete(key)
+        token = page.nextContinuationToken
+      } while (token)
+    } catch (err: unknown) {
+      this.logger.warn(
+        `Resume ${resumeId}: could not list ${prefix} for deletion: ${err instanceof Error ? err.message : 'unknown'}`,
+      )
+    }
   }
 
   // ==========================================================================
@@ -916,7 +968,7 @@ export class SeniorResumesService {
       return
     }
 
-    const key = `senior-resumes/${row.userId}/pdf/${row.id}-${fingerprint.slice(0, 16)}.pdf`
+    const key = `${renderedPdfPrefix(row.userId, row.id)}${fingerprint.slice(0, 16)}.pdf`
     try {
       await this.s3.upload(key, pdf, 'application/pdf', 'RESUME')
     } catch (err: unknown) {
@@ -940,7 +992,7 @@ export class SeniorResumesService {
       // marked "this content is doomed". Recovery is the same motion as a
       // render failure — the next explicit save re-renders and re-uploads
       // from scratch.
-      const message = encodeResumeMessage('RESUME_RENDER_STORAGE_FAILED')
+      const message = RENDER_STORAGE_FAILED
       this.logger.warn(
         `Resume ${resumeId}: PDF upload failed — ${err instanceof Error ? err.message : 'unknown'}`,
       )
@@ -962,11 +1014,21 @@ export class SeniorResumesService {
       .returning({ id: seniorResumes.id })
 
     if (written.length === 0) {
-      // Superseded mid-render. The row now points elsewhere, so this object is
-      // unreferenced the moment it is written — erase it rather than leave a
-      // PDF of someone's CV in the bucket that no code path can reach.
-      this.logger.log(`Resume ${resumeId}: render superseded — discarding ${key}`)
-      await this.s3.delete(key)
+      // Superseded mid-render. While the row exists the upload is not deleted here: a newer run of
+      // the SAME input writes this very key and may land it at any moment, so a delete could erase
+      // the live PDF; the orphan sweep (24 h grace, re-checked before each delete) takes it. A row
+      // deleted mid-render has no newer run, and its delete has already listed its prefix.
+      // Stryker disable next-line ObjectLiteral: the unit double holds one row, so dropping the id filter is unobservable there; the filter is the row's own primary key
+      const current = await this.db.db.query.seniorResumes.findFirst({
+        where: eq(seniorResumes.id, resumeId),
+        // Stryker disable next-line ObjectLiteral,BooleanLiteral: only "row or no row" is read, so which columns are projected is unobservable
+        columns: { id: true },
+      })
+      if (!current) {
+        await this.s3.delete(key)
+        return
+      }
+      this.logger.log(`Resume ${resumeId}: render superseded — leaving ${key} to the orphan sweep`)
       return
     }
 
@@ -1029,7 +1091,10 @@ export class SeniorResumesService {
         pdfRenderError: message,
         pdfRenderStartedAt: null,
         pdfRenderRunId: null,
-        ...(fingerprint === undefined ? {} : { pdfFingerprint: fingerprint }),
+        // The key is cleared with it: the older PDF is not of this input, and a row citing it
+        // beside the new fingerprint would serve it once the row leaves FAILED. The orphan sweep
+        // removes the object.
+        ...(fingerprint === undefined ? {} : { pdfFingerprint: fingerprint, pdfS3Key: null }),
       })
       .where(this.ownedByRenderRun(resumeId, runId))
   }

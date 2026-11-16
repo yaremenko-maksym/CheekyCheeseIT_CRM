@@ -118,12 +118,18 @@ import { JobRunLedger } from './ownership/job-run-ledger'
         db: DatabaseService,
         registry: JobSourceRegistry,
         config: ConfigService<Env, true> | undefined,
-      ) => createProductionWorker(ledger, lateBoundDb(db), registry, config),
+        reconciliation: JobMatchReconciliationCronService,
+      ) =>
+        // Every run ends with the match drain: its records reach the HR queue within the window.
+        createProductionWorker(ledger, lateBoundDb(db), registry, config, {}, () =>
+          reconciliation.requestDrain(),
+        ),
       inject: [
         JobRunLedger,
         DatabaseService,
         JobSourceRegistry,
         { token: ConfigService, optional: true },
+        JobMatchReconciliationCronService,
       ],
     },
     // r5 Task 4.6 S4a: the dirty-work recompute consumer; S4b's reconciliation cron calls `runOnce`.
