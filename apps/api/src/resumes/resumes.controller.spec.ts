@@ -253,3 +253,44 @@ describe('pendingPdfBody — the 202 body while the PDF is not ready (backlog 44
     })
   })
 })
+
+describe('uploadSource refuses a malformed upload by code (backlog 443)', () => {
+  const OWNER = 'a15e0000-0000-4000-8000-0000000000b2'
+  const hr = { id: 'a15e0000-0000-4000-8000-0000000000c4', email: 'hr@unit.spec', role: 'HR' }
+  const upload = (parts: unknown[], multipart = true) => {
+    const service = { uploadSource: vi.fn(async (..._args: unknown[]) => 'queued') }
+    const req = {
+      isMultipart: () => multipart,
+      parts: async function* () {
+        yield* parts
+      },
+    }
+    const controller = new SeniorResumesController(service as never)
+    return { service, run: () => controller.uploadSource(OWNER, req as never, hr as SessionUser) }
+  }
+
+  it('a body that is not multipart is 400 RESUME_UPLOAD_NOT_MULTIPART', async () => {
+    await expect(upload([], false).run()).rejects.toMatchObject({
+      status: 400,
+      response: { code: 'RESUME_UPLOAD_NOT_MULTIPART' },
+    })
+  })
+
+  it('a file part that cannot be read is 400 RESUME_UPLOAD_UNREADABLE', async () => {
+    const { service, run } = upload([{ type: 'file', fieldname: 'file' }])
+    await expect(run()).rejects.toMatchObject({
+      status: 400,
+      response: { code: 'RESUME_UPLOAD_UNREADABLE' },
+    })
+    expect(service.uploadSource).not.toHaveBeenCalled()
+  })
+
+  it('a body without a "file" field is 400 RESUME_UPLOAD_NO_FILE', async () => {
+    const { service, run } = upload([{ type: 'field', fieldname: 'note' }])
+    await expect(run()).rejects.toMatchObject({
+      status: 400,
+      response: { code: 'RESUME_UPLOAD_NO_FILE' },
+    })
+    expect(service.uploadSource).not.toHaveBeenCalled()
+  })
+})

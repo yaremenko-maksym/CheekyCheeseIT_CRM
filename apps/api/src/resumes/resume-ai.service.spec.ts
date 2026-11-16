@@ -92,6 +92,18 @@ describe('ResumeAiService', () => {
     expect(result.tokensUsed).toBe(240)
   })
 
+  it.each([
+    ['an answer with no JSON object', 'no json here', 'the answer holds no JSON object'],
+    ['an answer whose JSON does not parse', '{"summary": }', 'the JSON does not parse'],
+  ])('the retry tells the model what was wrong with %s', async (_name, first, reason) => {
+    fetchSpy.mockResolvedValueOnce(aiResponse(first)).mockResolvedValueOnce(aiResponse(VALID_JSON))
+
+    await makeService().extractStructure('a'.repeat(200))
+
+    const retryBody = (fetchSpy.mock.calls[1]?.[1] as RequestInit | undefined)?.body
+    expect(String(retryBody)).toContain(reason)
+  })
+
   it('succeeds on the first attempt and reports token usage', async () => {
     fetchSpy.mockResolvedValueOnce(aiResponse(VALID_JSON, 99))
     const service = makeService()
@@ -120,6 +132,7 @@ describe('ResumeAiService', () => {
     expect(result.code).toBe('QUOTA_EXCEEDED')
     expect(result.quotaResetsAt).not.toBeNull()
     expect(new Date(result.quotaResetsAt as string).getUTCHours()).toBe(0)
+    expect(decodeResumeMessage(result.message)).toEqual({ code: 'RESUME_AI_QUOTA_EXCEEDED' })
   })
 
   it('AC5: error code 3040 inside a non-429 body is also recognised as the quota wall', async () => {
@@ -162,6 +175,7 @@ describe('ResumeAiService', () => {
     if (result.ok) throw new Error('unreachable')
     expect(result.code).toBe('MODEL_ERROR')
     expect(result.message).not.toContain('tok-1')
+    expect(decodeResumeMessage(result.message)).toEqual({ code: 'RESUME_AI_UNAVAILABLE' })
   })
 
   it('caps the text sent to the model (token economy)', async () => {

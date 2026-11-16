@@ -188,6 +188,8 @@ describe('SeniorResumesService.runRender — failure branches (bug-44)', () => {
     const failWrite = updates[1]?.values
     expect(failWrite?.['pdfRenderStatus']).toBe('FAILED')
     expect(failWrite?.['pdfFingerprint']).toBe('fingerprint-render-fail-0123456789')
+    // A plain Error is not our refusal: the row stores the generic code, not its text.
+    expect(failWrite?.['pdfRenderError']).toBe('{"code":"RESUME_RENDER_FAILED"}')
   })
 
   /**

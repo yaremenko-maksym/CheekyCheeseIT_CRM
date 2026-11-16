@@ -345,3 +345,29 @@ describe('SeniorResumesService — a delete while a run owns the row (CD-4)', ()
     )
   })
 })
+
+describe('SeniorResumesService — the target lookup refuses by code (backlog 443)', () => {
+  const withTarget = (target: { role: string } | undefined) =>
+    new SeniorResumesService(
+      { db: { query: { users: { findFirst: async () => target } } } } as never,
+      untouchable as never,
+      {} as never,
+      {} as never,
+      untouchable as never,
+      untouchable as never,
+    )
+
+  it('no such user is 404 USER_NOT_FOUND', async () => {
+    const err = await refusal(withTarget(undefined).getForUser(viewer(HR_ID, 'HR'), OWNER_ID))
+    expect((err as HttpException).getStatus()).toBe(404)
+    expect((err as HttpException).getResponse()).toMatchObject({ code: 'USER_NOT_FOUND' })
+  })
+
+  it('a target who is not a SENIOR is 404 RESUME_SENIOR_ONLY', async () => {
+    const err = await refusal(
+      withTarget({ role: 'JUNIOR' }).getForUser(viewer(HR_ID, 'HR'), OWNER_ID),
+    )
+    expect((err as HttpException).getStatus()).toBe(404)
+    expect((err as HttpException).getResponse()).toMatchObject({ code: 'RESUME_SENIOR_ONLY' })
+  })
+})
