@@ -1,0 +1,564 @@
+/**
+ * Deterministic vacancy role classifier: research `2026-11-16-it-role-taxonomy.md` §3.1 steps 1–9,
+ * §3.2 hints and §3.3 non-role words. The patterns are a port of the research Appendix A scratch
+ * classifier (what the dry run executed), so every trap of §3.4 is a keyword or a rule here.
+ *
+ * Port notes: Python 3 `\b` / `\w` are Unicode-aware, JS ones are ASCII-only, so `rx` rewrites them
+ * to Unicode letter/digit classes (Cyrillic titles depend on it). A role pattern that does not open
+ * with `\b` is bounded on the left only (`(?<![a-z0-9])backend` matches "backends"), as in the run.
+ */
+import { sortRoles, type TechnicalRole } from '@crm/shared'
+
+export const ROLE_CLASSIFIER_VERSION = 'rc.1'
+
+export type RoleClassification =
+  { kind: 'ROLES'; roles: readonly TechnicalRole[] } | { kind: 'NON_IT' } | { kind: 'UNCLASSIFIED' }
+
+const W = String.raw`[\p{L}\p{N}_]`
+const WORD_BOUNDARY = String.raw`(?:(?<=${W})(?!${W})|(?<!${W})(?=${W}))`
+
+/** Compiles a Python-flavoured pattern with Unicode `\b` / `\w`. */
+const rx = (pattern: RegExp): RegExp =>
+  new RegExp(pattern.source.replace(/\\b/g, WORD_BOUNDARY).replace(/\\w/g, W), 'u')
+
+/** A role keyword: `\b` on both sides when written so, otherwise bounded on the left only. */
+const keyword = (pattern: RegExp): RegExp =>
+  pattern.source.startsWith('\\b') ? rx(pattern) : rx(new RegExp(`(?<![a-z0-9])${pattern.source}`))
+
+type SpecificRole = Exclude<TechnicalRole, 'SOFTWARE_ENGINEER'>
+
+const ROLE_PATTERNS: Record<SpecificRole, readonly RegExp[]> = {
+  BACKEND_ENGINEER: [
+    /back[\s-]?end/,
+    /server[\s-]side/,
+    /api (developer|engineer)/,
+    /integration (developer|engineer)/,
+    /бек[\s-]?енд/,
+    /бэк[\s-]?енд/,
+    /бекенд/,
+    /бэкенд/,
+  ],
+  FRONTEND_ENGINEER: [
+    /front[\s-]?end/,
+    /ui (developer|engineer)/,
+    /web ui/,
+    /html\W?css/,
+    /markup/,
+    /layout designer/,
+    /верстальщик/,
+    /верстальник/,
+    /фронт[\s-]?енд/,
+    /фронтенд/,
+  ],
+  FULLSTACK_ENGINEER: [/full[\s-]?stack/, /фулл?[\s-]?стек/],
+  DESKTOP_ENGINEER: [/desktop/, /wpf/, /winforms/, /qt developer/],
+  BUSINESS_APPLICATIONS_ENGINEER: [
+    /salesforce/,
+    /\bsap\b/,
+    /abap/,
+    /\berp\b/,
+    /\bcrm developer/,
+    /dynamics 365/,
+    /ms dynamics/,
+    /odoo/,
+    /\b1c\b/,
+    /1с\b/,
+    /servicenow/,
+    /netsuite/,
+    /no[\s-]?code/,
+    /low[\s-]?code/,
+    /power platform/,
+    /hubspot developer/,
+  ],
+  IOS_ENGINEER: [/\bios\b/, /swift(ui)?\b/, /macos/],
+  ANDROID_ENGINEER: [/android/],
+  CROSS_PLATFORM_MOBILE_ENGINEER: [
+    /flutter/,
+    /react native/,
+    /xamarin/,
+    /\bmaui\b/,
+    /kotlin multiplatform/,
+    /\bkmp\b/,
+    /cross[\s-]?platform mobile/,
+    /mobile (developer|engineer)/,
+    /мобільн/,
+    /мобильн/,
+  ],
+  DATA_ENGINEER: [
+    /data engineer/,
+    /big data/,
+    /\betl\b/,
+    /data platform engineer/,
+    /analytics engineer/,
+    /data warehouse/,
+    /dwh/,
+    /spark developer/,
+    /інженер даних/,
+    /инженер данных/,
+  ],
+  DATABASE_ENGINEER: [
+    /\bdba\b/,
+    /database (administrator|engineer|developer|architect)/,
+    /sql developer/,
+    /pl\/?sql/,
+    /postgres(ql)? (dba|engineer)/,
+    /адміністратор баз/,
+    /администратор баз/,
+  ],
+  DATA_ANALYST: [
+    /data analyst/,
+    /\bbi (developer|analyst|engineer)/,
+    /business intelligence/,
+    /power bi/,
+    /tableau/,
+    /product analyst/,
+    /web analyst/,
+    /аналітик даних/,
+    /аналитик данных/,
+  ],
+  DATA_SCIENTIST: [
+    /data scien/,
+    /statistician/,
+    /quantitative (analyst|researcher)/,
+    /research scientist/,
+  ],
+  ML_ENGINEER: [
+    /machine learning/,
+    /\bml\b/,
+    /mlops/,
+    /deep learning/,
+    /computer vision/,
+    /\bcv engineer/,
+    /\bnlp\b/,
+    /applied scientist/,
+    /ml\/ai/,
+    /ai\/ml/,
+  ],
+  AI_ENGINEER: [
+    /\bai engineer/,
+    /\bai developer/,
+    /\bllm\b/,
+    /genai/,
+    /generative ai/,
+    /prompt engineer/,
+    /\brag\b/,
+    /ai agent/,
+    /agentic/,
+    /ai (application|solutions) (engineer|developer)/,
+    /artificial intelligence engineer/,
+  ],
+  DEVOPS_ENGINEER: [
+    /devops/,
+    /dev ops/,
+    /cloudops/,
+    /platform engineer/,
+    /cloud engineer/,
+    /infrastructure engineer/,
+    /kubernetes/,
+    /release engineer/,
+    /build engineer/,
+    /devsecops/,
+    /девопс/,
+  ],
+  SITE_RELIABILITY_ENGINEER: [
+    /\bsre\b/,
+    /site reliability/,
+    /reliability engineer/,
+    /production engineer/,
+    /observability engineer/,
+  ],
+  SYSTEM_ADMINISTRATOR: [
+    /it systems engineer/,
+    /it infrastructure engineer/,
+    /windows engineer/,
+    /linux engineer/,
+    /sys\s?admin/,
+    /system(s)? administrator/,
+    /linux administrator/,
+    /windows administrator/,
+    /it administrator/,
+    /системн\w* адміністратор/,
+    /системн\w* администратор/,
+    /сисадмін/,
+    /сисадмин/,
+  ],
+  NETWORK_ENGINEER: [
+    /network (engineer|administrator|architect)/,
+    /\bnoc\b/,
+    /telecom(munications)? engineer/,
+    /мережев/,
+    /сетев/,
+  ],
+  SUPPORT_ENGINEER: [
+    /support engineer/,
+    /application support/,
+    /technical support/,
+    /\bl[23] support/,
+    /tech support/,
+    /it support/,
+    /help\s?desk/,
+    /service desk/,
+  ],
+  QA_ENGINEER: [
+    /\bqa\b/,
+    /quality assurance/,
+    /tester/,
+    /test engineer/,
+    /manual test/,
+    /тестувальник/,
+    /тестировщик/,
+    /тестуван/,
+    /тестирован/,
+  ],
+  QA_AUTOMATION_ENGINEER: [
+    /qa automation/,
+    /automation qa/,
+    /aqa/,
+    /test automation/,
+    /automated test/,
+    /automation (test|tester|engineer)/,
+    /\bsdet\b/,
+    /software development engineer in test/,
+    /performance test/,
+    /load test/,
+  ],
+  SECURITY_ENGINEER: [
+    /security engineer/,
+    /appsec/,
+    /application security/,
+    /devsecops/,
+    /cloud security/,
+    /product security/,
+    /cyber\s?security engineer/,
+    /security architect/,
+    /information security/,
+  ],
+  SECURITY_ANALYST: [
+    /security analyst/,
+    /\bsoc\b/,
+    /incident respon/,
+    /threat (intel|hunt)/,
+    /\bgrc\b/,
+    /security operations/,
+    /digital forensic/,
+    /кібербезпек/,
+    /кибербезопасн/,
+    /інформаційн\w* безпек/,
+    /информационн\w* безопасн/,
+  ],
+  PENETRATION_TESTER: [
+    /penetration test/,
+    /pen[\s-]?test/,
+    /ethical hack/,
+    /red team/,
+    /offensive security/,
+    /bug bounty/,
+  ],
+  EMBEDDED_ENGINEER: [
+    /embedded/,
+    /firmware/,
+    /\brtos\b/,
+    /\biot\b/,
+    /robotics/,
+    /microcontroller/,
+    /\bmcu\b/,
+    /вбудован/,
+    /встроен/,
+  ],
+  HARDWARE_ENGINEER: [
+    /hardware engineer/,
+    /electronics engineer/,
+    /\bpcb\b/,
+    /fpga/,
+    /\basic\b/,
+    /chip design/,
+    /\bvlsi\b/,
+    /\brf engineer/,
+    /verilog/,
+    /vhdl/,
+    /schematic/,
+  ],
+  GAME_DEVELOPER: [
+    /game (developer|programmer|engineer)/,
+    /gameplay/,
+    /unity (developer|engineer)/,
+    /unreal/,
+    /\bue[45]\b/,
+    /graphics (programmer|engineer)/,
+    /rendering engineer/,
+    /\bxr\b/,
+    /\bar\/vr\b/,
+    /\bvr developer/,
+    /gamedev/,
+    /геймдев/,
+  ],
+  BLOCKCHAIN_ENGINEER: [
+    /blockchain/,
+    /solidity/,
+    /smart contract/,
+    /web3/,
+    /\bdefi\b/,
+    /crypto (developer|engineer)/,
+    /\bevm\b/,
+    /rust (blockchain|solana)/,
+    /solana/,
+  ],
+  SOFTWARE_ARCHITECT: [/architect/],
+  ENGINEERING_MANAGER: [
+    /engineering manager/,
+    /head of (engineering|development|software|r&d)/,
+    /director of engineering/,
+    /engineering director/,
+    /(?<!business )development manager/,
+    /manager,? engineering/,
+    /r&d manager/,
+    /\bvp,? (of )?engineering/,
+    /delivery head/,
+  ],
+  CTO: [
+    /\bcto\b/,
+    /head of technology/,
+    /vp,? (of )?technology/,
+    /chief technology officer/,
+    /chief technical officer/,
+    /технічн\w* директор/,
+    /технический директор/,
+  ],
+  BUSINESS_ANALYST: [
+    /business analyst/,
+    /systems analyst/,
+    /system analyst/,
+    /\bba\b/,
+    /бізнес[\s-]?аналітик/,
+    /бизнес[\s-]?аналитик/,
+    /системн\w* аналітик/,
+    /системн\w* аналитик/,
+  ],
+  UI_UX_DESIGNER: [
+    /ui\/?ux/,
+    /ux\/?ui/,
+    /product designer/,
+    /ux designer/,
+    /ui designer/,
+    /interaction designer/,
+    /ux research/,
+    /дизайнер інтерфейс/,
+    /дизайнер интерфейс/,
+  ],
+}
+
+const ROLE_KEYWORDS = (Object.entries(ROLE_PATTERNS) as [SpecificRole, readonly RegExp[]][]).map(
+  ([role, patterns]) => ({ role, patterns: patterns.map(keyword) }),
+)
+
+const GENERIC_KEYWORDS = [
+  /software (engineer|developer)/,
+  /\bswe\b/,
+  /product engineer/,
+  /programmer/,
+  /developer/,
+  /\bdev\b/,
+  /engineer/,
+  /розробник/,
+  /разработчик/,
+  /програміст/,
+  /программист/,
+].map((p) => rx(new RegExp(`(?<![a-z0-9])${p.source}`)))
+const GENERIC_NOUN = rx(
+  /(software|developer|programmer|розробник|разработчик|програміст|программист|\bswe\b)/,
+)
+
+const EXCLUDE_PHRASE = rx(
+  /\b(aso|sales engineer|solutions engineer|presales|pre-sales|business development|sales (manager|representative|executive|lead|specialist)|account (executive|manager)|recruiter|recruiting|talent acquisition|hr (manager|business partner|generalist)|marketing (manager|specialist|lead)|seo (specialist|manager)|copywriter|customer (success|support|service)|accountant|finance manager|product manager|project manager|delivery manager|product owner|scrum master|lawyer|landscape architect|interior architect|building architect)\b/,
+)
+const EXCLUDE_BARE = rx(/\b(sales|marketing|recruit\w*|hr|legal|seo|finance)\b/)
+const ENG_NOUN = rx(
+  /(developer|engineer|programmer|architect|devops|\bqa\b|tester|scientist|analyst|administrator|\bsre\b|\bdba\b|розробник|разработчик|програміст|программист|інженер|инженер)/,
+)
+const JOB_NOUN = rx(
+  /(developer|engineer|programmer|architect|designer|analyst|administrator|admin\b|tester|\bqa\b|aqa|sdet|scientist|\bdba\b|\bsre\b|devops|pentester|hacker|\bcto\b|head of|director|vp\b|development manager|r&d manager|lead\b|specialist|expert|consultant|researcher|\bdev\b|розробник|разработчик|програміст|программист|тестувальник|тестировщик|адміністратор|администратор|аналітик|аналитик|архітектор|архитектор|дизайнер|інженер|инженер|сисадм|верстальщик|верстальник)/,
+)
+const AI_FOCUS = rx(/\b(llm|genai|generative|agent|rag|prompt)/)
+const HINT_NOUN = rx(
+  /(developer|engineer|programmer|розробник|разработчик|програміст|программист|dev\b|lead\b)/,
+)
+
+/**
+ * §3.2 tech hints, first match wins. Deviation from Appendix A: there `\bc#\b` and `\b\.net` never
+ * match (`#` and `.` are not word characters), so C# / .NET fell through to SOFTWARE_ENGINEER; the
+ * §3.2 table names them backend, so they get their own bounds here.
+ */
+const TECH_HINTS: readonly { pattern: RegExp; role: TechnicalRole | null }[] = [
+  {
+    pattern: rx(
+      /\b(java|golang|go|python|php|ruby|rails|scala|elixir|rust|node\.?js|nestjs|django|laravel|spring)\b/,
+    ),
+    role: 'BACKEND_ENGINEER',
+  },
+  { pattern: rx(/(?<!\w)c#|\.net(?!\w)/), role: 'BACKEND_ENGINEER' },
+  { pattern: rx(/\b(magento|shopify|wordpress|drupal|bitrix)\b/), role: 'FULLSTACK_ENGINEER' },
+  {
+    pattern: rx(/\b(react|angular|vue|svelte|next\.?js|javascript|typescript|js)\b/),
+    role: 'FRONTEND_ENGINEER',
+  },
+  // Ambiguous (backend / embedded / game / desktop): no role, the generic fallback decides.
+  { pattern: rx(/(c\+\+|\bkotlin\b)/), role: null },
+]
+
+const ARCHITECT_DOMAINS: readonly { pattern: RegExp; role: TechnicalRole }[] = [
+  { pattern: rx(/\bdata\b/), role: 'DATA_ENGINEER' },
+  { pattern: rx(/(cloud|infrastructure|devops|platform)/), role: 'DEVOPS_ENGINEER' },
+  { pattern: rx(/security/), role: 'SECURITY_ENGINEER' },
+  { pattern: rx(/network/), role: 'NETWORK_ENGINEER' },
+  { pattern: rx(/\b(ml|ai|machine learning)\b/), role: 'ML_ENGINEER' },
+  { pattern: rx(/\b(salesforce|sap|erp|crm)\b/), role: 'BUSINESS_APPLICATIONS_ENGINEER' },
+  { pattern: rx(/(front[\s-]?end)/), role: 'FRONTEND_ENGINEER' },
+  { pattern: rx(/mobile/), role: 'CROSS_PLATFORM_MOBILE_ENGINEER' },
+]
+
+/**
+ * Step 9: board categories that are `eq` to one role (research §1 DOU / Djinni / WWR / Remotive
+ * cells), matched trimmed and case-insensitively. Left out on purpose: values that are `eq` on one
+ * board but a `hint` or a broader parent on another (`JavaScript`, `QA`, `Security`, `Support`,
+ * `Design`), and technology tags that name no role (`SQL`, `Kotlin`, `C++`).
+ */
+const EQ_BOARD_CATEGORIES: Readonly<Record<string, TechnicalRole>> = Object.fromEntries(
+  (
+    [
+      ['SOFTWARE_ENGINEER', ['software-development']],
+      ['BACKEND_ENGINEER', ['remote-back-end-programming-jobs']],
+      ['FRONTEND_ENGINEER', ['Front End', 'remote-front-end-programming-jobs']],
+      ['FULLSTACK_ENGINEER', ['Fullstack', 'remote-full-stack-programming-jobs']],
+      ['DESKTOP_ENGINEER', ['Dotnet Desktop', 'WPF', 'WinForms']],
+      [
+        'BUSINESS_APPLICATIONS_ENGINEER',
+        ['ERP/CRM', 'ERP', 'Salesforce', 'SAP', 'No-code', 'No Code', 'MS Dynamics', 'Odoo'],
+      ],
+      ['IOS_ENGINEER', ['iOS', 'iOS/macOS']],
+      ['ANDROID_ENGINEER', ['Android']],
+      [
+        'CROSS_PLATFORM_MOBILE_ENGINEER',
+        ['Flutter', 'React Native', 'Dotnet Mobile', 'MAUI', 'Xamarin'],
+      ],
+      ['DATA_ENGINEER', ['Data Engineer', 'Big Data']],
+      ['DATABASE_ENGINEER', ['DBA']],
+      ['DATA_ANALYST', ['Data Analyst', 'Web Analyst']],
+      ['DATA_SCIENTIST', ['Data Science']],
+      ['ML_ENGINEER', ['AI/ML', 'Machine Learning', 'ML AI']],
+      ['DEVOPS_ENGINEER', ['DevOps']],
+      ['SITE_RELIABILITY_ENGINEER', ['SRE']],
+      ['SYSTEM_ADMINISTRATOR', ['SysAdmin']],
+      ['QA_AUTOMATION_ENGINEER', ['QA Automation']],
+      ['SECURITY_ENGINEER', ['Information Security']],
+      ['SECURITY_ANALYST', ['Security Analyst']],
+      ['PENETRATION_TESTER', ['Penetration Tester']],
+      ['EMBEDDED_ENGINEER', ['Embedded', 'Firmware Engineer', 'Robotics Engineer']],
+      [
+        'HARDWARE_ENGINEER',
+        [
+          'Hardware',
+          'ASIC / Chip Design',
+          'FPGA Engineer',
+          'Hardware Engineer',
+          'RF Engineer',
+          'Electronics / PCB Design',
+        ],
+      ],
+      [
+        'GAME_DEVELOPER',
+        [
+          'Unity',
+          'Unreal Engine',
+          'Game Developer',
+          'Unity Developer',
+          'Unreal Developer',
+          '.NET Gamedev',
+        ],
+      ],
+      ['BLOCKCHAIN_ENGINEER', ['Blockchain']],
+      ['SOFTWARE_ARCHITECT', ['Architect']],
+      ['ENGINEERING_MANAGER', ['Engineering Manager']],
+      ['CTO', ['CTO']],
+      ['BUSINESS_ANALYST', ['Business Analyst']],
+      ['UI_UX_DESIGNER', ['Product Design', 'UI UX', 'UX Research']],
+    ] as const
+  ).flatMap(([role, categories]) => categories.map((c) => [c.toLowerCase(), role] as const)),
+)
+
+/** Step 1: an excluded role phrase, or a bare domain word with no engineering noun. */
+function isExcluded(t: string): boolean {
+  return EXCLUDE_PHRASE.test(t) || (EXCLUDE_BARE.test(t) && !ENG_NOUN.test(t))
+}
+
+/** Step 3: every specific role whose keyword matches. */
+function collectRoles(t: string): TechnicalRole[] {
+  return ROLE_KEYWORDS.filter(({ patterns }) => patterns.some((p) => p.test(t))).map((k) => k.role)
+}
+
+/** Step 4: drop the less specific role. */
+function applyPrecedence(t: string, hits: TechnicalRole[]): TechnicalRole[] {
+  const has = (r: TechnicalRole) => hits.includes(r)
+  const drop = new Set<TechnicalRole>()
+  if (has('QA_AUTOMATION_ENGINEER') || has('PENETRATION_TESTER')) drop.add('QA_ENGINEER')
+  if (has('FULLSTACK_ENGINEER')) {
+    drop.add('FRONTEND_ENGINEER')
+    drop.add('BACKEND_ENGINEER')
+  }
+  if (has('AI_ENGINEER') && AI_FOCUS.test(t)) drop.add('ML_ENGINEER')
+  return hits.filter((r) => !drop.has(r))
+}
+
+/** Step 6: an architect also gets the domain role its title names. */
+function addArchitectDomains(t: string, hits: TechnicalRole[]): TechnicalRole[] {
+  if (!hits.includes('SOFTWARE_ARCHITECT')) return hits
+  const domains = ARCHITECT_DOMAINS.filter(({ pattern }) => pattern.test(t)).map((d) => d.role)
+  return [...new Set([...hits, ...domains])]
+}
+
+/** Step 4 (last bullet): an engineering-manager or CTO vacancy keeps only the leadership role. */
+function keepLeadership(hits: TechnicalRole[]): TechnicalRole[] {
+  const leadership = hits.filter((r) => r === 'ENGINEERING_MANAGER' || r === 'CTO')
+  return leadership.length > 0 ? leadership : hits
+}
+
+/** Steps 7–8: a tech hint, then the generic software fallback; only when no role matched. */
+function fallbackRole(t: string): TechnicalRole | null {
+  if (HINT_NOUN.test(t)) {
+    const hint = TECH_HINTS.find(({ pattern }) => pattern.test(t))
+    if (hint?.role) return hint.role
+  }
+  return GENERIC_KEYWORDS.some((p) => p.test(t)) && GENERIC_NOUN.test(t)
+    ? 'SOFTWARE_ENGINEER'
+    : null
+}
+
+/** Steps 2–8 on the lower-cased title. */
+function rolesFromTitle(t: string): TechnicalRole[] {
+  if (!JOB_NOUN.test(t)) return []
+  const hits = keepLeadership(addArchitectDomains(t, applyPrecedence(t, collectRoles(t))))
+  if (hits.length > 0) return hits
+  const fallback = fallbackRole(t)
+  return fallback ? [fallback] : []
+}
+
+/** Step 9: roles from `eq` board categories; SOFTWARE_ENGINEER only when nothing else is named. */
+function rolesFromBoard(tags: readonly string[]): TechnicalRole[] {
+  const found = new Set(tags.flatMap((tag) => EQ_BOARD_CATEGORIES[tag.trim().toLowerCase()] ?? []))
+  if (found.size > 1) found.delete('SOFTWARE_ENGINEER')
+  return [...found]
+}
+
+/** `tags` = the opportunity's `stack_keywords` (provider categories and departments land there). */
+export function classifyRoles(input: {
+  title: string
+  tags: readonly string[]
+}): RoleClassification {
+  const t = input.title.toLowerCase()
+  if (isExcluded(t)) return { kind: 'NON_IT' }
+  const fromTitle = rolesFromTitle(t)
+  const generic =
+    fromTitle.length === 0 || (fromTitle.length === 1 && fromTitle[0] === 'SOFTWARE_ENGINEER')
+  const roles =
+    generic && rolesFromBoard(input.tags).length > 0 ? rolesFromBoard(input.tags) : fromTitle
+  return roles.length > 0 ? { kind: 'ROLES', roles: sortRoles(roles) } : { kind: 'UNCLASSIFIED' }
+}
