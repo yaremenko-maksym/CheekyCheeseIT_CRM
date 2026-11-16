@@ -328,7 +328,12 @@ export function resumeContentDisposition(displayName: string): string {
 export function pendingPdfBody(
   status: 'QUEUED' | 'RUNNING' | 'FAILED',
   stored: string | null,
-): { status: string; code?: string; params?: Record<string, string | number>; message: string } {
+): {
+  status: string
+  code?: string
+  params?: Record<string, string | number> | undefined
+  message: string
+} {
   const decoded =
     stored === null ? { code: 'RESUME_PDF_PREPARING' as const } : decodeResumeMessage(stored)
   if (decoded === null) return { status, message: String(stored) }

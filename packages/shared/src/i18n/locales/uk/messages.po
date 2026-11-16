@@ -3795,6 +3795,11 @@ msgstr "Резюме саме зараз змінюється. Повторіт�
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_DOCX_CONTENT_TOO_LARGE"
+msgstr "Текст усередині DOCX більший за {mb} МБ — це не схоже на резюме."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_DOCX_CORRUPT"
 msgstr "DOCX-файл пошкоджено. Збережіть його ще раз або вставте текст."
 
@@ -3882,6 +3887,11 @@ msgstr "Резюме не знайдено. Оновіть сторінку."
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_PDF_PREPARING"
 msgstr "Готуємо PDF за шаблоном резюме. Оновіть сторінку за кілька секунд."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_PDF_TOO_BUSY"
+msgstr "У PDF забагато текстових операцій (межа {max}) — це не схоже на резюме."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts

@@ -219,7 +219,7 @@ export const seniorResumeDtoSchema = z.object({
   content: resumeContentSchema,
   status: resumeExtractionStatusSchema,
   errorCode: resumeFailureCodeSchema.nullable(),
-  /** Human-readable detail for FAILED (already Russian, safe to render). */
+  /** Detail for FAILED: an `encodeResumeMessage` code, or legacy free text (backlog 443). */
   errorMessage: z.string().nullable(),
   /** ISO — when the Cloudflare daily allowance resets (QUOTA_EXCEEDED only). */
   quotaResetsAt: z.string().nullable(),
@@ -251,7 +251,7 @@ export const seniorResumeDtoSchema = z.object({
 
   // --- rendered PDF ---------------------------------------------------------
   renderStatus: resumeRenderStatusSchema,
-  /** Russian, safe to display — set together with `renderStatus: 'FAILED'`. */
+  /** Set with `renderStatus: 'FAILED'`: an `encodeResumeMessage` code, or legacy free text. */
   renderError: z.string().nullable(),
   /**
    * True when a rendered PDF exists AND was built from exactly the current

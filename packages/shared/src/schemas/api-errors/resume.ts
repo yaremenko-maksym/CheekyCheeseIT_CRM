@@ -54,6 +54,8 @@ export const RESUME_ERROR_CODES = [
   'RESUME_RENDER_BLANK_PAGE',
   'RESUME_RENDER_MISSING_GLYPHS',
   'RESUME_RENDER_STORAGE_FAILED',
+  'RESUME_DOCX_CONTENT_TOO_LARGE',
+  'RESUME_PDF_TOO_BUSY',
 ] as const
 export type ResumeErrorCode = (typeof RESUME_ERROR_CODES)[number]
 
@@ -105,6 +107,8 @@ export const RESUME_ERROR_PARAMS = {
   RESUME_RENDER_BLANK_PAGE: [],
   RESUME_RENDER_MISSING_GLYPHS: ['glyphs'],
   RESUME_RENDER_STORAGE_FAILED: [],
+  RESUME_DOCX_CONTENT_TOO_LARGE: ['mb'],
+  RESUME_PDF_TOO_BUSY: ['max'],
 } as const satisfies Record<ResumeErrorCode, readonly string[]>
 
 export const RESUME_ERROR_MESSAGES: Record<ResumeErrorCode, MessageDescriptor> = {
@@ -302,6 +306,14 @@ export const RESUME_ERROR_MESSAGES: Record<ResumeErrorCode, MessageDescriptor> =
     id: 'api-error.RESUME_RENDER_STORAGE_FAILED',
     message: 'PDF зібрано, але не збережено у сховищі. Спробуйте пізніше.',
   },
+  RESUME_DOCX_CONTENT_TOO_LARGE: /* i18n */ {
+    id: 'api-error.RESUME_DOCX_CONTENT_TOO_LARGE',
+    message: 'Текст усередині DOCX більший за {mb} МБ — це не схоже на резюме.',
+  },
+  RESUME_PDF_TOO_BUSY: /* i18n */ {
+    id: 'api-error.RESUME_PDF_TOO_BUSY',
+    message: 'У PDF забагато текстових операцій (межа {max}) — це не схоже на резюме.',
+  },
 }
 
 export const RESUME_ERROR_FALLBACK_EN: Record<ResumeErrorCode, string> = {
@@ -375,4 +387,8 @@ export const RESUME_ERROR_FALLBACK_EN: Record<ResumeErrorCode, string> = {
   RESUME_RENDER_MISSING_GLYPHS:
     'The resume template holds characters the available fonts cannot draw: {glyphs}. Replace them or add a font with these glyphs.',
   RESUME_RENDER_STORAGE_FAILED: 'The PDF was built but not saved to storage. Try later.',
+  RESUME_DOCX_CONTENT_TOO_LARGE:
+    'The text inside the DOCX is larger than {mb} MB, which does not look like a resume.',
+  RESUME_PDF_TOO_BUSY:
+    'The PDF has too many text operations (the limit is {max}), which does not look like a resume.',
 }

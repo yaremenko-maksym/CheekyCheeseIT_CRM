@@ -18,13 +18,7 @@
  *   - layout / template on AWAITING_CONFIRM → DRAFT + the staged cleanup.
  *   - layout / template on DRAFT / FAILED → written, `version` bumped.
  */
-import {
-  BadRequestException,
-  HttpStatus,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common'
+import { BadRequestException, HttpStatus, Injectable, Logger } from '@nestjs/common'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   and,
@@ -339,7 +333,7 @@ export class ResumeVerificationService {
       .from(seniorResumes)
       .where(eq(seniorResumes.id, resumeId))
       .limit(1)
-    if (!row) throw new NotFoundException('Резюме не найдено')
+    if (!row) throw apiError('RESUME_NOT_FOUND', HttpStatus.NOT_FOUND)
     throw apiError('RESUME_VERIFICATION_BUSY', HttpStatus.CONFLICT)
   }
 

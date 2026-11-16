@@ -3795,6 +3795,11 @@ msgstr "The resume is being changed right now. Try deleting it again in a few se
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_DOCX_CONTENT_TOO_LARGE"
+msgstr "The text inside the DOCX is larger than {mb} MB, which does not look like a resume."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_DOCX_CORRUPT"
 msgstr "The DOCX file is damaged. Save it again or paste the text."
 
@@ -3882,6 +3887,11 @@ msgstr "The resume was not found. Refresh the page."
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_PDF_PREPARING"
 msgstr "The PDF is being built from the resume template. Refresh the page in a few seconds."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_PDF_TOO_BUSY"
+msgstr "The PDF has too many text operations (the limit is {max}), which does not look like a resume."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts

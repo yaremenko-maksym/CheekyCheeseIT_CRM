@@ -45,6 +45,7 @@ export const seniorResumes = pgTable(
     status: resumeExtractionStatusEnum('status').notNull().default('READY'),
     /** ResumeFailureCode (packages/shared) — set together with `error_message`. */
     errorCode: text('error_code'),
+    /** The detail: an `encodeResumeMessage` code (backlog 443); older rows hold Russian text. */
     errorMessage: text('error_message'),
     /** When the Cloudflare daily allowance resets (QUOTA_EXCEEDED only). */
     quotaResetsAt: timestamp('quota_resets_at', { withTimezone: true }),
@@ -101,7 +102,10 @@ export const seniorResumes = pgTable(
      */
     pdfFingerprint: text('pdf_fingerprint'),
     pdfRenderStatus: resumeRenderStatusEnum('pdf_render_status').notNull().default('IDLE'),
-    /** Russian, user-safe — set together with `pdf_render_status = 'FAILED'`. */
+    /**
+     * Set together with `pdf_render_status = 'FAILED'`: a resume error code encoded
+     * by `encodeResumeMessage` (backlog 443); older rows hold Russian text.
+     */
     pdfRenderError: text('pdf_render_error'),
     /** Set while a render is RUNNING; drives the stuck-render sweep. */
     pdfRenderStartedAt: timestamp('pdf_render_started_at', { withTimezone: true }),
