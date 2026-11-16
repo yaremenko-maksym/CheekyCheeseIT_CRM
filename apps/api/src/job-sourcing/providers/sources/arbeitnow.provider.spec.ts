@@ -4,6 +4,7 @@ import { sourceFixture, sourceProvenance } from '../../../test/source-fixtures'
 import { PG_INT_MAX } from '../api-json.provider'
 import { MAX_RESPONSE_BYTES_CEILING } from '../../http/bounded-fetch'
 import { UnvalidatedConfigError } from '../reporting-provider'
+import { validateObservation } from '../../store/record-payload'
 import {
   arbeitnowProvider,
   ARBEITNOW_MAX_BYTES,
@@ -610,5 +611,22 @@ describe('escaped descriptions', () => {
 
   it('leading whitespace before an escaped tag means it is NOT treated as escaped markup', async () => {
     expect(await descriptionOf(' &lt;p&gt;x&lt;/p&gt;')).toBe('\\<p\\>x\\</p\\>')
+  })
+})
+
+describe('an over-limit description (prod 2026-11-16: PERSISTENCE, description over the display limit)', () => {
+  it('is cut to the display limit, so every job passes the store gate and the run succeeds', async () => {
+    const big = { ...jobs()[0], description: `<p>${'x'.repeat(30_000)}</p>` }
+    const { batch } = await run(withJobs([big, ...jobs().slice(1)]))
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.counts).toEqual({
+      raw: 7,
+      normalized: 7,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
+    expect(bySlug(batch, FIRST)?.normalized.descriptionMd).toHaveLength(20_000)
+    for (const o of batch.observations) expect(() => validateObservation(o)).not.toThrow()
   })
 })

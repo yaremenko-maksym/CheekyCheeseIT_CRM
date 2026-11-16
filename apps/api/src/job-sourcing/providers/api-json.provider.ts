@@ -10,6 +10,7 @@ import {
   type RawObservationFields,
   type SourceObservation,
 } from '../normalize/observation'
+import { validateObservation } from '../store/record-payload'
 import { type ApiJsonLimits, DEFAULT_API_JSON_LIMITS } from './api-json.limits'
 import { parseBoundedJson } from './bounded-json'
 import { jsonEnvelopeFingerprint } from './envelope-fingerprint'
@@ -1599,6 +1600,16 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     if (!result.ok) {
       counts.quarantined += 1
       addSample(at.page, `QUARANTINED: ${result.reason}`, item)
+      continue
+    }
+    // The store re-checks every observation and refuses the WHOLE page on the first bad one, which
+    // failed a run as PERSISTENCE for one record (ARBEITNOW, 2026-11-16). Asked here first, the same
+    // check makes such a record ONE invalid item, skipped, as an extractor exception is above.
+    try {
+      validateObservation(result.observation)
+    } catch (error) {
+      counts.invalid += 1
+      addSample(at.page, `OBSERVATION_INVALID: ${(error as Error).message}`, item)
       continue
     }
 
