@@ -840,3 +840,231 @@ shrink by at most 20 per 10 minutes.
       report.
 - [ ] Verify with the owner SELECT `SELECT count(*) FROM users WHERE role = 'SENIOR' AND archived_at IS NULL AND cardinality(technical_roles) = 0`.
       Expected: `0`. This is the merge gate of PR 4.
+
+---
+
+## PR 4 — Matching on roles + skills overlap (`feat/roles-4-matching`)
+
+**Security-reviewer: mandatory.** Queue visibility (LEAD / TEAM / STUDIO) is an RBAC surface, and the
+overlap puts a senior's own skills into the card evidence.
+
+**Ships safely because:**
+
+- Every senior already has roles (gate above).
+- The version bumps make the sweep and the fan-out recompute everything once. That is the spec's
+  "one full recompute".
+
+### Task 4.1: Evaluate reads roles
+
+**Files:**
+
+- Modify: `apps/api/src/job-sourcing/funnel/evaluate.types.ts`
+- Modify: `apps/api/src/job-sourcing/funnel/evaluate.ts` (`evaluate`, `buildScopes`, `projectScope`)
+- Modify: `apps/api/src/job-sourcing/funnel/tech-match.ts` (`SeniorTechProfile`, `matchTech`, `TechMatchView.seniors`)
+- Test: `apps/api/src/job-sourcing/funnel/evaluate.spec.ts`, `tech-match.spec.ts`
+
+**Interfaces:**
+
+- Consumes: `rolesMatch`, `vacancyTechnologies`, `skillOverlap` (PR 1), `OpportunityRoles` (2.3).
+- Produces:
+  - `EVALUATE_RULE_VERSION = 'eval.2'`.
+  - `EvaluateInput.roles: OpportunityRoles`. It is required; the caller always classifies first.
+  - `SeniorTechProfile` becomes `{ seniorId; teamIds; roles: readonly SeniorSelectableRole[]; skills: readonly string[] | null }`.
+    `skills` is canonical; `null` means no resume. The name is kept to limit churn.
+  - New reason codes:
+    - `ROLE_PENDING`, `ROLE_UNCLEAR` and `NON_IT`: opportunity level, `subject: 'OPPORTUNITY'`,
+      `stage: 'CLASSIFICATION'`, returned through `excludedBy` in the same block as `layer1Rejections`.
+      Evidence: `role_status=<status>`.
+    - `ROLE_MISMATCH`: per senior, `subject: 'SENIOR:<id>'`, `stage: 'CLASSIFICATION'`. Evidence:
+      `vacancy=<sorted roles>`.
+    - `ROLE_MATCH`: on a LEAD, replacing `TECH_MATCH`. Evidence: one `ROLE:<id>` or
+      `ROLE:<id>:WIDENED` per matched vacancy role, from `rolesMatch`, sorted.
+  - `TechMatchView.seniors[i].skillOverlap: SkillOverlap | 'NO_RESUME' | null`. The text is
+    title + `descriptionMd`, and it uses **that senior's** `skills` only.
+- Behaviour pinned by tests:
+  - **Kept as today:** the readiness checks (`MISSING_ROSTER_PROFILES` / `DUPLICATE_PROFILES`),
+    scoped exclusions (`SENIOR_EXCLUSION` in `SCOPED_RESTRICTIONS`), `noTeamAccess`, GLOBAL
+    restrictions, and the layer-1 rejections and WARN rank warnings.
+  - **Removed:**
+    - the keyword decision (`TECH_MATCH`, `matches` by keyword)
+    - the `UNKNOWN_STACK` TRIAGE, including the `detailPending` / `lowInformation` lift
+    - team-grant TRIAGE: today it needs an unknown stack, and a vacancy that reaches scopes now
+      always has ≥1 role (see the spec gaps)
+  - **LEAD rules:**
+    - A senior is LEAD when `rolesMatch(...).matched` is non-empty.
+    - STUDIO is LEAD when any matchable senior is LEAD.
+    - A team is LEAD when any of its matchable seniors is LEAD.
+    - A vacancy that no senior matches has no projection. ADMIN still sees it in the STUDIO list
+      (not EXCLUDED at opportunity level), with `noMatchReason` `EXCLUDED` per senior.
+  - `rankScore` is unchanged and gets `unknownStack: false`. The overlap does not change the score.
+
+- [ ] **Step 1: Write the failing tests** (`evaluate.spec.ts`)
+
+```ts
+it('PENDING / UNCLEAR / NON_IT -> EXCLUDED, subject OPPORTUNITY, stage CLASSIFICATION, reason ROLE_*', ...)
+it('BACKEND senior + FULLSTACK vacancy -> LEAD with ROLE_MATCH ROLE:FULLSTACK_ENGINEER:WIDENED', ...)
+it('BACKEND senior + FRONTEND vacancy -> SENIOR:<id> EXCLUDED ROLE_MISMATCH in CLASSIFICATION, no LEAD', ...)
+it('a multi-role vacancy matches when any role is in the widened set', ...)
+it('no TRIAGE projection is ever produced, with or without detailPending or a team grant', ...)
+it('a scoped exclusion still wins over a role match (SENIOR_EXCLUSION, SCOPED_RESTRICTIONS)', ...)
+it('skillOverlap per senior uses only that senior skills; NO_RESUME for null; null for a vacancy with no technologies', ...)
+it('a team view carries only its own seniors overlap', ...)          // forViewer
+it('rank score is identical for two vacancies that differ only in overlap', ...)
+it('roster readiness issues still return RETRYABLE ROSTER_NOT_READY', ...)
+```
+
+- [ ] **Step 2: Run** `pnpm --filter @crm/api test -- funnel/evaluate funnel/tech-match`. Expected: FAIL.
+- [ ] **Step 3: Implement.** Delete the keyword path's tests in `tech-match.spec.ts` along with the
+      code they pinned. Do not leave them skipped.
+- [ ] **Step 4: Run** the same command. Expected: PASS.
+- [ ] **Step 5: Commit** `feat(job-sourcing): match vacancies to seniors by technical role`.
+
+### Task 4.2: Roster, opportunity inputs and versions
+
+**Files:**
+
+- Modify: `apps/api/src/job-sourcing/runtime/recompute-inputs.ts`:
+  - `loadRoster`, `loadOpportunity` and `profileVersion`
+  - `opportunityInputsVersion`
+  - `EVALUATION_RECORD_VERSION = 'rf.3'`
+- Modify: `apps/api/src/job-sourcing/runtime/recompute-worker.ts`: pass `roles` into `evaluate`.
+- Test:
+  - existing `recompute-inputs.spec.ts`
+  - new `apps/api/src/job-sourcing/runtime/roster-roles.integration.spec.ts`
+  - existing `queue-scope.service` specs
+
+**Interfaces:**
+
+- `loadRoster(db)` SQL changes in 2 places:
+  - It selects `u.technical_roles`.
+  - It adds `LEFT JOIN senior_resumes r ON r.user_id = u.id` for `r.content -> 'skills'` and
+    `r.facts -> 'experience'`.
+  - `skills` = `mergeSkills(content.skills, facts.experience[].technologies)` mapped through
+    `canonicalSkill`, sorted and deduplicated. An empty list gives `null`.
+  - It parses defensively, like `getSeniorStack`: a non-array is `[]`.
+- `profileVersion(p)` = `digest([[...p.roles].sort(), [...p.teamIds].sort(), digest(p.skills ?? [])])`
+  (correction 6).
+- `loadOpportunity` returns `roles: OpportunityRoles`, read from the 3 columns. The recompute worker
+  still backfills the columns first (2.3), so the evaluation never sees NULL.
+- `opportunityInputsVersion` includes `roles.status` and the sorted `roles.roles`. An AI write then
+  changes the record, and the `ROLE_AI:*` dirty row re-installs the matches.
+- The queue read side (`queue-scope.service.ts` `liveVersions` / `policy`) already calls the same
+  `loadRoster` / `rosterVersions`. Keep it that way: add no second loader.
+
+- [ ] **Step 1: Write the failing tests**
+
+```ts
+it('profileVersion changes when roles, teams or canonical resume skills change; not on skill order or synonym spelling', ...)
+it('loadRoster: senior without a resume row -> skills null; content.skills + facts.experience[].technologies merged', ...)
+it('queue liveVersions equals the stamped senior_profile_version after a recompute', ...) // Review Focus 3, real DB
+it('opportunityInputsVersion changes when role_status goes PENDING -> AI', ...)
+```
+
+- [ ] **Step 2: Run** `pnpm --filter @crm/api test -- recompute-inputs roster-roles queue-scope` with a scratch
+      `DATABASE_URL`. Expected: FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** the same command. Expected: PASS.
+- [ ] **Step 5: Commit** `feat(job-sourcing): roster roles and resume skills in the profile version`.
+
+### Task 4.3: Dirty producers — `senior.roles` and `senior.resume`
+
+**Files:**
+
+- Modify: `apps/api/src/job-sourcing/dirty-producers.ts`:
+  - `SeniorDirtyReason`: replace `'senior.stack'` with `'senior.roles'` and add `'senior.resume'`.
+  - `markUserEditDirty` reads `technicalRoles` through `rolesChanged`.
+  - Add `markSeniorResumeDirty(tx, userId)`, which calls `markSeniorDirty(tx, userId, 'senior.resume')`.
+- Modify `apps/api/src/users/users.service.ts`, at the `updateProfile` call that today marks
+  `senior.stack` when `stackChanged`. It now marks on a roles change.
+- Modify the resume write sites that change `content` or `facts`:
+  - in `apps/api/src/resumes/resumes.service.ts`: `updateContent`, `runExtraction` (the `facts`
+    write) and `deleteResume`
+  - in `apps/api/src/resumes/verification/resume-verification.service.ts`: `saveFacts` (the `facts`
+    write), the legacy-facts adoption write, and the confirm write that copies `stagedContent` into
+    `content`
+  - Each call happens inside the write's own transaction. A write outside a transaction gets one,
+    following the existing `markSeniorDirty` callers.
+  - `ensureRow`'s insert of `EMPTY_RESUME_CONTENT` needs no mark: its skills are empty, so the
+    profile version does not change.
+- Test: the existing `dirty-producers.spec.ts`, plus `apps/api/src/resumes/resume-dirty.integration.spec.ts`
+
+- [ ] **Step 1: Write the failing tests:**
+  - `a real roles change marks senior.roles; an unchanged resubmit marks nothing`
+  - `a techStack change no longer marks a SENIOR dirty`
+  - `each listed resume write marks senior.resume in the same transaction` (one case per site)
+  - `a render/status-only resume write marks nothing` (pick `markRenderStarted`)
+- [ ] **Step 2: Run** `pnpm --filter @crm/api test -- dirty-producers resume-dirty` with a scratch
+      `DATABASE_URL`. Expected: FAIL.
+- [ ] **Step 3: Implement.** The reconciliation sweep compares the live versions, so it still catches
+      a missed site, within one 6-hour tick. That is a safety net, not a substitute for the marks.
+- [ ] **Step 4: Run** the same command. Expected: PASS.
+- [ ] **Step 5: Commit** `feat(job-sourcing): roles and resume changes mark seniors dirty`.
+
+### Task 4.4: Detail fetch for `PENDING` vacancies
+
+**Files:** `apps/api/src/job-sourcing/runtime/recompute-worker.ts` (`recomputeOpportunity`), test
+`recompute-worker.spec.ts`.
+
+- Rule: next to the existing `DETAIL_FETCH` branch (`verdict.kind === 'EVALUATED' && projections.length > 0`).
+  - Also enqueue `DETAIL_FETCH` for each `onDemandMissing` record when
+    `roles.status === 'PENDING' && loaded.detailPending`, **and** `JOB_ROLE_AI_ENABLED` is true.
+  - While AI is off, a detail fetch buys nothing, so it is not made (Open decisions, item 2).
+- [ ] **Step 1:** Write the failing tests:
+  - `PENDING with detail pending enqueues DETAIL_FETCH when the AI step is enabled` (Review Focus 5)
+  - `… and enqueues nothing when it is disabled`
+  - `a RULE-classified LEAD still enqueues DETAIL_FETCH as today`
+- [ ] **Step 2–4:** Run `pnpm --filter @crm/api test -- recompute-worker`. It fails, you implement,
+      then it passes.
+- [ ] **Step 5: Commit** `feat(job-sourcing): fetch detail for role-pending vacancies when AI is on`.
+
+### Task 4.5: Queue DTO — role match is exact, overlap on the card
+
+**Files:**
+
+- Modify `packages/shared/src/schemas/job-sourcing.ts`. On `jobQueueCardSeniorSchema`, add
+  `skillOverlap: z.discriminatedUnion('kind', [z.object({ kind: z.literal('OVERLAP'), matched: z.array(z.string()), total: z.number().int().positive() }), z.object({ kind: z.literal('NO_RESUME') })]).nullable()`.
+- Modify `apps/api/src/job-sourcing/queue/job-queue.service.ts` (`matchFacts`, `matchEvidence`, `toSenior`).
+- Test: the existing `job-queue.service` specs. Add the 4 surfaces from correction 1 in one new spec,
+  `apps/api/src/job-sourcing/queue/role-visibility.integration.spec.ts`.
+
+**Interfaces:**
+
+- `matchFacts(evidence)` reads `ROLE_MATCH`, and it returns `approximate: false` for a role match.
+  `matchedKeywords` = the overlap's `matched` skills, and `[]` for `NO_RESUME` or null.
+- `toSenior(scope)` fills `skillOverlap` from the senior's evidence. `matchApproximate` is kept in the
+  DTO and is always `false` here, so the web contract does not break.
+
+- [ ] **Step 1: Write the failing tests**
+
+```ts
+it('matchFacts: ROLE_MATCH is never approximate; matchedKeywords are the matched skills', ...)
+it('card senior skillOverlap OVERLAP {matched,total} / NO_RESUME / null', ...)
+// role-visibility.integration.spec.ts (scratch DB, full recompute then the real list SQL):
+it('ROLE_PENDING, ROLE_UNCLEAR and NON_IT vacancies are hidden from the STUDIO list (ADMIN)', ...)
+it('... hidden from a TEAM list', ...)
+it('... hidden from a team subscription read', ...)
+it('... absent from the cached generation', ...)
+it('a role-mismatched vacancy is not in a TEAM list; STOP_LISTED count is unchanged by ROLE_MISMATCH', ...)
+it('a TEAM viewer never receives another team senior skillOverlap', ...)
+it('HR of team A gets 403 / empty for team B queue as today', ...) // RBAC regression
+```
+
+- [ ] **Step 2: Run** `pnpm --filter @crm/api test -- job-queue role-visibility` with a scratch
+      `DATABASE_URL`. Expected: FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** the same command, then the full `pnpm --filter @crm/api test` and `pnpm typecheck`.
+      Expected: PASS.
+- [ ] **Step 5: Commit** `feat(job-sourcing): role match evidence and skill overlap on queue cards`.
+
+**PR 4 done when:** Tasks 4.1–4.5 are green, and the web still compiles (`skillOverlap` is additive).
+The security-reviewer verdict is recorded. Trailer: `ac_verified: 4.1,4.2,4.3,4.4,4.5`. **Merge
+gate:** the step (d) SELECT returns `0`.
+
+**Deploy:** this is the one full recompute. Verify with owner SELECTs:
+
+```sql
+SELECT evaluation_verdict, count(*) FROM job_opportunities GROUP BY 1;
+SELECT count(*) FROM job_opportunity_matches WHERE status = 'LEAD';
+```
+
+Expected: the `LEAD` count is > 0 after the first drain. Each senior's queue is non-empty in the UI.
