@@ -192,3 +192,4 @@ export const API_ERROR_FALLBACK_EN: Record<ApiErrorCode, string> = {
 }
 
 export * from './meeting-recorder'
+export * from './resume-stored-message'
