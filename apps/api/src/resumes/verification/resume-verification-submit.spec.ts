@@ -185,6 +185,23 @@ describe('ResumeVerificationService.submit', () => {
     expect(runner.run).not.toHaveBeenCalled()
   })
 
+  // PR #1351 round 5 (SR-H-3): the redaction misses a name with a bare mark at its edge, so the
+  // completeness flag main had is what keeps it from the model.
+  it.each([
+    ['Ivan Petrenko', 'Ivan Petrenkoःx led the team'],
+    ['김민준', '김민준́7 led the team'],
+    ['김 민준', '김 민준́7 led the team'],
+  ])('a name of %j with a bare mark at its edge is 422 RESUME_INCOMPLETE', async (name, note) => {
+    const { svc, runner, log } = service([])
+    const experience = [{ ...FACTS.experience[0]!, notes: [note] }]
+    const row = { ...ROW, facts: { ...FACTS, experience } } as SeniorResume
+    const err = await refusal(svc.submit(row, name, 'v'))
+    expect(err.getStatus()).toBe(422)
+    expect(err.getResponse()).toMatchObject({ code: 'RESUME_INCOMPLETE' })
+    expect(log).toHaveLength(0)
+    expect(runner.run).not.toHaveBeenCalled()
+  })
+
   it.each([
     [
       'a link the server would refuse (LINK_INVALID)',

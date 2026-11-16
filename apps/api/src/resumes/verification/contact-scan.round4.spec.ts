@@ -3,12 +3,7 @@
  * between name parts (SR-M-3), and a leak oracle over generated texts: what the redaction leaves
  * holds no name part and no handle, whatever invisibles and marks sit around them.
  */
-import {
-  checkResumeCompleteness,
-  foldAccents,
-  normaliseContactText,
-  type ResumeFacts,
-} from '@crm/shared'
+import { checkResumeCompleteness, type ResumeFacts } from '@crm/shared'
 import { describe, expect, it } from 'vitest'
 import { redactContacts, scanContacts, type ContactContext } from './contact-scan'
 
@@ -102,6 +97,8 @@ describe('leak oracle: no name part or handle survives redaction (PR #1351 round
     ['Latin', 'Ivan Petrenko', ['Ivan', 'Petrenko'], 1],
     ['Korean precomposed', '김민준', ['김민준'], 2],
     ['Korean jamo', '김민준', [KIM_JAMO], 3],
+    // stress marks have no precomposed form: only the fold drops them (round 5, CR-H-1)
+    ['Cyrillic', 'Іван Петренко', ['Іва́н', 'Петре́нко'], 4],
   ] as const)('%s: 20000 generated texts', (_label, fullName, rendered, seed) => {
     const random = prng(seed)
     const pick = <T>(list: readonly T[]): T => list[Math.floor(random() * list.length)] as T
@@ -114,9 +111,15 @@ describe('leak oracle: no name part or handle survives redaction (PR #1351 round
     }
     const context: ContactContext = { fullName, emails: [], telegram: 'ivan_dev' }
     // The oracle reads the output as a person would: invisibles and marks gone, accents folded,
-    // any case; a target is found anywhere, not only as a whole token.
+    // any case; a target is found anywhere, not only as a whole token. Its own strip and the
+    // platform's NFKC, so a normaliser bug that drops a character cannot hide a leak (round 5).
     const visible = (text: string) =>
-      foldAccents(normaliseContactText(text).text).text.toLowerCase()
+      text
+        .replace(/[\u2800\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, '')
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '')
+        .normalize('NFKC')
+        .toLowerCase()
     const targets = [...fullName.split(' '), 'ivan_dev'].map(visible)
     const leaks: string[] = []
     const unflagged: string[] = []
