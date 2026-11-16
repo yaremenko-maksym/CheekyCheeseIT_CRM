@@ -169,6 +169,14 @@ export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
     title: 'Fullstack Front-end Architect',
     expected: roles('FRONTEND_ENGINEER', 'FULLSTACK_ENGINEER', 'SOFTWARE_ARCHITECT'),
   },
+  {
+    title: 'Fullstack Front End Architect',
+    expected: roles('FRONTEND_ENGINEER', 'FULLSTACK_ENGINEER', 'SOFTWARE_ARCHITECT'),
+  },
+  {
+    title: 'Full-stack (Frontend/Backend) Architect',
+    expected: roles('FRONTEND_ENGINEER', 'FULLSTACK_ENGINEER', 'SOFTWARE_ARCHITECT'),
+  },
   // Precedence and fallback branches
   { title: 'Full-stack (Frontend/Backend) Engineer', expected: roles('FULLSTACK_ENGINEER') },
   { title: 'ML Engineer, Agent Systems', expected: roles('ML_ENGINEER') },
