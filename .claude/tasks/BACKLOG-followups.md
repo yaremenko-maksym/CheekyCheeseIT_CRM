@@ -8254,3 +8254,13 @@ with its MB cap. Keep both limits at 10 MB.
 answers 413 `DOCUMENT_TOO_LARGE` with `maxMb: 10`; other multipart failures are unchanged.
 
 Sources: verified-base-resume follow-up (PR #1354, QA-LOW-4 coded 413 for the resume size limit).
+
+## 452. Submit stays enabled for a verified resume the server refuses (2026-11-16)
+
+**Closed (2026-11-16).** PR #1359 (disable resume submit when verified and unflagged). Reopen if the Verify check below fails.
+
+**Symptoms.** For a VERIFIED resume that is not flagged for re-check (`recheckNeededAt: null`), the Submit button on the completeness panel (`resume-facts-submit`) stays enabled. Every click fails with HTTP 409 `RESUME_ALREADY_VERIFIED`, producing error toasts while leaving the user without an explanation of why resubmission is rejected.
+
+**Fix.** Disable the completeness Submit button whenever the resume is VERIFIED, `recheckNeededAt` is falsy, and there are no unsaved fact edits (`!canSave`). Display the localized explanation via `aria-describedby` using the existing `RESUME_ALREADY_VERIFIED` catalog string.
+
+**Verify.** With a VERIFIED resume with `recheckNeededAt: null` and unchanged facts, the Submit button is disabled, references the accessible reason via `aria-describedby`, and no 409 request is sent on click. Editing any fact enables the button so changes can be saved and resubmitted.
