@@ -215,16 +215,12 @@ describe('the generated seed delta', () => {
     const blocked = seedRowsOf(manifest).typeBlocks.map((b) => b.type)
     expect(blocked).toEqual([
       'WORKINGNOMADS_API',
-      'ASHBY_ATS',
       'SMARTRECRUITERS_ATS',
       'JOOBLE_API',
       'JSEARCH_API',
       'THEIRSTACK_API',
       'MUSE_API',
       'REED_API',
-      'DJINNI_RSS',
-      'WWR_RSS',
-      'EUREMOTEJOBS_RSS',
     ])
   })
 })

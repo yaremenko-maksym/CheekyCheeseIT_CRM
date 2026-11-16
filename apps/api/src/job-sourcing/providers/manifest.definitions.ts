@@ -15,11 +15,17 @@ import { JOOBLE_SOURCE_STATUS } from './sources/jooble.provider'
 import { JSEARCH_SOURCE_STATUS } from './sources/jsearch.provider'
 import { MUSE_SOURCE_STATUS } from './sources/muse.provider'
 import {
+  ASHBY_OWNER_DECISION,
+  DJINNI_OWNER_DECISION,
+  EUREMOTEJOBS_OWNER_DECISION,
   HN_OWNER_DECISION,
   JOBGETHER_OWNER_DECISION,
+  MUSE_OWNER_DECISION,
   REMOTIVE_OWNER_DECISION,
   SMARTRECRUITERS_OWNER_DECISION,
   WORKABLE_OWNER_DECISION,
+  WORKINGNOMADS_OWNER_DECISION,
+  WWR_OWNER_DECISION,
 } from './owner-decisions'
 import { LEVER_HOSTS } from './sources/lever.provider'
 import { RECRUITEE_TOKEN_DEADLINE } from './sources/recruitee.provider'
@@ -295,6 +301,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     disposition: REPORTING,
     fixtureDir: 'workingnomads',
     status: { symbol: 'WORKINGNOMADS_SOURCE_STATUS', value: WORKINGNOMADS_SOURCE_STATUS },
+    ownerDecisions: [WORKINGNOMADS_OWNER_DECISION],
     auth: 'NONE',
     attribution: 'NONE_RECORDED',
     endpointVariant: 'exposed-jobs',
@@ -384,6 +391,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     provider: 'Ashby',
     disposition: REPORTING,
     fixtureDir: 'ashby',
+    ownerDecisions: [ASHBY_OWNER_DECISION],
     auth: 'NONE',
     attribution: 'NONE_RECORDED',
     endpointVariant: 'posting-api',
@@ -567,6 +575,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     disposition: REPORTING,
     fixtureDir: 'muse',
     status: { symbol: 'MUSE_SOURCE_STATUS', value: MUSE_SOURCE_STATUS },
+    ownerDecisions: [MUSE_OWNER_DECISION],
     auth: 'NONE',
     attribution: 'LINK_BACK_REQUIRED',
     endpointVariant: 'public-jobs',
@@ -608,6 +617,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     provider: 'Djinni',
     disposition: REPORTING,
     fixtureDir: 'djinni',
+    ownerDecisions: [DJINNI_OWNER_DECISION],
     auth: 'NONE',
     attribution: 'NONE_RECORDED',
     endpointVariant: 'rss-primary-keyword',
@@ -634,6 +644,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     provider: 'We Work Remotely',
     disposition: REPORTING,
     fixtureDir: 'wwr',
+    ownerDecisions: [WWR_OWNER_DECISION],
     auth: 'NONE',
     attribution: 'NONE_RECORDED',
     endpointVariant: 'rss',
@@ -651,6 +662,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     provider: 'EU Remote Jobs',
     disposition: REPORTING,
     fixtureDir: 'euremotejobs',
+    ownerDecisions: [EUREMOTEJOBS_OWNER_DECISION],
     auth: 'NONE',
     attribution: 'NONE_RECORDED',
     endpointVariant: 'wp-job-manager-feed',

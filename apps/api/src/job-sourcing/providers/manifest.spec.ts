@@ -606,6 +606,8 @@ describe('readiness is derived from provenance, not retyped', () => {
       refusal(
         withDefinition('MUSE_API', (d) => ({
           ...d,
+          // Without the owner decision: an unlifted UNCLEAR is what makes `blocked: false` a lie.
+          ownerDecisions: [],
           status: { symbol: d.status!.symbol, value: { ...d.status!.value, blocked: false } },
         })),
       ),
@@ -641,13 +643,9 @@ describe('readiness is derived from provenance, not retyped', () => {
   })
 
   it.each([
-    ['MUSE_API', ['PERMISSION_UNCLEAR', 'STATUS_CONSTANT_BLOCKED']],
-    ['ASHBY_ATS', ['PERMISSION_UNCLEAR']],
+    ['MUSE_API', ['STATUS_CONSTANT_BLOCKED']],
     ['SMARTRECRUITERS_ATS', ['NO_API_CAPTURE']],
-    ['DJINNI_RSS', ['PERMISSION_UNCLEAR']],
-    ['WWR_RSS', ['PERMISSION_UNCLEAR']],
-    ['EUREMOTEJOBS_RSS', ['PERMISSION_UNCLEAR']],
-    ['WORKINGNOMADS_API', ['PERMISSION_UNCLEAR', 'STATUS_CONSTANT_BLOCKED']],
+    ['WORKINGNOMADS_API', ['STATUS_CONSTANT_BLOCKED']],
     ['JOOBLE_API', ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED']],
     ['JSEARCH_API', ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED']],
     ['REED_API', ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED']],
@@ -1398,7 +1396,8 @@ describe('exact behaviour: constants, markers and boundaries', () => {
     expect(rebuildOn(root).types.find((t) => t.type === 'REMOTEOK_API')!.blockers).toEqual([
       { code: 'PERMISSION_PROHIBITED', detail: 'a fixture records permission PROHIBITED' },
     ])
-    expect(type('DJINNI_RSS').blockers).toEqual([
+    const djinniUndecided = withDefinition('DJINNI_RSS', (d) => ({ ...d, ownerDecisions: [] }))()
+    expect(djinniUndecided.types.find((t) => t.type === 'DJINNI_RSS')!.blockers).toEqual([
       { code: 'PERMISSION_UNCLEAR', detail: 'a fixture records permission UNCLEAR' },
     ])
     expect(type('JOOBLE_API').blockers[0]).toEqual({
@@ -1572,14 +1571,13 @@ describe('exact behaviour: constants, markers and boundaries', () => {
       expect(readinessReason(readinessAt(type('ARBEITNOW_API'), NOW))).toBeNull()
       expect(
         readinessReason(readinessAt(type('MUSE_API'), NOW))!.startsWith(
-          'PERMISSION_UNCLEAR: a fixture records permission UNCLEAR; STATUS_CONSTANT_BLOCKED: terms section 2.2',
+          'STATUS_CONSTANT_BLOCKED: terms section 2.2',
         ),
       ).toBe(true)
     })
 
     it('stops at 500 characters: 500 is accepted, 501 is refused', () => {
-      const prefix =
-        'PERMISSION_UNCLEAR: a fixture records permission UNCLEAR; STATUS_CONSTANT_BLOCKED: '
+      const prefix = 'STATUS_CONSTANT_BLOCKED: '
       expect(READINESS_REASON_MAX_CHARS).toBe(500)
       const reasonOf = (n: number) =>
         withDefinition('MUSE_API', (d) => ({

@@ -214,7 +214,7 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     const row = (await rowsOf(`SELECT * FROM job_sources WHERE type = 'WORKINGNOMADS_API'`))[0]!
     expect(row['manifest_id']).toBeNull()
     expect(row['readiness']).toBe('BLOCKED')
-    expect(String(row['readiness_reason'])).toContain('PERMISSION_UNCLEAR')
+    expect(String(row['readiness_reason'])).not.toContain('PERMISSION_UNCLEAR')
     expect(String(row['readiness_reason'])).toContain('STATUS_CONSTANT_BLOCKED')
   })
 
