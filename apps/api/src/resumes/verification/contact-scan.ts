@@ -160,7 +160,6 @@ function patternSpans(plain: string, ctx: ContactContext): Span[] {
  */
 
 /** Token characters, as in the ATS checker and `mentionsSkill`: `Levin` is not in `Levine` or `Levin#`. */
-// Stryker disable next-line StringLiteral: masked by the own pass, see "Main's pass is masked" above mainNamePatterns
 const MAIN_TOKEN_CHAR = '[\\p{L}\\p{N}#+]'
 /** A JSON-style escape (`\n`, `\t`, a `\u` code): its final letter or digit is not part of a name. */
 const MAIN_ESCAPE = String.raw`\\(?:[bfnrt]|u[\dA-Fa-f]{4})`
@@ -175,18 +174,19 @@ function mainWholeToken(source: string): RegExp {
 }
 
 /**
- * Main's pass is masked: on every input tried, the own pass already redacts each name and handle
- * main's pass finds (4.7M texts with each code point up to U+2FFFF, U+3401–U+F8FF skipped, beside or
- * inside a name, a surname and a handle in four contexts, plus JSON escapes, PR #1351 round 6).
- * Only its generic patterns add spans (`x™tg: mark_dev`). It stays so the union holds by
- * construction, not by that measurement, and its mutants are suppressed as masked.
+ * No leak measured without main's name and handle arms: on every input tried, the own pass already
+ * redacts each letter they find (4.7M texts with each code point up to U+2FFFF, U+3401–U+F8FF
+ * skipped, beside or inside a name, a surname and a handle in four contexts, plus JSON escapes,
+ * PR #1351 round 6; 400k random texts in five contexts, round 7). That is a measurement, not an
+ * equivalence: the handle arm still widens a span over a trailing jamo in non-NFC text, and
+ * `mainSpans` is tested on its own. Only the generic patterns add a span the own pass misses
+ * (`x™tg: mark_dev`). The arms stay as the structural guard of the union: do not remove them as
+ * dead code.
  */
 /** Main's full-name and surname patterns, accent-folded, for `foldAccents` text of NFC text. */
 function mainNamePatterns(fullName: string): RegExp[] {
   const name = foldAccents(fullName.normalize('NFC').replace(CONTACT_APOSTROPHES, "'")).text
-  // Stryker disable next-line Regex,MethodExpression: masked by the own pass, see "Main's pass is masked" above mainNamePatterns; the `\S+` form is killed when applied by hand (2 tests fail)
   const parts = name.trim().split(/\s+/u)
-  // Stryker disable next-line ArrayDeclaration: masked by the own pass, see "Main's pass is masked" above mainNamePatterns
   const sources = [
     parts.map(escapeRegExp).join(MAIN_NAME_GAP),
     ...parts.slice(-1).filter(isSurnameSource).map(escapeRegExp),
@@ -195,16 +195,17 @@ function mainNamePatterns(fullName: string): RegExp[] {
   return sources.filter(Boolean).map(mainWholeToken)
 }
 
-/** Main's spans on NFC `nfc`: the generic patterns, the handle (`\w` boundary) and the name. */
-function mainSpans(nfc: string, ctx: ContactContext): Span[] {
+/**
+ * Main's spans on NFC `nfc`: the generic patterns, the handle (`\w` boundary) and the name.
+ * Exported for its own test only (round 7, CR-M-6): the redaction output alone does not show its
+ * name arm, see the note above `mainNamePatterns`.
+ */
+export function mainSpans(nfc: string, ctx: ContactContext): Span[] {
   const plain = nfc.replace(CONTACT_APOSTROPHES, "'")
   const spans = patternSpans(plain, ctx)
   const handle = normaliseTelegramHandle(ctx.telegram)
-  // Stryker disable next-line ConditionalExpression,BlockStatement: masked by the own pass, see "Main's pass is masked" above mainNamePatterns; the `true` form is killed when applied by hand (318 tests fail)
   if (handle) {
-    // Stryker disable next-line BlockStatement: masked by the own pass, see "Main's pass is masked" above mainNamePatterns
     for (const m of plain.matchAll(new RegExp(`(?<!\\w)@*${escapeRegExp(handle)}(?!\\w)`, 'giu'))) {
-      // Stryker disable next-line StringLiteral,ArithmeticOperator: masked by the own pass, see "Main's pass is masked" above mainNamePatterns
       spans.push({ kind: 'telegram', start: m.index, end: m.index + m[0].length })
     }
   }
@@ -212,7 +213,6 @@ function mainSpans(nfc: string, ctx: ContactContext): Span[] {
   for (const pattern of mainNamePatterns(ctx.fullName)) {
     for (const m of folded.text.matchAll(pattern)) {
       spans.push(
-        // Stryker disable next-line StringLiteral: masked by the own pass, see "Main's pass is masked" above mainNamePatterns
         foldedSpan('name', folded, { start: m.index, end: m.index + m[0].length }, nfc.length),
       )
     }
@@ -262,7 +262,7 @@ function findSpans(
   const folded = foldAccents(plain, norm.gaps)
   const handle = telegramSource(ctx.telegram)
   if (handle !== null) {
-    // Stryker disable next-line BlockStatement: masked by the folded-text loop below and main's handle pass; the handle is pinned by the round-6 handle rows
+    // Stryker disable next-line BlockStatement: no leak measured without it, not an equivalence — the folded-text loop below and main's handle arm redact the same letters; the handle is pinned by the round-6 handle rows
     for (const span of findWholeTokens(plain, norm.gaps, handle, 'handle')) {
       rawSpans.push({ kind: 'telegram', ...span })
     }
@@ -284,7 +284,9 @@ function findSpans(
     // Stryker disable next-line ConditionalExpression: fallback only if index is out of bounds
     end: norm.to[s.end - 1] ?? text.length,
   }))
-  // Main's spans, on the same text: the normalised scan may only add redactions (SR-H-4).
+  // Main's spans, on the same text: the normalised scan may only add redactions (SR-H-4). Its name
+  // and handle arms add no redaction measured today; keep the union as the guard against a future
+  // regression of the own pass, not dead code (round 7).
   const nfc = text.normalize('NFC')
   // Stryker disable next-line ConditionalExpression: `false` is equivalent — the maps of NFC text are the identity
   const maps = nfc === text ? null : nfcMaps(text)
@@ -339,6 +341,20 @@ export function redactContacts(
   text: string,
   ctx: ContactContext | readonly ContactContext[],
 ): string {
+  let result = ''
+  let cursor = 0
+  for (const { start, end } of redactedSpans(text, ctx)) {
+    result += `${text.slice(cursor, start).normalize('NFC')}[REDACTED]`
+    cursor = end
+  }
+  return result + text.slice(cursor).normalize('NFC')
+}
+
+/** The spans of `text` that `redactContacts` replaces, merged, in text order and original offsets. */
+export function redactedSpans(
+  text: string,
+  ctx: ContactContext | readonly ContactContext[],
+): { start: number; end: number }[] {
   const norm = normaliseContactText(text)
   const merged: { start: number; end: number }[] = []
   // Several contexts (display and legal name) merge their spans before any replacement: redacting one
@@ -352,11 +368,5 @@ export function redactContacts(
     if (last && start <= last.end) last.end = Math.max(last.end, end)
     else merged.push({ start, end })
   }
-  let result = ''
-  let cursor = 0
-  for (const { start, end } of merged) {
-    result += `${text.slice(cursor, start).normalize('NFC')}[REDACTED]`
-    cursor = end
-  }
-  return result + text.slice(cursor).normalize('NFC')
+  return merged
 }

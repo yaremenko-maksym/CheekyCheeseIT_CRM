@@ -3,12 +3,25 @@
  * spans and the spans main's matcher finds on the same text (SR-H-4), so a compatibility character
  * glued to a contact (`²`, `™`, fullwidth letters, ligatures) no longer hides it. Plus control
  * characters (findings 3, 4), a bare mark as an edge (SR-M-4) and the split reading of a stored
- * name (finding 5, CR-M-3, Addenda B and C).
+ * name (finding 5, CR-M-3, Addenda B and C). Round 7: the oracle is main's own code, the property
+ * compares spans, main's arms are pinned (CR-M-6) and the split reading is redacted whole.
  */
-import { CONTACT_APOSTROPHES, foldAccents } from '@crm/shared'
+import {
+  findPhoneSpans,
+  normaliseTelegramHandle,
+  RESUME_EMAIL_PATTERN,
+  RESUME_TELEGRAM_LABEL_PATTERN,
+  RESUME_URL_PATTERN,
+} from '@crm/shared'
 import { describe, expect, it } from 'vitest'
 import { hasContact } from './content-gates'
-import { redactContacts, scanContacts, type ContactContext } from './contact-scan'
+import {
+  mainSpans,
+  redactContacts,
+  redactedSpans,
+  scanContacts,
+  type ContactContext,
+} from './contact-scan'
 
 const IVAN: ContactContext = { fullName: 'Ivan Petrenko', emails: [], telegram: 'ivan_dev' }
 
@@ -16,30 +29,129 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
 }
 
-/**
- * Main's name and handle matcher, copied from main before PR #1351 so the test does not share code
- * with the redaction it checks: whole tokens of `[\p{L}\p{N}#+]`, a JSON escape in front counts as
- * an edge, and the handle is a `\w` token.
+/*
+ * Main's matcher, copied from main @ 267885ded so the test shares no code with the redaction it
+ * checks (round 7, Addendum S finding 4): main's own `foldAccents` and `UNDECOMPOSED`, its
+ * whole-token name patterns and its `\w` handle. The generic patterns come from `@crm/shared`: the
+ * URL, label and email patterns and `normaliseTelegramHandle` are unchanged since main, and
+ * `findPhoneSpans` changed on purpose (year runs are not phones, backlog 444).
  */
-function mainHits(text: string, ctx: ContactContext): boolean {
+const MAIN_UNDECOMPOSED: Record<string, string> = {
+  ł: 'l',
+  Ł: 'L',
+  ø: 'o',
+  Ø: 'O',
+  đ: 'd',
+  Đ: 'D',
+  ß: 'ss',
+  ẞ: 'SS',
+  ı: 'i',
+  æ: 'ae',
+  Æ: 'AE',
+  œ: 'oe',
+  Œ: 'OE',
+  þ: 'th',
+  Þ: 'TH',
+  ħ: 'h',
+  Ħ: 'H',
+}
+
+function mainFoldAccents(text: string): { text: string; from: number[]; to: number[] } {
+  let folded = ''
+  const from: number[] = []
+  const to: number[] = []
+  for (const { 0: cluster, index } of text.matchAll(/\P{M}\p{M}*/gu)) {
+    const base = cluster.normalize('NFD').replace(/\p{M}/gu, '')
+    const piece = MAIN_UNDECOMPOSED[base] ?? base
+    folded += piece
+    for (let k = 0; k < piece.length; k++) {
+      from.push(index)
+      to.push(index + cluster.length)
+    }
+  }
+  return { text: folded, from, to }
+}
+
+type MainSpan = { kind: 'generic' | 'telegram' | 'name'; start: number; end: number }
+
+/** Main's spans on `text.normalize('NFC')`, in its offsets. */
+function mainOracleSpans(text: string, ctx: ContactContext): MainSpan[] {
+  const plain = text.normalize('NFC').replace(/[’ʼ‘]/gu, "'")
+  const spans: MainSpan[] = []
+  const global = (p: RegExp) => new RegExp(p.source, `${p.flags}g`)
+  const literalEmails = ctx.emails
+    .map((email) => email.normalize('NFC').trim())
+    .filter(Boolean)
+    .map((email) => new RegExp(escapeRegExp(email), 'giu'))
+  for (const pattern of [
+    global(RESUME_URL_PATTERN),
+    global(RESUME_TELEGRAM_LABEL_PATTERN),
+    ...literalEmails,
+  ]) {
+    for (const m of plain.matchAll(pattern)) {
+      const end = m.index + m[0].length
+      spans.push({ kind: 'generic', start: end - (m[1] ?? m[0]).length, end })
+    }
+  }
+  const email = new RegExp(RESUME_EMAIL_PATTERN.source, 'gu')
+  for (let m = email.exec(plain); m; m = email.exec(plain)) {
+    const end = m.index + m[0].length
+    const start = end - (m[1] ?? m[0]).length
+    spans.push({ kind: 'generic', start, end })
+    email.lastIndex = start + ((plain.codePointAt(start) ?? 0) >= 0x10000 ? 2 : 1)
+  }
+  for (const span of findPhoneSpans(plain)) spans.push({ kind: 'generic', ...span })
+  const handle = normaliseTelegramHandle(ctx.telegram)
+  if (handle) {
+    for (const m of plain.matchAll(new RegExp(`(?<!\\w)@*${escapeRegExp(handle)}(?!\\w)`, 'giu'))) {
+      spans.push({ kind: 'telegram', start: m.index, end: m.index + m[0].length })
+    }
+  }
   const tokenChar = '[\\p{L}\\p{N}#+]'
   const wholeToken = (source: string) =>
     new RegExp(
       `(?:(?<!${tokenChar})|(?<=\\\\(?:[bfnrt]|u[\\dA-Fa-f]{4})))${source}(?!${tokenChar})`,
-      'iu',
+      'giu',
     )
-  const plain = text.normalize('NFC').replace(CONTACT_APOSTROPHES, "'")
-  const name = foldAccents(ctx.fullName.normalize('NFC').replace(CONTACT_APOSTROPHES, "'")).text
+  const name = mainFoldAccents(ctx.fullName.normalize('NFC').replace(/[’ʼ‘]/gu, "'")).text
   const parts = name.trim().split(/\s+/u)
   const surname = parts.at(-1) ?? ''
   const sources = [parts.map(escapeRegExp).join('(?:\\s|\\\\[nrt])+')]
   if (surname.replace(/\P{L}/gu, '').length >= 2) sources.push(escapeRegExp(surname))
-  const folded = foldAccents(plain).text
-  const nameHit = sources.filter(Boolean).some((source) => wholeToken(source).test(folded))
-  const handle = ctx.telegram?.replace(/^@+/u, '')
-  const handleHit =
-    !!handle && new RegExp(`(?<!\\w)@*${escapeRegExp(handle)}(?!\\w)`, 'iu').test(plain)
-  return nameHit || handleHit
+  const folded = mainFoldAccents(plain)
+  for (const source of sources.filter(Boolean)) {
+    for (const m of folded.text.matchAll(wholeToken(source))) {
+      spans.push({
+        kind: 'name',
+        start: folded.from[m.index] ?? 0,
+        end: folded.to[m.index + m[0].length - 1] ?? plain.length,
+      })
+    }
+  }
+  return spans
+}
+
+/** Main's redaction of `text`: its spans merged and replaced on the NFC text. */
+function mainRedact(text: string, ctx: ContactContext): string {
+  const nfc = text.normalize('NFC')
+  const merged: { start: number; end: number }[] = []
+  for (const { start, end } of mainOracleSpans(nfc, ctx).sort((a, b) => a.start - b.start)) {
+    const last = merged.at(-1)
+    if (last && start <= last.end) last.end = Math.max(last.end, end)
+    else merged.push({ start, end })
+  }
+  let result = ''
+  let cursor = 0
+  for (const { start, end } of merged) {
+    result += `${nfc.slice(cursor, start)}[REDACTED]`
+    cursor = end
+  }
+  return result + nfc.slice(cursor)
+}
+
+/** Whether main's matcher finds a name or a handle in `text`. */
+function mainHits(text: string, ctx: ContactContext): boolean {
+  return mainOracleSpans(text, ctx).some((span) => span.kind !== 'generic')
 }
 
 describe('compatibility characters glued to a contact (SR-H-4, finding 7)', () => {
@@ -178,21 +290,21 @@ describe('rules both passes share (each pass alone would still redact these)', (
   })
 })
 
-describe('never worse than main, on random text (SR-H-4)', () => {
+describe('never worse than main, on random text (SR-H-4, round 7 SPEC-L-1)', () => {
   const ATOMS = [
     'Ivan',
     'Petrenko',
     'ivan_dev',
     '@',
     ' ',
-    '\u00B2',
-    '\u2122',
-    '\uFF58',
-    '\uFB01',
-    '\u2116',
-    '\u0301',
-    '\u0903',
-    '\u200B',
+    '²',
+    '™',
+    'ｘ',
+    'ﬁ',
+    '№',
+    '́',
+    'ः',
+    '​',
     '\\n',
     'x',
     '7',
@@ -200,8 +312,18 @@ describe('never worse than main, on random text (SR-H-4)', () => {
     '-',
     '\u0085',
     '\u0000',
-    '\uAC00',
+    '가',
+    // the generic patterns: emails, URLs, phones and a label
+    'ivan@corp.io',
+    'a.b@mail.example.org',
+    'https://x.io/p',
+    'www.site.dev',
+    'github.com/ivan',
+    '+380 67 123 45 67',
+    '0671234567',
+    'tg: mark_dev',
   ]
+  const CTX: ContactContext = { ...IVAN, emails: ['Ivan@Corp.io'] }
   // a seeded generator, so a failure reproduces
   let seed = 1351
   const next = () => (seed = (seed * 48271) % 2147483647)
@@ -211,21 +333,100 @@ describe('never worse than main, on random text (SR-H-4)', () => {
     expect(mainHits('by Ivan\\nPetrenko™', IVAN)).toBe(true)
     expect(mainHits('ping @ivan_dev²', IVAN)).toBe(true)
     expect(mainHits('by Petrenkox or ivan_dev2', IVAN)).toBe(false)
+    expect(mainOracleSpans('mail a@b.io or +380 67 123 45 67', IVAN)).toEqual([
+      { kind: 'generic', start: 5, end: 11 },
+      { kind: 'generic', start: 15, end: 32 },
+    ])
   })
 
-  it('main finds no name or handle in any redacted output', () => {
-    const stillHit: string[] = []
-    let mainHitCount = 0
+  it('every span main redacts lies inside a span the head redacts', () => {
+    const uncovered: string[] = []
+    let nfcTexts = 0
+    let notFixed = 0
+    let mainSpanCount = 0
+    let genericCount = 0
     for (let i = 0; i < 3000; i++) {
       const length = 1 + (next() % 8)
       const text = Array.from({ length }, () => ATOMS[next() % ATOMS.length]).join('')
-      if (mainHits(text, IVAN)) mainHitCount++
-      const redacted = redactContacts(text, IVAN)
-      if (mainHits(redacted, IVAN)) stillHit.push(redacted)
+      if (text !== text.normalize('NFC')) {
+        // main's offsets are NFC offsets: on other text compare the outputs instead, where main's
+        // own output is a fixed point (a contact glued to a phone is not, on main either: backlog 449)
+        if (mainHits(mainRedact(text, CTX), CTX)) notFixed++
+        else if (mainHits(redactContacts(text, CTX), CTX)) uncovered.push(text)
+        continue
+      }
+      nfcTexts++
+      const head = redactedSpans(text, CTX)
+      for (const span of mainOracleSpans(text, CTX)) {
+        mainSpanCount++
+        if (span.kind === 'generic') genericCount++
+        if (!head.some((h) => h.start <= span.start && span.end <= h.end)) uncovered.push(text)
+      }
     }
-    expect(stillHit).toEqual([])
-    // main hits often enough that the property is not vacuous
-    expect(mainHitCount).toBeGreaterThan(300)
+    expect(uncovered).toEqual([])
+    // the property is not vacuous: most texts are NFC, and main finds names, handles and generics
+    expect(nfcTexts).toBeGreaterThan(2000)
+    expect(mainSpanCount).toBeGreaterThan(1000)
+    expect(genericCount).toBeGreaterThan(300)
+    expect(notFixed).toBeLessThan(100)
+  })
+})
+
+describe("main's name and handle arms, pinned on their own (round 7, CR-M-6)", () => {
+  const names = (text: string, ctx: ContactContext = IVAN) =>
+    mainSpans(text, ctx)
+      .filter((span) => span.kind === 'name')
+      .map(({ start, end }) => [start, end])
+      .sort((a, b) => (a[0] ?? 0) - (b[0] ?? 0) || (b[1] ?? 0) - (a[1] ?? 0))
+
+  it.each([
+    [
+      'by Ivan Petrenko now',
+      [
+        [3, 16],
+        [8, 16],
+      ],
+    ],
+    [
+      'by Ivan\\nPetrenko',
+      [
+        [3, 17],
+        [9, 17],
+      ],
+    ],
+    ['see \\nPetrenko', [[6, 14]]],
+    ['by Pétrenko', [[3, 11]]],
+    ['Petrenkox, Petrenko2, Petrenko#, Petrenko+, xPetrenko', []],
+    ['by Ivan', []],
+  ] as const)('finds the name in %j at %j', (text, spans) => {
+    expect(names(text)).toEqual(spans)
+  })
+
+  it('takes a two-letter surname alone and a one-letter one never', () => {
+    expect(names('by Li', { fullName: 'Wei Li', emails: [] })).toEqual([[3, 5]])
+    expect(names('by P', { fullName: 'Ivan P', emails: [] })).toEqual([])
+  })
+
+  it('finds the handle with its `@`s, on a `\\w` boundary', () => {
+    expect(
+      mainSpans('ping @@ivan_dev², ivan_dev2', IVAN)
+        .filter((span) => span.kind === 'telegram')
+        .map(({ start, end }) => [start, end]),
+    ).toEqual([[5, 15]])
+  })
+
+  it.each([
+    ['ping ivan_devᆨ now', 'ping [REDACTED]ᆨ now'],
+    // non-NFC text: main's handle span maps through the NFC chunks and takes the trailing jamo
+    ['é ping ivan_devᆨ now', 'é ping [REDACTED] now'],
+  ])('redacts %j as %j', (text, redacted) => {
+    expect(redactContacts(text, IVAN)).toBe(redacted)
+  })
+
+  it('the widened handle span is the hit scanContacts reports', () => {
+    expect(scanContacts('é ping ivan_devᆨ now', IVAN)).toEqual([
+      { kind: 'telegram', match: 'ivan_devᆨ' },
+    ])
   })
 })
 
