@@ -620,6 +620,11 @@ describe('the sandbox', () => {
     await expect(service.render(input({ templateSource: withAnArrow }))).rejects.toThrow(
       '{"code":"RESUME_RENDER_MISSING_GLYPHS","params":{"glyphs":"→"}}',
     )
+    // Several characters are listed apart, one space between them.
+    const twoArrows = '#let render(data) = [→ ← #data.displayName]'
+    await expect(service.render(input({ templateSource: twoArrows }))).rejects.toThrow(
+      '{"code":"RESUME_RENDER_MISSING_GLYPHS","params":{"glyphs":"→ ←"}}',
+    )
   }, 120_000)
 
   /**

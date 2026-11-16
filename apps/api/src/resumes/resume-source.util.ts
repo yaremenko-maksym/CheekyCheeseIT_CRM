@@ -463,6 +463,7 @@ function readCentralDirectory(
   // The End Of Central Directory record sits at the tail, possibly followed by
   // a comment of up to 64 KiB — scan backwards for its signature.
   const minEocd = 22
+  // Stryker disable next-line ConditionalExpression: equivalent — without it a short buffer finds no EOCD below and is refused as corrupt there.
   if (buf.length < minEocd) throw corruptDocx()
   const scanFloor = Math.max(0, buf.length - minEocd - 0xffff)
   let eocd = -1
@@ -476,6 +477,7 @@ function readCentralDirectory(
 
   const declaredEntries = readU16LE(buf, eocd + 10)
   const cdOffset = readU32LE(buf, eocd + 16)
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: unreachable — the EOCD found above starts at most 22 bytes before the end, so both reads are in range and never null.
   if (declaredEntries === null || cdOffset === null) throw corruptDocx()
   if (cdOffset === ZIP64_SENTINEL) throw unsupportedDocx()
   if (declaredEntries > MAX_ZIP_ENTRIES) {
@@ -637,6 +639,7 @@ function inflateAndClassify(
       }
       size += chunk.length
       if (size > budgets.totalRemaining) {
+        // Stryker disable next-line StringLiteral: equivalent — tooBig branches only on 'parsed', so any other value names the uncompressed cap.
         finish(new ResumeSourceRefusal(tooBig(budgets.maxUncompressedBytes, 'uncompressed')))
         return
       }

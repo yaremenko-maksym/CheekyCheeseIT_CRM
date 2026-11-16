@@ -1632,7 +1632,8 @@ describe('inspectDocxZip / inspectPdfContent refuse by exact code (backlog 443)'
     eocd.writeUInt32LE(0x06054b50, 0)
     eocd.writeUInt16LE(1, 10)
     eocd.writeUInt32LE(0xffffffff, 16)
-    await expect(inspectDocxZip(eocd)).rejects.toThrow(UNSUPPORTED)
+    // toMatchObject, not toThrow: a mutant that throws `undefined` passes toThrow(string).
+    await expect(inspectDocxZip(eocd)).rejects.toMatchObject({ message: UNSUPPORTED })
   })
 
   it('an archive with no entries is corrupt', async () => {
