@@ -407,6 +407,15 @@ describe("main's name and handle arms, pinned on their own (round 7, CR-M-6)", (
     expect(names('by P', { fullName: 'Ivan P', emails: [] })).toEqual([])
   })
 
+  it('reads a stored name trimmed and split on whitespace runs', () => {
+    for (const fullName of ['Ivan  Petrenko', ' Ivan Petrenko ']) {
+      expect(names('by Ivan Petrenko', { fullName, emails: [] })).toEqual([
+        [3, 16],
+        [8, 16],
+      ])
+    }
+  })
+
   it('finds the handle with its `@`s, on a `\\w` boundary', () => {
     expect(
       mainSpans('ping @@ivan_dev², ivan_dev2', IVAN)
