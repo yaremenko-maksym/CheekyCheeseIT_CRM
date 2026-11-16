@@ -228,6 +228,24 @@ const isJamoRun = (cluster: string): boolean => /[ᄀ-ᇿꥠ-꥿ힰ-퟿]/u.test(
 /** Whether one character (the loop hands it one code point) is in `INVISIBLE_PATTERN`; no `g` flag, so `.test` keeps no state. */
 const INVISIBLE_CHAR = /[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]/u
 
+/** A character `normaliseContactText` has to cluster: a stripped one, a mark or a conjoining jamo. */
+const CLUSTERED_CHAR = /[⠀\p{Cf}\p{Default_Ignorable_Code_Point}\p{M}ᄀ-ᇿꥠ-꥿ힰ-퟿]/u
+
+/** The offset maps of text in which every code point is its own cluster and maps to itself. */
+function identityMaps(text: string): { from: number[]; to: number[] } {
+  const from: number[] = []
+  const to: number[] = []
+  for (let index = 0; index < text.length;) {
+    const width = (text.codePointAt(index) ?? 0) >= 0x10000 ? 2 : 1
+    for (let k = 0; k < width; k++) {
+      from.push(index)
+      to.push(index + width)
+    }
+    index += width
+  }
+  return { from, to }
+}
+
 const isLeadingJamo = (c: number): boolean => c >= 0x1100 && c <= 0x1112
 const isVowelJamo = (c: number): boolean => c >= 0x1161 && c <= 0x1175
 
@@ -280,6 +298,11 @@ export function normaliseContactText(text: string): {
   to: number[]
   gaps: Set<number>
 } {
+  // Most text has nothing to cluster and is NFKC already: every code point is then its own cluster
+  // and maps to itself, so the per-cluster loop below would return the text unchanged.
+  if (!CLUSTERED_CHAR.test(text) && text.normalize('NFKC') === text) {
+    return { text, ...identityMaps(text), gaps: new Set() }
+  }
   let normalised = ''
   const from: number[] = []
   const to: number[] = []
@@ -325,6 +348,8 @@ const UNDECOMPOSED: Record<string, string> = {
   ħ: 'h',
   Ħ: 'H',
 }
+/** A mark or an `UNDECOMPOSED` letter: a character `foldAccents` changes in NFD-stable text. */
+const FOLDED_CHAR = new RegExp(String.raw`[\p{M}${Object.keys(UNDECOMPOSED).join('')}]`, 'u')
 
 /**
  * `text` without accents (NFD, marks dropped, plus `UNDECOMPOSED`), for each of its code units the
@@ -335,6 +360,10 @@ export function foldAccents(
   text: string,
   gaps: ReadonlySet<number> = new Set(),
 ): { text: string; from: number[]; to: number[]; gaps: Set<number> } {
+  // No gap, no mark, nothing NFD splits and no hand-folded letter: the loop below would keep the text.
+  if (gaps.size === 0 && text.normalize('NFD') === text && !FOLDED_CHAR.test(text)) {
+    return { text, ...identityMaps(text), gaps: new Set() }
+  }
   let folded = ''
   const from: number[] = []
   const to: number[] = []
