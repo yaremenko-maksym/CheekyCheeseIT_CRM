@@ -131,6 +131,16 @@ describe('findUngroundedTokens — fix round 1', () => {
     expect(findUngroundedTokens('on each node', src('on'))).toEqual([])
   })
 
+  it('does not flag a lowercase English word that a role-stack skill also spells', () => {
+    expect(findUngroundedTokens('a swift rollout', src('a rollout'))).toEqual([])
+    expect(findUngroundedTokens('spark interest', src('interest'))).toEqual([])
+    expect(findUngroundedTokens('team unity', src('team'))).toEqual([])
+  })
+
+  it('still flags the capitalised role-stack skill when the source lacks it', () => {
+    expect(findUngroundedTokens('Built apps in Swift', src('Built apps'))).toContain('Swift')
+  })
+
   it('does not flag a sentence-initial English word that is also a skill', () => {
     expect(findUngroundedTokens('Go-live in May.', src('in May'))).toEqual([])
     expect(

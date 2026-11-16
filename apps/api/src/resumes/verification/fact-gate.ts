@@ -28,7 +28,7 @@ const SENTENCE_START = /(?:^|[.!?\n]|(?:^|\n)[^\S\n]*(?:[-*•–—▪]|\d+\)))
 /** All caps, an inner capital or a digit (`AWS`, `GitHub`, `S3`): a name even when it opens a sentence. */
 const NAME_SHAPED = /.\p{Lu}|\p{N}/u
 /** Skill spellings that are also everyday English words when written in lowercase. */
-const ENGLISH_WORDS = new Set(['go', 'rest', 'react', 'node'])
+const ENGLISH_WORDS = new Set(['go', 'rest', 'react', 'node', 'swift', 'spark', 'unity'])
 /** Words for locating a skill's surface form; the leading dot keeps `.NET` whole. */
 const WORD = /\.?[\p{L}\p{N}#+]+/gu
 /** The longest alias in `SKILL_SYNONYM_GROUPS` (`Google Cloud Platform`) has three words. */

@@ -46,6 +46,27 @@ export const SKILL_SYNONYM_GROUPS: readonly { canonical: string; aliases: readon
   // --- API styles ---
   { canonical: 'GraphQL', aliases: ['Graph QL'] },
   { canonical: 'REST', aliases: ['REST API', 'RESTful', 'RESTful API'] },
+  // --- role stacks (technical roles, research §1 tech hints) ---
+  { canonical: 'Salesforce', aliases: [] },
+  { canonical: 'iOS', aliases: [] },
+  { canonical: 'Swift', aliases: ['SwiftUI'] },
+  { canonical: 'Android', aliases: [] },
+  { canonical: 'Jetpack Compose', aliases: [] },
+  { canonical: 'Flutter', aliases: [] },
+  { canonical: 'React Native', aliases: [] },
+  { canonical: 'Apache Spark', aliases: ['Spark', 'PySpark'] },
+  { canonical: 'dbt', aliases: [] },
+  { canonical: 'PyTorch', aliases: [] },
+  { canonical: 'Linux', aliases: [] },
+  { canonical: 'Playwright', aliases: [] },
+  { canonical: 'Selenium', aliases: [] },
+  { canonical: 'OWASP', aliases: [] },
+  { canonical: 'Verilog', aliases: ['SystemVerilog'] },
+  { canonical: 'VHDL', aliases: [] },
+  { canonical: 'Unity', aliases: ['Unity3D'] },
+  { canonical: 'Unreal Engine', aliases: ['Unreal', 'UE4', 'UE5'] },
+  { canonical: 'Solidity', aliases: [] },
+  { canonical: 'Figma', aliases: [] },
 ]
 
 /** Normalised lookup key: tokenizer-folded, separators removed (`Node JS` → `nodejs`). */
