@@ -98,9 +98,9 @@ function splitNameRuns(parts: readonly string[], inText: (part: string) => boole
   // Stryker disable next-line EqualityOperator: equivalent — mask 2^n selects no part, so its empty run is skipped below
   for (let mask = 1; mask < 2 ** rest.length; mask++) {
     const run = rest.filter((_, bit) => (mask >> bit) & 1)
-    // Own line, so the one equivalent form is the only one suppressed: `>= 1` adds a one-part run of 3+
+    // Own line, so the one equivalent form is the only one suppressed: `true` adds a one-part run of 3+
     // letters, already a lone-part source (`splitNameLoneParts`), so it adds only duplicates
-    // Stryker disable next-line EqualityOperator: equivalent — `>= 1` adds only duplicates of `splitNameLoneParts`, see above
+    // Stryker disable next-line ConditionalExpression: equivalent — `true` adds only duplicates of `splitNameLoneParts`, see above
     const multi = run.length >= 2
     const letters = run.join('').replace(/\P{L}/gu, '').length >= 3
     if (multi && letters) {
