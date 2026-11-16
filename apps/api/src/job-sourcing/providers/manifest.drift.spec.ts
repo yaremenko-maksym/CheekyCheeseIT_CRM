@@ -211,6 +211,23 @@ describe('the generated seed delta', () => {
     expect(after.find((s) => s.manifest_id === 'recruitee.board.bunq')!.readiness).toBe('BLOCKED')
   })
 
+  it('step 5 refreshes the stored readiness of every claimed row, and writes nothing else', () => {
+    const sql = generateSeedDelta(manifest)
+    const step = sql.slice(sql.indexOf('-- 5. refresh'), sql.indexOf('DROP TABLE _jsm_blocks;'))
+    // After the verify step and the type block, so it sees every row the earlier steps made.
+    expect(sql.indexOf('-- 5. refresh')).toBeGreaterThan(sql.indexOf('-- 4. block'))
+    expect(step).toContain('WHERE s.manifest_id = m.manifest_id')
+    // Only a real change moves updated_at: a re-applied delta stays byte-identical.
+    expect(step).toContain('s.readiness IS DISTINCT FROM')
+    expect(step).toContain('s.readiness_reason IS DISTINCT FROM')
+    // A smoke-earned VERIFIED is kept against a CANDIDATE manifest, and lost to a BLOCKED one.
+    expect(step).toContain("AND NOT (s.readiness = 'VERIFIED' AND m.readiness = 'CANDIDATE')")
+    const assigned = [...step.matchAll(/^\s*(?:SET\s+)?(\w+)\s+=(?!=)/gm)].map((m) => m[1])
+    expect(assigned).toEqual(['readiness', 'readiness_reason', 'updated_at'])
+    // The header's step list names it too.
+    expect(sql).toMatch(/^--\s+5\. refresh\s+- /m)
+  })
+
   it('blocks the types that are not ready, so a seeded row of one is not left a candidate', () => {
     const blocked = seedRowsOf(manifest).typeBlocks.map((b) => b.type)
     expect(blocked).toEqual([

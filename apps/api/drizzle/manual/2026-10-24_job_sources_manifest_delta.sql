@@ -32,6 +32,11 @@
 --   3b. verify    - RAISES when an entry still has no row (an unmanaged row of the same
 --                   (type, config) swallowed the insert), so the skip is never silent
 --   4. block      - rows of a not-ready type that no entry claimed
+--   5. refresh    - every claimed row's readiness and reason follow the manifest, both ways
+--                   (unblock and block); a VERIFIED row is downgraded only by a BLOCKED entry.
+--                   Never enabled, admin state, budget, counters or cooldown. The snapshot
+--                   clock above still applies; a lapsed deadline is also refused live by the
+--                   enable gate, which reads the manifest catalog
 -- No job_account_meters row is created: a rolling meter needs the provider's billing-window
 -- start, which nobody holds for a key nobody has.
 --
@@ -178,6 +183,21 @@ FROM _jsm_blocks b
 WHERE s.type = b.type::job_source_type
   AND s.manifest_id IS NULL
   AND s.readiness = 'CANDIDATE';
+
+-- 5. refresh: the stored readiness of every claimed row follows the manifest, both ways (an owner
+-- decision unblocks, a prohibition blocks). Enable refuses on the STORED value, so without this a
+-- row keeps the readiness of the deploy that inserted it. A smoke-earned VERIFIED is never
+-- overwritten by a CANDIDATE manifest, only by a BLOCKED one. Only readiness, its reason and
+-- updated_at are written, and only on a real change, so a re-applied delta stays byte-identical.
+UPDATE job_sources s
+SET readiness        = m.readiness::job_source_readiness,
+    readiness_reason = m.readiness_reason,
+    updated_at       = clock_timestamp()
+FROM _jsm_sources m
+WHERE s.manifest_id = m.manifest_id
+  AND NOT (s.readiness = 'VERIFIED' AND m.readiness = 'CANDIDATE')
+  AND (s.readiness IS DISTINCT FROM m.readiness::job_source_readiness
+       OR s.readiness_reason IS DISTINCT FROM m.readiness_reason);
 
 DROP TABLE _jsm_blocks;
 DROP TABLE _jsm_sources;
