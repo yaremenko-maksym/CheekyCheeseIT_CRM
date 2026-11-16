@@ -402,7 +402,7 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
   // too: availability, not a leak.
   const handleSource = handle ? `@*${escapeRegExp(handle)}` : null
   return (raw) => {
-    // Strip invisibles (default-ignorables and U+2800), then NFKC per cluster, as the API scan does.
+    // Strip the characters of INVISIBLE_PATTERN, then NFKC per cluster, as the API scan does.
     const { text, gaps } = normaliseContactText(raw)
     const plain = text.replace(CONTACT_APOSTROPHES, "'")
     const folded = foldAccents(plain, gaps)

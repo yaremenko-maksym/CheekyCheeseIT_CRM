@@ -452,7 +452,7 @@ describe('checkResumeCompleteness', () => {
       expect(noteIssues('Jos\u00E9 M\u00FCllers', CTX)).toEqual([])
     })
 
-    it('a one-token display name adds no name check', () => {
+    it('a one-token display name that is not Hangul syllables adds no name check', () => {
       expect(noteIssues('Oleksiy led billing', { ...CTX, displayName: 'Oleksiy' })).toEqual([])
     })
 
