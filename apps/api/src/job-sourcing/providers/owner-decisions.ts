@@ -135,7 +135,7 @@ export const WORKINGNOMADS_OWNER_DECISION: OwnerDecision = Object.freeze({
   decidedAt: '2026-11-16',
   decision: 'ACCEPT_RISK',
   endpointVariant: 'exposed-jobs',
-  scope: `Exactly www.workingnomads.com/api/exposed_jobs/; the Terms of Service clauses 2.2 ("intended purpose"), 3.1(b) (no commercial exploitation) and 3.1(d) (no competitive product) are knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  scope: `Exactly www.workingnomads.com/api/exposed_jobs/; the Terms of Service clauses 2.2 ("intended purpose"), 3.1(b) ("Resell, sublicense, or otherwise commercially exploit the Service") and 3.1(d) (no competitive product) are knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
   reference: ALL_SOURCES_REFERENCE,
 })
 
