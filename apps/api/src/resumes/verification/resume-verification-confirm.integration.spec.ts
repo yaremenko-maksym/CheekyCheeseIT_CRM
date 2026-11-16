@@ -10,12 +10,7 @@ import { createHash } from 'node:crypto'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
-import {
-  BadRequestException,
-  ForbiddenException,
-  HttpException,
-  NotFoundException,
-} from '@nestjs/common'
+import { BadRequestException, HttpException } from '@nestjs/common'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
@@ -348,9 +343,10 @@ describe.skipIf(!hasDatabaseUrl())('Confirm, staged edit, regenerate — real DB
   it('3. SENIOR cannot confirm their own resume (403), row untouched', async () => {
     const row = await awaiting()
     // The owner has write access and the input is current: only the confirm rule stops this.
-    await expect(service.confirm(OWNER, OWNER_ID, confirmInput(row))).rejects.toBeInstanceOf(
-      ForbiddenException,
-    )
+    await expect(service.confirm(OWNER, OWNER_ID, confirmInput(row))).rejects.toMatchObject({
+      status: 403,
+      response: { code: 'RESUME_NO_ACCESS' },
+    })
     const after = await rowOf()
     expect(after.verificationStatus).toBe('AWAITING_CONFIRM')
     expect(after.version).toBe(row.version)
@@ -791,12 +787,21 @@ describe.skipIf(!hasDatabaseUrl())('Confirm, staged edit, regenerate — real DB
     s3.getObject.mockClear()
 
     // the foreign senior's own row HAS a staged PDF: only the access rule stops this read
-    await expect(service.getStagedPdf(OWNER, FOREIGN_ID)).rejects.toBeInstanceOf(NotFoundException)
-    await expect(service.getStagedPdf(FOREIGN, OWNER_ID)).rejects.toBeInstanceOf(NotFoundException)
+    await expect(service.getStagedPdf(OWNER, FOREIGN_ID)).rejects.toMatchObject({
+      status: 404,
+      response: { code: 'RESUME_NOT_CREATED' },
+    })
+    await expect(service.getStagedPdf(FOREIGN, OWNER_ID)).rejects.toMatchObject({
+      status: 404,
+      response: { code: 'RESUME_NOT_CREATED' },
+    })
     expect(s3.getObject).not.toHaveBeenCalled()
 
     await service.confirm(HR, OWNER_ID, confirmInput(row))
-    await expect(service.getStagedPdf(OWNER, OWNER_ID)).rejects.toBeInstanceOf(NotFoundException)
+    await expect(service.getStagedPdf(OWNER, OWNER_ID)).rejects.toMatchObject({
+      status: 404,
+      response: { code: 'RESUME_NOT_CREATED' },
+    })
     expect(s3.getObject).not.toHaveBeenCalled()
   })
 })

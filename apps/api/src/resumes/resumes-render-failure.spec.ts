@@ -138,9 +138,7 @@ describe('SeniorResumesService.runRender — failure branches (bug-44)', () => {
     expect(updates).toHaveLength(2)
     const failWrite = updates[1]?.values
     expect(failWrite?.['pdfRenderStatus']).toBe('FAILED')
-    expect(failWrite?.['pdfRenderError']).toBe(
-      'PDF собрался, но не сохранился в хранилище. Попробуйте позже.',
-    )
+    expect(failWrite?.['pdfRenderError']).toBe('{"code":"RESUME_RENDER_STORAGE_FAILED"}')
     expect(failWrite?.['pdfRenderStartedAt']).toBeNull()
     expect(failWrite?.['pdfRenderRunId']).toBeNull()
     // bug-44 AC3: a storage failure says nothing about the INPUT the way a

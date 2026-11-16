@@ -13,6 +13,7 @@ import { join } from 'node:path'
 import {
   DEFAULT_RESUME_LAYOUT,
   RESUME_PDF_MIME,
+  encodeResumeMessage,
   type ResumeContent,
   type ResumeLayoutOptions,
 } from '@crm/shared'
@@ -887,14 +888,14 @@ describe('extractRenderedPages — the worker reply', () => {
   ])('refuses %s', async (_name, reply) => {
     workerReplies(JSON.stringify(reply))
     await expect(extraction.extractRenderedPages(await buildEmptyPdf(1))).rejects.toThrow(
-      new ResumeFileUnreadableError('Не удалось прочитать файл резюме'),
+      new ResumeFileUnreadableError(encodeResumeMessage('RESUME_FILE_UNREADABLE')),
     )
   })
 
   it('text extraction refuses a pages reply', async () => {
     workerReplies(JSON.stringify({ ok: true, pages: ['Summary'] }))
     await expect(extraction.extract(await buildEmptyPdf(1), RESUME_PDF_MIME)).rejects.toThrow(
-      new ResumeFileUnreadableError('Не удалось прочитать файл резюме'),
+      new ResumeFileUnreadableError(encodeResumeMessage('RESUME_FILE_UNREADABLE')),
     )
   })
 })

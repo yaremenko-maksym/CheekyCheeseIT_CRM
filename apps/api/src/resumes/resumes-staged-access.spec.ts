@@ -6,7 +6,7 @@
  * real-DB flows are in
  * verification/resume-verification-confirm.integration.spec.ts.
  */
-import { ForbiddenException, HttpException, NotFoundException } from '@nestjs/common'
+import { HttpException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import { DEFAULT_RESUME_LAYOUT, type SessionUser } from '@crm/shared'
 import type { ResumeRenderInput } from './resume-typst.service'
@@ -48,8 +48,8 @@ describe('SeniorResumesService — Task 15 refusals before any query', () => {
     const err = await refusal(
       service.confirm(viewer(OWNER_ID, 'SENIOR'), OWNER_ID, { runId: RUN, version: 1 }),
     )
-    expect(err).toBeInstanceOf(ForbiddenException)
-    expect((err as ForbiddenException).message).toBe('Нет доступа к резюме этого пользователя')
+    expect((err as HttpException).getStatus()).toBe(403)
+    expect((err as HttpException).getResponse()).toMatchObject({ code: 'RESUME_NO_ACCESS' })
   })
 
   it('a JUNIOR is refused confirm, edit and regenerate with the same 403', async () => {
@@ -60,8 +60,8 @@ describe('SeniorResumesService — Task 15 refusals before any query', () => {
       service.regenerateStagedField(junior, OWNER_ID, { runId: RUN, path: 'summary' }),
     ]) {
       const err = await refusal(p)
-      expect(err).toBeInstanceOf(ForbiddenException)
-      expect((err as ForbiddenException).message).toBe('Нет доступа к резюме этого пользователя')
+      expect((err as HttpException).getStatus()).toBe(403)
+      expect((err as HttpException).getResponse()).toMatchObject({ code: 'RESUME_NO_ACCESS' })
     }
   })
 
@@ -71,8 +71,8 @@ describe('SeniorResumesService — Task 15 refusals before any query', () => {
       viewer('a15e0000-0000-4000-8000-0000000000c1', 'JUNIOR'),
     ]) {
       const err = await refusal(service.getStagedPdf(who, OWNER_ID))
-      expect(err).toBeInstanceOf(NotFoundException)
-      expect((err as NotFoundException).message).toBe('Резюме ещё не создано')
+      expect((err as HttpException).getStatus()).toBe(404)
+      expect((err as HttpException).getResponse()).toMatchObject({ code: 'RESUME_NOT_CREATED' })
     }
   })
 })
@@ -101,8 +101,8 @@ describe('SeniorResumesService — a SENIOR cannot write their own resume', () =
   ]
   it.each(writes)('%s answers the owner 403 with the access message', async (_name, call) => {
     const err = await refusal(call())
-    expect(err).toBeInstanceOf(ForbiddenException)
-    expect((err as ForbiddenException).message).toBe('Нет доступа к резюме этого пользователя')
+    expect((err as HttpException).getStatus()).toBe(403)
+    expect((err as HttpException).getResponse()).toMatchObject({ code: 'RESUME_NO_ACCESS' })
   })
 })
 
@@ -166,8 +166,8 @@ describe('SeniorResumesService — Task 15 allowed paths', () => {
     for (const row of [undefined, { ...ROW, stagedPdfS3Key: null }]) {
       const { svc, s3 } = build(row)
       const err = await refusal(svc.getStagedPdf(viewer(OWNER_ID, 'SENIOR'), OWNER_ID))
-      expect(err).toBeInstanceOf(NotFoundException)
-      expect((err as NotFoundException).message).toBe('Резюме ещё не создано')
+      expect((err as HttpException).getStatus()).toBe(404)
+      expect((err as HttpException).getResponse()).toMatchObject({ code: 'RESUME_NOT_CREATED' })
       expect(s3.getObject).not.toHaveBeenCalled()
     }
   })
@@ -216,8 +216,8 @@ describe('SeniorResumesService — Task 15 allowed paths', () => {
   it('the live PDF of a senior with no resume row is the same 404', async () => {
     const { svc, typst } = build(undefined)
     const err = await refusal(svc.getRenderedPdf(viewer(OWNER_ID, 'SENIOR'), OWNER_ID))
-    expect(err).toBeInstanceOf(NotFoundException)
-    expect((err as NotFoundException).message).toBe('Резюме ещё не создано')
+    expect((err as HttpException).getStatus()).toBe(404)
+    expect((err as HttpException).getResponse()).toMatchObject({ code: 'RESUME_NOT_CREATED' })
     expect(typst.fingerprint).not.toHaveBeenCalled()
   })
 
@@ -233,8 +233,8 @@ describe('SeniorResumesService — Task 15 allowed paths', () => {
     const { svc, typst, verification } = build(undefined)
     const hr = viewer('a15e0000-0000-4000-8000-0000000000a3', 'HR')
     const err = await refusal(svc.confirm(hr, OWNER_ID, { runId: RUN, version: 1 }))
-    expect(err).toBeInstanceOf(NotFoundException)
-    expect((err as NotFoundException).message).toBe('Резюме ещё не создано')
+    expect((err as HttpException).getStatus()).toBe(404)
+    expect((err as HttpException).getResponse()).toMatchObject({ code: 'RESUME_NOT_CREATED' })
     expect(typst.fingerprint).not.toHaveBeenCalled()
     expect(verification.confirm).not.toHaveBeenCalled()
   })

@@ -373,7 +373,7 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     const liar = buildDocxLyingAboutSize(4 * 1024 * 1024)
     expect(liar.length).toBeLessThan(64 * 1024) // tiny on disk, as promised
     await expect(inspectDocxZip(liar, 1024 * 1024, 8 * 1024 * 1024)).rejects.toThrow(
-      /реальный размер/,
+      /RESUME_DOCX_TOO_LARGE/,
     )
   })
 
@@ -432,7 +432,7 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     const disguised = buildDocxWithRenamedBody(Array.from({ length: 300_000 }, (_, i) => `p${i}`))
     // Still a DOCX as far as type detection is concerned.
     expect(detectResumeSourceMime(disguised)).toBe(RESUME_DOCX_MIME)
-    await expect(inspectDocxZip(disguised)).rejects.toThrow(/Содержимое DOCX больше/)
+    await expect(inspectDocxZip(disguised)).rejects.toThrow(/RESUME_DOCX_CONTENT_TOO_LARGE/)
   })
 
   it('counts an unknown extension in full rather than assuming it is inert', async () => {
@@ -503,7 +503,7 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
       for (const name of DISGUISES) {
         const doc = buildDocxWithRenamedBody(body, name)
         await expect(inspectDocxZip(doc), `body hidden at ${name} was accepted`).rejects.toThrow(
-          /Содержимое DOCX больше/,
+          /RESUME_DOCX_CONTENT_TOO_LARGE/,
         )
       }
     })
@@ -651,7 +651,7 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     const dense = buildPdfWithRawContentStream(
       repeatedBuffer(' Tj', (MAX_PDF_TEXT_OPERATORS + 1000) * 3),
     )
-    await expect(inspectPdfContent(dense, 1)).rejects.toThrow(/слишком много текстовых операций/)
+    await expect(inspectPdfContent(dense, 1)).rejects.toThrow(/RESUME_PDF_TOO_BUSY/)
 
     // ' TjX' never matches (a delimiter must follow `Tj`), so the early exit
     // never fires and every byte is walked — the residual cost that the
@@ -809,8 +809,8 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     // Wrapping these in `if (outcome !== 'resolved')` would have been a test
     // that quietly asserts nothing on the day the containment breaks — which is
     // the one day it matters.
-    expect(outcome).toMatch(/слишком сложный/)
-    expect(outcome).not.toMatch(/Не удалось прочитать/)
+    expect(outcome).toMatch(/RESUME_FILE_TOO_COMPLEX/)
+    expect(outcome).not.toMatch(/UNREADABLE/)
   }, 180_000)
 
   /**
@@ -865,7 +865,7 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
 
       // Path 1 — the wall-clock deadline (`timedOut`).
       await expect(service.extract(bomb, RESUME_DOCX_MIME, { timeoutMs: 50 })).rejects.toThrow(
-        /слишком сложный/,
+        /RESUME_FILE_TOO_COMPLEX/,
       )
 
       // NON-VACUITY, from the probe that gated this test: the mechanism about
@@ -912,7 +912,7 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
         `CPU rlimit (outcome ${JSON.stringify(killed)}). The fixture (buildExpensiveDocx) no longer ` +
         `costs enough CPU time — the parser got faster or this machine did. Fix the FIXTURE ` +
         `(a costlier shape that still passes the acceptance budgets); do not loosen this check.`
-      expect(killed, premiseGone).toMatch(/слишком сложный/)
+      expect(killed, premiseGone).toMatch(/RESUME_FILE_TOO_COMPLEX/)
       expect(logged, premiseGone).toMatch(/Extraction worker killed \(code null\)/)
 
       // The message must not depend on the test seam: a 50 ms budget once
@@ -924,7 +924,7 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
       // ...and it must not start naming the CPU budget either, for the same
       // reason: "1 с" would be the seam talking, not the limit that ended a
       // real upload.
-      expect(killed).not.toMatch(/1 с|Не удалось прочитать/)
+      expect(killed).not.toMatch(/UNREADABLE|params/)
     },
     180_000,
   )
@@ -991,7 +991,7 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     const started = Date.now()
     await expect(
       impatient.extract(pathological, RESUME_DOCX_MIME, { timeoutMs: 50 }),
-    ).rejects.toThrow(/слишком сложный/)
+    ).rejects.toThrow(/RESUME_FILE_TOO_COMPLEX/)
     expect(Date.now() - started).toBeLessThan(20_000)
   }, 60_000)
 
@@ -1080,12 +1080,14 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
 
   it('refuses a document whose parsable parts exceed the budget', async () => {
     const dense = buildDocxDeflated(Array.from({ length: 200_000 }, (_, i) => `p${i}`))
-    await expect(inspectDocxZip(dense)).rejects.toThrow(/Содержимое DOCX больше/)
+    await expect(inspectDocxZip(dense)).rejects.toThrow(/RESUME_DOCX_CONTENT_TOO_LARGE/)
   })
 
   it('names the cap that was hit, so the advice is actionable', async () => {
     const dense = buildDocxDeflated(Array.from({ length: 200_000 }, (_, i) => `p${i}`))
-    await expect(inspectDocxZip(dense)).rejects.toThrow(/Содержимое DOCX больше 4 MB/)
+    await expect(inspectDocxZip(dense)).rejects.toThrow(
+      /RESUME_DOCX_CONTENT_TOO_LARGE","params":\{"mb":4\}/,
+    )
   })
 
   /**
@@ -1496,7 +1498,7 @@ describe('PDF content-stream guard (HIGH-2)', () => {
     await expect(service.extract(single, RESUME_PDF_MIME)).resolves.toBeTypeOf('string')
     // The identical content shared across 30 pages is 30x the work.
     const shared = buildPdfSharedContentStream(30, 20_000)
-    await expect(service.extract(shared, RESUME_PDF_MIME)).rejects.toThrow(/текстовых операций/)
+    await expect(service.extract(shared, RESUME_PDF_MIME)).rejects.toThrow(/RESUME_PDF_TOO_BUSY/)
   }, 120_000)
 
   /**

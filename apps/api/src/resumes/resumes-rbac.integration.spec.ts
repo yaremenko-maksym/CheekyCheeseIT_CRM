@@ -33,7 +33,7 @@
  * unreachable throws in beforeAll (reports FAILED) — neither case can look
  * like "passed" with zero assertions.
  */
-import { ForbiddenException, HttpException, NotFoundException } from '@nestjs/common'
+import { HttpException } from '@nestjs/common'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
@@ -351,9 +351,10 @@ describe.skipIf(!hasDatabaseUrl())(
 
     describe('R-INT-4. SENIOR A must not reach SENIOR B (an EXISTING senior with a real resume)', () => {
       it('read is denied', async () => {
-        await expect(service.getForUser(session(SENIOR_A), SENIOR_B.id)).rejects.toBeInstanceOf(
-          ForbiddenException,
-        )
+        await expect(service.getForUser(session(SENIOR_A), SENIOR_B.id)).rejects.toMatchObject({
+          status: 403,
+          response: { code: 'RESUME_NO_ACCESS' },
+        })
       })
 
       it('write is denied', async () => {
@@ -362,7 +363,7 @@ describe.skipIf(!hasDatabaseUrl())(
             ...EMPTY_RESUME_CONTENT,
             summary: 'подменено',
           }),
-        ).rejects.toBeInstanceOf(ForbiddenException)
+        ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
 
         // And SENIOR B's stored content is untouched.
         const [row] = await dbSvc.db
@@ -379,27 +380,28 @@ describe.skipIf(!hasDatabaseUrl())(
             mimetype: 'application/pdf',
             originalname: 'cv.pdf',
           }),
-        ).rejects.toBeInstanceOf(ForbiddenException)
+        ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
         expect(s3.upload).not.toHaveBeenCalled()
       })
 
       it('pasted text is denied', async () => {
         await expect(
           service.ingestText(session(SENIOR_A), SENIOR_B.id, 'a'.repeat(200)),
-        ).rejects.toBeInstanceOf(ForbiddenException)
+        ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
       })
 
       it('source download is denied', async () => {
         await expect(
           service.getSourceDownload(session(SENIOR_A), SENIOR_B.id),
-        ).rejects.toBeInstanceOf(ForbiddenException)
+        ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
         expect(s3.getPresignedDownloadUrl).not.toHaveBeenCalled()
       })
 
       it('PDF export is denied', async () => {
-        await expect(service.getRenderedPdf(session(SENIOR_A), SENIOR_B.id)).rejects.toBeInstanceOf(
-          ForbiddenException,
-        )
+        await expect(service.getRenderedPdf(session(SENIOR_A), SENIOR_B.id)).rejects.toMatchObject({
+          status: 403,
+          response: { code: 'RESUME_NO_ACCESS' },
+        })
         // Denied BEFORE any render is queued — a 403 must not cost CPU.
         expect(typst.render).not.toHaveBeenCalled()
       })
@@ -407,7 +409,7 @@ describe.skipIf(!hasDatabaseUrl())(
       it('changing the layout of a foreign resume is denied', async () => {
         await expect(
           service.updateLayout(session(SENIOR_A), SENIOR_B.id, DEFAULT_RESUME_LAYOUT),
-        ).rejects.toBeInstanceOf(ForbiddenException)
+        ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
       })
     })
 
@@ -484,7 +486,10 @@ describe.skipIf(!hasDatabaseUrl())(
             .where(eq(seniorResumes.userId, SENIOR_A.id))
         const [before] = await snapshot()
 
-        await expect(call()).rejects.toBeInstanceOf(ForbiddenException)
+        await expect(call()).rejects.toMatchObject({
+          status: 403,
+          response: { code: 'RESUME_NO_ACCESS' },
+        })
 
         const [after] = await snapshot()
         expect(before?.updatedByUserId).toBe(HR_USER.id)
@@ -497,27 +502,30 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── R-INT-5..7: roles with no resume surface at all ───────────────────────
 
     it('R-INT-5. JUNIOR is denied a foreign senior resume', async () => {
-      await expect(service.getForUser(session(JUNIOR_USER), SENIOR_B.id)).rejects.toBeInstanceOf(
-        ForbiddenException,
-      )
+      await expect(service.getForUser(session(JUNIOR_USER), SENIOR_B.id)).rejects.toMatchObject({
+        status: 403,
+        response: { code: 'RESUME_NO_ACCESS' },
+      })
     })
 
     it('R-INT-6. ACCOUNTANT is denied a foreign senior resume', async () => {
-      await expect(
-        service.getForUser(session(ACCOUNTANT_USER), SENIOR_B.id),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      await expect(service.getForUser(session(ACCOUNTANT_USER), SENIOR_B.id)).rejects.toMatchObject(
+        { status: 403, response: { code: 'RESUME_NO_ACCESS' } },
+      )
     })
 
     it('R-INT-7. DROP is denied a foreign senior resume', async () => {
-      await expect(service.getForUser(session(DROP_USER), SENIOR_B.id)).rejects.toBeInstanceOf(
-        ForbiddenException,
-      )
+      await expect(service.getForUser(session(DROP_USER), SENIOR_B.id)).rejects.toMatchObject({
+        status: 403,
+        response: { code: 'RESUME_NO_ACCESS' },
+      })
     })
 
     it('R-INT-5b. JUNIOR is denied even their OWN id (no resume surface for the role)', async () => {
-      await expect(service.getForUser(session(JUNIOR_USER), JUNIOR_USER.id)).rejects.toBeInstanceOf(
-        ForbiddenException,
-      )
+      await expect(service.getForUser(session(JUNIOR_USER), JUNIOR_USER.id)).rejects.toMatchObject({
+        status: 403,
+        response: { code: 'RESUME_NO_ACCESS' },
+      })
     })
 
     // ── Empty state still carries the permission signal ──────────────────────
@@ -539,9 +547,10 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── R-INT-8: the resource only exists for SENIOR targets ─────────────────
 
     it('R-INT-8. ADMIN asking for a JUNIOR resume gets 404 (resume is a senior artefact)', async () => {
-      await expect(service.getForUser(session(ADMIN_USER), JUNIOR_USER.id)).rejects.toBeInstanceOf(
-        NotFoundException,
-      )
+      await expect(service.getForUser(session(ADMIN_USER), JUNIOR_USER.id)).rejects.toMatchObject({
+        status: 404,
+        response: { code: 'RESUME_SENIOR_ONLY' },
+      })
     })
 
     // ── R-INT-9: state machine + version ─────────────────────────────────────
@@ -582,7 +591,7 @@ describe.skipIf(!hasDatabaseUrl())(
         }, DETACHED_JOB_WAIT)
         const failed = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
         expect(failed.resume?.errorCode).toBe('NO_TEXT')
-        expect(failed.resume?.errorMessage).toMatch(/вставьте текст/i)
+        expect(failed.resume?.errorMessage).toBe('{"code":"RESUME_NO_TEXT"}')
       })
 
       it('a QUOTA_EXCEEDED model result is persisted with its reset time (AC5)', async () => {
@@ -670,7 +679,7 @@ describe.skipIf(!hasDatabaseUrl())(
             mimetype: 'application/pdf',
             originalname: 'резюме.pdf',
           }),
-        ).rejects.toThrow(/PDF и DOCX/)
+        ).rejects.toMatchObject({ status: 415, response: { code: 'RESUME_FILE_UNSUPPORTED' } })
         expect(s3.upload).not.toHaveBeenCalled()
       })
     })
@@ -914,7 +923,7 @@ describe.skipIf(!hasDatabaseUrl())(
         const dto = await service.getForUser(session(HR_USER), SENIOR_A.id)
         expect(dto.resume?.status).toBe('FAILED')
         expect(dto.resume?.errorCode).toBe('STALLED')
-        expect(dto.resume?.errorMessage).toMatch(/вручную/i)
+        expect(dto.resume?.errorMessage).toBe('{"code":"RESUME_EXTRACTION_STALLED_TEXT"}')
       })
 
       it('R-INT-11c. a QUEUED row still inside its deadline is left alone', async () => {
@@ -1039,7 +1048,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
         const dto = await service.getForUser(session(HR_USER), SENIOR_A.id)
         expect(dto.resume?.errorMessage).not.toMatch(/NoSuchKey|bucket|https?:/i)
-        expect(dto.resume?.errorMessage).toMatch(/вставьте текст/i)
+        expect(dto.resume?.errorMessage).toBe('{"code":"RESUME_SOURCE_LOAD_FAILED"}')
       })
     })
 
@@ -1136,9 +1145,10 @@ describe.skipIf(!hasDatabaseUrl())(
         await giveSeniorBaStoredResume()
         s3.delete.mockClear()
 
-        await expect(service.deleteResume(session(SENIOR_A), SENIOR_B.id)).rejects.toBeInstanceOf(
-          ForbiddenException,
-        )
+        await expect(service.deleteResume(session(SENIOR_A), SENIOR_B.id)).rejects.toMatchObject({
+          status: 403,
+          response: { code: 'RESUME_NO_ACCESS' },
+        })
         // Nothing was touched — not the row, not the file.
         expect(s3.delete).not.toHaveBeenCalled()
         const survived = await service.getForUser(session(ADMIN_USER), SENIOR_B.id)
@@ -1153,9 +1163,10 @@ describe.skipIf(!hasDatabaseUrl())(
         await giveSeniorBaStoredResume()
         s3.delete.mockClear()
 
-        await expect(service.deleteResume(session(who()), SENIOR_B.id)).rejects.toBeInstanceOf(
-          ForbiddenException,
-        )
+        await expect(service.deleteResume(session(who()), SENIOR_B.id)).rejects.toMatchObject({
+          status: 403,
+          response: { code: 'RESUME_NO_ACCESS' },
+        })
         expect(s3.delete).not.toHaveBeenCalled()
         const survived = await service.getForUser(session(ADMIN_USER), SENIOR_B.id)
         expect(survived.resume?.content.summary).toBe(SENIOR_B_SECRET)
@@ -1217,9 +1228,10 @@ describe.skipIf(!hasDatabaseUrl())(
             .where(eq(seniorResumes.userId, SENIOR_B.id))
         })
 
-        await expect(service.deleteResume(session(ADMIN_USER), SENIOR_B.id)).rejects.toThrow(
-          /изменяется прямо сейчас/,
-        )
+        await expect(service.deleteResume(session(ADMIN_USER), SENIOR_B.id)).rejects.toMatchObject({
+          status: 409,
+          response: { code: 'RESUME_DELETE_BUSY' },
+        })
         // The row is still there, so the user can retry — nothing silently lost.
         const survived = await service.getForUser(session(ADMIN_USER), SENIOR_B.id)
         expect(survived.resume).not.toBeNull()
@@ -1229,9 +1241,10 @@ describe.skipIf(!hasDatabaseUrl())(
 
       it('R-INT-12f. erasing a resume that does not exist is a 404, not a silent success', async () => {
         await dbSvc.db.delete(seniorResumes).where(eq(seniorResumes.userId, SENIOR_A.id))
-        await expect(service.deleteResume(session(ADMIN_USER), SENIOR_A.id)).rejects.toBeInstanceOf(
-          NotFoundException,
-        )
+        await expect(service.deleteResume(session(ADMIN_USER), SENIOR_A.id)).rejects.toMatchObject({
+          status: 404,
+          response: { code: 'RESUME_NOT_CREATED' },
+        })
       })
 
       /**
@@ -1704,23 +1717,23 @@ describe.skipIf(!hasDatabaseUrl())(
         const bBefore = await rowOf(SENIOR_B.id)
         await expect(
           service.saveFacts(session(SENIOR_A), SENIOR_B.id, FACTS),
-        ).rejects.toBeInstanceOf(ForbiddenException)
+        ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
         await expect(
           service.setTemplate(session(SENIOR_A), SENIOR_B.id, 'modern'),
-        ).rejects.toBeInstanceOf(ForbiddenException)
+        ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
         expect(await rowOf(SENIOR_B.id)).toEqual(bBefore)
       })
 
       it('ACCOUNTANT gets 403', async () => {
         await expect(
           service.saveFacts(session(ACCOUNTANT_USER), SENIOR_A.id, FACTS),
-        ).rejects.toBeInstanceOf(ForbiddenException)
+        ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
         await expect(
           service.setTemplate(session(ACCOUNTANT_USER), SENIOR_A.id, 'modern'),
-        ).rejects.toBeInstanceOf(ForbiddenException)
+        ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
         await expect(
           service.saveFacts(session(JUNIOR_USER), SENIOR_A.id, FACTS),
-        ).rejects.toBeInstanceOf(ForbiddenException)
+        ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
       })
 
       it('ADMIN and HR may confirm, the senior may not (canConfirm)', async () => {
@@ -1777,9 +1790,10 @@ describe.skipIf(!hasDatabaseUrl())(
             .where(eq(users.id, SENIOR_B.id))
           try {
             const bBefore = await rowOf(SENIOR_B.id)
-            await expect(service.submit(session(SENIOR_A), SENIOR_B.id)).rejects.toBeInstanceOf(
-              ForbiddenException,
-            )
+            await expect(service.submit(session(SENIOR_A), SENIOR_B.id)).rejects.toMatchObject({
+              status: 403,
+              response: { code: 'RESUME_NO_ACCESS' },
+            })
             expect(await rowOf(SENIOR_B.id)).toEqual(bBefore)
             expect(runner.run).not.toHaveBeenCalled()
           } finally {
@@ -1802,9 +1816,10 @@ describe.skipIf(!hasDatabaseUrl())(
           ['ACCOUNTANT', ACCOUNTANT_USER],
         ])('%s is 403 and queues nothing', async (_role, viewer) => {
           const before = await rowOf(SENIOR_A.id)
-          await expect(service.submit(session(viewer), SENIOR_A.id)).rejects.toBeInstanceOf(
-            ForbiddenException,
-          )
+          await expect(service.submit(session(viewer), SENIOR_A.id)).rejects.toMatchObject({
+            status: 403,
+            response: { code: 'RESUME_NO_ACCESS' },
+          })
           expect(await rowOf(SENIOR_A.id)).toEqual(before)
           expect(runner.run).not.toHaveBeenCalled()
         })

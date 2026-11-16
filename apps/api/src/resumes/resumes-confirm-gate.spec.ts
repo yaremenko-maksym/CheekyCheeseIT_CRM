@@ -4,7 +4,7 @@
  * same roles, so the gate is pinned by making it refuse a viewer the write check would admit.
  * The DB double throws when touched: a 403 here means no query and no verification call ran.
  */
-import { ForbiddenException } from '@nestjs/common'
+import { HttpException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { canConfirmResume } from './resume-access'
@@ -50,7 +50,7 @@ describe('SeniorResumesService.confirm — the confirm role gate', () => {
         (e: unknown) => e,
       )
     expect(canConfirmResume).toHaveBeenCalledWith(admin)
-    expect(err).toBeInstanceOf(ForbiddenException)
-    expect((err as ForbiddenException).message).toBe('Нет доступа к резюме этого пользователя')
+    expect((err as HttpException).getStatus()).toBe(403)
+    expect((err as HttpException).getResponse()).toMatchObject({ code: 'RESUME_NO_ACCESS' })
   })
 })

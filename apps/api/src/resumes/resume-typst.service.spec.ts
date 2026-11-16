@@ -614,7 +614,7 @@ describe('the sandbox', () => {
     const withAnArrow = '#let render(data) = [→ #data.displayName]'
 
     await expect(service.render(input({ templateSource: withAnArrow }))).rejects.toThrow(
-      /не отрисовываются/,
+      /RESUME_RENDER_MISSING_GLYPHS/,
     )
     // The message names the offending character, so the fix is obvious.
     await expect(service.render(input({ templateSource: withAnArrow }))).rejects.toThrow(/→/)
@@ -648,7 +648,7 @@ describe('the sandbox', () => {
     for (const [label, template] of BLANK_PRODUCING) {
       it(`refuses a blank page produced by ${label}`, async () => {
         await expect(service.render(input({ templateSource: template }))).rejects.toThrow(
-          /пустую страницу/,
+          /RESUME_RENDER_BLANK_PAGE/,
         )
       }, 120_000)
     }
@@ -700,7 +700,7 @@ describe('the sandbox', () => {
 
     const started = Date.now()
     await expect(impatient.render(input({ templateSource: slowTemplate(4_000) }))).rejects.toThrow(
-      /не уложилась/,
+      /RESUME_RENDER_TIMEOUT/,
     )
     // Ended on the deadline, not left to finish in its own time.
     expect(Date.now() - started).toBeLessThan(5_000)

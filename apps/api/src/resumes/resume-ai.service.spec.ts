@@ -7,6 +7,7 @@
  * and no credential is needed (task §Границы).
  */
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import { decodeResumeMessage } from '@crm/shared'
 import {
   ResumeAiService,
   coerceToContentShape,
@@ -74,7 +75,7 @@ describe('ResumeAiService', () => {
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('unreachable')
     expect(result.code).toBe('MODEL_INVALID_JSON')
-    expect(result.message).toMatch(/вручную/)
+    expect(decodeResumeMessage(result.message)).toEqual({ code: 'RESUME_AI_INVALID_ANSWER' })
   })
 
   it('AC4: a valid second attempt after an invalid first one succeeds', async () => {
@@ -149,7 +150,7 @@ describe('ResumeAiService', () => {
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('unreachable')
     expect(result.code).toBe('AI_NOT_CONFIGURED')
-    expect(result.message).toMatch(/вручную/)
+    expect(decodeResumeMessage(result.message)).toEqual({ code: 'RESUME_AI_NOT_CONFIGURED' })
   })
 
   it('transport failure -> MODEL_ERROR, and the token never appears in the error', async () => {

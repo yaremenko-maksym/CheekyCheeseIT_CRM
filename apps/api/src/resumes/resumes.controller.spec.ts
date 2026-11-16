@@ -13,10 +13,13 @@
  * The Task 15 routes are thin: they parse the body, pass the viewer through, and the staged PDF
  * goes out as a PDF attachment named by `resumeContentDisposition`.
  */
-import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
-import { resumeContentDisposition, SeniorResumesController } from './resumes.controller'
+import {
+  pendingPdfBody,
+  resumeContentDisposition,
+  SeniorResumesController,
+} from './resumes.controller'
 import { sanitizeFileName } from './resumes.service'
 
 describe('sanitizeFileName', () => {
@@ -192,7 +195,7 @@ describe('uploadSource refuses a caller without write rights BEFORE reading the 
     const { service, parts, isMultipart, req, controller } = setup()
     await expect(
       controller.uploadSource(OWNER, req as never, user as SessionUser),
-    ).rejects.toBeInstanceOf(ForbiddenException)
+    ).rejects.toMatchObject({ status: 403, response: { code: 'RESUME_NO_ACCESS' } })
     expect(parts).not.toHaveBeenCalled()
     expect(isMultipart).not.toHaveBeenCalled()
     expect(service.uploadSource).not.toHaveBeenCalled()
@@ -220,4 +223,33 @@ describe('look writes on VERIFIED start a model run: throttled like the other ru
       expect(Reflect.getMetadata('THROTTLER:TTLdefault', handler)).toBe(60_000)
     },
   )
+})
+
+describe('pendingPdfBody — the 202 body while the PDF is not ready (backlog 443)', () => {
+  it('a row with no render error says the PDF is being prepared, by code', () => {
+    expect(pendingPdfBody('QUEUED', null)).toEqual({
+      status: 'QUEUED',
+      code: 'RESUME_PDF_PREPARING',
+      message:
+        'The PDF is being built from the resume template. Refresh the page in a few seconds.',
+    })
+  })
+
+  it('a stored code carries its params and the English fallback', () => {
+    expect(
+      pendingPdfBody('FAILED', '{"code":"RESUME_RENDER_TIMEOUT","params":{"seconds":20}}'),
+    ).toEqual({
+      status: 'FAILED',
+      code: 'RESUME_RENDER_TIMEOUT',
+      params: { seconds: 20 },
+      message: 'The PDF could not be built: the layout did not finish within 20 s.',
+    })
+  })
+
+  it('a legacy free-text error passes through verbatim, with no code', () => {
+    expect(pendingPdfBody('FAILED', 'Не удалось собрать PDF резюме.')).toEqual({
+      status: 'FAILED',
+      message: 'Не удалось собрать PDF резюме.',
+    })
+  })
 })
