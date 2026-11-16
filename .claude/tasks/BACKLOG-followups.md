@@ -8235,6 +8235,26 @@ corpus of glued contacts.
 
 Sources: PR #1351 (contact scanner normalisation, backlog 444/445) security review round 2, SR-M-2.
 
+## 450. Multipart limit errors answer an uncoded 413 (2026-11-16)
+
+**Closed (2026-11-16).** PR #1361 (resume and documents parts/files limits answer coded 413s `RESUME_UPLOAD_TOO_MANY_PARTS` / `DOCUMENT_UPLOAD_TOO_MANY_PARTS`; documents upload owns its 10 MB limit and answers `DOCUMENT_TOO_LARGE`; skipped file parts are drained). Reopen if the Verify check below fails.
+
+**Symptoms.** The resume upload maps only `FST_REQ_FILE_TOO_LARGE` to a coded 413. A second file part
+(`FST_FILES_LIMIT`) or too many parts (`FST_PARTS_LIMIT`) reaches the client as the multipart plugin's own 413 with no
+code, so the UI cannot show a catalog line. The documents upload passes no per-route limit: it relies on the global
+`fileSize` in `main.ts`, so its limit can drift from `DOCUMENT_MAX_BYTES`, and its oversize answer is the uncoded 413,
+not `DOCUMENT_TOO_LARGE`.
+
+**Candidate fix.** In the resume upload catch, map both limit codes to one coded 413
+(`RESUME_UPLOAD_TOO_MANY_PARTS`) with uk and en catalog lines. In the documents upload, pass
+`limits: { fileSize: DOCUMENT_MAX_BYTES }` to `req.parts` and map `FST_REQ_FILE_TOO_LARGE` to `DOCUMENT_TOO_LARGE`
+with its MB cap. Keep both limits at 10 MB.
+
+**Verify.** A resume upload with two file parts answers 413 `RESUME_UPLOAD_TOO_MANY_PARTS`; a document over 10 MB
+answers 413 `DOCUMENT_TOO_LARGE` with `maxMb: 10`; other multipart failures are unchanged.
+
+Sources: verified-base-resume follow-up (PR #1354, QA-LOW-4 coded 413 for the resume size limit).
+
 ## 452. Submit stays enabled for a verified resume the server refuses (2026-11-16)
 
 **Closed (2026-11-16).** PR #1359 (disable resume submit when verified and unflagged). Reopen if the Verify check below fails.
