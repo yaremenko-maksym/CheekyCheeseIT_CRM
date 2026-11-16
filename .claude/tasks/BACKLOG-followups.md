@@ -8101,6 +8101,8 @@ Sources: verified-base-resume security review, finding SR-L-4 (Task 23 fix round
 
 ## 442. A VERIFIED resume is not re-checked after a rename or a Telegram change (2026-11-14)
 
+**Closed (2026-11-15).** PR #1353 (a real change of display name, legal name or Telegram stamps `senior_resumes.recheck_needed_at` on a VERIFIED resume, confirm clears it, the panel shows a "re-check needed" badge). Reopen if the Verify check below fails.
+
 **Symptoms.** Verification redacts the senior's display name, legal name and stored Telegram handle from the
 resume text before any model call, and confirm detects a display-name change only while the run is still
 awaiting confirm. Once a resume is VERIFIED, a later change of the display name, legal name or Telegram handle
