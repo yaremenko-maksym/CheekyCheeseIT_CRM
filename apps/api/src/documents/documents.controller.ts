@@ -30,6 +30,7 @@ import {
 } from '@nestjs/common'
 import type { FastifyRequest } from 'fastify'
 import {
+  DOCUMENT_MAX_BYTES,
   createDocumentMetadataSchema,
   documentListFiltersSchema,
   reconcileOrphansOptionsSchema,
@@ -78,24 +79,32 @@ export class DocumentsController {
     let file: { buffer: Buffer; mimetype: string; originalname: string } | null = null
     const fields: Record<string, string> = {}
 
-    for await (const part of req.parts() as AsyncIterable<MultipartField>) {
-      if (part.type === 'file' && part.fieldname === 'file') {
-        // Only one file per upload — first one wins.
-        if (file) continue
-        const buffer = await (part.toBuffer
-          ? part.toBuffer()
-          : Promise.reject(new Error('Multipart file has no toBuffer()')))
-        file = {
-          buffer,
-          mimetype: part.mimetype ?? 'application/octet-stream',
-          originalname: part.filename ?? 'upload',
-        }
-      } else if (part.type === 'field') {
-        // value is unknown — coerce to string for our Zod schema.
-        if (typeof part.value === 'string') {
-          fields[part.fieldname] = part.value
+    // Backlog 450: the route owns its size limit (the global one in main.ts is only a fallback), and
+    // the plugin's uncoded 413 becomes the documents area's own. Iterator and toBuffer both reject with it.
+    try {
+      for await (const part of req.parts({
+        limits: { fileSize: DOCUMENT_MAX_BYTES },
+      }) as AsyncIterable<MultipartField>) {
+        if (part.type === 'file' && part.fieldname === 'file') {
+          // Only one file per upload — first one wins.
+          if (file) continue
+          const buffer = await (part.toBuffer
+            ? part.toBuffer()
+            : Promise.reject(new Error('Multipart file has no toBuffer()')))
+          file = {
+            buffer,
+            mimetype: part.mimetype ?? 'application/octet-stream',
+            originalname: part.filename ?? 'upload',
+          }
+        } else if (part.type === 'field') {
+          // value is unknown — coerce to string for our Zod schema.
+          if (typeof part.value === 'string') {
+            fields[part.fieldname] = part.value
+          }
         }
       }
+    } catch (err) {
+      throw tooLargeUpload(err)
     }
 
     if (!file) {
@@ -242,4 +251,12 @@ export class DocumentsController {
     }
     return reconcileReportSchema.parse(serialized)
   }
+}
+
+/** Past the per-route `fileSize` limit the multipart plugin throws `FST_REQ_FILE_TOO_LARGE`, a 413 with no code. */
+function tooLargeUpload(err: unknown): unknown {
+  if ((err as { code?: unknown } | null)?.code !== 'FST_REQ_FILE_TOO_LARGE') return err
+  return apiError('DOCUMENT_TOO_LARGE', HttpStatus.PAYLOAD_TOO_LARGE, {
+    maxMb: Math.floor(DOCUMENT_MAX_BYTES / 1024 / 1024),
+  })
 }

@@ -3985,6 +3985,11 @@ msgstr "Не вдалося завантажити файл. Спробуйте 
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
+msgid "api-error.RESUME_UPLOAD_TOO_MANY_PARTS"
+msgstr "Забагато файлів в одному завантаженні. Додайте один файл резюме й спробуйте ще раз."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_UPLOAD_UNREADABLE"
 msgstr "Не вдалося прочитати надісланий файл. Завантажте його ще раз."
 
