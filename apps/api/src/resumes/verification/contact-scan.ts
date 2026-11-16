@@ -199,6 +199,7 @@ function mainNamePatterns(fullName: string): RegExp[] {
 
 /** Main's spans on NFC `nfc`: the generic patterns, the handle (`\w` boundary) and the name. */
 function mainSpans(nfc: string, ctx: ContactContext): Span[] {
+  // Stryker disable next-line StringLiteral: masked by the own pass, see "Main's pass is masked" above mainNamePatterns; the apostrophe fold is pinned by the round-6 O'Neil row
   const plain = nfc.replace(CONTACT_APOSTROPHES, "'")
   const spans = patternSpans(plain, ctx)
   const handle = normaliseTelegramHandle(ctx.telegram)
