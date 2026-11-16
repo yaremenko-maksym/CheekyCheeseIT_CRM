@@ -194,3 +194,31 @@ describe('completeness takes the split reading of a joined reading of one part (
     expect(flags('an Iv', 'Iv\u200Ban')).toBe(true)
   })
 })
+
+describe("main's whitespace reading of a U+FEFF name stays in completeness (round 8, CR-H-1)", () => {
+  it.each([
+    // main splits a stored name on `\s`, which includes U+FEFF, so main flags this
+    ['Ivan\uFEFFOlegovych Petrenko', 'Ivan Petrenko'],
+    // main splits a stored name on `\s`, which includes U+FEFF, so main flags this
+    ['Ivan\uFEFFOlegovych Petrenko', 'Ivan Olegovych Petrenko'],
+    // main splits a stored name on `\s`, which includes U+FEFF, so main flags this
+    ['Ivan Petrenko\uFEFFKovalenko', 'Ivan Kovalenko'],
+  ])('stored %j flags %j', (stored, text) => {
+    expect(flags(text, stored)).toBe(true)
+  })
+
+  it('U+FEFF is the only character outside \\p{Cc} that the strip removes and \\s matches', () => {
+    const whitespace: string[] = []
+    for (let code = 0; code <= 0x10ffff; code++) {
+      // a lone surrogate is not a character
+      if (code >= 0xd800 && code <= 0xdfff) continue
+      const char = String.fromCodePoint(code)
+      if (/\s/u.test(char) && !/\p{Cc}/u.test(char)) whitespace.push(char)
+    }
+    // the set is the Unicode spaces, not an empty loop
+    expect(whitespace.length).toBeGreaterThan(15)
+    expect(whitespace.filter((char) => normaliseContactText(`a${char}b`).text === 'ab')).toEqual([
+      '\uFEFF',
+    ])
+  })
+})

@@ -345,14 +345,28 @@ describe('never worse than main, on random text (SR-H-4, round 7 SPEC-L-1)', () 
     let notFixed = 0
     let mainSpanCount = 0
     let genericCount = 0
+    let nonNfcTexts = 0
+    let nonNfcSpanCount = 0
     for (let i = 0; i < 3000; i++) {
       const length = 1 + (next() % 8)
       const text = Array.from({ length }, () => ATOMS[next() % ATOMS.length]).join('')
       if (text !== text.normalize('NFC')) {
-        // main's offsets are NFC offsets: on other text compare the outputs instead, where main's
-        // own output is a fixed point (a contact glued to a phone is not, on main either: backlog 449)
+        nonNfcTexts++
+        // the outputs too: main's own output is a fixed point here (a contact glued to a phone is
+        // not, on main either: backlog 449)
         if (mainHits(mainRedact(text, CTX), CTX)) notFixed++
         else if (mainHits(redactContacts(text, CTX), CTX)) uncovered.push(text)
+        // and every span, emails, URLs and phones included: main's offsets are NFC offsets, so the
+        // head spans are taken to NFC offsets through the NFC of the text before each edge
+        const nfcOffset = (offset: number) => text.slice(0, offset).normalize('NFC').length
+        const head = redactedSpans(text, CTX).map((h) => ({
+          start: nfcOffset(h.start),
+          end: nfcOffset(h.end),
+        }))
+        for (const span of mainOracleSpans(text, CTX)) {
+          nonNfcSpanCount++
+          if (!head.some((h) => h.start <= span.start && span.end <= h.end)) uncovered.push(text)
+        }
         continue
       }
       nfcTexts++
@@ -369,6 +383,9 @@ describe('never worse than main, on random text (SR-H-4, round 7 SPEC-L-1)', () 
     expect(mainSpanCount).toBeGreaterThan(1000)
     expect(genericCount).toBeGreaterThan(300)
     expect(notFixed).toBeLessThan(100)
+    // the non-NFC branch runs and compares spans too (seed 1351: 84 texts, 130 spans of main)
+    expect(nonNfcTexts).toBeGreaterThan(60)
+    expect(nonNfcSpanCount).toBeGreaterThan(100)
   })
 })
 
@@ -513,23 +530,17 @@ describe('the split reading of a stored name is redacted whole, fail-closed (rou
   })
 })
 
-describe('the gate scan reads the split reading as completeness does (round 8, SR-M-1)', () => {
+describe('the gate scan keeps the split reading but its short fragments (round 8, SR-M-1, Addendum A)', () => {
   const stored = (fullName: string): ContactContext => ({ fullName, emails: [] })
 
   it.each([
-    // the joined reading has two parts, so a fragment of a real part does not refuse a text
+    // the joined reading has two parts, so a lone fragment under three letters does not refuse a text
     [
       'Ivan Petr\u200Cin',
       'Senior engineer in Kyiv since 2020',
       'Senior engineer [REDACTED] Kyiv since 2020',
     ],
     ['Iv\u200Can Petrenko', 'Led an API migration', 'Led [REDACTED] API migration'],
-    [
-      'Ivan Peter\u200Cson',
-      'He mentored a son of a client',
-      'He mentored a [REDACTED] of a client',
-    ],
-    ['Ivan Petrenko\u200BKovalenko', 'Ivan Kovalenko', '[REDACTED]'],
   ])('stored %j passes %j, still redacted as %j', (fullName, text, redacted) => {
     expect(scanContacts(text, stored(fullName))).toEqual([])
     expect(hasContact(text, [stored(fullName)])).toBe(false)
@@ -538,12 +549,31 @@ describe('the gate scan reads the split reading as completeness does (round 8, S
   })
 
   it.each([
-    // main splits a stored name on `\s`, which includes U+FEFF: main reads `in` as the surname,
-    // and main's arm of the union keeps that refusal
-    ['Ivan Petr\uFEFFin', 'Senior engineer in Kyiv since 2020', 'in'],
-    ['Ivan Petr\uFEFFin', 'Ivan in Kyiv', 'in'],
-  ])('stored %j still refuses %j, which main flags', (fullName, text, match) => {
+    // every full-name order and every lone part of three letters or more still refuses
+    ['Ivan Petrenko\u200BKovalenko', 'Ivan Kovalenko', 'Ivan Kovalenko', '[REDACTED]'],
+    ['Ivan Petrenko\u200BKovalenko', 'Kovalenko', 'Kovalenko', '[REDACTED]'],
+    // accepted cost: a three-letter fragment refuses ordinary text, as in round 6
+    [
+      'Ivan Peter\u200Cson',
+      'He mentored a son of a client',
+      'son',
+      'He mentored a [REDACTED] of a client',
+    ],
+    // the joined reading has one part: a two-letter lone part refuses
+    ['Wei\u200BLi', 'by Li today', 'Li', 'by [REDACTED] today'],
+  ])('stored %j refuses %j on %j, redacted as %j', (fullName, text, match, redacted) => {
     expect(scanContacts(text, stored(fullName))).toEqual([{ kind: 'name', match }])
+    expect(hasContact(text, [stored(fullName)])).toBe(true)
+    expect(redactContacts(text, stored(fullName))).toBe(redacted)
+  })
+
+  it.each([
+    // main splits a stored name on `\s`, which includes U+FEFF: main reads `in` as the surname,
+    // and main's arm of the union keeps that refusal, which the own scan drops
+    ['Ivan Petr\uFEFFin', 'Senior engineer in Kyiv since 2020'],
+    ['Ivan Petr\uFEFFin', 'in Kyiv'],
+  ])('stored %j still refuses %j, which main flags', (fullName, text) => {
+    expect(scanContacts(text, stored(fullName))).toEqual([{ kind: 'name', match: 'in' }])
     expect(hasContact(text, [stored(fullName)])).toBe(true)
   })
 })

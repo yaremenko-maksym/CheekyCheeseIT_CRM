@@ -501,7 +501,7 @@ const nameLetters = (part: string): number => part.replace(/\P{L}/gu, '').length
 export function splitNameOrders(parts: readonly string[]): string[][] {
   const [first, ...rest] = parts
   const pairs =
-    // Stryker disable next-line ConditionalExpression: equivalent — `first` is undefined only for an empty reading, whose `rest` is empty, so the pairs are empty either way
+    // Stryker disable next-line ConditionalExpression: only the `false` form is equivalent (`first` is undefined only for an empty reading, whose `rest` is empty); the `true` form is killed when applied by hand (7 shared tests, 18 api tests fail), and a disable comment cannot name one form
     first === undefined
       ? []
       : rest.flatMap((part) => [
@@ -566,16 +566,15 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
   // too: availability, not a leak.
   const handleSource = handle ? `@*${escapeRegExp(handle)}` : null
   // Main's check, on the NFC text: no lookbehind (it throws on Safari < 16.4), so `(?:^|…)` in front.
-  // It is a guarantee, not a second detector: the own check above flags every text it flags on all
-  // inputs tried (for `Ivan Petrenko` / `ivan_dev`, each code point up to U+20000, U+3001–U+F8FF
-  // skipped, beside the name, inside it and beside the handle, PR #1351 round 6), so the mutants that
-  // only weaken it are masked: a measurement, not a proof.
-  // Stryker disable next-line Regex: masked by the own check, see the note above
+  // Its handle arm is a guarantee, not a second detector: the own check above flags every text it
+  // flags on all inputs tried (for `ivan_dev`, each code point up to U+20000, U+3001–U+F8FF skipped,
+  // beside the handle, PR #1351 round 6), so the mutants that only weaken it are masked: a
+  // measurement, not a proof. Its name arm is load-bearing (round 8): completeness keeps main's
+  // whitespace reading of the stored name, and for U+FEFF, which `\s` matches and the strip removes,
+  // that reading is the split one, which the own check drops for a joined reading of two or more parts.
   const rawOrders = nameOrders(normaliseName(displayName).split(/\s/).filter(Boolean))
-  // Stryker disable next-line StringLiteral: masked by the own check, see the note above
   const rawSource = rawOrders.map((parts) => parts.map(escapeRegExp).join('\\s+')).join('|')
   const rawName =
-    // Stryker disable next-line ConditionalExpression: masked by the own check, see the note above; the `true` form is killed when applied by hand (1 test fails)
     rawOrders.length > 0
       ? new RegExp(`(?:^|[^\\p{L}\\p{N}])(?:${rawSource})(?:$|[^\\p{L}\\p{N}])`, 'iu')
       : null
@@ -606,7 +605,6 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
       ) ||
       // Stryker disable next-line LogicalOperator: masked by the own check, see the note above
       (rawHandleTest?.test(nfc) ?? false) ||
-      // Stryker disable next-line LogicalOperator: masked by the own check, see the note above
       (rawName?.test(normaliseName(nfc)) ?? false)
     )
   }

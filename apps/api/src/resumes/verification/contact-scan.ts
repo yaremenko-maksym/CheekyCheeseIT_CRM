@@ -63,9 +63,11 @@ function escapeRegExp(value: string): string {
  * surname alone, never the first name. The split reading is taken whole: every order of
  * `splitNameOrders` and every lone part of `splitNameLoneParts`. The redaction takes it always,
  * fail-closed, so a fragment such as `in` (stored `Ivan Petr`, ZWNJ, `in`) is redacted too (PR #1351
- * round 7). The gate scan (`scanContacts`, behind `hasContact`) takes it as completeness does, only
- * when the joined reading has one part, so that fragment does not refuse ordinary text (round 8,
- * SR-M-1).
+ * round 7). The gate scan (`scanContacts`, behind `hasContact`) protects model output, so it keeps
+ * the split reading too, every order and every lone part of three letters or more; it drops only a
+ * lone part shorter than three letters, and only when the joined reading has two or more parts, so a
+ * fragment such as `in` or `an` does not refuse ordinary text (round 8, SR-M-1). A three-letter
+ * fragment such as `son` still refuses: accepted.
  */
 /** A last name part is a lone source from two letters on, in both passes (main's rule). */
 const isSurnameSource = (part: string): boolean => part.replace(/\P{L}/gu, '').length >= 2
@@ -78,10 +80,13 @@ function nameSources(fullName: string, failClosed: boolean): string[] {
   return contactNameParts(fullName).flatMap((parts, reading, readings) => {
     if (reading > 0) {
       // Stryker disable next-line OptionalChaining: equivalent — contactNameParts always returns the joined reading first, so readings[0] is defined
-      if (!failClosed && (readings[0]?.length ?? 0) > 1) return []
+      const shortFragments = !failClosed && (readings[0]?.length ?? 0) > 1
+      const lone = splitNameLoneParts(parts).filter(
+        (part) => !shortFragments || part.replace(/\P{L}/gu, '').length >= 3,
+      )
       return [
         ...splitNameOrders(parts).map((order) => fold(order).join(CONTACT_NAME_GAP)),
-        ...fold(splitNameLoneParts(parts)),
+        ...fold(lone),
       ]
     }
     const folded = fold(parts)
@@ -188,7 +193,8 @@ function mainWholeToken(source: string): RegExp {
  * (`x™tg: mark_dev`). The arms stay as the structural guard of the union: do not remove them as
  * dead code. In the gate scan the name arm is load-bearing (round 8): main splits a stored name on
  * `\s`, which includes U+FEFF, the one character the strip also removes, so for `Ivan Petr`,
- * U+FEFF, `in` main flags `in`, and the own scan, which drops that split reading, does not.
+ * U+FEFF, `in` main flags `in` alone, and the own gate scan, which drops a lone split part shorter
+ * than three letters, does not.
  */
 /** Main's full-name and surname patterns, accent-folded, for `foldAccents` text of NFC text. */
 function mainNamePatterns(fullName: string): RegExp[] {
