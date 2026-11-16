@@ -49,7 +49,7 @@ export function decodeResumeMessage(
     // String(null) is "null", which parses to null and fails the shape.
     json = JSON.parse(String(stored))
   } catch {
-    return null
+    // Not JSON: `json` stays undefined, which fails the shape check below (legacy text).
   }
   if (!storedShapeSchema.safeParse(json).success) return null
   const parsed = storedResumeMessageSchema.safeParse(json)
