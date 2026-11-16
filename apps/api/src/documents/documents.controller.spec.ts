@@ -60,10 +60,73 @@ describe('DocumentsController.upload — multipart limits', () => {
     await expect(run()).rejects.toBe(broken)
   })
 
+  it('a file part without toBuffer rejects as it is', async () => {
+    const { run } = upload(async function* () {
+      yield { type: 'file', fieldname: 'file' }
+    })
+    await expect(run()).rejects.toThrow('Multipart file has no toBuffer()')
+  })
+
   it('a null rejection is rethrown as it is', async () => {
     const { run } = upload(async function* () {
       yield { type: 'file', fieldname: 'file', toBuffer: () => Promise.reject(null) }
     })
     await expect(run()).rejects.toBeNull()
+  })
+})
+
+describe('DocumentsController.upload — part collection', () => {
+  const buf = (s: string) => () => Promise.resolve(Buffer.from(s))
+
+  it('takes the first `file` part, defaults its mimetype/name, and reads only string fields', async () => {
+    const { service, run } = upload(async function* () {
+      yield { type: 'file', fieldname: 'other', toBuffer: buf('ignored-field') }
+      yield { type: 'field', fieldname: 'file', value: 'not-a-file' }
+      yield { type: 'file', fieldname: 'name', value: 'from-a-file-part', toBuffer: buf('n') }
+      yield { type: 'field', fieldname: 'category', value: 'SCAN' }
+      yield { type: 'field', fieldname: 'name', value: 42 }
+      yield { type: 'file', fieldname: 'file', toBuffer: buf('first') }
+      yield { type: 'file', fieldname: 'file', toBuffer: buf('second') }
+    })
+    await run()
+    expect(service.upload).toHaveBeenCalledWith(
+      user,
+      {
+        buffer: Buffer.from('first'),
+        mimetype: 'application/octet-stream',
+        originalname: 'upload',
+      },
+      { category: 'SCAN', projectId: undefined, ownerId: undefined, name: undefined },
+    )
+  })
+
+  it('keeps the declared mimetype, filename and the name field', async () => {
+    const { service, run } = upload(async function* () {
+      yield { type: 'field', fieldname: 'category', value: 'SCAN' }
+      yield { type: 'field', fieldname: 'name', value: 'Passport' }
+      yield {
+        type: 'file',
+        fieldname: 'file',
+        mimetype: 'application/pdf',
+        filename: 'p.pdf',
+        toBuffer: buf('pdf'),
+      }
+    })
+    await run()
+    expect(service.upload).toHaveBeenCalledWith(
+      user,
+      { buffer: Buffer.from('pdf'), mimetype: 'application/pdf', originalname: 'p.pdf' },
+      expect.objectContaining({ category: 'SCAN', name: 'Passport' }),
+    )
+  })
+
+  it('no `file` part is 400 DOCUMENT_FILE_FIELD_MISSING', async () => {
+    const { run } = upload(async function* () {
+      yield { type: 'field', fieldname: 'category', value: 'SCAN' }
+    })
+    await expect(run()).rejects.toMatchObject({
+      status: 400,
+      response: { code: 'DOCUMENT_FILE_FIELD_MISSING' },
+    })
   })
 })
