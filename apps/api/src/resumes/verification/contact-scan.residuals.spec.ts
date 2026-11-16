@@ -113,6 +113,16 @@ describe('non-ASCII digits and marks on digits are phones (453c, 453e)', () => {
     const years = '٢٠١٩ · ٢٠٢٠ · ٢٠٢١'
     expect(redactContacts(years, [])).toBe(years)
   })
+
+  // the differential against main: the fold must not take away the edge a non-ASCII digit was
+  it.each([
+    ['١www.site.devBo', '١[REDACTED]'],
+    // the NFKC pass reads `xhttps://x.io/p` and takes the fullwidth `x` too
+    ['@١ｘhttps://x.io/p', '@١[REDACTED]'],
+  ])('a URL after a non-ASCII digit %j is still redacted, as on main', (text, redacted) => {
+    expect(redactContacts(text, [])).toBe(redacted)
+    expect(scanContacts(text, IVAN).map((hit) => hit.kind)).toEqual(['url'])
+  })
 })
 
 describe('the gate refuses split parts joined by a hyphen or a comma (453a)', () => {

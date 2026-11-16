@@ -71,6 +71,19 @@ describe('non-ASCII decimal digits fold to ASCII (453c)', () => {
   it('a list of years in Arabic-Indic digits stays a year list', () => {
     expect(flags('٢٠١٩ · ٢٠٢٠ · ٢٠٢١')).toBe(false)
   })
+
+  // the differential against main: the fold must not take away the edge a non-ASCII digit was
+  it.each(['١www.site.devBo', '۷۷www.site.dev№١'])(
+    'a URL after a non-ASCII digit %j still flags, as on main',
+    (text) => {
+      expect(flags(text)).toBe(true)
+    },
+  )
+
+  it('the unfolded form keeps the non-ASCII digit', () => {
+    expect(normaliseContactText('١www', false).text).toBe('١www')
+    expect(normaliseContactText('١www').text).toBe('1www')
+  })
 })
 
 describe('a combining mark on a digit does not break a phone (453e)', () => {

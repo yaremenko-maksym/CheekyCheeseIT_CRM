@@ -68,11 +68,14 @@ function escapeRegExp(value: string): string {
  * lone part shorter than three letters, and only when the joined reading has two or more parts, so a
  * fragment such as `in` or `an` does not refuse ordinary text (round 8, SR-M-1). A three-letter
  * fragment such as `son` still refuses: accepted. The gate scan also keeps each run of two or more
- * consecutive parts after the first, both ways, when the run has three letters or more, so two short
- * parts that form the whole surname still refuse (`Ivan Li`, ZWSP, `Yu` refuses `Li Yu` and `Yu Li`;
- * round 9, SR-M-2). Runs grow with the square of the part count, and the stored name is HR-edited, so
- * past `MAX_RUN_PARTS` split parts the gate takes no runs and drops no short fragment: round 7's
- * stricter gate, linear in the part count and fail-closed (round 9, Addendum A).
+ * parts after the first, both ways, when the run has three letters or more, so two short parts that
+ * form the whole surname still refuse (`Ivan Li`, ZWSP, `Yu` refuses `Li Yu` and `Yu Li`; round 9,
+ * SR-M-2). A run is any ordered subsequence, adjacent or not, and its parts may be joined by a hyphen
+ * or a comma (`Li-Yu`, `Li, Bo`; backlog 453). Runs grow with 2^parts, and the stored name is
+ * HR-edited, so past `MAX_RUN_PARTS` split parts the gate takes no runs and drops no short fragment:
+ * round 7's stricter gate, linear in the part count and fail-closed (round 9, Addendum A). The
+ * redaction reads a digit next to a name as an edge (`Petrenko1990`, backlog 453d); the gate keeps
+ * main's token, in which a digit is part of the word.
  */
 /** A last name part is a lone source from two letters on, in both passes (main's rule). */
 const isSurnameSource = (part: string): boolean => part.replace(/\P{L}/gu, '').length >= 2
@@ -83,10 +86,14 @@ const MAX_RUN_PARTS = 8
 /**
  * The gate's runs: every ordered subsequence of two or more split parts after the first, adjacent
  * or not (`Li Bo` of `Li`, ZWSP, `Yu`, ZWSP, `Bo`; backlog 453b), both ways, three letters or more.
- * One subset per bit mask of the parts after the first, so at most 2^7 under `MAX_RUN_PARTS`.
+ * One subset per bit mask of the parts after the first, so at most 2^7 under `MAX_RUN_PARTS`. Only
+ * the parts `inText` finds take part: a run hits only where each of its parts does, so the others
+ * add no hit. Measured at 8 parts against main: 0.7x on the perf spec's text (3.9x without the
+ * filter), 4.6x on a text holding every part, still linear in the text.
  */
-function splitNameRuns(parts: readonly string[]): string[][] {
-  const rest = parts.slice(1)
+function splitNameRuns(parts: readonly string[], inText: (part: string) => boolean): string[][] {
+  // Stryker disable next-line MethodExpression: equivalent — the filter drops only parts no run can hit with; without it the same hits come back, slower
+  const rest = parts.slice(1).filter(inText)
   const runs: string[][] = []
   for (let mask = 1; mask < 2 ** rest.length; mask++) {
     const run = rest.filter((_, bit) => (mask >> bit) & 1)
@@ -104,11 +111,13 @@ function splitNameRuns(parts: readonly string[]): string[][] {
  */
 const RUN_GAP = String.raw`((?:\s|\\[nrt])*(?:[-‐‑,](?:\s|\\[nrt])*)?)`
 
-function nameSources(fullName: string, failClosed: boolean): string[] {
+/** The name sources for the folded text `scanned`: the gate's runs are built only of parts in it. */
+function nameSources(fullName: string, failClosed: boolean, scanned: string): string[] {
   // Normalised like the text, so a name with a ligature, a ZWNJ or fullwidth letters matches itself.
   // folded after the split helpers count letters: NFD turns a Hangul syllable into its jamo
   const fold = (parts: readonly string[]) =>
     parts.map((part) => escapeRegExp(foldAccents(part).text))
+  const inText = (part: string) => new RegExp(fold([part]).join(''), 'iu').test(scanned)
   return contactNameParts(fullName).flatMap((parts, reading, readings) => {
     if (reading > 0) {
       const runs = !failClosed && parts.length <= MAX_RUN_PARTS
@@ -119,7 +128,7 @@ function nameSources(fullName: string, failClosed: boolean): string[] {
       )
       return [
         ...splitNameOrders(parts).map((order) => fold(order).join(CONTACT_NAME_GAP)),
-        ...(runs ? splitNameRuns(parts) : []).map((run) => fold(run).join(RUN_GAP)),
+        ...(runs ? splitNameRuns(parts, inText) : []).map((run) => fold(run).join(RUN_GAP)),
         ...fold(lone),
       ]
     }
@@ -329,7 +338,7 @@ function findSpans(
   }
   // the redaction reads a digit as an edge too (backlog 453d); the gate keeps main's token
   const nameKind = failClosed ? 'redactedName' : 'name'
-  for (const source of nameSources(ctx.fullName, failClosed)) {
+  for (const source of nameSources(ctx.fullName, failClosed, folded.text)) {
     for (const span of findWholeTokens(folded.text, folded.gaps, source, nameKind)) {
       rawSpans.push(foldedSpan('name', folded, span, normText.length))
     }
@@ -341,6 +350,19 @@ function findSpans(
     // Stryker disable next-line ConditionalExpression: fallback only if index is out of bounds
     end: norm.to[s.end - 1] ?? text.length,
   }))
+  // The generic patterns on the text before the digit fold too: there a non-ASCII digit is the
+  // non-word edge a URL or an email needs (`١www.site.dev`), so the fold only adds hits.
+  const unfolded = /[^\P{Nd}0-9]/u.test(text) ? normaliseContactText(text, false) : norm
+  if (unfolded !== norm) {
+    for (const s of patternSpans(unfolded.text.replace(CONTACT_APOSTROPHES, "'"), ctx)) {
+      // Stryker disable next-line ConditionalExpression: fallback only if index is out of bounds
+      spans.push({
+        kind: s.kind,
+        start: unfolded.from[s.start] ?? 0,
+        end: unfolded.to[s.end - 1] ?? text.length,
+      })
+    }
+  }
   // Main's spans, on the same text: the normalised scan may only add redactions (SR-H-4). Its name
   // and handle arms add no redaction measured today; keep the union as the guard against a future
   // regression of the own pass, not dead code (round 7). In the gate scan the name arm adds the

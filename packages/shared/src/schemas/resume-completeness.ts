@@ -311,8 +311,14 @@ function addJamoRunGaps(run: string, at: number, gaps: Set<number>): void {
  * the next word by a zero-width space still stands alone, as it did before the strip. A letter that
  * took a stripped character and a mark (`o`, ZWSP, acute) ends at a gap too: before the strip the
  * invisible split the letter from the mark, and the mark from the next word.
+ * `digits` folds non-ASCII digits to ASCII (453c). Pass `false` for the text main scanned: there a
+ * non-ASCII digit is a non-word edge (`١www.site.dev` has a `\b` before `www`), so the generic
+ * patterns run on both forms and the fold only adds hits.
  */
-export function normaliseContactText(text: string): {
+export function normaliseContactText(
+  text: string,
+  digits = true,
+): {
   text: string
   from: number[]
   to: number[]
@@ -323,7 +329,7 @@ export function normaliseContactText(text: string): {
   // Stryker disable next-line ConditionalExpression,BlockStatement: `false` and `{}` are equivalent (the loop returns the same); the `true` forms are killed when unsuppressed
   if (
     !CLUSTERED_CHAR.test(text) &&
-    !NON_ASCII_DIGIT.test(text) &&
+    (!digits || !NON_ASCII_DIGIT.test(text)) &&
     text.normalize('NFKC') === text
   ) {
     return { text, ...identityMaps(text), gaps: new Set() }
@@ -339,7 +345,7 @@ export function normaliseContactText(text: string): {
     const stripped = cluster.replace(INVISIBLE_PATTERN, '')
     const compatible = stripped.normalize('NFKC')
     // A digit stays a digit, so the fold comes after the edge test below and adds no edge.
-    const piece = foldDigits(compatible)
+    const piece = digits ? foldDigits(compatible) : compatible
     if (isJamoRun(cluster)) addJamoRunGaps(cluster, normalised.length, gaps)
     else if (stripped.length < cluster.length) gaps.add(normalised.length + piece.length)
     // A compatibility character (`™`, `²`, `ｘ`, `ﬁ`) is an edge on both sides, as it was before
@@ -621,10 +627,12 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
     const plain = text.replace(CONTACT_APOSTROPHES, "'")
     const folded = foldAccents(plain, gaps)
     const nfc = raw.normalize('NFC')
+    // the text before the digit fold too: a non-ASCII digit there is the edge a URL needs
+    const unfolded = NON_ASCII_DIGIT.test(raw) ? normaliseContactText(raw, false).text : text
     return (
       // the generic patterns on the folded text too: a mark on a digit (`067`, acute) splits a phone
       // in `text`, and the fold drops it (453e)
-      [text, folded.text].some(
+      [text, folded.text, unfolded].some(
         (scanned) =>
           findPhoneSpans(scanned).length > 0 ||
           RESUME_EMAIL_PATTERN.test(scanned) ||
