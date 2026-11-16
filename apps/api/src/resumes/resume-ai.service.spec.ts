@@ -30,7 +30,7 @@ function makeService(env: Record<string, string | undefined> = {}): ResumeAiServ
   return new ResumeAiService(config as never)
 }
 
-function aiResponse(body: string, usageTokens = 120): Response {
+function aiResponse(body: unknown, usageTokens = 120): Response {
   return {
     ok: true,
     status: 200,
@@ -184,6 +184,30 @@ describe('ResumeAiService', () => {
     expect(decodeResumeMessage(result.message, 'RESUME_ERROR_DETAILS_UNAVAILABLE')).toEqual({
       code: 'RESUME_AI_UNAVAILABLE',
     })
+  })
+
+  it('calls a Workers AI model that is not deprecated (llama-3.1-8b-instruct-awq answers 410)', async () => {
+    fetchSpy.mockResolvedValueOnce(aiResponse(VALID_JSON))
+    await makeService().extractStructure('Jane Doe, engineer')
+
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toMatch(
+      /\/ai\/run\/@cf\/mistralai\/mistral-small-3\.1-24b-instruct$/,
+    )
+  })
+
+  it('accepts a response the model returned already parsed as an object', async () => {
+    fetchSpy.mockResolvedValueOnce(aiResponse(JSON.parse(VALID_JSON)))
+    const result = await makeService().extractStructure('Jane Doe, engineer')
+
+    expect(result.ok).toBe(true)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('treats a non-string, non-object response as invalid output', async () => {
+    fetchSpy.mockResolvedValueOnce(aiResponse(42)).mockResolvedValueOnce(aiResponse(null))
+    const result = await makeService().extractStructure('Jane Doe, engineer')
+
+    expect(result).toMatchObject({ ok: false, code: 'MODEL_INVALID_JSON' })
   })
 
   it('caps the text sent to the model (token economy)', async () => {
