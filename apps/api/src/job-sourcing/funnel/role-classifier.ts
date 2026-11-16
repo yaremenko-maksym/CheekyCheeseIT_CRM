@@ -6,11 +6,10 @@
  * Port notes: Python 3 `\b` / `\w` / `\W` are Unicode-aware, JS ones are ASCII-only, so `rx`
  * rewrites them to Unicode letter/digit classes (Cyrillic titles depend on it). Every role keyword is
  * bounded on the left (`(?<![a-z0-9])backend` matches "backends"), as in the run; for a keyword that
- * opens with `\b` the extra bound changes nothing. Deviations from the appendix, each without a
- * change in the result unless stated: keywords another keyword of the same role already covers are
- * dropped (`бекенд` ⊂ `бек[\s-]?енд`), the architect front-end domain is dropped (the front-end role
- * keyword already matches it), and the job-noun gate also accepts `директор` so the Cyrillic CTO
- * keyword can fire (a change: the appendix left "Технічний директор" unclassified).
+ * opens with `\b` the extra bound changes nothing. Keywords the appendix could never fire are
+ * dropped without a change in result: those another keyword of the same role already covers
+ * (`бекенд` ⊂ `бек[\s-]?енд`) and the Cyrillic CTO keywords, which no job noun admits ("директор" is
+ * not one, so "Технічний директор" stays unclassified as in the run).
  */
 import { sortRoles, type TechnicalRole } from '@crm/shared'
 
@@ -328,8 +327,6 @@ const ROLE_PATTERNS: Record<SpecificRole, readonly RegExp[]> = {
     /vp,? (of )?technology/,
     /chief technology officer/,
     /chief technical officer/,
-    /технічн\w* директор/,
-    /технический директор/,
   ],
   BUSINESS_ANALYST: [
     /business analyst/,
@@ -383,7 +380,7 @@ const ENG_NOUN = rx(
   /(developer|engineer|programmer|architect|devops|\bqa\b|tester|scientist|analyst|administrator|\bsre\b|\bdba\b|розробник|разработчик|програміст|программист|інженер|инженер)/,
 )
 const JOB_NOUN = rx(
-  /(developer|engineer|programmer|architect|designer|analyst|administrator|admin\b|tester|\bqa\b|aqa|sdet|scientist|\bdba\b|\bsre\b|devops|pentester|hacker|\bcto\b|head of|director|vp\b|development manager|r&d manager|lead\b|specialist|expert|consultant|researcher|\bdev\b|розробник|разработчик|програміст|программист|тестувальник|тестировщик|адміністратор|администратор|аналітик|аналитик|архітектор|архитектор|дизайнер|інженер|инженер|сисадм|верстальщик|верстальник|директор)/,
+  /(developer|engineer|programmer|architect|designer|analyst|administrator|admin\b|tester|\bqa\b|aqa|sdet|scientist|\bdba\b|\bsre\b|devops|pentester|hacker|\bcto\b|head of|director|vp\b|development manager|r&d manager|lead\b|specialist|expert|consultant|researcher|\bdev\b|розробник|разработчик|програміст|программист|тестувальник|тестировщик|адміністратор|администратор|аналітик|аналитик|архітектор|архитектор|дизайнер|інженер|инженер|сисадм|верстальщик|верстальник)/,
 )
 const AI_FOCUS = rx(/\b(llm|genai|generative|agent|rag|prompt)/)
 const HINT_NOUN = rx(
@@ -419,6 +416,8 @@ const ARCHITECT_DOMAINS: readonly { pattern: RegExp; role: TechnicalRole }[] = [
   { pattern: rx(/network/), role: 'NETWORK_ENGINEER' },
   { pattern: rx(/\b(ml|ai|machine learning)\b/), role: 'ML_ENGINEER' },
   { pattern: rx(/\b(salesforce|sap|erp|crm)\b/), role: 'BUSINESS_APPLICATIONS_ENGINEER' },
+  // re-adds FRONTEND_ENGINEER after fullstack precedence dropped it, as the run did
+  { pattern: rx(/(front[\s-]?end)/), role: 'FRONTEND_ENGINEER' },
   { pattern: rx(/mobile/), role: 'CROSS_PLATFORM_MOBILE_ENGINEER' },
 ]
 

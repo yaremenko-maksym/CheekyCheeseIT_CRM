@@ -134,7 +134,8 @@ export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
   { title: 'Manager Engineering', expected: roles('ENGINEERING_MANAGER') },
   { title: 'VP Engineering', expected: roles('ENGINEERING_MANAGER') },
   { title: 'VP Technology', expected: roles('CTO') },
-  { title: 'Технічний директор', expected: roles('CTO') },
+  { title: 'Технічний директор', expected: UNCLASSIFIED },
+  { title: 'Директор з інформаційної безпеки', expected: UNCLASSIFIED },
   { title: 'Бізнес аналітик', expected: roles('BUSINESS_ANALYST') },
   { title: 'Бізнесаналітик', expected: roles('BUSINESS_ANALYST') },
   { title: 'Бизнес аналитик', expected: roles('BUSINESS_ANALYST') },
@@ -162,6 +163,11 @@ export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
   {
     title: 'Mobile Solutions Architect',
     expected: roles('CROSS_PLATFORM_MOBILE_ENGINEER', 'SOFTWARE_ARCHITECT'),
+  },
+  { title: 'Frontend Architect', expected: roles('FRONTEND_ENGINEER', 'SOFTWARE_ARCHITECT') },
+  {
+    title: 'Fullstack Front-end Architect',
+    expected: roles('FRONTEND_ENGINEER', 'FULLSTACK_ENGINEER', 'SOFTWARE_ARCHITECT'),
   },
   // Precedence and fallback branches
   { title: 'Full-stack (Frontend/Backend) Engineer', expected: roles('FULLSTACK_ENGINEER') },
