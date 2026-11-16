@@ -398,6 +398,18 @@ describe('pagination, coverage and requests', () => {
     })
   })
 
+  it('page 1 landed and page 2 failed: PARTIAL, page 1 kept, the attempt is not a failure of the whole board', async () => {
+    const first = pageOf(1, 'https://x/api?page=2')
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: JSON.stringify(first) }, { status: 503, bodyText: '' }],
+    })
+    const batch = await arbeitnowProvider.collectReport(cfg(), f.ctx)
+    expect(batch.outcome).toBe('PARTIAL')
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual(['job-1'])
+    expect(batch.requests.at(-1)?.status).toBe(503)
+  })
+
   it('a non-200 page fails the attempt and keeps nothing', async () => {
     const { batch } = await run('', cfg(), 503)
     expect(batch.outcome).toBe('FAILED')

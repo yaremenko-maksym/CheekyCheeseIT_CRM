@@ -13,8 +13,9 @@ import { arbeitnowProvider } from './sources/arbeitnow.provider'
 
 const REFUSED = 'inside-solutions-engineer-454685'
 
-// Mutable so one test can make the gate throw something that is NOT the per-record refusal.
-const gateOverride: { error: Error | null } = { error: null }
+// Mutable so a test can make the gate throw something that is NOT the per-record refusal, or refuse
+// every record. Both default off, so the other tests see the real gate.
+const gateOverride: { error: Error | null; refuseAll: boolean } = { error: null, refuseAll: false }
 
 vi.mock('../store/record-payload', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../store/record-payload')>()
@@ -22,7 +23,7 @@ vi.mock('../store/record-payload', async (importOriginal) => {
     ...actual,
     validateObservation: (o: SourceObservation) => {
       if (gateOverride.error !== null) throw gateOverride.error
-      if (o.identity.nativeId === REFUSED)
+      if (gateOverride.refuseAll || o.identity.nativeId === REFUSED)
         throw new RangeError('validateObservation: description over the display limit')
       actual.validateObservation(o)
     },
@@ -33,6 +34,31 @@ const NOW = new Date('2026-10-24T03:00:00Z')
 
 afterEach(() => {
   gateOverride.error = null
+  gateOverride.refuseAll = false
+})
+
+describe('a run whose every record the store refuses', () => {
+  it('does not read as SUCCEEDED, fails as PERSISTENCE, and stores no validator', async () => {
+    gateOverride.refuseAll = true
+    const authentic = sourceFixture('arbeitnow', 'page-1') as Record<string, unknown>
+    const body = { ...authentic, links: { ...(authentic['links'] as object), next: null } }
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ status: 200, bodyText: JSON.stringify(body) }],
+    })
+    const observeSinglePage = vi.fn()
+    const batch = await arbeitnowProvider.collectReport(
+      arbeitnowProvider.parseConfig({ configVersion: 1 }),
+      { ...f.ctx, observeSinglePage },
+    )
+    expect(batch.outcome).not.toBe('SUCCEEDED')
+    expect(batch.outcome).toBe('PARTIAL')
+    expect(batch.observations).toHaveLength(0)
+    expect(batch.counts.normalized).toBe(0)
+    expect(batch.counts.invalid).toBe(7)
+    expect(batch.requests.at(-1)?.error?.code).toBe('PERSISTENCE')
+    expect(observeSinglePage).not.toHaveBeenCalled()
+  })
 })
 
 describe('a non-RangeError from the store gate', () => {
