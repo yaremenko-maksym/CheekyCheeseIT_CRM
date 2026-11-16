@@ -58,7 +58,7 @@ export function ResumePdfPreview({ resume, pdfUrl, fileName }: ResumePdfPreviewP
       >
         <div className="flex items-start gap-3">
           <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
-          <div className="text-sm">
+          <div className="min-w-0 flex-1 text-sm">
             <p className="font-medium">
               <Trans>Не вдалося зібрати PDF</Trans>
             </p>

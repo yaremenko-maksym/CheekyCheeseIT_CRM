@@ -3751,7 +3751,7 @@ msgstr "Сервіс розпізнавання повернув помилку.
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_AI_INVALID_ANSWER"
-msgstr "Модель повернула некоректну відповідь. Перевірте й заповніть поля вручну."
+msgstr "Не вдалося правильно розпізнати резюме. Перевірте поля й заповніть їх вручну."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts

@@ -446,7 +446,7 @@ describe('ResumePdfPreview', () => {
     expect(screen.getByTestId('resume-pdf-failed')).not.toHaveTextContent('RESUME_RENDER_TIMEOUT')
   })
 
-  it('a coded render error this build cannot render shows the generic render line (QA-LOW-2/3, QA-LOW-6)', () => {
+  it('a coded render error this build cannot render shows the details-unavailable line (QA-LOW-2/3, QA-LOW-6)', () => {
     const { rerender } = render(
       <ResumePdfPreview
         resume={dto({

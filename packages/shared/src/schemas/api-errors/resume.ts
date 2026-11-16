@@ -205,7 +205,7 @@ export const RESUME_ERROR_MESSAGES: Record<ResumeErrorCode, MessageDescriptor> =
   },
   RESUME_AI_INVALID_ANSWER: /* i18n */ {
     id: 'api-error.RESUME_AI_INVALID_ANSWER',
-    message: 'Модель повернула некоректну відповідь. Перевірте й заповніть поля вручну.',
+    message: 'Не вдалося правильно розпізнати резюме. Перевірте поля й заповніть їх вручну.',
   },
   RESUME_AI_UNAVAILABLE: /* i18n */ {
     id: 'api-error.RESUME_AI_UNAVAILABLE',
@@ -359,7 +359,7 @@ export const RESUME_ERROR_FALLBACK_EN: Record<ResumeErrorCode, string> = {
   RESUME_AI_NOT_CONFIGURED:
     'Automatic recognition is unavailable: the AI service is not set up. Fill in the resume by hand.',
   RESUME_AI_INVALID_ANSWER:
-    'The model returned an invalid answer. Check the fields and fill them in by hand.',
+    'The resume could not be recognized correctly. Check the fields and fill them in by hand.',
   RESUME_AI_UNAVAILABLE:
     'The recognition service is unavailable. Try later or fill in the resume by hand.',
   RESUME_AI_QUOTA_EXCEEDED: 'The daily limit of free AI requests is used up.',

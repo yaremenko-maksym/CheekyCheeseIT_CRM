@@ -13,8 +13,6 @@
  * The Task 15 routes are thin: they parse the body, pass the viewer through, and the staged PDF
  * goes out as a PDF attachment named by `resumeContentDisposition`.
  */
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { RESUME_SOURCE_MAX_BYTES, type SessionUser } from '@crm/shared'
 import {
@@ -208,6 +206,9 @@ describe('uploadSource refuses a caller without write rights BEFORE reading the 
     const hr = { id: 'h', email: 'h@unit.spec', role: 'HR' } as SessionUser
     await expect(controller.uploadSource(OWNER, req as never, hr)).resolves.toBe('queued')
     expect(parts).toHaveBeenCalledOnce()
+    expect(parts).toHaveBeenCalledWith({
+      limits: { fileSize: RESUME_SOURCE_MAX_BYTES, files: 1 },
+    })
     expect(service.uploadSource).toHaveBeenCalledWith(hr, OWNER, {
       buffer: Buffer.from('%PDF-1.4 x'),
       mimetype: 'application/pdf',
@@ -255,7 +256,7 @@ describe('pendingPdfBody — the 202 body while the PDF is not ready (backlog 44
     })
   })
 
-  it('a stored code this build cannot render falls back to the generic render failure', () => {
+  it('a stored code this build cannot render falls back to the details-unavailable line', () => {
     const generic = {
       status: 'FAILED',
       code: 'RESUME_ERROR_DETAILS_UNAVAILABLE',
@@ -271,14 +272,19 @@ describe('uploadSource refuses a malformed upload by code (backlog 443)', () => 
   const hr = { id: 'a15e0000-0000-4000-8000-0000000000c4', email: 'hr@unit.spec', role: 'HR' }
   const upload = (parts: unknown[], multipart = true) => {
     const service = { uploadSource: vi.fn(async (..._args: unknown[]) => 'queued') }
+    const partsSpy = vi.fn(async function* () {
+      yield* parts
+    })
     const req = {
       isMultipart: () => multipart,
-      parts: async function* () {
-        yield* parts
-      },
+      parts: partsSpy,
     }
     const controller = new SeniorResumesController(service as never)
-    return { service, run: () => controller.uploadSource(OWNER, req as never, hr as SessionUser) }
+    return {
+      service,
+      parts: partsSpy,
+      run: () => controller.uploadSource(OWNER, req as never, hr as SessionUser),
+    }
   }
 
   it('a body that is not multipart is 400 RESUME_UPLOAD_NOT_MULTIPART', async () => {
@@ -337,8 +343,13 @@ describe('uploadSource refuses a malformed upload by code (backlog 443)', () => 
     expect(service.uploadSource).not.toHaveBeenCalled()
   })
 
-  it('the multipart upload limit in main.ts matches RESUME_SOURCE_MAX_BYTES (code review r2 finding 1)', () => {
-    const mainSrc = readFileSync(join(__dirname, '../main.ts'), 'utf8')
-    expect(mainSrc).toMatch(/fileSize:\s*RESUME_SOURCE_MAX_BYTES/)
+  it('passes RESUME_SOURCE_MAX_BYTES and single-file limit to req.parts (finding 1)', async () => {
+    const { parts, run } = upload([
+      { type: 'file', fieldname: 'file', toBuffer: async () => Buffer.from('%PDF') },
+    ])
+    await run()
+    expect(parts).toHaveBeenCalledWith({
+      limits: { fileSize: RESUME_SOURCE_MAX_BYTES, files: 1 },
+    })
   })
 })

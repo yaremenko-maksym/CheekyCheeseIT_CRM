@@ -108,7 +108,9 @@ export class SeniorResumesController {
     }
 
     let file: { buffer: Buffer; mimetype: string; originalname: string } | null = null
-    for await (const part of req.parts() as AsyncIterable<MultipartField>) {
+    for await (const part of req.parts({
+      limits: { fileSize: RESUME_SOURCE_MAX_BYTES, files: 1 },
+    }) as AsyncIterable<MultipartField>) {
       if (part.type !== 'file' || part.fieldname !== 'file') continue
       if (file) continue // first file wins
       if (!part.toBuffer) throw apiError('RESUME_UPLOAD_UNREADABLE', HttpStatus.BAD_REQUEST)
