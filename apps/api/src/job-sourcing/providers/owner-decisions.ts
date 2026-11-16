@@ -108,3 +108,57 @@ export const WORKABLE_OWNER_DECISION: OwnerDecision = Object.freeze({
     'Workable sends "Content-Signal: ai-train=no"; the owner reads it as not covering relevance scoring. Informational: Workable is PUBLIC_API_DOCUMENTED and its readiness does not depend on this.',
   reference: `${REFERENCE_NOTE} Question: does the Content-Signal "ai-train=no" header cover scoring relevance with a model? Answer: no, it is read as not covering relevance scoring.`,
 })
+
+// Owner decision, 2026-11-16: consent to every source whose only permission question is UNCLEAR.
+// Each record is still scoped to the type's own endpoint variant, and lifts `UNCLEAR` alone.
+const ALL_SOURCES_REFERENCE = `Owner decision, 2026-11-16 (answer given in the vacancy-sourcing session), verbatim: "Мне нужно доставать вакансии со всех возможных источников и даю своё согласие на использование всех источников" ("I need to pull vacancies from every possible source, and I give my consent to use all sources."). Accepted risk, not a documented permission.`
+const NO_EVASION =
+  'A 403, a 429, a Cloudflare/bot challenge or any explicit block ends the run with no further request; no user-agent change, proxy, headless browser or other evasion, ever.'
+
+export const ASHBY_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-16',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'posting-api',
+  scope: `Exactly the public Ashby posting API (api.ashbyhq.com/posting-api/job-board/{board}?includeCompensation=true), whose robots.txt answers 401 and states no verdict; the vendor publishes no limit, so the manifest budget (2 a minute, 120 an hour per host) stays binding. ${NO_EVASION}`,
+  reference: ALL_SOURCES_REFERENCE,
+})
+
+export const DJINNI_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-16',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'rss-primary-keyword',
+  scope: `Exactly djinni.co/jobs/rss/?primary_keyword= (the RSS feed the public /jobs/ page links, not disallowed by robots.txt), with the binding Terms of Use never located; the manifest fetch profile stays binding and no other djinni.co path is requested. ${NO_EVASION}`,
+  reference: ALL_SOURCES_REFERENCE,
+})
+
+export const WWR_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-16',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'rss',
+  scope: `Exactly weworkremotely.com/remote-jobs.rss and weworkremotely.com/categories/{category}.rss; the manifest fetch profile stays binding and no other weworkremotely.com path is requested. ${NO_EVASION}`,
+  reference: ALL_SOURCES_REFERENCE,
+})
+
+export const EUREMOTEJOBS_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-16',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'wp-job-manager-feed',
+  scope: `Exactly euremotejobs.com/jobs/feed/, the URL the adapter requests (recorded as a WordPress comments feed, not a job feed); the documented /?feed=job_feed answered 401 and is not requested or worked around. The manifest fetch profile stays binding. ${NO_EVASION}`,
+  reference: ALL_SOURCES_REFERENCE,
+})
+
+export const WORKINGNOMADS_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-16',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'exposed-jobs',
+  scope: `Exactly www.workingnomads.com/api/exposed_jobs/; the Terms of Service clauses 2.2 ("intended purpose"), 3.1(b) (no commercial exploitation) and 3.1(d) (no competitive product) are knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: ALL_SOURCES_REFERENCE,
+})
+
+export const MUSE_OWNER_DECISION: OwnerDecision = Object.freeze({
+  decidedAt: '2026-11-16',
+  decision: 'ACCEPT_RISK',
+  endpointVariant: 'public-jobs',
+  scope: `Exactly www.themuse.com/api/public/jobs; the vendor limits stay binding (500 requests an hour without a key, link back to www.themuse.com), and terms 2.2 (a registered app) and 3.1 (display-only licence, storage not addressed) are knowingly accepted as risk, NOT resolved. ${NO_EVASION}`,
+  reference: ALL_SOURCES_REFERENCE,
+})
