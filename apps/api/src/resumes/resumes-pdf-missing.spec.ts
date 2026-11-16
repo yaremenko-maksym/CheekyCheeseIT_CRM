@@ -4,6 +4,7 @@
  * The bucket is an in-memory map and the DB a one-row double whose updates apply in place, so the
  * real `runRender` re-uploads the deterministic key and the next request serves it.
  */
+import { Logger } from '@nestjs/common'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_RESUME_LAYOUT, encodeResumeMessage, type SessionUser } from '@crm/shared'
 import { ResumeRenderError } from './resume-typst.service'
@@ -254,10 +255,15 @@ describe('getRenderedPdf — the current PDF object is missing (backlog 447)', (
     })
 
     it('leaves its upload to the orphan sweep even when the row has moved on to another key', async () => {
+      const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined)
       const { s3 } = await racedRuns((row) => {
         row.pdfS3Key = 'senior-resumes/elsewhere.pdf'
       })
       expect(s3.delete.mock.calls).toEqual([[OLD_KEY]])
+      expect(log).toHaveBeenCalledWith(
+        `Resume r-1: render superseded — leaving ${KEY} to the orphan sweep`,
+      )
+      log.mockRestore()
     })
   })
 
