@@ -87,15 +87,16 @@ describe('non-ASCII decimal digits fold to ASCII (453c)', () => {
 })
 
 describe('a combining mark on a digit does not break a phone (453e)', () => {
-  it.each(['call 067́ 123 45 67', 'call 0͓6͓7 123 45 67', 'call 067 123 45 6̀7'])(
-    '%j is a phone',
-    (text) => {
-      expect(flags(text)).toBe(true)
-    },
-  )
+  it.each([
+    'call 067\u{0301} 123 45 67',
+    'call 0\u{0353}6\u{0353}7 123 45 67',
+    'call 067 123 45 6\u{0300}7',
+  ])('%j is a phone', (text) => {
+    expect(flags(text)).toBe(true)
+  })
 
   it('a mark on the name still flags it, as on main', () => {
-    expect(flags('by Ivan Petriń', 'Ivan Petrin')).toBe(true)
-    expect(flags('by Ivan͓ Petrin', 'Ivan Petrin')).toBe(true)
+    expect(flags('by Ivan Petrin\u{0301}', 'Ivan Petrin')).toBe(true)
+    expect(flags('by Ivan\u{0353} Petrin', 'Ivan Petrin')).toBe(true)
   })
 })

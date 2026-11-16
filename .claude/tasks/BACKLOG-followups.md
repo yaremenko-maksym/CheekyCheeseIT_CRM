@@ -8234,3 +8234,41 @@ bound), or match contacts independent of order (a boundary may also be the edge 
 corpus of glued contacts.
 
 Sources: PR #1351 (contact scanner normalisation, backlog 444/445) security review round 2, SR-M-2.
+
+## 453. Contact scanner: separators, non-adjacent parts, non-ASCII digits, glued digits and combining marks (2026-11-16)
+
+**Symptoms.** Five residual gaps in the contact scanner after PR #1351:
+
+- (a) The gate joins the parts of a split stored name (ZWSP/ZWNJ inside it) only by whitespace, so
+  `Petr-in` or `Li, Yu` for the stored `Ivan Petr` U+200C `in` passes.
+- (b) The gate tries only contiguous runs of the split parts, so `Li Bo` for the stored `Ivan Li` U+200B `Yu`
+  U+200B `Bo` passes.
+- (c) A phone written in non-ASCII decimal digits (`٠٦٧١٢٣٤٥٦٧`, Extended Arabic-Indic, Devanagari) is
+  neither flagged nor redacted.
+- (d) A name glued to a digit (`Petrenko1990`) is not redacted: a digit is not a name edge.
+- (e) A combining mark on a digit (`067` U+0301 `123 45 67`) splits the phone, and it is not matched.
+
+**Candidate fix.** (a) allow a hyphen or a comma between run parts in the gate; (b) try ordered subsequences of
+2+ non-first parts with 3+ letters, both orders, within `MAX_RUN_PARTS`; (c) fold `\p{Nd}` to ASCII in
+`normaliseContactText` with exact spans; (d) a digit is a name edge for redaction only, the gate keeps main's
+token; (e) run the generic patterns on the accent-folded text too, which drops `\p{Mn}`.
+
+**Verify.** Each row of (a)-(e) is pinned in `contact-scan.residuals.spec.ts` and
+`resume-completeness.residuals.spec.ts`; `Senior engineer in Kyiv since 2020` still passes for the stored
+`Ivan Petr` U+200C `in`; the differential against main (`scanContacts` hits, `redactedSpans` coverage,
+completeness flags) loses nothing.
+
+Sources: PR #1351 (contact scanner normalisation, backlog 444/445) security review residuals.
+
+## 454. Contact scanner perf tests measure a too-short window (2026-11-16)
+
+**Symptoms.** The perf-ratio tests in `contact-scan.spec.ts` time arms of a few milliseconds (the 3-part arm of the
+split-parts test ran about 8 ms), so timer resolution and scheduler noise decide the ratio and the test can flake
+or hide a slowdown.
+
+**Candidate fix.** Raise iterations so each arm runs at least about 20 ms, without widening the ratio limits.
+
+**Verify.** Each arm of the perf-ratio tests runs at least 20 ms (asserted in the test), and the ratio limits are
+the ones on main.
+
+Sources: PR #1351 (contact scanner normalisation, backlog 444/445) security review residuals.
