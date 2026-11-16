@@ -167,6 +167,8 @@ for the indicator DTO. PR 3 can deploy after PR 2 in either order with step (d).
   resume write sites listed in Task 4.3.
 - Modify `apps/api/src/job-sourcing/queue/job-queue.service.ts` (`matchFacts`, `toSenior`) and
   `packages/shared/src/schemas/job-sourcing.ts` (`jobQueueCardSeniorSchema.skillOverlap`).
+- Modify `apps/api/src/job-sourcing/queue/queue-scope.ts` (STUDIO branch of `listableOpportunityPredicate`).
+- Modify `apps/api/src/job-sourcing/job-match-reconciliation.cron.ts` (`MATCH_DRAIN_CRON`, `handleDrain`).
 
 **PR 5 — UI + floor flip**
 
@@ -1028,10 +1030,20 @@ it('opportunityInputsVersion changes when role_status goes PENDING -> AI', ...)
 - Modify `packages/shared/src/schemas/job-sourcing.ts`. On `jobQueueCardSeniorSchema`, add
   `skillOverlap: z.discriminatedUnion('kind', [z.object({ kind: z.literal('OVERLAP'), matched: z.array(z.string()), total: z.number().int().positive() }), z.object({ kind: z.literal('NO_RESUME') })]).nullable()`.
 - Modify `apps/api/src/job-sourcing/queue/job-queue.service.ts` (`matchFacts`, `matchEvidence`, `toSenior`).
+- Modify `apps/api/src/job-sourcing/queue/queue-scope.ts`, the STUDIO branch of
+  `listableOpportunityPredicate` (Open decisions, item 4).
 - Test: the existing `job-queue.service` specs. Add the 4 surfaces from correction 1 in one new spec,
   `apps/api/src/job-sourcing/queue/role-visibility.integration.spec.ts`.
 
 **Interfaces:**
+
+- STUDIO list: today it lists a row that has not yet been evaluated at its current revision, as
+  triage. So a freshly stored `PENDING` vacancy would reach ADMIN before its first evaluation.
+  - The STUDIO branch adds `xo.role_status IN ('RULE', 'AI')` next to the existing `EXCLUDED` check.
+  - NULL (not yet backfilled) fails closed.
+  - TEAM, subscription and generation reads need no change. They already require a LEAD or an
+    `OPEN` verdict at the current revision.
+  - Opening a row by id stays as today.
 
 - `matchFacts(evidence)` reads `ROLE_MATCH`, and it returns `approximate: false` for a role match.
   `matchedKeywords` = the overlap's `matched` skills, and `[]` for `NO_RESUME` or null.
@@ -1048,6 +1060,8 @@ it('ROLE_PENDING, ROLE_UNCLEAR and NON_IT vacancies are hidden from the STUDIO l
 it('... hidden from a TEAM list', ...)
 it('... hidden from a team subscription read', ...)
 it('... absent from the cached generation', ...)
+it('a freshly stored, never-evaluated PENDING / UNCLEAR / NON_IT row and a NULL role_status row are absent from the STUDIO list', ...)
+it('a never-evaluated RULE row stays listed in STUDIO as triage, as today', ...)
 it('a role-mismatched vacancy is not in a TEAM list; STOP_LISTED count is unchanged by ROLE_MISMATCH', ...)
 it('a TEAM viewer never receives another team senior skillOverlap', ...)
 it('HR of team A gets 403 / empty for team B queue as today', ...) // RBAC regression
@@ -1060,18 +1074,71 @@ it('HR of team A gets 403 / empty for team B queue as today', ...) // RBAC regre
       Expected: PASS.
 - [ ] **Step 5: Commit** `feat(job-sourcing): role match evidence and skill overlap on queue cards`.
 
-**PR 4 done when:** Tasks 4.1–4.5 are green, and the web still compiles (`skillOverlap` is additive).
-The security-reviewer verdict is recorded. Trailer: `ac_verified: 4.1,4.2,4.3,4.4,4.5`. **Merge
-gate:** the step (d) SELECT returns `0`.
+### Task 4.6: Drain MATCH dirty work between sweeps
 
-**Deploy:** this is the one full recompute. Verify with owner SELECTs:
+**Why:**
+
+- Today MATCH dirty rows are drained only inside the 6-hourly sweep
+  (`JobMatchReconciliationCronService`, `MATCH_RECONCILIATION_CRON = '17 */6 * * *'`). Each tick
+  drains at most `RECONCILE_MAX_DRAIN_BATCHES` (10) × `DIRTY_BATCH_DEFAULT` (200) = 2,000 rows.
+- After PR 4 deploys, every stamped match is stale: `profileVersion` and the rule version both
+  change. The TEAM `LEAD` branch fails closed on a version mismatch (`visibleOpportunityPredicate`).
+- So without this task, **every senior's queue is empty** until the sweep re-evaluates their rows:
+  `ceil(rows / 2,000)` ticks of 6 h.
+- The same limit delays every step (d) role write and every AI result (correction 3) by up to 6 h.
+
+**Files:**
+
+- Modify `apps/api/src/job-sourcing/job-match-reconciliation.cron.ts`:
+  - add `MATCH_DRAIN_CRON = '*/10 * * * *'`
+  - add `@Cron(MATCH_DRAIN_CRON) handleDrain(): Promise<void>`, which runs only the existing
+    private `drain()`
+- Test: `job-match-reconciliation.cron.spec.ts`.
+
+**Interfaces:**
+
+- `handleDrain` has the same gates as `handleReconciliation`:
+  - it runs only when `JOB_MATCH_RECONCILIATION_ENABLED` is `true`
+  - it shares the `running` flag, so it never overlaps a sweep, and a sweep never overlaps it
+- It does not scan and does not move the cursor.
+- The worst-case load is 2,000 recomputes per 10 minutes, and only while dirty rows exist.
+
+- [ ] **Step 1: Write the failing tests**
+
+```ts
+it('handleDrain claims MATCH dirty rows between sweeps', ...)
+it('handleDrain is a no-op when JOB_MATCH_RECONCILIATION_ENABLED is not true', ...)
+it('handleDrain skips while a sweep is running, and a sweep skips while a drain is running', ...)
+it('handleDrain never touches the scan cursor', ...)
+```
+
+- [ ] **Steps 2–4:** Run `pnpm --filter @crm/api test -- job-match-reconciliation`. It fails, you
+      implement, then it passes.
+- [ ] **Step 5: Commit** `feat(job-sourcing): drain match work every 10 minutes`.
+
+**PR 4 done when:**
+
+- Tasks 4.1–4.6 are green, and the web still compiles (`skillOverlap` is additive).
+- The security-reviewer verdict is recorded.
+- Trailer: `ac_verified: 4.1,4.2,4.3,4.4,4.5,4.6`.
+- **Merge gate:** the step (d) SELECT returns `0` (Task 6.2).
+
+**Deploy:** this is the one full recompute.
+
+- **Empty-queue window:** queues stay empty until the reconciliation sweep marks the rows stale and
+  the drain re-evaluates them. That takes the next sweep tick (at :17 every 6 h, so up to 6 h), plus
+  `ceil(rows / 2,000)` × 10 minutes. Deploy right before a tick.
+- **Verify** with owner SELECTs before and after:
 
 ```sql
+SELECT count(*) FROM job_opportunities WHERE manual_team_id IS NULL;   -- rows to recompute
 SELECT evaluation_verdict, count(*) FROM job_opportunities GROUP BY 1;
 SELECT count(*) FROM job_opportunity_matches WHERE status = 'LEAD';
 ```
 
-Expected: the `LEAD` count is > 0 after the first drain. Each senior's queue is non-empty in the UI.
+Expected: the `LEAD` count is > 0 once the first drains finish, and each senior's queue is non-empty
+in the UI. If a queue is still empty 1 h after the tick, the drain is the first place to look (the
+api log line `Match reconciliation:`).
 
 ---
 
@@ -1110,6 +1177,11 @@ Expected: the `LEAD` count is > 0 after the first drain. Each senior's queue is 
   - `user-dialog/payloads.ts`, `user-dialog/form-defaults.ts`
   - `HrCreateSeniorDialog.tsx`
   - `ProfileEditFields.tsx`
+- Test (existing files):
+  - `apps/web/app/components/users/__tests__/UserDialog.test.tsx`
+  - `apps/web/app/routes/_authenticated/team/team-list/__tests__/HrCreateSeniorDialog.test.tsx`
+  - `apps/web/app/components/user-profile/self-edit/__tests__/ProfileEditFields.senior-tech-floor.test.tsx`:
+    replace it with `ProfileEditFields.senior-roles.test.tsx`
 
 **Interfaces:**
 
@@ -1148,7 +1220,10 @@ it('self-edit: removing the last role shows the error and does not autosave', ..
 
 - Create: `apps/web/app/components/users/RoleChips.tsx`
 - Modify: `UserRow.tsx`, `OverviewTab.tsx`, `MembersCard.tsx`
-- Test: their existing tests
+- Test:
+  - modify `apps/web/app/components/users/__tests__/UserRow.test.tsx`
+  - modify `apps/web/app/routes/_authenticated/team/team-detail/__tests__/MembersCard.test.tsx`
+  - create `apps/web/app/components/user-profile/tabs/__tests__/OverviewTab.role-chips.test.tsx`
 
 **Interfaces:** `RoleChips(props: { roles: readonly TechnicalRole[] })` renders the labels.
 
@@ -1174,6 +1249,10 @@ it('self-edit: removing the last role shows the error and does not autosave', ..
   - `admin-user-update.service.ts` (the update floor)
   - `users.service.ts` (`updateProfile` self-edit, `changeRole`)
   - `apps/web/app/components/users/user-dialog/validation.ts`
+  - the test helpers that build a valid SENIOR today, `apps/api/src/test/create-user-harness.ts` and
+    `apps/api/src/test/senior-tech-stack.ts`. They give a SENIOR valid roles instead of a 3-item
+    stack. Without this, every spec that creates a SENIOR fails on the new floor.
+  - `packages/shared/src/schemas/senior-tech-floor.spec.ts` stays as it is (the schema stays)
 - Test: the same API specs as Task 2.4 plus `senior-roles.realdb.integration.spec.ts`, and
   `apps/web/app/components/users/user-dialog/__tests__/validation.test.ts`.
 
@@ -1191,8 +1270,10 @@ it('self-edit: removing the last role shows the error and does not autosave', ..
   `SENIOR_MIN_TECHNOLOGIES` stay in shared and the catalogs, unthrown, so an old client still
   resolves the text (A1).
 - `changeRole` takes no roles. Making a user a `SENIOR` therefore goes through `PATCH /users/:id`
-  with `role` and `technicalRoles` together. The web `UserDialog` already sends both in one request
-  (spec gap 8).
+  with `role` and `technicalRoles` together (spec gap 8).
+  - The web already works this way: `useUserDialogMutations.ts` edits through
+    `api.patch('/users/${id}', AdminUpdateUserDto)`, which carries `role`.
+  - No web code calls `/users/:id/role`; checked by grep over `apps/web/app`.
 - Web `validation.ts`: the same floor, from the same `seniorRolesSchema`. A `SENIOR` with
   `technicalRoles.length === 0` gets the `SENIOR_MIN_ROLES` message. The stack is not checked for a
   `SENIOR`.
@@ -1236,6 +1317,8 @@ it('HR PATCH /users/:id with technicalRoles -> 403; JUNIOR PATCH /users/:id/role
 - `NO_RESUME`: "немає резюме" / "no resume".
 - `null`: nothing is rendered.
 - The `matchApproximate` badge stays wired. It is always false now.
+- The existing "Збіг за:" list renders `matchedKeywords`. After Task 4.5 those are the same matched
+  skills, so it is not rendered when `skillOverlap` is present: the indicator carries them (A1).
 - The indicator never sorts, filters or hides a card (anti-goal).
 
 - [ ] **Step 1: Write the failing tests:**
@@ -1244,6 +1327,7 @@ it('HR PATCH /users/:id with technicalRoles -> 403; JUNIOR PATCH /users/:id/role
   - `renders nothing for null`
   - `the matched list is reachable without hover (keyboard focus / accessible description)`
   - `two seniors on one card each show their own overlap`
+  - `the "Збіг за:" list is not rendered when skillOverlap is present`
 - [ ] **Steps 2–4:** Run `pnpm --filter @crm/web test -- MatchedSeniors`. It fails, you implement,
       then it passes.
 - [ ] **Step 5:** Run `pnpm i18n:extract` and `pnpm i18n:compile`. Expected: no missing `en`
@@ -1318,6 +1402,18 @@ real route paths, taken from `routeTree.gen.ts`.
    - Recommendation: accept. Remove the grant code later, in its own PR.
    - The alternative needs a new design for "team sees unclassified vacancies", which contradicts
      "PENDING is hidden".
+4. **Hide not-yet-evaluated `PENDING` / `UNCLEAR` / `NON_IT` rows from the ADMIN STUDIO list**
+   (Task 4.5).
+   - It adds `role_status IN ('RULE', 'AI')` to the STUDIO branch of `listableOpportunityPredicate`.
+   - Recommendation: yes. Owner decision 1 says "hidden from everyone".
+   - It goes against correction 1's "no new predicate": without it, such a row reaches ADMIN as
+     triage until its first evaluation.
+   - The cost is that a NULL row (not yet backfilled) also leaves the ADMIN list until its
+     recompute.
+5. **Drain MATCH dirty work every 10 minutes** (Task 4.6).
+   - Recommendation: yes. Without it, the PR 4 deploy empties every senior's queue for
+     `ceil(rows / 2,000)` × 6 h. It also delays every role change and every AI result by up to 6 h.
+   - The alternative is to accept that window and deploy right before a sweep tick.
 
 ## Assumptions (A1 — decided, ride into the PR bodies)
 
@@ -1328,16 +1424,20 @@ real route paths, taken from `routeTree.gen.ts`.
 - `SENIOR_MIN_TECHNOLOGIES` stays in the catalogs, unthrown.
 - The skill overlap is read from `content.skills` ∪ `facts.experience[].technologies`.
 - The cache is never looked up without a description sha.
+- On the card, the "Збіг за:" list is not rendered when the overlap indicator is present (Task 5.4).
 
 ## Spec gaps (reported, spec not changed)
 
 1. The spec assumes the scheduler from PR #1366, which is still OPEN. Fix in the plan: a dedicated
    cron.
 2. `experience[].technologies` lives in `senior_resumes.facts`, not in `content`.
-3. The STUDIO list shows ADMIN opportunities that are not yet evaluated. PENDING hiding must hold
-   there too (Task 4.5).
-4. "The window is minutes" is optimistic: the sweep runs 2,000 rows per 6 h. Fix in the plan: the
-   roles are set before PR 4 (Task 6.2).
+3. The STUDIO list shows ADMIN opportunities that are not yet evaluated (correction 1 says so
+   itself). So a fresh `PENDING` row reaches ADMIN before its first evaluation, which contradicts
+   owner decision 1. Fix in the plan: Task 4.5, Open decision 4.
+4. "The window is minutes" is false. MATCH dirty work drains only inside the 6-hourly sweep, at most
+   2,000 rows per tick, and the PR 4 version bump makes every TEAM `LEAD` fail closed until its row
+   is recomputed. Fix in the plan: the roles are set before PR 4 (Task 6.2), and a 10-minute drain
+   (Task 4.6, Open decision 5).
 5. The evidence shape needs a no-resume marker. Without it, "no resume" cannot be told apart from
    "0 of n".
 6. The spec does not name the resume write sites (6+). Task 4.3 lists them.
@@ -1355,17 +1455,33 @@ real route paths, taken from `routeTree.gen.ts`.
 
 1. **Spec coverage.** Each spec section maps to a task:
 
-   | Spec section                  | Tasks                                       |
-   | ----------------------------- | ------------------------------------------- |
-   | Data                          | 1.1, 1.2, 2.1, 2.3                          |
-   | Classifier                    | 1.4, 2.3                                    |
-   | AI fallback                   | 3.1–3.4, 6.1                                |
-   | Matching and widening         | 1.1, 4.1                                    |
-   | Indicator                     | 1.3, 4.1, 4.5, 5.4                          |
-   | UI                            | 5.1, 5.2, 5.4                               |
-   | Prod migration                | 2.1, 2.2, step (d), 4.x, 6.2                |
-   | RBAC                          | 2.4, 5.3, 4.5 (visibility)                  |
-   | Calls 1–7 and the corrections | 1.4 (1), 1.1 (2), 1.3 (3), 4.1 (6), 4.2 (7) |
+   | Spec section / decision                                 | Tasks                        |
+   | ------------------------------------------------------- | ---------------------------- |
+   | Data                                                    | 1.1, 1.2, 2.1, 2.3           |
+   | Classifier                                              | 1.4, 2.3                     |
+   | AI fallback                                             | 3.1–3.4, 6.1                 |
+   | Matching and widening                                   | 1.1, 4.1                     |
+   | Indicator                                               | 1.3, 4.1, 4.5, 5.4           |
+   | UI                                                      | 5.1, 5.2, 5.4                |
+   | Prod migration                                          | 2.1, 2.2, step (d), 4.6, 6.2 |
+   | RBAC                                                    | 2.4, 5.3, 4.5 (visibility)   |
+   | Call 1 (non-IT exclusion)                               | 1.4, 4.1                     |
+   | Call 2 (widening, 33 selectable)                        | 1.1                          |
+   | Call 3 (n and k of the overlap)                         | 1.3, 4.1                     |
+   | Call 5 (roles for SENIOR only, stack hidden for SENIOR) | 2.4, 5.1, 5.2                |
+   | Call 6 (display-only, ranking unchanged)                | 4.1, 5.4                     |
+   | Call 7 (resume read)                                    | 4.2                          |
+   | Owner decision 1 (AI, then hidden)                      | 3.3, 4.1, 4.5                |
+   | Owner decision 2 (roles via ADMIN API)                  | step (d), 6.2                |
+   | Owner decision 3 (widening)                             | 1.1                          |
+   | Correction 1 (hiding through the verdict, 4 surfaces)   | 4.1, 4.5                     |
+   | Correction 2 (storage)                                  | 2.1                          |
+   | Correction 3 (AI result marks dirty)                    | 3.3, 4.2, 4.6                |
+   | Correction 4 (detail-on-demand)                         | 3.3, 4.4                     |
+   | Correction 5 (mismatch is not STOP_LISTED)              | 4.1, 4.5                     |
+   | Correction 6 (`profileVersion`)                         | 4.2                          |
+   | Correction 7 (evidence, `matchFacts`)                   | 4.1, 4.5                     |
+   | Correction 8 (deploy order)                             | PR map, 6.1, 6.2             |
 
    Call 4 (`role_family`) needs no task.
 
@@ -1385,4 +1501,5 @@ real route paths, taken from `routeTree.gen.ts`.
    - 4: Task 5.3
    - 5: Task 4.4
 5. **Proportion.** The plan gives signatures, test names and commands; it carries no function bodies.
-   Its length comes from the 5 PRs and their deploy gates.
+   It is about 5 times as long as the spec. The length comes from the 5 PRs, their deploy gates, and
+   one-line-per-item formatting.
