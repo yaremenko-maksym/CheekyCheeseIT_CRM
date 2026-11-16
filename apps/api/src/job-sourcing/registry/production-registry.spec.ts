@@ -56,6 +56,19 @@ describe('createProductionRegistry covers exactly the wired REPORTING types (AC1
     expect(adapter.transportWired).toBe(true)
     expect(adapter.adapterVersion).toBe(REPORTING_WIRING[type]?.adapterVersion)
     expect(adapter.adapterVersion).not.toBeNull()
+    expect(REPORTING_WIRING[type]?.allowedHosts).toBeDefined()
+  })
+
+  const fixedHost = wired.filter((t) => Array.isArray(REPORTING_WIRING[t]?.allowedHosts))
+
+  it('at least one wired type has a fixed host list', () => {
+    expect(fixedHost.length).toBeGreaterThan(0)
+  })
+
+  it.each(fixedHost)('%s: transport pinned to exactly its wiring hosts', (type) => {
+    expect(reportingOf(registry, type).allowedHostsFor({} as never)).toEqual(
+      REPORTING_WIRING[type]?.allowedHosts,
+    )
   })
 
   it('the unwired types stay unregistered (REED_API, WORKINGNOMADS_API)', () => {
@@ -172,6 +185,7 @@ describe('registering is not enabling: readiness stays the gate (AC2)', () => {
         facts.blockerCodes.some((c) => !evidence.has(c))
       )
     })
+    expect(blockedEntries.length).toBeGreaterThan(0)
     for (const e of blockedEntries) {
       expect(gateOf(registry, catalog)(e.id, e.type), `${e.id}`).not.toBeNull()
     }

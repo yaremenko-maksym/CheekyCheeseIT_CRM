@@ -76,7 +76,7 @@ function reportingProviders(
     createTheirStackProvider(credential('theirstack')),
     workableProvider,
     wwrProvider,
-  ] as ReportingJobSourceProvider[]
+  ]
 }
 
 /**
