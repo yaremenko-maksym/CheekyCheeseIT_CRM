@@ -230,8 +230,8 @@ const isJamoRun = (cluster: string): boolean => /[ᄀ-ᇿꥠ-꥿ힰ-퟿]/u.test(
 const INVISIBLE_CHAR = /[⠀\x00-\x08\x0E-\x1F\x7F-\x9F\p{Cf}\p{Default_Ignorable_Code_Point}]/u
 
 /** A character `normaliseContactText` has to cluster: a stripped one, a mark or a conjoining jamo. */
-// Stryker disable next-line Regex: the `\P` forms are equivalent (more text goes to the cluster loop, which returns the same); the `[^…]` form is killed when unsuppressed
 const CLUSTERED_CHAR =
+  // Stryker disable next-line Regex: the `\P` forms are equivalent (more text goes to the cluster loop, which returns the same); the `[^…]` form is killed when unsuppressed
   /[⠀\x00-\x08\x0E-\x1F\x7F-\x9F\p{Cf}\p{Default_Ignorable_Code_Point}\p{M}ᄀ-ᇿꥠ-꥿ힰ-퟿]/u
 
 /** The offset maps of text in which every code point is its own cluster and maps to itself. */
@@ -553,6 +553,7 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
   // Context values are normalised like the text, so a name or handle written with a ligature, a
   // zero-width joiner or fullwidth letters still matches itself written the same way.
   const readings = contactNameParts(displayName)
+  // Stryker disable next-line OptionalChaining: equivalent — contactNameParts always returns the joined reading first, so readings[0] is defined
   const joinedLength = readings[0]?.length ?? 0
   const names = readings
     .flatMap((parts, reading) =>
@@ -566,17 +567,24 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
   // too: availability, not a leak.
   const handleSource = handle ? `@*${escapeRegExp(handle)}` : null
   // Main's check, on the NFC text: no lookbehind (it throws on Safari < 16.4), so `(?:^|…)` in front.
+  // It is a guarantee, not a second detector: the own check above flags every text it flags on all
+  // inputs tried (every code point beside the name, inside it and beside the handle, brute-forced in
+  // PR #1351 round 6), so the mutants that only weaken it are not observable.
+  // Stryker disable next-line Regex: equivalent — main's check only adds to the own check, see above
   const rawOrders = nameOrders(normaliseName(displayName).split(/\s/).filter(Boolean))
   const rawName =
+    // Stryker disable next-line ConditionalExpression: equivalent — main's check only adds to the own check, see above
     rawOrders.length > 0
       ? new RegExp(
+          // Stryker disable next-line StringLiteral: equivalent — main's check only adds to the own check, see above
           `(?:^|[^\\p{L}\\p{N}])(?:${rawOrders.map((parts) => parts.map(escapeRegExp).join('\\s+')).join('|')})(?:$|[^\\p{L}\\p{N}])`,
           'iu',
         )
       : null
   const rawHandle = normaliseTelegramHandle(telegram)
   const rawHandleTest = rawHandle
-    ? new RegExp(`(?:^|\\W)@*${escapeRegExp(rawHandle)}(?:$|\\W)`, 'i')
+    ? // Stryker disable next-line StringLiteral: equivalent — main's check only adds to the own check, see above
+      new RegExp(`(?:^|\\W)@*${escapeRegExp(rawHandle)}(?:$|\\W)`, 'i')
     : null
   return (raw) => {
     // Strip the characters of INVISIBLE_PATTERN, then NFKC per cluster, as the API scan does.
@@ -598,7 +606,9 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
       names.some(
         (source) => findWholeTokens(folded.text, folded.gaps, source, 'name').length > 0,
       ) ||
+      // Stryker disable next-line LogicalOperator: equivalent — main's check only adds to the own check, see above
       (rawHandleTest?.test(nfc) ?? false) ||
+      // Stryker disable next-line LogicalOperator: equivalent — main's check only adds to the own check, see above
       (rawName?.test(normaliseName(nfc)) ?? false)
     )
   }

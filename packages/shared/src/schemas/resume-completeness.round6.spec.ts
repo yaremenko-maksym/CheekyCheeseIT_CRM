@@ -51,6 +51,26 @@ describe('control characters (findings 3, 4)', () => {
   })
 })
 
+describe('a compatibility character is an edge on both sides (SR-H-4)', () => {
+  it.each([
+    ['Petrenko™x', 'PetrenkoTMx', [8, 10]],
+    ['a²b', 'a2b', [1, 2]],
+    ['ﬁx', 'fix', [0, 2]],
+    ['a​b', 'ab', [1]],
+  ] as const)('normalises %j to %j with gaps %j', (text, normalised, gaps) => {
+    const result = normaliseContactText(text)
+    expect(result.text).toBe(normalised)
+    expect([...result.gaps]).toEqual(gaps)
+  })
+})
+
+describe('main check keeps its apostrophe fold', () => {
+  it('an apostrophe in the stored name is not dropped', () => {
+    expect(flags('ONeil Smith', 'O’Neil Smith')).toBe(false)
+    expect(flags("O'Neil Smith", 'O’Neil Smith')).toBe(true)
+  })
+})
+
 describe('a bare mark is an edge (SR-M-4)', () => {
   it('flags a name glued to a bare mark, behind a zero-width space', () => {
     expect(flags('Ivan​Petrenkoःx')).toBe(true)
@@ -91,6 +111,14 @@ describe('split reading, joined reading of two or more parts (Addendum B)', () =
       ['Petr', 'Ivan'],
     ])
     expect(splitNameOrders(['Iv', 'an', 'Petrenko'], 2)).toEqual([['Iv', 'an', 'Petrenko']])
+    // three letters is enough; punctuation does not count as a letter
+    expect(splitNameOrders(['Ivan', 'Kim'], 2)).toEqual([
+      ['Ivan', 'Kim'],
+      ['Ivan', 'Kim'],
+      ['Kim', 'Ivan'],
+    ])
+    expect(splitNameOrders(['Ivan', "d'"], 2)).toEqual([['Ivan', "d'"]])
+    expect(splitNameOrders([], 2)).toEqual([[]])
   })
 
   it('lone parts: each later part of three letters or more', () => {
@@ -100,6 +128,11 @@ describe('split reading, joined reading of two or more parts (Addendum B)', () =
     ])
     expect(splitNameLoneParts(['Ivan', 'Petr', 'in'], 2)).toEqual(['Petr'])
     expect(splitNameLoneParts(['Ivan', 'Petren', 'ko'], 2)).toEqual(['Petren'])
+    expect(splitNameLoneParts(['Ivan', 'Kim', "d'", 'o-'], 2)).toEqual(['Kim'])
+  })
+
+  it('stored Ivan Petrenko, ZWSP, Kim: a three-letter part pairs', () => {
+    expect(flags('Ivan Kim', 'Ivan Petrenko​Kim')).toBe(true)
   })
 
   it('stored Ivan Petrenko, ZWSP, Kovalenko: every two-part order of real parts is flagged', () => {
