@@ -8237,7 +8237,7 @@ Sources: PR #1351 (contact scanner normalisation, backlog 444/445) security revi
 
 ## 450. Multipart limit errors answer an uncoded 413 (2026-11-16)
 
-**Closed (2026-11-16).** PR #1361 (resume parts/files limits answer 413 `RESUME_UPLOAD_TOO_MANY_PARTS`; documents upload owns its 10 MB limit and answers `DOCUMENT_TOO_LARGE`). Reopen if the Verify check below fails.
+**Closed (2026-11-16).** PR #1361 (resume and documents parts/files limits answer coded 413s `RESUME_UPLOAD_TOO_MANY_PARTS` / `DOCUMENT_UPLOAD_TOO_MANY_PARTS`; documents upload owns its 10 MB limit and answers `DOCUMENT_TOO_LARGE`; skipped file parts are drained). Reopen if the Verify check below fails.
 
 **Symptoms.** The resume upload maps only `FST_REQ_FILE_TOO_LARGE` to a coded 413. A second file part
 (`FST_FILES_LIMIT`) or too many parts (`FST_PARTS_LIMIT`) reaches the client as the multipart plugin's own 413 with no

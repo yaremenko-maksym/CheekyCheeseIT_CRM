@@ -323,6 +323,43 @@ describe('uploadSource refuses a malformed upload by code (backlog 443)', () => 
     expect(service.uploadSource).not.toHaveBeenCalled()
   })
 
+  // Backlog 450 fix 1: req.parts() waits for each file stream, so an unread skipped file hangs the request.
+  it('drains every skipped file part and stores the real file', async () => {
+    const skippedOther = { resume: vi.fn() }
+    const skippedSecond = { resume: vi.fn() }
+    const real = { resume: vi.fn() }
+    const { service, run } = upload([
+      { type: 'field', fieldname: 'note' },
+      {
+        type: 'file',
+        fieldname: 'other',
+        file: skippedOther,
+        toBuffer: () => Promise.resolve(Buffer.from('x')),
+      },
+      {
+        type: 'file',
+        fieldname: 'file',
+        file: real,
+        toBuffer: () => Promise.resolve(Buffer.from('real')),
+      },
+      {
+        type: 'file',
+        fieldname: 'file',
+        file: skippedSecond,
+        toBuffer: () => Promise.resolve(Buffer.from('y')),
+      },
+    ])
+    await run()
+    expect(skippedOther.resume).toHaveBeenCalledTimes(1)
+    expect(skippedSecond.resume).toHaveBeenCalledTimes(1)
+    expect(real.resume).not.toHaveBeenCalled()
+    expect(service.uploadSource).toHaveBeenCalledWith(
+      hr,
+      OWNER,
+      expect.objectContaining({ buffer: Buffer.from('real') }),
+    )
+  })
+
   it('a second file part is ignored: the first file wins', async () => {
     const { service, run } = upload([
       { type: 'file', fieldname: 'file', toBuffer: () => Promise.resolve(Buffer.from('first')) },

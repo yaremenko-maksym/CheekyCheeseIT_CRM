@@ -52,8 +52,25 @@ describe('DocumentsController.upload — multipart limits', () => {
     })
   })
 
+  it.each(['FST_FILES_LIMIT', 'FST_PARTS_LIMIT'])(
+    'the iterator rejecting with %s is 413 DOCUMENT_UPLOAD_TOO_MANY_PARTS',
+    async (code) => {
+      const { service, run } = upload(async function* () {
+        yield { type: 'field', fieldname: 'category', value: 'SCAN' }
+        throw Object.assign(new Error('reach limit'), { code, statusCode: 413 })
+      })
+      const err = await run().catch((e: unknown) => e)
+      expect(err).toMatchObject({
+        status: 413,
+        response: { code: 'DOCUMENT_UPLOAD_TOO_MANY_PARTS' },
+      })
+      expect((err as { response: { params?: unknown } }).response.params).toBeUndefined()
+      expect(service.upload).not.toHaveBeenCalled()
+    },
+  )
+
   it('any other read failure is rethrown as it is', async () => {
-    const broken = Object.assign(new Error('reach files limit'), { code: 'FST_FILES_LIMIT' })
+    const broken = Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' })
     const { run } = upload(async function* () {
       yield { type: 'file', fieldname: 'file', toBuffer: () => Promise.reject(broken) }
     })
@@ -97,6 +114,28 @@ describe('DocumentsController.upload — part collection', () => {
         originalname: 'upload',
       },
       { category: 'SCAN', projectId: undefined, ownerId: undefined, name: undefined },
+    )
+  })
+
+  // Backlog 450 fix 1: req.parts() waits for each file stream, so an unread skipped file hangs the request.
+  it('drains every skipped file part and stores the real file', async () => {
+    const skippedOther = { resume: vi.fn() }
+    const skippedSecond = { resume: vi.fn() }
+    const real = { resume: vi.fn() }
+    const { service, run } = upload(async function* () {
+      yield { type: 'field', fieldname: 'category', value: 'SCAN' }
+      yield { type: 'file', fieldname: 'other', file: skippedOther, toBuffer: buf('x') }
+      yield { type: 'file', fieldname: 'file', file: real, toBuffer: buf('real') }
+      yield { type: 'file', fieldname: 'file', file: skippedSecond, toBuffer: buf('y') }
+    })
+    await run()
+    expect(skippedOther.resume).toHaveBeenCalledTimes(1)
+    expect(skippedSecond.resume).toHaveBeenCalledTimes(1)
+    expect(real.resume).not.toHaveBeenCalled()
+    expect(service.upload).toHaveBeenCalledWith(
+      user,
+      expect.objectContaining({ buffer: Buffer.from('real') }),
+      expect.anything(),
     )
   })
 

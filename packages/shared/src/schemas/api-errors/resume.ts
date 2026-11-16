@@ -158,7 +158,7 @@ export const RESUME_ERROR_MESSAGES: Record<ResumeErrorCode, MessageDescriptor> =
   },
   RESUME_UPLOAD_TOO_MANY_PARTS: /* i18n */ {
     id: 'api-error.RESUME_UPLOAD_TOO_MANY_PARTS',
-    message: 'Забагато файлів в одному завантаженні. Додайте один файл резюме й спробуйте ще раз.',
+    message: 'Забагато файлів. Додайте лише один файл резюме й спробуйте ще раз.',
   },
   RESUME_NO_ACCESS: /* i18n */ {
     id: 'api-error.RESUME_NO_ACCESS',

@@ -51,6 +51,8 @@ interface MultipartField {
   fieldname: string
   value?: unknown
   toBuffer?: () => Promise<Buffer>
+  /** The file part's stream; a skipped file must be drained or `req.parts()` never moves on. */
+  file?: { resume: () => unknown }
   mimetype?: string
   filename?: string
 }
@@ -87,7 +89,10 @@ export class DocumentsController {
       }) as AsyncIterable<MultipartField>) {
         if (part.type === 'file' && part.fieldname === 'file') {
           // Only one file per upload — first one wins.
-          if (file) continue
+          if (file) {
+            part.file?.resume()
+            continue
+          }
           const buffer = await (part.toBuffer
             ? part.toBuffer()
             : Promise.reject(new Error('Multipart file has no toBuffer()')))
@@ -96,7 +101,9 @@ export class DocumentsController {
             mimetype: part.mimetype ?? 'application/octet-stream',
             originalname: part.filename ?? 'upload',
           }
-        } else if (part.type === 'field') {
+        } else if (part.type === 'file') {
+          part.file?.resume() // a file under another fieldname is skipped, so drain it
+        } else {
           // value is unknown — coerce to string for our Zod schema.
           if (typeof part.value === 'string') {
             fields[part.fieldname] = part.value
@@ -104,7 +111,7 @@ export class DocumentsController {
         }
       }
     } catch (err) {
-      throw tooLargeUpload(err)
+      throw uploadLimitError(err)
     }
 
     if (!file) {
@@ -253,9 +260,16 @@ export class DocumentsController {
   }
 }
 
-/** Past the per-route `fileSize` limit the multipart plugin throws `FST_REQ_FILE_TOO_LARGE`, a 413 with no code. */
-function tooLargeUpload(err: unknown): unknown {
-  if ((err as { code?: unknown } | null)?.code !== 'FST_REQ_FILE_TOO_LARGE') return err
+/**
+ * The multipart plugin's limit errors are 413s with no code: `FST_REQ_FILE_TOO_LARGE` past the per-route
+ * `fileSize`, `FST_FILES_LIMIT` / `FST_PARTS_LIMIT` for a second file or too many parts. Any other error goes on as it is.
+ */
+function uploadLimitError(err: unknown): unknown {
+  const code = (err as { code?: unknown } | null)?.code
+  if (code === 'FST_FILES_LIMIT' || code === 'FST_PARTS_LIMIT') {
+    return apiError('DOCUMENT_UPLOAD_TOO_MANY_PARTS', HttpStatus.PAYLOAD_TOO_LARGE)
+  }
+  if (code !== 'FST_REQ_FILE_TOO_LARGE') return err
   return apiError('DOCUMENT_TOO_LARGE', HttpStatus.PAYLOAD_TOO_LARGE, {
     maxMb: Math.floor(DOCUMENT_MAX_BYTES / 1024 / 1024),
   })

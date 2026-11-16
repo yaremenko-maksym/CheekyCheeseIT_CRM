@@ -64,6 +64,8 @@ interface MultipartField {
   fieldname: string
   value?: unknown
   toBuffer?: () => Promise<Buffer>
+  /** The file part's stream; a skipped file must be drained or `req.parts()` never moves on. */
+  file?: { resume: () => unknown }
   mimetype?: string
   filename?: string
 }
@@ -112,9 +114,15 @@ export class SeniorResumesController {
       for await (const part of req.parts({
         limits: { fileSize: RESUME_SOURCE_MAX_BYTES, files: 1 },
       }) as AsyncIterable<MultipartField>) {
-        if (part.type !== 'file' || part.fieldname !== 'file') continue
+        if (part.type !== 'file' || part.fieldname !== 'file') {
+          part.file?.resume() // a skipped file part must be drained; a field has no stream
+          continue
+        }
         // Guard only: `files: 1` already rejects a second file part, so this is a guard for a future change to `files`.
-        if (file) continue // first file wins
+        if (file) {
+          part.file?.resume()
+          continue // first file wins
+        }
         if (!part.toBuffer) throw apiError('RESUME_UPLOAD_UNREADABLE', HttpStatus.BAD_REQUEST)
         file = {
           buffer: await part.toBuffer(),

@@ -2499,6 +2499,11 @@ msgid "api-error.DOCUMENT_UPLOAD_SELF_ONLY"
 msgstr "Завантажувати можна лише власні документи"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
+msgid "api-error.DOCUMENT_UPLOAD_TOO_MANY_PARTS"
+msgstr "Забагато файлів. Додайте лише один файл і спробуйте ще раз."
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_ARCHIVE_ADMIN_ONLY"
 msgstr "Архівація дропа доступна лише адміністратору"
@@ -3986,7 +3991,7 @@ msgstr "Не вдалося завантажити файл. Спробуйте 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
 msgid "api-error.RESUME_UPLOAD_TOO_MANY_PARTS"
-msgstr "Забагато файлів в одному завантаженні. Додайте один файл резюме й спробуйте ще раз."
+msgstr "Забагато файлів. Додайте лише один файл резюме й спробуйте ще раз."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/resume.ts
