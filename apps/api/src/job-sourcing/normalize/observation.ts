@@ -19,6 +19,8 @@ import { checkStoredLink } from './url-policy'
  * `buildSourceObservation` WRAPS `buildNormalizedPosting` and does not replace it: display
  * limits, markdown conversion, DOU canonicalisation and the DOU fingerprint stay byte-for-byte what
  * shipped. This seam adds identity, bounded originals, dated evidence and a content hash on top.
+ * One exception: an over-limit description ends within the display limit here (see `normalized`),
+ * where the shipped HTML cut ends one character past it.
  *
  * Policy-gated cooperative HTML (ordinary pages whose owner permits collection) enters through this
  * same seam as any other source: the adapter hands over untrusted fields, and nothing here fetches.

@@ -412,8 +412,30 @@ describe('the whole board in one request (the run ceiling is 1, SR-H-1b)', () =>
       responses: [json([posting(1)])],
       stored: { ...stored, position: { kind: 'CURSOR', page: 1, cursor: '1000' } },
     })
-    await leverProvider.collectReport(spotifyCfg(), f.ctx)
+    const batch = await leverProvider.collectReport(spotifyCfg(), f.ctx)
     expect(f.sent.map((r) => r.url)).toEqual(['https://api.lever.co/v0/postings/spotify?mode=json'])
+    // The loop counts a resumed walk as started mid-board, so this one run is PARTIAL (it closes
+    // nothing it did not see); the checkpoint it leaves starts the next run from the top, FULL.
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.coverage).toBe('PARTIAL')
+    expect(batch.counts).toEqual({
+      raw: 1,
+      normalized: 1,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
+    const left = f.saved.at(-1)
+    const next = fakeCollectionContext({
+      now: NOW,
+      responses: [json([posting(1)])],
+      ...(left === undefined ? {} : { stored: left }),
+    })
+    const healed = await leverProvider.collectReport(spotifyCfg(), next.ctx)
+    expect(next.sent.map((r) => r.url)).toEqual([
+      'https://api.lever.co/v0/postings/spotify?mode=json',
+    ])
+    expect(healed.coverage).toBe('FULL_INVENTORY')
   })
 })
 

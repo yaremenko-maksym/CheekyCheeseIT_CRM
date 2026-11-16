@@ -15,8 +15,9 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  * same slug on the other host is a different employer's board, not a duplicate.
  *
  * - ONE REQUEST PER RUN, the whole board. The README documents `limit` as "only return at most N
- *   results" and `skip` as "skip N from the start", so with neither the API answers every published
- *   posting (Palantir's whole board was measured that way at 6 MB). A board run is allowed exactly
+ *   results" and `skip` as "skip N from the start", so with neither the API is read as answering
+ *   every published posting (the README states no default; no unpaged capture is committed, so this
+ *   rests on that reading). A board run is allowed exactly
  *   one request (`requestsPerRun: 1` in the manifest, SR-H-1b), so paging by `limit=50&skip=N`
  *   failed every board of 50 or more with REQUEST_CEILING (prod, `lever.board.spotify`,
  *   2026-11-16). As for Ashby and Greenhouse the response cap is raised to the 10 MiB ceiling; a
