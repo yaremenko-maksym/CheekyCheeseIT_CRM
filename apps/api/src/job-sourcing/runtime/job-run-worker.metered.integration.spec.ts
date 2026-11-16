@@ -76,7 +76,7 @@ const METERED: {
     config: { query: `t7 ${TAG} backend` },
     unit: 'REQUEST',
     limit: 100,
-    body: sourceFixture('jsearch', 'doc-example'),
+    body: sourceFixture('jsearch', 'search-v2-smoke'),
   },
   {
     type: 'THEIRSTACK_API',
@@ -84,7 +84,7 @@ const METERED: {
     config: { limit: 25, seniority: ['senior'], maxAgeDays: 7 },
     unit: 'RECORD',
     limit: 200,
-    body: sourceFixture('theirstack', 'doc-example'),
+    body: sourceFixture('theirstack', 'jobs-search-smoke'),
   },
   {
     type: 'JOOBLE_API',
