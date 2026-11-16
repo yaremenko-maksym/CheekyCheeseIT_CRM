@@ -193,7 +193,11 @@ describe('JobSourceAdminService.setEnabled — immediate fetch on enable', () =>
   it('the source row is gone: no cycle, no run', async () => {
     const h = harness({ row: null })
     await enable(h)
+    await new Promise((r) => setTimeout(r, 0))
     expect(h.openCycle).not.toHaveBeenCalled()
+    // A clean return, not a TypeError swallowed by the last-resort log.
+    expect(h.isReportingType).not.toHaveBeenCalled()
+    expect(warn).not.toHaveBeenCalled()
   })
 
   it('does not await the fetch: the response returns while runSource is pending', async () => {

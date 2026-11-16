@@ -185,13 +185,17 @@ describe('setEnabled — enable', () => {
   })
 
   it('a LEGACY source (no manifest entry) is enabled without arming a slot', async () => {
-    const h = harness({ source: source({ type: 'DOU_RSS', manifest_id: null }) })
+    const catalog = readyCatalog()
+    const entry = vi.spyOn(catalog, 'entry')
+    const h = harness({ source: source({ type: 'DOU_RSS', manifest_id: null }) }, catalog)
     expect(await h.ledger.setEnabled({ sourceId: SOURCE, actor: ACTOR, enabled: true })).toEqual({
       kind: 'SWITCHED',
       changed: true,
       cancelledRuns: 0,
     })
     expect(updates(h.statements)[0]?.params?.[3]).toBe(false)
+    // No manifest id: the catalog is not even asked.
+    expect(entry).not.toHaveBeenCalled()
   })
 
   it('disable never arms, even for a profiled source', async () => {
