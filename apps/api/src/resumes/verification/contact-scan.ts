@@ -18,6 +18,8 @@ import {
   RESUME_EMAIL_PATTERN,
   RESUME_TELEGRAM_LABEL_PATTERN,
   RESUME_URL_PATTERN,
+  splitNameLoneParts,
+  splitNameOrders,
 } from '@crm/shared'
 
 export interface ContactContext {
@@ -56,18 +58,28 @@ function escapeRegExp(value: string): string {
 }
 
 /**
- * The full name (any whitespace between parts) and the surname alone, never the first name, as
- * `findWholeTokens` sources, for both readings of `contactNameParts`; accent-folded, so they run on
- * `foldAccents` text.
+ * The name sources for `findWholeTokens`, accent-folded, so they run on `foldAccents` text. The
+ * joined reading of `contactNameParts` gives the full name (any whitespace between parts) and the
+ * surname alone, never the first name. The split reading gives every order of `splitNameOrders`
+ * and the lone parts of `splitNameLoneParts`, so a fragment such as `in` never stands alone.
  */
 function nameSources(fullName: string): string[] {
   // Normalised like the text, so a name with a ligature, a ZWNJ or fullwidth letters matches itself.
-  return contactNameParts(fullName).flatMap((parts) => {
-    const folded = parts.map((part) => foldAccents(part).text)
+  // folded after the split helpers count letters: NFD turns a Hangul syllable into its jamo
+  const fold = (parts: readonly string[]) =>
+    parts.map((part) => escapeRegExp(foldAccents(part).text))
+  return contactNameParts(fullName).flatMap((parts, reading) => {
+    if (reading > 0) {
+      return [
+        ...splitNameOrders(parts).map((order) => fold(order).join(CONTACT_NAME_GAP)),
+        ...fold(splitNameLoneParts(parts)),
+      ]
+    }
+    const folded = fold(parts)
     const surname = folded.at(-1)
-    const sources = [folded.map(escapeRegExp).join(CONTACT_NAME_GAP)]
+    const sources = [folded.join(CONTACT_NAME_GAP)]
     if (surname !== undefined && surname.replace(/\P{L}/gu, '').length >= 2) {
-      sources.push(escapeRegExp(surname))
+      sources.push(surname)
     }
     // a blank name leaves an empty source, which would match everywhere
     return sources.filter(Boolean)
