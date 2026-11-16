@@ -50,7 +50,7 @@ import {
   updateResumeTemplateSchema,
   decodeResumeMessage,
   RESUME_SOURCE_MAX_BYTES,
-  type ResumeErrorCode,
+  type StoredResumeMessage,
   type SessionUser,
 } from '@crm/shared'
 import { apiError, interpolate } from '../common/api-error'
@@ -346,7 +346,7 @@ export function pendingPdfBody(
   stored: string | null,
 ): {
   status: string
-  code?: ResumeErrorCode
+  code?: StoredResumeMessage['code']
   params?: Record<string, string | number> | undefined
   message: string
 } {
