@@ -587,13 +587,18 @@ describe('the gate scan keeps runs of short split parts that form the surname (r
 
   it.each([
     // two short parts are the whole surname, so the run refuses, both ways
-    ['Ivan Li​Yu', 'Li Yu', 'Li Yu', '[REDACTED] [REDACTED]'],
-    ['Ivan Li​Yu', 'Yu Li', 'Yu Li', '[REDACTED] [REDACTED]'],
-    ['Ivan Kovalenko​Li​Yu', 'Li Yu', 'Li Yu', '[REDACTED] [REDACTED]'],
+    ['Ivan Li\u200BYu', 'Li Yu', 'Li Yu', '[REDACTED] [REDACTED]'],
+    ['Ivan Li\u200BYu', 'Yu Li', 'Yu Li', '[REDACTED] [REDACTED]'],
+    ['Ivan Kovalenko\u200BLi\u200BYu', 'Li Yu', 'Li Yu', '[REDACTED] [REDACTED]'],
     // three letters are enough
-    ['Ivan Li​U', 'by Li U today', 'Li U', 'by [REDACTED] U today'],
+    ['Ivan Li\u200BU', 'by Li U today', 'Li U', 'by [REDACTED] U today'],
     // the first name joins no run: the longest hit is still the first-name pair
-    ['Ivan Kovalenko​Li​Yu', 'Ivan Kovalenko Li', 'Ivan Kovalenko', '[REDACTED] [REDACTED]'],
+    [
+      'Ivan Kovalenko\u200BLi\u200BYu',
+      'Ivan Kovalenko Li',
+      'Ivan Kovalenko',
+      '[REDACTED] [REDACTED]',
+    ],
   ])('stored %j refuses %j on %j, redacted as %j', (fullName, text, match, redacted) => {
     // the redaction is the round-8 redaction: runs are a gate-only source
     expect(redactContacts(text, stored(fullName))).toBe(redacted)
@@ -603,14 +608,14 @@ describe('the gate scan keeps runs of short split parts that form the surname (r
 
   it.each([
     // a lone part under three letters still passes (Addendum A)
-    ['Ivan Li​Yu', 'by Li today', 'by [REDACTED] today'],
-    ['Ivan Li​Yu', 'by Yu today', 'by [REDACTED] today'],
+    ['Ivan Li\u200BYu', 'by Li today', 'by [REDACTED] today'],
+    ['Ivan Li\u200BYu', 'by Yu today', 'by [REDACTED] today'],
     // a run of two letters passes: the letters of the run decide
-    ['Ivan O​U', 'by O U today', 'by O U today'],
+    ['Ivan O\u200BU', 'by O U today', 'by O U today'],
     // a digit in the run is no letter
-    ['Ivan O​U2', 'by O U2 today', 'by O U2 today'],
+    ['Ivan O\u200BU2', 'by O U2 today', 'by O U2 today'],
     [
-      'Ivan Petr‌in',
+      'Ivan Petr\u200Cin',
       'Senior engineer in Kyiv since 2020',
       'Senior engineer [REDACTED] Kyiv since 2020',
     ],
@@ -621,8 +626,8 @@ describe('the gate scan keeps runs of short split parts that form the surname (r
   })
 
   it('takes runs up to 8 split parts; past that the gate drops no short fragment (Addendum A)', () => {
-    const eight = stored('Ivan Kovalenko​Li​Yu​Bo​Li​Yu​Bo')
-    const nine = stored('Ivan Kovalenko​Li​Yu​Bo​Li​Yu​Bo​Li')
+    const eight = stored('Ivan Kovalenko\u200BLi\u200BYu\u200BBo\u200BLi\u200BYu\u200BBo')
+    const nine = stored('Ivan Kovalenko\u200BLi\u200BYu\u200BBo\u200BLi\u200BYu\u200BBo\u200BLi')
     expect(scanContacts('Bo Yu', eight)).toEqual([{ kind: 'name', match: 'Bo Yu' }])
     expect(scanContacts('by Li today', eight)).toEqual([])
     // round 7's stricter gate: a lone two-letter part refuses

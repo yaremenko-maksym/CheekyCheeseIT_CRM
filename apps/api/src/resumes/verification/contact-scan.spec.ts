@@ -639,7 +639,7 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
     const parts = (count: number): string[] =>
       Array.from({ length: count }, (_, i) => ['Li', 'Yu', 'Bo'][i % 3] ?? '')
     const stored = (count: number): ContactContext => ({
-      fullName: `Ivan ${parts(count).join('​')}`,
+      fullName: `Ivan ${parts(count).join('\u200B')}`,
       emails: [],
     })
     const text = 'Senior engineer in Kyiv since 2020, led an API migration. '.repeat(12)
