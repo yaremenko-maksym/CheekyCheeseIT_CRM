@@ -24,6 +24,11 @@ const BUDGET_MS =
 /** The shortest arm of a CPU-ratio test: under ~20 ms one scheduler tick or GC pause moves the
  * ratio past its limit (backlog 454: the part-count arms took 2-4 ms on CI). */
 const MIN_ARM_MS = 20
+/** Run-bound arm ratios (per scan, against one part): measured absent8 1.6-1.8x, present8 13.5-18x,
+ * present16 2.2-2.7x; the in-text filter off makes absent8 as costly as present8, the 16-part bound
+ * builds 2^15 subsets. */
+const RATIO_ABSENT = 4
+const RATIO_PRESENT = 64
 
 /** The first of 1, 2, 4, … 64 repeats at which `arm(repeats)` costs `MIN_ARM_MS` or more, so a fast
  * machine runs a longer window instead of a noisier ratio. The last one is returned unmeasured.
@@ -37,7 +42,7 @@ const armRepeats = (arm: (repeats: number) => number): number => {
 
 const ctx: ContactContext = { fullName: 'Mark Levin', emails: ['mark.levin@example.com'] }
 
-describe('scanContacts — names', () => {
+describe('scanContacts \u{2014} names', () => {
   it('does not hit the first name alone', () => {
     expect(scanContacts('Mark built the pipeline', ctx)).toEqual([])
   })
@@ -116,7 +121,7 @@ describe('scanContacts — names', () => {
   })
 })
 
-describe('scanContacts — phones and emails', () => {
+describe('scanContacts \u{2014} phones and emails', () => {
   it('does not read a run of full dates as a phone, but finds the phone after it', () => {
     expect(scanContacts('Released 2015-01-01 - 2019-12-31', ctx)).toEqual([])
     expect(scanContacts('Promoted 10.05.2020 - 15.06.2023', ctx)).toEqual([])
@@ -198,11 +203,12 @@ describe('scanContacts — phones and emails', () => {
 })
 
 describe('redactContacts', () => {
-  const sample = 'Mark Levin (+380671234567, mark.levin@example.com) — Levin led it; Mark reviewed.'
+  const sample =
+    'Mark Levin (+380671234567, mark.levin@example.com) \u{2014} Levin led it; Mark reviewed.'
 
   it('replaces every hit with [REDACTED] and leaves the rest alone', () => {
     expect(redactContacts(sample, ctx)).toBe(
-      '[REDACTED] ([REDACTED], [REDACTED]) — [REDACTED] led it; Mark reviewed.',
+      '[REDACTED] ([REDACTED], [REDACTED]) \u{2014} [REDACTED] led it; Mark reviewed.',
     )
   })
 
@@ -229,7 +235,7 @@ describe('redactContacts', () => {
   })
 })
 
-describe('scanContacts — serialized text and spelling variants (fix round 1)', () => {
+describe('scanContacts \u{2014} serialized text and spelling variants (fix round 1)', () => {
   const name = (match: string) => ({ kind: 'name', match })
 
   it('treats a JSON escape before the surname as a boundary', () => {
@@ -361,8 +367,8 @@ describe('scanContacts — serialized text and spelling variants (fix round 1)',
     expect(scanContacts('tel +38 (067) 123-45-67', ctx)).toEqual([
       { kind: 'phone', match: '+38 (067) 123-45-67' },
     ])
-    expect(scanContacts('tel +38 067 123–45–67', ctx)).toEqual([
-      { kind: 'phone', match: '+38 067 123–45–67' },
+    expect(scanContacts('tel +38 067 123\u{2013}45\u{2013}67', ctx)).toEqual([
+      { kind: 'phone', match: '+38 067 123\u{2013}45\u{2013}67' },
     ])
   })
 
@@ -560,8 +566,8 @@ describe('fix round 3: Unicode hosts, unlabelled handles, handle links, bounds',
     'TG @other_one',
     'Telegram - @other_one',
     'Telegram @other_one',
-    'Telegram — @other_one',
-    'tg—other_one',
+    'Telegram \u{2014} @other_one',
+    'tg\u{2014}other_one',
     'тг: other_one',
     'ТГ @other_one',
   ])('redacts the unlabelled or Cyrillic-labelled handle %s (SO23-2)', (label) => {
@@ -671,11 +677,59 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
     const long = run(160, repeats)
     expect(short).toBeGreaterThanOrEqual(MIN_ARM_MS * 0.5)
     expect(long / short).toBeLessThan(16)
-    expect(long).toBeLessThan(BUDGET_MS * 10 * repeats)
+    // per scan of the window, so the absolute cap does not grow with `repeats` (fix item 2)
+    expect(long / repeats).toBeLessThan(BUDGET_MS * 10)
     // still fail-closed: the full name refuses, and so does a lone short part (round 7's gate)
     const full = `Ivan ${parts(160).join(' ')}`
     expect(scanContacts(full, stored(160))).toEqual([{ kind: 'name', match: full }])
     expect(scanContacts('by Li today', stored(160))).toEqual([{ kind: 'name', match: 'Li' }])
+  })
+
+  it('the gate at its run bound stays bounded and the in-text filter keeps absent parts free (PR #1362 fix 1)', () => {
+    // Parts no text holds (Qa, Jx, ...): the in-text filter leaves no run, so 8 of them cost like 1.
+    // The same 8 appended to the text build the full run set (2^7 subsets, both orders). 16 parts
+    // are one past the bound: no run is built, so the test fails if MAX_RUN_PARTS is raised to 16,
+    // which would build 2^15 subsets for the 16-part name.
+    const pool = [
+      'Qa',
+      'Jx',
+      'Vq',
+      'Zk',
+      'Fj',
+      'Pw',
+      'Hv',
+      'Mq',
+      'Gx',
+      'Tz',
+      'Kq',
+      'Wj',
+      'Yq',
+      'Xz',
+      'Bq',
+      'Dv',
+    ]
+    const base = 'Senior engineer in Kyiv since 2020, led an API migration. '.repeat(12)
+    const timed = (text: string, name: string, repeats: number): number => {
+      const started = cpuMs()
+      for (let i = 0; i < 20 * repeats; i++) scanContacts(text, { fullName: name, emails: [] })
+      return cpuMs() - started
+    }
+    // time per scan, each arm with its own window of at least MIN_ARM_MS
+    const perScan = (text: string, name: string): number => {
+      const repeats = armRepeats((k) => timed(text, name, k))
+      return timed(text, name, repeats) / (20 * repeats)
+    }
+    const zwsp = String.fromCharCode(0x200b)
+    // total parts = count: `Ivan` plus count - 1 pool entries, joined by ZWSP (the split reading)
+    const name = (count: number): string => ['Ivan', ...pool.slice(0, count - 1)].join(zwsp)
+    const withParts = (count: number): string => `${base} ${pool.slice(0, count - 1).join(' ')}`
+    const ref = perScan(base, 'Ivan')
+    const absent8 = perScan(base, name(8))
+    const present8 = perScan(withParts(8), name(8))
+    const present16 = perScan(withParts(16), name(16))
+    expect(absent8 / ref).toBeLessThan(RATIO_ABSENT)
+    expect(present8 / ref).toBeLessThan(RATIO_PRESENT)
+    expect(present16 / ref).toBeLessThan(RATIO_PRESENT)
   })
 
   it('notes of one cluster full of invisibles are redacted in time linear in their length (PR #1351 round 4, CR-M-2)', () => {
@@ -699,10 +753,10 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
 
   it.each([
     'Telegram：mark_dev',
-    'tg‐mark_dev',
-    'tg‒mark_dev',
-    'tg ― mark_dev',
-    'Telegram − @mark_dev',
+    'tg\u{2010}mark_dev',
+    'tg\u{2012}mark_dev',
+    'tg \u{2015} mark_dev',
+    'Telegram \u{2212} @mark_dev',
     'Telegram:@ mark_dev',
     'Телеграмм: mark_dev',
   ])('redacts the labelled handle %j (SR3-L-1)', (label) => {
@@ -784,14 +838,19 @@ describe('fix round 5: an email glued to the next one by a local-part character'
 })
 
 describe('fix round 7: separators, marks, atext, ports, label words', () => {
-  it.each(['‑', '—', '·'])('redacts a phone separated by %j whole (SO7-1)', (sep) => {
-    const phone = ['+380', '67', '123', '45', '67'].join(sep)
-    expect(scanContacts(`call ${phone} now`, ctx)).toEqual([{ kind: 'phone', match: phone }])
-    expect(redactContacts(`call ${phone} now`, [])).toBe('call [REDACTED] now')
-  })
+  it.each(['\u{2011}', '\u{2014}', '\u{00B7}'])(
+    'redacts a phone separated by %j whole (SO7-1)',
+    (sep) => {
+      const phone = ['+380', '67', '123', '45', '67'].join(sep)
+      expect(scanContacts(`call ${phone} now`, ctx)).toEqual([{ kind: 'phone', match: phone }])
+      expect(redactContacts(`call ${phone} now`, [])).toBe('call [REDACTED] now')
+    },
+  )
 
   it('leaves an em-dash date range alone (SO7-1)', () => {
-    expect(redactContacts('Acme 2015-01-01 — 2019-12-31', [])).toBe('Acme 2015-01-01 — 2019-12-31')
+    expect(redactContacts('Acme 2015-01-01 \u{2014} 2019-12-31', [])).toBe(
+      'Acme 2015-01-01 \u{2014} 2019-12-31',
+    )
   })
 
   it.each([

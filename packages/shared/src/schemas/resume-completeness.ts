@@ -330,7 +330,6 @@ export function normaliseContactText(
   if (
     // Stryker disable next-line ConditionalExpression: equivalent — `false` only skips the fast path, and the loop returns the same
     !CLUSTERED_CHAR.test(text) &&
-    // Stryker disable next-line ConditionalExpression,LogicalOperator: equivalent — each form only skips the fast path, or takes it for digits NFKC keeps, and the loop returns the same
     (!digits || !NON_ASCII_DIGIT.test(text)) &&
     text.normalize('NFKC') === text
   ) {

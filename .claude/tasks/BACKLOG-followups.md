@@ -8304,7 +8304,12 @@ or hide a slowdown.
 
 **Candidate fix.** Raise iterations so each arm runs at least about 20 ms, without widening the ratio limits.
 
-**Verify.** Each arm of the perf-ratio tests runs at least 20 ms (asserted in the test), and the ratio limits are
-the ones on main.
+**Verify.** Each arm of the perf-ratio tests is calibrated to at least 20 ms (`MIN_ARM_MS`, the faster of two
+runs per step); the timed short arm is asserted at least 10 ms (`MIN_ARM_MS * 0.5`), so the test, not this line,
+sets the floor. The ratio limits are the ones on main.
+
+**Ruling (AC3, PR #1362).** AC3 stop rule hit (3.9x unfiltered); kept subset runs with in-text filter, worst case
+4.6x on a text holding every part, bounded by MAX_RUN_PARTS=8; pinned by `the gate at its run bound stays bounded
+and the in-text filter keeps absent parts free`.
 
 Sources: PR #1351 (contact scanner normalisation, backlog 444/445) security review residuals.

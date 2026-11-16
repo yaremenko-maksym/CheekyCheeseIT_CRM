@@ -26,10 +26,13 @@ const flags = (text: string, displayName = 'Ivan Petrenko') =>
 
 describe('non-ASCII decimal digits fold to ASCII (453c)', () => {
   it.each([
-    ['٠١٢٣٤٥٦٧٨٩', '0123456789'],
-    ['۰۵۹', '059'],
-    ['०९', '09'],
-    ['x๓y', 'x3y'],
+    [
+      '\u{0660}\u{0661}\u{0662}\u{0663}\u{0664}\u{0665}\u{0666}\u{0667}\u{0668}\u{0669}',
+      '0123456789',
+    ],
+    ['\u{06F0}\u{06F5}\u{06F9}', '059'],
+    ['\u{0966}\u{096F}', '09'],
+    ['x\u{0E53}y', 'x3y'],
   ])('%j reads %j', (text, folded) => {
     expect(normaliseContactText(text).text).toBe(folded)
   })
@@ -43,7 +46,7 @@ describe('non-ASCII decimal digits fold to ASCII (453c)', () => {
   })
 
   it('a folded digit adds no gap: it was a digit before the fold too', () => {
-    expect(normaliseContactText('Ivan١').gaps).toEqual(new Set())
+    expect(normaliseContactText('Ivan\u{0661}').gaps).toEqual(new Set())
   })
 
   it('every decimal digit block NFKC keeps is ten long, so its value is its offset in the block', () => {
@@ -61,19 +64,24 @@ describe('non-ASCII decimal digits fold to ASCII (453c)', () => {
     expect(blocks.filter((length) => length % 10 !== 0)).toEqual([])
   })
 
-  it.each(['call ٠٦٧١٢٣٤٥٦٧', 'call ۰۶۷ ۱۲۳ ۴۵ ۶۷', 'call +٣٨٠ ٦٧ ١٢٣ ٤٥ ٦٧'])(
-    '%j is a phone',
-    (text) => {
-      expect(flags(text)).toBe(true)
-    },
-  )
+  it.each([
+    'call \u{0660}\u{0666}\u{0667}\u{0661}\u{0662}\u{0663}\u{0664}\u{0665}\u{0666}\u{0667}',
+    'call \u{06F0}\u{06F6}\u{06F7} \u{06F1}\u{06F2}\u{06F3} \u{06F4}\u{06F5} \u{06F6}\u{06F7}',
+    'call +\u{0663}\u{0668}\u{0660} \u{0666}\u{0667} \u{0661}\u{0662}\u{0663} \u{0664}\u{0665} \u{0666}\u{0667}',
+  ])('%j is a phone', (text) => {
+    expect(flags(text)).toBe(true)
+  })
 
   it('a list of years in Arabic-Indic digits stays a year list', () => {
-    expect(flags('٢٠١٩ · ٢٠٢٠ · ٢٠٢١')).toBe(false)
+    expect(
+      flags(
+        '\u{0662}\u{0660}\u{0661}\u{0669} \u{00B7} \u{0662}\u{0660}\u{0662}\u{0660} \u{00B7} \u{0662}\u{0660}\u{0662}\u{0661}',
+      ),
+    ).toBe(false)
   })
 
   // the differential against main: the fold must not take away the edge a non-ASCII digit was
-  it.each(['١www.site.devBo', '۷۷www.site.dev№١'])(
+  it.each(['\u{0661}www.site.devBo', '\u{06F7}\u{06F7}www.site.dev№\u{0661}'])(
     'a URL after a non-ASCII digit %j still flags, as on main',
     (text) => {
       expect(flags(text)).toBe(true)
@@ -81,8 +89,8 @@ describe('non-ASCII decimal digits fold to ASCII (453c)', () => {
   )
 
   it('the unfolded form keeps the non-ASCII digit', () => {
-    expect(normaliseContactText('١www', false).text).toBe('١www')
-    expect(normaliseContactText('١www').text).toBe('1www')
+    expect(normaliseContactText('\u{0661}www', false).text).toBe('\u{0661}www')
+    expect(normaliseContactText('\u{0661}www').text).toBe('1www')
   })
 })
 
