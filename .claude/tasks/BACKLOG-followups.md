@@ -8220,6 +8220,8 @@ Sources: PR #1352 (orphan sweep, backlog 441) fix round 1.
 
 ## 449. Contact scanner: a contact glued to another survives one redaction pass (2026-11-16)
 
+**Closed (2026-11-16).** PR #1362 (`redactContacts` repeats its pass to a fixed point within 8 passes and redacts the whole field at the bound). Reopen if the Verify check below fails.
+
 **Symptoms.** `redactContacts` replaces every hit of one pass, but a contact whose boundary is blocked by a
 neighbouring contact is not a hit until that neighbour is gone: `0671234567Petrenko` gives `[REDACTED]Petrenko`,
 and `tg: @ivan_dev0671234567` gives `tg: @ivan_dev[REDACTED]`, so the handle leaks. `Ivan Petrenko#` was never
@@ -8236,6 +8238,8 @@ corpus of glued contacts.
 Sources: PR #1351 (contact scanner normalisation, backlog 444/445) security review round 2, SR-M-2.
 
 ## 453. Contact scanner: separators, non-adjacent parts, non-ASCII digits, glued digits and combining marks (2026-11-16)
+
+**Closed (2026-11-16).** PR #1362 (the gate joins split parts across a hyphen or a comma and tries their ordered subsequences, the normaliser folds non-ASCII digits, a digit is a redaction edge, and the generic patterns also run on the accent-folded and digit-unfolded text). Reopen if the Verify check below fails.
 
 **Symptoms.** Five residual gaps in the contact scanner after PR #1351:
 
@@ -8261,6 +8265,8 @@ completeness flags) loses nothing.
 Sources: PR #1351 (contact scanner normalisation, backlog 444/445) security review residuals.
 
 ## 454. Contact scanner perf tests measure a too-short window (2026-11-16)
+
+**Closed (2026-11-16).** PR #1362 (each perf-ratio arm doubles its repeats until it runs at least 20 ms, with the ratio limits unchanged). Reopen if the Verify check below fails.
 
 **Symptoms.** The perf-ratio tests in `contact-scan.spec.ts` time arms of a few milliseconds (the 3-part arm of the
 split-parts test ran about 8 ms), so timer resolution and scheduler noise decide the ratio and the test can flake
