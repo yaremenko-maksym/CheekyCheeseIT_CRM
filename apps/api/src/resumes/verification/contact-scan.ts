@@ -28,7 +28,7 @@ export interface ContactContext {
 }
 
 /** No context of the senior: the generic email and phone patterns still run. */
-// Stryker disable next-line StringLiteral,ArrayDeclaration: equivalent — the placeholder only has to match nothing: a blank name yields no pattern (namePatterns filters it) and an empty list no email literal, so any other unmatched value scans the same
+// Stryker disable next-line StringLiteral,ArrayDeclaration: equivalent — the placeholder only has to match nothing: a blank name yields no pattern (nameSources filters it) and an empty list no email literal, so any other unmatched value scans the same
 const NO_CONTEXT: ContactContext = { fullName: '', emails: [] }
 
 /** The contexts to scan with; an empty list still scans with `NO_CONTEXT`. */

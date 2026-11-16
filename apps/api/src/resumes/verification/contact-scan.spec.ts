@@ -363,6 +363,11 @@ describe('scanContacts — serialized text and spelling variants (fix round 1)',
 describe('the Telegram handle of the senior', () => {
   const tg: ContactContext = { ...ctx, telegram: '@Mark_Dev' }
 
+  it('no stored handle: the word null is not redacted (PR #1351 round 4, SPEC-M-1)', () => {
+    expect(redactContacts('null pointer, null check', ctx)).toBe('null pointer, null check')
+    expect(redactContacts('null pointer', { ...ctx, telegram: null })).toBe('null pointer')
+  })
+
   it('hits the handle with and without its @, in any case', () => {
     expect(scanContacts('ping @mark_dev or MARK_DEV', tg)).toEqual([
       { kind: 'telegram', match: '@mark_dev' },
