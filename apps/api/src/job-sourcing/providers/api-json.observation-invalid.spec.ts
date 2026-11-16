@@ -57,7 +57,49 @@ describe('a run whose every record the store refuses', () => {
     expect(batch.counts.normalized).toBe(0)
     expect(batch.counts.invalid).toBe(7)
     expect(batch.requests.at(-1)?.error?.code).toBe('PERSISTENCE')
+    expect(batch.requests.at(-1)?.error?.message).toBe(
+      'the store refused every observation the run read (7); none was stored',
+    )
     expect(observeSinglePage).not.toHaveBeenCalled()
+  })
+
+  it('a run that stored nothing and then failed keeps its own failure, with no added PERSISTENCE report', async () => {
+    gateOverride.refuseAll = true
+    const authentic = sourceFixture('arbeitnow', 'page-1') as Record<string, unknown>
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [
+        { status: 200, bodyText: JSON.stringify(authentic) },
+        { status: 503, bodyText: '' },
+      ],
+    })
+    const batch = await arbeitnowProvider.collectReport(
+      arbeitnowProvider.parseConfig({ configVersion: 1 }),
+      f.ctx,
+    )
+    expect(batch.observations).toHaveLength(0)
+    expect(batch.requests.some((r) => r.error?.code === 'PERSISTENCE')).toBe(false)
+    expect(batch.requests.at(-1)?.status).toBe(503)
+  })
+
+  it('a clean page that carries no items at all is still SUCCEEDED, not a refusal', async () => {
+    const authentic = sourceFixture('arbeitnow', 'page-1') as Record<string, unknown>
+    const body = {
+      ...authentic,
+      data: [],
+      links: { ...(authentic['links'] as object), next: null },
+    }
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ status: 200, bodyText: JSON.stringify(body) }],
+    })
+    const batch = await arbeitnowProvider.collectReport(
+      arbeitnowProvider.parseConfig({ configVersion: 1 }),
+      f.ctx,
+    )
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.counts.invalid).toBe(0)
+    expect(batch.requests.some((r) => r.error?.code === 'PERSISTENCE')).toBe(false)
   })
 })
 
