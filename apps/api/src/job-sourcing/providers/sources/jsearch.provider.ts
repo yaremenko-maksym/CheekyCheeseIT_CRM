@@ -12,7 +12,7 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
 import { type MeterOption, requireApiKey, resolveMeter, withSecrets } from './quota-provider'
 
 /**
- * JSearch on RapidAPI (`GET https://jsearch.p.rapidapi.com/search`), Google-for-Jobs aggregation.
+ * JSearch on RapidAPI (`GET https://jsearch.p.rapidapi.com/search-v2`), Google-for-Jobs aggregation.
  *
  * WHICH PRODUCT, recorded: the RapidAPI listing, because the env key is `RAPIDAPI_KEY` (an account
  * key sold by RapidAPI) and the seeded rows were written against it. The same data is also sold
@@ -20,9 +20,16 @@ import { type MeterOption, requireApiKey, resolveMeter, withSecrets } from './qu
  * and CURSOR paging - a different host, auth and paging contract. That is a separate adapter if the
  * owner moves accounts; this one does not speak it.
  *
- * STATUS: BLOCKED. No key is provisioned and none may be. The parameter names (`query`, `page`,
- * `num_pages`, `date_posted`, `work_from_home`) and the job field names are from the public
- * listings, not from a response (provenance file). See `JSEARCH_SOURCE_STATUS`.
+ * STATUS: KEY-GATED, verified by the owner's controlled smoke of 2026-11-16 (provenance of
+ * `__fixtures__/jsearch/search-v2-smoke.json`). What that response settled:
+ * - the v1 path `/search` answers 404; `/search-v2` answers `{status, request_id, parameters,
+ *   data: {jobs, cursor}}` for EXACTLY the parameters sent here (query, num_pages=1, country=us,
+ *   date_posted, work_from_home). Nothing else is sent: no other parameter set was tried.
+ * - ONE PAGE PER RUN. The next page is reached through `data.cursor`, and the request parameter
+ *   that takes it is not in any documentation readable without an account, so the adapter never
+ *   follows it; the daily cadence is what brings new postings in.
+ * - a remote posting has null job_city / job_state / job_country and only `job_location`
+ *   ("Anywhere"); `job_id` is an opaque string of 414 characters.
  *
  * - ONE ACCOUNT METER, THREE QUERIES. Each seeded query is its own source row and its own run, and
  *   all of them draw on the one RapidAPI subscription: the account key is the binding's
@@ -34,24 +41,29 @@ import { type MeterOption, requireApiKey, resolveMeter, withSecrets } from './qu
  *   page costs one. The meter is a parameter for when the subscription's real rule is known.
  * - `date_posted=week` and `work_from_home=true` are the documented filters; the seed's
  *   `remote_jobs_only` is not a name any listing shows.
- * - IDENTITY. `job_id` is the provider's opaque id; `job_apply_link` is where an applicant goes and
+ * - IDENTITY. `job_id` is the provider's opaque id. The v2 ids (414 characters) are past the
+ *   identity seam's 256, so identity keys on the canonical apply URL (URL_FALLBACK) and the loop's
+ *   AC5 check compares the ids of jobs that share one URL. `job_apply_link` is where an applicant goes and
  *   is a third-party board, so it is both the posting URL and the application URL (no JSearch-hosted
  *   page is part of the response used here).
  */
 
 export const JSEARCH_SOURCE_STATUS = {
-  blocked: true,
+  blocked: false,
   permission: 'KEY_REQUIRED',
   reason:
-    'no RapidAPI key is provisioned and none may be before the owner runs a controlled authenticated smoke; payload shapes and the num_pages billing rule are not verified against a response',
+    'runs only with the RapidAPI key (RAPIDAPI_KEY); the controlled authenticated smoke of 2026-11-16 verified the search-v2 payload',
 } as const
 
-export const JSEARCH_ADAPTER_VERSION = 'jsearch-1'
+export const JSEARCH_ADAPTER_VERSION = 'jsearch-2'
 export const JSEARCH_NAMESPACE = 'jsearch'
-const ENDPOINT = 'https://jsearch.p.rapidapi.com/search'
+const ENDPOINT = 'https://jsearch.p.rapidapi.com/search-v2'
 export const JSEARCH_HOST = 'jsearch.p.rapidapi.com'
 export const JSEARCH_QUERY_MAX_CHARS = 120
-export const JSEARCH_MAX_PAGES_CEILING = 5
+/** One page per run (see STATUS): the cursor parameter is unverified. */
+export const JSEARCH_MAX_PAGES_CEILING = 1
+/** The smoke's ids are 414 characters; this is a fence, not a belief. */
+export const JSEARCH_JOB_ID_MAX_CHARS = 600
 /** The documented page size is 10; this is a fence, not a belief. */
 export const JSEARCH_MAX_ITEMS_PER_PAGE = 20
 export const JSEARCH_DATE_POSTED = ['all', 'today', '3days', 'week', 'month'] as const
@@ -69,7 +81,7 @@ const configSchema = baseSourceConfigSchema
 type Config = z.infer<typeof configSchema>
 
 const itemSchema = z.object({
-  job_id: boundedString(200).min(1),
+  job_id: boundedString(JSEARCH_JOB_ID_MAX_CHARS).min(1),
   job_title: boundedString(ORIGINAL_LIMITS.title),
   employer_name: boundedString(ORIGINAL_LIMITS.companyName),
   job_apply_link: urlString(),
@@ -80,17 +92,19 @@ const itemSchema = z.object({
   job_country: optionalString(100),
   job_employment_type: optionalString(100),
   job_is_remote: z.boolean().nullish(),
+  job_location: optionalString(200),
 })
 type Item = z.infer<typeof itemSchema>
 
-/** `data` stays OPAQUE so one bad posting is isolated instead of failing the page. */
-const envelopeSchema = z.object({ data: z.array(z.unknown()) })
+/** `jobs` stays OPAQUE so one bad posting is isolated instead of failing the page. */
+const envelopeSchema = z.object({ data: z.object({ jobs: z.array(z.unknown()) }) })
 type Envelope = z.infer<typeof envelopeSchema>
 
 function locationText(item: Item): string {
-  return [item.job_city, item.job_state, item.job_country]
+  const parts = [item.job_city, item.job_state, item.job_country]
     .filter((p) => p !== null && p !== '')
     .join(', ')
+  return parts === '' ? (item.job_location ?? '') : parts
 }
 
 /** The one definition of identity, used by the spec's `nativeIdOf` AND by the mapping. */
@@ -104,12 +118,13 @@ function makeSpec(apiKey: string, meter: MeterOption): ApiJsonSourceSpec<Config,
     envelopeSchema,
     itemSchema,
     meter,
-    pageRequest: (config, at) => {
+    pageRequest: (config) => {
       const url = new URL(ENDPOINT)
       url.searchParams.set('query', config.query)
-      url.searchParams.set('page', String(at.page))
       // Always one page per call: see the billing note above.
       url.searchParams.set('num_pages', '1')
+      // The smoke's value; the seeded queries are worded for remote work, not for a country.
+      url.searchParams.set('country', 'us')
       url.searchParams.set('date_posted', config.datePosted)
       if (config.remoteOnly) url.searchParams.set('work_from_home', 'true')
       return {
@@ -123,9 +138,9 @@ function makeSpec(apiKey: string, meter: MeterOption): ApiJsonSourceSpec<Config,
         },
       }
     },
-    extractItems: (envelope) => envelope.data,
-    // An empty page is the only end marker the listing gives.
-    nextCursor: (envelope, at) => (envelope.data.length === 0 ? null : `page:${at.page + 1}`),
+    extractItems: (envelope) => envelope.data.jobs,
+    // One page per run: `data.cursor` is never followed (see STATUS).
+    nextCursor: () => null,
     nativeIdOf: jsearchNativeId,
     mapItem: (item, config) => ({
       namespace: config.namespace,
