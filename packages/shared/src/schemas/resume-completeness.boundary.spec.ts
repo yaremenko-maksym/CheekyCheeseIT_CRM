@@ -62,6 +62,10 @@ describe('a stripped invisible is a token boundary (SR-H-1)', () => {
     expect(flags('xIvan Petrenko')).toBe(false)
     expect(flags('ping ivan_devsenior', 'Mark Levin', '@ivan_dev')).toBe(false)
   })
+
+  it('no stored handle adds no handle check', () => {
+    expect(flags('null pointer', 'Mark Levin')).toBe(false)
+  })
 })
 
 describe('normaliseContactText gaps', () => {
@@ -74,6 +78,19 @@ describe('normaliseContactText gaps', () => {
     // e, ZWJ, acute compose into one letter; ᄀ, ZWSP, ᅡ into one syllable
     expect(normaliseContactText('xe‍́y')).toMatchObject({ text: 'xéy', gaps: new Set() })
     expect(normaliseContactText('ᄀ​ᅡ')).toMatchObject({ text: '가', gaps: new Set() })
+  })
+
+  it('a gap after a syllable composed across an earlier invisible still counts', () => {
+    // the first ZWSP is inside the syllable, the second between the syllables
+    expect([...normaliseContactText('ᄀ​ᅡ​나').gaps]).toEqual([1])
+  })
+
+  it('a jamo run does not reach over a visible character', () => {
+    expect(normaliseContactText('ᄀxᅡ')).toMatchObject({
+      text: 'ᄀxᅡ',
+      from: [0, 1, 2],
+      to: [1, 2, 3],
+    })
   })
 
   it('records a gap between two syllables of one jamo run', () => {
@@ -92,6 +109,10 @@ describe('foldAccents', () => {
     })
     expect(foldAccents('ßa', new Set([1]))).toMatchObject({ text: 'ssa', gaps: new Set([2]) })
     expect(foldAccents('é')).toMatchObject({ text: 'e', from: [0], to: [1], gaps: new Set() })
+  })
+
+  it('folds by hand the letters NFD does not decompose', () => {
+    expect(foldAccents('łŁøØđĐßẞıæÆœŒþÞħĦ').text).toBe('lLoOdDssSSiaeAEoeOEthTHhH')
   })
 })
 
@@ -143,6 +164,10 @@ describe('findWholeTokens', () => {
 
   it('steps over an astral character at a refused hit', () => {
     expect(findWholeTokens('x𠮷野 𠮷野', none, '𠮷野', 'name')).toEqual([{ start: 5, end: 8 }])
+    // U+10000, the first astral code point, is a letter too
+    expect(findWholeTokens('x\u{10000}a \u{10000}a', none, '\u{10000}a', 'name')).toEqual([
+      { start: 5, end: 8 },
+    ])
   })
 })
 

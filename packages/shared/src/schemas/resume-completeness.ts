@@ -388,6 +388,7 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
   const first = tokens[0]
   const last = tokens.at(-1)
   const names =
+    // Stryker disable next-line StringLiteral: equivalent — `first` is undefined only for an empty name, and the Hangul test fails on any non-Hangul fallback as on ''
     (tokens.length >= 2 || /^[가-힣]{2,}$/u.test(first ?? '')) &&
     // Stryker disable next-line ConditionalExpression: type narrowing only — the line above passes only with one token or more, so first is defined and forcing this guard true changes no result
     first !== undefined &&
@@ -396,7 +397,8 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
       ? [tokens, [first, last], [last, first]].map((parts) =>
           parts.map((part) => escapeRegExp(foldAccents(part).text)).join(CONTACT_NAME_GAP),
         )
-      : []
+      : // Stryker disable next-line ArrayDeclaration: equivalent — a placeholder source matches only its own literal text, so a skipped name check still finds no name
+        []
   const handle = normaliseTelegramHandle(telegram && normaliseContactText(telegram).text)
   // Any `@`s in front (`@@h`, `x@h`) still hit. A handle equal to a skill word flags that word
   // too: availability, not a leak.
