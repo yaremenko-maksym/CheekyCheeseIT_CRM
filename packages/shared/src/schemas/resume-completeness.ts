@@ -222,6 +222,47 @@ const INVISIBLE_PATTERN = /[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]/gu
  */
 const CLUSTER_PATTERN =
   /[ᄀ-ᇿꥠ-꥿ힰ-퟿](?:[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]*[ᄀ-ᇿꥠ-꥿ힰ-퟿])*|[^⠀\p{Cf}\p{Default_Ignorable_Code_Point}](?:[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]*\p{M})*/gu
+/** A `CLUSTER_PATTERN` hit that is a jamo run: it starts with a jamo, which the other branch never takes. */
+const isJamoRun = (cluster: string): boolean => /^[ᄀ-ᇿꥠ-꥿ힰ-퟿]/u.test(cluster)
+
+/** One character of `INVISIBLE_PATTERN`; no `g` flag, so `.test` keeps no state. */
+const INVISIBLE_CHAR = /^[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]$/u
+
+const isLeadingJamo = (c: number): boolean => c >= 0x1100 && c <= 0x1112
+const isVowelJamo = (c: number): boolean => c >= 0x1161 && c <= 0x1175
+
+/**
+ * The gaps inside a conjoining jamo run, as offsets of its composed form plus `at`: where a
+ * stripped character sits before a jamo that starts a new syllable, never inside one (`ᄀ`, ZWSP,
+ * `ᅡ` is one syllable). NFC composes a vowel after a leading consonant and a trailing consonant
+ * (U+11A8..U+11C2) after both, and nothing else in a run, so each jamo that does not compose is one
+ * composed character. One pass, so a run of many invisibles stays linear.
+ */
+function addJamoRunGaps(run: string, at: number, gaps: Set<number>): void {
+  let previous = 0
+  let beforePrevious = 0
+  let composed = 0
+  let pending = false
+  for (const char of run) {
+    if (INVISIBLE_CHAR.test(char)) {
+      pending = true
+      continue
+    }
+    const c = char.codePointAt(0) ?? 0
+    const joins =
+      (isVowelJamo(c) && isLeadingJamo(previous)) ||
+      (c >= 0x11a8 && c <= 0x11c2 && isVowelJamo(previous) && isLeadingJamo(beforePrevious))
+    if (!joins) {
+      if (pending) gaps.add(at + composed)
+      composed++
+    }
+    pending = false
+    beforePrevious = previous
+    previous = c
+  }
+  // a run may end with a stripped filler (U+1160)
+  if (pending) gaps.add(at + composed)
+}
 
 /**
  * Normalise text for contact scanning: strip the characters of `INVISIBLE_PATTERN`, then NFKC per
@@ -229,7 +270,9 @@ const CLUSTER_PATTERN =
  * original string. No visible character NFKC-maps to a stripped one, so one strip suffices.
  * `gaps` holds each normalised offset where a stripped character sat between two characters
  * (not inside a composed one): `findWholeTokens` counts it as a token boundary, so a name glued to
- * the next word by a zero-width space still stands alone, as it did before the strip.
+ * the next word by a zero-width space still stands alone, as it did before the strip. A letter that
+ * took a stripped character and a mark (`o`, ZWSP, acute) ends at a gap too: before the strip the
+ * invisible split the letter from the mark, and the mark from the next word.
  */
 export function normaliseContactText(text: string): {
   text: string
@@ -245,13 +288,10 @@ export function normaliseContactText(text: string): {
   for (const { 0: cluster, index } of text.matchAll(CLUSTER_PATTERN)) {
     // Stripped characters between clusters: the next character starts after a gap.
     if (index > cursor) gaps.add(normalised.length)
-    const piece = cluster.replace(INVISIBLE_PATTERN, '').normalize('NFKC')
-    // One inside a cluster is a gap only where it falls between two composed characters
-    // (`가나` as jamo with a ZWSP between the syllables), never inside one (`ᄀ`, ZWSP, `ᅡ`).
-    for (const { index: at } of cluster.matchAll(INVISIBLE_PATTERN)) {
-      const head = cluster.slice(0, at).replace(INVISIBLE_PATTERN, '').normalize('NFKC')
-      if (piece.startsWith(head)) gaps.add(normalised.length + head.length)
-    }
+    const stripped = cluster.replace(INVISIBLE_PATTERN, '')
+    const piece = stripped.normalize('NFKC')
+    if (isJamoRun(cluster)) addJamoRunGaps(cluster, normalised.length, gaps)
+    else if (stripped.length < cluster.length) gaps.add(normalised.length + piece.length)
     normalised += piece
     for (let k = 0; k < piece.length; k++) {
       from.push(index)
@@ -309,12 +349,21 @@ export function foldAccents(
       from.push(index)
       to.push(index + cluster.length)
     }
+    // A gap on one of the marks (stripped before a mark that follows a jamo run) counts after the
+    // letter the mark now joins.
+    for (let k = index + 1; k < index + cluster.length; k++) {
+      if (gaps.has(k)) foldedGaps.add(folded.length)
+    }
   }
   return { text: folded, from, to, gaps: foldedGaps }
 }
 
-/** Whitespace between name parts, raw or JSON-escaped (`\n`, `\r`, `\t`). */
-export const CONTACT_NAME_GAP = String.raw`(?:\s|\\[nrt])+`
+/**
+ * Whitespace between name parts, raw or JSON-escaped (`\n`, `\r`, `\t`), or none where a gap is
+ * (`Ivan`, U+FEFF, `Petrenko`): the group may match empty, and `findWholeTokens` takes an empty
+ * group only on a gap.
+ */
+export const CONTACT_NAME_GAP = String.raw`((?:\s|\\[nrt])*)`
 
 /**
  * The one token boundary of both sides (completeness and the API redaction). A name is a token of
@@ -335,7 +384,8 @@ const TOKEN_BOUNDARY = {
  * Every hit of `source` (any case) in `text` that stands as a whole token: each edge is the text
  * edge, a non-token character, or a gap (`normaliseContactText`). Only the edges may use a gap; a
  * gap inside a hit changes nothing (`Iv`, ZWNJ, `an` is `Ivan`). Every start is tried, one code
- * point apart, so a hit refused at its edges hides no later overlapping one. No lookbehind: it
+ * point apart, so a hit refused at its edges hides no later overlapping one. An empty capture group
+ * (`CONTACT_NAME_GAP` that matched no whitespace) must sit on a gap. No lookbehind: it
  * throws on Safari < 16.4, and the completeness check runs in the browser.
  */
 export function findWholeTokens(
@@ -346,12 +396,16 @@ export function findWholeTokens(
 ): Array<{ start: number; end: number }> {
   const boundary = TOKEN_BOUNDARY[kind]
   const spans: Array<{ start: number; end: number }> = []
-  const pattern = new RegExp(source, 'giu')
+  // `d`: the group offsets, so an empty `CONTACT_NAME_GAP` can be checked against `gaps`.
+  const pattern = new RegExp(source, 'dgiu')
   for (let m = pattern.exec(text); m; m = pattern.exec(text)) {
     const start = m.index
     const end = start + m[0].length
     const before = text.slice(Math.max(0, start - 6), start)
+    const { indices } = m
     if (
+      // Stryker disable next-line OptionalChaining: equivalent — the `d` flag always sets indices and every group of a source takes part
+      !m.some((group, g) => group === '' && !gaps.has(indices?.[g]?.[0] ?? -1)) &&
       (gaps.has(start) ||
         !boundary.before.test(before) ||
         (boundary.escape?.test(before) ?? false)) &&
@@ -408,7 +462,12 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
       RESUME_EMAIL_PATTERN.test(text) ||
       RESUME_URL_PATTERN.test(text) ||
       RESUME_TELEGRAM_LABEL_PATTERN.test(text) ||
-      (handleSource !== null && findWholeTokens(plain, gaps, handleSource, 'handle').length > 0) ||
+      // The handle on the plain and on the folded text: a mark after its last letter is a boundary
+      // (`ivan_dev`, acute, `x`), and one composed into that letter is folded off.
+      (handleSource !== null &&
+        findWholeTokens(plain, gaps, handleSource, 'handle').length +
+          findWholeTokens(folded.text, folded.gaps, handleSource, 'handle').length >
+          0) ||
       names.some((source) => findWholeTokens(folded.text, folded.gaps, source, 'name').length > 0)
     )
   }

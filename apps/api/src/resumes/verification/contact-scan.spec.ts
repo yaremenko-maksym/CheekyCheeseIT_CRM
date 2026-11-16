@@ -632,6 +632,25 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
     expect(short).toBeLessThan(BUDGET_MS * 10)
   })
 
+  it('notes of one cluster full of invisibles are redacted in time linear in their length (PR #1351 round 4, CR-M-2)', () => {
+    // A letter followed by (ZWSP, acute) pairs and a jamo run with a ZWSP between its jamo are
+    // one cluster each, however long: re-normalising the cluster per invisible is quadratic.
+    const shapes = ['​́', 'ᄀ​ᅡ']
+    const run = (count: number, length: number): number => {
+      const notes = shapes.map((shape) =>
+        `q${shape.repeat(Math.ceil(length / shape.length))}`.slice(0, length),
+      )
+      const started = cpuMs()
+      for (let i = 0; i < count; i++) for (const note of notes) redactContacts(note, ctx)
+      return cpuMs() - started
+    }
+    run(60, 500) // warm-up
+    const short = run(600, 500)
+    const long = run(75, 4000)
+    expect(long / short).toBeLessThan(3)
+    expect(short).toBeLessThan(BUDGET_MS * 10)
+  })
+
   it.each([
     'Telegram：mark_dev',
     'tg‐mark_dev',

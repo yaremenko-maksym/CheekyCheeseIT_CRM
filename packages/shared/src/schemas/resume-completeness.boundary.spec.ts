@@ -75,8 +75,9 @@ describe('normaliseContactText gaps', () => {
   })
 
   it('records no gap inside a composed character', () => {
-    // e, ZWJ, acute compose into one letter; ᄀ, ZWSP, ᅡ into one syllable
-    expect(normaliseContactText('xe‍́y')).toMatchObject({ text: 'xéy', gaps: new Set() })
+    // e, ZWJ, acute compose into one letter, with a gap after it (round 4, SR-H-2); ᄀ, ZWSP, ᅡ
+    // into one syllable
+    expect(normaliseContactText('xe‍́y')).toMatchObject({ text: 'xéy', gaps: new Set([2]) })
     expect(normaliseContactText('ᄀ​ᅡ')).toMatchObject({ text: '가', gaps: new Set() })
   })
 

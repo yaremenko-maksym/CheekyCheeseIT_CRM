@@ -99,6 +99,16 @@ function contactPatterns(ctx: ContactContext): [ContactHit['kind'], RegExp][] {
   ]
 }
 
+/** A hit on the folded text as a span of the normalised text, marks of its last letter included. */
+function foldedSpan(
+  kind: ContactHit['kind'],
+  folded: ReturnType<typeof foldAccents>,
+  span: { start: number; end: number },
+  length: number,
+): Span {
+  return { kind, start: folded.from[span.start] ?? 0, end: folded.to[span.end - 1] ?? length }
+}
+
 /** Every raw hit on the normalised text, mapped back to the original text offsets, sorted by start, longer first on a tie. */
 function findSpans(
   text: string,
@@ -116,10 +126,16 @@ function findSpans(
       rawSpans.push({ kind, start: end - (m[1] ?? m[0]).length, end })
     }
   }
+  const folded = foldAccents(plain, norm.gaps)
   const handle = telegramSource(ctx.telegram)
   if (handle !== null) {
     for (const span of findWholeTokens(plain, norm.gaps, handle, 'handle')) {
       rawSpans.push({ kind: 'telegram', ...span })
+    }
+    // On the folded text too, as completeness does: a mark composed into the last letter
+    // (`ivan_dee`, ZWSP, acute, `x`) is folded off there.
+    for (const span of findWholeTokens(folded.text, folded.gaps, handle, 'handle')) {
+      rawSpans.push(foldedSpan('telegram', folded, span, normText.length))
     }
   }
   // The email pattern consumes its boundary too, so an email glued to the next by a local-part
@@ -142,12 +158,9 @@ function findSpans(
     email.lastIndex = start + ((plain.codePointAt(start) ?? 0) >= 0x10000 ? 2 : 1)
   }
   for (const span of findPhoneSpans(plain)) rawSpans.push({ kind: 'phone', ...span })
-  const folded = foldAccents(plain, norm.gaps)
   for (const source of nameSources(ctx.fullName)) {
     for (const span of findWholeTokens(folded.text, folded.gaps, source, 'name')) {
-      const start = folded.from[span.start] ?? 0
-      const end = folded.to[span.end - 1] ?? normText.length
-      rawSpans.push({ kind: 'name', start, end })
+      rawSpans.push(foldedSpan('name', folded, span, normText.length))
     }
   }
   const spans: Span[] = rawSpans.map((s) => ({
