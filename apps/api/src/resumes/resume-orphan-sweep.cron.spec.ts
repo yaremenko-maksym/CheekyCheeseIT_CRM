@@ -524,6 +524,20 @@ describe('ResumeOrphanSweepCron', () => {
       expect(warn).toHaveBeenCalledTimes(1)
     })
 
+    it("the staged cap counts only the staged prefix's attempts, failed ones included", async () => {
+      bucket.objects.set('senior-resumes/u/fails', OLD)
+      bucket.failDelete.add('senior-resumes/u/fails')
+      for (let n = 0; n < MAX_ORPHAN_DELETES_PER_RUN + 1; n++) {
+        bucket.objects.set(staged(String(n).padStart(4, '0')), OLD)
+      }
+      const result = await make().sweep(NOW)
+      expect(result).toMatchObject({
+        deleted: MAX_ORPHAN_DELETES_PER_RUN,
+        failed: 1,
+        complete: false,
+      })
+    })
+
     it('the staged prefix stops at its own cap', async () => {
       for (let n = 0; n < MAX_ORPHAN_DELETES_PER_RUN + 1; n++) {
         bucket.objects.set(staged(String(n).padStart(4, '0')), OLD)

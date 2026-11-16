@@ -43,12 +43,23 @@ function build(overrides: Record<string, unknown> = {}) {
   }
   const updates: Record<string, unknown>[] = []
   /** When set, the next update matches no row: a run disowned before its terminal write. */
-  const control = { rejectNext: false }
+  const control = { rejectNext: false, gone: false }
   const db = {
     db: {
       query: {
         users: { findFirst: vi.fn(async () => OWNER) },
-        seniorResumes: { findFirst: vi.fn(async () => ({ ...row })) },
+        // Projects `columns` like Drizzle; `gone` = the row was deleted.
+        seniorResumes: {
+          findFirst: vi.fn(async (args?: { columns?: Record<string, boolean> }) => {
+            if (control.gone) return undefined
+            if (!args?.columns) return { ...row }
+            return Object.fromEntries(
+              Object.entries(args.columns)
+                .filter(([, on]) => on)
+                .map(([k]) => [k, row[k]]),
+            )
+          }),
+        },
       },
       update: () => ({
         set: (values: Record<string, unknown>) => ({
@@ -222,7 +233,9 @@ describe('getRenderedPdf — the current PDF object is missing (backlog 447)', (
   describe('a superseded render of the same input', () => {
     const OLD_KEY = `senior-resumes/${OWNER_ID}/pdf/r-1-0000000000000000.pdf`
 
-    async function racedRuns(afterNewer: (row: Record<string, unknown>) => void) {
+    async function racedRuns(
+      afterNewer: (row: Record<string, unknown>, control: { gone: boolean }) => void,
+    ) {
       const built = build({ pdfRenderStatus: 'QUEUED', pdfS3Key: OLD_KEY, pdfFingerprint: 'old' })
       const { svc, row, typst, control } = built
       let release!: () => void
@@ -239,7 +252,7 @@ describe('getRenderedPdf — the current PDF object is missing (backlog 447)', (
       row.pdfRenderStatus = 'QUEUED'
       await svc.runRender('r-1', OWNER as never)
       expect(row.pdfS3Key).toBe(KEY)
-      afterNewer(row)
+      afterNewer(row, control)
       control.rejectNext = true // the older run's terminal write finds the run token gone
       release()
       await older
@@ -250,6 +263,13 @@ describe('getRenderedPdf — the current PDF object is missing (backlog 447)', (
       const { s3, objects } = await racedRuns(() => undefined)
       expect(s3.delete.mock.calls).toEqual([[OLD_KEY]]) // only the newer run's own cleanup
       expect(objects.has(KEY)).toBe(true)
+    })
+
+    it('deletes its upload when the resume row is gone by then', async () => {
+      const { s3 } = await racedRuns((_row, control) => {
+        control.gone = true
+      })
+      expect(s3.delete.mock.calls).toEqual([[OLD_KEY], [KEY]])
     })
 
     it('still deletes its upload when the row has moved on to another key', async () => {
@@ -268,6 +288,30 @@ describe('getRenderedPdf — the current PDF object is missing (backlog 447)', (
       message: 'RESUME_X',
     })
     expect(updates).toEqual([])
+  })
+
+  it('a stale fingerprint is never served even though its object exists: it is re-queued', async () => {
+    const { svc, objects, s3, updates } = build({ pdfFingerprint: 'fp-of-older-content' })
+    objects.set(KEY, Buffer.from('%PDF stale'))
+    expect(await svc.getRenderedPdf(viewer, OWNER_ID)).toMatchObject({ status: 'QUEUED' })
+    expect(s3.getObject).not.toHaveBeenCalled()
+    expect(updates[0]).toMatchObject({ pdfRenderStatus: 'QUEUED' })
+  })
+
+  it('a row with no stored PDF key is queued without a storage read', async () => {
+    const { svc, s3 } = build({ pdfS3Key: null })
+    expect(await svc.getRenderedPdf(viewer, OWNER_ID)).toMatchObject({ status: 'QUEUED' })
+    expect(s3.getObject).not.toHaveBeenCalled()
+  })
+
+  it('a Typst failure of OLDER content does not block a render of the current content', async () => {
+    const { svc, updates } = build({
+      pdfRenderStatus: 'FAILED',
+      pdfRenderError: 'RESUME_X',
+      pdfFingerprint: 'fp-of-older-content',
+    })
+    expect(await svc.getRenderedPdf(viewer, OWNER_ID)).toMatchObject({ status: 'QUEUED' })
+    expect(updates[0]).toMatchObject({ pdfRenderStatus: 'QUEUED' })
   })
 
   it('a present object is served as before, nothing queued', async () => {

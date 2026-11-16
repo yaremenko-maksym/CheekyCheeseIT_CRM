@@ -988,6 +988,7 @@ export class SeniorResumesService {
       // unreferenced the moment it is written — erase it rather than leave a
       // PDF of someone's CV in the bucket that no code path can reach. Unless a
       // newer run of the SAME input already landed this very key: then it is live.
+      // Stryker disable next-line ObjectLiteral: the unit double holds one row, so dropping the id filter is unobservable there; the filter is the row's own primary key
       const current = await this.db.db.query.seniorResumes.findFirst({
         where: eq(seniorResumes.id, resumeId),
         columns: { pdfS3Key: true },
