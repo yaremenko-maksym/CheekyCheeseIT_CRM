@@ -81,7 +81,6 @@ function nameSources(fullName: string): string[] {
     const folded = fold(parts)
     const surname = folded.at(-1)
     const sources = [folded.join(CONTACT_NAME_GAP)]
-    // Stryker disable next-line EqualityOperator: masked by main's surname rule in mainNamePatterns; the two-letter surname is pinned by the round-6 `Wei Li` rows
     if (surname !== undefined && surname.replace(/\P{L}/gu, '').length >= 2) {
       sources.push(surname)
     }
@@ -160,7 +159,6 @@ function patternSpans(plain: string, ctx: ContactContext): Span[] {
  */
 
 /** Token characters, as in the ATS checker and `mentionsSkill`: `Levin` is not in `Levine` or `Levin#`. */
-// Stryker disable next-line StringLiteral: masked by the own pass, see "Main's pass is masked" above mainNamePatterns
 const MAIN_TOKEN_CHAR = '[\\p{L}\\p{N}#+]'
 /** A JSON-style escape (`\n`, `\t`, a `\u` code): its final letter or digit is not part of a name. */
 const MAIN_ESCAPE = String.raw`\\(?:[bfnrt]|u[\dA-Fa-f]{4})`
@@ -183,15 +181,10 @@ function mainWholeToken(source: string): RegExp {
  */
 /** Main's full-name and surname patterns, accent-folded, for `foldAccents` text of NFC text. */
 function mainNamePatterns(fullName: string): RegExp[] {
-  // Stryker disable next-line StringLiteral: masked by the own pass, see "Main's pass is masked" above mainNamePatterns; the apostrophe fold is pinned by the round-6 O'Neil row
   const name = foldAccents(fullName.normalize('NFC').replace(CONTACT_APOSTROPHES, "'")).text
-  // Stryker disable next-line Regex,MethodExpression: masked by the own pass, see "Main's pass is masked" above mainNamePatterns
   const parts = name.trim().split(/\s+/u)
-  // Stryker disable next-line LogicalOperator: masked by the own pass, see "Main's pass is masked" above mainNamePatterns
   const surname = parts.at(-1) ?? ''
-  // Stryker disable next-line ArrayDeclaration: masked by the own pass, see "Main's pass is masked" above mainNamePatterns
   const sources = [parts.map(escapeRegExp).join(MAIN_NAME_GAP)]
-  // Stryker disable next-line ConditionalExpression,EqualityOperator: masked by the own pass, see "Main's pass is masked" above mainNamePatterns; pinned by the round-6 `Wei Li` rows
   if (surname.replace(/\P{L}/gu, '').length >= 2) sources.push(escapeRegExp(surname))
   // a blank name leaves an empty source, which would match everywhere
   return sources.filter(Boolean).map(mainWholeToken)
@@ -199,15 +192,11 @@ function mainNamePatterns(fullName: string): RegExp[] {
 
 /** Main's spans on NFC `nfc`: the generic patterns, the handle (`\w` boundary) and the name. */
 function mainSpans(nfc: string, ctx: ContactContext): Span[] {
-  // Stryker disable next-line StringLiteral: masked by the own pass, see "Main's pass is masked" above mainNamePatterns; the apostrophe fold is pinned by the round-6 O'Neil row
   const plain = nfc.replace(CONTACT_APOSTROPHES, "'")
   const spans = patternSpans(plain, ctx)
   const handle = normaliseTelegramHandle(ctx.telegram)
-  // Stryker disable next-line ConditionalExpression,BlockStatement: masked by the own pass, see "Main's pass is masked" above mainNamePatterns; the handle is pinned by the round-6 handle rows
   if (handle) {
-    // Stryker disable next-line BlockStatement: masked by the own pass, see "Main's pass is masked" above mainNamePatterns
     for (const m of plain.matchAll(new RegExp(`(?<!\\w)@*${escapeRegExp(handle)}(?!\\w)`, 'giu'))) {
-      // Stryker disable next-line StringLiteral,ArithmeticOperator: masked by the own pass, see "Main's pass is masked" above mainNamePatterns
       spans.push({ kind: 'telegram', start: m.index, end: m.index + m[0].length })
     }
   }
@@ -215,7 +204,6 @@ function mainSpans(nfc: string, ctx: ContactContext): Span[] {
   for (const pattern of mainNamePatterns(ctx.fullName)) {
     for (const m of folded.text.matchAll(pattern)) {
       spans.push(
-        // Stryker disable next-line StringLiteral: masked by the own pass, see "Main's pass is masked" above mainNamePatterns
         foldedSpan('name', folded, { start: m.index, end: m.index + m[0].length }, nfc.length),
       )
     }
@@ -260,13 +248,11 @@ function findSpans(
   ctx: ContactContext,
 ): Span[] {
   const normText = norm.text
-  // Stryker disable next-line StringLiteral: masked by main's apostrophe fold in mainSpans; pinned by the round-6 O'Neil row
   const plain = normText.replace(CONTACT_APOSTROPHES, "'")
   const rawSpans = patternSpans(plain, ctx)
   const folded = foldAccents(plain, norm.gaps)
   const handle = telegramSource(ctx.telegram)
   if (handle !== null) {
-    // Stryker disable next-line BlockStatement: masked by the folded-text loop below and main's handle pass; the handle is pinned by the round-6 handle rows
     for (const span of findWholeTokens(plain, norm.gaps, handle, 'handle')) {
       rawSpans.push({ kind: 'telegram', ...span })
     }

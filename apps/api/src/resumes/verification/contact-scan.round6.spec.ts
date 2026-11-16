@@ -150,6 +150,9 @@ describe("main's spans map back through the NFC offsets", () => {
     ['ো x™tg: mark_dev', 'ো x™[REDACTED]'],
     ['가 x™tg: mark_dev', '가 x™[REDACTED]'],
     ['x™tg: mark_dev́́ ok', 'x™[REDACTED]́́ ok'],
+    // the apostrophe fold keeps the length, so offsets after a U+2019 stay put
+    ['it’s x™tg: mark_dev', 'it’s x™[REDACTED]'],
+    ['it’s by Ivan Petrenko now', 'it’s by [REDACTED] now'],
   ])('redacts %j as %j', (text, redacted) => {
     expect(redactContacts(text, IVAN)).toBe(redacted)
   })
@@ -164,6 +167,8 @@ describe('rules both passes share (each pass alone would still redact these)', (
       "by O'Neil Smith and Smith",
       'by [REDACTED] and [REDACTED]',
     ],
+    // the apostrophe is folded to `'`, not dropped: `ONeil` is not the stored first name
+    [{ fullName: 'O’Neil Smith', emails: [] }, 'by ONeil Smith', 'by ONeil [REDACTED]'],
     [IVAN, 'ping ivan_dev now, @ivan_dev too', 'ping [REDACTED] now, [REDACTED] too'],
     [IVAN, 'ping ivan_dev2 and xivan_dev', 'ping ivan_dev2 and xivan_dev'],
   ])('with %j redacts %j as %j', (ctx, text, redacted) => {
