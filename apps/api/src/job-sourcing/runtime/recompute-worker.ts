@@ -87,7 +87,8 @@ export interface RecomputeBatch {
 
 /** The worker's port to the database; `createRecomputeSteps` is the real one. */
 export interface RecomputeSteps {
-  claim(owner: string, batchSize: number): Promise<ClaimedDirtyWork[]>
+  /** `freshOnly`: only rows never attempted (`ClaimOptions.freshOnly`). */
+  claim(owner: string, batchSize: number, freshOnly?: boolean): Promise<ClaimedDirtyWork[]>
   /** Process one held row and complete it, in one transaction with any write it makes. */
   process(work: ClaimedDirtyWork, batch: RecomputeBatch): Promise<CompleteOutcome>
   fail(work: ClaimedDirtyWork, code: string, opts: RetryOptions): Promise<FailOutcome>
@@ -141,13 +142,13 @@ export class RecomputeWorker {
   ) {}
 
   /** Claim one batch and finish every row of it. Rejects only when a failure cannot be recorded. */
-  async runOnce(): Promise<RecomputeReport> {
+  async runOnce(opts: { readonly freshOnly?: boolean } = {}): Promise<RecomputeReport> {
     const {
       owner,
       batchSize = DIRTY_BATCH_DEFAULT,
       yieldEvery = RECOMPUTE_YIELD_EVERY,
     } = this.options
-    const claimed = await this.steps.claim(owner, batchSize)
+    const claimed = await this.steps.claim(owner, batchSize, opts.freshOnly)
     const report: RecomputeReport = {
       claimed: claimed.length,
       done: 0,
@@ -312,7 +313,8 @@ export function createRecomputeSteps(
   onDemandTypes: readonly JobSourceType[] = [],
 ): RecomputeSteps {
   return {
-    claim: (owner, batchSize) => claimDirtyBatch(db, { owner, batchSize, consumer: 'MATCH' }),
+    claim: (owner, batchSize, freshOnly) =>
+      claimDirtyBatch(db, { owner, batchSize, consumer: 'MATCH', freshOnly }),
     process: (work, batch) => {
       if (work.entityKind === 'SOURCE_RECORD') return resolveSourceRecord(db, work)
       if (work.entityKind === 'OPPORTUNITY')

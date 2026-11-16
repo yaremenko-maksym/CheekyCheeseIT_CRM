@@ -2,6 +2,8 @@ import { type SQL, sql } from 'drizzle-orm'
 import type { DatabaseService } from '../../database/database.service'
 import { MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
 import type { SqlExecutor } from '../scheduling/host-state'
+import { setLockTimeout } from '../store/lock-order'
+import { STORE_LOCK_TIMEOUT_MS } from '../store/source-record.store'
 import { rankSelect } from './queue-read-sql'
 import {
   type GenerationHead,
@@ -213,17 +215,27 @@ export async function invalidateGenerationsForManualCard(
  * no published generation holds, so the drain retires every published one (each STUDIO and each
  * TEAM), the way a manual card does for its scopes. The next read of each scope publishes anew;
  * the next publish of a scope deletes its retired row. Without it a snapshot published before the
- * drain hid every fresh vacancy until the TTL ran out.
+ * drain hid every fresh opportunity until the TTL ran out.
  *
- * It takes the STUDIO publish lock and then every team's, in id order (a publish takes one lock, a
- * manual card STUDIO then one team, so the order cannot deadlock), so a publish that read the job
- * set before the drain committed is published before this retire. Returns the rows retired.
+ * It takes the STUDIO publish lock and then every team's in one statement, in id order (a publish
+ * takes one lock, a manual card STUDIO then one team, so the order cannot deadlock), so a publish
+ * that read the job set before the drain committed is published before this retire. Every lock wait
+ * is cut at `lockTimeoutMs` (55P03): a publish stuck on a scope lock fails the retire, which the
+ * caller logs, and the snapshots expire by their TTL. Returns the rows retired.
  */
-export async function invalidateGenerationsForNewJobs(db: DatabaseService['db']): Promise<number> {
+export async function invalidateGenerationsForNewJobs(
+  db: DatabaseService['db'],
+  { lockTimeoutMs = STORE_LOCK_TIMEOUT_MS }: { lockTimeoutMs?: number } = {},
+): Promise<number> {
   return db.transaction(async (tx) => {
+    await setLockTimeout(tx, lockTimeoutMs)
     await lockScopePublish(tx, 'STUDIO')
-    const { rows: teams } = await tx.execute(sql`SELECT id FROM teams ORDER BY id`)
-    for (const t of teams) await lockScopePublish(tx, `TEAM:${String(t['id'])}`)
+    // The key `lockScopePublish` builds for `TEAM:<id>`. A subquery with ORDER BY is never pulled
+    // up, so the locks are taken in id order.
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended('job-queue-generation:TEAM:' || t.id::text, 0))
+            FROM (SELECT id FROM teams ORDER BY id) t`,
+    )
     const { rows } = await tx.execute(
       sql`UPDATE job_queue_generations
              SET status = 'INVALIDATED', invalidated_at = clock_timestamp()
