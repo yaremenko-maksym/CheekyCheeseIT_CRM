@@ -351,8 +351,11 @@ const UNDECOMPOSED: Record<string, string> = {
   Ħ: 'H',
 }
 /** A mark or an `UNDECOMPOSED` letter: a character `foldAccents` changes in NFD-stable text. */
-// Stryker disable next-line StringLiteral: equivalent — a wider class only sends more text to the fold loop, which returns the same
-const FOLDED_CHAR = new RegExp(String.raw`[\p{M}${Object.keys(UNDECOMPOSED).join('')}]`, 'u')
+const FOLDED_CHAR = new RegExp(
+  // Stryker disable next-line StringLiteral: equivalent — a wider class only sends more text to the fold loop, which returns the same
+  String.raw`[\p{M}${Object.keys(UNDECOMPOSED).join('')}]`,
+  'u',
+)
 
 /**
  * `text` without accents (NFD, marks dropped, plus `UNDECOMPOSED`), for each of its code units the
@@ -453,43 +456,77 @@ export function findWholeTokens(
 }
 
 /**
- * Phone, email, the senior's Telegram handle (whole token, with or without its
- * `@`, any case), or the senior's full name, whole words, any case, accents or spacing:
- * every token of the display name in order, or its first and last token in
- * either order. A one-token name adds a name check only when it is two or more
- * precomposed Hangul syllables (Korean names are often written as one token);
- * any other single token adds none: a first name or surname alone is a common word too often.
- * Names and the handle use `findWholeTokens`, the boundary the API redaction uses, so a name this
- * flags is one the API redacts.
+ * The parts of a stored name, normalised like the text, read two ways: split on whitespace after
+ * the strip (`Iv`, ZWNJ, `an` is one part), and split on whitespace and the stripped characters
+ * (`Ivan`, ZWSP, `Petrenko` is two). Both sides check both readings.
  */
-function contactCheck(displayName: string, telegram: string | null | undefined): ContactCheck {
-  // Split on each whitespace character: the filter drops the empty pieces a run or an edge leaves.
-  // Context values are normalised like the text, so a name or handle written with a ligature, a
-  // zero-width joiner or fullwidth letters still matches itself written the same way.
-  const tokens = normaliseName(normaliseContactText(displayName).text).split(/\s/).filter(Boolean)
+export function contactNameParts(name: string): string[][] {
+  const parts = (text: string) =>
+    normaliseContactText(text).text.replace(CONTACT_APOSTROPHES, "'").split(/\s+/u).filter(Boolean)
+  return [parts(name), parts(name.replace(INVISIBLE_PATTERN, ' '))]
+}
+
+/**
+ * The part orders a name check tries: every part in order, the first and the last, the last and the
+ * first. A one-part name adds them only when it is two or more precomposed Hangul syllables
+ * (Korean names are often written as one token); any other single part adds none: a first name or
+ * surname alone is a common word too often.
+ */
+function nameOrders(tokens: string[]): string[][] {
   const first = tokens[0]
   const last = tokens.at(-1)
-  const names =
+  return (
     // Stryker disable next-line StringLiteral: equivalent — `first` is undefined only for an empty name, and the Hangul test fails on any non-Hangul fallback as on ''
     (tokens.length >= 2 || /^[가-힣]{2,}$/u.test(first ?? '')) &&
-    // Stryker disable next-line ConditionalExpression: type narrowing only — the line above passes only with one token or more, so first is defined and forcing this guard true changes no result
-    first !== undefined &&
-    // Stryker disable next-line ConditionalExpression: as above, one token or more means the last one is defined
-    last !== undefined
-      ? [tokens, [first, last], [last, first]].map((parts) =>
-          parts.map((part) => escapeRegExp(foldAccents(part).text)).join(CONTACT_NAME_GAP),
-        )
-      : // Stryker disable next-line ArrayDeclaration: equivalent — a placeholder source matches only its own literal text, so a skipped name check still finds no name
-        []
+      // Stryker disable next-line ConditionalExpression: type narrowing only — the line above passes only with one token or more, so first is defined and forcing this guard true changes no result
+      first !== undefined &&
+      // Stryker disable next-line ConditionalExpression: as above, one token or more means the last one is defined
+      last !== undefined
+      ? [tokens, [first, last], [last, first]]
+      : []
+  )
+}
+
+/**
+ * Phone, email, the senior's Telegram handle (whole token, with or without its
+ * `@`, any case), or the senior's full name, whole words, any case, accents or spacing,
+ * in the orders of `nameOrders`.
+ * Names and the handle use `findWholeTokens`, the boundary the API redaction uses, so a name this
+ * flags there is one the API redacts. The check main had runs beside it, so no text main flagged
+ * passes: it reads any non-letter next to a name, a bare mark (`Petrenko`, U+0903) included, as an
+ * edge, and the redaction does not.
+ */
+function contactCheck(displayName: string, telegram: string | null | undefined): ContactCheck {
+  // Context values are normalised like the text, so a name or handle written with a ligature, a
+  // zero-width joiner or fullwidth letters still matches itself written the same way.
+  const names = contactNameParts(displayName)
+    .flatMap(nameOrders)
+    .map((parts) =>
+      parts.map((part) => escapeRegExp(foldAccents(part).text)).join(CONTACT_NAME_GAP),
+    )
   const handle = normaliseTelegramHandle(telegram && normaliseContactText(telegram).text)
   // Any `@`s in front (`@@h`, `x@h`) still hit. A handle equal to a skill word flags that word
   // too: availability, not a leak.
   const handleSource = handle ? `@*${escapeRegExp(handle)}` : null
+  // Main's check, on the NFC text: no lookbehind (it throws on Safari < 16.4), so `(?:^|…)` in front.
+  const rawOrders = nameOrders(normaliseName(displayName).split(/\s/).filter(Boolean))
+  const rawName =
+    rawOrders.length > 0
+      ? new RegExp(
+          `(?:^|[^\\p{L}\\p{N}])(?:${rawOrders.map((parts) => parts.map(escapeRegExp).join('\\s+')).join('|')})(?:$|[^\\p{L}\\p{N}])`,
+          'iu',
+        )
+      : null
+  const rawHandle = normaliseTelegramHandle(telegram)
+  const rawHandleTest = rawHandle
+    ? new RegExp(`(?:^|\\W)@*${escapeRegExp(rawHandle)}(?:$|\\W)`, 'i')
+    : null
   return (raw) => {
     // Strip the characters of INVISIBLE_PATTERN, then NFKC per cluster, as the API scan does.
     const { text, gaps } = normaliseContactText(raw)
     const plain = text.replace(CONTACT_APOSTROPHES, "'")
     const folded = foldAccents(plain, gaps)
+    const nfc = raw.normalize('NFC')
     return (
       findPhoneSpans(text).length > 0 ||
       RESUME_EMAIL_PATTERN.test(text) ||
@@ -501,7 +538,11 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
         findWholeTokens(plain, gaps, handleSource, 'handle').length +
           findWholeTokens(folded.text, folded.gaps, handleSource, 'handle').length >
           0) ||
-      names.some((source) => findWholeTokens(folded.text, folded.gaps, source, 'name').length > 0)
+      names.some(
+        (source) => findWholeTokens(folded.text, folded.gaps, source, 'name').length > 0,
+      ) ||
+      (rawHandleTest?.test(nfc) ?? false) ||
+      (rawName?.test(normaliseName(nfc)) ?? false)
     )
   }
 }

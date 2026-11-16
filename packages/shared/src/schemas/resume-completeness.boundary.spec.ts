@@ -173,11 +173,13 @@ describe('findWholeTokens', () => {
 })
 
 describe('one boundary with the API redaction (SR-M-1)', () => {
+  // `김민준`, acute, `7` is flagged too since round 5 (SR-H-3): the redaction misses it, and the
+  // check main had reads the mark as an edge, so Submit refuses it, as on main.
   it.each(['+김민준', '김민준#', '김민준́7', 'Ivan Petrenko#', '#Petrenko Ivan'])(
-    'flags %j only as the API does',
+    'flags %j',
     (text) => {
       const name = text.includes('김') ? '김민준' : 'Ivan Petrenko'
-      expect(flags(text, name)).toBe(!text.endsWith('7'))
+      expect(flags(text, name)).toBe(true)
     },
   )
 

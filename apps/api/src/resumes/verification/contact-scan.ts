@@ -9,6 +9,7 @@
 import {
   CONTACT_APOSTROPHES,
   CONTACT_NAME_GAP,
+  contactNameParts,
   findPhoneSpans,
   findWholeTokens,
   foldAccents,
@@ -56,19 +57,19 @@ function escapeRegExp(value: string): string {
 
 /**
  * The full name (any whitespace between parts) and the surname alone, never the first name, as
- * `findWholeTokens` sources; accent-folded, so they run on `foldAccents` text.
+ * `findWholeTokens` sources, for both readings of `contactNameParts`; accent-folded, so they run on
+ * `foldAccents` text.
  */
 function nameSources(fullName: string): string[] {
   // Normalised like the text, so a name with a ligature, a ZWNJ or fullwidth letters matches itself.
-  const name = foldAccents(
-    normaliseContactText(fullName).text.replace(CONTACT_APOSTROPHES, "'"),
-  ).text
-  const parts = name.trim().split(/\s+/u)
-  const surname = parts.at(-1) ?? ''
-  const sources = [parts.map(escapeRegExp).join(CONTACT_NAME_GAP)]
-  if (surname.replace(/\P{L}/gu, '').length >= 2) sources.push(escapeRegExp(surname))
-  // a blank name leaves an empty source, which would match everywhere
-  return sources.filter(Boolean)
+  return contactNameParts(fullName).flatMap((parts) => {
+    const folded = parts.map((part) => foldAccents(part).text)
+    const surname = folded.at(-1) ?? ''
+    const sources = [folded.map(escapeRegExp).join(CONTACT_NAME_GAP)]
+    if (surname.replace(/\P{L}/gu, '').length >= 2) sources.push(escapeRegExp(surname))
+    // a blank name leaves an empty source, which would match everywhere
+    return sources.filter(Boolean)
+  })
 }
 
 /**

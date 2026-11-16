@@ -203,7 +203,7 @@ describe('a stripped invisible is a token boundary (PR #1351 round 3, SR-H-1)', 
   })
 })
 
-describe('completeness flags a name iff the API redacts it (PR #1351 round 3, SR-M-1)', () => {
+describe('completeness flags every name the API redacts, more only at a bare mark (PR #1351 rounds 3 and 5, SR-M-1, SR-H-3)', () => {
   const FACTS: ResumeFacts = {
     headline: '',
     location: { city: 'Kyiv', country: 'Ukraine' },
@@ -257,15 +257,20 @@ describe('completeness flags a name iff the API redacts it (PR #1351 round 3, SR
       const flags = flagged(text, fullName)
       const redacted = redactContacts(text, { fullName, emails: [] })
       if (flags) flaggedCount++
-      // flagged implies redacted, for every context
-      expect([text, flags && !redacted.includes('[REDACTED]')]).toEqual([text, false])
-      // the API redacts the full name (its first token goes) iff completeness flags it; for one
-      // token the full name is the surname, so any redaction is the full name
+      // Completeness flags every text whose full name the API redacts (its first token goes; for
+      // one token the full name is the surname, so any redaction is the full name). It flags more
+      // only where a bare mark sits next to the name: the check main had reads the mark as an edge,
+      // the redaction does not, and Submit refuses the text as on main (round 5, SR-H-3).
       const fullNameRedacted =
         parts.length === 1
           ? redacted.includes('[REDACTED]')
           : !normaliseContactText(redacted).text.includes(firstToken)
-      expect([text, fullNameRedacted]).toEqual([text, flags])
+      // a disagreement is only flagged-not-redacted, and only with a mark in the text
+      const disagrees = flags !== fullNameRedacted
+      expect([text, disagrees && (fullNameRedacted || !text.includes('\u0301'))]).toEqual([
+        text,
+        false,
+      ])
     }
     // both outcomes come up, so the property is not vacuous
     expect(flaggedCount).toBeGreaterThan(500)
