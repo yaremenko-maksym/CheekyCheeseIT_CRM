@@ -1018,12 +1018,12 @@ export class SeniorResumesService {
       // the SAME input writes this very key and may land it at any moment, so a delete could erase
       // the live PDF; the orphan sweep (24 h grace, re-checked before each delete) takes it. A row
       // deleted mid-render has no newer run, and its delete has already listed its prefix.
-      // Stryker disable ObjectLiteral,BooleanLiteral: the unit double holds one row, so the id filter and the column projection are unobservable there; only "row or no row" is read
+      // Stryker disable next-line ObjectLiteral: the unit double holds one row, so dropping the id filter is unobservable there; the filter is the row's own primary key
       const current = await this.db.db.query.seniorResumes.findFirst({
         where: eq(seniorResumes.id, resumeId),
+        // Stryker disable next-line ObjectLiteral,BooleanLiteral: only "row or no row" is read, so which columns are projected is unobservable
         columns: { id: true },
       })
-      // Stryker restore ObjectLiteral,BooleanLiteral
       if (!current) {
         await this.s3.delete(key)
         return
