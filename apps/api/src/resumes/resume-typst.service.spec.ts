@@ -617,7 +617,9 @@ describe('the sandbox', () => {
       /RESUME_RENDER_MISSING_GLYPHS/,
     )
     // The message names the offending character, so the fix is obvious.
-    await expect(service.render(input({ templateSource: withAnArrow }))).rejects.toThrow(/→/)
+    await expect(service.render(input({ templateSource: withAnArrow }))).rejects.toThrow(
+      '{"code":"RESUME_RENDER_MISSING_GLYPHS","params":{"glyphs":"→"}}',
+    )
   }, 120_000)
 
   /**
@@ -903,5 +905,26 @@ describe('renderPng (Task 14, the vision check copy)', () => {
     )
     expect(err).toBeInstanceOf(ResumeRenderError)
     expect((err as Error).message).toBe('The PNG render finished, but its pages are not PNG files.')
+  })
+
+  it.each([
+    [
+      'a Typst error exit',
+      { code: 1, timedOut: false },
+      '{"code":"RESUME_RENDER_TEMPLATE_FAILED"}',
+    ],
+    [
+      'a deadline',
+      { code: null, timedOut: true },
+      '{"code":"RESUME_RENDER_TIMEOUT","params":{"seconds":20}}',
+    ],
+  ])('stores the code for %s (backlog 443)', async (_label, outcome, stored) => {
+    const failing: TypstRunner = async () => ({ ...outcome, stderr: 'error: boom' })
+    const err = await new ResumeTypstService(failing, SCRATCH_ROOT).render(input()).then(
+      () => undefined,
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(ResumeRenderError)
+    expect((err as Error).message).toBe(stored)
   })
 })

@@ -1142,6 +1142,19 @@ describe('ResumeTextExtractionService.extract', () => {
     await expect(service.extract(huge, RESUME_PDF_MIME)).rejects.toBeInstanceOf(
       ResumeFileUnreadableError,
     )
+    await expect(service.extract(huge, RESUME_PDF_MIME)).rejects.toThrow(
+      '{"code":"RESUME_PDF_TOO_MANY_PAGES","params":{"max":30}}',
+    )
+  })
+
+  it('stores PDF_UNREADABLE for bytes no PDF reader can open (backlog 443)', async () => {
+    const garbage = Buffer.from('%PDF-1.7\nthis is not a real document\n%%EOF')
+    const err = await service.extract(garbage, RESUME_PDF_MIME).then(
+      () => undefined,
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(ResumeFileUnreadableError)
+    expect((err as Error).message).toBe('{"code":"RESUME_PDF_UNREADABLE"}')
   })
 
   it('refuses a zip-bomb DOCX before inflating anything', async () => {
