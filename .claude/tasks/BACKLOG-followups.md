@@ -8213,3 +8213,20 @@ referenced set (`staged_pdf_s3_key` and `staged_previous->'pdfKey'`), the same 2
 `staged_previous` PDF and a staged PDF younger than 24 h stay.
 
 Sources: PR #1352 (orphan sweep, backlog 441) fix round 1.
+
+## 449. Contact scanner: a contact glued to another survives one redaction pass (2026-11-16)
+
+**Symptoms.** `redactContacts` replaces every hit of one pass, but a contact whose boundary is blocked by a
+neighbouring contact is not a hit until that neighbour is gone: `0671234567Petrenko` gives `[REDACTED]Petrenko`,
+and `tg: @ivan_dev0671234567` gives `tg: @ivan_dev[REDACTED]`, so the handle leaks. `Ivan Petrenko#` was never
+redacted before PR #1351 round 3 made `#` and `+` name boundaries. The `redactContacts` docstring claimed the result
+is a fixed point; it is not, and a second pass redacts more.
+
+**Candidate fix.** Redact to a fixed point (repeat the scan on the result until it stops changing, with a small
+bound), or match contacts independent of order (a boundary may also be the edge of another contact's span).
+
+**Verify.** `0671234567Petrenko`, `tg: @ivan_dev0671234567` and `Ivan Petrenko#` (name `Ivan Petrenko`, handle
+`@ivan_dev`) are fully redacted, and `redactContacts(redactContacts(x)) === redactContacts(x)` holds on a fuzzed
+corpus of glued contacts.
+
+Sources: PR #1351 (contact scanner normalisation, backlog 444/445) security review round 2, SR-M-2.

@@ -189,9 +189,10 @@ export function scanContacts(text: string, ctx: ContactContext): ContactHit[] {
 
 /**
  * `text` (NFC) with every contact replaced by `[REDACTED]`. Overlapping and
- * adjacent hits merge into one replacement, so the result is a fixed point:
- * redacting it again, or scanning it, finds nothing. Same contract as
- * `scanContacts`: one raw field at a time, before serialization.
+ * adjacent hits merge into one replacement. Not yet a fixed point: a contact
+ * glued to another one (`0671234567Petrenko`) can survive one pass and fall to
+ * a second (backlog 449). Same contract as `scanContacts`: one raw field at a
+ * time, before serialization.
  */
 export function redactContacts(
   text: string,
