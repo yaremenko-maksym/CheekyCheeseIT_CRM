@@ -98,9 +98,13 @@ function splitNameRuns(parts: readonly string[], inText: (part: string) => boole
   // Stryker disable next-line EqualityOperator: equivalent — mask 2^n selects no part, so its empty run is skipped below
   for (let mask = 1; mask < 2 ** rest.length; mask++) {
     const run = rest.filter((_, bit) => (mask >> bit) & 1)
+    // Own line, so the one suppression covers only the `multi` check: `true` adds a one-part run of 3+
+    // letters, already a lone source (`splitNameLoneParts`), so only duplicates; `false` is hidden too
+    // (Stryker suppresses the whole mutator), and is killed by hand (26 tests fail)
+    // Stryker disable next-line ConditionalExpression: equivalent for `true` — see the comment above; `false` is killed by hand
+    const multi = run.length >= 2
     const letters = run.join('').replace(/\P{L}/gu, '').length >= 3
-    // Stryker disable next-line ConditionalExpression: equivalent for `true` — a one-part run of 3+ letters is already a lone source (`splitNameLoneParts`), so it adds only duplicates; `false` is killed by the residuals tests (verified by hand, 26 fail)
-    if (run.length >= 2 && letters) {
+    if (multi && letters) {
       runs.push(run, [...run].reverse())
     }
   }
