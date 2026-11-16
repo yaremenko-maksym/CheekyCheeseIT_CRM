@@ -1428,7 +1428,7 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
           cost: null,
           error: {
             code: 'PERSISTENCE',
-            message: `the store refused every observation the run read (${storeRefused}); none was stored`,
+            message: `the store refused ${storeRefused} observation(s), the last on page ${storeRefusedPage}; none was stored`,
           },
         },
         ctx.secrets,

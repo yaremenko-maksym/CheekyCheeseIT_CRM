@@ -58,7 +58,7 @@ describe('a run whose every record the store refuses', () => {
     expect(batch.counts.invalid).toBe(7)
     expect(batch.requests.at(-1)?.error?.code).toBe('PERSISTENCE')
     expect(batch.requests.at(-1)?.error?.message).toBe(
-      'the store refused every observation the run read (7); none was stored',
+      'the store refused 7 observation(s), the last on page 1; none was stored',
     )
     expect(observeSinglePage).not.toHaveBeenCalled()
   })

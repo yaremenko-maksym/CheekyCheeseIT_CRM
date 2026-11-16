@@ -365,7 +365,7 @@ describe('a run whose every record the store refuses stores nothing and is not a
     storeGate.refuseAll = false
   })
 
-  const REFUSED_MESSAGE = 'the store refused every observation the run read (1); none was stored'
+  const REFUSED_MESSAGE = 'the store refused 1 observation(s), the last on page 1; none was stored'
 
   it('one page, all refused: PARTIAL with a PERSISTENCE report, nothing saved, no validator', async () => {
     storeGate.refuseAll = true
@@ -423,6 +423,7 @@ describe('a run whose every record the store refuses stores nothing and is not a
     const persistence = batch.requests.filter((r) => r.error?.code === 'PERSISTENCE')
     expect(persistence).toHaveLength(1)
     expect(persistence[0]?.page).toBe(1)
+    expect(persistence[0]?.error?.message).toBe(REFUSED_MESSAGE)
     expect(batch.observations).toHaveLength(0)
     expect(batch.outcome).not.toBe('SUCCEEDED')
   })
