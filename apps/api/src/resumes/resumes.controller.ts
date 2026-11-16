@@ -50,11 +50,13 @@ import {
   updateResumeTemplateSchema,
   decodeResumeMessage,
   RESUME_SOURCE_MAX_BYTES,
+  type Locale,
   type StoredResumeMessage,
   type SessionUser,
 } from '@crm/shared'
 import { apiError, interpolate } from '../common/api-error'
 import { CurrentUser } from '../auth/current-user.decorator'
+import { RequestLocale } from '../i18n/request-locale'
 import { canAccessResume } from './resume-access'
 import { noAccess, SeniorResumesService, sanitizeFileName } from './resumes.service'
 
@@ -247,11 +249,12 @@ export class SeniorResumesController {
     @Param('userId', ParseUUIDPipe) userId: string,
     @CurrentUser() user: SessionUser,
     @Res() reply: FastifyReply,
+    @RequestLocale() locale: Locale,
   ): Promise<void> {
     const result = await this.service.getStagedPdf(user, userId)
     await reply
       .header('Content-Type', 'application/pdf')
-      .header('Content-Disposition', resumeContentDisposition(result.displayName))
+      .header('Content-Disposition', resumeContentDisposition(result.displayName, locale))
       .send(result.pdfBuffer)
   }
 
@@ -288,6 +291,7 @@ export class SeniorResumesController {
     @Param('userId', ParseUUIDPipe) userId: string,
     @CurrentUser() user: SessionUser,
     @Res() reply: FastifyReply,
+    @RequestLocale() locale: Locale,
   ): Promise<void> {
     const result = await this.service.getRenderedPdf(user, userId)
 
@@ -298,7 +302,7 @@ export class SeniorResumesController {
 
     await reply
       .header('Content-Type', 'application/pdf')
-      .header('Content-Disposition', resumeContentDisposition(result.displayName))
+      .header('Content-Disposition', resumeContentDisposition(result.displayName, locale))
       .send(result.pdfBuffer)
   }
 }
@@ -316,17 +320,21 @@ export class SeniorResumesController {
  * On top of that: the ASCII slot cannot contain anything that would break out
  * of the quoted parameter, and the UTF-8 slot carries the real Cyrillic name.
  * Mirrors `safeContractFilename` in the contracts module.
+ *
+ * Backlog 451: the word before the name follows the viewer's locale (`@RequestLocale()`).
  */
-export function resumeContentDisposition(displayName: string): string {
+export function resumeContentDisposition(displayName: string, locale: Locale): string {
   // Sanitise FIRST, then strip the quoting characters. The other order removed
   // the backslash before `sanitizeFileName` could treat it as a separator, so
   // `..\..\etc\passwd.pdf` collapsed to `......etcpasswd.pdf` instead of
   // reducing to its bare filename the way the upload path does.
   const safe = sanitizeFileName(displayName).replace(/["\\]/g, '').trim() || 'resume'
   const ascii = `${safe.replace(/[^\x20-\x7E]/g, '_')}.pdf`
-  const utf8 = encodeURIComponent(`Резюме — ${safe}.pdf`)
+  const utf8 = encodeURIComponent(`${RESUME_FILE_WORD[locale]} — ${safe}.pdf`)
   return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`
 }
+
+const RESUME_FILE_WORD: Record<Locale, string> = { uk: 'Резюме', en: 'Resume' }
 
 /**
  * QA-LOW-4. Past the per-route `fileSize` limit passed to `req.parts` (see `uploadSource`), the

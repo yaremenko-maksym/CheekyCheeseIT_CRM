@@ -8234,3 +8234,25 @@ bound), or match contacts independent of order (a boundary may also be the edge 
 corpus of glued contacts.
 
 Sources: PR #1351 (contact scanner normalisation, backlog 444/445) security review round 2, SR-M-2.
+
+## 451. Resume PDF download file name is always Russian (2026-11-16)
+
+**Symptoms.** `resumeContentDisposition` always names the downloaded PDF `Резюме — <name>.pdf` in the
+`filename*` slot, on both `GET /api/users/:userId/resume/pdf` and `.../resume/staged-pdf`, so an `en` user
+saves a file with a non-English name.
+
+**Fix.** The two routes read the viewer's locale with `@RequestLocale()` (stored user locale, then the
+`pref_locale` cookie, then `Accept-Language`, then `uk`) and pass it to `resumeContentDisposition`: `uk` keeps
+`Резюме — <name>.pdf`, `en` gets `Resume — <name>.pdf`. The ASCII `filename=` fallback is unchanged.
+
+**Verify.** With locale `uk` the decoded `filename*` is `Резюме — <name>.pdf`, with `en` it is
+`Resume — <name>.pdf`, on both routes; the `filename=` slot holds only printable ASCII in both.
+
+## 455. Re-check badge has no hint for the senior (parked for redesign v2, 2026-11-16)
+
+**Symptoms.** QA-LOW-2 on PR #1353: the senior sees the re-check badge on a resume, but no text says what it
+means or that nothing is needed from them.
+
+**Decision.** Owner, 2026-11-16: wait for redesign v2, same as items 437 and 446; do not add the hint before.
+
+**Verify.** The redesigned resume screen gives the badge a readable, accessible explanation in uk and en.

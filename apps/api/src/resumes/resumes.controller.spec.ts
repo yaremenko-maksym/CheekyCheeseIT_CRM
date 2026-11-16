@@ -53,9 +53,21 @@ describe('sanitizeFileName', () => {
 
 describe('resumeContentDisposition', () => {
   it('carries the real Cyrillic name in the UTF-8 slot and an ASCII fallback', () => {
-    const header = resumeContentDisposition('Иван Петров')
+    const header = resumeContentDisposition('Иван Петров', 'uk')
     expect(header).toMatch(/^attachment; filename="[^"]*\.pdf"; filename\*=UTF-8''/)
     expect(decodeURIComponent(header.split("UTF-8''")[1] ?? '')).toBe('Резюме — Иван Петров.pdf')
+  })
+
+  // Backlog 451: the file word follows the viewer's locale; the ASCII slot stays ASCII in both.
+  it.each([
+    ['uk', 'Резюме — Jane Doe.pdf'],
+    ['en', 'Resume — Jane Doe.pdf'],
+  ] as const)('names the download by the %s locale', (locale, name) => {
+    const header = resumeContentDisposition('Jane Doe', locale)
+    expect(header).toBe(
+      `attachment; filename="Jane Doe.pdf"; filename*=UTF-8''${encodeURIComponent(name)}`,
+    )
+    expect(header.split('"')[1]).toMatch(/^[\x20-\x7E]+$/)
   })
 
   /**
@@ -64,7 +76,7 @@ describe('resumeContentDisposition', () => {
    * while the identical string is defused on the upload path.
    */
   it('applies the SAME reduction as the upload path to a path-shaped display name', () => {
-    const header = resumeContentDisposition('../../etc/passwd.pdf')
+    const header = resumeContentDisposition('../../etc/passwd.pdf', 'uk')
     expect(header).not.toContain('..')
     expect(header).not.toContain('/etc/')
     expect(header).toContain('passwd.pdf')
@@ -80,14 +92,14 @@ describe('resumeContentDisposition', () => {
    * and this goes red.
    */
   it('reduces a WINDOWS path the same way the upload path does', () => {
-    const header = resumeContentDisposition('..\\..\\windows\\system32\\config.pdf')
+    const header = resumeContentDisposition('..\\..\\windows\\system32\\config.pdf', 'uk')
     expect(header).toContain('config.pdf')
     expect(header).not.toContain('windows')
     expect(header).not.toContain('system32')
   })
 
   it('cannot break out of the quoted ASCII parameter', () => {
-    const header = resumeContentDisposition('evil" ; attachment; filename="pwned')
+    const header = resumeContentDisposition('evil" ; attachment; filename="pwned', 'uk')
     // Exactly one quoted filename parameter, and no stray quote inside it.
     const ascii = /filename="([^"]*)"/.exec(header)?.[1] ?? ''
     expect(ascii).not.toContain('"')
@@ -95,12 +107,12 @@ describe('resumeContentDisposition', () => {
   })
 
   it('never emits a raw newline (header splitting)', () => {
-    const header = resumeContentDisposition('Иван\r\nX-Injected: 1')
+    const header = resumeContentDisposition('Иван\r\nX-Injected: 1', 'uk')
     expect(header).not.toMatch(/[\r\n]/)
   })
 
   it('falls back for a display name that reduces to nothing', () => {
-    expect(resumeContentDisposition('   ')).toContain('resume.pdf')
+    expect(resumeContentDisposition('   ', 'uk')).toContain('resume.pdf')
   })
 })
 
@@ -142,13 +154,35 @@ describe('SeniorResumesController — Task 15 routes', () => {
       },
       send: vi.fn(async (_body: Buffer) => undefined),
     }
-    await controller.getStagedPdf(USER, viewer, reply as never)
+    await controller.getStagedPdf(USER, viewer, reply as never, 'en')
     expect(service.getStagedPdf).toHaveBeenCalledWith(viewer, USER)
     expect(headers).toEqual({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': resumeContentDisposition('Jane Doe'),
+      'Content-Disposition': `attachment; filename="Jane Doe.pdf"; filename*=UTF-8''Resume%20%E2%80%94%20Jane%20Doe.pdf`,
     })
     expect(reply.send.mock.calls[0]?.[0]?.toString()).toBe('%PDF')
+  })
+
+  it('the live pdf is named by the request locale too (backlog 451)', async () => {
+    const headers: Record<string, string> = {}
+    const reply = {
+      header(name: string, value: string) {
+        headers[name] = value
+        return reply
+      },
+      send: vi.fn(async (_body: Buffer) => undefined),
+    }
+    const live = {
+      getRenderedPdf: vi.fn(async () => ({
+        ready: true,
+        pdfBuffer: Buffer.from('%PDF'),
+        displayName: 'Jane Doe',
+      })),
+    }
+    await new SeniorResumesController(live as never).getPdf(USER, viewer, reply as never, 'uk')
+    expect(headers['Content-Disposition']).toBe(
+      `attachment; filename="Jane Doe.pdf"; filename*=UTF-8''%D0%A0%D0%B5%D0%B7%D1%8E%D0%BC%D0%B5%20%E2%80%94%20Jane%20Doe.pdf`,
+    )
   })
 })
 
