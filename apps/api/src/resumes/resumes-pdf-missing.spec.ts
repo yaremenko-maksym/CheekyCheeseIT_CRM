@@ -6,6 +6,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_RESUME_LAYOUT, encodeResumeMessage, type SessionUser } from '@crm/shared'
+import { ResumeRenderError } from './resume-typst.service'
 import { SeniorResumesService, STUCK_RENDER_TIMEOUT_MS } from './resumes.service'
 
 const OWNER_ID = 'a4470000-0000-4000-8000-0000000000a1'
@@ -43,23 +44,12 @@ function build(overrides: Record<string, unknown> = {}) {
   }
   const updates: Record<string, unknown>[] = []
   /** When set, the next update matches no row: a run disowned before its terminal write. */
-  const control = { rejectNext: false, gone: false }
+  const control = { rejectNext: false }
   const db = {
     db: {
       query: {
         users: { findFirst: vi.fn(async () => OWNER) },
-        // Projects `columns` like Drizzle; `gone` = the row was deleted.
-        seniorResumes: {
-          findFirst: vi.fn(async (args?: { columns?: Record<string, boolean> }) => {
-            if (control.gone) return undefined
-            if (!args?.columns) return { ...row }
-            return Object.fromEntries(
-              Object.entries(args.columns)
-                .filter(([, on]) => on)
-                .map(([k]) => [k, row[k]]),
-            )
-          }),
-        },
+        seniorResumes: { findFirst: vi.fn(async () => ({ ...row })) },
       },
       update: () => ({
         set: (values: Record<string, unknown>) => ({
@@ -202,7 +192,7 @@ describe('getRenderedPdf — the current PDF object is missing (backlog 447)', (
     expect((out as { pdfBuffer: Buffer }).pdfBuffer.toString()).toBe('%PDF re-rendered')
   })
 
-  it('a stored PDF behind a failed upload is still served: storage failures leave key and fingerprint paired', async () => {
+  it('a stored PDF behind a failed upload is still served: a storage failure changes neither key nor fingerprint', async () => {
     const { svc, objects } = build({
       pdfRenderStatus: 'FAILED',
       pdfRenderError: encodeResumeMessage('RESUME_RENDER_STORAGE_FAILED'),
@@ -233,9 +223,7 @@ describe('getRenderedPdf — the current PDF object is missing (backlog 447)', (
   describe('a superseded render of the same input', () => {
     const OLD_KEY = `senior-resumes/${OWNER_ID}/pdf/r-1-0000000000000000.pdf`
 
-    async function racedRuns(
-      afterNewer: (row: Record<string, unknown>, control: { gone: boolean }) => void,
-    ) {
+    async function racedRuns(afterNewer: (row: Record<string, unknown>) => void) {
       const built = build({ pdfRenderStatus: 'QUEUED', pdfS3Key: OLD_KEY, pdfFingerprint: 'old' })
       const { svc, row, typst, control } = built
       let release!: () => void
@@ -248,36 +236,90 @@ describe('getRenderedPdf — the current PDF object is missing (backlog 447)', (
       )
       const older = svc.runRender('r-1', OWNER as never)
       await vi.waitFor(() => expect(release).toBeDefined())
-      // A newer run of the same input claims, uploads KEY and lands first.
+      // A newer run of the same input claims, uploads the SAME key (same fingerprint) and lands first.
       row.pdfRenderStatus = 'QUEUED'
       await svc.runRender('r-1', OWNER as never)
       expect(row.pdfS3Key).toBe(KEY)
-      afterNewer(row, control)
+      afterNewer(row)
       control.rejectNext = true // the older run's terminal write finds the run token gone
       release()
       await older
       return built
     }
 
-    it('does not delete the key the newer run made live (claim snapshot differs from it)', async () => {
+    it('deletes nothing of its own: both runs wrote KEY, and the newer one made it live', async () => {
       const { s3, objects } = await racedRuns(() => undefined)
       expect(s3.delete.mock.calls).toEqual([[OLD_KEY]]) // only the newer run's own cleanup
       expect(objects.has(KEY)).toBe(true)
     })
 
-    it('deletes its upload when the resume row is gone by then', async () => {
-      const { s3 } = await racedRuns((_row, control) => {
-        control.gone = true
-      })
-      expect(s3.delete.mock.calls).toEqual([[OLD_KEY], [KEY]])
-    })
-
-    it('still deletes its upload when the row has moved on to another key', async () => {
+    it('leaves its upload to the orphan sweep even when the row has moved on to another key', async () => {
       const { s3 } = await racedRuns((row) => {
         row.pdfS3Key = 'senior-resumes/elsewhere.pdf'
       })
-      expect(s3.delete.mock.calls).toEqual([[OLD_KEY], [KEY]])
+      expect(s3.delete.mock.calls).toEqual([[OLD_KEY]])
     })
+  })
+
+  describe('a Typst failure leaves no stale key behind it (SPEC-1)', () => {
+    const OLD_KEY = `senior-resumes/${OWNER_ID}/pdf/r-1-0000000000000000.pdf`
+    const content = (summary: string) => ({
+      summary,
+      skills: [],
+      experience: [],
+      education: [],
+      languages: [],
+      links: [],
+    })
+
+    /** Content X fails in Typst over an older PDF (content W) whose object is still in the bucket. */
+    async function typstFailsOnX() {
+      const built = build({
+        pdfRenderStatus: 'QUEUED',
+        pdfS3Key: OLD_KEY,
+        pdfFingerprint: 'fp-w',
+        content: content('X'),
+      })
+      const { svc, row, typst, objects } = built
+      objects.set(OLD_KEY, Buffer.from('%PDF of content W'))
+      typst.fingerprint.mockImplementation(
+        (input: unknown) => `fp-${(input as { content: { summary: string } }).content.summary}`,
+      )
+      typst.render.mockRejectedValueOnce(new ResumeRenderError('RESUME_X'))
+      await svc.runRender('r-1', OWNER as never)
+      expect(row).toMatchObject({
+        pdfRenderStatus: 'FAILED',
+        pdfFingerprint: 'fp-X',
+        pdfS3Key: null,
+      })
+      return built
+    }
+
+    it('X fails, Y fails to upload, revert to X: the PDF of W is not served', async () => {
+      const { svc, row, s3 } = await typstFailsOnX()
+      row.content = content('Y')
+      row.pdfRenderStatus = 'QUEUED'
+      s3.upload.mockRejectedValueOnce(new Error('R2 unavailable'))
+      await svc.runRender('r-1', OWNER as never)
+      expect(row.pdfRenderError).toBe(encodeResumeMessage('RESUME_RENDER_STORAGE_FAILED'))
+
+      row.content = content('X')
+      s3.getObject.mockClear()
+      expect(await svc.getRenderedPdf(viewer, OWNER_ID)).toMatchObject({ ready: false })
+      expect(s3.getObject).not.toHaveBeenCalledWith(OLD_KEY)
+    })
+
+    it.each(['QUEUED', 'RUNNING'] as const)(
+      'X fails, then the same X is %s again: the PDF of W is not served',
+      async (status) => {
+        const { svc, row, s3 } = await typstFailsOnX()
+        row.pdfRenderStatus = status
+        row.pdfRenderStartedAt = new Date()
+        s3.getObject.mockClear()
+        expect(await svc.getRenderedPdf(viewer, OWNER_ID)).toMatchObject({ ready: false })
+        expect(s3.getObject).not.toHaveBeenCalledWith(OLD_KEY)
+      },
+    )
   })
 
   it('a FAILED render of the same input reports the failure instead of re-rendering', async () => {

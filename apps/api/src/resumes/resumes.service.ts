@@ -222,9 +222,9 @@ export class SeniorResumesService {
     if (!row) throw noResume()
 
     const wanted = this.typst.fingerprint(this.renderInputFor(row, target))
-    // A Typst failure records the failed input's fingerprint but keeps the OLDER pdfS3Key, so a
-    // matching fingerprint no longer vouches for that key. A storage failure records nothing
-    // about the input: its fingerprint and key still belong together.
+    // A Typst failure records the failed input's fingerprint and clears pdfS3Key; a row failed
+    // before that change may still hold the OLDER key, so a matching fingerprint does not vouch for
+    // it. A storage failure records nothing about the input: its fingerprint and key belong together.
     const inputFailed =
       row.pdfRenderStatus === 'FAILED' && row.pdfRenderError !== RENDER_STORAGE_FAILED
     if (row.pdfS3Key && row.pdfFingerprint === wanted && !inputFailed) {
@@ -984,18 +984,10 @@ export class SeniorResumesService {
       .returning({ id: seniorResumes.id })
 
     if (written.length === 0) {
-      // Superseded mid-render. The row now points elsewhere, so this object is
-      // unreferenced the moment it is written — erase it rather than leave a
-      // PDF of someone's CV in the bucket that no code path can reach. Unless a
-      // newer run of the SAME input already landed this very key: then it is live.
-      // Stryker disable next-line ObjectLiteral: the unit double holds one row, so dropping the id filter is unobservable there; the filter is the row's own primary key
-      const current = await this.db.db.query.seniorResumes.findFirst({
-        where: eq(seniorResumes.id, resumeId),
-        columns: { pdfS3Key: true },
-      })
-      if (current?.pdfS3Key === key) return
-      this.logger.log(`Resume ${resumeId}: render superseded — discarding ${key}`)
-      await this.s3.delete(key)
+      // Superseded mid-render. Not deleted here: a newer run of the SAME input writes this very
+      // key and may land it at any moment, so a delete could erase the live PDF. If the row never
+      // points at it, the orphan sweep (24 h grace, re-checked before each delete) removes it.
+      this.logger.log(`Resume ${resumeId}: render superseded — leaving ${key} to the orphan sweep`)
       return
     }
 
@@ -1058,7 +1050,10 @@ export class SeniorResumesService {
         pdfRenderError: message,
         pdfRenderStartedAt: null,
         pdfRenderRunId: null,
-        ...(fingerprint === undefined ? {} : { pdfFingerprint: fingerprint }),
+        // The key is cleared with it: the older PDF is not of this input, and a row citing it
+        // beside the new fingerprint would serve it once the row leaves FAILED. The orphan sweep
+        // removes the object.
+        ...(fingerprint === undefined ? {} : { pdfFingerprint: fingerprint, pdfS3Key: null }),
       })
       .where(this.ownedByRenderRun(resumeId, runId))
   }

@@ -1334,7 +1334,7 @@ describe.skipIf(!hasDatabaseUrl())(
         await settle()
       })
 
-      it('a render superseded while it ran erases its own output instead of stranding it', async () => {
+      it('a render superseded while it ran leaves its output to the orphan sweep (PR #1360 round 2)', async () => {
         const row = await dbSvc.db
           .select()
           .from(seniorResumes)
@@ -1359,10 +1359,10 @@ describe.skipIf(!hasDatabaseUrl())(
 
         await service.runRender(resumeId, { displayName: 'Синьор А', email: SENIOR_A.email })
 
-        // The bytes were written, then found to belong to nobody — so they are
-        // erased. Left alone they would be an unreferenced CV in the bucket.
+        // Not erased here: a newer run of the same input writes the same key, so a delete could
+        // remove the live PDF. An object no row cites is the orphan sweep's (24 h grace).
         const erased = s3.delete.mock.calls.map(([key]: [string]) => key)
-        expect(erased.some((key) => key.includes('/pdf/'))).toBe(true)
+        expect(erased).toEqual([])
         const after = await dbSvc.db
           .select()
           .from(seniorResumes)
