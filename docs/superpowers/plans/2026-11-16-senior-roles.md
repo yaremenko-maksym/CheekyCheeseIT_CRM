@@ -122,7 +122,7 @@ for the indicator DTO. PR 3 can deploy after PR 2 in either order with step (d).
   `roleClassifierVersion`, GIN index, CHECKs).
 - Create `apps/api/src/database/schema/job-role-classifications.ts`. Register it in `apps/api/src/database/schema.ts`.
 - Modify `apps/api/src/database/privileges/privilege-classes.ts`: put `job_role_classifications` in
-  class A, add a `MANUAL_DDL_RELATIONS` entry.
+  class A. No `MANUAL_DDL_RELATIONS` entry: the table is declared in the Drizzle schema.
 - Create `apps/api/src/database/technical-roles-forward-ddl.integration.spec.ts`.
 - Create `apps/api/src/job-sourcing/store/opportunity-roles.ts`: `deriveOpportunityRoles`,
   `writeOpportunityRoles`.
@@ -143,7 +143,7 @@ for the indicator DTO. PR 3 can deploy after PR 2 in either order with step (d).
 **PR 3 — AI classification**
 
 - Modify `packages/inference/src/adapters/extraction-worker.ts`: add `'/classify-roles'` to
-  `ExtractionWorkerRoute`.
+  `ExtractionWorkerRoute` and to the runtime `WORKER_ROUTES` set.
 - Create `apps/api/src/extraction-worker/classify-roles.ts` and modify
   `apps/api/src/extraction-worker/server.ts`.
 - Create `apps/api/src/job-sourcing/role-ai/role-classifier.client.ts`: `RoleClassifierClient`.
@@ -168,7 +168,7 @@ for the indicator DTO. PR 3 can deploy after PR 2 in either order with step (d).
 - Modify `apps/api/src/job-sourcing/queue/job-queue.service.ts` (`matchFacts`, `toSenior`) and
   `packages/shared/src/schemas/job-sourcing.ts` (`jobQueueCardSeniorSchema.skillOverlap`).
 - Modify `apps/api/src/job-sourcing/queue/queue-scope.ts` (STUDIO branch of `listableOpportunityPredicate`).
-- Modify `apps/api/src/job-sourcing/job-match-reconciliation.cron.ts` (`MATCH_DRAIN_CRON`, `handleDrain`).
+- Modify `apps/api/src/job-sourcing/job-match-reconciliation.cron.ts` (`onApplicationBootstrap`, one sweep at boot).
 
 **PR 5 — UI + floor flip**
 
@@ -459,7 +459,10 @@ and `pnpm typecheck` are green. Final commit trailer: `ac_verified: 1.1,1.2,1.3,
   - Drizzle: `users.technicalRoles`, `jobOpportunities.technicalRoles` / `roleStatus` /
     `roleClassifierVersion`, and `jobRoleClassifications`.
   - Privileges: `job_role_classifications` in `PRIVILEGE_CLASSES` class A (a cron updates it, so not
-    B), plus a `MANUAL_DDL_RELATIONS` entry that points at the SQL file.
+    B). It gets **no** `MANUAL_DDL_RELATIONS` entry. That map is only for relations that no Drizzle
+    schema declares, and `privilege-classes.spec.ts` asserts each of its entries is class `E`. This
+    table is declared in `schema/job-role-classifications.ts`, so `schemaTableNames()` already
+    covers it.
 - SQL file header: follow `2026-11-16_senior_resumes_recheck_needed.sql` (WHAT / PRIVILEGE CLASS /
   APPLY / Rollback). Add `SET LOCAL lock_timeout = '10s'`. Use `IF NOT EXISTS` everywhere so a re-run
   is a no-op. The CHECK id lists must be literal copies of `SENIOR_SELECTABLE_ROLES` /
@@ -576,6 +579,13 @@ it('evaluation output is unchanged by this PR', ...) // same EvaluationResult be
   catalogs: add the new code `TECHNICAL_ROLES_SENIOR_ONLY` (uk + en; copy-reviewer).
 - Modify: `apps/api/src/users/role-guards.util.ts`, `users.service.ts` (`updateProfile`,
   `USER_LIST_PROJECTION`), `user-creation.service.ts` and `admin-user-update.service.ts`.
+- Modify: `apps/api/src/users/user-update.util.ts`:
+  - `technicalRoles` on `AdminUserUpdateInput` and `AdminUserUpdateSet`
+  - in `buildAdminUserUpdateSet`, `if ('technicalRoles' in data) set.technicalRoles = data.technicalRoles`
+    next to the `techStack` line. Without this, the whitelist silently drops the field on
+    `PATCH /users/:id`.
+- Modify: `apps/api/src/users/user-insert.util.ts`: `technicalRoles` on both insert inputs and
+  values. The default is `[]`, next to `techStack`.
 - Test: the existing specs plus one new spec:
   - existing `admin-update-user.unit.spec.ts`, `create-user.unit.spec.ts`, `users.service.spec.ts`
   - new `apps/api/src/users/senior-roles.realdb.integration.spec.ts`, in the pattern of
@@ -605,6 +615,8 @@ it('evaluation output is unchanged by this PR', ...) // same EvaluationResult be
 
 ```ts
 it('ADMIN PATCH /users/:id sets technicalRoles on a SENIOR and returns them sorted', ...)
+it('buildAdminUserUpdateSet carries technicalRoles; absent key -> not in set', ...)   // user-update.util
+it('user-insert values carry technicalRoles, [] when absent', ...)                    // user-insert.util
 it('ADMIN PATCH /users/:id with technicalRoles on a JUNIOR -> 400 TECHNICAL_ROLES_SENIOR_ONLY', ...)
 it('PATCH /users/:id with SOFTWARE_ENGINEER -> 400 (zod)', ...)
 it('HR POST /users creating a SENIOR may set technicalRoles', ...)
@@ -662,8 +674,13 @@ processing (#1366 path)", and #1366 is OPEN (not merged). This PR uses its own b
 
 **Files:**
 
-- Modify: `packages/inference/src/adapters/extraction-worker.ts`: add `'/classify-roles'` to the
-  `ExtractionWorkerRoute` union.
+- Modify: `packages/inference/src/adapters/extraction-worker.ts`. Add `'/classify-roles'` in 2
+  places:
+  - the `ExtractionWorkerRoute` union
+  - the runtime `WORKER_ROUTES` set. Without it, the transport refuses the route as
+    `{ kind: 'transport' }` before any request is sent.
+  - Test: `packages/inference/src/adapters/extraction-worker.spec.ts`,
+    `it('the transport accepts /classify-roles and still refuses an unknown route as transport', ...)`.
 - Create: `apps/api/src/extraction-worker/classify-roles.ts`
 - Modify: `apps/api/src/extraction-worker/server.ts`: add the route, next to `/resume-write`.
 - Test: `apps/api/src/extraction-worker/classify-roles.spec.ts`, plus `server.spec.ts`
@@ -808,6 +825,10 @@ it('a row reclassified between selection and lock is skipped (stale)', ...)
 it('a terminal cache row is applied without a model call', ...)
 it('the pass never throws: a client rejection is logged and counted as failed', ...)
 it('logs never contain the title or description', ...)
+// role-ai.cron.spec.ts
+it('tick() makes no DB read and no client call when JOB_ROLE_AI_ENABLED is not true', ...)
+it('tick() runs one pass when the flag is true; an overlapping tick is skipped', ...)
+it('tick() never rejects when the pass throws', ...)
 // env.job-role-ai.spec.ts
 it('JOB_ROLE_AI_ENABLED defaults to false and parses "true"', ...)
 ```
@@ -1032,6 +1053,11 @@ it('opportunityInputsVersion changes when role_status goes PENDING -> AI', ...)
 - Modify `apps/api/src/job-sourcing/queue/job-queue.service.ts` (`matchFacts`, `matchEvidence`, `toSenior`).
 - Modify `apps/api/src/job-sourcing/queue/queue-scope.ts`, the STUDIO branch of
   `listableOpportunityPredicate` (Open decisions, item 4).
+- Modify `apps/web/app/components/job-queue/__tests__/card-fixtures.ts`: add `skillOverlap: null` to
+  `senior()`.
+  - `jobQueueCardSeniorSchema` is `.strict()`, and the new key is required (nullable, not optional).
+    Without the fixture change, PR 4 breaks `pnpm --filter @crm/web typecheck`.
+  - `MatchedSeniors.tsx` and `JobQueueActions.tsx` only read the DTO, so they compile unchanged.
 - Test: the existing `job-queue.service` specs. Add the 4 surfaces from correction 1 in one new spec,
   `apps/api/src/job-sourcing/queue/role-visibility.integration.spec.ts`.
 
@@ -1039,11 +1065,20 @@ it('opportunityInputsVersion changes when role_status goes PENDING -> AI', ...)
 
 - STUDIO list: today it lists a row that has not yet been evaluated at its current revision, as
   triage. So a freshly stored `PENDING` vacancy would reach ADMIN before its first evaluation.
-  - The STUDIO branch adds `xo.role_status IN ('RULE', 'AI')` next to the existing `EXCLUDED` check.
+  - The STUDIO branch gets one more conjunct, a **positive** `EXISTS`, ANDed **outside** the existing
+    `NOT EXISTS (… evaluation_verdict = 'EXCLUDED')`:
+    `EXISTS (SELECT 1 FROM job_opportunities ro WHERE ro.id = ${opportunityId} AND ro.role_status IN ('RULE', 'AI'))`.
+    Placing the condition inside the `NOT EXISTS` would invert it: `PENDING` and NULL rows would
+    stay listed.
   - NULL (not yet backfilled) fails closed.
   - TEAM, subscription and generation reads need no change. They already require a LEAD or an
     `OPEN` verdict at the current revision.
-  - Opening a row by id stays as today.
+  - Opening a row by id stays as today:
+    - `GET /job-queue/:id`, `/:id/sources` and `/:id/seniors` use `visibleOpportunityPredicate`.
+    - For TEAM, that predicate already needs a current LEAD or an `OPEN` verdict, so a `PENDING`
+      row is not visible.
+    - For STUDIO it is `TRUE` (`queue-scope.ts`), so an ADMIN who has the id can still open the row
+      (A1).
 
 - `matchFacts(evidence)` reads `ROLE_MATCH`, and it returns `approximate: false` for a role match.
   `matchedKeywords` = the overlap's `matched` skills, and `[]` for `NO_RESUME` or null.
@@ -1062,6 +1097,8 @@ it('... hidden from a team subscription read', ...)
 it('... absent from the cached generation', ...)
 it('a freshly stored, never-evaluated PENDING / UNCLEAR / NON_IT row and a NULL role_status row are absent from the STUDIO list', ...)
 it('a never-evaluated RULE row stays listed in STUDIO as triage, as today', ...)
+it('a TEAM viewer gets the not-visible response from GET /job-queue/:id, /:id/sources and /:id/seniors for a PENDING / UNCLEAR / NON_IT row', ...)
+it('an ADMIN in STUDIO can still open a PENDING row by id (documented A1)', ...)
 it('a role-mismatched vacancy is not in a TEAM list; STOP_LISTED count is unchanged by ROLE_MISMATCH', ...)
 it('a TEAM viewer never receives another team senior skillOverlap', ...)
 it('HR of team A gets 403 / empty for team B queue as today', ...) // RBAC regression
@@ -1074,60 +1111,70 @@ it('HR of team A gets 403 / empty for team B queue as today', ...) // RBAC regre
       Expected: PASS.
 - [ ] **Step 5: Commit** `feat(job-sourcing): role match evidence and skill overlap on queue cards`.
 
-### Task 4.6: Drain MATCH dirty work between sweeps
+### Task 4.6: One reconciliation sweep at boot
 
-**Why:**
+**Why** (origin/main 31bc6e5b9, PR #1366):
 
-- Today MATCH dirty rows are drained only inside the 6-hourly sweep
-  (`JobMatchReconciliationCronService`, `MATCH_RECONCILIATION_CRON = '17 */6 * * *'`). Each tick
-  drains at most `RECONCILE_MAX_DRAIN_BATCHES` (10) × `DIRTY_BATCH_DEFAULT` (200) = 2,000 rows.
-- After PR 4 deploys, every stamped match is stale: `profileVersion` and the rule version both
-  change. The TEAM `LEAD` branch fails closed on a version mismatch (`visibleOpportunityPredicate`).
-- So without this task, **every senior's queue is empty** until the sweep re-evaluates their rows:
-  `ceil(rows / 2,000)` ticks of 6 h.
-- The same limit delays every step (d) role write and every AI result (correction 3) by up to 6 h.
+- Draining is no longer the bottleneck. Every collection run already ends with
+  `JobMatchReconciliationCronService.requestDrain()`, a MATCH drain of up to `MATCH_DRAIN_BUDGET_MS`
+  (60 s) per pass.
+- Enqueueing is the bottleneck. Only `reconcileOnce`, inside `handleReconciliation`
+  (`MATCH_RECONCILIATION_CRON = '17 */6 * * *'`), turns a version mismatch (`isStale`:
+  `v.profile !== m.profile || m.rule !== MATCH_RULE_VERSION`) into dirty rows.
+- After PR 4 deploys, every stamped match is stale, and the TEAM `LEAD` branch fails closed on a
+  version mismatch (`visibleOpportunityPredicate`). So without this task every senior's queue is
+  empty until the next :17 tick, up to 6 h.
 
 **Files:**
 
-- Modify `apps/api/src/job-sourcing/job-match-reconciliation.cron.ts`:
-  - add `MATCH_DRAIN_CRON = '*/10 * * * *'`
-  - add `@Cron(MATCH_DRAIN_CRON) handleDrain(): Promise<void>`, which runs only the existing
-    private `drain()`
+- Modify `apps/api/src/job-sourcing/job-match-reconciliation.cron.ts`: implement
+  `OnApplicationBootstrap`.
+  - `onApplicationBootstrap(): void` starts `void this.handleReconciliation()` when `enabled()`.
+  - It does not await the sweep, so startup is not delayed.
 - Test: `job-match-reconciliation.cron.spec.ts`.
 
 **Interfaces:**
 
-- `handleDrain` has the same gates as `handleReconciliation`:
-  - it runs only when `JOB_MATCH_RECONCILIATION_ENABLED` is `true`
-  - it shares the `running` flag, so it never overlaps a sweep, and a sweep never overlaps it
-- It does not scan and does not move the cursor.
-- The worst-case load is 2,000 recomputes per 10 minutes, and only while dirty rows exist.
+- Reuse `handleReconciliation` unchanged. It already:
+  - waits for an in-flight drain
+  - recovers expired leases
+  - runs `reconcileOnce` (up to 500 pages × 200 rows) and its capped drain
+  - calls `retireSnapshots`, so stale queue generations are retired
+  - catches and logs its own errors
+  - holds the `running` flag, so a cron tick or a `requestDrain` during the boot sweep is skipped or
+    deferred as today
+- The rows past the sweep's 2,000-row drain are recomputed by the post-run drains of the next
+  collection runs.
+- Every deploy now costs one extra sweep. A sweep enqueues only stale rows, so a repeat sweep is cheap.
 
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
-it('handleDrain claims MATCH dirty rows between sweeps', ...)
-it('handleDrain is a no-op when JOB_MATCH_RECONCILIATION_ENABLED is not true', ...)
-it('handleDrain skips while a sweep is running, and a sweep skips while a drain is running', ...)
-it('handleDrain never touches the scan cursor', ...)
+it('onApplicationBootstrap starts exactly one sweep when JOB_MATCH_RECONCILIATION_ENABLED is true', ...)
+it('onApplicationBootstrap is a no-op when the flag is not true', ...)
+it('onApplicationBootstrap returns before the sweep resolves (startup not blocked)', ...)
+it('a failing boot sweep is logged and never rejects bootstrap', ...)
+it('a cron tick during the boot sweep is skipped; a requestDrain during it is deferred', ...)
+it('the boot sweep retires queue snapshots when it recomputed rows', ...)
 ```
 
 - [ ] **Steps 2–4:** Run `pnpm --filter @crm/api test -- job-match-reconciliation`. It fails, you
       implement, then it passes.
-- [ ] **Step 5: Commit** `feat(job-sourcing): drain match work every 10 minutes`.
+- [ ] **Step 5: Commit** `feat(job-sourcing): run one match reconciliation sweep at boot`.
 
 **PR 4 done when:**
 
-- Tasks 4.1–4.6 are green, and the web still compiles (`skillOverlap` is additive).
+- Tasks 4.1–4.6 are green, and `pnpm --filter @crm/web typecheck` passes with the fixture change
+  from Task 4.5.
 - The security-reviewer verdict is recorded.
 - Trailer: `ac_verified: 4.1,4.2,4.3,4.4,4.5,4.6`.
 - **Merge gate:** the step (d) SELECT returns `0` (Task 6.2).
 
 **Deploy:** this is the one full recompute.
 
-- **Empty-queue window:** queues stay empty until the reconciliation sweep marks the rows stale and
-  the drain re-evaluates them. That takes the next sweep tick (at :17 every 6 h, so up to 6 h), plus
-  `ceil(rows / 2,000)` × 10 minutes. Deploy right before a tick.
+- **Empty-queue window:** queues stay empty until the boot sweep (Task 4.6) has enqueued the stale
+  rows and the drains have recomputed them. The sweep's own drain covers the first 2,000 rows, and
+  the post-run drain of each collection run covers the rest.
 - **Verify** with owner SELECTs before and after:
 
 ```sql
@@ -1137,8 +1184,8 @@ SELECT count(*) FROM job_opportunity_matches WHERE status = 'LEAD';
 ```
 
 Expected: the `LEAD` count is > 0 once the first drains finish, and each senior's queue is non-empty
-in the UI. If a queue is still empty 1 h after the tick, the drain is the first place to look (the
-api log line `Match reconciliation:`).
+in the UI. If a queue is still empty 1 h after the deploy, look at the api log lines
+`Match reconciliation:` (the boot sweep) and `Match drain:` (the post-run drains) first.
 
 ---
 
@@ -1410,14 +1457,17 @@ real route paths, taken from `routeTree.gen.ts`.
      triage until its first evaluation.
    - The cost is that a NULL row (not yet backfilled) also leaves the ADMIN list until its
      recompute.
-5. **Drain MATCH dirty work every 10 minutes** (Task 4.6).
-   - Recommendation: yes. Without it, the PR 4 deploy empties every senior's queue for
-     `ceil(rows / 2,000)` × 6 h. It also delays every role change and every AI result by up to 6 h.
-   - The alternative is to accept that window and deploy right before a sweep tick.
+5. **Run one reconciliation sweep at boot** (Task 4.6).
+   - Recommendation: yes. Without it, the PR 4 deploy empties every senior's queue until the next
+     6-hourly sweep tick.
+   - The cost is one extra sweep per deploy.
+   - The alternative is to accept that window and deploy right before a :17 tick.
 
 ## Assumptions (A1 — decided, ride into the PR bodies)
 
-- A dedicated `JobRoleAiCronService` is used, not the scheduler from PR #1366, which is still OPEN.
+- The AI pass is a dedicated `JobRoleAiCronService` and is not chained onto the post-run drain from
+  PR #1366. The pass needs the opportunity rows that the drain creates, and a model call must not
+  lengthen the post-run drain's 60 s budget. Its results are picked up by the next post-run drain.
 - The `model` column stays NULL. The inference port does not return a model id.
 - `TECHNICAL_ROLES_SENIOR_ONLY` and `ROLE_MISMATCH` are new codes that the spec does not name.
 - A former senior's stored roles are kept, because `loadRoster` reads only `SENIOR`.
@@ -1428,16 +1478,18 @@ real route paths, taken from `routeTree.gen.ts`.
 
 ## Spec gaps (reported, spec not changed)
 
-1. The spec assumes the scheduler from PR #1366, which is still OPEN. Fix in the plan: a dedicated
-   cron.
+1. The spec places the AI pass on the "#1366 path" (post-fetch processing). PR #1366 is merged
+   (31bc6e5b9) and provides `requestDrain` after every collection run. The plan still uses a
+   dedicated cron (see Assumptions).
 2. `experience[].technologies` lives in `senior_resumes.facts`, not in `content`.
 3. The STUDIO list shows ADMIN opportunities that are not yet evaluated (correction 1 says so
    itself). So a fresh `PENDING` row reaches ADMIN before its first evaluation, which contradicts
    owner decision 1. Fix in the plan: Task 4.5, Open decision 4.
-4. "The window is minutes" is false. MATCH dirty work drains only inside the 6-hourly sweep, at most
-   2,000 rows per tick, and the PR 4 version bump makes every TEAM `LEAD` fail closed until its row
-   is recomputed. Fix in the plan: the roles are set before PR 4 (Task 6.2), and a 10-minute drain
-   (Task 4.6, Open decision 5).
+4. "The window is minutes" is false.
+   - Stale matches are enqueued only by the 6-hourly sweep's `reconcileOnce`.
+   - The PR 4 version bump makes every TEAM `LEAD` fail closed until its row is recomputed.
+   - Fix in the plan: the roles are set before PR 4 (Task 6.2), and a sweep runs at boot (Task 4.6,
+     Open decision 5).
 5. The evidence shape needs a no-resume marker. Without it, "no resume" cannot be told apart from
    "0 of n".
 6. The spec does not name the resume write sites (6+). Task 4.3 lists them.
