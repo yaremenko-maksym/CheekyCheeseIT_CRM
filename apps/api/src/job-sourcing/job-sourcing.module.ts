@@ -51,8 +51,8 @@ import { JobRunLedger } from './ownership/job-run-ledger'
  * "does this HR share a team with this user" rule.
  *
  * There is ONE adapter registry (`JobSourceRegistry`), built by `createProductionRegistry`; it
- * rejects a duplicate type while this module initialises. Adding a source = provide its class here
- * and add it to that factory. `JobSourcingService` keeps no map of its own.
+ * rejects a duplicate type while this module initialises. It holds DOU (legacy) and every wired
+ * REPORTING adapter; adding a source = its provider in that factory plus its `REPORTING_WIRING`. `JobSourcingService` keeps no map of its own.
  *
  * `JobQueueActionRetentionCronService` is a SECOND cron, deliberately separate from
  * `JobSourcingCronService`: it discharges the statutory two-year retention of
@@ -98,8 +98,9 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     DouRssProvider,
     {
       provide: JobSourceRegistry,
+      // The keyed adapters read their credentials through ConfigService (absent = unconfigured).
       useFactory: createProductionRegistry,
-      inject: [DouRssProvider],
+      inject: [DouRssProvider, { token: ConfigService, optional: true }],
     },
     // r5 Task 2.5 T7: THE run ledger (production catalog) and the run worker over it. The T9 admin
     // service resets failures through this same ledger. Nothing calls the worker until T5's
