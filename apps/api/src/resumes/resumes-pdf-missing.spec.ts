@@ -362,6 +362,31 @@ describe('getRenderedPdf — the current PDF object is missing (backlog 447)', (
       expect([...objects.keys()].sort()).toEqual([otherRow, 'resumes/r-10/staged/run-0.pdf'].sort())
     })
 
+    it('every listing page is deleted, not only the first', async () => {
+      const { svc, s3, objects } = await typstFailsOnX()
+      const page2 = `senior-resumes/${OWNER_ID}/pdf/r-1-2222222222222222.pdf`
+      objects.set(page2, Buffer.from('%PDF page two'))
+      s3.listObjects.mockResolvedValueOnce({
+        objects: [{ key: OLD_KEY, sizeBytes: 1, lastModified: new Date(0) }],
+        nextContinuationToken: 'page-2',
+      })
+      await svc.deleteResume(hr, OWNER_ID)
+      expect(s3.listObjects).toHaveBeenCalledWith('page-2', `senior-resumes/${OWNER_ID}/pdf/r-1-`)
+      expect(objects.has(OLD_KEY)).toBe(false)
+      expect(objects.has(page2)).toBe(false)
+    })
+
+    it('a non-Error listing failure is logged as unknown', async () => {
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+      const { svc, s3 } = await typstFailsOnX()
+      s3.listObjects.mockRejectedValue('boom')
+      await svc.deleteResume(hr, OWNER_ID)
+      expect(warn).toHaveBeenCalledWith(
+        'Resume r-1: could not list resumes/r-1/staged/ for deletion: unknown',
+      )
+      warn.mockRestore()
+    })
+
     it('a listing failure does not fail the delete: logged, like a failed object delete', async () => {
       const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
       const { svc, s3, control } = await typstFailsOnX()
