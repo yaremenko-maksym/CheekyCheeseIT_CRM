@@ -101,6 +101,25 @@ const tab = (onDirtyChange?: (dirty: boolean) => void) => (
   <ResumeTab userId="senior-1" displayName="Alex Doe" {...(onDirtyChange && { onDirtyChange })} />
 )
 
+const COMPLETE_FACTS = {
+  ...EMPTY_RESUME_FACTS,
+  headline: 'Backend Engineer',
+  skills: ['TypeScript', 'Node.js', 'PostgreSQL', 'React', 'Docker'],
+  experience: [
+    {
+      company: 'Acme',
+      role: 'Lead Engineer',
+      location: null,
+      start: '2021-01',
+      end: '2024-06',
+      current: false,
+      technologies: [],
+      notes: ['Led a team of five people'],
+    },
+  ],
+  languages: [{ name: 'English', level: 'C1' }],
+}
+
 const FACTS_CHANGED = 'Факти змінено. Надішліть резюме на перевірку знову.'
 
 beforeEach(async () => {
@@ -191,28 +210,7 @@ describe('ResumeTab — callbacks', () => {
   })
 
   it('a Submit answer without a resume moves no focus', async () => {
-    setData(
-      response({
-        facts: {
-          ...EMPTY_RESUME_FACTS,
-          headline: 'Backend Engineer',
-          skills: ['TypeScript', 'Node.js', 'PostgreSQL', 'React', 'Docker'],
-          experience: [
-            {
-              company: 'Acme',
-              role: 'Lead Engineer',
-              location: null,
-              start: '2021-01',
-              end: '2024-06',
-              current: false,
-              technologies: [],
-              notes: ['Led a team of five people'],
-            },
-          ],
-          languages: [{ name: 'English', level: 'C1' }],
-        },
-      }),
-    )
+    setData(response({ facts: COMPLETE_FACTS }))
     submitMock.mockResolvedValue({ resume: null, canEdit: true, canConfirm: false })
     render(tab())
     const submit = screen.getByTestId('resume-facts-submit')
@@ -221,5 +219,23 @@ describe('ResumeTab — callbacks', () => {
     await waitFor(() => expect(submitMock).toHaveBeenCalledTimes(1))
     await act(() => new Promise((settle) => setTimeout(settle, 20)))
     expect(submit).toHaveFocus()
+  })
+
+  it('a VERIFIED resume flagged "re-check needed" offers Submit, which starts the re-check (backlog 442)', async () => {
+    setData(
+      response({
+        facts: COMPLETE_FACTS,
+        verificationStatus: 'VERIFIED',
+        verifiedVersion: 1,
+        recheckNeededAt: '2026-11-15T10:00:00.000Z',
+      }),
+    )
+    submitMock.mockResolvedValue({ resume: null, canEdit: true, canConfirm: false })
+    render(tab())
+    expect(screen.getByTestId('resume-recheck-needed')).toBeInTheDocument()
+    const submit = screen.getByTestId('resume-facts-submit')
+    expect(submit).toBeEnabled()
+    fireEvent.click(submit)
+    await waitFor(() => expect(submitMock).toHaveBeenCalledTimes(1))
   })
 })
