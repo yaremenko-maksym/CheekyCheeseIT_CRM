@@ -81,6 +81,13 @@ describe('an invisible plus a mark at a token edge (SR-H-2)', () => {
     expect(foldAccents('áb', new Set([1]))).toMatchObject({ gaps: new Set([1]) })
     expect(foldAccents('ab', new Set([1]))).toMatchObject({ gaps: new Set([1]) })
     expect(foldAccents('ab́', new Set([0]))).toMatchObject({ gaps: new Set([0]) })
+    // a gap at the text end has no letter after it to start
+    expect(foldAccents('ab', new Set([2]))).toMatchObject({ gaps: new Set() })
+  })
+
+  it('a gap alone is no name: a two-token name still needs its parts', () => {
+    expect(flags('Senior​developer')).toBe(false)
+    expect(flags('Senior​́developer')).toBe(false)
   })
 
   it.each([

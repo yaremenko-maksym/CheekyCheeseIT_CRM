@@ -222,11 +222,11 @@ const INVISIBLE_PATTERN = /[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]/gu
  */
 const CLUSTER_PATTERN =
   /[ᄀ-ᇿꥠ-꥿ힰ-퟿](?:[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]*[ᄀ-ᇿꥠ-꥿ힰ-퟿])*|[^⠀\p{Cf}\p{Default_Ignorable_Code_Point}](?:[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]*\p{M})*/gu
-/** A `CLUSTER_PATTERN` hit that is a jamo run: it starts with a jamo, which the other branch never takes. */
-const isJamoRun = (cluster: string): boolean => /^[ᄀ-ᇿꥠ-꥿ힰ-퟿]/u.test(cluster)
+/** A `CLUSTER_PATTERN` hit that is a jamo run. No anchor needed: the other branch never takes a jamo, so its clusters hold none. */
+const isJamoRun = (cluster: string): boolean => /[ᄀ-ᇿꥠ-꥿ힰ-퟿]/u.test(cluster)
 
-/** One character of `INVISIBLE_PATTERN`; no `g` flag, so `.test` keeps no state. */
-const INVISIBLE_CHAR = /^[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]$/u
+/** Whether one character (the loop hands it one code point) is in `INVISIBLE_PATTERN`; no `g` flag, so `.test` keeps no state. */
+const INVISIBLE_CHAR = /[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]/u
 
 const isLeadingJamo = (c: number): boolean => c >= 0x1100 && c <= 0x1112
 const isVowelJamo = (c: number): boolean => c >= 0x1161 && c <= 0x1175
