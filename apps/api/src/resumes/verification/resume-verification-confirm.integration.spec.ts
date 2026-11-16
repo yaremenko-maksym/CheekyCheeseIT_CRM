@@ -240,6 +240,7 @@ describe.skipIf(!hasDatabaseUrl())('Confirm, staged edit, regenerate — real DB
       verificationErrorCode: null,
       verificationReport: null,
       verifiedVersion: null,
+      recheckNeededAt: null,
       stagedContent: null,
       stagedLayout: null,
       stagedTemplateName: null,
@@ -435,6 +436,16 @@ describe.skipIf(!hasDatabaseUrl())('Confirm, staged edit, regenerate — real DB
     const after = await rowOf()
     expect(after.version).toBe(row.version + 1)
     expect(after.verifiedVersion).toBe(row.version + 1)
+  })
+
+  it('10b. a completed verification clears the re-check flag (backlog 442)', async () => {
+    await setState({ recheckNeededAt: new Date('2026-11-15T10:00:00.000Z') })
+    const row = await awaiting()
+    expect(row.recheckNeededAt).toBeInstanceOf(Date)
+    await service.confirm(HR, OWNER_ID, confirmInput(row))
+    const after = await rowOf()
+    expect(after.verificationStatus).toBe('VERIFIED')
+    expect(after.recheckNeededAt).toBeNull()
   })
 
   // ── Staged edit ───────────────────────────────────────────────────────────
