@@ -164,7 +164,7 @@ for the indicator DTO. PR 3 can deploy after PR 2 in either order with step (d).
   `profileVersion`, `opportunityInputsVersion`, `EVALUATION_RECORD_VERSION` → `'rf.3'`.
 - Modify `apps/api/src/job-sourcing/runtime/recompute-worker.ts`: `DETAIL_FETCH` for `PENDING`.
 - Modify `apps/api/src/job-sourcing/dirty-producers.ts` (`senior.roles`, `senior.resume`), plus the
-  resume write sites listed in Task 4.5.
+  resume write sites listed in Task 4.3.
 - Modify `apps/api/src/job-sourcing/queue/job-queue.service.ts` (`matchFacts`, `toSenior`) and
   `packages/shared/src/schemas/job-sourcing.ts` (`jobQueueCardSeniorSchema.skillOverlap`).
 
@@ -182,7 +182,11 @@ for the indicator DTO. PR 3 can deploy after PR 2 in either order with step (d).
 - Modify `apps/web/app/components/job-queue/MatchedSeniors.tsx` and
   `apps/web/app/components/job-queue/__tests__/card-fixtures.ts`.
 - Modify `apps/api/src/users/role-guards.util.ts`: `assertSeniorRoleFloor` replaces
-  `assertSeniorTechFloor` for `SENIOR`.
+  `assertSeniorTechFloor` for `SENIOR`. Its callers change with it:
+  - `user-creation.service.ts`
+  - `admin-user-update.service.ts`
+  - `users.service.ts` (`updateProfile`, `changeRole`)
+  - the web side: `user-dialog/validation.ts`
 - Create E2E `apps/e2e/tests/senior-roles.spec.ts`.
 
 ---
@@ -1068,3 +1072,317 @@ SELECT count(*) FROM job_opportunity_matches WHERE status = 'LEAD';
 ```
 
 Expected: the `LEAD` count is > 0 after the first drain. Each senior's queue is non-empty in the UI.
+
+---
+
+## PR 5 — UI, role chips, card indicator, floor flip (`feat/roles-5-ui`)
+
+**Reviewers:**
+
+- **security-reviewer** (mandatory): the floor moves on the users write path.
+- **copy-reviewer:** uk and en verdicts, given separately.
+- **ui-ux-designer:** findings only. No UI scoring before the redesign (owner, 2026-11-14).
+- **manual-qa:** User Testing on the real stack at 4 breakpoints.
+
+**Design gate:**
+
+- `design-gate.md` applies: designer-in-the-loop before code.
+- `RolesSection` is a new grouped multi-select. Get its mockup from the ui-ux-designer first, using
+  the existing chip-field pattern (`HrChipsField`, `TechStackSection`).
+- This plan does not design it.
+- `responsive-design.md` is a hard gate: mobile, tablet, laptop, large.
+
+**Lingui:**
+
+- Source strings are `uk`, as in `MatchedSeniors.tsx` (`<Trans>` from `@lingui/react/macro`). `en` is
+  filled in the catalog.
+- Run `pnpm i18n:extract` and then `pnpm i18n:compile`. Commit both catalogs.
+
+### Task 5.1: `RolesSection` in the 3 forms
+
+**Files:**
+
+- Create:
+  - `apps/web/app/components/users/user-dialog/RolesSection.tsx`
+  - its test `apps/web/app/components/users/user-dialog/__tests__/RolesSection.test.tsx`
+- Modify:
+  - `UserDialog.tsx`
+  - `user-dialog/payloads.ts`, `user-dialog/form-defaults.ts`
+  - `HrCreateSeniorDialog.tsx`
+  - `ProfileEditFields.tsx`
+
+**Interfaces:**
+
+- Consumes: `TECHNICAL_ROLE_GROUPS`, `SENIOR_SELECTABLE_ROLES`, `TECHNICAL_ROLE_LABELS`,
+  `TECHNICAL_ROLE_GROUP_LABELS` (Task 1.2).
+- Produces:
+  `RolesSection(props: { value: readonly SeniorSelectableRole[]; onChange(next: SeniorSelectableRole[]): void; error?: string; disabled?: boolean })`.
+  - The 33 senior-selectable roles appear in their groups. `SOFTWARE_ENGINEER` is never shown.
+  - The control is labelled, works by keyboard, and announces its error (`accessibility` skill).
+- Placement:
+  - Shown when the effective role is `SENIOR`. `TechStackSection` stays for every other role (call 5).
+  - `payloads.ts` sends `technicalRoles` only for `SENIOR`, and it stops sending `techStack` for `SENIOR`.
+  - `form-defaults.ts`: `technicalRoles: user?.technicalRoles ?? []`.
+  - `ProfileEditFields`: shown only on a `SENIOR`'s own profile. It autosaves like the stack field
+    does today. An empty selection is not saved; the error is shown instead (the same drop pattern as
+    the existing `pending.techStack` branch).
+
+- [ ] **Step 1: Write the failing tests**
+
+```ts
+it('RolesSection renders 33 options in their groups, never SOFTWARE_ENGINEER', ...)
+it('UserDialog shows RolesSection for SENIOR and TechStackSection for JUNIOR', ...)
+it('switching the dialog role JUNIOR -> SENIOR swaps the section and keeps no stale techStack in the payload', ...)
+it('HrCreateSeniorDialog submits technicalRoles; empty -> inline SENIOR_MIN_ROLES error, no request', ...)
+it('self-edit: removing the last role shows the error and does not autosave', ...)
+```
+
+- [ ] **Step 2: Run** `pnpm --filter @crm/web test -- RolesSection UserDialog HrCreateSeniorDialog ProfileEditFields`. Expected: FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** the same command. Expected: PASS.
+- [ ] **Step 5: Commit** `feat(web): pick technical roles for seniors`.
+
+### Task 5.2: Role chips instead of the stack
+
+**Files:**
+
+- Create: `apps/web/app/components/users/RoleChips.tsx`
+- Modify: `UserRow.tsx`, `OverviewTab.tsx`, `MembersCard.tsx`
+- Test: their existing tests
+
+**Interfaces:** `RoleChips(props: { roles: readonly TechnicalRole[] })` renders the labels.
+
+- For a `SENIOR`, the 3 surfaces show `RoleChips` and not the stack.
+- For any other role, they keep today's stack.
+- A legacy `SENIOR` with no roles shows nothing; it never shows the stale stack.
+
+- [ ] **Step 1: Write the failing tests:**
+  - `UserRow shows role chips for a SENIOR and the stack for a JUNIOR`
+  - `OverviewTab and MembersCard show role chips for a SENIOR`
+  - `a SENIOR with no roles shows no stack`
+- [ ] **Steps 2–4:** Run `pnpm --filter @crm/web test -- UserRow OverviewTab MembersCard`. It fails,
+      you implement, then it passes.
+- [ ] **Step 5: Commit** `feat(web): show senior roles as chips`.
+
+### Task 5.3: Floor flip — `SENIOR_MIN_ROLES` replaces the stack floor for `SENIOR`
+
+**Files:**
+
+- Modify:
+  - `apps/api/src/users/role-guards.util.ts`
+  - `user-creation.service.ts` (the create floor)
+  - `admin-user-update.service.ts` (the update floor)
+  - `users.service.ts` (`updateProfile` self-edit, `changeRole`)
+  - `apps/web/app/components/users/user-dialog/validation.ts`
+- Test: the same API specs as Task 2.4 plus `senior-roles.realdb.integration.spec.ts`, and
+  `apps/web/app/components/users/user-dialog/__tests__/validation.test.ts`.
+
+**Interfaces:**
+
+- Produces `assertSeniorRoleFloor(role: Role, roles: readonly string[] | null): void`. It throws
+  `apiError('SENIOR_MIN_ROLES', 400)` when `role === 'SENIOR'` and roles are empty. It is a no-op for
+  every other role.
+- Call rules mirror today's stack floor exactly, with roles in place of the stack:
+  - create of a `SENIOR`
+  - `existing.role !== 'SENIOR' || rolesChanged` on the admin update
+  - `rolesChanged` on the self-edit
+  - in `changeRole`, only when the user becomes a `SENIOR`, checked against the stored roles
+- `assertSeniorTechFloor` and its 4 call sites are deleted. `seniorTechStackSchema` and the error code
+  `SENIOR_MIN_TECHNOLOGIES` stay in shared and the catalogs, unthrown, so an old client still
+  resolves the text (A1).
+- `changeRole` takes no roles. Making a user a `SENIOR` therefore goes through `PATCH /users/:id`
+  with `role` and `technicalRoles` together. The web `UserDialog` already sends both in one request
+  (spec gap 8).
+- Web `validation.ts`: the same floor, from the same `seniorRolesSchema`. A `SENIOR` with
+  `technicalRoles.length === 0` gets the `SENIOR_MIN_ROLES` message. The stack is not checked for a
+  `SENIOR`.
+
+- [ ] **Step 1: Write the failing tests**
+
+```ts
+it('floor flips in the same PR as the forms: web validation and the API both refuse [] for SENIOR with SENIOR_MIN_ROLES', ...) // Review Focus 1
+it('ADMIN creates a SENIOR without roles -> 400 SENIOR_MIN_ROLES; with roles and no techStack -> 201', ...)
+it('ADMIN PATCH JUNIOR -> SENIOR with technicalRoles in the same body -> 200', ...)
+it('PATCH /users/:id/role JUNIOR -> SENIOR with no stored roles -> 400 SENIOR_MIN_ROLES', ...)
+it('legacy SENIOR with empty roles: an ADMIN phone-only edit passes; a self-edit of the phone passes', ...) // Review Focus 4
+it('a SENIOR self-edit that clears the roles -> 400 SENIOR_MIN_ROLES; an unchanged resubmit passes', ...)
+it('a SENIOR with an empty techStack and valid roles passes every write (stack floor gone)', ...)
+it('JUNIOR writes keep no role floor and no stack floor change', ...)
+// RBAC 403 regression (unchanged guards, now with the new field):
+it('HR PATCH /users/:id with technicalRoles -> 403; JUNIOR PATCH /users/:id/role -> 403', ...)
+```
+
+- [ ] **Step 2: Run** `pnpm --filter @crm/api test -- admin-update-user create-user users.service senior-roles`
+      (scratch `DATABASE_URL`) and `pnpm --filter @crm/web test -- validation`. Expected: FAIL.
+- [ ] **Step 3: Implement.**
+- [ ] **Step 4: Run** the same commands. Expected: PASS.
+- [ ] **Step 5: Commit** `feat(users): seniors need at least one technical role`.
+
+### Task 5.4: Skills-overlap indicator on the card
+
+**Files:**
+
+- Modify `apps/web/app/components/job-queue/MatchedSeniors.tsx`.
+- Modify `apps/web/app/components/job-queue/__tests__/card-fixtures.ts`.
+- Test: `MatchedSeniors.test.tsx`.
+
+**Rules, per matched senior, from `senior.skillOverlap` (Task 4.5):**
+
+- `OVERLAP`:
+  - One label with an ICU plural on `total`: "{matched} з {total} навичок" / "{matched} of {total} skills".
+    copy-reviewer settles the uk plural forms.
+  - A tooltip lists the matched skills. The same list is reachable by keyboard and screen reader;
+    the tooltip is not the only carrier.
+- `NO_RESUME`: "немає резюме" / "no resume".
+- `null`: nothing is rendered.
+- The `matchApproximate` badge stays wired. It is always false now.
+- The indicator never sorts, filters or hides a card (anti-goal).
+
+- [ ] **Step 1: Write the failing tests:**
+  - `shows "5 of 7 skills" with the matched list for OVERLAP`
+  - `shows "no resume" for NO_RESUME, never "0 of n"`
+  - `renders nothing for null`
+  - `the matched list is reachable without hover (keyboard focus / accessible description)`
+  - `two seniors on one card each show their own overlap`
+- [ ] **Steps 2–4:** Run `pnpm --filter @crm/web test -- MatchedSeniors`. It fails, you implement,
+      then it passes.
+- [ ] **Step 5:** Run `pnpm i18n:extract` and `pnpm i18n:compile`. Expected: no missing `en`
+      translation for the new ids.
+- [ ] **Step 6: Commit** `feat(web): skills overlap per matched senior on queue cards`.
+
+### Task 5.5: E2E
+
+**Files:** Create `apps/e2e/tests/senior-roles.spec.ts`. Follow `playwright-patterns`: testids,
+Radix-safe selectors and no retries. Run `browser_snapshot` before you write any selector.
+
+- [ ] **Step 1: Write the specs**
+
+```ts
+test('ADMIN creates a SENIOR with roles; the users list shows the role chips', ...)
+test('ADMIN cannot save a SENIOR with no roles: inline error, no request leaves', ...)
+test('HR creates a senior with roles from the team list', ...)
+test('a SENIOR edits own roles on the profile; clearing all roles shows the error', ...)
+test('the queue card shows the overlap label for a seeded LEAD', ...)  // seeded by fixture, no hardcoded ids
+test('HR PATCH /users/:id with technicalRoles is refused with 403 at the backend', ...) // real API, not mocked
+test('mobile 390px: RolesSection is usable and the card label wraps without overflow', ...)
+```
+
+- [ ] **Step 2: Run** `pnpm --filter @crm/e2e test -- senior-roles` locally, against a scratch
+      `DATABASE_URL`. Expected: 7 passed, a count that is not zero.
+- [ ] **Step 3: Commit** `test(e2e): senior roles flows`.
+
+**PR 5 done when:**
+
+- Tasks 5.1–5.5 are green.
+- `pnpm typecheck`, `pnpm test` and the E2E run pass.
+- The PR has playwright screenshots of the 3 forms and the card at 4 breakpoints.
+- The security-reviewer and copy-reviewer verdicts are recorded, and manual-qa User Testing is done.
+
+Trailer: `ac_verified: 5.1,5.2,5.3,5.4,5.5`. Add `vision: ✓ /users, /team, /profile, /job-queue` with the
+real route paths, taken from `routeTree.gen.ts`.
+
+---
+
+## Cross-PR gates
+
+### Task 6.1: AI flag goes on only when the worker is wired
+
+- [ ] **Step 1:** Merging PR 3 leaves `JOB_ROLE_AI_ENABLED` unset (false) in `deploy.yml`.
+- [ ] **Step 2:** The DevOps follow-up sets it `true` only with the worker's env (Open decision 1).
+- [ ] **Step 3:** Verify after that deploy, with the owner's SELECT
+      `SELECT outcome, count(*) FROM job_role_classifications GROUP BY 1`.
+      Expected: rows appear within 2 ticks. With the provider unset, `role_status = 'PENDING'` rows
+      stay hidden and the queue still loads.
+
+### Task 6.2: PR 4 merge gate
+
+- [ ] **Step 1:** Before you apply `merge-approved` to PR 4, the owner runs the step (d) SELECT.
+      Expected: `0`.
+- [ ] **Step 2:** If it returns anything else, do not merge. Repeat step (d) for the missing seniors,
+      then re-run the SELECT. A senior with no roles would get an empty queue for up to one 6-hour
+      sweep.
+
+---
+
+## Open decisions (A2 — batch for the owner)
+
+1. **Wire the extraction worker's env and turn on `JOB_ROLE_AI_ENABLED` in prod.**
+   - Recommendation: yes, as a DevOps follow-up after PR 3.
+   - Until then, every vacancy the rules leave unclassified stays `PENDING` and hidden. That is
+     safe, but some vacancies are lost.
+2. **Gate the `DETAIL_FETCH` of `PENDING` vacancies on `JOB_ROLE_AI_ENABLED`** (Task 4.4).
+   - It is an external GET to a job site.
+   - Recommendation: gate it. With AI off, a fetch buys nothing.
+3. **Accept losing team triage grants.** Today they fire only for an unknown stack, and every
+   vacancy that reaches the scopes now has a role.
+   - Recommendation: accept. Remove the grant code later, in its own PR.
+   - The alternative needs a new design for "team sees unclassified vacancies", which contradicts
+     "PENDING is hidden".
+
+## Assumptions (A1 — decided, ride into the PR bodies)
+
+- A dedicated `JobRoleAiCronService` is used, not the scheduler from PR #1366, which is still OPEN.
+- The `model` column stays NULL. The inference port does not return a model id.
+- `TECHNICAL_ROLES_SENIOR_ONLY` and `ROLE_MISMATCH` are new codes that the spec does not name.
+- A former senior's stored roles are kept, because `loadRoster` reads only `SENIOR`.
+- `SENIOR_MIN_TECHNOLOGIES` stays in the catalogs, unthrown.
+- The skill overlap is read from `content.skills` ∪ `facts.experience[].technologies`.
+- The cache is never looked up without a description sha.
+
+## Spec gaps (reported, spec not changed)
+
+1. The spec assumes the scheduler from PR #1366, which is still OPEN. Fix in the plan: a dedicated
+   cron.
+2. `experience[].technologies` lives in `senior_resumes.facts`, not in `content`.
+3. The STUDIO list shows ADMIN opportunities that are not yet evaluated. PENDING hiding must hold
+   there too (Task 4.5).
+4. "The window is minutes" is optimistic: the sweep runs 2,000 rows per 6 h. Fix in the plan: the
+   roles are set before PR 4 (Task 6.2).
+5. The evidence shape needs a no-resume marker. Without it, "no resume" cannot be told apart from
+   "0 of n".
+6. The spec does not name the resume write sites (6+). Task 4.3 lists them.
+7. The spec has no storage for the AI retry backoff. Fix in the plan: `attempts` and
+   `next_attempt_at`.
+8. `PATCH /users/:id/role` cannot set roles, so under the floor it refuses the change to SENIOR.
+   Fix in the plan: the role change goes through `PATCH /users/:id`.
+9. The inference port returns no model id, so `model` stays NULL.
+10. The spec has no reason code for a per-senior role mismatch. Fix in the plan: `ROLE_MISMATCH`.
+11. Team triage grants never fire once the unknown-stack TRIAGE is gone (Open decision 3).
+12. The spec has no error code for giving roles to a non-SENIOR. Fix in the plan:
+    `TECHNICAL_ROLES_SENIOR_ONLY`.
+
+## Self-review
+
+1. **Spec coverage.** Each spec section maps to a task:
+
+   | Spec section                  | Tasks                                       |
+   | ----------------------------- | ------------------------------------------- |
+   | Data                          | 1.1, 1.2, 2.1, 2.3                          |
+   | Classifier                    | 1.4, 2.3                                    |
+   | AI fallback                   | 3.1–3.4, 6.1                                |
+   | Matching and widening         | 1.1, 4.1                                    |
+   | Indicator                     | 1.3, 4.1, 4.5, 5.4                          |
+   | UI                            | 5.1, 5.2, 5.4                               |
+   | Prod migration                | 2.1, 2.2, step (d), 4.x, 6.2                |
+   | RBAC                          | 2.4, 5.3, 4.5 (visibility)                  |
+   | Calls 1–7 and the corrections | 1.4 (1), 1.1 (2), 1.3 (3), 4.1 (6), 4.2 (7) |
+
+   Call 4 (`role_family`) needs no task.
+
+2. **Step scan.** Every step names a file, a signature, a test name or a command with its expected
+   result. No step says "handle edge cases".
+3. **Type consistency.** These names are used the same way in every task:
+   - `OpportunityRoles`, `RoleStatus`
+   - `rolesMatch`, `skillOverlap`
+   - `SeniorTechProfile.roles` / `.skills`
+   - `technicalRoles`
+   - `SENIOR_MIN_ROLES`, `ROLE_MATCH`, `ROLE_MISMATCH`
+   - `JOB_ROLE_AI_ENABLED`
+4. **Review Focus.** Each of the 5 lines has a pinned test:
+   - 1: Tasks 2.4 and 5.3
+   - 2: Task 3.3
+   - 3: Task 4.2
+   - 4: Task 5.3
+   - 5: Task 4.4
+5. **Proportion.** The plan gives signatures, test names and commands; it carries no function bodies.
+   Its length comes from the 5 PRs and their deploy gates.
