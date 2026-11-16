@@ -276,9 +276,9 @@ expect(rolesMatch(['QA_ENGINEER'], ['DATA_ANALYST']).matched).toEqual([])
   - `'SENIOR_MIN_ROLES'` in the `ZodErrorCode` list and the api-error code list. Its en fallback is
     `'A senior needs at least one technical role'`. Its uk message goes through copy-reviewer.
 
-- [ ] **Step 1: Write the failing tests.** `every role and group has a label descriptor with a stable
-  id`: the ids are `technical-role.<ID>` and `technical-role-group.<ID>`. Add `SENIOR_MIN_ROLES`
-      to the existing completeness test in `api-errors.spec.ts`.
+- [ ] **Step 1: Write the failing tests.** Test name: "every role and group has a label descriptor
+      with a stable id". The ids are `technical-role.<ID>` and `technical-role-group.<ID>`. Add
+      `SENIOR_MIN_ROLES` to the existing completeness test in `api-errors.spec.ts`.
 - [ ] **Step 2: Run** `pnpm --filter @crm/shared test`. Expected: FAIL.
 - [ ] **Step 3: Implement** the descriptors and the code, then run `pnpm i18n:extract`. Every new id
       must exist in both catalogs, with no empty `en` translation.
