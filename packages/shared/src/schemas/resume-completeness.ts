@@ -229,6 +229,7 @@ const isJamoRun = (cluster: string): boolean => /[ᄀ-ᇿꥠ-꥿ힰ-퟿]/u.test(
 const INVISIBLE_CHAR = /[⠀\p{Cf}\p{Default_Ignorable_Code_Point}]/u
 
 /** A character `normaliseContactText` has to cluster: a stripped one, a mark or a conjoining jamo. */
+// Stryker disable next-line Regex: equivalent — a wider class only sends more text to the cluster loop, which returns the same
 const CLUSTERED_CHAR = /[⠀\p{Cf}\p{Default_Ignorable_Code_Point}\p{M}ᄀ-ᇿꥠ-꥿ힰ-퟿]/u
 
 /** The offset maps of text in which every code point is its own cluster and maps to itself. */
@@ -300,6 +301,7 @@ export function normaliseContactText(text: string): {
 } {
   // Most text has nothing to cluster and is NFKC already: every code point is then its own cluster
   // and maps to itself, so the per-cluster loop below would return the text unchanged.
+  // Stryker disable next-line ConditionalExpression,BlockStatement: equivalent — skipping the fast path leaves the loop, which returns the same
   if (!CLUSTERED_CHAR.test(text) && text.normalize('NFKC') === text) {
     return { text, ...identityMaps(text), gaps: new Set() }
   }
@@ -349,6 +351,7 @@ const UNDECOMPOSED: Record<string, string> = {
   Ħ: 'H',
 }
 /** A mark or an `UNDECOMPOSED` letter: a character `foldAccents` changes in NFD-stable text. */
+// Stryker disable next-line StringLiteral: equivalent — a wider class only sends more text to the fold loop, which returns the same
 const FOLDED_CHAR = new RegExp(String.raw`[\p{M}${Object.keys(UNDECOMPOSED).join('')}]`, 'u')
 
 /**
@@ -361,6 +364,7 @@ export function foldAccents(
   gaps: ReadonlySet<number> = new Set(),
 ): { text: string; from: number[]; to: number[]; gaps: Set<number> } {
   // No gap, no mark, nothing NFD splits and no hand-folded letter: the loop below would keep the text.
+  // Stryker disable next-line ConditionalExpression,BlockStatement: equivalent — skipping the fast path leaves the loop, which returns the same
   if (gaps.size === 0 && text.normalize('NFD') === text && !FOLDED_CHAR.test(text)) {
     return { text, ...identityMaps(text), gaps: new Set() }
   }

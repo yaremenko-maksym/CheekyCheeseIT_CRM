@@ -107,6 +107,29 @@ describe('an invisible plus a mark at a token edge (SR-H-2)', () => {
   })
 })
 
+describe('text with nothing to cluster or fold keeps its offsets (PR #1351 round 4, finding 7)', () => {
+  it('maps each code point to itself, an astral one as two code units', () => {
+    expect(normaliseContactText('a\u{10000}b\u{1F600}')).toEqual({
+      text: 'a\u{10000}b\u{1F600}',
+      from: [0, 1, 1, 3, 4, 4],
+      to: [1, 3, 3, 4, 6, 6],
+      gaps: new Set(),
+    })
+    expect(foldAccents('a\u{10000}b')).toEqual({
+      text: 'a\u{10000}b',
+      from: [0, 1, 1, 3],
+      to: [1, 3, 3, 4],
+      gaps: new Set(),
+    })
+  })
+
+  it('a mark, a stripped character or a hand-folded letter still goes through the clusters', () => {
+    expect(normaliseContactText('q́x')).toMatchObject({ from: [0, 0, 2], to: [2, 2, 3] })
+    expect(normaliseContactText('a⠀b')).toMatchObject({ text: 'ab', gaps: new Set([1]) })
+    expect(foldAccents('q́ł')).toMatchObject({ text: 'ql', from: [0, 2], to: [2, 3] })
+  })
+})
+
 describe('an invisible between name parts is a name gap (SR-M-3)', () => {
   it.each(['﻿', '​', '⁠', '­'].map((c) => [c.codePointAt(0)?.toString(16), c]))(
     'flags the name joined by U+%s, in either order',
