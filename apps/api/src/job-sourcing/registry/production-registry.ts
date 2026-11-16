@@ -50,7 +50,10 @@ function reportingProviders(
     credential: readQuotaCredential(provider, read),
   })
   // U10: Greenhouse carries `collectDetail` only once its manifest entry is flipped to ON_DEMAND.
-  const greenhouseMode = onDemand.includes('GREENHOUSE_ATS') ? 'ON_DEMAND' : 'IN_LIST'
+  const greenhouseMode = onDemand.includes('GREENHOUSE_ATS')
+    ? // Stryker disable next-line StringLiteral: equivalent — `createGreenhouseProvider` branches on `mode === 'IN_LIST'` only, so '' builds the same ON_DEMAND provider; `DetailMode` refuses '' at compile time.
+      'ON_DEMAND'
+    : 'IN_LIST'
   return [
     arbeitnowProvider,
     ashbyProvider,
