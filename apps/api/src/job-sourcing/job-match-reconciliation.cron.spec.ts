@@ -276,6 +276,8 @@ describe('requestDrain: the post-run match drain', () => {
     await svc.requestDrain()
     expect(runOnce).toHaveBeenCalledTimes(2)
     expect(MATCH_DRAIN_BUDGET_MS).toBe(60_000)
+    // the pass's own duration: the last reading minus its start
+    expect(String(log.mock.calls[0]?.[0])).toContain('durationMs=60000')
   })
 
   it('nothing recomputed: no retire and no log line', async () => {
