@@ -44,9 +44,9 @@ import type { ReportingWiring } from './registered-adapter'
  * constant, or the exported `*AllowedHosts` of the adapters that already declared one), and
  * `reporting-wiring.spec.ts` asserts every request each adapter makes stays on its list.
  *
- * !! THIS IS DATA, NOT A REGISTRY, AND IT ACTIVATES NOTHING. Registering an adapter is a separate
- * step (the production registry holds DOU only); the claim also needs an activatable type and a
- * ready manifest entry. Wiring only lifts `TRANSPORT_NOT_WIRED` for an adapter once registered.
+ * !! THIS IS DATA, NOT A REGISTRY, AND IT ACTIVATES NOTHING. `createProductionRegistry` registers
+ * every type listed here with its entry; the claim also needs an activatable type and a ready
+ * manifest entry. Wiring only lifts `TRANSPORT_NOT_WIRED` for a registered adapter.
  *
  * Deliberately NOT wired (no entry, so `TRANSPORT_NOT_WIRED` keeps them off):
  *  - `REED_API`: its adapter does not yet reserve per request (T7 AC 9 excepted it; a separate task).
