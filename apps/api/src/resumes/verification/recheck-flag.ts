@@ -19,9 +19,11 @@ export const redactionInputChanged = (
 /**
  * Backlog 442: a user row edit that really changes a redaction input flags the owner's VERIFIED
  * resume "re-check needed". Call it inside the transaction of the user write and BEFORE its
- * UPDATE: it reads the values the write replaces under `FOR UPDATE`, so a concurrent writer cannot
- * make the compare stale, and the flag commits or rolls back with the write. A resume in any other
- * status is not flagged: its next confirm reads the new values.
+ * UPDATE: it reads the values the write replaces under `FOR NO KEY UPDATE` (it conflicts with
+ * every other writer of the row, not with a key-share lock of an FK insert), so a concurrent writer
+ * cannot make the compare stale, and the flag commits or rolls back with the write. A resume in any
+ * other status is not flagged: a staged result is stamped with the owner key of these values
+ * (`renderOwnerKey`), so its confirm is refused as stale after the change and a new run is needed.
  */
 export async function markResumeRecheckNeeded(
   tx: DrizzleTx,
@@ -37,7 +39,7 @@ export async function markResumeRecheckNeeded(
     })
     .from(users)
     .where(eq(users.id, userId))
-    .for('update')
+    .for('no key update')
   if (!before || !redactionInputChanged(before, set)) return
   await tx
     .update(seniorResumes)

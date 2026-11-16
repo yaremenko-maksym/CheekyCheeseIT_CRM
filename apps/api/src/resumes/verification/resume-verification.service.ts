@@ -26,7 +26,19 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { createHash, randomUUID } from 'node:crypto'
-import { and, eq, inArray, isNotNull, isNull, lt, ne, notInArray, sql, type SQL } from 'drizzle-orm'
+import {
+  and,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  notInArray,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm'
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core'
 import {
   DEFAULT_RESUME_LAYOUT,
@@ -184,6 +196,8 @@ export function draftReset() {
     verificationStartedAt: null,
     verificationErrorCode: null,
     verificationReport: null,
+    // Backlog 442: a DRAFT has nothing verified to re-check; its next confirm reads the owner anew.
+    recheckNeededAt: null,
     ...CLEARED_STAGED,
   }
 }
@@ -461,7 +475,8 @@ export class ResumeVerificationService {
   /**
    * POST submit (202): from DRAFT, FAILED or AWAITING_CONFIRM, queue a full check run and start it off
    * the request path. 422 for a custom template or incomplete facts (P7: no issue list), 409 while a
-   * check or an extraction runs (P5a), 409 RESUME_ALREADY_VERIFIED on an idle VERIFIED row. From
+   * check or an extraction runs (P5a), 409 RESUME_ALREADY_VERIFIED on an idle VERIFIED row unless it
+   * is flagged "re-check needed" (backlog 442: the flag stays until the confirm). From
    * AWAITING_CONFIRM the old staged object goes after commit.
    */
   async submit(
@@ -477,7 +492,7 @@ export class ResumeVerificationService {
       throw apiError('RESUME_VERIFICATION_BUSY', HttpStatus.CONFLICT)
     }
     // Nothing is busy: the facts are checked and confirmed already, a facts change resets to DRAFT.
-    if (row.verificationStatus === 'VERIFIED') {
+    if (row.verificationStatus === 'VERIFIED' && row.recheckNeededAt === null) {
       throw apiError('RESUME_ALREADY_VERIFIED', HttpStatus.CONFLICT)
     }
     const facts = this.factsOf(row)
@@ -506,7 +521,13 @@ export class ResumeVerificationService {
       .where(
         and(
           draftWriteGuard(row),
-          inArray(seniorResumes.verificationStatus, ['DRAFT', 'FAILED', 'AWAITING_CONFIRM']),
+          or(
+            inArray(seniorResumes.verificationStatus, ['DRAFT', 'FAILED', 'AWAITING_CONFIRM']),
+            and(
+              eq(seniorResumes.verificationStatus, 'VERIFIED'),
+              isNotNull(seniorResumes.recheckNeededAt),
+            ),
+          ),
           notInArray(seniorResumes.status, EXTRACTION_BUSY),
           isNull(seniorResumes.templateSource),
           eq(seniorResumes.version, row.version),
@@ -525,7 +546,8 @@ export class ResumeVerificationService {
    * columns and sets VERIFIED with `verified_version` = the new version. `pdfFingerprint` is the
    * caller's fingerprint of the promoted render input (P11): the live PDF endpoint then serves the
    * checked PDF instead of re-rendering it. `owner` is the name and email that fingerprint was
-   * taken with: a staged PDF rendered with other ones is stale too. A miss is 409
+   * taken with, plus the legal name and Telegram the run redacted: a staged result of another owner
+   * state is stale too (backlog 442). A miss is 409
    * RESUME_CONFIRM_STALE. The replaced live PDF object goes after commit.
    */
   async confirm(
@@ -533,14 +555,14 @@ export class ResumeVerificationService {
     input: ConfirmResumeInput,
     viewerId: string,
     pdfFingerprint: string,
-    owner: { displayName: string; email: string },
+    owner: Parameters<typeof renderOwnerKey>[0],
   ): Promise<SeniorResume> {
     this.assertNoExtraction(row)
     // The fingerprint was taken from this read, so it must be the staged result being confirmed.
     if (row.verificationStatus !== 'AWAITING_CONFIRM' || row.verificationRunId !== input.runId) {
       throw apiError('RESUME_CONFIRM_STALE', HttpStatus.CONFLICT)
     }
-    // The staged PDF shows the owner as the run read them; a profile change since then is stale.
+    // The staged result shows and redacts the owner as the run read them; a change since is stale.
     if (storedOwnerKey(row.verificationReport) !== renderOwnerKey(owner)) {
       throw apiError('RESUME_CONFIRM_STALE', HttpStatus.CONFLICT)
     }
