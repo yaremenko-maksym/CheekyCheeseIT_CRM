@@ -498,14 +498,52 @@ describe('the split reading of a stored name is redacted whole, fail-closed (rou
     expect(redactContacts(text, stored(fullName))).toBe(redacted)
   })
 
-  it('a split-reading hit is a name hit and its redacted output keeps no name part', () => {
+  it('a split-reading redaction keeps no name part', () => {
     const ctx = stored('Ivan Petrenko\u200BKovalenko')
     for (const text of ['Ivan Kovalenko', 'Petrenko']) {
-      expect(scanContacts(text, ctx).map((hit) => hit.kind)).toEqual(['name'])
       expect(redactContacts(text, ctx)).not.toMatch(/Ivan|Petrenko|Kovalenko/u)
     }
+  })
+
+  it('the gate scan takes the split reading when the joined reading has one part', () => {
     expect(scanContacts('by Li today', stored('Wei\u200BLi'))).toEqual([
       { kind: 'name', match: 'Li' },
     ])
+    expect(hasContact('by Li today', [stored('Wei\u200BLi')])).toBe(true)
+  })
+})
+
+describe('the gate scan reads the split reading as completeness does (round 8, SR-M-1)', () => {
+  const stored = (fullName: string): ContactContext => ({ fullName, emails: [] })
+
+  it.each([
+    // the joined reading has two parts, so a fragment of a real part does not refuse a text
+    [
+      'Ivan Petr\u200Cin',
+      'Senior engineer in Kyiv since 2020',
+      'Senior engineer [REDACTED] Kyiv since 2020',
+    ],
+    ['Iv\u200Can Petrenko', 'Led an API migration', 'Led [REDACTED] API migration'],
+    [
+      'Ivan Peter\u200Cson',
+      'He mentored a son of a client',
+      'He mentored a [REDACTED] of a client',
+    ],
+    ['Ivan Petrenko\u200BKovalenko', 'Ivan Kovalenko', '[REDACTED]'],
+  ])('stored %j passes %j, still redacted as %j', (fullName, text, redacted) => {
+    expect(scanContacts(text, stored(fullName))).toEqual([])
+    expect(hasContact(text, [stored(fullName)])).toBe(false)
+    // the redaction stays fail-closed on the whole split reading
+    expect(redactContacts(text, stored(fullName))).toBe(redacted)
+  })
+
+  it.each([
+    // main splits a stored name on `\s`, which includes U+FEFF: main reads `in` as the surname,
+    // and main's arm of the union keeps that refusal
+    ['Ivan Petr\uFEFFin', 'Senior engineer in Kyiv since 2020', 'in'],
+    ['Ivan Petr\uFEFFin', 'Ivan in Kyiv', 'in'],
+  ])('stored %j still refuses %j, which main flags', (fullName, text, match) => {
+    expect(scanContacts(text, stored(fullName))).toEqual([{ kind: 'name', match }])
+    expect(hasContact(text, [stored(fullName)])).toBe(true)
   })
 })
