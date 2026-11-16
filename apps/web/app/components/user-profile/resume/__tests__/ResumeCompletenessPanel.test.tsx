@@ -76,6 +76,10 @@ describe('ResumeCompletenessPanel', () => {
     expect(submit).toHaveAccessibleDescription(
       'Резюме вже підтверджено. Змініть факти, щоб надіслати його знову.',
     )
+    // The polite region announces the refusal, not "ready to send".
+    expect(screen.getByTestId('resume-completeness-live')).toHaveTextContent(
+      'Резюме вже підтверджено. Змініть факти, щоб надіслати його знову.',
+    )
     fireEvent.click(submit)
     expect(onSubmit).not.toHaveBeenCalled()
   })
@@ -86,6 +90,9 @@ describe('ResumeCompletenessPanel', () => {
     expect(submit).toBeEnabled()
     expect(submit).not.toHaveAttribute('aria-describedby')
     expect(screen.queryByTestId('resume-facts-submit-already-verified')).not.toBeInTheDocument()
+    expect(screen.getByTestId('resume-completeness-live')).toHaveTextContent(
+      'Усе заповнено — можна надсилати',
+    )
     fireEvent.click(submit)
     expect(onSubmit).toHaveBeenCalledTimes(1)
   })
@@ -96,6 +103,7 @@ describe('ResumeCompletenessPanel', () => {
     expect(submit).toBeDisabled()
     expect(submit).toHaveAccessibleDescription('Спершу заповніть поля зі списку')
     expect(screen.queryByTestId('resume-facts-submit-already-verified')).not.toBeInTheDocument()
+    expect(screen.getByTestId('resume-completeness-live')).toHaveTextContent('1 поле')
   })
 
   it('labels each row by its field and its code text', () => {

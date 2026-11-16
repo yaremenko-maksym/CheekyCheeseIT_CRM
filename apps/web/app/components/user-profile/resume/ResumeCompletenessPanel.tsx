@@ -242,7 +242,9 @@ export function ResumeCompletenessPanel({
         </h3>
         {/* One live region that stays mounted, so the clean state is announced too. */}
         <p className="sr-only" aria-live="polite" data-testid="resume-completeness-live">
-          {clean ? (
+          {clean && isAlreadyVerified ? (
+            translateApiError('RESUME_ALREADY_VERIFIED', undefined)
+          ) : clean ? (
             <Trans>Усе заповнено — можна надсилати</Trans>
           ) : (
             <Plural value={issues.length} one="# поле" few="# поля" many="# полів" other="# поля" />
