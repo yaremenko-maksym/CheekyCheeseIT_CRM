@@ -244,3 +244,39 @@ the senior on self-edit). Security review required (users write path).
    everyone.
 2. Prod roles for the 3 seniors → set by the orchestrator through the ADMIN API after deploy.
 3. Widening → approved; every combination checked (matrix above).
+
+## Review round 1 corrections (verified against origin/main)
+
+These override the sections above where they disagree.
+
+1. **Hiding goes through the existing verdict, not a new filter.** `listableOpportunityPredicate`
+   (`queue/queue-scope.ts`) lists in STUDIO every opportunity not `EXCLUDED` at its current
+   revision, and one not yet evaluated stays listed as triage. So `ROLE_PENDING`, `ROLE_UNCLEAR` and
+   non-IT are **opportunity-level evaluation outcomes**: verdict `EXCLUDED` at the current revision
+   with reason `ROLE_PENDING` / `ROLE_UNCLEAR` / `NON_IT` in the CLASSIFICATION stage. Every list,
+   generation and subscription read that already honours `EXCLUDED` hides them with no new
+   predicate. Tests must cover STUDIO list, TEAM list, a team subscription, and the generation.
+2. **Storage.** `job_opportunities` gets `technical_roles text[]` (CHECK: every element in the
+   34-role list), `role_status text` (`RULE` | `AI` | `PENDING` | `UNCLEAR` | `NON_IT`, CHECK) and
+   `role_classifier_version text`. AI results are cached in a new table keyed by
+   `(normalised title, description hash, classifier version)` with roles, confidence and model.
+   `users.technical_roles` CHECK uses the **33 senior-selectable roles** (no `SOFTWARE_ENGINEER`).
+3. **No race with the AI step.** Evaluation reads `role_status`. `PENDING` evaluates to `EXCLUDED`
+   (`ROLE_PENDING`). When the AI step writes a result it marks the opportunity dirty (existing
+   `OPPORTUNITY` dirty work), which re-evaluates it with the new roles. An early evaluation is
+   therefore correct (hidden), not stale.
+4. **Detail-on-demand sources.** The AI step runs only when the description is present (IN_LIST
+   source, or detail already fetched). While the detail is pending the status stays `PENDING`, and
+   `PENDING` must never block the detail fetch (`evaluate.types.ts` detail-pending path). Never
+   classify `UNCLEAR` from a title-only record of a detail-on-demand source.
+5. **Per-senior role mismatch** stays an `EXCLUDED` match row in the CLASSIFICATION stage. Checked:
+   `stop_listed` counts only `evidence.stage = 'SCOPED_RESTRICTIONS'` (`queue/queue-read-sql.ts`), so
+   it does not inflate the stop-list count or produce a false `STOP_LISTED` reason (finding refuted).
+6. **`profileVersion`** = digest(sorted roles, teamIds, **digest of the canonicalised resume
+   skills**), so a resume edit changes `policySignature` and the cached generation is rebuilt.
+7. **Evidence shape.** LEAD by role carries a `ROLE_MATCH` reason (exact or widened) plus the
+   indicator `{ matched, total }`. `matchFacts` (`queue/job-queue.service.ts`) is changed so a role
+   match is not "approximate" and `matchedKeywords` shows the matched skills; its tests move with it.
+8. **Deploy order:** (a) migration; (b) backfill classifier over all stored opportunities; (c)
+   AI pass over the `PENDING` ones (if inference is wired); (d) set the 3 seniors' roles; one full
+   recompute after (d). Not (d) before (b).
