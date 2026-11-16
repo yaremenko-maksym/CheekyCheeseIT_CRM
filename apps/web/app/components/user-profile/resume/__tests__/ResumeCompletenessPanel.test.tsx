@@ -69,6 +69,25 @@ describe('ResumeCompletenessPanel', () => {
     expect(screen.getByRole('button', { name: 'Надіслати на перевірку' })).toBeDisabled()
   })
 
+  it('disables Submit with the already-verified reason when alreadyVerified is set and facts are not changed (backlog 452)', () => {
+    const { onSubmit } = renderPanel({ alreadyVerified: true })
+    const submit = screen.getByRole('button', { name: 'Надіслати на перевірку' })
+    expect(submit).toBeDisabled()
+    expect(submit).toHaveAccessibleDescription(
+      'Резюме вже підтверджено. Змініть факти, щоб надіслати його знову.',
+    )
+    fireEvent.click(submit)
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('enables Submit when alreadyVerified is set but canSave is true because facts changed (backlog 452)', () => {
+    const { onSubmit } = renderPanel({ alreadyVerified: true, canSave: true })
+    const submit = screen.getByRole('button', { name: 'Надіслати на перевірку' })
+    expect(submit).toBeEnabled()
+    fireEvent.click(submit)
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+  })
+
   it('labels each row by its field and its code text', () => {
     const { onFocusField } = renderPanel({
       issues: [{ path: 'experience.1.notes', code: 'NO_NOTES' }],

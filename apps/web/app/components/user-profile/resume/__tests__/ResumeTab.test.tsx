@@ -567,7 +567,12 @@ describe('ResumeTab — the confirm step (Task 19)', () => {
   })
 
   it('a template re-check started elsewhere moves focus from the unmounted panel to its status line', async () => {
-    const verified = { ...complete, verificationStatus: 'VERIFIED' as const, verifiedVersion: 1 }
+    const verified = {
+      ...complete,
+      verificationStatus: 'VERIFIED' as const,
+      verifiedVersion: 1,
+      recheckNeededAt: '2026-11-15T10:00:00.000Z',
+    }
     setData(makeResponse(verified))
     const view = render(tab())
     screen.getByTestId('resume-facts-submit').focus()

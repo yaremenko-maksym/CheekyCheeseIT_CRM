@@ -14,6 +14,7 @@ import { Plural, Trans, useLingui } from '@lingui/react/macro'
 import type { CompletenessCode, CompletenessIssue } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { translateApiError } from '@/lib/axios-utils'
 import { cn } from '@/lib/utils'
 
 /** One text per completeness code; a new code fails the type check. */
@@ -200,6 +201,11 @@ export interface ResumeCompletenessPanelProps {
   /** A check is running (or the viewer cannot write): no action is possible. */
   disabled: boolean
   pending: 'save' | 'submit' | null
+  /**
+   * Backlog 452: the resume is VERIFIED and not flagged for re-check.
+   * While the facts match the saved baseline (`!canSave`), Submit is refused by the server (409 RESUME_ALREADY_VERIFIED).
+   */
+  alreadyVerified?: boolean
 }
 
 export function ResumeCompletenessPanel({
@@ -210,15 +216,19 @@ export function ResumeCompletenessPanel({
   canSave,
   disabled,
   pending,
+  alreadyVerified = false,
 }: ResumeCompletenessPanelProps) {
   const { i18n } = useLingui()
   const issueLabel = useIssueLabel()
   const listId = useId()
   const hintId = useId()
+  const alreadyVerifiedHintId = useId()
   // Collapsed by default on long lists; the toggle only shows below lg.
   const [open, setOpen] = useState(issues.length <= 5)
   const clean = issues.length === 0
-  const submitDisabled = !clean || disabled || pending !== null
+  const isAlreadyVerified = alreadyVerified && !canSave
+  const submitDisabled = !clean || disabled || pending !== null || isAlreadyVerified
+  const describedBy = !clean ? hintId : isAlreadyVerified ? alreadyVerifiedHintId : undefined
 
   return (
     <section
@@ -298,7 +308,7 @@ export function ResumeCompletenessPanel({
           type="button"
           className="h-11 w-full sm:h-9"
           disabled={submitDisabled}
-          aria-describedby={clean ? undefined : hintId}
+          aria-describedby={describedBy}
           onClick={onSubmit}
           data-testid="resume-facts-submit"
         >
@@ -310,6 +320,15 @@ export function ResumeCompletenessPanel({
         {!clean && (
           <p id={hintId} className="text-xs text-muted-foreground">
             <Trans>Спершу заповніть поля зі списку</Trans>
+          </p>
+        )}
+        {clean && isAlreadyVerified && (
+          <p
+            id={alreadyVerifiedHintId}
+            className="text-xs text-muted-foreground"
+            data-testid="resume-facts-submit-already-verified"
+          >
+            {translateApiError('RESUME_ALREADY_VERIFIED', undefined)}
           </p>
         )}
         <Button

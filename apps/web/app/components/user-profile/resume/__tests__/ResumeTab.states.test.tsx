@@ -239,4 +239,53 @@ describe('ResumeTab — callbacks', () => {
     fireEvent.click(submit)
     await waitFor(() => expect(submitMock).toHaveBeenCalledTimes(1))
   })
+
+  it('a VERIFIED resume not flagged for re-check disables Submit with the already-verified reason (backlog 452)', () => {
+    setData(
+      response({
+        facts: COMPLETE_FACTS,
+        verificationStatus: 'VERIFIED',
+        verifiedVersion: 1,
+        recheckNeededAt: null,
+      }),
+    )
+    render(tab())
+    const submit = screen.getByTestId('resume-facts-submit')
+    expect(submit).toBeDisabled()
+    expect(submit).toHaveAccessibleDescription(
+      'Резюме вже підтверджено. Змініть факти, щоб надіслати його знову.',
+    )
+    fireEvent.click(submit)
+    expect(submitMock).not.toHaveBeenCalled()
+  })
+
+  it('editing facts on an unflagged VERIFIED resume enables Submit and saves first (backlog 452)', async () => {
+    setData(
+      response({
+        facts: COMPLETE_FACTS,
+        verificationStatus: 'VERIFIED',
+        verifiedVersion: 1,
+        recheckNeededAt: null,
+      }),
+    )
+    saveFactsMock.mockResolvedValue({})
+    submitMock.mockResolvedValue({ resume: null, canEdit: true, canConfirm: false })
+    render(tab())
+    const submit = screen.getByTestId('resume-facts-submit')
+    expect(submit).toBeDisabled()
+
+    const headline = screen.getByRole('textbox', { name: 'Цільова посада' })
+    fireEvent.change(headline, { target: { value: 'Staff Engineer' } })
+
+    expect(submit).toBeEnabled()
+    fireEvent.click(submit)
+    await waitFor(() => expect(saveFactsMock).toHaveBeenCalledTimes(1))
+    expect(saveFactsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        facts: expect.objectContaining({ headline: 'Staff Engineer' }),
+        silent: true,
+      }),
+    )
+    await waitFor(() => expect(submitMock).toHaveBeenCalledTimes(1))
+  })
 })
