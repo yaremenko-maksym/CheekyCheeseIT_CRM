@@ -634,7 +634,8 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
 
   it('a stored name of many invisible-separated parts is scanned in time linear in its part count (PR #1351 round 9, Addendum A)', () => {
     // The gate's runs of split parts grow with the square of the part count; past 8 parts it takes
-    // none. From 40 to 80 parts the bounded scan measured 1.6x; without the bound, 7x.
+    // none. From 20 to 160 parts a linear scan costs at most 8x (measured 3.8x); without the bound
+    // it measured 208x. The wide gap keeps the ratio stable on a loaded pre-push run.
     const parts = (count: number): string[] =>
       Array.from({ length: count }, (_, i) => ['Li', 'Yu', 'Bo'][i % 3] ?? '')
     const stored = (count: number): ContactContext => ({
@@ -647,15 +648,15 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
       for (let i = 0; i < 20; i++) scanContacts(text, stored(count))
       return cpuMs() - started
     }
-    run(40) // warm-up
-    const short = run(40)
-    const long = run(80)
-    expect(long / short).toBeLessThan(3)
+    run(20) // warm-up
+    const short = run(20)
+    const long = run(160)
+    expect(long / short).toBeLessThan(16)
     expect(long).toBeLessThan(BUDGET_MS * 10)
     // still fail-closed: the full name refuses, and so does a lone short part (round 7's gate)
-    const full = `Ivan ${parts(80).join(' ')}`
-    expect(scanContacts(full, stored(80))).toEqual([{ kind: 'name', match: full }])
-    expect(scanContacts('by Li today', stored(80))).toEqual([{ kind: 'name', match: 'Li' }])
+    const full = `Ivan ${parts(160).join(' ')}`
+    expect(scanContacts(full, stored(160))).toEqual([{ kind: 'name', match: full }])
+    expect(scanContacts('by Li today', stored(160))).toEqual([{ kind: 'name', match: 'Li' }])
   })
 
   it('notes of one cluster full of invisibles are redacted in time linear in their length (PR #1351 round 4, CR-M-2)', () => {
