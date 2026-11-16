@@ -22,6 +22,7 @@ import {
   opportunityInputsVersion,
   type SeniorVersions,
 } from '../runtime/recompute-inputs'
+import { findPgError } from '../../database/pg-errors'
 import { JobQueueService } from './job-queue.service'
 import { JobQueueActionsService } from './queue-actions.service'
 import { parseCursor, signCursor } from './queue-cursor'
@@ -928,7 +929,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       )
     })
 
-    it('the post-run drain retires the snapshots: a fresh vacancy lists at once, without the TTL', async () => {
+    it('the post-run drain retires the snapshots: a fresh opportunity lists at once, without the TTL', async () => {
       await service.list(hrA(), q())
       await service.list(admin(), q())
       const [teamBefore] = await publishedOf('teamA')
@@ -951,6 +952,32 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       const [teamAfter] = await publishedOf('teamA')
       expect(teamAfter).toBeDefined()
       expect(teamAfter).not.toBe(teamBefore)
+    })
+
+    it('PR #1366 CR-M-2/CR-M-3: a retire behind a held team publish lock times out (55P03) and retires nothing', async () => {
+      await service.list(hrA(), q())
+      const before = await publishedOf('teamA')
+      expect(before).toHaveLength(1)
+      const holder = await session.admin.connect()
+      try {
+        await holder.query('BEGIN')
+        // The key `lockScopePublish` builds in JS: the retire's SQL-built team key is the same lock,
+        // or it would not wait at all.
+        await holder.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [
+          `job-queue-generation:TEAM:${id('teamA')}`,
+        ])
+        const err: unknown = await invalidateGenerationsForNewJobs(session.databaseService.db, {
+          lockTimeoutMs: 200,
+        }).then(
+          () => null,
+          (e: unknown) => e,
+        )
+        expect(findPgError(err)?.['code']).toBe('55P03')
+        expect(await publishedOf('teamA')).toEqual(before)
+      } finally {
+        await holder.query('ROLLBACK')
+        holder.release()
+      }
     })
 
     it('an expired head is never served: the first page republishes, a cursor must refresh', async () => {
