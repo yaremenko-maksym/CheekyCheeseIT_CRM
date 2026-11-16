@@ -108,19 +108,23 @@ export class SeniorResumesController {
     }
 
     let file: { buffer: Buffer; mimetype: string; originalname: string } | null = null
-    for await (const part of req.parts({
-      limits: { fileSize: RESUME_SOURCE_MAX_BYTES, files: 1 },
-    }) as AsyncIterable<MultipartField>) {
-      if (part.type !== 'file' || part.fieldname !== 'file') continue
-      if (file) continue // first file wins
-      if (!part.toBuffer) throw apiError('RESUME_UPLOAD_UNREADABLE', HttpStatus.BAD_REQUEST)
-      file = {
-        buffer: await part.toBuffer().catch((err: unknown) => {
-          throw tooLargeUpload(err)
-        }),
-        mimetype: part.mimetype ?? 'application/octet-stream',
-        originalname: part.filename ?? 'resume',
+    try {
+      for await (const part of req.parts({
+        limits: { fileSize: RESUME_SOURCE_MAX_BYTES, files: 1 },
+      }) as AsyncIterable<MultipartField>) {
+        if (part.type !== 'file' || part.fieldname !== 'file') continue
+        // Guard only: `files: 1` already rejects a second file part, so this is a guard for a future change to `files`.
+        if (file) continue // first file wins
+        if (!part.toBuffer) throw apiError('RESUME_UPLOAD_UNREADABLE', HttpStatus.BAD_REQUEST)
+        file = {
+          buffer: await part.toBuffer(),
+          mimetype: part.mimetype ?? 'application/octet-stream',
+          originalname: part.filename ?? 'resume',
+        }
       }
+    } catch (err) {
+      // The iterator and toBuffer both reject with the size error; one mapping covers both.
+      throw tooLargeUpload(err)
     }
     if (!file) throw apiError('RESUME_UPLOAD_NO_FILE', HttpStatus.BAD_REQUEST)
 
@@ -325,9 +329,9 @@ export function resumeContentDisposition(displayName: string): string {
 }
 
 /**
- * QA-LOW-4. Past the global multipart `fileSize` limit (main.ts) `toBuffer` throws
- * `FST_REQ_FILE_TOO_LARGE`, a 413 with no code; the resume upload answers it with its own coded
- * 413. Any other failure goes on as it is.
+ * QA-LOW-4. Past the per-route `fileSize` limit passed to `req.parts` (see `uploadSource`), the
+ * multipart plugin throws `FST_REQ_FILE_TOO_LARGE`, a 413 with no code; the resume upload answers
+ * it with its own coded 413. Any other failure goes on as it is.
  */
 function tooLargeUpload(err: unknown): unknown {
   if ((err as { code?: unknown } | null)?.code !== 'FST_REQ_FILE_TOO_LARGE') return err

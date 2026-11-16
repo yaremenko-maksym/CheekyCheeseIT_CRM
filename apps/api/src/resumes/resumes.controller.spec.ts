@@ -319,6 +319,34 @@ describe('uploadSource refuses a malformed upload by code (backlog 443)', () => 
     expect(service.uploadSource).not.toHaveBeenCalled()
   })
 
+  // Round 4: the iterator can reject too (an oversize part skipped while reading the stream).
+  it('the multipart iterator rejecting with FST_REQ_FILE_TOO_LARGE is the same coded 413', async () => {
+    const tooLarge = Object.assign(new Error('request file too large'), {
+      code: 'FST_REQ_FILE_TOO_LARGE',
+      statusCode: 413,
+    })
+    const service = { uploadSource: vi.fn(async (..._args: unknown[]) => 'queued') }
+    const req = {
+      isMultipart: () => true,
+      parts: vi.fn(async function* () {
+        yield {
+          type: 'file',
+          fieldname: 'skipped',
+          toBuffer: () => Promise.resolve(Buffer.alloc(0)),
+        }
+        throw tooLarge
+      }),
+    }
+    const controller = new SeniorResumesController(service as never)
+    await expect(
+      controller.uploadSource(OWNER, req as never, hr as SessionUser),
+    ).rejects.toMatchObject({
+      status: 413,
+      response: { code: 'RESUME_FILE_TOO_LARGE', params: { mb: 10 } },
+    })
+    expect(service.uploadSource).not.toHaveBeenCalled()
+  })
+
   it('any other read failure of the file part is rethrown as it is', async () => {
     const broken = new Error('socket hang up')
     const { run } = upload([
