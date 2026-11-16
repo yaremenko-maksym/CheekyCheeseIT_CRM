@@ -155,7 +155,18 @@ describe('setEnabled — enable', () => {
   it('arms the slot (param true) only for a source whose entry has a fetch profile', async () => {
     const armed = harness({ source: source() })
     await armed.ledger.setEnabled({ sourceId: SOURCE, actor: ACTOR, enabled: true })
-    expect(updates(armed.statements)[0]?.params).toEqual([true, 'ENABLED', ACTOR, true, SOURCE])
+    // [enabled, kind, actor, arm, window minutes (SpecCatalog: daily profile, no floor), id]
+    expect(updates(armed.statements)[0]?.params).toEqual([
+      true,
+      'ENABLED',
+      ACTOR,
+      true,
+      1440,
+      SOURCE,
+    ])
+    expect(updates(armed.statements)[0]?.sql).toContain(
+      'last_attempt_at + make_interval(mins => $5::int)',
+    )
 
     const nullProfile = new SpecCatalog()
     nullProfile.add(MANIFEST, { fetchProfile: null })
@@ -163,7 +174,30 @@ describe('setEnabled — enable', () => {
     expect(
       await unarmed.ledger.setEnabled({ sourceId: SOURCE, actor: ACTOR, enabled: true }),
     ).toMatchObject({ kind: 'SWITCHED', changed: true })
-    expect(updates(unarmed.statements)[0]?.params).toEqual([true, 'ENABLED', ACTOR, false, SOURCE])
+    expect(updates(unarmed.statements)[0]?.params).toEqual([
+      true,
+      'ENABLED',
+      ACTOR,
+      false,
+      1440,
+      SOURCE,
+    ])
+  })
+
+  it('a LEGACY source (no manifest entry) is enabled without arming a slot', async () => {
+    const h = harness({ source: source({ type: 'DOU_RSS', manifest_id: null }) })
+    expect(await h.ledger.setEnabled({ sourceId: SOURCE, actor: ACTOR, enabled: true })).toEqual({
+      kind: 'SWITCHED',
+      changed: true,
+      cancelledRuns: 0,
+    })
+    expect(updates(h.statements)[0]?.params?.[3]).toBe(false)
+  })
+
+  it('disable never arms, even for a profiled source', async () => {
+    const h = harness({ source: source({ enabled: true }) })
+    await h.ledger.setEnabled({ sourceId: SOURCE, actor: ACTOR, enabled: false })
+    expect(updates(h.statements)[0]?.params?.slice(0, 4)).toEqual([false, 'DISABLED', ACTOR, false])
   })
 
   it('isReportingType: true only for a registered REPORTING contract', () => {

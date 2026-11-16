@@ -151,6 +151,18 @@ export function nextAttemptAt(
   })
 }
 
+/**
+ * After an attempt, how long an ADMIN enable neither fetches at once nor arms a slot sooner
+ * (SR-H-1): max(profile interval, host floor), whole minutes rounded up; a null profile or an
+ * entry the catalog does not hold, 24 h. The enable fetch and the enable slot share it.
+ */
+export function enableWindowMinutes(
+  entry: Pick<LedgerCatalogEntry, 'fetchProfile' | 'floorHours'> | undefined,
+): number {
+  if (entry === undefined || entry.fetchProfile === null) return DAY_MS / 60_000
+  return Math.ceil(Math.max(entry.fetchProfile.intervalMinutes, entry.floorHours * 60))
+}
+
 export type RefusalWrite =
   | { readonly kind: 'NONE' }
   /** `next_attempt_at = NULL`: never due by schedule again (a NULL is not due). */

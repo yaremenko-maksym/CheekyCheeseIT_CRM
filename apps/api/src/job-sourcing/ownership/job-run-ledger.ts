@@ -38,6 +38,7 @@ import {
   enableRefusal,
   endingEffect,
   isSweepable,
+  enableWindowMinutes,
   manualTermRefusal,
   nextAttemptAt,
   nextSlowdownLevel,
@@ -1057,8 +1058,9 @@ export class JobRunLedger {
    *  - Enable never touches the quota, the failure counter, the cooldown, the reasons or the
    *    readiness. It arms an EMPTY slot only, and only for a scheduled source (a catalog entry with
    *    a fetch profile): a NULL `next_attempt_at` becomes now (a seeded source is never due
-   *    otherwise), an existing slot (a backoff included) is kept, a null-profile or LEGACY source
-   *    stays unscheduled. It is refused
+   *    otherwise), and the slot is never moved earlier -- a backoff stands -- nor sooner than
+   *    `enableWindowMinutes` after `last_attempt_at`. A null-profile or LEGACY source stays
+   *    unscheduled. It is refused
    *    `NOT_READY` unless the stored readiness and the
    *    manual claim gate both pass (a LEGACY source has no gate), and `AUTH_PAUSED` while an
    *    `ACCESS_POLICY` refusal stands (only `resetFailures` clears it).
@@ -1067,7 +1069,7 @@ export class JobRunLedger {
    *    the owner is fenced: its heartbeat, `assertOwned` and `finish` all see a run that is no
    *    longer STARTED. Queued work cannot start: every claim path refuses a disabled source.
    *    Disable leaves `job_sources`' scheduling columns alone, so a later enable resumes where it
-   *    was (only an empty slot is armed, see above).
+   *    was (enable arms or defers the slot only as above).
    *
    * RBAC is the caller's (T9 service).
    */
@@ -1106,13 +1108,19 @@ export class JobRunLedger {
       const manifestId = row['manifest_id']
       const entry = typeof manifestId === 'string' ? this.catalog.entry(manifestId) : undefined
       const arm = input.enabled && entry !== undefined && entry.fetchProfile !== null
+      // SR-H-1: never sooner than the last attempt's window (the enable fetch's freshness rule), so
+      // enable -> disable (the cancel leaves the slot) -> enable gives the tick no second fetch.
+      // GREATEST ignores a NULL `last_attempt_at`: a never-attempted source is due now.
+      const windowMinutes = enableWindowMinutes(entry)
       await tx.execute(
         sql`UPDATE job_sources
                SET enabled = ${input.enabled},
                    admin_state_history = admin_state_history || jsonb_build_array(jsonb_build_object(
                      'kind', ${kind}::text, 'actor', ${input.actor}::text, 'at', clock_timestamp())),
                    next_attempt_at = CASE WHEN ${arm}::boolean
-                     THEN COALESCE(next_attempt_at, clock_timestamp()) ELSE next_attempt_at END,
+                     THEN GREATEST(COALESCE(next_attempt_at, clock_timestamp()),
+                                   last_attempt_at + make_interval(mins => ${windowMinutes}::int))
+                     ELSE next_attempt_at END,
                    updated_at = clock_timestamp()
              WHERE id = ${input.sourceId}::uuid`,
       )

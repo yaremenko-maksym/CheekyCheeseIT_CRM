@@ -31,7 +31,7 @@ import { DatabaseService } from '../../database/database.service'
 import { jobCollectionRuns, jobSourceHealthEvents, jobSources, users } from '../../database/schema'
 import { type LatestTransition, latestHealthTransitions } from '../health/latest-transitions'
 import { JobRunLedger } from '../ownership/job-run-ledger'
-import { CLAIM_REFUSALS, nextAttemptAt } from '../ownership/ledger-policy'
+import { CLAIM_REFUSALS, enableWindowMinutes, nextAttemptAt } from '../ownership/ledger-policy'
 import { JobRunWorker } from '../runtime/job-run-worker'
 import { MAX_CONSECUTIVE_FAILURES } from '../scheduling/due-policy'
 import { isFreshForEnable, msOrNull } from './enable-fetch-freshness'
@@ -143,8 +143,10 @@ export class JobSourceAdminService {
    * manual path (`claimSource` keeps every gate). Freshness is the last ATTEMPT (`last_attempt_at`,
    * stamped on every claim), so an enable/disable loop cannot start a fetch per enable (SR-H-1). A
    * refusal or a failure is logged; the slot `setEnabled` armed lets the next tick pick the source
-   * up. The run's own end (`finish`, or the disable cancel) moves `next_attempt_at` to the next
-   * cadence slot, so that tick does not fetch again. The MANUAL cycle is always closed.
+   * up. No tick double fetch: a tick during the run is single-flight (`NOT_RUNNING`, no write), the
+   * run's `finish` moves `next_attempt_at` to the next cadence slot, and a re-enable after a
+   * disable-cancel (which leaves the slot) defers the slot past the attempt's window. The MANUAL
+   * cycle is always closed.
    */
   private async fetchIfStale(sourceId: string, actor: string, worker: JobRunWorker): Promise<void> {
     const { rows } = await this.database.db.execute(
@@ -162,8 +164,7 @@ export class JobSourceAdminService {
     const fresh = isFreshForEnable({
       lastAttemptAtMs: msOrNull(row['last_attempt_ms']),
       nowMs: msOrNull(row['now_ms']),
-      intervalMinutes: entry?.fetchProfile?.intervalMinutes ?? null,
-      floorHours: entry?.floorHours ?? 0,
+      windowMinutes: enableWindowMinutes(entry),
     })
     if (fresh) return
     const tag = `source_id=${sourceId} source_type=${String(row['type'])}`
