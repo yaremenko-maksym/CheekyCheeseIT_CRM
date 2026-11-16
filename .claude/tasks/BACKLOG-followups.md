@@ -8192,6 +8192,8 @@ Sources: verified-base-resume Task 26 manual QA, finding QA-L-2.
 
 ## 447. Resume PDF download returns 500 when the stored PDF object is missing (2026-11-16)
 
+**Closed (2026-11-16).** PR #1360 (a missing live PDF object re-queues the render and answers 202 QUEUED instead of a 500). Reopen if the Verify check below fails.
+
 **Symptoms.** `GET /api/users/:userId/resume/pdf` reads `pdf_s3_key` with `S3Service.getObject` and lets a
 `NoSuchKey` through as a 500. The row still says the PDF is ready, the same fingerprint means no re-render is
 queued, so the download stays broken until the source changes.
@@ -8205,6 +8207,8 @@ after the render lands the same endpoint returns the PDF.
 Sources: PR #1352 (orphan sweep, backlog 441) fix round 1.
 
 ## 448. Staged resume PDFs under `resumes/<id>/staged/` have no orphan sweep (2026-11-16)
+
+**Closed (2026-11-16).** PR #1360 (the orphan sweep also deletes aged unreferenced `resumes/<id>/staged/<run>.pdf` objects). Reopen if the Verify check below fails.
 
 **Symptoms.** `ResumeOrphanSweepCron` lists only `senior-resumes/`. Staged PDFs are written to
 `resumes/<resumeId>/staged/<runId>.pdf` (`stagedPdfKey`), so a staged PDF whose cleanup delete failed stays in
@@ -8236,6 +8240,8 @@ corpus of glued contacts.
 Sources: PR #1351 (contact scanner normalisation, backlog 444/445) security review round 2, SR-M-2.
 
 ## 451. Resume PDF download file name is always Russian (2026-11-16)
+
+**Closed (2026-11-16).** PR #1360 (the PDF download is named by the viewer locale through `@RequestLocale()`). Reopen if the Verify check below fails.
 
 **Symptoms.** `resumeContentDisposition` always names the downloaded PDF `Резюме — <name>.pdf` in the
 `filename*` slot, on both `GET /api/users/:userId/resume/pdf` and `.../resume/staged-pdf`, so an `en` user
