@@ -26,10 +26,12 @@ const BUDGET_MS =
 const MIN_ARM_MS = 20
 
 /** The first of 1, 2, 4, … 64 repeats at which `arm(repeats)` costs `MIN_ARM_MS` or more, so a fast
- * machine runs a longer window instead of a noisier ratio. The last one is returned unmeasured. */
+ * machine runs a longer window instead of a noisier ratio. The last one is returned unmeasured.
+ * Each step takes the faster of two runs: one GC pause or JIT tier-up in a single run once read
+ * 20 ms where the timed run then took 6.6 ms. */
 const armRepeats = (arm: (repeats: number) => number): number => {
   let repeats = 1
-  while (repeats < 64 && arm(repeats) < MIN_ARM_MS) repeats *= 2
+  while (repeats < 64 && Math.min(arm(repeats), arm(repeats)) < MIN_ARM_MS) repeats *= 2
   return repeats
 }
 
