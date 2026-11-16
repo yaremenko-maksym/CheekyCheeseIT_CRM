@@ -442,10 +442,10 @@ describe('running a group: independent boards, independent failures', () => {
     ])
     expect([...h.contexts.values()].map((f) => f.sent.length)).toEqual([1, 1, 1])
     expect(h.contexts.get('lever:global:spotify')?.sent[0]?.url).toBe(
-      'https://api.lever.co/v0/postings/spotify?mode=json&limit=50&skip=0',
+      'https://api.lever.co/v0/postings/spotify?mode=json',
     )
     expect(h.contexts.get('lever:eu:siteimprove')?.sent[0]?.url).toBe(
-      'https://api.eu.lever.co/v0/postings/siteimprove?mode=json&limit=50&skip=0',
+      'https://api.eu.lever.co/v0/postings/siteimprove?mode=json',
     )
   })
 
@@ -557,26 +557,12 @@ describe('boardVerdictOf', () => {
     expect(boardVerdictOf(await batchFor(200, '[]'))).toBe('SUCCEEDED')
   })
 
-  it('a page that landed before the next one failed is PARTIAL, not a dead board or a failure', async () => {
-    const full = JSON.stringify(
-      Array.from({ length: 50 }, (_, i) => ({
-        id: `id-${i}`,
-        text: 'Role',
-        hostedUrl: `https://jobs.lever.co/ok/id-${i}`,
-      })),
-    )
-    const f = fakeCollectionContext({
-      responses: [
-        { status: 200, bodyText: full },
-        { status: 404, bodyText: '[]' },
-      ],
-    })
-    const batch = await leverProvider.collectReport(
-      leverProvider.parseConfig(goodConfig('ok', { employer: { name: 'Ok Co', evidence: 'e' } })),
-      f.ctx,
-    )
-    expect(batch.outcome).toBe('PARTIAL')
-    expect(boardVerdictOf(batch)).toBe('PARTIAL')
+  it('a PARTIAL run is PARTIAL, not a dead board, even when its last request was a 404', () => {
+    // Lever no longer pages, so no ATS board in this file reaches PARTIAL through a real run; the
+    // verdict is read from the facts it is defined on.
+    expect(
+      boardVerdictOf({ outcome: 'PARTIAL', requests: [{ status: 200 }, { status: 404 }] }),
+    ).toBe('PARTIAL')
   })
 
   it('a cancelled run is CANCELLED', async () => {

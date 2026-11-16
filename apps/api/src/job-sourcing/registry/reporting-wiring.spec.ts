@@ -47,6 +47,7 @@ const EXPECTED_MAX_BYTES: Readonly<Record<string, number | undefined>> = {
   ASHBY_ATS: 10 * MiB,
   GREENHOUSE_ATS: 10 * MiB,
   HN_HIRING: 4 * MiB,
+  LEVER_ATS: 10 * MiB,
   RECRUITEE_ATS: 10 * MiB,
   WORKABLE_ATS: 10 * MiB,
 }
