@@ -324,7 +324,7 @@ describe('requestDrain: the post-run match drain', () => {
     runOnce.mockRejectedValueOnce(new Error('connection lost'))
     await expect(svc.requestDrain()).resolves.toBeUndefined()
     expect(String(error.mock.calls[0]?.[0])).toContain(
-      'Match drain failed after recomputed=200 batches=1; the rest stays pending',
+      'Match drain failed after recomputed=200 batches=1; the rest stays pending for the next run or the sweep',
     )
     expect(invalidate).toHaveBeenCalledTimes(1)
     // the next request drains again

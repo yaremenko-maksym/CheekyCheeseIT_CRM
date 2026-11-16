@@ -60,6 +60,7 @@ export class JobMatchReconciliationCronService {
   /** The in-flight post-run drain; it never rejects. */
   private drainTick: Promise<void> | null = null
   /** A run ended while the drain was running: it makes one more pass. */
+  // Stryker disable next-line BooleanLiteral: equivalent, runDrainTick resets it to false before its first read
   private drainAgain = false
 
   constructor(
