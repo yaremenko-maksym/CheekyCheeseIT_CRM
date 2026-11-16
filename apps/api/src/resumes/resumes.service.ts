@@ -17,16 +17,7 @@
  * applied by `assertAccess` at the top of EVERY method — read, write, source
  * download and PDF alike.
  */
-import {
-  ConflictException,
-  ForbiddenException,
-  HttpStatus,
-  Injectable,
-  Logger,
-  NotFoundException,
-  PayloadTooLargeException,
-  UnsupportedMediaTypeException,
-} from '@nestjs/common'
+import { HttpStatus, Injectable, Logger } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import { and, asc, eq, lt, sql } from 'drizzle-orm'
 import {
@@ -34,6 +25,7 @@ import {
   EMPTY_RESUME_CONTENT,
   RESUME_LIMITS,
   RESUME_SOURCE_MAX_BYTES,
+  encodeResumeMessage,
   normalizeResumeLayout,
   resumeContentSchema,
   resumeFactsSchema,
@@ -91,9 +83,9 @@ export const STUCK_EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000
 type ResumeOwner = Pick<User, 'displayName' | 'email'>
 
 /** The 403 of every denied resume request. */
-export const NO_ACCESS = 'Нет доступа к резюме этого пользователя'
+export const noAccess = () => apiError('RESUME_NO_ACCESS', HttpStatus.FORBIDDEN)
 /** The 404 of a resume (or its PDF) that does not exist — one wording for every endpoint. */
-const noResume = () => new NotFoundException('Резюме ещё не создано')
+const noResume = () => apiError('RESUME_NOT_CREATED', HttpStatus.NOT_FOUND)
 
 /**
  * A render left RUNNING longer than this was abandoned.
@@ -149,13 +141,13 @@ export class SeniorResumesService {
     mode: ResumeAccessMode,
   ): Promise<User> {
     if (!canAccessResume(viewer, targetUserId, mode)) {
-      throw new ForbiddenException(NO_ACCESS)
+      throw noAccess()
     }
     const target = await this.db.db.query.users.findFirst({
       where: (tbl, { eq: equals }) => equals(tbl.id, targetUserId),
     })
-    if (!target) throw new NotFoundException('Пользователь не найден')
-    if (target.role !== 'SENIOR') throw new NotFoundException('Резюме ведётся только для синьоров')
+    if (!target) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
+    if (target.role !== 'SENIOR') throw apiError('RESUME_SENIOR_ONLY', HttpStatus.NOT_FOUND)
     return target as User
   }
 
@@ -185,7 +177,7 @@ export class SeniorResumesService {
   ): Promise<ResumeSourceDownload> {
     await this.assertAccess(viewer, targetUserId, 'read')
     const row = await this.findRow(targetUserId)
-    if (!row?.sourceS3Key) throw new NotFoundException('Исходный файл резюме не загружен')
+    if (!row?.sourceS3Key) throw apiError('RESUME_SOURCE_MISSING', HttpStatus.NOT_FOUND)
 
     const fileName = row.sourceFileName ?? 'resume'
     const { url, expiresAt } = await this.s3.getPresignedDownloadUrl(
@@ -326,11 +318,12 @@ export class SeniorResumesService {
   ): Promise<SeniorResumeResponse> {
     await this.assertAccess(viewer, targetUserId, 'write')
 
-    if (file.buffer.length === 0) throw new UnsupportedMediaTypeException('Файл пустой')
+    if (file.buffer.length === 0)
+      throw apiError('RESUME_FILE_EMPTY', HttpStatus.UNSUPPORTED_MEDIA_TYPE)
     if (file.buffer.length > RESUME_SOURCE_MAX_BYTES) {
-      throw new PayloadTooLargeException(
-        `Файл больше ${Math.floor(RESUME_SOURCE_MAX_BYTES / 1024 / 1024)} MB`,
-      )
+      throw apiError('RESUME_FILE_TOO_LARGE', HttpStatus.PAYLOAD_TOO_LARGE, {
+        mb: Math.floor(RESUME_SOURCE_MAX_BYTES / 1024 / 1024),
+      })
     }
 
     // AC2 — the ONLY thing that decides the type is the content. The
@@ -338,9 +331,7 @@ export class SeniorResumesService {
     // controlled and are deliberately not consulted.
     const detected = detectResumeSourceMime(file.buffer)
     if (detected === null) {
-      throw new UnsupportedMediaTypeException(
-        'Поддерживаются только PDF и DOCX. Содержимое файла не соответствует ни одному из этих форматов.',
-      )
+      throw apiError('RESUME_FILE_UNSUPPORTED', HttpStatus.UNSUPPORTED_MEDIA_TYPE)
     }
 
     const row = await this.ensureRow(targetUserId)
@@ -467,7 +458,7 @@ export class SeniorResumesService {
     for (let attempt = 0; attempt < DELETE_RACE_ATTEMPTS; attempt += 1) {
       const row = await this.findRow(targetUserId)
       if (!row) {
-        if (attempt === 0) throw new NotFoundException('Резюме ещё не создано')
+        if (attempt === 0) throw noResume()
         break // a racing writer removed it first — the end state is the same
       }
       // CD-4: a run owning the row would upload a staged PDF no row points at any more.
@@ -514,9 +505,7 @@ export class SeniorResumesService {
       )
     }
 
-    throw new ConflictException(
-      'Резюме изменяется прямо сейчас — повторите удаление через несколько секунд.',
-    )
+    throw apiError('RESUME_DELETE_BUSY', HttpStatus.CONFLICT)
   }
 
   // ==========================================================================
@@ -571,12 +560,7 @@ export class SeniorResumesService {
     }
 
     if (text.trim().length < RESUME_LIMITS.minExtractableChars) {
-      await this.failExtraction(
-        resumeId,
-        runId,
-        'NO_TEXT',
-        'Из файла не удалось извлечь текст (вероятно, это скан или картинка). Вставьте текст резюме вручную.',
-      )
+      await this.failExtraction(resumeId, runId, 'NO_TEXT', encodeResumeMessage('RESUME_NO_TEXT'))
       return
     }
 
@@ -776,8 +760,7 @@ export class SeniorResumesService {
       .set({
         status: 'FAILED',
         errorCode: 'STALLED',
-        errorMessage:
-          'Распознавание прервалось (перезапуск сервиса). Загрузите файл ещё раз или заполните резюме вручную.',
+        errorMessage: encodeResumeMessage('RESUME_EXTRACTION_STALLED_FILE'),
         extractionStartedAt: null,
         extractionRunId: null,
         updatedAt: now,
@@ -817,7 +800,7 @@ export class SeniorResumesService {
           row.id,
           row.updatedAt,
           'STALLED',
-          'Распознавание прервалось (перезапуск сервиса). Вставьте текст резюме ещё раз или заполните форму вручную.',
+          encodeResumeMessage('RESUME_EXTRACTION_STALLED_TEXT'),
         )
         handled += 1
         continue
@@ -825,7 +808,8 @@ export class SeniorResumesService {
       await this.runExtraction(row.id, async () => {
         const buffer = await this.s3.getObject(key)
         const detected = detectResumeSourceMime(buffer)
-        if (detected === null) throw new ResumeFileUnreadableError('Исходный файл повреждён')
+        if (detected === null)
+          throw new ResumeFileUnreadableError(encodeResumeMessage('RESUME_SOURCE_CORRUPT'))
         return this.extraction.extract(buffer, detected)
       })
       handled += 1
@@ -922,9 +906,7 @@ export class SeniorResumesService {
       })
     } catch (err: unknown) {
       const message =
-        err instanceof ResumeRenderError
-          ? err.message
-          : 'Не удалось собрать PDF резюме. Попробуйте позже.'
+        err instanceof ResumeRenderError ? err.message : encodeResumeMessage('RESUME_RENDER_FAILED')
       this.logger.warn(`Resume ${resumeId}: render failed — ${message}`)
       // Recorded so a repeated request for the SAME input reports the
       // failure instead of queuing a render that will fail identically — a
@@ -958,7 +940,7 @@ export class SeniorResumesService {
       // marked "this content is doomed". Recovery is the same motion as a
       // render failure — the next explicit save re-renders and re-uploads
       // from scratch.
-      const message = 'PDF собрался, но не сохранился в хранилище. Попробуйте позже.'
+      const message = encodeResumeMessage('RESUME_RENDER_STORAGE_FAILED')
       this.logger.warn(
         `Resume ${resumeId}: PDF upload failed — ${err instanceof Error ? err.message : 'unknown'}`,
       )
@@ -1139,7 +1121,7 @@ export class SeniorResumesService {
     targetUserId: string,
     input: ConfirmResumeInput,
   ): Promise<SeniorResumeResponse> {
-    if (!canConfirmResume(viewer)) throw new ForbiddenException(NO_ACCESS)
+    if (!canConfirmResume(viewer)) throw noAccess()
     // Stryker disable next-line StringLiteral: equivalent — any mode but 'read' refuses a SENIOR, and ADMIN/HR ignore it
     const target = await this.assertAccess(viewer, targetUserId, 'write')
     const existing = await this.existingRow(targetUserId)
@@ -1255,7 +1237,7 @@ export class SeniorResumesService {
       .onConflictDoNothing({ target: seniorResumes.userId })
 
     const created = await this.findRow(targetUserId)
-    if (!created) throw new NotFoundException('Не удалось создать резюме')
+    if (!created) throw apiError('RESUME_CREATE_FAILED', HttpStatus.NOT_FOUND)
     return created
   }
 
@@ -1348,19 +1330,16 @@ export class SeniorResumesService {
 /**
  * Turn a "could not get the text" throw into (code, message) SAFE TO DISPLAY.
  *
- * `errorMessage` is rendered verbatim in the resume panel, so only messages
- * this codebase wrote may reach it. `ResumeFileUnreadableError` carries exactly
- * those — Russian, user-facing, deliberately phrased ("в PDF больше 30
- * страниц"). Everything else is a storage client or a parser talking to itself:
+ * `errorMessage` reaches the resume panel, so only messages this codebase
+ * wrote may land there. `ResumeFileUnreadableError` carries exactly those — a
+ * resume error code encoded by `encodeResumeMessage` (backlog 443), which the
+ * web turns into the catalog line. Everything else is a storage client or a parser talking to itself:
  * bucket names, key paths, endpoint hosts, stack-shaped internals. Those are
  * logged, never shown.
  */
 function describeLoadFailure(err: unknown): [ResumeFailureCode, string] {
   if (err instanceof ResumeFileUnreadableError) return ['UNREADABLE_FILE', err.message]
-  return [
-    'MODEL_ERROR',
-    'Не удалось прочитать исходный файл резюме. Загрузите его ещё раз или вставьте текст.',
-  ]
+  return ['MODEL_ERROR', encodeResumeMessage('RESUME_SOURCE_LOAD_FAILED')]
 }
 
 /**
