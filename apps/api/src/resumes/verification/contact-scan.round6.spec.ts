@@ -162,6 +162,8 @@ describe('rules both passes share (each pass alone would still redact these)', (
   it.each([
     [{ fullName: 'Wei Li', emails: [] }, 'by Li today', 'by [REDACTED] today'],
     [{ fullName: 'Wei Li', emails: [] }, 'by Wei today', 'by Wei today'],
+    // only the own pass reads a compat letter as an edge, so this pins its two-letter surname rule
+    [{ fullName: 'Wei Li', emails: [] }, 'by Liｘ today', 'by [REDACTED]ｘ today'],
     [
       { fullName: 'O’Neil Smith', emails: [] },
       "by O'Neil Smith and Smith",
