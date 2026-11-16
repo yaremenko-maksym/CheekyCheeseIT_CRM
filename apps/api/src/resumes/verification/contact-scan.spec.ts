@@ -21,6 +21,18 @@ const cpuMs = (): number => {
 const BUDGET_MS =
   process.env['STRYKER_MUTATOR_WORKER'] === undefined ? 500 : Number.POSITIVE_INFINITY
 
+/** The shortest arm of a CPU-ratio test: under ~20 ms one scheduler tick or GC pause moves the
+ * ratio past its limit (backlog 454: the part-count arms took 2-4 ms on CI). */
+const MIN_ARM_MS = 20
+
+/** The first of 1, 2, 4, … 64 repeats at which `arm(repeats)` costs `MIN_ARM_MS` or more, so a fast
+ * machine runs a longer window instead of a noisier ratio. The last one is returned unmeasured. */
+const armRepeats = (arm: (repeats: number) => number): number => {
+  let repeats = 1
+  while (repeats < 64 && arm(repeats) < MIN_ARM_MS) repeats *= 2
+  return repeats
+}
+
 const ctx: ContactContext = { fullName: 'Mark Levin', emails: ['mark.levin@example.com'] }
 
 describe('scanContacts — names', () => {
@@ -625,8 +637,10 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
       return cpuMs() - started
     }
     run(60, 500) // warm-up, so JIT compilation is not billed to the short notes
-    const short = run(600, 500)
-    const long = run(75, 4000)
+    const repeats = armRepeats((k) => run(600 * k, 500))
+    const short = run(600 * repeats, 500)
+    const long = run(75 * repeats, 4000)
+    expect(short).toBeGreaterThanOrEqual(MIN_ARM_MS * 0.5)
     expect(long / short).toBeLessThan(3)
     // catastrophic backtracking costs seconds per note; a slow runner costs a fraction of this
     expect(short).toBeLessThan(BUDGET_MS * 10)
@@ -643,16 +657,19 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
       emails: [],
     })
     const text = 'Senior engineer in Kyiv since 2020, led an API migration. '.repeat(12)
-    const run = (count: number): number => {
+    const run = (count: number, repeats = 1): number => {
       const started = cpuMs()
-      for (let i = 0; i < 20; i++) scanContacts(text, stored(count))
+      for (let i = 0; i < 20 * repeats; i++) scanContacts(text, stored(count))
       return cpuMs() - started
     }
     run(20) // warm-up
-    const short = run(20)
-    const long = run(160)
+    // 20 scans of 20 parts took 2-4 ms on CI: too short a window for a stable ratio (backlog 454)
+    const repeats = armRepeats((k) => run(20, k))
+    const short = run(20, repeats)
+    const long = run(160, repeats)
+    expect(short).toBeGreaterThanOrEqual(MIN_ARM_MS * 0.5)
     expect(long / short).toBeLessThan(16)
-    expect(long).toBeLessThan(BUDGET_MS * 10)
+    expect(long).toBeLessThan(BUDGET_MS * 10 * repeats)
     // still fail-closed: the full name refuses, and so does a lone short part (round 7's gate)
     const full = `Ivan ${parts(160).join(' ')}`
     expect(scanContacts(full, stored(160))).toEqual([{ kind: 'name', match: full }])
