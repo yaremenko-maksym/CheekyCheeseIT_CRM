@@ -41,8 +41,9 @@ describe('scanContacts — names', () => {
     expect(scanContacts('Levine and Levins and SLevin', ctx)).toEqual([])
   })
 
-  it('treats # and + as word characters at the boundary', () => {
-    expect(scanContacts('Levin# Levin+ #Levin', ctx)).toEqual([])
+  it('treats # and + as boundaries, as the completeness check does (PR #1351 round 3, SR-M-1)', () => {
+    expect(redactContacts('Levin# Levin+ #Levin', ctx)).toBe('[REDACTED]# [REDACTED]+ #[REDACTED]')
+    expect(redactContacts('Mark Levin#', ctx)).toBe('[REDACTED]#')
   })
 
   it('matches a diacritic surname whatever the Unicode normalisation of either side', () => {
@@ -362,6 +363,11 @@ describe('scanContacts — serialized text and spelling variants (fix round 1)',
 describe('the Telegram handle of the senior', () => {
   const tg: ContactContext = { ...ctx, telegram: '@Mark_Dev' }
 
+  it('no stored handle: the word null is not redacted (PR #1351 round 4, SPEC-M-1)', () => {
+    expect(redactContacts('null pointer, null check', ctx)).toBe('null pointer, null check')
+    expect(redactContacts('null pointer', { ...ctx, telegram: null })).toBe('null pointer')
+  })
+
   it('hits the handle with and without its @, in any case', () => {
     expect(scanContacts('ping @mark_dev or MARK_DEV', tg)).toEqual([
       { kind: 'telegram', match: '@mark_dev' },
@@ -608,11 +614,68 @@ describe('fix round 4: label-boundary URLs and emails, label separators, handle 
     expect(scanContacts(text, ctx).map((h) => h.match)).toEqual([match])
   })
 
-  it('150 notes of 500 Cyrillic characters in 63-letter labels are redacted in under 500 ms (SR3-M-1)', () => {
-    const note = `${'п'.repeat(63)}.`.repeat(8).slice(0, 500)
-    const started = cpuMs()
-    for (let i = 0; i < 150; i++) redactContacts(note, ctx)
-    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
+  it('notes of Cyrillic characters in 63-letter labels are redacted in time linear in their length (SR3-M-1)', () => {
+    // A ratio within one run, not a fixed 500 ms: CI took 503 and 598 ms on a loaded runner. The
+    // same 300k characters as 600 notes of 500 and as 75 notes of 4000: a linear scan costs the
+    // same for both, backtracking that is quadratic in the note costs the long notes about 8x.
+    const run = (count: number, length: number): number => {
+      const note = `${'п'.repeat(63)}.`.repeat(Math.ceil(length / 64)).slice(0, length)
+      const started = cpuMs()
+      for (let i = 0; i < count; i++) redactContacts(note, ctx)
+      return cpuMs() - started
+    }
+    run(60, 500) // warm-up, so JIT compilation is not billed to the short notes
+    const short = run(600, 500)
+    const long = run(75, 4000)
+    expect(long / short).toBeLessThan(3)
+    // catastrophic backtracking costs seconds per note; a slow runner costs a fraction of this
+    expect(short).toBeLessThan(BUDGET_MS * 10)
+  })
+
+  it('a stored name of many invisible-separated parts is scanned in time linear in its part count (PR #1351 round 9, Addendum A)', () => {
+    // The gate's runs of split parts grow with the square of the part count; past 8 parts it takes
+    // none. From 20 to 160 parts a linear scan costs at most 8x (measured 3.8x); without the bound
+    // it measured 208x. The wide gap keeps the ratio stable on a loaded pre-push run.
+    const parts = (count: number): string[] =>
+      Array.from({ length: count }, (_, i) => ['Li', 'Yu', 'Bo'][i % 3] ?? '')
+    const stored = (count: number): ContactContext => ({
+      fullName: `Ivan ${parts(count).join('\u200B')}`,
+      emails: [],
+    })
+    const text = 'Senior engineer in Kyiv since 2020, led an API migration. '.repeat(12)
+    const run = (count: number): number => {
+      const started = cpuMs()
+      for (let i = 0; i < 20; i++) scanContacts(text, stored(count))
+      return cpuMs() - started
+    }
+    run(20) // warm-up
+    const short = run(20)
+    const long = run(160)
+    expect(long / short).toBeLessThan(16)
+    expect(long).toBeLessThan(BUDGET_MS * 10)
+    // still fail-closed: the full name refuses, and so does a lone short part (round 7's gate)
+    const full = `Ivan ${parts(160).join(' ')}`
+    expect(scanContacts(full, stored(160))).toEqual([{ kind: 'name', match: full }])
+    expect(scanContacts('by Li today', stored(160))).toEqual([{ kind: 'name', match: 'Li' }])
+  })
+
+  it('notes of one cluster full of invisibles are redacted in time linear in their length (PR #1351 round 4, CR-M-2)', () => {
+    // A letter followed by (ZWSP, acute) pairs and a jamo run with a ZWSP between its jamo are
+    // one cluster each, however long: re-normalising the cluster per invisible is quadratic.
+    const shapes = ['\u200B\u0301', '\u1100\u200B\u1161']
+    const run = (count: number, length: number): number => {
+      const notes = shapes.map((shape) =>
+        `q${shape.repeat(Math.ceil(length / shape.length))}`.slice(0, length),
+      )
+      const started = cpuMs()
+      for (let i = 0; i < count; i++) for (const note of notes) redactContacts(note, ctx)
+      return cpuMs() - started
+    }
+    run(60, 500) // warm-up
+    const short = run(600, 500)
+    const long = run(75, 4000)
+    expect(long / short).toBeLessThan(3)
+    expect(short).toBeLessThan(BUDGET_MS * 10)
   })
 
   it.each([
@@ -715,7 +778,7 @@ describe('fix round 7: separators, marks, atext, ports, label words', () => {
   it.each([
     ['john@परीक्षा.भारत', 'email'],
     ['ผู้ใช้@ตัวอย่าง.ไทย', 'email'],
-    ['x́y@x.com', 'email'],
+    ['x\u0301y@x.com', 'email'],
     ['उदाहरण.भारत/x', 'url'],
     ['john&doe@x.com', 'email'],
     ["o'brien@x.com", 'email'],
@@ -763,7 +826,7 @@ describe('redactContacts agrees with the completeness contact check on NFD text 
   }
   const now = new Date('2026-11-10T00:00:00Z')
 
-  it.each(['x@y.é', 'see a.é/x now', 'Aétg: mark_dev'])(
+  it.each(['x@y.e\u0301', 'see a.e\u0301/x now', 'Ae\u0301tg: mark_dev'])(
     '%j is flagged and redacted, or neither',
     (text) => {
       const flagged = checkResumeCompleteness(

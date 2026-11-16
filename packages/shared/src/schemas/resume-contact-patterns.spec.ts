@@ -250,18 +250,29 @@ describe('fix round 4', () => {
       expect(RESUME_URL_PATTERN.test(`${'a'.repeat(64)}.com/x`)).toBe(false)
     })
 
-    it('600 notes of 500 Cyrillic characters in 63-letter labels are checked in under 500 ms', () => {
-      const note = `${'п'.repeat(63)}.`.repeat(8).slice(0, 500)
-      const facts: ResumeFacts = {
-        ...noteWith(note),
-        experience: Array.from({ length: 30 }, () => ({
-          ...EXPERIENCE,
-          notes: Array<string>(20).fill(note),
-        })),
+    it('notes of Cyrillic characters in 63-letter labels are checked in time linear in their length', () => {
+      // A ratio within one run, not a fixed 500 ms: CI took 504.9 ms here and 520.7 ms in the API twin
+      // on a loaded runner. About the same characters as 600 notes of 500 and as 80 notes of 4000 (20
+      // notes an item): a linear check costs about the same, a quadratic one costs the long notes 8x.
+      const run = (count: number, length: number): number => {
+        const note = `${'п'.repeat(63)}.`.repeat(Math.ceil(length / 64)).slice(0, length)
+        const facts: ResumeFacts = {
+          ...noteWith(note),
+          experience: Array.from({ length: count / 20 }, () => ({
+            ...EXPERIENCE,
+            notes: Array<string>(20).fill(note),
+          })),
+        }
+        const started = cpuMs()
+        checkResumeCompleteness(facts, CTX)
+        return cpuMs() - started
       }
-      const started = cpuMs()
-      checkResumeCompleteness(facts, CTX)
-      expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
+      run(60, 500) // warm-up, so JIT compilation is not billed to the short notes
+      const short = run(600, 500)
+      const long = run(80, 4000)
+      expect(long / short).toBeLessThan(3)
+      // catastrophic backtracking costs seconds per note; a slow runner costs a fraction of this
+      expect(short).toBeLessThan(BUDGET_MS * 10)
     })
   })
 
@@ -356,7 +367,7 @@ describe('fix round 7', () => {
   })
 
   describe('combining marks in hosts and local parts (SO7-2)', () => {
-    it.each(['john@परीक्षा.भारत', 'ผู้ใช้@ตัวอย่าง.ไทย', 'x́y@x.com'])(
+    it.each(['john@परीक्षा.भारत', 'ผู้ใช้@ตัวอย่าง.ไทย', 'x\u0301y@x.com'])(
       '%j is one whole email',
       (email) => {
         expect(emailHit(`mail ${email} now`)).toBe(email)

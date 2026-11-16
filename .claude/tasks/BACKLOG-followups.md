@@ -8143,6 +8143,8 @@ Sources: verified-base-resume Task 23 rulings R78 and R88.
 
 ## 444. Contact scanner: normalise zero-width and fullwidth characters before matching (2026-11-14)
 
+**Closed (2026-11-15).** PR #1351 (normalise zero-width and fullwidth characters before contact matching). Reopen if the Verify check below fails.
+
 **Symptoms.** The contact patterns in `packages/shared/src/schemas/resume-completeness.ts` match on NFC text
 only. A contact written with zero-width characters (U+200B..U+200D, U+2060, U+FEFF) between its letters, or in
 fullwidth forms (`ｊｏｈｎ＠ｘ．ｃｏｍ`), is neither flagged by the completeness check nor redacted before the
@@ -8157,6 +8159,8 @@ redacted from `redactContacts`; the completeness-vs-redaction fuzz stays clean.
 Sources: verified-base-resume second-opinion (Task 23, ruling R103).
 
 ## 445. Contact scanner: years-only lists flag as a phone (2026-11-14)
+
+**Closed (2026-11-15).** PR #1351 (drop candidate phone matches whose digit groups are all 4-digit years in 1950..2099). Reopen if the Verify check below fails.
 
 **Symptoms.** `2019 · 2020 · 2021`, `1999—2003—2007` and the en-dash form match `RESUME_PHONE_PATTERN`
 (9+ digits joined by separators), so submit is blocked with CONTACT_IN_TEXT and HR must rephrase.
@@ -8213,3 +8217,20 @@ referenced set (`staged_pdf_s3_key` and `staged_previous->'pdfKey'`), the same 2
 `staged_previous` PDF and a staged PDF younger than 24 h stay.
 
 Sources: PR #1352 (orphan sweep, backlog 441) fix round 1.
+
+## 449. Contact scanner: a contact glued to another survives one redaction pass (2026-11-16)
+
+**Symptoms.** `redactContacts` replaces every hit of one pass, but a contact whose boundary is blocked by a
+neighbouring contact is not a hit until that neighbour is gone: `0671234567Petrenko` gives `[REDACTED]Petrenko`,
+and `tg: @ivan_dev0671234567` gives `tg: @ivan_dev[REDACTED]`, so the handle leaks. `Ivan Petrenko#` was never
+redacted before PR #1351 round 3 made `#` and `+` name boundaries. The `redactContacts` docstring claimed the result
+is a fixed point; it is not, and a second pass redacts more.
+
+**Candidate fix.** Redact to a fixed point (repeat the scan on the result until it stops changing, with a small
+bound), or match contacts independent of order (a boundary may also be the edge of another contact's span).
+
+**Verify.** `0671234567Petrenko`, `tg: @ivan_dev0671234567` and `Ivan Petrenko#` (name `Ivan Petrenko`, handle
+`@ivan_dev`) are fully redacted, and `redactContacts(redactContacts(x)) === redactContacts(x)` holds on a fuzzed
+corpus of glued contacts.
+
+Sources: PR #1351 (contact scanner normalisation, backlog 444/445) security review round 2, SR-M-2.

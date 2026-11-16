@@ -7,11 +7,19 @@
  * senior's own. Pure: no I/O, no Nest providers.
  */
 import {
+  CONTACT_APOSTROPHES,
+  CONTACT_NAME_GAP,
+  contactNameParts,
   findPhoneSpans,
+  findWholeTokens,
+  foldAccents,
+  normaliseContactText,
   normaliseTelegramHandle,
   RESUME_EMAIL_PATTERN,
   RESUME_TELEGRAM_LABEL_PATTERN,
   RESUME_URL_PATTERN,
+  splitNameLoneParts,
+  splitNameOrders,
 } from '@crm/shared'
 
 export interface ContactContext {
@@ -23,7 +31,7 @@ export interface ContactContext {
 }
 
 /** No context of the senior: the generic email and phone patterns still run. */
-// Stryker disable next-line StringLiteral,ArrayDeclaration: equivalent — the placeholder only has to match nothing: a blank name yields no pattern (namePatterns filters it) and an empty list no email literal, so any other unmatched value scans the same
+// Stryker disable next-line StringLiteral,ArrayDeclaration: equivalent — the placeholder only has to match nothing: a blank name yields no pattern (nameSources filters it) and an empty list no email literal, so any other unmatched value scans the same
 const NO_CONTEXT: ContactContext = { fullName: '', emails: [] }
 
 /** The contexts to scan with; an empty list still scans with `NO_CONTEXT`. */
@@ -45,118 +53,105 @@ interface Span {
   end: number
 }
 
-/** Token characters, as in the ATS checker and `mentionsSkill`: `Levin` is not in `Levine` or `Levin#`. */
-const TOKEN_CHAR = '[\\p{L}\\p{N}#+]'
-
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
 }
 
-/** A JSON-style escape (`\n`, `\t`, a `\u` code): its final letter or digit is not part of a name. */
-const ESCAPE = String.raw`\\(?:[bfnrt]|u[\dA-Fa-f]{4})`
-/** Whitespace between name parts, raw or escaped. */
-const NAME_GAP = String.raw`(?:\s|\\[nrt])+`
+/**
+ * The name sources for `findWholeTokens`, accent-folded, so they run on `foldAccents` text. The
+ * joined reading of `contactNameParts` gives the full name (any whitespace between parts) and the
+ * surname alone, never the first name. The split reading is taken whole: every order of
+ * `splitNameOrders` and every lone part of `splitNameLoneParts`. The redaction takes it always,
+ * fail-closed, so a fragment such as `in` (stored `Ivan Petr`, ZWNJ, `in`) is redacted too (PR #1351
+ * round 7). The gate scan (`scanContacts`, behind `hasContact`) protects model output, so it keeps
+ * the split reading too, every order and every lone part of three letters or more; it drops only a
+ * lone part shorter than three letters, and only when the joined reading has two or more parts, so a
+ * fragment such as `in` or `an` does not refuse ordinary text (round 8, SR-M-1). A three-letter
+ * fragment such as `son` still refuses: accepted. The gate scan also keeps each run of two or more
+ * consecutive parts after the first, both ways, when the run has three letters or more, so two short
+ * parts that form the whole surname still refuse (`Ivan Li`, ZWSP, `Yu` refuses `Li Yu` and `Yu Li`;
+ * round 9, SR-M-2). Runs grow with the square of the part count, and the stored name is HR-edited, so
+ * past `MAX_RUN_PARTS` split parts the gate takes no runs and drops no short fragment: round 7's
+ * stricter gate, linear in the part count and fail-closed (round 9, Addendum A).
+ */
+/** A last name part is a lone source from two letters on, in both passes (main's rule). */
+const isSurnameSource = (part: string): boolean => part.replace(/\P{L}/gu, '').length >= 2
 
-/** Curly apostrophes read as `'`, one code unit for one, so offsets stay valid. */
-const APOSTROPHES = /[’ʼ‘]/gu
+/** Split parts up to which the gate builds runs: 8 parts give at most 42 run sources. */
+const MAX_RUN_PARTS = 8
 
-function wholeToken(source: string): RegExp {
-  return new RegExp(`(?:(?<!${TOKEN_CHAR})|(?<=${ESCAPE}))${source}(?!${TOKEN_CHAR})`, 'giu')
+/** The gate's runs: two or more consecutive split parts after the first, both ways, three letters or more. */
+function splitNameRuns(parts: readonly string[]): string[][] {
+  const rest = parts.slice(1)
+  const between = (start: number, end: number) => rest.slice(start, end + 1)
+  // Stryker disable next-line MethodExpression: equivalent — without the slice, `start >= end` adds only empty runs (no letters, filtered) and one-part runs, which equal lone parts the gate already takes
+  const runs = rest.flatMap((_, end) => rest.slice(0, end).map((_p, start) => between(start, end)))
+  return runs
+    .filter((run) => run.join('').replace(/\P{L}/gu, '').length >= 3)
+    .flatMap((run) => [run, [...run].reverse()])
 }
 
-/**
- * Letters NFD does not decompose and `/iu` does not case-fold to the mapped form
- * (`/ss/iu` misses `ẞ`), folded by hand; `ß` becomes two code units.
- */
-const UNDECOMPOSED: Record<string, string> = {
-  ł: 'l',
-  Ł: 'L',
-  ø: 'o',
-  Ø: 'O',
-  đ: 'd',
-  Đ: 'D',
-  ß: 'ss',
-  ẞ: 'SS',
-  ı: 'i',
-  æ: 'ae',
-  Æ: 'AE',
-  œ: 'oe',
-  Œ: 'OE',
-  þ: 'th',
-  Þ: 'TH',
-  ħ: 'h',
-  Ħ: 'H',
-}
-
-/**
- * `text` without accents (NFD, marks dropped, plus `UNDECOMPOSED`), and for each
- * of its code units the span of the NFC character, marks included, it came from.
- */
-function foldAccents(text: string): { text: string; from: number[]; to: number[] } {
-  let folded = ''
-  const from: number[] = []
-  const to: number[] = []
-  for (const { 0: cluster, index } of text.matchAll(/\P{M}\p{M}*/gu)) {
-    // A cluster is one base letter plus marks, so after the marks go it is one key.
-    const base = cluster.normalize('NFD').replace(/\p{M}/gu, '')
-    const piece = UNDECOMPOSED[base] ?? base
-    folded += piece
-    for (let k = 0; k < piece.length; k++) {
-      from.push(index)
-      to.push(index + cluster.length)
+function nameSources(fullName: string, failClosed: boolean): string[] {
+  // Normalised like the text, so a name with a ligature, a ZWNJ or fullwidth letters matches itself.
+  // folded after the split helpers count letters: NFD turns a Hangul syllable into its jamo
+  const fold = (parts: readonly string[]) =>
+    parts.map((part) => escapeRegExp(foldAccents(part).text))
+  return contactNameParts(fullName).flatMap((parts, reading, readings) => {
+    if (reading > 0) {
+      const runs = !failClosed && parts.length <= MAX_RUN_PARTS
+      // Stryker disable next-line OptionalChaining: equivalent — contactNameParts always returns the joined reading first, so readings[0] is defined
+      const shortFragments = runs && (readings[0]?.length ?? 0) > 1
+      const lone = splitNameLoneParts(parts).filter(
+        (part) => !shortFragments || part.replace(/\P{L}/gu, '').length >= 3,
+      )
+      return [
+        ...[...splitNameOrders(parts), ...(runs ? splitNameRuns(parts) : [])].map((order) =>
+          fold(order).join(CONTACT_NAME_GAP),
+        ),
+        ...fold(lone),
+      ]
     }
-  }
-  return { text: folded, from, to }
+    const folded = fold(parts)
+    const surname = folded.at(-1)
+    const sources = [folded.join(CONTACT_NAME_GAP)]
+    if (surname !== undefined && isSurnameSource(surname)) {
+      sources.push(surname)
+    }
+    // a blank name leaves an empty source, which would match everywhere
+    return sources.filter(Boolean)
+  })
 }
 
 /**
- * The full name (any whitespace between parts) and the surname alone, never
- * the first name; accent-folded, so they run on `foldAccents` text.
+ * The handle as a `findWholeTokens` source, with any `@`s in front: `ivan_dev` is not in
+ * `ivan_dev2` or `xivan_dev`, but `@@ivan_dev` and `x@ivan_dev` hit. A handle equal to a skill
+ * word redacts that word too: availability, not a leak.
  */
-function namePatterns(fullName: string): RegExp[] {
-  const name = foldAccents(fullName.normalize('NFC').replace(APOSTROPHES, "'")).text
-  const parts = name.trim().split(/\s+/u)
-  const surname = parts.at(-1) ?? ''
-  const sources = [parts.map(escapeRegExp).join(NAME_GAP)]
-  if (surname.replace(/\P{L}/gu, '').length >= 2) sources.push(escapeRegExp(surname))
-  // a blank name leaves an empty source, which would match everywhere
-  return sources.filter(Boolean).map(wholeToken)
+function telegramSource(telegram: string | null | undefined): string | null {
+  const handle = normaliseTelegramHandle(telegram && normaliseContactText(telegram).text)
+  return !handle ? null : `@*${escapeRegExp(handle)}`
 }
 
 /**
- * The handle as a whole token, with any `@`s in front, any case: `ivan_dev` is not in
- * `ivan_dev2` or `xivan_dev`, but `@@ivan_dev` and `x@ivan_dev` hit. A Telegram username is
- * `[A-Za-z0-9_]`, so `\w` is its boundary. A handle equal to a skill word redacts that word too:
- * availability, not a leak.
- */
-function telegramPattern(telegram: string | null | undefined): RegExp | null {
-  const handle = normaliseTelegramHandle(telegram)
-  return !handle ? null : new RegExp(`(?<!\\w)@*${escapeRegExp(handle)}(?!\\w)`, 'giu')
-}
-
-/**
- * URL, labelled-handle, literal-email and Telegram patterns; generic emails and phones are
- * scanned in `findSpans`. The generic ones are shared with completeness, so a contact it flags is
- * one this redacts.
+ * URL, labelled-handle and literal-email patterns; generic emails, phones, names and the stored
+ * handle are scanned in `findSpans`. The generic ones, and the name and handle boundaries, are
+ * shared with completeness, so a contact it flags is one this redacts.
  */
 function contactPatterns(ctx: ContactContext): [ContactHit['kind'], RegExp][] {
   const global = (p: RegExp) => new RegExp(p.source, `${p.flags}g`)
   const literalEmails = ctx.emails
-    .map((email) => email.normalize('NFC').trim())
+    .map((email) => normaliseContactText(email).text.trim())
     .filter(Boolean)
     .map((email): [ContactHit['kind'], RegExp] => ['email', new RegExp(escapeRegExp(email), 'giu')])
-  const telegram = telegramPattern(ctx.telegram)
   return [
     ['url', global(RESUME_URL_PATTERN)],
     ['telegram', global(RESUME_TELEGRAM_LABEL_PATTERN)],
     ...literalEmails,
-    ...(telegram ? [['telegram', telegram] as [ContactHit['kind'], RegExp]] : []),
   ]
 }
 
-/** Every raw hit on the NFC text, sorted by start, longer first on a tie. */
-function findSpans(text: string, ctx: ContactContext): Span[] {
-  const plain = text.replace(APOSTROPHES, "'")
+/** URL, label, literal-email, email and phone hits on `plain`, in its offsets. */
+function patternSpans(plain: string, ctx: ContactContext): Span[] {
   const spans: Span[] = []
   for (const [kind, pattern] of contactPatterns(ctx)) {
     for (const m of plain.matchAll(pattern)) {
@@ -186,21 +181,169 @@ function findSpans(text: string, ctx: ContactContext): Span[] {
     email.lastIndex = start + ((plain.codePointAt(start) ?? 0) >= 0x10000 ? 2 : 1)
   }
   for (const span of findPhoneSpans(plain)) spans.push({ kind: 'phone', ...span })
-  const folded = foldAccents(plain)
-  for (const pattern of namePatterns(ctx.fullName)) {
-    for (const m of folded.text.matchAll(pattern)) {
-      const start = folded.from[m.index] ?? 0
-      const end = folded.to[m.index + m[0].length - 1] ?? text.length
-      spans.push({ kind: 'name', start, end })
+  return spans
+}
+
+/*
+ * Main's name and handle matcher (main @ 267885ded), run on the NFC text beside the normalised
+ * scan, so the redaction never loses a span main had (PR #1351 round 6, SR-H-4). NFKC turns a
+ * compatibility character next to a contact into a letter (`Petrenko™` reads `PetrenkoTM`), and
+ * that glues it to the contact there; on NFC text it is still an edge.
+ */
+
+/** Token characters, as in the ATS checker and `mentionsSkill`: `Levin` is not in `Levine` or `Levin#`. */
+const MAIN_TOKEN_CHAR = '[\\p{L}\\p{N}#+]'
+/** A JSON-style escape (`\n`, `\t`, a `\u` code): its final letter or digit is not part of a name. */
+const MAIN_ESCAPE = String.raw`\\(?:[bfnrt]|u[\dA-Fa-f]{4})`
+/** Whitespace between name parts, raw or escaped. */
+const MAIN_NAME_GAP = String.raw`(?:\s|\\[nrt])+`
+
+function mainWholeToken(source: string): RegExp {
+  return new RegExp(
+    `(?:(?<!${MAIN_TOKEN_CHAR})|(?<=${MAIN_ESCAPE}))${source}(?!${MAIN_TOKEN_CHAR})`,
+    'giu',
+  )
+}
+
+/**
+ * No leak measured without main's name and handle arms: on every input tried, the own pass already
+ * redacts each letter they find (4.7M texts with each code point up to U+2FFFF, U+3401–U+F8FF
+ * skipped, beside or inside a name, a surname and a handle in four contexts, plus JSON escapes,
+ * PR #1351 round 6; 400k random texts in five contexts, round 7). That is a measurement, not an
+ * equivalence: the handle arm still widens a span over a trailing jamo in non-NFC text, and
+ * `mainSpans` is tested on its own. Only the generic patterns add a span the own pass misses
+ * (`x™tg: mark_dev`). The arms stay as the structural guard of the union: do not remove them as
+ * dead code. In the gate scan the name arm is load-bearing (round 8): main splits a stored name on
+ * `\s`, which includes U+FEFF, the one character the strip also removes, so for `Ivan Petr`,
+ * U+FEFF, `in` main flags `in` alone, and the own gate scan, which drops a lone split part shorter
+ * than three letters, does not.
+ */
+/** Main's full-name and surname patterns, accent-folded, for `foldAccents` text of NFC text. */
+function mainNamePatterns(fullName: string): RegExp[] {
+  const name = foldAccents(fullName.normalize('NFC').replace(CONTACT_APOSTROPHES, "'")).text
+  const parts = name.trim().split(/\s+/u)
+  const sources = [
+    parts.map(escapeRegExp).join(MAIN_NAME_GAP),
+    ...parts.slice(-1).filter(isSurnameSource).map(escapeRegExp),
+  ]
+  // a blank name leaves an empty source, which would match everywhere
+  return sources.filter(Boolean).map(mainWholeToken)
+}
+
+/**
+ * Main's spans on NFC `nfc`: the generic patterns, the handle (`\w` boundary) and the name.
+ * Exported for its own test only (round 7, CR-M-6): the redaction output alone does not show its
+ * name arm, see the note above `mainNamePatterns`.
+ */
+export function mainSpans(nfc: string, ctx: ContactContext): Span[] {
+  const plain = nfc.replace(CONTACT_APOSTROPHES, "'")
+  const spans = patternSpans(plain, ctx)
+  const handle = normaliseTelegramHandle(ctx.telegram)
+  if (handle) {
+    for (const m of plain.matchAll(new RegExp(`(?<!\\w)@*${escapeRegExp(handle)}(?!\\w)`, 'giu'))) {
+      spans.push({ kind: 'telegram', start: m.index, end: m.index + m[0].length })
     }
+  }
+  const folded = foldAccents(plain)
+  for (const pattern of mainNamePatterns(ctx.fullName)) {
+    for (const m of folded.text.matchAll(pattern)) {
+      spans.push(
+        foldedSpan('name', folded, { start: m.index, end: m.index + m[0].length }, nfc.length),
+      )
+    }
+  }
+  return spans
+}
+
+/**
+ * One code point and the characters NFC may compose into it: marks, vowel and trailing Hangul
+ * jamo, and U+16D67 (a Kirat Rai vowel that is a letter). No other character composes backwards
+ * or reorders, so these chunks normalise apart exactly as the whole text does.
+ */
+const NFC_CHUNK = /[^\p{M}ᅠ-ᇿힰ-퟿\u{16D67}][\p{M}ᅠ-ᇿힰ-퟿\u{16D67}]*|[\p{M}ᅠ-ᇿힰ-퟿\u{16D67}]+/gu
+
+/** For each code unit of `text.normalize('NFC')`, the span of `text` it came from. */
+function nfcMaps(text: string): { from: number[]; to: number[] } {
+  const from: number[] = []
+  const to: number[] = []
+  for (const { 0: chunk, index } of text.matchAll(NFC_CHUNK)) {
+    for (let k = chunk.normalize('NFC').length; k > 0; k--) {
+      from.push(index)
+      to.push(index + chunk.length)
+    }
+  }
+  return { from, to }
+}
+
+/** A hit on the folded text as a span of the normalised text, marks of its last letter included. */
+function foldedSpan(
+  kind: ContactHit['kind'],
+  folded: ReturnType<typeof foldAccents>,
+  span: { start: number; end: number },
+  length: number,
+): Span {
+  return { kind, start: folded.from[span.start] ?? 0, end: folded.to[span.end - 1] ?? length }
+}
+
+/** Every raw hit on the normalised text, mapped back to the original text offsets, sorted by start, longer first on a tie. */
+function findSpans(
+  text: string,
+  norm: ReturnType<typeof normaliseContactText>,
+  ctx: ContactContext,
+  failClosed: boolean,
+): Span[] {
+  const normText = norm.text
+  const plain = normText.replace(CONTACT_APOSTROPHES, "'")
+  const rawSpans = patternSpans(plain, ctx)
+  const folded = foldAccents(plain, norm.gaps)
+  const handle = telegramSource(ctx.telegram)
+  if (handle !== null) {
+    // Stryker disable next-line BlockStatement: no leak measured without it, not an equivalence — the folded-text loop below and main's handle arm redact the same letters; the handle is pinned by the round-6 handle rows
+    for (const span of findWholeTokens(plain, norm.gaps, handle, 'handle')) {
+      rawSpans.push({ kind: 'telegram', ...span })
+    }
+    // On the folded text too, as completeness does: a mark composed into the last letter
+    // (`ivan_dee`, ZWSP, acute, `x`) is folded off there.
+    for (const span of findWholeTokens(folded.text, folded.gaps, handle, 'handle')) {
+      rawSpans.push(foldedSpan('telegram', folded, span, normText.length))
+    }
+  }
+  for (const source of nameSources(ctx.fullName, failClosed)) {
+    for (const span of findWholeTokens(folded.text, folded.gaps, source, 'name')) {
+      rawSpans.push(foldedSpan('name', folded, span, normText.length))
+    }
+  }
+  const spans: Span[] = rawSpans.map((s) => ({
+    kind: s.kind,
+    // Stryker disable next-line ConditionalExpression: fallback only if index is out of bounds
+    start: norm.from[s.start] ?? 0,
+    // Stryker disable next-line ConditionalExpression: fallback only if index is out of bounds
+    end: norm.to[s.end - 1] ?? text.length,
+  }))
+  // Main's spans, on the same text: the normalised scan may only add redactions (SR-H-4). Its name
+  // and handle arms add no redaction measured today; keep the union as the guard against a future
+  // regression of the own pass, not dead code (round 7). In the gate scan the name arm adds the
+  // U+FEFF split reading, see the note above `mainNamePatterns` (round 8).
+  const nfc = text.normalize('NFC')
+  // Stryker disable next-line ConditionalExpression: `false` is equivalent — the maps of NFC text are the identity
+  const maps = nfc === text ? null : nfcMaps(text)
+  for (const s of mainSpans(nfc, ctx)) {
+    if (maps === null) spans.push(s)
+    // Stryker disable next-line ConditionalExpression: fallback only if index is out of bounds
+    else
+      spans.push({
+        kind: s.kind,
+        start: maps.from[s.start] ?? 0,
+        end: maps.to[s.end - 1] ?? text.length,
+      })
   }
   return spans.sort((a, b) => a.start - b.start || b.end - a.end)
 }
 
 /**
  * Contacts in `text`, in text order. Of overlapping hits only the first-starting
- * (longest on a tie) is reported. Both sides are NFC-normalised, so `match` is
- * the NFC form of the substring as written.
+ * (longest on a tie) is reported. Both sides are normalised, so `match` is
+ * the original substring as written.
  *
  * Contract (both functions): call on each raw string field BEFORE
  * `JSON.stringify`, never on serialized JSON; that also keeps every input small.
@@ -210,12 +353,15 @@ function findSpans(text: string, ctx: ContactContext): Span[] {
  * not hit Latin text, so the caller passes the name in the text's script.
  */
 export function scanContacts(text: string, ctx: ContactContext): ContactHit[] {
-  const nfc = text.normalize('NFC')
+  const norm = normaliseContactText(text)
   const hits: ContactHit[] = []
   let reachedEnd = 0
-  for (const span of findSpans(nfc, ctx)) {
+  for (const span of findSpans(text, norm, ctx, false)) {
     if (span.start < reachedEnd) continue
-    hits.push({ kind: span.kind, match: nfc.slice(span.start, span.end) })
+    hits.push({
+      kind: span.kind,
+      match: text.slice(span.start, span.end).normalize('NFC'),
+    })
     reachedEnd = span.end
   }
   return hits
@@ -223,20 +369,35 @@ export function scanContacts(text: string, ctx: ContactContext): ContactHit[] {
 
 /**
  * `text` (NFC) with every contact replaced by `[REDACTED]`. Overlapping and
- * adjacent hits merge into one replacement, so the result is a fixed point:
- * redacting it again, or scanning it, finds nothing. Same contract as
- * `scanContacts`: one raw field at a time, before serialization.
+ * adjacent hits merge into one replacement. Not yet a fixed point: a contact
+ * glued to another one (`0671234567Petrenko`) can survive one pass and fall to
+ * a second (backlog 449). Same contract as `scanContacts`: one raw field at a
+ * time, before serialization.
  */
 export function redactContacts(
   text: string,
   ctx: ContactContext | readonly ContactContext[],
 ): string {
-  const nfc = text.normalize('NFC')
+  let result = ''
+  let cursor = 0
+  for (const { start, end } of redactedSpans(text, ctx)) {
+    result += `${text.slice(cursor, start).normalize('NFC')}[REDACTED]`
+    cursor = end
+  }
+  return result + text.slice(cursor).normalize('NFC')
+}
+
+/** The spans of `text` that `redactContacts` replaces, merged, in text order and original offsets. */
+export function redactedSpans(
+  text: string,
+  ctx: ContactContext | readonly ContactContext[],
+): { start: number; end: number }[] {
+  const norm = normaliseContactText(text)
   const merged: { start: number; end: number }[] = []
   // Several contexts (display and legal name) merge their spans before any replacement: redacting one
   // context's surname first would break the other's full-name match and leak its first names.
   const spans = scanContexts(ctx)
-    .flatMap((c) => findSpans(nfc, c))
+    .flatMap((c) => findSpans(text, norm, c, true))
     // by start only: the merge below keeps the furthest end, so a tie needs no order
     .sort((a, b) => a.start - b.start)
   for (const { start, end } of spans) {
@@ -244,11 +405,5 @@ export function redactContacts(
     if (last && start <= last.end) last.end = Math.max(last.end, end)
     else merged.push({ start, end })
   }
-  let result = ''
-  let cursor = 0
-  for (const { start, end } of merged) {
-    result += `${nfc.slice(cursor, start)}[REDACTED]`
-    cursor = end
-  }
-  return result + nfc.slice(cursor)
+  return merged
 }
