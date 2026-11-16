@@ -541,6 +541,8 @@ describe('the gate scan keeps the split reading but its short fragments (round 8
       'Senior engineer [REDACTED] Kyiv since 2020',
     ],
     ['Iv\u200Can Petrenko', 'Led an API migration', 'Led [REDACTED] API migration'],
+    // the letters decide, not the length: `a-n` has three characters and two letters
+    ['Ivan Petr\u200Ca-n', 'the a-n ratio', 'the [REDACTED] ratio'],
   ])('stored %j passes %j, still redacted as %j', (fullName, text, redacted) => {
     expect(scanContacts(text, stored(fullName))).toEqual([])
     expect(hasContact(text, [stored(fullName)])).toBe(false)
