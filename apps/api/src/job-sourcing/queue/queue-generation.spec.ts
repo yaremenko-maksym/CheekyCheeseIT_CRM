@@ -8,6 +8,7 @@ import {
   GENERATION_POLICY,
   generationById,
   invalidateGenerationsForManualCard,
+  invalidateGenerationsForNewJobs,
   invalidateTeamGenerations,
   purgeExpiredGenerations,
 } from './queue-generation'
@@ -235,6 +236,29 @@ describe('invalidateGenerationsForManualCard', () => {
     expect(h.compiled(2).text).toContain("SET status = 'INVALIDATED'")
     expect(h.compiled(2).params).toEqual([TEAM])
     expect(h.execute).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('invalidateGenerationsForNewJobs', () => {
+  it('waits on the studio lock, then every team lock in id order, then retires every published one', async () => {
+    const h = harness(
+      [],
+      [{ id: 'team-1' }, { id: 'team-2' }],
+      [],
+      [],
+      [{ id: 'g1' }, { id: 'g2' }],
+    )
+    await expect(invalidateGenerationsForNewJobs(h.database.db)).resolves.toBe(2)
+    expect(h.transaction).toHaveBeenCalledTimes(1)
+    expect(h.compiled(0).text).toBe('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))')
+    expect(h.compiled(0).params).toEqual(['job-queue-generation:STUDIO'])
+    expect(h.compiled(1).text).toBe('SELECT id FROM teams ORDER BY id')
+    expect(h.compiled(2).params).toEqual(['job-queue-generation:TEAM:team-1'])
+    expect(h.compiled(3).params).toEqual(['job-queue-generation:TEAM:team-2'])
+    expect(h.compiled(4).text).toContain("SET status = 'INVALIDATED'")
+    expect(h.compiled(4).text).toContain("WHERE status = 'PUBLISHED' RETURNING id")
+    expect(h.compiled(4).params).toEqual([])
+    expect(h.execute).toHaveBeenCalledTimes(5)
   })
 })
 

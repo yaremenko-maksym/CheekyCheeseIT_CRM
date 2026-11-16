@@ -28,7 +28,8 @@ export const MATCH_DRAIN_BUDGET_MS = 60_000
  * Match reconciliation (r5 Task 4.6 S4b): the post-run drain and the 6-hourly safety net, one service.
  *
  *   DRAIN (`requestDrain`, no cron): `JobRunWorker` calls it after every run ends. It runs the S4a
- *     recompute worker until a batch comes back short or `MATCH_DRAIN_BUDGET_MS` has passed, so the
+ *     recompute worker until it is idle (an empty batch, or a short one that completed nothing) or
+ *     `MATCH_DRAIN_BUDGET_MS` has passed, so the
  *     records a run persisted are opportunities and matches within the same collection window, and
  *     retires the published queue snapshots when anything was recomputed.
  *   SWEEP (`MATCH_RECONCILIATION_CRON`, every RECONCILE_PERIOD_HOURS): the safety net. Recover expired
@@ -73,7 +74,7 @@ export class JobMatchReconciliationCronService {
 
   /**
    * The post-run step (`JobRunWorker` calls it after every run ends, scheduled or manual): recompute
-   * the MATCH dirty work the run produced, so its records are opportunities and matches seconds
+   * the MATCH dirty work the run produced (records, then the opportunity rows they enqueue), so its records are opportunities and matches seconds
    * later. Single-flight: a request while a drain runs asks that drain for one more pass (within its
    * budget) and shares its promise; a request while a sweep runs is dropped (the sweep drains, the
    * next run or sweep takes the rest). The promise never rejects.
@@ -100,7 +101,7 @@ export class JobMatchReconciliationCronService {
     try {
       do {
         this.drainAgain = false
-        await this.drain({ deadline: startedAt + MATCH_DRAIN_BUDGET_MS }, tally)
+        await this.drain({ deadline: startedAt + MATCH_DRAIN_BUDGET_MS, untilIdle: true }, tally)
       } while (this.drainAgain && elapsed() < MATCH_DRAIN_BUDGET_MS)
     } catch (err: unknown) {
       this.logger.error(
@@ -109,24 +110,32 @@ export class JobMatchReconciliationCronService {
         safeErrorStack(err),
       )
     }
-    // New or recomputed opportunities (also those of a drain that failed later): retire every
-    // published queue snapshot, so the next read lists them instead of a snapshot taken before them.
-    if (tally.done > 0)
-      try {
-        invalidated = await invalidateGenerationsForNewJobs(this.db.db)
-      } catch (err: unknown) {
-        this.logger.error(
-          `Match drain: queue snapshots not retired; fresh vacancies show when they expire` +
-            dbErrorLogSuffix(err),
-          safeErrorStack(err),
-        )
-      }
+    // Also for the work of a drain that failed later.
+    invalidated = await this.retireSnapshots(tally.done)
     // Counts only, no personal data; an idle drain (nothing claimed) stays silent.
     if (tally.claimed > 0)
       this.logger.log(
         `Match drain: recomputed=${tally.claimed} done=${tally.done} batches=${tally.batches} ` +
           `generationsInvalidated=${invalidated} durationMs=${Math.round(elapsed())}`,
       )
+  }
+
+  /**
+   * New or recomputed opportunities (`done` rows DONE): retire every published queue snapshot, so the
+   * next read lists them instead of serving a snapshot taken before them until its TTL. Never throws.
+   */
+  private async retireSnapshots(done: number): Promise<number> {
+    if (done === 0) return 0
+    try {
+      return await invalidateGenerationsForNewJobs(this.db.db)
+    } catch (err: unknown) {
+      this.logger.error(
+        `Match drain: queue snapshots not retired; fresh vacancies show when they expire` +
+          dbErrorLogSuffix(err),
+        safeErrorStack(err),
+      )
+      return 0
+    }
   }
 
   @Cron(MATCH_RECONCILIATION_CRON)
@@ -146,7 +155,8 @@ export class JobMatchReconciliationCronService {
       })
       const report = await reconcileOnce(this.db.db, { cursor: this.cursor })
       this.cursor = report.cursor
-      const { claimed: drained } = await this.drain({ maxBatches: RECONCILE_MAX_DRAIN_BATCHES })
+      const drained = await this.drain({ maxBatches: RECONCILE_MAX_DRAIN_BATCHES })
+      const invalidated = await this.retireSnapshots(drained.done)
       // Counts only, no personal data.
       if (report.gaveUp > 0)
         this.logger.warn(
@@ -156,7 +166,8 @@ export class JobMatchReconciliationCronService {
       this.logger.log(
         `Match reconciliation: scanned=${report.scanned} stale=${report.stale} ` +
           `enqueued=${report.enqueued} skipped=${report.skipped} failed=${report.failed} pages=${report.pages} ` +
-          `resumeCursor=${report.cursor === null ? 'none' : 'set'} recomputed=${drained} ` +
+          `resumeCursor=${report.cursor === null ? 'none' : 'set'} recomputed=${drained.claimed} ` +
+          `generationsInvalidated=${invalidated} ` +
           `recoveredRequeued=${recovered.requeued} recoveredFailed=${recovered.failed} ` +
           `durationMs=${Math.round(performance.now() - startedAt)}`,
       )
@@ -174,12 +185,15 @@ export class JobMatchReconciliationCronService {
    * Run the recompute worker until a batch comes back short (fewer than a full batch), or the batch
    * cap is reached, or the deadline (a `performance.now()` value) has passed: checked before each new
    * batch, so the first always runs and the batch in flight finishes.
+   * `untilIdle` (the post-run drain): a short batch that completed rows does not stop it, because a
+   * resolved SOURCE_RECORD enqueues its OPPORTUNITY row as new PENDING work; only an empty batch, or
+   * a short one that completed nothing (retries only), does. The time budget bounds the retries.
    */
   private async drain(
-    limit: { maxBatches?: number; deadline?: number },
+    limit: { maxBatches?: number; deadline?: number; untilIdle?: boolean },
     tally: DrainTally = { claimed: 0, done: 0, batches: 0 },
   ): Promise<DrainTally> {
-    const { maxBatches = Number.POSITIVE_INFINITY, deadline } = limit
+    const { maxBatches = Number.POSITIVE_INFINITY, deadline, untilIdle = false } = limit
     let batches = 0
     do {
       const r = await this.worker.runOnce()
@@ -187,7 +201,7 @@ export class JobMatchReconciliationCronService {
       tally.batches += 1
       tally.claimed += r.claimed
       tally.done += r.done
-      if (r.claimed < DIRTY_BATCH_DEFAULT) break
+      if (r.claimed < DIRTY_BATCH_DEFAULT && (!untilIdle || r.done === 0)) break
     } while (batches < maxBatches && (deadline === undefined || performance.now() < deadline))
     return tally
   }

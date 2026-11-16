@@ -1,5 +1,5 @@
 import type { ConfigService } from '@nestjs/config'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Env } from '../../config/env'
 import type { MeterDb } from '../metering/account-meter.store'
 import { secretsForType } from '../quota-credentials'
@@ -174,6 +174,21 @@ describe('createProductionWorker', () => {
     const w = createProductionWorker(LEDGER, untouchable, new JobSourceRegistry([]), config)
     expect(depsOf(w).secretsFor('JSEARCH_API')).toEqual(['rapid-key-1'])
     expect(depsOf(w).secretsFor('REMOTIVE_API')).toEqual([])
+  })
+
+  it('passes the post-run step through (the match drain), and none when not given', () => {
+    const onRunEnded = vi.fn()
+    const w = createProductionWorker(
+      LEDGER,
+      untouchable,
+      new JobSourceRegistry([]),
+      config,
+      {},
+      onRunEnded,
+    )
+    expect(depsOf(w).onRunEnded).toBe(onRunEnded)
+    const bare = createProductionWorker(LEDGER, untouchable, new JobSourceRegistry([]), config)
+    expect(depsOf(bare).onRunEnded).toBeUndefined()
   })
 
   it('heartbeats through the ledger on its own pool, opened on first use and ended at shutdown', async () => {

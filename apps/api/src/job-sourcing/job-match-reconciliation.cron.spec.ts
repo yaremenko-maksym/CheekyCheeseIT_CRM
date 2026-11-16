@@ -244,14 +244,15 @@ describe('requestDrain: the post-run match drain', () => {
     expect(invalidate).not.toHaveBeenCalled()
   })
 
-  it('drains until a short batch, retires the queue snapshots and logs counts only', async () => {
+  it('drains until idle, retires the queue snapshots and logs counts only', async () => {
     const { svc, db, runOnce } = make(true, [200, 200, 13])
     await svc.requestDrain()
-    expect(runOnce).toHaveBeenCalledTimes(3)
+    // the short batch completed rows (their OPPORTUNITY follow-ups are new work): one more, empty
+    expect(runOnce).toHaveBeenCalledTimes(4)
     expect(invalidate).toHaveBeenCalledWith(db.db)
     const line = String(log.mock.calls[0]?.[0])
     expect(line).toContain(
-      'Match drain: recomputed=413 done=413 batches=3 generationsInvalidated=3',
+      'Match drain: recomputed=413 done=413 batches=4 generationsInvalidated=3',
     )
     expect(line).toMatch(/durationMs=\d+/)
     expect(reconcile).not.toHaveBeenCalled()
@@ -312,10 +313,10 @@ describe('requestDrain: the post-run match drain', () => {
     expect(runOnce).toHaveBeenCalledTimes(1)
     release()
     await first
-    // the short batch ended the first pass; the second request bought exactly one more pass
-    expect(runOnce).toHaveBeenCalledTimes(2)
-    await svc.requestDrain()
+    // first pass: 4 done, then an empty batch; the second request bought exactly one more pass
     expect(runOnce).toHaveBeenCalledTimes(3)
+    await svc.requestDrain()
+    expect(runOnce).toHaveBeenCalledTimes(4)
   })
 
   it('a drain failure never rejects, is logged, and still retires for what was done', async () => {
@@ -378,5 +379,57 @@ describe('requestDrain: the post-run match drain', () => {
     await Promise.all([drain, sweep])
     expect(order).toEqual(['drain-end', 'sweep'])
     expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('a short batch that completed rows continues: the follow-ups of resolved records are drained', async () => {
+    const { svc, runOnce } = make(true, [])
+    runOnce.mockReset()
+    runOnce
+      .mockResolvedValueOnce({ claimed: 50, done: 50 })
+      .mockResolvedValueOnce({ claimed: 50, done: 50 })
+      .mockResolvedValueOnce({ claimed: 0, done: 0 })
+      .mockResolvedValue({ claimed: 9, done: 9 })
+    await svc.requestDrain()
+    expect(runOnce).toHaveBeenCalledTimes(3)
+  })
+
+  it('a short batch of retries only (nothing done) stops it: no spin on rows back in PENDING', async () => {
+    const { svc, runOnce } = make(true, [])
+    runOnce.mockReset()
+    runOnce
+      .mockResolvedValueOnce({ claimed: 7, done: 2 })
+      .mockResolvedValueOnce({ claimed: 5, done: 0 })
+      .mockResolvedValue({ claimed: 5, done: 5 })
+    await svc.requestDrain()
+    expect(runOnce).toHaveBeenCalledTimes(2)
+  })
+
+  it('a request whose drain has spent its budget buys no extra pass', async () => {
+    const { svc, runOnce } = make(true, [])
+    let release!: () => void
+    runOnce.mockReset()
+    runOnce
+      .mockImplementationOnce(
+        () => new Promise((r) => (release = () => r({ claimed: 0, done: 0 }))),
+      )
+      .mockResolvedValue({ claimed: 0, done: 0 })
+    vi.spyOn(performance, 'now')
+      .mockReturnValueOnce(1000)
+      .mockReturnValue(1000 + MATCH_DRAIN_BUDGET_MS)
+    const first = svc.requestDrain()
+    void svc.requestDrain()
+    release()
+    await first
+    expect(runOnce).toHaveBeenCalledTimes(1)
+  })
+
+  it('the sweep retires the queue snapshots when its own drain completed rows, not otherwise', async () => {
+    const { svc, db } = make(true, [3])
+    await svc.handleReconciliation()
+    expect(invalidate).toHaveBeenCalledWith(db.db)
+    expect(String(log.mock.calls[0]?.[0])).toContain('recomputed=3 generationsInvalidated=3')
+    invalidate.mockClear()
+    await make(true, [0]).svc.handleReconciliation()
+    expect(invalidate).not.toHaveBeenCalled()
   })
 })
