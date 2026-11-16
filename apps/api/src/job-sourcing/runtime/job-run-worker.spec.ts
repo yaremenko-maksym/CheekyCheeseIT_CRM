@@ -1112,6 +1112,34 @@ describe('the manual path and the pool boundaries', () => {
     expect(w.log.filter((l) => l.startsWith('claim')).at(-1)).toBe('claim:2')
   })
 
+  it('the enable catch-up purpose reaches claimSource unchanged', async () => {
+    const args: unknown[] = []
+    const w = world()
+    const ledger = (w.worker as unknown as { deps: WorkerDeps }).deps.ledger as {
+      claimSource: WorkerDeps['ledger']['claimSource']
+    }
+    const real = ledger.claimSource
+    ledger.claimSource = async (input) => {
+      args.push(input)
+      return real(input)
+    }
+    await w.worker.runSource({
+      cycleId: uuid(1),
+      sourceId: uuid(5),
+      actor: uuid(6),
+      purpose: 'ENABLE_CATCH_UP',
+    })
+    expect(args).toEqual([
+      {
+        cycleId: uuid(1),
+        sourceId: uuid(5),
+        actor: uuid(6),
+        purpose: 'ENABLE_CATCH_UP',
+        owner: 'spec',
+      },
+    ])
+  })
+
   it('a refused manual claim runs nothing', async () => {
     const w = world()
     const ledger = (w.worker as unknown as { deps: WorkerDeps }).deps.ledger as {
