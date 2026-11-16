@@ -240,6 +240,7 @@ describe.skipIf(!hasDatabaseUrl())('Confirm, staged edit, regenerate — real DB
       verificationErrorCode: null,
       verificationReport: null,
       verifiedVersion: null,
+      recheckNeededAt: null,
       stagedContent: null,
       stagedLayout: null,
       stagedTemplateName: null,
@@ -290,6 +291,8 @@ describe.skipIf(!hasDatabaseUrl())('Confirm, staged edit, regenerate — real DB
       verification.confirm(row, confirmInput(row), HR_ID, 'fp', {
         displayName: NAME,
         email: EMAIL,
+        legalFullName: null,
+        telegram: null,
       }),
       409,
       'RESUME_CONFIRM_STALE',
@@ -306,6 +309,8 @@ describe.skipIf(!hasDatabaseUrl())('Confirm, staged edit, regenerate — real DB
       verification.confirm(row, confirmInput(row), HR_ID, 'fp', {
         displayName: NAME,
         email: EMAIL,
+        legalFullName: null,
+        telegram: null,
       }),
       409,
       'RESUME_CONFIRM_STALE',
@@ -435,6 +440,103 @@ describe.skipIf(!hasDatabaseUrl())('Confirm, staged edit, regenerate — real DB
     const after = await rowOf()
     expect(after.version).toBe(row.version + 1)
     expect(after.verifiedVersion).toBe(row.version + 1)
+  })
+
+  it('10b. a completed verification clears the re-check flag (backlog 442)', async () => {
+    await setState({ recheckNeededAt: new Date('2026-11-15T10:00:00.000Z') })
+    const row = await awaiting()
+    expect(row.recheckNeededAt).toBeInstanceOf(Date)
+    await service.confirm(HR, OWNER_ID, confirmInput(row))
+    const after = await rowOf()
+    expect(after.verificationStatus).toBe('VERIFIED')
+    expect(after.recheckNeededAt).toBeNull()
+  })
+
+  it.each([
+    ['legal name', { legalFullName: 'Doe Jane Marie' }, { legalFullName: null }],
+    ['Telegram', { telegram: '@jane_new' }, { telegram: null }],
+  ] as const)(
+    '10c. a %s change during AWAITING_CONFIRM makes the confirm stale (backlog 442)',
+    async (_what, change, back) => {
+      const row = await awaiting()
+      await dbSvc.db.update(users).set(change).where(eq(users.id, OWNER_ID))
+      try {
+        await rejectsWith(
+          service.confirm(HR, OWNER_ID, confirmInput(row)),
+          409,
+          'RESUME_CONFIRM_STALE',
+        )
+      } finally {
+        await dbSvc.db.update(users).set(back).where(eq(users.id, OWNER_ID))
+      }
+      const after = await rowOf()
+      expect(after.verificationStatus).toBe('AWAITING_CONFIRM')
+      expect(after.verifiedVersion).toBeNull()
+    },
+  )
+
+  it('10d. an identity edit committing between the owner read and the UPDATE: the confirm waits on its lock, then is stale (backlog 442)', async () => {
+    const row = await awaiting()
+    const writer = await pool.connect()
+    let settled = false
+    try {
+      // The writer's path: the locked before-read of markResumeRecheckNeeded, then the UPDATE.
+      await writer.query('BEGIN')
+      await writer.query('SELECT telegram FROM users WHERE id = $1 FOR NO KEY UPDATE', [OWNER_ID])
+      await writer.query('UPDATE users SET telegram = $2 WHERE id = $1', [OWNER_ID, '@jane_race'])
+      // The owner as the caller read it before the edit: the pre-check passes.
+      const confirming = verification
+        .confirm(row, confirmInput(row), HR_ID, 'fp', {
+          displayName: NAME,
+          email: EMAIL,
+          legalFullName: null,
+          telegram: null,
+        })
+        .finally(() => {
+          settled = true
+        })
+      confirming.catch(() => {})
+      await new Promise((r) => setTimeout(r, 300))
+      // FOR SHARE conflicts with the writer's FOR NO KEY UPDATE: the confirm is blocked.
+      expect(settled).toBe(false)
+      await writer.query('COMMIT')
+      await rejectsWith(confirming, 409, 'RESUME_CONFIRM_STALE')
+    } finally {
+      await writer.query('ROLLBACK').catch(() => {})
+      writer.release()
+      await dbSvc.db.update(users).set({ telegram: null }).where(eq(users.id, OWNER_ID))
+    }
+    const after = await rowOf()
+    expect(after.verificationStatus).toBe('AWAITING_CONFIRM')
+    expect(after.verifiedVersion).toBeNull()
+  })
+
+  it('10e. a flagged VERIFIED resume can be re-checked; an unflagged one is 409 (backlog 442)', async () => {
+    await service.confirm(HR, OWNER_ID, confirmInput(await awaiting()))
+    expect((await rowOf()).verificationStatus).toBe('VERIFIED')
+    await rejectsWith(service.submit(HR, OWNER_ID), 409, 'RESUME_ALREADY_VERIFIED')
+
+    await setState({ recheckNeededAt: new Date('2026-11-15T10:00:00.000Z') })
+    await service.submit(HR, OWNER_ID)
+    await drain()
+    const rechecked = await rowOf()
+    expect(rechecked.verificationStatus).toBe('AWAITING_CONFIRM')
+    // The flag stays until the re-check is confirmed.
+    expect(rechecked.recheckNeededAt).toBeInstanceOf(Date)
+    await service.confirm(HR, OWNER_ID, confirmInput(rechecked))
+    const after = await rowOf()
+    expect(after.verificationStatus).toBe('VERIFIED')
+    expect(after.recheckNeededAt).toBeNull()
+  })
+
+  it('10f. a facts edit of a flagged VERIFIED resume resets to DRAFT and clears the flag (backlog 442)', async () => {
+    await service.confirm(HR, OWNER_ID, confirmInput(await awaiting()))
+    await setState({ recheckNeededAt: new Date('2026-11-15T10:00:00.000Z') })
+    const out = await service.saveFacts(HR, OWNER_ID, { ...FACTS, headline: 'Staff Engineer' })
+    const after = await rowOf()
+    expect(after.verificationStatus).toBe('DRAFT')
+    expect(after.recheckNeededAt).toBeNull()
+    expect(out.resume?.recheckNeededAt ?? null).toBeNull()
   })
 
   // ── Staged edit ───────────────────────────────────────────────────────────

@@ -270,6 +270,12 @@ export const seniorResumeDtoSchema = z.object({
   verifiedVersion: z.number().int().nonnegative().nullable(),
   verifiedAt: z.string().nullable(),
   verifiedByName: z.string().nullable(),
+  /**
+   * Backlog 442: the owner's name, legal name or Telegram changed after the resume was VERIFIED, so
+   * the verified text may carry the new values. A confirmed verification clears it. The default
+   * keeps an older payload (no key) parseable.
+   */
+  recheckNeededAt: z.string().nullable().default(null),
   /** The check run's result awaiting Confirm; null unless a staged PDF exists. */
   staged: z
     .object({

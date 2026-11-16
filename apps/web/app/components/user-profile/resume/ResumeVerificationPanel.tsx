@@ -375,6 +375,15 @@ export function VerificationBadge({ resume }: { resume: SeniorResumeDto }) {
               )}
             </span>
           )}
+          {resume.recheckNeededAt && (
+            <Badge
+              variant="outline"
+              className="border-amber-500/40 bg-amber-500/10 text-amber-300"
+              data-testid="resume-recheck-needed"
+            >
+              <Trans>Потрібна повторна перевірка</Trans>
+            </Badge>
+          )}
         </span>
       )
     }

@@ -30,6 +30,7 @@ import {
   CLEARED_STAGED,
   deleteStagedQuietly,
   regenerateTarget,
+  stagedOwnerKey,
   stagedPdfKey,
   VERIFICATION_DEADLINE_MS,
   VERIFICATION_RUN_BUDGET_MS,
@@ -725,6 +726,18 @@ describe('VerificationRunner.run — staged kinds (Task 15)', () => {
     expect(report.fallbacks).toEqual(['experience.0.bullets'])
   })
 
+  it('a staged-edit run carries the owner key of the run before (backlog 442)', async () => {
+    const { set } = await stagedRun({
+      verificationKind: 'staged-edit',
+      verificationTargetPath: 'summary',
+      verificationReport: { ...PREVIOUS, ownerKey: 'key-of-the-full-run' },
+    })
+    // The untouched texts were scanned against that run's owner, not against the owner read now.
+    expect((set['verificationReport'] as { ownerKey?: string }).ownerKey).toBe(
+      'key-of-the-full-run',
+    )
+  })
+
   it('staged-edit of one bullet keeps every earlier finding: the item path was not rewritten', async () => {
     const { set } = await stagedRun({
       verificationKind: 'staged-edit',
@@ -1078,5 +1091,33 @@ describe('VerificationRunner.run — template kind (Task 16)', () => {
     expect(log.at(-1)?.set?.verificationErrorCode).toBe('INCOMPLETE')
     expect(log.at(-1)?.set).not.toHaveProperty('verificationStatus')
     expect(typst.render).not.toHaveBeenCalled()
+  })
+})
+
+describe('stagedOwnerKey (backlog 442)', () => {
+  const OWNER = {
+    displayName: 'Jane Doe',
+    email: 'jane.doe@unit.spec',
+    legalFullName: 'Jana Kowalska',
+    telegram: '@jane',
+  }
+  const PRIOR = { gates: [], fallbacks: [], ownerKey: 'prior-key' }
+
+  it('a full run is stamped with the owner it read', () => {
+    expect(stagedOwnerKey({ verificationKind: 'full', verificationReport: PRIOR }, OWNER)).toBe(
+      renderOwnerKey(OWNER),
+    )
+  })
+
+  it.each(['staged-edit', 'item'] as const)('a %s run keeps the key of the run before', (kind) => {
+    expect(stagedOwnerKey({ verificationKind: kind, verificationReport: PRIOR }, OWNER)).toBe(
+      'prior-key',
+    )
+  })
+
+  it('a staged run over a report without a key gets one that never matches', () => {
+    expect(
+      stagedOwnerKey({ verificationKind: 'item', verificationReport: { gates: [] } }, OWNER),
+    ).toBe('')
   })
 })

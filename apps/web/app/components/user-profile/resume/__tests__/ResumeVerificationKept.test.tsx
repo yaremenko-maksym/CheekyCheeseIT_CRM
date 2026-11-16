@@ -56,6 +56,7 @@ function resume(code: ResumeVerificationErrorCode | null): SeniorResumeDto {
     verifiedVersion: null,
     verifiedAt: null,
     verifiedByName: null,
+    recheckNeededAt: null,
     staged: {
       runId: '22222222-2222-4222-8222-222222222222',
       content: { ...EMPTY_RESUME_CONTENT, summary: 'Backend engineer.' },

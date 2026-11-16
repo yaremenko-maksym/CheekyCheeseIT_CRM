@@ -69,6 +69,7 @@ function makeResponse(overrides: Partial<SeniorResumeDto> = {}): SeniorResumeRes
       verifiedVersion: null,
       verifiedAt: null,
       verifiedByName: null,
+      recheckNeededAt: null,
       staged: null,
       verificationBusy: false,
       ...overrides,

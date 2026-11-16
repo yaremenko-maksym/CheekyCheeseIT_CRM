@@ -10101,6 +10101,10 @@ msgstr "/ місяць"
 msgid "Найнято"
 msgstr "Найнято"
 
+#: apps/web/app/components/user-profile/resume/ResumeVerificationPanel.tsx
+msgid "Потрібна повторна перевірка"
+msgstr "Потрібна повторна перевірка"
+
 #. placeholder {0}: formatAmount(invoice.amount, invoice.currency)
 #: apps/web/app/components/invoices/invoice-card.tsx
 msgid "Відкрити рахунок {typeLabel} на {0}"

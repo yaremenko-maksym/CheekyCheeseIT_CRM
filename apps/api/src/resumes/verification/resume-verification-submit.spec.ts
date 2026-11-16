@@ -158,6 +158,28 @@ describe('ResumeVerificationService.submit', () => {
     expect(s3.delete).not.toHaveBeenCalled()
   })
 
+  it('a VERIFIED resume flagged "re-check needed" queues a full run and keeps the flag (backlog 442)', async () => {
+    const row = {
+      ...ROW,
+      verificationStatus: 'VERIFIED',
+      recheckNeededAt: new Date('2026-11-15T10:00:00.000Z'),
+    } as SeniorResume
+    const { svc, runner, log } = service([[{ ...row, verificationStatus: 'QUEUED' }]])
+    await svc.submit(row, 'Jane Doe', 'v')
+    expect(log).toHaveLength(1)
+    const set = log[0]?.set as Record<string, unknown>
+    expect(set.verificationStatus).toBe('QUEUED')
+    // Only the confirm clears the flag: a failed re-check still says "re-check needed".
+    expect(set).not.toHaveProperty('recheckNeededAt')
+    // The UPDATE takes a VERIFIED row only while it is flagged.
+    const where = log[0]?.where
+    expect(where?.sql).toContain(
+      'in ($6, $7, $8) or ("senior_resumes"."verification_status" = $9 and "senior_resumes"."recheck_needed_at" is not null))',
+    )
+    expect(where?.params.slice(5, 9)).toEqual(['DRAFT', 'FAILED', 'AWAITING_CONFIRM', 'VERIFIED'])
+    expect(runner.run).toHaveBeenCalledWith('r-1', set.verificationRunId)
+  })
+
   it('an incomplete resume is 422 RESUME_INCOMPLETE without the issue list (P7)', async () => {
     const { svc, runner, log } = service([])
     const row = { ...ROW, facts: { ...FACTS, experience: [] } } as SeniorResume
