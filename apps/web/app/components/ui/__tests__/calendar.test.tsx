@@ -9,7 +9,7 @@
  * `date-picker.test.tsx` exercises the DAY grid (via `DatePickerField`'s
  * popover) but never opens the month/year dropdown picker this file adds.
  */
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
@@ -232,5 +232,56 @@ describe('Calendar — showOutsideDays / selected styling (MUT-1)', () => {
     // inner `<button>` — the button itself carries no selection attribute.
     const selectedCell = screen.getByRole('gridcell', { selected: true })
     expect(selectedCell).toHaveClass('bg-primary')
+  })
+
+  // backlog 427 / design spec §11: every tap target is 44 px below `sm` (320 / 375), the compact
+  // 36 / 28 px from `sm` up. jsdom has no layout, so the size is pinned through the classes; the
+  // 320 px fit itself is measured in the PR (SPEC-L-1).
+  it('sizes day cells, weekdays and the prev/next buttons for touch below `sm` (CR-M-4)', async () => {
+    await loadCatalog('uk')
+    const { container } = renderCalendar()
+    // the DayPicker root carries no role or accessible name
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(container.firstElementChild).toHaveClass('px-0', 'py-3', 'sm:p-3')
+    expect(screen.getAllByRole('columnheader', { hidden: true })[0]).toHaveClass('w-11', 'sm:w-9')
+    const cell = screen.getAllByRole('gridcell')[10]!
+    expect(cell).toHaveClass('size-11', 'sm:size-9')
+    expect(within(cell).getByRole('button')).toHaveClass('size-11', 'sm:size-9')
+    // the caption row (prev, month / year, next); DayPicker's `month_caption` classes reach it
+    // eslint-disable-next-line testing-library/no-node-access
+    const caption = screen.getByText(uaMonthFull(8)).parentElement!.parentElement!
+    expect(caption).toHaveClass('px-2', 'sm:px-0', 'h-11', 'sm:h-7', 'justify-between')
+    const navButtons = within(caption).getAllByRole('button')
+    for (const nav of [navButtons[0], navButtons.at(-1)]) {
+      expect(nav).toHaveClass('size-11', 'sm:size-7')
+    }
+  })
+
+  // PR #1334 QA-LOW-1: an arrow at the bound looked the same as one that pages (both opacity 0.5).
+  // jsdom has no computed style, so the two states are pinned through the classes that make them.
+  it('a disabled month arrow looks unavailable, an enabled one fully interactive', async () => {
+    await loadCatalog('uk')
+    render(
+      <Calendar
+        mode="single"
+        defaultMonth={new Date(Date.UTC(2026, 8, 15))}
+        endMonth={new Date(Date.UTC(2026, 8, 1))}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    const previous = screen.getByRole('button', { name: 'Попередній місяць' })
+    const next = screen.getByRole('button', { name: 'Наступний місяць' })
+    expect(next).toBeDisabled()
+    expect(previous).toBeEnabled()
+    for (const arrow of [previous, next]) {
+      expect(arrow).not.toHaveClass('opacity-50')
+      expect(arrow).toHaveClass(
+        'disabled:opacity-30',
+        'disabled:cursor-not-allowed',
+        'disabled:pointer-events-auto',
+        'disabled:hover:bg-transparent',
+      )
+      expect(arrow).not.toHaveClass('disabled:opacity-50', 'disabled:pointer-events-none')
+    }
   })
 })

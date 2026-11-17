@@ -8,9 +8,11 @@ import importlib.util, json, os, re, shlex, sys, urllib.parse
 
 # The hook reads UTF-8. On Windows a pipe gets the locale code page (cp1251/cp1252)
 # instead, and -I makes python ignore PYTHONIOENCODING / PYTHONUTF8, so a non-ASCII
-# message (the em dash of the BLOCK line) arrived garbled. Set it here.
+# message (the em dash of the BLOCK line) arrived garbled. Set it here. stdin too: the
+# payload carries the command as raw UTF-8 bytes; its error handler is kept as it was.
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
+sys.stdin.reconfigure(encoding="utf-8", errors=sys.stdin.errors)
 
 # By absolute path, not via sys.path — see the note in pre-bash-safety.sh.
 _spec = importlib.util.spec_from_file_location(
@@ -524,7 +526,7 @@ Do not forget the TTL wrapper either (a separate requirement, also mandatory):
 
 NOT A LAUNCH (this hook lets these through): the word as an argument
 (grep/ls/git show); a read-only subcommand of pnpm and npm ONLY (`pnpm why vite`,
-`npm ls`); a heredoc body with a QUOTED delimiter (`<<EOF`, `<<\\EOF`).
+`npm ls`); a heredoc body with a QUOTED delimiter (`<<'EOF'`, `<<\\EOF`).
 
 REFUSED BY DESIGN, though not a launch either (not a bug; the wrapper will not
 help): the same subcommands on turbo / yarn / bun (`yarn why`, `turbo ls dev`) —

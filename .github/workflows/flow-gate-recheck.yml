@@ -1,0 +1,102 @@
+name: Flow Gate Recheck
+
+# Re-runs the latest `Flow Gate` run of the PR head after PR activity that cannot start the gate
+# itself: a PR comment (`issue_comment`) and a review or review comment (via `flow-gate-relay.yml`
+# completing). Both triggers run the DEFAULT branch's copy of this file, so a PR cannot change what
+# it does. Logic and the reasoning: scripts/architect/flow-gate-recheck.mjs (unit-tested).
+#
+# Why a re-run and not a gate job here: a run started by these events attaches its check to the
+# default branch's commit, never to the PR head, so it could not be the required `Flow Gate`
+# context. A re-run adds an attempt to the head's own check suite, and the gate reads reviews,
+# comments, labels and body live, so the new attempt judges the current PR state.
+#
+# Never checks out or runs PR code (sparse checkout of `main`, no credentials). The relay's head
+# owner and branch go into env, never into `run:` through `${{ }}`, and only into a URL-encoded
+# query.
+#
+# Bursts: the job has a `concurrency:` group per PR and per trigger kind (`issue_comment`: the PR
+# number; relay: the head repo + branch), never cancelling the running one, so a burst of one kind
+# collapses to one running + one pending recheck. A comment recheck and a relay recheck for the same
+# PR may overlap; the freshness check below makes that safe. A superseded pending recheck ends
+# `cancelled` — on main's commit, where these runs attach, never on the required `Flow Gate` check
+# of the PR head. The gate itself keeps NO concurrency (a cancelled required check reads as a
+# failure). The group key carries the trust condition: an untrusted event gets its own group
+# (`run_id`), so it can never evict a pending real recheck.
+#
+# Freshness, decided before any wait: the script returns `fresh` without POSTing when the gate
+# attempt has not started yet, or started after the script itself started (always later than the
+# event; never an event timestamp, which a deleted or edited comment carries stale). Only an
+# attempt that started before the script is waited out and re-run, so waiters do not chain.
+#
+# Who triggers: a PR comment only from OWNER / MEMBER / COLLABORATOR and not from a bot; a relay
+# run only when it succeeded (the relay job skips for any other author, and a run whose only job
+# skipped concludes `skipped`) and came from a review event. Residual: the relay is the PR's own
+# copy. A fork that drops its author filter gets extra re-runs of its own PR's gate, bounded by the
+# concurrency group. A fork that deletes or renames its relay stops review-triggered rechecks: the
+# previous verdict (possibly green) then stands through a later review until someone comments,
+# edits the body or toggles a label — the same as before this workflow existed.
+#
+# Failures land on main's commit, not on the PR. The script's error line names the manual
+# fallback (edit the PR body or toggle a label), the 30-day re-run limit and the 50-re-run cap.
+#
+# `actions: write` is the one write scope: POST /actions/runs/{id}/rerun.
+
+on:
+  issue_comment:
+    types: [created, edited, deleted]
+  workflow_run:
+    workflows: [Flow Gate Relay]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+jobs:
+  recheck:
+    name: Flow Gate Recheck
+    # The trust condition appears twice, here and in the concurrency group below; keep them identical
+    # (expressions cannot be shared; flow-gate-recheck.test.mjs asserts they match).
+    if: >-
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       contains(fromJSON('["pull_request_review","pull_request_review_comment"]'), github.event.workflow_run.event)) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+       github.event.comment.user.type != 'Bot')
+    concurrency:
+      # Untrusted events get a group of their own (`run_id`), so they can never share a group with a
+      # real recheck, whatever GitHub does with a skipped job's concurrency.
+      group: >-
+        flow-gate-recheck-${{ github.event.issue.number || format('{0}:{1}', github.event.workflow_run.head_repository.full_name, github.event.workflow_run.head_branch) }}-${{
+          ((github.event_name == 'workflow_run' &&
+           github.event.workflow_run.conclusion == 'success' &&
+           contains(fromJSON('["pull_request_review","pull_request_review_comment"]'), github.event.workflow_run.event)) ||
+          (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+           contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
+           github.event.comment.user.type != 'Bot')) && 'trusted' || github.run_id }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    # The script waits up to WAIT_LIMIT_MS (8 min) for an in-flight gate attempt, plus setup.
+    timeout-minutes: 11
+    steps:
+      - name: Checkout main (recheck logic only — never the PR's code)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout: scripts/architect
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Re-run Flow Gate on the PR head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: node scripts/architect/flow-gate-recheck.mjs

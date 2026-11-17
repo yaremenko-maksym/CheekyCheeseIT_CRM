@@ -236,7 +236,7 @@ describe('ChangePersonalEmailDialog — validate() on blur', () => {
     await user.type(input(), 'not-an-email')
     await user.tab() // blur
     expect(await screen.findByText('Введіть email у форматі name@domain')).toBeInTheDocument()
-    expect(input().className).toContain('border-destructive')
+    expect(input()).toHaveClass('border-destructive')
   })
 
   it('an email over the 255-char cap shows the length message', async () => {

@@ -34,6 +34,10 @@ export const auditActionSchema = z.enum([
   // recorded directly via `AuditLogService.record()`, not the `@AuditLog`
   // decorator, because the change lives in `user_emails`, not `users`.
   'personal_email_changed',
+  // PR #1337 SR-L-2: a senior's availability (`senior_availability`, not `users`) set by the
+  // senior or an ADMIN. Recorded directly via `AuditLogService.record()` from
+  // `SeniorAvailabilityService.set` for the same reason as the two actions above.
+  'availability_change',
 ])
 
 export const auditChangeSchema = z.object({

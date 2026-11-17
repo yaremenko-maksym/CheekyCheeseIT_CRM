@@ -7,9 +7,15 @@ import {
   DEFAULT_RESUME_LAYOUT,
   EMPTY_RESUME_CONTENT,
   type ResumeContent,
+  type ResumeFacts,
   type ResumeLayoutOptions,
+  type ResumeVerificationReport,
 } from '@crm/shared'
-import { resumeExtractionStatusEnum, resumeRenderStatusEnum } from './enums'
+import {
+  resumeExtractionStatusEnum,
+  resumeRenderStatusEnum,
+  resumeVerificationStatusEnum,
+} from './enums'
 import { users } from './users'
 
 // ---------------------------------------------------------------------------
@@ -39,6 +45,7 @@ export const seniorResumes = pgTable(
     status: resumeExtractionStatusEnum('status').notNull().default('READY'),
     /** ResumeFailureCode (packages/shared) — set together with `error_message`. */
     errorCode: text('error_code'),
+    /** The detail: an `encodeResumeMessage` code (backlog 443); older rows hold Russian text. */
     errorMessage: text('error_message'),
     /** When the Cloudflare daily allowance resets (QUOTA_EXCEEDED only). */
     quotaResetsAt: timestamp('quota_resets_at', { withTimezone: true }),
@@ -95,7 +102,10 @@ export const seniorResumes = pgTable(
      */
     pdfFingerprint: text('pdf_fingerprint'),
     pdfRenderStatus: resumeRenderStatusEnum('pdf_render_status').notNull().default('IDLE'),
-    /** Russian, user-safe — set together with `pdf_render_status = 'FAILED'`. */
+    /**
+     * Set together with `pdf_render_status = 'FAILED'`: a resume error code encoded
+     * by `encodeResumeMessage` (backlog 443); older rows hold Russian text.
+     */
     pdfRenderError: text('pdf_render_error'),
     /** Set while a render is RUNNING; drives the stuck-render sweep. */
     pdfRenderStartedAt: timestamp('pdf_render_started_at', { withTimezone: true }),
@@ -105,6 +115,54 @@ export const seniorResumes = pgTable(
      * must discard its result instead of overwriting fresher bytes.
      */
     pdfRenderRunId: uuid('pdf_render_run_id'),
+
+    // --- verification (verified base resume, spec §8) -------------------------
+    /** ResumeFacts — what HR entered. NULL = a legacy row never saved since. UNTRUSTED. */
+    facts: jsonb('facts').$type<ResumeFacts>(),
+    /** Every existing row starts as DRAFT (spec §3). */
+    verificationStatus: resumeVerificationStatusEnum('verification_status')
+      .notNull()
+      .default('DRAFT'),
+    /** The run that owns the row; NULL on a VERIFIED row unless a template run is in flight. */
+    verificationRunId: uuid('verification_run_id'),
+    /** `full` / `item` / `staged-edit` / `template`. */
+    verificationKind: text('verification_kind'),
+    verificationTargetPath: text('verification_target_path'),
+    /** The `version` the run started from. */
+    verificationBaseVersion: integer('verification_base_version'),
+    verificationQueuedAt: timestamp('verification_queued_at', { withTimezone: true }),
+    verificationStartedAt: timestamp('verification_started_at', { withTimezone: true }),
+    /** ResumeVerificationErrorCode (packages/shared). */
+    verificationErrorCode: text('verification_error_code'),
+    /** The shared report plus the run's owner key (`renderOwnerKey`); the response drops the key. */
+    verificationReport: jsonb('verification_report').$type<
+      ResumeVerificationReport & { ownerKey?: string }
+    >(),
+    verifiedVersion: integer('verified_version'),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }),
+    verifiedByUserId: uuid('verified_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    // Staged columns — written only by a check run, promoted on Confirm.
+    stagedContent: jsonb('staged_content').$type<ResumeContent>(),
+    stagedLayout: jsonb('staged_layout').$type<ResumeLayoutOptions>(),
+    stagedTemplateName: text('staged_template_name'),
+    /** Run-scoped private key of the staged PDF. */
+    stagedPdfS3Key: text('staged_pdf_s3_key'),
+    stagedEditedPaths: jsonb('staged_edited_paths')
+      .$type<{ path: string; userId: string }[]>()
+      .notNull()
+      .default([]),
+    /**
+     * The staged result a staged-edit or item run replaces, written by its start UPDATE. An infra
+     * failure of that run restores it whole (FR-A-2); every other end of the run clears it.
+     */
+    stagedPrevious: jsonb('staged_previous').$type<Record<string, unknown>>(),
+    /**
+     * Set when a redaction input of the owner (display name, legal name, Telegram) changes while the
+     * resume is VERIFIED (backlog 442); a confirmed verification clears it. NULL = nothing to re-check.
+     */
+    recheckNeededAt: timestamp('recheck_needed_at', { withTimezone: true }),
 
     updatedByUserId: uuid('updated_by_user_id').references(() => users.id, {
       onDelete: 'set null',

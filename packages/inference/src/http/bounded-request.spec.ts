@@ -2,11 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   boundedRequest,
   boundedRequestToExtractionWorker,
-  boundedRequestToLocalRuntime,
   DEFAULT_MAX_BYTES,
   DEFAULT_TIMEOUT_MS,
   EXTRACTION_WORKER_HOST,
-  LOCAL_MODEL_RUNTIME_HOST,
   type FetchLike,
 } from './bounded-request'
 
@@ -85,11 +83,24 @@ describe('boundedRequest', () => {
     expect((await boundedRequest({ ...base, timeoutMs: 5, fetchImpl: f })).kind).toBe('timeout')
   })
 
-  it('maps a thrown fetch to transport', async () => {
+  it('maps a thrown fetch to transport, with its error class and never its message', async () => {
     const f: FetchLike = async () => {
       throw new Error('boom')
     }
-    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({ kind: 'transport' })
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({
+      kind: 'transport',
+      errorName: 'Error',
+    })
+  })
+
+  it('a thrown non-Error is transport with the class unknown', async () => {
+    const f: FetchLike = async () => {
+      throw 'boom'
+    }
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({
+      kind: 'transport',
+      errorName: 'unknown',
+    })
   })
 
   it('rejects http unless loopback is allowed and host is loopback', async () => {
@@ -330,29 +341,17 @@ describe('boundedRequestToExtractionWorker plain HTTP (ADR §2.4)', () => {
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
-  it('the public entry and the runtime entry never reach the worker host', async () => {
+  it('the public entry never reaches the worker host', async () => {
     const fetchImpl = vi.fn(okFetch)
     const url = 'http://crm-extraction-worker:3100/extract'
-    for (const send of [boundedRequest, boundedRequestToLocalRuntime]) {
-      expect(await send({ ...base, url, fetchImpl, allowLoopbackHttp: true })).toEqual({
-        kind: 'transport',
-      })
-    }
+    expect(await boundedRequest({ ...base, url, fetchImpl, allowLoopbackHttp: true })).toEqual({
+      kind: 'transport',
+    })
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 })
 
-describe('boundedRequest local runtime plain HTTP (ADR §3.3)', () => {
-  const run = async (url: string, opts: { local?: boolean; loopback?: boolean } = {}) =>
-    (
-      await (opts.local === true ? boundedRequestToLocalRuntime : boundedRequest)({
-        ...base,
-        url,
-        ...(opts.loopback === true && { allowLoopbackHttp: true }),
-        fetchImpl: okFetch,
-      })
-    ).kind
-
+describe('the withdrawn model-runtime host stays unreachable (5.4c-H1)', () => {
   it('public boundedRequest never reaches the runtime host, even with a stray flag (SR-M-64)', async () => {
     const fetchImpl = vi.fn(okFetch)
     const url = 'http://crm-model-runtime/x'
@@ -369,40 +368,16 @@ describe('boundedRequest local runtime plain HTTP (ADR §3.3)', () => {
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
-  it('names one constant host', () => {
-    expect(LOCAL_MODEL_RUNTIME_HOST).toBe('crm-model-runtime')
-  })
-
-  it('reaches only loopback or the constant host over HTTP', async () => {
-    for (const url of [
-      'http://crm-model-runtime:11434/v1/x',
-      'http://localhost:11434/x',
-      'http://127.0.0.1:8080/x',
-      'http://[::1]:8080/x',
-    ]) {
-      expect(await run(url, { local: true })).toBe('ok')
+  it('does not widen allowLoopbackHttp to the runtime host', async () => {
+    for (const allowLoopbackHttp of [true, false]) {
+      const r = await boundedRequest({
+        ...base,
+        url: 'http://crm-model-runtime:11434/x',
+        allowLoopbackHttp,
+        fetchImpl: okFetch,
+      })
+      expect(r.kind).toBe('transport')
     }
-  })
-
-  it('refuses private, link-local, IPv4-mapped and foreign hosts over HTTP', async () => {
-    for (const url of [
-      'http://10.0.0.5/x',
-      'http://192.168.1.2/x',
-      'http://172.16.0.1/x',
-      'http://169.254.169.254/latest',
-      'http://[fe80::1]/x',
-      'http://[::ffff:127.0.0.1]/x',
-      'http://127.0.0.2/x',
-      'http://crm-model-runtime.example.com/x',
-      'http://api.test/x',
-    ]) {
-      expect(await run(url, { local: true })).toBe('transport')
-    }
-  })
-
-  it('does not widen allowLoopbackHttp to the constant host', async () => {
-    expect(await run('http://crm-model-runtime:11434/x', { loopback: true })).toBe('transport')
-    expect(await run('http://crm-model-runtime:11434/x')).toBe('transport')
   })
 })
 
@@ -536,15 +511,16 @@ describe('boundedRequest body bounds and stream edges', () => {
     expect(Object.keys(seen ?? {}).sort()).toEqual(['redirect', 'signal'])
   })
 
-  it('refuses non-HTTP schemes to the constant host and loopback whatever the flags', async () => {
-    for (const url of ['ftp://crm-model-runtime/x', 'ftp://localhost/x', 'ws://127.0.0.1/x']) {
-      const r = await boundedRequestToLocalRuntime({
-        ...base,
-        url,
-        allowLoopbackHttp: true,
-        fetchImpl: okFetch,
-      })
-      expect(r.kind).toBe('transport')
+  it('refuses non-HTTP schemes to the worker host and loopback whatever the flags', async () => {
+    for (const send of [boundedRequest, boundedRequestToExtractionWorker]) {
+      for (const url of [
+        'ftp://crm-extraction-worker/x',
+        'ftp://localhost/x',
+        'ws://127.0.0.1/x',
+      ]) {
+        const r = await send({ ...base, url, allowLoopbackHttp: true, fetchImpl: okFetch })
+        expect(r.kind).toBe('transport')
+      }
     }
   })
 })
@@ -581,6 +557,9 @@ describe('boundedRequest redirects (SR-M-1)', () => {
     const f: FetchLike = async () => {
       throw new TypeError('fetch failed: redirect mode is set to error')
     }
-    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({ kind: 'transport' })
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({
+      kind: 'transport',
+      errorName: 'TypeError',
+    })
   })
 })

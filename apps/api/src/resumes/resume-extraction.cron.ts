@@ -8,7 +8,9 @@
  * this sweeps:
  *   - RUNNING older than STUCK_EXTRACTION_TIMEOUT_MS -> FAILED/STALLED,
  *   - QUEUED that nobody picked up -> re-driven from the stored source file
- *     (or failed, when there is no file to re-read).
+ *     (or failed, when there is no file to re-read),
+ *   - a verification run whose process died -> STALLED (Task 16). It has its
+ *     own try/catch: neither pass can stop the other.
  *
  * Uses `@nestjs/schedule` like SalaryCronService / VacanciesRetentionCron — no
  * new queue infrastructure, per the task's explicit instruction. The whole
@@ -19,12 +21,16 @@ import { Injectable, Logger } from '@nestjs/common'
 import { Cron, CronExpression } from '@nestjs/schedule'
 import { describeDbError } from '../database/pg-errors'
 import { SeniorResumesService } from './resumes.service'
+import { ResumeVerificationService } from './verification/resume-verification.service'
 
 @Injectable()
 export class ResumeExtractionCronService {
   private readonly logger = new Logger(ResumeExtractionCronService.name)
 
-  constructor(private readonly resumes: SeniorResumesService) {}
+  constructor(
+    private readonly resumes: SeniorResumesService,
+    private readonly verification: ResumeVerificationService,
+  ) {}
 
   @Cron(CronExpression.EVERY_5_MINUTES)
   async handleStuckExtractions(): Promise<void> {
@@ -44,9 +50,17 @@ export class ResumeExtractionCronService {
       const renders = await this.resumes.sweepStuckRenders()
       if (renders > 0) this.logger.warn(`Re-queued ${renders} stuck resume render(s)`)
     } catch (err: unknown) {
-      this.logger.error(
-        `Resume extraction sweep failed: ${describeDbError(err) ?? (err instanceof Error ? err.message : 'unknown error')}`,
-      )
+      this.logger.error(`Resume extraction sweep failed: ${reason(err)}`)
+    }
+    try {
+      const stalled = await this.verification.sweepStalledVerifications(new Date())
+      if (stalled > 0) this.logger.warn(`Swept ${stalled} stalled resume verification run(s)`)
+    } catch (err: unknown) {
+      this.logger.error(`Resume verification sweep failed: ${reason(err)}`)
     }
   }
+}
+
+function reason(err: unknown): string {
+  return describeDbError(err) ?? (err instanceof Error ? err.message : 'unknown error')
 }

@@ -349,6 +349,18 @@ export const resumeRenderStatusEnum = pgEnum('resume_render_status', [
   'FAILED',
 ])
 
+// Verified base resume — the check-run state of a senior resume (spec §4 state
+// machine), independent of the extraction and render states above. Mirrors
+// packages/shared `resumeVerificationStatusSchema` (SSOT).
+export const resumeVerificationStatusEnum = pgEnum('resume_verification_status', [
+  'DRAFT',
+  'QUEUED',
+  'CHECKING',
+  'AWAITING_CONFIRM',
+  'VERIFIED',
+  'FAILED',
+])
+
 // r5 Phase 1 — job_opportunities store. Mirror the shared zod enums member for
 // member and in order (asserted in job-opportunities-schema.spec.ts).
 export const jobAvailabilityEnum = pgEnum('job_availability', [

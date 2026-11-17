@@ -16,6 +16,13 @@ describe('package index public surface (SPEC-M-1)', () => {
     expect(Object.keys(pkg)).not.toContain('boundedRequestToExtractionWorker')
   })
 
+  it.each(['MAX_FLOOR_BUDGET_MS', 'isAllowedRouterLocalModelUrl', 'MAX_SMALL_DOSE_GROUPS'])(
+    'no longer exposes %s: the local route and the small dose are withdrawn (5.4c-H1)',
+    (name) => {
+      expect(Object.keys(pkg)).not.toContain(name)
+    },
+  )
+
   it('exposes the extraction-worker adapter (5.4c-W)', () => {
     expect(Object.keys(pkg)).toContain('createExtractionWorkerAdapter')
   })
@@ -26,8 +33,7 @@ describe('package index public surface (SPEC-M-1)', () => {
       'routerCallCeilingMs',
       // The collection side derives its timeout from the maxima: it never sees the worker's config.
       'MAX_HOSTED_BUDGET_MS',
-      'MAX_FLOOR_BUDGET_MS',
-      'isAllowedRouterLocalModelUrl',
+      'isCloudflareAccountId',
       'routerInputCeilingChars',
       'createRouterExtractionAdapter',
       'createFileRouteStatePort',

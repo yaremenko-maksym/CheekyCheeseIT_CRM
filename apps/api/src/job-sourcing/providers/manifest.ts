@@ -24,6 +24,7 @@ import {
   hostRequestBudgetProblem,
   isValidHostKey,
 } from './manifest.hosts'
+import { hasKeyedCredential } from '../quota-credentials'
 import { isWellFormedDecision, liftsUnclear, type OwnerDecision } from './owner-decisions'
 import type { DetailMode } from './detail-mode'
 import {
@@ -203,6 +204,18 @@ export interface QuotaDeclaration {
   readonly window: JobMeterWindow | null
   readonly limit: number | null
   readonly limitSource: string
+  /**
+   * The `job_account_meters` row the seed delta creates for this account (in `unit`), when the owner
+   * set a figure: our own cap, kept BELOW the provider's allowance. Absent: no meter is seeded.
+   */
+  readonly seedMeter?: SeedMeterDeclaration
+}
+
+export interface SeedMeterDeclaration {
+  readonly window: 'DAY' | 'MONTH'
+  readonly limit: number
+  /** Where the figure comes from; never a credential. */
+  readonly source: string
 }
 
 export type DispositionDefinition =
@@ -575,7 +588,11 @@ function reconcileStatus(
   }
   // `UNCLEAR` is the one non-ready permission an owner decision can make runnable.
   const readyByDecision = permission === 'UNCLEAR' && unclearLifted
-  if (!value.blocked && !READY_PERMISSIONS.has(permission) && !readyByDecision) {
+  // `KEY_REQUIRED` stays a blocker of the manifest, and the runtime lifts it only for a type whose
+  // credential it can read (`keyProvisioned`), so only such a type may say "not blocked".
+  const known = jobSourceTypeSchema.safeParse(def.type)
+  const keyGated = permission === 'KEY_REQUIRED' && known.success && hasKeyedCredential(known.data)
+  if (!value.blocked && !READY_PERMISSIONS.has(permission) && !readyByDecision && !keyGated) {
     throw new ManifestError(
       'STATUS_CONSTANT_DISAGREES',
       `${symbol}.blocked is false but the provenance permission ${permission} is not a ready one`,
@@ -619,6 +636,26 @@ function checkAttribution(def: TypeDefinition, fixtures: readonly FixtureRecord[
   }
 }
 
+/** A limit as a calendar-month total: a DAY figure over the longest month (31 days); MONTH as-is. */
+function monthTotal(window: 'DAY' | 'MONTH', limit: number): number {
+  return window === 'DAY' ? limit * 31 : limit
+}
+
+/**
+ * A seeded cap must not renew less often than the provider limit it sits under (a MONTH cap under
+ * a DAY limit could spend a month's budget in one day), and a LIFETIME limit is one-off: any
+ * renewing cap outruns it. Otherwise the two are compared as 31-day totals.
+ */
+function seedExceedsProvider(
+  m: SeedMeterDeclaration,
+  window: JobMeterWindow,
+  limit: number,
+): boolean {
+  if (window === 'LIFETIME') return true
+  if (window === 'DAY' && m.window === 'MONTH') return true
+  return monthTotal(m.window, m.limit) > monthTotal(window, limit)
+}
+
 function checkQuota(types: readonly ManifestType[], entries: readonly ManifestEntry[]): void {
   const accounts = new Map<string, QuotaDeclaration>()
   for (const t of types) {
@@ -634,6 +671,20 @@ function checkQuota(types: readonly ManifestType[], entries: readonly ManifestEn
       throw new ManifestError(
         'QUOTA_INCONSISTENT',
         `${q.account}: limit ${q.limit} is not a non-negative integer`,
+      )
+    }
+    const m = q.seedMeter
+    // A seeded meter is our cap under the provider's: never above a published limit, a mismatched
+    // window compared as 31-day totals; a longer-window seed or any seed under LIFETIME is refused.
+    if (
+      m !== undefined &&
+      (!Number.isInteger(m.limit) ||
+        m.limit <= 0 ||
+        (q.window !== null && seedExceedsProvider(m, q.window, q.limit!)))
+    ) {
+      throw new ManifestError(
+        'QUOTA_INCONSISTENT',
+        `${q.account}: seeded meter limit ${m.limit} is not a positive integer within the provider limit`,
       )
     }
     const prior = accounts.get(q.account)
@@ -654,7 +705,9 @@ function checkQuota(types: readonly ManifestType[], entries: readonly ManifestEn
     const owners = types.filter((t) => t.quota?.account === account)
     // A MONTH window has a limit: the check above refuses one without.
     if (q.window !== 'MONTH') continue
-    const limit = q.limit!
+    // Our seeded cap, when there is one, is the figure the schedule must fit (it is within q.limit).
+    const limit =
+      q.seedMeter === undefined ? q.limit! : monthTotal(q.seedMeter.window, q.seedMeter.limit)
     // The requests one run of each owning type sends; an entry of any other type is not this account's.
     const perRun = new Map(owners.map((o) => [o.type, o.requestsPerRun]))
     const perMonth = entries.reduce((sum, e) => {

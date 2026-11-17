@@ -4,6 +4,7 @@
 import { relations, sql, type SQL } from 'drizzle-orm'
 import {
   boolean,
+  check,
   integer,
   numeric,
   pgEnum,
@@ -18,6 +19,7 @@ import {
 import { userAuditLog } from './audit'
 import { currencyEnum, paymentMethodEnum, roleEnum, teamTypeEnum, userLocaleEnum } from './enums'
 import { payoutRequests } from './finance'
+import { seniorTechnicalRolesCheck } from './job-role-classifications'
 import {
   interviewRecordings,
   interviews,
@@ -31,90 +33,102 @@ import { transactions } from './transactions'
 // Users
 // ---------------------------------------------------------------------------
 
-export const users = pgTable('users', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  email: varchar('email', { length: 255 }).notNull().unique(),
-  displayName: varchar('display_name', { length: 255 }).notNull(),
-  // Google / dicebear fallback URL — used when the user has no custom upload.
-  // Renamed from `avatar` in migration 0013 for semantic clarity.
-  avatarUrl: varchar('avatar_url', { length: 1000 }),
-  // FK to documents (category = AVATAR). When set, takes priority over
-  // `avatarUrl` everywhere on the front-end. ON DELETE SET NULL so a hard-
-  // deleted document naturally reverts to the Google fallback. The actual
-  // FK constraint is declared in migration 0013 — keeping the Drizzle column
-  // metadata-only here avoids the circular import with `documents` (defined
-  // further down in this file).
-  avatarDocumentId: uuid('avatar_document_id'),
-  role: roleEnum().notNull().default('JUNIOR'),
-  // task-i18n-stage2 (Task 3) — interface language. Every existing user gets
-  // 'uk' (default); see the migration file's own header for why nothing is
-  // rewritten/backfilled.
-  // Stryker disable next-line StringLiteral: the explicit 'locale' name arg
-  // is provably unobservable — verified empirically: Drizzle falls back to
-  // the JS property key ('locale') whenever the given name is falsy, so
-  // mutating this literal to '' produces an IDENTICAL `getTableConfig`
-  // column name and cannot be told apart by any unit test (the 'uk' DEFAULT
-  // on this same line has no such fallback and IS pinned, by
-  // user-locale-schema.spec.ts).
-  locale: userLocaleEnum('locale').notNull().default('uk'),
-  googleId: varchar('google_id', { length: 255 }).unique(),
-  telegram: varchar('telegram', { length: 100 }),
-  phone: varchar('phone', { length: 30 }),
-  // Tech stack — array of strings (chip-input on frontend)
-  techStack: text('tech_stack').array(),
-  // Payment requisites
-  paymentMethod: paymentMethodEnum('payment_method'),
-  walletUsdtErc20: text('wallet_usdt_erc20'),
-  walletUsdtLabel: text('wallet_usdt_label'),
-  bankUahRecipient: text('bank_uah_recipient'),
-  bankUahIban: text('bank_uah_iban'),
-  bankUahRnokpp: text('bank_uah_rnokpp'),
-  bankUahBankName: text('bank_uah_bank_name'),
-  // For SENIOR and ADMIN: percentage they keep from project income (0-100)
-  seniorSharePercent: integer('senior_share_percent').notNull().default(26),
-  // task-pending-share (position 5 of docs/superpowers/specs/2026-09-01-
-  // notifications-and-confirmations-design.md §4.3). A proposed NEW base
-  // share % sits here, next to the active column, while the affected SENIOR
-  // has not yet confirmed it (see `approvals`, subjectType
-  // 'USER_SENIOR_SHARE', subjectId = this user's id). `seniorSharePercent`
-  // above is NEVER written while a proposal is live — `UsersService`'s
-  // propose helpers write ONLY this column; `approveSeniorShareChange` swaps
-  // the two in one transaction, `rejectSeniorShareChange` clears this column
-  // and leaves the active one untouched. NULL both when nothing is pending
-  // AND is itself a legitimate "clear" outcome is not possible here (the
-  // active column is NOT NULL, so there is nothing to "clear" — every
-  // proposal carries a concrete percent). "Is something pending" is decided
-  // by `ApprovalsService.getStatus()`, never by this column's null-ness
-  // alone (see that service's own subject-agnostic status contract).
-  // Stryker disable next-line StringLiteral: the SQL column name is a
-  // DB-level fact, unobservable from a mocked unit double — a `vi.fn()`
-  // select/update chain does not care what string a real Postgres column is
-  // named. Any query that selects the whole `users` row against a REAL
-  // database would fail loudly ("column does not exist") if this diverged
-  // from the migration, which is exactly what
-  // `salary-meta.realdb.integration.spec.ts` and
-  // `archived-entitlement.realdb.integration.spec.ts` do on every run.
-  pendingSeniorSharePercent: integer('pending_senior_share_percent'),
-  // For DROP: percentage the drop keeps from project income (0-100, default 5).
-  // Nullable for non-DROP roles. Drop role - phase 1.
-  dropSharePercent: integer('drop_share_percent').default(5),
-  // For JUNIOR/HR/ACCOUNTANT: fixed monthly salary (currency set separately)
-  monthlySalary: numeric('monthly_salary', { precision: 10, scale: 2 }),
-  salaryCurrency: currencyEnum('salary_currency').default('USD'),
-  // Legal full name (Cyrillic, order: Surname First Patronymic).
-  // Set by ADMIN at user creation / edit. Used in MSA contract instead of displayName.
-  // NULL = not set → interpolateVariables falls back to displayName.
-  legalFullName: text('legal_full_name'),
-  // ФОП registration address (адреса реєстрації ФОП).
-  // Used in contract templates via {{registrationAddress}}. Nullable.
-  registrationAddress: text('registration_address'),
-  // Soft delete (archived users hidden from main UI, restorable)
-  archivedAt: timestamp('archived_at', { withTimezone: true }),
-  // Admin note (single overwriteable text field)
-  adminNote: text('admin_note'),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-})
+export const users = pgTable(
+  'users',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    email: varchar('email', { length: 255 }).notNull().unique(),
+    displayName: varchar('display_name', { length: 255 }).notNull(),
+    // Google / dicebear fallback URL — used when the user has no custom upload.
+    // Renamed from `avatar` in migration 0013 for semantic clarity.
+    avatarUrl: varchar('avatar_url', { length: 1000 }),
+    // FK to documents (category = AVATAR). When set, takes priority over
+    // `avatarUrl` everywhere on the front-end. ON DELETE SET NULL so a hard-
+    // deleted document naturally reverts to the Google fallback. The actual
+    // FK constraint is declared in migration 0013 — keeping the Drizzle column
+    // metadata-only here avoids the circular import with `documents` (defined
+    // further down in this file).
+    avatarDocumentId: uuid('avatar_document_id'),
+    role: roleEnum().notNull().default('JUNIOR'),
+    // task-i18n-stage2 (Task 3) — interface language. Every existing user gets
+    // 'uk' (default); see the migration file's own header for why nothing is
+    // rewritten/backfilled.
+    // Stryker disable next-line StringLiteral: the explicit 'locale' name arg
+    // is provably unobservable — verified empirically: Drizzle falls back to
+    // the JS property key ('locale') whenever the given name is falsy, so
+    // mutating this literal to '' produces an IDENTICAL `getTableConfig`
+    // column name and cannot be told apart by any unit test (the 'uk' DEFAULT
+    // on this same line has no such fallback and IS pinned, by
+    // user-locale-schema.spec.ts).
+    locale: userLocaleEnum('locale').notNull().default('uk'),
+    googleId: varchar('google_id', { length: 255 }).unique(),
+    telegram: varchar('telegram', { length: 100 }),
+    phone: varchar('phone', { length: 30 }),
+    // Tech stack — array of strings (chip-input on frontend)
+    techStack: text('tech_stack').array(),
+    // Payment requisites
+    paymentMethod: paymentMethodEnum('payment_method'),
+    walletUsdtErc20: text('wallet_usdt_erc20'),
+    walletUsdtLabel: text('wallet_usdt_label'),
+    bankUahRecipient: text('bank_uah_recipient'),
+    bankUahIban: text('bank_uah_iban'),
+    bankUahRnokpp: text('bank_uah_rnokpp'),
+    bankUahBankName: text('bank_uah_bank_name'),
+    // For SENIOR and ADMIN: percentage they keep from project income (0-100)
+    seniorSharePercent: integer('senior_share_percent').notNull().default(26),
+    // task-pending-share (position 5 of docs/superpowers/specs/2026-09-01-
+    // notifications-and-confirmations-design.md §4.3). A proposed NEW base
+    // share % sits here, next to the active column, while the affected SENIOR
+    // has not yet confirmed it (see `approvals`, subjectType
+    // 'USER_SENIOR_SHARE', subjectId = this user's id). `seniorSharePercent`
+    // above is NEVER written while a proposal is live — `UsersService`'s
+    // propose helpers write ONLY this column; `approveSeniorShareChange` swaps
+    // the two in one transaction, `rejectSeniorShareChange` clears this column
+    // and leaves the active one untouched. NULL both when nothing is pending
+    // AND is itself a legitimate "clear" outcome is not possible here (the
+    // active column is NOT NULL, so there is nothing to "clear" — every
+    // proposal carries a concrete percent). "Is something pending" is decided
+    // by `ApprovalsService.getStatus()`, never by this column's null-ness
+    // alone (see that service's own subject-agnostic status contract).
+    // Stryker disable next-line StringLiteral: the SQL column name is a
+    // DB-level fact, unobservable from a mocked unit double — a `vi.fn()`
+    // select/update chain does not care what string a real Postgres column is
+    // named. Any query that selects the whole `users` row against a REAL
+    // database would fail loudly ("column does not exist") if this diverged
+    // from the migration, which is exactly what
+    // `salary-meta.realdb.integration.spec.ts` and
+    // `archived-entitlement.realdb.integration.spec.ts` do on every run.
+    pendingSeniorSharePercent: integer('pending_senior_share_percent'),
+    // For DROP: percentage the drop keeps from project income (0-100, default 5).
+    // Nullable for non-DROP roles. Drop role - phase 1.
+    dropSharePercent: integer('drop_share_percent').default(5),
+    // For JUNIOR/HR/ACCOUNTANT: fixed monthly salary (currency set separately)
+    monthlySalary: numeric('monthly_salary', { precision: 10, scale: 2 }),
+    salaryCurrency: currencyEnum('salary_currency').default('USD'),
+    // Legal full name (Cyrillic, order: Surname First Patronymic).
+    // Set by ADMIN at user creation / edit. Used in MSA contract instead of displayName.
+    // NULL = not set → interpolateVariables falls back to displayName.
+    legalFullName: text('legal_full_name'),
+    // ФОП registration address (адреса реєстрації ФОП).
+    // Used in contract templates via {{registrationAddress}}. Nullable.
+    registrationAddress: text('registration_address'),
+    // Soft delete (archived users hidden from main UI, restorable)
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    // Admin note (single overwriteable text field)
+    adminNote: text('admin_note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    // Senior roles PR 2: a SENIOR's technical roles (the 33 senior-selectable ids, sorted, no
+    // SOFTWARE_ENGINEER). '{}' for a legacy senior and for every other role: a role write away from
+    // SENIOR clears it in the same UPDATE (`updateUserRow`). Production gets it ONLY
+    // through drizzle/manual/2026-11-17_technical_roles.sql; declared last (ADD COLUMN rank).
+    technicalRoles: text('technical_roles')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+  },
+  (t) => [check('ck_users_technical_roles_known', seniorTechnicalRolesCheck(t.technicalRoles))],
+)
 
 // ---------------------------------------------------------------------------
 // User emails — notifications-and-confirmations spec §4.4
@@ -224,7 +238,7 @@ export const userEmails = pgTable(
  * method, unconditionally, from the moment it is created).
  *
  * Stores a HASH of the token, never the token itself (mirrors
- * `invoice-pdf.utils.ts` / `resume-typst.service.ts`'s existing
+ * `sha256Hex` in `common/pdf/pdf.utils.ts` / `resume-typst.service.ts`'s existing
  * `createHash('sha256')` convention in this codebase) — a DB read (backup,
  * replica, compromised credential) must not be enough to mint a working
  * invite link on its own.

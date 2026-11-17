@@ -25,13 +25,15 @@ import { TeamsService } from '../teams/teams.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
 import { TosService } from '../tos/tos.service'
 import { ApprovalsService } from '../approvals/approvals.service'
-import type { Locale } from '@crm/shared'
+import type { Locale, TechnicalRole } from '@crm/shared'
 import { NotificationsService } from '../notifications/notifications.service'
 import { markSeniorDirty, markUserEditDirty } from '../job-sourcing/dirty-producers'
+import { markResumeRecheckNeeded } from '../resumes/verification/recheck-flag'
 import { AuditLogService } from './audit-log.service'
 import {
   assertAdminTargetEditableForRoleChange,
   assertAssignableRole,
+  assertSeniorOnlyRoles,
   assertSeniorTechFloor,
   techStackChanged,
 } from './role-guards.util'
@@ -77,6 +79,7 @@ export type UserListItem = Pick<
   | 'telegram'
   | 'phone'
   | 'techStack'
+  | 'technicalRoles'
   | 'seniorSharePercent'
   | 'dropSharePercent'
   | 'salaryCurrency'
@@ -106,6 +109,7 @@ const USER_LIST_PROJECTION = {
   telegram: users.telegram,
   phone: users.phone,
   techStack: users.techStack,
+  technicalRoles: users.technicalRoles,
   seniorSharePercent: users.seniorSharePercent,
   dropSharePercent: users.dropSharePercent,
   salaryCurrency: users.salaryCurrency,
@@ -506,6 +510,7 @@ export class UsersService {
       telegram?: string | null
       phone?: string | null
       techStack?: string[] | null
+      technicalRoles?: TechnicalRole[]
       avatarDocumentId?: string | null
       /** task-i18n-stage2 (Task 3) — self-service interface language change. */
       locale?: Locale
@@ -516,9 +521,16 @@ export class UsersService {
     if ('telegram' in data) set.telegram = data.telegram ?? null
     if ('phone' in data) set.phone = data.phone ?? null
     let stackChanged = false
+    const self =
+      'techStack' in data || data.technicalRoles !== undefined ? await this.findById(id) : null
+    if (data.technicalRoles !== undefined) {
+      // Senior roles PR 2: a self-edit sets the caller's own roles only, and only as a SENIOR.
+      if (!self) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
+      assertSeniorOnlyRoles(self.role, data.technicalRoles)
+      set.technicalRoles = data.technicalRoles
+    }
     if ('techStack' in data) {
       // SENIOR technology floor on a self-edit of the stack (an unchanged resubmit passes).
-      const self = await this.findById(id)
       if (!self) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
       stackChanged = techStackChanged(data.techStack, self.techStack)
       if (stackChanged) {
@@ -533,16 +545,29 @@ export class UsersService {
     }
     if (data.locale !== undefined) set.locale = data.locale
 
-    // r5 4.6 S5: a REAL stack change commits with its roster dirty row (CR-M-1).
-    const rows = !stackChanged
-      ? await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
-      : await this.db.db.transaction(async (tx) => {
-          const written = await tx.update(users).set(set).where(eq(users.id, id)).returning()
-          await markSeniorDirty(tx, id, 'senior.stack') // a missing or non-SENIOR user: no-op
-          return written
-        })
+    // r5 4.6 S5: a REAL stack change commits with its roster dirty row (CR-M-1). Backlog 442: a
+    // name or Telegram write commits with the resume re-check flag (locked read before the UPDATE).
+    const identity = 'displayName' in set || 'telegram' in set
+    // Roles review SR2-L-1: the role was read without a lock, so a non-empty roles write re-checks
+    // it in the UPDATE itself; a demotion that landed after the read writes nothing.
+    const rolesGuarded = (data.technicalRoles?.length ?? 0) > 0
+    const where = rolesGuarded ? and(eq(users.id, id), eq(users.role, 'SENIOR')) : eq(users.id, id)
+    const notWritten = () =>
+      rolesGuarded
+        ? apiError('TECHNICAL_ROLES_SENIOR_ONLY', HttpStatus.BAD_REQUEST)
+        : apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
+    const rows =
+      !stackChanged && !identity
+        ? await this.db.db.update(users).set(set).where(where).returning()
+        : await this.db.db.transaction(async (tx) => {
+            await markResumeRecheckNeeded(tx, id, set)
+            const written = await tx.update(users).set(set).where(where).returning()
+            if (!written[0]) throw notWritten() // roll back the re-check flag written above
+            if (stackChanged) await markSeniorDirty(tx, id, 'senior.stack') // a missing or non-SENIOR user: no-op
+            return written
+          })
     const updated = rows[0]
-    if (!updated) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
+    if (!updated) throw notWritten()
     return updated
   }
 

@@ -6,8 +6,7 @@ import {
   APPEND_ONLY_TRIGGERS_DDL,
   applyDeployDdlFile,
   applyProductionRetentionOwnerGrants,
-  dropRolesCreated,
-  existingDeployRoles,
+  dropRolesCreatedReportingLeaks,
   installDeployRoles,
   revokeRetentionOwnerActionLogPrivileges,
 } from './__test-helpers__/deploy-ddl-preconditions'
@@ -436,8 +435,7 @@ describe.skipIf(!hasDatabaseUrl())('job queue workflow store (real Postgres cata
         // Give back the privileges `installAppendOnlyGuards` granted, so a later reader
         // of this cluster does not find the role holding them outside a deploy.
         await revokeRetentionOwnerActionLogPrivileges(pool)
-        await dropRolesCreated(pool, rolesCreatedHere)
-        if (rolesCreatedHere.length > 0) leaked = await existingDeployRoles(pool)
+        leaked = await dropRolesCreatedReportingLeaks(pool, rolesCreatedHere)
       } finally {
         await pool.end()
       }

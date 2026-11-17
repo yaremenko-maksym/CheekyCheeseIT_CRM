@@ -11,7 +11,7 @@
  * server-side on the file's bytes.
  */
 import { useRef, useState } from 'react'
-import { FileUp, ClipboardType } from 'lucide-react'
+import { FileUp, ClipboardType, PencilLine } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { RESUME_LIMITS, RESUME_SOURCE_MAX_BYTES } from '@crm/shared'
 import { Button } from '@/components/ui/button'
@@ -25,6 +25,10 @@ interface ResumeIntakeProps {
   isBusy: boolean
   /** Compact rendering for the "replace source" panel above an existing resume. */
   variant?: 'empty' | 'compact'
+  /** Empty state only: open the empty facts form instead of uploading. */
+  onFillManually?: () => void
+  /** Focus "Заповнити вручну" on mount: the user came back here from the manual form. */
+  focusFillManually?: boolean
 }
 
 const ACCEPTED_EXTENSIONS = ['.pdf', '.docx']
@@ -35,10 +39,12 @@ export function ResumeIntake({
   onSubmitText,
   isBusy,
   variant = 'empty',
+  onFillManually,
+  focusFillManually = false,
 }: ResumeIntakeProps) {
   const { t } = useLingui()
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [mode, setMode] = useState<'idle' | 'text'>('idle')
+  const [pasteOpen, setPasteOpen] = useState(false)
   const [text, setText] = useState('')
 
   function handleFileChosen(event: React.ChangeEvent<HTMLInputElement>) {
@@ -63,72 +69,132 @@ export function ResumeIntake({
     }
     onSubmitText(trimmed)
     setText('')
-    setMode('idle')
+    setPasteOpen(false)
   }
+
+  const uploadButtons = (
+    <>
+      <Button
+        variant={
+          variant === 'empty'
+            ? 'outline'
+            : // Stryker disable next-line StringLiteral: cva reads an empty variant as unset and falls back to its default, the same class set.
+              'default'
+        }
+        // Stryker disable next-line OptionalChaining: the input renders with the button, so the ref is never null when it is clicked.
+        onClick={() => fileInputRef.current?.click()}
+        disabled={isBusy}
+        data-testid="resume-upload-button"
+        // Wraps when the tile is narrower than the label (768 / 320); the 44 px target stays (§8).
+        className="h-auto min-h-11 whitespace-normal"
+      >
+        <FileUp className="mr-2 h-4 w-4 shrink-0" aria-hidden />
+        {variant === 'empty' ? (
+          <Trans>Завантажити, щоб заповнити</Trans>
+        ) : (
+          <Trans>Замінити файл</Trans>
+        )}
+      </Button>
+      <Button
+        variant={variant === 'empty' ? 'ghost' : 'outline'}
+        onClick={() => setPasteOpen((open) => !open)}
+        disabled={isBusy}
+        data-testid="resume-paste-toggle"
+        className="h-auto min-h-11 whitespace-normal"
+      >
+        <ClipboardType className="mr-2 h-4 w-4" aria-hidden />
+        <Trans>Вставити текстом</Trans>
+      </Button>
+    </>
+  )
 
   return (
     <div
       className={
         variant === 'empty'
-          ? 'rounded-lg border border-dashed bg-muted/30 px-4 py-10 text-center sm:px-6'
+          ? // Stryker disable next-line StringLiteral: card box styling only, no state or behaviour reads it.
+            'max-w-[720px] rounded-lg border bg-card px-4 py-6 sm:p-6'
           : 'rounded-lg border bg-muted/20 p-4'
       }
       data-testid="resume-intake"
     >
-      {variant === 'empty' && (
-        <>
-          <FileUp className="mx-auto h-10 w-10 text-muted-foreground" aria-hidden />
-          <h3 className="mt-3 text-base font-medium">
-            <Trans>Резюме ще не заповнено</Trans>
-          </h3>
-          <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-            <Trans>
-              Завантажте резюме (PDF або DOCX) — ми один раз розкладемо його на розділи, а далі ви
-              редагуєте їх тут. Якщо у файлі немає тексту, вставте текст вручну.
-            </Trans>
-          </p>
-        </>
-      )}
-
       <input
         ref={fileInputRef}
         type="file"
         accept={ACCEPTED_EXTENSIONS.join(',')}
         className="sr-only"
+        tabIndex={-1}
         onChange={handleFileChosen}
         data-testid="resume-file-input"
         aria-label={t`Файл резюме`}
       />
 
-      <div
-        className={
-          variant === 'empty'
-            ? 'mt-5 flex flex-col items-stretch justify-center gap-2 sm:flex-row'
-            : 'flex flex-col items-stretch gap-2 sm:flex-row'
-        }
-      >
-        <Button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isBusy}
-          data-testid="resume-upload-button"
-          className="min-h-11"
-        >
-          <FileUp className="mr-2 h-4 w-4" aria-hidden />
-          {variant === 'empty' ? <Trans>Завантажити файл</Trans> : <Trans>Замінити файл</Trans>}
-        </Button>
-        <Button
-          variant="outline"
-          onClick={() => setMode((m) => (m === 'text' ? 'idle' : 'text'))}
-          disabled={isBusy}
-          data-testid="resume-paste-toggle"
-          className="min-h-11"
-        >
-          <ClipboardType className="mr-2 h-4 w-4" aria-hidden />
-          <Trans>Вставити текстом</Trans>
-        </Button>
-      </div>
+      {variant === 'empty' ? (
+        <>
+          <h3 className="text-base font-semibold">
+            <Trans>Резюме ще не заповнено</Trans>
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            <Trans>
+              Заповніть факти вручну або завантажте резюме — ми заповнимо з нього поля, а ви
+              переглянете.
+            </Trans>
+          </p>
+          {/* minmax(0,1fr): a long button label wraps instead of widening the tile past 320 px (QA-2). */}
+          <div className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2">
+            {onFillManually && (
+              <div
+                className="flex flex-col gap-3 rounded-lg border bg-card p-4"
+                data-testid="resume-intake-tile"
+              >
+                <div
+                  className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground"
+                  aria-hidden
+                >
+                  <PencilLine className="size-4" />
+                </div>
+                <h4 className="font-semibold text-foreground">
+                  <Trans>Заповнити вручну</Trans>
+                </h4>
+                <p className="text-sm text-muted-foreground">
+                  <Trans>Порожня форма фактів. Перевірка запускається, коли все заповнено.</Trans>
+                </p>
+                <Button
+                  onClick={onFillManually}
+                  autoFocus={focusFillManually}
+                  disabled={isBusy}
+                  data-testid="resume-fill-manually"
+                  className="mt-auto h-11 whitespace-nowrap"
+                >
+                  <Trans>Заповнити вручну</Trans>
+                </Button>
+              </div>
+            )}
+            <div
+              className="flex flex-col gap-3 rounded-lg border bg-card p-4"
+              data-testid="resume-intake-tile"
+            >
+              <div
+                className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground"
+                aria-hidden
+              >
+                <FileUp className="size-4" />
+              </div>
+              <h4 className="font-semibold text-foreground">
+                <Trans>Завантажити, щоб заповнити</Trans>
+              </h4>
+              <p className="text-sm text-muted-foreground">
+                <Trans>PDF або DOCX, до {MAX_MB} МБ. Файл бачите тільки ви і команда найму.</Trans>
+              </p>
+              <div className="mt-auto flex flex-col gap-2">{uploadButtons}</div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="flex flex-col items-stretch gap-2 sm:flex-row">{uploadButtons}</div>
+      )}
 
-      {mode === 'text' && (
+      {pasteOpen && (
         <div className="mt-4 space-y-2 text-left">
           <Textarea
             value={text}
@@ -143,7 +209,7 @@ export function ResumeIntake({
               variant="ghost"
               onClick={() => {
                 setText('')
-                setMode('idle')
+                setPasteOpen(false)
               }}
               className="min-h-11"
             >
@@ -162,7 +228,14 @@ export function ResumeIntake({
       )}
 
       <p className="mt-3 text-xs text-muted-foreground">
-        <Trans>PDF або DOCX, до {MAX_MB} МБ. Файл бачите тільки ви і команда найму.</Trans>
+        {variant === 'empty' ? (
+          <Trans>
+            Завантаження лише заповнює поля. Статус «Перевірено» резюме отримає після перевірки й
+            підтвердження HR.
+          </Trans>
+        ) : (
+          <Trans>PDF або DOCX, до {MAX_MB} МБ. Файл бачите тільки ви і команда найму.</Trans>
+        )}
       </p>
     </div>
   )

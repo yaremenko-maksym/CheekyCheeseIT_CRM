@@ -1,7 +1,7 @@
 import { setTimeout as wait } from 'node:timers/promises'
 import type { InferenceErrorCode } from '../contracts/errors'
 import {
-  MAX_SMALL_DOSE_GROUPS,
+  MAX_IMAGE_REQUEST_CHARS,
   type ExtractionPort,
   type ExtractionRequest,
   type ExtractionResult,
@@ -13,19 +13,17 @@ import {
   type ClassifiedChatOutcome,
 } from '../internal/classified-chat'
 import { runExtraction } from '../internal/extraction-pipeline'
+import { isVisionCapable } from '../internal/model-id'
 import {
-  HOSTED_BASE_URLS,
-  localRuntimeKey,
+  hostedBaseUrl,
   routerConfigSchema,
   type HostedProvider,
   type HostedRouteConfig,
-  type LocalRouteConfig,
   type RouterConfig,
   type RouterProvider,
 } from './config'
 import { promptFits } from './fit'
 import { pinnedModelsOnly, type ManagedModels } from './managed-models'
-import { renderSchema, runSmallDose, structuredOutputFor, type DoseAsk } from './small-dose'
 import {
   isProviderBlocked,
   isRetired,
@@ -40,17 +38,13 @@ import {
   type OwnCapUnit,
   type RouteStatePort,
 } from './state'
+import { renderSchema, structuredOutputFor } from './structured-output'
 
 /** One short backoff on a busy model, at most once per model per call (VCF Gemini: 9 s). */
 export const BUSY_BACKOFF_MS = 9_000
 
 /** Why an attempt ended: a leaf code, or a stop decided before any request was sent. */
-export const ATTEMPT_CODES = [
-  ...CLASSIFIED_CHAT_CODES,
-  'PROMPT_TOO_LARGE',
-  'CAP',
-  'BUDGET',
-] as const
+export const ATTEMPT_CODES = [...CLASSIFIED_CHAT_CODES, 'CAP', 'BUDGET'] as const
 export type AttemptCode = (typeof ATTEMPT_CODES)[number]
 /** Why a hosted route was not tried at all. */
 export type SkipCode = 'AUTH' | 'CREDIT' | 'FIT' | 'NO_MODEL'
@@ -75,17 +69,7 @@ export type RouterEvent =
     }
   | { type: 'RETIRED'; route: HostedProvider; model: string; servedModel?: string }
   | { type: 'PROVIDER_DISABLED'; route: HostedProvider; code: 'AUTH' | 'CREDIT' }
-  | {
-      type: 'FELL_TO_LOCAL'
-      plan: 'full-then-small' | 'small'
-      reasons: { route: HostedProvider; code: AttemptCode | SkipCode }[]
-    }
-  | {
-      type: 'CALL'
-      code: 'OK' | InferenceErrorCode | 'ABORTED'
-      floorAnswered: boolean
-      latencyMs: number
-    }
+  | { type: 'CALL'; code: 'OK' | InferenceErrorCode | 'ABORTED'; latencyMs: number }
 
 export type RouterDeps = {
   /** Mandatory (ADR §5.3): the router has no "no events" mode. */
@@ -129,30 +113,6 @@ export function releasesUnit({ result: r, sent }: ClassifiedChatOutcome): boolea
   return r.code === 'AUTH' || r.code === 'CREDIT' || r.code === 'RETIRED'
 }
 
-/**
- * One local request in flight per runtime across every router in the process (§5.5 item 5): two
- * adapters, or a later preflight going through a router, queue behind each other.
- */
-const localTails = new Map<string, Promise<void>>()
-
-/** The number of runtimes with queued local work; empty once every request settled (tests). */
-export function pendingLocalQueues(): number {
-  return localTails.size
-}
-
-function serialLocal<R>(runtime: string, fn: () => Promise<R>): Promise<R> {
-  const run = (localTails.get(runtime) ?? Promise.resolve()).then(fn)
-  const tail = run.then(
-    () => undefined,
-    () => undefined,
-  )
-  localTails.set(runtime, tail)
-  void tail.then(() => {
-    if (localTails.get(runtime) === tail) localTails.delete(runtime)
-  })
-  return run
-}
-
 /** Leaving a route: these codes concern the provider or this input, not one model (§5.1). */
 const NEXT_ROUTE = new Set<AttemptCode>([
   'AUTH',
@@ -164,18 +124,31 @@ const NEXT_ROUTE = new Set<AttemptCode>([
   'BUDGET',
 ])
 
-/** The floor's public code (§5.2 item 6, §5.1 `PROMPT_TOO_LARGE`). */
-function floorCode(code: AttemptCode): InferenceErrorCode | 'ABORTED' {
-  if (code === 'ABORTED' || code === 'TIMEOUT' || code === 'INVALID_OUTPUT') return code
-  return code === 'PROMPT_TOO_LARGE' ? 'INVALID_OUTPUT' : 'PROVIDER_ERROR'
+/**
+ * Parameter count in billions read from a model id (R15): `70b` 70, `1.5b` 1.5, `8x7b` 56; in
+ * `30b-a3b` the active count has a letter before it, so the total wins. No size token: undefined.
+ */
+export function modelSizeB(id: string): number | undefined {
+  const m = /(?:^|[^a-z0-9])(?:(\d+)x)?(\d+(?:\.\d+)?)b(?![a-z0-9])/.exec(id.toLowerCase())
+  return m === null ? undefined : Number(m[2]) * Number(m[1] ?? 1)
+}
+
+/**
+ * The code of a text call no hosted route answered (Amendment 2026-11-08 H.2, today's codes until
+ * `LIMITS_EXHAUSTED` lands): `INVALID_OUTPUT` only when every attempt was an invalid answer, so the
+ * record caused it; anything transient, a skip or a spent budget is `PROVIDER_ERROR`. The list is
+ * never empty here: each configured route leaves a skip reason or at least one attempt.
+ */
+function cascadeCode(reasons: { code: AttemptCode | SkipCode }[]): InferenceErrorCode {
+  return reasons.every((r) => r.code === 'INVALID_OUTPUT') ? 'INVALID_OUTPUT' : 'PROVIDER_ERROR'
 }
 
 const refused: Router = { run: async () => ({ ok: false, code: 'NOT_CONFIGURED' }) }
 
 /**
- * The router core (ADR §2.1, §5.2): fit filter → rotation → hosted cascade → hand-back → local
- * floor, under a hosted budget and a floor budget. Never throws. A refused config, a missing
- * `onEvent` or a hosted route without an `OwnCapPort` builds a router that answers
+ * The router core (ADR §2.1, §5.2): fit filter → rotation → hosted cascade, under the hosted budget.
+ * Hosted-only: the local floor is withdrawn (Amendment 2026-11-08, H.1). Never throws. A refused
+ * config, a missing `onEvent` or a missing `OwnCapPort` builds a router that answers
  * `NOT_CONFIGURED` and sends nothing.
  */
 export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
@@ -199,10 +172,10 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
   }
   if (!parsed.success) return refuse()
   const cfg: RouterConfig = parsed.data
-  const hostedRoutes = cfg.routes.filter((r): r is HostedRouteConfig => r.provider !== 'local')
-  if (hostedRoutes.length > 0 && deps.ownCap === undefined) return refuse()
-  const local = cfg.routes.at(-1) as LocalRouteConfig
-  const ownCap = deps.ownCap as OwnCapPort
+  const hostedRoutes: HostedRouteConfig[] = cfg.routes
+  // Every route is hosted, so an uncapped router cannot be built (D5).
+  if (deps.ownCap === undefined) return refuse()
+  const ownCap = deps.ownCap
   const now = deps.now ?? Date.now
   const sleep = deps.sleep ?? abortableSleep
   const managedModels = deps.managedModels ?? pinnedModelsOnly
@@ -213,7 +186,6 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
   const nextFreeAt = new Map<HostedProvider, number>()
   const coolUntil = new Map<string, { p: HostedProvider; until: number; day: string }>()
   const announced = new Set<string>()
-  const runtime = localRuntimeKey(local.baseUrl)
 
   const coolKey = (p: HostedProvider, model: string): string => `${p}\u0000${model}`
   /** The map holds only live cool-downs (SR-L-70); one never outlives the provider's reset (§5.1). */
@@ -236,32 +208,21 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     const start = now()
     const hostedDeadline = start + cfg.hostedBudgetMs
     const inputChars = req.input.length
+    const images = req.images
     const rendered = renderSchema(req.schema)
     const schema = rendered?.replySchema ?? req.schema
     let totalTokens: number | undefined
-    /** Time spent on local requests that were sent, on failure too (§5.5 item 6). */
-    let localMs: number | undefined
     const addTokens = (n: number | undefined): void => {
       if (n !== undefined) totalTokens = (totalTokens ?? 0) + n
     }
-    const finish = (result: RouterResult<T>, floorAnswered: boolean): RouterResult<T> => {
-      emit({
-        type: 'CALL',
-        code: result.ok ? 'OK' : result.code,
-        floorAnswered,
-        latencyMs: now() - start,
-      })
+    const finish = (result: RouterResult<T>): RouterResult<T> => {
+      emit({ type: 'CALL', code: result.ok ? 'OK' : result.code, latencyMs: now() - start })
       return result
     }
     const success = (data: T): RouterResult<T> => ({
       ok: true,
       data,
-      ...((totalTokens !== undefined || localMs !== undefined) && {
-        usage: {
-          ...(totalTokens !== undefined && { totalTokens }),
-          ...(localMs !== undefined && { localMs }),
-        },
-      }),
+      ...(totalTokens !== undefined && { usage: { totalTokens } }),
     })
     const attempted = (
       route: RouterProvider,
@@ -283,9 +244,15 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       })
     }
 
-    // A table over the cap sends nothing anywhere (§5.5 item 1): a table bug, not the record's fault.
-    if (req.smallDose !== undefined && req.smallDose.groups.length > MAX_SMALL_DOSE_GROUPS) {
-      return finish({ ok: false, code: 'PROVIDER_ERROR' }, false)
+    // Images are checked here too, not only by the caller: at least one, strict base64, inside the
+    // request cap. An empty list is no vision request.
+    if (
+      images !== undefined &&
+      (images.length === 0 ||
+        images.some((b64) => b64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) ||
+        images.reduce((n, b64) => n + b64.length, 0) > MAX_IMAGE_REQUEST_CHARS)
+    ) {
+      return finish({ ok: false, code: 'PROVIDER_ERROR' })
     }
 
     /**
@@ -366,12 +333,13 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       const t0 = now()
       const outcome = await sendClassifiedChat({
         provider: p,
-        baseUrl: HOSTED_BASE_URLS[p],
+        baseUrl: hostedBaseUrl(route),
         model,
         apiKey: route.apiKey,
         instruction: req.instruction,
         input: req.input,
         correction,
+        images: req.images,
         maxTokens: route.maxAnswerTokens,
         structuredOutput: structuredOutputFor(rendered, route.structuredOutput),
         timeoutMs: Math.max(1, Math.min(route.timeoutMs, hostedDeadline - now())),
@@ -428,119 +396,65 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
         continue
       }
       const models = (await managedModels(p, route.models)).filter(
-        (m) => !isSpent(snap, p, m, today) && !isRetired(snap, p, m) && !coolingDown(p, m),
+        (m) =>
+          (images === undefined || isVisionCapable(p, m)) &&
+          !isSpent(snap, p, m, today) &&
+          !isRetired(snap, p, m) &&
+          !coolingDown(p, m),
       )
       if (models.length === 0) reasons.push({ route: p, code: 'NO_MODEL' })
       else candidates.push({ route, models })
     }
 
-    // ---- rotation (§5.2 item 3) ----
-    const rotatable = candidates.filter((c) => c.route.rotate)
-    // No rotatable candidate: the index is NaN and `first` is undefined.
-    const first = rotatable[rotation++ % rotatable.length]
-    const order =
-      first === undefined ? candidates : [first, ...candidates.filter((c) => c !== first)]
-
-    // ---- hosted cascade ----
-    for (const { route, models } of order) {
-      for (const model of models) {
-        const r = await tryModel(route, model)
-        if (r.ok) return finish(success(r.data), false)
-        if (r.code === 'ABORTED') return finish(r as RouterResult<T>, false)
-        reasons.push({ route: route.provider, code: r.code })
-        if (NEXT_ROUTE.has(r.code)) break
-      }
+    const pairsOf = (cs: typeof candidates) =>
+      cs.flatMap(({ route, models }) => models.map((model) => ({ route, model })))
+    let pairs: { route: HostedRouteConfig; model: string }[]
+    if (req.modelPreference === 'largest') {
+      // R15: largest first across routes, no rotation; a stable sort keeps ties in today's order.
+      const size = (m: string) => modelSizeB(m) ?? 0
+      pairs = pairsOf(candidates).sort((a, b) => size(b.model) - size(a.model))
+    } else {
+      // ---- rotation (§5.2 item 3) ----
+      const rotatable = candidates.filter((c) => c.route.rotate)
+      // No rotatable candidate: the index is NaN and `first` is undefined.
+      // An image call reads the rotation but does not advance it: text calls keep their turn.
+      const first = rotatable[(images === undefined ? rotation++ : rotation) % rotatable.length]
+      pairs = pairsOf(
+        first === undefined ? candidates : [first, ...candidates.filter((c) => c !== first)],
+      )
     }
 
-    // ---- hand-back and floor (§5.2 items 5-6) ----
-    // An abort during a step that sends nothing (a cap refusal, a state write) ends here, not on the floor.
-    if (signal?.aborted === true) return finish({ ok: false, code: 'ABORTED' }, false)
-    // Every fall is an event, a local-only config included: the consumer counts floor falls (§5.3).
-    // This fall-through is the hand-back of §5.4 (`SMALL_DOSE_NEEDED`): it has no value to leak.
-    emit({
-      type: 'FELL_TO_LOCAL',
-      plan: candidates.length > 0 ? 'full-then-small' : 'small',
-      reasons,
-    })
-    const floorDeadline = now() + cfg.floorBudgetMs
-    const sendLocal = (ask: DoseAsk, correction?: string): Promise<Step> =>
-      // An abort while queued is refused by `boundedRequest` before any fetch, as on hosted routes.
-      serialLocal(runtime, async (): Promise<Step> => {
-        const remaining = floorDeadline - now()
-        if (remaining <= 0) return { ok: false, code: 'TIMEOUT' }
-        const t0 = now()
-        const outcome = await sendClassifiedChat({
-          provider: 'local',
-          baseUrl: local.baseUrl,
-          model: local.model,
-          apiKey: local.apiKey,
-          instruction: ask.instruction,
-          input: req.input,
-          correction,
-          maxTokens: ask.maxTokens,
-          structuredOutput: ask.structuredOutput,
-          timeoutMs: Math.min(local.timeoutMs, remaining),
-          signal,
-          fetchImpl: deps.fetchImpl,
-        })
-        // Not gated on `outcome.sent`: config refuses a key over http, so an unsent local request is
-        // always ABORTED, and an aborted call reports no usage.
-        localMs = (localMs ?? 0) + now() - t0
-        const r = outcome.result
-        attempted('local', local.model, r.code, t0, outcome)
-        if (!r.ok) return r
-        addTokens(r.totalTokens)
-        return { ok: true, text: r.text }
-      })
-    const floor =
-      req.smallDose === undefined
-        ? await runExtraction({
-            schema,
-            call: async (correction?: string): Promise<Step> =>
-              promptFits(local, req.instruction, inputChars)
-                ? sendLocal(
-                    {
-                      instruction: req.instruction,
-                      maxTokens: local.maxAnswerTokens,
-                      structuredOutput: structuredOutputFor(rendered, local.structuredOutput),
-                    },
-                    correction,
-                  )
-                : { ok: false, code: 'PROMPT_TOO_LARGE' },
-          })
-        : await runSmallDose({
-            dose: req.smallDose,
-            instruction: req.instruction,
-            schema: req.schema,
-            mode: local.structuredOutput,
-            fits: (instruction, maxAnswerTokens) =>
-              promptFits(
-                { contextTokens: local.contextTokens, maxAnswerTokens },
-                instruction,
-                inputChars,
-              ),
-            ask: sendLocal,
-          })
-    if (floor.ok) return finish(success(floor.data), true)
-    if (floor.code === 'PROMPT_TOO_LARGE')
-      attempted('local', local.model, 'PROMPT_TOO_LARGE', now())
-    const code = floorCode(floor.code)
-    return finish(
-      {
-        ok: false,
-        code,
-        // An abort is the caller's: it charges the elapsed time itself (§5.5 item 3).
-        ...(localMs !== undefined && code !== 'ABORTED' && { usage: { localMs } }),
-      } as RouterResult<T>,
-      false,
-    )
+    // ---- hosted cascade ----
+    const left = new Set<HostedRouteConfig>()
+    for (const { route, model } of pairs) {
+      if (left.has(route)) continue
+      const r = await tryModel(route, model)
+      if (r.ok) return finish(success(r.data))
+      if (r.code === 'ABORTED') return finish(r as RouterResult<T>)
+      reasons.push({ route: route.provider, code: r.code })
+      if (NEXT_ROUTE.has(r.code)) left.add(route)
+    }
+
+    // ---- the end of the cascade (H.2) ----
+    // An abort during a step that sends nothing (a cap refusal, a state write) ends here.
+    if (signal?.aborted === true) return finish({ ok: false, code: 'ABORTED' })
+    // Images never reach any model with the pages dropped.
+    if (images !== undefined) {
+      // NOT_CONFIGURED only when no configured route could ever take images; a blocked, spent or
+      // too-small vision route is a failure of this call.
+      const visionConfigured = hostedRoutes.some((r) =>
+        r.models.some((m) => isVisionCapable(r.provider, m)),
+      )
+      return finish({ ok: false, code: visionConfigured ? 'PROVIDER_ERROR' : 'NOT_CONFIGURED' })
+    }
+    return finish({ ok: false, code: cascadeCode(reasons) })
   }
 
   return {
     // A throwing port adapter (a custom state or cap store) must not escape: the router never throws.
     run: (req, signal) =>
       run(req, signal).catch(() => {
-        emit({ type: 'CALL', code: 'PROVIDER_ERROR', floorAnswered: false, latencyMs: 0 })
+        emit({ type: 'CALL', code: 'PROVIDER_ERROR', latencyMs: 0 })
         return { ok: false, code: 'PROVIDER_ERROR' }
       }),
   }

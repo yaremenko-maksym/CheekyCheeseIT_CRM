@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
@@ -19,6 +19,9 @@ import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 // ---------------------------------------------------------------------------
 // Module mocks
 // ---------------------------------------------------------------------------
+
+const { idbDel } = vi.hoisted(() => ({ idbDel: vi.fn() }))
+vi.mock('idb-keyval', () => ({ del: idbDel }))
 
 vi.mock('@/lib/axios', () => ({
   api: {
@@ -118,6 +121,69 @@ describe('ImpersonationBanner', () => {
     await user.click(screen.getByTestId('impersonation-banner-return'))
 
     expect(api.post).toHaveBeenCalledWith('/auth/stop-impersonating')
+  })
+
+  it("B9. deletes the impersonated user's persisted cache before reloading as the admin (SR-M-1)", async () => {
+    let deleted: () => void = () => {}
+    idbDel.mockReturnValue(new Promise<void>((resolve) => (deleted = resolve)))
+    vi.mocked(api.post).mockResolvedValue({ data: {} })
+    const user = userEvent.setup()
+    render(<ImpersonationBanner user={MOCK_USER} onStopped={vi.fn()} />, { wrapper })
+
+    await user.click(screen.getByTestId('impersonation-banner-return'))
+
+    await waitFor(() => expect(idbDel).toHaveBeenCalledWith('crm-query-cache'))
+    expect(window.location.href).toBe('/')
+    deleted()
+    await waitFor(() => expect(window.location.href).toBe('/admin/login-as'))
+  })
+
+  it('B12. empties the query cache before deleting the persisted copy (SR-L-3); the purge itself stops later writes (persister.spec, SO-4)', async () => {
+    const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    qc.setQueryData(['projects', 'senior-uuid'], [{ id: 'impersonated-project' }])
+    let cachedAtDelete: number | null = null
+    idbDel.mockImplementation(() => {
+      cachedAtDelete = qc.getQueryCache().getAll().length
+      return Promise.resolve()
+    })
+    vi.mocked(api.post).mockResolvedValue({ data: {} })
+    const user = userEvent.setup()
+    render(
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <ImpersonationBanner user={MOCK_USER} onStopped={vi.fn()} />
+        </QueryClientProvider>
+      </I18nTestProvider>,
+    )
+
+    await user.click(screen.getByTestId('impersonation-banner-return'))
+
+    await waitFor(() => expect(window.location.href).toBe('/admin/login-as'))
+    expect(cachedAtDelete).toBe(0)
+  })
+
+  it('B11. still reloads as the admin when deleting the persisted cache never answers (backlog 433)', async () => {
+    idbDel.mockReturnValue(new Promise<void>(() => {}))
+    vi.mocked(api.post).mockResolvedValue({ data: {} })
+    const user = userEvent.setup()
+    render(<ImpersonationBanner user={MOCK_USER} onStopped={vi.fn()} />, { wrapper })
+
+    await user.click(screen.getByTestId('impersonation-banner-return'))
+
+    await waitFor(() => expect(idbDel).toHaveBeenCalledWith('crm-query-cache'))
+    expect(window.location.href).toBe('/')
+    await waitFor(() => expect(window.location.href).toBe('/admin/login-as'), { timeout: 3000 })
+  })
+
+  it('B10. still reloads as the admin when deleting the persisted cache fails', async () => {
+    idbDel.mockRejectedValue(new Error('idb unavailable'))
+    vi.mocked(api.post).mockResolvedValue({ data: {} })
+    const user = userEvent.setup()
+    render(<ImpersonationBanner user={MOCK_USER} onStopped={vi.fn()} />, { wrapper })
+
+    await user.click(screen.getByTestId('impersonation-banner-return'))
+
+    await waitFor(() => expect(window.location.href).toBe('/admin/login-as'))
   })
 
   it('B5. button shows pending text while mutation is in-flight', async () => {

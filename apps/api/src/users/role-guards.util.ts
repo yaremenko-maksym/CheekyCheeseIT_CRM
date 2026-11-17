@@ -81,6 +81,27 @@ export function techStackChanged(
 }
 
 /**
+ * Senior roles PR 2: technical roles are a SENIOR attribute. `role` is the EFFECTIVE role of the
+ * write (after any role change in the same request). Absent or empty roles pass for every role.
+ */
+export function assertSeniorOnlyRoles(role: Role, roles: readonly string[] | undefined): void {
+  if (role !== 'SENIOR' && roles !== undefined && roles.length > 0) {
+    throw apiError('TECHNICAL_ROLES_SENIOR_ONLY', HttpStatus.BAD_REQUEST)
+  }
+}
+
+/** Whether a write actually changes the stored roles, order-insensitive (`techStackChanged` twin). */
+export function rolesChanged(
+  next: readonly string[] | undefined,
+  current: readonly string[],
+): boolean {
+  if (next === undefined) return false
+  const a = [...next].sort()
+  const b = [...current].sort()
+  return a.length !== b.length || a.some((role, i) => role !== b[i])
+}
+
+/**
  * `changeRole` (3)+(4): an ADMIN target's role can never be changed through
  * this endpoint — another actor gets CANNOT_EDIT_ANOTHER_ADMIN, the ADMIN
  * themself gets ADMIN_CANNOT_CHANGE_OWN_ROLE. `actorId` is always present.

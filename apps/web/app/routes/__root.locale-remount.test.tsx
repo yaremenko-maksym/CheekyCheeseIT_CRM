@@ -25,11 +25,11 @@ let mountCount = 0
 
 vi.mock('@tanstack/react-router', () => ({
   // `__root.tsx`'s own module-top-level `export const Route =
-  // createRootRoute({ component: RootDocument })` runs the moment this
-  // module is imported below — it needs SOME callable here, even though
-  // this test never touches `Route` itself (it imports `LocaleScopedApp`
-  // directly, bypassing the router entirely).
-  createRootRoute: (options: unknown) => options,
+  // createRootRouteWithContext<RouterContext>()({ component: RootDocument })`
+  // runs the moment this module is imported below — it needs SOME callable
+  // here, even though this test never touches `Route` itself (it imports
+  // `LocaleScopedApp` directly, bypassing the router entirely).
+  createRootRouteWithContext: () => (options: unknown) => options,
   Outlet: () => {
     useEffect(() => {
       mountCount += 1

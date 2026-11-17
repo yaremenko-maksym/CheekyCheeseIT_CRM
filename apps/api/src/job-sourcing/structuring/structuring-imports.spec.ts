@@ -29,7 +29,6 @@ const ADAPTER_IMPORTS = new Set([
   './html-structurer.port',
   './model-budget.port',
   './prompt-envelope',
-  './small-dose-table',
 ])
 const FORBIDDEN_TOKENS = [
   /\bfetch\s*\(/,
@@ -66,7 +65,7 @@ describe('structuring guards — import boundary', () => {
     }
   })
 
-  it.each([ADAPTER, 'small-dose-table.ts'])(
+  it.each([ADAPTER])(
     '%s reaches @crm/inference by a type-only import, and no network or env',
     (file) => {
       const text = source(file)

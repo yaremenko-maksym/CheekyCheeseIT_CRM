@@ -22,6 +22,11 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import { getTableName, type SQL } from 'drizzle-orm'
 import { UsersService } from './users.service'
 import { markUserEditDirty } from '../job-sourcing/dirty-producers'
+
+// Backlog 442: the resume re-check flag has its own real-DB spec (resume-recheck-flag.integration.spec).
+vi.mock('../resumes/verification/recheck-flag', () => ({
+  markResumeRecheckNeeded: vi.fn().mockResolvedValue(undefined),
+}))
 // r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
 vi.mock('../job-sourcing/dirty-producers')
 
@@ -276,6 +281,8 @@ describe('UsersService.adminUpdateUser — ADMIN-target protection (before any o
       updatedAt: FIXED_NOW,
       role: 'ADMIN',
       displayName: 'Me',
+      // A role write away from SENIOR clears the technical roles (updateUserRow).
+      technicalRoles: [],
     })
   })
 
@@ -288,7 +295,11 @@ describe('UsersService.adminUpdateUser — ADMIN-target protection (before any o
   it('actorId defaults to null (system caller): ADMIN target is editable, even role HR', async () => {
     const h = makeHarness({ existing: admin() })
     await edit(h, { role: 'HR' })
-    expect(userUpdateSet(h.log)).toEqual({ updatedAt: FIXED_NOW, role: 'HR' })
+    expect(userUpdateSet(h.log)).toEqual({
+      updatedAt: FIXED_NOW,
+      role: 'HR',
+      technicalRoles: [],
+    })
   })
 
   it('explicit null actorId behaves like the default', async () => {
@@ -415,7 +426,12 @@ describe('UsersService.adminUpdateUser — role-escalation guard (only on an ACT
   it('a DROP user resubmitting role DROP is NOT blocked', async () => {
     const h = makeHarness({ existing: makeUser({ role: 'DROP' }) })
     await expect(edit(h, { role: 'DROP', phone: '1' }, 'admin-1')).resolves.toBeDefined()
-    expect(userUpdateSet(h.log)).toEqual({ updatedAt: FIXED_NOW, role: 'DROP', phone: '1' })
+    expect(userUpdateSet(h.log)).toEqual({
+      updatedAt: FIXED_NOW,
+      role: 'DROP',
+      phone: '1',
+      technicalRoles: [],
+    })
   })
 
   it.each(['HR', 'SENIOR', 'JUNIOR', 'ACCOUNTANT'] as const)(
@@ -749,6 +765,7 @@ describe('UsersService.adminUpdateUser — exact users SET per field group', () 
       phone: '+1',
       avatarUrl: 'http://a',
       techStack: ['ts'],
+      technicalRoles: [],
     })
   })
 
@@ -1169,5 +1186,47 @@ describe('UsersService.adminUpdateUser — SENIOR team composition + team telegr
     await edit(h, { hrIds: ['h'], teamTelegramChannel: '@t' })
     expect(h.reconcileSeniorTeamTx.mock.calls[0]![3]).toBeNull()
     expect(h.updateSeniorTeamTelegramChannelTx.mock.calls[0]![3]).toBeNull()
+  })
+})
+
+describe('UsersService.adminUpdateUser — technical roles (senior roles PR 2)', () => {
+  const REFUSED = code('TECHNICAL_ROLES_SENIOR_ONLY', 400)
+
+  it('ADMIN PATCH /users/:id sets technicalRoles on a SENIOR', async () => {
+    const h = makeHarness({ existing: makeUser({ role: 'SENIOR' }) })
+    await expect(
+      edit(h, { technicalRoles: ['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'] }, 'admin-1'),
+    ).resolves.toBeDefined()
+    expect(userUpdateSet(h.log).technicalRoles).toEqual(['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'])
+  })
+
+  it('technicalRoles on a JUNIOR -> 400 TECHNICAL_ROLES_SENIOR_ONLY, nothing written', async () => {
+    const h = makeHarness({ existing: makeUser() })
+    await expect(
+      edit(h, { technicalRoles: ['BACKEND_ENGINEER'] }, 'admin-1'),
+    ).rejects.toMatchObject(REFUSED)
+    expect(userUpdate(h.log)).toBeUndefined()
+  })
+
+  it('checks the EFFECTIVE role: SENIOR -> JUNIOR with roles is refused, JUNIOR -> SENIOR with roles passes', async () => {
+    const down = makeHarness({ existing: makeUser({ role: 'SENIOR' }) })
+    await expect(
+      edit(down, { role: 'JUNIOR', technicalRoles: ['BACKEND_ENGINEER'] }, 'admin-1'),
+    ).rejects.toMatchObject(REFUSED)
+    expect(userUpdate(down.log)).toBeUndefined()
+    const up = makeHarness({ existing: makeUser() })
+    await expect(
+      edit(up, { role: 'SENIOR', technicalRoles: ['BACKEND_ENGINEER'] }, 'admin-1'),
+    ).resolves.toBeDefined()
+    expect(userUpdateSet(up.log)).toMatchObject({
+      role: 'SENIOR',
+      technicalRoles: ['BACKEND_ENGINEER'],
+    })
+  })
+
+  it('roles are optional: an edit without technicalRoles leaves them out of the write', async () => {
+    const h = makeHarness({ existing: makeUser({ role: 'SENIOR' }) })
+    await expect(edit(h, { displayName: 'New' }, 'admin-1')).resolves.toBeDefined()
+    expect(userUpdateSet(h.log)).not.toHaveProperty('technicalRoles')
   })
 })

@@ -18,6 +18,9 @@ import {
   seniorTotal,
   sourceRows,
   sourceTotal,
+  triageGrantableRow,
+  triageIneligibleRow,
+  triagePolicyVersion,
 } from './queue-read-sql'
 import { MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
 import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
@@ -35,6 +38,7 @@ const team: JobQueueScope = {
   seniorIds: [SEN],
   versions,
   inputsVersion: 'inputs-1',
+  previousInputsVersion: 'inputs-1-prev',
 }
 const studio: JobQueueScope = { kind: 'STUDIO' }
 const render = (q: SQL) => {
@@ -159,6 +163,54 @@ describe('filterIdentity', () => {
     const q = query({ eligibility: ['TRIAGE', 'LEAD'] })
     filterIdentity(q)
     expect(q.eligibility).toEqual(['TRIAGE', 'LEAD'])
+  })
+})
+
+describe('the triage eligibility fragment the grant and the ADMIN card share (426, CR-M-1)', () => {
+  const ineligible =
+    "(o.availability IN ('CLOSED', 'EXPIRED') OR (o.evaluated_revision = o.revision AND o.evaluation_verdict = 'EXCLUDED') IS TRUE OR EXISTS (SELECT 1 FROM job_opportunity_matches m JOIN jsonb_to_recordset($1::jsonb) AS v(senior_id uuid, profile text, exclusion text) ON v.senior_id = m.senior_id WHERE m.opportunity_id = o.id AND m.opportunity_revision = o.revision AND m.senior_profile_version = v.profile AND m.exclusion_version = v.exclusion AND m.rule_version = $2 AND m.outcome = 'LEAD'))"
+  const params = [
+    JSON.stringify([{ senior_id: SEN, profile: 'p', exclusion: 'e' }]),
+    MATCH_RULE_VERSION,
+    OPP,
+  ]
+  it('the grant reads CLOSED/EXPIRED, EXCLUDED-at-revision or a live LEAD of the given roster', () => {
+    expect(render(triageIneligibleRow(versions, OPP))).toEqual({
+      text: `SELECT ${ineligible} AS ineligible FROM job_opportunities o WHERE o.id = $3::uuid`,
+      params,
+    })
+  })
+  it('the card adds only the manual-card refusal, and negates the same fragment', () => {
+    expect(render(triageGrantableRow(versions, OPP))).toEqual({
+      text: `SELECT (o.manual_team_id IS NULL AND NOT ${ineligible}) AS grantable FROM job_opportunities o WHERE o.id = $3::uuid`,
+      params,
+    })
+  })
+})
+
+describe('triagePolicyVersion (backlog 425)', () => {
+  const base = triagePolicyVersion(versions, 'm1')
+  it('is a positive int the policy_version column holds', () => {
+    expect(Number.isInteger(base)).toBe(true)
+    expect(base).toBeGreaterThanOrEqual(1)
+    expect(base).toBeLessThanOrEqual(2147483647)
+  })
+  it('is the first 32 bits of sha-256(studio signature, membership), folded into 1..2^31-1', () => {
+    const hex = createHash('sha256')
+      .update(JSON.stringify([policySignature(studio, versions), 'm1']))
+      .digest('hex')
+    expect(base).toBe((Number.parseInt(hex.slice(0, 8), 16) % 2147483647) + 1)
+  })
+  it('is stable for the same inputs', () => {
+    expect(triagePolicyVersion([...versions], 'm1')).toBe(base)
+  })
+  it.each([
+    ['another membership', versions, 'm2'],
+    ['another profile version', [{ ...versions[0], profile: 'p2' }], 'm1'],
+    ['another exclusion version', [{ ...versions[0], exclusion: 'e2' }], 'm1'],
+    ['a roster without the senior', [], 'm1'],
+  ])('changes with %s', (_label, v, membership) => {
+    expect(triagePolicyVersion(v as LiveSeniorVersion[], membership)).not.toBe(base)
   })
 })
 
@@ -313,9 +365,28 @@ describe('field scoping — what each read binds', () => {
   })
 
   it('the senior total counts the same matched set', () => {
-    const { text, params } = render(seniorTotal(versions, OPP))
+    const { text, params } = render(seniorTotal(team, versions, OPP))
     expect(text).toContain(`m.outcome IN ('LEAD', 'TRIAGE')`)
     expect(params).toContain(OPP)
+  })
+
+  it("a manual card's own TAKEN submissions join the senior set, team-scoped (found on PR #1332)", () => {
+    for (const q of [
+      seniorTotal(team, versions, OPP),
+      seniorRows(team, versions, OPP, undefined, 201),
+    ]) {
+      const { text, params } = render(q)
+      expect(text).toContain(
+        'UNION ALL SELECT ta.senior_id, NULL::jsonb FROM job_queue_assignments ta JOIN jsonb_to_recordset(',
+      )
+      expect(text).toContain(
+        "ON v.senior_id = ta.senior_id WHERE o.manual_team_id IS NOT NULL AND ta.opportunity_id = o.id AND ta.state = 'TAKEN' AND ta.team_id = $",
+      )
+      expect(params).toContain(TEAM)
+    }
+    expect(render(seniorTotal(studio, versions, OPP)).text).toContain(
+      "ta.state = 'TAKEN' AND TRUE) ms",
+    )
   })
 
   it('sources are the active links of this opportunity', () => {
@@ -334,5 +405,68 @@ describe('field scoping — what each read binds', () => {
     )
     expect(text).toContain('m.opportunity_id = dup.id')
     expect(params).toEqual(expect.arrayContaining([OPP, TEAM, 5]))
+  })
+
+  it('a duplicate names only the live submissions of this scope, sorted (Task 7.3b)', () => {
+    const { text } = render(duplicateRows(team, OPP, 5))
+    expect(text).toContain(
+      `(SELECT coalesce(jsonb_agg(su.display_name ORDER BY su.display_name, su.id), '[]'::jsonb) FROM users su WHERE su.id IN (SELECT da.senior_id FROM job_queue_assignments da WHERE da.opportunity_id = dup.id AND da.state = 'TAKEN' AND da.team_id = $`,
+    )
+    expect(text).toContain('AS submitted_senior_names')
+    // each senior once: a STUDIO view sees every team's submission of the same senior
+    expect(render(duplicateRows(studio, OPP, 5)).text).toContain(
+      `da.state = 'TAKEN' AND TRUE)) AS submitted_senior_names`,
+    )
+  })
+
+  it('the card row carries last seen, the stack, the manual team and its own dismissal (Task 7.3b)', () => {
+    const { text, params } = render(cardRow(team, versions, OPP))
+    expect(text).toContain('o.last_observed_at, o.stack_keywords, o.manual_team_id')
+    // SPEC-H-1: the no-match reason reads own TRIAGE rows, the employer check and the evaluation
+    expect(text).toContain("count(*) FILTER (WHERE m.outcome = 'TRIAGE') AS triaged")
+    expect(text).toContain(
+      'stats.triaged, o.employer_verified, (o.evaluated_revision = o.revision) IS TRUE AS evaluated_current, o.evaluation_verdict,',
+    )
+    // SPEC-M-1: the primary source's own employment text, from its latest revision
+    expect(text).toContain(
+      "(SELECT rv.normalized->>'employmentType' FROM job_source_records sr JOIN job_source_record_revisions rv ON rv.id = sr.latest_revision_id WHERE sr.id = src.source_record_id) AS employment_type",
+    )
+    expect(text).toContain(
+      'LEFT JOIN LATERAL ( SELECT dm.version FROM job_queue_dismissals dm WHERE dm.opportunity_id = o.id AND dm.scope_kind = $',
+    )
+    expect(text).toContain('::job_queue_scope_kind AND dm.team_id IS NOT DISTINCT FROM $')
+    expect(text).toContain('dis.version AS dismissal_version')
+    expect(text).toContain('::uuid LIMIT 1 ) dis ON TRUE')
+    expect(params).toEqual(expect.arrayContaining([OPP, TEAM, 'TEAM']))
+  })
+
+  it("the card's dismissal binds the scope's own kind and team: a TEAM its id, a STUDIO null", () => {
+    const bound = (q: SQL, marker: string) => {
+      const { text, params } = render(q)
+      const at = new RegExp(`${marker} \\$(\\d+)`).exec(text)
+      expect(at).not.toBeNull()
+      return params[Number(at![1]) - 1]
+    }
+    expect(bound(cardRow(team, versions, OPP), 'dm.scope_kind =')).toBe('TEAM')
+    expect(bound(cardRow(team, versions, OPP), 'dm.team_id IS NOT DISTINCT FROM')).toBe(TEAM)
+    expect(bound(cardRow(studio, [], OPP), 'dm.scope_kind =')).toBe('STUDIO')
+    expect(bound(cardRow(studio, [], OPP), 'dm.team_id IS NOT DISTINCT FROM')).toBeNull()
+  })
+
+  it('card seniors name a team only in the STUDIO scope (Task 7.3b)', () => {
+    const t = render(seniorRows(team, versions, OPP, undefined, 201)).text
+    expect(t).not.toContain('team_members')
+    expect(t).not.toContain('AS team_name')
+    // nothing at all in either slot, not merely no team columns
+    expect(t).toMatch(/\) AS submitted_elsewhere FROM /)
+    expect(t).toContain('JOIN users u ON u.id = ms.senior_id LEFT JOIN job_queue_assignments a')
+    const s = render(seniorRows(studio, versions, OPP, undefined, 201)).text
+    expect(s).toContain(') AS submitted_elsewhere, st.id AS team_id, st.name AS team_name FROM ')
+    expect(s).toContain(
+      'JOIN users u ON u.id = ms.senior_id LEFT JOIN LATERAL ( SELECT t.id, t.name',
+    )
+    expect(s).toContain(
+      "LEFT JOIN LATERAL ( SELECT t.id, t.name FROM team_members tm JOIN teams t ON t.id = tm.team_id WHERE tm.user_id = ms.senior_id AND tm.left_at IS NULL ORDER BY t.archived_at IS NOT NULL, t.type <> 'SENIOR', t.name, t.id LIMIT 1) st ON TRUE",
+    )
   })
 })

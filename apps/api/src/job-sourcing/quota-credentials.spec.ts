@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { QUOTA_PROVIDER_ENV_KEY, readQuotaCredential, type QuotaEnvKey } from './quota-credentials'
+import {
+  hasKeyedCredential,
+  keyProvisioned,
+  QUOTA_PROVIDER_ENV_KEY,
+  readQuotaCredential,
+  type QuotaEnvKey,
+} from './quota-credentials'
 
 /**
  * r5 Task 3.5a AC8. The env reader is a recording function, so "nothing reads CLOUDFLARE_*" is
@@ -96,5 +102,32 @@ describe('readQuotaCredential', () => {
       secrets: [],
     })
     expect(env.asked).toEqual([])
+  })
+})
+
+describe('hasKeyedCredential / keyProvisioned (task key-sources-smoke)', () => {
+  it.each([
+    ['JOOBLE_API', true],
+    ['JSEARCH_API', true],
+    ['THEIRSTACK_API', true],
+    ['REED_API', true],
+    // The Muse needs no key, and a type without a quota provider has none to provision.
+    ['MUSE_API', false],
+    ['REMOTEOK_API', false],
+  ] as const)('%s has a keyed credential: %s', (type, keyed) => {
+    expect(hasKeyedCredential(type)).toBe(keyed)
+  })
+
+  it('a keyed type is provisioned only when its own key is set and not empty', () => {
+    const only = (key: QuotaEnvKey, value: string) => (k: QuotaEnvKey) =>
+      k === key ? value : undefined
+    expect(keyProvisioned('JSEARCH_API', only('RAPIDAPI_KEY', 'k'))).toBe(true)
+    expect(keyProvisioned('JSEARCH_API', only('RAPIDAPI_KEY', ''))).toBe(false)
+    expect(keyProvisioned('JOOBLE_API', only('RAPIDAPI_KEY', 'k'))).toBe(false)
+  })
+
+  it('a keyless type is never provisioned, whatever the env holds', () => {
+    expect(keyProvisioned('MUSE_API', () => 'k')).toBe(false)
+    expect(keyProvisioned('REMOTEOK_API', () => 'k')).toBe(false)
   })
 })

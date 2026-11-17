@@ -10,6 +10,7 @@ import { HN_ADAPTER_VERSION } from '../providers/sources/hn-hiring.provider'
 import { JOBGETHER_ADAPTER_VERSION } from '../providers/sources/jobgether.provider'
 import { JOBICY_ADAPTER_VERSION } from '../providers/sources/jobicy.provider'
 import { JOOBLE_ADAPTER_VERSION } from '../providers/sources/jooble.provider'
+import { REED_ADAPTER_VERSION } from '../providers/sources/reed.provider'
 import { JSEARCH_ADAPTER_VERSION } from '../providers/sources/jsearch.provider'
 import { LEVER_ADAPTER_VERSION, LEVER_HOSTS } from '../providers/sources/lever.provider'
 import { MUSE_ADAPTER_VERSION } from '../providers/sources/muse.provider'
@@ -44,12 +45,11 @@ import type { ReportingWiring } from './registered-adapter'
  * constant, or the exported `*AllowedHosts` of the adapters that already declared one), and
  * `reporting-wiring.spec.ts` asserts every request each adapter makes stays on its list.
  *
- * !! THIS IS DATA, NOT A REGISTRY, AND IT ACTIVATES NOTHING. Registering an adapter is a separate
- * step (the production registry holds DOU only); the claim also needs an activatable type and a
- * ready manifest entry. Wiring only lifts `TRANSPORT_NOT_WIRED` for an adapter once registered.
+ * !! THIS IS DATA, NOT A REGISTRY, AND IT ACTIVATES NOTHING. `createProductionRegistry` registers
+ * every type listed here with its entry; the claim also needs an activatable type and a ready
+ * manifest entry. Wiring only lifts `TRANSPORT_NOT_WIRED` for a registered adapter.
  *
  * Deliberately NOT wired (no entry, so `TRANSPORT_NOT_WIRED` keeps them off):
- *  - `REED_API`: its adapter does not yet reserve per request (T7 AC 9 excepted it; a separate task).
  *  - `WORKINGNOMADS_API`: a blocked stub with no fetch path at all.
  *  - `DOU_RSS`: the legacy contract, which does not go through this transport.
  */
@@ -98,6 +98,7 @@ export const REPORTING_WIRING: Readonly<Partial<Record<JobSourceType, ReportingW
       adapterVersion: RECRUITEE_ADAPTER_VERSION,
       allowedHosts: (config) => recruiteeAllowedHosts(board(config)),
     },
+    REED_API: { adapterVersion: REED_ADAPTER_VERSION, allowedHosts: ['www.reed.co.uk'] },
     REMOTEOK_API: { adapterVersion: REMOTEOK_ADAPTER_VERSION, allowedHosts: ['remoteok.com'] },
     REMOTIVE_API: { adapterVersion: REMOTIVE_ADAPTER_VERSION, allowedHosts: ['remotive.com'] },
     SMARTRECRUITERS_ATS: {

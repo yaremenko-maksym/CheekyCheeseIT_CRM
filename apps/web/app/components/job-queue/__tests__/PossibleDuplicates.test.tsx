@@ -7,10 +7,15 @@ import { PossibleDuplicates } from '../PossibleDuplicates'
 
 type Preview = NonNullable<JobQueueCardResponseDto['possibleDuplicates']>
 
-const dup = (n: number, companyName: string | null = `Company ${n}`) => ({
+const dup = (
+  n: number,
+  companyName: string | null = `Company ${n}`,
+  submittedSeniorNames: string[] = [],
+) => ({
   opportunityId: `55555555-5555-4555-8555-${n.toString(16).padStart(12, '0')}`,
   title: `Similar role ${n}`,
   companyName,
+  submittedSeniorNames,
 })
 
 function renderNote(preview: Preview | null) {
@@ -39,7 +44,7 @@ describe('PossibleDuplicates', () => {
     expect(items[0]).toHaveTextContent('Similar role 1 · Company 1')
     expect(items[1]).toHaveTextContent(/^Similar role 2$/)
     expect(within(note).queryByTestId('job-queue-duplicates-shown')).toBeNull()
-    // the «already submitted to a similar vacancy» line needs own-team data the API does not send
+    // no own-scope submission on either duplicate, so no «already submitted» line (spec §5.8)
     expect(note).not.toHaveTextContent('вже подано')
   })
 
@@ -47,5 +52,26 @@ describe('PossibleDuplicates', () => {
     renderNote({ items: [1, 2, 3, 4, 5].map((n) => dup(n)), totalCount: 7 })
     expect(screen.getAllByRole('listitem')).toHaveLength(5)
     expect(screen.getByTestId('job-queue-duplicates-shown')).toHaveTextContent('Показано 5 із 7')
+  })
+
+  it('names who the own scope already submitted to a duplicate, and only on that duplicate', () => {
+    renderNote({
+      items: [dup(1, null, ['Олена Коваль', 'Іван Шевченко']), dup(2)],
+      totalCount: 2,
+    })
+    const lines = screen.getAllByTestId('job-queue-duplicate-submitted')
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toHaveTextContent(/^Уже подано: Олена Коваль, Іван Шевченко$/)
+    const [first, second] = screen.getAllByRole('listitem') as [HTMLElement, HTMLElement]
+    expect(within(first).getByTestId('job-queue-duplicate-submitted')).toBe(lines[0])
+    expect(within(second).queryByTestId('job-queue-duplicate-submitted')).toBeNull()
+  })
+
+  it('reads the submitted line in English', async () => {
+    await loadCatalog('en')
+    renderNote({ items: [dup(1, null, ['Olena'])], totalCount: 1 })
+    expect(screen.getByTestId('job-queue-duplicate-submitted')).toHaveTextContent(
+      /^Already submitted: Olena$/,
+    )
   })
 })

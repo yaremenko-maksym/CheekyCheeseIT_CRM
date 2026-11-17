@@ -1,13 +1,13 @@
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { AuthProvider } from '@/context/auth'
+import { AuthProvider, createSessionRevalidator } from '@/context/auth'
+import { queryClient } from '@/lib/query-client'
 import { NotificationsProvider } from '@/context/notifications'
-import { useOnboardingGate } from '@/context/onboarding'
+import { fetchOnboardingStatus, useOnboardingGate } from '@/context/onboarding'
 import { LogOut, Menu, UserCircle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/auth'
-import { api } from '@/lib/axios'
 import { useLogout } from '@/lib/use-logout'
 import { NavSidebar } from '@/components/crm/nav-sidebar'
 import { isRouteAllowed, resolveRoleHome } from '@/lib/route-access'
@@ -30,7 +30,17 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import type { OnboardingStatusDto } from '@crm/shared'
 
+// Task 7.6c: awaited before the next route renders, so a session that changed under the open page
+// (another tab's sign-in) never paints the previous account's cached rows. A hover preload renders
+// nothing, so it sends no check (PR #1330 CR-M-1). This layout is already active on a hover inside
+// the CRM, so the router passes it `preload: false` (CR-M-2); `context.isNavigation` tells a real
+// load from a preload by identity instead (`lib/router-context.ts`), so it covers `preload: true`
+// too and no spelling of a real URL can skip the check (SR-M-1, CR-M-3).
+const revalidateSession = createSessionRevalidator(queryClient)
+
 export const Route = createFileRoute('/_authenticated')({
+  beforeLoad: ({ location, context }) =>
+    context.isNavigation(location) ? revalidateSession(location.pathname) : undefined,
   component: CrmRoot,
 })
 
@@ -51,7 +61,10 @@ function CrmLayout() {
   const navigate = useNavigate()
   const handleLogout = useLogout()
   const { t } = useLingui()
-  const location = useRouterState({ select: (s) => s.location })
+  // The RENDERED location, not the one still loading: `beforeLoad` awaits the session check, and a
+  // branch swap (onboarding vs full layout) on a pending path remounts the page still shown, whose
+  // own redirect then cancels that load, over and over (PR #1330 QA-HIGH-1, React #185).
+  const location = useRouterState({ select: (s) => s.resolvedLocation ?? s.location })
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false
     return localStorage.getItem('sidebar-collapsed') === 'true'
@@ -64,10 +77,7 @@ function CrmLayout() {
   // Onboarding gate: fetch status after user is authenticated
   const { data: onboardingStatus } = useQuery<OnboardingStatusDto>({
     queryKey: ['onboarding-status'],
-    queryFn: async () => {
-      const res = await api.get<OnboardingStatusDto>('/onboarding/status')
-      return res.data
-    },
+    queryFn: fetchOnboardingStatus,
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
   })
@@ -100,6 +110,13 @@ function CrmLayout() {
       void navigate({ to: resolveRoleHome(user.role), replace: true })
     }
   }, [user, isLoading, location.pathname, navigate])
+
+  // Backlog 433: an account switch found on a route change purges at once but refetches only here,
+  // after the commit that unmounted the page being left, so its queries never ask as the new user.
+  const routerIdle = useRouterState({ select: (s) => s.status === 'idle' })
+  useEffect(() => {
+    if (routerIdle) revalidateSession.settled()
+  }, [routerIdle, location.href])
 
   const handleToggle = () => {
     setCollapsed((prev) => {
@@ -269,12 +286,7 @@ function CrmLayout() {
                     <Badge
                       variant={
                         user.role.toLowerCase() as
-                          | 'admin'
-                          | 'senior'
-                          | 'junior'
-                          | 'hr'
-                          | 'accountant'
-                          | 'drop'
+                          'admin' | 'senior' | 'junior' | 'hr' | 'accountant' | 'drop'
                       }
                       data-testid="header-user-menu-role-badge"
                     >

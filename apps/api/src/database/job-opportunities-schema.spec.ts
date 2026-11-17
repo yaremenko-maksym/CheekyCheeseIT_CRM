@@ -272,14 +272,14 @@ describe('job_opportunities', () => {
   })
   it('SR-M-1/2: the evaluated revision, verdict and inputs version are nullable, without a default, declared before role_family', () => {
     const evaluation = ['evaluated_revision', 'evaluation_verdict', 'evaluated_inputs_version']
-    expect(names(jobOpportunities).slice(-5, -2)).toEqual(evaluation)
+    expect(names(jobOpportunities).slice(-8, -5)).toEqual(evaluation)
     for (const name of evaluation) {
       expect(col(jobOpportunities, name).notNull).toBe(false)
       expect(col(jobOpportunities, name).hasDefault).toBe(false)
     }
   })
-  it('Phase 6: manual_team_id is declared last, a nullable uuid without a default, FK to teams ON DELETE RESTRICT', () => {
-    expect(names(jobOpportunities).at(-1)).toBe('manual_team_id')
+  it('Phase 6: manual_team_id is declared just before the role columns, a nullable uuid without a default, FK to teams ON DELETE RESTRICT', () => {
+    expect(names(jobOpportunities).at(-4)).toBe('manual_team_id')
     expect(col(jobOpportunities, 'manual_team_id').getSQLType()).toBe('uuid')
     expect(col(jobOpportunities, 'manual_team_id').notNull).toBe(false)
     expect(col(jobOpportunities, 'manual_team_id').hasDefault).toBe(false)
@@ -290,7 +290,7 @@ describe('job_opportunities', () => {
     expect(f.reference().foreignColumns.map((c) => c.name)).toEqual(['id'])
   })
   it('Task 6.4c: role_family is declared just before manual_team_id, nullable, without a default, and bounded', () => {
-    expect(names(jobOpportunities).at(-2)).toBe('role_family')
+    expect(names(jobOpportunities).at(-5)).toBe('role_family')
     expect(col(jobOpportunities, 'role_family').notNull).toBe(false)
     expect(col(jobOpportunities, 'role_family').hasDefault).toBe(false)
     const c = getTableConfig(jobOpportunities).checks.find(
@@ -299,6 +299,27 @@ describe('job_opportunities', () => {
     expect(render(c?.value)).toBe(
       `"job_opportunities"."role_family" IS NULL OR ("job_opportunities"."role_family" ~ '[^[:space:]]' AND length("job_opportunities"."role_family") <= 100)`,
     )
+  })
+  it('senior roles: technical_roles, role_status, role_classifier_version are declared last', () => {
+    expect(names(jobOpportunities).slice(-3)).toEqual([
+      'technical_roles',
+      'role_status',
+      'role_classifier_version',
+    ])
+    expect(col(jobOpportunities, 'technical_roles').notNull).toBe(true)
+    expect(col(jobOpportunities, 'technical_roles').getSQLType()).toBe('text[]')
+    expect(col(jobOpportunities, 'role_status').notNull).toBe(false)
+    expect(col(jobOpportunities, 'role_status').hasDefault).toBe(false)
+    expect(col(jobOpportunities, 'role_classifier_version').notNull).toBe(false)
+    const check = (name: string) =>
+      render(getTableConfig(jobOpportunities).checks.find((x) => x.name === name)?.value)
+    expect(check('ck_job_opportunities_role_status')).toBe(
+      `"job_opportunities"."role_status" IS NULL OR "job_opportunities"."role_status" IN ('RULE', 'AI', 'PENDING', 'UNCLEAR', 'NON_IT')`,
+    )
+    expect(check('ck_job_opportunities_roles_iff_status')).toBe(
+      `"job_opportunities"."role_status" IS NULL OR ((cardinality("job_opportunities"."technical_roles") > 0) = ("job_opportunities"."role_status" IN ('RULE', 'AI')))`,
+    )
+    expect(check('ck_job_opportunities_technical_roles_known')).toContain(`'SOFTWARE_ENGINEER'`)
   })
   it('employer is nullable (no employer invented from a slug) and unverified by default', () => {
     expect(col(jobOpportunities, 'employer_name').notNull).toBe(false)

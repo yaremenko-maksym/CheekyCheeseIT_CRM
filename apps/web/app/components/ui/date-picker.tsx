@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { format, parseISO, type Locale as DateFnsLocale } from 'date-fns'
+import { format, max, min, parseISO, type Locale as DateFnsLocale } from 'date-fns'
 import { uk, enGB } from 'date-fns/locale'
 import { CalendarIcon } from 'lucide-react'
 import { useLingui } from '@lingui/react/macro'
-import type { Locale } from '@crm/shared'
+import { formatDate, type Locale } from '@crm/shared'
 import { Calendar } from './calendar'
 import { Button } from './button'
 import { Popover, PopoverContent, PopoverTrigger } from './popover'
@@ -74,9 +74,7 @@ export function DatePickerField({
         >
           <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
           <span className="truncate">
-            {selected
-              ? format(selected, 'dd MMM yyyy', { locale: dateFnsLocale })
-              : effectivePlaceholder}
+            {selected ? formatDate(selected, locale, 'dayMonthYear') : effectivePlaceholder}
           </span>
         </Button>
       </PopoverTrigger>
@@ -85,7 +83,8 @@ export function DatePickerField({
       <PopoverContent
         className="w-auto p-0 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto"
         align="start"
-        collisionPadding={8}
+        // 4, not 8: the 44 px mobile grid is 310 px wide with its border, 320 px leaves 5 a side
+        collisionPadding={4}
       >
         <Calendar
           mode="single"
@@ -124,6 +123,14 @@ export function DatePickerField({
               ...(maxDate ? [{ after: parseISO(maxDate) }] : []),
             ]
           }
+          // Navigation bounds widen to a saved value outside [minDate, maxDate], so the calendar
+          // still opens on its month (the day itself stays disabled above).
+          {...(minDate
+            ? { startMonth: min([parseISO(minDate), selected ?? parseISO(minDate)]) }
+            : {})}
+          {...(maxDate
+            ? { endMonth: max([parseISO(maxDate), selected ?? parseISO(maxDate)]) }
+            : {})}
           initialFocus
           locale={dateFnsLocale}
         />

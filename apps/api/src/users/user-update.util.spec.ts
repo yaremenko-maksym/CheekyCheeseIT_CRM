@@ -19,6 +19,15 @@ describe('buildAdminUserUpdateSet', () => {
     })
   })
 
+  it('buildAdminUserUpdateSet carries technicalRoles; absent key -> not in set', () => {
+    expect(
+      buildAdminUserUpdateSet({ technicalRoles: ['BACKEND_ENGINEER'] }, 'SENIOR').set,
+    ).toStrictEqual({ updatedAt: NOW, technicalRoles: ['BACKEND_ENGINEER'] })
+    expect(buildAdminUserUpdateSet({ technicalRoles: undefined }, 'SENIOR').set).toStrictEqual({
+      updatedAt: NOW,
+    })
+  })
+
   it('copies defined scalar fields; ignores undefined email/displayName/role', () => {
     expect(
       buildAdminUserUpdateSet(

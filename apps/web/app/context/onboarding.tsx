@@ -43,6 +43,21 @@ export interface OnboardingGateResult {
   refetch: () => void
 }
 
+/** A hung status check counts as a failed one (the house rule of `REVALIDATE_TIMEOUT_MS`). */
+export const ONBOARDING_STATUS_TIMEOUT_MS = 8000
+
+/**
+ * The one `['onboarding-status']` fetcher: whichever reader mounts first issues the request, so
+ * every reader shares the timeout. With the query client's one retry, a hang ends in `isError`
+ * after about 2 × 8 s + 1 s instead of never.
+ */
+export async function fetchOnboardingStatus(): Promise<OnboardingStatusDto> {
+  const res = await api.get<OnboardingStatusDto>('/onboarding/status', {
+    timeout: ONBOARDING_STATUS_TIMEOUT_MS,
+  })
+  return res.data
+}
+
 export function useOnboardingGate(): OnboardingGateResult {
   const { user } = useAuth()
 
@@ -55,10 +70,7 @@ export function useOnboardingGate(): OnboardingGateResult {
   // fields anyway, but skipping it avoids the round-trip entirely.
   const { data, isPending, isError, refetch } = useQuery<OnboardingStatusDto>({
     queryKey: ['onboarding-status'],
-    queryFn: async () => {
-      const res = await api.get<OnboardingStatusDto>('/onboarding/status')
-      return res.data
-    },
+    queryFn: fetchOnboardingStatus,
     enabled: !!user && !isAdmin,
     staleTime: 5 * 60 * 1000,
   })

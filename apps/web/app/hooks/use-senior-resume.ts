@@ -10,13 +10,28 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLingui } from '@lingui/react/macro'
-import type { ResumeContent, ResumeLayoutOptions, SeniorResumeResponse } from '@crm/shared'
+import {
+  seniorResumeResponseSchema,
+  type ConfirmResumeInput,
+  type EditStagedFieldInput,
+  type RegenerateStagedFieldInput,
+  type ResumeFacts,
+  type ResumeLayoutOptions,
+  type ResumeTemplateName,
+  type SeniorResumeResponse,
+} from '@crm/shared'
 import { api } from '@/lib/axios'
+import { getApiErrorCode, getUserFacingErrorMessage } from '@/lib/axios-utils'
 
 /** Same base the axios client uses — needed for plain <a href> downloads. */
 export const API_BASE_URL: string = import.meta.env.VITE_API_URL ?? '/api'
 
 const POLL_INTERVAL_MS = 2500
+
+/** Every JSON resume endpoint answers this envelope; a malformed body throws before it reaches the cache. */
+function parseResponse(res: { data: unknown }): SeniorResumeResponse {
+  return seniorResumeResponseSchema.parse(res.data)
+}
 
 export function resumeQueryKey(userId: string): [string, string] {
   return ['senior-resume', userId]
@@ -26,7 +41,7 @@ export function useSeniorResume(userId: string | undefined, enabled = true) {
   return useQuery({
     queryKey: resumeQueryKey(userId ?? ''),
     queryFn: () =>
-      api.get<SeniorResumeResponse>(`/users/${userId}/resume`).then((r) => r.data),
+      api.get(`/users/${userId}/resume`).then(parseResponse),
     enabled: enabled && !!userId,
     // Personal data + a state machine that moves on the server: never serve a
     // stale snapshot from cache when the tab is re-opened.
@@ -39,7 +54,10 @@ export function useSeniorResume(userId: string | undefined, enabled = true) {
       // hand, which is the failure the extraction polling already exists to
       // avoid.
       const rendering = resume?.renderStatus === 'QUEUED' || resume?.renderStatus === 'RUNNING'
-      return extracting || rendering ? POLL_INTERVAL_MS : false
+      // A check run moves the row on the server too (QUEUED → CHECKING → result).
+      const checking = resume?.verificationBusy === true
+      // Stryker disable next-line BooleanLiteral: query-core polls only on a number (isValidTimeout), so `true` idles exactly like `false`.
+      return extracting || rendering || checking ? POLL_INTERVAL_MS : false
     },
   })
 }
@@ -75,6 +93,8 @@ export function useResumePdfBlob(
   userId: string,
   enabled: boolean,
   fingerprint: string | null,
+  /** `staged-pdf` = the check run's PDF awaiting Confirm (same headers, same reason). */
+  file: 'pdf' | 'staged-pdf' = 'pdf',
 ): { blobUrl: string | null; isLoading: boolean; hasError: boolean } {
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -100,7 +120,10 @@ export function useResumePdfBlob(
     setHasError(false)
 
     void api
-      .get<Blob>(`/users/${userId}/resume/pdf`, { responseType: 'blob', signal: controller.signal })
+      .get<Blob>(`/users/${userId}/resume/${file}`, {
+        responseType: 'blob',
+        signal: controller.signal,
+      })
       .then((res) => {
         if (controller.signal.aborted) return
         // Release the previous document before replacing it, or every layout
@@ -120,7 +143,7 @@ export function useResumePdfBlob(
       })
 
     return () => controller.abort()
-  }, [userId, enabled, fingerprint])
+  }, [userId, enabled, fingerprint, file])
 
   useEffect(() => {
     const revoke = revokeRef
@@ -138,79 +161,197 @@ export function useResumePdfBlob(
 export function useSaveResumeLayout(userId: string) {
   const qc = useQueryClient()
   const { t } = useLingui()
+  const onError = useResumeWriteError(userId)
   return useMutation({
     mutationKey: ['save-senior-resume-layout', userId],
     mutationFn: (layout: ResumeLayoutOptions) =>
-      api.put<SeniorResumeResponse>(`/users/${userId}/resume/layout`, { layout }).then((r) => r.data),
+      api.put(`/users/${userId}/resume/layout`, { layout }).then(parseResponse),
     onSuccess: (data) => {
       qc.setQueryData(resumeQueryKey(userId), data)
       void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
       toast.success(t`Оформлення оновлено`)
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError,
   })
 }
 
-export function useSaveResumeContent(userId: string) {
+/**
+ * A resume write failed (facts, submit, layout, upload, text, delete). Every error toasts its catalog text (409
+ * RESUME_VERIFICATION_BUSY / RESUME_ALREADY_VERIFIED, 422 RESUME_INCOMPLETE /
+ * RESUME_CUSTOM_TEMPLATE) and
+ * refetches: a busy answer means the server state moved, and the UI must
+ * become that state rather than keep guessing.
+ */
+function useResumeWriteError(userId: string) {
+  const qc = useQueryClient()
+  return (e: unknown) => {
+    toast.error(getUserFacingErrorMessage(e))
+    void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
+  }
+}
+
+/** `PUT facts`. `silent` skips the "saved" toast when Submit saves first. */
+export function useSaveResumeFacts(userId: string) {
   const qc = useQueryClient()
   const { t } = useLingui()
+  const onError = useResumeWriteError(userId)
   return useMutation({
-    mutationKey: ['save-senior-resume', userId],
-    mutationFn: (content: ResumeContent) =>
-      api
-        .put<SeniorResumeResponse>(`/users/${userId}/resume`, { content })
-        .then((r) => r.data),
-    onSuccess: (data) => {
-      // Write the server's answer straight into the cache so `version` and
-      // `updatedBy` are correct immediately, then revalidate.
+    mutationKey: ['save-senior-resume-facts', userId],
+    mutationFn: ({ facts }: { facts: ResumeFacts; silent?: boolean }) =>
+      api.put(`/users/${userId}/resume/facts`, { facts }).then(parseResponse),
+    onSuccess: (data, { silent }) => {
       qc.setQueryData(resumeQueryKey(userId), data)
       void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
-      toast.success(t`Резюме збережено`)
+      if (!silent) toast.success(t`Чернетку збережено`)
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError,
   })
+}
+
+/** `POST submit` — starts the check run. */
+export function useSubmitResume(userId: string) {
+  const qc = useQueryClient()
+  const { t } = useLingui()
+  const onError = useResumeWriteError(userId)
+  return useMutation({
+    mutationKey: ['submit-senior-resume', userId],
+    mutationFn: () =>
+      api.post(`/users/${userId}/resume/submit`).then(parseResponse),
+    onSuccess: (data) => {
+      qc.setQueryData(resumeQueryKey(userId), data)
+      void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
+      toast.success(t`Резюме надіслано на перевірку`)
+    },
+    onError,
+  })
+}
+
+/**
+ * A confirm-step write (`POST confirm`, `PUT staged`, `POST staged/regenerate`).
+ * Each carries `staged.runId`; a stale runId or version answers 409
+ * (RESUME_CONFIRM_STALE), which shows the confirm step's inline notice instead
+ * of a toast (ruling R52) and refetches. Every other error toasts.
+ * `inlineCode` is an error the caller shows next to its field instead of a toast.
+ */
+function useStagedAction<TInput>(
+  userId: string,
+  key: string,
+  send: (input: TInput) => Promise<{ data: unknown }>,
+  successText?: () => string,
+  inlineCode?: string,
+) {
+  const qc = useQueryClient()
+  const onWriteError = useResumeWriteError(userId)
+  return useMutation({
+    mutationKey: [key, userId],
+    mutationFn: (input: TInput) => send(input).then(parseResponse),
+    onSuccess: (data) => {
+      qc.setQueryData(resumeQueryKey(userId), data)
+      void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
+      if (successText) toast.success(successText())
+    },
+    onError: (e: unknown) => {
+      const code = getApiErrorCode(e)
+      // `code` is a string or null, never undefined, so an unset inlineCode never matches.
+      if (code === inlineCode) return
+      // Ruling R52: the confirm step's inline notice is the only message for a stale run.
+      if (code === 'RESUME_CONFIRM_STALE') {
+        void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
+        return
+      }
+      onWriteError(e)
+    },
+  })
+}
+
+/** `POST confirm` — ADMIN/HR only; the server promotes the staged result. */
+export function useConfirmResume(userId: string) {
+  const { t } = useLingui()
+  return useStagedAction(
+    userId,
+    'confirm-senior-resume',
+    (input: ConfirmResumeInput) => api.post(`/users/${userId}/resume/confirm`, input),
+    () => t`Резюме підтверджено`,
+  )
+}
+
+/** `PUT staged` — one staged text rewritten by hand; a rejected text shows under its field. */
+export function useEditStagedField(userId: string) {
+  const { t } = useLingui()
+  return useStagedAction(
+    userId,
+    'edit-senior-resume-staged',
+    (input: EditStagedFieldInput) => api.put(`/users/${userId}/resume/staged`, input),
+    () => t`Текст збережено`,
+    'RESUME_STAGED_TEXT_INVALID',
+  )
+}
+
+/** `POST staged/regenerate` — the model rewrites one staged path. */
+export function useRegenerateStagedField(userId: string) {
+  return useStagedAction(
+    userId,
+    'regenerate-senior-resume-staged',
+    (input: RegenerateStagedFieldInput) =>
+      api.post(`/users/${userId}/resume/staged/regenerate`, input),
+  )
+}
+
+/**
+ * `PUT template` — a catalog template by name. On VERIFIED the server starts a
+ * template run (no Confirm); in AWAITING_CONFIRM it drops the staged result.
+ */
+export function useSetResumeTemplate(userId: string) {
+  const { t } = useLingui()
+  return useStagedAction(
+    userId,
+    'set-senior-resume-template',
+    (templateName: ResumeTemplateName) =>
+      api.put(`/users/${userId}/resume/template`, { templateName }),
+    () => t`Шаблон змінено`,
+  )
 }
 
 export function useUploadResumeSource(userId: string) {
   const qc = useQueryClient()
   const { t } = useLingui()
+  const onError = useResumeWriteError(userId)
   return useMutation({
     mutationKey: ['upload-senior-resume', userId],
     mutationFn: (file: File) => {
       const form = new FormData()
       form.append('file', file, file.name)
       return api
-        .post<SeniorResumeResponse>(`/users/${userId}/resume/source`, form, {
+        .post(`/users/${userId}/resume/source`, form, {
           // Let axios set the multipart boundary automatically — same cast as
           // useUploadDocument (axios types forbid an explicit `undefined`
           // under exactOptionalPropertyTypes, but it is what clears the
           // client's default JSON Content-Type).
           headers: { 'Content-Type': undefined as unknown as string },
         })
-        .then((r) => r.data)
+        .then(parseResponse)
     },
     onSuccess: (data) => {
       qc.setQueryData(resumeQueryKey(userId), data)
       toast.success(t`Файл завантажено, розпізнаємо резюме`)
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError,
   })
 }
 
 export function useIngestResumeText(userId: string) {
   const qc = useQueryClient()
   const { t } = useLingui()
+  const onError = useResumeWriteError(userId)
   return useMutation({
     mutationKey: ['ingest-senior-resume-text', userId],
     mutationFn: (text: string) =>
-      api
-        .post<SeniorResumeResponse>(`/users/${userId}/resume/text`, { text })
-        .then((r) => r.data),
+      api.post(`/users/${userId}/resume/text`, { text }).then(parseResponse),
     onSuccess: (data) => {
       qc.setQueryData(resumeQueryKey(userId), data)
       toast.success(t`Текст прийнято, розпізнаємо резюме`)
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError,
   })
 }
 
@@ -225,16 +366,17 @@ export function useIngestResumeText(userId: string) {
 export function useDeleteResume(userId: string) {
   const qc = useQueryClient()
   const { t } = useLingui()
+  const onError = useResumeWriteError(userId)
   return useMutation({
     mutationKey: ['delete-senior-resume', userId],
     mutationFn: () =>
-      api.delete<SeniorResumeResponse>(`/users/${userId}/resume`).then((r) => r.data),
+      api.delete(`/users/${userId}/resume`).then(parseResponse),
     onSuccess: (data) => {
       qc.setQueryData(resumeQueryKey(userId), data)
       qc.removeQueries({ queryKey: ['senior-resume-source', userId] })
       toast.success(t`Резюме видалено`)
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError,
   })
 }
 

@@ -269,7 +269,7 @@ export function completenessProblem(pr, entries) {
       issues.push(`listed ${pr.commits.length} commits, the PR reports ${want.commits}`)
   }
   return issues.length
-    ? `Completeness — could not read the whole PR (${issues.join('; ')}). Split the PR, or re-run the check (push, body edit or label); a skip line cannot cover a PR that was not read.`
+    ? `Completeness — could not read the whole PR (${issues.join('; ')}). Split the PR, or re-run the check (any PR event re-runs it, a comment included); a skip line cannot cover a PR that was not read.`
     : null
 }
 
@@ -1000,7 +1000,7 @@ export function render(result, pr) {
   }
   lines.push(
     '',
-    'Re-runs on push, label changes and PR-body edits. After a review lands, re-run it with a body edit or a label change.',
+    'Re-runs by itself on push, label change, body edit, reopen and ready-for-review, and after a comment, review or review comment by OWNER / MEMBER / COLLABORATOR; other activity does not re-run it. If it has not re-run a few minutes after your last event, edit the PR body or toggle a label (GitHub will not re-run a run older than 30 days or one re-run 50 times).',
   )
   return lines.join('\n') + '\n'
 }

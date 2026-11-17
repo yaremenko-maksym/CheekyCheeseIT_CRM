@@ -17,15 +17,7 @@
  * applied by `assertAccess` at the top of EVERY method — read, write, source
  * download and PDF alike.
  */
-import {
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  PayloadTooLargeException,
-  UnsupportedMediaTypeException,
-} from '@nestjs/common'
+import { HttpStatus, Injectable, Logger } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
 import { and, asc, eq, lt, sql } from 'drizzle-orm'
 import {
@@ -33,11 +25,18 @@ import {
   EMPTY_RESUME_CONTENT,
   RESUME_LIMITS,
   RESUME_SOURCE_MAX_BYTES,
+  encodeResumeMessage,
   normalizeResumeLayout,
   resumeContentSchema,
+  resumeFactsSchema,
+  type ConfirmResumeInput,
+  type EditStagedFieldInput,
+  type RegenerateStagedFieldInput,
   type ResumeContent,
+  type ResumeFacts,
   type ResumeFailureCode,
   type ResumeLayoutOptions,
+  type ResumeTemplateName,
   type SeniorResumeDto,
   type SeniorResumeResponse,
   type SessionUser,
@@ -45,11 +44,23 @@ import {
 import { DatabaseService } from '../database/database.service'
 import { seniorResumes, type SeniorResume, type User } from '../database/schema'
 import { S3Service, presignTtlForCategory } from '../documents/s3.service'
+import { isS3NoSuchKey } from '../documents/s3-not-found.util'
 import { ResumeAiService } from './resume-ai.service'
-import { canAccessResume, type ResumeAccessMode } from './resume-access'
+import { canAccessResume, canConfirmResume, type ResumeAccessMode } from './resume-access'
+import { apiError } from '../common/api-error'
+import {
+  ResumeVerificationService,
+  draftReset,
+  draftWriteGuard,
+  isVerificationBusy,
+  notVerificationBusy,
+} from './verification/resume-verification.service'
+import { contentToFacts } from './verification/derive-content'
+import { stagedPdfPrefix } from './verification/run-columns'
 import {
   ResumeRenderError,
   ResumeTypstService,
+  resolveTemplateName,
   type ResumeRenderInput,
 } from './resume-typst.service'
 import {
@@ -69,6 +80,14 @@ const DELETE_RACE_ATTEMPTS = 3
 /** A RUNNING row older than this was abandoned (process died) — AC3 sweep. */
 export const STUCK_EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000
 
+/** Whose resume it is — both fields are printed at the top of the PDF. */
+type ResumeOwner = Pick<User, 'displayName' | 'email'>
+
+/** The 403 of every denied resume request. */
+export const noAccess = () => apiError('RESUME_NO_ACCESS', HttpStatus.FORBIDDEN)
+/** The 404 of a resume (or its PDF) that does not exist — one wording for every endpoint. */
+const noResume = () => apiError('RESUME_NOT_CREATED', HttpStatus.NOT_FOUND)
+
 /**
  * A render left RUNNING longer than this was abandoned.
  *
@@ -77,6 +96,13 @@ export const STUCK_EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000
  * PROCESS that owned it is gone, not that it is slow.
  */
 export const STUCK_RENDER_TIMEOUT_MS = 2 * 60 * 1000
+
+/** Every rendered PDF of one resume row lives under this prefix (`<prefix><fp16>.pdf`). */
+const renderedPdfPrefix = (userId: string, resumeId: string): string =>
+  `senior-resumes/${userId}/pdf/${resumeId}-`
+
+/** The stored `pdf_render_error` of a failed upload: says nothing about the render input. */
+const RENDER_STORAGE_FAILED = encodeResumeMessage('RESUME_RENDER_STORAGE_FAILED')
 
 export interface ResumeSourceFile {
   buffer: Buffer
@@ -101,6 +127,7 @@ export class SeniorResumesService {
     private readonly ai: ResumeAiService,
     private readonly extraction: ResumeTextExtractionService,
     private readonly typst: ResumeTypstService,
+    private readonly verification: ResumeVerificationService,
   ) {}
 
   // ==========================================================================
@@ -122,13 +149,13 @@ export class SeniorResumesService {
     mode: ResumeAccessMode,
   ): Promise<User> {
     if (!canAccessResume(viewer, targetUserId, mode)) {
-      throw new ForbiddenException('Нет доступа к резюме этого пользователя')
+      throw noAccess()
     }
     const target = await this.db.db.query.users.findFirst({
       where: (tbl, { eq: equals }) => equals(tbl.id, targetUserId),
     })
-    if (!target) throw new NotFoundException('Пользователь не найден')
-    if (target.role !== 'SENIOR') throw new NotFoundException('Резюме ведётся только для синьоров')
+    if (!target) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
+    if (target.role !== 'SENIOR') throw apiError('RESUME_SENIOR_ONLY', HttpStatus.NOT_FOUND)
     return target as User
   }
 
@@ -146,7 +173,7 @@ export class SeniorResumesService {
     await this.assertAccess(viewer, targetUserId, 'read')
     const row = await this.findRow(targetUserId)
     if (!row) {
-      return { resume: null, canEdit: canAccessResume(viewer, targetUserId, 'write') }
+      return this.emptyResponse(viewer, targetUserId)
     }
     return this.toResponse(row, viewer)
   }
@@ -158,7 +185,7 @@ export class SeniorResumesService {
   ): Promise<ResumeSourceDownload> {
     await this.assertAccess(viewer, targetUserId, 'read')
     const row = await this.findRow(targetUserId)
-    if (!row?.sourceS3Key) throw new NotFoundException('Исходный файл резюме не загружен')
+    if (!row?.sourceS3Key) throw apiError('RESUME_SOURCE_MISSING', HttpStatus.NOT_FOUND)
 
     const fileName = row.sourceFileName ?? 'resume'
     const { url, expiresAt } = await this.s3.getPresignedDownloadUrl(
@@ -197,24 +224,63 @@ export class SeniorResumesService {
   > {
     const target = await this.assertAccess(viewer, targetUserId, 'read')
     const row = await this.findRow(targetUserId)
-    if (!row) throw new NotFoundException('Резюме ещё не создано')
+    if (!row) throw noResume()
 
-    const wanted = this.typst.fingerprint(this.renderInputFor(row, target.displayName))
-    if (row.pdfS3Key && row.pdfFingerprint === wanted) {
-      return {
-        ready: true,
-        pdfBuffer: await this.s3.getObject(row.pdfS3Key),
-        displayName: target.displayName,
-      }
+    const wanted = this.typst.fingerprint(this.renderInputFor(row, target))
+    // A Typst failure records the failed input's fingerprint and clears pdfS3Key; a row failed
+    // before that change may still hold the OLDER key, so a matching fingerprint does not vouch for
+    // it. A storage failure records nothing about the input: its fingerprint and key belong together.
+    const inputFailed =
+      row.pdfRenderStatus === 'FAILED' && row.pdfRenderError !== RENDER_STORAGE_FAILED
+    if (row.pdfS3Key && row.pdfFingerprint === wanted && !inputFailed) {
+      const pdfBuffer = await this.s3.getObject(row.pdfS3Key).catch((error: unknown) => {
+        if (isS3NoSuchKey(error)) return null
+        throw error
+      })
+      if (pdfBuffer) return { ready: true, pdfBuffer, displayName: target.displayName }
+      // Backlog 447: the row says ready but the object is gone, so it is re-rendered below. A
+      // queued render, or one running and younger than the stuck-render cutoff, is left alone:
+      // re-queuing disowns it on every poll.
+      if (row.pdfRenderStatus === 'QUEUED') return { ready: false, status: 'QUEUED', message: null }
+      if (this.renderIsFresh(row)) return { ready: false, status: 'RUNNING', message: null }
     }
 
-    if (row.pdfRenderStatus === 'FAILED' && row.pdfFingerprint === wanted) {
+    if (inputFailed && row.pdfFingerprint === wanted) {
       return { ready: false, status: 'FAILED', message: row.pdfRenderError }
     }
 
     // Stale or never built — make sure something is working on it.
-    await this.enqueueRender(row.id, target.displayName)
+    await this.enqueueRender(row.id, target)
     return { ready: false, status: 'QUEUED', message: null }
+  }
+
+  /** RUNNING and started within STUCK_RENDER_TIMEOUT_MS; one not yet started has no age (NULL). */
+  private renderIsFresh(row: SeniorResume): boolean {
+    return (
+      row.pdfRenderStatus === 'RUNNING' &&
+      row.pdfRenderStartedAt !== null &&
+      row.pdfRenderStartedAt.getTime() >= Date.now() - STUCK_RENDER_TIMEOUT_MS
+    )
+  }
+
+  /**
+   * GET staged-pdf: the check run's PDF awaiting Confirm, streamed from storage. No read access and
+   * no staged PDF both answer the live PDF endpoint's 404, so a denied viewer learns nothing.
+   */
+  async getStagedPdf(
+    viewer: SessionUser,
+    targetUserId: string,
+  ): Promise<{ pdfBuffer: Buffer; displayName: string }> {
+    if (!canAccessResume(viewer, targetUserId, 'read')) throw noResume()
+    const target = await this.assertAccess(viewer, targetUserId, 'read')
+    const row = await this.findRow(targetUserId)
+    if (!row?.stagedPdfS3Key) throw noResume()
+    const pdfBuffer = await this.s3.getObject(row.stagedPdfS3Key).catch((error: unknown) => {
+      // A key whose object is gone (cleanup raced the read) is a missing file, not a server fault.
+      if (isS3NoSuchKey(error)) throw apiError('DOCUMENT_NOT_FOUND', HttpStatus.NOT_FOUND)
+      throw error
+    })
+    return { pdfBuffer, displayName: target.displayName }
   }
 
   // ==========================================================================
@@ -240,12 +306,11 @@ export class SeniorResumesService {
       .update(seniorResumes)
       .set({
         content: validated,
-        // Incremented IN SQL, not read-modify-write. `existing.version` was
-        // read in a separate statement, so two concurrent saves both computed
-        // the same next value and one increment vanished — and `version` is
-        // exactly the signal task-resume-tailoring reads to notice a stale
-        // base, so a lost increment silently marks a stale variant as current.
-        version: sql`${seniorResumes.version} + 1`,
+        // Status rule: a content write resets to DRAFT. `draftReset` bumps
+        // `version` IN SQL, not read-modify-write: two concurrent saves that
+        // computed the next value from a separate read would lose an increment,
+        // and `version` is what task-resume-tailoring reads to notice a stale base.
+        ...draftReset(),
         status: 'READY',
         errorCode: null,
         errorMessage: null,
@@ -258,13 +323,14 @@ export class SeniorResumesService {
         updatedByUserId: viewer.id,
         updatedAt: new Date(),
       })
-      .where(eq(seniorResumes.id, existing.id))
+      .where(draftWriteGuard(existing))
       .returning()
 
-    if (!updated) throw new NotFoundException('Резюме не найдено')
+    if (!updated) return this.verification.resolveMiss(existing.id)
+    await this.verification.deleteStagedObject(existing.stagedPdfS3Key)
     // The data changed, so the PDF is stale. Queued, never rendered here: the
     // save must not wait on a typesetter (task §2, "рендер вне пути запроса").
-    await this.enqueueRender(updated.id, target.displayName)
+    await this.enqueueRender(updated.id, target)
     return this.toResponse(updated, viewer)
   }
 
@@ -279,11 +345,12 @@ export class SeniorResumesService {
   ): Promise<SeniorResumeResponse> {
     await this.assertAccess(viewer, targetUserId, 'write')
 
-    if (file.buffer.length === 0) throw new UnsupportedMediaTypeException('Файл пустой')
+    if (file.buffer.length === 0)
+      throw apiError('RESUME_FILE_EMPTY', HttpStatus.UNSUPPORTED_MEDIA_TYPE)
     if (file.buffer.length > RESUME_SOURCE_MAX_BYTES) {
-      throw new PayloadTooLargeException(
-        `Файл больше ${Math.floor(RESUME_SOURCE_MAX_BYTES / 1024 / 1024)} MB`,
-      )
+      throw apiError('RESUME_FILE_TOO_LARGE', HttpStatus.PAYLOAD_TOO_LARGE, {
+        mb: Math.floor(RESUME_SOURCE_MAX_BYTES / 1024 / 1024),
+      })
     }
 
     // AC2 — the ONLY thing that decides the type is the content. The
@@ -291,12 +358,12 @@ export class SeniorResumesService {
     // controlled and are deliberately not consulted.
     const detected = detectResumeSourceMime(file.buffer)
     if (detected === null) {
-      throw new UnsupportedMediaTypeException(
-        'Поддерживаются только PDF и DOCX. Содержимое файла не соответствует ни одному из этих форматов.',
-      )
+      throw apiError('RESUME_FILE_UNSUPPORTED', HttpStatus.UNSUPPORTED_MEDIA_TYPE)
     }
 
     const row = await this.ensureRow(targetUserId)
+    // P5: refuse at the start, before paying for the upload; the WHERE below re-checks.
+    if (isVerificationBusy(row)) throw apiError('RESUME_VERIFICATION_BUSY', HttpStatus.CONFLICT)
     const key = `senior-resumes/${targetUserId}/${row.id}-${Date.now()}`
     await this.s3.upload(key, file.buffer, detected, 'RESUME')
 
@@ -321,13 +388,27 @@ export class SeniorResumesService {
         updatedByUserId: viewer.id,
         updatedAt: new Date(),
       })
-      .where(eq(seniorResumes.id, row.id))
+      .where(and(eq(seniorResumes.id, row.id), notVerificationBusy()))
       .returning()
-    if (!queued) throw new NotFoundException('Резюме не найдено')
+    if (!queued) {
+      // Nothing points at the object we just stored. A failed delete leaves an
+      // orphan to log, never a 500 in place of the 409.
+      try {
+        await this.s3.delete(key)
+      } catch {
+        this.logger.warn(`Unreferenced resume source not deleted: ${key}`)
+      }
+      return this.verification.resolveMiss(row.id)
+    }
 
-    // Replacing the source must not leave the previous object orphaned in R2.
+    // Replacing the source must not leave the previous object orphaned in R2. The new source is
+    // already committed: a failed delete leaves an orphan to log, never a 500 for a stored upload.
     if (previousKey && previousKey !== key) {
-      await this.s3.delete(previousKey)
+      try {
+        await this.s3.delete(previousKey)
+      } catch {
+        this.logger.warn(`Superseded resume source not deleted: ${previousKey}`)
+      }
     }
 
     this.startExtraction(row.id, () => this.extraction.extract(file.buffer, detected))
@@ -360,9 +441,9 @@ export class SeniorResumesService {
         updatedByUserId: viewer.id,
         updatedAt: new Date(),
       })
-      .where(eq(seniorResumes.id, row.id))
+      .where(and(eq(seniorResumes.id, row.id), notVerificationBusy()))
       .returning()
-    if (!queued) throw new NotFoundException('Резюме не найдено')
+    if (!queued) return this.verification.resolveMiss(row.id)
 
     this.startExtraction(row.id, () => Promise.resolve(text))
     return this.toResponse(queued, viewer)
@@ -386,8 +467,12 @@ export class SeniorResumesService {
    * are using it. Read key, delete object, delete row — and an upload landing in
    * that window replaces `source_s3_key`, so we erase the old object and then
    * drop the row that pointed at the NEW one. The user is told "deleted" while
-   * their raw resume stays in the bucket, unreferenced and unreachable: nothing
-   * sweeps the `senior-resumes/` prefix, so it would sit there for good.
+   * their raw resume stays in the bucket, unreferenced and unreachable until the
+   * orphan sweep's 24 h grace runs out.
+   *
+   * Once the row is gone, every PDF under the row's own prefixes goes too: a Typst
+   * failure clears the key of the older PDF and a superseded render leaves its
+   * upload, so the bucket can hold copies the row no longer cites.
    *
    * So the row is only removed while its key still matches the object we just
    * erased (`source_s3_key IS NOT DISTINCT FROM <what we deleted>` — NULL-safe,
@@ -404,9 +489,11 @@ export class SeniorResumesService {
     for (let attempt = 0; attempt < DELETE_RACE_ATTEMPTS; attempt += 1) {
       const row = await this.findRow(targetUserId)
       if (!row) {
-        if (attempt === 0) throw new NotFoundException('Резюме ещё не создано')
+        if (attempt === 0) throw noResume()
         break // a racing writer removed it first — the end state is the same
       }
+      // CD-4: a run owning the row would upload a staged PDF no row points at any more.
+      if (isVerificationBusy(row)) throw apiError('RESUME_VERIFICATION_BUSY', HttpStatus.CONFLICT)
 
       const key = row.sourceS3Key
       // BOTH stored objects go: the uploaded original AND the rendered PDF.
@@ -414,8 +501,11 @@ export class SeniorResumesService {
       // personal data — a delete that erased only the source would leave a
       // full CV in the bucket while telling the user it was gone.
       const pdfKey = row.pdfS3Key
+      // P5: the staged PDF is a third copy (it carries the real name).
+      const stagedKey = row.stagedPdfS3Key
       if (key) await this.s3.delete(key)
       if (pdfKey) await this.s3.delete(pdfKey)
+      if (stagedKey) await this.s3.delete(stagedKey)
 
       const removed = await this.db.db
         .delete(seniorResumes)
@@ -429,13 +519,16 @@ export class SeniorResumesService {
             // change rewrites one and not the other), so the guard has to cover
             // it too — otherwise a render landing mid-delete orphans its PDF.
             sql`${seniorResumes.pdfS3Key} IS NOT DISTINCT FROM ${pdfKey}`,
+            sql`${seniorResumes.stagedPdfS3Key} IS NOT DISTINCT FROM ${stagedKey}`,
           ),
         )
         .returning({ id: seniorResumes.id })
 
       if (removed.length > 0) {
+        await this.deleteUnder(row.id, renderedPdfPrefix(row.userId, row.id))
+        await this.deleteUnder(row.id, stagedPdfPrefix(row.id))
         this.logger.log(`Resume of ${targetUserId} deleted by ${viewer.id}`)
-        return { resume: null, canEdit: canAccessResume(viewer, targetUserId, 'write') }
+        return this.emptyResponse(viewer, targetUserId)
       }
 
       // The row changed between the read and the delete — almost certainly a
@@ -445,9 +538,26 @@ export class SeniorResumesService {
       )
     }
 
-    throw new ConflictException(
-      'Резюме изменяется прямо сейчас — повторите удаление через несколько секунд.',
-    )
+    throw apiError('RESUME_DELETE_BUSY', HttpStatus.CONFLICT)
+  }
+
+  /**
+   * Delete every object under `prefix`. A failure is logged and swallowed, like `s3.delete`:
+   * the row is already gone, and the orphan sweep takes what is left.
+   */
+  private async deleteUnder(resumeId: string, prefix: string): Promise<void> {
+    try {
+      let token: string | undefined
+      do {
+        const page = await this.s3.listObjects(token, prefix)
+        for (const { key } of page.objects) await this.s3.delete(key)
+        token = page.nextContinuationToken
+      } while (token)
+    } catch (err: unknown) {
+      this.logger.warn(
+        `Resume ${resumeId}: could not list ${prefix} for deletion: ${err instanceof Error ? err.message : 'unknown'}`,
+      )
+    }
   }
 
   // ==========================================================================
@@ -502,12 +612,7 @@ export class SeniorResumesService {
     }
 
     if (text.trim().length < RESUME_LIMITS.minExtractableChars) {
-      await this.failExtraction(
-        resumeId,
-        runId,
-        'NO_TEXT',
-        'Из файла не удалось извлечь текст (вероятно, это скан или картинка). Вставьте текст резюме вручную.',
-      )
+      await this.failExtraction(resumeId, runId, 'NO_TEXT', encodeResumeMessage('RESUME_NO_TEXT'))
       return
     }
 
@@ -533,10 +638,34 @@ export class SeniorResumesService {
       return
     }
 
+    // Spec §4 step 2: the upload fills the FACTS, never the dynamic fields, so
+    // `content` (and with it the PDF) stays as it was. The facts are validated
+    // like a PUT facts body: a parsed period outside the schema range fails the run.
+    const facts = resumeFactsSchema.safeParse(contentToFacts(result.content))
+    if (!facts.success) {
+      this.logger.warn(`Resume ${resumeId}: extracted facts failed validation — not stored`)
+      await this.failExtraction(
+        resumeId,
+        runId,
+        'MODEL_INVALID_JSON',
+        encodeResumeMessage('RESUME_AI_VALUES_OUT_OF_RANGE'),
+        null,
+        result.tokensUsed,
+      )
+      return
+    }
+
+    const [current] = await this.db.db
+      .select({ id: seniorResumes.id, stagedPdfS3Key: seniorResumes.stagedPdfS3Key })
+      .from(seniorResumes)
+      .where(eq(seniorResumes.id, resumeId))
+      .limit(1)
+    if (!current) return
     const written = await this.db.db
       .update(seniorResumes)
       .set({
-        content: result.content,
+        facts: facts.data,
+        ...draftReset(),
         status: 'READY',
         errorCode: null,
         errorMessage: null,
@@ -544,15 +673,11 @@ export class SeniorResumesService {
         extractionStartedAt: null,
         extractionRunId: null,
         lastExtractionTokens: result.tokensUsed,
-        // The extraction REPLACES the content, so it is a content change like
-        // any other and must move `version` — that field is what
-        // task-resume-tailoring reads to notice a stale base, and a silent
-        // content swap underneath a stable version is exactly the case it
-        // would miss.
-        version: sql`${seniorResumes.version} + 1`,
+        // `draftReset` bumps `version`: the facts changed, and a stable version
+        // under changed facts is exactly what task-resume-tailoring would miss.
         updatedAt: new Date(),
       })
-      .where(this.ownedByRun(resumeId, runId))
+      .where(and(this.ownedByRun(resumeId, runId), draftWriteGuard(current)))
       .returning({ id: seniorResumes.id })
 
     if (written.length === 0) {
@@ -561,10 +686,7 @@ export class SeniorResumesService {
       )
       return
     }
-
-    // Extraction REPLACED the content, so the PDF that matched the old content
-    // is stale. Same detached queue as a manual save.
-    await this.enqueueRender(resumeId)
+    await this.verification.deleteStagedObject(current.stagedPdfS3Key)
   }
 
   /**
@@ -690,8 +812,7 @@ export class SeniorResumesService {
       .set({
         status: 'FAILED',
         errorCode: 'STALLED',
-        errorMessage:
-          'Распознавание прервалось (перезапуск сервиса). Загрузите файл ещё раз или заполните резюме вручную.',
+        errorMessage: encodeResumeMessage('RESUME_EXTRACTION_STALLED_FILE'),
         extractionStartedAt: null,
         extractionRunId: null,
         updatedAt: now,
@@ -731,7 +852,7 @@ export class SeniorResumesService {
           row.id,
           row.updatedAt,
           'STALLED',
-          'Распознавание прервалось (перезапуск сервиса). Вставьте текст резюме ещё раз или заполните форму вручную.',
+          encodeResumeMessage('RESUME_EXTRACTION_STALLED_TEXT'),
         )
         handled += 1
         continue
@@ -739,7 +860,8 @@ export class SeniorResumesService {
       await this.runExtraction(row.id, async () => {
         const buffer = await this.s3.getObject(key)
         const detected = detectResumeSourceMime(buffer)
-        if (detected === null) throw new ResumeFileUnreadableError('Исходный файл повреждён')
+        if (detected === null)
+          throw new ResumeFileUnreadableError(encodeResumeMessage('RESUME_SOURCE_CORRUPT'))
         return this.extraction.extract(buffer, detected)
       })
       handled += 1
@@ -759,11 +881,13 @@ export class SeniorResumesService {
    * would eventually disagree about some field, and the fingerprint would stop
    * meaning "these bytes are current" without anything failing loudly.
    */
-  private renderInputFor(row: SeniorResume, displayName: string): ResumeRenderInput {
+  private renderInputFor(row: SeniorResume, owner: ResumeOwner): ResumeRenderInput {
     return {
-      displayName,
+      displayName: owner.displayName,
+      email: owner.email,
       content: this.safeContent(row.content),
       layout: this.safeLayout(row.layout),
+      templateName: resolveTemplateName(row.templateName),
       templateSource: row.templateSource,
     }
   }
@@ -776,7 +900,7 @@ export class SeniorResumesService {
    * clears the run token, so a render already in flight is disowned rather than
    * cancelled — it finishes, finds the token gone, and drops its bytes.
    */
-  private async enqueueRender(resumeId: string, displayName?: string): Promise<void> {
+  private async enqueueRender(resumeId: string, owner?: ResumeOwner): Promise<void> {
     await this.db.db
       .update(seniorResumes)
       .set({
@@ -787,7 +911,7 @@ export class SeniorResumesService {
       })
       .where(eq(seniorResumes.id, resumeId))
 
-    void this.runRender(resumeId, displayName).catch((err: unknown) => {
+    void this.runRender(resumeId, owner).catch((err: unknown) => {
       this.logger.error(
         `Detached resume render crashed for ${resumeId}: ${err instanceof Error ? err.message : 'unknown'}`,
       )
@@ -803,7 +927,7 @@ export class SeniorResumesService {
    * already be two saves old, and writing its key would advertise a stale PDF
    * as the current one.
    */
-  async runRender(resumeId: string, displayName?: string): Promise<void> {
+  async runRender(resumeId: string, owner?: ResumeOwner): Promise<void> {
     const runId = randomUUID()
     const claimed = await this.db.db
       .update(seniorResumes)
@@ -821,8 +945,7 @@ export class SeniorResumesService {
     const row = claimed[0]
     if (!row) return // someone else owns this render
 
-    const name = displayName ?? (await this.displayNameFor(row.userId))
-    const input = this.renderInputFor(row, name)
+    const input = this.renderInputFor(row, owner ?? (await this.ownerFor(row.userId)))
     const fingerprint = this.typst.fingerprint(input)
 
     let pdf: Buffer
@@ -835,9 +958,7 @@ export class SeniorResumesService {
       })
     } catch (err: unknown) {
       const message =
-        err instanceof ResumeRenderError
-          ? err.message
-          : 'Не удалось собрать PDF резюме. Попробуйте позже.'
+        err instanceof ResumeRenderError ? err.message : encodeResumeMessage('RESUME_RENDER_FAILED')
       this.logger.warn(`Resume ${resumeId}: render failed — ${message}`)
       // Recorded so a repeated request for the SAME input reports the
       // failure instead of queuing a render that will fail identically — a
@@ -847,7 +968,7 @@ export class SeniorResumesService {
       return
     }
 
-    const key = `senior-resumes/${row.userId}/pdf/${row.id}-${fingerprint.slice(0, 16)}.pdf`
+    const key = `${renderedPdfPrefix(row.userId, row.id)}${fingerprint.slice(0, 16)}.pdf`
     try {
       await this.s3.upload(key, pdf, 'application/pdf', 'RESUME')
     } catch (err: unknown) {
@@ -871,7 +992,7 @@ export class SeniorResumesService {
       // marked "this content is doomed". Recovery is the same motion as a
       // render failure — the next explicit save re-renders and re-uploads
       // from scratch.
-      const message = 'PDF собрался, но не сохранился в хранилище. Попробуйте позже.'
+      const message = RENDER_STORAGE_FAILED
       this.logger.warn(
         `Resume ${resumeId}: PDF upload failed — ${err instanceof Error ? err.message : 'unknown'}`,
       )
@@ -893,11 +1014,21 @@ export class SeniorResumesService {
       .returning({ id: seniorResumes.id })
 
     if (written.length === 0) {
-      // Superseded mid-render. The row now points elsewhere, so this object is
-      // unreferenced the moment it is written — erase it rather than leave a
-      // PDF of someone's CV in the bucket that no code path can reach.
-      this.logger.log(`Resume ${resumeId}: render superseded — discarding ${key}`)
-      await this.s3.delete(key)
+      // Superseded mid-render. While the row exists the upload is not deleted here: a newer run of
+      // the SAME input writes this very key and may land it at any moment, so a delete could erase
+      // the live PDF; the orphan sweep (24 h grace, re-checked before each delete) takes it. A row
+      // deleted mid-render has no newer run, and its delete has already listed its prefix.
+      // Stryker disable next-line ObjectLiteral: the unit double holds one row, so dropping the id filter is unobservable there; the filter is the row's own primary key
+      const current = await this.db.db.query.seniorResumes.findFirst({
+        where: eq(seniorResumes.id, resumeId),
+        // Stryker disable next-line ObjectLiteral,BooleanLiteral: only "row or no row" is read, so which columns are projected is unobservable
+        columns: { id: true },
+      })
+      if (!current) {
+        await this.s3.delete(key)
+        return
+      }
+      this.logger.log(`Resume ${resumeId}: render superseded — leaving ${key} to the orphan sweep`)
       return
     }
 
@@ -960,7 +1091,10 @@ export class SeniorResumesService {
         pdfRenderError: message,
         pdfRenderStartedAt: null,
         pdfRenderRunId: null,
-        ...(fingerprint === undefined ? {} : { pdfFingerprint: fingerprint }),
+        // The key is cleared with it: the older PDF is not of this input, and a row citing it
+        // beside the new fingerprint would serve it once the row leaves FAILED. The orphan sweep
+        // removes the object.
+        ...(fingerprint === undefined ? {} : { pdfFingerprint: fingerprint, pdfS3Key: null }),
       })
       .where(this.ownedByRenderRun(resumeId, runId))
   }
@@ -1015,31 +1149,121 @@ export class SeniorResumesService {
   ): Promise<SeniorResumeResponse> {
     const target = await this.assertAccess(viewer, targetUserId, 'write')
     const existing = await this.ensureRow(targetUserId)
+    const updated = await this.verification.setLayout(existing, layout, viewer.id)
+    return this.afterLookWrite(updated, target, viewer)
+  }
 
-    const [updated] = await this.db.db
-      .update(seniorResumes)
-      .set({
-        layout: normalizeResumeLayout(layout),
-        // In SQL, for the same reason as `updateContent` — a layout change and
-        // a content save racing each other must produce two increments, not one.
-        version: sql`${seniorResumes.version} + 1`,
-        updatedByUserId: viewer.id,
-        updatedAt: new Date(),
-      })
-      .where(eq(seniorResumes.id, existing.id))
-      .returning()
-    if (!updated) throw new NotFoundException('Резюме не найдено')
+  /** PUT facts — RBAC here, the status rule in the verification service. */
+  async saveFacts(
+    viewer: SessionUser,
+    targetUserId: string,
+    facts: ResumeFacts,
+  ): Promise<SeniorResumeResponse> {
+    // Stryker disable next-line StringLiteral: equivalent — any mode but 'read' refuses a SENIOR, and ADMIN/HR ignore it
+    await this.assertAccess(viewer, targetUserId, 'write')
+    const existing = await this.ensureRow(targetUserId)
+    // Facts are not render input: the live PDF stays current.
+    return this.toResponse(await this.verification.saveFacts(existing, facts, viewer.id), viewer)
+  }
 
-    await this.enqueueRender(updated.id, target.displayName)
+  /** POST submit — queue the check run; the owner's name and Telegram feed the completeness check. */
+  async submit(viewer: SessionUser, targetUserId: string): Promise<SeniorResumeResponse> {
+    // Stryker disable next-line StringLiteral: equivalent — any mode but 'read' refuses a SENIOR, and ADMIN/HR ignore it
+    const target = await this.assertAccess(viewer, targetUserId, 'write')
+    const existing = await this.ensureRow(targetUserId)
+    return this.toResponse(
+      await this.verification.submit(existing, target.displayName, viewer.id, target.telegram),
+      viewer,
+    )
+  }
+
+  /**
+   * POST confirm — ADMIN/HR only (spec Q-C: a senior cannot verify their own resume). The
+   * fingerprint of the promoted render input is taken here, where the render input is built (P11).
+   */
+  async confirm(
+    viewer: SessionUser,
+    targetUserId: string,
+    input: ConfirmResumeInput,
+  ): Promise<SeniorResumeResponse> {
+    if (!canConfirmResume(viewer)) throw noAccess()
+    // Stryker disable next-line StringLiteral: equivalent — any mode but 'read' refuses a SENIOR, and ADMIN/HR ignore it
+    const target = await this.assertAccess(viewer, targetUserId, 'write')
+    const existing = await this.existingRow(targetUserId)
+    const promoted: SeniorResume = {
+      ...existing,
+      content: existing.stagedContent ?? existing.content,
+      layout: existing.stagedLayout ?? existing.layout,
+      templateName: existing.stagedTemplateName ?? existing.templateName,
+    }
+    const fingerprint = this.typst.fingerprint(this.renderInputFor(promoted, target))
+    return this.toResponse(
+      await this.verification.confirm(existing, input, viewer.id, fingerprint, target),
+      viewer,
+    )
+  }
+
+  /** PUT staged — one staged text rewritten by a person, then a staged-edit run (write rule). */
+  async editStagedField(
+    viewer: SessionUser,
+    targetUserId: string,
+    input: EditStagedFieldInput,
+  ): Promise<SeniorResumeResponse> {
+    // Stryker disable next-line StringLiteral: equivalent — any mode but 'read' refuses a SENIOR, and ADMIN/HR ignore it
+    await this.assertAccess(viewer, targetUserId, 'write')
+    const existing = await this.existingRow(targetUserId)
+    return this.toResponse(
+      await this.verification.editStagedField(existing, input, viewer.id),
+      viewer,
+    )
+  }
+
+  /** POST staged/regenerate — an item run for one staged path (write rule). */
+  async regenerateStagedField(
+    viewer: SessionUser,
+    targetUserId: string,
+    input: RegenerateStagedFieldInput,
+  ): Promise<SeniorResumeResponse> {
+    // Stryker disable next-line StringLiteral: equivalent — any mode but 'read' refuses a SENIOR, and ADMIN/HR ignore it
+    await this.assertAccess(viewer, targetUserId, 'write')
+    const existing = await this.existingRow(targetUserId)
+    return this.toResponse(await this.verification.regenerateStagedField(existing, input), viewer)
+  }
+
+  /** PUT template — same status rule as a layout write. */
+  async setTemplate(
+    viewer: SessionUser,
+    targetUserId: string,
+    name: ResumeTemplateName,
+  ): Promise<SeniorResumeResponse> {
+    // Stryker disable next-line StringLiteral: equivalent — any mode but 'read' refuses a SENIOR, and ADMIN/HR ignore it
+    const target = await this.assertAccess(viewer, targetUserId, 'write')
+    const existing = await this.ensureRow(targetUserId)
+    const updated = await this.verification.setTemplate(existing, name, viewer.id)
+    return this.afterLookWrite(updated, target, viewer)
+  }
+
+  /** A VERIFIED row kept its live look (a template run started): nothing to render. */
+  private async afterLookWrite(
+    updated: SeniorResume,
+    target: ResumeOwner,
+    viewer: SessionUser,
+  ): Promise<SeniorResumeResponse> {
+    if (updated.verificationStatus !== 'VERIFIED') await this.enqueueRender(updated.id, target)
     return this.toResponse(updated, viewer)
   }
 
-  private async displayNameFor(userId: string): Promise<string> {
+  /**
+   * The resume owner's name and email, both printed at the top of the PDF.
+   * Empty when the owner row is gone: the skeleton then titles the PDF
+   * `Resume` and prints no name (PDF content is English-only).
+   */
+  private async ownerFor(userId: string): Promise<ResumeOwner> {
     const user = await this.db.db.query.users.findFirst({
       where: (tbl, { eq: equals }) => equals(tbl.id, userId),
-      columns: { displayName: true },
+      columns: { displayName: true, email: true },
     })
-    return user?.displayName ?? 'Резюме'
+    return { displayName: user?.displayName ?? '', email: user?.email ?? '' }
   }
 
   // ==========================================================================
@@ -1050,6 +1274,13 @@ export class SeniorResumesService {
     return this.db.db.query.seniorResumes.findFirst({
       where: (tbl, { eq: equals }) => equals(tbl.userId, targetUserId),
     })
+  }
+
+  /** A write that needs a staged result: no row means nothing to confirm or edit (404). */
+  private async existingRow(targetUserId: string): Promise<SeniorResume> {
+    const row = await this.findRow(targetUserId)
+    if (!row) throw noResume()
+    return row
   }
 
   /**
@@ -1063,11 +1294,15 @@ export class SeniorResumesService {
 
     await this.db.db
       .insert(seniorResumes)
-      .values({ userId: targetUserId, content: EMPTY_RESUME_CONTENT })
+      .values({
+        userId: targetUserId,
+        content: EMPTY_RESUME_CONTENT,
+        templateName: await this.verification.templateForNewResume(targetUserId),
+      })
       .onConflictDoNothing({ target: seniorResumes.userId })
 
     const created = await this.findRow(targetUserId)
-    if (!created) throw new NotFoundException('Не удалось создать резюме')
+    if (!created) throw apiError('RESUME_CREATE_FAILED', HttpStatus.NOT_FOUND)
     return created
   }
 
@@ -1103,7 +1338,7 @@ export class SeniorResumesService {
         // A LABEL. `template_source` is never serialised: the template is code,
         // it stays server-side, and keeping it out of the DTO is what makes
         // "the template is not part of the data" true rather than intended.
-        templateName: row.templateName ?? 'Стандартный шаблон',
+        templateName: resolveTemplateName(row.templateName),
         hasCustomTemplate: row.templateSource !== null,
 
         renderStatus: row.pdfRenderStatus,
@@ -1115,10 +1350,20 @@ export class SeniorResumesService {
         pdfUpToDate:
           Boolean(row.pdfS3Key) &&
           row.pdfFingerprint ===
-            this.typst.fingerprint(this.renderInputFor(row, await this.displayNameFor(row.userId))),
+            this.typst.fingerprint(this.renderInputFor(row, await this.ownerFor(row.userId))),
+        ...(await this.verification.toDtoFields(row)),
       },
       // Server-computed, never echoed from the client.
       canEdit: canAccessResume(viewer, row.userId, 'write'),
+      canConfirm: canConfirmResume(viewer),
+    }
+  }
+
+  private emptyResponse(viewer: SessionUser, targetUserId: string): SeniorResumeResponse {
+    return {
+      resume: null,
+      canEdit: canAccessResume(viewer, targetUserId, 'write'),
+      canConfirm: canConfirmResume(viewer),
     }
   }
 
@@ -1150,19 +1395,16 @@ export class SeniorResumesService {
 /**
  * Turn a "could not get the text" throw into (code, message) SAFE TO DISPLAY.
  *
- * `errorMessage` is rendered verbatim in the resume panel, so only messages
- * this codebase wrote may reach it. `ResumeFileUnreadableError` carries exactly
- * those — Russian, user-facing, deliberately phrased ("в PDF больше 30
- * страниц"). Everything else is a storage client or a parser talking to itself:
+ * `errorMessage` reaches the resume panel, so only messages this codebase
+ * wrote may land there. `ResumeFileUnreadableError` carries exactly those — a
+ * resume error code encoded by `encodeResumeMessage` (backlog 443), which the
+ * web turns into the catalog line. Everything else is a storage client or a parser talking to itself:
  * bucket names, key paths, endpoint hosts, stack-shaped internals. Those are
  * logged, never shown.
  */
 function describeLoadFailure(err: unknown): [ResumeFailureCode, string] {
   if (err instanceof ResumeFileUnreadableError) return ['UNREADABLE_FILE', err.message]
-  return [
-    'MODEL_ERROR',
-    'Не удалось прочитать исходный файл резюме. Загрузите его ещё раз или вставьте текст.',
-  ]
+  return ['MODEL_ERROR', encodeResumeMessage('RESUME_SOURCE_LOAD_FAILED')]
 }
 
 /**

@@ -130,6 +130,43 @@ export async function dropRolesCreated(pool: Pool, created: readonly string[]): 
   }
 }
 
+/**
+ * A suite's role teardown: `dropRolesCreated`, then the roles it created that still exist.
+ *
+ * `DROP OWNED BY` cleans only the CURRENT database, and roles are cluster-global. When
+ * another database of the same cluster gained objects or grants that depend on a role
+ * while this suite ran, `DROP ROLE` refuses with SQLSTATE 2BP01. The suite cannot clean
+ * that database, so the role is left in place, the cause is logged, and the role is NOT
+ * reported as leaked. Any other error is rethrown. A created role that survives without a
+ * 2BP01 refusal is returned, and the caller fails its teardown on it.
+ *
+ * Roles go one at a time, so one refusal does not stop the others from being dropped.
+ * Only the `created` roles are checked. A deploy role that existed before the suite ran
+ * is not a leak.
+ */
+export async function dropRolesCreatedReportingLeaks(
+  pool: Pool,
+  created: readonly string[],
+): Promise<string[]> {
+  const keptForOtherDatabases = new Set<string>()
+  for (const role of created) {
+    try {
+      await dropRolesCreated(pool, [role])
+    } catch (error) {
+      const { code, detail } = error as { code?: string; detail?: string }
+      if (code !== '2BP01') throw error
+      // pg names the other database only in `detail` ("N objects in database X").
+      console.warn(
+        `[deploy-ddl-preconditions] left ${role} in place: a database other than this one still depends on it (2BP01)${detail ? `: ${detail}` : ''}`,
+      )
+      keptForOtherDatabases.add(role)
+    }
+  }
+  if (created.length === 0) return []
+  const existing = await existingDeployRoles(pool)
+  return existing.filter((role) => created.includes(role) && !keptForOtherDatabases.has(role))
+}
+
 /** Which of the deploy roles exist right now — for an assertion that none leaked. */
 export async function existingDeployRoles(pool: Pool): Promise<string[]> {
   const { rows } = await pool.query(

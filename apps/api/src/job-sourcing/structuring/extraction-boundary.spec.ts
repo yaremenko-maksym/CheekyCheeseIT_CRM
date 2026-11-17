@@ -53,6 +53,7 @@ describe('extraction boundary (5.4c-3)', () => {
       )
     expect(imports).toEqual([
       'job-sourcing/structuring/model-extraction-wiring.ts -> link-contract',
+      'resumes/verification/inference-clients.ts -> link-contract',
     ])
   })
 

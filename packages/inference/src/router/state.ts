@@ -146,7 +146,7 @@ function validEntries<T>(list: unknown[], schema: z.ZodType<T>): T[] {
 
 export const EMPTY_ROUTE_STATE: RouteState = { version: 1, spent: [], retired: [], providers: [] }
 
-/** The calendar day a provider's daily limits reset on: midnight Pacific for Gemini, UTC for Groq (§5.1). */
+/** The calendar day a provider's daily limits reset on: midnight Pacific for Gemini, UTC for Groq and Cloudflare (§5.1). */
 export function providerDay(p: HostedProvider, nowMs: number): string {
   const timeZone = p === 'gemini' ? 'America/Los_Angeles' : 'UTC'
   return new Intl.DateTimeFormat('en-CA', { timeZone }).format(nowMs)

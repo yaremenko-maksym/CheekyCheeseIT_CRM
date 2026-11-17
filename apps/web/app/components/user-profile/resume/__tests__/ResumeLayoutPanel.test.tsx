@@ -13,11 +13,12 @@ import {
   within,
   type RenderOptions,
 } from '@testing-library/react'
-import type { ReactElement } from 'react'
+import type { ComponentProps, ReactElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
   EMPTY_RESUME_CONTENT,
+  EMPTY_RESUME_FACTS,
   type ResumeLayoutOptions,
   type SeniorResumeDto,
 } from '@crm/shared'
@@ -60,6 +61,17 @@ const { ResumePdfPreview } = await import('../ResumePdfPreview')
  */
 const TEXT_INPUT_ROLE = 'textbox' as const
 
+/** The template picker's props, at rest: a DRAFT on the default template. */
+const PICKER_PROPS = {
+  templateName: 'classic',
+  hasCustomTemplate: false,
+  verified: false,
+  busy: false,
+  staged: false,
+  isSavingTemplate: false,
+  onTemplateChange: vi.fn(),
+} as const
+
 function renderPanel(overrides: Partial<ResumeLayoutOptions> = {}, canEdit = true) {
   const onSave = vi.fn()
   render(
@@ -68,6 +80,7 @@ function renderPanel(overrides: Partial<ResumeLayoutOptions> = {}, canEdit = tru
       canEdit={canEdit}
       isSaving={false}
       onSave={onSave}
+      {...PICKER_PROPS}
     />,
   )
   return { onSave }
@@ -294,6 +307,7 @@ describe('save button text follows isSaving, exactly', () => {
         canEdit={true}
         isSaving={true}
         onSave={vi.fn()}
+        {...PICKER_PROPS}
       />,
     )
     expect(screen.getByTestId('resume-layout-save')).toHaveTextContent('Зберігаємо…')
@@ -321,11 +335,21 @@ function dto(overrides: Partial<SeniorResumeDto> = {}): SeniorResumeDto {
     createdAt: '2026-08-10T10:00:00.000Z',
     updatedAt: '2026-08-10T10:00:00.000Z',
     layout: DEFAULT_RESUME_LAYOUT,
-    templateName: 'Стандартный шаблон',
+    templateName: 'classic',
     hasCustomTemplate: false,
     renderStatus: 'READY',
     renderError: null,
     pdfUpToDate: true,
+    facts: EMPTY_RESUME_FACTS,
+    verificationStatus: 'DRAFT',
+    verificationErrorCode: null,
+    verificationReport: null,
+    verifiedVersion: null,
+    verifiedAt: null,
+    verifiedByName: null,
+    recheckNeededAt: null,
+    staged: null,
+    verificationBusy: false,
     ...overrides,
   }
 }
@@ -405,6 +429,53 @@ describe('ResumePdfPreview', () => {
     expect(screen.queryByTestId('resume-pdf-pending')).not.toBeInTheDocument()
   })
 
+  it('shows a coded render error as the catalog line, params filled (backlog 443)', () => {
+    render(
+      <ResumePdfPreview
+        resume={dto({
+          renderStatus: 'FAILED',
+          pdfUpToDate: false,
+          renderError: '{"code":"RESUME_RENDER_TIMEOUT","params":{"seconds":20}}',
+        })}
+        pdfUrl="/api/users/u1/resume/pdf"
+      />,
+    )
+    expect(screen.getByTestId('resume-pdf-failed')).toHaveTextContent(
+      'Не вдалося зібрати PDF: верстка не вклалася в 20 с.',
+    )
+    expect(screen.getByTestId('resume-pdf-failed')).not.toHaveTextContent('RESUME_RENDER_TIMEOUT')
+  })
+
+  it('a coded render error this build cannot render shows the details-unavailable line (QA-LOW-2/3, QA-LOW-6)', () => {
+    const { rerender } = render(
+      <ResumePdfPreview
+        resume={dto({
+          renderStatus: 'FAILED',
+          pdfUpToDate: false,
+          renderError: '{"code":"RESUME_RENDER_TIMEOUT"}',
+        })}
+        pdfUrl="/api/users/u1/resume/pdf"
+      />,
+    )
+    expect(screen.getByTestId('resume-pdf-failed')).toHaveTextContent(
+      'Подробиці цієї помилки недоступні.',
+    )
+
+    rerender(
+      <ResumePdfPreview
+        resume={dto({
+          renderStatus: 'FAILED',
+          pdfUpToDate: false,
+          renderError: '{"code":"RESUME_RENDER_FAILED"}',
+        })}
+        pdfUrl="/api/users/u1/resume/pdf"
+      />,
+    )
+    expect(screen.getByTestId('resume-pdf-failed')).toHaveTextContent(
+      'Не вдалося зібрати PDF резюме. Спробуйте пізніше.',
+    )
+  })
+
   /**
    * `filename` feeds the shared `PdfPreview`'s `title`/`aria-label`
    * (`Попередній перегляд: ${filename}`) — the ONLY place `resume` / `Резюме —
@@ -432,5 +503,112 @@ describe('ResumePdfPreview', () => {
     )
     const frame = await screen.findByTitle('Попередній перегляд: Резюме — Іван Іваненко.pdf')
     expect(frame).toBeInTheDocument()
+  })
+})
+
+describe('review fixes 3', () => {
+  const panel = (props: Partial<ComponentProps<typeof ResumeLayoutPanel>> = {}) => (
+    <ResumeLayoutPanel
+      layout={DEFAULT_RESUME_LAYOUT}
+      canEdit={true}
+      isSaving={false}
+      onSave={vi.fn()}
+      {...PICKER_PROPS}
+      {...props}
+    />
+  )
+
+  it('the draft follows a server layout change', () => {
+    const { rerender } = render(panel())
+    // A local edit, then the server answers a different layout (a failed run kept the old one).
+    fireEvent.click(screen.getByTestId('resume-layout-toggle-summary'))
+    expect(screen.getByTestId('resume-layout-save')).toBeEnabled()
+    rerender(panel({ layout: { ...DEFAULT_RESUME_LAYOUT, hiddenSections: ['links'] } }))
+    expect(screen.getByTestId('resume-layout-toggle-links')).toHaveAccessibleName(
+      'Показати «Посилання»',
+    )
+    expect(screen.getByTestId('resume-layout-toggle-summary')).toHaveAccessibleName(
+      'Приховати «Про себе»',
+    )
+    expect(screen.getByTestId('resume-layout-save')).toBeDisabled()
+  })
+
+  it('the staged warning also covers a layout change', () => {
+    render(panel({ staged: true }))
+    const warning = screen.getByTestId('resume-template-discards-staged')
+    expect(warning).toHaveTextContent(
+      'Зміна шаблону чи оформлення скасує результат цієї перевірки.',
+    )
+    // One line for the whole panel, not inside the picker.
+    expect(screen.getByTestId('resume-template-picker')).not.toContainElement(warning)
+    expect(screen.getByTestId('resume-layout-panel')).toContainElement(warning)
+  })
+
+  it('no staged warning while busy or for a viewer who cannot edit', () => {
+    const { rerender } = render(panel({ staged: true, busy: true }))
+    expect(screen.queryByTestId('resume-template-discards-staged')).toBeNull()
+    rerender(panel({ staged: true, canEdit: false }))
+    expect(screen.queryByTestId('resume-template-discards-staged')).toBeNull()
+  })
+
+  it('a viewer who cannot edit sees neither the VERIFIED note nor the busy line', () => {
+    const { rerender } = render(panel({ canEdit: false, verified: true }))
+    expect(screen.queryByText(/Зміна оформлення запустить перевірку макета/)).toBeNull()
+    rerender(panel({ canEdit: false, verified: true, busy: true }))
+    expect(screen.queryByTestId('resume-layout-busy')).toBeNull()
+    // Control: an editor does see them.
+    rerender(panel({ verified: true }))
+    expect(screen.getByText(/Зміна оформлення запустить перевірку макета/)).toBeInTheDocument()
+  })
+
+  it('a template write locks Apply but keeps its label', () => {
+    render(panel({ isSavingTemplate: true }))
+    expect(screen.getByTestId('resume-layout-save')).toHaveTextContent('Застосувати')
+    expect(screen.getByTestId('resume-layout-reset')).toBeDisabled()
+    expect(screen.getByTestId('resume-layout-toggle-summary')).toBeDisabled()
+  })
+
+  it('F-14: Reset, Apply and segmented options have h-11 sm:h-9 for 44px mobile touch targets', () => {
+    render(panel())
+    expect(screen.getByTestId('resume-layout-reset')).toHaveClass('h-11', 'sm:h-9')
+    expect(screen.getByTestId('resume-layout-save')).toHaveClass('h-11', 'sm:h-9')
+    expect(screen.getByTestId('resume-layout-density-compact')).toHaveClass('h-11', 'sm:h-9')
+    expect(screen.getByTestId('resume-layout-font-scale-normal')).toHaveClass('h-11', 'sm:h-9')
+  })
+})
+
+describe('row moves and the header divider', () => {
+  const order = DEFAULT_RESUME_LAYOUT.sectionOrder
+  const first = order[0]!
+  const middle = order[1]!
+  const last = order[order.length - 1]!
+  const button = (dir: 'up' | 'down', key: string) =>
+    screen.getByTestId(`resume-layout-${dir}-${key}`)
+
+  it('only the first row cannot move up, only the last cannot move down', () => {
+    renderPanel()
+    expect(button('up', first)).toBeDisabled()
+    expect(button('down', first)).toBeEnabled()
+    expect(button('up', middle)).toBeEnabled()
+    expect(button('down', middle)).toBeEnabled()
+    expect(button('up', last)).toBeEnabled()
+    expect(button('down', last)).toBeDisabled()
+  })
+
+  it('an editor gets a divider under the picker; a viewer, who has no picker, does not', () => {
+    const { unmount } = render(
+      <ResumeLayoutPanel
+        layout={DEFAULT_RESUME_LAYOUT}
+        canEdit
+        isSaving={false}
+        onSave={vi.fn()}
+        {...PICKER_PROPS}
+      />,
+    )
+    expect(screen.getByTestId('resume-layout-header')).toHaveClass('mt-5', 'border-t', 'pt-5')
+    unmount()
+    renderPanel({}, false)
+    expect(screen.getByTestId('resume-layout-header')).not.toHaveClass('mt-5')
+    expect(screen.getByTestId('resume-layout-header')).not.toHaveClass('border-t')
   })
 })

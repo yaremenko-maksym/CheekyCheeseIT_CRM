@@ -57,7 +57,7 @@ function fakePort(
     onEvent: () => undefined,
     async extract<T>(req: ExtractionRequest<T>): Promise<ExtractionResult<T>> {
       fake.calls.push(req as ExtractionRequest<unknown>)
-      fake.onEvent({ type: 'CALL', code: 'OK', floorAnswered: false, latencyMs: 5 })
+      fake.onEvent({ type: 'CALL', code: 'OK', latencyMs: 5 })
       const r = answer
         ? await answer(req as ExtractionRequest<unknown>)
         : { ok: true as const, data: OK_REPLY, usage: { totalTokens: 7 } }
@@ -254,20 +254,8 @@ describe('extraction worker — the request is the worker’s own', () => {
     expect(req.input).toBe(`page ${INPUT_MARKER}`)
     expect(req.instruction).toBe(EXTRACTION_SYSTEM_PROMPT)
     expect(req.schema).toBe(modelReplySchema)
-    expect(req.smallDose?.groups.map((g) => g.name)).toEqual([
-      'identity',
-      'place',
-      'terms',
-      'description',
-    ])
     expect(req.signal).toBeInstanceOf(AbortSignal)
-    expect(Object.keys(req).sort()).toEqual([
-      'input',
-      'instruction',
-      'schema',
-      'signal',
-      'smallDose',
-    ])
+    expect(Object.keys(req).sort()).toEqual(['input', 'instruction', 'schema', 'signal'])
   })
 
   it('replies with the answer, usage, the call’s events and clear health flags', async () => {
@@ -281,24 +269,22 @@ describe('extraction worker — the request is the worker’s own', () => {
     })
     expect(res.json()).toEqual({
       result: { ok: true, data: OK_REPLY, usage: { totalTokens: 7 } },
-      events: [{ type: 'CALL', code: 'OK', floorAnswered: false, latencyMs: 5 }],
+      events: [{ type: 'CALL', code: 'OK', latencyMs: 5 }],
       health: { modelListStale: false, failedJobs: [] },
     })
-    expect(logs).toEqual([
-      { event: 'ROUTER', type: 'CALL', code: 'OK', floorAnswered: false, latencyMs: 5 },
-    ])
+    expect(logs).toEqual([{ event: 'ROUTER', type: 'CALL', code: 'OK', latencyMs: 5 }])
   })
 
   it('a router event outside any call is logged, not lost and not thrown', async () => {
     const { app, extract, logs } = await setup()
     track(app)
-    const late = { type: 'CALL', code: 'OK', floorAnswered: false, latencyMs: 1 } as const
+    const late = { type: 'CALL', code: 'OK', latencyMs: 1 } as const
     expect(() => extract.onEvent(late)).not.toThrow()
     expect(logs).toEqual([{ event: 'ROUTER', ...late }])
   })
 
-  it('passes a failure code and its usage through', async () => {
-    const extract = fakePort(async () => ({ ok: false, code: 'TIMEOUT', usage: { localMs: 9 } }))
+  it('passes a failure code through', async () => {
+    const extract = fakePort(async () => ({ ok: false, code: 'TIMEOUT' }))
     const { app } = await setup({ extract })
     track(app)
     const res = await app.inject({
@@ -307,7 +293,7 @@ describe('extraction worker — the request is the worker’s own', () => {
       headers: auth,
       payload: body(),
     })
-    expect(res.json().result).toEqual({ ok: false, code: 'TIMEOUT', usage: { localMs: 9 } })
+    expect(res.json().result).toEqual({ ok: false, code: 'TIMEOUT' })
   })
 
   it('events of one call do not leak into another', async () => {
@@ -404,7 +390,7 @@ describe('extraction worker — preflight', () => {
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({
       ok: true,
-      events: [{ type: 'CALL', code: 'OK', floorAnswered: false, latencyMs: 5 }],
+      events: [{ type: 'CALL', code: 'OK', latencyMs: 5 }],
       health: { modelListStale: false, failedJobs: [] },
     })
     expect(extract.calls).toHaveLength(0)
@@ -412,7 +398,7 @@ describe('extraction worker — preflight', () => {
     const req = preflight.calls[0]!
     expect(req.input).toBe('Reply with the JSON object {"ok": true} and nothing else.')
     expect(req.instruction).toBe('You are a health check. Answer exactly as asked.')
-    expect(req.smallDose).toBeUndefined()
+    expect(Object.keys(req).sort()).toEqual(['input', 'instruction', 'schema', 'signal'])
     expect(req.schema.safeParse({ ok: true }).success).toBe(true)
     expect(req.schema.safeParse({ ok: true, x: 1 }).success).toBe(false)
   })
@@ -458,23 +444,18 @@ const EVERY_EVENT: Record<RouterEvent['type'], RouterEvent> = {
     type: 'ATTEMPT',
     route: 'groq',
     model: 'openai/gpt-oss-20b',
-    code: 'RATE_LIMITED',
+    code: 'BUSY',
     inputChars: 120,
     latencyMs: 40,
     status: 429,
   },
   RETIRED: { type: 'RETIRED', route: 'gemini', model: 'gemini-2.0-flash' },
   PROVIDER_DISABLED: { type: 'PROVIDER_DISABLED', route: 'groq', code: 'AUTH' },
-  FELL_TO_LOCAL: {
-    type: 'FELL_TO_LOCAL',
-    plan: 'full-then-small',
-    reasons: [{ route: 'groq', code: 'RATE_LIMITED' }],
-  },
-  CALL: { type: 'CALL', code: 'OK', floorAnswered: true, latencyMs: 90 },
+  CALL: { type: 'CALL', code: 'OK', latencyMs: 90 },
 }
 
 describe('extraction worker — the mandatory event sink (ADR §5.3)', () => {
-  it('every router event kind reaches the log and the reply; FELL_TO_LOCAL is not swallowed', async () => {
+  it('every router event kind reaches the log and the reply', async () => {
     const events = Object.values(EVERY_EVENT)
     const extract = fakePort(async () => {
       for (const e of events) extract.onEvent(e)
@@ -493,7 +474,6 @@ describe('extraction worker — the mandatory event sink (ADR §5.3)', () => {
       expect(replied).toContainEqual(e)
       expect(logs).toContainEqual({ event: 'ROUTER', ...e })
     }
-    expect(replied.map((e) => e.type)).toContain('FELL_TO_LOCAL')
   })
 })
 

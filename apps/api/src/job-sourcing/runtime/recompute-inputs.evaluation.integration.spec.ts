@@ -169,13 +169,13 @@ describe.skipIf(!hasDatabaseUrl())('installMatches: the evaluation record (SR-M-
       return rows[0]?.evaluated_inputs_version as string | null
     }
     await installMatches(db, o, 5, open, empty)
-    // opportunityInputsVersion of no studio keyword at rule version 'eval.1+l1.1+rf.1'.
-    expect(await inputs()).toBe('f790107665e925d6184be224a6f29cf7')
+    // opportunityInputsVersion of no studio keyword at rule version 'eval.1+l1.1+rf.2'.
+    expect(await inputs()).toBe('15448b9ad280193b0540103bfb609f6f')
     await installMatches(db, o, 4, open, { ...empty, exclusions: [studioPhp] })
-    expect(await inputs()).toBe('f790107665e925d6184be224a6f29cf7')
+    expect(await inputs()).toBe('15448b9ad280193b0540103bfb609f6f')
     await installMatches(db, o, 5, open, { ...empty, exclusions: [studioPhp] })
     // ...and of the keyword 'php'.
-    expect(await inputs()).toBe('0084349d198f553e703a4845aa55b3bc')
+    expect(await inputs()).toBe('b2b289254b1bcf82a89f7284015ef800')
   })
 
   it('the record carries the role family of either verdict; UNKNOWN is stored as NULL', async () => {

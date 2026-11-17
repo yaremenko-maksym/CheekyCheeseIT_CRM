@@ -15,11 +15,15 @@ import { JOOBLE_SOURCE_STATUS } from './sources/jooble.provider'
 import { JSEARCH_SOURCE_STATUS } from './sources/jsearch.provider'
 import { MUSE_SOURCE_STATUS } from './sources/muse.provider'
 import {
+  ASHBY_OWNER_DECISION,
+  DJINNI_OWNER_DECISION,
   HN_OWNER_DECISION,
   JOBGETHER_OWNER_DECISION,
+  MUSE_OWNER_DECISION,
   REMOTIVE_OWNER_DECISION,
   SMARTRECRUITERS_OWNER_DECISION,
   WORKABLE_OWNER_DECISION,
+  WORKINGNOMADS_OWNER_DECISION,
 } from './owner-decisions'
 import { LEVER_HOSTS } from './sources/lever.provider'
 import { RECRUITEE_TOKEN_DEADLINE } from './sources/recruitee.provider'
@@ -72,6 +76,11 @@ const JSEARCH_ACCOUNT: QuotaDeclaration = {
   limit: 200,
   limitSource:
     'the plan figure recorded in the vacancy-matching task (JSearch allows 200 requests a MONTH); NOT confirmed against a provider response, because no key is provisioned',
+  seedMeter: {
+    window: 'MONTH',
+    limit: 150,
+    source: `an A1 default of 2026-11-17 (PR #1372), not an owner figure: 150 of the 200-request free plan, a hard limit`,
+  },
 }
 const JOOBLE_ACCOUNT: QuotaDeclaration = {
   account: 'jooble:api-main',
@@ -79,6 +88,11 @@ const JOOBLE_ACCOUNT: QuotaDeclaration = {
   window: null,
   limit: null,
   limitSource: 'unpublished: "usage limits [are] set per key" (jooble provenance notes)',
+  seedMeter: {
+    window: 'DAY',
+    limit: 50,
+    source: `an A1 default of 2026-11-17 (PR #1372), not an owner figure: the provider publishes no limit, so 50 requests a day`,
+  },
 }
 const REED_ACCOUNT: QuotaDeclaration = {
   account: 'reed:api-main',
@@ -86,6 +100,11 @@ const REED_ACCOUNT: QuotaDeclaration = {
   window: null,
   limit: null,
   limitSource: 'unpublished: the developer page gives no rate limit (reed provenance notes)',
+  seedMeter: {
+    window: 'DAY',
+    limit: 50,
+    source: `an A1 default of 2026-11-17 (PR #1372), not an owner figure: the provider publishes no limit, so 50 requests a day`,
+  },
 }
 const THEIRSTACK_ACCOUNT: QuotaDeclaration = {
   account: 'theirstack:api-main',
@@ -94,6 +113,12 @@ const THEIRSTACK_ACCOUNT: QuotaDeclaration = {
   limit: null,
   limitSource:
     'unpublished: one API credit per job returned is documented, the plan allowance is not (theirstack provenance notes)',
+  // Within FREE_PLAN_METERS (job-run-worker): RECORD / MONTH, at most 200.
+  seedMeter: {
+    window: 'MONTH',
+    limit: 150,
+    source: `an A1 default of 2026-11-17 (PR #1372), not an owner figure: 150 of the 200-record free plan`,
+  },
 }
 
 // ---------------------------------------------------------------------------
@@ -295,6 +320,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     disposition: REPORTING,
     fixtureDir: 'workingnomads',
     status: { symbol: 'WORKINGNOMADS_SOURCE_STATUS', value: WORKINGNOMADS_SOURCE_STATUS },
+    ownerDecisions: [WORKINGNOMADS_OWNER_DECISION],
     auth: 'NONE',
     attribution: 'NONE_RECORDED',
     endpointVariant: 'exposed-jobs',
@@ -316,8 +342,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'PAGED_FEED',
     hostKey: () => 'jobgether.com',
     requestsPerRun: 5,
-    // Owner, Q8: connected at the very end; never scheduled until then.
-    fetchProfile: null,
+    // Owner, Q8: connected last (U12). Once a day, the slowest cadence any API type has.
+    fetchProfile: DAILY,
     entries: [fresh('jobgether.api.jobs', {})],
   },
   {
@@ -333,8 +359,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'THREAD',
     hostKey: () => 'hn.algolia.com',
     requestsPerRun: 2,
-    // Owner, Q8: connected at the very end; never scheduled until then.
-    fetchProfile: null,
+    // Owner, Q8: connected last (U12). The thread is monthly, so once a day is enough.
+    fetchProfile: DAILY,
     entries: [legacy('hn-hiring.thread.latest', {})],
   },
   {
@@ -384,6 +410,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     provider: 'Ashby',
     disposition: REPORTING,
     fixtureDir: 'ashby',
+    ownerDecisions: [ASHBY_OWNER_DECISION],
     auth: 'NONE',
     attribution: 'NONE_RECORDED',
     endpointVariant: 'posting-api',
@@ -567,6 +594,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     disposition: REPORTING,
     fixtureDir: 'muse',
     status: { symbol: 'MUSE_SOURCE_STATUS', value: MUSE_SOURCE_STATUS },
+    ownerDecisions: [MUSE_OWNER_DECISION],
     auth: 'NONE',
     attribution: 'LINK_BACK_REQUIRED',
     endpointVariant: 'public-jobs',
@@ -608,6 +636,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     provider: 'Djinni',
     disposition: REPORTING,
     fixtureDir: 'djinni',
+    ownerDecisions: [DJINNI_OWNER_DECISION],
     auth: 'NONE',
     attribution: 'NONE_RECORDED',
     endpointVariant: 'rss-primary-keyword',
@@ -635,7 +664,7 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     disposition: REPORTING,
     fixtureDir: 'wwr',
     auth: 'NONE',
-    attribution: 'NONE_RECORDED',
+    attribution: 'LINK_BACK_REQUIRED',
     endpointVariant: 'rss',
     scopeKind: 'FEED_WINDOW',
     hostKey: () => 'weworkremotely.com',

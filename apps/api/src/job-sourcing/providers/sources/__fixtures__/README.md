@@ -10,10 +10,13 @@ Bytes a server sent. `httpStatus` is the real status, `rawSha256` is the hash of
 received (it differs from `fileSha256`, because the committed file was trimmed by a parser), and
 `trimmedBy` names the script.
 
-## A unit example (`doc-example.json`) - NOT a capture
+## A unit example - NOT a capture
 
-Written by hand from documentation, because no key is provisioned and none may be (jooble, jsearch,
-theirstack, reed). It is for unit tests only and proves nothing about a provider's real response.
+Written by hand from documentation, when no key is provisioned. It is for unit tests only and proves
+nothing about a provider's real response. None is committed today: the keyed sources (jooble,
+jsearch, theirstack, reed) hold the captures of the owner's controlled smoke of 2026-11-16, trimmed
+by `trim-keyed-captures.mjs`; the manifest specs build a sentinel in a temporary copy when they need
+one.
 A manifest reader must treat all of these as the marker, in this order of strength:
 
 1. `fetchedAt` and `termsCheckedAt` are **`1970-01-01T00:00:00.000Z`**: nothing was fetched and no

@@ -6,9 +6,18 @@ import { z } from 'zod'
 import { stripContacts } from '../job-sourcing/structuring/contact-strip'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
-import { smallDoseFor } from '../job-sourcing/structuring/small-dose-table'
 import { EXTRACTION_TABLE_VERSION } from './link-contract'
-import { extractBodySchema, healthFlags, preflightBodySchema } from './schema'
+import { resumeWriteInput, writeResume } from './resume-write'
+import {
+  MAX_WORKER_INPUT_CHARS,
+  extractBodySchema,
+  healthFlags,
+  preflightBodySchema,
+  resumeWriteBodySchema,
+  VISUAL_CHECK_BODY_LIMIT,
+  visualCheckBodySchema,
+} from './schema'
+import { checkVisual } from './visual-check'
 
 /** The one fixed preflight request: the caller sends nothing, so nothing of its can reach a route. */
 const PREFLIGHT_INPUT = 'Reply with the JSON object {"ok": true} and nothing else.'
@@ -36,9 +45,10 @@ export type ExtractionWorkerOptions = {
 const digest = (value: string) => createHash('sha256').update(value).digest()
 
 /**
- * The extraction worker (ADR §2.4): the only process that holds provider keys. It answers two
- * routes, builds every request itself from the checked-in extraction module, and takes from the
- * caller nothing but the input text and the table version.
+ * The extraction worker (ADR §2.4): the only process that holds provider keys. It answers four
+ * routes and builds every request itself from checked-in prompts and schemas: `/extract` takes the
+ * input text and the table version, `/preflight` takes nothing, `/resume-write` takes the task, the
+ * caller-redacted facts payload and the gate feedback lines, `/visual-check` takes rendered pages.
  */
 export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyInstance {
   const tableVersion = opts.tableVersion ?? EXTRACTION_TABLE_VERSION
@@ -116,11 +126,49 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
         input: stripped.text,
         instruction: EXTRACTION_SYSTEM_PROMPT,
         schema: modelReplySchema,
-        smallDose: smallDoseFor(),
         signal,
       }),
     )
     return { result, events, health: healthFlags(opts.routeState.snapshot()) }
+  })
+
+  // The caller redacts every field before it builds `payload` (R16); the worker logs no text of it.
+  app.post('/resume-write', async (req, reply) => {
+    const body = resumeWriteBodySchema.safeParse(req.body)
+    // The port cuts a longer input without a word, so an input over the cap is refused, not cut.
+    if (
+      !body.success ||
+      resumeWriteInput(body.data.payload, body.data.feedback).length > MAX_WORKER_INPUT_CHARS
+    ) {
+      return refuse(reply, 400, 'BAD_REQUEST')
+    }
+    const { task, payload, feedback } = body.data
+    // Stryker disable next-line ArrayDeclaration: equivalent — this reply carries no events, so the list is never read
+    const result = await call(reply, [], (signal) => writeResume(ports.extract, body.data, signal))
+    opts.log({
+      event: 'RESUME_WRITE',
+      task,
+      payloadChars: payload.length,
+      feedbackCount: feedback.length,
+      outcome: result.kind === 'ok' ? 'OK' : result.reason,
+    })
+    return result
+  })
+
+  // Pages arrive rendered from the placeholder copy (R18); no image byte, prompt or model text is logged.
+  app.post('/visual-check', { bodyLimit: VISUAL_CHECK_BODY_LIMIT }, async (req, reply) => {
+    const body = visualCheckBodySchema.safeParse(req.body)
+    if (!body.success) return refuse(reply, 400, 'BAD_REQUEST')
+    const { pages } = body.data
+    // Stryker disable next-line ArrayDeclaration: equivalent — this reply carries no events, so the list is never read
+    const result = await call(reply, [], (signal) => checkVisual(ports.extract, pages, signal))
+    opts.log({
+      event: 'VISUAL_CHECK',
+      pages: pages.length,
+      findings: result.kind === 'ok' ? result.findings.length : 0,
+      outcome: result.kind === 'ok' ? 'OK' : result.reason,
+    })
+    return result
   })
 
   app.post('/preflight', async (req, reply) => {

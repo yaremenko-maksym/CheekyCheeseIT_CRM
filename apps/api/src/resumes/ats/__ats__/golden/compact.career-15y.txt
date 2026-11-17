@@ -1,0 +1,56 @@
+Arden Kowal
+arden.kowal@example.com
+Summary
+Engineer with fifteen years across logistics, payments and health tech.
+Skills
+TypeScript · PostgreSQL · Docker
+Experience
+Principal Engineer Feb 2024 – Present
+Lumen Freight Systems
+• Owned the Lumen Freight Systems order pipeline
+• Mentored two engineers
+Staff Engineer Aug 2022 – Jan 2024
+Quarry Lane Software
+• Owned the Quarry Lane Software order pipeline
+• Mentored two engineers
+Engineering Lead Feb 2021 – Jul 2022
+Bramble Analytics
+• Owned the Bramble Analytics order pipeline
+• Mentored two engineers
+Senior Backend Engineer Aug 2019 – Jan 2021
+Tidewater Payments
+• Owned the Tidewater Payments order pipeline
+• Mentored two engineers
+Senior Software Engineer Feb 2018 – Jul 2019
+Copperleaf Health Tech
+• Owned the Copperleaf Health Tech order pipeline
+• Mentored two engineers
+Software Engineer Aug 2016 – Jan 2018
+Orchid Learning
+• Owned the Orchid Learning order pipeline
+• Mentored two engineers
+Software Engineer Feb 2015 – Jul 2016
+Granite Peak Logistics
+• Owned the Granite Peak Logistics order pipeline
+• Mentored two engineers
+Junior Software Engineer Aug 2013 – Jan 2015
+Saffron Retail Labs
+• Owned the Saffron Retail Labs order pipeline
+• Mentored two engineers
+Junior Developer Feb 2012 – Jul 2013
+Willowmere Media
+• Owned the Willowmere Media order pipeline
+• Mentored two engineers
+Intern Developer Aug 2010 – Jan 2012
+Ironbark Studio
+• Owned the Ironbark Studio order pipeline
+• Mentored two engineers
+Education
+Northbridge Technical University
+BSc Computer Science
+2008 – 2012
+Languages
+English — C1 · German — B1
+
+Links
+GitHub

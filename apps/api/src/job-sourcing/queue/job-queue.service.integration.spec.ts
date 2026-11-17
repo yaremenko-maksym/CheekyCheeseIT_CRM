@@ -22,9 +22,11 @@ import {
   opportunityInputsVersion,
   type SeniorVersions,
 } from '../runtime/recompute-inputs'
+import { findPgError } from '../../database/pg-errors'
 import { JobQueueService } from './job-queue.service'
+import { JobQueueActionsService } from './queue-actions.service'
 import { parseCursor, signCursor } from './queue-cursor'
-import { purgeExpiredGenerations } from './queue-generation'
+import { invalidateGenerationsForNewJobs, purgeExpiredGenerations } from './queue-generation'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -200,6 +202,12 @@ const evaluated = async (opp: string, verdict: 'OPEN' | 'EXCLUDED') => {
     [id(opp), verdict, opportunityInputsVersion(exclusions)],
   )
 }
+/** A verified employer needs a key (`ck_job_opportunities_verified_has_key`); its own id is unique. */
+const verifyEmployer = (opp: string) =>
+  sqlq(
+    `UPDATE job_opportunities SET employer_verified = TRUE, employer_key = id::text WHERE id = $1`,
+    [id(opp)],
+  )
 const grant = (opp: string, team: string) =>
   sqlq(
     `INSERT INTO job_opportunity_team_triage
@@ -579,6 +587,23 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       expect(raw).not.toContain(id('senB'))
     })
 
+    it('senior availability (§5.2): null when never set, then follows each change', async () => {
+      const availabilityOfA = async () =>
+        seniorOn(await service.card(hrA(), id('oppShared')), 'senA')?.availability
+      expect(await availabilityOfA()).toBeNull()
+      await sqlq(
+        `INSERT INTO senior_availability (user_id, status, available_from) VALUES ($1, 'FREE', '2026-11-01')`,
+        [id('senA')],
+      )
+      expect(await availabilityOfA()).toEqual({ status: 'FREE', availableFrom: '2026-11-01' })
+      await sqlq(
+        `UPDATE senior_availability SET status = 'BUSY', available_from = NULL WHERE user_id = $1`,
+        [id('senA')],
+      )
+      expect(await availabilityOfA()).toEqual({ status: 'BUSY' })
+      await sqlq(`DELETE FROM senior_availability WHERE user_id = $1`, [id('senA')])
+    })
+
     it('the rank: a foreign senior score cannot move a row in this team', async () => {
       await mkOpp('oppRankLow', { firstSeen: '2020-01-02T00:00:00Z' })
       await lead('oppRankLow', 'senA', 10)
@@ -904,6 +929,57 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       )
     })
 
+    it('the post-run drain retires the snapshots: a fresh opportunity lists at once, without the TTL', async () => {
+      await service.list(hrA(), q())
+      await service.list(admin(), q())
+      const [teamBefore] = await publishedOf('teamA')
+      await mkOpp('oppDrained')
+      await lead('oppDrained', 'senA')
+      expect((await service.list(hrA(), q())).items.map((i) => i.opportunityId)).not.toContain(
+        id('oppDrained'),
+      )
+
+      // The drain's retire, as the API role (`crm_app`) the drain runs as.
+      expect(await invalidateGenerationsForNewJobs(session.databaseService.db)).toBeGreaterThan(0)
+      expect(await publishedOf('teamA')).toEqual([])
+
+      expect((await service.list(hrA(), q())).items.map((i) => i.opportunityId)).toContain(
+        id('oppDrained'),
+      )
+      expect((await service.list(admin(), q())).items.map((i) => i.opportunityId)).toContain(
+        id('oppDrained'),
+      )
+      const [teamAfter] = await publishedOf('teamA')
+      expect(teamAfter).toBeDefined()
+      expect(teamAfter).not.toBe(teamBefore)
+    })
+
+    it('PR #1366 CR-M-2/CR-M-3: a retire behind a held team publish lock times out (55P03) and retires nothing', async () => {
+      await service.list(hrA(), q())
+      const before = await publishedOf('teamA')
+      expect(before).toHaveLength(1)
+      const holder = await session.admin.connect()
+      try {
+        await holder.query('BEGIN')
+        // The key `lockScopePublish` builds in JS: the retire's SQL-built team key is the same lock,
+        // or it would not wait at all.
+        await holder.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [
+          `job-queue-generation:TEAM:${id('teamA')}`,
+        ])
+        const err: unknown = await invalidateGenerationsForNewJobs(session.databaseService.db, {
+          lockTimeoutMs: 200,
+        }).then(
+          () => null,
+          (e: unknown) => e,
+        )
+        expect(findPgError(err)?.['code']).toBe('55P03')
+        expect(await publishedOf('teamA')).toEqual(before)
+      } finally {
+        await holder.query('ROLLBACK')
+        holder.release()
+      }
+    })
+
     it('an expired head is never served: the first page republishes, a cursor must refresh', async () => {
       const paged = await service.list(hrA(), q({ limit: 1 }))
       expect(paged.nextCursor).not.toBeNull()
@@ -1188,6 +1264,220 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueService against Postgres (Task 6.2)'
       expect(await refusal(service.sources(big, id('oppBig'), { cursor: 'forged' }))).toEqual(
         MALFORMED,
       )
+    })
+  })
+
+  describe('Task 7.3b card fields: what the design reads, and what HR never gets', () => {
+    const hasKey = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k)
+
+    it('HR: a foreign submission on a duplicate names nobody foreign, and no senior carries a team', async () => {
+      await mkOpp('dup73Card', { employerKey: `${TAG}-co73b` })
+      await lead('dup73Card', 'senA')
+      await mkOpp('dup73Other', { employerKey: `${TAG}-co73b` })
+      await lead('dup73Other', 'senA')
+      await lead('dup73Other', 'senB')
+      await submit('dup73Other', 'senA', 'teamA', 'hrA')
+      await submit('dup73Other', 'senB', 'teamB', 'hrB')
+
+      const card = await service.card(hrA(), id('dup73Card'))
+      expect(jobQueueCardResponseSchema.safeParse(card).success).toBe(true)
+      const other = card.possibleDuplicates?.items.find((d) => d.opportunityId === id('dup73Other'))
+      expect(other?.submittedSeniorNames).toEqual([`${TAG} name senA`])
+      for (const s of card.seniors.items) expect(hasKey(s, 'team')).toBe(false)
+      const raw = JSON.stringify(card)
+      for (const foreign of [
+        id('teamB'),
+        `${TAG}-teamB`,
+        id('senB'),
+        `${TAG} name senB`,
+        id('hrB'),
+        `${TAG} name hrB`,
+        'teamId',
+        'teamName',
+      ]) {
+        expect(raw).not.toContain(foreign)
+      }
+
+      // STUDIO sees both submissions, so the HR assertion above is not vacuous.
+      const studio = await service.card(admin(), id('dup73Card'))
+      const both = studio.possibleDuplicates?.items.find(
+        (d) => d.opportunityId === id('dup73Other'),
+      )
+      expect(both?.submittedSeniorNames).toEqual([`${TAG} name senA`, `${TAG} name senB`])
+    })
+
+    it('ADMIN (STUDIO): each senior carries one team heading; HR on the same row gets none', async () => {
+      const studio = await service.card(admin(), id('oppShared'))
+      expect(seniorOn(studio, 'senA')?.team).toEqual({
+        teamId: id('teamA'),
+        teamName: `${TAG}-teamA`,
+      })
+      expect(seniorOn(studio, 'senB')?.team).toEqual({
+        teamId: id('teamB'),
+        teamName: `${TAG}-teamB`,
+      })
+      // A senior in two teams sits under one heading: the first in picker (name) order.
+      expect(seniorOn(studio, 'senShared')?.team).toEqual({
+        teamId: id('teamA'),
+        teamName: `${TAG}-teamA`,
+      })
+      const hr = await service.card(hrA(), id('oppShared'))
+      expect(hr.seniors.items.length).toBeGreaterThan(0)
+      for (const s of hr.seniors.items) expect(hasKey(s, 'team')).toBe(false)
+    })
+
+    it('match evidence, last seen and the stack come from the row the card reads', async () => {
+      await mkOpp('opp73Stack')
+      await lead('opp73Stack', 'senA', 50, 'Rust')
+      await sqlq(
+        `UPDATE job_opportunities SET last_observed_at = '2026-11-03T10:00:00Z',
+                stack_keywords = ARRAY['rust', 'go'] WHERE id = $1`,
+        [id('opp73Stack')],
+      )
+      const card = await service.card(hrA(), id('opp73Stack'))
+      expect(card.lastSeenAt).toBe('2026-11-03T10:00:00.000Z')
+      expect(card.stackKeywords).toEqual(['rust', 'go'])
+      expect(seniorOn(card, 'senA')?.matchEvidence).toEqual([{ keyword: 'Rust', strength: 'CORE' }])
+      expect(card.noMatchReason).toBeNull()
+    })
+
+    it('the engagement form is read from the primary source revision; none stated is null', async () => {
+      await mkOpp('opp73Form')
+      const { rows } = await sqlq(
+        `SELECT source_record_id FROM job_opportunity_sources WHERE opportunity_id = $1`,
+        [id('opp73Form')],
+      )
+      const rev = await sqlq(
+        `INSERT INTO job_source_record_revisions
+           (source_record_id, adapter_version, normalizer_version, content_hash, normalized, original_identity)
+         VALUES ($1, 'a', 'n', $2, $3::jsonb, '{}') RETURNING id`,
+        [rows[0].source_record_id, 'f'.repeat(64), JSON.stringify({ employmentType: 'B2B' })],
+      )
+      await sqlq(`UPDATE job_source_records SET latest_revision_id = $2 WHERE id = $1`, [
+        rows[0].source_record_id,
+        rev.rows[0].id,
+      ])
+      expect((await service.card(admin(), id('opp73Form'))).engagementForm).toBe('B2B')
+      // no revision on the source: the card states no form
+      expect((await service.card(admin(), id('oppExcluded'))).engagementForm).toBeNull()
+    })
+
+    it('no-match reason: an evaluated sourced card with no own row is a zero match (SPEC-H-1)', async () => {
+      await mkOpp('opp73Zero')
+      await evaluated('opp73Zero', 'OPEN')
+      await verifyEmployer('opp73Zero')
+      const zero = await service.card(admin(), id('opp73Zero'))
+      expect(zero).toMatchObject({ eligibility: 'TRIAGE', matchedSeniorCount: 0 })
+      expect(zero.noMatchReason).toBe('NO_MATCH')
+      // the same card, before any evaluation of its current revision, is still in triage
+      await sqlq(`UPDATE job_opportunities SET revision = revision + 1 WHERE id = $1`, [
+        id('opp73Zero'),
+      ])
+      expect((await service.card(admin(), id('opp73Zero'))).noMatchReason).toBe('TRIAGE')
+    })
+
+    it('no-match reason: a card excluded at its current revision is EXCLUDED, not NO_MATCH (CR2-M-1)', async () => {
+      await mkOpp('opp73Out')
+      await evaluated('opp73Out', 'EXCLUDED')
+      await verifyEmployer('opp73Out')
+      // every own senior has an EXCLUDED row: no LEAD, TRIAGE or stop-list count
+      await match('opp73Out', 'senA', 'EXCLUDED', { reasons: [] })
+      const out = await service.card(admin(), id('opp73Out'))
+      expect(out).toMatchObject({ eligibility: 'TRIAGE', matchedSeniorCount: 0 })
+      expect(out.noMatchReason).toBe('EXCLUDED')
+      // a new revision is not judged yet: triage, not the old exclusion
+      await sqlq(`UPDATE job_opportunities SET revision = revision + 1 WHERE id = $1`, [
+        id('opp73Out'),
+      ])
+      expect((await service.card(admin(), id('opp73Out'))).noMatchReason).toBe('TRIAGE')
+    })
+
+    it('no-match reason: a stop-listed card that is also EXCLUDED stays STOP_LISTED', async () => {
+      await mkOpp('opp73StopOut')
+      await evaluated('opp73StopOut', 'EXCLUDED')
+      await verifyEmployer('opp73StopOut')
+      await stopListed('opp73StopOut', 'senA')
+      const stop = await service.card(admin(), id('opp73StopOut'))
+      expect(stop).toMatchObject({ matchedSeniorCount: 0, stopListedSeniorCount: 1 })
+      expect(stop.noMatchReason).toBe('STOP_LISTED')
+    })
+
+    it('no-match reason: an own TRIAGE match row keeps a verified, evaluated card in triage', async () => {
+      await mkOpp('opp73Triage')
+      await grant('opp73Triage', 'teamA')
+      await evaluated('opp73Triage', 'OPEN')
+      await verifyEmployer('opp73Triage')
+      await match('opp73Triage', 'senA', 'TRIAGE', { reasons: [] })
+      expect((await service.card(hrA(), id('opp73Triage'))).noMatchReason).toBe('TRIAGE')
+      expect((await service.card(admin(), id('opp73Triage'))).noMatchReason).toBe('TRIAGE')
+    })
+
+    it('no-match reason: triage, stop-list and a manual card with no match are three answers', async () => {
+      // evaluated OPEN, but the employer is not verified: triage
+      expect((await service.card(hrA(), id('oppGrant'))).noMatchReason).toBe('TRIAGE')
+
+      await mkOpp('opp73Stop')
+      await grant('opp73Stop', 'teamA')
+      await evaluated('opp73Stop', 'OPEN')
+      await stopListed('opp73Stop', 'senA')
+      const stop = await service.card(hrA(), id('opp73Stop'))
+      expect(stop).toMatchObject({ matchedSeniorCount: 0, stopListedSeniorCount: 1 })
+      expect(stop.noMatchReason).toBe('STOP_LISTED')
+
+      await mkOpp('opp73Manual')
+      await sqlq(`UPDATE job_opportunities SET manual_team_id = $2 WHERE id = $1`, [
+        id('opp73Manual'),
+        id('teamA'),
+      ])
+      expect((await service.card(hrA(), id('opp73Manual'))).noMatchReason).toBe('NO_MATCH')
+    })
+
+    it('dismissal: hide, undo, reload, hide again with the version the card returns', async () => {
+      const actions = new JobQueueActionsService(
+        session.databaseService,
+        new JobQueueScopeService(),
+      )
+      await mkOpp('opp73Hide')
+      await lead('opp73Hide', 'senShared')
+      expect((await service.card(hrA(), id('opp73Hide'))).dismissal).toBeNull()
+
+      const body = { scope: 'TEAM' as const, idempotencyKey: randomUUID() }
+      await actions.dismiss(hrA(), id('opp73Hide'), { ...body, reason: 'NOT_RELEVANT' })
+      const hidden = await service.card(hrA(), id('opp73Hide'))
+      expect(hidden).toMatchObject({ hidden: true, dismissal: { scope: 'TEAM', version: 1 } })
+
+      await actions.undo(hrA(), id('opp73Hide'), {
+        scope: 'TEAM',
+        idempotencyKey: randomUUID(),
+        expectedVersion: hidden.dismissal?.version as number,
+      })
+      // The reload: the undone row still names its version, which the re-hide must send.
+      const undone = await service.card(hrA(), id('opp73Hide'))
+      expect(undone).toMatchObject({ hidden: false, dismissal: { scope: 'TEAM', version: 2 } })
+      const again = await actions.dismiss(hrA(), id('opp73Hide'), {
+        scope: 'TEAM',
+        reason: 'NOT_RELEVANT',
+        idempotencyKey: randomUUID(),
+        expectedVersion: undone.dismissal?.version as number,
+      })
+      expect(again).toMatchObject({ hidden: true, version: 3 })
+
+      // Team B's own dismissal of the same row never reaches team A, and vice versa.
+      await actions.dismiss(hrB(), id('opp73Hide'), {
+        scope: 'TEAM',
+        reason: 'SPAM',
+        idempotencyKey: randomUUID(),
+      })
+      expect((await service.card(hrA(), id('opp73Hide'))).dismissal).toEqual({
+        scope: 'TEAM',
+        version: 3,
+      })
+      expect((await service.card(hrB(), id('opp73Hide'))).dismissal).toEqual({
+        scope: 'TEAM',
+        version: 1,
+      })
+      // STUDIO has no dismissal of its own here: a team row is not a STUDIO row.
+      expect((await service.card(admin(), id('opp73Hide'))).dismissal).toBeNull()
     })
   })
 

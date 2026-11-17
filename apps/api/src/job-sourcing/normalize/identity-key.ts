@@ -4,7 +4,7 @@ import { checkStoredLink } from './url-policy'
 /** Bump when the tuple layout changes: old and new keys must never be comparable by accident. */
 export const IDENTITY_KEY_VERSION = 'v1'
 const MAX_NAMESPACE_CHARS = 128
-const MAX_NATIVE_ID_CHARS = 256
+export const MAX_NATIVE_ID_CHARS = 256
 
 /**
  * The store's cap on `identityKey` (`jobSourceIdentitySchema` in `@crm/shared`). Declared here as a

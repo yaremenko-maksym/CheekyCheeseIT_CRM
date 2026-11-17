@@ -85,7 +85,7 @@ describe('ModelStructurer: abort and hold (ADR 5.5.3, 5.5.4)', () => {
     expect(calls[0]?.signal?.aborted).toBe(true)
   })
 
-  it('an abandoned call commits exactly the time it took, and keeps its slot', async () => {
+  it('an abandoned call commits once, with no usage, and keeps its slot', async () => {
     const budget = new InMemoryModelBudget()
     const commit = vi.spyOn(budget, 'commit')
     const { structurer } = setup(budget)
@@ -93,11 +93,11 @@ describe('ModelStructurer: abort and hold (ADR 5.5.3, 5.5.4)', () => {
     await vi.advanceTimersByTimeAsync(TIMEOUT_MS)
     await run
     expect(commit).toHaveBeenCalledTimes(1)
-    expect(commit.mock.calls[0]?.[1]).toEqual({ localMs: TIMEOUT_MS })
+    expect(commit.mock.calls[0]?.[1]).toBeUndefined()
     expect(budget.snapshot()).toMatchObject({ committed: 1, reserved: 0 })
   })
 
-  it('a cancelled call commits the time until the abort', async () => {
+  it('a cancelled call commits once, with no usage', async () => {
     const budget = new InMemoryModelBudget()
     const commit = vi.spyOn(budget, 'commit')
     const { structurer } = setup(budget)
@@ -106,11 +106,12 @@ describe('ModelStructurer: abort and hold (ADR 5.5.3, 5.5.4)', () => {
     await vi.advanceTimersByTimeAsync(1_234)
     cycle.abort()
     await run
-    expect(commit.mock.calls[0]?.[1]).toEqual({ localMs: 1_234 })
+    expect(commit).toHaveBeenCalledTimes(1)
+    expect(commit.mock.calls[0]?.[1]).toBeUndefined()
   })
 
-  it('an abandoned call that ran past the local limit refuses the next reservation', async () => {
-    const { structurer, settlers, calls } = setup(new InMemoryModelBudget(20, TIMEOUT_MS))
+  it('an abandoned call counts against the cycle limit: the next reservation is refused', async () => {
+    const { structurer, settlers, calls } = setup(new InMemoryModelBudget(1))
     const first = structurer.structure(request())
     await vi.advanceTimersByTimeAsync(TIMEOUT_MS)
     await first

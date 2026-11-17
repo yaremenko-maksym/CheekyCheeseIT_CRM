@@ -19,6 +19,7 @@ import { VACANCIES_ERROR_CODES } from './api-errors/vacancies'
 import { APPLICATIONS_ERROR_CODES } from './api-errors/applications'
 import { MEETING_RECORDER_ERROR_CODES } from './api-errors/meeting-recorder'
 import { JOB_SOURCING_ERROR_CODES } from './api-errors/job-sourcing'
+import { RESUME_ERROR_CODES } from './api-errors/resume'
 
 // SR-M-1 (PR #694 round 1) — the `en` catalog string for each code, read
 // straight off disk rather than via `@crm/shared`'s compiled catalog
@@ -104,6 +105,7 @@ describe('api-errors', () => {
       ['applications', APPLICATIONS_ERROR_CODES],
       ['meeting-recorder', MEETING_RECORDER_ERROR_CODES],
       ['job-sourcing', JOB_SOURCING_ERROR_CODES],
+      ['resume', RESUME_ERROR_CODES],
     ] as const
     const seenIn = new Map<string, string>()
     for (const [moduleName, codes] of perModule) {
@@ -123,6 +125,14 @@ describe('api-errors', () => {
       expect(API_ERROR_MESSAGES[code].id).toBe(`api-error.${code}`)
       expect(API_ERROR_MESSAGES[code].message?.length ?? 0).toBeGreaterThan(0)
     }
+  })
+
+  it('SENIOR_MIN_ROLES is registered in auth-users-projects with its English fallback', () => {
+    expect(AUTH_USERS_PROJECTS_ERROR_CODES).toContain('SENIOR_MIN_ROLES')
+    expect(API_ERROR_MESSAGES.SENIOR_MIN_ROLES.id).toBe('api-error.SENIOR_MIN_ROLES')
+    expect(API_ERROR_FALLBACK_EN.SENIOR_MIN_ROLES).toBe(
+      'A senior needs at least one technical role',
+    )
   })
 
   it('every code has a non-empty English fallback', () => {

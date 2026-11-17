@@ -9,35 +9,35 @@ import { SourceNotReadyError } from './quota-provider'
 
 /**
  * JSearch (RapidAPI) through its public provider. Expected values are hand-read from
- * `__fixtures__/jsearch/doc-example.json` - a UNIT EXAMPLE written from public listings, not a
- * capture (see its provenance) - and written as literals, never produced by running the mapper.
+ * `__fixtures__/jsearch/search-v2-smoke.json` - a real CAPTURE of the owner's controlled smoke
+ * (see its provenance) - and written as literals, never produced by running the mapper.
  *
  * THE KEY is an obviously fake string; no real credential appears here.
  */
 
-const NOW = new Date('2026-10-24T04:00:00Z')
+const NOW = new Date('2026-11-17T04:00:00Z')
 const KEY = 'fake0000rapid0000key0000fake0000rapid0000key0000xyz'
 const SEEDED = { query: 'senior backend developer remote' }
 const READY = { configured: true, apiKey: KEY, secrets: [KEY] } as const
 const NOT_CONFIGURED = { configured: false, apiKey: null, secrets: [] } as const
 const SEARCH =
-  'https://jsearch.p.rapidapi.com/search?query=senior+backend+developer+remote&page=1&num_pages=1&date_posted=week&work_from_home=true'
+  'https://jsearch.p.rapidapi.com/search-v2?query=senior+backend+developer+remote&num_pages=1&country=us&date_posted=week&work_from_home=true'
 
 const provider = (opts: Partial<Parameters<typeof createJSearchProvider>[0]> = {}) =>
   createJSearchProvider({ credential: READY, ...opts })
 const cfg = (extra: Record<string, unknown> = {}, p = provider()) =>
   p.parseConfig({ configVersion: 1, ...SEEDED, ...extra })
 
-type Envelope = { data: Record<string, unknown>[] } & Record<string, unknown>
-const example = () => sourceFixture('jsearch', 'doc-example') as Envelope
+type Envelope = { data: { jobs: Record<string, unknown>[] } } & Record<string, unknown>
+const capture = () => sourceFixture('jsearch', 'search-v2-smoke') as Envelope
 const job = (id: string, over: Record<string, unknown> = {}) => ({
-  ...example().data[0],
+  ...capture().data.jobs[0],
   job_id: id,
   job_apply_link: `https://careers.example-systems.test/jobs/${id}/apply`,
   ...over,
 })
 const body = (data: unknown[]): FakeResponse => ({
-  bodyText: JSON.stringify({ status: 'OK', data }),
+  bodyText: JSON.stringify({ status: 'OK', data: { jobs: data, cursor: 'next' } }),
 })
 
 async function run(
@@ -101,11 +101,24 @@ describe('the request', () => {
     expect(f.sent[0]?.url).not.toContain(KEY)
   })
 
-  it('ALWAYS sends num_pages=1, so one call is one page whatever the billing rule is', async () => {
-    const p = provider()
-    const { f } = await run([body([job('a')]), body([])], { p, config: cfg({ maxPages: 3 }, p) })
-    expect(f.sent.map((r) => new URL(r.url).searchParams.get('num_pages'))).toEqual(['1', '1'])
-    expect(f.sent.map((r) => new URL(r.url).searchParams.get('page'))).toEqual(['1', '2'])
+  it('sends exactly the parameter set the smoke proved: num_pages=1, country=us, no page', async () => {
+    const { f } = await run([body([job('a')])])
+    const url = new URL(f.sent[0]?.url ?? '')
+    expect([...url.searchParams.keys()]).toEqual([
+      'query',
+      'num_pages',
+      'country',
+      'date_posted',
+      'work_from_home',
+    ])
+    expect(url.searchParams.get('num_pages')).toBe('1')
+    expect(url.searchParams.get('country')).toBe('us')
+  })
+
+  it('reads ONE page per run, even when the response carries a cursor', async () => {
+    const { f, batch } = await run([body([job('a')]), body([job('b')])])
+    expect(f.sent).toHaveLength(1)
+    expect(batch.requests.at(-1)?.error ?? null).toBeNull()
   })
 
   it('honours the configured filters; remoteOnly false sends no work_from_home', async () => {
@@ -120,45 +133,111 @@ describe('the request', () => {
   })
 })
 
-describe('mapping the unit example', () => {
+describe('mapping the capture', () => {
+  // The provider's opaque id, 414 characters in every job of the capture.
+  const FIRST_ID = capture().data.jobs[0]!['job_id'] as string
+  const FIRST_APPLY =
+    'https://www.jobleads.com/us/job/senior-backend-engineer-remote-integrations-architecture--united-states--e202d10032d8dc154d405fc199ae526d1'
+
+  it('maps every job of the capture, none invalid', async () => {
+    const { batch } = await run([{ bodyText: JSON.stringify(capture()) }])
+    expect(batch.counts).toMatchObject({ raw: 3, normalized: 3, invalid: 0 })
+  })
+
+  const first = (b: Batch) => b.observations.find((o) => o.sourcePostingUrl === FIRST_APPLY)
+
   it('maps every field of the first job (hand-read)', async () => {
-    const { batch } = await run([{ bodyText: JSON.stringify(example()) }])
-    const o = byId(batch, 'ExampleJobIdA1==')
+    const { batch } = await run([{ bodyText: JSON.stringify(capture()) }])
+    // A 414-character id is past the identity seam's 256: identity is the sha256 of the full id
+    // (round 2, CR-M-3), never the apply URL (which collides for Indeed `viewjob?jk=` postings).
+    expect(FIRST_ID).toHaveLength(414)
+    const o = first(batch)
     expect(o?.identity).toMatchObject({
       provider: 'JSEARCH_API',
       namespace: 'jsearch',
-      nativeId: 'ExampleJobIdA1==',
+      nativeId: 'sha256:cf36a38f11a7382b09687f4a1c26796ced52be13e9470958238d1cad34804b66',
       identityKind: 'NATIVE_ID',
     })
-    expect(o?.sourcePostingUrl).toBe('https://careers.example-systems.test/jobs/1001/apply')
-    expect(o?.normalized.title).toBe('Senior Backend Engineer')
-    expect(o?.normalized.companyName).toBe('Example Systems Inc')
-    expect(o?.normalized.location).toBe('Warsaw, Mazowieckie, PL')
-    expect(o?.normalized.employmentType).toBe('FULLTIME')
+    expect(o?.sourcePostingUrl).toBe(FIRST_APPLY)
+    expect(o?.normalized.title).toBe(
+      'Senior Backend Engineer - Remote, Integrations & Architecture',
+    )
+    expect(o?.normalized.companyName).toBe('Atlassian Corp.')
+    // job_city / job_state / job_country are null for a remote posting: job_location is all there is.
+    expect(o?.normalized.location).toBe('Anywhere')
+    expect(o?.normalized.employmentType).toBe('Full-time')
     expect(o?.normalized.remote).toBe(true)
-    expect(o?.normalized.publishedAt?.toISOString()).toBe('2026-10-21T09:30:00.000Z')
-    expect(o?.adapterVersion).toBe('jsearch-1')
+    expect(o?.normalized.publishedAt?.toISOString()).toBe('2026-11-09T00:00:00.000Z')
+    expect(o?.adapterVersion).toBe('jsearch-2')
   })
 
-  it('the native id and the apply URL are different facts', async () => {
-    const { batch } = await run([{ bodyText: JSON.stringify(example()) }])
-    const o = byId(batch, 'ExampleJobIdA1==')
-    expect(o?.applicationUrl).toBe('https://careers.example-systems.test/jobs/1001/apply')
-    expect(o?.identity.nativeId).not.toBe(o?.applicationUrl)
+  it('a short job id is still the identity; the apply URL is a separate fact', async () => {
+    const { batch } = await run([body([job('short-id')])])
+    const o = byId(batch, 'short-id')
+    expect(o?.identity.identityKind).toBe('NATIVE_ID')
+    expect(o?.applicationUrl).toBe('https://careers.example-systems.test/jobs/short-id/apply')
   })
 
-  it('missing location parts are skipped, an explicit false is kept as false', async () => {
-    const { batch } = await run([{ bodyText: JSON.stringify(example()) }])
-    const second = byId(batch, 'ExampleJobIdB2==')
-    expect(second?.normalized.location).toBe('DE')
-    expect(second?.normalized.remote).toBe(false)
-    expect(second?.normalized.employmentType).toBe('CONTRACTOR')
+  it('padding around a job id does not change its identity (round 3)', async () => {
+    const { batch } = await run([
+      body([job('  pad-id\n'), job(`${'j'.repeat(300)}`), job(` ${'j'.repeat(300)} `)]),
+    ])
+    expect(byId(batch, 'pad-id')?.identity.nativeId).toBe('pad-id')
+    const hashed = batch.observations.filter((o) => o.identity.nativeId.startsWith('sha256:'))
+    expect(hashed).toHaveLength(2)
+    expect(hashed[0]?.identity.nativeId).toBe(hashed[1]?.identity.nativeId)
+  })
+
+  it('two long ids differing only at the end, on one apply URL, are two identities', async () => {
+    const stem = 'j'.repeat(413)
+    const url = 'https://www.indeed.com/viewjob?jk=same'
+    const { batch } = await run([
+      body([job(`${stem}a`, { job_apply_link: url }), job(`${stem}b`, { job_apply_link: url })]),
+    ])
+    const ids = batch.observations.map((o) => o.identity.identityKey)
+    expect(batch.observations).toHaveLength(2)
+    expect(new Set(ids).size).toBe(2)
+    expect(batch.observations.every((o) => o.identity.identityKind === 'NATIVE_ID')).toBe(true)
+  })
+
+  it('an id of exactly 256 characters is kept as is; 257 is hashed', async () => {
+    const { batch } = await run([body([job('w'.repeat(256)), job('z'.repeat(257))])])
+    expect(byId(batch, 'w'.repeat(256))?.identity.identityKind).toBe('NATIVE_ID')
+    expect(
+      byId(batch, 'sha256:16c04de4670e399ba23109c0d04a5426d75fe696be2ea988c4b7b1aeecc8efdc'),
+    ).toBeDefined()
+  })
+
+  it('a job id past 600 characters is invalid, at 600 it is kept', async () => {
+    const { batch } = await run([body([job('x'.repeat(601)), job('y'.repeat(600))])])
+    expect(batch.counts).toMatchObject({ normalized: 1, invalid: 1 })
+  })
+
+  it('the city/state/country parts win over job_location when present', async () => {
+    const placed = job('p', { job_city: 'Warsaw', job_state: null, job_country: 'PL' })
+    const { batch } = await run([body([placed])])
+    expect(byId(batch, 'p')?.normalized.location).toBe('Warsaw, PL')
+  })
+
+  it('an explicit false is kept as false', async () => {
+    const { batch } = await run([body([job('f', { job_is_remote: false })])])
+    expect(byId(batch, 'f')?.normalized.remote).toBe(false)
   })
 
   it('a posting with no location at all maps no location', async () => {
-    const bare = job('c', { job_city: null, job_state: null, job_country: null })
+    const bare = job('c', {
+      job_city: null,
+      job_state: null,
+      job_country: null,
+      job_location: null,
+    })
     const { batch } = await run([body([bare])])
     expect(byId(batch, 'c')?.normalized.location).toBeNull()
+  })
+
+  it('a blank job_location is no location either', async () => {
+    const { batch } = await run([body([job('e', { job_location: '' })])])
+    expect(byId(batch, 'e')?.normalized.location).toBeNull()
   })
 
   it('one malformed job is isolated; the rest are kept', async () => {
@@ -172,8 +251,12 @@ describe('mapping the unit example', () => {
     })
   })
 
-  it('an envelope without `data` is drift', async () => {
-    const { batch } = await run([{ bodyText: JSON.stringify({ status: 'OK' }) }])
+  it.each([
+    ['no `data`', { status: 'OK' }],
+    ['the v1 shape (`data` is the list)', { status: 'OK', data: [] }],
+    ['`data` without `jobs`', { status: 'OK', data: { cursor: 'x' } }],
+  ])('an envelope with %s is drift', async (_l, envelope) => {
+    const { batch } = await run([{ bodyText: JSON.stringify(envelope) }])
     expect(batch.requests.at(-1)?.error?.code).toBe('PARSE_DRIFT')
   })
 })
@@ -196,21 +279,16 @@ describe('metering: one call is one REQUEST', () => {
     expect(() => provider({ meter: { unit: 'REQUEST', amountPerRequest: 0 } })).toThrow()
   })
 
-  it('two pages are two paid requests with a reservation each', async () => {
-    const p = provider()
-    const { m } = await run([body([job('a')]), body([job('b')]), body([])], {
-      p,
-      config: cfg({ maxPages: 2 }, p),
-    })
-    expect(m.reserved).toHaveLength(2)
-    expect(m.settled.map((s) => s.id)).toEqual(['res-1', 'res-2'])
+  it('a run is ONE paid request with one reservation, whatever the response says', async () => {
+    const { m } = await run([body([job('a')]), body([job('b')]), body([])])
+    expect(m.reserved).toHaveLength(1)
+    expect(m.settled.map((s) => s.id)).toEqual(['res-1'])
   })
 
-  it('an empty page ends the walk and still cost the call that found it', async () => {
-    const p = provider()
-    const { m, f } = await run([body([job('a')]), body([])], { p, config: cfg({ maxPages: 5 }, p) })
-    expect(f.sent).toHaveLength(2)
-    expect(m.reserved).toHaveLength(2)
+  it('an empty page still cost the call that found it', async () => {
+    const { m, f } = await run([body([])])
+    expect(f.sent).toHaveLength(1)
+    expect(m.reserved).toHaveLength(1)
   })
 
   it('a timeout after the request left holds the reservation UNCERTAIN', async () => {
@@ -230,12 +308,6 @@ describe('metering: one call is one REQUEST', () => {
     expect(f.sent).toEqual([])
     expect(m.events).toEqual(['reserve'])
   })
-
-  it('maxPages bounds the walk even when pages keep coming (1 of many)', async () => {
-    const { f, batch } = await run([body([job('a')])])
-    expect(f.sent).toHaveLength(1)
-    expect(batch.requests.at(-1)?.error?.code).toBe('PAGE_CAP')
-  })
 })
 
 describe('the key never reaches a report', () => {
@@ -245,10 +317,10 @@ describe('the key never reaches a report', () => {
     expect(JSON.stringify(batch)).not.toContain(KEY)
   })
 
-  it('the reported URL shows only the allowlisted parameters (query, page); the rest are marked', async () => {
+  it('the reported URL shows only the allowlisted parameters (query); the rest are marked', async () => {
     const { batch } = await run([body([])])
     expect(batch.requests[0]?.url).toBe(
-      'https://jsearch.p.rapidapi.com/search?query=senior+backend+developer+remote&page=1&num_pages=[REDACTED]&date_posted=[REDACTED]&work_from_home=[REDACTED]',
+      'https://jsearch.p.rapidapi.com/search-v2?query=senior+backend+developer+remote&num_pages=[REDACTED]&country=[REDACTED]&date_posted=[REDACTED]&work_from_home=[REDACTED]',
     )
     expect(batch.requests[0]?.url).not.toContain(KEY)
   })
@@ -262,7 +334,7 @@ describe('config is refused before any network call', () => {
     ['an unknown datePosted', { datePosted: 'year' }],
     ['a non-boolean remoteOnly', { remoteOnly: 'yes' }],
     ['maxPages 0', { maxPages: 0 }],
-    ['maxPages 6', { maxPages: 6 }],
+    ['maxPages 2 (one page per run)', { maxPages: 2 }],
     ['an unknown key', { num_pages: 5 }],
     ['a namespace other than jsearch', { namespace: 'x' }],
     ['a window', { window: { from: '2026-10-01', to: '2026-10-02' } }],
@@ -291,7 +363,7 @@ describe('config is refused before any network call', () => {
     expect(provider().parseConfig({ configVersion: 1, query: 'q'.repeat(120) }).query).toHaveLength(
       120,
     )
-    expect(provider().parseConfig({ configVersion: 1, query: 'q', maxPages: 5 }).maxPages).toBe(5)
+    expect(provider().parseConfig({ configVersion: 1, query: 'q', maxPages: 1 }).maxPages).toBe(1)
   })
 
   it('the three seeded queries are three different scopes on one account', async () => {
@@ -309,15 +381,18 @@ describe('config is refused before any network call', () => {
   })
 })
 
-describe('the BLOCKED state', () => {
-  it('declares itself blocked with the key reason - and the provenance agrees', () => {
-    expect(JSEARCH_SOURCE_STATUS.blocked).toBe(true)
+describe('the key-gated state', () => {
+  it('is not blocked once the smoke succeeded; the key stays required - and the provenance agrees', () => {
+    expect(JSEARCH_SOURCE_STATUS.blocked).toBe(false)
     expect(JSEARCH_SOURCE_STATUS.permission).toBe('KEY_REQUIRED')
-    expect(JSEARCH_SOURCE_STATUS.reason).toContain('controlled authenticated smoke')
-    const prov = sourceProvenance('jsearch', 'doc-example') as { permission: string; notes: string }
+    const prov = sourceProvenance('jsearch', 'search-v2-smoke') as {
+      permission: string
+      httpStatus: number
+      notes: string
+    }
     expect(prov.permission).toBe(JSEARCH_SOURCE_STATUS.permission)
-    expect(prov.notes).toContain('UNIT EXAMPLE ONLY, NOT A CAPTURE')
-    expect(prov.notes).toContain('num_pages')
+    expect(prov.httpStatus).toBe(200)
+    expect(prov.notes).toContain('controlled authenticated smoke')
   })
 })
 
@@ -337,9 +412,9 @@ describe('what a reviewer would otherwise have to take on trust', () => {
     })
   })
 
-  it('the next page cursor names the next page (capped at 1: resume at page 2)', async () => {
+  it('a run leaves no cursor to resume from: the next run starts over', async () => {
     const { batch } = await run([body([job('a')])])
-    expect(batch.checkpoint?.position).toEqual({ kind: 'CURSOR', page: 1, cursor: 'page:2' })
+    expect(batch.checkpoint?.position).toEqual({ kind: 'RESTART', page: 1 })
   })
 
   it('empty and missing location parts are skipped, in order: a blank country leaves the state', async () => {

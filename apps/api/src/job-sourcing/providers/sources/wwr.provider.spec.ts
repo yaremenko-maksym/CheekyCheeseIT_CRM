@@ -252,6 +252,17 @@ describe('the real all-jobs capture (6 of 95 items, verbatim)', () => {
     ])
   })
 
+  it('link-back (WWR owner decision): the mapped url is the weworkremotely.com listing, never the employer site', async () => {
+    const { mapped } = await collect({ bodyText: fixture('all-jobs.trimmed.xml') })
+    expect(mapped).toHaveLength(6)
+    expect(mapped[0]!.url).toBe(
+      'https://weworkremotely.com/remote-jobs/committee-for-children-senior-product-manager-edtech-innovation',
+    )
+    for (const m of mapped) {
+      expect(new URL(String(m.url)).hostname).toBe('weworkremotely.com')
+    }
+  })
+
   it('keeps the two BeyondTrust postings (same title, different link) as two identities', async () => {
     const { batch } = await collect({ bodyText: fixture('all-jobs.trimmed.xml') })
     const beyondTrust = batch.observations.filter((o) => o.normalized.companyName === 'BeyondTrust')

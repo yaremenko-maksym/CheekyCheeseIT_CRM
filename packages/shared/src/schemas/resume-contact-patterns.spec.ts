@@ -1,0 +1,452 @@
+/**
+ * Contact patterns, fix round 3 (Unicode and punycode hosts, unlabelled Telegram handles, stored
+ * handle links, label bounds). The patterns are shared with the API redaction, so a contact the
+ * completeness check flags here is one the redaction removes.
+ */
+import { describe, expect, it } from 'vitest'
+import type { ResumeFacts, ResumeFactsExperience } from './resume-facts'
+import {
+  RESUME_EMAIL_PATTERN,
+  RESUME_TELEGRAM_LABEL_PATTERN,
+  RESUME_URL_PATTERN,
+  checkResumeCompleteness,
+  findPhoneSpans,
+  normaliseTelegramHandle,
+} from './resume-completeness'
+
+/** CPU time this process spent, in ms. A ReDoS burns CPU; a loaded machine only stretches the
+ * wall clock, so a wall-clock bound fails on load and says nothing about the pattern. */
+const cpuMs = (): number => {
+  const { user, system } = process.cpuUsage()
+  return (user + system) / 1000
+}
+
+/** The time budget. Under Stryker it is unbounded: instrumenting every expression stretches the
+ * clock with no change to a pattern, and a mutant that makes one super-linear is still caught
+ * there by Stryker's own timeout. Every other run (unit, pre-push, CI) holds the 500 ms. */
+const BUDGET_MS =
+  process.env['STRYKER_MUTATOR_WORKER'] === undefined ? 500 : Number.POSITIVE_INFINITY
+
+const CTX = { displayName: 'José Müller', now: new Date('2026-11-10T00:00:00Z') }
+
+/** The URL hit: group 1 for the bare form (its pattern consumes one boundary character), else the match. */
+const urlHit = (text: string): string | undefined => {
+  const m = RESUME_URL_PATTERN.exec(text)
+  return m?.[1] ?? m?.[0]
+}
+const emailHit = (text: string): string | undefined => RESUME_EMAIL_PATTERN.exec(text)?.[1]
+
+const EXPERIENCE: ResumeFactsExperience = {
+  company: 'Acme',
+  role: 'Engineer',
+  location: 'Kyiv',
+  start: '2020-01',
+  end: '2023-06',
+  current: false,
+  technologies: ['React'],
+  notes: ['Built the design system'],
+}
+
+const noteWith = (note: string): ResumeFacts => ({
+  headline: 'Senior Frontend Engineer',
+  location: { city: 'Kyiv', country: 'Ukraine' },
+  workFormat: 'remote',
+  skills: ['JavaScript', 'TypeScript', 'React', 'Node.js', 'PostgreSQL'],
+  experience: [{ ...EXPERIENCE, notes: [note] }],
+  education: [{ institution: 'KPI', degree: 'BSc', startYear: 2015, endYear: 2019 }],
+  languages: [{ name: 'English', level: 'C1' }],
+  links: [],
+})
+const contactIssue = { path: 'experience.0.notes.0', code: 'CONTACT_IN_TEXT' }
+const issuesOf = (note: string) => checkResumeCompleteness(noteWith(note), CTX)
+
+describe('RESUME_URL_PATTERN — Unicode and punycode hosts (SO23-1)', () => {
+  it.each([
+    'пример.укр/резюме',
+    'иван.рф/cv',
+    'münchen.de/x',
+    'иван.xn--p1ai/x',
+    'example.xn--p1ai/cv',
+    'EXAMPLE.XN--P1AI/cv',
+  ])('matches %s whole', (url) => {
+    expect(urlHit(`see ${url} now`)).toBe(url)
+  })
+
+  it.each(['münchen.de/x', 'example.xn--p1ai/cv'])('a note with %s is flagged', (url) => {
+    expect(issuesOf(`see ${url}`)).toEqual([contactIssue])
+  })
+
+  it.each([
+    'Node.js/Express and Express.JS/Nest',
+    'Express.js/Nest backend',
+    'typed in x.Ts/y',
+    'Vue.js, Socket.IO, ASP.NET and .NET',
+  ])('keeps the js / ts exclusion and the tech names: %s', (text) => {
+    expect(urlHit(text)).toBeUndefined()
+  })
+})
+
+describe('RESUME_EMAIL_PATTERN — punycode TLD (SO23-1)', () => {
+  it.each(['ivan@example.xn--p1ai', 'ivan@EXAMPLE.XN--P1AI', 'іван@приклад.укр'])(
+    'matches %s whole',
+    (email) => {
+      expect(emailHit(`mail ${email} now`)).toBe(email)
+    },
+  )
+})
+
+describe('host label count (SR-L-8)', () => {
+  const host15 = `${'a.'.repeat(14)}co`
+
+  it('a 15-label host is a whole email and a whole URL', () => {
+    expect(emailHit(`x@${host15}`)).toBe(`x@${host15}`)
+    expect(urlHit(`${host15}/x`)).toBe(`${host15}/x`)
+  })
+
+  it('20 labels is the bound, so a URL match starts at the 20th label from the TLD', () => {
+    expect(emailHit(`x@${'a.'.repeat(20)}co`)).toBe(`x@${'a.'.repeat(20)}co`)
+    expect(emailHit(`x@${'a.'.repeat(21)}co`)).toBeUndefined()
+    expect(urlHit(`b.${'a.'.repeat(20)}com/x`)).toBe(`${'a.'.repeat(20)}com/x`)
+  })
+
+  it('an email with a local part over 64 characters is flagged and matched whole (SR-L-7, SR3-M-1)', () => {
+    const email = `${'a'.repeat(40)}.${'b'.repeat(39)}@example.io`
+    expect(issuesOf(`mail ${email}`)).toEqual([contactIssue])
+    expect(emailHit(email)).toBe(email)
+  })
+
+  it('a note with a 15-label URL is flagged', () => {
+    expect(issuesOf(`see ${host15}/x`)).toEqual([contactIssue])
+  })
+})
+
+describe('RESUME_TELEGRAM_LABEL_PATTERN — no colon, a dash, the Cyrillic short label (SO23-2)', () => {
+  const hitOf = (text: string) => {
+    const m = RESUME_TELEGRAM_LABEL_PATTERN.exec(text)
+    return m?.[1] ?? m?.[0]
+  }
+
+  it.each([
+    ['TG @mark_dev', 'TG @mark_dev'],
+    ['Telegram - @mark_dev', 'Telegram - @mark_dev'],
+    ['Telegram @mark_dev', 'Telegram @mark_dev'],
+    ['Telegram — @mark_dev', 'Telegram — @mark_dev'],
+    ['tg—mark_dev', 'tg—mark_dev'],
+    ['tg – mark_dev', 'tg – mark_dev'],
+    ['tg@mark_dev', 'tg@mark_dev'],
+    ['ping (тг: mark_dev)', 'тг: mark_dev'],
+    ['ТГ @mark_dev', 'ТГ @mark_dev'],
+    ['Тг—mark_dev', 'Тг—mark_dev'],
+    ['моїТГ: mark_dev', 'ТГ: mark_dev'],
+  ])('%j hits as %j', (text, hit) => {
+    expect(hitOf(text)).toBe(hit)
+  })
+
+  it.each([
+    'Telegram bots',
+    'TG integration',
+    'Telegram-integration service',
+    'TG-integration',
+    'Debug tg:12345',
+    'xтг: mark_dev',
+    'мітг: mark_dev',
+    'ТГ 12345',
+  ])('no label in %j: no separator and no @, or no word boundary', (text) => {
+    expect(RESUME_TELEGRAM_LABEL_PATTERN.exec(text)).toBeNull()
+  })
+
+  it.each([
+    ['MyTelegram: mark_dev', 'Telegram: mark_dev'],
+    ['PersonalTG: mark_dev', 'TG: mark_dev'],
+  ])('the glued labels keep their hits: %j gives %j', (text, hit) => {
+    expect(hitOf(text)).toBe(hit)
+  })
+
+  it.each(['TG @mark_dev', 'Telegram - @mark_dev', 'тг: mark_dev', 'tg—mark_dev'])(
+    'a note with %j is flagged',
+    (note) => {
+      expect(issuesOf(`ping ${note}`)).toContainEqual(contactIssue)
+    },
+  )
+
+  it.each(['Telegram bots', 'TG integration', 'Debug tg:12345'])(
+    'a note with %j is not flagged',
+    (note) => {
+      expect(issuesOf(note)).toEqual([])
+    },
+  )
+})
+
+describe('normaliseTelegramHandle — links to the handle (SO23-4)', () => {
+  it.each([
+    ['t.me/mark_dev?start=1', 'mark_dev'],
+    ['t.me/mark_dev/', 'mark_dev'],
+    ['https://t.me/mark_dev#top', 'mark_dev'],
+    ['tg://resolve?domain=mark_dev', 'mark_dev'],
+    ['TG://RESOLVE?DOMAIN=mark_dev&start=1', 'mark_dev'],
+    ['mark_t.me/dev', undefined],
+    ['mark@dev', undefined],
+  ])('%j becomes %j', (stored, handle) => {
+    expect(normaliseTelegramHandle(stored)).toBe(handle)
+  })
+
+  it('a stored tg:// link flags the handle in a note', () => {
+    const facts = noteWith('ask mark_dev')
+    expect(
+      checkResumeCompleteness(facts, { ...CTX, telegram: 'tg://resolve?domain=mark_dev' }),
+    ).toEqual([contactIssue])
+  })
+})
+
+describe('linear time on the new branches (R91)', () => {
+  it.each([
+    ['a.', 'a.'.repeat(25_000)],
+    ['a-.', 'a-.'.repeat(16_667)],
+    ['тг - ', 'тг - '.repeat(10_000)],
+  ])('a 50k-character %s input is checked in under 500 ms', (_, note) => {
+    const started = cpuMs()
+    issuesOf(note)
+    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
+  })
+
+  // Linear, but Unicode classes cost ~10x ASCII on Node 22 (50k Cyrillic ≈ 300 ms for the URL
+  // pattern alone), so the Cyrillic case runs at 10k: five times the longest field (2000).
+  it('a 10k-character Cyrillic host repeat is checked in under 500 ms', () => {
+    const started = cpuMs()
+    issuesOf('пример.'.repeat(1_429))
+    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
+  })
+
+  // SR3-L-3: the phone lookahead runs only where a phone can start, so a long separator run
+  // goes through the full check (round 3 timed the label pattern alone here).
+  it.each([
+    ['spaces', ' '.repeat(50_000)],
+    ['tg + spaces', `tg${' '.repeat(50_000)}`],
+    ['Telegram + spaces', `Telegram${' '.repeat(50_000)}`],
+    ['тг + spaces and a hyphen', `тг${' '.repeat(25_000)}-${' '.repeat(25_000)}`],
+    ['tg: + spaces', `tg:${' '.repeat(50_000)}`],
+    ['Telegram:@ + spaces', `Telegram:@${' '.repeat(50_000)}`],
+  ])('a 50k-character %s input is checked in under 500 ms (SR3-L-3)', (_, note) => {
+    const started = cpuMs()
+    issuesOf(note)
+    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
+  })
+})
+
+describe('fix round 4', () => {
+  describe('the bare URL starts at a label boundary (SR3-M-1)', () => {
+    it.each([
+      ['see foo_github.com/x', 'github.com/x'],
+      // The `(` is the consumed boundary, not the hit; the path `\S*` keeps the `)`, as before.
+      ['(sub.domain.io/a)', 'sub.domain.io/a)'],
+      ['see пример.укр/резюме now', 'пример.укр/резюме'],
+      ['пример.укр/x', 'пример.укр/x'],
+    ])('the hit in %j is group 1, %j', (text, hit) => {
+      expect(urlHit(text)).toBe(hit)
+    })
+
+    it('test() still answers for the bare form', () => {
+      expect(RESUME_URL_PATTERN.test('see sub.domain.io/a')).toBe(true)
+      expect(RESUME_URL_PATTERN.test(`${'a'.repeat(64)}.com/x`)).toBe(false)
+    })
+
+    it('notes of Cyrillic characters in 63-letter labels are checked in time linear in their length', () => {
+      // A ratio within one run, not a fixed 500 ms: CI took 504.9 ms here and 520.7 ms in the API twin
+      // on a loaded runner. About the same characters as 600 notes of 500 and as 80 notes of 4000 (20
+      // notes an item): a linear check costs about the same, a quadratic one costs the long notes 8x.
+      const run = (count: number, length: number): number => {
+        const note = `${'п'.repeat(63)}.`.repeat(Math.ceil(length / 64)).slice(0, length)
+        const facts: ResumeFacts = {
+          ...noteWith(note),
+          experience: Array.from({ length: count / 20 }, () => ({
+            ...EXPERIENCE,
+            notes: Array<string>(20).fill(note),
+          })),
+        }
+        const started = cpuMs()
+        checkResumeCompleteness(facts, CTX)
+        return cpuMs() - started
+      }
+      run(60, 500) // warm-up, so JIT compilation is not billed to the short notes
+      const short = run(600, 500)
+      const long = run(80, 4000)
+      expect(long / short).toBeLessThan(3)
+      // catastrophic backtracking costs seconds per note; a slow runner costs a fraction of this
+      expect(short).toBeLessThan(BUDGET_MS * 10)
+    })
+  })
+
+  describe('more label separators and spellings (SR3-L-1)', () => {
+    const hitOf = (text: string) => {
+      const m = RESUME_TELEGRAM_LABEL_PATTERN.exec(text)
+      return m?.[1] ?? m?.[0]
+    }
+
+    it.each([
+      'Telegram\uFF1Amark_dev',
+      'tg\u2010mark_dev',
+      'tg\u2012mark_dev',
+      'tg \u2015 mark_dev',
+      'Telegram \u2212 @mark_dev',
+      'Telegram:@ mark_dev',
+      'TG @ mark_dev',
+      'Телеграмм: mark_dev',
+      'ТЕЛЕГРАММ @mark_dev',
+    ])('%j hits whole', (text) => {
+      expect(hitOf(text)).toBe(text)
+    })
+
+    it.each(['Telegram (@mark_dev)', 'Telegram | @mark_dev', 'Telegram.@mark_dev', 'tg/@mark_dev'])(
+      'a punctuation-wrapped label is not caught: %j (accepted shortcut)',
+      (text) => {
+        expect(RESUME_TELEGRAM_LABEL_PATTERN.exec(text)).toBeNull()
+      },
+    )
+
+    it.each(['Telegram\uFF1Amark_dev', 'Telegram:@ mark_dev', 'Телеграмм: mark_dev'])(
+      'a note with %j is flagged',
+      (note) => {
+        expect(issuesOf(`ping ${note}`)).toContainEqual(contactIssue)
+      },
+    )
+  })
+
+  describe('a stored t.me/s/ or invite link (SR3-L-2)', () => {
+    it.each([
+      ['t.me/s/mark_dev', 'mark_dev'],
+      ['https://t.me/s/mark_dev', 'mark_dev'],
+      ['t.me/joinchat/AbCdEf', undefined],
+      ['t.me/joinchat', undefined],
+      ['t.me/s', undefined],
+      ['t.me/+AbCdEf', undefined],
+      ['mark', undefined],
+    ])('%j becomes %j', (stored, handle) => {
+      expect(normaliseTelegramHandle(stored)).toBe(handle)
+    })
+
+    it('a stored t.me/s/mark_dev flags the handle but not the word s', () => {
+      const ctx = { ...CTX, telegram: 't.me/s/mark_dev' }
+      expect(checkResumeCompleteness(noteWith('ask mark_dev'), ctx)).toEqual([contactIssue])
+      expect(checkResumeCompleteness(noteWith('Built 5 s services'), ctx)).toEqual([])
+    })
+  })
+})
+
+describe('fix round 5', () => {
+  it('50k characters of "1," are checked in under 500 ms (SR4-L-1)', () => {
+    const started = cpuMs()
+    issuesOf('1,'.repeat(25_000))
+    expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
+  })
+})
+
+describe('fix round 7', () => {
+  describe('more phone separators (SO7-1)', () => {
+    it.each(['‑', '‐', '‒', '—', '―', '−', '·'])(
+      'a phone separated by %j is one whole phone',
+      (sep) => {
+        const phone = ['+380', '67', '123', '45', '67'].join(sep)
+        expect(findPhoneSpans(`call ${phone} now`)).toEqual([{ start: 5, end: 5 + phone.length }])
+        expect(issuesOf(`call ${phone} now`)).toEqual([contactIssue])
+      },
+    )
+
+    it.each(['2015-01-01 — 2019-12-31', '2015-01-01 − 2019-12-31', '01.02.2015 · 01.02.2019'])(
+      'the date range %j stays clean',
+      (dates) => {
+        expect(issuesOf(`Acme, ${dates}`)).toEqual([])
+      },
+    )
+
+    it.each(['10/100/1000 users', 'build_123_456_789'])(
+      '%j is no phone (/ and _ are no separators)',
+      (text) => {
+        expect(findPhoneSpans(text)).toEqual([])
+      },
+    )
+  })
+
+  describe('combining marks in hosts and local parts (SO7-2)', () => {
+    it.each(['john@परीक्षा.भारत', 'ผู้ใช้@ตัวอย่าง.ไทย', 'x\u0301y@x.com'])(
+      '%j is one whole email',
+      (email) => {
+        expect(emailHit(`mail ${email} now`)).toBe(email)
+        expect(issuesOf(`mail ${email} now`)).toContainEqual(contactIssue)
+      },
+    )
+
+    it('उदाहरण.भारत/x is one whole URL', () => {
+      expect(urlHit('see उदाहरण.भारत/x now')).toBe('उदाहरण.भारत/x')
+      expect(issuesOf('see उदाहरण.भारत/x now')).toContainEqual(contactIssue)
+    })
+  })
+
+  describe('RFC 5322 atext in the local part (SO7-3)', () => {
+    it.each(['john&doe@x.com', "o'brien@x.com", 'a!b#c$d*e/f=g?h^i`j{k|l}m~n@x.com'])(
+      '%j is one whole email',
+      (email) => {
+        expect(emailHit(`mail ${email} now`)).toBe(email)
+        expect(issuesOf(`mail ${email} now`)).toEqual([contactIssue])
+      },
+    )
+  })
+
+  describe('a bare URL with a port (SO7-4)', () => {
+    it.each(['example.com:8080/cv', 'a.com:80/x'])('%j is one whole URL', (url) => {
+      expect(urlHit(`see ${url} now`)).toBe(url)
+      expect(issuesOf(`see ${url} now`)).toEqual([contactIssue])
+    })
+
+    it.each(['Vue.config/x', 'React.memo/useMemo'])('%j is still a URL as before', (url) => {
+      expect(urlHit(url)).toBe(url)
+    })
+
+    it('a port of 6 digits is no port', () => {
+      expect(urlHit('see a.com:123456/x now')).toBeUndefined()
+    })
+
+    it('a punycode TLD ends at the first character that is not a label one', () => {
+      expect(urlHit('example.xn--p1ai and/or')).toBeUndefined()
+    })
+  })
+
+  describe('one word between the Telegram label and its separator (SO7-5)', () => {
+    const labelHit = (text: string) => {
+      const m = RESUME_TELEGRAM_LABEL_PATTERN.exec(text)
+      return m?.[1] ?? m?.[0]
+    }
+
+    it.each([
+      'Telegram handle: mark_dev',
+      'Telegram username: mark_dev',
+      'Telegram user: mark_dev',
+      'TG nick: mark_dev',
+      'TG nickname — mark_dev',
+      'Telegram ID: mark_dev',
+      'Telegram id @mark_dev',
+      'Телеграм нік: mark_dev',
+      'тг ник: mark_dev',
+      'Телеграмм нікнейм: mark_dev',
+    ])('%j is a labelled handle', (text) => {
+      expect(labelHit(`Acme (${text})`)).toBe(text)
+      expect(issuesOf(`Acme (${text})`)).toContainEqual(contactIssue)
+    })
+
+    it.each(['Telegram bots', 'TG integration', 'Telegram user base', 'TG identity: builder'])(
+      '%j stays clean',
+      (text) => {
+        expect(labelHit(text)).toBeUndefined()
+      },
+    )
+
+    it.each([
+      ['Telegram handle', 'Telegram handle'.repeat(3_334)],
+      ['tg + spaces', `tg${' '.repeat(50_000)}`],
+      ['Telegram nick + spaces', `Telegram nick${' '.repeat(50_000)}`],
+    ])('50k characters of %j are checked in under 500 ms', (_, input) => {
+      const started = cpuMs()
+      issuesOf(input)
+      expect(cpuMs() - started).toBeLessThan(BUDGET_MS)
+    })
+  })
+})

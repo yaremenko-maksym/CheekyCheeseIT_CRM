@@ -1,45 +1,81 @@
 #!/usr/bin/env node
-// check-extraction-worker-compose.mjs - static guard: a merged change cannot start the local model
-// on production, and the extraction project keeps its isolation
-// (ADR docs/architecture/2026-11-03-extraction-model-router.md §2.4, §8.3, §8.6).
+// check-extraction-worker-compose.mjs - static guard: a merged change cannot start the extraction
+// worker on production, and the extraction project keeps its isolation
+// (ADR docs/architecture/2026-11-03-extraction-model-router.md §2.4, §8.6; hosted-only since the
+// Amendment 2026-11-08, egress network since the owner decision of 2026-11-17).
 //
 // Usage: node check-extraction-worker-compose.mjs \
 //          --extraction <file> --deploy <prod.yml> --deploy <ghcr.yml> --names <path> [--names <path>]
 //
-//   --extraction  the separate project's compose file: resolved, then checked for no ports, no
-//                 network_mode, network membership, runtime hardening and limits, pinned digests.
-//                 It is resolved a second time with the pins unset, and that must refuse.
+//   --extraction  the separate project's compose file: resolved, then checked for exactly one
+//                 service (the worker), no ports, no network_mode, its hardening and limits, and
+//                 its two networks: the internal entry and its own egress, the worker alone on it.
+//                 It is resolved a second time with the pin unset, and that must refuse.
 //   --deploy      the composed deploy configuration, every profile on: its services must be exactly
 //                 DEPLOY_SERVICES, with no extraction network and no external network.
 //   --names       a deploy path (script, workflow) that must name neither the file nor the project.
-//                 The network name crm-extraction-entry is allowed: that is the deploy's soft attach.
+//                 Two names are allowed: crm-extraction-entry (the deploy's soft attach) and
+//                 crm-extraction-worker (the worker's alias, the host of the API's worker URL).
 //
 // Compose runs in a temp dir with empty env files, so the real (gitignored) ones are never read.
 // Never prints env values. Exit: 0 clean, 1 finding, 2 could not look.
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { basename, join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
 const WORKER = 'extraction-worker'
-const RUNTIME = 'crm-model-runtime'
-const FETCH = 'weights-fetch'
 const PROJECT = 'crm-extraction'
 const ENTRY = 'entry'
 const ENTRY_NAME = 'crm-extraction-entry'
-const RUNTIME_NET = 'runtime'
+const EGRESS = 'egress'
+// No fixed name: compose scopes it to the project, so no main-stack network can be this one.
+const EGRESS_NAME = `${PROJECT}_${EGRESS}`
+// Pinned so the later host egress firewall can target it (owner decision 2026-11-17, D4).
+const EGRESS_SUBNET = '10.250.17.0/28'
+// The one plain-HTTP host the API's transport accepts (packages/inference/src/http/bounded-request.ts).
+const WORKER_ALIAS = 'crm-extraction-worker'
+const WORKER_ENV_FILE = '.env.extraction-worker'
+const STATE_TARGET = '/var/lib/extraction-worker'
 // A new service here starts on the next deploy, on the CRM's RAM. Adding one is a reviewed edit.
 const DEPLOY_SERVICES = ['api', 'nginx', 'postgres']
-const RUNTIME_MEM_BYTES = 3584 * 1024 * 1024
 const WORKER_MEM_BYTES = 512 * 1024 * 1024
-const PINS = {
-  EXTRACTION_RUNTIME_IMAGE_SHA256: 'a'.repeat(64),
-  EXTRACTION_MODEL_FILE: 'guard.gguf',
-  EXTRACTION_MODEL_SHA256: 'b'.repeat(64),
-  EXTRACTION_RUNTIME_CONTEXT_TOKENS: '8192',
-  EXTRACTION_WORKER_IMAGE_TAG: 'guard',
-}
+const PINS = { EXTRACTION_WORKER_IMAGE_TAG: 'guard' }
+// An allow-list, not a deny-list: each key a compose release adds (devices, sysctls, volumes_from,
+// secrets, configs, runtime, ...) is refused until it is reviewed. Exactly what the shipped file uses.
+const WORKER_KEYS = [
+  'cap_drop',
+  'command',
+  'cpus',
+  'env_file',
+  'environment',
+  'healthcheck',
+  'image',
+  'logging',
+  'mem_limit',
+  'memswap_limit',
+  'networks',
+  'pids_limit',
+  'read_only',
+  'restart',
+  'security_opt',
+  'tmpfs',
+  'user',
+  'volumes',
+]
+// No top-level configs or secrets: a `file:` source is a host path read into the worker.
+const TOP_KEYS = ['name', 'networks', 'services', 'volumes']
+const STATE_VOLUME = 'worker_state'
+// Network keys the shipped file sets (compose fills `name` and `ipam`). Anything else (driver_opts,
+// attachable, labels, ...) is refused until reviewed; `driver` and `enable_ipv6` also get value checks.
+const NET_KEYS = ['driver', 'enable_ipv6', 'internal', 'ipam', 'name']
+// Logs stay on the host's own driver: gelf or syslog would ship the worker's output off-host,
+// around any later subnet firewall. Options: exactly what the shipped file sets.
+const LOG_DRIVER = 'json-file'
+const LOG_OPTION_KEYS = ['max-file', 'max-size']
+// The pinned image repository (everything before the tag). The tag is the owner's pin.
+const WORKER_IMAGE_REPO = 'ghcr.io/yaremenko-maksym/cheekycheeseit-crm-api'
 // Drops anything the caller's shell exported: the unset-pin run must really be unset.
 const CLEAN_ENV = Object.fromEntries(
   Object.entries(process.env).filter(([k]) => !k.startsWith('EXTRACTION_')),
@@ -57,7 +93,13 @@ if (!args.extraction || !args.deploy?.length || !args.names?.length) {
   process.exit(2)
 }
 
-function composeConfig(files, extraEnv, extraArgs = []) {
+const setKeys = (obj) =>
+  Object.entries(obj ?? {})
+    .filter(([, v]) => v !== null)
+    .map(([k]) => k)
+
+// `configArgs` go after `config`; `post` sees the parsed config and the temp dir before its removal.
+function composeConfig(files, extraEnv, extraArgs = [], { configArgs = [], post = (j) => j } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'guard-compose-'))
   try {
     const cmd = ['compose']
@@ -68,8 +110,8 @@ function composeConfig(files, extraEnv, extraArgs = []) {
     }
     writeFileSync(join(dir, '.env.production'), '')
     writeFileSync(join(dir, '.env.extraction-worker'), '')
-    cmd.push(...extraArgs, 'config', '--format', 'json')
-    return JSON.parse(
+    cmd.push(...extraArgs, 'config', ...configArgs, '--format', 'json')
+    const json = JSON.parse(
       execFileSync('docker', cmd, {
         cwd: dir,
         encoding: 'utf8',
@@ -77,6 +119,7 @@ function composeConfig(files, extraEnv, extraArgs = []) {
         env: { ...CLEAN_ENV, POSTGRES_PASSWORD: 'guard-placeholder', ...extraEnv },
       }),
     )
+    return post(json, dir)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -84,8 +127,26 @@ function composeConfig(files, extraEnv, extraArgs = []) {
 
 let extraction
 let deploy
+// The normal resolution inlines env_file into environment and drops it, and adds an empty
+// `entrypoint`; this one keeps the keys as written, so it is the one the allow-list reads.
+let raw
+let nameAsWritten
 try {
   extraction = composeConfig([args.extraction], PINS, ['--profile', '*'])
+  raw = composeConfig([args.extraction], PINS, ['--profile', '*'], {
+    configArgs: ['--no-interpolate'],
+    post: (json, dir) => ({
+      json,
+      envFiles: (json.services?.[WORKER]?.env_file ?? []).map((f) =>
+        relative(dir, typeof f === 'string' ? f : f.path),
+      ),
+    }),
+  })
+  // A separate call: the shared raw call keeps its inputs, the name is read with --no-normalize.
+  nameAsWritten = composeConfig([args.extraction], PINS, ['--profile', '*'], {
+    configArgs: ['--no-interpolate', '--no-normalize'],
+    post: (json) => json.name,
+  })
   // The production project name (the /opt/crm directory), so network names resolve as on the host.
   deploy = composeConfig(args.deploy, {}, ['--project-name', 'crm', '--profile', '*'])
 } catch (err) {
@@ -96,138 +157,252 @@ try {
 const errors = []
 const services = extraction.services ?? {}
 const netsOf = (svc) => Object.keys(svc?.networks ?? {}).sort()
-// The start command as shell words: line continuations joined, quotes dropped.
-const tokens = (svc) =>
-  [...(svc.entrypoint ?? []), ...(svc.command ?? [])]
-    .join(' ')
-    .replace(/\\\n/g, ' ')
-    .replace(/["']/g, '')
-    .split(/\s+/)
-    .filter(Boolean)
-const valuesOf = (words, flag) => words.flatMap((w, i) => (w === flag ? [words[i + 1] ?? ''] : []))
-// null: the flag must carry some value (the window is a pin, checked by the unset-pin run).
-const RUNTIME_FLAGS = {
-  '--ctx-size': null,
-  '--threads': '2',
-  '--threads-batch': '2',
-  '--threads-http': '2',
-  '--parallel': '1',
-  '--host': '0.0.0.0',
-  '--port': '8080',
-}
-const isRoot = (svc) => ['', '0', 'root'].includes(String(svc.user ?? '').split(':')[0])
+// The file as written. The resolved config hides what the host env decides at `up` and drops some
+// keys (ipam.options), so keys, attachments and network definitions are read here.
+const rawWorker = raw.json.services?.[WORKER] ?? {}
+const rawNets = raw.json.networks ?? {}
 
 // ── The separate project ────────────────────────────────────────────────────
 if (extraction.name !== PROJECT)
   errors.push(`the project must be named ${PROJECT} (found: ${extraction.name})`)
+// A null is a key some compose release fills in, not one the file sets.
+for (const key of setKeys(raw.json).filter((k) => !TOP_KEYS.includes(k)))
+  errors.push(`the extraction project must not declare top-level ${key}`)
 
-function checkHardened(name, svc, memBytes) {
-  if ((svc.ports ?? []).length > 0) errors.push(`${name} must not publish ports (SR-L-4)`)
-  if ((svc.expose ?? []).length > 0) errors.push(`${name} must not declare expose`)
-  if (svc.network_mode) errors.push(`${name} must not set network_mode (${svc.network_mode})`)
-  if (svc.privileged) errors.push(`${name} must not be privileged`)
-  if (!(svc.security_opt ?? []).some((o) => /^no-new-privileges(:true)?$/.test(o))) {
-    errors.push(`${name} must set no-new-privileges`)
-  }
-  if (!(svc.cap_drop ?? []).includes('ALL')) errors.push(`${name} must drop all capabilities`)
-  if ((svc.cap_add ?? []).length > 0) errors.push(`${name} must not add capabilities`)
-  if (Number(svc.mem_limit) !== memBytes) errors.push(`${name} mem_limit must be ${memBytes} bytes`)
-  if (Number(svc.memswap_limit) !== memBytes)
-    errors.push(`${name} memswap_limit must equal mem_limit`)
+// A `$` left in the raw config is a value the host env decides at `up`, after the guard has looked
+// (`driver: ${X:-json-file}`). The one exception: the owner's image tag pin after the repository.
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const IMAGE_PIN = new RegExp(
+  `^${escapeRe(WORKER_IMAGE_REPO)}:\\$\\{EXTRACTION_WORKER_IMAGE_TAG(?::?[-?][^$}]*)?\\}(?:@sha256:[0-9a-f]{64})?$`,
+)
+const withDollar = (v, path) => {
+  if (typeof v === 'string') return v.includes('$') ? [path] : []
+  if (!v || typeof v !== 'object') return []
+  return Object.entries(v).flatMap(([k, x]) => [
+    ...(k.includes('$') ? [`${path}.${k}`] : []),
+    ...withDollar(x, `${path}.${k}`),
+  ])
 }
+const { image: rawImage, ...rawWorkerRest } = rawWorker
+for (const path of [
+  ...withDollar(rawWorkerRest, WORKER),
+  ...(withDollar(rawImage, '').length > 0 && !IMAGE_PIN.test(rawImage) ? [`${WORKER}.image`] : []),
+  ...withDollar(rawNets, 'networks'),
+  ...withDollar(raw.json.volumes, 'volumes'),
+])
+  errors.push(
+    `${path} must hold no variable: the host env would decide it at up (only the image tag pin may)`,
+  )
+// The name as written, with no normalisation: compose lowercases it and drops `$ { } :`, so
+// `${__:-crm-extraction}` would read as crm-extraction. A missing key reads as undefined and fails.
+if (nameAsWritten !== PROJECT)
+  errors.push(
+    `name must hold no variable: the top-level name must read ${PROJECT} as written (found: ${nameAsWritten})`,
+  )
+// An environment entry with no value takes its value from the host at `up`, whatever its key:
+// a map key with null (`KEY:`), or a list item with no `=` (`- KEY`). The raw config keeps both forms.
+const rawEnv = rawWorker.environment ?? {}
+const valueless = Array.isArray(rawEnv)
+  ? rawEnv.filter((e) => typeof e !== 'string' || !e.includes('='))
+  : Object.entries(rawEnv)
+      .filter(([, v]) => v === null || v === undefined)
+      .map(([k]) => k)
+for (const key of valueless)
+  errors.push(`${WORKER}.environment.${key} must carry a value: the host env would decide it at up`)
 
 const worker = services[WORKER]
 if (!worker) {
   errors.push(`service ${WORKER} is missing`)
 } else {
-  checkHardened(WORKER, worker, WORKER_MEM_BYTES)
+  for (const key of setKeys(rawWorker).filter((k) => !WORKER_KEYS.includes(k)))
+    errors.push(`${WORKER} must not set ${key}: not in the reviewed key allow-list`)
+  // Per-network attachment keys: ipv4_address, mac_address, driver_opts (endpoint sysctls such as
+  // route_localnet), link_local_ips, interface_name, priority, gw_priority... Entry: aliases only.
+  for (const [net, att] of Object.entries(rawWorker.networks ?? {})) {
+    const allowed = net === ENTRY ? ['aliases'] : []
+    for (const k of setKeys(att).filter((k) => !allowed.includes(k)))
+      errors.push(
+        `${WORKER} must set ${allowed.length > 0 ? 'only aliases' : 'nothing'} on network ${net} (found: ${k})`,
+      )
+  }
+  if ((worker.ports ?? []).length > 0) errors.push(`${WORKER} must not publish ports (SR-L-4)`)
+  if ((worker.expose ?? []).length > 0) errors.push(`${WORKER} must not declare expose`)
+  if (worker.network_mode)
+    errors.push(`${WORKER} must not set network_mode (${worker.network_mode})`)
+  if (worker.privileged) errors.push(`${WORKER} must not be privileged`)
+  const secOpts = worker.security_opt ?? []
+  if (!secOpts.some((o) => /^no-new-privileges(:true)?$/.test(o))) {
+    errors.push(`${WORKER} must set no-new-privileges`)
+  }
+  // An allow-list: seccomp/apparmor unconfined, label:disable and the like are one line away.
+  for (const o of secOpts.filter((o) => !/^no-new-privileges(:true)?$/.test(o))) {
+    errors.push(`${WORKER} must set no security_opt but no-new-privileges (found: ${o})`)
+  }
+  // Each shares a host namespace (or another container's) with the worker.
+  for (const key of ['pid', 'ipc', 'uts', 'userns_mode', 'cgroup']) {
+    if (worker[key]) errors.push(`${WORKER} must not set ${key} (${worker[key]})`)
+  }
+  if (worker.user !== 'node')
+    errors.push(
+      `${WORKER} must run as user node, the image's own (found: ${worker.user ?? 'unset'})`,
+    )
+  const hosts = worker.extra_hosts ?? []
+  if ((Array.isArray(hosts) ? hosts : Object.keys(hosts)).length > 0)
+    errors.push(`${WORKER} must not set extra_hosts`)
+  if (raw.envFiles.join() !== WORKER_ENV_FILE)
+    errors.push(
+      `${WORKER} env_file must be exactly ${WORKER_ENV_FILE} (found: ${raw.envFiles.join(', ') || 'none'})`,
+    )
+  // Long syntax: path and required only. `format` changes how the file is parsed; any required but
+  // the literal `true` (false, "false", ${OPT:-false}) lets the worker start without its file.
+  for (const f of (rawWorker.env_file ?? []).filter((f) => typeof f !== 'string')) {
+    for (const k of Object.keys(f).filter((k) => k !== 'path' && k !== 'required'))
+      errors.push(`${WORKER} env_file must be a plain path (found: ${k}: ${f[k]})`)
+    if (f.required !== undefined && f.required !== true)
+      errors.push(
+        `${WORKER} env_file must be a plain path (found: required: ${JSON.stringify(f.required)})`,
+      )
+  }
+  const log = worker.logging ?? {}
+  if (log.driver !== LOG_DRIVER)
+    errors.push(
+      `${WORKER} logging driver must be ${LOG_DRIVER} (found: ${log.driver ?? 'unset'}): other drivers ship logs off-host`,
+    )
+  for (const key of Object.keys(log.options ?? {}).filter((k) => !LOG_OPTION_KEYS.includes(k)))
+    errors.push(`${WORKER} logging option ${key} is not in the reviewed list`)
+  for (const key of Object.keys(log).filter((k) => k !== 'driver' && k !== 'options'))
+    errors.push(`${WORKER} logging must set only driver and options (found: ${key})`)
+  // Repository only: strip a digest, then a tag (a colon after the last slash).
+  const noDigest = String(worker.image ?? '').split('@')[0]
+  const tagAt = noDigest.indexOf(':', noDigest.lastIndexOf('/') + 1)
+  const repo = tagAt < 0 ? noDigest : noDigest.slice(0, tagAt)
+  if (repo !== WORKER_IMAGE_REPO)
+    errors.push(
+      `${WORKER} image repository must be ${WORKER_IMAGE_REPO} (found: ${repo || 'unset'})`,
+    )
+  // The guard's env files are empty, so these keys can only come from the compose file itself.
+  for (const key of Object.keys(worker.environment ?? {})) {
+    if (/DATABASE_URL|^POSTGRES_|^PG[A-Z]+$/.test(key))
+      errors.push(`${WORKER} must hold no database setting (found: ${key})`)
+  }
+  // Parsed, not matched: `noexec,...,exec` is exec, the last option wins.
+  const tmpfsOk = (t) => {
+    const [path, opts = ''] = t.split(/:(.*)/s)
+    const o = opts.split(',')
+    return (
+      path === '/tmp' &&
+      o.includes('noexec') &&
+      o.includes('nosuid') &&
+      !o.some((x) => ['exec', 'suid', 'dev'].includes(x))
+    )
+  }
+  if (!(worker.tmpfs ?? []).every(tmpfsOk))
+    errors.push(
+      `${WORKER} tmpfs must be /tmp only, with noexec and nosuid, and no exec, suid or dev`,
+    )
+  if (!(worker.tmpfs ?? []).some((t) => /^\/tmp:/.test(t)))
+    errors.push(`${WORKER} must keep its /tmp tmpfs (the root filesystem is read-only)`)
+  if (!(worker.cap_drop ?? []).includes('ALL')) errors.push(`${WORKER} must drop all capabilities`)
+  if ((worker.cap_add ?? []).length > 0) errors.push(`${WORKER} must not add capabilities`)
+  if (Number(worker.mem_limit) !== WORKER_MEM_BYTES)
+    errors.push(`${WORKER} mem_limit must be ${WORKER_MEM_BYTES} bytes`)
+  if (Number(worker.memswap_limit) !== WORKER_MEM_BYTES)
+    errors.push(`${WORKER} memswap_limit must equal mem_limit`)
   if (Number(worker.cpus) !== 0.5) errors.push(`${WORKER} cpus must be 0.5`)
   if (Number(worker.pids_limit) !== 64) errors.push(`${WORKER} pids_limit must be 64`)
   if (worker.read_only !== true) errors.push(`${WORKER} must run with read_only: true`)
-  if (netsOf(worker).join() !== [ENTRY, RUNTIME_NET].join()) {
+  const vols = worker.volumes ?? []
+  if (!vols.some((v) => v.type === 'volume' && v.target === STATE_TARGET))
+    errors.push(`${WORKER} must keep its state volume at ${STATE_TARGET}`)
+  // A bind mount (the docker socket, a host dir) or a second volume is a way out of the sandbox.
+  for (const v of vols) {
+    if (!(v.type === 'volume' && v.source === STATE_VOLUME && v.target === STATE_TARGET))
+      errors.push(
+        `${WORKER} must mount only its state volume (found: ${v.type} ${v.source ?? ''} -> ${v.target})`,
+      )
+  }
+  if (netsOf(worker).join() !== [EGRESS, ENTRY].join()) {
     errors.push(
-      `${WORKER} must be on ${ENTRY} and ${RUNTIME_NET} only (found: ${netsOf(worker).join(', ') || 'none'})`,
+      `${WORKER} must be on ${ENTRY} and ${EGRESS} only (found: ${netsOf(worker).join(', ') || 'none'})`,
     )
   }
+  // Exactly the one alias: `includes` let `postgres` or `api` ride along and shadow the real hosts
+  // for every container on the entry network.
+  const entryAliases = worker.networks?.[ENTRY]?.aliases ?? []
+  if (entryAliases.join() !== WORKER_ALIAS)
+    errors.push(
+      `${WORKER} must carry exactly the alias ${WORKER_ALIAS} on ${ENTRY} (found: ${entryAliases.join(', ') || 'none'}): the API calls it by that name`,
+    )
+  const egressAliases = worker.networks?.[EGRESS]?.aliases ?? []
+  if (egressAliases.length > 0)
+    errors.push(`${WORKER} must carry no alias on ${EGRESS} (found: ${egressAliases.join(', ')})`)
   if ((worker.profiles ?? []).length > 0)
     errors.push(`${WORKER} must not hide behind a profile in its own project`)
 }
 
-const runtime = services[RUNTIME]
-if (!runtime) {
-  errors.push(`service ${RUNTIME} is missing`)
-} else {
-  checkHardened(RUNTIME, runtime, RUNTIME_MEM_BYTES)
-  if (Number(runtime.cpus) !== 2) errors.push(`${RUNTIME} cpus must be 2`)
-  if (Number(runtime.pids_limit) !== 128) errors.push(`${RUNTIME} pids_limit must be 128`)
-  if (netsOf(runtime).join() !== RUNTIME_NET) {
-    errors.push(
-      `${RUNTIME} must be on ${RUNTIME_NET} only (found: ${netsOf(runtime).join(', ') || 'none'})`,
-    )
-  }
-  if (!/@sha256:[0-9a-f]{64}$/.test(runtime.image ?? ''))
-    errors.push(`${RUNTIME} image must be pinned by sha256`)
-  if (isRoot(runtime)) errors.push(`${RUNTIME} must run non-root`)
-  const start = tokens(runtime)
-  if (!start.join(' ').includes('sha256sum -c'))
-    errors.push(`${RUNTIME} start command must carry "sha256sum -c"`)
-  if (!start.includes('--log-disable'))
-    errors.push(`${RUNTIME} start command must carry "--log-disable"`)
-  // Every occurrence must hold the value: a later duplicate flag overrides the first.
-  for (const [flag, want] of Object.entries(RUNTIME_FLAGS)) {
-    const got = valuesOf(start, flag)
-    if (got.length === 0 || got.some((v) => (want === null ? !v : v !== want))) {
-      errors.push(
-        `${RUNTIME} start command must carry "${flag}${want === null ? ' <value>' : ` ${want}`}" (found: ${got.join(', ') || 'none'})`,
-      )
-    }
-  }
-  if ((runtime.volumes ?? []).some((v) => v.target === '/models' && v.read_only !== true)) {
-    errors.push(`${RUNTIME} must mount the weights read-only`)
-  }
+// The service side names the volume; the top-level side decides what it is. A `driver_opts` of
+// `type: none, o: bind, device: /` makes it a bind mount of the host root, so nothing may be set:
+// compose fills in only its own scoped name.
+const topVols = extraction.volumes ?? {}
+for (const key of Object.keys(topVols)) {
+  if (key !== STATE_VOLUME) errors.push(`unexpected volume ${key} in the extraction project`)
+}
+for (const [k, v] of Object.entries(topVols[STATE_VOLUME] ?? {})) {
+  if (!(k === 'name' && v === `${PROJECT}_${STATE_VOLUME}`))
+    errors.push(`volume ${STATE_VOLUME} must set nothing (found: ${k})`)
 }
 
-for (const key of [ENTRY, RUNTIME_NET]) {
-  if (extraction.networks?.[key]?.internal !== true)
-    errors.push(`network ${key} must be internal: true`)
-}
-if (extraction.networks?.[ENTRY]?.name !== ENTRY_NAME)
+const nets = extraction.networks ?? {}
+if (nets[ENTRY]?.internal !== true) errors.push(`network ${ENTRY} must be internal: true`)
+if (nets[ENTRY]?.name !== ENTRY_NAME)
   errors.push(`network ${ENTRY} must keep the name ${ENTRY_NAME}`)
-for (const [key, net] of Object.entries(extraction.networks ?? {})) {
+if (!nets[EGRESS]) {
+  errors.push(`network ${EGRESS} is missing: the hosted routes have no way out`)
+} else {
+  if (nets[EGRESS].internal === true)
+    errors.push(`network ${EGRESS} must not be internal: the hosted routes need it`)
+  // A fixed name could be a main-stack network (crm_backend): the worker would share it with postgres.
+  if (nets[EGRESS].name !== EGRESS_NAME)
+    errors.push(
+      `network ${EGRESS} must resolve to ${EGRESS_NAME}, the project's own (found: ${nets[EGRESS].name})`,
+    )
+  const subnets = (rawNets[EGRESS]?.ipam?.config ?? []).map((c) => c.subnet)
+  if (subnets.join() !== EGRESS_SUBNET)
+    errors.push(
+      `network ${EGRESS} must pin the subnet ${EGRESS_SUBNET} (found: ${subnets.join(', ') || 'none'})`,
+    )
+}
+// The shipped entry network has no ipam: a subnet or gateway there is unreviewed addressing.
+for (const k of setKeys(rawNets[ENTRY]?.ipam))
+  errors.push(`network ${ENTRY} must set no ipam, as shipped (found: ${k})`)
+for (const [key, net] of Object.entries(rawNets)) {
+  for (const k of setKeys(net).filter((k) => !NET_KEYS.includes(k)))
+    errors.push(`network ${key} must not set ${k}: not in the reviewed key allow-list`)
+  // The default bridge: macvlan/ipvlan put the worker on a host-side L2 segment.
+  if (net.driver !== undefined && net.driver !== 'bridge')
+    errors.push(`network ${key} must use the bridge driver (found: ${net.driver})`)
+  if (net.enable_ipv6)
+    errors.push(`network ${key} must not enable IPv6: the pinned subnet is IPv4 only`)
+  for (const k of setKeys(net.ipam).filter((k) => k !== 'config'))
+    errors.push(`network ${key} ipam must set only config (found: ${k})`)
+  for (const c of net.ipam?.config ?? []) {
+    for (const k of setKeys(c).filter((k) => k !== 'subnet'))
+      errors.push(`network ${key} ipam config must set only subnet (found: ${k})`)
+  }
   if (net.external)
     errors.push(`network ${key} must not be external: the project owns its networks`)
+  if (key !== ENTRY && key !== EGRESS)
+    errors.push(`unexpected network ${key} in the extraction project`)
 }
 
-const MAY_JOIN = { [ENTRY]: [WORKER], [RUNTIME_NET]: [WORKER, RUNTIME] }
 for (const [name, svc] of Object.entries(services)) {
-  for (const [net, allowed] of Object.entries(MAY_JOIN)) {
-    if (netsOf(svc).includes(net) && !allowed.includes(name))
+  if (name !== WORKER) errors.push(`unexpected service ${name} in the extraction project`)
+  for (const net of [ENTRY, EGRESS]) {
+    if (name !== WORKER && netsOf(svc).includes(net))
       errors.push(`service ${name} must not join ${net}`)
   }
   if (typeof svc.network_mode === 'string' && svc.network_mode.startsWith('service:')) {
     errors.push(`service ${name} must not share another service's network namespace`)
-  }
-  if (name !== WORKER && name !== RUNTIME) {
-    if (name !== FETCH) errors.push(`unexpected service ${name} in the extraction project`)
-    if (!(svc.profiles ?? []).length) errors.push(`service ${name} must stay behind a profile`)
-    if ((svc.ports ?? []).length > 0) errors.push(`service ${name} must not publish ports`)
-  }
-}
-
-const fetchSvc = services[FETCH]
-if (!fetchSvc) {
-  errors.push(`service ${FETCH} is missing`)
-} else {
-  if (isRoot(fetchSvc)) errors.push(`${FETCH} must run non-root`)
-  if (!(Number(fetchSvc.mem_limit) > 0)) errors.push(`${FETCH} must set mem_limit`)
-  if (!(Number(fetchSvc.pids_limit) > 0)) errors.push(`${FETCH} must set pids_limit`)
-  if (fetchSvc.privileged) errors.push(`${FETCH} must not be privileged`)
-  if ((fetchSvc.cap_add ?? []).length > 0) errors.push(`${FETCH} must not add capabilities`)
-  const words = tokens(fetchSvc)
-  for (const flag of ['--proto', '--proto-redir']) {
-    const got = valuesOf(words, flag)
-    if (got.length === 0 || got.some((v) => v !== '=https'))
-      errors.push(`${FETCH} curl must carry "${flag} =https"`)
   }
 }
 
@@ -274,7 +449,8 @@ for (const path of args.names) {
     process.exit(2)
   }
   if (text.length === 0) errors.push(`${path} is empty: nothing was checked`)
-  if (/docker-compose\.extraction|crm-extraction(?!-entry)/.test(text)) {
+  // Allowed: the entry network (the soft attach) and the worker's alias (the API's URL).
+  if (/docker-compose\.extraction|crm-extraction(?!-entry\b|-worker\b)/.test(text)) {
     errors.push(`${basename(path)} names the extraction project or its file (ADR §8.6)`)
   }
 }

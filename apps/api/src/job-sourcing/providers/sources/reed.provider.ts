@@ -9,17 +9,15 @@ import {
 } from '../api-json.provider'
 import type { ReportingJobSourceProvider, Validated } from '../reporting-provider'
 import { boundedString, dateRaw, optionalString, positiveSafeInt, urlString } from './as'
-import { requireApiKey, withSecrets } from './quota-provider'
+import { type MeterOption, requireApiKey, resolveMeter, withSecrets } from './quota-provider'
 
 /**
  * Reed (`GET https://www.reed.co.uk/api/1.0/search`), the UK job board's Jobseeker API.
  *
- * STATUS: BLOCKED. No key is provisioned and none may be. Reed's page documents the endpoint, the
- * Basic-auth rule and the query parameters, but names response fields only as labels ("Job Id",
- * "Employer Name"), so the JSON field names and the `dd/MM/yyyy` date format are from the API's
- * widely published shape, not from a response (provenance file). Reed's terms, any quota and any
- * UK-only eligibility rule were not found on any page that could be read without a key. See
- * `REED_SOURCE_STATUS`.
+ * STATUS: KEY-GATED, verified by the owner's controlled smoke of 2026-11-16 (provenance of
+ * `__fixtures__/reed/search-smoke.json`): the JSON field names read below, the numeric `jobId` and
+ * the `dd/MM/yyyy` dates are as this adapter expects. `locationName` is sometimes a POSTCODE
+ * ("PR77NR") rather than a town; it is carried as written. See `REED_SOURCE_STATUS`.
  *
  * - AUTH is HTTP Basic with the key as the USERNAME and an empty password: `base64("<key>:")`. That
  *   encoding is NOT `base64("<key>")`, which is the form the loop's redaction already knows, so the
@@ -31,18 +29,18 @@ import { requireApiKey, withSecrets } from './quota-provider'
  *   country rule sees the country the board never states. Assumption, recorded in the PR.
  * - PAGING is `resultsToSkip` / `resultsToTake` (take is limited to 100). The walk ends on a short
  *   page or when the total is reached.
- * - UNMETERED: no quota is documented or seeded for Reed (`NULL`), so no reservation is made. A
- *   quota, once known, is the account meter's to hold.
+ * - METERED like Jooble: one request is one REQUEST against the account meter (`reed:api-main`),
+ *   which the seed delta creates with an A1 default cap; Reed publishes no limit of its own.
  */
 
 export const REED_SOURCE_STATUS = {
-  blocked: true,
+  blocked: false,
   permission: 'KEY_REQUIRED',
   reason:
-    'no API key is provisioned and none may be before the owner runs a controlled authenticated smoke; response field names and the date format are not verified against a response, and Reed terms/eligibility were not found',
+    'runs only with the Reed key (REED_API_KEY); the controlled authenticated smoke of 2026-11-16 verified the field names and the date format; the developer page states no usage terms',
 } as const
 
-export const REED_ADAPTER_VERSION = 'reed-1'
+export const REED_ADAPTER_VERSION = 'reed-2'
 export const REED_NAMESPACE = 'reed'
 const ENDPOINT = 'https://www.reed.co.uk/api/1.0/search'
 /** The documented limit of `resultsToTake`. */
@@ -97,13 +95,18 @@ export function reedBasicAuth(apiKey: string): string {
 /** The one definition of identity, used by the spec's `nativeIdOf` AND by the mapping. */
 const reedNativeId = (item: Item): string => String(item.jobId)
 
-function makeSpec(apiKey: string, config: Config): ApiJsonSourceSpec<Config, Envelope, Item> {
+function makeSpec(
+  apiKey: string,
+  config: Config,
+  meter: MeterOption,
+): ApiJsonSourceSpec<Config, Envelope, Item> {
   return {
     type: 'REED_API',
     adapterVersion: REED_ADAPTER_VERSION,
     configSchema,
     envelopeSchema,
     itemSchema,
+    meter,
     pageRequest: (c, at) => {
       const url = new URL(ENDPOINT)
       url.searchParams.set('keywords', c.keywords)
@@ -151,17 +154,20 @@ function makeSpec(apiKey: string, config: Config): ApiJsonSourceSpec<Config, Env
 
 export interface ReedOptions {
   credential: QuotaCredential
+  /** How Reed bills this account. Default: one request is one REQUEST. */
+  meter?: MeterOption
 }
 
 export function createReedProvider(
   options: ReedOptions,
 ): ReportingJobSourceProvider<Validated<Config>> {
+  const meter = resolveMeter(options.meter)
   return definePagedProvider({ type: 'REED_API', configSchema }, (config, ctx) => {
-    // Before any network call: a source without a key reports itself instead of asking.
+    // Before the reservation and before any network call: a source without a key costs nothing.
     const apiKey = requireApiKey('REED_API', QUOTA_PROVIDER_ENV_KEY.reed, options.credential)
     return collectJsonPages(
       {
-        ...makeSpec(apiKey, config),
+        ...makeSpec(apiKey, config, meter),
         limits: { maxPages: config.maxPages, maxItemsPerPage: config.resultsToTake },
       },
       config,

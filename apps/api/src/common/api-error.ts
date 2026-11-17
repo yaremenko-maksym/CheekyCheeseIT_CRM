@@ -52,7 +52,7 @@ import {
  * module scope, not re-required per call) makes rendering identical in
  * dev/test and prod.
  */
-function interpolate(code: ApiErrorCode, params?: Record<string, string | number>): string {
+export function interpolate(code: ApiErrorCode, params?: Record<string, string | number>): string {
   const i18n = setupI18n({ locale: 'en', messages: { en: {} } })
   i18n.setMessagesCompiler(compileMessage)
   // `API_ERROR_MESSAGES[code].id` (a member expression), not a template

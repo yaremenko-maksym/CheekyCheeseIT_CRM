@@ -40,6 +40,29 @@ export const QUOTA_PROVIDER_OF_TYPE: Partial<Record<JobSourceType, QuotaProvider
   MUSE_API: 'themuse',
 })
 
+/** True for a type whose provider needs its own key, i.e. one the runtime can find provisioned. */
+export function hasKeyedCredential(type: JobSourceType): boolean {
+  const provider = QUOTA_PROVIDER_OF_TYPE[type]
+  return provider !== undefined && QUOTA_PROVIDER_ENV_KEY[provider] !== null
+}
+
+/**
+ * Whether `type`'s own key is set (task key-sources-smoke). It is what lifts the manifest's
+ * `KEY_REQUIRED` blocker at runtime: the blocker is emitted whatever, and met only here. A type
+ * without a keyed provider is never provisioned, so its `KEY_REQUIRED` (if any) stays.
+ */
+export function keyProvisioned(
+  type: JobSourceType,
+  read: (key: QuotaEnvKey) => string | undefined,
+): boolean {
+  const provider = QUOTA_PROVIDER_OF_TYPE[type]
+  return (
+    provider !== undefined &&
+    QUOTA_PROVIDER_ENV_KEY[provider] !== null &&
+    readQuotaCredential(provider, read).configured
+  )
+}
+
 /**
  * T7: what a run of `type` must never show in a report or a persisted message -- the type's own
  * credential, when it has one. The worker hands this to the context's `secrets`; each keyed adapter

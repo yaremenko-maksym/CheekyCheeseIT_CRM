@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext, type FakeResponse } from '../../../test/fake-collection-context'
 import { meteredContext } from '../../../test/quota-harness'
-import { sourceFixture, sourceProvenance } from '../../../test/source-fixtures'
+import { sourceFixtureText, sourceProvenance } from '../../../test/source-fixtures'
 import { PG_INT_MAX } from '../api-json.provider'
 import { UnvalidatedConfigError } from '../reporting-provider'
 import { SourceNotReadyError } from './quota-provider'
@@ -12,18 +12,22 @@ import {
   billingSupportedBy,
   THEIRSTACK_SOURCE_STATUS,
   theirstackIncurredCredits,
+  theirstackPostingUrl,
 } from './theirstack.provider'
 
 /**
- * TheirStack through its public provider. Expected values are hand-read from
- * `__fixtures__/theirstack/doc-example.json` - a UNIT EXAMPLE written from the published API
- * reference, not a capture (see its provenance) - and from the reference's own billing sentence
- * ("1 API credit for each job returned"). Literals, never produced by running the mapper.
+ * TheirStack through its public provider. Two inputs, each with its own job:
+ * - `__fixtures__/theirstack/jobs-search-smoke.json`, the CAPTURE of the owner's controlled smoke
+ *   (see its provenance): what the real payload maps to, hand-read and written as literals.
+ * - `UNIT_EXAMPLE`, built here: the edge cases two captured records do not hold (a `final_url`, a
+ *   null `remote` and `location`, a null description).
+ * Billing figures come from the reference's own sentence ("1 API credit for each job returned").
+ * Literals, never produced by running the mapper.
  *
  * THE KEY is an obviously fake string; no real credential appears here.
  */
 
-const NOW = new Date('2026-10-24T04:00:00Z')
+const NOW = new Date('2026-11-17T04:00:00Z')
 const KEY = 'tsk_0000fake0000fake0000fake0000fake'
 const SEEDED = { limit: 25, seniority: ['senior'] }
 /**
@@ -48,7 +52,56 @@ const cfg = (extra: Record<string, unknown> = {}, p = provider()) =>
   p.parseConfig({ configVersion: 1, ...SEEDED, ...extra })
 
 type Envelope = { metadata: Record<string, unknown>; data: Record<string, unknown>[] }
-const example = () => sourceFixture('theirstack', 'doc-example') as Envelope
+const UNIT_EXAMPLE: Envelope = {
+  metadata: {
+    total_results: null,
+    total_companies: null,
+    truncated_results: 0,
+    truncated_companies: 0,
+  },
+  data: [
+    {
+      id: 7001001,
+      job_title: 'Senior Platform Engineer',
+      url: 'https://boards.example-ats.test/example-co/7001001',
+      final_url: 'https://example-co.test/careers/platform-engineer',
+      source_url: 'https://www.example-board.test/jobs/view/7001001',
+      date_posted: '2026-10-21',
+      discovered_at: '2026-10-21T10:11:12.000Z',
+      company: 'Example Co',
+      company_domain: 'example-co.test',
+      remote: true,
+      hybrid: false,
+      location: 'Berlin, Germany',
+      country_code: 'DE',
+      seniority: 'senior',
+      employment_statuses: ['full_time'],
+      description: 'Run the platform that runs the platform.',
+    },
+    {
+      id: 7001002,
+      job_title: 'Staff Backend Engineer',
+      url: 'https://boards.example-ats.test/example-labs/7001002',
+      final_url: null,
+      source_url: 'https://www.example-board.test/jobs/view/7001002',
+      date_posted: '2026-10-20',
+      discovered_at: '2026-10-20T07:00:00.000Z',
+      company: 'Example Labs',
+      company_domain: 'example-labs.test',
+      remote: null,
+      hybrid: true,
+      location: null,
+      country_code: 'PT',
+      seniority: 'staff',
+      employment_statuses: ['contract'],
+      description: null,
+    },
+  ],
+}
+const example = (): Envelope => structuredClone(UNIT_EXAMPLE)
+const capture = (): FakeResponse => ({
+  bodyText: sourceFixtureText('theirstack', 'jobs-search-smoke'),
+})
 const job = (id: number, over: Record<string, unknown> = {}) => ({
   ...example().data[0],
   id,
@@ -177,7 +230,7 @@ describe('mapping the unit example', () => {
     expect(o?.normalized.location).toBe('Berlin, Germany')
     expect(o?.normalized.remote).toBe(true)
     expect(o?.normalized.seniorityHint).toBe('senior')
-    expect(o?.adapterVersion).toBe('theirstack-1')
+    expect(o?.adapterVersion).toBe('theirstack-2')
   })
 
   it('the native id and the application URL are different facts', async () => {
@@ -398,18 +451,77 @@ describe('config is refused before any network call', () => {
   })
 })
 
-describe('the BLOCKED state', () => {
-  it('declares itself blocked with the key reason - and the provenance agrees', () => {
-    expect(THEIRSTACK_SOURCE_STATUS.blocked).toBe(true)
+describe('mapping the smoke capture (hand-read from jobs-search-smoke.json)', () => {
+  it('both kept records map, none invalid or quarantined', async () => {
+    const { batch } = await run([capture()])
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.counts).toEqual({
+      raw: 2,
+      normalized: 2,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual(['949735761', '948074030'])
+  })
+
+  it('maps the second record: the board posting is the URL, and there is no application URL', async () => {
+    const { batch } = await run([capture()])
+    const o = byId(batch, '948074030')
+    expect(o?.identity.identityKind).toBe('NATIVE_ID')
+    expect(o?.sourcePostingUrl).toBe('https://www.linkedin.com/jobs/view/4490273074')
+    expect(o?.normalized.title).toBe('Bilingual Associate Lead - Incident Coordinator')
+    expect(o?.normalized.companyName).toBe('TransUnion')
+    expect(o?.normalized.location).toBe('Ontario')
+    expect(o?.normalized.remote).toBe(true)
+    expect(o?.normalized.seniorityHint).toBe('senior')
+    // final_url is null in every captured record: none is invented from the board URL.
+    expect(o?.applicationUrl).toBeNull()
+    expect(o?.normalized.publishedAt?.toISOString()).toBe('2026-11-16T00:00:00.000Z')
+  })
+
+  it('maps the first record: its http:// Indeed `url` gives way to the https `source_url`', async () => {
+    const { batch } = await run([capture()])
+    const o = byId(batch, '949735761')
+    expect(o?.sourcePostingUrl).toContain('https://indeed.com/viewjob')
+    expect(o?.normalized.companyName).toBe('Gesswein')
+    expect(o?.normalized.location).toBe('Remote')
+  })
+
+  it('a page of 2 under a limit of 25 is the last page', async () => {
+    const { f } = await run([capture()])
+    expect(f.sent).toHaveLength(1)
+  })
+})
+
+describe('theirstackPostingUrl', () => {
+  const HTTP = 'http://www.indeed.com/job/x-1'
+  const HTTPS = 'https://indeed.com/viewjob?jk=1'
+  it.each([
+    ['an https url is kept, whatever source_url is', { url: HTTPS, source_url: HTTP }, HTTPS],
+    ['an https url is kept when source_url is absent', { url: HTTPS, source_url: null }, HTTPS],
+    ['a refused url gives way to an https source_url', { url: HTTP, source_url: HTTPS }, HTTPS],
+    ['a refused url stays when source_url is absent', { url: HTTP, source_url: null }, HTTP],
+    ['a refused url stays when source_url is refused too', { url: HTTP, source_url: HTTP }, HTTP],
+  ])('%s', (_label, item, want) => {
+    expect(theirstackPostingUrl(item)).toBe(want)
+  })
+})
+
+describe('the key-gated state', () => {
+  it('is not blocked, needs its key, and the capture provenance agrees', () => {
+    expect(THEIRSTACK_SOURCE_STATUS.blocked).toBe(false)
     expect(THEIRSTACK_SOURCE_STATUS.permission).toBe('KEY_REQUIRED')
-    expect(THEIRSTACK_SOURCE_STATUS.reason).toContain('controlled authenticated smoke')
-    const prov = sourceProvenance('theirstack', 'doc-example') as {
+    expect(THEIRSTACK_SOURCE_STATUS.reason).toContain('THEIRSTACK_API_KEY')
+    const prov = sourceProvenance('theirstack', 'jobs-search-smoke') as {
       permission: string
+      httpStatus: number
       notes: string
     }
     expect(prov.permission).toBe(THEIRSTACK_SOURCE_STATUS.permission)
-    expect(prov.notes).toContain('UNIT EXAMPLE ONLY, NOT A CAPTURE')
-    expect(prov.notes).toContain('1 API credit for each job returned')
+    expect(prov.httpStatus).toBe(200)
+    expect(prov.notes).toContain('run 43964860057')
+    expect(prov.notes).toContain('billed one API credit per returned job')
   })
 })
 
@@ -426,8 +538,8 @@ describe('what a reviewer would otherwise have to take on trust', () => {
       query: '{"seniority":["senior"],"workplaceTypes":["remote"]}',
       configVersion: 1,
       window: {
-        from: new Date('2026-10-17T04:00:00.000Z'),
-        to: new Date('2026-10-24T04:00:00.000Z'),
+        from: new Date('2026-11-10T04:00:00.000Z'),
+        to: new Date('2026-11-17T04:00:00.000Z'),
       },
     })
   })
@@ -435,7 +547,7 @@ describe('what a reviewer would otherwise have to take on trust', () => {
   it('a longer age is a longer window (30 days back)', async () => {
     const p = provider()
     const { batch } = await run([body([])], { p, config: cfg({ maxAgeDays: 30 }, p) })
-    expect(batch.scope.window?.from).toEqual(new Date('2026-09-24T04:00:00.000Z'))
+    expect(batch.scope.window?.from).toEqual(new Date('2026-10-18T04:00:00.000Z'))
   })
 
   it('the next page cursor names the next page (a full page capped at 1: resume at page 2)', async () => {
@@ -590,9 +702,11 @@ describe('billing is not trusted until it has been observed (SR-M-1)', () => {
   })
 
   it('no observation is committed today: the source is unverified until one is', () => {
+    // The smoke asked for 3 and got 3: a whole-limit page cannot tell per-record from per-request
+    // billing (see billingSupportedBy), so the capture is no billing observation.
     expect(readdirSync(join(__dirname, '__fixtures__', 'theirstack')).sort()).toEqual([
-      'doc-example.json',
-      'doc-example.provenance.json',
+      'jobs-search-smoke.json',
+      'jobs-search-smoke.provenance.json',
     ])
   })
 

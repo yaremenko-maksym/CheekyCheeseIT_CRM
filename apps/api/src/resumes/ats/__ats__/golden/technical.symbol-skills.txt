@@ -1,0 +1,27 @@
+Rowan Achebe
+rowan.achebe@example.com
+Summary
+Software engineer who ships maintainable backend and frontend code.
+Skills
+C#
+C++
+.NET
+Node.js
+CI/CD
+ASP.NET Core
+F#
+Vue.js
+Experience
+.NET Engineer
+Kestrel Robotics
+May 2018 – Jan 2025
+• Ported the C++ motion planner to C# on .NET 8
+• Set up CI/CD for Node.js tools
+Education
+Northbridge Technical University
+BSc Computer Science
+2008 – 2012
+Languages
+English — C1 · German — B1
+Links
+GitHub

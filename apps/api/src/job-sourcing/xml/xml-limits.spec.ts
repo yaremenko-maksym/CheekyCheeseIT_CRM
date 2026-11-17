@@ -22,6 +22,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { utf8 } from '../../test/xml-corpus'
+import { cpuMs } from '../structuring/__test-helpers__/scaling'
 import { MAX_FEED_BYTES } from '../rss'
 import { BoundedXmlPort } from './bounded-xml-port'
 import {
@@ -241,9 +242,11 @@ describe('R-2: the wall-clock bound is real, and the throughput constant cannot 
     // twice as FAST, so it was the flattering one once the unit was corrected.
     const element = '<title>Senior Engineer</title>'
     const bytes = utf8(`<r>${element.repeat(ceiling - 1)}</r>`)
-    const started = process.hrtime.bigint()
-    port.parseDocument(bytes, { ...DEFAULT_XML_LIMITS, maxBytes: bytes.byteLength })
-    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6
+    // CPU time, not wall clock: at load ~95 this same parse read 1 099-1 675 ms of wall clock and
+    // failed, while the work itself had not changed — the process was simply descheduled.
+    const elapsedMs = cpuMs(() =>
+      port.parseDocument(bytes, { ...DEFAULT_XML_LIMITS, maxBytes: bytes.byteLength }),
+    )
 
     // 4x the budget, deliberately loose, and NO LONGER THE ONLY PIN on the constant — the exact
     // assertion on `itemCeiling` above is. What this adds: the derivation is about the right
@@ -267,7 +270,8 @@ describe('R-2: the wall-clock bound is real, and the throughput constant cannot 
  * testable rather than a disclaimer: each shape is built at EXACTLY the byte cap, which is the
  * worst input `maxBytes` admits, and must still complete.
  *
- * The multiple is loose for the usual reason (a timing assertion on a shared runner), so what this
+ * The multiple is loose for the usual reason (a timing assertion on a shared runner; it counts CPU
+ * time, so a descheduled process does not read as a slow parse), so what this
  * gates is a change that made any of these super-linear — which is the failure mode that would
  * make the byte cap stop being a bound. The ADR's R-2 estimate of "near or over 250 ms at 2 MiB"
  * for the PI and `&amp;` shapes does not reproduce: measured on an M3 at the cap, PI 75 ms,
@@ -295,13 +299,12 @@ describe('R-2: per-byte-dominated shapes are bounded by the byte cap alone, and 
     ['plain text', 'x'],
   ])('a 2 MiB run of %s carries one element and parses inside a loose multiple', (_case, unit) => {
     const bytes = atCap(unit)
-    const started = process.hrtime.bigint()
-    const document = port.parseDocument(bytes)
-    const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6
+    let document: ReturnType<typeof port.parseDocument> | undefined
+    const elapsedMs = cpuMs(() => (document = port.parseDocument(bytes)))
 
     // One element, zero attributes: this is WHY the item ceiling cannot bound these shapes, and
     // asserting it is what keeps the narrowed claim honest rather than merely written down.
-    expect(document.elementCount).toBe(1)
+    expect(document?.elementCount).toBe(1)
     expect(elapsedMs).toBeLessThan(MAX_XML_WALL_CLOCK_MS * 4)
   })
 

@@ -53,12 +53,24 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { setPriority, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { normalizeResumeLayout, type ResumeContent, type ResumeLayoutOptions } from '@crm/shared'
+import {
+  normalizeResumeLayout,
+  resumeTemplateNameSchema,
+  type ResumeContent,
+  type ResumeLayoutOptions,
+  type ResumeTemplateName,
+  encodeResumeMessage,
+} from '@crm/shared'
 import { resolveAssetPath } from '../common/assets.util'
-import { findUnrenderable, logDroppedGlyphs, toRenderableDeep } from './resume-glyphs'
+import {
+  findUnrenderable,
+  logDroppedGlyphs,
+  toRenderableDeep,
+  type GlyphFontSet,
+} from './resume-glyphs'
 import {
   MAX_PDF_CONTENT_BYTES,
   MAX_PDF_TEXT_OPERATORS,
@@ -122,9 +134,13 @@ export class ResumeRenderError extends Error {
 
 export interface ResumeRenderInput {
   displayName: string
+  /** Printed as body text under the name. */
+  email: string
   content: ResumeContent
   layout: ResumeLayoutOptions
-  /** Typst source for this senior. `null` → the template shipped in the repo. */
+  /** Catalog template; also picks the font whose glyph coverage applies. */
+  templateName: ResumeTemplateName
+  /** Typst source for this senior. `null` → the catalog template `templateName`. */
   templateSource: string | null
 }
 
@@ -257,18 +273,27 @@ export class ResumeTypstService {
       // aging renders by "when were you asked for" would declare it stuck and
       // restart it on top of itself.
       onStart?.()
-      return this.renderOnce(input)
+      return this.renderOnce(input, 'pdf').then(([pdf]) => pdf as Buffer)
     })
   }
 
-  private async renderOnce(input: ResumeRenderInput): Promise<Buffer> {
+  /**
+   * Render `input` to one PNG per page, through the same sandbox, gate and
+   * glyph substitution as `render` (the visual check's input). Throws
+   * `ResumeRenderError` like `render`.
+   */
+  async renderPng(input: ResumeRenderInput): Promise<Buffer[]> {
+    return this.gate.run(() => this.renderOnce(input, 'png'))
+  }
+
+  private async renderOnce(input: ResumeRenderInput, format: RenderFormat): Promise<Buffer[]> {
     const { payload, dropped } = this.serialiseInput(input)
     logDroppedGlyphs('resume render', dropped)
 
     const dir = await mkdtemp(join(this.scratchRoot, 'crm-resume-'))
     try {
-      const template = input.templateSource ?? loadDefaultTemplate()
-      assertTemplateIsDrawable(template)
+      const template = input.templateSource ?? loadCatalogTemplate(input.templateName)
+      assertTemplateIsDrawable(template, glyphFontSet(input))
       await writeFile(join(dir, 'data.json'), payload, 'utf8')
       await writeFile(join(dir, 'template.typ'), template, 'utf8')
       // The entry point is OURS, not the template's: it decides that the
@@ -280,37 +305,42 @@ export class ResumeTypstService {
         'utf8',
       )
 
-      const outPath = join(dir, 'out.pdf')
-      const result = await this.runner(typstBinary(), buildArgs(dir, outPath), {
+      // Typst numbers the PNG pages itself: `{0p}` is the zero-padded page number.
+      const outPath = join(dir, format === 'pdf' ? 'out.pdf' : 'page-{0p}.png')
+      const result = await this.runner(typstBinary(), buildArgs(dir, outPath, format), {
         cwd: dir,
         env: renderEnv(),
       })
 
       if (result.timedOut) {
         throw new ResumeRenderError(
-          `Не удалось собрать PDF: вёрстка не уложилась в ${RENDER_TIMEOUT_MS / 1000} с.`,
+          encodeResumeMessage('RESUME_RENDER_TIMEOUT', { seconds: RENDER_TIMEOUT_MS / 1000 }),
           result.stderr,
         )
       }
       if (result.code !== 0) {
         this.logger.warn(`Typst exited ${String(result.code)}: ${result.stderr}`)
         throw new ResumeRenderError(
-          'Не удалось собрать PDF по шаблону резюме. Проверьте оформление или обратитесь к администратору.',
+          encodeResumeMessage('RESUME_RENDER_TEMPLATE_FAILED'),
           result.stderr,
         )
       }
 
+      if (format === 'png') return await readPngPages(dir)
       const pdf = await readFile(outPath)
       if (pdf.subarray(0, 5).toString('latin1') !== '%PDF-') {
-        throw new ResumeRenderError('Сборка PDF завершилась, но файл не является PDF.')
+        throw new ResumeRenderError(
+          encodeResumeMessage('RESUME_RENDER_FAILED'),
+          'the render finished, but the file is not a PDF',
+        )
       }
       await assertDocumentIsNotBlank(pdf)
-      return pdf
+      return [pdf]
     } catch (err: unknown) {
       if (err instanceof ResumeRenderError) throw err
       const detail = err instanceof Error ? err.message : 'unknown'
       this.logger.error(`Resume render failed: ${detail}`)
-      throw new ResumeRenderError('Не удалось собрать PDF резюме.', detail)
+      throw new ResumeRenderError(encodeResumeMessage('RESUME_RENDER_FAILED'), detail)
     } finally {
       // The directory holds personal data (the whole CV, in clear). It goes
       // away on every path, including the timeout and the throw.
@@ -333,13 +363,17 @@ export class ResumeTypstService {
    * would invalidate a cached PDF for no reason.
    */
   private serialiseInput(input: ResumeRenderInput): { payload: string; dropped: string[] } {
-    const safe = toRenderableDeep({
-      displayName: input.displayName,
-      content: input.content,
-      layout: normalizeResumeLayout(input.layout),
-    })
+    const safe = toRenderableDeep(
+      {
+        displayName: input.displayName,
+        email: input.email,
+        content: input.content,
+        layout: normalizeResumeLayout(input.layout),
+      },
+      glyphFontSet(input),
+    )
     const templateKey = createHash('sha256')
-      .update(input.templateSource ?? loadDefaultTemplate())
+      .update(input.templateSource ?? loadCatalogTemplate(input.templateName))
       .digest('hex')
 
     return {
@@ -390,8 +424,24 @@ export function typstBinary(): string {
   return process.env['TYPST_BIN']?.trim() || 'typst'
 }
 
+type RenderFormat = 'pdf' | 'png'
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+const PNG_PAGE = /^page-\d+\.png$/
+
+/** The PNG pages Typst wrote, in page order (the zero-padded names sort as numbers). */
+async function readPngPages(dir: string): Promise<Buffer[]> {
+  // Stryker disable next-line MethodExpression: readdir order is unspecified by POSIX; APFS returns names sorted, so the missing sort only shows elsewhere (the page-order spec writes the pages last first)
+  const names = (await readdir(dir)).filter((name) => PNG_PAGE.test(name)).sort()
+  const pages = await Promise.all(names.map((name) => readFile(join(dir, name))))
+  if (pages.length === 0 || pages.some((page) => !page.subarray(0, 8).equals(PNG_SIGNATURE))) {
+    throw new ResumeRenderError('The PNG render finished, but its pages are not PNG files.')
+  }
+  return pages
+}
+
 /** The full argument list — exported so the spec can assert on it directly. */
-export function buildArgs(dir: string, outPath: string): string[] {
+export function buildArgs(dir: string, outPath: string, format: RenderFormat = 'pdf'): string[] {
   return [
     'compile',
     // Nothing outside the scratch directory is readable by the template.
@@ -414,6 +464,10 @@ export function buildArgs(dir: string, outPath: string): string[] {
     // Determinism + a quieter CPU footprint.
     '--jobs',
     '1',
+    // No `--pdf-standard ua-1`: Typst 0.15.1 refuses a UA-1 document without a
+    // title, and a personal template need not set one. Output is tagged anyway.
+    '--format',
+    format,
     '--diagnostic-format',
     'short',
     join(dir, 'main.typ'),
@@ -504,7 +558,7 @@ export function createSpawnRunner(timeoutMs: number = RENDER_TIMEOUT_MS): TypstR
 const spawnTypst: TypstRunner = createSpawnRunner()
 
 // ---------------------------------------------------------------------------
-// The default template
+// Templates
 // ---------------------------------------------------------------------------
 
 /**
@@ -558,7 +612,9 @@ const spawnTypst: TypstRunner = createSpawnRunner()
  *
  * That is the honest limit of what is guaranteed here, and it is the limit a
  * designer authoring a personal template needs to know — stated again at the
- * top of `assets/typst/default-resume.typ`, which is the file they will copy.
+ * top of `assets/typst/resume-skeleton.typ`. That file does not compile alone
+ * (`theme` is defined by a theme file): an author copies a whole catalog
+ * template, i.e. the output of `loadCatalogTemplate` (theme + skeleton).
  *
  * Cheap by construction — a template is a few kilobytes, and the coverage set
  * is cached for the process.
@@ -619,31 +675,60 @@ async function assertDocumentIsNotBlank(pdf: Buffer): Promise<void> {
     return
   }
   throw new ResumeRenderError(
-    'Шаблон резюме собрался в пустую страницу — вероятно, в нём есть символ, который не отрисовывается доступными шрифтами. Проверьте оформление или обратитесь к администратору.',
+    encodeResumeMessage('RESUME_RENDER_BLANK_PAGE'),
     'render produced a PDF with zero text-showing operators',
   )
 }
 
-function assertTemplateIsDrawable(template: string): void {
-  const missing = findUnrenderable(template)
+function assertTemplateIsDrawable(template: string, fontSet: GlyphFontSet): void {
+  const missing = findUnrenderable(template, fontSet)
   if (missing.length === 0) return
   throw new ResumeRenderError(
-    `В шаблоне резюме есть символы, которые не отрисовываются доступными шрифтами: ${missing.join(' ')}. Замените их или добавьте шрифт с этими глифами.`,
+    encodeResumeMessage('RESUME_RENDER_MISSING_GLYPHS', { glyphs: missing.join(' ') }),
     `undrawable template glyphs: ${missing.map((ch) => `U+${(ch.codePointAt(0) ?? 0).toString(16).toUpperCase()}`).join(', ')}`,
   )
 }
 
-let defaultTemplateCache: string | null = null
+/**
+ * The fonts a render's glyphs are checked against. A catalog template uses its
+ * theme's font; a personal template may name any embedded font, so it gets
+ * the glyphs every embedded face has, whatever its stored `templateName`.
+ */
+function glyphFontSet(input: ResumeRenderInput): GlyphFontSet {
+  return input.templateSource === null ? input.templateName : 'personal'
+}
+
+const catalogCache = new Map<ResumeTemplateName, string>()
 
 /**
- * The one template shipped in this repo, for every senior without a personal
- * one. Read once per process — it is a static asset, like the fonts.
+ * A catalog template as ONE Typst source: the theme's `#let theme = (...)`
+ * followed by the shared skeleton. Read once per name and kept for the
+ * process: the assets are part of the build and do not change under it.
  */
-export function loadDefaultTemplate(): string {
-  if (defaultTemplateCache === null) {
-    defaultTemplateCache = readFileSync(resolveAssetPath('typst/default-resume.typ'), 'utf8')
-  }
-  return defaultTemplateCache
+export function loadCatalogTemplate(name: ResumeTemplateName): string {
+  const source = catalogCache.get(name) ?? readCatalogTemplate(name)
+  catalogCache.set(name, source)
+  return source
+}
+
+function readCatalogTemplate(name: ResumeTemplateName): string {
+  const themePath = resolveAssetPath(`typst/themes/${name}.typ`)
+  const skeletonPath = resolveAssetPath('typst/resume-skeleton.typ')
+  // Stryker disable next-line StringLiteral: an empty encoding returns a Buffer, which the template literal below decodes as UTF-8, the identical string
+  const theme = readFileSync(themePath, 'utf8')
+  // Stryker disable next-line StringLiteral: as above, an empty encoding decodes to the identical string
+  const skeleton = readFileSync(skeletonPath, 'utf8')
+  return `${theme}\n${skeleton}`
+}
+
+/**
+ * The catalog name a stored `senior_resumes.template_name` resolves to. Live
+ * rows hold a legacy display label (`'Стандартный шаблон'`) or null, neither a
+ * catalog name, so anything that does not parse renders as `classic`.
+ */
+export function resolveTemplateName(stored: string | null): ResumeTemplateName {
+  const parsed = resumeTemplateNameSchema.safeParse(stored)
+  return parsed.success ? parsed.data : 'classic'
 }
 
 /**

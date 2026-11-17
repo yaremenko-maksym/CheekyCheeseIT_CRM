@@ -9,8 +9,10 @@ import importlib.util, os, posixpath, re, shlex, subprocess, sys
 # The hook reads the reasons below as UTF-8. On Windows a pipe gets the locale code
 # page (cp1251/cp1252) instead, and -I makes python ignore PYTHONIOENCODING /
 # PYTHONUTF8, so every Cyrillic reason reached the refusal as mojibake. Set it here.
+# stdin too: a Cyrillic command arrives as UTF-8; its error handler is kept as it was.
 sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
+sys.stdin.reconfigure(encoding="utf-8", errors=sys.stdin.errors)
 
 # The shared reading of a line continuation (SR-M-1 of #1294); loaded by absolute path,
 # as pre-bash-safety.sh does. A load failure kills the analyzer, and the hook refuses.
@@ -86,6 +88,28 @@ def tmp_norm(p):
     return re.sub(r"^/private(/tmp/)", r"\1", p)
 
 
+def native_path(p):
+    """The path as the filesystem of THIS python knows it, for an existence test only.
+    Native Windows python cannot see a Git Bash spelling (`/c/x` is `C:/x`, `/tmp/x`
+    lives under the Git install), so os.path.exists answered False for a live tree and
+    an `add` onto it was recorded as this agent's (SR-M-1 of #1317). Elsewhere the
+    path is returned unchanged. None when the conversion fails (cygpath missing,
+    non-zero, timed out, empty): the caller then treats the path as existing, because
+    a fallback to the Git Bash spelling would answer "absent" and record a live tree."""
+    if os.name != "nt" or not p.startswith("/"):
+        return p
+    # No `/c/x` fast path: the only caller passes a path under own_scratch (/tmp/...),
+    # so it was unreachable; cygpath converts that spelling too.
+    try:
+        # utf-8: under -I the default is the ANSI code page, which mangles a Cyrillic path
+        out = subprocess.run(["cygpath", "-w", p], capture_output=True, text=True,
+                             encoding="utf-8", timeout=5)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    native = (out.stdout or "").strip()  # None when the output did not decode
+    return native if out.returncode == 0 and native else None
+
+
 # ---- identity: the scratchpad is SHARED, so the path cannot say whose it is --
 # A read-only agent gets no worktree (agent-isolation.md rule 2), so own_wt above
 # is empty for every reviewer — and a reviewer that needs to RUN something makes
@@ -142,6 +166,7 @@ if m2:
 # Without an agent_id (main thread, or a runtime that omits the field) nothing is
 # recorded and nothing is permitted — i.e. the behaviour before this widening.
 OWNERS = os.environ.get("CROSS_AGENT_WORKTREE_OWNERS", "")
+LEDGER_UNSAFE = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")  # every control char but the one tab
 if not OWNERS and own_scratch:
     OWNERS = os.path.join(own_scratch, ".cross-agent-worktree-owners")
 
@@ -151,10 +176,13 @@ def record_owned(path):
     over a bookkeeping write would refuse the command it was only observing."""
     if not (OWNERS and agent_id):
         return
+    line = "%s\t%s" % (agent_id, path)
+    if LEDGER_UNSAFE.search(line) or line.count("\t") != 1:
+        return  # a quoted newline or tab would write a line nobody checked (SR3-M-1)
     try:
-        with open(OWNERS, "a") as fh:
-            fh.write("%s\t%s\n" % (agent_id, path))
-    except OSError:
+        with open(OWNERS, "a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    except (OSError, ValueError):  # ValueError: a lone surrogate does not encode
         pass
 
 
@@ -165,15 +193,24 @@ def is_owned(path):
     if not (OWNERS and agent_id):
         return False
     try:
-        with open(OWNERS) as fh:
-            lines = fh.read().splitlines()
+        # errors="replace": a line an older version wrote in cp1251 then matches nothing
+        # instead of crashing every Bash call. Split on "\n" only (text mode already
+        # folds "\r\n"): splitlines() also breaks on U+2028, U+0085 and the like,
+        # which record_owned does not refuse.
+        with open(OWNERS, encoding="utf-8", errors="replace") as fh:
+            lines = fh.read().split("\n")
     except OSError:
         return False
     for line in lines:
-        who, _, owned = line.partition("\t")
+        fields = line.split("\t")
+        if len(fields) != 2 or LEDGER_UNSAFE.search(line):
+            continue
+        who, owned = fields
         if who != agent_id or not owned:
             continue
         owned = tmp_norm(owned)
+        if not (own_scratch and owned.startswith(own_scratch + "/")):
+            continue  # a root line (written by 3694da26) would make every sibling "mine"
         if path == owned or path.startswith(owned + "/"):
             return True
     return False
@@ -702,8 +739,9 @@ for name, args in toks:
             cand = tmp_norm(posixpath.normpath(t).rstrip("/"))
             if not own_scratch or not cand.startswith(own_scratch + "/"):
                 continue
-            if os.path.exists(cand):
-                continue
+            native = native_path(cand)
+            if native is None or os.path.exists(native):
+                continue  # unconvertible counts as existing: never record what may be live
             record_owned(cand)
         continue  # a later worktree command on the line is judged too
     if sub in ("remove", "move"):

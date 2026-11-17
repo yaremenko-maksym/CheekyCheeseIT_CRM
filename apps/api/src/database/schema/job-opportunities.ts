@@ -44,6 +44,7 @@ import {
   jobSourceTypeEnum,
 } from './enums'
 import { JOB_SHORT_TEXT_MAX } from './job-patterns'
+import { allTechnicalRolesCheck } from './job-role-classifications'
 import { jobSources } from './job-sourcing'
 import { teams, users } from './users'
 
@@ -292,7 +293,7 @@ export const jobOpportunities = pgTable(
     /**
      * SR-M-2: the revision the recompute last evaluated, written with `evaluationVerdict` and the
      * match rows in one transaction (`installMatches`). NULL = never evaluated. Production gets both
-     * columns ONLY through the staged forward DDL; declared last so the rank matches an ADD COLUMN.
+     * columns ONLY through the forward DDL in manual/; declared last so the rank matches an ADD COLUMN.
      */
     evaluatedRevision: integer('evaluated_revision'),
     /** The opportunity-level result at `evaluatedRevision`; a per-senior stop-list is not one. */
@@ -306,16 +307,29 @@ export const jobOpportunities = pgTable(
      * r5 Task 6.4c: layer 1's role family at `evaluatedRevision` (`opportunityRoleFamily`), written
      * with the evaluation record; NULL = never evaluated or UNKNOWN. A triage subscription matches
      * it by equality, so NULL never matches. Bounded like the subscription's `role_family`.
-     * Production gets it ONLY through the staged forward DDL; declared last (ADD COLUMN rank).
+     * Production gets it ONLY through the forward DDL in manual/; declared last (ADD COLUMN rank).
      */
     roleFamily: text('role_family'),
     /**
      * r5 Phase 6: the team a MANUAL card (POST /job-queue/manual) belongs to; NULL = a sourced
      * opportunity. Only this team sees the card (`visibleOpportunityPredicate`, MANUAL branch), and
-     * no automatic branch shows a row where it is set. Production gets it ONLY through the staged
+     * no automatic branch shows a row where it is set. Production gets it ONLY through the manual/
      * forward DDL; declared last (ADD COLUMN rank).
      */
     manualTeamId: uuid('manual_team_id'),
+    /**
+     * Senior roles PR 2: the vacancy's technical roles (34 ids), how they were decided and by which
+     * classifier version (`job-sourcing/store/opportunity-roles.ts`). `role_status` NULL = not
+     * classified by any version yet; a recompute backfills it. Kept OUT of the revision tuple: a
+     * reclassification alone never bumps `revision`. Production gets them ONLY through
+     * manual/2026-11-17_technical_roles.sql; declared last (ADD COLUMN rank).
+     */
+    technicalRoles: text('technical_roles')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    roleStatus: text('role_status').$type<'RULE' | 'AI' | 'PENDING' | 'UNCLEAR' | 'NON_IT'>(),
+    roleClassifierVersion: text('role_classifier_version'),
   },
   (t) => [
     foreignKey({
@@ -343,6 +357,16 @@ export const jobOpportunities = pgTable(
     check(
       'ck_job_opportunities_role_family_bounded',
       sql`${t.roleFamily} IS NULL OR (${t.roleFamily} ~ '[^[:space:]]' AND length(${t.roleFamily}) <= ${sql.raw(String(JOB_SHORT_TEXT_MAX))})`,
+    ),
+    index('idx_job_opportunities_technical_roles').using('gin', t.technicalRoles),
+    check('ck_job_opportunities_technical_roles_known', allTechnicalRolesCheck(t.technicalRoles)),
+    check(
+      'ck_job_opportunities_role_status',
+      sql`${t.roleStatus} IS NULL OR ${t.roleStatus} IN ('RULE', 'AI', 'PENDING', 'UNCLEAR', 'NON_IT')`,
+    ),
+    check(
+      'ck_job_opportunities_roles_iff_status',
+      sql`${t.roleStatus} IS NULL OR ((cardinality(${t.technicalRoles}) > 0) = (${t.roleStatus} IN ('RULE', 'AI')))`,
     ),
   ],
 )

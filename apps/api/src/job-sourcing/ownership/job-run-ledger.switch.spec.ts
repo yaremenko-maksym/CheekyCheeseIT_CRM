@@ -3,7 +3,7 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SpecCatalog, specRegistry } from '../../test/ledger-fixtures'
 import type { MeterDb } from '../metering/account-meter.store'
-import { JobRunLedger } from './job-run-ledger'
+import { JobRunLedger, manualDueTerm } from './job-run-ledger'
 
 /**
  * r5 Task 6.5 — `setEnabled` and the extended `resetFailures` on a scripted transaction, so the
@@ -152,6 +152,65 @@ describe('setEnabled — the locked read', () => {
 })
 
 describe('setEnabled — enable', () => {
+  it('arms the slot (param true) only for a source whose entry has a fetch profile', async () => {
+    const armed = harness({ source: source() })
+    await armed.ledger.setEnabled({ sourceId: SOURCE, actor: ACTOR, enabled: true })
+    // [enabled, kind, actor, arm, window minutes (SpecCatalog: daily profile, no floor), id]
+    expect(updates(armed.statements)[0]?.params).toEqual([
+      true,
+      'ENABLED',
+      ACTOR,
+      true,
+      1440,
+      SOURCE,
+    ])
+    expect(updates(armed.statements)[0]?.sql).toContain(
+      'last_attempt_at + make_interval(mins => $5::int)',
+    )
+
+    const nullProfile = new SpecCatalog()
+    nullProfile.add(MANIFEST, { fetchProfile: null })
+    const unarmed = harness({ source: source() }, nullProfile)
+    expect(
+      await unarmed.ledger.setEnabled({ sourceId: SOURCE, actor: ACTOR, enabled: true }),
+    ).toMatchObject({ kind: 'SWITCHED', changed: true })
+    expect(updates(unarmed.statements)[0]?.params).toEqual([
+      true,
+      'ENABLED',
+      ACTOR,
+      false,
+      1440,
+      SOURCE,
+    ])
+  })
+
+  it('a LEGACY source (no manifest entry) is enabled without arming a slot', async () => {
+    const catalog = readyCatalog()
+    const entry = vi.spyOn(catalog, 'entry')
+    const h = harness({ source: source({ type: 'DOU_RSS', manifest_id: null }) }, catalog)
+    expect(await h.ledger.setEnabled({ sourceId: SOURCE, actor: ACTOR, enabled: true })).toEqual({
+      kind: 'SWITCHED',
+      changed: true,
+      cancelledRuns: 0,
+    })
+    expect(updates(h.statements)[0]?.params?.[3]).toBe(false)
+    // No manifest id: the catalog is not even asked.
+    expect(entry).not.toHaveBeenCalled()
+  })
+
+  it('disable never arms, even for a profiled source', async () => {
+    const h = harness({ source: source({ enabled: true }) })
+    await h.ledger.setEnabled({ sourceId: SOURCE, actor: ACTOR, enabled: false })
+    expect(updates(h.statements)[0]?.params?.slice(0, 4)).toEqual([false, 'DISABLED', ACTOR, false])
+  })
+
+  it('isReportingType: true only for a registered REPORTING contract', () => {
+    const h = harness({ source: source() })
+    expect(h.ledger.isReportingType('REMOTIVE_API')).toBe(true)
+    expect(h.ledger.isReportingType('DOU_RSS')).toBe(false)
+    expect(h.ledger.isReportingType('NOT_A_TYPE')).toBe(false)
+  })
+
   it('a ready source is switched on with one ENABLED entry and nothing else written', async () => {
     const h = harness({ source: source() })
     expect(await h.ledger.setEnabled({ sourceId: SOURCE, actor: ACTOR, enabled: true })).toEqual({
@@ -163,12 +222,13 @@ describe('setEnabled — enable', () => {
     expect(updates(h.statements)).toHaveLength(1)
     expect(update?.params).toEqual(expect.arrayContaining([true, 'ENABLED', ACTOR, SOURCE]))
     expect(update?.sql).toContain('admin_state_history = admin_state_history || jsonb_build_array')
-    // Enable never resets quota, failures, cooldown, the due time, the reasons or readiness.
+    // Enable arms the due time only when it is unset (never moves an existing slot).
+    expect(update?.sql).toContain('COALESCE(next_attempt_at, clock_timestamp())')
+    // Enable never resets quota, failures, cooldown, the reasons or readiness.
     for (const column of [
       'budget_used',
       'consecutive_failures',
       'cooldown_until',
-      'next_attempt_at',
       'last_error_code',
       'disabled_reason',
       'readiness',
@@ -384,5 +444,21 @@ describe('resetFailures — clears an access pause, audited (Task 6.5)', () => {
     expect(reset?.params).toEqual(
       expect.arrayContaining(['ACCESS_POLICY', ACTOR, 'rekeyed', SOURCE]),
     )
+  })
+})
+
+describe('manualDueTerm — the t_due term of claimSource', () => {
+  it('a human claim: the whole MANUAL due predicate, its trigger-mode term included', () => {
+    const q = dialect.sqlToQuery(manualDueTerm(undefined, 2))
+    expect(q.sql).toContain('"job_sources"."trigger_mode"')
+    expect(q.sql).toContain('job_source_hosts')
+    expect(q.params).toEqual(expect.arrayContaining(['BOTH', 'MANUAL', 2]))
+  })
+
+  it('ENABLE_CATCH_UP: the host term alone, no trigger-mode term', () => {
+    const q = dialect.sqlToQuery(manualDueTerm('ENABLE_CATCH_UP', 2))
+    expect(q.sql).toContain('job_source_hosts')
+    expect(q.sql).not.toContain('trigger_mode')
+    expect(q.params).toEqual([])
   })
 })

@@ -24,6 +24,7 @@ import {
   recoverExpiredDirty,
   releaseDirty,
 } from './dirty-work.store'
+import { createRecomputeSteps } from '../runtime/recompute-worker'
 
 /**
  * r5 Task 4.6 S3 — the dirty-work claim store against a real Postgres, connected as `crm_app` (the
@@ -354,6 +355,21 @@ describe.skipIf(!hasDatabaseUrl())('dirty-work claim store (r5 Task 4.6 S3)', ()
     })
     const cr = await row(next!)
     expect([cr.status, cr.last_error_code, cr.retry_count]).toEqual(['FAILED', 'LEASE_EXPIRED', 1])
+  })
+
+  it('PR #1366 CR-H-1: a retried row is not claimed by a fresh-only claim (the post-run drain), only by the default one (the sweep)', async () => {
+    const [id, next] = await seed(2)
+    const [w] = await claimMine('drain-1', 1)
+    expect(w!.id).toBe(id)
+    expect(await failDirty(app, w!, 'HTTP_503')).toBe('RETRY')
+    // The next post-run drain, through the match worker's real port: the oldest row is the retried
+    // one, and it is passed over.
+    const fresh = await createRecomputeSteps(app as never).claim('drain-2', 1, true)
+    expect(fresh.map((x) => x.id)).toEqual([next])
+    expect((await row(id!)).status).toBe('PENDING')
+    // The sweep claims it, a period later.
+    const [swept] = await claimMine('sweep', 1)
+    expect([swept!.id, swept!.retryCount]).toEqual([id, 1])
   })
 
   it('AC 5: a duplicate enqueue is a no-op (no 23505), distinct version or reason inserts', async () => {

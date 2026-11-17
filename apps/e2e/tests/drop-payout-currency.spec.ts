@@ -232,10 +232,10 @@ test.describe('Выплатить дропу — currency picker (task-drop-payo
 
     const datePicker = dialog.getByTestId('settle-senior-txdate')
     await expect(datePicker).toBeVisible()
-    // dd MMM yyyy in the active UI locale. Pin the day and year from the
-    // obligation instead of UTC `today` (which changes before midnight in Kyiv).
+    // `formatDate`'s dayMonthYear in the active UI locale (28 лист. 2026 р. / 28 Nov 2026). Pin the
+    // day and year from the obligation instead of UTC `today` (which changes before midnight in Kyiv).
     const [year, , day] = defaultTxDate.split('-')
-    await expect(datePicker).toHaveText(new RegExp(`^${day}\\s+.+\\s+${year}$`))
+    await expect(datePicker).toHaveText(new RegExp(`^${day}\\s+.+\\s+${year}(\\s+р\\.)?$`))
 
     // ADMIN_PERSONAL funding — sidesteps the company-account balance gate
     // (unrelated to this test, which only exercises the date default).

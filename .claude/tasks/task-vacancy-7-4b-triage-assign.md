@@ -52,6 +52,9 @@ The API exists: `POST /job-queue/:id/team-triage` (ADMIN, `jobQueueTeamTriageGra
 
 ## Assumptions
 
+- A1 (Master): `policyVersion` — the client sends `0`, a named constant meaning "unversioned". The server stores the
+  value as an audit stamp and validates it against nothing; the card has no server policy version to return (Task 7.3b,
+  SPEC-M-2); real versions start at 1, so `0` never collides. Server-side policy versioning is backlog 425 (owner, A3).
 - A1 (Coder fills in): the grant-expiry default and why, one line here before the first commit. Owner brief Q1 left the
   default to this task; the value rides into the PR body Assumptions block.
 

@@ -5,6 +5,7 @@ import {
   buildInferenceConfig,
   buildRouterConfig,
   extractionWorkerEnvSchema,
+  routerEnvWarnings,
 } from './build-inference-config'
 import { EXTRACTION_MODEL_GUARDRAILS } from './extraction-guardrails'
 
@@ -128,20 +129,18 @@ describe('extractionWorkerEnvSchema', () => {
   })
 
   it('parses the worker keys alone, without the API env', () => {
-    const r = extractionWorkerEnvSchema.safeParse({
-      GROQ_API_KEY: 'q-key',
-      ROUTER_LOCAL_MODEL_URL: 'http://crm-model-runtime:11434',
-      LOCAL_MODEL_NAME: 'qwen3:8b',
-      LOCAL_MODEL_KEY: 'l-key',
-    })
+    const r = extractionWorkerEnvSchema.safeParse({ GROQ_API_KEY: 'q-key' })
     expect(r.success).toBe(true)
   })
 
-  it('refuses a ROUTER_LOCAL_MODEL_URL the router refuses', () => {
-    expect(
-      extractionWorkerEnvSchema.safeParse({ ROUTER_LOCAL_MODEL_URL: 'http://example.com' }).success,
-    ).toBe(false)
-  })
+  it.each(['ROUTER_LOCAL_MODEL_URL', 'LOCAL_MODEL_NAME', 'LOCAL_MODEL_KEY'])(
+    '%s is no worker key any more (5.4c-H1): left set, it is not read and refuses nothing',
+    (key) => {
+      const r = extractionWorkerEnvSchema.safeParse({ GROQ_API_KEY: 'q-key', [key]: 'http://x' })
+      expect(r.success).toBe(true)
+      expect(r.data).toEqual({ GROQ_API_KEY: 'q-key' })
+    },
+  )
 })
 
 const HOSTED_COMMON = {
@@ -155,42 +154,94 @@ const HOSTED_COMMON = {
 const PARAMS = {
   policyVersion: 'v1',
   hostedBudgetMs: 60_000,
-  floorBudgetMs: 6 * 200_000,
   routes: [
     { provider: 'gemini', models: ['gemini-2.5-flash'], ...HOSTED_COMMON },
     { provider: 'groq', models: ['openai/gpt-oss-20b'], ...HOSTED_COMMON },
+  ],
+}
+const FULL_ENV = { GEMINI_API_KEY: 'G-ENV-KEY', GROQ_API_KEY: 'Q-ENV-KEY' }
+type Routes = { routes: Record<string, unknown>[] }
+
+const ACCOUNT = '0123456789abcdef0123456789abcdef'
+/** The #1377 runbook sample (gemini + groq + cloudflare), without the withdrawn `floorBudgetMs`. */
+const RUNBOOK_SAMPLE = {
+  policyVersion: 'hosted-2026-11-17',
+  hostedBudgetMs: 90_000,
+  routes: [
     {
-      provider: 'local',
-      contextTokens: 8_192,
+      provider: 'gemini',
+      models: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
+      contextTokens: 32_000,
       structuredOutput: 'json_schema',
-      timeoutMs: 200_000,
-      maxAnswerTokens: 1_000,
+      minGapMs: 4_000,
+      timeoutMs: 30_000,
+      maxAnswerTokens: 2_000,
+      freeLimit: { requestsPerDay: 20 },
+    },
+    {
+      provider: 'groq',
+      models: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b'],
+      contextTokens: 8_000,
+      structuredOutput: 'json_schema',
+      minGapMs: 2_000,
+      timeoutMs: 30_000,
+      maxAnswerTokens: 2_000,
+      freeLimit: { requestsPerDay: 1_000, tokensPerDay: 200_000 },
+    },
+    {
+      provider: 'cloudflare',
+      models: [
+        '@cf/mistralai/mistral-small-3.1-24b-instruct',
+        '@cf/openai/gpt-oss-20b',
+        '@cf/google/gemma-4-26b-a4b-it',
+      ],
+      contextTokens: 16_000,
+      structuredOutput: 'none',
+      minGapMs: 2_000,
+      timeoutMs: 30_000,
+      maxAnswerTokens: 2_048,
+      freeLimit: { requestsPerDay: 16 },
     },
   ],
 }
-const FULL_ENV = {
-  GEMINI_API_KEY: 'G-ENV-KEY',
-  GROQ_API_KEY: 'Q-ENV-KEY',
-  ROUTER_LOCAL_MODEL_URL: 'http://crm-model-runtime:11434',
-  LOCAL_MODEL_NAME: 'qwen3:8b',
+const SAMPLE_ENV = { ...FULL_ENV, CLOUDFLARE_AI_TOKEN: 'C-ENV-KEY', CLOUDFLARE_ACCOUNT_ID: ACCOUNT }
+const STALE_LOCAL = {
+  provider: 'local',
+  contextTokens: 8_192,
+  structuredOutput: 'json_schema',
+  timeoutMs: 200_000,
+  maxAnswerTokens: 1_000,
 }
-type Routes = { routes: Record<string, unknown>[] }
 
 describe('buildRouterConfig', () => {
-  it('fills keys and the local URL from env into a config the router accepts', () => {
-    const cfg = buildRouterConfig(PARAMS, { ...FULL_ENV, LOCAL_MODEL_KEY: 'L-ENV-KEY' })
+  it('fills the hosted keys from env into a config the router accepts', () => {
+    const cfg = buildRouterConfig(PARAMS, FULL_ENV)
     const { routes } = cfg as Routes
     expect(routes.map((r) => [r.provider, r.apiKey])).toEqual([
       ['gemini', 'G-ENV-KEY'],
       ['groq', 'Q-ENV-KEY'],
-      ['local', 'L-ENV-KEY'],
     ])
-    expect(routes[2]).toMatchObject({
-      baseUrl: 'http://crm-model-runtime:11434',
-      model: 'qwen3:8b',
-    })
-    // A key over plain HTTP is the router's refusal (SR-L-63); without it the config is accepted.
-    expect(routerConfigSchema.safeParse(buildRouterConfig(PARAMS, FULL_ENV)).success).toBe(true)
+    expect(routerConfigSchema.safeParse(cfg).success).toBe(true)
+  })
+
+  it('accepts the hosted-only runbook sample: gemini, groq and cloudflare, every key from env (AC6)', () => {
+    const cfg = buildRouterConfig(RUNBOOK_SAMPLE, SAMPLE_ENV)
+    expect((cfg as Routes).routes.map((r) => r.provider)).toEqual(['gemini', 'groq', 'cloudflare'])
+    expect(routerConfigSchema.safeParse(cfg).success).toBe(true)
+  })
+
+  it('a stale floorBudgetMs is handed on, so the router refuses the config (5.4c-H1)', () => {
+    const cfg = buildRouterConfig({ ...RUNBOOK_SAMPLE, floorBudgetMs: 180_000 }, SAMPLE_ENV)
+    expect(cfg).toHaveProperty('floorBudgetMs', 180_000)
+    expect(routerConfigSchema.safeParse(cfg).success).toBe(false)
+  })
+
+  it('a stale local route is handed on unchanged, so the router refuses the config (5.4c-H1)', () => {
+    const withLocal = { ...PARAMS, routes: [...PARAMS.routes, STALE_LOCAL] }
+    const cfg = buildRouterConfig(withLocal, FULL_ENV) as Routes
+    expect(cfg.routes.map((r) => r.provider)).toEqual(['gemini', 'groq', 'local'])
+    expect(cfg.routes[2]).toEqual(STALE_LOCAL)
+    expect(routerConfigSchema.safeParse(cfg).success).toBe(false)
   })
 
   it('drops a hosted route whose key is absent: that provider does not take part', () => {
@@ -198,37 +249,123 @@ describe('buildRouterConfig', () => {
       ...FULL_ENV,
       GEMINI_API_KEY: undefined,
     }) as Routes
-    expect(routes.map((r) => r.provider)).toEqual(['groq', 'local'])
-    const localOnly = buildRouterConfig(PARAMS, {
-      ROUTER_LOCAL_MODEL_URL: FULL_ENV.ROUTER_LOCAL_MODEL_URL,
-      LOCAL_MODEL_NAME: FULL_ENV.LOCAL_MODEL_NAME,
-    })
-    expect((localOnly as Routes).routes.map((r) => r.provider)).toEqual(['local'])
-    expect(routerConfigSchema.safeParse(localOnly).success).toBe(true)
+    expect(routes.map((r) => r.provider)).toEqual(['groq'])
+    // No key at all: no route is left, and the router refuses the empty list.
+    const none = buildRouterConfig(PARAMS, {})
+    expect((none as Routes).routes).toEqual([])
+    expect(routerConfigSchema.safeParse(none).success).toBe(false)
   })
 
-  it('never takes a key, URL or model from the JSON parameters', () => {
+  describe('the Cloudflare route (amendment 2026-11-17)', () => {
+    const CF = {
+      provider: 'cloudflare',
+      models: ['@cf/mistralai/mistral-small-3.1-24b-instruct', '@cf/openai/gpt-oss-20b'],
+      ...HOSTED_COMMON,
+      contextTokens: 16_000,
+      maxAnswerTokens: 2_048,
+      freeLimit: { requestsPerDay: 16 },
+    }
+    const WITH_CF = { ...PARAMS, routes: [CF, PARAMS.routes[1]] }
+    const CF_ENV = { ...FULL_ENV, CLOUDFLARE_AI_TOKEN: 'C-ENV-KEY', CLOUDFLARE_ACCOUNT_ID: ACCOUNT }
+
+    it('fills the token and the account id from env into a config the router accepts', () => {
+      const cfg = buildRouterConfig(WITH_CF, CF_ENV)
+      expect((cfg as Routes).routes[0]).toMatchObject({
+        provider: 'cloudflare',
+        apiKey: 'C-ENV-KEY',
+        accountId: ACCOUNT,
+      })
+      expect(routerConfigSchema.safeParse(cfg).success).toBe(true)
+    })
+
+    it.each([
+      ['no token', { CLOUDFLARE_AI_TOKEN: undefined }],
+      ['no account id', { CLOUDFLARE_ACCOUNT_ID: undefined }],
+      ['an upper-case account id', { CLOUDFLARE_ACCOUNT_ID: ACCOUNT.toUpperCase() }],
+      ['a 31-character account id', { CLOUDFLARE_ACCOUNT_ID: ACCOUNT.slice(1) }],
+      ['an account id with a path', { CLOUDFLARE_ACCOUNT_ID: `${ACCOUNT.slice(3)}/..` }],
+      ['an empty account id', { CLOUDFLARE_ACCOUNT_ID: '' }],
+    ])('drops the route with %s: the rest of the config still stands', (_why, over) => {
+      const cfg = buildRouterConfig(WITH_CF, { ...CF_ENV, ...over })
+      expect((cfg as Routes).routes.map((r) => r.provider)).toEqual(['groq'])
+      expect(routerConfigSchema.safeParse(cfg).success).toBe(true)
+    })
+
+    it('never takes the token or the account id from the JSON parameters', () => {
+      const smuggled = {
+        ...PARAMS,
+        routes: [{ ...CF, apiKey: 'JSON-KEY', accountId: 'f'.repeat(32) }, PARAMS.routes[1]],
+      }
+      const withEnv = buildRouterConfig(smuggled, CF_ENV) as Routes
+      expect(withEnv.routes[0]).toMatchObject({ apiKey: 'C-ENV-KEY', accountId: ACCOUNT })
+      const without = JSON.stringify(buildRouterConfig(smuggled, FULL_ENV))
+      expect(without).not.toContain('JSON-KEY')
+      expect(without).not.toContain('f'.repeat(32))
+    })
+
+    it('warns once, by route and reason, when a set account id is malformed (F6)', () => {
+      const bad = `${ACCOUNT.slice(1)}X`
+      const warnings = routerEnvWarnings(WITH_CF, { ...CF_ENV, CLOUDFLARE_ACCOUNT_ID: bad })
+      expect(warnings).toEqual([{ route: 'cloudflare', reason: 'ACCOUNT_ID_MALFORMED' }])
+      expect(JSON.stringify(warnings)).not.toContain(bad)
+      expect(routerEnvWarnings(WITH_CF, CF_ENV)).toEqual([])
+      expect(routerEnvWarnings(WITH_CF, { ...CF_ENV, CLOUDFLARE_ACCOUNT_ID: '' })).toHaveLength(1)
+      // No Cloudflare route, or no readable config: nothing to warn about.
+      expect(routerEnvWarnings(PARAMS, { ...CF_ENV, CLOUDFLARE_ACCOUNT_ID: bad })).toEqual([])
+      expect(routerEnvWarnings('x', { ...CF_ENV, CLOUDFLARE_ACCOUNT_ID: bad })).toEqual([])
+      expect(routerEnvWarnings({ routes: 'x' }, { ...CF_ENV, CLOUDFLARE_ACCOUNT_ID: bad })).toEqual(
+        [],
+      )
+    })
+
+    it('warns once, by route and reason, when the account id is set but the token is missing (F9)', () => {
+      const env = { ...CF_ENV, CLOUDFLARE_AI_TOKEN: undefined }
+      expect(routerEnvWarnings(WITH_CF, env)).toEqual([
+        { route: 'cloudflare', reason: 'TOKEN_MISSING' },
+      ])
+      // Nothing set at all: the route was never configured, so nothing to warn about.
+      expect(routerEnvWarnings(WITH_CF, { ...env, CLOUDFLARE_ACCOUNT_ID: undefined })).toEqual([])
+      // No Cloudflare route in the config: the token's absence means nothing.
+      expect(routerEnvWarnings(PARAMS, env)).toEqual([])
+      // A malformed id keeps its own single warning.
+      expect(routerEnvWarnings(WITH_CF, { ...env, CLOUDFLARE_ACCOUNT_ID: 'x' })).toEqual([
+        { route: 'cloudflare', reason: 'ACCOUNT_ID_MALFORMED' },
+      ])
+    })
+
+    it('warns once, by route and reason, when the token is set but the account id is missing (CR-L-1)', () => {
+      const env = { ...CF_ENV, CLOUDFLARE_ACCOUNT_ID: undefined }
+      expect(routerEnvWarnings(WITH_CF, env)).toEqual([
+        { route: 'cloudflare', reason: 'ACCOUNT_ID_MISSING' },
+      ])
+      expect(JSON.stringify(routerEnvWarnings(WITH_CF, env))).not.toContain(
+        CF_ENV.CLOUDFLARE_AI_TOKEN,
+      )
+      // Nothing set at all: the route was never configured, so nothing to warn about.
+      expect(routerEnvWarnings(WITH_CF, { ...env, CLOUDFLARE_AI_TOKEN: undefined })).toEqual([])
+      // No Cloudflare route in the config: the id's absence means nothing.
+      expect(routerEnvWarnings(PARAMS, env)).toEqual([])
+    })
+
+    it('the worker env refuses an empty token and leaves a malformed account id to the route', () => {
+      expect(extractionWorkerEnvSchema.safeParse({ CLOUDFLARE_AI_TOKEN: '' }).success).toBe(false)
+      expect(extractionWorkerEnvSchema.safeParse({ CLOUDFLARE_ACCOUNT_ID: 'x' }).success).toBe(true)
+    })
+  })
+
+  it('never takes a key or URL from the JSON parameters', () => {
     const smuggled = {
       ...PARAMS,
       routes: [
+        { ...PARAMS.routes[0], apiKey: 'JSON-KEY', baseUrl: 'http://evil.example' },
         { ...PARAMS.routes[1], apiKey: 'JSON-KEY' },
-        { ...PARAMS.routes[2], apiKey: 'JSON-KEY', baseUrl: 'http://evil.example', model: 'x' },
       ],
     }
     const withEnv = buildRouterConfig(smuggled, FULL_ENV) as Routes
-    expect(withEnv.routes[0]!.apiKey).toBe('Q-ENV-KEY')
-    expect(withEnv.routes[1]).toMatchObject({ baseUrl: FULL_ENV.ROUTER_LOCAL_MODEL_URL })
-    expect(withEnv.routes[1]!.model).toBe('qwen3:8b')
-    expect(withEnv.routes[1]).not.toHaveProperty('apiKey')
+    expect(withEnv.routes[0]!.apiKey).toBe('G-ENV-KEY')
+    expect(withEnv.routes[0]).not.toHaveProperty('baseUrl')
+    expect(withEnv.routes[1]!.apiKey).toBe('Q-ENV-KEY')
     expect(JSON.stringify(buildRouterConfig(smuggled, {}))).not.toMatch(/JSON-KEY|evil/)
-  })
-
-  it('drops the local route without its URL or model, so the router refuses the config', () => {
-    for (const missing of ['ROUTER_LOCAL_MODEL_URL', 'LOCAL_MODEL_NAME'] as const) {
-      const cfg = buildRouterConfig(PARAMS, { ...FULL_ENV, [missing]: undefined })
-      expect((cfg as Routes).routes.map((r) => r.provider)).toEqual(['gemini', 'groq'])
-      expect(routerConfigSchema.safeParse(cfg).success).toBe(false)
-    }
   })
 
   it('hands an unknown provider and a malformed config on unchanged, for the router to refuse', () => {

@@ -9,17 +9,19 @@ import {
   WORKER_HOLD_MS,
   WORKER_STRUCTURER_TIMEOUT_MS,
   buildModelExtraction,
+  readExtractionWorkerEnv,
   type ModelExtractionWiring,
 } from './model-extraction-wiring'
 import { EXTRACTION_SYSTEM_PROMPT } from './prompt-envelope'
-import { smallDoseFor } from './small-dose-table'
+import { HTML_MODEL_CALLS_PER_CYCLE } from './model-budget.port'
 
 const SECRET = 'SECRET-MARKER-0123456789abcdef-0123456789'
+const URL_ = 'http://crm-extraction-worker:3100'
 const ENV = {
   EXTRACTION_WORKER_URL: 'http://crm-extraction-worker:3100',
   EXTRACTION_WORKER_SECRET: SECRET,
-  EXTRACTION_LOCAL_CONTEXT_TOKENS: '8192',
-  EXTRACTION_LOCAL_MAX_ANSWER_TOKENS: '512',
+  EXTRACTION_INPUT_CONTEXT_TOKENS: '8192',
+  EXTRACTION_INPUT_MAX_ANSWER_TOKENS: '512',
 }
 
 /** Records every key read, so a test proves which env the collection side touches. */
@@ -43,7 +45,7 @@ const request = (text: string): HtmlStructurerRequest => ({
 
 const REPLY = {
   result: { ok: false, code: 'PROVIDER_ERROR' },
-  events: [{ type: 'FELL_TO_LOCAL' }],
+  events: [{ type: 'CALL', code: 'PROVIDER_ERROR', latencyMs: 1 }],
   health: { modelListStale: false, failedJobs: [] },
 }
 
@@ -205,13 +207,13 @@ describe('buildModelExtraction — a partial or bad config is refused by key, ne
     ],
     [
       'a context window in exponent form',
-      { ...ENV, EXTRACTION_LOCAL_CONTEXT_TOKENS: '1e4' },
-      'EXTRACTION_LOCAL_CONTEXT_TOKENS',
+      { ...ENV, EXTRACTION_INPUT_CONTEXT_TOKENS: '1e4' },
+      'EXTRACTION_INPUT_CONTEXT_TOKENS',
     ],
     [
       'a context window in hex',
-      { ...ENV, EXTRACTION_LOCAL_CONTEXT_TOKENS: '0x2000' },
-      'EXTRACTION_LOCAL_CONTEXT_TOKENS',
+      { ...ENV, EXTRACTION_INPUT_CONTEXT_TOKENS: '0x2000' },
+      'EXTRACTION_INPUT_CONTEXT_TOKENS',
     ],
     [
       'a short secret',
@@ -225,23 +227,18 @@ describe('buildModelExtraction — a partial or bad config is refused by key, ne
     ],
     [
       'no context window',
-      { ...ENV, EXTRACTION_LOCAL_CONTEXT_TOKENS: undefined },
-      'EXTRACTION_LOCAL_CONTEXT_TOKENS',
+      { ...ENV, EXTRACTION_INPUT_CONTEXT_TOKENS: undefined },
+      'EXTRACTION_INPUT_CONTEXT_TOKENS',
     ],
     [
       'a context window not a number',
-      { ...ENV, EXTRACTION_LOCAL_CONTEXT_TOKENS: '8k' },
-      'EXTRACTION_LOCAL_CONTEXT_TOKENS',
+      { ...ENV, EXTRACTION_INPUT_CONTEXT_TOKENS: '8k' },
+      'EXTRACTION_INPUT_CONTEXT_TOKENS',
     ],
     [
       'no answer budget',
-      { ...ENV, EXTRACTION_LOCAL_MAX_ANSWER_TOKENS: '0' },
-      'EXTRACTION_LOCAL_MAX_ANSWER_TOKENS',
-    ],
-    [
-      'a negative local limit',
-      { ...ENV, EXTRACTION_CYCLE_LOCAL_MS_LIMIT: '-1' },
-      'EXTRACTION_CYCLE_LOCAL_MS_LIMIT',
+      { ...ENV, EXTRACTION_INPUT_MAX_ANSWER_TOKENS: '0' },
+      'EXTRACTION_INPUT_MAX_ANSWER_TOKENS',
     ],
   ])('%s', (_name, env, key) => {
     const r = buildModelExtraction(env, OPTS)
@@ -279,44 +276,25 @@ describe('buildModelExtraction — the collection side talks to the worker only 
     expect(first.budget).not.toBe((await ready(w.wiring)).budget)
   })
 
-  it('the local-time limit refuses the next reservation once spent; unset is unlimited', async () => {
-    const limited = await ready(wired({ ...ENV, EXTRACTION_CYCLE_LOCAL_MS_LIMIT: '1000' }).wiring)
-    const r1 = limited.budget.reserve()!
-    limited.budget.commit(r1, { localMs: 1000 })
-    expect(limited.budget.reserve()).toBeNull()
-
-    const open = await ready(wired().wiring)
-    const r2 = open.budget.reserve()!
-    open.budget.commit(r2, { localMs: 10_000_000 })
-    expect(open.budget.reserve()).not.toBeNull()
+  it('the cycle call limit refuses the next reservation; a stale local-time limit changes nothing', async () => {
+    const cycle = await ready(wired({ ...ENV, EXTRACTION_CYCLE_LOCAL_MS_LIMIT: '1' }).wiring)
+    for (let i = 0; i < HTML_MODEL_CALLS_PER_CYCLE; i++)
+      cycle.budget.commit(cycle.budget.reserve()!)
+    expect(cycle.budget.reserve()).toBeNull()
   })
 
-  it('the worker-reported local time reaches the limit: the next page sends no call (SPEC-M-1)', async () => {
-    const spent = {
-      ...REPLY,
-      result: { ok: false, code: 'PROVIDER_ERROR', usage: { localMs: 1000 } },
-    }
-    const limited = wired({ ...ENV, EXTRACTION_CYCLE_LOCAL_MS_LIMIT: '1000' }, spent)
-    const cycle = await ready(limited.wiring)
+  it('a stale local-time limit sends every page: two pages, two calls', async () => {
+    const w = wired({ ...ENV, EXTRACTION_CYCLE_LOCAL_MS_LIMIT: '1' })
+    const cycle = await ready(w.wiring)
     await cycle.structurer.structure(request('Senior Go Engineer, Kyiv'))
     await cycle.structurer.structure(request('Middle QA Engineer, Lviv'))
-    expect(limited.calls).toHaveLength(1)
-
-    const open = wired(ENV, spent)
-    const openCycle = await ready(open.wiring)
-    await openCycle.structurer.structure(request('Senior Go Engineer, Kyiv'))
-    await openCycle.structurer.structure(request('Middle QA Engineer, Lviv'))
-    expect(open.calls).toHaveLength(2)
+    expect(w.calls).toHaveLength(2)
   })
 
-  it('the input ceiling is the configured window with the small-dose table (third argument)', () => {
+  it('the input ceiling is the configured window under the system prompt', () => {
     const window = { contextTokens: 8192, maxAnswerTokens: 512 }
-    const groups = smallDoseFor().groups
     const w = wired()
     expect(w.wiring.inputCeilingChars).toBe(
-      routerInputCeilingChars(window, EXTRACTION_SYSTEM_PROMPT, groups),
-    )
-    expect(w.wiring.inputCeilingChars).toBeLessThan(
       routerInputCeilingChars(window, EXTRACTION_SYSTEM_PROMPT),
     )
   })
@@ -395,10 +373,10 @@ describe('a failed preflight attempt logs its number and status, never a body (C
 })
 
 describe('the timeout and hold derive from the router call ceiling (AC3, ADR §5.5 item 4)', () => {
-  it('ceiling = 120 s hosted + 6 × 300 s floor maxima; timeout adds a margin, the hold a grace', () => {
-    expect(WORKER_STRUCTURER_TIMEOUT_MS).toBe(1_920_000 + 10_000)
-    expect(WORKER_ADAPTER_TIMEOUT_MS).toBe(1_920_000 + 20_000)
-    expect(WORKER_HOLD_MS).toBe(1_920_000 + 30_000)
+  it('ceiling = the 120 s hosted maximum (no local floor, 5.4c-H1); timeout adds a margin, the hold a grace', () => {
+    expect(WORKER_STRUCTURER_TIMEOUT_MS).toBe(120_000 + 10_000)
+    expect(WORKER_ADAPTER_TIMEOUT_MS).toBe(120_000 + 20_000)
+    expect(WORKER_HOLD_MS).toBe(120_000 + 30_000)
   })
 
   it('the structurer gives up at its timeout, not before: the router answers first', async () => {
@@ -446,5 +424,29 @@ describe('the timeout and hold derive from the router call ceiling (AC3, ADR §5
     expect(fetches).toBe(1)
     await vi.advanceTimersByTimeAsync(1)
     expect(fetches).toBe(2)
+  })
+})
+
+describe('readExtractionWorkerEnv', () => {
+  it('a valid worker with a bad input window names only the window key', () => {
+    const r = buildModelExtraction({ ...ENV, EXTRACTION_INPUT_CONTEXT_TOKENS: '0' }, OPTS)
+    expect(r).toEqual({ ok: false, keys: ['EXTRACTION_INPUT_CONTEXT_TOKENS'] })
+  })
+
+  it('reads the address and the secret, the trailing slash cut', () => {
+    expect(
+      readExtractionWorkerEnv({
+        EXTRACTION_WORKER_URL: `${URL_}/`,
+        EXTRACTION_WORKER_SECRET: SECRET,
+      }),
+    ).toEqual({ kind: 'ok', url: URL_, secret: SECRET })
+  })
+
+  it('neither key is unset, one bad key is invalid by name', () => {
+    expect(readExtractionWorkerEnv({ EXTRACTION_WORKER_URL: '' })).toEqual({ kind: 'unset' })
+    expect(readExtractionWorkerEnv({ EXTRACTION_WORKER_URL: URL_ })).toEqual({
+      kind: 'invalid',
+      keys: ['EXTRACTION_WORKER_SECRET'],
+    })
   })
 })

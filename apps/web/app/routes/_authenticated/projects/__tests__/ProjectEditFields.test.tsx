@@ -617,7 +617,7 @@ describe('ProjectEditFields — name / company validation', () => {
     const input = screen.getByPlaceholderText(placeholder)
     // Pristine: no error paragraph, no destructive border.
     expect(errParas()).toHaveLength(0)
-    expect(input.className).not.toContain('border-destructive')
+    expect(input).not.toHaveClass('border-destructive')
 
     fireEvent.change(input, { target: { value: '   ' } })
     fireEvent.blur(input)
@@ -625,7 +625,7 @@ describe('ProjectEditFields — name / company validation', () => {
     const errs = errParas()
     expect(errs).toHaveLength(1)
     expect(errs[0]).toHaveTextContent(/\S/)
-    expect(input.className).toContain('border-destructive')
+    expect(input).toHaveClass('border-destructive')
   })
 
   it.each([
@@ -637,7 +637,7 @@ describe('ProjectEditFields — name / company validation', () => {
     fireEvent.change(input, { target: { value: '  Valid  ' } })
     fireEvent.blur(input)
     expect(errParas()).toHaveLength(0)
-    expect(input.className).not.toContain('border-destructive')
+    expect(input).not.toHaveClass('border-destructive')
   })
 })
 
@@ -773,7 +773,7 @@ describe.each([
     fireEvent.blur(input)
     const section = screen.getByTestId(c.sectionId)
     expect(errParas(section)).toHaveLength(0)
-    expect(input.className).not.toContain('border-destructive')
+    expect(input).not.toHaveClass('border-destructive')
   })
 
   it.each([-1, 101])('rejects the out-of-range integer %i with an error and red border', (n) => {
@@ -782,7 +782,7 @@ describe.each([
     fireEvent.blur(input)
     const section = screen.getByTestId(c.sectionId)
     expect(within(section).getByText('Введіть ціле число від 0 до 100')).toBeInTheDocument()
-    expect(input.className).toContain('border-destructive')
+    expect(input).toHaveClass('border-destructive')
   })
 
   it('a non-integer shows the error paragraph and red border; a valid blur shows neither', () => {
@@ -793,6 +793,6 @@ describe.each([
     fireEvent.change(input, { target: { value: '50.5' } })
     fireEvent.blur(input)
     expect(errParas(section)).toHaveLength(1)
-    expect(input.className).toContain('border-destructive')
+    expect(input).toHaveClass('border-destructive')
   })
 })

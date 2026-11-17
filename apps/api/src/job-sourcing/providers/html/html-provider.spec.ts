@@ -2454,13 +2454,6 @@ describe('the model stage owes a pass until it reaches an item (CR-M-1)', () => 
       expect(s.calls[1]?.records.map(({ id }) => id)).toEqual(['b', 'a'])
       expect((await enrichment.get(key('a')))?.modelOfferLast).toBe(true)
     })
-
-    it('tells the structurer per record what Stage B left empty', async () => {
-      const s = fakeStructurer(extracted(['a']))
-      const run = cycles(new InMemoryEnrichmentState(), s)
-      await run(0, [], { description: 'From the page.', remote: true })
-      expect(s.calls[0]?.records[0]?.missing).toEqual(['location', 'employmentType'])
-    })
   })
 
   it('an unavailable model is a configuration state: nothing stays owed (SR-M-4)', async () => {

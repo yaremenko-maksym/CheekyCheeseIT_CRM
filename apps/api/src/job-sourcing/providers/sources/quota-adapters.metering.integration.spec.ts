@@ -421,7 +421,8 @@ describe.skipIf(!hasDatabaseUrl())('quota adapters against the real account mete
       'senior frontend developer remote',
       'senior ai engineer remote',
     ]
-    const empty: FakeResponse = { bodyText: JSON.stringify({ status: 'OK', data: [] }) }
+    // The v2 envelope the smoke capture showed: `data.jobs`, not a bare list.
+    const empty: FakeResponse = { bodyText: JSON.stringify({ status: 'OK', data: { jobs: [] } }) }
 
     it('each query is one request on the same meter row; the fourth is refused with nothing sent', async () => {
       const account = nextAccount()

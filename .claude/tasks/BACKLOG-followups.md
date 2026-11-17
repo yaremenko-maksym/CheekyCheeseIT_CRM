@@ -7544,3 +7544,868 @@ in CI, so the failure is environment-dependent (timezone or locale suspected, no
 **Verify.** `pnpm --filter @crm/api test -- report` in WSL with an empty `DATABASE_URL`: zero failures.
 
 Sources: PR #1308 DevOps report.
+
+## 406. Teams: JUNIOR add-to-team check loads every project with members (gardener 2026-11-14)
+
+**Symptoms.** In `team-membership.util.ts`, adding a JUNIOR to a team calls `deps.fetchAllProjects()` and scans every
+project's member list in JS to answer one question: does this user have an active project membership. Work grows with
+projects × members (a growing table) for a single-user check. Related to 370 (the `teams.findAll` load-all), but a
+separate call site.
+
+**Status.** Human-planned (RBAC path: the JUNIOR active-project rule must keep its exact meaning, `leftAt IS NULL`).
+Replace with one `EXISTS` query on `project_members` for `userId` with `leftAt IS NULL`; keep the error code
+`JUNIOR_ALREADY_ON_ANOTHER_PROJECT`.
+
+**Verify.** The team-membership unit tests still pass, and the JUNIOR branch issues one bounded query instead of
+calling `fetchAllProjects`.
+
+Sources: gardener 2026-11-14 complexity scan.
+
+## 407. Invoices: project names resolved one `findFirst` per linked project (gardener 2026-11-14)
+
+**Symptoms.** `InvoiceCreationService` resolves `projectNames` with an awaited `projects.findFirst` per distinct
+`projectId` of the linked incomes; `InvoicesService` has the same per-row `findFirst` in a loop. N+1 on the invoice
+path; N is bounded by the linked incomes of one invoice, and a code comment already calls it tolerated.
+
+**Status.** Low priority (finance path, so security-reviewer on the fix). The PDF body does not render `projectNames`
+(`buildDescription` in `invoice-pdf-render.util.ts` keeps it only for audit and logging), so a batched
+`inArray(projects.id, ids)` query does not touch the signed PDF; keep the first-seen order for the log line anyway.
+
+**Verify.** A unit test asserts one projects query per invoice build and the same `projectNames` array as before.
+
+Sources: gardener 2026-11-14 complexity scan.
+
+## 408. Team-member insert: one row per call, spread across services (gardener 2026-11-14)
+
+**Symptoms.** `insert(teamMembers).values({ teamId, userId })` runs one row per awaited call inside loops in
+`TeamsService.createTeam`, `TeamsService.createDropTeam`, `RejoinTeamService` and `UserCreationService`; single-row
+inserts also sit in the `TeamsService` senior rotation and senior assignment paths, `team-membership.util.ts` and
+`team-reconcile.service.ts`. Bounded (a team has few members), so not a hot path; the cost is duplicated
+membership-write logic, not latency.
+
+**Status.** Low priority. A shared "add members" helper with one multi-row insert is a dedup candidate; the specs that
+mock `insert` for these services change with it (count them before starting).
+
+**Verify.** `git grep -n "insert(teamMembers)" -- apps/api/src ':!*.spec.ts'` lists only the shared helper.
+
+Sources: gardener 2026-11-14 complexity scan.
+
+## 428. Hooks: an inline `python3 -c` body past 32 KB refuses every Bash call on Windows (2026-11-11)
+
+**Symptoms.** After `pre:bash:cross-agent-blast` grew its analyzer, every Bash call in a Windows session whose checkout was on
+`origin/main` was refused with `INTERNAL ERROR: the analyzer did not run (rc=126)`, even `echo ok`. Windows caps a whole
+command line at 32767 characters; the analyzer was passed as one `-c` argument, so `python3.exe` never launched, and the
+fail-closed branch turned that into a refusal of everything. Linux CI has a far higher limit, so the guard tests stayed green.
+Agents on older checkouts were unaffected, which is why it surfaced only for the orchestrator.
+
+**Status.** DevOps, branch `fix/cross-agent-blast-windows-argmax`: the analyzer runs from a file under `.claude/hooks/lib/`,
+and a guard test caps the size of any inline `-c` body of a hook.
+
+**Verify.** On Windows Git Bash, with the checkout on `main`: `echo ok` runs, and a broadcast-kill payload fed to the hook
+still exits 2. On Linux CI the size guard fails when an inline `-c` body of any hook exceeds its cap.
+
+Sources: Master session 2026-11-11 (vacancy-sourcing Phase 7).
+
+## 429. Mutation gate under WSL: `SourceBudgetPanel` AC7 test times out at concurrency 4 (2026-11-11)
+
+**Symptoms.** The `@crm/web` dry run of `scripts/devops/mutation-gate.mjs --changed` in WSL failed in the initial test run with
+`SourceBudgetPanel (AC7) still names the source and its trigger while it is broken — Hook timed out in 10000ms` at
+`MUTATION_CONCURRENCY=4`. The same job in CI passed on the same head; at concurrency 2 the WSL run is green. The same family as
+the load-dependent flake recorded for the CP-28 / CP-29 cases above.
+
+**Status.** Coder (web tests): the test's setup hook must not depend on machine load (no real timers in the hook body, or a
+longer hook timeout scoped to this file with a written reason).
+
+**Verify.** Three WSL dry runs of the web mutation gate in a row at `MUTATION_CONCURRENCY=4` without a hook timeout.
+
+Sources: PR #1312 mutation run.
+
+## 430. Windows pre-push: API suite fails for environment reasons, pushes go through WSL (2026-11-11)
+
+**Symptoms.** On the owner's Windows machine the pre-push hook's `@crm/api` test run fails on cases that pass in WSL and in CI,
+so feature branches of the vacancy-sourcing epic were pushed from WSL worktrees fed by `git bundle`. The failing cases were not
+captured.
+
+**Status.** DevOps: capture the failing test names and error text on the first Windows run, then decide between fixing the
+cases and documenting WSL as the supported push host.
+
+**Verify.** `DATABASE_URL= git push` from Windows Git Bash of a feature branch that changes `apps/api` (so the pre-push run
+includes the `@crm/api` suite) completes with that suite green.
+
+Sources: vacancy-sourcing Phase 7 pushes (branches changing `apps/api`).
+
+## 431. WSL: a fresh clone hangs on a credential prompt during `git fetch` / `git push` (2026-11-11)
+
+**Symptoms.** A new clone inside WSL without the owner's configured credential helper waits forever for a username on HTTPS
+fetch or push, which reads as a hung agent. Working around it needs `GIT_TERMINAL_PROMPT=0` (fail fast) and worktrees of the
+one WSL clone that has a helper configured.
+
+**Status.** DevOps: document the WSL push recipe in a runbook (`docs/runbooks/`), with `GIT_TERMINAL_PROMPT=0` and the
+bundle hand-off. Do not print or copy the helper's value.
+
+**Verify.** Following the runbook from a fresh WSL shell pushes a branch without any interactive prompt.
+
+Sources: vacancy-sourcing Phase 7 pushes.
+
+## 432. `JobSuggestionDialog` still renders Russian visible strings (2026-11-11)
+
+**Symptoms.** The job-sourcing suggestion dialog (`JobSuggestionDialog`) shows hard-coded Russian text, not Lingui macros with
+`uk` source and `en`, so the dialog does not follow the UI locale.
+
+**Status.** Coder: migrate the module's visible strings to Lingui (`uk` + `en`); copy-reviewer per language.
+
+**Verify.** The Lingui `no-unlocalized-strings` lint covers the dialog's file with no exemption and passes (the
+`check-no-russian-letters` script scans `apps/api` and the catalogs, not `apps/web`); the dialog renders fully in `uk` and in
+`en`.
+
+Sources: vacancy-sourcing Phase 7 reviews.
+
+## 411. `noMatchReason` has no real-DB case for another team's TRIAGE / LEAD rows (2026-11-11)
+
+**Symptoms.** The job-queue card's `noMatchReason` for an HR actor counts only the actor's own team's match rows. Today that is
+pinned only by a unit spec on the SQL text, not by an integration case on a real database. A regression in the team scoping
+would let another team's TRIAGE or LEAD row change what HR sees, and no real-DB test would fail.
+
+**Status.** Coder: add one case to the job-queue service integration spec. A senior who belongs only to team B gets a TRIAGE
+match row (and, in a second case, a LEAD row) on an opportunity; HR of team A must still get `NO_MATCH`. Scratch DB only.
+
+**Verify.** The integration spec has such a case, it runs on a scratch database (non-zero case count), and it fails when the
+team predicate is removed from the `noMatchReason` stats.
+
+Sources: PR #1313 security review round 2 (SR2-L-1).
+
+## 412. Quota bar: a meter's `resetsAt` is not shown (2026-11-11)
+
+**Symptoms.** `QuotaBar` shows used / reserved / uncertain of the limit, but not when the meter window resets, although
+the `meter.resetsAt` field is in the ADMIN source projection. An admin sees a full bar with no hint when it empties.
+
+**Status.** Coder: add the reset time under the bar for a meter with a non-null `resetsAt` (uk + en, Lingui), the same
+wording as the legacy budget row («оновиться …»). Copy review on the new string.
+
+**Verify.** A unit test renders a meter with `resetsAt` and finds the formatted reset time; a meter with `resetsAt: null`
+shows none.
+
+Sources: PR #1312 copy review round 4 (COPY4-L-2 follow-up).
+
+## 413. Errors without an API error code show the raw server text (2026-11-11)
+
+**Symptoms.** `getUserFacingErrorMessage` translates an error envelope by its code; without a code it returns
+`extractBackendMessage` verbatim (by design, for validation details and business rules). A backend text written in
+English or Russian therefore reaches a `uk` user as is. Seen on the source switch refusal path; the helper is app-wide
+and older than that PR.
+
+**Status.** Decide first (A2): either every endpoint a user can hit returns an envelope code, or the backend-message
+fallback is limited to known validation shapes and the rest gets the generic localized message. Check the callers that
+rely on the backend text before changing the helper.
+
+**Verify.** A unit test feeds the helper an error with no code and a plain backend `message`, and the expected output is
+the one the decision names.
+
+Sources: PR #1312 manual QA round 4 (QA4-LOW-2).
+
+## 414. Job queue: the list row still shows «Потребує розгляду» for an excluded opportunity (2026-11-11)
+
+**Symptoms.** `JobQueueCard` hides the triage badge when `noMatchReason` is `EXCLUDED` (Task 7.3b, UX-M-2). `JobQueueRow`
+derives its badge from `eligibility === 'TRIAGE'` alone, so the same opportunity shows the badge in the list and not on
+the card.
+
+**Status.** Coder: one rule for both. Either the list item carries `noMatchReason` (or an equivalent flag) and the row
+applies the card's rule, or the decision is recorded that the list keeps the coarse badge. Check the list payload first.
+
+**Verify.** A unit test renders a row and a card for the same excluded TRIAGE item and both agree on the badge.
+
+Sources: PR #1313 code review round 4 (CR4-L-1).
+
+## 415. Job queue: stack keywords have no canonical casing (2026-11-11)
+
+**Symptoms.** Stack chips show keywords as stored, in lowercase («typescript», «postgresql»). CSS capitalisation would
+misspell names like TypeScript, so the card keeps the raw token.
+
+**Status.** Coder: a small casing map for known keywords in `@crm/shared` (display only; matching stays lowercase),
+used by the card and the senior «Збіг за:» chips. Unknown tokens stay as stored.
+
+**Verify.** A unit test maps «typescript» to «TypeScript» and leaves an unknown token unchanged.
+
+Sources: PR #1313 ui-ux review round 3 (UX-L-4, Master A1).
+
+## 416. Job queue: the triage empty state names the employer (2026-11-11)
+
+**Symptoms.** For a TRIAGE card with a verified employer, the empty state wording points at the employer as the reason,
+although the triage reason may be elsewhere.
+
+**Status.** Copy first (copy-reviewer, uk + en): a neutral wording. Then Coder swaps the catalog entries.
+
+**Verify.** The empty state of a TRIAGE card with a verified employer does not name the employer.
+
+Sources: PR #1313 manual QA round 3 (QA-LOW-2, Master A1).
+
+## 417. Job queue card: the «Опис» heading renders over an empty description (2026-11-11)
+
+**Symptoms.** `JobQueueCard` always renders the «Опис» `h3` above `PostingMarkdown`. The card response schema allows an
+empty `descriptionMd` (only the job-suggestion request refuses one), so a card can show the heading with nothing under it.
+
+**Status.** Coder: hide the section, or show a short muted «Опис відсутній» / "No description" line (copy review on the
+new string; design §5.1 first).
+
+**Verify.** A unit test renders a card with `descriptionMd: ''` and finds neither an empty «Опис» section nor a heading
+without content.
+
+Sources: Phase 7 Task 7.3 review notes (Master).
+
+## 418. Source switch card: two quotas beside a meter, one of them unlabelled (2026-11-11)
+
+**Symptoms.** A source with an account meter shows the meter as a bar; its own per-source budget row appears only when
+the budget is `MISCONFIGURED` or `EXHAUSTED`. So an `ACTIVE` per-source cap that is nearly spent shows nothing, and when
+the row does appear, its window («на місяць» / «на добу») and reset time belong to the per-source budget while the bar
+belongs to the meter, with nothing on the card telling the two apart. A healthy legacy-counter source also lost its
+window label: the bar carries no window. A meter that is full while the per-source budget is `ACTIVE` shows a full bar
+and no exhausted line (the missing meter reset time is item 412).
+
+**Status.** Design first (Mode A, `docs/design/vacancy-queue.md` §7, §8): label the bar as the account meter and the row
+as the source cap, show each window, and decide whether a nearly spent cap is shown. Then Coder (uk + en, Lingui) and
+copy review.
+
+**Verify.** Unit tests: a metered source with an `ACTIVE` budget and a metered source with an `EXHAUSTED` budget in a
+different window each render both labels and both windows; a full meter with an `ACTIVE` budget renders an exhausted
+state.
+
+Sources: PR #1321 copy review (COPY-4), code review (CR-L-1), second-opinion panel (claude:sonnet, gemini), live QA
+(QA LOW 2: «Ліміт вичерпано» above a meter bar at 24% reads as a contradiction), design review (UX-01: both
+quotas are called «Ліміт»).
+
+## 419. Source switch card: limit wording beside the bar (2026-11-11)
+
+**Symptoms.** en uses "Limit reached" / "The limit is misconfigured" directly above "Quota:", so one concept has two
+words (uk keeps «Ліміт»). «Ліміт вичерпано на місяць» / "Limit reached per month" can read as "exhausted for a month",
+and the en is not grammatical. The trigger line «(за розкладом)» / «(за кнопкою)» is a parenthetical with no subject,
+more visible now that it is its own line.
+
+**Status.** Copy (uk + en): one term for the limit, a window phrase that reads as "for this month" / "this month's
+limit", and a subject for the trigger line (new msgids). Copy review on the result.
+
+**Verify.** `pnpm i18n:extract` diff holds only the reworded ids; the card tests assert the new strings.
+
+Sources: PR #1321 copy review (COPY-1, COPY-2, COPY-3).
+
+## 420. Source switch card: a «Працює» chip beside «збір зупинено» (2026-11-11)
+
+**Symptoms.** A source whose per-source budget is `MISCONFIGURED` keeps the enabled-state chip «Працює» while the
+budget row says «збір зупинено», so the card states two opposite things about the same source.
+
+**Status.** Design first (`docs/design/vacancy-queue.md` §7, §8): decide whether the chip reflects the switch only or
+the effective collection state, then Coder (uk + en) and copy review.
+
+**Verify.** A unit test renders an enabled source with a `MISCONFIGURED` budget and asserts the chip and the budget row
+agree.
+
+Sources: PR #1321 live QA (QA LOW 3), design review (UX-02: the state chip ignores the budget state).
+
+## 421. Job sources list: no stable order, a toggled source moves to the end (2026-11-11)
+
+**Symptoms.** The sources list response has no explicit sort, so after a toggle the changed source can come back last
+and the card jumps under the pointer. The web list renders the API order as is.
+
+**Status.** Coder: give the list query an explicit, stable order (for example by source key) and pin it in the API
+spec. API change, not web.
+
+**Verify.** An integration spec toggles one source and asserts the list order is unchanged.
+
+Sources: PR #1321 live QA (QA LOW 1; pre-existing, not from that PR).
+
+## 422. Cross-agent blast hook: the worktree ownership ledger is inactive on native Windows (2026-11-11)
+
+**Symptoms.** `pre:bash:cross-agent-blast` records a worktree as owned only when the agent's working directory matches
+the Linux scratchpad shape (`/tmp/claude-<id>/...`). On native Windows the harness scratchpad is `/tmp/claude/<hash>/...`,
+so `record_owned` never runs, and every removal of an agent's own worktree is refused as `WORKTREE-UNRECORDED`. It fails
+closed (safe) but makes the ledger useless on Windows; agents report their checkouts to the owner instead.
+
+**Status.** DevOps: derive the own-scratchpad root from both spellings, with a test per spelling. Pre-existing, not from
+PR #1317.
+
+**Verify.** In the blast suite, an agent whose scratchpad is spelled `/tmp/claude/<hash>/` creates and then removes its
+own worktree: the removal is allowed; a sibling's stays refused.
+
+Sources: PR #1317 rounds 3-4 (Master).
+
+## 423. Cross-agent blast hook: the ownership ledger is a plain file any sibling can append to (2026-11-11)
+
+**Symptoms.** The ledger that `is_owned` reads lives in the session-shared scratchpad. A sibling agent that deliberately
+appends `<its id>\t<victim path>` to it is then allowed to remove the victim's worktree. The hook's threat model is an
+accidental command, not a deliberate forgery, so this is defense in depth.
+
+**Status.** Decide first (DevOps + security-reviewer): either move the ledger out of agent-writable space, or have
+`pre:bash:cross-agent-blast` refuse any command that writes to the ledger path. Pre-existing, not from PR #1317.
+
+A narrower variant of the same gap: `is_owned` ignores a recorded line naming the session directory itself, but not
+one naming `<session>/scratchpad` (where sibling checkouts actually live) or its `/private` spelling. Such a line still
+lets its owner remove any sibling under it. It needs a line written on purpose or left by an older hook version. Fix
+with the item above, or in `is_owned`: skip a recorded path that equals the hook's cwd or is an ancestor of it, or
+require at least two path components below `own_scratch`.
+
+**Verify.** A blast-suite case: a sibling appends a forged line, then its removal of the victim is still refused. A
+second case: a ledger line naming the scratchpad directory itself (the smoke suite's `$SCR`), then a sibling's removal
+is refused with `WORKTREE-UNRECORDED`.
+
+Sources: PR #1317 round 4 panel (nim:step), reproduced by the panel reviewer, not by Master; PR #1317 round 5
+security review (SR5-L-1, the scratchpad-directory variant).
+
+## 424. Hook size guard and blast suite: three small limits (2026-11-11)
+
+**Symptoms.**
+
+- `check-hook-inline-python-size.py` heredoc resync: after a comment containing an apostrophe (`# don't`) a later
+  `case … a)` line can be misread, so a body behind it is silently not measured. No live hook hits it today.
+- The same guard reports UNMEASURED for a hook whose last word is a closed multi-line quoted word with no final
+  newline: a false positive that fails closed.
+- `test-pre-bash-cross-agent-blast.sh` `run_hook_reason` prints the decoded reason through a cp1252 pipe on native
+  Windows; printing the hook's emoji raises, the reason is empty and one assertion fails. Green on Linux CI.
+- The guard's shell-keyword skip in `catch_all()` (it picks the command word after `if`, `then`, `while`, `do`, `!` …)
+  is pinned by no test: every keyword case uses `"$PY"`, which `python_like()` matches by itself. Reverting the skip
+  keeps the size suite green. Untested forms: `if sudo -E "$RUNTIME" -c '<big>'`, `then timeout 5 "$INTERP" -c '<big>'`,
+  `while nice -n 5 "$RUNTIME" -c '<big>'` (must be UNMEASURED) and `if git -C "$PYDIR" -c user.name=x commit …` (must
+  stay clean).
+
+**Status.** DevOps, one PR, one red test each.
+
+**Verify.** Each case above has a guard or suite test that fails before the fix.
+
+Sources: PR #1317 round 4 code review (CR4-L-3, CR4-L-4) and panel (nim:step); round 5 code review (CR5-L-1).
+
+## 425. Job queue triage grants: the policy version is a client stamp, never checked — closed (2026-11-11)
+
+**Closed (2026-11-15).** PR #1332 (`a3e9b4582`) added server-side policy versioning: a grant on a stale version answers 409 `JOB_QUEUE_VERSION_CONFLICT`. Reopen if the Verify spec below fails.
+
+**Symptoms.** `POST /job-queue/:id/team-triage` stores the client-sent `policyVersion` as an audit stamp; no server
+value validates it. The plan says policy versions bump on membership / exclusion writes and a stale one is a conflict,
+but no such version exists. Task 7.4b sends `0` ("unversioned"), so a grant is not invalidated when team membership
+changes after the ADMIN opened the card.
+
+**Status.** Owner decision (RBAC, A3): implement server-side policy versioning (a migration plus the conflict check),
+or accept the stamp and drop the field from the contract. Listed in the Phase 7 decision brief.
+
+**Verify.** If implemented: an integration spec bumps membership between card load and grant, and the grant answers
+409 `JOB_QUEUE_VERSION_CONFLICT`.
+
+Sources: PR #1313 spec review (SPEC-M-2), Task 7.4b brief (Master).
+
+## 426. Job queue triage grants: a re-grant dead-ends, and the server trusts the client for triage-only — closed (2026-11-12)
+
+**Closed (2026-11-15).** PR #1332 (`a3e9b4582`) added a distinct re-grant code, the server-side eligibility check and an expiry ceiling. Reopen if the Verify spec below fails.
+
+**Symptoms.**
+
+- A grant to a team that already holds a live grant on the opportunity answers 409 `JOB_QUEUE_VERSION_CONFLICT`
+  (`grantTeamTriage`, the "current grant is live" branch). That is the same code as a stale card revision, so the
+  «Призначити команді…» dialog shows «Дані змінилися. Оновіть картку й повторіть.»; the refresh changes nothing and
+  every retry fails the same way. The card exposes no grants, so the client cannot pre-empt it.
+- `grantTeamTriage` checks ADMIN, the revision, a manual card and a live SENIOR team, but not that the opportunity is
+  in triage (`eligibility`). The triage-only rule lives only in the web menu; an ADMIN's crafted request can grant a
+  LEAD or EXCLUDED opportunity.
+- No expiry ceiling on either side: a multi-year grant is accepted.
+
+**Status.** API + web, one PR. Decide (A2): a distinct 409 code for "this team already has access" (the dialog then
+says until when), or treat a re-grant as an extension. Add the server-side eligibility check. Pick a ceiling, or record
+that none is needed.
+
+**Verify.** An integration spec: two grants to the same team, the second answers the new code (or extends); a grant on
+a non-triage opportunity is refused.
+
+Sources: PR #1322 second-opinion panel (nim:step), confirmed by Master against the service.
+
+## 427. Triage grant dialog and the shared date picker: three layout lows — closed (2026-11-12)
+
+**Closed (2026-11-15).** PR #1334 (`7218076ca`) fixed all three: the hint keeps its layout slot, the picker is disabled on an empty list, and the shared calendar and date picker meet the 44 px mobile target. Reopen if a Verify check below fails.
+
+**Symptoms.**
+
+- The triage grant dialog (`TriageGrantForm`) shows its "choose a team and give a reason" hint only while the form is
+  incomplete. The dialog is vertically centred, so when the last field is filled the hint leaves and the dialog jumps
+  (about 18 px, 28 px at 320) under the caret in the reason field.
+- With no SENIOR team to offer, the team picker still opens, as an empty sliver over the "no team can take this
+  vacancy" note.
+- The shared `DatePickerField` calendar renders 36 px day cells at 320 and 375, under the 44 px mobile target of the
+  design spec §11. Every date picker in the app has it, not only the grant dialog.
+
+**Status.** Web only, polish; the first two are one small PR on `TriageGrantForm` (keep the hint in the layout and
+toggle its visibility; disable the picker when the list is empty). The third is a separate change to the shared
+component and its callers' layouts. Deferred from PR #1322: a fix there would have restarted six required reviews for
+three lows.
+
+**Verify.** At 320 the grant dialog does not move when the reason is typed; the picker is disabled on an empty list;
+calendar day cells are at least 44 px on mobile in every date picker.
+
+Sources: PR #1322 design reviews (rounds 1 and 2: UX-L-1, UX-L-4, UX-L-5).
+
+## 433. Session switch: stale-page queries refetch as the new user and 403 (QA-MED-1 of #1330, 2026-11-14)
+
+**Closed (2026-11-15).** PR #1334 (`7218076ca`) ties the refetch to the router lifecycle. Reopen if the Verify check below shows a 403.
+
+**Symptoms.** When the signed-in user changes under an open page, `watchSessionOwner` resets every query except
+`auth/me`; the still-mounted queries of the old page refetch with the new cookie. If the new account has fewer
+rights, the console shows a burst of 403s (about 5 for HR to JUNIOR, 1 for ADMIN to HR). No previous-account data
+shows; the noise appears until the next navigation.
+
+**Fix direction.** Tie the refetch to the router lifecycle: purge now, let queries of the page being left refetch only
+after the navigation settles, or skip refetch for queries the new role cannot read. `resetQueries` without refetch
+alone breaks the header and bell queries.
+
+**Verify.** Switch HR to JUNIOR in a second tab, navigate in the first: no 403 in the console, and no previous-account
+rows (job-queue scenario 10b stays green).
+
+Sources: manual-qa on #1330 (QA-MED-1); also from the same review: sonnet panel lows (an `idbDel` that never settles
+blocks the impersonation reload; a superseded check discards its answer when the newer one fails).
+
+## 434. Production schema drift: code reads columns of unapplied staged DDL (Phase 8.3 check, 2026-11-14)
+
+**Closed in code (2026-11-15).** PR #1333 (`3bce1d999`) promoted the six staged files through `deploy.yml`; the deploy of that commit succeeded, and PR #1338 (`dcfa2d6b5`) fits the three CIC builds inside the ssh-action window. The production Verify check below (object presence, a day of log) is still open: it needs owner-permitted read-only SSH (`docs/runbooks/vacancy-sourcing.md` §13.1).
+
+**Symptoms.** Six files of `apps/api/drizzle/manual-staged/` have no objects in production: the run metrics and
+`job_sources.slowdown_level` (`2026-10-31_job_run_metrics_slowdown`), `job_source_health_events`, the two partial
+`job_dirty_work` index files, `uq_job_sources_inventory_type_namespace`, and the model-health tables. The Drizzle schema
+declares them, so every query that selects the whole row or names them fails with `42703` / `42P01`:
+
+- observed: `JobSourceHealthService.runDetectorPass` fails on every 10-minute tick (`column 'bytes_read' does not
+exist`), logged as `Job sourcing cron step failed [tick: health detector pass]`;
+- inferred from the code, not yet seen in a log: `JobSourcingService.collectAll` (the 05:00 Kyiv DOU run and the
+  ADMIN manual collect) and `listSources` (`/admin/sources`) select every `job_sources` column, so they fail since #1200.
+
+Separately, `job_postings` and `job_suggestions` hold 0 rows in production; whether that is this drift or an older cause
+is not established. No migration ledger exists, so nothing reports drift; it was found by object presence checks.
+
+**Status.** Owner decision (A3, prod DDL): promote the missing staged files through `deploy.yml` steps. The
+health-events file carries the open U4 security decision (append-only, not privilege class B). Phase 8 decision brief
+item 1. Blocks every activation wave (`docs/runbooks/vacancy-sourcing.md` §11.0).
+
+**Verify.** `docs/runbooks/vacancy-sourcing.md` §13.1 object presence finds every object; a day of API log has 0
+`db_state=42703` / `42P01`; the 05:00 DOU run writes `job_postings` rows; `/admin/sources` loads as ADMIN. A guard that
+fails CI when the Drizzle schema declares a column no applied `manual/` file creates would stop the next one.
+
+Sources: Master read-only production check, 2026-11-14 (owner-permitted SSH).
+
+## 435. Local stand gaps seen during the 2026-11-15 found-along-the-way waves (2026-11-15)
+
+**Symptoms.**
+
+- TanStack Router logs a `_nonReactive` error from `loadRouteMatch` on some navigations in dev. Not reproduced on
+  demand; the router pair is EXACT-pinned (`.claude/rules/common/version-pins.md`), so a fix is a pin decision.
+- The shared local `crm_qa` database is behind the Drizzle schema: agents create per-task scratch databases instead.
+- A fresh worktree needs `pnpm install --frozen-lockfile` and `pnpm --filter @crm/web build` (for `routeTree.gen.ts`)
+  before `db:push` and web tests work; agents keep rediscovering it.
+
+**Status.** Owner call: the router item touches version pins; the other two are local-stand hygiene (refresh
+`crm_qa` from the schema, or document scratch databases as the norm; a worktree bootstrap script).
+
+**Verify.** No `_nonReactive` error in a dev session over the job-queue flow; `crm_qa` matches the schema
+(`db:push` on it is a no-op); a fresh worktree runs the web unit suite after one bootstrap command.
+
+Sources: Master, wave 1-3 coder and manual-qa reports (2026-11-14/15).
+
+## 436. No per-process cap on concurrent resume verification runs (R36, 2026-11-14)
+
+**Closed (2026-11-15).** PR #1349 (a FIFO in-process semaphore sized by `RESUME_VERIFICATION_MAX_CONCURRENT_RUNS`, default 3, bounds the run bodies; the stalled-run sweep ages a row from its claim and skips runs waiting for a slot). Reopen if the Verify check below fails.
+
+**Symptoms.** Every submit, staged edit, regenerate and template run of `ResumeVerificationService`
+fires its own detached `VerificationRunner.run`. Nothing bounds how many runs one API process holds
+at once; only the Typst render gate bounds the renders. Many seniors submitting together means many
+parallel model calls. This is a cost risk, not a correctness one: each run still claims its row by
+compare-and-set.
+
+**Candidate fixes.** A small in-process semaphore around the run body (queued runs wait, the sweep
+still owns stalled ones), sized by an env value.
+
+**Verify.** Submit more resumes at once than the chosen cap with a fake writer that blocks; the count
+of runs past their claim at the same moment never exceeds the cap.
+
+Sources: verified-base-resume review R36 (Task 23).
+
+## 437. The profile tab bar clips its last tab at 320 px (2026-11-14)
+
+**Parked (2026-11-15).** Owner: waits for the CRM redesign v2.
+
+**Symptoms.** On `/profile` at 320 px wide the `AnimatedTabs` bar of `UserProfileShell` shows its
+last visible tab cut at the right edge when the viewer sees all tabs
+(including Resume).
+
+**Candidate fixes.** Let the tab list scroll horizontally with a visible edge fade, or wrap it.
+
+**Verify.** A 320 px screenshot of `/profile?tab=resume` for a viewer with every tab: each tab label
+is fully inside the viewport or reachable by a horizontal scroll that shows it whole.
+
+Sources: verified-base-resume manual QA (Task 23 brief).
+
+## 438. First visit remounts the whole app when the session locale differs (2026-11-14)
+
+**Closed (2026-11-15).** PR #1343 (`a589d002b`) holds the auth loading state until the session locale is active, so the keyed remount in `LocaleScopedApp` runs under the pending UI. Reopen if the Verify check below shows two mounts.
+
+**Symptoms.** `client.tsx` activates the pre-login locale; `context/auth.tsx` then activates the
+session's own locale. `LocaleScopedApp` keys the outlet by the locale, so on a first visit whose
+session locale differs from the pre-login one the whole route tree mounts twice: local state set in
+between is lost and mount-time requests run again.
+
+**Candidate fixes.** Resolve the session locale before the first mount of the outlet, or keep the
+pre-login locale in step with the session (store it on login).
+
+**Verify.** With an `en` session and a `uk` pre-login locale, open a CRM page in a fresh browser
+profile: the page root mounts once (a mount counter or a request log of its first query shows one
+call).
+
+Sources: verified-base-resume manual QA (Task 23 brief).
+
+## 439. `cascade-impact-panel.test.tsx` is still timing-flaky under load (recurrence of 195, 2026-11-14)
+
+**Closed (2026-11-15).** PR #1350 (cleans up overlay and scroll-lock state in beforeEach/afterEach). Reopen if the Verify check below fails.
+
+**Symptoms.** The verified-base-resume branch saw this web test fail under a loaded full run and
+pass alone, the pattern item 195 describes. It is not related to the resume code.
+
+**Candidate fixes.** The ones in item 195: isolate the overlay and scroll-lock cleanup, or run the
+file sequentially.
+
+**Verify.** Three full `@crm/web` runs in a row on a loaded machine with no failure of this file.
+
+Sources: verified-base-resume pre-push runs (Task 23 brief); item 195.
+
+## 440. `ResumeVerificationPanel.test.tsx` is at the 800-line limit (2026-11-14)
+
+**Closed (2026-11-15).** PR #1350 (moves staged-PDF block to ResumeVerificationPanel.staged-pdf.test.tsx with shared render helper and splits contact patterns into resume-completeness.contacts.spec.ts). Reopen if the Verify check below fails.
+
+**Symptoms.** The panel test file is at 799 lines, so the next staged-PDF case pushes it over the
+file-size limit. `packages/shared/src/schemas/resume-completeness.spec.ts` is over it already (961
+lines, R101).
+
+Files: `apps/web/app/components/user-profile/resume/__tests__/ResumeVerificationPanel.test.tsx`,
+`packages/shared/src/schemas/resume-completeness.spec.ts`.
+
+**Candidate fixes.** Move the staged-PDF block (preview, download, template line) into its own test
+file with the shared render helper, before adding to it. Split the completeness spec by concern
+(contact patterns, completeness codes).
+
+**Verify.** `wc -l` of every `ResumeVerificationPanel*.test.tsx` is at most 800, and the web suite
+case count for these files is unchanged after the split.
+
+Sources: verified-base-resume review (Task 23 brief).
+
+## 441. A failed delete of a superseded resume source leaves an unswept CV in R2 (2026-11-14)
+
+**Closed (2026-11-15).** PR #1352 (a daily `ResumeOrphanSweepCron` deletes every `senior-resumes/` object no `senior_resumes` row references once it is older than 24 h). Reopen if the Verify check below fails.
+
+**Symptoms.** When a senior's resume source is replaced, or an upload loses its queue CAS, the
+resumes service deletes the object nobody points at. If that delete fails it only logs a warning
+("Superseded resume source not deleted" / "Unreferenced resume source not deleted"). The CV stays
+under the per-user `senior-resumes/<userId>/` prefix. No job sweeps that prefix, and user erasure
+does not walk it, so personal data outlives the row that referenced it.
+
+**Candidate fixes.** A periodic sweep of `senior-resumes/` that deletes every object no
+`senior_resumes` row references (source key or staged/current PDF key), with a grace age so an
+in-flight upload is not taken. Or an erasure-by-user that deletes the whole `senior-resumes/<userId>/`
+prefix, run with account deletion.
+
+**Verify.** Force the superseded-source delete to fail (stub `s3.delete` to throw), replace the
+source, run the sweep: the orphan is gone, and the referenced source and PDFs are still there.
+
+Sources: verified-base-resume security review, finding SR-L-4 (Task 23 fix round 1).
+
+## 442. A VERIFIED resume is not re-checked after a rename or a Telegram change (2026-11-14)
+
+**Closed (2026-11-15).** PR #1353 (a real change of display name, legal name or Telegram stamps `senior_resumes.recheck_needed_at` on a VERIFIED resume, confirm clears it, the panel shows a "re-check needed" badge). Reopen if the Verify check below fails.
+
+**Symptoms.** Verification redacts the senior's display name, legal name and stored Telegram handle from the
+resume text before any model call, and confirm detects a display-name change only while the run is still
+awaiting confirm. Once a resume is VERIFIED, a later change of the display name, legal name or Telegram handle
+does not reopen it. The verified PDF and facts may then carry the new name or handle in free text, and nothing
+re-runs the contact scan against the new values.
+
+**Candidate fixes.** On a profile update that changes any redaction input, mark the senior's VERIFIED resume
+stale (a status or a flag) so HR sees "re-check needed", and re-run only the contact scan against the stored
+facts. Or store the owner fingerprint on the verified report and compare it on every read that feeds a model.
+
+**Verify.** Verify a resume, rename the senior, open the resume: it shows the stale state, and a re-check with the
+new name finds a hit seeded in the facts.
+
+Sources: verified-base-resume second-opinion, finding SO23-6 (Task 23). Owner note in the PR.
+
+## 443. Russian API messages in the resumes area should become codes + catalog lines (2026-11-14)
+
+**Closed (2026-11-15).** PR #1354 (resumes API errors and stored error messages become shared `RESUME_*` codes shown through the uk/en catalog). Reopen if the Verify check below fails.
+
+**Symptoms.** Some stored or returned strings in the resumes area are Russian text, not codes: the PDF render
+error message, the extraction `errorMessage`, the resolve-miss message, and `NotFoundException('Резюме не найдено')`
+in the verification service (reused from main). The web shows them verbatim, so an `en` user sees Russian and the
+`uk` default is not the catalog's wording.
+
+**Candidate fixes.** Move each to an API error code in `packages/shared/src/schemas/api-errors/`, keep an English
+fallback `message`, and show the catalog line for the code in the web.
+
+**Verify.** `grep -rnP '[\x{0400}-\x{04FF}]' apps/api/src/resumes --include=*.ts` (non-test) finds no user-facing
+string; the status panel shows the catalog line in both locales.
+
+Sources: verified-base-resume Task 23 rulings R78 and R88.
+
+## 444. Contact scanner: normalise zero-width and fullwidth characters before matching (2026-11-14)
+
+**Closed (2026-11-15).** PR #1351 (normalise zero-width and fullwidth characters before contact matching). Reopen if the Verify check below fails.
+
+**Symptoms.** The contact patterns in `packages/shared/src/schemas/resume-completeness.ts` match on NFC text
+only. A contact written with zero-width characters (U+200B..U+200D, U+2060, U+FEFF) between its letters, or in
+fullwidth forms (`ｊｏｈｎ＠ｘ．ｃｏｍ`), is neither flagged by the completeness check nor redacted before the
+model call. The code carries a `shortcut:` comment for this.
+
+**Candidate fixes.** Add one normalisation pass shared by both sides: NFKC, then strip `\p{Cf}`, keeping an
+index map back to the original text so redaction spans still land on the original characters.
+
+**Verify.** `j​ohn@x.com` and the fullwidth form are both flagged by `checkResumeCompleteness` and come back
+redacted from `redactContacts`; the completeness-vs-redaction fuzz stays clean.
+
+Sources: verified-base-resume second-opinion (Task 23, ruling R103).
+
+## 445. Contact scanner: years-only lists flag as a phone (2026-11-14)
+
+**Closed (2026-11-15).** PR #1351 (drop candidate phone matches whose digit groups are all 4-digit years in 1950..2099). Reopen if the Verify check below fails.
+
+**Symptoms.** `2019 · 2020 · 2021`, `1999—2003—2007` and the en-dash form match `RESUME_PHONE_PATTERN`
+(9+ digits joined by separators), so submit is blocked with CONTACT_IN_TEXT and HR must rephrase.
+
+**Candidate fixes.** Before reporting a phone hit, drop a match whose digit groups are all 4-digit years in
+1950..2099 joined by a separator. Keep the redaction side unchanged (over-redaction is the safe direction) or
+apply the same guard on both sides so they agree.
+
+**Verify.** The three year lists are not flagged; `+380 67 123 45 67` and `067-123-45-67` still are.
+
+Sources: verified-base-resume Task 23 round 7, ruling R105.
+
+## 446. Resume confirm step: the kept-result notice sits too far from the action (2026-11-14)
+
+**Parked (2026-11-15).** Owner: waits for the CRM redesign v2.
+
+**Symptoms.** After a staged edit or regenerate whose check was unavailable, the row comes back AWAITING_CONFIRM on
+the previous result, and the kept-result notice (`resume-verification-kept`) renders below the whole confirm step.
+The user acts on a field near the top, sees the text go back, and does not see the line that says why.
+
+**Candidate fix.** In the CRM redesign, move the notice next to the action that triggered it (the edited or
+regenerated field), or pin it at the top of the confirm step. Owner rule: no layout work in the verified-base-resume
+PR, so this waits for the redesign.
+
+**Verify.** After a kept failure on a field, the notice is visible without scrolling, next to that field, at 320 px
+and at 1440 px.
+
+Sources: verified-base-resume Task 26 manual QA, finding QA-L-2.
+
+## 447. Resume PDF download returns 500 when the stored PDF object is missing (2026-11-16)
+
+**Closed (2026-11-16).** PR #1360 (a missing live PDF object re-queues the render and answers 202 QUEUED instead of a 500). Reopen if the Verify check below fails.
+
+**Symptoms.** `GET /api/users/:userId/resume/pdf` reads `pdf_s3_key` with `S3Service.getObject` and lets a
+`NoSuchKey` through as a 500. The row still says the PDF is ready, the same fingerprint means no re-render is
+queued, so the download stays broken until the source changes.
+
+**Candidate fix.** In `getRenderedPdf`, on `NoSuchKey` for the current PDF, queue a re-render and answer the existing
+202 "not ready" state (or a clear not-ready error code), instead of a 500.
+
+**Verify.** With the row's `pdf_s3_key` object deleted from the bucket, the endpoint answers 202 (not 500), and
+after the render lands the same endpoint returns the PDF.
+
+Sources: PR #1352 (orphan sweep, backlog 441) fix round 1.
+
+## 448. Staged resume PDFs under `resumes/<id>/staged/` have no orphan sweep (2026-11-16)
+
+**Closed (2026-11-16).** PR #1360 (the orphan sweep also deletes aged unreferenced `resumes/<id>/staged/<run>.pdf` objects). Reopen if the Verify check below fails.
+
+**Symptoms.** `ResumeOrphanSweepCron` lists only `senior-resumes/`. Staged PDFs are written to
+`resumes/<resumeId>/staged/<runId>.pdf` (`stagedPdfKey`), so a staged PDF whose cleanup delete failed stays in
+R2 with nothing left to reach it.
+
+**Candidate fix.** Extend the same sweep to the `resumes/` prefix (keys matching `resumes/<id>/staged/`), with its own
+referenced set (`staged_pdf_s3_key` and `staged_previous->'pdfKey'`), the same 24 h grace, HEAD re-check and cap.
+
+**Verify.** An aged staged PDF no row points at is deleted; the row's current staged PDF, the
+`staged_previous` PDF and a staged PDF younger than 24 h stay.
+
+Sources: PR #1352 (orphan sweep, backlog 441) fix round 1.
+
+## 449. Contact scanner: a contact glued to another survives one redaction pass (2026-11-16)
+
+**Closed (2026-11-16).** PR #1362 (`redactContacts` repeats its pass to a fixed point within 8 passes and redacts the whole field at the bound). Reopen if the Verify check below fails.
+
+**Symptoms.** `redactContacts` replaces every hit of one pass, but a contact whose boundary is blocked by a
+neighbouring contact is not a hit until that neighbour is gone: `0671234567Petrenko` gives `[REDACTED]Petrenko`,
+and `tg: @ivan_dev0671234567` gives `tg: @ivan_dev[REDACTED]`, so the handle leaks. `Ivan Petrenko#` was never
+redacted before PR #1351 round 3 made `#` and `+` name boundaries. The `redactContacts` docstring claimed the result
+is a fixed point; it is not, and a second pass redacts more.
+
+**Candidate fix.** Redact to a fixed point (repeat the scan on the result until it stops changing, with a small
+bound), or match contacts independent of order (a boundary may also be the edge of another contact's span).
+
+**Verify.** `0671234567Petrenko`, `tg: @ivan_dev0671234567` and `Ivan Petrenko#` (name `Ivan Petrenko`, handle
+`@ivan_dev`) are fully redacted, and `redactContacts(redactContacts(x)) === redactContacts(x)` holds on a fuzzed
+corpus of glued contacts.
+
+Sources: PR #1351 (contact scanner normalisation, backlog 444/445) security review round 2, SR-M-2.
+
+## 450. Multipart limit errors answer an uncoded 413 (2026-11-16)
+
+**Closed (2026-11-16).** PR #1361 (resume and documents parts/files limits answer coded 413s `RESUME_UPLOAD_TOO_MANY_PARTS` / `DOCUMENT_UPLOAD_TOO_MANY_PARTS`; documents upload owns its 10 MB limit and answers `DOCUMENT_TOO_LARGE`; skipped file parts are drained). Reopen if the Verify check below fails.
+
+**Symptoms.** The resume upload maps only `FST_REQ_FILE_TOO_LARGE` to a coded 413. A second file part
+(`FST_FILES_LIMIT`) or too many parts (`FST_PARTS_LIMIT`) reaches the client as the multipart plugin's own 413 with no
+code, so the UI cannot show a catalog line. The documents upload passes no per-route limit: it relies on the global
+`fileSize` in `main.ts`, so its limit can drift from `DOCUMENT_MAX_BYTES`, and its oversize answer is the uncoded 413,
+not `DOCUMENT_TOO_LARGE`.
+
+**Candidate fix.** In the resume upload catch, map both limit codes to one coded 413
+(`RESUME_UPLOAD_TOO_MANY_PARTS`) with uk and en catalog lines. In the documents upload, pass
+`limits: { fileSize: DOCUMENT_MAX_BYTES }` to `req.parts` and map `FST_REQ_FILE_TOO_LARGE` to `DOCUMENT_TOO_LARGE`
+with its MB cap. Keep both limits at 10 MB.
+
+**Verify.** A resume upload with two file parts answers 413 `RESUME_UPLOAD_TOO_MANY_PARTS`; a document over 10 MB
+answers 413 `DOCUMENT_TOO_LARGE` with `maxMb: 10`; other multipart failures are unchanged.
+
+Sources: verified-base-resume follow-up (PR #1354, QA-LOW-4 coded 413 for the resume size limit).
+
+## 451. Resume PDF download file name is always Russian (2026-11-16)
+
+**Closed (2026-11-16).** PR #1360 (the PDF download is named by the viewer locale through `@RequestLocale()`). Reopen if the Verify check below fails.
+
+**Symptoms.** `resumeContentDisposition` always names the downloaded PDF `Резюме — <name>.pdf` in the
+`filename*` slot, on both `GET /api/users/:userId/resume/pdf` and `.../resume/staged-pdf`, so an `en` user
+saves a file with a non-English name.
+
+**Fix.** The two routes read the viewer's locale with `@RequestLocale()` (stored user locale, then the
+`pref_locale` cookie, then `Accept-Language`, then `uk`) and pass it to `resumeContentDisposition`: `uk` keeps
+`Резюме — <name>.pdf`, `en` gets `Resume — <name>.pdf`. The ASCII `filename=` fallback is unchanged.
+
+**Verify.** With locale `uk` the decoded `filename*` is `Резюме — <name>.pdf`, with `en` it is
+`Resume — <name>.pdf`, on both routes; the `filename=` slot holds only printable ASCII in both.
+
+## 452. Submit stays enabled for a verified resume the server refuses (2026-11-16)
+
+**Closed (2026-11-16).** PR #1359 (disable resume submit when verified and unflagged). Reopen if the Verify check below fails.
+
+**Symptoms.** For a VERIFIED resume that is not flagged for re-check (`recheckNeededAt: null`), the Submit button on the completeness panel (`resume-facts-submit`) stays enabled. Every click fails with HTTP 409 `RESUME_ALREADY_VERIFIED`, producing error toasts while leaving the user without an explanation of why resubmission is rejected.
+
+**Fix.** Disable the completeness Submit button whenever the resume is VERIFIED, `recheckNeededAt` is falsy, and there are no unsaved fact edits (`!canSave`). Display the localized explanation via `aria-describedby` using the existing `RESUME_ALREADY_VERIFIED` catalog string.
+
+**Verify.** With a VERIFIED resume with `recheckNeededAt: null` and unchanged facts, the Submit button is disabled, references the accessible reason via `aria-describedby`, and no 409 request is sent on click. Editing any fact enables the button so changes can be saved and resubmitted.
+
+## 453. Contact scanner: separators, non-adjacent parts, non-ASCII digits, glued digits and combining marks (2026-11-16)
+
+**Closed (2026-11-16).** PR #1362 (the gate joins split parts across a hyphen or a comma and tries their ordered subsequences, the normaliser folds non-ASCII digits, a digit is a redaction edge, and the generic patterns also run on the accent-folded and digit-unfolded text). Reopen if the Verify check below fails.
+
+**Symptoms.** Five residual gaps in the contact scanner after PR #1351:
+
+- (a) The gate joins the parts of a split stored name (ZWSP/ZWNJ inside it) only by whitespace, so
+  `Petr-in` or `Li, Yu` for the stored `Ivan Petr` U+200C `in` passes.
+- (b) The gate tries only contiguous runs of the split parts, so `Li Bo` for the stored `Ivan Li` U+200B `Yu`
+  U+200B `Bo` passes.
+- (c) A phone written in non-ASCII decimal digits (`٠٦٧١٢٣٤٥٦٧`, Extended Arabic-Indic, Devanagari) is
+  neither flagged nor redacted.
+- (d) A name glued to a digit (`Petrenko1990`) is not redacted: a digit is not a name edge.
+- (e) A combining mark on a digit (`067` U+0301 `123 45 67`) splits the phone, and it is not matched.
+
+**Candidate fix.** (a) allow a hyphen or a comma between run parts in the gate; (b) try ordered subsequences of
+2+ non-first parts with 3+ letters, both orders, within `MAX_RUN_PARTS`; (c) fold `\p{Nd}` to ASCII in
+`normaliseContactText` with exact spans; (d) a digit is a name edge for redaction only, the gate keeps main's
+token; (e) run the generic patterns on the accent-folded text too, which drops `\p{Mn}`.
+
+**Verify.** Each row of (a)-(e) is pinned in `contact-scan.residuals.spec.ts` and
+`resume-completeness.residuals.spec.ts`; `Senior engineer in Kyiv since 2020` still passes for the stored
+`Ivan Petr` U+200C `in`; the differential against main (`scanContacts` hits, `redactedSpans` coverage,
+completeness flags) loses nothing.
+
+Sources: PR #1351 (contact scanner normalisation, backlog 444/445) security review residuals.
+
+## 454. Contact scanner perf tests measure a too-short window (2026-11-16)
+
+**Closed (2026-11-16).** PR #1362 (each perf-ratio arm doubles its repeats until it runs at least 20 ms, with the ratio limits unchanged). Reopen if the Verify check below fails.
+
+**Symptoms.** The perf-ratio tests in `contact-scan.spec.ts` time arms of a few milliseconds (the 3-part arm of the
+split-parts test ran about 8 ms), so timer resolution and scheduler noise decide the ratio and the test can flake
+or hide a slowdown.
+
+**Candidate fix.** Raise iterations so each arm runs at least about 20 ms, without widening the ratio limits.
+
+**Verify.** Each arm of the perf-ratio tests is calibrated to at least 20 ms (`MIN_ARM_MS`, the faster of two
+runs per step); the timed short arm is asserted at least 10 ms (`MIN_ARM_MS * 0.5`), so the test, not this line,
+sets the floor. The ratio limits are the ones on main.
+
+**Ruling (AC3, PR #1362).** AC3 stop rule hit (3.9x unfiltered); kept subset runs with in-text filter, worst case
+4.6x on a text holding every part, bounded by MAX_RUN_PARTS=8; pinned by `the gate at its run bound stays bounded
+and the in-text filter keeps absent parts free`.
+
+Sources: PR #1351 (contact scanner normalisation, backlog 444/445) security review residuals.
+
+## 455. Re-check badge has no hint for the senior (parked for redesign v2, 2026-11-16)
+
+**Symptoms.** QA-LOW-2 on PR #1353: the senior sees the re-check badge on a resume, but no text says what it
+means or that nothing is needed from them.
+
+**Decision.** Owner, 2026-11-16: wait for redesign v2, same as items 437 and 446; do not add the hint before.
+
+**Verify.** The redesigned resume screen gives the badge a readable, accessible explanation in uk and en.
+
+## 456. Contact gate passes split-name parts joined by `/`, `;` and other joiners (2026-11-16)
+
+**Symptoms.** The gate (`scanContacts`, behind `hasContact`) refuses split name parts only when a run joins them with
+whitespace, a dash, a comma, a period, an underscore or a middle dot. `Li / Yu` and `Li; Yu` pass. Model output and
+staged edits are checked only by this gate (nothing redacts them afterwards), so a form that passes reaches clients.
+
+**Candidate fix.** Add `/` and `;` to `RUN_GAP` (and any joiner dropped from the PR #1362 change, see 453a). Each
+addition needs a false-positive measurement over clean text first: count new refusals on the pass corpus, and keep the
+joiner only at zero.
+
+**More joiners to measure the same way.** `|`, `:`, `+`, `~`, and a repeated joiner (`Li -- Yu`, `Li ... Yu`; both pass today, checked 2026-11-16, while a single `Li - Yu` is refused):
+`RUN_GAP` takes one joiner per gap, so a doubled one passes today. Repeated forms are a separate measurement from the
+single joiner, because a repeat widens the gap the pattern accepts.
+
+**Dash code points, checked against NFKC.** `normaliseContactText` applies NFKC before the match, so a code point NFKC
+already maps onto a listed form needs no entry. Checked in Node 2026-11-16: U+2011 NFKC-folds to U+2010 and U+2026
+folds to `...`; both are covered once their folded form is. Not folded, so each needs its own entry in `RUN_GAP`:
+U+058A (Armenian hyphen), U+2E3A (two-em dash), U+2E3B (three-em dash), U+301C (wave dash). Add the ones that pass the
+false-positive measure, and no others.
+
+**Perf.** The `splitNameRuns` doc comment quotes 4.6x for a text holding every part, measured by hand against main. No
+test pins it: add a perf case with the parts repeated many times in the text, both bound-side (8 parts) and past the
+bound, before the joiner set grows, so the run cost is measured at its worst and not only on the perf spec's text.
+
+**Verify.** `scanContacts('by Li / Yu today', ctx)` refuses; the pass corpus of `contact-scan*.spec.ts` gives zero new refusals.
+
+Sources: PR #1362 security review (SR-L-1), code and second-opinion reviews on the same branch.
+
+## 457. Contact gate misses a first name plus one part, and a surname with glued digits (2026-11-16)
+
+**Symptoms.** Stored `Ivan Li Yu`: `Li, Ivan` and `Ivan-Li` pass the gate. A surname with glued digits (`Surname1990`)
+passes the gate, while redaction reads the digit as an edge (453d). The gate keeps main's token rule for digits.
+The same class, measured 2026-11-16: stored `Li Yu Chen` (one reading `LiYu Chen`, the other `Li`, `Yu`, `Chen`) lets `Li - Yu` pass, while `Ivan Kot Li Yu` refuses it. The first stored part never takes part in a gate run, and while runs are active two-letter parts are not lone sources, so a first part with one more part has no source at all.
+
+**Candidate fix.** Decide the first-name-plus-one-part reading and the digit edge for the gate separately; each needs a
+false-positive measurement, since a first name alone is a common word.
+
+**Verify.** The rows `Li, Ivan`, `Ivan-Li` and `Surname1990` are pinned as their chosen result; the pass corpus stays clean.
+
+Sources: PR #1362 security review (SR-L-1 scope note), PR #1351 round 7 gate notes.
+
+## 458. The `@*handle` pattern is quadratic on a long run of `@` (2026-11-16)
+
+**Symptoms.** The handle source `@*handle` (`telegramSource` in `contact-scan.ts`) backtracks quadratically on a long
+run of `@` before the handle. The same on main. The 2000-character edit cap bounds it to about 15 ms on the gate, so it
+is not a leak, but it is a cost per field.
+
+**Candidate fix.** Match the optional `@` run linearly (a single `@`-prefix lookbehind or a scan that consumes the run
+once), keeping the `@@ivan_dev` and `x@ivan_dev` rows.
+
+**Verify.** A perf arm on a 2000-character `@` run stays inside the existing budget, with the handle rows unchanged.
+
+Sources: PR #1362 security review (SR-L-2).
+
+## 459. #1360 follow-ups: render claim, pre-change Typst failures, keyless re-queue, orphan source delete (2026-11-16)
+
+**Symptoms.** (a) A render claimed but not started re-queues on every poll; a claim-time column is needed. (b) Pre-change
+Typst failures keep a stale key and fingerprint pair; this is an owner data-fix decision. (c) A keyless row re-queues on
+every poll while its render is in flight. (d) An old source whose delete failed at replacement waits for the orphan sweep;
+a source-prefix delete would clear it at once.
+
+**Candidate fix.** (a) and (c) as one change on the render queue; (b) after the owner decides the data fix; (d) a
+source-prefix delete in the replacement path.
+
+**Verify.** Each item has its own test that fails on the current behaviour and passes after the change.
+
+Sources: PR #1360 security review (SR2-L-2, SR3-L-2, SR4-L-1) and review on the same branch.

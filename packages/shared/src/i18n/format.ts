@@ -38,6 +38,9 @@ const INTL_TAG: Record<Locale, string> = { uk: 'uk-UA', en: 'en-GB' }
  * quota-reset moment 'dateTime' was built for. Same LOCAL-time family as
  * 'dateTime' (no `timeZone` override) for the same reason: a signature
  * timestamp is a moment the reader checks against their own clock.
+ *
+ * PR #1337 (SPEC-L-1) — added 'dayMonth': day + short month, no year, UTC.
+ * QA-LOW-1 — added 'dayMonthYear': the date picker's field, in the reader's local day.
  */
 export function formatDate(
   value: Date | string,
@@ -50,7 +53,10 @@ export function formatDate(
     | 'dateTime'
     | 'shortYY'
     | 'shortYYUtc'
-    | 'dateTimeWithYear' = 'short',
+    | 'shortYYYY'
+    | 'dateTimeWithYear'
+    | 'dayMonth'
+    | 'dayMonthYear' = 'short',
 ): string {
   // `new Date(x)` accepts a `Date` exactly as well as a date string — a
   // Date passed through its own constructor keeps the same instant
@@ -66,7 +72,10 @@ export function formatDate(
     | 'dateTime'
     | 'shortYY'
     | 'shortYYUtc'
-    | 'dateTimeWithYear',
+    | 'shortYYYY'
+    | 'dateTimeWithYear'
+    | 'dayMonth'
+    | 'dayMonthYear',
     Intl.DateTimeFormatOptions
   > = {
     short: { timeZone: 'UTC' },
@@ -78,6 +87,10 @@ export function formatDate(
     // Date-only business fields (UTC-midnight encoded): the shortYY shape pinned to
     // UTC, so the stored day is the day shown in every reader timezone.
     shortYYUtc: { day: '2-digit', month: '2-digit', year: '2-digit', timeZone: 'UTC' },
+    // A numeric date with a four-digit year (05.03.2026 / 05/03/2026) in the reader's LOCAL day: an
+    // instant that ends a local day (a triage grant's expiry) reads as that day, never the next one in UTC.
+    // Stryker disable next-line ObjectLiteral: `{}` falls back to Intl's defaults, which for uk-UA and en-GB (the only two tags INTL_TAG maps) render the same 05.03.2026 / 05/03/2026 today; the explicit options pin that shape against an ICU default change, which no test on today's ICU can observe (CR-L-2)
+    shortYYYY: { day: '2-digit', month: '2-digit', year: 'numeric' },
     dateTimeWithYear: {
       day: 'numeric',
       month: 'short',
@@ -85,6 +98,12 @@ export function formatDate(
       hour: '2-digit',
       minute: '2-digit',
     },
+    // A date-only day with a short month and no year (1 лист. / 1 Nov): a senior's «Вільно з {d}»
+    // (vacancy-queue design §5.2). UTC, so a stored bare day reads as written in every timezone.
+    dayMonth: { day: 'numeric', month: 'short', timeZone: 'UTC' },
+    // The date picker's field (28 лист. 2026 р. / 28 Nov 2026), QA-LOW-1: the same short month as
+    // `dayMonth`. LOCAL, because the picker holds its day as a local midnight.
+    dayMonthYear: { day: '2-digit', month: 'short', year: 'numeric' },
   }
   return new Intl.DateTimeFormat(INTL_TAG[locale], STYLE_OPTS[style]).format(d)
 }

@@ -1,8 +1,21 @@
-import { useQuery } from '@tanstack/react-query'
+import { queryOptions, useQuery } from '@tanstack/react-query'
 import type { TeamDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { useOnboardingGate } from '@/context/onboarding'
 import { api } from '@/lib/axios'
+
+/**
+ * Every team `/teams` returns to the viewer (the default call leaves archived teams out). One cache
+ * entry, shared by the membership hooks below and the job queue's ADMIN team picker (Task 7.4b).
+ */
+export const TEAMS_QUERY = queryOptions({
+  queryKey: ['teams', { archived: 'active' }],
+  queryFn: async () => {
+    const res = await api.get<TeamDto[]>('/teams')
+    return res.data
+  },
+  staleTime: 60_000,
+})
 
 /**
  * Drop role - phase 1 (frontend AC7).
@@ -52,13 +65,8 @@ export function useActiveTeams(): {
   const { isComplete } = useOnboardingGate()
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['teams', { archived: 'active' }],
-    queryFn: async () => {
-      const res = await api.get<TeamDto[]>('/teams')
-      return res.data
-    },
+    ...TEAMS_QUERY,
     enabled: !!user && isComplete,
-    staleTime: 60_000,
   })
 
   if (!user || isLoading || !data) return { teams: null, isLoading, isError, refetch }

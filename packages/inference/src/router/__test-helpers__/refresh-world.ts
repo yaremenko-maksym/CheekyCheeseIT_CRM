@@ -1,6 +1,7 @@
 import { routerConfigSchema, type HostedProvider, type RouterConfig } from '../config'
 import { createFileManagedModels, createManagedListWriter } from '../managed-models'
 import { MODEL_LISTING_URLS } from '../model-listing'
+import { cloudflareEntry, cloudflarePage } from './cloudflare-listing'
 import type { ModelRefreshDeps, ModelRefreshEvent } from '../model-refresh'
 import {
   createMemoryRouteStatePort,
@@ -17,7 +18,6 @@ import {
   countingCap,
   GEMINI,
   GROQ,
-  LOCAL,
   scriptedFetch,
   type Reply,
   type Sent,
@@ -28,6 +28,8 @@ export const G2 = 'gemini-2.5-flash-lite'
 export const NEW = 'gemini-3.0-flash'
 export const Q1 = 'openai/gpt-oss-120b'
 export const Q2 = 'openai/gpt-oss-20b'
+export const C1 = '@cf/mistralai/mistral-small-3.1-24b-instruct'
+export const C2 = '@cf/openai/gpt-oss-20b'
 export const MANAGED_PATH = '/data/managed-models.json'
 export const NOON = Date.parse('2026-11-04T12:00:00Z')
 export const noonOf = (day: string): number => Date.parse(`${day}T12:00:00Z`)
@@ -91,22 +93,28 @@ export function refreshWorld(opts: WorldOptions = {}) {
       [Q1, 131_072],
       [Q2, 131_072],
     ]),
+    cloudflare: cloudflarePage([cloudflareEntry(C1), cloudflareEntry(C2)]),
     ...opts.listing,
   }
-  const listingUrls: string[] = Object.values(MODEL_LISTING_URLS)
+  const fixedListingUrls: string[] = Object.values(MODEL_LISTING_URLS)
+  const isListing = (url: string): boolean =>
+    fixedListingUrls.includes(url) ||
+    (url.startsWith('https://api.cloudflare.com/client/v4/accounts/') &&
+      url.includes('/ai/models/search?'))
   const net = {
     chat: opts.chat ?? ((): Reply => ALIVE),
     listing,
   }
   const fake = scriptedFetch((s) => {
-    if (!listingUrls.includes(s.url)) return net.chat(s)
-    return s.url === MODEL_LISTING_URLS.gemini ? net.listing.gemini : net.listing.groq
+    if (!isListing(s.url)) return net.chat(s)
+    if (s.url === MODEL_LISTING_URLS.gemini) return net.listing.gemini
+    return s.url === MODEL_LISTING_URLS.groq ? net.listing.groq : net.listing.cloudflare
   })
   const state = createMemoryRouteStatePort(opts.state ?? EMPTY_ROUTE_STATE)
   const cap = opts.cap ?? countingCap()
   const clock = { ms: opts.nowMs ?? NOON }
   const deps: ModelRefreshDeps = {
-    config: routerConfigSchema.parse(config(opts.routes ?? [GEMINI, GROQ, LOCAL])) as RouterConfig,
+    config: routerConfigSchema.parse(config(opts.routes ?? [GEMINI, GROQ])) as RouterConfig,
     state,
     ownCap: cap,
     managedModels: createFileManagedModels({
@@ -140,9 +148,8 @@ export function refreshWorld(opts: WorldOptions = {}) {
     sleeps,
     sent: fake.sent,
     /** Every chat request, in order; a listing is not one. */
-    chats: (): Sent[] => fake.sent.filter((s) => !listingUrls.includes(s.url)),
-    chatModels: (): string[] =>
-      fake.sent.filter((s) => !listingUrls.includes(s.url)).map((s) => s.model),
+    chats: (): Sent[] => fake.sent.filter((s) => !isListing(s.url)),
+    chatModels: (): string[] => fake.sent.filter((s) => !isListing(s.url)).map((s) => s.model),
     fileText: (): string | undefined => fs.files.get(MANAGED_PATH),
     fileList: (p: HostedProvider): string[] | undefined =>
       (

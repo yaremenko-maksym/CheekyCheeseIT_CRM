@@ -5,7 +5,7 @@
  *
  *   job_queue_assignments          a per-senior SUBMISSION to an opportunity
  *                                  (was the studio-wide claim; widened by the
- *                                  staged 2026-11-04 forward DDL)
+ *                                  2026-11-04 forward DDL)
  *   job_queue_dismissals           a TEAM- or STUDIO-scoped "not for us"
  *   job_team_triage_subscriptions  standing ADMIN triage per team
  *   job_queue_actions              audit of every mutation and click (append-only
@@ -200,8 +200,8 @@ const TRIAGE_KINDS = sql.raw(
 
 /**
  * A SUBMISSION: one senior logged as submitted to one opportunity (owner
- * queue-model decision 2026-10-18, r5 §4 "Queue model"; staged forward DDL
- * `manual-staged/2026-11-04_job_queue_submissions_per_senior.sql`). The table
+ * queue-model decision 2026-10-18, r5 §4 "Queue model"; forward DDL
+ * `manual/2026-11-04_job_queue_submissions_per_senior.sql`). The table
  * keeps its Phase-1 name. UNIQUE(opportunity, senior) replaced the shipped
  * UNIQUE(opportunity): there is NO studio-wide claim any more — several
  * seniors (of one team or of several) may be submitted to one opportunity
@@ -224,9 +224,9 @@ const TRIAGE_KINDS = sql.raw(
  * may belong to several teams, and a submission is a fact about the senior: it
  * is shown to every team the senior belongs to, without a name, and another
  * team sees only `{ submittedElsewhere: true }`. UNIQUE(opportunity, senior)
- * stands and the submit path is unblocked. What remains before promoting the
- * staged DDL is re-measuring that this table is empty on production (see the
- * staged file's header).
+ * stands and the submit path is unblocked. The forward DDL was promoted to
+ * manual/ by backlog 434; in production `senior_id` had been hand-applied
+ * before that, so its empty-table precondition no longer applies there.
  *
  * `assignee_id` is now the ACTOR who logged the submission, never shown
  * outside that actor's team. The `reassigned_*` triple is DEAD: ADMIN reassign
@@ -278,13 +278,13 @@ export const jobQueueAssignments = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
     /**
      * The senior this submission is for; UNIQUE with the opportunity. Declared
-     * LAST because the staged forward DDL adds it with `ADD COLUMN`, and the
+     * LAST because the forward DDL adds it with `ADD COLUMN`, and the
      * forward-DDL spec compares column ranks with `db:push`.
      */
     seniorId: uuid('senior_id').notNull(),
     /**
      * The resume a MANUAL card's submission was made with (POST /job-queue/manual); NULL for an
-     * ordinary submit. Declared LAST: the staged DDL adds it with `ADD COLUMN`.
+     * ordinary submit. Declared LAST: the forward DDL adds it with `ADD COLUMN`.
      */
     resumeId: uuid('resume_id'),
   },

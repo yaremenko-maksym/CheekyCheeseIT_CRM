@@ -30,6 +30,7 @@ import {
 } from '@nestjs/common'
 import type { FastifyRequest } from 'fastify'
 import {
+  DOCUMENT_MAX_BYTES,
   createDocumentMetadataSchema,
   documentListFiltersSchema,
   reconcileOrphansOptionsSchema,
@@ -50,6 +51,8 @@ interface MultipartField {
   fieldname: string
   value?: unknown
   toBuffer?: () => Promise<Buffer>
+  /** The file part's stream; a skipped file must be drained or `req.parts()` never moves on. */
+  file?: { resume: () => unknown }
   mimetype?: string
   filename?: string
 }
@@ -78,24 +81,37 @@ export class DocumentsController {
     let file: { buffer: Buffer; mimetype: string; originalname: string } | null = null
     const fields: Record<string, string> = {}
 
-    for await (const part of req.parts() as AsyncIterable<MultipartField>) {
-      if (part.type === 'file' && part.fieldname === 'file') {
-        // Only one file per upload — first one wins.
-        if (file) continue
-        const buffer = await (part.toBuffer
-          ? part.toBuffer()
-          : Promise.reject(new Error('Multipart file has no toBuffer()')))
-        file = {
-          buffer,
-          mimetype: part.mimetype ?? 'application/octet-stream',
-          originalname: part.filename ?? 'upload',
-        }
-      } else if (part.type === 'field') {
-        // value is unknown — coerce to string for our Zod schema.
-        if (typeof part.value === 'string') {
-          fields[part.fieldname] = part.value
+    // Backlog 450: the route owns its size limit (the global one in main.ts is only a fallback), and
+    // the plugin's uncoded 413 becomes the documents area's own. Iterator and toBuffer both reject with it.
+    try {
+      for await (const part of req.parts({
+        limits: { fileSize: DOCUMENT_MAX_BYTES },
+      }) as AsyncIterable<MultipartField>) {
+        if (part.type === 'file' && part.fieldname === 'file') {
+          // Only one file per upload — first one wins.
+          if (file) {
+            part.file?.resume()
+            continue
+          }
+          const buffer = await (part.toBuffer
+            ? part.toBuffer()
+            : Promise.reject(new Error('Multipart file has no toBuffer()')))
+          file = {
+            buffer,
+            mimetype: part.mimetype ?? 'application/octet-stream',
+            originalname: part.filename ?? 'upload',
+          }
+        } else if (part.type === 'file') {
+          part.file?.resume() // a file under another fieldname is skipped, so drain it
+        } else {
+          // value is unknown — coerce to string for our Zod schema.
+          if (typeof part.value === 'string') {
+            fields[part.fieldname] = part.value
+          }
         }
       }
+    } catch (err) {
+      throw uploadLimitError(err)
     }
 
     if (!file) {
@@ -242,4 +258,19 @@ export class DocumentsController {
     }
     return reconcileReportSchema.parse(serialized)
   }
+}
+
+/**
+ * The multipart plugin's limit errors are 413s with no code: `FST_REQ_FILE_TOO_LARGE` past the per-route
+ * `fileSize`, `FST_FILES_LIMIT` / `FST_PARTS_LIMIT` for a second file or too many parts. Any other error goes on as it is.
+ */
+function uploadLimitError(err: unknown): unknown {
+  const code = (err as { code?: unknown } | null)?.code
+  if (code === 'FST_FILES_LIMIT' || code === 'FST_PARTS_LIMIT') {
+    return apiError('DOCUMENT_UPLOAD_TOO_MANY_PARTS', HttpStatus.PAYLOAD_TOO_LARGE)
+  }
+  if (code !== 'FST_REQ_FILE_TOO_LARGE') return err
+  return apiError('DOCUMENT_TOO_LARGE', HttpStatus.PAYLOAD_TOO_LARGE, {
+    maxMb: Math.floor(DOCUMENT_MAX_BYTES / 1024 / 1024),
+  })
 }

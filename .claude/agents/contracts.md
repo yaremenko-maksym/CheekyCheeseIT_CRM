@@ -347,11 +347,17 @@ self-review counts.
    threat model above already accepts — and unlike a date it cannot be set as a side-effect of
    committing. An agent that would rather not carry a sha can post a **COMMENT review** instead of
    a comment: a review records `commit_id` itself and needs no line.
-2. **No re-run on review.** There is no `pull_request_review` trigger, because that event runs the
-   PR's own copy of the workflow. After a review lands, re-run the check with a PR-body edit or a
-   label change. Verdict pinning makes this **more frequent, not newly necessary**: the manual
-   re-run was always needed for a verdict to be seen at all, and it is now needed once per
-   review-invalidating push rather than once per PR.
+2. **Re-run on every PR event, reviews included.** Push, body edit, label change, reopen and
+   ready-for-review start the gate directly (`pull_request_target`). A review, a review comment or a
+   PR comment cannot: `pull_request_review` runs the PR's own workflow copy. So
+   `flow-gate-relay.yml` (no token, evaluates nothing) signals, and `flow-gate-recheck.yml`
+   (default-branch copy, `workflow_run` + `issue_comment`, `actions: write` only) re-runs the latest
+   Flow Gate run of the PR head (`scripts/architect/flow-gate-recheck.mjs`). The re-run is a new
+   attempt on the head's own check suite and reads the PR state live. Only comments, reviews and
+   review comments by OWNER / MEMBER / COLLABORATOR trigger it; other such activity does not. Limits: an event made by `GITHUB_TOKEN` (a bot label,
+   comment or push) starts no workflow at all, so it re-checks nothing; a run older than 30 days
+   or already re-run 50 times cannot be re-run; a failed recheck shows on main's commit, not on the PR. Fallback: if the check
+   has not re-run a few minutes after the last event, edit the PR body or toggle a label.
 3. **Stale red run vs auto-merge.** `auto-merge-on-label.yml` fails fast on a failing required
    check. If `merge-approved` is applied while the previous Flow Gate run is red, auto-merge can
    read that run before the label-triggered run has started. It then posts its "did not complete"

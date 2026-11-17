@@ -84,6 +84,7 @@ export const AUTH_USERS_PROJECTS_ERROR_CODES = [
   'REJOIN_TEAM_MUST_BE_FORMER_MEMBER',
   'REJOIN_TEAM_SENIOR_ONLY',
   'SENIOR_ADMIN_USDT_ONLY',
+  'SENIOR_MIN_ROLES',
   'SENIOR_MIN_TECHNOLOGIES',
   'SENIOR_NOT_FOUND',
   'SENIOR_SHARE_OVERRIDE_FORBIDDEN',
@@ -94,6 +95,7 @@ export const AUTH_USERS_PROJECTS_ERROR_CODES = [
   'SHARE_REJECT_IMPERSONATION_FORBIDDEN',
   'TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT',
   'TEAM_HR_MEMBER_MUST_BE_HR',
+  'TECHNICAL_ROLES_SENIOR_ONLY',
   'TELEGRAM_CHANNEL_SENIOR_ONLY',
   'USER_ALREADY_ARCHIVED',
   'USER_EMAIL_EXISTS',
@@ -177,6 +179,7 @@ export const AUTH_USERS_PROJECTS_ERROR_PARAMS = {
   REJOIN_TEAM_MUST_BE_FORMER_MEMBER: [],
   REJOIN_TEAM_SENIOR_ONLY: [],
   SENIOR_ADMIN_USDT_ONLY: [],
+  SENIOR_MIN_ROLES: [],
   SENIOR_MIN_TECHNOLOGIES: [],
   SENIOR_NOT_FOUND: [],
   SENIOR_SHARE_OVERRIDE_FORBIDDEN: [],
@@ -187,6 +190,7 @@ export const AUTH_USERS_PROJECTS_ERROR_PARAMS = {
   SHARE_REJECT_IMPERSONATION_FORBIDDEN: [],
   TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT: [],
   TEAM_HR_MEMBER_MUST_BE_HR: [],
+  TECHNICAL_ROLES_SENIOR_ONLY: [],
   TELEGRAM_CHANNEL_SENIOR_ONLY: [],
   USER_ALREADY_ARCHIVED: [],
   USER_EMAIL_EXISTS: [],
@@ -488,6 +492,10 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
     id: 'api-error.SENIOR_ADMIN_USDT_ONLY',
     message: 'Для сеньйора й адміністратора доступний лише один спосіб виплати — USDT ERC-20',
   },
+  SENIOR_MIN_ROLES: /* i18n */ {
+    id: 'api-error.SENIOR_MIN_ROLES',
+    message: 'Сеньйору потрібна щонайменше одна технічна роль',
+  },
   SENIOR_MIN_TECHNOLOGIES: /* i18n */ {
     id: 'api-error.SENIOR_MIN_TECHNOLOGIES',
     // No-break spaces keep «3 різні технології» on one line (COPY-L-1).
@@ -528,6 +536,10 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   TEAM_HR_MEMBER_MUST_BE_HR: /* i18n */ {
     id: 'api-error.TEAM_HR_MEMBER_MUST_BE_HR',
     message: 'HR команди може бути лише користувач із роллю HR',
+  },
+  TECHNICAL_ROLES_SENIOR_ONLY: /* i18n */ {
+    id: 'api-error.TECHNICAL_ROLES_SENIOR_ONLY',
+    message: 'Технічні ролі можна вказати лише сеньйору',
   },
   TELEGRAM_CHANNEL_SENIOR_ONLY: /* i18n */ {
     id: 'api-error.TELEGRAM_CHANNEL_SENIOR_ONLY',
@@ -643,6 +655,7 @@ export const AUTH_USERS_PROJECTS_ERROR_FALLBACK_EN: Record<AuthUsersProjectsErro
   REJOIN_TEAM_MUST_BE_FORMER_MEMBER: 'You can only rejoin a team you were previously a member of',
   REJOIN_TEAM_SENIOR_ONLY: 'Only a senior can rejoin a team',
   SENIOR_ADMIN_USDT_ONLY: 'Seniors and admins can only be paid to USDT ERC-20',
+  SENIOR_MIN_ROLES: 'A senior needs at least one technical role',
   SENIOR_MIN_TECHNOLOGIES: 'A senior needs at least 3 different technologies',
   SENIOR_NOT_FOUND: 'Senior not found',
   SENIOR_SHARE_OVERRIDE_FORBIDDEN:
@@ -656,6 +669,7 @@ export const AUTH_USERS_PROJECTS_ERROR_FALLBACK_EN: Record<AuthUsersProjectsErro
     "You're signed in as another employee — only they can reject their share",
   TEAM_ACCOUNTANT_MUST_BE_ACCOUNTANT: 'The team accountant must be a user with the accountant role',
   TEAM_HR_MEMBER_MUST_BE_HR: 'A team HR must be a user with the HR role',
+  TECHNICAL_ROLES_SENIOR_ONLY: 'Technical roles can only be set for a senior',
   TELEGRAM_CHANNEL_SENIOR_ONLY: 'A Telegram channel can only be set for a senior',
   USER_ALREADY_ARCHIVED: 'The user is already archived',
   USER_EMAIL_EXISTS: 'This email is already taken. Enter a different one',

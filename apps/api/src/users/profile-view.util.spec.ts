@@ -115,6 +115,7 @@ describe('projectProfileUser', () => {
     pendingSeniorSharePercent: 40,
     dropSharePercent: 12,
     techStack: ['ts'],
+    technicalRoles: ['BACKEND_ENGINEER'],
     paymentMethod: 'USDT_ERC20',
     walletUsdtErc20: '0xabc',
     walletUsdtLabel: 'main',
@@ -195,6 +196,7 @@ describe('projectProfileUser', () => {
       pendingSeniorShare: pending,
       dropSharePercent: 12,
       techStack: ['ts'],
+      technicalRoles: ['BACKEND_ENGINEER'],
       paymentMethod: 'USDT_ERC20',
       walletUsdtErc20: '0xabc',
       walletUsdtLabel: 'main',
@@ -206,6 +208,11 @@ describe('projectProfileUser', () => {
     expect(Object.keys(out)).not.toContain('googleId')
     expect(Object.keys(out)).not.toContain('locale')
     expect(Object.keys(out)).not.toContain('pendingSeniorSharePercent')
+  })
+
+  it('shows technicalRoles only for a SENIOR target, even with the flag on', () => {
+    const junior = { ...full, role: 'JUNIOR' as const }
+    expect(projectProfileUser(junior, perms(allOn), row, pending).technicalRoles).toEqual([])
   })
 
   it('masks every gated field when no flag is set (missing flags are denied)', () => {
@@ -233,6 +240,7 @@ describe('projectProfileUser', () => {
       pendingSeniorShare: null,
       dropSharePercent: null,
       techStack: null,
+      technicalRoles: [],
       paymentMethod: null,
       walletUsdtErc20: null,
       walletUsdtLabel: null,
@@ -258,7 +266,7 @@ describe('projectProfileUser', () => {
     ['legalName', ['legalFullName']],
     ['salary', ['monthlySalary', 'salaryCurrency']],
     ['share', ['seniorSharePercent', 'dropSharePercent']],
-    ['techStack', ['techStack']],
+    ['techStack', ['techStack', 'technicalRoles']],
     [
       'requisites',
       [

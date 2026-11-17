@@ -41,12 +41,13 @@ describe('canAccessResume — §4 access table', () => {
     })
   })
 
-  describe('SENIOR — own read/write, foreign NONE', () => {
+  // [owner 2026-11-14] a SENIOR only VIEWS their resume; ADMIN and HR write it.
+  describe('SENIOR — own read only, foreign NONE', () => {
     it('reads their own', () => {
       expect(canAccessResume(SENIOR_A, SENIOR_A.id, 'read')).toBe(true)
     })
-    it('writes their own', () => {
-      expect(canAccessResume(SENIOR_A, SENIOR_A.id, 'write')).toBe(true)
+    it('cannot write their own', () => {
+      expect(canAccessResume(SENIOR_A, SENIOR_A.id, 'write')).toBe(false)
     })
     it('cannot read ANOTHER senior (existing id, not a fabricated one)', () => {
       expect(canAccessResume(SENIOR_A, SENIOR_B_ID, 'read')).toBe(false)

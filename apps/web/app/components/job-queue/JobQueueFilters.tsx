@@ -71,9 +71,6 @@ export function JobQueueAppliedFilters({
   const seniorNames = seniorIds.flatMap((id) => seniors?.find((s) => s.id === id)?.name || [])
   const named = seniorIds.length === 1 ? SENIOR_ONE : SENIOR_MANY
   const summary = [
-    value.source?.map(sourceLabel),
-    value.eligibility?.map((o) => i18n._(ELIGIBILITY_LABEL[o])),
-    value.availability?.map((o) => i18n._(AVAILABILITY_LABEL[o])),
     seniorIds.length === 0
       ? []
       : [
@@ -81,6 +78,9 @@ export function JobQueueAppliedFilters({
             ? i18n._(named.id, { names: seniorNames.join(', ') })
             : i18n._(SENIOR_COUNT.id, { n: seniorIds.length }),
         ],
+    value.source?.map(sourceLabel),
+    value.eligibility?.map((o) => i18n._(ELIGIBILITY_LABEL[o])),
+    value.availability?.map((o) => i18n._(AVAILABILITY_LABEL[o])),
   ]
     .flatMap((g) => (g?.length ? [g.join(', ')] : []))
     .join(' · ')
@@ -276,6 +276,18 @@ function FilterPanel({
         data-testid="job-queue-filters-body"
         className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain"
       >
+        {seniors && (
+          <FilterGroup
+            legend={<Trans>Підходить сеньйору</Trans>}
+            busy={!seniors.items && !seniors.isError}
+          >
+            <SeniorRows
+              picker={seniors}
+              selected={draft.seniorIds}
+              onToggle={(id) => setDraft((d) => toggle(d, 'seniorIds', id))}
+            />
+          </FilterGroup>
+        )}
         <FilterGroup legend={<Trans>Тип збігу</Trans>}>
           {jobQueueEligibilitySchema.options.map((o) =>
             row('eligibility', o, i18n._(ELIGIBILITY_LABEL[o])),
@@ -289,18 +301,6 @@ function FilterPanel({
         <FilterGroup legend={<Trans>Джерело</Trans>}>
           {jobSourceTypeSchema.options.map((o) => row('source', o, sourceLabel(o)))}
         </FilterGroup>
-        {seniors && (
-          <FilterGroup
-            legend={<Trans>Підходить сеньйору</Trans>}
-            busy={!seniors.items && !seniors.isError}
-          >
-            <SeniorRows
-              picker={seniors}
-              selected={draft.seniorIds}
-              onToggle={(id) => setDraft((d) => toggle(d, 'seniorIds', id))}
-            />
-          </FilterGroup>
-        )}
       </div>
       <div data-testid="job-queue-filters-footer" className="flex shrink-0 gap-2">
         <Button

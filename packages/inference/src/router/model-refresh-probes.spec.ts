@@ -24,7 +24,6 @@ import {
   GROQ,
   hostOf,
   KEY_MARKER,
-  LOCAL,
   REQ,
   scriptedFetch,
   type Reply,
@@ -56,8 +55,8 @@ import {
 } from './state'
 
 const BIG = 1_000_000
-const GEMINI_ONLY = [GEMINI, LOCAL]
-const GROQ_ONLY = [GROQ, LOCAL]
+const GEMINI_ONLY = [GEMINI]
+const GROQ_ONLY = [GROQ]
 const PROBE_FORMAT = {
   type: 'json_schema',
   json_schema: {
@@ -105,7 +104,7 @@ describe('probe hygiene: refresh and chain check alike (SR-M-3)', () => {
     ['none', null],
   ])('a route with %s structured output keeps its own mode', async (mode, format) => {
     const w = refreshWorld({
-      routes: [{ ...GEMINI, models: [G1], structuredOutput: mode }, LOCAL],
+      routes: [{ ...GEMINI, models: [G1], structuredOutput: mode }],
       listing: { gemini: geminiListing([[G1, BIG]]) },
     })
     await runDailyModelRefresh(w.deps)
@@ -138,7 +137,7 @@ describe('probe hygiene: refresh and chain check alike (SR-M-3)', () => {
   it('probes current models first, then candidates by the largest effective context', async () => {
     const [SMALL, LARGE] = ids(2)
     const w = refreshWorld({
-      routes: [{ ...GEMINI, models: [G1], contextTokens: 100_000 }, LOCAL],
+      routes: [{ ...GEMINI, models: [G1], contextTokens: 100_000 }],
       listing: {
         gemini: geminiListing([
           [G1, BIG],
@@ -160,7 +159,7 @@ describe('probe hygiene: refresh and chain check alike (SR-M-3)', () => {
     expect(w.sleeps).toEqual([])
   })
 
-  it('never contacts the local route, in any job', async () => {
+  it('contacts only the configured hosted hosts, in any job', async () => {
     const auth = markAuth('gemini')(EMPTY_ROUTE_STATE)
     const w = refreshWorld({ state: auth })
     await runDailyModelRefresh(w.deps)
@@ -168,17 +167,18 @@ describe('probe hygiene: refresh and chain check alike (SR-M-3)', () => {
     w.clock.ms += STARTUP_REFRESH_MIN_GAP_MS
     await runStartupModelRefresh(w.deps)
     expect(w.sent.length).toBeGreaterThan(0)
-    expect(w.sent.map((s) => s.host)).not.toContain(hostOf.local)
+    expect(new Set(w.sent.map((s) => s.host))).toEqual(new Set([hostOf.gemini, hostOf.groq]))
   })
 
   it.each([
     ['the daily refresh', runDailyModelRefresh],
     ['the chain check', runModelChainCheck],
   ])('%s sends nothing for a provider with no route or no key', async (_label, job) => {
-    const w = refreshWorld({ routes: [LOCAL] })
+    const w = refreshWorld({ routes: GROQ_ONLY })
+    w.deps.config = { ...w.deps.config, routes: [] }
     const r = await job(w.deps)
     expect(w.sent).toEqual([])
-    expect(r.providers.map((p) => p.outcome)).toEqual(['skipped', 'skipped'])
+    expect(r.providers.map((p) => p.outcome)).toEqual(['skipped', 'skipped', 'skipped'])
   })
 
   it('a provider outside the allowlist is never reached, whatever the config says', async () => {
@@ -190,7 +190,7 @@ describe('probe hygiene: refresh and chain check alike (SR-M-3)', () => {
     }
     const r = await runDailyModelRefresh(w.deps)
     expect(w.sent).toEqual([])
-    expect(r.providers.map((p) => p.provider)).toEqual(['gemini', 'groq'])
+    expect(r.providers.map((p) => p.provider)).toEqual(['gemini', 'groq', 'cloudflare'])
   })
 
   it('a cap refusal skips the provider with no request, and the chain check too', async () => {
@@ -200,7 +200,7 @@ describe('probe hygiene: refresh and chain check alike (SR-M-3)', () => {
     expect(w.sent).toEqual([])
     for (const r of [daily, chain]) {
       expect(r.ok).toBe(true)
-      expect(r.providers.map((p) => p.outcome)).toEqual(['skipped', 'skipped'])
+      expect(r.providers.map((p) => p.outcome)).toEqual(['skipped', 'skipped', 'skipped'])
     }
   })
 })
@@ -225,7 +225,7 @@ describe('one builder (SR-M-3)', () => {
     ['json_object', { ...GEMINI, structuredOutput: 'json_object' }],
     ['none', { ...GEMINI, structuredOutput: 'none' }],
   ])('with %s every field matches but prompt and max_tokens', async (_mode, route) => {
-    const routes = [route, LOCAL]
+    const routes = [route]
     const [real, fixed] = [await production(routes), await probe(routes)]
     expect(without(fixed, 'messages', 'max_tokens')).toEqual(
       without(real, 'messages', 'max_tokens'),
@@ -237,7 +237,7 @@ describe('one builder (SR-M-3)', () => {
   })
 
   it('with json_schema only the prompt, the schema and max_tokens differ', async () => {
-    const routes = [GEMINI, LOCAL]
+    const routes = [GEMINI]
     const [real, fixed] = [await production(routes), await probe(routes)]
     expect(without(fixed, 'messages', 'max_tokens', 'response_format')).toEqual(
       without(real, 'messages', 'max_tokens', 'response_format'),
@@ -371,6 +371,7 @@ describe('the weekly chain check (§3.4 layer 3)', () => {
       providers: [
         { provider: 'gemini', outcome: 'done' },
         { provider: 'groq', outcome: 'done' },
+        { provider: 'cloudflare', outcome: 'skipped', reason: 'UNCONFIGURED' },
       ],
     })
     expect(w.sent.map((s) => s.model)).toEqual([G1, G2, Q1, Q2])
@@ -486,6 +487,7 @@ describe('the weekly chain check (§3.4 layer 3)', () => {
     expect(r.providers).toEqual([
       { provider: 'gemini', outcome: 'failed', reason: 'INTERNAL' },
       { provider: 'groq', outcome: 'done' },
+      { provider: 'cloudflare', outcome: 'skipped', reason: 'UNCONFIGURED' },
     ])
   })
 })
@@ -518,7 +520,7 @@ describe('the start-up refresh, the clearing proof (SR-M-7, SR-M-11)', () => {
   describe('every model already spent or used still leaves the one proof (SPEC-L-3)', () => {
     it('a Groq model with an OK call takes the proof, and no candidate is added', async () => {
       const w = refreshWorld({
-        routes: [{ ...GROQ, models: [Q1] }, LOCAL],
+        routes: [{ ...GROQ, models: [Q1] }],
         state: authOn('groq'),
         hadOkCall: (_p, m) => m === Q1,
       })
@@ -597,6 +599,7 @@ describe('the start-up refresh, the clearing proof (SR-M-7, SR-M-11)', () => {
       providers: [
         { provider: 'gemini', outcome: 'skipped', reason: 'NOT_NEEDED' },
         { provider: 'groq', outcome: 'skipped', reason: 'NOT_NEEDED' },
+        { provider: 'cloudflare', outcome: 'skipped', reason: 'UNCONFIGURED' },
       ],
     })
     expect(w.state.snapshot().providers).toEqual([])
@@ -668,7 +671,7 @@ describe('the start-up refresh, the clearing proof (SR-M-7, SR-M-11)', () => {
       const state = markAuth('groq')(stamped(NOON - 1))
       const w = within({ state })
       const r = await runStartupModelRefresh(w.deps)
-      expect(r.providers.map((p) => p.outcome)).toEqual(['skipped', 'done'])
+      expect(r.providers.map((p) => p.outcome)).toEqual(['skipped', 'done', 'skipped'])
       expect(w.chatModels()).toEqual([Q1])
     })
   })

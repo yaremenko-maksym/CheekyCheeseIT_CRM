@@ -7,7 +7,7 @@ import {
   MIN_MANAGED_CONTEXT,
   nextBusy,
   nextProbation,
-  pickGroqModels,
+  pickListedModels,
   pickLiveModels,
   withheldPromotions,
   type ModelFacts,
@@ -528,9 +528,10 @@ describe('isPromoted (the reader rule)', () => {
   })
 })
 
-describe('pickGroqModels (SR-H-1)', () => {
-  const pick = (args: Partial<Parameters<typeof pickGroqModels>[0]>) =>
-    pickGroqModels({
+describe('pickListedModels (SR-H-1)', () => {
+  const pick = (args: Partial<Parameters<typeof pickListedModels>[0]>) =>
+    pickListedModels({
+      provider: 'groq',
       current: [],
       listing: [],
       routeWindow: 32_000,
@@ -538,6 +539,30 @@ describe('pickGroqModels (SR-H-1)', () => {
       ...args,
     })
   const live = (id: string, context = 32_000) => ({ id, context, active: true })
+
+  it('adds a cloudflare model only inside @cf/<vendor>/<name>, never a groq id', () => {
+    const CF = '@cf/mistralai/mistral-small-3.1-24b-instruct'
+    expect(
+      pick({
+        provider: 'cloudflare',
+        current: [CF],
+        listing: [
+          live(CF),
+          live('openai/gpt-oss-120b', 64_000),
+          live('@cf/google/gemma-4-26b-a4b-it'),
+        ],
+      }),
+    ).toEqual([CF, '@cf/google/gemma-4-26b-a4b-it'])
+  })
+
+  it('never adds a cloudflare id to the groq list', () => {
+    expect(
+      pick({
+        current: ['openai/gpt-oss-20b'],
+        listing: [live('openai/gpt-oss-20b'), live('@cf/openai/gpt-oss-20b', 64_000)],
+      }),
+    ).toEqual(['openai/gpt-oss-20b'])
+  })
 
   it('keeps current ids still listed and active, in order', () => {
     expect(

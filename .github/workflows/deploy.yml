@@ -674,6 +674,20 @@ jobs:
             apps/api/drizzle/manual/2026-10-31_job_bridge_deliveries.sql \
             apps/api/drizzle/manual/2026-11-01_job_source_record_inventory_misses.sql \
             apps/api/drizzle/manual/2026-11-02_job_source_records_source_id.sql \
+            apps/api/drizzle/manual/2026-10-31_job_run_metrics_slowdown.sql \
+            apps/api/drizzle/manual/2026-10-31_job_source_health_events.sql \
+            apps/api/drizzle/manual/2026-11-02_job_sources_inventory_uniqueness.sql \
+            apps/api/drizzle/manual/2026-11-04_job_queue_submissions_per_senior.sql \
+            apps/api/drizzle/manual/2026-11-04_job_opportunities_evaluation_verdict.sql \
+            apps/api/drizzle/manual/2026-11-05_job_opportunities_role_family.sql \
+            apps/api/drizzle/manual/2026-11-05_job_opportunities_manual_team.sql \
+            apps/api/drizzle/manual/2026-11-06_job_model_health.sql \
+            apps/api/drizzle/manual/2026-11-14_senior_availability.sql \
+            apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql \
+            apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql \
+            apps/api/drizzle/manual/2026-11-11_senior_resumes_verification.sql \
+            apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql \
+            apps/api/drizzle/manual/2026-11-17_technical_roles.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -906,6 +920,13 @@ jobs:
           MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY: ${{ secrets.MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY }}
         run: bash scripts/devops/check-meeting-recorder-r2-deploy-env.sh
 
+      # Optional: unset passes. Set, it must meet the API's own secret rule, or the deploy stops here,
+      # before anything is written on the server. Never prints the value.
+      - name: Validate the extraction worker secret
+        env:
+          EXTRACTION_WORKER_SECRET: ${{ secrets.EXTRACTION_WORKER_SECRET }}
+        run: bash scripts/devops/check-extraction-worker-secret.sh
+
       - name: Write .env.production via SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
@@ -988,6 +1009,16 @@ jobs:
           LOCAL_MODEL_KEY: ${{ secrets.LOCAL_MODEL_KEY }}
           LOCAL_MODEL_NAME: ${{ secrets.LOCAL_MODEL_NAME }}
           INFERENCE_EXTRACTION_PROVIDER: ${{ secrets.INFERENCE_EXTRACTION_PROVIDER }}
+          # The opt-in extraction worker's shared secret (docs/runbooks/extraction-worker.md).
+          # Unset means no worker: today's behaviour. The same value lives in the worker's own env file.
+          EXTRACTION_WORKER_SECRET: ${{ secrets.EXTRACTION_WORKER_SECRET }}
+          # Vacancy-sourcing quota providers: optional, read by
+          # apps/api/src/job-sourcing/quota-credentials.ts. Omitted from
+          # .env.production when unset.
+          JOOBLE_API_KEY: ${{ secrets.JOOBLE_API_KEY }}
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+          THEIRSTACK_API_KEY: ${{ secrets.THEIRSTACK_API_KEY }}
+          REED_API_KEY: ${{ secrets.REED_API_KEY }}
           GH_ACTOR: ${{ github.actor }}
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -1005,7 +1036,7 @@ jobs:
           # "SHA256:<unpadded base64>", compared by exact string equality.
           fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
           # Pass env vars declared above into the remote shell.
-          envs: IMAGE_TAG,POSTGRES_PASSWORD,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,JWT_SECRET,SESSION_SECRET,CREDENTIALS_ENC_KEY,S3_ENDPOINT,S3_FORCE_PATH_STYLE,S3_REGION,S3_BUCKET,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,TURNSTILE_SECRET_KEY,TELEMETRY_DIGEST_TOKEN,TELEMETRY_SESSION_SALT,GOOGLE_INDEXING_SA_EMAIL,GOOGLE_INDEXING_SA_KEY_B64,PUBLIC_LANDING_ORIGIN,RESEND_API_KEY,CLOUDFLARE_AI_TOKEN,CLOUDFLARE_ACCOUNT_ID,JEV_API_KEY,OPENROUTER_API_KEY,LOCAL_MODEL_URL,LOCAL_MODEL_KEY,LOCAL_MODEL_NAME,INFERENCE_EXTRACTION_PROVIDER,GH_ACTOR,MEETING_RECORDER_MEDIA_S3_BUCKET,MEETING_RECORDER_MEDIA_AWS_ACCESS_KEY_ID,MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY
+          envs: IMAGE_TAG,POSTGRES_PASSWORD,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,JWT_SECRET,SESSION_SECRET,CREDENTIALS_ENC_KEY,S3_ENDPOINT,S3_FORCE_PATH_STYLE,S3_REGION,S3_BUCKET,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,TURNSTILE_SECRET_KEY,TELEMETRY_DIGEST_TOKEN,TELEMETRY_SESSION_SALT,GOOGLE_INDEXING_SA_EMAIL,GOOGLE_INDEXING_SA_KEY_B64,PUBLIC_LANDING_ORIGIN,RESEND_API_KEY,CLOUDFLARE_AI_TOKEN,CLOUDFLARE_ACCOUNT_ID,JEV_API_KEY,OPENROUTER_API_KEY,LOCAL_MODEL_URL,LOCAL_MODEL_KEY,LOCAL_MODEL_NAME,INFERENCE_EXTRACTION_PROVIDER,EXTRACTION_WORKER_SECRET,JOOBLE_API_KEY,RAPIDAPI_KEY,THEIRSTACK_API_KEY,REED_API_KEY,GH_ACTOR,MEETING_RECORDER_MEDIA_S3_BUCKET,MEETING_RECORDER_MEDIA_AWS_ACCESS_KEY_ID,MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY
           script: |
             set -euo pipefail
 
@@ -1050,6 +1081,8 @@ jobs:
             mkdir -p /opt/crm
             # All variables below come from the envs: list above (SSH env channel).
             # No ${{ secrets.* }} interpolation happens here — safe from injection.
+            # Create (or keep) the file owner-only before any secret is written (SR LOW, PR #1355).
+            (umask 077; touch /opt/crm/.env.production; chmod 600 /opt/crm/.env.production)
             cat > /opt/crm/.env.production << 'ENVEOF'
             NODE_ENV=production
             API_PORT=3001
@@ -1099,6 +1132,10 @@ jobs:
             printf 'TURNSTILE_SECRET_KEY=%s\n'    "$TURNSTILE_SECRET_KEY" >> /opt/crm/.env.production
             printf 'TELEMETRY_DIGEST_TOKEN=%s\n'  "$TELEMETRY_DIGEST_TOKEN" >> /opt/crm/.env.production
             printf 'TELEMETRY_SESSION_SALT=%s\n'  "$TELEMETRY_SESSION_SALT" >> /opt/crm/.env.production
+            # Not a secret: job-match reconciliation (job-sourcing cron, read by the api
+            # container via env_file .env.production). The api env default is false, so
+            # without this line collected records never reach job_opportunities / HR queue.
+            printf 'JOB_MATCH_RECONCILIATION_ENABLED=true\n' >> /opt/crm/.env.production
 
             # task-google-indexing-api: all three OPTIONAL — the API's env schema
             # treats them as optional and the indexing service no-ops (one boot
@@ -1165,6 +1202,35 @@ jobs:
             fi
             if [ -n "$INFERENCE_EXTRACTION_PROVIDER" ]; then
               printf 'INFERENCE_EXTRACTION_PROVIDER=%s\n' "$INFERENCE_EXTRACTION_PROVIDER" >> /opt/crm/.env.production
+            fi
+
+            # extraction worker: the URL and the secret go together or not at all. No secret, no
+            # worker: api keeps today's behaviour. The value is written, never printed; it was
+            # checked by the "Validate the extraction worker secret" step. The host is the worker's
+            # alias, the one plain-HTTP host the API's transport accepts (EXTRACTION_WORKER_HOST).
+            if [ -n "$EXTRACTION_WORKER_SECRET" ]; then
+              printf 'EXTRACTION_WORKER_URL=%s\n' 'http://crm-extraction-worker:3100' >> /opt/crm/.env.production
+              printf 'EXTRACTION_WORKER_SECRET=%s\n' "$EXTRACTION_WORKER_SECRET" >> /opt/crm/.env.production
+              # The input window (ADR 2026-11-03 H.4): the smallest configured hosted route, so every
+              # route fits every input. Derived from the runbook's sample config: the least room left
+              # for the input (contextTokens - maxAnswerTokens) is groq, 8000 - 2000. The real config
+              # lives only in the worker's env file on the server; change these with it. Not secret.
+              printf 'EXTRACTION_INPUT_CONTEXT_TOKENS=%s\n' '8000' >> /opt/crm/.env.production
+              printf 'EXTRACTION_INPUT_MAX_ANSWER_TOKENS=%s\n' '2000' >> /opt/crm/.env.production
+            fi
+
+            # vacancy-sourcing quota providers: same conditional-write pattern.
+            if [ -n "$JOOBLE_API_KEY" ]; then
+              printf 'JOOBLE_API_KEY=%s\n' "$JOOBLE_API_KEY" >> /opt/crm/.env.production
+            fi
+            if [ -n "$RAPIDAPI_KEY" ]; then
+              printf 'RAPIDAPI_KEY=%s\n' "$RAPIDAPI_KEY" >> /opt/crm/.env.production
+            fi
+            if [ -n "$THEIRSTACK_API_KEY" ]; then
+              printf 'THEIRSTACK_API_KEY=%s\n' "$THEIRSTACK_API_KEY" >> /opt/crm/.env.production
+            fi
+            if [ -n "$REED_API_KEY" ]; then
+              printf 'REED_API_KEY=%s\n' "$REED_API_KEY" >> /opt/crm/.env.production
             fi
 
             printf 'IMAGE_TAG=%s\n'               "$IMAGE_TAG"         >> /opt/crm/.env.production
@@ -2779,6 +2845,197 @@ jobs:
           # apps/api/drizzle/manual/2026-11-02_job_source_records_source_id.sql
           #   -> /opt/crm/apps/api/drizzle/manual/2026-11-02_job_source_records_source_id.sql
 
+      - name: Copy job run metrics slowdown DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-31_job_run_metrics_slowdown.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-31_job_run_metrics_slowdown.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-10-31_job_run_metrics_slowdown.sql
+
+      - name: Copy job source health events DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-31_job_source_health_events.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-31_job_source_health_events.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-10-31_job_source_health_events.sql
+
+      - name: Copy job sources inventory uniqueness DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-02_job_sources_inventory_uniqueness.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-02_job_sources_inventory_uniqueness.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-02_job_sources_inventory_uniqueness.sql
+
+      - name: Copy job queue submissions per senior DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-04_job_queue_submissions_per_senior.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-04_job_queue_submissions_per_senior.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-04_job_queue_submissions_per_senior.sql
+
+      - name: Copy job opportunities evaluation verdict DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-04_job_opportunities_evaluation_verdict.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-04_job_opportunities_evaluation_verdict.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-04_job_opportunities_evaluation_verdict.sql
+
+      - name: Copy job opportunities role family DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-05_job_opportunities_role_family.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-05_job_opportunities_role_family.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-05_job_opportunities_role_family.sql
+
+      - name: Copy job opportunities manual team DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-05_job_opportunities_manual_team.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-05_job_opportunities_manual_team.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-05_job_opportunities_manual_team.sql
+
+      - name: Copy job model health DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-06_job_model_health.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-06_job_model_health.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-06_job_model_health.sql
+
+      - name: Copy senior availability DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-14_senior_availability.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-14_senior_availability.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-14_senior_availability.sql
+
+      - name: Copy job dirty work pending partial index DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql
+
+      - name: Copy job dirty work partition partial indexes DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql
+
+      # Order constraint: deploy-stack-on-vps.sh applies this file BEFORE the grants file and before
+      # the container swap. Every senior-resume read and the extraction cron select these columns,
+      # so an image that serves traffic before it is applied answers 500 on the whole resume surface.
+      - name: Copy senior resumes verification DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-11_senior_resumes_verification.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-11_senior_resumes_verification.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-11_senior_resumes_verification.sql
+
+      # Order constraint: deploy-stack-on-vps.sh applies this file BEFORE the grants file and before
+      # the container swap. Every senior-resume read selects this column, so an image that serves
+      # traffic before it is applied answers 500 on the whole resume surface.
+      - name: Copy senior resumes recheck needed DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql
+
+      # Order constraint: deploy-stack-on-vps.sh applies this file BEFORE the grants file (the
+      # grants name job_role_classifications and fail on a missing table) and before the container
+      # swap (the new API selects users.technical_roles and the job_opportunities role columns).
+      - name: Copy technical roles DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          # Host-key pinning: see the comment on 'Write .env.production via SSH' in deploy.yml.
+          fingerprint: SHA256:aUhFBjtfQIpwUlMUA9Z5oKWXn8cIEdedrqt2eHNnGzo
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-11-17_technical_roles.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-11-17_technical_roles.sql
+          #   -> /opt/crm/apps/api/drizzle/manual/2026-11-17_technical_roles.sql
+
       # Multipart salary changes one invariant in two deploy phases. The prepare
       # migration is backward-compatible with the currently-running API; the
       # activate migration removes the old salary uniqueness only after the new
@@ -2971,6 +3228,10 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           envs: IMAGE_TAG,GH_ACTOR,GHCR_TOKEN,CRM_CSP_MODE
+          # 30m replaces the 10 m default: each CIC lock wait is capped at 5 min, but a build waits once per older
+          # transaction, so only statement_timeout (30min per build) caps a build's waits. A cut step's build may run
+          # on in the background; once it has ended, the next deploy's sweep drops and rebuilds an INVALID index.
+          command_timeout: 30m
           # A DISPATCH, deliberately tens of bytes long. The 137 KB it runs
           # travelled as a file via the scp step above. Full story in the header
           # of scripts/devops/deploy-stack-on-vps.sh; the part that matters here

@@ -26,7 +26,7 @@ export type BoundedResult =
   /** `aborted` marks the caller's `signal`, never the timer (SR-L-38): an abort is not a timeout. */
   | { kind: 'timeout'; aborted?: true }
   /** `tooLarge` marks a 2xx whose body exceeded `maxBytes`. */
-  | { kind: 'transport'; status?: number; text?: string; tooLarge?: true }
+  | { kind: 'transport'; status?: number; text?: string; tooLarge?: true; errorName?: string }
 
 export interface BoundedRequestOptions {
   url: string
@@ -44,8 +44,6 @@ export interface BoundedRequestOptions {
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 
-/** The container name of the CRM's own model runtime on the worker's private network (ADR §3.3). */
-export const LOCAL_MODEL_RUNTIME_HOST = 'crm-model-runtime'
 /** The container name of the extraction worker on the API's private network (ADR §2.4). */
 export const EXTRACTION_WORKER_HOST = 'crm-extraction-worker'
 
@@ -115,17 +113,10 @@ export function boundedRequest(opts: BoundedRequestOptions): Promise<BoundedResu
 }
 
 /**
- * Package-internal entry for the router's local leaf only (ADR §3.3): additionally allows plain
- * HTTP to loopback or the one constant runtime host. Not re-exported from the package index, and
- * there is no option to reach this from `boundedRequest` (SR-M-64).
- */
-export function boundedRequestToLocalRuntime(opts: BoundedRequestOptions): Promise<BoundedResult> {
-  return request(opts, LOCAL_MODEL_RUNTIME_HOST)
-}
-
-/**
- * Package-internal entry for the extraction-worker adapter only (ADR §2.4): additionally allows
- * plain HTTP to loopback or the one constant worker host. Not re-exported from the package index.
+ * Package-internal entry for the extraction worker only (ADR §2.4): additionally allows plain HTTP
+ * to loopback or the one constant worker host. Not re-exported from the package index. Its one
+ * direct caller is `createExtractionWorkerTransport`, which is exported and reaches only the
+ * worker's four routes (a runtime allow-list); the extraction-worker adapter goes through it.
  */
 export function boundedRequestToExtractionWorker(
   opts: BoundedRequestOptions,
@@ -184,8 +175,10 @@ async function request(
     }
     if (read.kind === 'too_large') return { kind: 'transport', status, tooLarge: true }
     return { kind: 'ok', status, text: read.text }
-  } catch {
-    return controller.signal.aborted ? stopped() : { kind: 'transport' }
+  } catch (err) {
+    if (controller.signal.aborted) return stopped()
+    // The class only, never the message: a message can carry the URL or a body.
+    return { kind: 'transport', errorName: err instanceof Error ? err.name : 'unknown' }
   } finally {
     clearTimeout(timer)
     signal?.removeEventListener('abort', onAbort)

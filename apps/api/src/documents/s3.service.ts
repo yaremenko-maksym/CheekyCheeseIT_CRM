@@ -39,6 +39,7 @@ import { ConfigService } from '@nestjs/config'
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
@@ -46,6 +47,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { DocumentCategory } from '@crm/shared'
 import type { Env } from '../config/env'
+import { isS3NotFound } from './s3-not-found.util'
 
 /**
  * Default presigned URL TTL. 24 hours (86400 sec) — used for non-sensitive
@@ -373,6 +375,22 @@ export class S3Service {
         Key: key,
       }),
     )
+  }
+
+  /**
+   * An object's current `LastModified`, read with HeadObject. `null` when the object is gone
+   * or carries no date; any other error (403, transport) throws, so a caller never mistakes
+   * "could not look" for "not there". The resume orphan sweep calls it right before a delete,
+   * because a listing's date can be older than a re-upload of the same key.
+   */
+  async headLastModified(key: string): Promise<Date | null> {
+    try {
+      const res = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }))
+      return res.LastModified ?? null
+    } catch (err: unknown) {
+      if (isS3NotFound(err)) return null
+      throw err
+    }
   }
 
   /**

@@ -253,7 +253,7 @@ describe('TechAutocompleteInput — invalid state (UX-M-1)', () => {
     })
     const input = screen.getByRole('textbox')
     expect(input.getAttribute('aria-invalid')).toBe('true')
-    expect(input.className).toContain('border-destructive')
+    expect(input).toHaveClass('border-destructive')
     expect(input.className).toContain('focus-visible:ring-destructive/30')
   })
 
@@ -263,6 +263,7 @@ describe('TechAutocompleteInput — invalid state (UX-M-1)', () => {
     })
     const input = screen.getByRole('textbox')
     expect(input.getAttribute('aria-invalid')).toBeNull()
-    expect(input.className).not.toContain('border-destructive')
+    // The bare class only: the shared Input also carries the inert `aria-invalid:` variant.
+    expect(input).not.toHaveClass('border-destructive')
   })
 })

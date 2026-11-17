@@ -54,7 +54,7 @@ interface Fake {
   steps: RecomputeSteps
   processed: string[]
   failed: [string, string, RetryOptions][]
-  claims: [string, number][]
+  claims: [string, number, boolean][]
   batches: RecomputeBatch[]
 }
 
@@ -65,8 +65,8 @@ function fakeSteps(
 ): Fake {
   const f: Fake = { processed: [], failed: [], claims: [], batches: [], steps: undefined as never }
   f.steps = {
-    async claim(owner, batchSize) {
-      f.claims.push([owner, batchSize])
+    async claim(owner, batchSize, freshOnly) {
+      f.claims.push([owner, batchSize, freshOnly])
       return claimed
     },
     async process(w, batch) {
@@ -97,10 +97,13 @@ describe('RecomputeWorker.runOnce: claim and ordering', () => {
       failed: 0,
       fenced: 0,
     })
-    expect(f.claims).toEqual([['spec-owner', 200]])
+    expect(f.claims).toEqual([['spec-owner', 200, false]])
     expect(f.processed).toEqual([])
     await worker(f, { batchSize: 7 }).runOnce()
-    expect(f.claims[1]).toEqual(['spec-owner', 7])
+    expect(f.claims[1]).toEqual(['spec-owner', 7, false])
+    // CR-H-1: the post-run drain asks for rows never attempted
+    await worker(f).runOnce({ freshOnly: true })
+    expect(f.claims[2]).toEqual(['spec-owner', 200, true])
   })
 
   it('resolves the batch records before any opportunity, keeping claim order within a kind', async () => {
@@ -392,6 +395,8 @@ interface World {
   manual?: boolean
   /** Called on every roster read; throw to fail it. */
   onRoster?: () => void
+  /** Extra columns of the lock row: the role-classifier inputs (senior roles PR 2). */
+  lock?: Record<string, unknown>
 }
 
 const world =
@@ -402,6 +407,7 @@ const world =
     lockRevision = 1,
     manual = false,
     onRoster = () => {},
+    lock = { role_classifier_version: 'rc.1' },
   }: World): Answer =>
   (q) => {
     if (/^\s*WITH cur AS/.test(q.sql)) return completes ? [{ status: 'DONE' }] : []
@@ -422,7 +428,7 @@ const world =
       return seq === null ? [] : [{ observation_seq: seq }]
     if (/FROM job_opportunities o/.test(q.sql)) return [opportunity]
     if (/FROM job_opportunities WHERE id = .* FOR NO KEY UPDATE$/.test(q.sql))
-      return lockRevision === null ? [] : [{ revision: lockRevision, manual }]
+      return lockRevision === null ? [] : [{ revision: lockRevision, manual, ...lock }]
     if (/FROM users u JOIN team_members/.test(q.sql)) {
       onRoster()
       return [
@@ -709,5 +715,68 @@ describe('createRecomputeSteps: OPPORTUNITY (AC 1, 2, 3)', () => {
       await createRecomputeSteps(db, {}, ['GREENHOUSE_ATS']).process(work(1), batchAt())
       expect(did(/INSERT INTO job_dirty_work/)).toEqual([])
     })
+  })
+})
+
+describe('createRecomputeSteps: OPPORTUNITY lazy role backfill (senior roles PR 2)', () => {
+  const SHA = 'd'.repeat(64)
+  const stale = (over: Record<string, unknown> = {}) => ({
+    role_classifier_version: null,
+    title: 'Senior Backend Engineer',
+    title_key: 'senior backend engineer',
+    stack_keywords: [],
+    description_sha256: SHA,
+    ...over,
+  })
+  const roleWrites = (did: (re: RegExp) => Query[]) =>
+    did(/^UPDATE job_opportunities\s+SET technical_roles = /).map((q) => q.params)
+
+  it.each([null, 'rc.0'])(
+    'a row at classifier version %s gets its roles under the lock, before evaluation',
+    async (version) => {
+      const { db, seen, did } = recordingDb(
+        world({ lock: stale({ role_classifier_version: version }) }),
+      )
+      expect(await createRecomputeSteps(db).process(work(1), batchAt())).toBe('DONE')
+      expect(roleWrites(did)).toEqual([['["BACKEND_ENGINEER"]', 'RULE', 'rc.1', work(1).entityId]])
+      const order = (re: RegExp) => seen.statements.findIndex((s) => re.test(s.sql))
+      expect(order(/SET technical_roles = /)).toBeGreaterThan(order(/FOR NO KEY UPDATE$/))
+      expect(order(/SET technical_roles = /)).toBeLessThan(order(/FROM job_opportunities o/))
+    },
+  )
+
+  it('a row at the current classifier version is not reclassified', async () => {
+    const { db, did } = recordingDb(world({ lock: stale({ role_classifier_version: 'rc.1' }) }))
+    expect(await createRecomputeSteps(db).process(work(1), batchAt())).toBe('DONE')
+    expect(roleWrites(did)).toEqual([])
+    expect(did(/FROM job_role_classifications/)).toEqual([])
+  })
+
+  it('the stored stack keywords reach the classifier', async () => {
+    const { db, did } = recordingDb(
+      world({ lock: stale({ title: 'Developer', stack_keywords: ['software-development'] }) }),
+    )
+    await createRecomputeSteps(db).process(work(1), batchAt())
+    expect(roleWrites(did)).toEqual([['["SOFTWARE_ENGINEER"]', 'RULE', 'rc.1', work(1).entityId]])
+  })
+
+  it('an unclassifiable title reads the AI cache by the stored title key and description hash', async () => {
+    const { db, did } = recordingDb(
+      world({ lock: stale({ title: 'Wizard of Things', title_key: 'wizard of things' }) }),
+    )
+    await createRecomputeSteps(db).process(work(1), batchAt())
+    expect(did(/FROM job_role_classifications/).map((q) => q.params)).toEqual([
+      ['wizard of things', SHA, 'rc.1'],
+    ])
+    expect(roleWrites(did)).toEqual([['[]', 'PENDING', 'rc.1', work(1).entityId]])
+  })
+
+  it('a row with no description hash never reads the AI cache', async () => {
+    const { db, did } = recordingDb(
+      world({ lock: stale({ title: 'Wizard of Things', description_sha256: null }) }),
+    )
+    await createRecomputeSteps(db).process(work(1), batchAt())
+    expect(did(/FROM job_role_classifications/)).toEqual([])
+    expect(roleWrites(did)).toEqual([['[]', 'PENDING', 'rc.1', work(1).entityId]])
   })
 })

@@ -1,5 +1,21 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import type { SourceObservation } from '../normalize/observation'
+
+// Default off, so every other test sees the real store gate. A test flips it to refuse every record.
+const storeGate = { refuseAll: false }
+
+vi.mock('../store/record-payload', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../store/record-payload')>()
+  return {
+    ...actual,
+    validateObservation: (o: SourceObservation) => {
+      if (storeGate.refuseAll)
+        throw new RangeError('validateObservation: refused for the all-refused test')
+      actual.validateObservation(o)
+    },
+  }
+})
 import { AdapterIdentityCollisionError } from './api-json.provider'
 import { SourcePayloadTooLargeError } from '../http/source-errors'
 import {
@@ -341,6 +357,83 @@ describe('the envelope', () => {
 
     expect(batch.requests.at(-1)?.error?.code).toBe('PAYLOAD_TOO_LARGE')
     expect(batch.outcome).toBe('FAILED')
+  })
+})
+
+describe('a run whose every record the store refuses stores nothing and is not a success', () => {
+  afterEach(() => {
+    storeGate.refuseAll = false
+  })
+
+  const REFUSED_MESSAGE = 'the store refused 1 observation(s), the last on page 1; none was stored'
+
+  it('one page, all refused: PARTIAL with a PERSISTENCE report, nothing saved, no validator', async () => {
+    storeGate.refuseAll = true
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.outcome).toBe('PARTIAL')
+    expect(batch.observations).toHaveLength(0)
+    expect(batch.counts.invalid).toBe(1)
+    expect(batch.requests.at(-1)?.error?.code).toBe('PERSISTENCE')
+    expect(batch.requests.at(-1)?.error?.message).toBe(REFUSED_MESSAGE)
+    expect(h.singlePage.count).toBe(0)
+  })
+
+  it('all refused, then the next page fails: the page failure stands and no PERSISTENCE is added', async () => {
+    storeGate.refuseAll = true
+    const h = harness({
+      pages: [{ body: { jobs: [job('1')], next: 'c2' } }, { status: 500 }],
+    })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.observations).toHaveLength(0)
+    expect(batch.requests.some((r) => r.error?.code === 'PERSISTENCE')).toBe(false)
+    expect(batch.requests.at(-1)?.status).toBe(500)
+  })
+
+  it('all refused on a cursor cycle: the run still reports PERSISTENCE', async () => {
+    storeGate.refuseAll = true
+    const h = harness({
+      pages: [
+        { body: { jobs: [job('1')], next: 'c2' } },
+        { body: { jobs: [job('2')], next: 'c2' } },
+      ],
+    })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.requests.some((r) => r.error?.code === 'PERSISTENCE')).toBe(true)
+    expect(batch.outcome).not.toBe('SUCCEEDED')
+  })
+
+  it('all refused on a page cap: the run still reports PERSISTENCE', async () => {
+    storeGate.refuseAll = true
+    const h = harness({ pages: [{ body: { jobs: [job('1')], next: 'c2' } }] })
+    const batch = await collectJsonPages(makeSpec({ limits: { maxPages: 1 } }), config(), h.ctx)
+
+    expect(batch.requests.some((r) => r.error?.code === 'PERSISTENCE')).toBe(true)
+    expect(batch.outcome).not.toBe('SUCCEEDED')
+  })
+
+  it('refused page 1, then a clean empty page 2: the PERSISTENCE report names page 1, once', async () => {
+    storeGate.refuseAll = true
+    const h = harness({ pages: [{ body: { jobs: [job('1')], next: 'c2' } }, onePage([])] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    const persistence = batch.requests.filter((r) => r.error?.code === 'PERSISTENCE')
+    expect(persistence).toHaveLength(1)
+    expect(persistence[0]?.page).toBe(1)
+    expect(persistence[0]?.error?.message).toBe(REFUSED_MESSAGE)
+    expect(batch.observations).toHaveLength(0)
+    expect(batch.outcome).not.toBe('SUCCEEDED')
+  })
+
+  it('a clean run refuses nothing: no PERSISTENCE report', async () => {
+    const h = harness({ pages: [onePage([job('1')])] })
+    const batch = await collectJsonPages(makeSpec(), config(), h.ctx)
+
+    expect(batch.requests.some((r) => r.error?.code === 'PERSISTENCE')).toBe(false)
+    expect(batch.outcome).toBe('SUCCEEDED')
   })
 })
 

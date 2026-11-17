@@ -1,21 +1,29 @@
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext, type FakeResponse } from '../../../test/fake-collection-context'
 import { meteredContext } from '../../../test/quota-harness'
-import { sourceFixture, sourceProvenance } from '../../../test/source-fixtures'
+import { sourceFixtureText, sourceProvenance } from '../../../test/source-fixtures'
 import { PG_INT_MAX } from '../api-json.provider'
 import { UnvalidatedConfigError } from '../reporting-provider'
-import { createJoobleProvider, JOOBLE_SOURCE_STATUS, joobleNativeId } from './jooble.provider'
+import {
+  createJoobleProvider,
+  JOOBLE_SOURCE_STATUS,
+  joobleLinkId,
+  joobleNativeId,
+} from './jooble.provider'
 import { SourceNotReadyError } from './quota-provider'
 
 /**
- * Jooble through its public provider. Expected values are hand-read from
- * `__fixtures__/jooble/doc-example.json` - a UNIT EXAMPLE written from public descriptions, not a
- * capture (see its provenance) - and written as literals, never produced by running the mapper.
+ * Jooble through its public provider. Two inputs, each with its own job:
+ * - `__fixtures__/jooble/search-smoke.json`, the CAPTURE of the owner's controlled smoke (see its
+ *   provenance): what the real payload maps to, hand-read and written as literals.
+ * - `UNIT_EXAMPLE`, built here: the edge cases a five-job capture does not hold (a safe id, a
+ *   posting with neither id nor employer, a link that is not an id path).
+ * Expected values are never produced by running the mapper.
  *
  * THE KEY under test is an obviously fake UUID-shaped string; no real credential appears here.
  */
 
-const NOW = new Date('2026-10-24T04:00:00Z')
+const NOW = new Date('2026-11-17T04:00:00Z')
 const KEY = 'a1b2c3d4-e5f6-4789-a012-b3c4d5e6f708'
 const SEEDED = { keywords: 'senior developer', location: 'remote' }
 const URL_WITH_KEY = `https://jooble.org/api/${KEY}`
@@ -28,7 +36,49 @@ const cfg = (extra: Record<string, unknown> = {}, p = provider()) =>
   p.parseConfig({ configVersion: 1, ...SEEDED, ...extra })
 
 type Envelope = { totalCount: number; jobs: Record<string, unknown>[] }
-const example = () => sourceFixture('jooble', 'doc-example') as Envelope
+const UNIT_EXAMPLE: Envelope = {
+  totalCount: 3,
+  jobs: [
+    {
+      title: 'Senior Backend Developer',
+      location: 'Remote',
+      snippet: 'We are looking for a <b>Senior</b> Backend Developer to join our platform team...',
+      salary: '',
+      source: 'example-board.test',
+      type: 'Full-time',
+      link: 'https://jooble.org/desc/4821937?ckey=senior+developer&rgn=-1&pos=1',
+      company: 'Example Platform Ltd',
+      updated: '2026-10-20T08:00:00.0000000',
+      id: 4821937,
+    },
+    {
+      title: 'Staff Engineer, Data',
+      location: 'Berlin',
+      snippet: 'Own the data platform end to end...',
+      salary: '90 000 - 110 000 EUR',
+      source: 'example-careers.test',
+      type: 'Contract',
+      link: 'https://jooble.org/desc/-6876573728492742391?ckey=senior+developer&rgn=-1&pos=2',
+      company: 'Example Data GmbH',
+      updated: '2026-10-19T14:30:00.0000000',
+      // What JSON.parse makes of the wire's -6876573728492742391: rounded, so not an identity itself.
+      id: -6876573728492743000,
+    },
+    {
+      title: 'Lead Developer',
+      location: 'London',
+      snippet: 'Lead a small team of developers...',
+      salary: '',
+      source: 'example-board.test',
+      type: '',
+      link: 'https://jooble.org/desc/anonymous-3?ckey=senior+developer&rgn=-1&pos=3',
+      updated: '2026-10-18T09:15:00.0000000',
+    },
+  ],
+}
+const example = (): Envelope => structuredClone(UNIT_EXAMPLE)
+/** The capture's own text, so the big ids reach the adapter as the wire wrote them. */
+const capture = (): FakeResponse => ({ bodyText: sourceFixtureText('jooble', 'search-smoke') })
 const body = (v: unknown): FakeResponse => ({ bodyText: JSON.stringify(v) })
 
 async function run(
@@ -136,7 +186,7 @@ describe('mapping the unit example', () => {
     expect(o?.normalized.companyName).toBe('Example Platform Ltd')
     expect(o?.normalized.location).toBe('Remote')
     expect(o?.normalized.employmentType).toBe('Full-time')
-    expect(o?.adapterVersion).toBe('jooble-1')
+    expect(o?.adapterVersion).toBe('jooble-2')
   })
 
   it('native id and application URL are different facts: the id is not in the URL slot', async () => {
@@ -164,12 +214,20 @@ describe('mapping the unit example', () => {
     ])
   })
 
-  it('an id past 2^53 is not an identity: that posting falls back to its link', async () => {
+  it('an id past 2^53 is not used as parsed: the digits come from the link path', async () => {
     const { batch } = await run([body({ ...example(), totalCount: 3 })])
     const o = byUrl(batch, '/desc/-6876573728492742391')
-    expect(o?.identity.identityKind).toBe('URL_FALLBACK')
-    expect(o?.identity.nativeId).toBeNull()
+    expect(o?.identity.identityKind).toBe('NATIVE_ID')
+    expect(o?.identity.nativeId).toBe('-6876573728492742391')
     expect(o?.normalized.title).toBe('Staff Engineer, Data')
+  })
+
+  it('an id past 2^53 whose link names no id falls back to its link', async () => {
+    const [, big] = example().jobs
+    const job = { ...big, link: 'https://jooble.org/desc/staff-engineer?pos=2' }
+    const { batch } = await run([body({ totalCount: 1, jobs: [job] })])
+    expect(batch.observations[0]?.identity.identityKind).toBe('URL_FALLBACK')
+    expect(batch.observations[0]?.identity.nativeId).toBeNull()
   })
 
   it('a posting with no id and no employer is quarantined, not named', async () => {
@@ -223,6 +281,91 @@ describe('joobleNativeId', () => {
     [undefined, null],
   ])('%s -> %s', (id, want) => {
     expect(joobleNativeId(id)).toBe(want)
+  })
+})
+
+describe('joobleLinkId', () => {
+  const BIG = -6876573728492743000
+  it.each([
+    ['https://jooble.org/desc/-6876573728492742391?pos=2', BIG, '-6876573728492742391'],
+    ['https://jooble.org/away/-6876573728492742391?p=1', BIG, '-6876573728492742391'],
+    // Digits that round to another number name another posting.
+    ['https://jooble.org/desc/-6876573728492749999', BIG, null],
+    ['https://jooble.org/desc/4821937', 4821937, '4821937'],
+    ['https://jooble.org/desc/4821937', 4821938, null],
+    ['https://jooble.org/jobs/-6876573728492742391', BIG, null],
+    ['https://jooble.org/desc/-6876573728492742391/extra', BIG, null],
+    ['https://jooble.org/desc/x-6876573728492742391', BIG, null],
+    // The id path is the whole path, not a tail of another one.
+    ['https://jooble.org/jobs/desc/-6876573728492742391', BIG, null],
+    ['https://example.test/desc/-6876573728492742391', BIG, null],
+    ['https://jooble.org/desc/4821937', '4821937', null],
+    ['https://jooble.org/desc/4821937', null, null],
+    ['https://jooble.org/desc/4821937', undefined, null],
+  ])('%s with id %s -> %s', (link, id, want) => {
+    expect(joobleLinkId(link, id)).toBe(want)
+  })
+})
+
+describe('mapping the smoke capture (hand-read from search-smoke.json)', () => {
+  it('every job of the capture is kept, none invalid or quarantined', async () => {
+    const { batch } = await run([capture()])
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.counts).toEqual({
+      raw: 5,
+      normalized: 5,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
+  })
+
+  it('maps the first job, its 64-bit negative id kept digit for digit', async () => {
+    const { batch } = await run([capture()])
+    const o = byUrl(batch, '/away/-5099382229872932738')
+    expect(o?.identity).toMatchObject({
+      provider: 'JOOBLE_API',
+      namespace: 'jooble',
+      nativeId: '-5099382229872932738',
+      identityKind: 'NATIVE_ID',
+    })
+    expect(o?.normalized.title).toBe('Senior R Developer')
+    expect(o?.normalized.companyName).toBe('Cytel')
+    expect(o?.normalized.location).toBe('Remote')
+    expect(o?.normalized.employmentType).toBe('Full-time')
+    expect(o?.adapterVersion).toBe('jooble-2')
+  })
+
+  it('every id of the capture is an identity, as written on the wire', async () => {
+    const { batch } = await run([capture()])
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual([
+      '-5099382229872932738',
+      '2083652208344264241',
+      '989127253638554666',
+      '1519120455502217169',
+      '8634624336844439840',
+    ])
+    expect(new Set(batch.observations.map((o) => o.identity.identityKind))).toEqual(
+      new Set(['NATIVE_ID']),
+    )
+  })
+
+  it('`updated` carries no zone: kept raw, no instant guessed', async () => {
+    const { batch } = await run([capture()])
+    expect(byUrl(batch, '/desc/989127253638554666')?.normalized.dates).toEqual([
+      {
+        semantics: 'UPDATED',
+        contract: 'ISO_ZONED',
+        raw: '2026-11-15T00:00:00.0000000',
+        status: 'MISSING_ZONE',
+        value: null,
+      },
+    ])
+  })
+
+  it('a page of 5 of a total of 72531 asks for the next page', async () => {
+    const { batch } = await run([capture()])
+    expect(batch.checkpoint?.position).toEqual({ kind: 'CURSOR', page: 1, cursor: 'page:2' })
   })
 })
 
@@ -465,14 +608,19 @@ describe('config is refused before any network call', () => {
   })
 })
 
-describe('the BLOCKED state', () => {
-  it('declares itself blocked with the key reason - and the provenance agrees', () => {
-    expect(JOOBLE_SOURCE_STATUS.blocked).toBe(true)
+describe('the key-gated state', () => {
+  it('is not blocked, needs its key, and the capture provenance agrees', () => {
+    expect(JOOBLE_SOURCE_STATUS.blocked).toBe(false)
     expect(JOOBLE_SOURCE_STATUS.permission).toBe('KEY_REQUIRED')
-    expect(JOOBLE_SOURCE_STATUS.reason).toContain('controlled authenticated smoke')
-    const prov = sourceProvenance('jooble', 'doc-example') as { permission: string; notes: string }
+    expect(JOOBLE_SOURCE_STATUS.reason).toContain('JOOBLE_API_KEY')
+    const prov = sourceProvenance('jooble', 'search-smoke') as {
+      permission: string
+      httpStatus: number
+      notes: string
+    }
     expect(prov.permission).toBe(JOOBLE_SOURCE_STATUS.permission)
-    expect(prov.notes).toContain('UNIT EXAMPLE ONLY, NOT A CAPTURE')
+    expect(prov.httpStatus).toBe(200)
+    expect(prov.notes).toContain('run 43964860057')
   })
 })
 

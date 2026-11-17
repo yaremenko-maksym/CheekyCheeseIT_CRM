@@ -18,15 +18,6 @@ export const PROVIDER_BODY_MARKER = 'BODY-MARKER-7f3a'
 export const SCHEMA = z.object({ title: z.string(), salary: z.number().optional() })
 export const REQ = { input: `synthetic page ${TEXT_MARKER}`, schema: SCHEMA }
 
-export const LOCAL = {
-  provider: 'local' as const,
-  baseUrl: 'http://crm-model-runtime:11434/v1',
-  model: 'qwen2.5:3b',
-  contextTokens: 32_000,
-  structuredOutput: 'json_schema' as const,
-  timeoutMs: 5_000,
-  maxAnswerTokens: 500,
-}
 export const GROQ = {
   provider: 'groq' as const,
   apiKey: KEY_MARKER,
@@ -44,11 +35,25 @@ export const GEMINI = {
   models: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
 }
 
+/** A synthetic account id: 32 lower-case hex characters, no real account. */
+export const CLOUDFLARE_ACCOUNT_ID = '0123456789abcdef0123456789abcdef'
+/**
+ * Inside the 10 000-Neuron day at the ceiling rates: 16 000 * 31 876 + 800 * 50 488 Neuron-millionths
+ * is about 550 Neurons a call, and 16 such calls are about 8 806.
+ */
+export const CLOUDFLARE = {
+  ...GROQ,
+  provider: 'cloudflare' as const,
+  accountId: CLOUDFLARE_ACCOUNT_ID,
+  models: ['@cf/mistralai/mistral-small-3.1-24b-instruct', '@cf/openai/gpt-oss-20b'],
+  contextTokens: 16_000,
+  freeLimit: { requestsPerDay: 16 },
+}
+
 export function config(routes: unknown[], extra: object = {}): RouterConfigInput {
   return {
     policyVersion: 'test-1',
     hostedBudgetMs: 60_000,
-    floorBudgetMs: 60_000,
     routes,
     ...extra,
   } as RouterConfigInput
@@ -95,8 +100,7 @@ export const GOOD = answer({ title: 'Engineer' })
 export function scriptedFetch(script: (s: Sent, n: number) => Reply) {
   const sent: Sent[] = []
   let inFlight = 0
-  const stats = { peakInFlight: 0, peakLocalInFlight: 0 }
-  let localInFlight = 0
+  const stats = { peakInFlight: 0 }
   const fetchImpl: FetchLike = async (url, init) => {
     const body = JSON.parse(init?.body ?? '{}') as Record<string, unknown>
     const s: Sent = {
@@ -108,11 +112,8 @@ export function scriptedFetch(script: (s: Sent, n: number) => Reply) {
     }
     sent.push(s)
     const reply = script(s, sent.length)
-    const local = s.host === 'crm-model-runtime'
     inFlight++
-    if (local) localInFlight++
     stats.peakInFlight = Math.max(stats.peakInFlight, inFlight)
-    stats.peakLocalInFlight = Math.max(stats.peakLocalInFlight, localInFlight)
     try {
       if (reply === 'network') throw new TypeError('fetch failed')
       if (reply === 'hang') {
@@ -134,7 +135,6 @@ export function scriptedFetch(script: (s: Sent, n: number) => Reply) {
       }
     } finally {
       inFlight--
-      if (local) localInFlight--
     }
   }
   return { fetchImpl, sent, stats }
@@ -191,5 +191,4 @@ export function deps(
 export const hostOf = {
   groq: 'api.groq.com',
   gemini: 'generativelanguage.googleapis.com',
-  local: 'crm-model-runtime',
 }

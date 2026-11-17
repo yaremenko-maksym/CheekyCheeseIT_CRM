@@ -71,7 +71,7 @@ export function collectExposedRequisiteFields(filteredUser: object): string[] {
 //   monthlySalary                           — fields.salary
 //   seniorSharePercent / dropSharePercent   — fields.share
 //   paymentMethod / wallet* / bankUah*      — fields.requisites
-//   techStack                               — fields.techStack
+//   techStack, technicalRoles               — fields.techStack
 //   displayName, avatarUrl, avatarDocumentId, role, id — always present
 // ---------------------------------------------------------------------------
 // FilteredUser extends User but allows email to be null when realContacts
@@ -170,6 +170,10 @@ export function projectProfileUser(
 
     // Tech stack
     techStack: permissions.fields.techStack ? (target.techStack ?? null) : null,
+    // Senior roles: the same gate as the stack they replace; masked = [] (the DTO default).
+    // Only a SENIOR holds roles, so another role's row reads [] even if it predates the clear.
+    technicalRoles:
+      permissions.fields.techStack && target.role === 'SENIOR' ? target.technicalRoles : [],
 
     // Payment requisites.
     // `requisitesExcludeWallet` (pre-deploy MEDIUM): an ACCOUNTANT viewing an

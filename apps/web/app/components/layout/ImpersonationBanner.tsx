@@ -1,9 +1,10 @@
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { api } from '@/lib/axios'
+import { purgePersistedBeforeReload } from '@/lib/persister'
 import { Button } from '@/components/ui/button'
 import { useRoleLabel } from '@/components/ui/role-select'
 import type { SessionUser } from '@crm/shared'
@@ -24,12 +25,18 @@ interface ImpersonationBannerProps {
  */
 export function ImpersonationBanner({ user, onStopped }: ImpersonationBannerProps) {
   const { t } = useLingui()
+  const queryClient = useQueryClient()
   const stopMutation = useMutation({
     mutationFn: async () => {
       await api.post('/auth/stop-impersonating')
     },
-    onSuccess: () => {
-      // Hard reload to root so all queries re-fetch as the restored admin.
+    onSuccess: async () => {
+      // Hard reload to root so all queries re-fetch as the restored admin. The impersonated
+      // user's persisted copy goes first, so the reload cannot restore it (PR #1330 SR-M-1):
+      // the purge stops every later persist write before it deletes, so neither a throttled write
+      // nor a refetch of a still-mounted query can put it back (PR #1334 SR-L-3, SO-4).
+      queryClient.clear()
+      await purgePersistedBeforeReload()
       window.location.href = '/admin/login-as'
     },
     onError: (err: unknown) => {

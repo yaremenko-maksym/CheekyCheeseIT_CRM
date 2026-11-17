@@ -42,7 +42,7 @@ export function scheduleSelfHeal(opts: SelfHealOptions): {
   let seq = 0
   const key = (p: string, model: string): string => `${p}\n${model}`
   const record = (e: RouterEvent): void => {
-    if (e.type === 'ATTEMPT' && e.code === 'OK' && e.route !== 'local') {
+    if (e.type === 'ATTEMPT' && e.code === 'OK') {
       okCalls.set(key(e.route, e.model), ++seq)
     }
   }

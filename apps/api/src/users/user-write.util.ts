@@ -81,9 +81,12 @@ export async function updateUserRow(
     throw apiError(ARCHIVED_ENTITLEMENT_CODE, HttpStatus.BAD_REQUEST)
   }
 
+  // Senior roles: only a SENIOR holds technical roles, so a role write away from SENIOR clears them
+  // in the same UPDATE; a stale list would otherwise come back silently on a re-promotion.
+  const write = 'role' in set && set['role'] !== 'SENIOR' ? { ...set, technicalRoles: [] } : set
   const rows = await db
     .update(users)
-    .set(set)
+    .set(write)
     .where(changed.length > 0 ? and(eq(users.id, id), isNull(users.archivedAt)) : eq(users.id, id))
     .returning()
 

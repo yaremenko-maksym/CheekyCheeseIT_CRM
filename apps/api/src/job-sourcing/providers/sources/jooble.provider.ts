@@ -14,11 +14,11 @@ import { type MeterOption, requireApiKey, resolveMeter, withSecrets } from './qu
 /**
  * Jooble (`POST https://jooble.org/api/{key}`), the aggregator's REST search.
  *
- * STATUS: BLOCKED. No key is provisioned and none may be (the plan forbids provider contact and
- * secret provisioning), and Jooble's own documentation sits behind the key-request form, so the
- * payload shapes below come from public third-party descriptions of it (provenance file). The first
- * authenticated call is the owner's controlled smoke; until then the fixture is a unit example only.
- * See `JOOBLE_SOURCE_STATUS`.
+ * STATUS: KEY-GATED, verified by the owner's controlled smoke of 2026-11-16 (provenance of
+ * `__fixtures__/jooble/search-smoke.json`). What that response settled: the envelope is
+ * `{totalCount, jobs}`; every field read below is present; `id` is a JSON NUMBER, often past 2^53
+ * and sometimes negative; `link` is a jooble.org `/away/<id>` or `/desc/<id>` redirect whose path
+ * segment is that id written out in full. See `JOOBLE_SOURCE_STATUS`.
  *
  * - THE KEY IS IN THE URL PATH. That is the documented way and the only one; it makes every
  *   `FetchRequest.url` a credential. The adapter registers the key (and so every form it is written
@@ -32,23 +32,25 @@ import { type MeterOption, requireApiKey, resolveMeter, withSecrets } from './qu
  *   the account meter row, not here.
  * - IDENTITY. `id` is Jooble's own posting id; `link` is a Jooble redirect and is the only URL the
  *   response carries, so it is both the posting URL and the application URL. The id is read from a
- *   number or a string, and a number past the safe-integer range is NOT used (the JSON parse has
- *   already rounded it, so two postings could share one) - such a posting falls back to its link.
- * - `updated` carries no zone in the descriptions seen (`2020-03-24T02:00:00.0000000`), so the date
- *   policy reports MISSING_ZONE and keeps the raw text; no zone is guessed.
- * - UNVERIFIED (smoke must confirm): the page size, whether `page` is sent as a number or a string,
- *   the type of `id`, and which fields are always present. `company` is optional here because the
- *   descriptions disagree about it.
+ *   number or a string. A number past the safe-integer range has already been rounded by the JSON
+ *   parse (two postings could share it), so it is NOT used as text; the digits are taken instead
+ *   from the link path, and only when they round to the very number the parse produced. The link's
+ *   query (`pos`, `scr`, `jobAge`, ...) changes from one search to the next, so a posting that fell
+ *   back to its URL would be a new posting on every run: the path id is what keeps it one.
+ * - `updated` carries no zone (`2026-11-13T00:00:00.0000000` in the smoke), so the date policy
+ *   reports MISSING_ZONE and keeps the raw text; no zone is guessed.
+ * - UNVERIFIED: the default page size (the smoke asked for 5), and whether `page` may be a string.
+ *   `company` stays optional because the descriptions disagree about it.
  */
 
 export const JOOBLE_SOURCE_STATUS = {
-  blocked: true,
+  blocked: false,
   permission: 'KEY_REQUIRED',
   reason:
-    'no API key is provisioned and none may be before the owner runs a controlled authenticated smoke; payload shapes are from public descriptions, not Jooble documentation',
+    'runs only with the Jooble key (JOOBLE_API_KEY); the controlled authenticated smoke of 2026-11-16 verified the payload',
 } as const
 
-export const JOOBLE_ADAPTER_VERSION = 'jooble-1'
+export const JOOBLE_ADAPTER_VERSION = 'jooble-2'
 export const JOOBLE_NAMESPACE = 'jooble'
 const ENDPOINT = 'https://jooble.org/api/'
 export const JOOBLE_MAX_PAGES_CEILING = 5
@@ -94,6 +96,23 @@ export function joobleNativeId(id: Item['id']): string | null {
   return Number.isSafeInteger(id) ? String(id) : null
 }
 
+const LINK_ID = /^\/(?:away|desc)\/(-?\d+)$/
+
+/**
+ * The posting id written out in a jooble.org link path, or `null`. Trusted only when it rounds to
+ * the number the parse produced: a link that names another posting is never an identity.
+ */
+export function joobleLinkId(link: string, id: Item['id']): string | null {
+  const url = new URL(link)
+  if (url.hostname !== 'jooble.org') return null
+  const m = LINK_ID.exec(url.pathname)
+  // A number is never `===` a string id, so only an id the parse produced as a number matches.
+  return m !== null && Number(m[1]) === id ? (m[1] ?? null) : null
+}
+
+const joobleIdOf = (item: Item): string | null =>
+  joobleNativeId(item.id) ?? joobleLinkId(item.link, item.id)
+
 function makeSpec(apiKey: string, meter: MeterOption): ApiJsonSourceSpec<Config, Envelope, Item> {
   return {
     type: 'JOOBLE_API',
@@ -127,10 +146,10 @@ function makeSpec(apiKey: string, meter: MeterOption): ApiJsonSourceSpec<Config,
       if (total != null && envelope.jobs.length * at.page >= total) return null
       return `page:${at.page + 1}`
     },
-    nativeIdOf: (item) => joobleNativeId(item.id),
+    nativeIdOf: joobleIdOf,
     mapItem: (item, config) => ({
       namespace: config.namespace,
-      nativeId: joobleNativeId(item.id),
+      nativeId: joobleIdOf(item),
       url: item.link,
       title: item.title,
       companyName: item.company,

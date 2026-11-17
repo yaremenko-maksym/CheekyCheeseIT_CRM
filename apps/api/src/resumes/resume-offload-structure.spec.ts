@@ -139,8 +139,10 @@ describe('AC3 (deterministic) — the Typst render does not block the event loop
     await loopTurnsDuring(async () => {
       pdf = await service.render({
         displayName: 'Іван Петренко',
+        email: 'ivan.petrenko@example.com',
         content: EMPTY_RESUME_CONTENT,
         layout: DEFAULT_RESUME_LAYOUT,
+        templateName: 'classic',
         templateSource: slowTemplate(200),
       })
     })

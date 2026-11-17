@@ -21,6 +21,7 @@ import {
   DEFAULT_XML_SOURCE_LIMITS,
   defineXmlProvider,
   type XmlSourceSpec,
+  xmlPagedSpec,
 } from './xml-source.provider'
 
 /**
@@ -538,5 +539,18 @@ describe('U2: an XML page`s envelope fingerprint reaches the context', () => {
     await collectXmlPages(personioSpec(), config(), f.ctx)
     const root = xmlPort.parseDocument(new TextEncoder().encode(PERSONIO)).root
     expect(seen).toEqual([xmlEnvelopeFingerprint(root)])
+  })
+})
+
+describe('the transport takes the parser`s byte cap, not its 2 MiB default', () => {
+  it('a raised maxBytes is the request cap of the paged spec', () => {
+    const raised = 4 * 1024 * 1024
+    const paged = xmlPagedSpec(personioSpec({ limits: { maxBytes: raised } }), xmlPort)
+    expect(paged.requestMaxBytes).toBe(raised)
+  })
+
+  it('an unraised spec carries the default parser cap as its request cap', () => {
+    const paged = xmlPagedSpec(personioSpec(), xmlPort)
+    expect(paged.requestMaxBytes).toBe(DEFAULT_XML_SOURCE_LIMITS.maxBytes)
   })
 })

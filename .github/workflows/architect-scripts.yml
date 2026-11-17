@@ -21,6 +21,8 @@ on:
     paths:
       - 'scripts/architect/**'
       - '.github/workflows/flow-gate.yml'
+      - '.github/workflows/flow-gate-recheck.yml'
+      - '.github/workflows/flow-gate-relay.yml'
       - '.github/workflows/architect-scripts.yml'
 
 permissions:

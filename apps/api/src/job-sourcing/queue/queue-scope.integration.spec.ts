@@ -14,6 +14,7 @@ import {
   loadRoster,
   MATCH_RULE_VERSION,
   opportunityInputsVersion,
+  previousOpportunityInputsVersion,
   type RosterInputs,
   type SeniorVersions,
 } from '../runtime/recompute-inputs'
@@ -428,6 +429,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
           exclusion: live.get(seniorId)?.exclusion,
         })),
         inputsVersion: opportunityInputsVersion(studio),
+        previousInputsVersion: previousOpportunityInputsVersion(studio),
       })
     })
 
@@ -688,6 +690,24 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
           await stamp(opportunityInputsVersion(studio))
         }
       })
+
+      it('CR-M-2: a record-format bump keeps a granted item visible until the sweep re-stamps it', async () => {
+        const opp = 'oppGrant'
+        const stamp = (version: string) =>
+          session.admin.query(
+            `UPDATE job_opportunities SET evaluated_inputs_version = $2 WHERE id = $1`,
+            [ids[opp], version],
+          )
+        try {
+          await stamp(previousOpportunityInputsVersion(studio))
+          await expect(visible(await resolve('hrA', 'HR'), opp)).resolves.toBeUndefined()
+          // Only the one previous format: an older one stays hidden.
+          await stamp(opportunityInputsVersion(studio, `${MATCH_RULE_VERSION}+rf.0`))
+          await expectNotFound(visible(await resolve('hrA', 'HR'), opp))
+        } finally {
+          await stamp(opportunityInputsVersion(studio))
+        }
+      })
     })
 
     describe('Task 6.4c: a triage subscription shows a live, verified, OPEN family match', () => {
@@ -739,10 +759,26 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
         const a = await resolve('hrA', 'HR')
         const deployed = {
           ...(a as Extract<JobQueueScope, { kind: 'TEAM' }>),
-          inputsVersion: opportunityInputsVersion(studio, 'eval.2+l1.1+rf.1'),
+          inputsVersion: opportunityInputsVersion(studio, 'eval.2+l1.1+rf.2'),
         }
         await expect(visible(a, 'oppSub')).resolves.toBeUndefined()
         await expectNotFound(visible(deployed, 'oppSub'))
+      })
+
+      it('CR-M-2: a record-format bump keeps a subscribed item visible until the sweep re-stamps it', async () => {
+        const stamp = (version: string) =>
+          session.admin.query(
+            `UPDATE job_opportunities SET evaluated_inputs_version = $2 WHERE id = $1`,
+            [ids['oppSub'], version],
+          )
+        try {
+          await stamp(previousOpportunityInputsVersion(studio))
+          await expect(visible(await resolve('hrA', 'HR'), 'oppSub')).resolves.toBeUndefined()
+          await stamp(opportunityInputsVersion(studio, `${MATCH_RULE_VERSION}+rf.0`))
+          await expectNotFound(visible(await resolve('hrA', 'HR'), 'oppSub'))
+        } finally {
+          await stamp(opportunityInputsVersion(studio))
+        }
       })
 
       it('the real writer persists the family: 404 before, visible after, 404 once it is UNKNOWN', async () => {

@@ -28,6 +28,16 @@ vi.mock('@/context/auth', () => ({
   useAuth: () => ({ user: { id: 'viewer-1', role: 'SENIOR' } }),
 }))
 
+// QA-1343-A: the self profile waits for the onboarding gate; this SENIOR is onboarded
+vi.mock('@/context/onboarding', () => ({
+  useOnboardingGate: () => ({
+    isComplete: true,
+    isPending: false,
+    isError: false,
+    refetch: vi.fn(),
+  }),
+}))
+
 vi.mock('@/hooks/use-active-team', () => ({
   useActiveTeam: () => ({ isTeamless: false }),
 }))

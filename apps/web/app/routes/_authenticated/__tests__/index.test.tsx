@@ -69,9 +69,15 @@ import { Route } from '../index'
 // exported by name, only reachable via `Route.options.component`.
 const CrmDashboard = Route.options.component!
 
+// `user` is `SessionUser | null`: null until the first auth/me answer is in
+const auth = vi.hoisted(() => ({ user: { role: 'ADMIN' } as { role: string } | null }))
 vi.mock('@/context/auth', () => ({
-  useAuth: () => ({ user: { role: 'ADMIN' } }),
+  useAuth: () => ({ user: auth.user }),
 }))
+
+beforeEach(() => {
+  auth.user = { role: 'ADMIN' }
+})
 
 function makeSummary(overrides: Partial<AdminSummary> = {}): AdminSummary {
   return {
@@ -92,6 +98,13 @@ describe('AdminDashboard (routes/_authenticated/index.tsx)', () => {
     render(<CrmDashboard />)
     expect(screen.getByTestId('admin-kpi-loading')).toBeInTheDocument()
     expect(screen.queryByTestId('admin-kpi-grid')).not.toBeInTheDocument()
+  })
+
+  it('renders without a user yet (auth/me not in) and does not throw', () => {
+    auth.user = null
+    useAdminSummaryMock.mockReturnValue({ data: undefined, isLoading: true, isError: false })
+    render(<CrmDashboard />)
+    expect(screen.getByTestId('admin-kpi-loading')).toBeInTheDocument()
   })
 
   it('renders the error state with both catalog strings', () => {

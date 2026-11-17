@@ -6,17 +6,18 @@ import {
   MIN_WORKER_SECRET_DISTINCT_CHARS,
   tableVersionOf,
 } from './link-contract'
-import { healthFlags, localOnlyRouterConfig, parseWorkerEnv } from './schema'
+import {
+  healthFlags,
+  MAX_WORKER_INPUT_CHARS,
+  parseWorkerEnv,
+  requestFreePreflight,
+  resumeWriteBodySchema,
+} from './schema'
 import { z } from 'zod'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
-import { smallDoseFor } from '../job-sourcing/structuring/small-dose-table'
 
-const MODULE = {
-  prompt: EXTRACTION_SYSTEM_PROMPT,
-  groups: smallDoseFor().groups,
-  reply: modelReplySchema,
-}
+const MODULE = { prompt: EXTRACTION_SYSTEM_PROMPT, reply: modelReplySchema }
 
 // Exactly the minimum on both axes: 32 characters, 8 distinct.
 const SECRET = 'abcdefgh'.repeat(4)
@@ -48,6 +49,7 @@ describe('parseWorkerEnv — the worker does not start without its secret', () =
       env: {
         secret: SECRET,
         routerConfig: { routes: [] },
+        routeWarnings: [],
         stateFile: '/state/route-state.json',
         host: '0.0.0.0',
         port: 3100,
@@ -76,19 +78,23 @@ describe('parseWorkerEnv — the worker does not start without its secret', () =
       'PROVIDER',
     ],
     ['an empty hosted key', { ...BASE, GROQ_API_KEY: '' }, 'ROUTER_ENV'],
-    ['a refused local URL', { ...BASE, ROUTER_LOCAL_MODEL_URL: 'http://10.0.0.9' }, 'ROUTER_ENV'],
   ])('%s: refused by key, the value never echoed', (_name, env, reason) => {
     const r = parseWorkerEnv(env)
     expect(r).toEqual({ ok: false, reason })
+  })
+
+  it('a stale local URL is no worker key any more (5.4c-H1): not read, not refused', () => {
+    const r = parseWorkerEnv({ ...BASE, ROUTER_LOCAL_MODEL_URL: 'http://10.0.0.9' })
+    expect(r.ok).toBe(true)
     expect(JSON.stringify(r)).not.toContain('10.0.0.9')
   })
 
-  it('the router config takes its keys and local URL from env, never from the JSON', () => {
+  it('the router config takes its keys from env, never from the JSON; a stale local route goes on for the router to refuse', () => {
     const params = {
       policyVersion: 'v1',
       routes: [
         { provider: 'groq', models: ['openai/gpt-oss-20b'], apiKey: 'JSON-KEY' },
-        { provider: 'local', baseUrl: 'http://evil.example' },
+        { provider: 'local', contextTokens: 8192 },
       ],
     }
     const r = parseWorkerEnv({
@@ -102,9 +108,10 @@ describe('parseWorkerEnv — the worker does not start without its secret', () =
       policyVersion: 'v1',
       routes: [
         { provider: 'groq', models: ['openai/gpt-oss-20b'], apiKey: 'Q-ENV-KEY' },
-        { provider: 'local', baseUrl: 'http://crm-model-runtime:11434', model: 'qwen3:8b' },
+        { provider: 'local', contextTokens: 8192 },
       ],
     })
+    expect(routerConfigSchema.safeParse(r.ok && r.env.routerConfig).success).toBe(false)
   })
 
   it('port 1 is the lowest accepted', () => {
@@ -134,17 +141,6 @@ describe('the table version follows the checked-in extraction module', () => {
     expect(v).not.toBe(EXTRACTION_TABLE_VERSION)
   })
 
-  it.each([
-    ['name', { name: 'other' }],
-    ['instruction', { instruction: 'other' }],
-    ['answer budget', { maxAnswerTokens: 7 }],
-    ['schema', { schema: z.object({ other: z.string() }) }],
-  ])('changes when a group %s changes', (_name, change) => {
-    const [first, ...rest] = MODULE.groups
-    const groups = [{ ...first!, ...change }, ...rest]
-    expect(tableVersionOf({ ...MODULE, groups })).not.toBe(EXTRACTION_TABLE_VERSION)
-  })
-
   it('changes when the reply schema changes', () => {
     const v = tableVersionOf({ ...MODULE, reply: z.object({ other: z.string() }) })
     expect(v).not.toBe(EXTRACTION_TABLE_VERSION)
@@ -157,8 +153,7 @@ describe('the table version follows the checked-in extraction module', () => {
   })
 
   it('a schema JSON Schema cannot express does not stop the worker', () => {
-    const group = { name: 'd', instruction: 'i', maxAnswerTokens: 1, schema: z.date() }
-    expect(() => tableVersionOf({ prompt: 'p', groups: [group], reply: z.date() })).not.toThrow()
+    expect(() => tableVersionOf({ prompt: 'p', reply: z.date() })).not.toThrow()
   })
 })
 
@@ -178,16 +173,7 @@ describe('healthFlags', () => {
   })
 })
 
-describe('localOnlyRouterConfig — the preflight reaches the local route only (ADR §5.3)', () => {
-  const local = {
-    provider: 'local',
-    baseUrl: 'http://crm-model-runtime:11434',
-    model: 'qwen2.5:3b',
-    contextTokens: 8192,
-    structuredOutput: 'json_schema',
-    timeoutMs: 1000,
-    maxAnswerTokens: 512,
-  }
+describe('requestFreePreflight — the interim preflight asks no model (5.4c-H1, ADR H.3)', () => {
   const hosted = {
     provider: 'groq',
     apiKey: 'KEY-MARKER',
@@ -199,28 +185,58 @@ describe('localOnlyRouterConfig — the preflight reaches the local route only (
     maxAnswerTokens: 512,
     freeLimit: { requestsPerDay: 100 },
   }
-  const config = {
-    policyVersion: 'p1',
-    hostedBudgetMs: 5000,
-    floorBudgetMs: 60_000,
-    routes: [hosted, local],
-  }
+  const config = { policyVersion: 'p1', hostedBudgetMs: 5000, routes: [hosted] }
+  const ask = { input: 'x', schema: z.object({ ok: z.literal(true) }).strict() }
 
-  it('keeps the local route alone, with no hosted budget, and the router accepts it', () => {
+  it('an accepted config with a hosted route is ready: the fixed answer, no request', async () => {
     expect(routerConfigSchema.safeParse(config).success).toBe(true)
-    const r = localOnlyRouterConfig(config)
-    expect(r).toEqual({
-      policyVersion: 'p1',
-      hostedBudgetMs: 0,
-      floorBudgetMs: 60_000,
-      routes: [local],
+    expect(await requestFreePreflight(config).extract(ask)).toEqual({
+      ok: true,
+      data: { ok: true },
     })
-    expect(JSON.stringify(r)).not.toContain('KEY-MARKER')
-    expect(routerConfigSchema.safeParse(r).success).toBe(true)
   })
 
-  it('a config the router refuses is handed on as is, so the preflight is refused too', () => {
-    const bad = { ...config, routes: [] }
-    expect(localOnlyRouterConfig(bad)).toBe(bad)
+  it.each([
+    ['no route left', { ...config, routes: [] }],
+    ['a stale floorBudgetMs', { ...config, floorBudgetMs: 60_000 }],
+    ['a stale local route', { ...config, routes: [hosted, { provider: 'local' }] }],
+    ['no config at all', undefined],
+  ])('%s: the router refuses it, so the preflight is not ready', async (_name, raw) => {
+    expect(await requestFreePreflight(raw).extract(ask)).toEqual({
+      ok: false,
+      code: 'NOT_CONFIGURED',
+    })
+  })
+
+  it('an answer outside the asked schema is refused, never handed on', async () => {
+    const other = { input: 'x', schema: z.object({ other: z.string() }) }
+    expect(await requestFreePreflight(config).extract(other)).toEqual({
+      ok: false,
+      code: 'INVALID_OUTPUT',
+    })
+  })
+})
+
+describe('resumeWriteBodySchema — an oversize field stops at its first violation', () => {
+  const codes = (extra: Record<string, unknown>) => {
+    const r = resumeWriteBodySchema.safeParse({
+      task: 'summary',
+      payload: '{}',
+      feedback: [],
+      ...extra,
+    })
+    return r.success ? [] : r.error.issues.map((i) => i.code)
+  }
+
+  it('an oversize non-JSON payload is refused by its size alone: the JSON check does not run', () => {
+    expect(codes({ payload: 'x'.repeat(MAX_WORKER_INPUT_CHARS + 1) })).toEqual(['too_big'])
+  })
+
+  it('an oversize feedback line with a line break is refused by its size alone', () => {
+    expect(codes({ feedback: [`${'f'.repeat(1000)}\n`] })).toEqual(['too_big'])
+  })
+
+  it('a non-JSON payload within the size is still refused by the JSON check', () => {
+    expect(codes({ payload: 'not json' })).toEqual(['custom'])
   })
 })

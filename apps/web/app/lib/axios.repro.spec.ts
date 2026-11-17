@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import axios from 'axios'
 import settle from 'axios/unsafe/core/settle.js'
 import { api } from './axios'
 import type { AxiosRequestConfig, AxiosResponse } from 'axios'
@@ -69,5 +70,40 @@ describe('axios.ts interceptor — HIGH-1: .stack never carries the backend-echo
 
     expect(caught?.message).toBe('Формат файлу не підтримується.')
     expect(caught?.stack?.split('\n')[0]).toBe('AxiosError: Request failed with status code 415')
+  })
+})
+
+describe('axios.ts interceptor — the console line (QA-9)', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it('does not log a request its caller cancelled (a StrictMode re-run aborts the first fetch)', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const controller = new AbortController()
+    controller.abort()
+    const err = await api
+      .get('/users/u-1/resume/staged-pdf', {
+        signal: controller.signal,
+        adapter: fakeAdapter('', 200),
+      })
+      .then(
+        () => null,
+        (e: unknown) => e,
+      )
+    expect(axios.isCancel(err)).toBe(true)
+    expect(log).not.toHaveBeenCalled()
+  })
+
+  it('still logs a request that failed', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await api.get('/users/u-1/resume/staged-pdf', { adapter: fakeAdapter('', 500) }).catch(() => {})
+    expect(log).toHaveBeenCalledWith(
+      '[api]',
+      'GET',
+      '/users/u-1/resume/staged-pdf',
+      '→',
+      500,
+      '—',
+      'Request failed with status code 500',
+    )
   })
 })

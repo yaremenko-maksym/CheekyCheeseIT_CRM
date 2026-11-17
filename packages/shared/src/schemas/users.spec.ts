@@ -6,6 +6,8 @@ import {
   createDropSchema,
   hrCreateSeniorSchema,
   changePersonalEmailSchema,
+  profileOverviewDataSchema,
+  userProfileSchema,
 } from './users'
 import { MIN_SALARY_AMOUNT } from './money'
 
@@ -998,5 +1000,15 @@ describe('hrCreateSeniorSchema', () => {
     expect(
       hrCreateSeniorSchema.safeParse({ ...dialogPayload, teamMode: 'CREATE_NEW' }).success,
     ).toBe(true)
+  })
+})
+
+describe('technicalRoles on the profile read schemas (senior roles PR 2)', () => {
+  it.each([
+    ['userProfileSchema', userProfileSchema.shape.technicalRoles],
+    ['profileOverviewDataSchema', profileOverviewDataSchema.shape.technicalRoles],
+  ])('%s defaults an absent value to [] and keeps a present one', (_name, field) => {
+    expect(field.parse(undefined)).toEqual([])
+    expect(field.parse(['BACKEND_ENGINEER'])).toEqual(['BACKEND_ENGINEER'])
   })
 })

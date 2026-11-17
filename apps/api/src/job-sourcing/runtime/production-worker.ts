@@ -7,10 +7,10 @@ import * as schema from '../../database/schema'
 import { detailTailPortFactory } from '../availability/detail-gone-closure'
 import type { MeterDb } from '../metering/account-meter.store'
 import { JobRunLedger } from '../ownership/job-run-ledger'
-import { secretsForType } from '../quota-credentials'
+import { keyProvisioned, type QuotaEnvKey, secretsForType } from '../quota-credentials'
 import type { JobSourceRegistry } from '../registry/job-source-registry'
 import { recordHostBan } from '../scheduling/host-state'
-import { JobRunWorker, type WorkerOptions } from './job-run-worker'
+import { JobRunWorker, type WorkerDeps, type WorkerOptions } from './job-run-worker'
 import { productionLedgerCatalog } from './production-catalog'
 
 /**
@@ -23,10 +23,10 @@ import { productionLedgerCatalog } from './production-catalog'
  * context without `ConfigService` (a wiring spec) never runs one. The heartbeat pool is opened on
  * the first heartbeat.
  *
- * !! PROVIDING THIS MAKES NO SOURCE RUNNABLE. Nothing calls the worker until T5's handlers; the
- * registry holds DOU only (the ledger refuses it `NOT_ACTIVATABLE`), and a reporting adapter
- * registered later is refused `TRANSPORT_NOT_WIRED` unless it is built with its `REPORTING_WIRING`
- * entry (T6), whose hosts the transport is pinned to.
+ * !! PROVIDING THIS MAKES NO SOURCE RUNNABLE. The cron handlers (`JobSourcingCronService`) drive
+ * it; the ledger claims only an enabled source whose registered REPORTING adapter carries its
+ * `REPORTING_WIRING` entry (T6, the hosts the transport is pinned to) and whose manifest entry is
+ * ready (`claimGate`). DOU is refused `NOT_ACTIVATABLE` (it stays on the legacy loop).
  */
 /**
  * The app's database, read at the moment of each call. `DatabaseService` opens its pool and sets
@@ -66,9 +66,22 @@ export function createHeartbeatPool(connectionString: string, logger: Pick<Logge
   return pool
 }
 
-/** The production ledger: the app's database, the registry, the generated production catalog. */
-export function createProductionLedger(db: MeterDb, registry: JobSourceRegistry): JobRunLedger {
-  return new JobRunLedger(db, registry, productionLedgerCatalog())
+/**
+ * The production ledger: the app's database, the registry, the generated production catalog.
+ * `config` absent (a wiring spec) = no key provisioned, so every `KEY_REQUIRED` stands.
+ */
+export function createProductionLedger(
+  db: MeterDb,
+  registry: JobSourceRegistry,
+  config?: ConfigService<Env, true>,
+): JobRunLedger {
+  // Stryker disable next-line ObjectLiteral,BooleanLiteral: `infer` only types the value; the key read is asserted in production-worker.spec
+  const read = (key: QuotaEnvKey) => config?.get(key, { infer: true })
+  return new JobRunLedger(
+    db,
+    registry,
+    productionLedgerCatalog((type) => keyProvisioned(type, read)),
+  )
 }
 
 export function createProductionWorker(
@@ -77,6 +90,7 @@ export function createProductionWorker(
   registry: JobSourceRegistry,
   config: ConfigService<Env, true> | undefined,
   options: Partial<Omit<WorkerOptions, 'owner'>> = {},
+  onRunEnded?: WorkerDeps['onRunEnded'],
 ): JobRunWorker {
   const requireConfig = (): ConfigService<Env, true> => {
     if (config === undefined) throw new Error('the run worker needs ConfigService to run')
@@ -106,6 +120,7 @@ export function createProductionWorker(
       catalog,
       db,
       recordBan: (ban) => recordHostBan(db, ban),
+      onRunEnded,
       secretsFor: (type) =>
         // Stryker disable next-line ObjectLiteral,BooleanLiteral: `infer` only types the value; the key read is asserted in production-worker.spec
         secretsForType(type, (key) => requireConfig().get(key, { infer: true })),

@@ -26,11 +26,11 @@ export {
   routerCallCeilingMs,
   HOSTED_PROVIDERS,
   MAX_HOSTED_BUDGET_MS,
-  MAX_FLOOR_BUDGET_MS,
-  isAllowedRouterLocalModelUrl,
   type RouterConfig,
   type RouterConfigInput,
 } from './router/config'
+// The worker drops a Cloudflare route whose env account id would be refused (amendment 2026-11-17).
+export { isCloudflareAccountId } from './router/cloudflare'
 export { routerInputCeilingChars } from './router/fit'
 export {
   ATTEMPT_CODES,

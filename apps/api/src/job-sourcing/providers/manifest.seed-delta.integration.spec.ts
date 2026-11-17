@@ -4,7 +4,7 @@ import { Pool, type PoolClient } from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { assertRealDbSchema, hasDatabaseUrl } from '../../test/require-real-db'
 import { FIXTURE_ROOT } from '../../test/fixture-provenance'
-import { buildManifest, readinessAt, readinessReason, type Manifest } from './manifest'
+import { buildManifest, readinessReason, type Manifest } from './manifest'
 import { MANIFEST_VALIDATION_ADAPTERS } from './manifest.adapters'
 import { MANIFEST_DEFINITIONS } from './manifest.definitions'
 import {
@@ -14,6 +14,7 @@ import {
   generateSeedDelta,
   rollbackCadenceHours,
   seedDeltaLocations,
+  storedReadinessAt,
 } from './manifest.seed-sql'
 
 /**
@@ -73,6 +74,9 @@ const byManifestId = async (id: string) =>
   (await client.query('SELECT * FROM job_sources WHERE manifest_id = $1', [id])).rows[0] as
     Record<string, unknown> | undefined
 
+/** The types whose rows the delta binds to an owner meter (PR #1372, the A1 default caps). */
+const METERED_TYPES: readonly string[] = ['JOOBLE_API', 'JSEARCH_API', 'THEIRSTACK_API', 'REED_API']
+
 const applySeedThenDelta = async (sql = delta()) => {
   await client.query(LEGACY_SEED)
   await client.query(sql)
@@ -110,7 +114,8 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     for (const e of manifest.entries) {
       const row = await byManifestId(e.id)
       expect(row, e.id).toBeDefined()
-      const r = readinessAt(e, SEED_CLOCK)
+      // The STORED readiness: KEY_REQUIRED is checked live, never stored (PR #1372).
+      const r = storedReadinessAt(e, SEED_CLOCK)
       expect(
         {
           type: row!['type'],
@@ -127,7 +132,7 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
           readiness: row!['readiness'],
           readiness_reason: row!['readiness_reason'],
           admin_state: row!['admin_state'],
-          account_meter_id: row!['account_meter_id'],
+          metered: row!['account_meter_id'] !== null,
         },
         e.id,
       ).toEqual({
@@ -145,7 +150,7 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
         readiness: r.status === 'BLOCKED' ? 'BLOCKED' : 'CANDIDATE',
         readiness_reason: readinessReason(r),
         admin_state: 'ACTIVE',
-        account_meter_id: null,
+        metered: METERED_TYPES.includes(e.type),
       })
     }
     // The legacy entries CLAIMED the 15 rows the seed inserted (none was inserted a second time);
@@ -200,13 +205,121 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     ])
   })
 
-  it('no row the delta wrote is enabled, and no meter row was created', async () => {
-    const meters = (await rowsOf('SELECT * FROM job_account_meters')).length
+  it('no row the delta wrote is enabled', async () => {
     await applySeedThenDelta()
     expect(
       await rowsOf('SELECT 1 FROM job_sources WHERE manifest_id IS NOT NULL AND enabled'),
     ).toEqual([])
-    expect((await rowsOf('SELECT * FROM job_account_meters')).length).toBe(meters)
+  })
+
+  describe('steps 6 and 7: the owner meters (PR #1372)', () => {
+    const meterRows = async () =>
+      await rowsOf(
+        `SELECT account_key, unit::text, window_kind::text, limit_amount::int AS limit_amount,
+                used::int AS used, reserved::int AS reserved, uncertain::int AS uncertain,
+                window_started_at, resets_at
+           FROM job_account_meters WHERE account_key LIKE '%-main' ORDER BY account_key`,
+      )
+    const bindings = async () =>
+      await rowsOf(
+        `SELECT s.manifest_id, m.account_key FROM job_sources s
+           JOIN job_account_meters m ON m.id = s.account_meter_id
+          WHERE s.manifest_id IS NOT NULL ORDER BY s.manifest_id`,
+      )
+
+    it('seeds the A1 default caps with nothing used, the window on the current UTC day or month', async () => {
+      expect(
+        await rowsOf(`SELECT 1 FROM job_account_meters WHERE account_key LIKE '%-main'`),
+      ).toEqual([])
+      await applySeedThenDelta()
+      const d = (await rowsOf('SELECT now() AS now'))[0]!['now'] as Date
+      const dayStart = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())
+      const monthStart = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)
+      const nextMonth = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)
+      const window = { DAY: [dayStart, dayStart + 86_400_000], MONTH: [monthStart, nextMonth] }
+      expect(
+        (await meterRows()).map((m) => {
+          const [start, end] = window[m['window_kind'] as 'DAY' | 'MONTH']
+          return [
+            m['account_key'],
+            m['unit'],
+            m['window_kind'],
+            m['limit_amount'],
+            [m['used'], m['reserved'], m['uncertain']],
+            (m['window_started_at'] as Date).getTime() === start,
+            (m['resets_at'] as Date).getTime() === end,
+          ]
+        }),
+      ).toEqual([
+        ['jooble:api-main', 'REQUEST', 'DAY', 50, [0, 0, 0], true, true],
+        ['jsearch:rapidapi-main', 'REQUEST', 'MONTH', 150, [0, 0, 0], true, true],
+        ['reed:api-main', 'REQUEST', 'DAY', 50, [0, 0, 0], true, true],
+        ['theirstack:api-main', 'RECORD', 'MONTH', 150, [0, 0, 0], true, true],
+      ])
+    })
+
+    it('binds each keyed row to its account meter, and no other row', async () => {
+      await applySeedThenDelta()
+      expect(await bindings()).toEqual([
+        { manifest_id: 'jooble.api.senior-developer-remote', account_key: 'jooble:api-main' },
+        { manifest_id: 'jsearch.rapidapi.ai-engineer', account_key: 'jsearch:rapidapi-main' },
+        { manifest_id: 'jsearch.rapidapi.backend', account_key: 'jsearch:rapidapi-main' },
+        { manifest_id: 'jsearch.rapidapi.frontend', account_key: 'jsearch:rapidapi-main' },
+        { manifest_id: 'reed.api.senior-developer-remote', account_key: 'reed:api-main' },
+        { manifest_id: 'theirstack.api.senior', account_key: 'theirstack:api-main' },
+      ])
+      expect(
+        await rowsOf(
+          'SELECT 1 FROM job_sources WHERE manifest_id IS NULL AND account_meter_id IS NOT NULL',
+        ),
+      ).toEqual([])
+    })
+
+    it('a redeploy never touches an existing meter: counters, limit and window stay as they were', async () => {
+      await applySeedThenDelta()
+      await client.query(
+        `UPDATE job_account_meters SET used = 7, reserved = 2, uncertain = 1, limit_amount = 120,
+                window_started_at = '2026-01-15T00:00:00Z', resets_at = '2026-02-15T00:00:00Z'
+          WHERE account_key = 'jsearch:rapidapi-main'`,
+      )
+      const before = await meterRows()
+      const ids = await rowsOf('SELECT id FROM job_account_meters ORDER BY id')
+      await client.query(delta())
+      await client.query(delta())
+      expect(await meterRows()).toEqual(before)
+      expect(await rowsOf('SELECT id FROM job_account_meters ORDER BY id')).toEqual(ids)
+      const js = before.find((m) => m['account_key'] === 'jsearch:rapidapi-main')!
+      expect([js['used'], js['reserved'], js['uncertain'], js['limit_amount']]).toEqual([
+        7, 2, 1, 120,
+      ])
+    })
+
+    it('a binding an admin changed stands; a binding cleared by hand is restored on the next deploy', async () => {
+      await applySeedThenDelta()
+      const other = (
+        await rowsOf(
+          `INSERT INTO job_account_meters (account_key, unit, window_kind, limit_amount)
+           VALUES ('jooble:api-spare', 'REQUEST', 'LIFETIME', 10) RETURNING id`,
+        )
+      )[0]!['id']
+      await client.query(
+        `UPDATE job_sources SET account_meter_id = $1 WHERE manifest_id = 'jooble.api.senior-developer-remote'`,
+        [other],
+      )
+      await client.query(
+        `UPDATE job_sources SET account_meter_id = NULL WHERE manifest_id = 'reed.api.senior-developer-remote'`,
+      )
+      await client.query(delta())
+      const b = await bindings()
+      expect(b.find((r) => r['manifest_id'] === 'jooble.api.senior-developer-remote')).toEqual({
+        manifest_id: 'jooble.api.senior-developer-remote',
+        account_key: 'jooble:api-spare',
+      })
+      expect(b.find((r) => r['manifest_id'] === 'reed.api.senior-developer-remote')).toEqual({
+        manifest_id: 'reed.api.senior-developer-remote',
+        account_key: 'reed:api-main',
+      })
+    })
   })
 
   it('a seeded row of a blocked type that no entry claims (Working Nomads) is blocked, with the reason', async () => {
@@ -214,7 +327,7 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
     const row = (await rowsOf(`SELECT * FROM job_sources WHERE type = 'WORKINGNOMADS_API'`))[0]!
     expect(row['manifest_id']).toBeNull()
     expect(row['readiness']).toBe('BLOCKED')
-    expect(String(row['readiness_reason'])).toContain('PERMISSION_UNCLEAR')
+    expect(String(row['readiness_reason'])).not.toContain('PERMISSION_UNCLEAR')
     expect(String(row['readiness_reason'])).toContain('STATUS_CONSTANT_BLOCKED')
   })
 
@@ -276,12 +389,97 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
   it('an admin-set VERIFIED survives a CANDIDATE claim, but never a BLOCKED one', async () => {
     await client.query(LEGACY_SEED)
     await client.query(
-      `UPDATE job_sources SET readiness = 'VERIFIED' WHERE type IN ('REMOTEOK_API', 'JSEARCH_API')`,
+      `UPDATE job_sources SET readiness = 'VERIFIED' WHERE type IN ('REMOTEOK_API', 'JSEARCH_API', 'MUSE_API')`,
     )
     await client.query(delta())
     const readiness = async (id: string) => (await byManifestId(id))!['readiness']
     expect(await readiness('remoteok.api.latest')).toBe('VERIFIED') // manifest: CANDIDATE
-    expect(await readiness('jsearch.rapidapi.backend')).toBe('BLOCKED') // manifest: BLOCKED wins (key required)
+    // A keyed row stores CANDIDATE (KEY_REQUIRED is checked live, PR #1372), so its VERIFIED stands.
+    expect(await readiness('jsearch.rapidapi.backend')).toBe('VERIFIED')
+    expect(await readiness('muse.api.software-engineering-senior')).toBe('BLOCKED') // BLOCKED wins
+  })
+
+  describe('step 5: a redeploy refreshes the stored readiness of a claimed row', () => {
+    // Everything an admin or the runtime owns: the refresh must leave all of it as it was.
+    const untouched = async (id: string) => {
+      const r = (await byManifestId(id))!
+      return [
+        r['enabled'],
+        r['admin_state'],
+        r['admin_state_history'],
+        r['budget_limit'],
+        r['budget_used'],
+        r['min_interval_hours'],
+        r['consecutive_failures'],
+        r['cooldown_until'],
+        r['next_attempt_at'],
+        r['config_version'],
+      ]
+    }
+    const stamp = async (id: string, readiness: string, reason: string | null) => {
+      await client.query(
+        `UPDATE job_sources SET readiness = $2::job_source_readiness, readiness_reason = $3,
+                enabled = true, budget_used = 4, updated_at = '2026-01-01T00:00:00Z'
+          WHERE manifest_id = $1`,
+        [id, readiness, reason],
+      )
+    }
+    const stored = async (id: string) => {
+      const r = (await byManifestId(id))!
+      return [r['readiness'], r['readiness_reason']]
+    }
+
+    it('unblocks a row the owner cleared (a stale PERMISSION_UNCLEAR becomes CANDIDATE, no reason)', async () => {
+      await applySeedThenDelta()
+      await stamp('wwr.rss.all-jobs', 'BLOCKED', 'PERMISSION_UNCLEAR: stale, from an older deploy')
+      const kept = await untouched('wwr.rss.all-jobs')
+      await client.query(delta())
+      expect(await stored('wwr.rss.all-jobs')).toEqual(['CANDIDATE', null])
+      expect(await untouched('wwr.rss.all-jobs')).toEqual(kept)
+      expect((await byManifestId('wwr.rss.all-jobs'))!['enabled']).toBe(true)
+    })
+
+    it('blocks a row the manifest now prohibits (a stale CANDIDATE becomes BLOCKED with the reason)', async () => {
+      await applySeedThenDelta()
+      await stamp('euremotejobs.rss.feed', 'CANDIDATE', null)
+      const kept = await untouched('euremotejobs.rss.feed')
+      await client.query(delta())
+      const [readiness, reason] = await stored('euremotejobs.rss.feed')
+      expect(readiness).toBe('BLOCKED')
+      expect(String(reason)).toMatch(/^PERMISSION_PROHIBITED: /)
+      expect(await untouched('euremotejobs.rss.feed')).toEqual(kept)
+    })
+
+    it('replaces a stale reason on a row that stays BLOCKED (EU Remote Jobs: UNCLEAR -> PROHIBITED)', async () => {
+      await applySeedThenDelta()
+      await stamp('euremotejobs.rss.feed', 'BLOCKED', 'PERMISSION_UNCLEAR: stale')
+      await client.query(delta())
+      const [readiness, reason] = await stored('euremotejobs.rss.feed')
+      expect(readiness).toBe('BLOCKED')
+      expect(String(reason)).toMatch(/^PERMISSION_PROHIBITED: /)
+      expect(String(reason)).not.toContain('PERMISSION_UNCLEAR')
+    })
+
+    it('keeps a smoke-earned VERIFIED against a CANDIDATE entry, and downgrades it for a BLOCKED one', async () => {
+      await applySeedThenDelta()
+      await stamp('remoteok.api.latest', 'VERIFIED', null)
+      await stamp('muse.api.software-engineering-senior', 'VERIFIED', null)
+      await client.query(delta())
+      expect(await stored('remoteok.api.latest')).toEqual(['VERIFIED', null])
+      const [readiness, reason] = await stored('muse.api.software-engineering-senior')
+      expect(readiness).toBe('BLOCKED')
+      expect(reason).not.toBeNull()
+    })
+
+    it('moves updated_at only on a row whose readiness really changed', async () => {
+      await applySeedThenDelta()
+      await stamp('wwr.rss.all-jobs', 'BLOCKED', 'PERMISSION_UNCLEAR: stale')
+      await stamp('wwr.rss.devops', 'CANDIDATE', null) // already what the manifest says
+      await client.query(delta())
+      const at = async (id: string) => new Date(String((await byManifestId(id))!['updated_at']))
+      expect((await at('wwr.rss.all-jobs')).getTime()).toBeGreaterThan(Date.parse('2026-02-01'))
+      expect((await at('wwr.rss.devops')).toISOString()).toBe('2026-01-01T00:00:00.000Z')
+    })
   })
 
   it('a config revision raises config_version, replaces the config, and keeps the admin state', async () => {

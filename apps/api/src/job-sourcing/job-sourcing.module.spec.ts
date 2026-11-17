@@ -11,6 +11,7 @@ import { JobSourcingModule } from './job-sourcing.module'
 import { StubNotificationsModule } from './stub-notifications-module.test-helper'
 import { JobSourcingService } from './job-sourcing.service'
 import { JobSourceRegistry } from './registry/job-source-registry'
+import { REPORTING_WIRING } from './registry/reporting-wiring'
 
 /** Stands in for the global modules that need a database; everything else is the REAL module. */
 @Global()
@@ -27,7 +28,7 @@ class StubGlobalsModule {}
 class StubAuthModule {}
 
 describe('JobSourcingModule wiring (the path production uses)', () => {
-  it('resolves JobSourcingService with the module-provided registry holding DOU and nothing else', async () => {
+  it('resolves JobSourcingService with the module-provided registry holding DOU (legacy) and every wired REPORTING adapter', async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [JobSourcingModule, StubGlobalsModule],
     })
@@ -43,7 +44,9 @@ describe('JobSourcingModule wiring (the path production uses)', () => {
     const service = moduleRef.get(JobSourcingService) as unknown as { registry: JobSourceRegistry }
 
     expect(service.registry).toBe(registry)
-    expect(registry.types()).toEqual(['DOU_RSS'])
+    expect([...registry.types()].sort()).toEqual(
+      ['DOU_RSS', ...Object.keys(REPORTING_WIRING)].sort(),
+    )
     expect(registry.get('DOU_RSS')?.contract).toBe('LEGACY')
     expect(registry.legacyProvider('DOU_RSS')).toBe(moduleRef.get(DouRssProvider))
   })

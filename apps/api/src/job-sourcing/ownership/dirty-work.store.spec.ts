@@ -275,6 +275,17 @@ describe('claimDirtyBatch', () => {
     ])
   })
 
+  it('CR-H-1: freshOnly claims only rows never attempted; the default claims retries too', async () => {
+    const { tx, seen } = scripted()
+    await claimDirtyBatch(tx, { owner: 'w', consumer: 'MATCH', freshOnly: true })
+    expect(flat(seen[0]!.sql)).toContain(
+      MATCH_SQL.replace(' ORDER BY', ' AND retry_count = 0 ORDER BY'),
+    )
+    expect(seen[0]!.params).toHaveLength(8)
+    await claimDirtyBatch(tx, { owner: 'w', consumer: 'MATCH', freshOnly: false })
+    expect(seen[1]!.sql).not.toContain('retry_count = 0')
+  })
+
   it('passes an explicit batch size and lease', async () => {
     const { tx, seen } = scripted()
     await claimDirtyBatch(tx, {

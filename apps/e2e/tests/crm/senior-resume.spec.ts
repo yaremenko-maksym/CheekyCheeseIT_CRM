@@ -9,8 +9,9 @@
  *     with named progress copy the whole way (AC3);
  *   - FAILED states carry actionable copy, and the quota wall names its reset
  *     time while leaving manual editing available (AC5);
- *   - per-section in-place editing saves the whole content object, and leaving
- *     with unsaved changes is guarded (§3);
+ *   - HR edits FACTS (verified base resume Task 18): a save goes to PUT facts,
+ *     Submit stays disabled while the completeness panel lists issues, and
+ *     leaving with unsaved facts is guarded;
  *   - a `javascript:` link in resume content is never rendered as a link (AC7);
  *   - responsive: the tab is usable at 320 px with no horizontal overflow (AC9).
  *
@@ -26,29 +27,34 @@ import {
   mockAuthAs,
   buildAdminViewingUser,
   buildSelfView,
+  buildHrViewingSenior,
   API_GLOB,
   API_RE,
 } from '../fixtures'
+import {
+  DEFAULT_LAYOUT,
+  EMPTY_FACTS,
+  json,
+  mockResumeAssets,
+  resumeResponse,
+} from '../fixtures/senior-resume-mocks'
 import { loadMessages, assertInCatalog } from '../../fixtures/catalog'
 
 // task-i18n-stage3b (Task 1) — this file is otherwise PR3's (resume feature,
 // still Russian on purpose). The 3 lines below click/assert UserProfileShell's
 // own "Огляд"/"Залишитися" chrome (already migrated in THIS PR), so they must
 // stay in sync — every other Резюме/Черновик string here is untouched.
+// The browser speaks the mocked users' locale (`uk`). With the default en-US the app
+// first renders in `en` (pre-login locale), then `/auth/me` activates `uk` and
+// `<Fragment key={locale}>` in `__root.tsx` remounts the tree, dropping anything typed
+// before the catalog landed (measured: 7-8 of 80 runs under CPU x4/x8, 0 of 80 with uk-UA).
+test.use({ locale: 'uk-UA' })
+
 let uk: Record<string, string>
 test.beforeAll(async () => {
   uk = await loadMessages('uk')
 })
 const SENIOR_ID = USERS.senior.id
-
-const EMPTY_CONTENT = {
-  summary: '',
-  skills: [],
-  experience: [],
-  education: [],
-  languages: [],
-  links: [],
-}
 
 const FILLED_CONTENT = {
   summary: 'Синьор-разработчик с восемью годами опыта.',
@@ -65,65 +71,6 @@ const FILLED_CONTENT = {
   education: [],
   languages: [],
   links: [],
-}
-
-interface ResumeStub {
-  content?: unknown
-  status?: string
-  errorCode?: string | null
-  errorMessage?: string | null
-  quotaResetsAt?: string | null
-  hasSourceFile?: boolean
-  version?: number
-  layout?: unknown
-  renderStatus?: string
-  renderError?: string | null
-  pdfUpToDate?: boolean
-}
-
-/** Mirrors DEFAULT_RESUME_LAYOUT — the E2E package does not import @crm/shared. */
-const DEFAULT_LAYOUT = {
-  sectionOrder: ['summary', 'skills', 'experience', 'education', 'languages', 'links'],
-  hiddenSections: [],
-  density: 'normal',
-  fontScale: 'normal',
-}
-
-function resumeResponse(stub: ResumeStub | null, canEdit = true) {
-  if (stub === null) return { resume: null, canEdit }
-  return {
-    resume: {
-      id: 'aaaaaaaa-0000-4000-8000-000000000001',
-      userId: SENIOR_ID,
-      content: stub.content ?? EMPTY_CONTENT,
-      status: stub.status ?? 'READY',
-      errorCode: stub.errorCode ?? null,
-      errorMessage: stub.errorMessage ?? null,
-      quotaResetsAt: stub.quotaResetsAt ?? null,
-      sourceFileName: stub.hasSourceFile ? 'резюме.pdf' : null,
-      sourceFileSizeBytes: stub.hasSourceFile ? 12345 : null,
-      hasSourceFile: stub.hasSourceFile ?? false,
-      version: stub.version ?? 1,
-      updatedByUserId: null,
-      updatedByName: null,
-      createdAt: '2026-08-07T10:00:00.000Z',
-      updatedAt: '2026-08-07T10:00:00.000Z',
-      // task-resume-template: the layout half of the split. The template itself
-      // is never in the DTO — only its label — which is what keeps it out of
-      // reach of anything running in a browser.
-      layout: stub.layout ?? DEFAULT_LAYOUT,
-      templateName: 'Стандартный шаблон',
-      hasCustomTemplate: false,
-      renderStatus: stub.renderStatus ?? 'READY',
-      renderError: stub.renderError ?? null,
-      pdfUpToDate: stub.pdfUpToDate ?? true,
-    },
-    canEdit,
-  }
-}
-
-function json(body: unknown, status = 200) {
-  return { status, contentType: 'application/json', body: JSON.stringify(body) }
 }
 
 /**
@@ -160,55 +107,16 @@ async function mockResumeEndpoints(
     call += 1
     await route.fulfill(json(body))
   })
+  // Task 18: HR saves FACTS, never the resume text. Answered like the old PUT.
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/resume/facts$`), async (route) => {
+    const last = responses[responses.length - 1]
+    await route.fulfill(json(savedResponse ?? last))
+  })
   await page.route(new RegExp(`${API_RE}/users/([^/?]+)/resume/text$`), (route) => {
     textPosted = true
     return route.fulfill(json(resumeResponse({ status: 'QUEUED' }), 201))
   })
-  /**
-   * The presigned-source query fires as soon as the tab knows a file exists
-   * (`hasSourceFile: true`), so it MUST be mocked here rather than per-test.
-   *
-   * Leaving it out does not fail honestly: with no API running, the request
-   * merely errors and the download button stays hidden — locally green. In CI
-   * the API *is* running, answers 401, and the axios interceptor navigates to
-   * /login, so the whole tab vanishes and every later locator times out with a
-   * message that says nothing about the real cause. Exactly the trap the
-   * fixtures file documents for /api/notifications.
-   */
-  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/resume/source$`), (route) =>
-    route.fulfill(
-      json({
-        url: 'https://example.invalid/source',
-        expiresAt: '2030-01-01T00:00:00.000Z',
-        fileName: 'резюме.pdf',
-      }),
-    ),
-  )
-  /**
-   * The rendered PDF — mocked for the SAME reason as the source URL above, and
-   * it is the paragraph above that this omission proved out.
-   *
-   * The preview fetches these bytes into a Blob as soon as a resume has content
-   * (`pdfUpToDate`), so from the moment that preview shipped, every test in this
-   * file made an unmocked API call. Locally that merely errors and the preview
-   * shows its error card — green. In CI the API answers 401, the axios
-   * interceptor navigates to /login, the tab unmounts, and an assertion about
-   * `resume-summary-view` fails with a message about a missing element rather
-   * than about the logout that removed it.
-   *
-   * That is exactly the failure the comment above describes, one route later,
-   * which is why it is being added to the SHARED helper rather than to the one
-   * test that happened to notice.
-   */
-  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/resume/pdf$`), (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/pdf',
-      // Enough of a PDF for the viewer to be handed a blob; the rendering
-      // itself is Typst's job and is asserted in the API specs.
-      body: '%PDF-1.7\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF',
-    }),
-  )
+  await mockResumeAssets(page)
 }
 
 /** Register a DELETE handler and report what it received. */
@@ -259,10 +167,12 @@ test.describe('Резюме — вкладка на карточке синьо�
   test('синьор видит вкладку «Резюме» в собственном профиле', async ({ page }) => {
     await mockAuthAs(page, USERS.senior)
     await page.route(`${API_GLOB}/users/me`, (r) => r.fulfill(json(buildSelfView(USERS.senior))))
-    await mockResumeEndpoints(page, [resumeResponse(null)])
+    // [owner 2026-11-14] A SENIOR only views their resume: the API answers canEdit=false.
+    await mockResumeEndpoints(page, [resumeResponse(null, false)])
     await page.goto('/profile?tab=resume')
     await expect(page.getByRole('button', { name: 'Резюме', exact: true })).toBeVisible()
-    await expect(page.getByTestId('resume-intake')).toBeVisible()
+    await expect(page.getByTestId('resume-empty-readonly')).toBeVisible()
+    await expect(page.getByTestId('resume-intake')).toHaveCount(0)
   })
 
   test('на карточке джуна вкладки «Резюме» нет', async ({ page }) => {
@@ -289,12 +199,18 @@ test.describe('Резюме — пустое состояние', () => {
     await expect(page.getByTestId('resume-intake')).toBeVisible()
     await expect(page.getByTestId('resume-upload-button')).toBeVisible()
     await expect(page.getByTestId('resume-paste-toggle')).toBeVisible()
+    await expect(page.getByTestId('resume-fill-manually')).toBeVisible()
+  })
+
+  test('«Заповнити вручну» открывает пустую форму фактов', async ({ page }) => {
+    await openSeniorResumeAsAdmin(page, [resumeResponse(null)])
+
+    await page.getByTestId('resume-fill-manually').click()
+    await expect(page.getByTestId('resume-facts-form')).toBeVisible()
+    await expect(page.locator('input[name="resumeFactsHeadline"]')).toHaveValue('')
   })
 
   test('вставка текста уходит на сервер и переводит резюме в очередь', async ({ page }) => {
-    const posted = page.waitForRequest(
-      (r) => r.url().includes('/resume/text') && r.method() === 'POST',
-    )
     await openSeniorResumeAsAdmin(
       page,
       [resumeResponse(null)],
@@ -306,6 +222,9 @@ test.describe('Резюме — пустое состояние', () => {
     await page
       .getByTestId('resume-text-input')
       .fill('Иван Петров. Синьор-разработчик. Опыт: Акме, 2021 — наст. время. TypeScript, NestJS.')
+    const posted = page.waitForRequest(
+      (r) => r.url().includes('/resume/text') && r.method() === 'POST',
+    )
     await page.getByTestId('resume-text-submit').click()
 
     const request = await posted
@@ -328,14 +247,14 @@ test.describe('Резюме — асинхронное распознавани�
     ])
 
     await expect(page.getByTestId('resume-progress')).toContainText('черзі на розпізнавання')
-    // Not a blocking overlay — the sections are reachable the whole time.
-    await expect(page.getByTestId('resume-section-summary')).toBeVisible()
+    // Not a blocking overlay — the facts form is reachable the whole time.
+    await expect(page.getByTestId('resume-facts-form')).toBeVisible()
 
     await expect(page.getByTestId('resume-progress')).toContainText('Розпізнаємо резюме', {
       timeout: 10_000,
     })
     await expect(page.getByTestId('resume-progress')).toBeHidden({ timeout: 10_000 })
-    await expect(page.getByTestId('resume-summary-view')).toContainText('Синьор-разработчик')
+    await expect(page.getByTestId('resume-facts-form')).toBeVisible()
   })
 
   test('FAILED/NO_TEXT объясняет причину и предлагает вставить текст', async ({ page }) => {
@@ -369,62 +288,64 @@ test.describe('Резюме — асинхронное распознавани�
     await expect(failed).toContainText('ліміт')
     await expect(failed).toContainText('серпня')
     // The form is NOT blocked by the quota wall.
-    await expect(page.getByTestId('resume-edit-summary')).toBeVisible()
+    await expect(page.locator('input[name="resumeFactsHeadline"]')).toBeEnabled()
   })
 })
 
 // ---------------------------------------------------------------------------
-// Per-section editing
+// Facts editing (verified base resume Task 18)
 // ---------------------------------------------------------------------------
 
-test.describe('Резюме — правка по секциям', () => {
-  test('правка «О себе» сохраняется и не открывает модалку', async ({ page }) => {
-    const putRequest = page.waitForRequest(
-      (r) => r.url().endsWith('/resume') && r.method() === 'PUT',
-    )
-    await openSeniorResumeAsAdmin(
-      page,
-      [resumeResponse({ content: FILLED_CONTENT })],
-      resumeResponse({ content: FILLED_CONTENT, version: 2 }),
-    )
-
-    await page.getByTestId('resume-edit-summary').click()
-    await page.getByTestId('resume-summary-input').fill('Обновлённое описание')
-    // Editing happens in place — no dialog opens.
-    await expect(page.getByRole('dialog')).toHaveCount(0)
-    await page.getByTestId('resume-save-summary').click()
-
-    const request = await putRequest
-    const body = JSON.parse(request.postData() ?? '{}') as { content?: { summary?: string } }
-    expect(body.content?.summary).toBe('Обновлённое описание')
-  })
-
-  test('порядок мест работы меняется кнопками и уходит в сохранение', async ({ page }) => {
-    const putRequest = page.waitForRequest(
-      (r) => r.url().endsWith('/resume') && r.method() === 'PUT',
-    )
-    await openSeniorResumeAsAdmin(
-      page,
-      [resumeResponse({ content: FILLED_CONTENT })],
-      resumeResponse({ content: FILLED_CONTENT, version: 2 }),
-    )
-
-    await page.getByTestId('resume-edit-experience').click()
-    await page.getByTestId('resume-experience-up-1').click()
-    await page.getByTestId('resume-save-experience').click()
-
-    const request = await putRequest
-    const body = JSON.parse(request.postData() ?? '{}') as {
-      content?: { experience?: Array<{ company: string }> }
-    }
-    expect(body.content?.experience?.map((e) => e.company)).toEqual(['Бета', 'Акме'])
-  })
-
-  test('уход с вкладки с несохранёнными правками спрашивает подтверждение', async ({ page }) => {
+test.describe('Резюме — факты', () => {
+  test('сохранение черновика уходит в PUT facts и не открывает модалку', async ({ page }) => {
     await openSeniorResumeAsAdmin(page, [resumeResponse({ content: FILLED_CONTENT })])
 
-    await page.getByTestId('resume-edit-summary').click()
-    await page.getByTestId('resume-summary-input').fill('Черновик, который легко потерять')
+    await page.locator('input[name="resumeFactsHeadline"]').fill('Senior backend engineer')
+    // Editing happens in place — no dialog opens.
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    // Registered after the page is up: its 10 s actionTimeout must not also cover a cold load.
+    const putRequest = page.waitForRequest(
+      (r) => r.url().endsWith('/resume/facts') && r.method() === 'PUT',
+    )
+    await page.getByTestId('resume-facts-save').click()
+
+    const request = await putRequest
+    const body = JSON.parse(request.postData() ?? '{}') as { facts?: { headline?: string } }
+    expect(body.facts?.headline).toBe('Senior backend engineer')
+  })
+
+  test('«Надіслати на перевірку» недоступна, пока панель перечисляет поля', async ({ page }) => {
+    await openSeniorResumeAsAdmin(page, [resumeResponse({ content: FILLED_CONTENT })])
+
+    const panel = page.getByTestId('resume-completeness-panel')
+    await expect(panel.getByRole('listitem').first()).toBeVisible()
+    await expect(page.getByTestId('resume-facts-submit')).toBeDisabled()
+  })
+
+  test('черновик со статусом DRAFT помечен бейджем', async ({ page }) => {
+    await openSeniorResumeAsAdmin(page, [resumeResponse({ content: FILLED_CONTENT })])
+
+    await expect(page.getByTestId('resume-verification-badge')).toBeVisible()
+  })
+
+  test('идёт проверка — форма недоступна', async ({ page }) => {
+    await openSeniorResumeAsAdmin(page, [
+      resumeResponse({ content: FILLED_CONTENT, verificationBusy: true }),
+    ])
+
+    await expect(page.locator('input[name="resumeFactsHeadline"]')).toBeDisabled()
+    // Design §5.3 (F-9): while busy the completeness panel with Submit is not shown.
+    await expect(page.getByTestId('resume-completeness-panel')).toHaveCount(0)
+    await expect(page.getByTestId('resume-facts-submit')).toHaveCount(0)
+  })
+
+  test('уход с вкладки с несохранёнными фактами спрашивает подтверждение', async ({ page }) => {
+    await openSeniorResumeAsAdmin(page, [resumeResponse({ content: FILLED_CONTENT })])
+
+    const headline = page.locator('input[name="resumeFactsHeadline"]')
+    await headline.fill('Draft that is easy to lose')
+    // The precondition, asserted: an edit that did not land fails here, not as a missing guard.
+    await expect(headline).toHaveValue('Draft that is easy to lose')
     await page.getByRole('button', { name: assertInCatalog(uk, 'Огляд'), exact: true }).click()
 
     const guard = page.getByTestId('contract-dirty-guard-dialog')
@@ -432,34 +353,79 @@ test.describe('Резюме — правка по секциям', () => {
     await expect(guard).toContainText('Резюме')
     // Staying keeps the draft.
     await page.getByRole('button', { name: assertInCatalog(uk, 'Залишитися') }).click()
-    await expect(page.getByTestId('resume-summary-input')).toHaveValue(
-      'Черновик, который легко потерять',
-    )
+    await expect(headline).toHaveValue('Draft that is easy to lose')
   })
-})
 
-// ---------------------------------------------------------------------------
-// Unsaved edits are not lost by moving between sections (§3 hard condition)
-// ---------------------------------------------------------------------------
+  // The flake's race, made deterministic: the edit and the tab click land before any
+  // further render. The dirty flag must already have reached the profile guard.
+  test('клик по вкладке сразу после правки (одна задача) всё равно спрашивает', async ({
+    page,
+  }) => {
+    await openSeniorResumeAsAdmin(page, [resumeResponse({ content: FILLED_CONTENT })])
+    const headline = page.locator('input[name="resumeFactsHeadline"]')
+    await expect(headline).toBeVisible()
 
-test.describe('Резюме — несохранённые правки', () => {
-  test('переход к другому разделу не стирает черновик', async ({ page }) => {
+    await page.evaluate(
+      (tabLabel) => {
+        const input = document.querySelector<HTMLInputElement>('input[name="resumeFactsHeadline"]')
+        const tab = Array.from(document.querySelectorAll('button')).find(
+          (button) => button.textContent?.trim() === tabLabel,
+        )
+        const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+        if (!input || !tab || !setValue) throw new Error('resume form or tab not rendered')
+        setValue.call(input, 'Draft that is easy to lose')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        tab.click()
+      },
+      assertInCatalog(uk, 'Огляд'),
+    )
+
+    await expect(page.getByTestId('contract-dirty-guard-dialog')).toBeVisible()
+    await expect(headline).toHaveValue('Draft that is easy to lose')
+  })
+
+  test('добавление места работы не стирает черновик', async ({ page }) => {
     await openSeniorResumeAsAdmin(page, [resumeResponse({ content: FILLED_CONTENT })])
 
-    await page.getByTestId('resume-edit-summary').click()
-    await page.getByTestId('resume-summary-input').fill('Черновик, который легко потерять')
+    const headline = page.locator('input[name="resumeFactsHeadline"]')
+    await headline.fill('Draft that is easy to lose')
+    await page.getByTestId('resume-facts-experience-add').click()
 
-    // While one section is open, the others cannot be started.
-    await expect(page.getByTestId('resume-edit-skills')).toBeDisabled()
-    await expect(page.getByTestId('resume-edit-experience')).toBeDisabled()
+    await expect(page.getByTestId('resume-facts-job-0')).toBeVisible()
+    await expect(headline).toHaveValue('Draft that is easy to lose')
+  })
 
-    // The draft is still there, and the summary is still the open section.
-    await expect(page.getByTestId('resume-summary-input')).toHaveValue(
-      'Черновик, который легко потерять',
+  test('порядок мест работы меняется кнопками и уходит в сохранение', async ({ page }) => {
+    const job = (company: string) => ({
+      company,
+      role: 'Engineer',
+      location: null,
+      start: '2020-01',
+      end: '2021-01',
+      current: false,
+      technologies: [],
+      notes: [],
+    })
+    const facts = { ...EMPTY_FACTS, experience: [job('Acme'), job('Beta'), job('Gamma')] }
+    await openSeniorResumeAsAdmin(page, [resumeResponse({ content: FILLED_CONTENT, facts })])
+
+    const company = (i: number) =>
+      page.getByTestId(`resume-facts-job-${i}`).locator('input[name="resumeFactsCompany"]')
+    await expect(company(0)).toHaveValue('Acme')
+    // Up on the second job, then down on the (new) second job: Beta, Gamma, Acme.
+    await page.getByRole('button', { name: 'Перемістити місце роботи 2 вгору' }).click()
+    await expect(company(0)).toHaveValue('Beta')
+    await page.getByRole('button', { name: 'Перемістити місце роботи 2 вниз' }).click()
+    await expect(company(1)).toHaveValue('Gamma')
+    const putRequest = page.waitForRequest(
+      (r) => r.url().endsWith('/resume/facts') && r.method() === 'PUT',
     )
+    await page.getByTestId('resume-facts-save').click()
 
-    await page.getByTestId('resume-cancel-summary').click()
-    await expect(page.getByTestId('resume-edit-skills')).toBeEnabled()
+    const body = JSON.parse((await putRequest).postData() ?? '{}') as {
+      facts?: { experience?: { company: string }[] }
+    }
+    expect(body.facts?.experience?.map((e) => e.company)).toEqual(['Beta', 'Gamma', 'Acme'])
   })
 })
 
@@ -513,21 +479,30 @@ test.describe('Резюме — удаление', () => {
 
 test('AC7: javascript-ссылка из резюме не становится кликабельной', async ({ page }) => {
   await openSeniorResumeAsAdmin(page, [
-    resumeResponse({
-      content: {
-        ...FILLED_CONTENT,
-        links: [
-          { label: 'Плохая', url: 'javascript:alert(1)' },
-          { label: 'Хорошая', url: 'https://example.com' },
-        ],
+    resumeResponse(
+      {
+        content: {
+          ...FILLED_CONTENT,
+          links: [
+            { label: 'Плохая', url: 'javascript:alert(1)' },
+            { label: 'Хорошая', url: 'https://example.com' },
+          ],
+        },
       },
-    }),
+      false,
+    ),
   ])
 
-  const links = page.getByTestId('resume-links-view')
-  await expect(links).toContainText('Плохая')
-  await expect(links.getByRole('link')).toHaveCount(1)
-  await expect(links.getByRole('link')).toHaveAttribute('href', 'https://example.com')
+  // The web client now validates the resume envelope (`seniorResumeResponseSchema`, whose link
+  // schema refuses any scheme but https/mailto), so a `javascript:` link never reaches the DOM:
+  // the tab shows its load error instead of the resume. Per-link degrade-to-text inside the
+  // read-only view is a second layer, covered by the ResumeTab unit test.
+  await expect(
+    page.getByText(assertInCatalog(uk, 'Не вдалося відкрити резюме. Оновіть сторінку.')),
+  ).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('resume-links-view')).toHaveCount(0)
+  await expect(page.locator('a[href^="javascript:" i]')).toHaveCount(0)
+  await expect(page.getByText('Плохая')).toHaveCount(0)
 })
 
 // ---------------------------------------------------------------------------
@@ -552,14 +527,18 @@ test.describe('Резюме — адаптив (AC9)', () => {
     await page.setViewportSize({ width: 320, height: 900 })
     await openSeniorResumeAsAdmin(page, [resumeResponse({ content: FILLED_CONTENT })])
 
-    const editButton = page.getByTestId('resume-edit-summary')
-    const box = await editButton.boundingBox()
-    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+    const submitBox = await page.getByTestId('resume-facts-submit').boundingBox()
+    expect(submitBox?.height ?? 0).toBeGreaterThanOrEqual(44)
 
-    await page.getByTestId('resume-edit-experience').click()
-    const upBox = await page.getByTestId('resume-experience-up-1').boundingBox()
-    expect(upBox?.height ?? 0).toBeGreaterThanOrEqual(44)
-    expect(upBox?.width ?? 0).toBeGreaterThanOrEqual(44)
+    await page.getByTestId('resume-facts-experience-add').click()
+    // The first icon button of a job block: move up / down / remove.
+    const iconBox = await page
+      .getByTestId('resume-facts-job-0')
+      .getByRole('button')
+      .first()
+      .boundingBox()
+    expect(iconBox?.height ?? 0).toBeGreaterThanOrEqual(44)
+    expect(iconBox?.width ?? 0).toBeGreaterThanOrEqual(44)
   })
 
   test('на мобильном переключатели оформления тоже не меньше 44px', async ({ page }) => {
@@ -634,11 +613,98 @@ test.describe('Резюме синьора — оформление и PDF', () 
   test('шаблон недоступен для правки из интерфейса', async ({ page }) => {
     await openSeniorResumeAsAdmin(page, [resumeResponse({ content: FILLED_CONTENT })])
 
-    // The panel offers switches only. A textarea here would mean template
-    // source had become editable from a browser, which is the one thing the
-    // layout/data split exists to prevent.
+    // Switches only: a textarea would make template source editable from a browser.
     const panel = page.getByTestId('resume-layout-panel')
     await expect(panel).toBeVisible()
     await expect(panel.getByRole('textbox')).toHaveCount(0)
+  })
+})
+
+/**
+ * verified-base-resume Task 19: the confirm step and the failure panel. Only a
+ * viewer the server marks `canConfirm` gets the Confirm button; the request
+ * carries the staged run and the version the reviewer looked at.
+ */
+test.describe('Резюме — подтверждение проверенного текста', () => {
+  const RUN_ID = 'bbbbbbbb-0000-4000-8000-000000000001'
+  const awaiting = (canConfirm: boolean) =>
+    resumeResponse(
+      {
+        content: FILLED_CONTENT,
+        version: 3,
+        verificationStatus: 'AWAITING_CONFIRM',
+        staged: {
+          runId: RUN_ID,
+          content: FILLED_CONTENT,
+          layout: DEFAULT_LAYOUT,
+          templateName: 'classic',
+          pdfAvailable: true,
+          editedPaths: [],
+        },
+      },
+      true,
+      canConfirm,
+    )
+
+  test('HR confirms: the request carries runId and version', async ({ page }) => {
+    const bodies: unknown[] = []
+    await mockAuthAs(page, USERS.hr)
+    await page.route(`${API_GLOB}/users/${SENIOR_ID}`, (r) =>
+      r.fulfill(json(buildHrViewingSenior(USERS.senior))),
+    )
+    await mockResumeEndpoints(page, [awaiting(true)])
+    await page.route(new RegExp(`${API_RE}/users/([^/?]+)/resume/confirm$`), async (route) => {
+      bodies.push(route.request().postDataJSON())
+      await route.fulfill(
+        json(resumeResponse({ content: FILLED_CONTENT, verificationStatus: 'VERIFIED' })),
+      )
+    })
+    await page.goto(`/profile/${SENIOR_ID}?tab=resume`)
+
+    await expect(page.getByTestId('resume-confirm-block-summary')).toBeVisible()
+    const form = page.getByTestId('resume-facts-form') // R56: hidden, not unmounted
+    await expect(form).toBeAttached()
+    await expect(form).toBeHidden()
+    await page.getByTestId('resume-confirm').click()
+    await expect.poll(() => bodies.length).toBe(1)
+    expect(bodies[0]).toEqual({ runId: RUN_ID, version: 3 })
+  })
+
+  test('a senior sees the staged text but no Confirm button', async ({ page }) => {
+    await mockAuthAs(page, USERS.senior)
+    await page.route(`${API_GLOB}/users/me`, (r) => r.fulfill(json(buildSelfView(USERS.senior))))
+    await mockResumeEndpoints(page, [awaiting(false)])
+    await page.goto('/profile?tab=resume')
+
+    await expect(page.getByTestId('resume-confirm-block-summary')).toBeVisible()
+    await expect(page.getByTestId('resume-confirm-change-facts')).toBeVisible()
+    await expect(page.getByTestId('resume-confirm')).toHaveCount(0)
+  })
+
+  test('FAILED names the reason and the resume item, facts form open', async ({ page }) => {
+    await openSeniorResumeAsAdmin(page, [
+      resumeResponse({
+        content: FILLED_CONTENT,
+        verificationStatus: 'FAILED',
+        verificationErrorCode: 'ATS_CHECK_FAILED',
+        verificationReport: {
+          gates: [
+            {
+              gate: 'ats',
+              ok: false,
+              items: [{ path: 'experience[0].bullets', reason: 'MISSING_TEXT' }],
+            },
+          ],
+          fallbacks: [],
+        },
+      }),
+    ])
+
+    const failure = page.getByTestId('resume-verification-failure')
+    await expect(failure).toContainText(assertInCatalog(uk, 'ATS не прочитав PDF'))
+    await expect(failure).toContainText(assertInCatalog(uk, 'текст не знайдено в PDF'))
+    await expect(failure).not.toContainText('ATS_CHECK_FAILED')
+    await expect(page.getByTestId('resume-verification-retry')).toBeEnabled()
+    await expect(page.getByTestId('resume-facts-form')).toBeVisible()
   })
 })

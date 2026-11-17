@@ -97,7 +97,7 @@ describe('ContractDataSection', () => {
     fireEvent.change(legal(), { target: { value: 'abc' } })
     fireEvent.blur(legal())
     await waitFor(() => expect(legal().getAttribute('aria-invalid')).toBe('true'))
-    expect(legal().className).toContain('border-destructive')
+    expect(legal()).toHaveClass('border-destructive')
   })
 
   it('accepts a legal name of exactly 5 characters', async () => {

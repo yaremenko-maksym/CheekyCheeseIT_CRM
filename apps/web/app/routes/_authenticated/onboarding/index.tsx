@@ -7,7 +7,7 @@ import { CheckCircle2, FileText, ScrollText } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { OnboardingStatusDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
-import { api } from '@/lib/axios'
+import { fetchOnboardingStatus } from '@/context/onboarding'
 import { SignContractStep } from '@/components/onboarding/SignContractStep'
 import { ContractWaitScreen } from '@/components/onboarding/ContractWaitScreen'
 import { AcceptTosStep } from '@/components/onboarding/AcceptTosStep'
@@ -32,10 +32,7 @@ function OnboardingPage() {
 
   const { data: status } = useQuery<OnboardingStatusDto>({
     queryKey: ['onboarding-status'],
-    queryFn: async () => {
-      const res = await api.get<OnboardingStatusDto>('/onboarding/status')
-      return res.data
-    },
+    queryFn: fetchOnboardingStatus,
     enabled: !!user,
     staleTime: 0,
     // A3-4: poll every 15s ONLY while waiting for ADMIN to mark the contract

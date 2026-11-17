@@ -2,7 +2,8 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 
-import { describe, expect, it } from 'vitest'
+import type { Pool } from 'pg'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   APPEND_ONLY_CHECK_SQL,
@@ -10,6 +11,8 @@ import {
   DEPLOY_ROLES,
   GRANTS_DDL,
   ROLES_DDL,
+  dropRolesCreated,
+  dropRolesCreatedReportingLeaks,
   productionRetentionOwnerGrants,
 } from './deploy-ddl-preconditions'
 
@@ -120,5 +123,107 @@ describe("productionRetentionOwnerGrants — the retention owner's shipped grant
       .filter((line) => /\bTO crm_retention_owner;\s*$/.test(line)).length
 
     expect(productionRetentionOwnerGrants().length).toBe(fromFile)
+  })
+})
+
+/**
+ * A pool that answers the three statements the role teardown sends. `refuse` maps a role
+ * to the SQLSTATE its `DROP ROLE` fails with; `existing` is what `pg_roles` holds after
+ * the drops (a fake, so the test states it rather than computing it).
+ */
+function fakeRolePool(opts: {
+  refuse?: Record<string, string>
+  detail?: Record<string, string>
+  existing?: string[]
+}) {
+  const sent: string[] = []
+  const pool = {
+    query: vi.fn(async (sql: string) => {
+      sent.push(sql)
+      const dropRole = /^DROP ROLE IF EXISTS (\w+)$/.exec(sql)
+      const code = dropRole ? opts.refuse?.[dropRole[1] ?? ''] : undefined
+      const detail = dropRole ? opts.detail?.[dropRole[1] ?? ''] : undefined
+      if (code) throw Object.assign(new Error(`refused (${code})`), { code, detail })
+      if (sql.includes('pg_catalog.pg_roles')) {
+        return { rows: (opts.existing ?? []).map((rolname) => ({ rolname })) }
+      }
+      return { rows: [] }
+    }),
+  }
+  return { pool: pool as unknown as Pool, sent }
+}
+
+describe('dropRolesCreatedReportingLeaks — role teardown (SPEC-L-1 of PR #1339)', () => {
+  it('drops each created role, owned objects first, and reports nothing when none remain', async () => {
+    const { pool, sent } = fakeRolePool({})
+
+    await expect(
+      dropRolesCreatedReportingLeaks(pool, ['crm_app', 'crm_collector']),
+    ).resolves.toEqual([])
+    expect(sent.slice(0, 4)).toEqual([
+      'DROP OWNED BY crm_app CASCADE',
+      'DROP ROLE IF EXISTS crm_app',
+      'DROP OWNED BY crm_collector CASCADE',
+      'DROP ROLE IF EXISTS crm_collector',
+    ])
+  })
+
+  it('the plain helper fails a teardown on 2BP01 — the defect this one exists for', async () => {
+    const { pool } = fakeRolePool({ refuse: { crm_app: '2BP01' } })
+
+    await expect(dropRolesCreated(pool, ['crm_app'])).rejects.toMatchObject({ code: '2BP01' })
+  })
+
+  it('leaves a 2BP01 role in place with a warning, still drops the next one, and does not call it a leak', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { pool, sent } = fakeRolePool({ refuse: { crm_app: '2BP01' }, existing: ['crm_app'] })
+
+    await expect(
+      dropRolesCreatedReportingLeaks(pool, ['crm_app', 'crm_collector']),
+    ).resolves.toEqual([])
+    expect(sent).toContain('DROP ROLE IF EXISTS crm_collector')
+    expect(warn).toHaveBeenCalledWith(
+      '[deploy-ddl-preconditions] left crm_app in place: a database other than this one still depends on it (2BP01)',
+    )
+    warn.mockRestore()
+  })
+
+  it('names the other database from the pg error detail in the 2BP01 warning', async () => {
+    // Postgres puts WHICH database holds the dependents in `detail`, not in `message`; a
+    // warning without it says "somewhere else" and sends the reader to find out where.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { pool } = fakeRolePool({
+      refuse: { crm_app: '2BP01' },
+      detail: { crm_app: '3 objects in database crm_qa' },
+    })
+
+    await dropRolesCreatedReportingLeaks(pool, ['crm_app'])
+    expect(warn).toHaveBeenCalledWith(
+      '[deploy-ddl-preconditions] left crm_app in place: a database other than this one still depends on it (2BP01): 3 objects in database crm_qa',
+    )
+    warn.mockRestore()
+  })
+
+  it('rethrows any refusal other than 2BP01', async () => {
+    const { pool } = fakeRolePool({ refuse: { crm_app: '42501' } })
+
+    await expect(dropRolesCreatedReportingLeaks(pool, ['crm_app'])).rejects.toMatchObject({
+      code: '42501',
+    })
+  })
+
+  it('reports a created role that survived without a refusal, but not a role it did not create', async () => {
+    const { pool } = fakeRolePool({ existing: ['crm_app', 'crm_retention_owner'] })
+
+    await expect(dropRolesCreatedReportingLeaks(pool, ['crm_retention_owner'])).resolves.toEqual([
+      'crm_retention_owner',
+    ])
+  })
+
+  it('sends nothing when the suite created no roles', async () => {
+    const { pool, sent } = fakeRolePool({ existing: ['crm_app'] })
+
+    await expect(dropRolesCreatedReportingLeaks(pool, [])).resolves.toEqual([])
+    expect(sent).toEqual([])
   })
 })

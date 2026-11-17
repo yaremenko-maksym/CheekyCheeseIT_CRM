@@ -219,3 +219,101 @@ describe('listSources — Task 6.5 operational fields', () => {
     expect(h.execute).not.toHaveBeenCalled()
   })
 })
+
+describe('listSources — task 7.5 meter projection', () => {
+  const METER_FACT = {
+    id: ID,
+    cost_unit: 'REQUEST',
+    meter_window: 'MONTH',
+    meter_limit: 200,
+    meter_used: 120,
+    meter_reserved: 10,
+    meter_uncertain: 5,
+    meter_resets_at_ms: Date.parse('2026-12-01T00:00:00.000Z'),
+  }
+
+  it('projects the account meter and the answer parses', async () => {
+    const h = harness([ROW], [METER_FACT])
+    const [item] = await h.service.listSources(ADMIN)
+    expect(item?.meter).toEqual({
+      unit: 'REQUEST',
+      window: 'MONTH',
+      limit: 200,
+      used: 120,
+      reserved: 10,
+      uncertain: 5,
+      resetsAt: '2026-12-01T00:00:00.000Z',
+    })
+    expect(jobSourceListSchema.parse({ items: [item] }).items[0]).toEqual(item)
+  })
+
+  it('an unlimited LIFETIME meter keeps null limit and null resetsAt', async () => {
+    const h = harness(
+      [ROW],
+      [{ ...METER_FACT, meter_window: 'LIFETIME', meter_limit: null, meter_resets_at_ms: null }],
+    )
+    const [item] = await h.service.listSources(ADMIN)
+    expect(item?.meter).toMatchObject({ window: 'LIFETIME', limit: null, resetsAt: null })
+  })
+
+  it('a source without a meter has meter null', async () => {
+    const h = harness([ROW], [{ id: ID, cost_unit: null }])
+    expect((await h.service.listSources(ADMIN))[0]?.meter).toBeNull()
+  })
+
+  it('a source without any fact row has meter null', async () => {
+    const h = harness([ROW], [])
+    expect((await h.service.listSources(ADMIN))[0]?.meter).toBeNull()
+  })
+
+  it.each([
+    ['unit', { cost_unit: 7 }],
+    ['window', { meter_window: 3 }],
+    ['used', { meter_used: '120' }],
+    ['reserved', { meter_reserved: null }],
+    ['uncertain', { meter_uncertain: undefined }],
+  ])('a non-conforming %s cell drops the meter rather than leaking it', async (_n, patch) => {
+    const h = harness([ROW], [{ ...METER_FACT, ...patch }])
+    expect((await h.service.listSources(ADMIN))[0]?.meter).toBeNull()
+  })
+
+  it('a non-number limit or reset instant maps to null, not through', async () => {
+    const h = harness([ROW], [{ ...METER_FACT, meter_limit: '200', meter_resets_at_ms: '1' }])
+    expect((await h.service.listSources(ADMIN))[0]?.meter).toMatchObject({
+      limit: null,
+      resetsAt: null,
+    })
+  })
+
+  it('reads the meter off the joined row; used and the reset instant are zeroed once the window has elapsed', async () => {
+    const h = harness([ROW], [])
+    await h.service.listSources(ADMIN)
+    const { sql } = dialect.sqlToQuery(h.execute.mock.calls[0]?.[0] as SQL)
+    expect(sql).toContain('m.window_kind::text AS meter_window')
+    expect(sql).toContain('m.limit_amount::float8 AS meter_limit')
+    expect(sql).toContain('m.reserved::float8 AS meter_reserved')
+    expect(sql).toContain('m.uncertain::float8 AS meter_uncertain')
+    expect(sql).toContain(
+      'CASE WHEN m.resets_at IS NOT NULL AND m.resets_at <= clock_timestamp() THEN 0 ELSE m.used::float8 END AS meter_used',
+    )
+    expect(sql).toContain(
+      'CASE WHEN m.resets_at > clock_timestamp() THEN (extract(epoch FROM m.resets_at) * 1000)::float8 END AS meter_resets_at_ms',
+    )
+  })
+})
+
+describe('listSources — task 7.5 policy / authorization deadlines (AC4)', () => {
+  it('a Recruitee board with a catalog deadline carries authUntil; policyUntil is null', async () => {
+    const h = harness([{ ...ROW, type: 'RECRUITEE_ATS', manifestId: 'recruitee.board.bunq' }], [])
+    const [item] = await h.service.listSources(ADMIN)
+    expect(item).toMatchObject({ authUntil: '2027-02-10T00:00:00.000Z', policyUntil: null })
+    expect(jobSourceListSchema.parse({ items: [item] }).items[0]).toEqual(item)
+  })
+
+  it('a source with no deadline reads null / null, and a row without manifestId resolves by type', async () => {
+    const h = harness([ROW, { ...ROW, id: OTHER, type: 'RECRUITEE_ATS', manifestId: null }], [])
+    const [none, byType] = await h.service.listSources(ADMIN)
+    expect(none).toMatchObject({ authUntil: null, policyUntil: null })
+    expect(byType).toMatchObject({ authUntil: '2027-02-10T00:00:00.000Z', policyUntil: null })
+  })
+})

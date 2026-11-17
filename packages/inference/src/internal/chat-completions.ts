@@ -45,12 +45,20 @@ export type ChatCompletionOptions = {
 /** Prefixed to a correction hint; counted in the router's fit check (ADR §5.1 `PROMPT_TOO_LARGE`). */
 export const CORRECTION_PREFIX = 'Your previous answer was rejected. '
 
-/** The bounded system + user (+ correction) messages every chat call sends. */
+export type ChatContentPart =
+  { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
+
+/**
+ * The bounded system + user (+ correction) messages every chat call sends. With images the user
+ * message is a part list: the input as text, then each base64 PNG as a data URL.
+ */
 export function buildChatMessages(opts: {
   instruction?: string | undefined
   input: string
   correction?: string | undefined
-}): { role: string; content: string }[] {
+  images?: readonly string[] | undefined
+}): { role: string; content: string | ChatContentPart[] }[] {
+  const input = opts.input.slice(0, MAX_EXTRACTION_INPUT_CHARS)
   return [
     {
       role: 'system',
@@ -59,7 +67,19 @@ export function buildChatMessages(opts: {
         MAX_EXTRACTION_INSTRUCTION_CHARS,
       ),
     },
-    { role: 'user', content: opts.input.slice(0, MAX_EXTRACTION_INPUT_CHARS) },
+    {
+      role: 'user',
+      content:
+        opts.images === undefined
+          ? input
+          : [
+              { type: 'text', text: input },
+              ...opts.images.map((b64) => ({
+                type: 'image_url' as const,
+                image_url: { url: `data:image/png;base64,${b64}` },
+              })),
+            ],
+    },
     ...(opts.correction !== undefined
       ? [{ role: 'user', content: `${CORRECTION_PREFIX}${opts.correction}` }]
       : []),

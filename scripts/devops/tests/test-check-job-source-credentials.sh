@@ -56,6 +56,22 @@ trap 'rm -rf "$WS"' EXIT
 
 # ── fixture bodies ──────────────────────────────────────────────────────────
 
+cat >"$WS/reed-ok.json" <<'EOF'
+{"results":[{"jobId":1,"employerName":"Acme Corp","jobTitle":"Senior Developer","jobUrl":"https://www.reed.co.uk/jobs/1"}],"totalResults":1}
+EOF
+
+cat >"$WS/theirstack-ok.json" <<'EOF'
+{"metadata":{"total_results":null},"data":[{"id":1,"job_title":"Senior Engineer","company":"Acme Corp","url":"https://example.test/1"}]}
+EOF
+
+cat >"$WS/theirstack-401.json" <<'EOF'
+{"error":{"title":"Unauthorized","description":"Invalid API key"}}
+EOF
+
+cat >"$WS/jooble-echoes-key.json" <<'EOF'
+{"totalCount":1,"jobs":[{"title":"Dev","company":"Acme Corp","link":"https://jooble.org/api/CAPTURE-LEAK-CANARY"}]}
+EOF
+
 cat >"$WS/jooble-ok.json" <<'EOF'
 {"totalCount":1,"jobs":[{"title":"Backend Developer","location":"Berlin","company":"Acme Corp","link":"https://jooble.org/jdp/1","salary":"","source":"jooble"}]}
 EOF
@@ -250,6 +266,8 @@ case "$url" in
   *adzuna.com*) body="$SHIM_ADZUNA_BODY"; code="$SHIM_ADZUNA_CODE" ;;
   *careerjet.net*) body="$SHIM_CAREERJET_BODY"; code="$SHIM_CAREERJET_CODE" ;;
   *rapidapi.com*) body="$SHIM_RAPIDAPI_BODY"; code="$SHIM_RAPIDAPI_CODE" ;;
+  *reed.co.uk*) body="$SHIM_REED_BODY"; code="$SHIM_REED_CODE" ;;
+  *theirstack.com*) body="$SHIM_THEIRSTACK_BODY"; code="$SHIM_THEIRSTACK_CODE" ;;
   *) echo "shim: unrecognized url: $url" >&2; exit 3 ;;
 esac
 
@@ -283,6 +301,40 @@ run_rapidapi() {
   PATH="$WS/bin:$PATH" RAPIDAPI_KEY="$key" \
     SHIM_RAPIDAPI_BODY="$fixture" SHIM_RAPIDAPI_CODE="$code" \
     bash "$GUARD" rapidapi
+}
+
+run_reed() {
+  local key="$1" fixture="$2" code="$3"
+  PATH="$WS/bin:$PATH" REED_API_KEY="$key" \
+    SHIM_REED_BODY="$fixture" SHIM_REED_CODE="$code" \
+    bash "$GUARD" reed
+}
+run_theirstack() {
+  local key="$1" fixture="$2" code="$3"
+  PATH="$WS/bin:$PATH" THEIRSTACK_API_KEY="$key" \
+    SHIM_THEIRSTACK_BODY="$fixture" SHIM_THEIRSTACK_CODE="$code" \
+    bash "$GUARD" theirstack
+}
+# run_jooble_capture <key> <fixture> <capture-dir>: the opt-in raw capture.
+run_jooble_capture() {
+  local key="$1" fixture="$2" dir="$3"
+  PATH="$WS/bin:$PATH" JOOBLE_API_KEY="$key" CAPTURE_DIR="$dir" \
+    SHIM_JOOBLE_BODY="$fixture" SHIM_JOOBLE_CODE=200 \
+    bash "$GUARD" jooble
+}
+# capture_kept <dir>: the run kept the body byte-for-byte and its meta.
+capture_kept() {
+  run_jooble_capture "dummy-valid-key" "$WS/jooble-ok.json" "$1" &&
+    cmp -s "$WS/jooble-ok.json" "$1/jooble.body" &&
+    grep -qx 'http=200' "$1/jooble.meta" &&
+    echo "capture files present"
+}
+# capture_refused <dir>: a body carrying the key leaves NO file behind.
+capture_refused() {
+  run_jooble_capture "CAPTURE-LEAK-CANARY" "$WS/jooble-echoes-key.json" "$1"
+  local rc=$?
+  [ ! -e "$1/jooble.body" ] && [ ! -e "$1/jooble.meta" ] && echo "no capture file"
+  return "$rc"
 }
 
 echo "== test-check-job-source-credentials.sh =="
@@ -323,7 +375,56 @@ assert_red "RAPIDAPI_KEY unset -> SKIP" \
   --contains "RAPIDAPI_KEY is not set" \
   -- run_rapidapi "" "$WS/rapidapi-ok.json" 200
 
+assert_red "REED_API_KEY unset -> SKIP" \
+  --contains "result:                 SKIP" \
+  --contains "REED_API_KEY is not set" \
+  -- run_reed "" "$WS/reed-ok.json" 200
+
+assert_red "THEIRSTACK_API_KEY unset -> SKIP" \
+  --contains "result:                 SKIP" \
+  --contains "THEIRSTACK_API_KEY is not set" \
+  -- run_theirstack "" "$WS/theirstack-ok.json" 200
+
 # ── positive: a working credential is reported OK with real counts ────────────
+assert_green "Reed valid key -> OK, 1 record, employerName present" \
+  --contains "result:                 OK" \
+  --contains "records returned:       1" \
+  --contains "company field present:  yes" \
+  --contains "totalResults=1" \
+  -- run_reed "dummy-valid-key" "$WS/reed-ok.json" 200
+
+assert_green "TheirStack valid key -> OK, 1 record, company present" \
+  --contains "result:                 OK" \
+  --contains "records returned:       1" \
+  --contains "company field present:  yes" \
+  -- run_theirstack "dummy-valid-key" "$WS/theirstack-ok.json" 200
+
+assert_red "TheirStack bad key (HTTP 401) -> red, labeled CREDENTIAL REJECTED" \
+  --contains "result:                 FAIL" \
+  --contains "CREDENTIAL REJECTED" \
+  -- run_theirstack "dummy-bad-key" "$WS/theirstack-401.json" 401
+
+assert_red "Reed: array renamed -> red, reports the real field names" \
+  --contains "result:                 FAIL" \
+  --contains "no 'results' array" \
+  -- run_reed "dummy-key" "$WS/theirstack-ok.json" 200
+
+# ── opt-in raw capture (CAPTURE_DIR): kept byte-for-byte, refused on a leak ──
+assert_green "CAPTURE_DIR set -> the body is kept byte-for-byte with its HTTP code" \
+  --contains "capture:                kept (sha256 " \
+  --contains "capture files present" \
+  -- capture_kept "$WS/cap-ok"
+
+assert_green "CAPTURE_DIR set and the body carries the key -> nothing kept, key never printed" \
+  --contains "capture:                REFUSED" \
+  --contains "no capture file" \
+  --not-contains "CAPTURE-LEAK-CANARY" \
+  -- capture_refused "$WS/cap-leak"
+
+assert_green "CAPTURE_DIR unset -> no capture line at all" \
+  --not-contains "capture:" \
+  -- run_jooble "dummy-valid-key" "$WS/jooble-ok.json" 200
+
 assert_green "Jooble valid key -> OK, 1 record, company present" \
   --contains "result:                 OK" \
   --contains "records returned:       1" \

@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FIXTURE_ROOT } from '../../test/fixture-provenance'
-import { buildManifest, type Manifest } from './manifest'
+import { buildManifest, type Manifest, readinessAt } from './manifest'
 import { fakeCollectionContext } from '../../test/fake-collection-context'
 import { readQuotaCredential } from '../quota-credentials'
 import { writeHostKeyDelta, writeSeedDelta } from './manifest.generate'
@@ -34,6 +34,7 @@ import {
   hostKeyRowsOf,
   seedDeltaLocations,
   seedRowsOf,
+  storedReadinessAt,
 } from './manifest.seed-sql'
 import type { FetchProfile } from '../scheduling/next-slot'
 import type { ReportingJobSourceProvider } from './reporting-provider'
@@ -211,21 +212,108 @@ describe('the generated seed delta', () => {
     expect(after.find((s) => s.manifest_id === 'recruitee.board.bunq')!.readiness).toBe('BLOCKED')
   })
 
+  it('step 5 refreshes the stored readiness of every claimed row, and writes nothing else', () => {
+    const sql = generateSeedDelta(manifest)
+    const step = sql.slice(sql.indexOf('-- 5. refresh'), sql.indexOf('-- 6. meters'))
+    // After the verify step and the type block, so it sees every row the earlier steps made.
+    expect(sql.indexOf('-- 5. refresh')).toBeGreaterThan(sql.indexOf('-- 4. block'))
+    expect(step).toContain('WHERE s.manifest_id = m.manifest_id')
+    // Only a real change moves updated_at: a re-applied delta stays byte-identical.
+    expect(step).toContain('s.readiness IS DISTINCT FROM')
+    expect(step).toContain('s.readiness_reason IS DISTINCT FROM')
+    // A smoke-earned VERIFIED is kept against a CANDIDATE manifest, and lost to a BLOCKED one.
+    expect(step).toContain("AND NOT (s.readiness = 'VERIFIED' AND m.readiness = 'CANDIDATE')")
+    const assigned = [...step.matchAll(/^\s*(?:SET\s+)?(\w+)\s+=(?!=)/gm)].map((m) => m[1])
+    expect(assigned).toEqual(['readiness', 'readiness_reason', 'updated_at'])
+    // The header's step list names it too.
+    expect(sql).toMatch(/^--\s+5\. refresh\s+- /m)
+  })
+
   it('blocks the types that are not ready, so a seeded row of one is not left a candidate', () => {
     const blocked = seedRowsOf(manifest).typeBlocks.map((b) => b.type)
     expect(blocked).toEqual([
       'WORKINGNOMADS_API',
-      'ASHBY_ATS',
       'SMARTRECRUITERS_ATS',
-      'JOOBLE_API',
-      'JSEARCH_API',
-      'THEIRSTACK_API',
       'MUSE_API',
-      'REED_API',
-      'DJINNI_RSS',
-      'WWR_RSS',
       'EUREMOTEJOBS_RSS',
     ])
+  })
+
+  it('stores no KEY_REQUIRED: a keyed row and type are not blocked by the key, which the runtime checks', () => {
+    const { sources, typeBlocks } = seedRowsOf(manifest)
+    const keyed = [
+      'jooble.api.senior-developer-remote',
+      'jsearch.rapidapi.backend',
+      'jsearch.rapidapi.frontend',
+      'jsearch.rapidapi.ai-engineer',
+      'theirstack.api.senior',
+      'reed.api.senior-developer-remote',
+    ]
+    for (const id of keyed) {
+      const row = sources.find((s) => s.manifest_id === id)!
+      expect([id, row.readiness, row.readiness_reason]).toEqual([id, 'CANDIDATE', null])
+    }
+    for (const s of [
+      ...sources.map((x) => x.readiness_reason),
+      ...typeBlocks.map((b) => b.reason),
+    ]) {
+      expect(s ?? '').not.toContain('KEY_REQUIRED')
+    }
+    // Only KEY_REQUIRED is dropped: any other blocker still blocks.
+    const jooble = manifest.types.find((t) => t.type === 'JOOBLE_API')!
+    expect(readinessAt(jooble, SEED_CLOCK).status).toBe('BLOCKED')
+    expect(storedReadinessAt(jooble, SEED_CLOCK)).toEqual({ status: 'CANDIDATE', blockers: [] })
+    const other = { code: 'NO_CAPTURE' as const, detail: 'x' }
+    expect(
+      storedReadinessAt({ ...jooble, blockers: [...jooble.blockers, other] }, SEED_CLOCK),
+    ).toEqual({ status: 'BLOCKED', blockers: [other] })
+    // A legacy row keeps its own readiness: the delta never stores a manifest status for it.
+    const legacy = manifest.types.find(
+      (t) => t.disposition.kind === 'IMPLEMENTED' && t.disposition.contract === 'LEGACY',
+    )
+    expect(legacy).toBeDefined()
+    expect(storedReadinessAt(legacy!, SEED_CLOCK)).toEqual(readinessAt(legacy!, SEED_CLOCK))
+    expect(storedReadinessAt(legacy!, SEED_CLOCK).status).toBe('LEGACY')
+  })
+
+  it('seeds one meter per metered account and binds the rows of that account', () => {
+    const { sources, meters } = seedRowsOf(manifest)
+    expect(meters).toEqual([
+      { account_key: 'jooble:api-main', unit: 'REQUEST', window_kind: 'DAY', limit_amount: 50 },
+      {
+        account_key: 'jsearch:rapidapi-main',
+        unit: 'REQUEST',
+        window_kind: 'MONTH',
+        limit_amount: 150,
+      },
+      {
+        account_key: 'theirstack:api-main',
+        unit: 'RECORD',
+        window_kind: 'MONTH',
+        limit_amount: 150,
+      },
+      { account_key: 'reed:api-main', unit: 'REQUEST', window_kind: 'DAY', limit_amount: 50 },
+    ])
+    const bound = sources
+      .filter((s) => s.meter_account_key !== null)
+      .map((s) => [s.manifest_id, s.meter_account_key, s.meter_unit, s.meter_window])
+    expect(bound).toEqual([
+      ['jooble.api.senior-developer-remote', 'jooble:api-main', 'REQUEST', 'DAY'],
+      ['jsearch.rapidapi.backend', 'jsearch:rapidapi-main', 'REQUEST', 'MONTH'],
+      ['jsearch.rapidapi.frontend', 'jsearch:rapidapi-main', 'REQUEST', 'MONTH'],
+      ['jsearch.rapidapi.ai-engineer', 'jsearch:rapidapi-main', 'REQUEST', 'MONTH'],
+      ['theirstack.api.senior', 'theirstack:api-main', 'RECORD', 'MONTH'],
+      ['reed.api.senior-developer-remote', 'reed:api-main', 'REQUEST', 'DAY'],
+    ])
+    const sql = generateSeedDelta(manifest)
+    const meterStep = sql.slice(sql.indexOf('-- 6. meters'), sql.indexOf('-- 7. bind'))
+    expect(meterStep).toContain('ON CONFLICT (account_key, unit, window_kind) DO NOTHING;')
+    expect(meterStep).not.toMatch(/\bUPDATE\b/)
+    const bind = sql.slice(sql.indexOf('-- 7. bind'), sql.indexOf('DROP TABLE _jsm_blocks;'))
+    expect(bind).toContain('AND s.account_meter_id IS NULL;')
+    const assigned = [...bind.matchAll(/^\s*(?:SET\s+)?(\w+)\s+=(?!=)/gm)].map((m) => m[1])
+    expect(assigned).toEqual(['account_meter_id', 'updated_at'])
+    expect(sql.indexOf('-- 6. meters')).toBeGreaterThan(sql.indexOf('-- 5. refresh'))
   })
 })
 
@@ -274,7 +362,7 @@ describe('the seed SQL generator', () => {
 
   it('writes an empty list as [] and a list as one element per line', () => {
     const empty = generateSeedDelta({ types: [], entries: [] })
-    expect(empty).toContain('{"sources":[],"typeBlocks":[]}')
+    expect(empty).toContain('{"sources":[],"typeBlocks":[],"meters":[]}')
     const one = generateSeedDelta({
       types: [],
       entries: [entryOf(manifest as Manifest, 'remoteok.api.latest')],

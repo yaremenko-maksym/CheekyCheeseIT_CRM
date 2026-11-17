@@ -7,6 +7,7 @@ import { MANIFEST_VALIDATION_ADAPTERS } from '../providers/manifest.adapters'
 import { MANIFEST_DEFINITIONS } from '../providers/manifest.definitions'
 import type { ReportingJobSourceProvider } from '../providers/reporting-provider'
 import { createJoobleProvider } from '../providers/sources/jooble.provider'
+import { createReedProvider } from '../providers/sources/reed.provider'
 import { createJSearchProvider } from '../providers/sources/jsearch.provider'
 import { createTheirStackProvider } from '../providers/sources/theirstack.provider'
 import { readQuotaCredential } from '../quota-credentials'
@@ -32,6 +33,7 @@ const ADAPTERS: ReadonlyMap<string, ReportingJobSourceProvider> = new Map(
     ...MANIFEST_VALIDATION_ADAPTERS.values(),
     createJoobleProvider({ credential: KEY }),
     createJSearchProvider({ credential: KEY }),
+    createReedProvider({ credential: KEY }),
     createTheirStackProvider({ credential: KEY }),
   ].map((p) => [p.type, p as unknown as ReportingJobSourceProvider]),
 )
@@ -47,8 +49,10 @@ const EXPECTED_MAX_BYTES: Readonly<Record<string, number | undefined>> = {
   ASHBY_ATS: 10 * MiB,
   GREENHOUSE_ATS: 10 * MiB,
   HN_HIRING: 4 * MiB,
+  LEVER_ATS: 10 * MiB,
   RECRUITEE_ATS: 10 * MiB,
   WORKABLE_ATS: 10 * MiB,
+  WWR_RSS: 4 * MiB,
 }
 
 const RUN = (sourceType: string): ClaimedRun => ({
@@ -107,12 +111,12 @@ async function firstRequestOf(entry: (typeof manifest.entries)[number]) {
 const wiredEntries = manifest.entries.filter((e) => REPORTING_WIRING[e.type] !== undefined)
 
 describe('T6 AC 1: declared hosts and byte caps reach the transport, for every entry', () => {
-  it('every reporting type is wired except Reed and Working Nomads (and legacy DOU)', () => {
+  it('every reporting type is wired except Working Nomads (and legacy DOU)', () => {
     const reporting = [...MANIFEST_VALIDATION_ADAPTERS.keys()].sort()
     const wired = Object.keys(REPORTING_WIRING).sort()
-    expect(reporting.filter((t) => !wired.includes(t))).toEqual(['REED_API', 'WORKINGNOMADS_API'])
+    expect(reporting.filter((t) => !wired.includes(t))).toEqual(['WORKINGNOMADS_API'])
     expect(wired.filter((t) => !reporting.includes(t as never))).toEqual([])
-    expect(wired).toHaveLength(21)
+    expect(wired).toHaveLength(22)
   })
 
   it('Arbeitnow is pinned to exactly www.arbeitnow.com', () => {
@@ -133,6 +137,7 @@ describe('T6 AC 1: declared hosts and byte caps reach the transport, for every e
       JOOBLE_API: 'jooble.org',
       JSEARCH_API: 'jsearch.p.rapidapi.com',
       MUSE_API: 'www.themuse.com',
+      REED_API: 'www.reed.co.uk',
       REMOTEOK_API: 'remoteok.com',
       REMOTIVE_API: 'remotive.com',
       SMARTRECRUITERS_ATS: 'api.smartrecruiters.com',

@@ -5,7 +5,7 @@ import { atsBoardConfigSchema, type AtsRegion, LEVER_KIND, presentStrings } from
 import { boundedString, dateRaw, optionalString, urlString } from './as'
 
 /**
- * Lever Postings API: `GET https://api.lever.co/v0/postings/{site}?mode=json&limit=50&skip=N`, and
+ * Lever Postings API: `GET https://api.lever.co/v0/postings/{site}?mode=json`, and
  * the EU deployment `https://api.eu.lever.co/v0/postings/{site}` (public, unauthenticated for
  * reads; https://github.com/lever/postings-api).
  *
@@ -14,12 +14,15 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  * region is part of the board (config `region`) and of the namespace (`lever:eu:siteimprove`): the
  * same slug on the other host is a different employer's board, not a duplicate.
  *
- * - PAGING by `limit`/`skip`. A page of fewer than 50 postings ends the board; a page of exactly
- *   50 is followed by one more request, which a board of exactly 50 answers with `[]` (observed).
- *   The cursor is the next `skip`. 50 keeps a page well under the 2 MiB default (Palantir's first
- *   50 are 966 KB; its whole board is 6 MB, which is why it is paged rather than fetched whole).
- *   Offset paging over a board that changes between requests can skip or repeat a posting; a
- *   repeat is the collector's duplicate disposition, a skip is healed by the next full run.
+ * - ONE REQUEST PER RUN, the whole board. The README documents `limit` as "only return at most N
+ *   results" and `skip` as "skip N from the start", so with neither the API is read as answering
+ *   every published posting (the README states no default; no unpaged capture is committed, so this
+ *   rests on that reading). A board run is allowed exactly
+ *   one request (`requestsPerRun: 1` in the manifest, SR-H-1b), so paging by `limit=50&skip=N`
+ *   failed every board of 50 or more with REQUEST_CEILING (prod, `lever.board.spotify`,
+ *   2026-11-16). As for Ashby and Greenhouse the response cap is raised to the 10 MiB ceiling; a
+ *   board past it fails as `PAYLOAD_TOO_LARGE` for that board, which is the honest answer. One
+ *   request a run is also the ban-safest shape.
  * - NATIVE IDENTITY is `id` (a UUID). `hostedUrl` (the public posting page) and `applyUrl` (the
  *   application form) are kept DISTINCT: the first is the posting, the second `applicationUrl`.
  * - EMPLOYER: the Lever payload carries NO employer name at all. It comes from the config's
@@ -40,16 +43,17 @@ import { boundedString, dateRaw, optionalString, urlString } from './as'
  */
 
 export const LEVER_ADAPTER_VERSION = 'lever-1'
-export const LEVER_PAGE_SIZE = 50
+export const LEVER_LIMITS = {
+  maxBytes: 10 * 1024 * 1024,
+  maxItemsPerPage: 2_000,
+  maxPages: 1,
+} as const
 
 /** The host belongs to the adapter. The region picks one of exactly these two. */
 export const LEVER_HOSTS = {
   global: 'api.lever.co',
   eu: 'api.eu.lever.co',
 } as const satisfies Record<AtsRegion, string>
-
-/** `skip` is bounded so a stored cursor cannot be anything but a modest non-negative integer. */
-const SKIP_PATTERN = /^\d{1,7}$/
 
 const configSchema = atsBoardConfigSchema(LEVER_KIND)
 type Config = z.infer<typeof configSchema>
@@ -88,12 +92,6 @@ type Item = z.infer<typeof itemSchema>
 const envelopeSchema = z.array(z.unknown())
 type Envelope = z.infer<typeof envelopeSchema>
 
-function skipOf(cursor: string | null): number {
-  if (cursor === null) return 0
-  if (!SKIP_PATTERN.test(cursor)) throw new Error('the stored page cursor is not a skip offset')
-  return Number(cursor)
-}
-
 /** Remote-ness from the documented `workplaceType` values plus the owner-aliased `onsite`; anything else is unknown. */
 export function remoteFromWorkplaceType(value: string | null): boolean | null {
   switch (value) {
@@ -125,17 +123,16 @@ export const leverSpec: ApiJsonSourceSpec<Config, Envelope, Item> = {
   configSchema,
   envelopeSchema,
   itemSchema,
-  limits: { maxItemsPerPage: LEVER_PAGE_SIZE, maxPages: 20 },
-  pageRequest: (config, at) => ({
+  limits: LEVER_LIMITS,
+  pageRequest: (config) => ({
     request: {
-      url: `https://${LEVER_HOSTS[config.region]}/v0/postings/${config.board}?mode=json&limit=${LEVER_PAGE_SIZE}&skip=${skipOf(at.cursor)}`,
+      url: `https://${LEVER_HOSTS[config.region]}/v0/postings/${config.board}?mode=json`,
       headers: { accept: 'application/json' },
     },
-    cacheKey: `skip-${skipOf(at.cursor)}`,
+    cacheKey: 'board',
   }),
   extractItems: (envelope) => envelope,
-  nextCursor: (envelope, at) =>
-    envelope.length < LEVER_PAGE_SIZE ? null : String(skipOf(at.cursor) + envelope.length),
+  nextCursor: () => null,
   nativeIdOf: (item) => item.id,
   mapItem: (item, config) => ({
     namespace: config.namespace,

@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef } from 'react'
 import { Link } from '@tanstack/react-router'
 import { FileSignature, FileText, Receipt as ReceiptIcon } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { DEFAULT_LOCALE } from '@crm/shared'
 import type { Document, SessionUser } from '@crm/shared'
+import { useLocale } from '@/lib/i18n'
 import { useDocuments } from '@/hooks/use-documents'
 import { DocumentList } from '@/components/documents/document-list'
 import { DocumentRow } from '@/components/documents/document-row'
@@ -41,6 +41,7 @@ export function DocumentsListSection({
   sortKey,
 }: ListSectionProps) {
   const { i18n } = useLingui()
+  const locale = useLocale()
   // Only forward `category` to the API when a specific one is picked.
   // 'ALL' ⇒ backend returns everything the role can see.
   const { data, isLoading } = useDocuments({
@@ -58,15 +59,11 @@ export function DocumentsListSection({
     if (!data) return []
     let result = statusTab === 'ARCHIVED' ? data.filter((d) => d.deletedAt !== null) : data
     result = filterDocuments(result, searchQuery, i18n)
-    // TODO(i18n stage 2, Task 6): useLocale() — Task 6 (users.locale +
-    // request-locale plumbing) hasn't landed yet, so there is no active
-    // locale to read here. `DEFAULT_LOCALE` keeps today's behavior
-    // (Cyrillic collation) until that hook exists.
-    result = sortDocuments(result, sortKey, DEFAULT_LOCALE, i18n)
+    result = sortDocuments(result, sortKey, locale, i18n)
     return result
     // `i18n.locale`: the singleton keeps its identity across a locale switch, but
     // a virtual contract's visible name (searched/sorted here) depends on it.
-  }, [data, statusTab, searchQuery, sortKey, i18n, i18n.locale])
+  }, [data, statusTab, searchQuery, sortKey, locale, i18n, i18n.locale])
 
   // Deep-link: pop the dialog open once the matching doc appears. We only
   // run this when the URL param or the resolved list changes — `onOpen` is

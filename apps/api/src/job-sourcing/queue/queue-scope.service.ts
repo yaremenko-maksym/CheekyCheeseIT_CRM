@@ -3,8 +3,13 @@ import type { SessionUser } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { apiError } from '../../common/api-error'
 import { isDeadlock } from '../../database/pg-errors'
-import { loadRoster, opportunityInputsVersion } from '../runtime/recompute-inputs'
+import {
+  loadRoster,
+  opportunityInputsVersion,
+  previousOpportunityInputsVersion,
+} from '../runtime/recompute-inputs'
 import type { SqlExecutor } from '../scheduling/host-state'
+import { triagePolicyVersion } from './queue-read-sql'
 import {
   canonicalUuid,
   isJobQueueRole,
@@ -54,13 +59,14 @@ export class JobQueueScopeService {
           : await this.activeTeamIdsOf(db, user.id)
       const teamId = selectScopeTeam(requested, allowed)
       if (teamId === null) return NONE_SCOPE
-      const { versions, inputsVersion } = await this.liveInputs(db, teamId)
+      const { versions, inputsVersion, previousInputsVersion } = await this.liveInputs(db, teamId)
       return {
         kind: 'TEAM',
         teamId,
         seniorIds: versions.map((v) => v.seniorId),
         versions,
         inputsVersion,
+        previousInputsVersion,
       }
     })
   }
@@ -110,12 +116,17 @@ export class JobQueueScopeService {
    * The team's matchable seniors (active, non-archived SENIOR, in the team) with their LIVE input
    * versions, from the same `loadRoster` / `rosterVersions` the recompute worker stamps match rows
    * with — so a row is visible only while it still describes the live roster (SR-M-2) — and the
-   * live opportunity inputs version from the same load, for the grant branch (SR-M-1).
+   * live opportunity inputs version from the same load, with its previous-record-format twin, for
+   * the grant and subscription branches (SR-M-1, CR-M-2).
    */
   private async liveInputs(
     db: SqlExecutor,
     teamId: string,
-  ): Promise<{ versions: LiveSeniorVersion[]; inputsVersion: string }> {
+  ): Promise<{
+    versions: LiveSeniorVersion[]
+    inputsVersion: string
+    previousInputsVersion: string
+  }> {
     const roster = await loadRoster(db)
     const inTeam = new Set(
       roster.profiles.filter((p) => p.teamIds.includes(teamId)).map((p) => p.seniorId),
@@ -124,7 +135,11 @@ export class JobQueueScopeService {
     const versions = [...roster.versions]
       .filter(([seniorId]) => inTeam.has(seniorId))
       .map(([seniorId, v]) => ({ seniorId, profile: v.profile, exclusion: v.exclusion }))
-    return { versions, inputsVersion: opportunityInputsVersion(roster.exclusions) }
+    return {
+      versions,
+      inputsVersion: opportunityInputsVersion(roster.exclusions),
+      previousInputsVersion: previousOpportunityInputsVersion(roster.exclusions),
+    }
   }
 
   /**
@@ -141,6 +156,30 @@ export class JobQueueScopeService {
       profile: v.profile,
       exclusion: v.exclusion,
     }))
+  }
+
+  /**
+   * Backlog 425 — the studio-wide triage policy version (`triagePolicyVersion`) for `versions`, the
+   * STUDIO scope's `liveVersions` read through the same executor. The membership part is one
+   * aggregate: every active member of every live SENIOR team, in a stable order.
+   */
+  async triagePolicyVersion(
+    versions: readonly LiveSeniorVersion[],
+    db: SqlExecutor,
+  ): Promise<number> {
+    const { rows } = await this.policy(() =>
+      db.execute(
+        sql`SELECT md5(COALESCE(string_agg(tm.team_id::text || ':' || tm.user_id::text, ','
+                                           ORDER BY tm.team_id, tm.user_id), '')) AS digest
+              FROM team_members tm JOIN teams t ON t.id = tm.team_id
+             WHERE tm.left_at IS NULL AND t.archived_at IS NULL AND t.type = 'SENIOR'`,
+      ),
+    )
+    // An aggregate always answers one row; a missing digest is not a version, so fail closed.
+    const digest = rows[0]?.['digest']
+    if (typeof digest !== 'string')
+      throw apiError('JOB_QUEUE_POLICY_UNAVAILABLE', HttpStatus.SERVICE_UNAVAILABLE)
+    return triagePolicyVersion(versions, digest)
   }
 
   /**

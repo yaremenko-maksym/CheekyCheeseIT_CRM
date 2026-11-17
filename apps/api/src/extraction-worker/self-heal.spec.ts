@@ -9,23 +9,24 @@ const DONE: ModelRefreshResult = { ok: true, providers: [] }
 const CONFIG = {
   policyVersion: 'p1',
   hostedBudgetMs: 5000,
-  floorBudgetMs: 60_000,
   routes: [
     {
-      provider: 'local',
-      baseUrl: 'http://crm-model-runtime:11434',
-      model: 'qwen2.5:3b',
+      provider: 'groq',
+      apiKey: 'KEY-MARKER',
+      models: ['openai/gpt-oss-20b'],
       contextTokens: 8192,
       structuredOutput: 'json_schema',
+      minGapMs: 0,
       timeoutMs: 1000,
       maxAnswerTokens: 512,
+      freeLimit: { requestsPerDay: 100 },
     },
   ],
 }
 
 const tmpListPath = () => join(mkdtempSync(join(tmpdir(), 'xw-heal-')), 'managed-models.json')
 
-const attempt = (route: 'gemini' | 'groq' | 'local', model: string, code = 'OK'): RouterEvent =>
+const attempt = (route: 'gemini' | 'groq', model: string, code = 'OK'): RouterEvent =>
   ({ type: 'ATTEMPT', route, model, code, inputChars: 1, latencyMs: 1 }) as RouterEvent
 
 function world(config: unknown = CONFIG, throwing?: string, listPath = tmpListPath()) {
@@ -86,12 +87,11 @@ describe('scheduleSelfHeal — the worker owns the §3.4 timers', () => {
     w.heal.stop()
   })
 
-  it('hadOkCall is true only for a hosted OK attempt since the last daily refresh', async () => {
+  it('hadOkCall is true only for an OK attempt since the last daily refresh', async () => {
     const w = world()
     const had = w.seen[0]!.deps.hadOkCall!
     w.heal.record(attempt('groq', 'openai/gpt-oss-20b'))
     w.heal.record(attempt('gemini', 'gemini-2.5-flash', 'BUSY'))
-    w.heal.record(attempt('local', 'gemini-2.5-flash'))
     w.heal.record({ type: 'CONFIG_REFUSED' })
     // Not an attempt, whatever it carries.
     w.heal.record({
@@ -101,7 +101,6 @@ describe('scheduleSelfHeal — the worker owns the §3.4 timers', () => {
     expect(had('groq', 'openai/gpt-oss-20b')).toBe(true)
     expect(had('gemini', 'openai/gpt-oss-20b')).toBe(false)
     expect(had('gemini', 'gemini-2.5-flash')).toBe(false)
-    expect(had('local', 'gemini-2.5-flash')).toBe(false)
     expect(had('gemini', 'gemini-2.0-flash')).toBe(false)
     await vi.advanceTimersByTimeAsync(DAILY_REFRESH_INTERVAL_MS)
     // The daily run saw the ledger, then it starts empty for the next day.

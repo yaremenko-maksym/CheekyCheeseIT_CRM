@@ -124,6 +124,14 @@ assert_red "the stderr BLOCK line reaches the caller as UTF-8 (the em dash survi
   --contains " — " \
   -- h "pnpm --filter @crm/api dev"
 
+# A Cyrillic command as raw UTF-8 (SO-sonnet-L of #1314). On Windows python read stdin in
+# the locale code page, so the database name in the reason below came out as mojibake
+# escapes. Red there before the analyzer set stdin to UTF-8. Built from \x escapes so
+# this file adds no Cyrillic letters.
+assert_green "a raw UTF-8 Cyrillic command is read as UTF-8 (the db name survives in the reason)" \
+  --contains '"decision": "block"' --contains '\u0418\u0432\u0430\u043d' --not-contains "INTERNAL ERROR" \
+  -- exits_2 hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"'"$HOOK_TEST_WORKTREE"'","tool_input":{"command":"DATABASE_URL=postgresql://u:p@localhost:5432/crm_\xd0\x98\xd0\xb2\xd0\xb0\xd0\xbd API_PORT=3011 scripts/devops/dev-ttl.sh -- pnpm --filter @crm/api dev"}}'
+
 assert_red "префикс переменных окружения указывает на ЖИВУЮ crm_db" \
   --contains "crm_db" \
   -- h "DATABASE_URL=$LIVE_DB API_PORT=3011 pnpm --filter @crm/api dev"
@@ -919,6 +927,20 @@ assert_red "BROKEN analyzer + a harmless read: NOT a verdict (no decision contra
   --contains "INTERNAL ERROR" \
   --not-contains "decision" \
   -- hook_at "$BROKEN" "grep -rn 'pnpm dev' .claude/rules"
+
+# The analyzer file itself, broken and then missing (the cases above break the shared
+# lib/cmdscan.py). Each copy carries the rest of lib/, so the case fails for its reason.
+assert_red "analyzer crash (lib/live_db_guard_analyzer.py does not parse): DEGRADED, not a verdict" \
+  --contains "INTERNAL ERROR" \
+  --contains "DEGRADED MODE" \
+  -- hook_at "$(hook_with_lib_file "$WS" pre-bash-live-db-guard.sh live_db_guard_analyzer.py broken)" \
+  "pnpm --filter @crm/api dev"
+
+assert_red "analyzer file missing (lib/live_db_guard_analyzer.py deleted): DEGRADED, not a verdict" \
+  --contains "INTERNAL ERROR" \
+  --contains "DEGRADED MODE" \
+  -- hook_at "$(hook_with_lib_file "$WS" pre-bash-live-db-guard.sh live_db_guard_analyzer.py missing)" \
+  "pnpm --filter @crm/api dev"
 
 assert_red "ЛОВУШКА: хук со сломанным bash тоже даёт rc≠0 — но без decision-контракта" \
   --contains "syntax error" \

@@ -7,7 +7,7 @@ import {
   type StateEvent,
 } from '@crm/inference'
 import type { FastifyInstance } from 'fastify'
-import { hostedRoutesOf, localOnlyRouterConfig, parseWorkerEnv } from './schema'
+import { hostedRoutesOf, parseWorkerEnv, requestFreePreflight } from './schema'
 import { scheduleSelfHeal } from './self-heal'
 import { buildExtractionWorker, type WorkerLogLine } from './server'
 
@@ -36,6 +36,7 @@ export async function startWorker(
   const log = (line: WorkerLogLine): void => {
     proc.stdout.write(`${JSON.stringify(line)}\n`)
   }
+  for (const w of env.routeWarnings) log({ event: 'ROUTE_ENV_WARNING', ...w })
   try {
     const onStateEvent = (e: StateEvent): void => log({ event: 'STATE', ...e })
     const routeState = await createFileRouteStatePort({
@@ -74,10 +75,7 @@ export async function startWorker(
           ownCap,
           managedModels,
         }),
-        preflight: createRouterExtractionAdapter(localOnlyRouterConfig(env.routerConfig), {
-          onEvent,
-          routeState,
-        }),
+        preflight: requestFreePreflight(env.routerConfig),
       }),
     })
     app.addHook('onClose', (_app, done) => {

@@ -222,7 +222,7 @@ describe('JobQueueFilters', () => {
       return user
     }
 
-    it('summarizes the seniors by name, last, and never shows an id', () => {
+    it('summarizes the seniors by name, first, and never shows an id', () => {
       render(
         <JobQueueAppliedFilters
           value={{ seniorIds: [SENIOR_B, SENIOR_A], source: ['DOU_RSS'] }}
@@ -232,7 +232,7 @@ describe('JobQueueFilters', () => {
         { wrapper: I18nTestProvider },
       )
       expect(screen.getByTestId('job-queue-applied')).toHaveTextContent(
-        /^Застосовано: DOU · Сеньйори: Богдан Шевченко, Анна КовальСкинути фільтри$/,
+        /^Застосовано: Сеньйори: Богдан Шевченко, Анна Коваль · DOUСкинути фільтри$/,
       )
     })
 
@@ -255,6 +255,16 @@ describe('JobQueueFilters', () => {
       const group = screen.getByRole('group', { name: 'Підходить сеньйору' })
       expect(within(group).queryByRole('group', { name: 'Команда А' })).toBeNull()
       expect(group).not.toHaveTextContent('Команда А')
+    })
+
+    it('renders the senior picker as the first filter group', async () => {
+      const user = userEvent.setup()
+      render(<JobQueueFilters value={{}} seniors={loaded} onApply={vi.fn()} />, {
+        wrapper: I18nTestProvider,
+      })
+      await user.click(screen.getByTestId('job-queue-filters-button'))
+      const groups = within(screen.getByTestId('job-queue-filters-body')).getAllByRole('group')
+      expect(groups[0]).toBe(screen.getByRole('group', { name: 'Підходить сеньйору' }))
     })
 
     it('groups the studio (ADMIN) by team, in the server order', async () => {
@@ -336,7 +346,7 @@ describe('JobQueueFilters', () => {
         { wrapper: I18nTestProvider },
       )
       expect(screen.getByTestId('job-queue-applied')).toHaveTextContent(
-        /^Застосовано: DOU · 2 сеньйориСкинути фільтри$/,
+        /^Застосовано: 2 сеньйори · DOUСкинути фільтри$/,
       )
     })
 

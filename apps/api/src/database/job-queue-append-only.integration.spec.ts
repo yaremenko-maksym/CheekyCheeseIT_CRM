@@ -9,8 +9,7 @@ import {
   GRANTS_DDL,
   applyDeployDdlFile,
   applyProductionRetentionOwnerGrants,
-  dropRolesCreated,
-  existingDeployRoles,
+  dropRolesCreatedReportingLeaks,
   installDeployRoles,
   productionRetentionOwnerGrants,
   revokeRetentionOwnerActionLogPrivileges,
@@ -366,10 +365,11 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       // Leave the cluster as this suite found it. A no-op on CI, where a sibling
       // creates the roles first; on a fresh cluster it is what stops this suite
       // leaking them.
+      // A role another database of the cluster still depends on (2BP01) is logged and left,
+      // not a teardown failure: see `dropRolesCreatedReportingLeaks`.
       let leaked: string[] = []
       try {
-        await dropRolesCreated(pool, rolesCreatedHere)
-        if (rolesCreatedHere.length > 0) leaked = await existingDeployRoles(pool)
+        leaked = await dropRolesCreatedReportingLeaks(pool, rolesCreatedHere)
       } finally {
         await pool.end()
       }
@@ -2820,24 +2820,29 @@ describe.skipIf(!hasDatabaseUrl())('job queue append-only triggers + R-B retenti
       // could not exist, which proves a predicate of that shape refuses — not that the
       // shipped file does. The objection to exercising the real file was that
       // `crm_retention_owner` is cluster-wide and dropping it would break whatever else
-      // uses it. That objection is answered by the transaction below: `DROP OWNED BY`
-      // and `DROP ROLE` are both transactional in PostgreSQL, so the role is genuinely
-      // gone for the length of this one connection's transaction and comes back on
-      // `ROLLBACK`, having never been gone for anybody else.
+      // uses it. That objection is answered by the transaction below: renaming a role is
+      // transactional in PostgreSQL, so the NAME `crm_retention_owner` is genuinely absent
+      // from `pg_roles` for the length of this one connection's transaction and comes
+      // back on `ROLLBACK`, having never been gone for anybody else.
+      //
+      // RENAME, not `DROP OWNED BY` + `DROP ROLE`: roles are cluster-wide but
+      // `DROP OWNED BY` clears only the CURRENT database, so on a shared cluster where
+      // another database (crm_qa, a sibling scratch DB) holds objects owned by the role,
+      // `DROP ROLE` is refused ("cannot be dropped because some objects depend on it")
+      // and the test failed for a reason outside this database. The precondition checks
+      // the role by NAME, so a renamed role is exactly the absence it must refuse.
+      const absentAs = `crm_retention_owner_absent_${process.pid}`
       const client = await pool.connect()
       let code: string | undefined
       let message = ''
       try {
         await client.query('BEGIN')
-        // DROP ROLE refuses while the role holds privileges or owns anything, and after
-        // the grants file it holds both; DROP OWNED BY clears them inside the transaction.
-        await client.query(`DROP OWNED BY crm_retention_owner CASCADE`)
-        await client.query(`DROP ROLE crm_retention_owner`)
+        await client.query(`ALTER ROLE crm_retention_owner RENAME TO ${absentAs}`)
 
         try {
           // The file's OWN `BEGIN;` / `COMMIT;` are skipped here, and that is load-bearing
-          // rather than tidy: this test has already dropped the role inside ITS transaction,
-          // so letting the file's `COMMIT` run would commit that drop and remove
+          // rather than tidy: this test has already renamed the role inside ITS transaction,
+          // so letting the file's `COMMIT` run would commit that rename and remove
           // `crm_retention_owner` from the cluster for good. The precondition raises before
           // the `COMMIT` is reached today, so nothing commits either way — but that is a
           // property of the file's current statement ORDER, and a test whose safety rests on

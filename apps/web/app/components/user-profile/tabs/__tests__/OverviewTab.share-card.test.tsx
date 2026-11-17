@@ -24,6 +24,10 @@ beforeEach(() => loadCatalog('uk'))
 vi.mock('@/hooks/use-admin-note', () => ({
   useSetAdminNote: () => ({ mutate: vi.fn(), isPending: false }),
 }))
+// the availability setter fetches on mount; its own tests cover it (no network here)
+vi.mock('@/components/senior-availability/SeniorAvailabilitySection', () => ({
+  SeniorAvailabilitySection: () => null,
+}))
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -40,6 +44,7 @@ function makeUser(overrides: Partial<UserProfileDto>): UserProfileDto {
     telegram: null,
     phone: null,
     techStack: null,
+    technicalRoles: [],
     paymentMethod: null,
     walletUsdtErc20: null,
     walletUsdtLabel: null,

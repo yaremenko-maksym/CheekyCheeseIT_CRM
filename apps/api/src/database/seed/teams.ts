@@ -14,6 +14,8 @@ import {
   DROP4_ID,
   DROP5_ID,
   DROP6_ID,
+  HR2_ID,
+  SENIOR_SHARED_ID,
 } from './ids'
 import { d } from './shared'
 import type { SeedCtx } from './shared'
@@ -39,6 +41,9 @@ export async function seedTeams({ db }: SeedCtx): Promise<void> {
     { teamId: team1.id, userId: ANNA_ID, joinedAt: d(2025, 6, 5) },
     { teamId: team1.id, userId: OLEKSIY_ID, joinedAt: d(2025, 6, 5) },
     { teamId: team1.id, userId: MYKOLA_ID, joinedAt: d(2025, 6, 5) },
+    // Task 7.6a job-queue E2E: a second HR, and the senior shared with Team Marchenko
+    { teamId: team1.id, userId: HR2_ID, joinedAt: d(2025, 11, 15) },
+    { teamId: team1.id, userId: SENIOR_SHARED_ID, joinedAt: d(2025, 11, 15) },
   ])
 
   // Team 2: Dmytro's team (Kateryna HR) — Dmytro is un-onboarded but team exists
@@ -58,6 +63,8 @@ export async function seedTeams({ db }: SeedCtx): Promise<void> {
     { teamId: team2.id, userId: KATERYNA_ID, joinedAt: d(2025, 7, 1) },
     { teamId: team2.id, userId: DMYTRO_ID, joinedAt: d(2025, 7, 1) },
     { teamId: team2.id, userId: MYKOLA_ID, joinedAt: d(2025, 7, 1) },
+    // Task 7.6a job-queue E2E: the senior shared with Team Kovalenko
+    { teamId: team2.id, userId: SENIOR_SHARED_ID, joinedAt: d(2025, 11, 15) },
   ])
 
   // Team 3: Artem's team (Daryna HR)

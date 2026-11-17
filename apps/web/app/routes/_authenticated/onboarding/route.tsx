@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { Trans } from '@lingui/react/macro'
 import { useAuth } from '@/context/auth'
-import { api } from '@/lib/axios'
+import { fetchOnboardingStatus } from '@/context/onboarding'
 import { useLogout } from '@/lib/use-logout'
 import type { OnboardingStatusDto } from '@crm/shared'
 import { BrandMark } from '@/components/brand-mark'
@@ -22,10 +22,7 @@ function OnboardingRoot() {
 
   const { data: status, isLoading: statusLoading } = useQuery<OnboardingStatusDto>({
     queryKey: ['onboarding-status'],
-    queryFn: async () => {
-      const res = await api.get<OnboardingStatusDto>('/onboarding/status')
-      return res.data
-    },
+    queryFn: fetchOnboardingStatus,
     enabled: !!user,
     staleTime: 0, // always fresh on onboarding page
   })

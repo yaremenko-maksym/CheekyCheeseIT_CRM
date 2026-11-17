@@ -1,0 +1,330 @@
+// Primitives v2, mobile part: ResponsiveSheet (mobile), ListRow, section header, FormField, keyboard-open.
+import { icon, phone, safeBottom, field, segmented } from './base.mjs'
+import {
+  moneyForm,
+  primaryBtn,
+  submitBar,
+  textKeyboard,
+  TEXT_H,
+  actionConfirm,
+  thumb,
+} from './money-form.mjs'
+export { field, segmented }
+import { tabScreen, financeBody, txnRow, TXNS, topBar, PEOPLE } from './mobile.mjs'
+import { sheet, closeBtn, safeTop } from './mobile-overlays.mjs'
+
+const chevDown = `<span class="muted">${icon('chevron-down', { size: 18 })}</span>`
+
+export const toggle = (on = true, label = '') =>
+  `<button type="button" role="switch" aria-checked="${on}" aria-label="${label}" style="appearance:none;margin:0;padding:0;border:0;cursor:pointer;width:51px;height:31px;border-radius:16px;flex:none;position:relative;background:${on ? 'var(--primary)' : 'oklch(0.32 0 0)'}"><i style="position:absolute;top:2px;${on ? 'right' : 'left'}:2px;width:27px;height:27px;border-radius:14px;background:${on ? 'var(--primary-fg)' : 'oklch(0.92 0 0)'}"></i></button>`
+
+// Pushed-page form: back + title, the primary in the same bottom bar as the money form.
+const stickyFooter = (w, label = 'Зберегти') =>
+  `<div style="position:absolute;left:0;right:0;bottom:0;padding:8px 16px ${safeBottom(w) + 8}px;background:var(--popover);border-top:1px solid var(--border)">${primaryBtn(label)}</div>`
+
+function formPage(w, h, title, fields, { footer = '', overlay = '' } = {}) {
+  const inner = `${topBar({ back: true, title, bell: false, search: false })}
+  <div class="content col" style="gap:18px;padding:12px 16px ${footer ? 60 + safeBottom(w) + 16 : 24}px">${fields}</div>${footer}`
+  return phone({ w, h, inner, overlay })
+}
+
+// Field → keyboard attributes (primitives §4 keyboard table). Rendered on the mock inputs as-is.
+const KB = {
+  name: 'autocomplete="name" autocapitalize="words" enterkeyhint="next"',
+  email:
+    'type="email" inputmode="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next"',
+  tel: 'type="tel" inputmode="tel" autocomplete="tel" enterkeyhint="next"',
+}
+// A picker field opens the PickerSheet (§2): a button with the current value and a chevron.
+const pickerField = (id, label, value) =>
+  field({ id, label, value, suffix: chevDown, tag: 'button', attrs: 'aria-haspopup="dialog"' })
+
+/** Field states on a profile edit: filled, focus, error, a PickerSheet field, disabled with a reason. */
+export function formStates(w, h) {
+  const f = [
+    field({ id: 'a', label: 'Імʼя', value: 'Ірина Мельник', attrs: KB.name }),
+    field({
+      id: 'c',
+      label: 'Телефон',
+      value: '+380 67 000 00 0',
+      state: 'focus',
+      hint: 'Для звʼязку з командою',
+      attrs: KB.tel,
+    }),
+    field({
+      id: 'd',
+      label: 'Робочий email',
+      value: 'iryna@',
+      state: 'error',
+      err: 'Вкажіть email у форматі name@domain.com',
+      attrs: KB.email,
+    }),
+    pickerField('e', 'Роль', 'Junior'),
+    field({
+      id: 'g',
+      label: 'Email для входу',
+      value: 'iryna.melnyk@example.com',
+      state: 'disabled',
+      hint: 'Привʼязаний до Google-акаунта',
+    }),
+  ].join('')
+  return formPage(w, h, 'Редагувати профіль', f, {
+    footer: stickyFooter(w, 'Зберегти зміни'),
+  })
+}
+
+/** New user: name, email, role and team through the PickerSheet, primary «Додати». */
+export function formAddUser(w, h) {
+  const f = [
+    field({ id: 'un', label: 'Імʼя', value: 'Ірина Мельник', attrs: KB.name }),
+    field({
+      id: 'ue',
+      label: 'Email',
+      value: 'iryna.melnyk@example.com',
+      state: 'focus',
+      hint: 'На цю адресу прийде запрошення',
+      attrs: KB.email,
+    }),
+    pickerField('ur', 'Роль', 'Junior'),
+    pickerField('ut', 'Команда', 'Команда «Альфа»'),
+  ].join('')
+  return formPage(w, h, 'Новий користувач', f, { footer: stickyFooter(w, 'Додати') })
+}
+
+// ---------- Pushed detail pages: the rows with a detail carry their actions here (§3) ----------
+const detailTop = () =>
+  topBar({
+    back: true,
+    title: '',
+    bell: false,
+    search: false,
+    trailing: detailActions,
+    side: 168,
+  })
+// The detail page's trailing actions: the same pair on the phone top bar and the ≥ 900 detail pane.
+export const detailActions = `<button type="button" class="btn ghost" style="height:44px;padding:0 8px;font-size:17px;font-weight:500;color:var(--primary)">Редагувати</button><button type="button" class="iconbtn" aria-label="Інші дії" aria-haspopup="menu">${icon('ellipsis', { size: 22 })}</button>`
+const kv = (k, v, { link = false } = {}) =>
+  `<${link ? 'a href="#"' : 'div'} class="lrow" style="--inset:16px;min-height:52px"><div class="t-body muted" style="flex:none">${k}</div><div class="grow t-body" style="text-align:right;overflow-wrap:anywhere">${v}</div>${link ? icon('chevron-right', { size: 18, cls: 'chev' }) : ''}</${link ? 'a' : 'div'}>`
+
+/**
+ * The one transaction-detail body: the pushed page on a phone and the detail pane from 900 px both use
+ * it. Title, amount, one status-pill slot under the amount, one field set, the receipt.
+ */
+export function detailTxnBody() {
+  const head = `<div class="col" style="align-items:center;gap:6px;padding:8px 16px 18px;text-align:center"><h1 class="t-sub muted" style="margin:0;font-weight:400">Оренда офісу</h1><div class="num" style="font-size:40px;line-height:46px;font-weight:700;letter-spacing:-0.03em;white-space:nowrap">−1 200,00 USD</div><span class="pill ok" style="height:28px;padding:0 12px;font-size:13px">${icon('check', { size: 14, stroke: 2.4 })}Оплачено</span></div>`
+  const parts = `<div class="group">${kv('Тип', 'Витрата')}${kv('Платник', 'Компанія')}${kv('Отримувач', 'ТОВ «Бізнес-центр Поділ»')}${kv('Дата', '11 листопада 2026, 14:20')}${kv('Проєкт', 'Проєкт «Альфа»', { link: true })}${kv('Створив', 'Віктор Кравець')}</div>`
+  const receipt = `<div class="sechead"><span class="t-over">Чек</span></div><div class="group"><button type="button" class="lrow" aria-label="Переглянути чек на весь екран" style="min-height:76px">${thumb(56)}<div class="grow col" style="gap:2px;min-width:0"><div class="t-body trunc">receipt-office-nov.jpg</div><div class="t-foot muted">220 КБ · торкніться, щоб збільшити</div></div><span class="muted">${icon('maximize-2', { size: 18 })}</span></button></div>`
+  return `${head}${parts}${receipt}`
+}
+
+/** Transaction detail page (phone): the top bar plus the shared body. */
+export function detailTxn(w, h) {
+  const inner = `${detailTop()}<div class="content" style="padding:0 16px 24px">${detailTxnBody()}</div>`
+  return phone({ w, h, inner })
+}
+
+/** Full-screen receipt viewer: pinch to zoom, 44 px close, the file name. */
+export function receiptViewer(w, h) {
+  const img = `<div style="position:absolute;left:24px;right:24px;top:${safeTop(w) + 70}px;bottom:${safeBottom(w) + 90}px;border-radius:6px;background:linear-gradient(170deg,oklch(0.95 0 0),oklch(0.86 0 0));padding:28px 24px;display:grid;align-content:start;gap:12px">${'<i style="height:8px;background:oklch(0.55 0 0);border-radius:3px"></i>'.repeat(3)}<i style="height:8px;width:60%;background:oklch(0.55 0 0);border-radius:3px"></i><i style="height:22px"></i>${'<i style="height:6px;background:oklch(0.7 0 0);border-radius:3px"></i>'.repeat(8)}<i style="height:14px;width:40%;margin-top:18px;justify-self:end;background:oklch(0.4 0 0);border-radius:3px"></i></div>`
+  const top = `<div class="row" style="position:absolute;left:8px;right:8px;top:${safeTop(w) + 6}px;gap:8px"><button type="button" class="iconbtn" aria-label="Закрити" style="color:#fff">${icon('x', { size: 24 })}</button><span class="grow t-sub" style="text-align:center;color:#fff">receipt-office-nov.jpg</span><span style="width:44px"></span></div>`
+  const hint = `<div class="t-foot" style="position:absolute;left:0;right:0;bottom:${safeBottom(w) + 40}px;text-align:center;color:oklch(0.75 0 0)">Зведіть або розведіть пальці, щоб змінити масштаб</div>`
+  return phone({
+    w,
+    h,
+    inner: `<div role="dialog" aria-modal="true" aria-label="Чек receipt-office-nov.jpg" style="position:absolute;inset:0;background:#000">${img}${top}${hint}</div>`,
+  })
+}
+
+/** Person detail: avatar, name, role, team, contacts as tappable rows, the edit entry. */
+export function detailPerson(w, h) {
+  const head = `<div class="col" style="align-items:center;gap:6px;padding:8px 16px 18px;text-align:center"><span style="width:72px;height:72px;border-radius:36px;background:var(--yellow-subtle);color:var(--primary);display:grid;place-items:center;font-size:26px;font-weight:700">ІМ</span><h1 class="t-title" style="margin:0;font-weight:700">Ірина Мельник</h1><div class="t-foot muted">Junior · Команда «Альфа»</div></div>`
+  const contact = (ic, v, label, href) =>
+    `<a class="lrow" href="${href}" aria-label="${label}" style="--inset:52px;min-height:56px"><span style="color:var(--primary);flex:none">${icon(ic, { size: 20 })}</span><div class="grow t-body trunc">${v}</div>${icon('chevron-right', { size: 18, cls: 'chev' })}</a>`
+  const contacts = `<div class="sechead"><span class="t-over">Контакти</span></div><div class="group">${contact('phone', '+380 67 000 00 00', 'Подзвонити: +380 67 000 00 00', 'tel:+380670000000')}${contact('mail', 'iryna.melnyk@example.com', 'Написати: iryna.melnyk@example.com', 'mailto:iryna.melnyk@example.com')}${contact('send', '@iryna_m', 'Telegram: @iryna_m', 'https://t.me/iryna_m')}</div>`
+  const work = `<div class="sechead"><span class="t-over">Робота</span></div><div class="group">${kv('Роль', 'Junior')}${kv('Команда', '«Альфа»', { link: true })}${kv('Проєкти', '3', { link: true })}</div>`
+  const inner = `${detailTop()}<div class="content" style="padding:0 16px 24px">${head}${contacts}${work}</div>`
+  return phone({ w, h, inner })
+}
+
+/** Pushed-screen variant of the canonical money form: no keyboard, empty receipt, the same defaults row as the sheet. */
+export const formMoney = (w, h) => moneyForm({ w, h, variant: 'page', receipt: 'empty' })
+
+/** Keyboard open: the focused field scrolls above the keyboard; the bottom bar rides on top of it. */
+export const formKeyboard = (w, h) =>
+  moneyForm({ w, h, receipt: 'done', expanded: true, focus: 'note', keyboard: 'text', scroll: 250 })
+
+// ---------- PickerSheet: one medium sheet for project, user, currency and role ----------
+export function pickerSheet(w, h) {
+  const opt = (ic, label, { cur = false, sub = '' } = {}) =>
+    `<div class="lrow" role="option" aria-selected="${cur}" style="--inset:60px;min-height:56px"><div class="lead" style="width:32px;height:32px;border-radius:9px">${icon(ic, { size: 18 })}</div><div class="grow col" style="gap:1px;min-width:0"><div class="t-body trunc" style="${cur ? 'font-weight:600' : ''}">${label}</div>${sub ? `<div class="t-foot muted trunc">${sub}</div>` : ''}</div>${cur ? `<span style="color:var(--primary)">${icon('check', { size: 20, stroke: 2.6 })}</span>` : ''}</div>`
+  const sec = (t) =>
+    `<div class="sechead" style="padding-top:14px"><span class="t-over">${t}</span></div>`
+  const search = `<div style="position:sticky;top:0;z-index:2;padding:4px 16px 10px;background:var(--popover)"><div class="row" role="searchbox" aria-label="Пошук проєкту" style="gap:8px;height:44px;padding:0 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font-size:16px"><span class="muted">${icon('search', { size: 18 })}</span><span class="ph grow">Пошук проєкту</span></div></div>`
+  const body = `${search}<div role="listbox" aria-label="Проєкт">
+  <div class="group">${opt('circle-off', 'Без проєкту')}</div>
+  ${sec('Нещодавні')}<div class="group">${opt('folder', 'Проєкт «Альфа»', { cur: true, sub: 'Використано сьогодні' })}${opt('folder', 'Проєкт «Бета»', { sub: 'Використано вчора' })}</div>
+  ${sec('Усі проєкти')}<div class="group">${opt('folder', 'Проєкт «Гамма»')}${opt('folder', 'Проєкт «Дельта»')}${opt('folder', 'Інфраструктура')}</div></div>`
+  const picker = sheet({ w, h, top: Math.round(h * 0.3), title: 'Проєкт', trail: closeBtn, body })
+  return moneyForm({ w, h, receipt: 'done', expanded: true, over: picker })
+}
+
+// ---------- TextEditor: long text with {{placeholders}} (contract templates), keyboard open ----------
+// Keyboard open: the bar collapses to the chip row and «Зберегти» moves into the top bar, so at 375 × 667
+// at least 8 text lines stay visible. The token highlight is a mirror layer behind a transparent
+// textarea (same font metrics); the textarea is the source of truth.
+export function formLongText(w, h) {
+  const v = (t) => `<span style="color:var(--primary)">{{${t}}}</span>`
+  const text = `${v('client_name')}, надалі «Замовник», з однієї сторони, та ${v('contractor_name')}, надалі «Виконавець», з другої сторони, уклали цей договір про таке.<br><br>1. Виконавець надає послуги з розробки програмного забезпечення за ставкою ${v('rate_usd')} USD на годину, починаючи з ${v('start_date')}.<br><br>2. Оплата здійснюється щомісяця до 10 числа на підставі акта, підписаного обома сторонами <span class="caret" style="height:20px"></span>`
+  // Scrolled: the name field and the editor's top edge sit above the top bar, the text fills the window.
+  const editor = `<div class="field" style="flex:none"><label for="tpl" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Текст шаблону</label><div id="tpl" role="textbox" aria-multiline="true" class="input" style="height:auto;min-height:120px;align-items:flex-start;padding:12px 14px;font-size:16px;line-height:24px;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--primary)"><span style="display:block">${text}</span></div></div>`
+  const chip = (label, tok) =>
+    `<button type="button" class="btn sm secondary" aria-label="Вставити змінну ${label}, {{${tok}}}" style="height:44px;flex:none;font-size:14px;padding:0 14px;border-radius:22px">${label}</button>`
+  const all = `<button type="button" class="iconbtn" aria-label="Усі змінні" aria-haspopup="dialog" style="width:44px;height:44px;flex:none;border-radius:22px;background:var(--surface);border:1px solid var(--border);position:relative;box-shadow:-16px 0 12px var(--popover)">${icon('braces', { size: 18 })}</button>`
+  const chips = `<div role="group" aria-label="Вставити змінну" class="row" style="gap:8px;margin:0 -16px;padding:0 16px;height:44px;white-space:nowrap"><div class="row grow" style="gap:8px;overflow:hidden;min-width:0">${chip('Клієнт', 'client_name')}${chip('Виконавець', 'contractor_name')}${chip('Ставка', 'rate_usd')}${chip('Дата початку', 'start_date')}</div>${all}</div>`
+  const bar = submitBar({ w, kbdH: TEXT_H, inner: chips })
+  const save = `<button type="button" class="btn sm ghost" style="height:44px;color:var(--primary);font-size:17px;font-weight:600;padding:0 8px">Зберегти</button>`
+  const inner = `${topBar({ back: true, title: 'Шаблон договору', bell: false, search: false, trailing: save, side: 104 })}<div class="content col" style="padding:0 16px ${TEXT_H + 61}px;justify-content:flex-end;scroll-padding-bottom:61px">${editor}</div>${bar}${textKeyboard()}`
+  return phone({ w, h, inner })
+}
+
+// ---------- ResponsiveSheet (mobile) ----------
+export function sheetMedium(w, h) {
+  const row = (k, v) =>
+    `<div class="lrow"><div class="grow t-body">${k}</div><span class="muted t-sub trunc" style="max-width:55%">${v}</span>${icon('chevron-right', { size: 18, cls: 'chev' })}</div>`
+  const body = `<div style="padding:4px 16px 14px">${segmented(['Усі', 'Витрати', 'Доходи'])}</div>
+  <div class="group">${row('Проєкт', 'Усі проєкти')}${row('Період', 'Цей місяць')}${row('Чек', 'Будь-який')}</div>`
+  const footer = `<div style="padding:12px 16px ${safeBottom(w) + 8}px"><span class="btn primary" style="width:100%">Показати 48</span></div>`
+  const top = Math.round(h * (w <= 320 ? 0.36 : 0.46))
+  const overlay = sheet({
+    w,
+    h,
+    top,
+    title: 'Фільтри',
+    lead: '<span style="font-size:17px">Скинути</span>',
+    trail: closeBtn,
+    body,
+    footer,
+  })
+  return tabScreen({
+    w,
+    h,
+    role: 'ADMIN',
+    active: '/finance',
+    title: 'Фінанси',
+    body: financeBody(),
+    overlay,
+    showFab: false,
+  })
+}
+
+/** Large sheet = the canonical form in edit mode: «Скасувати» left, title centred, primary in the bottom bar. */
+export const sheetLarge = (w, h) =>
+  moneyForm({
+    w,
+    h,
+    title: 'Редагувати',
+    receipt: 'done',
+    expanded: true,
+    footer: primaryBtn('Зберегти зміни'),
+  })
+
+/** Irreversible action → confirm (never undo). Mobile = action sheet; ≥ 640 = centred dialog. */
+export function sheetConfirm(w, h) {
+  const overlay = actionConfirm(w, {
+    id: 'cf',
+    title: 'Видалити транзакцію «Оренда офісу»?',
+    desc: '−1 200,00 USD · 11.11.2026. Цю дію не можна скасувати.',
+    action: 'Видалити',
+  })
+  return tabScreen({
+    w,
+    h,
+    role: 'ADMIN',
+    active: '/finance',
+    title: 'Фінанси',
+    body: financeBody(),
+    overlay,
+    showFab: false,
+  })
+}
+
+// ---------- ListRow + section header ----------
+const navRow = (ic, label, { value = '', badge = 0, danger = false } = {}) =>
+  `<div class="lrow" style="--inset:60px"><div class="lead" style="width:32px;height:32px;border-radius:9px;${danger ? 'color:var(--destructive)' : ''}">${icon(ic, { size: 18 })}</div><div class="grow t-body trunc" style="${danger ? 'color:var(--destructive)' : ''}">${label}</div>${value ? `<span class="muted t-sub">${value}</span>` : ''}${badge ? `<span class="pill y num" style="font-weight:700">${badge}</span>` : ''}${danger ? '' : icon('chevron-right', { size: 18, cls: 'chev' })}</div>`
+
+const sec = (t, action = '') =>
+  `<div class="sechead"><span class="t-over">${t}</span>${action ? `<span style="font-size:15px;color:var(--primary);font-weight:500;min-height:44px;display:flex;align-items:flex-end;padding-bottom:0">${action}</span>` : ''}</div>`
+
+export function listVariants(w, h) {
+  const [ini, n, sub, st] = PEOPLE[3]
+  const inner = `${topBar({ title: 'ListRow', bell: false, search: false })}<div class="content">
+  ${sec('Навігація · 56')}<div class="group">${navRow('dollar-sign', 'Фінанси')}${navRow('clock', 'Чекають рішення', { badge: 3 })}${navRow('languages', 'Мова', { value: 'Українська' })}</div>
+  ${sec('Дворядковий · 64', 'Усі')}<div class="group">${txnRow(TXNS[0])}${txnRow(TXNS[1])}</div>
+  ${sec('Аватар і статус')}<div class="group"><div class="lrow two" style="--inset:64px"><div class="lead av">${ini}</div><div class="grow col" style="gap:2px"><div class="t-body trunc" style="font-weight:500">${n}</div><div class="t-foot muted trunc">${sub}</div></div><span class="pill ok">${st}</span></div></div>
+  ${sec('Перемикач і небезпечна дія')}<div class="group"><div class="lrow" style="--inset:60px"><div class="lead" style="width:32px;height:32px;border-radius:9px">${icon('bell', { size: 18 })}</div><div class="grow t-body">Сповіщення</div>${toggle(true, 'Сповіщення')}</div>${navRow('log-out', 'Вийти', { danger: true })}</div></div>`
+  return phone({ w, h, inner })
+}
+
+// Visible «…» only on rows WITHOUT a pushed detail; a row with a detail carries the same actions there.
+const withMore = (row) =>
+  row.replace(
+    /<\/div>$/,
+    `<button type="button" class="iconbtn" aria-label="Дії з файлом" aria-haspopup="menu" style="margin-right:-10px;color:var(--muted-fg)">${icon('ellipsis', { size: 20 })}</button></div>`,
+  )
+
+/** Swipe reveals trailing actions; every action is also reachable from the row's ⋯ / long-press menu (WCAG 2.5.1). */
+const fileRow = (name, sub, on = false) =>
+  `<div class="lrow two" style="--inset:64px${on ? ';background:var(--raised)' : ''}"><div class="lead" style="width:36px;height:36px;border-radius:10px">${icon('file-image', { size: 18 })}</div><div class="grow col" style="gap:2px;min-width:0"><div class="t-body trunc" style="font-weight:500">${name}</div><div class="t-foot muted trunc num">${sub}</div></div></div>`
+
+export function listSwipe(w, h) {
+  const swiped = `<div class="lrow two" style="padding:0;overflow:hidden"><div class="row" style="position:absolute;right:0;top:0;bottom:0">
+    <div class="col" style="width:76px;height:100%;background:oklch(0.42 0.02 250);justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600">${icon('pencil', { size: 18 })}Змінити</div>
+    <div class="col" style="width:76px;height:100%;background:var(--destructive);color:#fff;justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600">${icon('trash-2', { size: 18 })}Видалити</div></div>
+    <div style="width:100%;transform:translateX(-152px);background:var(--card)">${txnRow(TXNS[2]).replace('class="lrow two"', 'class="lrow two" style="background:var(--card)"')}</div></div>`
+  const menu = `<div role="menu" aria-label="Дії з файлом" style="position:absolute;right:16px;top:${safeTop(w) + 44 + 384}px;width:230px;z-index:40;background:var(--popover);border:1px solid var(--border);border-radius:14px;box-shadow:0 20px 50px oklch(0 0 0 / 0.6);overflow:hidden">
+    ${[
+      ['eye', 'Переглянути'],
+      ['download', 'Завантажити'],
+      ['replace', 'Замінити'],
+    ]
+      .map(
+        ([i, t]) =>
+          `<div role="menuitem" class="row" style="gap:12px;height:44px;padding:0 14px;border-bottom:1px solid var(--separator);font-size:16px">${icon(i, { size: 18 })}${t}</div>`,
+      )
+      .join('')}
+    <div role="menuitem" class="row" style="gap:12px;height:44px;padding:0 14px;color:var(--destructive);font-size:16px">${icon('trash-2', { size: 18 })}Видалити…</div></div>`
+  const inner = `${topBar({ title: 'Свайп і меню', bell: false, search: false })}<div class="content">
+  ${sec('Свайп ліворуч')}<div class="group">${txnRow(TXNS[1])}${swiped}${txnRow(TXNS[3])}</div>
+  ${sec('Без деталей: «…» або довге натискання')}<div class="group">${withMore(fileRow('Чек · Оренда офісу', '1,4 МБ · 11.11.2026', true))}${withMore(fileRow('Рахунок · Хмарний хостинг', '220 КБ · 10.11.2026'))}</div></div>${menu}`
+  return phone({ w, h, inner })
+}
+
+export function listSticky(w, h) {
+  const long = {
+    ...TXNS[0],
+    t: 'Підписка на інструмент для дизайну інтерфейсів команди',
+    s: 'Витрата · Проєкт «Інфраструктура та інструменти»',
+    a: '−1 029,00 USD',
+  }
+  const inner = `${topBar({ title: 'Фінанси', bell: false })}<div class="content">
+  <div class="sechead sticky" style="box-shadow:0 1px 0 var(--border)"><span class="t-over">Вчора</span><span class="t-cap muted num">−3 186,40 USD</span></div>
+  <div class="group" style="margin-top:-18px">${txnRow(TXNS[3])}${txnRow(long)}${txnRow(TXNS[4])}${txnRow(TXNS[5])}</div>
+  <div class="sechead"><span class="t-over">9 листопада</span><span class="t-cap muted num">+2 870,00 USD</span></div><div class="group">${TXNS.slice(
+    0,
+    4,
+  )
+    .map((x) => txnRow(x))
+    .join('')}</div></div>`
+  return phone({ w, h, inner })
+}
+
+export function sectionHeaders(w, h) {
+  const card = (body) => `<div class="group" style="padding:2px 0 8px">${body}</div>`
+  const inner = `${topBar({ title: 'Заголовки секцій', bell: false, search: false })}<div class="content col" style="gap:14px;padding-top:6px">
+  ${card(`${sec('Overline · 12/16')}<div class="lrow"><span class="t-foot muted">Групує рядки списку. Колір muted, не жовтий.</span></div>`)}
+  ${card(`${sec('З дією', 'Усі')}<div class="lrow"><span class="t-foot muted">Дія 15 px, ціль ≥ 44 px по висоті.</span></div>`)}
+  ${card(`<div class="sechead"><span class="t-over">З підсумком</span><span class="t-cap muted num">−3 186,40 USD</span></div><div class="lrow"><span class="t-foot muted">Підсумок дня — tabular-nums.</span></div>`)}
+  ${card(`<div class="sechead" style="padding-top:16px"><span class="t-title">Цей місяць</span><span class="btn sm secondary">${icon('calendar', { size: 14 })}Листопад</span></div><div class="lrow"><span class="t-foot muted">Заголовок блоку дашборда 20/26.</span></div>`)}
+  ${card(`<div class="sechead sticky" style="margin:0"><span class="t-over">Липкий · blur</span></div><div class="lrow"><span class="t-foot muted">Липне під верхньою панеллю, фон 92% + blur.</span></div>`)}</div>`
+  return phone({ w, h, inner })
+}

@@ -6,8 +6,8 @@ import { type CrmAppSession, openCrmAppSession } from './__test-helpers__/crm-ap
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
- * SR-M-4 (STAGED/DARK) — the staged forward DDL
- * `manual-staged/2026-11-02_job_sources_inventory_uniqueness.sql` against a REAL Postgres.
+ * SR-M-4 (promoted by backlog 434) — the forward DDL
+ * `manual/2026-11-02_job_sources_inventory_uniqueness.sql` against a REAL Postgres.
  *
  * There is NO `inventory_enabled` column (SR-H-1): the partial unique index and the partial CHECK
  * key directly on `type IN (<the 7 ATS board types>)`, so they are self-maintaining.
@@ -34,7 +34,7 @@ const FILE = join(
   '..',
   '..',
   'drizzle',
-  'manual-staged',
+  'manual',
   '2026-11-02_job_sources_inventory_uniqueness.sql',
 )
 const SCHEMA = 'ddl_job_sources_inventory_uniqueness'
@@ -114,7 +114,7 @@ async function insertSource(values: Record<string, string>): Promise<string | nu
 }
 
 describe.skipIf(!hasDatabaseUrl())(
-  'SR-M-4 staged DDL: inventory (type, namespace) uniqueness',
+  'SR-M-4 forward DDL: inventory (type, namespace) uniqueness',
   () => {
     beforeAll(async () => {
       session = await openCrmAppSession()

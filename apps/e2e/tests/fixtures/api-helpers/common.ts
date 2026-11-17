@@ -82,6 +82,12 @@ export const SEED_EMAILS = {
   hrA: 'anna.lysenko@cheekycheese.dev',
   hrB: 'kateryna.shevchenko@cheekycheese.dev',
   accountant: 'mykola.savchenko@cheekycheese.dev',
+  // Task 7.6a job-queue seed (`seed/job-queue.data.ts`): HR2 shares Team Kovalenko with hrA, HR3
+  // is Team Kravchenko's only HR, HR0 has no team; seniorShared is in Kovalenko AND Marchenko.
+  hr2: 'iryna.bondar@cheekycheese.dev',
+  hr3: 'daryna.kovalchuk@cheekycheese.dev',
+  hr0: 'yulia.moroz@cheekycheese.dev',
+  seniorShared: 'taras.savchuk@cheekycheese.dev',
 } as const
 
 /** A valid USDT ERC-20 address used as required-requisite payload filler. */

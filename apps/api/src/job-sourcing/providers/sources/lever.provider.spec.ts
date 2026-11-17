@@ -5,12 +5,7 @@ import { sourceFixture, sourceFixtureText } from '../../../test/source-fixtures'
 import { ORIGINAL_LIMITS } from '../../normalize/observation'
 import { ownershipCountOf } from '../manifest.ownership'
 import { boardVerdictOf } from './ats-config'
-import {
-  LEVER_HOSTS,
-  LEVER_PAGE_SIZE,
-  leverProvider,
-  remoteFromWorkplaceType,
-} from './lever.provider'
+import { LEVER_HOSTS, LEVER_LIMITS, leverProvider, remoteFromWorkplaceType } from './lever.provider'
 
 /**
  * Lever through its public provider. Expected values are hand-read from the authentic captures in
@@ -61,24 +56,19 @@ const posting = (n: number, extra: Posting = {}): Posting => ({
   hostedUrl: `https://jobs.lever.co/spotify/00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
   ...extra,
 })
-const fullPage = (from: number) =>
-  Array.from({ length: LEVER_PAGE_SIZE }, (_, i) => posting(from + i))
+const fullPage = (from: number) => Array.from({ length: 50 }, (_, i) => posting(from + i))
 
 describe('the requests', () => {
-  it('asks the global host with mode=json and a page of 50 from skip 0', async () => {
+  it('asks the global host with mode=json for the whole board, under the raised 10 MiB cap', async () => {
     const { f } = await run(page('spotify-page1'))
     // EXACT on purpose (see the Greenhouse spec): no extra header on a keyless public board.
     expect(f.sent).toEqual([
       {
-        url: 'https://api.lever.co/v0/postings/spotify?mode=json&limit=50&skip=0',
+        url: 'https://api.lever.co/v0/postings/spotify?mode=json',
         headers: { accept: 'application/json' },
+        maxBytes: 10_485_760,
       },
     ])
-  })
-
-  it('declares no response cap: Lever leaves the transport default (2 MiB) in force', async () => {
-    const { f } = await run(page('spotify-page1'))
-    expect(f.sent[0]).not.toHaveProperty('maxBytes')
   })
 
   it('asks the EU host for an EU board', async () => {
@@ -86,14 +76,12 @@ describe('the requests', () => {
       page('siteimprove-eu-board'),
       cfg('siteimprove', { region: 'eu', employer: SITEIMPROVE }),
     )
-    expect(f.sent[0]?.url).toBe(
-      'https://api.eu.lever.co/v0/postings/siteimprove?mode=json&limit=50&skip=0',
-    )
+    expect(f.sent[0]?.url).toBe('https://api.eu.lever.co/v0/postings/siteimprove?mode=json')
   })
 
   it("knows exactly two hosts, both Lever's", () => {
     expect(LEVER_HOSTS).toEqual({ global: 'api.lever.co', eu: 'api.eu.lever.co' })
-    expect(LEVER_PAGE_SIZE).toBe(50)
+    expect(LEVER_LIMITS).toEqual({ maxBytes: 10_485_760, maxItemsPerPage: 2_000, maxPages: 1 })
   })
 
   it('is the LEVER_ATS provider', () => {
@@ -362,9 +350,7 @@ describe('the EU variant', () => {
       cfg('siteimprove', { employer: SITEIMPROVE }),
       404,
     )
-    expect(f.sent[0]?.url).toBe(
-      'https://api.lever.co/v0/postings/siteimprove?mode=json&limit=50&skip=0',
-    )
+    expect(f.sent[0]?.url).toBe('https://api.lever.co/v0/postings/siteimprove?mode=json')
     expect(boardVerdictOf(batch)).toBe('BOARD_NOT_FOUND')
   })
 })
@@ -375,9 +361,7 @@ describe('a site whose name ends in a hyphen (quantco-)', () => {
       page('quantco-trailing-hyphen-board'),
       cfg('quantco-', { employer: QUANTCO }),
     )
-    expect(f.sent[0]?.url).toBe(
-      'https://api.lever.co/v0/postings/quantco-?mode=json&limit=50&skip=0',
-    )
+    expect(f.sent[0]?.url).toBe('https://api.lever.co/v0/postings/quantco-?mode=json')
     expect(batch.observations.map((o) => o.identity.namespace)).toEqual([
       'lever:global:quantco-',
       'lever:global:quantco-',
@@ -388,117 +372,70 @@ describe('a site whose name ends in a hyphen (quantco-)', () => {
   })
 })
 
-describe('paging by skip', () => {
-  it('a full page is followed by a request at skip=50; a short page ends the board', async () => {
-    const { batch, f } = await runAll([json(fullPage(0)), json(page('spotify-page2'))])
-    expect(f.sent.map((r) => r.url)).toEqual([
-      'https://api.lever.co/v0/postings/spotify?mode=json&limit=50&skip=0',
-      'https://api.lever.co/v0/postings/spotify?mode=json&limit=50&skip=50',
-    ])
-    expect(batch.counts.normalized).toBe(53)
+describe('the whole board in one request (the run ceiling is 1, SR-H-1b)', () => {
+  it('a board larger than one old page (50 + 3 postings) is collected fully in ONE request', async () => {
+    const { batch, f } = await runAll([json([...fullPage(0), ...page('spotify-page2')])])
+    expect(f.sent.map((r) => r.url)).toEqual(['https://api.lever.co/v0/postings/spotify?mode=json'])
+    expect(batch.counts).toEqual({
+      raw: 53,
+      normalized: 53,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
     expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.coverage).toBe('FULL_INVENTORY')
   })
 
-  it('a board of exactly 50 is ended by the empty page that follows it (the real past-the-end response)', async () => {
-    const { batch, f } = await runAll([json(fullPage(0)), json(page('spotify-page3-empty'))])
-    expect(f.sent).toHaveLength(2)
-    expect(f.sent[1]?.url).toContain('skip=50')
+  it('a board of exactly 50 is one request, not a second past-the-end one', async () => {
+    const { batch, f } = await runAll([json(fullPage(0))])
+    expect(f.sent).toHaveLength(1)
     expect(batch.counts.normalized).toBe(50)
     expect(batch.coverage).toBe('FULL_INVENTORY')
   })
 
-  it('49 postings are one request (the page is short)', async () => {
-    const { f } = await runAll([json(fullPage(0).slice(0, 49))])
-    expect(f.sent).toHaveLength(1)
+  it('2 000 postings fit; 2 001 is drift (PAYLOAD_TOO_LARGE), not a silent truncation', async () => {
+    const board = Array.from({ length: 2_000 }, (_, i) => posting(i))
+    const at = await runAll([json(board)])
+    expect(at.batch.counts.normalized).toBe(2_000)
+    const over = await runAll([json([...board, posting(2_000)])])
+    expect(over.batch.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')
+    expect(over.batch.outcome).toBe('FAILED')
   })
 
-  it('three pages advance skip by what was received: 0, 50, 100', async () => {
-    const { f } = await runAll([json(fullPage(0)), json(fullPage(50)), json([])])
-    expect(f.sent.map((r) => new URL(r.url).searchParams.get('skip'))).toEqual(['0', '50', '100'])
-  })
-
-  it('a page of 51 means Lever ignored limit: PAYLOAD_TOO_LARGE, not a silent truncation', async () => {
-    const { batch } = await runAll([json([...fullPage(0), posting(99)])])
-    expect(batch.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')
-    expect(batch.outcome).toBe('FAILED')
-  })
-
-  it('stops at the page cap of 20 as a PARTIAL inventory with a resumable checkpoint at skip=1000', async () => {
-    const pages = Array.from({ length: 20 }, (_, i) => json(fullPage(i * 50)))
-    const { batch, f } = await runAll(pages)
-    expect(f.sent).toHaveLength(20)
+  it('a stored cursor from the old paged runs is ignored: the board is asked whole', async () => {
+    const first = await runAll([json(fullPage(0))], spotifyCfg())
+    const stored = first.f.saved.at(-1)
+    if (stored === undefined) throw new Error('no checkpoint')
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [json([posting(1)])],
+      stored: { ...stored, position: { kind: 'CURSOR', page: 1, cursor: '1000' } },
+    })
+    const batch = await leverProvider.collectReport(spotifyCfg(), f.ctx)
+    expect(f.sent.map((r) => r.url)).toEqual(['https://api.lever.co/v0/postings/spotify?mode=json'])
+    // The loop counts a resumed walk as started mid-board, so this one run is PARTIAL (it closes
+    // nothing it did not see); the checkpoint it leaves starts the next run from the top, FULL.
+    expect(batch.outcome).toBe('SUCCEEDED')
     expect(batch.coverage).toBe('PARTIAL')
-    expect(batch.checkpoint?.position).toMatchObject({ kind: 'CURSOR', page: 20, cursor: '1000' })
-  })
-
-  it('resumes from the stored skip instead of starting over', async () => {
-    const first = await runAll(Array.from({ length: 20 }, (_, i) => json(fullPage(i * 50))))
-    const stored = first.f.saved.at(-1)
-    if (stored === undefined) throw new Error('the capped run left no checkpoint')
-    const f = fakeCollectionContext({ now: NOW, responses: [json([posting(1)])], stored })
-    await leverProvider.collectReport(spotifyCfg(), f.ctx)
-    expect(f.sent[0]?.url).toBe(
-      'https://api.lever.co/v0/postings/spotify?mode=json&limit=50&skip=1000',
-    )
-  })
-
-  it.each([
-    ['a path-escape', '../x'],
-    ['an extra query parameter', '50&limit=9999'],
-    ['an encoded value', '5%30'],
-    ['a negative number', '-1'],
-    ['a decimal', '1.5'],
-    ['an exponent', '1e3'],
-    ['letters', 'abc'],
-    ['eight digits (past the bound)', '12345678'],
-  ])(
-    'a stored cursor that is %s (%j) is never put into a URL: the run fails before any request',
-    async (_why, cursor) => {
-      const first = await runAll([json(fullPage(0))], spotifyCfg())
-      const stored = first.f.saved.at(-1)
-      if (stored === undefined) throw new Error('no checkpoint')
-      const f = fakeCollectionContext({
-        now: NOW,
-        responses: [json([])],
-        stored: { ...stored, position: { kind: 'CURSOR', page: 1, cursor } },
-      })
-      const batch = await leverProvider.collectReport(spotifyCfg(), f.ctx)
-      expect(f.sent).toEqual([])
-      expect(batch.outcome).toBe('FAILED')
-      expect(batch.requests[0]?.error).toEqual({
-        code: 'PARSE_DRIFT',
-        message: 'the stored page cursor is not a skip offset',
-      })
-    },
-  )
-
-  it('an empty stored cursor is discarded by the base and the board restarts at skip=0', async () => {
-    const first = await runAll([json(fullPage(0))], spotifyCfg())
-    const stored = first.f.saved.at(-1)
-    if (stored === undefined) throw new Error('no checkpoint')
-    const f = fakeCollectionContext({
-      now: NOW,
-      responses: [json([])],
-      stored: { ...stored, position: { kind: 'CURSOR', page: 1, cursor: '' } },
+    expect(batch.counts).toEqual({
+      raw: 1,
+      normalized: 1,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
     })
-    await leverProvider.collectReport(spotifyCfg(), f.ctx)
-    expect(f.sent.map((r) => r.url)).toEqual([
-      'https://api.lever.co/v0/postings/spotify?mode=json&limit=50&skip=0',
+    const left = f.saved.at(-1)
+    const next = fakeCollectionContext({
+      now: NOW,
+      responses: [json([posting(1)])],
+      ...(left === undefined ? {} : { stored: left }),
+    })
+    const healed = await leverProvider.collectReport(spotifyCfg(), next.ctx)
+    expect(next.sent.map((r) => r.url)).toEqual([
+      'https://api.lever.co/v0/postings/spotify?mode=json',
     ])
-  })
-
-  it('a stored cursor of seven digits (the bound) is accepted', async () => {
-    const first = await runAll([json(fullPage(0))], spotifyCfg())
-    const stored = first.f.saved.at(-1)
-    if (stored === undefined) throw new Error('no checkpoint')
-    const f = fakeCollectionContext({
-      now: NOW,
-      responses: [json([])],
-      stored: { ...stored, position: { kind: 'CURSOR', page: 1, cursor: '9999999' } },
-    })
-    await leverProvider.collectReport(spotifyCfg(), f.ctx)
-    expect(f.sent[0]?.url).toContain('skip=9999999')
+    expect(healed.coverage).toBe('FULL_INVENTORY')
   })
 })
 
@@ -627,28 +564,22 @@ describe('partial categories and bodies', () => {
   })
 })
 
-describe('conditional requests: each page is revalidated on its own slot', () => {
-  it('stores one entry per skip, and 304s replay each page with its own validator', async () => {
+describe('conditional requests: the board is revalidated on its one slot', () => {
+  it('stores one entry for the board, and a 304 replays it with its validator', async () => {
     const first = fakeCollectionContext({
       now: NOW,
-      responses: [
-        { status: 200, bodyText: JSON.stringify(fullPage(0)), etag: 'W/"p1"' },
-        { status: 200, bodyText: JSON.stringify([posting(500)]), etag: 'W/"p2"' },
-      ],
+      responses: [{ status: 200, bodyText: JSON.stringify(fullPage(0)), etag: 'W/"b1"' }],
     })
     await leverProvider.collectReport(spotifyCfg(), first.ctx)
-    expect([...first.cache.keys()].map((k) => (JSON.parse(k) as string[])[0])).toEqual([
-      'skip-0',
-      'skip-50',
-    ])
+    expect([...first.cache.keys()].map((k) => (JSON.parse(k) as string[])[0])).toEqual(['board'])
 
     const second = fakeCollectionContext({
       now: NOW,
-      responses: [{ status: 304 }, { status: 304 }],
+      responses: [{ status: 304 }],
       cacheSeed: Object.fromEntries(first.cache),
     })
     const batch = await leverProvider.collectReport(spotifyCfg(), second.ctx)
-    expect(second.sent.map((r) => r.headers?.['if-none-match'])).toEqual(['W/"p1"', 'W/"p2"'])
-    expect(batch.counts.raw).toBe(51)
+    expect(second.sent.map((r) => r.headers?.['if-none-match'])).toEqual(['W/"b1"'])
+    expect(batch.counts.raw).toBe(50)
   })
 })

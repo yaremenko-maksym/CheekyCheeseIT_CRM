@@ -12,6 +12,11 @@ import {
 import { BODY_MARKER, type ProviderFixture } from './__fixtures__/provider-fixture'
 import { GEMINI_FIXTURES, GEMINI_MODEL } from './__fixtures__/gemini.fixtures'
 import { GROQ_FIXTURES, GROQ_MODEL } from './__fixtures__/groq.fixtures'
+import {
+  CLOUDFLARE_ACCOUNT,
+  CLOUDFLARE_FIXTURES,
+  CLOUDFLARE_MODEL,
+} from './__fixtures__/cloudflare.fixtures'
 
 const KEY_MARKER = 'sk-KEY-MARKER-91c2'
 
@@ -51,7 +56,7 @@ const answer = (content: unknown, extra: Record<string, unknown> = {}, finish: u
     ...extra,
   })
 
-const HOSTED: Record<'gemini' | 'groq', Omit<ClassifiedChatOptions, 'fetchImpl'>> = {
+const HOSTED: Record<'gemini' | 'groq' | 'cloudflare', Omit<ClassifiedChatOptions, 'fetchImpl'>> = {
   gemini: {
     provider: 'gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
@@ -70,15 +75,15 @@ const HOSTED: Record<'gemini' | 'groq', Omit<ClassifiedChatOptions, 'fetchImpl'>
     maxTokens: 800,
     structuredOutput: { mode: 'json_schema', schema: { type: 'object' } },
   },
-}
-
-const LOCAL: Omit<ClassifiedChatOptions, 'fetchImpl'> = {
-  provider: 'local',
-  baseUrl: 'http://crm-model-runtime:11434/v1',
-  model: 'qwen3:4b',
-  input: 'synthetic input',
-  maxTokens: 400,
-  structuredOutput: { mode: 'json_schema', schema: { type: 'object' } },
+  cloudflare: {
+    provider: 'cloudflare',
+    baseUrl: `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT}/ai/v1`,
+    model: CLOUDFLARE_MODEL,
+    apiKey: KEY_MARKER,
+    input: 'synthetic input',
+    maxTokens: 800,
+    structuredOutput: { mode: 'none' },
+  },
 }
 
 async function run(
@@ -94,6 +99,7 @@ async function run(
 describe.each([
   ['groq', GROQ_FIXTURES],
   ['gemini', GEMINI_FIXTURES],
+  ['cloudflare', CLOUDFLARE_FIXTURES],
 ] as const)('%s fixtures (ADR §5.1)', (provider, fixtures: ProviderFixture[]) => {
   it.each(fixtures.map((f) => [f.name, f] as const))('%s', async (_name, f) => {
     const { result } = await run(HOSTED[provider], f.status, f.body, f.headers)
@@ -276,21 +282,14 @@ describe('transport, timeout and abort', () => {
     }
   })
 
-  it('the local route reaches the constant host and loopback over HTTP', async () => {
-    for (const baseUrl of ['http://crm-model-runtime:11434/v1', 'http://127.0.0.1:8080/v1']) {
-      const { result } = await run({ ...LOCAL, baseUrl }, 200, answer('{"a":1}'))
-      expect(result.code).toBe('OK')
-    }
-  })
-
   it.each([
     'http://10.0.0.5:11434/v1',
     'http://169.254.169.254/v1',
     'http://[fe80::1]:11434/v1',
     'http://[::ffff:127.0.0.1]:11434/v1',
     'http://other-host:11434/v1',
-  ])('the local route refuses %s with nothing sent', async (baseUrl) => {
-    const { result, sent } = await run({ ...LOCAL, baseUrl }, 200, answer('{}'))
+  ])('a hosted route refuses %s with nothing sent', async (baseUrl) => {
+    const { result, sent } = await run({ ...HOSTED.groq, baseUrl }, 200, answer('{}'))
     expect(result).toStrictEqual({ ok: false, code: 'TRANSPORT', responded: false })
     expect(sent).toHaveLength(0)
   })
@@ -375,14 +374,16 @@ describe('sendClassifiedChat: send flag and HTTP status (ADR §6.2)', () => {
     const throwing: FetchLike = async () => {
       throw new Error('reset')
     }
-    expect(await sendClassifiedChat({ ...LOCAL, fetchImpl: throwing })).toStrictEqual({
+    expect(await sendClassifiedChat({ ...HOSTED.groq, fetchImpl: throwing })).toStrictEqual({
       result: { ok: false, code: 'TRANSPORT', responded: false },
       sent: true,
     })
     const f = fakeFetch(200, answer('{"a":1}'))
-    expect(
-      await sendClassifiedChat({ ...LOCAL, apiKey: 'k', fetchImpl: f.fetchImpl }),
-    ).toStrictEqual({ result: { ok: false, code: 'TRANSPORT', responded: false }, sent: false })
+    const plain = { ...HOSTED.groq, baseUrl: 'http://api.groq.com/openai/v1' }
+    expect(await sendClassifiedChat({ ...plain, fetchImpl: f.fetchImpl })).toStrictEqual({
+      result: { ok: false, code: 'TRANSPORT', responded: false },
+      sent: false,
+    })
     expect(f.sent).toHaveLength(0)
   })
 })
@@ -466,10 +467,21 @@ describe('the request (one builder for every route)', () => {
     expect('response_format' in none.sent[0]!.body).toBe(false)
   })
 
-  it('the local route sends temperature 0 and no Authorization without a key', async () => {
-    const { sent } = await run(LOCAL, 200, answer('{"a":1}'))
-    expect(sent[0]!.body.temperature).toBe(0)
-    expect(sent[0]!.body.max_tokens).toBe(400)
+  it.each(['gemini', 'groq', 'cloudflare'] as const)(
+    'the %s route sends temperature 0.1, its answer cap and its key (5.4c-H1: one builder)',
+    async (provider) => {
+      const { sent } = await run({ ...HOSTED[provider], maxTokens: 400 }, 200, answer('{"a":1}'))
+      expect(sent[0]!.body.temperature).toBe(0.1)
+      expect(sent[0]!.body.max_tokens).toBe(400)
+      expect(sent[0]!.headers).toStrictEqual({
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${KEY_MARKER}`,
+      })
+    },
+  )
+
+  it('a route without a key sends no Authorization header', async () => {
+    const { sent } = await run({ ...HOSTED.groq, apiKey: undefined }, 200, answer('{"a":1}'))
     expect(sent[0]!.headers).toStrictEqual({ 'Content-Type': 'application/json' })
   })
 
@@ -494,15 +506,82 @@ describe('the request (one builder for every route)', () => {
 })
 
 describe('provider-specific signals stay with their provider', () => {
-  it('the Groq day header and error object mean nothing on the local route', async () => {
-    const day = await run(LOCAL, 429, '{}', { 'x-ratelimit-remaining-requests': '0' })
+  it('the Groq day header and error object mean nothing on Cloudflare', async () => {
+    const day = await run(HOSTED.cloudflare, 429, '{}', { 'x-ratelimit-remaining-requests': '0' })
     expect(day.result).toStrictEqual({ ok: false, code: 'BUSY' })
     const forbidden = await run(
-      LOCAL,
+      HOSTED.cloudflare,
       403,
       JSON.stringify({ error: { message: BODY_MARKER, type: 'invalid_request_error' } }),
     )
     expect(forbidden.result).toStrictEqual({ ok: false, code: 'TRANSPORT', responded: true })
+  })
+
+  it('the Cloudflare day code means nothing on Groq or Gemini', async () => {
+    const spent = JSON.stringify({ success: false, errors: [{ code: 3036 }] })
+    for (const opts of [HOSTED.groq, HOSTED.gemini]) {
+      expect((await run(opts, 429, spent)).result).toStrictEqual({ ok: false, code: 'BUSY' })
+    }
+  })
+
+  const cfEnvelope = (...codes: unknown[]): string =>
+    JSON.stringify({ success: false, errors: codes.map((code) => ({ code, message: 'x' })) })
+  const TRANSPORT = { ok: false, code: 'TRANSPORT', responded: true } as const
+
+  it('a Cloudflare 410 with code 5028 in the v4 envelope retires the model (amendment 2026-11-17)', async () => {
+    expect((await run(HOSTED.cloudflare, 410, cfEnvelope(5028))).result).toStrictEqual({
+      ok: false,
+      code: 'RETIRED',
+    })
+    expect((await run(HOSTED.cloudflare, 410, cfEnvelope(1, 5028))).result).toStrictEqual({
+      ok: false,
+      code: 'RETIRED',
+    })
+  })
+
+  it('any other 410 is TRANSPORT: another code, no envelope, another provider', async () => {
+    expect((await run(HOSTED.cloudflare, 410, cfEnvelope(3042))).result).toStrictEqual(TRANSPORT)
+    expect((await run(HOSTED.cloudflare, 410, cfEnvelope('5028'))).result).toStrictEqual(TRANSPORT)
+    expect((await run(HOSTED.cloudflare, 410, '')).result).toStrictEqual(TRANSPORT)
+    for (const opts of [HOSTED.groq, HOSTED.gemini]) {
+      expect((await run(opts, 410, cfEnvelope(5028))).result).toStrictEqual(TRANSPORT)
+    }
+  })
+
+  it('a Cloudflare 403 with the authentication code 10000 is AUTH; 5035, 3023 and a bare 403 are not', async () => {
+    expect((await run(HOSTED.cloudflare, 403, cfEnvelope(10000))).result).toStrictEqual({
+      ok: false,
+      code: 'AUTH',
+    })
+    for (const body of [cfEnvelope(5035), cfEnvelope(3023), '', BODY_MARKER]) {
+      expect((await run(HOSTED.cloudflare, 403, body)).result).toStrictEqual(TRANSPORT)
+    }
+    // The Cloudflare code means nothing on another provider.
+    for (const opts of [HOSTED.groq, HOSTED.gemini]) {
+      expect((await run(opts, 403, cfEnvelope(10000))).result).toStrictEqual(TRANSPORT)
+    }
+  })
+
+  it('a Cloudflare 401 is AUTH whatever the body says', async () => {
+    // F10: the verified live 401 body is in CLOUDFLARE_FIXTURES (the table above runs it too).
+    const fixture = CLOUDFLARE_FIXTURES.find((f) => f.name.startsWith('401 invalid bearer'))
+    if (fixture === undefined)
+      throw new Error('401 invalid bearer fixture missing from CLOUDFLARE_FIXTURES')
+    for (const body of [fixture.body, cfEnvelope(10000), '']) {
+      expect((await run(HOSTED.cloudflare, 401, body)).result).toStrictEqual({
+        ok: false,
+        code: 'AUTH',
+      })
+    }
+  })
+
+  it('sends the Cloudflare request to the account path with a bearer token', async () => {
+    const { sent } = await run(HOSTED.cloudflare, 200, answer('{}'))
+    expect(sent[0]!.url).toBe(
+      `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT}/ai/v1/chat/completions`,
+    )
+    expect(sent[0]!.headers.Authorization).toBe(`Bearer ${KEY_MARKER}`)
+    expect(sent[0]!.body.model).toBe(CLOUDFLARE_MODEL)
   })
 
   it('a 429 without any headers object is BUSY', async () => {
@@ -585,30 +664,16 @@ describe('a key never travels over plain HTTP (SR-L-63)', () => {
     'http://crm-model-runtime:11434/v1',
     'HTTP://127.0.0.1:8080/v1',
     ' http://localhost/v1',
-  ])('the local route refuses a key with %j and sends nothing', async (baseUrl) => {
-    const { result, sent } = await run({ ...LOCAL, baseUrl, apiKey: KEY_MARKER }, 200, answer('{}'))
+  ])('a route refuses a key with %j and sends nothing', async (baseUrl) => {
+    const { result, sent } = await run({ ...HOSTED.groq, baseUrl }, 200, answer('{}'))
     expect(result).toStrictEqual({ ok: false, code: 'TRANSPORT', responded: false })
     expect(sent).toHaveLength(0)
   })
 
   it('an unparsable base URL with a key is refused without throwing', async () => {
-    const { result, sent } = await run(
-      { ...LOCAL, baseUrl: 'not a url', apiKey: KEY_MARKER },
-      200,
-      answer('{}'),
-    )
+    const { result, sent } = await run({ ...HOSTED.groq, baseUrl: 'not a url' }, 200, answer('{}'))
     expect(result).toStrictEqual({ ok: false, code: 'TRANSPORT', responded: false })
     expect(sent).toHaveLength(0)
-  })
-
-  it('a local route over HTTPS may carry a key', async () => {
-    const { result, sent } = await run(
-      { ...LOCAL, baseUrl: 'https://crm-model-runtime/v1', apiKey: KEY_MARKER },
-      200,
-      answer('{"a":1}'),
-    )
-    expect(result.code).toBe('OK')
-    expect(sent[0]!.headers.Authorization).toBe(`Bearer ${KEY_MARKER}`)
   })
 })
 

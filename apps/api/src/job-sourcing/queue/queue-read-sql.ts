@@ -8,6 +8,7 @@ import {
   type LiveSeniorVersion,
   possibleDuplicateJoin,
   scopedTeamRowPredicate,
+  STUDIO_SCOPE,
   visibleOpportunityPredicate,
 } from './queue-scope'
 
@@ -40,6 +41,29 @@ export const liveVersionRows = (versions: readonly LiveSeniorVersion[]): SQL =>
   sql`FROM job_opportunity_matches m
        JOIN ${versionRows(versions)} ON v.senior_id = m.senior_id
       WHERE ${liveMatch}`
+
+/**
+ * Backlog 426 — `o` is not a triage item: CLOSED / EXPIRED (no team would see the grant, as
+ * `visibleOpportunityPredicate` hides it), EXCLUDED at its current revision, or a live LEAD of a
+ * senior in `versions` (the STUDIO roster). The grant refuses it and the ADMIN card's
+ * `triageGrantable` reads the same fragment, so the web never offers a grant the server refuses.
+ * By design, an item not yet evaluated OPEN at its current revision is eligible: the grant takes
+ * effect once it is evaluated OPEN.
+ */
+const triageIneligible = (versions: readonly LiveSeniorVersion[]): SQL =>
+  sql`(o.availability IN ('CLOSED', 'EXPIRED')
+       OR (o.evaluated_revision = o.revision AND o.evaluation_verdict = 'EXCLUDED') IS TRUE
+       OR EXISTS (SELECT 1 ${liveVersionRows(versions)} AND m.outcome = 'LEAD'))`
+
+/** The grant's eligibility read of one opportunity: `ineligible` (backlog 426). */
+export const triageIneligibleRow = (versions: readonly LiveSeniorVersion[], id: string): SQL =>
+  sql`SELECT ${triageIneligible(versions)} AS ineligible
+        FROM job_opportunities o WHERE o.id = ${id}::uuid`
+
+/** The ADMIN card's `triageGrantable`: no manual card (the grant's other refusal) and eligible. */
+export const triageGrantableRow = (versions: readonly LiveSeniorVersion[], id: string): SQL =>
+  sql`SELECT (o.manual_team_id IS NULL AND NOT ${triageIneligible(versions)}) AS grantable
+        FROM job_opportunities o WHERE o.id = ${id}::uuid`
 
 /**
  * The scope's integer rank: `evaluate` persists a score per senior only (the TEAM and STUDIO
@@ -75,7 +99,8 @@ export const queueRowJoins = (
   CROSS JOIN LATERAL (
     SELECT count(*) FILTER (WHERE m.outcome = 'LEAD') AS matched,
            count(*) FILTER (WHERE m.outcome = 'EXCLUDED'
-                              AND m.evidence->>'stage' = 'SCOPED_RESTRICTIONS') AS stop_listed
+                              AND m.evidence->>'stage' = 'SCOPED_RESTRICTIONS') AS stop_listed,
+           count(*) FILTER (WHERE m.outcome = 'TRIAGE') AS triaged
     ${liveVersionRows(versions)}) stats
   CROSS JOIN LATERAL (
     SELECT count(*) AS submitted FROM job_queue_assignments a
@@ -128,10 +153,24 @@ export const cardRow = (
 ): SQL =>
   sql`SELECT ${queueRowColumns(versions)}, b.text AS description,
              (listed.opportunity_revision IS NOT NULL
-              AND listed.opportunity_revision < o.revision) AS newer_than_list
+              AND listed.opportunity_revision < o.revision) AS newer_than_list,
+             o.last_observed_at, o.stack_keywords, o.manual_team_id,
+             stats.triaged, o.employer_verified,
+             (o.evaluated_revision = o.revision) IS TRUE AS evaluated_current, o.evaluation_verdict,
+             (SELECT rv.normalized->>'employmentType' FROM job_source_records sr
+                JOIN job_source_record_revisions rv ON rv.id = sr.latest_revision_id
+               WHERE sr.id = src.source_record_id) AS employment_type,
+             dis.version AS dismissal_version
         FROM job_opportunities o
         ${queueRowJoins(scope, versions)}
         LEFT JOIN job_text_blobs b ON b.sha256 = o.description_sha256
+        LEFT JOIN LATERAL (
+          SELECT dm.version FROM job_queue_dismissals dm
+           WHERE dm.opportunity_id = o.id
+             AND dm.scope_kind = ${scope.kind}::job_queue_scope_kind
+             AND dm.team_id IS NOT DISTINCT FROM ${scope.kind === 'TEAM' ? scope.teamId : null}::uuid
+           LIMIT 1
+        ) dis ON TRUE
         LEFT JOIN LATERAL (
           SELECT e.opportunity_revision
             FROM job_queue_generations g
@@ -144,22 +183,44 @@ export const cardRow = (
 
 /**
  * The scope's own seniors matched on the opportunity. EXCLUDED and no-match stay out alike, so who
- * stop-listed it cannot be derived from this list.
+ * stop-listed it cannot be derived from this list. A manual card has no match row at all, so its
+ * rows are the scope's own seniors with a live (TAKEN) submission to it, without evidence.
  */
-const matchedSeniors = (versions: readonly LiveSeniorVersion[]): SQL =>
+const matchedSeniors = (scope: JobQueueScope, versions: readonly LiveSeniorVersion[]): SQL =>
   sql`FROM job_opportunities o
        CROSS JOIN LATERAL (
          SELECT m.senior_id, m.evidence ${liveVersionRows(versions)}
-            AND m.outcome IN ('LEAD', 'TRIAGE')) ms`
+            AND m.outcome IN ('LEAD', 'TRIAGE')
+         UNION ALL
+         SELECT ta.senior_id, NULL::jsonb FROM job_queue_assignments ta
+           JOIN ${versionRows(versions)} ON v.senior_id = ta.senior_id
+          WHERE o.manual_team_id IS NOT NULL AND ta.opportunity_id = o.id
+            AND ta.state = 'TAKEN' AND ${scopedTeamRowPredicate(scope, sql`ta.team_id`)}) ms`
 
-export const seniorTotal = (versions: readonly LiveSeniorVersion[], id: string): SQL =>
-  sql`SELECT count(*) AS total ${matchedSeniors(versions)} WHERE o.id = ${id}::uuid`
+export const seniorTotal = (
+  scope: JobQueueScope,
+  versions: readonly LiveSeniorVersion[],
+  id: string,
+): SQL => sql`SELECT count(*) AS total ${matchedSeniors(scope, versions)} WHERE o.id = ${id}::uuid`
+
+/**
+ * ADMIN team heading (Task 7.3b, design §5.6): the senior's first live membership, in the picker's
+ * order (`seniorOptionRows`). Joined for the STUDIO scope ONLY: a TEAM scope never reads another
+ * team's name for a shared senior.
+ */
+const studioSeniorTeam = sql`
+  LEFT JOIN LATERAL (
+    SELECT t.id, t.name FROM team_members tm JOIN teams t ON t.id = tm.team_id
+     WHERE tm.user_id = ms.senior_id AND tm.left_at IS NULL
+     ORDER BY t.archived_at IS NOT NULL, t.type <> 'SENIOR', t.name, t.id
+     LIMIT 1) st ON TRUE`
 
 /**
  * The card's seniors. The own-scope join selects a submission's columns only when the row is the
  * scope's, so a foreign row's id, timestamps, version and actor never leave the database; for a
  * shared senior a foreign LIVE row becomes one boolean. `IS NOT TRUE` because a row with no team
- * (an ADMIN's STUDIO submission) compares NULL against a team.
+ * (an ADMIN's STUDIO submission) compares NULL against a team. The availability is the senior's
+ * own field (§5.2), read only for a senior the scope already sees, so it adds no visibility.
  */
 export const seniorRows = (
   scope: JobQueueScope,
@@ -169,19 +230,22 @@ export const seniorRows = (
   limit: number,
 ): SQL =>
   sql`SELECT ms.senior_id, o.id AS opportunity_id, ms.evidence, u.display_name,
+             sa.status AS availability_status, sa.available_from::text AS available_from,
              a.id AS submission_id, a.state AS submission_state, a.taken_at, a.released_at,
              a.version AS submission_version, by_user.display_name AS submitted_by_name,
              EXISTS (SELECT 1 FROM job_queue_assignments f
                       WHERE f.opportunity_id = o.id AND f.senior_id = ms.senior_id
                         AND f.state = 'TAKEN'
                         AND (${scopedTeamRowPredicate(scope, sql`f.team_id`)}) IS NOT TRUE
-                    ) AS submitted_elsewhere
-       ${matchedSeniors(versions)}
+                    ) AS submitted_elsewhere${scope.kind === 'STUDIO' ? sql`, st.id AS team_id, st.name AS team_name` : sql``}
+       ${matchedSeniors(scope, versions)}
         JOIN users u ON u.id = ms.senior_id
+        ${scope.kind === 'STUDIO' ? studioSeniorTeam : sql``}
         LEFT JOIN job_queue_assignments a
           ON a.opportunity_id = o.id AND a.senior_id = ms.senior_id
          AND ${scopedTeamRowPredicate(scope, sql`a.team_id`)}
         LEFT JOIN users by_user ON by_user.id = a.assignee_id
+        LEFT JOIN senior_availability sa ON sa.user_id = ms.senior_id
        WHERE o.id = ${id}::uuid
          AND ${after === undefined ? sql`TRUE` : sql`ms.senior_id > ${after}::uuid`}
        ORDER BY ms.senior_id
@@ -204,10 +268,17 @@ export const sourceRows = (id: string, after: string | undefined, limit: number)
 
 /**
  * The possible-duplicate set (`possibleDuplicateJoin`, the one definition Task 6.3 shares), minus the
- * opportunity itself. `total` counts visible ones only.
+ * opportunity itself. `total` counts visible ones only. `submitted_senior_names` (Task 7.3b, §5.8)
+ * are the seniors of THIS scope's live submissions on the duplicate, each once (a STUDIO view may
+ * see one senior submitted by two teams): another team's never count for a TEAM scope.
  */
 export const duplicateRows = (scope: JobQueueScope, id: string, limit: number): SQL =>
-  sql`SELECT dup.id, dup.title, dup.employer_name, count(*) OVER () AS total
+  sql`SELECT dup.id, dup.title, dup.employer_name, count(*) OVER () AS total,
+             (SELECT coalesce(jsonb_agg(su.display_name ORDER BY su.display_name, su.id), '[]'::jsonb)
+                FROM users su
+               WHERE su.id IN (SELECT da.senior_id FROM job_queue_assignments da
+                                WHERE da.opportunity_id = dup.id AND da.state = 'TAKEN'
+                                  AND ${scopedTeamRowPredicate(scope, sql`da.team_id`)})) AS submitted_senior_names
         FROM job_opportunities o
         JOIN job_opportunities dup ON ${possibleDuplicateJoin('o', 'dup')} AND dup.id <> o.id
        WHERE o.id = ${id}::uuid
@@ -315,4 +386,23 @@ export function policySignature(
   return createHash('sha256')
     .update(JSON.stringify([scope.kind, team, MATCH_RULE_VERSION, versions]))
     .digest('hex')
+}
+
+/**
+ * Backlog 425 — the triage policy version a team-triage grant is checked against: a positive 31-bit
+ * fold (the `policy_version` int column) of the STUDIO policy signature (every roster senior's
+ * profile, team ids included, and exclusion versions) and of the active membership of every live
+ * SENIOR team (`membershipDigest`, HR members included). A membership, senior-profile or exclusion
+ * write changes it; it is derived on read, never stored, so no write path has to bump a counter.
+ * shortcut: a fold can collide (2^-31 per change), letting one stale grant through; the grant is
+ * still shown only through `visibleOpportunityPredicate`'s live checks. Store a counter if that matters.
+ */
+export function triagePolicyVersion(
+  versions: readonly LiveSeniorVersion[],
+  membershipDigest: string,
+): number {
+  const hex = createHash('sha256')
+    .update(JSON.stringify([policySignature(STUDIO_SCOPE, versions), membershipDigest]))
+    .digest('hex')
+  return (Number.parseInt(hex.slice(0, 8), 16) % 0x7fffffff) + 1
 }

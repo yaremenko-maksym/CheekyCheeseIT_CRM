@@ -5,16 +5,80 @@
  * @tanstack/query-async-storage-persister to create a Persister compatible
  * with PersistQueryClientProvider.
  *
- * KEY CONTRACT: The storage key MUST match the key deleted by use-logout.ts
- * (idbDel('crm-query-cache')). Both must stay in sync — changing the key here
- * without updating use-logout.ts causes a security leak: stale user data
- * survives logout on shared devices.
+ * KEY CONTRACT: logout (use-logout.ts), impersonation start / stop and a 401
+ * delete exactly `PERSIST_KEY`; logout and impersonation go through
+ * `purgePersistedBeforeReload` below. A key deleted anywhere else must be this
+ * constant, or stale user data survives logout on shared devices.
  */
 import { createAsyncStoragePersister } from '@tanstack/query-async-storage-persister'
 import { get, set, del } from 'idb-keyval'
 
-/** Must match the key deleted in use-logout.ts → idbDel('crm-query-cache'). */
+/** The one persisted key; every purge deletes exactly this (see KEY CONTRACT above). */
 export const PERSIST_KEY = 'crm-query-cache'
+
+/** How long a reload waits for the persisted copy to go before it reloads anyway. */
+export const PURGE_BEFORE_RELOAD_MS = 1500
+
+/**
+ * Set by `purgePersistedBeforeReload` (SO-4); this page then never writes the persisted copy again.
+ * One-way on purpose: if the reload it precedes is cancelled (the browser's "Leave site?" prompt
+ * answered Stay), persistence stays off silently until the next full load. That fails safe, an
+ * account switch never leaves a copy behind, and costs only the offline cache of that page.
+ */
+let persistingStopped = false
+
+/**
+ * Stops persisting, then deletes the persisted copy before a hard reload (impersonation start /
+ * stop, logout). No write lands after the delete: `PersistQueryClientProvider` exposes no unsubscribe, so
+ * the storage adapter below drops every later `setItem`, including a throttled persist or one from
+ * a refetch under the old cookie (SO-4). Settles within `PURGE_BEFORE_RELOAD_MS` even when
+ * IndexedDB never answers (backlog 433), so the reload is never stuck. A copy that survives a
+ * failed delete is still refused after the reload: its owner is not the new `auth/me` user
+ * (SR-M-1, `takeRestoredCacheOwner`), and the next boot deletes it instead of restoring it
+ * (`PURGE_PENDING_KEY`, 1340-SR-L-r2-2).
+ */
+export function purgePersistedBeforeReload(): Promise<void> {
+  persistingStopped = true
+  // cleared only once the delete succeeds; a failed or unfinished delete is retried on the next boot
+  markPurgePending(true)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    deletePersisted().catch(() => {}),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, PURGE_BEFORE_RELOAD_MS)
+    }),
+  ]).finally(() => clearTimeout(timer))
+}
+
+/** localStorage marker of a purge whose delete has not succeeded yet (1340-SR-L-r2-2). */
+const PURGE_PENDING_KEY = 'crm-query-cache-purge-pending'
+
+// localStorage throws when storage is disabled; the purge then stays best-effort, as before
+function markPurgePending(pending: boolean): void {
+  try {
+    if (pending) localStorage.setItem(PURGE_PENDING_KEY, '1')
+    else localStorage.removeItem(PURGE_PENDING_KEY)
+  } catch {
+    // no marker: the owner check (`takeRestoredCacheOwner`) still refuses a foreign copy
+  }
+}
+
+function purgePending(): boolean {
+  try {
+    return localStorage.getItem(PURGE_PENDING_KEY) !== null
+  } catch {
+    // storage disabled: nothing could have been marked
+  }
+  return false
+}
+
+/** Deletes the persisted copy, then clears the pending marker; rejects if the delete fails. */
+function deletePersisted(): Promise<void> {
+  // `del` can throw synchronously (IndexedDB blocked) — keep it inside the chain (CR-H-1)
+  return Promise.resolve()
+    .then(() => del(PERSIST_KEY))
+    .then(() => markPurgePending(false))
+}
 
 /**
  * idb-keyval adapter conforming to the AsyncStorage interface expected by
@@ -23,7 +87,8 @@ export const PERSIST_KEY = 'crm-query-cache'
  */
 const idbStorage = {
   getItem: (key: string) => get<string>(key),
-  setItem: (key: string, value: string) => set(key, value),
+  setItem: (key: string, value: string) =>
+    persistingStopped ? Promise.resolve() : set(key, value),
   removeItem: (key: string) => del(key),
 }
 
@@ -208,12 +273,50 @@ type Serialize = NonNullable<Parameters<typeof createAsyncStoragePersister>[0]['
 type StoragePersister = ReturnType<typeof createAsyncStoragePersister>
 type RestoredClient = Awaited<ReturnType<StoragePersister['restoreClient']>>
 
+/**
+ * SR-M-1 (PR #1330 fix-round 1): whose data the cache holds. One IndexedDB key serves every tab
+ * and account of this origin, so `serialize` writes the owner's user id beside `clientState`, and
+ * `restoreClient` remembers the restored owner for `context/auth.tsx` to compare with the first
+ * `auth/me` answer after a page load.
+ */
+let cacheOwner: string | null = null
+let restoredOwner: string | null | undefined
+
+export function setPersistedCacheOwner(id: string | null): void {
+  cacheOwner = id
+}
+
+/** One-shot: the owner of the non-empty cache this page restored (`null` = not recorded), else `undefined`. */
+export function takeRestoredCacheOwner(): string | null | undefined {
+  const owner = restoredOwner
+  restoredOwner = undefined
+  return owner
+}
+
+function noteRestoredOwner(client: RestoredClient): void {
+  restoredOwner = undefined
+  if (!client) return
+  const { owner, clientState } = client as unknown as {
+    owner?: unknown
+    clientState?: { queries?: unknown }
+  }
+  const queries = clientState?.queries
+  if (!Array.isArray(queries) || queries.length === 0) return
+  restoredOwner = typeof owner === 'string' ? owner : null
+  // the restored rows stay in the cache until the first answer says whose session this is
+  cacheOwner = restoredOwner
+}
+
 const serialize: Serialize = (client) => {
   if (client === null || typeof client !== 'object') {
     return JSON.stringify(stripSensitiveFields(client))
   }
   const c = client as unknown as { clientState?: unknown; [k: string]: unknown }
-  return JSON.stringify({ ...c, clientState: markStrippedQueries(c.clientState) })
+  return JSON.stringify({
+    ...c,
+    owner: cacheOwner,
+    clientState: markStrippedQueries(c.clientState),
+  })
 }
 
 /**
@@ -261,6 +364,14 @@ const baseAsyncPersister = createAsyncStoragePersister({
 export const persister: StoragePersister = {
   persistClient: baseAsyncPersister.persistClient,
   removeClient: baseAsyncPersister.removeClient,
-  restoreClient: async () =>
-    forceRefetchOfStrippedQueries(await baseAsyncPersister.restoreClient()),
+  restoreClient: async () => {
+    // a copy an earlier purge failed to delete is deleted now and never restored (1340-SR-L-r2-2)
+    if (purgePending()) {
+      await deletePersisted().catch(() => {})
+      return undefined
+    }
+    const restored = await baseAsyncPersister.restoreClient()
+    noteRestoredOwner(restored)
+    return forceRefetchOfStrippedQueries(restored)
+  },
 }

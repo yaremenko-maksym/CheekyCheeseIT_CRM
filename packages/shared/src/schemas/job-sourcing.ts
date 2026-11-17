@@ -5,6 +5,7 @@ import { z } from 'zod'
 // skill while this contract allowed 100 — and the gap surfaced as a 400 on
 // GET /suggestions for the first senior with a filled-in resume.
 import { MAX_STACK_KEYWORD_CHARS, MAX_STACK_KEYWORDS } from '../utils/stack-keywords'
+import { seniorAvailabilitySchema } from './senior-availability'
 
 /**
  * task-job-sourcing-slice1 — semi-automatic applying to external vacancies.
@@ -483,6 +484,21 @@ export const jobSourceSchema = z.object({
   resumeCheckpoint: z.boolean().optional(),
   /** The current health state (the latest TRANSITION's `to_state`); null when none recorded. */
   healthState: jobHealthStateSchema.nullable().optional(),
+  /**
+   * Task 7.5 — the source's account meter, read-only, for the ADMIN quota bar. `null` = the source
+   * bills against no meter. Lazy for the same reason as the fields above.
+   */
+  meter: z
+    .lazy(() => jobSourceMeterSchema)
+    .nullable()
+    .optional(),
+  /**
+   * Task 7.5 (AC4) — the instant the source's policy lapses (`POLICY_EXPIRES`) and the instant it
+   * starts to need authorization (`AUTH_REQUIRED_FROM`), from the production catalog; null = none.
+   * ADMIN-only like the rest of this list.
+   */
+  policyUntil: z.string().datetime().nullable().optional(),
+  authUntil: z.string().datetime().nullable().optional(),
 })
 
 export const jobSourceListSchema = z.object({
@@ -1507,6 +1523,22 @@ export const jobAccountMeterSchema = z
     }
   })
 
+/**
+ * Task 7.5 — the slice of a meter the ADMIN source list projects. No `id` / `accountKey` /
+ * `policyVersion`: the panel needs the three amounts, the limit and the reset instant only.
+ * `used` is already zero when the window has elapsed; `reserved` and `uncertain` are shown as
+ * stored (an in-place window reset does not touch them).
+ */
+export const jobSourceMeterSchema = z.strictObject({
+  unit: jobMeterUnitSchema,
+  window: jobMeterWindowSchema,
+  limit: z.number().int().nonnegative().nullable(),
+  used: countSchema,
+  reserved: countSchema,
+  uncertain: countSchema,
+  resetsAt: z.string().datetime().nullable(),
+})
+
 /** One reservation against a meter, keyed by its attempt so a retry is idempotent. */
 export const jobMeterReservationSchema = z
   .object({
@@ -2008,16 +2040,37 @@ export const jobQueueSeniorOptionsResponseSchema = z
   })
   .strict()
 
+/** One matched keyword: CORE = the vacancy's core stack, OPTIONAL = a nice-to-have. */
+export const jobQueueMatchEvidenceSchema = z
+  .object({
+    keyword: z.string().max(MAX_STACK_KEYWORD_CHARS),
+    strength: z.enum(['CORE', 'OPTIONAL']),
+  })
+  .strict()
+
 /** One of the viewer's own seniors on the card. */
 export const jobQueueCardSeniorSchema = z
   .object({
     seniorId: z.string().uuid(),
     displayName: z.string().max(255),
+    /** «Вільно з {d}» / «Зайнято» (§5.2): the senior's own availability; `null` = never set. */
+    availability: seniorAvailabilitySchema.nullable(),
     /** «Збіг неточний»: match confidence, not availability. */
     matchApproximate: z.boolean(),
     matchedKeywords: z.array(z.string().max(MAX_STACK_KEYWORD_CHARS)).max(200),
+    /** «Чому збіг» (§5.6): each matched keyword with its weight in the vacancy stack. */
+    matchEvidence: z.array(jobQueueMatchEvidenceSchema).max(200),
     /** Own scope: the full row. Another team's (shared senior only): the bare marker. */
     submission: z.union([jobQueueSubmissionSchema, jobQueueForeignSubmissionSchema]).nullable(),
+    /**
+     * ADMIN-only team heading (§5.6). Filled for the STUDIO scope only; a TEAM scope (every HR)
+     * omits the key, so HR never learns which other team a shared senior sits in.
+     */
+    team: z
+      .object({ teamId: z.string().uuid(), teamName: z.string().max(255) })
+      .strict()
+      .nullable()
+      .optional(),
   })
   .strict()
 
@@ -2044,6 +2097,34 @@ const jobQueueDuplicatesPreviewSchema = jobPossibleDuplicatesPreviewSchema
   .extend({ items: z.array(jobPossibleDuplicateSchema.strict()).max(5) })
   .strict()
 
+/**
+ * The card's duplicates preview: each item also names the viewer's OWN-scope seniors already
+ * submitted to it (§5.5 «На схожу вакансію вже подано: <назва> · <senior>»). Another team's
+ * submissions never contribute a name.
+ */
+const jobQueueCardDuplicatesPreviewSchema = jobPossibleDuplicatesPreviewSchema
+  .extend({
+    items: z
+      .array(
+        jobPossibleDuplicateSchema
+          .extend({ submittedSeniorNames: z.array(z.string().max(255)).max(200) })
+          .strict(),
+      )
+      .max(5),
+  })
+  .strict()
+
+/**
+ * Why a card has no matched senior (§5.8): drives the four distinct empty states. EXCLUDED: the
+ * funnel excluded the vacancy at its current revision (CR2-M-1), so NO_MATCH means an OPEN verdict.
+ */
+export const jobQueueNoMatchReasonSchema = z.enum(['STOP_LISTED', 'TRIAGE', 'NO_MATCH', 'EXCLUDED'])
+export type JobQueueNoMatchReason = z.infer<typeof jobQueueNoMatchReasonSchema>
+
+/** §5.1 «Форма співпраці»: only a form the posting states unambiguously; null names none. */
+export const jobQueueEngagementFormSchema = z.enum(['B2B', 'EMPLOYMENT'])
+export type JobQueueEngagementForm = z.infer<typeof jobQueueEngagementFormSchema>
+
 /** GET `/job-queue/:id` — the latest canonical facts, authorized for the viewer. */
 export const jobQueueCardResponseSchema = jobQueueListItemSchema
   .extend({
@@ -2053,7 +2134,37 @@ export const jobQueueCardResponseSchema = jobQueueListItemSchema
     newerThanList: z.boolean(),
     seniors: jobQueueSeniorsContinuationSchema,
     sources: jobQueueSourcesContinuationSchema,
-    possibleDuplicates: jobQueueDuplicatesPreviewSchema.nullable(),
+    possibleDuplicates: jobQueueCardDuplicatesPreviewSchema.nullable(),
+    /** §5.1 «Остання поява»: when any source last observed the vacancy. */
+    lastSeenAt: z.string().datetime(),
+    /** §5.2 the full vacancy stack (the row carries only the matched subset). */
+    stackKeywords: z.array(z.string().max(MAX_STACK_KEYWORD_CHARS)).max(MAX_STACK_KEYWORDS),
+    /** Null when at least one senior matched. */
+    noMatchReason: jobQueueNoMatchReasonSchema.nullable(),
+    /** The primary source's stated engagement form; null when unknown, mixed or not stated. */
+    engagementForm: jobQueueEngagementFormSchema.nullable(),
+    /**
+     * The viewer's own-scope dismissal row, live or undone; null when never dismissed. Its
+     * `version` is what a re-hide after undo must send (`hidden` says whether it is live).
+     */
+    dismissal: z
+      .object({ scope: jobQueueScopeKindSchema, version: intColumnPositiveSchema })
+      .strict()
+      .nullable(),
+    /**
+     * ADMIN only (any view scope): the studio-wide triage policy version a team-triage grant or
+     * subscription must send back. It changes on every team-membership, senior-profile or exclusion
+     * write, so a write made from a card read before such a write is a version conflict (backlog
+     * 425). Absent for an HR.
+     */
+    triagePolicyVersion: intColumnPositiveSchema.optional(),
+    /**
+     * ADMIN only, next to `triagePolicyVersion`: whether the grant would accept this item (no
+     * manual card, not CLOSED / EXPIRED, not EXCLUDED at its revision, no live LEAD of any studio
+     * senior). The server computes it from the same predicate the grant checks, so the web offers
+     * no refused grant.
+     */
+    triageGrantable: z.boolean().optional(),
   })
   .strict()
 
@@ -2188,15 +2299,37 @@ export const jobQueueRecomputeResponseSchema = z.object({ runId: z.string().uuid
  * the reason and the per-actor idempotency key every queue write carries.
  */
 
+/** The ceiling of a triage grant's expiry, counted from the server's clock (owner decision, backlog 426). */
+export const JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS = 90
+
+/**
+ * Backlog 426: `expiresAt` ends at most `JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS` after `now`. The one
+ * predicate the request schemas and the service's own re-check (at the server's clock) share. An
+ * unparsable value is never within it.
+ */
+export function withinTriageGrantCeiling(expiresAt: string, now: number): boolean {
+  return Date.parse(expiresAt) <= now + JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS * 86_400_000
+}
+
+/** A grant or subscription expiry: an ISO instant within the ceiling of the parsing clock. */
+const triageExpirySchema = z
+  .string()
+  .datetime()
+  .refine((expiresAt) => withinTriageGrantCeiling(expiresAt, Date.now()), {
+    message: 'zod.TRIAGE_EXPIRY_BEYOND_CEILING',
+  })
+
 /** POST `/job-queue/:id/team-triage` (ADMIN; 201 + the grant). */
 export const jobQueueTeamTriageGrantRequestSchema = z
   .object({
     teamId: z.string().uuid(),
     // `job_opportunities.revision` starts at 1, so 0 can never match.
     expectedOpportunityRevision: intColumnPositiveSchema,
-    policyVersion: intColumnCountSchema,
+    /** The card's `triagePolicyVersion`; a stale one is `JOB_QUEUE_VERSION_CONFLICT` (backlog 425). */
+    policyVersion: intColumnPositiveSchema,
     reason: triageReasonSchema,
-    expiresAt: z.string().datetime(),
+    /** At most `JOB_QUEUE_TRIAGE_GRANT_MAX_DAYS` ahead of the server's clock (backlog 426). */
+    expiresAt: triageExpirySchema,
     idempotencyKey: z.string().uuid(),
   })
   .strict()
@@ -2212,7 +2345,13 @@ export const jobQueueTeamTriageRevokeRequestSchema = z
 
 /** POST `/job-queue/team-triage-subscriptions` (ADMIN; 201 + the subscription). */
 export const jobQueueTeamTriageSubscribeRequestSchema =
-  createJobQueueTeamTriageSubscriptionSchema.extend({ idempotencyKey: z.string().uuid() })
+  createJobQueueTeamTriageSubscriptionSchema.extend({
+    /** Any ADMIN card's `triagePolicyVersion` (studio-wide); a stale one is a version conflict (SR-M-1). */
+    policyVersion: intColumnPositiveSchema,
+    /** The grant's ceiling applies to a standing rule too (SR-M-1). */
+    expiresAt: triageExpirySchema,
+    idempotencyKey: z.string().uuid(),
+  })
 
 /** DELETE `/job-queue/team-triage-subscriptions/:id` (ADMIN; 200 + the revoked subscription). */
 export const jobQueueTeamTriageUnsubscribeRequestSchema = revokeJobQueueTeamTriageSubscriptionSchema
@@ -2316,6 +2455,7 @@ export type JobDirtyWorkEntityKind = z.infer<typeof jobDirtyWorkEntityKindSchema
 export type JobDirtyWorkStatus = z.infer<typeof jobDirtyWorkStatusSchema>
 export type JobAccountKey = z.infer<typeof jobAccountKeySchema>
 export type JobErrorCode = z.infer<typeof jobErrorCodeSchema>
+export type JobSourceMeterDto = z.infer<typeof jobSourceMeterSchema>
 export type JobAccountMeterDto = z.infer<typeof jobAccountMeterSchema>
 export type JobMeterReservationDto = z.infer<typeof jobMeterReservationSchema>
 export type JobCollectionCycleDto = z.infer<typeof jobCollectionCycleSchema>

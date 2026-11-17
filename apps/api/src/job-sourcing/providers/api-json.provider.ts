@@ -10,6 +10,7 @@ import {
   type RawObservationFields,
   type SourceObservation,
 } from '../normalize/observation'
+import { validateObservation } from '../store/record-payload'
 import { type ApiJsonLimits, DEFAULT_API_JSON_LIMITS } from './api-json.limits'
 import { parseBoundedJson } from './bounded-json'
 import { jsonEnvelopeFingerprint } from './envelope-fingerprint'
@@ -781,6 +782,9 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
   const nativeIdByIdentityKey = new Map<string, string>()
 
   let pagesCompleted = 0
+  // Store refusals on LANDED pages only, and the last page one came from (for the failure report).
+  let storeRefused = 0
+  let storeRefusedPage = 0
   // NO INITIALIZER, deliberately: the compiler now proves every path out of the loop assigns it.
   // It used to read `= 'EXHAUSTED'` under a suppression whose stated reason was that an
   // unrecognised value would throw in `deriveOutcome` — but `'EXHAUSTED'` is RECOGNISED, and it is
@@ -1281,6 +1285,10 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
             // named the observe-failure path, and this one has the same shape — and it is why
             // the merge lives here rather than beside `observePage`.
             keepPageCounts(counts, pageResult.counts)
+            if (pageResult.storeRefused > 0) {
+              storeRefused += pageResult.storeRefused
+              storeRefusedPage = at.page
+            }
             checkpoint = next
             pagesCompleted += 1
           } catch (error) {
@@ -1400,6 +1408,34 @@ export async function collectPages<TConfig extends SourceConfigFields, TEnvelope
     break
   }
 
+  // A clean stop that stored NOTHING while the store refused items is not a success: every record
+  // the run read was lost to our own gate. It fails loudly as PERSISTENCE, the class a store
+  // refusal had before the gate asked first. A partly-refused run still stores observations and
+  // stays SUCCEEDED (with PARTIAL coverage, from `deriveCoverage`). Set before the validator store
+  // below, so an all-refused single page cannot leave validators behind for a later 304.
+  const noneStored = observations.length === 0 && storeRefused > 0
+  if (noneStored && (stop === 'EXHAUSTED' || stop === 'PAGE_CAP' || stop === 'CURSOR_CYCLE')) {
+    stop = 'ERROR'
+    requests.push(
+      buildRequestReport(
+        {
+          attempt: 1,
+          page: storeRefusedPage,
+          url: UNBUILT_REQUEST_URL,
+          status: null,
+          startedAt: ctx.now(),
+          endedAt: ctx.now(),
+          cost: null,
+          error: {
+            code: 'PERSISTENCE',
+            message: `the store refused ${storeRefused} observation(s), the last on page ${storeRefusedPage}; none was stored`,
+          },
+        },
+        ctx.secrets,
+      ),
+    )
+  }
+
   // U6b: only a fresh run that read the whole resource in one page may have its validators stored.
   if (stop === 'EXHAUSTED' && pagesCompleted === 1 && !resumed) ctx.observeSinglePage?.()
 
@@ -1511,6 +1547,8 @@ type PageResult =
       observations: SourceObservation[]
       nextCursor: string | null
       counts: PageCounts
+      /** Items the store gate refused on this page (a subset of `counts.invalid`). */
+      storeRefused: number
     }
   // `counts` is on BOTH arms because the caller reads it on both: a failed page's items were
   // still received, and the attempt still has to account for them. That is the opposite of the
@@ -1551,8 +1589,9 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
   }
 
   if (items.length > limits.maxItemsPerPage) {
-    // The provider ignored the page size we asked for. Treating it as drift rather than silently
-    // truncating keeps us from reporting a coverage we did not have.
+    // More items than the cap: drift (the provider ignored the page size we asked for) or a board
+    // over an unpaged source's cap. Treated as a failure rather than silently truncated, so we never
+    // report a coverage we did not have.
     return {
       ok: false,
       counts,
@@ -1564,6 +1603,7 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
   }
 
   const observations: SourceObservation[] = []
+  let storeRefused = 0
 
   for (const item of items) {
     counts.raw += 1
@@ -1599,6 +1639,20 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     if (!result.ok) {
       counts.quarantined += 1
       addSample(at.page, `QUARANTINED: ${result.reason}`, item)
+      continue
+    }
+    // The store re-checks every observation and refuses the WHOLE page on the first bad one, which
+    // failed a run as PERSISTENCE for one record (ARBEITNOW, 2026-11-16). Asked here first, the same
+    // check makes such a record ONE invalid item, skipped, as an extractor exception is above.
+    try {
+      validateObservation(result.observation)
+    } catch (error) {
+      // Only the store's per-record display-limit refusal (a RangeError) is this item's fault. Any
+      // other throw is not a bad record, so it propagates instead of being skipped as invalid.
+      if (!(error instanceof RangeError)) throw error
+      counts.invalid += 1
+      storeRefused += 1
+      addSample(at.page, `OBSERVATION_INVALID: ${error.message}`, item)
       continue
     }
 
@@ -1681,7 +1735,7 @@ async function observePage<TConfig extends SourceConfigFields, TEnvelope, TItem>
     }
   }
 
-  return { ok: true, observations, nextCursor, counts }
+  return { ok: true, observations, nextCursor, counts, storeRefused }
 }
 
 // ---------------------------------------------------------------------------

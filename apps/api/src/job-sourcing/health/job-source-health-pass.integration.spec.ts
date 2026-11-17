@@ -21,13 +21,13 @@ import { JobSourceHealthService } from './job-source-health.service'
  * The append-only UPDATE/DELETE refusal is pinned by job-source-health-events-ddl.integration.
  * NEVER crm_db; DATABASE_URL points at a scratch database, inline.
  */
-const STAGED_FILE = join(
+const HEALTH_EVENTS_DDL_FILE = join(
   __dirname,
   '..',
   '..',
   '..',
   'drizzle',
-  'manual-staged',
+  'manual',
   '2026-10-31_job_source_health_events.sql',
 )
 
@@ -129,7 +129,7 @@ describe.skipIf(!hasDatabaseUrl())('U4 detector pass', () => {
     if (rows[0].db === 'crm_db') throw new Error('refusing the live database')
     // Apply the staged DDL to public (CREATE TABLE IF NOT EXISTS is a no-op; adds the triggers).
     await admin.query('BEGIN')
-    await admin.query(readFileSync(STAGED_FILE, 'utf8'))
+    await admin.query(readFileSync(HEALTH_EVENTS_DDL_FILE, 'utf8'))
     await admin.query('COMMIT')
     fx = new LedgerFixtures(admin, `u4pass${Date.now().toString(36)}`)
     health = new JobSourceHealthService(session.databaseService)

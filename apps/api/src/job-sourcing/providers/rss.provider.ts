@@ -208,6 +208,9 @@ function feedPagedSpec<TConfig extends SourceConfigFields>(
     ...(spec.inventory.kind === 'RECENT' ? { overlapMs: 0 } : {}),
     itemSchema: feedEntrySchema,
     limits,
+    // The transport refuses at the same byte cap the parser holds, so a feed's raised `maxBytes`
+    // is not refused at the 2 MiB transport default before it reaches the parser.
+    requestMaxBytes: limits.maxBytes,
     decodeEnvelope: (bodyText): DecodedEnvelope<FeedDocument> => {
       const document = decodeXmlBody(bodyText, limits, port)
       if (!document.ok) return document

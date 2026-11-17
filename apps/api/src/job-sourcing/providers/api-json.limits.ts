@@ -18,8 +18,9 @@ export interface ApiJsonLimits extends JsonLimits {
    * misconfigured adapter instead of surfacing it.
    */
   maxPages: number
-  /** More items on one page than this is drift: the provider ignored the page size we asked for,
-   * and truncating silently would report a coverage we did not have. */
+  /** More items on one page than this is drift, or a board larger than the cap an unpaged source
+   * (e.g. Lever: one request for the whole board) was configured for. Truncating silently would
+   * report a coverage we did not have, so the attempt fails as PAYLOAD_TOO_LARGE instead. */
   maxItemsPerPage: number
 }
 

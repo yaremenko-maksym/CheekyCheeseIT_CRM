@@ -64,7 +64,12 @@ export function PreviewContinuation({
   useLayoutEffect(() => {
     if (!handOff.current) return
     handOff.current = false
-    ;(list.current!.children[firstNew.current] as HTMLElement | undefined)?.focus()
+    // a list that regroups its items (ADMIN team runs) marks each with its fetch order
+    const items = list.current!
+    ;(
+      (items.querySelector(`:scope > [data-arrival="${firstNew.current}"]`) ??
+        items.children[firstNew.current]) as HTMLElement | undefined
+    )?.focus()
   })
 
   const hasMore = more.data ? more.hasNextPage : previewCursor !== null

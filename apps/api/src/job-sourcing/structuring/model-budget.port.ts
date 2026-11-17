@@ -9,8 +9,6 @@ export interface Reservation {
 
 export interface ModelUsage {
   readonly totalTokens?: number
-  /** Time the local route took, on success and on failure; an abandoned call counts its elapsed time. */
-  readonly localMs?: number
 }
 
 /**
@@ -35,24 +33,15 @@ export class InMemoryModelBudget implements ModelBudgetPort {
   private readonly open = new Set<Reservation>()
   private committed = 0
   private totalTokens = 0
-  private localMs = 0
 
-  /** @param localMsLimit the cycle's local time (ADR §5.5.6). The value is frozen from MP-04, so the wiring passes it. */
-  constructor(
-    private readonly limit: number = HTML_MODEL_CALLS_PER_CYCLE,
-    private readonly localMsLimit: number = Number.POSITIVE_INFINITY,
-  ) {
+  constructor(private readonly limit: number = HTML_MODEL_CALLS_PER_CYCLE) {
     if (!Number.isSafeInteger(limit) || limit < 0) {
       throw new Error(`model call limit must be a non-negative integer, got ${String(limit)}`)
-    }
-    if (Number.isNaN(localMsLimit) || localMsLimit < 0) {
-      throw new Error(`local time limit must not be negative, got ${String(localMsLimit)}`)
     }
   }
 
   reserve(): Reservation | null {
     if (this.committed + this.open.size >= this.limit) return null
-    if (this.localMs >= this.localMsLimit) return null
     // A fresh object per hold: identity is the token, nothing outside can forge one.
     const reservation = Object.freeze({}) as Reservation
     this.open.add(reservation)
@@ -68,7 +57,6 @@ export class InMemoryModelBudget implements ModelBudgetPort {
     if (!this.open.delete(reservation)) return
     this.committed += 1
     this.totalTokens += usage?.totalTokens ?? 0
-    this.localMs += usage?.localMs ?? 0
   }
 
   snapshot(): BudgetSnapshot {
