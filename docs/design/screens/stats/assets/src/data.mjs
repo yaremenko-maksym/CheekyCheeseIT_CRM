@@ -1,6 +1,7 @@
 // Stats screen: invented fixture data, formatting and the small shared elements.
 // Everything here is a fixture (no real names or amounts). KPIs are DERIVED from the series (R1-21).
 import { icon } from '../../../_foundation/assets/src/base.mjs'
+import { ROLE_LABEL } from '../../../_foundation/assets/src/nav.mjs'
 
 // ---------- 20 months: Apr 2025 … Nov 2026 (the whole history, so «Усе» = 20 bars) ----------
 const SHORT = [
@@ -102,8 +103,21 @@ export const ZERO = PARTNERS.map((p) => ({ ...p, b: 0 }))
 
 // ---------- Receivers (income compliance) ----------
 export const ROLE = { SENIOR: 'Сеньйор', ADMIN_SENIOR: 'Адмін-сеньйор', DROP: 'Дроп' }
+// `open` = the projects with no credited income; there are exactly `p - s` of them (R2-13).
 export const RECEIVERS = [
-  { n: 'Ірина Мельник', i: 'ІМ', role: 'SENIOR', p: 5, s: 3, st: 'lag', pill: '2 без доходу' },
+  {
+    n: 'Ірина Мельник',
+    i: 'ІМ',
+    role: 'SENIOR',
+    p: 5,
+    s: 3,
+    st: 'lag',
+    pill: '2 без доходу',
+    open: [
+      ['Orbita CRM', 'Lumen Retail'],
+      ['Nimbus Portal', 'Verde Market'],
+    ],
+  },
   {
     n: 'Дмитро Бондар',
     i: 'ДБ',
@@ -112,10 +126,30 @@ export const RECEIVERS = [
     s: 2,
     st: 'pend',
     pill: '1 у процесі',
+    open: [['Atlas Billing', 'Fjord Logistics']],
   },
-  { n: 'Софія Лисенко', i: 'СЛ', role: 'SENIOR', p: 3, s: 2, st: 'lag', pill: '1 без доходу' },
-  { n: 'Андрій Ткачук', i: 'АТ', role: 'DROP', p: 1, s: 1, st: 'ok', pill: 'Усі отримано' },
+  {
+    n: 'Софія Лисенко',
+    i: 'СЛ',
+    role: 'SENIOR',
+    p: 3,
+    s: 2,
+    st: 'lag',
+    pill: '1 без доходу',
+    open: [['Helio Studio', 'Quartz Media']],
+  },
+  { n: 'Андрій Ткачук', i: 'АТ', role: 'DROP', p: 1, s: 1, st: 'ok', pill: 'Усі отримано', open: [] },
 ]
+
+// Signed-in person shown in the desktop sidebar chip (invented fixtures, one per drawn role).
+export const CHIP = {
+  ADMIN: { n: 'Віктор Кравець', i: 'ВК', role: ROLE_LABEL.ADMIN },
+  ACCOUNTANT: { n: 'Марина Савчук', i: 'МС', role: ROLE_LABEL.ACCOUNTANT },
+}
+
+// Cache stamps (M3): `{when}` is the time today and «ДД.ММ о ГГ:ХХ» on any other day (primitives-v2 format).
+export const WHEN_TODAY = '14:32'
+export const WHEN_OLD = '10.11 о 14:32'
 
 // ---------- Formatting (mirrors formatMoney: uk grouping, decimal comma, U+2212, CODE suffix) ----------
 const nf = new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -196,7 +230,7 @@ export const KPIS = [
   {
     t: 'Прибуток за останній місяць',
     v: money(S.profit[last] * 1000, 'USD', { sign: true }),
-    sub: `Маржа: ${((S.profit[last] / S.income[last]) * 100).toFixed(1).replace('.', ',')}%`,
+    sub: `Маржа: ${((S.profit[last] / S.income[last]) * 100).toFixed(1).replace('.', ',')} %`,
     hint: 'Чистий прибуток за листопад 2026: дохід мінус витрати та зарплати того місяця.',
   },
   {
@@ -213,7 +247,7 @@ export const KPIS = [
   },
 ]
 export const PARTNER_HINT =
-  'Накопичений баланс кожного партнера: усі оплачені надходження та дохід адмінів мінус перекази між адмінами. Баланси рахуються в USD; рахунок компанії — в USDT.'
+  'Накопичений баланс кожного партнера: усі оплачені надходження та дохід партнерів мінус перекази між партнерами. Баланси рахуються в USD, рахунок компанії — в USDT (1 USDT = 1 USD). Для вирівнювання один партнер надсилає іншому половину різниці балансів.'
 export const COMPANY_HINT =
   'Накопичений USDT-баланс на рахунку компанії — поповнюється через підтверджені виплати (метод «Рахунок компанії») і зменшується виведенням дивідендів.'
 
@@ -228,6 +262,9 @@ export const infoBtn = (label, { fine = false, mr = -10 } = {}) =>
   fine
     ? `<span class="iconbtn muted" role="button" aria-label="Пояснення: ${label}" style="width:44px;height:44px;margin:-8px -8px -8px 0"><span style="width:28px;height:28px;display:grid;place-items:center">${icon('info', { size: 16 })}</span></span>`
     : `<span class="iconbtn muted" role="button" aria-label="Пояснення: ${label}" style="width:44px;height:44px;margin-right:${mr}px">${icon('info', { size: 18 })}</span>`
+/** One «Повторити» button: disabled while offline (reason in the strip), busy while a retry runs (R2-07). */
+export const retry = ({ h = 44, sm = false, size = 16, disabled = false, busy = false } = {}) =>
+  `<span class="btn secondary ${sm ? 'sm' : ''} ${disabled ? 'dis' : ''}" role="button" ${disabled || busy ? 'aria-disabled="true"' : ''} ${busy ? 'aria-busy="true"' : ''} style="${h ? `height:${h}px;` : ''}${busy ? 'opacity:0.7' : ''}">${icon(busy ? 'loader-circle' : 'rotate-cw', { size })}Повторити</span>`
 export const sk = (w, h, st = '') => `<div class="sk" style="height:${h}px;width:${w};${st}"></div>`
 export const srOnly =
   'position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap'
