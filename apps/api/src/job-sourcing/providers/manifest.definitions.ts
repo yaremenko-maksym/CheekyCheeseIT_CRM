@@ -342,8 +342,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'PAGED_FEED',
     hostKey: () => 'jobgether.com',
     requestsPerRun: 5,
-    // Owner, Q8: connected at the very end; never scheduled until then.
-    fetchProfile: null,
+    // Owner, Q8: connected last (U12). Once a day, the slowest cadence any API type has.
+    fetchProfile: DAILY,
     entries: [fresh('jobgether.api.jobs', {})],
   },
   {
@@ -359,8 +359,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     scopeKind: 'THREAD',
     hostKey: () => 'hn.algolia.com',
     requestsPerRun: 2,
-    // Owner, Q8: connected at the very end; never scheduled until then.
-    fetchProfile: null,
+    // Owner, Q8: connected last (U12). The thread is monthly, so once a day is enough.
+    fetchProfile: DAILY,
     entries: [legacy('hn-hiring.thread.latest', {})],
   },
   {

@@ -9,13 +9,10 @@ import { type FetchProfile, fetchProfileSchema } from '../scheduling/next-slot'
 
 /**
  * The accepted-risk types the owner connects last (Q8): never scheduled, so their profile is `null`,
- * and only theirs. Connecting one (U12) removes it from this list and gives it a profile.
+ * and only theirs. Connecting one (U12) removes it from this list and gives it a profile. HN and
+ * Jobgether are connected (2026-11-17); SmartRecruiters has no entry and no API capture yet.
  */
-export const UNSCHEDULED_TYPES: readonly JobSourceType[] = [
-  'HN_HIRING',
-  'JOBGETHER_API',
-  'SMARTRECRUITERS_ATS',
-]
+export const UNSCHEDULED_TYPES: readonly JobSourceType[] = ['SMARTRECRUITERS_ATS']
 
 export interface ProfileProblem {
   readonly code: 'FETCH_PROFILE_INVALID' | 'CADENCE_INVALID'
