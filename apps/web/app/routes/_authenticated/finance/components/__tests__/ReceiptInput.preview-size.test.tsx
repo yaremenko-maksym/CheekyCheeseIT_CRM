@@ -323,6 +323,29 @@ describe('ReceiptInput — pick lifecycle (task-1316-fix3 A1–A4, B1)', () => {
     expect(fileInput()).toBeEnabled()
   })
 
+  it('A1: a settled pick stays settled — the presigned preview arriving later does not re-arm it', async () => {
+    const settle = holdUpload()
+    renderHarness()
+    pick()
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1))
+    await act(async () => settle().ok())
+    // The download URL materialises after the pick settled: the component emits it
+    // with no pick live. Without this wait the case would not exercise that emit.
+    await waitFor(() =>
+      expect(emitted.at(-1)).toMatchObject({
+        documentId: 'doc-1',
+        previewUrl: 'https://cdn.example.com/receipt.png',
+      }),
+    )
+
+    // A later parent replacement is not a cancel: nothing is live, so the last
+    // upload status is left as it was (a cancel would reset it to the idle prompt).
+    fireEvent.click(screen.getByTestId('harness-reset'))
+
+    expect(screen.getByTestId('receipt-input-progress-idle')).toHaveTextContent('Готово')
+    expect(screen.queryByText('Натисніть, щоб вибрати файл')).toBeNull()
+  })
+
   it('A2: cancel then re-pick gets a new token — the cancelled decode is never applied', async () => {
     installFakePreviewWorker(photo, 'manual')
     const client = qc()
