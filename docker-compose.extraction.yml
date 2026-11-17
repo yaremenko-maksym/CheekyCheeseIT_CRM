@@ -67,8 +67,8 @@ services:
 
 volumes:
   # Undo never removes it (§8.6): router state only, no secret, no CRM data.
-  worker_state:
-    driver: local
+  # Nothing set (the default local driver): a driver_opts bind would mount the host into the worker.
+  worker_state: {}
 
 networks:
   # The §2.4 entry: the worker and its caller. Fixed name: the deploy attaches `api` by it.

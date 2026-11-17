@@ -107,7 +107,7 @@ F="$(ex docker-sock '/^      - worker_state:\/var\/lib\/extraction-worker$/a\
 assert_red "a bind mount of the docker socket is refused" --contains "must mount only its state volume (found: bind" -- guard_with --extraction "$F"
 
 F="$(ex second-volume -e '/^      - worker_state:\/var\/lib\/extraction-worker$/a\
-      - other:/data' -e '/^  worker_state:$/i\
+      - other:/data' -e '/^  worker_state: {}$/i\
   other: {}')"
 assert_red "a second named volume is refused" --contains "must mount only its state volume (found: volume other" -- guard_with --extraction "$F"
 
@@ -246,6 +246,69 @@ assert_red "an unset image tag that does not refuse is itself refused" --contain
 
 F="$(ex renamed-project 's/^name: crm-extraction$/name: crm/')"
 assert_red "losing its own project name is refused" --contains "project must be named" -- guard_with --extraction "$F"
+
+# ── G2 / CR-M-3: the worker's keys are an allow-list; each of these was a deny-list gap ──
+i=0
+while IFS= read -r line; do
+  i=$((i + 1))
+  key="${line%%:*}"
+  F="$(ex "key-$i-$key" "${WORKER}a\\
+    $line")"
+  assert_red "worker setting $key is refused" --contains "extraction-worker must not set $key: not in the reviewed key allow-list" -- guard_with --extraction "$F"
+done <<'KEYS'
+devices: ['/dev/sda:/dev/sda']
+group_add: ['disk']
+volumes_from: ['container:crm-api-1']
+sysctls: {net.ipv4.ip_forward: '1'}
+cgroup_parent: /
+oom_kill_disable: true
+runtime: runc
+entrypoint: ['sh', '-c']
+stop_grace_period: 1s
+KEYS
+
+# A service-level secret needs its top-level source, a host path read into the worker.
+F="$(ex secret-file -e "${WORKER}a\\
+    secrets: [hostkey]" -e '/^networks:$/i\
+secrets:\
+  hostkey:\
+    file: /etc/shadow\
+')"
+assert_red "worker mounting a file: secret is refused" --contains "extraction-worker must not set secrets: not in the reviewed key allow-list" -- guard_with --extraction "$F"
+assert_red "a top-level secrets block is refused" --contains "must not declare top-level secrets" -- guard_with --extraction "$F"
+
+F="$(ex config-file -e "${WORKER}a\\
+    configs: [hostcfg]" -e '/^networks:$/i\
+configs:\
+  hostcfg:\
+    file: /etc/hostname\
+')"
+assert_red "worker mounting a config is refused" --contains "extraction-worker must not set configs: not in the reviewed key allow-list" -- guard_with --extraction "$F"
+assert_red "a top-level configs block is refused" --contains "must not declare top-level configs" -- guard_with --extraction "$F"
+
+# ── G1: the top-level side of the state volume decides what it is ──
+F="$(ex state-bind 's/^  worker_state: {}$/  worker_state:\
+    driver: local\
+    driver_opts:\
+      type: none\
+      o: bind\
+      device: \//')"
+assert_red "a state volume bound to the host root by driver_opts is refused" --contains "volume worker_state must set nothing (found: driver_opts)" -- guard_with --extraction "$F"
+
+for kv in 'driver: local' 'external: true' 'name: crm_pgdata' 'labels: {a: b}'; do
+  k="${kv%%:*}"
+  F="$(ex "state-$k" "s/^  worker_state: {}\$/  worker_state:\\
+    $kv/")"
+  assert_red "a state volume setting $k is refused" --contains "volume worker_state must set nothing (found: $k)" -- guard_with --extraction "$F"
+done
+
+# ── G3: tmpfs options are parsed, so a later option cannot undo an earlier one ──
+for opt in exec suid dev; do
+  F="$(ex "tmp-$opt" "$WK"" s/,noexec,nosuid\$/,noexec,nosuid,$opt/")"
+  assert_red "a /tmp re-enabling $opt is refused" --contains "tmpfs must be /tmp only, with noexec and nosuid, and no exec, suid or dev" -- guard_with --extraction "$F"
+done
+F="$(ex tmp-prefix "$WK"' s/^      - \/tmp:size/      - \/tmpx:size/')"
+assert_red "a tmpfs path that only starts with /tmp is refused" --contains "tmpfs must be /tmp only" -- guard_with --extraction "$F"
 
 # ── the composed deploy configuration ──
 F="$(mutate "$PROD" gains-worker '/^  # ── nginx (reverse-proxy/i\

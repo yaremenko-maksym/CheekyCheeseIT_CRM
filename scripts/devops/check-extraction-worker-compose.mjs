@@ -42,6 +42,31 @@ const STATE_TARGET = '/var/lib/extraction-worker'
 const DEPLOY_SERVICES = ['api', 'nginx', 'postgres']
 const WORKER_MEM_BYTES = 512 * 1024 * 1024
 const PINS = { EXTRACTION_WORKER_IMAGE_TAG: 'guard' }
+// An allow-list, not a deny-list: each key a compose release adds (devices, sysctls, volumes_from,
+// secrets, configs, runtime, ...) is refused until it is reviewed. Exactly what the shipped file uses.
+const WORKER_KEYS = [
+  'cap_drop',
+  'command',
+  'cpus',
+  'env_file',
+  'environment',
+  'healthcheck',
+  'image',
+  'logging',
+  'mem_limit',
+  'memswap_limit',
+  'networks',
+  'pids_limit',
+  'read_only',
+  'restart',
+  'security_opt',
+  'tmpfs',
+  'user',
+  'volumes',
+]
+// No top-level configs or secrets: a `file:` source is a host path read into the worker.
+const TOP_KEYS = ['name', 'networks', 'services', 'volumes']
+const STATE_VOLUME = 'worker_state'
 // Drops anything the caller's shell exported: the unset-pin run must really be unset.
 const CLEAN_ENV = Object.fromEntries(
   Object.entries(process.env).filter(([k]) => !k.startsWith('EXTRACTION_')),
@@ -88,16 +113,20 @@ function composeConfig(files, extraEnv, extraArgs = [], { configArgs = [], post 
 
 let extraction
 let deploy
-// The normal resolution inlines env_file into environment and drops it; this one keeps it.
-let workerEnvFiles
+// The normal resolution inlines env_file into environment and drops it, and adds an empty
+// `entrypoint`; this one keeps the keys as written, so it is the one the allow-list reads.
+let raw
 try {
   extraction = composeConfig([args.extraction], PINS, ['--profile', '*'])
-  workerEnvFiles = composeConfig([args.extraction], PINS, [], {
+  raw = composeConfig([args.extraction], PINS, ['--profile', '*'], {
     configArgs: ['--no-interpolate'],
-    post: (json, dir) =>
-      (json.services?.[WORKER]?.env_file ?? []).map((f) =>
+    post: (json, dir) => ({
+      topKeys: Object.keys(json),
+      workerKeys: Object.keys(json.services?.[WORKER] ?? {}),
+      envFiles: (json.services?.[WORKER]?.env_file ?? []).map((f) =>
         relative(dir, typeof f === 'string' ? f : f.path),
       ),
+    }),
   })
   // The production project name (the /opt/crm directory), so network names resolve as on the host.
   deploy = composeConfig(args.deploy, {}, ['--project-name', 'crm', '--profile', '*'])
@@ -113,11 +142,15 @@ const netsOf = (svc) => Object.keys(svc?.networks ?? {}).sort()
 // ── The separate project ────────────────────────────────────────────────────
 if (extraction.name !== PROJECT)
   errors.push(`the project must be named ${PROJECT} (found: ${extraction.name})`)
+for (const key of raw.topKeys.filter((k) => !TOP_KEYS.includes(k)))
+  errors.push(`the extraction project must not declare top-level ${key}`)
 
 const worker = services[WORKER]
 if (!worker) {
   errors.push(`service ${WORKER} is missing`)
 } else {
+  for (const key of raw.workerKeys.filter((k) => !WORKER_KEYS.includes(k)))
+    errors.push(`${WORKER} must not set ${key}: not in the reviewed key allow-list`)
   if ((worker.ports ?? []).length > 0) errors.push(`${WORKER} must not publish ports (SR-L-4)`)
   if ((worker.expose ?? []).length > 0) errors.push(`${WORKER} must not declare expose`)
   if (worker.network_mode)
@@ -142,21 +175,30 @@ if (!worker) {
   const hosts = worker.extra_hosts ?? []
   if ((Array.isArray(hosts) ? hosts : Object.keys(hosts)).length > 0)
     errors.push(`${WORKER} must not set extra_hosts`)
-  if (workerEnvFiles.join() !== WORKER_ENV_FILE)
+  if (raw.envFiles.join() !== WORKER_ENV_FILE)
     errors.push(
-      `${WORKER} env_file must be exactly ${WORKER_ENV_FILE} (found: ${workerEnvFiles.join(', ') || 'none'})`,
+      `${WORKER} env_file must be exactly ${WORKER_ENV_FILE} (found: ${raw.envFiles.join(', ') || 'none'})`,
     )
   // The guard's env files are empty, so these keys can only come from the compose file itself.
   for (const key of Object.keys(worker.environment ?? {})) {
     if (/DATABASE_URL|^POSTGRES_|^PG[A-Z]+$/.test(key))
       errors.push(`${WORKER} must hold no database setting (found: ${key})`)
   }
-  if (
-    !(worker.tmpfs ?? []).every(
-      (t) => /^\/tmp:/.test(t) && /\bnoexec\b/.test(t) && /\bnosuid\b/.test(t),
+  // Parsed, not matched: `noexec,...,exec` is exec, the last option wins.
+  const tmpfsOk = (t) => {
+    const [path, opts = ''] = t.split(/:(.*)/s)
+    const o = opts.split(',')
+    return (
+      path === '/tmp' &&
+      o.includes('noexec') &&
+      o.includes('nosuid') &&
+      !o.some((x) => ['exec', 'suid', 'dev'].includes(x))
     )
-  )
-    errors.push(`${WORKER} tmpfs must be /tmp only, with noexec and nosuid`)
+  }
+  if (!(worker.tmpfs ?? []).every(tmpfsOk))
+    errors.push(
+      `${WORKER} tmpfs must be /tmp only, with noexec and nosuid, and no exec, suid or dev`,
+    )
   if (!(worker.tmpfs ?? []).some((t) => /^\/tmp:/.test(t)))
     errors.push(`${WORKER} must keep its /tmp tmpfs (the root filesystem is read-only)`)
   if (!(worker.cap_drop ?? []).includes('ALL')) errors.push(`${WORKER} must drop all capabilities`)
@@ -173,7 +215,7 @@ if (!worker) {
     errors.push(`${WORKER} must keep its state volume at ${STATE_TARGET}`)
   // A bind mount (the docker socket, a host dir) or a second volume is a way out of the sandbox.
   for (const v of vols) {
-    if (!(v.type === 'volume' && v.source === 'worker_state' && v.target === STATE_TARGET))
+    if (!(v.type === 'volume' && v.source === STATE_VOLUME && v.target === STATE_TARGET))
       errors.push(
         `${WORKER} must mount only its state volume (found: ${v.type} ${v.source ?? ''} -> ${v.target})`,
       )
@@ -189,6 +231,18 @@ if (!worker) {
     )
   if ((worker.profiles ?? []).length > 0)
     errors.push(`${WORKER} must not hide behind a profile in its own project`)
+}
+
+// The service side names the volume; the top-level side decides what it is. A `driver_opts` of
+// `type: none, o: bind, device: /` makes it a bind mount of the host root, so nothing may be set:
+// compose fills in only its own scoped name.
+const topVols = extraction.volumes ?? {}
+for (const key of Object.keys(topVols)) {
+  if (key !== STATE_VOLUME) errors.push(`unexpected volume ${key} in the extraction project`)
+}
+for (const [k, v] of Object.entries(topVols[STATE_VOLUME] ?? {})) {
+  if (!(k === 'name' && v === `${PROJECT}_${STATE_VOLUME}`))
+    errors.push(`volume ${STATE_VOLUME} must set nothing (found: ${k})`)
 }
 
 const nets = extraction.networks ?? {}
