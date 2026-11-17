@@ -32,14 +32,19 @@
 --   3b. verify    - RAISES when an entry still has no row (an unmanaged row of the same
 --                   (type, config) swallowed the insert), so the skip is never silent
 --   4. block      - rows of a not-ready type that no entry claimed
+--   5. refresh    - every claimed row's readiness and reason follow the manifest, both ways
+--                   (unblock and block); a VERIFIED row is downgraded only by a BLOCKED entry.
+--                   Never enabled, admin state, budget, counters or cooldown. The snapshot
+--                   clock above still applies; a lapsed deadline is also refused live by the
+--                   enable gate, which reads the manifest catalog
 -- No job_account_meters row is created: a rolling meter needs the provider's billing-window
 -- start, which nobody holds for a key nobody has.
 --
 -- How to apply (the deploy wires this file; see the DevOps note in the PR):
 --   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 -- --single-transaction is REQUIRED, not a nicety: without it each statement commits on its own, and the
--- step 3b RAISE (an unmanaged row blocked an insert) would leave steps 1-3 committed and step 4 never
--- run, a half-applied delta behind a loud failure. In one transaction the RAISE rolls everything back.
+-- step 3b RAISE (an unmanaged row blocked an insert) would leave steps 1-3 committed and steps 4-5
+-- never run, a half-applied delta behind a loud failure. In one transaction the RAISE rolls everything back.
 
 DROP TABLE IF EXISTS pg_temp._jsm_doc;
 DROP TABLE IF EXISTS pg_temp._jsm_sources;
@@ -80,7 +85,7 @@ SELECT $manifest${"sources":[
   {"manifest_id":"djinni.rss.rust","type":"DJINNI_RSS","config":{"primaryKeyword":"Rust"},"namespace":"","manifest_version":1,"policy_version":1,"config_version":1,"min_interval_hours":24,"budget_limit":null,"budget_window":null,"readiness":"CANDIDATE","readiness_reason":null,"legacy":false},
   {"manifest_id":"wwr.rss.all-jobs","type":"WWR_RSS","config":{},"namespace":"","manifest_version":1,"policy_version":1,"config_version":1,"min_interval_hours":24,"budget_limit":null,"budget_window":null,"readiness":"CANDIDATE","readiness_reason":null,"legacy":false},
   {"manifest_id":"wwr.rss.devops","type":"WWR_RSS","config":{"category":"remote-devops-sysadmin-jobs"},"namespace":"","manifest_version":1,"policy_version":1,"config_version":1,"min_interval_hours":24,"budget_limit":null,"budget_window":null,"readiness":"CANDIDATE","readiness_reason":null,"legacy":false},
-  {"manifest_id":"euremotejobs.rss.feed","type":"EUREMOTEJOBS_RSS","config":{},"namespace":"","manifest_version":1,"policy_version":1,"config_version":1,"min_interval_hours":24,"budget_limit":null,"budget_window":null,"readiness":"CANDIDATE","readiness_reason":null,"legacy":true}
+  {"manifest_id":"euremotejobs.rss.feed","type":"EUREMOTEJOBS_RSS","config":{},"namespace":"","manifest_version":1,"policy_version":1,"config_version":1,"min_interval_hours":24,"budget_limit":null,"budget_window":null,"readiness":"BLOCKED","readiness_reason":"PERMISSION_PROHIBITED: a fixture records permission PROHIBITED","legacy":true}
 ],"typeBlocks":[
   {"type":"WORKINGNOMADS_API","reason":"STATUS_CONSTANT_BLOCKED: blocked: no documented permission - the terms say nothing either way on automated access"},
   {"type":"SMARTRECRUITERS_ATS","reason":"NO_API_CAPTURE: none of postings-list.json is a real capture of the API payload"},
@@ -88,7 +93,8 @@ SELECT $manifest${"sources":[
   {"type":"JSEARCH_API","reason":"KEY_REQUIRED: a fixture records permission KEY_REQUIRED"},
   {"type":"THEIRSTACK_API","reason":"KEY_REQUIRED: a fixture records permission KEY_REQUIRED"},
   {"type":"MUSE_API","reason":"STATUS_CONSTANT_BLOCKED: terms section 2.2 requires a registered app and section 3.1 licenses display only; no app is registered and storing postings is not addressed; owner decision required"},
-  {"type":"REED_API","reason":"KEY_REQUIRED: a fixture records permission KEY_REQUIRED"}
+  {"type":"REED_API","reason":"KEY_REQUIRED: a fixture records permission KEY_REQUIRED"},
+  {"type":"EUREMOTEJOBS_RSS","reason":"PERMISSION_PROHIBITED: a fixture records permission PROHIBITED"}
 ]}$manifest$::jsonb AS doc;
 
 CREATE TEMP TABLE _jsm_sources AS
@@ -177,6 +183,21 @@ FROM _jsm_blocks b
 WHERE s.type = b.type::job_source_type
   AND s.manifest_id IS NULL
   AND s.readiness = 'CANDIDATE';
+
+-- 5. refresh: the stored readiness of every claimed row follows the manifest, both ways (an owner
+-- decision unblocks, a prohibition blocks). Enable refuses on the STORED value, so without this a
+-- row keeps the readiness of the deploy that inserted it. A smoke-earned VERIFIED is never
+-- overwritten by a CANDIDATE manifest, only by a BLOCKED one. Only readiness, its reason and
+-- updated_at are written, and only on a real change, so a re-applied delta stays byte-identical.
+UPDATE job_sources s
+SET readiness        = m.readiness::job_source_readiness,
+    readiness_reason = m.readiness_reason,
+    updated_at       = clock_timestamp()
+FROM _jsm_sources m
+WHERE s.manifest_id = m.manifest_id
+  AND NOT (s.readiness = 'VERIFIED' AND m.readiness = 'CANDIDATE')
+  AND (s.readiness IS DISTINCT FROM m.readiness::job_source_readiness
+       OR s.readiness_reason IS DISTINCT FROM m.readiness_reason);
 
 DROP TABLE _jsm_blocks;
 DROP TABLE _jsm_sources;
