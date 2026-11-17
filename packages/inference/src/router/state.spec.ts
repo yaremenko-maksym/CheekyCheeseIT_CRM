@@ -24,6 +24,7 @@ import {
   STATE_WRITE_FLAGS,
   type OwnCapUnit,
   type RouteState,
+  type RouteStatePort,
   type StateEvent,
 } from './state'
 
@@ -669,6 +670,28 @@ describe('OwnCapPort over the state (§3.1, §5.1 units, D5)', () => {
     refuse = true
     expect(await cap.reserve('groq', L4)).toBe('WRITE_FAILED')
     expect(ownCap(state.snapshot())?.requests).toBe(1)
+  })
+
+  it('a write that fails across midnight does not lower the new day count (CR-M-6)', async () => {
+    let now = Date.parse('2026-11-04T23:59:00Z')
+    const mem = createMemoryRouteStatePort()
+    let failNext = true
+    const state: RouteStatePort = {
+      snapshot: mem.snapshot,
+      update: (change) => {
+        if (!failNext) return mem.update(change)
+        failNext = false
+        const write = mem.update(change) // in memory now; the write-through fails below
+        now = Date.parse('2026-11-05T00:00:01Z') // the provider day turns while the write is in flight
+        return write.then(async () => {
+          await cap.reserve('groq', L4) // a concurrent call reserves on the new day
+          return false
+        })
+      },
+    }
+    const cap = createOwnCapPort({ state, now: () => now })
+    expect(await cap.reserve('groq', L4)).toBe('WRITE_FAILED')
+    expect(ownCap(mem.snapshot())).toEqual({ day: '2026-11-05', requests: 1, tokens: 0 })
   })
 
   it('reads the provider day once: a clock turning mid-reserve dates the unit and the count alike (CR-L-2)', async () => {

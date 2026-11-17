@@ -180,7 +180,7 @@ function geminiCandidates(
 /**
  * One provider's refresh (§3.4 layer 2). A failed listing, `AUTH`, a cap refusal or an empty result
  * leaves the list file untouched. Probes already made still record their probe day, but a promotion
- * counts only once the list moved. A refused state write fails the provider, never `done`.
+ * counts only once the list moved. A refused state write skips the provider with reason `STATE`, never `done`.
  */
 async function refreshProvider(
   route: HostedRouteConfig,

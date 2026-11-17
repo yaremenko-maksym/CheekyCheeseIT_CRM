@@ -564,7 +564,8 @@ export function createOwnCapPort(opts: { state: RouteStatePort; now: () => numbe
       // The port applies a change to memory at once unless it refuses it whole (oversized).
       const applied = opts.state.snapshot() !== snap
       if (await write) return { day: c.day }
-      if (applied) await change(p, day, giveBack)
+      // The day turned while the write was in flight: the unit belongs to a closed day (SR-L-68).
+      if (applied && counting(p).day === day) await change(p, day, giveBack)
       return 'WRITE_FAILED'
     },
     async release(p, unit) {
