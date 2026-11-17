@@ -292,3 +292,180 @@ it moves to the optimistic row.
 | Admin edit toasts (invoice not reissued / diverged)                | Unchanged                                                                                       |
 | Senior edit: receipt sent only if changed                          | Unchanged                                                                                       |
 | DROP toast «Дохід зареєстровано, очікує валідації», DIVIDEND toast | Unchanged (shown when the optimistic row resolves)                                              |
+
+## Data (what each layout reads)
+
+Every layout reads exactly the same queries; the container is the only difference. No new endpoint,
+no new business field, no new KPI.
+
+| Query                                          | Used for                                          | Notes                                                                                   |
+| ---------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| The finance list query (owned by Task 1.2)     | The optimistic row and its rollback               | The sheet writes into that cache through 1.2's key; this spec does not define its shape |
+| `['projects']`                                 | «Проєкт» picker, USDT lock                        | Unchanged                                                                               |
+| `['exchange-rate', date]`                      | NBU rate line                                     | Unchanged; only for a non-USD / non-USDT currency                                       |
+| The users / admins / partners queries of today | Receiver, employee, partner, transfer cards       | Unchanged hooks                                                                         |
+| `['company-account']`                          | Company balance (ADMIN_INCOME, EXPENSE, DIVIDEND) | Unchanged                                                                               |
+| Existing salary parts of today                 | «Уже внесено за <місяць>»                         | Unchanged                                                                               |
+
+Invalidations after a resolved save are today's set, unchanged: `['transactions']`,
+`['finance-summary']`, plus `['company-account']` for DIVIDEND and company-funded expenses. Smart prefill
+is device-local storage only.
+
+## Components (mapping to our stack)
+
+| Visual block                         | Our component                                                     | New?                             |
+| ------------------------------------ | ----------------------------------------------------------------- | -------------------------------- |
+| Sheet / side panel                   | `ResponsiveSheet` (foundation)                                    | no                               |
+| Receipt tile, upload row, link input | `ReceiptInput` restyled to the foundation money form              | no (restyle)                     |
+| Amount, currency pill                | Foundation money-form amount + pill                               | no                               |
+| Kind pill + picker / listbox         | Pill + `ResponsiveSheet` picker (phone) / Radix `Popover` listbox | **yes** — open point 7           |
+| Category chips, segmented controls   | Foundation chips / segmented control                              | no                               |
+| Defaults row                         | Foundation money-form defaults row                                | no                               |
+| Transfer cards «надсилає → отримує»  | Two cards + swap icon button                                      | **yes** — open point 7           |
+| «Що зміниться» list                  | Foundation grouped list rows                                      | **yes** (content) — open point 7 |
+| Info / warning / error cards         | Foundation `Alert` variants                                       | no                               |
+| Dirty-close confirm                  | Foundation action sheet (phone) / `CrmDialog` confirm (wide)      | no                               |
+| Error toast with action              | Foundation toast with action                                      | no                               |
+
+## Token-map
+
+Foundation tokens only, no new token: `--popover` (sheet and panel surface), `--card` / `--raised`
+(cards, upload row), `--border` / `--separator` / `--input-border`, `--fg` / `--muted-fg` /
+`--placeholder` (text, `0,00`), `--primary` / `--primary-fg` (submit, «змінити»), `--yellow-subtle`
+(armed bar, optimistic row tint), `--warning` (non-editable banner, «Не перерахується автоматично»),
+`--destructive` (422, rollback toast, «Вийти без збереження»), `--info` (salary receipt note), `--scrim`,
+radii `--r-sheet` / `--r-lg` / `--r-md`.
+
+## A11y (WCAG 2.2 AA)
+
+- Every interactive target is ≥ 44 × 44 px on touch (chips, pills, the icon lead below 360, the swap
+  button); inputs use 16 px text so iOS does not zoom.
+- The sheet is `role="dialog"` with `aria-labelledby` the title; `aria-modal="true"` and a focus trap
+  below 1440 only. The non-modal panel keeps the page reachable and returns focus on close.
+- Every field has a visible `<label>`; errors are linked with `aria-describedby` and `aria-invalid`.
+  The first invalid field receives focus on submit.
+- The upload progress bar is `role="progressbar"` with `aria-valuenow`, **not** a live region (no
+  chatter). Status changes that matter are announced once: the optimistic pill and the rollback toast
+  via `role="status"`; the definite and unknown-outcome alerts via `role="alert"`.
+- Submit in flight uses `aria-disabled="true"` (stays focusable and announced), never `disabled`.
+- Colour is never the only signal: errors carry an icon and text; the locked currency carries a lock
+  icon and an accessible name «USDT, змінити не можна».
+- Contrast: body text on `--popover` ≥ 4.5:1; the `0,00` placeholder is a placeholder, not content.
+
+## Strings (uk / en)
+
+New or changed strings only; unchanged strings keep their current catalog entries.
+
+| Key idea                   | uk                                                                                   | en                                                                                 |
+| -------------------------- | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| Create title               | Нова транзакція                                                                      | New transaction                                                                    |
+| Single-kind title          | Новий дохід                                                                          | New income                                                                         |
+| Salary part title          | Частина зарплати                                                                     | Salary part                                                                        |
+| Admin edit title           | Редагування                                                                          | Edit transaction                                                                   |
+| Senior edit title          | Виправити дохід                                                                      | Fix income                                                                         |
+| Receipt tile               | Додати чек                                                                           | Add receipt                                                                        |
+| Receipt hint, touch        | Камера, фото або файл · до 10 МБ                                                     | Camera, photo or file · up to 10 MB                                                |
+| Receipt hint, fine pointer | Перетягніть файл сюди або оберіть · до 10 МБ                                         | Drop a file here or choose one · up to 10 MB                                       |
+| Defaults row               | Сьогодні · без проєкту · без опису · змінити                                         | Today · no project · no description · change                                       |
+| Description field          | Опис                                                                                 | Description                                                                        |
+| Armed save                 | Збережеться {amount} після чека                                                      | Saves {amount} once the receipt is up                                              |
+| Cancel armed save          | Не зберігати автоматично                                                             | Don’t save automatically                                                           |
+| Collapse                   | Згорнути                                                                             | Minimise                                                                           |
+| Optimistic row             | Зберігаємо…                                                                          | Saving…                                                                            |
+| Optimistic pill            | Зберігаємо {amount}…                                                                 | Saving {amount}…                                                                   |
+| Keyless in flight          | Зберігаємо… змінити не можна                                                         | Saving… editing is locked                                                          |
+| Rollback toast title       | Не збережено {amount}                                                                | {amount} not saved                                                                 |
+| Rollback toast body        | Рядок прибрано зі списку. Сума й чек у чернетці.                                     | The row was removed. The amount and receipt are in the draft.                      |
+| Rollback action            | Відкрити                                                                             | Open                                                                               |
+| Not sent                   | Транзакцію не надіслано                                                              | Transaction not sent                                                               |
+| Manual retry               | Повторити збереження                                                                 | Try saving again                                                                   |
+| Unknown outcome action     | Надіслати ще раз                                                                     | Send again                                                                         |
+| Unknown outcome hint       | Якщо транзакцію вже збережено, друга не з’явиться.                                   | If it was already saved, no duplicate will appear.                                 |
+| Discard draft              | Видалити чернетку                                                                    | Delete draft                                                                       |
+| Dirty close                | Вийти без збереження?                                                                | Leave without saving?                                                              |
+| Dirty close actions        | Продовжити редагування / Вийти без збереження                                        | Keep editing / Leave without saving                                                |
+| Read-only                  | Лише перегляд                                                                        | View only                                                                          |
+| Non-editable banner        | Транзакцію не можна редагувати: це виплата або вона прив’язана до заявки на виплату. | This transaction can’t be edited: it is a payout or is linked to a payout request. |
+| Cascade list               | Що зміниться                                                                         | What will change                                                                   |
+| Cascade row note           | Не перерахується автоматично                                                         | Won’t be recalculated automatically                                                |
+| Edit primary               | Зберегти зміни                                                                       | Save changes                                                                       |
+| Senior resubmit banner     | Дохід відхилено. Після збереження він знову піде на перевірку.                       | Income rejected. Once saved, it goes back for review.                              |
+| Senior resubmit primary    | Зберегти й надіслати                                                                 | Save and resubmit                                                                  |
+| Salary receipt note        | Чек для зарплати додається під час виплати.                                          | The salary receipt is added at payout.                                             |
+| Existing parts             | Уже внесено за {month}                                                               | Already entered for {month}                                                        |
+| Transfer swap              | Поміняти напрямок                                                                    | Swap direction                                                                     |
+| DROP hint                  | Дохід піде на валідацію адміністратору                                               | The income goes to an admin for validation                                         |
+| Locked currency (SR)       | {currency}, змінити не можна                                                         | {currency}, can’t be changed                                                       |
+
+`{amount}` is formatted by the locale (`1 250,50 USD` in uk, `1,250.50 USD` in en). The en column is
+written for meaning, not translated word by word; copy-reviewer gives the per-language verdict.
+
+## For the coder
+
+- Build from this file and the PNGs; the HTML under `assets/src/` is a rendering tool, not code to copy.
+- Mount one layout: `ResponsiveSheet` decides the container by width; the form component is shared.
+- Submit in flight: `aria-disabled="true"` and exactly one request per tap (the plan's test asserts
+  both).
+- Never add an automatic retry, a retry timer or a retry-on-reconnect.
+- Keyless kinds keep the waiting flow until Task 1.1 adds keys; then switch them to the optimistic flow.
+- The receipt upload must outlive the sheet (draft-scoped, not dialog-scoped).
+
+## Rendering notes
+
+- `design-gate: degraded`: no Claude Design export; HTML prototypes built only from the
+  `_foundation/assets/src` helpers and rendered by Playwright (`assets/src/render.mjs`).
+- PNGs are quantised to a 256-colour palette (ImageMagick, or sharp as the fallback). The font is a
+  locally installed Inter; the web-font links are stripped so a render needs no network.
+- The rendered HTML is regenerated by `render.mjs` and not committed (the foundation precedent).
+- The foundation `tablet()` / `desktop()` frames hard-code the ADMIN role; `transaction-sheet.mjs`
+  patches a temporary copy to pass the role (`withRole`). The foundation files are untouched.
+- The table behind the 1440 panel is the foundation sample list, not filtered by role.
+
+## Self-score (`docs/design/rubric-calibration.md`)
+
+Criterion 8 (data viz) does not apply and is dropped; the weights are renormalised over 93. Scores
+assume Task 1.1 has shipped (keys on every create), which the plan orders before 1.3.
+
+| Criterion (weight)  | < 640   | 640–1023 | ≥ 1024  |
+| ------------------- | ------- | -------- | ------- |
+| 1 Time-to-task (15) | 9       | 9        | 9.5     |
+| 2 Never blocks (15) | 10      | 10       | 10      |
+| 3 Navigation (10)   | 9       | 9        | 9.5     |
+| 4 Forms (10)        | 9.5     | 9.5      | 9.5     |
+| 5 Lists (10)        | 9       | 9        | 9.5     |
+| 6 Sheets (8)        | 9.5     | 9        | 9       |
+| 7 States (10)       | 9.5     | 9.5      | 9.5     |
+| 9 Platform (8)      | 9       | 8.5      | 9.5     |
+| 10 A11y (7)         | 9       | 9        | 9       |
+| **Weighted**        | **9.3** | **9.2**  | **9.5** |
+
+**Weakest criterion: 2 (Never blocks), conditionally.** If 1.3 ships before Task 1.1, the keyless
+kinds keep the waiting flow, criterion 2 drops to 8 and the scores fall to 8.99 (phone) and 8.90
+(tablet), under the 9.0 gate; desktop stays above it at 9.18. Unconditionally weakest: criterion 9 on tablets (8.5) — a coarse-pointer tablet gets no
+drag-and-drop hint and no keyboard hints, and the 400 px modal panel hides the list it opened from.
+
+## Open points
+
+1. **Task 1.1 dependency.** EXPENSE, non-USDT ADMIN_INCOME and ADMIN_TRANSFER are keyless today, so
+   they cannot get the optimistic flow or a safe resubmit. Recommendation: ship 1.1 first; until then
+   keep the waiting flow for those kinds as specified.
+2. **SALARY has no receipt at create.** Kept as today (the receipt is attached at payout).
+   Recommendation: keep; the info line explains it.
+3. **Quick add (Task 0.12).** The FAB / «+» entry should open this same sheet. Recommendation: point
+   0.12 at this spec instead of a separate quick-add form.
+4. **Pay / settle / payout dialogs** are out of scope (they are not create/edit). Recommendation: a
+   separate screen task that reuses the receipt block.
+5. **Other entry points** (DROP cabinet, the dashboard «В роботі» panel) open the same sheet with the
+   same role rules. Recommendation: no separate mockups; verify them in User Testing.
+6. **Prefill source.** Device-local storage loses the prefill across devices. Recommendation: keep it
+   local (no new business data); revisit only if users ask.
+7. **Missing primitives:** the kind pill + picker, the transfer cards and the «Що зміниться» list are
+   not in `_foundation`. Recommendation: the orchestrator adds them to the foundation primitives when
+   1.3 is approved.
+8. **Foundation sheet header at 320.** `.sheethead` reserves 96 px per side, which truncates a
+   15-character title at 320; this mockup overrides it locally with an icon lead. Recommendation: adopt
+   the icon lead below 360 in the foundation sheet.
+9. **The 1440 table behind the panel** is the foundation sample, not role-filtered, and the finance
+   list itself is Task 1.2's design. Recommendation: reconcile once 1.2 is approved.
+10. **`withRole` patch** in the mockup tool depends on the foundation frame's source text and throws if
+    it changes. Recommendation: the foundation `tablet()` / `desktop()` take a `role` parameter.
