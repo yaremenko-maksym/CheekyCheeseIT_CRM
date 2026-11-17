@@ -1,8 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash, timingSafeEqual } from 'node:crypto'
-import type { ExtractionPort, RouteStatePort, RouterEvent } from '@crm/inference'
+import type { ExtractionPort, RouteStatePort, RouterEvent, RouterReadiness } from '@crm/inference'
 import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify'
-import { z } from 'zod'
 import { stripContacts } from '../job-sourcing/structuring/contact-strip'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
@@ -19,11 +18,6 @@ import {
 } from './schema'
 import { checkVisual } from './visual-check'
 
-/** The one fixed preflight request: the caller sends nothing, so nothing of its can reach a route. */
-const PREFLIGHT_INPUT = 'Reply with the JSON object {"ok": true} and nothing else.'
-const PREFLIGHT_INSTRUCTION = 'You are a health check. Answer exactly as asked.'
-const preflightReplySchema = z.object({ ok: z.literal(true) }).strict()
-
 /** A log line carries codes and counts only — never the secret, a key, input or model text (AC9). */
 export type WorkerLogLine = { event: string } & Record<string, string | number | boolean | object>
 
@@ -35,10 +29,13 @@ export type ExtractionWorkerOptions = {
   tableVersion?: string
   routeState: RouteStatePort
   log: (line: WorkerLogLine) => void
-  /** The router adapters, built with the worker's own event sink. */
+  /**
+   * The router adapter, built with the worker's own event sink, and the readiness answer (H.3): a
+   * read of the worker's own route state that sends no model request and reserves no own-cap unit.
+   */
   buildPorts: (onEvent: (e: RouterEvent) => void) => {
     extract: ExtractionPort
-    preflight: ExtractionPort
+    readiness: () => Promise<RouterReadiness>
   }
 }
 
@@ -175,16 +172,10 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
     if (!preflightBodySchema.safeParse(req.body).success) {
       return refuse(reply, 400, 'BAD_REQUEST')
     }
-    const events: WorkerEvent[] = []
-    const r = await call(reply, events, (signal) =>
-      ports.preflight.extract({
-        input: PREFLIGHT_INPUT,
-        instruction: PREFLIGHT_INSTRUCTION,
-        schema: preflightReplySchema,
-        signal,
-      }),
-    )
-    return { ok: r.ok, events, health: healthFlags(opts.routeState.snapshot()) }
+    // No model request, so no router event: the reply's list is always empty.
+    const readiness = await ports.readiness()
+    opts.log({ event: 'PREFLIGHT', readiness })
+    return { readiness, events: [], health: healthFlags(opts.routeState.snapshot()) }
   })
 
   return app

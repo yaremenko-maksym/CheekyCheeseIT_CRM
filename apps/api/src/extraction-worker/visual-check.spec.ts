@@ -33,7 +33,7 @@ function workerWith(extract: ExtractionPort) {
     secret: SECRET,
     routeState: fileState(),
     log: (l) => logs.push(l),
-    buildPorts: () => ({ extract, preflight: extract }),
+    buildPorts: () => ({ extract, readiness: async () => 'READY' as const }),
   })
   open.push(app)
   return { app, logs }

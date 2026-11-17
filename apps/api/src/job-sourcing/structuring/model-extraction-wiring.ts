@@ -3,10 +3,11 @@ import {
   MAX_HOSTED_BUDGET_MS,
   routerCallCeilingMs,
   routerInputCeilingChars,
+  type ExtractionPort,
   type ExtractionWorkerAdapter,
   type ExtractionWorkerAdapterConfig,
+  type WorkerReadiness,
 } from '@crm/inference'
-import { setTimeout as delay } from 'node:timers/promises'
 import { z } from 'zod'
 import {
   EXTRACTION_TABLE_VERSION,
@@ -29,9 +30,6 @@ export const WORKER_STRUCTURER_TIMEOUT_MS = CALL_CEILING_MS + MARGIN_MS
 export const WORKER_ADAPTER_TIMEOUT_MS = WORKER_STRUCTURER_TIMEOUT_MS + MARGIN_MS
 /** The timeout plus a grace: every request has ended by then. */
 export const WORKER_HOLD_MS = WORKER_ADAPTER_TIMEOUT_MS + MARGIN_MS
-
-/** The gaps between the 4 preflight attempts: a worker still starting must fit inside them (§5.3). */
-export const PREFLIGHT_BACKOFF_MS = [10_000, 30_000, 60_000] as const
 
 /** The only env the collection side reads for the model. No hosted key, no router URL (§2.4). */
 export const MODEL_EXTRACTION_ENV_KEYS = [
@@ -93,7 +91,11 @@ export function readExtractionWorkerEnv(
 
 export type ModelCycle =
   | {
-      kind: 'READY'
+      /**
+       * `READY` runs the model stage. `LIMITS_EXHAUSTED` (H.3): every route is limit-blocked, so the
+       * structurer stops each record with the H.2 stop and calls the worker zero times.
+       */
+      kind: 'READY' | 'LIMITS_EXHAUSTED'
       structurer: ModelStructurer
       budget: InMemoryModelBudget
       /** Writes the cycle's counters and flags. Never throws, and never changes a result. */
@@ -104,8 +106,8 @@ export type ModelCycle =
 export type ModelExtractionWiring = {
   readonly inputCeilingChars: number
   /**
-   * The only way to a structurer: one cycle's budget and the structurer over it, behind the §5.3
-   * preflight; HTML providers of that cycle share both. An unreachable model is a value, not a throw,
+   * The only way to a structurer: one cycle's budget and the structurer over it, behind the H.3
+   * readiness preflight; HTML providers of that cycle share both. An unreachable model is a value, not a throw,
    * so the deterministic stages run, and with no structurer no record can be marked by the model.
    */
   prepareCycle(cycleId: string): Promise<ModelCycle>
@@ -125,7 +127,6 @@ export function buildModelExtraction(
   opts: {
     store: ModelHealthStore
     log: ModelHealthLog
-    sleep?: (ms: number) => Promise<unknown>
   } & Pick<ExtractionWorkerAdapterConfig, 'fetchImpl'>,
 ): ModelExtractionResult {
   const worker = readExtractionWorkerEnv(rawEnv)
@@ -153,7 +154,6 @@ export function buildModelExtraction(
       onReply,
       ...(opts.fetchImpl && { fetchImpl: opts.fetchImpl }),
     })
-  const sleep = opts.sleep ?? delay
   const health = createModelHealth({ store: opts.store, log: opts.log })
   const inputCeilingChars = routerInputCeilingChars(
     {
@@ -168,37 +168,50 @@ export function buildModelExtraction(
       inputCeilingChars,
       prepareCycle: async (cycleId) => {
         const cycle = health.beginCycle(cycleId)
-        const reached = await reachModel(adapter(cycle.onPreflightReply), sleep, opts.log)
-        await cycle.preflightDone(reached)
-        if (!reached) return { kind: 'MODEL_UNREACHABLE' }
+        const readiness = await readModel(adapter(cycle.onPreflightReply), opts.log)
+        await cycle.preflightDone(readiness)
+        if (readiness !== 'READY' && readiness !== 'LIMITS_EXHAUSTED') {
+          return { kind: 'MODEL_UNREACHABLE' }
+        }
         const budget = new InMemoryModelBudget(HTML_MODEL_CALLS_PER_CYCLE)
         const structurer = new ModelStructurer({
-          port: adapter(cycle.onReply),
+          port: observed(adapter(cycle.onReply), cycle.onResult),
           budget,
           timeoutMs: WORKER_STRUCTURER_TIMEOUT_MS,
           abandonedHoldMs: WORKER_HOLD_MS,
           inputCeilingChars,
+          limitsExhausted: readiness === 'LIMITS_EXHAUSTED',
         })
-        return { kind: 'READY', structurer, budget, finish: cycle.finish }
+        return { kind: readiness, structurer, budget, finish: cycle.finish }
       },
     },
   }
 }
 
-async function reachModel(
+/** The port as is, with each result shown to the health handler first (H.2 flag). */
+function observed(
+  port: ExtractionPort,
+  onResult: (result: { ok: boolean; code?: string }) => void,
+): ExtractionPort {
+  return {
+    extract: async (req) => {
+      const result = await port.extract(req)
+      onResult(result)
+      return result
+    },
+  }
+}
+
+/** One attempt, no backoff (H.3): a worker that is down is retried by the next cycle. */
+async function readModel(
   port: ExtractionWorkerAdapter,
-  sleep: (ms: number) => Promise<unknown>,
   log: ModelHealthLog,
-): Promise<boolean> {
-  const attempt = async (n: number) => {
-    const { reached, status } = await port.preflight()
-    if (!reached) log.error(`MODEL_PREFLIGHT_FAILED attempt=${n} status=${status ?? 'none'}`)
-    return reached
+): Promise<WorkerReadiness['readiness']> {
+  const answer = await port.preflight()
+  if (answer.readiness === 'UNREACHABLE') {
+    log.error(`MODEL_PREFLIGHT_FAILED readiness=UNREACHABLE status=${answer.status ?? 'none'}`)
+  } else if (answer.readiness === 'NO_ROUTE') {
+    log.error('MODEL_PREFLIGHT_FAILED readiness=NO_ROUTE')
   }
-  if (await attempt(1)) return true
-  for (const [i, gap] of PREFLIGHT_BACKOFF_MS.entries()) {
-    await sleep(gap)
-    if (await attempt(i + 2)) return true
-  }
-  return false
+  return answer.readiness
 }

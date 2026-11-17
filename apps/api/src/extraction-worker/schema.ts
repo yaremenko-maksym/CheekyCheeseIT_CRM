@@ -2,9 +2,6 @@ import {
   HOSTED_PROVIDERS,
   MAX_EXTRACTION_INPUT_CHARS,
   routerConfigSchema,
-  type ExtractionPort,
-  type ExtractionRequest,
-  type ExtractionResult,
   type RouteStatePort,
 } from '@crm/inference'
 import { z } from 'zod'
@@ -139,25 +136,6 @@ export function parseWorkerEnv(env: Readonly<Record<string, string | undefined>>
       stateFile,
       host: env.EXTRACTION_WORKER_HOST ?? '0.0.0.0',
       port,
-    },
-  }
-}
-
-/**
- * The interim preflight (5.4c-H1, until the H2 readiness check of ADR H.3): it asks no model. The
- * local route it used to reach is gone, and a hosted probe would spend a free request every cycle.
- * Ready when the router accepts the config and the config names a hosted route; the fixed answer
- * still goes through the asked schema, so the port never hands on what the caller did not ask for.
- */
-export function requestFreePreflight(raw: unknown): ExtractionPort {
-  const ready = hostedRoutesOf(raw).present.length > 0
-  return {
-    extract: <T>(req: ExtractionRequest<T>): Promise<ExtractionResult<T>> => {
-      if (!ready) return Promise.resolve({ ok: false, code: 'NOT_CONFIGURED' })
-      const answer = req.schema.safeParse({ ok: true })
-      return Promise.resolve(
-        answer.success ? { ok: true, data: answer.data } : { ok: false, code: 'INVALID_OUTPUT' },
-      )
     },
   }
 }

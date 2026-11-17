@@ -10,7 +10,6 @@ import {
   healthFlags,
   MAX_WORKER_INPUT_CHARS,
   parseWorkerEnv,
-  requestFreePreflight,
   resumeWriteBodySchema,
 } from './schema'
 import { z } from 'zod'
@@ -170,50 +169,6 @@ describe('healthFlags', () => {
         failedJobs: ['daily', 'chain'],
       }),
     ).toEqual({ modelListStale: true, failedJobs: ['daily', 'chain'] })
-  })
-})
-
-describe('requestFreePreflight — the interim preflight asks no model (5.4c-H1, ADR H.3)', () => {
-  const hosted = {
-    provider: 'groq',
-    apiKey: 'KEY-MARKER',
-    models: ['openai/gpt-oss-20b'],
-    contextTokens: 8192,
-    structuredOutput: 'json_object',
-    minGapMs: 0,
-    timeoutMs: 1000,
-    maxAnswerTokens: 512,
-    freeLimit: { requestsPerDay: 100 },
-  }
-  const config = { policyVersion: 'p1', hostedBudgetMs: 5000, routes: [hosted] }
-  const ask = { input: 'x', schema: z.object({ ok: z.literal(true) }).strict() }
-
-  it('an accepted config with a hosted route is ready: the fixed answer, no request', async () => {
-    expect(routerConfigSchema.safeParse(config).success).toBe(true)
-    expect(await requestFreePreflight(config).extract(ask)).toEqual({
-      ok: true,
-      data: { ok: true },
-    })
-  })
-
-  it.each([
-    ['no route left', { ...config, routes: [] }],
-    ['a stale floorBudgetMs', { ...config, floorBudgetMs: 60_000 }],
-    ['a stale local route', { ...config, routes: [hosted, { provider: 'local' }] }],
-    ['no config at all', undefined],
-  ])('%s: the router refuses it, so the preflight is not ready', async (_name, raw) => {
-    expect(await requestFreePreflight(raw).extract(ask)).toEqual({
-      ok: false,
-      code: 'NOT_CONFIGURED',
-    })
-  })
-
-  it('an answer outside the asked schema is refused, never handed on', async () => {
-    const other = { input: 'x', schema: z.object({ other: z.string() }) }
-    expect(await requestFreePreflight(config).extract(other)).toEqual({
-      ok: false,
-      code: 'INVALID_OUTPUT',
-    })
   })
 })
 
