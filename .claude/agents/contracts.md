@@ -353,10 +353,10 @@ self-review counts.
    `flow-gate-relay.yml` (no token, evaluates nothing) signals, and `flow-gate-recheck.yml`
    (default-branch copy, `workflow_run` + `issue_comment`, `actions: write` only) re-runs the latest
    Flow Gate run of the PR head (`scripts/architect/flow-gate-recheck.mjs`). The re-run is a new
-   attempt on the head's own check suite and reads the PR state live. Only comments and reviews by
-   OWNER / MEMBER / COLLABORATOR trigger it. Limits: an event made by `GITHUB_TOKEN` (a bot label,
+   attempt on the head's own check suite and reads the PR state live. Only comments, reviews and
+   review comments by OWNER / MEMBER / COLLABORATOR trigger it; other such activity does not. Limits: an event made by `GITHUB_TOKEN` (a bot label,
    comment or push) starts no workflow at all, so it re-checks nothing; a run older than 30 days
-   cannot be re-run; a failed recheck shows on main's commit, not on the PR. Fallback: if the check
+   or already re-run 50 times cannot be re-run; a failed recheck shows on main's commit, not on the PR. Fallback: if the check
    has not re-run a few minutes after the last event, edit the PR body or toggle a label.
 3. **Stale red run vs auto-merge.** `auto-merge-on-label.yml` fails fast on a failing required
    check. If `merge-approved` is applied while the previous Flow Gate run is red, auto-merge can

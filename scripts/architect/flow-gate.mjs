@@ -1000,7 +1000,7 @@ export function render(result, pr) {
   }
   lines.push(
     '',
-    'Re-runs by itself on every PR event: push, label change, body edit, review, review comment and PR comment. If it has not re-run a few minutes after your last event, edit the PR body or toggle a label (a run older than 30 days cannot be re-run).',
+    'Re-runs by itself on push, label change, body edit, reopen and ready-for-review, and after a comment, review or review comment by OWNER / MEMBER / COLLABORATOR; other activity does not re-run it. If it has not re-run a few minutes after your last event, edit the PR body or toggle a label (GitHub will not re-run a run older than 30 days or one re-run 50 times).',
   )
   return lines.join('\n') + '\n'
 }

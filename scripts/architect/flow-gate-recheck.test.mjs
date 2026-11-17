@@ -411,3 +411,18 @@ test('an old attempt that another recheck re-runs during our wait ends our wait 
 test('FALLBACK names the 50-re-run cap', () => {
   assert.match(FALLBACK, /re-run 50 times/)
 })
+
+// SR-M-3: the concurrency group carries the job's trust condition, so an untrusted event never
+// shares a group with a real recheck. The two copies of the condition must stay identical.
+test('recheck workflow: concurrency group repeats the job if: condition exactly', () => {
+  const wf = readFileSync(
+    new URL('../../.github/workflows/flow-gate-recheck.yml', import.meta.url),
+    'utf8',
+  )
+  const norm = (t) => t.replace(/\s+/g, ' ').trim()
+  const cond = wf.match(/\n {4}if: >-\n([\s\S]*?)\n {4}concurrency:/)
+  const group = wf.match(/\n {6}group: >-\n([\s\S]*?)\n {6}cancel-in-progress:/)
+  assert.ok(cond && group, 'both blocks found')
+  const g = norm(group[1])
+  assert.ok(g.includes(`(${norm(cond[1])}) && 'trusted' || github.run_id }}`), g)
+})
