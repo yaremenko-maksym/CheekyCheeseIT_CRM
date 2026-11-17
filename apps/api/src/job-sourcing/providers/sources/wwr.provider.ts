@@ -101,8 +101,8 @@ type WwrConfig = z.output<typeof configSchema>
 
 /**
  * 4 MiB, twice the 2 MiB default: the all-jobs feed (at most 10 items of each of 10 categories)
- * outgrew 2 MiB on prod on 2026-11-17 (`PAYLOAD_TOO_LARGE`). The parse budget holds: the worst
- * per-byte shape measured 75 ms at 2 MiB (`xml-limits.ts`), so about 150 ms here, under 250 ms.
+ * outgrew 2 MiB on prod on 2026-11-17 (`PAYLOAD_TOO_LARGE`). Parse cost is bounded by the
+ * count-based pre-scan (`xml/prescan.ts`, ceilings in `xml/xml-limits.ts`), not by the byte cap alone.
  * The live feed's size was not measured; if it outgrows this too, move to the category feeds.
  */
 export const WWR_MAX_FEED_BYTES = 4 * 1024 * 1024
