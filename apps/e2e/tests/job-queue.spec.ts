@@ -303,6 +303,32 @@ test.describe('scenario 9 — list states (mocked)', () => {
     await expect(page.getByTestId('job-queue-partial')).toBeVisible()
     await expect(page.getByTestId(`job-queue-row-${OPP}`)).toBeVisible()
   })
+
+  test('9f: AI limits exhausted shows the AI-limits notice in a live region, the list still visible', async ({
+    asHr: page,
+  }) => {
+    const uk = await loadMessages('uk')
+    await mockJobQueue(page, {
+      list: [listResponse([listItem()], { sourcingNotice: 'AI_LIMITS_EXHAUSTED' })],
+    })
+    await page.goto('/job-queue')
+    const notice = page.getByTestId('job-queue-ai-limits')
+    await expect(notice).toHaveText(
+      assertInCatalog(
+        uk,
+        'Пошук вакансій тимчасово недоступний: ліміти AI-моделей на зараз вичерпано. Спробуйте пізніше.',
+      ),
+    )
+    await expect(page.getByRole('status').filter({ has: notice })).toHaveCount(1)
+    await expect(page.getByTestId(`job-queue-row-${OPP}`)).toBeVisible()
+  })
+
+  test('9g: a null sourcing notice shows no AI-limits notice', async ({ asHr: page }) => {
+    await mockJobQueue(page, { list: [listResponse([listItem()])] })
+    await page.goto('/job-queue')
+    await expect(page.getByTestId(`job-queue-row-${OPP}`)).toBeVisible()
+    await expect(page.getByTestId('job-queue-ai-limits')).toHaveCount(0)
+  })
 })
 
 // ---------------------------------------------------------------------------

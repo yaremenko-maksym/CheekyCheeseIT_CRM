@@ -320,6 +320,28 @@ describe.skipIf(!hasDatabaseUrl())(
         await expect(service.listSources(ADMIN)).resolves.toBeInstanceOf(Array)
         await expect(service.collectAllAsActor(ADMIN)).resolves.toHaveProperty('failures')
       })
+
+      it('H.8: the ADMIN run reads the AI-limits flag: raised is the value, cleared is null', async () => {
+        await pool.query(
+          `INSERT INTO job_model_health_flags (flag) VALUES ('MODEL_LIMITS_EXHAUSTED')
+           ON CONFLICT (flag) DO UPDATE SET cleared_at = NULL`,
+        )
+        try {
+          await expect(service.collectAllAsActor(ADMIN)).resolves.toMatchObject({
+            sourcingNotice: 'AI_LIMITS_EXHAUSTED',
+          })
+          await pool.query(
+            `UPDATE job_model_health_flags SET cleared_at = now() WHERE flag = 'MODEL_LIMITS_EXHAUSTED'`,
+          )
+          await expect(service.collectAllAsActor(ADMIN)).resolves.toMatchObject({
+            sourcingNotice: null,
+          })
+        } finally {
+          await pool.query(
+            `DELETE FROM job_model_health_flags WHERE flag = 'MODEL_LIMITS_EXHAUSTED'`,
+          )
+        }
+      })
     })
   },
 )

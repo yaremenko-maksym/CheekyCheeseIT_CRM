@@ -385,6 +385,40 @@ describe.skipIf(!hasDatabaseUrl())('T9 admin endpoints — real-controller RBAC'
       expect(row).toMatchObject({ state: null, profileSummary: null })
     })
 
+    it('H.8: the health list carries the AI-limits notice: raised is the value, cleared is null', async () => {
+      const health = async () => {
+        const res = await app.inject({
+          method: 'GET',
+          url: HEALTH_URL,
+          cookies: { jwt: signFor(ADMIN) },
+        })
+        expect(res.statusCode).toBe(200)
+        const body = JSON.parse(res.body) as Record<string, unknown>
+        expect(Object.keys(body).sort()).toEqual(['items', 'sourcingNotice'])
+        return body['sourcingNotice']
+      }
+      await pool.query(
+        `INSERT INTO job_model_health_flags (flag) VALUES ('MODEL_LIMITS_EXHAUSTED')
+         ON CONFLICT (flag) DO UPDATE SET cleared_at = NULL`,
+      )
+      try {
+        expect(await health()).toBe('AI_LIMITS_EXHAUSTED')
+        // A non-ADMIN stays the guard 403 with the flag raised.
+        for (const p of NON_ADMIN) {
+          expect(await request('GET', HEALTH_URL, p)).toEqual({
+            status: 403,
+            code: GUARD_REFUSAL_CODE,
+          })
+        }
+        await pool.query(
+          `UPDATE job_model_health_flags SET cleared_at = now() WHERE flag = 'MODEL_LIMITS_EXHAUSTED'`,
+        )
+        expect(await health()).toBeNull()
+      } finally {
+        await pool.query(`DELETE FROM job_model_health_flags WHERE flag = 'MODEL_LIMITS_EXHAUSTED'`)
+      }
+    })
+
     it('CR-M-1: freshness ignores runs older than the 14-day window', async () => {
       const row = (await service.listSourceHealth(ADMIN)).find((r) => r.id === freshSource)
       expect(row).toBeDefined()
