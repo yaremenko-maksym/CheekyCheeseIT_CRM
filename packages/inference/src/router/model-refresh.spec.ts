@@ -25,7 +25,6 @@ import {
   GEMINI,
   GROQ,
   KEY_MARKER,
-  LOCAL,
   type Reply,
 } from './__test-helpers__/router-harness'
 import { MANAGED_LIST_TARGET } from './managed-models'
@@ -48,8 +47,8 @@ const WITH_NEW = geminiListing([
   [G2, BIG],
   [NEW, BIG],
 ])
-const GEMINI_ONLY = [GEMINI, LOCAL]
-const GROQ_ONLY = [GROQ, LOCAL]
+const GEMINI_ONLY = [GEMINI]
+const GROQ_ONLY = [GROQ]
 const DAYS = ['2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07', '2026-11-08']
 
 /** Runs the daily job once per listed day. */
@@ -119,7 +118,7 @@ describe('selection order (SR-H-1)', () => {
 
   it('a route window under the floor makes every model too small, whatever is reported', async () => {
     const w = refreshWorld({
-      routes: [{ ...GEMINI, contextTokens: 15_999 }, LOCAL],
+      routes: [{ ...GEMINI, contextTokens: 15_999 }],
       listing: { gemini: WITH_NEW },
     })
     const r = await runDailyModelRefresh(w.deps)
@@ -133,7 +132,7 @@ describe('selection order (SR-H-1)', () => {
 
   it('a route window exactly at the floor still fits', async () => {
     const w = refreshWorld({
-      routes: [{ ...GEMINI, contextTokens: 16_000 }, LOCAL],
+      routes: [{ ...GEMINI, contextTokens: 16_000 }],
       listing: { gemini: WITH_NEW },
     })
     await runDailyModelRefresh(w.deps)
@@ -610,7 +609,7 @@ describe('promotion only after N consecutive alive days (SR-M-9)', () => {
 describe('Groq additions', () => {
   it('adds the largest-context family model, never probing or promoting it', async () => {
     const w = refreshWorld({
-      routes: [{ ...GROQ, models: [Q2] }, LOCAL],
+      routes: [{ ...GROQ, models: [Q2] }],
       listing: {
         groq: groqListing([
           [Q2, 131_072],
@@ -642,7 +641,7 @@ describe('Groq additions', () => {
 
   it('applies the route window to a Groq entry too', async () => {
     const w = refreshWorld({
-      routes: [{ ...GROQ, contextTokens: 15_999 }, LOCAL],
+      routes: [{ ...GROQ, contextTokens: 15_999 }],
     })
     const r = await runDailyModelRefresh(w.deps)
     expect(r.providers[1]).toEqual({
@@ -655,7 +654,7 @@ describe('Groq additions', () => {
 
 describe('Cloudflare self-heal (amendment 2026-11-17): listing only, no probes', () => {
   const GEMMA = '@cf/google/gemma-4-26b-a4b-it'
-  const CF_ONLY = [CLOUDFLARE, LOCAL]
+  const CF_ONLY = [CLOUDFLARE]
 
   it('reads the account search with the key in the header and writes the list, sending no chat', async () => {
     const w = refreshWorld({
@@ -1351,7 +1350,7 @@ describe('own-cap units (§5.1)', () => {
     const cap = countingCap()
     const w = refreshWorld({
       cap,
-      routes: [{ ...GEMINI, models: [G1] }, LOCAL],
+      routes: [{ ...GEMINI, models: [G1] }],
       listing: { gemini: geminiListing([[G1, BIG]]) },
       chat: () => reply,
     })

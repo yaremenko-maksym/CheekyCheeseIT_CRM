@@ -84,19 +84,6 @@ describe('extraction-worker adapter — what crosses', () => {
     expect(await port.extract(request())).toEqual({ ok: true, data: { title: 't' } })
   })
 
-  it('a worker failure code passes through with its usage', async () => {
-    const f = fakeFetch(async () =>
-      reply({ ok: false, code: 'INVALID_OUTPUT', usage: { localMs: 4 } }),
-    )
-    const { port, replies } = setup(f)
-    expect(await port.extract(request())).toEqual({
-      ok: false,
-      code: 'INVALID_OUTPUT',
-      usage: { localMs: 4 },
-    })
-    expect(replies).toHaveLength(1)
-  })
-
   // ADR §5.4: each of these decides what happens to the record, so none may be flattened.
   it.each(['NOT_CONFIGURED', 'PROVIDER_ERROR', 'INVALID_OUTPUT', 'TIMEOUT'])(
     'a worker failure code %s passes through bare',
@@ -106,15 +93,11 @@ describe('extraction-worker adapter — what crosses', () => {
     },
   )
 
-  it('RATE_LIMITED, which §5.4 has no row for, is PROVIDER_ERROR and keeps its usage', async () => {
+  it('RATE_LIMITED, which §5.4 has no row for, is PROVIDER_ERROR', async () => {
     const { port, replies } = setup(
-      fakeFetch(async () => reply({ ok: false, code: 'RATE_LIMITED', usage: { localMs: 4 } })),
+      fakeFetch(async () => reply({ ok: false, code: 'RATE_LIMITED' })),
     )
-    expect(await port.extract(request())).toEqual({
-      ok: false,
-      code: 'PROVIDER_ERROR',
-      usage: { localMs: 4 },
-    })
+    expect(await port.extract(request())).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
     expect(replies).toHaveLength(1)
   })
 
@@ -171,6 +154,11 @@ describe('extraction-worker adapter — every refused, failed or malformed reply
     ['negative usage', reply({ ok: true, data: { title: 't' }, usage: { totalTokens: -1 } })],
     ['foreign usage key', reply({ ok: true, data: { title: 't' }, usage: { cost: 1 } })],
     ['unknown failure code', reply({ ok: false, code: 'SOMETHING' })],
+    // H.6: localMs is withdrawn and a failure carries no usage at all.
+    [
+      'a failure carrying usage',
+      reply({ ok: false, code: 'INVALID_OUTPUT', usage: { localMs: 4 } }),
+    ],
     [
       'no events',
       {

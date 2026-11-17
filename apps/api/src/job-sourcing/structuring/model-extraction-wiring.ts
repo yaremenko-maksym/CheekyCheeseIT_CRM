@@ -1,6 +1,5 @@
 import {
   createExtractionWorkerAdapter,
-  MAX_FLOOR_BUDGET_MS,
   MAX_HOSTED_BUDGET_MS,
   routerCallCeilingMs,
   routerInputCeilingChars,
@@ -17,16 +16,12 @@ import { HTML_MODEL_CALLS_PER_CYCLE, InMemoryModelBudget } from './model-budget.
 import { createModelHealth, type ModelHealthLog, type ModelHealthStore } from './model-health'
 import { ModelStructurer } from './model-structurer'
 import { EXTRACTION_SYSTEM_PROMPT } from './prompt-envelope'
-import { smallDoseFor } from './small-dose-table'
 
 /**
  * The collection side never sees the worker's router config, so it takes the package maxima: no
  * configured router call outlasts this (ADR §5.5 item 2).
  */
-const CALL_CEILING_MS = routerCallCeilingMs({
-  hostedBudgetMs: MAX_HOSTED_BUDGET_MS,
-  floorBudgetMs: MAX_FLOOR_BUDGET_MS,
-})
+const CALL_CEILING_MS = routerCallCeilingMs({ hostedBudgetMs: MAX_HOSTED_BUDGET_MS })
 const MARGIN_MS = 10_000
 /** The ceiling plus a margin, so the router's coded `TIMEOUT` arrives first (§5.5 item 4). */
 export const WORKER_STRUCTURER_TIMEOUT_MS = CALL_CEILING_MS + MARGIN_MS
@@ -35,16 +30,15 @@ export const WORKER_ADAPTER_TIMEOUT_MS = WORKER_STRUCTURER_TIMEOUT_MS + MARGIN_M
 /** The timeout plus a grace: every request has ended by then. */
 export const WORKER_HOLD_MS = WORKER_ADAPTER_TIMEOUT_MS + MARGIN_MS
 
-/** The gaps between the 4 preflight attempts: MP-04's cold load must fit inside them (§5.3). */
+/** The gaps between the 4 preflight attempts: a worker still starting must fit inside them (§5.3). */
 export const PREFLIGHT_BACKOFF_MS = [10_000, 30_000, 60_000] as const
 
 /** The only env the collection side reads for the model. No hosted key, no router URL (§2.4). */
 export const MODEL_EXTRACTION_ENV_KEYS = [
   'EXTRACTION_WORKER_URL',
   'EXTRACTION_WORKER_SECRET',
-  'EXTRACTION_LOCAL_CONTEXT_TOKENS',
-  'EXTRACTION_LOCAL_MAX_ANSWER_TOKENS',
-  'EXTRACTION_CYCLE_LOCAL_MS_LIMIT',
+  'EXTRACTION_INPUT_CONTEXT_TOKENS',
+  'EXTRACTION_INPUT_MAX_ANSWER_TOKENS',
 ] as const
 
 const positiveInt = z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().positive())
@@ -62,11 +56,9 @@ const workerEnvSchema = z.object({
 })
 
 const envSchema = z.object({
-  // The worker's local route window: the page is cut to it before it leaves (§2.1).
-  EXTRACTION_LOCAL_CONTEXT_TOKENS: positiveInt,
-  EXTRACTION_LOCAL_MAX_ANSWER_TOKENS: positiveInt,
-  // Frozen from MP-04 (§5.5 item 6); unset is no local-time limit.
-  EXTRACTION_CYCLE_LOCAL_MS_LIMIT: positiveInt.optional(),
+  // The input window the page is cut to before it leaves (§2.1, H.4): the smallest hosted window.
+  EXTRACTION_INPUT_CONTEXT_TOKENS: positiveInt,
+  EXTRACTION_INPUT_MAX_ANSWER_TOKENS: positiveInt,
 })
 
 export type ExtractionWorkerEnv =
@@ -165,12 +157,10 @@ export function buildModelExtraction(
   const health = createModelHealth({ store: opts.store, log: opts.log })
   const inputCeilingChars = routerInputCeilingChars(
     {
-      contextTokens: e.EXTRACTION_LOCAL_CONTEXT_TOKENS,
-      maxAnswerTokens: e.EXTRACTION_LOCAL_MAX_ANSWER_TOKENS,
+      contextTokens: e.EXTRACTION_INPUT_CONTEXT_TOKENS,
+      maxAnswerTokens: e.EXTRACTION_INPUT_MAX_ANSWER_TOKENS,
     },
     EXTRACTION_SYSTEM_PROMPT,
-    // The whole table: a page cut for it fits any dose of it.
-    smallDoseFor().groups,
   )
   return {
     ok: true,
@@ -181,10 +171,7 @@ export function buildModelExtraction(
         const reached = await reachModel(adapter(cycle.onPreflightReply), sleep, opts.log)
         await cycle.preflightDone(reached)
         if (!reached) return { kind: 'MODEL_UNREACHABLE' }
-        const budget = new InMemoryModelBudget(
-          HTML_MODEL_CALLS_PER_CYCLE,
-          e.EXTRACTION_CYCLE_LOCAL_MS_LIMIT ?? Number.POSITIVE_INFINITY,
-        )
+        const budget = new InMemoryModelBudget(HTML_MODEL_CALLS_PER_CYCLE)
         const structurer = new ModelStructurer({
           port: adapter(cycle.onReply),
           budget,

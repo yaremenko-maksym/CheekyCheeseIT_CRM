@@ -6,7 +6,6 @@ import { z } from 'zod'
 import { stripContacts } from '../job-sourcing/structuring/contact-strip'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
-import { smallDoseFor } from '../job-sourcing/structuring/small-dose-table'
 import { classifyRolesWorkerInput, classifyVacancyRoles } from './classify-roles'
 import { classifyRolesBodySchema, EXTRACTION_TABLE_VERSION } from './link-contract'
 import { resumeWriteInput, writeResume } from './resume-write'
@@ -129,7 +128,6 @@ export function buildExtractionWorker(opts: ExtractionWorkerOptions): FastifyIns
         input: stripped.text,
         instruction: EXTRACTION_SYSTEM_PROMPT,
         schema: modelReplySchema,
-        smallDose: smallDoseFor(),
         signal,
       }),
     )

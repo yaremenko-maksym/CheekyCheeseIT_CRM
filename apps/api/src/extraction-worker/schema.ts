@@ -2,6 +2,9 @@ import {
   HOSTED_PROVIDERS,
   MAX_EXTRACTION_INPUT_CHARS,
   routerConfigSchema,
+  type ExtractionPort,
+  type ExtractionRequest,
+  type ExtractionResult,
   type RouteStatePort,
 } from '@crm/inference'
 import { z } from 'zod'
@@ -106,7 +109,7 @@ function parseJson(text: string): { value: unknown } | null {
 /**
  * The worker's own env (its owner-created `0600` file, never `.env.production`). A refusal names
  * the key, never its value. `EXTRACTION_ROUTER_CONFIG` holds the non-secret route parameters; the
- * keys and the local URL come from env (`buildRouterConfig`). A config the router refuses builds a
+ * keys come from env (`buildRouterConfig`). A config the router refuses builds a
  * router that answers `NOT_CONFIGURED` and sends nothing (§3.3).
  */
 export function parseWorkerEnv(env: Readonly<Record<string, string | undefined>>): WorkerEnvResult {
@@ -141,14 +144,22 @@ export function parseWorkerEnv(env: Readonly<Record<string, string | undefined>>
 }
 
 /**
- * The preflight's router (ADR §5.3): one trivial call to the local route, never a hosted one. A
- * config the router refuses is handed on unchanged, so the preflight router refuses it too.
+ * The interim preflight (5.4c-H1, until the H2 readiness check of ADR H.3): it asks no model. The
+ * local route it used to reach is gone, and a hosted probe would spend a free request every cycle.
+ * Ready when the router accepts the config and the config names a hosted route; the fixed answer
+ * still goes through the asked schema, so the port never hands on what the caller did not ask for.
  */
-export function localOnlyRouterConfig(raw: unknown): unknown {
-  const parsed = routerConfigSchema.safeParse(raw)
-  if (!parsed.success) return raw
-  const routes = parsed.data.routes.filter((r) => r.provider === 'local')
-  return { ...parsed.data, hostedBudgetMs: 0, routes }
+export function requestFreePreflight(raw: unknown): ExtractionPort {
+  const ready = hostedRoutesOf(raw).present.length > 0
+  return {
+    extract: <T>(req: ExtractionRequest<T>): Promise<ExtractionResult<T>> => {
+      if (!ready) return Promise.resolve({ ok: false, code: 'NOT_CONFIGURED' })
+      const answer = req.schema.safeParse({ ok: true })
+      return Promise.resolve(
+        answer.success ? { ok: true, data: answer.data } : { ok: false, code: 'INVALID_OUTPUT' },
+      )
+    },
+  }
 }
 
 /**

@@ -961,7 +961,6 @@ export abstract class HtmlProvider<
       id,
       url: c.url,
       text: c.text,
-      missing: MODEL_FILLABLE_FIELDS.filter((f) => c.enrichment.fields[f] === undefined),
     }))
     let outcome: StructurerOutcome
     try {

@@ -2,7 +2,9 @@ import { z } from 'zod'
 
 /**
  * The extraction worker's own keys (ADR §2.4): the API process never holds them, so its boot
- * refuses them. Empty is unset (the `.env.example` template carries the router URL blank).
+ * refuses them. `ROUTER_LOCAL_MODEL_URL` left with the local route (5.4c-H1) and stays here, so a
+ * stale value in the API's env still fails boot. A key left blank (`KEY=`) counts as unset and does
+ * not fail boot.
  */
 export const WORKER_ONLY_ENV_KEYS = [
   'GEMINI_API_KEY',

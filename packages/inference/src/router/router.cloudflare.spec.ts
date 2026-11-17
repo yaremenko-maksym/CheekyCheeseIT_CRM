@@ -5,8 +5,9 @@ import {
   config,
   deps,
   GOOD,
+  GROQ,
+  hostOf,
   KEY_MARKER,
-  LOCAL,
   REQ,
   scriptedFetch,
   TEXT_MARKER,
@@ -43,7 +44,7 @@ const route = () => createMemoryRouteStatePort()
 describe('router: the Cloudflare route (amendment 2026-11-17)', () => {
   it('sends the first pinned model to the account chat endpoint, the key only in the header', async () => {
     const f = scriptedFetch(() => GOOD)
-    const r = await createRouter(config([CLOUDFLARE, LOCAL]), deps(f.fetchImpl)).run(REQ)
+    const r = await createRouter(config([CLOUDFLARE]), deps(f.fetchImpl)).run(REQ)
     expect(r.ok).toBe(true)
     expect(f.sent).toHaveLength(1)
     expect(f.sent[0]!.url).toBe(
@@ -60,7 +61,7 @@ describe('router: the Cloudflare route (amendment 2026-11-17)', () => {
   ])('%s: retires the model and moves to the next one in the same call', async (name) => {
     const f = scriptedFetch((s) => (s.model === MISTRAL ? reply(name) : GOOD))
     const d = deps(f.fetchImpl, { routeState: route(), now: at(NOON) })
-    const router = createRouter(config([CLOUDFLARE, LOCAL]), d)
+    const router = createRouter(config([CLOUDFLARE]), d)
     expect((await router.run(REQ)).ok).toBe(true)
     await router.run(REQ)
     expect(f.sent.map((s) => `${s.host} ${s.model}`)).toEqual([
@@ -81,20 +82,20 @@ describe('router: the Cloudflare route (amendment 2026-11-17)', () => {
   ])('%s: retires nothing, the next route', async (name) => {
     const f = scriptedFetch((s) => (s.host === CF_HOST ? reply(name) : GOOD))
     const d = deps(f.fetchImpl, { routeState: route() })
-    await createRouter(config([CLOUDFLARE, LOCAL]), d).run(REQ)
-    expect(f.sent.map((s) => s.host)).toEqual([CF_HOST, 'crm-model-runtime'])
+    await createRouter(config([CLOUDFLARE, GROQ]), d).run(REQ)
+    expect(f.sent.map((s) => s.host)).toEqual([CF_HOST, hostOf.groq])
     expect(d.routeState.snapshot().retired).toEqual([])
   })
 
-  it('the verified live 401 body disables the provider once and moves to the floor', async () => {
+  it('the verified live 401 body disables the provider once and moves to the next route', async () => {
     const f = scriptedFetch((s) =>
       s.host === CF_HOST ? reply('401 invalid bearer, the verified live body (2026-11-17)') : GOOD,
     )
     const d = deps(f.fetchImpl, { routeState: route() })
-    const router = createRouter(config([CLOUDFLARE, LOCAL]), d)
+    const router = createRouter(config([CLOUDFLARE, GROQ]), d)
     await router.run(REQ)
     await router.run(REQ)
-    expect(f.sent.map((s) => s.host)).toEqual([CF_HOST, 'crm-model-runtime', 'crm-model-runtime'])
+    expect(f.sent.map((s) => s.host)).toEqual([CF_HOST, hostOf.groq, hostOf.groq])
     expect(ofType(d.events, 'PROVIDER_DISABLED')).toEqual([
       { type: 'PROVIDER_DISABLED', route: 'cloudflare', code: 'AUTH' },
     ])
@@ -105,7 +106,7 @@ describe('router: the Cloudflare route (amendment 2026-11-17)', () => {
       s.model === MISTRAL ? reply('429 daily free allocation used (3036)') : GOOD,
     )
     const d = deps(f.fetchImpl, { routeState: route(), now: at(NOON) })
-    await createRouter(config([CLOUDFLARE, LOCAL]), d).run(REQ)
+    await createRouter(config([CLOUDFLARE]), d).run(REQ)
     expect(isSpent(d.routeState.snapshot(), 'cloudflare', MISTRAL, '2026-11-04')).toBe(true)
     expect(f.sent.map((s) => s.model)).toEqual([MISTRAL, OSS])
   })
@@ -120,12 +121,18 @@ describe('router: the Cloudflare route (amendment 2026-11-17)', () => {
     const ownCap = createOwnCapPort({ state: routeState, now: at(NOON) })
     const f = scriptedFetch(() => GOOD)
     const router = createRouter(
-      config([CLOUDFLARE, LOCAL]),
+      config([CLOUDFLARE]),
       deps(f.fetchImpl, { routeState, ownCap, now: at(NOON) }),
     )
-    for (let i = 0; i < 10; i++) await router.run(REQ)
+    const results = []
+    for (let i = 0; i < 10; i++) results.push(await router.run(REQ))
     expect(f.sent.filter((s) => s.host === CF_HOST)).toHaveLength(8)
-    expect(f.sent.filter((s) => s.host === 'crm-model-runtime')).toHaveLength(2)
+    expect(f.sent).toHaveLength(8)
+    // H.1: no floor behind the cap; the refused runs end with today's code.
+    expect(results.slice(8)).toEqual([
+      { ok: false, code: 'PROVIDER_ERROR' },
+      { ok: false, code: 'PROVIDER_ERROR' },
+    ])
   })
 
   it('neither the account id, the key nor the text reaches an event or a result', async () => {
@@ -133,7 +140,7 @@ describe('router: the Cloudflare route (amendment 2026-11-17)', () => {
       s.model === MISTRAL ? reply('410 model deprecated (5028) in the v4 envelope') : GOOD,
     )
     const d = deps(f.fetchImpl, { routeState: route() })
-    const r = await createRouter(config([CLOUDFLARE, LOCAL]), d).run(REQ)
+    const r = await createRouter(config([CLOUDFLARE]), d).run(REQ)
     const seen = JSON.stringify({ r, events: d.events })
     for (const marker of [CLOUDFLARE_ACCOUNT_ID, KEY_MARKER, TEXT_MARKER]) {
       expect(seen).not.toContain(marker)

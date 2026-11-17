@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import {
   boundedRequest,
-  boundedRequestToLocalRuntime,
   DEFAULT_MAX_BYTES,
   DEFAULT_TIMEOUT_MS,
   type BoundedResult,
@@ -27,7 +26,7 @@ export const CLASSIFIED_CHAT_CODES = [
 ] as const
 export type ClassifiedChatCode = (typeof CLASSIFIED_CHAT_CODES)[number]
 
-export type ChatProvider = 'gemini' | 'groq' | 'cloudflare' | 'local'
+export type ChatProvider = 'gemini' | 'groq' | 'cloudflare'
 
 export type StructuredOutput =
   { mode: 'json_schema'; schema: JsonSchema } | { mode: 'json_object' } | { mode: 'none' }
@@ -311,7 +310,6 @@ export async function sendClassifiedChatCompletion(
 export async function sendClassifiedChat(
   opts: ClassifiedChatOptions,
 ): Promise<ClassifiedChatOutcome> {
-  const local = opts.provider === 'local'
   const url = chatCompletionsUrl(opts.baseUrl)
   // A key over plain HTTP is a config error (SR-L-63): refused before anything is sent.
   if (opts.apiKey !== undefined && URL.canParse(url) && new URL(url).protocol === 'http:') {
@@ -320,9 +318,7 @@ export async function sendClassifiedChat(
   if (opts.signal?.aborted === true) {
     return { result: { ok: false, code: 'ABORTED' }, sent: false }
   }
-  // Only the local leaf may reach the runtime host over plain HTTP (SR-M-64).
-  const send = local ? boundedRequestToLocalRuntime : boundedRequest
-  const result = await send({
+  const result = await boundedRequest({
     url,
     method: 'POST',
     headers: {
@@ -332,7 +328,7 @@ export async function sendClassifiedChat(
     body: JSON.stringify({
       model: opts.model,
       messages: buildChatMessages(opts),
-      temperature: local ? 0 : 0.1,
+      temperature: 0.1,
       max_tokens: opts.maxTokens,
       ...responseFormat(opts.structuredOutput),
     }),
