@@ -84,7 +84,7 @@ export function JobQueueRow({
   const { t, i18n } = useLingui()
   const locale = useLocale()
   const source = item.primarySource
-  const sourceName = source ? t`Джерело: ${sourceLabel(source.sourceType)}` : t`Додано вручну`
+  const sourceName = source ? sourceLabel(source.sourceType) : t`Додано вручну`
   const SourceIcon = source ? Rss : PenLine
   const company = item.companyName ?? t`Компанію не вказано`
   const matched = item.matchedSeniorCount
@@ -142,11 +142,19 @@ export function JobQueueRow({
           <span className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
             <SourceIcon
               data-testid="job-queue-row-source"
-              role="img"
-              aria-label={sourceName}
+              aria-hidden="true"
               className="size-4 shrink-0"
             />
-            <span className="truncate">{company}</span>
+            <span
+              data-testid="job-queue-row-source-name"
+              title={sourceName}
+              className="min-w-0 max-w-[50%] truncate"
+            >
+              {sourceName}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span className="sr-only">, </span>
+            <span className="min-w-0 truncate">{company}</span>
           </span>
           {/* §4.3: a triage row replaces the stack line with its reason */}
           {!triage && keywords.length > 0 && (
