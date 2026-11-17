@@ -8,8 +8,8 @@ import { MAX_CORRECTION_CHARS } from '../internal/extraction-pipeline'
 
 /**
  * Conservative characters per token. Cyrillic tokenises at roughly two characters per token or
- * worse, so the estimate never undercounts our text; MP-04 compares it with the runtime's reported
- * prompt tokens and tunes it (ADR §8.4).
+ * worse, so the estimate never undercounts our text. It is a fixed, conservative estimate: nothing
+ * measures or tunes it at runtime.
  */
 export const CHARS_PER_TOKEN = 2
 /** Chat-template overhead per request: role markers of up to three messages, rounded up. */
