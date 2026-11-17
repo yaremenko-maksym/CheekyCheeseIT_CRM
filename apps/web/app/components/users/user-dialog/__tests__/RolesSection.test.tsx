@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SENIOR_SELECTABLE_ROLES, type SeniorSelectableRole } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
@@ -58,7 +58,9 @@ describe('RolesSection', () => {
   it('shows the empty hint and the plain label when nothing is selected', async () => {
     await setup()
     expect(screen.getByText('Технічні ролі не обрано')).toBeInTheDocument()
-    expect(screen.getByText('Технічні ролі')).toBeInTheDocument()
+    expect(screen.getByText('Технічні ролі')).not.toHaveClass('text-destructive')
+    // The add/remove live region exists from the start and is silent until something changes.
+    expect(screen.getByRole('status')).toBeEmptyDOMElement()
   })
 
   it('labels the group and counts the selection', async () => {
@@ -121,6 +123,43 @@ describe('RolesSection', () => {
     )
   })
 
+  it('a tap pick (no highlight on the row) still moves the highlight, and a key press then navigates from there', async () => {
+    const user = await setup()
+    await user.click(screen.getByTestId('roles-section-add-trigger'))
+    // fireEvent: a click with no pointer move, so cmdk never highlighted the picked row.
+    fireEvent.click(screen.getByTestId('roles-section-option-DESKTOP_ENGINEER'))
+    expect(screen.getByTestId('roles-section-chip-DESKTOP_ENGINEER')).toBeInTheDocument()
+    expect(
+      screen.getByTestId('roles-section-option-BUSINESS_APPLICATIONS_ENGINEER'),
+    ).toHaveAttribute('aria-selected', 'true')
+    await user.keyboard('{ArrowDown}')
+    expect(screen.getByTestId('roles-section-option-IOS_ENGINEER')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+  })
+
+  it('picking the last unselected role closes the picker and hides the trigger', async () => {
+    const user = await setup({
+      initial: SENIOR_SELECTABLE_ROLES.filter((r) => r !== 'BACKEND_ENGINEER'),
+    })
+    await user.click(screen.getByTestId('roles-section-add-trigger'))
+    expect(options()).toHaveLength(1)
+    await user.keyboard('{Enter}')
+    expect(screen.getByTestId('roles-section-chip-BACKEND_ENGINEER')).toBeInTheDocument()
+    expect(screen.queryByTestId('roles-section-add-trigger')).toBeNull()
+    expect(options()).toHaveLength(0)
+  })
+
+  it('a group whose roles are all selected is not rendered', async () => {
+    const user = await setup({
+      initial: ['IOS_ENGINEER', 'ANDROID_ENGINEER', 'CROSS_PLATFORM_MOBILE_ENGINEER'],
+    })
+    await user.click(screen.getByTestId('roles-section-add-trigger'))
+    expect(screen.queryByText('Мобільна розробка')).toBeNull()
+    expect(screen.getByText('Дані та ШІ')).toBeInTheDocument()
+  })
+
   it('search matches the group name', async () => {
     const user = await setup()
     await user.click(screen.getByTestId('roles-section-add-trigger'))
@@ -161,6 +200,11 @@ describe('RolesSection', () => {
     const trigger = screen.getByTestId('roles-section-add-trigger')
     expect(trigger).toHaveAttribute('aria-invalid', 'true')
     expect(trigger).toHaveAttribute('aria-describedby', err.id)
+  })
+
+  it('an error turns the label destructive', async () => {
+    await setup({ error: 'x' })
+    expect(screen.getByText('Технічні ролі')).toHaveClass('text-destructive')
   })
 
   it('announce="status" makes the error polite', async () => {

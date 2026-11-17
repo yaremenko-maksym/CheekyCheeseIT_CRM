@@ -1,5 +1,6 @@
 import { Plus, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { Trans, useLingui } from '@lingui/react/macro'
 import {
   SENIOR_SELECTABLE_ROLES,
@@ -49,43 +50,42 @@ export function RolesSection({
   const { t, i18n } = useLingui()
   const labelId = useId()
   const errorId = useId()
+  const baseId = useId()
+  const triggerId = `${baseId}add`
+  const removeId = (role: SeniorSelectableRole) => `${baseId}remove-${role}`
   const [open, setOpen] = useState(false)
   const [highlight, setHighlight] = useState('')
   const [announcement, setAnnouncement] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const removeRefs = useRef(new Map<SeniorSelectableRole, HTMLButtonElement>())
-  // `null` = the trigger; set by a remove, applied once the chips re-render.
-  const pendingFocus = useRef<SeniorSelectableRole | null | undefined>(undefined)
+  // The row that took a picked row's place; it wins over cmdk's reset to the first row.
   const pendingHighlight = useRef<string | undefined>(undefined)
 
   const label = (role: TechnicalRole) => i18n._(TECHNICAL_ROLE_LABELS[role])
   const selected = new Set<TechnicalRole>(value)
   const allSelected = value.length >= SENIOR_SELECTABLE_ROLES.length
 
-  useEffect(() => {
-    if (pendingHighlight.current !== undefined) setHighlight(pendingHighlight.current)
-    if (pendingFocus.current === undefined) return
-    const target = pendingFocus.current
-    pendingFocus.current = undefined
-    ;(target === null ? triggerRef.current : removeRefs.current.get(target))?.focus()
-  }, [value])
+  // A pick whose row cmdk did not highlight (a tap) gets no cmdk reset: apply the pending row here.
+  useEffect(() => setHighlight((current) => pendingHighlight.current ?? current), [value])
 
   function add(role: SeniorSelectableRole, itemValue: string) {
-    // The picked row unmounts: keep the highlight on the row that takes its place (else the previous one).
+    // DOM order is the visible order (cmdk sorts by score while searching).
+    // Stryker disable next-line OptionalChaining,ArrayDeclaration: onSelect fires only from a mounted list, so the ref is always set
     const rows = [...(listRef.current?.querySelectorAll<HTMLElement>('[cmdk-item]') ?? [])]
     const at = rows.findIndex((row) => row.dataset['value'] === itemValue)
-    const neighbour = rows[at + 1] ?? rows[at - 1]
-    pendingHighlight.current = neighbour?.dataset['value'] ?? ''
+    pendingHighlight.current = (rows[at + 1] ?? rows[at - 1])?.dataset['value']
     setAnnouncement(t`Додано: ${label(role)}`)
     onChange(sortRoles([...value, role]))
   }
 
   function remove(role: SeniorSelectableRole) {
     const at = value.indexOf(role)
-    pendingFocus.current = value[at + 1] ?? value[at - 1] ?? null
+    const next = value[at + 1] ?? value[at - 1]
     setAnnouncement(t`Прибрано: ${label(role)}`)
-    onChange(value.filter((r) => r !== role))
+    // Commit now: the pressed button is gone, so focus goes to the next chip, else the previous, else
+    // the trigger (which may only now reappear) — never to <body> (design spec §5.7).
+    flushSync(() => onChange(value.filter((r) => r !== role)))
+    // Stryker disable next-line OptionalChaining: the target is rendered by the commit above (a remaining chip, or the trigger once fewer than all roles are picked)
+    document.getElementById(next ? removeId(next) : triggerId)?.focus()
   }
 
   return (
@@ -99,7 +99,7 @@ export function RolesSection({
           <Popover open={open && !disabled} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
               <Button
-                ref={triggerRef}
+                id={triggerId}
                 type="button"
                 variant="ghost"
                 size="sm"
@@ -121,8 +121,6 @@ export function RolesSection({
                   setHighlight(pendingHighlight.current ?? next)
                   pendingHighlight.current = undefined
                 }}
-                // A key press is the user's own navigation: no pending highlight may hijack it.
-                onKeyDownCapture={() => (pendingHighlight.current = undefined)}
               >
                 <CommandInput placeholder={t`Пошук ролі…`} />
                 <CommandList ref={listRef} className="max-h-[min(20rem,50dvh)]">
@@ -175,10 +173,7 @@ export function RolesSection({
                   {label(role)}
                 </span>
                 <button
-                  ref={(el) => {
-                    if (el) removeRefs.current.set(role, el)
-                    else removeRefs.current.delete(role)
-                  }}
+                  id={removeId(role)}
                   type="button"
                   disabled={disabled}
                   onClick={() => remove(role)}
