@@ -12,7 +12,7 @@
  * architect re-adds back-end as well as front-end, `cybersecurity analyst` (the analyst counterpart
  * of `cybersecurity engineer`), the spelled-out chief technology / technical officer as a job noun,
  * and the Cyrillic architect keywords (research §1.10 uk label «Архітектор ПЗ») with the Cyrillic
- * landscape architect excluded. Keywords the appendix could never fire are
+ * landscape / interior / building architect (and designer-architect, feminine forms) excluded. Keywords the appendix could never fire are
  * dropped without a change in result: those another keyword of the same role already covers
  * (`бекенд` ⊂ `бек[\s-]?енд`) and the Cyrillic CTO keywords, which no job noun admits ("директор" is
  * not one, so "Технічний директор" stays unclassified as in the run).
@@ -388,7 +388,7 @@ const GENERIC_NOUN = rx(
 )
 
 const EXCLUDE_PHRASE = rx(
-  /\b(aso|sales engineer|solutions engineer|presales|pre-sales|business development|sales (manager|representative|executive|lead|specialist)|account (executive|manager)|recruiter|recruiting|talent acquisition|hr (manager|business partner|generalist)|marketing (manager|specialist|lead)|seo (specialist|manager)|copywriter|customer (success|support|service)|accountant|finance manager|product manager|project manager|delivery manager|product owner|scrum master|lawyer|landscape architect|ландшафтн\w* архітектор|ландшафтн\w* архитектор|interior architect|building architect)\b/,
+  /\b(aso|sales engineer|solutions engineer|presales|pre-sales|business development|sales (manager|representative|executive|lead|specialist)|account (executive|manager)|recruiter|recruiting|talent acquisition|hr (manager|business partner|generalist)|marketing (manager|specialist|lead)|seo (specialist|manager)|copywriter|customer (success|support|service)|accountant|finance manager|product manager|project manager|delivery manager|product owner|scrum master|lawyer|landscape architect|ландшафтн\w* (архітектор|архитектор)\w*|(архітектор|архитектор)\w*\W(інтер\Sєр|интерьер|будів|здани|проєктувальн|проектировщ|дизайнер)\w*|interior architect|building architect)\b/,
 )
 const EXCLUDE_BARE = rx(/\b(sales|marketing|recruit\w*|hr|legal|seo|finance)\b/)
 const ENG_NOUN = rx(

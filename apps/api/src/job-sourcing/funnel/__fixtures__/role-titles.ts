@@ -280,6 +280,20 @@ export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
   // the Cyrillic counterpart of the `landscape architect` exclusion
   { title: 'Ландшафтний архітектор', expected: NON_IT },
   { title: 'Ландшафтный архитектор', expected: NON_IT },
+  { title: 'Ландшафтна архітекторка', expected: NON_IT },
+  { title: 'Ландшафтная архитекторка', expected: NON_IT },
+  // the Cyrillic counterparts of `interior architect` / `building architect` (any apostrophe)
+  { title: "Архітектор інтер'єру", expected: NON_IT },
+  { title: 'Архітектор інтерʼєру', expected: NON_IT },
+  { title: 'Архитектор интерьера', expected: NON_IT },
+  { title: 'Архитектор зданий', expected: NON_IT },
+  { title: 'Архітектор будівель', expected: NON_IT },
+  { title: 'Архітектор-проєктувальник', expected: NON_IT },
+  { title: 'Архитектор-проектировщик', expected: NON_IT },
+  { title: 'Архитектор-дизайнер', expected: NON_IT },
+  { title: 'Архітектор рішень', expected: roles('SOFTWARE_ARCHITECT') },
+  { title: 'Архитектор данных', expected: roles('SOFTWARE_ARCHITECT') },
+  { title: 'Архітектор інтерфейсів', expected: roles('SOFTWARE_ARCHITECT') },
   // an engineer with no domain stays for the AI fallback
   { title: 'Провідний інженер', expected: UNCLASSIFIED },
   { title: 'Головний інженер', expected: UNCLASSIFIED },
