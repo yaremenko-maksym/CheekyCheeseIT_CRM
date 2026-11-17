@@ -176,3 +176,119 @@ request left the device decides between «Повторити збереженн�
 ¹ SALARY without a prefill is the `salary-part` layout with empty «Співробітник» / «Місяць» pickers,
 the same for both roles. ² ADMIN_TRANSFER for ADMIN is the `transfer` layout without the swap
 control: the swap is ACCOUNTANT-only today and stays so.
+
+## Layout per device class
+
+One layout is mounted at a time. The **form body is identical** in every class; only the container,
+the header hints and the initial focus change. There is no `sm:hidden` / `hidden sm:block` pair
+anywhere in the sheet (today's `CascadeImpactPanel` mobile row is replaced by one list, see below).
+
+| Class         | Container                                                                                                                                                                                                        | Header                                                                    | Initial focus                                       |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------- |
+| < 640 (phone) | `ResponsiveSheet` bottom sheet at full height over the role's «Фінанси» tab, grabber, safe-area insets, a sticky submit bar above the home indicator; the decimal keyboard pushes the bar up.                    | Lead «Скасувати» (an icon button with the same accessible name below 360) | The receipt tile; the keyboard does not open itself |
+| 640–1023      | Right side panel, 400 px, modal: scrim, focus trap, Esc closes.                                                                                                                                                  | Lead «Скасувати», title left-aligned and truncated with an ellipsis       | The receipt tile                                    |
+| 1024–1439     | Right side panel, 420 px, modal. Fine pointer: hints «Esc» and «⌘↵», receipt hint «Перетягніть файл сюди або оберіть».                                                                                           | Lead «Скасувати» + `Esc` chip                                             | The amount field                                    |
+| ≥ 1440        | Right side panel, 480 px, **non-modal**: no scrim, no `aria-modal`; the list reflows to the left of the panel and stays usable. Clicking another row while the form is dirty first asks «Вийти без збереження?». | Same as 1024                                                              | The amount field                                    |
+
+Hints that need a keyboard (`Esc`, `⌘↵`, the keys 1–5 in the kind popover) show only under
+`(pointer: fine)`. The panel width is a container, not a breakpoint inside the form: the form never
+switches to two columns.
+
+## Form (field order and behaviour)
+
+1. **Receipt** — segmented «Файл» / «Посилання». The tile «Додати чек» opens the system picker with
+   `accept="image/*,application/pdf"` and **no `capture`**, so the phone offers the camera, the photo
+   library and Files. Under a fine pointer the tile is also a drop zone. USDT accepts an explorer link
+   only («Чек для USDT — лише посилання на транзакцію»). SALARY has no receipt block (attached at pay
+   time, unchanged).
+2. **Amount** — 44 px tabular figures (34 px on the phone when long), `inputmode="decimal"`, the
+   placeholder `0,00`. The NBU rate line for a non-USD / non-USDT currency: «Курс НБУ на 17.11: 1 USD =
+   41,20 UAH · ≈ 30,35 USD»; a skeleton while `['exchange-rate', date]` loads.
+3. **Currency pill + kind pill** — the currency is locked (lock icon) for a USDT project and for
+   DIVIDEND. The kind pill is shown only to roles with more than one kind; SENIOR and DROP get the
+   title «Новий дохід» instead.
+4. **The kind block** — only the fields the kind requires (see "Field parity").
+5. **Defaults row** — «Сьогодні · без проєкту · без опису · змінити». «змінити» expands it in place to
+   «Дата», «Проєкт», «Джерело коштів» (EXPENSE only) and «Опис». A kind that requires a project shows the
+   project picker in the kind block instead.
+
+**Smart prefill (device-local, no new business data).** The last kind, currency and project used on
+this device are remembered in local storage and prefilled on the next open; the date defaults to
+today. Nothing is sent to the server for it. A remembered project that the user can no longer see is
+dropped silently. The SALARY row action prefills employee, month and kind exactly as today's
+`salaryPrefill` does.
+
+## Save behaviour
+
+- **Submit is never `disabled` for validity.** A tap on an invalid form moves focus to the first
+  invalid field and shows its inline message. While a write is in flight the button carries
+  `aria-disabled="true"`, a 16 px spinner, and further taps are ignored: one request per tap.
+- **Keyed kinds (all kinds once Task 1.1 ships):** the sheet closes at once, the list inserts an
+  optimistic row «Зберігаємо…» (`aria-busy="true"`), and the phone shows the pill «Зберігаємо
+  1 250,50 USD…». Success replaces the row with the server row. Failure removes the row, shows the
+  persistent toast «Не збережено 1 250,50 USD» with «Відкрити», and pins the draft.
+- **Keyless kinds until Task 1.1** (EXPENSE, non-USDT ADMIN_INCOME, ADMIN_TRANSFER): no optimistic row.
+  The sheet stays open with the banner «Зберігаємо… змінити не можна» (`inflight` frame) and waits for
+  the server, because a resubmit without a key could create a duplicate.
+- **Armed save:** a save tapped while the receipt uploads is queued: «Збережеться 1 250,50 USD після
+  чека» with «Не зберігати автоматично» to cancel the queue. The sheet can be collapsed («Згорнути»);
+  the draft and the upload continue.
+- **Errors.** 422: inline on the field, values kept, no retry button. Not sent: «Транзакцію не
+  надіслано» + «Повторити збереження». Unknown outcome: the form is locked, «Надіслати ще раз» resends
+  with the **same** idempotency key, «Видалити чернетку» discards.
+- **Nothing retries automatically.** Not a definite failure, not an unknown outcome, not a reconnect.
+- **Edit flows** (admin edit, senior edit, attach receipt) wait for the server with the same inline
+  pending state; they do not insert optimistic rows, because a cascade may change other rows.
+- **Cascade block:** when a derivative row cannot be recomputed and the server marks the save as
+  blocked, today's message stays: «Зберегти не можна — по відмічених рядках суму не перерахувати,
+  потрібне ручне рішення», and the primary is `aria-disabled`. The mockup shows the non-blocking case
+  (an invoice that will not be reissued automatically).
+
+## Closing
+
+| Situation                                      | Phone                                     | Panel < 1440            | Panel ≥ 1440 (non-modal)                                |
+| ---------------------------------------------- | ----------------------------------------- | ----------------------- | ------------------------------------------------------- |
+| Clean form                                     | Drag down, scrim tap or «Скасувати» close | Esc, scrim, «Скасувати» | Esc, «Скасувати», or a click on another row             |
+| Dirty form (typed, not saved)                  | Action sheet «Вийти без збереження?»      | Confirm dialog, 420 px  | Confirm dialog; on a row click it asks before switching |
+| A money draft (armed, failed, unknown outcome) | «Згорнути» keeps the draft, no confirm    | Same                    | Same                                                    |
+
+Focus returns to the element that opened the sheet (the header button or the row). After a keyed save
+it moves to the optimistic row.
+
+## Interaction and motion
+
+- Phone sheet: slides up 280 ms `cubic-bezier(0.32, 0.72, 0, 1)`, follows the finger on drag, dismiss
+  over 30 % of the height or a fast flick. Panel: slides in from the right 220 ms ease-out, scrim fades
+  150 ms.
+- The optimistic row fades in 150 ms; a rollback collapses the row 200 ms, then the toast appears.
+- The defaults row expands with a 180 ms height transition.
+- `prefers-reduced-motion: reduce` replaces every slide and collapse with a 100 ms opacity fade; the
+  upload progress bar keeps moving because it carries information.
+- Keyboard (fine pointer): `⌘↵` / `Ctrl+↵` submits, `Esc` closes (or asks), the keys 1–5 pick a kind in
+  the open kind popover.
+
+## Field parity (no capability removed)
+
+| Today                                                              | In the sheet                                                                                    |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| «Тип операції» select                                              | Kind pill (picker sheet / listbox popover), prefilled with the last kind                        |
+| `ProjectSelectSection`                                             | «Проєкт» picker (kind block when required, the defaults row otherwise)                          |
+| `AmountCurrencyInput`, USDT lock for a USDT project                | Amount field + currency pill, lock icon on the pill                                             |
+| «Дата транзакції», `TxDateField` (edit)                            | «Дата» in the defaults row; inline error for a closed month                                     |
+| `ReceiptField` / `ReceiptInput` (file XOR link, USDT link only)    | The receipt block, same XOR and USDT rule; the upload no longer dies with the dialog            |
+| NBU rate                                                           | The rate line under the amount                                                                  |
+| «Рахунок отримувача» + company balance (ADMIN_INCOME, ADMIN)       | Same picker; picking «Рахунок компанії» shows its balance                                       |
+| `ObligationPreviewBanner`                                          | Obligation card under the receiver                                                              |
+| ACCOUNTANT receiver toggle                                         | Segmented «Власник проєкту» / «Рахунок компанії»                                                |
+| SALARY «Співробітник», «Місяць», `ExistingSalaryParts`             | Same fields + the list «Уже внесено за <місяць>» (manual / automatic parts)                     |
+| EXPENSE «Джерело коштів», «Категорія» + suggestion chips           | Category chips (`EXPENSE_CATEGORY_MESSAGES` labels) + «Джерело коштів» in the expanded defaults |
+| ADMIN_TRANSFER direction + ACCOUNTANT swap                         | «надсилає → отримує» cards + «Поміняти напрямок» (ACCOUNTANT only)                              |
+| DIVIDEND balance, partner, amount ≤ balance                        | Same, with the limit note under the balance                                                     |
+| «Примітки (необов’язково)»                                         | «Опис» in the defaults row (the same `notes` field)                                             |
+| Field-error summary «Заповніть виділені поля»                      | Focus moves to the first invalid field; the summary stays for screen readers (`role="alert"`)   |
+| Admin edit: subtitle, amount lock note, PAID currency lock         | Same, in the edit variant of the sheet                                                          |
+| `CascadeImpactPanel` (table + `sm:hidden` mobile row)              | One list «Що зміниться» at every width; the blocking message unchanged                          |
+| Non-editable banner                                                | `permission-limited` read-only view                                                             |
+| Admin edit toasts (invoice not reissued / diverged)                | Unchanged                                                                                       |
+| Senior edit: receipt sent only if changed                          | Unchanged                                                                                       |
+| DROP toast «Дохід зареєстровано, очікує валідації», DIVIDEND toast | Unchanged (shown when the optimistic row resolves)                                              |
