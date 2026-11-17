@@ -86,18 +86,21 @@ over it, code 3036 on HTTP 429.
   `properties` array, a context or a price is dropped, never read as "no deprecation".
 - **Verified 2026-11-17 (HIGH): the 410 body on the OpenAI-compatible path.** One live call against a deprecated model
   (no inference run): `/ai/v1/chat/completions` and `/ai/run/<model>` both answer HTTP 410, `application/json`,
-  `{"errors":[{"message":"AiError: Model has been deprecated: @cf/meta/llama-3.1-8b-instruct-awq was deprecated on 2026-05-30. ...","code":5028}],"success":false,"result":{}}`.
+  `{"errors":[{"message":"AiError: Model has been deprecated: @cf/meta/llama-3.1-8b-instruct-awq was deprecated on 2026-05-30. See the model catalog for alternatives: https://developers.cloudflare.com/workers-ai/models/ (<request uuid>)","code":5028}],"success":false,"result":{}}`.
   The router retires on a 410 only with code 5028 in the v4 envelope (`errors[].code`); any other 410 is TRANSPORT.
-  The 410 test carries this body as a fixture.
+  The trailing uuid is a per-request id; the fixture uses a made-up one. The body is a shared `CLOUDFLARE_FIXTURES`
+  entry, so the router and contract tables run it too.
 - **UNVERIFIED: a 404 body that names the model on `/ai/v1`.** The router's retire-by-404 rule (ADR C.4) is tested with an
   OpenAI-shaped `{"error":{"message":"... does not exist"}}` body. No such body was observed. Cloudflare's documented 404 is
   the v4 envelope with 3042 (wrong URL or route), which is TRANSPORT by design. In practice only 410 with 5028 retires a
   model on this route; a removed model is healed by the daily listing. The fixture proves the code path, not a Cloudflare behaviour.
-- **Plain-text 410 is not an observed body.** The plain-text 410 test is a defensive case. The PR #1370 log line is the
-  CRM's own extraction of the error message, not a Cloudflare response body.
+- **Plain-text 410 is not an observed body.** The plain-text 410 test is a defensive case. The PR #1370 prod log came
+  from the API resume path. The live check shows both endpoints answer JSON 5028. How that log line was formed (the
+  CRM's own extraction or a raw response) is not verified.
 - **Verified 2026-11-17 (HIGH): the response to an invalid token.** One live call with an invalid bearer on
   `/ai/v1/chat/completions`: HTTP 401, `{"result":null,"success":false,"errors":[{"code":10000,"message":"Authentication error"}],"messages":[]}`.
-  A 401 is AUTH whatever its body says; a 403 is AUTH only with code 10000. The AUTH test carries this body as a fixture.
+  The key order is as captured (`result, success, errors, messages`). A 401 is AUTH whatever its body says; a 403 is AUTH
+  only with code 10000. The body is a shared `CLOUDFLARE_FIXTURES` entry, so the router and contract tables run it too.
 - **UNVERIFIED: the largest `per_page` the search accepts.** Wrangler pages at 50; the router reads pages of 50, up to
   4 pages (200 entries), stopping at the first short page. A full fourth page is treated as a failed listing, so a
   truncated catalogue can never shrink the managed list.

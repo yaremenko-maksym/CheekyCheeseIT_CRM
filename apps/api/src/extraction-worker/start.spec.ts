@@ -240,16 +240,16 @@ describe('startWorker — what it wires up', () => {
       ])
     })
 
-    it('a malformed Cloudflare account id logs one warning naming the route, never the value', async () => {
-      const cf = {
-        ...groq,
-        provider: 'cloudflare',
-        models: ['@cf/mistralai/mistral-small-3.1-24b-instruct'],
-        contextTokens: 16_000,
-        maxAnswerTokens: 2_048,
-        freeLimit: { requestsPerDay: 16 },
-      }
-      const { out } = await started({
+    const cf = {
+      ...groq,
+      provider: 'cloudflare',
+      models: ['@cf/mistralai/mistral-small-3.1-24b-instruct'],
+      contextTokens: 16_000,
+      maxAnswerTokens: 2_048,
+      freeLimit: { requestsPerDay: 16 },
+    }
+    const startedWithCloudflare = (cloudflareEnv: Record<string, string>) =>
+      started({
         ...env,
         EXTRACTION_ROUTER_CONFIG: JSON.stringify({
           policyVersion: 'p1',
@@ -257,19 +257,33 @@ describe('startWorker — what it wires up', () => {
           floorBudgetMs: 60_000,
           routes: [cf, local],
         }),
-        CLOUDFLARE_AI_TOKEN: 'KEY-MARKER',
-        CLOUDFLARE_ACCOUNT_ID: 'ACCOUNT-MARKER',
+        ...cloudflareEnv,
       })
-      const lines = out.map((l) => JSON.parse(l) as { event: string })
-      expect(lines.filter((l) => l.event === 'ROUTE_ENV_WARNING')).toEqual([
-        { event: 'ROUTE_ENV_WARNING', route: 'cloudflare', reason: 'ACCOUNT_ID_MALFORMED' },
-      ])
-      expect(routeLines(out)).toEqual([
-        { event: 'HOSTED_ROUTES', present: [], absent: ['gemini', 'groq', 'cloudflare'] },
-      ])
-      expect(out.join('')).not.toContain('ACCOUNT-MARKER')
-      expect(out.join('')).not.toContain('KEY-MARKER')
-    })
+    const warnings = (out: string[]) =>
+      out
+        .map((l) => JSON.parse(l) as { event: string })
+        .filter((l) => l.event === 'ROUTE_ENV_WARNING')
+    const VALID_ID = '0123456789abcdef0123456789abcdef'
+
+    it.each([
+      [
+        'ACCOUNT_ID_MALFORMED',
+        { CLOUDFLARE_AI_TOKEN: 'KEY-MARKER', CLOUDFLARE_ACCOUNT_ID: 'ACCOUNT-MARKER' },
+        ['KEY-MARKER', 'ACCOUNT-MARKER'],
+      ],
+      ['ACCOUNT_ID_MISSING', { CLOUDFLARE_AI_TOKEN: 'KEY-MARKER' }, ['KEY-MARKER']],
+      ['TOKEN_MISSING', { CLOUDFLARE_ACCOUNT_ID: VALID_ID }, [VALID_ID, 'crm-model-runtime']],
+    ] as const)(
+      '%s logs one warning naming the route and the reason, never a value',
+      async (reason, cloudflareEnv, secrets) => {
+        const { out } = await startedWithCloudflare(cloudflareEnv)
+        expect(warnings(out)).toEqual([{ event: 'ROUTE_ENV_WARNING', route: 'cloudflare', reason }])
+        expect(routeLines(out)).toEqual([
+          { event: 'HOSTED_ROUTES', present: [], absent: ['gemini', 'groq', 'cloudflare'] },
+        ])
+        for (const secret of secrets) expect(out.join('')).not.toContain(secret)
+      },
+    )
 
     it('a config the router refuses has no route present, even one it names', async () => {
       const { out } = await started({

@@ -8,12 +8,48 @@ export const CLOUDFLARE_ACCOUNT = '0123456789abcdef0123456789abcdef'
 const v4Error = (code: number): string =>
   JSON.stringify({ success: false, errors: [{ code, message: BODY_MARKER }], messages: [] })
 
+/**
+ * The live 410 body on `/ai/v1/chat/completions` (deprecated model, one call, no inference; verified
+ * 2026-11-17, facts file). The trailing request uuid is per-request: the one here is made up.
+ */
+const LIVE_410_BODY = JSON.stringify({
+  errors: [
+    {
+      message:
+        'AiError: Model has been deprecated: @cf/meta/llama-3.1-8b-instruct-awq was deprecated on 2026-05-30. See the model catalog for alternatives: https://developers.cloudflare.com/workers-ai/models/ (00000000-0000-4000-8000-000000000000)',
+      code: 5028,
+    },
+  ],
+  success: false,
+  result: {},
+})
+
+/** The live 401 body of an invalid bearer (verified 2026-11-17); key order as captured. */
+const LIVE_401_BODY = JSON.stringify({
+  result: null,
+  success: false,
+  errors: [{ code: 10000, message: 'Authentication error' }],
+  messages: [],
+})
+
 export const CLOUDFLARE_FIXTURES: ProviderFixture[] = [
   {
     name: '401 token missing or invalid',
     status: 401,
     body: v4Error(10000),
     expected: { ok: false, code: 'AUTH' },
+  },
+  {
+    name: '401 invalid bearer, the verified live body (2026-11-17)',
+    status: 401,
+    body: LIVE_401_BODY,
+    expected: { ok: false, code: 'AUTH' },
+  },
+  {
+    name: '410 model deprecated, the verified live body (2026-11-17)',
+    status: 410,
+    body: LIVE_410_BODY,
+    expected: { ok: false, code: 'RETIRED' },
   },
   {
     name: '403 authentication error (10000) in the v4 envelope',

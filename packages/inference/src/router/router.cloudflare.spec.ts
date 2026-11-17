@@ -55,6 +55,7 @@ describe('router: the Cloudflare route (amendment 2026-11-17)', () => {
 
   it.each([
     '410 model deprecated (5028) in the v4 envelope',
+    '410 model deprecated, the verified live body (2026-11-17)',
     '404 with an OpenAI-shaped error naming the model',
   ])('%s: retires the model and moves to the next one in the same call', async (name) => {
     const f = scriptedFetch((s) => (s.model === MISTRAL ? reply(name) : GOOD))
@@ -83,6 +84,20 @@ describe('router: the Cloudflare route (amendment 2026-11-17)', () => {
     await createRouter(config([CLOUDFLARE, LOCAL]), d).run(REQ)
     expect(f.sent.map((s) => s.host)).toEqual([CF_HOST, 'crm-model-runtime'])
     expect(d.routeState.snapshot().retired).toEqual([])
+  })
+
+  it('the verified live 401 body disables the provider once and moves to the floor', async () => {
+    const f = scriptedFetch((s) =>
+      s.host === CF_HOST ? reply('401 invalid bearer, the verified live body (2026-11-17)') : GOOD,
+    )
+    const d = deps(f.fetchImpl, { routeState: route() })
+    const router = createRouter(config([CLOUDFLARE, LOCAL]), d)
+    await router.run(REQ)
+    await router.run(REQ)
+    expect(f.sent.map((s) => s.host)).toEqual([CF_HOST, 'crm-model-runtime', 'crm-model-runtime'])
+    expect(ofType(d.events, 'PROVIDER_DISABLED')).toEqual([
+      { type: 'PROVIDER_DISABLED', route: 'cloudflare', code: 'AUTH' },
+    ])
   })
 
   it('a used daily allocation (3036) spends the model for the UTC day', async () => {
