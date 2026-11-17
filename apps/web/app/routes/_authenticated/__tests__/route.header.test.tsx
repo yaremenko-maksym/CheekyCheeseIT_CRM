@@ -50,7 +50,7 @@ const MOCK_USER: SessionUser = {
 // The real `useRouterState` is a store subscription: a state change re-renders the subscriber
 // itself, whatever its parent does. Mutating a plain object and re-rendering from the top is not
 // equivalent — under the React Compiler a prop-less parent returns its cached element and the
-// subscriber never re-reads it. `setRouterStatus` replaces the state and notifies, like the store.
+// subscriber never re-reads it. `setStatus` replaces the state and notifies, like the store.
 const { revalidateSession, routerStore } = vi.hoisted(() => {
   const listeners = new Set<() => void>()
   const store = {
