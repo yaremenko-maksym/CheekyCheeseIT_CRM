@@ -267,6 +267,13 @@ describe('the generated seed delta', () => {
     expect(
       storedReadinessAt({ ...jooble, blockers: [...jooble.blockers, other] }, SEED_CLOCK),
     ).toEqual({ status: 'BLOCKED', blockers: [other] })
+    // A legacy row keeps its own readiness: the delta never stores a manifest status for it.
+    const legacy = manifest.types.find(
+      (t) => t.disposition.kind === 'IMPLEMENTED' && t.disposition.contract === 'LEGACY',
+    )
+    expect(legacy).toBeDefined()
+    expect(storedReadinessAt(legacy!, SEED_CLOCK)).toEqual(readinessAt(legacy!, SEED_CLOCK))
+    expect(storedReadinessAt(legacy!, SEED_CLOCK).status).toBe('LEGACY')
   })
 
   it('seeds one meter per metered account and binds the rows of that account', () => {

@@ -21,7 +21,7 @@ import { REPORTING_WIRING } from './reporting-wiring'
 
 const NOW = new Date('2026-11-16T09:00:00Z')
 const FAKE_KEY = 'fake-key-0000-not-a-real-credential'
-const KEYED_ENV = ['JOOBLE_API_KEY', 'RAPIDAPI_KEY', 'THEIRSTACK_API_KEY'] as const
+const KEYED_ENV = ['JOOBLE_API_KEY', 'RAPIDAPI_KEY', 'THEIRSTACK_API_KEY', 'REED_API_KEY'] as const
 
 const configWith = (values: Partial<Record<string, string>>) => {
   const get = vi.fn((key: string) => values[key])

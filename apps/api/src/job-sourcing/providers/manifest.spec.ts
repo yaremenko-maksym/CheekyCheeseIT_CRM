@@ -1272,6 +1272,35 @@ describe("quota accounts: consistent units, and a limit that is the provider's, 
     )
   })
 
+  describe('a seeded meter (PR #1372): a positive integer, never above the provider limit of its window', () => {
+    const seeded = (limit: number, window: 'DAY' | 'MONTH' = 'MONTH') =>
+      withDefinition('JSEARCH_API', (d) => ({
+        ...d,
+        quota: { ...d.quota!, seedMeter: { ...d.quota!.seedMeter!, limit, window } },
+      }))
+    const badSeed = (limit: number) =>
+      refused(
+        'QUOTA_INCONSISTENT',
+        `jsearch:rapidapi-main: seeded meter limit ${limit} is not a positive integer within the provider limit`,
+      )
+
+    it('the committed caps are accepted, and so is a seed exactly at the provider limit', () => {
+      expect(seeded(150)).not.toThrow()
+      expect(seeded(200)).not.toThrow()
+    })
+
+    it('zero, a fraction, or one past the provider limit of the same window is refused', () => {
+      expect(refusal(seeded(0))).toEqual(badSeed(0))
+      expect(refusal(seeded(1.5))).toEqual(badSeed(1.5))
+      expect(refusal(seeded(201))).toEqual(badSeed(201))
+    })
+
+    it('a DAY seed is not compared with a MONTH provider limit', () => {
+      // 201 a day is above 200 a month in number only; the windows differ, so only the shape is checked.
+      expect(seeded(201, 'DAY')).not.toThrow()
+    })
+  })
+
   it('one account in two units is refused: a request counter and a record counter are not one counter', () => {
     expect(
       refusal(
