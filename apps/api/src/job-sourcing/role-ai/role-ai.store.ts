@@ -20,6 +20,7 @@ const READ_COMMITTED = { isolationLevel: 'read committed' } as const
 const V = ROLE_CLASSIFIER_VERSION
 
 /** The cache key's hash: a vacancy with no description is keyed by '' (the column is NOT NULL). */
+// Stryker disable next-line ArrowFunction: the store runs only in role-ai-pass.integration.spec.ts (outside the gate), which asserts the '' key
 const keyHash = (c: RoleAiCandidate) => c.descriptionSha256 ?? ''
 
 function inTx<T>(db: MeterDb, work: (tx: SqlExecutor) => Promise<T>): Promise<T> {

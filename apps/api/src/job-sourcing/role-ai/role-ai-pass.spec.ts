@@ -2,6 +2,7 @@ import type { TechnicalRole } from '@crm/shared'
 import { describe, expect, it } from 'vitest'
 import {
   decideRoleAi,
+  logRoleAiError,
   ROLE_AI_BACKOFF,
   ROLE_AI_CRON,
   ROLE_AI_MIN_CONFIDENCE,
@@ -422,5 +423,21 @@ describe('runRoleAiLoop', () => {
     expect(text).not.toContain(TITLE)
     expect(text).not.toContain(TITLE.toLowerCase())
     expect(text).not.toContain(DESCRIPTION)
+  })
+})
+
+describe('logRoleAiError', () => {
+  it('logs a pg error by its SQLSTATE with no leading space, and no opportunityId key when none is given', () => {
+    const l = fakeLog()
+    const err = Object.assign(new Error(`denied ${TITLE}`), {
+      code: '42501',
+      severity: 'ERROR',
+    })
+    logRoleAiError(l.log, err)
+    const line = l.lines[0]?.line as Record<string, unknown>
+    expect(Object.keys(line).sort()).toEqual(['db', 'error', 'event'])
+    expect(line['db']).toMatch(/^\S/)
+    expect(line['db']).toContain('42501')
+    expect(JSON.stringify(l.lines)).not.toContain(TITLE)
   })
 })
