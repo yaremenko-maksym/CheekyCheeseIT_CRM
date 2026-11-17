@@ -37,7 +37,7 @@ describe('Cloudflare URLs (SR-M-8 exception: the account id is the only interpol
 
   it('builds the Text Generation search URL of one page', () => {
     expect(cloudflareListingUrl(ID, 1)).toBe(
-      `https://api.cloudflare.com/client/v4/accounts/${ID}/ai/models/search?task=Text%20Generation&per_page=50&page=1`,
+      `https://api.cloudflare.com/client/v4/accounts/${ID}/ai/models/search?task=Text%20Generation&hide_experimental=true&per_page=50&page=1`,
     )
     expect(cloudflareListingUrl(ID, CLOUDFLARE_LISTING_MAX_PAGES)).toContain(
       `&page=${CLOUDFLARE_LISTING_MAX_PAGES}`,

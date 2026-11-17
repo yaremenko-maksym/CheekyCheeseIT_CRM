@@ -36,7 +36,7 @@ describe('the Cloudflare listing request', () => {
     const { sent } = await list(onePage([]))
     expect(sent).toHaveLength(1)
     expect(sent[0]!.url).toBe(
-      `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT}/ai/models/search?task=Text%20Generation&per_page=50&page=1`,
+      `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT}/ai/models/search?task=Text%20Generation&hide_experimental=true&per_page=50&page=1`,
     )
     expect(sent[0]!.url).not.toContain(KEY_MARKER)
     expect(sent[0]!.headers).toEqual({ Authorization: `Bearer ${KEY_MARKER}` })
@@ -52,7 +52,7 @@ describe('the Cloudflare listing request', () => {
 
   it('reads the next page while a page is full, and stops at a short one', async () => {
     const full = Array.from({ length: CLOUDFLARE_LISTING_PAGE_SIZE }, (_, i) =>
-      cloudflareEntry(`@cf/v/m${i}`),
+      cloudflareEntry(`@cf/meta/m${i}`),
     )
     const { result, sent } = await list((s) =>
       s.url.endsWith('&page=1') ? cloudflarePage(full) : cloudflarePage([cloudflareEntry(OSS)]),
@@ -67,7 +67,7 @@ describe('the Cloudflare listing request', () => {
     const full = (): Reply =>
       cloudflarePage(
         Array.from({ length: CLOUDFLARE_LISTING_PAGE_SIZE }, () =>
-          cloudflareEntry(`@cf/v/m${n++}`),
+          cloudflareEntry(`@cf/meta/m${n++}`),
         ),
       )
     const { result, sent } = await list(full)
@@ -77,7 +77,7 @@ describe('the Cloudflare listing request', () => {
 
   it('fails the whole listing when a later page fails', async () => {
     const full = Array.from({ length: CLOUDFLARE_LISTING_PAGE_SIZE }, (_, i) =>
-      cloudflareEntry(`@cf/v/m${i}`),
+      cloudflareEntry(`@cf/meta/m${i}`),
     )
     const later = await list((s) =>
       s.url.endsWith('&page=1') ? cloudflarePage(full) : { status: 500, body: '' },
@@ -91,7 +91,7 @@ describe('the Cloudflare listing request', () => {
 
   it('a later page that never answered still commits the unit: page 1 did', async () => {
     const full = Array.from({ length: CLOUDFLARE_LISTING_PAGE_SIZE }, (_, i) =>
-      cloudflareEntry(`@cf/v/m${i}`),
+      cloudflareEntry(`@cf/meta/m${i}`),
     )
     const fake = scriptedFetch(() => cloudflarePage(full))
     let calls = 0
@@ -168,8 +168,8 @@ describe('which Cloudflare entries are kept (planned deprecation, context, price
   it('drops a model priced above the ceiling on either side', async () => {
     const { result } = await list(
       onePage([
-        cloudflareEntry('@cf/v/dear-in', { price: [0.352, 0.3] }),
-        cloudflareEntry('@cf/v/dear-out', { price: [0.1, 0.556] }),
+        cloudflareEntry('@cf/meta/dear-in', { price: [0.352, 0.3] }),
+        cloudflareEntry('@cf/meta/dear-out', { price: [0.1, 0.556] }),
         cloudflareEntry(GEMMA),
       ]),
     )
@@ -202,6 +202,8 @@ describe('which Cloudflare entries are kept (planned deprecation, context, price
       },
     ],
     ['a negative price', { price: [-1, 0.3] }],
+    ['a zero input price', { price: [0, 0.3] }],
+    ['a zero output price', { price: [0.1, 0] }],
     ['another task', { task: 'Text Embeddings' }],
     ['no task', { task: undefined }],
   ] as [string, CloudflareEntryOptions][])(
@@ -217,7 +219,7 @@ describe('which Cloudflare entries are kept (planned deprecation, context, price
     const { result } = await list(
       onePage([
         cloudflareEntry('@hf/thebloke/mistral-7b-instruct'),
-        cloudflareEntry('@cf/v/../../x'),
+        cloudflareEntry('@cf/meta/../../x'),
         cloudflareEntry(GEMMA),
         cloudflareEntry(GEMMA),
       ]),
@@ -226,8 +228,28 @@ describe('which Cloudflare entries are kept (planned deprecation, context, price
     expect(result).toMatchObject({ dropped: 3 })
   })
 
+  it('admits additions only from the vendors of the pinned chain (amendment 2026-11-17, F3)', async () => {
+    const { result } = await list(
+      onePage([
+        cloudflareEntry('@cf/qwen/qwen3-30b-a3b-fp8'),
+        cloudflareEntry('@cf/metax/m'),
+        cloudflareEntry('@cf/meta/llama-4-scout-17b-16e-instruct'),
+        cloudflareEntry('@cf/mistralai/m'),
+        cloudflareEntry('@cf/google/g'),
+        cloudflareEntry(OSS),
+      ]),
+    )
+    expect(ids(result)).toEqual([
+      '@cf/meta/llama-4-scout-17b-16e-instruct',
+      '@cf/mistralai/m',
+      '@cf/google/g',
+      OSS,
+    ])
+    expect(result).toMatchObject({ dropped: 2 })
+  })
+
   it('a hostile id never reaches the result', async () => {
-    const hostile = `@cf/v/${'x'.repeat(300)}`
+    const hostile = `@cf/meta/${'x'.repeat(300)}`
     const { result } = await list(onePage([cloudflareEntry(hostile)]))
     expect(JSON.stringify(result)).not.toContain('xxxxxxxxxx')
   })

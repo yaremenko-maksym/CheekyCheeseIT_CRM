@@ -7,6 +7,7 @@ import {
   CLOUDFLARE_LISTING_MAX_PAGES,
   CLOUDFLARE_LISTING_PAGE_SIZE,
   cloudflareListingUrl,
+  isCloudflareListedVendor,
   isCloudflareAccountId,
 } from './cloudflare'
 import type { HostedProvider } from './config'
@@ -90,6 +91,7 @@ const cloudflarePrices = z.array(
 function toCloudflareModel(raw: unknown): ListedModel | null {
   const parsed = cloudflareEntry.safeParse(raw)
   if (!parsed.success || !isValidProviderModelId('cloudflare', parsed.data.name)) return null
+  if (!isCloudflareListedVendor(parsed.data.name)) return null
   const property = (id: string): unknown =>
     parsed.data.properties.find((x) => x.property_id === id)?.value
   if (parsed.data.properties.some((x) => x.property_id === 'planned_deprecation_date')) return null
@@ -99,9 +101,10 @@ function toCloudflareModel(raw: unknown): ListedModel | null {
   const rate = (unit: string): number | undefined => prices.data.find((x) => x.unit === unit)?.price
   const input = rate('per M input tokens')
   const output = rate('per M output tokens')
-  // A dearer model would break the own-cap arithmetic, which is priced at the ceiling.
-  if (input === undefined || input > CLOUDFLARE_CEILING_USD_PER_M.input) return null
-  if (output === undefined || output > CLOUDFLARE_CEILING_USD_PER_M.output) return null
+  // A dearer model would break the own-cap arithmetic; a free (0) price is not a price we can trust.
+  if (input === undefined || input <= 0 || input > CLOUDFLARE_CEILING_USD_PER_M.input) return null
+  if (output === undefined || output <= 0 || output > CLOUDFLARE_CEILING_USD_PER_M.output)
+    return null
   return { id: parsed.data.name, context: context.data, active: true }
 }
 

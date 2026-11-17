@@ -13,6 +13,7 @@ import {
   type RouterConfigInput,
 } from './config'
 import { isValidModelId, isValidProviderModelId } from '../internal/model-id'
+import { CLOUDFLARE_CEILING_USD_PER_M, CLOUDFLARE_PINNED_MODEL_PRICES } from './cloudflare'
 
 const local = {
   provider: 'local' as const,
@@ -171,6 +172,30 @@ describe('routerConfigSchema: the cloudflare route (amendment 2026-11-17)', () =
 
   it('refuses a cloudflare model id outside @cf/<vendor>/<name>', () => {
     expect(ok(base([{ ...cloudflare, models: ['openai/gpt-oss-20b'] }, local]))).toBe(false)
+  })
+
+  it('pins only checked-in Cloudflare models priced at or under the ceiling (F4)', () => {
+    const pins = [
+      '@cf/mistralai/mistral-small-3.1-24b-instruct',
+      '@cf/openai/gpt-oss-20b',
+      '@cf/google/gemma-4-26b-a4b-it',
+    ]
+    expect(ok(base([{ ...cloudflare, models: pins }, local]))).toBe(true)
+    for (const extra of ['@cf/meta/llama-3.3-70b-instruct-fp8-fast', '@cf/openai/gpt-oss-120b']) {
+      expect(ok(base([{ ...cloudflare, models: [...pins, extra] }, local]))).toBe(false)
+    }
+    // The pin list is Cloudflare's alone: another provider's ids are not held to it.
+    expect(ok(base([groq, cloudflare, local]))).toBe(true)
+  })
+
+  it('every checked-in Cloudflare pin is priced at or under the ceiling the own cap uses', () => {
+    for (const { input, output } of Object.values(CLOUDFLARE_PINNED_MODEL_PRICES)) {
+      expect(input).toBeGreaterThan(0)
+      expect(output).toBeGreaterThan(0)
+      expect(input).toBeLessThanOrEqual(CLOUDFLARE_CEILING_USD_PER_M.input)
+      expect(output).toBeLessThanOrEqual(CLOUDFLARE_CEILING_USD_PER_M.output)
+    }
+    expect(Object.keys(CLOUDFLARE_PINNED_MODEL_PRICES)).toHaveLength(3)
   })
 
   it('refuses a free limit whose worst-case calls exceed 10 000 Neurons a day', () => {

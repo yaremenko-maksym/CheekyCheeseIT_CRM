@@ -3,7 +3,12 @@ import { z } from 'zod'
 import { MAX_SMALL_DOSE_GROUPS } from '../contracts/extraction'
 import { LOCAL_MODEL_RUNTIME_HOST } from '../http/bounded-request'
 import { isValidModelId, isValidProviderModelId } from '../internal/model-id'
-import { cloudflareChatBaseUrl, fitsCloudflareAllowance, isCloudflareAccountId } from './cloudflare'
+import {
+  cloudflareChatBaseUrl,
+  fitsCloudflareAllowance,
+  isCloudflareAccountId,
+  isCloudflarePinnableModel,
+} from './cloudflare'
 
 /**
  * The checked-in hosted provider allowlist (ADR §2.1, D3: no OpenRouter in this version; Cloudflare
@@ -108,6 +113,8 @@ const hostedRouteSchema = z
   .strict()
   // Every model id in the provider's family; issues carry no detail, a config holds a key.
   .refine((r) => r.models.every((m) => isValidProviderModelId(r.provider, m)))
+  // The own cap prices a call at the ceiling, so a Cloudflare pin must be a checked-in id priced under it.
+  .refine((r) => r.provider !== 'cloudflare' || r.models.every(isCloudflarePinnableModel))
   // The account id belongs to the cloudflare route and to no other.
   .refine((r) => (r.provider === 'cloudflare') === (r.accountId !== undefined))
   // Cloudflare's free limit is 10 000 Neurons, not requests: the configured request count must fit
