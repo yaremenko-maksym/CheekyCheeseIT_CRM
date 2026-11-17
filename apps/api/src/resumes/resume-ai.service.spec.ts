@@ -410,6 +410,29 @@ describe('ResumeAiService', () => {
         expect(budget.used()).toBe(0)
       })
 
+      it('SO-1: a 429 whose body cannot be read still releases the reserved call', async () => {
+        const error = vi.spyOn(Logger.prototype, 'error')
+        fetchSpy.mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          text: () => Promise.reject(new Error('body stream reset')),
+        } as unknown as Response)
+        const budget = fakeBudget(10)
+        const result = await makeService({}, budget).extractStructure('a'.repeat(200))
+
+        // The body is unknown, so the code stays MODEL_ERROR; a 429 is never billed, so the call is released.
+        expect(result).toEqual({
+          ok: false,
+          code: 'MODEL_ERROR',
+          message: encodeResumeMessage('RESUME_AI_UNAVAILABLE'),
+          quotaResetsAt: null,
+          tokensUsed: null,
+        })
+        expect(error).toHaveBeenCalledWith('Workers AI response body failed: Error')
+        expect(budget.releaseCall).toHaveBeenCalledTimes(1)
+        expect(budget.used()).toBe(0)
+      })
+
       it('R4: a 429 that lands after midnight reports the reset of the reserving day', async () => {
         vi.useFakeTimers({ now: new Date('2026-11-17T23:59:30.000Z') })
         try {

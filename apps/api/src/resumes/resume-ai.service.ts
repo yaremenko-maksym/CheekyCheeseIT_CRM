@@ -290,9 +290,8 @@ export class ResumeAiService {
         message: encodeResumeMessage('RESUME_AI_UNAVAILABLE'),
         quotaResetsAt: null,
         tokensUsed: null,
-        // Headers came back, so the request was sent and may be billed: only a failure before any
-        // response is given back.
-        unbilled: res === undefined && failedBeforeRequest(err),
+        // Headers came back: the request was sent and may be billed, unless the status is 429 (never billed).
+        unbilled: res === undefined ? failedBeforeRequest(err) : res.status === 429,
       }
     } finally {
       clearTimeout(timer)
