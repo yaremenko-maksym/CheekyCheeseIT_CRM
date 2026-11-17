@@ -307,4 +307,4 @@ If Cloudflare ever lets Free accounts use that model, the check reports `Workers
 
 ## MP-04 / MP-03
 
-The harness `scripts/devops/extraction-mp04/` measured a local candidate model against the frozen pass table. The hosted-only project has no local runtime, so it is not run here, and the rehearsal no longer smoke-runs it. Its unit tests still run in the rehearsal workflow.
+The harness `scripts/devops/extraction-mp04/` measured a local candidate model against the frozen pass table (result: `docs/runbooks/vacancy-sourcing-measurements.md`, entry MP-04). It was retired with the local route in PR #1381 (5.4c-H1): it imported the worker's local-only router config, which no longer exists. It is in the git history at the commit before that merge.

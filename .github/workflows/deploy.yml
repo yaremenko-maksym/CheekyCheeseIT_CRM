@@ -1210,6 +1210,12 @@ jobs:
             if [ -n "$EXTRACTION_WORKER_SECRET" ]; then
               printf 'EXTRACTION_WORKER_URL=%s\n' 'http://crm-extraction-worker:3100' >> /opt/crm/.env.production
               printf 'EXTRACTION_WORKER_SECRET=%s\n' "$EXTRACTION_WORKER_SECRET" >> /opt/crm/.env.production
+              # The input window (ADR 2026-11-03 H.4): the smallest configured hosted route, so every
+              # route fits every input. Derived from the runbook's sample config: the least room left
+              # for the input (contextTokens - maxAnswerTokens) is groq, 8000 - 2000. The real config
+              # lives only in the worker's env file on the server; change these with it. Not secret.
+              printf 'EXTRACTION_INPUT_CONTEXT_TOKENS=%s\n' '8000' >> /opt/crm/.env.production
+              printf 'EXTRACTION_INPUT_MAX_ANSWER_TOKENS=%s\n' '2000' >> /opt/crm/.env.production
             fi
 
             # vacancy-sourcing quota providers: same conditional-write pattern.
