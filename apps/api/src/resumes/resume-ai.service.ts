@@ -3,10 +3,9 @@
  * Cloudflare Workers AI (task-resume-base §2).
  *
  * Token economy (the owner asked for this explicitly):
- *   - SMALL model: `@cf/meta/llama-3.1-8b-instruct-awq` — the cheapest useful
- *     instruct model on Workers AI (11 161 Neurons per 1M input tokens /
- *     24 215 per 1M output). The free daily allowance is 10 000 Neurons,
- *     resetting at 00:00 UTC, so a single extraction must stay small.
+ *   - Model: `RESUME_EXTRACTION_MODEL` below. The free daily allowance is
+ *     10 000 Neurons, resetting at 00:00 UTC, so a single extraction must stay
+ *     small (see the constant for why this model).
  *   - HARD input cap: `RESUME_LIMITS.extractionInputChars` characters of
  *     resume text, and a `max_tokens` ceiling on the response.
  *   - Strict JSON contract + Zod validation. On invalid output we retry EXACTLY
@@ -40,8 +39,14 @@ import {
 } from '@crm/shared'
 import type { Env } from '../config/env'
 
-/** Cheapest instruct model that reliably follows a JSON schema instruction. */
-export const RESUME_EXTRACTION_MODEL = '@cf/meta/llama-3.1-8b-instruct-awq'
+/**
+ * Instruct model that follows the JSON schema instruction. The previous
+ * `@cf/meta/llama-3.1-8b-instruct-awq` was deprecated by Cloudflare on
+ * 2026-05-30 and answers HTTP 410, so every upload failed with MODEL_ERROR.
+ * This one must return `result.response` as a STRING: the Llama 3.3 / 4 models
+ * return an already-parsed object there, which `callModel` reads as empty.
+ */
+export const RESUME_EXTRACTION_MODEL = '@cf/mistralai/mistral-small-3.1-24b-instruct'
 
 /** Upper bound on generated tokens — a structured resume fits comfortably. */
 const MAX_OUTPUT_TOKENS = 1400
@@ -227,7 +232,10 @@ export class ResumeAiService {
     const totalTokens = body?.result?.usage?.total_tokens
     return {
       ok: true,
-      raw: typeof raw === 'string' ? raw : '',
+      // Some Workers AI models return the JSON already parsed; re-serialise it so
+      // the same Zod validation applies instead of reading it as empty. A missing or
+      // scalar response serialises to "null"/"42" and fails that validation as before.
+      raw: typeof raw === 'string' ? raw : JSON.stringify(raw ?? null),
       tokensUsed: typeof totalTokens === 'number' ? totalTokens : null,
     }
   }
