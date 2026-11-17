@@ -53,11 +53,37 @@ for (const f of list) {
   writeFileSync(htmlPath, f.html)
   await page.goto(pathToFileURL(htmlPath).href, { waitUntil: 'networkidle' })
   await page.evaluate(() => document.fonts.ready)
-  const overflow = await page.evaluate(
-    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
-  )
+  // fit: the frame is as tall as its content (the [data-fit-end] marker) plus f.fit px of bottom room.
+  if (f.fit != null) {
+    const fitH = await page.evaluate((pad) => {
+      const d = document.querySelector('.device')
+      const e = document.querySelector('[data-fit-end]')
+      const hgt = Math.ceil(e.getBoundingClientRect().bottom - d.getBoundingClientRect().top + pad)
+      d.style.height = `${hgt}px`
+      return hgt
+    }, f.fit)
+    await page.setViewportSize({ width: f.w, height: Math.min(fitH + 40, 6000) })
+  }
+  const overflow = await page.evaluate(() => {
+    if (document.documentElement.scrollWidth > document.documentElement.clientWidth)
+      return ['document']
+    // an element that pokes out of the device on the right is clipped text or a layout bug
+    const d = document.querySelector('.device')
+    const r = d.getBoundingClientRect().right
+    return [...d.querySelectorAll('*')]
+      .filter(
+        (el) =>
+          !el.closest('svg') &&
+          !el.closest('.sheet') &&
+          !el.closest('[style*="clip:rect"]') &&
+          el.getBoundingClientRect().width > 1 &&
+          el.getBoundingClientRect().right > r + 1,
+      )
+      .slice(0, 3)
+      .map((el) => `${el.tagName}.${el.className} "${(el.textContent || '').slice(0, 30)}"`)
+  })
   const png = join(outDir, `${f.name}.png`)
-  await page.screenshot({ path: png, fullPage: Boolean(f.full) })
+  await page.screenshot({ path: png, fullPage: Boolean(f.full || f.fit != null) })
   if (magick)
     execFileSync('magick', [
       png,
@@ -71,7 +97,7 @@ for (const f of list) {
       `PNG8:${png}`,
     ])
   console.log(
-    `${f.name}.png ${Math.round(statSync(png).size / 1024)} KB${overflow ? ' HORIZONTAL-OVERFLOW' : ''}`,
+    `${f.name}.png ${Math.round(statSync(png).size / 1024)} KB${overflow.length ? ` HORIZONTAL-OVERFLOW ${overflow.join(' | ')}` : ''}`,
   )
   await page.close()
   n++
