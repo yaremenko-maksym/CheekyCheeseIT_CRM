@@ -250,6 +250,32 @@ export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
   { title: 'Інженер з пожежної безпеки', expected: UNCLASSIFIED },
   // `фахівець` / `спеціаліст` are not job nouns (research §3.1 step 2 does not list them)
   { title: 'Фахівець з кібербезпеки', expected: UNCLASSIFIED },
+  // an inflected engineer noun, and `інформаційної` (the stem takes 2+ letters)
+  { title: 'Інженерка з кібербезпеки', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Інженерка з інформаційної безпеки', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Инженеры по кибербезопасности', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Инженеры по информационной безопасности', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Аналітик з інформаційної безпеки', expected: roles('SECURITY_ANALYST') },
+  { title: 'Аналитик по информационной безопасности', expected: roles('SECURITY_ANALYST') },
+  // the architect back-end domain, spaced and hyphenated
+  {
+    title: 'Fullstack Front End / Back End Architect',
+    expected: roles(
+      'BACKEND_ENGINEER',
+      'FRONTEND_ENGINEER',
+      'FULLSTACK_ENGINEER',
+      'SOFTWARE_ARCHITECT',
+    ),
+  },
+  {
+    title: 'Full-stack Front-end/Back-end Architect',
+    expected: roles(
+      'BACKEND_ENGINEER',
+      'FRONTEND_ENGINEER',
+      'FULLSTACK_ENGINEER',
+      'SOFTWARE_ARCHITECT',
+    ),
+  },
   // §3.4 WWR run: the remaining multi-role, unclassified and known false-positive titles
   { title: 'BA/Technical Product Manager', expected: NON_IT },
   {
