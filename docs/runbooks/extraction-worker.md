@@ -4,20 +4,20 @@
 **Spec:** `docs/architecture/2026-11-03-extraction-model-router.md` §2.4 (network, secret, no published port), §3.3 (key hygiene), §8.6 (separate project, owner-run install), Amendment 2026-11-08 H.4 (the worker stays, the local runtime goes). Owner decision 2026-11-17: the worker gets its own egress network and `api` is its caller now (see "What changed against the ADR").
 **State after merge:** the worker lives in `docker-compose.extraction.yml`, compose project `crm-extraction`. No deploy names that file or that project, and the deploy does not copy the file to the server. The deploy writes the worker's URL and secret into the API's env only when the GitHub secret `EXTRACTION_WORKER_SECRET` is set. Nothing else here happens until you run it.
 
-## Precondition: the router must accept a config with no local route
+## Precondition: the worker image must be hosted-only (5.4c-H1)
 
-**Not met on `main` today, and not met on `feat/inference-cloudflare-provider` either.** `routerConfigSchema` (`packages/inference/src/router/config.ts`) still refuses any config whose last route is not `local` (the refine on `cfg.routes.at(-1)?.provider === 'local'`). Its floor-budget refine is also measured against that last route. The withdrawal is task 5.4c-H1 of the ADR, and no branch implements it yet.
+The router is hosted-only since task 5.4c-H1 of the ADR (PR #1381). `routerConfigSchema` (`packages/inference/src/router/config.ts`) has no `local` route and no `floorBudgetMs`, and it is strict: a config that still carries either is refused, never stripped (H.1). The worker runs the `api` image at the tag you pin (step 3), so pin an image built from a commit that contains 5.4c-H1. An older image refuses the hosted-only sample below.
 
-What happens if you install before 5.4c-H1 merges:
+What a refused config looks like, on an older image or with a stale config:
 
-- The worker starts and listens. Its log line `HOSTED_ROUTES` shows `"present":[]`: the router refused the config.
-- Every call (`/extract`, preflight, `/resume-write`, `/visual-check`) is answered as not configured. `api` reads that as "unavailable", which is what happens today with no worker at all. Nothing reaches a provider.
+- The worker starts and listens. Its log line `HOSTED_ROUTES` shows `"present":[]`.
+- Every call (`/extract`, preflight, `/resume-write`, `/visual-check`) is answered as not configured. `api` reads that as "unavailable", which is what happens with no worker at all. Nothing reaches a provider.
 
-So installing early is harmless, but it does nothing. Do not add a dummy `local` route to get past the refine: the worker has no runtime to send it to.
+Do not add a `local` route or `floorBudgetMs` to a config: both are refused.
 
-**The API side is not ready either.** The collection side's env schema (`buildModelExtraction` in `apps/api/src/job-sourcing/structuring/model-extraction-wiring.ts`) still requires `EXTRACTION_LOCAL_CONTEXT_TOKENS` and `EXTRACTION_LOCAL_MAX_ANSWER_TOKENS` next to the worker URL and secret. Those keys belong to the withdrawn local route, and changing them is code that goes with 5.4c-H1. Do not set them here. Nothing calls that wiring on `main` today, so their absence does not stop `api`.
+**The API side.** When the worker URL and secret are set, the collection side's env schema (`buildModelExtraction` in `apps/api/src/job-sourcing/structuring/model-extraction-wiring.ts`) also requires `EXTRACTION_INPUT_CONTEXT_TOKENS` and `EXTRACTION_INPUT_MAX_ANSWER_TOKENS` (H.4). They size the input ceiling: the page is cut to fit the smallest configured hosted window. The deploy writes both together with the URL and the secret (step 6). Without them that wiring refuses and names the two keys.
 
-The sample config below was checked against the router schema on `feat/inference-cloudflare-provider` (2026-11-17). Every route is valid there, and the local-route refine is the only refusal.
+The sample config below is checked against the router's schema by the `Guard Tests` CI job on every pull request that changes code and on every push to `main`; a pull request that changes only docs (this runbook alone, say) skips that job, so its sample is checked after the merge, on the push to `main`. `scripts/devops/check-extraction-router-sample.mjs` runs it through the worker's own env parse and fails unless every route is kept, and with `--deploy` it also fails when the input window `deploy.yml` writes (`EXTRACTION_INPUT_CONTEXT_TOKENS` / `EXTRACTION_INPUT_MAX_ANSWER_TOKENS`) is not this sample's smallest route (`scripts/devops/tests/test-check-extraction-router-sample.sh`). Change a route's `contextTokens` or `maxAnswerTokens` here and in `deploy.yml` together.
 
 ## What the compose file gives you
 
@@ -128,7 +128,7 @@ Do **not** set `ROUTER_LOCAL_MODEL_URL`, `LOCAL_MODEL_KEY` or `LOCAL_MODEL_NAME`
 **Sample `EXTRACTION_ROUTER_CONFIG`** (one line in the file):
 
 ```
-EXTRACTION_ROUTER_CONFIG={"policyVersion":"hosted-2026-11-17","hostedBudgetMs":90000,"floorBudgetMs":180000,"routes":[{"provider":"gemini","models":["gemini-2.5-flash","gemini-2.5-flash-lite"],"contextTokens":32000,"structuredOutput":"json_schema","minGapMs":4000,"timeoutMs":30000,"maxAnswerTokens":2000,"freeLimit":{"requestsPerDay":20}},{"provider":"groq","models":["openai/gpt-oss-120b","openai/gpt-oss-20b"],"contextTokens":8000,"structuredOutput":"json_schema","minGapMs":2000,"timeoutMs":30000,"maxAnswerTokens":2000,"freeLimit":{"requestsPerDay":1000,"tokensPerDay":200000}},{"provider":"cloudflare","models":["@cf/mistralai/mistral-small-3.1-24b-instruct","@cf/openai/gpt-oss-20b","@cf/google/gemma-4-26b-a4b-it"],"contextTokens":16000,"structuredOutput":"none","minGapMs":2000,"timeoutMs":30000,"maxAnswerTokens":2048,"freeLimit":{"requestsPerDay":16}}]}
+EXTRACTION_ROUTER_CONFIG={"policyVersion":"hosted-2026-11-17","hostedBudgetMs":90000,"routes":[{"provider":"gemini","models":["gemini-2.5-flash","gemini-2.5-flash-lite"],"contextTokens":32000,"structuredOutput":"json_schema","minGapMs":4000,"timeoutMs":30000,"maxAnswerTokens":2000,"freeLimit":{"requestsPerDay":20}},{"provider":"groq","models":["openai/gpt-oss-120b","openai/gpt-oss-20b"],"contextTokens":8000,"structuredOutput":"json_schema","minGapMs":2000,"timeoutMs":30000,"maxAnswerTokens":2000,"freeLimit":{"requestsPerDay":1000,"tokensPerDay":200000}},{"provider":"cloudflare","models":["@cf/mistralai/mistral-small-3.1-24b-instruct","@cf/openai/gpt-oss-20b","@cf/google/gemma-4-26b-a4b-it"],"contextTokens":16000,"structuredOutput":"none","minGapMs":2000,"timeoutMs":30000,"maxAnswerTokens":2048,"freeLimit":{"requestsPerDay":16}}]}
 ```
 
 What the fields mean, and what to check before you use the sample:
@@ -143,7 +143,8 @@ What the fields mean, and what to check before you use the sample:
   - groq: `openai/gpt-oss-20b|120b`;
   - cloudflare: `@cf/<org>/<model>`.
 - **`structuredOutput` is `none` for cloudflare.** Its models are not asked for a JSON schema.
-- **Time limits.** `timeoutMs` is at most 120000. `hostedBudgetMs` is at most 120000. `floorBudgetMs` must be at least 6 × the last route's `timeoutMs`.
+- **Time limits.** `timeoutMs` is at most 120000. `hostedBudgetMs` is at most 120000 and must be at least the largest `timeoutMs` of any route: the budget holds one whole request of the slowest route. There is no `floorBudgetMs`; a config with it is refused.
+- **Input window.** The deploy sizes the API's input ceiling for the smallest window in this sample: groq, `contextTokens` 8000 and `maxAnswerTokens` 2000 (the least room left for the input). If you add a route with less room, change the two values in `deploy.yml` with it. A page cut too small only wastes room; one too large for a route is skipped on that route and tried on the next.
 
 Check that the line is valid JSON without printing it:
 
@@ -189,7 +190,7 @@ Expect a `LISTENING` line. A refusal names the bad key (`refusing to start, bad 
 
 Only now, with the worker listening, add the secret of step 1 as the repository secret `EXTRACTION_WORKER_SECRET` (Settings, then Secrets and variables, then Actions).
 
-Then run the Deploy workflow once (Actions, then Deploy, then Run workflow on `main`). Its preflight checks the secret's shape without printing it. It writes `EXTRACTION_WORKER_URL=http://crm-extraction-worker:3100` and the secret into `.env.production`, recreates `api` with them, and attaches `api` to `crm-extraction-entry`. Its log shows `extraction entry: api attached`. Every later deploy re-attaches `api` by itself.
+Then run the Deploy workflow once (Actions, then Deploy, then Run workflow on `main`). Its preflight checks the secret's shape without printing it. It writes `EXTRACTION_WORKER_URL=http://crm-extraction-worker:3100`, the secret, `EXTRACTION_INPUT_CONTEXT_TOKENS` and `EXTRACTION_INPUT_MAX_ANSWER_TOKENS` into `.env.production`, recreates `api` with them, and attaches `api` to `crm-extraction-entry`. Its log shows `extraction entry: api attached`. Every later deploy re-attaches `api` by itself.
 
 Attaching by hand (`docker network connect crm-extraction-entry crm-api-1`) is not enough on the first install: without a deploy, `api` does not have the secret yet.
 
@@ -241,7 +242,7 @@ docker logs "$WK" 2>&1 | grep HOSTED_ROUTES | tail -1
 docker exec crm-api-1 env | grep -c -E '^(GEMINI_API_KEY|GROQ_API_KEY|ROUTER_LOCAL_MODEL_URL|EXTRACTION_ROUTER_CONFIG)=' || true
 ```
 
-`HOSTED_ROUTES` lists the routes whose key arrived under `present` and the rest under `absent`. Until 5.4c-H1 merges, it shows none (see the Precondition).
+`HOSTED_ROUTES` lists the routes whose key arrived under `present` and the rest under `absent`. None under `present` means the router refused the config (see the Precondition).
 
 ### 8. Undo
 
@@ -306,4 +307,4 @@ If Cloudflare ever lets Free accounts use that model, the check reports `Workers
 
 ## MP-04 / MP-03
 
-The harness `scripts/devops/extraction-mp04/` measured a local candidate model against the frozen pass table. The hosted-only project has no local runtime, so it is not run here, and the rehearsal no longer smoke-runs it. Its unit tests still run in the rehearsal workflow.
+The harness `scripts/devops/extraction-mp04/` measured a local candidate model against the frozen pass table (result: `docs/runbooks/vacancy-sourcing-measurements.md`, entry MP-04). It was retired with the local route in PR #1381 (5.4c-H1): it imported the worker's local-only router config, which no longer exists. It is in the git history at the commit before that merge.

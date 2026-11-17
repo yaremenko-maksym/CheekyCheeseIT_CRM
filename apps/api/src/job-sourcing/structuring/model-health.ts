@@ -1,9 +1,4 @@
-import {
-  ATTEMPT_CODES,
-  HOSTED_PROVIDERS,
-  type ExtractionWorkerReply,
-  type SkipCode,
-} from '@crm/inference'
+import { ATTEMPT_CODES, HOSTED_PROVIDERS, type ExtractionWorkerReply } from '@crm/inference'
 import { kyivToday } from '@crm/shared'
 import { z } from 'zod'
 import { MODEL_ROUTE_VALUES, type ModelHealthFlag, type ModelRoute } from '../../database/schema'
@@ -41,14 +36,9 @@ const answeredRetiredSchema = z.looseObject({
   route: z.enum(HOSTED_PROVIDERS),
   servedModel: z.string().min(1),
 })
-// A page too big for a route asked that route nothing, so it says nothing about the route.
-const didNotFitSchema = z.looseObject({
-  route: z.enum(HOSTED_PROVIDERS),
-  code: z.literal('FIT' satisfies SkipCode),
-})
 
 export type ModelHealthCycle = {
-  /** Health only: the preflight runs a local-only config, so its own `FELL_TO_LOCAL` is no fall. */
+  /** Health only: the preflight asks no model (5.4c-H1), so its reply carries no route evidence. */
   onPreflightReply(reply: ExtractionWorkerReply): void
   onReply(reply: ExtractionWorkerReply): void
   preflightDone(reached: boolean): Promise<void>
@@ -97,19 +87,10 @@ export function createModelHealth(deps: { store: ModelHealthStore; log: ModelHea
       }
 
       const onEvent = (event: ExtractionWorkerReply['events'][number]) => {
-        if (event.type === 'FELL_TO_LOCAL') {
-          count('local', 'FELL_TO_LOCAL')
-          // A local-only config names no hosted route, and has none to call dead. A malformed
-          // reason is evidence: only a well-formed fit reason is known to have asked nothing.
-          if (
-            event.reasons !== undefined &&
-            (!Array.isArray(event.reasons) ||
-              event.reasons.some((reason) => !didNotFitSchema.safeParse(reason).success))
-          ) {
-            hostedSeen = true
-          }
-        } else if (event.type === 'ATTEMPT') {
+        if (event.type === 'ATTEMPT') {
           const attempt = attemptSchema.safeParse(event)
+          // A `local` attempt is read but never counted: the route left in H1, yet a pre-H1 worker
+          // still sends it during a deploy, and the DB CHECK keeps `local` for historic rows.
           if (!attempt.success) {
             log.error('MODEL_REPLY_EVENT_REFUSED type=ATTEMPT')
           } else if (attempt.data.route !== 'local') {

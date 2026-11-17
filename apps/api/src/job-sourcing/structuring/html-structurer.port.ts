@@ -17,8 +17,6 @@ export const MODEL_FILLABLE_FIELDS = [
   'remote',
 ] as const
 
-export type ModelFillableField = (typeof MODEL_FILLABLE_FIELDS)[number]
-
 /** One record found by deterministic discovery; the model never adds or renames records. */
 export interface DiscoveredRecord {
   /** The source-side id from discovery. */
@@ -27,8 +25,6 @@ export interface DiscoveredRecord {
   readonly url: string
   /** The already-fetched page text of this record (its detail page, or its bounded chunk). */
   readonly text: string
-  /** What Stage B left empty: the local floor is asked only this. Absent means all of them. */
-  readonly missing?: readonly ModelFillableField[]
 }
 
 export interface HtmlStructurerRequest {

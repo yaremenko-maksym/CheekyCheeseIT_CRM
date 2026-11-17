@@ -100,9 +100,12 @@ TELEMETRY_DIGEST_TOKEN=$(secret)
 TELEMETRY_SESSION_SALT=$(secret)
 EXTRACTION_WORKER_URL=$WORKER_URL
 EXTRACTION_WORKER_SECRET=$WORKER_SECRET
+EXTRACTION_INPUT_CONTEXT_TOKENS=8000
+EXTRACTION_INPUT_MAX_ANSWER_TOKENS=2000
 EOF
 # The runbook's file shape, throwaway keys: no call ever reaches a provider with them. The config is
-# the runbook's sample; the log check in C names which hosted routes the worker ended up with.
+# the runbook's sample, hosted-only (5.4c-H1); check-extraction-router-sample.mjs proves in the guard
+# tests that the router accepts it. The log check in C names which hosted routes the worker ended up with.
 GEMINI_KEY="$(secret)"
 GROQ_KEY="$(secret)"
 CF_TOKEN="$(secret)"
@@ -113,7 +116,7 @@ GEMINI_API_KEY=$GEMINI_KEY
 GROQ_API_KEY=$GROQ_KEY
 CLOUDFLARE_ACCOUNT_ID=$(openssl rand -hex 16)
 CLOUDFLARE_AI_TOKEN=$CF_TOKEN
-EXTRACTION_ROUTER_CONFIG={"policyVersion":"hosted-2026-11-17","hostedBudgetMs":90000,"floorBudgetMs":180000,"routes":[{"provider":"gemini","models":["gemini-2.5-flash","gemini-2.5-flash-lite"],"contextTokens":32000,"structuredOutput":"json_schema","minGapMs":4000,"timeoutMs":30000,"maxAnswerTokens":2000,"freeLimit":{"requestsPerDay":20}},{"provider":"groq","models":["openai/gpt-oss-120b","openai/gpt-oss-20b"],"contextTokens":8000,"structuredOutput":"json_schema","minGapMs":2000,"timeoutMs":30000,"maxAnswerTokens":2000,"freeLimit":{"requestsPerDay":1000,"tokensPerDay":200000}},{"provider":"cloudflare","models":["@cf/mistralai/mistral-small-3.1-24b-instruct","@cf/openai/gpt-oss-20b","@cf/google/gemma-4-26b-a4b-it"],"contextTokens":16000,"structuredOutput":"none","minGapMs":2000,"timeoutMs":30000,"maxAnswerTokens":2048,"freeLimit":{"requestsPerDay":16}}]}
+EXTRACTION_ROUTER_CONFIG={"policyVersion":"hosted-2026-11-17","hostedBudgetMs":90000,"routes":[{"provider":"gemini","models":["gemini-2.5-flash","gemini-2.5-flash-lite"],"contextTokens":32000,"structuredOutput":"json_schema","minGapMs":4000,"timeoutMs":30000,"maxAnswerTokens":2000,"freeLimit":{"requestsPerDay":20}},{"provider":"groq","models":["openai/gpt-oss-120b","openai/gpt-oss-20b"],"contextTokens":8000,"structuredOutput":"json_schema","minGapMs":2000,"timeoutMs":30000,"maxAnswerTokens":2000,"freeLimit":{"requestsPerDay":1000,"tokensPerDay":200000}},{"provider":"cloudflare","models":["@cf/mistralai/mistral-small-3.1-24b-instruct","@cf/openai/gpt-oss-20b","@cf/google/gemma-4-26b-a4b-it"],"contextTokens":16000,"structuredOutput":"none","minGapMs":2000,"timeoutMs":30000,"maxAnswerTokens":2048,"freeLimit":{"requestsPerDay":16}}]}
 EOF
 umask 022
 echo 'EXTRACTION_WORKER_IMAGE_TAG=rehearsal1' > .env.extraction-pins
@@ -244,8 +247,9 @@ for _ in $(seq 1 30); do
   sleep 2
 done
 case "$wlog" in *'"event":"LISTENING"'*) ;; *) printf '%s\n' "$wlog" | tail -20; fail "C. the worker did not start listening" ;; esac
-# Names only. Until the router takes a config without a local route (task 5.4c-H1), the hosted-only
-# sample is refused and this lists none: a fact for the owner, not the gate.
+# Names only. The worker runs API_IMAGE (the workflow pulls `:main`), so before 5.4c-H1 is on main its
+# router refuses the hosted-only config and this lists none: a fact for the owner, not the gate. The
+# config's acceptance by H1's schema is gated by check-extraction-router-sample.mjs instead.
 record "C. worker $(printf '%s\n' "$wlog" | grep -o '"event":"HOSTED_ROUTES".*' || echo 'logged no HOSTED_ROUTES line')"
 attach
 WORKER_BASE="$(fingerprint "$(ecid extraction-worker)")"
