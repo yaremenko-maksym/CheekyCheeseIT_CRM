@@ -43,6 +43,9 @@ export const JOB_SOURCING_ERROR_CODES = [
   // Backlog 426, 422: the opportunity is not a triage item (a live LEAD match, or EXCLUDED at its
   // current revision), so the ADMIN grant is refused.
   'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE',
+  // ADR 2026-11-03 §H.8, 503: the ADMIN manual run collected nothing and its model stage stopped on
+  // the AI limits. Static: no provider, count or reset time.
+  'JOB_SOURCING_AI_LIMITS_EXHAUSTED',
 ] as const
 export type JobSourcingErrorCode = (typeof JOB_SOURCING_ERROR_CODES)[number]
 
@@ -66,6 +69,7 @@ export const JOB_SOURCING_ERROR_PARAMS = {
   JOB_TRIAGE_SUBSCRIPTION_NOT_FOUND: [],
   JOB_QUEUE_TRIAGE_ALREADY_GRANTED: ['expiresAt'],
   JOB_QUEUE_TRIAGE_NOT_ELIGIBLE: [],
+  JOB_SOURCING_AI_LIMITS_EXHAUSTED: [],
 } as const satisfies Record<JobSourcingErrorCode, readonly string[]>
 
 export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDescriptor> = {
@@ -150,6 +154,11 @@ export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDe
     message:
       'Цю вакансію вже не можна призначити команді: для неї знайшовся сеньйор або її прибрали з черги.',
   },
+  JOB_SOURCING_AI_LIMITS_EXHAUSTED: /* i18n */ {
+    id: 'api-error.JOB_SOURCING_AI_LIMITS_EXHAUSTED',
+    message:
+      'Пошук вакансій тимчасово недоступний: ліміти AI-моделей на зараз вичерпано. Спробуйте пізніше.',
+  },
 }
 
 export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string> = {
@@ -180,4 +189,6 @@ export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string
     'This team can already see this vacancy until the end of {expiresAt}. Choose another team.',
   JOB_QUEUE_TRIAGE_NOT_ELIGIBLE:
     'This vacancy can no longer be assigned to a team: a senior now matches it, or it has left the queue.',
+  JOB_SOURCING_AI_LIMITS_EXHAUSTED:
+    'Vacancy sourcing is temporarily unavailable: AI model limits are exhausted for now. Try again later.',
 }
