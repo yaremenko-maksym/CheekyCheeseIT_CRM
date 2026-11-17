@@ -408,7 +408,9 @@ Facts, each with its primary source: `docs/architecture/2026-11-17-cloudflare-wo
   refused. An addition is admitted only from the vendors of the pinned chain (`mistralai`, `google`, `openai`, `meta`),
   so an open `@cf/*/*` id from another vendor never reaches the managed list.
 - The managed list is written the way Groq's is (`pickListedModels`); additions pass `isValidProviderModelId`
-  (`@cf/{vendor}/{name}`, length-capped). The refresh sends no probe chats to Cloudflare.
+  (`@cf/{vendor}/{name}`, length-capped). The daily refresh sends no probe chat to Cloudflare (`maxProbes` 0).
+  Probe chats reach Cloudflare only from two timers: the start-up refresh (one probe, at most once an hour, and only
+  while the `AUTH` bit is set) and the weekly chain check (one probe per model in use, at most `PROBE_CAP`).
 - The pinned chain is `@cf/mistralai/mistral-small-3.1-24b-instruct`, then `@cf/openai/gpt-oss-20b`, then
   `@cf/google/gemma-4-26b-a4b-it`.
 

@@ -252,12 +252,14 @@ export function pickListedModels(args: {
     m.active === true &&
     effectiveContext(m.context ?? Number.POSITIVE_INFINITY, routeWindow) >= minContext
   const live = listing.filter(fits)
-  const kept = current.filter((id) => live.some((m) => m.id === id))
+  const liveIds = new Set(live.map((m) => m.id))
+  const currentIds = new Set(current)
+  const kept = current.filter((id) => liveIds.has(id))
   const [addition] = live
     .filter(
       (m) =>
         m.context !== undefined &&
-        !current.includes(m.id) &&
+        !currentIds.has(m.id) &&
         isValidProviderModelId(args.provider, m.id),
     )
     .sort((a, b) => b.context! - a.context!)
