@@ -206,7 +206,8 @@ export function row(x, { sel = false } = {}) {
   const head = stack
     ? `<div class="t-body" style="font-weight:500;${CLAMP2}">${del}${title(x)}</div><div class="row" style="gap:8px;align-items:baseline;flex-wrap:wrap"><span class="amount ${neg ? '' : 'pos'}">${x.a}</span>${x.orig ? `<span class="t-cap muted num">${x.orig}</span>` : ''}</div>`
     : `<div class="row" style="align-items:flex-start;gap:12px"><div class="t-body grow" style="font-weight:500;${CLAMP2}">${del}${title(x)}</div>${trail}</div>`
-  return `<div class="lrow two" role="link" style="--inset:64px;${sel ? 'background:var(--raised);' : ''}${x.deleted ? 'opacity:0.55;' : ''}"><div class="lead">${icon(ic, { size: 18 })}</div>
+  // Deleted rows: muted text (>= 4.5:1), never opacity (opacity drops contrast below AA).
+  return `${x.deleted ? `<style>${DEL_CSS}</style>` : ''}<div class="lrow two${x.deleted ? ' del' : ''}" role="link" style="--inset:64px;${sel ? 'background:var(--raised);' : ''}"><div class="lead">${icon(ic, { size: 18 })}</div>
   <div class="grow col" style="gap:2px;min-width:0">${head}<div class="t-foot muted trunc">${meta}</div>${stLine}</div></div>`
 }
 
@@ -271,7 +272,9 @@ export function tabletFrame({ w, h, role = 'ADMIN', body, title = 'Фінанс�
 }
 
 // ---------- Desktop (≥ 1024): role-aware sidebar + header + dense table ----------
-const TABLE_CSS = `th svg{display:block}
+const DEL_CSS = `.del :is(.amount,.trunc,.t-body,.muted,.t-cap,.t-foot,.lead){color:var(--muted-fg)!important}`
+const TABLE_CSS = `${DEL_CSS}
+th svg{display:block}
 th{position:sticky;top:0;background:var(--card);font-size:12px;font-weight:600;color:var(--muted-fg);height:36px;padding:0 12px;border-bottom:1px solid var(--border);white-space:nowrap;text-align:left}
 td{height:40px;padding:0 12px;border-bottom:1px solid var(--separator);white-space:nowrap;max-width:300px;overflow:hidden;text-overflow:ellipsis;font-size:14px}
 tbody tr:last-child td{border-bottom:0}
@@ -360,7 +363,7 @@ export function table(rows, { w, sel = 0, hover = -1, menuFor = -1, canAct = tru
           ? `<span class="btn secondary sm rowact" style="opacity:1">${x.act}</span>`
           : ''
       const more = `<span class="iconbtn rowact" aria-label="Інші дії" aria-haspopup="menu" style="width:28px;height:28px;${i === menuFor ? 'opacity:1;background:var(--surface)' : !inline && x.act ? 'opacity:1' : ''}">${icon('ellipsis', { size: 16 })}</span>`
-      return `<tr ${i === sel ? 'aria-selected="true"' : ''} class="${i === hover ? 'hover' : ''}" style="${x.deleted ? 'opacity:0.55' : ''}"><td class="num muted">${x.d}</td><td title="${x.from} → ${x.to}"><span class="row" style="gap:6px;min-width:0">${x.deleted ? '<span class="pill" style="height:18px;font-size:11px;flex:none">Видалено</span>' : ''}<span class="trunc">${title(x)}</span>${clip}</span></td><td class="muted">${typeLabel}${wide ? '' : x.project !== '—' ? ` · ${x.project}` : ''}</td>${wide ? `<td class="muted">${x.project}</td>` : ''}<td class="${long ? 'wrap' : ''}" style="${long ? 'padding-top:6px;padding-bottom:6px' : ''}">${long ? `<span class="pill warn" style="height:auto;min-height:22px;white-space:normal;line-height:16px;padding:3px 8px">${STATUS[x.st][0]}</span>` : pill(x.st)}</td><td class="r"><span class="amount ${neg ? '' : 'pos'}" style="font-size:14px">${x.a}</span>${x.orig ? `<div class="t-cap muted num" style="line-height:12px">${x.orig}</div>` : ''}</td><td class="r"><span class="row" style="gap:6px;justify-content:flex-end">${act}${more}</span></td></tr>`
+      return `<tr ${i === sel ? 'aria-selected="true"' : ''} class="${i === hover ? 'hover' : ''}${x.deleted ? ' del' : ''}"><td class="num muted">${x.d}</td><td title="${x.from} → ${x.to}"><span class="row" style="gap:6px;min-width:0">${x.deleted ? '<span class="pill" style="height:18px;font-size:11px;flex:none">Видалено</span>' : ''}<span class="trunc">${title(x)}</span>${clip}</span></td><td class="muted">${typeLabel}${wide ? '' : x.project !== '—' ? ` · ${x.project}` : ''}</td>${wide ? `<td class="muted">${x.project}</td>` : ''}<td class="${long ? 'wrap' : ''}" style="${long ? 'padding-top:6px;padding-bottom:6px' : ''}">${long ? `<span class="pill warn" style="height:auto;min-height:22px;white-space:normal;line-height:16px;padding:3px 8px">${STATUS[x.st][0]}</span>` : pill(x.st)}</td><td class="r"><span class="amount ${neg ? '' : 'pos'}" style="font-size:14px">${x.a}</span>${x.orig ? `<div class="t-cap muted num" style="line-height:12px">${x.orig}</div>` : ''}</td><td class="r"><span class="row" style="gap:6px;justify-content:flex-end">${act}${more}</span></td></tr>`
     })
     .join('')
   return `<div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)"><table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0" aria-label="Транзакції">${cols}<thead>${head}</thead><tbody>${tr}</tbody></table></div>`

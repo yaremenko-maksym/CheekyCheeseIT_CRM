@@ -194,7 +194,7 @@ centred sheet ≤ 560 px wide.
 | Offline / unknown       | Foundation offline banner; the cached list stays readable; actions that write are disabled with the banner's reason                                 | `offline-375`, `offline-1440`              |
 | Filters open            | Phone: bottom sheet (Тип, Статус, Сортування, «Показати видалені»), footer «Показати N» + «Скинути». Desktop: listbox under the toolbar button      | `filters-375`, `filters-1440`              |
 | Unsaved draft           | A create that failed to save is pinned on top («Не збережено · Витрата», «Відкрити»); FAB / CTA carries a dot. Draft logic: foundation `money-form` | `drafts-375`, `drafts-1440`                |
-| With deleted            | Deleted rows at 55 % opacity with «Видалено» pill; chip «Видалені» (phone) / switch on (desktop)                                                    | `deleted-375`, `deleted-1440`              |
+| With deleted            | Deleted rows in muted text with «Видалено» pill; chip «Видалені» (phone) / switch on (desktop)                                                      | `deleted-375`, `deleted-1440`              |
 | Long content            | 2-line title clamp, stacked 7-figure amount, long status wraps; desktop ellipsis + tooltip                                                          | `long-320`, `long-1440`                    |
 | Permission-limited      | Role variants (§5): no create for HR/JUNIOR, no deleted toggle except ADMIN/ACCOUNTANT, actions per §1.2 predicates                                 | `role-*`                                   |
 | Refreshing              | Pull-to-refresh spinner above the list; the list never blanks                                                                                       | `ptr-375`                                  |
@@ -223,7 +223,7 @@ centred sheet ≤ 560 px wide.
 
 | Param     | Values                        | Default (omitted) | Notes                                                               |
 | --------- | ----------------------------- | ----------------- | ------------------------------------------------------------------- |
-| `q`       | free text                     | —                 | search over party, project, notes (same fields as today)            |
+| `q`       | free text                     | —                 | search over sender / receiver name and label, project (as today)    |
 | `type`    | a `TYPE_LABEL_MESSAGES` key   | all               |                                                                     |
 | `status`  | a `STATUS_LABEL_MESSAGES` key | all               | keeps today's deep link `?status=PENDING`                           |
 | `deleted` | `1`                           | off               | ignored for roles other than ADMIN / ACCOUNTANT                     |
@@ -283,59 +283,68 @@ rows appear without offset.
   page buttons; refetch on focus and the retry buttons of the error / offline / partial states.
 - **Dialogs.** The filter sheet and every modal trap focus, close on `Esc` / close button, and return
   focus to the trigger.
-- **Live regions.** The result count («4 з 132») is `aria-live="polite"`; the error, partial and
-  offline notices are `role="status"`.
+- **Live regions.** The result count («4 з 132») is `aria-live="polite"`; the load error is `role="alert"`;
+  the partial and offline notices are `role="status"`.
 - **Reflow / zoom.** 320 px and 400 % zoom fall back to the phone layout; nothing scrolls
   horizontally except the desktop table inside its own region.
-- **Contrast.** Foundation tokens (muted text ≥ 4.5:1 on card); the 55 % deleted-row opacity keeps
-  the «Видалено» pill and the «Відновити» button at full opacity.
+- **Contrast.** Foundation tokens only (`--muted-foreground` 6.03:1 on card, 5.38:1 on raised).
+  Deleted rows are never dimmed with opacity: title, meta and amount switch to
+  `--muted-foreground`, the «Видалено» pill and «Відновити» keep their normal colours.
 
 ## 8. Strings (`uk` / `en`)
 
 `existing` = msgid already in `packages/shared/src/i18n/locales`; `new` = to add (en written anew,
-not translated). The DROP and `CompanySharePayoutStrip` strings are all existing and unchanged.
+not translated). The DROP and `CompanySharePayoutStrip` strings are existing and unchanged, except the
+new phone row title «Переказ на рахунок компанії» (OP-16). Type and status labels reuse
+`TYPE_LABEL_MESSAGES` / `STATUS_LABEL_MESSAGES`; shell strings come from the foundation shell.
 
-| uk                                                                         | en                                                                         | Status                            |
-| -------------------------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------- |
-| Фінанси                                                                    | Finance                                                                    | existing                          |
-| Нова транзакція                                                            | New transaction                                                            | existing                          |
-| Пошук транзакцій                                                           | Search transactions                                                        | new (replaces «Пошук…»)           |
-| Фільтри / Сортування / Скинути / Скинути фільтри                           | Filters / Sort by / Reset / Reset filters                                  | existing                          |
-| Усі типи / Усі статуси / Показати видалені / Видалено                      | All types / All statuses / Show deleted / Deleted                          | existing                          |
-| Видалені (chip)                                                            | Deleted                                                                    | new                               |
-| Сьогодні / Вчора                                                           | Today / Yesterday                                                          | new                               |
-| Спочатку нові / старі / більші / менші                                     | Newest first / Oldest first / Largest first / Smallest first               | new                               |
-| Показати {count}                                                           | Show {count}                                                               | new                               |
-| Показати ще                                                                | Show more                                                                  | new                               |
-| {count, plural, one {# транзакція} few {# транзакції} many {# транзакцій}} | {count, plural, one {# transaction} other {# transactions}}                | new                               |
-| {shown} з {total}                                                          | {shown} of {total}                                                         | new                               |
-| {from}–{to} з {total}                                                      | {from}–{to} of {total}                                                     | new                               |
-| Транзакцій ще немає                                                        | No transactions yet                                                        | new                               |
-| Натисніть «+», щоб додати першу.                                           | Tap + to add the first one.                                                | new                               |
-| Створіть першу кнопкою «Нова транзакція».                                  | Use New transaction to add the first one.                                  | new                               |
-| Нічого не знайдено                                                         | No results                                                                 | existing                          |
-| Змініть пошук або скиньте фільтри.                                         | Change the search or reset the filters.                                    | new                               |
-| Не вдалося завантажити транзакції                                          | Couldn’t load transactions                                                 | new                               |
-| Сервер не відповів. Нічого не змінено — спробуйте ще раз.                  | The server didn’t respond. Nothing was changed — try again.                | new                               |
-| Спробувати ще                                                              | Try again                                                                  | new                               |
-| Курс недоступний — суми показано у валюті транзакції.                      | Exchange rate unavailable — amounts are shown in the transaction currency. | new                               |
-| Повторити                                                                  | Retry                                                                      | existing                          |
-| Оновлення (PTR spinner label)                                              | Refreshing                                                                 | new                               |
-| Учасник / Тип · проєкт                                                     | Member / Type · project                                                    | new (split of «Учасник / Проєкт») |
-| Дата / Сума / Статус / Тип / Проєкт / Місяць / Дії                         | Date / Amount / Status / Type / Project / Month / Actions                  | existing                          |
-| Дата виплати                                                               | Payout date                                                                | new                               |
-| Хеш транзакції                                                             | Transaction hash                                                           | existing                          |
-| Копіювати хеш                                                              | Copy hash                                                                  | new                               |
-| Інші дії                                                                   | More actions                                                               | new                               |
-| Дії з транзакцією                                                          | Transaction actions                                                        | new                               |
-| Перевірити / Виплатити / Оплатити / Підтвердити оплату                     | Check / Pay out / Pay / Confirm payment                                    | existing (see OP-13)              |
-| Виправити / Розрахуватися / Додати частину зарплати / Відновити            | Fix / Settle / Add salary part / Restore                                   | existing                          |
-| Відкрити / Редагувати / Видалити / Прикріпити чек / Чек / Отримувач        | Open / Edit / Delete / Attach receipt / Receipt / Recipient                | existing                          |
-| Платник / Створив                                                          | Payer / Created by                                                         | new                               |
-| Зарплата · виплачено {date} / ще не виплачено                              | Salary · paid {date} / not paid yet                                        | new                               |
-| Переказ на рахунок компанії (DROP payment row title, phone)                | Transfer to the company account                                            | new                               |
-| Очікує валідації / Підтверджено / Оплачено / Очікує виплати / Відхилено    | Awaiting validation / Validated / Paid / Awaiting payout / Rejected        | existing                          |
-| Виплат ще немає                                                            | No payouts yet                                                             | existing                          |
+| uk                                                                                                    | en                                                                                                     | Status                            |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | --------------------------------- |
+| Фінанси                                                                                               | Finance                                                                                                | existing                          |
+| Нова транзакція                                                                                       | New transaction                                                                                        | existing                          |
+| Пошук транзакцій                                                                                      | Search transactions                                                                                    | new (replaces «Пошук…»)           |
+| Фільтри / Сортування / Скинути / Скинути фільтри                                                      | Filters / Sort by / Reset / Reset filters                                                              | existing                          |
+| Усі типи / Усі статуси / Показати видалені / Видалено                                                 | All types / All statuses / Show deleted / Deleted                                                      | existing                          |
+| Видалені (chip)                                                                                       | Deleted                                                                                                | new                               |
+| Сьогодні / Вчора                                                                                      | Today / Yesterday                                                                                      | new                               |
+| Спочатку нові / старі / більші / менші                                                                | Newest first / Oldest first / Largest first / Smallest first                                           | new                               |
+| Показати {count}                                                                                      | Show {count}                                                                                           | new                               |
+| Показати ще                                                                                           | Show more                                                                                              | new                               |
+| {count, plural, one {# транзакція} few {# транзакції} many {# транзакцій}}                            | {count, plural, one {# transaction} other {# transactions}}                                            | new                               |
+| {shown} з {total}                                                                                     | {shown} of {total}                                                                                     | new                               |
+| {from}–{to} з {total}                                                                                 | {from}–{to} of {total}                                                                                 | new                               |
+| Попередня сторінка / Наступна сторінка (pager icon buttons)                                           | Previous page / Next page                                                                              | existing                          |
+| Прибрати фільтр (chip ✕)                                                                              | Remove filter                                                                                          | new                               |
+| Завантаження транзакцій (loading region label)                                                        | Loading transactions                                                                                   | new                               |
+| Немає з’єднання. Показано останні завантажені дані; збереження не пройде, введене залишиться у формі. | No connection. Showing the last loaded data; saving will fail, and what you entered stays in the form. | new (foundation offline pattern)  |
+| Чек прикріплено (receipt clip)                                                                        | Receipt attached                                                                                       | existing                          |
+| Відкрити чернетку {amount} (draft row)                                                                | Open draft {amount}                                                                                    | new (foundation `money-form`)     |
+| Транзакцій ще немає                                                                                   | No transactions yet                                                                                    | new                               |
+| Натисніть «+», щоб додати першу.                                                                      | Tap + to add the first one.                                                                            | new                               |
+| Створіть першу кнопкою «Нова транзакція».                                                             | Use New transaction to add the first one.                                                              | new                               |
+| Нічого не знайдено                                                                                    | No results                                                                                             | existing                          |
+| Змініть пошук або скиньте фільтри.                                                                    | Change the search or reset the filters.                                                                | new                               |
+| Не вдалося завантажити транзакції                                                                     | Couldn’t load transactions                                                                             | new                               |
+| Сервер не відповів. Нічого не змінено — спробуйте ще раз.                                             | The server didn’t respond. Nothing was changed — try again.                                            | new                               |
+| Спробувати ще                                                                                         | Try again                                                                                              | new                               |
+| Курс недоступний — суми показано у валюті транзакції.                                                 | Exchange rate unavailable — amounts are shown in the transaction currency.                             | new                               |
+| Повторити                                                                                             | Retry                                                                                                  | existing                          |
+| Оновлення (PTR spinner label)                                                                         | Refreshing                                                                                             | new                               |
+| Учасник / Тип · проєкт                                                                                | Member / Type · project                                                                                | new (split of «Учасник / Проєкт») |
+| Дата / Сума / Статус / Тип / Проєкт / Місяць / Дії                                                    | Date / Amount / Status / Type / Project / Month / Actions                                              | existing                          |
+| Дата виплати                                                                                          | Payout date                                                                                            | new                               |
+| Хеш транзакції                                                                                        | Transaction hash                                                                                       | existing                          |
+| Копіювати хеш                                                                                         | Copy hash                                                                                              | new                               |
+| Інші дії                                                                                              | More actions                                                                                           | new                               |
+| Дії з транзакцією                                                                                     | Transaction actions                                                                                    | new                               |
+| Перевірити / Виплатити / Оплатити / Підтвердити оплату                                                | Check / Pay out / Pay / Confirm payment                                                                | existing (see OP-13)              |
+| Виправити / Розрахуватися / Додати частину зарплати / Відновити                                       | Fix / Settle / Add salary part / Restore                                                               | existing                          |
+| Відкрити / Редагувати / Видалити / Прикріпити чек / Чек / Отримувач                                   | Open / Edit / Delete / Attach receipt / Receipt / Recipient                                            | existing                          |
+| Платник / Створив                                                                                     | Payer / Created by                                                                                     | new                               |
+| Зарплата · виплачено {date} / ще не виплачено                                                         | Salary · paid {date} / not paid yet                                                                    | new                               |
+| Переказ на рахунок компанії (DROP payment row title, phone)                                           | Transfer to the company account                                                                        | new                               |
+| Очікує валідації / Підтверджено / Оплачено / Очікує виплати / Відхилено                               | Awaiting validation / Validated / Paid / Awaiting payout / Rejected                                    | existing                          |
+| Виплат ще немає                                                                                       | No payouts yet                                                                                         | existing                          |
 
 DROP headers reuse the existing msgids «МОЇ ДОХОДИ» / «ПЛАТЕЖІ НА КОМПАНІЮ» (en «MY INCOME» /
 «PAYMENTS TO THE COMPANY»). Draft-row strings come from the foundation `money-form` spec.
@@ -372,7 +381,8 @@ route), so totals are normalised over 93.
 | A11y (7)           | 8      | 8      | 8       |                                                                         |
 | **Total / 100**    | **84** | **81** | **84**  |                                                                         |
 
-Weakest criterion: **Lists** on every class (no bulk validate for ACCOUNTANT, no inline edit).
+Weakest criterion: **Lists** on every class (no bulk validate for ACCOUNTANT, no inline edit); on
+tablet **Platform** ties with it at 7 (the tablet list is a widened phone list, no split view).
 Hard floor (criteria 2 and 4 ≥ 5): met.
 
 ## 11. Open points
@@ -404,4 +414,62 @@ Each with a recommendation; none blocks Task 1.2.
   route to copy-reviewer.
 - **OP-14 PNG quantisation.** ImageMagick was not available; PNGs are unquantised. _Rec:_ quantise in
   a later pass, no content change.
-- **OP-15 Baseline captures and network baseline** are pending (Wave 0).
+- **OP-15 Baseline captures and network baseline** are pending (Wave 0). _Rec:_ capture both in
+  the Wave 0 run before the coder starts, and diff the request count against §9 at fidelity review.
+- **OP-16 «Переказ на рахунок компанії»** is a new phone title for DROP payment rows (desktop keeps
+  the existing columns). _Rec:_ add it; route the wording to copy-reviewer.
+
+## 12. Components (mapping to our stack)
+
+Template section. Built only from Wave 0 primitives (`_foundation/primitives-v2.md` §1) and the
+existing `apps/web/app/components/ui/*`. This screen adds **no** new primitive.
+
+| Visual block                              | Our component                                                       | New?    |
+| ----------------------------------------- | ------------------------------------------------------------------- | ------- |
+| Shell: tab bar + FAB / rail «+» / sidebar | foundation shell (`_foundation/shell-v2.md`)                        | Wave 0  |
+| Layout switch phone ↔ tablet ↔ desktop    | `ByDevice` (redesign v2 plan), one layout mounted at a time         | Wave 0  |
+| Search field                              | `ui/input.tsx` (16 px, 48 h on touch)                               | restyle |
+| Filter / sort / active-filter chips       | `ui/button.tsx` chip variant (primitives-v2 frames)                 | restyle |
+| Filter sheet + pickers                    | Bottom sheet (Base UI Drawer) + PickerSheet                         | Wave 0  |
+| Day section header                        | `ListSection`                                                       | Wave 0  |
+| Transaction row (+ ADMIN swipe)           | `ListRow` two-line variant                                          | Wave 0  |
+| Status pill, «Видалено» pill              | `ui/badge.tsx`                                                      | restyle |
+| Pushed detail page                        | `DetailPage`                                                        | Wave 0  |
+| Pull-to-refresh                           | `PullToRefresh`                                                     | Wave 0  |
+| Desktop toolbar listboxes, deleted switch | `ui/select.tsx` / `ui/dropdown-menu.tsx`, `ui/switch.tsx`           | restyle |
+| Desktop table                             | `ui/table.tsx` (Table row states)                                   | restyle |
+| Row «…» menu                              | `ui/dropdown-menu.tsx`                                              | no      |
+| Pager                                     | the existing pager in `TransactionsTable` + `usePaginatedFilter`    | restyle |
+| Loading                                   | `ui/skeleton.tsx`                                                   | restyle |
+| Error / partial / offline notices         | `ui/alert.tsx`                                                      | restyle |
+| Copy hash feedback                        | `ui/button.tsx` icon + `ui/sonner.tsx`                              | no      |
+| Action dialogs (validate, settle, pay, …) | the existing dialogs listed in §1, unchanged; the sheet is Task 1.3 | no      |
+
+## 13. Token-map
+
+Only `globals.css` tokens (`docs/design/foundation.md` §7). The mockup sources use short aliases:
+`--fg` = `--foreground`, `--muted-fg` = `--muted-foreground`, `--raised` = `--accent`.
+
+| Use                                          | Token                                         |
+| -------------------------------------------- | --------------------------------------------- |
+| Page canvas / cards, sheets, tab bar / menus | `--background` / `--card` / `--popover`       |
+| Search field, grouped row surface            | `--surface`                                   |
+| Pressed or selected row (phone), active nav  | `--accent`                                    |
+| Selected row (desktop)                       | `--yellow-subtle`                             |
+| Title, amount (expense)                      | `--foreground`                                |
+| Meta, captions, deleted rows                 | `--muted-foreground`                          |
+| Placeholder                                  | `--placeholder`                               |
+| Card outline / row hairline / input outline  | `--border` / `--separator` / `--input-border` |
+| Income amount (always with `+`)              | `--positive`                                  |
+| Pending pills / in-progress pills            | `--warning` / `--info`                        |
+| Failed status, delete, load error            | `--destructive`                               |
+| FAB, primary button, count badge             | `--primary` / `--primary-foreground`          |
+| Focus ring                                   | `--ring`                                      |
+| Behind sheets and dialogs                    | `--scrim`                                     |
+
+## 14. For the coder
+
+Build with **our** components per this spec. The PNGs in `assets/finance-list/` are the fidelity
+reference (Mode B compares against them). The HTML sources in `assets/src/` are prototypes for
+rendering the PNGs, not code to paste. There is no `design.html` (`design-gate: degraded`). Keep the
+query keys of §9 and the URL schema of §6.1; show only the entry points of the Task 1.3 sheet.
