@@ -68,7 +68,7 @@ export const unavailableOrigin = (provider: string, reply: Unavailable): RunOrig
 })
 
 /** The worker transport, or undefined when its env is unset or invalid. */
-function workerTransport(): ExtractionWorkerTransport | undefined {
+export function workerTransport(): ExtractionWorkerTransport | undefined {
   const env = readExtractionWorkerEnv(process.env)
   return env.kind === 'ok'
     ? createExtractionWorkerTransport({ baseUrl: env.url, secret: env.secret })
@@ -97,7 +97,7 @@ function transportTag(res: Exclude<BoundedResult, { kind: 'ok' | 'timeout' }>): 
   return res.errorName === undefined ? 'transport' : `transport:${res.errorName}`
 }
 
-async function callWorker<T>(
+export async function callWorker<T>(
   post: ExtractionWorkerTransport | undefined,
   route: ExtractionWorkerRoute,
   body: string,
@@ -114,7 +114,7 @@ async function callWorker<T>(
   return reply.success ? reply.data : { ...unavailable('INVALID_OUTPUT'), transport: 'reply' }
 }
 
-const unavailableReplySchema = z
+export const unavailableReplySchema = z
   .object({ kind: z.literal('unavailable'), reason: reasonSchema })
   .strict()
 
