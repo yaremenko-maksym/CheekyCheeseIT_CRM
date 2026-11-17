@@ -88,8 +88,8 @@ const teamAScope: JobQueueScope = {
   teamId: TEAM_A,
   seniorIds: [SEN_1],
   versions: [SEN_1_VERSIONS],
-  // opportunityInputsVersion of no studio keyword at 'eval.1+l1.1+rf.1' (SR-M-1).
-  inputsVersion: 'f790107665e925d6184be224a6f29cf7',
+  // opportunityInputsVersion of no studio keyword at 'eval.1+l1.1+rf.2' (SR-M-1).
+  inputsVersion: '15448b9ad280193b0540103bfb609f6f',
 }
 
 async function expectCode(p: Promise<unknown>, status: number, code: string): Promise<void> {
@@ -237,7 +237,7 @@ describe('JobQueueScopeService.resolve', () => {
       teamId: TEAM_A,
       seniorIds: [],
       versions: [],
-      inputsVersion: 'f790107665e925d6184be224a6f29cf7',
+      inputsVersion: '15448b9ad280193b0540103bfb609f6f',
     })
     // The team lookup, then loadRoster's three reads: it no longer stops early on an empty roster.
     expect(execute).toHaveBeenCalledTimes(4)
@@ -256,8 +256,8 @@ describe('JobQueueScopeService.resolve', () => {
     await expect(svc.resolve(user('HR'), TEAM_A)).resolves.toMatchObject({
       kind: 'TEAM',
       seniorIds: [],
-      // opportunityInputsVersion of the keyword 'php' at 'eval.1+l1.1+rf.1'.
-      inputsVersion: '0084349d198f553e703a4845aa55b3bc',
+      // opportunityInputsVersion of the keyword 'php' at 'eval.1+l1.1+rf.2'.
+      inputsVersion: 'b2b289254b1bcf82a89f7284015ef800',
     })
   })
 

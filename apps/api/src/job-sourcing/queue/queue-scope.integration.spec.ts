@@ -739,7 +739,7 @@ describe.skipIf(!hasDatabaseUrl())('JobQueueScopeService against Postgres (Task 
         const a = await resolve('hrA', 'HR')
         const deployed = {
           ...(a as Extract<JobQueueScope, { kind: 'TEAM' }>),
-          inputsVersion: opportunityInputsVersion(studio, 'eval.2+l1.1+rf.1'),
+          inputsVersion: opportunityInputsVersion(studio, 'eval.2+l1.1+rf.2'),
         }
         await expect(visible(a, 'oppSub')).resolves.toBeUndefined()
         await expectNotFound(visible(deployed, 'oppSub'))
