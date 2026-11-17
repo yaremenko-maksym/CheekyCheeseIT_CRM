@@ -175,9 +175,12 @@ never a silent failure"; §5.4 (the small dose); the local phase of §6.2; the t
   in `manual/2026-11-06_job_model_health.sql`, re-runnable, the way C.6 widened the route CHECK for `cloudflare`.
 - **Amended 2026-11-17 (5.4c-H2 review, three rulings).**
   - "Every model it could try" excludes a model that was retired in state before the call. A model that answers
-    `RETIRED` during the call is not spent: a route whose last answer in the call came from such a model ends
-    transient. The next call sees that model retired in state and may then end `LIMITS_EXHAUSTED`. So one call never
-    raises both `MODEL_LIMITS_EXHAUSTED` and `HOSTED_ROUTES_DEAD`.
+    `RETIRED` during the call is not spent. A route in which any model answered `RETIRED` during the call is not
+    spent through, whatever the order of the answers: unless `AUTH`, `CREDIT` or `CAP` settles its end, it ends
+    transient. The next call sees that model retired in state and may then end `LIMITS_EXHAUSTED`. So a retired model
+    alone never makes a call raise both `MODEL_LIMITS_EXHAUSTED` and `HOSTED_ROUTES_DEAD`. Two separate causes in one
+    call still raise both, as they should: a route that answers `AUTH` next to routes that are spent, or a route
+    where one model answers `BUSY` or `RETIRED` and the next is refused by the route's own cap.
   - A route-state write that fails is a fault, not a limit. The request is still refused before anything is
     sent, but the route ends `BUDGET`, the transient reason a spent hosted budget also gives, never `CAP`. It cannot
     make a call `LIMITS_EXHAUSTED`, and it is evidence for `HOSTED_ROUTES_DEAD`. The model refresh skips that provider
