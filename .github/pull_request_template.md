@@ -10,7 +10,7 @@ The Flow Gate check reads the lines below. Every step is the default for every P
 uncommented line `Skip-<Step>: <reason>` (reason at least 10 characters; it is echoed into the check
 summary). A docs-only diff (every changed path ends in `.md`) is exempt; non-markdown files under `.claude/` are not docs.
 Light-track PRs: skip with the reason "light-track: <why>".
-After a review lands, re-run the check by editing this body or toggling a label.
+The check re-runs by itself after every PR event, a review or a comment included.
 Contract: .claude/agents/contracts.md §4.1 · AGENTS.md
 -->
 
