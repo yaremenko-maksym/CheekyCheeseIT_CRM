@@ -123,7 +123,7 @@ time, and the full list costs nothing until it is opened.
 ```
 Професія                                         <- existing Section (dialogs only)
 ┌──────────────────────────────────────────────┐
-│ Ролі (обрано: 2) *                            │ <- Field label, required mark
+│ Технічні ролі (обрано: 2) *                   │ <- Field label, required mark
 │ ┌───────────────────────┐ ┌────────────────┐ │
 │ │ Бекенд-розробник    ✕ │ │ DevOps / Plat- │ │ <- chips, canonical order, wrap
 │ └───────────────────────┘ │ form-інженер ✕ │ │    (a long label wraps INSIDE the chip)
@@ -146,7 +146,7 @@ Popover (opened):
 └──────────────────────────────┘
 ```
 
-Empty selection: the chip row shows `Ролі не обрано` (`text-xs italic text-muted-foreground`), as
+Empty selection: the chip row shows `Технічні ролі не обрано` (`text-xs italic text-muted-foreground`), as
 `HrChipsField` shows "Нікого не обрано".
 
 ### 5.3 What `RolesSection` owns, and what the caller owns
@@ -300,11 +300,11 @@ When `roles.length > limit`, the first `limit` chips render, then a `+N` marker:
 
 ### 6.4 Per surface
 
-| Surface       | Where                                               | `limit` | For a SENIOR with no roles               |
-| ------------- | --------------------------------------------------- | ------- | ---------------------------------------- |
-| `UserRow`     | the slot of the stack row (`mt-1.5`)                | 3       | nothing (the row stays one line shorter) |
-| `MembersCard` | the slot of the stack row (`mt-1`)                  | 3       | nothing                                  |
-| `OverviewTab` | the stack card, retitled `Ролі`; same `CardContent` | none    | the card stays, with `не вказано` (Q3)   |
+| Surface       | Where                                                        | `limit` | For a SENIOR with no roles               |
+| ------------- | ------------------------------------------------------------ | ------- | ---------------------------------------- |
+| `UserRow`     | the slot of the stack row (`mt-1.5`)                         | 3       | nothing (the row stays one line shorter) |
+| `MembersCard` | the slot of the stack row (`mt-1`)                           | 3       | nothing                                  |
+| `OverviewTab` | the stack card, retitled `Технічні ролі`; same `CardContent` | none    | the card stays, with `не вказано` (Q3)   |
 
 - `UserRow` today caps the stack at 5. Roles are about 4× longer, so 3 is the cap that keeps a row to
   at most two lines of chips at 1024+.
@@ -382,24 +382,114 @@ today's behaviour for any card the new field does not cover. When `skillOverlap`
 
 ## 8. Accessibility (WCAG 2.2 AA)
 
-_pending_
+| SC                           | Where                   | Requirement                                                                                                                                                                                                              |
+| ---------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1.3.1 Info and relationships | `RolesSection`          | The chips and the trigger sit in a `role="group"` with `aria-labelledby` = the label's `id`. Display chips are a `<ul>`.                                                                                                 |
+| 1.4.1 Use of colour          | error, overlap          | The error is a sentence. The overlap has no colour scale.                                                                                                                                                                |
+| 1.4.3 / 1.4.11 Contrast      | all                     | Only existing token pairs are used (`text-foreground` on `border-border`, `text-primary` on `bg-yellow-subtle`, `text-muted-foreground`). Mode B measures them on the live dark theme; this spec does not claim a ratio. |
+| 1.4.10 Reflow                | all                     | No horizontal scroll at 320 px. Labels wrap (`[overflow-wrap:anywhere]`).                                                                                                                                                |
+| 1.4.13 Content on hover      | overlap                 | No tooltip carries content (7.1).                                                                                                                                                                                        |
+| 2.1.1 Keyboard               | `RolesSection`          | The full table in 5.7. Nothing needs a pointer.                                                                                                                                                                          |
+| 2.4.3 Focus order            | `RolesSection`          | Chips' remove buttons, then the trigger. Focus after a remove follows 5.7.                                                                                                                                               |
+| 2.4.11 Focus not obscured    | popover in a dialog     | The popover opens in a portal above the dialog. `CommandList` max height keeps the highlighted row on screen with the phone keyboard open.                                                                               |
+| 2.4.7 Focus visible          | remove buttons, trigger | `focus-visible:ring-2 focus-visible:ring-ring`. Not `ring-1 ring-primary/50`.                                                                                                                                            |
+| 2.5.8 Target size            | remove, trigger, items  | Remove 24×24 (`size-6`). Trigger 32 px tall. `CommandItem` at least 32 px tall. The "+N" marker is not a target.                                                                                                         |
+| 3.3.1 Error identification   | `RolesSection`          | The trigger gets `aria-invalid` + `aria-describedby` → the error `id`. The error is `role="alert"` (dialogs) or `role="status"` (self-edit).                                                                             |
+| 4.1.2 Name, role, value      | remove buttons          | `aria-label` = "Прибрати роль {label}". The icon is `aria-hidden`.                                                                                                                                                       |
+| 4.1.3 Status messages        | add / remove            | One `sr-only` `role="status"` region announces "Додано: …" / "Прибрано: …".                                                                                                                                              |
 
 ## 9. Responsive (320 / 768 / 1024 / 1440)
 
-_pending_
+| Width      | `RolesSection` (in a dialog / on the profile)                                                                                                                | `RoleChips`                                                              | Overlap indicator                                         |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ | --------------------------------------------------------- |
+| 320        | Chips take the full field width and wrap; a 40-character label wraps inside its chip. The popover is `calc(100vw - 2rem)` wide; the list is at most `50dvh`. | Chips wrap; at most 3 + "+N" on rows. Long labels wrap to a second line. | The count, then the chips wrapping below it. No overflow. |
+| 768        | As 320, the popover reaches its 20rem width.                                                                                                                 | Usually one line of chips.                                               | One or two lines.                                         |
+| 1024, 1440 | No change: the dialog has a fixed max width, so nothing grows.                                                                                               | One line in most rows.                                                   | One line in most cards.                                   |
+
+Manual QA checks all four widths for the 3 forms and the card (plan "PR 5 done when").
 
 ## 10. Edge cases
 
-_pending_
+| Case                                        | Behaviour                                                                                                 |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| No roles selected (form)                    | `Технічні ролі не обрано`, the trigger, and the error once it applies (5.6).                              |
+| All 33 selected                             | The trigger is hidden. Each chip stays removable.                                                         |
+| Search finds nothing                        | `Нічого не знайдено` (`CommandEmpty`).                                                                    |
+| Long label (40+ characters)                 | It wraps inside the chip and inside the popover item. It is never truncated.                              |
+| Role switch JUNIOR ↔ SENIOR in `UserDialog` | The sections swap instantly. A role picked and then switched away from is not sent (plan, `payloads.ts`). |
+| Legacy SENIOR with no roles, display        | `UserRow`, `MembersCard`: nothing. `OverviewTab`: the card with `не вказано` (Q3). Never the old stack.   |
+| Many roles on a row                         | 3 chips + "+N", with the rest in a `sr-only` span.                                                        |
+| Loading                                     | No new loading state. The role list is static data. The display surfaces keep their current loading.      |
+| Save error (self-edit)                      | The existing autosave error path. Nothing new.                                                            |
+| Server refuses (dialogs)                    | `SENIOR_MIN_ROLES` from the API maps to the same message through the existing api-error path.             |
+| `OVERLAP` with 0 matched                    | `0 з N навичок`, no chips.                                                                                |
+| `OVERLAP` with many matched                 | All the chips, wrapping.                                                                                  |
+| `NO_RESUME`                                 | `немає резюме`. Never "0 з N".                                                                            |
+| Vacancy with no technologies (`null`)       | Nothing.                                                                                                  |
 
 ## 11. Copy table (for copy-reviewer)
 
-_pending_
+`uk` is the source (Lingui macros); `en` goes into the catalog. copy-reviewer gives the `uk` and `en`
+verdicts separately. The uk plural forms are copy-reviewer's to settle.
+
+**New strings:**
+
+| Where                       | `uk` (source)                                                               | `en`                                                           |
+| --------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Field label, Overview title | `Технічні ролі`                                                             | `Technical roles`                                              |
+| Field label with count      | `Технічні ролі (обрано: {count})`                                           | `Technical roles ({count} selected)`                           |
+| Trigger                     | `Додати роль`                                                               | `Add role`                                                     |
+| Search placeholder          | `Пошук ролі…`                                                               | `Search roles…`                                                |
+| Empty selection             | `Технічні ролі не обрано`                                                   | `No technical roles selected`                                  |
+| Remove button `aria-label`  | `Прибрати роль {label}`                                                     | `Remove role {label}`                                          |
+| Live region, add            | `Додано: {label}`                                                           | `Added: {label}`                                               |
+| Live region, remove         | `Прибрано: {label}`                                                         | `Removed: {label}`                                             |
+| Self-edit error             | `Не збережено: сеньйору потрібна щонайменше одна технічна роль`             | `Not saved: a senior needs at least one technical role`        |
+| Overlap count               | `{matched} з {total} навичок`, ICU plural on `total` (forms: copy-reviewer) | `{matched} of {total, plural, one {# skill} other {# skills}}` |
+| No resume                   | `немає резюме`                                                              | `no resume`                                                    |
+
+**Reused, unchanged:** `Професія`, `Нічого не знайдено`, `не вказано`, the `SENIOR_MIN_ROLES`
+api-error and zod-error messages, the role labels and group labels in `technical-roles.ts`.
+
+**Why "Технічні ролі" and not "Ролі":** `UserDialog` already has the access role select ("Роль":
+ADMIN, SENIOR, …). "Ролі" next to it reads as the same thing.
 
 ## 12. `data-testid` map (for Task 5.5)
 
-_pending_
+| Element                   | `data-testid`                            |
+| ------------------------- | ---------------------------------------- |
+| `RolesSection` root group | `roles-section`                          |
+| Form chip                 | `roles-section-chip-${role}`             |
+| Chip remove button        | `roles-section-remove-${role}`           |
+| Add trigger               | `roles-section-add-trigger`              |
+| Popover option            | `roles-section-option-${role}`           |
+| Error message             | `roles-section-error`                    |
+| `RoleChips` root `ul`     | `role-chips`                             |
+| Display chip              | `role-chip-${role}`                      |
+| "+N" marker               | `role-chips-more`                        |
+| Overlap row (`OVERLAP`)   | `job-queue-senior-overlap-${seniorId}`   |
+| No-resume label           | `job-queue-senior-no-resume-${seniorId}` |
+
+`${role}` is the stable role id (`BACKEND_ENGINEER`), never the translated label.
 
 ## 13. Open questions
 
-_pending_
+Each has a recommended answer. None blocks the coder: each recommendation is a reversible A1 choice
+inside one PR.
+
+- **Q1. Error politeness in one component.** The plan's props carry only `error?: string`. The
+  dialogs need `role="alert"` (after submit). Self-edit needs `role="status"` (while editing).
+  **Recommendation:** add `announce?: 'alert' | 'status'`, default `'alert'`.
+- **Q2. A cap on display chips.** The plan's `RoleChips` props are `{ roles }` only.
+  **Recommendation:** add `limit?: number`; `UserRow` and `MembersCard` pass 3, `OverviewTab` passes
+  none.
+- **Q3. Legacy SENIOR with no roles on `OverviewTab`.** The plan says "shows nothing". Today's stack
+  card shows `не вказано` when empty. **Recommendation:** keep the card with `не вказано`. It tells an
+  ADMIN that the senior's roles need filling, and it is the page's empty-state convention. "Nothing"
+  then applies to the dense rows only, and the stale stack is never shown anywhere.
+- **Q4. Tooltip for the matched skills.** The plan asks for a tooltip that is not the only carrier.
+  **Recommendation:** no tooltip. Show the matched skills inline after the count (7.1). A tooltip does
+  not open on tap at 320 px, and the skills are visible on the card today. If the tooltip must stay,
+  use a `MatchEvidence`-style disclosure button, not a tooltip.
+- **Q5. Field label.** **Recommendation:** `Технічні ролі` / `Technical roles`, not `Ролі`, so it is
+  not read as the access role select in the same dialog. copy-reviewer has the final word on wording.
