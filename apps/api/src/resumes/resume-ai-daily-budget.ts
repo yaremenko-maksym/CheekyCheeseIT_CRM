@@ -20,8 +20,10 @@
  * restarts at 1.
  *
  * RELEASE: a reserved call is given back only when Cloudflare cannot have billed it: the request
- * failed without an HTTP response (network error), or Cloudflare answered HTTP 429. Our own timeout
- * keeps it spent (the model may have run), as does any other answer. The release touches only the
+ * failed in the CONNECT phase (ECONNREFUSED, ENOTFOUND, EAI_AGAIN, UND_ERR_CONNECT_TIMEOUT: no request
+ * byte was sent; the codes live in resume-ai.service.ts), or Cloudflare answered HTTP 429. Our own
+ * timeout keeps it spent (the model may have run), as does any other transport failure (ECONNRESET,
+ * a socket closed mid-request, an unknown error) and any other answer. The release touches only the
  * reservation's own UTC day and never takes `used` below 0.
  */
 import { Injectable } from '@nestjs/common'

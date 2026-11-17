@@ -7,12 +7,14 @@
  * and no credential is needed (task §Границы).
  */
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import { createServer, type AddressInfo } from 'node:net'
 import { Logger } from '@nestjs/common'
 import { decodeResumeMessage } from '@crm/shared'
 import {
   ResumeAiService,
   coerceToContentShape,
   extractJsonObject,
+  failedBeforeRequest,
   nextUtcMidnight,
 } from './resume-ai.service'
 
@@ -596,6 +598,29 @@ describe('ResumeAiService', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error('unreachable')
     expect(result.content.summary).toBe('<script>alert(1)</script>')
+  })
+})
+
+describe('failedBeforeRequest: shape guard against the real global fetch', () => {
+  it('recognises the connect-phase error undici throws on a closed loopback port', async () => {
+    // Bind an ephemeral loopback port, then close it: nothing listens there, so the connect is
+    // a real ECONNREFUSED with no external network. (Port 1 is not usable: undici refuses it
+    // as a "bad port" before any connect, and that error carries no code.)
+    const port = await new Promise<number>((resolve) => {
+      const srv = createServer()
+      srv.listen(0, '127.0.0.1', () => {
+        const bound = (srv.address() as AddressInfo).port
+        srv.close(() => resolve(bound))
+      })
+    })
+    const err: unknown = await fetch(`http://127.0.0.1:${port}/`).then(
+      () => new Error('expected the closed port to refuse the connection'),
+      (e: unknown) => e,
+    )
+
+    expect(err).toBeInstanceOf(TypeError)
+    expect((err as TypeError & { cause?: { code?: unknown } }).cause?.code).toBe('ECONNREFUSED')
+    expect(failedBeforeRequest(err)).toBe(true)
   })
 })
 

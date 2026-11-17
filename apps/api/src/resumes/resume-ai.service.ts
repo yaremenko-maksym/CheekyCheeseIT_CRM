@@ -78,7 +78,7 @@ const PRE_REQUEST_ERROR_CODES: ReadonlySet<unknown> = new Set([
   'UND_ERR_CONNECT_TIMEOUT',
 ])
 
-function failedBeforeRequest(err: unknown): boolean {
+export function failedBeforeRequest(err: unknown): boolean {
   return (
     err instanceof TypeError &&
     PRE_REQUEST_ERROR_CODES.has((err.cause as { code?: unknown } | undefined)?.code)
