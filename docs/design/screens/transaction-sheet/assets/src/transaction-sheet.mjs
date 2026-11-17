@@ -277,10 +277,18 @@ const panelWidth = (w) => (w >= 1440 ? 480 : w >= 1024 ? 420 : 400)
 export function phoneSheet(c) {
   const { w, h } = c
   const kbdH = c.keyboard ? DECIMAL_H : 0
-  const lead = `<span style="font-size:17px">${c.lead ?? 'Скасувати'}</span>`
+  // < 360: a text lead squeezes the title, so it becomes an icon button with the same accessible name.
+  const lead =
+    w < 360
+      ? `<span aria-label="${c.lead ?? 'Скасувати'}" style="display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center">${icon('x', { size: 22 })}</span>`
+      : `<span style="font-size:17px">${c.lead ?? 'Скасувати'}</span>`
   const body = formBody({ ...c, pad: c.pad ?? '4px 16px 160px' })
   const bar = submitBar({ w, kbdH, inner: c.footer })
-  const overlay = `${sheet({ w, h, top: c.top ?? safeTop(w) + 10, title: c.title, lead, trail: c.trail ?? '', body, footer: bar })}${c.keyboard ? decimalPad() : ''}${c.over ?? ''}`
+  const narrow =
+    w < 360
+      ? '<style>.sheethead{grid-template-columns:minmax(52px,1fr) minmax(0,max-content) minmax(52px,1fr)}</style>'
+      : ''
+  const overlay = `${narrow}${sheet({ w, h, top: c.top ?? safeTop(w) + 10, title: c.title, lead, trail: c.trail ?? '', body, footer: bar })}${c.keyboard ? decimalPad() : ''}${c.over ?? ''}`
   return tabScreen({
     w,
     h,
@@ -304,7 +312,7 @@ export function widePanel(c) {
     ? '<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.5);z-index:60"></div>'
     : `<style>.device > main{margin-right:${pw}px}</style>`
   const aside = `${scrim}<aside role="dialog" ${modal ? 'aria-modal="true" ' : ''}aria-labelledby="tp-t" style="position:absolute;top:0;right:0;bottom:0;width:${pw}px;z-index:70;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);box-shadow:-24px 0 60px oklch(0 0 0 / 0.5);display:flex;flex-direction:column">
-  <div class="row" style="height:60px;flex:none;padding:0 8px;border-bottom:1px solid var(--border)"><button type="button" class="btn ghost" style="height:44px;font-size:16px;font-weight:400;padding:0 12px">${c.lead ?? 'Скасувати'}${fine ? ` ${kbd('Esc')}` : ''}</button><div id="tp-t" class="grow t-head" style="text-align:center">${c.title}</div><span style="width:${fine ? 140 : 104}px"></span></div>
+  <div class="row" style="height:60px;flex:none;padding:0 8px;border-bottom:1px solid var(--border)"><button type="button" class="btn ghost" style="height:44px;font-size:16px;font-weight:400;padding:0 12px">${c.lead ?? 'Скасувати'}${fine ? ` ${kbd('Esc')}` : ''}</button><div id="tp-t" class="grow t-head" style="padding:0 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.title}</div></div>
   <div class="grow" style="min-height:0;overflow:hidden">${formBody({ ...c, w: pw, pad: '12px 24px 24px' }).replace('Камера, фото або файл', fine ? 'Перетягніть файл сюди або оберіть' : 'Камера, фото або файл')}</div>
   <div style="padding:12px 24px 20px;border-top:1px solid var(--border)">${typeof c.footer === 'function' ? c.footer(fine) : c.footer}</div></aside>${c.over ?? ''}`
   return w >= 1024

@@ -279,7 +279,7 @@ export function frames() {
       expanded: true,
       longProject: 'Проєкт «Платформа онлайн-навчання для корпоративних клієнтів»',
       note: 'Оренда офісу за листопад, включно з паркуванням і прибиранням',
-      scroll: 150,
+      scroll: 40,
     }),
   )
   f.push(
@@ -343,7 +343,7 @@ export function frames() {
     ...at('salary-part', BOTH, {
       role: 'ACCOUNTANT',
       kind: 'SALARY',
-      title: 'Додати частину зарплати',
+      title: 'Частина зарплати',
       amount: '500,00',
     }),
   )
@@ -385,7 +385,7 @@ export function frames() {
   )
   f.push(
     ...at('admin-edit-cascade', BOTH, {
-      title: 'Редагувати транзакцію',
+      title: 'Редагування',
       edit: true,
       kind: 'ADMIN_INCOME',
       amount: '1 250,50',
