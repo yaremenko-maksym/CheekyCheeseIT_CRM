@@ -90,11 +90,12 @@ function phoneList(rows, pinned = '') {
   return `${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾', 'Період ▾'])}${pinned}${today}`
 }
 /** The phone pill restyled into the tablet / desktop slot. */
-const widePill = (kind) =>
-  signed(T.moneyPill(375, kind)).replace(
+const toWide = (p) =>
+  p.replace(
     /position:absolute;left:12px;right:\d+px;bottom:\d+px;z-index:44;height:56px;border-radius:16px/,
     'position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;border-radius:14px',
   )
+const widePill = (kind) => toWide(signed(T.moneyPill(375, kind)))
 const DOT =
   '<i aria-hidden="true" style="position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--bg)"></i>'
 const TONE = { failed: 'var(--destructive)', unknown: 'var(--warning)' }
@@ -277,7 +278,16 @@ function kindPicker(w, h) {
 
 // ---------------------------------------------------------------- cascade (admin edit)
 // The first row is this transaction; every value is «<amount> <CODE>», never a bare «—».
-function cascade({ blocked = false } = {}) {
+function cascade({ blocked = false, mode = '' } = {}) {
+  const head = `<div class="row" style="min-height:40px;padding:0 14px"><span class="t-over">Що зміниться</span></div>`
+  if (mode === 'loading')
+    return `<div class="group" style="margin:0" aria-busy="true">${head}<div role="status" class="row t-foot muted" style="gap:8px;padding:10px 14px;border-top:1px solid var(--separator)">${icon('loader-circle', { size: 16 })}Перераховуємо пов’язані виплати…</div>${[0, 1, 2].map(() => `<div class="col" style="gap:6px;padding:10px 14px;border-top:1px solid var(--separator)">${T.sk(180, 12)}${T.sk(140, 12)}</div>`).join('')}</div>`
+  if (mode === 'error')
+    return `<div class="group" style="margin:0">${head}<div role="alert" id="pv-e" class="row" style="gap:8px;padding:8px 8px 8px 14px;border-top:1px solid var(--separator)"><span style="color:var(--destructive);display:grid">${icon('circle-alert', { size: 16 })}</span><span class="grow t-foot">Перегляд недоступний — спробуйте ще раз</span><span class="btn sm secondary" role="button" style="height:44px">${icon('rotate-cw', { size: 16 })}Повторити</span></div></div>`
+  const stale =
+    mode === 'stale'
+      ? `<div role="alert" id="st-e" class="col" style="gap:8px;padding:10px 14px;border-top:1px solid var(--separator);background:oklch(0.2 0.04 85)"><span class="row t-foot" style="gap:8px;align-items:flex-start"><span style="color:var(--warning);display:grid;margin-top:1px">${icon('circle-alert', { size: 16 })}</span>Дані змінилися після попереднього перегляду — оновіть його і збережіть ще раз</span><span class="btn sm secondary" role="button" style="height:44px;align-self:flex-start">${icon('refresh-cw', { size: 16 })}Оновити перегляд</span></div>`
+      : ''
   const rows = [
     ['Ця транзакція · Дохід', '1 200,00 USD', '1 250,50 USD'],
     blocked
@@ -307,7 +317,7 @@ function cascade({ blocked = false } = {}) {
       : ''
     return `<div class="col" style="gap:2px;padding:10px 14px;border-top:1px solid var(--separator)"><span class="t-foot" style="font-weight:500">${t}</span><span class="num t-foot">${val}</span>${cap}</div>`
   }
-  return `<div class="group" style="margin:0"><div class="row" style="min-height:40px;padding:0 14px"><span class="t-over">Що зміниться</span></div>${rows.map(item).join('')}</div>`
+  return `<div class="group" style="margin:0">${head}${stale}${rows.map(item).join('')}</div>`
 }
 const ADMIN_EDIT = {
   title: 'Редагування',
@@ -334,12 +344,97 @@ const definite = () => ({
 const blockedSave = (fine, by = 'ab-e') =>
   `<span class="btn" role="button" aria-disabled="true" aria-describedby="${by}" style="width:100%;background:var(--muted);color:var(--muted-fg);box-shadow:none">Зберегти зміни${fine ? T.kbd('⌘↵') : ''}</span>`
 
+// ---------------------------------------------------------------- edit lifecycle (M2, M3)
+// An edit is never a pinned draft and never puts a dot on «+»: its outcome sits on the edited row (the
+// finance list's row marker) and in the pill, named by kind and the signed new amount. While unknown the
+// row still shows the server's last known value (+1 200,00); the pill names what was sent (+1 250,50).
+const EDIT_ROW = { ...TXNS[1], s: 'Дохід · Проєкт «Альфа»', a: '+1 200,00 USD', att: true }
+const markedRow = (step) =>
+  step === 'resolved'
+    ? txnRow({ ...EDIT_ROW, a: '+1 250,50 USD' })
+    : txnRow({ ...EDIT_ROW, tag: 'Результат невідомий · Перевіряємо…', warn: true }).replace(
+        'class="lrow two"',
+        'class="lrow two" aria-busy="true"',
+      )
+const editPill = (w, step) => {
+  const p = T.moneyPill(w, step === 'resolved' ? 'saved' : 'unknown')
+  return step === 'resolved'
+    ? p
+        .replace('>Збережено 1 250,50 USD<', '>Зміни збережено<')
+        .replace(
+          '<span class="t-cap muted">Відкрити</span>',
+          '<span class="t-cap muted num">Дохід +1 250,50 USD · Відкрити</span>',
+        )
+        .replace('Збережено 1 250,50 USD. Відкрити', 'Зміни збережено, дохід +1 250,50 USD. Відкрити')
+        .replace('>Транзакцію збережено<', '>Зміни збережено<')
+    : p
+        .replace('>Результат невідомий<', '>Невідомо, чи збережено зміни<')
+        .replace('1 250,50 USD · Відкрити', 'Дохід +1 250,50 USD · Відкрити')
+        .replace(
+          'Результат невідомий, 1 250,50 USD. Відкрити',
+          'Невідомо, чи збережено зміни, дохід +1 250,50 USD. Відкрити',
+        )
+        .replace('>Невідомо, чи транзакцію збережено<', '>Невідомо, чи збережено зміни<')
+}
+function editClosed(step, w) {
+  const [, h] = size(w)
+  if (w < 640)
+    return T.tabScreen({
+      w,
+      h,
+      role: 'ADMIN',
+      active: '/finance',
+      title: 'Фінанси',
+      body: T.financeBody('ADMIN').replace(txnRow(TXNS[1]), markedRow(step)),
+      overlay: editPill(w, step),
+    })
+  if (w < 1024)
+    return T.tablet({ w, h, role: 'ADMIN', overlay: toWide(editPill(375, step)) }).replace(
+      txnRow(TXNS[1]),
+      markedRow(step),
+    )
+  const mark =
+    step === 'resolved'
+      ? ''
+      : `<span class="pill warn" style="height:20px;font-size:11px;gap:4px">${icon('loader-circle', { size: 11 })}Результат невідомий · Перевіряємо…</span>`
+  return T.desktop({ w, h, role: 'ADMIN', overlay: toWide(editPill(375, step)) })
+    .replace('padding:20px 24px 24px;', 'padding:20px 24px 100px;')
+    .replace(
+      '<tr aria-selected="true" style="background:var(--raised)">',
+      `<tr aria-selected="true"${step === 'resolved' ? '' : ' aria-busy="true"'} style="background:var(--raised)">`,
+    )
+    .replace('<span class="trunc">Оренда офісу</span>', `<span class="trunc">Оплата від клієнта</span>${mark}`)
+    .replace('<td class="muted">Витрата</td>', '<td class="muted">Дохід</td>')
+    .replace('−1 200,00 USD', step === 'resolved' ? '+1 250,50 USD' : '+1 200,00 USD')
+}
+
+// ---------------------------------------------------------------- keyless create (before Task 1.1)
+const KEYLESS = {
+  amount: '1 250,50',
+  receipt: 'done',
+  lead: 'Згорнути',
+  locked: true,
+  alert: errAlert(
+    'Невідомо, чи транзакцію збережено',
+    'Відповідь не надійшла. Форма й чек залишились. Перевірте список: якщо транзакції там немає, її можна створити ще раз.',
+    85,
+  ),
+  footer: `<span class="btn primary" role="button" aria-haspopup="dialog" style="width:100%">${icon('list', { size: 18 })}Перевірити список</span>${T.discardBtn}`,
+}
+/** The foundation check sheet «Нові записи», lifted off its own form and put over this one. */
+function checkSheet(w, h) {
+  const base = T.MF.failureUnknown(w, h)
+  const full = T.MF.failureUnknownList(w, h, { rows: 'none' })
+  const k = base.indexOf('<div class="homebar">')
+  return full.slice(k, k + full.length - base.length)
+}
+
 export function frames() {
   const f = []
   // ---- main state: open, prefilled, receipt first (all five widths; 320 drawn full length)
   const main = { amount: '', focusAmount: false, receipt: 'empty' }
   f.push(tall('default', 1010, main))
-  f.push(...at('default', [375, 768, 1024, 1440], main))
+  f.push(...at('default', [375, 768, 1000, 1024, 1440], main))
 
   // ---- key states
   f.push(
@@ -350,7 +445,7 @@ export function frames() {
     }),
   )
   f.push(
-    ...at('armed', [320, 375, 1440], {
+    ...at('armed', [320, 375, 768, 1440], {
       amount: '1 250,50',
       receipt: 'uploading',
       lead: 'Згорнути',
@@ -359,7 +454,7 @@ export function frames() {
   )
   // The draft reopened from the in-flight pill: locked, lead «Згорнути», the spinner primary.
   f.push(
-    ...at('inflight', BOTH, {
+    ...at('inflight', [375, 768, 1440], {
       amount: '1 250,50',
       receipt: 'done',
       lead: 'Згорнути',
@@ -368,6 +463,31 @@ export function frames() {
     }),
   )
   f.push(...listFrames())
+  // The list scrolled to its end with an unknown draft open: the last row clears the pill and «+».
+  f.push(
+    frame(
+      'unknown-closed-long',
+      375,
+      T.MF.draftFab(
+        T.tabScreen({
+          w: 375,
+          h: 812,
+          role: 'ADMIN',
+          active: '/finance',
+          title: 'Фінанси',
+          scrolled: true,
+          body: T.financeBody('ADMIN').replace(
+            '<div class="sechead"><span class="t-over">Сьогодні</span></div>',
+            signed(T.pinnedRows([T.DRAFT.unknown])) + '$&',
+          ),
+          overlay: signed(T.moneyPill(375, 'unknown')),
+        }),
+      ).replace(
+        '<div class="content">',
+        '<div class="content" style="display:flex;flex-direction:column;justify-content:flex-end"><style>.content>*{flex:none}</style>',
+      ),
+    ),
+  )
   // 422: the server named a field; reopening turns the draft back into an ordinary (dirty) form, so the
   // lead is «Скасувати» (it asks «Вийти без збереження?») and there is no «Видалити чернетку».
   f.push(
@@ -381,19 +501,23 @@ export function frames() {
       scroll: 120,
     }),
   )
-  f.push(...at('error-definite', [320, 375, 1440], definite()))
+  f.push(tall('error-definite', 760, definite()))
+  f.push(...at('error-definite', [375, 768, 1440], definite()))
+  // The keyboard is up when the failure arrives: the alert stays above it, the primary stays reachable.
+  f.push(...at('error-definite-keyboard', [375], { ...definite(), keyboard: true }))
   f.push(
     frame('confirm-discard', 375, confirmDiscard(375, 812)),
+    frame('confirm-discard', 768, confirmDiscard(768, 1024)),
     frame('confirm-discard', 1440, confirmDiscard(1440, 900)),
   )
   f.push(
-    ...at('unknown-resubmit', BOTH, {
+    ...at('unknown-resubmit', [375, 768, 1440], {
       amount: '1 250,50',
       receipt: 'done',
       lead: 'Згорнути',
       locked: true,
       alert: errAlert(
-        'Невідомо, чи збережено транзакцію',
+        'Невідомо, чи транзакцію збережено',
         'Відповідь не надійшла. Надішліть ще раз: якщо транзакцію вже збережено, друга не з’явиться.',
         85,
       ),
@@ -421,6 +545,7 @@ export function frames() {
   }
   f.push(tall('long-content', 1180, long))
   f.push(...at('long-content', BOTH, { ...long, scroll: 40 }))
+  f.push(...at('long-content-collapsed', [375], { ...long, expanded: false }))
   f.push(
     ...at('permission-limited', BOTH, {
       title: 'Транзакція',
@@ -487,7 +612,7 @@ export function frames() {
   )
   // ACCOUNTANT records either direction: both cards pick, a separate «Поміняти напрямок» swaps them.
   f.push(
-    ...at('transfer', BOTH, {
+    ...at('transfer', [375, 768, 1440], {
       role: 'ACCOUNTANT',
       kind: 'ADMIN_TRANSFER',
       amount: '3 000,00',
@@ -533,7 +658,7 @@ export function frames() {
   )
   f.push(...at('admin-edit-cascade', [375, 768, 1440], ADMIN_EDIT))
   f.push(
-    ...at('admin-edit-blocked', BOTH, {
+    ...at('admin-edit-blocked', [375, 768, 1440], {
       ...ADMIN_EDIT,
       extra: cascade({ blocked: true }),
       alert: errAlert(
@@ -545,44 +670,156 @@ export function frames() {
   )
   // Admin edit always waits for the server (it recomputes the derivatives): locked, lead «Згорнути».
   f.push(
-    ...at('admin-edit-saving', BOTH, {
+    ...at('admin-edit-saving', [375, 768, 1440], {
       ...ADMIN_EDIT,
       lead: 'Згорнути',
       locked: true,
       footer: FOOT.inflight('Зберегти зміни'),
     }),
   )
+  // Senior edit = today's EditSeniorIncomeDialog: the rejection panel, the project as text, amount +
+  // currency, receipt, Примітки. No date, no defaults row.
+  const seniorEdit = {
+    role: 'SENIOR',
+    kind: 'SENIOR_INCOME',
+    title: 'Виправити дохід',
+    edit: true,
+    rowAmount: '+2 400,00 USD',
+    amount: '2 400,00',
+    receipt: 'done',
+    banner: infoCard(
+      'circle-x',
+      '<b style="font-weight:600">Дохід відхилено.</b> Після збереження він знову піде на валідацію.<br><span style="color:var(--destructive);font-weight:600">Причина відмови:</span> у чеку інша сума — <span class="num" style="white-space:nowrap">2 040,00 USD</span>.',
+      'var(--destructive)',
+    ),
+    kindFields: `<div class="col" style="gap:4px"><span class="t-foot muted">Проєкт</span><span style="font-size:15px;font-weight:500">Проєкт «Альфа»</span></div>`,
+    hideDefaults: true,
+    after: T.field({ id: 'sn', label: 'Примітки', value: '', ph: 'Додаткова інформація…' }),
+    footer: (fine) => FOOT.save(fine, 'Зберегти й надіслати'),
+  }
+  f.push(...at('senior-edit-rejected', BOTH, seniorEdit))
+  // Definite failure of an edit (offline before send): the sheet stays open with the values.
   f.push(
-    ...at('senior-edit-rejected', BOTH, {
-      role: 'SENIOR',
-      kind: 'SENIOR_INCOME',
-      title: 'Виправити дохід',
-      edit: true,
-      amount: '2 400,00',
-      receipt: 'done',
-      banner: infoCard(
-        'circle-x',
-        'Дохід відхилено. Після збереження він знову піде на перевірку.',
-        'var(--destructive)',
+    ...at('edit-failed', [375], {
+      ...seniorEdit,
+      banner: '',
+      alert: errAlert('Зміни не збережено', 'Немає з’єднання. Нічого не змінено, дані у формі залишились.'),
+    }),
+  )
+  // Attach / replace receipt = today's AttachReceiptSheet: no project field, the replace wording.
+  const attach = {
+    role: 'SENIOR',
+    kind: 'SENIOR_INCOME',
+    title: 'Прикріпити чек',
+    edit: true,
+    rowAmount: '+2 400,00 USD',
+    hideAmount: true,
+    hideDefaults: true,
+    kindFields: '',
+    receipt: 'uploading',
+    banner: infoCard(
+      'receipt',
+      '<b class="num" style="font-weight:600">+2 400,00 USD</b> · Дохід · Проєкт «Альфа» · 9 листопада',
+    ),
+    footer: (fine) => FOOT.save(fine, 'Прикріпити після завантаження чека'),
+  }
+  f.push(...at('attach-receipt', BOTH, attach))
+  const replace = {
+    ...attach,
+    title: 'Замінити чек',
+    receipt: 'done',
+    footer: (fine) => FOOT.save(fine, 'Замінити'),
+  }
+  f.push(...at('attach-replace', [375], replace))
+  f.push(
+    frame(
+      'attach-replace-confirm',
+      375,
+      append(
+        txSheet({ ...replace, cur: 'USD', footer: FOOT.save(false, 'Замінити'), w: 375, h: 812 }),
+        T.MF.actionConfirm(375, {
+          id: 'rp',
+          title: 'Замінити наявний чек?',
+          desc: 'Старий файл/посилання буде видалено без можливості відновлення.',
+          action: 'Замінити',
+          overSheet: true,
+          focusCancel: true,
+        }),
       ),
-      footer: (fine) => FOOT.save(fine, 'Зберегти й надіслати'),
+    ),
+  )
+
+  // ---- edit lifecycle, closed sheet: unknown (row marker + pill) and its resolution
+  f.push(...[375, 768, 1000, 1440].map((w) => frame('edit-unknown', w, editClosed('unknown', w))))
+  f.push(frame('edit-unknown-resolved', 375, editClosed('resolved', 375)))
+
+  // ---- admin edit: date reason, stale preview, preview loading / error, definite failure
+  f.push(...at('admin-edit-date-reason', BOTH, { ...ADMIN_EDIT, dateMove: 'far', scroll: 420 }))
+  f.push(
+    ...at('admin-edit-reason-error', [375], {
+      ...ADMIN_EDIT,
+      dateMove: 'far-error',
+      scroll: 420,
     }),
   )
   f.push(
-    ...at('attach-receipt', BOTH, {
-      role: 'SENIOR',
-      kind: 'SENIOR_INCOME',
-      title: 'Додати чек',
-      edit: true,
-      hideAmount: true,
-      hideDefaults: true,
-      receipt: 'uploading',
-      banner: infoCard(
-        'receipt',
-        '<b class="num" style="font-weight:600">+2 400,00 USD</b> · Дохід · Проєкт «Альфа» · 14 листопада',
-      ),
-      footer: (fine) => FOOT.save(fine, 'Додати чек'),
+    ...at('admin-edit-stale', BOTH, {
+      ...ADMIN_EDIT,
+      extra: cascade({ mode: 'stale' }),
+      footer: (fine) => blockedSave(fine, 'st-e'),
+      scroll: 260,
     }),
   )
+  f.push(
+    ...at('admin-edit-preview-loading', [375], {
+      ...ADMIN_EDIT,
+      extra: cascade({ mode: 'loading' }),
+      footer: (fine) => blockedSave(fine, 'pv-s'),
+      scroll: 260,
+    }),
+  )
+  f.push(
+    ...at('admin-edit-preview-error', [375], {
+      ...ADMIN_EDIT,
+      extra: cascade({ mode: 'error' }),
+      footer: (fine) => blockedSave(fine, 'pv-e'),
+      scroll: 260,
+    }),
+  )
+  f.push(
+    ...at('admin-edit-error', BOTH, {
+      ...ADMIN_EDIT,
+      alert: errAlert('Зміни не збережено', 'Нічого не змінено. Дані у формі залишились — спробуйте ще раз.'),
+    }),
+  )
+
+  // ---- keyless create: unknown outcome without a resend; the check sheet over the kept draft
+  f.push(...at('unknown-keyless', BOTH, KEYLESS))
+  f.push(
+    frame(
+      'unknown-check',
+      375,
+      append(txSheet({ role: 'ADMIN', kind: 'EXPENSE', cur: 'USD', title: 'Нова транзакція', ...KEYLESS, w: 375, h: 812 }), checkSheet(375, 812)),
+    ),
+  )
+  // Discarding an unknown draft says the transaction may already exist.
+  f.push(
+    frame(
+      'confirm-discard-unknown',
+      375,
+      append(
+        txSheet({ role: 'ADMIN', kind: 'EXPENSE', cur: 'USD', title: 'Нова транзакція', ...KEYLESS, w: 375, h: 812 }),
+        T.MF.actionConfirm(375, {
+          ...DISCARD,
+          desc: 'Сума, поля й чек зникнуть із пристрою. Якщо транзакцію вже збережено, вона залишиться в списку.',
+          cancel: DISCARD.keep,
+          overSheet: true,
+          focusCancel: true,
+        }),
+      ),
+    ),
+  )
+  // A reload or tab kill while saving: the foundation boot alert, phase `sent`.
+  f.push(frame('reload-while-saving', 375, T.MF.pageKillAlert(375, 812, 'sent')))
   return f
 }

@@ -465,6 +465,15 @@ function shellFixtures(c, html) {
       .replace('<span class="trunc">Оренда офісу</span>', '<span class="trunc">Оплата від клієнта</span>')
       .replace('<td class="muted">Витрата</td>', '<td class="muted">Дохід</td>')
       .replace('−1 200,00 USD', c.rowAmount ?? '+1 200,00 USD')
+  else if (c.edit)
+    // The selected row (an expense) was filtered out: select the first income row, the edited one.
+    out = out
+      .replace(
+        '<tr ><td class="num muted">11.11</td>',
+        '<tr aria-selected="true" style="background:var(--raised)"><td class="num muted">11.11</td>',
+      )
+      .replace('<td class="muted trunc">Бета</td>', '<td class="muted trunc">Альфа</td>')
+      .replace('+4 800,00 USD', c.rowAmount ?? '+2 400,00 USD')
   else out = out.replace('<tr aria-selected="true" style="background:var(--raised)">', '<tr>')
   return out
 }
