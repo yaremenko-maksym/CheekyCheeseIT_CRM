@@ -22,7 +22,6 @@ import {
   JOBGETHER_OWNER_DECISION,
   ASHBY_OWNER_DECISION,
   DJINNI_OWNER_DECISION,
-  EUREMOTEJOBS_OWNER_DECISION,
   liftsUnclear,
   MUSE_OWNER_DECISION,
   type OwnerDecision,
@@ -30,7 +29,6 @@ import {
   SMARTRECRUITERS_OWNER_DECISION,
   WORKABLE_OWNER_DECISION,
   WORKINGNOMADS_OWNER_DECISION,
-  WWR_OWNER_DECISION,
 } from './owner-decisions'
 import {
   createSmartRecruitersProvider,
@@ -427,8 +425,6 @@ describe('owner decision 2026-11-16: every source blocked only on UNCLEAR permis
   const LIFTED: readonly (readonly [string, OwnerDecision, string, readonly string[]])[] = [
     ['ASHBY_ATS', ASHBY_OWNER_DECISION, 'api.ashbyhq.com/posting-api/job-board/', []],
     ['DJINNI_RSS', DJINNI_OWNER_DECISION, 'djinni.co/jobs/rss/?primary_keyword=', []],
-    ['WWR_RSS', WWR_OWNER_DECISION, 'weworkremotely.com/remote-jobs.rss', []],
-    ['EUREMOTEJOBS_RSS', EUREMOTEJOBS_OWNER_DECISION, 'euremotejobs.com/jobs/feed/', []],
     [
       'WORKINGNOMADS_API',
       WORKINGNOMADS_OWNER_DECISION,
@@ -486,6 +482,23 @@ describe('owner decision 2026-11-16: every source blocked only on UNCLEAR permis
     }
     const t = typeOf(build('DJINNI_RSS', (d) => d, root)(), 'DJINNI_RSS')
     expect(t.ownerDecisions).toEqual([DJINNI_OWNER_DECISION])
+    expect(t.blockers.map((b) => b.code)).toEqual(['PERMISSION_PROHIBITED'])
+  })
+})
+
+describe('research 2026-11-16: We Work Remotely is permitted, EU Remote Jobs is prohibited', () => {
+  it('WWR_RSS: PUBLIC_FEED from the feed-page grant, ready, link-back recorded, no owner decision needed', () => {
+    const t = typeOf(buildManifest(real()), 'WWR_RSS')
+    expect(t.permission).toBe('PUBLIC_FEED')
+    expect(t.attribution).toBe('LINK_BACK_REQUIRED')
+    expect(t.ownerDecisions).toEqual([])
+    expect(t.blockers.map((b) => b.code)).toEqual([])
+  })
+
+  it('EUREMOTEJOBS_RSS: PROHIBITED by Terms of Service section 10, blocked, no decision to lift it', () => {
+    const t = typeOf(buildManifest(real()), 'EUREMOTEJOBS_RSS')
+    expect(t.permission).toBe('PROHIBITED')
+    expect(t.ownerDecisions).toEqual([])
     expect(t.blockers.map((b) => b.code)).toEqual(['PERMISSION_PROHIBITED'])
   })
 })

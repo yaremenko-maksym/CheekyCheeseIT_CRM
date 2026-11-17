@@ -17,7 +17,6 @@ import { MUSE_SOURCE_STATUS } from './sources/muse.provider'
 import {
   ASHBY_OWNER_DECISION,
   DJINNI_OWNER_DECISION,
-  EUREMOTEJOBS_OWNER_DECISION,
   HN_OWNER_DECISION,
   JOBGETHER_OWNER_DECISION,
   MUSE_OWNER_DECISION,
@@ -25,7 +24,6 @@ import {
   SMARTRECRUITERS_OWNER_DECISION,
   WORKABLE_OWNER_DECISION,
   WORKINGNOMADS_OWNER_DECISION,
-  WWR_OWNER_DECISION,
 } from './owner-decisions'
 import { LEVER_HOSTS } from './sources/lever.provider'
 import { RECRUITEE_TOKEN_DEADLINE } from './sources/recruitee.provider'
@@ -644,9 +642,8 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     provider: 'We Work Remotely',
     disposition: REPORTING,
     fixtureDir: 'wwr',
-    ownerDecisions: [WWR_OWNER_DECISION],
     auth: 'NONE',
-    attribution: 'NONE_RECORDED',
+    attribution: 'LINK_BACK_REQUIRED',
     endpointVariant: 'rss',
     scopeKind: 'FEED_WINDOW',
     hostKey: () => 'weworkremotely.com',
@@ -662,7 +659,6 @@ export const MANIFEST_DEFINITIONS: readonly TypeDefinition[] = [
     provider: 'EU Remote Jobs',
     disposition: REPORTING,
     fixtureDir: 'euremotejobs',
-    ownerDecisions: [EUREMOTEJOBS_OWNER_DECISION],
     auth: 'NONE',
     attribution: 'NONE_RECORDED',
     endpointVariant: 'wp-job-manager-feed',

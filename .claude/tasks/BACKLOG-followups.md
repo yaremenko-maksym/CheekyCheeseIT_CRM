@@ -8224,6 +8224,8 @@ Sources: PR #1352 (orphan sweep, backlog 441) fix round 1.
 
 ## 449. Contact scanner: a contact glued to another survives one redaction pass (2026-11-16)
 
+**Closed (2026-11-16).** PR #1362 (`redactContacts` repeats its pass to a fixed point within 8 passes and redacts the whole field at the bound). Reopen if the Verify check below fails.
+
 **Symptoms.** `redactContacts` replaces every hit of one pass, but a contact whose boundary is blocked by a
 neighbouring contact is not a hit until that neighbour is gone: `0671234567Petrenko` gives `[REDACTED]Petrenko`,
 and `tg: @ivan_dev0671234567` gives `tg: @ivan_dev[REDACTED]`, so the handle leaks. `Ivan Petrenko#` was never
@@ -8284,6 +8286,53 @@ saves a file with a non-English name.
 
 **Verify.** With a VERIFIED resume with `recheckNeededAt: null` and unchanged facts, the Submit button is disabled, references the accessible reason via `aria-describedby`, and no 409 request is sent on click. Editing any fact enables the button so changes can be saved and resubmitted.
 
+## 453. Contact scanner: separators, non-adjacent parts, non-ASCII digits, glued digits and combining marks (2026-11-16)
+
+**Closed (2026-11-16).** PR #1362 (the gate joins split parts across a hyphen or a comma and tries their ordered subsequences, the normaliser folds non-ASCII digits, a digit is a redaction edge, and the generic patterns also run on the accent-folded and digit-unfolded text). Reopen if the Verify check below fails.
+
+**Symptoms.** Five residual gaps in the contact scanner after PR #1351:
+
+- (a) The gate joins the parts of a split stored name (ZWSP/ZWNJ inside it) only by whitespace, so
+  `Petr-in` or `Li, Yu` for the stored `Ivan Petr` U+200C `in` passes.
+- (b) The gate tries only contiguous runs of the split parts, so `Li Bo` for the stored `Ivan Li` U+200B `Yu`
+  U+200B `Bo` passes.
+- (c) A phone written in non-ASCII decimal digits (`٠٦٧١٢٣٤٥٦٧`, Extended Arabic-Indic, Devanagari) is
+  neither flagged nor redacted.
+- (d) A name glued to a digit (`Petrenko1990`) is not redacted: a digit is not a name edge.
+- (e) A combining mark on a digit (`067` U+0301 `123 45 67`) splits the phone, and it is not matched.
+
+**Candidate fix.** (a) allow a hyphen or a comma between run parts in the gate; (b) try ordered subsequences of
+2+ non-first parts with 3+ letters, both orders, within `MAX_RUN_PARTS`; (c) fold `\p{Nd}` to ASCII in
+`normaliseContactText` with exact spans; (d) a digit is a name edge for redaction only, the gate keeps main's
+token; (e) run the generic patterns on the accent-folded text too, which drops `\p{Mn}`.
+
+**Verify.** Each row of (a)-(e) is pinned in `contact-scan.residuals.spec.ts` and
+`resume-completeness.residuals.spec.ts`; `Senior engineer in Kyiv since 2020` still passes for the stored
+`Ivan Petr` U+200C `in`; the differential against main (`scanContacts` hits, `redactedSpans` coverage,
+completeness flags) loses nothing.
+
+Sources: PR #1351 (contact scanner normalisation, backlog 444/445) security review residuals.
+
+## 454. Contact scanner perf tests measure a too-short window (2026-11-16)
+
+**Closed (2026-11-16).** PR #1362 (each perf-ratio arm doubles its repeats until it runs at least 20 ms, with the ratio limits unchanged). Reopen if the Verify check below fails.
+
+**Symptoms.** The perf-ratio tests in `contact-scan.spec.ts` time arms of a few milliseconds (the 3-part arm of the
+split-parts test ran about 8 ms), so timer resolution and scheduler noise decide the ratio and the test can flake
+or hide a slowdown.
+
+**Candidate fix.** Raise iterations so each arm runs at least about 20 ms, without widening the ratio limits.
+
+**Verify.** Each arm of the perf-ratio tests is calibrated to at least 20 ms (`MIN_ARM_MS`, the faster of two
+runs per step); the timed short arm is asserted at least 10 ms (`MIN_ARM_MS * 0.5`), so the test, not this line,
+sets the floor. The ratio limits are the ones on main.
+
+**Ruling (AC3, PR #1362).** AC3 stop rule hit (3.9x unfiltered); kept subset runs with in-text filter, worst case
+4.6x on a text holding every part, bounded by MAX_RUN_PARTS=8; pinned by `the gate at its run bound stays bounded
+and the in-text filter keeps absent parts free`.
+
+Sources: PR #1351 (contact scanner normalisation, backlog 444/445) security review residuals.
+
 ## 455. Re-check badge has no hint for the senior (parked for redesign v2, 2026-11-16)
 
 **Symptoms.** QA-LOW-2 on PR #1353: the senior sees the re-check badge on a resume, but no text says what it
@@ -8292,3 +8341,71 @@ means or that nothing is needed from them.
 **Decision.** Owner, 2026-11-16: wait for redesign v2, same as items 437 and 446; do not add the hint before.
 
 **Verify.** The redesigned resume screen gives the badge a readable, accessible explanation in uk and en.
+
+## 456. Contact gate passes split-name parts joined by `/`, `;` and other joiners (2026-11-16)
+
+**Symptoms.** The gate (`scanContacts`, behind `hasContact`) refuses split name parts only when a run joins them with
+whitespace, a dash, a comma, a period, an underscore or a middle dot. `Li / Yu` and `Li; Yu` pass. Model output and
+staged edits are checked only by this gate (nothing redacts them afterwards), so a form that passes reaches clients.
+
+**Candidate fix.** Add `/` and `;` to `RUN_GAP` (and any joiner dropped from the PR #1362 change, see 453a). Each
+addition needs a false-positive measurement over clean text first: count new refusals on the pass corpus, and keep the
+joiner only at zero.
+
+**More joiners to measure the same way.** `|`, `:`, `+`, `~`, and a repeated joiner (`Li -- Yu`, `Li ... Yu`; both pass today, checked 2026-11-16, while a single `Li - Yu` is refused):
+`RUN_GAP` takes one joiner per gap, so a doubled one passes today. Repeated forms are a separate measurement from the
+single joiner, because a repeat widens the gap the pattern accepts.
+
+**Dash code points, checked against NFKC.** `normaliseContactText` applies NFKC before the match, so a code point NFKC
+already maps onto a listed form needs no entry. Checked in Node 2026-11-16: U+2011 NFKC-folds to U+2010 and U+2026
+folds to `...`; both are covered once their folded form is. Not folded, so each needs its own entry in `RUN_GAP`:
+U+058A (Armenian hyphen), U+2E3A (two-em dash), U+2E3B (three-em dash), U+301C (wave dash). Add the ones that pass the
+false-positive measure, and no others.
+
+**Perf.** The `splitNameRuns` doc comment quotes 4.6x for a text holding every part, measured by hand against main. No
+test pins it: add a perf case with the parts repeated many times in the text, both bound-side (8 parts) and past the
+bound, before the joiner set grows, so the run cost is measured at its worst and not only on the perf spec's text.
+
+**Verify.** `scanContacts('by Li / Yu today', ctx)` refuses; the pass corpus of `contact-scan*.spec.ts` gives zero new refusals.
+
+Sources: PR #1362 security review (SR-L-1), code and second-opinion reviews on the same branch.
+
+## 457. Contact gate misses a first name plus one part, and a surname with glued digits (2026-11-16)
+
+**Symptoms.** Stored `Ivan Li Yu`: `Li, Ivan` and `Ivan-Li` pass the gate. A surname with glued digits (`Surname1990`)
+passes the gate, while redaction reads the digit as an edge (453d). The gate keeps main's token rule for digits.
+The same class, measured 2026-11-16: stored `Li Yu Chen` (one reading `LiYu Chen`, the other `Li`, `Yu`, `Chen`) lets `Li - Yu` pass, while `Ivan Kot Li Yu` refuses it. The first stored part never takes part in a gate run, and while runs are active two-letter parts are not lone sources, so a first part with one more part has no source at all.
+
+**Candidate fix.** Decide the first-name-plus-one-part reading and the digit edge for the gate separately; each needs a
+false-positive measurement, since a first name alone is a common word.
+
+**Verify.** The rows `Li, Ivan`, `Ivan-Li` and `Surname1990` are pinned as their chosen result; the pass corpus stays clean.
+
+Sources: PR #1362 security review (SR-L-1 scope note), PR #1351 round 7 gate notes.
+
+## 458. The `@*handle` pattern is quadratic on a long run of `@` (2026-11-16)
+
+**Symptoms.** The handle source `@*handle` (`telegramSource` in `contact-scan.ts`) backtracks quadratically on a long
+run of `@` before the handle. The same on main. The 2000-character edit cap bounds it to about 15 ms on the gate, so it
+is not a leak, but it is a cost per field.
+
+**Candidate fix.** Match the optional `@` run linearly (a single `@`-prefix lookbehind or a scan that consumes the run
+once), keeping the `@@ivan_dev` and `x@ivan_dev` rows.
+
+**Verify.** A perf arm on a 2000-character `@` run stays inside the existing budget, with the handle rows unchanged.
+
+Sources: PR #1362 security review (SR-L-2).
+
+## 459. #1360 follow-ups: render claim, pre-change Typst failures, keyless re-queue, orphan source delete (2026-11-16)
+
+**Symptoms.** (a) A render claimed but not started re-queues on every poll; a claim-time column is needed. (b) Pre-change
+Typst failures keep a stale key and fingerprint pair; this is an owner data-fix decision. (c) A keyless row re-queues on
+every poll while its render is in flight. (d) An old source whose delete failed at replacement waits for the orphan sweep;
+a source-prefix delete would clear it at once.
+
+**Candidate fix.** (a) and (c) as one change on the render queue; (b) after the owner decides the data fix; (d) a
+source-prefix delete in the replacement path.
+
+**Verify.** Each item has its own test that fails on the current behaviour and passes after the change.
+
+Sources: PR #1360 security review (SR2-L-2, SR3-L-2, SR4-L-1) and review on the same branch.

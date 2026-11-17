@@ -16,7 +16,10 @@ import { isReporting, type Manifest, readinessAt, readinessReason } from './mani
  * never by parsing this text.
  *
  * IDEMPOTENT, AND A REDEPLOY NEVER UNDOES AN ADMIN:
- *  - the backfill claims only rows whose `manifest_id` IS NULL, so a claimed row is never touched;
+ *  - the backfill claims only rows whose `manifest_id` IS NULL, so a claimed row is never re-claimed;
+ *  - the readiness refresh (step 5) writes ONLY `readiness` / `readiness_reason` (and `updated_at`
+ *    on a real change) of a claimed row, so an owner decision reaches the stored value the enable
+ *    gate reads; a smoke-earned VERIFIED is lost only to a BLOCKED entry, never to a CANDIDATE one;
  *  - the insert is `ON CONFLICT DO NOTHING` (against both `uq_job_sources_type_config` and
  *    `uq_job_sources_manifest_id`), so an existing row, however an admin has since paused, retired
  *    or enabled it, is neither re-added nor reset;
@@ -238,14 +241,19 @@ export function generateSeedDelta(manifest: Manifest, clock: Date = SEED_CLOCK):
 --   3b. verify    - RAISES when an entry still has no row (an unmanaged row of the same
 --                   (type, config) swallowed the insert), so the skip is never silent
 --   4. block      - rows of a not-ready type that no entry claimed
+--   5. refresh    - every claimed row's readiness and reason follow the manifest, both ways
+--                   (unblock and block); a VERIFIED row is downgraded only by a BLOCKED entry.
+--                   Never enabled, admin state, budget, counters or cooldown. The snapshot
+--                   clock above still applies; a lapsed deadline is also refused live by the
+--                   enable gate, which reads the manifest catalog
 -- No job_account_meters row is created: a rolling meter needs the provider's billing-window
 -- start, which nobody holds for a key nobody has.
 --
 -- How to apply (the deploy wires this file; see the DevOps note in the PR):
 --   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 -- --single-transaction is REQUIRED, not a nicety: without it each statement commits on its own, and the
--- step 3b RAISE (an unmanaged row blocked an insert) would leave steps 1-3 committed and step 4 never
--- run, a half-applied delta behind a loud failure. In one transaction the RAISE rolls everything back.
+-- step 3b RAISE (an unmanaged row blocked an insert) would leave steps 1-3 committed and steps 4-5
+-- never run, a half-applied delta behind a loud failure. In one transaction the RAISE rolls everything back.
 
 DROP TABLE IF EXISTS pg_temp._jsm_doc;
 DROP TABLE IF EXISTS pg_temp._jsm_sources;
@@ -340,6 +348,21 @@ FROM _jsm_blocks b
 WHERE s.type = b.type::job_source_type
   AND s.manifest_id IS NULL
   AND s.readiness = 'CANDIDATE';
+
+-- 5. refresh: the stored readiness of every claimed row follows the manifest, both ways (an owner
+-- decision unblocks, a prohibition blocks). Enable refuses on the STORED value, so without this a
+-- row keeps the readiness of the deploy that inserted it. A smoke-earned VERIFIED is never
+-- overwritten by a CANDIDATE manifest, only by a BLOCKED one. Only readiness, its reason and
+-- updated_at are written, and only on a real change, so a re-applied delta stays byte-identical.
+UPDATE job_sources s
+SET readiness        = m.readiness::job_source_readiness,
+    readiness_reason = m.readiness_reason,
+    updated_at       = clock_timestamp()
+FROM _jsm_sources m
+WHERE s.manifest_id = m.manifest_id
+  AND NOT (s.readiness = 'VERIFIED' AND m.readiness = 'CANDIDATE')
+  AND (s.readiness IS DISTINCT FROM m.readiness::job_source_readiness
+       OR s.readiness_reason IS DISTINCT FROM m.readiness_reason);
 
 DROP TABLE _jsm_blocks;
 DROP TABLE _jsm_sources;
