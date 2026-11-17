@@ -26,8 +26,6 @@ export {
   routerCallCeilingMs,
   HOSTED_PROVIDERS,
   MAX_HOSTED_BUDGET_MS,
-  MAX_FLOOR_BUDGET_MS,
-  isAllowedRouterLocalModelUrl,
   type RouterConfig,
   type RouterConfigInput,
 } from './router/config'

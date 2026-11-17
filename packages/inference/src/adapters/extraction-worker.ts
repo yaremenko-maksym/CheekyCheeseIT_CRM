@@ -17,7 +17,6 @@ export const PREFLIGHT_TIMEOUT_MS = 120_000
 const usageSchema = z
   .object({
     totalTokens: z.number().int().nonnegative().exactOptional(),
-    localMs: z.number().nonnegative().exactOptional(),
   })
   .strict()
 
@@ -45,12 +44,7 @@ const buildReplySchema = () =>
           .object({ ok: z.literal(true), data: z.unknown(), usage: usageSchema.exactOptional() })
           .strict(),
         z
-          .object({
-            ok: z.literal(false),
-            code: z.enum(INFERENCE_ERROR_CODES),
-            usage: z.object({ localMs: z.number().nonnegative() }).strict().exactOptional(),
-          })
-          .strict(),
+          .object({ ok: z.literal(false), code: z.enum(INFERENCE_ERROR_CODES) }).strict(),
       ]),
     })
     .strict()
