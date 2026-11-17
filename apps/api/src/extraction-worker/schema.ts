@@ -5,7 +5,12 @@ import {
   type RouteStatePort,
 } from '@crm/inference'
 import { z } from 'zod'
-import { buildRouterConfig, extractionWorkerEnvSchema } from '../inference/build-inference-config'
+import {
+  buildRouterConfig,
+  extractionWorkerEnvSchema,
+  routerEnvWarnings,
+  type RouterEnvWarning,
+} from '../inference/build-inference-config'
 import {
   isUsableWorkerSecret,
   MAX_PAGE_BYTES,
@@ -76,6 +81,8 @@ export function healthFlags(s: ReturnType<RouteStatePort['snapshot']>): WorkerHe
 export type WorkerEnv = {
   secret: string
   routerConfig: unknown
+  /** Routes dropped for a malformed env value; logged by name and reason at start. */
+  routeWarnings: RouterEnvWarning[]
   stateFile: string
   host: string
   port: number
@@ -125,6 +132,7 @@ export function parseWorkerEnv(env: Readonly<Record<string, string | undefined>>
     env: {
       secret,
       routerConfig: buildRouterConfig(config.value, routerEnv.data),
+      routeWarnings: routerEnvWarnings(config.value, routerEnv.data),
       stateFile,
       host: env.EXTRACTION_WORKER_HOST ?? '0.0.0.0',
       port,

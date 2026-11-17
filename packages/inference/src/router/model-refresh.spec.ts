@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { cloudflareEntry, cloudflarePage } from './__test-helpers__/cloudflare-listing'
 import {
   ALIVE,
+  C1,
+  C2,
   G1,
   G2,
   geminiListing,
@@ -16,6 +19,8 @@ import {
 } from './__test-helpers__/refresh-world'
 import {
   answer,
+  CLOUDFLARE,
+  CLOUDFLARE_ACCOUNT_ID,
   countingCap,
   GEMINI,
   GROQ,
@@ -66,6 +71,7 @@ describe('selection order (SR-H-1)', () => {
       providers: [
         { provider: 'gemini', outcome: 'done' },
         { provider: 'groq', outcome: 'skipped', reason: 'UNCONFIGURED' },
+        { provider: 'cloudflare', outcome: 'skipped', reason: 'UNCONFIGURED' },
       ],
     })
     expect(w.fileList('gemini')).toEqual([G1, G2, NEW])
@@ -647,6 +653,88 @@ describe('Groq additions', () => {
   })
 })
 
+describe('Cloudflare self-heal (amendment 2026-11-17): listing only, no probes', () => {
+  const GEMMA = '@cf/google/gemma-4-26b-a4b-it'
+  const CF_ONLY = [CLOUDFLARE, LOCAL]
+
+  it('reads the account search with the key in the header and writes the list, sending no chat', async () => {
+    const w = refreshWorld({
+      routes: CF_ONLY,
+      listing: {
+        cloudflare: cloudflarePage([
+          cloudflareEntry(C1),
+          cloudflareEntry(C2),
+          cloudflareEntry(GEMMA, { context: '256000' }),
+        ]),
+      },
+    })
+    const r = await runDailyModelRefresh(w.deps)
+    expect(r.providers.find((p) => p.provider === 'cloudflare')).toEqual({
+      provider: 'cloudflare',
+      outcome: 'done',
+    })
+    expect(w.fileList('cloudflare')).toEqual([C1, C2, GEMMA])
+    expect(w.chats()).toEqual([])
+    expect(w.sent).toHaveLength(1)
+    expect(w.sent[0]!.url).toContain(`/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/models/search?`)
+    expect(w.sent[0]!.headers).toEqual({ Authorization: `Bearer ${KEY_MARKER}` })
+  })
+
+  it('drops a current model the catalogue gives a planned deprecation date', async () => {
+    const w = refreshWorld({
+      routes: CF_ONLY,
+      listing: {
+        cloudflare: cloudflarePage([
+          cloudflareEntry(C1, { deprecation: '2026-12-01' }),
+          cloudflareEntry(C2),
+        ]),
+      },
+    })
+    await runDailyModelRefresh(w.deps)
+    expect(w.fileList('cloudflare')).toEqual([C2])
+  })
+
+  it('never adds a model priced above the ceiling', async () => {
+    const w = refreshWorld({
+      routes: CF_ONLY,
+      listing: {
+        cloudflare: cloudflarePage([
+          cloudflareEntry(C1),
+          cloudflareEntry(C2),
+          cloudflareEntry(GEMMA, { context: '256000', price: [0.4, 0.3] }),
+        ]),
+      },
+    })
+    await runDailyModelRefresh(w.deps)
+    expect(w.fileList('cloudflare')).toEqual([C1, C2])
+  })
+
+  it('an empty catalogue never wipes the list', async () => {
+    const w = refreshWorld({
+      routes: CF_ONLY,
+      listing: { cloudflare: cloudflarePage([]) },
+    })
+    const r = await runDailyModelRefresh(w.deps)
+    expect(r.providers.find((p) => p.provider === 'cloudflare')).toEqual({
+      provider: 'cloudflare',
+      outcome: 'failed',
+      reason: 'NOTHING_SURVIVED',
+    })
+    expect(w.fileText()).toBeUndefined()
+  })
+
+  it('neither the account id nor the key reaches an event or the report', async () => {
+    const w = refreshWorld({
+      routes: CF_ONLY,
+      listing: { cloudflare: { status: 403, body: CLOUDFLARE_ACCOUNT_ID } },
+    })
+    const r = await runDailyModelRefresh(w.deps)
+    const seen = JSON.stringify({ r, events: w.events, store: w.storeEvents })
+    expect(seen).not.toContain(CLOUDFLARE_ACCOUNT_ID)
+    expect(seen).not.toContain(KEY_MARKER)
+  })
+})
+
 describe('what a probe proves', () => {
   it.each<[string, Reply]>([
     ['a 404 naming the model', { status: 404, body: `{"error":{"message":"${G2} not found"}}` }],
@@ -1014,6 +1102,7 @@ describe('never wipe (SR-M-6)', () => {
     expect(r.providers).toEqual([
       { provider: 'gemini', outcome: 'failed', reason: 'AUTH' },
       { provider: 'groq', outcome: 'failed', reason: 'LISTING' },
+      { provider: 'cloudflare', outcome: 'skipped', reason: 'UNCONFIGURED' },
     ])
   })
 
@@ -1112,6 +1201,7 @@ describe('per-provider reset (SR-M-5)', () => {
       providers: [
         { provider: 'gemini', outcome: 'failed', reason: 'INTERNAL' },
         { provider: 'groq', outcome: 'done' },
+        { provider: 'cloudflare', outcome: 'skipped', reason: 'UNCONFIGURED' },
       ],
     })
     expect(retiredProviders(w)).toEqual(['gemini'])
@@ -1152,6 +1242,13 @@ describe('per-provider reset (SR-M-5)', () => {
         reason: 'LISTING',
       },
       { type: 'MODEL_REFRESH_PROVIDER', job: 'daily', provider: 'groq', outcome: 'done' },
+      {
+        type: 'MODEL_REFRESH_PROVIDER',
+        job: 'daily',
+        provider: 'cloudflare',
+        outcome: 'skipped',
+        reason: 'UNCONFIGURED',
+      },
     ])
     expect(w.ofType('MODEL_REFRESH_FAILED')).toEqual([
       { type: 'MODEL_REFRESH_FAILED', job: 'daily' },

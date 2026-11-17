@@ -178,7 +178,7 @@ describe('probe hygiene: refresh and chain check alike (SR-M-3)', () => {
     const w = refreshWorld({ routes: [LOCAL] })
     const r = await job(w.deps)
     expect(w.sent).toEqual([])
-    expect(r.providers.map((p) => p.outcome)).toEqual(['skipped', 'skipped'])
+    expect(r.providers.map((p) => p.outcome)).toEqual(['skipped', 'skipped', 'skipped'])
   })
 
   it('a provider outside the allowlist is never reached, whatever the config says', async () => {
@@ -190,7 +190,7 @@ describe('probe hygiene: refresh and chain check alike (SR-M-3)', () => {
     }
     const r = await runDailyModelRefresh(w.deps)
     expect(w.sent).toEqual([])
-    expect(r.providers.map((p) => p.provider)).toEqual(['gemini', 'groq'])
+    expect(r.providers.map((p) => p.provider)).toEqual(['gemini', 'groq', 'cloudflare'])
   })
 
   it('a cap refusal skips the provider with no request, and the chain check too', async () => {
@@ -200,7 +200,7 @@ describe('probe hygiene: refresh and chain check alike (SR-M-3)', () => {
     expect(w.sent).toEqual([])
     for (const r of [daily, chain]) {
       expect(r.ok).toBe(true)
-      expect(r.providers.map((p) => p.outcome)).toEqual(['skipped', 'skipped'])
+      expect(r.providers.map((p) => p.outcome)).toEqual(['skipped', 'skipped', 'skipped'])
     }
   })
 })
@@ -371,6 +371,7 @@ describe('the weekly chain check (§3.4 layer 3)', () => {
       providers: [
         { provider: 'gemini', outcome: 'done' },
         { provider: 'groq', outcome: 'done' },
+        { provider: 'cloudflare', outcome: 'skipped', reason: 'UNCONFIGURED' },
       ],
     })
     expect(w.sent.map((s) => s.model)).toEqual([G1, G2, Q1, Q2])
@@ -486,6 +487,7 @@ describe('the weekly chain check (§3.4 layer 3)', () => {
     expect(r.providers).toEqual([
       { provider: 'gemini', outcome: 'failed', reason: 'INTERNAL' },
       { provider: 'groq', outcome: 'done' },
+      { provider: 'cloudflare', outcome: 'skipped', reason: 'UNCONFIGURED' },
     ])
   })
 })
@@ -597,6 +599,7 @@ describe('the start-up refresh, the clearing proof (SR-M-7, SR-M-11)', () => {
       providers: [
         { provider: 'gemini', outcome: 'skipped', reason: 'NOT_NEEDED' },
         { provider: 'groq', outcome: 'skipped', reason: 'NOT_NEEDED' },
+        { provider: 'cloudflare', outcome: 'skipped', reason: 'UNCONFIGURED' },
       ],
     })
     expect(w.state.snapshot().providers).toEqual([])
@@ -668,7 +671,7 @@ describe('the start-up refresh, the clearing proof (SR-M-7, SR-M-11)', () => {
       const state = markAuth('groq')(stamped(NOON - 1))
       const w = within({ state })
       const r = await runStartupModelRefresh(w.deps)
-      expect(r.providers.map((p) => p.outcome)).toEqual(['skipped', 'done'])
+      expect(r.providers.map((p) => p.outcome)).toEqual(['skipped', 'done', 'skipped'])
       expect(w.chatModels()).toEqual([Q1])
     })
   })

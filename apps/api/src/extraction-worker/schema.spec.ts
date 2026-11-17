@@ -54,6 +54,7 @@ describe('parseWorkerEnv — the worker does not start without its secret', () =
       env: {
         secret: SECRET,
         routerConfig: { routes: [] },
+        routeWarnings: [],
         stateFile: '/state/route-state.json',
         host: '0.0.0.0',
         port: 3100,

@@ -44,6 +44,21 @@ export const GEMINI = {
   models: ['gemini-2.5-flash', 'gemini-2.5-flash-lite'],
 }
 
+/** A synthetic account id: 32 lower-case hex characters, no real account. */
+export const CLOUDFLARE_ACCOUNT_ID = '0123456789abcdef0123456789abcdef'
+/**
+ * Inside the 10 000-Neuron day at the ceiling rates: 16 000 * 31 876 + 800 * 50 488 Neuron-millionths
+ * is about 550 Neurons a call, and 16 such calls are about 8 806.
+ */
+export const CLOUDFLARE = {
+  ...GROQ,
+  provider: 'cloudflare' as const,
+  accountId: CLOUDFLARE_ACCOUNT_ID,
+  models: ['@cf/mistralai/mistral-small-3.1-24b-instruct', '@cf/openai/gpt-oss-20b'],
+  contextTokens: 16_000,
+  freeLimit: { requestsPerDay: 16 },
+}
+
 export function config(routes: unknown[], extra: object = {}): RouterConfigInput {
   return {
     policyVersion: 'test-1',
