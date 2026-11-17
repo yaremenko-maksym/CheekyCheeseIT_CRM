@@ -35,7 +35,6 @@ import {
   assertAssignableRole,
   assertSeniorOnlyRoles,
   assertSeniorRoleFloor,
-  rolesChanged,
   techStackChanged,
 } from './role-guards.util'
 import { UsersAccessService } from './users-access.service'
@@ -528,10 +527,7 @@ export class UsersService {
       // Senior roles PR 2: a self-edit sets the caller's own roles only, and only as a SENIOR.
       if (!self) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
       assertSeniorOnlyRoles(self.role, data.technicalRoles)
-      // SENIOR role floor on an actual roles change (an unchanged resubmit passes).
-      if (rolesChanged(data.technicalRoles, self.technicalRoles)) {
-        assertSeniorRoleFloor(self.role, data.technicalRoles)
-      }
+      assertSeniorRoleFloor(self.role, data.technicalRoles)
       set.technicalRoles = data.technicalRoles
     }
     if ('techStack' in data) {
