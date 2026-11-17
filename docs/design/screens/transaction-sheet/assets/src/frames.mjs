@@ -363,14 +363,15 @@ export function frames() {
     }),
   )
   f.push(...listFrames())
-  // 422: the server named a field; the draft is still a form, so no «Видалити чернетку».
+  // 422: the server named a field; reopening turns the draft back into an ordinary (dirty) form, so the
+  // lead is «Скасувати» (it asks «Вийти без збереження?») and there is no «Видалити чернетку».
   f.push(
     ...at('error-422', [375, 768, 1440], {
       amount: '1 250,50',
       receipt: 'done',
       expanded: true,
       dateError: true,
-      lead: 'Згорнути',
+      lead: 'Скасувати',
       scroll: 120,
     }),
   )
