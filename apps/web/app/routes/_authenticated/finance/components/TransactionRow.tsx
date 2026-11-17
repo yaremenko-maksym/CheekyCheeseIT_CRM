@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 // NOTE: Wallet icon is still used by the «Оплатить» pill on PAYOUT rows.
 import { Link } from '@tanstack/react-router'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
 import { formatTxOrCreated } from '../utils/tx-date'
@@ -148,7 +148,7 @@ type TransactionRowProps = {
 // forwardRef is required because the row is rendered inside an
 // <AnimatePresence mode="sync"> in TransactionsTable (task-finance-sort-date-
 // and-jump AC4 — was "popLayout", switched because that mode can't
-// meaningfully position a <tr>). framer-motion still needs to attach a ref to
+// meaningfully position a <tr>). motion still needs to attach a ref to
 // the underlying <tr> to measure it for the enter/exit animation below.
 // Without forwardRef React logs «Function components cannot be given refs»
 // once per row (50-60× on /finance) and the row animation breaks.
@@ -277,12 +277,12 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
       !isDeleted && !!onAttachReceipt && canAttachReceipt(tx, currentUserId, role)
 
     return (
-      <motion.tr
+      <m.tr
         ref={ref}
         initial={{ opacity: 0, y: -4 }}
         // task-soft-delete-and-money-audit: a deleted row (visible only to
         // ADMIN/ACCOUNTANT via the «показать удалённые» toggle) is dimmed —
-        // framer-motion's `animate.opacity` is an inline style, so a Tailwind
+        // motion's `animate.opacity` is an inline style, so a Tailwind
         // opacity utility class would be silently overridden by it; the dim
         // has to be expressed here instead.
         animate={{ opacity: isDeleted ? 0.55 : 1, y: 0 }}
@@ -606,7 +606,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
             </div>
           </div>
         </td>
-      </motion.tr>
+      </m.tr>
     )
   },
 )

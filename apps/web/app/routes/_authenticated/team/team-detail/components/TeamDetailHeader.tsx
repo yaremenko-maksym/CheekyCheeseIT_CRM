@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { Archive, ArrowLeft, Calendar, Pencil, RefreshCw, Send, UserPlus } from 'lucide-react'
 import type { Role, TeamDto } from '@crm/shared'
 import { formatDate } from '@crm/shared'
@@ -53,7 +53,7 @@ export function TeamDetailHeader({
   const locale = useLocale()
 
   return (
-    <motion.div variants={item} className="flex items-start justify-between gap-4">
+    <m.div variants={item} className="flex items-start justify-between gap-4">
       <div className="flex items-center gap-3">
         {/* Back button hidden for SENIOR, JUNIOR, and DROP.
               SENIOR/JUNIOR: they don't see the team list (no "Team" nav item).
@@ -210,6 +210,6 @@ export function TeamDetailHeader({
           <TeamUnarchiveHeaderButton teamId={team.id} />
         )}
       </div>
-    </motion.div>
+    </m.div>
   )
 }

@@ -18,7 +18,7 @@
  *     external-URL receipt.
  */
 import { useEffect, useRef, useState } from 'react'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { FileImage, FileText, Link as LinkIcon, Paperclip, X } from 'lucide-react'
 import { useLingui } from '@lingui/react/macro'
 import { cn } from '@/lib/utils'
@@ -347,7 +347,7 @@ export function ReceiptInput({
       {!explorerOnly && (
         <div className="relative flex rounded-md border border-border bg-muted/20 text-xs h-8 p-0.5 overflow-hidden">
           {/* Pill: always 50% wide, slides via x transform — no size glitch */}
-          <motion.div
+          <m.div
             className="absolute top-0.5 bottom-0.5 w-[calc(50%-1px)] rounded-[5px] bg-primary/15 border border-primary/30 pointer-events-none"
             animate={{ x: state.mode === 'file' ? 0 : '100%' }}
             transition={{ type: 'spring', stiffness: 500, damping: 40, mass: 0.8 }}

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from 'react'
-import { LayoutGroup, motion, useReducedMotion } from 'framer-motion'
+import { LayoutGroup, m, useReducedMotion } from 'motion/react'
 import { Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -141,7 +141,7 @@ export function AnimatedTabs({ tabs, value, onChange, className }: AnimatedTabsP
               )}
             >
               {active && (
-                <motion.span
+                <m.span
                   layoutId={`animated-tab-pill-${groupId}`}
                   className="absolute inset-0 rounded-md bg-primary shadow-sm"
                   transition={{ type: 'spring', stiffness: 500, damping: 35 }}

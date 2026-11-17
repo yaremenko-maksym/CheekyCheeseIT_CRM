@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Briefcase, Clock, HandCoins, Wallet } from 'lucide-react'
 import { msg } from '@lingui/core/macro'
@@ -175,14 +175,14 @@ export function DropDashboard() {
                 first screen a drop lands on — never shows a misleadingly empty balance
                 while a company-booked obligation is sitting unpaid (§AC1). Kept as a
                 SEPARATE card from «Мой баланс», never folded into its number (§AC2). */}
-            <motion.div
+            <m.div
               className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
               variants={container}
               initial="hidden"
               animate="show"
               data-testid="drop-kpi-grid"
             >
-              <motion.div variants={card} data-testid="drop-kpi-active-projects">
+              <m.div variants={card} data-testid="drop-kpi-active-projects">
                 <KpiCard
                   title={t`Активні проєкти`}
                   value={String(projects?.length ?? 0)}
@@ -190,9 +190,9 @@ export function DropDashboard() {
                   icon={<Briefcase className="h-5 w-5" />}
                   color="blue"
                 />
-              </motion.div>
+              </m.div>
 
-              <motion.div variants={card} data-testid="drop-kpi-balance">
+              <m.div variants={card} data-testid="drop-kpi-balance">
                 <KpiCard
                   title={t`Мій баланс (частка)`}
                   value={fmtUsd(summary.balance)}
@@ -200,9 +200,9 @@ export function DropDashboard() {
                   icon={<Wallet className="h-5 w-5" />}
                   color="green"
                 />
-              </motion.div>
+              </m.div>
 
-              <motion.div variants={card} data-testid="drop-kpi-pending-obligation">
+              <m.div variants={card} data-testid="drop-kpi-pending-obligation">
                 <KpiCard
                   title={t`Очікує виплати`}
                   value={fmtUsd(summary.pendingObligationAmount)}
@@ -228,9 +228,9 @@ export function DropDashboard() {
                   icon={<HandCoins className="h-5 w-5" />}
                   color="red"
                 />
-              </motion.div>
+              </m.div>
 
-              <motion.div variants={card} data-testid="drop-kpi-pending">
+              <m.div variants={card} data-testid="drop-kpi-pending">
                 <KpiCard
                   title={t`Доходи в роботі`}
                   value={String(summary.pendingIncomesCount)}
@@ -238,8 +238,8 @@ export function DropDashboard() {
                   icon={<Clock className="h-5 w-5" />}
                   color="yellow"
                 />
-              </motion.div>
-            </motion.div>
+              </m.div>
+            </m.div>
 
             {/* task-project-status-filter-ui, §Что сделать item 3. DROP has
                 no route access to /projects — this is the ONLY surface

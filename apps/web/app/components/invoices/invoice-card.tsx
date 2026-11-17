@@ -19,7 +19,7 @@
  * a sibling controlled component on the page, so the card only emits the
  * id; opening / closing the dialog stays out of the card.
  */
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { ArrowRight, CheckCircle2, Clock, FileSignature } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { msg } from '@lingui/core/macro'
@@ -84,7 +84,7 @@ export function InvoiceCard({
   const isPending = invoice.status === 'PENDING'
   const typeLabel = useInvoiceTypeLabel(invoice.type)
   return (
-    <motion.div
+    <m.div
       layout
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
@@ -162,6 +162,6 @@ export function InvoiceCard({
           ) : null}
         </CardContent>
       </Card>
-    </motion.div>
+    </m.div>
   )
 }

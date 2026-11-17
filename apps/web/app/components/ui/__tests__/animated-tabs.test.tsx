@@ -19,8 +19,8 @@ import { AnimatedTabs } from '../animated-tabs'
 // which happy-dom does not implement, so mocking the hook itself (instead
 // of matchMedia) is what makes both branches reachable at all.
 let mockReducedMotion = false
-vi.mock('framer-motion', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('framer-motion')>()
+vi.mock('motion/react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('motion/react')>()
   return { ...actual, useReducedMotion: () => mockReducedMotion }
 })
 

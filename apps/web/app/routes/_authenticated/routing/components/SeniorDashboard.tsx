@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Briefcase, Clock, TrendingUp } from 'lucide-react'
 import { Trans, useLingui } from '@lingui/react/macro'
@@ -150,14 +150,14 @@ export function SeniorDashboard() {
         ) : (
           <>
             {/* KPI grid — 3 cards, consistent with HR/Accountant card style. */}
-            <motion.div
+            <m.div
               className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
               variants={container}
               initial="hidden"
               animate="show"
               data-testid="senior-kpi-grid"
             >
-              <motion.div variants={card} data-testid="kpi-active-projects">
+              <m.div variants={card} data-testid="kpi-active-projects">
                 <KpiCard
                   title={t`Активні проєкти`}
                   value={String(summary.activeProjects.count)}
@@ -165,9 +165,9 @@ export function SeniorDashboard() {
                   icon={<Briefcase className="h-5 w-5" />}
                   color="blue"
                 />
-              </motion.div>
+              </m.div>
 
-              <motion.div variants={card} data-testid="kpi-senior-income">
+              <m.div variants={card} data-testid="kpi-senior-income">
                 <KpiCard
                   title={t`Дохід за місяць`}
                   value={fmtUsd(summary.seniorShareIncome.thisMonth)}
@@ -175,9 +175,9 @@ export function SeniorDashboard() {
                   icon={<TrendingUp className="h-5 w-5" />}
                   color="green"
                 />
-              </motion.div>
+              </m.div>
 
-              <motion.div variants={card} data-testid="kpi-pending-payouts">
+              <m.div variants={card} data-testid="kpi-pending-payouts">
                 <KpiCard
                   title={t`Очікують виплати`}
                   value={String(summary.pendingPayouts.count)}
@@ -185,8 +185,8 @@ export function SeniorDashboard() {
                   icon={<Clock className="h-5 w-5" />}
                   color="yellow"
                 />
-              </motion.div>
-            </motion.div>
+              </m.div>
+            </m.div>
 
             {/* task-project-status-filter-ui, §Что сделать item 3. SENIOR
                 already has the ProjectRow card on /projects — mounted here

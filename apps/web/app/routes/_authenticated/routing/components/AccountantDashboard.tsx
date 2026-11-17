@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowRight, CheckCircle2, Clock, Send, Users, Wallet } from 'lucide-react'
 import { Plural, Trans, useLingui } from '@lingui/react/macro'
@@ -94,14 +94,14 @@ export function AccountantDashboard() {
         ) : (
           <>
             {/* KPI grid — 4 cards, consistent with DropDashboard card style. */}
-            <motion.div
+            <m.div
               className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
               variants={container}
               initial="hidden"
               animate="show"
               data-testid="accountant-kpi-grid"
             >
-              <motion.div variants={card} data-testid="kpi-pending-validation">
+              <m.div variants={card} data-testid="kpi-pending-validation">
                 <KpiCard
                   title={t`Очікують валідації`}
                   value={String(summary.pendingValidation.count)}
@@ -109,9 +109,9 @@ export function AccountantDashboard() {
                   icon={<Clock className="h-5 w-5" />}
                   color="yellow"
                 />
-              </motion.div>
+              </m.div>
 
-              <motion.div variants={card} data-testid="kpi-validated-month">
+              <m.div variants={card} data-testid="kpi-validated-month">
                 <KpiCard
                   title={t`Валідовано за місяць`}
                   value={String(summary.validatedThisMonth.count)}
@@ -119,29 +119,29 @@ export function AccountantDashboard() {
                   icon={<CheckCircle2 className="h-5 w-5" />}
                   color="green"
                 />
-              </motion.div>
+              </m.div>
 
-              <motion.div variants={card} data-testid="kpi-paid-month">
+              <m.div variants={card} data-testid="kpi-paid-month">
                 <KpiCard
                   title={t`Виплачено за місяць`}
                   value={fmtUsd(summary.paidThisMonth.amount)}
                   icon={<Send className="h-5 w-5" />}
                   color="blue"
                 />
-              </motion.div>
+              </m.div>
 
-              <motion.div variants={card} data-testid="kpi-recipient-count">
+              <m.div variants={card} data-testid="kpi-recipient-count">
                 <KpiCard
                   title={t`Отримувачів`}
                   value={String(summary.recipientCount)}
                   icon={<Users className="h-5 w-5" />}
                   color="purple"
                 />
-              </motion.div>
-            </motion.div>
+              </m.div>
+            </m.div>
 
             {/* Primary CTA — opens ValidateDialog queue (AC3). */}
-            <motion.div variants={card} initial="hidden" animate="show">
+            <m.div variants={card} initial="hidden" animate="show">
               <Card className="border-primary/20 bg-primary/[0.03]">
                 <CardContent className="flex flex-col gap-3 py-5 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-start gap-3">
@@ -182,7 +182,7 @@ export function AccountantDashboard() {
                   </Button>
                 </CardContent>
               </Card>
-            </motion.div>
+            </m.div>
           </>
         )}
       </div>

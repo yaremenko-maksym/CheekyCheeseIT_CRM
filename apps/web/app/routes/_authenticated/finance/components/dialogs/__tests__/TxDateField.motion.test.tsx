@@ -19,7 +19,7 @@ const state = vi.hoisted(() => ({
   presence: null as { initial: unknown; keys: string[] } | null,
 }))
 
-vi.mock('framer-motion', () => ({
+vi.mock('motion/react', () => ({
   useReducedMotion: () => state.reduced,
   AnimatePresence: ({ children, initial }: { children: ReactNode; initial?: boolean }) => {
     state.presence = {
@@ -28,7 +28,7 @@ vi.mock('framer-motion', () => ({
     }
     return <>{children}</>
   },
-  motion: {
+  m: {
     div: (props: Record<string, unknown> & { children?: ReactNode }) => {
       state.motion = props
       return <div data-testid={props['data-testid'] as string}>{props.children}</div>
