@@ -9,8 +9,8 @@ import type { Role } from '../constants'
 /**
  * Inline SENIOR role floor — the shared `seniorRolesSchema`, so the form and the API refuse the same
  * thing (`SENIOR_MIN_ROLES`). `undefined` = valid. `original` is the stored user on edit: like the
- * API, a SENIOR whose roles and role are unchanged is not checked, so a legacy SENIOR with no roles
- * can still save unrelated edits (plan Review Focus 4).
+ * API, a SENIOR whose roles are unchanged is not checked, so a legacy SENIOR with no roles can still
+ * save unrelated edits (plan Review Focus 4).
  */
 export function seniorRolesError(
   role: string,
@@ -18,9 +18,8 @@ export function seniorRolesError(
   original?: { role: string; technicalRoles: readonly string[] },
 ): string | undefined {
   if (role !== 'SENIOR') return undefined
-  const before = original?.technicalRoles ?? []
-  const unchanged = roles.length === before.length && roles.every((r, i) => r === before[i])
-  if (original?.role === 'SENIOR' && unchanged) return undefined
+  // A legacy SENIOR saved with no roles passes: any roles it now has are valid, and none is no change.
+  if (original?.role === 'SENIOR' && original.technicalRoles.length === 0) return undefined
   const r = seniorRolesSchema.safeParse([...roles])
   return r.success
     ? undefined

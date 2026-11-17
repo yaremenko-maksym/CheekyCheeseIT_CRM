@@ -723,6 +723,9 @@ describe('HrCreateSeniorDialog — SENIOR role floor (>= 1 technical role)', () 
   it('stays quiet while roles are added before the first submit', async () => {
     const user = userEvent.setup()
     renderDialog()
+    // No role yet, but nothing was submitted: no error.
+    expect(screen.queryByText(MIN_ROLES_UK)).toBeNull()
+    expect(rolesTrigger().getAttribute('aria-invalid')).toBeNull()
     await addRoles(user, 'BACKEND_ENGINEER')
     expect(screen.queryByText(MIN_ROLES_UK)).toBeNull()
     expect(rolesTrigger().getAttribute('aria-describedby')).toBeNull()

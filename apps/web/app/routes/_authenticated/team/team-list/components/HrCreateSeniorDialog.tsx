@@ -165,8 +165,8 @@ export function HrCreateSeniorDialog({
         role: 'SENIOR',
         telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : undefined,
         phone: enteredPhone(value.phone as string),
-        // `[]` is never sent: the schema refuses it; the field validator has already stopped the submit.
-        ...(value.technicalRoles.length > 0 && { technicalRoles: value.technicalRoles }),
+        // Never `[]` here: the field validator stops a submit with no role.
+        technicalRoles: value.technicalRoles,
         seniorSharePercent: value.seniorSharePercent,
         hrIds: [hrUserId],
         accountantId: selectedAccountantId || null,

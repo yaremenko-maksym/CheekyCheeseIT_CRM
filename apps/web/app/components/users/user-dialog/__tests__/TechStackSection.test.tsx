@@ -168,6 +168,20 @@ describe('TechStackSection — SENIOR gets technical roles instead of the stack'
     expect(screen.queryByText(MIN_ROLES_UK)).toBeNull()
   })
 
+  it('editing a SENIOR who removes the last role is refused', async () => {
+    const api: Partial<FloorForm> = {}
+    render(
+      <FloorHarness
+        api={api}
+        technicalRoles={['QA_ENGINEER']}
+        editingUser={{ role: 'SENIOR', techStack: null, technicalRoles: ['QA_ENGINEER'] }}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('roles-section-remove-QA_ENGINEER'))
+    await act(() => api.submit!())
+    expect(screen.getByText(MIN_ROLES_UK)).toBeInTheDocument()
+  })
+
   it('editing a JUNIOR being promoted to SENIOR without roles is refused', async () => {
     const api: Partial<FloorForm> = {}
     render(
