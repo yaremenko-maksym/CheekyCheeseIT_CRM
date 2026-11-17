@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
+import { Inject, Injectable, Logger, type OnApplicationBootstrap, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Cron } from '@nestjs/schedule'
 import type { Env } from '../config/env'
@@ -61,7 +61,7 @@ export const MATCH_DRAIN_BUDGET_MS = 60_000
  * drain failure must never reach the run that triggered it.
  */
 @Injectable()
-export class JobMatchReconciliationCronService {
+export class JobMatchReconciliationCronService implements OnApplicationBootstrap {
   private readonly logger = new Logger(JobMatchReconciliationCronService.name)
   private running = false
   private cursor: string | null = null
@@ -78,6 +78,16 @@ export class JobMatchReconciliationCronService {
     @Inject(RecomputeWorker) private readonly worker: RecomputeWorker,
     @Optional() @Inject(ConfigService) private readonly config?: ConfigService<Env, true>,
   ) {}
+
+  /**
+   * One sweep at boot (senior roles PR 4): a deploy that moves the match versions stales every
+   * stamped row, and only a sweep enqueues them, so without it a queue stays empty until the next
+   * cron tick (up to 6 h). Not awaited, so startup is not delayed; the sweep never rejects, and its
+   * `running` flag defers a `requestDrain` and skips a cron tick during it, as for any sweep.
+   */
+  onApplicationBootstrap(): void {
+    if (this.enabled()) void this.handleReconciliation()
+  }
 
   private enabled(): boolean {
     return this.config?.get('JOB_MATCH_RECONCILIATION_ENABLED', { infer: true }) === true

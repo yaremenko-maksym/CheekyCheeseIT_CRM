@@ -667,6 +667,32 @@ describe('card text bounds', () => {
 })
 
 describe('matchFacts', () => {
+  // Senior roles PR 4.
+  it('ROLE_MATCH is never approximate; matchedKeywords are the matched skills', () => {
+    const role = { code: 'ROLE_MATCH', evidence: ['BACKEND_ENGINEER'] }
+    const overlap = { kind: 'OVERLAP', matched: ['Go', 'Kafka'], total: 3 }
+    expect(matchFacts({ reasons: [role], skillOverlap: overlap })).toEqual({
+      keywords: ['Go', 'Kafka'],
+      approximate: false,
+    })
+    for (const skillOverlap of [{ kind: 'NO_RESUME' }, null, undefined, { kind: 'OVERLAP' }])
+      expect(matchFacts({ reasons: [role], skillOverlap })).toEqual({
+        keywords: [],
+        approximate: false,
+      })
+  })
+
+  it('a reason code other than ROLE_MATCH does not make the match exact', () => {
+    const overlap = { kind: 'OVERLAP', matched: ['Go'], total: 1 }
+    expect(
+      matchFacts({ reasons: [{ code: 'TECH_MATCH', evidence: [] }], skillOverlap: overlap }),
+    ).toEqual({ keywords: [], approximate: true })
+    expect(matchFacts({ reasons: 'ROLE_MATCH', skillOverlap: overlap })).toEqual({
+      keywords: [],
+      approximate: true,
+    })
+  })
+
   it('reads the keywords of the TECH_MATCH reason, keeping colons inside a keyword', () => {
     const evidence = {
       reasons: [
@@ -989,6 +1015,7 @@ describe('JobQueueService.card', () => {
             matchApproximate: false,
             matchedKeywords: ['Go'],
             matchEvidence: [{ keyword: 'Go', strength: 'CORE' }],
+            skillOverlap: null,
             submission: null,
           },
         ],
@@ -1275,6 +1302,35 @@ describe('JobQueueService continuations', () => {
     expect(page.items.map((s) => [s.matchApproximate, s.matchedKeywords])).toEqual([
       [false, []],
       [true, []],
+    ])
+  })
+
+  it('seniors: card senior skillOverlap is OVERLAP {matched,total} / NO_RESUME / null (senior roles PR 4)', async () => {
+    const role = [{ code: 'ROLE_MATCH', evidence: ['BACKEND_ENGINEER'] }]
+    const overlap = { kind: 'OVERLAP', matched: ['Go'], total: 4 }
+    const h = harness(
+      teamScope,
+      [
+        seniorDbRow({ evidence: { reasons: role, skillOverlap: overlap } }),
+        seniorDbRow({
+          senior_id: SEN_2,
+          evidence: { reasons: role, skillOverlap: { kind: 'NO_RESUME' } },
+        }),
+        seniorDbRow({
+          senior_id: SEN_2,
+          evidence: { reasons: role, skillOverlap: { kind: 'OVERLAP', matched: [], total: 0 } },
+        }),
+        seniorDbRow({ senior_id: SEN_2, evidence: null }),
+      ],
+      [{ total: '4' }],
+    )
+    const page = await h.svc.seniors(user, OPP, { teamId: TEAM })
+    expect(page.items.map((s) => [s.skillOverlap, s.matchApproximate, s.matchedKeywords])).toEqual([
+      [overlap, false, ['Go']],
+      [{ kind: 'NO_RESUME' }, false, []],
+      // a malformed overlap (total 0) is dropped, never shown as "0 of 0"
+      [null, false, []],
+      [null, false, []],
     ])
   })
 

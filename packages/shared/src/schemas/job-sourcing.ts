@@ -2049,6 +2049,22 @@ export const jobQueueMatchEvidenceSchema = z
   .strict()
 
 /** One of the viewer's own seniors on the card. */
+/**
+ * Senior roles PR 4: a role-matched senior's resume skills against the vacancy's technologies.
+ * OVERLAP: `matched` of `total` vacancy technologies; NO_RESUME: the senior has no resume skills.
+ */
+export const jobQueueSkillOverlapSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('OVERLAP'),
+      matched: z.array(z.string().max(MAX_STACK_KEYWORD_CHARS)).max(200),
+      total: z.number().int().positive(),
+    })
+    .strict(),
+  z.object({ kind: z.literal('NO_RESUME') }).strict(),
+])
+export type JobQueueSkillOverlap = z.infer<typeof jobQueueSkillOverlapSchema>
+
 export const jobQueueCardSeniorSchema = z
   .object({
     seniorId: z.string().uuid(),
@@ -2060,6 +2076,8 @@ export const jobQueueCardSeniorSchema = z
     matchedKeywords: z.array(z.string().max(MAX_STACK_KEYWORD_CHARS)).max(200),
     /** «Чому збіг» (§5.6): each matched keyword with its weight in the vacancy stack. */
     matchEvidence: z.array(jobQueueMatchEvidenceSchema).max(200),
+    /** The senior's own skill overlap (never another senior's); `null` = no role-match evidence. */
+    skillOverlap: jobQueueSkillOverlapSchema.nullable(),
     /** Own scope: the full row. Another team's (shared senior only): the bare marker. */
     submission: z.union([jobQueueSubmissionSchema, jobQueueForeignSubmissionSchema]).nullable(),
     /**

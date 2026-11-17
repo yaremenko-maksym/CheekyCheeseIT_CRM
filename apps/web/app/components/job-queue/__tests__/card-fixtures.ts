@@ -15,6 +15,7 @@ export function senior(over: Partial<JobQueueCardSeniorDto> = {}): JobQueueCardS
     matchApproximate: false,
     matchedKeywords: ['React'],
     matchEvidence: [{ keyword: 'React', strength: 'CORE' }],
+    skillOverlap: null,
     submission: null,
     ...over,
   }

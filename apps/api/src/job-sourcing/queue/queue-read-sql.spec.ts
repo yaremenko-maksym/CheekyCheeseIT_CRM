@@ -248,13 +248,13 @@ describe('field scoping — what each read binds', () => {
     expect(joins.text).toContain(`m.evidence->>'stage' = 'SCOPED_RESTRICTIONS'`)
   })
 
-  it('the row keyword evidence is the TECH_MATCH reasons of LEAD rows of the scope versions', () => {
+  it('the row keyword evidence is the TECH_MATCH / ROLE_MATCH reasons and skillOverlap of LEAD rows of the scope versions', () => {
     const columns = render(queueRowColumns(versions))
     expect(columns.params).toContain(
       JSON.stringify([{ senior_id: SEN, profile: 'p', exclusion: 'e' }]),
     )
     expect(columns.text).toContain(
-      `(SELECT jsonb_agg(jsonb_build_object('reasons', jsonb_path_query_array(m.evidence, 'strict $.reasons[*] ? (@.code == "TECH_MATCH")', '{}', true))) FROM job_opportunity_matches m`,
+      `(SELECT jsonb_agg(jsonb_build_object('reasons', jsonb_path_query_array(m.evidence, 'strict $.reasons[*] ? (@.code == "TECH_MATCH" || @.code == "ROLE_MATCH")', '{}', true), 'skillOverlap', m.evidence -> 'skillOverlap')) FROM job_opportunity_matches m`,
     )
     expect(columns.text).toContain(
       `m.rule_version = $2 AND m.outcome = 'LEAD') AS matched_evidence`,

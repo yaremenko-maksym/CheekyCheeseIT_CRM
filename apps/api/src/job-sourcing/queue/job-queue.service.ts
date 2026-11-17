@@ -14,6 +14,8 @@ import {
   JOB_QUEUE_SENIOR_OPTIONS_MAX,
   type JobQueueSeniorOptionsResponseDto,
   jobQueueSeniorsContinuationSchema,
+  type JobQueueSkillOverlap,
+  jobQueueSkillOverlapSchema,
   jobQueueSourcesContinuationSchema,
   type JobSourceType,
   MAX_STACK_KEYWORD_CHARS,
@@ -122,6 +124,11 @@ export function toListItem(r: Row): JobQueueListItemDto {
  * unless it holds a CORE keyword: a TRIAGE row has none, an OPTIONAL-only one is a weak signal.
  */
 export function matchFacts(evidence: unknown): { keywords: string[]; approximate: boolean } {
+  // Senior roles PR 4: a role match is exact; its keywords are the senior's overlapping skills.
+  if (hasReason(evidence, 'ROLE_MATCH')) {
+    const overlap = skillOverlapOf(evidence)
+    return { keywords: overlap?.kind === 'OVERLAP' ? overlap.matched : [], approximate: false }
+  }
   const items = techMatchItems(evidence)
   return {
     // No `:STRENGTH` suffix: the whole string is the keyword.
@@ -132,6 +139,17 @@ export function matchFacts(evidence: unknown): { keywords: string[]; approximate
       .slice(0, 200),
     approximate: !items.some((k) => k.endsWith(':CORE')),
   }
+}
+
+function hasReason(evidence: unknown, code: string): boolean {
+  const reasons = (evidence as { reasons?: unknown } | null)?.reasons
+  return Array.isArray(reasons) && reasons.some((r: { code?: unknown }) => r?.code === code)
+}
+
+/** The senior's own overlap from a LEAD row's evidence; anything malformed is `null`. */
+export function skillOverlapOf(evidence: unknown): JobQueueSkillOverlap | null {
+  const raw = (evidence as { skillOverlap?: unknown } | null)?.skillOverlap
+  return jobQueueSkillOverlapSchema.safeParse(raw).data ?? null
 }
 
 /** The raw `keyword:STRENGTH` items of a senior's own `TECH_MATCH` reasons. */
@@ -244,6 +262,7 @@ const toSenior =
       matchApproximate: r['evidence'] !== null && facts.approximate,
       matchedKeywords: facts.keywords,
       matchEvidence: matchEvidence(r['evidence']),
+      skillOverlap: skillOverlapOf(r['evidence']),
       submission: toSubmission(r),
       ...(scope.kind === 'STUDIO'
         ? {

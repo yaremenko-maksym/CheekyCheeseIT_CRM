@@ -109,6 +109,7 @@ const senior = {
   matchApproximate: false,
   matchedKeywords: ['typescript'],
   matchEvidence: [{ keyword: 'typescript', strength: 'CORE' }],
+  skillOverlap: null,
   submission: submitted,
 }
 /** The submit conflict's preview: the shared duplicate item, without the card's own-scope names. */
