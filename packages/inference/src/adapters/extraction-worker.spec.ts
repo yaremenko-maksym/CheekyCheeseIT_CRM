@@ -363,7 +363,7 @@ describe('extraction-worker adapter — readiness preflight (ADR §5.3, H.3)', (
     await expect(port.preflight()).resolves.toEqual({ readiness: 'READY' })
   })
 
-  it('runs on its own bounded timeout of two minutes, not the extract one', async () => {
+  it('runs on its own bounded timeout of ten seconds, not the extract one', async () => {
     vi.useFakeTimers()
     try {
       const f = fakeFetch(
@@ -381,11 +381,11 @@ describe('extraction-worker adapter — readiness preflight (ADR §5.3, H.3)', (
         fetchImpl: f,
       })
       const answered = port.preflight()
-      await vi.advanceTimersByTimeAsync(119_999)
+      await vi.advanceTimersByTimeAsync(9_999)
       expect(f.sent[0]?.init?.signal?.aborted).toBe(false)
       await vi.advanceTimersByTimeAsync(1)
       await expect(answered).resolves.toStrictEqual({ readiness: 'UNREACHABLE' })
-      expect(PREFLIGHT_TIMEOUT_MS).toBe(120_000)
+      expect(PREFLIGHT_TIMEOUT_MS).toBe(10_000)
     } finally {
       vi.useRealTimers()
     }

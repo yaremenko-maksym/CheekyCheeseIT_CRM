@@ -398,6 +398,36 @@ describe('MODEL_LIMITS_EXHAUSTED (H.2, H.3)', () => {
     expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
   })
 
+  it('one call never raises both: SPENT_DAY beside a RETIRED 404 is transient (R1); the next call, retired in state, is the limit', async () => {
+    // What the router sends for that shape: the call ends PROVIDER_ERROR, not the H.2 stop.
+    const retiredCall = {
+      ...FAILED,
+      events: [
+        attempt('groq', 'SPENT_DAY'),
+        attempt('groq', 'RETIRED'),
+        { type: 'RETIRED', route: 'groq', model: 'openai/gpt-oss-20b' },
+        {
+          type: 'EXHAUSTED',
+          reasons: [
+            { route: 'groq', code: 'SPENT_DAY' },
+            { route: 'groq', code: 'RETIRED' },
+          ],
+        },
+      ],
+    }
+    const first = setUp({ extract: retiredCall })
+    await runCycle(first)
+    expect(first.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
+    const next = setUp({
+      extract: {
+        result: { ok: false, code: 'LIMITS_EXHAUSTED' },
+        events: [{ type: 'EXHAUSTED', reasons: [{ route: 'groq', code: 'SPENT_DAY' }] }],
+      },
+    })
+    await runCycle(next)
+    expect(next.raised()).toEqual(['MODEL_LIMITS_EXHAUSTED'])
+  })
+
   it('a limit beside a busy route is transient: HOSTED_ROUTES_DEAD by the busy one only', async () => {
     const s = setUp({
       extract: { events: [attempt('gemini', 'BUSY'), attempt('groq', 'SPENT_DAY')] },
@@ -545,6 +575,10 @@ describe('HOSTED_ROUTES_DEAD (AC7, ADR §5.3 (b))', () => {
       ['a malformed reason', [{ route: 'mistral', code: 'CAP' }]],
       ['a reason that is not an object', ['CAP']],
       ['a non-array reasons', 'CAP'],
+      // A malformed event must never hide a dead route (SR-L-1).
+      ['an empty list', []],
+      ['absent reasons', undefined],
+      ['a failed own-cap state write (BUDGET, R2)', [{ route: 'groq', code: 'BUDGET' }]],
     ])('%s is HOSTED_ROUTES_DEAD evidence', async (_label, reasons) => {
       const s = setUp(exhausted(reasons))
       await runCycle(s)
@@ -558,8 +592,6 @@ describe('HOSTED_ROUTES_DEAD (AC7, ADR §5.3 (b))', () => {
       ['SPENT_DAY', [{ route: 'groq', code: 'SPENT_DAY' }]],
       ['CREDIT', [{ route: 'cloudflare', code: 'CREDIT' }]],
       ['a FIT skip (the route was asked nothing)', [{ route: 'gemini', code: 'FIT' }]],
-      ['an empty list', []],
-      ['absent reasons', undefined],
     ])('%s is no HOSTED_ROUTES_DEAD evidence', async (_label, reasons) => {
       const s = setUp(exhausted(reasons))
       await runCycle(s)

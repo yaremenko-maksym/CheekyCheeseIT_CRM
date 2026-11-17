@@ -483,7 +483,7 @@ describe('ModelStructurer — LIMITS_EXHAUSTED latches for the cycle (H.2)', () 
     expect(budget.snapshot()).toEqual({ committed: 0, reserved: 0, totalTokens: 0 })
   })
 
-  it('a new structurer (the next cycle) calls the port again', async () => {
+  it('a new structurer (the next cycle in which the record is due) calls the port again', async () => {
     const first = setup(limits)
     await first.structurer.structure(request([rec('1')]))
     const next = setup(ok)

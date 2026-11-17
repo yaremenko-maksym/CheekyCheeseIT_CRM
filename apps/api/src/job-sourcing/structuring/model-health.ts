@@ -40,18 +40,21 @@ const disabledSchema = z.looseObject({
  * Limit codes count toward `MODEL_LIMITS_EXHAUSTED` only, never `HOSTED_ROUTES_DEAD` (H.2): one cause,
  * one flag. A limit clears itself at the provider reset; a dead route needs the owner.
  */
-const LIMIT_CODES: ReadonlySet<string> = new Set(['CAP', 'SPENT_DAY', 'CREDIT'])
+const LIMIT_CODE_LIST = ['CAP', 'SPENT_DAY', 'CREDIT'] as const
+const LIMIT_CODES: ReadonlySet<string> = new Set(LIMIT_CODE_LIST)
 /**
  * The `EXHAUSTED` reasons that say nothing of a dead route: a limit (H.2), or a `FIT` skip that asked
- * the route nothing. Any other reason, a malformed one or a non-array `reasons` is evidence.
+ * the route nothing. Any other reason, a malformed one, an empty, absent or non-array `reasons` is
+ * evidence: a malformed event must never hide a dead route (SR-L-1).
  */
 const harmlessReasonSchema = z.looseObject({
   route: z.enum(HOSTED_PROVIDERS),
-  code: z.enum(['CAP', 'SPENT_DAY', 'CREDIT', 'FIT']),
+  code: z.enum([...LIMIT_CODE_LIST, 'FIT']),
 })
 const isDeadEvidence = (reasons: unknown): boolean =>
-  reasons !== undefined &&
-  (!Array.isArray(reasons) || reasons.some((r) => !harmlessReasonSchema.safeParse(r).success))
+  !Array.isArray(reasons) ||
+  reasons.length === 0 ||
+  reasons.some((r) => !harmlessReasonSchema.safeParse(r).success)
 // The router sends `servedModel` only on a 2xx RETIRED; its 404 shape has none and is no refusal.
 const answeredRetiredSchema = z.looseObject({
   route: z.enum(HOSTED_PROVIDERS),

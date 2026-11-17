@@ -11,8 +11,12 @@ import { parseJsonOrNull } from '../internal/chat-completions'
 import { ROUTER_READINESS, type RouterReadiness } from '../router/readiness'
 
 const MAX_REPLY_EVENTS = 100
-/** One readiness request (ADR §5.3, H.3): a state read on the worker, never `extract`'s ceiling. */
-export const PREFLIGHT_TIMEOUT_MS = 120_000
+/**
+ * One readiness request (ADR §5.3, H.3): a state read on the worker over the internal network, no
+ * provider call and no queue behind `extract`, so seconds are ample; past them the worker is
+ * `UNREACHABLE` (fail closed).
+ */
+export const PREFLIGHT_TIMEOUT_MS = 10_000
 
 // `exactOptional`: JSON has no `undefined`, and the port's types are exact-optional.
 const usageSchema = z

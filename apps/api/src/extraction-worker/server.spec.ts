@@ -301,18 +301,21 @@ describe('extraction worker — the request is the worker’s own', () => {
     expect(logs).toEqual([{ event: 'ROUTER', ...late }])
   })
 
-  it('passes a failure code through', async () => {
-    const extract = fakePort(async () => ({ ok: false, code: 'TIMEOUT' }))
-    const { app } = await setup({ extract })
-    track(app)
-    const res = await app.inject({
-      method: 'POST',
-      url: '/extract',
-      headers: auth,
-      payload: body(),
-    })
-    expect(res.json().result).toEqual({ ok: false, code: 'TIMEOUT' })
-  })
+  it.each(['TIMEOUT', 'LIMITS_EXHAUSTED'] as const)(
+    'passes a failure code through: %s',
+    async (code) => {
+      const extract = fakePort(async () => ({ ok: false, code }))
+      const { app } = await setup({ extract })
+      track(app)
+      const res = await app.inject({
+        method: 'POST',
+        url: '/extract',
+        headers: auth,
+        payload: body(),
+      })
+      expect(res.json().result).toEqual({ ok: false, code })
+    },
+  )
 
   it('events of one call do not leak into another', async () => {
     const { app } = await setup()
