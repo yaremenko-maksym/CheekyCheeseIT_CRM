@@ -110,7 +110,7 @@ this round (A-1…). They ride into the PR body unchanged.
 | ADMIN, ACCOUNTANT | Header «Фінанси» + «Нова транзакція» → `TransactionsTable` (search, type and status selects, «Показати видалені» switch, date/amount sort, `Pagination`)           |
 | SENIOR            | Same as ADMIN, scoped by the API to own projects; plus `CompanySharePayoutStrip` and the outline header button «Виплатити (N)» (Wallet icon)                       |
 | HR                | Own salaries only (`SALARY` where receiver = self): table Сума / Місяць / Дата / Статус; skeleton while loading; empty «Виплат ще немає»; no create; no error path |
-| JUNIOR            | Own salaries: table Сума / Проєкт / Місяць / Дата / Статус / Хеш транзакції (hash `slice(0,14)` + «…» + tooltip); empty «Виплат ще немає»; no create              |
+| JUNIOR            | Own salaries: table Сума / Проєкт / Місяць / Дата / Статус / Хеш транзакції (hash `slice(0,14)` + «…» + tooltip); empty «Виплат ще немає»; no create               |
 | DROP              | `DropFinancePage`: `DropBalanceCard`, «МОЇ ДОХОДИ» (status + period filters, server paging 20), «ПЛАТЕЖІ НА КОМПАНІЮ», «Зареєструвати дохід»                       |
 
 `KpiCards` is **not** rendered on `/finance` (dashboards only). There is **no chart** on this
@@ -120,21 +120,21 @@ route, so "chart follows the filter" does not apply (OP-2).
 
 The "Primary" column is the action a swipe reveals and the desktop row shows inline (M10).
 
-| Action (today → drawn)                     | Shown when                                                                             | Opens                        | Primary for                 |
-| ------------------------------------------ | -------------------------------------------------------------------------------------- | ---------------------------- | --------------------------- |
-| «Перевірити» → «Валідувати» (M15)          | ADMIN/ACCOUNTANT · `SENIOR_INCOME` · `PENDING`                                         | `ValidateDialog`             | ADMIN, ACCOUNTANT           |
-| «Виплатити»                                | SENIOR · own `SENIOR_INCOME` · `VALIDATED` · no payout request yet                     | payout initiation            | SENIOR                      |
-| «Оплатити»                                 | SENIOR · `PAYOUT` · `PENDING_PAYMENT` · sender = self                                  | `PayoutDetailDialog`         | SENIOR                      |
-| «Підтвердити оплату»                       | ADMIN/ACCOUNTANT · `PAYOUT` · `PENDING_PAYMENT`                                        | `ConfirmPayoutDialog`        | ADMIN, ACCOUNTANT           |
-| «Виправити»                                | SENIOR · `SENIOR_INCOME` · `REJECTED`                                                  | `EditSeniorIncomeDialog`     | SENIOR                      |
-| «Розрахуватися» (salary)                   | ADMIN · `SALARY` · `PENDING`                                                           | `PaySalaryDialog`            | ADMIN                       |
-| «Додати частину зарплати»                  | ADMIN/ACCOUNTANT · `SALARY`                                                            | salary-part flow             | ACCOUNTANT (salary rows)    |
-| «Розрахуватися» (settlement)               | ADMIN/ACCOUNTANT · `SENIOR_PENDING_PAYOUT` / `DROP_PENDING_PAYOUT` · `PENDING_PAYMENT` | `SettleSeniorPayoutDialog`   | ADMIN, ACCOUNTANT           |
-| «Редагувати» (icon)                        | ADMIN · not `PAYOUT`/`PAYOUT_ADMIN` · (`PENDING_PAYMENT` or no payout request)         | `AdminEditTransactionDialog` | ADMIN, when no other action |
-| «Видалити» (icon)                          | same predicate as «Редагувати»                                                         | `DeleteTransactionDialog`    | — (menu / swipe second)     |
-| «Відновити»                                | ADMIN · deleted row                                                                    | `RestoreTransactionDialog`   | ADMIN (deleted rows)        |
-| «Прикріпити чек» / «Замінити чек»          | `canAttachReceipt` (`receipt-permissions.ts`)                                          | `AttachReceiptSheet`         | —                           |
-| Row click / tap / `Enter`                  | everyone                                                                               | `TransactionDetailDialog`    | —                           |
+| Action (today → drawn)            | Shown when                                                                             | Opens                        | Primary for                 |
+| --------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------- | --------------------------- |
+| «Перевірити» → «Валідувати» (M15) | ADMIN/ACCOUNTANT · `SENIOR_INCOME` · `PENDING`                                         | `ValidateDialog`             | ADMIN, ACCOUNTANT           |
+| «Виплатити»                       | SENIOR · own `SENIOR_INCOME` · `VALIDATED` · no payout request yet                     | payout initiation            | SENIOR                      |
+| «Оплатити»                        | SENIOR · `PAYOUT` · `PENDING_PAYMENT` · sender = self                                  | `PayoutDetailDialog`         | SENIOR                      |
+| «Підтвердити оплату»              | ADMIN/ACCOUNTANT · `PAYOUT` · `PENDING_PAYMENT`                                        | `ConfirmPayoutDialog`        | ADMIN, ACCOUNTANT           |
+| «Виправити»                       | SENIOR · `SENIOR_INCOME` · `REJECTED`                                                  | `EditSeniorIncomeDialog`     | SENIOR                      |
+| «Розрахуватися» (salary)          | ADMIN · `SALARY` · `PENDING`                                                           | `PaySalaryDialog`            | ADMIN                       |
+| «Додати частину зарплати»         | ADMIN/ACCOUNTANT · `SALARY`                                                            | salary-part flow             | ACCOUNTANT (salary rows)    |
+| «Розрахуватися» (settlement)      | ADMIN/ACCOUNTANT · `SENIOR_PENDING_PAYOUT` / `DROP_PENDING_PAYOUT` · `PENDING_PAYMENT` | `SettleSeniorPayoutDialog`   | ADMIN, ACCOUNTANT           |
+| «Редагувати» (icon)               | ADMIN · not `PAYOUT`/`PAYOUT_ADMIN` · (`PENDING_PAYMENT` or no payout request)         | `AdminEditTransactionDialog` | ADMIN, when no other action |
+| «Видалити» (icon)                 | same predicate as «Редагувати»                                                         | `DeleteTransactionDialog`    | — (menu / swipe second)     |
+| «Відновити»                       | ADMIN · deleted row                                                                    | `RestoreTransactionDialog`   | ADMIN (deleted rows)        |
+| «Прикріпити чек» / «Замінити чек» | `canAttachReceipt` (`receipt-permissions.ts`)                                          | `AttachReceiptSheet`         | —                           |
+| Row click / tap / `Enter`         | everyone                                                                               | `TransactionDetailDialog`    | —                           |
 
 Row facts shown today (`TransactionRow`): type badge (`TYPE_COLORS`, `TYPE_LABEL_MESSAGES`), payer →
 receiver (`FromTo`, an `ArrowRight` between the parties), the amount (USD conversion first, the
@@ -168,28 +168,28 @@ renders as the empty table.
 Every capability of today maps to a place in the redesign; every element of the redesign maps back
 to a capability of today (or is marked **new UI, no new data**).
 
-| Today                                     | Phone (< 640)                                              | Tablet (640–1023)                                 | Desktop (≥ 1024)                                             |
-| ----------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------ |
-| «Нова транзакція»                         | FAB «+» (opens 1.3)                                        | rail «+»                                          | header primary + `C`                                         |
-| Search                                    | search field (`q`)                                         | same                                              | toolbar search + `/`                                         |
-| Type select (19 types)                    | filter sheet → «Тип»                                       | filter side panel → «Тип» (`filters-768`)         | toolbar «Усі типи» listbox                                   |
-| Status select (7 statuses), `?status`     | filter sheet → «Статус», active chip                       | same as phone, in the side panel                  | toolbar «Усі статуси» listbox                                |
-| «Показати видалені» (ADMIN/ACCOUNTANT)    | filter sheet toggle, chip «З видаленими»                   | same                                              | toolbar switch                                               |
-| Sort date / amount                        | chip «Дата» → «Сортування» picker                          | same                                              | sortable headers Дата / Сума                                 |
-| `Pagination` (50)                         | incremental list footer (same 50-row batches)              | same                                              | pager «1–50 з 132» (only from 51 rows, A-5)                  |
-| Every row action (§1.2)                   | detail page actions + swipe primary (M10)                  | detail page / pane actions + swipe primary        | inline primary (≥ 1280) or first «…» item; key `A`           |
-| Row click → `TransactionDetailDialog`     | pushed detail page                                         | push (640–899) / detail pane (≥ 900)              | side panel (M8)                                              |
-| Amount: USD conversion + original amount  | «≈ $6 250,00» + «257 812,50 UAH» (§1.6 c)                  | same                                              | same                                                         |
-| «Сплачено X · до сплати Y», «Частка: N%»  | detail rows «Сплачено» / «До сплати» / «Частка»            | same                                              | Сума cell second line + side panel rows                      |
-| `salaryMonth`, rejection / deletion reason | meta line + detail row (§3.8)                             | same                                              | Учасник cell second line + side panel rows                   |
-| Receipt clip / attach                     | clip in meta line; «Прикріпити чек» in detail              | same                                              | clip after title; menu «Прикріпити чек»                      |
-| «Видалено» marker, «Відновити»            | «Видалено» pill in the status slot; «Відновити» swipe + detail | same                                          | pill in the Статус cell; inline «Відновити»                  |
-| SENIOR strip + «Виплатити (N)»            | strip card + full-width «Виплатити (N)»                    | same                                              | strip above table; header secondary                          |
-| HR / JUNIOR salary tables                 | salary list                                                | salary list                                       | salary table                                                 |
-| DROP page (balance, incomes, payments)    | stacked sections; payment `txHash` in the payment detail   | stacked sections                                  | balance + two tables; payments table keeps `txHash` + copy   |
-| `?status` deep link                       | kept                                                       | kept                                              | kept                                                         |
-| — (new UI, no new data)                   | `?month` chip, day headers, PTR, drafts rows, row-write marks | same                                           | same, plus side panel and key `A`                            |
-| — (new UI, no new data)                   | error, refetch-failed and partial-rate states              | same                                              | same                                                         |
+| Today                                      | Phone (< 640)                                                  | Tablet (640–1023)                          | Desktop (≥ 1024)                                           |
+| ------------------------------------------ | -------------------------------------------------------------- | ------------------------------------------ | ---------------------------------------------------------- |
+| «Нова транзакція»                          | FAB «+» (opens 1.3)                                            | rail «+»                                   | header primary + `C`                                       |
+| Search                                     | search field (`q`)                                             | same                                       | toolbar search + `/`                                       |
+| Type select (19 types)                     | filter sheet → «Тип»                                           | filter side panel → «Тип» (`filters-768`)  | toolbar «Усі типи» listbox                                 |
+| Status select (7 statuses), `?status`      | filter sheet → «Статус», active chip                           | same as phone, in the side panel           | toolbar «Усі статуси» listbox                              |
+| «Показати видалені» (ADMIN/ACCOUNTANT)     | filter sheet toggle, chip «З видаленими»                       | same                                       | toolbar switch                                             |
+| Sort date / amount                         | chip «Дата» → «Сортування» picker                              | same                                       | sortable headers Дата / Сума                               |
+| `Pagination` (50)                          | incremental list footer (same 50-row batches)                  | same                                       | pager «1–50 з 132» (only from 51 rows, A-5)                |
+| Every row action (§1.2)                    | detail page actions + swipe primary (M10)                      | detail page / pane actions + swipe primary | inline primary (≥ 1280) or first «…» item; key `A`         |
+| Row click → `TransactionDetailDialog`      | pushed detail page                                             | push (640–899) / detail pane (≥ 900)       | side panel (M8)                                            |
+| Amount: USD conversion + original amount   | «≈ $6 250,00» + «257 812,50 UAH» (§1.6 c)                      | same                                       | same                                                       |
+| «Сплачено X · до сплати Y», «Частка: N%»   | detail rows «Сплачено» / «До сплати» / «Частка»                | same                                       | Сума cell second line + side panel rows                    |
+| `salaryMonth`, rejection / deletion reason | meta line + detail row (§3.8)                                  | same                                       | Учасник cell second line + side panel rows                 |
+| Receipt clip / attach                      | clip in meta line; «Прикріпити чек» in detail                  | same                                       | clip after title; menu «Прикріпити чек»                    |
+| «Видалено» marker, «Відновити»             | «Видалено» pill in the status slot; «Відновити» swipe + detail | same                                       | pill in the Статус cell; inline «Відновити»                |
+| SENIOR strip + «Виплатити (N)»             | strip card + full-width «Виплатити (N)»                        | same                                       | strip above table; header secondary                        |
+| HR / JUNIOR salary tables                  | salary list                                                    | salary list                                | salary table                                               |
+| DROP page (balance, incomes, payments)     | stacked sections; payment `txHash` in the payment detail       | stacked sections                           | balance + two tables; payments table keeps `txHash` + copy |
+| `?status` deep link                        | kept                                                           | kept                                       | kept                                                       |
+| — (new UI, no new data)                    | `?month` chip, day headers, PTR, drafts rows, row-write marks  | same                                       | same, plus side panel and key `A`                          |
+| — (new UI, no new data)                    | error, refetch-failed and partial-rate states                  | same                                       | same                                                       |
 
 No capability is removed. No new business data, no new KPI, no new query, no new endpoint.
 
@@ -231,18 +231,483 @@ cache); mutations `retry: 0`. The rates query `['exchange-rate', 'today']` has `
 
 **(e) Fields per role and their homes today.**
 
-| Field                     | Who sees it                                 | Home today                                                                                   |
-| ------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `salaryMonth`             | everyone on `SALARY` rows                   | small line in the row party cell; detail «Період» (`formatMonthLabel`)                       |
-| Rejection reason          | everyone on `REJECTED` rows                 | row line `text-destructive`, truncated, full text in `title`; detail «Причина відмови»       |
-| Deletion reason           | ADMIN, ACCOUNTANT (deleted rows)            | **only** the `title` of `DeletedBadge`; not in the detail                                    |
-| Share source              | ADMIN, ACCOUNTANT, own SENIOR               | `title` + small «· проєкт / команда / за замовчуванням» span                                 |
-| HR «Дата»                 | HR                                          | `formatTxOrCreated(txDate, createdAt)` — the business date, present on unpaid rows too       |
-| JUNIOR `txHash`           | JUNIOR                                      | column «Хеш транзакції», `slice(0,14)` + «…» + tooltip                                       |
-| DROP payment `txHash`     | DROP                                        | payments list, truncated at 120 px + tooltip, or «—»                                         |
-| DROP failed payment       | DROP                                        | badge «Не пройшов» inside a tooltip «Переказ не пройшов — зверніться до адміністратора»     |
-| DROP amount kind          | DROP                                        | `model === 'declared'` → «Валовий дохід», else «Ваша частка»; badge declared «Дохід», obligation «Нарахування» |
+| Field                 | Who sees it                      | Home today                                                                                                     |
+| --------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `salaryMonth`         | everyone on `SALARY` rows        | small line in the row party cell; detail «Період» (`formatMonthLabel`)                                         |
+| Rejection reason      | everyone on `REJECTED` rows      | row line `text-destructive`, truncated, full text in `title`; detail «Причина відмови»                         |
+| Deletion reason       | ADMIN, ACCOUNTANT (deleted rows) | **only** the `title` of `DeletedBadge`; not in the detail                                                      |
+| Share source          | ADMIN, ACCOUNTANT, own SENIOR    | `title` + small «· проєкт / команда / за замовчуванням» span                                                   |
+| HR «Дата»             | HR                               | `formatTxOrCreated(txDate, createdAt)` — the business date, present on unpaid rows too                         |
+| JUNIOR `txHash`       | JUNIOR                           | column «Хеш транзакції», `slice(0,14)` + «…» + tooltip                                                         |
+| DROP payment `txHash` | DROP                             | payments list, truncated at 120 px + tooltip, or «—»                                                           |
+| DROP failed payment   | DROP                             | badge «Не пройшов» inside a tooltip «Переказ не пройшов — зверніться до адміністратора»                        |
+| DROP amount kind      | DROP                             | `model === 'declared'` → «Валовий дохід», else «Ваша частка»; badge declared «Дохід», obligation «Нарахування» |
 
 Where each one lives in the redesign: §3.8.
 
-<!-- CONTINUE-2 -->
+## 2. Design direction
+
+- **Purpose:** find a transaction and act on it; the list is a work queue for ADMIN/ACCOUNTANT
+  (validate, confirm payments) and a ledger for everyone else.
+- **Audience:** repeat daily use; ACCOUNTANT lands from the deep link `?status=PENDING`, ADMIN and
+  ACCOUNTANT also from the stats drill-down `?month=YYYY-MM`.
+- **Tone:** dense, quiet, scannable. Amount is the loudest element of a row; status is quiet unless
+  it needs work.
+- **Memorable detail:** the phone list reads like a bank statement — day sections, one line of
+  facts, the amount right-aligned in tabular figures, and a status pill **only** when the
+  transaction still needs someone. A row the viewer can still act on always shows its pill
+  (`VALIDATED` on a SENIOR's own income with no payout request reads «Підтверджено», R1-12).
+- **Constraints:** foundation v2 tokens and primitives; shadcn/ui; Lingui `uk` + `en`; WCAG 2.2 AA;
+  320–1440.
+
+## 3. Layout per device class
+
+Shells come from `shell-v2.md`: phone tab bar + FAB, tablet 80 px rail with «+», desktop 248 px
+sidebar with breadcrumb «Гроші › Фінанси». One layout is mounted at a time (`ByDevice`). Width picks
+the layout; **pointer picks the density** (§3.7).
+
+### 3.1 Phone (< 640) — `main-320`, `main-375`
+
+![main-375](assets/finance-list/main-375.png)
+
+- Large title «Фінанси» and the bell. **No search icon in the top bar**: the search field is always
+  in the list head, so a second entry would be a dead control (R1-15).
+- Search field «Пошук транзакцій» (16 px input). Under it one **horizontally scrolling chip row**
+  with a 24 px edge fade on the trailing side: «Фільтри» (badge = active filter count), then the sort
+  chip «↓ Дата» (always second, also with filters on), then one chip per active filter. **The whole
+  active chip is one 44 px button** («Статус: Очікує валідації ✕», name «Прибрати фільтр: Статус:
+  Очікує валідації»); there is no nested ✕ target (`filtered-320`).
+- Search and the chip row are sticky under the large title once it collapses (M14).
+- List grouped by Kyiv day: sticky section header («Сьогодні», «Вчора», «15 листопада», «28 грудня
+  2025»). The year appears only for another year (M12). No day totals (OP-6).
+- Row (two-line list row, 64 px lead icon inset):
+  - line 1: title (clamp 2 lines) + amount (tabular, unsigned, default colour, §3.5);
+  - line 2: `type · Проєкт «…»` + receipt clip, one line, ellipsis — **no clock time** (M12);
+  - under the amount: the original amount for non-USD/USDT rows (§1.6 c), the lead figure then
+    carries «≈»;
+  - status slot (third line): the status pill when it needs someone, the «Видалено» pill on deleted
+    rows (never before the title, R1-20), the row-write marker while a write is pending or unknown;
+  - an amount longer than 14 characters drops under the title (`long-320`).
+- Title rule: **the party that is not the viewer**. For ADMIN and ACCOUNTANT the viewer is the company
+  account, so the title is the other party («Оренда офісу», «Олег Демо»); a flow with neither side
+  being the company shows `payer → receiver`. For SENIOR, HR, JUNIOR, DROP the viewer is the person,
+  so their own name never appears (OP-12 applied): own income «Клієнт «Північ»», own PAYOUT «Рахунок
+  компанії».
+- FAB «+» → Task 1.3 sheet. Tab bar per role (§5). List bottom inset = tab bar + FAB + 16 px, so the
+  last row's amount is never under the FAB (M14).
+
+### 3.2 Tablet (640–1023) — `main-768`, `main-1000`, `filters-768`, `error-768`
+
+Shell v2 §3 is followed as written (M7):
+
+- **640–899, one pane** (`main-768`): rail 80 px + the list at full pane width (no 640 px column);
+  tapping a row **pushes** the detail page; no selected-row highlight.
+- **900–1023, list + detail pane** (`main-1000`): rail 80, list 360, detail 560 at 1000 px. The
+  selected row is `bg-raised` + `aria-current`. The pane is the pushed detail page body (one
+  component), with the top bar «Транзакція» + the row's actions and no back button. With nothing
+  selected the pane shows «Оберіть транзакцію» (no auto-select, so a deep link never opens a write).
+- The list pane scrolls as one block (search, chips, section heads, groups). The detail pane scrolls
+  on its own.
+- **Filters on tablet** open as the foundation **side panel** (400 px, right; `filters-768`), with the
+  same pickers as the phone sheet and the footer «Показати 18 транзакцій» + «Скинути».
+- Density follows the pointer: a touch tablet uses the phone row (64 px two-line) and 44 px controls.
+
+### 3.3 Desktop (≥ 1024) — `main-1024`, `main-1440`, `detail-1440`
+
+![main-1440](assets/finance-list/main-1440.png)
+
+- Header: breadcrumb, bell, primary «Нова транзакція» with `C` key hint (SENIOR: secondary
+  «Виплатити (N)» left of it).
+- Toolbar (one row, 32 px controls with a fine pointer, 44 px with a coarse one): search (`/`
+  focuses, 14 px text, 16 px under a coarse pointer), «Усі типи», «Усі статуси» listboxes (an active
+  one turns yellow with ✕), the month chip when `month` is set, «Показати видалені» switch
+  (ADMIN/ACCOUNTANT), «Скинути» when anything is active, count at the right («132 транзакції», or
+  «18 з 132» when filtered).
+- Table, fixed layout, 40 px rows (52 px under a coarse pointer):
+  - **≥ 1280:** Дата (76) · Учасник (flex) · Тип (140) · Проєкт (130) · Статус (170) · Сума (150,
+    right) · Дії (**sized to its content**: the widest inline action + «…», max 220).
+  - **1024–1279:** Дата (76) · Учасник (flex, **two lines**: payer on line 1, «→ receiver» on line 2,
+    so the receiver never vanishes) · Тип · проєкт (150) · Статус (150) · Сума (140) · Дії (52, «…»
+    only; the primary action is the first menu item, `row-menu-1024`).
+  - A cell that ellipsizes shows its full value in a tooltip on hover **and on keyboard focus** of the
+    row (`aria-describedby`), never `title` only (R1-14).
+  - The «Видалено» pill lives in the Статус cell, after the status (R1-14).
+- Row click / `Enter` opens the **side panel** (420 at 1024, 480 at ≥ 1440, `detail-1440`); the table
+  keeps its width and the selected row stays highlighted. The panel carries the same field set and
+  actions as the phone detail; `Esc` closes it and returns focus to the row.
+- Pager «1–50 з 132» with previous / next (32 px fine, 44 px coarse); `page` is in the URL. With ≤ 50
+  matching rows the pager is hidden (A-5).
+
+### 3.4 Entry points of the modals
+
+| Modal                                                                                                                                  | Phone / tablet                            | Desktop                        |
+| -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | ------------------------------ |
+| `CreateTransactionDialog` (Task 1.3)                                                                                                   | FAB «+» / rail «+»                        | header primary, `C`            |
+| `TransactionDetailDialog`                                                                                                              | pushed page (`detail-375`) / pane (≥ 900) | side panel (`detail-1440`)     |
+| `ValidateDialog`, `ConfirmPayoutDialog`, `PaySalaryDialog`, `SettleSeniorPayoutDialog`, `PayoutDetailDialog`, `EditSeniorIncomeDialog` | detail buttons; swipe primary (M10)       | inline button or «…» item; `A` |
+| `AdminEditTransactionDialog`                                                                                                           | detail «Редагувати»; swipe «Змінити»      | «…» «Редагувати», `E`          |
+| `DeleteTransactionDialog`                                                                                                              | detail «…» «Видалити»; swipe «Видалити»   | «…» «Видалити…»                |
+| `RestoreTransactionDialog`                                                                                                             | detail «Відновити»; swipe «Відновити»     | inline «Відновити»; `A`        |
+| `AttachReceiptSheet`                                                                                                                   | detail «Прикріпити чек»                   | «…» «Прикріпити чек»           |
+| `CompanySharePayoutModal`                                                                                                              | strip «Оплатити»                          | strip «Оплатити»               |
+
+### 3.5 Sign and direction — type × viewer (M5)
+
+Derived from `TransactionRow` and `FromTo` (§1.6 b), not from a mock. **Today no type, for no viewer,
+gets a sign or an arrow on the amount**, so every frame draws the amount unsigned, in the default
+colour. What does vary per type and viewer is the type word, the payer → receiver order and the row
+title. ADMIN and ACCOUNTANT see the company's side; SENIOR, HR, JUNIOR and DROP their own.
+
+| Type (`TYPE_LABEL_MESSAGES`)                                     | Payer → receiver (`FromTo`) | ADMIN / ACCOUNTANT: sign · title  | Own viewer (who): sign · title             | Drawn in                               |
+| ---------------------------------------------------------------- | --------------------------- | --------------------------------- | ------------------------------------------ | -------------------------------------- |
+| `EXPENSE` «Витрата»                                              | Рахунок компанії → vendor   | none · vendor                     | — (not shown to others)                    | `main-*`                               |
+| `SENIOR_INCOME` «Дохід сеньйора»                                 | client → senior             | none · `client → senior`          | SENIOR: none · client                      | `main-*`, `role-senior-*`              |
+| `ADMIN_INCOME` «Дохід адміна»                                    | client → admin              | none · `client → admin`           | —                                          | `main-*` (UAH row, «≈»)                |
+| `DROP_INCOME` «Дохід дропа»                                      | client → drop               | none · `client → drop`            | DROP: own page (§5), none · company        | `main-*`, `role-drop-*`                |
+| `SALARY` «Зарплата»                                              | Рахунок компанії → employee | none · employee                   | HR, JUNIOR: none · month («Листопад 2026») | `main-*`, `role-hr-*`, `role-junior-*` |
+| `PAYOUT` «Виплата»                                               | senior → Рахунок компанії   | none · senior                     | SENIOR: none · «Рахунок компанії»          | `main-*`, `role-senior-*`              |
+| `ADMIN_TRANSFER` «Переказ»                                       | admin → Рахунок компанії    | none · admin; type word «Переказ» | —                                          | `main-*` (the transfer row)            |
+| `SENIOR_PENDING_PAYOUT` / `SENIOR_PAID`                          | Рахунок компанії → senior   | none · senior                     | SENIOR: none · «Рахунок компанії»          | `role-accountant-*`                    |
+| other types (`PAYOUT_ADMIN`, `DIVIDEND_*`, `COMPANY_DEPOSIT`, …) | per `FromTo`                | none · the non-company party      | —                                          | rule only                              |
+
+Direction for a reader who cannot see colour comes from the type word (always in the meta line) and
+from the title order; the row's accessible name reads «title, type, amount, status». Whether a
+direction glyph should be added is OP-17.
+
+### 3.6 Containers per class (M8)
+
+| Surface                                                                | Phone (< 640)                               | Tablet (640–1023)                    | Desktop (≥ 1024)                            |
+| ---------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------ | ------------------------------------------- |
+| Row detail                                                             | pushed page (`detail-375`)                  | push (640–899) / detail pane (≥ 900) | side panel 420 / 480 (`detail-1440`)        |
+| Confirm-type writes (validate, confirm payment, restore)               | action sheet (`row-write-failed-375`)       | centred dialog                       | centred dialog                              |
+| Writes with a form (settle, pay salary, pay, edit, delete with reason) | detent sheet (large)                        | centred dialog                       | centred dialog                              |
+| Filters                                                                | bottom sheet, medium detent (`filters-375`) | side panel 400 (`filters-768`)       | toolbar listboxes (`filters-1440`)          |
+| Row actions menu                                                       | — (detail page + swipe)                     | — (detail + swipe)                   | «…» menu (`row-menu-1024`, `row-menu-1440`) |
+| Receipt attach                                                         | `AttachReceiptSheet` (sheet)                | sheet                                | sheet                                       |
+
+The nine row-action dialogs keep their bodies; only the container changes per class (R1-09).
+
+### 3.7 Coarse pointer at any width (M9) — `main-touch-1180`
+
+Under `(pointer: coarse)` the desktop layout keeps its columns but changes density: rows 52 px, the
+inline primary and «…» **always visible** at 44 px (no hover reveal), pager, toolbar listboxes and the
+deleted switch 44 px, search input text 16 px, the JUNIOR / DROP copy buttons 44 px. Under a fine
+pointer the 40 px row, 32 px controls and hover-revealed «…» stay (≥ 24 px, SC 2.5.8). Width never
+switches density; a touch laptop at 1180 px is drawn in `main-touch-1180`.
+
+### 3.8 Homes of today's fields (M11)
+
+| Field                  | Phone / tablet                                                                         | Desktop                                                        |
+| ---------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `salaryMonth`          | meta line «Зарплата · Листопад 2026»; detail row «Період»                              | Учасник cell second line; side panel «Період»                  |
+| Rejection reason       | status-slot line «Відхилено · {reason}» (wraps, 2 lines max); detail «Причина відмови» | Статус cell second line (ellipsis + focus tooltip); side panel |
+| Deletion reason        | detail row «Причина видалення» (new row, data exists)                                  | side panel «Причина видалення»; focus tooltip on the pill      |
+| Share source           | detail row «Частка» «30 % · за проєктом»                                               | Сума cell second line «Частка 30 % · проєкт»; side panel       |
+| «Сплачено · до сплати» | detail rows «Сплачено», «До сплати»                                                    | Сума cell second line (amber)                                  |
+| HR / JUNIOR «Дата»     | meta line, the business date (today's meaning and label, R1-13)                        | column «Дата», same value                                      |
+| JUNIOR `txHash`        | detail row «Хеш транзакції» + 44 px copy                                               | column «Хеш транзакції» + copy (24 px fine / 44 px coarse)     |
+| DROP payment `txHash`  | payment detail row «Хеш транзакції» + copy                                             | payments column «Хеш транзакції» + copy                        |
+| DROP failed payment    | status slot «Не пройшов» + the line «Зверніться до адміністратора»                     | Статус cell + the same line (not a tooltip)                    |
+
+## 4. States — matrix per class and role (M7)
+
+One row per state and per role view; no cell is empty. «Rule» = the class has no frame of its own
+and follows the named frame inside its own shell (tablet: inside the list pane; the ≥ 900 detail
+pane keeps «Оберіть транзакцію» unless a row is selected).
+
+| State / view                              | Phone (< 640)                                                                                                       | Tablet (640–1023)                                                 | Desktop (≥ 1024)                                                            |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Main (ADMIN)                              | `main-320`, `main-375`                                                                                              | `main-768` (one pane), `main-1000` (two panes)                    | `main-1024`, `main-1440`; coarse `main-touch-1180`                          |
+| Loading (first load)                      | `loading-375`: skeleton rows; search and chips interactive                                                          | rule: `loading-375` in the list pane; detail pane empty           | `loading-1440`                                                              |
+| Empty (no transactions)                   | `empty-375`: «Транзакцій ще немає» + one line pointing at «+»                                                       | rule: `empty-375` in the list pane, pointing at the rail «+»      | `empty-1440`                                                                |
+| Empty (filtered)                          | `filtered-375`; three chips at 320 `filtered-320`                                                                   | rule: `filtered-375` in the list pane                             | `filtered-1440`                                                             |
+| Empty (month)                             | `month-empty-375`: «За листопад 2026 транзакцій немає» + «Показати всі місяці»                                      | rule: `month-empty-375` in the list pane                          | rule: `filtered-1440` with the month copy and «Показати всі місяці»         |
+| Month filter on                           | `month-375`                                                                                                         | rule: `month-375` chip row in the list pane                       | `month-1440`                                                                |
+| Error (no data)                           | `error-375`, `error-320`                                                                                            | `error-768`                                                       | `error-1440`                                                                |
+| Refetch / PTR failed (cached)             | `refetch-failed-375`: rows kept + `role="alert"` notice «Не вдалося оновити…» + «Повторити»                         | rule: `refetch-failed-375` notice at the top of the list pane     | rule: the same notice above the table (`dNotice`, tone destructive)         |
+| Partial (rates down)                      | `partial-375`: «≈» figures replaced by the original amount; amount sort disabled with its reason                    | rule: `partial-375` in the list pane                              | `partial-1440`: Сума header sort disabled + reason tooltip                  |
+| Offline                                   | `offline-375`: banner; rows readable; FAB and actions **enabled**; a write ends in the definite offline alert (M4)  | rule: `offline-375` banner across the pane                        | `offline-1440` (redrawn: actions enabled)                                   |
+| Filters open                              | `filters-375`, `filters-320`                                                                                        | `filters-768` (side panel)                                        | `filters-1440` (listbox)                                                    |
+| Unsaved drafts                            | `drafts-375` (failed), `drafts-unknown-375` (unknown + failed + «Ще 2 чернетки»)                                    | rule: drafts pinned on top of the list pane (shell-v2 §4)         | `drafts-1440`                                                               |
+| With deleted                              | `deleted-375`, `deleted-320`                                                                                        | rule: `deleted-375` in the list pane                              | `deleted-1440`                                                              |
+| Long content                              | `long-320` (full length, footer included), `footer-375` (list footer loading / failed / end)                        | rule: `long-320` in the list pane                                 | `long-1440`                                                                 |
+| Row write pending                         | `row-write-pending-375`                                                                                             | rule: same row marker; the pane's action button shows the spinner | rule: Статус cell marker «Зберігається…», the inline button `aria-disabled` |
+| Row write failed (definite)               | `row-write-failed-375` (action sheet keeps values + inline alert)                                                   | rule: centred dialog with the same alert                          | rule: centred dialog with the same alert                                    |
+| Row write unknown                         | `row-write-unknown-375`                                                                                             | rule: same row marker and pane banner                             | `row-write-unknown-1440`                                                    |
+| Refreshing                                | `ptr-375`                                                                                                           | rule: PTR on the list pane (touch)                                | rule: no PTR; refetch after a write or «Повторити»; header spinner only     |
+| Detail                                    | `detail-375`                                                                                                        | push (640–899) / `main-1000` pane                                 | `detail-1440` (side panel)                                                  |
+| Swipe                                     | `swipe-375` (ADMIN), `swipe-accountant-375`, `swipe-senior-375`                                                     | rule: same swipe per role on the list pane rows                   | rule: no swipe; `row-menu-1024`, `row-menu-1440`                            |
+| ACCOUNTANT view                           | `role-accountant-375`                                                                                               | rule: as ADMIN tablet, ACCOUNTANT tabs                            | `role-accountant-1440`                                                      |
+| ACCOUNTANT with deleted                   | rule: `deleted-375` without «Відновити» (restore is ADMIN only; the row has no swipe)                               | rule: same                                                        | rule: `deleted-1440` without the inline «Відновити»                         |
+| SENIOR view                               | `role-senior-375`                                                                                                   | rule: strip card above the list pane                              | `role-senior-1440`                                                          |
+| HR view                                   | `role-hr-375`                                                                                                       | rule: salary list in one pane                                     | `role-hr-1440`                                                              |
+| HR / JUNIOR loading                       | rule: skeleton salary rows (as today); no search, no chips                                                          | rule: same                                                        | rule: skeleton table rows                                                   |
+| HR / JUNIOR error                         | rule: `error-375` copy with «Не вдалося завантажити виплати» + «Спробувати ще» (new: today an error reads as empty) | rule: same                                                        | rule: `error-1440` pattern, same copy                                       |
+| HR / JUNIOR empty                         | rule: «Виплат ще немає» (existing) in the `empty-375` pattern, no create line                                       | rule: same                                                        | rule: same in the `empty-1440` pattern                                      |
+| JUNIOR view                               | `role-junior-375`                                                                                                   | rule: salary list in one pane                                     | `role-junior-1440`                                                          |
+| DROP view                                 | `role-drop-375`                                                                                                     | rule: stacked sections, max 640 column                            | `role-drop-1440`                                                            |
+| DROP loading                              | `drop-loading-375`                                                                                                  | rule: `drop-loading-375` stacked                                  | rule: card skeleton h-32 + table skeleton rows                              |
+| DROP empty                                | `drop-empty-375`                                                                                                    | rule: same                                                        | rule: same copy in the two tables                                           |
+| DROP error (incomes)                      | `drop-error-375`                                                                                                    | rule: same                                                        | rule: same copy in the incomes table region                                 |
+| DROP partial (balance or payments failed) | `drop-partial-375`                                                                                                  | rule: same                                                        | rule: same inline notices in the card and payments regions                  |
+
+## 5. Role variants
+
+| Role       | Phone tab / entry                                         | Create entry                       | Filters                                                    | Specifics                                                                                                                                                                                                                  | Assets                                      |
+| ---------- | --------------------------------------------------------- | ---------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| ADMIN      | tab 1 of `['/finance','/users','/stats','/admin']`        | FAB / «Нова транзакція»            | all + deleted + `month`                                    | swipe primary per row (§6.2); all §1.2 actions; restore on deleted rows                                                                                                                                                    | `main-*`, `swipe-375`                       |
+| ACCOUNTANT | tab 1 of `['/finance','/stats','/','/projects']`          | FAB / «Нова транзакція»            | all + deleted + `month`; deep link sets «Очікує валідації» | swipe / inline «Валідувати» (`SENIOR_INCOME`), «Підтвердити оплату» (`PAYOUT`), «Додати частину зарплати» (`SALARY`); deleted rows read-only (no restore)                                                                  | `role-accountant-*`, `swipe-accountant-375` |
+| SENIOR     | tab 2 of `['/','/finance','/team','/projects']`           | FAB / «Нова транзакція»            | search, type, status, `month`                              | `CompanySharePayoutStrip` (phone: card above the list; desktop: above the toolbar); «Виплатити (N)»; per-row «Виплатити» / «Оплатити» / «Виправити»; own income title = client; `VALIDATED` with no request shows its pill | `role-senior-*`, `swipe-senior-375`         |
+| HR         | no finance tab: pushed page from «Ще», back               | none                               | none (`month` ignored)                                     | salary list by month: title = month, meta «Зарплата · {Дата}», pill only when not paid; desktop table Місяць / Дата / Статус / Сума (today's labels)                                                                       | `role-hr-*`                                 |
+| JUNIOR     | tab 2 of `['/project','/finance','/legend','/documents']` | none                               | none (`month` ignored)                                     | as HR + project; desktop column «Хеш транзакції» with copy; phone shows the hash in the detail (OP-8); no search icon anywhere (R1-15)                                                                                     | `role-junior-*`                             |
+| DROP       | tab 2 of `['/','/finance','/documents','/team']`          | FAB / header «Зареєструвати дохід» | status + period (server, `['drop','incomes',filters]`)     | `DropBalanceCard` on top; «Мої доходи» (amount kind named per row); «Перекази на рахунок компанії» with `txHash`; full DROP state set (§4)                                                                                 | `role-drop-*`, `drop-*-375`                 |
+
+![role-accountant-375](assets/finance-list/role-accountant-375.png)
+
+**DROP balance card rule (R1-11, M17).** Each figure is the sum of the rows it names, and the
+fixture asserts it: «Отримано» = the `paid` obligation rows («Ваша частка»); «Очікує розрахунку» = the
+`validated` obligation rows («2 зобов’язання»); «У роботі» = the count of `pending` declared incomes.
+«Ви маєте сплатити компанії» is the server figure `debtToCompany`; it is not a sum of list rows and the
+design does not derive it. **One quantity per row, named:** a declared income row shows «Валовий дохід»
+under the amount, an obligation row «Ваша частка»; the incomes list has no column total, so the two
+kinds are never added together.
+
+## 6. Interaction and motion
+
+### 6.1 URL schema (filters live in the URL)
+
+```
+/finance?q=хостинг&type=EXPENSE&status=PENDING&month=2026-11&deleted=1&sort=amount&dir=asc&page=2
+```
+
+| Param     | Values                                   | Default (omitted) | Notes                                                                                               |
+| --------- | ---------------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------- |
+| `q`       | free text                                | —                 | search over sender / receiver name and label, project (as today)                                    |
+| `type`    | a `TYPE_LABEL_MESSAGES` key              | all               |                                                                                                     |
+| `status`  | a `STATUS_LABEL_MESSAGES` key            | all               | keeps today's deep link `?status=PENDING`                                                           |
+| `month`   | `YYYY-MM` (`/^\d{4}-(0[1-9]\|1[0-2])$/`) | all               | M1; match rule §1.6 a; ignored for HR, JUNIOR; DROP uses its own `period`; no picker, chip only     |
+| `deleted` | `1`                                      | off               | ignored for roles other than ADMIN / ACCOUNTANT                                                     |
+| `sort`    | `date` \| `amount`                       | `date`            | `amount` orders by the displayed USD value (M6); while rates are missing it falls back to `date`    |
+| `dir`     | `desc` \| `asc`                          | `desc`            |                                                                                                     |
+| `page`    | integer ≥ 1                              | 1                 | desktop pager only; the phone ignores it; resets to 1 on any filter, search, sort or `month` change |
+
+`validateSearch` parses with Zod and **drops** an invalid value (never throws, never redirects).
+Every change writes with `replace`, so Back leaves the screen instead of stepping through filter
+history. DROP keeps its own `status` + `period` params with the same mechanism (server params
+unchanged). The month chip reads the month in the locale («Листопад 2026» / "November 2026"); its
+✕ removes `month` only, and so does «Показати всі місяці» on the month-empty state.
+
+### 6.2 Phone and tablet
+
+- **Row tap** → pushed detail page (foundation push, 280 ms); edge-swipe back. At ≥ 900 the tap
+  fills the detail pane instead.
+- **Back from the detail** restores the scroll position and every loaded batch; it never resets to
+  the first batch (M14, foundation list footer).
+- **Pull-to-refresh** (`ptr-375`): 64 px threshold, spinner above the list, the list stays in place;
+  re-fetches the keys of §9.1. A failed refetch keeps the rows and shows `refetch-failed-375` (M3).
+- **Filters** → bottom sheet (medium detent) on phone, side panel on tablet. Pickers open nested
+  lists; the footer «Показати 18 транзакцій» applies (the count is the matching rows among those
+  loaded), «Скинути» clears. Active filters become whole-chip buttons (§3.1).
+- **Sort chip** «↓ Дата» opens «Сортування» («Спочатку нові / старі / більші / менші»). With rates
+  missing «більші / менші» are disabled and the picker shows «Сортування за сумою недоступне: немає
+  курсу валют.»
+- **Search**: 250 ms debounce, writes `q`.
+- **Swipe (one rule for phone and tablet, touch only, M10):** trailing edge only; it reveals the
+  viewer's **primary** action for that row (§1.2 "Primary") and, for ADMIN on an editable row,
+  «Змінити» + «Видалити». Tapping a revealed action **opens the same dialog / sheet** as the detail
+  button; a full swipe never performs a write. Per role:
+  - ADMIN: `PENDING` income → «Валідувати»; `PAYOUT` awaiting → «Підтвердити оплату»; `SALARY`
+    pending → «Розрахуватися»; editable rows also «Змінити» + «Видалити»; deleted row → «Відновити»
+    (`swipe-375`).
+  - ACCOUNTANT: «Валідувати», «Підтвердити оплату», «Розрахуватися» (settlement), «Додати частину
+    зарплати» (`swipe-accountant-375`); deleted rows do not swipe.
+  - SENIOR: «Виплатити», «Оплатити», «Виправити» (`swipe-senior-375`).
+  - HR, JUNIOR, DROP: no row action, so rows do not swipe.
+  - A row with no action for the viewer does not move at all. Every swipe action is also a detail
+    page button (SC 2.5.7).
+- **Long list**: 50 rows, then the next 50 from memory as the footer scrolls into view; footer
+  states per the foundation list footer (`footer-375`). No extra request.
+- **Sticky head**: search + chip row stay pinned under the collapsed title while the list scrolls
+  (M14).
+
+### 6.3 Desktop
+
+- Keyboard: `/` focuses search, `C` opens create (Task 1.3), `↑` / `↓` move a roving row focus,
+  `Enter` opens the side panel, **`A` runs the row's primary action** (opens its dialog; A-4), `E`
+  edits (ADMIN), `Shift+F10` or the context-menu key opens «…». Keys are listed in the shell's
+  shortcut sheet and next to the menu items.
+- Sortable headers Дата / Сума toggle `dir`; the column already sorted shows its arrow. While rates
+  are missing the Сума header is `aria-disabled` with the reason as its description.
+- **Inline edit does not apply** (M13): edit and delete carry a cascade preview and a reason, so they
+  stay dialogs. **Bulk select is not drawn** (OP-18).
+- Row hover / focus shows «…» under a fine pointer; under a coarse pointer it is always visible
+  (§3.7). Rows with a primary action keep it visible at ≥ 1280.
+- Listboxes close on select; `Esc` closes and returns focus to the trigger.
+
+### 6.4 Motion
+
+Row enter 80 ms ease-out (as today, `motion.tr`); push 280 ms; sheet and side panel per foundation;
+the row-write marker fades in 120 ms. With `prefers-reduced-motion`: push, sheet and panel become a
+120 ms fade, the PTR and row spinners do not rotate (a static «…» glyph), rows appear without offset.
+
+## 7. Accessibility (WCAG 2.2 AA)
+
+- **Structure.** Day headers are `h2`; the phone list is `role="list"`, each row a link to the
+  detail whose name reads «title, type, amount, status» (status included even when the pill is
+  hidden, OP-7; «≈» read as «приблизно» / "about"). Desktop is a real `<table>` with `aria-sort` on
+  sortable headers and a visually hidden «Дії» header.
+- **Targets.** Phone rows ≥ 64 px, chips and buttons 44 px, FAB 56 px, whole-chip filter buttons
+  44 px (no nested target). Desktop with a fine pointer: 32 px controls, row buttons 28–32 px (≥ 24 px,
+  SC 2.5.8); with a coarse pointer everything 44 px (§3.7). Inputs are 16 px on phone, tablet and
+  coarse desktop.
+- **Names.** Inline row buttons carry the row in the name: «Валідувати: Клієнт «Північ», $4 800,00».
+  «…» is «Інші дії» with `aria-haspopup="menu"`; the menu is «Дії з транзакцією» with roving focus,
+  `Esc` returns focus to «…». Icon-only controls (copy hash, receipt clip, rail «+») have labels.
+- **Not by colour only.** Status is always pill text; direction is the type word and the title
+  order (§3.5); the row-write marker is text («Зберігається…», «Результат невідомий») with an icon.
+- **Gestures (SC 2.5.7).** Swipe actions and pull-to-refresh have single-pointer equivalents: detail
+  page buttons; the «Повторити» of the error / refetch / partial notices.
+- **Dialogs, sheets, panels.** Every one traps focus, closes on `Esc` / close button, and returns
+  focus to the trigger (the row, for the side panel).
+- **Live regions.** The result count is `aria-live="polite"`; the load error and the refetch-failed
+  notice are `role="alert"`; the partial and offline notices `role="status"`; the success toast of a
+  row write is `role="status"`; the unknown-outcome marker is announced once as `role="alert"`.
+- **Tooltips.** A truncated cell value appears on hover and on focus (`aria-describedby`); nothing is
+  only in `title` (R1-07, R1-14).
+- **Reflow / zoom.** 320 px and 400 % zoom fall back to the phone layout; nothing scrolls
+  horizontally except the chip row (with its edge fade) and the desktop table inside its region.
+- **Contrast.** Foundation tokens only (`--muted-foreground` 6.03:1 on card, 5.38:1 on raised).
+  Deleted rows are never dimmed with opacity: title, meta and amount switch to `--muted-foreground`;
+  the «Видалено» pill and «Відновити» keep their colours. The foundation swipe «Видалити» label is
+  3.58:1 (white on `--destructive`); it is the primitive's colour, so OP-19 (M16).
+
+## 8. Strings (`uk` / `en`)
+
+`existing` = msgid already in `packages/shared/src/i18n/locales`; `new` = to add (en written anew,
+not translated); `rename` = an existing msgid replaced because it hits a `CONTEXT.md` `_Avoid_` term
+(today's string in the Status column, M15, A-6). Type and status labels reuse `TYPE_LABEL_MESSAGES` /
+`STATUS_LABEL_MESSAGES`; shell strings come from the foundation shell; draft-row and save-alert strings
+come from the foundation `money-form` / save-error specs. Every plural carries `other`. Final wording:
+copy-reviewer (OP-13, OP-16).
+
+**List, search, filters**
+
+| uk                                                                                                       | en                                                               | Status                                      |
+| -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------- |
+| Фінанси                                                                                                  | Finance                                                          | existing                                    |
+| Нова транзакція                                                                                          | New transaction                                                  | existing                                    |
+| Пошук транзакцій                                                                                         | Search transactions                                              | new (replaces «Пошук…»)                     |
+| Фільтри / Сортування / Скинути / Скинути фільтри                                                         | Filters / Sort by / Reset / Reset filters                        | existing                                    |
+| Усі типи / Усі статуси / Показати видалені / Видалено                                                    | All types / All statuses / Show deleted / Deleted                | existing                                    |
+| З видаленими (chip)                                                                                      | Including deleted                                                | new (R1-20; «Видалені» read as "only")      |
+| Тип: {type} / Статус: {status} (chips, desktop listboxes)                                                | Type: {type} / Status: {status}                                  | new                                         |
+| Прибрати фільтр: {filter} (whole-chip name)                                                              | Remove filter: {filter}                                          | new                                         |
+| {month} (month chip, e.g. «Листопад 2026»)                                                               | {month} (e.g. "November 2026")                                   | new (locale month + year)                   |
+| Сьогодні / Вчора                                                                                         | Today / Yesterday                                                | new                                         |
+| Спочатку нові / старі / більші / менші                                                                   | Newest first / Oldest first / Largest first / Smallest first     | new                                         |
+| Сортування за сумою недоступне: немає курсу валют.                                                       | Sorting by amount is unavailable: no exchange rate.              | new (M6)                                    |
+| Показати {count, plural, one {# транзакцію} few {# транзакції} many {# транзакцій} other {# транзакції}} | Show {count, plural, one {# transaction} other {# transactions}} | new (filter footer; was «Показати {count}») |
+| {count, plural, one {# транзакція} few {# транзакції} many {# транзакцій} other {# транзакції}}          | {count, plural, one {# transaction} other {# transactions}}      | new                                         |
+| {shown} з {total}                                                                                        | {shown} of {total}                                               | new                                         |
+| {from}–{to} з {total}                                                                                    | {from}–{to} of {total}                                           | new                                         |
+| Попередня сторінка / Наступна сторінка                                                                   | Previous page / Next page                                        | existing                                    |
+| Показати ще                                                                                              | Show more                                                        | new (foundation list footer fallback)       |
+| Завантаження ще транзакцій / Не вдалося завантажити ще                                                   | Loading more transactions / Couldn’t load more                   | new (foundation list footer)                |
+| Завантаження транзакцій (loading region label)                                                           | Loading transactions                                             | new                                         |
+| Оновлення (PTR spinner label)                                                                            | Refreshing                                                       | new                                         |
+| Чек прикріплено (receipt clip)                                                                           | Receipt attached                                                 | existing                                    |
+| Рахунок компанії                                                                                         | Company account                                                  | existing                                    |
+| — (party placeholder when a side is empty)                                                               | —                                                                | existing                                    |
+| Проєкт «{name}» (meta line)                                                                              | Project «{name}»                                                 | new                                         |
+| ≈ {amount} (converted lead figure)                                                                       | ≈ {amount}                                                       | new (M6); spoken «приблизно» / "about"      |
+
+**States**
+
+| uk                                                                                                    | en                                                                                                     | Status                                                       |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| Транзакцій ще немає                                                                                   | No transactions yet                                                                                    | new                                                          |
+| Натисніть «+», щоб додати першу.                                                                      | Tap + to add the first one.                                                                            | new                                                          |
+| Створіть першу кнопкою «Нова транзакція».                                                             | Use New transaction to add the first one.                                                              | new                                                          |
+| Нічого не знайдено                                                                                    | No results                                                                                             | existing                                                     |
+| Змініть пошук або скиньте фільтри.                                                                    | Change the search or reset the filters.                                                                | new                                                          |
+| За {month} транзакцій немає                                                                           | No transactions in {month}                                                                             | new (M1; uk month in the locative, «листопад 2026»)          |
+| Показати всі місяці                                                                                   | Show all months                                                                                        | new (M1)                                                     |
+| Не вдалося завантажити транзакції                                                                     | Couldn’t load transactions                                                                             | new                                                          |
+| Сервер не відповів. Нічого не змінено — спробуйте ще раз.                                             | The server didn’t respond. Nothing was changed — try again.                                            | new                                                          |
+| Спробувати ще                                                                                         | Try again                                                                                              | new                                                          |
+| Не вдалося оновити. Показано дані станом на {time}.                                                   | Couldn’t refresh. Showing data as of {time}.                                                           | new (M3; `{time}` = «14:32» today, «16.11, 14:32» otherwise) |
+| Повторити                                                                                             | Retry                                                                                                  | existing                                                     |
+| Курс недоступний — суми показано у валюті транзакції.                                                 | Exchange rate unavailable — amounts are shown in the transaction currency.                             | new                                                          |
+| Немає з’єднання. Показано останні завантажені дані; збереження не пройде, введене залишиться у формі. | No connection. Showing the last loaded data; saving will fail, and what you entered stays in the form. | new (foundation offline pattern)                             |
+| Оберіть транзакцію (tablet detail pane, nothing selected)                                             | Select a transaction                                                                                   | new                                                          |
+| Не вдалося завантажити виплати (HR / JUNIOR error)                                                    | Couldn’t load your salary payments                                                                     | new                                                          |
+| Виплат ще немає                                                                                       | No payouts yet                                                                                         | existing (OP-16: «виплата» collision on salary)              |
+
+**Row writes (M2)**
+
+| uk                                                                                                                     | en                                                                                                                                    | Status                                |
+| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| Зберігається… (row marker, spinner)                                                                                    | Saving…                                                                                                                               | new                                   |
+| Результат невідомий (row marker)                                                                                       | Outcome unknown                                                                                                                       | new (foundation term)                 |
+| Невідомо, чи зміну збережено (detail / panel banner title)                                                             | We don’t know if the change was saved                                                                                                 | new                                   |
+| Відповідь не надійшла. Оновіть список: статус покаже, чи зміну збережено. Не повторюйте дію, доки статус не оновиться. | No response came back. Refresh the list: the status will show whether the change was saved. Don’t repeat the action until it updates. | new                                   |
+| Оновити / Зрозуміло                                                                                                    | Refresh / Got it                                                                                                                      | new (A-3)                             |
+| Не вдалося валідувати дохід (definite failure, inline alert)                                                           | Couldn’t validate the income                                                                                                          | new                                   |
+| Нічого не змінено. Дані у формі залишились — спробуйте ще раз.                                                         | Nothing was changed. Your entries are still here — try again.                                                                         | new                                   |
+| Немає з’єднання. Нічого не змінено, дані у формі залишились.                                                           | No connection. Nothing was changed, and your entries are still here.                                                                  | new (M4 offline write)                |
+| Дохід валідовано: {amount}, {party}                                                                                    | Income validated: {amount}, {party}                                                                                                   | new (success toast, names the object) |
+| Оплату підтверджено: {amount}, {party}                                                                                 | Payment confirmed: {amount}, {party}                                                                                                  | new                                   |
+| Розрахунок проведено: {amount}, {party}                                                                                | Settlement recorded: {amount}, {party}                                                                                                | new                                   |
+| Транзакцію видалено: {amount}, {party} / Транзакцію відновлено: {amount}, {party}                                      | Transaction deleted: {amount}, {party} / Transaction restored: {amount}, {party}                                                      | new                                   |
+| Не відповідає фільтру (meta line of a written row that left the filter, A-2)                                           | Outside the filter                                                                                                                    | new                                   |
+
+**Row, table, detail**
+
+| uk                                                                                    | en                                                                           | Status                                                                 |
+| ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Учасник / Тип · проєкт                                                                | Party / Type · project                                                       | new (split of «Учасник / Проєкт»)                                      |
+| Дата / Сума / Статус / Тип / Проєкт / Місяць / Дії                                    | Date / Amount / Status / Type / Project / Month / Actions                    | existing                                                               |
+| Хеш транзакції                                                                        | Transaction hash                                                             | existing                                                               |
+| Копіювати хеш / Хеш скопійовано                                                       | Copy hash / Hash copied                                                      | new                                                                    |
+| Інші дії                                                                              | More actions                                                                 | new                                                                    |
+| Дії з транзакцією                                                                     | Transaction actions                                                          | new                                                                    |
+| Валідувати                                                                            | Validate                                                                     | rename (today «Перевірити» / "Check"; `_Avoid_` «проверка транзакции») |
+| Виплатити / Оплатити / Підтвердити оплату                                             | Pay out / Pay / Confirm payment                                              | existing                                                               |
+| Виправити / Розрахуватися / Додати частину зарплати / Відновити                       | Fix / Settle / Add salary part / Restore                                     | existing                                                               |
+| Відкрити / Редагувати / Змінити (swipe) / Видалити / Прикріпити чек / Чек / Отримувач | Open / Edit / Edit / Delete / Attach receipt / Receipt / Recipient           | existing                                                               |
+| Платник / Створив / Категорія / Примітки / Період / Причина відмови                   | Payer / Created by / Category / Notes / Period / Rejection reason            | existing (detail labels)                                               |
+| Хто валідував                                                                         | Validated by                                                                 | rename — today «Хто перевірив» (validation term, M15)                  |
+| Причина видалення                                                                     | Deletion reason                                                              | new (M11: today only in a `title`)                                     |
+| Частка / Сплачено / До сплати                                                         | Share / Paid / Left to pay                                                   | existing                                                               |
+| за проєктом / за командою / за замовчуванням                                          | project / team / default                                                     | existing (share source)                                                |
+| Зарплата · {date}                                                                     | Salary · {date}                                                              | new (replaces «Зарплата · виплачено {date}», M15)                      |
+| Очікує валідації / Підтверджено / Оплачено / Очікує виплати / Відхилено / Заблоковано | Awaiting validation / Validated / Paid / Awaiting payout / Rejected / Locked | existing                                                               |
+| Очікує підтвердження бухгалтером (готівка)                                            | Awaiting accountant confirmation (cash)                                      | existing (`PENDING_CASH_CONFIRM`)                                      |
+| Переказ (type word)                                                                   | Transfer                                                                     | existing                                                               |
+
+**DROP (`DropFinancePage`, `DropBalanceCard`)**
+
+| uk (drawn)                                                                                                                 | en                                                                              | Status / today's string                                   |
+| -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Мій баланс                                                                                                                 | My balance                                                                      | existing                                                  |
+| Отримано                                                                                                                   | Received                                                                        | rename — today «Виплачено» (`_Avoid_` «выплата»)          |
+| Очікує розрахунку · {count, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}} | Awaiting settlement · {count, plural, one {# obligation} other {# obligations}} | rename — today «Очікує виплати»                           |
+| Частка / У роботі · {count, plural, one {# дохід} few {# доходи} many {# доходів} other {# доходу}}                        | Share / In progress · {count, plural, one {# income} other {# incomes}}         | existing                                                  |
+| Ви маєте сплатити компанії {amount}                                                                                        | You owe the company {amount}                                                    | existing                                                  |
+| Підтверджені доходи, які ви ще не перерахували                                                                             | Validated income you haven’t transferred yet                                    | existing                                                  |
+| Мої доходи                                                                                                                 | My income                                                                       | existing (sentence case of «МОЇ ДОХОДИ»)                  |
+| Перекази на рахунок компанії                                                                                               | Transfers to the company account                                                | rename — today «ПЛАТЕЖІ НА КОМПАНІЮ» (`_Avoid_` «платёж») |
+| Дохід / Зобов’язання (income model badge)                                                                                  | Income / Obligation                                                             | rename of «Нарахування» (`_Avoid_` «начисление»)          |
+| Валовий дохід / Ваша частка                                                                                                | Gross income / Your share                                                       | existing                                                  |
+| Очікує / Валідовано / Оплачено / Відхилено (income status)                                                                 | Pending / Validated / Paid / Rejected                                           | existing                                                  |
+| Очікує / Підтверджено / Не пройшов (transfer status)                                                                       | Pending / Confirmed / Failed                                                    | existing                                                  |
+| Переказ не пройшов — зверніться до адміністратора                                                                          | The transfer didn’t go through — contact an administrator                       | existing (now a visible line, not a tooltip only)         |
+| Усі періоди / Поточний місяць / Минулий місяць / Останні 3 міс.                                                            | All periods / This month / Last month / Last 3 months                           | existing                                                  |
+| Доходів ще немає / Немає доходів за обраними фільтрами / Переказів ще не було                                              | No income yet / No income for these filters / No transfers yet                  | existing                                                  |
+| Помилка завантаження балансу / Повторити спробу (aria)                                                                     | Couldn’t load the balance / Try again                                           | existing                                                  |
+| Не вдалося завантажити доходи                                                                                              | Couldn’t load your income                                                       | new (incomes error)                                       |
+| Не вдалося завантажити перекази                                                                                            | Couldn’t load transfers                                                         | new (today the section silently disappears)               |
+| Попередня / Наступна                                                                                                       | Previous / Next                                                                 | existing                                                  |
+| Зареєструвати дохід                                                                                                        | Register income                                                                 | existing                                                  |
+
+<!-- CONTINUE-5 -->
