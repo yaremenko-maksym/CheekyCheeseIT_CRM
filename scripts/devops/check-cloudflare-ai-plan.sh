@@ -7,8 +7,9 @@
 #   check-cloudflare-ai-plan.sh --classify <http-status> <body-file>   (the self-test's entry)
 #
 # How: one call to a model Cloudflare serves on Workers Paid only (since 2026-07-28), with
-# max_tokens 1. Workers Free refuses it with error 5035 and bills nothing; Workers Paid answers,
-# and that one token is inside the daily free allowance. The prod token is scoped to Workers AI and
+# max_tokens 1. Workers Free refuses it with error 5035 and bills nothing. Workers Paid answers, and
+# that call is billed (a negligible amount) once the day's 10 000 free Neurons are used up, so on
+# Paid it prints a warning not to run it in a loop. The prod token is scoped to Workers AI and
 # cannot read billing, so this refusal is the only plan signal it can get.
 #
 # Reads CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN from the env file by name (never sources it).
@@ -24,7 +25,7 @@ classify() {
   local status="$1" body="$2" codes
   codes="$(grep -oE '"code"[[:space:]]*:[[:space:]]*[0-9]+' "$body" | grep -oE '[0-9]+$' | tr '\n' ' ' || true)"
   if [ "$status" = 200 ]; then
-    echo "PLAN: Workers Paid. The paid-only probe model answered. Workers AI use over 10 000 Neurons/day is billed, with no cap."
+    echo "PLAN: Workers Paid. The paid-only probe model answered. Workers AI use over 10 000 Neurons/day is billed, with no cap. WARNING: each run of this check is a billable call once the day's free Neurons are used; do not run it in a loop."
     return 3
   fi
   case "$status" in

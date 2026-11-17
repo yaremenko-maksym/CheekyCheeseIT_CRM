@@ -1,6 +1,7 @@
 # Which small GGUF models are MP-04 candidates for the local extraction runtime
 
 **Date:** 2026-11-08 · **Why:** the first MP-04 run (task r5-5.4c-7, ADR 2026-11-03 §8.3) needs a short list of candidates that fit the runtime budget (3584 MiB, 2 CPUs, llama.cpp, CPU only, AVX2 at most), each with a digest to pin.
+**Status:** historical. It refers to the withdrawn local runtime (hosted-only since the ADR's Amendment 2026-11-08): `EXTRACTION_RUNTIME_CONTEXT_TOKENS` and the runtime container no longer exist.
 **Shelf life:** recheck before every MP-04 run, and whenever a publisher pushes a new commit to a listed repository (the commit below changes; the file digest may too). Hugging Face metadata can change without notice.
 
 ## Short answer

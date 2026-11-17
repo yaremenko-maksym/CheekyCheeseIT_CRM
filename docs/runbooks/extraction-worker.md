@@ -15,20 +15,22 @@ What happens if you install before 5.4c-H1 merges:
 
 So installing early is harmless, but it does nothing. Do not add a dummy `local` route to get past the refine: the worker has no runtime to send it to.
 
+**The API side is not ready either.** The collection side's env schema (`buildModelExtraction` in `apps/api/src/job-sourcing/structuring/model-extraction-wiring.ts`) still requires `EXTRACTION_LOCAL_CONTEXT_TOKENS` and `EXTRACTION_LOCAL_MAX_ANSWER_TOKENS` next to the worker URL and secret. Those keys belong to the withdrawn local route, and changing them is code that goes with 5.4c-H1. Do not set them here. Nothing calls that wiring on `main` today, so their absence does not stop `api`.
+
 The sample config below was checked against the router schema on `feat/inference-cloudflare-provider` (2026-11-17). Every route is valid there, and the local-route refine is the only refusal.
 
 ## What the compose file gives you
 
 - **One service, `extraction-worker`.** It runs the `api` image at a tag you pin, with the command `node dist/extraction-worker/main`.
   - Limits: 512 MiB of memory with no swap above it, 0.5 CPU, 64 processes.
-  - Read-only root filesystem. The only writable places are its state volume and a 16 MiB `/tmp`.
-  - `no-new-privileges`, all capabilities dropped, no published port.
+  - Read-only root filesystem. The only writable places are its state volume and a 16 MiB `/tmp` mounted `noexec,nosuid`.
+  - Runs as `node` (the image's own user, stated in the file), `no-new-privileges`, all capabilities dropped, no published port.
 - **Its env comes from its own file**, `.env.extraction-worker`, never from `.env.production`. That file holds the provider keys. The worker holds no database credential.
 - **Router state** lives on the volume `crm-extraction_worker_state`.
 - **The pin `EXTRACTION_WORKER_IMAGE_TAG`** is the only pin, and it is required: unset, compose refuses to start.
   - It is the same tag the deploy gives `api`: the full git commit SHA it was built from. Read the running one with `docker inspect -f '{{.Config.Image}}' crm-api-1`.
-- **Network `crm-extraction-entry`** (`internal: true`) holds the worker and its caller, `api`.
-- **Network `crm-extraction_egress`** (not internal) is the worker's way out to the hosted providers. It holds the worker and nothing else. It has no fixed name, so compose scopes it to this project and it can never be a main-stack network such as `crm_backend`.
+- **Network `crm-extraction-entry`** (`internal: true`) holds the worker and its caller, `api`. On it the worker carries the alias `crm-extraction-worker`.
+- **Network `crm-extraction_egress`** (not internal) is the worker's way out to the hosted providers. It holds the worker and nothing else. It has no fixed name, so compose scopes it to this project and it can never be a main-stack network such as `crm_backend`. Its subnet is pinned to `10.250.17.0/28` (outside Docker's default pools), so the later host egress firewall can target it. If that range is already used on the host, `up` fails with an overlap error: pick a free range and change the file and the guard together.
 
 ### How `api` reaches the worker
 
@@ -45,7 +47,7 @@ So:
 - The main stack starts whether or not the extraction project exists.
 - A deploy never stops or recreates the worker.
 
-**`api` calls the worker at `http://extraction-worker:3100`.** The deploy writes that URL, together with the secret, into `.env.production`, and only when the GitHub secret is set.
+**`api` calls the worker at `http://crm-extraction-worker:3100`.** The deploy writes that URL, together with the secret, into `.env.production`, and only when the GitHub secret is set. The host is not free to choose: the API's transport sends plain HTTP to one host only, `crm-extraction-worker` (`EXTRACTION_WORKER_HOST` in `packages/inference/src/http/bounded-request.ts`). Any other host, `extraction-worker` included, is refused as `transport` before the request leaves `api`. That is why the worker carries the alias.
 
 **Limits of this design:**
 
@@ -57,12 +59,18 @@ So:
 **Guard:** `scripts/devops/check-extraction-worker-compose.mjs` (run by `scripts/devops/tests/run-guard-tests.sh`). It fails if:
 
 - the composed deploy configuration gains a service, an extraction network or an external network;
-- the deploy script or `deploy.yml` names this file or this project;
+- the deploy script or `deploy.yml` names this file or this project (the names `crm-extraction-entry` and `crm-extraction-worker` are allowed);
 - the extraction file gains a service, a port or a network, or loses any hardening property above;
-- the egress network becomes internal, external or fixed-named.
+- the worker gains a bind mount or a second volume, an `env_file` other than `.env.extraction-worker`, a `DATABASE_URL` or `POSTGRES_*` key, a user other than `node`, `extra_hosts`, `pid` / `ipc` / `uts` / `userns_mode` / `cgroup`, any `security_opt` beyond `no-new-privileges`, or a `/tmp` without `noexec,nosuid`;
+- the worker loses its alias `crm-extraction-worker`;
+- the egress network becomes internal, external, fixed-named, or loses its pinned subnet.
+
+**Deploy preflight:** `scripts/devops/check-extraction-worker-secret.sh` runs in Deploy before anything is written on the server. Unset, it passes. Set, the secret must meet the API's rule (at least 32 characters, at least 8 distinct, no whitespace), or the deploy stops. It never prints the value.
 
 **Rehearsal:** `.github/workflows/rehearse-extraction-deploy.yml` runs both deploy paths on a disposable runner with the project up. It checks:
 
+- the worker URL in `deploy.yml` has the host the API's transport accepts;
+- `api`, using the URL and the secret from its own env, is refused without the secret (401) and let in with it (400 for an empty body, before any model call);
 - the worker reaches outside;
 - the worker cannot reach postgres;
 - `api` is not on the egress network;
@@ -72,24 +80,24 @@ So:
 
 The runtime-era runbook listed two "interim limits" to close before hosted keys. The owner decided on 2026-11-17 to enable hosted routes without waiting for either:
 
-| ADR / old runbook said                                                                                                                                                                             | Now                                                                                                                                                                                                                                                                                                                                                                                                      |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Egress.** Both networks internal. Hosted egress must be an allow-listed path to the pinned provider hosts only (ADR §4 item 5, the 5.4c-5 scope). "Do not fix it by attaching a normal network." | The worker has a normal outbound network of its own. **Egress is not allow-listed**: the worker can open a connection to any host. What still holds: no other container is on that network, it is not a main-stack network, and the worker has no route to postgres (asserted by the rehearsal). Closing the gap needs an egress proxy or host firewall rules, which are not part of this change.        |
-| **Caller.** "Do not put hosted keys in the worker before the collection worker replaces `api` as the caller" (ADR §2.4). The 5.4c-5 scope also says "the API env without the secret".              | `api` stays the caller and holds `EXTRACTION_WORKER_SECRET` (written by the deploy). The keys are in the worker only. `api` refuses `GEMINI_API_KEY`, `GROQ_API_KEY` and `ROUTER_LOCAL_MODEL_URL` in its own env (`WORKER_ONLY_ENV_KEYS`). The hostile-page process that sends calls through the worker is `api` itself, so §2.4's split between the page parser and the keys rests on the secret alone. |
+| ADR / old runbook said                                                                                                                                                                             | Now                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Egress.** Both networks internal. Hosted egress must be an allow-listed path to the pinned provider hosts only (ADR §4 item 5, the 5.4c-5 scope). "Do not fix it by attaching a normal network." | The worker has a normal outbound network of its own. **Egress is not allow-listed**: the worker can open a connection to any host. That includes the host's own published ports (80 and 443, nginx) through the network gateway, and the cloud metadata address `169.254.169.254`. The owner accepted this on 2026-11-17 as a temporary deviation from the ADR, until a later DevOps task adds a host egress allow-list (DOCKER-USER rules on the pinned subnet `10.250.17.0/28`, or an egress proxy). What still holds: no other container is on that network, it is not a main-stack network, and the worker has no route to postgres (asserted by the rehearsal).                                                 |
+| **Caller.** "Do not put hosted keys in the worker before the collection worker replaces `api` as the caller" (ADR §2.4). The 5.4c-5 scope also says "the API env without the secret".              | `api` stays the caller and holds `EXTRACTION_WORKER_SECRET` (written by the deploy; accepted by the owner on 2026-11-17). `GEMINI_API_KEY`, `GROQ_API_KEY` and `EXTRACTION_ROUTER_CONFIG` are in the worker only: `api` refuses the first two and `ROUTER_LOCAL_MODEL_URL` in its own env (`WORKER_ONLY_ENV_KEYS`). **Not every provider key is in the worker only:** `deploy.yml` also writes `CLOUDFLARE_AI_TOKEN` and `OPENROUTER_API_KEY` into the API's env, and the API's resume path (`resume-ai.service.ts`) calls Cloudflare with that token. The hostile-page process that sends calls through the worker is `api` itself, so §2.4's split between the page parser and the keys rests on the secret alone. |
 
 ## Install (production)
 
 Run these in order, on the server in `/opt/crm` unless the step says otherwise.
 
-### 1. The GitHub secret
+### 1. Generate the shared secret
 
-Generate the secret on your machine and keep it for step 2. It must be at least 32 characters with at least 8 distinct ones; anything shorter makes both sides refuse it.
+Generate the secret on your machine and keep it for steps 2 and 6. It must be at least 32 characters with at least 8 distinct ones; anything shorter makes both sides refuse it, and makes Deploy stop at its preflight.
 
 ```bash
 openssl rand -hex 32
 ```
 
-Add it as the repository secret `EXTRACTION_WORKER_SECRET` (Settings, then Secrets and variables, then Actions). Do not deploy yet. The next deploy writes two lines into `.env.production`: `EXTRACTION_WORKER_URL=http://extraction-worker:3100` and the secret. The value is never printed.
+**Do not add it to GitHub yet.** Deploy also runs on every push to `main` and on a schedule, so a secret added now would reach `api` before the worker exists. It goes to GitHub in step 6, after the worker is up.
 
 ### 2. The worker env file (0600)
 
@@ -101,15 +109,15 @@ stat -c '%a' .env.extraction-worker      # expect 600
 
 Fill it with an editor. Never paste values into a command line or a chat. The keys:
 
-| Key                             | Value                                                                                                          |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `EXTRACTION_WORKER_SECRET`      | the same value as the GitHub secret of step 1                                                                  |
-| `INFERENCE_EXTRACTION_PROVIDER` | `router` (anything else and the worker refuses to start)                                                       |
-| `EXTRACTION_ROUTER_CONFIG`      | the route parameters as one line of JSON (sample below). No key, base URL or account id in it                  |
-| `GEMINI_API_KEY`                | the Gemini key (AI Studio)                                                                                     |
-| `GROQ_API_KEY`                  | the Groq key                                                                                                   |
-| `CLOUDFLARE_ACCOUNT_ID`         | 32 lower-case hex. Any other form drops the Cloudflare route without an error: check `HOSTED_ROUTES` in step 7 |
-| `CLOUDFLARE_AI_TOKEN`           | a token scoped to Workers AI only. Read the "Cloudflare quota and billing" section before you enable it        |
+| Key                             | Value                                                                                                             |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `EXTRACTION_WORKER_SECRET`      | the same value as the GitHub secret of step 1                                                                     |
+| `INFERENCE_EXTRACTION_PROVIDER` | `router` (anything else and the worker refuses to start)                                                          |
+| `EXTRACTION_ROUTER_CONFIG`      | the route parameters as one line of JSON (sample below). No key, base URL or account id in it                     |
+| `GEMINI_API_KEY`                | the Gemini key (AI Studio)                                                                                        |
+| `GROQ_API_KEY`                  | the Groq key                                                                                                      |
+| `CLOUDFLARE_ACCOUNT_ID`         | 32 lower-case hex. Any other form drops the Cloudflare route without an error: check `HOSTED_ROUTES` in step 7    |
+| `CLOUDFLARE_AI_TOKEN`           | a **new** token of its own, Workers AI scope only. Not the API's token. Read "Cloudflare quota and billing" first |
 
 Do **not** set `ROUTER_LOCAL_MODEL_URL`, `LOCAL_MODEL_KEY` or `LOCAL_MODEL_NAME`: there is no local runtime. A missing provider key drops that one route without an error.
 
@@ -173,9 +181,11 @@ docker logs crm-extraction-extraction-worker-1 2>&1 | tail -5
 
 Expect a `LISTENING` line. A refusal names the bad key (`refusing to start, bad SECRET`, for example), never its value.
 
-### 6. Attach `api` (and give it the secret)
+### 6. Add the GitHub secret, then deploy (attaches `api` and gives it the secret)
 
-Run the Deploy workflow once (Actions, then Deploy, then Run workflow on `main`). It writes the URL and the secret into `.env.production`, recreates `api` with them, and attaches `api` to `crm-extraction-entry`. Its log shows `extraction entry: api attached`. Every later deploy re-attaches `api` by itself.
+Only now, with the worker listening, add the secret of step 1 as the repository secret `EXTRACTION_WORKER_SECRET` (Settings, then Secrets and variables, then Actions).
+
+Then run the Deploy workflow once (Actions, then Deploy, then Run workflow on `main`). Its preflight checks the secret's shape without printing it. It writes `EXTRACTION_WORKER_URL=http://crm-extraction-worker:3100` and the secret into `.env.production`, recreates `api` with them, and attaches `api` to `crm-extraction-entry`. Its log shows `extraction entry: api attached`. Every later deploy re-attaches `api` by itself.
 
 Attaching by hand (`docker network connect crm-extraction-entry crm-api-1`) is not enough on the first install: without a deploy, `api` does not have the secret yet.
 
@@ -195,8 +205,13 @@ docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' 
 docker network inspect crm-extraction-entry --format '{{range .Containers}}{{.Name}} {{end}}'
 docker network inspect crm-extraction_egress --format '{{range .Containers}}{{.Name}} {{end}}'
 
-# an unauthenticated call from api is refused (expect 401): api reaches the worker
-docker exec crm-api-1 wget -S -qO- --post-data='{}' http://extraction-worker:3100/extract 2>&1 | head -3
+# api's own worker URL has the one host its transport accepts (expect: crm-extraction-worker)
+docker exec crm-api-1 node -e 'console.log(new URL(process.env.EXTRACTION_WORKER_URL).hostname)'
+# api, at its own URL: without the secret (expect 401), then with its own secret (expect 400:
+# let in, the empty body refused before any model call). Both values come from api's env.
+W='const a=process.argv[1]==="auth";fetch(process.env.EXTRACTION_WORKER_URL+"/extract",{method:"POST",headers:{"content-type":"application/json",...(a&&{authorization:"Bearer "+process.env.EXTRACTION_WORKER_SECRET})},body:"{}",signal:AbortSignal.timeout(10000)}).then(r=>console.log(r.status),e=>console.log(e.cause?.code||e.name))'
+docker exec crm-api-1 node -e "$W" anon
+docker exec crm-api-1 node -e "$W" auth
 
 # the secret is set on both sides (expect a count of 1 for each file), then compared by digest (expect SAME)
 grep -c '^EXTRACTION_WORKER_SECRET=.' .env.production .env.extraction-worker
@@ -251,7 +266,12 @@ Facts verified 2026-11-17 against Cloudflare's docs ([pricing](https://developer
 - **The account is on Workers Free today.** In the 2026-11-17 probe, the paid-only models answered `5035 ... not available on the Workers Free plan`.
 - **The production token is scoped to Workers AI only.** It cannot read billing, so the plan cannot be read with it directly; the check below infers the plan from the paid-only refusal.
 
-**Upgrading the account to Workers Paid, for any product, makes the AI overage billable.** After that, the app's own daily caps are the only limit on the bill: the router's own cap (50 % of `freeLimit`) and any cap the API's resume path keeps. A bug or a config error in those caps would then cost money instead of failing with 3036.
+**Upgrading the account to Workers Paid, for any product, makes the AI overage billable.** After that, the app's own daily caps are the only limit on the bill. A bug or a config error in those caps would then cost money instead of failing with 3036.
+
+**Two tokens, one allowance.** Give the worker a Cloudflare token of its own (Workers AI scope only), not the API's `CLOUDFLARE_AI_TOKEN`: then either can be revoked alone. Both tokens draw on the same account, so they share the same 10 000 Neurons a day. The caps on the two callers:
+
+- the router in the worker: 50 % of the cloudflare route's `freeLimit.requestsPerDay`;
+- the API's resume path: 10 Cloudflare calls a day, from PR #1378 (open, not merged on 2026-11-17). Until it merges, that path has no daily cap of its own.
 
 ### One-command plan check (on the server)
 
@@ -261,14 +281,14 @@ bash scripts/devops/check-cloudflare-ai-plan.sh /opt/crm/.env.extraction-worker
 
 Run it from a checkout, or copy the script to the server next to the compose file. It reads `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_AI_TOKEN` from the file by name, and passes the token to `curl` on stdin.
 
-It sends one request to a model Cloudflare serves on Workers Paid only (`@cf/zai-org/glm-5.2`; Kimi K2.6, Kimi K2.7 Code and GLM-5.2 require Workers Paid since 2026-07-28, per Cloudflare's changelog), with `max_tokens: 1`. That costs nothing on Free, and stays inside the free allowance on Paid.
+It sends one request to a model Cloudflare serves on Workers Paid only (`@cf/zai-org/glm-5.2`; Kimi K2.6, Kimi K2.7 Code and GLM-5.2 require Workers Paid since 2026-07-28, per Cloudflare's changelog), with `max_tokens: 1`. On Free it is refused and costs nothing. On Paid it is answered and counts against the day's 10 000 free Neurons; once those are used up, each run bills a negligible amount. So on Paid the line carries a warning: do not run it in a loop.
 
 It prints one line and never prints the token, the account id or the response:
 
 | Line                   | Exit | Means                                                                                       |
 | ---------------------- | ---- | ------------------------------------------------------------------------------------------- |
 | `PLAN: Workers Free …` | 0    | the probe was refused with 5035: overage fails, nothing is billed                           |
-| `PLAN: Workers Paid …` | 3    | the probe answered: overage is billed with no cap                                           |
+| `PLAN: Workers Paid …` | 3    | the probe answered: overage is billed with no cap. The line ends with a do-not-loop warning |
 | `PLAN: UNKNOWN …`      | 1    | anything else (bad token, wrong account id, the probe model gone); it shows the error codes |
 
 If Cloudflare ever lets Free accounts use that model, the check reports `Workers Paid` for a Free account. That mistake errs toward caution. Override the model with `CF_PLAN_PROBE_MODEL=@cf/<org>/<model>`.

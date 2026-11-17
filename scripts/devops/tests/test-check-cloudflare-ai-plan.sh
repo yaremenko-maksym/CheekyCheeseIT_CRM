@@ -33,7 +33,8 @@ assert_green "403 with 5035 -> Workers Free, exit 0" --contains "PLAN: Workers F
   -- exit_is 0 "$SUBJECT" --classify 403 "$(body free "$FREE_BODY")"
 assert_green "5035 with spaces around the colon -> still Workers Free" --contains "PLAN: Workers Free" \
   -- exit_is 0 "$SUBJECT" --classify 403 "$(body spaced '{"errors":[{"code" : 5035}]}')"
-assert_green "200 -> Workers Paid, exit 3" --contains "PLAN: Workers Paid" \
+assert_green "200 -> Workers Paid, exit 3, with the do-not-loop warning on the same line" \
+  --contains "PLAN: Workers Paid" --contains "do not run it in a loop" \
   -- exit_is 3 "$SUBJECT" --classify 200 "$(body paid '{"success":true,"result":{"response":"o"}}')"
 assert_red "200 is not a pass: Paid exits non-zero" --contains "PLAN: Workers Paid" \
   -- "$SUBJECT" --classify 200 "$WS/paid.json"
