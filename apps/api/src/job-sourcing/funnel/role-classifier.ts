@@ -246,8 +246,8 @@ const ROLE_PATTERNS: Record<SpecificRole, readonly RegExp[]> = {
     /security architect/,
     /information security/,
     // an engineer noun + a security domain, in either order (research §1.6 uk label «Інженер з кібербезпеки»)
-    /^(?=.*інженер).*(кібербезпек|інформаційн\w* безпек)/,
-    /^(?=.*инженер).*(кибербезопасн|информационн\w* безопасн)/,
+    /(?=.*інженер).*(кібербезпек|інформаційн\w* безпек)/,
+    /(?=.*инженер).*(кибербезопасн|информационн\w* безопасн)/,
   ],
   SECURITY_ANALYST: [
     /security analyst/,

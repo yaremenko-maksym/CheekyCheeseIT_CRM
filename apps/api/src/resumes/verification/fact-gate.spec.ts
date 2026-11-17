@@ -218,6 +218,12 @@ describe('findUngroundedTokens — everyday-word aliases', () => {
     expect(findUngroundedTokens('Built in Unity3D', src('unity 3d games'))).toEqual([])
   })
 
+  it('the full spelling may wrap or carry extra spaces (PDF text)', () => {
+    expect(findUngroundedTokens('Pipelines on Apache Spark', src('apache\n  spark'))).toEqual([])
+    expect(findUngroundedTokens('Shipped a UE5 title', src('unreal  engine 5'))).toEqual([])
+    expect(findUngroundedTokens('Built in Unity3D', src('unity \n3d games'))).toEqual([])
+  })
+
   it('a capitalised spelling in the source grounds the whole group', () => {
     expect(findUngroundedTokens('Shipped a UE5 title', src('Unreal 5 pipelines'))).toEqual([])
     expect(findUngroundedTokens('Built in Unity3D', src('Unity 3 games'))).toEqual([])
