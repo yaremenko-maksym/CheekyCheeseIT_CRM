@@ -558,6 +558,18 @@ assert_red "a list item with no = (- DATABASE_URL) is refused" --contains "extra
 F="$(ex top-name-var 's/^name: crm-extraction$/name: ${CRM_GUARD_T_NAME:-crm-extraction}/')"
 assert_red "a variable in the top-level name is refused" --contains "name must hold no variable" -- guard_with --extraction "$F"
 
+# ── R6-1: the top-level name is read from the raw (no-interpolate) config, not a text regex ──
+F="$(ex top-name-quoted 's/^name: crm-extraction$/"name": ${CRM_GUARD_T_NAME:-crm-extraction}/')"
+assert_red "a variable under a quoted top-level name key is refused" --contains "name must hold no variable" -- guard_with --extraction "$F"
+F="$(ex top-name-space 's/^name: crm-extraction$/name : ${CRM_GUARD_T_NAME:-crm-extraction}/')"
+assert_red "a space before the top-level name colon does not hide a variable" --contains "name must hold no variable" -- guard_with --extraction "$F"
+F="$(ex top-name-next-line 's/^name: crm-extraction$/name:\
+  ${CRM_GUARD_T_NAME:-crm-extraction}/')"
+assert_red "a variable on the line after the top-level name key is refused" --contains "name must hold no variable" -- guard_with --extraction "$F"
+F="$(ex top-name-comment 's/^name: crm-extraction$/name: crm-extraction # ${CRM_GUARD_T_NAME:-x}/')"
+assert_green "a variable only in a trailing comment on the name line is not refused" --contains "isolation OK" -- guard_with --extraction "$F"
+assert_green "the shipped extraction file passes the name check" --contains "isolation OK" -- guard_with
+
 # ── the composed deploy configuration ──
 F="$(mutate "$PROD" gains-worker '/^  # ── nginx (reverse-proxy/i\
   extraction-worker:\
