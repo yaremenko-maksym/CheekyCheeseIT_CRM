@@ -382,6 +382,9 @@ const opportunityRow = (over: Record<string, unknown> = {}) => ({
   source_type: 'REMOTIVE_API',
   source_url: 'https://acme.test/job',
   grants: [],
+  technical_roles: ['BACKEND_ENGINEER'],
+  role_status: 'RULE',
+  role_classifier_version: 'rc.1',
   ...over,
 })
 
@@ -432,7 +435,13 @@ const world =
     if (/FROM users u JOIN team_members/.test(q.sql)) {
       onRoster()
       return [
-        { id: SENIOR, tech_stack: ['Go'], team_ids: ['00000000-0000-4000-8000-0000000000t1'] },
+        {
+          id: SENIOR,
+          technical_roles: ['BACKEND_ENGINEER'],
+          team_ids: ['00000000-0000-4000-8000-0000000000t1'],
+          skills: ['Go'],
+          experience: null,
+        },
       ]
     }
     return []

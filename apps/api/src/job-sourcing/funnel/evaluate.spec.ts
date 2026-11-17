@@ -213,9 +213,9 @@ describe('evaluate: stage order (AC 1)', () => {
   })
 
   it('skips SCORE when nothing is a LEAD and stops at the stage that excluded', () => {
-    const triage = evaluated(evaluate(input({ revision: unknownStackRevision() })))
-    expect(triage.status).toBe('TRIAGE')
-    expect(triage.trace.map((t) => t.stage)).toEqual([
+    const none = evaluated(evaluate(input({ roles: ruleRoles('UI_UX_DESIGNER') })))
+    expect(none.status).toBe('NO_MATCH')
+    expect(none.trace.map((t) => t.stage)).toEqual([
       'REVISION',
       'CLASSIFICATION',
       'GLOBAL_RESTRICTIONS',
@@ -242,19 +242,23 @@ describe('evaluate: determinism (AC 2)', () => {
   ]
 
   it('gives toEqual output twice and with shuffled roster, profile and exclusion arrays', () => {
-    const plain = evaluate(input({ exclusions, teamTriageGrants: [TEAM_1, TEAM_2] }))
-    expect(evaluate(input({ exclusions, teamTriageGrants: [TEAM_1, TEAM_2] }))).toEqual(plain)
+    const plain = evaluate(
+      input({ exclusions, roles: ruleRoles('BACKEND_ENGINEER', 'ML_ENGINEER') }),
+    )
+    expect(
+      evaluate(input({ exclusions, roles: ruleRoles('BACKEND_ENGINEER', 'ML_ENGINEER') })),
+    ).toEqual(plain)
     const base = roster()
     const shuffled = evaluate(
       input({
         exclusions: reversed(exclusions),
-        teamTriageGrants: [TEAM_2, TEAM_1],
+        roles: ruleRoles('BACKEND_ENGINEER', 'ML_ENGINEER'),
         rosterSeniorIds: reversed(base.rosterSeniorIds),
         profiles: reversed(
           base.profiles.map((p) => ({
             ...p,
             teamIds: reversed(p.teamIds),
-            techStack: reversed(p.techStack),
+            roles: reversed(p.roles),
           })),
         ),
       }),
@@ -267,7 +271,10 @@ describe('evaluate: determinism (AC 2)', () => {
     const r = evaluated(evaluate(input({ exclusions })))
     expect(scopes(r)).toEqual([...scopes(r)].sort())
     expect(scopes(r)).toEqual([`SENIOR:${SENIOR_A}`, 'STUDIO', `TEAM:${TEAM_1}`])
-    expect(r.audit.excluded.map((e) => e.subject)).toEqual([`SENIOR:${SENIOR_C}`])
+    // SENIOR_B (DATA_SCIENTIST) is a role mismatch for the BACKEND vacancy.
+    expect(r.audit.excluded.map((e) => e.subject)).toEqual(
+      [`SENIOR:${SENIOR_B}`, `SENIOR:${SENIOR_C}`].sort(),
+    )
   })
 
   it('classifies the same revision identically whatever the roster is', () => {
@@ -314,7 +321,6 @@ describe('evaluate: hard negatives beat unknowns (AC 3)', () => {
       {
         revision: unknownStackRevision(),
         exclusions: [exclusion({ kind: 'KEYWORD', value: 'Senior Developer' })],
-        teamTriageGrants: [TEAM_1],
       },
       'GLOBAL_EXCLUSION',
       'GLOBAL_RESTRICTIONS',
@@ -333,7 +339,6 @@ describe('evaluate: hard negatives beat unknowns (AC 3)', () => {
             normalizedValue: 'acme',
           }),
         ),
-        teamTriageGrants: [TEAM_1],
       },
       'SENIOR_EXCLUSION',
       'SCOPED_RESTRICTIONS',
@@ -376,7 +381,7 @@ describe('evaluate: reasons carry evidence (AC 4)', () => {
   it('has non-empty evidence and a rule version on every reason of every fixture', () => {
     const results = [
       evaluate(input({ exclusions: [cExcluded()] })),
-      evaluate(input({ revision: unknownStackRevision(), teamTriageGrants: [TEAM_1] })),
+      evaluate(input({ roles: { status: 'PENDING', roles: [], classifierVersion: 'rc.test' } })),
       evaluate(input({ revision: javaRevision({ availability: 'CLOSED' }) })),
       evaluate(
         input({
@@ -412,9 +417,9 @@ describe('evaluate: reasons carry evidence (AC 4)', () => {
     }
     expect(new Set(reasons.map((r) => r.code))).toEqual(
       new Set([
-        'TECH_MATCH',
-        'UNKNOWN_STACK',
-        'TEAM_TRIAGE_GRANT',
+        'ROLE_MATCH',
+        'ROLE_MISMATCH',
+        'ROLE_PENDING',
         'SENIOR_EXCLUSION',
         'AVAILABILITY_CLOSED',
         'LAYER1_REJECT',
@@ -442,7 +447,7 @@ describe('evaluate: reasons carry evidence (AC 4)', () => {
 describe('evaluate: excluded payloads stay out of counts, rank and explanation (AC 5)', () => {
   it('retains the excluded senior in audit and leaves them out of every projection', () => {
     const r = evaluated(evaluate(input({ exclusions: [cExcluded()] })))
-    expect(r.audit.excluded).toEqual([
+    expect(r.audit.excluded.filter((e) => e.stage === 'SCOPED_RESTRICTIONS')).toEqual([
       {
         subject: `SENIOR:${SENIOR_C}`,
         stage: 'SCOPED_RESTRICTIONS',
@@ -617,7 +622,7 @@ describe('evaluate: visibility (AC 7, owner decision)', () => {
   const hr = (teamId: string | null) => ({ role: 'HR', teamId }) as const
 
   it('HR with an empty team sees nothing, not even the studio view', () => {
-    const r = evaluate(input({ teamTriageGrants: [TEAM_1] }))
+    const r = evaluate(input())
     expect(projectionsForViewer(r, hr(null))).toEqual([])
     expect(projectionsForViewer(r, hr(''))).toEqual([])
     expect(evaluated(r).status).toBe('LEAD')
@@ -654,7 +659,7 @@ describe('evaluate: visibility (AC 7, owner decision)', () => {
             descriptionMd: 'Requirements: Cobol. Fully remote.',
           },
         }),
-        teamTriageGrants: [TEAM_1],
+        roles: ruleRoles('UI_UX_DESIGNER'),
       }),
     )
     expect(evaluated(r).status).toBe('NO_MATCH')
@@ -683,8 +688,17 @@ describe('evaluate: purity (AC 8)', () => {
 
   it('imports only the composed pure modules and types', () => {
     expect([...new Set(specifiers)].sort()).toEqual(
-      ['../filtering', './evaluate.types', './layer1', './rank', './tech-match'].sort(),
+      [
+        '../filtering',
+        '../store/opportunity-roles',
+        './evaluate.types',
+        './layer1',
+        './rank',
+        './tech-match',
+      ].sort(),
     )
+    // The store module touches the database: only its types may be imported.
+    expect(source).toMatch(/^import type \{[^}]*\} from '\.\.\/store\/opportunity-roles'$/m)
   })
 
   it('reads no clock, no randomness and no network', () => {
@@ -723,7 +737,7 @@ describe('evaluate: exact outputs', () => {
   it('records a closed posting with its inputs and an empty roster audit', () => {
     const r = excluded(evaluate(input({ revision: javaRevision({ availability: 'CLOSED' }) })))
     expect(r.reasons).toEqual([
-      { code: 'AVAILABILITY_CLOSED', evidence: ['availability=CLOSED'], ruleVersion: 'eval.1' },
+      { code: 'AVAILABILITY_CLOSED', evidence: ['availability=CLOSED'], ruleVersion: 'eval.2' },
     ])
     expect(r.audit).toEqual({
       excluded: [
@@ -731,7 +745,7 @@ describe('evaluate: exact outputs', () => {
           subject: 'OPPORTUNITY',
           stage: 'CLASSIFICATION',
           reasons: r.reasons,
-          inputs: { availability: 'CLOSED', rejectedBy: [] },
+          inputs: { availability: 'CLOSED', rejectedBy: [], roleStatus: 'RULE' },
         },
       ],
       noTeamAccess: [],
@@ -759,7 +773,7 @@ describe('evaluate: exact outputs', () => {
     const entry = exclusion({ kind: 'KEYWORD', value: 'Java' })
     const r = excluded(evaluate(input({ exclusions: [entry] })))
     expect(r.reasons).toEqual([
-      { code: 'GLOBAL_EXCLUSION', evidence: ['KEYWORD:Java'], ruleVersion: 'eval.1' },
+      { code: 'GLOBAL_EXCLUSION', evidence: ['KEYWORD:Java'], ruleVersion: 'eval.2' },
     ])
     expect(r.audit.excluded).toEqual([
       {
@@ -809,7 +823,9 @@ describe('evaluate: exact outputs', () => {
       value: 'Java',
     }
     const idOf = (exclusions: JobExclusionDto[]) =>
-      evaluated(evaluate(input({ exclusions }))).audit.excluded[0]?.inputs['exclusionId']
+      evaluated(evaluate(input({ exclusions }))).audit.excluded.find(
+        (e) => e.subject === `SENIOR:${SENIOR_C}`,
+      )?.inputs['exclusionId']
     expect(idOf([byKeyword, byCompany])).toBe(byCompany.id)
     expect(idOf([byCompany, byKeyword])).toBe(byCompany.id)
   })
@@ -923,5 +939,155 @@ describe('evaluate: exact outputs', () => {
       evaluate(input({ revision: { ...javaRevision(), ...over } as never }))
     expect(bad({ opportunityId: 7 })).toMatchObject({ code: 'INVALID_REVISION' })
     expect(bad({ revisionId: 7 })).toMatchObject({ code: 'INVALID_REVISION' })
+  })
+})
+
+describe('evaluate: role match (senior roles PR 4)', () => {
+  const status = (s: OpportunityRoles['status']): OpportunityRoles => ({
+    status: s,
+    roles: [],
+    classifierVersion: 'rc.test',
+  })
+  const SA = `SENIOR:${SENIOR_A}`
+  const SB = `SENIOR:${SENIOR_B}`
+  const SC = `SENIOR:${SENIOR_C}`
+
+  it.each([
+    ['PENDING', 'ROLE_PENDING'],
+    ['UNCLEAR', 'ROLE_UNCLEAR'],
+    ['NON_IT', 'NON_IT'],
+  ] as const)('a %s vacancy is EXCLUDED for everyone with %s', (roleStatus, code) => {
+    const r = excluded(evaluate(input({ roles: status(roleStatus) })))
+    expect(r.reasons).toEqual([
+      { code, evidence: [`role_status=${roleStatus}`], ruleVersion: 'eval.2' },
+    ])
+    expect(r.audit.excluded[0]).toMatchObject({ subject: 'OPPORTUNITY', stage: 'CLASSIFICATION' })
+    expect(opportunityVerdict(r)).toBe('EXCLUDED')
+  })
+
+  it.each(['RULE', 'AI'] as const)('a %s vacancy reaches the role match', (roleStatus) => {
+    const r = evaluate(input({ roles: { ...ruleRoles('BACKEND_ENGINEER'), status: roleStatus } }))
+    expect(evaluated(r).status).toBe('LEAD')
+  })
+
+  it('an own role is a ROLE_MATCH naming the role', () => {
+    const r = evaluated(evaluate(input()))
+    expect(projection(r, SA)?.reasons).toEqual([
+      { code: 'ROLE_MATCH', evidence: ['ROLE:BACKEND_ENGINEER'], ruleVersion: 'eval.2' },
+    ])
+  })
+
+  it('a BACKEND senior sees a FULLSTACK vacancy through one widening hop', () => {
+    const r = evaluated(evaluate(input({ roles: ruleRoles('FULLSTACK_ENGINEER') })))
+    expect(projection(r, SA)?.reasons[0]?.evidence).toEqual(['ROLE:FULLSTACK_ENGINEER:WIDENED'])
+  })
+
+  it('a BACKEND senior does not see a FRONTEND vacancy: ROLE_MISMATCH in audit', () => {
+    const r = evaluated(
+      evaluate(
+        input({
+          rosterSeniorIds: [SENIOR_A],
+          profiles: [profile(SENIOR_A, ['BACKEND_ENGINEER'], [TEAM_1])],
+          roles: ruleRoles('FRONTEND_ENGINEER'),
+        }),
+      ),
+    )
+    expect(r.status).toBe('NO_MATCH')
+    expect(r.projections).toEqual([])
+    expect(r.audit.excluded).toEqual([
+      {
+        subject: SA,
+        stage: 'CLASSIFICATION',
+        reasons: [
+          { code: 'ROLE_MISMATCH', evidence: ['vacancy=FRONTEND_ENGINEER'], ruleVersion: 'eval.2' },
+        ],
+        inputs: { vacancyRoles: ['FRONTEND_ENGINEER'] },
+      },
+    ])
+    expect(opportunityVerdict(r)).toBe('OPEN')
+  })
+
+  it('a multi-role vacancy matches each senior on any role it covers', () => {
+    const r = evaluated(evaluate(input({ roles: ruleRoles('ML_ENGINEER', 'BACKEND_ENGINEER') })))
+    expect(scopes(r)).toEqual(
+      [SA, SB, SC, 'STUDIO', `TEAM:${TEAM_1}`, `TEAM:${TEAM_2}`, `TEAM:${TEAM_3}`].sort(),
+    )
+    expect(projection(r, SB)?.reasons[0]?.evidence).toEqual(['ROLE:ML_ENGINEER:WIDENED'])
+    expect(projection(r, 'STUDIO')?.matchCount).toBe(3)
+    expect(projection(r, 'STUDIO')?.reasons[0]?.evidence).toEqual([
+      'ROLE:BACKEND_ENGINEER',
+      'ROLE:ML_ENGINEER:WIDENED',
+    ])
+  })
+
+  it('never produces TRIAGE, whatever the posting says', () => {
+    for (const revision of [javaRevision(), unknownStackRevision()]) {
+      for (const roles of [ruleRoles('BACKEND_ENGINEER'), ruleRoles('UI_UX_DESIGNER')]) {
+        const r = evaluated(evaluate(input({ revision, roles })))
+        expect(r.status).not.toBe('TRIAGE')
+        for (const p of r.projections) expect(p.status).toBe('LEAD')
+      }
+    }
+  })
+
+  it('a scoped exclusion wins over a role match', () => {
+    const r = evaluated(evaluate(input({ exclusions: [cExcluded()] })))
+    expect(scopes(r)).not.toContain(SC)
+    const c = r.audit.excluded.find((e) => e.subject === SC)
+    expect(c?.stage).toBe('SCOPED_RESTRICTIONS')
+    expect(c?.reasons.map((x) => x.code)).toEqual(['SENIOR_EXCLUSION'])
+  })
+
+  it('carries each senior skills overlap: NO_RESUME without skills, null without technologies', () => {
+    const withSkills = input({
+      profiles: [
+        profile(SENIOR_A, ['BACKEND_ENGINEER'], [TEAM_1], ['Java']),
+        profile(SENIOR_B, ['DATA_SCIENTIST'], [TEAM_2]),
+        profile(SENIOR_C, ['BACKEND_ENGINEER'], [TEAM_1, TEAM_3]),
+      ],
+    })
+    const r = evaluated(evaluate(withSkills))
+    const overlap = (scope: string) =>
+      projection(r, scope)?.tech.seniors.map((s) => [s.seniorId, s.skillOverlap])
+    expect(overlap(SA)).toEqual([[SENIOR_A, { matched: ['Java'], total: 1 }]])
+    expect(overlap(SC)).toEqual([[SENIOR_C, 'NO_RESUME']])
+    const blank = javaRevision({
+      fields: { ...javaRevision().fields, title: 'Senior Developer', descriptionMd: 'Remote.' },
+    })
+    const none = evaluated(evaluate({ ...withSkills, revision: blank }))
+    expect(projection(none, SA)?.tech.seniors[0]?.skillOverlap).toBeNull()
+  })
+
+  it("a team view carries only its own seniors' overlap", () => {
+    const r = evaluated(
+      evaluate(
+        input({
+          profiles: [
+            profile(SENIOR_A, ['BACKEND_ENGINEER'], [TEAM_1], ['Java']),
+            profile(SENIOR_B, ['DATA_SCIENTIST'], [TEAM_2]),
+            profile(SENIOR_C, ['BACKEND_ENGINEER'], [TEAM_3], ['Spring']),
+          ],
+        }),
+      ),
+    )
+    expect(projection(r, `TEAM:${TEAM_1}`)?.tech.seniors.map((s) => s.seniorId)).toEqual([SENIOR_A])
+    expect(JSON.stringify(projection(r, `TEAM:${TEAM_3}`))).not.toContain(SENIOR_A)
+  })
+
+  it('the skills overlap does not change rank or status', () => {
+    const plain = evaluated(evaluate(input()))
+    const skilled = evaluated(
+      evaluate(
+        input({ profiles: roster().profiles.map((p) => ({ ...p, skills: ['Java', 'Spring'] })) }),
+      ),
+    )
+    const summary = (r: Evaluated) =>
+      r.projections.map((p) => [p.scope, p.status, p.score, p.matchCount])
+    expect(summary(skilled)).toEqual(summary(plain))
+  })
+
+  it('a roster senior without a profile is RETRYABLE, never a mismatch', () => {
+    const r = evaluate(input({ rosterSeniorIds: [SENIOR_A, SENIOR_B, SENIOR_C, TEAM_1] }))
+    expect(r).toMatchObject({ kind: 'RETRYABLE', code: 'ROSTER_NOT_READY' })
   })
 })

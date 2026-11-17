@@ -9,6 +9,7 @@ import {
 import * as schema from '../../database/schema'
 import { hasDatabaseUrl } from '../../test/require-real-db'
 import type { Evaluated, Excluded } from '../funnel/evaluate'
+import type { SeniorTechProfile } from '../funnel/tech-match'
 import { type RosterInputs, installMatches, rosterVersions } from './recompute-inputs'
 
 /**
@@ -58,7 +59,9 @@ const excluded: Excluded = {
 }
 
 function oneSenior(): RosterInputs {
-  const profiles = [{ seniorId: senior, teamIds: ['t'], techStack: ['Go'] }]
+  const profiles: SeniorTechProfile[] = [
+    { seniorId: senior, teamIds: ['t'], roles: ['BACKEND_ENGINEER'], skills: ['Go'] },
+  ]
   return {
     rosterSeniorIds: [senior],
     profiles,

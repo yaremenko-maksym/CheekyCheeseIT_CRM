@@ -514,8 +514,11 @@ export function opportunityRoleFamily(result: Evaluated | Excluded): string | nu
  * `installMatches` rewrites the whole record: this is how a new record column is backfilled.
  * `rf.1`: the record gained `role_family` (r5 Task 6.4c).
  * `rf.2`: the recompute backfills the opportunity's technical roles (senior roles PR 2).
+ * `rf.3`: match rows are by technical role and LEAD evidence carries `skillOverlap` (senior roles
+ * PR 4). `MATCH_RULE_VERSION` moved to `eval.2` with it, so the previous inputs version is under
+ * the new rule too: a row stamped under `eval.1` matches neither and stays hidden until re-evaluated.
  */
-export const EVALUATION_RECORD_VERSION = 'rf.2'
+export const EVALUATION_RECORD_VERSION = 'rf.3'
 
 /**
  * The record format `EVALUATION_RECORD_VERSION` replaced; advance it with every bump. A format bump
@@ -523,7 +526,7 @@ export const EVALUATION_RECORD_VERSION = 'rf.2'
  * the sweep re-evaluates the row (review CR-M-2: the sweep takes hours on a large backlog).
  */
 // Advance PREVIOUS on every format bump; a bump that changes the verdict must also bump MATCH_RULE_VERSION.
-export const PREVIOUS_EVALUATION_RECORD_VERSION = 'rf.1'
+export const PREVIOUS_EVALUATION_RECORD_VERSION = 'rf.2'
 
 const digest = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 32)
@@ -564,7 +567,7 @@ export function previousOpportunityInputsVersion(exclusions: readonly JobExclusi
  * (senior roles correction 6). The queue read side compares the same value (`rosterVersions`).
  */
 export function profileVersion(p: SeniorTechProfile): string {
-  return digest([[...p.roles].sort(), [...p.teamIds].sort(), digest(p.skills ?? [])])
+  return digest([[...p.roles].sort(), [...p.teamIds].sort(), digest([...(p.skills ?? [])].sort())])
 }
 
 const exclusionKey = (e: JobExclusionDto) =>
