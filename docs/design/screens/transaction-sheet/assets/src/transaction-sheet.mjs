@@ -173,13 +173,14 @@ function kindBlock(c) {
       // A card is a picker trigger (chevron) unless it is fixed: an ADMIN always sends from their own account.
       const card = (who, verb, fixed = false) =>
         `<${fixed ? 'div' : 'button type="button" aria-haspopup="listbox"'} aria-label="${verb}: ${who}" class="grow row" style="gap:6px;min-height:64px;padding:10px 10px 10px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border);min-width:0;text-align:left;font:inherit;color:inherit"><span class="grow col" style="gap:2px;min-width:0"><span class="t-foot muted">${verb}</span><span class="t-sub trunc" style="font-weight:600">${who}</span></span>${fixed ? '' : chev}</${fixed ? 'div' : 'button'}>`
-      const arrow = `<span aria-hidden="true" class="muted" style="flex:none;width:20px;display:grid;place-items:center">${icon('arrow-right', { size: 18 })}</span>`
+      // Stacked at every width (names never truncate); the → is static, it does not swap.
+      const arrow = `<span aria-hidden="true" class="muted" style="flex:none;height:20px;display:grid;place-items:center">${icon('arrow-down', { size: 18 })}</span>`
       const acc = c.role === 'ACCOUNTANT'
       const swap = acc
         ? `<button type="button" class="btn ghost" style="height:44px;align-self:flex-start;padding:0 12px;font-size:15px;font-weight:500;gap:8px">${icon('arrow-left-right', { size: 18 })}Поміняти напрямок</button>`
         : ''
       const from = acc ? card('Адміністратор 1', 'надсилає') : card('Ви · Адміністратор 1', 'надсилає', true)
-      return `<div class="field"><label>Напрямок переказу</label><div class="row" style="gap:6px;align-items:stretch">${from}${arrow}${card('Адміністратор 2', 'отримує')}</div>${swap}</div>`
+      return `<div class="field"><label>Напрямок переказу</label><div class="col" style="gap:4px;align-items:stretch">${from}${arrow}${card('Адміністратор 2', 'отримує')}</div>${swap}</div>`
     }
     case 'DIVIDEND':
       return (
@@ -340,7 +341,7 @@ export function phoneSheet(c) {
   // < 360: a text lead squeezes the title, so it becomes an icon button with the same accessible name.
   const lead =
     w < 360
-      ? `<span aria-label="${c.lead ?? 'Скасувати'}" style="display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center">${icon('x', { size: 22 })}</span>`
+      ? `<span aria-label="${c.lead ?? 'Скасувати'}" style="display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center">${icon(c.lead === 'Згорнути' ? 'chevron-down' : 'x', { size: 22 })}</span>`
       : `<span style="font-size:17px">${c.lead ?? 'Скасувати'}</span>`
   const body = formBody({ ...c, pad: c.pad ?? '4px 16px 160px' })
   const bar = c.footer ? submitBar({ w, kbdH, inner: c.footer }) : ''
