@@ -67,7 +67,10 @@ export const userProfileSchema = z.object({
   telegram: z.string().nullable(),
   phone: z.string().nullable(),
   techStack: z.array(z.string()).nullable(),
-  /** Senior roles: a SENIOR's technical roles, sorted. Empty for every other role. */
+  /**
+   * Senior roles: a SENIOR's technical roles, sorted. Empty for every other role: a role change
+   * away from SENIOR clears them, and the profile view returns [] for a non-SENIOR.
+   */
   technicalRoles: z.array(technicalRoleSchema).default([]),
   paymentMethod: paymentMethodSchema.nullable(),
   walletUsdtErc20: z.string().nullable(),
@@ -624,7 +627,10 @@ export type ListArchivedQuery = z.infer<typeof listArchivedQuerySchema>
 
 export const profileOverviewDataSchema = z.object({
   techStack: z.array(z.string()).nullable(),
-  /** Senior roles: a SENIOR's technical roles, sorted. Empty for every other role. */
+  /**
+   * Senior roles: a SENIOR's technical roles, sorted. Empty for every other role: a role change
+   * away from SENIOR clears them, and the profile view returns [] for a non-SENIOR.
+   */
   technicalRoles: z.array(technicalRoleSchema).default([]),
   adminNote: z.string().nullable(),
   tosAcceptedAt: z.string().nullable(),

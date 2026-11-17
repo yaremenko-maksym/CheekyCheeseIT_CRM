@@ -210,6 +210,11 @@ describe('projectProfileUser', () => {
     expect(Object.keys(out)).not.toContain('pendingSeniorSharePercent')
   })
 
+  it('shows technicalRoles only for a SENIOR target, even with the flag on', () => {
+    const junior = { ...full, role: 'JUNIOR' as const }
+    expect(projectProfileUser(junior, perms(allOn), row, pending).technicalRoles).toEqual([])
+  })
+
   it('masks every gated field when no flag is set (missing flags are denied)', () => {
     expect(projectProfileUser(full, perms({}), row, null)).toEqual({
       id: 'u-1',

@@ -119,7 +119,8 @@ export const users = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
     // Senior roles PR 2: a SENIOR's technical roles (the 33 senior-selectable ids, sorted, no
-    // SOFTWARE_ENGINEER). '{}' for every other role and for a legacy senior. Production gets it ONLY
+    // SOFTWARE_ENGINEER). '{}' for a legacy senior and for every other role: a role write away from
+    // SENIOR clears it in the same UPDATE (`updateUserRow`). Production gets it ONLY
     // through drizzle/manual/2026-11-17_technical_roles.sql; declared last (ADD COLUMN rank).
     technicalRoles: text('technical_roles')
       .array()

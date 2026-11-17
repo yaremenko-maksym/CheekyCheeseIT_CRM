@@ -281,6 +281,8 @@ describe('UsersService.adminUpdateUser — ADMIN-target protection (before any o
       updatedAt: FIXED_NOW,
       role: 'ADMIN',
       displayName: 'Me',
+      // A role write away from SENIOR clears the technical roles (updateUserRow).
+      technicalRoles: [],
     })
   })
 
@@ -293,7 +295,11 @@ describe('UsersService.adminUpdateUser — ADMIN-target protection (before any o
   it('actorId defaults to null (system caller): ADMIN target is editable, even role HR', async () => {
     const h = makeHarness({ existing: admin() })
     await edit(h, { role: 'HR' })
-    expect(userUpdateSet(h.log)).toEqual({ updatedAt: FIXED_NOW, role: 'HR' })
+    expect(userUpdateSet(h.log)).toEqual({
+      updatedAt: FIXED_NOW,
+      role: 'HR',
+      technicalRoles: [],
+    })
   })
 
   it('explicit null actorId behaves like the default', async () => {
@@ -420,7 +426,12 @@ describe('UsersService.adminUpdateUser — role-escalation guard (only on an ACT
   it('a DROP user resubmitting role DROP is NOT blocked', async () => {
     const h = makeHarness({ existing: makeUser({ role: 'DROP' }) })
     await expect(edit(h, { role: 'DROP', phone: '1' }, 'admin-1')).resolves.toBeDefined()
-    expect(userUpdateSet(h.log)).toEqual({ updatedAt: FIXED_NOW, role: 'DROP', phone: '1' })
+    expect(userUpdateSet(h.log)).toEqual({
+      updatedAt: FIXED_NOW,
+      role: 'DROP',
+      phone: '1',
+      technicalRoles: [],
+    })
   })
 
   it.each(['HR', 'SENIOR', 'JUNIOR', 'ACCOUNTANT'] as const)(
@@ -754,6 +765,7 @@ describe('UsersService.adminUpdateUser — exact users SET per field group', () 
       phone: '+1',
       avatarUrl: 'http://a',
       techStack: ['ts'],
+      technicalRoles: [],
     })
   })
 

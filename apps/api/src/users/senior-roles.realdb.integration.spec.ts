@@ -57,6 +57,7 @@ interface Persona {
   email: string
   role: Role
   techStack?: string[] | null
+  technicalRoles?: string[]
 }
 
 // Fixed personas, namespaced to this spec (`5e70…` = "senior roles").
@@ -93,7 +94,38 @@ const SELF: Persona = {
   role: 'SENIOR',
   techStack: STACK,
 }
-const PERSONAS = [ADMIN, HR, JUNIOR, ACCOUNTANT, TARGET, SELF]
+// Review fix (CR-M-3 / SR-M-1): the role-change cases, each on its own row.
+const DEMOTE_VIA_ROLE: Persona = {
+  id: '5e700000-0000-4000-aa00-000000000007',
+  email: 'srr-demote-role@test.spec',
+  role: 'SENIOR',
+  techStack: STACK,
+  technicalRoles: ['BACKEND_ENGINEER'],
+}
+const DEMOTE_VIA_EDIT: Persona = {
+  id: '5e700000-0000-4000-aa00-000000000008',
+  email: 'srr-demote-edit@test.spec',
+  role: 'SENIOR',
+  techStack: STACK,
+  technicalRoles: ['QA_ENGINEER'],
+}
+const PROMOTE: Persona = {
+  id: '5e700000-0000-4000-aa00-000000000009',
+  email: 'srr-promote@test.spec',
+  role: 'JUNIOR',
+  techStack: STACK,
+}
+const PERSONAS = [
+  ADMIN,
+  HR,
+  JUNIOR,
+  ACCOUNTANT,
+  TARGET,
+  SELF,
+  DEMOTE_VIA_ROLE,
+  DEMOTE_VIA_EDIT,
+  PROMOTE,
+]
 
 const WALLET = '0x' + '2'.repeat(40)
 
@@ -256,6 +288,7 @@ describe.skipIf(!hasDatabaseUrl())(
           displayName: `SRR ${p.role}`,
           role: p.role,
           techStack: p.techStack ?? null,
+          technicalRoles: p.technicalRoles ?? [],
           googleId: `srr-google-${p.id}`,
         })),
       )
@@ -378,6 +411,41 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(
           await call('PATCH', '/api/users/me', null, { technicalRoles: ['BACKEND_ENGINEER'] }),
         ).toMatchObject({ status: 401 })
+      })
+    })
+
+    // Review fix (CR-M-3 / SR-M-1): only a SENIOR holds roles, so a role change away from SENIOR
+    // clears them in the same write — otherwise nobody could clear them and a re-promotion would
+    // silently restore them.
+    describe('role changes', () => {
+      it('PATCH /users/:id/role away from SENIOR clears the stored roles', async () => {
+        expect(await rolesOf(DEMOTE_VIA_ROLE.id)).toEqual(['BACKEND_ENGINEER'])
+        expect(
+          (await call('PATCH', `/api/users/${DEMOTE_VIA_ROLE.id}/role`, ADMIN, { role: 'HR' }))
+            .status,
+        ).toBe(200)
+        expect(await rolesOf(DEMOTE_VIA_ROLE.id)).toEqual([])
+      })
+
+      it('PATCH /users/:id with a role change away from SENIOR clears the stored roles', async () => {
+        expect(await rolesOf(DEMOTE_VIA_EDIT.id)).toEqual(['QA_ENGINEER'])
+        expect(
+          (await call('PATCH', `/api/users/${DEMOTE_VIA_EDIT.id}`, ADMIN, { role: 'HR' })).status,
+        ).toBe(200)
+        expect(await rolesOf(DEMOTE_VIA_EDIT.id)).toEqual([])
+      })
+
+      it('PATCH /users/:id promoting to SENIOR with roles in the same body stores them', async () => {
+        expect(
+          (
+            await call('PATCH', `/api/users/${PROMOTE.id}`, ADMIN, {
+              role: 'SENIOR',
+              technicalRoles: ['DEVOPS_ENGINEER', 'CTO'],
+            })
+          ).status,
+        ).toBe(200)
+        // Catalog order (sortRoles), not alphabetical.
+        expect(await rolesOf(PROMOTE.id)).toEqual(['DEVOPS_ENGINEER', 'CTO'])
       })
     })
   },
