@@ -380,8 +380,8 @@ describe('the hand-authored half of the manifest, pinned', () => {
       'unpublished: one API credit per job returned is documented, the plan allowance is not (theirstack provenance notes)',
       'unpublished: the developer page gives no rate limit (reed provenance notes)',
     ])
-    // PR #1372: the meter the seed delta creates, the owner's cap below the provider's allowance.
-    const owner = "the owner's conservative figure of 2026-11-17 (round 1 of PR #1372)"
+    // PR #1372: the meter the seed delta creates, an A1 default cap below the provider's allowance.
+    const owner = 'an A1 default of 2026-11-17 (PR #1372), not an owner figure'
     expect(quotas.map((q) => q[3])).toEqual([
       {
         window: 'DAY',

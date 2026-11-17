@@ -74,7 +74,7 @@ const byManifestId = async (id: string) =>
   (await client.query('SELECT * FROM job_sources WHERE manifest_id = $1', [id])).rows[0] as
     Record<string, unknown> | undefined
 
-/** The types whose rows the delta binds to an owner meter (PR #1372, the owner's caps). */
+/** The types whose rows the delta binds to an owner meter (PR #1372, the A1 default caps). */
 const METERED_TYPES: readonly string[] = ['JOOBLE_API', 'JSEARCH_API', 'THEIRSTACK_API', 'REED_API']
 
 const applySeedThenDelta = async (sql = delta()) => {

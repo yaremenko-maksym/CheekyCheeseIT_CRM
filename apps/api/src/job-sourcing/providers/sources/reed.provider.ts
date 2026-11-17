@@ -30,7 +30,7 @@ import { type MeterOption, requireApiKey, resolveMeter, withSecrets } from './qu
  * - PAGING is `resultsToSkip` / `resultsToTake` (take is limited to 100). The walk ends on a short
  *   page or when the total is reached.
  * - METERED like Jooble: one request is one REQUEST against the account meter (`reed:api-main`),
- *   which the seed delta creates with the owner's cap; Reed publishes no limit of its own.
+ *   which the seed delta creates with an A1 default cap; Reed publishes no limit of its own.
  */
 
 export const REED_SOURCE_STATUS = {

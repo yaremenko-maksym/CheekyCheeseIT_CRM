@@ -79,7 +79,7 @@ const JSEARCH_ACCOUNT: QuotaDeclaration = {
   seedMeter: {
     window: 'MONTH',
     limit: 150,
-    source: `the owner's conservative figure of 2026-11-17 (round 1 of PR #1372): 150 of the 200-request free plan, a hard limit`,
+    source: `an A1 default of 2026-11-17 (PR #1372), not an owner figure: 150 of the 200-request free plan, a hard limit`,
   },
 }
 const JOOBLE_ACCOUNT: QuotaDeclaration = {
@@ -91,7 +91,7 @@ const JOOBLE_ACCOUNT: QuotaDeclaration = {
   seedMeter: {
     window: 'DAY',
     limit: 50,
-    source: `the owner's conservative figure of 2026-11-17 (round 1 of PR #1372): the provider publishes no limit, so 50 requests a day`,
+    source: `an A1 default of 2026-11-17 (PR #1372), not an owner figure: the provider publishes no limit, so 50 requests a day`,
   },
 }
 const REED_ACCOUNT: QuotaDeclaration = {
@@ -103,7 +103,7 @@ const REED_ACCOUNT: QuotaDeclaration = {
   seedMeter: {
     window: 'DAY',
     limit: 50,
-    source: `the owner's conservative figure of 2026-11-17 (round 1 of PR #1372): the provider publishes no limit, so 50 requests a day`,
+    source: `an A1 default of 2026-11-17 (PR #1372), not an owner figure: the provider publishes no limit, so 50 requests a day`,
   },
 }
 const THEIRSTACK_ACCOUNT: QuotaDeclaration = {
@@ -117,7 +117,7 @@ const THEIRSTACK_ACCOUNT: QuotaDeclaration = {
   seedMeter: {
     window: 'MONTH',
     limit: 150,
-    source: `the owner's conservative figure of 2026-11-17 (round 1 of PR #1372): 150 of the 200-record free plan`,
+    source: `an A1 default of 2026-11-17 (PR #1372), not an owner figure: 150 of the 200-record free plan`,
   },
 }
 

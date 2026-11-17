@@ -136,10 +136,13 @@ action. Split recovery exists only inside the resolver (`revokedPairs`); reopen 
 - **Meter rows come from the deploy step** (the manifest seed delta,
   `apps/api/drizzle/manual/2026-10-24_job_sources_manifest_delta.sql`, steps 6 and 7, applied on every deploy). An
   account whose manifest quota declares a `seedMeter` gets one row, and each of its source rows is bound to it while
-  `account_meter_id` is NULL. Owner caps (2026-11-17, below each provider's free allowance): JSearch
+  `account_meter_id` is NULL. A1 default caps (2026-11-17, PR #1372; agent defaults, not owner figures, kept below each provider's free allowance): JSearch
   `jsearch:rapidapi-main` REQUEST / MONTH 150; TheirStack `theirstack:api-main` RECORD / MONTH 150; Jooble
   `jooble:api-main` and Reed `reed:api-main` REQUEST / DAY 50 (neither publishes a limit). The window starts on the
-  current UTC day or calendar month at apply time; the provider's billing start is not known. An existing meter is
+  current UTC day or calendar month at apply time; the provider's billing start is not known and may be
+  anniversary-based, so one provider billing month can overlap two of our calendar-month windows. The free tiers are
+  hard limits (the provider answers 429 and charges nothing), so the risk of an overlap is failed runs, not money. The
+  manifest refuses a seeded cap above the provider limit, a DAY cap compared as its 31-day total. An existing meter is
   never rewritten (`ON CONFLICT DO NOTHING`): changing a limit or a binding is a hand-run `UPDATE`, not a re-deploy.
   A quota source without a bound meter is still refused `METER_MISSING`.
 - **Reconciliation against provider usage pages: not built.** Uncertain is booked conservatively instead.

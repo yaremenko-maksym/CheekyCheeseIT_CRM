@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
+import { MAX_NATIVE_ID_CHARS } from '../../normalize/identity-key'
 import { ORIGINAL_LIMITS } from '../../normalize/observation'
 import { QUOTA_PROVIDER_ENV_KEY, type QuotaCredential } from '../../quota-credentials'
 import {
@@ -42,8 +44,9 @@ import { type MeterOption, requireApiKey, resolveMeter, withSecrets } from './qu
  * - `date_posted=week` and `work_from_home=true` are the documented filters; the seed's
  *   `remote_jobs_only` is not a name any listing shows.
  * - IDENTITY. `job_id` is the provider's opaque id. The v2 ids (414 characters) are past the
- *   identity seam's 256, so identity keys on the canonical apply URL (URL_FALLBACK) and the loop's
- *   AC5 check compares the ids of jobs that share one URL. `job_apply_link` is where an applicant goes and
+ *   identity seam's 256, so a longer id is replaced by `sha256:<hex>` of the WHOLE id: the apply
+ *   URL is no identity (Indeed `viewjob?jk=` links lose their query on canonicalisation and
+ *   collide). No JSearch row ever ran (seeded disabled), so no stored identity changes. `job_apply_link` is where an applicant goes and
  *   is a third-party board, so it is both the posting URL and the application URL (no JSearch-hosted
  *   page is part of the response used here).
  */
@@ -108,7 +111,10 @@ function locationText(item: Item): string {
 }
 
 /** The one definition of identity, used by the spec's `nativeIdOf` AND by the mapping. */
-const jsearchNativeId = (item: Item): string => item.job_id
+const jsearchNativeId = (item: Item): string =>
+  item.job_id.length > MAX_NATIVE_ID_CHARS
+    ? `sha256:${createHash('sha256').update(item.job_id).digest('hex')}`
+    : item.job_id
 
 function makeSpec(apiKey: string, meter: MeterOption): ApiJsonSourceSpec<Config, Envelope, Item> {
   return {

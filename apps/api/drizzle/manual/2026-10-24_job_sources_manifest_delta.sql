@@ -208,7 +208,7 @@ WHERE s.manifest_id = m.manifest_id
   AND (s.readiness IS DISTINCT FROM m.readiness::job_source_readiness
        OR s.readiness_reason IS DISTINCT FROM m.readiness_reason);
 
--- 6. meters: the owner's cap for each paid account. A meter that exists keeps every counter.
+-- 6. meters: our A1 default cap for each paid account. A meter that exists keeps every counter.
 INSERT INTO job_account_meters
   (account_key, unit, window_kind, limit_amount, window_started_at, resets_at)
 SELECT x.account_key, x.unit::job_meter_unit, x.window_kind::job_meter_window, x.limit_amount,

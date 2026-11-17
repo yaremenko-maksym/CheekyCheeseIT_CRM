@@ -148,14 +148,15 @@ describe('mapping the capture', () => {
 
   it('maps every field of the first job (hand-read)', async () => {
     const { batch } = await run([{ bodyText: JSON.stringify(capture()) }])
-    // A 414-character id is past the identity seam's 256: identity keys on the apply URL instead.
+    // A 414-character id is past the identity seam's 256: identity is the sha256 of the full id
+    // (round 2, CR-M-3), never the apply URL (which collides for Indeed `viewjob?jk=` postings).
     expect(FIRST_ID).toHaveLength(414)
     const o = first(batch)
     expect(o?.identity).toMatchObject({
       provider: 'JSEARCH_API',
       namespace: 'jsearch',
-      nativeId: null,
-      identityKind: 'URL_FALLBACK',
+      nativeId: 'sha256:cf36a38f11a7382b09687f4a1c26796ced52be13e9470958238d1cad34804b66',
+      identityKind: 'NATIVE_ID',
     })
     expect(o?.sourcePostingUrl).toBe(FIRST_APPLY)
     expect(o?.normalized.title).toBe(
@@ -175,6 +176,26 @@ describe('mapping the capture', () => {
     const o = byId(batch, 'short-id')
     expect(o?.identity.identityKind).toBe('NATIVE_ID')
     expect(o?.applicationUrl).toBe('https://careers.example-systems.test/jobs/short-id/apply')
+  })
+
+  it('two long ids differing only at the end, on one apply URL, are two identities', async () => {
+    const stem = 'j'.repeat(413)
+    const url = 'https://www.indeed.com/viewjob?jk=same'
+    const { batch } = await run([
+      body([job(`${stem}a`, { job_apply_link: url }), job(`${stem}b`, { job_apply_link: url })]),
+    ])
+    const ids = batch.observations.map((o) => o.identity.identityKey)
+    expect(batch.observations).toHaveLength(2)
+    expect(new Set(ids).size).toBe(2)
+    expect(batch.observations.every((o) => o.identity.identityKind === 'NATIVE_ID')).toBe(true)
+  })
+
+  it('an id of exactly 256 characters is kept as is; 257 is hashed', async () => {
+    const { batch } = await run([body([job('w'.repeat(256)), job('z'.repeat(257))])])
+    expect(byId(batch, 'w'.repeat(256))?.identity.identityKind).toBe('NATIVE_ID')
+    expect(
+      byId(batch, 'sha256:16c04de4670e399ba23109c0d04a5426d75fe696be2ea988c4b7b1aeecc8efdc'),
+    ).toBeDefined()
   })
 
   it('a job id past 600 characters is invalid, at 600 it is kept', async () => {
