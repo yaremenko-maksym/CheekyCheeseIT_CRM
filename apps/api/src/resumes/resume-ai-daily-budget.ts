@@ -19,8 +19,9 @@
  * The UTC day rolls over in the same statement: a row whose `resets_at` has passed (or is NULL)
  * restarts at 1.
  *
- * RELEASE: a reserved call is given back only when Cloudflare cannot have billed it: no HTTP response
- * (network error, timeout) or HTTP 429. Any other answer keeps it spent. The release touches only the
+ * RELEASE: a reserved call is given back only when Cloudflare cannot have billed it: the request
+ * failed without an HTTP response (network error), or Cloudflare answered HTTP 429. Our own timeout
+ * keeps it spent (the model may have run), as does any other answer. The release touches only the
  * reservation's own UTC day and never takes `used` below 0.
  */
 import { Injectable } from '@nestjs/common'

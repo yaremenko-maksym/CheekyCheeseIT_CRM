@@ -216,7 +216,8 @@ export class ResumeAiService {
     priorError: string | null,
   ): Promise<
     | { ok: true; raw: string; tokensUsed: number | null }
-    // `unbilled`: Cloudflare cannot have billed this call (no HTTP response, or HTTP 429).
+    // `unbilled`: Cloudflare cannot have billed this call (no HTTP response, or HTTP 429). Our own
+    // timeout is NOT unbilled: the request was in flight long enough for the model to run.
     | (ResumeExtractionFailure & { ok: false; unbilled: boolean })
   > {
     const userContent = priorError
@@ -256,7 +257,7 @@ export class ResumeAiService {
         message: encodeResumeMessage('RESUME_AI_UNAVAILABLE'),
         quotaResetsAt: null,
         tokensUsed: null,
-        unbilled: true,
+        unbilled: !controller.signal.aborted,
       }
     } finally {
       clearTimeout(timer)

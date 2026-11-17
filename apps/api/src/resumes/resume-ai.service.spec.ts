@@ -276,11 +276,8 @@ describe('ResumeAiService', () => {
     })
 
     describe('R1: a call Cloudflare cannot have billed is given back', () => {
-      it.each([
-        ['a network error', new TypeError('fetch failed')],
-        ['a timeout', new DOMException('The operation was aborted.', 'AbortError')],
-      ])('%s (no HTTP response) releases the reserved call', async (_name, err) => {
-        fetchSpy.mockRejectedValueOnce(err)
+      it('a network error (no HTTP response) releases the reserved call', async () => {
+        fetchSpy.mockRejectedValueOnce(new TypeError('fetch failed'))
         const budget = fakeBudget(10)
         const result = await makeService({}, budget).extractStructure('a'.repeat(200))
 
@@ -291,6 +288,31 @@ describe('ResumeAiService', () => {
         expect(budget.releaseCall.mock.calls[0]?.[0]).toBe(budget.reserveCall.mock.calls[0]?.[0])
         expect(budget.reserveCall.mock.calls[0]?.[0]).toBeInstanceOf(Date)
         expect(budget.used()).toBe(0)
+      })
+
+      it('our own timeout keeps the call spent: Cloudflare may have run (and billed) it', async () => {
+        vi.useFakeTimers()
+        try {
+          fetchSpy.mockImplementationOnce(
+            (_url, init) =>
+              new Promise<Response>((_resolve, reject) => {
+                init?.signal?.addEventListener('abort', () =>
+                  reject(new DOMException('The operation was aborted.', 'AbortError')),
+                )
+              }),
+          )
+          const budget = fakeBudget(10)
+          const pending = makeService({}, budget).extractStructure('a'.repeat(200))
+          await vi.advanceTimersByTimeAsync(60_000)
+          const result = await pending
+
+          expect(result).toMatchObject({ ok: false, code: 'MODEL_ERROR' })
+          expect(result).not.toHaveProperty('unbilled')
+          expect(budget.releaseCall).not.toHaveBeenCalled()
+          expect(budget.used()).toBe(1)
+        } finally {
+          vi.useRealTimers()
+        }
       })
 
       it('an HTTP 429 releases the reserved call and keeps the quota answer', async () => {
