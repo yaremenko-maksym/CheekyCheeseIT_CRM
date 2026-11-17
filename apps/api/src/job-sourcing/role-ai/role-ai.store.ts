@@ -1,5 +1,6 @@
 import { type JobSourceType, sortRoles, type TechnicalRole } from '@crm/shared'
 import { sql } from 'drizzle-orm'
+import { releaseCallQuery, reserveCallQuery } from '../../resumes/resume-ai-daily-budget'
 import { ROLE_CLASSIFIER_VERSION } from '../funnel/role-classifier'
 import type { MeterDb } from '../metering/account-meter.store'
 import { enqueueDirty } from '../ownership/dirty-work.store'
@@ -10,6 +11,7 @@ import { textArray, writeOpportunityRoles } from '../store/opportunity-roles'
 import { STORE_LOCK_TIMEOUT_MS } from '../store/source-record.store'
 import {
   ROLE_AI_BACKOFF,
+  ROLE_AI_MAX_ATTEMPTS,
   ROLE_AI_REASON,
   type RoleAiCandidate,
   type RoleAiStore,
@@ -17,6 +19,9 @@ import {
 } from './role-ai-pass'
 
 const READ_COMMITTED = { isolationLevel: 'read committed' } as const
+
+/** The `job_account_meters` row that counts the pass's model calls per UTC day (SR-M-1). */
+export const ROLE_AI_METER_ACCOUNT_KEY = 'extraction-worker:role-ai'
 const V = ROLE_CLASSIFIER_VERSION
 
 /** The cache key's hash: a vacancy with no description is keyed by '' (the column is NOT NULL). */
@@ -56,6 +61,7 @@ async function lockUnchanged(tx: SqlExecutor, c: RoleAiCandidate): Promise<numbe
 export function createRoleAiStore(
   db: MeterDb,
   onDemandTypes: readonly JobSourceType[],
+  meterAccountKey: string = ROLE_AI_METER_ACCOUNT_KEY,
 ): RoleAiStore {
   const onDemandSource =
     onDemandTypes.length === 0
@@ -83,7 +89,8 @@ export function createRoleAiStore(
                   WHERE c.title_key = o.title_key
                     AND c.description_sha256 = COALESCE(o.description_sha256, '')
                     AND c.classifier_version = ${V} AND c.outcome = 'FAILED'
-                    AND c.next_attempt_at > ${now.toISOString()}::timestamptz)
+                    AND (c.next_attempt_at > ${now.toISOString()}::timestamptz
+                         OR c.attempts >= ${ROLE_AI_MAX_ATTEMPTS}))
              ORDER BY o.last_observed_at DESC, o.id
              LIMIT ${limit}`,
       )
@@ -145,28 +152,37 @@ export function createRoleAiStore(
     recordFailure(c, now) {
       return inTx(db, async (tx) => {
         if ((await lockUnchanged(tx, c)) === null) return false
+        // The increment is the row's own (`attempts + 1`), so two writers of one key never lose
+        // one. A terminal row for the key is an answer: a failure never overwrites it.
         const { rows } = await tx.execute(
-          sql`SELECT attempts FROM job_role_classifications
-               WHERE title_key = ${c.titleKey} AND description_sha256 = ${keyHash(c)}
-                 AND classifier_version = ${V}
-                 FOR UPDATE`,
-        )
-        const prior = rows[0] === undefined ? 0 : Number(rows[0]['attempts'])
-        const next = new Date(now.getTime() + ROLE_AI_BACKOFF(prior)).toISOString()
-        // A terminal row for the key is an answer: a failure never overwrites it.
-        await tx.execute(
           sql`INSERT INTO job_role_classifications
-                (title_key, description_sha256, classifier_version, outcome, attempts,
-                 next_attempt_at)
-              VALUES (${c.titleKey}, ${keyHash(c)}, ${V}, 'FAILED', ${prior + 1},
-                      ${next}::timestamptz)
+                (title_key, description_sha256, classifier_version, outcome, attempts)
+              VALUES (${c.titleKey}, ${keyHash(c)}, ${V}, 'FAILED', 1)
               ON CONFLICT (title_key, description_sha256, classifier_version) DO UPDATE
-                 SET attempts = EXCLUDED.attempts, next_attempt_at = EXCLUDED.next_attempt_at,
+                 SET attempts = job_role_classifications.attempts + 1,
                      updated_at = clock_timestamp()
-               WHERE job_role_classifications.outcome = 'FAILED'`,
+               WHERE job_role_classifications.outcome = 'FAILED'
+              RETURNING attempts`,
         )
+        const row = rows[0]
+        if (row !== undefined) {
+          const next = new Date(now.getTime() + ROLE_AI_BACKOFF(Number(row['attempts']) - 1))
+          await tx.execute(
+            sql`UPDATE job_role_classifications SET next_attempt_at = ${next.toISOString()}::timestamptz
+                 WHERE title_key = ${c.titleKey} AND description_sha256 = ${keyHash(c)}
+                   AND classifier_version = ${V}`,
+          )
+        }
         return true
       })
+    },
+
+    async reserveCall(now, limit) {
+      return (await reserveCallQuery(db, now, meterAccountKey, limit)).length > 0
+    },
+
+    async releaseCall(now) {
+      await releaseCallQuery(db, now, meterAccountKey)
     },
   }
 }

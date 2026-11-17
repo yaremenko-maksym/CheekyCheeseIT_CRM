@@ -22,6 +22,13 @@ export const DEFAULT_JOB_COLLECTION_WINDOW_MS = 60 * 60_000
 export const JOB_COLLECTION_WINDOW_CEILING_MS = 2 * 60 * 60_000
 /** Resume verification runs one API process executes at once; the rest wait in FIFO order (436). */
 export const DEFAULT_RESUME_VERIFICATION_MAX_CONCURRENT_RUNS = 3
+/**
+ * Role AI model calls per UTC day when `JOB_ROLE_AI_DAILY_BUDGET` is unset (SR-M-1). The pass shares
+ * the worker's hosted own caps with `/extract` and `/resume-write`: the runbook sample's own caps sum
+ * to 10 + 500 + 8 = 518 requests a day, one call may cost up to 7 model pairs x 2 (the correction
+ * retry) = 14 requests, so 518 / 14 = 37 worst-case calls, and the pass takes half of that: 18.
+ */
+export const DEFAULT_JOB_ROLE_AI_DAILY_BUDGET = 18
 
 /**
  * Shape of a real git commit SHA (short or full). Shared by GIT_COMMIT's
@@ -208,6 +215,14 @@ const envSchema = z
     JOB_ROLE_AI_ENABLED: z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
+    // JOB_ROLE_AI_DAILY_BUDGET: model calls the role pass makes per UTC day, counted in a
+    //   `job_account_meters` row so a restart keeps the count; once spent the pass logs one
+    //   ROLE_AI_SKIPPED DAILY_BUDGET line and only applies cached answers until 00:00 UTC.
+    JOB_ROLE_AI_DAILY_BUDGET: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .default(DEFAULT_JOB_ROLE_AI_DAILY_BUDGET),
 
     // JOB_QUEUE_GENERATION_PURGE_ENABLED: switch for the daily purge of expired queue generations
     //   (r5 Task 6.2, MP-13 retention). **Default false**: r5 Task 1.4 keeps new-store cleanup

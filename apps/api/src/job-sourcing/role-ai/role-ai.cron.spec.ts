@@ -18,7 +18,9 @@ function setup(enabled?: boolean | string) {
     },
   }
   const client = { classify: vi.fn() }
-  const config = { get: vi.fn(() => enabled) }
+  const config = {
+    get: vi.fn((key: string) => (key === 'JOB_ROLE_AI_DAILY_BUDGET' ? 23 : enabled)),
+  }
   const svc = new JobRoleAiCronService(database as never, client as never, config as never)
   const error = vi
     .spyOn((svc as unknown as { logger: { error: () => void } }).logger, 'error')
@@ -63,6 +65,7 @@ describe('JobRoleAiCronService', () => {
     expect(deps?.client).toBe(client)
     expect(deps?.onDemandTypes).toEqual(productionLedgerCatalog().onDemandTypes())
     expect(deps?.now()).toBeInstanceOf(Date)
+    expect(deps?.dailyBudget).toBe(23)
     release(RESULT)
     await first
     // The guard is released: the next tick runs again.

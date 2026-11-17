@@ -36,3 +36,19 @@ describe('JOB_ROLE_AI_ENABLED (senior roles PR 3)', () => {
     expect(flag(false)).toBe(false)
   })
 })
+
+const budget = (v?: string) =>
+  validateEnv({ ...BASE_DEV, ...(v === undefined ? {} : { JOB_ROLE_AI_DAILY_BUDGET: v }) })
+    .JOB_ROLE_AI_DAILY_BUDGET
+
+describe('JOB_ROLE_AI_DAILY_BUDGET (SR-M-1)', () => {
+  it('defaults to 18 calls a day and parses an integer', () => {
+    expect(budget()).toBe(18)
+    expect(budget('40')).toBe(40)
+    expect(budget('1')).toBe(1)
+  })
+
+  it('refuses zero, a negative, a fraction and a non-number', () => {
+    for (const v of ['0', '-1', '2.5', 'many', '']) expect(() => budget(v)).toThrow()
+  })
+})

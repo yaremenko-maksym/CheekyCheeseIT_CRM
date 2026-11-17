@@ -38,6 +38,8 @@ const NAMESPACE = `${PREFIX}-ns`
 const TYPE = 'REMOTIVE_API' as const
 const NOW = new Date('2026-11-17T10:00:00.000Z')
 const MIN = 60_000
+/** This suite's own call meter row: a fixed clock would otherwise spend one shared row across runs. */
+const METER_KEY = `role-ai-spec:${TAG}`
 
 let session: CrmAppSession
 let fx: LedgerFixtures
@@ -204,6 +206,7 @@ function pass(
     now?: Date
     onDemandTypes?: readonly (typeof TYPE)[]
     log?: ReturnType<typeof fakeLog>
+    dailyBudget?: number
   } = {},
 ): Promise<RoleAiPassResult> {
   return runRoleAiPass({
@@ -213,6 +216,8 @@ function pass(
     now: () => opts.now ?? NOW,
     onDemandTypes: opts.onDemandTypes ?? [],
     limit,
+    dailyBudget: opts.dailyBudget ?? 10_000,
+    meterAccountKey: METER_KEY,
   })
 }
 
@@ -250,6 +255,13 @@ async function roleAiDirty(id: string) {
     [id],
   )
   return rows as { target_version: number; status: string }[]
+}
+
+/** The row was never sent, stays PENDING, and has no cache or ROLE_AI dirty row. */
+async function expectUntouched(r: Row) {
+  await expect(rolesOf(r.id)).resolves.toMatchObject({ role_status: 'PENDING' })
+  await expect(cacheOf(r)).resolves.toBeUndefined()
+  await expect(roleAiDirty(r.id)).resolves.toEqual([])
 }
 
 const ok = (roles: RoleAiReply extends never ? never : string[], confidence: number) =>
@@ -293,6 +305,9 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
       ])
       await session.admin.query(`DELETE FROM job_dirty_work WHERE entity_id = ANY($1::uuid[])`, [
         mine,
+      ])
+      await session.admin.query(`DELETE FROM job_account_meters WHERE account_key = $1`, [
+        METER_KEY,
       ])
       // The directly inserted rows first: cleanupStore deletes every blob holding the tag.
       await session.admin.query(
@@ -444,16 +459,24 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
   })
 
   it('a FAILED row is not retried before next_attempt_at', async () => {
+    // An own eligible row, older: inside the backoff the one slot goes to it, never to another suite.
+    const sentinel = await opportunity()
     const r = await opportunity()
-    const failing = fakeClient(() => ({ kind: 'unavailable', reason: 'INVALID_OUTPUT' }))
+    const failing = fakeClient((input) =>
+      input.title === r.title
+        ? { kind: 'unavailable', reason: 'INVALID_OUTPUT' }
+        : ok(['QA_ENGINEER'], 0.9),
+    )
+    const callsOf = (title: string) => failing.calls.filter((x) => x.title === title).length
     await pass(failing.client, 1)
     // Inside the backoff: not a candidate, no call.
     await pass(failing.client, 1, { now: new Date(NOW.getTime() + 14 * MIN) })
-    expect(failing.calls).toHaveLength(1)
+    expect(callsOf(r.title)).toBe(1)
+    expect(callsOf(sentinel.title)).toBe(1)
     // After it: retried, and the next wait doubles.
     const later = new Date(NOW.getTime() + 16 * MIN)
     await pass(failing.client, 1, { now: later })
-    expect(failing.calls).toHaveLength(2)
+    expect(callsOf(r.title)).toBe(2)
     await expect(cacheOf(r)).resolves.toMatchObject({
       outcome: 'FAILED',
       attempts: 2,
@@ -466,6 +489,8 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
   })
 
   it('a detail-pending on-demand record is never a candidate and never takes a title-only cache row', async () => {
+    // An own eligible row, older than the excluded one: the one slot never reaches another suite's row.
+    const sentinel = await opportunity()
     const { row } = await onDemandOpportunity()
     // A terminal answer for its title-only key exists: it must still not be applied.
     await session.admin.query(
@@ -475,11 +500,10 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
       [row.titleKey],
     )
     const c = fakeClient(() => ok(['QA_ENGINEER'], 0.9))
-    await expect(pass(c.client, 1, { onDemandTypes: [TYPE] })).resolves.toMatchObject({
-      classified: 0,
-    })
-    expect(c.calls).toHaveLength(0)
+    await pass(c.client, 1, { onDemandTypes: [TYPE] })
+    expect(c.calls.map((x) => x.title)).toEqual([sentinel.title])
     await expect(rolesOf(row.id)).resolves.toMatchObject({ role_status: 'PENDING' })
+    await expect(roleAiDirty(row.id)).resolves.toEqual([])
   })
 
   it('detail-pending records do not consume ROLE_AI_PASS_LIMIT', async () => {
@@ -495,6 +519,7 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
   })
 
   it('an on-demand record whose detail settled without a description is not full text: never sent', async () => {
+    const sentinel = await opportunity()
     const { recordId, version, row } = await onDemandOpportunity()
     await enqueueDirty(db, 'SOURCE_RECORD', recordId, version, DETAIL_FETCH)
     await session.admin.query(
@@ -504,10 +529,11 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     )
     const c = fakeClient(() => ok([], 0.9))
     await pass(c.client, 1, { onDemandTypes: [TYPE] })
-    expect(c.calls).toHaveLength(0)
+    expect(c.calls.map((x) => x.title)).toEqual([sentinel.title])
+    await expectUntouched(row)
     // With no ON_DEMAND type configured the same board is IN_LIST: its record is its full text.
     await pass(c.client, 1, { onDemandTypes: [] })
-    expect(c.calls.map((x) => x.title)).toEqual([row.title])
+    expect(c.calls.map((x) => x.title)).toEqual([sentinel.title, row.title])
     await expect(rolesOf(row.id)).resolves.toMatchObject({ role_status: 'UNCLEAR' })
   })
 

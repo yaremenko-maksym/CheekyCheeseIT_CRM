@@ -43,6 +43,7 @@ export class JobRoleAiCronService {
         log: this.logger,
         now: () => new Date(),
         onDemandTypes: productionLedgerCatalog().onDemandTypes(),
+        dailyBudget: this.config.get('JOB_ROLE_AI_DAILY_BUDGET', { infer: true }),
       })
     } catch (err: unknown) {
       logRoleAiError(this.logger, err)

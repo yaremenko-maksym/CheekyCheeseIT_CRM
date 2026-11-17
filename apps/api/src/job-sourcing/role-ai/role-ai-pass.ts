@@ -19,6 +19,14 @@ export const ROLE_AI_CRON = '*/10 * * * *'
 /** The dirty-work reason the pass enqueues: the MATCH consumer (no partition prefix) re-installs. */
 export const ROLE_AI_REASON = `ROLE_AI:${ROLE_CLASSIFIER_VERSION}`
 
+/**
+ * Failed calls one key gets at most (SR-L-1): past it the row is no candidate and stays PENDING; a
+ * classifier version bump gives it a new key. Ten attempts span about four days of backoff.
+ */
+export const ROLE_AI_MAX_ATTEMPTS = 10
+/** Thrown candidates in a row that stop the pass: a broken store, not one poison row. */
+export const ROLE_AI_MAX_CONSECUTIVE_ERRORS = 3
+
 const BACKOFF_BASE_MS = 15 * 60_000
 const BACKOFF_CAP_MS = 24 * 60 * 60_000
 
@@ -51,6 +59,10 @@ export type RoleAiStore = {
   applyTerminal(c: RoleAiCandidate, t: RoleAiTerminal, writeCache: boolean): Promise<boolean>
   /** A FAILED cache row with one more attempt and the next backoff; false when stale. */
   recordFailure(c: RoleAiCandidate, now: Date): Promise<boolean>
+  /** One model call of the UTC day containing `now`; false when `limit` calls are spent. */
+  reserveCall(now: Date, limit: number): Promise<boolean>
+  /** Gives back a call reserved at `now` that reached no model. */
+  releaseCall(now: Date): Promise<void>
 }
 
 export type RoleClassifier = { classify(input: RoleClassifierInput): Promise<RoleAiReply> }
@@ -110,7 +122,10 @@ export function logRoleAiError(log: RoleAiLog, err: unknown, opportunityId?: str
 /**
  * One bounded pass. Each candidate is answered from the cache or by one model call made OUTSIDE any
  * transaction; the store then re-checks the row under its lock. A provider failure writes FAILED
- * with backoff and stops the pass; NOT_CONFIGURED stops it with no write. Never throws.
+ * with backoff and stops the pass; NOT_CONFIGURED stops it with no write. A spent daily budget
+ * makes no further call, but cached answers are still applied. A thrown candidate gets a FAILED
+ * backoff and the pass goes on, until the failure cannot be written or several throw in a row.
+ * Never throws.
  */
 export async function runRoleAiLoop(p: {
   store: RoleAiStore
@@ -118,6 +133,7 @@ export async function runRoleAiLoop(p: {
   log: RoleAiLog
   now: Date
   limit: number
+  dailyBudget: number
 }): Promise<RoleAiPassResult> {
   const r: RoleAiPassResult = { classified: 0, unclear: 0, failed: 0, stoppedBy: null }
   let candidates: readonly RoleAiCandidate[]
@@ -131,11 +147,21 @@ export async function runRoleAiLoop(p: {
     if (t.outcome === 'AI') r.classified += 1
     else r.unclear += 1
   }
+  let budgetSpent = false
+  let thrownInRow = 0
   for (const c of candidates) {
     try {
       const cached = await p.store.cached(c)
       if (cached !== null) {
         if (await p.store.applyTerminal(c, cached, false)) count(cached)
+        thrownInRow = 0
+        continue
+      }
+      if (budgetSpent) continue
+      if (!(await p.store.reserveCall(p.now, p.dailyBudget))) {
+        budgetSpent = true
+        r.stoppedBy = 'DAILY_BUDGET'
+        p.log.log({ event: 'ROLE_AI_SKIPPED', reason: 'DAILY_BUDGET' })
         continue
       }
       const reply = await p.client.classify({
@@ -144,7 +170,9 @@ export async function runRoleAiLoop(p: {
         categories: c.categories,
       })
       const d = decideRoleAi(reply)
+      thrownInRow = 0
       if (d.kind === 'not-configured') {
+        await p.store.releaseCall(p.now)
         p.log.log({ event: 'ROLE_AI_SKIPPED', reason: 'NOT_CONFIGURED' })
         r.stoppedBy = 'NOT_CONFIGURED'
         break
@@ -153,13 +181,15 @@ export async function runRoleAiLoop(p: {
         if (await p.store.applyTerminal(c, d.terminal, true)) count(d.terminal)
         continue
       }
-      await p.store.recordFailure(c, p.now)
-      r.failed += 1
-      p.log.warn({
-        event: 'ROLE_AI_FAILED',
-        opportunityId: c.id,
-        ...unavailableOrigin(ROLE_AI_PROVIDER, d.reply),
-      })
+      // A row reclassified meanwhile is not this pass's failure: no count, no warning.
+      if (await p.store.recordFailure(c, p.now)) {
+        r.failed += 1
+        p.log.warn({
+          event: 'ROLE_AI_FAILED',
+          opportunityId: c.id,
+          ...unavailableOrigin(ROLE_AI_PROVIDER, d.reply),
+        })
+      }
       if (d.stop) {
         r.stoppedBy = d.reply.reason
         break
@@ -167,12 +197,30 @@ export async function runRoleAiLoop(p: {
     } catch (err: unknown) {
       logRoleAiError(p.log, err, c.id)
       r.failed += 1
-      r.stoppedBy = 'ERROR'
-      break
+      thrownInRow += 1
+      // The poison row gets its backoff, so it cannot take the head of every pass (CR-M-3).
+      if (!(await recordThrown(p, c)) || thrownInRow >= ROLE_AI_MAX_CONSECUTIVE_ERRORS) {
+        r.stoppedBy = 'ERROR'
+        break
+      }
     }
   }
   p.log.log({ event: 'ROLE_AI_PASS', candidates: candidates.length, ...r })
   return r
+}
+
+/** The failure of a thrown candidate; false when even that write throws (the store is down). */
+async function recordThrown(
+  p: { store: RoleAiStore; log: RoleAiLog; now: Date },
+  c: RoleAiCandidate,
+): Promise<boolean> {
+  try {
+    await p.store.recordFailure(c, p.now)
+    return true
+  } catch (err: unknown) {
+    logRoleAiError(p.log, err, c.id)
+    return false
+  }
 }
 
 /** The production pass: the loop over the Postgres store. */
@@ -182,13 +230,17 @@ export function runRoleAiPass(deps: {
   log: RoleAiLog
   now: () => Date
   onDemandTypes: readonly JobSourceType[]
+  dailyBudget: number
   limit?: number
+  /** The day's call meter row; the default is the production one. */
+  meterAccountKey?: string
 }): Promise<RoleAiPassResult> {
   return runRoleAiLoop({
-    store: createRoleAiStore(deps.db, deps.onDemandTypes),
+    store: createRoleAiStore(deps.db, deps.onDemandTypes, deps.meterAccountKey),
     client: deps.client,
     log: deps.log,
     now: deps.now(),
     limit: deps.limit ?? ROLE_AI_PASS_LIMIT,
+    dailyBudget: deps.dailyBudget,
   })
 }
