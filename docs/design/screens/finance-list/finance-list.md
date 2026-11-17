@@ -710,4 +710,304 @@ copy-reviewer (OP-13, OP-16).
 | Попередня / Наступна                                                                                                       | Previous / Next                                                                 | existing                                                  |
 | Зареєструвати дохід                                                                                                        | Register income                                                                 | existing                                                  |
 
-<!-- CONTINUE-5 -->
+## 9. Data and network
+
+### 9.1 Queries
+
+- **One query key per dataset for both layouts** (`ByDevice` mounts one layout at a time):
+  `['transactions', 'with-deleted' | 'active']`, `['exchange-rate', 'today']`; the SENIOR strip keeps
+  its own existing query; DROP keeps `DROP_SUMMARY_QUERY_KEY`, `['drop', 'incomes', filters]`,
+  `['drop', 'payments']`. HR and JUNIOR read the same transactions query (own `SALARY` rows).
+- **Filters, search, `month`, sort, page and day grouping are client derivations** over the cached
+  array: changing them costs 0 requests (as today). Only the deleted toggle switches the key (as today).
+- **Pull-to-refresh / «Повторити»** = `invalidateQueries` on the keys above (re-reads only).
+- **Error state** reads `isError` of the existing query **only when it has no data** (M3);
+  **partial** = the rates query failed while transactions succeeded. No new endpoint, no new field.
+
+### 9.2 Row writes (M2)
+
+Covers every write started from a row, the swipe, the detail or the side panel: validate, confirm
+payment, pay salary / settle, delete, restore (and the SENIOR pay / fix dialogs, same contract).
+
+| Rule                    | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Retry                   | `retry: 0` (today's mutation default); **never retried automatically**, also not on reconnect. A manual retry is the dialog primary after a definite failure only.                                                                                                                                                                                                                                                                                   |
+| Optimism                | None. The row keeps its status until the server answers; the row's status slot shows «Зберігається…» with a spinner and the row's action is `aria-disabled` (`row-write-pending-375`). The dialog's primary shows the spinner.                                                                                                                                                                                                                       |
+| Success                 | The dialog closes, focus returns to the row, a toast names the object («Дохід валідовано: $4 800,00, Клієнт «Північ»»), then the invalidation below refetches and the row shows its new status.                                                                                                                                                                                                                                                      |
+| Definite failure        | A 4xx with the app envelope, or offline before sending: the dialog / sheet **stays open with its values** and an inline `role="alert"` above the primary (`row-write-failed-375`). Nothing changes on the row.                                                                                                                                                                                                                                       |
+| Unknown outcome         | Timeout, 502 / 504 / 524, a 5xx without the envelope, a dropped connection after sending: the dialog closes with no toast; the row gets a persistent «Результат невідомий» marker in its status slot and the detail / panel a banner «Невідомо, чи зміну збережено» with «Оновити» and «Зрозуміло» (`row-write-unknown-375`, `row-write-unknown-1440`). The row's actions stay available but the banner asks not to repeat until the status updates. |
+| Marker ends             | When a refetch returns the row with a status other than the one it had before the write (settled), or when the user taps «Зрозуміло» (A-3). The marker survives scroll, filter changes and the persisted cache (stored by row id with the pre-write status).                                                                                                                                                                                         |
+| Row that leaves filter  | The row stays where it was with its new pill and the meta line «Не відповідає фільтру» until the filter changes, the list is pulled / refreshed by the user, or the screen is left (A-2). It is not counted in «18 з 132».                                                                                                                                                                                                                           |
+| Deleted row, switch off | After delete with «Показати видалені» off the row leaves by the same rule; after restore it switches back to the normal style in place.                                                                                                                                                                                                                                                                                                              |
+
+**Invalidation keys per write** (today's, unchanged):
+
+| Write                           | Dialog                                                 | Keys invalidated                                                                                                                                         |
+| ------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Validate                        | `ValidateDialog`                                       | `['transactions']`, `['finance-summary']`, `['accountant','summary']`                                                                                    |
+| Delete / restore                | `DeleteTransactionDialog` / `RestoreTransactionDialog` | `['transactions']`, `['finance-summary']`                                                                                                                |
+| Pay salary                      | `PaySalaryDialog`                                      | `['transactions']`, `['finance-summary']`, + `['company-account']` when company-funded                                                                   |
+| Settle senior / drop settlement | `SettleSeniorPayoutDialog`                             | `['transactions']`, `['profile-transactions']`, `['pending-obligations']`, `['finance-summary']`, `['company-account']` (company-funded), `['invoices']` |
+| Confirm payment                 | `ConfirmPayoutDialog` (`components/finance/`)          | `['transactions']`, `['finance-summary']`, `['company-account']`                                                                                         |
+
+The validate queue already exists in `finance/index.tsx` (`validateQueue`: `SENIOR_INCOME` **and**
+`DROP_INCOME` rows in `PENDING`); it is the base of the OP-18 recommendation.
+
+### 9.3 Cached data and offline (M3, M4)
+
+- Timing (today's, §1.6 d): `staleTime` 60 s, `refetchOnWindowFocus: false`, `retry: 1`, cache
+  persisted 24 h. The design adds no polling.
+- **With cached rows** a failed refetch (after a write, a PTR or «Повторити») keeps every row and adds
+  one `role="alert"` notice at the top of the list: «Не вдалося оновити. Показано дані станом на
+  14:32.» + «Повторити» (`refetch-failed-375`). The stamp is `dataUpdatedAt`.
+- **Without data** the full-page error shows (`error-*`).
+- **Offline** (shell v2): the banner shows; the list stays readable; the FAB, the filter controls and
+  every row action **stay enabled**; a write attempted offline ends in the definite alert «Немає
+  з’єднання. Нічого не змінено, дані у формі залишились.» with the values kept (`offline-1440` shows the
+  enabled actions).
+- No new business data, no new KPI, no removed capability (§1.5). **Network baseline: pending**
+  (OP-15).
+
+## 10. Self-score (rubric-calibration)
+
+<!-- SELF-SCORE -->
+
+## 11. Open points
+
+Each with a recommendation; none blocks Task 1.2.
+
+- **OP-1 Notes as the row title.** The phone title is the party, notes stay in the detail. _Rec:_
+  keep.
+- **OP-2 "Chart follows the filter".** There is no chart on `/finance`. _Rec:_ do not add one (it
+  would be a new KPI); revisit if statistics move onto this route.
+- **OP-3 Month filter and the stats dependency (rewritten, M1).** The `month` param exists; there is no
+  month picker in this task (the filter arrives from the stats drill-down and leaves by its chip). The
+  list rule is the stats bucket rule (§1.6 a). **Dependency for the stats spec (PR #1387):** the stats
+  monthly series counts only `PAID` rows while this list shows every status, so a drill-down link with
+  `month` alone lands on more rows than the stats bar counted. _Rec:_ the stats spec decides whether
+  its link also carries `status=PAID`; this spec accepts either. Other new dimensions (project,
+  currency) stay out of this task.
+- **OP-4 DROP full state set — closed.** Drawn: `drop-loading-375`, `drop-empty-375`,
+  `drop-error-375`, `drop-partial-375`; desktop and tablet by rule (§4).
+- **OP-5 `CascadeImpactPanel` `sm:hidden` dual mount** inside the delete / edit dialogs. _Rec:_
+  Task 1.3 replaces it with `ByDevice`.
+- **OP-6 Day totals (foundation deviation, M16).** The foundation demo shows day totals; this screen
+  drops them because mixed currencies make a sum misleading. _Rec:_ keep out; the foundation keeps them
+  for single-currency lists.
+- **OP-7 No pill for `PAID` and for `VALIDATED` that needs no one (updated).** A `VALIDATED` row that
+  the viewer can still act on (a SENIOR's own income with no payout request) **does** show its pill.
+  _Rec:_ keep the rule; the row's accessible name and the detail always state the status.
+- **OP-8 JUNIOR transaction hash on phone** only in the detail (with copy). _Rec:_ keep.
+- **OP-9 Server paging and a server search param.** Today all rows load and page client-side at 50.
+  _Rec:_ keep for now; move to server paging with the same URL schema when the list passes ~2 000
+  rows. The month filter then becomes a server param with the same rule.
+- **OP-10 Inline action at 1024–1279 (updated).** It is the first item of the «…» menu
+  (`row-menu-1024`), reachable with `A`; under a coarse pointer «…» is always visible. _Rec:_ accept.
+- **OP-11 DROP «Дія» column** is empty today. _Rec:_ drop it (the mockup does).
+- **OP-12 Title is the party that is not the viewer (applied).** Own SENIOR income shows only the
+  client; own PAYOUT shows «Рахунок компанії». _Rec:_ accept as drawn.
+- **OP-13 «Перевірити» → «Валідувати» / "Validate"** (M15). _Rec:_ rename; copy-reviewer confirms the
+  uk form.
+- **OP-14 PNG quantisation.** ImageMagick is not available; PNGs are unquantised. _Rec:_ quantise in
+  a later pass, no content change.
+- **OP-15 Baseline captures and network baseline** are pending (Wave 0). _Rec:_ capture both in the
+  Wave 0 run before the coder starts, and diff the request count against §9 at fidelity review.
+- **OP-16 Wording for copy-reviewer.** «Переказ на рахунок компанії», the DROP renames of A-6
+  («Отримано», «Очікує розрахунку», «Перекази на рахунок компанії», «Зобов’язання»), «Зарплата ·
+  {date}», and the existing «Виплат ще немає» / «Очікує виплати» on salary rows, which collide with
+  `PAYOUT` «Виплата». _Rec:_ route the whole list to copy-reviewer before the coder starts.
+- **OP-17 Direction glyph on the amount (new, M5).** Today no amount carries a sign or arrow; the
+  glossary makes `PAYOUT` an inflow for the company and an outflow for the senior, which a single
+  glyph per type cannot express. _Rec:_ keep today's unsigned amount in this task; if a glyph is ever
+  added, derive it per viewer from §3.5, never per type.
+- **OP-18 Bulk select (new, owner decision, M13).** Not drawn. _Rec:_ instead of checkboxes, a
+  **validate queue**: from `ValidateDialog`, «Далі» steps to the next filtered `PENDING` row, one
+  confirmed write each (the existing `validateQueue`). It keeps one write per confirm, which fits M2.
+- **OP-19 Swipe «Видалити» label contrast (foundation deviation, M16).** The primitive's white label
+  on `--destructive` is 3.58:1. _Rec:_ the foundation darkens the swipe tile to ≥ 4.5:1; this screen
+  uses the primitive unchanged.
+- **OP-20 Two-pane tablet and side-panel detail (foundation adoption).** This screen adopts shell v2
+  §3 and the foundation side panel as written. _Rec:_ none needed; listed so the deviation audit is
+  complete.
+- **OP-21 Sticky search head and status-pill placement (foundation deviation, M16).** The foundation
+  list row puts the status inline; here it takes the third line (the status slot) and the head is
+  sticky. _Rec:_ adopt in the foundation `ListRow` as the "status slot" variant.
+- **OP-22 FAB over row content (M16).** The list bottom inset is tab bar + FAB + 16 px here; the
+  foundation inset is the tab bar only. _Rec:_ move the inset rule into the foundation.
+- **OP-23 Cmd+K entries (X3).** Page actions (new transaction, filter by status) in the command list
+  belong to the shell command list. _Rec:_ add them there, not on this screen.
+- **OP-24 Rejected council items (round 1).** X1 (sort by Учасник / Тип / Статус): rejected — type and
+  status are filters, the party is covered by search; sort stays Дата and Сума. X2 (draw the validate
+  queue now): rejected — new behaviour outside Task 1.2, kept as the OP-18 recommendation. X3 (Cmd+K
+  for page actions): rejected for this screen, OP-23.
+
+## 12. Components (mapping to our stack)
+
+Template section. Built only from Wave 0 primitives (`_foundation/primitives-v2.md` §1) and the
+existing `apps/web/app/components/ui/*`. This screen adds **no** new primitive.
+
+| Visual block                                 | Our component                                                      | New?    |
+| -------------------------------------------- | ------------------------------------------------------------------ | ------- |
+| Shell: tab bar + FAB / rail «+» / sidebar    | foundation shell (`_foundation/shell-v2.md`)                       | Wave 0  |
+| Layout switch phone ↔ tablet ↔ desktop       | `ByDevice` (redesign v2 plan), one layout mounted at a time        | Wave 0  |
+| Tablet two panes, desktop detail             | shell v2 §3 pane + `ui/sheet.tsx` side panel                       | Wave 0  |
+| Search field                                 | `ui/input.tsx` (16 px, 48 h on touch)                              | restyle |
+| Filter / sort / active-filter / month chips  | `ui/button.tsx` chip variant (primitives-v2 frames)                | restyle |
+| Filter sheet / panel + pickers               | Bottom sheet (Base UI Drawer) / side panel + PickerSheet           | Wave 0  |
+| Day section header                           | `ListSection`                                                      | Wave 0  |
+| Transaction row (+ swipe)                    | `ListRow` two-line variant, status slot                            | Wave 0  |
+| Status pill, «Видалено» pill, row-write mark | `ui/badge.tsx`                                                     | restyle |
+| Pushed detail page / pane                    | `DetailPage`                                                       | Wave 0  |
+| Pull-to-refresh, list footer                 | `PullToRefresh`, foundation list footer                            | Wave 0  |
+| Desktop toolbar listboxes, deleted switch    | `ui/select.tsx` / `ui/dropdown-menu.tsx`, `ui/switch.tsx`          | restyle |
+| Desktop table                                | `ui/table.tsx` (Table row states)                                  | restyle |
+| Row «…» menu                                 | `ui/dropdown-menu.tsx`                                             | no      |
+| Pager                                        | the existing pager in `TransactionsTable` + `usePaginatedFilter`   | restyle |
+| Loading                                      | `ui/skeleton.tsx`                                                  | restyle |
+| Error / refetch / partial / offline notices  | `ui/alert.tsx`                                                     | restyle |
+| Copy hash feedback, write toasts             | `ui/button.tsx` icon + `ui/sonner.tsx`                             | no      |
+| Action dialogs (validate, settle, pay, …)    | the existing dialogs of §1.3, bodies unchanged, container per §3.6 | no      |
+
+## 13. Token-map
+
+Only `globals.css` tokens (`docs/design/foundation.md` §7). The mockup sources use short aliases:
+`--fg` = `--foreground`, `--muted-fg` = `--muted-foreground`, `--raised` = `--accent`.
+
+| Use                                           | Token                                         |
+| --------------------------------------------- | --------------------------------------------- |
+| Page canvas / cards, sheets, tab bar / menus  | `--background` / `--card` / `--popover`       |
+| Search field, grouped row surface             | `--surface`                                   |
+| Pressed or selected row (phone, tablet pane)  | `--accent`                                    |
+| Selected row (desktop)                        | `--yellow-subtle`                             |
+| Title, amount (every type, unsigned)          | `--foreground`                                |
+| Meta, captions, deleted rows, original amount | `--muted-foreground`                          |
+| Placeholder                                   | `--placeholder`                               |
+| Card outline / row hairline / input outline   | `--border` / `--separator` / `--input-border` |
+| Pending pills / in-progress, row-write mark   | `--warning` / `--info`                        |
+| Failed status, delete, load / refetch error   | `--destructive`                               |
+| FAB, primary button, count badge              | `--primary` / `--primary-foreground`          |
+| Focus ring                                    | `--ring`                                      |
+| Behind sheets and dialogs                     | `--scrim`                                     |
+
+## 14. For the coder
+
+Build with **our** components per this spec. The PNGs in `assets/finance-list/` are the fidelity
+reference (Mode B compares against them). The HTML sources in `assets/src/` are prototypes for
+rendering the PNGs, not code to paste. There is no `design.html` (`design-gate: degraded`). Keep the
+query keys of §9, the row-write contract of §9.2 and the URL schema of §6.1; show only the entry
+points of the Task 1.3 sheet. Amount sort by USD value is a behaviour change (M6): it needs a unit
+test that mixes currencies.
+
+## 15. Frame index
+
+Every PNG in `assets/finance-list/` appears here exactly once, and nothing else does (checked by the
+parity command in the PR body). Phone frames render at dpr 2, desktop at dpr 1.
+
+| Frame                    | Size (CSS px) | Shows                                                            |
+| ------------------------ | ------------- | ---------------------------------------------------------------- |
+| `main-320`               | 320 × full    | ADMIN list at 320, full length                                   |
+| `main-375`               | 375 × 812     | ADMIN list: sign-free amounts, transfer row, «≈» UAH row         |
+| `main-768`               | 768 × 1024    | tablet one pane (640–899)                                        |
+| `main-1000`              | 1000 × 760    | tablet list + detail pane (≥ 900)                                |
+| `main-1024`              | 1024 × 768    | desktop, two-line Учасник, «…» only                              |
+| `main-1440`              | 1440 × 900    | desktop, inline primary, content-sized actions column            |
+| `main-touch-1180`        | 1180 × 820    | coarse pointer at desktop width: 52 px rows, 44 px controls      |
+| `loading-375`            | 375 × 812     | first load                                                       |
+| `loading-1440`           | 1440 × 900    | first load                                                       |
+| `empty-375`              | 375 × 812     | no transactions                                                  |
+| `empty-1440`             | 1440 × 900    | no transactions                                                  |
+| `filtered-320`           | 320 × full    | three active chips, scrolling chip row, filtered empty           |
+| `filtered-375`           | 375 × 812     | filtered empty                                                   |
+| `filtered-1440`          | 1440 × 900    | filtered empty                                                   |
+| `month-375`              | 375 × 812     | `?month=2026-11` chip                                            |
+| `month-1440`             | 1440 × 900    | month chip in the toolbar                                        |
+| `month-empty-375`        | 375 × 812     | month with no rows, «Показати всі місяці»                        |
+| `error-320`              | 320 × full    | load error at 320                                                |
+| `error-375`              | 375 × 812     | load error, no data                                              |
+| `error-768`              | 768 × 1024    | load error on tablet                                             |
+| `error-1440`             | 1440 × 900    | load error, no data                                              |
+| `refetch-failed-375`     | 375 × 812     | cached rows kept + refetch alert with stamp                      |
+| `partial-375`            | 375 × 812     | rates down: original amounts, sort reason                        |
+| `partial-1440`           | 1440 × 900    | rates down: Сума sort disabled                                   |
+| `offline-375`            | 375 × 812     | offline banner, actions enabled                                  |
+| `offline-1440`           | 1440 × 900    | offline banner, actions enabled (redrawn)                        |
+| `filters-320`            | 320 × full    | filter sheet at 320                                              |
+| `filters-375`            | 375 × 812     | filter sheet                                                     |
+| `filters-768`            | 768 × 1024    | filter side panel on tablet                                      |
+| `filters-1440`           | 1440 × 900    | status listbox                                                   |
+| `drafts-375`             | 375 × 812     | one failed draft pinned                                          |
+| `drafts-unknown-375`     | 375 × 812     | unknown + failed drafts, «Ще 2 чернетки · Показати»              |
+| `drafts-1440`            | 1440 × 900    | pinned draft row on desktop                                      |
+| `deleted-320`            | 320 × full    | deleted rows at 320, pill in the status slot                     |
+| `deleted-375`            | 375 × 812     | chip «З видаленими»                                              |
+| `deleted-1440`           | 1440 × 900    | deleted rows, pill in Статус, inline «Відновити»                 |
+| `long-320`               | 320 × full    | long content, full length to the list footer                     |
+| `long-1440`              | 1440 × 900    | long content desktop                                             |
+| `footer-375`             | 375 × 812     | list footer: loading more, failed, «Показати ще»                 |
+| `row-write-pending-375`  | 375 × 812     | row marker «Зберігається…»                                       |
+| `row-write-failed-375`   | 375 × 812     | action sheet kept with values + inline alert                     |
+| `row-write-unknown-375`  | 375 × 812     | row marker «Результат невідомий»                                 |
+| `row-write-unknown-1440` | 1440 × 900    | unknown marker in the table + side panel banner                  |
+| `ptr-375`                | 375 × 812     | pull-to-refresh                                                  |
+| `detail-375`             | 375 × 812     | pushed detail with every field home                              |
+| `detail-1440`            | 1440 × 900    | desktop side panel detail                                        |
+| `swipe-375`              | 375 × 812     | ADMIN swipe: «Валідувати» / «Змінити» + «Видалити» / «Відновити» |
+| `swipe-accountant-375`   | 375 × 812     | ACCOUNTANT swipe primaries                                       |
+| `swipe-senior-375`       | 375 × 812     | SENIOR swipe primaries                                           |
+| `row-menu-1024`          | 1024 × 768    | «…» menu with the primary as first item + `A`                    |
+| `row-menu-1440`          | 1440 × 900    | «…» menu                                                         |
+| `role-accountant-375`    | 375 × 812     | ACCOUNTANT queue                                                 |
+| `role-accountant-1440`   | 1440 × 900    | ACCOUNTANT queue                                                 |
+| `role-senior-375`        | 375 × 812     | SENIOR strip, own titles, `VALIDATED` pill                       |
+| `role-senior-1440`       | 1440 × 900    | SENIOR desktop                                                   |
+| `role-hr-375`            | 375 × 812     | HR salaries, «Дата»                                              |
+| `role-hr-1440`           | 1440 × 900    | HR table                                                         |
+| `role-junior-375`        | 375 × 812     | JUNIOR salaries                                                  |
+| `role-junior-1440`       | 1440 × 900    | JUNIOR table with hash + copy                                    |
+| `role-drop-375`          | 375 × 812     | DROP balance, incomes, transfers                                 |
+| `role-drop-1440`         | 1440 × 900    | DROP desktop with `txHash` column                                |
+| `drop-loading-375`       | 375 × 812     | DROP loading                                                     |
+| `drop-empty-375`         | 375 × 812     | DROP empty                                                       |
+| `drop-error-375`         | 375 × 812     | DROP incomes error                                               |
+| `drop-partial-375`       | 375 × 812     | DROP balance and transfers failed, incomes shown                 |
+
+## 16. Council round 1 ledger
+
+| ID    | Status            | How it is resolved                                                                                                                                                                                                         |
+| ----- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1-01 | fixed             | M1: `month` param (§6.1), bucket rule from code (§1.6 a), chip and empty state; OP-3 rewritten; `month-375`, `month-1440`, `month-empty-375`; strings §8.                                                                  |
+| R1-02 | fixed             | M2: §9.2 Row writes (retry, no optimism, pending, failed, unknown, toast, keys, leaving the filter); `row-write-pending-375`, `row-write-failed-375`, `row-write-unknown-375`, `row-write-unknown-1440`.                   |
+| R1-03 | fixed             | M3 + M4: §9.3 with today's timing values; `refetch-failed-375`; offline keeps actions enabled, `offline-1440` redrawn; "write actions disabled" removed.                                                                   |
+| R1-04 | fixed             | M5: §3.5 type × viewer table from `TransactionRow` / `FromTo`; today has no sign, so every frame is unsigned; transfer row in `main-*`. The mock's «−3 000,00 USD» was the mock's invention, not today's behaviour; OP-17. |
+| R1-05 | fixed             | M7: §3.2 per shell v2 §3; `main-768` one pane, `main-1000` two panes, `filters-768` side panel, `error-768`; tablet column in §4; one swipe rule (§6.2).                                                                   |
+| R1-06 | fixed             | M9: §3.7 coarse-pointer rule; `main-touch-1180`; JUNIOR / DROP copy 44 px under coarse.                                                                                                                                    |
+| R1-07 | fixed             | M11: §3.8 field homes; DROP `txHash` column + copy and phone detail; «Призначення» removed; «Не пройшов» reason as a visible line.                                                                                         |
+| R1-08 | fixed             | M6: lead figure = USD conversion, «≈» on converted values, second line = original amount (the "UAH equivalent" label was wrong); sort by USD value, disabled with a reason in partial; Assumption M6 (behaviour change).   |
+| R1-09 | fixed             | M8: §3.6 container table; desktop detail = side panel (`detail-1440`); phone confirms = action sheet (`row-write-failed-375`).                                                                                             |
+| R1-10 | fixed             | M10: swipe primary per role (§6.2); `swipe-375`, `swipe-accountant-375`, `swipe-senior-375`; rows with no action and ACCOUNTANT deleted rows do not swipe.                                                                 |
+| R1-11 | fixed             | DROP state set at 375 (`drop-*-375`); balance card adds up to its rows (§5 rule, `assertFixtures()`); one named quantity per row; OP-4 closed.                                                                             |
+| R1-12 | fixed             | `VALIDATED` pill shown when the SENIOR can still act (OP-7); OP-12 applied (no own name in titles); own PAYOUT title «Рахунок компанії».                                                                                   |
+| R1-13 | fixed             | M11 + M12: HR / JUNIOR «Дата» keeps today's label and business-date value (present on unpaid rows); no clock times anywhere; year on the 2025 rows.                                                                        |
+| R1-14 | fixed             | §3.3: actions column sized to content; two-line Учасник below 1280; «Видалено» in the Статус cell; tooltip on focus too.                                                                                                   |
+| R1-15 | fixed             | §3.1: whole-chip 44 px buttons; sort chip stays second; scrolling chip row with edge fade; M14 mechanics; top-bar search icon removed; `filtered-320` with three chips.                                                    |
+| R1-16 | fixed             | `row-menu-1024`; key `A` (A-4); pager hidden at ≤ 50 rows (A-5, `filtered`/`month` counts fixed); M13 inline edit / bulk select stated (OP-18).                                                                            |
+| R1-17 | fixed             | Drafts rule per shell v2 §4 (up to three pinned, then «Ще N чернеток»); `drafts-unknown-375`.                                                                                                                              |
+| R1-18 | fixed             | 320 frames render full length (`main-320`, `long-320`) plus `filters-320`, `error-320`, `deleted-320`, `filtered-320`; `footer-375`.                                                                                       |
+| R1-19 | fixed             | §8 complete: cash status, «—», «Статус: {x}», «Тип: {x}», «Рахунок компанії», month chip and empty, "last updated", plurals with `other`, «Показати {count} транзакцій», renames for `_Avoid_` hits, salary wording.       |
+| R1-20 | fixed             | Pill in the status slot; chip «З видаленими»; list inset tab bar + FAB + 16 px; swipe label contrast is the primitive's → OP-19 (M16).                                                                                     |
+| R1-21 | fixed             | M16: OP-6, OP-19, OP-20, OP-21, OP-22 list every foundation deviation or adoption.                                                                                                                                         |
+| R1-22 | fixed             | §4 rows: HR / JUNIOR loading, error, empty; ACCOUNTANT with deleted.                                                                                                                                                       |
+| X1    | rejected (Master) | Type and status are filters; the party is covered by search; sort stays Дата and Сума (OP-24).                                                                                                                             |
+| X2    | rejected (Master) | New behaviour outside Task 1.2; kept as the OP-18 recommendation.                                                                                                                                                          |
+| X3    | rejected (Master) | Belongs to the shell command list; OP-23.                                                                                                                                                                                  |
+
+**Council claims refuted against code:**
+
+- "The stats month bucket is `txDate ?? createdAt` in a Kyiv month" (F2, F11, S1): the bucket is the UTC
+  month of `txDate` only (`transactionBusinessMonth`), which equals the Kyiv month because `txDate` is a
+  Kyiv day stored at UTC midnight; `txDate` is `NOT NULL` and there is no `createdAt` fallback.
+- "Payouts have `txDate` null" (F11, quoting the `finance/sort.ts` docblock): stale since the
+  2026-10-27 `NOT NULL` migration.
+- "ADMIN and ACCOUNTANT honour `month`, the others ignore it" (O2): overridden by M1; SENIOR honours it.
+- The previous DROP mock paired «Валовий дохід» with the obligation badge; code pairs declared →
+  «Дохід» + «Валовий дохід» and obligation → «Нарахування» + «Ваша частка» (fixed in the fixtures).
