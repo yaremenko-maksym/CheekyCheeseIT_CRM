@@ -233,12 +233,14 @@ export function statusStrip({
   busy = false,
   mx = 16,
 } = {}) {
-  const text =
+  // Two lines: what happened, then the stamp (the stamp never wraps apart: no line break inside it).
+  const [what, why] =
     kind === 'stale'
-      ? `Не вдалося оновити · ${stamp(when)}`
+      ? ['Не вдалося оновити', stamp(when)]
       : kind === 'offline'
-        ? `Немає з’єднання · показано дані ${stamp(when)}`
-        : 'Немає з’єднання · «Повторити» недоступне без мережі'
+        ? ['Немає з’єднання', `показано дані ${stamp(when)}`]
+        : ['Немає з’єднання', '«Повторити» стане доступним, коли з’явиться мережа']
+  const text = `<span class="col" style="gap:1px"><span style="font-weight:600">${what}</span><span class="muted">${why}</span></span>`
   const btn = kind === 'stale' ? retry({ h: touch ? 44 : 0, sm: !touch, size: 15, busy }) : ''
   const ic = kind === 'stale' ? 'cloud-alert' : 'wifi-off'
   const tone = kind === 'stale' ? 'muted' : ''

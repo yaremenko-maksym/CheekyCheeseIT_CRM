@@ -80,7 +80,8 @@ export function chartCard({
     scrub,
     label: chartLabel(series, idx),
   })
-  const body = `${phoneReadout({ series, i: idx[s], pos: s, n: len, narrow })}<div style="margin-top:6px">${p.svg}</div>${plotCaption(p)}`
+  // The unit / legend / scroll hint line sits above the plot like an axis title, so the first viewport keeps it (R2-19).
+  const body = `${phoneReadout({ series, i: idx[s], pos: s, n: len, narrow })}${plotCaption(p)}<div style="margin-top:4px">${p.svg}</div>`
   return card(
     `<div style="padding:${pad - 2}px ${pad}px 12px">${head}${body}${monthTable({ idx, sel: s, series, touch: true, sr: true })}</div>`,
   )
@@ -147,7 +148,7 @@ export function stats375({
     html = html.replace('<div class="content">', `<div class="content">${sticky}`)
   }
   if (scroll > 0)
-    html = html.replace('</body>', `<script>document.querySelector('.content').scrollTop=${scroll}</script></body>`)
+    html += `<script>document.querySelector('.content').scrollTop=${scroll}</script>`
   return html
 }
 

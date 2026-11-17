@@ -65,7 +65,8 @@ export function plot({
   const loV = Math.min(...vals, 0)
   const { step, hi, lo } = axis(hiV, loV)
   const top = showVals ? 22 : 14
-  const bottom = H - 22
+  // A loss bar's value label sits under the bar: keep room above the month labels for it.
+  const bottom = H - 22 - (showVals && vals.some((v) => v < 0) ? 14 : 0)
   const y = (v) => top + ((hi - v) / (hi - lo || 1)) * (bottom - top)
   const ticks = []
   for (let t = lo; t <= hi + 1e-9; t += step) ticks.push(Math.round(t * 100) / 100)
@@ -78,6 +79,8 @@ export function plot({
   const k = Math.max(1, Math.ceil(40 / band))
   const bars = vals
     .map((v, i) => {
+      // Strip mode draws only the bands whose left edge is on screen: nothing is cut or bleeds into the view.
+      if (strip && i * band < off - 1) return ''
       const x = i * band + band * 0.2
       const w = band * 0.6
       const y0 = y(0)
@@ -105,9 +108,9 @@ export function plot({
         ? `<line x1="${cx}" x2="${cx}" y1="6" y2="${bottom}" stroke="var(--fg)" stroke-width="1" stroke-dasharray="3 3"/><circle cx="${cx}" cy="5" r="4" fill="var(--fg)"/>`
         : ''
   const inner = strip
-    ? `<svg x="${axisW + inset}" y="0" width="${viewW}" height="${H}" viewBox="${off} 0 ${viewW} ${H}" overflow="hidden">${bars}${mark}</svg><rect x="${axisW + inset}" y="0" width="18" height="${H - 22}" fill="url(#fade)"/>`
+    ? `<svg x="${axisW + inset}" y="0" width="${viewW}" height="${H}" viewBox="${off} 0 ${viewW} ${H}" overflow="hidden">${bars}${mark}</svg>`
     : `<g transform="translate(${axisW},0)">${bars}${mark}</g>`
-  const svg = `<svg width="${W}" height="${H}" role="group" aria-label="${label}" style="display:block;overflow:visible;touch-action:pan-y"><defs><pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="oklch(0.84 0.183 85.3 / 0.12)"/><line x1="0" y1="0" x2="0" y2="5" stroke="var(--chart-1)" stroke-width="1.4"/></pattern><linearGradient id="fade" x1="0" x2="1"><stop offset="0" stop-color="oklch(0.12 0 0)"/><stop offset="1" stop-color="oklch(0.12 0 0 / 0)"/></linearGradient></defs>${grid}${inner}</svg>`
+  const svg = `<svg width="${W}" height="${H}" role="group" aria-label="${label}" style="display:block;overflow:visible;touch-action:pan-y"><defs><pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="oklch(0.84 0.183 85.3 / 0.12)"/><line x1="0" y1="0" x2="0" y2="5" stroke="var(--chart-1)" stroke-width="1.4"/></pattern></defs>${grid}${inner}</svg>`
   return { svg, band, strip, showVals, hasLoss: vals.some((v) => v < 0) }
 }
 

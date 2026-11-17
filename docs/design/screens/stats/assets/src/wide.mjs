@@ -102,7 +102,7 @@ export function chartWide({
 // Same markup as the default frame, so every block keeps its exact bounds; text and icons become
 // placeholder bars. The wrapper is aria-hidden; the page announces «Завантаження статистики» once.
 const SKEL_CSS =
-  '<style>.skel :is(span,div,h1,h2,td,th,p):not(:has(*)):not(:empty){color:transparent!important;background:linear-gradient(90deg,oklch(0.16 0 0) 0%,oklch(0.2 0 0) 50%,oklch(0.16 0 0) 100%)!important;border-radius:4px}.skel i{background:oklch(0.2 0 0)!important}.skel svg{opacity:0}.skel svg[role=group]{opacity:1}.skel svg[role=group] text{visibility:hidden}.skel svg[role=group] rect{fill:oklch(0.18 0 0)!important;stroke:none!important}.skel svg[role=group] circle,.skel svg[role=group] line[stroke-dasharray="3 3"]{display:none}</style>'
+  '<style>.skel :is(span,div,h1,h2,td,th,p):not(:has(*:not(svg):not(i))):not(:empty){color:transparent!important;background:linear-gradient(90deg,oklch(0.16 0 0) 0%,oklch(0.2 0 0) 50%,oklch(0.16 0 0) 100%)!important;border-radius:4px}.skel i{background:oklch(0.2 0 0)!important}.skel svg{opacity:0}.skel svg[role=group]{opacity:1}.skel svg[role=group] text{visibility:hidden}.skel svg[role=group] rect[fill=transparent]{fill:transparent!important}.skel svg[role=group] rect{fill:oklch(0.18 0 0)!important;stroke:none!important}.skel svg[role=group] circle,.skel svg[role=group] line[stroke-dasharray="3 3"]{display:none}</style>'
 export const skel = (inner) =>
   `${SKEL_CSS}<div role="status" aria-label="Завантаження статистики" style="${srOnly}"></div><div class="skel" aria-hidden="true" style="display:contents">${inner}</div>`
 
@@ -213,7 +213,14 @@ export function deskFrame(w, h, opts = {}) {
   )
   // Coarse pointer: the foundation rule «.touch .srow» is dead because the nav rows carry two class
   // attributes (the second is ignored). Merging them applies the shell's own 44 px density (M12).
-  if (touch) html = html.replace(/class="row" (aria-current="page" )?class="srow"/g, 'class="row srow" $1')
+  if (touch) {
+    html = html.replace(/class="row"\s+(aria-current="page"\s+)?class="srow"/g, 'class="row srow" $1')
+    // The sidebar search field is a fixed 36 px in the shell; on a coarse pointer it takes the 48 px of «.touch .dsearch».
+    html = html.replace(
+      'gap:8px;height:36px;margin:12px 0 6px;padding:0 10px;border-radius:9px;background:var(--surface);border:1px solid var(--border);color:var(--muted-fg);font-size:13px',
+      'gap:8px;height:48px;margin:12px 0 6px;padding:0 10px;border-radius:9px;background:var(--surface);border:1px solid var(--border);color:var(--muted-fg);font-size:16px',
+    )
+  }
   return html
 }
 
