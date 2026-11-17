@@ -16,7 +16,7 @@ import {
 import { runExtraction } from '../internal/extraction-pipeline'
 import { isVisionCapable } from '../internal/model-id'
 import {
-  HOSTED_BASE_URLS,
+  hostedBaseUrl,
   localRuntimeKey,
   routerConfigSchema,
   type HostedProvider,
@@ -388,7 +388,7 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       const t0 = now()
       const outcome = await sendClassifiedChat({
         provider: p,
-        baseUrl: HOSTED_BASE_URLS[p],
+        baseUrl: hostedBaseUrl(route),
         model,
         apiKey: route.apiKey,
         instruction: req.instruction,

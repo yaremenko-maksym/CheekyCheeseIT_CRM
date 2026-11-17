@@ -24,7 +24,7 @@ const ids = z.array(z.string()).max(MANAGED_LIST_TARGET).optional()
 const managedListSchema = z
   .object({
     version: z.literal(1),
-    providers: z.object({ gemini: ids, groq: ids }).strict(),
+    providers: z.object({ gemini: ids, groq: ids, cloudflare: ids }).strict(),
   })
   .strict()
   // Every id passes its provider's validation with no repeats, or the whole file is rejected.

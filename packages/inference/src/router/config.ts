@@ -3,16 +3,32 @@ import { z } from 'zod'
 import { MAX_SMALL_DOSE_GROUPS } from '../contracts/extraction'
 import { LOCAL_MODEL_RUNTIME_HOST } from '../http/bounded-request'
 import { isValidModelId, isValidProviderModelId } from '../internal/model-id'
+import { cloudflareChatBaseUrl, fitsCloudflareAllowance, isCloudflareAccountId } from './cloudflare'
 
-/** The checked-in hosted provider allowlist (ADR §2.1, D3: no OpenRouter in this version). */
-export const HOSTED_PROVIDERS = ['gemini', 'groq'] as const
+/**
+ * The checked-in hosted provider allowlist (ADR §2.1, D3: no OpenRouter in this version; Cloudflare
+ * Workers AI by the amendment of 2026-11-17).
+ */
+export const HOSTED_PROVIDERS = ['gemini', 'groq', 'cloudflare'] as const
 export type HostedProvider = (typeof HOSTED_PROVIDERS)[number]
 export type RouterProvider = HostedProvider | 'local'
 
 /** Hosted hosts are HTTPS package constants; no env or config can point a hosted route elsewhere (§3.3). */
-export const HOSTED_BASE_URLS: Record<HostedProvider, string> = {
+export const HOSTED_BASE_URLS = {
   gemini: 'https://generativelanguage.googleapis.com/v1beta/openai/',
   groq: 'https://api.groq.com/openai/v1',
+} as const satisfies Record<Exclude<HostedProvider, 'cloudflare'>, string>
+
+/**
+ * The base URL of a hosted route. Cloudflare's carries the account id under a constant host; the
+ * builder re-checks the id, so a route that skipped the schema still cannot steer the request.
+ */
+export function hostedBaseUrl(route: {
+  provider: HostedProvider
+  accountId?: string | undefined
+}): string {
+  if (route.provider === 'cloudflare') return cloudflareChatBaseUrl(route.accountId ?? '')
+  return HOSTED_BASE_URLS[route.provider]
 }
 
 /** The local route refuses a timeout of 300 s or more until the leaf streams (§8.4). */
@@ -73,6 +89,8 @@ const hostedRouteSchema = z
   .object({
     provider: z.enum(HOSTED_PROVIDERS),
     apiKey: z.string().min(1),
+    /** Cloudflare only: the account the URL path names (32 lower-case hex, the SR-M-8 exception). */
+    accountId: z.string().refine(isCloudflareAccountId).optional(),
     /** The pinned fallback list; the managed list supersedes it while valid (§3.4). */
     models: z.array(z.string()).min(1).max(16),
     contextTokens: positiveInt,
@@ -89,6 +107,19 @@ const hostedRouteSchema = z
   .strict()
   // Every model id in the provider's family; issues carry no detail, a config holds a key.
   .refine((r) => r.models.every((m) => isValidProviderModelId(r.provider, m)))
+  // The account id belongs to the cloudflare route and to no other.
+  .refine((r) => (r.provider === 'cloudflare') === (r.accountId !== undefined))
+  // Cloudflare's free limit is 10 000 Neurons, not requests: the configured request count must fit
+  // it at the worst-case call (amendment 2026-11-17), so the own cap at 50 % fits half of it.
+  .refine(
+    (r) =>
+      r.provider !== 'cloudflare' ||
+      fitsCloudflareAllowance({
+        requestsPerDay: r.freeLimit.requestsPerDay,
+        contextTokens: r.contextTokens,
+        maxAnswerTokens: r.maxAnswerTokens,
+      }),
+  )
 
 const localRouteSchema = z
   .object({
@@ -119,7 +150,7 @@ export const routerConfigSchema = z
     routes: z
       .array(z.union([hostedRouteSchema, localRouteSchema]))
       .min(1)
-      .max(3),
+      .max(HOSTED_PROVIDERS.length + 1),
   })
   .strict()
   // Every provider once and the local route last: exactly one local route, always the floor.

@@ -3,7 +3,7 @@ import type { FetchLike } from '../http/bounded-request'
 import { sendClassifiedChat, type StructuredOutput } from '../internal/classified-chat'
 import { createStrictSchema } from '../internal/strict-schema'
 import {
-  HOSTED_BASE_URLS,
+  hostedBaseUrl,
   HOSTED_PROVIDERS,
   type HostedProvider,
   type HostedRouteConfig,
@@ -117,7 +117,7 @@ async function probeModel(
       : { mode: route.structuredOutput }
   const outcome = await sendClassifiedChat({
     provider: p,
-    baseUrl: HOSTED_BASE_URLS[p],
+    baseUrl: hostedBaseUrl(route),
     model,
     apiKey: route.apiKey,
     instruction: MODEL_PROBE_PROMPT,
