@@ -343,7 +343,8 @@ describe('the readiness preflight: one attempt, no backoff (H.3)', () => {
     )
     const { wiring, errors } = wired(fetchImpl)
     const cycle = wiring.prepareCycle(CYCLE)
-    await vi.advanceTimersByTimeAsync(120_000)
+    // The preflight bound is 10 s (CR-L-3): a 120 s advance would pass a regression to the old bound.
+    await vi.advanceTimersByTimeAsync(10_000)
     expect((await cycle).kind).toBe('MODEL_UNREACHABLE')
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     expect(errors).toEqual(['MODEL_PREFLIGHT_FAILED readiness=UNREACHABLE status=none'])
