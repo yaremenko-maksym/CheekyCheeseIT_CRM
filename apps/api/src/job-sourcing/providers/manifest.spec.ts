@@ -1243,7 +1243,7 @@ describe("quota accounts: consistent units, and a limit that is the provider's, 
     ).toEqual(
       refused(
         'QUOTA_INCONSISTENT',
-        'jsearch:rapidapi-main: the schedule needs 360 requests a month against a limit of 200',
+        'jsearch:rapidapi-main: the schedule needs 360 requests a month against a limit of 150',
       ),
     )
   })
@@ -1254,7 +1254,8 @@ describe("quota accounts: consistent units, and a limit that is the provider's, 
       withDefinition('JSEARCH_API', (d) => ({
         ...d,
         requestsPerRun: 5,
-        quota: { ...d.quota!, limit },
+        // No seeded cap: the provider limit is the figure the schedule must fit.
+        quota: { ...d.quota!, limit, seedMeter: undefined },
         entries: [
           {
             ...d.entries[0]!,
@@ -1295,9 +1296,71 @@ describe("quota accounts: consistent units, and a limit that is the provider's, 
       expect(refusal(seeded(201))).toEqual(badSeed(201))
     })
 
-    it('a DAY seed is not compared with a MONTH provider limit', () => {
-      // 201 a day is above 200 a month in number only; the windows differ, so only the shape is checked.
-      expect(seeded(201, 'DAY')).not.toThrow()
+    it('a DAY seed is compared with a MONTH provider limit as its 31-day total (round 2, SR-M-1)', () => {
+      // 10 a day = 310 in a 31-day month, over 200; 6 a day = 186, within; 5 a day = 155, within.
+      expect(refusal(seeded(10, 'DAY'))).toEqual(badSeed(10))
+      expect(refusal(seeded(7, 'DAY'))).toEqual(badSeed(7))
+      expect(seeded(6, 'DAY')).not.toThrow()
+      expect(seeded(5, 'DAY')).not.toThrow()
+    })
+
+    it('a MONTH seed is compared with a DAY provider limit as its 31-day total', () => {
+      const dayProvider = (limit: number) =>
+        withDefinition('JSEARCH_API', (d) => ({
+          ...d,
+          quota: {
+            ...d.quota!,
+            window: 'DAY' as const,
+            limit: 10,
+            seedMeter: { ...d.quota!.seedMeter!, limit, window: 'MONTH' as const },
+          },
+        }))
+      expect(dayProvider(310)).not.toThrow()
+      expect(refusal(dayProvider(311))).toEqual(badSeed(311))
+    })
+
+    it('the monthly schedule is checked against the seeded cap, not the provider limit', () => {
+      // 1 request a run, 6 h apart: 120 a month. Under the 150 cap at 1 request; 151+ needs 2 a run.
+      const schedule = (
+        requestsPerRun: number,
+        seed?: { limit: number; window: 'DAY' | 'MONTH' },
+      ) =>
+        withDefinition('JSEARCH_API', (d) => ({
+          ...d,
+          requestsPerRun,
+          quota: {
+            ...d.quota!,
+            seedMeter: seed === undefined ? undefined : { ...d.quota!.seedMeter!, ...seed },
+          },
+          entries: [
+            {
+              ...d.entries[0]!,
+              fetchProfile: every(360),
+              budget: { limit: 240, window: 'MONTH' as const },
+            },
+          ],
+        }))
+      expect(schedule(1, { limit: 150, window: 'MONTH' })).not.toThrow()
+      expect(refusal(schedule(2, { limit: 150, window: 'MONTH' }))).toEqual(
+        refused(
+          'QUOTA_INCONSISTENT',
+          'jsearch:rapidapi-main: the schedule needs 240 requests a month against a limit of 150',
+        ),
+      )
+      // A DAY cap of 5 is a monthly cap of 155 (31 days).
+      expect(refusal(schedule(2, { limit: 5, window: 'DAY' }))).toEqual(
+        refused(
+          'QUOTA_INCONSISTENT',
+          'jsearch:rapidapi-main: the schedule needs 240 requests a month against a limit of 155',
+        ),
+      )
+      // Without a seed the provider's 200 is the cap.
+      expect(refusal(schedule(2))).toEqual(
+        refused(
+          'QUOTA_INCONSISTENT',
+          'jsearch:rapidapi-main: the schedule needs 240 requests a month against a limit of 200',
+        ),
+      )
     })
   })
 
@@ -1880,7 +1943,7 @@ describe('exact behaviour: constants, markers and boundaries', () => {
     it('a zero limit on a daily window is valid; the schedule arithmetic is monthly only', () => {
       const m = withDefinition('JSEARCH_API', (d) => ({
         ...d,
-        quota: { ...d.quota!, window: 'DAY' as const, limit: 0 },
+        quota: { ...d.quota!, window: 'DAY' as const, limit: 0, seedMeter: undefined },
       }))()
       expect(m.types.find((t) => t.type === 'JSEARCH_API')!.quota!.limit).toBe(0)
     })

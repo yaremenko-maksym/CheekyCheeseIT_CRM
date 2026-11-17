@@ -636,6 +636,11 @@ function checkAttribution(def: TypeDefinition, fixtures: readonly FixtureRecord[
   }
 }
 
+/** A limit as a calendar-month total: a DAY figure over the longest month (31 days); others as-is. */
+function monthTotal(window: JobMeterWindow, limit: number): number {
+  return window === 'DAY' ? limit * 31 : limit
+}
+
 function checkQuota(types: readonly ManifestType[], entries: readonly ManifestEntry[]): void {
   const accounts = new Map<string, QuotaDeclaration>()
   for (const t of types) {
@@ -654,10 +659,13 @@ function checkQuota(types: readonly ManifestType[], entries: readonly ManifestEn
       )
     }
     const m = q.seedMeter
-    // A seeded meter is our cap under the provider's: never above a published limit of the same window.
+    // A seeded meter is our cap under the provider's: never above a published limit, a mismatched
+    // window compared as the 31-day month total of the DAY side.
     if (
       m !== undefined &&
-      (!Number.isInteger(m.limit) || m.limit <= 0 || (q.window === m.window && m.limit > q.limit!))
+      (!Number.isInteger(m.limit) ||
+        m.limit <= 0 ||
+        (q.window !== null && monthTotal(m.window, m.limit) > monthTotal(q.window, q.limit!)))
     ) {
       throw new ManifestError(
         'QUOTA_INCONSISTENT',
@@ -682,7 +690,9 @@ function checkQuota(types: readonly ManifestType[], entries: readonly ManifestEn
     const owners = types.filter((t) => t.quota?.account === account)
     // A MONTH window has a limit: the check above refuses one without.
     if (q.window !== 'MONTH') continue
-    const limit = q.limit!
+    // Our seeded cap, when there is one, is the figure the schedule must fit (it is within q.limit).
+    const limit =
+      q.seedMeter === undefined ? q.limit! : monthTotal(q.seedMeter.window, q.seedMeter.limit)
     // The requests one run of each owning type sends; an entry of any other type is not this account's.
     const perRun = new Map(owners.map((o) => [o.type, o.requestsPerRun]))
     const perMonth = entries.reduce((sum, e) => {
