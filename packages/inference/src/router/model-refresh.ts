@@ -31,6 +31,8 @@ import {
   clearRetired,
   isBusyDead,
   isBusyDeadReprobeDue,
+  isCreditHeldUntilProof,
+  isRetired,
   isSpent,
   markCredit,
   markStartupRefresh,
@@ -43,6 +45,7 @@ import {
   setStaleModels,
   staleModelsOf,
   type OwnCapPort,
+  type RouteState,
   type RouteStatePort,
 } from './state'
 
@@ -144,7 +147,8 @@ async function probeModel(
   if (r.ok && r.totalTokens !== undefined) await deps.ownCap.addTokens(p, r.totalTokens)
   if (releasesUnit(outcome)) await deps.ownCap.release(p, unit)
   if (r.code === 'AUTH') return { kind: 'auth' }
-  if (r.code === 'CREDIT') {
+  // Only a provider whose CREDIT waits for a proof stops here; any other keeps main's probe verdict.
+  if (r.code === 'CREDIT' && isCreditHeldUntilProof(p)) {
     await deps.state.update(markCredit(p, providerDay(p, deps.now())))
     return { kind: 'credit' }
   }
@@ -175,32 +179,61 @@ type Sweep = {
 }
 
 /**
- * The model whose 2xx probe clears a `FLAG_REJECTED` bit: the one it names, or the first model
- * probed when that one is no longer in the list (§3.5).
+ * The model whose 2xx probe clears a `FLAG_REJECTED` bit (§3.5): the flagged model while it is in
+ * the vetted list and not retired, even if spent, cooling down or not probed now; otherwise the
+ * first vetted model that is not retired.
  */
 function proofModelOf(
-  flagModel: string | undefined,
-  models: readonly string[],
+  s: RouteState,
+  p: HostedProvider,
+  vetted: readonly string[],
 ): string | undefined {
+  const flagModel = providerRecord(s, p).flagModel
   if (flagModel === undefined) return undefined
-  return models.includes(flagModel) ? flagModel : models[0]
+  const live = vetted.filter((m) => !isRetired(s, p, m))
+  return live.includes(flagModel) ? flagModel : live[0]
+}
+
+export type ProbeAllOptions = {
+  /** The provider's vetted list, which names the proof model; the probed models when absent. */
+  vetted?: readonly string[]
+  /**
+   * A proof refresh: a rejected proof probe gets one more, to the model now first, so the bit can
+   * clear in the same refresh (§3.5). At most two proof probes; each takes its own unit.
+   */
+  proofRetry?: boolean
 }
 
 export async function probeAll(
   route: HostedRouteConfig,
   models: readonly string[],
   deps: ModelRefreshDeps,
+  opts: ProbeAllOptions = {},
 ): Promise<Sweep> {
+  const p = route.provider
+  const vetted = opts.vetted ?? models
   const answers: ProbeAnswer[] = []
   const rejected: string[] = []
-  const flagModel = providerRecord(deps.state.snapshot(), route.provider).flagModel
-  const proofModel = proofModelOf(flagModel, models)
-  for (const [i, model] of models.entries()) {
+  // A refresh drops a rejected model from the list, so it no longer names the proof model.
+  const proofModel = (): string | undefined =>
+    proofModelOf(
+      deps.state.snapshot(),
+      p,
+      opts.proofRetry === true ? vetted.filter((m) => !rejected.includes(m)) : vetted,
+    )
+  const firstProof = proofModel()
+  const queue = [...models]
+  for (const [i, model] of queue.entries()) {
     if (i > 0) await deps.sleep(PROBE_PAUSE_MS)
-    const o = await probeModel(route, model, deps, proofModel)
+    const o = await probeModel(route, model, deps, proofModel())
     if (o.kind !== 'answered') return { answers, rejected, stopped: o.kind }
     answers.push({ model: o.model, verdict: o.verdict, busy429: o.busy429 })
-    if (o.rejected) rejected.push(o.model)
+    if (!o.rejected) continue
+    rejected.push(o.model)
+    const next = proofModel()
+    if (opts.proofRetry === true && model === firstProof && next !== undefined) {
+      if (!queue.includes(next)) queue.push(next)
+    }
   }
   return { answers, rejected, stopped: null }
 }
@@ -258,7 +291,8 @@ async function refreshProvider(
   const spentDay = providerDay(p, nowMs)
   const before = deps.state.snapshot()
   // The reader falls back to the pinned list, which may name a held model: a verdict still wins here.
-  const current = (await deps.managedModels(p, route.models)).filter((m) => !isBusyDead(before, m))
+  const managed = await deps.managedModels(p, route.models)
+  const current = managed.filter((m) => !isBusyDead(before, m))
   const listed =
     p === 'gemini' ? geminiCandidates(listing.models, current, route.contextTokens) : []
   // A held model's due re-probe waits behind every other candidate, so it cannot take their slot.
@@ -271,14 +305,18 @@ async function refreshProvider(
   )
   // The start-up probe is the only proof that clears `AUTH` (§3.2), so nothing eligible cannot skip it.
   const pool = eligible.length === 0 && proofProbe ? current : eligible
-  // A `FLAG_REJECTED` bit is cleared only by a probe of the model it names, so that model goes first.
-  const flagModel = providerRecord(before, p).flagModel
+  // A `FLAG_REJECTED` bit clears only by a probe of its proof model, so that model goes first, even
+  // after an OK call; spent or cooling down, it waits, and no other model's 2xx clears the bit.
+  const proof = proofProbe ? proofModelOf(before, p, managed) : undefined
   const ordered =
-    proofProbe && flagModel !== undefined && pool.includes(flagModel)
-      ? [flagModel, ...pool.filter((m) => m !== flagModel)]
+    proof !== undefined && current.includes(proof) && !isSpent(before, p, proof, spentDay)
+      ? [proof, ...pool.filter((m) => m !== proof)]
       : pool
   const due = ordered.slice(0, maxProbes)
-  const { answers, rejected, stopped } = await probeAll(route, due, deps)
+  const { answers, rejected, stopped } = await probeAll(route, due, deps, {
+    vetted: managed,
+    proofRetry: proofProbe,
+  })
 
   const after = deps.state.snapshot()
   const day = applyProbeDay({
@@ -431,7 +469,10 @@ export async function runModelChainCheck(deps: ModelRefreshDeps): Promise<ModelR
   const result = await forEachProvider(deps, 'chain', async (route) => {
     const p = route.provider
     const inUse = await deps.managedModels(p, route.models)
-    const { answers, stopped } = await probeAll(route, inUse.slice(0, PROBE_CAP), deps)
+    // No second proof probe here: the chain check never edits the list (§3.4 layer 3).
+    const { answers, stopped } = await probeAll(route, inUse.slice(0, PROBE_CAP), deps, {
+      vetted: inUse,
+    })
     const dead = answers.filter((a) => a.verdict === 'dead').map((a) => a.model)
     await deps.state.update((s) =>
       setStaleModels(

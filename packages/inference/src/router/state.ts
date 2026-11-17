@@ -400,6 +400,9 @@ export function providerRecord(s: RouteState, p: HostedProvider): ProviderRecord
  */
 const CREDIT_UNTIL_PROOF: ReadonlySet<HostedProvider> = new Set(['openrouter'])
 
+/** Whether a `CREDIT` answer holds this provider until a keyed 2xx chat probe (§3.5). */
+export const isCreditHeldUntilProof = (p: HostedProvider): boolean => CREDIT_UNTIL_PROOF.has(p)
+
 /** Why a provider takes no request now, by its persisted bits, or null. */
 export type ProviderBlock = 'AUTH' | 'CREDIT' | 'FLAG_REJECTED' | 'SPENT_DAY'
 
