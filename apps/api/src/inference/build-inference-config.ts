@@ -110,6 +110,21 @@ function routeFromEnv(route: unknown, env: RouterEnv): unknown {
   return { ...local, baseUrl, model, ...(apiKey !== undefined && { apiKey }) }
 }
 
+export type RouterEnvWarning = { route: 'cloudflare'; reason: 'ACCOUNT_ID_MALFORMED' }
+
+/**
+ * Why a configured route was dropped although its env key is set (F6): `routeFromEnv` drops a
+ * Cloudflare route with a malformed account id, which would otherwise be silent. Names only.
+ */
+export function routerEnvWarnings(params: unknown, env: RouterEnv): RouterEnvWarning[] {
+  if (!isRecord(params) || !Array.isArray(params.routes)) return []
+  const hasCloudflare = params.routes.some((r) => isRecord(r) && r.provider === 'cloudflare')
+  const id = env.CLOUDFLARE_ACCOUNT_ID
+  return hasCloudflare && id !== undefined && !isCloudflareAccountId(id)
+    ? [{ route: 'cloudflare', reason: 'ACCOUNT_ID_MALFORMED' }]
+    : []
+}
+
 /**
  * The extraction worker's router config: the non-secret route parameters (`EXTRACTION_ROUTER_CONFIG`)
  * plus the keys and the local URL from env (ADR §2.4). A route whose env is absent is dropped — that

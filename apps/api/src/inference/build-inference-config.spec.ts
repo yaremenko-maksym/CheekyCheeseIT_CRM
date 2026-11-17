@@ -5,6 +5,7 @@ import {
   buildInferenceConfig,
   buildRouterConfig,
   extractionWorkerEnvSchema,
+  routerEnvWarnings,
 } from './build-inference-config'
 import { EXTRACTION_MODEL_GUARDRAILS } from './extraction-guardrails'
 
@@ -253,6 +254,23 @@ describe('buildRouterConfig', () => {
       const without = JSON.stringify(buildRouterConfig(smuggled, FULL_ENV))
       expect(without).not.toContain('JSON-KEY')
       expect(without).not.toContain('f'.repeat(32))
+    })
+
+    it('warns once, by route and reason, when a set account id is malformed (F6)', () => {
+      const bad = `${ACCOUNT.slice(1)}X`
+      const warnings = routerEnvWarnings(WITH_CF, { ...CF_ENV, CLOUDFLARE_ACCOUNT_ID: bad })
+      expect(warnings).toEqual([{ route: 'cloudflare', reason: 'ACCOUNT_ID_MALFORMED' }])
+      expect(JSON.stringify(warnings)).not.toContain(bad)
+      for (const ok of [CF_ENV, { ...CF_ENV, CLOUDFLARE_ACCOUNT_ID: undefined }]) {
+        expect(routerEnvWarnings(WITH_CF, ok)).toEqual([])
+      }
+      expect(routerEnvWarnings(WITH_CF, { ...CF_ENV, CLOUDFLARE_ACCOUNT_ID: '' })).toHaveLength(1)
+      // No Cloudflare route, or no readable config: nothing to warn about.
+      expect(routerEnvWarnings(PARAMS, { ...CF_ENV, CLOUDFLARE_ACCOUNT_ID: bad })).toEqual([])
+      expect(routerEnvWarnings('x', { ...CF_ENV, CLOUDFLARE_ACCOUNT_ID: bad })).toEqual([])
+      expect(routerEnvWarnings({ routes: 'x' }, { ...CF_ENV, CLOUDFLARE_ACCOUNT_ID: bad })).toEqual(
+        [],
+      )
     })
 
     it('the worker env refuses an empty token and leaves a malformed account id to the route', () => {

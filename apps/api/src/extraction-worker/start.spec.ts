@@ -240,6 +240,37 @@ describe('startWorker — what it wires up', () => {
       ])
     })
 
+    it('a malformed Cloudflare account id logs one warning naming the route, never the value', async () => {
+      const cf = {
+        ...groq,
+        provider: 'cloudflare',
+        models: ['@cf/mistralai/mistral-small-3.1-24b-instruct'],
+        contextTokens: 16_000,
+        maxAnswerTokens: 2_048,
+        freeLimit: { requestsPerDay: 16 },
+      }
+      const { out } = await started({
+        ...env,
+        EXTRACTION_ROUTER_CONFIG: JSON.stringify({
+          policyVersion: 'p1',
+          hostedBudgetMs: 5000,
+          floorBudgetMs: 60_000,
+          routes: [cf, local],
+        }),
+        CLOUDFLARE_AI_TOKEN: 'KEY-MARKER',
+        CLOUDFLARE_ACCOUNT_ID: 'ACCOUNT-MARKER',
+      })
+      const lines = out.map((l) => JSON.parse(l) as { event: string })
+      expect(lines.filter((l) => l.event === 'ROUTE_ENV_WARNING')).toEqual([
+        { event: 'ROUTE_ENV_WARNING', route: 'cloudflare', reason: 'ACCOUNT_ID_MALFORMED' },
+      ])
+      expect(routeLines(out)).toEqual([
+        { event: 'HOSTED_ROUTES', present: [], absent: ['gemini', 'groq', 'cloudflare'] },
+      ])
+      expect(out.join('')).not.toContain('ACCOUNT-MARKER')
+      expect(out.join('')).not.toContain('KEY-MARKER')
+    })
+
     it('a config the router refuses has no route present, even one it names', async () => {
       const { out } = await started({
         EXTRACTION_ROUTER_CONFIG: JSON.stringify({ routes: [{ provider: 'groq' }] }),
