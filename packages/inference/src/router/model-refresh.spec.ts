@@ -66,6 +66,7 @@ describe('selection order (SR-H-1)', () => {
       providers: [
         { provider: 'gemini', outcome: 'done' },
         { provider: 'groq', outcome: 'skipped', reason: 'UNCONFIGURED' },
+        { provider: 'cloudflare', outcome: 'skipped', reason: 'UNCONFIGURED' },
       ],
     })
     expect(w.fileList('gemini')).toEqual([G1, G2, NEW])
@@ -1014,6 +1015,7 @@ describe('never wipe (SR-M-6)', () => {
     expect(r.providers).toEqual([
       { provider: 'gemini', outcome: 'failed', reason: 'AUTH' },
       { provider: 'groq', outcome: 'failed', reason: 'LISTING' },
+      { provider: 'cloudflare', outcome: 'skipped', reason: 'UNCONFIGURED' },
     ])
   })
 
@@ -1112,6 +1114,7 @@ describe('per-provider reset (SR-M-5)', () => {
       providers: [
         { provider: 'gemini', outcome: 'failed', reason: 'INTERNAL' },
         { provider: 'groq', outcome: 'done' },
+        { provider: 'cloudflare', outcome: 'skipped', reason: 'UNCONFIGURED' },
       ],
     })
     expect(retiredProviders(w)).toEqual(['gemini'])
@@ -1152,6 +1155,13 @@ describe('per-provider reset (SR-M-5)', () => {
         reason: 'LISTING',
       },
       { type: 'MODEL_REFRESH_PROVIDER', job: 'daily', provider: 'groq', outcome: 'done' },
+      {
+        type: 'MODEL_REFRESH_PROVIDER',
+        job: 'daily',
+        provider: 'cloudflare',
+        outcome: 'skipped',
+        reason: 'UNCONFIGURED',
+      },
     ])
     expect(w.ofType('MODEL_REFRESH_FAILED')).toEqual([
       { type: 'MODEL_REFRESH_FAILED', job: 'daily' },

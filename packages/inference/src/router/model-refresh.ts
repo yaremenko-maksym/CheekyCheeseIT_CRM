@@ -16,7 +16,7 @@ import {
   classifyModelStatus,
   effectiveContext,
   MIN_MANAGED_CONTEXT,
-  pickGroqModels,
+  pickListedModels,
   pickLiveModels,
   restNonAlive,
   type ModelFacts,
@@ -188,6 +188,7 @@ async function refreshProvider(
   const listing = await fetchModelListing({
     provider: p,
     apiKey: route.apiKey,
+    accountId: route.accountId,
     timeoutMs: route.timeoutMs,
     fetchImpl: deps.fetchImpl,
   })
@@ -234,8 +235,9 @@ async function refreshProvider(
     today,
   })
   const pick = (): string[] => {
-    if (p === 'groq') {
-      return pickGroqModels({
+    if (p !== 'gemini') {
+      return pickListedModels({
+        provider: p,
         current,
         listing: listing.models,
         routeWindow: route.contextTokens,
@@ -342,7 +344,9 @@ async function forEachProvider(
 export async function runDailyModelRefresh(deps: ModelRefreshDeps): Promise<ModelRefreshResult> {
   const result = await forEachProvider(deps, 'daily', (route) =>
     // Groq's availability comes from its listing: its daily job sends no chat.
-    refreshProvider(route, deps, route.provider === 'groq' ? 0 : PROBE_CAP, false),
+    // Listing-only providers spend no daily probe: Groq and Cloudflare additions are vouched for by
+    // their family pattern and listing filters, and each probe would cost the day's small allowance.
+    refreshProvider(route, deps, route.provider === 'gemini' ? PROBE_CAP : 0, false),
   )
   await deps.state.update(setJobFailed('daily', !result.ok))
   return result
