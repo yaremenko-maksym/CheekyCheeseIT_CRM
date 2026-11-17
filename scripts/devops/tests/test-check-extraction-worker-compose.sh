@@ -4,6 +4,11 @@ set -u
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SELF_DIR/lib/harness.sh"
 
+# The test-only interpolation names below (CRM_GUARD_T_*). Unset here, so every guard child runs
+# with them unset, whatever the developer's shell exports (a bare X or M once changed a case's result).
+unset CRM_GUARD_T_LOG CRM_GUARD_T_MEM CRM_GUARD_T_NODE_ENV CRM_GUARD_T_USER CRM_GUARD_T_REPO \
+  CRM_GUARD_T_TAG CRM_GUARD_T_NET CRM_GUARD_T_SUBNET CRM_GUARD_T_VOL CRM_GUARD_T_OPT CRM_GUARD_T_NAME
+
 GUARD="$GUARD_DIR/check-extraction-worker-compose.mjs"
 EXTRACTION="$REPO_ROOT/docker-compose.extraction.yml"
 PROD="$REPO_ROOT/docker-compose.prod.yml"
@@ -507,29 +512,29 @@ F="$(ex envfile-required-strtrue 's/^      - .env.extraction-worker$/      - pat
         required: "true"/')"
 assert_red "an env_file with required: \"true\" (a string, not the boolean) is refused" --contains 'env_file must be a plain path (found: required: "true")' -- guard_with --extraction "$F"
 F="$(ex envfile-required-var 's/^      - .env.extraction-worker$/      - path: .env.extraction-worker\
-        required: ${OPT:-false}/')"
-assert_red "an env_file with required: \${OPT:-false} is refused" --contains 'env_file must be a plain path (found: required: "${OPT:-false}")' -- guard_with --extraction "$F"
+        required: ${CRM_GUARD_T_OPT:-false}/')"
+assert_red "an env_file with required: \${CRM_GUARD_T_OPT:-false} is refused" --contains 'env_file must be a plain path (found: required: "${CRM_GUARD_T_OPT:-false}")' -- guard_with --extraction "$F"
 
 # ── J4: no value the host env decides at up; only the image tag pin may be a variable ──
 while IFS='|' read -r name sedexpr path; do
   F="$(ex "dollar-$name" "$WK $sedexpr")"
   assert_red "a variable in $path is refused" --contains "$path must hold no variable: the host env would decide it at up" -- guard_with --extraction "$F"
 done <<'DOLLAR'
-log-driver|s/^      driver: json-file$/      driver: ${X:-json-file}/|extraction-worker.logging.driver
-mem|s/^    mem_limit: 512m$/    mem_limit: ${M:-512m}/|extraction-worker.mem_limit
-env|s/^      NODE_ENV: production$/      NODE_ENV: ${NE:-production}/|extraction-worker.environment.NODE_ENV
-user|s/^    user: node$/    user: ${U:-node}/|extraction-worker.user
+log-driver|s/^      driver: json-file$/      driver: ${CRM_GUARD_T_LOG:-json-file}/|extraction-worker.logging.driver
+mem|s/^    mem_limit: 512m$/    mem_limit: ${CRM_GUARD_T_MEM:-512m}/|extraction-worker.mem_limit
+env|s/^      NODE_ENV: production$/      NODE_ENV: ${CRM_GUARD_T_NODE_ENV:-production}/|extraction-worker.environment.NODE_ENV
+user|s/^    user: node$/    user: ${CRM_GUARD_T_USER:-node}/|extraction-worker.user
 DOLLAR
-F="$(ex dollar-repo 's/image: ghcr.io\/yaremenko-maksym\/cheekycheeseit-crm-api:/image: ${XREPO:-ghcr.io\/yaremenko-maksym\/cheekycheeseit-crm-api}:/')"
+F="$(ex dollar-repo 's/image: ghcr.io\/yaremenko-maksym\/cheekycheeseit-crm-api:/image: ${CRM_GUARD_T_REPO:-ghcr.io\/yaremenko-maksym\/cheekycheeseit-crm-api}:/')"
 assert_red "a variable in the image repository is refused" --contains "extraction-worker.image must hold no variable" -- guard_with --extraction "$F"
-F="$(ex dollar-tag-nested 's/\${EXTRACTION_WORKER_IMAGE_TAG:?pin the worker image tag}/${EXTRACTION_WORKER_IMAGE_TAG:?${OTHER}}/')"
+F="$(ex dollar-tag-nested 's/\${EXTRACTION_WORKER_IMAGE_TAG:?pin the worker image tag}/${EXTRACTION_WORKER_IMAGE_TAG:?${CRM_GUARD_T_TAG}}/')"
 assert_red "a second variable nested in the image tag pin is refused" --contains "extraction-worker.image must hold no variable" -- guard_with --extraction "$F"
-F="$(ex dollar-net-driver '/^  egress:$/,$ s/^    driver: bridge$/    driver: ${ND:-bridge}/')"
+F="$(ex dollar-net-driver '/^  egress:$/,$ s/^    driver: bridge$/    driver: ${CRM_GUARD_T_NET:-bridge}/')"
 assert_red "a variable in a network definition is refused" --contains "networks.egress.driver must hold no variable" -- guard_with --extraction "$F"
-F="$(ex dollar-subnet 's/^        - subnet: 10\.250\.17\.0\/28$/        - subnet: ${SN:-10.250.17.0\/28}/')"
+F="$(ex dollar-subnet 's/^        - subnet: 10\.250\.17\.0\/28$/        - subnet: ${CRM_GUARD_T_SUBNET:-10.250.17.0\/28}/')"
 assert_red "a variable in the egress subnet is refused" --contains "networks.egress.ipam.config.0.subnet must hold no variable" -- guard_with --extraction "$F"
 F="$(ex dollar-volume 's/^  worker_state: {}$/  worker_state:\
-    name: ${V:-crm-extraction_worker_state}/')"
+    name: ${CRM_GUARD_T_VOL:-crm-extraction_worker_state}/')"
 assert_red "a variable in the state volume definition is refused" --contains "volumes.worker_state.name must hold no variable" -- guard_with --extraction "$F"
 
 # ── R5-1: no worker environment entry without a value (the host env would decide it at up) ──
