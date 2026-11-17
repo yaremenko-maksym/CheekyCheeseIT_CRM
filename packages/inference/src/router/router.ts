@@ -44,11 +44,7 @@ import { renderSchema, structuredOutputFor } from './structured-output'
 export const BUSY_BACKOFF_MS = 9_000
 
 /** Why an attempt ended: a leaf code, or a stop decided before any request was sent. */
-export const ATTEMPT_CODES = [
-  ...CLASSIFIED_CHAT_CODES,
-  'CAP',
-  'BUDGET',
-] as const
+export const ATTEMPT_CODES = [...CLASSIFIED_CHAT_CODES, 'CAP', 'BUDGET'] as const
 export type AttemptCode = (typeof ATTEMPT_CODES)[number]
 /** Why a hosted route was not tried at all. */
 export type SkipCode = 'AUTH' | 'CREDIT' | 'FIT' | 'NO_MODEL'

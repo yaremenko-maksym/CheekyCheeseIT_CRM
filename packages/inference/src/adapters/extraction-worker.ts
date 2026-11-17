@@ -43,8 +43,7 @@ const buildReplySchema = () =>
         z
           .object({ ok: z.literal(true), data: z.unknown(), usage: usageSchema.exactOptional() })
           .strict(),
-        z
-          .object({ ok: z.literal(false), code: z.enum(INFERENCE_ERROR_CODES) }).strict(),
+        z.object({ ok: z.literal(false), code: z.enum(INFERENCE_ERROR_CODES) }).strict(),
       ]),
     })
     .strict()

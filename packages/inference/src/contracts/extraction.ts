@@ -24,8 +24,7 @@ export type ExtractionRequest<T> = {
 export type ExtractionUsage = { totalTokens?: number }
 
 export type ExtractionResult<T> =
-  | { ok: true; data: T; usage?: ExtractionUsage }
-  | { ok: false; code: InferenceErrorCode }
+  { ok: true; data: T; usage?: ExtractionUsage } | { ok: false; code: InferenceErrorCode }
 
 export interface ExtractionPort {
   extract<T>(req: ExtractionRequest<T>): Promise<ExtractionResult<T>>
