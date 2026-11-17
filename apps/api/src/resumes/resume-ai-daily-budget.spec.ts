@@ -49,14 +49,11 @@ describe('utcDayBounds', () => {
 
 describe('reserveCallQuery', () => {
   const now = new Date('2026-11-17T10:00:00.000Z')
-  const { sql: text, params } = reserveCallQuery(
-    drizzle.mock({ schema }),
-    now,
-    'cloudflare:test',
-    7,
-  ).toSQL()
+  // Built inside each test, never at collection time: Stryker cannot see a statement built there.
+  const render = () => reserveCallQuery(drizzle.mock({ schema }), now, 'cloudflare:test', 7).toSQL()
 
   it('inserts a DAY / MODEL_CALL meter row starting at 1 with today as its window', () => {
+    const { sql: text, params } = render()
     expect(text).toMatch(/^insert into "job_account_meters"/)
     expect(params.slice(0, 7)).toEqual([
       'cloudflare:test',
@@ -71,6 +68,7 @@ describe('reserveCallQuery', () => {
   })
 
   it('on conflict: rolls a finished day over to 1, else adds 1, and takes the code limit', () => {
+    const { sql: text } = render()
     const rolled = `"job_account_meters"."resets_at" <= $8::timestamptz`
     expect(text).toContain(
       `on conflict ("account_key","unit","window_kind") do update set "limit_amount" = excluded.limit_amount, ` +
@@ -82,6 +80,7 @@ describe('reserveCallQuery', () => {
   })
 
   it('updates only while there is room, so a spent day returns no row', () => {
+    const { sql: text } = render()
     expect(text).toContain(
       `where (CASE WHEN "job_account_meters"."resets_at" <= $11::timestamptz THEN 0 ELSE "job_account_meters"."used" END)` +
         ` + "job_account_meters"."reserved" + "job_account_meters"."uncertain" < excluded.limit_amount returning "used"`,
@@ -120,8 +119,9 @@ describe('ResumeAiDailyBudget.reserveCall', () => {
     try {
       const { budget, calls } = budgetReturning([{ used: 1 }])
       await budget.reserveCall()
+      expect(RESUME_AI_METER_ACCOUNT_KEY).toBe('cloudflare:resume-extraction')
       expect(calls[0]?.values).toMatchObject({
-        accountKey: RESUME_AI_METER_ACCOUNT_KEY,
+        accountKey: 'cloudflare:resume-extraction',
         limitAmount: RESUME_AI_DAILY_CALL_CAP,
         windowStartedAt: new Date('2026-11-17T00:00:00.000Z'),
       })

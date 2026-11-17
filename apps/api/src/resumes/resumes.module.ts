@@ -20,6 +20,7 @@ import { Module } from '@nestjs/common'
 import { ScheduleModule } from '@nestjs/schedule'
 import { DocumentsModule } from '../documents/documents.module'
 import { PdfModule } from '../common/pdf/pdf.module'
+import { ResumeAiDailyBudget } from './resume-ai-daily-budget'
 import { ResumeAiService } from './resume-ai.service'
 import { ResumeExtractionCronService } from './resume-extraction.cron'
 import { ResumeOrphanSweepCron } from './resume-orphan-sweep.cron'
@@ -43,6 +44,7 @@ import {
     ResumeVerificationService,
     VerificationRunner,
     ResumeAiService,
+    ResumeAiDailyBudget,
     ResumeTextExtractionService,
     ResumeTypstService,
     ResumeExtractionCronService,

@@ -17,7 +17,10 @@
  * Quota: Cloudflare BLOCKS the request when the daily allowance is spent (it
  * does not silently bill), surfacing as HTTP 429 / error code 3040. That maps
  * to `QUOTA_EXCEEDED` plus the next 00:00 UTC boundary, so the UI can say when
- * it resets instead of "something went wrong" (AC5).
+ * it resets instead of "something went wrong" (AC5). That holds only on Workers
+ * Free; on Workers Paid the overage is billed. So before EVERY call (the retry
+ * too) the app reserves one call of its own daily budget (`ResumeAiDailyBudget`)
+ * and answers the same `QUOTA_EXCEEDED` without a request once it is spent.
  *
  * SECURITY: the resume text is UNTRUSTED and may contain prompt injection
  * ("ignore previous instructions ..."). Two mitigations: the text is delivered
@@ -38,6 +41,7 @@ import {
   type ResumeFailureCode,
 } from '@crm/shared'
 import type { Env } from '../config/env'
+import { ResumeAiDailyBudget } from './resume-ai-daily-budget'
 
 /**
  * Instruct model that follows the JSON schema instruction. The previous
@@ -91,7 +95,10 @@ export class ResumeAiService {
   private readonly accountId: string | undefined
   private readonly apiToken: string | undefined
 
-  constructor(private readonly config: ConfigService<Env, true>) {
+  constructor(
+    private readonly config: ConfigService<Env, true>,
+    private readonly budget: ResumeAiDailyBudget,
+  ) {
     this.accountId = this.config.get('CLOUDFLARE_ACCOUNT_ID', { infer: true })
     this.apiToken = this.config.get('CLOUDFLARE_AI_TOKEN', { infer: true })
     if (!this.isConfigured()) {
@@ -126,6 +133,8 @@ export class ResumeAiService {
 
     // EXACTLY two attempts — the initial call plus a single corrective retry.
     for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const spent = await this.budgetSpent()
+      if (spent) return { ...spent, tokensUsed }
       const call = await this.callModel(trimmedText, attempt === 2 ? lastParseError : null)
       if (!call.ok) return { ...call, tokensUsed }
 
@@ -146,6 +155,37 @@ export class ResumeAiService {
       message: encodeResumeMessage('RESUME_AI_INVALID_ANSWER'),
       quotaResetsAt: null,
       tokensUsed,
+    }
+  }
+
+  /**
+   * Reserves one call of today's budget. Null = reserved, go ahead; otherwise the failure to return.
+   * A budget that cannot be read fails CLOSED (no call): spending blind is the direction that bills.
+   */
+  private async budgetSpent(): Promise<ResumeExtractionFailure | null> {
+    let reserved: boolean
+    try {
+      reserved = await this.budget.reserveCall()
+    } catch (err: unknown) {
+      this.logger.error(
+        `Resume AI daily budget unreadable, call refused: ${err instanceof Error ? err.message : 'unknown error'}`,
+      )
+      return {
+        ok: false,
+        code: 'MODEL_ERROR',
+        message: encodeResumeMessage('RESUME_AI_UNAVAILABLE'),
+        quotaResetsAt: null,
+        tokensUsed: null,
+      }
+    }
+    if (reserved) return null
+    this.logger.warn('Resume AI daily call budget is spent; no Cloudflare request made')
+    return {
+      ok: false,
+      code: 'QUOTA_EXCEEDED',
+      message: encodeResumeMessage('RESUME_AI_QUOTA_EXCEEDED'),
+      quotaResetsAt: nextUtcMidnight().toISOString(),
+      tokensUsed: null,
     }
   }
 

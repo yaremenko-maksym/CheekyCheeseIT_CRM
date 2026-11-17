@@ -7,6 +7,7 @@
  * and no credential is needed (task §Границы).
  */
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import { Logger } from '@nestjs/common'
 import { decodeResumeMessage } from '@crm/shared'
 import {
   ResumeAiService,
@@ -15,7 +16,21 @@ import {
   nextUtcMidnight,
 } from './resume-ai.service'
 
-function makeService(env: Record<string, string | undefined> = {}): ResumeAiService {
+/** In-memory stand-in for the daily budget: `limit` calls a day, counted per `reserveCall`. */
+function fakeBudget(limit = Number.POSITIVE_INFINITY) {
+  let used = 0
+  const reserveCall = vi.fn(() => {
+    if (used >= limit) return Promise.resolve(false)
+    used += 1
+    return Promise.resolve(true)
+  })
+  return { reserveCall }
+}
+
+function makeService(
+  env: Record<string, string | undefined> = {},
+  budget: { reserveCall: () => Promise<boolean> } = fakeBudget(),
+): ResumeAiService {
   const config = {
     get: (key: string) =>
       key in env
@@ -27,7 +42,7 @@ function makeService(env: Record<string, string | undefined> = {}): ResumeAiServ
             >
           )[key],
   }
-  return new ResumeAiService(config as never)
+  return new ResumeAiService(config as never, budget as never)
 }
 
 function aiResponse(body: unknown, usageTokens = 120): Response {
@@ -155,14 +170,109 @@ describe('ResumeAiService', () => {
     expect(result.code).toBe('QUOTA_EXCEEDED')
   })
 
-  it('missing credentials -> AI_NOT_CONFIGURED without any network call', async () => {
-    const service = makeService({
-      CLOUDFLARE_ACCOUNT_ID: undefined,
-      CLOUDFLARE_AI_TOKEN: undefined,
+  describe('daily call budget', () => {
+    it('blocks call N+1 with QUOTA_EXCEEDED and the next UTC midnight, without a fetch', async () => {
+      fetchSpy.mockResolvedValue(aiResponse(VALID_JSON))
+      const warn = vi.spyOn(Logger.prototype, 'warn')
+      const budget = fakeBudget(2)
+      const service = makeService({}, budget)
+
+      expect((await service.extractStructure('a'.repeat(200))).ok).toBe(true)
+      expect((await service.extractStructure('a'.repeat(200))).ok).toBe(true)
+      const before = nextUtcMidnight().toISOString()
+      const result = await service.extractStructure('a'.repeat(200))
+
+      expect(fetchSpy).toHaveBeenCalledTimes(2)
+      expect(budget.reserveCall).toHaveBeenCalledTimes(3)
+      expect(result).toEqual({
+        ok: false,
+        code: 'QUOTA_EXCEEDED',
+        message: expect.any(String),
+        quotaResetsAt: before,
+        tokensUsed: null,
+      })
+      if (result.ok) throw new Error('unreachable')
+      expect(decodeResumeMessage(result.message, 'RESUME_ERROR_DETAILS_UNAVAILABLE')).toEqual({
+        code: 'RESUME_AI_QUOTA_EXCEEDED',
+      })
+      expect(warn).toHaveBeenCalledWith(
+        'Resume AI daily call budget is spent; no Cloudflare request made',
+      )
     })
+
+    it('counts the corrective retry: a spent budget stops it and keeps the first tokens', async () => {
+      fetchSpy.mockResolvedValueOnce(aiResponse('не json', 77))
+      const budget = fakeBudget(1)
+      const service = makeService({}, budget)
+
+      const result = await service.extractStructure('a'.repeat(200))
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      expect(budget.reserveCall).toHaveBeenCalledTimes(2)
+      expect(result.ok).toBe(false)
+      if (result.ok) throw new Error('unreachable')
+      expect(result.code).toBe('QUOTA_EXCEEDED')
+      expect(result.tokensUsed).toBe(77)
+    })
+
+    it('a valid answer after an invalid one reserves exactly two calls', async () => {
+      fetchSpy
+        .mockResolvedValueOnce(aiResponse('не json'))
+        .mockResolvedValueOnce(aiResponse(VALID_JSON))
+      const budget = fakeBudget(2)
+      const service = makeService({}, budget)
+
+      expect((await service.extractStructure('a'.repeat(200))).ok).toBe(true)
+      expect(budget.reserveCall).toHaveBeenCalledTimes(2)
+    })
+
+    it('fails closed when the budget cannot be read: MODEL_ERROR, no fetch', async () => {
+      const error = vi.spyOn(Logger.prototype, 'error')
+      const budget = { reserveCall: vi.fn(() => Promise.reject(new Error('db down'))) }
+      const service = makeService({}, budget)
+
+      const result = await service.extractStructure('a'.repeat(200))
+
+      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(result).toEqual({
+        ok: false,
+        code: 'MODEL_ERROR',
+        message: expect.any(String),
+        quotaResetsAt: null,
+        tokensUsed: null,
+      })
+      if (result.ok) throw new Error('unreachable')
+      expect(decodeResumeMessage(result.message, 'RESUME_ERROR_DETAILS_UNAVAILABLE')).toEqual({
+        code: 'RESUME_AI_UNAVAILABLE',
+      })
+      expect(error).toHaveBeenCalledWith('Resume AI daily budget unreadable, call refused: db down')
+    })
+
+    it('logs a non-Error budget failure without its value', async () => {
+      const error = vi.spyOn(Logger.prototype, 'error')
+      const service = makeService({}, { reserveCall: () => Promise.reject('opaque') })
+
+      expect((await service.extractStructure('a'.repeat(200))).ok).toBe(false)
+      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(error).toHaveBeenCalledWith(
+        'Resume AI daily budget unreadable, call refused: unknown error',
+      )
+    })
+  })
+
+  it('missing credentials -> AI_NOT_CONFIGURED without any network call', async () => {
+    const budget = fakeBudget()
+    const service = makeService(
+      {
+        CLOUDFLARE_ACCOUNT_ID: undefined,
+        CLOUDFLARE_AI_TOKEN: undefined,
+      },
+      budget,
+    )
 
     const result = await service.extractStructure('a'.repeat(200))
 
+    expect(budget.reserveCall).not.toHaveBeenCalled() // an unconfigured app spends no budget
     expect(fetchSpy).not.toHaveBeenCalled()
     expect(result.ok).toBe(false)
     if (result.ok) throw new Error('unreachable')
