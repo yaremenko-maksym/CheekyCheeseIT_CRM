@@ -114,7 +114,9 @@ describe('router: the Cloudflare route (amendment 2026-11-17)', () => {
   })
 
   it('neither the account id, the key nor the text reaches an event or a result', async () => {
-    const f = scriptedFetch((s) => (s.model === MISTRAL ? reply('410 model deprecated (5028) in the v4 envelope') : GOOD))
+    const f = scriptedFetch((s) =>
+      s.model === MISTRAL ? reply('410 model deprecated (5028) in the v4 envelope') : GOOD,
+    )
     const d = deps(f.fetchImpl, { routeState: route() })
     const r = await createRouter(config([CLOUDFLARE, LOCAL]), d).run(REQ)
     const seen = JSON.stringify({ r, events: d.events })

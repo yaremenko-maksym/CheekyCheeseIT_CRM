@@ -11,9 +11,9 @@ the free allocation: recheck monthly against the pricing page.
 
 Chat goes to `https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/chat/completions` with
 `Authorization: Bearer <token>` and an OpenAI-shaped body. The catalogue is
-`GET /accounts/{account_id}/ai/models/search`, filterable by task. Its documented response type is
+`GET /accounts/{account_id}/ai/models/search`, filterable by task; the router sends `hide_experimental=true`. Its documented response type is
 `result: array of unknown`, so the entry shape is taken from Cloudflare's own docs pipeline (MED). A deprecated
-model answers HTTP 410 (internal code 5028). The free allocation is 10 000 Neurons a day, reset at 00:00 UTC;
+model answers HTTP 410 (internal code 5028); only that code retires a model. The free allocation is 10 000 Neurons a day, reset at 00:00 UTC;
 over it, code 3036 on HTTP 429.
 
 ## Facts
@@ -46,6 +46,10 @@ over it, code 3036 on HTTP 429.
   "You have used up your daily free allocation of 10,000 neurons"; "Out of capacity", `3040`, HTTP `429`;
   "Model requires Workers Paid plan", `5035`, HTTP `403`; "Account blocked", `3023`, HTTP `403`. —
   [Workers AI errors](https://developers.cloudflare.com/workers-ai/platform/errors/), accessed 2026-11-17.
+- A denied Cloudflare API request answers `403` with the v4 envelope `{ "success": false, "errors": [{ "code": 10000,
+"message": "Forbidden", "documentation_url": … }], "messages": [], "result": null }`. —
+  [Enriched 403 responses for the Cloudflare API](https://developers.cloudflare.com/changelog/post/2026-08-20-contextual-403s/),
+  2026-08-21, accessed 2026-11-17. Code 10000 is the one the router reads as AUTH on a 403.
 - The free allocation is 10 000 Neurons a day on both Workers Free and Workers Paid; Workers Free cannot go above
   it, Workers Paid is billed $0.011 per 1 000 Neurons above it. "All limits reset daily at 00:00 UTC." Per-model
   rates: `@cf/mistralai/mistral-small-3.1-24b-instruct` $0.351 / M input and $0.555 / M output tokens
@@ -82,9 +86,16 @@ over it, code 3036 on HTTP 429.
   `properties` array, a context or a price is dropped, never read as "no deprecation".
 - **UNVERIFIED: the error body on the OpenAI-compatible path.** The 410 evidence is the native run endpoint (prod log of
   PR #1370: `Workers AI responded 410: AiError: Model has been deprecated`); the error table does not say which body the
-  `/ai/v1/chat/completions` path sends. The router therefore retires on the 410 status alone, and reads code 3036 from
-  the Cloudflare v4 envelope (`errors[].code`) only when one is present.
-- **UNVERIFIED: the largest `per_page` the search accepts.** Wrangler pages at 50; the router reads one page of 50 and
-  treats a full page as a failed listing, so a truncated catalogue can never shrink the managed list.
-- **Not established: whether the owner's account is on Workers Paid.** On Workers Paid, Neurons above the allocation
-  are billed; the own cap is sized to stay inside the allocation either way.
+  `/ai/v1/chat/completions` path sends. The router retires on a 410 only with code 5028 in the v4 envelope
+  (`errors[].code`), and reads 3036 and 10000 the same way. A 410 without that envelope is TRANSPORT: the route is
+  skipped for the call and nothing is retired. If the path sends plain text, a deprecated model is never retired
+  automatically; the daily listing still drops it once its deprecation date is set.
+- **UNVERIFIED: the code for an invalid or revoked token.** The only primary source found shows 10000 with message
+  "Forbidden" on a 403 (the changelog above); no Cloudflare page ties a code to an invalid token on the Workers AI path.
+  A 401 is AUTH whatever its body says.
+- **UNVERIFIED: the largest `per_page` the search accepts.** Wrangler pages at 50; the router reads pages of 50, up to
+  4 pages (200 entries), stopping at the first short page. A full fourth page is treated as a failed listing, so a
+  truncated catalogue can never shrink the managed list.
+- **The plan: Workers Free, verified 2026-11-17** (the paid-only models answered 5035). On Workers Paid, Neurons above
+  the allocation are billed with no cap; the router's 50 % own cap and the API resume daily cap would then be the only
+  limits, so the owner checks the plan before any upgrade (ADR amendment 2026-11-17, C.3).

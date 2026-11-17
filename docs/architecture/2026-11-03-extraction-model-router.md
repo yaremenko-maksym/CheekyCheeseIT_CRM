@@ -354,13 +354,17 @@ Facts, each with its primary source: `docs/architecture/2026-11-17-cloudflare-wo
 - The host (`api.cloudflare.com/client/v4/accounts`) stays a package constant. There is still no base-URL env.
 - The worker reads the account id from `CLOUDFLARE_ACCOUNT_ID` and the bearer token from `CLOUDFLARE_AI_TOKEN`
   (`buildRouterConfig`). Both are optional. A missing token, or an account id outside the pattern, drops the route: it is
-  not configured, and the worker's env is not refused. The JSON route parameters never carry either value. These are the
-  names the API's resume path already reads.
+  not configured, and the worker's env is not refused. A set but malformed account id is not silent: the worker logs
+  one `ROUTE_ENV_WARNING` line at start (`routerEnvWarnings`) with the route and the reason, never the value. The JSON
+  route parameters never carry either value. These are the names the API's resume path already reads.
 
 #### C.3 The own cap: Neurons mapped to requests (D5)
 
 - The free allowance is 10 000 Neurons a day, reset at 00:00 UTC (`providerDay` keeps UTC for every provider except
   Gemini). The router counts requests, not Neurons, so the cap is a request count derived from the worst case.
+- A Cloudflare route may pin only the ids in `CLOUDFLARE_PINNED_MODEL_PRICES`: the three shipped models, each with its
+  verified price at or under the ceiling. Any other `@cf/...` id refuses the whole route config, so a pin can never
+  cost more per call than the arithmetic below assumes.
 - A route is accepted only if a full day of calls at full context and full answer fits the ceiling price: 31 876 Neurons
   per million input tokens, 50 488 per million output tokens (`CLOUDFLARE_CEILING_NEURONS_PER_M`).
 - `fitsCloudflareAllowance` checks `requestsPerDay × (contextTokens × 31 876 + maxAnswerTokens × 50 488) ≤ 10 000 × 10⁶`
@@ -369,25 +373,37 @@ Facts, each with its primary source: `docs/architecture/2026-11-17-cloudflare-wo
   16 000 × 0.031876 + 2 048 × 0.050488 ≈ 613.4 Neurons a call, so at most 16 calls fit in a day
   (16 × 613.4 ≈ 9 814; 17 × 613.4 ≈ 10 428). `freeLimit.requestsPerDay` is 16, and D5 sets the own cap at 50 %: 8 calls.
 - The API's resume path draws on the same 10 000 Neurons. The 50 % margin is what is left for it; a heavier resume day
-  shows up as SPENT_DAY on this route, never as an overrun.
+  shows up as SPENT_DAY on this route.
+- **"Never an overrun" holds only on Workers Free.** The plan was verified as Workers Free on 2026-11-17: the
+  paid-only models answered 5035. On Workers Paid, Neurons above the free allocation are billed with no cap, and
+  nothing on Cloudflare's side stops the spend. There the only limits are this router's 50 % own cap and the API's
+  resume daily cap (separate PR, `feat/resume-ai-daily-cap`). The owner checks the plan before any upgrade to
+  Workers Paid.
 
-#### C.4 Retirement: 410 always, 404 only when it names the model
+#### C.4 Retirement: 410 with code 5028, 404 only when it names the model
 
-- **410** on a hosted route retires the model: Cloudflare uses it for a deprecated model. The router moves to the next
-  model of the same route in the same call, and the model is skipped on later runs.
+- **410** retires the model only on the Cloudflare route, and only with code 5028 ("Model deprecated") in the v4
+  `errors[]` list. The router moves to the next model of the same route in the same call, and the model is skipped on
+  later runs. Any other 410 (another provider, another code, no envelope, plain text) is TRANSPORT: page text can never
+  retire a model.
 - **404** retires the model only when the error names it (the "no such model" body). Any other 404 (for example 3042, a
   missing route) is TRANSPORT: the router moves to the next route and retires nothing.
 - **429 with error code 3036** in the v4 `errors[]` list (the daily allocation) is SPENT_DAY for that model, wherever 3036
   stands in the list. 3040 (out of capacity) stays BUSY.
-- **403** in chat is TRANSPORT (the account or token cannot use the model today). The listing reads 401 and 403 as an
-  auth failure, the same as Groq.
+- **401** in chat is AUTH, as on every provider. **403** is AUTH only with code 10000 (the API v4 authentication
+  error) in the v4 `errors[]` list, so a revoked or invalid token disables the route. Every other 403 is TRANSPORT:
+  5035 (model needs Workers Paid) moves to the next route and retires nothing, and so does 3023 (account blocked). The
+  listing reads 401 and 403 as an auth failure, the same as Groq.
 
 #### C.5 Self-heal: listing only
 
-- The daily refresh reads the models search filtered to Text Generation, 50 per page and at most 4 pages. A full fourth
+- The daily refresh reads the models search filtered to Text Generation with `hide_experimental=true`, 50 per page
+  and at most 4 pages. A full fourth
   page fails closed: the listing is not trusted as complete, and the managed list stays as it was.
 - An entry is kept only if it has no planned deprecation date, a positive context of plain digits, and an input and an
-  output price both at or under the ceiling (USD 0.351 / 0.555 per million). `hide_experimental` is not sent.
+  output price both above 0 and at or under the ceiling (USD 0.351 / 0.555 per million). A missing or 0 price is
+  refused. An addition is admitted only from the vendors of the pinned chain (`mistralai`, `google`, `openai`, `meta`),
+  so an open `@cf/*/*` id from another vendor never reaches the managed list.
 - The managed list is written the way Groq's is (`pickListedModels`); additions pass `isValidProviderModelId`
   (`@cf/{vendor}/{name}`, length-capped). The refresh sends no probe chats to Cloudflare.
 - The pinned chain is `@cf/mistralai/mistral-small-3.1-24b-instruct`, then `@cf/openai/gpt-oss-20b`, then
