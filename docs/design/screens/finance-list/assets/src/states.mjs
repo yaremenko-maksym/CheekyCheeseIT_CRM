@@ -214,7 +214,9 @@ const draftsD = (w, h) =>
     .replace('C</span></span></header>', `C</span>${DOT}</span></header>`)
 
 // ---------- Show deleted (ADMIN / ACCOUNTANT only) ----------
-const WITH_DELETED = ROWS.map((r, i) => (i === 2 || i === 7 ? { ...r, deleted: true } : r))
+const WITH_DELETED = ROWS.map((r, i) =>
+  i === 2 || i === 7 ? { ...r, deleted: true, act: 'Відновити' } : r,
+)
 const deletedM = (w, h) =>
   phoneTab(w, h, {
     body: `${searchAndFilters({ active: ['Видалені'], count: 1 })}${dayList(WITH_DELETED)}`,
@@ -227,10 +229,7 @@ const deletedD = (w, h) =>
       w,
       sel: -1,
       hover: 2,
-    }).replace(
-      /(<tr [^>]*class="hover"[\s\S]*?)<span class="btn secondary sm rowact" style="opacity:1">[^<]*<\/span>/,
-      '$1',
-    )}${pager(1, 50, 134)}`,
+    })}${pager(1, 50, 134)}`,
   })
 
 // ---------- Long content: long parties, the longest status, big amounts ----------
