@@ -568,7 +568,8 @@ describe('provider-specific signals stay with their provider', () => {
   it('a Cloudflare 401 is AUTH whatever the body says', async () => {
     // F10: the verified live 401 body is in CLOUDFLARE_FIXTURES (the table above runs it too).
     const fixture = CLOUDFLARE_FIXTURES.find((f) => f.name.startsWith('401 invalid bearer'))
-    if (fixture === undefined) throw new Error('401 invalid bearer fixture missing from CLOUDFLARE_FIXTURES')
+    if (fixture === undefined)
+      throw new Error('401 invalid bearer fixture missing from CLOUDFLARE_FIXTURES')
     for (const body of [fixture.body, cfEnvelope(10000), '']) {
       expect((await run(HOSTED.cloudflare, 401, body)).result).toStrictEqual({
         ok: false,
