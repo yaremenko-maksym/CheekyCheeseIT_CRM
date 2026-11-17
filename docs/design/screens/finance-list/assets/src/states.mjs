@@ -1,7 +1,7 @@
 // Finance list (Task 1.2): states, single interaction frames. Built on the main-state blocks.
 // Every name and amount below is invented seed-like data: no real people, companies or money.
 import { icon, phone, safeBottom } from '../../../_foundation/assets/src/base.mjs'
-import { tabScreen, topBar, TABBAR_H } from '../../../_foundation/assets/src/mobile.mjs'
+import { topBar, TABBAR_H } from '../../../_foundation/assets/src/mobile.mjs'
 import {
   sheet,
   closeBtn,
@@ -25,22 +25,27 @@ import {
   table,
   pager,
   title,
+  listScreen,
+  txCount,
 } from './finance-list.mjs'
 
 // ---------- Shared pieces ----------
 export const phoneTab = (w, h, opts) =>
-  tabScreen({ w, h, role: 'ADMIN', active: '/finance', title: 'Фінанси', ...opts })
+  listScreen({ w, h, role: 'ADMIN', active: '/finance', title: 'Фінанси', ...opts })
 
 // A quiet in-flow notice (same slot and shape as the foundation offline banner).
-export const notice = (text, { ic = 'info', tone = 'var(--info)', action = '' } = {}) =>
-  `<div role="status" class="row" style="gap:8px;margin:0 12px 6px;padding:8px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font-size:14px;line-height:18px"><span style="color:${tone};display:grid;flex:none">${icon(ic, { size: 16 })}</span><span class="grow">${text}</span>${action}</div>`
-const dNotice = (text, opts) =>
+export const notice = (
+  text,
+  { ic = 'info', tone = 'var(--info)', action = '', role = 'status' } = {},
+) =>
+  `<div role="${role}" class="row" style="gap:8px;margin:0 12px 6px;padding:8px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font-size:14px;line-height:18px"><span style="color:${tone};display:grid;flex:none">${icon(ic, { size: 16 })}</span><span class="grow">${text}</span>${action}</div>`
+export const dNotice = (text, opts) =>
   notice(text, opts)
     .replace('margin:0 12px 6px', 'margin:0')
     .replace('font-size:14px', 'font-size:13px')
 
 // Desktop: the state block sits inside the same card the table uses, so the frame does not jump.
-const dCard = (inner) =>
+export const dCard = (inner) =>
   `<div class="grow col" style="min-height:0;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card);align-items:center">${inner}</div>`
 
 const EMPTY = {
@@ -53,7 +58,7 @@ const FILTERED = {
   text: 'Змініть пошук або скиньте фільтри.',
   action: `<span class="btn secondary" style="height:44px">Скинути фільтри</span>`,
 }
-const ERROR = {
+export const ERROR = {
   ic: 'cloud-alert',
   tone: 'var(--destructive)',
   role: 'alert',
@@ -61,6 +66,7 @@ const ERROR = {
   text: 'Сервер не відповів. Нічого не змінено — спробуйте ще раз.',
   action: `<span class="btn secondary" style="height:44px">${icon('rotate-cw', { size: 18 })}Спробувати ще</span>`,
 }
+export const retry = `<span class="btn ghost sm" style="height:44px;color:var(--primary);flex:none">Повторити</span>`
 
 // ---------- Loading ----------
 const loadingM = (w, h) =>
@@ -77,7 +83,7 @@ const loadingD = (w, h) =>
   desktopFrame({
     w,
     h,
-    body: `${toolbar({ w, deleted: false, total: '…' }).replace('… транзакції', '<span class="sk" style="display:inline-block;width:80px;height:11px"></span>')}<div role="status" aria-label="Завантаження транзакцій" style="display:contents">${table([], { w }).replace('<tbody></tbody>', `<tbody>${skTableRows(12)}</tbody>`)}</div>`,
+    body: `${toolbar({ w, deleted: false, count: '<span class="sk" style="display:inline-block;width:80px;height:11px"></span>' })}<div role="status" aria-label="Завантаження транзакцій" style="display:contents">${table([], { w }).replace('<tbody></tbody>', `<tbody>${skTableRows(12)}</tbody>`)}</div>`,
   })
 
 // ---------- Empty (no transactions at all): no search, no filters; the «+» is the one entry ----------
@@ -93,15 +99,17 @@ const emptyD = (w, h) =>
   })
 
 // ---------- Filtered to nothing ----------
-const filteredM = (w, h) =>
+const filteredM = (w, h, active = ['Статус: Відхилено']) =>
   phoneTab(w, h, {
-    body: `${searchAndFilters({ q: 'оренда', active: ['Відхилено'], count: 1 })}${stateBlock(FILTERED)}`,
+    body: `${searchAndFilters({ q: 'оренда', active })}${stateBlock(FILTERED)}`,
   })
+// 320: three active chips — the row scrolls sideways; the sort chip stays second.
+const filtered320 = (w, h) => filteredM(w, h, ['Тип: Витрата', 'Статус: Відхилено', 'З видаленими'])
 const filteredD = (w, h) =>
   desktopFrame({
     w,
     h,
-    body: `${toolbar({ w, status: 'Відхилено', deleted: false, total: 0, q: 'оренда' }).replace('0 транзакції', '0 з 132')}${dCard(stateBlock(FILTERED))}`,
+    body: `${toolbar({ w, status: 'Відхилено', deleted: false, count: '0 з 132', q: 'оренда' })}${dCard(stateBlock(FILTERED))}`,
   })
 
 // ---------- Error (first load failed; nothing cached) ----------
@@ -110,30 +118,26 @@ const errorD = (w, h) =>
   desktopFrame({
     w,
     h,
-    body: `${toolbar({ w, deleted: false, total: '—' })}${dCard(stateBlock(ERROR))}`,
+    body: `${toolbar({ w, deleted: false, count: '—' })}${dCard(stateBlock(ERROR))}`,
   })
 
-// ---------- Offline: cached list stays readable; creating still opens (the form keeps the draft) ----------
+// ---------- Offline: the cached list stays readable; every action stays enabled (M4) ----------
+// A write attempted offline ends in the definite alert inside its dialog; nothing is disabled here.
+const OFFLINE_TEXT =
+  'Немає з’єднання. Показано останні завантажені дані; збереження не пройде, введене залишиться у формі.'
 const offlineM = (w, h) =>
   phoneTab(w, h, { body: `${offlineBanner()}${searchAndFilters()}${dayList(ROWS)}` })
 const offlineD = (w, h) =>
   desktopFrame({
     w,
     h,
-    body: `${dNotice('Немає з’єднання. Показано останні завантажені дані; збереження не пройде, введене залишиться у формі.', { ic: 'wifi-off', tone: 'var(--warning)' })}${toolbar({ w, deleted: false })}${table(ROWS, { w, sel: -1 })}${pager()}`,
+    body: `${dNotice(OFFLINE_TEXT, { ic: 'wifi-off', tone: 'var(--warning)' })}${toolbar({ w, deleted: false })}${table(ROWS, { w, sel: -1, hover: 1 })}${pager()}`,
   })
 
 // ---------- Partial: the rates query failed; amounts stay in the transaction currency ----------
-// Rows whose currency is not USD show their own amount; USD rows are unchanged.
-const RATES_OFF = ROWS.map((r, i) =>
-  r.orig
-    ? { ...r, a: '+257 800,00 UAH', orig: undefined }
-    : i === 1
-      ? { ...r, a: '+4 420,00 EUR' }
-      : r,
-)
+// The converted row shows its own amount; USD / USDT rows are unchanged. Amount sort is disabled.
+export const RATES_OFF = ROWS.map((r) => (r.orig ? { ...r, a: r.orig, orig: undefined } : r))
 const RATES_TEXT = 'Курс недоступний — суми показано у валюті транзакції.'
-const retry = `<span class="btn ghost sm" style="height:44px;color:var(--primary);flex:none">Повторити</span>`
 const partialM = (w, h) =>
   phoneTab(w, h, {
     body: `${searchAndFilters()}${notice(RATES_TEXT, { ic: 'circle-alert', tone: 'var(--warning)', action: retry })}${dayList(RATES_OFF)}`,
@@ -142,30 +146,31 @@ const partialD = (w, h) =>
   desktopFrame({
     w,
     h,
-    body: `${dNotice(RATES_TEXT, { ic: 'circle-alert', tone: 'var(--warning)', action: retry.replace('height:44px', 'height:28px') })}${toolbar({ w, deleted: false })}${table(RATES_OFF, { w, sel: -1 })}${pager()}`,
+    body: `${dNotice(RATES_TEXT, { ic: 'circle-alert', tone: 'var(--warning)', action: retry.replace('height:44px', 'height:28px') })}${toolbar({ w, deleted: false })}${table(RATES_OFF, { w, sel: -1, sortOff: true })}${pager()}`,
   })
 
 // ---------- Filters: phone bottom sheet (URL-held); desktop listbox ----------
 const pickRow = (k, v) =>
   `<div class="lrow" role="button" aria-haspopup="dialog" style="min-height:52px"><div class="grow t-body">${k}</div><span class="muted t-sub trunc" style="max-width:58%">${v}</span>${icon('chevron-right', { size: 18, cls: 'chev' })}</div>`
-const filterSheet = (w, h, { deleted = true } = {}) => {
-  const body = `<div class="group">${pickRow('Тип', 'Усі типи')}${pickRow('Статус', 'Очікує валідації')}${pickRow('Сортування', 'Спочатку нові')}</div>
+export const filterBody = ({ deleted = true } = {}) =>
+  `<div class="group">${pickRow('Тип', 'Усі типи')}${pickRow('Статус', 'Очікує валідації')}${pickRow('Сортування', 'Спочатку нові')}</div>
   ${deleted ? `<div class="group" style="margin-top:14px"><div class="lrow" style="min-height:52px"><div class="grow t-body">Показати видалені</div>${toggle(false, 'Показати видалені')}</div></div>` : ''}`
-  const footer = `<div style="padding:12px 16px ${safeBottom(w) + 8}px"><span class="btn primary" style="width:100%">Показати 18</span></div>`
-  return sheet({
+export const SHOW_N = 'Показати 18 транзакцій'
+const filterSheet = (w, h, { deleted = true } = {}) =>
+  sheet({
     w,
     h,
-    top: Math.round(h * (w <= 320 ? 0.3 : 0.5)),
+    top: Math.round(h * (w <= 320 ? 0.22 : 0.5)),
     title: 'Фільтри',
     lead: '<span style="font-size:17px">Скинути</span>',
     trail: closeBtn,
-    body,
-    footer,
+    body: filterBody({ deleted }),
+    footer: `<div style="padding:12px 16px ${safeBottom(w) + 8}px"><span class="btn primary" style="width:100%">${SHOW_N}</span></div>`,
   })
-}
+export const PENDING_ROWS = ROWS.filter((r) => r.st === 'PENDING')
 const filtersM = (w, h) =>
   phoneTab(w, h, {
-    body: `${searchAndFilters({ active: ['Очікує валідації'], count: 1 })}${dayList(ROWS.filter((r) => r.st === 'PENDING'))}`,
+    body: `${searchAndFilters({ active: ['Статус: Очікує валідації'] })}${dayList(PENDING_ROWS)}`,
     overlay: filterSheet(w, h),
     showFab: false,
   })
@@ -183,8 +188,8 @@ const filtersD = (w, h) =>
   desktopFrame({
     w,
     h,
-    body: `${toolbar({ w, status: 'Очікує валідації', deleted: false, total: 18 }).replace('18 транзакції', '18 з 132')}${table(
-      ROWS.filter((r) => r.st === 'PENDING'),
+    body: `${toolbar({ w, status: 'Очікує валідації', deleted: false, count: '18 з 132' })}${table(
+      PENDING_ROWS,
       { w, sel: -1 },
     )}`,
     overlay: statusMenu(248 + 24 + (w >= 1280 ? 300 : 220) + 8 + 92 + 8),
@@ -196,6 +201,14 @@ const draftsM = (w, h) =>
     phoneTab(w, h, {
       body: `${searchAndFilters()}${pinnedRows([DRAFT.failed])}${dayList(ROWS)}`,
     }),
+  )
+// Four kept drafts (shell v2 §4): unresolved first, two rows, then «Ще 2 чернетки · Показати».
+const draftsUnknownM = (w, h) =>
+  draftFab(
+    phoneTab(w, h, {
+      body: `${searchAndFilters()}${pinnedRows([DRAFT.armed, DRAFT.failed2, DRAFT.inflight, DRAFT.unknown])}${dayList(ROWS)}`,
+    }),
+    2,
   )
 const WARN = (p) => `color-mix(in oklch, var(--destructive) ${p}%, transparent)`
 const draftTr = `<tr><td colspan="7" style="padding:0;max-width:none;background:${WARN(7)};box-shadow:inset 2px 0 0 var(--destructive)"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:var(--destructive);display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600;white-space:nowrap">${AMOUNT} USD</span><span class="grow muted trunc">Не збережено · Витрата</span><button type="button" class="btn sm secondary" aria-label="Відкрити чернетку ${AMOUNT} USD" style="height:28px;font-size:13px;padding:0 12px;background:${WARN(18)};border-color:${WARN(45)}">Відкрити</button></div></td></tr>`
@@ -213,13 +226,13 @@ const draftsD = (w, h) =>
     )
     .replace('C</span></span></header>', `C</span>${DOT}</span></header>`)
 
-// ---------- Show deleted (ADMIN / ACCOUNTANT only) ----------
-const WITH_DELETED = ROWS.map((r, i) =>
+// ---------- Show deleted (ADMIN / ACCOUNTANT only): the «Видалено» pill takes the status slot ----------
+export const WITH_DELETED = ROWS.map((r, i) =>
   i === 2 || i === 7 ? { ...r, deleted: true, act: 'Відновити' } : r,
 )
 const deletedM = (w, h) =>
   phoneTab(w, h, {
-    body: `${searchAndFilters({ active: ['Видалені'], count: 1 })}${dayList(WITH_DELETED)}`,
+    body: `${searchAndFilters({ active: ['З видаленими'] })}${dayList(WITH_DELETED)}`,
   })
 const deletedD = (w, h) =>
   desktopFrame({
@@ -232,28 +245,41 @@ const deletedD = (w, h) =>
     })}${pager(1, 50, 134)}`,
   })
 
-// ---------- Long content: long parties, the longest status, big amounts ----------
-const LONG = [
+// ---------- Long content: long parties, the longest status, big amounts, a row from another year ----------
+// 1 234 567,89 USD × 41,25 = 50 925 925,46 UAH (assertFixtures()).
+export const LONG = [
   {
     day: 'Сьогодні',
     d: '17.11',
-    time: '15:48',
     from: 'Клієнт «Міжнародна освітня платформа для дистанційного навчання»',
     to: 'Олег Демо',
     type: 'ADMIN_INCOME',
     project: 'Платформа онлайн-курсів для корпоративних клієнтів',
     st: 'PENDING_CASH_CONFIRM',
-    a: '+1 234 567,89 USD',
-    orig: '50 987 654,32 UAH',
-    act: 'Перевірити',
+    a: '≈ $1 234 567,89',
+    orig: '50 925 925,46 UAH',
+    usd: 1234567.89,
+    uah: 50925925.46,
+    act: 'Валідувати',
   },
   ...ROWS.slice(0, 1),
   {
     ...ROWS[3],
     to: 'Розробник з дуже довгим ім’ям і прізвищем для перевірки переносу',
-    a: '−12 345,67 USD',
+    a: '$12 345,67',
   },
   ...ROWS.slice(4),
+  {
+    day: '28 грудня 2025',
+    d: '28.12.25',
+    from: 'Рахунок компанії',
+    to: 'Розробник 2',
+    type: 'SALARY',
+    project: 'Бета',
+    st: 'PAID',
+    a: '$1 980,00',
+    month: 'Грудень 2025',
+  },
 ]
 const longM = (w, h) => phoneTab(w, h, { body: `${searchAndFilters()}${dayList(LONG)}` })
 const longD = (w, h) =>
@@ -263,7 +289,7 @@ const longD = (w, h) =>
     body: `${toolbar({ w, deleted: false })}${table(LONG, { w, sel: -1 })}${pager()}`,
   })
 
-export { title, TYPE, row, phone, topBar, TABBAR_H }
+export { title, TYPE, row, phone, topBar, TABBAR_H, txCount }
 
 export function stateFrames() {
   const pair = (name, m, d) => [
@@ -274,13 +300,18 @@ export function stateFrames() {
     ...pair('loading', loadingM, loadingD),
     ...pair('empty', emptyM, emptyD),
     ...pair('filtered', filteredM, filteredD),
+    M('filtered-320', 320, 568, filtered320(320, 568)),
     ...pair('error', errorM, errorD),
+    M('error-320', 320, 568, errorM(320, 568)),
     ...pair('offline', offlineM, offlineD),
     ...pair('partial', partialM, partialD),
     ...pair('filters', filtersM, filtersD),
+    M('filters-320', 320, 568, filtersM(320, 568)),
     ...pair('drafts', draftsM, draftsD),
+    M('drafts-unknown-375', 375, 812, draftsUnknownM(375, 812)),
     ...pair('deleted', deletedM, deletedD),
-    M('long-320', 320, 568, longM(320, 568)),
+    M('deleted-320', 320, 1462, deletedM(320, 1462), true),
+    M('long-320', 320, 1526, longM(320, 1526), true),
     D('long-1440', 1440, 900, longD(1440, 900)),
   ]
 }

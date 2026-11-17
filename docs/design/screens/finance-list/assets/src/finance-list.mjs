@@ -7,147 +7,132 @@ import { brandMark } from '../../../_foundation/assets/src/tablet.mjs'
 
 // ---------- Data ----------
 // st: PENDING | VALIDATED | PENDING_PAYMENT | REJECTED | PAID | LOCKED | PENDING_CASH_CONFIRM
+// a: the lead figure in USD, unsigned and in the default colour (today no amount carries a sign, §3.5).
+// orig: the transaction's own amount when it is not USD / USDT; the lead figure then carries «≈».
+// Fixture rate: 1 USD = 41,25 UAH (assertFixtures() in round1.mjs checks every converted row).
+const R = (day, d, from, to, type, project, st, a, more = {}) => ({
+  day,
+  d,
+  from,
+  to,
+  type,
+  project,
+  st,
+  a,
+  ...more,
+})
 export const ROWS = [
-  {
-    day: 'Сьогодні',
-    d: '17.11',
-    time: '14:20',
-    from: 'Рахунок компанії',
-    to: 'Оренда офісу',
-    type: 'EXPENSE',
-    project: 'Альфа',
-    st: 'PAID',
-    a: '−1 200,00 USD',
+  R(
+    'Сьогодні',
+    '17.11',
+    'Рахунок компанії',
+    'Оренда офісу',
+    'EXPENSE',
+    'Альфа',
+    'PAID',
+    '$1 200,00',
+    { att: true },
+  ),
+  R(
+    'Сьогодні',
+    '17.11',
+    'Клієнт «Північ»',
+    'Олег Демо',
+    'SENIOR_INCOME',
+    'Бета',
+    'PENDING',
+    '$4 800,00',
+    { act: 'Валідувати' },
+  ),
+  R(
+    'Сьогодні',
+    '17.11',
+    'Рахунок компанії',
+    'Хмарний хостинг',
+    'EXPENSE',
+    'Інфраструктура',
+    'PAID',
+    '$86,40',
+    { att: true },
+  ),
+  R(
+    'Вчора',
+    '16.11',
+    'Рахунок компанії',
+    'Розробник 4',
+    'SALARY',
+    'Альфа',
+    'PENDING',
+    '$2 150,00',
+    { act: 'Розрахуватися', month: 'Листопад 2026' },
+  ),
+  R(
+    'Вчора',
+    '16.11',
+    'Олег Демо',
+    'Рахунок компанії',
+    'PAYOUT',
+    'Бета',
+    'PENDING_PAYMENT',
+    '$3 000,00',
+    { act: 'Підтвердити оплату' },
+  ),
+  R(
+    'Вчора',
+    '16.11',
+    'Клієнт «Схід»',
+    'Адмін Демо',
+    'ADMIN_INCOME',
+    'Гамма',
+    'VALIDATED',
+    '≈ $6 250,00',
+    { orig: '257 812,50 UAH', usd: 6250, uah: 257812.5 },
+  ),
+  R(
+    '15 листопада',
+    '15.11',
+    'Адмін Демо',
+    'Рахунок компанії',
+    'ADMIN_TRANSFER',
+    '—',
+    'PAID',
+    '$1 500,00',
+  ),
+  R(
+    '15 листопада',
+    '15.11',
+    'Рахунок компанії',
+    'Дизайн-інструмент',
+    'EXPENSE',
+    '—',
+    'REJECTED',
+    '$29,00',
+  ),
+  R(
+    '14 листопада',
+    '14.11',
+    'Рахунок компанії',
+    'Розробник 2',
+    'SALARY',
+    'Бета',
+    'PAID',
+    '$1 980,00',
+    { month: 'Жовтень 2026' },
+  ),
+  R(
+    '14 листопада',
+    '14.11',
+    'Клієнт «Захід»',
+    'Дроп Демо',
+    'DROP_INCOME',
+    'Альфа',
+    'VALIDATED',
+    '$3 400,00',
+  ),
+  R('13 листопада', '13.11', 'Рахунок компанії', 'Обладнання', 'EXPENSE', '—', 'PAID', '$310,00', {
     att: true,
-  },
-  {
-    day: 'Сьогодні',
-    d: '17.11',
-    time: '11:05',
-    from: 'Клієнт «Північ»',
-    to: 'Олег Демо',
-    type: 'SENIOR_INCOME',
-    project: 'Бета',
-    st: 'PENDING',
-    a: '+4 800,00 USD',
-    act: 'Перевірити',
-  },
-  {
-    day: 'Сьогодні',
-    d: '17.11',
-    time: '09:12',
-    from: 'Рахунок компанії',
-    to: 'Хмарний хостинг',
-    type: 'EXPENSE',
-    project: 'Інфраструктура',
-    st: 'PAID',
-    a: '−86,40 USD',
-    att: true,
-  },
-  {
-    day: 'Вчора',
-    d: '16.11',
-    time: '18:40',
-    from: 'Рахунок компанії',
-    to: 'Розробник 4',
-    type: 'SALARY',
-    project: 'Альфа',
-    st: 'PENDING',
-    a: '−2 150,00 USD',
-    act: 'Розрахуватися',
-  },
-  {
-    day: 'Вчора',
-    d: '16.11',
-    time: '16:02',
-    from: 'Олег Демо',
-    to: 'Рахунок компанії',
-    type: 'PAYOUT',
-    project: 'Бета',
-    st: 'PENDING_PAYMENT',
-    a: '−3 000,00 USD',
-    act: 'Підтвердити оплату',
-  },
-  {
-    day: 'Вчора',
-    d: '16.11',
-    time: '10:30',
-    from: 'Клієнт «Схід»',
-    to: 'Адмін Демо',
-    type: 'ADMIN_INCOME',
-    project: 'Гамма',
-    st: 'VALIDATED',
-    a: '+6 250,00 USD',
-    orig: '257 800,00 UAH',
-  },
-  {
-    day: '15 листопада',
-    d: '15.11',
-    time: '13:15',
-    from: 'Рахунок компанії',
-    to: 'Канцтовари',
-    type: 'EXPENSE',
-    project: '—',
-    st: 'PAID',
-    a: '−42,15 USD',
-    att: true,
-  },
-  {
-    day: '15 листопада',
-    d: '15.11',
-    time: '08:00',
-    from: 'Рахунок компанії',
-    to: 'Дизайн-інструмент',
-    type: 'EXPENSE',
-    project: '—',
-    st: 'REJECTED',
-    a: '−29,00 USD',
-  },
-  {
-    day: '14 листопада',
-    d: '14.11',
-    time: '17:45',
-    from: 'Рахунок компанії',
-    to: 'Розробник 2',
-    type: 'SALARY',
-    project: 'Бета',
-    st: 'PAID',
-    a: '−1 980,00 USD',
-  },
-  {
-    day: '14 листопада',
-    d: '14.11',
-    time: '12:10',
-    from: 'Клієнт «Захід»',
-    to: 'Дроп Демо',
-    type: 'DROP_INCOME',
-    project: 'Альфа',
-    st: 'VALIDATED',
-    a: '+3 400,00 USD',
-  },
-  {
-    day: '13 листопада',
-    d: '13.11',
-    time: '15:30',
-    from: 'Рахунок компанії',
-    to: 'Обладнання',
-    type: 'EXPENSE',
-    project: '—',
-    st: 'PAID',
-    a: '−310,00 USD',
-    att: true,
-  },
-  {
-    day: '13 листопада',
-    d: '13.11',
-    time: '09:00',
-    from: 'Рахунок компанії',
-    to: 'Банк',
-    type: 'EXPENSE',
-    project: '—',
-    st: 'PAID',
-    a: '−12,50 USD',
-  },
+  }),
+  R('13 листопада', '13.11', 'Рахунок компанії', 'Банк', 'EXPENSE', '—', 'PAID', '$12,50'),
 ]
 
 export const TYPE = {
@@ -184,37 +169,76 @@ export const pill = (st, { small = false } = {}) => {
 const CLAMP2 =
   'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere'
 
+const SMALL =
+  'height:auto;min-height:20px;white-space:normal;line-height:15px;padding:2px 7px;font-size:11px'
+// Row-write markers (§9.2): pending while the server has not answered, unknown until a refetch settles it.
+export const MARK = {
+  pending: `<span class="pill" role="status" style="${SMALL};color:var(--info);border-color:oklch(0.38 0.07 250);background:oklch(0.2 0.035 250);gap:5px"><span class="spin" aria-hidden="true" style="display:inline-block;width:10px;height:10px;border-radius:50%;border:1.6px solid currentColor;border-right-color:transparent"></span>Зберігається…</span>`,
+  unknown: `<span class="pill warn" role="status" style="${SMALL};gap:4px">${icon('circle-alert', { size: 12, stroke: 2.2 })}Результат невідомий</span>`,
+  left: '<span class="t-foot muted">Не відповідає фільтру</span>',
+}
+const delPill = `<span class="pill" style="${SMALL}">Видалено</span>`
+// Status slot: the pill when the status needs someone (or the viewer can still act, OP-7), the
+// «Видалено» pill and the row-write marker. Never before the title (R1-20).
+const statusSlot = (x) => {
+  const parts = [
+    !FINAL.has(x.st) || x.showPill
+      ? pill(x.st, { small: true }).replace(
+          /height:18px;font-size:11px;padding:0 6px;/,
+          `${SMALL};`,
+        )
+      : '',
+    x.deleted ? delPill : '',
+    x.mark ? MARK[x.mark] : '',
+  ].filter(Boolean)
+  return parts.length
+    ? `<div class="row" style="gap:6px;flex-wrap:wrap;margin-top:3px">${parts.join('')}</div>`
+    : ''
+}
+const amountBlock = (x, wrap = false) =>
+  `<span class="${wrap ? 'row' : 'col'}" style="${wrap ? 'gap:8px;align-items:baseline;flex-wrap:wrap' : 'align-items:flex-end;flex:none'}"><span class="amount">${x.a}</span>${x.orig ? `<span class="t-cap muted num">${x.orig}</span>` : ''}</span>`
+
 export function row(x, { sel = false } = {}) {
   const [typeLabel, ic] = TYPE[x.type]
-  const neg = x.a.startsWith('−')
   const clip = x.att
     ? ` · <span aria-label="Чек прикріплено" style="display:inline-flex;vertical-align:-2px">${icon('paperclip', { size: 13 })}</span>`
     : ''
-  const meta = `<span class="num">${x.time}</span> · ${typeLabel}${x.project && x.project !== '—' ? ` · Проєкт «${x.project}»` : ''}${clip}`
-  const status = FINAL.has(x.st) ? '' : pill(x.st, { small: true })
-  // Foundation anatomy: title + amount, then the meta line across the full width; a status that needs
-  // attention takes its own third line (it wraps, never truncates).
-  const del = x.deleted
-    ? '<span class="pill" style="height:18px;font-size:11px;padding:0 6px;vertical-align:middle;margin-right:6px">Видалено</span>'
-    : ''
-  const trail = `<span class="col" style="align-items:flex-end;flex:none"><span class="amount ${neg ? '' : 'pos'}">${x.a}</span>${x.orig ? `<span class="t-cap muted num">${x.orig}</span>` : ''}</span>`
-  const stLine = status
-    ? `<div style="margin-top:3px">${status.replace('height:18px;', 'height:auto;min-height:20px;white-space:normal;line-height:15px;padding:2px 7px;')}</div>`
-    : ''
+  // No clock time anywhere (M12): type, the salary month, the project, the receipt clip.
+  const meta = `${typeLabel}${x.month ? ` · ${x.month}` : ''}${x.project && x.project !== '—' ? ` · Проєкт «${x.project}»` : ''}${clip}`
   // An amount over 14 characters (7+ digits) would squeeze the title to a word: it drops under the title.
-  const stack = x.a.length > 14
-  const head = stack
-    ? `<div class="t-body" style="font-weight:500;${CLAMP2}">${del}${title(x)}</div><div class="row" style="gap:8px;align-items:baseline;flex-wrap:wrap"><span class="amount ${neg ? '' : 'pos'}">${x.a}</span>${x.orig ? `<span class="t-cap muted num">${x.orig}</span>` : ''}</div>`
-    : `<div class="row" style="align-items:flex-start;gap:12px"><div class="t-body grow" style="font-weight:500;${CLAMP2}">${del}${title(x)}</div>${trail}</div>`
+  const head =
+    x.a.length > 14
+      ? `<div class="t-body" style="font-weight:500;${CLAMP2}">${title(x)}</div>${amountBlock(x, true)}`
+      : `<div class="row" style="align-items:flex-start;gap:12px"><div class="t-body grow" style="font-weight:500;${CLAMP2}">${title(x)}</div>${amountBlock(x)}</div>`
   // Deleted rows: muted text (>= 4.5:1), never opacity (opacity drops contrast below AA).
-  return `${x.deleted ? `<style>${DEL_CSS}</style>` : ''}<div class="lrow two${x.deleted ? ' del' : ''}" role="link" style="--inset:64px;${sel ? 'background:var(--raised);' : ''}"><div class="lead">${icon(ic, { size: 18 })}</div>
-  <div class="grow col" style="gap:2px;min-width:0">${head}<div class="t-foot muted trunc">${meta}</div>${stLine}</div></div>`
+  return `${x.deleted ? `<style>${DEL_CSS}</style>` : ''}<div class="lrow two${x.deleted ? ' del' : ''}" role="link" ${sel ? 'aria-current="true" ' : ''}style="--inset:64px;${sel ? 'background:var(--raised);' : ''}"><div class="lead">${icon(ic, { size: 18 })}</div>
+  <div class="grow col" style="gap:2px;min-width:0">${head}<div class="t-foot muted trunc">${meta}</div>${statusSlot(x)}</div></div>`
 }
 
-// The title names the party that is not the company account; a third-party flow shows both sides.
+// The title names the party that is not the viewer (OP-12). For ADMIN / ACCOUNTANT the viewer is the
+// company account; a flow with neither side being the company shows both. `t` overrides it for the
+// person viewers (SENIOR, HR, JUNIOR, DROP), whose own name never appears.
 export const COMPANY = 'Рахунок компанії'
 export const title = (x) =>
-  x.from === COMPANY ? x.to : x.to === COMPANY ? x.from : `${x.from} → ${x.to}`
+  x.t ?? (x.from === COMPANY ? x.to : x.to === COMPANY ? x.from : `${x.from} → ${x.to}`)
+
+// Ukrainian plural for «транзакція» (one / few / many; `other` is the fraction form, never hit here).
+export const txCount = (n) => {
+  const m10 = n % 10
+  const m100 = n % 100
+  const w =
+    m10 === 1 && m100 !== 11
+      ? 'транзакція'
+      : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)
+        ? 'транзакції'
+        : 'транзакцій'
+  return `${n} ${w}`
+}
+
+// The phone list screen: the foundation tab screen without the top-bar search icon (R1-15) — the
+// search field is always in the list head.
+export const listScreen = (opts) =>
+  tabScreen(opts).replace(/<div class="iconbtn" aria-label="Пошук">[\s\S]*?<\/div>/, '')
 
 export function dayList(rows, opts = {}) {
   const days = [...new Set(rows.map((r) => r.day))]
@@ -229,15 +253,25 @@ export function dayList(rows, opts = {}) {
     .join('')
 }
 
-// Search + the filter entry: «Фільтри» opens the bottom sheet; active filters show as removable chips.
-export function searchAndFilters({ active = [], count = 0, q = '' } = {}) {
-  const chip = (label, on = false, x = false) =>
-    `<span class="row" role="button" style="gap:6px;height:44px;padding:0 ${x ? 10 : 14}px 0 14px;border-radius:22px;font-size:15px;font-weight:500;white-space:nowrap;flex:none;${on ? 'background:var(--fg);color:var(--bg)' : 'background:var(--surface);color:var(--fg);border:1px solid var(--border)'}">${label}${x ? `<span aria-label="Прибрати фільтр" style="display:grid;place-items:center;width:24px;height:24px">${icon('x', { size: 15, stroke: 2.2 })}</span>` : ''}</span>`
+// Search + one horizontally scrolling chip row: «Фільтри» (badge = active count), the sort chip
+// (always second), then one chip per active filter. The whole active chip is one 44 px button named
+// «Прибрати фільтр: …» — there is no nested ✕ target (R1-15). A 24 px fade marks the scroll edge.
+export function searchAndFilters({
+  active = [],
+  count = active.length,
+  q = '',
+  sort = 'Дата',
+} = {}) {
+  const chip = (label, { on = false, name = '' } = {}) =>
+    `<span class="row" role="button" ${name ? `aria-label="${name}" ` : ''}style="gap:6px;height:44px;padding:0 ${on ? 12 : 14}px 0 14px;border-radius:22px;font-size:15px;font-weight:500;white-space:nowrap;flex:none;${on ? 'background:var(--fg);color:var(--bg)' : 'background:var(--surface);color:var(--fg);border:1px solid var(--border)'}">${label}${on ? `<span aria-hidden="true" style="display:grid">${icon('x', { size: 15, stroke: 2.2 })}</span>` : ''}</span>`
   const filterBtn = chip(
     `${icon('sliders-horizontal', { size: 17 })}Фільтри${count ? `<b class="num" style="min-width:20px;height:20px;border-radius:10px;background:var(--primary);color:var(--primary-fg);font-size:12px;line-height:20px;text-align:center">${count}</b>` : ''}`,
   )
+  const sortChip = chip(`${icon('arrow-down', { size: 15 })}${sort}`)
+  const fade =
+    '<span aria-hidden="true" style="position:absolute;right:0;top:0;bottom:6px;width:24px;background:linear-gradient(to right,transparent,var(--bg));pointer-events:none"></span>'
   return `<div style="padding:4px 16px 10px"><div class="row" role="searchbox" style="gap:8px;height:44px;border-radius:12px;background:var(--surface);padding:0 12px;color:${q ? 'var(--fg)' : 'var(--placeholder)'};font-size:16px">${icon('search', { size: 18 })}<span>${q || 'Пошук транзакцій'}</span></div></div>
-  <div class="row" style="gap:8px;padding:0 16px 6px;overflow:hidden">${filterBtn}${active.map((a) => chip(a, true, true)).join('')}${active.length ? '' : chip(`${icon('arrow-down', { size: 15 })}Дата`)}</div>`
+  <div style="position:relative"><div class="row" style="gap:8px;padding:0 16px 6px;overflow-x:auto;scrollbar-width:none">${filterBtn}${sortChip}${active.map((a) => chip(a, { on: true, name: `Прибрати фільтр: ${a}` })).join('')}</div>${active.length ? fade : ''}</div>`
 }
 
 // ---------- Tablet (640–1023): rail + one pane (role-aware copy of the foundation rail) ----------
@@ -261,14 +295,24 @@ function rail(role, active, h, { canCreate = true } = {}) {
   ${shown.map((d) => item(d, d === active, DEST[d].label, DEST[d].icon)).join('')}${item('more', false, 'Ще', 'ellipsis')}
   <div style="flex:1"></div><div style="width:40px;height:40px;border-radius:20px;display:grid;place-items:center;background:var(--yellow-subtle);color:var(--primary);font-size:14px;font-weight:600">АД</div></nav>`
 }
-export function tabletFrame({ w, h, role = 'ADMIN', body, title = 'Фінанси', canCreate = true }) {
-  return `<div class="device touch" style="width:${w}px;height:${h}px">
+// `pane` (≥ 900, shell v2 §3): the list takes 360 px and the detail pane fills the rest.
+export function tabletFrame({
+  w,
+  h,
+  role = 'ADMIN',
+  body,
+  title = 'Фінанси',
+  canCreate = true,
+  pane = '',
+  overlay = '',
+}) {
+  return `<div class="device touch" style="width:${w}px;height:${h}px;position:relative">
   <div class="row" style="height:24px;padding:0 20px;justify-content:space-between;font-size:13px;font-weight:600;flex:none"><span>9:41 вт 17 лист.</span><span class="row" style="gap:6px">${icon('wifi', { size: 14, stroke: 2.2 })}100%</span></div>
   <div class="row grow" style="align-items:stretch;min-height:0;position:relative">${rail(role, '/finance', h, { canCreate })}
-  <section aria-label="Транзакції" class="col grow" style="min-width:0">
+  <section aria-label="Транзакції" class="col ${pane ? '' : 'grow'}" style="min-width:0;${pane ? 'width:360px;flex:none;border-right:1px solid var(--border)' : ''}">
   <div class="row" style="height:56px;padding:0 8px 0 16px;flex:none"><h1 class="grow t-title" style="margin:0">${title}</h1><span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></span></div>
-  <div style="flex:1;min-height:0;overflow:hidden">${body}</div></section></div>
-  <div class="homebar" style="width:180px"></div></div>`
+  <div style="flex:1;min-height:0;overflow:hidden">${body}</div></section>${pane}</div>
+  <div class="homebar" style="width:180px"></div>${overlay}</div>`
 }
 
 // ---------- Desktop (≥ 1024): role-aware sidebar + header + dense table ----------
@@ -329,55 +373,106 @@ export function desktopFrame({
   <div class="col grow" style="min-height:0;padding:20px 24px 24px;gap:14px;${w >= 1440 ? 'max-width:1320px' : ''}">${body}</div></main>${overlay}</div>`
 }
 
-const dBtn = (label, { on = false, x = false } = {}) =>
-  `<span class="row" role="button" aria-haspopup="listbox" style="gap:6px;height:32px;padding:0 10px;border-radius:8px;font-size:13px;white-space:nowrap;${on ? 'background:var(--yellow-subtle);color:var(--fg);border:1px solid oklch(0.32 0.06 85)' : 'border:1px solid var(--input-border);color:var(--muted-fg)'}">${label}${x ? `<span aria-label="Прибрати фільтр" style="display:grid">${icon('x', { size: 13 })}</span>` : icon('chevron-down', { size: 13 })}</span>`
+// A listbox trigger; an active one carries a 24 px «Прибрати фільтр: …» button. `whole`: the chip has
+// no listbox (the month chip, A-1), so the whole chip is the remove button.
+const dBtn = (label, { on = false, x = false, whole = false } = {}) =>
+  `<span class="row" role="button" ${whole ? `aria-label="Прибрати фільтр: ${label}"` : 'aria-haspopup="listbox"'} style="gap:4px;height:32px;padding:0 ${x ? 4 : 10}px 0 10px;border-radius:8px;font-size:13px;white-space:nowrap;${on ? 'background:var(--yellow-subtle);color:var(--fg);border:1px solid oklch(0.32 0.06 85)' : 'border:1px solid var(--input-border);color:var(--muted-fg)'}">${whole ? icon('calendar', { size: 13 }) : ''}${label}${x ? `<span ${whole ? 'aria-hidden="true"' : `role="button" aria-label="Прибрати фільтр: ${label}"`} style="display:grid;place-items:center;width:24px;height:24px">${icon('x', { size: 13 })}</span>` : icon('chevron-down', { size: 13 })}</span>`
 const dToggle = (on) =>
   `<span class="row" role="switch" aria-checked="${on}" style="gap:8px;height:32px;padding:0 6px;font-size:13px;color:var(--muted-fg)"><span style="width:30px;height:18px;border-radius:9px;position:relative;background:${on ? 'var(--primary)' : 'var(--secondary)'};border:1px solid var(--border)"><i style="position:absolute;top:2px;left:${on ? 14 : 2}px;width:12px;height:12px;border-radius:6px;background:${on ? 'var(--primary-fg)' : 'var(--fg)'}"></i></span>Показати видалені</span>`
 
-export function toolbar({ w, type = '', status = '', deleted = null, total = 132, q = '' }) {
+// The count reads «132 транзакції», or «18 з 132» while filters narrow the list (A-5).
+export function toolbar({
+  w,
+  type = '',
+  status = '',
+  month = '',
+  deleted = null,
+  total = 132,
+  count,
+  q = '',
+}) {
+  const shown = count ?? (typeof total === 'number' ? txCount(total) : total)
   return `<div class="row" style="gap:8px;flex:none"><span class="row" role="searchbox" style="gap:8px;height:32px;width:${w >= 1280 ? 300 : 220}px;padding:0 10px;border-radius:8px;background:var(--surface);border:1px solid var(--input-border);color:${q ? 'var(--fg)' : 'var(--muted-fg)'};font-size:13px">${icon('search', { size: 14 })}<span class="grow trunc">${q || 'Пошук транзакцій'}</span><span class="kbdkey">/</span></span>
-  ${dBtn(type ? `Тип: ${type}` : 'Усі типи', { on: !!type, x: !!type })}${dBtn(status ? `Статус: ${status}` : 'Усі статуси', { on: !!status, x: !!status })}${deleted === null ? '' : dToggle(deleted)}${type || status || deleted ? '<span class="btn ghost sm" style="color:var(--muted-fg)">Скинути</span>' : ''}
-  <span class="grow"></span><span class="t-foot muted num">${total} транзакції</span></div>`
+  ${dBtn(type ? `Тип: ${type}` : 'Усі типи', { on: !!type, x: !!type })}${dBtn(status ? `Статус: ${status}` : 'Усі статуси', { on: !!status, x: !!status })}${month ? dBtn(month, { on: true, x: true, whole: true }) : ''}${deleted === null ? '' : dToggle(deleted)}${type || status || month || deleted ? '<span class="btn ghost sm" style="color:var(--muted-fg)">Скинути</span>' : ''}
+  <span class="grow"></span><span class="t-foot muted num">${shown}</span></div>`
 }
 
-const sortTh = (label, dir, cls = '') =>
-  `<th class="${cls}" aria-sort="${dir === 'down' ? 'descending' : dir ? 'ascending' : 'none'}"><span style="display:inline-flex;align-items:center;gap:4px">${label}${dir ? icon(dir === 'down' ? 'arrow-down' : 'arrow-up', { size: 12 }) : `<span style="opacity:0.45;display:grid">${icon('chevrons-up-down', { size: 12 })}</span>`}</span></th>`
+const sortTh = (label, dir, cls = '', { disabled = false } = {}) =>
+  `<th class="${cls}" aria-sort="${dir === 'down' ? 'descending' : dir ? 'ascending' : 'none'}"${disabled ? ' aria-disabled="true" title="Сортування за сумою недоступне: немає курсу валют."' : ''}><span style="display:inline-flex;align-items:center;gap:4px;${disabled ? 'opacity:0.55' : ''}">${label}${dir ? icon(dir === 'down' ? 'arrow-down' : 'arrow-up', { size: 12 }) : `<span style="opacity:0.45;display:grid">${icon(disabled ? 'ban' : 'chevrons-up-down', { size: 12 })}</span>`}</span></th>`
 
-export function table(rows, { w, sel = 0, hover = -1, menuFor = -1, canAct = true } = {}) {
+const tdPill = (html) =>
+  html.replace(
+    'vertical-align:middle',
+    'vertical-align:middle;height:auto;min-height:22px;white-space:normal;line-height:16px;padding:3px 8px',
+  )
+
+// Columns at ≥ 1280: Дата 76 · Учасник flex · Тип 140 · Проєкт 130 · Статус 170 · Сума 150 · Дії sized
+// to the longest inline action (max 220). At 1024–1279 the party takes two lines (payer / «→ receiver»),
+// type and project share a column and Дії is the 52 px «…» only (its first item is the primary).
+// `coarse`: a touch pointer at desktop width — 52 px rows, «…» always visible at 44 px (§3.7).
+export function table(
+  rows,
+  { w, sel = 0, hover = -1, menuFor = -1, canAct = true, sortOff = false, coarse = false } = {},
+) {
   const wide = w >= 1280
-  const head = `<tr>${sortTh('Дата', 'down')}<th>Учасник</th><th>${wide ? 'Тип' : 'Тип · проєкт'}</th>${wide ? '<th>Проєкт</th>' : ''}<th>Статус</th>${sortTh('Сума', '', 'r')}<th><span class="sr">Дії</span></th></tr>`
-  // Fixed layout: long parties and projects ellipsize (full value in the tooltip); actions never clip.
-  // Below 1280 the inline action does not fit: it becomes the first item of the «…» menu.
+  const head = `<tr>${sortTh('Дата', 'down')}<th>Учасник</th><th>${wide ? 'Тип' : 'Тип · проєкт'}</th>${wide ? '<th>Проєкт</th>' : ''}<th>Статус</th>${sortTh('Сума', '', 'r', { disabled: sortOff })}<th><span class="sr">Дії</span></th></tr>`
   const inline = canAct && wide
-  const cols = `<colgroup><col style="width:76px"><col><col style="width:${wide ? 140 : 150}px">${wide ? '<col style="width:130px">' : ''}<col style="width:${wide ? 180 : 150}px"><col style="width:${wide ? 176 : 140}px"><col style="width:${inline ? 236 : 52}px"></colgroup>`
+  const longest = Math.max(0, ...rows.map((x) => (x.act ? x.act.length : 0)))
+  const moreW = coarse ? 44 : 28
+  const actW =
+    inline && longest ? Math.min(220, 24 + moreW + 6 + Math.ceil(longest * 7.2) + 24) : 24 + moreW
+  const cols = `<colgroup><col style="width:76px"><col><col style="width:${wide ? 140 : 150}px">${wide ? '<col style="width:130px">' : ''}<col style="width:${wide ? 170 : 150}px"><col style="width:${wide ? 150 : 140}px"><col style="width:${actW}px"></colgroup>`
   const tr = rows
     .map((x, i) => {
       const [typeLabel] = TYPE[x.type]
-      const neg = x.a.startsWith('−')
       const clip = x.att
         ? `<span aria-label="Чек прикріплено" class="muted" style="display:inline-flex;flex:none">${icon('paperclip', { size: 13 })}</span>`
         : ''
-      const long = STATUS[x.st][0].length > 24
       const act =
         inline && x.act
           ? `<span class="btn secondary sm rowact" style="opacity:1">${x.act}</span>`
           : ''
-      const more = `<span class="iconbtn rowact" aria-label="Інші дії" aria-haspopup="menu" style="width:28px;height:28px;${i === menuFor ? 'opacity:1;background:var(--surface)' : !inline && x.act ? 'opacity:1' : ''}">${icon('ellipsis', { size: 16 })}</span>`
-      return `<tr ${i === sel ? 'aria-selected="true"' : ''} class="${i === hover ? 'hover' : ''}${x.deleted ? ' del' : ''}"><td class="num muted">${x.d}</td><td title="${x.from} → ${x.to}"><span class="row" style="gap:6px;min-width:0">${x.deleted ? '<span class="pill" style="height:18px;font-size:11px;flex:none">Видалено</span>' : ''}<span class="trunc">${title(x)}</span>${clip}</span></td><td class="muted">${typeLabel}${wide ? '' : x.project !== '—' ? ` · ${x.project}` : ''}</td>${wide ? `<td class="muted">${x.project}</td>` : ''}<td class="${long ? 'wrap' : ''}" style="${long ? 'padding-top:6px;padding-bottom:6px' : ''}">${long ? `<span class="pill warn" style="height:auto;min-height:22px;white-space:normal;line-height:16px;padding:3px 8px">${STATUS[x.st][0]}</span>` : pill(x.st)}</td><td class="r"><span class="amount ${neg ? '' : 'pos'}" style="font-size:14px">${x.a}</span>${x.orig ? `<div class="t-cap muted num" style="line-height:12px">${x.orig}</div>` : ''}</td><td class="r"><span class="row" style="gap:6px;justify-content:flex-end">${act}${more}</span></td></tr>`
+      const show = i === menuFor || coarse || (!inline && x.act)
+      const more = `<span class="iconbtn rowact" aria-label="Інші дії" aria-haspopup="menu" style="width:${moreW}px;height:${moreW}px;${show ? 'opacity:1;' : ''}${i === menuFor ? 'background:var(--surface)' : ''}">${icon('ellipsis', { size: 16 })}</span>`
+      // The full `payer → receiver` is in a tooltip that also opens on focus (§3.3).
+      const party = wide
+        ? `<span class="row" style="gap:6px;min-width:0"><span class="trunc">${title(x)}</span>${clip}</span>`
+        : `<span class="col" style="min-width:0;line-height:17px"><span class="row" style="gap:6px;min-width:0"><span class="trunc">${x.t ?? x.from}</span>${clip}</span><span class="trunc muted" style="font-size:13px">→ ${x.t ? (x.sub ?? x.to) : x.to}</span></span>`
+      const status = [
+        tdPill(pill(x.st)),
+        x.deleted ? tdPill('<span class="pill" style="vertical-align:middle">Видалено</span>') : '',
+        x.mark && x.mark !== 'left' ? MARK[x.mark] : '',
+        x.mark === 'left' ? MARK.left : '',
+      ]
+        .filter(Boolean)
+        .join('')
+      return `<tr ${i === sel ? 'aria-selected="true"' : ''} class="${i === hover ? 'hover' : ''}${x.deleted ? ' del' : ''}"><td class="num muted">${x.d}</td><td title="${x.from} → ${x.to}" tabindex="-1">${party}</td><td class="muted">${typeLabel}${wide ? '' : x.project !== '—' ? ` · ${x.project}` : ''}</td>${wide ? `<td class="muted">${x.project}</td>` : ''}<td class="wrap" style="padding-top:6px;padding-bottom:6px"><span class="row" style="gap:6px;flex-wrap:wrap">${status}</span></td><td class="r"><span class="amount" style="font-size:14px">${x.a}</span>${x.orig ? `<div class="t-cap muted num" style="line-height:12px">${x.orig}</div>` : ''}</td><td class="r"><span class="row" style="gap:6px;justify-content:flex-end">${act}${more}</span></td></tr>`
     })
     .join('')
-  return `<div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)"><table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0" aria-label="Транзакції">${cols}<thead>${head}</thead><tbody>${tr}</tbody></table></div>`
+  const rowH = coarse ? 52 : wide ? 40 : 48
+  return `<style>td{height:${rowH}px}</style><div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)"><table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0" aria-label="Транзакції">${cols}<thead>${head}</thead><tbody>${tr}</tbody></table></div>`
 }
 
+// Hidden while every row fits on one page (≤ 50, A-5).
 export const pager = (from = 1, to = 50, total = 132) =>
-  `<div class="row" style="gap:8px;justify-content:flex-end;flex:none;font-size:13px"><span class="muted num">${from}–${to} з ${total}</span><span class="btn secondary sm" aria-label="Попередня сторінка" style="width:32px;padding:0">${icon('chevron-left', { size: 15 })}</span><span class="btn secondary sm" aria-label="Наступна сторінка" style="width:32px;padding:0">${icon('chevron-right', { size: 15 })}</span></div>`
+  total <= 50
+    ? ''
+    : `<div class="row" style="gap:8px;justify-content:flex-end;flex:none;font-size:13px"><span class="muted num">${from}–${to} з ${total}</span><span class="btn secondary sm" aria-label="Попередня сторінка" style="width:32px;padding:0">${icon('chevron-left', { size: 15 })}</span><span class="btn secondary sm" aria-label="Наступна сторінка" style="width:32px;padding:0">${icon('chevron-right', { size: 15 })}</span></div>`
 
 // ---------- Frames ----------
-export const M = (name, w, h, body) => ({ name, w, h, dpr: 2, html: page(body, { width: w }) })
+// `full`: a full-page screenshot (the device is drawn as tall as its content, AC7).
+export const M = (name, w, h, body, full = false) => ({
+  name,
+  w,
+  h,
+  dpr: 2,
+  full,
+  html: page(body, { width: w }),
+})
 export const D = (name, w, h, body) => ({ name, w, h, dpr: 1, html: page(body, { width: w }) })
 
 const mobileMain = (w, h) =>
-  tabScreen({
+  listScreen({
     w,
     h,
     role: 'ADMIN',
@@ -386,17 +481,17 @@ const mobileMain = (w, h) =>
     body: `${searchAndFilters()}${dayList(ROWS)}`,
   })
 const tabletMain = (w, h) =>
-  tabletFrame({ w, h, body: `${searchAndFilters()}${dayList(ROWS.slice(0, 9))}` })
-const desktopMain = (w, h) =>
+  tabletFrame({ w, h, body: `${searchAndFilters()}${dayList(ROWS.slice(0, 10))}` })
+export const desktopMain = (w, h, opts = {}) =>
   desktopFrame({
     w,
     h,
-    body: `${toolbar({ w, deleted: false })}${table(ROWS, { w, sel: 1, hover: 3 })}${pager()}`,
+    body: `${toolbar({ w, deleted: false })}${table(ROWS, { w, sel: 1, hover: 3, ...opts })}${pager()}`,
   })
 
 export function frames() {
   return [
-    M('main-320', 320, 568, mobileMain(320, 568)),
+    M('main-320', 320, 1442, mobileMain(320, 1442), true),
     M('main-375', 375, 812, mobileMain(375, 812)),
     M('main-768', 768, 1024, tabletMain(768, 1024)),
     D('main-1024', 1024, 768, desktopMain(1024, 768)),
