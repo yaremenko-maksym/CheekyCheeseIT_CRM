@@ -2300,6 +2300,52 @@ describe('UsersService.updateProfile — SENIOR technology floor on a self-edit'
   })
 })
 
+describe('UsersService.updateProfile — technical roles on a self-edit (senior roles PR 2)', () => {
+  const self = (role: string) =>
+    makeDb({
+      existingUser: makeUser({ id: 'user-1', role, techStack: ['React', 'Go', 'AWS'] }),
+    })
+  const setOf = (db: ReturnType<typeof makeDb>) =>
+    (db.db.update as ReturnType<typeof vi.fn>).mock.results[0]?.value?.set as ReturnType<
+      typeof vi.fn
+    >
+
+  it('a SENIOR sets their own roles', async () => {
+    const db = self('SENIOR')
+    await makeUsersService(db).updateProfile('user-1', {
+      technicalRoles: ['BACKEND_ENGINEER', 'DATA_ENGINEER'],
+    })
+    expect(setOf(db)).toHaveBeenCalledWith(
+      expect.objectContaining({ technicalRoles: ['BACKEND_ENGINEER', 'DATA_ENGINEER'] }),
+    )
+  })
+
+  it('a non-SENIOR setting roles -> 400 TECHNICAL_ROLES_SENIOR_ONLY, nothing written', async () => {
+    const db = self('JUNIOR')
+    await expect(
+      makeUsersService(db).updateProfile('user-1', { technicalRoles: ['BACKEND_ENGINEER'] }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TECHNICAL_ROLES_SENIOR_ONLY', statusCode: 400 }),
+    })
+    expect(db.db.update).not.toHaveBeenCalled()
+  })
+
+  it('a missing caller row with roles -> 404 USER_NOT_FOUND before any write', async () => {
+    const db = makeDb({ existingUser: undefined })
+    await expect(
+      makeUsersService(db).updateProfile('user-1', { technicalRoles: ['BACKEND_ENGINEER'] }),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'USER_NOT_FOUND' }) })
+    expect(db.db.update).not.toHaveBeenCalled()
+  })
+
+  it('roles stay optional: a write without them leaves the column out of the update', async () => {
+    const db = self('SENIOR')
+    await makeUsersService(db).updateProfile('user-1', { techStack: ['React', 'Go', 'AWS'] })
+    expect(setOf(db)).toHaveBeenCalledWith(expect.not.objectContaining({ technicalRoles: [] }))
+    expect(Object.keys(setOf(db).mock.calls[0]?.[0] as object)).not.toContain('technicalRoles')
+  })
+})
+
 describe('UsersService.updateProfile — locale (task-i18n-stage2)', () => {
   it('sets locale when provided', async () => {
     const db = makeDb({ updatedUser: makeUser({ locale: 'en' }) })

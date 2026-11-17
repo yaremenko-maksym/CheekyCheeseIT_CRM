@@ -44,6 +44,7 @@ const BASE_USER: UserProfileDto = {
   telegram: null,
   phone: null,
   techStack: null,
+  technicalRoles: [],
   paymentMethod: null,
   walletUsdtErc20: null,
   walletUsdtLabel: null,

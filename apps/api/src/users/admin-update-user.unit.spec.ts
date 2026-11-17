@@ -1176,3 +1176,45 @@ describe('UsersService.adminUpdateUser — SENIOR team composition + team telegr
     expect(h.updateSeniorTeamTelegramChannelTx.mock.calls[0]![3]).toBeNull()
   })
 })
+
+describe('UsersService.adminUpdateUser — technical roles (senior roles PR 2)', () => {
+  const REFUSED = code('TECHNICAL_ROLES_SENIOR_ONLY', 400)
+
+  it('ADMIN PATCH /users/:id sets technicalRoles on a SENIOR', async () => {
+    const h = makeHarness({ existing: makeUser({ role: 'SENIOR' }) })
+    await expect(
+      edit(h, { technicalRoles: ['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'] }, 'admin-1'),
+    ).resolves.toBeDefined()
+    expect(userUpdateSet(h.log).technicalRoles).toEqual(['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'])
+  })
+
+  it('technicalRoles on a JUNIOR -> 400 TECHNICAL_ROLES_SENIOR_ONLY, nothing written', async () => {
+    const h = makeHarness({ existing: makeUser() })
+    await expect(
+      edit(h, { technicalRoles: ['BACKEND_ENGINEER'] }, 'admin-1'),
+    ).rejects.toMatchObject(REFUSED)
+    expect(userUpdate(h.log)).toBeUndefined()
+  })
+
+  it('checks the EFFECTIVE role: SENIOR -> JUNIOR with roles is refused, JUNIOR -> SENIOR with roles passes', async () => {
+    const down = makeHarness({ existing: makeUser({ role: 'SENIOR' }) })
+    await expect(
+      edit(down, { role: 'JUNIOR', technicalRoles: ['BACKEND_ENGINEER'] }, 'admin-1'),
+    ).rejects.toMatchObject(REFUSED)
+    expect(userUpdate(down.log)).toBeUndefined()
+    const up = makeHarness({ existing: makeUser() })
+    await expect(
+      edit(up, { role: 'SENIOR', technicalRoles: ['BACKEND_ENGINEER'] }, 'admin-1'),
+    ).resolves.toBeDefined()
+    expect(userUpdateSet(up.log)).toMatchObject({
+      role: 'SENIOR',
+      technicalRoles: ['BACKEND_ENGINEER'],
+    })
+  })
+
+  it('roles are optional: an edit without technicalRoles leaves them out of the write', async () => {
+    const h = makeHarness({ existing: makeUser({ role: 'SENIOR' }) })
+    await expect(edit(h, { displayName: 'New' }, 'admin-1')).resolves.toBeDefined()
+    expect(userUpdateSet(h.log)).not.toHaveProperty('technicalRoles')
+  })
+})
