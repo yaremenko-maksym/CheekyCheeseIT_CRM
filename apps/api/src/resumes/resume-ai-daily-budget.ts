@@ -16,11 +16,15 @@
  * that row and cannot overshoot. No row returned = the day's budget is spent. The refusal goes
  * through the `WHERE`, not through the CHECK: a CHECK violation would throw instead.
  *
- * The UTC day rolls over in the same statement: a row whose `resets_at` has passed restarts at 1.
- * A reserved call is never refunded, even when the request then fails: it may have been billed.
+ * The UTC day rolls over in the same statement: a row whose `resets_at` has passed (or is NULL)
+ * restarts at 1.
+ *
+ * RELEASE: a reserved call is given back only when Cloudflare cannot have billed it: no HTTP response
+ * (network error, timeout) or HTTP 429. Any other answer keeps it spent. The release touches only the
+ * reservation's own UTC day and never takes `used` below 0.
  */
 import { Injectable } from '@nestjs/common'
-import { sql } from 'drizzle-orm'
+import { and, eq, gt, sql } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { DatabaseService } from '../database/database.service'
 import type * as schema from '../database/schema'
@@ -47,13 +51,18 @@ export const RESUME_AI_METER_ACCOUNT_KEY = 'cloudflare:resume-extraction'
  */
 export const RESUME_AI_DAILY_CALL_CAP = 10
 
+/** Cloudflare's free allowance resets at 00:00 UTC. */
+export function nextUtcMidnight(from: Date = new Date()): Date {
+  const next = new Date(from)
+  next.setUTCHours(24, 0, 0, 0)
+  return next
+}
+
 /** [start of the UTC day containing `now`, start of the next one). */
 export function utcDayBounds(now: Date): { start: Date; end: Date } {
   const start = new Date(now)
   start.setUTCHours(0, 0, 0, 0)
-  const end = new Date(start)
-  end.setUTCDate(end.getUTCDate() + 1)
-  return { start, end }
+  return { start, end: nextUtcMidnight(now) }
 }
 
 /** The reservation statement, exposed so its SQL can be asserted without a database. */
@@ -65,7 +74,8 @@ export function reserveCallQuery(
 ) {
   const m = jobAccountMeters
   const { start, end } = utcDayBounds(now)
-  const rolledOver = sql`${m.resetsAt} <= ${now.toISOString()}::timestamptz`
+  // NULL `resets_at` counts as rolled over: `NULL <= now` alone is NULL, which would never roll.
+  const rolledOver = sql`COALESCE(${m.resetsAt} <= ${now.toISOString()}::timestamptz, true)`
   return db
     .insert(m)
     .values({
@@ -92,6 +102,23 @@ export function reserveCallQuery(
     .returning({ used: m.used })
 }
 
+/** The release statement: one call back, on the reservation's UTC day only, never below 0. */
+export function releaseCallQuery(db: NodePgDatabase<typeof schema>, now: Date, accountKey: string) {
+  const m = jobAccountMeters
+  return db
+    .update(m)
+    .set({ used: sql`${m.used} - 1`, updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(m.accountKey, accountKey),
+        eq(m.unit, 'MODEL_CALL'),
+        eq(m.window, 'DAY'),
+        eq(m.windowStartedAt, utcDayBounds(now).start),
+        gt(m.used, 0),
+      ),
+    )
+}
+
 @Injectable()
 export class ResumeAiDailyBudget {
   constructor(private readonly database: DatabaseService) {}
@@ -104,5 +131,16 @@ export class ResumeAiDailyBudget {
   ): Promise<boolean> {
     const rows = await reserveCallQuery(this.database.db, now, accountKey, limit)
     return rows.length > 0
+  }
+
+  /**
+   * Gives back one call reserved at `now` (pass the reservation's own instant). A row that has
+   * rolled over to a later day, or is already at 0, is left alone. Throws on a DB failure.
+   */
+  async releaseCall(
+    now: Date = new Date(),
+    accountKey: string = RESUME_AI_METER_ACCOUNT_KEY,
+  ): Promise<void> {
+    await releaseCallQuery(this.database.db, now, accountKey)
   }
 }

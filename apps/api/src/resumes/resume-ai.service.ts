@@ -41,7 +41,9 @@ import {
   type ResumeFailureCode,
 } from '@crm/shared'
 import type { Env } from '../config/env'
-import { ResumeAiDailyBudget } from './resume-ai-daily-budget'
+import { ResumeAiDailyBudget, nextUtcMidnight } from './resume-ai-daily-budget'
+
+export { nextUtcMidnight }
 
 /**
  * Instruct model that follows the JSON schema instruction. The previous
@@ -133,10 +135,15 @@ export class ResumeAiService {
 
     // EXACTLY two attempts — the initial call plus a single corrective retry.
     for (let attempt = 1; attempt <= 2; attempt += 1) {
-      const spent = await this.budgetSpent()
+      const now = new Date()
+      const spent = await this.budgetSpent(now)
       if (spent) return { ...spent, tokensUsed }
       const call = await this.callModel(trimmedText, attempt === 2 ? lastParseError : null)
-      if (!call.ok) return { ...call, tokensUsed }
+      if (!call.ok) {
+        const { unbilled, ...failure } = call
+        if (unbilled) await this.releaseCall(now)
+        return { ...failure, tokensUsed }
+      }
 
       tokensUsed = sumTokens(tokensUsed, call.tokensUsed)
       const parsed = this.parseModelOutput(call.raw)
@@ -162,10 +169,10 @@ export class ResumeAiService {
    * Reserves one call of today's budget. Null = reserved, go ahead; otherwise the failure to return.
    * A budget that cannot be read fails CLOSED (no call): spending blind is the direction that bills.
    */
-  private async budgetSpent(): Promise<ResumeExtractionFailure | null> {
+  private async budgetSpent(now: Date): Promise<ResumeExtractionFailure | null> {
     let reserved: boolean
     try {
-      reserved = await this.budget.reserveCall()
+      reserved = await this.budget.reserveCall(now)
     } catch (err: unknown) {
       this.logger.error(
         `Resume AI daily budget unreadable, call refused: ${err instanceof Error ? err.message : 'unknown error'}`,
@@ -184,8 +191,19 @@ export class ResumeAiService {
       ok: false,
       code: 'QUOTA_EXCEEDED',
       message: encodeResumeMessage('RESUME_AI_QUOTA_EXCEEDED'),
-      quotaResetsAt: nextUtcMidnight().toISOString(),
+      quotaResetsAt: nextUtcMidnight(now).toISOString(),
       tokensUsed: null,
+    }
+  }
+
+  /** Gives back the call reserved at `now`. A failure only over-counts (the safe side): log it. */
+  private async releaseCall(now: Date): Promise<void> {
+    try {
+      await this.budget.releaseCall(now)
+    } catch (err: unknown) {
+      this.logger.error(
+        `Resume AI daily budget release failed; the call stays counted: ${err instanceof Error ? err.message : 'unknown error'}`,
+      )
     }
   }
 
@@ -197,7 +215,9 @@ export class ResumeAiService {
     resumeText: string,
     priorError: string | null,
   ): Promise<
-    { ok: true; raw: string; tokensUsed: number | null } | (ResumeExtractionFailure & { ok: false })
+    | { ok: true; raw: string; tokensUsed: number | null }
+    // `unbilled`: Cloudflare cannot have billed this call (no HTTP response, or HTTP 429).
+    | (ResumeExtractionFailure & { ok: false; unbilled: boolean })
   > {
     const userContent = priorError
       ? `Предыдущий ответ не прошёл валидацию: ${truncate(priorError, 400)}\nВерни ТОЛЬКО валидный JSON по схеме.\n\n<resume>\n${resumeText}\n</resume>`
@@ -236,6 +256,7 @@ export class ResumeAiService {
         message: encodeResumeMessage('RESUME_AI_UNAVAILABLE'),
         quotaResetsAt: null,
         tokensUsed: null,
+        unbilled: true,
       }
     } finally {
       clearTimeout(timer)
@@ -251,6 +272,7 @@ export class ResumeAiService {
         message: encodeResumeMessage('RESUME_AI_QUOTA_EXCEEDED'),
         quotaResetsAt: nextUtcMidnight().toISOString(),
         tokensUsed: null,
+        unbilled: res.status === 429,
       }
     }
 
@@ -265,6 +287,7 @@ export class ResumeAiService {
         message: encodeResumeMessage('RESUME_AI_ERROR'),
         quotaResetsAt: null,
         tokensUsed: null,
+        unbilled: false,
       }
     }
 
@@ -440,11 +463,4 @@ function arr(value: unknown, max: number): unknown[] {
 /** Defence in depth: strip unsafe links even if they somehow passed the schema. */
 function dropUnsafeLinks(content: ResumeContent): ResumeContent {
   return { ...content, links: content.links.filter((l) => isSafeResumeUrl(l.url)) }
-}
-
-/** Cloudflare's free allowance resets at 00:00 UTC. */
-export function nextUtcMidnight(from: Date = new Date()): Date {
-  const next = new Date(from)
-  next.setUTCHours(24, 0, 0, 0)
-  return next
 }
