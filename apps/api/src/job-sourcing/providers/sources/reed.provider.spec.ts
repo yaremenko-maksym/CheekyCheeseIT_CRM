@@ -185,7 +185,7 @@ describe('mapping the unit example', () => {
     expect(o?.normalized.title).toBe('Senior Developer')
     expect(o?.normalized.companyName).toBe('Example Software Ltd')
     expect(o?.normalized.location).toBe('London, United Kingdom')
-    expect(o?.adapterVersion).toBe('reed-1')
+    expect(o?.adapterVersion).toBe('reed-2')
   })
 
   it('the native id and the application URL are different facts', async () => {
@@ -334,11 +334,38 @@ describe('paging', () => {
   })
 })
 
-describe('metering: Reed has no documented quota, so there is no reservation', () => {
-  it('makes no reservation and marks nothing sent', async () => {
+describe('metering: one request is one REQUEST against the account meter (PR #1372)', () => {
+  it('defaults to one REQUEST per call: reserve, mark sent, fetch, settle, in that order', async () => {
     const { m, batch } = await run([body(jobs(1), 1)])
-    expect(m.events).toEqual(['fetch'])
-    expect(batch.requests[0]?.cost).toBeNull()
+    expect(m.reserved).toEqual([{ unit: 'REQUEST', amount: 1 }])
+    expect(m.events).toEqual(['reserve', 'markSent', 'fetch', 'reconcile:USED'])
+    expect(m.settled).toEqual([{ id: 'res-1', resolution: 'USED' }])
+    expect(batch.requests[0]?.cost).toEqual({ unit: 'REQUEST', amount: 1 })
+  })
+
+  it('reserves what the configured agreement says, in its unit', async () => {
+    const p = createReedProvider({
+      credential: READY,
+      meter: { unit: 'USD_MICROS', amountPerRequest: 2_500 },
+    })
+    const { m } = await run([body(jobs(1), 1)], { p, config: cfg({}, p) })
+    expect(m.reserved).toEqual([{ unit: 'USD_MICROS', amount: 2_500 }])
+  })
+
+  it('refuses a bad agreement when the provider is built, not mid-run', () => {
+    expect(() =>
+      createReedProvider({ credential: READY, meter: { unit: 'REQUEST', amountPerRequest: 0 } }),
+    ).toThrow()
+  })
+
+  it('a refused reservation is a cost stop: nothing is sent', async () => {
+    const p = provider()
+    const f = fakeCollectionContext({ now: NOW, responses: [body(jobs(1), 1)] })
+    const m = meteredContext(f, { refuseOnReserve: 1 })
+    const batch = await p.collectReport(cfg({}, p), m.ctx)
+    expect(batch.requests.at(-1)?.error?.code).toBe('COST_STOP')
+    expect(f.sent).toEqual([])
+    expect(m.events).toEqual(['reserve'])
   })
 })
 

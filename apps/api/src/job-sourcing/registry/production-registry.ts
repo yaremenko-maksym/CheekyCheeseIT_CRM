@@ -14,6 +14,7 @@ import { jobgetherProvider } from '../providers/sources/jobgether.provider'
 import { jobicyProvider } from '../providers/sources/jobicy.provider'
 import { createJoobleProvider } from '../providers/sources/jooble.provider'
 import { createJSearchProvider } from '../providers/sources/jsearch.provider'
+import { createReedProvider } from '../providers/sources/reed.provider'
 import { leverProvider } from '../providers/sources/lever.provider'
 import { museProvider } from '../providers/sources/muse.provider'
 import { personioProvider } from '../providers/sources/personio.provider'
@@ -37,7 +38,7 @@ type ReadKey = (key: QuotaEnvKey) => string | undefined
  * Every REPORTING provider the application can run, one per type, built for production. Each is
  * registered with its `REPORTING_WIRING` entry (see `createProductionRegistry`); a provider here
  * without wiring would never be claimed (`TRANSPORT_NOT_WIRED`), so the spec keeps this list and
- * the wiring equal. Reed and Working Nomads are deliberately absent (see `reporting-wiring.ts`).
+ * the wiring equal. Working Nomads is deliberately absent (see `reporting-wiring.ts`).
  *
  * Keyed adapters get their credential from the validated env. An absent key builds an
  * UNCONFIGURED credential: the adapter refuses before any reservation or request.
@@ -66,6 +67,7 @@ function reportingProviders(
     jobicyProvider,
     createJoobleProvider(credential('jooble')),
     createJSearchProvider(credential('jsearch')),
+    createReedProvider(credential('reed')),
     leverProvider,
     museProvider,
     personioProvider,
