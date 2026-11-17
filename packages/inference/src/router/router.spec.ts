@@ -39,7 +39,24 @@ describe('router: answers and the end of the cascade (hosted-only, H.1/H.2)', ()
     const r = await createRouter(config([GROQ, GEMINI]), d).run(REQ)
     expect(r.ok).toBe(true)
     expect(byHost(f.sent)).toEqual([hostOf.groq, hostOf.gemini])
-    expect(d.events.map((e) => e.type)).not.toContain('FELL_TO_LOCAL')
+    // An answered call emits no EXHAUSTED: the event belongs to a call no route answered.
+    expect(ofType(d.events, 'EXHAUSTED')).toEqual([])
+  })
+
+  it('a call no hosted route answered emits one EXHAUSTED with every route reason, then CALL', async () => {
+    const f = scriptedFetch(() => ({ status: 500, body: '' }))
+    const d = deps(f.fetchImpl)
+    await createRouter(config([GROQ, GEMINI]), d).run(REQ)
+    expect(d.events.filter((e) => e.type === 'EXHAUSTED' || e.type === 'CALL')).toEqual([
+      {
+        type: 'EXHAUSTED',
+        reasons: [
+          { route: 'groq', code: 'TRANSPORT' },
+          { route: 'gemini', code: 'TRANSPORT' },
+        ],
+      },
+      { type: 'CALL', code: 'PROVIDER_ERROR', latencyMs: expect.any(Number) },
+    ])
   })
 
   const INVALID = answer('not json')

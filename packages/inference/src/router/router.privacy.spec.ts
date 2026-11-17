@@ -154,11 +154,16 @@ describe('router privacy (AC5, ADR §3.3, §4 item 2)', () => {
       'status',
       'latencyMs',
       'totalTokens',
+      'reasons',
     ])
     const keys = new Set(d.events.flatMap((e: RouterEvent) => Object.keys(e)))
     expect([...keys].filter((k) => !allowed.has(k))).toEqual([])
+    // An EXHAUSTED reason is a route and an internal code, nothing else (H.2).
+    const reasons = d.events.flatMap((e) => (e.type === 'EXHAUSTED' ? e.reasons : []))
+    expect(reasons.length).toBeGreaterThan(0)
+    for (const r of reasons) expect(Object.keys(r).sort()).toEqual(['code', 'route'])
     expect(new Set(d.events.map((e) => e.type))).toEqual(
-      new Set(['ATTEMPT', 'RETIRED', 'PROVIDER_DISABLED', 'CALL']),
+      new Set(['ATTEMPT', 'RETIRED', 'PROVIDER_DISABLED', 'EXHAUSTED', 'CALL']),
     )
   })
 })

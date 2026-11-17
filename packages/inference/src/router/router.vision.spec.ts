@@ -97,7 +97,7 @@ describe('router: image requests go only to vision-capable pairs', () => {
     expect(hosts(f.sent)).toEqual([hostOf.groq, hostOf.gemini, hostOf.gemini])
   })
 
-  it('a configured Gemini route with every model spent is PROVIDER_ERROR, not NOT_CONFIGURED', async () => {
+  it('a configured Gemini route with every model spent is LIMITS_EXHAUSTED, not NOT_CONFIGURED', async () => {
     const f = scriptedFetch(() => GOOD)
     const d = deps(f.fetchImpl, { routeState: createMemoryRouteStatePort() })
     const router = createRouter(config([GEMINI]), d)
@@ -119,9 +119,9 @@ describe('router: image requests go only to vision-capable pairs', () => {
       config([GEMINI]),
       deps(spent.fetchImpl, { routeState: d.routeState }),
     ).run({ ...REQ, images: IMAGES })
-    expect(r1).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+    expect(r1).toEqual({ ok: false, code: 'LIMITS_EXHAUSTED' })
     const r2 = await router.run({ ...REQ, images: IMAGES })
-    expect(r2).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+    expect(r2).toEqual({ ok: false, code: 'LIMITS_EXHAUSTED' })
     expect(f.sent).toHaveLength(0)
   })
 

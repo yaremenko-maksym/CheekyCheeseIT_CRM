@@ -128,10 +128,10 @@ describe('router: the Cloudflare route (amendment 2026-11-17)', () => {
     for (let i = 0; i < 10; i++) results.push(await router.run(REQ))
     expect(f.sent.filter((s) => s.host === CF_HOST)).toHaveLength(8)
     expect(f.sent).toHaveLength(8)
-    // H.1: no floor behind the cap; the refused runs end with today's code.
+    // No floor behind the cap: the refused runs end limit-blocked (H.2).
     expect(results.slice(8)).toEqual([
-      { ok: false, code: 'PROVIDER_ERROR' },
-      { ok: false, code: 'PROVIDER_ERROR' },
+      { ok: false, code: 'LIMITS_EXHAUSTED' },
+      { ok: false, code: 'LIMITS_EXHAUSTED' },
     ])
   })
 

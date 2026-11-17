@@ -518,6 +518,21 @@ function current(r: ProviderRecord, today: string): OwnCapRecord {
     : { day: today, requests: 0, tokens: 0 }
 }
 
+/**
+ * Whether the provider's own cap is full today: requests, or tokens when the limit has a token day.
+ * Read-only: the readiness answer (H.3) uses it without reserving a unit.
+ */
+export function isOwnCapReached(
+  s: RouteState,
+  p: HostedProvider,
+  limit: FreeLimit,
+  today: string,
+): boolean {
+  const c = current(providerRecord(s, p), today)
+  const tokensFull = c.tokens >= ownCapOf(limit.tokensPerDay ?? Number.POSITIVE_INFINITY)
+  return c.requests >= ownCapOf(limit.requestsPerDay) || tokensFull
+}
+
 /** A token count as the file can hold it: a safe non-negative integer (SR-M-66). */
 function tokenSum(total: number, add: number): number {
   const clean = Number.isFinite(add) ? Math.max(0, Math.floor(add)) : 0
@@ -539,8 +554,7 @@ export function createOwnCapPort(opts: { state: RouteStatePort; now: () => numbe
   return {
     async reserve(p, limit) {
       const c = counting(p)
-      const tokensFull = c.tokens >= ownCapOf(limit.tokensPerDay ?? Number.POSITIVE_INFINITY)
-      if (c.requests >= ownCapOf(limit.requestsPerDay) || tokensFull) return null
+      if (isOwnCapReached(opts.state.snapshot(), p, limit, today(p))) return null
       const written = await change(p, (r) => ({ ...r, requests: r.requests + 1 }))
       return written ? { day: c.day } : null
     },
