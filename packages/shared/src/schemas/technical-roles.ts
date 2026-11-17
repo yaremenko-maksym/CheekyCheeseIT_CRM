@@ -213,7 +213,7 @@ export function rolesMatch(
 export const TECHNICAL_ROLE_LABELS: Record<TechnicalRole, MessageDescriptor> = {
   SOFTWARE_ENGINEER: /* i18n */ {
     id: 'technical-role.SOFTWARE_ENGINEER',
-    message: 'Інженер-програміст (загальний)',
+    message: 'Інженер-програміст (без спеціалізації)',
   },
   BACKEND_ENGINEER: /* i18n */ {
     id: 'technical-role.BACKEND_ENGINEER',
@@ -233,7 +233,7 @@ export const TECHNICAL_ROLE_LABELS: Record<TechnicalRole, MessageDescriptor> = {
   },
   BUSINESS_APPLICATIONS_ENGINEER: /* i18n */ {
     id: 'technical-role.BUSINESS_APPLICATIONS_ENGINEER',
-    message: 'Розробник ERP/CRM та low-code платформ',
+    message: 'Розробник ERP/CRM та low-code-платформ',
   },
   IOS_ENGINEER: /* i18n */ { id: 'technical-role.IOS_ENGINEER', message: 'iOS-розробник' },
   ANDROID_ENGINEER: /* i18n */ {
@@ -242,17 +242,17 @@ export const TECHNICAL_ROLE_LABELS: Record<TechnicalRole, MessageDescriptor> = {
   },
   CROSS_PLATFORM_MOBILE_ENGINEER: /* i18n */ {
     id: 'technical-role.CROSS_PLATFORM_MOBILE_ENGINEER',
-    message: 'Розробник крос-платформних мобільних застосунків',
+    message: 'Крос-платформний мобільний розробник',
   },
   DATA_ENGINEER: /* i18n */ { id: 'technical-role.DATA_ENGINEER', message: 'Інженер даних' },
   DATABASE_ENGINEER: /* i18n */ {
     id: 'technical-role.DATABASE_ENGINEER',
     message: 'Інженер баз даних (DBA)',
   },
-  DATA_ANALYST: /* i18n */ { id: 'technical-role.DATA_ANALYST', message: 'Аналітик даних' },
+  DATA_ANALYST: /* i18n */ { id: 'technical-role.DATA_ANALYST', message: 'Аналітик даних / BI' },
   DATA_SCIENTIST: /* i18n */ {
     id: 'technical-role.DATA_SCIENTIST',
-    message: 'Data Scientist (науковець з даних)',
+    message: 'Data Scientist',
   },
   ML_ENGINEER: /* i18n */ {
     id: 'technical-role.ML_ENGINEER',
@@ -262,7 +262,10 @@ export const TECHNICAL_ROLE_LABELS: Record<TechnicalRole, MessageDescriptor> = {
     id: 'technical-role.AI_ENGINEER',
     message: 'AI-інженер (LLM-застосунки)',
   },
-  DEVOPS_ENGINEER: /* i18n */ { id: 'technical-role.DEVOPS_ENGINEER', message: 'DevOps-інженер' },
+  DEVOPS_ENGINEER: /* i18n */ {
+    id: 'technical-role.DEVOPS_ENGINEER',
+    message: 'DevOps / Platform-інженер',
+  },
   SITE_RELIABILITY_ENGINEER: /* i18n */ {
     id: 'technical-role.SITE_RELIABILITY_ENGINEER',
     message: 'Інженер з надійності (SRE)',
@@ -277,7 +280,7 @@ export const TECHNICAL_ROLE_LABELS: Record<TechnicalRole, MessageDescriptor> = {
   },
   SUPPORT_ENGINEER: /* i18n */ {
     id: 'technical-role.SUPPORT_ENGINEER',
-    message: 'Інженер технічної підтримки',
+    message: 'Інженер технічної підтримки (L2/L3)',
   },
   QA_ENGINEER: /* i18n */ {
     id: 'technical-role.QA_ENGINEER',
@@ -285,7 +288,7 @@ export const TECHNICAL_ROLE_LABELS: Record<TechnicalRole, MessageDescriptor> = {
   },
   QA_AUTOMATION_ENGINEER: /* i18n */ {
     id: 'technical-role.QA_AUTOMATION_ENGINEER',
-    message: 'Інженер з автоматизації тестування',
+    message: 'QA Automation-інженер (SDET)',
   },
   SECURITY_ENGINEER: /* i18n */ {
     id: 'technical-role.SECURITY_ENGINEER',
@@ -293,7 +296,7 @@ export const TECHNICAL_ROLE_LABELS: Record<TechnicalRole, MessageDescriptor> = {
   },
   SECURITY_ANALYST: /* i18n */ {
     id: 'technical-role.SECURITY_ANALYST',
-    message: 'Аналітик з кібербезпеки',
+    message: 'Аналітик з кібербезпеки (SOC / IR / GRC)',
   },
   PENETRATION_TESTER: /* i18n */ { id: 'technical-role.PENETRATION_TESTER', message: 'Пентестер' },
   EMBEDDED_ENGINEER: /* i18n */ {
@@ -304,14 +307,17 @@ export const TECHNICAL_ROLE_LABELS: Record<TechnicalRole, MessageDescriptor> = {
     id: 'technical-role.HARDWARE_ENGINEER',
     message: 'Інженер апаратного забезпечення',
   },
-  GAME_DEVELOPER: /* i18n */ { id: 'technical-role.GAME_DEVELOPER', message: 'Розробник ігор' },
+  GAME_DEVELOPER: /* i18n */ {
+    id: 'technical-role.GAME_DEVELOPER',
+    message: 'Розробник ігор і графіки',
+  },
   BLOCKCHAIN_ENGINEER: /* i18n */ {
     id: 'technical-role.BLOCKCHAIN_ENGINEER',
-    message: 'Blockchain-розробник',
+    message: 'Блокчейн / Web3-розробник',
   },
   SOFTWARE_ARCHITECT: /* i18n */ {
     id: 'technical-role.SOFTWARE_ARCHITECT',
-    message: 'Архітектор ПЗ',
+    message: 'Архітектор ПЗ / рішень',
   },
   ENGINEERING_MANAGER: /* i18n */ {
     id: 'technical-role.ENGINEERING_MANAGER',
@@ -320,9 +326,12 @@ export const TECHNICAL_ROLE_LABELS: Record<TechnicalRole, MessageDescriptor> = {
   CTO: /* i18n */ { id: 'technical-role.CTO', message: 'Технічний директор (CTO)' },
   BUSINESS_ANALYST: /* i18n */ {
     id: 'technical-role.BUSINESS_ANALYST',
-    message: 'Бізнес-аналітик (IT)',
+    message: 'Бізнес- / системний аналітик (IT)',
   },
-  UI_UX_DESIGNER: /* i18n */ { id: 'technical-role.UI_UX_DESIGNER', message: 'UI/UX-дизайнер' },
+  UI_UX_DESIGNER: /* i18n */ {
+    id: 'technical-role.UI_UX_DESIGNER',
+    message: 'Продуктовий дизайнер (UI/UX)',
+  },
 }
 
 /** Group labels. The uk group names are authored here (research has none): copy-reviewer. */
@@ -332,7 +341,7 @@ export const TECHNICAL_ROLE_GROUP_LABELS: Record<TechnicalRoleGroup, MessageDesc
     message: 'Розробка ПЗ',
   },
   MOBILE: /* i18n */ { id: 'technical-role-group.MOBILE', message: 'Мобільна розробка' },
-  DATA_AI: /* i18n */ { id: 'technical-role-group.DATA_AI', message: 'Дані та AI' },
+  DATA_AI: /* i18n */ { id: 'technical-role-group.DATA_AI', message: 'Дані та ШІ' },
   INFRASTRUCTURE_OPERATIONS: /* i18n */ {
     id: 'technical-role-group.INFRASTRUCTURE_OPERATIONS',
     message: 'Інфраструктура та експлуатація',
@@ -344,7 +353,7 @@ export const TECHNICAL_ROLE_GROUP_LABELS: Record<TechnicalRoleGroup, MessageDesc
   SECURITY: /* i18n */ { id: 'technical-role-group.SECURITY', message: 'Безпека' },
   EMBEDDED_HARDWARE: /* i18n */ {
     id: 'technical-role-group.EMBEDDED_HARDWARE',
-    message: 'Вбудовані системи та апаратне забезпечення',
+    message: 'Вбудовані та апаратні системи',
   },
   GAME: /* i18n */ { id: 'technical-role-group.GAME', message: 'Ігри та графіка' },
   BLOCKCHAIN: /* i18n */ { id: 'technical-role-group.BLOCKCHAIN', message: 'Блокчейн' },

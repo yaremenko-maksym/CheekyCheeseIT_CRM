@@ -12103,12 +12103,12 @@ msgstr "Блокчейн"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
 msgid "technical-role-group.DATA_AI"
-msgstr "Дані та AI"
+msgstr "Дані та ШІ"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
 msgid "technical-role-group.EMBEDDED_HARDWARE"
-msgstr "Вбудовані системи та апаратне забезпечення"
+msgstr "Вбудовані та апаратні системи"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
@@ -12158,22 +12158,22 @@ msgstr "Бекенд-розробник"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
 msgid "technical-role.BLOCKCHAIN_ENGINEER"
-msgstr "Blockchain-розробник"
+msgstr "Блокчейн / Web3-розробник"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
 msgid "technical-role.BUSINESS_ANALYST"
-msgstr "Бізнес-аналітик (IT)"
+msgstr "Бізнес- / системний аналітик (IT)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
 msgid "technical-role.BUSINESS_APPLICATIONS_ENGINEER"
-msgstr "Розробник ERP/CRM та low-code платформ"
+msgstr "Розробник ERP/CRM та low-code-платформ"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
 msgid "technical-role.CROSS_PLATFORM_MOBILE_ENGINEER"
-msgstr "Розробник крос-платформних мобільних застосунків"
+msgstr "Крос-платформний мобільний розробник"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
@@ -12183,7 +12183,7 @@ msgstr "Технічний директор (CTO)"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
 msgid "technical-role.DATA_ANALYST"
-msgstr "Аналітик даних"
+msgstr "Аналітик даних / BI"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
@@ -12193,7 +12193,7 @@ msgstr "Інженер даних"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
 msgid "technical-role.DATA_SCIENTIST"
-msgstr "Data Scientist (науковець з даних)"
+msgstr "Data Scientist"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
@@ -12208,7 +12208,7 @@ msgstr "Розробник десктопних застосунків"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
 msgid "technical-role.DEVOPS_ENGINEER"
-msgstr "DevOps-інженер"
+msgstr "DevOps / Platform-інженер"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
@@ -12233,7 +12233,7 @@ msgstr "Фулстек-розробник"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
 msgid "technical-role.GAME_DEVELOPER"
-msgstr "Розробник ігор"
+msgstr "Розробник ігор і графіки"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
@@ -12263,7 +12263,7 @@ msgstr "Пентестер"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
 msgid "technical-role.QA_AUTOMATION_ENGINEER"
-msgstr "Інженер з автоматизації тестування"
+msgstr "QA Automation-інженер (SDET)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
@@ -12273,7 +12273,7 @@ msgstr "QA-інженер (мануальне тестування)"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
 msgid "technical-role.SECURITY_ANALYST"
-msgstr "Аналітик з кібербезпеки"
+msgstr "Аналітик з кібербезпеки (SOC / IR / GRC)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
@@ -12288,17 +12288,17 @@ msgstr "Інженер з надійності (SRE)"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
 msgid "technical-role.SOFTWARE_ARCHITECT"
-msgstr "Архітектор ПЗ"
+msgstr "Архітектор ПЗ / рішень"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
 msgid "technical-role.SOFTWARE_ENGINEER"
-msgstr "Інженер-програміст (загальний)"
+msgstr "Інженер-програміст (без спеціалізації)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
 msgid "technical-role.SUPPORT_ENGINEER"
-msgstr "Інженер технічної підтримки"
+msgstr "Інженер технічної підтримки (L2/L3)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
@@ -12308,7 +12308,7 @@ msgstr "Системний адміністратор"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/technical-roles.ts
 msgid "technical-role.UI_UX_DESIGNER"
-msgstr "UI/UX-дизайнер"
+msgstr "Продуктовий дизайнер (UI/UX)"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/projects/constants.ts
