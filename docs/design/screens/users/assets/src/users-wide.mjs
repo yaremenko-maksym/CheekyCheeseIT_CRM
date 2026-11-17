@@ -199,7 +199,7 @@ function panel(
   },
 ) {
   const head = touch
-    ? `<div style="display:grid;grid-template-columns:minmax(96px,1fr) minmax(0,max-content) minmax(96px,1fr);column-gap:8px;align-items:center;height:60px;flex:none;padding:0 8px;border-bottom:1px solid var(--border)"><button type="button" class="btn ghost" style="justify-self:start;height:44px;font-size:17px;font-weight:400;padding:0 12px">${lead}</button><div id="pn-t" class="t-head" style="text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div><span></span></div>`
+    ? `<div style="display:grid;grid-template-columns:auto minmax(0,1fr) auto;column-gap:8px;align-items:center;height:60px;flex:none;padding:0 8px;border-bottom:1px solid var(--border)"><button type="button" class="btn ghost" style="justify-self:start;height:44px;font-size:17px;font-weight:400;padding:0 8px">${lead}</button><div id="pn-t" class="t-head" style="text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div><span style="width:44px"></span></div>`
     : `<div class="row" style="height:56px;flex:none;padding:0 12px 0 24px;border-bottom:1px solid var(--border)"><div id="pn-t" class="grow t-head">${title}</div>${kbd('Esc')}<button type="button" class="iconbtn" aria-label="Закрити" style="width:32px;height:32px;margin-left:6px">${icon('x', { size: 18 })}</button></div>`
   const pad = touch ? 24 : 24
   return `${modal ? SCRIM(z - 10) : ''}${touch ? '' : PANEL_CSS}<aside role="dialog"${modal ? ' aria-modal="true"' : ''} aria-labelledby="pn-t" class="${touch ? '' : 'dpanel'}" style="position:absolute;top:0;right:0;bottom:0;width:${width}px;z-index:${z};background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);box-shadow:-24px 0 60px oklch(0 0 0 / ${modal ? 0.5 : 0.35});display:flex;flex-direction:column">
@@ -271,7 +271,7 @@ function tabletRow(x) {
   return `<div class="lrow two" style="padding:0;gap:0;--inset:68px"><a href="#" aria-label="${x.name}, ${R[x.role]}${x.self ? ', це ви' : ''}" style="flex:1;min-width:0;display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr) 104px;gap:16px;align-items:center;padding:10px 4px 10px 16px;color:inherit;text-decoration:none;min-height:64px">
   <span class="row" style="gap:12px;min-width:0">${av(x, 40).replace('font-size:11px', 'font-size:13px')}<span class="col" style="gap:2px;min-width:0"><span class="row" style="gap:6px;min-width:0"><span class="t-body trunc" style="font-weight:500">${x.name}</span>${x.self ? youPill : ''}</span><span class="t-foot muted trunc"><span style="color:oklch(0.8 0 0);font-weight:500">${R[x.role]}</span> · ${x.email}</span></span></span>
   <span class="col" style="gap:4px;min-width:0"><span class="t-foot muted trunc">${x.tg || ' '}</span>${x.tech.length ? techCell(x.tech, 2) : ''}</span>
-  <span class="t-cap muted num" style="text-align:right">${x.added}</span></a>${acts ? moreBtn(x) : '<span aria-hidden="true" style="width:44px;flex:none"></span>'}</div>`
+  <span class="t-cap muted num" style="text-align:right">${x.added}</span></a>${acts ? moreBtn(x) : '<span aria-hidden="true" style="width:48px;flex:none"></span>'}</div>`
 }
 
 /** ≥ 900 detail pane: built only from the list row (0 extra requests) + «Відкрити профіль». */
