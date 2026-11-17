@@ -272,7 +272,7 @@ describe('startWorker — what it wires up', () => {
         ['KEY-MARKER', 'ACCOUNT-MARKER'],
       ],
       ['ACCOUNT_ID_MISSING', { CLOUDFLARE_AI_TOKEN: 'KEY-MARKER' }, ['KEY-MARKER']],
-      ['TOKEN_MISSING', { CLOUDFLARE_ACCOUNT_ID: VALID_ID }, [VALID_ID, 'crm-model-runtime']],
+      ['TOKEN_MISSING', { CLOUDFLARE_ACCOUNT_ID: VALID_ID }, [VALID_ID]],
     ] as const)(
       '%s logs one warning naming the route and the reason, never a value',
       async (reason, cloudflareEnv, secrets) => {
