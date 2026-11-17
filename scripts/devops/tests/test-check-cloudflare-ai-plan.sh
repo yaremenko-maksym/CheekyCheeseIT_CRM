@@ -50,6 +50,7 @@ assert_green "--classify without a body file -> usage, exit 2" \
 
 # ── env file and the network path, against a curl shim ──────────────────────
 # The shim fails unless the token arrives on stdin as a header, and fails if it is in argv.
+# shellcheck disable=SC2016  # the shim body expands its own variables when it runs, not here
 guard_test_shim "$WS" curl '#!/usr/bin/env bash
 cfg="$(cat)"
 case "$*" in *"$FAKE_TOKEN"*) echo "token in argv" >&2; exit 98 ;; esac
