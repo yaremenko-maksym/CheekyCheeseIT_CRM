@@ -120,6 +120,12 @@ describe('decideRoleAi', () => {
     })
   })
 
+  it('AI roles are written in the canonical order, not the model order', () => {
+    expect(decideRoleAi(ok(['FRONTEND_ENGINEER', 'BACKEND_ENGINEER'], 0.9))).toMatchObject({
+      terminal: { roles: ['BACKEND_ENGINEER', 'FRONTEND_ENGINEER'] },
+    })
+  })
+
   it('ok + confidence 0.69 -> UNCLEAR with no roles', () => {
     expect(decideRoleAi(ok(['BACKEND_ENGINEER'], 0.69))).toEqual({
       kind: 'terminal',

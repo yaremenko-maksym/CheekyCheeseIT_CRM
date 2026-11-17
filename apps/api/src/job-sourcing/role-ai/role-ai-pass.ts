@@ -1,4 +1,4 @@
-import type { JobSourceType, TechnicalRole } from '@crm/shared'
+import { type JobSourceType, sortRoles, type TechnicalRole } from '@crm/shared'
 import { dbErrorLogSuffix, strictErrorStack } from '../../database/pg-errors'
 import type { MeterDb } from '../metering/account-meter.store'
 import { unavailableOrigin, type Unavailable } from '../../resumes/verification/inference-clients'
@@ -84,7 +84,7 @@ export function decideRoleAi(reply: RoleAiReply): RoleAiDecision {
       kind: 'terminal',
       terminal: {
         outcome: ai ? 'AI' : 'UNCLEAR',
-        roles: ai ? reply.roles : [],
+        roles: ai ? sortRoles(reply.roles) : [],
         confidence: reply.confidence,
       },
     }
