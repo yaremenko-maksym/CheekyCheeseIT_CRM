@@ -16,20 +16,27 @@ import {
   nextUtcMidnight,
 } from './resume-ai.service'
 
-/** In-memory stand-in for the daily budget: `limit` calls a day, counted per `reserveCall`. */
+/**
+ * In-memory stand-in for the daily budget: `limit` calls a day, counted per `reserveCall`, given
+ * back per `releaseCall` (never below 0, like the real statement).
+ */
 function fakeBudget(limit = Number.POSITIVE_INFINITY) {
   let used = 0
-  const reserveCall = vi.fn(() => {
+  const reserveCall = vi.fn((_now?: Date) => {
     if (used >= limit) return Promise.resolve(false)
     used += 1
     return Promise.resolve(true)
   })
-  return { reserveCall }
+  const releaseCall = vi.fn((_now?: Date) => {
+    used = Math.max(0, used - 1)
+    return Promise.resolve()
+  })
+  return { reserveCall, releaseCall, used: () => used }
 }
 
 function makeService(
   env: Record<string, string | undefined> = {},
-  budget: { reserveCall: () => Promise<boolean> } = fakeBudget(),
+  budget: { reserveCall: () => Promise<boolean>; releaseCall?: () => Promise<void> } = fakeBudget(),
 ): ResumeAiService {
   const config = {
     get: (key: string) =>
@@ -246,6 +253,139 @@ describe('ResumeAiService', () => {
         code: 'RESUME_AI_UNAVAILABLE',
       })
       expect(error).toHaveBeenCalledWith('Resume AI daily budget unreadable, call refused: db down')
+    })
+
+    it('CR-M-1: a refusal at 00:00 UTC reports the reset of the day it was refused for', async () => {
+      vi.useFakeTimers({ now: new Date('2026-11-17T23:59:59.999Z') })
+      try {
+        // The clock crosses midnight while the reservation statement runs.
+        const reserveCall = vi.fn((_now?: Date) => {
+          vi.setSystemTime(new Date('2026-11-18T00:00:00.001Z'))
+          return Promise.resolve(false)
+        })
+        const result = await makeService({}, { reserveCall }).extractStructure('a'.repeat(200))
+
+        expect(reserveCall).toHaveBeenCalledWith(new Date('2026-11-17T23:59:59.999Z'))
+        expect(result).toMatchObject({
+          code: 'QUOTA_EXCEEDED',
+          quotaResetsAt: '2026-11-18T00:00:00.000Z',
+        })
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    describe('R1: a call Cloudflare cannot have billed is given back', () => {
+      it.each([
+        ['a network error', new TypeError('fetch failed')],
+        ['a timeout', new DOMException('The operation was aborted.', 'AbortError')],
+      ])('%s (no HTTP response) releases the reserved call', async (_name, err) => {
+        fetchSpy.mockRejectedValueOnce(err)
+        const budget = fakeBudget(10)
+        const result = await makeService({}, budget).extractStructure('a'.repeat(200))
+
+        expect(result).toMatchObject({ ok: false, code: 'MODEL_ERROR', tokensUsed: null })
+        expect(result).not.toHaveProperty('unbilled')
+        expect(budget.releaseCall).toHaveBeenCalledTimes(1)
+        // The release targets the same instant (so the same UTC day) as the reservation.
+        expect(budget.releaseCall.mock.calls[0]?.[0]).toBe(budget.reserveCall.mock.calls[0]?.[0])
+        expect(budget.reserveCall.mock.calls[0]?.[0]).toBeInstanceOf(Date)
+        expect(budget.used()).toBe(0)
+      })
+
+      it('an HTTP 429 releases the reserved call and keeps the quota answer', async () => {
+        fetchSpy.mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          text: () => Promise.resolve('{"success":false,"errors":[{"code":3036}]}'),
+        } as unknown as Response)
+        const budget = fakeBudget(10)
+        const result = await makeService({}, budget).extractStructure('a'.repeat(200))
+
+        expect(result).toEqual({
+          ok: false,
+          code: 'QUOTA_EXCEEDED',
+          message: expect.any(String),
+          quotaResetsAt: expect.any(String),
+          tokensUsed: null,
+        })
+        expect(budget.releaseCall).toHaveBeenCalledTimes(1)
+        expect(budget.used()).toBe(0)
+      })
+
+      it('a released retry keeps the tokens of the first attempt', async () => {
+        fetchSpy
+          .mockResolvedValueOnce(aiResponse('не json', 55))
+          .mockRejectedValueOnce(new TypeError('fetch failed'))
+        const budget = fakeBudget(10)
+        const result = await makeService({}, budget).extractStructure('a'.repeat(200))
+
+        expect(result).toMatchObject({ ok: false, code: 'MODEL_ERROR', tokensUsed: 55 })
+        expect(budget.releaseCall).toHaveBeenCalledTimes(1)
+        expect(budget.releaseCall.mock.calls[0]?.[0]).toBe(budget.reserveCall.mock.calls[1]?.[0])
+        expect(budget.used()).toBe(1)
+      })
+
+      it.each([
+        [
+          '3040 inside a 400',
+          400,
+          '{"success":false,"errors":[{"code":3040,"message":"daily quota"}]}',
+        ],
+        ['a 500', 500, '{"success":false,"errors":[{"message":"boom"}]}'],
+        ['a 400', 400, '{"success":false,"errors":[{"message":"bad"}]}'],
+      ])('any other answer (%s) keeps the call spent', async (_name, status, body) => {
+        fetchSpy.mockResolvedValueOnce({
+          ok: false,
+          status,
+          text: () => Promise.resolve(body),
+        } as unknown as Response)
+        const budget = fakeBudget(10)
+        const result = await makeService({}, budget).extractStructure('a'.repeat(200))
+
+        expect(result.ok).toBe(false)
+        expect(result).not.toHaveProperty('unbilled')
+        expect(budget.releaseCall).not.toHaveBeenCalled()
+        expect(budget.used()).toBe(1)
+      })
+
+      it('a success or an invalid answer keeps every call spent', async () => {
+        fetchSpy
+          .mockResolvedValueOnce(aiResponse('не json'))
+          .mockResolvedValueOnce(aiResponse(VALID_JSON))
+        const budget = fakeBudget(10)
+        expect((await makeService({}, budget).extractStructure('a'.repeat(200))).ok).toBe(true)
+        expect(budget.releaseCall).not.toHaveBeenCalled()
+        expect(budget.used()).toBe(2)
+      })
+
+      it('a failed release is logged and the call stays counted; the answer is unchanged', async () => {
+        const error = vi.spyOn(Logger.prototype, 'error')
+        fetchSpy.mockRejectedValueOnce(new TypeError('fetch failed'))
+        const budget = {
+          reserveCall: vi.fn(() => Promise.resolve(true)),
+          releaseCall: vi.fn(() => Promise.reject(new Error('db down'))),
+        }
+        const result = await makeService({}, budget).extractStructure('a'.repeat(200))
+
+        expect(result).toMatchObject({ ok: false, code: 'MODEL_ERROR' })
+        expect(error).toHaveBeenCalledWith(
+          'Resume AI daily budget release failed; the call stays counted: db down',
+        )
+      })
+
+      it('logs a non-Error release failure without its value', async () => {
+        const error = vi.spyOn(Logger.prototype, 'error')
+        fetchSpy.mockRejectedValueOnce(new TypeError('fetch failed'))
+        const budget = {
+          reserveCall: () => Promise.resolve(true),
+          releaseCall: () => Promise.reject('opaque'),
+        }
+        expect((await makeService({}, budget).extractStructure('a'.repeat(200))).ok).toBe(false)
+        expect(error).toHaveBeenCalledWith(
+          'Resume AI daily budget release failed; the call stays counted: unknown error',
+        )
+      })
     })
 
     it('logs a non-Error budget failure without its value', async () => {

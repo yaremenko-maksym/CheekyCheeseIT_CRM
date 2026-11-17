@@ -11,6 +11,8 @@ import {
   RESUME_AI_DAILY_CALL_CAP,
   RESUME_AI_METER_ACCOUNT_KEY,
   ResumeAiDailyBudget,
+  nextUtcMidnight,
+  releaseCallQuery,
   reserveCallQuery,
   utcDayBounds,
 } from './resume-ai-daily-budget'
@@ -69,7 +71,8 @@ describe('reserveCallQuery', () => {
 
   it('on conflict: rolls a finished day over to 1, else adds 1, and takes the code limit', () => {
     const { sql: text } = render()
-    const rolled = `"job_account_meters"."resets_at" <= $8::timestamptz`
+    // A NULL `resets_at` counts as rolled over (R2): `NULL <= now` alone is NULL, i.e. never.
+    const rolled = `COALESCE("job_account_meters"."resets_at" <= $8::timestamptz, true)`
     expect(text).toContain(
       `on conflict ("account_key","unit","window_kind") do update set "limit_amount" = excluded.limit_amount, ` +
         `"used" = CASE WHEN ${rolled} THEN 1 ELSE "job_account_meters"."used" + 1 END, ` +
@@ -82,8 +85,91 @@ describe('reserveCallQuery', () => {
   it('updates only while there is room, so a spent day returns no row', () => {
     const { sql: text } = render()
     expect(text).toContain(
-      `where (CASE WHEN "job_account_meters"."resets_at" <= $11::timestamptz THEN 0 ELSE "job_account_meters"."used" END)` +
+      `where (CASE WHEN COALESCE("job_account_meters"."resets_at" <= $11::timestamptz, true) THEN 0 ELSE "job_account_meters"."used" END)` +
         ` + "job_account_meters"."reserved" + "job_account_meters"."uncertain" < excluded.limit_amount returning "used"`,
+    )
+  })
+})
+
+describe('releaseCallQuery', () => {
+  const now = new Date('2026-11-17T10:00:00.000Z')
+  const render = () => releaseCallQuery(drizzle.mock({ schema }), now, 'cloudflare:test').toSQL()
+
+  it('takes one call back from the reservation day only, and never below 0', () => {
+    const { sql: text, params } = render()
+    expect(text).toBe(
+      'update "job_account_meters" set "used" = "job_account_meters"."used" - 1, "updated_at" = now() ' +
+        'where ("job_account_meters"."account_key" = $1 and "job_account_meters"."unit" = $2 and ' +
+        '"job_account_meters"."window_kind" = $3 and "job_account_meters"."window_started_at" = $4 and ' +
+        '"job_account_meters"."used" > $5)',
+    )
+    expect(params).toEqual(['cloudflare:test', 'MODEL_CALL', 'DAY', '2026-11-17T00:00:00.000Z', 0])
+  })
+})
+
+describe('nextUtcMidnight', () => {
+  it('is the end of the UTC day utcDayBounds reports', () => {
+    const now = new Date('2026-11-17T23:59:59.999Z')
+    expect(nextUtcMidnight(now)).toEqual(utcDayBounds(now).end)
+    expect(nextUtcMidnight(now)).toEqual(new Date('2026-11-18T00:00:00.000Z'))
+  })
+})
+
+describe('ResumeAiDailyBudget.releaseCall', () => {
+  /** A db whose `update` builds the real statement (drizzle.mock) and records its SQL. */
+  function budgetUpdating() {
+    const mock = drizzle.mock({ schema })
+    const statements: Array<{ sql: string; params: unknown[] }> = []
+    const db = {
+      update: (table: typeof schema.jobAccountMeters) => ({
+        set: (values: never) => ({
+          where: (where: never) => {
+            statements.push(mock.update(table).set(values).where(where).toSQL())
+            return Promise.resolve(undefined)
+          },
+        }),
+      }),
+    }
+    return { budget: new ResumeAiDailyBudget({ db } as never), statements }
+  }
+
+  it('releases from the resume meter for the current UTC day by default', async () => {
+    vi.useFakeTimers({ now: new Date('2026-11-17T08:00:00.000Z') })
+    try {
+      const { budget, statements } = budgetUpdating()
+      await expect(budget.releaseCall()).resolves.toBeUndefined()
+      expect(statements).toHaveLength(1)
+      expect(statements[0]?.params).toEqual([
+        'cloudflare:resume-extraction',
+        'MODEL_CALL',
+        'DAY',
+        '2026-11-17T00:00:00.000Z',
+        0,
+      ])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('releases from the day of the instant it is given', async () => {
+    const { budget, statements } = budgetUpdating()
+    await budget.releaseCall(new Date('2026-11-16T23:00:00.000Z'), 'cloudflare:test')
+    expect(statements[0]?.params.slice(0, 4)).toEqual([
+      'cloudflare:test',
+      'MODEL_CALL',
+      'DAY',
+      '2026-11-16T00:00:00.000Z',
+    ])
+  })
+
+  it('passes a database failure through', async () => {
+    const db = {
+      update: () => {
+        throw new Error('connection refused')
+      },
+    }
+    await expect(new ResumeAiDailyBudget({ db } as never).releaseCall()).rejects.toThrow(
+      'connection refused',
     )
   })
 })
