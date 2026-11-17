@@ -135,16 +135,10 @@ try {
   raw = composeConfig([args.extraction], PINS, ['--profile', '*'], {
     configArgs: ['--no-interpolate'],
     post: (json, dir) => ({
-      // A null is a key some compose release fills in, not one the file sets.
-      topKeys: setKeys(json),
-      workerKeys: setKeys(json.services?.[WORKER]),
+      json,
       envFiles: (json.services?.[WORKER]?.env_file ?? []).map((f) =>
         relative(dir, typeof f === 'string' ? f : f.path),
       ),
-      // Long syntax: `required: false` skips a missing file, `format` changes how it is parsed.
-      envFileOdd: (json.services?.[WORKER]?.env_file ?? [])
-        .filter((f) => typeof f !== 'string' && (f.required === false || f.format !== undefined))
-        .map((f) => (f.required === false ? 'required: false' : `format: ${f.format}`)),
     }),
   })
   // The production project name (the /opt/crm directory), so network names resolve as on the host.
@@ -157,19 +151,58 @@ try {
 const errors = []
 const services = extraction.services ?? {}
 const netsOf = (svc) => Object.keys(svc?.networks ?? {}).sort()
+// The file as written. The resolved config hides what the host env decides at `up` and drops some
+// keys (ipam.options), so keys, attachments and network definitions are read here.
+const rawWorker = raw.json.services?.[WORKER] ?? {}
+const rawNets = raw.json.networks ?? {}
 
 // ── The separate project ────────────────────────────────────────────────────
 if (extraction.name !== PROJECT)
   errors.push(`the project must be named ${PROJECT} (found: ${extraction.name})`)
-for (const key of raw.topKeys.filter((k) => !TOP_KEYS.includes(k)))
+// A null is a key some compose release fills in, not one the file sets.
+for (const key of setKeys(raw.json).filter((k) => !TOP_KEYS.includes(k)))
   errors.push(`the extraction project must not declare top-level ${key}`)
+
+// A `$` left in the raw config is a value the host env decides at `up`, after the guard has looked
+// (`driver: ${X:-json-file}`). The one exception: the owner's image tag pin after the repository.
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const IMAGE_PIN = new RegExp(
+  `^${escapeRe(WORKER_IMAGE_REPO)}:\\$\\{EXTRACTION_WORKER_IMAGE_TAG(?::?[-?][^$}]*)?\\}(?:@sha256:[0-9a-f]{64})?$`,
+)
+const withDollar = (v, path) => {
+  if (typeof v === 'string') return v.includes('$') ? [path] : []
+  if (!v || typeof v !== 'object') return []
+  return Object.entries(v).flatMap(([k, x]) => [
+    ...(k.includes('$') ? [`${path}.${k}`] : []),
+    ...withDollar(x, `${path}.${k}`),
+  ])
+}
+const { image: rawImage, ...rawWorkerRest } = rawWorker
+for (const path of [
+  ...withDollar(rawWorkerRest, WORKER),
+  ...(withDollar(rawImage, '').length > 0 && !IMAGE_PIN.test(rawImage) ? [`${WORKER}.image`] : []),
+  ...withDollar(rawNets, 'networks'),
+  ...withDollar(raw.json.volumes, 'volumes'),
+])
+  errors.push(
+    `${path} must hold no variable: the host env would decide it at up (only the image tag pin may)`,
+  )
 
 const worker = services[WORKER]
 if (!worker) {
   errors.push(`service ${WORKER} is missing`)
 } else {
-  for (const key of raw.workerKeys.filter((k) => !WORKER_KEYS.includes(k)))
+  for (const key of setKeys(rawWorker).filter((k) => !WORKER_KEYS.includes(k)))
     errors.push(`${WORKER} must not set ${key}: not in the reviewed key allow-list`)
+  // Per-network attachment keys: ipv4_address, mac_address, driver_opts (endpoint sysctls such as
+  // route_localnet), link_local_ips, interface_name, priority, gw_priority... Entry: aliases only.
+  for (const [net, att] of Object.entries(rawWorker.networks ?? {})) {
+    const allowed = net === ENTRY ? ['aliases'] : []
+    for (const k of setKeys(att).filter((k) => !allowed.includes(k)))
+      errors.push(
+        `${WORKER} must set ${allowed.length > 0 ? 'only aliases' : 'nothing'} on network ${net} (found: ${k})`,
+      )
+  }
   if ((worker.ports ?? []).length > 0) errors.push(`${WORKER} must not publish ports (SR-L-4)`)
   if ((worker.expose ?? []).length > 0) errors.push(`${WORKER} must not declare expose`)
   if (worker.network_mode)
@@ -198,8 +231,16 @@ if (!worker) {
     errors.push(
       `${WORKER} env_file must be exactly ${WORKER_ENV_FILE} (found: ${raw.envFiles.join(', ') || 'none'})`,
     )
-  for (const odd of raw.envFileOdd)
-    errors.push(`${WORKER} env_file must be a plain path (found: ${odd})`)
+  // Long syntax: path and required only. `format` changes how the file is parsed; any required but
+  // the literal `true` (false, "false", ${OPT:-false}) lets the worker start without its file.
+  for (const f of (rawWorker.env_file ?? []).filter((f) => typeof f !== 'string')) {
+    for (const k of Object.keys(f).filter((k) => k !== 'path' && k !== 'required'))
+      errors.push(`${WORKER} env_file must be a plain path (found: ${k}: ${f[k]})`)
+    if (f.required !== undefined && f.required !== true)
+      errors.push(
+        `${WORKER} env_file must be a plain path (found: required: ${JSON.stringify(f.required)})`,
+      )
+  }
   const log = worker.logging ?? {}
   if (log.driver !== LOG_DRIVER)
     errors.push(
@@ -303,13 +344,16 @@ if (!nets[EGRESS]) {
     errors.push(
       `network ${EGRESS} must resolve to ${EGRESS_NAME}, the project's own (found: ${nets[EGRESS].name})`,
     )
-  const subnets = (nets[EGRESS].ipam?.config ?? []).map((c) => c.subnet)
+  const subnets = (rawNets[EGRESS]?.ipam?.config ?? []).map((c) => c.subnet)
   if (subnets.join() !== EGRESS_SUBNET)
     errors.push(
       `network ${EGRESS} must pin the subnet ${EGRESS_SUBNET} (found: ${subnets.join(', ') || 'none'})`,
     )
 }
-for (const [key, net] of Object.entries(nets)) {
+// The shipped entry network has no ipam: a subnet or gateway there is unreviewed addressing.
+for (const k of setKeys(rawNets[ENTRY]?.ipam))
+  errors.push(`network ${ENTRY} must set no ipam, as shipped (found: ${k})`)
+for (const [key, net] of Object.entries(rawNets)) {
   for (const k of setKeys(net).filter((k) => !NET_KEYS.includes(k)))
     errors.push(`network ${key} must not set ${k}: not in the reviewed key allow-list`)
   // The default bridge: macvlan/ipvlan put the worker on a host-side L2 segment.

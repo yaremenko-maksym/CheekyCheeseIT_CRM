@@ -353,12 +353,17 @@ x
 }')"
 assert_red "driver_opts on a network are refused" --contains "must not set driver_opts: not in the reviewed key allow-list" -- guard_with --extraction "$F"
 
-for kv in 'attachable: true' 'labels: {a: b}' 'enable_ipv4: true'; do
+for kv in 'attachable: true' 'labels: {a: b}'; do
   k="${kv%%:*}"
   F="$(ex "net-$k" "/^  egress:\$/a\\
     $kv")"
   assert_red "a network key $k outside the allow-list is refused" --contains "network egress must not set $k: not in the reviewed key allow-list" -- guard_with --extraction "$F"
 done
+# J7: a compose release that does not know enable_ipv4 refuses the schema (exit 2, "could not
+# resolve"); that is not this finding, so it must not count as a pass.
+F="$(ex net-enable_ipv4 '/^  egress:$/a\
+    enable_ipv4: true')"
+assert_red "a network key enable_ipv4 outside the allow-list is refused by the allow-list" --contains "network egress must not set enable_ipv4: not in the reviewed key allow-list" --not-contains "could not resolve" -- guard_with --extraction "$F"
 
 F="$(ex ipam-driver '/^    ipam:$/a\
       driver: custom')"
@@ -392,7 +397,10 @@ for img in 'docker.io\/evil\/api' 'ghcr.io\/yaremenko-maksym\/other' 'ghcr.io\/y
   assert_red "image repository ${img//\\/} is refused" --contains "image repository must be ghcr.io/yaremenko-maksym/cheekycheeseit-crm-api" -- guard_with --extraction "$F"
 done
 F="$(ex img-digest 's/cheekycheeseit-crm-api:\${EXTRACTION_WORKER_IMAGE_TAG:?pin the worker image tag}/cheekycheeseit-crm-api@sha256:0000000000000000000000000000000000000000000000000000000000000000/')"
-assert_red "an image pinned by digest to the right repository still trips the unset-pin check, not the repository check" --not-contains "image repository" -- guard_with --extraction "$F"
+assert_red "an image pinned by digest alone drops the owner's tag pin, and only that is refused" --contains "an unset EXTRACTION_WORKER_IMAGE_TAG must make compose refuse" --not-contains "image repository" -- guard_with --extraction "$F"
+# J7: the digest case proper is green: tag pin plus digest, right repository.
+F="$(ex img-tag-digest 's/\(\${EXTRACTION_WORKER_IMAGE_TAG:?pin the worker image tag}\)/\1@sha256:0000000000000000000000000000000000000000000000000000000000000000/')"
+assert_green "the tag pin plus a digest of the right repository passes" --contains "isolation OK" -- guard_with --extraction "$F"
 
 # ── H4 + H5: env_file in long syntax ──
 F="$(ex envfile-long 's/^      - .env.extraction-worker$/      - path: .env.extraction-worker/')"
@@ -444,6 +452,85 @@ assert_red "an included file with a top-level secrets block is refused" --contai
 F="$(ex top-level-x '$a\
 x-extra: {}')"
 assert_red "a top-level x- key is refused" --contains "must not declare top-level x-extra" -- guard_with --extraction "$F"
+
+# ── J1: per-network attachment keys: entry carries aliases only, egress nothing ──
+i=0
+while IFS= read -r kv; do
+  i=$((i + 1))
+  k="${kv%%:*}"
+  F="$(ex "att-egress-$i-$k" "s/^      egress: {}\$/      egress:\\
+        $kv/")"
+  assert_red "attachment key $k on the egress network is refused" --contains "extraction-worker must set nothing on network egress (found: $k)" -- guard_with --extraction "$F"
+  F="$(ex "att-entry-$i-$k" "/^        aliases: \\[crm-extraction-worker\\]\$/a\\
+        $kv")"
+  assert_red "attachment key $k on the entry network is refused" --contains "extraction-worker must set only aliases on network entry (found: $k)" -- guard_with --extraction "$F"
+done <<'ATT'
+ipv4_address: 10.250.17.5
+mac_address: 02:42:0a:fa:11:05
+driver_opts: {com.docker.network.endpoint.sysctls: 'net.ipv4.conf.IFNAME.route_localnet=1'}
+link_local_ips: [169.254.10.10]
+interface_name: eth9
+priority: 100
+gw_priority: 100
+ATT
+
+# ── J2: the entry network keeps the shipped ipam, which is none ──
+F="$(ex entry-ipam-subnet '/^    internal: true$/a\
+    ipam:\
+      config:\
+        - subnet: 10.250.18.0/28')"
+assert_red "an ipam subnet on the entry network is refused" --contains "network entry must set no ipam, as shipped (found: config)" -- guard_with --extraction "$F"
+F="$(ex entry-ipam-driver '/^    internal: true$/a\
+    ipam:\
+      driver: default')"
+assert_red "an ipam driver on the entry network is refused" --contains "network entry must set no ipam, as shipped (found: driver)" -- guard_with --extraction "$F"
+
+# ── J5: compose drops ipam.options from the resolved config; the raw one keeps them ──
+F="$(ex egress-ipam-options '/^        - subnet: 10\.250\.17\.0\/28$/a\
+      options:\
+        foo: bar')"
+assert_red "ipam options on the egress network are refused" --contains "network egress ipam must set only config (found: options)" -- guard_with --extraction "$F"
+F="$(ex entry-ipam-options '/^    internal: true$/a\
+    ipam:\
+      options:\
+        foo: bar')"
+assert_red "ipam options on the entry network are refused" --contains "network entry must set no ipam, as shipped (found: options)" -- guard_with --extraction "$F"
+
+# ── J3: long-syntax env_file: path and required only; required absent or the boolean true ──
+F="$(ex envfile-required-true 's/^      - .env.extraction-worker$/      - path: .env.extraction-worker\
+        required: true/')"
+assert_green "a long-syntax env_file with required: true passes" --contains "isolation OK" -- guard_with --extraction "$F"
+F="$(ex envfile-required-str 's/^      - .env.extraction-worker$/      - path: .env.extraction-worker\
+        required: "false"/')"
+assert_red "an env_file with required: \"false\" (a string) is refused" --contains 'env_file must be a plain path (found: required: "false")' -- guard_with --extraction "$F"
+F="$(ex envfile-required-strtrue 's/^      - .env.extraction-worker$/      - path: .env.extraction-worker\
+        required: "true"/')"
+assert_red "an env_file with required: \"true\" (a string, not the boolean) is refused" --contains 'env_file must be a plain path (found: required: "true")' -- guard_with --extraction "$F"
+F="$(ex envfile-required-var 's/^      - .env.extraction-worker$/      - path: .env.extraction-worker\
+        required: ${OPT:-false}/')"
+assert_red "an env_file with required: \${OPT:-false} is refused" --contains 'env_file must be a plain path (found: required: "${OPT:-false}")' -- guard_with --extraction "$F"
+
+# ── J4: no value the host env decides at up; only the image tag pin may be a variable ──
+while IFS='|' read -r name sedexpr path; do
+  F="$(ex "dollar-$name" "$WK $sedexpr")"
+  assert_red "a variable in $path is refused" --contains "$path must hold no variable: the host env would decide it at up" -- guard_with --extraction "$F"
+done <<'DOLLAR'
+log-driver|s/^      driver: json-file$/      driver: ${X:-json-file}/|extraction-worker.logging.driver
+mem|s/^    mem_limit: 512m$/    mem_limit: ${M:-512m}/|extraction-worker.mem_limit
+env|s/^      NODE_ENV: production$/      NODE_ENV: ${NE:-production}/|extraction-worker.environment.NODE_ENV
+user|s/^    user: node$/    user: ${U:-node}/|extraction-worker.user
+DOLLAR
+F="$(ex dollar-repo 's/image: ghcr.io\/yaremenko-maksym\/cheekycheeseit-crm-api:/image: ${XREPO:-ghcr.io\/yaremenko-maksym\/cheekycheeseit-crm-api}:/')"
+assert_red "a variable in the image repository is refused" --contains "extraction-worker.image must hold no variable" -- guard_with --extraction "$F"
+F="$(ex dollar-tag-nested 's/\${EXTRACTION_WORKER_IMAGE_TAG:?pin the worker image tag}/${EXTRACTION_WORKER_IMAGE_TAG:?${OTHER}}/')"
+assert_red "a second variable nested in the image tag pin is refused" --contains "extraction-worker.image must hold no variable" -- guard_with --extraction "$F"
+F="$(ex dollar-net-driver '/^  egress:$/,$ s/^    driver: bridge$/    driver: ${ND:-bridge}/')"
+assert_red "a variable in a network definition is refused" --contains "networks.egress.driver must hold no variable" -- guard_with --extraction "$F"
+F="$(ex dollar-subnet 's/^        - subnet: 10\.250\.17\.0\/28$/        - subnet: ${SN:-10.250.17.0\/28}/')"
+assert_red "a variable in the egress subnet is refused" --contains "networks.egress.ipam.config.0.subnet must hold no variable" -- guard_with --extraction "$F"
+F="$(ex dollar-volume 's/^  worker_state: {}$/  worker_state:\
+    name: ${V:-crm-extraction_worker_state}/')"
+assert_red "a variable in the state volume definition is refused" --contains "volumes.worker_state.name must hold no variable" -- guard_with --extraction "$F"
 
 # ── the composed deploy configuration ──
 F="$(mutate "$PROD" gains-worker '/^  # ── nginx (reverse-proxy/i\
