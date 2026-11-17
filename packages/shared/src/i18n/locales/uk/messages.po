@@ -1706,6 +1706,11 @@ msgstr "Підтверджують: {drop}, {senior}"
 msgid "Назва, посилання {position}"
 msgstr "Назва, посилання {position}"
 
+#. placeholder {0}: sourceLabel(source.sourceType)
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Відкрити на {0}"
+msgstr "Відкрити на {0}"
+
 #: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
 msgid "PDF не пройшов візуальну перевірку"
 msgstr "PDF не пройшов візуальну перевірку"
@@ -10414,11 +10419,6 @@ msgstr "{0, plural, one {# без доходу} few {# без доходу} many
 #: apps/web/app/components/users/user-dialog/EmailChangeWarningDialog.tsx
 msgid "Старий:"
 msgstr "Старий:"
-
-#. placeholder {0}: sourceLabel(source.sourceType)
-#: apps/web/app/components/job-queue/JobQueueRow.tsx
-msgid "Джерело: {0}"
-msgstr "Джерело: {0}"
 
 #: apps/web/app/components/user-profile/resume/ResumeVerificationFailure.tsx
 msgid "Частина тексту не читається з PDF. Скоротіть поля зі списку або оберіть інший шаблон."

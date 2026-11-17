@@ -876,7 +876,7 @@ describe('blocking notes (AC 5, §5.7)', () => {
     post.mockRejectedValueOnce(coded(409, 'JOB_QUEUE_VERSION_CONFLICT'))
     fireEvent.click(submitButton())
     await screen.findByTestId('job-queue-conflict')
-    const other = screen.getByRole('button', { name: 'Відкрити оригінал' })
+    const other = screen.getByRole('button', { name: 'Відкрити на DOU' })
     act(() => other.focus())
     setCard(twoSeniors({ revision: 4 }))
     rerender()
@@ -916,7 +916,7 @@ describe('«Відкрити оригінал» (AC 6)', () => {
   it('marks the click once and opens the primary posting inside the same click', () => {
     renderCard()
     const footer = screen.getByTestId('job-queue-card-footer')
-    fireEvent.click(within(footer).getByRole('button', { name: 'Відкрити оригінал' }))
+    fireEvent.click(within(footer).getByRole('button', { name: 'Відкрити на DOU' }))
     // no await: both run synchronously inside the gesture
     expect(openOriginalPosting).toHaveBeenCalledTimes(1)
     expect(openOriginalPosting).toHaveBeenCalledWith('https://jobs.dou.ua/1')
@@ -1311,7 +1311,7 @@ describe('RBAC: ADMIN menus (AC 6, §5.6)', () => {
     setCard(cardWithSubmitted())
     renderCard(HR)
     expect(submitButton()).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Відкрити оригінал' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Відкрити на DOU' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Приховати' })).toBeVisible()
     expect(screen.queryByRole('button', { name: /Дії адміністратора/ })).toBeNull()
     expect(screen.queryByText(/Скасувати подачу/)).toBeNull()
@@ -1617,7 +1617,7 @@ describe('touch targets and layout (AC 8)', () => {
     )
     renderCard(ADMIN)
     expect(submitButton()).toHaveClass('min-h-11', 'w-full', 'sm:w-auto')
-    for (const name of ['Відкрити оригінал', 'Приховати']) {
+    for (const name of ['Відкрити на DOU', 'Приховати']) {
       expect(screen.getByRole('button', { name })).toHaveClass('min-h-11')
     }
     expect(screen.getByRole('button', { name: 'Дії адміністратора' })).toHaveClass('size-11')

@@ -80,6 +80,7 @@ import {
 } from '@/lib/axios-utils'
 import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { sourceLabel } from './JobQueueRow'
 import { ownSubmission, ownTaken, submittedElsewhere } from './MatchedSeniors'
 
 /** §5.6: the one conflict text, used everywhere; it never says who changed what, or where. */
@@ -1055,6 +1056,7 @@ export function OpenOriginalButton({
   scope: QueueScopeSignature
   card: JobQueueCardResponseDto
 }) {
+  const { t } = useLingui()
   const markOpened = useMarkJobOpened(scope)
   const source = card.primarySource
   const url = source?.url ?? card.applicationUrl
@@ -1070,7 +1072,7 @@ export function OpenOriginalButton({
       }}
     >
       <ExternalLink aria-hidden="true" />
-      <Trans>Відкрити оригінал</Trans>
+      {source ? t`Відкрити на ${sourceLabel(source.sourceType)}` : t`Відкрити оригінал`}
     </Button>
   )
 }
