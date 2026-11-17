@@ -173,14 +173,13 @@ export function createRoleAiStore(
               RETURNING attempts`,
         )
         const row = rows[0]
-        if (row !== undefined) {
-          const next = new Date(now.getTime() + ROLE_AI_BACKOFF(Number(row['attempts']) - 1))
-          await tx.execute(
-            sql`UPDATE job_role_classifications SET next_attempt_at = ${next.toISOString()}::timestamptz
-                 WHERE title_key = ${c.titleKey} AND description_sha256 = ${keyHash(c)}
-                   AND classifier_version = ${V}`,
-          )
-        }
+        if (row === undefined) return false
+        const next = new Date(now.getTime() + ROLE_AI_BACKOFF(Number(row['attempts']) - 1))
+        await tx.execute(
+          sql`UPDATE job_role_classifications SET next_attempt_at = ${next.toISOString()}::timestamptz
+               WHERE title_key = ${c.titleKey} AND description_sha256 = ${keyHash(c)}
+                 AND classifier_version = ${V}`,
+        )
         return true
       })
     },

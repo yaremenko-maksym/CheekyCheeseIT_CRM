@@ -430,18 +430,46 @@ describe('runRoleAiLoop', () => {
     expect(JSON.stringify(l.lines)).not.toContain(TITLE)
   })
 
-  it('a throw whose failure cannot be recorded either stops the pass with ERROR', async () => {
+  it('a throw whose failure cannot be recorded either stops the pass with ERROR, counting no failure', async () => {
     const s = fakeStore([candidate(1), candidate(2)], { failureThrows: new Error('db down') })
     const c = fakeClient(() => new Error('boom'))
     const l = fakeLog()
     await expect(run(s, c, l)).resolves.toEqual({
       classified: 0,
       unclear: 0,
-      failed: 1,
+      failed: 0,
       stoppedBy: 'ERROR',
     })
     expect(c.calls).toHaveLength(1)
     expect(l.lines.filter((x) => x.level === 'error')).toHaveLength(2)
+  })
+
+  it('a throw on a row reclassified meanwhile counts no failure and the pass goes on', async () => {
+    const s = fakeStore([candidate(1), candidate(2)], { failureStale: [candidate(1).id] })
+    const c = fakeClient((_, call) => (call === 1 ? new Error('boom') : ok(['QA_ENGINEER'], 0.9)))
+    const l = fakeLog()
+    await expect(run(s, c, l)).resolves.toEqual({
+      classified: 1,
+      unclear: 0,
+      failed: 0,
+      stoppedBy: null,
+    })
+    expect(c.calls).toHaveLength(2)
+    expect(s.applied.map((a) => a.id)).toEqual([candidate(2).id])
+    expect(l.lines.filter((x) => x.level === 'error')).toHaveLength(1)
+  })
+
+  it(`${ROLE_AI_MAX_CONSECUTIVE_ERRORS} throws on reclassified rows in a row still stop with ERROR, counting no failure`, async () => {
+    const rows = [1, 2, 3, 4].map((n) => candidate(n))
+    const s = fakeStore(rows, { failureStale: rows.map((c) => c.id) })
+    const c = fakeClient(() => new Error('boom'))
+    await expect(run(s, c, fakeLog())).resolves.toEqual({
+      classified: 0,
+      unclear: 0,
+      failed: 0,
+      stoppedBy: 'ERROR',
+    })
+    expect(c.calls).toHaveLength(ROLE_AI_MAX_CONSECUTIVE_ERRORS)
   })
 
   it(`stops with ERROR after ${ROLE_AI_MAX_CONSECUTIVE_ERRORS} consecutive throws`, async () => {

@@ -769,6 +769,33 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     })
   })
 
+  it('recordFailure writes nothing and returns false when a terminal row already owns the key', async () => {
+    const a = await opportunity()
+    await session.admin.query(
+      `INSERT INTO job_role_classifications
+         (title_key, description_sha256, classifier_version, outcome, technical_roles, confidence)
+       VALUES ($1, $2, 'rc.1', 'AI', ARRAY['QA_ENGINEER'], 0.9)`,
+      [a.titleKey, a.sha],
+    )
+    const before = await cacheOf(a)
+    const store = createRoleAiStore(db, [], METER_KEY)
+    await expect(
+      store.recordFailure(
+        {
+          id: a.id,
+          title: a.title,
+          titleKey: a.titleKey,
+          descriptionSha256: a.sha,
+          description: a.description,
+          categories: ['backend'],
+        },
+        NOW,
+      ),
+    ).resolves.toBe(false)
+    await expect(cacheOf(a)).resolves.toEqual(before)
+    expect(before).toMatchObject({ outcome: 'AI', attempts: 0, next_attempt_at: null })
+  })
+
   it(`a key at ${ROLE_AI_MAX_ATTEMPTS} attempts is no candidate; one below the cap still is`, async () => {
     const sentinel = await opportunity()
     const capped = await opportunity()

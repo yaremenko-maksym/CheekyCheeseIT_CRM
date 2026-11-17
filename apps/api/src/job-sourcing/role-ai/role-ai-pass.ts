@@ -57,7 +57,10 @@ export type RoleAiStore = {
   cached(c: RoleAiCandidate): Promise<RoleAiTerminal | null>
   /** Writes the roles (and the cache row when `writeCache`) and enqueues; false when stale. */
   applyTerminal(c: RoleAiCandidate, t: RoleAiTerminal, writeCache: boolean): Promise<boolean>
-  /** A FAILED cache row with one more attempt and the next backoff; false when stale. */
+  /**
+   * A FAILED cache row with one more attempt and the next backoff. False when no FAILED row was
+   * written: the row was reclassified meanwhile OR an answer already exists for the key.
+   */
   recordFailure(c: RoleAiCandidate, now: Date): Promise<boolean>
   /** One model call of the UTC day containing `now`; false when `limit` calls are spent. */
   reserveCall(now: Date, limit: number): Promise<boolean>
@@ -196,10 +199,11 @@ export async function runRoleAiLoop(p: {
       }
     } catch (err: unknown) {
       logRoleAiError(p.log, err, c.id)
-      r.failed += 1
       thrownInRow += 1
       // The poison row gets its backoff, so it cannot take the head of every pass (CR-M-3).
-      if (!(await recordThrown(p, c)) || thrownInRow >= ROLE_AI_MAX_CONSECUTIVE_ERRORS) {
+      const written = await recordThrown(p, c)
+      if (written === 'recorded') r.failed += 1
+      if (written === 'write-threw' || thrownInRow >= ROLE_AI_MAX_CONSECUTIVE_ERRORS) {
         r.stoppedBy = 'ERROR'
         break
       }
@@ -209,17 +213,21 @@ export async function runRoleAiLoop(p: {
   return r
 }
 
-/** The failure of a thrown candidate; false when even that write throws (the store is down). */
+/**
+ * The failure of a thrown candidate: 'recorded' (a FAILED row was written), 'stale' (the row or key
+ * moved on, so nothing was written), or 'write-threw' (the store is down).
+ */
+type ThrownRecord = 'recorded' | 'stale' | 'write-threw'
+
 async function recordThrown(
   p: { store: RoleAiStore; log: RoleAiLog; now: Date },
   c: RoleAiCandidate,
-): Promise<boolean> {
+): Promise<ThrownRecord> {
   try {
-    await p.store.recordFailure(c, p.now)
-    return true
+    return (await p.store.recordFailure(c, p.now)) ? 'recorded' : 'stale'
   } catch (err: unknown) {
     logRoleAiError(p.log, err, c.id)
-    return false
+    return 'write-threw'
   }
 }
 
