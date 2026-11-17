@@ -199,6 +199,14 @@ const envSchema = z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
 
+    // JOB_ROLE_AI_ENABLED: switch for the bounded AI role-classification pass (senior roles PR 3):
+    //   every 10 minutes it sends at most ROLE_AI_PASS_LIMIT PENDING vacancies to the extraction
+    //   worker's `/classify-roles` and writes AI / UNCLEAR roles. **Default false**: it ships dark;
+    //   with the worker env unset the pass stops at its first call (NOT_CONFIGURED) and writes nothing.
+    JOB_ROLE_AI_ENABLED: z
+      .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
+      .default(false),
+
     // JOB_QUEUE_GENERATION_PURGE_ENABLED: switch for the daily purge of expired queue generations
     //   (r5 Task 6.2, MP-13 retention). **Default false**: r5 Task 1.4 keeps new-store cleanup
     //   disabled until the owner freezes the durations, so the owner flips it.

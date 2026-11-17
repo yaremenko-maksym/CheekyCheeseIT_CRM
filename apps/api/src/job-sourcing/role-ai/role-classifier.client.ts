@@ -48,15 +48,14 @@ export function classifyRolesRequest(input: RoleClassifierInput): ClassifyRolesB
   const title = strip(input.title).slice(0, MAX_CLASSIFY_TITLE_CHARS)
   if (title.length === 0) return null
   const description = strip(input.description)
-  const body: ClassifyRolesBody = {
+  const base = {
     title,
-    description: '',
     categories: input.categories
       .slice(0, MAX_CLASSIFY_CATEGORIES)
       .map((c) => strip(c).slice(0, MAX_CLASSIFY_CATEGORY_CHARS)),
   }
   const fits = (n: number) =>
-    classifyRolesInput({ ...body, description: description.slice(0, n) }).length <=
+    classifyRolesInput({ ...base, description: description.slice(0, n) }).length <=
     MAX_EXTRACTION_INPUT_CHARS
   // The longest description prefix that fits: a binary search, as an escape takes 2 to 6 chars.
   let lo = 0
@@ -66,8 +65,7 @@ export function classifyRolesRequest(input: RoleClassifierInput): ClassifyRolesB
     if (fits(mid)) lo = mid
     else hi = mid - 1
   }
-  body.description = description.slice(0, lo)
-  return body
+  return { ...base, description: description.slice(0, lo) }
 }
 
 /**
