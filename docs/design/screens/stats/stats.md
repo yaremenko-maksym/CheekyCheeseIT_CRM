@@ -272,91 +272,70 @@ catalog, `uk` source).
 | `stats.placeholders.soon`    | Скоро                                                                                                            | Soon                                                                                                              |
 
 `stats.partners.title` changes today's «Баланси партнерів» to «Баланс партнерів»: the card now answers
-one question (the settlement), not a list of balances (see `## Assumptions`).
+one question (the settlement), not a list of balances (see `## Assumptions
 
-**Today's strings, `uk` unchanged.** The `en` column is new; plurals keep today's ICU forms (`en` uses
-`one` / `other`). copy-reviewer reviews both languages.
+Master decisions for fix round 1 (M1–M8), owner decisions, and every remaining change against today's
+screen. Each line is an A1 decision recorded on the task; the PR body carries the same lines.
 
-| uk (today)                                                                                                                                          | en                                                                                                                                  |
-| --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Загальний дохід                                                                                                                                     | Total income                                                                                                                        |
-| Витрати                                                                                                                                             | Expenses                                                                                                                            |
-| Зарплати                                                                                                                                            | Salaries                                                                                                                            |
-| Чистий баланс                                                                                                                                       | Net balance                                                                                                                         |
-| Дохід за останній місяць                                                                                                                            | Income last month                                                                                                                   |
-| Прибуток за останній місяць                                                                                                                         | Profit last month                                                                                                                   |
-| Середній дохід / міс.                                                                                                                               | Average income / mo                                                                                                                 |
-| Найкращий місяць                                                                                                                                    | Best month                                                                                                                          |
-| vs попер. місяць                                                                                                                                    | vs previous month                                                                                                                   |
-| Маржа: {margin}%                                                                                                                                    | Margin: {margin}%                                                                                                                   |
-| за {count, plural, one {# місяць} few {# місяці} many {# місяців} other {# місяця}}                                                                 | over {count, plural, one {# month} other {# months}}                                                                                |
-| Сума всіх оплачених надходжень та доходу сеньйорів і адмінів за весь час.                                                                           | All paid receipts plus senior and admin income, all time.                                                                           |
-| Сума всіх оплачених операційних витрат компанії.                                                                                                    | All paid operating expenses of the company.                                                                                         |
-| Сума всіх виплачених зарплат співробітникам компанії за весь час.                                                                                   | All salaries paid to employees, all time.                                                                                           |
-| Чистий залишок: дохід мінус витрати та зарплати. Додатне значення = компанія в плюсі.                                                               | What is left: income minus expenses and salaries. Positive means the company is ahead.                                              |
-| Виручка за {month}. Включає доходи всіх сеньйорів і адмінів.                                                                                        | Revenue for {month}, including the income of every senior and admin.                                                                |
-| Чистий прибуток за {month}: дохід мінус витрати та зарплати того місяця.                                                                            | Net profit for {month}: that month's income minus its expenses and salaries.                                                        |
-| Середньомісячна виручка за весь час роботи компанії.                                                                                                | Average monthly revenue since the company started.                                                                                  |
-| Місяць із найбільшою виручкою за весь час.                                                                                                          | The month with the highest revenue, all time.                                                                                       |
-| Разом                                                                                                                                               | Total                                                                                                                               |
-| Рахунок компанії · USDT                                                                                                                             | Company account · USDT                                                                                                              |
-| Гаманець не налаштовано                                                                                                                             | Wallet not set up                                                                                                                   |
-| Контроль доходів                                                                                                                                    | Income control                                                                                                                      |
-| Усього доходів                                                                                                                                      | All income                                                                                                                          |
-| Закриті повністю                                                                                                                                    | Fully closed                                                                                                                        |
-| Відстають                                                                                                                                           | Lagging                                                                                                                             |
-| На валідації у бухгалтера                                                                                                                           | With the accountant for validation                                                                                                  |
-| # активний проєкт · # активні проєкти · # активних проєктів · # активного проєкту                                                                   | # active project · # active projects                                                                                                |
-| отримувач · отримувачі · отримувачів · отримувача                                                                                                   | receiver · receivers                                                                                                                |
-| дохід · доходи · доходів · доходу                                                                                                                   | income entry · income entries                                                                                                       |
-| Усі отримано                                                                                                                                        | All received                                                                                                                        |
-| # у процесі                                                                                                                                         | # in progress                                                                                                                       |
-| # без доходу                                                                                                                                        | # without income                                                                                                                    |
-| # на валідації                                                                                                                                      | # in validation                                                                                                                     |
-| # нараховано                                                                                                                                        | # accrued                                                                                                                           |
-| Нараховано · очікує розрахунку                                                                                                                      | Accrued · awaiting payout                                                                                                           |
-| Нараховано                                                                                                                                          | Accrued                                                                                                                             |
-| На валідації                                                                                                                                        | In validation                                                                                                                       |
-| Немає доходу                                                                                                                                        | No income                                                                                                                           |
-| Немає доходів                                                                                                                                       | No income yet                                                                                                                       |
-| Проєкти без зарахованого доходу                                                                                                                     | Projects with no credited income                                                                                                    |
-| Не вдалося завантажити дані контролю доходів.                                                                                                       | Couldn’t load income control data.                                                                                                  |
-| Немає активних проєктів-отримувачів доходу за {month}.                                                                                              | No active income-receiving projects for {month}.                                                                                    |
-| Зараховується дохід у статусі «валідовано» або «виплачено» за поточний місяць. Згодом: ручні винятки (пауза / відпустка) і автоматичні нагадування. | Counts income marked “validated” or “paid” for the current month. Later: manual exceptions (pause / leave) and automatic reminders. |
-| Інші розділи                                                                                                                                        | Other sections                                                                                                                      |
-| HR — воронка співбесід                                                                                                                              | HR — interview funnel                                                                                                               |
-| Команда — активність                                                                                                                                | Team — activity                                                                                                                     |
-| Проєкти — завантаженість                                                                                                                            | Projects — workload                                                                                                                 |
-
-Role labels in receiver rows (`Сеньйор`, `Адмін-сеньйор`, `Дроп`) keep today's text and move to the
-catalog with the rest.
-
-### 2.7 Data each layout reads
-
-| Dataset           | Query key               | Endpoint (today)       | Read by                                                   |
-| ----------------- | ----------------------- | ---------------------- | --------------------------------------------------------- |
-| Finance summary   | `['finance-summary']`   | `GET /finance/summary` | Partner card, chart, month sheet, month table, all 8 KPIs |
-| Company account   | `['company-account']`   | company-account GET    | Company row / card                                        |
-| Income compliance | `['income-compliance']` | income-compliance GET  | «Контроль доходів»                                        |
-
-- Same three keys on every device class; the three queries run in parallel; each block has its own
-  loading / error. Period, series and selected month are client state over `summary.monthly`
-  (`select` / `useMemo`), never a new request.
-- **No new data, no new KPI, nothing removed.** The month table and month sheet re-present
-  `summary.monthly` rows already on the client. `avgMonthlyProfit` and `dropBalances` (in the payload,
-  not shown today) stay off the screen.
-- Money: amounts arrive in the base currency (USD); the settlement stays labelled USDT (today's rule).
-
-## Assumptions
-
-- A1: the desktop month table (≥ 1024) re-presents `summary.monthly` for the selected period as the
-  accessible equivalent of the chart. Not a new KPI; the owner may veto it (Open point 7).
-- A1: chart defaults to «Прибуток» and «6 міс» (the owner's question); today it defaults to «Дохід», all
+- **M1 — drill-down ships.** The month sheet row «Транзакції за <month>» and the desktop / tablet
+  month-table rows link to the finance list filtered to that month. Dependency: the finance list
+  (Task 1.2) accepts a month filter as a URL search param. Open point 1 is closed as "ship".
+- **M2 — URL state.** Period, series and selected month live in URL search params
+  `?period=6|12|all&series=profit|income|expenses|salaries&month=YYYY-MM`. Defaults (`6`, `profit`, newest
+  month) are omitted from the URL. A shared link reproduces the view; Back leaves the screen, not a month.
+- **M3 — «Інші розділи» removed.** The three «Скоро» placeholders are gone on every class. Decided, not
+  open; the owner may veto at the owner look.
+- **M4 — one partner (defensive data state).** If the server returns one balance, the card shows that
+  partner's balance row only: no evening-out amount, no direction line, and never «Баланси вирівняно»
+  (that text claims two balances are equal). Own string `stats.partners.single` («Один партнер — вирівнювати
+  нічого»), own frame `onepartner-375`. The company has exactly two partners (owner decision 2026-11-17), so
+  this state is defensive only.
+- **Fallback for three or more balances (defensive, not designed, no frame).** If the server ever returns
+  three or more balances, the card lists every balance row and keeps today's evening-out line (richest vs
+  poorest, `|rich − poor| / 2`).
+- **M5 — share and bar keep today's behaviour (`partnerShare`).** Whole percent over the sum of absolute
+  balances, `59 %`; a negative balance shows «—» and keeps its bar (width = share of absolute magnitude,
+  minimum 2 %). A caption under the rows says how the share is computed (`stats.partners.shareNote`).
+- **M6 — cached-data contract.** The full error card shows only when there is no data at all. With cached
+  data, a failed refetch or an offline state keeps the data on screen and adds an inline notice
+  «Не вдалося оновити · Повторити» plus «станом на HH:MM» (the cache's `dataUpdatedAt`).
+- **M7 — pointer, not width, decides touch behaviour.** Under `(pointer: coarse)` at any width every
+  control is ≥ 44 × 44 px, a tap selects a bar, and hints and the series choice open in containers that
+  need no hover. Under `(pointer: fine)` hover and focus show the readout and the tooltip.
+- **M8 — foundation files are not edited.** Where a fix needs a shell or primitive change (FAB hiding over
+  the chart, offline banner position), the screen states its rule and an open point asks the shell to
+  support it (Open points 8 and 9).
+- A1: the desktop / tablet month table re-presents `summary.monthly` for the selected period as the
+  accessible equivalent of the chart (capped at 12 rows with inner scroll). Not a new KPI.
+- A1: chart defaults to «Прибуток» and «6 міс» (the owner's question); today it defaults to «Дохід» with all
   months.
 - A1: the partner card stays visible to ACCOUNTANT, as today.
-- A1: KPI hints keep today's text; only the delivery changes (sheet on touch, tooltip on desktop).
-- A1: the partner card title becomes «Баланс партнерів» (today «Баланси партнерів»); copy-reviewer may
-  revert it.
+- A1: KPI hints keep today's text; only the delivery changes (sheet on phone, popover or tooltip on tablet
+  and desktop). The partner-card and company-account hints keep today's text too, and the partner hint gains
+  one sentence about USD balances versus the USDT company row.
+- A1: money sign rule (one for the whole screen): «+» only on profit-type figures (Прибуток series,
+  «Чистий баланс», «Прибуток за останній місяць»); income, expenses and salaries are unsigned; every
+  negative value uses U+2212.
+- A1: KPI values are derived from the same 20-month fixture as the chart; a coder reads them from
+  `summary.monthly`, never from separate numbers.
+- A1: the evening-out amount is the largest figure on the card (kept from today's data), labelled USDT.
+
+**Changes against today's screen (complete list).**
+
+1. Block order: partner card and chart come first, the 8 KPIs after them (today: KPIs first).
+2. Chart defaults to «Прибуток» and «6 міс»; today «Дохід» and every month in a scroller.
+3. Partner card title «Баланс партнерів» (today «Баланси партнерів»); copy-reviewer may revert it.
+4. The company account moves out of the combined card into its own row / card; the label «Рахунок
+   компанії · USDT» stays (title «Рахунок компанії», sub-line «USDT · <address>»).
+5. Money uses `formatMoney` (`<amount> <CODE>`, uk grouping, U+2212) instead of `$` / en-US grouping.
+6. Share is shown as `59 %` with a space (today `59%`); same rounding, same «—» rule.
+7. Hints are reachable on touch (sheet / popover); today they are hover-only.
+8. A caption explains the share base (new text), and the card says it is in USD while the company row is USDT.
+9. «Інші розділи» placeholders removed (M3).
+10. Drill-down from a month to the finance list (M1) and URL state (M2) are new.
+11. Chart bars use `--chart-*` tokens and a non-colour loss marker (hatch + U+2212); today hex values.
+12. The month table (tablet, desktop) and the month sheet (phone) are new re-presentations of existing data.
+13. Receiver rows use today's role labels and ICU plurals on every class (the first mockup showed raw role codes).
 
 ## 3. Mockups
 
@@ -416,21 +395,38 @@ screen-reader pass (Navigation and Platform fit tie at 9.0, but neither has an o
 
 ## 5. Open points
 
-1. **Month → transactions link.** The month sheet's «Транзакції за <month>» needs a month filter on the
-   finance list (its search accepts only `status` today). _Recommendation:_ hide the row until Task 1.2
-   adds the filter, then show it.
-2. **«Інші розділи» placeholders.** Three «Скоро» rows with no destination take a screen on mobile.
-   _Recommendation:_ remove them (owner's call; kept in the mockups because «nothing removed»).
-3. **One partner.** With 0–1 entry today's code says «Баланси вирівняно», which is not true.
-   _Recommendation:_ with exactly one partner show the balance row only and no settlement line.
-4. **Three or more partners.** The settlement covers only the richest and the poorest.
-   _Recommendation:_ keep today's rule (two partners in practice); revisit if a third ADMIN appears.
-5. **USDT label on a USD figure.** The debt is computed from USD balances but labelled USDT.
-   _Recommendation:_ keep USDT (settlement is paid in USDT, pegged 1:1 server-side).
-6. **ACCOUNTANT desktop frame shows the ADMIN sidebar** (foundation helper limitation).
-   _Recommendation:_ accept; the real sidebar comes from the role nav.
-7. **Desktop month table** (A1 assumption). _Recommendation:_ keep — it is the accessible equivalent of
-   the chart and costs no new data; the owner may veto.
+1. **Month → transactions link — closed, ship (M1).** Depends on Task 1.2: the finance list accepts a
+   month filter as a URL search param. Until that lands the row stays hidden in the build, not in the design.
+2. **«Інші розділи» placeholders — closed, removed (M3).** The owner may veto at the owner look.
+3. **One partner — closed (M4).** One balance: that balance row only, no evening-out line, never
+   «Баланси вирівняно». A defensive data state (`onepartner-375`).
+4. **Three or more partners — closed, owner decision 2026-11-17: exactly two partners.** Defensive
+   fallback line in `## Assumptions`; no frame, no scalable N-partner list.
+5. **USDT label on a USD figure — closed, keep USDT.** The evening-out amount is computed from USD
+   balances and paid in USDT (pegged 1:1 server-side). The partner-card hint says so (one sentence).
+6. **ACCOUNTANT desktop frame — closed.** `accountant-1440` now draws the ACCOUNTANT navigation (no
+   «Адмін» group) inside this screen's source; the foundation helper is untouched.
+7. **Desktop / tablet month table — closed, keep (A1).** It is the accessible equivalent of the chart; the
+   owner may veto. Capped at 12 rows with inner scroll.
+8. **FAB over the chart (shell, M8).** While the chart card intersects the FAB zone the FAB should fade out
+   (150 ms). The static frames that would otherwise show the FAB over the newest bar or ‹ › draw it
+   hidden; the foundation shell needs a per-screen "avoid" hook. _Recommendation:_ add it to the shell
+   (primitives-v2 already hides the FAB in its 320 chart frame).
+9. **Offline banner position (shell, M8).** The banner sits directly under the top bar, above the large
+   title, and carries this screen's copy. Today's foundation banner is drawn above the top bar and talks
+   about forms. _Recommendation:_ shell takes a per-screen message and sits under the bar.
+10. **Chart library feasibility.** Hatch needs a custom `Bar` shape with an SVG `<pattern>`; scrub needs
+    pointer events on the plot; roving-tabindex bars need a custom layer. recharts `^3.10.1` supports the
+    first via a `shape` prop; the other two need a small overlay. _Recommendation:_ prototype in Task 4.1
+    before the coder commits; fallback is a hand-written SVG plot (the mockup is already one).
+11. **Docked readout instead of a floating tooltip (deviation).** Desktop shows the selected month in a docked
+    readout above the plot, so nothing covers a neighbouring bar. It replaces the primitives §6 "tooltip
+    beside the bar". _Recommendation:_ accept; record in primitives-v2 if the owner agrees.
+12. **`Partner` term in `CONTEXT.md`.** The screen says "partner" for an ADMIN user's balance; `CONTEXT.md`
+    has no such term. _Recommendation:_ add it in a docs PR (not in this one).
+13. **Content width cap.** The desktop content column is capped at 1280 px and centred; the foundation
+    helper caps and left-aligns it. `default-2560` shows the centred cap. _Recommendation:_ the coder uses
+    `mx-auto max-w-[1280px]`.
 
 ## Components (mapping to our stack)
 
