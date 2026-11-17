@@ -13,7 +13,9 @@ const size = (w) =>
         ? [768, 1024]
         : w === 1024
           ? [1024, 768]
-          : [1440, 900]
+          : w === 1000
+            ? [1000, 768]
+            : [1440, 900]
 const frame = (name, w, html) => {
   const [fw, fh] = size(w)
   return {
@@ -103,7 +105,7 @@ const pinnedTr = (k) => {
   return `<tr><td colspan="6" style="padding:0;max-width:none;background:${mix(7)};box-shadow:inset 2px 0 0 ${TONE[k]}"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:${TONE[k]};display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600;white-space:nowrap">−1 250,50 USD</span><span class="grow muted trunc">${STATE[k]}</span><button type="button" class="btn sm secondary" aria-label="Відкрити чернетку −1 250,50 USD" style="height:28px;font-size:13px;padding:0 12px;background:${mix(18)};border-color:${mix(45)}">Відкрити</button></div></td></tr>`
 }
 const tr = (status) =>
-  `<tr${status ? ' aria-busy="true"' : ''}><td class="num muted">17.11</td><td><span class="row" style="gap:8px"><span class="trunc">Оплата послуги</span>${status ? `<span class="pill" style="height:20px;font-size:11px;gap:4px;color:var(--muted-fg)">${icon('loader-circle', { size: 11 })}Зберігаємо…</span>` : ''}</span></td><td class="muted">Витрата</td><td class="muted trunc">—</td><td style="text-align:center" class="muted">${icon('paperclip', { size: 14 })}</td><td class="num" style="text-align:right;font-weight:600">−1 250,50 USD</td></tr>`
+  `<tr${status ? ' aria-busy="true"' : ''}><td class="num muted">11.11</td><td><span class="row" style="gap:8px"><span class="trunc">Оплата послуги</span>${status ? `<span class="pill" style="height:20px;font-size:11px;gap:4px;color:var(--muted-fg)">${icon('loader-circle', { size: 11 })}Зберігаємо…</span>` : ''}</span></td><td class="muted">Витрата</td><td class="muted trunc">—</td><td style="text-align:center" class="muted">${icon('paperclip', { size: 14 })}</td><td class="num" style="text-align:right;font-weight:600">−1 250,50 USD</td></tr>`
 const STEP_PILL = { saving: 'inflight', saved: 'saved', failed: 'failed', unknown: 'unknown' }
 const draft = (step) => step === 'failed' || step === 'unknown'
 
@@ -170,23 +172,26 @@ function dirtyClose(w, h) {
     w,
     h,
   })
-  if (w < 640) {
-    const act = `<div style="position:absolute;inset:0;background:oklch(0 0 0 / 0.4);z-index:95"></div><div role="alertdialog" aria-labelledby="dc-t" aria-describedby="dc-d" style="position:absolute;left:8px;right:8px;bottom:${T.safeBottom(w) + 8}px;z-index:96" class="col"><div style="border-radius:14px;background:oklch(0.24 0.004 85);overflow:hidden"><div style="padding:14px 16px;text-align:center"><div id="dc-t" style="font-size:13px;font-weight:600;color:var(--muted-fg)">Вийти без збереження?</div><div id="dc-d" class="t-foot muted num" style="margin-top:2px">Сума 1 250,50 USD і чек не збережуться.</div></div><div style="height:56px;display:grid;place-items:center;border-top:1px solid var(--separator);font-size:19px;color:var(--destructive)" role="button">Вийти без збереження</div></div><div style="margin-top:8px;height:56px;border-radius:14px;background:oklch(0.24 0.004 85);display:grid;place-items:center;font-size:19px;font-weight:600" role="button">Продовжити редагування</div></div>`
-    return append(base, act)
+  const DC = {
+    id: 'dc',
+    title: 'Вийти без збереження?',
+    desc: 'Сума −1 250,50 USD і чек не збережуться.',
+    keep: 'Продовжити редагування',
+    action: 'Вийти без збереження',
   }
-  return append(
-    base,
-    dialog(w, {
-      id: 'dc',
-      title: 'Вийти без збереження?',
-      desc: 'Сума 1 250,50 USD і чек не збережуться.',
-      keep: 'Продовжити редагування',
-      action: 'Вийти без збереження',
-    }),
-  )
+  // Phone: the foundation action sheet, bottom at the safe-area inset + 8 (under the home indicator).
+  if (w < 640)
+    return append(base, T.MF.actionConfirm(w, { ...DC, cancel: DC.keep, overSheet: true }))
+  return append(base, dialog(w, DC))
 }
-/** Puts an overlay last inside the device. */
-const append = (html, over) => html.replace(/<\/div>\s*$/, `${over}</div>`)
+/**
+ * Puts an overlay last inside the device, but under the home indicator when the device has one, so
+ * an action sheet never covers it (the foundation's overHome).
+ */
+const append = (html, over) =>
+  html.includes('<div class="homebar">')
+    ? html.replace('<div class="homebar">', `${over}<div class="homebar">`)
+    : html.replace(/<\/div>\s*$/, `${over}</div>`)
 /** Tablet / desktop confirm: a 420 px centred dialog; 44 px buttons on a coarse pointer, 36 px on a fine one. */
 function dialog(w, { id, title, desc, keep, action }) {
   const bh = w < 1024 ? 44 : 36
@@ -306,7 +311,7 @@ function cascade({ blocked = false } = {}) {
 }
 const ADMIN_EDIT = {
   title: 'Редагування',
-  subtitle: 'Дохід · було 1 200,00 USD',
+  subtitle: 'Дохід · було +1 200,00 USD',
   edit: true,
   adminEdit: true,
   kind: 'ADMIN_INCOME',
@@ -325,8 +330,9 @@ const definite = () => ({
   ),
   footer: FOOT.retry(),
 })
-const blockedSave = (fine) =>
-  `<span class="btn primary" role="button" aria-disabled="true" aria-describedby="ab-e" style="width:100%;opacity:.45">Зберегти зміни${fine ? T.kbd('⌘↵', true) : ''}</span>`
+/** Save unavailable (blocked, stale or loading preview): a flat muted fill, never a dimmed primary. */
+const blockedSave = (fine, by = 'ab-e') =>
+  `<span class="btn" role="button" aria-disabled="true" aria-describedby="${by}" style="width:100%;background:var(--muted);color:var(--muted-fg);box-shadow:none">Зберегти зміни${fine ? T.kbd('⌘↵') : ''}</span>`
 
 export function frames() {
   const f = []
@@ -358,7 +364,6 @@ export function frames() {
       receipt: 'done',
       lead: 'Згорнути',
       locked: true,
-      lockedText: 'Зберігаємо… · змінити не можна',
       footer: FOOT.inflight(),
     }),
   )
@@ -371,6 +376,7 @@ export function frames() {
       receipt: 'done',
       expanded: true,
       dateError: true,
+      category: 0,
       lead: 'Скасувати',
       scroll: 120,
     }),
@@ -386,7 +392,6 @@ export function frames() {
       receipt: 'done',
       lead: 'Згорнути',
       locked: true,
-      readOnlyDefaults: true,
       alert: errAlert(
         'Невідомо, чи збережено транзакцію',
         'Відповідь не надійшла. Надішліть ще раз: якщо транзакцію вже збережено, друга не з’явиться.',
@@ -419,16 +424,15 @@ export function frames() {
   f.push(
     ...at('permission-limited', BOTH, {
       title: 'Транзакція',
-      amount: '2 150,00',
-      kind: 'SALARY',
+      amount: '−1 800,00',
+      kind: 'PAYOUT',
       readOnly: {
-        sub: 'Зарплата · Виплачено',
+        sub: 'Виплата',
         rows: [
-          ['Співробітник', 'Розробник 4'],
-          ['Місяць', 'Листопад 2026'],
-          ['Дата', '15 листопада 2026'],
+          ['Отримувач', 'Сеньйор 2'],
+          ['Дата', '10 листопада 2026'],
           ['Проєкт', 'Проєкт «Альфа»'],
-          ['Опис', 'Друга частина зарплати за листопад'],
+          ['Опис', 'Виплата частки за жовтень'],
         ],
       },
       banner: infoCard(
@@ -514,6 +518,7 @@ export function frames() {
       title: 'Новий дохід',
       amount: '2 400,00',
       receipt: 'uploading',
+      footer: (fine) => FOOT.save(fine, 'Зберегти після завантаження чека'),
     }),
   )
   f.push(
@@ -544,7 +549,6 @@ export function frames() {
       ...ADMIN_EDIT,
       lead: 'Згорнути',
       locked: true,
-      lockedText: 'Зберігаємо… · змінити не можна',
       footer: FOOT.inflight('Зберегти зміни'),
     }),
   )

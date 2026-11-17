@@ -94,7 +94,7 @@ function amountSection(c) {
   const cur = c.curLocked ? lockedCur(c.cur) : currencyPill(c.cur)
   const fx =
     c.cur === 'UAH' || c.cur === 'EUR'
-      ? `<div class="t-foot muted num" style="margin-top:8px">${c.fxLoading ? `Курс НБУ ${sk(110, 12)}` : `Курс НБУ на ${c.dateShort ?? '17.11'}: 1 USD = 41,20 UAH · ≈ ${c.usdEq ?? '30,35'} USD`}</div>`
+      ? `<div class="t-foot muted num" style="margin-top:8px">${c.fxLoading ? `Курс НБУ ${sk(110, 12)}` : `Курс НБУ на 11.11: <span style="white-space:nowrap">1 USD = 41,20 UAH</span> · <span style="white-space:nowrap">≈ ${c.usdEq ?? '30,35'} USD</span>`}</div>`
       : ''
   const note = c.amountNote
     ? `<div class="t-foot muted" style="margin-top:8px">${icon('lock', { size: 13 })} ${c.amountNote}</div>`
@@ -165,7 +165,7 @@ function kindBlock(c) {
     case 'DROP_INCOME':
       return pick('pr', 'Проєкт', c.project ?? 'Проєкт «Альфа»', {
         loading: L,
-        hint: c.kind === 'DROP_INCOME' ? 'Дохід перевірить адміністратор' : '',
+        hint: c.kind === 'DROP_INCOME' ? 'Дохід очікуватиме валідації' : '',
       })
     case 'EXPENSE':
       return categoryField(c)
@@ -238,18 +238,20 @@ function defaults(c) {
     ...(c.kind === 'EXPENSE' && c.companyFunded ? ['Рахунок компанії'] : []),
   ]
   const line = items
-    .map((x, i) => `<span style="white-space:nowrap">${x}${i < items.length - 1 ? ' ·' : ''}</span>`)
+    .map(
+      (x, i) =>
+        `<span style="${x.startsWith('«') ? 'max-width:100%;text-align:center;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden' : 'white-space:nowrap'}">${x}${i < items.length - 1 ? ' ·' : ''}</span>`,
+    )
     .join(' ')
-  if (c.readOnlyDefaults)
-    return `<div class="row t-foot" style="justify-content:center;gap:6px;min-height:44px;flex-wrap:wrap;color:var(--fg)"><span class="muted">${icon('calendar', { size: 16 })}</span>${line}</div>`
   if (!c.expanded)
     return `<div class="row" style="justify-content:center;column-gap:6px;row-gap:0;min-height:44px;font-size:15px;flex-wrap:wrap;align-items:center"><span class="muted" style="display:grid">${icon('calendar', { size: 16 })}</span>${line}<button type="button" aria-expanded="false" aria-controls="opt" style="appearance:none;border:0;background:none;font:inherit;min-width:44px;min-height:44px;padding:0 4px;color:var(--primary);font-weight:600">змінити</button></div>`
   const date = field({
     id: 'dt',
     label: 'Дата',
-    value: c.dateError ? '28 жовтня 2026' : 'Сьогодні, 17 листопада',
+    value: c.dateError ? '14 листопада 2026' : 'Сьогодні, 11 листопада',
     state: c.dateError ? 'error focus' : '',
-    err: c.dateError ? 'Жовтень уже закрито. Оберіть дату від 1 листопада.' : '',
+    // Today's catalog: api-error.FINANCE_TX_DATE_IN_FUTURE (the foundation's «Жовтень уже закрито» is invented).
+    err: c.dateError ? 'Для виконаної операції дата не може бути в майбутньому' : '',
     lead: `<span class="muted">${icon('calendar', { size: 18 })}</span>`,
   })
   const project = proj ? pick('p2', 'Проєкт', c.longProject ?? 'Без проєкту') : ''
@@ -267,20 +269,73 @@ function defaults(c) {
   return `<div id="opt" class="col" style="gap:16px">${date}${project}${funding}${note}</div>`
 }
 
-/** Admin edit's own fields after «Що зміниться»: Дата (+ reason when it moves) and Примітки. */
+/**
+ * Admin edit's own fields after «Що зміниться»: today's TxDateField (+ «Причина зміни дати» once the
+ * day changes) and Примітки. c.dateMove: 'near' (7 Nov, reason optional) | 'far' (2 Oct, past the
+ * 31-day window) | 'far-error' (the server's FINANCE_TX_DATE_EDIT_REASON_REQUIRED, field focused).
+ */
 function adminEditFields(c) {
+  const moved = c.dateMove ?? ''
   const date = field({
     id: 'ed',
-    label: 'Дата',
-    value: '14 листопада 2026',
+    label: 'Дата транзакції',
+    value: moved === 'near' ? '7 листопада 2026' : moved ? '2 жовтня 2026' : '11 листопада 2026',
     lead: `<span class="muted">${icon('calendar', { size: 18 })}</span>`,
   })
-  const notes = field({ id: 'en', label: 'Примітки', value: c.note ?? '', ph: 'Необов’язково' })
-  return `<div class="col" style="gap:16px">${date}${notes}</div>`
+  const reason = moved
+    ? field({
+        id: 'er',
+        label: 'Причина зміни дати',
+        value: '',
+        ph: 'Для дат давніших за 31 день',
+        state: moved === 'far-error' ? 'error focus' : moved === 'far' ? 'focus' : '',
+        err:
+          moved === 'far-error'
+            ? 'Дата надто далеко в минулому — вкажіть причину в полі «Причина зміни дати»'
+            : '',
+      })
+    : ''
+  const notes = field({
+    id: 'en',
+    label: 'Примітки',
+    value: c.note ?? '',
+    ph: 'Додаткова інформація…',
+  })
+  return `<div class="col" style="gap:16px">${date}${reason}${notes}</div>`
 }
 
-const lockedNote = (t ='Надіслано о 14:32 · змінити не можна') =>
-  `<div class="t-foot muted row num" style="gap:6px;justify-content:center">${icon('lock', { size: 14 })}${t}</div>`
+const lockedNote = (t = 'Надіслано 11 листопада о 14:32 · змінити не можна') =>
+  `<div class="t-foot row num" style="gap:6px;justify-content:center;color:var(--fg)">${icon('lock', { size: 14 })}${t}</div>`
+
+/** The sign the list row uses: − for money out, + for incomes, none for a transfer between admins. */
+export const signOf = (kind) =>
+  kind.endsWith('INCOME') ? '+' : kind === 'ADMIN_TRANSFER' ? '' : '−'
+
+/**
+ * A sent (locked) draft is a record, not a disabled form (M12): the values exactly as sent, at full
+ * contrast, with an absolute date; no inputs, no chevrons, no «змінити».
+ */
+function record(c) {
+  const file = `<span class="row" style="gap:8px">${thumb(28)}<span>receipt-office-nov.jpg</span></span>`
+  const rows =
+    c.recordRows ??
+    (c.adminEdit
+      ? [
+          ['Дата', '11 листопада 2026'],
+          ['Примітки', 'Без приміток'],
+          ['Чек', file],
+        ]
+      : [
+          ['Категорія', 'Оплата послуги'],
+          ['Дата', '11 листопада 2026'],
+          ['Проєкт', 'Без проєкту'],
+          ['Опис', 'Без опису'],
+          ['Чек', file],
+        ])
+  const sub = c.subtitle ?? KIND[c.kind]
+  const head = `<div style="padding:6px 0 0;text-align:center"><div class="num" style="font-size:40px;line-height:48px;font-weight:700;letter-spacing:-0.03em;color:var(--fg);white-space:nowrap">${signOf(c.kind)}${c.amount} ${c.cur}</div><div class="t-foot num" style="margin-top:4px;color:var(--fg)">${sub}</div></div>`
+  return `${head}${readOnlyList(rows)}`
+}
 
 /** The form body: alert, receipt, amount (+ currency + kind), kind fields, optional fields. */
 export function formBody(c) {
@@ -289,31 +344,30 @@ export function formBody(c) {
     const head = `<div style="padding:10px 0 4px;text-align:center"><div class="num" style="font-size:40px;line-height:48px;font-weight:700;letter-spacing:-0.03em;color:var(--fg)">${c.amount} ${c.cur}</div><div class="t-foot" style="margin-top:4px;color:var(--fg)">${c.readOnly.sub}</div></div>`
     return `<div class="col" style="gap:14px;padding:${c.pad}">${c.banner ?? ''}${head}${readOnlyList(c.readOnly.rows)}</div>`
   }
+  if (c.locked)
+    return `<div class="col" style="gap:14px;padding:${c.pad};transform:translateY(-${c.scroll ?? 0}px)">${c.banner ?? ''}${c.alert ?? ''}${lockedNote(c.lockedText)}${record(c)}${c.extra ?? ''}</div>`
   const sub = c.subtitle
     ? `<div class="t-foot muted num" style="text-align:center;margin-bottom:-4px">${c.subtitle}</div>`
     : ''
   // Admin edit = today's AdminEditTransactionDialog field set: no project, no receiver, no kind.
   const kindFields = c.adminEdit ? (c.kind === 'EXPENSE' ? categoryField(c) : '') : kindBlock(c)
+  // Admin edit keeps today's receipt field only for ADMIN_INCOME, SENIOR_INCOME and EXPENSE.
+  const receipt =
+    c.adminEdit && !['ADMIN_INCOME', 'SENIOR_INCOME', 'EXPENSE'].includes(c.kind)
+      ? ''
+      : receiptSection(c)
   const parts = [
     sub,
     c.banner ?? '',
     c.alert ?? '',
-    c.locked ? lockedNote(c.lockedText) : '',
-    c.kind === 'SALARY' ? kindBlock(c) : receiptSection(c),
+    c.kind === 'SALARY' ? kindBlock(c) : c.hideReceipt ? '' : receipt,
     c.hideAmount ? '' : amountSection(c),
-    c.kind === 'SALARY' ? '' : kindFields,
+    c.kind === 'SALARY' ? '' : c.kindFields ?? kindFields,
     c.extra ?? '',
     c.adminEdit ? adminEditFields(c) : c.hideDefaults ? '' : defaults(c),
+    c.after ?? '',
   ].join('')
-  const style = c.locked
-    ? '<style>.locked .btn,.locked .iconbtn,.locked [role=radiogroup],.locked .pill,.locked .input,.locked [aria-expanded],.locked button{opacity:.45}</style>'
-    : ''
-  const body = c.locked
-    ? parts
-        .replace(/<button type="button"/g, '<button type="button" aria-disabled="true"')
-        .replace(/role="(button|radio)"/g, 'role="$1" aria-disabled="true"')
-    : parts
-  return `${style}<div class="col ${c.locked ? 'locked' : ''}" style="gap:14px;padding:${c.pad};transform:translateY(-${c.scroll ?? 0}px)">${body}</div>`
+  return `<div class="col" style="gap:14px;padding:${c.pad};transform:translateY(-${c.scroll ?? 0}px)">${parts}</div>`
 }
 
 // ---------------------------------------------------------------- footers
@@ -322,10 +376,11 @@ export const FOOT = {
   save: (fine, label = 'Зберегти') =>
     `<span class="btn primary" role="button" style="width:100%">${label}${fine ? kbd('⌘↵', true) : ''}</span>`,
   inflight: (label = 'Зберегти') =>
-    `<span class="btn primary" role="button" aria-disabled="true" aria-describedby="if-st" style="width:100%;opacity:.85">${spinner}${label}</span><span id="if-st" role="status" style="${SR}">Зберігаємо</span>`,
+    `<span class="btn primary" role="button" aria-disabled="true" aria-describedby="if-st" style="width:100%">${spinner}${label}</span><span id="if-st" role="status" style="${SR}">Зберігаємо</span>`,
   // Foundation change request: «після завантаження чека» (the council's copy), not «після чека».
-  armed: () =>
-    armedBtn({ amount: '1 250,50', cur: 'USD' }).replaceAll('після чека', 'після завантаження чека'),
+  // The amount is signed (M11): «Збережеться −1 250,50 USD після завантаження чека».
+  armed: (amount = '−1 250,50') =>
+    armedBtn({ amount, cur: 'USD' }).replaceAll('після чека', 'після завантаження чека'),
   retry: () => primaryBtn('Повторити збереження', 'rotate-cw') + discardBtn,
   resubmit: () => primaryBtn('Надіслати ще раз', 'send') + discardBtn,
   plain: (label) => primaryBtn(label),
@@ -376,9 +431,42 @@ export function widePanel(c) {
   <div class="row" style="height:60px;flex:none;padding:0 8px;border-bottom:1px solid var(--border)"><button type="button" class="btn ghost" style="height:44px;font-size:16px;font-weight:400;padding:0 12px">${c.lead ?? 'Скасувати'}${fine ? ` ${kbd('Esc')}` : ''}</button><div id="tp-t" class="grow t-head" style="padding:0 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.title}</div></div>
   <div class="grow" style="min-height:0;overflow:hidden">${formBody({ ...c, w: pw, pad: '12px 24px 24px' }).replace('Камера, фото або файл', fine ? 'Перетягніть файл сюди або оберіть' : 'Камера, фото або файл')}</div>
   ${c.footer ? `<div style="padding:12px 24px 20px;border-top:1px solid var(--border)">${typeof c.footer === 'function' ? c.footer(fine) : c.footer}</div>` : ''}</aside>${c.over ?? ''}`
-  return w >= 1024
-    ? desktop({ w, h, role: c.role, overlay: aside, content: c.content ?? '' })
-    : tablet({ w, h, role: c.role, overlay: aside })
+  return shellFixtures(
+    c,
+    w >= 1024
+      ? desktop({ w, h, role: c.role, overlay: aside, content: c.content ?? '' })
+      : tablet({ w, h, role: c.role, overlay: aside, list: c.list ?? roleList(c.role) }),
+  )
+}
+
+const ROLE_UA = { ADMIN: 'Адміністратор', ACCOUNTANT: 'Бухгалтер', SENIOR: 'Сеньйор', DROP: 'Дроп' }
+const wideRole = (role) => !['ADMIN', 'ACCOUNTANT'].includes(role)
+/** Tablet list for a role that sees only its own rows (the foundation tablet list is the ADMIN one). */
+const roleList = (role) =>
+  wideRole(role)
+    ? `<section aria-label="Транзакції" class="col" style="width:360px;flex:none;border-right:1px solid var(--border)"><div class="row" style="height:56px;padding:0 8px 0 16px"><div class="grow t-title">Фінанси</div></div><div style="flex:1;min-height:0;overflow:hidden">${financeBody(role)}</div></section>`
+    : ''
+/**
+ * M13 fixtures on the foundation shells: the profile card names the viewer's role; SENIOR and DROP see
+ * only income rows; behind an edit the highlighted row is the edited income, behind a create none is.
+ */
+function shellFixtures(c, html) {
+  let out = html.replace(
+    '<div class="t-cap muted">Адміністратор</div>',
+    `<div class="t-cap muted">${ROLE_UA[c.role] ?? 'Адміністратор'}</div>`,
+  )
+  if (wideRole(c.role))
+    out = out.replace(
+      /<tr\b[^>]*>(?:(?!<\/tr>)[\s\S])*?<td class="muted">(?!Дохід<)[^<]*<\/td>(?:(?!<\/tr>)[\s\S])*?<\/tr>/g,
+      '',
+    )
+  if (c.edit && !wideRole(c.role))
+    out = out
+      .replace('<span class="trunc">Оренда офісу</span>', '<span class="trunc">Оплата від клієнта</span>')
+      .replace('<td class="muted">Витрата</td>', '<td class="muted">Дохід</td>')
+      .replace('−1 200,00 USD', c.rowAmount ?? '+1 200,00 USD')
+  else out = out.replace('<tr aria-selected="true" style="background:var(--raised)">', '<tr>')
+  return out
 }
 
 /** One state, drawn for any width: phone sheet below 640, side panel above. */
