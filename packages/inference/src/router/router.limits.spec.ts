@@ -8,6 +8,7 @@ import {
   GOOD,
   GROQ,
   hostOf,
+  OPENROUTER,
   REQ,
   scriptedFetch,
   type Reply,
@@ -20,6 +21,8 @@ import {
   EMPTY_ROUTE_STATE,
   markAuth,
   markCredit,
+  markFlagRejected,
+  markProviderSpent,
   markRetired,
   markSpent,
   providerDay,
@@ -440,5 +443,55 @@ describe('an image call (H.2 applied to vision)', () => {
       images: [PAGE],
     })
     expect(r).toEqual({ ok: false, code: 'NOT_CONFIGURED' })
+  })
+})
+
+describe('OpenRouter rows (5.4c-H3): SPENT_DAY and CREDIT are limits, FLAG_REJECTED is not', () => {
+  const OR_SPENT: Reply = {
+    status: 429,
+    body: JSON.stringify({
+      error: { code: 429, message: 'Rate limit exceeded: free-models-per-day' },
+    }),
+  }
+  const OR_FLAG: Reply = {
+    status: 404,
+    body: JSON.stringify({
+      error: { code: 404, message: 'No endpoints found matching your data policy' },
+    }),
+  }
+  /** OpenRouter answers `openrouter`; Groq is spent in state, so only OpenRouter decides the row. */
+  function runOr(openrouter: Reply, state: State[] = []) {
+    const f = scriptedFetch((s) => (s.host === hostOf.openrouter ? openrouter : SPENT))
+    const d = deps(f.fetchImpl, { now, routeState: stateOf(spentAll(GROQ), ...state) })
+    return { f, d, go: () => createRouter(config([OPENROUTER, GROQ]), d).run(REQ) }
+  }
+
+  it.each<[string, Reply]>([
+    ['SPENT_DAY in this call', OR_SPENT],
+    ['CREDIT (402) in this call', CREDIT],
+  ])('%s next to a spent Groq → LIMITS_EXHAUSTED', async (_l, r) => {
+    expect(await runOr(r).go()).toEqual({ ok: false, code: 'LIMITS_EXHAUSTED' })
+  })
+
+  it.each<[string, State]>([
+    [
+      'the provider spent bit in state',
+      (s) => markProviderSpent('openrouter', day('openrouter'))(s),
+    ],
+    ['the CREDIT bit in state', credit('openrouter')],
+  ])('%s next to a spent Groq → LIMITS_EXHAUSTED, nothing sent', async (_l, st) => {
+    const { f, go } = runOr(GOOD, [st])
+    expect(await go()).toEqual({ ok: false, code: 'LIMITS_EXHAUSTED' })
+    expect(f.sent).toEqual([])
+  })
+
+  it('FLAG_REJECTED in this call next to a spent Groq is not limit-blocked', async () => {
+    expect(await runOr(OR_FLAG).go()).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+  })
+
+  it('the FLAG_REJECTED bit in state next to a spent Groq is not limit-blocked', async () => {
+    const { f, go } = runOr(GOOD, [(s) => markFlagRejected('openrouter', OPENROUTER.models[0]!)(s)])
+    expect(await go()).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+    expect(f.sent).toEqual([])
   })
 })
