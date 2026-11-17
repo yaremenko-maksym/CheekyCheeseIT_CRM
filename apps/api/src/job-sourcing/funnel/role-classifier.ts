@@ -388,7 +388,7 @@ const GENERIC_NOUN = rx(
 )
 
 const EXCLUDE_PHRASE = rx(
-  /\b(aso|sales engineer|solutions engineer|presales|pre-sales|business development|sales (manager|representative|executive|lead|specialist)|account (executive|manager)|recruiter|recruiting|talent acquisition|hr (manager|business partner|generalist)|marketing (manager|specialist|lead)|seo (specialist|manager)|copywriter|customer (success|support|service)|accountant|finance manager|product manager|project manager|delivery manager|product owner|scrum master|lawyer|landscape architect|ландшафтн\w* (архітектор|архитектор)\w*|(архітектор|архитектор)\w*\W(інтер\Sєр|интерьер|будів|здани|проєктувальн|проектировщ|дизайнер)\w*|interior architect|building architect)\b/,
+  /\b(aso|sales engineer|solutions engineer|presales|pre-sales|business development|sales (manager|representative|executive|lead|specialist)|account (executive|manager)|recruiter|recruiting|talent acquisition|hr (manager|business partner|generalist)|marketing (manager|specialist|lead)|seo (specialist|manager)|copywriter|customer (success|support|service)|accountant|finance manager|product manager|project manager|delivery manager|product owner|scrum master|lawyer|landscape architect|ландшафтн\w* (архітектор|архитектор)\w*|(архітектор|архитектор)\w*\W(інтер\Sєр|интерьер|будів|здани)\w*|(архітектор|архитектор)\w*\W(проєктувальн|проектировщ|дизайнер)\w*(?=\W*$)|interior architect|building architect)\b/,
 )
 const EXCLUDE_BARE = rx(/\b(sales|marketing|recruit\w*|hr|legal|seo|finance)\b/)
 const ENG_NOUN = rx(
