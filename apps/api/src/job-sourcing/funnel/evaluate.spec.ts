@@ -20,7 +20,8 @@ import type { SeniorTechProfile } from './tech-match'
 import { opportunityVerdict } from '../runtime/recompute-inputs'
 
 /* fixtures */
-import type { JobExclusionDto } from '@crm/shared'
+import type { JobExclusionDto, SeniorSelectableRole, TechnicalRole } from '@crm/shared'
+import type { OpportunityRoles } from '../store/opportunity-roles'
 
 const NOW = new Date('2026-10-20T12:00:00Z')
 
@@ -31,10 +32,18 @@ const TEAM_1 = '33333333-3333-4333-8333-333333333333'
 const TEAM_2 = '55555555-5555-4555-8555-555555555555'
 const TEAM_3 = '66666666-6666-4666-8666-666666666666'
 
-const profile = (seniorId: string, techStack: string[], teamIds: string[]): SeniorTechProfile => ({
-  seniorId,
-  teamIds,
-  techStack,
+const profile = (
+  seniorId: string,
+  roles: SeniorSelectableRole[],
+  teamIds: string[],
+  skills: string[] | null = null,
+): SeniorTechProfile => ({ seniorId, teamIds, roles, skills })
+
+/** The stored roles of a RULE-classified vacancy. */
+const ruleRoles = (...roles: TechnicalRole[]): OpportunityRoles => ({
+  status: 'RULE',
+  roles,
+  classifierVersion: 'rc.test',
 })
 
 const exclusion = (over: Partial<JobExclusionDto>): JobExclusionDto => ({
@@ -89,9 +98,9 @@ const unknownStackRevision = (over: Partial<CanonicalRevision> = {}): CanonicalR
 const roster = () => ({
   rosterSeniorIds: [SENIOR_A, SENIOR_B, SENIOR_C],
   profiles: [
-    profile(SENIOR_A, ['java', 'kotlin'], [TEAM_1]),
-    profile(SENIOR_B, ['python'], [TEAM_2]),
-    profile(SENIOR_C, ['java'], [TEAM_1, TEAM_3]),
+    profile(SENIOR_A, ['BACKEND_ENGINEER'], [TEAM_1]),
+    profile(SENIOR_B, ['DATA_SCIENTIST'], [TEAM_2]),
+    profile(SENIOR_C, ['BACKEND_ENGINEER'], [TEAM_1, TEAM_3]),
   ],
 })
 
@@ -101,7 +110,7 @@ const input = (over: Partial<EvaluateInput> = {}): EvaluateInput => ({
   revision: javaRevision(),
   ...roster(),
   exclusions: [],
-  teamTriageGrants: [],
+  roles: ruleRoles('BACKEND_ENGINEER'),
   unavailable: [],
   ...over,
 })
@@ -152,7 +161,7 @@ describe('the opportunity-level verdict with an empty roster (SR-M-2)', () => {
     const r = evaluate(
       input({
         rosterSeniorIds: [SENIOR_A],
-        profiles: [profile(SENIOR_A, ['java'], [TEAM_1])],
+        profiles: [profile(SENIOR_A, ['BACKEND_ENGINEER'], [TEAM_1])],
         exclusions: [
           exclusion({
             scope: 'SENIOR',
@@ -265,7 +274,10 @@ describe('evaluate: determinism (AC 2)', () => {
     const a = evaluated(evaluate(input()))
     const b = evaluated(
       evaluate(
-        input({ rosterSeniorIds: [SENIOR_B], profiles: [profile(SENIOR_B, ['python'], [TEAM_2])] }),
+        input({
+          rosterSeniorIds: [SENIOR_B],
+          profiles: [profile(SENIOR_B, ['DATA_SCIENTIST'], [TEAM_2])],
+        }),
       ),
     )
     expect(b.layer1).toEqual(a.layer1)
@@ -631,40 +643,6 @@ describe('evaluate: visibility (AC 7, owner decision)', () => {
     expect(JSON.stringify(projectionsForViewer(r, hr(TEAM_3)))).not.toContain(SENIOR_A)
   })
 
-  it('an unknown-stack item is invisible to HR without a grant', () => {
-    const r = evaluate(input({ revision: unknownStackRevision() }))
-    for (const team of [TEAM_1, TEAM_2, TEAM_3]) {
-      expect(projectionsForViewer(r, hr(team))).toEqual([])
-    }
-    expect(scopes(evaluated(r))).toEqual(['STUDIO'])
-  })
-
-  it('an unknown-stack item with a grant for team A is visible to A only', () => {
-    const r = evaluate(input({ revision: unknownStackRevision(), teamTriageGrants: [TEAM_1] }))
-    const a = projectionsForViewer(r, hr(TEAM_1))
-    expect(a).toHaveLength(1)
-    expect(a[0]).toMatchObject({ scope: `TEAM:${TEAM_1}`, status: 'TRIAGE', score: null })
-    expect(a[0]?.reasons.map((x) => x.code)).toEqual(['UNKNOWN_STACK', 'TEAM_TRIAGE_GRANT'])
-    expect(projectionsForViewer(r, hr(TEAM_2))).toEqual([])
-    expect(projectionsForViewer(r, hr(TEAM_3))).toEqual([])
-  })
-
-  it('a grant for a team with no matchable senior shows nothing', () => {
-    const r = evaluate(
-      input({ revision: unknownStackRevision(), teamTriageGrants: ['ghost-team'] }),
-    )
-    expect(scopes(evaluated(r))).toEqual(['STUDIO'])
-  })
-
-  it('ADMIN reads the studio view, TRIAGE included', () => {
-    const lead = projectionsForViewer(evaluate(input()), { role: 'ADMIN' })
-    expect(lead.map((p) => p.scope)).toEqual(['STUDIO'])
-    const triage = projectionsForViewer(evaluate(input({ revision: unknownStackRevision() })), {
-      role: 'ADMIN',
-    })
-    expect(triage[0]).toMatchObject({ scope: 'STUDIO', status: 'TRIAGE', score: null })
-  })
-
   it('has no global unknown pool: a posting nobody matches reaches no HR', () => {
     const r = evaluate(
       input({
@@ -836,96 +814,15 @@ describe('evaluate: exact outputs', () => {
     expect(idOf([byCompany, byKeyword])).toBe(byCompany.id)
   })
 
-  it('names the matched keywords once, sorted, with their strength', () => {
-    const fields = { ...javaRevision().fields, tags: ['kotlin', 'java'] }
-    const r = evaluated(evaluate(input({ revision: javaRevision({ fields }) })))
-    const want = [
-      { code: 'TECH_MATCH', evidence: ['java:CORE', 'kotlin:CORE'], ruleVersion: 'eval.1' },
-    ]
-    expect(projection(r, 'STUDIO')?.reasons).toEqual(want)
-    expect(projection(r, `TEAM:${TEAM_1}`)?.reasons).toEqual(want)
-    expect(projection(r, `SENIOR:${SENIOR_C}`)?.reasons).toEqual([
-      { code: 'TECH_MATCH', evidence: ['java:CORE'], ruleVersion: 'eval.1' },
-    ])
-    expect(projection(r, 'STUDIO')?.rankWarnings).toEqual([])
-  })
-
-  it('gives TRIAGE exact reasons: the grant only on the granted team, none on the studio', () => {
-    const r = evaluated(
-      evaluate(input({ revision: unknownStackRevision(), teamTriageGrants: [TEAM_1] })),
-    )
-    const unknown = {
-      code: 'UNKNOWN_STACK',
-      evidence: ['no tags, requirements or keyword hit'],
-      ruleVersion: 'eval.1',
-    }
-    expect(projection(r, 'STUDIO')).toMatchObject({
-      status: 'TRIAGE',
-      matchCount: 0,
-      score: null,
-      rankWarnings: [],
-      reasons: [unknown],
-    })
-    expect(projection(r, `TEAM:${TEAM_1}`)).toMatchObject({
-      status: 'TRIAGE',
-      matchCount: 0,
-      rankWarnings: [],
-      reasons: [
-        unknown,
-        { code: 'TEAM_TRIAGE_GRANT', evidence: [`TEAM:${TEAM_1}`], ruleVersion: 'eval.1' },
-      ],
-    })
-    expect(scopes(r)).toEqual(['STUDIO', `TEAM:${TEAM_1}`])
-  })
-
-  it('never turns a known-stack LEAD into TRIAGE for a granted team that does not match', () => {
-    const fields = {
-      ...javaRevision().fields,
-      title: 'Senior Developer',
-      tags: [],
-      descriptionMd: 'We use Java daily. Fully remote.',
-    }
-    const r = evaluated(
-      evaluate(input({ revision: javaRevision({ fields }), teamTriageGrants: [TEAM_1, TEAM_2] })),
-    )
-    expect(r.status).toBe('LEAD')
-    expect(projection(r, `TEAM:${TEAM_1}`)?.status).toBe('LEAD')
-    expect(projection(r, `TEAM:${TEAM_2}`)).toBeUndefined()
-    expect(projectionsForViewer(r, { role: 'HR', teamId: TEAM_2 })).toEqual([])
-  })
-
-  it('triages an unknown-stack posting for the granted team only, and for nobody without a grant', () => {
-    const granted = evaluated(
-      evaluate(input({ revision: unknownStackRevision(), teamTriageGrants: [TEAM_2] })),
-    )
-    expect(scopes(granted)).toEqual(['STUDIO', `TEAM:${TEAM_2}`])
-    expect(projection(granted, `TEAM:${TEAM_2}`)?.status).toBe('TRIAGE')
-    const none = evaluated(evaluate(input({ revision: unknownStackRevision() })))
-    expect(scopes(none)).toEqual(['STUDIO'])
-  })
-
-  it('gives a granted team whose only senior is excluded no projection and no TRIAGE', () => {
-    const r = evaluated(
-      evaluate(
-        input({
-          revision: unknownStackRevision(),
-          exclusions: [cExcluded()],
-          teamTriageGrants: [TEAM_3],
-        }),
-      ),
-    )
-    expect(scopes(r)).toEqual(['STUDIO'])
-    expect(JSON.stringify(r.projections)).not.toContain(TEAM_3)
-    expect(projectionsForViewer(r, { role: 'HR', teamId: TEAM_3 })).toEqual([])
-    expect(r.audit.excluded.map((e) => e.subject)).toEqual([`SENIOR:${SENIOR_C}`])
-  })
-
   it('orders team scopes by id, not by the order seniors are met', () => {
     const r = evaluated(
       evaluate(
         input({
           rosterSeniorIds: [SENIOR_A, SENIOR_B],
-          profiles: [profile(SENIOR_A, ['java'], [TEAM_3]), profile(SENIOR_B, ['java'], [TEAM_1])],
+          profiles: [
+            profile(SENIOR_A, ['BACKEND_ENGINEER'], [TEAM_3]),
+            profile(SENIOR_B, ['BACKEND_ENGINEER'], [TEAM_1]),
+          ],
         }),
       ),
     )
@@ -940,7 +837,7 @@ describe('evaluate: exact outputs', () => {
       evaluate(
         input({
           rosterSeniorIds: [SENIOR_A],
-          profiles: [profile(SENIOR_A, ['java'], [])],
+          profiles: [profile(SENIOR_A, ['BACKEND_ENGINEER'], [])],
         }),
       ),
     )
@@ -1016,7 +913,7 @@ describe('evaluate: exact outputs', () => {
   })
 
   it('ignores a profile that is not on the roster without throwing', () => {
-    const extra = profile('99999999-0000-4000-8000-000000000000', ['java'], [TEAM_2])
+    const extra = profile('99999999-0000-4000-8000-000000000000', ['BACKEND_ENGINEER'], [TEAM_2])
     const r = evaluated(evaluate(input({ profiles: [...roster().profiles, extra] })))
     expect(r).toEqual(evaluated(evaluate(input())))
   })
@@ -1026,146 +923,5 @@ describe('evaluate: exact outputs', () => {
       evaluate(input({ revision: { ...javaRevision(), ...over } as never }))
     expect(bad({ opportunityId: 7 })).toMatchObject({ code: 'INVALID_REVISION' })
     expect(bad({ revisionId: 7 })).toMatchObject({ code: 'INVALID_REVISION' })
-  })
-})
-
-/**
- * SFS U10 (ADR 6a) precondition: a record whose description is absent BECAUSE its detail is
- * pending (an ON_DEMAND source, list-only ingest) is never excluded on stack grounds; at worst
- * it is TRIAGE with the stack unknown, so it is enriched and re-evaluated. Title-level exclusions
- * still apply. Without `detailPending`, nothing changes.
- */
-describe('evaluate: detail on demand — pending detail never excludes on stack grounds (U10)', () => {
-  // Empty body, a department tag (not a stack keyword), a title without a stack keyword: the stack
-  // can only be in the description, which has not been fetched. lowInformation is false (a tag
-  // exists), so without the rule this record is silently NO_MATCH.
-  const pendingRevision = (over: Partial<CanonicalRevision> = {}): CanonicalRevision =>
-    javaRevision({
-      fields: {
-        ...javaRevision().fields,
-        title: 'Senior Developer',
-        descriptionMd: '',
-        tags: ['engineering'],
-      },
-      ...over,
-    })
-
-  it('without the flag a tagged, stack-silent posting is lost (NO_MATCH) — the bug the rule fixes', () => {
-    const r = evaluated(evaluate(input({ revision: pendingRevision() })))
-    expect(r.status).toBe('NO_MATCH')
-    expect(r.projections).toEqual([])
-  })
-
-  it('with detailPending the same posting is TRIAGE at the studio, never EXCLUDED (AC 7)', () => {
-    const r = evaluate(input({ revision: pendingRevision(), detailPending: true }))
-    expect(r.kind).toBe('EVALUATED')
-    const ev = evaluated(r)
-    expect(ev.status).toBe('TRIAGE')
-    const studio = projection(ev, 'STUDIO')
-    expect(studio).toMatchObject({ status: 'TRIAGE', score: null })
-    // The TRIAGE reason names the pending detail, not the usual "no tags/keyword hit".
-    expect(studio?.reasons).toEqual([
-      {
-        code: 'UNKNOWN_STACK',
-        evidence: ['detail pending: description not loaded'],
-        ruleVersion: EVALUATE_RULE_VERSION,
-      },
-    ])
-    // SPEC-M-1 #1: a department tag defeats `lowInformation` (it is NOT stack evidence), yet the
-    // posting is still TRIAGE because the detail is pending and the tag judged no stack.
-    expect(studio?.tech.lowInformation).toBe(false)
-    expect(studio?.tech.evidenceSurfaces).toMatchObject({ tags: true, keywordHit: false })
-    // SPEC-M-1 #2: the senior shows `coreMismatch` (stated a stack, none core-hit), and even so the
-    // detail-pending posting is TRIAGE — a tag-only `coreMismatch` is not a real stack verdict.
-    expect(studio?.tech.seniors.every((s) => s.coreMismatch)).toBe(true)
-  })
-
-  it('a granted HR team sees the pending item as TRIAGE; an ungranted team sees nothing (CR-M-2)', () => {
-    const hr = (teamId: string | null) => ({ role: 'HR', teamId }) as const
-    const r = evaluate(
-      input({ revision: pendingRevision(), detailPending: true, teamTriageGrants: [TEAM_1] }),
-    )
-    const a = projectionsForViewer(r, hr(TEAM_1))
-    expect(a).toHaveLength(1)
-    expect(a[0]).toMatchObject({ scope: `TEAM:${TEAM_1}`, status: 'TRIAGE', score: null })
-    expect(a[0]?.reasons.map((x) => x.code)).toEqual(['UNKNOWN_STACK', 'TEAM_TRIAGE_GRANT'])
-    // An ungranted team, and any team with no matchable senior, see nothing.
-    expect(projectionsForViewer(r, hr(TEAM_2))).toEqual([])
-    expect(projectionsForViewer(r, hr(TEAM_3))).toEqual([])
-  })
-
-  it('a granted team gets no pending-detail triage once the studio has a keyword hit elsewhere (CR-M-2)', () => {
-    // java in the title → the java seniors (TEAM_1) LEAD, so the STUDIO is judged, not unknown-stack.
-    // A detail-pending flag must not then hand an unknown-stack triage to a granted python team.
-    const hr = (teamId: string | null) => ({ role: 'HR', teamId }) as const
-    const r = evaluate(
-      input({
-        revision: pendingRevision({
-          fields: { ...pendingRevision().fields, title: 'Senior Java Developer' },
-        }),
-        detailPending: true,
-        teamTriageGrants: [TEAM_2],
-      }),
-    )
-    expect(evaluated(r).status).toBe('LEAD')
-    expect(projectionsForViewer(r, hr(TEAM_1)).map((p) => p.status)).toEqual(['LEAD'])
-    // The granted python team sees nothing: the studio was judged by the java hit.
-    expect(projectionsForViewer(r, hr(TEAM_2))).toEqual([])
-  })
-
-  it('SPEC-M-1 #3: detailPending does NOT override a genuine coreMismatch — a stated-stack mismatch stays NO_MATCH', () => {
-    // The list carries a requirements statement whose stack none of the roster core-matches. That
-    // is a real verdict, so `coreMismatch` wins and the posting stays NO_MATCH despite the pending
-    // flag; `detailPending` only lifts a record the list could NOT judge (no hit, no requirements).
-    const r = evaluated(
-      evaluate(
-        input({
-          revision: pendingRevision({
-            fields: {
-              ...pendingRevision().fields,
-              descriptionMd: 'Requirements: senior Rust engineer with deep systems experience.',
-            },
-          }),
-          detailPending: true,
-        }),
-      ),
-    )
-    expect(r.status).toBe('NO_MATCH')
-    expect(r.projections).toEqual([])
-  })
-
-  it('title-level exclusions still apply even with detailPending (a global keyword hit EXCLUDES)', () => {
-    const r = evaluate(
-      input({
-        revision: pendingRevision({
-          fields: { ...pendingRevision().fields, title: 'Senior Casino Developer' },
-        }),
-        detailPending: true,
-        exclusions: [exclusion({ kind: 'KEYWORD', value: 'casino', normalizedValue: 'casino' })],
-      }),
-    )
-    expect(r.kind).toBe('EXCLUDED')
-  })
-
-  it('a closed posting stays EXCLUDED even with detailPending', () => {
-    const r = evaluate(
-      input({ revision: pendingRevision({ availability: 'CLOSED' }), detailPending: true }),
-    )
-    expect(r.kind).toBe('EXCLUDED')
-  })
-
-  it('a detail-pending posting that still has a LEAD on list fields stays a LEAD (not downgraded)', () => {
-    // java in the title: a keyword hit on list fields, so the stack is known despite the pending detail.
-    const r = evaluated(
-      evaluate(
-        input({
-          revision: pendingRevision({
-            fields: { ...pendingRevision().fields, title: 'Senior Java Developer' },
-          }),
-          detailPending: true,
-        }),
-      ),
-    )
-    expect(r.status).toBe('LEAD')
   })
 })

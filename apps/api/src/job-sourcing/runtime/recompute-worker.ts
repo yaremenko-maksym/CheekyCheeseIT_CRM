@@ -249,9 +249,8 @@ function verdictOf(
       rosterSeniorIds: roster.rosterSeniorIds,
       profiles: roster.profiles,
       exclusions: roster.exclusions,
-      teamTriageGrants: loaded.teamTriageGrants,
+      roles: loaded.roles,
       unavailable: [],
-      detailPending: loaded.detailPending,
     })
   } catch {
     throw new RecomputePoisonError('EVALUATION_THREW')
