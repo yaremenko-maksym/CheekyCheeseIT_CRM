@@ -32,7 +32,7 @@ export interface CreateUserInput {
   avatarUrl?: string | null
   techStack?: string[] | null
   /** Senior roles PR 2: optional, SENIOR only. */
-  technicalRoles?: string[]
+  technicalRoles?: string[] | undefined
   seniorSharePercent?: number
   monthlySalary?: number | null
   salaryCurrency?: 'USDT' | 'USD' | 'EUR' | 'UAH'

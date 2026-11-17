@@ -295,8 +295,9 @@ function recomputeOpportunity(
         await deriveOpportunityRoles(tx, {
           title: String(row['title']),
           titleKey: String(row['title_key']),
-          tags: (row['stack_keywords'] as string[] | null) ?? [],
-          descriptionSha256: (row['description_sha256'] as string | null) ?? null,
+          // Both columns as stored: stack_keywords is NOT NULL, description_sha256 is nullable.
+          tags: row['stack_keywords'] as string[],
+          descriptionSha256: row['description_sha256'] as string | null,
         }),
       )
     }

@@ -46,7 +46,7 @@ export interface CreateUserInsertInput extends PaymentRequisitesInput {
   phone?: string | null
   avatarUrl?: string | null
   techStack?: string[] | null
-  technicalRoles?: string[]
+  technicalRoles?: string[] | undefined
   seniorSharePercent?: number
   monthlySalary?: number | null
   salaryCurrency?: 'USDT' | 'USD' | 'EUR' | 'UAH'

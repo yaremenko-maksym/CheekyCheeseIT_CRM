@@ -311,8 +311,8 @@ async function refreshOpportunity(tx: SqlExecutor, id: string, bump: boolean): P
   const { rows: titleRows } = await tx.execute(
     sql`SELECT title, stack_keywords, description_sha256 FROM job_opportunities WHERE id = ${id}::uuid`,
   )
+  const previous = (titleRows[0]?.['title'] as string | undefined) ?? null
   const stored = titleRows[0]
-  const previous = (stored?.['title'] as string | undefined) ?? null
   const c = current.length === 0 ? null : canonicalFields(current, previous)
   // Senior roles PR 2: re-derive only when a classifier input moved, so an AI / UNCLEAR answer
   // survives an unrelated refresh. Written apart from the revision tuple below: never a bump.

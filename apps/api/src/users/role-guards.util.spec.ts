@@ -172,6 +172,7 @@ describe('rolesChanged', () => {
   it('is false when absent or resubmitted in any order', () => {
     expect(rolesChanged(undefined, ['A'])).toBe(false)
     expect(rolesChanged(['B', 'A'], ['A', 'B'])).toBe(false)
+    expect(rolesChanged(['A', 'B'], ['B', 'A'])).toBe(false)
     expect(rolesChanged([], [])).toBe(false)
   })
 

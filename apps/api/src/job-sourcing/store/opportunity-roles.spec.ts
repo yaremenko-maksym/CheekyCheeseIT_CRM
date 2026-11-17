@@ -91,10 +91,23 @@ describe('deriveOpportunityRoles', () => {
     })
   })
 
-  it('no cache row gives PENDING', async () => {
+  it('no cache row gives PENDING with no roles', async () => {
     const { tx, queries } = fakeTx([])
-    expect((await deriveOpportunityRoles(tx, input('Wizard of Things'))).status).toBe('PENDING')
+    expect(await deriveOpportunityRoles(tx, input('Wizard of Things'))).toEqual({
+      status: 'PENDING',
+      roles: [],
+      classifierVersion: 'rc.1',
+    })
     expect(queries).toHaveLength(1)
+  })
+
+  it('a FAILED cache row carrying roles is still PENDING: only an AI row gives AI roles', async () => {
+    const { tx } = fakeTx([{ outcome: 'FAILED', technical_roles: ['BACKEND_ENGINEER'] }])
+    expect(await deriveOpportunityRoles(tx, input('Wizard of Things'))).toEqual({
+      status: 'PENDING',
+      roles: [],
+      classifierVersion: 'rc.1',
+    })
   })
 })
 
