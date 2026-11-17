@@ -115,6 +115,7 @@ describe('projectProfileUser', () => {
     pendingSeniorSharePercent: 40,
     dropSharePercent: 12,
     techStack: ['ts'],
+    technicalRoles: ['BACKEND_ENGINEER'],
     paymentMethod: 'USDT_ERC20',
     walletUsdtErc20: '0xabc',
     walletUsdtLabel: 'main',
@@ -195,6 +196,7 @@ describe('projectProfileUser', () => {
       pendingSeniorShare: pending,
       dropSharePercent: 12,
       techStack: ['ts'],
+      technicalRoles: ['BACKEND_ENGINEER'],
       paymentMethod: 'USDT_ERC20',
       walletUsdtErc20: '0xabc',
       walletUsdtLabel: 'main',
@@ -233,6 +235,7 @@ describe('projectProfileUser', () => {
       pendingSeniorShare: null,
       dropSharePercent: null,
       techStack: null,
+      technicalRoles: [],
       paymentMethod: null,
       walletUsdtErc20: null,
       walletUsdtLabel: null,
@@ -258,7 +261,7 @@ describe('projectProfileUser', () => {
     ['legalName', ['legalFullName']],
     ['salary', ['monthlySalary', 'salaryCurrency']],
     ['share', ['seniorSharePercent', 'dropSharePercent']],
-    ['techStack', ['techStack']],
+    ['techStack', ['techStack', 'technicalRoles']],
     [
       'requisites',
       [
