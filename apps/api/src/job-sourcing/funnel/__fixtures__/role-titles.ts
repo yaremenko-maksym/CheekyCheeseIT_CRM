@@ -269,6 +269,10 @@ export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
     title: 'Інженер-аналітик з кібербезпеки',
     expected: roles('SECURITY_ENGINEER', 'SECURITY_ANALYST'),
   },
+  {
+    title: 'Аналітик-інженер з кібербезпеки',
+    expected: roles('SECURITY_ENGINEER', 'SECURITY_ANALYST'),
+  },
   { title: 'Security Engineer, SOC', expected: roles('SECURITY_ENGINEER', 'SECURITY_ANALYST') },
   // the remaining generic Cyrillic job nouns
   { title: 'Разработчик', expected: roles('SOFTWARE_ENGINEER') },
