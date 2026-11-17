@@ -208,6 +208,16 @@ describe('findUngroundedTokens — everyday-word aliases', () => {
     expect(findUngroundedTokens('Built in Unity', src('team unity'))).toEqual([])
   })
 
+  it('a full multi-word spelling in lowercase still grounds the whole group', () => {
+    const apache = src('experience with apache spark and kafka')
+    expect(findUngroundedTokens('Built pipelines with Apache Spark.', apache)).toEqual([])
+    expect(findUngroundedTokens('Pipelines on Apache Spark', src('Apache spark jobs'))).toEqual([])
+    const unreal = src('shipped games in unreal engine 5')
+    expect(findUngroundedTokens('Shipped a game in Unreal Engine.', unreal)).toEqual([])
+    expect(findUngroundedTokens('Shipped a UE5 title', unreal)).toEqual([])
+    expect(findUngroundedTokens('Built in Unity3D', src('unity 3d games'))).toEqual([])
+  })
+
   it('a capitalised spelling in the source grounds the whole group', () => {
     expect(findUngroundedTokens('Shipped a UE5 title', src('Unreal 5 pipelines'))).toEqual([])
     expect(findUngroundedTokens('Built in Unity3D', src('Unity 3 games'))).toEqual([])
