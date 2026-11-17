@@ -11,6 +11,7 @@ import { safeTelegramHref } from '@/lib/tg-url'
 import { useLocale } from '@/lib/i18n'
 import { useRoleLabel } from '@/components/ui/role-select'
 import { ROLE_VARIANT } from './constants'
+import { RoleChips } from './RoleChips'
 import { UserAvatar } from './UserAvatar'
 
 export type UserRowProps = {
@@ -159,20 +160,31 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
                 </>
               )}
             </div>
-            {techStack.length > 0 && (
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {techStack.slice(0, 5).map((tech) => (
-                  <Badge key={tech} variant="outline" className="text-[10px] font-mono px-1.5 py-0">
-                    {tech}
-                  </Badge>
-                ))}
-                {techStack.length > 5 && (
-                  <span className="text-[10px] text-muted-foreground/70 self-center">
-                    +{techStack.length - 5}
-                  </span>
+            {/* A SENIOR is described by technical roles; a legacy one with none shows nothing. */}
+            {user.role === 'SENIOR'
+              ? user.technicalRoles.length > 0 && (
+                  <div className="mt-1.5">
+                    <RoleChips roles={user.technicalRoles} limit={3} />
+                  </div>
+                )
+              : techStack.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {techStack.slice(0, 5).map((tech) => (
+                      <Badge
+                        key={tech}
+                        variant="outline"
+                        className="text-[10px] font-mono px-1.5 py-0"
+                      >
+                        {tech}
+                      </Badge>
+                    ))}
+                    {techStack.length > 5 && (
+                      <span className="text-[10px] text-muted-foreground/70 self-center">
+                        +{techStack.length - 5}
+                      </span>
+                    )}
+                  </div>
                 )}
-              </div>
-            )}
           </div>
         </div>
 
