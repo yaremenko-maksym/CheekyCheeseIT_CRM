@@ -140,7 +140,11 @@ function columnBody({
   const fine = !touch
   const compl = touch
     ? `<div style="margin:0 -16px">${complianceList({ state: compliance.state ?? 'ok', expanded: compliance.expanded ?? -1, cols: 4 })}</div>`
-    : complianceDesk({ state: compliance.state ?? 'ok', expanded: compliance.expanded ?? -1 })
+    : complianceDesk({
+        state: compliance.state ?? 'ok',
+        expanded: compliance.expanded ?? -1,
+        bar: contentW >= 900,
+      })
   const staleHtml = stale ? staleBar({ touch }) : ''
   if (summary === 'error')
     return `${errBlock(touch)}${card(companyRow({ state: company, variant: 'row', fine, role }), 'overflow:hidden')}${compl}`
@@ -163,7 +167,7 @@ function splitBody({ contentW, role, partners, summary, company, compliance, cha
   if (summary === 'error')
     return `<div class="row" style="gap:16px;align-items:stretch"><div class="grow">${errBlock(false)}</div><div style="width:${leftW}px;flex:none">${companyCard}</div></div>${compl}`
   const left = `<div class="col" style="width:${leftW}px;flex:none;gap:16px">${partnerCard(partners, { pad: 16, fine: true })}${companyCard}<div>${sectionLabel('Показники', 4)}${kpiTiles(2, { fine: true, count: summary === 'empty' ? 4 : 8, vs: 17 })}</div></div>`
-  const right = `<div class="grow" style="min-width:0">${chartWide({ W: contentW - leftW - 16, empty: summary === 'empty', H: 330, ...chart })}</div>`
+  const right = `<div class="grow" style="min-width:0">${chartWide({ W: contentW - leftW - 16, empty: summary === 'empty', H: 330, cap: 8, ...chart })}</div>`
   return `${staleHtml}<div class="row" style="gap:16px;align-items:flex-start">${left}${right}</div>${compl}`
 }
 

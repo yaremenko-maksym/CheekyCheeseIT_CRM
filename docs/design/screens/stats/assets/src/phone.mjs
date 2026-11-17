@@ -198,7 +198,8 @@ export function monthSheet(w, h, i = 19) {
       top: h - 470 - safeBottom(w),
       title: MONTHS[i].full,
       lead: nav(-1),
-      trail: nav(1).replace('opacity:0.4', ''),
+      // The newest month has no next month: the › button is disabled (aria-disabled, 40 % opacity).
+      trail: stepBtn(1, i >= S.profit.length - 1, 44),
       body: `<div class="group" style="margin:4px 16px 0">${rows}<div class="lrow"><div class="grow t-body" style="font-weight:600">Прибуток</div><span class="amount num" style="font-size:18px;${p < 0 ? 'color:var(--destructive)' : ''}">${money(p * 1000, 'USD', { sign: true })}</span></div></div><div class="group" style="margin:12px 16px 0"><div class="lrow" role="link"><div class="lead">${icon('receipt', { size: 18 })}</div><div class="grow t-body">Транзакції за ${MONTHS[i].name}</div>${icon('chevron-right', { size: 18, cls: 'chev' })}</div></div><div style="padding:12px 16px 0"><span class="btn secondary" style="width:100%;height:44px">Закрити</span></div>`,
     }),
   })
