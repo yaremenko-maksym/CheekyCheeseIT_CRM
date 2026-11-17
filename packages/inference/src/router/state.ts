@@ -565,7 +565,7 @@ export function createOwnCapPort(opts: { state: RouteStatePort; now: () => numbe
       const applied = opts.state.snapshot() !== snap
       if (await write) return { day: c.day }
       // The day turned while the write was in flight: the unit belongs to a closed day (SR-L-68).
-      if (applied && counting(p).day === day) await change(p, day, giveBack)
+      if (applied && counting(p).day === c.day) await change(p, day, giveBack)
       return 'WRITE_FAILED'
     },
     async release(p, unit) {

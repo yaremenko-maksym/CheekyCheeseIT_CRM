@@ -694,6 +694,22 @@ describe('OwnCapPort over the state (§3.1, §5.1 units, D5)', () => {
     expect(ownCap(mem.snapshot())).toEqual({ day: '2026-11-05', requests: 1, tokens: 0 })
   })
 
+  it('a failed write on a record dated after the clock day gives its unit back (SR-L-3)', async () => {
+    let now = Date.parse('2026-11-05T12:00:00Z')
+    const mem = createMemoryRouteStatePort()
+    let fail = false
+    const state: RouteStatePort = {
+      snapshot: mem.snapshot,
+      update: (change) => mem.update(change).then((ok) => ok && !fail),
+    }
+    const cap = createOwnCapPort({ state, now: () => now })
+    await cap.reserve('groq', L4)
+    now = NOON // the clock goes back a day: the stored record is dated after it and keeps counting
+    fail = true
+    expect(await cap.reserve('groq', L4)).toBe('WRITE_FAILED')
+    expect(ownCap(mem.snapshot())).toEqual({ day: '2026-11-05', requests: 1, tokens: 0 })
+  })
+
   it('reads the provider day once: a clock turning mid-reserve dates the unit and the count alike (CR-L-2)', async () => {
     const times = [Date.parse('2026-11-04T23:59:59Z'), Date.parse('2026-11-05T00:00:01Z')]
     let reads = 0
