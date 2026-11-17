@@ -4160,6 +4160,11 @@ msgstr "The specified user wasn't found or has the wrong role"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.TECHNICAL_ROLES_SENIOR_ONLY"
+msgstr "Technical roles can only be set for a senior"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.TELEGRAM_CHANNEL_SENIOR_ONLY"
 msgstr "A Telegram channel can only be set for a senior"
 

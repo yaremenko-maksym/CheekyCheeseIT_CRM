@@ -25,7 +25,7 @@ import { TeamsService } from '../teams/teams.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
 import { TosService } from '../tos/tos.service'
 import { ApprovalsService } from '../approvals/approvals.service'
-import type { Locale } from '@crm/shared'
+import type { Locale, TechnicalRole } from '@crm/shared'
 import { NotificationsService } from '../notifications/notifications.service'
 import { markSeniorDirty, markUserEditDirty } from '../job-sourcing/dirty-producers'
 import { markResumeRecheckNeeded } from '../resumes/verification/recheck-flag'
@@ -33,6 +33,7 @@ import { AuditLogService } from './audit-log.service'
 import {
   assertAdminTargetEditableForRoleChange,
   assertAssignableRole,
+  assertSeniorOnlyRoles,
   assertSeniorTechFloor,
   techStackChanged,
 } from './role-guards.util'
@@ -78,6 +79,7 @@ export type UserListItem = Pick<
   | 'telegram'
   | 'phone'
   | 'techStack'
+  | 'technicalRoles'
   | 'seniorSharePercent'
   | 'dropSharePercent'
   | 'salaryCurrency'
@@ -107,6 +109,7 @@ const USER_LIST_PROJECTION = {
   telegram: users.telegram,
   phone: users.phone,
   techStack: users.techStack,
+  technicalRoles: users.technicalRoles,
   seniorSharePercent: users.seniorSharePercent,
   dropSharePercent: users.dropSharePercent,
   salaryCurrency: users.salaryCurrency,
@@ -507,6 +510,7 @@ export class UsersService {
       telegram?: string | null
       phone?: string | null
       techStack?: string[] | null
+      technicalRoles?: TechnicalRole[]
       avatarDocumentId?: string | null
       /** task-i18n-stage2 (Task 3) — self-service interface language change. */
       locale?: Locale
@@ -517,9 +521,16 @@ export class UsersService {
     if ('telegram' in data) set.telegram = data.telegram ?? null
     if ('phone' in data) set.phone = data.phone ?? null
     let stackChanged = false
+    const self =
+      'techStack' in data || data.technicalRoles !== undefined ? await this.findById(id) : null
+    if (data.technicalRoles !== undefined) {
+      // Senior roles PR 2: a self-edit sets the caller's own roles only, and only as a SENIOR.
+      if (!self) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
+      assertSeniorOnlyRoles(self.role, data.technicalRoles)
+      set.technicalRoles = data.technicalRoles
+    }
     if ('techStack' in data) {
       // SENIOR technology floor on a self-edit of the stack (an unchanged resubmit passes).
-      const self = await this.findById(id)
       if (!self) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
       stackChanged = techStackChanged(data.techStack, self.techStack)
       if (stackChanged) {
