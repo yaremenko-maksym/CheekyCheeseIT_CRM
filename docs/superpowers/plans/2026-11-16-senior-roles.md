@@ -626,8 +626,9 @@ it('evaluation output is unchanged by this PR', ...) // same EvaluationResult be
     `SENIOR`.
   - `rolesChanged(next: readonly string[] | undefined, current: readonly string[]): boolean`. It works
     like `techStackChanged`; compare sorted.
-  - Reads return `technicalRoles`. A stored role is kept when a SENIOR becomes another role. It is
-    harmless, because `loadRoster` reads only `SENIOR` (an A1 assumption).
+  - Reads return `technicalRoles`. The shared role write clears the roles to `[]` whenever the new
+    role is not `SENIOR`, so a demoted user keeps none and a re-promotion starts empty (PR #1380
+    review round 1, SR-M-1 / CR-M-3; this replaces an earlier A1 "kept" assumption).
   - **No role floor in this PR** (Review Focus 1). `assertSeniorTechFloor` stays exactly as it is.
 - Endpoints and their existing guards are unchanged:
 

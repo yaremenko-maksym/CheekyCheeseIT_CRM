@@ -46,6 +46,7 @@ export interface CreateUserInsertInput extends PaymentRequisitesInput {
   phone?: string | null
   avatarUrl?: string | null
   techStack?: string[] | null
+  technicalRoles?: string[] | undefined
   seniorSharePercent?: number
   monthlySalary?: number | null
   salaryCurrency?: 'USDT' | 'USD' | 'EUR' | 'UAH'
@@ -68,6 +69,7 @@ export function buildCreateUserInsertValues(
     // is set.
     avatarUrl: data.avatarUrl ?? null,
     techStack: data.techStack ?? null,
+    technicalRoles: data.technicalRoles ?? [],
     // task-i18n-stage2 (Task 3) — explicit default (not left to the column
     // default) so the returned row reflects the value callers expect back.
     locale,

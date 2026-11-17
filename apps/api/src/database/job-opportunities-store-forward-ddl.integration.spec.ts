@@ -213,6 +213,19 @@ const PART_14_MIGRATION = '2026-11-05_job_opportunities_role_family.sql'
  * as the deploy will. PROMOTED (lives in `manual/`), so `readPart` finds it directly. Adds no index.
  */
 const PART_15_MIGRATION = '2026-11-05_job_opportunities_manual_team.sql'
+/**
+ * PART_16 — senior roles PR 2: `job_opportunities` gains `technical_roles`, `role_status`,
+ * `role_classifier_version`, their CHECKs and a GIN index. The same file also adds
+ * `users.technical_roles` (the stub `users` takes it like production does; `users` is not compared
+ * here) and creates the `job_role_classifications` cache, which `technical-roles-forward-ddl` holds
+ * to its Drizzle declaration — this spec only lists it as a known non-store table. Declared in
+ * Drizzle last, so the column rank matches an `ADD COLUMN`. Applied after PART_15, as the deploy
+ * will. PROMOTED (lives in `manual/`), so `readPart` finds it directly.
+ */
+const PART_16_MIGRATION = '2026-11-17_technical_roles.sql'
+const PART_16_INDEXES = ['idx_job_opportunities_technical_roles'] as const
+/** Created by PART_16, compared by `technical-roles-forward-ddl.integration.spec.ts`. */
+const PART_16_OTHER_TABLES = ['job_role_classifications']
 const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'
 const SCHEMA = 'ddl_job_opportunities_store'
 /** Its own schema, so the migration path cannot disturb the fresh-path comparison. */
@@ -287,8 +300,8 @@ const PRE_STORE_ENUMS = [
 const EXPECTED = { tables: 19, enums: 20, jobSourcesColumns: 20, indexes: 44 } as const
 /**
  * The standalone indexes beyond part 2's 44: T1's two (PART_5), T8's one (PART_6), SR-M-4's one
- * (PART_8), SR-H-2's one (PART_9), CR-M-4's one (PART_10) and backlog 347's two (PART_11).
- * PART_7 adds columns only, no index.
+ * (PART_8), SR-H-2's one (PART_9), CR-M-4's one (PART_10), backlog 347's two (PART_11) and
+ * the senior-roles GIN index (PART_16). PART_7 adds columns only, no index.
  */
 const LATER_INDEXES = [
   ...PART_5_INDEXES,
@@ -297,6 +310,7 @@ const LATER_INDEXES = [
   ...PART_9_INDEXES,
   ...PART_10_INDEXES,
   ...PART_11_INDEXES,
+  ...PART_16_INDEXES,
 ]
 
 const STAGED_DIR = join(__dirname, '..', '..', 'drizzle', 'manual-staged')
@@ -567,6 +581,7 @@ const applyBothParts = (client: PoolClient): Promise<void> =>
     PART_13_MIGRATION,
     PART_14_MIGRATION,
     PART_15_MIGRATION,
+    PART_16_MIGRATION,
   ])
 const applyIndexesOnly = (client: PoolClient): Promise<void> => applyParts(client, [PART_2])
 
@@ -745,6 +760,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         'users',
         'senior_resumes',
         'job_run_records',
+        ...PART_16_OTHER_TABLES,
       ].sort(),
     )
 
@@ -1237,11 +1253,13 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         PART_9_MIGRATION,
         // PART_10/11 add standalone indexes only, which this comparison does not read;
         // PART_12 adds a column, an FK and a UNIQUE, which it does; PART_13 an enum, three
-        // columns and a CHECK; PART_14 a column and a CHECK; PART_15 a column and an FK.
+        // columns and a CHECK; PART_14 a column and a CHECK; PART_15 a column and an FK;
+        // PART_16 three columns, four CHECKs and an index.
         PART_12_MIGRATION,
         PART_13_MIGRATION,
         PART_14_MIGRATION,
         PART_15_MIGRATION,
+        PART_16_MIGRATION,
       ])
       beforeMigration = await readCatalog(client, MIGRATION_SCHEMA)
       await applyParts(client, [PART_3_MIGRATION])

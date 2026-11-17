@@ -86,6 +86,7 @@ function makeUser(overrides: Partial<UserProfileDto>): UserProfileDto {
     telegram: null,
     phone: null,
     techStack: null,
+    technicalRoles: [],
     paymentMethod: null,
     walletUsdtErc20: null,
     walletUsdtLabel: null,

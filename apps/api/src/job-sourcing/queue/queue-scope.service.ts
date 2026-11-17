@@ -3,7 +3,11 @@ import type { SessionUser } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { apiError } from '../../common/api-error'
 import { isDeadlock } from '../../database/pg-errors'
-import { loadRoster, opportunityInputsVersion } from '../runtime/recompute-inputs'
+import {
+  loadRoster,
+  opportunityInputsVersion,
+  previousOpportunityInputsVersion,
+} from '../runtime/recompute-inputs'
 import type { SqlExecutor } from '../scheduling/host-state'
 import { triagePolicyVersion } from './queue-read-sql'
 import {
@@ -55,13 +59,14 @@ export class JobQueueScopeService {
           : await this.activeTeamIdsOf(db, user.id)
       const teamId = selectScopeTeam(requested, allowed)
       if (teamId === null) return NONE_SCOPE
-      const { versions, inputsVersion } = await this.liveInputs(db, teamId)
+      const { versions, inputsVersion, previousInputsVersion } = await this.liveInputs(db, teamId)
       return {
         kind: 'TEAM',
         teamId,
         seniorIds: versions.map((v) => v.seniorId),
         versions,
         inputsVersion,
+        previousInputsVersion,
       }
     })
   }
@@ -111,12 +116,17 @@ export class JobQueueScopeService {
    * The team's matchable seniors (active, non-archived SENIOR, in the team) with their LIVE input
    * versions, from the same `loadRoster` / `rosterVersions` the recompute worker stamps match rows
    * with — so a row is visible only while it still describes the live roster (SR-M-2) — and the
-   * live opportunity inputs version from the same load, for the grant branch (SR-M-1).
+   * live opportunity inputs version from the same load, with its previous-record-format twin, for
+   * the grant and subscription branches (SR-M-1, CR-M-2).
    */
   private async liveInputs(
     db: SqlExecutor,
     teamId: string,
-  ): Promise<{ versions: LiveSeniorVersion[]; inputsVersion: string }> {
+  ): Promise<{
+    versions: LiveSeniorVersion[]
+    inputsVersion: string
+    previousInputsVersion: string
+  }> {
     const roster = await loadRoster(db)
     const inTeam = new Set(
       roster.profiles.filter((p) => p.teamIds.includes(teamId)).map((p) => p.seniorId),
@@ -125,7 +135,11 @@ export class JobQueueScopeService {
     const versions = [...roster.versions]
       .filter(([seniorId]) => inTeam.has(seniorId))
       .map(([seniorId, v]) => ({ seniorId, profile: v.profile, exclusion: v.exclusion }))
-    return { versions, inputsVersion: opportunityInputsVersion(roster.exclusions) }
+    return {
+      versions,
+      inputsVersion: opportunityInputsVersion(roster.exclusions),
+      previousInputsVersion: previousOpportunityInputsVersion(roster.exclusions),
+    }
   }
 
   /**

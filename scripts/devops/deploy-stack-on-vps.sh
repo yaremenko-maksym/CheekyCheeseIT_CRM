@@ -2565,6 +2565,32 @@ docker compose \
   < "$SENIOR_RESUMES_RECHECK_NEEDED_FILE"
 echo "==> senior resumes recheck needed applied successfully"
 
+# Source: apps/api/drizzle/manual/2026-11-17_technical_roles.sql
+# Adds users.technical_roles and the job_opportunities role columns (technical_roles, role_status,
+# role_classifier_version) plus their GIN index, and creates job_role_classifications (class A).
+# The new image selects these columns, so they MUST exist before the container swap below. MUST
+# precede the grants file: its grants name job_role_classifications and fail on a missing table.
+# Needs users and job_opportunities (created far above); additive and re-runnable (IF NOT EXISTS,
+# guarded constraints). One transaction: the file uses SET LOCAL lock_timeout, which only takes
+# effect inside a transaction.
+TECHNICAL_ROLES_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-17_technical_roles.sql"
+
+if [ ! -f "$TECHNICAL_ROLES_FILE" ]; then
+  echo "ERROR: DDL file not found at $TECHNICAL_ROLES_FILE — scp-action may have flattened the tree."
+  ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+  exit 1
+fi
+
+echo "==> Applying technical roles (one transaction, idempotent) — user=${PGUSER} db=${PGDB}"
+docker compose \
+  -f docker-compose.prod.yml \
+  -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 --single-transaction \
+  < "$TECHNICAL_ROLES_FILE"
+echo "==> technical roles applied successfully"
+
 # ── database privilege grants (r5 Task 1.3c) ──
 # INVARIANT: every file in this script that creates a table, view or sequence is applied
 # BEFORE this one. The multipart-salary PREPARE file (the last relation-creating file

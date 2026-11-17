@@ -27,6 +27,7 @@ const teamA: JobQueueScope = {
   seniorIds: [SEN_1],
   versions: [{ seniorId: SEN_1, profile: 'p1', exclusion: 'e1' }],
   inputsVersion: 'inputs-1',
+  previousInputsVersion: 'inputs-0',
 }
 const render = (q: ReturnType<typeof sql>) => new PgDialect().sqlToQuery(q)
 const flat = (s: string) => s.replace(/\s+/g, ' ')
@@ -116,12 +117,14 @@ describe('visibleOpportunityPredicate', () => {
     // SR-M-2: `= 'OPEN'` and `=` are false on NULL, so never evaluated fails closed.
     // SR-M-1: and only while the recorded inputs version is the LIVE one (NULL never equals it).
     expect(text).toContain(
-      "AND gop.evaluated_revision = gop.revision AND gop.evaluation_verdict = 'OPEN' AND gop.evaluated_inputs_version = $6 AND",
+      "AND gop.evaluated_revision = gop.revision AND gop.evaluation_verdict = 'OPEN' AND gop.evaluated_inputs_version IN ($6, $7) AND",
     )
     expect(render(visibleOpportunityPredicate(teamA, id)).params[5]).toBe('inputs-1')
+    // CR-M-2: and the previous record format's version, which a format bump leaves correct.
+    expect(render(visibleOpportunityPredicate(teamA, id)).params[6]).toBe('inputs-0')
     expect(text).not.toContain('job_opportunity_matches x')
     expect(text).toContain(
-      "EXISTS (SELECT 1 FROM teams gt WHERE gt.id = $7::uuid AND gt.archived_at IS NULL AND gt.type = 'SENIOR')",
+      "EXISTS (SELECT 1 FROM teams gt WHERE gt.id = $8::uuid AND gt.archived_at IS NULL AND gt.type = 'SENIOR')",
     )
   })
 
@@ -134,9 +137,11 @@ describe('visibleOpportunityPredicate', () => {
       TEAM_A,
       TEAM_A,
       'inputs-1',
+      'inputs-0',
       TEAM_A,
       TEAM_A,
       'inputs-1',
+      'inputs-0',
       TEAM_A,
       TEAM_A,
       TEAM_A,
@@ -147,14 +152,14 @@ describe('visibleOpportunityPredicate', () => {
   it("TEAM manual branch (r5 Phase 6): a manual card is its own team's only, while that team is live", () => {
     const text = flat(render(visibleOpportunityPredicate(teamA, id)).sql)
     expect(text).toContain(
-      "AND NOT EXISTS (SELECT 1 FROM job_opportunities mn WHERE mn.id = 'x'::uuid AND mn.manual_team_id IS NOT NULL)) OR EXISTS (SELECT 1 FROM job_opportunities mc WHERE mc.id = 'x'::uuid AND mc.manual_team_id = $11::uuid AND EXISTS (SELECT 1 FROM teams mt WHERE mt.id = $12::uuid AND mt.archived_at IS NULL AND mt.type = 'SENIOR')))",
+      "AND NOT EXISTS (SELECT 1 FROM job_opportunities mn WHERE mn.id = 'x'::uuid AND mn.manual_team_id IS NOT NULL)) OR EXISTS (SELECT 1 FROM job_opportunities mc WHERE mc.id = 'x'::uuid AND mc.manual_team_id = $13::uuid AND EXISTS (SELECT 1 FROM teams mt WHERE mt.id = $14::uuid AND mt.archived_at IS NULL AND mt.type = 'SENIOR')))",
     )
   })
 
   it('TEAM subscription branch (r5 Task 6.4c): live subscription of the team, same role family, source filter, verified employer, OPEN at live inputs, live team', () => {
     const text = flat(render(visibleOpportunityPredicate(teamA, id)).sql)
     expect(text).toContain(
-      "OR EXISTS (SELECT 1 FROM job_opportunities sop JOIN job_team_triage_subscriptions s ON s.role_family = sop.role_family WHERE sop.id = 'x'::uuid AND s.team_id = $8::uuid AND s.revoked_at IS NULL AND s.expires_at > clock_timestamp() AND (cardinality(s.source_types) = 0 OR EXISTS (SELECT 1 FROM job_opportunity_sources sl JOIN job_source_records sr ON sr.id = sl.source_record_id WHERE sl.opportunity_id = sop.id AND sl.unlinked_at IS NULL AND sr.source_type = ANY (s.source_types))) AND sop.employer_verified = true AND sop.availability NOT IN ('CLOSED', 'EXPIRED') AND sop.evaluated_revision = sop.revision AND sop.evaluation_verdict = 'OPEN' AND sop.evaluated_inputs_version = $9 AND EXISTS (SELECT 1 FROM teams st WHERE st.id = $10::uuid AND st.archived_at IS NULL AND st.type = 'SENIOR')))",
+      "OR EXISTS (SELECT 1 FROM job_opportunities sop JOIN job_team_triage_subscriptions s ON s.role_family = sop.role_family WHERE sop.id = 'x'::uuid AND s.team_id = $9::uuid AND s.revoked_at IS NULL AND s.expires_at > clock_timestamp() AND (cardinality(s.source_types) = 0 OR EXISTS (SELECT 1 FROM job_opportunity_sources sl JOIN job_source_records sr ON sr.id = sl.source_record_id WHERE sl.opportunity_id = sop.id AND sl.unlinked_at IS NULL AND sr.source_type = ANY (s.source_types))) AND sop.employer_verified = true AND sop.availability NOT IN ('CLOSED', 'EXPIRED') AND sop.evaluated_revision = sop.revision AND sop.evaluation_verdict = 'OPEN' AND sop.evaluated_inputs_version IN ($10, $11) AND EXISTS (SELECT 1 FROM teams st WHERE st.id = $12::uuid AND st.archived_at IS NULL AND st.type = 'SENIOR')))",
     )
   })
 

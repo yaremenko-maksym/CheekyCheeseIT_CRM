@@ -15,6 +15,7 @@ export type AdminUserUpdateSet = Partial<{
   avatarUrl: string | null
   avatarDocumentId: string | null
   techStack: string[] | null
+  technicalRoles: string[]
   seniorSharePercent: number
   dropSharePercent: number
   monthlySalary: string | null
@@ -39,6 +40,7 @@ export interface AdminUserUpdateInput {
   phone?: string | null | undefined
   avatarUrl?: string | null | undefined
   techStack?: string[] | null | undefined
+  technicalRoles?: string[] | undefined
   dropSharePercent?: number | undefined
   seniorSharePercent?: number | undefined
   monthlySalary?: number | null | undefined
@@ -67,6 +69,7 @@ export function buildAdminUserUpdateSet(
   if ('phone' in data) set.phone = data.phone ?? null
   if ('avatarUrl' in data) set.avatarUrl = data.avatarUrl ?? null
   if ('techStack' in data) set.techStack = data.techStack ?? null
+  if (data.technicalRoles !== undefined) set.technicalRoles = data.technicalRoles
   // `seniorSharePercent` is DELIBERATELY excluded from `set`: it is routed
   // through `proposeSeniorShareChangeInTx` by the caller (pending-share flow).
   // Role-gated: only a SENIOR effective role may request a base-share change.

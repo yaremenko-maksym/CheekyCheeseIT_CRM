@@ -277,6 +277,7 @@ describe('users columns are all classified for audit redaction', () => {
     'avatarUrl',
     'avatarDocumentId',
     'techStack',
+    'technicalRoles',
     'seniorSharePercent',
     'pendingSeniorSharePercent',
     'dropSharePercent',

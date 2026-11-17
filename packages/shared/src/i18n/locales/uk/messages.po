@@ -4160,6 +4160,11 @@ msgstr "Вказаного користувача не знайдено або �
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.TECHNICAL_ROLES_SENIOR_ONLY"
+msgstr "Технічні ролі можна вказати лише сеньйору"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.TELEGRAM_CHANNEL_SENIOR_ONLY"
 msgstr "Telegram-канал можна вказати лише сеньйору"
 
