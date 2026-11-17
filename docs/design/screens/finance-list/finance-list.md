@@ -332,8 +332,10 @@ Shell v2 §3 is followed as written (M7):
   - A cell that ellipsizes shows its full value in a tooltip on hover **and on keyboard focus** of the
     row (`aria-describedby`), never `title` only (R1-14).
   - The «Видалено» pill lives in the Статус cell, after the status (R1-14).
-- Row click / `Enter` opens the **side panel** (420 at 1024, 480 at ≥ 1440, `detail-1440`); the table
-  keeps its width and the selected row stays highlighted. The panel carries the same field set and
+- Row click / `Enter` opens the **side panel** (420 at 1024, 480 at ≥ 1440, `detail-1440`). The panel
+  docks: the list column narrows by the panel width, the table switches to its compact columns and
+  drops «Тип · проєкт» (the panel shows both), and the selected row stays highlighted with its status
+  slot visible. The panel carries the same field set and
   actions as the phone detail; `Esc` closes it and returns focus to the row.
 - Pager «1–50 з 132» with previous / next (32 px fine, 44 px coarse); `page` is in the URL. With ≤ 50
   matching rows the pager is hidden (A-5).

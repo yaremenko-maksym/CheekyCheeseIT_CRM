@@ -94,17 +94,25 @@ const withMark = (i, mark) => ROWS.map((r, k) => (k === i ? { ...r, mark } : r))
 // Banner of an unknown write, in the detail / pane / side panel (§9.2).
 const unknownBanner = `<div role="status" class="col" style="gap:8px;margin:0 0 16px;padding:12px 14px;border-radius:12px;background:var(--yellow-subtle);border:1px solid oklch(0.34 0.07 85)"><div class="row" style="gap:8px;align-items:flex-start"><span style="color:var(--warning);display:grid;flex:none;margin-top:1px">${icon('circle-alert', { size: 17 })}</span><div class="col" style="gap:3px"><span style="font-size:15px;font-weight:600">Невідомо, чи зміну збережено</span><span class="t-foot" style="color:var(--fg)">Відповідь не надійшла. Оновіть список: статус покаже, чи зміну збережено. Не повторюйте дію, доки статус не оновиться.</span></div></div><div class="row" style="gap:8px;padding-left:25px"><span class="btn secondary sm" style="height:36px">${icon('rotate-cw', { size: 15 })}Оновити</span><span class="btn ghost sm" style="height:36px">Зрозуміло</span></div></div>`
 
-// Desktop row detail: the foundation side panel shell, non-modal — the table stays usable and the
-// selected row highlighted (§3.5). 420 at 1024–1439, 480 at ≥ 1440.
+// Desktop row detail: the foundation side panel shell, non-modal. The panel docks: the list column
+// narrows by the panel width and the table switches to its compact (< 1280) columns, so every
+// column, the selected row and its row-write marker stay visible (§3.5). 420 at 1024–1439, 480 at ≥ 1440.
+const panelW = (w) => (w >= 1440 ? 480 : 420)
 const detailPanel = (w, { banner = '' } = {}) =>
-  `<aside aria-labelledby="dp-t" style="position:absolute;top:0;right:0;bottom:0;width:${w >= 1440 ? 480 : 420}px;z-index:70;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);box-shadow:-24px 0 60px oklch(0 0 0 / 0.5);display:flex;flex-direction:column">
+  `<style>main{margin-right:${panelW(w)}px}</style><aside aria-labelledby="dp-t" style="position:absolute;top:0;right:0;bottom:0;width:${panelW(w)}px;z-index:70;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);display:flex;flex-direction:column">
   <div class="row" style="height:60px;flex:none;padding:0 12px 0 24px;gap:4px;border-bottom:1px solid var(--border)"><h2 id="dp-t" class="grow t-head" style="margin:0">Транзакція</h2><span class="btn ghost sm" style="height:32px;font-size:14px">Редагувати<span class="kbdkey">E</span></span><span class="iconbtn" aria-label="Інші дії" aria-haspopup="menu" style="width:32px;height:32px">${icon('ellipsis', { size: 16 })}</span><span class="kbdkey" style="margin:0 4px 0 6px">Esc</span><span class="iconbtn" aria-label="Закрити" style="width:32px;height:32px">${icon('x', { size: 18 })}</span></div>
   <div class="col grow" style="min-height:0;overflow:hidden;padding:16px 24px">${detailBody(undefined, { banner }).replace('<h1 ', '<p ').replace('</h1>', '</p>')}</div></aside>`
+// Docked: the compact table without «Тип · проєкт» (the panel shows both), so the party keeps room.
+const docked = (html) =>
+  html
+    .replace('<col style="width:150px">', '')
+    .replace('<th>Тип · проєкт</th>', '')
+    .replace(/<td class="muted">[^<]*<\/td>/g, '')
 const detailD = (w, h, { banner = '', mark } = {}) =>
   desktopFrame({
     w,
     h,
-    body: `${toolbar({ w, deleted: false })}${table(mark ? withMark(3, mark) : ROWS, { w, sel: 3 })}${pager()}`,
+    body: `${toolbar({ w: 1024, deleted: false })}${docked(table(mark ? withMark(3, mark) : ROWS, { w: 1024, sel: 3 }))}${pager()}`,
     overlay: detailPanel(w, { banner }),
   })
 
@@ -133,7 +141,7 @@ const unknownM = (w, h) =>
   phoneTab(w, h, { body: `${searchAndFilters()}${dayList(withMark(3, 'unknown').slice(0, 7))}` })
 const kv = (k, v) =>
   `<div class="lrow" style="min-height:48px"><div class="t-body muted" style="flex:none">${k}</div><div class="grow t-body" style="text-align:right">${v}</div></div>`
-const failedAlert = `<div role="alert" class="row" style="gap:10px;align-items:flex-start;margin:14px 0 0;padding:12px 14px;border-radius:12px;background:oklch(0.22 0.05 25);border:1px solid oklch(0.42 0.12 25)"><span style="color:var(--destructive);display:grid;flex:none;margin-top:1px">${icon('circle-alert', { size: 17 })}</span><div class="col" style="gap:3px"><span style="font-size:15px;font-weight:600">Не вдалося валідувати дохід</span><span class="t-foot" style="color:var(--fg)">Нічого не змінено. Дані у формі залишились — спробуйте ще раз.</span></div></div>`
+const failedAlert = `<div role="alert" class="row" style="gap:10px;align-items:flex-start;margin:14px 16px 0;padding:12px 14px;border-radius:12px;background:oklch(0.22 0.05 25);border:1px solid oklch(0.42 0.12 25)"><span style="color:var(--destructive);display:grid;flex:none;margin-top:1px">${icon('circle-alert', { size: 17 })}</span><div class="col" style="gap:3px"><span style="font-size:15px;font-weight:600">Не вдалося валідувати дохід</span><span class="t-foot" style="color:var(--fg)">Нічого не змінено. Дані у формі залишились — спробуйте ще раз.</span></div></div>`
 const failedM = (w, h) =>
   phoneTab(w, h, {
     body: `${searchAndFilters()}${dayList(ROWS.slice(0, 6))}`,
@@ -145,7 +153,7 @@ const failedM = (w, h) =>
       title: 'Валідувати дохід',
       lead: '<span style="font-size:17px">Скасувати</span>',
       trail: '',
-      body: `<div class="group">${kv('Сума', '<span class="num">$4 800,00</span>')}${kv('Від', 'Клієнт «Північ»')}${kv('Кому', 'Олег Демо')}${kv('Проєкт', 'Проєкт «Альфа»')}</div>${failedAlert}`,
+      body: `<div class="group">${kv('Сума', `<span class="num">${ROWS[1].a}</span>`)}${kv('Від', ROWS[1].from)}${kv('Кому', ROWS[1].to)}${kv('Проєкт', `Проєкт «${ROWS[1].project}»`)}</div>${failedAlert}`,
       footer: `<div style="padding:12px 16px ${safeBottom(w) + 8}px"><span class="btn primary" style="width:100%">Валідувати</span></div>`,
     }),
   })
