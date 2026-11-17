@@ -60,6 +60,31 @@ const MAX_OUTPUT_TOKENS = 1400
 /** Request timeout: a stuck HTTP call must not pin an extraction in RUNNING. */
 const REQUEST_TIMEOUT_MS = 60_000
 
+/**
+ * `cause.code`s of a `fetch` rejection that come from the CONNECT phase: no request byte reached
+ * Cloudflare, so nothing can be billed. Every other rejection (ECONNRESET, UND_ERR_SOCKET, a TLS
+ * failure, no cause, an unknown code) may follow a sent body and keeps the call spent.
+ * Source: undici 7.30.1 (pnpm-lock.yaml) — lib/web/fetch/index.js rejects with
+ * `new TypeError('fetch failed', { cause: response.error })`; lib/core/errors.js `ConnectTimeoutError`
+ * has code `UND_ERR_CONNECT_TIMEOUT` (thrown by lib/core/util.js on a connect timeout). ECONNREFUSED,
+ * ENOTFOUND and EAI_AGAIN are Node net/dns codes passed through as `cause.code`. Checked by probe
+ * against the global `fetch` of Node 22.23 (bundled undici 6.29.1, the runtime of node:22-alpine)
+ * and against undici 7.30.1.
+ */
+const PRE_REQUEST_ERROR_CODES: ReadonlySet<unknown> = new Set([
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'UND_ERR_CONNECT_TIMEOUT',
+])
+
+function failedBeforeRequest(err: unknown): boolean {
+  return (
+    err instanceof TypeError &&
+    PRE_REQUEST_ERROR_CODES.has((err.cause as { code?: unknown } | undefined)?.code)
+  )
+}
+
 export interface ResumeExtractionSuccess {
   ok: true
   content: ResumeContent
@@ -138,7 +163,8 @@ export class ResumeAiService {
       const now = new Date()
       const spent = await this.budgetSpent(now)
       if (spent) return { ...spent, tokensUsed }
-      const call = await this.callModel(trimmedText, attempt === 2 ? lastParseError : null)
+      // Stryker disable next-line ConditionalExpression: equivalent — on attempt 1 lastParseError is still '', which callModel treats like null
+      const call = await this.callModel(trimmedText, attempt === 2 ? lastParseError : null, now)
       if (!call.ok) {
         const { unbilled, ...failure } = call
         if (unbilled) await this.releaseCall(now)
@@ -214,10 +240,13 @@ export class ResumeAiService {
   private async callModel(
     resumeText: string,
     priorError: string | null,
+    /** The attempt's clock, read once: the quota reset is the one of the day the call was reserved for. */
+    now: Date,
   ): Promise<
     | { ok: true; raw: string; tokensUsed: number | null }
-    // `unbilled`: Cloudflare cannot have billed this call (no HTTP response, or HTTP 429). Our own
-    // timeout is NOT unbilled: the request was in flight long enough for the model to run.
+    // `unbilled`: Cloudflare cannot have billed this call (a connect-phase failure, see
+    // `PRE_REQUEST_ERROR_CODES`, or HTTP 429). Our own timeout and any other transport failure are
+    // NOT unbilled: the request may have been sent and run.
     | (ResumeExtractionFailure & { ok: false; unbilled: boolean })
   > {
     const userContent = priorError
@@ -257,7 +286,7 @@ export class ResumeAiService {
         message: encodeResumeMessage('RESUME_AI_UNAVAILABLE'),
         quotaResetsAt: null,
         tokensUsed: null,
-        unbilled: !controller.signal.aborted,
+        unbilled: failedBeforeRequest(err),
       }
     } finally {
       clearTimeout(timer)
@@ -271,7 +300,7 @@ export class ResumeAiService {
         ok: false,
         code: 'QUOTA_EXCEEDED',
         message: encodeResumeMessage('RESUME_AI_QUOTA_EXCEEDED'),
-        quotaResetsAt: nextUtcMidnight().toISOString(),
+        quotaResetsAt: nextUtcMidnight(now).toISOString(),
         tokensUsed: null,
         unbilled: res.status === 429,
       }

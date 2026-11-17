@@ -66,6 +66,11 @@ function aiResponse(body: unknown, usageTokens = 120): Response {
   } as unknown as Response
 }
 
+/** What `fetch` rejects with when the connect fails: undici wraps the socket/DNS error as `cause`. */
+function fetchFailed(code?: string): TypeError {
+  return new TypeError('fetch failed', code === undefined ? undefined : { cause: { code } })
+}
+
 const VALID_JSON = JSON.stringify({
   summary: 'Синьор',
   skills: ['TypeScript'],
@@ -277,7 +282,7 @@ describe('ResumeAiService', () => {
 
     describe('R1: a call Cloudflare cannot have billed is given back', () => {
       it('a network error (no HTTP response) releases the reserved call', async () => {
-        fetchSpy.mockRejectedValueOnce(new TypeError('fetch failed'))
+        fetchSpy.mockRejectedValueOnce(fetchFailed('ECONNREFUSED'))
         const budget = fakeBudget(10)
         const result = await makeService({}, budget).extractStructure('a'.repeat(200))
 
@@ -335,10 +340,67 @@ describe('ResumeAiService', () => {
         expect(budget.used()).toBe(0)
       })
 
+      it('R4: a 429 that lands after midnight reports the reset of the reserving day', async () => {
+        vi.useFakeTimers({ now: new Date('2026-11-17T23:59:30.000Z') })
+        try {
+          // The request is in flight across 00:00 UTC; the 429 arrives on the next day.
+          fetchSpy.mockImplementationOnce(() => {
+            vi.setSystemTime(new Date('2026-11-18T00:00:05.000Z'))
+            return Promise.resolve({
+              ok: false,
+              status: 429,
+              text: () => Promise.resolve('{"success":false,"errors":[{"code":3036}]}'),
+            } as unknown as Response)
+          })
+          const result = await makeService({}, fakeBudget(10)).extractStructure('a'.repeat(200))
+
+          expect(result).toMatchObject({
+            code: 'QUOTA_EXCEEDED',
+            quotaResetsAt: '2026-11-18T00:00:00.000Z',
+          })
+        } finally {
+          vi.useRealTimers()
+        }
+      })
+
+      describe('R3: only a failure certainly before the request was sent is given back', () => {
+        it.each(['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'UND_ERR_CONNECT_TIMEOUT'])(
+          'a connect failure (%s) releases the reserved call',
+          async (code) => {
+            fetchSpy.mockRejectedValueOnce(fetchFailed(code))
+            const budget = fakeBudget(10)
+            const result = await makeService({}, budget).extractStructure('a'.repeat(200))
+
+            expect(result).toMatchObject({ ok: false, code: 'MODEL_ERROR' })
+            expect(budget.releaseCall).toHaveBeenCalledTimes(1)
+            expect(budget.used()).toBe(0)
+          },
+        )
+
+        it.each([
+          ['ECONNRESET (the body may have been sent)', fetchFailed('ECONNRESET')],
+          ['UND_ERR_SOCKET (socket closed mid-request)', fetchFailed('UND_ERR_SOCKET')],
+          ['a fetch failure with no cause', fetchFailed()],
+          ['an unknown code', fetchFailed('E_SOMETHING_NEW')],
+          [
+            'an allowlisted code on an error that is not the fetch TypeError',
+            new Error('fetch failed', { cause: { code: 'ECONNREFUSED' } }),
+          ],
+        ])('%s keeps the call spent', async (_name, err) => {
+          fetchSpy.mockRejectedValueOnce(err)
+          const budget = fakeBudget(10)
+          const result = await makeService({}, budget).extractStructure('a'.repeat(200))
+
+          expect(result).toMatchObject({ ok: false, code: 'MODEL_ERROR' })
+          expect(budget.releaseCall).not.toHaveBeenCalled()
+          expect(budget.used()).toBe(1)
+        })
+      })
+
       it('a released retry keeps the tokens of the first attempt', async () => {
         fetchSpy
           .mockResolvedValueOnce(aiResponse('не json', 55))
-          .mockRejectedValueOnce(new TypeError('fetch failed'))
+          .mockRejectedValueOnce(fetchFailed('ECONNREFUSED'))
         const budget = fakeBudget(10)
         const result = await makeService({}, budget).extractStructure('a'.repeat(200))
 
@@ -383,7 +445,7 @@ describe('ResumeAiService', () => {
 
       it('a failed release is logged and the call stays counted; the answer is unchanged', async () => {
         const error = vi.spyOn(Logger.prototype, 'error')
-        fetchSpy.mockRejectedValueOnce(new TypeError('fetch failed'))
+        fetchSpy.mockRejectedValueOnce(fetchFailed('ECONNREFUSED'))
         const budget = {
           reserveCall: vi.fn(() => Promise.resolve(true)),
           releaseCall: vi.fn(() => Promise.reject(new Error('db down'))),
@@ -398,7 +460,7 @@ describe('ResumeAiService', () => {
 
       it('logs a non-Error release failure without its value', async () => {
         const error = vi.spyOn(Logger.prototype, 'error')
-        fetchSpy.mockRejectedValueOnce(new TypeError('fetch failed'))
+        fetchSpy.mockRejectedValueOnce(fetchFailed('ECONNREFUSED'))
         const budget = {
           reserveCall: () => Promise.resolve(true),
           releaseCall: () => Promise.reject('opaque'),
