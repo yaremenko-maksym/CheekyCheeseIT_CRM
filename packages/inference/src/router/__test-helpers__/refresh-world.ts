@@ -18,7 +18,6 @@ import {
   countingCap,
   GEMINI,
   GROQ,
-  LOCAL,
   scriptedFetch,
   type Reply,
   type Sent,
@@ -115,7 +114,7 @@ export function refreshWorld(opts: WorldOptions = {}) {
   const cap = opts.cap ?? countingCap()
   const clock = { ms: opts.nowMs ?? NOON }
   const deps: ModelRefreshDeps = {
-    config: routerConfigSchema.parse(config(opts.routes ?? [GEMINI, GROQ, LOCAL])) as RouterConfig,
+    config: routerConfigSchema.parse(config(opts.routes ?? [GEMINI, GROQ])) as RouterConfig,
     state,
     ownCap: cap,
     managedModels: createFileManagedModels({

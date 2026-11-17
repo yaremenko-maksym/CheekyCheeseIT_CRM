@@ -17,8 +17,8 @@ import { buildModelExtraction, PREFLIGHT_BACKOFF_MS } from './model-extraction-w
 const ENV = {
   EXTRACTION_WORKER_URL: 'http://crm-extraction-worker:3100',
   EXTRACTION_WORKER_SECRET: 'SECRET-MARKER-0123456789abcdef-0123456789',
-  EXTRACTION_LOCAL_CONTEXT_TOKENS: '8192',
-  EXTRACTION_LOCAL_MAX_ANSWER_TOKENS: '512',
+  EXTRACTION_INPUT_CONTEXT_TOKENS: '8192',
+  EXTRACTION_INPUT_MAX_ANSWER_TOKENS: '512',
 }
 const CYCLE_A = '00000000-0000-4000-8000-00000000000a'
 const CYCLE_B = '00000000-0000-4000-8000-00000000000b'
@@ -33,6 +33,7 @@ const attempt = (route: string, code: string) => ({
   inputChars: 100,
   latencyMs: 5,
 })
+/** The pre-5.4c-H1 floor event: an old worker image can still send it mid-deploy. */
 const fell = (reasons: { route: string; code: string }[]) => ({
   type: 'FELL_TO_LOCAL',
   plan: reasons.length > 0 ? 'full-then-small' : 'small',
@@ -240,12 +241,10 @@ describe('MODEL_UNREACHABLE clears only when a later preflight reaches the model
 })
 
 describe('the counter (AC7, AC8: SR-M-3 from PR #1275)', () => {
-  it('a floor fall in a real reply reaches the counter store', async () => {
-    const s = setUp({ extract: { events: [fell([{ route: 'gemini', code: 'BUSY' }])] } })
+  it('a hosted attempt in a real reply reaches the counter store', async () => {
+    const s = setUp({ extract: { events: [attempt('gemini', 'BUSY')] } })
     await runCycle(s)
-    expect([...s.counts.entries()].map(([k, v]) => [k.slice(11), v])).toEqual([
-      ['local/FELL_TO_LOCAL', 1],
-    ])
+    expect([...s.counts.entries()].map(([k, v]) => [k.slice(11), v])).toEqual([['gemini/BUSY', 1]])
   })
 
   it('the day is the Kyiv day: 22:30 UTC on the 6th is already the 7th', async () => {
@@ -264,7 +263,7 @@ describe('the counter (AC7, AC8: SR-M-3 from PR #1275)', () => {
 
   it('an event of any other type is neither counted nor refused', async () => {
     const s = setUp({
-      extract: { events: [{ type: 'CALL', code: 'OK', floorAnswered: false, latencyMs: 1 }] },
+      extract: { events: [{ type: 'CALL', code: 'OK', latencyMs: 1 }] },
     })
     await runCycle(s)
     expect(s.counts.size).toBe(0)
@@ -302,14 +301,14 @@ describe('the counter (AC7, AC8: SR-M-3 from PR #1275)', () => {
     ])
   })
 
-  it('the local route has no attempt counter: its falls are the counted signal', async () => {
+  it('a stale local attempt is not counted: the route left with 5.4c-H1', async () => {
     const s = setUp({ extract: { events: [attempt('local', 'OK')] } })
     await runCycle(s)
     expect(s.counts.size).toBe(0)
   })
 
-  it('the preflight runs a local-only config: its own fall is not a floor fall', async () => {
-    const s = setUp({ preflight: [{ events: [fell([])] }] })
+  it('the events of a preflight reply are not counted', async () => {
+    const s = setUp({ preflight: [{ events: [attempt('groq', 'BUSY')] }] })
     const cycle = await s.wiring.prepareCycle(CYCLE_A)
     if (cycle.kind !== 'READY') throw new Error('not ready')
     await cycle.finish()
@@ -346,7 +345,7 @@ describe('the counter (AC7, AC8: SR-M-3 from PR #1275)', () => {
 })
 
 describe('HOSTED_ROUTES_DEAD (AC7, ADR §5.3 (b))', () => {
-  const dead = { events: [attempt('gemini', 'BUSY'), fell([{ route: 'gemini', code: 'BUSY' }])] }
+  const dead = { events: [attempt('gemini', 'BUSY'), attempt('groq', 'BUSY')] }
 
   it('raised when a hosted route was tried and none answered OK', async () => {
     const s = setUp({ extract: dead })
@@ -354,77 +353,18 @@ describe('HOSTED_ROUTES_DEAD (AC7, ADR §5.3 (b))', () => {
     expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
   })
 
-  it('raised by a hosted failure code alone, with no fall in the reply', async () => {
+  it('raised by one hosted failure code alone', async () => {
     const s = setUp({ extract: { events: [attempt('gemini', 'BUSY')] } })
     await runCycle(s)
     expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
   })
 
-  describe('a fall only because the page did not fit asked no hosted route', () => {
-    const onlyFit = {
-      events: [
-        fell([
-          { route: 'gemini', code: 'FIT' },
-          { route: 'groq', code: 'FIT' },
-        ]),
-      ],
-    }
-
-    it('does not raise it, and the fall is still counted', async () => {
-      const s = setUp({ extract: onlyFit })
-      await runCycle(s)
-      expect(s.raised()).toEqual([])
-      expect([...s.counts.keys()].map((k) => k.slice(11))).toEqual(['local/FELL_TO_LOCAL'])
-    })
-
-    it('does not clear it either', async () => {
-      const memory = memoryStore()
-      await runCycle(setUp({ extract: dead, store: memory.store }))
-      await runCycle(setUp({ extract: onlyFit, store: memory.store }), CYCLE_B)
-      expect(memory.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
-    })
-
-    it('one other reason beside the fit raises it', async () => {
-      const s = setUp({
-        extract: {
-          events: [
-            fell([
-              { route: 'gemini', code: 'FIT' },
-              { route: 'groq', code: 'NO_MODEL' },
-            ]),
-          ],
-        },
-      })
-      await runCycle(s)
-      expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
-    })
-
-    it.each([
-      [null],
-      [{ route: 'groq' }],
-      ['FIT'],
-      [{ code: 'FIT' }],
-      [{ route: 'nobody', code: 'FIT' }],
-    ])('a malformed reason %j is evidence', async (reason) => {
-      const s = setUp({ extract: { events: [{ type: 'FELL_TO_LOCAL', reasons: [reason] }] } })
-      await runCycle(s)
-      expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
-    })
-
-    it.each([['FIT'], [{}], [null], [0]])(
-      'reasons present but not an array (%j) is evidence',
-      async (reasons) => {
-        const s = setUp({ extract: { events: [{ type: 'FELL_TO_LOCAL', reasons }] } })
-        await runCycle(s)
-        expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
-      },
-    )
-
-    it('a fall with no reasons at all says nothing about the hosted routes', async () => {
-      const s = setUp({ extract: { events: [{ type: 'FELL_TO_LOCAL' }] } })
-      await runCycle(s)
-      expect(s.raised()).toEqual([])
-    })
+  it('a FELL_TO_LOCAL left in a reply by an old worker is neither counted nor evidence', async () => {
+    const s = setUp({ extract: { events: [fell([{ route: 'gemini', code: 'BUSY' }])] } })
+    await runCycle(s)
+    expect(s.counts.size).toBe(0)
+    expect(s.raised()).toEqual([])
+    expect(s.errors).toEqual([])
   })
 
   describe('a hosted model that moved answers with RETIRED', () => {
@@ -468,24 +408,12 @@ describe('HOSTED_ROUTES_DEAD (AC7, ADR §5.3 (b))', () => {
     })
   })
 
-  it('raised when every hosted route was skipped without a call', async () => {
-    const s = setUp({ extract: { events: [fell([{ route: 'groq', code: 'NO_MODEL' }])] } })
-    await runCycle(s)
-    expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
-  })
-
   it('raised when a provider disabled itself', async () => {
     const s = setUp({
       extract: { events: [{ type: 'PROVIDER_DISABLED', route: 'gemini', code: 'AUTH' }] },
     })
     await runCycle(s)
     expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
-  })
-
-  it('not raised by a local-only config, whose falls name no hosted route', async () => {
-    const s = setUp({ extract: { events: [fell([])] } })
-    await runCycle(s)
-    expect(s.raised()).toEqual([])
   })
 
   it('not raised by a cycle that made no model call', async () => {
@@ -511,7 +439,7 @@ describe('HOSTED_ROUTES_DEAD (AC7, ADR §5.3 (b))', () => {
 
   it('a local OK does not count as a hosted one', async () => {
     const s = setUp({
-      extract: { events: [fell([{ route: 'gemini', code: 'BUSY' }]), attempt('local', 'OK')] },
+      extract: { events: [attempt('gemini', 'BUSY'), attempt('local', 'OK')] },
     })
     await runCycle(s)
     expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
@@ -548,7 +476,7 @@ describe('re-emission while raised (AC7, ADR §5.3 (c))', () => {
   })
 
   it('a flag raised at finish is emitted in that same cycle, and only once', async () => {
-    const s = setUp({ extract: { events: [fell([{ route: 'gemini', code: 'BUSY' }])] } })
+    const s = setUp({ extract: { events: [attempt('gemini', 'BUSY')] } })
     const cycle = await s.wiring.prepareCycle(CYCLE_A)
     if (cycle.kind !== 'READY') throw new Error('not ready')
     await cycle.structurer.structure(request())
@@ -656,7 +584,7 @@ describe("the reply's health codes are flags, raised while present (AC7)", () =>
 
 describe('a failed health write never changes an extraction result (AC9)', () => {
   const reply = {
-    events: [attempt('gemini', 'BUSY'), fell([{ route: 'gemini', code: 'BUSY' }])],
+    events: [attempt('gemini', 'BUSY')],
     health: { modelListStale: true, failedJobs: [] },
   }
 

@@ -74,9 +74,9 @@ source is proposed. MP-03 matters only once model extraction is proposed for a s
 
 - **Threshold:** the frozen pass table of ADR `docs/architecture/2026-11-03-extraction-model-router.md` (§8.3 / §8.4).
   Abort rule of the harness: any CRM probe 5xx or no answer, rolling p95 above 2 × baseline, or host RAM under 800 MiB.
-- **Method:** `scripts/devops/extraction-mp04/mp04.mjs` over the 50 synthetic pages of its fixtures, through
-  `ModelStructurer.structure` on a local-only router (procedure: `docs/runbooks/extraction-worker.md`, section
-  "MP-04 / MP-03").
+- **Method:** the harness `scripts/devops/extraction-mp04/mp04.mjs` over the 50 synthetic pages of its fixtures,
+  through `ModelStructurer.structure` on a local-only router. The harness was retired with the local route in PR
+  #1381 (5.4c-H1); read it in the git history at the commit before that merge.
 - **Environment:** the production host, owner-run replay (A3).
 - **Sample:** one candidate, qwen2.5-1.5b.
 - **Run ID:** owner-run harness output directory; no copy found in the repository. The numbers below are taken from

@@ -5,7 +5,9 @@ import {
   assertAdminTargetEditableForUpdate,
   assertAssignableRole,
   assertAssignableRoleOnChange,
+  assertSeniorOnlyRoles,
   assertSeniorTechFloor,
+  rolesChanged,
   techStackChanged,
 } from './role-guards.util'
 
@@ -143,5 +145,41 @@ describe('techStackChanged', () => {
     expect(techStackChanged(['b', 'a'], ['a', 'b'])).toBe(true)
     expect(techStackChanged(null, ['a'])).toBe(true)
     expect(techStackChanged(['a'], null)).toBe(true)
+  })
+})
+
+describe('assertSeniorOnlyRoles', () => {
+  it.each<Role>(['ADMIN', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])(
+    'refuses roles for a %s with 400 TECHNICAL_ROLES_SENIOR_ONLY',
+    (role) => {
+      expect(codeOf(() => assertSeniorOnlyRoles(role, ['BACKEND_ENGINEER']))).toBe(
+        'TECHNICAL_ROLES_SENIOR_ONLY',
+      )
+      expect(() => assertSeniorOnlyRoles(role, ['BACKEND_ENGINEER'])).toThrow(
+        expect.objectContaining({ status: 400 }),
+      )
+    },
+  )
+
+  it('lets a SENIOR set roles, and every role pass with absent or empty roles', () => {
+    expect(() => assertSeniorOnlyRoles('SENIOR', ['BACKEND_ENGINEER'])).not.toThrow()
+    expect(() => assertSeniorOnlyRoles('JUNIOR', undefined)).not.toThrow()
+    expect(() => assertSeniorOnlyRoles('JUNIOR', [])).not.toThrow()
+  })
+})
+
+describe('rolesChanged', () => {
+  it('is false when absent or resubmitted in any order', () => {
+    expect(rolesChanged(undefined, ['A'])).toBe(false)
+    expect(rolesChanged(['B', 'A'], ['A', 'B'])).toBe(false)
+    expect(rolesChanged(['A', 'B'], ['B', 'A'])).toBe(false)
+    expect(rolesChanged([], [])).toBe(false)
+  })
+
+  it('is true on a difference in length or value', () => {
+    expect(rolesChanged(['A'], ['A', 'B'])).toBe(true)
+    expect(rolesChanged(['A', 'B'], ['A'])).toBe(true)
+    expect(rolesChanged(['A', 'C'], ['A', 'B'])).toBe(true)
+    expect(rolesChanged([], ['A'])).toBe(true)
   })
 })

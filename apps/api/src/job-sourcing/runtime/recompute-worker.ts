@@ -2,6 +2,7 @@ import type { JobSourceType } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { findPgError } from '../../database/pg-errors'
 import { type Evaluated, type Excluded, evaluate } from '../funnel/evaluate'
+import { ROLE_CLASSIFIER_VERSION } from '../funnel/role-classifier'
 import type { MeterDb } from '../metering/account-meter.store'
 import {
   type ClaimedDirtyWork,
@@ -19,6 +20,7 @@ import {
 import type { SqlExecutor } from '../scheduling/host-state'
 import { CanonicalStateError, resolveRecords } from '../store/canonical.store'
 import { LockContentionError, setLockTimeout, withLockRetry } from '../store/lock-order'
+import { deriveOpportunityRoles, writeOpportunityRoles } from '../store/opportunity-roles'
 import { STORE_LOCK_TIMEOUT_MS } from '../store/source-record.store'
 import {
   type LoadedOpportunity,
@@ -275,13 +277,29 @@ function recomputeOpportunity(
     const { rows } = await tx.execute(
       // NO KEY UPDATE (CR-M-4): conflicts with the canonical store's FOR UPDATE and with another
       // worker, but not with the FOR KEY SHARE an FK insert (source link, triage grant) takes.
-      sql`SELECT revision, manual_team_id IS NOT NULL AS manual
+      sql`SELECT revision, manual_team_id IS NOT NULL AS manual, title, title_key, stack_keywords,
+                   description_sha256, role_classifier_version
             FROM job_opportunities WHERE id = ${work.entityId}::uuid FOR NO KEY UPDATE`,
     )
     const row = rows[0]
     // Missing or moved on: nothing to compute, the store records ENTITY_MISSING / VERSION_STALE.
     if (row === undefined || Number(row['revision']) !== work.targetVersion) {
       return completeDirty(tx, work)
+    }
+    // Senior roles PR 2, the lazy backfill: a row no classifier version (or an older one) decided
+    // gets its roles under this lock. Only the 3 role columns move; `revision` does not.
+    if (row['role_classifier_version'] !== ROLE_CLASSIFIER_VERSION) {
+      await writeOpportunityRoles(
+        tx,
+        work.entityId,
+        await deriveOpportunityRoles(tx, {
+          title: String(row['title']),
+          titleKey: String(row['title_key']),
+          // Both columns as stored: stack_keywords is NOT NULL, description_sha256 is nullable.
+          tags: row['stack_keywords'] as string[],
+          descriptionSha256: row['description_sha256'] as string | null,
+        }),
+      )
     }
     // A manual card (r5 Phase 6) is never match-evaluated: no match row may grant another team
     // visibility of it (SR-M-1). Work that reached it anyway completes without evaluation.

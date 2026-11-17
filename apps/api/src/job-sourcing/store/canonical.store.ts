@@ -17,6 +17,7 @@ import {
   trustedTokens,
 } from './canonical-plan'
 import { RetryableRaceError, setLockTimeout, sortedUniqueIds, withLockRetry } from './lock-order'
+import { deriveOpportunityRoles, textArray, writeOpportunityRoles } from './opportunity-roles'
 import { STORE_LOCK_TIMEOUT_MS } from './source-record.store'
 
 /**
@@ -251,10 +252,6 @@ async function claimTokens(
   }
 }
 
-/** A text[] parameter, without drizzle spreading the JS array into a row constructor. */
-const textArray = (values: readonly string[]) =>
-  sql`ARRAY(SELECT jsonb_array_elements_text(${JSON.stringify(values)}::jsonb))`
-
 const fieldValues = (c: CanonicalFields) => sql`
   title = ${c.title}, title_key = ${c.titleKey}, employer_name = ${c.employerName},
   employer_key = ${c.employerKey}, location = ${c.location}, application_url = ${c.applicationUrl},
@@ -274,17 +271,28 @@ async function enqueueOpportunity(tx: SqlExecutor, id: string, revision: number)
     await enqueueDirty(tx, 'OPPORTUNITY', id, revision, reason)
 }
 
+/** The role-classifier inputs of a canonical row (senior roles PR 2). */
+const roleInputs = (c: CanonicalFields) => ({
+  title: c.title,
+  titleKey: c.titleKey,
+  tags: c.stackKeywords,
+  descriptionSha256: c.descriptionSha256,
+})
+
 /** A new opportunity from one member (the default: distinct). Revision 1, enqueued. */
 async function createOpportunity(tx: SqlExecutor, m: MemberSnapshot): Promise<string> {
   const c = canonicalFields([m], null)
+  const roles = await deriveOpportunityRoles(tx, roleInputs(c))
   const { rows } = await tx.execute(
     sql`INSERT INTO job_opportunities
           (title, title_key, employer_name, employer_key, location, application_url, published_at,
-           description_sha256, stack_keywords, field_revisions)
+           description_sha256, stack_keywords, field_revisions,
+           technical_roles, role_status, role_classifier_version)
         VALUES (${c.title}, ${c.titleKey}, ${c.employerName}, ${c.employerKey}, ${c.location},
                 ${c.applicationUrl}, ${c.publishedAt}::timestamptz, ${c.descriptionSha256},
                 ${textArray(c.stackKeywords)},
-                ${JSON.stringify(c.fieldRevisions)}::jsonb)
+                ${JSON.stringify(c.fieldRevisions)}::jsonb,
+                ${textArray(roles.roles)}, ${roles.status}, ${roles.classifierVersion})
         RETURNING id, revision`,
   )
   const row = rows[0] as Row
@@ -301,10 +309,16 @@ async function createOpportunity(tx: SqlExecutor, m: MemberSnapshot): Promise<st
 async function refreshOpportunity(tx: SqlExecutor, id: string, bump: boolean): Promise<void> {
   const current = await members(tx, id)
   const { rows: titleRows } = await tx.execute(
-    sql`SELECT title FROM job_opportunities WHERE id = ${id}::uuid`,
+    sql`SELECT title, stack_keywords, description_sha256 FROM job_opportunities WHERE id = ${id}::uuid`,
   )
   const previous = (titleRows[0]?.['title'] as string | undefined) ?? null
+  const stored = titleRows[0]
   const c = current.length === 0 ? null : canonicalFields(current, previous)
+  // Senior roles PR 2: re-derive only when a classifier input moved, so an AI / UNCLEAR answer
+  // survives an unrelated refresh. Written apart from the revision tuple below: never a bump.
+  if (c !== null && stored !== undefined && roleInputsMoved(c, stored)) {
+    await writeOpportunityRoles(tx, id, await deriveOpportunityRoles(tx, roleInputs(c)))
+  }
   const changed =
     c === null
       ? sql`false`
@@ -318,6 +332,15 @@ async function refreshOpportunity(tx: SqlExecutor, id: string, bump: boolean): P
      RETURNING revision`,
   )
   if (rows[0] !== undefined) await enqueueOpportunity(tx, id, Number(rows[0]['revision']))
+}
+
+/** Whether the title, stack keywords or description differ from the stored row. */
+function roleInputsMoved(c: CanonicalFields, stored: Record<string, unknown>): boolean {
+  return (
+    c.title !== stored['title'] ||
+    c.descriptionSha256 !== stored['description_sha256'] ||
+    JSON.stringify(c.stackKeywords) !== JSON.stringify(stored['stack_keywords'])
+  )
 }
 
 /** The new values as one row constructor, typed like the columns, for IS DISTINCT FROM. */

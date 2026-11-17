@@ -103,6 +103,7 @@ const BASE_USER_FIELDS = {
   telegram: null,
   phone: null,
   techStack: [],
+  technicalRoles: [],
   paymentMethod: null,
   walletUsdtErc20: null,
   walletUsdtLabel: null,

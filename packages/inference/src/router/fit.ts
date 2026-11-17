@@ -1,4 +1,4 @@
-import { MAX_EXTRACTION_INPUT_CHARS, type SmallDoseGroup } from '../contracts/extraction'
+import { MAX_EXTRACTION_INPUT_CHARS } from '../contracts/extraction'
 import {
   CORRECTION_PREFIX,
   DEFAULT_EXTRACTION_INSTRUCTION,
@@ -8,8 +8,8 @@ import { MAX_CORRECTION_CHARS } from '../internal/extraction-pipeline'
 
 /**
  * Conservative characters per token. Cyrillic tokenises at roughly two characters per token or
- * worse, so the estimate never undercounts our text; MP-04 compares it with the runtime's reported
- * prompt tokens and tunes it (ADR §8.4).
+ * worse, so the estimate never undercounts our text. It is a fixed, conservative estimate: nothing
+ * measures or tunes it at runtime.
  */
 export const CHARS_PER_TOKEN = 2
 /** Chat-template overhead per request: role markers of up to three messages, rounded up. */
@@ -51,32 +51,12 @@ export function promptFits(
 }
 
 /**
- * The largest page text the configured local route accepts (ADR §2.1 input ceiling), from the
- * route's configured window, never a runtime default; below `MAX_EXTRACTION_INPUT_CHARS`, never
- * negative. Its consumer cuts the page text itself and reports `truncated`.
- *
- * The floor asks each small-dose group with its own combined instruction and answer budget, so the
- * tightest of those can be below the route's own (ADR §5.5 item 4). A consumer that sends a dose
- * passes the whole table (`smallDoseFor()` with every field): a record's `missing` only drops
- * groups, so a page cut for the whole table fits any dose of it. A combined instruction over the
- * send cut is refused at any input; the table's spec pins that it stays under.
+ * The largest page text a hosted route accepts (ADR §2.1 input ceiling), from the route's
+ * configured window, never a provider default; below `MAX_EXTRACTION_INPUT_CHARS`, never negative.
+ * Its consumer cuts the page text itself and reports `truncated`.
  */
-export function routerInputCeilingChars(
-  route: FitWindow,
-  instruction?: string,
-  smallDoseGroups: readonly Pick<SmallDoseGroup, 'instruction' | 'maxAnswerTokens'>[] = [],
-): number {
-  const base = instruction ?? DEFAULT_EXTRACTION_INSTRUCTION
-  const chars = Math.min(
-    ceilingFor(route, instruction),
-    ...smallDoseGroups.map((group) =>
-      ceilingFor(
-        { contextTokens: route.contextTokens, maxAnswerTokens: group.maxAnswerTokens },
-        `${base}\n\n${group.instruction}`,
-      ),
-    ),
-  )
-  return Math.max(0, Math.min(chars, MAX_EXTRACTION_INPUT_CHARS))
+export function routerInputCeilingChars(route: FitWindow, instruction?: string): number {
+  return Math.max(0, Math.min(ceilingFor(route, instruction), MAX_EXTRACTION_INPUT_CHARS))
 }
 
 function ceilingFor(window: FitWindow, instruction: string | undefined): number {

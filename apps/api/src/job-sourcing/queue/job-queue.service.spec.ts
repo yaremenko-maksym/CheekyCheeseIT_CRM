@@ -52,6 +52,7 @@ const teamScope: JobQueueScope = {
   seniorIds: [SEN],
   versions,
   inputsVersion: 'inputs-1',
+  previousInputsVersion: 'inputs-1-prev',
 }
 const user = { id: ACTOR, role: 'HR', email: 'x@example.test' } as SessionUser
 const query = (over: Partial<JobQueueListQuery> = {}): JobQueueListQuery => ({

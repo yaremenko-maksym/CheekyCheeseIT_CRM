@@ -13,8 +13,17 @@ describe('buildCreateUserInsertValues', () => {
       phone: null,
       avatarUrl: null,
       techStack: null,
+      technicalRoles: [],
       locale: 'en',
     })
+  })
+
+  it('user-insert values carry technicalRoles, [] when absent', () => {
+    expect(
+      buildCreateUserInsertValues({ ...baseUser, technicalRoles: ['BACKEND_ENGINEER'] }, 'uk')
+        .technicalRoles,
+    ).toEqual(['BACKEND_ENGINEER'])
+    expect(buildCreateUserInsertValues(baseUser, 'uk').technicalRoles).toEqual([])
   })
 
   it('passes through contact fields and tech stack', () => {

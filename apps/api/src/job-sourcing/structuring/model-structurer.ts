@@ -15,7 +15,6 @@ import type {
 } from './html-structurer.port'
 import type { ModelBudgetPort, ModelUsage } from './model-budget.port'
 import { buildExtractionPrompt, type ExtractionPrompt } from './prompt-envelope'
-import { smallDoseFor } from './small-dose-table'
 
 /** One call may take this long before it is abandoned and its budget slot released. */
 export const DEFAULT_STRUCTURER_TIMEOUT_MS = 120_000
@@ -227,7 +226,6 @@ export class ModelStructurer implements HtmlStructurer {
     }
     // One controller per call: the timeout and the cycle's signal both end up aborting it.
     const controller = new AbortController()
-    const startedAt = Date.now()
     let call: Promise<ExtractionResult<ModelReply>>
     try {
       call = Promise.resolve(
@@ -237,7 +235,6 @@ export class ModelStructurer implements HtmlStructurer {
           // The port checks the shape; the guard stays behind it per record and per URL.
           schema: modelReplySchema,
           signal: controller.signal,
-          smallDose: smallDoseFor(record.missing),
         }),
       )
     } catch {
@@ -255,19 +252,17 @@ export class ModelStructurer implements HtmlStructurer {
       const settled = await settle(call, this.timeoutMs, signal)
       if ('stopped' in settled) {
         controller.abort()
-        // Nothing reports the abandoned call's time, so it counts as elapsed (ADR §5.5.6).
-        usage = { localMs: Date.now() - startedAt }
         this.held = hold
         return stopWith(settled.stopped)
       }
       const result = settled.value
-      usage = result.usage
       if (!result.ok) {
         // NOT_CONFIGURED: the adapter had no route or key, so nothing was sent.
         sent = result.code !== 'NOT_CONFIGURED'
         return classify(result.code)
       }
 
+      usage = result.usage
       let raw: string | undefined
       try {
         raw = JSON.stringify(result.data)

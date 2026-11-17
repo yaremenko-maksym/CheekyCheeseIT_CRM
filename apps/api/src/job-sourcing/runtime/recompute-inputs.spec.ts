@@ -9,6 +9,7 @@ import type { SqlExecutor } from '../scheduling/host-state'
 import {
   EVALUATION_RECORD_VERSION,
   MATCH_RULE_VERSION,
+  PREVIOUS_EVALUATION_RECORD_VERSION,
   RecomputePoisonError,
   type RosterInputs,
   detailFetchTargets,
@@ -167,7 +168,7 @@ describe('opportunityInputsVersion (SR-M-1)', () => {
   })
 
   it('defaults to MATCH_RULE_VERSION plus the evaluation record version', () => {
-    expect(opportunityInputsVersion([go])).toBe(opportunityInputsVersion([go], 'eval.1+l1.1+rf.1'))
+    expect(opportunityInputsVersion([go])).toBe(opportunityInputsVersion([go], 'eval.1+l1.1+rf.2'))
     expect(opportunityInputsVersion([go])).not.toBe(
       opportunityInputsVersion([go], MATCH_RULE_VERSION),
     )
@@ -783,11 +784,11 @@ describe('installMatches', () => {
     const { tx, statements } = recording()
     expect(await installMatches(tx, OPP, 4, result, withExclusions)).toBe(1)
     const [del, record, ins] = statements
-    // The studio keyword 'php' at 'eval.1+l1.1+rf.1' (SR-M-1), and layer 1's role family.
+    // The studio keyword 'php' at 'eval.1+l1.1+rf.2' (SR-M-1), and layer 1's role family.
     expect(record?.params).toEqual([
       4,
       'OPEN',
-      '0084349d198f553e703a4845aa55b3bc',
+      'b2b289254b1bcf82a89f7284015ef800',
       'SOFTWARE',
       OPP,
       4,
@@ -841,7 +842,7 @@ describe('installMatches', () => {
     expect(statements[1]?.params).toEqual([
       1,
       'OPEN',
-      'f790107665e925d6184be224a6f29cf7',
+      '15448b9ad280193b0540103bfb609f6f',
       'SOFTWARE',
       OPP,
       1,
@@ -857,7 +858,7 @@ describe('installMatches', () => {
     expect(statements[1]?.params).toEqual([
       7,
       'OPEN',
-      'f790107665e925d6184be224a6f29cf7',
+      '15448b9ad280193b0540103bfb609f6f',
       'SOFTWARE',
       OPP,
       7,
@@ -884,7 +885,7 @@ describe('installMatches', () => {
     expect(statements[1]?.params).toEqual([
       2,
       'EXCLUDED',
-      'f790107665e925d6184be224a6f29cf7',
+      '15448b9ad280193b0540103bfb609f6f',
       'DATA',
       OPP,
       2,
@@ -897,7 +898,7 @@ describe('installMatches', () => {
     expect(statements[1]?.params).toEqual([
       3,
       'OPEN',
-      'f790107665e925d6184be224a6f29cf7',
+      '15448b9ad280193b0540103bfb609f6f',
       null,
       OPP,
       3,
@@ -908,8 +909,12 @@ describe('installMatches', () => {
     expect(MATCH_RULE_VERSION).toBe('eval.1+l1.1')
   })
 
-  it('the evaluation record version names the role-family record format', () => {
-    expect(EVALUATION_RECORD_VERSION).toBe('rf.1')
+  it('the evaluation record version names the technical-roles backfill', () => {
+    expect(EVALUATION_RECORD_VERSION).toBe('rf.2')
+  })
+
+  it('the previous record version was advanced with the last bump (review L3 / SR2-L-2)', () => {
+    expect(PREVIOUS_EVALUATION_RECORD_VERSION).not.toBe(EVALUATION_RECORD_VERSION)
   })
 })
 

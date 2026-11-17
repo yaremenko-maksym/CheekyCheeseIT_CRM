@@ -38,6 +38,7 @@ const team: JobQueueScope = {
   seniorIds: [SEN],
   versions,
   inputsVersion: 'inputs-1',
+  previousInputsVersion: 'inputs-1-prev',
 }
 const studio: JobQueueScope = { kind: 'STUDIO' }
 const render = (q: SQL) => {

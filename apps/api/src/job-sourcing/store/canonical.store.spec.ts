@@ -160,3 +160,76 @@ describe('own-transaction wrappers (Task 4.6 / S2)', () => {
     expect(seen.transactions).toBe(1)
   })
 })
+
+/**
+ * Senior roles PR 2 Task 2.3: a refresh re-derives the vacancy roles only when a classifier input
+ * moved, in its own UPDATE apart from the revision tuple. Scripted through `releaseTokenTx`, the
+ * one wrapper whose refresh reads the members and the stored row in a fixed order.
+ */
+describe('refresh reclassifies vacancy roles only when a classifier input moved (senior roles PR 2)', () => {
+  const SHA = 'b'.repeat(64)
+  const member = {
+    record_id: '33333333-3333-4333-8333-333333333333',
+    revision_id: 'rev-1',
+    received_seq: 1,
+    received_at: '2026-11-17T00:00:00.000Z',
+    source_type: 'GREENHOUSE',
+    namespace: 'acme',
+    normalized: { title: 'Senior Backend Engineer', companyName: 'Acme', tags: ['go'] },
+    description_sha256: SHA,
+  }
+  const stored = (over: Record<string, unknown> = {}) => ({
+    title: 'Senior Backend Engineer',
+    stack_keywords: ['go'],
+    description_sha256: SHA,
+    ...over,
+  })
+  // releaseOk up to the token UPDATE, then: members, the stored row, then whatever follows.
+  const refresh = (membersRows: Rows, storedRows: Rows, rest: Step[]): Step[] => [
+    ...releaseOk.slice(0, 4),
+    membersRows,
+    storedRows,
+    ...rest,
+  ]
+  const roleWrites = (queries: { sql: string; params: unknown[] }[]) =>
+    queries.filter((q) => /^UPDATE job_opportunities\s+SET technical_roles = /.test(q.sql))
+
+  it('reads the classifier inputs with the stored title', async () => {
+    const { db, seen } = fakeDb([refresh([member], [stored()], [[], []])])
+    await releaseTokenTx(db, actor, 'k', 'why')
+    const read = seen.queries.find((q) => /FROM job_opportunities WHERE id = /.test(q.sql))
+    expect(read?.sql).toContain('SELECT title, stack_keywords, description_sha256 FROM')
+  })
+
+  it.each([
+    ['title', stored({ title: 'Old Title' })],
+    ['stack keywords', stored({ stack_keywords: ['rust'] })],
+    ['description hash', stored({ description_sha256: 'c'.repeat(64) })],
+  ])('a moved %s rewrites the 3 role columns from the rule classifier', async (_, row) => {
+    const { db, seen } = fakeDb([refresh([member], [row], [[], [], []])])
+    await releaseTokenTx(db, actor, 'k', 'why')
+    expect(roleWrites(seen.queries).map((q) => q.params)).toEqual([
+      ['["BACKEND_ENGINEER"]', 'RULE', 'rc.1', OPP],
+    ])
+  })
+
+  it('unchanged classifier inputs keep the stored roles: no role write', async () => {
+    const { db, seen } = fakeDb([refresh([member], [stored()], [[], []])])
+    await releaseTokenTx(db, actor, 'k', 'why')
+    expect(roleWrites(seen.queries)).toEqual([])
+    expect(seen.queries.some((q) => /revision = revision \+ 1/.test(q.sql))).toBe(true)
+  })
+
+  it('a refresh that finds no stored row writes no roles', async () => {
+    const { db, seen } = fakeDb([refresh([member], [], [[], []])])
+    await releaseTokenTx(db, actor, 'k', 'why')
+    expect(roleWrites(seen.queries)).toEqual([])
+  })
+
+  it('an opportunity left with no member keeps its roles and still advances its revision', async () => {
+    const { db, seen } = fakeDb([refresh([], [stored({ title: 'Old Title' })], [[], []])])
+    await releaseTokenTx(db, actor, 'k', 'why')
+    expect(roleWrites(seen.queries)).toEqual([])
+    expect(seen.queries.some((q) => /revision = revision \+ 1/.test(q.sql))).toBe(true)
+  })
+})

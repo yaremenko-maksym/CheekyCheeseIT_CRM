@@ -44,8 +44,6 @@ export interface BoundedRequestOptions {
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 
-/** The container name of the CRM's own model runtime on the worker's private network (ADR §3.3). */
-export const LOCAL_MODEL_RUNTIME_HOST = 'crm-model-runtime'
 /** The container name of the extraction worker on the API's private network (ADR §2.4). */
 export const EXTRACTION_WORKER_HOST = 'crm-extraction-worker'
 
@@ -112,15 +110,6 @@ async function readBounded(
 /** Public entry: HTTPS, or plain HTTP to loopback behind `allowLoopbackHttp`. Nothing else. */
 export function boundedRequest(opts: BoundedRequestOptions): Promise<BoundedResult> {
   return request(opts, null)
-}
-
-/**
- * Package-internal entry for the router's local leaf only (ADR §3.3): additionally allows plain
- * HTTP to loopback or the one constant runtime host. Not re-exported from the package index, and
- * there is no option to reach this from `boundedRequest` (SR-M-64).
- */
-export function boundedRequestToLocalRuntime(opts: BoundedRequestOptions): Promise<BoundedResult> {
-  return request(opts, LOCAL_MODEL_RUNTIME_HOST)
 }
 
 /**

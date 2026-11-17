@@ -5,6 +5,7 @@ import { withSalaryFloor } from './money'
 import { pendingSeniorShareSchema } from './pending-share'
 import { localeSchema } from '../i18n/locales'
 import { canonicalStackKeywords } from '../utils/stack-keywords'
+import { seniorRolesSchema, technicalRoleSchema } from './technical-roles'
 
 export const roleSchema = z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
 
@@ -66,6 +67,11 @@ export const userProfileSchema = z.object({
   telegram: z.string().nullable(),
   phone: z.string().nullable(),
   techStack: z.array(z.string()).nullable(),
+  /**
+   * Senior roles: a SENIOR's technical roles, sorted. Empty for every other role: a role change
+   * away from SENIOR clears them, and the profile view returns [] for a non-SENIOR.
+   */
+  technicalRoles: z.array(technicalRoleSchema).default([]),
   paymentMethod: paymentMethodSchema.nullable(),
   walletUsdtErc20: z.string().nullable(),
   walletUsdtLabel: z.string().nullable(),
@@ -157,6 +163,8 @@ export const updateProfileSchema = z.object({
   telegram: telegramSchema.nullable().optional(),
   phone: phoneSchema.nullable().optional(),
   techStack: techStackSchema.nullable().optional(),
+  /** Senior roles: optional; the service refuses it for a non-SENIOR (`TECHNICAL_ROLES_SENIOR_ONLY`). */
+  technicalRoles: seniorRolesSchema.optional(),
   /**
    * FK → documents.id for AVATAR-category uploads. Service validates that the
    * referenced document exists with `category = 'AVATAR'` and the caller owns it
@@ -272,6 +280,8 @@ export const createUserSchema = z
     phone: phoneSchema.nullable().optional(),
     avatarUrl: z.string().url().nullable().optional(),
     techStack: techStackSchema.nullable().optional(),
+    /** Senior roles: optional; SENIOR only (`TECHNICAL_ROLES_SENIOR_ONLY`). */
+    technicalRoles: seniorRolesSchema.optional(),
     seniorSharePercent: z.number().int().min(0).max(100).optional(),
     // BIZ-14. task-money-floor-and-lying-comments (security-review MED-1):
     // this is the OTHER operand of `createMonthlySalaries`' `juniorSalaryOverride
@@ -396,6 +406,7 @@ export const hrCreateSeniorSchema = z
     phone: createUserSchema.shape.phone,
     avatarUrl: createUserSchema.shape.avatarUrl,
     techStack: createUserSchema.shape.techStack,
+    technicalRoles: createUserSchema.shape.technicalRoles,
     seniorSharePercent: createUserSchema.shape.seniorSharePercent,
     hrIds: createUserSchema.shape.hrIds,
     accountantId: createUserSchema.shape.accountantId,
@@ -529,6 +540,8 @@ export const adminUpdateUserSchema = z
      */
     avatarDocumentId: z.string().uuid().nullable().optional(),
     techStack: techStackSchema.nullable().optional(),
+    /** Senior roles: optional; refused unless the effective role is SENIOR. */
+    technicalRoles: seniorRolesSchema.optional(),
     /**
      * Service persists it only when the effective role is SENIOR
      * (role-scoped write).
@@ -614,6 +627,11 @@ export type ListArchivedQuery = z.infer<typeof listArchivedQuerySchema>
 
 export const profileOverviewDataSchema = z.object({
   techStack: z.array(z.string()).nullable(),
+  /**
+   * Senior roles: a SENIOR's technical roles, sorted. Empty for every other role: a role change
+   * away from SENIOR clears them, and the profile view returns [] for a non-SENIOR.
+   */
+  technicalRoles: z.array(technicalRoleSchema).default([]),
   adminNote: z.string().nullable(),
   tosAcceptedAt: z.string().nullable(),
   tosVersion: z.number().nullable(),

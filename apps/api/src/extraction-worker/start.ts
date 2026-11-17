@@ -7,7 +7,7 @@ import {
   type StateEvent,
 } from '@crm/inference'
 import type { FastifyInstance } from 'fastify'
-import { hostedRoutesOf, localOnlyRouterConfig, parseWorkerEnv } from './schema'
+import { hostedRoutesOf, parseWorkerEnv, requestFreePreflight } from './schema'
 import { scheduleSelfHeal } from './self-heal'
 import { buildExtractionWorker, type WorkerLogLine } from './server'
 
@@ -75,10 +75,7 @@ export async function startWorker(
           ownCap,
           managedModels,
         }),
-        preflight: createRouterExtractionAdapter(localOnlyRouterConfig(env.routerConfig), {
-          onEvent,
-          routeState,
-        }),
+        preflight: requestFreePreflight(env.routerConfig),
       }),
     })
     app.addHook('onClose', (_app, done) => {
