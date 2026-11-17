@@ -4,6 +4,7 @@ import type { SourcingNotice } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
 import { jobModelHealthFlags } from '../database/schema'
 
+// Stryker disable next-line StringLiteral: the logger context is a cosmetic label in log output only; no behaviour depends on it, so there is nothing to assert
 const logger = new Logger('SourcingNotice')
 
 /**
