@@ -213,6 +213,9 @@ export const PRIVILEGE_CLASSES: Record<PrivilegeClass, readonly string[]> = {
     'job_queue_dismissals',
     'job_queue_generation_entries',
     'job_queue_generations',
+    // Senior roles PR 2: the AI role-classification cache; the AI pass (PR 3) upserts it, so not
+    // A-log. Declared in schema/job-role-classifications.ts; created by manual/2026-11-17_technical_roles.sql.
+    'job_role_classifications',
     // Task 4.5: run membership; the API's record store writes it. Promoted to manual/ (Task 4.6 S0).
     'job_run_records',
     // Task 2.5 T8: host-level ban pause and claim times. The API's own claim and ban
