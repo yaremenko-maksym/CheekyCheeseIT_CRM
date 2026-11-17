@@ -109,5 +109,16 @@ export default defineConfig({
         baseURL: process.env['LANDING_BASE_URL'] ?? 'http://localhost:3002',
       },
     },
+    {
+      // ── Mobile Safari project (redesign v2, task 0.14) ───────────────────
+      // Opt-in by file: `testMatch` lists only the specs written for it, so a
+      // shard run (`playwright test $SHARD_FILES`) never drags every legacy
+      // spec into WebKit. Redesign screen specs add their file here.
+      // Run locally: `pnpm --filter @crm/e2e exec playwright test --project=webkit-iphone`
+      // (once: `pnpm --filter @crm/e2e exec playwright install webkit`).
+      name: 'webkit-iphone',
+      testMatch: ['**/infra-network-log.spec.ts'],
+      use: { ...devices['iPhone 15'] },
+    },
   ],
 })
