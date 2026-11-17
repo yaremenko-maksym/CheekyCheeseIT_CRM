@@ -15,6 +15,7 @@ import {
   table,
   pager,
   pill,
+  COMPANY,
 } from './finance-list.mjs'
 
 // ---------- Pull-to-refresh (refreshing stage; the list stays, it never blanks) ----------
@@ -80,14 +81,14 @@ const rowMenuD = (w, h) => {
 // ---------- ACCOUNTANT: the `?status=PENDING` deep link lands on the validation queue ----------
 const PEND = [
   ROWS[1],
-  { ...ROWS[3], act: 'Перевірити' },
+  { ...ROWS[3], act: 'Додати частину зарплати' },
   {
     day: '15 листопада',
     d: '15.11',
     time: '17:20',
     from: 'Клієнт «Схід»',
-    to: 'Адмін Демо',
-    type: 'ADMIN_INCOME',
+    to: 'Ігор Демо',
+    type: 'SENIOR_INCOME',
     project: 'Гамма',
     st: 'PENDING',
     a: '+2 900,00 USD',
@@ -98,8 +99,8 @@ const PEND = [
     d: '14.11',
     time: '11:45',
     from: 'Клієнт «Захід»',
-    to: 'Дроп Демо',
-    type: 'DROP_INCOME',
+    to: 'Олег Демо',
+    type: 'SENIOR_INCOME',
     project: 'Альфа',
     st: 'PENDING',
     a: '+1 750,00 USD',
@@ -121,7 +122,7 @@ const accD = (w, h) =>
     h,
     role: 'ACCOUNTANT',
     body: `${toolbar({ w, status: 'Очікує валідації', deleted: false, total: 4 }).replace('4 транзакції', '4 з 132')}${table(
-      PEND.map((r) => ({ ...r, act: 'Перевірити' })),
+      PEND,
       { w, sel: 0 },
     )}`,
   })
@@ -145,7 +146,7 @@ const SEN = [
     a: '+2 600,00 USD',
     act: 'Виплатити',
   },
-  { ...ROWS[4], act: undefined },
+  { ...ROWS[4], to: COMPANY, from: 'Олег Демо', act: 'Оплатити' },
   {
     day: '13 листопада',
     d: '13.11',

@@ -346,7 +346,7 @@ export function table(rows, { w, sel = 0, hover = -1, menuFor = -1, canAct = tru
   // Fixed layout: long parties and projects ellipsize (full value in the tooltip); actions never clip.
   // Below 1280 the inline action does not fit: it becomes the first item of the «…» menu.
   const inline = canAct && wide
-  const cols = `<colgroup><col style="width:76px"><col><col style="width:${wide ? 140 : 150}px">${wide ? '<col style="width:150px">' : ''}<col style="width:${wide ? 180 : 150}px"><col style="width:${wide ? 176 : 140}px"><col style="width:${inline ? 204 : 52}px"></colgroup>`
+  const cols = `<colgroup><col style="width:76px"><col><col style="width:${wide ? 140 : 150}px">${wide ? '<col style="width:130px">' : ''}<col style="width:${wide ? 180 : 150}px"><col style="width:${wide ? 176 : 140}px"><col style="width:${inline ? 236 : 52}px"></colgroup>`
   const tr = rows
     .map((x, i) => {
       const [typeLabel] = TYPE[x.type]
