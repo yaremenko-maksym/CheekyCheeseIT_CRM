@@ -548,17 +548,25 @@ export class UsersService {
     // r5 4.6 S5: a REAL stack change commits with its roster dirty row (CR-M-1). Backlog 442: a
     // name or Telegram write commits with the resume re-check flag (locked read before the UPDATE).
     const identity = 'displayName' in set || 'telegram' in set
+    // Roles review SR2-L-1: the role was read without a lock, so a non-empty roles write re-checks
+    // it in the UPDATE itself; a demotion that landed after the read writes nothing.
+    const rolesGuarded = (data.technicalRoles?.length ?? 0) > 0
+    const where = rolesGuarded ? and(eq(users.id, id), eq(users.role, 'SENIOR')) : eq(users.id, id)
+    const notWritten = () =>
+      rolesGuarded
+        ? apiError('TECHNICAL_ROLES_SENIOR_ONLY', HttpStatus.BAD_REQUEST)
+        : apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     const rows =
       !stackChanged && !identity
-        ? await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
+        ? await this.db.db.update(users).set(set).where(where).returning()
         : await this.db.db.transaction(async (tx) => {
             await markResumeRecheckNeeded(tx, id, set)
-            const written = await tx.update(users).set(set).where(eq(users.id, id)).returning()
+            const written = await tx.update(users).set(set).where(where).returning()
             if (stackChanged) await markSeniorDirty(tx, id, 'senior.stack') // a missing or non-SENIOR user: no-op
             return written
           })
     const updated = rows[0]
-    if (!updated) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
+    if (!updated) throw notWritten()
     return updated
   }
 

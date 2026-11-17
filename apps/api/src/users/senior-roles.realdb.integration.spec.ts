@@ -20,7 +20,7 @@ import cookie from '@fastify/cookie'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray, like } from 'drizzle-orm'
 import { Pool } from 'pg'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { RolesGuard } from '../common/guards/roles.guard'
@@ -209,6 +209,7 @@ describe.skipIf(!hasDatabaseUrl())(
     let app: NestFastifyApplication
     let jwt: JwtService
     let db: DatabaseService['db']
+    let usersService: UsersService
 
     const tokenFor = (p: Persona) => jwt.sign({ id: p.id, email: p.email, role: p.role })
     const call = async (
@@ -270,7 +271,7 @@ describe.skipIf(!hasDatabaseUrl())(
       await app.init()
       await app.getHttpAdapter().getInstance().ready()
       jwt = moduleRef.get(JwtService)
-      const usersService = moduleRef.get(UsersService)
+      usersService = moduleRef.get(UsersService)
       // vitest/esbuild strips constructor param metadata — wire the controller by hand.
       Object.assign(app.get(UsersController), {
         usersService,
@@ -405,6 +406,49 @@ describe.skipIf(!hasDatabaseUrl())(
           await call('PATCH', '/api/users/me', JUNIOR, { technicalRoles: ['BACKEND_ENGINEER'] }),
         ).toEqual({ status: 400, code: 'TECHNICAL_ROLES_SENIOR_ONLY' })
         expect(await rolesOf(JUNIOR.id)).toEqual([])
+      })
+
+      it('a JUNIOR clearing roles or editing the name still passes (the re-check is roles-only)', async () => {
+        expect((await call('PATCH', '/api/users/me', JUNIOR, { technicalRoles: [] })).status).toBe(
+          200,
+        )
+        expect(
+          (await call('PATCH', '/api/users/me', JUNIOR, { displayName: 'SRR JUNIOR 2' })).status,
+        ).toBe(200)
+        expect(await rolesOf(JUNIOR.id)).toEqual([])
+      })
+
+      // Review SR2-L-1: an admin demotion landing between the role read and the write.
+      it('a SENIOR demoted after the role read -> 400 TECHNICAL_ROLES_SENIOR_ONLY, roles stay []', async () => {
+        const racer = {
+          id: '5e700000-0000-4000-aa00-0000000000a1',
+          email: 'srr-racer@test.spec',
+        }
+        await db.insert(users).values({
+          ...racer,
+          displayName: 'SRR racer',
+          role: 'SENIOR',
+          techStack: STACK,
+          technicalRoles: [],
+          googleId: `srr-google-${racer.id}`,
+        })
+        const read = usersService.findById.bind(usersService)
+        const spy = vi.spyOn(usersService, 'findById').mockImplementationOnce(async (id) => {
+          const row = await read(id)
+          await db.update(users).set({ role: 'JUNIOR' }).where(eq(users.id, racer.id))
+          return row
+        })
+        try {
+          await expect(
+            usersService.updateProfile(racer.id, { technicalRoles: ['ML_ENGINEER'] }),
+          ).rejects.toMatchObject({
+            response: expect.objectContaining({ code: 'TECHNICAL_ROLES_SENIOR_ONLY' }),
+          })
+          expect(spy).toHaveBeenCalledTimes(1)
+        } finally {
+          spy.mockRestore()
+        }
+        expect(await rolesOf(racer.id)).toEqual([])
       })
 
       it('unauthenticated -> 401', async () => {
