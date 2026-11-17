@@ -216,6 +216,8 @@ export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
   // `go to` / `go-to-market` is not the Go language
   { title: 'Go to Market Lead', expected: UNCLASSIFIED },
   { title: 'Go-to-Market Engineer', expected: UNCLASSIFIED },
+  { title: 'Go–to–Market Lead', expected: UNCLASSIFIED },
+  { title: 'Go — to market lead', expected: UNCLASSIFIED },
   { title: 'Go Tooling Developer', expected: roles('BACKEND_ENGINEER') },
   // Cyrillic keyword spellings: one row per keyword alternative
   { title: 'Верстальщик', expected: roles('FRONTEND_ENGINEER') },
@@ -264,6 +266,10 @@ export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
   { title: 'Инженер кибербезопасности', expected: roles('SECURITY_ENGINEER') },
   { title: 'Инженер информационной безопасности', expected: roles('SECURITY_ENGINEER') },
   { title: 'Провідний інженер з питань кібербезпеки', expected: roles('SECURITY_ENGINEER') },
+  // the engineer noun may follow the domain
+  { title: 'Кібербезпека: Інженер', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Інформаційна безпека, інженер', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Кибербезопасность — инженер', expected: roles('SECURITY_ENGINEER') },
   // an analyst noun keeps the analyst; an English title is untouched by the Cyrillic rule
   {
     title: 'Інженер-аналітик з кібербезпеки',
@@ -271,6 +277,10 @@ export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
   },
   {
     title: 'Аналітик-інженер з кібербезпеки',
+    expected: roles('SECURITY_ENGINEER', 'SECURITY_ANALYST'),
+  },
+  {
+    title: 'Security Analyst / Інженер з кібербезпеки',
     expected: roles('SECURITY_ENGINEER', 'SECURITY_ANALYST'),
   },
   { title: 'Security Engineer, SOC', expected: roles('SECURITY_ENGINEER', 'SECURITY_ANALYST') },

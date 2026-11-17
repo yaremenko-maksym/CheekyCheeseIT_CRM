@@ -245,9 +245,9 @@ const ROLE_PATTERNS: Record<SpecificRole, readonly RegExp[]> = {
     /cybersecurity engineer/,
     /security architect/,
     /information security/,
-    // an engineer noun + a security domain (research §1.6 uk label «Інженер з кібербезпеки»)
-    /інженер.*(кібербезпек|інформаційн\w* безпек)/,
-    /инженер.*(кибербезопасн|информационн\w* безопасн)/,
+    // an engineer noun + a security domain, in either order (research §1.6 uk label «Інженер з кібербезпеки»)
+    /^(?=.*інженер).*(кібербезпек|інформаційн\w* безпек)/,
+    /^(?=.*инженер).*(кибербезопасн|информационн\w* безопасн)/,
   ],
   SECURITY_ANALYST: [
     /security analyst/,
@@ -392,8 +392,8 @@ const ENG_NOUN = rx(
 const JOB_NOUN = rx(
   /(developer|engineer|programmer|architect|designer|analyst|administrator|admin\b|tester|\bqa\b|aqa|sdet|scientist|\bdba\b|\bsre\b|devops|pentester|hacker|\bcto\b|head of|director|vp\b|development manager|r&d manager|lead\b|specialist|expert|consultant|researcher|\bdev\b|розробник|разработчик|програміст|программист|тестувальник|тестировщик|адміністратор|администратор|аналітик|аналитик|архітектор|архитектор|дизайнер|інженер|инженер|сисадм|верстальщик|верстальник)/,
 )
-/** A Cyrillic engineer title with no analyst noun: the security engineer, not the analyst. */
-const CYRILLIC_ENGINEER = rx(/^(?!.*(аналіт|аналит)).*(інженер|инженер)/)
+/** A Cyrillic engineer title with no analyst noun (either script): the security engineer, not the analyst. */
+const CYRILLIC_ENGINEER = rx(/^(?!.*(аналіт|аналит|analyst)).*(інженер|инженер)/)
 const AI_FOCUS = rx(/\b(llm|genai|generative|agent|rag|prompt)/)
 const HINT_NOUN = rx(
   /(developer|engineer|programmer|розробник|разработчик|програміст|программист|dev\b|lead\b)/,
@@ -407,7 +407,7 @@ const HINT_NOUN = rx(
 const TECH_HINTS: readonly { pattern: RegExp; role: TechnicalRole | null }[] = [
   {
     pattern: rx(
-      /\b(java|golang|go(?![\s-]to\b)|python|php|ruby|rails|scala|elixir|rust|node\.?js|nestjs|django|laravel|spring)\b/,
+      /\b(java|golang|go(?![\s\p{Pd}]+to\b)|python|php|ruby|rails|scala|elixir|rust|node\.?js|nestjs|django|laravel|spring)\b/u,
     ),
     role: 'BACKEND_ENGINEER',
   },
