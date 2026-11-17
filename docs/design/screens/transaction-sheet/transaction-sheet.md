@@ -11,10 +11,16 @@
 | Route / trigger    | Opens over `/finance` (and the other entry points in "Current"); no route of its own                  |
 | Roles              | ADMIN, ACCOUNTANT, SENIOR, DROP (create); ADMIN (admin edit); SENIOR (edit of a rejected income)      |
 | Claude Design URL  | none — `design-gate: degraded` (Claude Design is not drivable headless; HTML prototypes + Playwright) |
-| Status             | `captured` (mockups) — work in progress                                                               |
+| Status             | `captured` (HTML mockups rendered to PNG; awaiting owner review)                                      |
 | Last synced commit | `11554c089`                                                                                           |
 
-_Work in progress: sections below are filled in the following commits._
+**In one paragraph.** One sheet replaces the create dialog, both edit dialogs and the attach-receipt sheet.
+It is a full-height `ResponsiveSheet` on the phone and a right side panel from 640 px. The form body
+is the same at every width. The receipt comes first, the amount second, and everything else is
+prefilled or one tap away. A keyed save closes the sheet at once and shows an optimistic row. A failed
+save rolls the row back with a visible error, and the draft is kept. An unknown outcome is never
+retried automatically: the user decides to resubmit with the same idempotency key. No capability of
+today's dialogs is removed (see "Field parity").
 
 ## Current (what exists today)
 
@@ -111,3 +117,62 @@ Today's surfaces are Radix dialogs under the finance route's `components/dialogs
 
 - Device captures of today's dialogs: **pending** (Capture step, done separately).
 - Network baseline (requests per open / submit): **pending** (Capture step, done separately).
+
+## States
+
+Mockups: `assets/transaction-sheet/<state>-<width>.png`. The main state is rendered at 320, 375, 768,
+1024 and 1440; every other state at 375 (phone) and 1440 (desktop, non-modal panel). The sample role
+is ADMIN and the sample kind EXPENSE unless the row says otherwise.
+
+| State                    | Screenshots                          | Notes                                                                                                                                                                                                                              |
+| ------------------------ | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| default (empty form)     | `default-{320,375,768,1024,1440}`    | Receipt tile first, amount placeholder `0,00`, currency + kind pills, category chips, defaults row. Submit enabled: a tap on an invalid form focuses the first invalid field.                                                      |
+| receipt uploading        | `receipt-uploading-{375,1440}`       | Upload row with a progress bar; the rest of the form stays editable. The user can save (armed) or collapse the sheet; the draft keeps the upload.                                                                                  |
+| armed save               | `armed-{375,1440}`                   | Save tapped while the receipt uploads: «Збережеться 1 250,50 USD після чека» + «Не зберігати автоматично». The lead becomes «Згорнути»; the save fires when the upload ends.                                                       |
+| in flight                | `inflight-{375,1440}`                | Keyless kinds only (see "Save behaviour"): banner «Зберігаємо… змінити не можна», the form locked, submit `aria-disabled="true"` with a spinner.                                                                                   |
+| optimistic row           | `optimistic-row-{375,1440}`          | Keyed save: the sheet is closed; the list shows the row with «Зберігаємо…» and `aria-busy="true"`; the phone also shows the pill «Зберігаємо 1 250,50 USD…».                                                                       |
+| rollback (save failed)   | `rollback-{375,1440}`                | The optimistic row is removed; a persistent error toast «Не збережено 1 250,50 USD» / «Рядок прибрано зі списку. Сума й чек у чернетці.» with «Відкрити», which reopens the pinned draft.                                          |
+| error 422 (validation)   | `error-422-{375,1440}`               | Server validation: the message sits inline on the field («Жовтень уже закрито. Оберіть дату від 1 листопада.»), values kept, no retry button.                                                                                      |
+| error, not sent          | `error-definite-{375,1440}`          | The request never left (offline, DNS, refused): alert «Транзакцію не надіслано» + «Повторити збереження» (manual) + «Видалити чернетку».                                                                                           |
+| unknown outcome          | `unknown-resubmit-{375,1440}`        | Timeout after the request left: the form is locked, the alert explains it, «Надіслати ще раз» resubmits with the same idempotency key («якщо транзакцію вже збережено, друга не з’явиться»), «Видалити чернетку». Never automatic. |
+| loading (form data)      | `loading-{375,1440}`                 | Projects, receivers or the NBU rate are loading: skeletons in the pickers and the rate line; amount and receipt stay usable.                                                                                                       |
+| long content             | `long-content-{375,1440}`            | UAH `1 234 567,89` fits at 34 px on the phone, NBU rate line, a long project name truncated with an ellipsis, a long description on one line.                                                                                      |
+| permission-limited       | `permission-limited-{375,1440}`      | A payout, or a transaction tied to a payout request: read-only view, a banner, «Лише перегляд», lead «Закрити», no footer.                                                                                                         |
+| dirty close              | `dirty-close-{375,1440}`             | Phone: an action sheet «Вийти без збереження?»; desktop: a 420 px confirm dialog. Buttons «Продовжити редагування» / «Вийти без збереження».                                                                                       |
+| kind picker              | `kind-picker-{375,1440}`             | Phone: a picker sheet with the role's kinds; desktop: a listbox popover with the keys 1–5.                                                                                                                                         |
+| ADMIN_INCOME, USDT       | `admin-income-usdt-{375,1440}`       | Explorer link only, USDT locked, «Рахунок отримувача», the obligation preview (who is credited, which share, which source).                                                                                                        |
+| ADMIN_INCOME, ACCOUNTANT | `admin-income-accountant-{375,1440}` | Segmented control «Власник проєкту» / «Рахунок компанії».                                                                                                                                                                          |
+| EXPENSE, company funded  | `expense-company-{375,1440}`         | ACCOUNTANT, USDT link, a category chip selected, «Джерело коштів» = «Рахунок компанії» with the company balance hint.                                                                                                              |
+| SALARY part              | `salary-part-{375,1440}`             | Prefilled from a SALARY row: «Співробітник», «Місяць», «Уже внесено за листопад», info «Чек для зарплати додається під час виплати.» No receipt block.                                                                             |
+| ADMIN_TRANSFER           | `transfer-{375,1440}`                | ACCOUNTANT: cards «надсилає → отримує» with the swap control «Поміняти напрямок».                                                                                                                                                  |
+| DIVIDEND                 | `dividend-{375,1440}`                | USDT locked, explorer link, «Отримувач (партнер)», the company balance with the limit note.                                                                                                                                        |
+| SENIOR_INCOME            | `senior-income-{375,1440}`           | SENIOR: no kind pill, title «Новий дохід», project, receipt uploading.                                                                                                                                                             |
+| DROP_INCOME              | `drop-income-{375,1440}`             | DROP: title «Новий дохід», USDT link, hint «Дохід піде на валідацію адміністратору».                                                                                                                                               |
+| admin edit + cascade     | `admin-edit-cascade-{375,1440}`      | Title «Редагування», the list «Що зміниться» (one mount at every width); a row that cannot be recomputed reads «Не перерахується автоматично». Primary «Зберегти зміни».                                                           |
+| senior edit (rejected)   | `senior-edit-rejected-{375,1440}`    | Banner «Дохід відхилено. Після збереження він знову піде на перевірку.», primary «Зберегти й надіслати».                                                                                                                           |
+| attach receipt           | `attach-receipt-{375,1440}`          | A transaction summary card, the receipt, the project; primary «Додати чек».                                                                                                                                                        |
+
+There is no "empty" state: the sheet always opens on a form, and a role without kinds (JUNIOR, HR)
+never sees an entry point. "Offline" and "unknown outcome" share one visual pattern; whether the
+request left the device decides between «Повторити збереження» and «Надіслати ще раз».
+
+### Coverage matrix (every kind and role that creates or edits today)
+
+| Flow                      | ADMIN                   | ACCOUNTANT                | SENIOR                   | DROP                     |
+| ------------------------- | ----------------------- | ------------------------- | ------------------------ | ------------------------ |
+| EXPENSE                   | `default`, error states | `expense-company`         | —                        | —                        |
+| ADMIN_INCOME              | `admin-income-usdt`     | `admin-income-accountant` | —                        | —                        |
+| SALARY (new, no prefill)  | spec-only ¹             | spec-only ¹               | —                        | —                        |
+| SALARY part (row prefill) | spec-only ¹             | `salary-part`             | —                        | —                        |
+| ADMIN_TRANSFER            | spec-only ²             | `transfer`                | —                        | —                        |
+| DIVIDEND                  | `dividend`              | —                         | —                        | —                        |
+| SENIOR_INCOME             | —                       | —                         | `senior-income`          | —                        |
+| DROP_INCOME               | —                       | —                         | —                        | `drop-income`            |
+| Admin edit                | `admin-edit-cascade`    | —                         | —                        | —                        |
+| Edit of a rejected income | —                       | —                         | `senior-edit-rejected`   | —                        |
+| Attach / replace receipt  | `attach-receipt`        | same sheet                | same sheet (own, ≠ PAID) | same sheet (own, ≠ PAID) |
+| Non-editable transaction  | `permission-limited`    | —                         | —                        | —                        |
+
+¹ SALARY without a prefill is the `salary-part` layout with empty «Співробітник» / «Місяць» pickers,
+the same for both roles. ² ADMIN_TRANSFER for ADMIN is the `transfer` layout without the swap
+control: the swap is ACCOUNTANT-only today and stays so.
