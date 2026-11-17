@@ -21,6 +21,7 @@ import { hasDatabaseUrl } from '../../test/require-real-db'
 import { ZodExceptionFilter } from '../../zod-exception.filter'
 import { JobSourceRegistry } from '../registry/job-source-registry'
 import { createProductionLedger } from '../runtime/production-worker'
+import { createDrizzleModelHealthStore } from '../structuring/model-health-store'
 import { JobSourceAdminController, JobSourceSwitchController } from './job-source-admin.controller'
 import { JobSourceAdminService } from './job-source-admin.service'
 
@@ -397,10 +398,9 @@ describe.skipIf(!hasDatabaseUrl())('T9 admin endpoints — real-controller RBAC'
         expect(Object.keys(body).sort()).toEqual(['items', 'sourcingNotice'])
         return body['sourcingNotice']
       }
-      await pool.query(
-        `INSERT INTO job_model_health_flags (flag) VALUES ('MODEL_LIMITS_EXHAUSTED')
-         ON CONFLICT (flag) DO UPDATE SET cleared_at = NULL`,
-      )
+      // Raised and cleared through the store the model stage writes with (H.2), not raw SQL.
+      const store = createDrizzleModelHealthStore(dbSvcRef.db)
+      await store.raiseFlag('MODEL_LIMITS_EXHAUSTED')
       try {
         expect(await health()).toBe('AI_LIMITS_EXHAUSTED')
         // A non-ADMIN stays the guard 403 with the flag raised.
@@ -410,9 +410,7 @@ describe.skipIf(!hasDatabaseUrl())('T9 admin endpoints — real-controller RBAC'
             code: GUARD_REFUSAL_CODE,
           })
         }
-        await pool.query(
-          `UPDATE job_model_health_flags SET cleared_at = now() WHERE flag = 'MODEL_LIMITS_EXHAUSTED'`,
-        )
+        await store.clearFlag('MODEL_LIMITS_EXHAUSTED')
         expect(await health()).toBeNull()
       } finally {
         await pool.query(`DELETE FROM job_model_health_flags WHERE flag = 'MODEL_LIMITS_EXHAUSTED'`)

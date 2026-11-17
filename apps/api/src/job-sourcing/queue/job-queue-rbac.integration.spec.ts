@@ -38,6 +38,7 @@ import {
   RECOMPUTE_TRIGGER_PREFIX,
 } from './queue-recompute.service'
 import { seniorOptionRows } from './queue-read-sql'
+import { createDrizzleModelHealthStore } from '../structuring/model-health-store'
 import { JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -849,15 +850,11 @@ describe.skipIf(!hasDatabaseUrl())('/job-queue — real-controller RBAC (Task 6.
 
   describe('H.8: the AI-limits sourcing notice, by role', () => {
     const LIST_KEYS = ['counts', 'generation', 'items', 'nextCursor', 'sourcingNotice']
+    // Raised and cleared through the store the model stage writes with (H.2), not raw SQL.
     const raise = () =>
-      sqlq(
-        `INSERT INTO job_model_health_flags (flag) VALUES ('MODEL_LIMITS_EXHAUSTED')
-         ON CONFLICT (flag) DO UPDATE SET cleared_at = NULL`,
-      )
+      createDrizzleModelHealthStore(dbSvcRef.db).raiseFlag('MODEL_LIMITS_EXHAUSTED')
     const clear = () =>
-      sqlq(
-        `UPDATE job_model_health_flags SET cleared_at = now() WHERE flag = 'MODEL_LIMITS_EXHAUSTED'`,
-      )
+      createDrizzleModelHealthStore(dbSvcRef.db).clearFlag('MODEL_LIMITS_EXHAUSTED')
     afterAll(async () => {
       await sqlq(`DELETE FROM job_model_health_flags WHERE flag = 'MODEL_LIMITS_EXHAUSTED'`)
     })

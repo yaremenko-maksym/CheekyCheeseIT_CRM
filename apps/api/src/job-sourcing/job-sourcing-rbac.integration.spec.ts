@@ -21,6 +21,7 @@ import { JobSourcingController } from './job-sourcing.controller'
 import { JobSourcingService } from './job-sourcing.service'
 import type { NormalizedPosting } from './job-source.provider'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { createDrizzleModelHealthStore } from './structuring/model-health-store'
 
 /**
  * REAL-controller RBAC for the two source endpoints — security review MED-1.
@@ -322,17 +323,14 @@ describe.skipIf(!hasDatabaseUrl())(
       })
 
       it('H.8: the ADMIN run reads the AI-limits flag: raised is the value, cleared is null', async () => {
-        await pool.query(
-          `INSERT INTO job_model_health_flags (flag) VALUES ('MODEL_LIMITS_EXHAUSTED')
-           ON CONFLICT (flag) DO UPDATE SET cleared_at = NULL`,
-        )
+        // Raised and cleared through the store the model stage writes with (H.2), not raw SQL.
+        const store = createDrizzleModelHealthStore(dbSvcRef.db)
+        await store.raiseFlag('MODEL_LIMITS_EXHAUSTED')
         try {
           await expect(service.collectAllAsActor(ADMIN)).resolves.toMatchObject({
             sourcingNotice: 'AI_LIMITS_EXHAUSTED',
           })
-          await pool.query(
-            `UPDATE job_model_health_flags SET cleared_at = now() WHERE flag = 'MODEL_LIMITS_EXHAUSTED'`,
-          )
+          await store.clearFlag('MODEL_LIMITS_EXHAUSTED')
           await expect(service.collectAllAsActor(ADMIN)).resolves.toMatchObject({
             sourcingNotice: null,
           })
