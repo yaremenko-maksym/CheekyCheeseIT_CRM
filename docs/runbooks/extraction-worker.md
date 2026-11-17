@@ -11,7 +11,7 @@ The router is hosted-only since task 5.4c-H1 of the ADR (PR #1381). `routerConfi
 What a refused config looks like, on an older image or with a stale config:
 
 - The worker starts and listens. Its log line `HOSTED_ROUTES` shows `"present":[]`.
-- Every call (`/extract`, preflight, `/resume-write`, `/visual-check`) is answered as not configured. `api` reads that as "unavailable", which is what happens with no worker at all. Nothing reaches a provider.
+- `/extract`, `/resume-write` and `/visual-check` are answered as not configured, and the readiness preflight answers `NO_ROUTE`. `api` reads both as "unavailable", which is what happens with no worker at all. Nothing reaches a provider.
 
 Do not add a `local` route or `floorBudgetMs` to a config: both are refused.
 
