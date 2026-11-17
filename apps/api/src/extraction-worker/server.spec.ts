@@ -11,6 +11,7 @@ import {
   type ExtractionResult,
   type RouteStatePort,
   type RouterEvent,
+  type RouterReadiness,
 } from '@crm/inference'
 import { afterEach, describe, expect, it } from 'vitest'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
@@ -73,9 +74,27 @@ async function stateFile(doc?: unknown): Promise<RouteStatePort> {
   return createFileRouteStatePort({ path, now: Date.now, onEvent: () => undefined })
 }
 
-async function setup(opts: { extract?: Fake; preflight?: Fake; routeState?: RouteStatePort } = {}) {
+/** A fake readiness answer that counts its calls. */
+function fakeReadiness(answer: RouterReadiness = 'READY') {
+  const calls: true[] = []
+  return {
+    calls,
+    read: async (): Promise<RouterReadiness> => {
+      calls.push(true)
+      return answer
+    },
+  }
+}
+
+async function setup(
+  opts: {
+    extract?: Fake
+    preflight?: ReturnType<typeof fakeReadiness>
+    routeState?: RouteStatePort
+  } = {},
+) {
   const extract = opts.extract ?? fakePort()
-  const preflight = opts.preflight ?? fakePort()
+  const preflight = opts.preflight ?? fakeReadiness()
   const routeState = opts.routeState ?? (await stateFile())
   const logs: WorkerLogLine[] = []
   const app = buildExtractionWorker({
@@ -84,8 +103,7 @@ async function setup(opts: { extract?: Fake; preflight?: Fake; routeState?: Rout
     log: (l) => logs.push(l),
     buildPorts: (onEvent) => {
       extract.onEvent = onEvent
-      preflight.onEvent = onEvent
-      return { extract, preflight }
+      return { extract, readiness: () => preflight.read() }
     },
   })
   return { app, extract, preflight, routeState, logs }
@@ -283,18 +301,21 @@ describe('extraction worker — the request is the worker’s own', () => {
     expect(logs).toEqual([{ event: 'ROUTER', ...late }])
   })
 
-  it('passes a failure code through', async () => {
-    const extract = fakePort(async () => ({ ok: false, code: 'TIMEOUT' }))
-    const { app } = await setup({ extract })
-    track(app)
-    const res = await app.inject({
-      method: 'POST',
-      url: '/extract',
-      headers: auth,
-      payload: body(),
-    })
-    expect(res.json().result).toEqual({ ok: false, code: 'TIMEOUT' })
-  })
+  it.each(['TIMEOUT', 'LIMITS_EXHAUSTED'] as const)(
+    'passes a failure code through: %s',
+    async (code) => {
+      const extract = fakePort(async () => ({ ok: false, code }))
+      const { app } = await setup({ extract })
+      track(app)
+      const res = await app.inject({
+        method: 'POST',
+        url: '/extract',
+        headers: auth,
+        payload: body(),
+      })
+      expect(res.json().result).toEqual({ ok: false, code })
+    },
+  )
 
   it('events of one call do not leak into another', async () => {
     const { app } = await setup()
@@ -373,13 +394,13 @@ describe('extraction worker — health flags from the state file', () => {
   })
 })
 
-describe('extraction worker — preflight', () => {
+describe('extraction worker — readiness preflight (H.3)', () => {
   it.each([
     ['no body', undefined, {}],
     ['an empty JSON object', '{}', { 'content-type': 'application/json' }],
-  ])('%s: one fixed call; ok when it answered', async (_name, payload, headers) => {
-    const preflight = fakePort(async () => ({ ok: true, data: { ok: true } }))
-    const { app, extract } = await setup({ preflight })
+  ])('%s: one readiness read, no model call', async (_name, payload, headers) => {
+    const preflight = fakeReadiness('READY')
+    const { app, extract, logs } = await setup({ preflight })
     track(app)
     const res = await app.inject({
       method: 'POST',
@@ -388,32 +409,23 @@ describe('extraction worker — preflight', () => {
       ...(payload !== undefined && { payload }),
     })
     expect(res.statusCode).toBe(200)
+    // No table version and no `ok` key: an H1 API's strict `{ ok }` schema refuses this reply.
     expect(res.json()).toEqual({
-      ok: true,
-      events: [{ type: 'CALL', code: 'OK', latencyMs: 5 }],
+      readiness: 'READY',
+      events: [],
       health: { modelListStale: false, failedJobs: [] },
     })
     expect(extract.calls).toHaveLength(0)
     expect(preflight.calls).toHaveLength(1)
-    const req = preflight.calls[0]!
-    expect(req.input).toBe('Reply with the JSON object {"ok": true} and nothing else.')
-    expect(req.instruction).toBe('You are a health check. Answer exactly as asked.')
-    expect(Object.keys(req).sort()).toEqual(['input', 'instruction', 'schema', 'signal'])
-    expect(req.schema.safeParse({ ok: true }).success).toBe(true)
-    expect(req.schema.safeParse({ ok: true, x: 1 }).success).toBe(false)
+    expect(logs).toContainEqual({ event: 'PREFLIGHT', readiness: 'READY' })
   })
 
-  it('a failed preflight call replies ok: false', async () => {
-    const preflight = fakePort(async () => ({ ok: false, code: 'PROVIDER_ERROR' }))
-    const { app } = await setup({ preflight })
+  it.each(['LIMITS_EXHAUSTED', 'NO_ROUTE'] as const)('answers %s as read', async (readiness) => {
+    const { app, extract } = await setup({ preflight: fakeReadiness(readiness) })
     track(app)
-    const res = await app.inject({
-      method: 'POST',
-      url: '/preflight',
-      headers: auth,
-      payload: '{}',
-    })
-    expect(res.json().ok).toBe(false)
+    const res = await app.inject({ method: 'POST', url: '/preflight', headers: auth })
+    expect(res.json().readiness).toBe(readiness)
+    expect(extract.calls).toHaveLength(0)
   })
 })
 

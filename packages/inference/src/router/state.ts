@@ -499,8 +499,11 @@ export type OwnCapUnit = { readonly day: string }
  * comes with every reservation from the router's own config, so the cap has one source.
  */
 export interface OwnCapPort {
-  /** `null`: the cap is reached or the write-through failed; no request may be sent. */
-  reserve(p: HostedProvider, limit: FreeLimit): Promise<OwnCapUnit | null>
+  /**
+   * `null`: the cap is reached. `'WRITE_FAILED'`: the write-through failed, a fault and no limit
+   * (R2), and the unit is taken back out of memory. Either way no request may be sent.
+   */
+  reserve(p: HostedProvider, limit: FreeLimit): Promise<OwnCapUnit | null | 'WRITE_FAILED'>
   /**
    * Gives back a unit the provider refused before doing any work (AUTH, CREDIT, RETIRED 404, no
    * response, an abort before sending). A unit of a day that has since turned is not given back.
@@ -518,6 +521,21 @@ function current(r: ProviderRecord, today: string): OwnCapRecord {
     : { day: today, requests: 0, tokens: 0 }
 }
 
+/**
+ * Whether the provider's own cap is full today: requests, or tokens when the limit has a token day.
+ * Read-only: the readiness answer (H.3) uses it without reserving a unit.
+ */
+export function isOwnCapReached(
+  s: RouteState,
+  p: HostedProvider,
+  limit: FreeLimit,
+  today: string,
+): boolean {
+  const c = current(providerRecord(s, p), today)
+  const tokensFull = c.tokens >= ownCapOf(limit.tokensPerDay ?? Number.POSITIVE_INFINITY)
+  return c.requests >= ownCapOf(limit.requestsPerDay) || tokensFull
+}
+
 /** A token count as the file can hold it: a safe non-negative integer (SR-M-66). */
 function tokenSum(total: number, add: number): number {
   const clean = Number.isFinite(add) ? Math.max(0, Math.floor(add)) : 0
@@ -532,25 +550,31 @@ export function createOwnCapPort(opts: { state: RouteStatePort; now: () => numbe
   const today = (p: HostedProvider) => providerDay(p, opts.now())
   const counting = (p: HostedProvider) =>
     current(providerRecord(opts.state.snapshot(), p), today(p))
-  const change = (p: HostedProvider, fn: (c: OwnCapRecord) => OwnCapRecord) =>
-    opts.state.update((s) =>
-      withProvider(s, p, (r) => ({ ...r, ownCap: fn(current(r, today(p))) })),
-    )
+  const change = (p: HostedProvider, day: string, fn: (c: OwnCapRecord) => OwnCapRecord) =>
+    opts.state.update((s) => withProvider(s, p, (r) => ({ ...r, ownCap: fn(current(r, day)) })))
+  const giveBack = (r: OwnCapRecord) => ({ ...r, requests: Math.max(0, r.requests - 1) })
   return {
     async reserve(p, limit) {
-      const c = counting(p)
-      const tokensFull = c.tokens >= ownCapOf(limit.tokensPerDay ?? Number.POSITIVE_INFINITY)
-      if (c.requests >= ownCapOf(limit.requestsPerDay) || tokensFull) return null
-      const written = await change(p, (r) => ({ ...r, requests: r.requests + 1 }))
-      return written ? { day: c.day } : null
+      // One clock read and one snapshot: a call at the day boundary counts on one day (CR-L-2).
+      const day = today(p)
+      const snap = opts.state.snapshot()
+      if (isOwnCapReached(snap, p, limit, day)) return null
+      const c = current(providerRecord(snap, p), day)
+      const write = change(p, day, (r) => ({ ...r, requests: r.requests + 1 }))
+      // The port applies a change to memory at once unless it refuses it whole (oversized).
+      const applied = opts.state.snapshot() !== snap
+      if (await write) return { day: c.day }
+      // The day turned while the write was in flight: the unit belongs to a closed day (SR-L-68).
+      if (applied && counting(p).day === c.day) await change(p, day, giveBack)
+      return 'WRITE_FAILED'
     },
     async release(p, unit) {
       // The day turned since the reservation: the unit belongs to a closed day (SR-L-68).
       if (counting(p).day !== unit.day) return
-      await change(p, (r) => ({ ...r, requests: Math.max(0, r.requests - 1) }))
+      await change(p, today(p), giveBack)
     },
     async addTokens(p, tokens) {
-      await change(p, (r) => ({ ...r, tokens: tokenSum(r.tokens, tokens) }))
+      await change(p, today(p), (r) => ({ ...r, tokens: tokenSum(r.tokens, tokens) }))
     },
   }
 }

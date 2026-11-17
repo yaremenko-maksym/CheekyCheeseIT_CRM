@@ -4,10 +4,11 @@ import {
   createFileRouteStatePort,
   createOwnCapPort,
   createRouterExtractionAdapter,
+  routerReadiness,
   type StateEvent,
 } from '@crm/inference'
 import type { FastifyInstance } from 'fastify'
-import { hostedRoutesOf, parseWorkerEnv, requestFreePreflight } from './schema'
+import { hostedRoutesOf, parseWorkerEnv } from './schema'
 import { scheduleSelfHeal } from './self-heal'
 import { buildExtractionWorker, type WorkerLogLine } from './server'
 
@@ -75,7 +76,7 @@ export async function startWorker(
           ownCap,
           managedModels,
         }),
-        preflight: requestFreePreflight(env.routerConfig),
+        readiness: () => routerReadiness(env.routerConfig, { routeState, managedModels }),
       }),
     })
     app.addHook('onClose', (_app, done) => {

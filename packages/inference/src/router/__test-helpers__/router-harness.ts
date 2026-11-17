@@ -152,7 +152,7 @@ export function countingCap(grant = true): OwnCapPort & {
     released: [] as string[],
     limits: [] as FreeLimit[],
     tokens: 0,
-    async reserve(p: string, limit: FreeLimit): Promise<OwnCapUnit | null> {
+    async reserve(p: string, limit: FreeLimit): Promise<OwnCapUnit | null | 'WRITE_FAILED'> {
       cap.reserved.push(p)
       cap.limits.push(limit)
       return grant ? { day: 'test-day' } : null

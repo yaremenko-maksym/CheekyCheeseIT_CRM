@@ -22,16 +22,18 @@ const ddl = readFileSync(join(__dirname, '..', '..', DDL_FILE), 'utf8')
 
 describe('job_model_route_daily and job_model_health_flags vocabularies', () => {
   it('the route list is the router providers, so a new provider cannot fail its counter', () => {
-    expect(MODEL_ROUTE_VALUES).toEqual([...HOSTED_PROVIDERS, 'local'])
+    // `openrouter` is admitted ahead of its route (H.2), `local` stays for historic rows.
+    expect(MODEL_ROUTE_VALUES).toEqual([...new Set([...HOSTED_PROVIDERS, 'openrouter', 'local'])])
   })
 
-  it('the flags are the five §5.3 signals', () => {
+  it('the flags are the five §5.3 signals and the H.2 limit flag', () => {
     expect(MODEL_HEALTH_FLAG_VALUES).toEqual([
       'MODEL_UNREACHABLE',
       'HOSTED_ROUTES_DEAD',
       'MODEL_LIST_STALE',
       'FAILED_JOB_DAILY',
       'FAILED_JOB_CHAIN',
+      'MODEL_LIMITS_EXHAUSTED',
     ])
   })
 
