@@ -251,6 +251,7 @@ const ROLE_PATTERNS: Record<SpecificRole, readonly RegExp[]> = {
   ],
   SECURITY_ANALYST: [
     /security analyst/,
+    /cybersecurity analyst/,
     /\bsoc\b/,
     /incident respon/,
     /threat (intel|hunt)/,
@@ -319,7 +320,8 @@ const ROLE_PATTERNS: Record<SpecificRole, readonly RegExp[]> = {
     /rust (blockchain|solana)/,
     /solana/,
   ],
-  SOFTWARE_ARCHITECT: [/architect/],
+  // research §1 uk label «Архітектор ПЗ»
+  SOFTWARE_ARCHITECT: [/architect/, /архітектор/, /архитектор/],
   ENGINEERING_MANAGER: [
     /engineering manager/,
     /head of (engineering|development|software|r&d)/,
@@ -390,7 +392,7 @@ const ENG_NOUN = rx(
   /(developer|engineer|programmer|architect|devops|\bqa\b|tester|scientist|analyst|administrator|\bsre\b|\bdba\b|розробник|разработчик|програміст|программист|інженер|инженер)/,
 )
 const JOB_NOUN = rx(
-  /(developer|engineer|programmer|architect|designer|analyst|administrator|admin\b|tester|\bqa\b|aqa|sdet|scientist|\bdba\b|\bsre\b|devops|pentester|hacker|\bcto\b|head of|director|vp\b|development manager|r&d manager|lead\b|specialist|expert|consultant|researcher|\bdev\b|розробник|разработчик|програміст|программист|тестувальник|тестировщик|адміністратор|администратор|аналітик|аналитик|архітектор|архитектор|дизайнер|інженер|инженер|сисадм|верстальщик|верстальник)/,
+  /(developer|engineer|programmer|architect|designer|analyst|administrator|admin\b|tester|\bqa\b|aqa|sdet|scientist|\bdba\b|\bsre\b|devops|pentester|hacker|\bcto\b|chief technology officer|chief technical officer|head of|director|vp\b|development manager|r&d manager|lead\b|specialist|expert|consultant|researcher|\bdev\b|розробник|разработчик|програміст|программист|тестувальник|тестировщик|адміністратор|администратор|аналітик|аналитик|архітектор|архитектор|дизайнер|інженер|инженер|сисадм|верстальщик|верстальник)/,
 )
 /** A Cyrillic engineer title with no analyst noun (either script): the security engineer, not the analyst. */
 const CYRILLIC_ENGINEER = rx(/^(?!.*(аналіт|аналит|analyst)).*(інженер|инженер)/)

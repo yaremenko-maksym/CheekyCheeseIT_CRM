@@ -265,6 +265,21 @@ export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
   { title: 'Інженер інформаційної безпеки', expected: roles('SECURITY_ENGINEER') },
   { title: 'Инженер кибербезопасности', expected: roles('SECURITY_ENGINEER') },
   { title: 'Инженер информационной безопасности', expected: roles('SECURITY_ENGINEER') },
+  // the analyst counterpart of `cybersecurity engineer`, in each spelling
+  { title: 'Cybersecurity Analyst', expected: roles('SECURITY_ANALYST') },
+  { title: 'Cyber Security Analyst', expected: roles('SECURITY_ANALYST') },
+  { title: 'Cyber-Security Analyst', expected: roles('SECURITY_ANALYST') },
+  // the spelled-out CTO is a job noun; another chief officer is not IT
+  { title: 'Chief Technology Officer', expected: roles('CTO') },
+  { title: 'Chief Technical Officer', expected: roles('CTO') },
+  { title: 'Chief Financial Officer', expected: UNCLASSIFIED },
+  // research §1 uk label of SOFTWARE_ARCHITECT is «Архітектор ПЗ»
+  { title: 'Архітектор ПЗ', expected: roles('SOFTWARE_ARCHITECT') },
+  { title: 'Системний архітектор', expected: roles('SOFTWARE_ARCHITECT') },
+  { title: 'Архитектор ПО', expected: roles('SOFTWARE_ARCHITECT') },
+  // an engineer with no domain stays for the AI fallback
+  { title: 'Провідний інженер', expected: UNCLASSIFIED },
+  { title: 'Головний інженер', expected: UNCLASSIFIED },
   { title: 'Провідний інженер з питань кібербезпеки', expected: roles('SECURITY_ENGINEER') },
   // the engineer noun may follow the domain
   { title: 'Кібербезпека: Інженер', expected: roles('SECURITY_ENGINEER') },

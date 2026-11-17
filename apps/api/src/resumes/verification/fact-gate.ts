@@ -48,10 +48,11 @@ const ENGLISH_WORDS = new Set([
  * `unity` of Unity, `unreal` of Unreal Engine). Lowercase in the source they ground only
  * themselves, never another spelling of the group: "spark interest" does not ground `Apache Spark`,
  * "team unity" does not ground `Unity3D`. Older words (`node`, `go`) keep their grounding.
- * Inside a full spelling (`apache spark`, `unreal engine`, `unity 3d`) the word is the skill, not masked.
+ * Inside a full spelling (`apache spark`, `unreal engine`, `unity 3d`) the word is the skill, not masked;
+ * the words may be joined by whitespace, a dash or an underscore, as `stackTokens` folds them all.
  */
 const EVERYDAY_ALIASES =
-  /(?<![\p{L}\p{N}#+.])(?:(?<![Aa]pache\s+)spark|unity(?!\s+3[dD])|unreal(?!\s+[Ee]ngine))(?![\p{L}\p{N}#+])/gu
+  /(?<![\p{L}\p{N}#+.])(?:(?<![Aa]pache[\s\p{Pd}_]+)spark|unity(?![\s\p{Pd}_]+3[dD])|unreal(?![\s\p{Pd}_]+[Ee]ngine))(?![\p{L}\p{N}#+])/gu
 /** Words for locating a skill's surface form; the leading dot keeps `.NET` whole. */
 const WORD = /\.?[\p{L}\p{N}#+]+/gu
 /** The longest alias in `SKILL_SYNONYM_GROUPS` (`Google Cloud Platform`) has three words. */
