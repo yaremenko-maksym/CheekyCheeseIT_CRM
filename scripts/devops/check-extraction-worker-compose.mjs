@@ -187,6 +187,21 @@ for (const path of [
   errors.push(
     `${path} must hold no variable: the host env would decide it at up (only the image tag pin may)`,
   )
+// The no-interpolate config reads a top-level `name: ${X}` as a literal project name, so the file
+// text is read for it.
+const topName = readFileSync(args.extraction, 'utf8').match(/^name:(.*)$/m)?.[1] ?? ''
+if (topName.includes('$'))
+  errors.push('name must hold no variable: the host env would decide it at up (the project name)')
+// An environment entry with no value takes its value from the host at `up`, whatever its key:
+// a map key with null (`KEY:`), or a list item with no `=` (`- KEY`). The raw config keeps both forms.
+const rawEnv = rawWorker.environment ?? {}
+const valueless = Array.isArray(rawEnv)
+  ? rawEnv.filter((e) => typeof e !== 'string' || !e.includes('='))
+  : Object.entries(rawEnv)
+      .filter(([, v]) => v === null || v === undefined)
+      .map(([k]) => k)
+for (const key of valueless)
+  errors.push(`${WORKER}.environment.${key} must carry a value: the host env would decide it at up`)
 
 const worker = services[WORKER]
 if (!worker) {

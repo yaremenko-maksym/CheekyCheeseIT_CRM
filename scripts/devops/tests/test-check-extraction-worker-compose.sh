@@ -532,6 +532,27 @@ F="$(ex dollar-volume 's/^  worker_state: {}$/  worker_state:\
     name: ${V:-crm-extraction_worker_state}/')"
 assert_red "a variable in the state volume definition is refused" --contains "volumes.worker_state.name must hold no variable" -- guard_with --extraction "$F"
 
+# ── R5-1: no worker environment entry without a value (the host env would decide it at up) ──
+F="$(ex env-map-null-db 's/^      NODE_ENV: production$/&\
+      DATABASE_URL:/')"
+assert_red "a map entry with no value (DATABASE_URL:) is refused" --contains "extraction-worker.environment.DATABASE_URL must carry a value" -- guard_with --extraction "$F"
+F="$(ex env-map-null-other 's/^      NODE_ENV: production$/&\
+      LOG_LEVEL:/')"
+assert_red "a map entry with no value, any key (LOG_LEVEL:), is refused" --contains "extraction-worker.environment.LOG_LEVEL must carry a value" -- guard_with --extraction "$F"
+F="$(ex env-list-null-db '/^    environment:$/,/^    volumes:$/c\
+    environment:\
+      - DATABASE_URL\
+      - NODE_ENV=production\
+      - EXTRACTION_WORKER_HOST=0.0.0.0\
+      - EXTRACTION_WORKER_PORT=3100\
+      - EXTRACTION_ROUTER_STATE_FILE=/var/lib/extraction-worker/router-state.json\
+    volumes:')"
+assert_red "a list item with no = (- DATABASE_URL) is refused" --contains "extraction-worker.environment.DATABASE_URL must carry a value" -- guard_with --extraction "$F"
+
+# ── R5-2: the top-level project name holds no variable either ──
+F="$(ex top-name-var 's/^name: crm-extraction$/name: ${CRM_GUARD_T_NAME:-crm-extraction}/')"
+assert_red "a variable in the top-level name is refused" --contains "name must hold no variable" -- guard_with --extraction "$F"
+
 # ── the composed deploy configuration ──
 F="$(mutate "$PROD" gains-worker '/^  # ── nginx (reverse-proxy/i\
   extraction-worker:\
