@@ -136,15 +136,22 @@ describe('ResumeAiService', () => {
   })
 
   it('succeeds on the first attempt and reports token usage', async () => {
-    fetchSpy.mockResolvedValueOnce(aiResponse(VALID_JSON, 99))
-    const service = makeService()
+    vi.useFakeTimers()
+    try {
+      fetchSpy.mockResolvedValueOnce(aiResponse(VALID_JSON, 99))
+      const service = makeService()
 
-    const result = await service.extractStructure('a'.repeat(200))
+      const result = await service.extractStructure('a'.repeat(200))
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1)
-    expect(result.ok).toBe(true)
-    if (!result.ok) throw new Error('unreachable')
-    expect(result.tokensUsed).toBe(99)
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+      expect(result.ok).toBe(true)
+      if (!result.ok) throw new Error('unreachable')
+      expect(result.tokensUsed).toBe(99)
+      // SO-2: the request timer is cleared on the success path (no fake timer left pending).
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('AC5: HTTP 429 -> QUOTA_EXCEEDED with the next UTC-midnight reset, no retry', async () => {
@@ -323,27 +330,34 @@ describe('ResumeAiService', () => {
       })
 
       it('B1: a response body that rejects is MODEL_ERROR, not a throw, and keeps the call spent', async () => {
-        const error = vi.spyOn(Logger.prototype, 'error')
-        // A connect-phase code on purpose: headers arrived, so the call must stay spent anyway.
-        fetchSpy.mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          text: () => Promise.reject(fetchFailed('ECONNREFUSED')),
-        } as unknown as Response)
-        const budget = fakeBudget(10)
-        const result = await makeService({}, budget).extractStructure('a'.repeat(200))
+        vi.useFakeTimers()
+        try {
+          const error = vi.spyOn(Logger.prototype, 'error')
+          // A connect-phase code on purpose: headers arrived, so the call must stay spent anyway.
+          fetchSpy.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            text: () => Promise.reject(fetchFailed('ECONNREFUSED')),
+          } as unknown as Response)
+          const budget = fakeBudget(10)
+          const result = await makeService({}, budget).extractStructure('a'.repeat(200))
 
-        expect(result).toMatchObject({
-          ok: false,
-          code: 'MODEL_ERROR',
-          message: encodeResumeMessage('RESUME_AI_UNAVAILABLE'),
-          tokensUsed: null,
-        })
-        // Headers came back: the request was sent and may be billed, so it is NOT unbilled.
-        expect(result).not.toHaveProperty('unbilled')
-        expect(budget.releaseCall).not.toHaveBeenCalled()
-        expect(budget.used()).toBe(1)
-        expect(error).toHaveBeenCalledWith('Workers AI response body failed: TypeError')
+          expect(result).toMatchObject({
+            ok: false,
+            code: 'MODEL_ERROR',
+            message: encodeResumeMessage('RESUME_AI_UNAVAILABLE'),
+            tokensUsed: null,
+          })
+          // Headers came back: the request was sent and may be billed, so it is NOT unbilled.
+          expect(result).not.toHaveProperty('unbilled')
+          expect(budget.releaseCall).not.toHaveBeenCalled()
+          expect(budget.used()).toBe(1)
+          expect(error).toHaveBeenCalledWith('Workers AI response body failed: TypeError')
+          // SO-2: the request timer is cleared on the failed-body path too.
+          expect(vi.getTimerCount()).toBe(0)
+        } finally {
+          vi.useRealTimers()
+        }
       })
 
       it('B1: a connect failure that is not an Error is logged as "request" with "unknown error"', async () => {
@@ -385,6 +399,8 @@ describe('ResumeAiService', () => {
           expect(result).not.toHaveProperty('unbilled')
           expect(budget.releaseCall).not.toHaveBeenCalled()
           expect(budget.used()).toBe(1)
+          // SO-2: the timer fired (60 s), so it is no longer pending; the count is 0 with or without clearTimeout.
+          expect(vi.getTimerCount()).toBe(0)
         } finally {
           vi.useRealTimers()
         }
