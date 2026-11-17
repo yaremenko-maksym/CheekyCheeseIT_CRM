@@ -1,0 +1,142 @@
+/**
+ * ResumeAiDailyBudget without a database: the cap arithmetic, the UTC day bounds and the exact
+ * reservation statement. The real behaviour of that statement (refusal, rollover, concurrency) is
+ * proven against Postgres as `crm_app` in resume-ai-daily-budget.integration.spec.ts.
+ */
+import { RESUME_LIMITS } from '@crm/shared'
+import { drizzle } from 'drizzle-orm/node-postgres'
+import { describe, expect, it, vi } from 'vitest'
+import * as schema from '../database/schema'
+import {
+  RESUME_AI_DAILY_CALL_CAP,
+  RESUME_AI_METER_ACCOUNT_KEY,
+  ResumeAiDailyBudget,
+  reserveCallQuery,
+  utcDayBounds,
+} from './resume-ai-daily-budget'
+
+describe('RESUME_AI_DAILY_CALL_CAP', () => {
+  it('worst-case calls fit within 50 % of the 10 000 free Neurons a day', () => {
+    // Pins the arithmetic in the constant's comment: raising the cap, the input limit or the
+    // prompt overhead (1 100 tokens on top of the resume text) past the share fails here.
+    const neuronsPerInputToken = 0.351 / 0.011 / 1_000
+    const neuronsPerOutputToken = 0.555 / 0.011 / 1_000
+    const inputTokens = RESUME_LIMITS.extractionInputChars + 1_100
+    const perCall = inputTokens * neuronsPerInputToken + 1_400 * neuronsPerOutputToken
+    expect(RESUME_AI_DAILY_CALL_CAP * perCall).toBeLessThanOrEqual(5_000)
+    expect((RESUME_AI_DAILY_CALL_CAP + 1) * perCall).toBeGreaterThan(5_000)
+  })
+})
+
+describe('utcDayBounds', () => {
+  it('spans the UTC day containing the instant, whatever the time of day', () => {
+    expect(utcDayBounds(new Date('2026-11-17T23:59:59.999Z'))).toEqual({
+      start: new Date('2026-11-17T00:00:00.000Z'),
+      end: new Date('2026-11-18T00:00:00.000Z'),
+    })
+    expect(utcDayBounds(new Date('2026-11-18T00:00:00.000Z'))).toEqual({
+      start: new Date('2026-11-18T00:00:00.000Z'),
+      end: new Date('2026-11-19T00:00:00.000Z'),
+    })
+  })
+
+  it('crosses a month and a year end', () => {
+    expect(utcDayBounds(new Date('2026-12-31T12:00:00.000Z')).end).toEqual(
+      new Date('2027-01-01T00:00:00.000Z'),
+    )
+  })
+})
+
+describe('reserveCallQuery', () => {
+  const now = new Date('2026-11-17T10:00:00.000Z')
+  const { sql: text, params } = reserveCallQuery(
+    drizzle.mock({ schema }),
+    now,
+    'cloudflare:test',
+    7,
+  ).toSQL()
+
+  it('inserts a DAY / MODEL_CALL meter row starting at 1 with today as its window', () => {
+    expect(text).toMatch(/^insert into "job_account_meters"/)
+    expect(params.slice(0, 7)).toEqual([
+      'cloudflare:test',
+      'MODEL_CALL',
+      'DAY',
+      7,
+      1,
+      '2026-11-17T00:00:00.000Z',
+      '2026-11-18T00:00:00.000Z',
+    ])
+    expect(params.slice(7)).toEqual(Array(4).fill(now.toISOString()))
+  })
+
+  it('on conflict: rolls a finished day over to 1, else adds 1, and takes the code limit', () => {
+    const rolled = `"job_account_meters"."resets_at" <= $8::timestamptz`
+    expect(text).toContain(
+      `on conflict ("account_key","unit","window_kind") do update set "limit_amount" = excluded.limit_amount, ` +
+        `"used" = CASE WHEN ${rolled} THEN 1 ELSE "job_account_meters"."used" + 1 END, ` +
+        `"window_started_at" = CASE WHEN ${rolled.replace('$8', '$9')} THEN excluded.window_started_at ELSE "job_account_meters"."window_started_at" END, ` +
+        `"resets_at" = CASE WHEN ${rolled.replace('$8', '$10')} THEN excluded.resets_at ELSE "job_account_meters"."resets_at" END, ` +
+        `"updated_at" = now() `,
+    )
+  })
+
+  it('updates only while there is room, so a spent day returns no row', () => {
+    expect(text).toContain(
+      `where (CASE WHEN "job_account_meters"."resets_at" <= $11::timestamptz THEN 0 ELSE "job_account_meters"."used" END)` +
+        ` + "job_account_meters"."reserved" + "job_account_meters"."uncertain" < excluded.limit_amount returning "used"`,
+    )
+  })
+})
+
+describe('ResumeAiDailyBudget.reserveCall', () => {
+  function budgetReturning(rows: unknown[]) {
+    const calls: Array<{ values: unknown }> = []
+    const db = {
+      insert: () => ({
+        values: (values: unknown) => {
+          calls.push({ values })
+          return {
+            onConflictDoUpdate: () => ({ returning: () => Promise.resolve(rows) }),
+          }
+        },
+      }),
+    }
+    return { budget: new ResumeAiDailyBudget({ db } as never), calls }
+  }
+
+  it('is true when the statement returned the reserved row', async () => {
+    const { budget } = budgetReturning([{ used: 3 }])
+    await expect(budget.reserveCall()).resolves.toBe(true)
+  })
+
+  it('is false when the statement returned nothing (the day is spent)', async () => {
+    const { budget } = budgetReturning([])
+    await expect(budget.reserveCall()).resolves.toBe(false)
+  })
+
+  it('defaults to the resume meter, the code cap and the current time', async () => {
+    vi.useFakeTimers({ now: new Date('2026-11-17T08:00:00.000Z') })
+    try {
+      const { budget, calls } = budgetReturning([{ used: 1 }])
+      await budget.reserveCall()
+      expect(calls[0]?.values).toMatchObject({
+        accountKey: RESUME_AI_METER_ACCOUNT_KEY,
+        limitAmount: RESUME_AI_DAILY_CALL_CAP,
+        windowStartedAt: new Date('2026-11-17T00:00:00.000Z'),
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('passes a database failure through instead of treating it as room', async () => {
+    const db = {
+      insert: () => {
+        throw new Error('connection refused')
+      },
+    }
+    const budget = new ResumeAiDailyBudget({ db } as never)
+    await expect(budget.reserveCall()).rejects.toThrow('connection refused')
+  })
+})
