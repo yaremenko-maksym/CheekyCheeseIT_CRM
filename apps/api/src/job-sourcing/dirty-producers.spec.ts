@@ -7,6 +7,7 @@ import {
   markProjectEditDirty,
   markRoleDirty,
   markSeniorDirty,
+  markSeniorResumeDirty,
   markSeniorsDirty,
   markUserEditDirty,
 } from './dirty-producers'
@@ -74,39 +75,83 @@ describe('markRoleDirty', () => {
 })
 
 describe('markUserEditDirty', () => {
-  it('a role change wins over a stack edit in the same write (one row)', async () => {
+  it('a role change wins over a roles edit in the same write (one row)', async () => {
     const { tx, inserts } = scripted()
     await expect(
-      markUserEditDirty(tx, ID, { role: 'JUNIOR' }, { role: 'SENIOR', techStack: ['Go'] }),
+      markUserEditDirty(
+        tx,
+        ID,
+        { role: 'JUNIOR', technicalRoles: [] },
+        { role: 'SENIOR', technicalRoles: ['BACKEND_ENGINEER'] },
+      ),
     ).resolves.toBe(true)
     expect(rows(inserts)).toEqual([['SENIOR', ID, 5, 'senior.role']])
   })
 
-  it('a stack edit of a SENIOR is senior.stack; an unchanged role is not a role change', async () => {
+  it('a real roles change marks senior.roles; an unchanged role is not a role change', async () => {
     const { tx, inserts } = scripted('SENIOR')
     await expect(
       markUserEditDirty(
         tx,
         ID,
-        { role: 'SENIOR', techStack: ['Rust'] },
-        { role: 'SENIOR', techStack: ['Go'] },
+        { role: 'SENIOR', technicalRoles: ['FRONTEND_ENGINEER'] },
+        { role: 'SENIOR', technicalRoles: ['BACKEND_ENGINEER'] },
       ),
     ).resolves.toBe(true)
-    expect(rows(inserts)).toEqual([['SENIOR', ID, 5, 'senior.stack']])
+    expect(rows(inserts)).toEqual([['SENIOR', ID, 5, 'senior.roles']])
   })
 
-  it('CR-M-1: an unchanged stack resubmit enqueues nothing', async () => {
+  it('CR-M-1: an unchanged roles resubmit (any order) marks nothing', async () => {
     const { tx, inserts } = scripted('SENIOR')
-    const existing = { role: 'SENIOR', techStack: ['Go', 'Rust'] }
-    await expect(markUserEditDirty(tx, ID, existing, { techStack: ['Go', 'Rust'] })).resolves.toBe(
-      false,
-    )
+    const existing = { role: 'SENIOR', technicalRoles: ['BACKEND_ENGINEER', 'DEVOPS_ENGINEER'] }
     await expect(
-      markUserEditDirty(tx, ID, { role: 'SENIOR', techStack: null }, { techStack: [] }),
+      markUserEditDirty(tx, ID, existing, {
+        technicalRoles: ['DEVOPS_ENGINEER', 'BACKEND_ENGINEER'],
+      }),
     ).resolves.toBe(false)
     expect(inserts).toEqual([])
-    await expect(markUserEditDirty(tx, ID, existing, { techStack: ['Go'] })).resolves.toBe(true)
-    expect(rows(inserts)).toEqual([['SENIOR', ID, 5, 'senior.stack']])
+    await expect(
+      markUserEditDirty(tx, ID, existing, { technicalRoles: ['BACKEND_ENGINEER'] }),
+    ).resolves.toBe(true)
+    expect(rows(inserts)).toEqual([['SENIOR', ID, 5, 'senior.roles']])
+  })
+
+  it('a missing current roles value reads as empty: setting roles is a change, [] is not', async () => {
+    const { tx, inserts } = scripted('SENIOR')
+    await expect(
+      markUserEditDirty(tx, ID, { role: 'SENIOR' }, { technicalRoles: [] }),
+    ).resolves.toBe(false)
+    expect(inserts).toEqual([])
+    await expect(
+      markUserEditDirty(tx, ID, { role: 'SENIOR' }, { technicalRoles: ['QA_ENGINEER'] }),
+    ).resolves.toBe(true)
+    expect(rows(inserts)).toEqual([['SENIOR', ID, 5, 'senior.roles']])
+  })
+
+  it('a techStack change no longer marks a SENIOR dirty', async () => {
+    const { tx, inserts } = scripted('SENIOR')
+    await expect(
+      markUserEditDirty(
+        tx,
+        ID,
+        { role: 'SENIOR', technicalRoles: ['BACKEND_ENGINEER'] },
+        { techStack: ['Go'] },
+      ),
+    ).resolves.toBe(false)
+    expect(inserts).toEqual([])
+  })
+
+  it('a roles change of a user who is not a SENIOR marks nothing', async () => {
+    const { tx, inserts } = scripted('HR')
+    await expect(
+      markUserEditDirty(
+        tx,
+        ID,
+        { role: 'HR', technicalRoles: [] },
+        { technicalRoles: ['QA_ENGINEER'] },
+      ),
+    ).resolves.toBe(false)
+    expect(inserts).toEqual([])
   })
 
   it('any other edit enqueues nothing', async () => {
@@ -116,6 +161,22 @@ describe('markUserEditDirty', () => {
     )
     await expect(markUserEditDirty(tx, ID, { role: 'JUNIOR' }, { role: 'HR' })).resolves.toBe(false)
     expect(inserts).toEqual([])
+  })
+})
+
+describe('markSeniorResumeDirty', () => {
+  it('a SENIOR resume write is senior.resume on the user id', async () => {
+    const { tx, inserts } = scripted('SENIOR')
+    await expect(markSeniorResumeDirty(tx, ID.toUpperCase())).resolves.toBe(true)
+    expect(rows(inserts)).toEqual([['SENIOR', ID, 5, 'senior.resume']])
+  })
+
+  it('a resume of a user who is not a SENIOR (or is gone) marks nothing', async () => {
+    for (const role of ['JUNIOR', null]) {
+      const { tx, inserts } = scripted(role)
+      await expect(markSeniorResumeDirty(tx, ID)).resolves.toBe(false)
+      expect(inserts).toEqual([])
+    }
   })
 })
 
