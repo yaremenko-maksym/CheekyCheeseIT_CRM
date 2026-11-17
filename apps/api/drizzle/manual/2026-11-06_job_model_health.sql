@@ -22,7 +22,8 @@
 --
 -- AMENDMENT 2026-11-17 (ADR 2026-11-03, "Amendment 2026-11-17 — Cloudflare provider")
 --   The route list gained 'cloudflare'. A table created before that still holds the narrower route
---   CHECK, and the block after CREATE TABLE widens it in place on the next deploy; later deploys
+--   CHECK, and the block after CREATE TABLE widens it in place when deploy-stack-on-vps.sh (run by
+--   deploy.yml) applies this file on the next deploy; later deploys
 --   find the wide CHECK and do nothing. Widening only: every row the old CHECK admitted passes the
 --   new one, so the re-validation scan (one pass under ACCESS EXCLUSIVE, a small counter table)
 --   cannot fail. Rollback of the amendment: none needed, the old code never writes 'cloudflare'.
