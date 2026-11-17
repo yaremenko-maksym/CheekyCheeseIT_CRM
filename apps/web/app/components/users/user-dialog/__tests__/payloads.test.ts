@@ -89,6 +89,7 @@ function makeValue(overrides: Partial<CreateUserFormValue> = {}): CreateUserForm
     telegram: '',
     phone: '',
     techStack: [],
+    technicalRoles: [],
     seniorSharePercent: 26,
     monthlySalary: '',
     salaryCurrency: 'USD',
@@ -328,7 +329,6 @@ describe('buildCreateUserPayload', () => {
         role: 'SENIOR',
         telegram: undefined,
         phone: undefined,
-        techStack: undefined,
         locale: 'uk',
         paymentMethod: 'USDT_ERC20',
         walletUsdtErc20: '',
@@ -359,7 +359,6 @@ describe('buildCreateUserPayload', () => {
         role: 'SENIOR',
         telegram: undefined,
         phone: undefined,
-        techStack: undefined,
         locale: 'uk',
         paymentMethod: 'USDT_ERC20',
         walletUsdtErc20: '',
@@ -767,6 +766,7 @@ function makeWizardValue(overrides: Partial<WizardUpdateFormValue> = {}): Wizard
     telegram: '',
     phone: '',
     techStack: [],
+    technicalRoles: [],
     seniorSharePercent: 26,
     monthlySalary: '',
     salaryCurrency: 'USD',
@@ -815,7 +815,6 @@ describe('buildWizardUpdatePayload', () => {
       displayName: 'Test User',
       telegram: null,
       phone: null,
-      techStack: null,
       paymentMethod: 'USDT_ERC20',
       walletUsdtErc20: '0xabc',
       walletUsdtLabel: 'main',
@@ -1005,6 +1004,7 @@ function makeEditValue(overrides: Partial<EditUserFormValue> = {}): EditUserForm
     telegram: '',
     phone: '',
     techStack: [],
+    technicalRoles: [],
     seniorSharePercent: 26,
     dropSharePercent: 30,
     teamTelegramChannel: '',
@@ -1036,7 +1036,6 @@ describe('buildEditUpdatePayload', () => {
       displayName: 'Ann',
       telegram: null,
       phone: null,
-      techStack: null,
       hrIds: ['hr1'],
       accountantId: 'acc1',
       teamTelegramChannel: null,
@@ -1312,7 +1311,12 @@ describe('buildEditUpdatePayload', () => {
 
   it('telegram is normalised with @ and phone/techStack pass through', () => {
     const p = buildEditUpdatePayload(
-      makeEditValue({ telegram: ' ann ', phone: '+380501112233', techStack: ['ts'] }),
+      makeEditValue({
+        role: 'JUNIOR',
+        telegram: ' ann ',
+        phone: '+380501112233',
+        techStack: ['ts'],
+      }),
       EDIT_DEPS,
     )
     expect(p.telegram).toBe('@ann')
@@ -1338,5 +1342,72 @@ describe('buildEditUpdatePayload', () => {
     const blank = buildEditUpdatePayload(makeEditValue({ registrationAddress: '  ' }), EDIT_DEPS)
     expect('registrationAddress' in blank).toBe(true)
     expect(blank.registrationAddress).toBeNull()
+  })
+})
+
+// ── technical roles (senior roles PR 5, Task 5.1) ──────────────────────────
+// A SENIOR carries `technicalRoles` and never `techStack`; every other role keeps the stack and
+// never carries roles. `[]` is never sent: `seniorRolesSchema` refuses it on the wire.
+describe('technical roles in the payloads', () => {
+  const ROLES = ['BACKEND_ENGINEER', 'QA_ENGINEER'] as const
+
+  it('create: a SENIOR sends its roles and no stack, even with a stale stack in the form', () => {
+    const payload = buildCreateUserPayload(
+      makeValue({ role: 'SENIOR', techStack: ['go'], technicalRoles: [...ROLES] }),
+      NO_TEAM,
+    )
+    expect(payload.technicalRoles).toStrictEqual(['BACKEND_ENGINEER', 'QA_ENGINEER'])
+    expect('techStack' in payload).toBe(false)
+  })
+
+  it('create: a SENIOR with no roles sends neither key', () => {
+    const payload = buildCreateUserPayload(makeValue({ role: 'SENIOR' }), NO_TEAM)
+    expect('technicalRoles' in payload).toBe(false)
+    expect('techStack' in payload).toBe(false)
+  })
+
+  it('create: a JUNIOR sends its stack and never roles', () => {
+    const payload = buildCreateUserPayload(
+      makeValue({ role: 'JUNIOR', techStack: ['go'], technicalRoles: [...ROLES] }),
+      NO_TEAM,
+    )
+    expect(payload.techStack).toStrictEqual(['go'])
+    expect('technicalRoles' in payload).toBe(false)
+  })
+
+  it('wizard: a SENIOR sends its roles and no stack; a JUNIOR clears the stack with null', () => {
+    const senior = buildWizardUpdatePayload(
+      makeWizardValue({ role: 'SENIOR', techStack: ['go'], technicalRoles: [...ROLES] }),
+      NO_TEAM,
+    )
+    expect(senior.technicalRoles).toStrictEqual(['BACKEND_ENGINEER', 'QA_ENGINEER'])
+    expect('techStack' in senior).toBe(false)
+    const junior = buildWizardUpdatePayload(
+      makeWizardValue({ role: 'JUNIOR', technicalRoles: [...ROLES] }),
+      NO_TEAM,
+    )
+    expect(junior.techStack).toBeNull()
+    expect('technicalRoles' in junior).toBe(false)
+  })
+
+  it('edit: a SENIOR sends its roles and no stack; with no roles it sends neither', () => {
+    const withRoles = buildEditUpdatePayload(
+      makeEditValue({ techStack: ['go'], technicalRoles: [...ROLES] }),
+      EDIT_DEPS,
+    )
+    expect(withRoles.technicalRoles).toStrictEqual(['BACKEND_ENGINEER', 'QA_ENGINEER'])
+    expect('techStack' in withRoles).toBe(false)
+    const without = buildEditUpdatePayload(makeEditValue(), EDIT_DEPS)
+    expect('technicalRoles' in without).toBe(false)
+    expect('techStack' in without).toBe(false)
+  })
+
+  it('edit: a JUNIOR keeps the stack and never sends roles', () => {
+    const payload = buildEditUpdatePayload(
+      makeEditValue({ role: 'JUNIOR', techStack: ['ts'], technicalRoles: [...ROLES] }),
+      EDIT_DEPS,
+    )
+    expect(payload.techStack).toStrictEqual(['ts'])
+    expect('technicalRoles' in payload).toBe(false)
   })
 })
