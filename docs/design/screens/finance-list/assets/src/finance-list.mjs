@@ -171,7 +171,7 @@ export const STATUS = {
 }
 const FINAL = new Set(['VALIDATED', 'PAID'])
 
-const pill = (st, { small = false } = {}) => {
+export const pill = (st, { small = false } = {}) => {
   const [label, tone] = STATUS[st]
   const info =
     tone === 'info'
@@ -206,7 +206,7 @@ export function row(x, { sel = false } = {}) {
 }
 
 // The title names the party that is not the company account; a third-party flow shows both sides.
-const COMPANY = 'Рахунок компанії'
+export const COMPANY = 'Рахунок компанії'
 export const title = (x) =>
   x.from === COMPANY ? x.to : x.to === COMPANY ? x.from : `${x.from} → ${x.to}`
 
@@ -337,32 +337,36 @@ const sortTh = (label, dir, cls = '') =>
 
 export function table(rows, { w, sel = 0, hover = -1, menuFor = -1, canAct = true } = {}) {
   const wide = w >= 1280
-  const head = `<tr>${sortTh('Дата', 'down')}<th>Учасник</th><th>${wide ? 'Тип' : 'Тип · проєкт'}</th>${wide ? '<th>Проєкт</th>' : ''}<th>Статус</th>${sortTh('Сума', '', 'r')}<th style="width:${canAct ? 200 : 48}px"><span class="sr">Дії</span></th></tr>`
+  const head = `<tr>${sortTh('Дата', 'down')}<th>Учасник</th><th>${wide ? 'Тип' : 'Тип · проєкт'}</th>${wide ? '<th>Проєкт</th>' : ''}<th>Статус</th>${sortTh('Сума', '', 'r')}<th><span class="sr">Дії</span></th></tr>`
+  // Fixed layout: long parties and projects ellipsize (full value in the tooltip); actions never clip.
+  // Below 1280 the inline action does not fit: it becomes the first item of the «…» menu.
+  const inline = canAct && wide
+  const cols = `<colgroup><col style="width:76px"><col><col style="width:${wide ? 140 : 150}px">${wide ? '<col style="width:150px">' : ''}<col style="width:${wide ? 180 : 150}px"><col style="width:${wide ? 176 : 140}px"><col style="width:${inline ? 204 : 52}px"></colgroup>`
   const tr = rows
     .map((x, i) => {
       const [typeLabel] = TYPE[x.type]
       const neg = x.a.startsWith('−')
       const clip = x.att
-        ? `<span aria-label="Чек прикріплено" class="muted" style="display:inline-flex;vertical-align:-2px;margin-left:6px">${icon('paperclip', { size: 13 })}</span>`
+        ? `<span aria-label="Чек прикріплено" class="muted" style="display:inline-flex;flex:none">${icon('paperclip', { size: 13 })}</span>`
         : ''
       const long = STATUS[x.st][0].length > 24
       const act =
-        canAct && x.act
+        inline && x.act
           ? `<span class="btn secondary sm rowact" style="opacity:1">${x.act}</span>`
           : ''
-      const more = `<span class="iconbtn rowact" aria-label="Інші дії" aria-haspopup="menu" style="width:28px;height:28px;${i === menuFor ? 'opacity:1;background:var(--surface)' : ''}">${icon('ellipsis', { size: 16 })}</span>`
-      return `<tr ${i === sel ? 'aria-selected="true"' : ''} class="${i === hover ? 'hover' : ''}" style="${x.deleted ? 'opacity:0.55' : ''}"><td class="num muted">${x.d}</td><td><span class="trunc" style="display:inline-block;max-width:${wide ? 300 : 220}px;vertical-align:middle">${x.deleted ? '<span class="pill" style="height:18px;font-size:11px;margin-right:6px">Видалено</span>' : ''}${title(x)}</span>${clip}</td><td class="muted">${typeLabel}${wide ? '' : x.project !== '—' ? ` · ${x.project}` : ''}</td>${wide ? `<td class="muted">${x.project}</td>` : ''}<td class="${long ? 'wrap' : ''}" style="${long ? 'max-width:200px;padding-top:6px;padding-bottom:6px' : ''}">${long ? `<span class="pill warn" style="height:auto;min-height:22px;white-space:normal;line-height:16px;padding:3px 8px">${STATUS[x.st][0]}</span>` : pill(x.st)}</td><td class="r"><span class="amount ${neg ? '' : 'pos'}" style="font-size:14px">${x.a}</span>${x.orig ? `<div class="t-cap muted num" style="line-height:12px">${x.orig}</div>` : ''}</td><td class="r"><span class="row" style="gap:6px;justify-content:flex-end">${act}${more}</span></td></tr>`
+      const more = `<span class="iconbtn rowact" aria-label="Інші дії" aria-haspopup="menu" style="width:28px;height:28px;${i === menuFor ? 'opacity:1;background:var(--surface)' : !inline && x.act ? 'opacity:1' : ''}">${icon('ellipsis', { size: 16 })}</span>`
+      return `<tr ${i === sel ? 'aria-selected="true"' : ''} class="${i === hover ? 'hover' : ''}" style="${x.deleted ? 'opacity:0.55' : ''}"><td class="num muted">${x.d}</td><td title="${x.from} → ${x.to}"><span class="row" style="gap:6px;min-width:0">${x.deleted ? '<span class="pill" style="height:18px;font-size:11px;flex:none">Видалено</span>' : ''}<span class="trunc">${title(x)}</span>${clip}</span></td><td class="muted">${typeLabel}${wide ? '' : x.project !== '—' ? ` · ${x.project}` : ''}</td>${wide ? `<td class="muted">${x.project}</td>` : ''}<td class="${long ? 'wrap' : ''}" style="${long ? 'padding-top:6px;padding-bottom:6px' : ''}">${long ? `<span class="pill warn" style="height:auto;min-height:22px;white-space:normal;line-height:16px;padding:3px 8px">${STATUS[x.st][0]}</span>` : pill(x.st)}</td><td class="r"><span class="amount ${neg ? '' : 'pos'}" style="font-size:14px">${x.a}</span>${x.orig ? `<div class="t-cap muted num" style="line-height:12px">${x.orig}</div>` : ''}</td><td class="r"><span class="row" style="gap:6px;justify-content:flex-end">${act}${more}</span></td></tr>`
     })
     .join('')
-  return `<div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)"><table style="width:100%;border-collapse:separate;border-spacing:0" aria-label="Транзакції"><thead>${head}</thead><tbody>${tr}</tbody></table></div>`
+  return `<div class="grow" style="min-height:0;overflow:hidden;border:1px solid var(--border);border-radius:var(--r-xl);background:var(--card)"><table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0" aria-label="Транзакції">${cols}<thead>${head}</thead><tbody>${tr}</tbody></table></div>`
 }
 
 export const pager = (from = 1, to = 50, total = 132) =>
   `<div class="row" style="gap:8px;justify-content:flex-end;flex:none;font-size:13px"><span class="muted num">${from}–${to} з ${total}</span><span class="btn secondary sm" aria-label="Попередня сторінка" style="width:32px;padding:0">${icon('chevron-left', { size: 15 })}</span><span class="btn secondary sm" aria-label="Наступна сторінка" style="width:32px;padding:0">${icon('chevron-right', { size: 15 })}</span></div>`
 
 // ---------- Frames ----------
-const M = (name, w, h, body) => ({ name, w, h, dpr: 2, html: page(body, { width: w }) })
-const D = (name, w, h, body) => ({ name, w, h, dpr: 1, html: page(body, { width: w }) })
+export const M = (name, w, h, body) => ({ name, w, h, dpr: 2, html: page(body, { width: w }) })
+export const D = (name, w, h, body) => ({ name, w, h, dpr: 1, html: page(body, { width: w }) })
 
 const mobileMain = (w, h) =>
   tabScreen({
