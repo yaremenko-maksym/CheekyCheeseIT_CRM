@@ -12,8 +12,9 @@
 #   - the main stack comes up with the extraction project absent, on both deploy paths;
 #   - with the project up, the normal path (`up -d --remove-orphans`, same and new image) and the
 #     network-reset path (`down --remove-orphans`, then `up`) leave the worker container with the
-#     same ID, zero restarts and the same start time; `api` reaches the worker, the main stack is
-#     healthy;
+#     same ID, zero restarts and the same start time; `api` reaches the worker at the URL deploy.yml
+#     writes, whose host is the one the API's transport accepts, and the worker takes its secret;
+#     the main stack is healthy;
 #   - the worker reaches outside on its own egress network (the hosted providers); `api` is not on
 #     that network and the worker is on no main-stack network, so it cannot reach postgres; no port
 #     is published; the worker's log carries no key value;
@@ -64,11 +65,22 @@ deploy_reset() {
   attach
 }
 
+# ── The API's worker URL (CR-H-1) ──────────────────────────────────────────
+# The URL deploy.yml writes, and the one plain-HTTP host the API's transport accepts. A mismatch is a
+# worker every call refuses as `transport` before it leaves api.
+WORKER_URL="$(grep -oE "'http://[a-z0-9.-]+:[0-9]+'" "$REPO/.github/workflows/deploy.yml" | tr -d "'" | sort -u)"
+TRANSPORT_HOST="$(sed -n "s/^export const EXTRACTION_WORKER_HOST = '\([^']*\)'.*/\1/p" "$REPO/packages/inference/src/http/bounded-request.ts")"
+[ -n "$TRANSPORT_HOST" ] || fail "EXTRACTION_WORKER_HOST not found in packages/inference/src/http/bounded-request.ts"
+[ "$(printf '%s\n' "$WORKER_URL" | wc -l | tr -d ' ')" = 1 ] && [ -n "$WORKER_URL" ] || fail "deploy.yml must write exactly one worker URL (found: ${WORKER_URL:-none})"
+[ "$WORKER_URL" = "http://$TRANSPORT_HOST:3100" ] || fail "deploy.yml writes $WORKER_URL; the API's transport accepts only http://$TRANSPORT_HOST:3100"
+record "worker URL in deploy.yml: $WORKER_URL (host = the API transport's EXTRACTION_WORKER_HOST)"
+
 # ── Setup: env files with throwaway values, certs, compose files ────────────
 rnd() { openssl rand -hex 32; }
 secret() { local v; v="$(rnd)"; echo "::add-mask::$v" >&2; echo "$v"; }
 log "Writing throwaway env files (values never printed)"
 PGPW="$(secret)"
+WORKER_SECRET="$(secret)"
 umask 077
 cat > .env.production <<EOF
 POSTGRES_PASSWORD=$PGPW
@@ -85,6 +97,8 @@ AWS_SECRET_ACCESS_KEY=$(secret)
 TURNSTILE_SECRET_KEY=$(secret)
 TELEMETRY_DIGEST_TOKEN=$(secret)
 TELEMETRY_SESSION_SALT=$(secret)
+EXTRACTION_WORKER_URL=$WORKER_URL
+EXTRACTION_WORKER_SECRET=$WORKER_SECRET
 EOF
 # The runbook's file shape, throwaway keys: no call ever reaches a provider with them. The config is
 # the runbook's sample; the log check in C names which hosted routes the worker ended up with.
@@ -92,7 +106,7 @@ GEMINI_KEY="$(secret)"
 GROQ_KEY="$(secret)"
 CF_TOKEN="$(secret)"
 cat > .env.extraction-worker <<EOF
-EXTRACTION_WORKER_SECRET=$(secret)
+EXTRACTION_WORKER_SECRET=$WORKER_SECRET
 INFERENCE_EXTRACTION_PROVIDER=router
 GEMINI_API_KEY=$GEMINI_KEY
 GROQ_API_KEY=$GROQ_KEY
@@ -136,14 +150,6 @@ wait_healthy() {
 }
 main_healthy() { wait_healthy api; wait_healthy nginx; record "main stack healthy: api $(cid api | cut -c1-12), nginx $(cid nginx | cut -c1-12)"; }
 
-# node inside a container: one HTTP request, prints the status or the error code.
-probe() {
-  local container="$1" url="$2" method="${3:-GET}"
-  docker exec "$container" node -e "
-    fetch('$url', { method: '$method', headers: { 'content-type': 'application/json' },
-      body: '$method' === 'POST' ? '{}' : undefined, signal: AbortSignal.timeout(10000) })
-      .then((r) => console.log('status=' + r.status), (e) => console.log('error=' + (e.cause?.code || e.name)))"
-}
 # node inside a container: one TCP connect, prints "connected" or the error code.
 tcp() {
   docker exec "$1" node -e "
@@ -151,6 +157,16 @@ tcp() {
     s.on('connect', () => { console.log('connected'); s.destroy() })
     s.on('timeout', () => { console.log('error=ETIMEDOUT'); s.destroy() })
     s.on('error', (e) => console.log('error=' + e.code))"
+}
+# node inside api: POST /extract at api's own EXTRACTION_WORKER_URL, with ("auth") or without ("anon")
+# api's own EXTRACTION_WORKER_SECRET. Both come from api's env, so no value is in any argv.
+api_to_worker() {
+  docker exec -e MODE="$1" "$(cid api)" node -e "
+    const h = { 'content-type': 'application/json' }
+    if (process.env.MODE === 'auth') h.authorization = 'Bearer ' + process.env.EXTRACTION_WORKER_SECRET
+    fetch(process.env.EXTRACTION_WORKER_URL + '/extract', { method: 'POST', headers: h, body: '{}',
+      signal: AbortSignal.timeout(10000) })
+      .then((r) => console.log('status=' + r.status), (e) => console.log('error=' + (e.cause?.code || e.name)))"
 }
 fingerprint() { docker inspect -f '{{.Id}} restarts={{.RestartCount}} started={{.State.StartedAt}}' "$1"; }
 
@@ -160,10 +176,14 @@ assert_extraction_intact() {
   wk="$(ecid extraction-worker)"
   [ "$(fingerprint "$wk")" = "$WORKER_BASE" ] || fail "$when: worker changed: $(fingerprint "$wk") vs $WORKER_BASE"
   record "$when: worker $(fingerprint "$wk")"
-  out="$(probe "$(cid api)" http://extraction-worker:3100/extract POST)"
-  # 401: the worker answered and refused the missing secret. Reached, nothing extracted.
-  [ "$out" = status=401 ] || fail "$when: api cannot reach the worker ($out)"
-  record "$when: api $(cid api | cut -c1-12) -> worker /extract without secret: $out"
+  # 401 without the secret, 400 with it: the worker answered, took the secret, and refused the empty
+  # body before any model call. Reached by the deploy's URL, nothing extracted.
+  out="$(api_to_worker anon)"
+  [ "$out" = status=401 ] || fail "$when: api cannot reach the worker at $WORKER_URL ($out)"
+  record "$when: api $(cid api | cut -c1-12) -> $WORKER_URL/extract without secret: $out"
+  out="$(api_to_worker auth)"
+  [ "$out" = status=400 ] || fail "$when: the worker did not accept api's secret ($out, expected status=400)"
+  record "$when: api -> $WORKER_URL/extract with api's secret, empty body: $out"
 }
 
 # ── A. The first deploy after merge, from the compose files production runs today ──

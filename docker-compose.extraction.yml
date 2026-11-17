@@ -27,6 +27,8 @@ services:
     image: ghcr.io/yaremenko-maksym/cheekycheeseit-crm-api:${EXTRACTION_WORKER_IMAGE_TAG:?pin the worker image tag}
     restart: unless-stopped
     command: ['node', 'dist/extraction-worker/main']
+    # The image's own USER, stated so the guard can refuse root.
+    user: node
     # The api image's HEALTHCHECK probes :3001; it does not apply to the worker.
     healthcheck:
       disable: true
@@ -46,7 +48,7 @@ services:
     # Writable: the state volume and /tmp only.
     read_only: true
     tmpfs:
-      - /tmp:size=16m,mode=1777
+      - /tmp:size=16m,mode=1777,noexec,nosuid
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -57,8 +59,11 @@ services:
         max-size: '10m'
         max-file: '5'
     networks:
-      - entry
-      - egress
+      entry:
+        # The one plain-HTTP host the API's transport accepts (EXTRACTION_WORKER_HOST in
+        # packages/inference/src/http/bounded-request.ts): api calls http://crm-extraction-worker:3100.
+        aliases: [crm-extraction-worker]
+      egress: {}
 
 volumes:
   # Undo never removes it (§8.6): router state only, no secret, no CRM data.
@@ -73,5 +78,9 @@ networks:
     internal: true
   # Outbound to the hosted providers (gemini, groq, cloudflare). The worker alone: no fixed name,
   # so it resolves to crm-extraction_egress and is never a network of the main stack.
+  # Fixed subnet, outside Docker's default pools, so the later host egress firewall can target it.
   egress:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 10.250.17.0/28

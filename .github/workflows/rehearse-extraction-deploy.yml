@@ -14,6 +14,9 @@ on:
       - docker-compose.ghcr.yml
       - docker-compose.extraction.yml
       - scripts/devops/deploy-stack-on-vps.sh
+      # The API's worker URL is written there; the rehearsal checks its host (CR-M-1).
+      - .github/workflows/deploy.yml
+      - packages/inference/src/http/bounded-request.ts
       - scripts/devops/rehearse-extraction-deploy-paths.sh
       - scripts/devops/extraction-mp04/**
       - .github/workflows/rehearse-extraction-deploy.yml

@@ -919,6 +919,13 @@ jobs:
           MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY: ${{ secrets.MEETING_RECORDER_MEDIA_AWS_SECRET_ACCESS_KEY }}
         run: bash scripts/devops/check-meeting-recorder-r2-deploy-env.sh
 
+      # Optional: unset passes. Set, it must meet the API's own secret rule, or the deploy stops here,
+      # before anything is written on the server. Never prints the value.
+      - name: Validate the extraction worker secret
+        env:
+          EXTRACTION_WORKER_SECRET: ${{ secrets.EXTRACTION_WORKER_SECRET }}
+        run: bash scripts/devops/check-extraction-worker-secret.sh
+
       - name: Write .env.production via SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
@@ -1197,9 +1204,11 @@ jobs:
             fi
 
             # extraction worker: the URL and the secret go together or not at all. No secret, no
-            # worker: api keeps today's behaviour. The value is written, never printed.
+            # worker: api keeps today's behaviour. The value is written, never printed; it was
+            # checked by the "Validate the extraction worker secret" step. The host is the worker's
+            # alias, the one plain-HTTP host the API's transport accepts (EXTRACTION_WORKER_HOST).
             if [ -n "$EXTRACTION_WORKER_SECRET" ]; then
-              printf 'EXTRACTION_WORKER_URL=%s\n' 'http://extraction-worker:3100' >> /opt/crm/.env.production
+              printf 'EXTRACTION_WORKER_URL=%s\n' 'http://crm-extraction-worker:3100' >> /opt/crm/.env.production
               printf 'EXTRACTION_WORKER_SECRET=%s\n' "$EXTRACTION_WORKER_SECRET" >> /opt/crm/.env.production
             fi
 

@@ -14,14 +14,15 @@
 //   --deploy      the composed deploy configuration, every profile on: its services must be exactly
 //                 DEPLOY_SERVICES, with no extraction network and no external network.
 //   --names       a deploy path (script, workflow) that must name neither the file nor the project.
-//                 The network name crm-extraction-entry is allowed: that is the deploy's soft attach.
+//                 Two names are allowed: crm-extraction-entry (the deploy's soft attach) and
+//                 crm-extraction-worker (the worker's alias, the host of the API's worker URL).
 //
 // Compose runs in a temp dir with empty env files, so the real (gitignored) ones are never read.
 // Never prints env values. Exit: 0 clean, 1 finding, 2 could not look.
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { basename, join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
 const WORKER = 'extraction-worker'
@@ -31,6 +32,12 @@ const ENTRY_NAME = 'crm-extraction-entry'
 const EGRESS = 'egress'
 // No fixed name: compose scopes it to the project, so no main-stack network can be this one.
 const EGRESS_NAME = `${PROJECT}_${EGRESS}`
+// Pinned so the later host egress firewall can target it (owner decision 2026-11-17, D4).
+const EGRESS_SUBNET = '10.250.17.0/28'
+// The one plain-HTTP host the API's transport accepts (packages/inference/src/http/bounded-request.ts).
+const WORKER_ALIAS = 'crm-extraction-worker'
+const WORKER_ENV_FILE = '.env.extraction-worker'
+const STATE_TARGET = '/var/lib/extraction-worker'
 // A new service here starts on the next deploy, on the CRM's RAM. Adding one is a reviewed edit.
 const DEPLOY_SERVICES = ['api', 'nginx', 'postgres']
 const WORKER_MEM_BYTES = 512 * 1024 * 1024
@@ -52,7 +59,8 @@ if (!args.extraction || !args.deploy?.length || !args.names?.length) {
   process.exit(2)
 }
 
-function composeConfig(files, extraEnv, extraArgs = []) {
+// `configArgs` go after `config`; `post` sees the parsed config and the temp dir before its removal.
+function composeConfig(files, extraEnv, extraArgs = [], { configArgs = [], post = (j) => j } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'guard-compose-'))
   try {
     const cmd = ['compose']
@@ -63,8 +71,8 @@ function composeConfig(files, extraEnv, extraArgs = []) {
     }
     writeFileSync(join(dir, '.env.production'), '')
     writeFileSync(join(dir, '.env.extraction-worker'), '')
-    cmd.push(...extraArgs, 'config', '--format', 'json')
-    return JSON.parse(
+    cmd.push(...extraArgs, 'config', ...configArgs, '--format', 'json')
+    const json = JSON.parse(
       execFileSync('docker', cmd, {
         cwd: dir,
         encoding: 'utf8',
@@ -72,6 +80,7 @@ function composeConfig(files, extraEnv, extraArgs = []) {
         env: { ...CLEAN_ENV, POSTGRES_PASSWORD: 'guard-placeholder', ...extraEnv },
       }),
     )
+    return post(json, dir)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -79,8 +88,17 @@ function composeConfig(files, extraEnv, extraArgs = []) {
 
 let extraction
 let deploy
+// The normal resolution inlines env_file into environment and drops it; this one keeps it.
+let workerEnvFiles
 try {
   extraction = composeConfig([args.extraction], PINS, ['--profile', '*'])
+  workerEnvFiles = composeConfig([args.extraction], PINS, [], {
+    configArgs: ['--no-interpolate'],
+    post: (json, dir) =>
+      (json.services?.[WORKER]?.env_file ?? []).map((f) =>
+        relative(dir, typeof f === 'string' ? f : f.path),
+      ),
+  })
   // The production project name (the /opt/crm directory), so network names resolve as on the host.
   deploy = composeConfig(args.deploy, {}, ['--project-name', 'crm', '--profile', '*'])
 } catch (err) {
@@ -105,9 +123,42 @@ if (!worker) {
   if (worker.network_mode)
     errors.push(`${WORKER} must not set network_mode (${worker.network_mode})`)
   if (worker.privileged) errors.push(`${WORKER} must not be privileged`)
-  if (!(worker.security_opt ?? []).some((o) => /^no-new-privileges(:true)?$/.test(o))) {
+  const secOpts = worker.security_opt ?? []
+  if (!secOpts.some((o) => /^no-new-privileges(:true)?$/.test(o))) {
     errors.push(`${WORKER} must set no-new-privileges`)
   }
+  // An allow-list: seccomp/apparmor unconfined, label:disable and the like are one line away.
+  for (const o of secOpts.filter((o) => !/^no-new-privileges(:true)?$/.test(o))) {
+    errors.push(`${WORKER} must set no security_opt but no-new-privileges (found: ${o})`)
+  }
+  // Each shares a host namespace (or another container's) with the worker.
+  for (const key of ['pid', 'ipc', 'uts', 'userns_mode', 'cgroup']) {
+    if (worker[key]) errors.push(`${WORKER} must not set ${key} (${worker[key]})`)
+  }
+  if (worker.user !== 'node')
+    errors.push(
+      `${WORKER} must run as user node, the image's own (found: ${worker.user ?? 'unset'})`,
+    )
+  const hosts = worker.extra_hosts ?? []
+  if ((Array.isArray(hosts) ? hosts : Object.keys(hosts)).length > 0)
+    errors.push(`${WORKER} must not set extra_hosts`)
+  if (workerEnvFiles.join() !== WORKER_ENV_FILE)
+    errors.push(
+      `${WORKER} env_file must be exactly ${WORKER_ENV_FILE} (found: ${workerEnvFiles.join(', ') || 'none'})`,
+    )
+  // The guard's env files are empty, so these keys can only come from the compose file itself.
+  for (const key of Object.keys(worker.environment ?? {})) {
+    if (/DATABASE_URL|^POSTGRES_|^PG[A-Z]+$/.test(key))
+      errors.push(`${WORKER} must hold no database setting (found: ${key})`)
+  }
+  if (
+    !(worker.tmpfs ?? []).every(
+      (t) => /^\/tmp:/.test(t) && /\bnoexec\b/.test(t) && /\bnosuid\b/.test(t),
+    )
+  )
+    errors.push(`${WORKER} tmpfs must be /tmp only, with noexec and nosuid`)
+  if (!(worker.tmpfs ?? []).some((t) => /^\/tmp:/.test(t)))
+    errors.push(`${WORKER} must keep its /tmp tmpfs (the root filesystem is read-only)`)
   if (!(worker.cap_drop ?? []).includes('ALL')) errors.push(`${WORKER} must drop all capabilities`)
   if ((worker.cap_add ?? []).length > 0) errors.push(`${WORKER} must not add capabilities`)
   if (Number(worker.mem_limit) !== WORKER_MEM_BYTES)
@@ -117,13 +168,25 @@ if (!worker) {
   if (Number(worker.cpus) !== 0.5) errors.push(`${WORKER} cpus must be 0.5`)
   if (Number(worker.pids_limit) !== 64) errors.push(`${WORKER} pids_limit must be 64`)
   if (worker.read_only !== true) errors.push(`${WORKER} must run with read_only: true`)
-  if (!(worker.volumes ?? []).some((v) => v.target === '/var/lib/extraction-worker'))
-    errors.push(`${WORKER} must keep its state volume at /var/lib/extraction-worker`)
+  const vols = worker.volumes ?? []
+  if (!vols.some((v) => v.type === 'volume' && v.target === STATE_TARGET))
+    errors.push(`${WORKER} must keep its state volume at ${STATE_TARGET}`)
+  // A bind mount (the docker socket, a host dir) or a second volume is a way out of the sandbox.
+  for (const v of vols) {
+    if (!(v.type === 'volume' && v.source === 'worker_state' && v.target === STATE_TARGET))
+      errors.push(
+        `${WORKER} must mount only its state volume (found: ${v.type} ${v.source ?? ''} -> ${v.target})`,
+      )
+  }
   if (netsOf(worker).join() !== [EGRESS, ENTRY].join()) {
     errors.push(
       `${WORKER} must be on ${ENTRY} and ${EGRESS} only (found: ${netsOf(worker).join(', ') || 'none'})`,
     )
   }
+  if (!(worker.networks?.[ENTRY]?.aliases ?? []).includes(WORKER_ALIAS))
+    errors.push(
+      `${WORKER} must carry the alias ${WORKER_ALIAS} on ${ENTRY}: the API calls it by that name`,
+    )
   if ((worker.profiles ?? []).length > 0)
     errors.push(`${WORKER} must not hide behind a profile in its own project`)
 }
@@ -141,6 +204,11 @@ if (!nets[EGRESS]) {
   if (nets[EGRESS].name !== EGRESS_NAME)
     errors.push(
       `network ${EGRESS} must resolve to ${EGRESS_NAME}, the project's own (found: ${nets[EGRESS].name})`,
+    )
+  const subnets = (nets[EGRESS].ipam?.config ?? []).map((c) => c.subnet)
+  if (subnets.join() !== EGRESS_SUBNET)
+    errors.push(
+      `network ${EGRESS} must pin the subnet ${EGRESS_SUBNET} (found: ${subnets.join(', ') || 'none'})`,
     )
 }
 for (const [key, net] of Object.entries(nets)) {
@@ -204,7 +272,8 @@ for (const path of args.names) {
     process.exit(2)
   }
   if (text.length === 0) errors.push(`${path} is empty: nothing was checked`)
-  if (/docker-compose\.extraction|crm-extraction(?!-entry)/.test(text)) {
+  // Allowed: the entry network (the soft attach) and the worker's alias (the API's URL).
+  if (/docker-compose\.extraction|crm-extraction(?!-entry\b|-worker\b)/.test(text)) {
     errors.push(`${basename(path)} names the extraction project or its file (ADR §8.6)`)
   }
 }
