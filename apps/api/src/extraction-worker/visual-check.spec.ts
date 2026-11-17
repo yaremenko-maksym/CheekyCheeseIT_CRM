@@ -180,16 +180,18 @@ describe('visual-check — the call', () => {
       {
         policyVersion: 'test-1',
         hostedBudgetMs: 1000,
-        floorBudgetMs: 1000,
         routes: [
           {
-            provider: 'local',
-            baseUrl: 'http://crm-model-runtime:11434/v1',
-            model: 'qwen2.5:3b',
+            // Text-only: Groq takes no image part, so no route here can see a page.
+            provider: 'groq',
+            apiKey: 'KEY-MARKER',
+            models: ['openai/gpt-oss-20b'],
             contextTokens: 32_000,
             structuredOutput: 'json_schema',
+            minGapMs: 0,
             timeoutMs: 1000,
             maxAnswerTokens: 500,
+            freeLimit: { requestsPerDay: 100 },
           },
         ],
       },
