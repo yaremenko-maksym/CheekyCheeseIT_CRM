@@ -14,14 +14,20 @@ import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 // change, while `data` keeps its identity as long as the server data is unchanged (structural
 // sharing). A refetch that fails flips `isError` and keeps the same `data`.
 const sources = vi.hoisted(() => {
+  type Result = { data: unknown; isLoading: boolean; isError: boolean }
+  type Store = {
+    result: Result
+    subscribe: (listener: () => void) => () => void
+    set: (patch: Partial<Result>) => void
+  }
   const listeners = new Set<() => void>()
-  const store = {
-    result: { data: undefined as unknown, isLoading: false, isError: false },
+  const store: Store = {
+    result: { data: undefined, isLoading: false, isError: false },
     subscribe(listener: () => void) {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    set(patch: Partial<typeof store.result>) {
+    set(patch: Partial<Result>) {
       store.result = { ...store.result, ...patch }
       listeners.forEach((listener) => listener())
     },
