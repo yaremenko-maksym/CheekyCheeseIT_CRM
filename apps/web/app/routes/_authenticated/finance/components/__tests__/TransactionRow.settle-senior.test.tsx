@@ -15,7 +15,7 @@
  * below). The RBAC condition is asserted to be IDENTICAL to the senior branch.
  *
  * The row is a <motion.tr> rendered inside <AnimatePresence>; we mock
- * framer-motion to plain DOM and @tanstack/react-router's <Link> to an anchor
+ * motion to plain DOM and @tanstack/react-router's <Link> to an anchor
  * so the component renders without a router. SENIOR_PENDING_PAYOUT rows hit the
  * FromTo default branch (no <Link>) anyway, but the mock keeps the test robust.
  */
@@ -29,9 +29,9 @@ beforeAll(async () => {
   await loadCatalog('uk')
 })
 
-vi.mock('framer-motion', () => ({
+vi.mock('motion/react', () => ({
   AnimatePresence: ({ children }: { children: React.ReactNode }) => children,
-  motion: new Proxy(
+  m: new Proxy(
     {},
     {
       get:

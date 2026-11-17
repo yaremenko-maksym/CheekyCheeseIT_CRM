@@ -1,6 +1,6 @@
 import { useId, useRef } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { type LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -282,7 +282,7 @@ export function SegmentedToggle<V extends string>({
             )}
           >
             {active && (
-              <motion.div
+              <m.div
                 layoutId={pillLayoutId}
                 className={cn(
                   'absolute inset-0 rounded-md',

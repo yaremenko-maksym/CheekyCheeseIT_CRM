@@ -1,5 +1,4 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
 import { AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Trans, useLingui } from '@lingui/react/macro'
@@ -49,14 +48,11 @@ export function ImpersonationBanner({ user, onStopped }: ImpersonationBannerProp
   const roleName = useRoleLabel(user.role)
 
   return (
-    <motion.div
+    <div
       role="alert"
       aria-live="polite"
       data-testid="impersonation-banner"
-      className="shrink-0 border-b border-amber-500/50 bg-amber-500/10 px-4 py-2 sm:py-1.5"
-      initial={{ opacity: 0, y: -8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2, ease: 'easeOut' }}
+      className="shrink-0 border-b border-amber-500/50 bg-amber-500/10 px-4 py-2 sm:py-1.5 animate-in fade-in-0 slide-in-from-top-2 duration-200 ease-out"
     >
       <div className="mx-auto flex max-w-7xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         {/* Label */}
@@ -83,6 +79,6 @@ export function ImpersonationBanner({ user, onStopped }: ImpersonationBannerProp
           {stopMutation.isPending ? t`Повернення…` : t`Повернутися до свого профілю`}
         </Button>
       </div>
-    </motion.div>
+    </div>
   )
 }

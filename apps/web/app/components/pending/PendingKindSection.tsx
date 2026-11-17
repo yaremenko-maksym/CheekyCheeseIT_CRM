@@ -1,4 +1,4 @@
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import { AnimatePresence, m, useReducedMotion } from 'motion/react'
 import type { LucideIcon } from 'lucide-react'
 import { PendingItemRow, type PendingZone } from '@/components/pending/PendingItemRow'
 import type { PendingItemKind, PendingItemOrUnknown } from '@crm/shared'
@@ -58,7 +58,7 @@ export function PendingKindSection({
         </h3>
       </div>
       <ul className="space-y-1.5" data-testid={`pending-kind-section-${zone}-${kind}`}>
-        {/* task-667-mutation-web: every framer-motion prop below (the
+        {/* task-667-mutation-web: every motion prop below (the
             `AnimatePresence`/`motion.li` `initial`s, `exit`, `transition`,
             and the list `key`) is a genuine mutation-gate equivalent in THIS
             harness — verified empirically, not assumed: a probe test that
@@ -66,7 +66,7 @@ export function PendingKindSection({
             mounted, populated section showed a bare `<li>` with NO `style`
             attribute and nothing animation-related at all — happy-dom (this
             project's vitest environment, see apps/web/vitest.config.ts)
-            never runs framer-motion's real style-application path, so no
+            never runs motion's real style-application path, so no
             DOM-based assertion in this suite can distinguish any of these
             values from a mutated one. `key` is included for a second,
             independent reason on top of that: React never renders `key` to
@@ -80,7 +80,7 @@ export function PendingKindSection({
           initial={false}
         >
           {items.map((item) => (
-            <motion.li
+            <m.li
               // Stryker disable next-line StringLiteral: see the block comment above — `key` is never rendered to the DOM and this component has no state a collision could visibly corrupt
               key={`${item.kind}-${item.subjectId}`}
               // `layout="position"`, not bare `layout`: the rows only ever
@@ -99,7 +99,7 @@ export function PendingKindSection({
               transition={{ duration: shouldReduceMotion ? 0 : 0.2 }}
             >
               <PendingItemRow item={item} zone={zone} onActed={() => onActed(item)} />
-            </motion.li>
+            </m.li>
           ))}
         </AnimatePresence>
       </ul>

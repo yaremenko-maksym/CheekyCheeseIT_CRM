@@ -10,7 +10,7 @@
  * page).
  *
  * The table renders the finance <motion.tr>/<AnimatePresence>; we mock
- * framer-motion to plain DOM and @tanstack/react-router's <Link> to an anchor so
+ * motion to plain DOM and @tanstack/react-router's <Link> to an anchor so
  * the component renders without a router (same pattern as the TransactionRow
  * tests).
  */
@@ -33,9 +33,9 @@ function render(ui: ReactElement): RenderResult {
   return rtlRender(ui, { wrapper: I18nTestProvider })
 }
 
-vi.mock('framer-motion', () => ({
+vi.mock('motion/react', () => ({
   AnimatePresence: ({ children }: { children: React.ReactNode }) => children,
-  motion: new Proxy(
+  m: new Proxy(
     {},
     {
       get:

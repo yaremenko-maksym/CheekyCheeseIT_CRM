@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, m } from 'motion/react'
 import {
   Bitcoin,
   Building2,
@@ -159,7 +159,7 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
         {/* ---------- Animated card switch ---------- */}
         <AnimatePresence mode="wait" initial={false}>
           {method === 'USDT_ERC20' ? (
-            <motion.div
+            <m.div
               key="usdt"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
@@ -217,9 +217,9 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
                   </div>
                 </CardContent>
               </Card>
-            </motion.div>
+            </m.div>
           ) : (
-            <motion.div
+            <m.div
               key="bank"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
@@ -316,7 +316,7 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
                   </div>
                 </CardContent>
               </Card>
-            </motion.div>
+            </m.div>
           )}
         </AnimatePresence>
 

@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { PageHeader } from '@/components/crm/StickyPageHeader'
-import { motion } from 'framer-motion'
+import { m } from 'motion/react'
 import { useLingui } from '@lingui/react/macro'
 import { BookOpen, Loader2, Pencil, Plus, Save, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -97,21 +97,21 @@ function LegendPage() {
           )}
 
           {!isLoading && projectId && (
-            <motion.div className="space-y-4" variants={container} initial="hidden" animate="show">
+            <m.div className="space-y-4" variants={container} initial="hidden" animate="show">
               {/* Desktop ≥1024px: persona | cover story in 2-column grid (spec §4.2) */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <motion.div variants={card}>
+                <m.div variants={card}>
                   <LegendPersonaBlock projectId={projectId} legend={legend ?? null} />
-                </motion.div>
-                <motion.div variants={card}>
+                </m.div>
+                <m.div variants={card}>
                   <LegendCoverBlock projectId={projectId} legend={legend ?? null} />
-                </motion.div>
+                </m.div>
               </div>
               {/* Journal — full width below the 2-col grid */}
-              <motion.div variants={card}>
+              <m.div variants={card}>
                 <LegendJournalBlock projectId={projectId} legend={legend ?? null} />
-              </motion.div>
-            </motion.div>
+              </m.div>
+            </m.div>
           )}
         </div>
       </div>

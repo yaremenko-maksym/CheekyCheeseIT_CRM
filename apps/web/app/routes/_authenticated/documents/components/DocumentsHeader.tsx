@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
 import { Plus } from 'lucide-react'
 import { Trans } from '@lingui/react/macro'
 import type { DocumentCategory, ProjectDto, SessionUser, UserProfileDto } from '@crm/shared'
@@ -61,12 +60,7 @@ export function DocumentsHeader({ viewer, categoryFilter, users }: HeaderProps) 
     <>
       {/* Page header — mirrors /users: motion entrance, title on the left,
           primary action on the right. */}
-      <motion.div
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.28 }}
-        className="flex flex-wrap items-center justify-between gap-4"
-      >
+      <div className="flex flex-wrap items-center justify-between gap-4 animate-in fade-in-0 slide-in-from-top-[10px] duration-[280ms] ease-out">
         <div />
 
         {canShowUploadButton ? (
@@ -81,7 +75,7 @@ export function DocumentsHeader({ viewer, categoryFilter, users }: HeaderProps) 
             <Trans>Завантажити файл</Trans>
           </Button>
         ) : null}
-      </motion.div>
+      </div>
 
       {canShowUploadButton ? (
         <UploadDocumentDialog

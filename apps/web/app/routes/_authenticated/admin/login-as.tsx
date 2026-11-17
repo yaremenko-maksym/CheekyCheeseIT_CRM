@@ -1,6 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
 import { Search, UserCheck } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -97,11 +96,7 @@ function LoginAsPageContent({ meId }: { meId: string }) {
     <>
       <div className="space-y-4" data-testid="login-as-page">
         {/* Toolbar */}
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.28, delay: 0.05 }}
-        >
+        <div className="animate-in fade-in-0 slide-in-from-bottom-2 duration-[280ms] delay-[50ms] fill-mode-backwards ease-out">
           <Card>
             <CardContent className="flex items-center gap-3 pt-4 pb-4">
               <div className="relative flex-1">
@@ -125,14 +120,10 @@ function LoginAsPageContent({ meId }: { meId: string }) {
               )}
             </CardContent>
           </Card>
-        </motion.div>
+        </div>
 
         {/* User list */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.28, delay: 0.1 }}
-        >
+        <div className="animate-in fade-in-0 duration-[280ms] delay-100 fill-mode-backwards ease-out">
           <Card>
             <CardContent className="p-3 space-y-1" data-testid="login-as-list">
               {isLoading ? (
@@ -158,12 +149,9 @@ function LoginAsPageContent({ meId }: { meId: string }) {
                 </div>
               ) : (
                 filtered.map((u) => (
-                  <motion.div
+                  <div
                     key={u.id}
-                    initial={{ opacity: 0, y: -4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.08, ease: 'easeOut' }}
-                    className="flex items-center gap-3 rounded-md px-3 py-2.5 hover:bg-muted/50 transition-colors"
+                    className="flex items-center gap-3 rounded-md px-3 py-2.5 hover:bg-muted/50 transition-colors animate-in fade-in-0 slide-in-from-top-1 [--tw-animation-duration:80ms] [--tw-ease:ease-out]"
                     data-testid={`login-as-row-${u.id}`}
                   >
                     <UserAvatar
@@ -205,12 +193,12 @@ function LoginAsPageContent({ meId }: { meId: string }) {
                         <Trans>Увійти</Trans>
                       </span>
                     </Button>
-                  </motion.div>
+                  </div>
                 ))
               )}
             </CardContent>
           </Card>
-        </motion.div>
+        </div>
       </div>
 
       {/* Confirm dialog */}

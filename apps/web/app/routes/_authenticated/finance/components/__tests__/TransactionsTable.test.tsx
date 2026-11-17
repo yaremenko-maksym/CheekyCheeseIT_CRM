@@ -30,7 +30,7 @@ function render(ui: ReactElement): RenderResult {
 }
 
 const animatePresenceProps = vi.hoisted(() => vi.fn())
-vi.mock('framer-motion', () => ({
+vi.mock('motion/react', () => ({
   AnimatePresence: (props: { children: React.ReactNode }) => {
     animatePresenceProps(props)
     return props.children

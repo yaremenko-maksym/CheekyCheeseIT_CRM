@@ -1,5 +1,4 @@
 import { Link } from '@tanstack/react-router'
-import { motion } from 'framer-motion'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { Archive, ArrowLeft, Calendar, DollarSign, Globe, Pencil } from 'lucide-react'
 import type { ProjectDetailDto, Role } from '@crm/shared'
@@ -50,15 +49,7 @@ export function ProjectHero({
   const { t } = useLingui()
   const locale = useLocale()
   return (
-    <motion.div
-      className="relative overflow-hidden rounded-2xl border border-border/40 bg-card"
-      // Stryker disable next-line ObjectLiteral,UnaryOperator: entrance-animation keyframes only, no behavior (jsdom does not run framer-motion tweens)
-      initial={{ opacity: 0, y: -8 }}
-      // Stryker disable next-line ObjectLiteral: entrance-animation keyframes only, no behavior
-      animate={{ opacity: 1, y: 0 }}
-      // Stryker disable next-line ObjectLiteral: animation timing only, no behavior
-      transition={{ duration: 0.35 }}
-    >
+    <div className="relative overflow-hidden rounded-2xl border border-border/40 bg-card animate-in fade-in-0 slide-in-from-top-2 duration-[350ms] ease-out">
       {/* Ambient glow blob */}
       <div
         className="pointer-events-none absolute -top-16 -left-16 h-64 w-64 rounded-full opacity-[0.07] blur-3xl"
@@ -227,6 +218,6 @@ export function ProjectHero({
           </div>
         </div>
       </div>
-    </motion.div>
+    </div>
   )
 }

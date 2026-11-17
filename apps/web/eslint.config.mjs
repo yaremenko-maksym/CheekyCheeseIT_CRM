@@ -31,6 +31,16 @@ export default [
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
       '@typescript-eslint/no-require-imports': 'error',
+      // Animate with `m.*` under the root `LazyMotion` (routes/__root.tsx).
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            { name: 'framer-motion', message: 'Import from motion/react; use m + LazyMotion.' },
+            { name: 'motion/react', importNames: ['motion'], message: 'use m + LazyMotion' },
+          ],
+        },
+      ],
     },
   },
   {

@@ -1,5 +1,5 @@
 /**
- * Pins the drawer animation config of ComplianceReceiverRow. Real framer-motion
+ * Pins the drawer animation config of ComplianceReceiverRow. Real motion
  * never exposes its props in the DOM under happy-dom, so the motion element is
  * replaced by a recorder (props only — the row's behaviour is covered in
  * components.test.tsx).
@@ -14,9 +14,9 @@ beforeAll(async () => {
 })
 
 const motionProps = vi.fn()
-vi.mock('framer-motion', () => ({
+vi.mock('motion/react', () => ({
   AnimatePresence: ({ children }: { children?: ReactNode }) => <>{children}</>,
-  motion: {
+  m: {
     div: ({ children, ...props }: { children?: ReactNode } & Record<string, unknown>) => {
       motionProps(props)
       return <div data-testid="motion-div">{children}</div>

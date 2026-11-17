@@ -35,18 +35,6 @@ vi.mock('sonner', () => ({
   },
 }))
 
-// Framer-motion: render children without animation to avoid timer issues
-vi.mock('framer-motion', () => ({
-  motion: {
-    div: ({
-      children,
-      ...props
-    }: React.HTMLAttributes<HTMLDivElement> & { children?: React.ReactNode }) => (
-      <div {...props}>{children}</div>
-    ),
-  },
-}))
-
 import { api } from '@/lib/axios'
 import { toast } from 'sonner'
 import { ImpersonationBanner } from '../ImpersonationBanner'
