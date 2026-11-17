@@ -1180,7 +1180,7 @@ describe('authentication and attribution agree with what the provenance says', (
     ])
     expect(type('JSEARCH_API').policyRefs).toEqual([
       {
-        termsUrl: 'https://www.openwebninja.com/api/jsearch',
+        termsUrl: 'https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch',
         termsCheckedAt: '2026-11-16T21:59:59.000Z',
       },
     ])
