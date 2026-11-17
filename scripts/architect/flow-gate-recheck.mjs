@@ -54,7 +54,10 @@ export async function recheck({ api, repo, prNumber, headOwner, headBranch, slee
     numbers = res.body.map((p) => p.number)
   } else throw new Error('neither a PR number nor a head owner/branch was given')
   if (!numbers.length) {
-    log('no open PR into main for this head — nothing to re-check')
+    // Loud: a relay whose head did not resolve must not look like a clean no-op.
+    log(
+      `::warning title=Flow Gate recheck::no open PR into main for head ${headOwner}:${headBranch} — nothing re-checked`,
+    )
     return []
   }
   const results = []

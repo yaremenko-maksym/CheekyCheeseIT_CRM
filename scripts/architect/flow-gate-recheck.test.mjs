@@ -81,7 +81,8 @@ test('relay: resolves the PR from head owner:branch (URL-encoded), never from ru
   assert.ok(calls[0].includes(q))
 })
 
-test('relay with no open PR for the head: nothing to do', async () => {
+test('relay with no open PR for the head: warns, re-runs nothing', async () => {
+  const logs = []
   const { api } = fakeApi({
     [`GET repos/${REPO}/pulls?state=open&base=main&head=${encodeURIComponent('a:b')}&per_page=10`]:
       {
@@ -90,9 +91,17 @@ test('relay with no open PR for the head: nothing to do', async () => {
       },
   })
   assert.deepEqual(
-    await recheck({ api, repo: REPO, headOwner: 'a', headBranch: 'b', ...quiet }),
+    await recheck({
+      api,
+      repo: REPO,
+      headOwner: 'a',
+      headBranch: 'b',
+      log: (l) => logs.push(l),
+      sleep: async () => {},
+    }),
     [],
   )
+  assert.ok(logs.some((l) => l.startsWith('::warning')))
 })
 
 test('closed PR or a PR into another base is not re-checked', async () => {
