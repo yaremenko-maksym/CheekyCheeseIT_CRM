@@ -16,7 +16,8 @@
 import { renderHook, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { readFileSync, readdirSync } from 'node:fs'
+import { readdirSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import React from 'react'
 
@@ -337,27 +338,38 @@ describe('PENDING_QUERY_KEY', () => {
     expect(PENDING_QUERY_KEY).toEqual(['pending'])
   })
 
-  it("CR-M-2: no production file re-spells the key as a `queryKey: ['pending']` literal — invalidation must follow a rename of the constant", () => {
-    const root = join(__dirname, '..', '..')
-    const offenders: string[] = []
+  it(
+    "CR-M-2: no production file re-spells the key as a `queryKey: ['pending']` literal — invalidation must follow a rename of the constant",
+    async () => {
+      const root = join(__dirname, '..', '..')
+      const files: string[] = []
 
-    const walk = (dir: string) => {
-      for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        const full = join(dir, entry.name)
-        if (entry.isDirectory()) {
-          if (entry.name === '__tests__' || entry.name === 'node_modules') continue
-          walk(full)
-          continue
-        }
-        if (!/\.tsx?$/.test(entry.name)) continue
-        if (full.endsWith(join('hooks', 'use-pending-items.ts'))) continue // the definition itself
-        if (/queryKey:\s*\['pending'\]/.test(readFileSync(full, 'utf8'))) {
-          offenders.push(full.slice(root.length + 1))
+      const walk = (dir: string) => {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const full = join(dir, entry.name)
+          if (entry.isDirectory()) {
+            if (entry.name === '__tests__' || entry.name === 'node_modules') continue
+            walk(full)
+            continue
+          }
+          if (!/\.tsx?$/.test(entry.name)) continue
+          if (full.endsWith(join('hooks', 'use-pending-items.ts'))) continue // the definition itself
+          files.push(full)
         }
       }
-    }
-    walk(root)
+      walk(root)
+      expect(files.length).toBeGreaterThan(0)
 
-    expect(offenders).toEqual([])
-  })
+      // The cost is the first open of each file (cold cache / on-access scan), not
+      // the walk: reading them concurrently overlaps that latency.
+      const contents = await Promise.all(files.map((file) => readFile(file, 'utf8')))
+      const offenders = files
+        .filter((_, i) => /queryKey:\s*\['pending'\]/.test(contents[i] ?? ''))
+        .map((full) => full.slice(root.length + 1))
+
+      expect(offenders).toEqual([])
+    },
+    // Honest fs cost: a cold scan of apps/web/app measured ~7 s concurrent (~30 s serial) on a loaded Windows box.
+    60_000,
+  )
 })

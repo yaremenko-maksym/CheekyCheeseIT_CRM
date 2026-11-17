@@ -1,4 +1,9 @@
-import { ATTEMPT_CODES, HOSTED_PROVIDERS, type ExtractionWorkerReply } from '@crm/inference'
+import {
+  ATTEMPT_CODES,
+  HOSTED_PROVIDERS,
+  type ExtractionWorkerReply,
+  type WorkerReadiness,
+} from '@crm/inference'
 import { kyivToday } from '@crm/shared'
 import { z } from 'zod'
 import { MODEL_ROUTE_VALUES, type ModelHealthFlag, type ModelRoute } from '../../database/schema'
@@ -31,6 +36,25 @@ const disabledSchema = z.looseObject({
   route: z.enum(HOSTED_PROVIDERS),
   code: z.enum(['AUTH', 'CREDIT']),
 })
+/**
+ * Limit codes count toward `MODEL_LIMITS_EXHAUSTED` only, never `HOSTED_ROUTES_DEAD` (H.2): one cause,
+ * one flag. A limit clears itself at the provider reset; a dead route needs the owner.
+ */
+const LIMIT_CODE_LIST = ['CAP', 'SPENT_DAY', 'CREDIT'] as const
+const LIMIT_CODES: ReadonlySet<string> = new Set(LIMIT_CODE_LIST)
+/**
+ * The `EXHAUSTED` reasons that say nothing of a dead route: a limit (H.2), or a `FIT` skip that asked
+ * the route nothing. Any other reason, a malformed one, an empty, absent or non-array `reasons` is
+ * evidence: a malformed event must never hide a dead route (SR-L-1).
+ */
+const harmlessReasonSchema = z.looseObject({
+  route: z.enum(HOSTED_PROVIDERS),
+  code: z.enum([...LIMIT_CODE_LIST, 'FIT']),
+})
+const isDeadEvidence = (reasons: unknown): boolean =>
+  !Array.isArray(reasons) ||
+  reasons.length === 0 ||
+  reasons.some((r) => !harmlessReasonSchema.safeParse(r).success)
 // The router sends `servedModel` only on a 2xx RETIRED; its 404 shape has none and is no refusal.
 const answeredRetiredSchema = z.looseObject({
   route: z.enum(HOSTED_PROVIDERS),
@@ -38,10 +62,12 @@ const answeredRetiredSchema = z.looseObject({
 })
 
 export type ModelHealthCycle = {
-  /** Health only: the preflight asks no model (5.4c-H1), so its reply carries no route evidence. */
+  /** Health only: the readiness preflight asks no model (H.3), so its reply carries no route evidence. */
   onPreflightReply(reply: ExtractionWorkerReply): void
   onReply(reply: ExtractionWorkerReply): void
-  preflightDone(reached: boolean): Promise<void>
+  /** The port result of one model call: a success or the H.2 stop moves `MODEL_LIMITS_EXHAUSTED`. */
+  onResult(result: { ok: boolean; code?: string }): void
+  preflightDone(readiness: WorkerReadiness['readiness']): Promise<void>
   finish(): Promise<void>
 }
 
@@ -77,6 +103,8 @@ export function createModelHealth(deps: { store: ModelHealthStore; log: ModelHea
       const counts = new Map<string, Omit<RouteCount, 'day'>>()
       let hostedSeen = false
       let hostedOk = false
+      let callOk = false
+      let limitsHit = false
       let health: ExtractionWorkerReply['health'] | undefined
 
       const count = (route: ModelRoute, code: string) => {
@@ -96,9 +124,13 @@ export function createModelHealth(deps: { store: ModelHealthStore; log: ModelHea
           } else if (attempt.data.route !== 'local') {
             count(attempt.data.route, attempt.data.code)
             if (attempt.data.code === 'OK') hostedOk = true
-            // An aborted call says nothing about the route (ADR §5.5 item 3).
-            if (attempt.data.code !== 'ABORTED') hostedSeen = true
+            // An aborted call says nothing about the route (ADR §5.5 item 3), a limit says it is
+            // limited, not dead (H.2).
+            const code = attempt.data.code
+            if (code !== 'ABORTED' && !LIMIT_CODES.has(code)) hostedSeen = true
           }
+        } else if (event.type === 'EXHAUSTED') {
+          if (isDeadEvidence(event['reasons'])) hostedSeen = true
         } else if (event.type === 'RETIRED') {
           if (answeredRetiredSchema.safeParse(event).success) hostedOk = true
         } else if (event.type === 'PROVIDER_DISABLED') {
@@ -107,7 +139,7 @@ export function createModelHealth(deps: { store: ModelHealthStore; log: ModelHea
             log.error('MODEL_REPLY_EVENT_REFUSED type=PROVIDER_DISABLED')
             return
           }
-          hostedSeen = true
+          if (!LIMIT_CODES.has(disabled.data.code)) hostedSeen = true
           const line = `MODEL_PROVIDER_DISABLED route=${disabled.data.route} code=${disabled.data.code}`
           if (!disabledSeen.has(line)) log.error(line)
           disabledSeen.add(line)
@@ -135,8 +167,19 @@ export function createModelHealth(deps: { store: ModelHealthStore; log: ModelHea
           health = reply.health
           reply.events.forEach(onEvent)
         },
-        preflightDone: async (reached) => {
-          await setFlag('MODEL_UNREACHABLE', !reached)
+        onResult: (result) => {
+          if (result.ok) callOk = true
+          else if (result.code === 'LIMITS_EXHAUSTED') limitsHit = true
+        },
+        preflightDone: async (readiness) => {
+          // NO_ROUTE or no answer: the worker or its routes (H.3). Neither says anything of limits.
+          await setFlag(
+            'MODEL_UNREACHABLE',
+            readiness === 'NO_ROUTE' || readiness === 'UNREACHABLE',
+          )
+          if (readiness === 'READY' || readiness === 'LIMITS_EXHAUSTED') {
+            await setFlag('MODEL_LIMITS_EXHAUSTED', readiness === 'LIMITS_EXHAUSTED')
+          }
           await applyHealth()
           await emit()
         },
@@ -153,6 +196,9 @@ export function createModelHealth(deps: { store: ModelHealthStore; log: ModelHea
           if (rows.length > 0) await safely('ADD_ROUTE_COUNTS', () => store.addRouteCounts(rows))
           if (hostedOk) await setFlag('HOSTED_ROUTES_DEAD', false)
           else if (hostedSeen) await setFlag('HOSTED_ROUTES_DEAD', true)
+          // The stop latches the cycle, so it is the cycle's last word over an earlier success.
+          if (limitsHit) await setFlag('MODEL_LIMITS_EXHAUSTED', true)
+          else if (callOk) await setFlag('MODEL_LIMITS_EXHAUSTED', false)
           await applyHealth()
           await emit()
         },

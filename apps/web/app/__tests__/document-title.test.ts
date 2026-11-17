@@ -25,6 +25,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync } from 'fs'
+import { readFile } from 'fs/promises'
 import path from 'path'
 
 const WEB_ROOT = path.resolve(__dirname, '../..')
@@ -70,16 +71,20 @@ describe('CRM tab title (task-crm-tab-distinguishable)', () => {
     expect(title.slice(0, landingTitlePrefix.length)).not.toBe(landingTitlePrefix)
   })
 
-  it('AC2 (regression guard): no source file under apps/web/app mutates document.title at runtime', () => {
+  it('AC2 (regression guard): no source file under apps/web/app mutates document.title at runtime', async () => {
     // If this starts failing, a per-route/dynamic title was introduced —
     // the static index.html assertion above is no longer sufficient proof
     // AC2 holds, and apps/e2e/tests/crm-tab-title.spec.ts must be checked.
-    const offenders = listAppSourceFiles(APP_ROOT).filter((file) => {
-      const content = readFileSync(file, 'utf8')
-      return /document\.title\s*=/.test(content)
-    })
+    const files = listAppSourceFiles(APP_ROOT)
+    expect(files.length).toBeGreaterThan(0)
+    // The cost is the first open of each of ~800 files (cold cache / on-access
+    // scan), not the walk: reading them concurrently overlaps that latency. The
+    // 60 s limit is that honest fs cost: a cold scan measured ~7 s concurrent
+    // (~30 s serial) on a loaded Windows box.
+    const contents = await Promise.all(files.map((file) => readFile(file, 'utf8')))
+    const offenders = files.filter((_, i) => /document\.title\s*=/.test(contents[i] ?? ''))
     expect(offenders).toEqual([])
-  })
+  }, 60_000)
 
   it('AC3: site.webmanifest name/short_name are CRM-specific, not the bare landing brand', () => {
     const manifest = readManifest()

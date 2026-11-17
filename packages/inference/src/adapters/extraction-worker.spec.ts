@@ -85,7 +85,7 @@ describe('extraction-worker adapter — what crosses', () => {
   })
 
   // ADR §5.4: each of these decides what happens to the record, so none may be flattened.
-  it.each(['NOT_CONFIGURED', 'PROVIDER_ERROR', 'INVALID_OUTPUT', 'TIMEOUT'])(
+  it.each(['NOT_CONFIGURED', 'PROVIDER_ERROR', 'INVALID_OUTPUT', 'TIMEOUT', 'LIMITS_EXHAUSTED'])(
     'a worker failure code %s passes through bare',
     async (code) => {
       const { port } = setup(fakeFetch(async () => reply({ ok: false, code })))
@@ -274,16 +274,16 @@ describe('extraction-worker adapter — the abort signal closes the connection',
   })
 })
 
-describe('extraction-worker adapter — preflight (ADR §5.3)', () => {
-  const answer = (ok: unknown, extra: object = {}) => ({
+describe('extraction-worker adapter — readiness preflight (ADR §5.3, H.3)', () => {
+  const answer = (readiness: unknown, extra: object = {}) => ({
     status: 200,
-    text: JSON.stringify({ ok, events: [{ type: 'CALL', code: 'OK' }], health: HEALTH, ...extra }),
+    text: JSON.stringify({ readiness, events: [], health: HEALTH, ...extra }),
   })
 
-  it('posts no body to /preflight with the same auth, and reports reached', async () => {
-    const f = fakeFetch(async () => answer(true))
+  it('posts no body to /preflight with the same auth, and reports the readiness', async () => {
+    const f = fakeFetch(async () => answer('READY'))
     const { port } = setup(f)
-    expect(await port.preflight()).toEqual({ reached: true })
+    expect(await port.preflight()).toEqual({ readiness: 'READY' })
     expect(f.sent).toHaveLength(1)
     const sent = f.sent[0]!
     expect(sent.url).toBe('http://crm-extraction-worker:3100/preflight')
@@ -295,42 +295,58 @@ describe('extraction-worker adapter — preflight (ADR §5.3)', () => {
     expect(sent.init?.body).toBeUndefined()
   })
 
-  it('hands its events and health to onReply, whatever the model answered', async () => {
-    const health = { modelListStale: true, failedJobs: ['chain'] }
-    const f = fakeFetch(async () => answer(false, { health }))
-    const { port, replies } = setup(f)
-    expect(await port.preflight()).toEqual({ reached: false, status: 200 })
-    expect(replies).toEqual([{ events: [{ type: 'CALL', code: 'OK' }], health }])
+  it.each(['READY', 'LIMITS_EXHAUSTED', 'NO_ROUTE'])('passes %s through', async (readiness) => {
+    const { port } = setup(fakeFetch(async () => answer(readiness)))
+    expect(await port.preflight()).toEqual({ readiness })
   })
 
-  it.each([401, 403, 429, 500])('a %i is not reached and carries its status', async (status) => {
+  it('hands its events and health to onReply, whatever the readiness', async () => {
+    const health = { modelListStale: true, failedJobs: ['chain'] }
+    const f = fakeFetch(async () => answer('LIMITS_EXHAUSTED', { health }))
+    const { port, replies } = setup(f)
+    expect(await port.preflight()).toEqual({ readiness: 'LIMITS_EXHAUSTED' })
+    expect(replies).toEqual([{ events: [], health }])
+  })
+
+  it.each([401, 403, 429, 500])('a %i is unreachable and carries its status', async (status) => {
     const { port } = setup(fakeFetch(async () => ({ status, text: 'a body that stays out' })))
-    expect(await port.preflight()).toEqual({ reached: false, status })
+    expect(await port.preflight()).toEqual({ readiness: 'UNREACHABLE', status })
   })
 
   it.each([
     [
       'a worker error',
-      { status: 500, text: JSON.stringify({ ok: true, events: [], health: HEALTH }) },
+      { status: 500, text: JSON.stringify({ readiness: 'READY', events: [], health: HEALTH }) },
     ],
     ['a non-JSON body', { status: 200, text: 'not json' }],
     ['an extract-shaped reply', reply({ ok: true, data: {} })],
-    ['a non-boolean ok', answer('true')],
-    ['a foreign field', answer(true, { text: 'page' })],
-    ['too many events', answer(true, { events: Array(101).fill({ type: 'X' }) })],
-  ])('%s is not reached and records nothing', async (_name, res) => {
+    // Version skew (H.3): an H1 worker answers `{ ok }`, which this schema refuses.
+    [
+      'an H1 worker reply { ok: true }',
+      { status: 200, text: JSON.stringify({ ok: true, events: [], health: HEALTH }) },
+    ],
+    [
+      'an H1 worker reply { ok: false }',
+      { status: 200, text: JSON.stringify({ ok: false, events: [], health: HEALTH }) },
+    ],
+    ['both keys', answer('READY', { ok: true })],
+    ['an unknown readiness', answer('ALMOST')],
+    ['a lower-case readiness', answer('ready')],
+    ['a foreign field', answer('READY', { text: 'page' })],
+    ['too many events', answer('READY', { events: Array(101).fill({ type: 'X' }) })],
+  ])('%s is unreachable and records nothing', async (_name, res) => {
     const { port, replies } = setup(fakeFetch(async () => res))
-    expect(await port.preflight()).toEqual({ reached: false, status: res.status })
+    expect(await port.preflight()).toEqual({ readiness: 'UNREACHABLE', status: res.status })
     expect(replies).toEqual([])
   })
 
-  it('a transport failure has no status, is not reached and never throws', async () => {
+  it('a transport failure has no status, is unreachable and never throws', async () => {
     const { port } = setup(
       fakeFetch(async () => {
         throw new Error('ECONNREFUSED')
       }),
     )
-    await expect(port.preflight()).resolves.toStrictEqual({ reached: false })
+    await expect(port.preflight()).resolves.toStrictEqual({ readiness: 'UNREACHABLE' })
   })
 
   it('a throwing onReply does not change the answer', async () => {
@@ -342,12 +358,12 @@ describe('extraction-worker adapter — preflight (ADR §5.3)', () => {
       onReply: () => {
         throw new Error('sink')
       },
-      fetchImpl: fakeFetch(async () => answer(true)),
+      fetchImpl: fakeFetch(async () => answer('READY')),
     })
-    await expect(port.preflight()).resolves.toEqual({ reached: true })
+    await expect(port.preflight()).resolves.toEqual({ readiness: 'READY' })
   })
 
-  it('runs on its own bounded timeout of two minutes, not the extract one', async () => {
+  it('runs on its own bounded timeout of ten seconds, not the extract one', async () => {
     vi.useFakeTimers()
     try {
       const f = fakeFetch(
@@ -365,14 +381,52 @@ describe('extraction-worker adapter — preflight (ADR §5.3)', () => {
         fetchImpl: f,
       })
       const answered = port.preflight()
-      await vi.advanceTimersByTimeAsync(119_999)
+      await vi.advanceTimersByTimeAsync(9_999)
       expect(f.sent[0]?.init?.signal?.aborted).toBe(false)
       await vi.advanceTimersByTimeAsync(1)
-      await expect(answered).resolves.toStrictEqual({ reached: false })
-      expect(PREFLIGHT_TIMEOUT_MS).toBe(120_000)
+      await expect(answered).resolves.toStrictEqual({ readiness: 'UNREACHABLE' })
+      expect(PREFLIGHT_TIMEOUT_MS).toBe(10_000)
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('version skew between an H1 and an H2 side fails closed (H.3)', () => {
+  // The H1 envelopes as they shipped (5.4c-H1, PR #1381), pinned here: an H1 API parses with these.
+  const H1_REPORT = {
+    events: z.array(z.looseObject({ type: z.string() })).max(100),
+    health: z
+      .object({ modelListStale: z.boolean(), failedJobs: z.array(z.enum(['daily', 'chain'])) })
+      .strict(),
+  }
+  const H1_PREFLIGHT = z.object({ ...H1_REPORT, ok: z.boolean() }).strict()
+  const H1_CODES = ['NOT_CONFIGURED', 'PROVIDER_ERROR', 'INVALID_OUTPUT', 'RATE_LIMITED', 'TIMEOUT']
+  const H1_EXTRACT = z
+    .object({
+      ...H1_REPORT,
+      result: z.discriminatedUnion('ok', [
+        z.object({ ok: z.literal(true), data: z.unknown() }).strict(),
+        z.object({ ok: z.literal(false), code: z.enum(H1_CODES) }).strict(),
+      ]),
+    })
+    .strict()
+
+  it('an H1 API refuses an H2 readiness reply: its preflight is not reached (MODEL_UNREACHABLE)', () => {
+    for (const readiness of ['READY', 'LIMITS_EXHAUSTED', 'NO_ROUTE']) {
+      expect(H1_PREFLIGHT.safeParse({ readiness, events: [], health: HEALTH }).success).toBe(false)
+    }
+  })
+
+  it('an H1 API refuses an H2 LIMITS_EXHAUSTED extract reply instead of misreading it', () => {
+    const h2 = { result: { ok: false, code: 'LIMITS_EXHAUSTED' }, events: [], health: HEALTH }
+    expect(H1_EXTRACT.safeParse(h2).success).toBe(false)
+  })
+
+  it('an H2 API refuses an H1 preflight reply: unreachable', async () => {
+    const h1 = { status: 200, text: JSON.stringify({ ok: true, events: [], health: HEALTH }) }
+    const { port } = setup(fakeFetch(async () => h1))
+    expect(await port.preflight()).toEqual({ readiness: 'UNREACHABLE', status: 200 })
   })
 })
 

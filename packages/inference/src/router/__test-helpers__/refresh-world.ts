@@ -55,14 +55,20 @@ export const groqListing = (entries: readonly (readonly [string, number?, boolea
 export const ALIVE = answer({ ok: true })
 export const managedDoc = (providers: object): string => JSON.stringify({ version: 1, providers })
 
-/** A cap granting the first `units` reservations, counting like `countingCap`. */
-export function limitedCap(units: number): ReturnType<typeof countingCap> {
+/**
+ * A cap granting the first `units` reservations, counting like `countingCap`; later ones answer
+ * `refusal` (a full cap, or a failed state write).
+ */
+export function limitedCap(
+  units: number,
+  refusal: null | 'WRITE_FAILED' = null,
+): ReturnType<typeof countingCap> {
   const cap = countingCap()
   const reserve = cap.reserve
   let left = units
   cap.reserve = async (p: HostedProvider, limit: FreeLimit) => {
     const unit = await reserve(p, limit)
-    return left-- > 0 ? unit : null
+    return left-- > 0 ? unit : refusal
   }
   return cap
 }

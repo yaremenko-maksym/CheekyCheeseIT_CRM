@@ -8,10 +8,15 @@ import {
   type FetchLike,
 } from '../http/bounded-request'
 import { parseJsonOrNull } from '../internal/chat-completions'
+import { ROUTER_READINESS, type RouterReadiness } from '../router/readiness'
 
 const MAX_REPLY_EVENTS = 100
-/** One preflight attempt (ADR §5.3). Its own bound: a trivial call never needs `extract`'s ceiling. */
-export const PREFLIGHT_TIMEOUT_MS = 120_000
+/**
+ * One readiness request (ADR §5.3, H.3): a state read on the worker over the internal network, no
+ * provider call and no queue behind `extract`, so seconds are ample; past them the worker is
+ * `UNREACHABLE` (fail closed).
+ */
+export const PREFLIGHT_TIMEOUT_MS = 10_000
 
 // `exactOptional`: JSON has no `undefined`, and the port's types are exact-optional.
 const usageSchema = z
@@ -48,8 +53,12 @@ const buildReplySchema = () =>
     })
     .strict()
 
+/**
+ * The readiness reply (H.3). Strict and keyed `readiness`, so an older worker's `{ ok }` reply is
+ * refused here, and this reply is refused by an older API's `{ ok }` schema: version skew fails closed.
+ */
 const buildPreflightReplySchema = () =>
-  z.object({ ...buildReportShape(), ok: z.boolean() }).strict()
+  z.object({ ...buildReportShape(), readiness: z.enum(ROUTER_READINESS) }).strict()
 
 /** What the worker reports besides the answer: its events and the §5.3 health flags. */
 export type ExtractionWorkerReply = Pick<
@@ -114,11 +123,16 @@ export function createExtractionWorkerTransport(
 }
 
 /**
- * `extract`, plus the §5.3 preflight: reached or not, with no text. A preflight that did not reach
- * carries the HTTP status when the worker answered at all; a timeout or a dropped connection has none.
+ * What the readiness preflight found (H.3): the worker's answer, or `UNREACHABLE` when no valid
+ * reply came back. `UNREACHABLE` carries the HTTP status when the worker answered at all; a timeout
+ * or a dropped connection has none.
  */
+export type WorkerReadiness =
+  { readiness: RouterReadiness } | { readiness: 'UNREACHABLE'; status?: number }
+
+/** `extract`, plus the readiness preflight (§5.3, H.3), with no text. */
 export type ExtractionWorkerAdapter = ExtractionPort & {
-  preflight(): Promise<{ reached: boolean; status?: number }>
+  preflight(): Promise<WorkerReadiness>
 }
 
 /**
@@ -147,13 +161,14 @@ export function createExtractionWorkerAdapter(
     async preflight() {
       const res = await post('/preflight', { timeoutMs: PREFLIGHT_TIMEOUT_MS })
       const status = res.kind === 'timeout' ? undefined : res.status
-      const failed = status === undefined ? { reached: false } : { reached: false, status }
+      const failed: WorkerReadiness =
+        status === undefined ? { readiness: 'UNREACHABLE' } : { readiness: 'UNREACHABLE', status }
       if (res.kind !== 'ok') return failed
       const parsed = preflightReplySchema.safeParse(parseJsonOrNull(res.text))
       if (!parsed.success) return failed
-      const { ok, events, health } = parsed.data
+      const { readiness, events, health } = parsed.data
       report({ events, health })
-      return ok ? { reached: true } : failed
+      return { readiness }
     },
     async extract<T>(req: ExtractionRequest<T>): Promise<ExtractionResult<T>> {
       const failed: ExtractionResult<T> = { ok: false, code: 'PROVIDER_ERROR' }

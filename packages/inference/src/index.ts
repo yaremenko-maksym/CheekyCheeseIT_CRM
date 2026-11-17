@@ -40,7 +40,10 @@ export {
   type RouterEvent,
   type AttemptCode,
   type SkipCode,
+  type ExhaustedReason,
 } from './router/router'
+// The readiness answer the worker's /preflight sends (H.3): route state only, no model request.
+export { ROUTER_READINESS, routerReadiness, type RouterReadiness } from './router/readiness'
 export {
   createFileRouteStatePort,
   createOwnCapPort,

@@ -49,12 +49,13 @@ const REPLY = {
   health: { modelListStale: false, failedJobs: [] },
 }
 
-const PREFLIGHT_OK = {
-  ok: true,
-  events: [],
-  health: { modelListStale: false, failedJobs: [] },
-}
-const preflightOk = () => Promise.resolve(new Response(JSON.stringify(PREFLIGHT_OK)))
+const preflightReply = (readiness: string) => () =>
+  Promise.resolve(
+    new Response(
+      JSON.stringify({ readiness, events: [], health: { modelListStale: false, failedJobs: [] } }),
+    ),
+  )
+const preflightOk = preflightReply('READY')
 
 /** The handler has its own spec; here it only has to be present and quiet. */
 const OPTS = {
@@ -75,7 +76,7 @@ async function ready(wiring: ModelExtractionWiring) {
   return cycle
 }
 
-function fakeWorker(reply: object = REPLY) {
+function fakeWorker(reply: object = REPLY, readiness = 'READY') {
   const calls: { url: string; headers: Record<string, string>; body: unknown }[] = []
   const preflights: string[] = []
   const fetchImpl = vi.fn(
@@ -85,7 +86,7 @@ function fakeWorker(reply: object = REPLY) {
     ) => {
       if (url.endsWith('/preflight')) {
         preflights.push(url)
-        return preflightOk()
+        return preflightReply(readiness)()
       }
       calls.push({ url, headers: init?.headers ?? {}, body: JSON.parse(init?.body ?? 'null') })
       return Promise.resolve(new Response(JSON.stringify(reply), { status: 200 }))
@@ -309,7 +310,7 @@ describe('buildModelExtraction — the collection side talks to the worker only 
   })
 })
 
-describe('a failed preflight attempt logs its number and status, never a body (CR-L-4)', () => {
+describe('the readiness preflight: one attempt, no backoff (H.3)', () => {
   const answering = (status: number) => () =>
     Promise.resolve(new Response('a body that stays out', { status }))
 
@@ -319,56 +320,82 @@ describe('a failed preflight attempt logs its number and status, never a body (C
       ...OPTS,
       log: { error: (l) => errors.push(l), warn: () => undefined },
       fetchImpl,
-      sleep: () => Promise.resolve(),
     })
     if (!r.ok || r.wiring === undefined) throw new Error('not wired')
-    return { wiring: r.wiring, errors }
+    return { wiring: r.wiring, errors, fetchImpl }
   }
 
-  it('a 401 on every attempt logs each one with its status', async () => {
-    const { wiring, errors } = wired(answering(401))
+  it('a 401 is one attempt: unreachable, logged with its status and never its body', async () => {
+    const fetchImpl = vi.fn(answering(401))
+    const { wiring, errors } = wired(fetchImpl)
     expect((await wiring.prepareCycle(CYCLE)).kind).toBe('MODEL_UNREACHABLE')
-    expect(errors).toEqual([
-      'MODEL_PREFLIGHT_FAILED attempt=1 status=401',
-      'MODEL_PREFLIGHT_FAILED attempt=2 status=401',
-      'MODEL_PREFLIGHT_FAILED attempt=3 status=401',
-      'MODEL_PREFLIGHT_FAILED attempt=4 status=401',
-    ])
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(errors).toEqual(['MODEL_PREFLIGHT_FAILED readiness=UNREACHABLE status=401'])
   })
 
-  it('a timeout has no status to log', async () => {
+  it('a timeout is one attempt with no status to log', async () => {
     vi.useFakeTimers()
-    const { wiring, errors } = wired(
-      (_url, init) =>
-        new Promise((_resolve, reject) => {
+    const fetchImpl = vi.fn(
+      (_url: string, init?: { signal?: AbortSignal }) =>
+        new Promise<Response>((_resolve, reject) => {
           init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
         }),
     )
+    const { wiring, errors } = wired(fetchImpl)
     const cycle = wiring.prepareCycle(CYCLE)
-    await vi.advanceTimersByTimeAsync(4 * 120_000)
+    // The preflight bound is 10 s (CR-L-3): a 120 s advance would pass a regression to the old bound.
+    await vi.advanceTimersByTimeAsync(10_000)
     expect((await cycle).kind).toBe('MODEL_UNREACHABLE')
-    expect(errors).toEqual([
-      'MODEL_PREFLIGHT_FAILED attempt=1 status=none',
-      'MODEL_PREFLIGHT_FAILED attempt=2 status=none',
-      'MODEL_PREFLIGHT_FAILED attempt=3 status=none',
-      'MODEL_PREFLIGHT_FAILED attempt=4 status=none',
-    ])
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(errors).toEqual(['MODEL_PREFLIGHT_FAILED readiness=UNREACHABLE status=none'])
   })
 
-  it('an attempt that reaches the model logs nothing, and only the failed ones are logged', async () => {
-    const answers = [answering(503), answering(401), preflightOk]
-    const { wiring, errors } = wired(() => answers.shift()!())
-    expect((await wiring.prepareCycle(CYCLE)).kind).toBe('READY')
-    expect(errors).toEqual([
-      'MODEL_PREFLIGHT_FAILED attempt=1 status=503',
-      'MODEL_PREFLIGHT_FAILED attempt=2 status=401',
-    ])
+  it('NO_ROUTE is unreachable after one attempt', async () => {
+    const fetchImpl = vi.fn(preflightReply('NO_ROUTE'))
+    const { wiring, errors } = wired(fetchImpl)
+    expect((await wiring.prepareCycle(CYCLE)).kind).toBe('MODEL_UNREACHABLE')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(errors).toEqual(['MODEL_PREFLIGHT_FAILED readiness=NO_ROUTE'])
   })
 
-  it('a model reached on the first attempt logs nothing', async () => {
+  it("an H1 worker's { ok } reply is unreachable: version skew fails closed", async () => {
+    const h1 = () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            events: [],
+            health: { modelListStale: false, failedJobs: [] },
+          }),
+        ),
+      )
+    const { wiring, errors } = wired(h1)
+    expect((await wiring.prepareCycle(CYCLE)).kind).toBe('MODEL_UNREACHABLE')
+    expect(errors).toEqual(['MODEL_PREFLIGHT_FAILED readiness=UNREACHABLE status=200'])
+  })
+
+  it('READY logs nothing and runs the model stage', async () => {
     const { wiring, errors } = wired(preflightOk)
     expect((await wiring.prepareCycle(CYCLE)).kind).toBe('READY')
     expect(errors).toEqual([])
+  })
+
+  it('LIMITS_EXHAUSTED skips the model stage with the H.2 stop and zero port calls', async () => {
+    const w = fakeWorker(REPLY, 'LIMITS_EXHAUSTED')
+    const r = buildModelExtraction(ENV, { ...OPTS, fetchImpl: w.fetchImpl })
+    if (!r.ok || r.wiring === undefined) throw new Error('not wired')
+    const cycle = await r.wiring.prepareCycle(CYCLE)
+    if (cycle.kind !== 'LIMITS_EXHAUSTED') throw new Error(`expected the stop, got ${cycle.kind}`)
+    for (let i = 0; i < 3; i++) {
+      expect(await cycle.structurer.structure(request(`page ${i}`))).toEqual({
+        kind: 'LIMITS_EXHAUSTED',
+        perRecordIssues: [],
+        remainingIds: ['r1'],
+      })
+    }
+    expect(w.calls).toEqual([])
+    expect(w.preflights).toHaveLength(1)
+    expect(cycle.budget.snapshot()).toEqual({ committed: 0, reserved: 0, totalTokens: 0 })
   })
 })
 
