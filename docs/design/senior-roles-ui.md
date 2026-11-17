@@ -269,11 +269,116 @@ does not hear it. One visually hidden `role="status"` region inside `RolesSectio
 
 ## 6. `RoleChips` (Task 5.2)
 
-_pending_
+### 6.1 Props
+
+`RoleChips(props: { roles: readonly TechnicalRole[]; limit?: number })`. The plan states `{ roles }`
+only. `limit` is added for the dense rows (open question Q2). Without `limit`, every role renders.
+
+### 6.2 The chip (display)
+
+- `Badge variant="outline"`, `max-w-full rounded-md px-1.5 py-0 text-xs font-normal leading-snug`,
+  label with `[overflow-wrap:anywhere]`.
+- **Not** `font-mono`: the stack chips are monospace because they are tokens (`Node.js`); roles are
+  words.
+- **Not** `text-[9px]` / `text-[10px]` as the stack chips on `UserRow` / `MembersCard` are. A
+  40-character Ukrainian label at 9 px is unreadable. `text-xs` (12 px) is the floor for words.
+- Labels wrap, never truncate. A truncated role is a different role ("Аналітик з кібербезпеки
+  (SOC…" hides the part that matters).
+- Order: canonical (`sortRoles`), as stored.
+- Markup: `<ul className="flex flex-wrap gap-1">` with one `<li>` per chip, so a screen reader
+  announces "list, 3 items".
+
+### 6.3 Overflow ("+N")
+
+When `roles.length > limit`, the first `limit` chips render, then a `+N` marker:
+
+- Visible: `<span aria-hidden="true" className="self-center text-xs text-muted-foreground tabular-nums">+{N}</span>`.
+- For screen readers: a `sr-only` span with the hidden labels joined by `, `. It needs no new
+  string, and nothing is lost to a screen reader.
+- The full list is on the profile Overview tab. `UserRow` and the member name in `MembersCard`
+  already lead there. No hover, tooltip or popover is added to the marker: it is not interactive.
+
+### 6.4 Per surface
+
+| Surface       | Where                                               | `limit` | For a SENIOR with no roles               |
+| ------------- | --------------------------------------------------- | ------- | ---------------------------------------- |
+| `UserRow`     | the slot of the stack row (`mt-1.5`)                | 3       | nothing (the row stays one line shorter) |
+| `MembersCard` | the slot of the stack row (`mt-1`)                  | 3       | nothing                                  |
+| `OverviewTab` | the stack card, retitled `Ролі`; same `CardContent` | none    | the card stays, with `не вказано` (Q3)   |
+
+- `UserRow` today caps the stack at 5. Roles are about 4× longer, so 3 is the cap that keeps a row to
+  at most two lines of chips at 1024+.
+- `MembersCard` today shows the whole stack. The card is narrow, so the cap is 3.
+- `OverviewTab` keeps its existing `permissions.fields.techStack` gate for the roles card: RBAC does
+  not change in this plan, and the same viewers who see the stack see the roles.
+- Never fall back to the stack for a `SENIOR`. For every other role, the surfaces stay exactly as
+  today.
 
 ## 7. Skills-overlap indicator (Task 5.4)
 
-_pending_
+### 7.1 Decision: the matched skills are visible, not in a tooltip
+
+The plan asks for a tooltip that lists the matched skills, and requires that the tooltip is "not the
+only carrier". This spec drops the tooltip and shows the matched skills inline, after the count
+(open question Q4):
+
+- A Radix `Tooltip` opens on hover and on keyboard focus, **not on tap**. At 320 px on a phone, the
+  list would be unreachable.
+- The card shows these skills visibly today ("Збіг за:"), and HR scans them. Moving them behind a
+  hover is a loss of information.
+- Visible text is the one carrier that works for pointer, touch, keyboard and screen reader at once,
+  with no extra control and no extra string.
+
+If the tooltip must stay, the fallback is a disclosure exactly like `MatchEvidence`: a `Button
+variant="ghost"` with `aria-expanded`, `min-h-11`, that reveals the list below. Not a tooltip.
+
+### 7.2 Structure (inside `SeniorBlock`)
+
+The indicator takes the slot of the "Збіг за:" row: after the availability label and the
+`matchApproximate` note, before `MatchEvidence`.
+
+```
+(ІП)  Name Surname
+      Available from …
+      5 з 7 навичок  [React] [Node.js] [PostgreSQL] [Docker] [AWS]   <- OVERLAP
+      [Чому збіг ⌄]
+```
+
+```
+      немає резюме                                                   <- NO_RESUME
+```
+
+### 7.3 Rendering by `senior.skillOverlap`
+
+| Value                                                       | Renders                                                                                    |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `{ kind: 'OVERLAP', matched, total }`, `matched.length > 0` | the count label, then one `HIT_CHIP` per matched skill                                     |
+| `{ kind: 'OVERLAP' }`, `matched.length === 0`               | the count label only (`0 з 7 навичок`). This is legal: a resume exists and covers nothing. |
+| `{ kind: 'NO_RESUME' }`                                     | `немає резюме`. Never "0 з N".                                                             |
+| `null`                                                      | nothing from the indicator                                                                 |
+
+"Збіг за:" renders **only** when `skillOverlap === null` and `matchedKeywords.length > 0`. That keeps
+today's behaviour for any card the new field does not cover. When `skillOverlap` is present, the
+"Збіг за:" row is never rendered.
+
+### 7.4 Styling
+
+- Row: `flex min-w-0 flex-wrap items-center gap-1 text-xs`, the same classes as the "Збіг за:" row.
+- Count label: `font-medium text-foreground tabular-nums`. One Lingui message with an ICU plural on
+  `total` (section 11). Do not split the message to style the numbers apart.
+- Chips: `HIT_CHIP` with `max-w-full [overflow-wrap:anywhere]`, as today. Drop the `title`
+  attribute: the text is fully visible.
+- `NO_RESUME`: `text-xs text-muted-foreground`, no icon.
+- **No colour scale.** The label is never green, red or amber by ratio. The indicator is display-only,
+  and a colour scale would read as a ranking (plan anti-goal). The amber is on the chips only, where
+  it already means "matched".
+- The `matchApproximate` note stays wired and unchanged.
+
+### 7.5 Many skills, many seniors
+
+- No cap on the matched chips: they wrap. A vacancy rarely lists more than about 15 technologies,
+  and a cap would need a disclosure to stay honest.
+- Each `SeniorBlock` renders its own `skillOverlap`. Nothing is shared between seniors on one card.
 
 ## 8. Accessibility (WCAG 2.2 AA)
 
