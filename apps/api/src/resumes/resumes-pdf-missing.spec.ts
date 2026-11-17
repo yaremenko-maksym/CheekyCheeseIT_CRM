@@ -10,6 +10,9 @@ import { DEFAULT_RESUME_LAYOUT, encodeResumeMessage, type SessionUser } from '@c
 import { ResumeRenderError } from './resume-typst.service'
 import { SeniorResumesService, STUCK_RENDER_TIMEOUT_MS } from './resumes.service'
 
+// Senior roles PR 4: the roster dirty mark is covered by resume-dirty.integration.spec.ts.
+vi.mock('../job-sourcing/dirty-producers')
+
 const OWNER_ID = 'a4470000-0000-4000-8000-0000000000a1'
 const OWNER = { id: OWNER_ID, role: 'SENIOR', displayName: 'Jane Doe', email: 'jane@unit.spec' }
 const FP = 'fp0123456789abcdef-rest'
@@ -82,6 +85,7 @@ function build(overrides: Record<string, unknown> = {}) {
           },
         }),
       }),
+      transaction: (work: (tx: unknown) => Promise<unknown>): Promise<unknown> => work(db.db),
     },
   }
   const objects = new Map<string, Buffer>()

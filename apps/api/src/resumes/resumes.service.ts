@@ -45,6 +45,7 @@ import { DatabaseService } from '../database/database.service'
 import { seniorResumes, type SeniorResume, type User } from '../database/schema'
 import { S3Service, presignTtlForCategory } from '../documents/s3.service'
 import { isS3NoSuchKey } from '../documents/s3-not-found.util'
+import { markSeniorResumeDirty } from '../job-sourcing/dirty-producers'
 import { ResumeAiService } from './resume-ai.service'
 import { canAccessResume, canConfirmResume, type ResumeAccessMode } from './resume-access'
 import { apiError } from '../common/api-error'
@@ -302,29 +303,35 @@ export class SeniorResumesService {
     const validated = resumeContentSchema.parse(content)
     const existing = await this.ensureRow(targetUserId)
 
-    const [updated] = await this.db.db
-      .update(seniorResumes)
-      .set({
-        content: validated,
-        // Status rule: a content write resets to DRAFT. `draftReset` bumps
-        // `version` IN SQL, not read-modify-write: two concurrent saves that
-        // computed the next value from a separate read would lose an increment,
-        // and `version` is what task-resume-tailoring reads to notice a stale base.
-        ...draftReset(),
-        status: 'READY',
-        errorCode: null,
-        errorMessage: null,
-        quotaResetsAt: null,
-        extractionStartedAt: null,
-        // Disown any extraction in flight: the human just decided what this
-        // resume says, and a model that started earlier must not land on top
-        // of that decision a few seconds later.
-        extractionRunId: null,
-        updatedByUserId: viewer.id,
-        updatedAt: new Date(),
-      })
-      .where(draftWriteGuard(existing))
-      .returning()
+    // Senior roles PR 4: the resume skills feed the matching profile, so the write commits with
+    // its roster dirty row.
+    const [updated] = await this.db.db.transaction(async (tx) => {
+      const rows = await tx
+        .update(seniorResumes)
+        .set({
+          content: validated,
+          // Status rule: a content write resets to DRAFT. `draftReset` bumps
+          // `version` IN SQL, not read-modify-write: two concurrent saves that
+          // computed the next value from a separate read would lose an increment,
+          // and `version` is what task-resume-tailoring reads to notice a stale base.
+          ...draftReset(),
+          status: 'READY',
+          errorCode: null,
+          errorMessage: null,
+          quotaResetsAt: null,
+          extractionStartedAt: null,
+          // Disown any extraction in flight: the human just decided what this
+          // resume says, and a model that started earlier must not land on top
+          // of that decision a few seconds later.
+          extractionRunId: null,
+          updatedByUserId: viewer.id,
+          updatedAt: new Date(),
+        })
+        .where(draftWriteGuard(existing))
+        .returning()
+      if (rows[0]) await markSeniorResumeDirty(tx, rows[0].userId)
+      return rows
+    })
 
     if (!updated) return this.verification.resolveMiss(existing.id)
     await this.verification.deleteStagedObject(existing.stagedPdfS3Key)
@@ -507,22 +514,27 @@ export class SeniorResumesService {
       if (pdfKey) await this.s3.delete(pdfKey)
       if (stagedKey) await this.s3.delete(stagedKey)
 
-      const removed = await this.db.db
-        .delete(seniorResumes)
-        .where(
-          and(
-            eq(seniorResumes.id, row.id),
-            // NULL-safe equality: `= NULL` is never true, so a resume without a
-            // stored file would never match and could never be deleted.
-            sql`${seniorResumes.sourceS3Key} IS NOT DISTINCT FROM ${key}`,
-            // The render key moves independently of the source key (a layout
-            // change rewrites one and not the other), so the guard has to cover
-            // it too — otherwise a render landing mid-delete orphans its PDF.
-            sql`${seniorResumes.pdfS3Key} IS NOT DISTINCT FROM ${pdfKey}`,
-            sql`${seniorResumes.stagedPdfS3Key} IS NOT DISTINCT FROM ${stagedKey}`,
-          ),
-        )
-        .returning({ id: seniorResumes.id })
+      // Senior roles PR 4: deleting drops the resume skills; the dirty row commits with it.
+      const removed = await this.db.db.transaction(async (tx) => {
+        const gone = await tx
+          .delete(seniorResumes)
+          .where(
+            and(
+              eq(seniorResumes.id, row.id),
+              // NULL-safe equality: `= NULL` is never true, so a resume without a
+              // stored file would never match and could never be deleted.
+              sql`${seniorResumes.sourceS3Key} IS NOT DISTINCT FROM ${key}`,
+              // The render key moves independently of the source key (a layout
+              // change rewrites one and not the other), so the guard has to cover
+              // it too — otherwise a render landing mid-delete orphans its PDF.
+              sql`${seniorResumes.pdfS3Key} IS NOT DISTINCT FROM ${pdfKey}`,
+              sql`${seniorResumes.stagedPdfS3Key} IS NOT DISTINCT FROM ${stagedKey}`,
+            ),
+          )
+          .returning({ id: seniorResumes.id })
+        if (gone.length > 0) await markSeniorResumeDirty(tx, row.userId)
+        return gone
+      })
 
       if (removed.length > 0) {
         await this.deleteUnder(row.id, renderedPdfPrefix(row.userId, row.id))
@@ -661,24 +673,29 @@ export class SeniorResumesService {
       .where(eq(seniorResumes.id, resumeId))
       .limit(1)
     if (!current) return
-    const written = await this.db.db
-      .update(seniorResumes)
-      .set({
-        facts: facts.data,
-        ...draftReset(),
-        status: 'READY',
-        errorCode: null,
-        errorMessage: null,
-        quotaResetsAt: null,
-        extractionStartedAt: null,
-        extractionRunId: null,
-        lastExtractionTokens: result.tokensUsed,
-        // `draftReset` bumps `version`: the facts changed, and a stable version
-        // under changed facts is exactly what task-resume-tailoring would miss.
-        updatedAt: new Date(),
-      })
-      .where(and(this.ownedByRun(resumeId, runId), draftWriteGuard(current)))
-      .returning({ id: seniorResumes.id })
+    // Senior roles PR 4: new facts are new resume skills; the dirty row commits with them.
+    const written = await this.db.db.transaction(async (tx) => {
+      const rows = await tx
+        .update(seniorResumes)
+        .set({
+          facts: facts.data,
+          ...draftReset(),
+          status: 'READY',
+          errorCode: null,
+          errorMessage: null,
+          quotaResetsAt: null,
+          extractionStartedAt: null,
+          extractionRunId: null,
+          lastExtractionTokens: result.tokensUsed,
+          // `draftReset` bumps `version`: the facts changed, and a stable version
+          // under changed facts is exactly what task-resume-tailoring would miss.
+          updatedAt: new Date(),
+        })
+        .where(and(this.ownedByRun(resumeId, runId), draftWriteGuard(current)))
+        .returning({ id: seniorResumes.id, userId: seniorResumes.userId })
+      if (rows[0]) await markSeniorResumeDirty(tx, rows[0].userId)
+      return rows
+    })
 
     if (written.length === 0) {
       this.logger.log(

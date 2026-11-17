@@ -19,6 +19,9 @@ import {
 import { CLEARED_STAGED } from './verification-runner'
 import { renderOwnerKey } from './run-columns'
 
+// Senior roles PR 4: the roster dirty mark is covered by resume-dirty.integration.spec.ts.
+vi.mock('../../job-sourcing/dirty-producers')
+
 const RUN = 'a15e0000-0000-4000-8000-000000000001'
 const HR0 = 'a15e0000-0000-4000-8000-0000000000b0'
 const HR1 = 'a15e0000-0000-4000-8000-0000000000b1'

@@ -13,6 +13,9 @@ import { fakeRunDb } from '../../test/fake-run-db'
 import { ResumeVerificationService } from './resume-verification.service'
 import { CLEARED_STAGED } from './verification-runner'
 
+// Senior roles PR 4: the roster dirty mark is covered by resume-dirty.integration.spec.ts.
+vi.mock('../../job-sourcing/dirty-producers')
+
 const FACTS: ResumeFacts = {
   headline: 'Senior Backend Engineer',
   location: { city: 'Lisbon', country: 'Portugal' },

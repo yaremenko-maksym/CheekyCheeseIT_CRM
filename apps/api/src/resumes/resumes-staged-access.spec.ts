@@ -12,6 +12,9 @@ import { DEFAULT_RESUME_LAYOUT, type SessionUser } from '@crm/shared'
 import type { ResumeRenderInput } from './resume-typst.service'
 import { SeniorResumesService } from './resumes.service'
 
+// Senior roles PR 4: the roster dirty mark is covered by resume-dirty.integration.spec.ts.
+vi.mock('../job-sourcing/dirty-producers')
+
 const OWNER_ID = 'a15e0000-0000-4000-8000-0000000000a1'
 const RUN = 'a15e0000-0000-4000-8000-000000000001'
 // [owner 2026-11-14] only ADMIN and HR write a resume, so the delete runs as HR.
@@ -328,6 +331,7 @@ describe('SeniorResumesService — a delete while a run owns the row (CD-4)', ()
           seniorResumes: { findFirst: vi.fn(async () => row) },
         },
         delete: remove,
+        transaction: (work: (tx: unknown) => Promise<unknown>) => work({ delete: remove }),
       },
     }
     const svc = new SeniorResumesService(
