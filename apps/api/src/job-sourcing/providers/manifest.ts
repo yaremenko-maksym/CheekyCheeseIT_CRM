@@ -204,6 +204,18 @@ export interface QuotaDeclaration {
   readonly window: JobMeterWindow | null
   readonly limit: number | null
   readonly limitSource: string
+  /**
+   * The `job_account_meters` row the seed delta creates for this account (in `unit`), when the owner
+   * set a figure: our own cap, kept BELOW the provider's allowance. Absent: no meter is seeded.
+   */
+  readonly seedMeter?: SeedMeterDeclaration
+}
+
+export interface SeedMeterDeclaration {
+  readonly window: 'DAY' | 'MONTH'
+  readonly limit: number
+  /** Where the figure comes from; never a credential. */
+  readonly source: string
 }
 
 export type DispositionDefinition =
@@ -639,6 +651,17 @@ function checkQuota(types: readonly ManifestType[], entries: readonly ManifestEn
       throw new ManifestError(
         'QUOTA_INCONSISTENT',
         `${q.account}: limit ${q.limit} is not a non-negative integer`,
+      )
+    }
+    const m = q.seedMeter
+    // A seeded meter is our cap under the provider's: never above a published limit of the same window.
+    if (
+      m !== undefined &&
+      (!Number.isInteger(m.limit) || m.limit <= 0 || (q.window === m.window && m.limit > q.limit!))
+    ) {
+      throw new ManifestError(
+        'QUOTA_INCONSISTENT',
+        `${q.account}: seeded meter limit ${m.limit} is not a positive integer within the provider limit`,
       )
     }
     const prior = accounts.get(q.account)
