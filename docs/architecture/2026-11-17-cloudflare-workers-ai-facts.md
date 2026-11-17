@@ -84,15 +84,14 @@ over it, code 3036 on HTTP 429.
   `properties[]` comes from the docs pipeline, which reads a different endpoint (`ai-cloudflare-com.pages.dev/api/models`),
   and wrangler's `Model` type has no `properties`. The listing parser therefore fails closed: an entry without a
   `properties` array, a context or a price is dropped, never read as "no deprecation".
-- **UNVERIFIED: the error body on the OpenAI-compatible path.** The 410 evidence is the native run endpoint (prod log of
-  PR #1370: `Workers AI responded 410: AiError: Model has been deprecated`); the error table does not say which body the
-  `/ai/v1/chat/completions` path sends. The router retires on a 410 only with code 5028 in the v4 envelope
-  (`errors[].code`), and reads 3036 and 10000 the same way. A 410 without that envelope is TRANSPORT: the route is
-  skipped for the call and nothing is retired. If the path sends plain text, a deprecated model is never retired
-  automatically; the daily listing still drops it once its deprecation date is set.
-- **UNVERIFIED: the code for an invalid or revoked token.** The only primary source found shows 10000 with message
-  "Forbidden" on a 403 (the changelog above); no Cloudflare page ties a code to an invalid token on the Workers AI path.
-  A 401 is AUTH whatever its body says.
+- **Verified 2026-11-17 (HIGH): the 410 body on the OpenAI-compatible path.** One live call against a deprecated model
+  (no inference run): `/ai/v1/chat/completions` and `/ai/run/<model>` both answer HTTP 410, `application/json`,
+  `{"errors":[{"message":"AiError: Model has been deprecated: @cf/meta/llama-3.1-8b-instruct-awq was deprecated on 2026-05-30. ...","code":5028}],"success":false,"result":{}}`.
+  The router retires on a 410 only with code 5028 in the v4 envelope (`errors[].code`); any other 410 is TRANSPORT.
+  The 410 test carries this body as a fixture.
+- **Verified 2026-11-17 (HIGH): the response to an invalid token.** One live call with an invalid bearer on
+  `/ai/v1/chat/completions`: HTTP 401, `{"result":null,"success":false,"errors":[{"code":10000,"message":"Authentication error"}],"messages":[]}`.
+  A 401 is AUTH whatever its body says; a 403 is AUTH only with code 10000. The AUTH test carries this body as a fixture.
 - **UNVERIFIED: the largest `per_page` the search accepts.** Wrangler pages at 50; the router reads pages of 50, up to
   4 pages (200 entries), stopping at the first short page. A full fourth page is treated as a failed listing, so a
   truncated catalogue can never shrink the managed list.

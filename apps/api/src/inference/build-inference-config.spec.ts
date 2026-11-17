@@ -273,6 +273,21 @@ describe('buildRouterConfig', () => {
       )
     })
 
+    it('warns once, by route and reason, when the account id is set but the token is missing (F9)', () => {
+      const env = { ...CF_ENV, CLOUDFLARE_AI_TOKEN: undefined }
+      expect(routerEnvWarnings(WITH_CF, env)).toEqual([
+        { route: 'cloudflare', reason: 'TOKEN_MISSING' },
+      ])
+      // Nothing set at all: the route was never configured, so nothing to warn about.
+      expect(routerEnvWarnings(WITH_CF, { ...env, CLOUDFLARE_ACCOUNT_ID: undefined })).toEqual([])
+      // No Cloudflare route in the config: the token's absence means nothing.
+      expect(routerEnvWarnings(PARAMS, env)).toEqual([])
+      // A malformed id keeps its own single warning.
+      expect(routerEnvWarnings(WITH_CF, { ...env, CLOUDFLARE_ACCOUNT_ID: 'x' })).toEqual([
+        { route: 'cloudflare', reason: 'ACCOUNT_ID_MALFORMED' },
+      ])
+    })
+
     it('the worker env refuses an empty token and leaves a malformed account id to the route', () => {
       expect(extractionWorkerEnvSchema.safeParse({ CLOUDFLARE_AI_TOKEN: '' }).success).toBe(false)
       expect(extractionWorkerEnvSchema.safeParse({ CLOUDFLARE_ACCOUNT_ID: 'x' }).success).toBe(true)

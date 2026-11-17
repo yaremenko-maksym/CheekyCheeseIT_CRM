@@ -542,6 +542,24 @@ describe('provider-specific signals stay with their provider', () => {
     })
   })
 
+  it('retires on the verified live 410 body of the OpenAI-compatible path (F8, 2026-11-17)', async () => {
+    const live = JSON.stringify({
+      errors: [
+        {
+          message:
+            'AiError: Model has been deprecated: @cf/meta/llama-3.1-8b-instruct-awq was deprecated on 2026-05-30. ...',
+          code: 5028,
+        },
+      ],
+      success: false,
+      result: {},
+    })
+    expect((await run(HOSTED.cloudflare, 410, live)).result).toStrictEqual({
+      ok: false,
+      code: 'RETIRED',
+    })
+  })
+
   it('any other 410 is TRANSPORT: another code, no envelope, another provider, the local floor', async () => {
     expect((await run(HOSTED.cloudflare, 410, cfEnvelope(3042))).result).toStrictEqual(TRANSPORT)
     expect((await run(HOSTED.cloudflare, 410, cfEnvelope('5028'))).result).toStrictEqual(TRANSPORT)
@@ -566,7 +584,14 @@ describe('provider-specific signals stay with their provider', () => {
   })
 
   it('a Cloudflare 401 is AUTH whatever the body says', async () => {
-    for (const body of [cfEnvelope(10000), '']) {
+    // F10: the verified live body of an invalid bearer on /ai/v1/chat/completions (2026-11-17).
+    const live = JSON.stringify({
+      result: null,
+      success: false,
+      errors: [{ code: 10000, message: 'Authentication error' }],
+      messages: [],
+    })
+    for (const body of [live, cfEnvelope(10000), '']) {
       expect((await run(HOSTED.cloudflare, 401, body)).result).toStrictEqual({
         ok: false,
         code: 'AUTH',

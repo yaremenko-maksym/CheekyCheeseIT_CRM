@@ -110,18 +110,24 @@ function routeFromEnv(route: unknown, env: RouterEnv): unknown {
   return { ...local, baseUrl, model, ...(apiKey !== undefined && { apiKey }) }
 }
 
-export type RouterEnvWarning = { route: 'cloudflare'; reason: 'ACCOUNT_ID_MALFORMED' }
+export type RouterEnvWarning = {
+  route: 'cloudflare'
+  reason: 'ACCOUNT_ID_MALFORMED' | 'TOKEN_MISSING'
+}
 
 /**
- * Why a configured route was dropped although its env key is set (F6): `routeFromEnv` drops a
- * Cloudflare route with a malformed account id, which would otherwise be silent. Names only.
+ * Why a configured Cloudflare route was dropped although part of its env is set (F6, F9):
+ * `routeFromEnv` drops it for a malformed account id, or for a missing token while the account id
+ * is set, which would otherwise be silent. Names only, never a value.
  */
 export function routerEnvWarnings(params: unknown, env: RouterEnv): RouterEnvWarning[] {
   if (!isRecord(params) || !Array.isArray(params.routes)) return []
   const hasCloudflare = params.routes.some((r) => isRecord(r) && r.provider === 'cloudflare')
   const id = env.CLOUDFLARE_ACCOUNT_ID
-  return hasCloudflare && id !== undefined && !isCloudflareAccountId(id)
-    ? [{ route: 'cloudflare', reason: 'ACCOUNT_ID_MALFORMED' }]
+  if (!hasCloudflare || id === undefined) return []
+  if (!isCloudflareAccountId(id)) return [{ route: 'cloudflare', reason: 'ACCOUNT_ID_MALFORMED' }]
+  return env.CLOUDFLARE_AI_TOKEN === undefined
+    ? [{ route: 'cloudflare', reason: 'TOKEN_MISSING' }]
     : []
 }
 
