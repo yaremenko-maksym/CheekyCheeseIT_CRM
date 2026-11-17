@@ -293,6 +293,7 @@ export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
   { title: 'Архитектор-проектировщик', expected: NON_IT },
   { title: 'Архитектор-дизайнер', expected: NON_IT },
   { title: 'Архітектор-проєктувальник.', expected: NON_IT },
+  { title: 'Архітекторка-проєктувальниця', expected: NON_IT },
   {
     title: 'Архитектор-проектировщик информационных систем',
     expected: roles('SOFTWARE_ARCHITECT'),
