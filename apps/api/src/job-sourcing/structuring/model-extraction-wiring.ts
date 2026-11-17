@@ -61,6 +61,22 @@ const envSchema = z.object({
   EXTRACTION_INPUT_MAX_ANSWER_TOKENS: positiveInt,
 })
 
+/** The smallest hosted input window as deploy writes it; null when unset or malformed. */
+export function readExtractionInputWindow(
+  rawEnv: Readonly<Record<string, string | undefined>>,
+): { contextTokens: number; maxAnswerTokens: number } | null {
+  const w = envSchema.safeParse({
+    EXTRACTION_INPUT_CONTEXT_TOKENS: rawEnv['EXTRACTION_INPUT_CONTEXT_TOKENS'],
+    EXTRACTION_INPUT_MAX_ANSWER_TOKENS: rawEnv['EXTRACTION_INPUT_MAX_ANSWER_TOKENS'],
+  })
+  return w.success
+    ? {
+        contextTokens: w.data.EXTRACTION_INPUT_CONTEXT_TOKENS,
+        maxAnswerTokens: w.data.EXTRACTION_INPUT_MAX_ANSWER_TOKENS,
+      }
+    : null
+}
+
 export type ExtractionWorkerEnv =
   | { kind: 'unset' }
   | { kind: 'invalid'; keys: string[] }

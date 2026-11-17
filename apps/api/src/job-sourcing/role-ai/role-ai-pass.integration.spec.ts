@@ -806,6 +806,33 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     expect(c.calls.map((x) => x.title)).toEqual([row.title])
   })
 
+  it('a row that became detail-pending during the call is stale: no title-only answer is stored', async () => {
+    const { recordId, row } = await onDemandOpportunity()
+    const link = (unlinked: string) =>
+      session.admin.query(
+        `UPDATE job_opportunity_sources
+            SET unlinked_at = ${unlinked}, unlink_reason = ${unlinked === 'NULL' ? 'NULL' : `'split'`}
+          WHERE source_record_id = $1`,
+        [recordId],
+      )
+    await link('clock_timestamp()')
+    const c = fakeClient(() => ok(['QA_ENGINEER'], 0.9))
+    const racing = {
+      async classify(input: RoleClassifierInput): Promise<RoleAiReply> {
+        await link('NULL') // the on-demand link is back: its detail is not fetched yet
+        return c.client.classify(input)
+      },
+    }
+    await expect(pass(racing, 1, { onDemandTypes: [TYPE] })).resolves.toEqual({
+      classified: 0,
+      unclear: 0,
+      failed: 0,
+      stoppedBy: null,
+    })
+    expect(c.calls.map((x) => x.title)).toEqual([row.title])
+    await expectUntouched(row)
+  })
+
   it('the daily budget: N calls a UTC day, then a skip, and the next UTC day calls again', async () => {
     const rows = [await opportunity(), await opportunity(), await opportunity()]
     const log = fakeLog()

@@ -1,5 +1,5 @@
 import { type JobSourceType, sortRoles, type TechnicalRole } from '@crm/shared'
-import { sql } from 'drizzle-orm'
+import { type SQL, sql } from 'drizzle-orm'
 import { releaseCallQuery, reserveCallQuery } from '../../resumes/resume-ai-daily-budget'
 import { ROLE_CLASSIFIER_VERSION } from '../funnel/role-classifier'
 import type { MeterDb } from '../metering/account-meter.store'
@@ -37,16 +37,23 @@ function inTx<T>(db: MeterDb, work: (tx: SqlExecutor) => Promise<T>): Promise<T>
 }
 
 /**
- * The candidate still as selected: PENDING at this classifier version with the same text. Locked
- * like the recompute worker locks it (NO KEY UPDATE), so a concurrent refresh waits or wins.
+ * The candidate still as selected: PENDING at this classifier version with the same text, and still
+ * full text (`fullText`: a link to a detail-pending on-demand record made during the call would
+ * otherwise store a title-only answer). Locked like the recompute worker locks it (NO KEY UPDATE),
+ * so a concurrent refresh waits or wins.
  */
-async function lockUnchanged(tx: SqlExecutor, c: RoleAiCandidate): Promise<number | null> {
+async function lockUnchanged(
+  tx: SqlExecutor,
+  c: RoleAiCandidate,
+  fullText: SQL,
+): Promise<number | null> {
   const { rows } = await tx.execute(
-    sql`SELECT revision FROM job_opportunities
-         WHERE id = ${c.id}::uuid AND role_status = 'PENDING' AND role_classifier_version = ${V}
-           AND title_key = ${c.titleKey}
-           AND description_sha256 IS NOT DISTINCT FROM ${c.descriptionSha256}
-           FOR NO KEY UPDATE`,
+    sql`SELECT o.revision FROM job_opportunities o
+         WHERE o.id = ${c.id}::uuid AND o.role_status = 'PENDING' AND o.role_classifier_version = ${V}
+           AND o.title_key = ${c.titleKey}
+           AND o.description_sha256 IS NOT DISTINCT FROM ${c.descriptionSha256}
+           AND ${fullText}
+           FOR NO KEY UPDATE OF o`,
   )
   const row = rows[0]
   return row === undefined ? null : Number(row['revision'])
@@ -73,6 +80,8 @@ export function createRoleAiStore(
                          onDemandTypes.map((t) => sql`${t}::job_source_type`),
                          sql`, `,
                        )}))`
+  const fullText = sql`${onDemandMissingExpr(onDemandTypes)} = '[]'::jsonb
+               AND (o.description_sha256 IS NOT NULL OR NOT ${onDemandSource})`
   return {
     async candidates(now, limit) {
       const { rows } = await db.execute(
@@ -82,8 +91,7 @@ export function createRoleAiStore(
               LEFT JOIN job_text_blobs b ON b.sha256 = o.description_sha256
              WHERE o.role_status = 'PENDING' AND o.role_classifier_version = ${V}
                AND o.availability IN ('OPEN', 'UNKNOWN') AND o.manual_team_id IS NULL
-               AND ${onDemandMissingExpr(onDemandTypes)} = '[]'::jsonb
-               AND (o.description_sha256 IS NOT NULL OR NOT ${onDemandSource})
+               AND ${fullText}
                AND NOT EXISTS (
                  SELECT 1 FROM job_role_classifications c
                   WHERE c.title_key = o.title_key
@@ -123,7 +131,7 @@ export function createRoleAiStore(
 
     applyTerminal(c, t: RoleAiTerminal, writeCache) {
       return inTx(db, async (tx) => {
-        const revision = await lockUnchanged(tx, c)
+        const revision = await lockUnchanged(tx, c, fullText)
         if (revision === null) return false
         if (writeCache) {
           // The model is left NULL: the worker does not report which model of its chain answered.
@@ -151,7 +159,7 @@ export function createRoleAiStore(
 
     recordFailure(c, now) {
       return inTx(db, async (tx) => {
-        if ((await lockUnchanged(tx, c)) === null) return false
+        if ((await lockUnchanged(tx, c, fullText)) === null) return false
         // The increment is the row's own (`attempts + 1`), so two writers of one key never lose
         // one. A terminal row for the key is an answer: a failure never overwrites it.
         const { rows } = await tx.execute(

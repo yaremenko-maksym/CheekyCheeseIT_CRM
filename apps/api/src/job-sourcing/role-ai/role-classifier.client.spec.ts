@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MAX_EXTRACTION_INSTRUCTION_CHARS } from '@crm/inference'
 import {
   classifyRolesBodySchema,
   classifyRolesInput,
@@ -6,7 +7,11 @@ import {
 } from '../../extraction-worker/link-contract'
 import { MAX_WORKER_INPUT_CHARS } from '../../extraction-worker/schema'
 import { WORKER_ADAPTER_TIMEOUT_MS } from '../structuring/model-extraction-wiring'
-import { classifyRolesRequest, RoleClassifierClient } from './role-classifier.client'
+import {
+  classifyRolesRequest,
+  RoleClassifierClient,
+  roleClassifierInputCeiling,
+} from './role-classifier.client'
 
 const URL_ = 'http://crm-extraction-worker:3100'
 const SECRET = 'SECRET-MARKER-0123456789abcdef-0123456789'
@@ -178,5 +183,42 @@ describe('classifyRolesRequest — the body always passes the worker schema', ()
     })
     expect(JSON.stringify(body)).not.toContain('hr.person@example.com')
     expect(JSON.stringify(body)).not.toContain('123 4567')
+  })
+})
+
+describe('the input fits the smallest hosted window (CR-L-1: a long vacancy is never a route FIT skip)', () => {
+  // groq-sized window: (8000 - 2000 answer - 32 overhead) * 2 chars/token - 535 correction reserve.
+  const WINDOW = {
+    EXTRACTION_INPUT_CONTEXT_TOKENS: '8000',
+    EXTRACTION_INPUT_MAX_ANSWER_TOKENS: '2000',
+  }
+  // The instruction is bounded by its cap (the worker prompt stays under it, classify-roles.spec).
+  const CEILING = 11401 - MAX_EXTRACTION_INSTRUCTION_CHARS
+
+  it('the ceiling is the configured window less the instruction cap and the reserves', () => {
+    expect(roleClassifierInputCeiling(WINDOW)).toBe(CEILING)
+  })
+
+  it('no window configured, or a bad one: the worker cap', () => {
+    expect(roleClassifierInputCeiling({})).toBe(MAX_WORKER_INPUT_CHARS)
+    expect(
+      roleClassifierInputCeiling({ ...WINDOW, EXTRACTION_INPUT_MAX_ANSWER_TOKENS: 'lots' }),
+    ).toBe(MAX_WORKER_INPUT_CHARS)
+  })
+
+  it('classifyRolesRequest cuts the description to the ceiling it is given', () => {
+    const body = classifyRolesRequest({ ...INPUT, description: 'x'.repeat(20_000) }, 1000)
+    if (body === null) throw new Error('expected a body')
+    expect(classifyRolesInput(body)).toHaveLength(1000)
+  })
+
+  it('the client sends a long vacancy cut to the window ceiling', async () => {
+    workerEnv()
+    vi.stubEnv('EXTRACTION_INPUT_CONTEXT_TOKENS', WINDOW.EXTRACTION_INPUT_CONTEXT_TOKENS)
+    vi.stubEnv('EXTRACTION_INPUT_MAX_ANSWER_TOKENS', WINDOW.EXTRACTION_INPUT_MAX_ANSWER_TOKENS)
+    const calls = stubFetch({ kind: 'ok', roles: [], confidence: 0.9 })
+    await new RoleClassifierClient().classify({ ...INPUT, description: 'x'.repeat(40_000) })
+    const sent = classifyRolesBodySchema.parse(JSON.parse(calls[0]?.init.body ?? ''))
+    expect(classifyRolesInput(sent)).toHaveLength(CEILING)
   })
 })
