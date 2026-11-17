@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process'
 import { frames } from './finance-list.mjs'
 import { stateFrames } from './states.mjs'
 import { roleFrames } from './roles.mjs'
+import { round1Frames, assertFixtures } from './round1.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const PW =
@@ -38,7 +39,8 @@ try {
   magick = false
 }
 
-const list = [...frames(), ...stateFrames(), ...roleFrames()].filter(
+console.log(`fixtures add up: ${assertFixtures()} records checked`)
+const list = [...frames(), ...stateFrames(), ...roleFrames(), ...round1Frames()].filter(
   (f) => !filter || f.name.includes(filter),
 )
 const browser = await chromium.launch()
