@@ -570,6 +570,20 @@ F="$(ex top-name-comment 's/^name: crm-extraction$/name: crm-extraction # ${CRM_
 assert_green "a variable only in a trailing comment on the name line is not refused" --contains "isolation OK" -- guard_with --extraction "$F"
 assert_green "the shipped extraction file passes the name check" --contains "isolation OK" -- guard_with
 
+# ── R7-1 (+ SR-M-12): the top-level name is read as written, not normalised by compose ──
+F="$(ex top-name-dollar 's/^name: crm-extraction$/name: $crm-extraction/')"
+assert_red "a bare \$ before the top-level name is refused" --contains "must read crm-extraction as written" -- guard_with --extraction "$F"
+F="$(ex top-name-double-dollar 's/^name: crm-extraction$/name: $$crm-extraction/')"
+assert_red "an escaped \$\$ before the top-level name is refused" --contains "must read crm-extraction as written" -- guard_with --extraction "$F"
+F="$(ex top-name-empty-braces 's/^name: crm-extraction$/name: ${}crm-extraction/')"
+assert_red "an empty \${} before the top-level name is refused (parse failure or name check)" -- guard_with --extraction "$F"
+F="$(ex top-name-missing '/^name: crm-extraction$/d')"
+assert_red "a file with no top-level name key is refused" --contains "must read crm-extraction as written" -- guard_with --extraction "$F"
+F="$(ex top-name-default-sub 's/^name: crm-extraction$/name: ${__:-crm-extraction}/')"
+assert_red "a defaulted variable whose default is the name is refused (SR-M-12)" --contains "must read crm-extraction as written" -- guard_with --extraction "$F"
+F="$(ex top-name-underscore-default 's/^name: crm-extraction$/name: ${_-crm-extraction}/')"
+assert_red "a leading-underscore default of the name is refused on purpose (SR-M-12)" --contains "must read crm-extraction as written" -- guard_with --extraction "$F"
+
 # ── the composed deploy configuration ──
 F="$(mutate "$PROD" gains-worker '/^  # ── nginx (reverse-proxy/i\
   extraction-worker:\

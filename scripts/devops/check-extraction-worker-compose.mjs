@@ -130,6 +130,7 @@ let deploy
 // The normal resolution inlines env_file into environment and drops it, and adds an empty
 // `entrypoint`; this one keeps the keys as written, so it is the one the allow-list reads.
 let raw
+let nameAsWritten
 try {
   extraction = composeConfig([args.extraction], PINS, ['--profile', '*'])
   raw = composeConfig([args.extraction], PINS, ['--profile', '*'], {
@@ -140,6 +141,11 @@ try {
         relative(dir, typeof f === 'string' ? f : f.path),
       ),
     }),
+  })
+  // A separate call: the shared raw call keeps its inputs, the name is read with --no-normalize.
+  nameAsWritten = composeConfig([args.extraction], PINS, ['--profile', '*'], {
+    configArgs: ['--no-interpolate', '--no-normalize'],
+    post: (json) => json.name,
   })
   // The production project name (the /opt/crm directory), so network names resolve as on the host.
   deploy = composeConfig(args.deploy, {}, ['--project-name', 'crm', '--profile', '*'])
@@ -187,11 +193,11 @@ for (const path of [
   errors.push(
     `${path} must hold no variable: the host env would decide it at up (only the image tag pin may)`,
   )
-// The raw config reads the top-level name as written (quoted, spaced, or on the next line). A
-// value other than the literal project name is a variable the host env would decide at `up`.
-if (raw.json.name !== PROJECT)
+// The name as written, with no normalisation: compose lowercases it and drops `$ { } :`, so
+// `${__:-crm-extraction}` would read as crm-extraction. A missing key reads as undefined and fails.
+if (nameAsWritten !== PROJECT)
   errors.push(
-    `name must hold no variable: the top-level name must read ${PROJECT} as written (found: ${raw.json.name})`,
+    `name must hold no variable: the top-level name must read ${PROJECT} as written (found: ${nameAsWritten})`,
   )
 // An environment entry with no value takes its value from the host at `up`, whatever its key:
 // a map key with null (`KEY:`), or a list item with no `=` (`- KEY`). The raw config keeps both forms.
