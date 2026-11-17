@@ -11,27 +11,26 @@
 # What it proves, each by a command whose output is printed, never by an exit status alone:
 #   - the main stack comes up with the extraction project absent, on both deploy paths;
 #   - with the project up, the normal path (`up -d --remove-orphans`, same and new image) and the
-#     network-reset path (`down --remove-orphans`, then `up`) leave the runtime and worker containers
-#     with the same ID, zero restarts and the same start time; the worker reaches the runtime, `api`
-#     reaches the worker, the main stack is healthy;
-#   - `api` cannot reach the runtime, the runtime cannot reach outside, no port is published;
+#     network-reset path (`down --remove-orphans`, then `up`) leave the worker container with the
+#     same ID, zero restarts and the same start time; `api` reaches the worker, the main stack is
+#     healthy;
+#   - the worker reaches outside on its own egress network (the hosted providers); `api` is not on
+#     that network and the worker is on no main-stack network, so it cannot reach postgres; no port
+#     is published; the worker's log carries no key value;
 #   - the undo leaves the worker's state volume and the main stack healthy;
 #   - what the first deploy after merge does to `api` and to the old network and volume.
 set -euo pipefail
 
 : "${API_IMAGE:?set API_IMAGE (the api image, tag included)}"
 : "${NGINX_IMAGE:?set NGINX_IMAGE (the nginx image, tag included)}"
-: "${RUNTIME_IMAGE_SHA256:?set RUNTIME_IMAGE_SHA256}"
-: "${MODEL_URL:?set MODEL_URL}"
-: "${MODEL_FILE:?set MODEL_FILE}"
-: "${MODEL_SHA256:?set MODEL_SHA256}"
 : "${OLD_COMPOSE_REF:?set OLD_COMPOSE_REF (the commit whose compose files production runs before merge)}"
 
 REPO="$(git rev-parse --show-toplevel)"
 WORK="${RUNNER_TEMP:-/tmp}/crm"            # directory name crm = project crm, as /opt/crm on the VPS
 SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/null}"
-RUNTIME_CTX=4096                          # the tiny rehearsal model; large enough for the router's input ceiling (G2); production pins its own window
 ENTRY_NET=crm-extraction-entry
+EGRESS_NET=crm-extraction_egress
+WORKER_NAME=crm-extraction-extraction-worker-1
 REGISTRY=ghcr.io/yaremenko-maksym
 
 rm -rf "$WORK" && mkdir -p "$WORK"
@@ -87,22 +86,22 @@ TURNSTILE_SECRET_KEY=$(secret)
 TELEMETRY_DIGEST_TOKEN=$(secret)
 TELEMETRY_SESSION_SALT=$(secret)
 EOF
+# The runbook's file shape, throwaway keys: no call ever reaches a provider with them. The config is
+# the runbook's sample; the log check in C names which hosted routes the worker ended up with.
+GEMINI_KEY="$(secret)"
+GROQ_KEY="$(secret)"
+CF_TOKEN="$(secret)"
 cat > .env.extraction-worker <<EOF
 EXTRACTION_WORKER_SECRET=$(secret)
 INFERENCE_EXTRACTION_PROVIDER=router
-ROUTER_LOCAL_MODEL_URL=http://crm-model-runtime:8080/v1
-LOCAL_MODEL_NAME=rehearsal-model
-EXTRACTION_ROUTER_CONFIG={"policyVersion":"rehearsal","hostedBudgetMs":0,"floorBudgetMs":360000,"routes":[{"provider":"local","contextTokens":$RUNTIME_CTX,"structuredOutput":"json_schema","timeoutMs":60000,"maxAnswerTokens":64}]}
+GEMINI_API_KEY=$GEMINI_KEY
+GROQ_API_KEY=$GROQ_KEY
+CLOUDFLARE_ACCOUNT_ID=$(openssl rand -hex 16)
+CLOUDFLARE_AI_TOKEN=$CF_TOKEN
+EXTRACTION_ROUTER_CONFIG={"policyVersion":"hosted-2026-11-17","hostedBudgetMs":90000,"floorBudgetMs":180000,"routes":[{"provider":"gemini","models":["gemini-2.5-flash","gemini-2.5-flash-lite"],"contextTokens":32000,"structuredOutput":"json_schema","minGapMs":4000,"timeoutMs":30000,"maxAnswerTokens":2000,"freeLimit":{"requestsPerDay":200}},{"provider":"groq","models":["openai/gpt-oss-120b","openai/gpt-oss-20b"],"contextTokens":8000,"structuredOutput":"json_schema","minGapMs":2000,"timeoutMs":30000,"maxAnswerTokens":2000,"freeLimit":{"requestsPerDay":1000,"tokensPerDay":200000}},{"provider":"cloudflare","models":["@cf/mistralai/mistral-small-3.1-24b-instruct","@cf/openai/gpt-oss-20b","@cf/google/gemma-4-26b-a4b-it"],"contextTokens":8000,"structuredOutput":"none","minGapMs":2000,"timeoutMs":30000,"maxAnswerTokens":1000,"freeLimit":{"requestsPerDay":30}}]}
 EOF
 umask 022
-cat > .env.extraction-pins <<EOF
-EXTRACTION_RUNTIME_IMAGE_SHA256=$RUNTIME_IMAGE_SHA256
-EXTRACTION_MODEL_URL=$MODEL_URL
-EXTRACTION_MODEL_FILE=$MODEL_FILE
-EXTRACTION_MODEL_SHA256=$MODEL_SHA256
-EXTRACTION_RUNTIME_CONTEXT_TOKENS=$RUNTIME_CTX
-EXTRACTION_WORKER_IMAGE_TAG=rehearsal1
-EOF
+echo 'EXTRACTION_WORKER_IMAGE_TAG=rehearsal1' > .env.extraction-pins
 
 log "Self-signed certs in /etc/nginx/certs (the names nginx confs read)"
 sudo mkdir -p /etc/nginx/certs
@@ -155,19 +154,12 @@ tcp() {
 }
 fingerprint() { docker inspect -f '{{.Id}} restarts={{.RestartCount}} started={{.State.StartedAt}}' "$1"; }
 
-RUNTIME_BASE=""
 WORKER_BASE=""
 assert_extraction_intact() {
-  local when="$1" rt wk out
-  rt="$(ecid crm-model-runtime)"
+  local when="$1" wk out
   wk="$(ecid extraction-worker)"
-  [ "$(fingerprint "$rt")" = "$RUNTIME_BASE" ] || fail "$when: runtime changed: $(fingerprint "$rt") vs $RUNTIME_BASE"
   [ "$(fingerprint "$wk")" = "$WORKER_BASE" ] || fail "$when: worker changed: $(fingerprint "$wk") vs $WORKER_BASE"
-  record "$when: runtime $(fingerprint "$rt")"
   record "$when: worker $(fingerprint "$wk")"
-  out="$(probe "$wk" http://crm-model-runtime:8080/health)"
-  [ "$out" = status=200 ] || fail "$when: worker cannot reach the runtime ($out)"
-  record "$when: worker -> runtime /health: $out"
   out="$(probe "$(cid api)" http://extraction-worker:3100/extract POST)"
   # 401: the worker answered and refused the missing secret. Reached, nothing extracted.
   [ "$out" = status=401 ] || fail "$when: api cannot reach the worker ($out)"
@@ -214,29 +206,27 @@ for kind in plain internal; do
 done
 
 # ── C. Install the project (the runbook's steps) ────────────────────────────
-log "C. Provision weights, prepare the state volume, start the project"
-ext --profile provision run --rm --no-deps --user root --cap-add CHOWN --entrypoint chown weights-fetch 1000:1000 /models
-ext --profile provision run --rm -e EXTRACTION_MODEL_SHA256="$(printf '0%.0s' $(seq 64))" weights-fetch \
-  && fail "C. a fetch with a wrong digest succeeded"
-[ -z "$(ext --profile provision run --rm -T --no-deps --entrypoint sh weights-fetch -c 'ls -A /models')" ] \
-  || fail "C. a failed fetch left a file behind"
-record "C. a fetch with a wrong digest: refused, nothing left in the volume"
-ext --profile provision run --rm weights-fetch
-[ "$(ext --profile provision run --rm -T --no-deps --entrypoint sh weights-fetch -c 'ls -A /models')" = "$MODEL_FILE" ] \
-  || fail "C. the weights volume holds more than the verified file"
+log "C. Prepare the state volume, start the project"
 ext run --rm --no-deps --user root --cap-add CHOWN --entrypoint chown extraction-worker node:node /var/lib/extraction-worker
 ext up -d
 ext ps
-[ -z "$(ext ps -q weights-fetch)" ] || fail "C. weights-fetch started without its profile"
+[ "$(ext ps --services | tr '\n' ' ')" = "extraction-worker " ] || fail "C. the project runs more than the worker: $(ext ps --services | tr '\n' ' ')"
 hc="$(docker inspect -f 'read_only={{.HostConfig.ReadonlyRootfs}} pids={{.HostConfig.PidsLimit}}' "$(ecid extraction-worker)")"
 [ "$hc" = "read_only=true pids=64" ] || fail "C. worker limits not applied ($hc)"
 record "C. worker runs with $hc (healthy below: api reaches it)"
-for _ in $(seq 1 60); do
-  [ "$(probe "$(ecid extraction-worker)" http://crm-model-runtime:8080/health)" = status=200 ] && break
-  sleep 3
+# The log is read into a variable first: under pipefail, `docker logs | grep -q` can fail on SIGPIPE
+# exactly when grep matched.
+wlog=""
+for _ in $(seq 1 30); do
+  wlog="$(docker logs "$(ecid extraction-worker)" 2>&1)"
+  case "$wlog" in *'"event":"LISTENING"'*) break ;; esac
+  sleep 2
 done
+case "$wlog" in *'"event":"LISTENING"'*) ;; *) printf '%s\n' "$wlog" | tail -20; fail "C. the worker did not start listening" ;; esac
+# Names only. Until the router takes a config without a local route (task 5.4c-H1), the hosted-only
+# sample is refused and this lists none: a fact for the owner, not the gate.
+record "C. worker $(printf '%s\n' "$wlog" | grep -o '"event":"HOSTED_ROUTES".*' || echo 'logged no HOSTED_ROUTES line')"
 attach
-RUNTIME_BASE="$(fingerprint "$(ecid crm-model-runtime)")"
 WORKER_BASE="$(fingerprint "$(ecid extraction-worker)")"
 assert_extraction_intact "C. installed"
 
@@ -261,76 +251,54 @@ assert_extraction_intact "F. reset path"
 out="$(attach)"; echo "$out"
 echo "$out" | grep -q "already attached" || fail "F. a second attach did not see the existing attachment"
 
-# ── G. What must not be reachable ───────────────────────────────────────────
-log "G. Isolation negatives"
+# ── G. What reaches what ────────────────────────────────────────────────────
+log "G. Egress and isolation"
 # By address, not by name: a name-resolution error proves nothing about routing.
-rt_ip="$(docker inspect -f '{{with index .NetworkSettings.Networks "crm-extraction_runtime"}}{{.IPAddress}}{{end}}' "$(ecid crm-model-runtime)")"
-[ -n "$rt_ip" ] || fail "G. the runtime has no address on crm-extraction_runtime"
-# Positive control: tcp() must be able to say "connected" before its errors count as proof.
-out="$(tcp "$(ecid extraction-worker)" "$rt_ip" 8080)"
-[ "$out" = connected ] || fail "G. control: the worker cannot reach the runtime at $rt_ip:8080 ($out)"
-record "G. control: worker -> runtime at $rt_ip:8080: $out"
-out="$(probe "$(cid api)" http://crm-model-runtime:8080/health)"
-record "G. api -> runtime by name: $out (a fact, not the gate)"
-out="$(tcp "$(cid api)" "$rt_ip" 8080)"
-[ "${out#error=}" != "$out" ] || fail "G. api connected to the runtime at $rt_ip:8080 ($out)"
-record "G. api -> runtime at $rt_ip:8080: $out (no connection, as it must be)"
-out="$(tcp "$(ecid extraction-worker)" 1.1.1.1 443)"
-[ "${out#error=}" != "$out" ] || fail "G. the worker connected to 1.1.1.1:443 ($out)"
+ip_on() { docker inspect -f "{{with index .NetworkSettings.Networks \"$2\"}}{{.IPAddress}}{{end}}" "$1"; }
+wk="$(ecid extraction-worker)"
+wk_entry="$(ip_on "$wk" "$ENTRY_NET")"
+wk_egress="$(ip_on "$wk" "$EGRESS_NET")"
+pg_ip="$(ip_on "$(cid postgres)" crm_backend)"
+[ -n "$wk_entry" ] && [ -n "$wk_egress" ] || fail "G. the worker lacks an address on $ENTRY_NET or $EGRESS_NET"
+[ -n "$pg_ip" ] || fail "G. postgres has no address on crm_backend"
+# Positive controls: tcp() must be able to say "connected" before its errors count as proof.
+out="$(tcp "$(cid api)" "$wk_entry" 3100)"
+[ "$out" = connected ] || fail "G. control: api cannot reach the worker at $wk_entry:3100 ($out)"
+record "G. control: api -> worker at its entry address: $out"
+out="$(tcp "$(cid api)" "$pg_ip" 5432)"
+[ "$out" = connected ] || fail "G. control: api cannot reach postgres at $pg_ip:5432 ($out)"
+record "G. control: api -> postgres: $out"
+# The hosted routes need this one; the runtime-era rehearsal asserted the opposite.
+out="$(tcp "$wk" 1.1.1.1 443)"
+[ "$out" = connected ] || fail "G. the worker cannot reach outside on its egress network ($out)"
 record "G. worker -> 1.1.1.1:443: $out"
-# curl exit 7 (no connection) or 28 (timeout) only: 127 would mean curl is missing, not blocked.
-out="$(docker exec "$(ecid crm-model-runtime)" sh -c 'curl -sk -o /dev/null --max-time 5 https://1.1.1.1/; echo "curl exit $?"')"
-case "$out" in "curl exit 7" | "curl exit 28") ;; *) fail "G. the runtime -> 1.1.1.1:443 check did not show a blocked connection ($out)" ;; esac
-record "G. runtime -> 1.1.1.1:443: $out"
-members="$(docker network inspect -f '{{range .Containers}}{{.Name}} {{end}}' "$ENTRY_NET")"
-record "G. $ENTRY_NET members: $members"
-for m in $members; do
-  case "$m" in crm-api-1 | crm-extraction-extraction-worker-1) ;; *) fail "G. unexpected member $m on $ENTRY_NET" ;; esac
+out="$(tcp "$wk" "$pg_ip" 5432)"
+[ "${out#error=}" != "$out" ] || fail "G. the worker connected to postgres at $pg_ip:5432 ($out)"
+record "G. worker -> postgres at $pg_ip:5432: $out (no connection, as it must be)"
+out="$(tcp "$(cid api)" "$wk_egress" 3100)"
+[ "${out#error=}" != "$out" ] || fail "G. api connected to the worker by its egress address ($out)"
+record "G. api -> worker at its egress address: $out (not on that network)"
+for net in "$ENTRY_NET" "$EGRESS_NET"; do
+  members="$(docker network inspect -f '{{range .Containers}}{{.Name}} {{end}}' "$net")"
+  record "G. $net members: $members"
+  for m in $members; do
+    case "$net $m" in "$ENTRY_NET crm-api-1" | "$ENTRY_NET $WORKER_NAME" | "$EGRESS_NET $WORKER_NAME") ;;
+      *) fail "G. unexpected member $m on $net" ;; esac
+  done
 done
-ports="$(docker inspect -f '{{json .NetworkSettings.Ports}}' "$(ecid crm-model-runtime)" "$(ecid extraction-worker)")"
+nets="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$wk")"
+[ "$nets" = "$ENTRY_NET $EGRESS_NET " ] || fail "G. the worker is on unexpected networks: $nets"
+record "G. worker networks: $nets"
+ports="$(docker inspect -f '{{json .NetworkSettings.Ports}}' "$wk")"
 echo "$ports" | grep -q HostPort && fail "G. a port is published: $ports"
-record "G. published ports on runtime and worker: none"
-MARKER="rehearsal-marker-$(openssl rand -hex 4)"
-out="$(docker exec "$(ecid extraction-worker)" node -e "
-  fetch('http://crm-model-runtime:8080/v1/chat/completions', { method: 'POST',
-    headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(60000),
-    body: JSON.stringify({ messages: [{ role: 'user', content: '$MARKER' }], max_tokens: 8 }) })
-    .then((r) => console.log('chat status=' + r.status), (e) => console.log('chat error=' + (e.cause?.code || e.name)))")"
-# An absent marker proves nothing unless the runtime actually took the prompt.
-[ "$out" = "chat status=200" ] || fail "G. the marker prompt was not answered ($out)"
-docker logs "$(ecid crm-model-runtime)" 2>&1 | grep -qF "$MARKER" && fail "G. the runtime logged the prompt"
-record "G. a prompt carrying a marker: $out, absent from the runtime log"
-record "G. runtime log lines after all requests: $(docker logs "$(ecid crm-model-runtime)" 2>&1 | wc -l)"
-# A fact, not a gate: whether the host itself reaches the runtime by its address on the internal
-# network. The MP-04 harness runs on the host and depends on it.
-out="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://$rt_ip:8080/health" || echo unreachable)"
-record "G. host -> runtime at $rt_ip on the internal network: $out"
-
-# ── G2. MP-04 harness smoke: wiring against the real api build, a few pages ─
-# The tiny model cannot pass the table, so the expected verdict is FAIL (exit 1) with a report;
-# exit 0 or exit 2 (harness error) fails the rehearsal. Not a model measurement.
-if [ "$out" = 200 ]; then
-  log "G2. MP-04 harness smoke"
-  docker create --name mp04-app "$(docker inspect -f '{{.Config.Image}}' "$(ecid extraction-worker)")" >/dev/null
-  docker cp -q mp04-app:/app mp04-app
-  docker rm mp04-app >/dev/null
-  api_ip="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{$v.IPAddress}}{{"\n"}}{{end}}' "$(cid api)" | grep -v "^$ENTRY_NET " | awk 'NF==2 {print $2; exit}')"
-  cat > mp04-candidate.json <<EOF
-{"name":"stories260K-smoke","repo":"ggml-org/models-moved","file":"$MODEL_FILE","sha256":"$MODEL_SHA256","repoCommit":"main","licence":null,
- "routerConfig":{"policyVersion":"rehearsal","hostedBudgetMs":0,"floorBudgetMs":360000,"routes":[{"provider":"local","baseUrl":"http://crm-model-runtime:8080/v1","model":"rehearsal-model","contextTokens":$RUNTIME_CTX,"structuredOutput":"json_schema","timeoutMs":60000,"maxAnswerTokens":64}]}}
-EOF
-  # A hung harness fails here in minutes (exit 124), not at the job's timeout.
-  if timeout 900 node "$REPO/scripts/devops/extraction-mp04/mp04.mjs" --candidate mp04-candidate.json --api-dist mp04-app \
-    --runtime-url "http://$rt_ip:8080" --crm-url "http://$api_ip:3001/api/health" \
-    --baseline-s 10 --fixtures 4 --out-dir mp04-out; then st=0; else st=$?; fi
-  [ -s mp04-out/report.json ] || fail "G2. the harness wrote no report (exit $st)"
-  [ "$st" = 1 ] || fail "G2. the harness exited $st, expected 1 (a FAIL verdict with a report)"
-  record "G2. MP-04 harness smoke: exit 1 with a report; $(node -e "const c=require('./mp04-out/report.json').candidates[0]; console.log('requests', c.requests.total, 'answered', c.requests.answered, 'cold load ms', c.coldLoadMs, 'records', c.mp03.records)")"
-  docker exec "$(ecid extraction-worker)" true || fail "G2. the worker is gone after the runtime restart"
-else
-  # The harness depends on this path; a skipped smoke is not a pass.
-  fail "G2. MP-04 harness smoke cannot run: the host does not reach the runtime network ($out)"
-fi
+record "G. published ports on the worker: none"
+# The keys live in the worker's env; none may reach its log.
+wlog="$(docker logs "$wk" 2>&1)"
+[ -n "$wlog" ] || fail "G. the worker log is empty: nothing to check for key values"
+for v in "$GEMINI_KEY" "$GROQ_KEY" "$CF_TOKEN"; do
+  case "$wlog" in *"$v"*) fail "G. a key value is in the worker log" ;; esac
+done
+record "G. worker log lines: $(printf '%s\n' "$wlog" | wc -l), no key value among them"
 
 # ── H. Undo (the runbook's steps) ───────────────────────────────────────────
 log "H. Undo"
@@ -339,9 +307,11 @@ cat down-attached.log
 record "H. project down with api still attached: exit $st, entry network left behind: $(docker network inspect "$ENTRY_NET" >/dev/null 2>&1 && echo yes || echo no)"
 docker network disconnect "$ENTRY_NET" "$(cid api)" 2>/dev/null || true
 ext down
-docker volume rm crm-extraction_model_weights
 docker volume inspect crm-extraction_worker_state >/dev/null || fail "H. the undo removed the worker state volume"
-record "H. after undo: worker state volume kept, weights volume removed, network gone: $(docker network inspect "$ENTRY_NET" >/dev/null 2>&1 && echo no || echo yes)"
+for net in "$ENTRY_NET" "$EGRESS_NET"; do
+  docker network inspect "$net" >/dev/null 2>&1 && fail "H. $net is left after the undo"
+done
+record "H. after undo: worker state volume kept, $ENTRY_NET and $EGRESS_NET gone"
 main_healthy
 deploy_normal
 main_healthy
