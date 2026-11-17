@@ -69,6 +69,15 @@ describe('providerBlock (§3.5)', () => {
     )
     expect(providerBlock(flagAndSpent, 'openrouter', DAY)).toBe('FLAG_REJECTED')
   })
+
+  it('flagged and spent on the same day gives FLAG_REJECTED, not SPENT_DAY (a flag outlives the reset)', () => {
+    const s = apply(markFlagRejected('openrouter', M1), markProviderSpent('openrouter', DAY))
+    expect(providerBlock(s, 'openrouter', DAY)).toBe('FLAG_REJECTED')
+    expect(providerBlock(s, 'openrouter', NEXT)).toBe('FLAG_REJECTED')
+    expect(providerBlock(apply(markProviderSpent('openrouter', DAY)), 'openrouter', DAY)).toBe(
+      'SPENT_DAY',
+    )
+  })
 })
 
 describe('needsProofProbe (§3.2, §3.5)', () => {

@@ -413,6 +413,7 @@ export async function sendClassifiedChat(
   // An OpenRouter request without its routing fields is never sent (§3.5 check 3).
   const routing = opts.provider === 'openrouter' ? opts.providerRouting : undefined
   if (opts.provider === 'openrouter' && (routing === undefined || routing === null)) {
+    // Per call, never persisted: the config schema refuses such a route at load, so it is unreachable.
     return { result: { ok: false, code: 'TRANSPORT', responded: false }, sent: false }
   }
   const result = await boundedRequest({

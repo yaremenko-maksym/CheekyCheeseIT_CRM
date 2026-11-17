@@ -207,8 +207,8 @@ describe('isValidProviderModelId: one rule per provider (SR-L-4)', () => {
     expect(isValidProviderModelId(other, SAMPLES[owner])).toBe(false)
   })
 
-  it('refuses a groq id with :free for groq and a groq id without :free for openrouter', () => {
+  it('refuses a groq id with :free for groq and an id without :free for openrouter', () => {
     expect(isValidProviderModelId('groq', 'openai/gpt-oss-120b:free')).toBe(false)
-    expect(isValidProviderModelId('openrouter', 'openai/gpt-oss-120b')).toBe(false)
+    expect(isValidProviderModelId('openrouter', 'vendor/model-x')).toBe(false)
   })
 })

@@ -413,6 +413,7 @@ export function providerBlock(
   if (r.creditDay !== undefined && (CREDIT_UNTIL_PROOF.has(p) || r.creditDay >= today)) {
     return 'CREDIT'
   }
+  // Before SPENT_DAY: a flag outlives the day, so a route the reset cannot revive is no spent limit.
   if (r.flagModel !== undefined) return 'FLAG_REJECTED'
   return (r.spentDay ?? '') >= today ? 'SPENT_DAY' : null
 }
