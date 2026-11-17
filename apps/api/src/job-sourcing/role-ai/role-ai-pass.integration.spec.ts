@@ -22,7 +22,13 @@ import { JobRunLedger } from '../ownership/job-run-ledger'
 import type { RunHandle } from '../ownership/run-ownership'
 import { RecomputeWorker, createRecomputeSteps } from '../runtime/recompute-worker'
 import { saveObservationPage } from '../store/source-record.store'
-import { ROLE_AI_BACKOFF, type RoleAiPassResult, runRoleAiPass } from './role-ai-pass'
+import {
+  ROLE_AI_BACKOFF,
+  ROLE_AI_MAX_ATTEMPTS,
+  type RoleAiPassResult,
+  runRoleAiPass,
+} from './role-ai-pass'
+import { createRoleAiStore } from './role-ai.store'
 import type { RoleAiReply, RoleClassifierInput } from './role-classifier.client'
 
 /**
@@ -592,16 +598,230 @@ describe.skipIf(!hasDatabaseUrl())('role AI pass against Postgres (roles PR 3, T
     await expect(roleAiDirty(r.id)).resolves.toHaveLength(1)
   })
 
-  it('the pass never throws: a client rejection is logged and counted as failed', async () => {
+  it('the pass never throws: a client rejection is logged and gets a FAILED backoff', async () => {
     const r = await opportunity()
     const log = fakeLog()
     const c = fakeClient(() => new Error(`boom ${r.title}`))
     await expect(pass(c.client, 1, { log })).resolves.toMatchObject({
       failed: 1,
-      stoppedBy: 'ERROR',
+      stoppedBy: null,
     })
     expect(JSON.stringify(log.lines)).not.toContain(PREFIX)
     await expect(rolesOf(r.id)).resolves.toMatchObject({ role_status: 'PENDING' })
+    await expect(cacheOf(r)).resolves.toMatchObject({
+      outcome: 'FAILED',
+      attempts: 1,
+      next_attempt_at: new Date(NOW.getTime() + 15 * MIN),
+    })
+  })
+
+  it('a row behind a stale classifier version is never a candidate', async () => {
+    const sentinel = await opportunity()
+    const old = await opportunity()
+    await session.admin.query(
+      `UPDATE job_opportunities SET role_classifier_version = 'rc.0' WHERE id = $1`,
+      [old.id],
+    )
+    const c = fakeClient(() => ok(['QA_ENGINEER'], 0.9))
+    await pass(c.client, 1)
+    expect(c.calls.map((x) => x.title)).toEqual([sentinel.title])
+    await expectUntouched(old)
+  })
+
+  it.each([
+    ['title_key', `UPDATE job_opportunities SET title_key = title_key || ' moved' WHERE id = $1`],
+    ['description_sha256', `UPDATE job_opportunities SET description_sha256 = NULL WHERE id = $1`],
+  ])('a row whose %s changed during the call is stale: nothing is written', async (_, change) => {
+    const r = await opportunity()
+    const c = fakeClient(() => ok(['QA_ENGINEER'], 0.9))
+    const racing = {
+      async classify(input: RoleClassifierInput): Promise<RoleAiReply> {
+        await session.admin.query(change, [r.id])
+        return c.client.classify(input)
+      },
+    }
+    await expect(pass(racing, 1)).resolves.toEqual({
+      classified: 0,
+      unclear: 0,
+      failed: 0,
+      stoppedBy: null,
+    })
+    await expect(rolesOf(r.id)).resolves.toMatchObject({ role_status: 'PENDING' })
+    await expect(cacheOf(r)).resolves.toBeUndefined()
+    await expect(roleAiDirty(r.id)).resolves.toEqual([])
+  })
+
+  it('a cached UNCLEAR answer is applied without a model call', async () => {
+    const r = await opportunity()
+    await session.admin.query(
+      `INSERT INTO job_role_classifications
+         (title_key, description_sha256, classifier_version, outcome, confidence)
+       VALUES ($1, $2, 'rc.1', 'UNCLEAR', 0.4)`,
+      [r.titleKey, r.sha],
+    )
+    const c = fakeClient(() => ok(['QA_ENGINEER'], 0.9))
+    await expect(pass(c.client, 1)).resolves.toMatchObject({ unclear: 1, classified: 0 })
+    expect(c.calls).toEqual([])
+    await expect(rolesOf(r.id)).resolves.toMatchObject({
+      role_status: 'UNCLEAR',
+      technical_roles: [],
+    })
+    await expect(roleAiDirty(r.id)).resolves.toHaveLength(1)
+  })
+
+  it('an AI cache row with no roles is no answer: the model is asked and the row replaced', async () => {
+    const r = await opportunity()
+    await session.admin.query(
+      `INSERT INTO job_role_classifications
+         (title_key, description_sha256, classifier_version, outcome, confidence)
+       VALUES ($1, $2, 'rc.1', 'AI', 0.9)`,
+      [r.titleKey, r.sha],
+    )
+    const c = fakeClient(() => ok(['QA_ENGINEER'], 0.9))
+    await expect(pass(c.client, 1)).resolves.toMatchObject({ classified: 1 })
+    expect(c.calls.map((x) => x.title)).toEqual([r.title])
+    await expect(cacheOf(r)).resolves.toMatchObject({
+      outcome: 'AI',
+      technical_roles: ['QA_ENGINEER'],
+    })
+  })
+
+  it('a failure on a row reclassified during the call writes no FAILED row', async () => {
+    const r = await opportunity()
+    const log = fakeLog()
+    const racing = {
+      async classify(): Promise<RoleAiReply> {
+        await session.admin.query(
+          `UPDATE job_opportunities SET technical_roles = ARRAY['BACKEND_ENGINEER'], role_status = 'RULE'
+            WHERE id = $1`,
+          [r.id],
+        )
+        return { kind: 'unavailable', reason: 'INVALID_OUTPUT' }
+      },
+    }
+    await expect(pass(racing, 1, { log })).resolves.toEqual({
+      classified: 0,
+      unclear: 0,
+      failed: 0,
+      stoppedBy: null,
+    })
+    await expect(cacheOf(r)).resolves.toBeUndefined()
+    expect(log.lines.filter((l) => (l as unknown[])[0] === 'warn')).toEqual([])
+  })
+
+  it('a failure never overwrites a terminal row written for the key during the call', async () => {
+    const r = await opportunity()
+    const racing = {
+      async classify(): Promise<RoleAiReply> {
+        // Another vacancy with the same text was answered meanwhile.
+        await session.admin.query(
+          `INSERT INTO job_role_classifications
+             (title_key, description_sha256, classifier_version, outcome, technical_roles, confidence)
+           VALUES ($1, $2, 'rc.1', 'AI', ARRAY['QA_ENGINEER'], 0.9)`,
+          [r.titleKey, r.sha],
+        )
+        return { kind: 'unavailable', reason: 'INVALID_OUTPUT' }
+      },
+    }
+    await pass(racing, 1)
+    await expect(cacheOf(r)).resolves.toEqual({
+      outcome: 'AI',
+      technical_roles: ['QA_ENGINEER'],
+      confidence: '0.900',
+      model: null,
+      attempts: 0,
+      next_attempt_at: null,
+    })
+  })
+
+  it('two failures of one key at once both count: the attempts increment is atomic', async () => {
+    // Two vacancies with the same title and text share one cache key.
+    const a = await opportunity()
+    const { rows } = await session.admin.query(
+      `INSERT INTO job_opportunities
+         (title, title_key, stack_keywords, description_sha256, role_status,
+          role_classifier_version, availability, last_observed_at)
+       VALUES ($1, $2, ARRAY['backend'], $3, 'PENDING', 'rc.1', 'OPEN',
+               '2999-01-01T00:00:00Z'::timestamptz - interval '1 second')
+       RETURNING id`,
+      [a.title, a.titleKey, a.sha],
+    )
+    mine.push(rows[0].id as string)
+    const store = createRoleAiStore(db, [], METER_KEY)
+    const asCandidate = (id: string) => ({
+      id,
+      title: a.title,
+      titleKey: a.titleKey,
+      descriptionSha256: a.sha,
+      description: a.description,
+      categories: ['backend'],
+    })
+    await expect(
+      Promise.all([
+        store.recordFailure(asCandidate(a.id), NOW),
+        store.recordFailure(asCandidate(rows[0].id as string), NOW),
+      ]),
+    ).resolves.toEqual([true, true])
+    await expect(cacheOf(a)).resolves.toMatchObject({
+      outcome: 'FAILED',
+      attempts: 2,
+      next_attempt_at: new Date(NOW.getTime() + ROLE_AI_BACKOFF(1)),
+    })
+  })
+
+  it(`a key at ${ROLE_AI_MAX_ATTEMPTS} attempts is no candidate; one below the cap still is`, async () => {
+    const sentinel = await opportunity()
+    const capped = await opportunity()
+    const below = await opportunity()
+    for (const [r, attempts] of [
+      [capped, ROLE_AI_MAX_ATTEMPTS],
+      [below, ROLE_AI_MAX_ATTEMPTS - 1],
+    ] as const) {
+      await session.admin.query(
+        `INSERT INTO job_role_classifications
+           (title_key, description_sha256, classifier_version, outcome, attempts, next_attempt_at)
+         VALUES ($1, $2, 'rc.1', 'FAILED', $3, $4::timestamptz)`,
+        [r.titleKey, r.sha, attempts, new Date(NOW.getTime() - MIN).toISOString()],
+      )
+    }
+    const c = fakeClient(() => ok(['QA_ENGINEER'], 0.9))
+    await pass(c.client, 2)
+    expect(c.calls.map((x) => x.title)).toEqual([below.title, sentinel.title])
+    await expect(rolesOf(capped.id)).resolves.toMatchObject({ role_status: 'PENDING' })
+    await expect(cacheOf(capped)).resolves.toMatchObject({
+      outcome: 'FAILED',
+      attempts: ROLE_AI_MAX_ATTEMPTS,
+    })
+  })
+
+  it('an on-demand record whose source link is unlinked is no longer on demand: sent as IN_LIST', async () => {
+    const { recordId, row } = await onDemandOpportunity()
+    await session.admin.query(
+      `UPDATE job_opportunity_sources SET unlinked_at = clock_timestamp(), unlink_reason = 'split'
+        WHERE source_record_id = $1`,
+      [recordId],
+    )
+    const c = fakeClient(() => ok([], 0.9))
+    await pass(c.client, 1, { onDemandTypes: [TYPE] })
+    expect(c.calls.map((x) => x.title)).toEqual([row.title])
+  })
+
+  it('the daily budget: N calls a UTC day, then a skip, and the next UTC day calls again', async () => {
+    const rows = [await opportunity(), await opportunity(), await opportunity()]
+    const log = fakeLog()
+    const c = fakeClient(() => ok(['QA_ENGINEER'], 0.9))
+    const day = new Date('2999-03-01T23:00:00.000Z')
+    await expect(pass(c.client, 3, { now: day, dailyBudget: 2, log })).resolves.toMatchObject({
+      classified: 2,
+      stoppedBy: 'DAILY_BUDGET',
+    })
+    expect(c.calls).toHaveLength(2)
+    expect(log.lines).toContainEqual(['log', { event: 'ROLE_AI_SKIPPED', reason: 'DAILY_BUDGET' }])
+    // The oldest row waits: the same UTC day refuses it, the next one sends it.
+    await pass(c.client, 1, { now: new Date(day.getTime() + 30 * MIN), dailyBudget: 2 })
+    expect(c.calls).toHaveLength(2)
+    await pass(c.client, 1, { now: new Date(day.getTime() + 90 * MIN), dailyBudget: 2 })
+    expect(c.calls.map((x) => x.title)).toEqual([rows[2]?.title, rows[1]?.title, rows[0]?.title])
   })
 
   it('logs never contain the title or description', async () => {
