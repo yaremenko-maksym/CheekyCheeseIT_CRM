@@ -384,7 +384,7 @@ describe('JobQueueRow', () => {
     expect(screen.getByTestId('job-queue-row-source-name')).toHaveTextContent(
       /^Hacker News: Who is hiring$/,
     )
-    expect(row).toHaveAccessibleName(/Hacker News: Who is hiring Acme Labs/)
+    expect(row).toHaveAccessibleName(/Hacker News: Who is hiring ?, Acme Labs/)
   })
 
   it('marks a manual card instead of a source and survives a missing company', () => {

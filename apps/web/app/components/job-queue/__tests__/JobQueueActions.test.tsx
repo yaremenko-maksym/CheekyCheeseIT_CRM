@@ -735,7 +735,7 @@ describe('apply-first reminder (AC 4)', () => {
     const note = screen.getByTestId('job-queue-apply-first')
     expect(note).toHaveAttribute('role', 'note')
     expect(note).toHaveTextContent(
-      'Спершу подайте на сайті джерела (кнопка внизу картки), потім запишіть подачу тут.',
+      'Спершу подайте на сайті джерела (відкрийте його кнопкою внизу картки), потім запишіть подачу тут.',
     )
     expect(
       note.compareDocumentPosition(screen.getByTestId('job-queue-seniors-list')) &

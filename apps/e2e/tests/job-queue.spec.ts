@@ -383,12 +383,12 @@ test.describe('scenario 13 — mobile 375 px (mocked)', () => {
     expect(await noHorizontalScroll()).toBe(true)
     await expectMinTarget(page, `job-queue-submit-${MOCK_IDS.seniorA}`)
 
+    // the compiled catalog flattens the `{0}` placeholder to its index
+    const openOn = assertInCatalog(uk, 'Відкрити на 0')
+    expect(openOn.endsWith('0')).toBe(true)
     await page
       .getByTestId('job-queue-card-footer')
-      .getByRole('button', {
-        // the compiled catalog flattens the `{0}` placeholder to its index
-        name: assertInCatalog(uk, 'Відкрити на 0').replace(/0$/, 'DOU'),
-      })
+      .getByRole('button', { name: `${openOn.slice(0, -1)}DOU` })
       .click()
     const calls = await page.evaluate(
       () => (window as unknown as { __openCalls: OpenCall[] }).__openCalls,

@@ -843,10 +843,6 @@ msgstr "Опублікувати"
 msgid "Не вдалося відв'язати запис"
 msgstr "Не вдалося відв'язати запис"
 
-#: apps/web/app/components/job-queue/JobQueueActions.tsx
-msgid "Спершу подайте на сайті джерела (кнопка внизу картки), потім запишіть подачу тут."
-msgstr "Спершу подайте на сайті джерела (кнопка внизу картки), потім запишіть подачу тут."
-
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 msgid "Немає збережених паролів"
@@ -7076,6 +7072,10 @@ msgstr "Мови"
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 msgid "Не вдалося повернутися: {errMessage}"
 msgstr "Не вдалося повернутися: {errMessage}"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Спершу подайте на сайті джерела (відкрийте його кнопкою внизу картки), потім запишіть подачу тут."
+msgstr "Спершу подайте на сайті джерела (відкрийте його кнопкою внизу картки), потім запишіть подачу тут."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
 msgid "Рахунок розійшовся із сумою — потрібна ручна звірка"

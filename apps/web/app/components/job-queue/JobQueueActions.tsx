@@ -221,7 +221,8 @@ export function ApplyFirst() {
       <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
       <p className="text-pretty">
         <Trans>
-          Спершу подайте на сайті джерела (кнопка внизу картки), потім запишіть подачу тут.
+          Спершу подайте на сайті джерела (відкрийте його кнопкою внизу картки), потім запишіть
+          подачу тут.
         </Trans>
       </p>
     </div>
@@ -1065,7 +1066,7 @@ export function OpenOriginalButton({
     <Button
       type="button"
       variant="outline"
-      className="h-auto min-h-11 w-full whitespace-normal sm:w-auto"
+      className="h-auto min-h-11 w-full whitespace-normal text-balance sm:w-auto"
       onClick={() => {
         openOriginalPosting(url)
         if (source) markOpened(card.opportunityId, source.sourceRecordId)

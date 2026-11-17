@@ -152,7 +152,9 @@ export function JobQueueRow({
             >
               {sourceName}
             </span>
-            <span aria-hidden="true">·</span> <span className="min-w-0 truncate">{company}</span>
+            <span aria-hidden="true">·</span>
+            <span className="sr-only">, </span>
+            <span className="min-w-0 truncate">{company}</span>
           </span>
           {/* §4.3: a triage row replaces the stack line with its reason */}
           {!triage && keywords.length > 0 && (

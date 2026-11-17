@@ -843,10 +843,6 @@ msgstr "Publish"
 msgid "Не вдалося відв'язати запис"
 msgstr "Couldn't unlink the recording"
 
-#: apps/web/app/components/job-queue/JobQueueActions.tsx
-msgid "Спершу подайте на сайті джерела (кнопка внизу картки), потім запишіть подачу тут."
-msgstr "Apply at the source first (use the button at the bottom of the card), then log the submission here."
-
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 msgid "Немає збережених паролів"
@@ -7076,6 +7072,10 @@ msgstr "Languages"
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 msgid "Не вдалося повернутися: {errMessage}"
 msgstr "Could not return: {errMessage}"
+
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Спершу подайте на сайті джерела (відкрийте його кнопкою внизу картки), потім запишіть подачу тут."
+msgstr "Apply at the source first (use the open button at the bottom of the card), then log the submission here."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
 msgid "Рахунок розійшовся із сумою — потрібна ручна звірка"
