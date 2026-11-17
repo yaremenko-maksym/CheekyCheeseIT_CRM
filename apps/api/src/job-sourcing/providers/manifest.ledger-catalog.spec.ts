@@ -63,8 +63,12 @@ describe('buildLedgerCatalog', () => {
       quotaDeclared: true,
       fetchProfile: { intervalMinutes: 10080, window: { days: ['MON'] } },
     })
-    // Owner Q8: a deferred type's entry carries a null profile through to the ledger.
-    expect(catalog.entry('hn-hiring.thread.latest')?.fetchProfile).toBeNull()
+    // Owner Q8, connected 2026-11-17: the HN entry carries its daily profile to the ledger.
+    expect(catalog.entry('hn-hiring.thread.latest')?.fetchProfile).toEqual({
+      intervalMinutes: 1440,
+      offIntervalMinutes: null,
+      window: null,
+    })
   })
 
   it('an unverified payload is reported, not hidden', () => {
