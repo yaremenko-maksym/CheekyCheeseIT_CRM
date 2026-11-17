@@ -1000,7 +1000,7 @@ export function render(result, pr) {
   }
   lines.push(
     '',
-    'Re-runs by itself on every PR event: push, label change, body edit, review, review comment and PR comment.',
+    'Re-runs by itself on every PR event: push, label change, body edit, review, review comment and PR comment. If it has not re-run a few minutes after your last event, edit the PR body or toggle a label (a run older than 30 days cannot be re-run).',
   )
   return lines.join('\n') + '\n'
 }

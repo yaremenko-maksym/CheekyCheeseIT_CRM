@@ -16,8 +16,31 @@
 import { pathToFileURL } from 'node:url'
 
 export const GATE_WORKFLOW = 'flow-gate.yml'
-export const WAIT_LIMIT_MS = 4 * 60 * 1000
+// Longer than the gate job's `timeout-minutes: 5` plus queue time; the recheck job's own
+// `timeout-minutes` must exceed this plus setup (both asserted in the tests).
+export const WAIT_LIMIT_MS = 8 * 60 * 1000
 export const POLL_MS = 10 * 1000
+
+// What a person does when the recheck could not re-run the gate. Every failure path says it.
+export const FALLBACK =
+  'If Flow Gate is still red, start a fresh run by hand: edit the PR body or toggle a label (a run older than 30 days cannot be re-run at all)'
+
+// Workflow-command encoding (`::warning ...::data`): PR-derived text (a branch name, an API
+// message) must not be able to end the command or inject another one. Properties also escape
+// `:` and `,`.
+export function escapeCommand(value, property = false) {
+  let s = String(value ?? '')
+    .replace(/%/g, '%25')
+    .replace(/\r/g, '%0D')
+    .replace(/\n/g, '%0A')
+  if (property) s = s.replace(/:/g, '%3A').replace(/,/g, '%2C')
+  return s
+}
+
+// The one line a failed recheck prints: the cause plus the manual fallback, safely encoded.
+export function errorLine(message) {
+  return `::error title=Flow Gate recheck::${escapeCommand(`${message}. ${FALLBACK}`)}`
+}
 
 // The newest gate run for exactly this head. A re-run of an older head's run would put a fresh
 // conclusion on a commit that is no longer the head and leave the head's own check untouched.
@@ -29,8 +52,11 @@ export function pickRun(runs, headSha) {
   return own[0] || null
 }
 
-// A rejected re-run means the run is running again; anyone who restarted it did so after our
-// event, and the gate reads PR state when it starts, so that attempt already sees our event.
+// A rejected re-run means the run is running again. The POST is sent only after this job saw the
+// run `completed` AFTER our event happened, so whoever restarted it did so after that observation,
+// i.e. after our event, and the gate reads PR state when it starts: that attempt sees our event.
+// GitHub documents only 201 for this endpoint; refusals come as 403/409 with a message, so the
+// status narrows and the text decides.
 export function rerunOutcome(status, message) {
   if (status >= 200 && status < 300) return 'rerun'
   if (
@@ -41,7 +67,25 @@ export function rerunOutcome(status, message) {
   return 'error'
 }
 
-export async function recheck({ api, repo, prNumber, headOwner, headBranch, sleep, log, now }) {
+// True when the run's current attempt started after the event: that attempt read the PR after the
+// event, so a re-run would add nothing. A missing or unparsable time never skips (re-run on doubt).
+export function attemptIsFresh(run, eventAt) {
+  const event = Date.parse(eventAt || '')
+  const started = Date.parse(run?.run_started_at || '')
+  return Number.isFinite(event) && Number.isFinite(started) && started > event
+}
+
+export async function recheck({
+  api,
+  repo,
+  prNumber,
+  headOwner,
+  headBranch,
+  eventAt,
+  sleep,
+  log,
+  now,
+}) {
   sleep ||= (ms) => new Promise((r) => setTimeout(r, ms))
   log ||= console.log
   now ||= Date.now
@@ -56,16 +100,17 @@ export async function recheck({ api, repo, prNumber, headOwner, headBranch, slee
   if (!numbers.length) {
     // Loud: a relay whose head did not resolve must not look like a clean no-op.
     log(
-      `::warning title=Flow Gate recheck::no open PR into main for head ${headOwner}:${headBranch} — nothing re-checked`,
+      `::warning title=Flow Gate recheck::${escapeCommand(`no open PR into main for head ${headOwner}:${headBranch} — nothing re-checked`)}`,
     )
     return []
   }
   const results = []
-  for (const n of numbers) results.push(await recheckOne({ api, repo, n, sleep, log, now }))
+  for (const n of numbers)
+    results.push(await recheckOne({ api, repo, n, eventAt, sleep, log, now }))
   return results
 }
 
-async function recheckOne({ api, repo, n, sleep, log, now }) {
+async function recheckOne({ api, repo, n, eventAt, sleep, log, now }) {
   if (!Number.isInteger(n) || n <= 0) throw new Error(`not a PR number: ${n}`)
   const pr = await api('GET', `repos/${repo}/pulls/${n}`)
   if (pr.status !== 200) throw new Error(`could not read PR #${n} (HTTP ${pr.status})`)
@@ -99,6 +144,10 @@ async function recheckOne({ api, repo, n, sleep, log, now }) {
     const r = await api('GET', `repos/${repo}/actions/runs/${run.id}`)
     if (r.status !== 200) throw new Error(`could not read gate run ${run.id} (HTTP ${r.status})`)
     run = r.body
+  }
+  if (attemptIsFresh(run, eventAt)) {
+    log(`PR #${n} head ${head}: gate run ${run.id} attempt started after the event — fresh`)
+    return { pr: n, run: run.id, outcome: 'fresh' }
   }
   const res = await api('POST', `repos/${repo}/actions/runs/${run.id}/rerun`)
   const outcome = rerunOutcome(res.status, res.body?.message)
@@ -139,10 +188,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     prNumber: e.PR_NUMBER,
     headOwner: e.HEAD_OWNER,
     headBranch: e.HEAD_BRANCH,
+    eventAt: e.EVENT_AT,
   }).then(
     () => {},
     (err) => {
-      console.log(`::error title=Flow Gate recheck::${err.message}`)
+      console.log(errorLine(err.message))
       process.exitCode = 1
     },
   )
