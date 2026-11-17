@@ -695,6 +695,36 @@ describe('a key never travels over plain HTTP (SR-L-63)', () => {
   })
 })
 
+describe('the OpenRouter routing fields (§3.5 check 3)', () => {
+  it.each([
+    ['absent', undefined],
+    ['null', null],
+  ])('routing %s: nothing is sent', async (_l, providerRouting) => {
+    const { result, sent } = await run(
+      { ...HOSTED.openrouter, providerRouting },
+      200,
+      answer('{"a":1}'),
+    )
+    expect(sent).toEqual([])
+    expect(result).toStrictEqual({ ok: false, code: 'TRANSPORT', responded: false })
+  })
+
+  it('the OpenRouter body carries the routing fields as `provider`', async () => {
+    const { sent } = await run(HOSTED.openrouter, 200, answer('{"a":1}'))
+    expect(sent[0]!.body.provider).toStrictEqual(HOSTED.openrouter.providerRouting)
+  })
+
+  it('another provider never carries `provider`, even if routing fields are passed', async () => {
+    const { sent } = await run(
+      { ...HOSTED.groq, providerRouting: HOSTED.openrouter.providerRouting },
+      200,
+      answer('{"a":1}'),
+    )
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.body).not.toHaveProperty('provider')
+  })
+})
+
 describe('constants and coverage (AC1)', () => {
   it('pins the pause clamp', () => {
     expect(MAX_PAUSE_MS).toBe(86_400_000)
