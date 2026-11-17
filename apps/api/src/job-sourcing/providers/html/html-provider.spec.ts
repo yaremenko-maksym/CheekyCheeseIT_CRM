@@ -1561,6 +1561,11 @@ describe('AC6 Stage C is optional and never closes or fails discovery', () => {
       'FAILED',
       ['a'],
     ],
+    [
+      { kind: 'LIMITS_EXHAUSTED', remainingIds: ['a', 'b'], perRecordIssues: [] },
+      'FAILED',
+      ['a', 'b'],
+    ],
     [{ kind: 'SKIPPED_AI_INPUT_NO' }, 'SKIPPED', []],
     [{ kind: 'SKIPPED_AI_INPUT_UNSPECIFIED' }, 'SKIPPED', []],
   ] as const)('%j never fails the run or touches discovery', async (outcome, status, remaining) => {
@@ -1606,6 +1611,35 @@ describe('AC6 Stage C is optional and never closes or fails discovery', () => {
       parkedIds: [],
     })
     expect(r.enrichments.find((e) => e.id === 'a')?.fields).toEqual({ employmentType: 'FT' })
+  })
+
+  it('a PARTIAL stopped by LIMITS_EXHAUSTED applies what it has and leaves the rest owed, unparked', async () => {
+    const enrichment = new InMemoryEnrichmentState()
+    const s = fakeStructurer({
+      kind: 'PARTIAL',
+      extractionVersion: 'p1',
+      perRecordIssues: [],
+      records: [modelRecord('a', { employmentType: 'FT' })],
+      remainingIds: ['b'],
+      stoppedBy: { kind: 'LIMITS_EXHAUSTED' },
+    } as StructurerOutcome)
+    const w = world({ routes: twoItems() })
+    const r = await provider(w, { enrichment, model: { structurer: s, policy } }).p.collectHtml(
+      config(),
+      w.ctx,
+    )
+    expect(r.model).toMatchObject({
+      status: 'PARTIAL',
+      reason: 'LIMITS_EXHAUSTED',
+      applied: 1,
+      remainingIds: ['b'],
+      parkedIds: [],
+    })
+    expect(r.enrichments.find((e) => e.id === 'a')?.fields).toEqual({ employmentType: 'FT' })
+    expect(await enrichment.get(JSON.stringify(['THEHUB_HTML', 'board', 'b']))).toMatchObject({
+      modelPending: true,
+      modelAttempts: 0,
+    })
   })
 
   it('a throwing structurer is a FAILED model stage, not a failed run', async () => {
@@ -2417,6 +2451,10 @@ describe('the model stage owes a pass until it reaches an item (CR-M-1)', () => 
           remainingIds: ['a'],
           perRecordIssues: [],
         },
+      ],
+      [
+        'every route limit-blocked (H.2)',
+        { kind: 'LIMITS_EXHAUSTED', remainingIds: ['a'], perRecordIssues: [] },
       ],
     ] as [string, StructurerOutcome | Error][])(
       'three cycles of %s park nothing and leave modelAttempts unchanged',

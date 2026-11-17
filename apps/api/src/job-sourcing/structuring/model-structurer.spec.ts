@@ -403,6 +403,7 @@ describe('ModelStructurer — failure classification (by InferenceErrorCode only
     ['NOT_CONFIGURED', { kind: 'MODEL_UNAVAILABLE', code: 'NOT_CONFIGURED' }, 0],
     ['PROVIDER_ERROR', { kind: 'MODEL_UNAVAILABLE', code: 'PROVIDER_ERROR' }, 1],
     ['TIMEOUT', { kind: 'EXTRACTOR_FAILED', code: 'TIMEOUT' }, 1],
+    ['LIMITS_EXHAUSTED', { kind: 'LIMITS_EXHAUSTED' }, 1],
     ['QUOTA_EXCEEDED', { kind: 'EXTRACTOR_FAILED', code: 'UNKNOWN_CODE' }, 1],
     ['toString', { kind: 'EXTRACTOR_FAILED', code: 'UNKNOWN_CODE' }, 1],
   ])('%s stops the run with %j, page text notwithstanding', async (code, stop, committed) => {
@@ -436,6 +437,87 @@ describe('ModelStructurer — failure classification (by InferenceErrorCode only
       remainingIds: ['2', '3'],
       stoppedBy: { kind: 'MODEL_UNAVAILABLE', code: 'PROVIDER_ERROR' },
     })
+  })
+})
+
+describe('ModelStructurer — LIMITS_EXHAUSTED latches for the cycle (H.2)', () => {
+  const limits = (): Reply => ({ ok: false, code: 'LIMITS_EXHAUSTED' })
+
+  it('a stop after a processed record is PARTIAL; the rest stay remaining with no further call', async () => {
+    const { structurer, calls } = setup((_req, call) => (call === 1 ? ok() : limits()))
+    const outcome = await structurer.structure(request([rec('1'), rec('2'), rec('3')]))
+    expect(outcome).toMatchObject({
+      kind: 'PARTIAL',
+      records: [{ sourceId: '1' }],
+      remainingIds: ['2', '3'],
+      stoppedBy: { kind: 'LIMITS_EXHAUSTED' },
+    })
+    expect(outcome).not.toHaveProperty('stoppedBy.cause')
+    expect(calls).toHaveLength(2)
+  })
+
+  it('a later run on the same structurer makes no port call and reserves no budget slot', async () => {
+    const { structurer, calls, budget } = setup(limits)
+    await structurer.structure(request([rec('1')]))
+    const second = await structurer.structure(request([rec('2'), rec('3')]))
+    expect(second).toEqual({
+      kind: 'LIMITS_EXHAUSTED',
+      remainingIds: ['2', '3'],
+      perRecordIssues: [],
+    })
+    expect(calls).toHaveLength(1)
+    expect(budget.snapshot()).toEqual({ committed: 1, reserved: 0, totalTokens: 0 })
+  })
+
+  it('a structurer built limit-exhausted (the readiness answer) never calls the port', async () => {
+    const fake = fakePort(ok)
+    const budget = new InMemoryModelBudget(20)
+    const structurer = new ModelStructurer({ port: fake.port, budget, limitsExhausted: true })
+    const outcome = await structurer.structure(request([rec('1'), rec('2')]))
+    expect(outcome).toEqual({
+      kind: 'LIMITS_EXHAUSTED',
+      remainingIds: ['1', '2'],
+      perRecordIssues: [],
+    })
+    expect(fake.calls).toHaveLength(0)
+    expect(budget.snapshot()).toEqual({ committed: 0, reserved: 0, totalTokens: 0 })
+  })
+
+  it('a new structurer (the next cycle in which the record is due) calls the port again', async () => {
+    const first = setup(limits)
+    await first.structurer.structure(request([rec('1')]))
+    const next = setup(ok)
+    const outcome = await next.structurer.structure(request([rec('1')]))
+    expect(outcome.kind).toBe('EXTRACTED')
+    expect(next.calls).toHaveLength(1)
+  })
+
+  it('onResult sees each port result once, in order; a latched run reports nothing', async () => {
+    const seen: { ok: boolean; code?: string }[] = []
+    const fake = fakePort((_req, call) => (call === 1 ? ok() : limits()))
+    const structurer = new ModelStructurer({
+      port: fake.port,
+      budget: new InMemoryModelBudget(20),
+      onResult: (result) => seen.push({ ok: result.ok, code: result.code }),
+    })
+    await structurer.structure(request([rec('1'), rec('2'), rec('3')]))
+    await structurer.structure(request([rec('4')]))
+    expect(seen).toEqual([
+      { ok: true, code: undefined },
+      { ok: false, code: 'LIMITS_EXHAUSTED' },
+    ])
+  })
+
+  it('an ai-input gate refusal still wins over the latch', async () => {
+    const fake = fakePort(ok)
+    const structurer = new ModelStructurer({
+      port: fake.port,
+      budget: new InMemoryModelBudget(20),
+      limitsExhausted: true,
+    })
+    expect((await structurer.structure(request([rec('1')], { aiInput: 'no' }))).kind).toBe(
+      'SKIPPED_AI_INPUT_NO',
+    )
   })
 })
 

@@ -73,6 +73,11 @@ export type StructurerStop =
   | { readonly kind: 'BUDGET_EXHAUSTED'; readonly cause: 'CYCLE_LIMIT' | 'RATE_LIMITED' }
   | { readonly kind: 'MODEL_UNAVAILABLE'; readonly code: 'NOT_CONFIGURED' | 'PROVIDER_ERROR' }
   | { readonly kind: 'EXTRACTOR_FAILED'; readonly code: ExtractorFailureCode }
+  /**
+   * Every available hosted route is limit-blocked for the provider day (ADR Amendment 2026-11-08,
+   * H.2). No cause field: the router keeps the per-route reasons in its own events.
+   */
+  | { readonly kind: 'LIMITS_EXHAUSTED' }
 
 /**
  * `remainingIds`: the records not processed, in request order, for the caller to persist and resume.

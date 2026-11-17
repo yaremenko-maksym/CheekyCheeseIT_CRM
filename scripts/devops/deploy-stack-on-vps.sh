@@ -2473,8 +2473,9 @@ docker compose \
 echo "==> job opportunities manual team applied successfully"
 
 # Source: apps/api/drizzle/manual/2026-11-06_job_model_health.sql
-# Creates job_model_route_daily + job_model_health_flags (class A). MUST precede the grants file:
-# their grants are unconditional and fail on a missing table.
+# Creates job_model_route_daily + job_model_health_flags (class A) and, on an existing database,
+# widens their route and flag CHECKs in place (re-runnable, widening only). MUST precede the grants
+# file: their grants are unconditional and fail on a missing table.
 JOB_MODEL_HEALTH_FILE="/opt/crm/apps/api/drizzle/manual/2026-11-06_job_model_health.sql"
 
 if [ ! -f "$JOB_MODEL_HEALTH_FILE" ]; then

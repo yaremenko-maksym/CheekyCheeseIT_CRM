@@ -24,6 +24,8 @@ type Attempt =
   | { failed: RecordFailureCode }
   | { stop: StructurerStop }
 
+const LIMITS_EXHAUSTED: Attempt = { stop: { kind: 'LIMITS_EXHAUSTED' } }
+
 const NOTHING_LOST = { droppedRecords: 0, nulledUrls: 0, droppedEvidence: 0, nulledFacts: 0 }
 
 const stopWith = (code: ExtractorStopCode): Attempt => ({
@@ -40,6 +42,7 @@ const BY_INFERENCE_CODE: Readonly<Record<InferenceErrorCode, Attempt>> = {
   PROVIDER_ERROR: { stop: { kind: 'MODEL_UNAVAILABLE', code: 'PROVIDER_ERROR' } },
   TIMEOUT: stopWith('TIMEOUT'),
   INVALID_OUTPUT: { failed: 'INVALID_OUTPUT' },
+  LIMITS_EXHAUSTED,
 }
 
 function classify(code: InferenceErrorCode): Attempt {
@@ -124,6 +127,13 @@ export interface ModelStructurerOptions {
    * it, for hosted routes too, so evidence is one text per record (ADR 2.1). Unset: the port's cap.
    */
   readonly inputCeilingChars?: number
+  /**
+   * The cycle already knows every route is limit-blocked (the readiness answer, H.3): every record
+   * stops with LIMITS_EXHAUSTED and the port is never called.
+   */
+  readonly limitsExhausted?: boolean
+  /** Sees each port result that settled in time, before the guard reads it (the H.2 health flag). */
+  readonly onResult?: (result: { ok: boolean; code?: string }) => void
 }
 
 /**
@@ -138,8 +148,11 @@ export class ModelStructurer implements HtmlStructurer {
   private queue: Promise<unknown> = Promise.resolve()
   /** The last abandoned call's hold; already resolved when nothing was abandoned. */
   private held: Promise<void> = Promise.resolve()
+  /** Latched by the first LIMITS_EXHAUSTED: no further port call in this cycle (H.2). */
+  private limitsExhausted: boolean
 
   constructor(private readonly options: ModelStructurerOptions) {
+    this.limitsExhausted = options.limitsExhausted === true
     this.timeoutMs = timerMs('timeoutMs', options.timeoutMs ?? DEFAULT_STRUCTURER_TIMEOUT_MS)
     this.abandonedHoldMs = timerMs(
       'abandonedHoldMs',
@@ -219,6 +232,7 @@ export class ModelStructurer implements HtmlStructurer {
     signal: AbortSignal | undefined,
   ): Promise<Attempt> {
     if (signal?.aborted === true) return stopWith('CANCELLED')
+    if (this.limitsExhausted) return LIMITS_EXHAUSTED
     const { port, budget } = this.options
     const reservation = budget.reserve()
     if (reservation === null) {
@@ -256,9 +270,11 @@ export class ModelStructurer implements HtmlStructurer {
         return stopWith(settled.stopped)
       }
       const result = settled.value
+      this.options.onResult?.(result)
       if (!result.ok) {
         // NOT_CONFIGURED: the adapter had no route or key, so nothing was sent.
         sent = result.code !== 'NOT_CONFIGURED'
+        if (result.code === 'LIMITS_EXHAUSTED') this.limitsExhausted = true
         return classify(result.code)
       }
 

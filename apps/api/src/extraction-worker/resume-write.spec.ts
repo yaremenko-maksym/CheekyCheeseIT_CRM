@@ -36,7 +36,7 @@ function setup(answer: Answer = () => ({ ok: true, data: { summary: MODEL_MARKER
     secret: SECRET,
     routeState: createFileRouteStatePort({ path, now: Date.now, onEvent: () => undefined }),
     log: (l) => logs.push(l),
-    buildPorts: () => ({ extract, preflight: extract }),
+    buildPorts: () => ({ extract, readiness: async () => 'READY' as const }),
   })
   open.push(app)
   return { app, calls, logs }

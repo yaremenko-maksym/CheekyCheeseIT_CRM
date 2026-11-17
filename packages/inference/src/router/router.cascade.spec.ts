@@ -497,7 +497,8 @@ describe('router cascade: own-cap units (§5.1 unit table)', () => {
     const f = scriptedFetch(() => GOOD)
     const d = deps(f.fetchImpl, { ownCap: countingCap(false) })
     const r = await createRouter(config([GROQ, GEMINI]), d).run(REQ)
-    expect(r).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+    // Both routes refused by their own cap: every available route is limit-blocked (H.2).
+    expect(r).toEqual({ ok: false, code: 'LIMITS_EXHAUSTED' })
     expect(f.sent).toEqual([])
   })
 
@@ -659,7 +660,7 @@ describe('router events: exact payloads', () => {
     expect(Object.keys(attempts[1]!)).not.toContain('status')
   })
 
-  it('a route whose every model is spent or retired sends nothing and ends PROVIDER_ERROR', async () => {
+  it('a route whose every model is spent or retired sends nothing and ends LIMITS_EXHAUSTED', async () => {
     const routeState = createMemoryRouteStatePort(
       markRetired(
         'groq',
@@ -670,7 +671,7 @@ describe('router events: exact payloads', () => {
     const f = scriptedFetch(() => GOOD)
     const d = deps(f.fetchImpl, { routeState, now: at(NOON) })
     const r = await createRouter(config([GROQ]), d).run(REQ)
-    expect(r).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+    expect(r).toEqual({ ok: false, code: 'LIMITS_EXHAUSTED' })
     expect(f.sent).toEqual([])
   })
 
