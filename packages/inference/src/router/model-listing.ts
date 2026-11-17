@@ -11,6 +11,7 @@ import {
   isCloudflareAccountId,
 } from './cloudflare'
 import type { HostedProvider } from './config'
+import { isFreePricing, OPENROUTER_LISTING_URL, OPENROUTER_REQUIRED_PARAMETER } from './openrouter'
 
 /**
  * Fixed package constants: no id, query value or user value is ever interpolated (SR-M-8). The
@@ -19,6 +20,7 @@ import type { HostedProvider } from './config'
 export const MODEL_LISTING_URLS = {
   gemini: 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=200',
   groq: 'https://api.groq.com/openai/v1/models',
+  openrouter: OPENROUTER_LISTING_URL,
 } as const satisfies Record<Exclude<HostedProvider, 'cloudflare'>, string>
 
 /** Entries read from one listing; the rest are ignored and counted. */
@@ -26,6 +28,11 @@ export const LISTING_MAX_ENTRIES = 200
 /** Far above any real id: the length cap runs before any id validation. */
 const LISTING_MAX_ID_CHARS = 256
 const LISTING_MAX_BYTES = 512 * 1024
+/**
+ * OpenRouter's catalogue carries a description per model and runs to megabytes (the registry's
+ * `fetchOpenRouterCatalog` allows 16 MiB for the same endpoint); 8 MiB still bounds the parse.
+ */
+const OPENROUTER_LISTING_MAX_BYTES = 8 * 1024 * 1024
 
 export type ListedModel = {
   id: string
@@ -55,6 +62,7 @@ const groqEntry = z.object({
 const envelope = {
   gemini: z.object({ models: z.array(z.unknown()) }),
   groq: z.object({ data: z.array(z.unknown()) }),
+  openrouter: z.object({ data: z.array(z.unknown()) }),
   cloudflare: z.object({ result: z.array(z.unknown()) }),
 }
 
@@ -63,8 +71,36 @@ const entries = (p: Exclude<HostedProvider, 'cloudflare'>, doc: unknown): unknow
     const parsed = envelope.gemini.safeParse(doc)
     return parsed.success ? parsed.data.models : null
   }
+  if (p === 'openrouter') {
+    const parsed = envelope.openrouter.safeParse(doc)
+    // The entry cap applies to `:free` entries only: the paid majority of the catalogue must not
+    // push a free model past it. A shape check, nothing more; `toModel` validates each id.
+    return parsed.success
+      ? parsed.data.data.filter((e) => String((e as { id?: unknown } | null)?.id).endsWith(':free'))
+      : null
+  }
   const parsed = envelope.groq.safeParse(doc)
   return parsed.success ? parsed.data.data : null
+}
+
+/**
+ * An OpenRouter catalogue entry (§3.5 check 2): kept only with a valid `:free` id, every price 0,
+ * `structured_outputs` among its parameters and a positive integer context. Nothing else is read.
+ */
+const openRouterEntry = z.object({
+  id: idField,
+  context_length: contextField,
+  pricing: z.unknown(),
+  supported_parameters: z.array(z.unknown()),
+})
+
+function toOpenRouterModel(raw: unknown): ListedModel | null {
+  const parsed = openRouterEntry.safeParse(raw)
+  if (!parsed.success || !isValidProviderModelId('openrouter', parsed.data.id)) return null
+  if (!isFreePricing(parsed.data.pricing)) return null
+  if (!parsed.data.supported_parameters.includes(OPENROUTER_REQUIRED_PARAMETER)) return null
+  // Listed, free and schema-capable is OpenRouter's "active"; an unknown context stays unknown.
+  return { id: parsed.data.id, context: parsed.data.context_length, active: true }
 }
 
 /**
@@ -111,6 +147,7 @@ function toCloudflareModel(raw: unknown): ListedModel | null {
 /** One untrusted entry to a validated model, or `null`: the raw value goes no further. */
 const toModel = (p: HostedProvider, raw: unknown): ListedModel | null => {
   if (p === 'cloudflare') return toCloudflareModel(raw)
+  if (p === 'openrouter') return toOpenRouterModel(raw)
   if (p === 'gemini') {
     const parsed = geminiEntry.safeParse(raw)
     if (!parsed.success) return null
@@ -145,7 +182,8 @@ export async function fetchModelListing(opts: ListingOptions): Promise<ListingRe
   if (p === 'cloudflare') return fetchCloudflareListing(opts)
   const headers: Record<string, string> =
     p === 'gemini' ? { 'x-goog-api-key': apiKey } : { Authorization: `Bearer ${apiKey}` }
-  const r = await getListingText(MODEL_LISTING_URLS[p], headers, opts)
+  const maxBytes = p === 'openrouter' ? OPENROUTER_LISTING_MAX_BYTES : LISTING_MAX_BYTES
+  const r = await getListingText(MODEL_LISTING_URLS[p], headers, opts, maxBytes)
   return typeof r === 'string' ? readListing(p, entries(p, parseJsonOrNull(r))) : r
 }
 
@@ -154,13 +192,14 @@ async function getListingText(
   url: string,
   headers: Record<string, string>,
   opts: ListingOptions,
+  maxBytes = LISTING_MAX_BYTES,
 ): Promise<string | Exclude<ListingResult, { kind: 'ok' }>> {
   const r = await boundedRequest({
     url,
     method: 'GET',
     headers,
     timeoutMs: opts.timeoutMs,
-    maxBytes: LISTING_MAX_BYTES,
+    maxBytes,
     fetchImpl: opts.fetchImpl,
   })
   if (r.kind === 'ok') return r.text

@@ -24,14 +24,17 @@ import {
   type ProbeAnswer,
   withheldPromotions,
 } from './model-picks'
+import { routeChatFields } from './openrouter'
 import { releasesUnit } from './router'
 import {
-  clearAuth,
+  clearByProof,
   clearRetired,
   isBusyDead,
   isBusyDeadReprobeDue,
   isSpent,
+  markCredit,
   markStartupRefresh,
+  needsProofProbe,
   PROBE_CAP,
   providerDay,
   providerRecord,
@@ -55,7 +58,8 @@ export const MODEL_PROBE_PROMPT = 'Reply only with the JSON {"ok":true}.'
 const PROBE_JSON_SCHEMA = createStrictSchema(z.object({ ok: z.boolean() })).jsonSchema
 
 export type ModelRefreshJob = 'daily' | 'chain' | 'startup'
-export type ProviderFailure = 'AUTH' | 'LISTING' | 'NOTHING_SURVIVED' | 'WRITE' | 'INTERNAL'
+export type ProviderFailure =
+  'AUTH' | 'CREDIT' | 'LISTING' | 'NOTHING_SURVIVED' | 'WRITE' | 'INTERNAL'
 export type ProviderSkip = 'UNCONFIGURED' | 'CAP' | 'NOT_NEEDED' | 'RECENT' | 'STATE'
 
 export type ProviderOutcome =
@@ -104,13 +108,15 @@ type ProbeOutcome =
   | { kind: 'capped' }
   | { kind: 'unwritten' }
   | { kind: 'auth' }
-  | ({ kind: 'answered' } & ProbeAnswer)
+  | { kind: 'credit' }
+  | ({ kind: 'answered'; rejected: boolean } & ProbeAnswer)
 
 /** One fixed-prompt chat through the production builder, under the production unit rules (§5.1). */
 async function probeModel(
   route: HostedRouteConfig,
   model: string,
   deps: ModelRefreshDeps,
+  proofModel: string | undefined,
 ): Promise<ProbeOutcome> {
   const p = route.provider
   const unit = await deps.ownCap.reserve(p, route.freeLimit)
@@ -132,22 +138,53 @@ async function probeModel(
     structuredOutput,
     timeoutMs: route.timeoutMs,
     fetchImpl: deps.fetchImpl,
+    ...routeChatFields(route),
   })
   const { result: r, status } = outcome
   if (r.ok && r.totalTokens !== undefined) await deps.ownCap.addTokens(p, r.totalTokens)
   if (releasesUnit(outcome)) await deps.ownCap.release(p, unit)
   if (r.code === 'AUTH') return { kind: 'auth' }
-  const byStatus = classifyModelStatus(status)
-  // §3.2: the only proof that clears `AUTH` is a keyed 2xx chat; a listing never does.
-  if (byStatus === 'alive' && providerRecord(deps.state.snapshot(), p).auth) {
-    await deps.state.update(clearAuth(p))
+  if (r.code === 'CREDIT') {
+    await deps.state.update(markCredit(p, providerDay(p, deps.now())))
+    return { kind: 'credit' }
   }
-  const verdict = r.code === 'RETIRED' ? 'dead' : byStatus
+  const byStatus = classifyModelStatus(status)
+  // §3.2: the only proof that clears `AUTH` is a keyed 2xx chat; a listing never does. The same
+  // probe, built like a production request, clears a proof-held `CREDIT` and `FLAG_REJECTED` (§3.5).
+  if (byStatus === 'alive' && needsProofProbe(deps.state.snapshot(), p)) {
+    await deps.state.update(clearByProof(p, model, proofModel))
+  }
+  // A probe refused by a routing field makes that model ineligible; it never sets the provider bit.
+  const rejected = r.code === 'FLAG_REJECTED'
+  const verdict = r.code === 'RETIRED' || rejected ? 'dead' : byStatus
   deps.onEvent({ type: 'MODEL_PROBED', provider: p, model, verdict })
-  return { kind: 'answered', model, verdict, busy429: status === 429 && r.code === 'BUSY' }
+  return {
+    kind: 'answered',
+    model,
+    verdict,
+    busy429: status === 429 && r.code === 'BUSY',
+    rejected,
+  }
 }
 
-type Sweep = { answers: ProbeAnswer[]; stopped: 'capped' | 'unwritten' | 'auth' | null }
+type Sweep = {
+  answers: ProbeAnswer[]
+  /** Models a probe found `FLAG_REJECTED`: never written to the managed list (§3.5). */
+  rejected: string[]
+  stopped: 'capped' | 'unwritten' | 'auth' | 'credit' | null
+}
+
+/**
+ * The model whose 2xx probe clears a `FLAG_REJECTED` bit: the one it names, or the first model
+ * probed when that one is no longer in the list (§3.5).
+ */
+function proofModelOf(
+  flagModel: string | undefined,
+  models: readonly string[],
+): string | undefined {
+  if (flagModel === undefined) return undefined
+  return models.includes(flagModel) ? flagModel : models[0]
+}
 
 export async function probeAll(
   route: HostedRouteConfig,
@@ -155,13 +192,17 @@ export async function probeAll(
   deps: ModelRefreshDeps,
 ): Promise<Sweep> {
   const answers: ProbeAnswer[] = []
+  const rejected: string[] = []
+  const flagModel = providerRecord(deps.state.snapshot(), route.provider).flagModel
+  const proofModel = proofModelOf(flagModel, models)
   for (const [i, model] of models.entries()) {
     if (i > 0) await deps.sleep(PROBE_PAUSE_MS)
-    const o = await probeModel(route, model, deps)
-    if (o.kind !== 'answered') return { answers, stopped: o.kind }
+    const o = await probeModel(route, model, deps, proofModel)
+    if (o.kind !== 'answered') return { answers, rejected, stopped: o.kind }
     answers.push({ model: o.model, verdict: o.verdict, busy429: o.busy429 })
+    if (o.rejected) rejected.push(o.model)
   }
-  return { answers, stopped: null }
+  return { answers, rejected, stopped: null }
 }
 
 /** New Gemini ids with a reported context over the floor, largest effective context first. */
@@ -229,8 +270,15 @@ async function refreshProvider(
     (m) => !isSpent(before, p, m, spentDay) && deps.hadOkCall?.(p, m) !== true,
   )
   // The start-up probe is the only proof that clears `AUTH` (§3.2), so nothing eligible cannot skip it.
-  const due = (eligible.length === 0 && proofProbe ? current : eligible).slice(0, maxProbes)
-  const { answers, stopped } = await probeAll(route, due, deps)
+  const pool = eligible.length === 0 && proofProbe ? current : eligible
+  // A `FLAG_REJECTED` bit is cleared only by a probe of the model it names, so that model goes first.
+  const flagModel = providerRecord(before, p).flagModel
+  const ordered =
+    proofProbe && flagModel !== undefined && pool.includes(flagModel)
+      ? [flagModel, ...pool.filter((m) => m !== flagModel)]
+      : pool
+  const due = ordered.slice(0, maxProbes)
+  const { answers, rejected, stopped } = await probeAll(route, due, deps)
 
   const after = deps.state.snapshot()
   const day = applyProbeDay({
@@ -245,8 +293,8 @@ async function refreshProvider(
     if (p !== 'gemini') {
       return pickListedModels({
         provider: p,
-        current,
-        listing: listing.models,
+        current: current.filter((m) => !rejected.includes(m)),
+        listing: listing.models.filter((m) => !rejected.includes(m.id)),
         routeWindow: route.contextTokens,
         minContext: MIN_MANAGED_CONTEXT,
       })
@@ -301,6 +349,7 @@ async function refreshProvider(
   if (stopped === 'capped') return skipped(p, 'CAP')
   if (stopped === 'unwritten') return skipped(p, 'STATE')
   if (stopped === 'auth') return failed(p, 'AUTH')
+  if (stopped === 'credit') return failed(p, 'CREDIT')
   if (next.length === 0) return failed(p, 'NOTHING_SURVIVED')
   if (!written) return failed(p, 'WRITE')
 
@@ -319,6 +368,15 @@ async function refreshProvider(
       )(clearRetired(p)(s)),
     ))
   return cleared ? { provider: p, outcome: 'done' } : failed(p, 'WRITE')
+}
+
+/** A persisted bit this provider can clear only with a keyed 2xx chat probe (§3.2, §3.5). */
+function needsProof(deps: ModelRefreshDeps, route: HostedRouteConfig): boolean {
+  return needsProofProbe(deps.state.snapshot(), route.provider)
+}
+
+function dailyProof(deps: ModelRefreshDeps, route: HostedRouteConfig): boolean {
+  return route.provider === 'openrouter' && needsProof(deps, route)
 }
 
 /** The allowlist drives the loop, so a config or a listing cannot introduce a provider. */
@@ -354,7 +412,11 @@ export async function runDailyModelRefresh(deps: ModelRefreshDeps): Promise<Mode
     // Groq's availability comes from its listing: its daily job sends no chat.
     // Listing-only providers spend no daily probe: Groq and Cloudflare additions are vouched for by
     // their family pattern and listing filters, and each probe would cost the day's small allowance.
-    refreshProvider(route, deps, route.provider === 'gemini' ? PROBE_CAP : 0, false),
+    route.provider === 'gemini'
+      ? refreshProvider(route, deps, PROBE_CAP, false)
+      : // A listing-only provider sends no daily chat; OpenRouter sends one only to clear a bit
+        // that needs its proof (§3.5). Groq and Cloudflare clear `AUTH` at start-up only.
+        refreshProvider(route, deps, dailyProof(deps, route) ? 1 : 0, dailyProof(deps, route)),
   )
   await deps.state.update(setJobFailed('daily', !result.ok))
   return result
@@ -380,6 +442,7 @@ export async function runModelChainCheck(deps: ModelRefreshDeps): Promise<ModelR
     if (dead.length > 0) deps.onEvent({ type: 'MODEL_LIST_STALE', provider: p, models: dead })
     if (stopped === 'capped') return skipped(p, 'CAP')
     if (stopped === 'unwritten') return skipped(p, 'STATE')
+    if (stopped === 'credit') return failed(p, 'CREDIT')
     return stopped === 'auth' ? failed(p, 'AUTH') : { provider: p, outcome: 'done' }
   })
   await deps.state.update(setJobFailed('chain', !result.ok))
@@ -395,7 +458,7 @@ export async function runStartupModelRefresh(deps: ModelRefreshDeps): Promise<Mo
   const result = await forEachProvider(deps, 'startup', async (route) => {
     const p = route.provider
     const record = providerRecord(deps.state.snapshot(), p)
-    if (!record.auth) return skipped(p, 'NOT_NEEDED')
+    if (!needsProof(deps, route)) return skipped(p, 'NOT_NEEDED')
     const nowMs = deps.now()
     // A first refresh has no stamp: NaN compares false.
     // A clock gone back reads as recent: it can only delay a refresh, never repeat one.

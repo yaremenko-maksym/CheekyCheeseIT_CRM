@@ -71,6 +71,7 @@ describe('selection order (SR-H-1)', () => {
         { provider: 'gemini', outcome: 'done' },
         { provider: 'groq', outcome: 'skipped', reason: 'UNCONFIGURED' },
         { provider: 'cloudflare', outcome: 'skipped', reason: 'UNCONFIGURED' },
+        { provider: 'openrouter', outcome: 'skipped', reason: 'UNCONFIGURED' },
       ],
     })
     expect(w.fileList('gemini')).toEqual([G1, G2, NEW])
@@ -1114,6 +1115,7 @@ describe('never wipe (SR-M-6)', () => {
       { provider: 'gemini', outcome: 'failed', reason: 'AUTH' },
       { provider: 'groq', outcome: 'failed', reason: 'LISTING' },
       { provider: 'cloudflare', outcome: 'skipped', reason: 'UNCONFIGURED' },
+      { provider: 'openrouter', outcome: 'skipped', reason: 'UNCONFIGURED' },
     ])
   })
 
@@ -1213,6 +1215,7 @@ describe('per-provider reset (SR-M-5)', () => {
         { provider: 'gemini', outcome: 'failed', reason: 'INTERNAL' },
         { provider: 'groq', outcome: 'done' },
         { provider: 'cloudflare', outcome: 'skipped', reason: 'UNCONFIGURED' },
+        { provider: 'openrouter', outcome: 'skipped', reason: 'UNCONFIGURED' },
       ],
     })
     expect(retiredProviders(w)).toEqual(['gemini'])
@@ -1257,6 +1260,13 @@ describe('per-provider reset (SR-M-5)', () => {
         type: 'MODEL_REFRESH_PROVIDER',
         job: 'daily',
         provider: 'cloudflare',
+        outcome: 'skipped',
+        reason: 'UNCONFIGURED',
+      },
+      {
+        type: 'MODEL_REFRESH_PROVIDER',
+        job: 'daily',
+        provider: 'openrouter',
         outcome: 'skipped',
         reason: 'UNCONFIGURED',
       },

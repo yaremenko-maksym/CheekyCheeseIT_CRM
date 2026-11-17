@@ -6,12 +6,14 @@ import {
   MAX_REPORTED_TOKENS,
   sendClassifiedChat,
   sendClassifiedChatCompletion,
+  type ChatProvider,
   type ClassifiedChatOptions,
   type ClassifiedChatResult,
 } from './classified-chat'
 import { BODY_MARKER, type ProviderFixture } from './__fixtures__/provider-fixture'
 import { GEMINI_FIXTURES, GEMINI_MODEL } from './__fixtures__/gemini.fixtures'
 import { GROQ_FIXTURES, GROQ_MODEL } from './__fixtures__/groq.fixtures'
+import { OPENROUTER_FIXTURES, OPENROUTER_MODEL } from './__fixtures__/openrouter.fixtures'
 import {
   CLOUDFLARE_ACCOUNT,
   CLOUDFLARE_FIXTURES,
@@ -56,7 +58,7 @@ const answer = (content: unknown, extra: Record<string, unknown> = {}, finish: u
     ...extra,
   })
 
-const HOSTED: Record<'gemini' | 'groq' | 'cloudflare', Omit<ClassifiedChatOptions, 'fetchImpl'>> = {
+const HOSTED: Record<ChatProvider, Omit<ClassifiedChatOptions, 'fetchImpl'>> = {
   gemini: {
     provider: 'gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
@@ -84,6 +86,21 @@ const HOSTED: Record<'gemini' | 'groq' | 'cloudflare', Omit<ClassifiedChatOption
     maxTokens: 800,
     structuredOutput: { mode: 'none' },
   },
+  openrouter: {
+    provider: 'openrouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    model: OPENROUTER_MODEL,
+    apiKey: KEY_MARKER,
+    input: 'synthetic input',
+    maxTokens: 800,
+    structuredOutput: { mode: 'json_schema', schema: { type: 'object' } },
+    providerRouting: {
+      max_price: { prompt: 0, completion: 0, request: 0, image: 0 },
+      require_parameters: true,
+      data_collection: 'deny',
+      ignore: [],
+    },
+  },
 }
 
 async function run(
@@ -100,6 +117,7 @@ describe.each([
   ['groq', GROQ_FIXTURES],
   ['gemini', GEMINI_FIXTURES],
   ['cloudflare', CLOUDFLARE_FIXTURES],
+  ['openrouter', OPENROUTER_FIXTURES],
 ] as const)('%s fixtures (ADR §5.1)', (provider, fixtures: ProviderFixture[]) => {
   it.each(fixtures.map((f) => [f.name, f] as const))('%s', async (_name, f) => {
     const { result } = await run(HOSTED[provider], f.status, f.body, f.headers)
@@ -695,6 +713,9 @@ describe('constants and coverage (AC1)', () => {
       run(groq, 503, '').then((x) => x.result),
       run(groq, 429, '', { 'x-ratelimit-remaining-requests': '0' }).then((x) => x.result),
       run(groq, 402, '').then((x) => x.result),
+      run(HOSTED.openrouter, 400, JSON.stringify({ error: { message: 'max_price' } })).then(
+        (x) => x.result,
+      ),
       run(groq, 404, JSON.stringify({ error: { code: 'model_not_found' } })).then((x) => x.result),
       run(groq, 401, '').then((x) => x.result),
       run(groq, 200, answer('{}', {}, 'content_filter')).then((x) => x.result),

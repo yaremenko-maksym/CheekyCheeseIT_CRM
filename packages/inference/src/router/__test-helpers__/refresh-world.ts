@@ -52,6 +52,21 @@ export const groqListing = (entries: readonly (readonly [string, number?, boolea
   }),
 })
 
+/** An OpenRouter catalogue: every entry free and schema-capable unless the caller overrides it. */
+export const openRouterListing = (entries: readonly object[]): Reply => ({
+  status: 200,
+  body: JSON.stringify({ data: entries }),
+})
+export const openRouterEntry = (id: string, over: object = {}): object => ({
+  id,
+  context_length: 131_072,
+  pricing: { prompt: '0', completion: '0', request: '0', image: '0' },
+  supported_parameters: ['structured_outputs', 'response_format'],
+  ...over,
+})
+export const O1 = 'meta-llama/llama-3.3-70b-instruct:free'
+export const O2 = 'qwen/qwen3-235b-a22b:free'
+
 export const ALIVE = answer({ ok: true })
 export const managedDoc = (providers: object): string => JSON.stringify({ version: 1, providers })
 
@@ -100,6 +115,7 @@ export function refreshWorld(opts: WorldOptions = {}) {
       [Q2, 131_072],
     ]),
     cloudflare: cloudflarePage([cloudflareEntry(C1), cloudflareEntry(C2)]),
+    openrouter: openRouterListing([openRouterEntry(O1), openRouterEntry(O2)]),
     ...opts.listing,
   }
   const fixedListingUrls: string[] = Object.values(MODEL_LISTING_URLS)
@@ -114,6 +130,7 @@ export function refreshWorld(opts: WorldOptions = {}) {
   const fake = scriptedFetch((s) => {
     if (!isListing(s.url)) return net.chat(s)
     if (s.url === MODEL_LISTING_URLS.gemini) return net.listing.gemini
+    if (s.url === MODEL_LISTING_URLS.openrouter) return net.listing.openrouter
     return s.url === MODEL_LISTING_URLS.groq ? net.listing.groq : net.listing.cloudflare
   })
   const state = createMemoryRouteStatePort(opts.state ?? EMPTY_ROUTE_STATE)

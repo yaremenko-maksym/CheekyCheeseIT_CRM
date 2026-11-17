@@ -2,11 +2,10 @@ import { routerConfigSchema, type HostedProvider } from './config'
 import { pinnedModelsOnly, type ManagedModels } from './managed-models'
 import {
   isOwnCapReached,
-  isProviderBlocked,
   isRetired,
   isSpent,
+  providerBlock,
   providerDay,
-  providerRecord,
   type RouteStatePort,
 } from './state'
 
@@ -47,12 +46,18 @@ export async function routerReadiness(
       const p: HostedProvider = route.provider
       const snap = deps.routeState.snapshot()
       const today = providerDay(p, now())
-      if (providerRecord(snap, p).auth) {
+      const block = providerBlock(snap, p, today)
+      if (block === 'AUTH') {
         ends.push('UNAVAILABLE')
         continue
       }
-      // Not AUTH, so a blocked provider is the CREDIT bit for today.
-      if (isProviderBlocked(snap, p, today) || isOwnCapReached(snap, p, route.freeLimit, today)) {
+      // CREDIT and an account-wide SPENT_DAY are limits; FLAG_REJECTED is not (H.2), so it is a
+      // route that may answer once its probe clears it.
+      if (
+        block === 'CREDIT' ||
+        block === 'SPENT_DAY' ||
+        isOwnCapReached(snap, p, route.freeLimit, today)
+      ) {
         ends.push('LIMIT')
         continue
       }
