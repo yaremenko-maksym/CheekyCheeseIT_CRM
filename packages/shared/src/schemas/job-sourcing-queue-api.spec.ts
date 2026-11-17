@@ -743,6 +743,38 @@ describe('field bounds, both sides of each limit (CR-M-2)', () => {
     })
   })
 
+  it('skillOverlap: both kinds, the array and char caps, and a positive total only', () => {
+    const over = (skillOverlap: unknown) => ({ ...senior, skillOverlap })
+    const matched = (n: number) => Array.from({ length: n }, () => 'ts')
+    const overlap = (patch: Record<string, unknown> = {}) =>
+      over({ kind: 'OVERLAP', matched: ['ts'], total: 3, ...patch })
+    // Both branches and the `null` of a senior with no role-match evidence.
+    ok(jobQueueCardSeniorSchema, overlap())
+    ok(jobQueueCardSeniorSchema, over({ kind: 'NO_RESUME' }))
+    ok(jobQueueCardSeniorSchema, over(null))
+    no(jobQueueCardSeniorSchema, over(undefined))
+    // The discriminator carries the whole shape: no other kind, and no missing one.
+    no(jobQueueCardSeniorSchema, over({ kind: 'PARTIAL', matched: ['ts'], total: 3 }))
+    no(jobQueueCardSeniorSchema, over({ matched: ['ts'], total: 3 }))
+    // `matched`: empty and the cap accepted, one over refused; a keyword at and over the char cap.
+    ok(jobQueueCardSeniorSchema, overlap({ matched: [] }))
+    ok(jobQueueCardSeniorSchema, overlap({ matched: matched(200) }))
+    no(jobQueueCardSeniorSchema, overlap({ matched: matched(201) }))
+    ok(jobQueueCardSeniorSchema, overlap({ matched: [s(MAX_STACK_KEYWORD_CHARS)] }))
+    no(jobQueueCardSeniorSchema, overlap({ matched: [s(MAX_STACK_KEYWORD_CHARS + 1)] }))
+    // `total` is the count of vacancy technologies: an integer above zero, never 0 or fractional.
+    ok(jobQueueCardSeniorSchema, overlap({ total: 1 }))
+    no(jobQueueCardSeniorSchema, overlap({ total: 0 }))
+    no(jobQueueCardSeniorSchema, overlap({ total: -1 }))
+    no(jobQueueCardSeniorSchema, overlap({ total: 1.5 }))
+    // Both branches are `.strict()`: a server that adds a field is refused at the client.
+    no(jobQueueCardSeniorSchema, overlap({ seniorId: U1 }))
+    no(jobQueueCardSeniorSchema, over({ kind: 'NO_RESUME', matched: ['ts'] }))
+    // Each OVERLAP field is required (no silent default).
+    no(jobQueueCardSeniorSchema, over({ kind: 'OVERLAP', total: 3 }))
+    no(jobQueueCardSeniorSchema, over({ kind: 'OVERLAP', matched: ['ts'] }))
+  })
+
   it('a senior team is optional (absent for a TEAM scope), nullable, and capped', () => {
     ok(jobQueueCardSeniorSchema, senior)
     ok(jobQueueCardSeniorSchema, { ...senior, team: null })
