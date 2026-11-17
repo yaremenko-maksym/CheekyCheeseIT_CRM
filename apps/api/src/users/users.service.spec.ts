@@ -2338,6 +2338,34 @@ describe('UsersService.updateProfile — technical roles on a self-edit (senior 
     expect(db.db.update).not.toHaveBeenCalled()
   })
 
+  // Review SR2-L-1: the role was read without a lock, so a roles write re-checks it in the UPDATE.
+  it('a roles write carries `role = SENIOR` in the UPDATE; a write without roles does not', async () => {
+    const whereSql = async (data: { technicalRoles?: ['BACKEND_ENGINEER'] }) => {
+      const db = self('SENIOR')
+      await makeUsersService(db).updateProfile('user-1', { ...data, phone: null })
+      const where = setOf(db).mock.results[0]?.value?.where as ReturnType<typeof vi.fn>
+      return new PgDialect().sqlToQuery(
+        where.mock.calls[0]?.[0] as Parameters<PgDialect['sqlToQuery']>[0],
+      )
+    }
+    const guarded = await whereSql({ technicalRoles: ['BACKEND_ENGINEER'] })
+    expect(guarded.sql).toContain('"role" = $2')
+    expect(guarded.params).toEqual(['user-1', 'SENIOR'])
+    expect((await whereSql({})).params).toEqual(['user-1'])
+  })
+
+  it('a SENIOR demoted between the read and the write -> 400 TECHNICAL_ROLES_SENIOR_ONLY', async () => {
+    const db = self('SENIOR')
+    ;(db.db.update as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      set: () => ({ where: () => ({ returning: async () => [] }) }),
+    })
+    await expect(
+      makeUsersService(db).updateProfile('user-1', { technicalRoles: ['BACKEND_ENGINEER'] }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TECHNICAL_ROLES_SENIOR_ONLY', statusCode: 400 }),
+    })
+  })
+
   it('roles stay optional: a write without them leaves the column out of the update', async () => {
     const db = self('SENIOR')
     await makeUsersService(db).updateProfile('user-1', { techStack: ['React', 'Go', 'AWS'] })

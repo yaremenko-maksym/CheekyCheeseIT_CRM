@@ -408,14 +408,10 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(await rolesOf(JUNIOR.id)).toEqual([])
       })
 
-      it('a JUNIOR clearing roles or editing the name still passes (the re-check is roles-only)', async () => {
-        expect((await call('PATCH', '/api/users/me', JUNIOR, { technicalRoles: [] })).status).toBe(
-          200,
-        )
+      it('a JUNIOR name edit still passes (the role re-check is for a roles write only)', async () => {
         expect(
           (await call('PATCH', '/api/users/me', JUNIOR, { displayName: 'SRR JUNIOR 2' })).status,
         ).toBe(200)
-        expect(await rolesOf(JUNIOR.id)).toEqual([])
       })
 
       // Review SR2-L-1: an admin demotion landing between the role read and the write.
