@@ -23,7 +23,7 @@ export const POLL_MS = 10 * 1000
 
 // What a person does when the recheck could not re-run the gate. Every failure path says it.
 export const FALLBACK =
-  'If Flow Gate is still red, start a fresh run by hand: edit the PR body or toggle a label (a run older than 30 days cannot be re-run at all)'
+  'If Flow Gate is still red, start a fresh run by hand: edit the PR body or toggle a label (GitHub refuses a re-run of a run older than 30 days or one already re-run 50 times; a fresh run resets both)'
 
 // Workflow-command encoding (`::warning ...::data`): PR-derived text (a branch name, an API
 // message) must not be able to end the command or inject another one. Properties also escape
@@ -72,6 +72,9 @@ export function rerunOutcome(status, message) {
 // add nothing. The reference is our own start time, never an event timestamp: a deleted or edited
 // comment carries its OLD time, which would wrongly judge an older attempt fresh. A missing or
 // unparsable attempt start never skips (re-run on doubt).
+// Statuses of an attempt that has not started yet: when it starts it reads the PR, after our event.
+export const NOT_STARTED = new Set(['queued', 'waiting', 'pending', 'requested'])
+
 export function attemptIsFresh(run, startedAtMs) {
   const started = Date.parse(run?.run_started_at || '')
   return Number.isFinite(startedAtMs) && Number.isFinite(started) && started > startedAtMs
@@ -127,9 +130,18 @@ async function recheckOne({ api, repo, n, startedAt, sleep, log, now }) {
     )
     return { pr: n, outcome: 'no-run' }
   }
+  // Freshness first, on every poll: an attempt not started yet, or started after this script
+  // (itself started after our event), reads or read the PR after the event — nothing to add. Only
+  // an attempt that started before the script is waited out and then re-run.
   const deadline = now() + WAIT_LIMIT_MS
-  while (run.status !== 'completed') {
-    // A run already in flight may have read the PR before our event; re-run it once it ends.
+  for (;;) {
+    if (NOT_STARTED.has(run.status) || attemptIsFresh(run, startedAt)) {
+      log(
+        `PR #${n} head ${head}: gate run ${run.id} is ${run.status}, attempt after this recheck — fresh`,
+      )
+      return { pr: n, run: run.id, outcome: 'fresh' }
+    }
+    if (run.status === 'completed') break
     if (now() >= deadline)
       throw new Error(`gate run ${run.id} did not complete within ${WAIT_LIMIT_MS / 1000}s`)
     log(`gate run ${run.id} is ${run.status}; waiting`)
@@ -137,10 +149,6 @@ async function recheckOne({ api, repo, n, startedAt, sleep, log, now }) {
     const r = await api('GET', `repos/${repo}/actions/runs/${run.id}`)
     if (r.status !== 200) throw new Error(`could not read gate run ${run.id} (HTTP ${r.status})`)
     run = r.body
-  }
-  if (attemptIsFresh(run, startedAt)) {
-    log(`PR #${n} head ${head}: gate run ${run.id} attempt started after this recheck — fresh`)
-    return { pr: n, run: run.id, outcome: 'fresh' }
   }
   const res = await api('POST', `repos/${repo}/actions/runs/${run.id}/rerun`)
   const outcome = rerunOutcome(res.status, res.body?.message)

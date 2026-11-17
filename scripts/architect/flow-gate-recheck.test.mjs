@@ -169,8 +169,8 @@ test('in-flight run that never completes: fails loudly after the wait limit', as
   let t = 0
   const { api } = fakeApi({
     [`GET repos/${REPO}/pulls/12`]: openPr,
-    [runsPath]: { status: 200, body: { workflow_runs: [run(4, HEAD, 'queued')] } },
-    [`GET repos/${REPO}/actions/runs/4`]: { status: 200, body: run(4, HEAD, 'queued') },
+    [runsPath]: { status: 200, body: { workflow_runs: [run(4, HEAD, 'in_progress')] } },
+    [`GET repos/${REPO}/actions/runs/4`]: { status: 200, body: run(4, HEAD, 'in_progress') },
   })
   await assert.rejects(
     recheck({
@@ -272,9 +272,10 @@ test('burst: a second waiter started before the new attempt sees it fresh and do
   assert.equal(posts(calls), 1)
 })
 
-test('burst: a recheck that started after the new attempt still re-runs', async () => {
+test('burst: a recheck that started after the new attempt completed still re-runs', async () => {
   const { at, calls } = sharedGate()
   await recheck(at('2026-11-17T10:00:00Z'))
+  await at('').api('GET', `repos/${REPO}/actions/runs/4`) // the new attempt completes
   const late = await recheck(at('2026-11-17T10:00:20Z'))
   assert.equal(late[0].outcome, 'rerun')
   assert.equal(posts(calls), 2)
@@ -334,4 +335,79 @@ test('timing: gate timeout < WAIT_LIMIT_MS < recheck job timeout', () => {
     'wait limit exceeds the gate timeout with margin',
   )
   assert.ok(job >= WAIT_LIMIT_MS + 2 * 60 * 1000, 'job timeout exceeds the wait limit plus setup')
+})
+
+// Freshness is decided BEFORE any wait: an attempt that has not started, or started after this
+// script, reads (or read) the PR after our event.
+for (const status of ['queued', 'waiting', 'pending', 'requested']) {
+  test(`a ${status} gate run is fresh at once: no wait, no POST`, async () => {
+    let slept = 0
+    const { api, calls } = fakeApi({
+      [`GET repos/${REPO}/pulls/12`]: openPr,
+      [runsPath]: { status: 200, body: { workflow_runs: [run(4, HEAD, status)] } },
+    })
+    const out = await recheck({
+      api,
+      repo: REPO,
+      prNumber: 12,
+      log: () => {},
+      sleep: async () => slept++,
+    })
+    assert.deepEqual(out, [{ pr: 12, run: 4, outcome: 'fresh' }])
+    assert.equal(slept, 0)
+    assert.ok(!calls.some((c) => c.startsWith('POST')))
+  })
+}
+
+test('an in_progress attempt started after the script start is fresh: no wait, no POST', async () => {
+  let slept = 0
+  const { api, calls } = fakeApi({
+    [`GET repos/${REPO}/pulls/12`]: openPr,
+    [runsPath]: {
+      status: 200,
+      body: {
+        workflow_runs: [{ ...run(4, HEAD, 'in_progress'), run_started_at: '2026-11-17T10:00:05Z' }],
+      },
+    },
+  })
+  const out = await recheck({
+    api,
+    repo: REPO,
+    prNumber: 12,
+    log: () => {},
+    now: () => Date.parse('2026-11-17T10:00:00Z'),
+    sleep: async () => slept++,
+  })
+  assert.equal(out[0].outcome, 'fresh')
+  assert.equal(slept, 0)
+  assert.ok(!calls.some((c) => c.startsWith('POST')))
+})
+
+test('an old attempt that another recheck re-runs during our wait ends our wait as fresh', async () => {
+  const { api, calls } = fakeApi({
+    [`GET repos/${REPO}/pulls/12`]: openPr,
+    [runsPath]: {
+      status: 200,
+      body: {
+        workflow_runs: [{ ...run(4, HEAD, 'in_progress'), run_started_at: '2026-11-17T09:59:00Z' }],
+      },
+    },
+    [`GET repos/${REPO}/actions/runs/4`]: {
+      status: 200,
+      body: { ...run(4, HEAD, 'queued'), run_started_at: '2026-11-17T10:00:30Z' },
+    },
+  })
+  const out = await recheck({
+    api,
+    repo: REPO,
+    prNumber: 12,
+    ...quiet,
+    now: () => Date.parse('2026-11-17T10:00:00Z'),
+  })
+  assert.equal(out[0].outcome, 'fresh')
+  assert.ok(!calls.some((c) => c.startsWith('POST')))
+})
+
+test('FALLBACK names the 50-re-run cap', () => {
+  assert.match(FALLBACK, /re-run 50 times/)
 })
