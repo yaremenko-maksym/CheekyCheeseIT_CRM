@@ -135,6 +135,22 @@ function editJson(path: string, edit: (o: Record<string, unknown>) => void): voi
 }
 const rebuildOn = (fixtureRoot: string) => buildManifest({ ...real(), fixtureRoot })
 
+/** Every sentinel marker at once: what a hand-written unit example's provenance said. */
+const toSentinel = (o: Record<string, unknown>) => {
+  o['fetchedAt'] = '1970-01-01T00:00:00.000Z'
+  o['termsCheckedAt'] = '1970-01-01T00:00:00.000Z'
+  o['httpStatus'] = 0
+  o['rawSha256'] = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+  o['trimmedBy'] = 'none: written by hand from public descriptions'
+  o['notes'] = 'SENTINEL: UNIT EXAMPLE ONLY, NOT A CAPTURE'
+}
+/** A copy of the fixtures in which the Jooble capture has been turned back into a sentinel. */
+const joobleSentinelCopy = () => {
+  const root = fixtureCopy()
+  editJson(join(root, 'jooble', 'search-smoke.provenance.json'), toSentinel)
+  return root
+}
+
 /** A thunk that builds the manifest with one type's definition changed. */
 function withDefinition(typeName: string, change: (d: TypeDefinition) => TypeDefinition) {
   return () =>
@@ -619,6 +635,67 @@ describe('readiness is derived from provenance, not retyped', () => {
     )
   })
 
+  it('a keyed type whose credential the runtime checks may say "not blocked"; KEY_REQUIRED stays', () => {
+    for (const type of ['JOOBLE_API', 'JSEARCH_API', 'REED_API', 'THEIRSTACK_API'] as const) {
+      const t = manifest.types.find((x) => x.type === type)!
+      expect(t.status?.value.blocked).toBe(false)
+      expect(t.blockers.map((b) => b.code)).toEqual(['KEY_REQUIRED'])
+    }
+  })
+
+  it('"not blocked" over KEY_REQUIRED fails the build for a type the runtime has no credential for', () => {
+    const root = fixtureCopy()
+    for (const f of ['page-1', 'empty-page']) {
+      editJson(join(root, 'arbeitnow', `${f}.provenance.json`), (o) => {
+        o['permission'] = 'KEY_REQUIRED'
+      })
+    }
+    const definitions = MANIFEST_DEFINITIONS.map((d) =>
+      d.type === 'ARBEITNOW_API'
+        ? {
+            ...d,
+            auth: 'API_KEY' as const,
+            status: {
+              symbol: d.status!.symbol,
+              value: { ...d.status!.value, permission: 'KEY_REQUIRED' as const, blocked: false },
+            },
+          }
+        : d,
+    )
+    expect(refusal(() => buildManifest({ ...real(), definitions, fixtureRoot: root }))).toEqual(
+      refused(
+        'STATUS_CONSTANT_DISAGREES',
+        'ARBEITNOW_SOURCE_STATUS.blocked is false but the provenance permission KEY_REQUIRED is not a ready one',
+      ),
+    )
+  })
+
+  it('a keyed type lifts only KEY_REQUIRED: "not blocked" over another permission fails the build', () => {
+    const root = fixtureCopy()
+    editJson(join(root, 'jooble', 'search-smoke.provenance.json'), (o) => {
+      o['permission'] = 'UNCLEAR'
+    })
+    const definitions = MANIFEST_DEFINITIONS.map((d) =>
+      d.type === 'JOOBLE_API'
+        ? {
+            ...d,
+            auth: 'NONE' as const,
+            ownerDecisions: [],
+            status: {
+              symbol: d.status!.symbol,
+              value: { ...d.status!.value, permission: 'UNCLEAR' as const, blocked: false },
+            },
+          }
+        : d,
+    )
+    expect(refusal(() => buildManifest({ ...real(), definitions, fixtureRoot: root }))).toEqual(
+      refused(
+        'STATUS_CONSTANT_DISAGREES',
+        'JOOBLE_SOURCE_STATUS.blocked is false but the provenance permission UNCLEAR is not a ready one',
+      ),
+    )
+  })
+
   it('a constant for a type that has no fixture to reconcile with fails the build', () => {
     expect(
       refusal(
@@ -646,10 +723,11 @@ describe('readiness is derived from provenance, not retyped', () => {
     ['MUSE_API', ['STATUS_CONSTANT_BLOCKED']],
     ['SMARTRECRUITERS_ATS', ['NO_API_CAPTURE']],
     ['WORKINGNOMADS_API', ['STATUS_CONSTANT_BLOCKED']],
-    ['JOOBLE_API', ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED']],
-    ['JSEARCH_API', ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED']],
-    ['REED_API', ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED']],
-    ['THEIRSTACK_API', ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED']],
+    // Captured by the owner's smoke: only the key is left, and the runtime lifts that one.
+    ['JOOBLE_API', ['KEY_REQUIRED']],
+    ['JSEARCH_API', ['KEY_REQUIRED']],
+    ['REED_API', ['KEY_REQUIRED']],
+    ['THEIRSTACK_API', ['KEY_REQUIRED']],
   ])('%s is blocked for exactly these reasons', (t, codes) => {
     expect(type(t).blockers.map((b) => b.code)).toEqual(codes)
   })
@@ -843,14 +921,26 @@ describe('the strength of an employer claim is read, and a partial one is not "v
 // ---------------------------------------------------------------------------
 
 describe('a provenance file that says "nothing was captured" is never read as a capture', () => {
-  const KEYED = ['JOOBLE_API', 'JSEARCH_API', 'REED_API', 'THEIRSTACK_API']
-
-  it.each(KEYED)('%s: sentinel evidence, no terms date, payload not verified', (t) => {
+  it.each([
+    ['JOOBLE_API', '2026-11-16T21:59:58.000Z'],
+    ['JSEARCH_API', '2026-11-16T21:59:59.000Z'],
+    ['REED_API', '2026-11-16T21:59:55.000Z'],
+    ['THEIRSTACK_API', '2026-11-16T22:00:36.000Z'],
+  ])('%s: the smoke capture is the evidence, its terms date is kept, payload verified', (t, at) => {
     const x = type(t)
-    expect(x.payloadVerified).toBe(false)
+    expect(x.payloadVerified).toBe(true)
     expect(x.fixtures.map((f) => [f.evidence, f.httpStatus, f.termsCheckedAt])).toEqual([
+      ['CAPTURE', 200, at],
+    ])
+  })
+
+  it('a sentinel is not a capture: the source is not ready on it', () => {
+    const t = rebuildOn(joobleSentinelCopy()).types.find((x) => x.type === 'JOOBLE_API')!
+    expect(t.payloadVerified).toBe(false)
+    expect(t.fixtures.map((f) => [f.evidence, f.httpStatus, f.termsCheckedAt])).toEqual([
       ['SENTINEL', 0, null],
     ])
+    expect(t.blockers.map((b) => b.code)).toEqual(['KEY_REQUIRED', 'NO_CAPTURE'])
   })
 
   it('a real capture next to it is verified', () => {
@@ -868,12 +958,12 @@ describe('a provenance file that says "nothing was captured" is never read as a 
   }
 
   it("flipping a sentinel to a real capture changes the entry's status", () => {
-    const root = fixtureCopy()
-    editJson(join(root, 'jooble', 'doc-example.provenance.json'), realCapture)
+    const root = joobleSentinelCopy()
+    editJson(join(root, 'jooble', 'search-smoke.provenance.json'), realCapture)
     const flipped = rebuildOn(root)
     expect(flipped.types.find((t) => t.type === 'JOOBLE_API')!.payloadVerified).toBe(true)
     expect(flipped.types.find((t) => t.type === 'JOOBLE_API')!.blockers.map((b) => b.code)).toEqual(
-      ['KEY_REQUIRED', 'STATUS_CONSTANT_BLOCKED'],
+      ['KEY_REQUIRED'],
     )
   })
 
@@ -910,8 +1000,8 @@ describe('a provenance file that says "nothing was captured" is never read as a 
       },
     ],
   ])('a half-flipped file (%s) still reads as a sentinel', (_what, edit) => {
-    const root = fixtureCopy()
-    editJson(join(root, 'jooble', 'doc-example.provenance.json'), edit)
+    const root = joobleSentinelCopy()
+    editJson(join(root, 'jooble', 'search-smoke.provenance.json'), edit)
     expect(rebuildOn(root).types.find((t) => t.type === 'JOOBLE_API')!.payloadVerified).toBe(false)
   })
 
@@ -1089,7 +1179,14 @@ describe('authentication and attribution agree with what the provenance says', (
       { termsUrl: 'https://remoteok.com/api', termsCheckedAt: '2026-10-23T20:10:00.000Z' },
     ])
     expect(type('JSEARCH_API').policyRefs).toEqual([
-      { termsUrl: 'https://www.openwebninja.com/api/jsearch', termsCheckedAt: null },
+      {
+        termsUrl: 'https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch',
+        termsCheckedAt: '2026-11-16T21:59:59.000Z',
+      },
+    ])
+    const sentinel = rebuildOn(joobleSentinelCopy()).types.find((x) => x.type === 'JOOBLE_API')!
+    expect(sentinel.policyRefs).toEqual([
+      { termsUrl: 'https://jooble.org/info/terms', termsCheckedAt: null },
     ])
   })
 })
@@ -1146,7 +1243,7 @@ describe("quota accounts: consistent units, and a limit that is the provider's, 
     ).toEqual(
       refused(
         'QUOTA_INCONSISTENT',
-        'jsearch:rapidapi-main: the schedule needs 360 requests a month against a limit of 200',
+        'jsearch:rapidapi-main: the schedule needs 360 requests a month against a limit of 150',
       ),
     )
   })
@@ -1157,7 +1254,8 @@ describe("quota accounts: consistent units, and a limit that is the provider's, 
       withDefinition('JSEARCH_API', (d) => ({
         ...d,
         requestsPerRun: 5,
-        quota: { ...d.quota!, limit },
+        // No seeded cap: the provider limit is the figure the schedule must fit.
+        quota: { ...d.quota!, limit, seedMeter: undefined },
         entries: [
           {
             ...d.entries[0]!,
@@ -1173,6 +1271,127 @@ describe("quota accounts: consistent units, and a limit that is the provider's, 
         'jsearch:rapidapi-main: the schedule needs 600 requests a month against a limit of 599',
       ),
     )
+  })
+
+  describe('a seeded meter (PR #1372): a positive integer, never above the provider limit of its window', () => {
+    const seeded = (limit: number, window: 'DAY' | 'MONTH' = 'MONTH') =>
+      withDefinition('JSEARCH_API', (d) => ({
+        ...d,
+        quota: { ...d.quota!, seedMeter: { ...d.quota!.seedMeter!, limit, window } },
+      }))
+    const badSeed = (limit: number) =>
+      refused(
+        'QUOTA_INCONSISTENT',
+        `jsearch:rapidapi-main: seeded meter limit ${limit} is not a positive integer within the provider limit`,
+      )
+
+    it('the committed caps are accepted, and so is a seed exactly at the provider limit', () => {
+      expect(seeded(150)).not.toThrow()
+      expect(seeded(200)).not.toThrow()
+    })
+
+    it('zero, a fraction, or one past the provider limit of the same window is refused', () => {
+      expect(refusal(seeded(0))).toEqual(badSeed(0))
+      expect(refusal(seeded(1.5))).toEqual(badSeed(1.5))
+      expect(refusal(seeded(201))).toEqual(badSeed(201))
+    })
+
+    it('a DAY seed is compared with a MONTH provider limit as its 31-day total (round 2, SR-M-1)', () => {
+      // 10 a day = 310 in a 31-day month, over 200; 6 a day = 186, within; 5 a day = 155, within.
+      expect(refusal(seeded(10, 'DAY'))).toEqual(badSeed(10))
+      expect(refusal(seeded(7, 'DAY'))).toEqual(badSeed(7))
+      expect(seeded(6, 'DAY')).not.toThrow()
+      expect(seeded(5, 'DAY')).not.toThrow()
+    })
+
+    it('a MONTH seed under a DAY provider limit is refused: it could spend a month in one day (round 3, SR-M-2)', () => {
+      const dayProvider = (limit: number) =>
+        withDefinition('JSEARCH_API', (d) => ({
+          ...d,
+          quota: {
+            ...d.quota!,
+            window: 'DAY' as const,
+            limit: 10,
+            seedMeter: { ...d.quota!.seedMeter!, limit, window: 'MONTH' as const },
+          },
+        }))
+      expect(refusal(dayProvider(310))).toEqual(badSeed(310))
+      expect(refusal(dayProvider(5))).toEqual(badSeed(5))
+    })
+
+    it('a DAY seed under a DAY provider limit is compared in that same window', () => {
+      const day = (limit: number) =>
+        withDefinition('JSEARCH_API', (d) => ({
+          ...d,
+          quota: {
+            ...d.quota!,
+            window: 'DAY' as const,
+            limit: 10,
+            seedMeter: { ...d.quota!.seedMeter!, limit, window: 'DAY' as const },
+          },
+        }))
+      expect(day(10)).not.toThrow()
+      expect(refusal(day(11))).toEqual(badSeed(11))
+    })
+
+    it('any seed under a LIFETIME provider limit is refused: a renewing cap outruns a one-off allowance', () => {
+      const lifetime = (window: 'DAY' | 'MONTH') =>
+        withDefinition('JSEARCH_API', (d) => ({
+          ...d,
+          quota: {
+            ...d.quota!,
+            window: 'LIFETIME' as const,
+            limit: 1000,
+            seedMeter: { ...d.quota!.seedMeter!, limit: 1, window },
+          },
+        }))
+      expect(refusal(lifetime('MONTH'))).toEqual(badSeed(1))
+      expect(refusal(lifetime('DAY'))).toEqual(badSeed(1))
+    })
+
+    it('the monthly schedule is checked against the seeded cap, not the provider limit', () => {
+      // 1 request a run, 6 h apart: 120 a month. Under the 150 cap at 1 request; 151+ needs 2 a run.
+      const schedule = (
+        requestsPerRun: number,
+        seed?: { limit: number; window: 'DAY' | 'MONTH' },
+      ) =>
+        withDefinition('JSEARCH_API', (d) => ({
+          ...d,
+          requestsPerRun,
+          quota: {
+            ...d.quota!,
+            seedMeter: seed === undefined ? undefined : { ...d.quota!.seedMeter!, ...seed },
+          },
+          entries: [
+            {
+              ...d.entries[0]!,
+              fetchProfile: every(360),
+              budget: { limit: 240, window: 'MONTH' as const },
+            },
+          ],
+        }))
+      expect(schedule(1, { limit: 150, window: 'MONTH' })).not.toThrow()
+      expect(refusal(schedule(2, { limit: 150, window: 'MONTH' }))).toEqual(
+        refused(
+          'QUOTA_INCONSISTENT',
+          'jsearch:rapidapi-main: the schedule needs 240 requests a month against a limit of 150',
+        ),
+      )
+      // A DAY cap of 5 is a monthly cap of 155 (31 days).
+      expect(refusal(schedule(2, { limit: 5, window: 'DAY' }))).toEqual(
+        refused(
+          'QUOTA_INCONSISTENT',
+          'jsearch:rapidapi-main: the schedule needs 240 requests a month against a limit of 155',
+        ),
+      )
+      // Without a seed the provider's 200 is the cap.
+      expect(refusal(schedule(2))).toEqual(
+        refused(
+          'QUOTA_INCONSISTENT',
+          'jsearch:rapidapi-main: the schedule needs 240 requests a month against a limit of 200',
+        ),
+      )
+    })
   })
 
   it('one account in two units is refused: a request counter and a record counter are not one counter', () => {
@@ -1484,7 +1703,10 @@ describe('exact behaviour: constants, markers and boundaries', () => {
       const g = none.types.find((t) => t.type === 'GREENHOUSE_ATS')!
       expect(g.blockers).toEqual([{ code: 'NO_CAPTURE', detail: 'no fixture was committed' }])
       expect(g.payloadVerified).toBe(false)
-      expect(type('JSEARCH_API').blockers[1]).toEqual({
+      const sentinelOnly = rebuildOn(joobleSentinelCopy()).types.find(
+        (x) => x.type === 'JOOBLE_API',
+      )!
+      expect(sentinelOnly.blockers[1]).toEqual({
         code: 'NO_CAPTURE',
         detail: 'every fixture is a hand-written unit example',
       })
@@ -1738,7 +1960,12 @@ describe('exact behaviour: constants, markers and boundaries', () => {
     it('a record-counted account is not checked against a request schedule', () => {
       const m = withDefinition('THEIRSTACK_API', (d) => ({
         ...d,
-        quota: { ...d.quota!, window: 'MONTH' as const, limit: 1 },
+        quota: {
+          ...d.quota!,
+          window: 'MONTH' as const,
+          limit: 1,
+          seedMeter: { ...d.quota!.seedMeter!, limit: 1 },
+        },
       }))()
       expect(m.types.find((t) => t.type === 'THEIRSTACK_API')!.quota!.limit).toBe(1)
     })
@@ -1746,7 +1973,7 @@ describe('exact behaviour: constants, markers and boundaries', () => {
     it('a zero limit on a daily window is valid; the schedule arithmetic is monthly only', () => {
       const m = withDefinition('JSEARCH_API', (d) => ({
         ...d,
-        quota: { ...d.quota!, window: 'DAY' as const, limit: 0 },
+        quota: { ...d.quota!, window: 'DAY' as const, limit: 0, seedMeter: undefined },
       }))()
       expect(m.types.find((t) => t.type === 'JSEARCH_API')!.quota!.limit).toBe(0)
     })

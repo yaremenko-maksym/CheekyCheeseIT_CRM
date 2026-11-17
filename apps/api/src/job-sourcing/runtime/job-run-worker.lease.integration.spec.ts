@@ -174,7 +174,7 @@ describe.skipIf(!hasDatabaseUrl())('ownership in flight against Postgres (T7)', 
   })
 
   it('AC 8: fenced out between reserve and markSent, a worker sends nothing; the account pays the successor`s request', async () => {
-    fixture.answer = () => ({ body: sourceFixture('jsearch', 'doc-example') })
+    fixture.answer = () => ({ body: sourceFixture('jsearch', 'search-v2-smoke') })
     const accountKey = w.fx.accountKey('fenced')
     const meterId = await meterRow(w.admin, accountKey, {
       unit: 'REQUEST',

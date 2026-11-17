@@ -76,6 +76,11 @@ const JSEARCH_ACCOUNT: QuotaDeclaration = {
   limit: 200,
   limitSource:
     'the plan figure recorded in the vacancy-matching task (JSearch allows 200 requests a MONTH); NOT confirmed against a provider response, because no key is provisioned',
+  seedMeter: {
+    window: 'MONTH',
+    limit: 150,
+    source: `an A1 default of 2026-11-17 (PR #1372), not an owner figure: 150 of the 200-request free plan, a hard limit`,
+  },
 }
 const JOOBLE_ACCOUNT: QuotaDeclaration = {
   account: 'jooble:api-main',
@@ -83,6 +88,11 @@ const JOOBLE_ACCOUNT: QuotaDeclaration = {
   window: null,
   limit: null,
   limitSource: 'unpublished: "usage limits [are] set per key" (jooble provenance notes)',
+  seedMeter: {
+    window: 'DAY',
+    limit: 50,
+    source: `an A1 default of 2026-11-17 (PR #1372), not an owner figure: the provider publishes no limit, so 50 requests a day`,
+  },
 }
 const REED_ACCOUNT: QuotaDeclaration = {
   account: 'reed:api-main',
@@ -90,6 +100,11 @@ const REED_ACCOUNT: QuotaDeclaration = {
   window: null,
   limit: null,
   limitSource: 'unpublished: the developer page gives no rate limit (reed provenance notes)',
+  seedMeter: {
+    window: 'DAY',
+    limit: 50,
+    source: `an A1 default of 2026-11-17 (PR #1372), not an owner figure: the provider publishes no limit, so 50 requests a day`,
+  },
 }
 const THEIRSTACK_ACCOUNT: QuotaDeclaration = {
   account: 'theirstack:api-main',
@@ -98,6 +113,12 @@ const THEIRSTACK_ACCOUNT: QuotaDeclaration = {
   limit: null,
   limitSource:
     'unpublished: one API credit per job returned is documented, the plan allowance is not (theirstack provenance notes)',
+  // Within FREE_PLAN_METERS (job-run-worker): RECORD / MONTH, at most 200.
+  seedMeter: {
+    window: 'MONTH',
+    limit: 150,
+    source: `an A1 default of 2026-11-17 (PR #1372), not an owner figure: 150 of the 200-record free plan`,
+  },
 }
 
 // ---------------------------------------------------------------------------

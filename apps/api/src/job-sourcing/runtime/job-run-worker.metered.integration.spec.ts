@@ -59,8 +59,7 @@ const smartrecruiters = createSmartRecruitersProvider(SMARTRECRUITERS_BOUNDS, {
 
 /**
  * Every reporting adapter that METERS its requests (reserves before sending): the keyed quota
- * adapters that declare a meter, and SmartRecruiters. Reed is not one -- it declares no meter of
- * its own although the manifest declares a quota for it; see its own case below.
+ * adapters, Reed included since PR #1372 (one REQUEST per call), and SmartRecruiters.
  */
 const METERED: {
   type: JobSourceType
@@ -76,7 +75,7 @@ const METERED: {
     config: { query: `t7 ${TAG} backend` },
     unit: 'REQUEST',
     limit: 100,
-    body: sourceFixture('jsearch', 'doc-example'),
+    body: sourceFixture('jsearch', 'search-v2-smoke'),
   },
   {
     type: 'THEIRSTACK_API',
@@ -84,7 +83,7 @@ const METERED: {
     config: { limit: 25, seniority: ['senior'], maxAgeDays: 7 },
     unit: 'RECORD',
     limit: 200,
-    body: sourceFixture('theirstack', 'doc-example'),
+    body: sourceFixture('theirstack', 'jobs-search-smoke'),
   },
   {
     type: 'JOOBLE_API',
@@ -95,6 +94,14 @@ const METERED: {
     body: {},
   },
   {
+    type: 'REED_API',
+    provider: createReedProvider({ credential }),
+    config: { keywords: `t7 ${TAG}`, locationName: 'remote' },
+    unit: 'REQUEST',
+    limit: 100,
+    body: sourceFixture('reed', 'search-smoke'),
+  },
+  {
     type: 'SMARTRECRUITERS_ATS',
     provider: smartrecruiters,
     config: { board: `t7${TAG}` },
@@ -103,9 +110,6 @@ const METERED: {
     body: { limit: 100, offset: 0, totalFound: 0, content: [] },
   },
 ]
-
-const reed = createReedProvider({ credential })
-const REED_CONFIG = { keywords: `t7 ${TAG}`, locationName: 'remote' }
 
 /** The host an adapter sends its first request to, read off a dry run against an in-memory fake. */
 async function firstHostOf(provider: ReportingJobSourceProvider, config: Record<string, unknown>) {
@@ -183,10 +187,8 @@ async function counters(meterId: string) {
  * Quota-declaring types that are NOT in the AC 9 list, each with the reason (SPEC-L-1). Anything
  * else the production catalog says is metered must be in `METERED`, or this file fails.
  */
-const NOT_IN_AC9: Readonly<Partial<Record<JobSourceType, string>>> = {
-  REED_API:
-    'the adapter declares no meter of its own; under its account meter it fails closed (pinned below). Master A1: excepted from AC 9, a separate task makes Reed meter',
-}
+// Empty since PR #1372: Reed meters per request and is run by AC 9 like the others.
+const NOT_IN_AC9: Readonly<Partial<Record<JobSourceType, string>>> = {}
 
 describe('AC 9 covers every metered type the production catalog knows (SPEC-L-1)', () => {
   const quotaTypes = LEDGER_CATALOG_SNAPSHOT.types.filter((t) => t.quotaDeclared).map((t) => t.type)
@@ -216,7 +218,6 @@ describe.skipIf(!hasDatabaseUrl())('the metered production context against Postg
       hosts.set(m.type, host)
       w.register(m.provider, [host])
     }
-    w.register(reed, [await firstHostOf(reed, REED_CONFIG)])
     fixture = await startFixtureServer()
     restoreFetch = routeFetchTo(fixture)
   }, 120_000)
@@ -259,19 +260,6 @@ describe.skipIf(!hasDatabaseUrl())('the metered production context against Postg
       expect(statuses).toEqual(fixture.requests.map(() => 'USED'))
     },
   )
-
-  it('Reed (manifest quota, no meter of its own) fails CLOSED under its account meter: nothing sent', async () => {
-    // Found by AC 9: the manifest declares a Reed quota, so the claim requires a meter row
-    // (METER_MISSING otherwise), while the adapter reserves nothing. The production context refuses
-    // its first request. Safe (nothing leaves, nothing is charged), not functional: decision brief.
-    const { sourceId } = await meteredSource('REED_API', REED_CONFIG, {
-      unit: 'REQUEST',
-      limit: 100,
-    })
-    const [report] = await w.worker().runDue({ cycleId: await w.cycle(), onlyIds: [sourceId] })
-    expect(report).toMatchObject({ outcome: 'FAILED', errorCode: 'NOT_MARKED_SENT' })
-    expect(fixture.requests).toEqual([])
-  })
 
   it('AC 6: a metered fetch without a committed markSent throws NOT_MARKED_SENT; zero requests', async () => {
     w.register(

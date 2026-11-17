@@ -58,12 +58,12 @@ WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/job-source-check-XXXXXX")"
 trap 'rm -rf "$WORKDIR"' EXIT
 
 usage() {
-  echo "Usage: $(basename "$0") <jooble|adzuna|careerjet|rapidapi>" >&2
+  echo "Usage: $(basename "$0") <jooble|adzuna|careerjet|rapidapi|reed|theirstack>" >&2
   exit 2
 }
 
 case "$SERVICE" in
-  jooble | adzuna | careerjet | rapidapi) ;;
+  jooble | adzuna | careerjet | rapidapi | reed | theirstack) ;;
   *) usage ;;
 esac
 
@@ -116,6 +116,7 @@ missing_secret() {
 HTTP_CODE=""
 CURL_EXIT=0
 BODY_FILE=""
+HDR_FILE=""
 ERR_TEXT=""
 do_curl() {
   local secrets=()
@@ -126,6 +127,7 @@ do_curl() {
   shift # drop --
 
   BODY_FILE="$WORKDIR/body-$$-$RANDOM"
+  HDR_FILE="$WORKDIR/hdr-$$-$RANDOM"
   local err_file="$WORKDIR/err-$$-$RANDOM"
 
   # This script never sets -e itself, but do_curl is written defensively
@@ -135,7 +137,7 @@ do_curl() {
   local had_e=0
   case "$-" in *e*) had_e=1 ;; esac
   set +e
-  HTTP_CODE="$(curl -sS --max-time 20 -o "$BODY_FILE" -w '%{http_code}' "$@" 2>"$err_file")"
+  HTTP_CODE="$(curl -sS --max-time 20 -D "$HDR_FILE" -o "$BODY_FILE" -w '%{http_code}' "$@" 2>"$err_file")"
   CURL_EXIT=$?
   [ "$had_e" = "1" ] && set -e
 
@@ -425,9 +427,64 @@ elif svc == "rapidapi":
     company = "yes" if items and isinstance(items[0], dict) and items[0].get("employer_name") else "no"
     emit("OK", count, company, f"request_id={data.get('request_id', '?')}")
 
+elif svc == "reed":
+    results = data.get("results")
+    if not isinstance(results, list):
+        base = first_reason(data) or "response has no 'results' array"
+        emit("FAIL", "-", "-", f"{base} — {shape_hint(data)}")
+        sys.exit(0)
+    count = len(results)
+    company = "yes" if results and isinstance(results[0], dict) and results[0].get("employerName") else "no"
+    emit("OK", count, company, f"totalResults={data.get('totalResults', '?')}")
+
+elif svc == "theirstack":
+    items = data.get("data")
+    if not isinstance(items, list):
+        base = first_reason(data) or "response has no 'data' array"
+        emit("FAIL", "-", "-", f"{base} — {shape_hint(data)}")
+        sys.exit(0)
+    count = len(items)
+    company = "yes" if items and isinstance(items[0], dict) and items[0].get("company") else "no"
+    emit("OK", count, company, f"records={count}")
+
 else:
     emit("FAIL", "-", "-", f"unknown service {svc!r} — parser was not taught its response shape")
 PY
+}
+
+# capture_raw <service> <secret...>
+# Opt-in (CAPTURE_DIR set): keeps the bytes of the ONE request this run made,
+# for the fixture tooling (apps/api/src/job-sourcing/providers/sources/
+# __fixtures__/README.md): the body as received, the response headers (their
+# Date: is the fixture's fetchedAt), the HTTP code and the sha256 of the body.
+# Never a second request. FAIL-CLOSED: if any secret appears in the body or
+# the headers, nothing is kept and only that fact is printed (never the
+# match). LOCAL USE ONLY: never set it in a workflow of this public
+# repository (an artifact there is public, and responses carry third-party
+# personal data); nothing of the response is ever printed to stdout.
+capture_raw() {
+  local svc="$1"
+  shift
+  [ -n "${CAPTURE_DIR:-}" ] || return 0
+  mkdir -p "$CAPTURE_DIR"
+  local v
+  for v in "$@"; do
+    [ -n "$v" ] || continue
+    if grep -qF -- "$v" "$BODY_FILE" "$HDR_FILE"; then
+      echo "  capture:                REFUSED (a credential appears in the response; nothing kept)"
+      return 0
+    fi
+  done
+  [ -f "$BODY_FILE" ] && cp "$BODY_FILE" "$CAPTURE_DIR/${svc}.body"
+  # Only the Date: header is kept (it is the fixture's fetchedAt): never a
+  # cookie, an account id or a rate-limit header.
+  [ -f "$HDR_FILE" ] && { grep -i '^date:' "$HDR_FILE" || true; } >"$CAPTURE_DIR/${svc}.hdr"
+  local digest="-"
+  if [ -f "$BODY_FILE" ]; then
+    digest="$(python3 -c 'import hashlib,sys;print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$BODY_FILE")"
+  fi
+  printf 'http=%s\nsha256=%s\n' "$HTTP_CODE" "$digest" >"$CAPTURE_DIR/${svc}.meta"
+  echo "  capture:                kept (sha256 ${digest})"
 }
 
 # run_service <service> <secret-for-redaction...> -- <curl args...>
@@ -464,6 +521,7 @@ run_service() {
   reason="$(printf '%s\n' "$parsed" | sed -n 's/^REASON=//p')"
 
   report "$svc" "$result" "$HTTP_CODE" "$count" "$company" "$reason"
+  capture_raw "$svc" "${secrets[@]+"${secrets[@]}"}"
   [ "$result" = "OK" ]
 }
 
@@ -485,7 +543,7 @@ case "$SERVICE" in
       -X POST "https://jooble.org/api/${JOOBLE_API_KEY}" \
       -H "Content-Type: application/json" \
       -H "User-Agent: Mozilla/5.0 (compatible; CheekyCheeseIT-CredCheck/1.0; +https://app.cheekycheese.tech)" \
-      -d '{"keywords":"developer","location":"Berlin","ResultOnPage":1}'
+      -d '{"keywords":"senior developer","location":"remote","page":1,"ResultOnPage":5}'
     ;;
 
   adzuna)
@@ -550,6 +608,33 @@ case "$SERVICE" in
     run_service rapidapi "$RAPIDAPI_KEY" -- \
       -H "x-rapidapi-key: ${RAPIDAPI_KEY}" \
       -H "x-rapidapi-host: jsearch.p.rapidapi.com" \
-      "https://jsearch.p.rapidapi.com/search-v2?query=developer&num_pages=1&country=us&date_posted=all"
+      "https://jsearch.p.rapidapi.com/search-v2?query=senior%20backend%20developer%20remote&num_pages=1&country=us&date_posted=week&work_from_home=true"
+    ;;
+
+  reed)
+    [ -n "${REED_API_KEY:-}" ] || missing_secret reed "REED_API_KEY is not set — this credential was never exercised this run."
+    # HTTP Basic: the key is the username, the password is empty (Reed's own
+    # rule). `-u` keeps the key out of the URL; the base64 form is registered
+    # for redaction too, because that is the form that travels.
+    # resultsToTake=5: the smallest page that still shows the record shape.
+    run_service reed "$REED_API_KEY" "$(printf '%s:' "$REED_API_KEY" | base64)" -- \
+      -u "${REED_API_KEY}:" \
+      -G "https://www.reed.co.uk/api/1.0/search" \
+      --data-urlencode "keywords=senior developer" \
+      --data-urlencode "resultsToTake=5" \
+      --data-urlencode "resultsToSkip=0"
+    ;;
+
+  theirstack)
+    [ -n "${THEIRSTACK_API_KEY:-}" ] || missing_secret theirstack "THEIRSTACK_API_KEY is not set — this credential was never exercised this run."
+    # BILLED PER RETURNED RECORD (1 credit per job), so limit=3: at most three
+    # credits. A posted-date filter is mandatory for the API. Bearer header,
+    # never the URL.
+    run_service theirstack "$THEIRSTACK_API_KEY" -- \
+      -X POST "https://api.theirstack.com/v1/jobs/search" \
+      -H "Authorization: Bearer ${THEIRSTACK_API_KEY}" \
+      -H "Content-Type: application/json" \
+      -H "Accept: application/json" \
+      -d '{"page":0,"limit":3,"posted_at_max_age_days":7,"workplace_types_or":["remote"],"job_seniority_or":["senior"]}'
     ;;
 esac

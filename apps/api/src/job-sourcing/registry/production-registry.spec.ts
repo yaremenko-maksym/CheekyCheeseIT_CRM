@@ -21,7 +21,7 @@ import { REPORTING_WIRING } from './reporting-wiring'
 
 const NOW = new Date('2026-11-16T09:00:00Z')
 const FAKE_KEY = 'fake-key-0000-not-a-real-credential'
-const KEYED_ENV = ['JOOBLE_API_KEY', 'RAPIDAPI_KEY', 'THEIRSTACK_API_KEY'] as const
+const KEYED_ENV = ['JOOBLE_API_KEY', 'RAPIDAPI_KEY', 'THEIRSTACK_API_KEY', 'REED_API_KEY'] as const
 
 const configWith = (values: Partial<Record<string, string>>) => {
   const get = vi.fn((key: string) => values[key])
@@ -71,8 +71,8 @@ describe('createProductionRegistry covers exactly the wired REPORTING types (AC1
     )
   })
 
-  it('the unwired types stay unregistered (REED_API, WORKINGNOMADS_API)', () => {
-    expect(registry.get('REED_API')).toBeUndefined()
+  it('the unwired type stays unregistered (WORKINGNOMADS_API); Reed is registered (PR #1372)', () => {
+    expect(reportingOf(registry, 'REED_API').adapterVersion).toBe('reed-2')
     expect(registry.get('WORKINGNOMADS_API')).toBeUndefined()
   })
 

@@ -58,6 +58,60 @@ describe('catalogFromSnapshot — detail mode (U10)', () => {
   })
 })
 
+describe('catalogFromSnapshot — KEY_REQUIRED is met only by a provisioned key', () => {
+  const NOW = new Date('2026-11-17T00:00:00Z')
+  const keyed: LedgerCatalogSnapshot = {
+    types: [
+      { ...snapshotType('JOOBLE_API', 'IN_LIST', null), blockerCodes: ['KEY_REQUIRED'] },
+      {
+        ...snapshotType('REED_API', 'IN_LIST', null),
+        blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE'],
+      },
+    ],
+    entries: [
+      {
+        id: 'jooble.e',
+        type: 'JOOBLE_API',
+        blockerCodes: ['KEY_REQUIRED'],
+        deadlines: [],
+        fetchProfile: null,
+      },
+      {
+        id: 'reed.e',
+        type: 'REED_API',
+        blockerCodes: ['KEY_REQUIRED'],
+        deadlines: [],
+        fetchProfile: null,
+      },
+    ],
+    hosts: [],
+  }
+  const facts = (c: ReturnType<typeof catalogFromSnapshot>, id: string) => {
+    const e = c.entry(id)!
+    const f = e.activationFacts(NOW)
+    return [f.readiness, f.blockerCodes, e.entryReadiness(NOW)]
+  }
+
+  it('without a key reader, the blocker stands on the type and on the entry', () => {
+    expect(facts(catalogFromSnapshot(keyed), 'jooble.e')).toEqual([
+      'BLOCKED',
+      ['KEY_REQUIRED'],
+      'BLOCKED',
+    ])
+  })
+
+  it('a provisioned key lifts KEY_REQUIRED, and only for its own type', () => {
+    const c = catalogFromSnapshot(keyed, (t) => t === 'JOOBLE_API')
+    expect(facts(c, 'jooble.e')).toEqual(['CANDIDATE', [], 'CANDIDATE'])
+    expect(facts(c, 'reed.e')).toEqual(['BLOCKED', ['KEY_REQUIRED', 'NO_CAPTURE'], 'BLOCKED'])
+  })
+
+  it('a provisioned key lifts nothing but KEY_REQUIRED', () => {
+    const c = catalogFromSnapshot(keyed, () => true)
+    expect(facts(c, 'reed.e')).toEqual(['BLOCKED', ['NO_CAPTURE'], 'CANDIDATE'])
+  })
+})
+
 describe('sourceDeadlines — task 7.5 (AC4)', () => {
   const dated = (type: JobSourceType, deadlines: SnapshotType['deadlines']): SnapshotType => ({
     ...snapshotType(type, 'IN_LIST', null),
