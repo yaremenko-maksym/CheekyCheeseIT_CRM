@@ -119,10 +119,15 @@ export function mergeSkills(skills: string[], technologies: string[][]): string[
  * `Java` is not in `JavaScript`, `C` is not in `C#` / `C++`.
  */
 export function mentionsSkill(text: string, skill: string): boolean {
-  const spellings = spellingsOf(skill) ?? [skill]
+  return skillMentions(text)(skill)
+}
+
+/** `mentionsSkill` with `text` tokenised once, for testing many skills against one text. */
+export function skillMentions(text: string): (skill: string) => boolean {
   const haystack = phraseOf(text)
-  return spellings.some((spelling) => {
-    const needle = phraseOf(spelling)
-    return needle.trim() !== '' && haystack.includes(needle)
-  })
+  return (skill) =>
+    (spellingsOf(skill) ?? [skill]).some((spelling) => {
+      const needle = phraseOf(spelling)
+      return needle.trim() !== '' && haystack.includes(needle)
+    })
 }

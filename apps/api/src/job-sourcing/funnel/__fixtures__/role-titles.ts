@@ -1,7 +1,10 @@
 /**
  * Title → role cases for `classifyRoles`. Every research §3.4 example with its stated outcome, the 8
  * tuning traps and the 2 ATS-fixture bugs (research doc `2026-11-16-it-role-taxonomy.md`). The
- * title-only rows were cross-checked against the research Appendix A scratch classifier.
+ * title-only rows up to the step-9 block were cross-checked against the research Appendix A scratch
+ * classifier, except the `Frontend/Backend` architect and the two Cyrillic information-security
+ * engineer rows; those and the rows after the step-9 block pin the deviations listed in the
+ * classifier header.
  */
 import type { RoleClassification } from '../role-classifier'
 
@@ -255,6 +258,22 @@ export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
   { title: 'Інженерка з інформаційної безпеки', expected: roles('SECURITY_ENGINEER') },
   { title: 'Инженеры по кибербезопасности', expected: roles('SECURITY_ENGINEER') },
   { title: 'Инженеры по информационной безопасности', expected: roles('SECURITY_ENGINEER') },
+  // any engineer + security-domain shape, not only `інженер з …`
+  { title: 'Інженер кібербезпеки', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Інженер інформаційної безпеки', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Инженер кибербезопасности', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Инженер информационной безопасности', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Провідний інженер з питань кібербезпеки', expected: roles('SECURITY_ENGINEER') },
+  // an analyst noun keeps the analyst; an English title is untouched by the Cyrillic rule
+  {
+    title: 'Інженер-аналітик з кібербезпеки',
+    expected: roles('SECURITY_ENGINEER', 'SECURITY_ANALYST'),
+  },
+  { title: 'Security Engineer, SOC', expected: roles('SECURITY_ENGINEER', 'SECURITY_ANALYST') },
+  // the remaining generic Cyrillic job nouns
+  { title: 'Разработчик', expected: roles('SOFTWARE_ENGINEER') },
+  { title: 'Програміст', expected: roles('SOFTWARE_ENGINEER') },
+  { title: 'Программист', expected: roles('SOFTWARE_ENGINEER') },
   { title: 'Аналітик з інформаційної безпеки', expected: roles('SECURITY_ANALYST') },
   { title: 'Аналитик по информационной безопасности', expected: roles('SECURITY_ANALYST') },
   // the architect back-end domain, spaced and hyphenated

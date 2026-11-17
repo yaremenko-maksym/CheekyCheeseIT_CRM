@@ -246,8 +246,8 @@ const ROLE_PATTERNS: Record<SpecificRole, readonly RegExp[]> = {
     /security architect/,
     /information security/,
     // an engineer noun + a security domain (research §1.6 uk label «Інженер з кібербезпеки»)
-    /інженер\w* з (кібербезпек|інформаційн\w* безпек)/,
-    /инженер\w* по (кибербезопасн|информационн\w* безопасн)/,
+    /інженер.*(кібербезпек|інформаційн\w* безпек)/,
+    /инженер.*(кибербезопасн|информационн\w* безопасн)/,
   ],
   SECURITY_ANALYST: [
     /security analyst/,
@@ -257,10 +257,10 @@ const ROLE_PATTERNS: Record<SpecificRole, readonly RegExp[]> = {
     /\bgrc\b/,
     /security operations/,
     /digital forensic/,
-    /(?<!інженер\w* з )кібербезпек/,
-    /(?<!инженер\w* по )кибербезопасн/,
-    /(?<!інженер\w* з )інформаційн\w* безпек/,
-    /(?<!инженер\w* по )информационн\w* безопасн/,
+    /кібербезпек/,
+    /кибербезопасн/,
+    /інформаційн\w* безпек/,
+    /информационн\w* безопасн/,
   ],
   PENETRATION_TESTER: [
     /penetration test/,
@@ -392,6 +392,8 @@ const ENG_NOUN = rx(
 const JOB_NOUN = rx(
   /(developer|engineer|programmer|architect|designer|analyst|administrator|admin\b|tester|\bqa\b|aqa|sdet|scientist|\bdba\b|\bsre\b|devops|pentester|hacker|\bcto\b|head of|director|vp\b|development manager|r&d manager|lead\b|specialist|expert|consultant|researcher|\bdev\b|розробник|разработчик|програміст|программист|тестувальник|тестировщик|адміністратор|администратор|аналітик|аналитик|архітектор|архитектор|дизайнер|інженер|инженер|сисадм|верстальщик|верстальник)/,
 )
+/** A Cyrillic engineer title with no analyst noun: the security engineer, not the analyst. */
+const CYRILLIC_ENGINEER = rx(/^(?!.*(аналіт|аналит)).*(інженер|инженер)/)
 const AI_FOCUS = rx(/\b(llm|genai|generative|agent|rag|prompt)/)
 const HINT_NOUN = rx(
   /(developer|engineer|programmer|розробник|разработчик|програміст|программист|dev\b|lead\b)/,
@@ -523,6 +525,7 @@ function applyPrecedence(t: string, hits: TechnicalRole[]): TechnicalRole[] {
     drop.add('BACKEND_ENGINEER')
   }
   if (has('AI_ENGINEER') && AI_FOCUS.test(t)) drop.add('ML_ENGINEER')
+  if (has('SECURITY_ENGINEER') && CYRILLIC_ENGINEER.test(t)) drop.add('SECURITY_ANALYST')
   return hits.filter((r) => !drop.has(r))
 }
 

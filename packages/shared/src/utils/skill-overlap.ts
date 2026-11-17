@@ -2,14 +2,15 @@
  * Display-only "k of n skills" indicator for a (vacancy, senior) pair. Ranking never reads it.
  * n = dictionary technologies named in the vacancy text; k = those the senior's resume has.
  */
-import { SKILL_SYNONYM_GROUPS, canonicalSkill, mentionsSkill } from '../schemas/resume-skills'
+import { SKILL_SYNONYM_GROUPS, canonicalSkill, skillMentions } from '../schemas/resume-skills'
 
 /**
  * Canonical names of every dictionary technology `text` (title + description) mentions,
  * sorted and deduplicated. Provider tags are never passed in.
  */
 export function vacancyTechnologies(text: string): readonly string[] {
-  return SKILL_SYNONYM_GROUPS.filter(({ canonical }) => mentionsSkill(text, canonical))
+  const mentions = skillMentions(text)
+  return SKILL_SYNONYM_GROUPS.filter(({ canonical }) => mentions(canonical))
     .map(({ canonical }) => canonical)
     .sort()
 }
