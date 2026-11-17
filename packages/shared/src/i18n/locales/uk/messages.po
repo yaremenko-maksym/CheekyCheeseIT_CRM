@@ -67,6 +67,7 @@ msgstr "Ручне підтвердження"
 msgid "Редагування параметрів проєкту: ставка, валюта, домен і налаштування частки."
 msgstr "Редагування параметрів проєкту: ставка, валюта, домен і налаштування частки."
 
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/users/user-dialog/RolesSection.tsx
 msgid "Технічні ролі"
 msgstr "Технічні ролі"
@@ -8582,6 +8583,7 @@ msgstr "Черга з’явиться, коли адміністратор до
 msgid "Домен"
 msgstr "Домен"
 
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx

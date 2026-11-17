@@ -67,6 +67,7 @@ msgstr "Manual confirmation"
 msgid "Редагування параметрів проєкту: ставка, валюта, домен і налаштування частки."
 msgstr "Edit project settings: rate, currency, domain, and share settings."
 
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/users/user-dialog/RolesSection.tsx
 msgid "Технічні ролі"
 msgstr "Technical roles"
@@ -8582,6 +8583,7 @@ msgstr "The queue appears once an admin adds you to a team."
 msgid "Домен"
 msgstr "Domain"
 
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
