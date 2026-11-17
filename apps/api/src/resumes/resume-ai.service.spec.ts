@@ -9,7 +9,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { createServer, type AddressInfo } from 'node:net'
 import { Logger } from '@nestjs/common'
-import { decodeResumeMessage } from '@crm/shared'
+import { decodeResumeMessage, encodeResumeMessage } from '@crm/shared'
 import {
   ResumeAiService,
   coerceToContentShape,
@@ -283,7 +283,7 @@ describe('ResumeAiService', () => {
     })
 
     describe('R1: a call Cloudflare cannot have billed is given back', () => {
-      it('a network error (no HTTP response) releases the reserved call', async () => {
+      it('a connect-refused error (ECONNREFUSED, no HTTP response) releases the reserved call', async () => {
         fetchSpy.mockRejectedValueOnce(fetchFailed('ECONNREFUSED'))
         const budget = fakeBudget(10)
         const result = await makeService({}, budget).extractStructure('a'.repeat(200))
@@ -314,6 +314,74 @@ describe('ResumeAiService', () => {
           const result = await pending
 
           expect(result).toMatchObject({ ok: false, code: 'MODEL_ERROR' })
+          expect(result).not.toHaveProperty('unbilled')
+          expect(budget.releaseCall).not.toHaveBeenCalled()
+          expect(budget.used()).toBe(1)
+        } finally {
+          vi.useRealTimers()
+        }
+      })
+
+      it('B1: a response body that rejects is MODEL_ERROR, not a throw, and keeps the call spent', async () => {
+        const error = vi.spyOn(Logger.prototype, 'error')
+        // A connect-phase code on purpose: headers arrived, so the call must stay spent anyway.
+        fetchSpy.mockResolvedValueOnce({
+          ok: true,
+          status: 200,
+          text: () => Promise.reject(fetchFailed('ECONNREFUSED')),
+        } as unknown as Response)
+        const budget = fakeBudget(10)
+        const result = await makeService({}, budget).extractStructure('a'.repeat(200))
+
+        expect(result).toMatchObject({
+          ok: false,
+          code: 'MODEL_ERROR',
+          message: encodeResumeMessage('RESUME_AI_UNAVAILABLE'),
+          tokensUsed: null,
+        })
+        // Headers came back: the request was sent and may be billed, so it is NOT unbilled.
+        expect(result).not.toHaveProperty('unbilled')
+        expect(budget.releaseCall).not.toHaveBeenCalled()
+        expect(budget.used()).toBe(1)
+        expect(error).toHaveBeenCalledWith('Workers AI response body failed: TypeError')
+      })
+
+      it('B1: a connect failure that is not an Error is logged as "request" with "unknown error"', async () => {
+        const error = vi.spyOn(Logger.prototype, 'error')
+        fetchSpy.mockRejectedValueOnce('boom')
+        const budget = fakeBudget(10)
+        await makeService({}, budget).extractStructure('a'.repeat(200))
+
+        expect(error).toHaveBeenCalledWith('Workers AI request failed: unknown error')
+        // Not a TypeError, so not certainly pre-request: the call stays spent.
+        expect(budget.used()).toBe(1)
+      })
+
+      it('B1: a response body that never ends is aborted by the 60 s timer and keeps the call spent', async () => {
+        vi.useFakeTimers()
+        try {
+          fetchSpy.mockImplementationOnce((_url, init) =>
+            Promise.resolve({
+              ok: true,
+              status: 200,
+              text: () =>
+                new Promise<string>((_resolve, reject) => {
+                  init?.signal?.addEventListener('abort', () =>
+                    reject(new DOMException('The operation was aborted.', 'AbortError')),
+                  )
+                }),
+            } as unknown as Response),
+          )
+          const budget = fakeBudget(10)
+          const pending = makeService({}, budget).extractStructure('a'.repeat(200))
+          await vi.advanceTimersByTimeAsync(60_000)
+          const result = await pending
+
+          expect(result).toMatchObject({
+            ok: false,
+            code: 'MODEL_ERROR',
+            message: encodeResumeMessage('RESUME_AI_UNAVAILABLE'),
+          })
           expect(result).not.toHaveProperty('unbilled')
           expect(budget.releaseCall).not.toHaveBeenCalled()
           expect(budget.used()).toBe(1)

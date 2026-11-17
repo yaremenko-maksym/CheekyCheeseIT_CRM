@@ -257,7 +257,10 @@ export class ResumeAiService {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
 
-    let res: Response
+    // The body is read under the same timer and the same try: a stalled or reset body is bounded by
+    // REQUEST_TIMEOUT_MS and never escapes as a rejection.
+    let res: Response | undefined
+    let bodyText: string
     try {
       res = await fetch(url, {
         method: 'POST',
@@ -275,10 +278,11 @@ export class ResumeAiService {
         }),
         signal: controller.signal,
       })
+      bodyText = await res.text()
     } catch (err: unknown) {
       // Never log the token or the resume body — only the failure shape.
       this.logger.error(
-        `Workers AI request failed: ${err instanceof Error ? err.name : 'unknown error'}`,
+        `Workers AI ${res ? 'response body' : 'request'} failed: ${err instanceof Error ? err.name : 'unknown error'}`,
       )
       return {
         ok: false,
@@ -286,13 +290,14 @@ export class ResumeAiService {
         message: encodeResumeMessage('RESUME_AI_UNAVAILABLE'),
         quotaResetsAt: null,
         tokensUsed: null,
-        unbilled: failedBeforeRequest(err),
+        // Headers came back, so the request was sent and may be billed: only a failure before any
+        // response is given back.
+        unbilled: res === undefined && failedBeforeRequest(err),
       }
     } finally {
       clearTimeout(timer)
     }
 
-    const bodyText = await res.text()
     const body = safeJsonParse<WorkersAiResponse>(bodyText)
 
     if (this.isQuotaExhausted(res.status, body)) {
