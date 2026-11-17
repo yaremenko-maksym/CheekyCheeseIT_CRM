@@ -111,15 +111,15 @@ stat -c '%a' .env.extraction-worker      # expect 600
 
 Fill it with an editor. Never paste values into a command line or a chat. The keys:
 
-| Key                             | Value                                                                                                             |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `EXTRACTION_WORKER_SECRET`      | the value you generated in step 1 (it goes to GitHub in step 6)                                                   |
-| `INFERENCE_EXTRACTION_PROVIDER` | `router` (anything else and the worker refuses to start)                                                          |
-| `EXTRACTION_ROUTER_CONFIG`      | the route parameters as one line of JSON (sample below). No key, base URL or account id in it                     |
-| `GEMINI_API_KEY`                | the Gemini key (AI Studio)                                                                                        |
-| `GROQ_API_KEY`                  | the Groq key                                                                                                      |
-| `CLOUDFLARE_ACCOUNT_ID`         | 32 lower-case hex. Any other form drops the Cloudflare route without an error: check `HOSTED_ROUTES` in step 7    |
-| `CLOUDFLARE_AI_TOKEN`           | a **new** token of its own, Workers AI scope only. Not the API's token. Read "Cloudflare quota and billing" first |
+| Key                             | Value                                                                                                                                 |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `EXTRACTION_WORKER_SECRET`      | the value you generated in step 1 (it goes to GitHub in step 6)                                                                       |
+| `INFERENCE_EXTRACTION_PROVIDER` | `router` (anything else and the worker refuses to start)                                                                              |
+| `EXTRACTION_ROUTER_CONFIG`      | the route parameters as one line of JSON (sample below). No key, base URL or account id in it                                         |
+| `GEMINI_API_KEY`                | the Gemini key (AI Studio)                                                                                                            |
+| `GROQ_API_KEY`                  | the Groq key                                                                                                                          |
+| `CLOUDFLARE_ACCOUNT_ID`         | 32 lower-case hex. Any other form drops the Cloudflare route with a `ROUTE_ENV_WARNING` line (below): check `HOSTED_ROUTES` in step 7 |
+| `CLOUDFLARE_AI_TOKEN`           | a **new** token of its own, Workers AI scope only. Not the API's token. Read "Cloudflare quota and billing" first                     |
 
 A missing Cloudflare token or account id drops the Cloudflare route. The worker logs a `ROUTE_ENV_WARNING` line at start, with the route and the reason but never the value, for: a malformed account id (`ACCOUNT_ID_MALFORMED`), an account id missing while the token is set (`ACCOUNT_ID_MISSING`), and a token missing while the account id is set (`TOKEN_MISSING`). A token and an id both missing logs nothing. After the start check that `cloudflare` is in the `present` list of the worker's `HOSTED_ROUTES` log line.
 
