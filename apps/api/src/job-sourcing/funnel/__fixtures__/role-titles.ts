@@ -285,6 +285,7 @@ export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
   // the Cyrillic counterparts of `interior architect` / `building architect` (any apostrophe)
   { title: "Архітектор інтер'єру", expected: NON_IT },
   { title: 'Архітектор інтерʼєру', expected: NON_IT },
+  { title: "Архітекторка інтер'єру", expected: NON_IT },
   { title: 'Архитектор интерьера', expected: NON_IT },
   { title: 'Архитектор зданий', expected: NON_IT },
   { title: 'Архітектор будівель', expected: NON_IT },
