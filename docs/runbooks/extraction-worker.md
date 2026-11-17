@@ -17,7 +17,7 @@ Do not add a `local` route or `floorBudgetMs` to a config: both are refused.
 
 **The API side.** When the worker URL and secret are set, the collection side's env schema (`buildModelExtraction` in `apps/api/src/job-sourcing/structuring/model-extraction-wiring.ts`) also requires `EXTRACTION_INPUT_CONTEXT_TOKENS` and `EXTRACTION_INPUT_MAX_ANSWER_TOKENS` (H.4). They size the input ceiling: the page is cut to fit the smallest configured hosted window. The deploy writes both together with the URL and the secret (step 6). Without them that wiring refuses and names the two keys.
 
-The sample config below is checked against the router's schema in CI: `scripts/devops/check-extraction-router-sample.mjs` runs it through the worker's own env parse and fails unless every route is kept (`scripts/devops/tests/test-check-extraction-router-sample.sh`).
+The sample config below is checked against the router's schema by the `Guard Tests` CI job on every pull request that changes code and on every push to `main`; a pull request that changes only docs (this runbook alone, say) skips that job, so its sample is checked after the merge, on the push to `main`. `scripts/devops/check-extraction-router-sample.mjs` runs it through the worker's own env parse and fails unless every route is kept, and with `--deploy` it also fails when the input window `deploy.yml` writes (`EXTRACTION_INPUT_CONTEXT_TOKENS` / `EXTRACTION_INPUT_MAX_ANSWER_TOKENS`) is not this sample's smallest route (`scripts/devops/tests/test-check-extraction-router-sample.sh`). Change a route's `contextTokens` or `maxAnswerTokens` here and in `deploy.yml` together.
 
 ## What the compose file gives you
 
