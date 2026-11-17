@@ -127,7 +127,7 @@ export function boundedRequestToLocalRuntime(opts: BoundedRequestOptions): Promi
  * Package-internal entry for the extraction worker only (ADR §2.4): additionally allows plain HTTP
  * to loopback or the one constant worker host. Not re-exported from the package index. Its one
  * direct caller is `createExtractionWorkerTransport`, which is exported and reaches only the
- * worker's four routes (a runtime allow-list); the extraction-worker adapter goes through it.
+ * worker's five routes (a runtime allow-list); the extraction-worker adapter goes through it.
  */
 export function boundedRequestToExtractionWorker(
   opts: BoundedRequestOptions,
