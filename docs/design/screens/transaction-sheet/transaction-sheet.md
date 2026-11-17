@@ -17,9 +17,11 @@
 **In one paragraph.** One sheet replaces the create dialog, both edit dialogs and the attach-receipt sheet.
 It is a full-height `ResponsiveSheet` on the phone and a right side panel from 640 px. The form body
 is the same at every width. The receipt comes first, the amount second, and everything else is
-prefilled or one tap away. A keyed save closes the sheet at once and shows an optimistic row. A failed
-save rolls the row back with a visible error, and the draft is kept. An unknown outcome is never
-retried automatically: the user decides to resubmit with the same idempotency key. No capability of
+prefilled or one tap away. A save closes the sheet at once and shows an optimistic row; this needs
+Task 1.1 (an idempotency key on every create), a hard prerequisite. After the sheet closes, one
+lifecycle runs at every width: saving → saved, or failed / unknown. A failed or unknown save keeps the
+draft as a pinned row at the top of the list, a pill and a dot on «+»; there is no toast. An unknown
+outcome is never retried automatically: the user resubmits with the same key. No capability of
 today's dialogs is removed (see "Field parity").
 
 ## Current (what exists today)
@@ -120,62 +122,69 @@ Today's surfaces are Radix dialogs under the finance route's `components/dialogs
 
 ## States
 
-Mockups: `assets/transaction-sheet/<state>-<width>.png`. The main state is rendered at 320, 375, 768,
-1024 and 1440; every other state at 375 (phone) and 1440 (desktop, non-modal panel). The sample role
-is ADMIN and the sample kind EXPENSE unless the row says otherwise.
+Mockups: `assets/transaction-sheet/<state>-<width>.png` (76 frames). The sample role is ADMIN and the
+sample kind EXPENSE unless the row says otherwise. Widths: 320 and 375 (phone), 768 (tablet portrait,
+the 640–899 layout), 1024 and 1440 (desktop). A dash in the 640–1023 column means the frame is the
+desktop body in the 400 px tablet panel with nothing tablet-specific to show; the "Layout per device
+class" table is the rule for it.
 
-| State                    | Screenshots                          | Notes                                                                                                                                                                                                                              |
-| ------------------------ | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| default (empty form)     | `default-{320,375,768,1024,1440}`    | Receipt tile first, amount placeholder `0,00`, currency + kind pills, category chips, defaults row. Submit enabled: a tap on an invalid form focuses the first invalid field.                                                      |
-| receipt uploading        | `receipt-uploading-{375,1440}`       | Upload row with a progress bar; the rest of the form stays editable. The user can save (armed) or collapse the sheet; the draft keeps the upload.                                                                                  |
-| armed save               | `armed-{375,1440}`                   | Save tapped while the receipt uploads: «Збережеться 1 250,50 USD після чека» + «Не зберігати автоматично». The lead becomes «Згорнути»; the save fires when the upload ends.                                                       |
-| in flight                | `inflight-{375,1440}`                | Keyless kinds only (see "Save behaviour"): banner «Зберігаємо… змінити не можна», the form locked, submit `aria-disabled="true"` with a spinner.                                                                                   |
-| optimistic row           | `optimistic-row-{375,1440}`          | Keyed save: the sheet is closed; the list shows the row with «Зберігаємо…» and `aria-busy="true"`; the phone also shows the pill «Зберігаємо 1 250,50 USD…».                                                                       |
-| rollback (save failed)   | `rollback-{375,1440}`                | The optimistic row is removed; a persistent error toast «Не збережено 1 250,50 USD» / «Рядок прибрано зі списку. Сума й чек у чернетці.» with «Відкрити», which reopens the pinned draft.                                          |
-| error 422 (validation)   | `error-422-{375,1440}`               | Server validation: the message sits inline on the field («Жовтень уже закрито. Оберіть дату від 1 листопада.»), values kept, no retry button.                                                                                      |
-| error, not sent          | `error-definite-{375,1440}`          | The request never left (offline, DNS, refused): alert «Транзакцію не надіслано» + «Повторити збереження» (manual) + «Видалити чернетку».                                                                                           |
-| unknown outcome          | `unknown-resubmit-{375,1440}`        | Timeout after the request left: the form is locked, the alert explains it, «Надіслати ще раз» resubmits with the same idempotency key («якщо транзакцію вже збережено, друга не з’явиться»), «Видалити чернетку». Never automatic. |
-| loading (form data)      | `loading-{375,1440}`                 | Projects, receivers or the NBU rate are loading: skeletons in the pickers and the rate line; amount and receipt stay usable.                                                                                                       |
-| long content             | `long-content-{375,1440}`            | UAH `1 234 567,89` fits at 34 px on the phone, NBU rate line, a long project name truncated with an ellipsis, a long description on one line.                                                                                      |
-| permission-limited       | `permission-limited-{375,1440}`      | A payout, or a transaction tied to a payout request: read-only view, a banner, «Лише перегляд», lead «Закрити», no footer.                                                                                                         |
-| dirty close              | `dirty-close-{375,1440}`             | Phone: an action sheet «Вийти без збереження?»; desktop: a 420 px confirm dialog. Buttons «Продовжити редагування» / «Вийти без збереження».                                                                                       |
-| kind picker              | `kind-picker-{375,1440}`             | Phone: a picker sheet with the role's kinds; desktop: a listbox popover with the keys 1–5.                                                                                                                                         |
-| ADMIN_INCOME, USDT       | `admin-income-usdt-{375,1440}`       | Explorer link only, USDT locked, «Рахунок отримувача», the obligation preview (who is credited, which share, which source).                                                                                                        |
-| ADMIN_INCOME, ACCOUNTANT | `admin-income-accountant-{375,1440}` | Segmented control «Власник проєкту» / «Рахунок компанії».                                                                                                                                                                          |
-| EXPENSE, company funded  | `expense-company-{375,1440}`         | ACCOUNTANT, USDT link, a category chip selected, «Джерело коштів» = «Рахунок компанії» with the company balance hint.                                                                                                              |
-| SALARY part              | `salary-part-{375,1440}`             | Prefilled from a SALARY row: «Співробітник», «Місяць», «Уже внесено за листопад», info «Чек для зарплати додається під час виплати.» No receipt block.                                                                             |
-| ADMIN_TRANSFER           | `transfer-{375,1440}`                | ACCOUNTANT: cards «надсилає → отримує» with the swap control «Поміняти напрямок».                                                                                                                                                  |
-| DIVIDEND                 | `dividend-{375,1440}`                | USDT locked, explorer link, «Отримувач (партнер)», the company balance with the limit note.                                                                                                                                        |
-| SENIOR_INCOME            | `senior-income-{375,1440}`           | SENIOR: no kind pill, title «Новий дохід», project, receipt uploading.                                                                                                                                                             |
-| DROP_INCOME              | `drop-income-{375,1440}`             | DROP: title «Новий дохід», USDT link, hint «Дохід піде на валідацію адміністратору».                                                                                                                                               |
-| admin edit + cascade     | `admin-edit-cascade-{375,1440}`      | Title «Редагування», the list «Що зміниться» (one mount at every width); a row that cannot be recomputed reads «Не перерахується автоматично». Primary «Зберегти зміни».                                                           |
-| senior edit (rejected)   | `senior-edit-rejected-{375,1440}`    | Banner «Дохід відхилено. Після збереження він знову піде на перевірку.», primary «Зберегти й надіслати».                                                                                                                           |
-| attach receipt           | `attach-receipt-{375,1440}`          | A transaction summary card, the receipt, the project; primary «Додати чек».                                                                                                                                                        |
+| State                            | < 640                               | 640–1023                 | ≥ 1024                         | Notes                                                                                                                                                                                                                                                     |
+| -------------------------------- | ----------------------------------- | ------------------------ | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| default (empty form)             | `default-320` (full length), `-375` | `default-768`            | `default-1024`, `default-1440` | Receipt tile first, amount placeholder `0,00`, currency + kind pills, «Категорія» text field with suggestion chips, defaults row. Submit enabled: a tap on an invalid form focuses the first invalid field.                                               |
+| receipt uploading                | `receipt-uploading-375`             | —                        | `receipt-uploading-1440`       | Upload row with a progress bar; the rest of the form stays editable. Primary «Зберегти після завантаження чека»: a tap arms the save.                                                                                                                     |
+| armed save                       | `armed-320`, `armed-375`            | —                        | `armed-1440`                   | «Збережеться −1 250,50 USD після завантаження чека» + «Не зберігати автоматично». Lead «Згорнути»; the save fires when the upload ends.                                                                                                                   |
+| in flight (draft reopened)       | `inflight-375`                      | —                        | `inflight-1440`                | Only reachable by reopening a saving draft from its pill. Lead «Згорнути», the muted lock line «Зберігаємо… · змінити не можна», the form locked, primary with a spinner and `aria-disabled="true"`. No «Видалити чернетку».                              |
+| saving (sheet closed)            | `optimistic-row-375`                | `optimistic-row-768`     | `optimistic-row-1440`          | Optimistic row in place, status «Зберігаємо…» in `--muted-fg` (no opacity, `aria-busy="true"`), pill «Зберігаємо −1 250,50 USD… · Відкрити».                                                                                                              |
+| saved                            | `saved-375`                         | `saved-768`              | `saved-1440`                   | The server row replaces the optimistic one; pill «Збережено −1 250,50 USD · Відкрити».                                                                                                                                                                    |
+| failed (sheet closed)            | `rollback-375`                      | `rollback-768`           | `rollback-1440`                | The optimistic row is removed. Pill «Не збережено −1 250,50 USD · Відкрити», a pinned draft row «−1 250,50 USD · Не збережено · Витрата · Відкрити» on top of the list, a dot on «+». No toast.                                                           |
+| unknown outcome (sheet closed)   | `unknown-closed-375`                | `unknown-closed-768`     | `unknown-closed-1440`          | Pill «Результат невідомий · −1 250,50 USD · Відкрити» (warning icon), a pinned warning row «Результат невідомий · Витрата», a dot on «+». The optimistic row is removed: it is not known to exist.                                                        |
+| error 422 (validation)           | `error-422-375`                     | `error-422-768`          | `error-422-1440`               | The draft reopened: the message sits inline on the field («Жовтень уже закрито. Оберіть дату від 1 листопада.»), values kept, no retry button, **no «Видалити чернетку»** (the draft is an ordinary form again; closing it asks like any dirty form).     |
+| error, not sent                  | `error-definite-320`, `-375`        | —                        | `error-definite-1440`          | The draft reopened after the request never left (offline, DNS, refused): alert «Транзакцію не надіслано» + «Повторити збереження» (manual) + «Видалити чернетку».                                                                                         |
+| confirm discard                  | `confirm-discard-375`               | —                        | `confirm-discard-1440`         | After «Видалити чернетку»: «Видалити чернетку −1 250,50 USD?» / «Сума, поля й чек зникнуть. Цю дію не можна скасувати.» / «Залишити» (initial focus) + «Видалити» (destructive). Phone: action sheet over the sheet; wider: a 420 px dialog.              |
+| unknown outcome (draft reopened) | `unknown-resubmit-375`              | —                        | `unknown-resubmit-1440`        | Alert «Невідомо, чи збережено транзакцію». The form is locked: date / project / description are a read-only line with no «змінити». «Надіслати ще раз» resubmits with the same key; «Видалити чернетку» (confirm adds the unknown line). Never automatic. |
+| loading (form data)              | `loading-375`                       | —                        | `loading-1440`                 | Projects, receivers or the NBU rate are loading: skeletons in the pickers and the rate line; amount and receipt stay usable.                                                                                                                              |
+| long content                     | `long-content-320` (full), `-375`   | —                        | `long-content-1440`            | UAH `1 234 567,89` fits (34 px on the phone), the NBU rate line, a long project name truncated, a long description in «», the defaults row wrapping by item.                                                                                              |
+| permission-limited               | `permission-limited-375`            | —                        | `permission-limited-1440`      | A payout, or a transaction tied to a payout request: the warning banner, then a read-only label / value list (no chevrons, no inputs), lead «Закрити», no footer.                                                                                         |
+| dirty close                      | `dirty-close-375`                   | `dirty-close-768`        | `dirty-close-1440`             | Phone: action sheet. Wider: a 420 px dialog, 44 px buttons below 1024, 36 px from 1024. «Вийти без збереження?» / «Продовжити редагування» (initial focus) + «Вийти без збереження».                                                                      |
+| kind picker                      | `kind-picker-375`                   | `kind-picker-768`        | `kind-picker-1440`             | Phone: a picker sheet. ≥ 640: a listbox popover under the pill; coarse pointer = 56 px rows with a subtitle and no keys (`-768`), fine pointer = 36 px rows with the keys 1–5 (`-1440`).                                                                  |
+| ADMIN_INCOME, USDT               | `admin-income-usdt-375`             | —                        | `admin-income-usdt-1440`       | Explorer link only, USDT locked, «Рахунок отримувача», the obligation preview.                                                                                                                                                                            |
+| ADMIN_INCOME, ACCOUNTANT         | `admin-income-accountant-375`       | —                        | `admin-income-accountant-1440` | Segmented control «Власник проєкту» / «Рахунок компанії».                                                                                                                                                                                                 |
+| EXPENSE, company funded          | `expense-company-375`               | —                        | `expense-company-1440`         | ACCOUNTANT, USDT link, a category chip picked, the defaults row names «Рахунок компанії» with the company balance hint.                                                                                                                                   |
+| SALARY part                      | `salary-part-375`                   | —                        | `salary-part-1440`             | Prefilled from a SALARY row: «Співробітник», «Місяць», «Уже внесено за листопад», info «Чек для зарплати додається під час виплати.» No receipt block.                                                                                                    |
+| ADMIN_TRANSFER, ACCOUNTANT       | `transfer-375`                      | —                        | `transfer-1440`                | Two stacked picker cards «надсилає» / «отримує» with chevrons, a static ↓ between them, a separate 44 px button «Поміняти напрямок».                                                                                                                      |
+| ADMIN_TRANSFER, ADMIN            | `transfer-admin-375`                | —                        | `transfer-admin-1440`          | The sender is fixed «Ви · Адміністратор 1» (no chevron); only «отримує» picks; no swap button.                                                                                                                                                            |
+| DIVIDEND                         | `dividend-375`                      | —                        | `dividend-1440`                | USDT locked, explorer link, «Отримувач (партнер)», the company balance with the limit note.                                                                                                                                                               |
+| SENIOR_INCOME                    | `senior-income-375`                 | —                        | `senior-income-1440`           | SENIOR: no kind pill, title «Новий дохід», project, receipt uploading.                                                                                                                                                                                    |
+| DROP_INCOME                      | `drop-income-375`                   | —                        | `drop-income-1440`             | DROP: title «Новий дохід», USDT link, hint «Дохід перевірить адміністратор».                                                                                                                                                                              |
+| admin edit + cascade             | `admin-edit-cascade-375`            | `admin-edit-cascade-768` | `admin-edit-cascade-1440`      | Title «Редагування», subtitle «Дохід · було 1 200,00 USD», amount + currency, «Що зміниться» (first row «Ця транзакція»), «Дата», «Примітки». No project or receiver picker. Primary «Зберегти зміни».                                                    |
+| admin edit, blocked              | `admin-edit-blocked-375`            | —                        | `admin-edit-blocked-1440`      | Alert «Зберегти не можна» / «По відмічених рядках суму не перерахувати — потрібне ручне рішення.»; the blocked row reads «120,00 USD — залишиться без змін» + «У заявці на виплату — суму не змінити»; primary `aria-disabled`.                           |
+| admin edit, saving               | `admin-edit-saving-375`             | —                        | `admin-edit-saving-1440`       | Admin edit waits for the server: lead «Згорнути», the muted lock line, the form locked, primary «Зберегти зміни» with a spinner.                                                                                                                          |
+| senior edit (rejected)           | `senior-edit-rejected-375`          | —                        | `senior-edit-rejected-1440`    | Banner «Дохід відхилено. Після збереження він знову піде на перевірку.», primary «Зберегти й надіслати».                                                                                                                                                  |
+| attach receipt                   | `attach-receipt-375`                | —                        | `attach-receipt-1440`          | A transaction summary card, the receipt, the project; primary «Додати чек».                                                                                                                                                                               |
 
 There is no "empty" state: the sheet always opens on a form, and a role without kinds (JUNIOR, HR)
-never sees an entry point. "Offline" and "unknown outcome" share one visual pattern; whether the
-request left the device decides between «Повторити збереження» and «Надіслати ще раз».
+never sees an entry point. Whether the request left the device decides between «Повторити
+збереження» (not sent) and «Надіслати ще раз» (unknown outcome).
 
 ### Coverage matrix (every kind and role that creates or edits today)
 
-| Flow                      | ADMIN                   | ACCOUNTANT                | SENIOR                   | DROP                     |
-| ------------------------- | ----------------------- | ------------------------- | ------------------------ | ------------------------ |
-| EXPENSE                   | `default`, error states | `expense-company`         | —                        | —                        |
-| ADMIN_INCOME              | `admin-income-usdt`     | `admin-income-accountant` | —                        | —                        |
-| SALARY (new, no prefill)  | spec-only ¹             | spec-only ¹               | —                        | —                        |
-| SALARY part (row prefill) | spec-only ¹             | `salary-part`             | —                        | —                        |
-| ADMIN_TRANSFER            | spec-only ²             | `transfer`                | —                        | —                        |
-| DIVIDEND                  | `dividend`              | —                         | —                        | —                        |
-| SENIOR_INCOME             | —                       | —                         | `senior-income`          | —                        |
-| DROP_INCOME               | —                       | —                         | —                        | `drop-income`            |
-| Admin edit                | `admin-edit-cascade`    | —                         | —                        | —                        |
-| Edit of a rejected income | —                       | —                         | `senior-edit-rejected`   | —                        |
-| Attach / replace receipt  | `attach-receipt`        | same sheet                | same sheet (own, ≠ PAID) | same sheet (own, ≠ PAID) |
-| Non-editable transaction  | `permission-limited`    | —                         | —                        | —                        |
+| Flow                      | ADMIN                                                           | ACCOUNTANT                | SENIOR                   | DROP                     |
+| ------------------------- | --------------------------------------------------------------- | ------------------------- | ------------------------ | ------------------------ |
+| EXPENSE                   | `default`, error states, lifecycle                              | `expense-company`         | —                        | —                        |
+| ADMIN_INCOME              | `admin-income-usdt`                                             | `admin-income-accountant` | —                        | —                        |
+| SALARY (new, no prefill)  | spec-only ¹                                                     | spec-only ¹               | —                        | —                        |
+| SALARY part (row prefill) | spec-only ¹                                                     | `salary-part`             | —                        | —                        |
+| ADMIN_TRANSFER            | `transfer-admin`                                                | `transfer`                | —                        | —                        |
+| DIVIDEND                  | `dividend`                                                      | —                         | —                        | —                        |
+| SENIOR_INCOME             | —                                                               | —                         | `senior-income`          | —                        |
+| DROP_INCOME               | —                                                               | —                         | —                        | `drop-income`            |
+| Admin edit                | `admin-edit-cascade`, `admin-edit-blocked`, `admin-edit-saving` | —                         | —                        | —                        |
+| Edit of a rejected income | —                                                               | —                         | `senior-edit-rejected`   | —                        |
+| Attach / replace receipt  | `attach-receipt`                                                | same sheet                | same sheet (own, ≠ PAID) | same sheet (own, ≠ PAID) |
+| Non-editable transaction  | `permission-limited`                                            | —                         | —                        | —                        |
 
 ¹ SALARY without a prefill is the `salary-part` layout with empty «Співробітник» / «Місяць» pickers,
-the same for both roles. ² ADMIN_TRANSFER for ADMIN is the `transfer` layout without the swap
-control: the swap is ACCOUNTANT-only today and stays so.
+the same for both roles. The swap control stays ACCOUNTANT-only, as today; ADMIN always sends.
 
 ## Layout per device class
 
@@ -183,16 +192,28 @@ One layout is mounted at a time. The **form body is identical** in every class; 
 the header hints and the initial focus change. There is no `sm:hidden` / `hidden sm:block` pair
 anywhere in the sheet (today's `CascadeImpactPanel` mobile row is replaced by one list, see below).
 
-| Class         | Container                                                                                                                                                                                                        | Header                                                                    | Initial focus                                       |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------- |
-| < 640 (phone) | `ResponsiveSheet` bottom sheet at full height over the role's «Фінанси» tab, grabber, safe-area insets, a sticky submit bar above the home indicator; the decimal keyboard pushes the bar up.                    | Lead «Скасувати» (an icon button with the same accessible name below 360) | The receipt tile; the keyboard does not open itself |
-| 640–1023      | Right side panel, 400 px, modal: scrim, focus trap, Esc closes.                                                                                                                                                  | Lead «Скасувати», title left-aligned and truncated with an ellipsis       | The receipt tile                                    |
-| 1024–1439     | Right side panel, 420 px, modal. Fine pointer: hints «Esc» and «⌘↵», receipt hint «Перетягніть файл сюди або оберіть».                                                                                           | Lead «Скасувати» + `Esc` chip                                             | The amount field                                    |
-| ≥ 1440        | Right side panel, 480 px, **non-modal**: no scrim, no `aria-modal`; the list reflows to the left of the panel and stays usable. Clicking another row while the form is dirty first asks «Вийти без збереження?». | Same as 1024                                                              | The amount field                                    |
+| Class                       | Container                                                                                                                                                                                                        | Header                                                                                                                          | Initial focus                                       |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| < 640 (phone)               | `ResponsiveSheet` bottom sheet at full height over the role's «Фінанси» tab, grabber, safe-area insets, a sticky submit bar above the home indicator; the decimal keyboard pushes the bar up.                    | Lead «Скасувати» / «Згорнути» / «Закрити». Below 360 the lead is a 44 px icon button with the same name: ✕, or ⌄ for «Згорнути» | The receipt tile; the keyboard does not open itself |
+| 640–899 (tablet portrait)   | Right side panel, 400 px, **modal**: scrim, focus trap, Esc closes. The list behind is dimmed, not reachable.                                                                                                    | Text lead, title left-aligned and truncated with an ellipsis                                                                    | The receipt tile                                    |
+| 900–1023 (tablet landscape) | The same 400 px modal panel, laid over the detail pane: the list column stays visible (dimmed) on its left, so the user keeps their place.                                                                       | Same as 640–899                                                                                                                 | The receipt tile                                    |
+| 1024–1439                   | Right side panel, 420 px, modal. Fine pointer: hints «Esc» and «⌘↵», receipt hint «Перетягніть файл сюди або оберіть».                                                                                           | Lead + `Esc` chip                                                                                                               | The amount field                                    |
+| ≥ 1440                      | Right side panel, 480 px, **non-modal**: no scrim, no `aria-modal`; the list reflows to the left of the panel and stays usable. Clicking another row while the form is dirty first asks «Вийти без збереження?». | Same as 1024                                                                                                                    | The amount field                                    |
 
-Hints that need a keyboard (`Esc`, `⌘↵`, the keys 1–5 in the kind popover) show only under
-`(pointer: fine)`. The panel width is a container, not a breakpoint inside the form: the form never
-switches to two columns.
+**Pointer, not width, decides the input hints.** Hints that need a keyboard (`Esc`, `⌘↵`, the keys 1–5
+in the kind popover) and the drop-zone hint show only under `(pointer: fine)`. The kind picker is a
+picker sheet below 640; from 640 it is a listbox popover under the pill, with 56 px rows, a one-line
+subtitle and no key hints under `(pointer: coarse)`, and 36 px rows with the keys 1–5 under
+`(pointer: fine)`. A tablet with a keyboard and trackpad therefore gets the fine-pointer variant.
+
+**Closed-sheet slots** (foundation money-draft model): the pill sits left of the «+» FAB above the
+tab bar on the phone, and bottom-right (24 px inset, 320 × 52, above the content) on tablet and desktop.
+Pinned draft rows sit at the top of the list on phone and tablet, and as a 40 px first table row on
+desktop. The attention dot sits on the phone FAB, the tablet rail «+», and the desktop header
+«Нова транзакція».
+
+The panel width is a container, not a breakpoint inside the form: the form never switches to two
+columns.
 
 ## Form (field order and behaviour)
 
@@ -207,10 +228,22 @@ switches to two columns.
 3. **Currency pill + kind pill** — the currency is locked (lock icon) for a USDT project and for
    DIVIDEND. The kind pill is shown only to roles with more than one kind; SENIOR and DROP get the
    title «Новий дохід» instead.
-4. **The kind block** — only the fields the kind requires (see "Field parity").
-5. **Defaults row** — «Сьогодні · без проєкту · без опису · змінити». «змінити» expands it in place to
-   «Дата», «Проєкт», «Джерело коштів» (EXPENSE only) and «Опис». A kind that requires a project shows the
-   project picker in the kind block instead.
+4. **The kind block** — only the fields the kind requires (see "Field parity"). Two rules worth
+   stating here:
+   - EXPENSE «Категорія» is a **free-text field** (placeholder «Категорія витрати»), as today. The chips
+     under it («Оплата послуги», «Банківський збір», «Інше» — the `EXPENSE_CATEGORY_MESSAGES` labels) are
+     44 px suggestions that fill the field; they are not a closed choice.
+   - ADMIN_TRANSFER: two stacked cards «надсилає» / «отримує», each a picker trigger with a chevron
+     (`aria-haspopup="listbox"`), and a static ↓ between them that does nothing. ACCOUNTANT gets a
+     separate 44 px ghost button «Поміняти напрямок» under the cards. ADMIN always sends: the sender card
+     is a fixed «Ви · <ім’я>» with no chevron, and there is no swap button.
+5. **Defaults row** — «Сьогодні · без проєкту · без опису · змінити». Each item («Сьогодні», «без
+   проєкту», a description in «») is a no-wrap unit, so a line breaks only between items, never inside
+   one. When EXPENSE is funded by the company account the row names it: «Сьогодні · Рахунок компанії ·
+   без опису». «змінити» is a `<button>` with a 44 × 44 px target at every width (the text is smaller,
+   the hit area is not). It expands the row in place to «Дата», «Проєкт», «Джерело коштів» (EXPENSE
+   only) and «Опис». A kind that requires a project shows the project picker in the kind block instead.
+   In a locked state (in flight, unknown outcome) the row is plain text with no «змінити».
 
 **Smart prefill (device-local, no new business data).** The last kind, currency and project used on
 this device are remembered in local storage and prefilled on the next open; the date defaults to
@@ -220,47 +253,80 @@ dropped silently. The SALARY row action prefills employee, month and kind exactl
 
 ## Save behaviour
 
+**Prerequisite: Task 1.1** (an idempotency key on every create). The keyless waiting flow of the
+previous revision is deleted; the rejected alternative is recorded in open point 1.
+
 - **Submit is never `disabled` for validity.** A tap on an invalid form moves focus to the first
-  invalid field and shows its inline message. While a write is in flight the button carries
-  `aria-disabled="true"`, a 16 px spinner, and further taps are ignored: one request per tap.
-- **Keyed kinds (all kinds once Task 1.1 ships):** the sheet closes at once, the list inserts an
-  optimistic row «Зберігаємо…» (`aria-busy="true"`), and the phone shows the pill «Зберігаємо
-  1 250,50 USD…». Success replaces the row with the server row. Failure removes the row, shows the
-  persistent toast «Не збережено 1 250,50 USD» with «Відкрити», and pins the draft.
-- **Keyless kinds until Task 1.1** (EXPENSE, non-USDT ADMIN_INCOME, ADMIN_TRANSFER): no optimistic row.
-  The sheet stays open with the banner «Зберігаємо… змінити не можна» (`inflight` frame) and waits for
-  the server, because a resubmit without a key could create a duplicate.
-- **Armed save:** a save tapped while the receipt uploads is queued: «Збережеться 1 250,50 USD після
-  чека» with «Не зберігати автоматично» to cancel the queue. The sheet can be collapsed («Згорнути»);
-  the draft and the upload continue.
-- **Errors.** 422: inline on the field, values kept, no retry button. Not sent: «Транзакцію не
-  надіслано» + «Повторити збереження». Unknown outcome: the form is locked, «Надіслати ще раз» resends
-  with the **same** idempotency key, «Видалити чернетку» discards.
+  invalid field and shows its inline message. Further taps while a write is in flight are ignored: one
+  request per tap.
+- **Armed save.** A save tapped while the receipt uploads (primary «Зберегти після завантаження чека»)
+  is queued: «Збережеться −1 250,50 USD після завантаження чека» with «Не зберігати автоматично» to
+  cancel the queue. The lead becomes «Згорнути»; collapsing keeps the draft and the upload.
+
+**The closed-sheet lifecycle (create).** One model at 375, 768 and 1440; only the slots differ (see
+"Layout per device class"). Amounts carry the sign the list row uses: `−` for EXPENSE, SALARY and
+DIVIDEND, `+` for incomes, no sign for ADMIN_TRANSFER (money moves between admins).
+
+| Step    | When                                                                      | List                                                                                                                                    | Pill                                                              | Dot on «+» |
+| ------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ---------- |
+| saving  | Save tapped on a valid form; the sheet closes at once                     | Optimistic row in its date group, status «Зберігаємо…» in `--muted-fg` (no opacity), `aria-busy="true"`                                 | «Зберігаємо −1 250,50 USD… · Відкрити», spinner                   | no         |
+| saved   | 2xx                                                                       | The server row replaces the optimistic row in place (no jump)                                                                           | «Збережено −1 250,50 USD · Відкрити», then the foundation timeout | no         |
+| failed  | A definite failure: 4xx / 5xx response, or the request never left         | The optimistic row collapses (200 ms). A pinned draft row on top: «−1 250,50 USD · Не збережено · Витрата · Відкрити», destructive tone | «Не збережено −1 250,50 USD · Відкрити»                           | yes        |
+| unknown | The request left and no answer came (timeout, connection drop after send) | The optimistic row collapses: it is not known to exist. A pinned warning row «−1 250,50 USD · Результат невідомий · Витрата · Відкрити» | «Результат невідомий · −1 250,50 USD · Відкрити», warning icon    | yes        |
+
+- **No toast** at any step. The pill and the pinned row are the whole signal; a toast would duplicate
+  them and time out before it is read. The DROP and DIVIDEND success toasts of today become the saved
+  pill.
+- **«Відкрити»** on a failed or unknown draft reopens the sheet in the matching state: 422 →
+  `error-422` (inline on the field); not sent → `error-definite` («Повторити збереження»); unknown →
+  `unknown-resubmit` («Надіслати ще раз», the same key). On a saving draft it reopens `inflight`.
+- **The title of a saved row.** The row title is the description; without one, the EXPENSE category;
+  without either, the kind label. The sample has no description, so the row reads «Оплата послуги».
 - **Nothing retries automatically.** Not a definite failure, not an unknown outcome, not a reconnect.
-- **Edit flows** (admin edit, senior edit, attach receipt) wait for the server with the same inline
-  pending state; they do not insert optimistic rows, because a cascade may change other rows.
-- **Cascade block:** when a derivative row cannot be recomputed and the server marks the save as
-  blocked, today's message stays: «Зберегти не можна — по відмічених рядках суму не перерахувати,
-  потрібне ручне рішення», and the primary is `aria-disabled`. The mockup shows the non-blocking case
-  (an invoice that will not be reissued automatically).
+
+**«Видалити чернетку» (discard).** Shown only in `error-definite` and `unknown-resubmit`, as a ghost
+destructive button under the primary. Never in 422 (the draft is an ordinary form again; closing it
+asks «Вийти без збереження?»), never in flight. A tap opens a confirm (`confirm-discard`): «Видалити
+чернетку −1 250,50 USD?» / «Сума, поля й чек зникнуть. Цю дію не можна скасувати.», buttons «Залишити»
+(initial focus) and «Видалити» (destructive). For an unknown draft the description adds «Якщо
+транзакцію вже збережено, вона залишиться в списку.» Phone: an action sheet over the sheet; wider: a
+420 px dialog.
+
+**Edit flows.**
+
+| Flow           | Behaviour after 1.1                                                                                                                                                                                                                                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Attach receipt | Optimistic: the sheet closes, the row's paperclip shows at once with «Зберігаємо…»; failure → the same pill + pinned row as a create (a `PATCH` of one field is safe to resend).                                                                                                                                                     |
+| Senior edit    | Optimistic: the row shows the new amount with «Зберігаємо…»; failure → pill + pinned row, the previous values restored in the row.                                                                                                                                                                                                   |
+| Admin edit     | **Always waits.** The server recomputes the derivatives (shares, invoice), so nothing can be shown optimistically. The sheet stays open locked (`admin-edit-saving`): lead «Згорнути», the muted lock line, primary «Зберегти зміни» with a spinner. «Згорнути» turns it into a saving pill; the lifecycle above applies from there. |
+
+**Cascade block.** When a derivative row cannot be recomputed, the server marks the save as blocked:
+alert «Зберегти не можна» / «По відмічених рядках суму не перерахувати — потрібне ручне рішення.»,
+the blocked row keeps its old value («120,00 USD — залишиться без змін») with the reason «У заявці на
+виплату — суму не змінити» (destructive), and the primary is `aria-disabled` (`admin-edit-blocked`).
+The reason line comes from today's `CASCADE_BLOCKED_REASON_OWN_MESSAGES`. A row that will not be
+recomputed but does not block (an invoice) reads «… — залишиться без змін» + «Не перерахується
+автоматично — потрібна ручна звірка» (warning).
 
 ## Closing
 
-| Situation                                      | Phone                                     | Panel < 1440            | Panel ≥ 1440 (non-modal)                                |
-| ---------------------------------------------- | ----------------------------------------- | ----------------------- | ------------------------------------------------------- |
-| Clean form                                     | Drag down, scrim tap or «Скасувати» close | Esc, scrim, «Скасувати» | Esc, «Скасувати», or a click on another row             |
-| Dirty form (typed, not saved)                  | Action sheet «Вийти без збереження?»      | Confirm dialog, 420 px  | Confirm dialog; on a row click it asks before switching |
-| A money draft (armed, failed, unknown outcome) | «Згорнути» keeps the draft, no confirm    | Same                    | Same                                                    |
+| Situation                                                          | Phone                                                      | Panel < 1440                             | Panel ≥ 1440 (non-modal)                                        |
+| ------------------------------------------------------------------ | ---------------------------------------------------------- | ---------------------------------------- | --------------------------------------------------------------- |
+| Clean form                                                         | Drag down, scrim tap or «Скасувати» close                  | Esc, scrim, «Скасувати»                  | Esc, «Скасувати», or a click on another row                     |
+| Dirty form (typed, not saved; also 422)                            | Action sheet «Вийти без збереження?»                       | Dialog, 420 px, 44 px buttons below 1024 | Dialog (36 px buttons); on a row click it asks before switching |
+| In flight (draft reopened from the saving pill, admin edit saving) | Lead «Згорнути»: closes, no confirm; the saving pill stays | Same                                     | Same                                                            |
+| A money draft (armed, failed, unknown outcome)                     | «Згорнути» keeps the draft, no confirm                     | Same                                     | Same                                                            |
 
-Focus returns to the element that opened the sheet (the header button or the row). After a keyed save
-it moves to the optimistic row.
+Focus returns to the element that opened the sheet (the header button, the row, or the pill). After a
+create it moves to the optimistic row.
 
 ## Interaction and motion
 
 - Phone sheet: slides up 280 ms `cubic-bezier(0.32, 0.72, 0, 1)`, follows the finger on drag, dismiss
   over 30 % of the height or a fast flick. Panel: slides in from the right 220 ms ease-out, scrim fades
   150 ms.
-- The optimistic row fades in 150 ms; a rollback collapses the row 200 ms, then the toast appears.
+- The optimistic row fades in 150 ms. A failure collapses it 200 ms, then the pinned row slides in
+  and the pill changes; there is no toast.
 - The defaults row expands with a 180 ms height transition.
 - `prefers-reduced-motion: reduce` replaces every slide and collapse with a 100 ms opacity fade; the
   upload progress bar keeps moving because it carries information.
@@ -269,72 +335,94 @@ it moves to the optimistic row.
 
 ## Field parity (no capability removed)
 
-| Today                                                              | In the sheet                                                                                    |
-| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| «Тип операції» select                                              | Kind pill (picker sheet / listbox popover), prefilled with the last kind                        |
-| `ProjectSelectSection`                                             | «Проєкт» picker (kind block when required, the defaults row otherwise)                          |
-| `AmountCurrencyInput`, USDT lock for a USDT project                | Amount field + currency pill, lock icon on the pill                                             |
-| «Дата транзакції», `TxDateField` (edit)                            | «Дата» in the defaults row; inline error for a closed month                                     |
-| `ReceiptField` / `ReceiptInput` (file XOR link, USDT link only)    | The receipt block, same XOR and USDT rule; the upload no longer dies with the dialog            |
-| NBU rate                                                           | The rate line under the amount                                                                  |
-| «Рахунок отримувача» + company balance (ADMIN_INCOME, ADMIN)       | Same picker; picking «Рахунок компанії» shows its balance                                       |
-| `ObligationPreviewBanner`                                          | Obligation card under the receiver                                                              |
-| ACCOUNTANT receiver toggle                                         | Segmented «Власник проєкту» / «Рахунок компанії»                                                |
-| SALARY «Співробітник», «Місяць», `ExistingSalaryParts`             | Same fields + the list «Уже внесено за <місяць>» (manual / automatic parts)                     |
-| EXPENSE «Джерело коштів», «Категорія» + suggestion chips           | Category chips (`EXPENSE_CATEGORY_MESSAGES` labels) + «Джерело коштів» in the expanded defaults |
-| ADMIN_TRANSFER direction + ACCOUNTANT swap                         | «надсилає → отримує» cards + «Поміняти напрямок» (ACCOUNTANT only)                              |
-| DIVIDEND balance, partner, amount ≤ balance                        | Same, with the limit note under the balance                                                     |
-| «Примітки (необов’язково)»                                         | «Опис» in the defaults row (the same `notes` field)                                             |
-| Field-error summary «Заповніть виділені поля»                      | Focus moves to the first invalid field; the summary stays for screen readers (`role="alert"`)   |
-| Admin edit: subtitle, amount lock note, PAID currency lock         | Same, in the edit variant of the sheet                                                          |
-| `CascadeImpactPanel` (table + `sm:hidden` mobile row)              | One list «Що зміниться» at every width; the blocking message unchanged                          |
-| Non-editable banner                                                | `permission-limited` read-only view                                                             |
-| Admin edit toasts (invoice not reissued / diverged)                | Unchanged                                                                                       |
-| Senior edit: receipt sent only if changed                          | Unchanged                                                                                       |
-| DROP toast «Дохід зареєстровано, очікує валідації», DIVIDEND toast | Unchanged (shown when the optimistic row resolves)                                              |
+| Today                                                                                                             | In the sheet                                                                                                                                    |
+| ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| «Тип операції» select                                                                                             | Kind pill (picker sheet / listbox popover), prefilled with the last kind                                                                        |
+| `ProjectSelectSection`                                                                                            | «Проєкт» picker (kind block when required, the defaults row otherwise)                                                                          |
+| `AmountCurrencyInput`, USDT lock for a USDT project                                                               | Amount field + currency pill, lock icon on the pill                                                                                             |
+| «Дата транзакції», `TxDateField` (edit)                                                                           | «Дата» in the defaults row (create) or a field (admin edit); inline error for a closed month                                                    |
+| `ReceiptField` / `ReceiptInput` (file XOR link, USDT link only)                                                   | The receipt block, same XOR and USDT rule; the upload no longer dies with the dialog                                                            |
+| NBU rate                                                                                                          | The rate line under the amount                                                                                                                  |
+| «Рахунок отримувача» + company balance (ADMIN_INCOME, ADMIN)                                                      | Same picker; picking «Рахунок компанії» shows its balance                                                                                       |
+| `ObligationPreviewBanner`                                                                                         | Obligation card under the receiver                                                                                                              |
+| ACCOUNTANT receiver toggle                                                                                        | Segmented «Власник проєкту» / «Рахунок компанії»                                                                                                |
+| SALARY «Співробітник», «Місяць», `ExistingSalaryParts`                                                            | Same fields + the list «Уже внесено за <місяць>» (manual / automatic parts)                                                                     |
+| EXPENSE «Джерело коштів», «Категорія» (free text) + suggestion chips                                              | «Категорія» free-text field + suggestion chips; «Джерело коштів» in the expanded defaults, named in the row                                     |
+| ADMIN_TRANSFER direction + ACCOUNTANT swap                                                                        | Stacked picker cards + «Поміняти напрямок» (ACCOUNTANT only); ADMIN's sender fixed                                                              |
+| DIVIDEND balance, partner, amount ≤ balance                                                                       | Same, with the limit note under the balance                                                                                                     |
+| «Примітки (необов’язково)»                                                                                        | «Опис» in the defaults row (the same `notes` field); «Примітки» in admin edit                                                                   |
+| Field-error summary «Заповніть виділені поля»                                                                     | Focus moves to the first invalid field; the summary stays for screen readers (`role="alert"`)                                                   |
+| `AdminEditTransactionDialog` fields: amount, currency, date, «Категорія» (EXPENSE), «Місяць» (SALARY), «Примітки» | Exactly that set; no project, receiver or kind picker. Subtitle «<kind> · було <old> <CODE>»; amount lock note and PAID currency lock unchanged |
+| `CascadeImpactPanel` (table + `sm:hidden` mobile row)                                                             | One list «Що зміниться» at every width, first row «Ця транзакція»; the blocking message unchanged                                               |
+| Non-editable banner                                                                                               | `permission-limited` read-only view                                                                                                             |
+| Admin edit toasts (invoice not reissued / diverged)                                                               | Unchanged (they report a server-side follow-up, not the save itself)                                                                            |
+| Senior edit: receipt sent only if changed                                                                         | Unchanged                                                                                                                                       |
+| DROP toast «Дохід зареєстровано, очікує валідації», DIVIDEND toast                                                | Replaced by the saved pill; the DROP row carries its pending-validation status in the list                                                      |
 
 ## Data (what each layout reads)
 
 Every layout reads exactly the same queries; the container is the only difference. No new endpoint,
 no new business field, no new KPI.
 
-| Query                                          | Used for                                          | Notes                                                                                   |
-| ---------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| The finance list query (owned by Task 1.2)     | The optimistic row and its rollback               | The sheet writes into that cache through 1.2's key; this spec does not define its shape |
-| `['projects']`                                 | «Проєкт» picker, USDT lock                        | Unchanged                                                                               |
-| `['exchange-rate', date]`                      | NBU rate line                                     | Unchanged; only for a non-USD / non-USDT currency                                       |
-| The users / admins / partners queries of today | Receiver, employee, partner, transfer cards       | Unchanged hooks                                                                         |
-| `['company-account']`                          | Company balance (ADMIN_INCOME, EXPENSE, DIVIDEND) | Unchanged                                                                               |
-| Existing salary parts of today                 | «Уже внесено за <місяць>»                         | Unchanged                                                                               |
+| Query                                           | Used for                                          | Notes                                                                                   |
+| ----------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `['transactions']` (the finance list, Task 1.2) | The optimistic row and its rollback               | The sheet writes into that cache through 1.2's key; this spec does not define its shape |
+| `['projects']`                                  | «Проєкт» picker, USDT lock                        | Unchanged                                                                               |
+| `['exchange-rate', date]`                       | NBU rate line                                     | Unchanged; only for a non-USD / non-USDT currency                                       |
+| The users / admins / partners queries of today  | Receiver, employee, partner, transfer cards       | Unchanged hooks                                                                         |
+| `['company-account']`                           | Company balance (ADMIN_INCOME, EXPENSE, DIVIDEND) | Unchanged                                                                               |
+| Existing salary parts of today                  | «Уже внесено за <місяць>»                         | Unchanged                                                                               |
 
-Invalidations after a resolved save are today's set, unchanged: `['transactions']`,
-`['finance-summary']`, plus `['company-account']` for DIVIDEND and company-funded expenses. Smart prefill
-is device-local storage only.
+**Invalidations after a resolved save (exact keys).** Today `useCreateTransactionMutation`
+invalidates `['transactions']` and `['finance-summary']`, plus `['company-account']` for DIVIDEND and
+company-funded EXPENSE. The sheet keeps that and adds the creator's dashboard summary:
+
+| Kind                       | Keys invalidated on success                                                                                  |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| EXPENSE (ordinary)         | `['transactions']`, `['finance-summary']`, role summary                                                      |
+| EXPENSE (company-funded)   | `['transactions']`, `['finance-summary']`, `['company-account']`, role summary                               |
+| ADMIN_INCOME               | `['transactions']`, `['finance-summary']`, `['company-account']` (receiver may be the company), role summary |
+| SALARY / SALARY part       | `['transactions']`, `['finance-summary']`, role summary                                                      |
+| ADMIN_TRANSFER             | `['transactions']`, `['finance-summary']`, `['company-account']` (partner balances), role summary            |
+| DIVIDEND                   | `['transactions']`, `['finance-summary']`, `['company-account']`, `['admin','summary']`                      |
+| SENIOR_INCOME, senior edit | `['transactions']`, `['finance-summary']`, `['senior','summary']`                                            |
+| DROP_INCOME                | `['transactions']`, `['finance-summary']`, `['drop','summary']`                                              |
+| Admin edit                 | today's set, unchanged, + `['company-account']` and `['admin','summary']`                                    |
+| Attach receipt             | `['transactions']` only (no amount changes)                                                                  |
+
+"Role summary" is the creator's key: `['admin','summary']` or `['accountant','summary']`. The plan's
+words map to these keys as: balance → `['company-account']`; partner stats → `['finance-summary']` +
+`['company-account']` (`CompanyAndPartnersCard` reads both); dashboard → the role summary key.
+`['pending']` is not touched: `/pending` carries no transaction items. Smart prefill is device-local
+storage only.
 
 ## Components (mapping to our stack)
 
-| Visual block                         | Our component                                                     | New?                             |
-| ------------------------------------ | ----------------------------------------------------------------- | -------------------------------- |
-| Sheet / side panel                   | `ResponsiveSheet` (foundation)                                    | no                               |
-| Receipt tile, upload row, link input | `ReceiptInput` restyled to the foundation money form              | no (restyle)                     |
-| Amount, currency pill                | Foundation money-form amount + pill                               | no                               |
-| Kind pill + picker / listbox         | Pill + `ResponsiveSheet` picker (phone) / Radix `Popover` listbox | **yes** — open point 7           |
-| Category chips, segmented controls   | Foundation chips / segmented control                              | no                               |
-| Defaults row                         | Foundation money-form defaults row                                | no                               |
-| Transfer cards «надсилає → отримує»  | Two cards + swap icon button                                      | **yes** — open point 7           |
-| «Що зміниться» list                  | Foundation grouped list rows                                      | **yes** (content) — open point 7 |
-| Info / warning / error cards         | Foundation `Alert` variants                                       | no                               |
-| Dirty-close confirm                  | Foundation action sheet (phone) / `CrmDialog` confirm (wide)      | no                               |
-| Error toast with action              | Foundation toast with action                                      | no                               |
+| Visual block                         | Our component                                                             | New?                                              |
+| ------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------- |
+| Sheet / side panel                   | `ResponsiveSheet` (foundation)                                            | no                                                |
+| Receipt tile, upload row, link input | `ReceiptInput` restyled to the foundation money form                      | no (restyle)                                      |
+| Amount, currency pill                | Foundation money-form amount + pill                                       | no                                                |
+| Kind pill + picker / listbox         | Pill + `ResponsiveSheet` picker (phone) / Radix `Popover` listbox (≥ 640) | **yes, foundation** — open point 7                |
+| Category field + suggestion chips    | Foundation input + chips                                                  | no                                                |
+| Segmented controls                   | Foundation segmented control                                              | no                                                |
+| Defaults row                         | Foundation money-form defaults row (item-wise wrap, 44 px «змінити»)      | no (rule added)                                   |
+| Transfer cards                       | Two picker-trigger cards + ghost button, screen-local                     | yes, screen-local                                 |
+| «Що зміниться» list                  | Foundation grouped list rows, screen-local content                        | yes, screen-local                                 |
+| Read-only list                       | `<dl>` of label / value rows in a foundation group                        | no                                                |
+| Info / warning / error cards         | Foundation `Alert` variants                                               | no                                                |
+| Dirty-close and discard confirms     | Foundation action sheet (phone) / `CrmDialog` confirm (wide)              | no                                                |
+| Pill, pinned draft row, dot          | Foundation money-draft model                                              | no (signed amounts: change request, open point 8) |
 
 ## Token-map
 
 Foundation tokens only, no new token: `--popover` (sheet and panel surface), `--card` / `--raised`
 (cards, upload row), `--border` / `--separator` / `--input-border`, `--fg` / `--muted-fg` /
-`--placeholder` (text, `0,00`), `--primary` / `--primary-fg` (submit, «змінити»), `--yellow-subtle`
-(armed bar, optimistic row tint), `--warning` (non-editable banner, «Не перерахується автоматично»),
-`--destructive` (422, rollback toast, «Вийти без збереження»), `--info` (salary receipt note), `--scrim`,
-radii `--r-sheet` / `--r-lg` / `--r-md`.
+`--placeholder` (text, `0,00`, the optimistic row status, the lock line), `--primary` / `--primary-fg`
+(submit, «змінити»), `--yellow-subtle` (armed bar), `--warning` (non-editable banner, «Не
+перерахується автоматично», unknown pill and pinned row), `--destructive` (422, failed pill and pinned
+row, the dot, «Видалити», «Вийти без збереження»), `--positive` (saved pill icon), `--info` (salary
+receipt note), `--scrim`, radii `--r-sheet` / `--r-lg` / `--r-md`.
 
 ## A11y (WCAG 2.2 AA)
 
