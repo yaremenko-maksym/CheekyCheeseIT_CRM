@@ -164,7 +164,12 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
             </div>
             {/* A SENIOR is described by technical roles; a legacy one with none shows nothing. */}
             {user.role === 'SENIOR' ? (
-              <RoleChips roles={user.technicalRoles} limit={3} className="mt-1.5" />
+              // The row's name column is narrow at 320 px: chips clip on one line, not one letter per line.
+              <RoleChips
+                roles={user.technicalRoles}
+                limit={3}
+                className="mt-1.5 [&_li>*]:block [&_li>*]:truncate"
+              />
             ) : (
               showStack && (
                 <div className="mt-1.5 flex flex-wrap gap-1">
