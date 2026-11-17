@@ -178,6 +178,16 @@ describe('mapping the capture', () => {
     expect(o?.applicationUrl).toBe('https://careers.example-systems.test/jobs/short-id/apply')
   })
 
+  it('padding around a job id does not change its identity (round 3)', async () => {
+    const { batch } = await run([
+      body([job('  pad-id\n'), job(`${'j'.repeat(300)}`), job(` ${'j'.repeat(300)} `)]),
+    ])
+    expect(byId(batch, 'pad-id')?.identity.nativeId).toBe('pad-id')
+    const hashed = batch.observations.filter((o) => o.identity.nativeId.startsWith('sha256:'))
+    expect(hashed).toHaveLength(2)
+    expect(hashed[0]?.identity.nativeId).toBe(hashed[1]?.identity.nativeId)
+  })
+
   it('two long ids differing only at the end, on one apply URL, are two identities', async () => {
     const stem = 'j'.repeat(413)
     const url = 'https://www.indeed.com/viewjob?jk=same'

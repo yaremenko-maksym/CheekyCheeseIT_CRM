@@ -1304,7 +1304,7 @@ describe("quota accounts: consistent units, and a limit that is the provider's, 
       expect(seeded(5, 'DAY')).not.toThrow()
     })
 
-    it('a MONTH seed is compared with a DAY provider limit as its 31-day total', () => {
+    it('a MONTH seed under a DAY provider limit is refused: it could spend a month in one day (round 3, SR-M-2)', () => {
       const dayProvider = (limit: number) =>
         withDefinition('JSEARCH_API', (d) => ({
           ...d,
@@ -1315,8 +1315,23 @@ describe("quota accounts: consistent units, and a limit that is the provider's, 
             seedMeter: { ...d.quota!.seedMeter!, limit, window: 'MONTH' as const },
           },
         }))
-      expect(dayProvider(310)).not.toThrow()
-      expect(refusal(dayProvider(311))).toEqual(badSeed(311))
+      expect(refusal(dayProvider(310))).toEqual(badSeed(310))
+      expect(refusal(dayProvider(5))).toEqual(badSeed(5))
+    })
+
+    it('any seed under a LIFETIME provider limit is refused: a renewing cap outruns a one-off allowance', () => {
+      const lifetime = (window: 'DAY' | 'MONTH') =>
+        withDefinition('JSEARCH_API', (d) => ({
+          ...d,
+          quota: {
+            ...d.quota!,
+            window: 'LIFETIME' as const,
+            limit: 1000,
+            seedMeter: { ...d.quota!.seedMeter!, limit: 1, window },
+          },
+        }))
+      expect(refusal(lifetime('MONTH'))).toEqual(badSeed(1))
+      expect(refusal(lifetime('DAY'))).toEqual(badSeed(1))
     })
 
     it('the monthly schedule is checked against the seeded cap, not the provider limit', () => {

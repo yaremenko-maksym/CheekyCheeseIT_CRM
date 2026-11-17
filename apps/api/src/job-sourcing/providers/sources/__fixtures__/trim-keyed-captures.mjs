@@ -30,10 +30,10 @@ const redact = (v) =>
     : JSON.isRawJSON(v)
       ? v
       : Array.isArray(v)
-      ? v.map(redact)
-      : v && typeof v === 'object'
-        ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, redact(x)]))
-        : v
+        ? v.map(redact)
+        : v && typeof v === 'object'
+          ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, redact(x)]))
+          : v
 
 // Jooble ids are integers past 2^53 (some negative): a plain JSON.parse would round them, and the
 // fixture must carry the digits the provider sent. JSON.rawJSON keeps the source text.
@@ -132,10 +132,10 @@ await emit({
   svc: 'rapidapi',
   url: 'https://jsearch.p.rapidapi.com/search-v2?query=senior%20backend%20developer%20remote&num_pages=1&country=us&date_posted=week&work_from_home=true',
   produce: (o) => ({ ...o, data: { ...o.data, jobs: [9, 0, 2].map((i) => o.data.jobs[i]) } }),
-  termsUrl: 'https://www.openwebninja.com/api/jsearch',
+  termsUrl: 'https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch',
   termsCheckedAt: '2026-11-16T21:59:59.000Z',
   notes:
-    'GET /search-v2 (the v1 /search path answers 404): 10 jobs; kept 3 whole records (the shortest) and the envelope as received (status, request_id, parameters, data.cursor). The envelope is {status, request_id, parameters, data: {jobs, cursor}}, NOT data: [...]. job_city, job_state and job_country are null for remote postings; job_location is the only location ("Anywhere"). job_posted_at_datetime_utc is a zoned instant. The next page is reached through data.cursor; the request parameter that takes it was not found in any readable documentation, so the adapter reads ONE page. Terms: https://rapidapi.com/terms returned no readable content on 2026-11-16 and the OpenWeb Ninja product page (read 2026-11-16) states no terms or limits, so nothing about storing results was read; the owner holds the RapidAPI subscription.',
+    'GET /search-v2 (the v1 /search path answers 404): 10 jobs; kept 3 whole records (the shortest) and the envelope as received (status, request_id, parameters, data.cursor). The envelope is {status, request_id, parameters, data: {jobs, cursor}}, NOT data: [...]. job_city, job_state and job_country are null for remote postings; job_location is the only location ("Anywhere"). job_posted_at_datetime_utc is a zoned instant. The next page is reached through data.cursor; the request parameter that takes it was not found in any readable documentation, so the adapter reads ONE page. Terms: https://rapidapi.com/terms returned no readable content on 2026-11-16 and again on 2026-11-17 (one GET each; the page body is rendered by script, only the title "RapidAPI" was served), the JSearch listing (rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch, one GET 2026-11-17) served only its title, and the OpenWeb Ninja product page (read 2026-11-16) states no terms or limits. The RapidAPI terms were NOT read: they are not readable without a browser, so the verdict is UNCLEAR (not PROHIBITED) and the source is accepted under the owner decision of 2026-11-16; Owner decision, 2026-11-16 (answer given in the vacancy-sourcing session): consent to use every source whose permission is unclear; accepted risk, not a documented permission. Nothing about storing results was read; the owner holds the RapidAPI subscription. The seed delta meters the account at 150 requests a month (an A1 default cap under the 200-request free plan, not an owner figure).',
 })
 
 await emit({
@@ -166,5 +166,5 @@ await emit({
   termsUrl: 'https://theirstack.com/en/docs/legal/terms-and-conditions',
   termsCheckedAt: '2026-11-16T22:00:36.000Z',
   notes:
-    'POST limit 3 (billed one API credit per returned job): 3 jobs; kept 2 whole records and the envelope (metadata, data). The record whose hiring_team named a person was left out. date_posted is a DATE only (2026-11-16); final_url is null in every record, url is the posting on the job board; remote is a boolean; company_object carries firmographics. Terms (read 2026-11-16): 4.3 allows use for recruiting and forbids building a competing product or reselling the dataset; 4.5 requires keeping information that identifies TheirStack as the origin of the records (the CRM stores the source namespace on every record); 4.10 and 4.12 cover retention and integration into the customer\'s own products.',
+    "POST limit 3 (billed one API credit per returned job): 3 jobs; kept 2 whole records and the envelope (metadata, data). The record whose hiring_team named a person was left out. date_posted is a DATE only (2026-11-16); final_url is null in every record, url is the posting on the job board; remote is a boolean; company_object carries firmographics. Terms (read 2026-11-16): 4.3 allows use for recruiting and forbids building a competing product or reselling the dataset; 4.5 requires keeping information that identifies TheirStack as the origin of the records (the CRM stores the source namespace on every record); 4.10 and 4.12 cover retention and integration into the customer's own products.",
 })

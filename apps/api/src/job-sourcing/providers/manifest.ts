@@ -636,9 +636,24 @@ function checkAttribution(def: TypeDefinition, fixtures: readonly FixtureRecord[
   }
 }
 
-/** A limit as a calendar-month total: a DAY figure over the longest month (31 days); others as-is. */
-function monthTotal(window: JobMeterWindow, limit: number): number {
+/** A limit as a calendar-month total: a DAY figure over the longest month (31 days); MONTH as-is. */
+function monthTotal(window: 'DAY' | 'MONTH', limit: number): number {
   return window === 'DAY' ? limit * 31 : limit
+}
+
+/**
+ * A seeded cap must not renew less often than the provider limit it sits under (a MONTH cap under
+ * a DAY limit could spend a month's budget in one day), and a LIFETIME limit is one-off: any
+ * renewing cap outruns it. Otherwise the two are compared as 31-day totals.
+ */
+function seedExceedsProvider(
+  m: SeedMeterDeclaration,
+  window: JobMeterWindow,
+  limit: number,
+): boolean {
+  if (window === 'LIFETIME') return true
+  if (window === 'DAY' && m.window === 'MONTH') return true
+  return monthTotal(m.window, m.limit) > monthTotal(window, limit)
 }
 
 function checkQuota(types: readonly ManifestType[], entries: readonly ManifestEntry[]): void {
@@ -660,12 +675,12 @@ function checkQuota(types: readonly ManifestType[], entries: readonly ManifestEn
     }
     const m = q.seedMeter
     // A seeded meter is our cap under the provider's: never above a published limit, a mismatched
-    // window compared as the 31-day month total of the DAY side.
+    // window compared as 31-day totals; a longer-window seed or any seed under LIFETIME is refused.
     if (
       m !== undefined &&
       (!Number.isInteger(m.limit) ||
         m.limit <= 0 ||
-        (q.window !== null && monthTotal(m.window, m.limit) > monthTotal(q.window, q.limit!)))
+        (q.window !== null && seedExceedsProvider(m, q.window, q.limit!)))
     ) {
       throw new ManifestError(
         'QUOTA_INCONSISTENT',

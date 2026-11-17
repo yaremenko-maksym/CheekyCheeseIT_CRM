@@ -227,7 +227,7 @@ describe.skipIf(!hasDatabaseUrl())('the manifest forward seed delta, against Pos
           WHERE s.manifest_id IS NOT NULL ORDER BY s.manifest_id`,
       )
 
-    it('seeds the four owner caps with nothing used, the window on the current UTC day or month', async () => {
+    it('seeds the A1 default caps with nothing used, the window on the current UTC day or month', async () => {
       expect(
         await rowsOf(`SELECT 1 FROM job_account_meters WHERE account_key LIKE '%-main'`),
       ).toEqual([])

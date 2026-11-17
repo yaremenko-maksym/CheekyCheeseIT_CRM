@@ -84,7 +84,7 @@ const configSchema = baseSourceConfigSchema
 type Config = z.infer<typeof configSchema>
 
 const itemSchema = z.object({
-  job_id: boundedString(JSEARCH_JOB_ID_MAX_CHARS).min(1),
+  job_id: z.string().trim().max(JSEARCH_JOB_ID_MAX_CHARS).min(1),
   job_title: boundedString(ORIGINAL_LIMITS.title),
   employer_name: boundedString(ORIGINAL_LIMITS.companyName),
   job_apply_link: urlString(),
