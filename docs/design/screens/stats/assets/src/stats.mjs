@@ -94,10 +94,10 @@ function partnerBlock(list = PARTNERS, { pad = 16, desk = false, narrow = false 
     ? `<div class="row" role="status" style="gap:10px;margin-top:12px"><span style="color:var(--positive)">${icon('circle-check', { size: 26, stroke: 2 })}</span><div><div class="t-title">Баланси вирівняно</div><div class="t-foot muted">Ніхто нікому не винен</div></div></div>`
     : `<div style="margin-top:8px"><div class="t-foot muted">Для вирівнювання</div>
     <div class="t-large num">${money(st.debt, 'USDT')}</div>
-    <div class="row t-foot" style="gap:6px;flex-wrap:wrap"><span>${st.rich.n}</span><span class="muted" aria-label="надсилає">${icon('arrow-right', { size: 15 })}</span><span>${st.poor.n}</span></div></div>`
+    <div class="row t-foot" style="gap:6px;flex-wrap:wrap"><span>${st.rich.n}</span><span class="row" style="gap:6px;white-space:nowrap"><span class="muted" aria-label="надсилає">${icon('arrow-right', { size: 15 })}</span><span>${st.poor.n}</span></span></div></div>`
   const rows = st.sorted
     .map((p, i) => {
-      const share = p.b < 0 ? '—' : pct((p.b / st.abs) * 100)
+      const share = p.b < 0 || !st.abs ? '—' : pct((p.b / st.abs) * 100)
       const role = st.settled
         ? ''
         : p === st.rich
@@ -105,7 +105,7 @@ function partnerBlock(list = PARTNERS, { pad = 16, desk = false, narrow = false 
           : p === st.poor
             ? ' · отримує'
             : ''
-      const w = p.b < 0 ? 0 : (p.b / st.abs) * 100
+      const w = p.b < 0 || !st.abs ? 0 : (p.b / st.abs) * 100
       return `<div class="row" style="gap:12px;padding:8px 0;${i ? 'border-top:1px solid var(--separator)' : ''}">${avatar(p.i, i)}
       <div class="grow col" style="gap:2px"><div class="row" style="gap:8px"><span class="${desk ? '' : 't-body'} grow" style="overflow-wrap:anywhere;${desk ? 'font-size:14px' : ''}">${p.n}</span><span class="amount num ${p.b < 0 ? 'neg' : ''}" style="${p.b < 0 ? 'color:var(--destructive)' : ''}">${money(p.b)}</span></div>
       <div class="row" style="gap:8px"><span class="t-foot muted num" style="flex:none">${share}${role}</span><span class="grow" style="height:4px;border-radius:2px;background:var(--surface)"><i style="display:block;height:4px;border-radius:2px;width:${w}%;background:${PCOLOR[i] ?? 'var(--chart-3)'}"></i></span></div></div></div>`
@@ -224,9 +224,13 @@ function chartCard({
 
 // ---------- Company account ----------
 function companyRow({ state = 'ok', desk = false } = {}) {
+  if (state === 'error' && !desk)
+    return `<div class="lrow" role="alert" style="gap:12px;padding-top:12px;padding-bottom:12px;align-items:flex-start"><div class="lead" style="color:var(--destructive)">${icon('wallet', { size: 18 })}</div><div class="grow col" style="min-width:0;gap:2px"><div class="t-foot muted">Рахунок компанії</div><div class="t-body">Не вдалося завантажити баланс</div><div style="margin-top:8px"><span class="btn secondary" style="height:44px">${icon('rotate-cw', { size: 16 })}Повторити</span></div></div></div>`
   if (state === 'error')
     return `<div class="lrow two" role="alert"><div class="lead" style="color:var(--destructive)">${icon('wallet', { size: 18 })}</div><div class="grow col"><div class="t-body">Рахунок компанії</div><div class="t-foot muted">Не вдалося завантажити баланс</div></div><span class="btn secondary sm">${icon('rotate-cw', { size: 16 })}Повторити</span></div>`
   const sub = state === 'nowallet' ? 'USDT · Гаманець не налаштовано' : 'USDT · TQx7…9fK2'
+  if (!desk)
+    return `<div class="lrow" style="gap:12px;padding-top:12px;padding-bottom:12px"><div class="lead">${icon('wallet', { size: 18 })}</div><div class="grow col" style="min-width:0;gap:2px"><div class="t-foot muted">Рахунок компанії</div>${state === 'nowallet' ? '' : `<div class="t-title num">${money(6215.4, 'USDT')}</div>`}<div class="t-foot muted num">${sub}</div></div>${infoBtn('Рахунок компанії', 44)}</div>`
   return `<div class="lrow two"><div class="lead">${icon('wallet', { size: 18 })}</div><div class="grow col" style="min-width:0"><div class="t-body trunc" style="${desk ? 'font-size:14px' : ''}">Рахунок компанії</div><div class="t-foot muted trunc num">${sub}</div></div><span class="amount num">${money(6215.4, 'USDT')}</span>${infoBtn('Рахунок компанії', desk ? 28 : 44)}</div>`
 }
 
@@ -245,8 +249,11 @@ const KPIS = [
   { t: 'Середній дохід / міс.', v: money(24420), sub: 'за 12 місяців' },
   { t: 'Найкращий місяць', v: money(29400), sub: 'жовтень 2026' },
 ]
+// count 4 = the empty state: today only the 4 primary KPIs render, at zero.
+const kpiData = (count) =>
+  count === 4 ? KPIS.slice(0, 4).map((k) => ({ t: k.t, v: money(0) })) : KPIS
 function kpiList({ count = 8 } = {}) {
-  return `<div class="group">${KPIS.slice(0, count)
+  return `<div class="group">${kpiData(count)
     .map(
       (k) =>
         `<div class="lrow two" style="gap:8px"><div class="grow col" style="gap:2px"><div class="t-sub">${k.t}</div>${k.sub ? `<div class="row t-foot muted" style="gap:4px">${k.sub}</div>` : ''}</div><span class="amount num">${k.v}</span>${infoBtn(k.t)}</div>`,
@@ -254,8 +261,7 @@ function kpiList({ count = 8 } = {}) {
     .join('')}</div>`
 }
 function kpiTiles(cols, { desk = true, count = 8 } = {}) {
-  return `<div style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:12px">${KPIS.slice(
-    0,
+  return `<div style="display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:12px">${kpiData(
     count,
   )
     .map((k) =>
@@ -545,15 +551,15 @@ function deskContent({
   const content = Math.min(w - 248 - 48, 1280 - 48)
   const side = w >= 1280
   const leftW = side ? 380 : Math.floor((content - 16) / 2)
-  const companyCard = card(companyRow({ state: company, desk: true }), 'overflow:hidden')
+  const companyCard = card(companyRow({ state: company, desk: side }), 'overflow:hidden')
   const chartW = side ? content - leftW - 16 : content
   if (summary === 'error')
-    return `<div class="row" style="gap:16px;align-items:stretch">${card(stateBlock({ ic: 'cloud-alert', tone: 'var(--destructive)', role: 'alert', title: 'Не вдалося завантажити фінансову статистику', text: 'Баланс партнерів, графік і показники зараз недоступні. Рахунок компанії та контроль доходів — окремі дані.', action: `<span class="btn secondary sm">${icon('rotate-cw', { size: 15 })}Повторити</span>` }).replace('padding:56px 32px 0', 'padding:28px 24px'), 'flex:1')}<div style="width:${leftW}px;flex:none">${companyCard}</div></div>${complianceDesk(compliance)}${role === 'ADMIN' ? placeholdersDesk() : ''}`
+    return `<div class="row" style="gap:16px;align-items:stretch">${card(stateBlock({ ic: 'cloud-alert', tone: 'var(--destructive)', role: 'alert', title: 'Не вдалося завантажити фінансову статистику', text: 'Баланс партнерів, графік і показники зараз недоступні. Рахунок компанії та контроль доходів нижче — окремі дані.', action: `<span class="btn secondary sm">${icon('rotate-cw', { size: 15 })}Повторити</span>` }).replace('padding:56px 32px 0', 'padding:28px 24px'), 'flex:1')}<div style="width:${leftW}px;flex:none">${companyCard}</div></div>${complianceDesk(compliance)}${role === 'ADMIN' ? placeholdersDesk() : ''}`
   const partner = partners.length ? partnerBlock(partners, { desk: true }) : ''
   const top = side
     ? `<div class="row" style="gap:16px;align-items:flex-start"><div class="col" style="width:${leftW}px;flex:none;gap:16px">${partner}${companyCard}</div><div class="grow" style="min-width:0">${chartDesk({ W: chartW, hover, empty: summary === 'empty' })}</div></div>`
     : `<div class="row" style="gap:16px;align-items:flex-start"><div style="width:${leftW}px;flex:none">${partner}</div><div class="grow">${companyCard}</div></div>${chartDesk({ W: chartW, hover, empty: summary === 'empty' })}`
-  return `${top}<div><h2 class="t-over" style="margin:4px 0 8px">Показники</h2>${kpiTiles(4, { count: summary === 'empty' ? 4 : 8 })}</div>${complianceDesk(compliance)}${role === 'ADMIN' ? placeholdersDesk() : ''}`
+  return `${top}<div><h2 class="t-over" style="margin:4px 0 8px">Показники</h2>${kpiTiles(side ? 4 : 2, { count: summary === 'empty' ? 4 : 8 })}</div>${complianceDesk(compliance)}${role === 'ADMIN' ? placeholdersDesk() : ''}`
 }
 const deskFrame = (w, h, opts = {}) =>
   desktop({
