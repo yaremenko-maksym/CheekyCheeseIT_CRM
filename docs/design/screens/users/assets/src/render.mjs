@@ -2,7 +2,7 @@
 // Usage: node render.mjs [frame-name-filter]
 // Same pipeline as _foundation/assets/src/render.mjs, but writes to ../users/ and quantises with sharp
 // (ImageMagick is not required). Each frame = { name, w, h, dpr, full?, html }.
-import { mkdirSync, mkdtempSync, writeFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync, readdirSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -25,7 +25,11 @@ const { chromium } = await import(pathToFileURL(PW).href)
 
 // sharp is not hoisted; take it from the pnpm store. Missing sharp → PNGs stay unquantised.
 async function loadSharp() {
+  // SHARP_MODULE: absolute path to sharp's entry, for a checkout without node_modules.
+  if (process.env.SHARP_MODULE)
+    return (await import(pathToFileURL(process.env.SHARP_MODULE).href)).default
   const store = join(REPO, 'node_modules/.pnpm')
+  if (!existsSync(store)) return null
   const dir = readdirSync(store).find((d) => d.startsWith('sharp@'))
   if (!dir) return null
   const req = createRequire(join(store, dir, 'node_modules/sharp/package.json'))
