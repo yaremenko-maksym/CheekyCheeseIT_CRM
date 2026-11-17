@@ -290,11 +290,11 @@ const searchWith = (q) =>
     `<span class="grow" style="color:var(--fg)">${q}</span><span role="button" aria-label="Очистити пошук" style="width:44px;height:44px;margin-right:-12px;display:grid;place-items:center">${icon('circle-x', { size: 18 })}</span>`,
   )
 
-/** Swipe left on a row: «Змінити» + «Архівувати» (another ADMIN's row has no swipe; self — «Змінити» only). */
+/** Swipe left on a row: «Змінити» + «Архівувати», archived: «Змінити» + «Відновити» (another ADMIN's row has no swipe; self — «Змінити» only). */
 const swipeActions = (archived = false) =>
   `<div class="row" style="position:absolute;right:0;top:0;bottom:0" aria-hidden="true">${
     archived
-      ? `<div class="col" style="width:176px;height:100%;background:oklch(0.42 0.08 150);justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600">${icon('archive-restore', { size: 18 })}Відновити</div>`
+      ? `<div class="col" style="width:88px;height:100%;background:oklch(0.42 0.02 250);justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600">${icon('pencil', { size: 18 })}Змінити</div><div class="col" style="width:88px;height:100%;background:oklch(0.42 0.08 150);justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600">${icon('archive-restore', { size: 18 })}Відновити</div>`
       : `<div class="col" style="width:88px;height:100%;background:oklch(0.42 0.02 250);justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600">${icon('pencil', { size: 18 })}Змінити</div><div class="col" style="width:88px;height:100%;background:var(--destructive);color:#fff;justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600">${icon('archive', { size: 18 })}Архівувати</div>`
   }</div>`
 
@@ -330,9 +330,18 @@ const stacked = (html) =>
     .replace('class="scrim"', 'class="scrim" style="z-index:76"')
     .replace('style="top:', 'style="z-index:77;top:')
 
+const roleOpt = (label, cur = false) =>
+  `<div class="lrow" role="option" aria-selected="${cur}" style="min-height:56px"><div class="grow t-body" style="${cur ? 'font-weight:600' : ''}">${label}</div>${cur ? `<span style="color:var(--primary)">${icon('check', { size: 20, stroke: 2.6 })}</span>` : ''}</div>`
+
+/** List filter «Роль»: «Усі ролі» + every role incl. Адміністратор (as today's select). */
+function roleFilter(w, h) {
+  const body = `<div role="listbox" aria-label="Фільтр за роллю"><div class="group">${['Усі ролі', 'Адміністратор', 'Сеньйор', 'Джуніор', 'HR', 'Бухгалтер', 'Дроп'].map((r) => roleOpt(r, r === 'Усі ролі')).join('')}</div></div>`
+  return sheet({ w, h, top: Math.round(h * 0.36), title: 'Роль', trail: closeBtn, body })
+}
+
+/** Create picker: every role except ADMIN (the create role list today). */
 function rolePicker(w, h) {
-  const opt = (label, cur = false) =>
-    `<div class="lrow" role="option" aria-selected="${cur}" style="min-height:56px"><div class="grow t-body" style="${cur ? 'font-weight:600' : ''}">${label}</div>${cur ? `<span style="color:var(--primary)">${icon('check', { size: 20, stroke: 2.6 })}</span>` : ''}</div>`
+  const opt = roleOpt
   const body = `<div role="listbox" aria-label="Роль"><div class="group">${['Сеньйор', 'Джуніор', 'HR', 'Бухгалтер', 'Дроп'].map((r) => opt(r, r === 'Сеньйор')).join('')}</div></div>`
   return stacked(sheet({ w, h, top: Math.round(h * 0.48), title: 'Роль', trail: closeBtn, body }))
 }
@@ -391,6 +400,7 @@ function mobileFrames() {
   return [
     M('list-320', 320, 568, usersScreen(320, 568)),
     M('list-375', w, h, usersScreen(w, h)),
+    M('role-filter-375', w, h, usersScreen(w, h, { overlay: roleFilter(w, h) })),
     M('loading-375', w, h, usersScreen(w, h, { body: loadingBody() })),
     M(
       'filtered-375',

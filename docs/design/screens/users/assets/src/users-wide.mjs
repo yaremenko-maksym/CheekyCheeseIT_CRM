@@ -41,47 +41,71 @@ function rowActions(x, { shown = false, touch = false } = {}) {
   return `<span class="row" style="gap:2px;justify-content:flex-end;${shown || touch ? '' : 'opacity:0'}">${set}${btn('ellipsis', `Дії: ${x.name}`, 'aria-haspopup="menu"')}</span>`
 }
 
+const SORTABLE = ['Користувач', 'Роль', 'Додано'] // today's sort keys: name / role / date added
+const link = (href, v) => `<a href="${href}" style="color:inherit;text-decoration:none">${v}</a>`
+
 function userTable(
   w,
   rows,
-  { hover = -1, selected = -1, touch = false, sortCol = 'Користувач' } = {},
+  { hover = -1, selected = -1, touch = false, sortCol = 'Користувач', skeleton = 0 } = {},
 ) {
   // Fixed layout: Email is the one flexible column, so nothing ever pushes «Додано» / actions off-screen.
-  // Телефон is not a list column (it lives in the detail pane / profile); Telegram + Технології only ≥ 1280.
+  // Телефон is not a list column (it lives in the detail pane / profile); Технології ≥ 1280, Telegram ≥ 1440.
   const wide = w >= 1280
+  const tg = w >= 1440
   const cols = wide
     ? [
         ['Користувач', 230],
         ['Роль', 124],
         ['Email', 0],
-        ['Telegram', 136],
+        ...(tg ? [['Telegram', 136]] : []),
         ['Технології', 210],
         ['Додано', 124],
         ['', touch ? 104 : 84],
       ]
     : [
-        ['Користувач', 220],
-        ['Роль', 136],
+        ['Користувач', 210],
+        ['Роль', 128],
         ['Email', 0],
-        ['Додано', 120],
+        ['Додано', touch ? 136 : 116],
         ['', touch ? 104 : 84],
       ]
   const colgroup = `<colgroup>${cols.map(([, cw]) => `<col${cw ? ` style="width:${cw}px"` : ''}>`).join('')}</colgroup>`
   const th = cols
     .map(
       ([c]) =>
-        `<th style="text-align:left"${c ? ` aria-sort="${c === sortCol ? 'ascending' : 'none'}"` : ''}>${c ? `<span style="display:inline-flex;align-items:center;gap:4px">${c}${c === sortCol ? icon('arrow-up', { size: 12 }) : ''}</span>` : '<span style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)">Дії</span>'}</th>`,
+        `<th scope="col" style="text-align:left"${SORTABLE.includes(c) ? ` aria-sort="${c === sortCol ? 'ascending' : 'none'}"` : ''}>${c ? `<span style="display:inline-flex;align-items:center;gap:4px">${c}${c === sortCol ? icon('arrow-up', { size: 12 }) : ''}</span>` : '<span style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)">Дії</span>'}</th>`,
     )
     .join('')
+  // Loading: skeleton rows in the final cell shapes, one per column.
+  const skCell = (c, j) =>
+    `<td>${
+      j === 0
+        ? '<span class="row" style="gap:10px"><span class="sk" style="width:28px;height:28px;border-radius:14px;flex:none"></span><span class="sk" style="height:12px;width:60%"></span></span>'
+        : c
+          ? `<span class="sk" style="display:block;height:12px;width:${[0, 70, 75, 60, 80, 55][j] ?? 60}%"></span>`
+          : ''
+    }</td>`
+  const skRows = Array.from(
+    { length: skeleton },
+    () => `<tr>${cols.map(([c], j) => skCell(c, j)).join('')}</tr>`,
+  ).join('')
   const tr = rows
     .map((x, i) => {
       const dim = x.archived ? 'color:var(--muted-fg)' : ''
       const cells = [
         `<td><span class="row" style="gap:10px;min-width:0">${av(x)}<a href="#" class="trunc" style="font-weight:500;color:inherit;text-decoration:none;${dim}">${x.name}</a>${x.self ? youPill : ''}${x.archived ? `<span class="pill" style="height:20px;font-size:11px;color:var(--muted-fg)">${icon('archive', { size: 12 })}В архіві</span>` : ''}</span></td>`,
         `<td style="${dim}">${R[x.role]}</td>`,
-        `<td class="muted">${x.email}</td>`,
+        `<td class="muted">${link(`mailto:${x.email}`, x.email)}</td>`,
         ...(wide
-          ? [`<td class="muted">${x.tg || '—'}</td>`, `<td>${techCell(x.tech, 2)}</td>`]
+          ? [
+              ...(tg
+                ? [
+                    `<td class="muted">${x.tg ? link(`https://t.me/${x.tg.slice(1)}`, x.tg) : '—'}</td>`,
+                  ]
+                : []),
+              `<td>${techCell(x.tech, 2)}</td>`,
+            ]
           : []),
         `<td class="muted num">${x.archived ? x.archived : x.added}</td>`,
         `<td style="text-align:right;padding-right:8px">${rowActions(x, { shown: i === hover, touch })}</td>`,
@@ -95,7 +119,7 @@ function userTable(
       return `<tr${st}>${cells.join('')}</tr>`
     })
     .join('')
-  return `<table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:14px">${colgroup}<thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table>`
+  return `<table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0;font-size:14px">${colgroup}<thead><tr>${th}</tr></thead><tbody>${skRows}${tr}</tbody></table>`
 }
 
 const STATUS = ['Активні', 'Архів', 'Усі']
@@ -103,7 +127,7 @@ function toolbar(w, { seg = 0, role = '', q = '', count = '38 користува
   const hgt = touch ? 44 : 32
   const tabs = `<div role="radiogroup" aria-label="Статус" class="row" style="gap:2px;padding:2px;border-radius:9px;background:var(--surface);border:1px solid var(--border)">${STATUS.map(
     (t, i) =>
-      `<span role="radio" aria-checked="${i === seg}" style="height:${hgt - 6}px;padding:0 12px;border-radius:7px;display:grid;place-items:center;font-size:13px;font-weight:600;${i === seg ? 'background:var(--fg);color:var(--bg)' : 'color:var(--muted-fg)'}">${t}</span>`,
+      `<span role="radio" aria-checked="${i === seg}" style="height:${touch ? 44 : hgt - 6}px;padding:0 12px;border-radius:7px;display:grid;place-items:center;font-size:13px;font-weight:600;${i === seg ? 'background:var(--fg);color:var(--bg)' : 'color:var(--muted-fg)'}">${t}</span>`,
   ).join('')}</div>`
   const roleChip = role
     ? `<span class="row" role="button" aria-haspopup="listbox" style="gap:6px;height:${hgt}px;padding:0 10px;border-radius:8px;background:var(--yellow-subtle);color:var(--primary);border:1px solid oklch(0.32 0.06 85);font-size:13px;font-weight:500">Роль: ${role}${icon('x', { size: 13 })}</span>`
@@ -152,8 +176,16 @@ function panel(
   <div style="padding:12px ${pad}px ${touch ? 20 : 14}px;border-top:1px solid var(--border)">${foot}</div></aside>`
 }
 /** Desktop footer: «Назад» left, «Скасувати» + primary (⌘↵) right; tablet uses the phone action bar. */
-const dFoot = ({ back = false, primary = 'Далі', pending = false, secondary = '' } = {}) =>
-  `<div class="row" style="gap:8px">${back ? '<span class="btn sm secondary" style="height:36px;font-size:14px">Назад</span>' : ''}<span class="grow"></span>${secondary ? `<span class="btn sm secondary" style="height:36px;font-size:14px">${secondary}</span>` : '<span class="btn sm ghost" style="height:36px;font-size:14px">Скасувати</span>'}<span class="btn sm primary" style="height:36px;font-size:14px"${pending ? ' aria-disabled="true"' : ''}>${pending ? '<span aria-hidden="true" style="width:14px;height:14px;border-radius:7px;border:2px solid oklch(0 0 0 / 0.25);border-top-color:var(--primary-fg)"></span>' : ''}${primary}${pending ? '' : kbd('⌘↵', true)}</span></div>`
+// cancel: «Скасувати» before the create POST, «Закрити» after it (the user exists, nothing to discard).
+const dFoot = ({
+  back = false,
+  primary = 'Далі',
+  pending = false,
+  secondary = '',
+  cancel = 'Скасувати',
+  hint = true, // the ⌘↵ hint is dropped when the primary label is long (still works)
+} = {}) =>
+  `<div class="row" style="gap:8px">${back ? '<span class="btn sm secondary" style="height:36px;font-size:14px">Назад</span>' : ''}<span class="grow"></span>${secondary ? `<span class="btn sm secondary" style="height:36px;font-size:14px">${secondary}</span>` : `<span class="btn sm ghost" style="height:36px;font-size:14px">${cancel}</span>`}<span class="btn sm primary" style="height:36px;font-size:14px"${pending ? ' aria-disabled="true"' : ''}>${pending ? '<span aria-hidden="true" style="width:14px;height:14px;border-radius:7px;border:2px solid oklch(0 0 0 / 0.25);border-top-color:var(--primary-fg)"></span>' : ''}${primary}${pending || !hint ? '' : kbd('⌘↵', true)}</span></div>`
 
 const deskPanel = (w, o) => panel(w >= 1440 ? 480 : 420, { modal: w < 1440, ...o })
 
@@ -273,7 +305,7 @@ export function wideFrames() {
       1440,
       900,
       usersDesk(1440, 900, {
-        inner: `<div role="status" aria-label="Завантаження користувачів">${userTable(1440, []).replace('</thead>', '</thead>')}${'<div class="row" style="height:40px;padding:0 12px;gap:24px;border-bottom:1px solid var(--separator)"><div class="sk" style="width:28px;height:28px;border-radius:14px"></div><div class="sk" style="height:12px;width:160px"></div><div class="sk" style="height:12px;width:80px"></div><div class="sk" style="height:12px;width:200px"></div></div>'.repeat(10)}</div>`,
+        inner: `<div role="status" aria-label="Завантаження користувачів">${userTable(1440, [], { skeleton: 10 })}</div>`,
         count: '',
       }),
     ),
@@ -406,7 +438,11 @@ export function wideFrames() {
       1440,
       900,
       usersDesk(1440, 900, {
-        overlay: deskPanel(1440, { step: 4, body: F.stepContract(), foot: dFoot({ back: true }) }),
+        overlay: deskPanel(1440, {
+          step: 4,
+          body: F.stepContract(),
+          foot: dFoot({ back: true, cancel: 'Закрити' }),
+        }),
       }),
     ),
     D(
@@ -420,6 +456,7 @@ export function wideFrames() {
           foot: dFoot({
             primary: 'Позначити готовим до підписання',
             secondary: 'Зберегти чернетку',
+            hint: false,
           }),
         }),
       }),
@@ -442,7 +479,7 @@ export function wideFrames() {
           title: 'Редагувати користувача',
           body: F.editBody({ loading: true }),
           foot: dFoot({ primary: 'Зберегти', pending: false }).replace(
-            'class="btn sm primary"',
+            'class="btn sm primary" style="',
             'class="btn sm primary" aria-disabled="true" style="opacity:0.5;',
           ),
         }),
@@ -478,13 +515,19 @@ export function wideFrames() {
       'permission-1440',
       1440,
       900,
-      usersDesk(1440, 900, {
+      // A non-admin has no «Додати користувача» CTA and no active «Користувачі» item: both removed.
+      // shortcut: the foundation desktop() always draws the ADMIN sidebar; a real non-admin sees their own nav.
+      desktop({
+        w: 1440,
+        h: 900,
+        active: '',
+        crumb: ['Люди', 'Користувачі'],
         content: stateBlock({
           ic: 'lock',
           title: 'Доступ лише для адміністратора',
           text: 'Цей розділ відкривається тільки адміністраторам. Зазвичай вас одразу переносить на ваш головний екран.',
         }),
-      }),
+      }).replace(/<span class="btn primary"[\s\S]*?<\/span><\/span><\/header>/, '</header>'),
     ),
   ]
 }

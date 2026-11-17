@@ -201,7 +201,7 @@ export const unknownAlert = errAlert(
 )
 export const failAlert = errAlert(
   'Не вдалося створити користувача',
-  'Сервер не відповів. Нічого не створено — введене залишилось у формі.',
+  'Сервер відхилив запит. Нічого не створено — введене залишилось у формі.',
 )
 
 /** Contract step: the role's template in the TextEditor primitive (placeholders highlighted), or the no-template note. */

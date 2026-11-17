@@ -8,7 +8,7 @@
 | Claude Design URL  | none — `design-gate: degraded` (no headless Claude Design); HTML prototypes rendered with Playwright                                                                                            |
 | Status             | draft — mockup council pending                                                                                                                                                                  |
 | Plan task          | Wave 2, Task 2.1 (`docs/superpowers/plans/2026-11-11-crm-redesign-v2.md`)                                                                                                                       |
-| Last synced commit | origin/main at branch creation (`docs/design-screen-users`)                                                                                                                                     |
+| Last synced commit | `11554c089` (merge-base with origin/main)                                                                                                                                                       |
 
 > Built only from `docs/design/foundation.md` v2 and the primitives in `docs/design/screens/_foundation/`
 > (`primitives-v2.md`, `shell-v2.md`). Where a needed primitive is missing it is listed under
@@ -127,13 +127,16 @@ self-contained HTML of each frame. All names, emails, phones and counts are inve
 - **Sticky search** «Ім’я, email, Telegram…» (16 px input) with a 44 px clear button once typed
   (`filtered-375.png`).
 - **Filter row:** status segmented control (Активні · Архів · Усі) + a «Роль» chip that opens the role
-  picker sheet (`role-picker-375.png`); a chosen role turns the chip yellow-subtle with an ×.
+  filter sheet (`role-filter-375.png`, «Фільтр за роллю»: «Усі ролі» + all six roles, Адміністратор
+  included); a chosen role turns the chip yellow-subtle with an ×. The create flow's role picker
+  (`role-picker-375.png`) is a different list: it has no «Адміністратор», as today.
 - **Count + sort header:** «38 користувачів» left; sort button right («↑ Ім’я»), opening the sort
   choices. Sorted by «Додано», each row shows its relative created time (`sorted-added-375.png`).
 - **Rows** (`.lrow.two`, 64 px): avatar initials 40 · name (+ «Ви») · second line «Роль · email»;
-  archived rows end with the archive-date pill. Tech chips are not on the phone row (profile has them).
+  archived rows end with the archive-date pill. Tech chips and the `mailto:` / `tel:` / `t.me` links are
+  not on the phone row: the row is one link to the profile, which has them (open point 11).
 - **Swipe** (trailing edge, `swipe-375.png`): «Змінити» + «Архівувати» (88 px each); archived rows:
-  «Відновити» (176). The visible alternative to the swipe is the profile's own actions. Self row: no
+  «Змінити» + «Відновити» (88 px each). The visible alternative to the swipe is the profile's own actions. Self row: no
   «Архівувати» in the swipe; another ADMIN's row: no swipe.
 - **Create:** the FAB «+» (bottom right, above the tab bar) opens a **full-height sheet** «Новий
   користувач» (`create-1-375.png`): lead «Скасувати», stepper «Крок n з N» + step title + bars, the form,
@@ -166,19 +169,24 @@ self-contained HTML of each frame. All names, emails, phones and counts are inve
 - **Table** (foundation dense table: th 36, td 40; `table-layout: fixed`, Email is the one flexible
   column, so «Додано» and the actions never leave the viewport — `long-1024.png`, `long-1440.png`):
   - 1024–1279: Користувач · Роль · Email · Додано · actions;
-  - ≥ 1280: Користувач · Роль · Email · Telegram · Технології (2 chips + «+N») · Додано · actions.
+  - 1280–1439: + Технології (2 chips + «+N») before Додано;
+  - ≥ 1440: + Telegram after Email (at 1280 it would squeeze Email below a readable width).
+  - Email cells are `mailto:` links, Telegram cells `t.me` links; the name cell links to the profile.
   - Телефон is not a column (detail pane / profile), as the search does not cover it either.
   - Sorting by the column headers Користувач / Роль / Додано (`aria-sort`) replaces today's sort-key
     select + direction button: same capability, one control.
 - **Row actions** (visible on hover and `:focus-within`, always in the tab order): pencil «Редагувати
   {name}» + «⋯» menu (Відкрити профіль · Редагувати · Архівувати…) — `row-menu-1440.png`. Self:
   «Архівувати…» disabled with «Не можна архівувати себе» shown in the menu (`row-menu-self-1440.png`).
-  Archived: the pencil is replaced by «Відновити з архіву {name}» (`archive-1440.png`). Under
+  Archived: the pencil is replaced by «Відновити з архіву {name}» and the «⋯» menu holds Відкрити
+  профіль · Редагувати (`archive-1440.png`). Another ADMIN's row has no row actions, as today. Under
   `(pointer: coarse)` at desktop width the actions are always visible at 44 px and rows are 52
   (`touch-1024.png`).
 - **Create / edit panel** (primitives-v2 side panel): 1024–1439 **modal 420** with scrim
   (`create-1-1024.png`); ≥ 1440 **non-modal 480**, no scrim, table stays usable (`create-1-1440.png`).
   Fields 40 px / 14 px (fine pointer only). Footer: «Назад» left; «Скасувати» + primary with «⌘↵» right.
+  On «Підтвердження» the two outcome buttons fill the footer, so the «⌘↵» hint is dropped there
+  (`create-5-1440.png`); the shortcut still triggers the primary.
   Esc closes (a dirty form asks first, `dirty-close-1440.png`).
 - **Archive:** centred `alertdialog` 520 «Архівувати користувача» with the same body and typed-name
   field (`archive-confirm-1440.png`, `archive-armed-1440.png`). Email change: centred 420
@@ -205,8 +213,8 @@ two-screen scroll on a phone. Steps: **Особа → Роль і команда
   spinner (`create-pending-375.png`).
 - **409 USER_EMAIL_EXISTS:** jumps back to «Особа» with the error under Email «Ця електронна адреса вже
   зайнята. Введіть іншу», focus on the field (`create-error-375.png`).
-- **Failed (server answered with an error):** alert «Не вдалося створити користувача» / «Сервер не
-  відповів. Нічого не створено — введене залишилось у формі.» (`create-failed-375.png`).
+- **Failed (server answered with an error):** alert «Не вдалося створити користувача» / «Сервер
+  відхилив запит. Нічого не створено — введене залишилось у формі.» (`create-failed-375.png`).
 - **Unknown outcome (timeout / network drop):** alert «Невідомо, чи користувача створено» / «Відповідь
   не надійшла. Введене залишилось у формі. Повторити безпечно: двічі одного користувача система не
   створить.»; the primary becomes «Спробувати ще раз» (`create-unknown-375.png`,
@@ -242,7 +250,7 @@ closes the panel / dialog (focus inside), arrow keys move through the «⋯» me
   button.
 - Modal panels and dialogs trap focus and return it to the trigger; the ≥ 1440 panel is non-modal (no
   trap), Esc works when focus is inside it.
-- Contrast from foundation tokens; dimmed archived rows keep `--muted-fg` (≥ 4.5:1 on `--card`).
+- Contrast from foundation tokens; dimmed archived rows keep `--muted-foreground` (≥ 4.5:1 on `--card`).
 
 ### 2.8 Strings (uk → en)
 
@@ -276,7 +284,30 @@ Existing strings keep their catalog msgids (en from `packages/shared/src/i18n/lo
 | Невідомо, чи користувача створено                                                                                    | We don't know whether the user was created                                                                      | new                                                                                                   |
 | Відповідь не надійшла. Введене залишилось у формі. Повторити безпечно: двічі одного користувача система не створить. | No response came back. Your input is still in the form. Retrying is safe: the same user is never created twice. | new                                                                                                   |
 | Не вдалося створити користувача                                                                                      | Couldn't create the user                                                                                        | new                                                                                                   |
-| Сервер не відповів. Нічого не створено — введене залишилось у формі.                                                 | The server didn't respond. Nothing was created — your input is still in the form.                               | new                                                                                                   |
+| Сервер відхилив запит. Нічого не створено — введене залишилось у формі.                                              | The server rejected the request. Nothing was created — your input is still in the form.                         | new                                                                                                   |
+| Ця електронна адреса вже зайнята. Введіть іншу                                                                       | catalog value of `USER_EMAIL_EXISTS`                                                                            | existing (`packages/shared/src/schemas/api-errors/auth-users-projects.ts`)                            |
+| {n} користувачів / {n} з {total} / {n} в архіві / {n} активних                                                       | {n} users / {n} of {total} / {n} archived / {n} active                                                          | new (ICU plural in uk)                                                                                |
+| Немає користувачів, що відповідають пошуку «{q}» і ролі «{role}».                                                    | No users match “{q}” with the role “{role}”.                                                                    | new                                                                                                   |
+| Фільтр за роллю / Усі ролі                                                                                           | Filter by role / All roles                                                                                      | new                                                                                                   |
+| Адміністратор / Сеньйор / Джуніор / HR / Бухгалтер / Дроп                                                            | role labels                                                                                                     | existing (role label map)                                                                             |
+| Змінити / Відновити / Архівувати (swipe actions)                                                                     | Edit / Restore / Archive                                                                                        | new (short swipe labels)                                                                              |
+| щойно (relative time)                                                                                                | just now                                                                                                        | new (the existing «щойно» msgids are sentences)                                                       |
+| Старий: / Новий:                                                                                                     | Old: / New:                                                                                                     | existing                                                                                              |
+| Для підтвердження введіть ім’я:                                                                                      | To confirm, type the name:                                                                                      | existing                                                                                              |
+| Archive impact copy (linked pair, «У команді … HR/бухгалтер…», «Відновлення можливе — …»)                            | catalog values                                                                                                  | existing (today's archive dialog, unchanged)                                                          |
+| На цю адресу одразу піде запрошення — увійти нею співробітник зможе лише після того, як підтвердить адресу           | An invitation will be sent to this address right away — …                                                       | existing (invite hint)                                                                                |
+| Мова інтерфейсу співробітника — він зможе змінити її у своєму профілі.                                               | The employee's interface language — they can change it in their own profile.                                    | existing                                                                                              |
+| Можна прикріпити пізніше в розділі «Проєкти»                                                                         | You can attach one later in the Projects section                                                                | existing                                                                                              |
+| Необов’язково. Канал для спілкування команди.                                                                        | Optional. A channel for the team to talk in.                                                                    | existing                                                                                              |
+| Ця адреса підставляється в текст контракту                                                                           | This address is inserted into the contract text                                                                 | existing                                                                                              |
+| Скільки дроп залишає собі з кожної виплати                                                                           | How much the drop keeps from each payout                                                                        | existing; the mockup's «За замовчуванням 5%» suffix is new («Default 5%»)                             |
+| Для ролі «{roleLabel}» доступні лише виплати в USDT ERC-20.                                                          | Only USDT ERC-20 payouts are available for the “{roleLabel}” role.                                              | existing                                                                                              |
+| Назва банку (необов’язково)                                                                                          | Bank name (optional)                                                                                            | existing                                                                                              |
+| Бухгалтер (необов’язково)                                                                                            | Accountant (optional)                                                                                           | new label for the picker                                                                              |
+| Не обрано / Без проєкту (picker placeholders)                                                                        | Not selected / No project                                                                                       | new; replace today's «— не обрано —» (picker sheets show plain text, no dashes)                       |
+| Місто, вулиця, будинок / Наприклад, основний                                                                         | City, street, building / For example, main                                                                      | new; replace «м. Київ, вул. Хрещатик, 1» / «наприклад: основний» (a format hint, not a real address)  |
+| Текст контракту / Поля в {{дужках}} заповняться з профілю користувача.                                               | Contract text / Fields in {{braces}} are filled from the user's profile.                                        | new                                                                                                   |
+| «Готовий до підписання» — контракт піде на підпис. Чернетку можна доробити пізніше в профілі.                        | “Ready to sign” sends the contract for signing. A draft can be finished later in the profile.                   | new                                                                                                   |
 | Не вдалося завантажити користувачів                                                                                  | Couldn't load users                                                                                             | new                                                                                                   |
 | Сервер не відповів. Нічого не змінено — спробуйте ще раз.                                                            | The server didn't respond. Nothing changed — try again.                                                         | new                                                                                                   |
 | В архіві нікого немає                                                                                                | Nobody is archived                                                                                              | new                                                                                                   |
@@ -292,26 +323,27 @@ Existing strings keep their catalog msgids (en from `packages/shared/src/i18n/lo
 
 Every state at 375 and 1440 unless noted (`assets/users/<name>.png`).
 
-| State                      | Phone                                                                                                                       | Desktop / tablet                                                                      | Notes                                                                                                     |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| Default (main)             | `list-320`, `list-375`                                                                                                      | `list-768`, `list-960`, `list-1024`, `list-1280`, `list-1440`                         | 1440 shows the hover row with its actions                                                                 |
-| Loading                    | `loading-375`                                                                                                               | `loading-1440`                                                                        | Skeleton rows in the final row shape; toolbar stays usable; count hidden                                  |
-| Empty — archive            | `archive-empty-375`                                                                                                         | `archive-empty-1440`                                                                  | «В архіві нікого немає»                                                                                   |
-| Empty — no users at all    | —                                                                                                                           | —                                                                                     | Kept as today («Користувачів поки немає»), not drawn: practically unreachable (open point 8)              |
-| Filtered / no results      | `filtered-375`, `no-results-375`                                                                                            | `filtered-1440`, `no-results-1440`                                                    | «Скинути фільтри» clears search + role                                                                    |
-| Archive tab                | `archive-375`                                                                                                               | `archive-1440`                                                                        | Dimmed rows, date pill / «Відновити з архіву»                                                             |
-| Error (list)               | `error-375`                                                                                                                 | `error-1440`                                                                          | New: today the list has no error state                                                                    |
-| Offline / unknown outcome  | `offline-375`, `create-unknown-375`                                                                                         | `create-unknown-1440`                                                                 | Foundation offline banner on the list; the create's unknown outcome keeps the input                       |
-| Long content               | `long-320`, `long-375`                                                                                                      | `long-1024`, `long-1440`                                                              | Long name / email truncate with ellipsis; the full value is in the profile and the link's accessible name |
-| Partial (edit loading)     | `edit-375`                                                                                                                  | `edit-1440`                                                                           | Row data shown at once; finance / requisites skeleton until `GET /users/:id`; «Зберегти» disabled         |
-| Swipe / row menu           | `swipe-375`                                                                                                                 | `row-menu-1440`, `row-menu-self-1440`                                                 |                                                                                                           |
-| Create steps               | `create-1…5-375`, `create-2-junior-375`, `create-2-drop-375`, `create-3-junior-375`, `create-4-none-375`, `role-picker-375` | `create-1-1440`, `create-1-1024`, `create-2/3/4/5-1440`, `create-768`, `create-3-768` |                                                                                                           |
-| Create pending / errors    | `create-pending-375`, `create-error-375`, `create-failed-375`                                                               | —                                                                                     | Same components on desktop                                                                                |
-| Dirty close                | `dirty-close-375`                                                                                                           | `dirty-close-1440`                                                                    |                                                                                                           |
-| Edit / self / email change | `edit-loaded-375`, `edit-self-375`, `email-change-375`                                                                      | `email-change-1440`                                                                   |                                                                                                           |
-| Archive confirm            | `archive-confirm-375`, `archive-armed-375`                                                                                  | `archive-confirm-1440`, `archive-armed-1440`                                          | Destructive button armed only by the typed name                                                           |
-| Permission-limited         | `permission-375`                                                                                                            | `permission-1440`                                                                     | Fallback only; the layout redirect normally runs first                                                    |
-| Touch at desktop width     | —                                                                                                                           | `touch-1024`                                                                          | 52 px rows, 44 px always-visible actions                                                                  |
+| State                      | Phone                                                                                                                       | Desktop / tablet                                                                      | Notes                                                                                                                                                                                                |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Default (main)             | `list-320`, `list-375`                                                                                                      | `list-768`, `list-960`, `list-1024`, `list-1280`, `list-1440`                         | 1440 shows the hover row with its actions                                                                                                                                                            |
+| Loading                    | `loading-375`                                                                                                               | `loading-1440`                                                                        | Skeleton rows in the final row shape; toolbar stays usable; count hidden                                                                                                                             |
+| Empty — archive            | `archive-empty-375`                                                                                                         | `archive-empty-1440`                                                                  | «В архіві нікого немає»                                                                                                                                                                              |
+| Empty — no users at all    | —                                                                                                                           | —                                                                                     | Kept as today («Користувачів поки немає»), not drawn: practically unreachable (open point 8)                                                                                                         |
+| Role filter                | `role-filter-375`                                                                                                           | `filtered-1440` (chip chosen)                                                         | «Усі ролі» + six roles; the create picker has no «Адміністратор»                                                                                                                                     |
+| Filtered / no results      | `filtered-375`, `no-results-375`                                                                                            | `filtered-1440`, `no-results-1440`                                                    | «Скинути фільтри» clears search + role                                                                                                                                                               |
+| Archive tab                | `archive-375`                                                                                                               | `archive-1440`                                                                        | Dimmed rows, date pill / «Відновити з архіву»                                                                                                                                                        |
+| Error (list)               | `error-375`                                                                                                                 | `error-1440`                                                                          | New: today the list has no error state                                                                                                                                                               |
+| Offline / unknown outcome  | `offline-375`, `create-unknown-375`                                                                                         | `create-unknown-1440`                                                                 | Foundation offline banner on the list; the create's unknown outcome keeps the input                                                                                                                  |
+| Long content               | `long-320`, `long-375`                                                                                                      | `long-1024`, `long-1440`                                                              | Long name / email truncate with ellipsis; the full value is in the profile and the link's accessible name                                                                                            |
+| Partial (edit loading)     | `edit-375`                                                                                                                  | `edit-1440`                                                                           | Row data shown at once; finance / requisites skeleton until `GET /users/:id`; «Зберегти» disabled                                                                                                    |
+| Swipe / row menu           | `swipe-375`                                                                                                                 | `row-menu-1440`, `row-menu-self-1440`                                                 |                                                                                                                                                                                                      |
+| Create steps               | `create-1…5-375`, `create-2-junior-375`, `create-2-drop-375`, `create-3-junior-375`, `create-4-none-375`, `role-picker-375` | `create-1-1440`, `create-1-1024`, `create-2/3/4/5-1440`, `create-768`, `create-3-768` |                                                                                                                                                                                                      |
+| Create pending / errors    | `create-pending-375`, `create-error-375`, `create-failed-375`                                                               | —                                                                                     | Same components on desktop                                                                                                                                                                           |
+| Dirty close                | `dirty-close-375`                                                                                                           | `dirty-close-1440`                                                                    |                                                                                                                                                                                                      |
+| Edit / self / email change | `edit-loaded-375`, `edit-self-375`, `email-change-375`                                                                      | `email-change-1440`                                                                   |                                                                                                                                                                                                      |
+| Archive confirm            | `archive-confirm-375`, `archive-armed-375`                                                                                  | `archive-confirm-1440`, `archive-armed-1440`                                          | Destructive button armed only by the typed name                                                                                                                                                      |
+| Permission-limited         | `permission-375`                                                                                                            | `permission-1440`                                                                     | Fallback only; the layout redirect normally runs first. The 1440 frame shows the ADMIN sidebar only because the foundation `desktop()` generator fixes the role; a real non-admin sees their own nav |
+| Touch at desktop width     | —                                                                                                                           | `touch-1024`                                                                          | 52 px rows, 44 px always-visible actions                                                                                                                                                             |
 
 ## 4. Self-score
 
@@ -364,5 +396,49 @@ Each with a recommendation.
    with a `msgctxt` (e.g. "leave a form") when the confirm is implemented.
 10. **Телефон dropped from the desktop table columns** (kept in the detail pane and profile; the search
     never covered it). _Recommendation:_ accept; add it back at ≥ 1600 only if owners ask.
+11. **Phone rows lose the inline contact links and tech chips** (today's row shows `mailto:` / `tel:` /
+    `t.me` links). The phone row is one 64 px link; two or three small links inside it would be sub-44
+    targets nested in a target. _Recommendation:_ accept; the contacts are one tap away in the profile
+    (and in the tablet detail pane).
+
+## 6. Components (mapping to our stack)
+
+| Visual block                         | Our component                                                                                                                                 | New?                        |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| Phone / tablet list row              | `ListRow` (primitives-v2) + `ui/avatar.tsx`                                                                                                   | yes — the primitives-v2 one |
+| Swipe actions                        | `ListRow` swipe variant (`listrow-swipe-375`)                                                                                                 | yes — the primitives-v2 one |
+| Desktop table                        | `ui/table.tsx` (table row states)                                                                                                             | no                          |
+| Row «⋯» menu                         | `ui/dropdown-menu.tsx`                                                                                                                        | no                          |
+| Status filter                        | `ui/segmented-toggle.tsx`                                                                                                                     | no                          |
+| Role filter / role picker            | PickerSheet on touch; `ui/popover.tsx` + `ui/command.tsx` on desktop                                                                          | PickerSheet — primitives-v2 |
+| Search                               | `ui/input.tsx` (search) + clear `ui/button.tsx` icon                                                                                          | no                          |
+| Create / edit sheet (phone)          | Large sheet / `ResponsiveSheet` (primitives-v2)                                                                                               | yes — the primitives-v2 one |
+| Create / edit panel (tablet/desktop) | Side panel on `ui/sheet.tsx` (side = right); non-modal at ≥ 1440                                                                              | no                          |
+| Stepper                              | —                                                                                                                                             | yes — open point 1          |
+| Form fields                          | `ui/input.tsx`, `ui/label.tsx`, `ui/amount-currency-input.tsx`, `ui/phone-input.tsx`, `ui/tech-autocomplete-input.tsx`, `ui/share-slider.tsx` | no                          |
+| Archive confirm, email change, dirty | `ui/alert-dialog.tsx` (desktop); confirm sheet on phone (open point 3)                                                                        | no                          |
+| Create failed / unknown              | `ui/alert.tsx` (save error inline)                                                                                                            | no                          |
+| Loading                              | `ui/skeleton.tsx` in the final row / cell shape                                                                                               | no                          |
+| Empty / error / permission           | foundation state block                                                                                                                        | no                          |
+| Desktop / phone switch               | `ByDevice` (redesign v2; one mount, one query; first use on this screen, §1.4)                                                                | yes — the redesign v2 one   |
+
+## 7. Token-map
+
+Only foundation v2 tokens (`docs/design/foundation.md`; `--scrim` and `--radius-sheet` are foundation
+v2 additions not yet in `apps/web/app/styles/globals.css`, the rest exist there): surfaces `--background` / `--card` /
+`--popover` / `--surface`; text `--foreground` / `--muted-foreground`; accent `--primary` (CTA, active chip,
+stepper bars, focus ring); `--destructive` (archive button, field errors); `--scrim` (modal panel,
+sheets); `--radius-sheet` for sheet corners. Type: `t-head` (titles), `t-foot` (stepper overline, row
+second line, count), body for cells. No raw hex, no new tokens.
+
+## 8. For the coder
+
+- Build with our components per this spec; the PNGs are the fidelity reference (Mode B compares). The
+  HTML generators in `assets/src/` are a visual reference, not code to paste.
+- One query key for both layouts: `['users-admin', { archived }]`; role, sort and search filter on the
+  client as today. No new endpoint, field or KPI.
+- RBAC unchanged: the route stays ADMIN-only (§1.1); self row and other-ADMIN row restrictions as today.
+- New strings: §2.8 rows marked "new" go into both catalogs (`uk` + `en`); «Вийти» needs a `msgctxt`.
+- The create POST moves to «Створити користувача» (open point 6); PATCH-not-POST after it, as today.
 
 `design-gate: degraded` — no headless Claude Design; HTML prototypes on foundation tokens.
