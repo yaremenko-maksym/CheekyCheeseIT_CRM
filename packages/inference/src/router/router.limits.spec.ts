@@ -256,7 +256,7 @@ describe('a transient route next to a spent one keeps today’s code (H.2 row 4)
 })
 
 describe('a model RETIRED in this call is not spent (R1, CR-M-3)', () => {
-  const [M0, M1] = GROQ.models as [string, string]
+  const [M0] = GROQ.models as [string, string]
   it.each<[string, (m: string) => Reply, State[]]>([
     ['SPENT_DAY, then RETIRED', (m) => (m === M0 ? SPENT : notFound(m)), []],
     ['RETIRED, then SPENT_DAY', (m) => (m === M0 ? notFound(m) : SPENT), []],
