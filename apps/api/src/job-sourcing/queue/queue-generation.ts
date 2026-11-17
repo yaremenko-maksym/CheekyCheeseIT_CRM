@@ -2,6 +2,8 @@ import { type SQL, sql } from 'drizzle-orm'
 import type { DatabaseService } from '../../database/database.service'
 import { MATCH_RULE_VERSION } from '../runtime/recompute-inputs'
 import type { SqlExecutor } from '../scheduling/host-state'
+import { setLockTimeout } from '../store/lock-order'
+import { STORE_LOCK_TIMEOUT_MS } from '../store/source-record.store'
 import { rankSelect } from './queue-read-sql'
 import {
   type GenerationHead,
@@ -83,6 +85,13 @@ async function publishedGeneration(
     : null
 }
 
+/** The per-scope publish lock, held from the publish's read of the job set to its commit. */
+async function lockScopePublish(tx: SqlExecutor, scopeKey: string): Promise<void> {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtextextended(${`job-queue-generation:${scopeKey}`}, 0))`,
+  )
+}
+
 /** The scope's current generation, published on the spot when there is no usable one. */
 export async function currentGeneration(
   database: DatabaseService,
@@ -94,10 +103,7 @@ export async function currentGeneration(
   const current = await publishedGeneration(database.db, scope, signature, now)
   if (current !== null) return current
   return database.db.transaction(async (tx) => {
-    const scopeKey = scope.kind === 'TEAM' ? `TEAM:${scope.teamId}` : 'STUDIO'
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtextextended(${`job-queue-generation:${scopeKey}`}, 0))`,
-    )
+    await lockScopePublish(tx, scope.kind === 'TEAM' ? `TEAM:${scope.teamId}` : 'STUDIO')
     const raced = await publishedGeneration(tx, scope, signature, now)
     return raced ?? publish(tx, scope, versions, signature, now)
   })
@@ -167,13 +173,77 @@ async function publish(
  * does not carry either, so the write retires the team's published generation itself: the team's
  * next read publishes anew. A removal would show at once anyway (entries are re-checked against
  * visibility); an addition would otherwise wait for the TTL. The next publish deletes the row.
+ *
+ * It first takes the team's publish lock, as the manual-card retire does, so a publish that read the
+ * job set before the write committed is published before this retire. The caller's row locks come
+ * first and do not deadlock: a publish holding this lock only reads them, or takes `FOR KEY SHARE`.
  */
 export async function invalidateTeamGenerations(db: SqlExecutor, teamId: string): Promise<void> {
+  await lockScopePublish(db, `TEAM:${teamId}`)
   await db.execute(
     sql`UPDATE job_queue_generations
            SET status = 'INVALIDATED', invalidated_at = clock_timestamp()
          WHERE status = 'PUBLISHED' AND scope_kind = 'TEAM' AND team_id = ${teamId}::uuid`,
   )
+}
+
+/**
+ * 1340-QA-OUT-1 — a manual card is an addition to its team and to the studio, and neither published
+ * generation can hold it, so the create retires both: the team's and every STUDIO one (ADMIN's).
+ * Without it the card stayed out of both lists until the TTL ran out.
+ *
+ * It first takes both publish locks, studio then team (a publish takes one), so a publish that read
+ * the job set before the card committed is published before this retire, and a later one reads the
+ * card. It runs inside the create's transaction, so the locks hold until the card commits.
+ */
+export async function invalidateGenerationsForManualCard(
+  db: SqlExecutor,
+  teamId: string,
+): Promise<void> {
+  await lockScopePublish(db, 'STUDIO')
+  await lockScopePublish(db, `TEAM:${teamId}`)
+  await db.execute(
+    sql`UPDATE job_queue_generations
+           SET status = 'INVALIDATED', invalidated_at = clock_timestamp()
+         WHERE status = 'PUBLISHED'
+           AND (scope_kind = 'STUDIO' OR (scope_kind = 'TEAM' AND team_id = ${teamId}::uuid))`,
+  )
+}
+
+/**
+ * The post-run match drain recomputed opportunities: new ones, or changed matches, are an addition
+ * no published generation holds, so the drain retires every published one (each STUDIO and each
+ * TEAM), the way a manual card does for its scopes. The next read of each scope publishes anew;
+ * the next publish of a scope deletes its retired row. Without it a snapshot published before the
+ * drain hid every fresh opportunity until the TTL ran out.
+ *
+ * It takes the STUDIO publish lock and then every team's in one statement, in id order (a publish
+ * takes one lock, a manual card STUDIO then one team, so the order cannot deadlock), so a publish
+ * that read the job set before the drain committed is published before this retire. Every lock wait
+ * is cut at `lockTimeoutMs` (55P03): a publish stuck on a scope lock fails the retire, which the
+ * caller logs, and the snapshots expire by their TTL. Returns the rows retired.
+ */
+export async function invalidateGenerationsForNewJobs(
+  db: DatabaseService['db'],
+  { lockTimeoutMs = STORE_LOCK_TIMEOUT_MS }: { lockTimeoutMs?: number } = {},
+): Promise<number> {
+  return db.transaction(async (tx) => {
+    await setLockTimeout(tx, lockTimeoutMs)
+    await lockScopePublish(tx, 'STUDIO')
+    // The key `lockScopePublish` builds for `TEAM:<id>`. A subquery with ORDER BY is never pulled
+    // up, so the locks are taken in id order.
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(hashtextextended('job-queue-generation:TEAM:' || t.id::text, 0))
+            FROM (SELECT id FROM teams ORDER BY id) t`,
+    )
+    const { rows } = await tx.execute(
+      sql`UPDATE job_queue_generations
+             SET status = 'INVALIDATED', invalidated_at = clock_timestamp()
+           WHERE status = 'PUBLISHED'
+       RETURNING id`,
+    )
+    return rows.length
+  })
 }
 
 /**

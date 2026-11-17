@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   answer,
+  CLOUDFLARE,
+  CLOUDFLARE_ACCOUNT_ID,
   config,
   countingCap,
   deps,
@@ -21,7 +23,14 @@ import { createFileRouteStatePort, type StateEvent } from './state'
 import { fakeFs } from './__test-helpers__/fake-fs'
 
 const REPLY_MARKER = 'REPLY-MARKER-3b8c'
-const MARKERS = [KEY_MARKER, TEXT_MARKER, PROVIDER_BODY_MARKER, REPLY_MARKER, 'Bearer']
+const MARKERS = [
+  KEY_MARKER,
+  TEXT_MARKER,
+  PROVIDER_BODY_MARKER,
+  REPLY_MARKER,
+  'Bearer',
+  CLOUDFLARE_ACCOUNT_ID,
+]
 const body = (extra: object = {}) =>
   JSON.stringify({ error: { message: PROVIDER_BODY_MARKER, type: 'x', ...extra } })
 
@@ -32,6 +41,14 @@ const FAILURES: Reply[] = [
   { status: 403, body: body() },
   { status: 403, body: `<html>${PROVIDER_BODY_MARKER}</html>` },
   { status: 404, body: body({ code: 'model_not_found' }) },
+  { status: 410, body: `AiError: Model has been deprecated ${PROVIDER_BODY_MARKER}` },
+  {
+    status: 429,
+    body: JSON.stringify({
+      success: false,
+      errors: [{ code: 3036, message: PROVIDER_BODY_MARKER }],
+    }),
+  },
   { status: 429, body: body(), headers: { 'x-ratelimit-remaining-requests': '0' } },
   { status: 429, body: body(), headers: { 'retry-after': PROVIDER_BODY_MARKER } },
   { status: 500, body: body() },
@@ -65,7 +82,7 @@ describe('router privacy (AC5, ADR §3.3, §4 item 2)', () => {
       const local = { ...LOCAL, apiKey: KEY_MARKER, baseUrl: 'https://10.0.0.5/v1' }
       const d = deps(f.fetchImpl, { routeState })
       const req = { ...REQ, instruction: `instruction ${TEXT_MARKER}` }
-      const r = await createRouter(config([GROQ, GEMINI, local]), d).run(req)
+      const r = await createRouter(config([GROQ, GEMINI, CLOUDFLARE, local]), d).run(req)
       expect(r.ok).toBe(false)
       assertClean('result', r)
       assertClean('events', d.events)
@@ -113,15 +130,16 @@ describe('router privacy (AC5, ADR §3.3, §4 item 2)', () => {
 
   it('the key travels only in the Authorization header of its own hosted request, never in a URL or body', async () => {
     const f = scriptedFetch((s) => (s.host === hostOf.local ? GOOD : { status: 500, body: '' }))
-    await createRouter(config([GROQ, GEMINI, LOCAL]), deps(f.fetchImpl)).run(REQ)
-    expect(f.sent).toHaveLength(3)
+    await createRouter(config([GROQ, GEMINI, CLOUDFLARE, LOCAL]), deps(f.fetchImpl)).run(REQ)
+    expect(f.sent).toHaveLength(4)
     for (const s of f.sent) {
       expect(s.url).not.toContain(KEY_MARKER)
       expect(JSON.stringify(s.body)).not.toContain(KEY_MARKER)
       expect(s.url.startsWith('https://') || s.host === hostOf.local).toBe(true)
     }
     expect(f.sent[0]!.headers.Authorization).toBe(`Bearer ${KEY_MARKER}`)
-    expect(f.sent[2]!.headers).not.toHaveProperty('Authorization')
+    expect(f.sent[2]!.headers.Authorization).toBe(`Bearer ${KEY_MARKER}`)
+    expect(f.sent[3]!.headers).not.toHaveProperty('Authorization')
   })
 
   it('every event field is a code, an id, a count or a timing', async () => {

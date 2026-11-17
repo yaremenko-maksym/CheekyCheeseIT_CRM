@@ -1,0 +1,229 @@
+import { describe, expect, it } from 'vitest'
+import { SKILL_SYNONYM_GROUPS, canonicalSkill, mentionsSkill, mergeSkills } from './resume-skills'
+
+describe('canonicalSkill', () => {
+  it.each([
+    ['nodejs', 'Node.js'],
+    ['NodeJS', 'Node.js'],
+    ['node', 'Node.js'],
+    ['Node JS', 'Node.js'],
+    ['node.js', 'Node.js'],
+    ['aws', 'Amazon Web Services (AWS)'],
+    ['Amazon Web Services', 'Amazon Web Services (AWS)'],
+    ['gcp', 'Google Cloud Platform (GCP)'],
+    ['k8s', 'Kubernetes'],
+    ['postgres', 'PostgreSQL'],
+    ['golang', 'Go'],
+    ['ts', 'TypeScript'],
+    ['js', 'JavaScript'],
+    ['reactjs', 'React'],
+    ['vue', 'Vue.js'],
+    ['nextjs', 'Next.js'],
+    ['dotnet', '.NET'],
+    ['csharp', 'C#'],
+    ['c#', 'C#'],
+    ['cpp', 'C++'],
+    ['ci-cd', 'CI/CD'],
+    ['RESTful', 'REST'],
+  ])('%s -> %s', (raw, expected) => {
+    expect(canonicalSkill(raw)).toBe(expected)
+  })
+
+  it('passes an unknown skill through, trimmed', () => {
+    expect(canonicalSkill('Elixir')).toBe('Elixir')
+    expect(canonicalSkill('  Elixir  ')).toBe('Elixir')
+  })
+
+  it('collapses spaces, dots and hyphens in the lookup key', () => {
+    expect(canonicalSkill('Type Script')).toBe('TypeScript')
+    expect(canonicalSkill('Mongo-DB')).toBe('MongoDB')
+    expect(canonicalSkill('React JS')).toBe('React')
+    expect(canonicalSkill('vue-js')).toBe('Vue.js')
+  })
+
+  it('keeps symbols distinct: C, C#, C++ and Java, JavaScript are different skills', () => {
+    expect(canonicalSkill('C')).toBe('C')
+    expect(canonicalSkill('C#')).toBe('C#')
+    expect(canonicalSkill('C++')).toBe('C++')
+    expect(canonicalSkill('java')).toBe('Java')
+    expect(canonicalSkill('javascript')).toBe('JavaScript')
+  })
+
+  it('returns every canonical unchanged', () => {
+    for (const { canonical } of SKILL_SYNONYM_GROUPS) {
+      expect(canonicalSkill(canonical)).toBe(canonical)
+    }
+  })
+})
+
+describe('SKILL_SYNONYM_GROUPS', () => {
+  it('holds exactly the seed vocabulary and its aliases', () => {
+    expect(SKILL_SYNONYM_GROUPS).toEqual([
+      { canonical: 'JavaScript', aliases: ['JS', 'ECMAScript'] },
+      { canonical: 'TypeScript', aliases: ['TS'] },
+      { canonical: 'Python', aliases: ['Python3', 'Python 3'] },
+      { canonical: 'Go', aliases: ['Golang'] },
+      { canonical: 'Java', aliases: [] },
+      { canonical: 'Kotlin', aliases: [] },
+      { canonical: 'C#', aliases: ['C Sharp'] },
+      { canonical: 'C++', aliases: ['CPP'] },
+      { canonical: 'Node.js', aliases: ['Node', 'NodeJS', 'Node JS'] },
+      { canonical: 'React', aliases: ['React.js', 'ReactJS'] },
+      { canonical: 'Next.js', aliases: ['NextJS'] },
+      { canonical: 'Vue.js', aliases: ['Vue', 'VueJS'] },
+      { canonical: 'Angular', aliases: ['AngularJS', 'Angular.js'] },
+      { canonical: '.NET', aliases: ['dotnet', 'dot net', 'dotnet core', 'net core', 'netcore'] },
+      { canonical: 'PostgreSQL', aliases: ['Postgres', 'psql'] },
+      { canonical: 'MySQL', aliases: [] },
+      { canonical: 'MongoDB', aliases: ['Mongo', 'Mongo DB'] },
+      { canonical: 'Redis', aliases: [] },
+      { canonical: 'Docker', aliases: [] },
+      { canonical: 'Kubernetes', aliases: ['K8s', 'kube'] },
+      { canonical: 'Amazon Web Services (AWS)', aliases: ['AWS', 'Amazon Web Services'] },
+      {
+        canonical: 'Google Cloud Platform (GCP)',
+        aliases: ['GCP', 'Google Cloud', 'Google Cloud Platform'],
+      },
+      { canonical: 'Azure', aliases: ['Microsoft Azure'] },
+      { canonical: 'Terraform', aliases: [] },
+      { canonical: 'CI/CD', aliases: ['CICD', 'CI-CD', 'CI CD'] },
+      { canonical: 'GraphQL', aliases: ['Graph QL'] },
+      { canonical: 'REST', aliases: ['REST API', 'RESTful', 'RESTful API'] },
+      { canonical: 'Salesforce', aliases: [] },
+      { canonical: 'iOS', aliases: [] },
+      { canonical: 'Swift', aliases: [] },
+      { canonical: 'Android', aliases: [] },
+      { canonical: 'Jetpack Compose', aliases: [] },
+      { canonical: 'Flutter', aliases: [] },
+      { canonical: 'React Native', aliases: [] },
+      { canonical: 'Apache Spark', aliases: ['Spark'] },
+      { canonical: 'dbt', aliases: [] },
+      { canonical: 'PyTorch', aliases: [] },
+      { canonical: 'Linux', aliases: [] },
+      { canonical: 'Playwright', aliases: [] },
+      { canonical: 'Selenium', aliases: [] },
+      { canonical: 'OWASP', aliases: [] },
+      { canonical: 'Verilog', aliases: [] },
+      { canonical: 'VHDL', aliases: [] },
+      { canonical: 'Unity', aliases: ['Unity3D'] },
+      { canonical: 'Unreal Engine', aliases: ['Unreal', 'UE4', 'UE5'] },
+      { canonical: 'Solidity', aliases: [] },
+      { canonical: 'Figma', aliases: [] },
+    ])
+  })
+
+  it('never lets one spelling belong to two groups', () => {
+    for (const { canonical, aliases } of SKILL_SYNONYM_GROUPS) {
+      for (const spelling of [canonical, ...aliases]) {
+        const owner = canonicalSkill(spelling)
+        expect(owner, `${spelling} resolved to ${owner}, expected ${canonical}`).toBe(canonical)
+      }
+    }
+  })
+})
+
+describe('mergeSkills', () => {
+  it('caps the result at 60, keeping every HR skill in order before technologies', () => {
+    const skills = Array.from({ length: 60 }, (_, i) => `Skill${i}`)
+    const merged = mergeSkills(skills, [['Tech0', 'Tech1', 'Tech2', 'Tech3', 'Tech4']])
+    expect(merged).toHaveLength(60)
+    expect(merged).toEqual(skills)
+  })
+
+  it('fills up to 60 with technologies after the HR skills', () => {
+    const skills = Array.from({ length: 58 }, (_, i) => `Skill${i}`)
+    expect(mergeSkills(skills, [['Tech0', 'Tech1', 'Tech2']]).slice(56)).toEqual([
+      'Skill56',
+      'Skill57',
+      'Tech0',
+      'Tech1',
+    ])
+  })
+
+  it('merges skills and per-job technologies in first-seen order, deduplicated', () => {
+    expect(mergeSkills(['React', 'react'], [['TypeScript', 'Node JS']])).toEqual([
+      'React',
+      'TypeScript',
+      'Node.js',
+    ])
+  })
+
+  it('deduplicates across lists and aliases, canonicalising the first occurrence', () => {
+    expect(
+      mergeSkills(['nodejs', 'Elixir'], [['Node.js', 'elixir'], ['AWS'], ['aws', 'Go']]),
+    ).toEqual(['Node.js', 'Elixir', 'Amazon Web Services (AWS)', 'Go'])
+  })
+
+  it('drops blank entries', () => {
+    expect(mergeSkills(['', '  ', 'Redis'], [['   ']])).toEqual(['Redis'])
+  })
+
+  it('folds the .NET Core spellings into .NET', () => {
+    expect(mergeSkills(['.NET', 'dotnet core'], [])).toEqual(['.NET'])
+    expect(mergeSkills(['net core', 'NetCore', '.NET Core'], [])).toEqual(['.NET'])
+  })
+
+  it('returns an empty list for empty input', () => {
+    expect(mergeSkills([], [])).toEqual([])
+  })
+})
+
+describe('mentionsSkill', () => {
+  it('does not match a skill inside a longer token', () => {
+    expect(mentionsSkill('JavaScript developer', 'Java')).toBe(false)
+    expect(mentionsSkill('wrote C++ services', 'C')).toBe(false)
+    expect(mentionsSkill('wrote C# services', 'C')).toBe(false)
+    expect(mentionsSkill('TypeScript only', 'Type')).toBe(false)
+  })
+
+  it('does not split a multi-word spelling of C# or JavaScript into a shorter skill', () => {
+    expect(mentionsSkill('C Sharp developer', 'C')).toBe(false)
+    expect(mentionsSkill('Java Script developer', 'Java')).toBe(false)
+    expect(mentionsSkill('c  sharp and java   script', 'C')).toBe(false)
+    expect(mentionsSkill('c  sharp and java   script', 'Java')).toBe(false)
+    expect(mentionsSkill('C Sharp developer', 'C#')).toBe(true)
+    expect(mentionsSkill('Java Script developer', 'JavaScript')).toBe(true)
+    expect(mentionsSkill('used C# daily', 'C Sharp')).toBe(true)
+    expect(mentionsSkill('Sharp C tooling', 'C')).toBe(true)
+    expect(mentionsSkill('Script Java tooling', 'Java')).toBe(true)
+  })
+
+  it('folds those spellings only as whole words', () => {
+    expect(mentionsSkill('Basic sharp tools', 'Basic')).toBe(true)
+    expect(mentionsSkill('a C sharpener', 'C')).toBe(true)
+    expect(mentionsSkill('Kajava script', 'Kajava')).toBe(true)
+    expect(mentionsSkill('Java scripting', 'Java')).toBe(true)
+  })
+
+  it('treats # + . as part of the token', () => {
+    expect(mentionsSkill('used C# daily', 'C#')).toBe(true)
+    expect(mentionsSkill('on .NET 8', '.NET')).toBe(true)
+    expect(mentionsSkill('modern C++ code', 'C++')).toBe(true)
+    expect(mentionsSkill('used C# daily', 'C++')).toBe(false)
+  })
+
+  it('matches a standalone token, case-insensitively, next to punctuation', () => {
+    expect(mentionsSkill('Java, Kotlin.', 'java')).toBe(true)
+    expect(mentionsSkill('C++ and C.', 'C')).toBe(true)
+    expect(mentionsSkill('(Python)', 'Python')).toBe(true)
+  })
+
+  it('matches any spelling of the skill group', () => {
+    expect(mentionsSkill('deployed on AWS', 'Amazon Web Services (AWS)')).toBe(true)
+    expect(mentionsSkill('built APIs in NodeJS', 'Node.js')).toBe(true)
+    expect(mentionsSkill('ran k8s clusters', 'Kubernetes')).toBe(true)
+    expect(mentionsSkill('ran k8s clusters', 'kube')).toBe(true)
+  })
+
+  it('matches a multi-word skill only as a contiguous phrase', () => {
+    expect(mentionsSkill('Amazon Web Services', 'aws')).toBe(true)
+    expect(mentionsSkill('Amazon sells; Web Services elsewhere', 'aws')).toBe(false)
+  })
+
+  it('returns false for an unrelated text, an empty text or a blank skill', () => {
+    expect(mentionsSkill('Python and Django', 'Ruby')).toBe(false)
+    expect(mentionsSkill('', 'Python')).toBe(false)
+    expect(mentionsSkill('', '')).toBe(false)
+    expect(mentionsSkill('Python', '   ')).toBe(false)
+  })
+})

@@ -78,6 +78,10 @@ import {
   stripSensitiveFields,
   SENSITIVE_PERSISTED_FIELDS,
   markStrippedQueries,
+  setPersistedCacheOwner,
+  takeRestoredCacheOwner,
+  purgePersistedBeforeReload,
+  PURGE_BEFORE_RELOAD_MS,
 } from './persister'
 
 // ---------------------------------------------------------------------------
@@ -494,5 +498,118 @@ describe('persister — defensive guards for malformed/legacy persisted shapes (
       clientWithBadQueries as unknown as undefined,
     )
     await expect(persister.restoreClient()).resolves.toEqual(clientWithBadQueries)
+  })
+})
+
+// SR-M-1 (PR #1330 fix-round 1): the persisted cache records whose data it holds, so the first
+// auth/me answer after a page load can tell a cache another account's tab saved.
+describe('persister — cache owner', () => {
+  const serialize = (client: unknown) => {
+    const fn = hoisted.capturedOptionsRef.current?.serialize
+    if (!fn) throw new Error('serialize was not captured')
+    return JSON.parse(fn(client)) as { owner?: unknown }
+  }
+  const restoreWith = (client: unknown) => {
+    hoisted.mockPersisterInstance.restoreClient.mockResolvedValueOnce(client as undefined)
+    return persister.restoreClient()
+  }
+  const withQueries = (owner: unknown, queries: unknown[] = [{ queryKey: ['projects'] }]) => ({
+    timestamp: 1,
+    buster: 'v1',
+    owner,
+    clientState: { queries, mutations: [] },
+  })
+
+  it('writes the current owner next to the cache', () => {
+    setPersistedCacheOwner('user-anna')
+    expect(serialize({ clientState: { queries: [] } }).owner).toBe('user-anna')
+    setPersistedCacheOwner(null)
+    expect(serialize({ clientState: { queries: [] } }).owner).toBeNull()
+  })
+
+  it("reports a restored non-empty cache's owner once, then nothing", async () => {
+    await restoreWith(withQueries('user-anna'))
+    expect(takeRestoredCacheOwner()).toBe('user-anna')
+    expect(takeRestoredCacheOwner()).toBeUndefined()
+  })
+
+  it('reports a restored non-empty cache with no string owner as null (unknown owner)', async () => {
+    await restoreWith(withQueries(undefined))
+    expect(takeRestoredCacheOwner()).toBeNull()
+    await restoreWith(withQueries(42))
+    expect(takeRestoredCacheOwner()).toBeNull()
+  })
+
+  it('reports nothing for an empty or missing restored cache', async () => {
+    await restoreWith(withQueries('user-anna', []))
+    expect(takeRestoredCacheOwner()).toBeUndefined()
+    await restoreWith(withQueries('user-anna'))
+    await restoreWith(undefined)
+    expect(takeRestoredCacheOwner()).toBeUndefined()
+    await restoreWith({ timestamp: 1, buster: 'v1' })
+    expect(takeRestoredCacheOwner()).toBeUndefined()
+  })
+
+  it('labels later writes with the restored owner until the session says otherwise', async () => {
+    setPersistedCacheOwner(null)
+    await restoreWith(withQueries('user-anna'))
+    expect(serialize({ clientState: { queries: [] } }).owner).toBe('user-anna')
+    takeRestoredCacheOwner()
+  })
+})
+
+describe('purgePersistedBeforeReload (backlog 433): a reload is never stuck on IndexedDB', () => {
+  it('settles when the delete settles, and deletes exactly the persisted key', async () => {
+    hoisted.mockDel.mockResolvedValueOnce(undefined)
+    await purgePersistedBeforeReload()
+    expect(hoisted.mockDel).toHaveBeenCalledWith('crm-query-cache')
+  })
+
+  it('settles when the delete fails', async () => {
+    hoisted.mockDel.mockRejectedValueOnce(new Error('idb unavailable'))
+    await expect(purgePersistedBeforeReload()).resolves.toBeUndefined()
+  })
+
+  it('settles after 1.5 s when the delete never answers, not before', async () => {
+    vi.useFakeTimers()
+    try {
+      hoisted.mockDel.mockReturnValueOnce(new Promise(() => {}))
+      let settled = false
+      void purgePersistedBeforeReload().then(() => (settled = true))
+      expect(PURGE_BEFORE_RELOAD_MS).toBe(1500)
+      await vi.advanceTimersByTimeAsync(1499)
+      expect(settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(settled).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('leaves no timer behind when the delete wins the race (SO-3)', async () => {
+    vi.useFakeTimers()
+    try {
+      hoisted.mockDel.mockResolvedValueOnce(undefined)
+      await purgePersistedBeforeReload()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops every later write, so a throttled persist cannot put the cache back after the delete (SO-4)', async () => {
+    // the stop is one-way for the page (a reload follows it): a fresh module, unstopped
+    vi.resetModules()
+    const { purgePersistedBeforeReload: purgeFresh } = await import('./persister')
+    const storage = hoisted.capturedOptionsRef.current?.storage
+    hoisted.mockSet.mockClear()
+    await storage?.setItem(PERSIST_KEY, '{"before":"purge"}')
+    expect(hoisted.mockSet).toHaveBeenCalledTimes(1)
+    hoisted.mockSet.mockClear()
+
+    await purgeFresh()
+    await storage?.setItem(PERSIST_KEY, '{"impersonated":"rows"}')
+
+    expect(hoisted.mockSet).not.toHaveBeenCalled()
   })
 })

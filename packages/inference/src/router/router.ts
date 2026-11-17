@@ -1,6 +1,7 @@
 import { setTimeout as wait } from 'node:timers/promises'
 import type { InferenceErrorCode } from '../contracts/errors'
 import {
+  MAX_IMAGE_REQUEST_CHARS,
   MAX_SMALL_DOSE_GROUPS,
   type ExtractionPort,
   type ExtractionRequest,
@@ -13,8 +14,9 @@ import {
   type ClassifiedChatOutcome,
 } from '../internal/classified-chat'
 import { runExtraction } from '../internal/extraction-pipeline'
+import { isVisionCapable } from '../internal/model-id'
 import {
-  HOSTED_BASE_URLS,
+  hostedBaseUrl,
   localRuntimeKey,
   routerConfigSchema,
   type HostedProvider,
@@ -164,6 +166,15 @@ const NEXT_ROUTE = new Set<AttemptCode>([
   'BUDGET',
 ])
 
+/**
+ * Parameter count in billions read from a model id (R15): `70b` 70, `1.5b` 1.5, `8x7b` 56; in
+ * `30b-a3b` the active count has a letter before it, so the total wins. No size token: undefined.
+ */
+export function modelSizeB(id: string): number | undefined {
+  const m = /(?:^|[^a-z0-9])(?:(\d+)x)?(\d+(?:\.\d+)?)b(?![a-z0-9])/.exec(id.toLowerCase())
+  return m === null ? undefined : Number(m[2]) * Number(m[1] ?? 1)
+}
+
 /** The floor's public code (§5.2 item 6, §5.1 `PROMPT_TOO_LARGE`). */
 function floorCode(code: AttemptCode): InferenceErrorCode | 'ABORTED' {
   if (code === 'ABORTED' || code === 'TIMEOUT' || code === 'INVALID_OUTPUT') return code
@@ -236,6 +247,7 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     const start = now()
     const hostedDeadline = start + cfg.hostedBudgetMs
     const inputChars = req.input.length
+    const images = req.images
     const rendered = renderSchema(req.schema)
     const schema = rendered?.replySchema ?? req.schema
     let totalTokens: number | undefined
@@ -285,6 +297,16 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
 
     // A table over the cap sends nothing anywhere (§5.5 item 1): a table bug, not the record's fault.
     if (req.smallDose !== undefined && req.smallDose.groups.length > MAX_SMALL_DOSE_GROUPS) {
+      return finish({ ok: false, code: 'PROVIDER_ERROR' }, false)
+    }
+    // Images are checked here too, not only by the caller: at least one, strict base64, inside the
+    // request cap. An empty list is no vision request.
+    if (
+      images !== undefined &&
+      (images.length === 0 ||
+        images.some((b64) => b64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) ||
+        images.reduce((n, b64) => n + b64.length, 0) > MAX_IMAGE_REQUEST_CHARS)
+    ) {
       return finish({ ok: false, code: 'PROVIDER_ERROR' }, false)
     }
 
@@ -366,12 +388,13 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       const t0 = now()
       const outcome = await sendClassifiedChat({
         provider: p,
-        baseUrl: HOSTED_BASE_URLS[p],
+        baseUrl: hostedBaseUrl(route),
         model,
         apiKey: route.apiKey,
         instruction: req.instruction,
         input: req.input,
         correction,
+        images: req.images,
         maxTokens: route.maxAnswerTokens,
         structuredOutput: structuredOutputFor(rendered, route.structuredOutput),
         timeoutMs: Math.max(1, Math.min(route.timeoutMs, hostedDeadline - now())),
@@ -428,33 +451,60 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
         continue
       }
       const models = (await managedModels(p, route.models)).filter(
-        (m) => !isSpent(snap, p, m, today) && !isRetired(snap, p, m) && !coolingDown(p, m),
+        (m) =>
+          (images === undefined || isVisionCapable(p, m)) &&
+          !isSpent(snap, p, m, today) &&
+          !isRetired(snap, p, m) &&
+          !coolingDown(p, m),
       )
       if (models.length === 0) reasons.push({ route: p, code: 'NO_MODEL' })
       else candidates.push({ route, models })
     }
 
-    // ---- rotation (§5.2 item 3) ----
-    const rotatable = candidates.filter((c) => c.route.rotate)
-    // No rotatable candidate: the index is NaN and `first` is undefined.
-    const first = rotatable[rotation++ % rotatable.length]
-    const order =
-      first === undefined ? candidates : [first, ...candidates.filter((c) => c !== first)]
+    const pairsOf = (cs: typeof candidates) =>
+      cs.flatMap(({ route, models }) => models.map((model) => ({ route, model })))
+    let pairs: { route: HostedRouteConfig; model: string }[]
+    if (req.modelPreference === 'largest') {
+      // R15: largest first across routes, no rotation; a stable sort keeps ties in today's order.
+      const size = (m: string) => modelSizeB(m) ?? 0
+      pairs = pairsOf(candidates).sort((a, b) => size(b.model) - size(a.model))
+    } else {
+      // ---- rotation (§5.2 item 3) ----
+      const rotatable = candidates.filter((c) => c.route.rotate)
+      // No rotatable candidate: the index is NaN and `first` is undefined.
+      // An image call reads the rotation but does not advance it: text calls keep their turn.
+      const first = rotatable[(images === undefined ? rotation++ : rotation) % rotatable.length]
+      pairs = pairsOf(
+        first === undefined ? candidates : [first, ...candidates.filter((c) => c !== first)],
+      )
+    }
 
     // ---- hosted cascade ----
-    for (const { route, models } of order) {
-      for (const model of models) {
-        const r = await tryModel(route, model)
-        if (r.ok) return finish(success(r.data), false)
-        if (r.code === 'ABORTED') return finish(r as RouterResult<T>, false)
-        reasons.push({ route: route.provider, code: r.code })
-        if (NEXT_ROUTE.has(r.code)) break
-      }
+    const left = new Set<HostedRouteConfig>()
+    for (const { route, model } of pairs) {
+      if (left.has(route)) continue
+      const r = await tryModel(route, model)
+      if (r.ok) return finish(success(r.data), false)
+      if (r.code === 'ABORTED') return finish(r as RouterResult<T>, false)
+      reasons.push({ route: route.provider, code: r.code })
+      if (NEXT_ROUTE.has(r.code)) left.add(route)
     }
 
     // ---- hand-back and floor (§5.2 items 5-6) ----
     // An abort during a step that sends nothing (a cap refusal, a state write) ends here, not on the floor.
     if (signal?.aborted === true) return finish({ ok: false, code: 'ABORTED' }, false)
+    // The floor is text-only: images never fall to it, nor do they reach any model with the pages dropped.
+    if (images !== undefined) {
+      // NOT_CONFIGURED only when no configured route could ever take images; a blocked, spent or
+      // too-small vision route is a failure of this call.
+      const visionConfigured = hostedRoutes.some((r) =>
+        r.models.some((m) => isVisionCapable(r.provider, m)),
+      )
+      return finish(
+        { ok: false, code: visionConfigured ? 'PROVIDER_ERROR' : 'NOT_CONFIGURED' },
+        false,
+      )
+    }
     // Every fall is an event, a local-only config included: the consumer counts floor falls (§5.3).
     // This fall-through is the hand-back of §5.4 (`SMALL_DOSE_NEEDED`): it has no value to leak.
     emit({

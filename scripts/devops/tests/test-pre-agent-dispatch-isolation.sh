@@ -54,6 +54,13 @@ assert_red "a coder dispatched without isolation -> BLOCK (PR #497)" \
   --contains '"decision": "block"' \
   -- run_hook '{"subagent_type":"coder","prompt":"fix it"}'
 
+# The message block is a DOUBLE-quoted `python3 -c`, so a bare backtick in it is command
+# substitution: `cd` ran, printed nothing and the word vanished from the refusal. Found
+# by the size guard reporting that body as unmeasured; red before the backticks were escaped.
+assert_red "the refusal names the command it is about (\`cd\` is text, not a substitution)" \
+  --contains '`cd`' \
+  -- run_hook '{"subagent_type":"coder","prompt":"fix it"}'
+
 assert_red "a devops agent dispatched without isolation -> BLOCK" \
   --contains '"decision": "block"' \
   -- run_hook '{"subagent_type":"devops","prompt":"ci"}'

@@ -1,0 +1,352 @@
+/**
+ * The live "what is still missing" list next to the facts form (design §5.1).
+ *
+ * Issues come from `checkResumeCompleteness`, the same function the server runs
+ * at Submit, so the list here is the list the server would answer with. Each
+ * row is a button that focuses its field; Submit stays disabled while any row
+ * exists. The row labels and code texts are exported for the failure panel.
+ */
+import { useId, useState } from 'react'
+import { Loader2 } from 'lucide-react'
+import type { MessageDescriptor } from '@lingui/core'
+import { msg } from '@lingui/core/macro'
+import { Plural, Trans, useLingui } from '@lingui/react/macro'
+import type { CompletenessCode, CompletenessIssue } from '@crm/shared'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { translateApiError } from '@/lib/axios-utils'
+import { cn } from '@/lib/utils'
+
+/** One text per completeness code; a new code fails the type check. */
+export const COMPLETENESS_MESSAGES: Record<CompletenessCode, MessageDescriptor> = {
+  HEADLINE_MISSING: msg`Вкажіть цільову посаду`,
+  NO_EXPERIENCE: msg`Додайте хоча б одне місце роботи`,
+  COMPANY_MISSING: msg`Вкажіть компанію`,
+  ROLE_MISSING: msg`Вкажіть посаду`,
+  START_MISSING: msg`Вкажіть місяць початку`,
+  END_MISSING: msg`Вкажіть місяць завершення або позначте «Працюю тут зараз»`,
+  END_BEFORE_START: msg`Кінець не може бути раніше за початок`,
+  START_IN_FUTURE: msg`Початок не може бути в майбутньому`,
+  END_IN_FUTURE: msg`Кінець не може бути в майбутньому. Якщо ви ще тут працюєте, позначте «Працюю тут зараз»`,
+  NO_NOTES: msg`Додайте хоча б одну нотатку про досягнення`,
+  TOO_FEW_SKILLS: msg`Потрібно щонайменше 5 навичок разом із технологіями з досвіду`,
+  ENGLISH_MISSING: msg`Додайте англійську до мов`,
+  NON_LATIN: msg`Пишіть лише латиницею — резюме англійською`,
+  NAME_NON_LATIN: msg`Ім’я в профілі має бути латиницею. Змініть його в профілі`,
+  CONTACT_IN_TEXT: msg`Приберіть ім’я, email або телефон — контакти не потрапляють у текст резюме`,
+  LINK_INVALID: msg`Вкажіть назву й адресу https:// або mailto:`,
+  YEAR_INVALID: msg`Рік має бути між 1950 і 2100`,
+}
+
+/**
+ * The form field an issue path points at, or null when the field lives
+ * elsewhere (the profile name). List-level paths point at the list's field or
+ * its "Add" button; item-level `notes.<j>` / `technologies.<j>` at the job's
+ * notes textarea / technologies input.
+ */
+export function issueFieldPath(path: string): string | null {
+  if (path === 'displayName' || path === '') return null
+  if (path === 'experience' || path === 'languages') return `${path}.add`
+  const parts = path.split('.')
+  if (parts[0] === 'skills') return 'skills'
+  if (parts[0] === 'experience' && parts.length === 4) return parts.slice(0, 3).join('.')
+  return path
+}
+
+/** The DOM id of a facts field, shared by the form (render) and the panel (focus). */
+export function factsFieldId(fieldPath: string): string {
+  return `resume-facts-${fieldPath.replaceAll('.', '-')}`
+}
+
+/**
+ * Focus a facts field (or the first control inside its wrapper) and scroll it
+ * into view. False when the field is not on screen.
+ */
+export function focusFactsField(fieldPath: string): boolean {
+  const el = document.getElementById(factsFieldId(fieldPath))
+  if (!el) return false
+  const target = el.matches('input, textarea, button')
+    ? el
+    : (el.querySelector<HTMLElement>('input, textarea, button') ?? el)
+  target.scrollIntoView?.({ block: 'center' })
+  target.focus()
+  return true
+}
+
+/** Row label, design §10.6: `{section} · {field}`, positions are index + 1. */
+export function useIssueLabel(): (path: string) => string {
+  const { t } = useLingui()
+  const sections: Record<string, string> = {
+    headline: t`Цільова посада`,
+    skills: t`Навички`,
+    experience: t`Досвід роботи`,
+    education: t`Освіта`,
+    languages: t`Мови`,
+    // Stryker disable next-line ObjectLiteral,StringLiteral: Lingui's descriptor macro must read this object as a literal at compile time (the `{}` mutant makes the transform throw before any test runs)
+    links: t({ message: 'Посилання', context: 'resume' }),
+    summary: t`Про себе`,
+    displayName: t`Ім’я в профілі`,
+    email: t`Email у профілі`,
+  }
+  const jobFields: Record<string, string> = {
+    company: t`Компанія`,
+    role: t`Посада`,
+    location: t`Локація (необов’язково)`,
+    start: t`Початок`,
+    end: t`Кінець`,
+    period: t`Період`,
+    notes: t`Нотатки`,
+    // Stryker disable next-line ObjectLiteral,StringLiteral: Lingui's descriptor macro must read this object as a literal at compile time (the `{}` mutant makes the transform throw before any test runs)
+    technologies: t({ message: 'Технології', context: 'resume' }),
+    bullets: t`Пункти`,
+  }
+  const educationFields: Record<string, string> = {
+    institution: t`Навчальний заклад`,
+    degree: t`Ступінь / спеціальність`,
+    startYear: t`Початок`,
+    endYear: t`Кінець`,
+    period: t`Період`,
+  }
+  return (path) => {
+    // Stryker disable next-line StringLiteral: split() always returns at least one element, so the default only satisfies the type checker.
+    const [section = '', index, field] = path.split('.')
+    const n = Number(index) + 1
+    if (path === 'location.city') return t`Місто`
+    if (path === 'location.country') return t`Країна`
+    if (section === 'experience' && index !== undefined) {
+      const job = t`Місце роботи ${n}`
+      // No field is named "undefined", so a path without a field finds no label.
+      const label = jobFields[String(field)]
+      return label ? `${job} · ${label}` : job
+    }
+    if (section === 'education' && index !== undefined) {
+      const item = t`Освіта ${n}`
+      const label = educationFields[String(field)]
+      return label ? `${item} · ${label}` : item
+    }
+    if (section === 'skills' && index !== undefined)
+      return `${sections.skills} · ${t`Навичка ${n}`}`
+    if (section === 'languages' && index !== undefined) {
+      return `${sections.languages} · ${t`Мова ${n}`}`
+    }
+    if (section === 'links' && index !== undefined)
+      return `${sections.links} · ${t`Посилання ${n}`}`
+    // Report-only (render / ATS / visual gates): a page of the PDF, not a field.
+    if (section === 'pages' && index !== undefined) return t`Сторінка ${n}`
+    return sections[section] ?? t`Резюме загалом`
+  }
+}
+
+/** One issue row: a button when the path maps to a field, a plain row otherwise. */
+export function IssueRow({
+  label,
+  text,
+  onFocus,
+  // Stryker disable next-line StringLiteral: any tone but 'amber' paints the destructive dot, so an empty default looks the same.
+  tone = 'destructive',
+}: {
+  label: string
+  text: string
+  onFocus: (() => void) | null
+  tone?: 'destructive' | 'amber'
+}) {
+  const body = (
+    <>
+      <span
+        aria-hidden
+        data-testid="resume-issue-dot"
+        className={cn(
+          // Stryker disable next-line StringLiteral: dot size and shape only, no state or behaviour reads it.
+          'mt-1.5 size-1.5 shrink-0 rounded-full',
+          tone === 'amber' ? 'bg-amber-500' : 'bg-destructive',
+        )}
+      />
+      <span className="min-w-0">
+        <span className="block text-sm font-medium break-words">{label}</span>
+        <span className="block text-xs text-muted-foreground break-words">{text}</span>
+      </span>
+    </>
+  )
+  // Stryker disable next-line StringLiteral: row box styling only, no state or behaviour reads it.
+  const rowClass = 'flex min-h-11 w-full items-start gap-2 rounded-md px-2 py-1.5 text-left'
+  return (
+    <li>
+      {onFocus ? (
+        <button
+          type="button"
+          onClick={onFocus}
+          className={cn(
+            rowClass,
+            // Stryker disable next-line StringLiteral: hover and focus-ring styling only, no state or behaviour reads it.
+            'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+          )}
+        >
+          {body}
+        </button>
+      ) : (
+        <div className={rowClass}>{body}</div>
+      )}
+    </li>
+  )
+}
+
+export interface ResumeCompletenessPanelProps {
+  issues: CompletenessIssue[]
+  /** A row's field path (`issueFieldPath`); rows without a field are not clickable. */
+  onFocusField: (field: string) => void
+  onSubmit: () => void
+  onSaveDraft: () => void
+  /** The draft differs from the saved facts. */
+  canSave: boolean
+  /** A check is running (or the viewer cannot write): no action is possible. */
+  disabled: boolean
+  pending: 'save' | 'submit' | null
+  /**
+   * Backlog 452: the resume is VERIFIED and not flagged for re-check.
+   * While the facts match the saved baseline (`!canSave`), Submit is refused by the server (409 RESUME_ALREADY_VERIFIED).
+   */
+  alreadyVerified?: boolean
+}
+
+export function ResumeCompletenessPanel({
+  issues,
+  onFocusField,
+  onSubmit,
+  onSaveDraft,
+  canSave,
+  disabled,
+  pending,
+  alreadyVerified = false,
+}: ResumeCompletenessPanelProps) {
+  const { i18n } = useLingui()
+  const issueLabel = useIssueLabel()
+  const listId = useId()
+  const hintId = useId()
+  const alreadyVerifiedHintId = useId()
+  // Collapsed by default on long lists; the toggle only shows below lg.
+  const [open, setOpen] = useState(issues.length <= 5)
+  const clean = issues.length === 0
+  const isAlreadyVerified = alreadyVerified && !canSave
+  const submitDisabled = !clean || disabled || pending !== null || isAlreadyVerified
+  const describedBy = !clean ? hintId : isAlreadyVerified ? alreadyVerifiedHintId : undefined
+
+  return (
+    <section
+      aria-labelledby={`${listId}-title`}
+      className="rounded-xl border bg-card p-4 shadow-sm lg:sticky lg:top-4"
+      data-testid="resume-completeness-panel"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <h3 id={`${listId}-title`} className="text-base font-semibold">
+          {clean ? <Trans>Усе заповнено — можна надсилати</Trans> : <Trans>Що ще потрібно</Trans>}
+        </h3>
+        {/* One live region that stays mounted, so the clean state is announced too. */}
+        <p className="sr-only" aria-live="polite" data-testid="resume-completeness-live">
+          {clean && isAlreadyVerified ? (
+            translateApiError('RESUME_ALREADY_VERIFIED', undefined)
+          ) : clean ? (
+            <Trans>Усе заповнено — можна надсилати</Trans>
+          ) : (
+            <Plural value={issues.length} one="# поле" few="# поля" many="# полів" other="# поля" />
+          )}
+        </p>
+        {!clean && (
+          <div className="flex items-center gap-1">
+            <Badge
+              variant="secondary"
+              className="shrink-0 whitespace-nowrap tabular-nums"
+              aria-hidden
+            >
+              <Plural
+                value={issues.length}
+                one="# поле"
+                few="# поля"
+                many="# полів"
+                other="# поля"
+              />
+            </Badge>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-11 sm:h-9 lg:hidden"
+              aria-expanded={open}
+              aria-controls={listId}
+              onClick={() => setOpen((v) => !v)}
+            >
+              {open ? <Trans>Сховати</Trans> : <Trans>Показати</Trans>}
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {!clean && (
+        <ul
+          id={listId}
+          aria-label={i18n._(msg`Незаповнені поля`)}
+          className={cn(
+            // Stryker disable next-line StringLiteral: list spacing and lg scroll styling only, no state or behaviour reads it.
+            'mt-3 space-y-1 lg:block lg:max-h-[60vh] lg:overflow-auto',
+            open ? 'block' : 'hidden',
+          )}
+        >
+          {issues.map((issue, i) => {
+            const field = issueFieldPath(issue.path)
+            return (
+              <IssueRow
+                // Stryker disable next-line StringLiteral: a React key is never rendered; a duplicate only logs a warning.
+                key={`${issue.path}:${issue.code}:${i}`}
+                label={issueLabel(issue.path)}
+                text={i18n._(COMPLETENESS_MESSAGES[issue.code])}
+                onFocus={field === null ? null : () => onFocusField(field)}
+              />
+            )
+          })}
+        </ul>
+      )}
+
+      <div className="mt-4 space-y-2">
+        <Button
+          type="button"
+          className="h-11 w-full sm:h-9"
+          disabled={submitDisabled}
+          aria-describedby={describedBy}
+          onClick={onSubmit}
+          data-testid="resume-facts-submit"
+        >
+          {pending === 'submit' && (
+            <Loader2 className="mr-2 size-4 animate-spin motion-reduce:animate-none" aria-hidden />
+          )}
+          <Trans>Надіслати на перевірку</Trans>
+        </Button>
+        {!clean && (
+          <p id={hintId} className="text-xs text-muted-foreground">
+            <Trans>Спершу заповніть поля зі списку</Trans>
+          </p>
+        )}
+        {clean && isAlreadyVerified && (
+          <p
+            id={alreadyVerifiedHintId}
+            className="text-xs text-muted-foreground"
+            data-testid="resume-facts-submit-already-verified"
+          >
+            {translateApiError('RESUME_ALREADY_VERIFIED', undefined)}
+          </p>
+        )}
+        <Button
+          type="button"
+          variant="outline"
+          className="h-11 w-full sm:h-9"
+          disabled={!canSave || disabled || pending !== null}
+          onClick={onSaveDraft}
+          data-testid="resume-facts-save"
+        >
+          {pending === 'save' && (
+            <Loader2 className="mr-2 size-4 animate-spin motion-reduce:animate-none" aria-hidden />
+          )}
+          <Trans context="resume">Зберегти чернетку</Trans>
+        </Button>
+      </div>
+    </section>
+  )
+}

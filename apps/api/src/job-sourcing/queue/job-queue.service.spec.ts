@@ -12,7 +12,15 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Env } from '../../config/env'
 import type { DatabaseService } from '../../database/database.service'
-import { matchFacts, JobQueueService, toListItem, toSubmission } from './job-queue.service'
+import {
+  matchEvidence,
+  matchFacts,
+  JobQueueService,
+  noMatchReason,
+  toAvailability,
+  toListItem,
+  toSubmission,
+} from './job-queue.service'
 import { parseCursor, type QueueCursor, requestSignature, signCursor } from './queue-cursor'
 import { filterIdentity, policySignature } from './queue-read-sql'
 import type { JobQueueScope, LiveSeniorVersion } from './queue-scope'
@@ -44,6 +52,7 @@ const teamScope: JobQueueScope = {
   seniorIds: [SEN],
   versions,
   inputsVersion: 'inputs-1',
+  previousInputsVersion: 'inputs-1-prev',
 }
 const user = { id: ACTOR, role: 'HR', email: 'x@example.test' } as SessionUser
 const query = (over: Partial<JobQueueListQuery> = {}): JobQueueListQuery => ({
@@ -65,6 +74,7 @@ function harness(scope: JobQueueScope, ...answers: Rows[]) {
     assertVisible: vi.fn(async () => undefined),
     liveVersions: vi.fn(async () => versions),
     policy: vi.fn(<T>(fn: () => Promise<T>) => fn()),
+    triagePolicyVersion: vi.fn(async () => 7),
   }
   const transaction = vi.fn(<T>(fn: (tx: unknown) => Promise<T>, _config?: unknown) =>
     fn({ execute }),
@@ -706,6 +716,140 @@ describe('matchFacts', () => {
   })
 })
 
+describe('matchEvidence (Task 7.3b «Чому збіг»)', () => {
+  it('pairs each TECH_MATCH keyword with its strength, keeping colons inside a keyword', () => {
+    const evidence = {
+      reasons: [
+        { code: 'OTHER', evidence: ['ignored:CORE'] },
+        { code: 'TECH_MATCH', evidence: ['Go:CORE', 'c:sharp:OPTIONAL'] },
+      ],
+    }
+    expect(matchEvidence(evidence)).toEqual([
+      { keyword: 'Go', strength: 'CORE' },
+      { keyword: 'c:sharp', strength: 'OPTIONAL' },
+    ])
+  })
+  it('drops an item with no known strength or no keyword: it cannot say why it matched', () => {
+    const evidence = {
+      reasons: [{ code: 'TECH_MATCH', evidence: ['Rust', 'Go:STRONG', ':CORE', 'ts:CORE'] }],
+    }
+    expect(matchEvidence(evidence)).toEqual([{ keyword: 'ts', strength: 'CORE' }])
+  })
+  it('reads the whole item: a strength must end it, a keyword must start it', () => {
+    const evidence = {
+      reasons: [
+        { code: 'TECH_MATCH', evidence: ['x:COREy', 'x:CORE ', '\nx:CORE', 'ts:OPTIONAL'] },
+      ],
+    }
+    expect(matchEvidence(evidence)).toEqual([{ keyword: 'ts', strength: 'OPTIONAL' }])
+  })
+  it.each([
+    ['null', null],
+    ['no reasons', {}],
+    ['reasons that are not a list', { reasons: 'x' }],
+    ['a null reason', { reasons: [null] }],
+  ])('tolerates %s', (_label, evidence) => {
+    expect(matchEvidence(evidence)).toEqual([])
+  })
+  it('clips an overlong keyword and stops at the wire cap', () => {
+    const long = { reasons: [{ code: 'TECH_MATCH', evidence: [`${'k'.repeat(101)}:CORE`] }] }
+    expect(matchEvidence(long)[0]?.keyword).toHaveLength(100)
+    const many = {
+      reasons: [
+        { code: 'TECH_MATCH', evidence: Array.from({ length: 201 }, (_, i) => `k${i}:CORE`) },
+      ],
+    }
+    const items = matchEvidence(many)
+    expect(items).toHaveLength(200)
+    expect(items[199]).toEqual({ keyword: 'k199', strength: 'CORE' })
+  })
+})
+
+describe('noMatchReason (Task 7.3b, four empty states)', () => {
+  // A sourced card evaluated OPEN at its current revision, verified, with no own LEAD/TRIAGE/stop row.
+  const evaluated = {
+    matched: '0',
+    stop_listed: '0',
+    triaged: '0',
+    manual_team_id: null,
+    employer_verified: true,
+    evaluated_current: true,
+    evaluation_verdict: 'OPEN',
+  }
+  const excluded = { ...evaluated, evaluation_verdict: 'EXCLUDED' }
+  it('a card excluded at its current revision is EXCLUDED, never NO_MATCH (CR2-M-1)', () => {
+    expect(noMatchReason(excluded)).toBe('EXCLUDED')
+    expect(noMatchReason({ ...excluded, employer_verified: false })).toBe('EXCLUDED')
+    expect(noMatchReason({ ...excluded, triaged: '1' })).toBe('EXCLUDED')
+    expect(noMatchReason({ ...excluded, manual_team_id: TEAM })).toBe('EXCLUDED')
+  })
+  it('a stop-list wins over the exclusion; a LEAD wins over both', () => {
+    expect(noMatchReason({ ...excluded, stop_listed: '1' })).toBe('STOP_LISTED')
+    expect(noMatchReason({ ...excluded, matched: '1' })).toBeNull()
+  })
+  it('an exclusion at an older revision is not EXCLUDED: the new revision awaits evaluation', () => {
+    expect(noMatchReason({ ...excluded, evaluated_current: false })).toBe('TRIAGE')
+  })
+  it('NO_MATCH needs an OPEN verdict: a missing verdict is TRIAGE', () => {
+    expect(noMatchReason({ ...evaluated, evaluation_verdict: null })).toBe('TRIAGE')
+  })
+  it('is null as soon as one senior matched, whatever else holds', () => {
+    expect(noMatchReason({ ...evaluated, matched: '1', stop_listed: '3', triaged: '2' })).toBeNull()
+  })
+  it('a stop-list on every matching senior is STOP_LISTED, a manual card included', () => {
+    expect(noMatchReason({ ...evaluated, stop_listed: '1', triaged: '1' })).toBe('STOP_LISTED')
+    expect(noMatchReason({ ...evaluated, stop_listed: '1', manual_team_id: TEAM })).toBe(
+      'STOP_LISTED',
+    )
+  })
+  it('a TRIAGE row for an own senior is TRIAGE, however verified or evaluated (SPEC-H-1)', () => {
+    expect(noMatchReason({ ...evaluated, triaged: '1' })).toBe('TRIAGE')
+    expect(noMatchReason({ ...evaluated, triaged: '1', manual_team_id: TEAM })).toBe('TRIAGE')
+  })
+  it('a manual card nobody matched is NO_MATCH: it is never evaluated, a person placed it', () => {
+    const manual = { ...evaluated, manual_team_id: TEAM }
+    expect(noMatchReason({ ...manual, employer_verified: false, evaluated_current: false })).toBe(
+      'NO_MATCH',
+    )
+  })
+  it('a sourced card evaluated at its revision with no own row is NO_MATCH (SPEC-H-1)', () => {
+    expect(noMatchReason(evaluated)).toBe('NO_MATCH')
+  })
+  it('an unverified employer, or no evaluation at the current revision, is TRIAGE', () => {
+    expect(noMatchReason({ ...evaluated, employer_verified: false })).toBe('TRIAGE')
+    expect(noMatchReason({ ...evaluated, evaluated_current: false })).toBe('TRIAGE')
+    expect(noMatchReason({ ...evaluated, evaluated_current: null })).toBe('TRIAGE')
+  })
+})
+
+describe('toAvailability (senior availability, design §5.2)', () => {
+  it('FREE carries its day as the SQL text (never a Date)', () => {
+    expect(toAvailability({ availability_status: 'FREE', available_from: '2026-11-01' })).toEqual({
+      status: 'FREE',
+      availableFrom: '2026-11-01',
+    })
+  })
+  it('BUSY carries no day', () => {
+    expect(toAvailability({ availability_status: 'BUSY', available_from: null })).toEqual({
+      status: 'BUSY',
+    })
+  })
+  it('no row (both NULL from the LEFT JOIN) is null', () => {
+    expect(toAvailability({ availability_status: null, available_from: null })).toBeNull()
+  })
+  it('a FREE row without a day (the CHECK forbids it) is not shown as free', () => {
+    expect(toAvailability({ availability_status: 'FREE', available_from: null })).toBeNull()
+  })
+  it('a BUSY row never carries a day, even if one is present', () => {
+    expect(toAvailability({ availability_status: 'BUSY', available_from: '2026-11-01' })).toEqual({
+      status: 'BUSY',
+    })
+  })
+  it('an unknown status with a day present is not shown (CR-H-1)', () => {
+    expect(toAvailability({ availability_status: 'AWAY', available_from: '2026-11-01' })).toBeNull()
+  })
+})
+
 describe('toSubmission', () => {
   const own = {
     opportunity_id: OPP,
@@ -766,6 +910,15 @@ const cardDbRow = (over: Record<string, unknown> = {}) => ({
   ...dbRow(),
   description: '# Role',
   newer_than_list: false,
+  last_observed_at: new Date('2026-11-03T00:00:00.000Z'),
+  stack_keywords: ['go', 'react'],
+  manual_team_id: null,
+  triaged: '0',
+  employer_verified: true,
+  evaluated_current: true,
+  evaluation_verdict: 'OPEN',
+  employment_type: 'B2B',
+  dismissal_version: null,
   ...over,
 })
 const seniorDbRow = (over: Record<string, unknown> = {}) => ({
@@ -803,22 +956,39 @@ describe('JobQueueService.card', () => {
       [{ total: '1' }],
       [sourceDbRow()],
       [{ total: '1' }],
-      [{ id: SRC, title: 'Engineer', employer_name: null, total: '6' }],
+      [
+        {
+          id: SRC,
+          title: 'Engineer',
+          employer_name: null,
+          total: '6',
+          submitted_senior_names: ['Senior One'],
+        },
+      ],
     )
     const card = await h.svc.card(user, OPP, { teamId: TEAM })
     expect(h.scopes.resolve).toHaveBeenCalledWith(user, TEAM, h.db)
     expect(h.scopes.assertVisible).toHaveBeenCalledWith(teamScope, OPP, h.db)
+    // A TEAM scope never carries the ADMIN team key at all (toEqual alone ignores an undefined one).
+    expect(card.seniors.items[0]).not.toHaveProperty('team')
     expect(card).toEqual({
       ...ITEM,
       descriptionMd: '# Role',
       newerThanList: false,
+      lastSeenAt: '2026-11-03T00:00:00.000Z',
+      stackKeywords: ['go', 'react'],
+      noMatchReason: null,
+      engagementForm: 'B2B',
+      dismissal: null,
       seniors: {
         items: [
           {
             seniorId: SEN,
             displayName: 'Senior One',
+            availability: null,
             matchApproximate: false,
             matchedKeywords: ['Go'],
+            matchEvidence: [{ keyword: 'Go', strength: 'CORE' }],
             submission: null,
           },
         ],
@@ -838,10 +1008,167 @@ describe('JobQueueService.card', () => {
         nextCursor: null,
       },
       possibleDuplicates: {
-        items: [{ opportunityId: SRC, title: 'Engineer', companyName: null }],
+        items: [
+          {
+            opportunityId: SRC,
+            title: 'Engineer',
+            companyName: null,
+            submittedSeniorNames: ['Senior One'],
+          },
+        ],
         totalCount: 6,
       },
     })
+  })
+
+  const tailCard = (scope: JobQueueScope, row: Record<string, unknown>, seniors: Rows = []) =>
+    harness(scope, [row], seniors, [{ total: String(seniors.length) }], [], [{ total: '0' }], [])
+
+  it('the dismissal is this scope row and its version; none is null (Task 7.3b)', async () => {
+    const live = await tailCard(teamScope, cardDbRow({ dismissal_version: 3 })).svc.card(user, OPP)
+    expect(live.dismissal).toEqual({ scope: 'TEAM', version: 3 })
+    const studio = await tailCard({ kind: 'STUDIO' }, cardDbRow({ dismissal_version: '2' })).svc.card(user, OPP) // prettier-ignore
+    expect(studio.dismissal).toEqual({ scope: 'STUDIO', version: 2 })
+    const none = await tailCard(teamScope, cardDbRow()).svc.card(user, OPP)
+    expect(none.dismissal).toBeNull()
+    // Unreachable in production (NONE is refused before the read); the type still has no scope.
+    const noScope = await tailCard({ kind: 'NONE' }, cardDbRow({ dismissal_version: 3 })).svc.card(user, OPP) // prettier-ignore
+    expect(noScope.dismissal).toBeNull()
+  })
+
+  it('an ADMIN card in any view scope carries the studio grant inputs (425, SPEC-H-1, CR-M-1)', async () => {
+    const admin = { ...user, role: 'ADMIN' } as SessionUser
+    const studioVersions: LiveSeniorVersion[] = [
+      { seniorId: ACTOR, profile: 'p2', exclusion: 'e2' },
+    ]
+    const grantable = (answer: Rows) =>
+      harness(teamScope, [cardDbRow()], [], [{ total: '0' }], [], [{ total: '0' }], [], answer)
+    // an ADMIN viewing one team: the STUDIO roster, never the team's own versions
+    const team = grantable([{ grantable: true }])
+    team.scopes.liveVersions.mockResolvedValueOnce(versions).mockResolvedValueOnce(studioVersions)
+    const card = await team.svc.card(admin, OPP, { teamId: TEAM })
+    expect(card.triagePolicyVersion).toBe(7)
+    expect(card.triageGrantable).toBe(true)
+    expect(team.scopes.liveVersions).toHaveBeenLastCalledWith({ kind: 'STUDIO' }, team.db)
+    expect(team.scopes.triagePolicyVersion).toHaveBeenCalledWith(studioVersions, team.db)
+    const last = team.compiled(team.execute.mock.calls.length - 1)
+    expect(last.text).toContain(
+      "(o.manual_team_id IS NULL AND NOT (o.availability IN ('CLOSED', 'EXPIRED') OR (o.evaluated_revision",
+    )
+    expect(last.params).toEqual([
+      JSON.stringify([{ senior_id: ACTOR, profile: 'p2', exclusion: 'e2' }]),
+      expect.any(String),
+      OPP,
+    ])
+    // a STUDIO card reuses its own live versions; an item the fragment refuses is not grantable
+    const studio = harness(
+      { kind: 'STUDIO' },
+      [cardDbRow()],
+      [],
+      [{ total: '0' }],
+      [],
+      [{ total: '0' }],
+      [],
+      [{ grantable: false }],
+    )
+    const refused = await studio.svc.card(admin, OPP)
+    expect(refused.triageGrantable).toBe(false)
+    expect(studio.scopes.liveVersions).toHaveBeenCalledTimes(1)
+    expect(studio.scopes.triagePolicyVersion).toHaveBeenCalledWith(versions, studio.db)
+    expect((await grantable([]).svc.card(admin, OPP)).triageGrantable).toBe(false)
+  })
+
+  it('a manual ADMIN card skips the grantable read, with the same fields (PR #1332 SO-2)', async () => {
+    const admin = { ...user, role: 'ADMIN' } as SessionUser
+    const h = tailCard({ kind: 'STUDIO' }, cardDbRow({ manual_team_id: TEAM }))
+    const card = await h.svc.card(admin, OPP)
+    expect(card.triageGrantable).toBe(false)
+    expect(card.triagePolicyVersion).toBe(7)
+    const texts = h.execute.mock.calls.map((_, i) => h.compiled(i).text)
+    expect(texts.some((t) => t.includes('AS grantable'))).toBe(false)
+  })
+
+  it('an HR card carries neither, whatever its scope (425)', async () => {
+    for (const scope of [teamScope, { kind: 'STUDIO' } as const]) {
+      const h = tailCard(scope, cardDbRow())
+      const card = await h.svc.card(user, OPP)
+      expect(card).not.toHaveProperty('triagePolicyVersion')
+      expect(card).not.toHaveProperty('triageGrantable')
+      expect(h.scopes.triagePolicyVersion).not.toHaveBeenCalled()
+    }
+  })
+
+  it('an unmatched card states its reason; the stack is clipped and capped (Task 7.3b)', async () => {
+    const stack = [`${'s'.repeat(101)}`, ...Array.from({ length: 60 }, (_, i) => `k${i}`)]
+    const card = await tailCard(
+      teamScope,
+      cardDbRow({ matched: '0', stop_listed: '0', manual_team_id: TEAM, stack_keywords: stack }),
+    ).svc.card(user, OPP)
+    expect(card.noMatchReason).toBe('NO_MATCH')
+    expect(card.stackKeywords).toHaveLength(60)
+    expect(card.stackKeywords[0]).toHaveLength(100)
+    expect(card.stackKeywords[59]).toBe('k58')
+    const empty = await tailCard(teamScope, cardDbRow({ stack_keywords: null })).svc.card(user, OPP)
+    expect(empty.stackKeywords).toEqual([])
+  })
+
+  it('the engagement form is mapped from the primary source text; unknown or none is null (SPEC-M-1)', async () => {
+    const form = async (employment_type: unknown) =>
+      (await tailCard(teamScope, cardDbRow({ employment_type })).svc.card(user, OPP)).engagementForm
+    expect(await form('Employment contract')).toBe('EMPLOYMENT')
+    expect(await form('b2b')).toBe('B2B')
+    expect(await form('full_time')).toBeNull()
+    expect(await form(null)).toBeNull()
+  })
+
+  it('the stack names each token once, deduped after clipping, before the cap', async () => {
+    const long = 's'.repeat(100)
+    const stack = [
+      'go',
+      'go',
+      `${long}a`,
+      `${long}b`,
+      ...Array.from({ length: 60 }, (_, i) => `k${i}`),
+    ]
+    const card = await tailCard(teamScope, cardDbRow({ stack_keywords: stack })).svc.card(user, OPP)
+    expect(card.stackKeywords.slice(0, 3)).toEqual(['go', long, 'k0'])
+    expect(card.stackKeywords).toHaveLength(60)
+    expect(card.stackKeywords[59]).toBe('k57')
+  })
+
+  it('a STUDIO card names each senior team; a senior with no live team is null (Task 7.3b)', async () => {
+    const card = await tailCard({ kind: 'STUDIO' }, cardDbRow(), [
+      seniorDbRow({ team_id: TEAM, team_name: 't'.repeat(256) }),
+      seniorDbRow({ senior_id: SEN_2, team_id: null, team_name: null }),
+    ]).svc.card(user, OPP)
+    expect(card.seniors.items[0]?.team).toEqual({ teamId: TEAM, teamName: 't'.repeat(255) })
+    expect(card.seniors.items[1]?.team).toBeNull()
+    expect(card.seniors.items[1]).toHaveProperty('team')
+  })
+
+  it('a TEAM card drops a team column even if one arrived (defence in depth)', async () => {
+    const card = await tailCard(teamScope, cardDbRow(), [
+      seniorDbRow({ team_id: OTHER_TEAM, team_name: 'Other' }),
+    ]).svc.card(user, OPP)
+    expect(card.seniors.items[0]).not.toHaveProperty('team')
+  })
+
+  it('a duplicate without submissions names nobody; names are clipped and capped', async () => {
+    const dup = (names: unknown) =>
+      harness(
+        teamScope,
+        [cardDbRow()],
+        [],
+        [{ total: '0' }],
+        [],
+        [{ total: '0' }],
+        [{ id: SRC, title: 'D', employer_name: null, total: '1', submitted_senior_names: names }],
+      ).svc.card(user, OPP)
+    expect((await dup(null)).possibleDuplicates?.items[0]?.submittedSeniorNames).toEqual([])
+    const many = Array.from({ length: 201 }, (_, i) => `n${i}`)
+    const capped = (await dup(['x'.repeat(256), ...many])).possibleDuplicates?.items[0]
+    expect(capped?.submittedSeniorNames).toHaveLength(200)
+    expect(capped?.submittedSeniorNames[0]).toHaveLength(255)
   })
 
   it('without an active source link it is the same 404, and reads nothing further', async () => {
@@ -936,6 +1263,19 @@ describe('JobQueueService continuations', () => {
     expect(page.items.map((s) => s.seniorId)).toEqual([SEN])
     expect(page.totalCount).toBe(1)
     expect(h.compiled(0).text).not.toContain('ms.senior_id > $')
+  })
+
+  it('seniors: a TAKEN-only senior of a manual card (NULL evidence) is no match, not an approximate one (CR-M-1)', async () => {
+    const h = harness(
+      teamScope,
+      [seniorDbRow({ evidence: null }), seniorDbRow({ senior_id: SEN_2, evidence: {} })],
+      [{ total: '2' }],
+    )
+    const page = await h.svc.seniors(user, OPP, { teamId: TEAM })
+    expect(page.items.map((s) => [s.matchApproximate, s.matchedKeywords])).toEqual([
+      [false, []],
+      [true, []],
+    ])
   })
 
   it('seniors: a cursor resumes after its key', async () => {

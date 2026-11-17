@@ -19,7 +19,7 @@ import {
 import { buildCollectionContext } from './collection-context'
 
 /**
- * r5 Task 2.5 T6 — one END-TO-END run per raised-cap source (Greenhouse, Ashby, Arbeitnow): the
+ * r5 Task 2.5 T6 — one END-TO-END run per raised-cap source (Greenhouse, Ashby, Arbeitnow, WWR): the
  * real adapter, the PRODUCTION context, the real `boundedFetchText` pinned to the adapter's
  * declared hosts, and a LOCAL fixture server (the harness rewrites the target; nothing leaves the
  * machine). AC 3 end to end: a page of EXACTLY the declared cap is fetched and parsed; one byte
@@ -42,12 +42,27 @@ function pageOf(file: string, bytes: number): string {
   return body
 }
 
+/** The real feed, padded with an XML comment no reader maps, to exactly `bytes` UTF-8 bytes. */
+function feedOf(file: string, bytes: number): string {
+  const xml = readFileSync(join(FIXTURES, file), 'utf8')
+  const [head, tail] = xml.split('</channel>') as [string, string]
+  const base = Buffer.byteLength(`${head}<!---->` + `</channel>${tail}`)
+  const body = `${head}<!--${'x'.repeat(bytes - base)}--></channel>${tail}`
+  expect(Buffer.byteLength(body)).toBe(bytes)
+  return body
+}
+
+const bodyOf = (file: string, bytes: number): string =>
+  file.endsWith('.xml') ? feedOf(file, bytes) : pageOf(file, bytes)
+
 const CASES = [
   // [type, declared cap (hand-written), first-page fixture, what a later page answers]
   ['GREENHOUSE_ATS', 10 * MiB, 'greenhouse/airbnb-board.json', null],
   ['ASHBY_ATS', 10 * MiB, 'ashby/linear-board.json', null],
   ['ARBEITNOW_API', 8 * MiB, 'arbeitnow/page-1.json', 'arbeitnow/empty-page.json'],
 ] as const
+// The all-jobs feed outgrew the 2 MiB default on prod (PAYLOAD_TOO_LARGE, 2026-11-17).
+const WWR_CASE = ['WWR_RSS', 4 * MiB, 'wwr/all-jobs.trimmed.xml', null] as const
 
 let fixture: FixtureServer
 let restoreFetch: () => void
@@ -108,7 +123,7 @@ describe('T6: one end-to-end run per raised-cap source against a fixture server'
   it.each(CASES)(
     '%s: a first page of exactly its %i-byte cap is fetched and parsed into observations',
     async (type, cap, first, later) => {
-      const body = pageOf(first, cap)
+      const body = bodyOf(first, cap)
       fixture.answer = () =>
         fixture.requests.length === 1
           ? { body }
@@ -123,10 +138,22 @@ describe('T6: one end-to-end run per raised-cap source against a fixture server'
     60_000,
   )
 
-  it.each(CASES)(
+  it('WWR_RSS: a feed of exactly its 4 MiB cap is fetched and parsed', async () => {
+    const [type, cap, file] = WWR_CASE
+    const body = bodyOf(file, cap)
+    fixture.answer = () => ({ body })
+    const batch = await runOnce(type)
+    expect(batch.requests[0]).toMatchObject({ status: 200, error: null })
+    // Parsed: all 6 items of the capture reach the mapper. The manifest entry's empty namespace
+    // quarantines them, which is the observation builder's rule, not the cap's.
+    expect(batch.counts.raw).toBe(6)
+    expect(fixture.requests).toHaveLength(1)
+  }, 60_000)
+
+  it.each([...CASES, WWR_CASE])(
     '%s: one byte past its %i-byte cap is refused PAYLOAD_TOO_LARGE before any parse',
     async (type, cap, first) => {
-      const body = pageOf(first, cap + 1)
+      const body = bodyOf(first, cap + 1)
       fixture.answer = () => ({ body })
       const batch = await runOnce(type)
       expect(batch.requests[0]?.error?.code).toBe('PAYLOAD_TOO_LARGE')

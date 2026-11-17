@@ -1,0 +1,392 @@
+/**
+ * Title → role cases for `classifyRoles`. Every research §3.4 example with its stated outcome, the 8
+ * tuning traps and the 2 ATS-fixture bugs (research doc `2026-11-16-it-role-taxonomy.md`). The
+ * title-only rows up to the step-9 block were cross-checked against the research Appendix A scratch
+ * classifier, except the `Frontend/Backend` architect and the two Cyrillic information-security
+ * engineer rows; those and the rows after the step-9 block pin the deviations listed in the
+ * classifier header.
+ */
+import type { RoleClassification } from '../role-classifier'
+
+type RoleTitleCase = { title: string; tags?: string[]; expected: RoleClassification }
+
+const NON_IT: RoleClassification = { kind: 'NON_IT' }
+const UNCLASSIFIED: RoleClassification = { kind: 'UNCLASSIFIED' }
+const roles = (...r: Extract<RoleClassification, { kind: 'ROLES' }>['roles']) =>
+  ({ kind: 'ROLES', roles: r }) as const
+
+export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
+  // §3.4 synthetic examples
+  { title: 'Senior Java Tech Lead', expected: roles('BACKEND_ENGINEER') },
+  { title: 'Data Architect', expected: roles('DATA_ENGINEER', 'SOFTWARE_ARCHITECT') },
+  { title: 'Програміст 1С', expected: roles('BUSINESS_APPLICATIONS_ENGINEER') },
+  { title: 'SRE / DevOps', expected: roles('DEVOPS_ENGINEER', 'SITE_RELIABILITY_ENGINEER') },
+  { title: 'Kotlin developer', expected: roles('SOFTWARE_ENGINEER') },
+  { title: 'C++ developer', expected: roles('SOFTWARE_ENGINEER') },
+  { title: 'Business Development Manager', expected: NON_IT },
+  { title: 'Landscape Architect', expected: NON_IT },
+  { title: 'Software Engineer, Marketing Platform', expected: roles('SOFTWARE_ENGINEER') },
+  { title: 'Engineering Manager, Sales Tools', expected: roles('ENGINEERING_MANAGER') },
+  { title: 'Backend Engineer - HR Tech', expected: roles('BACKEND_ENGINEER') },
+  { title: 'DeFi Smart Contract Engineer', expected: roles('BLOCKCHAIN_ENGINEER') },
+  { title: 'Definition Engineer', expected: UNCLASSIFIED },
+  { title: 'Market Penetration Specialist', expected: UNCLASSIFIED },
+  { title: 'CloudOps Engineer', expected: roles('DEVOPS_ENGINEER') },
+  { title: 'Graphic designer', expected: UNCLASSIFIED },
+  { title: 'Technical Writer', expected: UNCLASSIFIED },
+  { title: 'Principal Engineer', expected: UNCLASSIFIED },
+  // ATS-fixture bugs
+  { title: 'Automated Test Engineer', expected: roles('QA_AUTOMATION_ENGINEER') },
+  {
+    title: 'Enterprise Architect - Consumer Banking & Marketing',
+    expected: roles('SOFTWARE_ARCHITECT'),
+  },
+  // Trap 2: a role keyword inside a title with no job noun
+  { title: 'Lending Manager (Front End)', expected: UNCLASSIFIED },
+  { title: 'Joinery Estimator (Innergy ERP)', expected: UNCLASSIFIED },
+  // Trap 7: `penetration` alone is not security; the pen-test role drops manual QA
+  { title: 'Pen Tester', expected: roles('PENETRATION_TESTER') },
+  // `sales` as a whole word does not match Salesforce
+  { title: 'Salesforce Developer', expected: roles('BUSINESS_APPLICATIONS_ENGINEER') },
+  { title: 'Sales Manager', expected: NON_IT },
+  { title: 'Recruiter', expected: NON_IT },
+  // Precedence (step 4) and multi-role (step 5)
+  { title: 'Full-stack (React/Node) Developer', expected: roles('FULLSTACK_ENGINEER') },
+  { title: 'Engineering Manager, Security Platform', expected: roles('ENGINEERING_MANAGER') },
+  { title: 'Senior QA Automation Engineer', expected: roles('QA_AUTOMATION_ENGINEER') },
+  { title: 'Machine Learning Engineer, LLM', expected: roles('AI_ENGINEER') },
+  { title: 'QA/DevOps Engineer', expected: roles('DEVOPS_ENGINEER', 'QA_ENGINEER') },
+  { title: 'iOS/Android developer', expected: roles('IOS_ENGINEER', 'ANDROID_ENGINEER') },
+  {
+    title: 'Senior Backend Cloud Engineer',
+    expected: roles('BACKEND_ENGINEER', 'DEVOPS_ENGINEER'),
+  },
+  { title: 'Head of Engineering', expected: roles('ENGINEERING_MANAGER') },
+  { title: 'Head of QA', expected: roles('QA_ENGINEER') },
+  { title: 'CTO', expected: roles('CTO') },
+  // §3.3: seniority and lead words are not roles
+  { title: 'Lead Python Engineer (ML)', expected: roles('ML_ENGINEER') },
+  { title: 'Team Lead', expected: UNCLASSIFIED },
+  // §3.2 hints fire only with a job noun
+  { title: 'Python Developer', expected: roles('BACKEND_ENGINEER') },
+  { title: 'Go developer', expected: roles('BACKEND_ENGINEER') },
+  { title: 'C# Developer', expected: roles('BACKEND_ENGINEER') },
+  { title: '.NET Developer', expected: roles('BACKEND_ENGINEER') },
+  { title: 'ASP.NET Engineer', expected: roles('BACKEND_ENGINEER') },
+  { title: 'TypeScript Engineer', expected: roles('FRONTEND_ENGINEER') },
+  { title: 'Shopify Developer', expected: roles('FULLSTACK_ENGINEER') },
+  { title: 'Python', expected: UNCLASSIFIED },
+  // Cyrillic (Unicode word boundaries)
+  { title: 'Системний адміністратор', expected: roles('SYSTEM_ADMINISTRATOR') },
+  { title: 'Розробник', expected: roles('SOFTWARE_ENGINEER') },
+  { title: 'Бекенд-розробник', expected: roles('BACKEND_ENGINEER') },
+  // Spelling variants: one row per keyword alternative
+  { title: 'Back End Developer', expected: roles('BACKEND_ENGINEER') },
+  { title: 'Server Side Developer', expected: roles('BACKEND_ENGINEER') },
+  { title: 'Бек енд розробник', expected: roles('BACKEND_ENGINEER') },
+  { title: 'Бэкенд разработчик', expected: roles('BACKEND_ENGINEER') },
+  { title: 'Бэк енд разработчик', expected: roles('BACKEND_ENGINEER') },
+  { title: 'Nodejs Developer', expected: roles('BACKEND_ENGINEER') },
+  { title: 'Senior C# Developer', expected: roles('BACKEND_ENGINEER') },
+  { title: 'Front End Developer', expected: roles('FRONTEND_ENGINEER') },
+  { title: 'Frontend Developer', expected: roles('FRONTEND_ENGINEER') },
+  { title: 'Фронтенд-розробник', expected: roles('FRONTEND_ENGINEER') },
+  { title: 'Фронт енд розробник', expected: roles('FRONTEND_ENGINEER') },
+  { title: 'HTML/CSS Developer', expected: roles('FRONTEND_ENGINEER') },
+  { title: 'HTMLCSS Developer', expected: roles('FRONTEND_ENGINEER') },
+  { title: 'Nextjs Developer', expected: roles('FRONTEND_ENGINEER') },
+  { title: 'Full Stack Developer', expected: roles('FULLSTACK_ENGINEER') },
+  { title: 'Fullstack Developer', expected: roles('FULLSTACK_ENGINEER') },
+  { title: 'Фулстек розробник', expected: roles('FULLSTACK_ENGINEER') },
+  { title: 'Фулл стек разработчик', expected: roles('FULLSTACK_ENGINEER') },
+  { title: 'Desktop Developer', expected: roles('DESKTOP_ENGINEER') },
+  { title: 'No Code Developer', expected: roles('BUSINESS_APPLICATIONS_ENGINEER') },
+  { title: 'Nocode Developer', expected: roles('BUSINESS_APPLICATIONS_ENGINEER') },
+  { title: 'Low Code Developer', expected: roles('BUSINESS_APPLICATIONS_ENGINEER') },
+  { title: 'Lowcode Developer', expected: roles('BUSINESS_APPLICATIONS_ENGINEER') },
+  { title: 'Swift Developer', expected: roles('IOS_ENGINEER') },
+  {
+    title: 'Cross Platform Mobile Apps Engineer',
+    expected: roles('CROSS_PLATFORM_MOBILE_ENGINEER'),
+  },
+  {
+    title: 'Crossplatform Mobile Apps Engineer',
+    expected: roles('CROSS_PLATFORM_MOBILE_ENGINEER'),
+  },
+  { title: 'Data Engineer', expected: roles('DATA_ENGINEER') },
+  { title: 'PLSQL Developer', expected: roles('DATABASE_ENGINEER') },
+  { title: 'Postgres Engineer', expected: roles('DATABASE_ENGINEER') },
+  { title: 'Data Analyst', expected: roles('DATA_ANALYST') },
+  { title: 'Data Scientist', expected: roles('DATA_SCIENTIST') },
+  { title: 'SysAdmin', expected: roles('SYSTEM_ADMINISTRATOR') },
+  { title: 'Sys Admin', expected: roles('SYSTEM_ADMINISTRATOR') },
+  { title: 'System Administrator', expected: roles('SYSTEM_ADMINISTRATOR') },
+  { title: 'Системный администратор', expected: roles('SYSTEM_ADMINISTRATOR') },
+  { title: 'Telecom Engineer', expected: roles('NETWORK_ENGINEER') },
+  { title: 'Helpdesk Engineer', expected: roles('SUPPORT_ENGINEER') },
+  { title: 'Help Desk Engineer', expected: roles('SUPPORT_ENGINEER') },
+  { title: 'L2 Support Specialist', expected: roles('SUPPORT_ENGINEER') },
+  { title: 'Cybersecurity Engineer', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Інженер з інформаційної безпеки', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Инженер по информационной безопасности', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Pentester', expected: roles('PENETRATION_TESTER') },
+  { title: 'Embedded Engineer', expected: roles('EMBEDDED_ENGINEER') },
+  { title: 'FPGA Engineer', expected: roles('HARDWARE_ENGINEER') },
+  { title: 'UE5 Developer', expected: roles('GAME_DEVELOPER') },
+  { title: 'Software Development Manager', expected: roles('ENGINEERING_MANAGER') },
+  { title: 'Manager Engineering', expected: roles('ENGINEERING_MANAGER') },
+  { title: 'VP Engineering', expected: roles('ENGINEERING_MANAGER') },
+  { title: 'VP Technology', expected: roles('CTO') },
+  { title: 'Технічний директор', expected: UNCLASSIFIED },
+  { title: 'Директор з інформаційної безпеки', expected: UNCLASSIFIED },
+  { title: 'Бізнес аналітик', expected: roles('BUSINESS_ANALYST') },
+  { title: 'Бізнесаналітик', expected: roles('BUSINESS_ANALYST') },
+  { title: 'Бизнес аналитик', expected: roles('BUSINESS_ANALYST') },
+  { title: 'Бизнесаналитик', expected: roles('BUSINESS_ANALYST') },
+  { title: 'Системний аналітик', expected: roles('BUSINESS_ANALYST') },
+  { title: 'Системный аналитик', expected: roles('BUSINESS_ANALYST') },
+  { title: 'UIUX Designer', expected: roles('UI_UX_DESIGNER') },
+  { title: 'UXUI Designer', expected: roles('UI_UX_DESIGNER') },
+  { title: 'Recruitment Coordinator', expected: NON_IT },
+  // Architect domains (§3.1 step 5)
+  { title: 'Cloud Solutions Architect', expected: roles('DEVOPS_ENGINEER', 'SOFTWARE_ARCHITECT') },
+  {
+    title: 'Security Solutions Architect',
+    expected: roles('SECURITY_ENGINEER', 'SOFTWARE_ARCHITECT'),
+  },
+  {
+    title: 'Network Solutions Architect',
+    expected: roles('NETWORK_ENGINEER', 'SOFTWARE_ARCHITECT'),
+  },
+  { title: 'AI Solutions Architect', expected: roles('ML_ENGINEER', 'SOFTWARE_ARCHITECT') },
+  {
+    title: 'CRM Solutions Architect',
+    expected: roles('BUSINESS_APPLICATIONS_ENGINEER', 'SOFTWARE_ARCHITECT'),
+  },
+  {
+    title: 'Mobile Solutions Architect',
+    expected: roles('CROSS_PLATFORM_MOBILE_ENGINEER', 'SOFTWARE_ARCHITECT'),
+  },
+  { title: 'Frontend Architect', expected: roles('FRONTEND_ENGINEER', 'SOFTWARE_ARCHITECT') },
+  {
+    title: 'Fullstack Front-end Architect',
+    expected: roles('FRONTEND_ENGINEER', 'FULLSTACK_ENGINEER', 'SOFTWARE_ARCHITECT'),
+  },
+  {
+    title: 'Fullstack Front End Architect',
+    expected: roles('FRONTEND_ENGINEER', 'FULLSTACK_ENGINEER', 'SOFTWARE_ARCHITECT'),
+  },
+  {
+    title: 'Full-stack (Frontend/Backend) Architect',
+    expected: roles(
+      'BACKEND_ENGINEER',
+      'FRONTEND_ENGINEER',
+      'FULLSTACK_ENGINEER',
+      'SOFTWARE_ARCHITECT',
+    ),
+  },
+  // Precedence and fallback branches
+  { title: 'Full-stack (Frontend/Backend) Engineer', expected: roles('FULLSTACK_ENGINEER') },
+  { title: 'ML Engineer, Agent Systems', expected: roles('ML_ENGINEER') },
+  { title: 'AI Engineer, Machine Learning', expected: roles('ML_ENGINEER', 'AI_ENGINEER') },
+  { title: 'Engineering Manager, Backend', expected: roles('ENGINEERING_MANAGER') },
+  { title: 'CTO / Backend Developer', expected: roles('CTO') },
+  { title: 'Python Specialist', expected: UNCLASSIFIED },
+  { title: 'Webdeveloper', expected: UNCLASSIFIED },
+  // Step 9: an `eq` board category fills an unclassified or generic title
+  { title: 'Team Lead', tags: ['Android'], expected: roles('ANDROID_ENGINEER') },
+  { title: 'Kotlin developer', tags: ['Kotlin'], expected: roles('SOFTWARE_ENGINEER') },
+  { title: 'Software Engineer', tags: ['Front End'], expected: roles('FRONTEND_ENGINEER') },
+  { title: 'Tech Lead', tags: [' devops '], expected: roles('DEVOPS_ENGINEER') },
+  { title: 'Team Lead', tags: ['JavaScript'], expected: UNCLASSIFIED },
+  {
+    title: 'Developer',
+    tags: ['software-development', 'Data Science'],
+    expected: roles('DATA_SCIENTIST'),
+  },
+  { title: 'Account Manager', tags: ['DevOps'], expected: NON_IT },
+  { title: 'Team Lead', tags: ['software-development'], expected: roles('SOFTWARE_ENGINEER') },
+  // Step 9: a tag that names an `Object.prototype` member is not a category
+  { title: 'Team Lead', tags: ['constructor'], expected: UNCLASSIFIED },
+  { title: 'Team Lead', tags: ['__proto__'], expected: UNCLASSIFIED },
+  { title: 'Team Lead', tags: ['toString'], expected: UNCLASSIFIED },
+  // A keyword glued to a Cyrillic letter is not that keyword (Unicode left bound)
+  { title: 'Автомобільний інженер', expected: UNCLASSIFIED },
+  { title: 'Веброзробник', expected: UNCLASSIFIED },
+  // `go to` / `go-to-market` is not the Go language
+  { title: 'Go to Market Lead', expected: UNCLASSIFIED },
+  { title: 'Go-to-Market Engineer', expected: UNCLASSIFIED },
+  { title: 'Go–to–Market Lead', expected: UNCLASSIFIED },
+  { title: 'Go — to market lead', expected: UNCLASSIFIED },
+  { title: 'Go Tooling Developer', expected: roles('BACKEND_ENGINEER') },
+  // Cyrillic keyword spellings: one row per keyword alternative
+  { title: 'Верстальщик', expected: roles('FRONTEND_ENGINEER') },
+  { title: 'Верстальник', expected: roles('FRONTEND_ENGINEER') },
+  { title: 'Мобільний розробник', expected: roles('CROSS_PLATFORM_MOBILE_ENGINEER') },
+  { title: 'Мобильный разработчик', expected: roles('CROSS_PLATFORM_MOBILE_ENGINEER') },
+  { title: 'Інженер даних', expected: roles('DATA_ENGINEER') },
+  { title: 'Инженер данных', expected: roles('DATA_ENGINEER') },
+  { title: 'Адміністратор баз даних', expected: roles('DATABASE_ENGINEER') },
+  { title: 'Администратор баз данных', expected: roles('DATABASE_ENGINEER') },
+  { title: 'Аналітик даних', expected: roles('DATA_ANALYST') },
+  { title: 'Аналитик данных', expected: roles('DATA_ANALYST') },
+  { title: 'Сисадмін', expected: roles('SYSTEM_ADMINISTRATOR') },
+  { title: 'Сисадмин', expected: roles('SYSTEM_ADMINISTRATOR') },
+  { title: 'Мережевий інженер', expected: roles('NETWORK_ENGINEER') },
+  { title: 'Сетевой инженер', expected: roles('NETWORK_ENGINEER') },
+  { title: 'Тестувальник', expected: roles('QA_ENGINEER') },
+  { title: 'Тестировщик', expected: roles('QA_ENGINEER') },
+  { title: 'Інженер з тестування', expected: roles('QA_ENGINEER') },
+  { title: 'Инженер по тестированию', expected: roles('QA_ENGINEER') },
+  { title: 'Інженер з автотестування', expected: roles('QA_AUTOMATION_ENGINEER') },
+  { title: 'Инженер по автотестированию', expected: roles('QA_AUTOMATION_ENGINEER') },
+  { title: 'Аналітик з кібербезпеки', expected: roles('SECURITY_ANALYST') },
+  { title: 'Аналитик по кибербезопасности', expected: roles('SECURITY_ANALYST') },
+  { title: 'Інженер вбудованих систем', expected: roles('EMBEDDED_ENGINEER') },
+  { title: 'Инженер встроенных систем', expected: roles('EMBEDDED_ENGINEER') },
+  { title: 'Геймдев розробник', expected: roles('GAME_DEVELOPER') },
+  { title: 'Девопс інженер', expected: roles('DEVOPS_ENGINEER') },
+  { title: 'Дизайнер інтерфейсів', expected: roles('UI_UX_DESIGNER') },
+  { title: 'Дизайнер интерфейсов', expected: roles('UI_UX_DESIGNER') },
+  // An engineer noun + a security domain is the engineer (research §1.6 uk label of
+  // SECURITY_ENGINEER is «Інженер з кібербезпеки»; `information security` is its keyword)
+  { title: 'Інженер з кібербезпеки', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Инженер по кибербезопасности', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Інженер з пожежної безпеки', expected: UNCLASSIFIED },
+  // `фахівець` / `спеціаліст` are not job nouns (research §3.1 step 2 does not list them)
+  { title: 'Фахівець з кібербезпеки', expected: UNCLASSIFIED },
+  // an inflected engineer noun, and `інформаційної` (the stem takes 2+ letters)
+  { title: 'Інженерка з кібербезпеки', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Інженерка з інформаційної безпеки', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Инженеры по кибербезопасности', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Инженеры по информационной безопасности', expected: roles('SECURITY_ENGINEER') },
+  // any engineer + security-domain shape, not only `інженер з …`
+  { title: 'Інженер кібербезпеки', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Інженер інформаційної безпеки', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Инженер кибербезопасности', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Инженер информационной безопасности', expected: roles('SECURITY_ENGINEER') },
+  // the analyst counterpart of `cybersecurity engineer`, in each spelling
+  { title: 'Cybersecurity Analyst', expected: roles('SECURITY_ANALYST') },
+  { title: 'Cyber Security Analyst', expected: roles('SECURITY_ANALYST') },
+  { title: 'Cyber-Security Analyst', expected: roles('SECURITY_ANALYST') },
+  // the spelled-out CTO is a job noun; another chief officer is not IT
+  { title: 'Chief Technology Officer', expected: roles('CTO') },
+  { title: 'Chief Technical Officer', expected: roles('CTO') },
+  { title: 'Chief Financial Officer', expected: UNCLASSIFIED },
+  // research §1.10 uk label of SOFTWARE_ARCHITECT is «Архітектор ПЗ»
+  { title: 'Архітектор ПЗ', expected: roles('SOFTWARE_ARCHITECT') },
+  { title: 'Системний архітектор', expected: roles('SOFTWARE_ARCHITECT') },
+  { title: 'Архитектор ПО', expected: roles('SOFTWARE_ARCHITECT') },
+  // the Cyrillic counterpart of the `landscape architect` exclusion
+  { title: 'Ландшафтний архітектор', expected: NON_IT },
+  { title: 'Ландшафтный архитектор', expected: NON_IT },
+  { title: 'Ландшафтна архітекторка', expected: NON_IT },
+  { title: 'Ландшафтная архитекторка', expected: NON_IT },
+  // the Cyrillic counterparts of `interior architect` / `building architect` (any apostrophe)
+  { title: "Архітектор інтер'єру", expected: NON_IT },
+  { title: 'Архітектор інтерʼєру', expected: NON_IT },
+  { title: "Архітекторка інтер'єру", expected: NON_IT },
+  { title: 'Архитектор интерьера', expected: NON_IT },
+  { title: 'Архитектор зданий', expected: NON_IT },
+  { title: 'Архітектор будівель', expected: NON_IT },
+  { title: 'Архітектор-проєктувальник', expected: NON_IT },
+  { title: 'Архитектор-проектировщик', expected: NON_IT },
+  { title: 'Архитектор-дизайнер', expected: NON_IT },
+  { title: 'Архітектор-проєктувальник.', expected: NON_IT },
+  { title: 'Архітекторка-проєктувальниця', expected: NON_IT },
+  {
+    title: 'Архитектор-проектировщик информационных систем',
+    expected: roles('SOFTWARE_ARCHITECT'),
+  },
+  {
+    title: 'Архітектор-проєктувальник інформаційних систем',
+    expected: roles('SOFTWARE_ARCHITECT'),
+  },
+  { title: 'Архитектор-проектировщик баз данных', expected: roles('SOFTWARE_ARCHITECT') },
+  {
+    title: 'Архитектор-дизайнер интерфейсов',
+    expected: roles('SOFTWARE_ARCHITECT', 'UI_UX_DESIGNER'),
+  },
+  { title: 'Архитектор-проектировщик ПО', expected: roles('SOFTWARE_ARCHITECT') },
+  { title: 'Архітектор рішень', expected: roles('SOFTWARE_ARCHITECT') },
+  { title: 'Архитектор данных', expected: roles('SOFTWARE_ARCHITECT') },
+  { title: 'Архітектор інтерфейсів', expected: roles('SOFTWARE_ARCHITECT') },
+  // an engineer with no domain stays for the AI fallback
+  { title: 'Провідний інженер', expected: UNCLASSIFIED },
+  { title: 'Головний інженер', expected: UNCLASSIFIED },
+  { title: 'Провідний інженер з питань кібербезпеки', expected: roles('SECURITY_ENGINEER') },
+  // the engineer noun may follow the domain
+  { title: 'Кібербезпека: Інженер', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Інформаційна безпека, інженер', expected: roles('SECURITY_ENGINEER') },
+  { title: 'Кибербезопасность — инженер', expected: roles('SECURITY_ENGINEER') },
+  // an analyst noun keeps the analyst; an English title is untouched by the Cyrillic rule
+  {
+    title: 'Інженер-аналітик з кібербезпеки',
+    expected: roles('SECURITY_ENGINEER', 'SECURITY_ANALYST'),
+  },
+  {
+    title: 'Аналітик-інженер з кібербезпеки',
+    expected: roles('SECURITY_ENGINEER', 'SECURITY_ANALYST'),
+  },
+  {
+    title: 'Security Analyst / Інженер з кібербезпеки',
+    expected: roles('SECURITY_ENGINEER', 'SECURITY_ANALYST'),
+  },
+  { title: 'Security Engineer, SOC', expected: roles('SECURITY_ENGINEER', 'SECURITY_ANALYST') },
+  // the remaining generic Cyrillic job nouns
+  { title: 'Разработчик', expected: roles('SOFTWARE_ENGINEER') },
+  { title: 'Програміст', expected: roles('SOFTWARE_ENGINEER') },
+  { title: 'Программист', expected: roles('SOFTWARE_ENGINEER') },
+  { title: 'Аналітик з інформаційної безпеки', expected: roles('SECURITY_ANALYST') },
+  { title: 'Аналитик по информационной безопасности', expected: roles('SECURITY_ANALYST') },
+  // the architect back-end domain, spaced and hyphenated
+  {
+    title: 'Fullstack Front End / Back End Architect',
+    expected: roles(
+      'BACKEND_ENGINEER',
+      'FRONTEND_ENGINEER',
+      'FULLSTACK_ENGINEER',
+      'SOFTWARE_ARCHITECT',
+    ),
+  },
+  {
+    title: 'Full-stack Front-end/Back-end Architect',
+    expected: roles(
+      'BACKEND_ENGINEER',
+      'FRONTEND_ENGINEER',
+      'FULLSTACK_ENGINEER',
+      'SOFTWARE_ARCHITECT',
+    ),
+  },
+  // §3.4 WWR run: the remaining multi-role, unclassified and known false-positive titles
+  { title: 'BA/Technical Product Manager', expected: NON_IT },
+  {
+    title: 'Principal Infrastructure Architect: Data Platform',
+    expected: roles('DATA_ENGINEER', 'DEVOPS_ENGINEER', 'SOFTWARE_ARCHITECT'),
+  },
+  {
+    title: 'Full-Stack Platform Engineer',
+    expected: roles('FULLSTACK_ENGINEER', 'DEVOPS_ENGINEER'),
+  },
+  {
+    title: 'Salesforce Business Systems Administrator',
+    expected: roles('BUSINESS_APPLICATIONS_ENGINEER', 'SYSTEM_ADMINISTRATOR'),
+  },
+  {
+    title: 'CloudOps Engineer (Network Engineer)',
+    expected: roles('DEVOPS_ENGINEER', 'NETWORK_ENGINEER'),
+  },
+  {
+    title: 'Backend / Platform Developer Consultant (Temporal & Kubernetes)',
+    expected: roles('BACKEND_ENGINEER', 'DEVOPS_ENGINEER'),
+  },
+  { title: 'Distribution Engineer', expected: UNCLASSIFIED },
+  { title: 'Freelance Marketo Email Engineer', expected: UNCLASSIFIED },
+  { title: 'Director, Applied AI', expected: UNCLASSIFIED },
+  { title: 'AI Infrastructure Specialist', expected: UNCLASSIFIED },
+  { title: 'Senior Product Engineer', expected: UNCLASSIFIED },
+  { title: 'WordPress & HubSpot (Contractor)', expected: UNCLASSIFIED },
+  // known false positives the run accepted: a risk role and a non-software manager
+  { title: 'Blockchain Risk Control Lead', expected: roles('BLOCKCHAIN_ENGINEER') },
+  { title: 'Development Manager', expected: roles('ENGINEERING_MANAGER') },
+]

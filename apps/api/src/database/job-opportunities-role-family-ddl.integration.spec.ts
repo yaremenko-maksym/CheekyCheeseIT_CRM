@@ -6,8 +6,8 @@ import { type CrmAppSession, openCrmAppSession } from './__test-helpers__/crm-ap
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
- * r5 Task 6.4c (STAGED/DARK) — the staged forward DDL
- * `manual-staged/2026-11-05_job_opportunities_role_family.sql` against a REAL Postgres.
+ * r5 Task 6.4c (promoted by backlog 434) — the forward DDL
+ * `manual/2026-11-05_job_opportunities_role_family.sql` against a REAL Postgres.
  *
  * Applied TWICE into a scratch schema holding a stub of `job_opportunities`, one transaction each.
  * What it leaves — the nullable column and its bounded CHECK — equals what `db:push` declares in
@@ -23,7 +23,7 @@ const FILE = join(
   '..',
   '..',
   'drizzle',
-  'manual-staged',
+  'manual',
   '2026-11-05_job_opportunities_role_family.sql',
 )
 const SCHEMA = 'ddl_job_opportunities_role_family'
@@ -72,7 +72,7 @@ async function createStub(): Promise<void> {
   )
 }
 
-describe.skipIf(!hasDatabaseUrl())('Task 6.4c staged DDL: opportunity role family', () => {
+describe.skipIf(!hasDatabaseUrl())('Task 6.4c forward DDL: opportunity role family', () => {
   beforeAll(async () => {
     session = await openCrmAppSession()
     client = await session.admin.connect()

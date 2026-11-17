@@ -14,8 +14,14 @@ import { hashInviteToken } from './invite-token.util'
 import type { UsersAccessService } from './users-access.service'
 import { UsersService } from './users.service'
 import { markSeniorDirty } from '../job-sourcing/dirty-producers'
+import { markResumeRecheckNeeded } from '../resumes/verification/recheck-flag'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 import { makeProposeInTxStub } from '../approvals/__test-helpers__/approvals-stub'
+
+// Backlog 442: the resume re-check flag has its own real-DB spec (resume-recheck-flag.integration.spec).
+vi.mock('../resumes/verification/recheck-flag', () => ({
+  markResumeRecheckNeeded: vi.fn().mockResolvedValue(undefined),
+}))
 // r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
 vi.mock('../job-sourcing/dirty-producers')
 
@@ -2294,6 +2300,99 @@ describe('UsersService.updateProfile — SENIOR technology floor on a self-edit'
   })
 })
 
+describe('UsersService.updateProfile — technical roles on a self-edit (senior roles PR 2)', () => {
+  const self = (role: string) =>
+    makeDb({
+      existingUser: makeUser({ id: 'user-1', role, techStack: ['React', 'Go', 'AWS'] }),
+    })
+  const setOf = (db: ReturnType<typeof makeDb>) =>
+    (db.db.update as ReturnType<typeof vi.fn>).mock.results[0]?.value?.set as ReturnType<
+      typeof vi.fn
+    >
+
+  it('a SENIOR sets their own roles', async () => {
+    const db = self('SENIOR')
+    await makeUsersService(db).updateProfile('user-1', {
+      technicalRoles: ['BACKEND_ENGINEER', 'DATA_ENGINEER'],
+    })
+    expect(setOf(db)).toHaveBeenCalledWith(
+      expect.objectContaining({ technicalRoles: ['BACKEND_ENGINEER', 'DATA_ENGINEER'] }),
+    )
+  })
+
+  it('a non-SENIOR setting roles -> 400 TECHNICAL_ROLES_SENIOR_ONLY, nothing written', async () => {
+    const db = self('JUNIOR')
+    await expect(
+      makeUsersService(db).updateProfile('user-1', { technicalRoles: ['BACKEND_ENGINEER'] }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TECHNICAL_ROLES_SENIOR_ONLY', statusCode: 400 }),
+    })
+    expect(db.db.update).not.toHaveBeenCalled()
+  })
+
+  it('a missing caller row with roles -> 404 USER_NOT_FOUND before any write', async () => {
+    const db = makeDb({ existingUser: undefined })
+    await expect(
+      makeUsersService(db).updateProfile('user-1', { technicalRoles: ['BACKEND_ENGINEER'] }),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'USER_NOT_FOUND' }) })
+    expect(db.db.update).not.toHaveBeenCalled()
+  })
+
+  // Review SR2-L-1: the role was read without a lock, so a roles write re-checks it in the UPDATE.
+  it('a roles write carries `role = SENIOR` in the UPDATE; a write without roles does not', async () => {
+    const whereSql = async (data: { technicalRoles?: ['BACKEND_ENGINEER'] }) => {
+      const db = self('SENIOR')
+      await makeUsersService(db).updateProfile('user-1', { ...data, phone: null })
+      const where = setOf(db).mock.results[0]?.value?.where as ReturnType<typeof vi.fn>
+      return new PgDialect().sqlToQuery(
+        where.mock.calls[0]?.[0] as Parameters<PgDialect['sqlToQuery']>[0],
+      )
+    }
+    const guarded = await whereSql({ technicalRoles: ['BACKEND_ENGINEER'] })
+    expect(guarded.sql).toContain('"role" = $2')
+    expect(guarded.params).toEqual(['user-1', 'SENIOR'])
+    expect((await whereSql({})).params).toEqual(['user-1'])
+  })
+
+  it('a SENIOR demoted between the read and the write -> 400 TECHNICAL_ROLES_SENIOR_ONLY', async () => {
+    const db = self('SENIOR')
+    ;(db.db.update as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      set: () => ({ where: () => ({ returning: async () => [] }) }),
+    })
+    await expect(
+      makeUsersService(db).updateProfile('user-1', { technicalRoles: ['BACKEND_ENGINEER'] }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TECHNICAL_ROLES_SENIOR_ONLY', statusCode: 400 }),
+    })
+  })
+
+  it('the same race in the transaction branch throws before the roster mark (the tx rolls back)', async () => {
+    vi.mocked(markSeniorDirty).mockClear()
+    const db = self('SENIOR')
+    ;(db.db.update as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      set: () => ({ where: () => ({ returning: async () => [] }) }),
+    })
+    await expect(
+      makeUsersService(db).updateProfile('user-1', {
+        technicalRoles: ['BACKEND_ENGINEER'],
+        displayName: 'New Name',
+        techStack: ['React', 'Go', 'AWS', 'Docker'],
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TECHNICAL_ROLES_SENIOR_ONLY', statusCode: 400 }),
+    })
+    expect(db.db.transaction).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(markSeniorDirty)).not.toHaveBeenCalled()
+  })
+
+  it('roles stay optional: a write without them leaves the column out of the update', async () => {
+    const db = self('SENIOR')
+    await makeUsersService(db).updateProfile('user-1', { techStack: ['React', 'Go', 'AWS'] })
+    expect(setOf(db)).toHaveBeenCalledWith(expect.not.objectContaining({ technicalRoles: [] }))
+    expect(Object.keys(setOf(db).mock.calls[0]?.[0] as object)).not.toContain('technicalRoles')
+  })
+})
+
 describe('UsersService.updateProfile — locale (task-i18n-stage2)', () => {
   it('sets locale when provided', async () => {
     const db = makeDb({ updatedUser: makeUser({ locale: 'en' }) })
@@ -2324,20 +2423,54 @@ describe('UsersService.updateProfile — locale (task-i18n-stage2)', () => {
   // default-parameter, not a "no row" signal), so an ad-hoc update-chain
   // mock is simpler here than fighting that default.
   it('throws USER_NOT_FOUND when the update affects no row', async () => {
-    const db = {
-      db: {
-        update: vi.fn().mockReturnValue({
-          set: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([]) }),
-          }),
+    // A name write runs in a transaction (backlog 442); this one passes through.
+    const inner: Record<string, unknown> = {
+      update: vi.fn().mockReturnValue({
+        set: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([]) }),
         }),
-      },
-    } as unknown as DrizzleDb
+      }),
+    }
+    inner['transaction'] = (cb: (tx: unknown) => Promise<unknown>) => cb(inner)
+    const db = { db: inner } as unknown as DrizzleDb
     const service = makeUsersService(db)
 
     await expect(service.updateProfile('ghost', { displayName: 'X' })).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'USER_NOT_FOUND', statusCode: 404 }),
     })
+  })
+})
+
+describe('UsersService.updateProfile — resume re-check flag (backlog 442)', () => {
+  const flag = () => vi.mocked(markResumeRecheckNeeded)
+  const tx = (db: DrizzleDb) => db.db.transaction as unknown as ReturnType<typeof vi.fn>
+  beforeEach(() => {
+    flag().mockClear()
+    vi.mocked(markSeniorDirty).mockClear()
+  })
+
+  it('a display name write marks in a transaction, before the UPDATE, and no roster row', async () => {
+    const db = makeDb({ updatedUser: makeUser() })
+    await makeUsersService(db).updateProfile('user-1', { displayName: 'New Name' })
+    expect(tx(db)).toHaveBeenCalledTimes(1)
+    expect(flag()).toHaveBeenCalledTimes(1)
+    expect(flag().mock.calls[0]?.[1]).toBe('user-1')
+    expect(flag().mock.calls[0]?.[2]).toMatchObject({ displayName: 'New Name' })
+    expect(vi.mocked(markSeniorDirty)).not.toHaveBeenCalled()
+  })
+
+  it('a Telegram-only write marks too', async () => {
+    const db = makeDb({ updatedUser: makeUser() })
+    await makeUsersService(db).updateProfile('user-1', { telegram: '@new' })
+    expect(tx(db)).toHaveBeenCalledTimes(1)
+    expect(flag().mock.calls[0]?.[2]).toMatchObject({ telegram: '@new' })
+  })
+
+  it('a write without a name or Telegram: no transaction, no mark', async () => {
+    const db = makeDb({ updatedUser: makeUser() })
+    await makeUsersService(db).updateProfile('user-1', { phone: '+380000000000' })
+    expect(tx(db)).not.toHaveBeenCalled()
+    expect(flag()).not.toHaveBeenCalled()
   })
 })
 

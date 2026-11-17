@@ -1112,6 +1112,34 @@ describe('the manual path and the pool boundaries', () => {
     expect(w.log.filter((l) => l.startsWith('claim')).at(-1)).toBe('claim:2')
   })
 
+  it('the enable catch-up purpose reaches claimSource unchanged', async () => {
+    const args: unknown[] = []
+    const w = world()
+    const ledger = (w.worker as unknown as { deps: WorkerDeps }).deps.ledger as {
+      claimSource: WorkerDeps['ledger']['claimSource']
+    }
+    const real = ledger.claimSource
+    ledger.claimSource = async (input) => {
+      args.push(input)
+      return real(input)
+    }
+    await w.worker.runSource({
+      cycleId: uuid(1),
+      sourceId: uuid(5),
+      actor: uuid(6),
+      purpose: 'ENABLE_CATCH_UP',
+    })
+    expect(args).toEqual([
+      {
+        cycleId: uuid(1),
+        sourceId: uuid(5),
+        actor: uuid(6),
+        purpose: 'ENABLE_CATCH_UP',
+        owner: 'spec',
+      },
+    ])
+  })
+
   it('a refused manual claim runs nothing', async () => {
     const w = world()
     const ledger = (w.worker as unknown as { deps: WorkerDeps }).deps.ledger as {
@@ -1496,4 +1524,54 @@ describe('review round 1: the worker survives and reports what it swallows', () 
     expect(calls).toBe(2)
     expect(written).toEqual([expect.objectContaining({ reason: 'HTTP_429', retryAfter: '7200' })])
   }, 5_000)
+})
+
+describe('the post-run step (onRunEnded): the match drain after every run', () => {
+  it('is called once per run, after the run released its slot, with the run report', async () => {
+    const seen: [string, number][] = []
+    const w = world({
+      claims: [claimed(1), claimed(2)],
+      deps: { onRunEnded: (r) => void seen.push([r.runId, w.worker.activeRuns]) },
+    })
+    const reports = await w.worker.runDue({ cycleId: uuid(1) })
+    expect(seen.map(([id]) => id)).toEqual(reports.map((r) => r.runId))
+    // the last run's step sees its own slot already freed: no run held
+    expect(seen.at(-1)?.[1]).toBe(0)
+  })
+
+  it('the manual path ends with it too', async () => {
+    const onRunEnded = vi.fn()
+    const w = world({ deps: { onRunEnded } })
+    await w.worker.runSource({ cycleId: uuid(1), sourceId: uuid(5), actor: uuid(6) })
+    expect(onRunEnded).toHaveBeenCalledTimes(1)
+    expect(onRunEnded.mock.calls[0]?.[0]).toMatchObject({ runId: uuid(109), outcome: 'SUCCEEDED' })
+  })
+
+  it('is not awaited: the report returns while the step is still running', async () => {
+    let release!: () => void
+    const pending = new Promise<void>((r) => (release = r))
+    const w = world({ deps: { onRunEnded: () => pending } })
+    const r = await w.worker.runSource({ cycleId: uuid(1), sourceId: uuid(5), actor: uuid(6) })
+    expect(r).toMatchObject({ kind: 'RAN', report: { outcome: 'SUCCEEDED' } })
+    release()
+  })
+
+  it('a step that throws or rejects leaves the report unchanged and is logged by class name', async () => {
+    const error = vi.fn()
+    for (const onRunEnded of [
+      () => {
+        throw new TypeError('secret detail')
+      },
+      () => Promise.reject(new RangeError('secret detail')),
+    ]) {
+      const w = world({ deps: { onRunEnded, logger: { error, warn: vi.fn() } } })
+      const r = await w.worker.runSource({ cycleId: uuid(1), sourceId: uuid(5), actor: uuid(6) })
+      expect(r).toMatchObject({ kind: 'RAN', report: { runId: uuid(109), outcome: 'SUCCEEDED' } })
+    }
+    await new Promise((r) => setImmediate(r))
+    expect(error.mock.calls.map((c) => c[0])).toEqual([
+      'post-run step failed (TypeError); the run is unaffected',
+      'post-run step failed (RangeError); the run is unaffected',
+    ])
+  })
 })

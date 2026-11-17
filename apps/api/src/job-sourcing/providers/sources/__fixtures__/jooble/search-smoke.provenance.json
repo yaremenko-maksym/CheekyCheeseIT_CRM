@@ -1,0 +1,12 @@
+{
+  "url": "https://jooble.org/api/<key> (POST {\"keywords\":\"senior developer\",\"location\":\"remote\",\"page\":1,\"ResultOnPage\":5})",
+  "fetchedAt": "2026-11-16T21:55:10.000Z",
+  "httpStatus": 200,
+  "rawSha256": "1076190369f7aa92c2673d8fc9a7c77e2e26c620568fabaf3ab794d0ce6f7743",
+  "fileSha256": "dd2bf2510c8126aa02e11010dc1448f7b8114276412ce6982873ccf84f37e10a",
+  "trimmedBy": "node trim-keyed-captures.mjs (JSON.parse keeping integers past 2^53 as written, whole-record selection, regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify); never a byte cut",
+  "termsUrl": "https://jooble.org/info/terms",
+  "termsCheckedAt": "2026-11-16T21:59:58.000Z",
+  "permission": "KEY_REQUIRED",
+  "notes": "POST body {\"keywords\":\"senior developer\",\"location\":\"remote\",\"page\":1,\"ResultOnPage\":5}: totalCount 72531, 5 jobs, kept whole with the envelope. Every `id` is an integer past 2^53 and some are NEGATIVE (-5099382229872932738), so a JSON.parse rounds it and it cannot be an identity. `updated` carries no zone (2026-11-13T00:00:00.0000000). `link` is a jooble.org/away/ or /desc/ redirect, never the employer page. `type` is often the empty string; `salary` and `source` are present and not mapped. Terms (https://jooble.org/info/terms, effective 2019-01-08, read 2026-11-16) are site terms with no API clause: section 4(i) forbids copying content for republication without permission, 4(m) forbids bots or automatic access to the Site, 9(d) allows linking; the key itself is granted by Jooble for API access. Section 4(m) forbids bots on the website; the adapter uses the keyed REST API, the sanctioned access path, and never the website. Taken by the owner-authorized controlled authenticated smoke (workflow verify-job-source-credentials.yml, run 43964860057, ONE request per source); the key travelled in a header, or (Jooble only) in the path of a request URL that was never logged, and the script refuses to keep a body or header in which the key appears. permission KEY_REQUIRED: the source answers only with the CRM's own key, which the runtime checks before every run. E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted."
+}

@@ -268,7 +268,7 @@ export const jobCollectionRuns = pgTable(
      * Source fetch strategy U2 (ADR 2026-10-25 section 10): the run's metrics, written by
      * the ledger's `finish` (and, for `newest_item_published_at`, by each page write).
      * NULL = not written: a run ended by recovery, or one that predates U2. LAST on
-     * purpose, after `account_key`: production gets them from the staged
+     * purpose, after `account_key`: production gets them from the manual/
      * `2026-10-31_job_run_metrics_slowdown.sql` (`ADD COLUMN` appends).
      */
     /** Requests the run's context handed to the transport. */
@@ -600,19 +600,18 @@ export const jobDirtyWork = pgTable(
     index('idx_job_dirty_work_entity').on(t.entityKind, t.entityId),
     // The claim scan: oldest pending first.
     index('idx_job_dirty_work_pending').on(t.status, t.createdAt),
-    // CR-M-4 (STAGED/DARK): a PARTIAL mirror of the pending claim scan that EXCLUDES the detail
+    // CR-M-4: a PARTIAL mirror of the pending claim scan that EXCLUDES the detail
     // backlog (`reason <> 'DETAIL_FETCH'`). After the ON_DEMAND flip the generic pending claimers
     // filter `reason <> 'DETAIL_FETCH'` against the index above and would scan past every queued
-    // DETAIL_FETCH row; this partial index lets them skip that backlog entirely. Shipped staged —
-    // the prod CONCURRENTLY apply is a separate deploy-wiring step (see
-    // manual-staged/2026-11-02_job_dirty_work_pending_partial.sql).
+    // DETAIL_FETCH row; this partial index lets them skip that backlog entirely. Prod apply
+    // (CONCURRENTLY, every deploy since backlog 434): manual/2026-11-02_job_dirty_work_pending_partial.sql.
     index('idx_job_dirty_work_pending_generic')
       .on(t.status, t.createdAt)
       .where(sql`${t.reason} <> 'DETAIL_FETCH'`),
-    // Backlog 347 (1) (STAGED/DARK): one partial index per `claimDirtyBatch` reason partition, so
+    // Backlog 347 (1): one partial index per `claimDirtyBatch` reason partition, so
     // the match claim never walks the unclaimed AVAILABILITY pile (and vice versa). Each WHERE is
     // exactly `dirtyConsumerPredicate(<consumer>, reason, { inline: true })` — not imported here
-    // (the store imports the schema). Prod apply: manual-staged/2026-11-03_job_dirty_work_partition_partial.sql.
+    // (the store imports the schema). Prod apply: manual/2026-11-03_job_dirty_work_partition_partial.sql.
     index('idx_job_dirty_work_pending_match')
       .on(t.status, t.createdAt)
       .where(

@@ -114,7 +114,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'ASHBY_ATS',
-      blockerCodes: ['PERMISSION_UNCLEAR'],
+      blockerCodes: [],
       deadlines: [],
       payloadVerified: true,
       quotaDeclared: false,
@@ -167,9 +167,9 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'JOOBLE_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
-      payloadVerified: false,
+      payloadVerified: true,
       quotaDeclared: true,
       floorHours: 0,
       banScope: 'HOST',
@@ -179,9 +179,9 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'JSEARCH_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
-      payloadVerified: false,
+      payloadVerified: true,
       quotaDeclared: true,
       floorHours: 0,
       banScope: 'HOST',
@@ -191,9 +191,9 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'THEIRSTACK_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
-      payloadVerified: false,
+      payloadVerified: true,
       quotaDeclared: true,
       floorHours: 0,
       banScope: 'HOST',
@@ -203,7 +203,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'MUSE_API',
-      blockerCodes: ['PERMISSION_UNCLEAR', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['STATUS_CONSTANT_BLOCKED'],
       deadlines: [],
       payloadVerified: true,
       quotaDeclared: false,
@@ -215,9 +215,9 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'REED_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
-      payloadVerified: false,
+      payloadVerified: true,
       quotaDeclared: true,
       floorHours: 0,
       banScope: 'HOST',
@@ -227,7 +227,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'DJINNI_RSS',
-      blockerCodes: ['PERMISSION_UNCLEAR'],
+      blockerCodes: [],
       deadlines: [],
       payloadVerified: true,
       quotaDeclared: false,
@@ -239,7 +239,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'WWR_RSS',
-      blockerCodes: ['PERMISSION_UNCLEAR'],
+      blockerCodes: [],
       deadlines: [],
       payloadVerified: true,
       quotaDeclared: false,
@@ -251,7 +251,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     },
     {
       type: 'EUREMOTEJOBS_RSS',
-      blockerCodes: ['PERMISSION_UNCLEAR'],
+      blockerCodes: ['PERMISSION_PROHIBITED'],
       deadlines: [],
       payloadVerified: true,
       quotaDeclared: false,
@@ -377,14 +377,22 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       type: 'JOBGETHER_API',
       blockerCodes: [],
       deadlines: [],
-      fetchProfile: null,
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+      },
     },
     {
       id: 'hn-hiring.thread.latest',
       type: 'HN_HIRING',
       blockerCodes: [],
       deadlines: [],
-      fetchProfile: null,
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+      },
     },
     {
       id: 'greenhouse.board.stripe',
@@ -485,7 +493,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'ashby.board.linear',
       type: 'ASHBY_ATS',
-      blockerCodes: ['PERMISSION_UNCLEAR'],
+      blockerCodes: [],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 60,
@@ -501,7 +509,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'ashby.board.supabase',
       type: 'ASHBY_ATS',
-      blockerCodes: ['PERMISSION_UNCLEAR'],
+      blockerCodes: [],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 60,
@@ -602,7 +610,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'jooble.api.senior-developer-remote',
       type: 'JOOBLE_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 10080,
@@ -618,7 +626,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'jsearch.rapidapi.backend',
       type: 'JSEARCH_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 1440,
@@ -629,7 +637,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'jsearch.rapidapi.frontend',
       type: 'JSEARCH_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 1440,
@@ -640,7 +648,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'jsearch.rapidapi.ai-engineer',
       type: 'JSEARCH_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 1440,
@@ -651,7 +659,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'theirstack.api.senior',
       type: 'THEIRSTACK_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 5760,
@@ -667,7 +675,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'muse.api.software-engineering-senior',
       type: 'MUSE_API',
-      blockerCodes: ['PERMISSION_UNCLEAR', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['STATUS_CONSTANT_BLOCKED'],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 1440,
@@ -678,7 +686,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'reed.api.senior-developer-remote',
       type: 'REED_API',
-      blockerCodes: ['KEY_REQUIRED', 'NO_CAPTURE', 'STATUS_CONSTANT_BLOCKED'],
+      blockerCodes: ['KEY_REQUIRED'],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 1440,
@@ -689,7 +697,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'djinni.rss.python',
       type: 'DJINNI_RSS',
-      blockerCodes: ['PERMISSION_UNCLEAR'],
+      blockerCodes: [],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 60,
@@ -705,7 +713,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'djinni.rss.rust',
       type: 'DJINNI_RSS',
-      blockerCodes: ['PERMISSION_UNCLEAR'],
+      blockerCodes: [],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 60,
@@ -721,7 +729,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'wwr.rss.all-jobs',
       type: 'WWR_RSS',
-      blockerCodes: ['PERMISSION_UNCLEAR'],
+      blockerCodes: [],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 180,
@@ -737,7 +745,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'wwr.rss.devops',
       type: 'WWR_RSS',
-      blockerCodes: ['PERMISSION_UNCLEAR'],
+      blockerCodes: [],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 180,
@@ -753,7 +761,7 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
     {
       id: 'euremotejobs.rss.feed',
       type: 'EUREMOTEJOBS_RSS',
-      blockerCodes: ['PERMISSION_UNCLEAR'],
+      blockerCodes: ['PERMISSION_PROHIBITED'],
       deadlines: [],
       fetchProfile: {
         intervalMinutes: 1440,

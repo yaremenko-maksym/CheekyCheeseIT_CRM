@@ -18,6 +18,8 @@ export const WORKER_ONLY_ENV_KEYS = [
 export const DEFAULT_JOB_MATCH_THRESHOLD = 0.2
 export const DEFAULT_JOB_COLLECTION_WINDOW_MS = 60 * 60_000
 export const JOB_COLLECTION_WINDOW_CEILING_MS = 2 * 60 * 60_000
+/** Resume verification runs one API process executes at once; the rest wait in FIFO order (436). */
+export const DEFAULT_RESUME_VERIFICATION_MAX_CONCURRENT_RUNS = 3
 
 /**
  * Shape of a real git commit SHA (short or full). Shared by GIT_COMMIT's
@@ -174,10 +176,11 @@ const envSchema = z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
 
-    // JOB_MATCH_RECONCILIATION_ENABLED: switch for the periodic match reconciliation (r5 Task 4.6
-    //   S4b): sweep every RECONCILE_PERIOD_HOURS, enqueue stale opportunities, drain the recompute
-    //   worker. **Default false**: unlike the collection crons (always on) it activates the
-    //   recompute worker's writes to `job_opportunity_matches`, which nothing reads yet. May run
+    // JOB_MATCH_RECONCILIATION_ENABLED: switch for the match reconciliation (r5 Task 4.6 S4b): drain
+    //   the recompute worker right after every collection run ends (collected records ->
+    //   opportunities -> matches, which feed the HR/ADMIN job queue), and every
+    //   RECONCILE_PERIOD_HOURS sweep for stale opportunities as the safety net. **Default false**: unlike the collection crons (always on) it activates
+    //   the recompute worker's writes to `job_opportunities` / `job_opportunity_matches`. May run
     //   alongside JOB_AVAILABILITY_RECONCILE_ENABLED: each consumes its own disjoint `reason`
     //   partition of `job_dirty_work`.
     JOB_MATCH_RECONCILIATION_ENABLED: z
@@ -421,6 +424,13 @@ const envSchema = z
         .min(1_000)
         .max(JOB_COLLECTION_WINDOW_CEILING_MS)
         .default(DEFAULT_JOB_COLLECTION_WINDOW_MS),
+    ),
+
+    // Backlog 436 — how many resume verification runs (model calls, renders) one API process
+    // executes at once; further runs wait in FIFO order. Positive integer; blank = default.
+    RESUME_VERIFICATION_MAX_CONCURRENT_RUNS: z.preprocess(
+      (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+      z.coerce.number().int().min(1).default(DEFAULT_RESUME_VERIFICATION_MAX_CONCURRENT_RUNS),
     ),
 
     // task-vacancy-matching §3 — the stack-match score below which a suggestion

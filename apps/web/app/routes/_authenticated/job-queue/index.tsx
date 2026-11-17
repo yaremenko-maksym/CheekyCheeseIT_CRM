@@ -33,6 +33,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { JobQueueStatusTabs } from '@/components/job-queue/JobQueueStatusTabs'
 import { JobQueueList, StateBlock } from '@/components/job-queue/JobQueueList'
+import { SourceBudgetPanel } from '@/components/job-sourcing/SourceBudgetPanel'
 import { TeamSwitcher } from '@/components/job-queue/TeamSwitcher'
 import {
   JobQueueAppliedFilters,
@@ -293,6 +294,8 @@ function QueueBody({
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
+      {/* ADMIN only, collapsed: at the top because the list below is infinite and would bury it */}
+      <SourceBudgetPanel canView={scope.role === 'ADMIN'} collapsible />
       {/* below 560 px of content only the team switcher stacks; search + filters keep one row */}
       <div className="flex flex-col gap-2 @min-[560px]:flex-row @min-[560px]:items-center">
         {/* only the HR scope carries a team list, and it always has a team id */}

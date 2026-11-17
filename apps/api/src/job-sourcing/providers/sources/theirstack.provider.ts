@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ORIGINAL_LIMITS } from '../../normalize/observation'
+import { checkStoredLink } from '../../normalize/url-policy'
 import { QUOTA_PROVIDER_ENV_KEY, type QuotaCredential } from '../../quota-credentials'
 import {
   type ApiJsonSourceSpec,
@@ -23,9 +24,10 @@ import { requireApiKey, withSecrets } from './quota-provider'
 /**
  * TheirStack (`POST https://api.theirstack.com/v1/jobs/search`), the hiring-signal job index.
  *
- * STATUS: BLOCKED. No key is provisioned and none may be; the payload shapes are from TheirStack's
- * published API reference (provenance file), not from a response. The first authenticated call is
- * the owner's controlled smoke. See `THEIRSTACK_SOURCE_STATUS`.
+ * STATUS: KEY-GATED, verified by the owner's controlled smoke of 2026-11-16 (provenance of
+ * `__fixtures__/theirstack/jobs-search-smoke.json`): the request below was accepted as sent, the
+ * envelope is `{metadata, data}`, `id` is an integer, `remote` a boolean, and `date_posted` a DATE
+ * only (`2026-11-16`, read as UTC midnight by the ISO contract). See `THEIRSTACK_SOURCE_STATUS`.
  *
  * - BILLING IS PER RETURNED RECORD. The reference says the endpoint "consumes 1 API credit for each
  *   job returned in the response" and lists no per-request charge. So the meter unit is `RECORD`,
@@ -42,24 +44,26 @@ import { requireApiKey, withSecrets } from './quota-provider'
  *   Every credit is real money, so the reservation is also capped by the account's meter.
  * - AT LEAST ONE POSTED-DATE FILTER IS REQUIRED by the API; `posted_at_max_age_days` is always sent,
  *   so a config cannot produce a request that lacks one (the requirement is as the published
- *   reference states it; no response has been seen).
+ *   reference states it; only a request that carried one has been seen).
  * - `include_total_results` is never sent ("significantly slows down responses"), so the end of the
  *   inventory is a page shorter than `limit`.
  * - PAGES ARE 0-BASED on the wire (`page` minimum 0, default 0) and 1-based in the loop.
- * - IDENTITY. `id` is TheirStack's posting id. `url` is read as the posting URL and `final_url` as
- *   the application URL; the reference lists the names without describing them, so which is which is
- *   INFERRED from the names and is the first thing the smoke must confirm. `source_url` (the board
- *   the posting was found on) is not used.
+ * - IDENTITY. `id` is TheirStack's posting id. `url` is the posting on the job board it was found
+ *   on (indeed.com, linkedin.com in the smoke) and is the posting URL. `final_url` is read as the
+ *   application URL; it was null in every record of the smoke, so such a posting carries no
+ *   application URL (none is invented from `url`). `source_url` is the posting URL only when `url`
+ *   is one the store refuses (an `http://` Indeed link in the smoke) and it is not
+ *   (`theirstackPostingUrl`); otherwise such a record would be paid for and quarantined.
  */
 
 export const THEIRSTACK_SOURCE_STATUS = {
-  blocked: true,
+  blocked: false,
   permission: 'KEY_REQUIRED',
   reason:
-    'no API key is provisioned and none may be before the owner runs a controlled authenticated smoke; payload shapes are from the published API reference, not from a response',
+    'runs only with the TheirStack key (THEIRSTACK_API_KEY), one credit per returned job; the controlled authenticated smoke of 2026-11-16 verified the payload',
 } as const
 
-export const THEIRSTACK_ADAPTER_VERSION = 'theirstack-1'
+export const THEIRSTACK_ADAPTER_VERSION = 'theirstack-2'
 export const THEIRSTACK_NAMESPACE = 'theirstack'
 const ENDPOINT = 'https://api.theirstack.com/v1/jobs/search'
 export const THEIRSTACK_MAX_LIMIT = 50
@@ -99,6 +103,7 @@ const itemSchema = z.object({
   job_title: boundedString(ORIGINAL_LIMITS.title),
   url: urlString(),
   final_url: optionalUrlString(),
+  source_url: optionalUrlString(),
   company: boundedString(ORIGINAL_LIMITS.companyName),
   date_posted: dateRaw(),
   location: optionalString(ORIGINAL_LIMITS.location),
@@ -133,6 +138,17 @@ export function theirstackIncurredCredits(bodyText: string): number | null {
 
 /** The one definition of identity, used by the spec's `nativeIdOf` AND by the mapping. */
 const theirstackNativeId = (item: Item): string => String(item.id)
+
+/**
+ * `url`, unless the store would refuse it and `source_url` would not: the smoke's Indeed record
+ * carried `http://www.indeed.com/job/...` in `url` and the `https://` posting in `source_url`.
+ */
+export function theirstackPostingUrl(item: Pick<Item, 'url' | 'source_url'>): string {
+  // `checkStoredLink` refuses a null `source_url`, so `?? item.url` only satisfies the type.
+  return !checkStoredLink(item.url).ok && checkStoredLink(item.source_url).ok
+    ? (item.source_url ?? item.url)
+    : item.url
+}
 
 function makeSpec(
   apiKey: string,
@@ -182,7 +198,7 @@ function makeSpec(
     mapItem: (item, c) => ({
       namespace: c.namespace,
       nativeId: theirstackNativeId(item),
-      url: item.url,
+      url: theirstackPostingUrl(item),
       title: item.job_title,
       companyName: item.company,
       location: item.location,

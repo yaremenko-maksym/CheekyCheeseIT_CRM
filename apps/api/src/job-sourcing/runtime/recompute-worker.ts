@@ -2,6 +2,7 @@ import type { JobSourceType } from '@crm/shared'
 import { sql } from 'drizzle-orm'
 import { findPgError } from '../../database/pg-errors'
 import { type Evaluated, type Excluded, evaluate } from '../funnel/evaluate'
+import { ROLE_CLASSIFIER_VERSION } from '../funnel/role-classifier'
 import type { MeterDb } from '../metering/account-meter.store'
 import {
   type ClaimedDirtyWork,
@@ -19,6 +20,7 @@ import {
 import type { SqlExecutor } from '../scheduling/host-state'
 import { CanonicalStateError, resolveRecords } from '../store/canonical.store'
 import { LockContentionError, setLockTimeout, withLockRetry } from '../store/lock-order'
+import { deriveOpportunityRoles, writeOpportunityRoles } from '../store/opportunity-roles'
 import { STORE_LOCK_TIMEOUT_MS } from '../store/source-record.store'
 import {
   type LoadedOpportunity,
@@ -87,7 +89,8 @@ export interface RecomputeBatch {
 
 /** The worker's port to the database; `createRecomputeSteps` is the real one. */
 export interface RecomputeSteps {
-  claim(owner: string, batchSize: number): Promise<ClaimedDirtyWork[]>
+  /** `freshOnly`: only rows never attempted (`ClaimOptions.freshOnly`). */
+  claim(owner: string, batchSize: number, freshOnly: boolean): Promise<ClaimedDirtyWork[]>
   /** Process one held row and complete it, in one transaction with any write it makes. */
   process(work: ClaimedDirtyWork, batch: RecomputeBatch): Promise<CompleteOutcome>
   fail(work: ClaimedDirtyWork, code: string, opts: RetryOptions): Promise<FailOutcome>
@@ -141,13 +144,13 @@ export class RecomputeWorker {
   ) {}
 
   /** Claim one batch and finish every row of it. Rejects only when a failure cannot be recorded. */
-  async runOnce(): Promise<RecomputeReport> {
+  async runOnce(opts: { readonly freshOnly?: boolean } = {}): Promise<RecomputeReport> {
     const {
       owner,
       batchSize = DIRTY_BATCH_DEFAULT,
       yieldEvery = RECOMPUTE_YIELD_EVERY,
     } = this.options
-    const claimed = await this.steps.claim(owner, batchSize)
+    const claimed = await this.steps.claim(owner, batchSize, opts.freshOnly === true)
     const report: RecomputeReport = {
       claimed: claimed.length,
       done: 0,
@@ -274,13 +277,29 @@ function recomputeOpportunity(
     const { rows } = await tx.execute(
       // NO KEY UPDATE (CR-M-4): conflicts with the canonical store's FOR UPDATE and with another
       // worker, but not with the FOR KEY SHARE an FK insert (source link, triage grant) takes.
-      sql`SELECT revision, manual_team_id IS NOT NULL AS manual
+      sql`SELECT revision, manual_team_id IS NOT NULL AS manual, title, title_key, stack_keywords,
+                   description_sha256, role_classifier_version
             FROM job_opportunities WHERE id = ${work.entityId}::uuid FOR NO KEY UPDATE`,
     )
     const row = rows[0]
     // Missing or moved on: nothing to compute, the store records ENTITY_MISSING / VERSION_STALE.
     if (row === undefined || Number(row['revision']) !== work.targetVersion) {
       return completeDirty(tx, work)
+    }
+    // Senior roles PR 2, the lazy backfill: a row no classifier version (or an older one) decided
+    // gets its roles under this lock. Only the 3 role columns move; `revision` does not.
+    if (row['role_classifier_version'] !== ROLE_CLASSIFIER_VERSION) {
+      await writeOpportunityRoles(
+        tx,
+        work.entityId,
+        await deriveOpportunityRoles(tx, {
+          title: String(row['title']),
+          titleKey: String(row['title_key']),
+          // Both columns as stored: stack_keywords is NOT NULL, description_sha256 is nullable.
+          tags: row['stack_keywords'] as string[],
+          descriptionSha256: row['description_sha256'] as string | null,
+        }),
+      )
     }
     // A manual card (r5 Phase 6) is never match-evaluated: no match row may grant another team
     // visibility of it (SR-M-1). Work that reached it anyway completes without evaluation.
@@ -312,7 +331,8 @@ export function createRecomputeSteps(
   onDemandTypes: readonly JobSourceType[] = [],
 ): RecomputeSteps {
   return {
-    claim: (owner, batchSize) => claimDirtyBatch(db, { owner, batchSize, consumer: 'MATCH' }),
+    claim: (owner, batchSize, freshOnly) =>
+      claimDirtyBatch(db, { owner, batchSize, consumer: 'MATCH', freshOnly }),
     process: (work, batch) => {
       if (work.entityKind === 'SOURCE_RECORD') return resolveSourceRecord(db, work)
       if (work.entityKind === 'OPPORTUNITY')

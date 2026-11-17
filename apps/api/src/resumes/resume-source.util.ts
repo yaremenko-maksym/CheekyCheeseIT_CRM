@@ -15,7 +15,19 @@
  */
 import { promisify } from 'node:util'
 import { createInflateRaw, inflate } from 'node:zlib'
-import { RESUME_DOCX_MIME, RESUME_PDF_MIME, RESUME_LIMITS } from '@crm/shared'
+import { RESUME_DOCX_MIME, RESUME_PDF_MIME, RESUME_LIMITS, encodeResumeMessage } from '@crm/shared'
+
+/**
+ * The refusal of a malformed or oversized source file. `message` is a resume
+ * error code encoded by `encodeResumeMessage` (backlog 443), safe to store in
+ * `error_message`. A plain `RangeError` from a library is not this class, so it
+ * never reaches a user.
+ */
+export class ResumeSourceRefusal extends RangeError {}
+
+const corruptDocx = () => new ResumeSourceRefusal(encodeResumeMessage('RESUME_DOCX_CORRUPT'))
+const unsupportedDocx = () =>
+  new ResumeSourceRefusal(encodeResumeMessage('RESUME_DOCX_UNSUPPORTED'))
 import { detectMimeFromBuffer } from '../documents/compression.service'
 
 /** PDF `FlateDecode` is zlib-wrapped, unlike zip's raw deflate. */
@@ -407,7 +419,7 @@ export function isInertMediaContent(head: Buffer): boolean {
  * signature and the walked count must match the declared one — declaring zero
  * entries used to switch the accounting off entirely.
  *
- * Throws `RangeError` for every malformed / oversized / ZIP64 case; the caller
+ * Throws `ResumeSourceRefusal` for every malformed / oversized / ZIP64 case; the caller
  * maps that onto a clean "unreadable file" failure.
  */
 export async function inspectDocxZip(
@@ -451,7 +463,8 @@ function readCentralDirectory(
   // The End Of Central Directory record sits at the tail, possibly followed by
   // a comment of up to 64 KiB — scan backwards for its signature.
   const minEocd = 22
-  if (buf.length < minEocd) throw new RangeError('DOCX слишком мал для zip-архива')
+  // Stryker disable next-line ConditionalExpression: equivalent — without it a short buffer finds no EOCD below and is refused as corrupt there.
+  if (buf.length < minEocd) throw corruptDocx()
   const scanFloor = Math.max(0, buf.length - minEocd - 0xffff)
   let eocd = -1
   for (let i = buf.length - minEocd; i >= scanFloor; i -= 1) {
@@ -460,15 +473,17 @@ function readCentralDirectory(
       break
     }
   }
-  if (eocd < 0) throw new RangeError('В DOCX не найдена структура zip-архива')
+  if (eocd < 0) throw corruptDocx()
 
   const declaredEntries = readU16LE(buf, eocd + 10)
   const cdOffset = readU32LE(buf, eocd + 16)
-  if (declaredEntries === null || cdOffset === null)
-    throw new RangeError('Повреждённый zip-каталог')
-  if (cdOffset === ZIP64_SENTINEL) throw new RangeError('ZIP64-архивы не поддерживаются')
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: unreachable — the EOCD found above starts at least 22 bytes before the end, so both reads are in range and never null.
+  if (declaredEntries === null || cdOffset === null) throw corruptDocx()
+  if (cdOffset === ZIP64_SENTINEL) throw unsupportedDocx()
   if (declaredEntries > MAX_ZIP_ENTRIES) {
-    throw new RangeError(`Слишком много файлов внутри DOCX (${declaredEntries})`)
+    throw new ResumeSourceRefusal(
+      encodeResumeMessage('RESUME_DOCX_TOO_MANY_FILES', { max: MAX_ZIP_ENTRIES }),
+    )
   }
 
   const headers: ZipEntryHeader[] = []
@@ -478,7 +493,9 @@ function readCentralDirectory(
   // Walk by SIGNATURE, not by the declared count — see the doc comment.
   while (readU32LE(buf, cursor) === ZIP_CENTRAL_HEADER) {
     if (headers.length >= MAX_ZIP_ENTRIES) {
-      throw new RangeError(`Слишком много файлов внутри DOCX (>${MAX_ZIP_ENTRIES})`)
+      throw new ResumeSourceRefusal(
+        encodeResumeMessage('RESUME_DOCX_TOO_MANY_FILES', { max: MAX_ZIP_ENTRIES }),
+      )
     }
     const method = readU16LE(buf, cursor + 10)
     const uncompressed = readU32LE(buf, cursor + 24)
@@ -494,16 +511,18 @@ function readCentralDirectory(
       commentLen === null ||
       localHeaderOffset === null
     ) {
-      throw new RangeError('Повреждённая запись zip-каталога')
+      throw corruptDocx()
     }
     if (uncompressed === ZIP64_SENTINEL || localHeaderOffset === ZIP64_SENTINEL) {
-      throw new RangeError('ZIP64-архивы не поддерживаются')
+      throw unsupportedDocx()
     }
 
     declaredUncompressedBytes += uncompressed
     if (declaredUncompressedBytes > maxUncompressedBytes) {
-      throw new RangeError(
-        `Распакованный DOCX больше ${Math.floor(maxUncompressedBytes / 1024 / 1024)} MB`,
+      throw new ResumeSourceRefusal(
+        encodeResumeMessage('RESUME_DOCX_TOO_LARGE', {
+          mb: Math.floor(maxUncompressedBytes / 1024 / 1024),
+        }),
       )
     }
 
@@ -512,11 +531,11 @@ function readCentralDirectory(
     cursor += 46 + nameLen + extraLen + commentLen
   }
 
-  if (headers.length === 0) throw new RangeError('В DOCX нет ни одной записи zip-каталога')
+  if (headers.length === 0) throw corruptDocx()
   if (headers.length !== declaredEntries) {
     // A mismatch means the tail record and the directory disagree — either
     // corruption or a deliberate attempt to hide entries from the accounting.
-    throw new RangeError('Оглавление zip-архива не совпадает с его содержимым')
+    throw corruptDocx()
   }
 
   return { headers, declaredUncompressedBytes }
@@ -549,10 +568,10 @@ async function measureEntry(
     nameLen === null ||
     extraLen === null
   ) {
-    throw new RangeError('Повреждённый заголовок файла внутри DOCX')
+    throw corruptDocx()
   }
   const dataStart = header.localHeaderOffset + 30 + nameLen + extraLen
-  if (dataStart > buf.length) throw new RangeError('Повреждённый заголовок файла внутри DOCX')
+  if (dataStart > buf.length) throw corruptDocx()
 
   if (header.method === ZIP_METHOD_STORED) {
     // Nothing to inflate: a stored entry cannot be bigger than the file that
@@ -562,17 +581,17 @@ async function measureEntry(
     const size = Math.min(header.declaredUncompressedSize, available)
     const counted = !isInertMediaContent(buf.subarray(dataStart, dataStart + MAGIC_PREFIX_BYTES))
     if (size > budgets.totalRemaining)
-      throw new RangeError(tooBig(budgets.maxUncompressedBytes, 'uncompressed'))
+      throw new ResumeSourceRefusal(tooBig(budgets.maxUncompressedBytes, 'uncompressed'))
     if (counted && size > budgets.parsedRemaining)
-      throw new RangeError(tooBig(budgets.maxParsedBytes, 'parsed'))
+      throw new ResumeSourceRefusal(tooBig(budgets.maxParsedBytes, 'parsed'))
     return { size, counted }
   }
 
   if (header.method !== ZIP_METHOD_DEFLATE) {
-    throw new RangeError(`Неподдерживаемый метод сжатия внутри DOCX (${header.method})`)
+    throw unsupportedDocx()
   }
   if (budgets.totalRemaining <= 0)
-    throw new RangeError(tooBig(budgets.maxUncompressedBytes, 'uncompressed'))
+    throw new ResumeSourceRefusal(tooBig(budgets.maxUncompressedBytes, 'uncompressed'))
 
   return inflateAndClassify(buf.subarray(dataStart), budgets)
 }
@@ -620,15 +639,16 @@ function inflateAndClassify(
       }
       size += chunk.length
       if (size > budgets.totalRemaining) {
-        finish(new RangeError(tooBig(budgets.maxUncompressedBytes, 'uncompressed')))
+        // Stryker disable next-line StringLiteral: equivalent — tooBig branches only on 'parsed', so any other value names the uncompressed cap.
+        finish(new ResumeSourceRefusal(tooBig(budgets.maxUncompressedBytes, 'uncompressed')))
         return
       }
       if (counted !== false && size > budgets.parsedRemaining) {
-        finish(new RangeError(tooBig(budgets.maxParsedBytes, 'parsed')))
+        finish(new ResumeSourceRefusal(tooBig(budgets.maxParsedBytes, 'parsed')))
       }
     })
 
-    stream.on('error', () => finish(new RangeError('Не удалось распаковать содержимое DOCX')))
+    stream.on('error', () => finish(corruptDocx()))
     // A zero-length part never emits `data`, so it is classified here: counted,
     // because "nothing to identify" must not read as "known to be harmless".
     stream.on('end', () => finish(null, { size, counted: counted ?? true }))
@@ -651,8 +671,8 @@ function tooBig(cap: number, which: 'parsed' | 'uncompressed'): string {
   // always knows which budget it just spent; it should say so.
   const mb = Math.max(1, Math.floor(cap / 1024 / 1024))
   return which === 'parsed'
-    ? `Содержимое DOCX больше ${mb} MB (реальный размер, а не заявленный) — это не похоже на резюме`
-    : `Распакованный DOCX больше ${mb} MB (реальный размер, а не заявленный)`
+    ? encodeResumeMessage('RESUME_DOCX_CONTENT_TOO_LARGE', { mb })
+    : encodeResumeMessage('RESUME_DOCX_TOO_LARGE', { mb })
 }
 
 // ---------------------------------------------------------------------------
@@ -725,7 +745,7 @@ export async function inspectPdfContent(
 
     const raw = buf.subarray(dataStart, end)
     const remaining = maxContentBytes - contentBytes
-    if (remaining <= 0) throw new RangeError(pdfTooBig(maxContentBytes))
+    if (remaining <= 0) throw new ResumeSourceRefusal(pdfTooBig(maxContentBytes))
 
     let decodedBuf: Buffer
     if (dict.includes('FlateDecode')) {
@@ -733,7 +753,8 @@ export async function inspectPdfContent(
         decodedBuf = await inflateAsync(raw, { maxOutputLength: remaining })
       } catch (err: unknown) {
         const code = (err as { code?: string } | null)?.code
-        if (code === 'ERR_BUFFER_TOO_LARGE') throw new RangeError(pdfTooBig(maxContentBytes))
+        if (code === 'ERR_BUFFER_TOO_LARGE')
+          throw new ResumeSourceRefusal(pdfTooBig(maxContentBytes))
         // Not really Flate (or truncated): charge what is physically there.
         decodedBuf = raw
       }
@@ -743,17 +764,19 @@ export async function inspectPdfContent(
     const decoded = decodedBuf.length
 
     contentBytes += decoded
-    if (contentBytes > maxContentBytes) throw new RangeError(pdfTooBig(maxContentBytes))
+    if (contentBytes > maxContentBytes) throw new ResumeSourceRefusal(pdfTooBig(maxContentBytes))
 
     const ops = countTextOperators(decodedBuf, maxTextOperators)
     textOperators += ops
     if (ops > largestStreamOperators) largestStreamOperators = ops
-    if (textOperators > maxTextOperators) throw new RangeError(pdfTooBusy(maxTextOperators))
+    if (textOperators > maxTextOperators)
+      throw new ResumeSourceRefusal(pdfTooBusy(maxTextOperators))
   }
 
   // N pages sharing one stream cost N executions of it.
   const amplifiedOperators = Math.max(1, pages) * largestStreamOperators
-  if (amplifiedOperators > maxTextOperators) throw new RangeError(pdfTooBusy(maxTextOperators))
+  if (amplifiedOperators > maxTextOperators)
+    throw new ResumeSourceRefusal(pdfTooBusy(maxTextOperators))
 
   return { streams, contentBytes, textOperators, largestStreamOperators, amplifiedOperators }
 }
@@ -865,11 +888,11 @@ function isPdfSpaceByte(byte: number): boolean {
 }
 
 function pdfTooBig(cap: number): string {
-  return `Содержимое PDF больше ${Math.floor(cap / 1024 / 1024)} MB после распаковки — это не похоже на резюме`
+  return encodeResumeMessage('RESUME_PDF_TOO_LARGE', { mb: Math.floor(cap / 1024 / 1024) })
 }
 
 function pdfTooBusy(cap: number): string {
-  return `В PDF слишком много текстовых операций (предел ${cap}) — это не похоже на резюме`
+  return encodeResumeMessage('RESUME_PDF_TOO_BUSY', { max: cap })
 }
 
 // ---------------------------------------------------------------------------

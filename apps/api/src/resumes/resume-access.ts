@@ -3,10 +3,13 @@
  * rule is stated once, is unit-testable without a DB, and cannot drift between
  * the read path, the write path, the PDF path and the source-download path.
  *
- * | Роль                     | Своё резюме   | Чужое         |
- * | ADMIN, HR                | чтение/запись | чтение/запись |
- * | SENIOR                   | чтение/запись | НЕТ           |
- * | JUNIOR, ACCOUNTANT, DROP | НЕТ           | НЕТ           |
+ * | Role                     | Own resume  | Another's   |
+ * | ADMIN, HR                | read/write  | read/write  |
+ * | SENIOR                   | read only   | NONE        |
+ * | JUNIOR, ACCOUNTANT, DROP | NONE        | NONE        |
+ *
+ * [owner 2026-11-14] A SENIOR only VIEWS their resume; ADMIN and HR write it.
+ * So `mode` decides the SENIOR row: `'read'` compares ids, anything else is false.
  *
  * THE POINT OF THIS FILE: the SENIOR row is a COMPARISON, not a call. PR #493
  * (`job-sourcing.service.ts:248`) shipped the exact anti-pattern this guards
@@ -26,18 +29,25 @@ const RESUME_MANAGER_ROLES = new Set(['ADMIN', 'HR'])
 /**
  * True when `viewer` may access the resume owned by `targetUserId`.
  *
- * `mode` exists for readability at the call sites (and to keep the signature
- * stable if read/write ever diverge); today the table grants read and write
- * together for every role that has access at all.
+ * `mode` matters for a SENIOR only: ADMIN and HR read and write any resume,
+ * a SENIOR reads their own and writes none (fail-closed: only `'read'` grants).
  */
 export function canAccessResume(
   viewer: Pick<SessionUser, 'id' | 'role'>,
   targetUserId: string,
-  _mode: ResumeAccessMode,
+  mode: ResumeAccessMode,
 ): boolean {
   if (RESUME_MANAGER_ROLES.has(viewer.role)) return true
-  // SENIOR: own resume only. This comparison IS the check — see file header.
-  if (viewer.role === 'SENIOR') return viewer.id === targetUserId
+  // SENIOR: reads own resume only. This comparison IS the check — see file header.
+  if (viewer.role === 'SENIOR') return mode === 'read' && viewer.id === targetUserId
   // JUNIOR, ACCOUNTANT, DROP and anything added later: no resume surface.
   return false
+}
+
+/**
+ * True when `viewer` may Confirm a staged check result (spec §4, owner Q-C):
+ * ADMIN and HR only — a senior cannot mark their own resume VERIFIED.
+ */
+export function canConfirmResume(viewer: Pick<SessionUser, 'role'>): boolean {
+  return RESUME_MANAGER_ROLES.has(viewer.role)
 }

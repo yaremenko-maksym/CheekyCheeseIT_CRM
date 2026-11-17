@@ -39,6 +39,14 @@ describe('ZOD_ERROR_MESSAGES', () => {
     }
   })
 
+  it('SENIOR_MIN_ROLES is registered with its English fallback', () => {
+    expect(ZOD_ERROR_CODES).toContain('SENIOR_MIN_ROLES')
+    expect(ZOD_ERROR_MESSAGES.SENIOR_MIN_ROLES.id).toBe('zod-error.SENIOR_MIN_ROLES')
+    expect(zodErrorFallbackText('zod.SENIOR_MIN_ROLES')).toBe(
+      'A senior needs at least one technical role',
+    )
+  })
+
   it('every code has a non-empty English fallback', () => {
     for (const code of ZOD_ERROR_CODES) {
       expect(ZOD_ERROR_FALLBACK_EN[code].length).toBeGreaterThan(0)

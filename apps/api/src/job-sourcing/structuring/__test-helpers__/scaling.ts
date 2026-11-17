@@ -1,6 +1,6 @@
 import { expect } from 'vitest'
 
-/** A hang, not a slow machine: the only wall-clock bound, deliberately loose. */
+/** A hang, not a slow machine: the only absolute bound, deliberately loose. */
 const ABSOLUTE_CAP_MS = 30_000
 /** Per-test timeout for a scaling test: it runs the work six times, under instrumentation too. */
 export const SCALING_TEST_TIMEOUT_MS = 120_000
@@ -8,14 +8,23 @@ export const SCALING_TEST_TIMEOUT_MS = 120_000
 const SLACK_MS = 50
 const RUNS = 3
 
-/** Fastest of a few runs: the minimum filters scheduler and GC noise; the first run also warms. */
+/**
+ * CPU milliseconds (user + system) this process spent in `run`. NOT wall clock: on a loaded host
+ * a short run fits inside one scheduler slice while a long one is preempted again and again, so a
+ * wall-clock ratio of linear work read 2-3x its true value at load ~95 (measured) and failed the
+ * factor. Time the process is descheduled is not counted here, so the ratio is the work's own.
+ */
+export function cpuMs(run: () => unknown): number {
+  const started = process.cpuUsage()
+  run()
+  const { user, system } = process.cpuUsage(started)
+  return (user + system) / 1000
+}
+
+/** Fastest of a few runs: the minimum filters GC noise; the first run also warms. */
 function fastestMs(run: () => unknown): number {
   let best = Number.POSITIVE_INFINITY
-  for (let i = 0; i < RUNS; i += 1) {
-    const started = performance.now()
-    run()
-    best = Math.min(best, performance.now() - started)
-  }
+  for (let i = 0; i < RUNS; i += 1) best = Math.min(best, cpuMs(run))
   return best
 }
 

@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import type { TabKey } from '@crm/shared'
 import { useAuth } from '@/context/auth'
+import { useOnboardingGate } from '@/context/onboarding'
 import { cn } from '@/lib/utils'
 import {
   AlertDialog,
@@ -62,10 +63,16 @@ export interface UserProfileShellProps {
 export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfileShellProps) {
   const { i18n } = useLingui()
   const { user: viewer } = useAuth()
-  const meQuery = useMe(mode === 'self')
+  // QA-1343-A: as the hub does (PR #1334 QA-LOW-2), only once the onboarding status is in. A
+  // not-onboarded account is the layout's to send to /onboarding, and /users/me is a 403 before it.
+  // A failed status still asks.
+  const onboarding = useOnboardingGate()
+  const meAllowed = onboarding.isComplete || onboarding.isError
+  const meQuery = useMe(mode === 'self' && meAllowed)
   const userQuery = useUser(userId, mode === 'view')
   const query = mode === 'self' ? meQuery : userQuery
-  const { data, isLoading, isError, error } = query
+  const { data, isError, error } = query
+  const isLoading = query.isLoading || (mode === 'self' && !meAllowed)
   const [avatarOpen, setAvatarOpen] = useState(false)
   // Dirty guard: a tab registers its own isDirty state here via onDirtyChange.
   // When the user tries to switch away from a tab with unsaved changes we show
@@ -445,7 +452,12 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
                 />
               )}
               {activeTab === 'resume' && visibleTabs.includes('resume') && (
-                <ResumeTab userId={profileUser.id} onDirtyChange={handleResumeDirtyChange} />
+                <ResumeTab
+                  userId={profileUser.id}
+                  displayName={profileUser.displayName}
+                  telegram={profileUser.telegram}
+                  onDirtyChange={handleResumeDirtyChange}
+                />
               )}
               {
                 // This whole three-clause condition is over-determined by

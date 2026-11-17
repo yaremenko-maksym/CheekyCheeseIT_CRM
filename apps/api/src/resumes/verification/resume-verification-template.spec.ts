@@ -1,0 +1,433 @@
+/**
+ * Unit spec of the template run start and of `sweepStalledVerifications` (Task 16) over the recording
+ * DB double: a look change on VERIFIED starts the runner with the run id it wrote; the sweep's
+ * selection, the compare-and-set that repeats it, the two terminal shapes and the deletes after
+ * commit. The same flows on a real Postgres are in resume-verification-template.integration.spec.ts.
+ */
+import { HttpException, Logger } from '@nestjs/common'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DEFAULT_RESUME_LAYOUT, RESUME_SECTION_ORDER } from '@crm/shared'
+import type { SeniorResume } from '../../database/schema'
+import { fakeRunDb } from '../../test/fake-run-db'
+import { ResumeVerificationService } from './resume-verification.service'
+import { CLEARED_STAGED, VERIFICATION_DEADLINE_MS } from './verification-runner'
+
+const NOW = new Date('2026-11-11T12:00:00.000Z')
+const CUTOFF = new Date(NOW.getTime() - VERIFICATION_DEADLINE_MS)
+const STAGED_KEY = 'resumes/r-1/staged/run-0.pdf'
+
+const s3 = { delete: vi.fn(async (_key: string) => {}) }
+const runner = {
+  run: vi.fn(async (_id: string, _runId: string) => {}),
+  waitingRunIds: vi.fn((): string[] => []),
+}
+let logs: string[]
+let errors: string[]
+
+function sweep(results: unknown[][]) {
+  const db = fakeRunDb(results)
+  const service = new ResumeVerificationService(db.service, s3 as never, runner as never)
+  return { swept: () => service.sweepStalledVerifications(NOW), log: db.log, db: db.service.db }
+}
+
+/** The run-failed warn line a swept row writes (FR-A-2): the same shape as `failRun`'s. */
+const sweptLine = (runId: string, resumeId: string, kind: string | null, kept: boolean) =>
+  JSON.stringify({
+    event: 'resume_verification_run_failed',
+    runId,
+    resumeId,
+    kind,
+    code: 'STALLED',
+    provider: null,
+    cause: 'SWEPT',
+    status: null,
+    applied: true,
+    kept,
+  })
+
+const CLEARED = {
+  verificationErrorCode: 'STALLED',
+  verificationReport: { gates: [], fallbacks: [] },
+  verificationRunId: null,
+  verificationKind: null,
+  verificationTargetPath: null,
+  verificationBaseVersion: null,
+  ...CLEARED_STAGED,
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  logs = []
+  errors = []
+  vi.spyOn(Logger.prototype, 'warn').mockImplementation((message: unknown) => {
+    logs.push(String(message))
+  })
+  vi.spyOn(Logger.prototype, 'error').mockImplementation((message: unknown) => {
+    errors.push(String(message))
+  })
+})
+afterEach(() => vi.restoreAllMocks())
+
+describe('sweepStalledVerifications', () => {
+  it('selects run rows of QUEUED, CHECKING or VERIFIED started (else queued) before now minus the deadline', async () => {
+    const { swept, log } = sweep([[]])
+    expect(await swept()).toBe(0)
+    expect(log).toHaveLength(1)
+    const [select] = log
+    expect(select?.columns).toEqual(['id', 'runId', 'status'])
+    // The clock starts at the claim when there is one: a run that waited for a slot (backlog 436)
+    // gets its whole budget from its claim, as the runner measures it.
+    expect(select?.where?.sql).toBe(
+      '("senior_resumes"."verification_run_id" is not null and coalesce("senior_resumes"."verification_started_at", "senior_resumes"."verification_queued_at") < $1 and "senior_resumes"."verification_status" in ($2, $3, $4))',
+    )
+    expect(select?.where?.params).toEqual([CUTOFF, 'QUEUED', 'CHECKING', 'VERIFIED'])
+  })
+
+  it('skips the runs waiting for a slot in this process, in the select and in the CAS (backlog 436)', async () => {
+    runner.waitingRunIds.mockReturnValueOnce(['run-7', 'run-8'])
+    const { swept, log } = sweep([
+      [{ id: 'r-1', runId: 'run-1', status: 'QUEUED' }],
+      [{ key: null }],
+      [],
+    ])
+    expect(await swept()).toBe(0)
+    expect(runner.waitingRunIds).toHaveBeenCalledTimes(1)
+    const [select, , update] = log
+    expect(
+      select?.where?.sql.endsWith('and "senior_resumes"."verification_run_id" not in ($5, $6))'),
+    ).toBe(true)
+    expect(select?.where?.params).toEqual([
+      CUTOFF,
+      'QUEUED',
+      'CHECKING',
+      'VERIFIED',
+      'run-7',
+      'run-8',
+    ])
+    expect(update?.where?.sql).toContain(
+      'and "senior_resumes"."verification_run_id" not in ($6, $7))',
+    )
+    expect(update?.where?.params?.slice(0, 7)).toEqual([
+      'r-1',
+      CUTOFF,
+      'QUEUED',
+      'CHECKING',
+      'VERIFIED',
+      'run-7',
+      'run-8',
+    ])
+  })
+
+  it('CHECKING → FAILED STALLED under a CAS repeating the selection; staged and derived keys go', async () => {
+    const { swept, log } = sweep([
+      [{ id: 'r-1', runId: 'run-1', status: 'CHECKING' }],
+      [{ key: STAGED_KEY }],
+      [{ id: 'r-1' }],
+    ])
+    expect(await swept()).toBe(1)
+    const [, lock, update] = log
+    expect([lock?.locked, lock?.inTransaction, lock?.columns]).toEqual([
+      true,
+      true,
+      ['key', 'report', 'kind', 'previous'],
+    ])
+    expect(lock?.where?.params).toEqual(['r-1'])
+    expect(update?.inTransaction).toBe(true)
+    expect(update?.columns).toEqual(['id'])
+    expect(update?.set).toEqual({ verificationStatus: 'FAILED', ...CLEARED })
+    expect(update?.where?.params).toEqual([
+      'r-1',
+      CUTOFF,
+      'QUEUED',
+      'CHECKING',
+      'VERIFIED',
+      'CHECKING',
+      'run-1',
+    ])
+    expect(update?.where?.sql).toContain('"verification_run_id" is not null')
+    expect(s3.delete.mock.calls).toEqual([[STAGED_KEY], ['resumes/r-1/staged/run-1.pdf']])
+    expect(logs).toEqual([sweptLine('run-1', 'r-1', null, false)])
+  })
+
+  it('a stalled template run on VERIFIED: the status is not written, the derived key goes', async () => {
+    const { swept, log } = sweep([
+      [{ id: 'r-2', runId: 'run-2', status: 'VERIFIED' }],
+      [{ key: null, report: null }],
+      [{ id: 'r-2' }],
+    ])
+    expect(await swept()).toBe(1)
+    expect(log.at(-1)?.set).toEqual(CLEARED)
+    expect(log.at(-1)?.where?.params?.slice(-2)).toEqual(['VERIFIED', 'run-2'])
+    expect(s3.delete.mock.calls).toEqual([['resumes/r-2/staged/run-2.pdf']])
+  })
+
+  it('SR-L-2: a swept VERIFIED row keeps the confirmed fallbacks; a FAILED one records none', async () => {
+    const report = {
+      gates: [{ gate: 'visual', ok: false, items: [] }],
+      fallbacks: ['experience.0.bullets'],
+    }
+    const { swept, log } = sweep([
+      [
+        { id: 'r-2', runId: 'run-2', status: 'VERIFIED' },
+        { id: 'r-3', runId: 'run-3', status: 'CHECKING' },
+      ],
+      [{ key: null, report }],
+      [{ id: 'r-2' }],
+      [{ key: null, report }],
+      [{ id: 'r-3' }],
+    ])
+    expect(await swept()).toBe(2)
+    const [verified, failed] = log.filter((q) => q.set !== undefined)
+    expect(verified?.set?.['verificationReport']).toEqual({
+      gates: [],
+      fallbacks: ['experience.0.bullets'],
+    })
+    expect(failed?.set?.['verificationReport']).toEqual({ gates: [], fallbacks: [] })
+  })
+
+  it('SR-L-4: a swept VERIFIED row whose stored report is malformed records no fallbacks', async () => {
+    const { swept, log } = sweep([
+      [{ id: 'r-2', runId: 'run-2', status: 'VERIFIED' }],
+      [{ key: null, report: { gates: [], fallbacks: 'x' } }],
+      [{ id: 'r-2' }],
+    ])
+    expect(await swept()).toBe(1)
+    expect(log.at(-1)?.set?.['verificationReport']).toEqual({ gates: [], fallbacks: [] })
+  })
+
+  it('SR-L-3: a row that throws is logged by id and the rest of the tick goes on', async () => {
+    const { swept, db } = sweep([
+      [
+        { id: 'r-1', runId: 'run-1', status: 'QUEUED' },
+        { id: 'r-2', runId: 'run-2', status: 'QUEUED' },
+        { id: 'r-3', runId: 'run-3', status: 'CHECKING' },
+      ],
+      [{ key: null, report: null }],
+      [{ id: 'r-3' }],
+    ])
+    const real = db.transaction
+    vi.spyOn(db, 'transaction')
+      .mockRejectedValueOnce(Object.assign(new Error('jane@x.test'), { name: 'TypeError' }))
+      .mockRejectedValueOnce('not an error')
+      .mockImplementation(real)
+    expect(await swept()).toBe(1)
+    expect(errors).toEqual([
+      'Verification sweep of resume r-1 failed (TypeError)',
+      'Verification sweep of resume r-2 failed (unknown)',
+    ])
+    expect(logs).toEqual([sweptLine('run-3', 'r-3', null, false)])
+  })
+
+  it('a staged key equal to the derived one is deleted once; a lost CAS deletes and counts nothing', async () => {
+    const { swept } = sweep([
+      [
+        { id: 'r-1', runId: 'run-1', status: 'QUEUED' },
+        { id: 'r-3', runId: 'run-3', status: 'CHECKING' },
+      ],
+      [{ key: 'resumes/r-1/staged/run-1.pdf' }],
+      [{ id: 'r-1' }],
+      [{ key: STAGED_KEY }],
+      [],
+    ])
+    expect(await swept()).toBe(1)
+    expect(s3.delete.mock.calls).toEqual([['resumes/r-1/staged/run-1.pdf']])
+    expect(logs).toHaveLength(1)
+  })
+
+  it('a VERIFIED row whose lock read found nothing is swept with no fallbacks', async () => {
+    const { swept, log } = sweep([
+      [{ id: 'r-2', runId: 'run-2', status: 'VERIFIED' }],
+      [],
+      [{ id: 'r-2' }],
+    ])
+    expect(await swept()).toBe(1)
+    expect(log.at(-1)?.set?.['verificationReport']).toEqual({ gates: [], fallbacks: [] })
+    expect(errors).toEqual([])
+  })
+
+  it('a won CAS over a row whose lock read found nothing still deletes the derived key', async () => {
+    const { swept } = sweep([
+      [{ id: 'r-1', runId: 'run-1', status: 'QUEUED' }],
+      [],
+      [{ id: 'r-1' }],
+    ])
+    expect(await swept()).toBe(1)
+    expect(s3.delete.mock.calls).toEqual([['resumes/r-1/staged/run-1.pdf']])
+  })
+})
+
+describe('the sweep of a staged run (FX-2): the result it started from comes back', () => {
+  const KEPT_KEY = 'resumes/r-1/staged/run-0.pdf'
+  const SNAPSHOT = {
+    content: { summary: 'Kept.' },
+    layout: null,
+    templateName: 'classic',
+    pdfKey: KEPT_KEY,
+    editedPaths: [],
+    runId: 'run-0',
+    kind: 'full',
+    targetPath: null,
+    baseVersion: 3,
+    report: { gates: [], fallbacks: [] },
+  }
+
+  it.each(['staged-edit', 'item'])(
+    '%s with a snapshot: AWAITING_CONFIRM STALLED, the kept PDF stays, only its own upload goes',
+    async (kind) => {
+      const { swept, log } = sweep([
+        [{ id: 'r-1', runId: 'run-1', status: 'CHECKING' }],
+        [{ key: KEPT_KEY, report: null, kind, previous: SNAPSHOT }],
+        [{ id: 'r-1' }],
+      ])
+      expect(await swept()).toBe(1)
+      expect(log.at(-1)?.set).toEqual({
+        verificationStatus: 'AWAITING_CONFIRM',
+        verificationErrorCode: 'STALLED',
+        verificationRunId: 'run-0',
+        verificationKind: 'full',
+        verificationTargetPath: null,
+        verificationBaseVersion: 3,
+        verificationReport: { gates: [], fallbacks: [] },
+        stagedContent: { summary: 'Kept.' },
+        stagedLayout: null,
+        stagedTemplateName: 'classic',
+        stagedPdfS3Key: KEPT_KEY,
+        stagedEditedPaths: [],
+        stagedPrevious: null,
+      })
+      expect(s3.delete.mock.calls).toEqual([['resumes/r-1/staged/run-1.pdf']])
+      expect(logs).toEqual([sweptLine('run-1', 'r-1', kind, true)])
+    },
+  )
+
+  it('an unreadable snapshot falls back to FAILED with a full clear', async () => {
+    const { swept, log } = sweep([
+      [{ id: 'r-1', runId: 'run-1', status: 'CHECKING' }],
+      [{ key: KEPT_KEY, report: null, kind: 'item', previous: { ...SNAPSHOT, pdfKey: null } }],
+      [{ id: 'r-1' }],
+    ])
+    expect(await swept()).toBe(1)
+    expect(log.at(-1)?.set).toEqual({ verificationStatus: 'FAILED', ...CLEARED })
+    expect(s3.delete.mock.calls).toEqual([[KEPT_KEY], ['resumes/r-1/staged/run-1.pdf']])
+    expect(logs).toEqual([sweptLine('run-1', 'r-1', 'item', false)])
+  })
+
+  it('a full run stays FAILED even with a snapshot on the row', async () => {
+    const { swept, log } = sweep([
+      [{ id: 'r-1', runId: 'run-1', status: 'QUEUED' }],
+      [{ key: null, report: null, kind: 'full', previous: SNAPSHOT }],
+      [{ id: 'r-1' }],
+    ])
+    expect(await swept()).toBe(1)
+    expect(log.at(-1)?.set).toEqual({ verificationStatus: 'FAILED', ...CLEARED })
+    expect(logs).toEqual([sweptLine('run-1', 'r-1', 'full', false)])
+  })
+})
+
+describe('a look change on VERIFIED starts a template run (Task 16)', () => {
+  const LAYOUT = { ...DEFAULT_RESUME_LAYOUT, sectionOrder: [...RESUME_SECTION_ORDER] }
+  const ROW = {
+    id: 'r-1',
+    templateName: 'classic',
+    layout: LAYOUT,
+    stagedPdfS3Key: null,
+    verificationStatus: 'VERIFIED',
+    verificationRunId: null,
+  } as unknown as SeniorResume
+
+  function service(results: unknown[][]) {
+    const db = fakeRunDb(results)
+    return {
+      svc: new ResumeVerificationService(db.service, s3 as never, runner as never),
+      log: db.log,
+    }
+  }
+
+  it('template: the start UPDATE stages the requested template and the live layout, then the runner runs it', async () => {
+    const { svc, log } = service([[{ id: 'r-1' }]])
+    await svc.setTemplate(ROW, 'modern', 'viewer-1')
+    const set = log[0]?.set ?? {}
+    expect(set).toMatchObject({
+      verificationKind: 'template',
+      verificationStartedAt: null,
+      verificationErrorCode: null,
+      verificationReport: { gates: [], fallbacks: [] },
+      stagedLayout: LAYOUT,
+      stagedTemplateName: 'modern',
+      updatedByUserId: 'viewer-1',
+    })
+    expect(set).not.toHaveProperty('templateName')
+    expect(set).not.toHaveProperty('layout')
+    expect(set['verificationQueuedAt']).toBeInstanceOf(Date)
+    expect(typeof set['verificationRunId']).toBe('string')
+    expect(runner.run.mock.calls).toEqual([['r-1', set['verificationRunId']]])
+  })
+
+  it('SR-L-2: the start keeps the confirmed fallbacks and clears the gates', async () => {
+    const { svc, log } = service([[{ id: 'r-1' }]])
+    const verificationReport = {
+      gates: [{ gate: 'ats', ok: true, items: [] }],
+      fallbacks: ['summary'],
+    }
+    await svc.setTemplate({ ...ROW, verificationReport } as SeniorResume, 'modern', 'viewer-1')
+    expect(log[0]?.set?.['verificationReport']).toEqual({ gates: [], fallbacks: ['summary'] })
+  })
+
+  it('SR-L-4: a malformed stored report starts with no fallbacks', async () => {
+    const { svc, log } = service([[{ id: 'r-1' }]])
+    const verificationReport = { gates: [], fallbacks: 'x' }
+    await svc.setTemplate({ ...ROW, verificationReport } as unknown as SeniorResume, 'modern', 'v')
+    expect(log[0]?.set?.['verificationReport']).toEqual({ gates: [], fallbacks: [] })
+  })
+
+  it('layout: the requested layout and the live template are staged', async () => {
+    const { svc, log } = service([[{ id: 'r-1' }]])
+    const relaxed = { ...LAYOUT, density: 'relaxed' as const }
+    await svc.setLayout(ROW, relaxed, 'viewer-1')
+    expect(log[0]?.set).toMatchObject({ stagedLayout: relaxed, stagedTemplateName: 'classic' })
+    expect(runner.run).toHaveBeenCalledTimes(1)
+  })
+
+  it('a start UPDATE that misses (409), or a look change off VERIFIED, runs nothing', async () => {
+    const miss = service([[], [{ id: 'r-1' }]])
+    const err = await miss.svc.setTemplate(ROW, 'modern', 'v').catch((e: unknown) => e)
+    expect((err as HttpException).getStatus()).toBe(409)
+    const draft = service([[{ id: 'r-1' }]])
+    await draft.svc.setTemplate({ ...ROW, verificationStatus: 'DRAFT' }, 'modern', 'v')
+    expect(draft.log[0]?.set).toMatchObject({ templateName: 'modern' })
+    expect(runner.run).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['QUEUED', 'layout'],
+    ['QUEUED', 'template'],
+    ['RUNNING', 'layout'],
+    ['RUNNING', 'template'],
+  ])(
+    'CD-7: an extraction %s on VERIFIED: PUT %s is 409 busy, no query, no run',
+    async (status, kind) => {
+      const { svc, log } = service([[{ id: 'r-1' }]])
+      const row = { ...ROW, status } as SeniorResume
+      const write =
+        kind === 'layout' ? svc.setLayout(row, LAYOUT, 'v') : svc.setTemplate(row, 'modern', 'v')
+      const err = await write.catch((e: unknown) => e)
+      expect((err as HttpException).getStatus()).toBe(409)
+      expect((err as HttpException).getResponse()).toMatchObject({
+        code: 'RESUME_VERIFICATION_BUSY',
+      })
+      expect(log).toEqual([])
+      expect(runner.run).not.toHaveBeenCalled()
+    },
+  )
+
+  it('CD-7: the template-run start CAS also refuses an extraction in flight; other look writes do not', async () => {
+    const verified = service([[{ id: 'r-1' }]])
+    await verified.svc.setTemplate({ ...ROW, status: 'READY' } as SeniorResume, 'modern', 'v')
+    const where = verified.log[0]?.where
+    expect(where?.sql).toContain('"status" not in')
+    expect(where?.params?.slice(-2)).toEqual(['QUEUED', 'RUNNING'])
+    const draft = service([[{ id: 'r-1' }]])
+    await draft.svc.setTemplate({ ...ROW, verificationStatus: 'DRAFT' }, 'modern', 'v')
+    expect(draft.log[0]?.where?.sql).not.toContain('"status" not in')
+  })
+})

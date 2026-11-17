@@ -4,9 +4,10 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 import { toast } from 'sonner'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { JobQueueCardResponseDto } from '@crm/shared'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { jobQueueTeamTriageGrantRequestSchema, type JobQueueCardResponseDto } from '@crm/shared'
 import { openOriginalPosting } from '@/components/job-sourcing/open-original'
+import { api } from '@/lib/axios'
 import {
   jobQueueScopeKey,
   useJobQueueCard,
@@ -16,7 +17,7 @@ import {
 } from '@/hooks/use-job-queue'
 import { I18nTestProvider, loadCatalog } from '@/test/i18n'
 import { JobQueueCard } from '../JobQueueCard'
-import { hasOpenSubmit, JOB_QUEUE_TOAST } from '../JobQueueActions'
+import { grantRefusal, hasOpenSubmit, JOB_QUEUE_TOAST } from '../JobQueueActions'
 import {
   cardFixture,
   idleContinuation,
@@ -734,7 +735,7 @@ describe('apply-first reminder (AC 4)', () => {
     const note = screen.getByTestId('job-queue-apply-first')
     expect(note).toHaveAttribute('role', 'note')
     expect(note).toHaveTextContent(
-      'Спершу подайте на сайті джерела («Відкрити оригінал»), потім запишіть подачу тут.',
+      'Спершу подайте на сайті джерела (відкрийте його кнопкою внизу картки), потім запишіть подачу тут.',
     )
     expect(
       note.compareDocumentPosition(screen.getByTestId('job-queue-seniors-list')) &
@@ -875,7 +876,7 @@ describe('blocking notes (AC 5, §5.7)', () => {
     post.mockRejectedValueOnce(coded(409, 'JOB_QUEUE_VERSION_CONFLICT'))
     fireEvent.click(submitButton())
     await screen.findByTestId('job-queue-conflict')
-    const other = screen.getByRole('button', { name: 'Відкрити оригінал' })
+    const other = screen.getByRole('button', { name: 'Відкрити на DOU' })
     act(() => other.focus())
     setCard(twoSeniors({ revision: 4 }))
     rerender()
@@ -915,13 +916,34 @@ describe('«Відкрити оригінал» (AC 6)', () => {
   it('marks the click once and opens the primary posting inside the same click', () => {
     renderCard()
     const footer = screen.getByTestId('job-queue-card-footer')
-    fireEvent.click(within(footer).getByRole('button', { name: 'Відкрити оригінал' }))
+    fireEvent.click(within(footer).getByRole('button', { name: 'Відкрити на DOU' }))
     // no await: both run synchronously inside the gesture
     expect(openOriginalPosting).toHaveBeenCalledTimes(1)
     expect(openOriginalPosting).toHaveBeenCalledWith('https://jobs.dou.ua/1')
     expect(sent(`/job-queue/${OPP}/opened`)).toEqual([
       { teamId: TEAM, sourceRecordId: PRIMARY_SRC },
     ])
+  })
+
+  it('names the source whatever its type', () => {
+    setCard(
+      cardFixture({
+        primarySource: {
+          sourceRecordId: PRIMARY_SRC,
+          sourceType: 'DJINNI_RSS',
+          url: 'https://djinni.co/1',
+        },
+      }),
+    )
+    renderCard()
+    expect(screen.getByRole('button', { name: 'Відкрити на Djinni' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Відкрити на DOU' })).toBeNull()
+  })
+
+  it('a manual card is labelled «Відкрити оригінал», not a source', () => {
+    setCard(cardFixture({ primarySource: null, applicationUrl: 'https://acme.example/apply' }))
+    renderCard()
+    expect(screen.getByRole('button', { name: 'Відкрити оригінал' })).toBeVisible()
   })
 
   it('a manual card opens its application link, with no source to mark', () => {
@@ -948,6 +970,69 @@ describe('hasOpenSubmit', () => {
     expect(
       hasOpenSubmit(cardFixture({ seniors: { items, totalCount: 1, nextCursor: null } })),
     ).toBe(false)
+  })
+})
+
+describe('grantRefusal (backlog 426)', () => {
+  const refusal = (code: string, params?: Record<string, string>) =>
+    httpError(409, { statusCode: 409, code, message: code, ...(params ? { params } : {}) })
+
+  it('names the live grant expiry as a local calendar day in the given locale', () => {
+    const expiresAt = new Date(2026, 10, 25, 23, 59, 59, 999).toISOString()
+    expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'uk')).toBe(
+      'Ця команда вже бачить цю вакансію до кінця 25.11.2026. Виберіть іншу команду.',
+    )
+    // QA-MED-2: `en` is the studio's en-GB day order, never the US one
+    expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'en')).toBe(
+      'Ця команда вже бачить цю вакансію до кінця 25/11/2026. Виберіть іншу команду.',
+    )
+  })
+
+  it('CR-H-1: a single-digit day and month are written with two digits each', () => {
+    const expiresAt = new Date(2026, 2, 5, 23, 59, 59, 999).toISOString()
+    expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'uk')).toBe(
+      'Ця команда вже бачить цю вакансію до кінця 05.03.2026. Виберіть іншу команду.',
+    )
+    expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED', { expiresAt }), 'en')).toBe(
+      'Ця команда вже бачить цю вакансію до кінця 05/03/2026. Виберіть іншу команду.',
+    )
+  })
+
+  it('CR-L-1: a 400 naming the 90-day ceiling asks for an earlier day; another 400 is not explained', () => {
+    const invalid = (code: string) =>
+      httpError(400, {
+        statusCode: 400,
+        message: 'Validation failed',
+        errors: [
+          null,
+          { path: 'reason', message: 'x' },
+          { path: 'expiresAt', code, message: code },
+        ],
+      })
+    expect(grantRefusal(invalid('TRIAGE_EXPIRY_BEYOND_CEILING'), 'uk')).toBe(
+      'Доступ діє щонайбільше 90 днів — виберіть ранішу дату',
+    )
+    expect(grantRefusal(invalid('VALIDATION_FAILED_FORM'), 'uk')).toBeNull()
+    expect(
+      grantRefusal(httpError(400, { statusCode: 400, message: 'Validation failed' }), 'uk'),
+    ).toBeNull()
+  })
+
+  it('CR-L-1: an error with no response, no body or no field list is not explained, never a crash', () => {
+    for (const error of [null, undefined, new Error('network'), { response: {} }]) {
+      expect(grantRefusal(error, 'uk')).toBeNull()
+    }
+  })
+
+  it('an expiry the envelope does not carry is a dash, never «Invalid Date»', () => {
+    expect(grantRefusal(refusal('JOB_QUEUE_TRIAGE_ALREADY_GRANTED'), 'uk')).toBe(
+      'Ця команда вже бачить цю вакансію до кінця —. Виберіть іншу команду.',
+    )
+  })
+
+  it('any other answer is not a refusal it explains', () => {
+    expect(grantRefusal(refusal('JOB_QUEUE_VERSION_CONFLICT'), 'uk')).toBeNull()
+    expect(grantRefusal(httpError(500, {}), 'uk')).toBeNull()
   })
 })
 
@@ -1195,6 +1280,41 @@ describe('«Приховати» (AC 6, §5.9)', () => {
     expect(sent(DISMISS)[0]).toMatchObject({ scope: 'STUDIO', reason: 'DEAD_LINK' })
     expect(sent(DISMISS)[0]).not.toHaveProperty('teamId')
   })
+
+  it('AC 4: after a reload, a re-hide carries the version the card was read with', async () => {
+    // a fresh client is a reloaded page: the session has no version of its own
+    setCard(cardFixture({ dismissal: { scope: 'TEAM', version: 2 } }))
+    post.mockResolvedValueOnce(dismissed(3))
+    await hideAsSpam()
+    await waitFor(() => expect(sent(DISMISS)).toHaveLength(1))
+    expect(sent(DISMISS)[0]).toMatchObject({ scope: 'TEAM', expectedVersion: 2 })
+  })
+
+  it("the session's own later write wins over the version the card was read with", async () => {
+    setCard(cardFixture({ dismissal: { scope: 'TEAM', version: 2 } }))
+    post.mockResolvedValueOnce(dismissed(3))
+    const { user, trigger } = await hideAsSpam()
+    const { options } = await lastUndo()
+    post.mockResolvedValueOnce({ data: { ...dismissed(4).data, hidden: false } })
+    act(() => options.action.onClick())
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2))
+    // the card still says 2: it is not re-read here
+    await user.click(trigger)
+    await user.click(await screen.findByRole('menuitem', { name: 'Нерелевантна' }))
+    await waitFor(() => expect(sent(DISMISS)).toHaveLength(2))
+    expect(sent(DISMISS)[1]).toMatchObject({ expectedVersion: 4 })
+  })
+
+  it("another scope kind's dismissal version is never sent", async () => {
+    const user = userEvent.setup()
+    setCard(cardFixture({ dismissal: { scope: 'TEAM', version: 5 } }))
+    post.mockResolvedValueOnce(dismissed(1, 'STUDIO'))
+    renderCard(ADMIN)
+    await user.click(screen.getByRole('button', { name: 'Приховати' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Спам' }))
+    await waitFor(() => expect(sent(DISMISS)).toHaveLength(1))
+    expect(sent(DISMISS)[0]).not.toHaveProperty('expectedVersion')
+  })
 })
 
 describe('RBAC: ADMIN menus (AC 6, §5.6)', () => {
@@ -1212,7 +1332,7 @@ describe('RBAC: ADMIN menus (AC 6, §5.6)', () => {
     setCard(cardWithSubmitted())
     renderCard(HR)
     expect(submitButton()).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Відкрити оригінал' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Відкрити на DOU' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Приховати' })).toBeVisible()
     expect(screen.queryByRole('button', { name: /Дії адміністратора/ })).toBeNull()
     expect(screen.queryByText(/Скасувати подачу/)).toBeNull()
@@ -1518,10 +1638,763 @@ describe('touch targets and layout (AC 8)', () => {
     )
     renderCard(ADMIN)
     expect(submitButton()).toHaveClass('min-h-11', 'w-full', 'sm:w-auto')
-    for (const name of ['Відкрити оригінал', 'Приховати']) {
+    for (const name of ['Відкрити на DOU', 'Приховати']) {
       expect(screen.getByRole('button', { name })).toHaveClass('min-h-11')
     }
     expect(screen.getByRole('button', { name: 'Дії адміністратора' })).toHaveClass('size-11')
     expect(screen.getByRole('button', { name: 'Дії адміністратора: Петро' })).toHaveClass('size-11')
+  })
+})
+
+describe('ADMIN «Призначити команді…» on a triage card (Task 7.4b, §5.6)', () => {
+  const ALPHA = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+  const BETA = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+  const TEAMS = [
+    { id: ALPHA, name: 'Альфа', type: 'SENIOR' },
+    { id: BETA, name: 'Бета', type: 'SENIOR' },
+  ]
+  const DROP = { id: '99999999-9999-4999-8999-999999999999', name: 'Дроп', type: 'DROP' }
+  const GRANT = `/job-queue/${OPP}/team-triage`
+  /** The uk refusal of an item that left triage (a live LEAD, or EXCLUDED), as a pattern body. */
+  const NOT_ELIGIBLE =
+    'Цю вакансію вже не можна призначити команді: для неї знайшовся сеньйор або її прибрали з черги\\.'
+  const REASON = 'Стек збігається з командою'
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+  /** The studio card's server-side triage policy version (backlog 425). */
+  const POLICY = 5
+  const triage = (over: Partial<JobQueueCardResponseDto> = {}) =>
+    cardFixture({
+      eligibility: 'TRIAGE',
+      triagePolicyVersion: POLICY,
+      triageGrantable: true,
+      ...over,
+    })
+  /** The end of a November 2026 day in the actor's own time zone: a grant lasts through it. */
+  const endOf = (day: number) => new Date(2026, 10, day, 23, 59, 59, 999).toISOString()
+  const granted = (teamId = BETA) => ({
+    data: {
+      id: '22222222-2222-4222-8222-222222222222',
+      opportunityId: OPP,
+      teamId,
+      assignedBy: '33333333-3333-4333-8333-333333333333',
+      policyVersion: POLICY,
+      opportunityRevision: 3,
+      grantVersion: 1,
+      evidence: { reason: REASON },
+      expiresAt: endOf(25),
+      revokedAt: null,
+      createdAt: '2026-11-11T08:00:00.000Z',
+    },
+  })
+  const get = vi.mocked(api.get)
+  type User = ReturnType<typeof userEvent.setup>
+
+  const openAssign = async (user: User) => {
+    await user.click(screen.getByRole('button', { name: 'Дії адміністратора' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Призначити команді…' }))
+    return screen.findByRole('alertdialog', { name: 'Призначити вакансію команді' })
+  }
+  const pickTeam = async (user: User, dialog: HTMLElement, name: string) => {
+    await user.click(within(dialog).getByRole('combobox', { name: 'Команда' }))
+    await user.click(within(await screen.findByRole('listbox')).getByRole('option', { name }))
+  }
+  const fill = async (user: User, dialog: HTMLElement, team = 'Бета') => {
+    await pickTeam(user, dialog, team)
+    await user.type(within(dialog).getByRole('textbox', { name: 'Причина' }), REASON)
+  }
+  const assign = (dialog: HTMLElement) => within(dialog).getByRole('button', { name: 'Призначити' })
+
+  beforeEach(() => {
+    // 2026-11-11, mid-morning: Date only, so Radix keeps its real timers
+    vi.setSystemTime(new Date(2026, 10, 11, 10, 0))
+    get.mockReset()
+    get.mockResolvedValue({ data: TEAMS })
+    setCard(triage())
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('AC 1: ADMIN gets the item on a triage card, in its own group after the studio hide', async () => {
+    const user = userEvent.setup()
+    renderCard(ADMIN)
+    await user.click(screen.getByRole('button', { name: 'Дії адміністратора' }))
+    const menu = await screen.findByRole('menu')
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Приховати для всіх…', 'Призначити команді…'])
+    expect(within(menu).getAllByRole('separator')).toHaveLength(2)
+  })
+
+  it('AC 1: ADMIN on a card that is not triage gets the studio hide alone', async () => {
+    const user = userEvent.setup()
+    setCard(triage({ eligibility: 'LEAD' }))
+    renderCard(ADMIN)
+    await user.click(screen.getByRole('button', { name: 'Дії адміністратора' }))
+    const menu = await screen.findByRole('menu')
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Приховати для всіх…'])
+    expect(within(menu).getAllByRole('separator')).toHaveLength(1)
+  })
+
+  it('SPEC-L-1, CR-M-1: a triage card the server would not grant (manual, EXCLUDED, a live LEAD) gets the studio hide alone', async () => {
+    const user = userEvent.setup()
+    setCard(triage({ primarySource: null, triageGrantable: false }))
+    renderCard(ADMIN)
+    await user.click(screen.getByRole('button', { name: 'Дії адміністратора' }))
+    const menu = await screen.findByRole('menu')
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Приховати для всіх…'])
+  })
+
+  it('CR-M-1: a card that stops being triage while the dialog is open closes it and hands focus back to «⋯»', async () => {
+    const user = userEvent.setup()
+    const { rerender } = renderCard(ADMIN)
+    const trigger = screen.getByRole('button', { name: 'Дії адміністратора' })
+    await openAssign(user)
+    expect(trigger).not.toHaveFocus()
+    setCard(triage({ eligibility: 'LEAD' }))
+    rerender()
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    await waitFor(() => expect(trigger).toHaveFocus())
+    // nothing was refused, so nothing is raised as it goes
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('CR-M-1: the card turning triage again does not reopen the dialog by itself', async () => {
+    const user = userEvent.setup()
+    const { rerender } = renderCard(ADMIN)
+    await openAssign(user)
+    setCard(triage({ eligibility: 'LEAD' }))
+    rerender()
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    setCard(triage())
+    rerender()
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    // the item still opens it on purpose
+    await openAssign(user)
+  })
+
+  it('AC 1: HR never gets the item on a triage card: no administrator menu, nothing in «Приховати»', async () => {
+    const user = userEvent.setup()
+    renderCard(HR)
+    expect(screen.queryByRole('button', { name: /Дії адміністратора/ })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Приховати' }))
+    const menu = await screen.findByRole('menu')
+    expect(within(menu).queryByText(/Призначити/)).toBeNull()
+    expect(screen.queryByText('Призначити команді…')).toBeNull()
+  })
+
+  it('AC 2: a grant sends every schema field (card revision, policy version, team, reason, expiry) and a fresh key per attempt', async () => {
+    const user = userEvent.setup()
+    post.mockResolvedValue(granted())
+    const { onClose } = renderCard(ADMIN)
+    const trigger = screen.getByRole('button', { name: 'Дії адміністратора' })
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    const [body] = sent(GRANT)
+    expect(body).toEqual({
+      teamId: BETA,
+      expectedOpportunityRevision: 3,
+      policyVersion: POLICY,
+      reason: REASON,
+      expiresAt: endOf(25),
+      idempotencyKey: expect.stringMatching(UUID),
+    })
+    expect(jobQueueTeamTriageGrantRequestSchema.parse(body)).toEqual(body)
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(toast.success).toHaveBeenCalledWith('Призначено: Бета', JOB_QUEUE_TOAST)
+    expect(trigger).toHaveFocus()
+    expect(onClose).not.toHaveBeenCalled()
+    // the same grant again is a new attempt: the answered one released its key
+    const again = await openAssign(user)
+    await fill(user, again)
+    await user.click(assign(again))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(2))
+    expect(sent(GRANT)[1]).toEqual({ ...body, idempotencyKey: expect.stringMatching(UUID) })
+    expect(sent(GRANT)[1]!.idempotencyKey).not.toBe(body!.idempotencyKey)
+  })
+
+  it('AC 2: a 409 refreshes the card and shows the one conflict note in the dialog; the retry clears it and sends the new revision', async () => {
+    const user = userEvent.setup()
+    const invalidate = vi.spyOn(client, 'invalidateQueries')
+    post.mockRejectedValueOnce(coded(409, 'JOB_QUEUE_VERSION_CONFLICT'))
+    const { rerender } = renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    const note = await within(dialog).findByTestId('job-queue-conflict')
+    expect(note).toHaveTextContent(/^Дані змінилися\. Оновіть картку й повторіть\.$/)
+    expect(note).toHaveAttribute('role', 'alert')
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: jobQueueScopeKey(ADMIN) })
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(screen.getByRole('alertdialog')).toBe(dialog)
+    setCard(triage({ revision: 4 }))
+    rerender()
+    let answer: (value: unknown) => void = () => {}
+    post.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)))
+    expect(assign(dialog)).not.toHaveAttribute('aria-disabled')
+    expect(assign(dialog)).not.toHaveAttribute('aria-busy')
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(2))
+    expect(within(dialog).queryByTestId('job-queue-conflict')).toBeNull()
+    expect(sent(GRANT)[1]).toMatchObject({ expectedOpportunityRevision: 4 })
+    // pending: «Призначити» keeps its focus but sends nothing more
+    await waitFor(() => expect(assign(dialog)).toHaveAttribute('aria-disabled', 'true'))
+    expect(assign(dialog)).toHaveAttribute('aria-busy', 'true')
+    expect(assign(dialog)).toHaveFocus()
+    await user.click(assign(dialog))
+    expect(sent(GRANT)).toHaveLength(2)
+    answer(granted())
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+  })
+
+  it("SPEC-H-1: an ADMIN in one team's queue gets the item and sends the studio policy version", async () => {
+    const user = userEvent.setup()
+    post.mockResolvedValue(granted())
+    setCard(triage({ triagePolicyVersion: 7 }))
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    expect(sent(GRANT)[0]).toMatchObject({ policyVersion: 7 })
+  })
+
+  it('CR-M-1: a card that does not say it is grantable gets the studio hide alone', async () => {
+    const user = userEvent.setup()
+    setCard(triage({ triageGrantable: undefined }))
+    renderCard(ADMIN)
+    await user.click(screen.getByRole('button', { name: 'Дії адміністратора' }))
+    const menu = await screen.findByRole('menu')
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Приховати для всіх…'])
+  })
+
+  it('backlog 426: a team that already has access is told until when, in the dialog, with no conflict note', async () => {
+    const user = userEvent.setup()
+    post.mockRejectedValueOnce(
+      httpError(409, {
+        statusCode: 409,
+        code: 'JOB_QUEUE_TRIAGE_ALREADY_GRANTED',
+        message: 'already granted',
+        params: { expiresAt: endOf(25) },
+      }),
+    )
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    const note = await within(dialog).findByTestId('job-queue-grant-refused')
+    expect(note).toHaveTextContent(
+      /^Ця команда вже бачить цю вакансію до кінця 25\.11\.2026\. Виберіть іншу команду\.$/,
+    )
+    expect(note).toHaveAttribute('role', 'alert')
+    expect(within(dialog).queryByTestId('job-queue-conflict')).toBeNull()
+    expect(screen.getByRole('alertdialog')).toBe(dialog)
+    expect(toast.success).not.toHaveBeenCalled()
+    // the next attempt starts clean
+    post.mockReturnValueOnce(new Promise(() => {}))
+    await user.click(assign(dialog))
+    await waitFor(() => expect(within(dialog).queryByTestId('job-queue-grant-refused')).toBeNull())
+  })
+
+  it('backlog 426: an item no longer on triage is refused with its own note', async () => {
+    const user = userEvent.setup()
+    post.mockRejectedValueOnce(coded(422, 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE'))
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    expect(await within(dialog).findByTestId('job-queue-grant-refused')).toHaveTextContent(
+      new RegExp(`^${NOT_ELIGIBLE}$`),
+    )
+    expect(within(dialog).queryByTestId('job-queue-conflict')).toBeNull()
+  })
+
+  it('QA-MED-1: the refusal is still seen when the refetch drops the item and its dialog: a toast names it', async () => {
+    const user = userEvent.setup()
+    post.mockRejectedValueOnce(coded(422, 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE'))
+    const { rerender } = renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await within(dialog).findByTestId('job-queue-grant-refused')
+    expect(toast.error).not.toHaveBeenCalled()
+    // the hook's refetch: the server no longer offers the grant, so the item and its dialog go
+    setCard(triage({ triageGrantable: false }))
+    rerender()
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(toast.error).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(toast.error).mock.calls[0]![0]).toMatch(new RegExp(`^${NOT_ELIGIBLE}$`))
+    expect(vi.mocked(toast.error).mock.calls[0]![1]).toBe(JOB_QUEUE_TOAST)
+  })
+
+  it('QA-MED-1: a refusal the actor saw and closed is not repeated as a toast', async () => {
+    const user = userEvent.setup()
+    post.mockRejectedValueOnce(coded(422, 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE'))
+    const { rerender } = renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await within(dialog).findByTestId('job-queue-grant-refused')
+    await user.click(within(dialog).getByRole('button', { name: 'Не призначати' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    setCard(triage({ triageGrantable: false }))
+    rerender()
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  // 1340-CR-L-r2-1: Radix keeps the closed content mounted for its exit animation (~200 ms); happy-dom
+  // runs no CSS, so the content reports an exit animation it never ends — the form stays mounted
+  it('a refusal that lands during the close animation (closed, still mounted) still toasts', async () => {
+    const real = window.getComputedStyle.bind(window)
+    const styles = vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) => {
+      const style = real(el, pseudo)
+      if (!(el instanceof HTMLElement) || el.getAttribute('role') !== 'alertdialog') return style
+      return new Proxy(style, {
+        get: (target, key) => {
+          if (key === 'animationName') return el.dataset['state'] === 'closed' ? 'exit' : 'enter'
+          const value: unknown = Reflect.get(target, key, target)
+          return typeof value === 'function' ? value.bind(target) : value
+        },
+      })
+    })
+    try {
+      const user = userEvent.setup()
+      let fail: (reason: unknown) => void = () => {}
+      post.mockReturnValueOnce(new Promise((_resolve, reject) => (fail = reject)))
+      renderCard(ADMIN)
+      const dialog = await openAssign(user)
+      await fill(user, dialog)
+      await user.click(assign(dialog))
+      await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+      await user.keyboard('{Escape}')
+      await waitFor(() => expect(dialog).toHaveAttribute('data-state', 'closed'))
+      expect(dialog).toBeInTheDocument()
+      fail(coded(422, 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE'))
+      await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+      expect(vi.mocked(toast.error).mock.calls[0]).toEqual([
+        expect.stringMatching(new RegExp(`^${NOT_ELIGIBLE}$`)),
+        JOB_QUEUE_TOAST,
+      ])
+    } finally {
+      styles.mockRestore()
+    }
+  })
+
+  it('CR-L-1: a retry clears the refusal it replaced, so a dialog dropped during the retry toasts nothing', async () => {
+    const user = userEvent.setup()
+    post.mockRejectedValueOnce(coded(422, 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE'))
+    const { rerender } = renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await within(dialog).findByTestId('job-queue-grant-refused')
+    // the retry is still in flight when the refetch drops the item and its dialog
+    post.mockReturnValueOnce(new Promise(() => {}))
+    await user.click(assign(dialog))
+    await waitFor(() => expect(within(dialog).queryByTestId('job-queue-grant-refused')).toBeNull())
+    setCard(triage({ triageGrantable: false }))
+    rerender()
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  // PR #1332 manual QA: per-call `mutate` callbacks are dropped on unmount, so a grant saved after
+  // the user left the page lost its success toast; the refusal path already toasts on unmount
+  it('a grant that succeeds after the dialog unmounted still toasts its success', async () => {
+    const user = userEvent.setup()
+    let answer: (value: unknown) => void = () => {}
+    post.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)))
+    const view = renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    view.unmount()
+    answer(granted())
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Призначено: Бета', JOB_QUEUE_TOAST),
+    )
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  // CR-M-2: an error that lands after the dialog unmounted has no dialog to show it in
+  it.each([
+    [
+      'a refusal',
+      () => coded(422, 'JOB_QUEUE_TRIAGE_NOT_ELIGIBLE'),
+      new RegExp(`^${NOT_ELIGIBLE}$`),
+    ],
+    [
+      'a 500',
+      () => httpError(500, {}),
+      /^Не вдалося призначити вакансію команді\. Спробуйте ще раз\.$/,
+    ],
+  ])('%s that lands after the dialog unmounted still toasts', async (_, error, text) => {
+    const user = userEvent.setup()
+    let fail: (reason: unknown) => void = () => {}
+    post.mockReturnValueOnce(new Promise((_resolve, reject) => (fail = reject)))
+    const view = renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    view.unmount()
+    fail(error())
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(toast.error).mock.calls[0]).toEqual([
+      expect.stringMatching(text),
+      JOB_QUEUE_TOAST,
+    ])
+  })
+
+  it.each([
+    ['a conflict', () => coded(409, 'JOB_QUEUE_VERSION_CONFLICT')],
+    ['an access loss', () => coded(403, 'FORBIDDEN')],
+  ])('%s that lands after the dialog unmounted toasts nothing', async (_, error) => {
+    const user = userEvent.setup()
+    let fail: (reason: unknown) => void = () => {}
+    post.mockReturnValueOnce(new Promise((_resolve, reject) => (fail = reject)))
+    const view = renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    view.unmount()
+    fail(error())
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('a failed grant says so in the dialog and keeps it; a retry that loses access says nothing', async () => {
+    const user = userEvent.setup()
+    post.mockRejectedValueOnce(httpError(500, {}))
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    const alert = await within(dialog).findByRole('alert')
+    expect(alert).toHaveTextContent(/^Не вдалося призначити вакансію команді\. Спробуйте ще раз\.$/)
+    expect(within(dialog).queryByTestId('job-queue-conflict')).toBeNull()
+    post.mockRejectedValueOnce(coded(403, 'FORBIDDEN'))
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(2))
+    // no definitive answer, so the retry replays the first attempt's key
+    expect(sent(GRANT)[1]!.idempotencyKey).toBe(sent(GRANT)[0]!.idempotencyKey)
+    await waitFor(() => expect(within(dialog).queryByRole('alert')).toBeNull())
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  it('«Призначити» waits for a team and a non-blank reason; the reason is bounded by the schema', async () => {
+    const user = userEvent.setup()
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    expect(assign(dialog)).toBeDisabled()
+    await pickTeam(user, dialog, 'Бета')
+    expect(assign(dialog)).toBeDisabled()
+    const reason = within(dialog).getByRole('textbox', { name: 'Причина' })
+    expect(reason).toHaveAttribute('maxLength', '500')
+    await user.type(reason, '   ')
+    expect(assign(dialog)).toBeDisabled()
+    await user.type(reason, 'x')
+    expect(assign(dialog)).toBeEnabled()
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('the picker lists every active team from /teams, in the cache the membership hook shares', async () => {
+    const user = userEvent.setup()
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await user.click(within(dialog).getByRole('combobox', { name: 'Команда' }))
+    const options = within(await screen.findByRole('listbox')).getAllByRole('option')
+    expect(options.map((option) => option.textContent)).toEqual(['Альфа', 'Бета'])
+    expect(get).toHaveBeenCalledTimes(1)
+    expect(get).toHaveBeenCalledWith('/teams')
+    expect(client.getQueryData(['teams', { archived: 'active' }])).toEqual(TEAMS)
+  })
+
+  it('the picker offers only SENIOR teams: a DROP team from /teams is not offered (the server refuses it)', async () => {
+    const user = userEvent.setup()
+    get.mockResolvedValue({ data: [TEAMS[0], DROP, TEAMS[1]] })
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await user.click(within(dialog).getByRole('combobox', { name: 'Команда' }))
+    const options = within(await screen.findByRole('listbox')).getAllByRole('option')
+    expect(options.map((option) => option.textContent)).toEqual(['Альфа', 'Бета'])
+    expect(screen.queryByText('Немає команд, яким можна призначити вакансію.')).toBeNull()
+  })
+
+  it('COPY C2: no SENIOR team at all says so under the picker once loaded, not while loading; «Призначити» stays off', async () => {
+    const user = userEvent.setup()
+    let load: (value: unknown) => void = () => {}
+    get.mockReturnValueOnce(new Promise((resolve) => (load = resolve)))
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    const team = within(dialog).getByRole('combobox', { name: 'Команда' })
+    expect(within(dialog).queryByText('Немає команд, яким можна призначити вакансію.')).toBeNull()
+    load({ data: [DROP] })
+    const empty = await within(dialog).findByText('Немає команд, яким можна призначити вакансію.')
+    expect(team).toHaveAttribute('aria-describedby', empty.id)
+    // the empty list explains the disabled button alone: no second hint beside it
+    expect(within(dialog).getByText('Виберіть команду й вкажіть причину.')).toHaveClass('invisible')
+    expect(assign(dialog)).not.toHaveAttribute('aria-describedby')
+    // UX-L-4 (backlog 427): nothing to pick, so the picker does not open an empty list
+    expect(team).toBeDisabled()
+    await user.type(within(dialog).getByRole('textbox', { name: 'Причина' }), REASON)
+    expect(assign(dialog)).toBeDisabled()
+  })
+
+  it('UX-M-1: both required fields say so, and a hint beside the actions shows only while the form is incomplete', async () => {
+    const user = userEvent.setup()
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    const team = within(dialog).getByRole('combobox', { name: 'Команда' })
+    const reason = within(dialog).getByRole('textbox', { name: 'Причина' })
+    expect(team).toHaveAttribute('aria-required', 'true')
+    expect(reason).toHaveAttribute('aria-required', 'true')
+    expect(team).not.toHaveAttribute('aria-describedby')
+    const hint = within(dialog).getByText('Виберіть команду й вкажіть причину.')
+    expect(assign(dialog)).toHaveAttribute('aria-describedby', hint.id)
+    expect(hint).toHaveClass('text-sm', 'text-pretty', 'text-muted-foreground')
+    expect(team).toBeEnabled()
+    await pickTeam(user, dialog, 'Бета')
+    expect(hint).not.toHaveClass('invisible')
+    await user.type(reason, REASON)
+    // UX-L-1 (backlog 427): hidden, not removed, so the centred dialog keeps its height under the caret
+    expect(within(dialog).getByText('Виберіть команду й вкажіть причину.')).toBe(hint)
+    expect(hint).toHaveClass('invisible')
+    expect(assign(dialog)).toBeEnabled()
+    expect(assign(dialog)).not.toHaveAttribute('aria-describedby')
+  })
+
+  it('UX-L-3: the title balances its lines', async () => {
+    const user = userEvent.setup()
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    expect(
+      within(dialog).getByRole('heading', { name: 'Призначити вакансію команді' }),
+    ).toHaveClass('text-balance')
+  })
+
+  it('a grant that lands after the team list changed still names the team and closes the dialog', async () => {
+    const user = userEvent.setup()
+    let answer: (value: unknown) => void = () => {}
+    post.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)))
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    // the list refetched while the grant was in flight, and Бета is no longer in it
+    act(() => client.setQueryData(['teams', { archived: 'active' }], [TEAMS[0]]))
+    answer(granted())
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(toast.success).toHaveBeenCalledWith('Призначено: Бета', JOB_QUEUE_TOAST)
+  })
+
+  it('a picked team that leaves the list before the send cannot be sent: «Призначити» waits for a team again', async () => {
+    const user = userEvent.setup()
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await fill(user, dialog)
+    expect(assign(dialog)).toBeEnabled()
+    act(() => client.setQueryData(['teams', { archived: 'active' }], [TEAMS[0]]))
+    await waitFor(() => expect(assign(dialog)).toBeDisabled())
+    await pickTeam(user, dialog, 'Альфа')
+    expect(assign(dialog)).toBeEnabled()
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('a cached team list is used as is, with no request', async () => {
+    const user = userEvent.setup()
+    client.setQueryData(
+      ['teams', { archived: 'active' }],
+      [{ id: ALPHA, name: 'Кешована', type: 'SENIOR' }],
+    )
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await pickTeam(user, dialog, 'Кешована')
+    expect(get).not.toHaveBeenCalled()
+  })
+
+  it('teams that fail to load say so in the dialog; «Спробувати ще раз» asks again', async () => {
+    const user = userEvent.setup()
+    get.mockRejectedValueOnce(httpError(500, {}))
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    const failure = await within(dialog).findByRole('alert')
+    expect(failure).toHaveTextContent('Не вдалося завантажити команди.')
+    await user.click(within(failure).getByRole('button', { name: 'Спробувати ще раз' }))
+    await waitFor(() => expect(within(dialog).queryByRole('alert')).toBeNull())
+    expect(get).toHaveBeenCalledTimes(2)
+    await pickTeam(user, dialog, 'Альфа')
+  })
+
+  it('AC 3: the expiry defaults to 14 days on (A1), past days are refused, and it is editable', async () => {
+    const user = userEvent.setup()
+    post.mockResolvedValue(granted())
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    const until = within(dialog).getByRole('button', { name: 'Діє до' })
+    expect(until).toHaveTextContent('25 лист. 2026 р.')
+    await user.click(until)
+    const panel = within(await screen.findByRole('dialog'))
+    expect(panel.getByRole('button', { name: /, 10-е листопада 2026/ })).toBeDisabled()
+    expect(panel.getByRole('button', { name: /, 11-е листопада 2026/ })).toBeEnabled()
+    await user.click(panel.getByRole('button', { name: /, 20-е листопада 2026/ }))
+    expect(until).toHaveTextContent('20 лист. 2026 р.')
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    expect(sent(GRANT)[0]).toMatchObject({ expiresAt: endOf(20) })
+  })
+
+  it('backlog 426: the last day offered is 89 days on, the last whole day inside the 90-day ceiling', async () => {
+    const user = userEvent.setup()
+    post.mockResolvedValue(granted())
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await user.click(within(dialog).getByRole('button', { name: 'Діє до' }))
+    const panel = within(await screen.findByRole('dialog'))
+    for (let month = 0; month < 3; month++)
+      await user.click(panel.getByRole('button', { name: 'Go to the Next Month' }))
+    // 2026-11-11 + 89 days = 2027-02-08
+    expect(panel.getByRole('button', { name: /, 8-е лютого 2027/ })).toBeEnabled()
+    expect(panel.getByRole('button', { name: /, 9-е лютого 2027/ })).toBeDisabled()
+    await user.click(panel.getByRole('button', { name: /, 8-е лютого 2027/ }))
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    expect(sent(GRANT)[0]).toMatchObject({
+      expiresAt: new Date(2027, 1, 8, 23, 59, 59, 999).toISOString(),
+    })
+  })
+
+  it('CR-L-1: just after midnight the last day ends 5 minutes inside the ceiling, for a browser clock running ahead', async () => {
+    vi.setSystemTime(new Date(2026, 10, 11, 0, 3))
+    const user = userEvent.setup()
+    post.mockResolvedValue(granted())
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    await user.click(within(dialog).getByRole('button', { name: 'Діє до' }))
+    const panel = within(await screen.findByRole('dialog'))
+    for (let month = 0; month < 3; month++)
+      await user.click(panel.getByRole('button', { name: 'Go to the Next Month' }))
+    await user.click(panel.getByRole('button', { name: /, 8-е лютого 2027/ }))
+    await fill(user, dialog)
+    await user.click(assign(dialog))
+    await waitFor(() => expect(sent(GRANT)).toHaveLength(1))
+    // 2026-11-11 00:03 + 90 days - 5 minutes = 2027-02-08 23:58, before the end of the day
+    expect(sent(GRANT)[0]).toMatchObject({
+      expiresAt: new Date(2027, 1, 8, 23, 58).toISOString(),
+    })
+  })
+
+  it('AC 4: the dialog traps focus, «Не призначати» takes the initial focus, Escape returns focus to «⋯»', async () => {
+    const user = userEvent.setup()
+    const { onClose } = renderCard(ADMIN)
+    const trigger = screen.getByRole('button', { name: 'Дії адміністратора' })
+    const focus = vi.spyOn(trigger, 'focus')
+    const dialog = await openAssign(user)
+    const keep = within(dialog).getByRole('button', { name: 'Не призначати' })
+    await waitFor(() => expect(keep).toHaveFocus())
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+    expect(focus).not.toHaveBeenCalled()
+    focus.mockRestore()
+    // «Не призначати» is the last tabbable control while «Призначити» waits; Tab wraps both ways
+    const team = within(dialog).getByRole('combobox', { name: 'Команда' })
+    await user.tab()
+    expect(team).toHaveFocus()
+    await user.tab({ shift: true })
+    expect(keep).toHaveFocus()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(trigger).toHaveFocus()
+    // «Не призначати» keeps the vacancy as it is, with no request
+    await user.click(within(await openAssign(user)).getByRole('button', { name: 'Не призначати' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(trigger).toHaveFocus()
+    expect(post).not.toHaveBeenCalled()
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('AC 5: every dialog control is at least 44 px tall on mobile; the dialog fits 320 px', async () => {
+    const user = userEvent.setup()
+    renderCard(ADMIN)
+    const dialog = await openAssign(user)
+    expect(dialog).toHaveClass('max-w-[calc(100%-2rem)]', 'sm:max-w-lg')
+    // the reason box is the shared Textarea, 80 px tall at least
+    expect(within(dialog).getByRole('textbox', { name: 'Причина' })).toHaveClass('min-h-[80px]')
+    for (const control of [
+      within(dialog).getByRole('combobox', { name: 'Команда' }),
+      within(dialog).getByRole('button', { name: 'Діє до' }),
+      within(dialog).getByRole('button', { name: 'Не призначати' }),
+      assign(dialog),
+    ]) {
+      expect(control).toHaveClass('min-h-11')
+    }
+  })
+
+  it('AC 5: English has its own strings', async () => {
+    await loadCatalog('en')
+    const user = userEvent.setup()
+    renderCard(ADMIN)
+    await user.click(screen.getByRole('button', { name: 'Administrator actions' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Assign to a team…' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Assign this vacancy to a team' })
+    expect(dialog).toHaveTextContent(
+      'The team will see this vacancy in its queue until the end of the chosen day.',
+    )
+    expect(within(dialog).getByRole('combobox', { name: 'Team' })).toHaveTextContent(
+      'Choose a team',
+    )
+    expect(within(dialog).getByRole('textbox', { name: 'Reason' })).toBeVisible()
+    expect(within(dialog).getByRole('button', { name: 'Valid until' })).toBeVisible()
+    expect(within(dialog).getByRole('button', { name: 'Don’t assign' })).toBeVisible()
+    expect(within(dialog).getByRole('button', { name: 'Assign' })).toBeDisabled()
+    expect(dialog).toHaveTextContent('Choose a team and give a reason.')
+  })
+
+  it('COPY C1–C3: English names the team failure, the empty list and the grant failure in its own words', async () => {
+    await loadCatalog('en')
+    const user = userEvent.setup()
+    get.mockRejectedValueOnce(httpError(500, {})).mockResolvedValueOnce({ data: [DROP] })
+    post.mockRejectedValueOnce(httpError(500, {}))
+    renderCard(ADMIN)
+    await user.click(screen.getByRole('button', { name: 'Administrator actions' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Assign to a team…' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Assign this vacancy to a team' })
+    const failure = await within(dialog).findByRole('alert')
+    expect(failure).toHaveTextContent(/^Could not load teams\.Try again$/)
+    await user.click(within(failure).getByRole('button', { name: 'Try again' }))
+    expect(await within(dialog).findByText('No team can take this vacancy.')).toBeVisible()
+    act(() => client.setQueryData(['teams', { archived: 'active' }], TEAMS))
+    await user.click(within(dialog).getByRole('combobox', { name: 'Team' }))
+    await user.click(
+      within(await screen.findByRole('listbox')).getByRole('option', { name: 'Бета' }),
+    )
+    await user.type(within(dialog).getByRole('textbox', { name: 'Reason' }), REASON)
+    await user.click(within(dialog).getByRole('button', { name: 'Assign' }))
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      /^Could not assign the vacancy to the team\. Please try again\.$/,
+    )
   })
 })

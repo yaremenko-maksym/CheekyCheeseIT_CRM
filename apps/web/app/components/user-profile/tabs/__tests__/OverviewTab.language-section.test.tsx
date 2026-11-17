@@ -26,6 +26,10 @@ import { OverviewTab } from '../OverviewTab'
 vi.mock('@/hooks/use-admin-note', () => ({
   useSetAdminNote: () => ({ mutate: vi.fn(), isPending: false }),
 }))
+// the availability setter fetches on mount; its own tests cover it (no network here)
+vi.mock('@/components/senior-availability/SeniorAvailabilitySection', () => ({
+  SeniorAvailabilitySection: () => null,
+}))
 
 i18n.load('uk', {})
 i18n.activate('uk')
@@ -40,6 +44,7 @@ const BASE_USER: UserProfileDto = {
   telegram: null,
   phone: null,
   techStack: null,
+  technicalRoles: [],
   paymentMethod: null,
   walletUsdtErc20: null,
   walletUsdtLabel: null,

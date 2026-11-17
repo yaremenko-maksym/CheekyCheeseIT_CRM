@@ -3,10 +3,9 @@
  * Cloudflare Workers AI (task-resume-base §2).
  *
  * Token economy (the owner asked for this explicitly):
- *   - SMALL model: `@cf/meta/llama-3.1-8b-instruct-awq` — the cheapest useful
- *     instruct model on Workers AI (11 161 Neurons per 1M input tokens /
- *     24 215 per 1M output). The free daily allowance is 10 000 Neurons,
- *     resetting at 00:00 UTC, so a single extraction must stay small.
+ *   - Model: `RESUME_EXTRACTION_MODEL` below. The free daily allowance is
+ *     10 000 Neurons, resetting at 00:00 UTC, so a single extraction must stay
+ *     small (see the constant for why this model).
  *   - HARD input cap: `RESUME_LIMITS.extractionInputChars` characters of
  *     resume text, and a `max_tokens` ceiling on the response.
  *   - Strict JSON contract + Zod validation. On invalid output we retry EXACTLY
@@ -18,7 +17,10 @@
  * Quota: Cloudflare BLOCKS the request when the daily allowance is spent (it
  * does not silently bill), surfacing as HTTP 429 / error code 3040. That maps
  * to `QUOTA_EXCEEDED` plus the next 00:00 UTC boundary, so the UI can say when
- * it resets instead of "something went wrong" (AC5).
+ * it resets instead of "something went wrong" (AC5). That holds only on Workers
+ * Free; on Workers Paid the overage is billed. So before EVERY call (the retry
+ * too) the app reserves one call of its own daily budget (`ResumeAiDailyBudget`)
+ * and answers the same `QUOTA_EXCEEDED` without a request once it is spent.
  *
  * SECURITY: the resume text is UNTRUSTED and may contain prompt injection
  * ("ignore previous instructions ..."). Two mitigations: the text is delivered
@@ -35,18 +37,53 @@ import {
   isSafeResumeUrl,
   resumeContentSchema,
   type ResumeContent,
+  encodeResumeMessage,
   type ResumeFailureCode,
 } from '@crm/shared'
 import type { Env } from '../config/env'
+import { ResumeAiDailyBudget, nextUtcMidnight } from './resume-ai-daily-budget'
 
-/** Cheapest instruct model that reliably follows a JSON schema instruction. */
-export const RESUME_EXTRACTION_MODEL = '@cf/meta/llama-3.1-8b-instruct-awq'
+export { nextUtcMidnight }
+
+/**
+ * Instruct model that follows the JSON schema instruction. The previous
+ * `@cf/meta/llama-3.1-8b-instruct-awq` was deprecated by Cloudflare on
+ * 2026-05-30 and answers HTTP 410, so every upload failed with MODEL_ERROR.
+ * This one must return `result.response` as a STRING: the Llama 3.3 / 4 models
+ * return an already-parsed object there, which `callModel` reads as empty.
+ */
+export const RESUME_EXTRACTION_MODEL = '@cf/mistralai/mistral-small-3.1-24b-instruct'
 
 /** Upper bound on generated tokens — a structured resume fits comfortably. */
 const MAX_OUTPUT_TOKENS = 1400
 
 /** Request timeout: a stuck HTTP call must not pin an extraction in RUNNING. */
 const REQUEST_TIMEOUT_MS = 60_000
+
+/**
+ * `cause.code`s of a `fetch` rejection that come from the CONNECT phase: no request byte reached
+ * Cloudflare, so nothing can be billed. Every other rejection (ECONNRESET, UND_ERR_SOCKET, a TLS
+ * failure, no cause, an unknown code) may follow a sent body and keeps the call spent.
+ * Source: undici 7.30.1 (pnpm-lock.yaml) — lib/web/fetch/index.js rejects with
+ * `new TypeError('fetch failed', { cause: response.error })`; lib/core/errors.js `ConnectTimeoutError`
+ * has code `UND_ERR_CONNECT_TIMEOUT` (thrown by lib/core/util.js on a connect timeout). ECONNREFUSED,
+ * ENOTFOUND and EAI_AGAIN are Node net/dns codes passed through as `cause.code`. Checked by probe
+ * against the global `fetch` of Node 22.23 (bundled undici 6.29.1, the runtime of node:22-alpine)
+ * and against undici 7.30.1.
+ */
+const PRE_REQUEST_ERROR_CODES: ReadonlySet<unknown> = new Set([
+  'ECONNREFUSED',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'UND_ERR_CONNECT_TIMEOUT',
+])
+
+export function failedBeforeRequest(err: unknown): boolean {
+  return (
+    err instanceof TypeError &&
+    PRE_REQUEST_ERROR_CODES.has((err.cause as { code?: unknown } | undefined)?.code)
+  )
+}
 
 export interface ResumeExtractionSuccess {
   ok: true
@@ -85,7 +122,10 @@ export class ResumeAiService {
   private readonly accountId: string | undefined
   private readonly apiToken: string | undefined
 
-  constructor(private readonly config: ConfigService<Env, true>) {
+  constructor(
+    private readonly config: ConfigService<Env, true>,
+    private readonly budget: ResumeAiDailyBudget,
+  ) {
     this.accountId = this.config.get('CLOUDFLARE_ACCOUNT_ID', { infer: true })
     this.apiToken = this.config.get('CLOUDFLARE_AI_TOKEN', { infer: true })
     if (!this.isConfigured()) {
@@ -108,8 +148,7 @@ export class ResumeAiService {
       return {
         ok: false,
         code: 'AI_NOT_CONFIGURED',
-        message:
-          'Автоматическое распознавание недоступно: сервис ИИ не настроен. Заполните резюме вручную.',
+        message: encodeResumeMessage('RESUME_AI_NOT_CONFIGURED'),
         quotaResetsAt: null,
         tokensUsed: null,
       }
@@ -117,12 +156,20 @@ export class ResumeAiService {
 
     const trimmedText = resumeText.slice(0, RESUME_LIMITS.extractionInputChars)
     let tokensUsed: number | null = null
-    let lastParseError = ''
+    // null until attempt 1 fails validation; the corrective retry then carries that error.
+    let lastParseError: string | null = null
 
     // EXACTLY two attempts — the initial call plus a single corrective retry.
     for (let attempt = 1; attempt <= 2; attempt += 1) {
-      const call = await this.callModel(trimmedText, attempt === 2 ? lastParseError : null)
-      if (!call.ok) return { ...call, tokensUsed }
+      const now = new Date()
+      const spent = await this.budgetSpent(now)
+      if (spent) return { ...spent, tokensUsed }
+      const call = await this.callModel(trimmedText, lastParseError, now)
+      if (!call.ok) {
+        const { unbilled, ...failure } = call
+        if (unbilled) await this.releaseCall(now)
+        return { ...failure, tokensUsed }
+      }
 
       tokensUsed = sumTokens(tokensUsed, call.tokensUsed)
       const parsed = this.parseModelOutput(call.raw)
@@ -137,9 +184,52 @@ export class ResumeAiService {
     return {
       ok: false,
       code: 'MODEL_INVALID_JSON',
-      message: `Модель вернула некорректный ответ (${truncate(lastParseError, 300)}). Проверьте и заполните поля вручную.`,
+      // The parse error itself is logged per attempt above; the user gets the code only.
+      message: encodeResumeMessage('RESUME_AI_INVALID_ANSWER'),
       quotaResetsAt: null,
       tokensUsed,
+    }
+  }
+
+  /**
+   * Reserves one call of today's budget. Null = reserved, go ahead; otherwise the failure to return.
+   * A budget that cannot be read fails CLOSED (no call): spending blind is the direction that bills.
+   */
+  private async budgetSpent(now: Date): Promise<ResumeExtractionFailure | null> {
+    let reserved: boolean
+    try {
+      reserved = await this.budget.reserveCall(now)
+    } catch (err: unknown) {
+      this.logger.error(
+        `Resume AI daily budget unreadable, call refused: ${err instanceof Error ? err.message : 'unknown error'}`,
+      )
+      return {
+        ok: false,
+        code: 'MODEL_ERROR',
+        message: encodeResumeMessage('RESUME_AI_UNAVAILABLE'),
+        quotaResetsAt: null,
+        tokensUsed: null,
+      }
+    }
+    if (reserved) return null
+    this.logger.warn('Resume AI daily call budget is spent; no Cloudflare request made')
+    return {
+      ok: false,
+      code: 'QUOTA_EXCEEDED',
+      message: encodeResumeMessage('RESUME_AI_QUOTA_EXCEEDED'),
+      quotaResetsAt: nextUtcMidnight(now).toISOString(),
+      tokensUsed: null,
+    }
+  }
+
+  /** Gives back the call reserved at `now`. A failure only over-counts (the safe side): log it. */
+  private async releaseCall(now: Date): Promise<void> {
+    try {
+      await this.budget.releaseCall(now)
+    } catch (err: unknown) {
+      this.logger.error(
+        `Resume AI daily budget release failed; the call stays counted: ${err instanceof Error ? err.message : 'unknown error'}`,
+      )
     }
   }
 
@@ -150,8 +240,14 @@ export class ResumeAiService {
   private async callModel(
     resumeText: string,
     priorError: string | null,
+    /** The attempt's clock, read once: the quota reset is the one of the day the call was reserved for. */
+    now: Date,
   ): Promise<
-    { ok: true; raw: string; tokensUsed: number | null } | (ResumeExtractionFailure & { ok: false })
+    | { ok: true; raw: string; tokensUsed: number | null }
+    // `unbilled`: Cloudflare cannot have billed this call (a connect-phase failure, see
+    // `PRE_REQUEST_ERROR_CODES`, or HTTP 429). Our own timeout and any other transport failure are
+    // NOT unbilled: the request may have been sent and run.
+    | (ResumeExtractionFailure & { ok: false; unbilled: boolean })
   > {
     const userContent = priorError
       ? `Предыдущий ответ не прошёл валидацию: ${truncate(priorError, 400)}\nВерни ТОЛЬКО валидный JSON по схеме.\n\n<resume>\n${resumeText}\n</resume>`
@@ -161,7 +257,10 @@ export class ResumeAiService {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
 
-    let res: Response
+    // The body is read under the same timer and the same try: a stalled or reset body is bounded by
+    // REQUEST_TIMEOUT_MS and never escapes as a rejection.
+    let res: Response | undefined
+    let bodyText: string
     try {
       res = await fetch(url, {
         method: 'POST',
@@ -179,32 +278,35 @@ export class ResumeAiService {
         }),
         signal: controller.signal,
       })
+      bodyText = await res.text()
     } catch (err: unknown) {
       // Never log the token or the resume body — only the failure shape.
       this.logger.error(
-        `Workers AI request failed: ${err instanceof Error ? err.name : 'unknown error'}`,
+        `Workers AI ${res ? 'response body' : 'request'} failed: ${err instanceof Error ? err.name : 'unknown error'}`,
       )
       return {
         ok: false,
         code: 'MODEL_ERROR',
-        message: 'Сервис распознавания недоступен. Попробуйте позже или заполните резюме вручную.',
+        message: encodeResumeMessage('RESUME_AI_UNAVAILABLE'),
         quotaResetsAt: null,
         tokensUsed: null,
+        // Headers came back: the request was sent and may be billed, unless the status is 429 (never billed).
+        unbilled: res === undefined ? failedBeforeRequest(err) : res.status === 429,
       }
     } finally {
       clearTimeout(timer)
     }
 
-    const bodyText = await res.text()
     const body = safeJsonParse<WorkersAiResponse>(bodyText)
 
     if (this.isQuotaExhausted(res.status, body)) {
       return {
         ok: false,
         code: 'QUOTA_EXCEEDED',
-        message: 'Исчерпан суточный лимит бесплатных запросов к ИИ.',
-        quotaResetsAt: nextUtcMidnight().toISOString(),
+        message: encodeResumeMessage('RESUME_AI_QUOTA_EXCEEDED'),
+        quotaResetsAt: nextUtcMidnight(now).toISOString(),
         tokensUsed: null,
+        unbilled: res.status === 429,
       }
     }
 
@@ -216,9 +318,10 @@ export class ResumeAiService {
       return {
         ok: false,
         code: 'MODEL_ERROR',
-        message: 'Сервис распознавания вернул ошибку. Заполните резюме вручную.',
+        message: encodeResumeMessage('RESUME_AI_ERROR'),
         quotaResetsAt: null,
         tokensUsed: null,
+        unbilled: false,
       }
     }
 
@@ -226,7 +329,10 @@ export class ResumeAiService {
     const totalTokens = body?.result?.usage?.total_tokens
     return {
       ok: true,
-      raw: typeof raw === 'string' ? raw : '',
+      // Some Workers AI models return the JSON already parsed; re-serialise it so
+      // the same Zod validation applies instead of reading it as empty. A missing or
+      // scalar response serialises to "null"/"42" and fails that validation as before.
+      raw: typeof raw === 'string' ? raw : JSON.stringify(raw ?? null),
       tokensUsed: typeof totalTokens === 'number' ? totalTokens : null,
     }
   }
@@ -254,10 +360,10 @@ export class ResumeAiService {
     raw: string,
   ): { ok: true; content: ResumeContent } | { ok: false; error: string } {
     const json = extractJsonObject(raw)
-    if (json === null) return { ok: false, error: 'ответ не содержит JSON-объекта' }
+    if (json === null) return { ok: false, error: 'the answer holds no JSON object' }
 
     const value = safeJsonParse<unknown>(json)
-    if (value === null) return { ok: false, error: 'JSON не разбирается' }
+    if (value === null) return { ok: false, error: 'the JSON does not parse' }
 
     // Coerce shape BEFORE validating: a small model routinely emits `null` for
     // an absent array or a bare string where a list is expected. Coercion is
@@ -391,11 +497,4 @@ function arr(value: unknown, max: number): unknown[] {
 /** Defence in depth: strip unsafe links even if they somehow passed the schema. */
 function dropUnsafeLinks(content: ResumeContent): ResumeContent {
   return { ...content, links: content.links.filter((l) => isSafeResumeUrl(l.url)) }
-}
-
-/** Cloudflare's free allowance resets at 00:00 UTC. */
-export function nextUtcMidnight(from: Date = new Date()): Date {
-  const next = new Date(from)
-  next.setUTCHours(24, 0, 0, 0)
-  return next
 }

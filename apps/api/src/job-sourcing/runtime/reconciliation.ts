@@ -20,13 +20,12 @@ import {
  *
  * MAXIMUM STALENESS (SR-M-2, CR-M-1, SPEC-L-1). Not "one period": a tick sweeps at most
  * `RECONCILE_MAX_PAGES` x `RECONCILE_PAGE_SIZE` = 100,000 opportunities (the cursor carries the rest
- * to the next tick) and its caller drains at most `RECONCILE_MAX_DRAIN_BATCHES` x 200 = 2,000 dirty
- * rows (the backlog carries over). With P = `RECONCILE_PERIOD_HOURS` (6 h) the bound is
- *   P x (ceil(N / 100,000) + ceil(S / 2,000))   for N opportunities, S of them stale at once,
- * i.e. at most 2 x P (12 h) when N <= 100,000 and S <= 2,000 (one tick sweeps and enqueues, the
- * next drains), and 51 x P (306 h) for the worst case N = S = 100,000. The drain cap is
- * deliberately not raised: each batch is 200 transactions on the database every other cron
- * shares, and a roster change that stales most opportunities is the rare case.
+ * to the next tick), so with P = `RECONCILE_PERIOD_HOURS` (6 h) a stale opportunity is enqueued
+ * within P x ceil(N / 100,000) for N opportunities: one period when N <= 100,000. The drain is no
+ * longer the bottleneck: besides the sweep tick's own capped drain (`RECONCILE_MAX_DRAIN_BATCHES` x
+ * 200 = 2,000 rows), every collection run ends with a drain of up to `MATCH_DRAIN_BUDGET_MS`
+ * (`requestDrain` in `job-match-reconciliation.cron.ts`), so enqueued rows are recomputed after the
+ * next run ends, at the worker's throughput.
  * EXCEPTION BY DESIGN (CR-M-4, SR-M-3): an opportunity whose recompute fails every time never
  * converges. After `RECONCILE_MAX_FAILED_PERIODS` failed rows in its lineage the sweep stops
  * re-enqueueing it (see GIVING UP); it is retried only after its revision or the roster changes.

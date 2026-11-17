@@ -10,6 +10,16 @@ export const GEMINI_MODEL_PATTERN =
 export const GROQ_MODEL_PATTERN = /^openai\/gpt-oss-(20b|120b)$/
 
 /**
+ * The Cloudflare Workers AI catalogue shape `@cf/<vendor>/<name>`: lower-case segments that start with a
+ * letter or digit. Anchored; `isValidCloudflareModelId` adds the length cap and refuses `..`.
+ */
+export const CLOUDFLARE_MODEL_PATTERN = /^@cf\/[a-z0-9][a-z0-9_-]*\/[a-z0-9][a-z0-9._-]*$/
+const CLOUDFLARE_MODEL_MAX_CHARS = 128
+
+/** The hosted and local provider names a model id belongs to. */
+export type ModelProvider = 'gemini' | 'groq' | 'cloudflare' | 'local'
+
+/**
  * The id shape common to every provider (ADR §3.4): letters, digits and `. _ - /`, at most one `:`,
  * at most 128 characters, no leading `/`, no `..`. Whitespace and control characters fall outside the
  * class; a URL scheme (`x://`) is refused because no `/` may follow the `:`.
@@ -24,10 +34,22 @@ export function isValidModelId(id: string): boolean {
 }
 
 /** A model id of `provider`, validated by the common shape and, for a hosted provider, its family. */
-export function isValidProviderModelId(provider: 'gemini' | 'groq' | 'local', id: string): boolean {
+export function isValidProviderModelId(provider: ModelProvider, id: string): boolean {
   if (provider === 'gemini') return isValidModelId(id) && GEMINI_MODEL_PATTERN.test(id)
   if (provider === 'groq') return GROQ_MODEL_PATTERN.test(id)
+  if (provider === 'cloudflare') {
+    return (
+      id.length <= CLOUDFLARE_MODEL_MAX_CHARS &&
+      !id.includes('..') &&
+      CLOUDFLARE_MODEL_PATTERN.test(id)
+    )
+  }
   return isValidModelId(id)
+}
+
+/** Whether a pair may receive image parts (vision routes research): Gemini family only. */
+export function isVisionCapable(provider: ModelProvider, id: string): boolean {
+  return provider === 'gemini' && GEMINI_MODEL_PATTERN.test(id)
 }
 
 export type GeminiModelId = { id: string; version: string; variant: string }

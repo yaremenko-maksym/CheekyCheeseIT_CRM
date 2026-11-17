@@ -54,7 +54,7 @@ export interface ReportingWiring {
   readonly allowedHosts?: readonly string[] | AllowedHostsOf
 }
 
-/** A phase-3 adapter on the reporting contract. Registered for activation, never run by this task. */
+/** A phase-3 adapter on the reporting contract, run by the run worker once its source is claimed. */
 export class ReportingAdapter {
   readonly contract = 'REPORTING' as const
 

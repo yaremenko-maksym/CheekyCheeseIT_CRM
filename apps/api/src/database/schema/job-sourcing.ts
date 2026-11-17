@@ -239,7 +239,7 @@ export const jobSources = pgTable(
      * Source fetch strategy U2 (ADR 2026-10-25 section 4): the slow-down level 0..4. The
      * ledger's `finish` raises it by one when a run ends `RATE_LIMIT`, `UPSTREAM` or
      * `TRANSIENT_NETWORK`, lowers it by one after a clean run, and `nextSlot` multiplies
-     * the interval by `2^level` (capped at 24 h). Production gets it from the staged
+     * the interval by `2^level` (capped at 24 h). Production gets it from the manual/
      * `2026-10-31_job_run_metrics_slowdown.sql` (`ADD COLUMN` appends, so it stays LAST).
      */
     slowdownLevel: smallint('slowdown_level').notNull().default(0),
@@ -247,7 +247,7 @@ export const jobSources = pgTable(
   (t) => [
     check('ck_job_sources_slowdown_level_range', sql`${t.slowdownLevel} BETWEEN 0 AND 4`),
     /**
-     * SR-M-4 (STAGED/DARK). The availability-reconcile worker ties an inventory record to its source
+     * SR-M-4. The availability-reconcile worker ties an inventory record to its source
      * by `JOIN job_sources s ON s.type = r.source_type AND s.namespace = r.namespace`
      * (availability/inventory-counter-updater.ts). That JOIN is ambiguous if two sources share
      * `(type, namespace)`. A plain `(type, namespace)` UNIQUE cannot be used: the three seeded JSearch
@@ -266,9 +266,9 @@ export const jobSources = pgTable(
      * ATS board adapters (`INVENTORY_SOURCE_TYPES`); every other provider sets a non-null scope `query`
      * (or `window`) marker to force WINDOW.
      *
-     * STAGED/DARK: the forward DDL lives in `manual-staged/`, NOT applied in production. Promote +
-     * deploy wiring is a separate step gated on a prod `(type, namespace)` duplicate audit among these
-     * ATS types (which must also catch an existing ATS row with an empty namespace — SR-M-1).
+     * Forward DDL: `manual/2026-11-02_job_sources_inventory_uniqueness.sql` (promoted by backlog 434).
+     * Its apply fails the deploy on a prod `(type, namespace)` duplicate among these ATS types or an
+     * ATS row with an empty namespace (SR-M-1), so the deploy is preceded by that audit.
      */
     uniqueIndex('uq_job_sources_inventory_type_namespace')
       .on(t.type, t.namespace)

@@ -1,16 +1,21 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import type { PoolClient } from 'pg'
+import { Pool, type PoolClient } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { type CrmAppSession, openCrmAppSession } from './__test-helpers__/crm-app-session'
+import { parkConcurrentBuild, withNotices } from './__test-helpers__/concurrent-index-build'
+import {
+  type CrmAppSession,
+  openCrmAppSession,
+  resolveConnectionPlan,
+} from './__test-helpers__/crm-app-session'
 import { splitSqlStatements } from './manual-sql-statements'
 import { hasDatabaseUrl } from '../test/require-real-db'
 import { type ClaimConsumer, dirtyWorkStatements } from '../job-sourcing/ownership/dirty-work.store'
 
 /**
- * Backlog 347 (1) (STAGED/DARK) — the staged forward DDL
- * `manual-staged/2026-11-03_job_dirty_work_partition_partial.sql` against a REAL Postgres.
+ * Backlog 347 (1) (promoted by backlog 434) — the forward DDL
+ * `manual/2026-11-03_job_dirty_work_partition_partial.sql` against a REAL Postgres.
  *
  * The file adds TWO partial btree indexes on `job_dirty_work (status, created_at)`, one per
  * `claimDirtyBatch` reason partition: `idx_job_dirty_work_pending_match` and
@@ -33,7 +38,7 @@ const FILE = join(
   '..',
   '..',
   'drizzle',
-  'manual-staged',
+  'manual',
   '2026-11-03_job_dirty_work_partition_partial.sql',
 )
 const SCHEMA = 'ddl_job_dirty_work_partition_partial'
@@ -43,15 +48,33 @@ const INDEX: Record<ClaimConsumer, string> = {
   AVAILABILITY: 'idx_job_dirty_work_pending_availability',
 }
 const INDEXES = Object.values(INDEX)
+const DIRTY_WORK_PARK = { schema: SCHEMA, searchPath: `${SCHEMA}, public`, table: TABLE }
 
 let session: CrmAppSession
 let client: PoolClient
+let pool: Pool
 
 const unqualify = (text: string, schema: string) => text.split(`${schema}.`).join('public.')
 
 async function applyFile(): Promise<void> {
   for (const statement of splitSqlStatements(readFileSync(FILE, 'utf8')))
     await client.query(statement)
+}
+
+/** The file's two `DO` blocks: the INVALID-leftover sweep and the closing check (CR-M-1). */
+function doBlocks(): { sweep: string; finalCheck: string } {
+  const blocks = readFileSync(FILE, 'utf8').match(/DO \$\$\nDECLARE[\s\S]*?\nEND \$\$;/g)
+  if (blocks?.length !== 2) throw new Error(`expected 2 DO blocks, found ${blocks?.length ?? 0}`)
+  return { sweep: blocks[0]!, finalCheck: blocks[1]! }
+}
+
+/** Marks an index INVALID — the state an interrupted CONCURRENTLY build leaves behind. */
+async function invalidate(index: string): Promise<void> {
+  await client.query(
+    `UPDATE pg_index SET indisvalid = false
+      WHERE indexrelid = format('%I.%I', $1::text, $2::text)::regclass`,
+    [SCHEMA, index],
+  )
 }
 
 /** The indexes this file adds, read from one schema and schema-normalised for comparison. */
@@ -96,11 +119,14 @@ async function claimPlanIndexes(consumer: ClaimConsumer): Promise<string[]> {
 }
 
 describe.skipIf(!hasDatabaseUrl())(
-  'backlog 347 staged DDL: reason-partition partial indexes on job_dirty_work',
+  'backlog 347 forward DDL: reason-partition partial indexes on job_dirty_work',
   () => {
     beforeAll(async () => {
       session = await openCrmAppSession()
       client = await session.admin.connect()
+      // CR-M-2: the builder pool is the SWEEPER's role (`session.admin`'s URL), so the parked build
+      // is visible to the sweep and a pass means the in-progress check spared it.
+      pool = new Pool({ connectionString: resolveConnectionPlan(process.env).ownerUrl })
       const { rows } = await client.query(`SELECT current_database() AS db`)
       if (rows[0].db === 'crm_db') throw new Error('refusing the live database')
       await client.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`)
@@ -122,6 +148,7 @@ describe.skipIf(!hasDatabaseUrl())(
         await client?.query(`SET search_path = public`)
         await client?.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`)
         client?.release()
+        await pool?.end()
       } finally {
         await session.close()
       }
@@ -151,6 +178,54 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await addedIndexes(SCHEMA)).toEqual(before)
     })
 
+    it('the next apply sweeps an INVALID leftover and rebuilds it (CR-M-1)', async () => {
+      const before = await addedIndexes(SCHEMA)
+      await invalidate(INDEX.MATCH)
+      const broken = await addedIndexes(SCHEMA)
+      expect(broken.find((r) => r.name === INDEX.MATCH)?.valid).toBe(false)
+      // Without the sweep, `IF NOT EXISTS` sees the name, skips, and the file exits 0.
+      await applyFile()
+      expect(await addedIndexes(SCHEMA)).toEqual(before)
+    })
+
+    it('spares an index whose build is still running, and the build completes (LOW)', async () => {
+      await client.query(`DROP INDEX IF EXISTS ${SCHEMA}.${INDEX.MATCH}`)
+      const parked = await parkConcurrentBuild(pool, { ...DIRTY_WORK_PARK, indexName: INDEX.MATCH })
+      try {
+        const { sweep } = doBlocks()
+        // The sweep's own bound, as the file sets it: a sweep that wrongly DROPs the in-flight
+        // index fails in 10 s instead of queueing behind the build it is blocking.
+        await client.query(`SET lock_timeout = '10s'`)
+        const { notices } = await withNotices(client, () => client.query(sweep))
+        // CR-M-2: the sweep SAW the build (no masked-progress early return), so sparing it is the
+        // in-progress check's doing, not an invisible build's.
+        expect(notices.join('\n')).not.toMatch(/NOTHING is swept/)
+        expect(notices.join('\n')).not.toMatch(/dropping INVALID index/)
+        const broken = await addedIndexes(SCHEMA)
+        expect(broken.find((r) => r.name === INDEX.MATCH)?.valid).toBe(false)
+      } finally {
+        await parked.release()
+      }
+      const settled = await addedIndexes(SCHEMA)
+      expect(settled.find((r) => r.name === INDEX.MATCH)?.valid).toBe(true)
+    }, 180_000)
+
+    it('the closing check refuses an INVALID or a missing index (CR-M-1)', async () => {
+      const before = await addedIndexes(SCHEMA)
+      const { finalCheck } = doBlocks()
+      await client.query(finalCheck)
+      await invalidate(INDEX.AVAILABILITY)
+      await expect(client.query(finalCheck)).rejects.toThrow(
+        /idx_job_dirty_work_pending_availability is INVALID/,
+      )
+      await client.query(`DROP INDEX ${SCHEMA}.${INDEX.AVAILABILITY}`)
+      await expect(client.query(finalCheck)).rejects.toThrow(
+        /idx_job_dirty_work_pending_availability is MISSING/,
+      )
+      await applyFile()
+      expect(await addedIndexes(SCHEMA)).toEqual(before)
+    })
+
     it('a generic plan of each real claim can use its own partition index, never the other', async () => {
       await client.query(`SET plan_cache_mode = force_generic_plan`)
       // Only the two partial indexes exist here; with seqscan priced out, the planner takes an
@@ -163,5 +238,30 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(availability).toContain(INDEX.AVAILABILITY)
       expect(availability).not.toContain(INDEX.MATCH)
     })
+
+    it('a transaction open longer than the sweep lock_timeout does not fail the build (CR-M-1 of PR #1333)', async () => {
+      // Real timeouts, not scaled-down ones: the snapshot is held 12 s, past the sweep's 10 s
+      // lock_timeout and well inside the CIC's 5 min one. Under one session-wide 10 s timeout the
+      // CIC's wait for this older snapshot is cancelled and the apply fails.
+      const holder = await pool.connect()
+      try {
+        await client.query(
+          `DROP INDEX IF EXISTS ${INDEXES.map((name) => `${SCHEMA}.${name}`).join(', ')}`,
+        )
+        await holder.query('BEGIN ISOLATION LEVEL REPEATABLE READ')
+        await holder.query(`SELECT count(*) FROM ${SCHEMA}.${TABLE}`)
+        const applying = applyFile().then(
+          () => undefined,
+          (error: Error) => error,
+        )
+        await new Promise((resolve) => setTimeout(resolve, 12_000))
+        await holder.query('COMMIT')
+        expect(await applying).toBeUndefined()
+      } finally {
+        await holder.query('ROLLBACK').catch(() => undefined)
+        holder.release()
+      }
+      expect((await addedIndexes(SCHEMA)).every((r) => r.valid)).toBe(true)
+    }, 60_000)
   },
 )

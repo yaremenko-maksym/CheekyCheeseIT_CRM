@@ -20,11 +20,15 @@ import {
   HN_OWNER_DECISION,
   isWellFormedDecision,
   JOBGETHER_OWNER_DECISION,
+  ASHBY_OWNER_DECISION,
+  DJINNI_OWNER_DECISION,
   liftsUnclear,
+  MUSE_OWNER_DECISION,
   type OwnerDecision,
   REMOTIVE_OWNER_DECISION,
   SMARTRECRUITERS_OWNER_DECISION,
   WORKABLE_OWNER_DECISION,
+  WORKINGNOMADS_OWNER_DECISION,
 } from './owner-decisions'
 import {
   createSmartRecruitersProvider,
@@ -406,13 +410,96 @@ describe('SmartRecruiters and Workable carry their decisions', () => {
     expect(t.blockers).toEqual([])
   })
 
-  it('no decision exists for a source that has none: Muse stays BLOCKED', () => {
+  it('Muse carries its decision and stays BLOCKED by its status constant: a decision lifts UNCLEAR only', () => {
     const m = buildManifest(real())
-    expect(typeOf(m, 'MUSE_API').ownerDecisions).toEqual([])
-    expect(typeOf(m, 'MUSE_API').blockers.map((b) => b.code)).toEqual([
-      'PERMISSION_UNCLEAR',
-      'STATUS_CONSTANT_BLOCKED',
-    ])
+    expect(typeOf(m, 'MUSE_API').ownerDecisions).toEqual([MUSE_OWNER_DECISION])
+    expect(typeOf(m, 'MUSE_API').blockers.map((b) => b.code)).toEqual(['STATUS_CONSTANT_BLOCKED'])
+  })
+})
+
+describe('owner decision 2026-11-16: every source blocked only on UNCLEAR permission', () => {
+  const OWNER_QUOTE =
+    '"Мне нужно доставать вакансии со всех возможных источников и даю своё согласие на использование всех источников"'
+  const NO_EVASION =
+    'A 403, a 429, a Cloudflare/bot challenge or any explicit block ends the run with no further request; no user-agent change, proxy, headless browser or other evasion, ever.'
+  const LIFTED: readonly (readonly [string, OwnerDecision, string, readonly string[]])[] = [
+    ['ASHBY_ATS', ASHBY_OWNER_DECISION, 'api.ashbyhq.com/posting-api/job-board/', []],
+    ['DJINNI_RSS', DJINNI_OWNER_DECISION, 'djinni.co/jobs/rss/?primary_keyword=', []],
+    [
+      'WORKINGNOMADS_API',
+      WORKINGNOMADS_OWNER_DECISION,
+      'www.workingnomads.com/api/exposed_jobs/',
+      ['STATUS_CONSTANT_BLOCKED'],
+    ],
+    [
+      'MUSE_API',
+      MUSE_OWNER_DECISION,
+      'www.themuse.com/api/public/jobs',
+      ['STATUS_CONSTANT_BLOCKED'],
+    ],
+  ]
+
+  it.each(LIFTED)(
+    '%s: the decision is well-formed, dated, quotes the owner and binds the endpoint',
+    (_t, d, endpoint) => {
+      expect(isWellFormedDecision(d)).toBe(true)
+      expect(d.decision).toBe('ACCEPT_RISK')
+      expect(d.decidedAt).toBe('2026-11-16')
+      expect(d.reference).toContain(OWNER_QUOTE)
+      expect(d.reference).toContain('Accepted risk, not a documented permission.')
+      expect(d.scope).toContain(endpoint)
+      expect(d.scope).toContain(NO_EVASION)
+    },
+  )
+
+  it.each(LIFTED)(
+    '%s: the decision is attached, names its own variant and lifts PERMISSION_UNCLEAR only',
+    (t, d, _endpoint, remaining) => {
+      const m = buildManifest(real())
+      expect(typeOf(m, t).ownerDecisions).toEqual([d])
+      expect(typeOf(m, t).endpointVariant).toBe(d.endpointVariant)
+      expect(typeOf(m, t).permission).toBe('UNCLEAR')
+      expect(typeOf(m, t).blockers.map((b) => b.code)).toEqual(remaining)
+      // Removing the decision brings the permission blocker back: the decision is what lifted it.
+      expect(typeOf(build(t, without)(), t).blockers.map((b) => b.code)).toEqual([
+        'PERMISSION_UNCLEAR',
+        ...remaining,
+      ])
+    },
+  )
+
+  it('a newly lifted type with PROHIBITED captures stays BLOCKED by PERMISSION_PROHIBITED, decision present', () => {
+    const root = fixtureCopy()
+    for (const f of [
+      'primary-keyword-rust',
+      'primary-keyword-rust.truncated',
+      'primary-keyword-asic-chip-design.empty',
+    ]) {
+      const path = join(root, 'djinni', `${f}.provenance.json`)
+      const o = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+      o['permission'] = 'PROHIBITED'
+      writeFileSync(path, `${JSON.stringify(o, null, 2)}\n`)
+    }
+    const t = typeOf(build('DJINNI_RSS', (d) => d, root)(), 'DJINNI_RSS')
+    expect(t.ownerDecisions).toEqual([DJINNI_OWNER_DECISION])
+    expect(t.blockers.map((b) => b.code)).toEqual(['PERMISSION_PROHIBITED'])
+  })
+})
+
+describe('research 2026-11-16: We Work Remotely is permitted, EU Remote Jobs is prohibited', () => {
+  it('WWR_RSS: PUBLIC_FEED from the feed-page grant, ready, link-back recorded, no owner decision needed', () => {
+    const t = typeOf(buildManifest(real()), 'WWR_RSS')
+    expect(t.permission).toBe('PUBLIC_FEED')
+    expect(t.attribution).toBe('LINK_BACK_REQUIRED')
+    expect(t.ownerDecisions).toEqual([])
+    expect(t.blockers.map((b) => b.code)).toEqual([])
+  })
+
+  it('EUREMOTEJOBS_RSS: PROHIBITED by Terms of Service section 10, blocked, no decision to lift it', () => {
+    const t = typeOf(buildManifest(real()), 'EUREMOTEJOBS_RSS')
+    expect(t.permission).toBe('PROHIBITED')
+    expect(t.ownerDecisions).toEqual([])
+    expect(t.blockers.map((b) => b.code)).toEqual(['PERMISSION_PROHIBITED'])
   })
 })
 

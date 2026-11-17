@@ -1,0 +1,340 @@
+# App shell v2 — Foundation (Wave 0)
+
+> Per-screen artifact (CRM redesign v2). Coder-ready spec on our shadcn/ui + tokens. Headless agents rely
+> ONLY on this file + `assets/` (no browser access). Visual and interaction language:
+> `docs/design/foundation.md` v2. Program: `docs/superpowers/specs/2026-11-11-crm-redesign-v2-design.md`.
+> Scoring: `docs/design/rubric-calibration.md`. The v1 shell (`app-shell.md`) is superseded by this file.
+>
+> **The mockups are a visual reference, not code to paste.** Build with our components per this spec.
+
+| Field          | Value                                                                                                                                               |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Screen         | App shell v2: mobile tab bar + More sheet + quick-add, tablet rail, desktop sidebar + header + Cmd+K + `?` sheet, shell states                      |
+| Routes         | `apps/web/app/routes/__root.tsx`, `apps/web/app/routes/_authenticated/route.tsx` (`CrmLayout`) — inherited by every screen                          |
+| Existing parts | `components/crm/nav-sidebar.tsx`, `components/crm/StickyPageHeader.tsx`, notifications bell, impersonation banner, `ui/command.tsx`, `ui/sheet.tsx` |
+| Roles          | ADMIN · SENIOR · SENIOR without a team · JUNIOR · HR · ACCOUNTANT · DROP                                                                            |
+| design-gate    | **degraded** — Playwright renders of HTML prototypes (`assets/src/`), Claude Design not driven                                                      |
+| Status         | `captured` (mockups done; mockup-gate council pending)                                                                                              |
+| Sample data    | invented (names, amounts, counts)                                                                                                                   |
+| Contact sheets | `assets/shell-v2/_contact-sheet.png` (phones) · `assets/shell-v2/_contact-sheet-wide.png` (tablet / desktop)                                        |
+
+---
+
+## 1. Navigation model per role
+
+Destinations = `route-access` ∩ the existing `NAV_ITEMS` (labels = the existing uk catalog strings). The
+tab bar holds **4 destinations + «Ще»**. «Ще» holds everything else, grouped, plus the profile at the top.
+
+| Role             | Tab 1      | Tab 2       | Tab 3      | Tab 4     | In «Ще»                                                                                                      | Context «+» (direct on the tab · menu elsewhere)                                                    |
+| ---------------- | ---------- | ----------- | ---------- | --------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| ADMIN            | Фінанси    | Користувачі | Статистика | Адмін     | Дашборд · Чекають рішення · Команда · Проєкти · Співбесіди · Документи · Вакансії · Черга зовнішніх вакансій | Фінанси → Нова транзакція · Користувачі → Новий користувач · elsewhere menu of all 4                |
+| SENIOR           | Дашборд    | Фінанси     | Команда    | Проєкти   | Чекають рішення · Співбесіди · Документи                                                                     | Фінанси → Нова транзакція · Співбесіди → Нова співбесіда · elsewhere menu (транзакція · співбесіда) |
+| SENIOR (no team) | Дашборд    | Фінанси     | Команда    | Документи | Чекають рішення                                                                                              | Нова транзакція on every tab (one action)                                                           |
+| JUNIOR           | Мій проєкт | Фінанси     | Легенда    | Документи | Чекають рішення                                                                                              | none (no «+»)                                                                                       |
+| HR               | Дашборд    | Співбесіди  | Вакансії   | Команда   | Фінанси · Чекають рішення · Проєкти · Документи · Черга зовнішніх вакансій                                   | Співбесіди → Нова співбесіда · Вакансії → Нова вакансія · elsewhere menu (співбесіда · вакансія)    |
+| ACCOUNTANT       | Фінанси    | Статистика  | Дашборд    | Проєкти   | Чекають рішення · Команда · Документи                                                                        | Нова транзакція on every tab (one action)                                                           |
+| DROP             | Дашборд    | Фінанси     | Документи  | Команда   | Чекають рішення                                                                                              | Нова транзакція on every tab (one action)                                                           |
+
+- **ADMIN tab 4 is «Адмін»** (`/admin`, which redirects to `/admin/contracts`, the contract-template
+  editor): editing contracts is a daily owner task, the dashboard is not. «Дашборд» moves to «Ще» → Огляд.
+- **Profile** is the first row of «Ще» (avatar, name, «Профіль · <role>»), not a tab.
+- **«Ще» badge** = the sum of badges of the destinations it hides (today: «Чекають рішення»).
+- Quick-add actions are existing create actions only (verified against `canCreate` / route-access,
+  2026-11-11). **Context «+»:** on a tab that owns one of the role's create actions, «+» opens that
+  action directly (`aria-label` = its name, «Нова транзакція»); on any other tab it opens the role's
+  action menu (`aria-label` «Створити», `aria-haspopup="dialog"`). A role with one action always opens
+  it directly. None: no «+».
+- **Groups** (sidebar and «Ще»): Огляд · Гроші · Люди · Робота · Найм · Система. Empty groups are hidden.
+
+---
+
+## 2. Mobile (< 640 px)
+
+### Tab bar
+
+- `nav` landmark, `aria-label="Основна навігація"`; each tab is a link with `aria-current="page"` when
+  active. 50 px + bottom safe area, top `border-border`, a 94% opaque near-`card` fill with a 20 px
+  backdrop blur (the iOS bar convention: content scrolling under it stays legible as motion, not text).
+  Under `prefers-reduced-transparency` the bar is fully opaque.
+- Each tab: 24 px Lucide icon over a 10.5/13 label (10 at 320). Active: icon `text-primary`, label
+  `text-foreground` **and semibold (650)**; inactive: `text-muted-foreground`, 500. The weight change is
+  the non-colour cue (SC 1.4.1). Hit area = full tab cell (≥ 64 × 50).
+- Badge: yellow pill (`bg-primary`, `text-primary-foreground`, 17 px), announced as part of the tab name
+  ("Ще, 3 нових").
+- Tab switch is **instant** (no animation). Re-tapping the active tab scrolls to top, then pops to root.
+
+### Top bar
+
+- Tab root: large title 28/34 that collapses into a 44 px inline bar on scroll; bell (and search where the
+  screen has it) on the right.
+- Pushed screen: 44 px bar, back chevron (44 × 44 `<button>`, `aria-label="Назад"`) + a 17/22 title
+  **centred on the bar, not on the space left over** (iOS): the title is absolutely positioned and
+  inset on both sides by the wider side, the back button or the trailing actions (`--topbar-side`,
+  56 px with back only, 104 with «Зберегти», 168 with «Редагувати» + «Інші дії»), and truncates before
+  it collides. The product measures the trailing slot (one `ResizeObserver`) rather than hard-coding
+  the inset. A detail page has no title at rest (`primitives-v2.md` detail page).
+
+### Quick-add FAB
+
+- 56 px yellow circle (context «+», §1), bottom right, inset 16, 16 px above the tab bar. Hidden while
+  the keyboard is open and while a sheet is open. **Never dimmed or disabled**, offline included.
+- **FAB and pill on scroll.** Scrolling down slides the FAB and the upload pill out below the tab bar;
+  they come back on scroll-up or after **1 s** without scrolling. Transform only (`translateY`, 200 ms
+  standard easing); under `prefers-reduced-motion` they fade instead. They never hide while one of them
+  holds keyboard focus (SC 2.4.11). Mid-scroll, a trailing amount that sits under the FAB slot is
+  readable, and the large title has collapsed into the 44 px inline bar («Фінанси» centred, a hairline
+  under the bar) (`state-scrolled-375`).
+- **Floating-layer stacking:** toasts and the upload pill sit left of the FAB (inset 12 left, 80 right,
+  16 above the tab bar), so neither covers the other. Tab-root lists end with 56 + 16 + 8 px of bottom
+  padding above the tab bar, so the last row scrolls clear of the FAB.
+- Menu (`quick-add-admin-375`, drawn from Статистика, a tab with no create action of its own;
+  `quick-add-hr-320` from Дашборд): a medium sheet listing the role's actions (icon, label, one-line
+  hint). Each row 64 px.
+- `quick-add-txn-keyboard-375`: «Нова транзакція» opens as the canonical money form
+  (`primitives-v2.md` §4; source `assets/src/money-form.mjs`): «Скасувати» top-left («Згорнути» while
+  the draft is armed, failed or unknown), title centred,
+  nothing top-right; the amount is focused with the decimal keyboard up and the bottom submit bar riding
+  on it. The bar above the keys is **iOS Safari's own accessory bar**, drawn and labelled "system" only;
+  we do not build one. The type toggle is the role's create set (ADMIN: Витрата / Дохід / Переказ); the
+  optional fields sit collapsed in «Сьогодні · без проєкту · змінити». The frame is illustrative; the
+  Wave 1 finance spec owns the form.
+- **Armed save** (save during a receipt upload). The primary stays an active button (no
+  `aria-disabled`: it acts) whose label says what a tap does: «Зберегти після завантаження чека». A tap
+  **freezes the payload and arms** (`quick-add-txn-armed-375`, `quick-add-txn-armed-320`): the button
+  turns into a progress fill reading «Збережеться 1 250,50 USD після чека» with «чек 62%» as a
+  `progressbar` (no `aria-pressed`; only arm, disarm and result are announced). The armed primary is
+  `aria-disabled="true"` (not `disabled`: it keeps focus and its name); a repeat tap toggles nothing
+  and explains the wait. Disarm is the separate 44 px text button «Не зберігати автоматично» under it,
+  any field edit, or replacing / removing the receipt. While armed the leading control reads **«Згорнути»**: it closes the sheet and the save stays
+  armed (a drag down and a scrim tap do the same); the global upload pill then carries «Збережеться 1
+  250,50 USD · 62%» / «Відкрити чернетку» (`primitives-v2/upload-pill-armed-375`). At 100% exactly one
+  request is sent, so a form without an idempotency key still sends exactly once; while it is **in
+  flight** the pill reads «Зберігаємо 1 250,50 USD…». The result **stays in the pill until tapped**
+  («Збережено 1 250,50 USD · Відкрити», which a 44 px ✕ «Закрити» or a swipe also dismisses; «Не
+  збережено 1 250,50 USD · Відкрити»; «Результат невідомий» · «1 250,50 USD · Відкрити»,
+  `primitives-v2/upload-pill-unknown-375`); no sheet opens by itself. **Several drafts, one model**
+  (foundation §11 is the single source): one pill slot shows the highest state, **unknown > failed >
+  in flight > armed > saved**, with the amount for one draft and a count for more («Збережеться 2
+  транзакції · Відкрити»; two or more failed or unknown drafts read «2 потребують перевірки»); «+2 чеки» counts only
+  uploads that belong to no draft; Фінанси pins one row per unsaved draft (`primitives-v2/drafts-two-375`).
+  An armed or in-flight draft blocks nothing: «+» opens a new form. **«+» never blocks:** with unresolved drafts (failed or unknown), **on Фінанси every «+» opens a new form directly** (the FAB, the rail «+», the header «Нова транзакція» and `C`): the pinned rows and the pill already show the drafts there, and `C` stays one key on the main money page. On the other pages a money draft **never hides other actions**: the drafts join the existing «+» menus and never replace them. The quick-add sheet (phone) and the rail «+» menu (tablet) keep the role's normal action list; with unresolved drafts a «Чернетки» section sits on top, each draft row in the pinned-row format (the amount, then state · type, and «Відкрити»); **any menu shows at most 2 draft rows** (the quick-add sheet, the rail «+» menu and the header compact menu): from 3 drafts, the first 2 by the slot precedence, and the «Чернетки» section header gains a trailing text button «Усі чернетки (N)» (a 44 px hit area that adds no height, so 320 × 568 still fits), which opens Фінанси scrolled to the pinned rows (`primitives-v2/quick-add-drafts-three-320`), then the normal actions in `role="group"` with a visually hidden label «Дії» (the drafts group is labelled by its «Чернетки» header), «Нова транзакція» among them (`primitives-v2/quick-add-drafts-375` from Статистика and `drafts-chooser-768` from Співбесіди, both with the 4 ADMIN actions); in the rail menu «Нова транзакція», the first normal action, takes the initial focus without a drawn ring: the tablet is touch, and the ring shows only on `:focus-visible` (a keyboard). A page FAB whose action is not money (Користувачі «Новий користувач», Співбесіди «Нова співбесіда», Вакансії «Створити вакансію») never changes and gets no dot. The header «Нова транзакція» and `C`, a money trigger by name, open a compact menu: the «Чернетки» section above, «Нова транзакція» last with the initial focus, so `C` then Enter still creates (`primitives-v2/drafts-chooser-1440` on Статистика). Every menu off the phone is `role="menu"` with the trigger `aria-haspopup="menu"`; ↑ / ↓ move between the items, and Esc closes it and returns focus to the trigger; under `(pointer: coarse)` the key hints («↑ ↓», «Enter») are hidden and a draft's state line is at least 13 px. The money FAB on Фінанси and the quick-add «+» keep their «+» and gain a red dot (with the count from two); the accessible name says the count: «Нова транзакція, 1 чернетка потребує уваги» on Фінанси, «Створити, 2 чернетки потребують уваги» on the quick-add «+». Discard is offered for a failed
+  or unknown draft and is unavailable only while its request is in flight. Every money create writes
+  its page-kill marker `{ t, phase: 'sent' }` at send (an armed one writes `armed` first);
+  backgrounding does not disarm; a page kill is reported at the next boot with one alert per phase
+  (`armed` and `failed`: not saved; `sent`: check the list, no resubmit). An upload failure on an armed draft makes it **failed**
+  (foundation §11), never a silent disarm: the error sits on the receipt card with «Повторити» /
+  «Замінити» («Повторити» re-arms it: the payload and the intent are kept, so one tap retries the upload and arms the same save again), and with the sheet closed the pill reads «Не збережено 1 250,50 USD · Відкрити»
+  (`primitives-v2/form-receipt-failed-375`). A failed or unknown draft closes with «Згорнути» (a drag or
+  a scrim tap does the same) and is kept; «Видалити чернетку» under the primary discards it after the
+  named confirm. An unknown draft is read-only until it leaves that state, its optional fields expanded as read-only
+  text. A `failed` marker lives as long as its draft. The receipt is mandatory (a file or a link; USDT: an explorer link only), so no path saves
+  without one (primitives-v2 §4).
+
+### More sheet
+
+- Large bottom sheet, `--radius-sheet` top corners, drag handle, close button (44 px), drag-to-dismiss.
+- Grouped rows (56 px) in `bg-card` group containers; section overlines; trailing chevrons; badges.
+
+### Notifications panel (all sizes)
+
+- **Where:** the bell in the phone top bar, the tablet header and the desktop header. Phone: a medium sheet
+  over the page the bell was tapped on (`notifications-375`). Tablet and desktop: a non-modal popover
+  anchored under the bell, 400 px wide, no scrim; Esc, an outside click or the bell close it
+  (`notifications-1440`). The bell reads «Сповіщення, 14 нових» and carries the unread dot while anything is unread. The popover is **non-modal**: Tab past its last control closes it and moves on to the next control after the bell; Esc closes it and returns focus to the bell.
+- **Content:** one newest-first list from the existing feed (`GET /api/notifications?limit=10`). The count line «Непрочитаних: N» (muted body text, `tabular-nums`; not a section overline) takes N from the response's server-computed `unreadCount`, never from the loaded rows, so it reads «Непрочитаних: 14» while the first page holds two unread rows; it and «Прочитати все» show only while N > 0. The panel pages inside itself with the List footer auto-load (primitives-v2 §3): reaching the end loads the next 10 (skeleton row, then the inline «Не вдалося завантажити ще · Повторити» on failure). The feed has no cursor yet: a keyset `before` cursor `(created_at, id)` of the last row on the same endpoint is a Wave 1 API AC (a time alone skips rows that share it). **Poll:** the 30 s poll refetches only the first page (limit 10) and `unreadCount`, and merges rows by id; older pages are never refetched, and pages load only while the panel is open. **New while open:** a row that arrives while the panel is open never shifts the list; it waits behind a top chip «1 нове · Показати» (a 44 px button; it inserts the new rows and keeps focus where it was). A row: icon tile (a yellow dot on its corner while unread), title (600 while unread; wraps, never truncates) and one muted line that starts with the relative time (`tabular-nums`) and wraps, so an amount is never cut. The link «Усе, що чекає рішення» is pinned under the list (it never scrolls away while pages load) and opens Чекають рішення.
+- **States:** the unread list; **empty**: «Сповіщень немає» and «Тут з’являться події за вашими проєктами,
+  грошима та документами», with no «Прочитати все», no pinned link and no bell dot (`notifications-empty-375`);
+  **loading**: three skeleton rows; **error**: `role="alert"` «Не вдалося завантажити сповіщення» with
+  «Повторити», which re-reads only; a list loaded before stays visible under it.
+- **Mark read:** opening a row marks it read (optimistic; the dot goes at once). «Прочитати все» (the shipped label, kept) is a text button in the list header (a 44 px hit area that adds no height); it shows only while N > 0 and marks every unread row read **on the server** (`PATCH /api/notifications/read-all`), loaded or not, so N drops to 0 and the bell dot goes. It asks nothing, because nothing is lost. The existing per-row delete stays. Phone: a trailing swipe, plus a visible 44 px «…» («Дії зі сповіщенням») and a long-press that open the same menu; this is the pattern for a row without a pushed detail (primitives-v2 §3), because the target page carries no delete. At ≥ 640: a trailing delete icon that hover or focus reveals at a fine pointer and that is always visible at 44 px under a coarse pointer (foundation §13).
+- **Open the target:** a row is a link to its target (deep link). The panel closes, the target page is
+  pushed, and back returns to the page the bell was opened on, never to the panel. A target the viewer
+  can no longer see opens that page's own not-found state. Drafts and markers are untouched (foundation §11, row «Open a notification»). With a dirty form open, the row's navigation first runs the dirty-close confirm (foundation §11, row «Navigate away with a dirty form»).
+- **A11y:** sheet and popover are `role="dialog"` «Сповіщення». Keyboard focus moves to the first row (no ring on touch). The phone sheet is modal (focus trap; Esc or the close button returns focus to the bell). The ≥ 640 popover is non-modal: no trap; Tab past its last control closes it and focus moves on in page order; Esc closes it and returns focus to the bell. A notification that arrives
+  while the panel is open is announced once, politely («1 нове сповіщення»), and never moves focus or the rows (the «1 нове · Показати» chip above).
+
+### Shell states
+
+- **Loading** (`state-loading-375`): shell renders immediately; content area shows a layout-matching
+  skeleton. The tab bar is interactive during loading.
+- **Empty** (`state-empty-375`): a centred block (icon tile, title, one line) names the next step («Натисніть
+  «+», щоб додати першу»); the «+» stays where it always is, so the screen has one entry point. A
+  filtered-empty list is different: it offers «Скинути фільтри» (`primitives-v2/listrow-empty-error-375`).
+- **Error** (`state-error-375`): `role="alert"` block «Не вдалося завантажити транзакції» + «Нічого не
+  змінено» + «Спробувати ще». The retry re-runs the read query only (safe); it is never a money write.
+- **Offline** (`state-offline-375`): a slim `role="status"` banner under the top bar («Немає з’єднання.
+  Показано останні завантажені дані; збереження не пройде, введене залишиться у формі.»), cached content
+  stays visible, the FAB stays enabled, writes queue nothing (spec §4.5b: nothing survives a close). A
+  save attempt shows the definite inline alert with every value kept (`primitives-v2/toast-error-offline-375`).
+- **Session expired** (`primitives-v2/alert-session-expired-375`): a 401 is its own state, never a save, load
+  or upload error, and it is rare because the session slides (foundation §11 Wave 1 AC). The app goes to
+  sign-in directly only when no draft exists in any state (armed, in flight, failed or unknown) and no form is
+  dirty. Otherwise, on any tab, sheet open or closed, the alert «Сесія завершилася. Увійдіть знову, щоб
+  продовжити.» shows «Увійти знову» and «Не зараз», and its body names each loss: the dirty form and its
+  receipt, each draft by amount, and an unknown draft by its sent time without «втрачено» («Чернетка 86,40 USD, надіслана о 14:32: введене не збережеться, позначка лишиться…»), because its marker survives the sign-in. With a loss named,
+  the initial focus is on «Не зараз». It waits for an in-flight create. Draft markers survive the sign-in,
+  and «Увійти знову» turns `armed` ones into `failed` (foundation §11). After «Не зараз» the app pauses polls and background refetches, and the persistent banner «Сесія завершилася · Увійти знову» takes the offline-banner slot under the top bar (`session-banner-375`); only a user-started request brings the alert back. While the banner shows, opening a create or edit form («+», `C`, an edit action) or the banner's «Увійти знову» runs the loss check first: a named loss brings the alert back, no loss goes straight to sign-in. **One banner at a time:** the slot holds session over offline, and offline returns only after sign-in if the device is still offline.
+- **Impersonation** (`state-impersonation-375`): the existing banner, pinned under the top bar, with
+  «Повернутися» (44 px); the tab bar shows the impersonated role's tabs.
+
+---
+
+## 3. Tablet (640–1023 px)
+
+- 80 px **navigation rail** on the left: quick-add button on top, then **every role destination that
+  fits by height** (the tab-bar set first, then the rest in sidebar group order), icon over label, the
+  avatar (profile) at the bottom. Active item on `bg-accent` with a yellow icon. At 768 × 1024 all 12
+  ADMIN destinations fit (`tablet-rail-768`).
+- «Ще» appears **only on overflow** (a short window: Split View, Stage Manager, landscape) and opens a
+  **popover** from the rail with the destinations that did not fit (`tablet-rail-more-768`, a 768 × 700
+  window). The fit is a height budget (status 24 + brand and «+» 120 + avatar 64 + home indicator 20);
+  Wave 0 measures the real row heights.
+- **Panes:** one pane at 640–899 (the list takes the full width; the detail pushes; no selected-row
+  highlight); list + detail side by side only from **≥ 900** (`tablet-two-pane-1000`: rail 80, list
+  360, detail 560 at 1000, the selected row `bg-raised` + `aria-current`). Touch heights (inputs 48, buttons 44): density follows `(pointer: coarse)`,
+  not width.
+- **The detail pane at ≥ 900 is the pushed detail page body**, not a second layout: the same
+  component renders both (`primitives-v2/detail-txn-375` and the right pane of
+  `tablet-two-pane-1000`). One field set (Тип, Платник, Отримувач, Дата, Проєкт, Створив) and **one
+  status-pill slot under the amount** («Оплачено», «Очікує», …); the type is a field, never a second
+  pill. The pane keeps the page's top bar without the back button: title «Транзакція» + «Редагувати» +
+  «Інші дії». Under 900 the same body is pushed as a page.
+- **The list pane scrolls as one block** (search, chips, section heads and group cards in one
+  scroller): a group card never shrinks to the pane height and never clips its last row.
+
+---
+
+## 4. Desktop (≥ 1024 px)
+
+### Sidebar
+
+- 248 px, `bg-card`, grouped (overlines), 36 px rows (one value; `primitives-v2.md` §3 agrees), active
+  row `bg-accent` + yellow icon + 2 px yellow leading bar. Footer: user row (avatar, name, role) opening
+  the profile menu.
+- **Table selected row** uses the same cue: `bg-accent` + a 2 px yellow leading bar + `aria-selected`
+  (`desktop-sidebar-1440`).
+- **Touch density** (`shell-touch-1180`, an iPad in landscape): the layout follows the width (sidebar,
+  header, table), the density follows `(pointer: coarse)`: sidebar rows 44, table rows 52 / header 44,
+  filter chips, bell and page action 44, search 48 with 16 px text.
+- **Collapsible** to a 64 px icon rail (toggle at the top, or the single key `[`, which the SC 2.1.4 toggle in the `?` sheet can turn off and
+  which never fires inside a text field; the `?` sheet lists the same key); every icon gets a tooltip with the
+  label and its `G` shortcut («Фінанси G F»). State stored on the device.
+
+### Header
+
+- Breadcrumb «Група / Сторінка», bell, the page's primary action as a yellow button with its single-key
+  hint (for example «Нова транзакція» `C`).
+
+### Command palette (Cmd+K)
+
+- `ui/command.tsx` in a centred dialog (640 px; 560 at 1024). Groups: **Дії** (page and quick-add actions),
+  **Перейти** (role destinations), **На цій сторінці** (search over the loaded rows only).
+- **No cross-entity server search** (spec §4.5b). Each row shows its shortcut keys. Footer shows ↑↓ / ↵ / Esc.
+
+### Shortcut sheet (`?`)
+
+- 880 px dialog, three columns: Загальні · Перехід · Списки. Top: a switch «Однолітерні скорочення»
+  (single-key shortcuts on/off), stored on the device (SC 2.1.4). With it off, only modifier shortcuts work.
+  «Списки» lists `M` «Змінити етап картки» (a focused board card, primitives-v2 §3).
+
+### Money drafts per size (one model, three placements)
+
+The draft state model is the same everywhere (`foundation.md` §11 money drafts); only the placement
+changes.
+
+| Concern                                  | Phone (< 640)                                                                                                                                                                                                                                                                                                                                                                                                                               | Tablet (640–1023)                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Desktop (≥ 1024)                                                                                                                                                                                                                                                                                                                                                                          |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Where a new draft starts                 | The FAB (on Фінанси it is «Нова транзакція»), or the quick-add menu elsewhere                                                                                                                                                                                                                                                                                                                                                               | The rail «+» (top of the rail), the same action                                                                                                                                                                                                                                                                                                                                                                                                                                        | The header primary «Нова транзакція» (`C`), or Cmd+K → Дії                                                                                                                                                                                                                                                                                                                                |
+| The start control with unresolved drafts | Never blocks: on Фінанси every «+» opens a new form directly; on a tab whose FAB is quick-add, the FAB keeps «+», gains a red dot (the count from two) and the name «Створити, 2 чернетки потребують уваги», and a tap opens the quick-add sheet: the «Чернетки» section on top, then the role's normal actions (`primitives-v2/quick-add-drafts-375`); a non-money page FAB (Користувачі «Новий користувач») never changes and gets no dot | On Фінанси the rail «+» opens a new form directly; elsewhere it gains the dot and the name and opens its quick-add menu beside it: the «Чернетки» section on top, then the role's normal actions; at most 2 draft rows, from 3 «Усі чернетки (N)» as a text button in the section header; «Нова транзакція» takes the initial focus, with no ring on touch (`:focus-visible` only); key hints are hidden under `(pointer: coarse)` (`primitives-v2/drafts-chooser-768`, on Співбесіди) | The header «Нова транзакція» keeps its label and gains the dot and the name; on Фінанси it and `C` open a new form directly; on the other pages that carry it (Статистика) they open the compact menu under the button (the «Чернетки» section, «Нова транзакція» last); «Нова транзакція» takes the initial focus, so `C` then Enter still creates (`primitives-v2/drafts-chooser-1440`) |
+| Form container                           | Large sheet (`quick-add-txn-*`) or the pushed page (`form-money-375`)                                                                                                                                                                                                                                                                                                                                                                       | Side panel, 400 px, the same `moneyBody()` (`primitives-v2/sheet-panel-768`)                                                                                                                                                                                                                                                                                                                                                                                                           | Side panel, 420 at 1024 / 480 at 1440 (`sheet-panel-1024`, `sheet-panel-1440`)                                                                                                                                                                                                                                                                                                            |
+| The pill slot                            | Above the tab bar, left of the FAB (§2 floating-layer stacking)                                                                                                                                                                                                                                                                                                                                                                             | Bottom-right, 24 px from both edges, 320 wide (`primitives-v2/upload-pill-768`); toasts (420 wide) stack above it in the same corner; the scroller gets bottom padding = the stack height + 24; with a side panel open the corner moves left of the panel                                                                                                                                                                                                                              | Bottom-right of the main area, 24 px from both edges (`primitives-v2/drafts-desktop-1440`); toasts stack above it in the same corner; the same bottom padding and the same move left of an open side panel                                                                                                                                                                                |
+| Pinned draft rows                        | Top of the Фінанси list: up to three rows, unresolved first; from four on, two rows, then «Ще N чернеток · Показати» (N ≥ 2) (toggles to «Згорнути», resets on a route change); two lines, the amount alone then state · type; «Відкрити» is tonal (`primitives-v2/drafts-two-unresolved-375`; four drafts collapsed: `primitives-v2/drafts-four-collapsed-375`)                                                                            | Top of the Фінанси list pane                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Top of the Фінанси table: one full-width 40 px row with the amount, state · type and a tonal «Відкрити» (`primitives-v2/drafts-desktop-1440`)                                                                                                                                                                                                                                             |
+| «Перевірити список» (form is open)       | The check sheet «Нові записи» over the kept form sheet                                                                                                                                                                                                                                                                                                                                                                                      | A centred 560 px dialog «Нові записи» over the side panel; the panel stays mounted and keeps the draft                                                                                                                                                                                                                                                                                                                                                                                 | The same 560 px dialog over the side panel (`primitives-v2/check-dialog-1024`)                                                                                                                                                                                                                                                                                                            |
+| Focus after the check closes             | Back to «Перевірити список»                                                                                                                                                                                                                                                                                                                                                                                                                 | Back to «Перевірити список» in the panel                                                                                                                                                                                                                                                                                                                                                                                                                                               | Same                                                                                                                                                                                                                                                                                                                                                                                      |
+| Receipt switch (empty receipt)           | «Файл» / «Посилання», 44 px segmented above the tile                                                                                                                                                                                                                                                                                                                                                                                        | The same switch, 44 px, in the panel (`sheet-panel-768`)                                                                                                                                                                                                                                                                                                                                                                                                                               | The same switch; 36 px on `(pointer: fine)`, 44 on `(pointer: coarse)`                                                                                                                                                                                                                                                                                                                    |
+| Receipt, effective currency USDT         | The explorer-link field only, no switch (`form-receipt-usdt-empty-375`)                                                                                                                                                                                                                                                                                                                                                                     | Same                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Same                                                                                                                                                                                                                                                                                                                                                                                      |
+
+---
+
+## 5. Frames (all PNG under `assets/shell-v2/`)
+
+| Frame                                | Width | Shows                                                                                                                        |
+| ------------------------------------ | ----: | ---------------------------------------------------------------------------------------------------------------------------- |
+| `tabbar-admin-375.png`               |   375 | ADMIN tab bar (tab 4 «Адмін»), «Ще» badge, «+»                                                                               |
+| `tabbar-senior-375.png`              |   375 | SENIOR tab bar, own-project rows only                                                                                        |
+| `tabbar-senior-teamless-375.png`     |   375 | SENIOR without a team (Документи in slot 4)                                                                                  |
+| `tabbar-junior-375.png`              |   375 | JUNIOR (no «+»), own salary rows only                                                                                        |
+| `tabbar-hr-375.png`                  |   375 | HR                                                                                                                           |
+| `tabbar-accountant-375.png`          |   375 | ACCOUNTANT                                                                                                                   |
+| `tabbar-drop-375.png`                |   375 | DROP, drop income and payout rows only                                                                                       |
+| `tabbar-admin-320.png`               |   320 | ADMIN at the narrowest width (labels fit)                                                                                    |
+| `tabbar-hr-320.png`                  |   320 | HR at 320 (longest labels)                                                                                                   |
+| `more-sheet-admin-375.png`           |   375 | More sheet, ADMIN (8; «Дашборд» in Огляд)                                                                                    |
+| `more-sheet-junior-375.png`          |   375 | More sheet, JUNIOR (short)                                                                                                   |
+| `more-sheet-admin-320.png`           |   320 | More sheet at 320                                                                                                            |
+| `quick-add-admin-375.png`            |   375 | Quick-add menu from Статистика (4 actions)                                                                                   |
+| `quick-add-hr-320.png`               |   320 | Quick-add menu at 320                                                                                                        |
+| `quick-add-txn-keyboard-375.png`     |   375 | Canonical money form, decimal keys + system bar                                                                              |
+| `quick-add-txn-armed-375.png`        |   375 | Save armed: «Згорнути», separate disarm, 62%                                                                                 |
+| `quick-add-txn-armed-320.png`        |   320 | Armed at 320: 1 250 000,50 UAH, label wraps                                                                                  |
+| `state-loading-375.png`              |   375 | Shell + skeleton                                                                                                             |
+| `state-scrolled-375.png`             |   375 | Scrolled: inline title, FAB slid out, amount readable                                                                        |
+| `state-empty-375.png`                |   375 | Empty tab root                                                                                                               |
+| `state-error-375.png`                |   375 | Load error with a safe re-fetch                                                                                              |
+| `state-offline-375.png`              |   375 | Offline banner, FAB stays enabled                                                                                            |
+| `state-impersonation-375.png`        |   375 | Impersonation banner                                                                                                         |
+| `tablet-rail-768.png`                |   768 | Rail with every destination, one pane                                                                                        |
+| `tablet-rail-more-768.png`           |   768 | 768 × 700 window: overflow «Ще» popover                                                                                      |
+| `tablet-two-pane-1000.png`           |  1000 | ≥ 900: rail 80 · list 360 · detail 560 (detail body)                                                                         |
+| `desktop-sidebar-1024.png`           |  1024 | Sidebar + header + dense table                                                                                               |
+| `desktop-sidebar-collapsed-1024.png` |  1024 | Collapsed rail with tooltip                                                                                                  |
+| `desktop-sidebar-1440.png`           |  1440 | Wide: extra column, selected-row bar                                                                                         |
+| `shell-touch-1180.png`               |  1180 | iPad landscape: desktop layout, touch density                                                                                |
+| `desktop-cmdk-1440.png`              |  1440 | Cmd+K palette                                                                                                                |
+| `desktop-cmdk-1024.png`              |  1024 | Cmd+K at the narrowest desktop                                                                                               |
+| `desktop-shortcuts-1440.png`         |  1440 | `?` shortcut sheet with the single-key toggle                                                                                |
+| `session-banner-375.png`             |   375 | After «Не зараз»: the persistent session banner, background requests paused                                                  |
+| `notifications-375.png`              |   375 | Notifications panel, phone: medium sheet, «Непрочитаних: 14» (server count), «Прочитати все», next page loading, pinned link |
+| `notifications-empty-375.png`        |   375 | Notifications panel, empty: no mark-all, no bell dot                                                                         |
+| `notifications-1440.png`             |  1440 | Notifications popover under the bell (no scrim)                                                                              |
+
+Re-render: `node assets/src/render.mjs shell [filter]`, then `assets/src/contact-sheet.sh shell`.
+
+---
+
+## 6. A11y critical paths
+
+- Focus order (mobile): top bar → content → FAB → tab bar. Desktop: skip link → sidebar → header → main.
+- Tab bar and rail are `nav` landmarks; sidebar is `nav` with group headings as `h2` (visually overlines).
+- More sheet and Cmd+K trap focus, close on Esc and scrim, and return focus to the trigger.
+- The notifications sheet and popover close on Esc and return focus to the bell; a row is a link.
+- Every coarse-pointer target ≥ 44 × 44, whatever the width; fine-pointer desktop rows 36 px with a
+  full-row hit area.
+- Badge counts are in the accessible name; the offline banner is `role="status"`.
+- Single-key shortcuts can be turned off (SC 2.1.4); they never fire inside text fields.
+
+## 7. Edge cases
+
+- Role with ≤ 4 destinations besides profile: still 4 tabs + «Ще» (profile lives there); no empty slot.
+- Long uk labels at 320: labels truncate with ellipsis; the accessible name keeps the full label.
+- Impersonation of a role with no quick-add: the FAB disappears with the role.
+- Badge > 99: «99+».
+
+## 8. Assumptions (A1, Task 0.8)
+
+- SENIOR without a team loses `/projects`, so «Документи» takes tab slot 4.
+- Tab labels reuse the existing nav strings («Дашборд» for Home). «Ще» and the six group headings are
+  new strings (copy-reviewer gate in the Wave 0 implementation).
+- The FAB sits above the tab bar, not inside it (tab bar = navigation only).
+- Tablet uses a rail listing every destination that fits, with a popover «Ще» only on overflow, not a
+  bottom sheet.
+- ADMIN tab 4 = «Адмін» (contract editing) and «Дашборд» in «Ще» (council R1 ruling).
+- Sidebar collapse shortcut `[` and the `G <letter>` navigation shortcuts are proposals for the
+  implementation task. `[` was chosen over ⌘\ (task review fix round 1) and is guarded like every
+  single-key shortcut.
+- Finance rows in the role frames are role-plausible sample data (SENIOR: own project; DROP: drop income
+  and payouts; JUNIOR: own salary). What each role really sees is the existing RBAC, unchanged by v2.
+- The armed save after an upload (frozen payload, kept across a sheet dismiss, carried by the pill)
+  and the in-memory draft are proposals; the Wave 1 finance spec confirms them per form. The draft row
+  is drawn (`primitives-v2/listrow-draft-375`). The two unknown-outcome exits are owner-approved 2026-11-12.
+- The notifications list needs a keyset `before` cursor `(created_at, id)` on `GET /api/notifications` to page (Wave 1 API AC); the 30 s poll refetches the first page and `unreadCount` only, merged by id; `unreadCount` and `PATCH /read-all` already exist.

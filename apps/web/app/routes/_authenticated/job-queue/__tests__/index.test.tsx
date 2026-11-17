@@ -136,6 +136,7 @@ function serve({
     if (url === '/teams') return teamsCall()
     if (url === '/job-queue') return queue(config?.params ?? {})
     if (url === '/job-queue/seniors') return seniorsCall()
+    if (url === '/job-sourcing/sources') return Promise.resolve({ data: { items: [] } })
     return Promise.reject(new Error(`unexpected ${url}`))
   }) as unknown as typeof api.get)
 }
@@ -245,6 +246,25 @@ describe('/job-queue page', () => {
     expect(screen.getByTestId('job-queue-tab-SUBMITTED')).toHaveTextContent('Подані2')
     expect(queueCalls()[0]?.params).toEqual({ teamId: TEAM_A, tab: 'NEW', limit: 20 })
     expect(screen.queryByTestId('job-queue-team-switcher')).toBeNull()
+  })
+
+  it('Task 7.5: an ADMIN gets the collapsed «Джерела вакансій» section with its summary', async () => {
+    serve({ role: 'ADMIN' })
+    renderPage()
+    const section = await screen.findByTestId('job-source-section')
+    expect(section).not.toHaveAttribute('open')
+    expect(section).toHaveTextContent('Джерела вакансій')
+    expect(await screen.findByTestId('job-source-summary')).toHaveTextContent('0 джерел')
+    expect(calls.filter((c) => c.url === '/job-sourcing/sources')).toHaveLength(1)
+  })
+
+  it('Task 7.5: an HR sees no source section and never asks for the sources', async () => {
+    serve({ role: 'HR' })
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(screen.queryByTestId('job-source-section')).toBeNull()
+    expect(screen.queryByTestId('job-source-budgets')).toBeNull()
+    expect(calls.filter((c) => c.url === '/job-sourcing/sources')).toHaveLength(0)
   })
 
   it('asks the server for the tab in the URL', async () => {

@@ -33,6 +33,7 @@ import {
 import { startTap } from './tap.mjs'
 
 const DEFAULTS = {
+  // The withdrawn local runtime (hosted-only since Amendment 2026-11-08): no such container now.
   'runtime-container': 'crm-extraction-crm-model-runtime-1',
   'probe-interval-ms': '500',
   'baseline-s': '60',

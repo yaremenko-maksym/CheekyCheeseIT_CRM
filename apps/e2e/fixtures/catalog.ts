@@ -27,7 +27,8 @@
 //     variable-free message compiles to a ONE-element array (ICU
 //     MessageFormat's "compiled AST" representation: an array of literal
 //     string / placeholder parts). `.join('')` collapses that safely for
-//     every id in this registry (none carry `{variable}` interpolation).
+//     a message with a `{variable}` flattens to its text with the placeholder's index in its place
+//     (`Відкрити на {0}` becomes `Відкрити на 0`); a spec substitutes that index itself.
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 

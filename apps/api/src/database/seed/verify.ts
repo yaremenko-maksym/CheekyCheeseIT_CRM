@@ -1,3 +1,4 @@
+import { verifyJobQueueSeed } from './job-queue'
 import type { SeedCtx } from './shared'
 
 export async function verifySeed({ db }: SeedCtx): Promise<void> {
@@ -23,4 +24,7 @@ export async function verifySeed({ db }: SeedCtx): Promise<void> {
   ).rows as { count: string }[]
   const nullLfn = nullLfnRows[0]?.count ?? '?'
   console.log(`  Users with NULL legal_full_name (non-ADMIN): ${nullLfn} (expected: 0)`)
+
+  // Task 7.6a: the Task 7.6 E2E finds these rows by title; any drift from the contract fails the seed.
+  await verifyJobQueueSeed({ db })
 }

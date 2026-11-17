@@ -71,7 +71,7 @@ const TYPES: TypeRow[] = [
   ['MUSE_API', 'The Muse', 'NONE', 'LINK_BACK_REQUIRED', 'public-jobs', 'CATEGORY', 5],
   ['REED_API', 'Reed', 'API_KEY', 'NONE_RECORDED', 'jobseeker-search', 'SEARCH', 1],
   ['DJINNI_RSS', 'Djinni', 'NONE', 'NONE_RECORDED', 'rss-primary-keyword', 'FEED_WINDOW', 1],
-  ['WWR_RSS', 'We Work Remotely', 'NONE', 'NONE_RECORDED', 'rss', 'FEED_WINDOW', 1],
+  ['WWR_RSS', 'We Work Remotely', 'NONE', 'LINK_BACK_REQUIRED', 'rss', 'FEED_WINDOW', 1],
   [
     'EUREMOTEJOBS_RSS',
     'EU Remote Jobs',
@@ -359,8 +359,8 @@ describe('the hand-authored half of the manifest, pinned', () => {
     const quotas = manifest()
       .types.filter((t) => t.quota)
       .map((t) => {
-        const { limitSource, ...terms } = t.quota!
-        return [t.type, terms, limitSource] as const
+        const { limitSource, seedMeter, ...terms } = t.quota!
+        return [t.type, terms, limitSource, seedMeter] as const
       })
     expect(quotas.map((q) => [q[0], q[1]])).toEqual([
       ['JOOBLE_API', { account: 'jooble:api-main', unit: 'REQUEST', window: null, limit: null }],
@@ -379,6 +379,26 @@ describe('the hand-authored half of the manifest, pinned', () => {
       'the plan figure recorded in the vacancy-matching task (JSearch allows 200 requests a MONTH); NOT confirmed against a provider response, because no key is provisioned',
       'unpublished: one API credit per job returned is documented, the plan allowance is not (theirstack provenance notes)',
       'unpublished: the developer page gives no rate limit (reed provenance notes)',
+    ])
+    // PR #1372: the meter the seed delta creates, an A1 default cap below the provider's allowance.
+    const owner = 'an A1 default of 2026-11-17 (PR #1372), not an owner figure'
+    expect(quotas.map((q) => q[3])).toEqual([
+      {
+        window: 'DAY',
+        limit: 50,
+        source: `${owner}: the provider publishes no limit, so 50 requests a day`,
+      },
+      {
+        window: 'MONTH',
+        limit: 150,
+        source: `${owner}: 150 of the 200-request free plan, a hard limit`,
+      },
+      { window: 'MONTH', limit: 150, source: `${owner}: 150 of the 200-record free plan` },
+      {
+        window: 'DAY',
+        limit: 50,
+        source: `${owner}: the provider publishes no limit, so 50 requests a day`,
+      },
     ])
   })
 

@@ -19,6 +19,8 @@ import { checkStoredLink } from './url-policy'
  * `buildSourceObservation` WRAPS `buildNormalizedPosting` and does not replace it: display
  * limits, markdown conversion, DOU canonicalisation and the DOU fingerprint stay byte-for-byte what
  * shipped. This seam adds identity, bounded originals, dated evidence and a content hash on top.
+ * One exception: an over-limit description ends within the display limit here (see `normalized`),
+ * where the shipped HTML cut ends one character past it.
  *
  * Policy-gated cooperative HTML (ordinary pages whose owner permits collection) enters through this
  * same seam as any other source: the adapter hands over untrusted fields, and nothing here fetches.
@@ -377,6 +379,12 @@ export function buildSourceObservation(
   const { sourceType: _s, externalId: _e, fingerprint: _f, url: _u, ...display } = posting
   const normalized: NormalizedVacancyFields = {
     ...display,
+    // htmlToMarkdown's cut appends an ellipsis PAST the cap (MAX + 1); the store refuses that, so the
+    // display text is re-cut to end within it. The flag above still reads the uncut posting.
+    descriptionMd:
+      posting.descriptionMd.length > MAX_DESCRIPTION_CHARS
+        ? `${safeSlice(posting.descriptionMd, MAX_DESCRIPTION_CHARS - 1)}…`
+        : posting.descriptionMd,
     publishedAt: published?.value ?? null,
     dates,
   }

@@ -7,7 +7,7 @@ import { ALL_TABLE_PRIVILEGES, PRIVILEGE_CLASSES, ROLES } from './privileges/pri
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
- * The staged forward DDL `manual-staged/2026-11-06_job_model_health.sql` against a REAL Postgres
+ * The forward DDL `manual/2026-11-06_job_model_health.sql` against a REAL Postgres
  * (ADR §5.3, task 5.4c-4): re-runnable, column for column and CHECK for CHECK what `db:push` builds,
  * class A for `crm_app`, and page text refused by the constraint.
  *
@@ -15,14 +15,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/<scratch> \
  *     pnpm --filter @crm/api exec vitest run job-model-health-ddl.integration
  */
-const FILE = join(
-  __dirname,
-  '..',
-  '..',
-  'drizzle',
-  'manual-staged',
-  '2026-11-06_job_model_health.sql',
-)
+const FILE = join(__dirname, '..', '..', 'drizzle', 'manual', '2026-11-06_job_model_health.sql')
 const SCHEMA = 'ddl_job_model_health'
 const COUNTERS = 'job_model_route_daily'
 const FLAGS = 'job_model_health_flags'
@@ -78,7 +71,7 @@ const sqlstate = async (run: () => Promise<unknown>): Promise<string | undefined
 }
 
 describe.skipIf(!hasDatabaseUrl())(
-  'staged DDL: job_model_route_daily, job_model_health_flags',
+  'forward DDL: job_model_route_daily, job_model_health_flags',
   () => {
     beforeAll(async () => {
       session = await openCrmAppSession()
@@ -124,6 +117,38 @@ describe.skipIf(!hasDatabaseUrl())(
       const before = [await catalogOf(SCHEMA, COUNTERS), await catalogOf(SCHEMA, FLAGS)]
       await applyInto(client, SCHEMA)
       expect([await catalogOf(SCHEMA, COUNTERS), await catalogOf(SCHEMA, FLAGS)]).toEqual(before)
+    })
+
+    it('widens a route CHECK that predates cloudflare in place and keeps the rows (amendment 2026-11-17)', async () => {
+      const OLD = `${SCHEMA}_old`
+      await client.query(`DROP SCHEMA IF EXISTS ${OLD} CASCADE`)
+      await client.query(`CREATE SCHEMA ${OLD}`)
+      try {
+        await client.query(`CREATE TABLE ${OLD}.${COUNTERS} (
+          "day" date NOT NULL, "route" text NOT NULL, "code" text NOT NULL, "count" integer NOT NULL,
+          CONSTRAINT "job_model_route_daily_day_route_code_pk" PRIMARY KEY ("day", "route", "code"),
+          CONSTRAINT "ck_job_model_route_daily_route" CHECK ("route" IN ('gemini', 'groq', 'local')),
+          CONSTRAINT "ck_job_model_route_daily_code_format" CHECK ("code" ~ '^[A-Z][A-Z0-9_]{0,63}$'),
+          CONSTRAINT "ck_job_model_route_daily_count_positive" CHECK ("count" > 0))`)
+        await client.query(`INSERT INTO ${OLD}.${COUNTERS} VALUES ('2026-11-06', 'groq', 'OK', 3)`)
+        await applyInto(client, OLD)
+        const widened = await catalogOf(OLD, COUNTERS)
+        expect(widened.constraints).toEqual((await catalogOf('public', COUNTERS)).constraints)
+        await client.query(
+          `INSERT INTO ${OLD}.${COUNTERS} VALUES ('2026-11-06', 'cloudflare', 'OK', 1)`,
+        )
+        const { rows } = await client.query(
+          `SELECT route, count FROM ${OLD}.${COUNTERS} ORDER BY route`,
+        )
+        expect(rows).toEqual([
+          { route: 'cloudflare', count: 1 },
+          { route: 'groq', count: 3 },
+        ])
+        await applyInto(client, OLD)
+        expect(await catalogOf(OLD, COUNTERS)).toEqual(widened)
+      } finally {
+        await client.query(`DROP SCHEMA IF EXISTS ${OLD} CASCADE`)
+      }
     })
 
     it.each([COUNTERS, FLAGS])(

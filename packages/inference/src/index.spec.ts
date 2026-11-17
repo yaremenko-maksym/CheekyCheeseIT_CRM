@@ -28,6 +28,7 @@ describe('package index public surface (SPEC-M-1)', () => {
       'MAX_HOSTED_BUDGET_MS',
       'MAX_FLOOR_BUDGET_MS',
       'isAllowedRouterLocalModelUrl',
+      'isCloudflareAccountId',
       'routerInputCeilingChars',
       'createRouterExtractionAdapter',
       'createFileRouteStatePort',

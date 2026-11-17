@@ -11,8 +11,10 @@ export function senior(over: Partial<JobQueueCardSeniorDto> = {}): JobQueueCardS
   return {
     seniorId: 'aaaaaaaa-0000-4000-8000-000000000001',
     displayName: 'Олена Коваль',
+    availability: null,
     matchApproximate: false,
     matchedKeywords: ['React'],
+    matchEvidence: [{ keyword: 'React', strength: 'CORE' }],
     submission: null,
     ...over,
   }
@@ -82,6 +84,11 @@ export function cardFixture(over: Partial<JobQueueCardResponseDto> = {}): JobQue
     seniors: { items: [senior()], totalCount: 1, nextCursor: null },
     sources: { items: [PRIMARY], totalCount: 1, nextCursor: null },
     possibleDuplicates: null,
+    lastSeenAt: '2026-11-02T10:00:00.000Z',
+    stackKeywords: ['React', 'TypeScript', 'GraphQL'],
+    noMatchReason: null,
+    engagementForm: null,
+    dismissal: null,
     ...over,
   }
 }

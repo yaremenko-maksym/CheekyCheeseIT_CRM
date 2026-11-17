@@ -65,9 +65,9 @@ import { Pool, type PoolClient } from 'pg'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { splitSqlStatements } from './manual-sql-statements'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
+import { parkConcurrentBuild, withNotices } from './__test-helpers__/concurrent-index-build'
 import {
-  dropRolesCreated,
-  existingDeployRoles,
+  dropRolesCreatedReportingLeaks,
   installDeployRoles,
 } from './__test-helpers__/deploy-ddl-preconditions'
 
@@ -130,18 +130,18 @@ const PART_6_TABLES = ['job_source_hosts']
 /**
  * Source fetch strategy U2. The six run metric columns and `job_sources.slowdown_level`, each with
  * its CHECK, are declared in Drizzle, so the `db:push` reference carries them, and production gets
- * them ONLY through this file. Applied after PART_6, as the deploy will. STAGED (`readPart` falls
- * back to `manual-staged/`).
+ * them ONLY through this file. Applied after PART_6, as the deploy will. PROMOTED (lives in `manual/`),
+ * so `readPart` finds it directly.
  */
 const PART_7_MIGRATION = '2026-10-31_job_run_metrics_slowdown.sql'
 /** The `job_sources` column PART_7 adds: not one of part 1's, so not in its header list. */
 const PART_7_JOB_SOURCES_COLUMNS = ['slowdown_level']
 /**
- * SR-M-4 (STAGED/DARK). The partial unique index `uq_job_sources_inventory_type_namespace` and the
+ * SR-M-4. The partial unique index `uq_job_sources_inventory_type_namespace` and the
  * partial CHECK `ck_job_sources_inventory_namespace_nonempty` (both keyed on `type IN (…)`, NO
- * column) are declared in Drizzle, so the `db:push` reference carries them, and production would get
- * them ONLY through this file. Applied after PART_7, as the deploy would. STAGED (`readPart` falls
- * back to `manual-staged/`). Adds NO `job_sources` column.
+ * column) are declared in Drizzle, so the `db:push` reference carries them, and production gets
+ * them ONLY through this file. Applied after PART_7, as the deploy will. PROMOTED (lives in `manual/`),
+ * so `readPart` finds it directly. Adds NO `job_sources` column.
  */
 const PART_8_MIGRATION = '2026-11-02_job_sources_inventory_uniqueness.sql'
 /** The index PART_8 creates; the reference counts it beside part 2's, PART_5's and PART_6's. */
@@ -157,11 +157,11 @@ const PART_9_MIGRATION = '2026-11-02_job_source_records_source_id.sql'
 /** The index PART_9 creates; the reference counts it beside the earlier parts'. */
 const PART_9_INDEXES = ['idx_job_source_records_source'] as const
 /**
- * PART_10 — CR-M-4 (STAGED/DARK): the generic-pending partial index
+ * PART_10 — CR-M-4: the generic-pending partial index
  * `idx_job_dirty_work_pending_generic` on `job_dirty_work (status, created_at) WHERE reason <>
  * 'DETAIL_FETCH'`, declared in Drizzle (`job-collection.ts`), so the `db:push` reference carries it
- * and production gets it ONLY through this file. Applied after PART_9, as the deploy would. STAGED
- * (`readPart` falls back to `manual-staged/`). It is the one later part built with `CREATE INDEX
+ * and production gets it ONLY through this file. Applied after PART_9, as the deploy will. PROMOTED
+ * (lives in `manual/`), so `readPart` finds it directly. It is the one later part built with `CREATE INDEX
  * CONCURRENTLY`, which `applyParts` runs statement-by-statement in autocommit (not a transaction),
  * exactly as part 2's concurrent builds are.
  */
@@ -169,11 +169,11 @@ const PART_10_MIGRATION = '2026-11-02_job_dirty_work_pending_partial.sql'
 /** The index PART_10 creates; the reference counts it beside part 2's, PART_5/6/8/9's. */
 const PART_10_INDEXES = ['idx_job_dirty_work_pending_generic'] as const
 /**
- * PART_11 — backlog 347 (1) (STAGED/DARK): the reason-partition partial indexes on
+ * PART_11 — backlog 347 (1): the reason-partition partial indexes on
  * `job_dirty_work (status, created_at)`, declared in Drizzle (`job-collection.ts`) so the
  * `db:push` reference carries them; production gets them ONLY through this file. Applied after
- * PART_10, as the deploy would; `CREATE INDEX CONCURRENTLY`, run statement-by-statement in
- * autocommit by `applyParts`, like PART_10.
+ * PART_10, as the deploy will. PROMOTED (lives in `manual/`), so `readPart` finds it directly;
+ * `CREATE INDEX CONCURRENTLY`, run statement-by-statement in autocommit by `applyParts`, like PART_10.
  */
 const PART_11_MIGRATION = '2026-11-03_job_dirty_work_partition_partial.sql'
 const PART_11_INDEXES = [
@@ -181,35 +181,51 @@ const PART_11_INDEXES = [
   'idx_job_dirty_work_pending_availability',
 ] as const
 /**
- * PART_12 — r5 Phase 6 T0 (STAGED/DARK): `job_queue_assignments` becomes a per-senior
+ * PART_12 — r5 Phase 6 T0: `job_queue_assignments` becomes a per-senior
  * submission — `senior_id` + its FK, UNIQUE(opportunity_id) replaced by
  * UNIQUE(opportunity_id, senior_id). Declared in Drizzle (`job-queue.ts`, `senior_id` LAST so
  * the column rank matches an `ADD COLUMN`); production gets it ONLY through this file. Applied
- * after PART_11, as the deploy would. Adds no standalone index (the UNIQUE replaces one).
+ * after PART_11, as the deploy will. PROMOTED (lives in `manual/`), so `readPart` finds it
+ * directly. Adds no standalone index (the UNIQUE replaces one).
  */
 const PART_12_MIGRATION = '2026-11-04_job_queue_submissions_per_senior.sql'
 /**
- * PART_13 — r5 Task 6.1 SR-M-1/2 (STAGED/DARK): `job_opportunities` gains `evaluated_revision`,
+ * PART_13 — r5 Task 6.1 SR-M-1/2: `job_opportunities` gains `evaluated_revision`,
  * `evaluation_verdict` (the new enum `job_opportunity_verdict`), `evaluated_inputs_version` and
  * their all-or-none CHECK. Declared in
  * Drizzle last, so the column rank matches an `ADD COLUMN`; production gets them ONLY through this
- * file. Applied after PART_12, as the deploy would. Adds no standalone index.
+ * file. Applied after PART_12, as the deploy will. PROMOTED (lives in `manual/`), so `readPart`
+ * finds it directly. Adds no standalone index.
  */
 const PART_13_MIGRATION = '2026-11-04_job_opportunities_evaluation_verdict.sql'
 /**
- * PART_14 — r5 Task 6.4c (STAGED/DARK): `job_opportunities` gains `role_family` and its
+ * PART_14 — r5 Task 6.4c: `job_opportunities` gains `role_family` and its
  * bounded CHECK. Declared in Drizzle last, so the column rank matches an `ADD COLUMN`; production
- * gets it ONLY through this file. Applied after PART_13, as the deploy would. Adds no index.
+ * gets it ONLY through this file. Applied after PART_13, as the deploy will. PROMOTED (lives in
+ * `manual/`), so `readPart` finds it directly. Adds no index.
  */
 const PART_14_MIGRATION = '2026-11-05_job_opportunities_role_family.sql'
 /**
- * PART_15 — r5 Phase 6 (STAGED/DARK): `job_opportunities` gains `manual_team_id` and its
+ * PART_15 — r5 Phase 6: `job_opportunities` gains `manual_team_id` and its
  * RESTRICT FK to `teams` (the manual card's owner team); `job_queue_assignments` gains
  * `resume_id` and its SET NULL FK to `senior_resumes`. Each declared in Drizzle last, so the column
  * rank matches an `ADD COLUMN`; production gets them ONLY through this file. Applied after PART_14,
- * as the deploy would. Adds no index.
+ * as the deploy will. PROMOTED (lives in `manual/`), so `readPart` finds it directly. Adds no index.
  */
 const PART_15_MIGRATION = '2026-11-05_job_opportunities_manual_team.sql'
+/**
+ * PART_16 — senior roles PR 2: `job_opportunities` gains `technical_roles`, `role_status`,
+ * `role_classifier_version`, their CHECKs and a GIN index. The same file also adds
+ * `users.technical_roles` (the stub `users` takes it like production does; `users` is not compared
+ * here) and creates the `job_role_classifications` cache, which `technical-roles-forward-ddl` holds
+ * to its Drizzle declaration — this spec only lists it as a known non-store table. Declared in
+ * Drizzle last, so the column rank matches an `ADD COLUMN`. Applied after PART_15, as the deploy
+ * will. PROMOTED (lives in `manual/`), so `readPart` finds it directly.
+ */
+const PART_16_MIGRATION = '2026-11-17_technical_roles.sql'
+const PART_16_INDEXES = ['idx_job_opportunities_technical_roles'] as const
+/** Created by PART_16, compared by `technical-roles-forward-ddl.integration.spec.ts`. */
+const PART_16_OTHER_TABLES = ['job_role_classifications']
 const REDACTION_REASON_NULL = 'ck_job_queue_actions_redaction_reason_null'
 const SCHEMA = 'ddl_job_opportunities_store'
 /** Its own schema, so the migration path cannot disturb the fresh-path comparison. */
@@ -225,6 +241,7 @@ const UNPRIVILEGED_ROLE = 'ddl_forward_ddl_probe'
 const PARKABLE_TABLE = 'job_opportunities'
 const PARKED_INDEX = 'idx_job_opportunities_availability'
 const OTHER_INDEX_SAME_TABLE = 'idx_job_opportunities_candidate_key'
+const STORE_PARK = { schema: SCHEMA, searchPath: SCHEMA, table: PARKABLE_TABLE }
 
 /** The Drizzle modules that, between them, declare exactly this store's tables. */
 const STORE_MODULES = [
@@ -283,8 +300,8 @@ const PRE_STORE_ENUMS = [
 const EXPECTED = { tables: 19, enums: 20, jobSourcesColumns: 20, indexes: 44 } as const
 /**
  * The standalone indexes beyond part 2's 44: T1's two (PART_5), T8's one (PART_6), SR-M-4's one
- * (PART_8), SR-H-2's one (PART_9), CR-M-4's one (PART_10) and backlog 347's two (PART_11).
- * PART_7 adds columns only, no index.
+ * (PART_8), SR-H-2's one (PART_9), CR-M-4's one (PART_10), backlog 347's two (PART_11) and
+ * the senior-roles GIN index (PART_16). PART_7 adds columns only, no index.
  */
 const LATER_INDEXES = [
   ...PART_5_INDEXES,
@@ -293,6 +310,7 @@ const LATER_INDEXES = [
   ...PART_9_INDEXES,
   ...PART_10_INDEXES,
   ...PART_11_INDEXES,
+  ...PART_16_INDEXES,
 ]
 
 const STAGED_DIR = join(__dirname, '..', '..', 'drizzle', 'manual-staged')
@@ -519,128 +537,6 @@ function part2Blocks(): { sweep: string; finalCheck: string } {
 }
 
 /**
- * Parks a `CREATE INDEX CONCURRENTLY` in its "waiting for old snapshots" phase, which
- * is the state where the index row EXISTS with `indisvalid = false` while a build is
- * genuinely in progress — the state the sweep has to tell apart from an abandoned
- * leftover.
- *
- * Deterministic, and not a timing trick: a concurrent build must wait out every
- * transaction holding a snapshot older than its own, so a third session sitting in
- * REPEATABLE READ parks it for as long as that session lives, whatever the table size.
- * Returns the handles the caller must settle.
- */
-async function parkConcurrentBuild(
-  pool: Pool,
-  indexName: string,
-): Promise<{ release: () => Promise<void> }> {
-  const holder = await pool.connect()
-  const builder = await pool.connect()
-  await builder.query(`SET search_path TO ${SCHEMA}`)
-  await holder.query(`SET search_path TO ${SCHEMA}`)
-
-  // The definition is taken from the REFERENCE catalog, never written out here: an
-  // approximation of it would rebuild the index with the wrong columns and leave the
-  // schema silently diverged for every test that runs afterwards. (It did, once.)
-  const definition = await holder.query(
-    `SELECT pg_get_indexdef(i.indexrelid) AS def
-       FROM pg_index i
-       JOIN pg_class ic ON ic.oid = i.indexrelid
-       JOIN pg_class c ON c.oid = i.indrelid
-       JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = 'public' AND ic.relname = $1`,
-    [indexName],
-  )
-  if (definition.rowCount !== 1) {
-    throw new Error(`no reference definition for index ${indexName}`)
-  }
-  // Only the `ON public.<table>` qualification is rewritten — not every occurrence of the
-  // string anywhere in the definition, which would also hit a predicate or an operator
-  // class that happened to name the schema (CR-L-10).
-  const create = String(definition.rows[0]['def'])
-    .replace(
-      /^CREATE (UNIQUE )?INDEX /,
-      (_m, unique) => `CREATE ${unique ?? ''}INDEX CONCURRENTLY `,
-    )
-    .replace(/ ON public\./, ' ON ')
-
-  await holder.query('BEGIN ISOLATION LEVEL REPEATABLE READ')
-  await holder.query(`SELECT count(*) FROM ${PARKABLE_TABLE}`)
-
-  // Deliberately not awaited: this call does not return until the holder commits.
-  const building = builder.query(create).catch((error: Error) => {
-    // Surfaced by the assertions on the index's state; swallowing here keeps an
-    // expected cancellation from becoming an unhandled rejection.
-    return error
-  })
-
-  // Polled through the POOL, never through `holder`: the holder is sitting in a
-  // REPEATABLE READ transaction, so its view of `pg_index` is frozen at a snapshot taken
-  // before the build existed and it can never see the new index row. (It cost a run to
-  // learn that `pg_stat_progress_create_index` is NOT frozen — it reads shared memory —
-  // so the progress count moved while the catalog lookup stayed empty forever.)
-  const deadline = Date.now() + 20_000
-  for (;;) {
-    const progress = await pool.query(
-      `SELECT count(*)::int AS n FROM pg_stat_progress_create_index
-        WHERE datid = (SELECT oid FROM pg_database WHERE datname = current_database())`,
-    )
-    const index = await pool.query(
-      `SELECT i.indisvalid FROM pg_index i
-         JOIN pg_class c ON c.oid = i.indexrelid
-         JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = $1 AND c.relname = $2`,
-      [SCHEMA, indexName],
-    )
-    if (
-      progress.rows[0]['n'] > 0 &&
-      index.rowCount === 1 &&
-      index.rows[0]['indisvalid'] === false
-    ) {
-      break
-    }
-    if (Date.now() > deadline) {
-      // CR-L-9: the ROLLBACK first, so the build can finish, then AWAIT it before either
-      // client goes back to the pool. Releasing a client whose query is still running
-      // hands a busy connection to the next caller, and the failure surfaces somewhere
-      // unrelated — which is the worst way for a timeout path to fail.
-      await holder.query('ROLLBACK').catch(() => undefined)
-      await building
-      holder.release()
-      builder.release()
-      throw new Error(`build of ${indexName} did not park within 20s`)
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50))
-  }
-
-  return {
-    release: async () => {
-      await holder.query('COMMIT').catch(() => undefined)
-      await building
-      holder.release()
-      builder.release()
-    },
-  }
-}
-
-/** Collects the server's NOTICEs for the duration of one call. */
-async function withNotices<T>(
-  client: PoolClient,
-  run: () => Promise<T>,
-): Promise<{ result: T; notices: string[] }> {
-  const notices: string[] = []
-  const listener = (message: { message?: string }): void => {
-    if (message.message) notices.push(message.message)
-  }
-  client.on('notice', listener)
-  try {
-    const result = await run()
-    return { result, notices }
-  } finally {
-    client.off('notice', listener)
-  }
-}
-
-/**
  * Applies the named files statement by statement, the way `psql < file` would.
  *
  * The part list is a parameter because the sweep tests must apply PART 2 ALONE: part 1
@@ -685,6 +581,7 @@ const applyBothParts = (client: PoolClient): Promise<void> =>
     PART_13_MIGRATION,
     PART_14_MIGRATION,
     PART_15_MIGRATION,
+    PART_16_MIGRATION,
   ])
 const applyIndexesOnly = (client: PoolClient): Promise<void> => applyParts(client, [PART_2])
 
@@ -863,6 +760,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         'users',
         'senior_resumes',
         'job_run_records',
+        ...PART_16_OTHER_TABLES,
       ].sort(),
     )
 
@@ -1171,7 +1069,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
 
     it('spares an index whose build is still running, and the build completes', async () => {
       await client.query(`DROP INDEX IF EXISTS ${PARKED_INDEX}`)
-      const parked = await parkConcurrentBuild(pool, PARKED_INDEX)
+      const parked = await parkConcurrentBuild(pool, { ...STORE_PARK, indexName: PARKED_INDEX })
       try {
         // The SWEEP alone, not the whole of part 2 — and the reason is a property worth
         // knowing: `CREATE INDEX CONCURRENTLY IF NOT EXISTS` takes ShareUpdateExclusive
@@ -1211,7 +1109,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
       // This is not hypothetical maintenance work: the deploy connects as a superuser
       // today, and r5 Task 1.3c introduces least-privileged roles.
       await client.query(`DROP INDEX IF EXISTS ${PARKED_INDEX}`)
-      const parked = await parkConcurrentBuild(pool, PARKED_INDEX)
+      const parked = await parkConcurrentBuild(pool, { ...STORE_PARK, indexName: PARKED_INDEX })
       const probe = await pool.connect()
       try {
         await probe.query(`SET search_path TO ${SCHEMA}`)
@@ -1259,7 +1157,10 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
           WHERE indexrelid = format('%I.%I', $1::text, $2::text)::regclass`,
         [SCHEMA, PARKED_INDEX],
       )
-      const parked = await parkConcurrentBuild(pool, OTHER_INDEX_SAME_TABLE)
+      const parked = await parkConcurrentBuild(pool, {
+        ...STORE_PARK,
+        indexName: OTHER_INDEX_SAME_TABLE,
+      })
       try {
         // Sweep then final check, for the lock reason explained in the test above.
         const { sweep, finalCheck } = part2Blocks()
@@ -1352,11 +1253,13 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
         PART_9_MIGRATION,
         // PART_10/11 add standalone indexes only, which this comparison does not read;
         // PART_12 adds a column, an FK and a UNIQUE, which it does; PART_13 an enum, three
-        // columns and a CHECK; PART_14 a column and a CHECK; PART_15 a column and an FK.
+        // columns and a CHECK; PART_14 a column and a CHECK; PART_15 a column and an FK;
+        // PART_16 three columns, four CHECKs and an index.
         PART_12_MIGRATION,
         PART_13_MIGRATION,
         PART_14_MIGRATION,
         PART_15_MIGRATION,
+        PART_16_MIGRATION,
       ])
       beforeMigration = await readCatalog(client, MIGRATION_SCHEMA)
       await applyParts(client, [PART_3_MIGRATION])
@@ -1376,8 +1279,7 @@ describe.skipIf(!hasDatabaseUrl())('job_opportunities store forward DDL', () => 
     }, 180_000)
 
     afterAll(async () => {
-      await dropRolesCreated(pool, rolesCreatedHere)
-      const leaked = rolesCreatedHere.length > 0 ? await existingDeployRoles(pool) : []
+      const leaked = await dropRolesCreatedReportingLeaks(pool, rolesCreatedHere)
       if (leaked.length > 0) {
         throw new Error(`teardown left role(s) behind in the cluster: ${leaked.join(', ')}`)
       }

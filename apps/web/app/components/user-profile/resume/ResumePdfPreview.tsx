@@ -25,6 +25,7 @@ import type { SeniorResumeDto } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { PdfPreview } from '@/components/documents/pdf-preview'
 import { useResumePdfBlob } from '@/hooks/use-senior-resume'
+import { resumeMessageText } from './resumeMessage'
 
 export interface ResumePdfPreviewProps {
   resume: SeniorResumeDto
@@ -57,12 +58,14 @@ export function ResumePdfPreview({ resume, pdfUrl, fileName }: ResumePdfPreviewP
       >
         <div className="flex items-start gap-3">
           <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
-          <div className="text-sm">
+          <div className="min-w-0 flex-1 text-sm">
             <p className="font-medium">
               <Trans>Не вдалося зібрати PDF</Trans>
             </p>
-            <p className="mt-1 text-muted-foreground">
-              {resume.renderError ?? (
+            <p className="mt-1 break-words text-muted-foreground">
+              {resume.renderError ? (
+                resumeMessageText(resume.renderError, 'RESUME_ERROR_DETAILS_UNAVAILABLE')
+              ) : (
                 <Trans>
                   Верстка резюме не зібралася. Змініть оформлення або зверніться до адміністратора.
                 </Trans>
@@ -80,7 +83,7 @@ export function ResumePdfPreview({ resume, pdfUrl, fileName }: ResumePdfPreviewP
         data-testid="resume-pdf-pending"
         className="rounded-xl border border-border/60 bg-card/50 p-6 text-center"
       >
-        <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" />
+        <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground motion-reduce:animate-none" />
         <p className="mt-3 text-sm font-medium">
           <Trans>Готуємо PDF за шаблоном</Trans>
         </p>

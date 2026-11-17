@@ -18,6 +18,7 @@ import type { FetchLike } from '../http/bounded-request'
 import {
   createRouter,
   createRouterExtractionAdapter,
+  modelSizeB,
   pendingLocalQueues,
   type RouterEvent,
 } from './router'
@@ -422,5 +423,92 @@ describe('router: store writes are awaited inside the hosted budget (SR-L-70)', 
     expect(ofType(d.events, 'FELL_TO_LOCAL')[0]?.reasons).toEqual([
       { route: 'groq', code: 'BUDGET' },
     ])
+  })
+})
+
+describe('router: the largest-model preference (R15)', () => {
+  /** The hosted (host, model) pairs in the order first tried; a correction retry is the same pair. */
+  const tried = (sent: { host: string; model: string }[]) =>
+    [...new Set(sent.map((s) => `${s.host} ${s.model}`))].filter((p) => !p.startsWith(hostOf.local))
+  const BAD = answer('not json')
+  // The hosted families are checked in: only Groq ids carry a size, Gemini ids carry none.
+  const groq = { ...GROQ, models: ['openai/gpt-oss-20b', 'openai/gpt-oss-120b'] }
+  const gemini = { ...GEMINI, models: ['gemini-2.5-flash-lite', 'gemini-2.5-pro'] }
+  const PAIRS = {
+    big: `${hostOf.groq} openai/gpt-oss-120b`,
+    small: `${hostOf.groq} openai/gpt-oss-20b`,
+    lite: `${hostOf.gemini} gemini-2.5-flash-lite`,
+    pro: `${hostOf.gemini} gemini-2.5-pro`,
+  }
+
+  it('largest preference never picks the smallest model when a larger one is healthy', async () => {
+    const f = scriptedFetch(() => GOOD)
+    // Gemini first in the config and in the rotation: the preference still goes to the 120b model.
+    const router = createRouter(config([gemini, groq, LOCAL]), deps(f.fetchImpl))
+    for (let i = 0; i < 2; i++) {
+      const r = await router.run({ ...REQ, modelPreference: 'largest' })
+      expect(r.ok).toBe(true)
+    }
+    expect(f.sent.map((s) => s.model)).toEqual(['openai/gpt-oss-120b', 'openai/gpt-oss-120b'])
+  })
+
+  it('largest preference tries every healthy pair, sized ones first, unknown ones in their order', async () => {
+    const f = scriptedFetch((s) => (s.host === hostOf.local ? GOOD : BAD))
+    const r = await createRouter(config([gemini, groq, LOCAL]), deps(f.fetchImpl)).run({
+      ...REQ,
+      modelPreference: 'largest',
+    })
+    expect(r.ok).toBe(true)
+    expect(tried(f.sent)).toEqual([PAIRS.big, PAIRS.small, PAIRS.lite, PAIRS.pro])
+  })
+
+  it("no preference keeps today's order", async () => {
+    const f = scriptedFetch((s) => (s.host === hostOf.local ? GOOD : BAD))
+    const router = createRouter(config([groq, gemini, LOCAL]), deps(f.fetchImpl))
+    await router.run(REQ)
+    expect(tried(f.sent)).toEqual([PAIRS.small, PAIRS.big, PAIRS.lite, PAIRS.pro])
+    f.sent.length = 0
+    await router.run(REQ)
+    expect(tried(f.sent)).toEqual([PAIRS.lite, PAIRS.pro, PAIRS.small, PAIRS.big])
+  })
+
+  it('a largest call does not advance the rotation of the next plain call', async () => {
+    const f = scriptedFetch(() => GOOD)
+    const router = createRouter(config([gemini, groq, LOCAL]), deps(f.fetchImpl))
+    await router.run({ ...REQ, modelPreference: 'largest' })
+    await router.run(REQ)
+    expect(byHost(f.sent)).toEqual([hostOf.groq, hostOf.gemini])
+  })
+
+  it("a route-level failure skips that route's remaining models in the flattened order", async () => {
+    const f = scriptedFetch((s) => {
+      if (s.host === hostOf.local) return GOOD
+      return s.model === 'openai/gpt-oss-120b' ? { status: 500, body: '' } : BAD
+    })
+    const d = deps(f.fetchImpl)
+    await createRouter(config([groq, gemini, LOCAL]), d).run({ ...REQ, modelPreference: 'largest' })
+    expect(tried(f.sent)).toEqual([PAIRS.big, PAIRS.lite, PAIRS.pro])
+    expect(ofType(d.events, 'FELL_TO_LOCAL')[0]?.reasons).toEqual([
+      { route: 'groq', code: 'TRANSPORT' },
+      { route: 'gemini', code: 'INVALID_OUTPUT' },
+      { route: 'gemini', code: 'INVALID_OUTPUT' },
+    ])
+  })
+})
+
+describe('router: modelSizeB (R15)', () => {
+  it.each([
+    ['meta-llama/llama-3.3-70b-instruct', 70],
+    ['70b', 70],
+    ['QWEN2.5-1.5B', 1.5],
+    ['mistralai/mixtral-8x7b-instruct', 56],
+    ['qwen/qwen3-30b-a3b:free', 30],
+    ['openai/gpt-oss-120b', 120],
+    ['gemini-2.5-flash', undefined],
+    ['model-a3b', undefined],
+    ['model-3bit', undefined],
+    ['', undefined],
+  ] as [string, number | undefined][])('%s -> %s', (id, size) => {
+    expect(modelSizeB(id)).toBe(size)
   })
 })

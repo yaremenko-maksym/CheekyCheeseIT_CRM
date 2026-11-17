@@ -70,18 +70,6 @@ export const STAGE_BADGE_COLORS: Record<InterviewStage, string> = {
   ARCHIVED: 'bg-zinc-800/50 text-zinc-400 border-zinc-700/30',
 }
 
-export const COLUMN_BORDER: Record<InterviewStage, string> = {
-  HR_SCREEN: 'border-blue-500/40',
-  ENGLISH_CHECK: 'border-violet-500/40',
-  TECH_INTERVIEW: 'border-amber-500/40',
-  FINAL_INTERVIEW: 'border-orange-500/40',
-  CLIENT_INTERVIEW: 'border-sky-500/40',
-  OFFER_RECEIVED: 'border-emerald-500/40',
-  HIRED: 'border-emerald-700/30',
-  REJECTED: 'border-rose-800/30',
-  ARCHIVED: 'border-zinc-700/30',
-}
-
 // Column header — stage label + count badge
 export const COLUMN_HEADER_BG: Record<InterviewStage, string> = {
   HR_SCREEN: 'bg-blue-500/10 text-blue-300',
@@ -108,18 +96,6 @@ export const COLUMN_BG: Record<InterviewStage, string> = {
   REJECTED: 'bg-rose-950/[0.04]',
   ARCHIVED: 'bg-zinc-900/[0.05]',
 }
-
-export const STAGE_ORDER: InterviewStage[] = [
-  'HR_SCREEN',
-  'ENGLISH_CHECK',
-  'TECH_INTERVIEW',
-  'FINAL_INTERVIEW',
-  'CLIENT_INTERVIEW',
-  'OFFER_RECEIVED',
-  'HIRED',
-  'REJECTED',
-  'ARCHIVED',
-]
 
 export function getNextStage(stage: InterviewStage): InterviewStage | null {
   const activeIdx = ACTIVE_STAGES.indexOf(stage)

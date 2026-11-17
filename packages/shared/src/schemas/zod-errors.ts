@@ -80,6 +80,7 @@ export const ZOD_ERROR_CODES = [
   'PERSONAL_EMAIL_MUST_DIFFER',
   'JOIN_DROP_TEAM_SENIOR_ONLY',
   'SENIOR_MIN_TECHNOLOGIES',
+  'SENIOR_MIN_ROLES',
   'DROP_TEAM_ID_REQUIRED',
   'HR_REQUIRED_MIN',
   // UserDialog.tsx / RejoinTeamDialog.tsx — local literal dupes migrated into
@@ -146,6 +147,8 @@ export const ZOD_ERROR_CODES = [
   'TEAM_TELEGRAM_LINK_FORMAT',
   // admin-actions.ts
   'SALARY_OR_SHARE_REQUIRED',
+  // job-sourcing.ts — the 90-day ceiling of a triage grant or subscription (backlog 426)
+  'TRIAGE_EXPIRY_BEYOND_CEILING',
 ] as const
 export type ZodErrorCode = (typeof ZOD_ERROR_CODES)[number]
 
@@ -334,6 +337,10 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
     // No-break spaces keep «3 різні технології» on one line (COPY-L-1).
     message: 'Сеньйору потрібно щонайменше 3 різні технології',
   },
+  SENIOR_MIN_ROLES: /* i18n */ {
+    id: 'zod-error.SENIOR_MIN_ROLES',
+    message: 'Сеньйору потрібна щонайменше одна технічна роль',
+  },
   DROP_TEAM_ID_REQUIRED: /* i18n */ {
     id: 'zod-error.DROP_TEAM_ID_REQUIRED',
     message: 'Оберіть команду дропа',
@@ -482,6 +489,10 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
     id: 'zod-error.SALARY_OR_SHARE_REQUIRED',
     message: 'Вкажіть зарплату або частку сеньйора — хоча б одне з двох',
   },
+  TRIAGE_EXPIRY_BEYOND_CEILING: /* i18n */ {
+    id: 'zod-error.TRIAGE_EXPIRY_BEYOND_CEILING',
+    message: 'Доступ діє щонайбільше 90 днів — виберіть ранішу дату',
+  },
 }
 
 /**
@@ -533,6 +544,7 @@ export const ZOD_ERROR_FALLBACK_EN: Record<ZodErrorCode, string> = {
   PERSONAL_EMAIL_MUST_DIFFER: 'The personal email must differ from the work email',
   JOIN_DROP_TEAM_SENIOR_ONLY: 'Only a senior can be added to a drop team',
   SENIOR_MIN_TECHNOLOGIES: 'A senior needs at least 3 different technologies',
+  SENIOR_MIN_ROLES: 'A senior needs at least one technical role',
   DROP_TEAM_ID_REQUIRED: 'Select a drop team',
   HR_REQUIRED_MIN: 'Select at least one HR',
   VALIDATION_FAILED_FORM: 'Check the fields you filled in',
@@ -567,6 +579,7 @@ export const ZOD_ERROR_FALLBACK_EN: Record<ZodErrorCode, string> = {
   CONTRACT_DOCUMENT_PROJECT_REQUIRED: "Choose a project — a contract can't be uploaded without one",
   TEAM_TELEGRAM_LINK_FORMAT: 'The link must start with https://t.me/',
   SALARY_OR_SHARE_REQUIRED: "Enter the salary or the senior's share — at least one of the two",
+  TRIAGE_EXPIRY_BEYOND_CEILING: 'Access lasts no more than 90 days — choose an earlier date',
 }
 
 /**

@@ -85,11 +85,24 @@ describe('boundedRequest', () => {
     expect((await boundedRequest({ ...base, timeoutMs: 5, fetchImpl: f })).kind).toBe('timeout')
   })
 
-  it('maps a thrown fetch to transport', async () => {
+  it('maps a thrown fetch to transport, with its error class and never its message', async () => {
     const f: FetchLike = async () => {
       throw new Error('boom')
     }
-    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({ kind: 'transport' })
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({
+      kind: 'transport',
+      errorName: 'Error',
+    })
+  })
+
+  it('a thrown non-Error is transport with the class unknown', async () => {
+    const f: FetchLike = async () => {
+      throw 'boom'
+    }
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({
+      kind: 'transport',
+      errorName: 'unknown',
+    })
   })
 
   it('rejects http unless loopback is allowed and host is loopback', async () => {
@@ -581,6 +594,9 @@ describe('boundedRequest redirects (SR-M-1)', () => {
     const f: FetchLike = async () => {
       throw new TypeError('fetch failed: redirect mode is set to error')
     }
-    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({ kind: 'transport' })
+    expect(await boundedRequest({ ...base, fetchImpl: f })).toEqual({
+      kind: 'transport',
+      errorName: 'TypeError',
+    })
   })
 })

@@ -314,6 +314,9 @@ export function xmlPagedSpec<TConfig extends SourceConfigFields, TItem>(
   return {
     ...spec,
     limits,
+    // The transport refuses at the same byte cap the parser holds, so a raised `maxBytes` is not
+    // refused at the 2 MiB transport default before it reaches the parser. `feedPagedSpec` sets its own.
+    requestMaxBytes: limits.maxBytes,
     decodeEnvelope: (bodyText) => decodeXmlBody(bodyText, limits, port),
     pageRequest: (config, at): PageRequest => {
       const built = spec.pageRequest(config, at)

@@ -242,10 +242,11 @@ describe('activation query against the real manifest (AC3)', () => {
 })
 
 describe('the production registry (AC2, AC5)', () => {
-  it('holds DOU on the legacy contract and nothing else', () => {
+  it('holds DOU on the legacy contract; without manifest facts only DOU is activatable', () => {
+    // The REPORTING adapters it also registers: production-registry.spec.ts.
     const dou = new DouRssProvider()
     const r = createProductionRegistry(dou)
-    expect(r.types()).toEqual(['DOU_RSS'])
+    expect(r.types()).toContain('DOU_RSS')
     expect(r.legacyProvider('DOU_RSS')).toBe(dou)
     expect(r.activatable(new Map())).toEqual(['DOU_RSS'])
   })

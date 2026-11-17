@@ -5,7 +5,9 @@ import { useEffect, useState } from 'react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useAuth } from '@/context/auth'
+import { useOnboardingGate } from '@/context/onboarding'
 import { useAdminSummary, ADMIN_SUMMARY_QUERY_KEY } from '@/hooks/use-admin-summary'
 import { useQueryClient } from '@tanstack/react-query'
 import { KpiCard } from './finance/components/KpiCards'
@@ -48,14 +50,26 @@ const item = {
 function CrmDashboard() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const onboarding = useOnboardingGate()
+  // PR #1334 QA-LOW-2: only once the onboarding status is in. A not-onboarded JUNIOR is the
+  // layout's to send to /onboarding; leaving earlier raced that redirect and opened the hub, which
+  // asked the API for its projects as the not-onboarded account (403). A failed status still leaves.
+  const juniorMayLeave = onboarding.isComplete || onboarding.isError
 
   // JUNIOR UX: JUNIOR имеет собственный хаб «Мой проект» — редиректим с корня.
   useEffect(() => {
-    if (user?.role === 'JUNIOR') {
+    if (user?.role === 'JUNIOR' && juniorMayLeave) {
       void navigate({ to: '/project', replace: true })
     }
-  }, [user?.role, navigate])
-  if (user?.role === 'JUNIOR') return null
+  }, [user?.role, juniorMayLeave, navigate])
+  // a pending placeholder, not a blank screen, until the status is in (a hang errors at its timeout)
+  if (user?.role === 'JUNIOR') {
+    return (
+      <div data-testid="junior-hub-pending" aria-busy="true" className="flex-1 px-6 py-4">
+        <Skeleton className="h-28 w-full rounded-lg" />
+      </div>
+    )
+  }
 
   // DROP role: платёжный хаб вместо общего дашборда.
   if (user?.role === 'DROP') {

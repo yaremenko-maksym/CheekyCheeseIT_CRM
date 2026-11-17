@@ -20,12 +20,19 @@ interface MonthPickerFieldProps {
   /** 'YYYY-MM' inclusive; undefined = unbounded. */
   maxMonth?: string | undefined
   disabled?: boolean | undefined
+  /** Extra classes for both triggers (a taller mobile target). */
+  triggerClassName?: string | undefined
   /** Applied to the month trigger (label target). */
   id?: string | undefined
   'aria-invalid'?: boolean | undefined
   'aria-describedby'?: string | undefined
   'aria-labelledby'?: string | undefined
   'data-testid'?: string | undefined
+  /** Accessible names of the two selects; default to the salary wording. */
+  monthAriaLabel?: string | undefined
+  yearAriaLabel?: string | undefined
+  /** Called when either select closes (the field counts as visited then, not on open). */
+  onClose?: (() => void) | undefined
 }
 
 // 'YYYY-MM' -> months since year 0; split() on purpose, a Date round-trip drifts with TZ.
@@ -51,6 +58,10 @@ export function MonthPickerField({
   'aria-describedby': describedBy,
   'aria-labelledby': labelledBy,
   'data-testid': testId,
+  monthAriaLabel,
+  yearAriaLabel,
+  onClose,
+  triggerClassName,
 }: MonthPickerFieldProps) {
   const { t } = useLingui()
   const locale = useLocale()
@@ -80,8 +91,13 @@ export function MonthPickerField({
     const set = new Set<number>()
     for (let y = first; y <= last; y++) set.add(y)
     if (selYear) set.add(selYear)
-    return [...set].sort((a, b) => a - b)
+    // Newest first: recent years are the usual pick (QA-10; the resume range starts at 1970).
+    return [...set].sort((a, b) => b - a)
   }, [minMonth, maxMonth, curYear, selYear])
+
+  const onOpenChange = (open: boolean) => {
+    if (!open) onClose?.()
+  }
 
   const emit = (y: number, m: number) => {
     const clamped = Math.min(Math.max(y * 12 + (m - 1), lo), hi)
@@ -91,19 +107,28 @@ export function MonthPickerField({
   const monthYear = selYear ?? curYear
   const invalidCls = invalid && 'border-destructive'
 
+  // flex-wrap + a min-w-fit month: when the month text cannot fit beside the year (a narrow
+  // card, a wider system font on Linux), the year drops to its own line instead of the month
+  // being cut. A fixed-width budget broke on CI fonts (en "September" cut by 8 px at 320).
   return (
-    <div role="group" aria-labelledby={labelledBy} className="flex gap-2" data-testid={testId}>
+    <div
+      role="group"
+      aria-labelledby={labelledBy}
+      className="flex flex-wrap gap-2"
+      data-testid={testId}
+    >
       <Select
         value={selMonth ? pad(selMonth) : ''}
         onValueChange={(m) => emit(monthYear, Number(m))}
+        onOpenChange={onOpenChange}
         disabled={disabled ?? false}
       >
         <SelectTrigger
           id={id}
-          aria-label={t`Місяць зарплати`}
+          aria-label={monthAriaLabel ?? t`Місяць зарплати`}
           aria-invalid={invalid}
           aria-describedby={describedBy}
-          className={cn('h-9 min-w-0 flex-1 text-sm', invalidCls)}
+          className={cn('h-9 min-w-fit flex-1 gap-1 px-2 text-sm', invalidCls, triggerClassName)}
           data-testid="create-transaction-salary-month-select"
         >
           <SelectValue placeholder={t`Місяць`} />
@@ -128,13 +153,18 @@ export function MonthPickerField({
       <Select
         value={selYear ? String(selYear) : ''}
         onValueChange={(y) => emit(Number(y), selMonth ?? curMonth)}
+        onOpenChange={onOpenChange}
         disabled={disabled ?? false}
       >
         <SelectTrigger
-          aria-label={t`Рік зарплати`}
+          aria-label={yearAriaLabel ?? t`Рік зарплати`}
           aria-invalid={invalid}
           aria-describedby={describedBy}
-          className={cn('h-9 w-[5.5rem] shrink-0 text-sm tabular-nums', invalidCls)}
+          className={cn(
+            'h-9 w-[4.75rem] min-w-fit shrink-0 gap-1 px-2 text-sm tabular-nums',
+            invalidCls,
+            triggerClassName,
+          )}
           data-testid="create-transaction-salary-year-select"
         >
           <SelectValue placeholder={t`Рік`} />

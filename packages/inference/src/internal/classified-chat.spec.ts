@@ -12,6 +12,11 @@ import {
 import { BODY_MARKER, type ProviderFixture } from './__fixtures__/provider-fixture'
 import { GEMINI_FIXTURES, GEMINI_MODEL } from './__fixtures__/gemini.fixtures'
 import { GROQ_FIXTURES, GROQ_MODEL } from './__fixtures__/groq.fixtures'
+import {
+  CLOUDFLARE_ACCOUNT,
+  CLOUDFLARE_FIXTURES,
+  CLOUDFLARE_MODEL,
+} from './__fixtures__/cloudflare.fixtures'
 
 const KEY_MARKER = 'sk-KEY-MARKER-91c2'
 
@@ -51,7 +56,7 @@ const answer = (content: unknown, extra: Record<string, unknown> = {}, finish: u
     ...extra,
   })
 
-const HOSTED: Record<'gemini' | 'groq', Omit<ClassifiedChatOptions, 'fetchImpl'>> = {
+const HOSTED: Record<'gemini' | 'groq' | 'cloudflare', Omit<ClassifiedChatOptions, 'fetchImpl'>> = {
   gemini: {
     provider: 'gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
@@ -69,6 +74,15 @@ const HOSTED: Record<'gemini' | 'groq', Omit<ClassifiedChatOptions, 'fetchImpl'>
     input: 'synthetic input',
     maxTokens: 800,
     structuredOutput: { mode: 'json_schema', schema: { type: 'object' } },
+  },
+  cloudflare: {
+    provider: 'cloudflare',
+    baseUrl: `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT}/ai/v1`,
+    model: CLOUDFLARE_MODEL,
+    apiKey: KEY_MARKER,
+    input: 'synthetic input',
+    maxTokens: 800,
+    structuredOutput: { mode: 'none' },
   },
 }
 
@@ -94,6 +108,7 @@ async function run(
 describe.each([
   ['groq', GROQ_FIXTURES],
   ['gemini', GEMINI_FIXTURES],
+  ['cloudflare', CLOUDFLARE_FIXTURES],
 ] as const)('%s fixtures (ADR §5.1)', (provider, fixtures: ProviderFixture[]) => {
   it.each(fixtures.map((f) => [f.name, f] as const))('%s', async (_name, f) => {
     const { result } = await run(HOSTED[provider], f.status, f.body, f.headers)
@@ -503,6 +518,73 @@ describe('provider-specific signals stay with their provider', () => {
       JSON.stringify({ error: { message: BODY_MARKER, type: 'invalid_request_error' } }),
     )
     expect(forbidden.result).toStrictEqual({ ok: false, code: 'TRANSPORT', responded: true })
+  })
+
+  it('the Cloudflare day code means nothing on Groq, Gemini or the local route', async () => {
+    const spent = JSON.stringify({ success: false, errors: [{ code: 3036 }] })
+    for (const opts of [HOSTED.groq, HOSTED.gemini, LOCAL]) {
+      expect((await run(opts, 429, spent)).result).toStrictEqual({ ok: false, code: 'BUSY' })
+    }
+  })
+
+  const cfEnvelope = (...codes: unknown[]): string =>
+    JSON.stringify({ success: false, errors: codes.map((code) => ({ code, message: 'x' })) })
+  const TRANSPORT = { ok: false, code: 'TRANSPORT', responded: true } as const
+
+  it('a Cloudflare 410 with code 5028 in the v4 envelope retires the model (amendment 2026-11-17)', async () => {
+    expect((await run(HOSTED.cloudflare, 410, cfEnvelope(5028))).result).toStrictEqual({
+      ok: false,
+      code: 'RETIRED',
+    })
+    expect((await run(HOSTED.cloudflare, 410, cfEnvelope(1, 5028))).result).toStrictEqual({
+      ok: false,
+      code: 'RETIRED',
+    })
+  })
+
+  it('any other 410 is TRANSPORT: another code, no envelope, another provider, the local floor', async () => {
+    expect((await run(HOSTED.cloudflare, 410, cfEnvelope(3042))).result).toStrictEqual(TRANSPORT)
+    expect((await run(HOSTED.cloudflare, 410, cfEnvelope('5028'))).result).toStrictEqual(TRANSPORT)
+    expect((await run(HOSTED.cloudflare, 410, '')).result).toStrictEqual(TRANSPORT)
+    for (const opts of [HOSTED.groq, HOSTED.gemini, LOCAL]) {
+      expect((await run(opts, 410, cfEnvelope(5028))).result).toStrictEqual(TRANSPORT)
+    }
+  })
+
+  it('a Cloudflare 403 with the authentication code 10000 is AUTH; 5035, 3023 and a bare 403 are not', async () => {
+    expect((await run(HOSTED.cloudflare, 403, cfEnvelope(10000))).result).toStrictEqual({
+      ok: false,
+      code: 'AUTH',
+    })
+    for (const body of [cfEnvelope(5035), cfEnvelope(3023), '', BODY_MARKER]) {
+      expect((await run(HOSTED.cloudflare, 403, body)).result).toStrictEqual(TRANSPORT)
+    }
+    // The Cloudflare code means nothing on another provider.
+    for (const opts of [HOSTED.groq, HOSTED.gemini, LOCAL]) {
+      expect((await run(opts, 403, cfEnvelope(10000))).result).toStrictEqual(TRANSPORT)
+    }
+  })
+
+  it('a Cloudflare 401 is AUTH whatever the body says', async () => {
+    // F10: the verified live 401 body is in CLOUDFLARE_FIXTURES (the table above runs it too).
+    const fixture = CLOUDFLARE_FIXTURES.find((f) => f.name.startsWith('401 invalid bearer'))
+    if (fixture === undefined)
+      throw new Error('401 invalid bearer fixture missing from CLOUDFLARE_FIXTURES')
+    for (const body of [fixture.body, cfEnvelope(10000), '']) {
+      expect((await run(HOSTED.cloudflare, 401, body)).result).toStrictEqual({
+        ok: false,
+        code: 'AUTH',
+      })
+    }
+  })
+
+  it('sends the Cloudflare request to the account path with a bearer token', async () => {
+    const { sent } = await run(HOSTED.cloudflare, 200, answer('{}'))
+    expect(sent[0]!.url).toBe(
+      `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT}/ai/v1/chat/completions`,
+    )
+    expect(sent[0]!.headers.Authorization).toBe(`Bearer ${KEY_MARKER}`)
+    expect(sent[0]!.body.model).toBe(CLOUDFLARE_MODEL)
   })
 
   it('a 429 without any headers object is BUSY', async () => {

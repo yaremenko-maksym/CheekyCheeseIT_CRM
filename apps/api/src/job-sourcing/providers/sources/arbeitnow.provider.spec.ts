@@ -4,6 +4,7 @@ import { sourceFixture, sourceProvenance } from '../../../test/source-fixtures'
 import { PG_INT_MAX } from '../api-json.provider'
 import { MAX_RESPONSE_BYTES_CEILING } from '../../http/bounded-fetch'
 import { UnvalidatedConfigError } from '../reporting-provider'
+import { validateObservation } from '../../store/record-payload'
 import {
   arbeitnowProvider,
   ARBEITNOW_MAX_BYTES,
@@ -397,6 +398,18 @@ describe('pagination, coverage and requests', () => {
     })
   })
 
+  it('page 1 landed and page 2 failed: PARTIAL, page 1 kept, the attempt is not a failure of the whole board', async () => {
+    const first = pageOf(1, 'https://x/api?page=2')
+    const f = fakeCollectionContext({
+      now: NOW,
+      responses: [{ bodyText: JSON.stringify(first) }, { status: 503, bodyText: '' }],
+    })
+    const batch = await arbeitnowProvider.collectReport(cfg(), f.ctx)
+    expect(batch.outcome).toBe('PARTIAL')
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual(['job-1'])
+    expect(batch.requests.at(-1)?.status).toBe(503)
+  })
+
   it('a non-200 page fails the attempt and keeps nothing', async () => {
     const { batch } = await run('', cfg(), 503)
     expect(batch.outcome).toBe('FAILED')
@@ -610,5 +623,22 @@ describe('escaped descriptions', () => {
 
   it('leading whitespace before an escaped tag means it is NOT treated as escaped markup', async () => {
     expect(await descriptionOf(' &lt;p&gt;x&lt;/p&gt;')).toBe('\\<p\\>x\\</p\\>')
+  })
+})
+
+describe('an over-limit description (prod 2026-11-16: PERSISTENCE, description over the display limit)', () => {
+  it('is cut to the display limit, so every job passes the store gate and the run succeeds', async () => {
+    const big = { ...jobs()[0], description: `<p>${'x'.repeat(30_000)}</p>` }
+    const { batch } = await run(withJobs([big, ...jobs().slice(1)]))
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.counts).toEqual({
+      raw: 7,
+      normalized: 7,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
+    expect(bySlug(batch, FIRST)?.normalized.descriptionMd).toHaveLength(20_000)
+    for (const o of batch.observations) expect(() => validateObservation(o)).not.toThrow()
   })
 })

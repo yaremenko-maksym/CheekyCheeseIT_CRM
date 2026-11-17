@@ -339,6 +339,8 @@ const PACKAGES = [
       'src/main.ts',
       'src/**/*.module.ts',
       'src/test/**',
+      // ATS suite fixtures + helpers (verified-base-resume Task 7): test-only, run by `test:ats`, not the unit suite.
+      'src/**/__ats__/**',
       'src/db/**',
       // ── DECLARATIVE DRIZZLE SCHEMA DEFINITIONS — PATH-SCOPED EXCLUSION ────────
       // OWNER DECISION 2026-10-13 ("Исключить schema/** из mutation-гейта").
@@ -580,15 +582,20 @@ function pinNodeOrExit(opts = {}) {
   if (pin.notice) process.stderr.write(pin.notice)
   if (pin.action === 'continue') return 'continue'
 
-  const child = spawn(pin.node, [...process.execArgv, process.argv[1], ...process.argv.slice(2)], {
-    stdio: 'inherit',
-    env: { ...env, PATH: pin.path, MUTATION_GATE_NODE_PINNED: '1' },
-  })
+  // The handlers go in BEFORE spawn: the child can signal us the moment it exists, and a
+  // signal landing between spawn() and a later process.on() takes the default action --
+  // the parent dies silently and orphans the child. A handler runs on the event loop,
+  // after this function returns, so `child` is always assigned by then.
+  let child
   // SIGINT: see the docblock -- the shared process group already delivers a terminal
   // Ctrl-C to the child, so only stay alive here (default action would kill the parent
   // and lose the child's exit code).
   process.on('SIGINT', () => {})
   for (const sig of ['SIGTERM', 'SIGHUP']) process.on(sig, () => child.kill(sig))
+  child = spawn(pin.node, [...process.execArgv, process.argv[1], ...process.argv.slice(2)], {
+    stdio: 'inherit',
+    env: { ...env, PATH: pin.path, MUTATION_GATE_NODE_PINNED: '1' },
+  })
   child.on('error', (err) => fail(`could not start ${pin.node}: ${err.message}`))
   child.on('exit', (code, signal) => {
     if (signal) fail(`${pin.node} was terminated by ${signal}`)

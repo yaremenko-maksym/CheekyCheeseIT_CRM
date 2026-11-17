@@ -18,7 +18,7 @@
 #     scripts/devops/tests/compare-hooks-to-ref.sh HEAD~1
 #     scripts/devops/tests/compare-hooks-to-ref.sh v-before-refactor
 #
-# Every corpus line is run through ALL THREE hooks, not only the ones its row
+# Every corpus line is run through ALL the hooks below, not only the ones its row
 # names: a regression in a hook the line was not written for is still a
 # regression, and one of the thirteen was found exactly that way.
 #
@@ -31,25 +31,61 @@ REPO_ROOT="$(cd "$SELF_DIR/../../.." && pwd)"
 CORPUS="$SELF_DIR/lib/command-corpus.txt"
 REF="${1:-origin/main}"
 
-HOOK_FILES="pre-bash-safety.sh pre-bash-live-db-guard.sh pre-bash-devserver-ttl-gate.sh"
+# cross-agent-blast gates every command in a worktree cwd, so the comparison covers it
+# too. On Windows a ref older than #1314 cannot launch its inline analyzer (rc 126 is a
+# refusal), so there a "regression" for that hook against such a ref means nothing.
+HOOK_FILES="pre-bash-safety.sh pre-bash-live-db-guard.sh pre-bash-devserver-ttl-gate.sh pre-bash-cross-agent-blast.sh"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/hookdiff-XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
+# Git Bash rewrites a `<ref>:<path>` argument as if it were a POSIX path list, so
+# `git show origin/main:.claude/...` asks for a path that does not exist. The exclusion
+# stops that, but it would also stop the rewrite of `-C /c/...`, so git runs from a cd.
+ref_git() { (cd "$REPO_ROOT" && MSYS2_ARG_CONV_EXCL='*' git "$@"); }
+
 # ── materialise the ref's hooks ───────────────────────────────────────────────
 # A ref older than the shared analyzer simply has no lib/cmdscan.py; its hooks
 # were self-contained, so the absence is correct and not an error.
+# cross-agent-blast is newer than the other three, so a ref may predate it: then the
+# others are still compared and the run says so. Any other hook missing is an error.
+OPTIONAL_HOOKS="pre-bash-cross-agent-blast.sh"
 mkdir -p "$WORK/ref/lib"
+COMPARED=""
+# `cat-file -e` only says whether "$REF:<path>" names an object. A no is read as "the
+# ref lacks this hook"; an unresolvable ref also answers no, and then the first hook
+# that is not optional stops the run. A hook that exists but cannot be read is an error.
 for f in $HOOK_FILES; do
-  if ! git -C "$REPO_ROOT" show "$REF:.claude/hooks/$f" >"$WORK/ref/$f" 2>/dev/null; then
+  if ! ref_git cat-file -e "$REF:.claude/hooks/$f" 2>/dev/null; then
+    case " $OPTIONAL_HOOKS " in
+      *" $f "*)
+        echo "NOTE: $REF has no .claude/hooks/$f, so it is not compared; the other hooks are."
+        continue
+        ;;
+    esac
     echo "ERROR: $REF has no .claude/hooks/$f" >&2
     exit 2
   fi
+  if ! ref_git show "$REF:.claude/hooks/$f" >"$WORK/ref/$f"; then
+    echo "ERROR: $REF has .claude/hooks/$f but it cannot be read" >&2
+    exit 2
+  fi
+  COMPARED="$COMPARED $f"
 done
-# Same for an analyzer that a ref still kept inline (live_db_guard_analyzer.py, 2026-11-11).
-for lf in cmdscan.py pre_bash_safety.py live_db_guard_analyzer.py; do
-  git -C "$REPO_ROOT" show "$REF:.claude/hooks/lib/$lf" >"$WORK/ref/lib/$lf" 2>/dev/null ||
-    rm -f "$WORK/ref/lib/$lf"
+HOOK_FILES="${COMPARED# }"
+# Every lib/*.py the ref HAS is copied, by listing the ref rather than naming files
+# here: a hook from a ref that runs lib/<x>.py must not meet a missing <x>.py and
+# read as "refused" for that reason (a named list once left out
+# cross_agent_blast_analyzer.py). What the ref lacks, it kept inline or did not have.
+REF_LIBS="$(ref_git ls-tree --name-only "$REF" -- .claude/hooks/lib/)" || {
+  echo "ERROR: cannot list .claude/hooks/lib/ of $REF" >&2
+  exit 2
+}
+for lf in $(printf '%s\n' "$REF_LIBS" | sed -n 's#^\.claude/hooks/lib/\([^/]*\.py\)$#\1#p'); do
+  if ! ref_git show "$REF:.claude/hooks/lib/$lf" >"$WORK/ref/lib/$lf"; then
+    echo "ERROR: $REF lists .claude/hooks/lib/$lf but it cannot be read" >&2
+    exit 2
+  fi
 done
 
 # A cwd that reads as an agent worktree: the two launcher hooks only enforce

@@ -21,6 +21,7 @@ const teamScope = (teamId: string): WriteScope => ({
   seniorIds: [],
   versions: [],
   inputsVersion: 'inputs-v1',
+  previousInputsVersion: 'inputs-v1-prev',
 })
 const STUDIO: WriteScope = { kind: 'STUDIO' }
 

@@ -5,7 +5,8 @@ import { PgDialect } from 'drizzle-orm/pg-core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { exclusionVersion, profileVersion } from '../runtime/recompute-inputs'
 import type { SqlExecutor } from '../scheduling/host-state'
-import { type JobQueueScope, NONE_SCOPE, STUDIO_SCOPE } from './queue-scope'
+import { triagePolicyVersion } from './queue-read-sql'
+import { type JobQueueScope, type LiveSeniorVersion, NONE_SCOPE, STUDIO_SCOPE } from './queue-scope'
 import { describeFailure, JobQueueScopeService } from './queue-scope.service'
 
 /**
@@ -33,6 +34,8 @@ function bound(execute: unknown) {
     assertVisible: (scope: JobQueueScope, id: string, db: SqlExecutor = pool) =>
       real.assertVisible(scope, id, db),
     liveVersions: (scope: JobQueueScope, db: SqlExecutor = pool) => real.liveVersions(scope, db),
+    triagePolicyVersion: (versions: readonly LiveSeniorVersion[], db: SqlExecutor = pool) =>
+      real.triagePolicyVersion(versions, db),
   }
 }
 
@@ -85,8 +88,10 @@ const teamAScope: JobQueueScope = {
   teamId: TEAM_A,
   seniorIds: [SEN_1],
   versions: [SEN_1_VERSIONS],
-  // opportunityInputsVersion of no studio keyword at 'eval.1+l1.1+rf.1' (SR-M-1).
-  inputsVersion: 'f790107665e925d6184be224a6f29cf7',
+  // opportunityInputsVersion of no studio keyword at 'eval.1+l1.1+rf.2' (SR-M-1).
+  inputsVersion: '15448b9ad280193b0540103bfb609f6f',
+  // The same at 'eval.1+l1.1+rf.1', pinned from origin/main before the rf.2 bump (CR-M-2).
+  previousInputsVersion: 'f790107665e925d6184be224a6f29cf7',
 }
 
 async function expectCode(p: Promise<unknown>, status: number, code: string): Promise<void> {
@@ -124,6 +129,33 @@ describe('JobQueueScopeService.liveVersions', () => {
     vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
     const { svc } = harness(new Error('connection lost'))
     await expectCode(svc.liveVersions(STUDIO_SCOPE), 503, 'JOB_QUEUE_POLICY_UNAVAILABLE')
+  })
+})
+
+describe('JobQueueScopeService.triagePolicyVersion (backlog 425)', () => {
+  it("folds the versions with the live SENIOR teams' active membership digest", async () => {
+    const { svc, compiled } = harness([{ digest: 'abc' }])
+    const version = await svc.triagePolicyVersion([SEN_1_VERSIONS])
+    expect(version).toBe(triagePolicyVersion([SEN_1_VERSIONS], 'abc'))
+    expect(compiled(0).text).toContain(
+      "WHERE tm.left_at IS NULL AND t.archived_at IS NULL AND t.type = 'SENIOR'",
+    )
+    expect(compiled(0).text).toContain('ORDER BY tm.team_id, tm.user_id')
+  })
+
+  it('fails closed when the membership cannot be read', async () => {
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    const { svc } = harness(new Error('connection lost'))
+    await expectCode(svc.triagePolicyVersion([]), 503, 'JOB_QUEUE_POLICY_UNAVAILABLE')
+  })
+
+  it('fails closed when the aggregate answers no digest', async () => {
+    await expectCode(harness([]).svc.triagePolicyVersion([]), 503, 'JOB_QUEUE_POLICY_UNAVAILABLE')
+    await expectCode(
+      harness([{ digest: null }]).svc.triagePolicyVersion([]),
+      503,
+      'JOB_QUEUE_POLICY_UNAVAILABLE',
+    )
   })
 })
 
@@ -207,7 +239,8 @@ describe('JobQueueScopeService.resolve', () => {
       teamId: TEAM_A,
       seniorIds: [],
       versions: [],
-      inputsVersion: 'f790107665e925d6184be224a6f29cf7',
+      inputsVersion: '15448b9ad280193b0540103bfb609f6f',
+      previousInputsVersion: 'f790107665e925d6184be224a6f29cf7',
     })
     // The team lookup, then loadRoster's three reads: it no longer stops early on an empty roster.
     expect(execute).toHaveBeenCalledTimes(4)
@@ -226,8 +259,10 @@ describe('JobQueueScopeService.resolve', () => {
     await expect(svc.resolve(user('HR'), TEAM_A)).resolves.toMatchObject({
       kind: 'TEAM',
       seniorIds: [],
-      // opportunityInputsVersion of the keyword 'php' at 'eval.1+l1.1+rf.1'.
-      inputsVersion: '0084349d198f553e703a4845aa55b3bc',
+      // opportunityInputsVersion of the keyword 'php' at 'eval.1+l1.1+rf.2'.
+      inputsVersion: 'b2b289254b1bcf82a89f7284015ef800',
+      // The same keyword at 'eval.1+l1.1+rf.1', pinned from origin/main (CR-M-2).
+      previousInputsVersion: '0084349d198f553e703a4845aa55b3bc',
     })
   })
 

@@ -6,7 +6,13 @@ import {
   MIN_WORKER_SECRET_DISTINCT_CHARS,
   tableVersionOf,
 } from './link-contract'
-import { healthFlags, localOnlyRouterConfig, parseWorkerEnv } from './schema'
+import {
+  healthFlags,
+  localOnlyRouterConfig,
+  MAX_WORKER_INPUT_CHARS,
+  parseWorkerEnv,
+  resumeWriteBodySchema,
+} from './schema'
 import { z } from 'zod'
 import { modelReplySchema } from '../job-sourcing/structuring/extraction-result-guard'
 import { EXTRACTION_SYSTEM_PROMPT } from '../job-sourcing/structuring/prompt-envelope'
@@ -48,6 +54,7 @@ describe('parseWorkerEnv — the worker does not start without its secret', () =
       env: {
         secret: SECRET,
         routerConfig: { routes: [] },
+        routeWarnings: [],
         stateFile: '/state/route-state.json',
         host: '0.0.0.0',
         port: 3100,
@@ -222,5 +229,29 @@ describe('localOnlyRouterConfig — the preflight reaches the local route only (
   it('a config the router refuses is handed on as is, so the preflight is refused too', () => {
     const bad = { ...config, routes: [] }
     expect(localOnlyRouterConfig(bad)).toBe(bad)
+  })
+})
+
+describe('resumeWriteBodySchema — an oversize field stops at its first violation', () => {
+  const codes = (extra: Record<string, unknown>) => {
+    const r = resumeWriteBodySchema.safeParse({
+      task: 'summary',
+      payload: '{}',
+      feedback: [],
+      ...extra,
+    })
+    return r.success ? [] : r.error.issues.map((i) => i.code)
+  }
+
+  it('an oversize non-JSON payload is refused by its size alone: the JSON check does not run', () => {
+    expect(codes({ payload: 'x'.repeat(MAX_WORKER_INPUT_CHARS + 1) })).toEqual(['too_big'])
+  })
+
+  it('an oversize feedback line with a line break is refused by its size alone', () => {
+    expect(codes({ feedback: [`${'f'.repeat(1000)}\n`] })).toEqual(['too_big'])
+  })
+
+  it('a non-JSON payload within the size is still refused by the JSON check', () => {
+    expect(codes({ payload: 'not json' })).toEqual(['custom'])
   })
 })

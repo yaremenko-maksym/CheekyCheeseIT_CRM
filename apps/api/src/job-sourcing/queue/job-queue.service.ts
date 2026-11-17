@@ -9,6 +9,7 @@ import {
   type JobQueueListQuery,
   type JobQueueListResponseDto,
   jobQueueListResponseSchema,
+  type JobQueueNoMatchReason,
   type JobQueueScopeQuery,
   JOB_QUEUE_SENIOR_OPTIONS_MAX,
   type JobQueueSeniorOptionsResponseDto,
@@ -16,6 +17,7 @@ import {
   jobQueueSourcesContinuationSchema,
   type JobSourceType,
   MAX_STACK_KEYWORD_CHARS,
+  MAX_STACK_KEYWORDS,
   type SessionUser,
 } from '@crm/shared'
 import { sql } from 'drizzle-orm'
@@ -23,6 +25,7 @@ import type { z } from 'zod'
 import { apiError } from '../../common/api-error'
 import type { Env } from '../../config/env'
 import { DatabaseService } from '../../database/database.service'
+import { engagementFormOf } from '../funnel/layer1'
 import type { SqlExecutor } from '../scheduling/host-state'
 import {
   assertCursorCurrent,
@@ -45,6 +48,7 @@ import {
   seniorTotal,
   sourceRows,
   sourceTotal,
+  triageGrantableRow,
 } from './queue-read-sql'
 import {
   canonicalUuid,
@@ -52,6 +56,7 @@ import {
   type JobQueueScope,
   listableOpportunityPredicate,
   type LiveSeniorVersion,
+  STUDIO_SCOPE,
 } from './queue-scope'
 import { JobQueueScopeService } from './queue-scope.service'
 
@@ -117,13 +122,7 @@ export function toListItem(r: Row): JobQueueListItemDto {
  * unless it holds a CORE keyword: a TRIAGE row has none, an OPTIONAL-only one is a weak signal.
  */
 export function matchFacts(evidence: unknown): { keywords: string[]; approximate: boolean } {
-  const reasons = (evidence as { reasons?: unknown } | null)?.reasons
-  const items = Array.isArray(reasons)
-    ? reasons
-        .filter((r: { code?: unknown }) => r?.code === 'TECH_MATCH')
-        .flatMap((r: { evidence?: unknown }) => (Array.isArray(r.evidence) ? r.evidence : []))
-        .map(String)
-    : []
+  const items = techMatchItems(evidence)
   return {
     // No `:STRENGTH` suffix: the whole string is the keyword.
     keywords: items
@@ -133,6 +132,60 @@ export function matchFacts(evidence: unknown): { keywords: string[]; approximate
       .slice(0, 200),
     approximate: !items.some((k) => k.endsWith(':CORE')),
   }
+}
+
+/** The raw `keyword:STRENGTH` items of a senior's own `TECH_MATCH` reasons. */
+function techMatchItems(evidence: unknown): string[] {
+  const reasons = (evidence as { reasons?: unknown } | null)?.reasons
+  return Array.isArray(reasons)
+    ? reasons
+        .filter((r: { code?: unknown }) => r?.code === 'TECH_MATCH')
+        .flatMap((r: { evidence?: unknown }) => (Array.isArray(r.evidence) ? r.evidence : []))
+        .map(String)
+    : []
+}
+
+const EVIDENCE_ITEM = /^(.+):(CORE|OPTIONAL)$/
+
+/**
+ * «Чому збіг» (Task 7.3b, design §5.2): each matched keyword with its weight in the vacancy stack.
+ * An item without a known strength says nothing about why it matched, so it is left out.
+ */
+export function matchEvidence(
+  evidence: unknown,
+): Array<{ keyword: string; strength: 'CORE' | 'OPTIONAL' }> {
+  return techMatchItems(evidence)
+    .flatMap((item) => {
+      const m = EVIDENCE_ITEM.exec(item)
+      return m === null
+        ? []
+        : [
+            {
+              keyword: (m[1] as string).slice(0, MAX_STACK_KEYWORD_CHARS),
+              strength: m[2] as 'CORE' | 'OPTIONAL',
+            },
+          ]
+    })
+    .slice(0, 200)
+}
+
+/**
+ * Why a card has no matched senior (Task 7.3b, design §5.4–5.5, SPEC-H-1, CR2-M-1), first that
+ * holds: a stop-list; the funnel excluded the vacancy at its current revision (EXCLUDED); an own
+ * senior's live TRIAGE row (the stack could not be judged); a manual card (never evaluated, a
+ * person placed it: nobody matching is a zero match); an unverified employer or no evaluation at
+ * the current revision (TRIAGE); else an OPEN verdict with no own senior's LEAD, TRIAGE or
+ * stop-list row (the own seniors' other EXCLUDED rows do exist): NO_MATCH.
+ */
+export function noMatchReason(r: Row): JobQueueNoMatchReason | null {
+  if (count(r['matched']) > 0) return null
+  if (count(r['stop_listed']) > 0) return 'STOP_LISTED'
+  const current = r['evaluated_current'] === true
+  if (current && r['evaluation_verdict'] === 'EXCLUDED') return 'EXCLUDED'
+  if (count(r['triaged']) > 0) return 'TRIAGE'
+  if (r['manual_team_id'] != null) return 'NO_MATCH'
+  const open = current && r['evaluation_verdict'] === 'OPEN'
+  return r['employer_verified'] === true && open ? 'NO_MATCH' : 'TRIAGE'
 }
 
 /** The union over the scope's LEAD seniors, never attributed. Sorted: the cap keeps a stable set. */
@@ -170,16 +223,38 @@ export function toSubmission(r: Row): SeniorsPage['items'][number]['submission']
   return r['submitted_elsewhere'] === true ? { submittedElsewhere: true } : null
 }
 
-const toSenior = (r: Row): SeniorsPage['items'][number] => {
-  const facts = matchFacts(r['evidence'])
-  return {
-    seniorId: String(r['senior_id']),
-    displayName: String(r['display_name']).slice(0, 255),
-    matchApproximate: facts.approximate,
-    matchedKeywords: facts.keywords,
-    submission: toSubmission(r),
-  }
+/** «Вільно з {d}» / «Зайнято» (§5.2); no row is `null`. The CHECK pairs FREE with its day. */
+export function toAvailability(r: Row): SeniorsPage['items'][number]['availability'] {
+  if (r['availability_status'] === 'BUSY') return { status: 'BUSY' }
+  if (r['availability_status'] === 'FREE' && typeof r['available_from'] === 'string')
+    return { status: 'FREE', availableFrom: r['available_from'] }
+  return null
 }
+
+/** The ADMIN team heading is read for the STUDIO scope only; a TEAM scope never carries the key. */
+const toSenior =
+  (scope: JobQueueScope) =>
+  (r: Row): SeniorsPage['items'][number] => {
+    const facts = matchFacts(r['evidence'])
+    return {
+      seniorId: String(r['senior_id']),
+      displayName: String(r['display_name']).slice(0, 255),
+      availability: toAvailability(r),
+      // a match row's evidence is NOT NULL: NULL is a manual card's TAKEN-only senior, no match at all
+      matchApproximate: r['evidence'] !== null && facts.approximate,
+      matchedKeywords: facts.keywords,
+      matchEvidence: matchEvidence(r['evidence']),
+      submission: toSubmission(r),
+      ...(scope.kind === 'STUDIO'
+        ? {
+            team:
+              r['team_id'] == null
+                ? null
+                : { teamId: String(r['team_id']), teamName: String(r['team_name']).slice(0, 255) },
+          }
+        : {}),
+    }
+  }
 
 const toSource = (r: Row): SourcesPage['items'][number] => ({
   sourceRecordId: String(r['source_record_id']),
@@ -273,6 +348,33 @@ export class JobQueueService {
     })
   }
 
+  /**
+   * ADMIN only, in any view scope (SPEC-H-1): what the «Призначити команді…» grant needs. The grant
+   * always runs under STUDIO, so both are read for the STUDIO roster even when the ADMIN views one
+   * team: the studio-wide policy version it must send back (backlog 425), and whether the grant
+   * would accept the item, by the grant's own eligibility fragment (CR-M-1).
+   */
+  private async triageGrant(
+    scope: JobQueueScope,
+    versions: readonly LiveSeniorVersion[],
+    id: string,
+    manual: boolean,
+  ): Promise<{ triagePolicyVersion: number; triageGrantable: boolean }> {
+    const db = this.database.db
+    const studio =
+      scope.kind === 'STUDIO' ? versions : await this.scopes.liveVersions(STUDIO_SCOPE, db)
+    // a manual card is never grantable (the grant's first refusal): its eligibility is not read
+    const grantable =
+      !manual &&
+      (await this.scopes.policy(() => db.execute(triageGrantableRow(studio, id)))).rows[0]?.[
+        'grantable'
+      ] === true
+    return {
+      triagePolicyVersion: await this.scopes.triagePolicyVersion(studio, db),
+      triageGrantable: grantable,
+    }
+  }
+
   /** The latest canonical facts of one visible opportunity. A miss of any kind is the same 404. */
   async card(
     user: SessionUser,
@@ -298,11 +400,33 @@ export class JobQueueService {
     // Visible a moment ago, or without any active source link: the same answer as a miss.
     if (facts === null) throw notFound()
     const { row, ...parts } = facts
+    const triage =
+      user.role === 'ADMIN'
+        ? await this.triageGrant(scope, versions, id, row['manual_team_id'] != null)
+        : {}
     return jobQueueCardResponseSchema.parse({
+      ...triage,
       ...toListItem(row),
       descriptionMd: String(row['description'] ?? '').slice(0, DESCRIPTION_MD_MAX),
       newerThanList: row['newer_than_list'] === true,
       ...parts,
+      lastSeenAt: iso(row['last_observed_at']),
+      // each token once: the card keys its chips by the keyword
+      stackKeywords: [
+        ...new Set(
+          (Array.isArray(row['stack_keywords']) ? row['stack_keywords'] : []).map((k) =>
+            String(k).slice(0, MAX_STACK_KEYWORD_CHARS),
+          ),
+        ),
+      ].slice(0, MAX_STACK_KEYWORDS),
+      noMatchReason: noMatchReason(row),
+      // `->>` yields text or NULL; the function owns the null case
+      engagementForm: engagementFormOf(row['employment_type'] as string | null),
+      dismissal:
+        // A NONE scope never gets this far: `resolve` / `assertVisible` refuse it first.
+        row['dismissal_version'] == null || scope.kind === 'NONE'
+          ? null
+          : { scope: scope.kind, version: Number(row['dismissal_version']) },
     })
   }
 
@@ -390,10 +514,10 @@ export class JobQueueService {
     const { rows } = await this.database.db.execute(
       seniorRows(scope, versions, id, after, SENIOR_PREVIEW_MAX + 1),
     )
-    const total = await this.database.db.execute(seniorTotal(versions, id))
+    const total = await this.database.db.execute(seniorTotal(scope, versions, id))
     const page = rows.slice(0, SENIOR_PREVIEW_MAX)
     return {
-      items: page.map(toSenior),
+      items: page.map(toSenior(scope)),
       totalCount: count((total.rows[0] as Row)['total']),
       nextCursor:
         rows.length > SENIOR_PREVIEW_MAX
@@ -440,6 +564,12 @@ export class JobQueueService {
         opportunityId: String(r['id']),
         title: String(r['title']).slice(0, 500),
         companyName: clipped(r['employer_name'], 255),
+        submittedSeniorNames: (Array.isArray(r['submitted_senior_names'])
+          ? r['submitted_senior_names']
+          : []
+        )
+          .slice(0, 200)
+          .map((n) => String(n).slice(0, 255)),
       })),
       totalCount: count(first['total']),
     }

@@ -52,6 +52,20 @@ describe('format', () => {
     expect(month).not.toBe(formatDate(d, 'uk'))
     expect(month).not.toBe(formatDate(d, 'uk', 'long'))
   })
+  it('the dayMonthYear style is the picker field: two-digit day, short month, year, local day (QA-LOW-1)', () => {
+    const d = new Date(2026, 10, 28) // local 28 Nov 2026, as the picker holds it
+    expect(formatDate(d, 'uk', 'dayMonthYear')).toBe('28 лист. 2026 р.')
+    expect(formatDate(d, 'en', 'dayMonthYear')).toBe('28 Nov 2026')
+    expect(formatDate(new Date(2026, 2, 5), 'en', 'dayMonthYear')).toBe('05 Mar 2026')
+    expect(formatDate(new Date(2026, 10, 30, 23, 59), 'en', 'dayMonthYear')).toBe('30 Nov 2026')
+  })
+
+  it('the dayMonth style is the day and a short month, no year, on the UTC day (PR #1337)', () => {
+    expect(formatDate('2026-11-01', 'uk', 'dayMonth')).toBe('1 лист.')
+    expect(formatDate('2026-11-01', 'en', 'dayMonth')).toBe('1 Nov')
+    // a bare day is UTC midnight: a late-UTC instant still reads as the 1st, not the 2nd
+    expect(formatDate('2026-11-01T23:30:00Z', 'en', 'dayMonth')).toBe('1 Nov')
+  })
   it("the monthYear style is a full month name + year with no day, unlike 'long'", () => {
     const d = new Date(Date.UTC(2026, 4, 19))
     const monthYear = formatDate(d, 'uk', 'monthYear')
@@ -165,6 +179,13 @@ describe('format', () => {
   })
   it("the shortYY style (instants) keeps the reader's local day", () => {
     expect(formatDate(new Date(2026, 6, 31, 12, 0), 'en', 'shortYY')).toBe('31/07/26')
+  })
+  it("the shortYYYY style (instants) keeps the reader's local day, with a four-digit year", () => {
+    // the last minute of a local day stays that day in every host timezone
+    expect(formatDate(new Date(2026, 10, 25, 23, 59, 59, 999), 'en', 'shortYYYY')).toBe(
+      '25/11/2026',
+    )
+    expect(formatDate(new Date(2026, 2, 5, 0, 0), 'uk', 'shortYYYY')).toBe('05.03.2026')
   })
   it('formatMonthLabel falls back to an em dash for missing input, and to the raw key when unparseable', () => {
     expect(formatMonthLabel(null, 'uk')).toBe('—')

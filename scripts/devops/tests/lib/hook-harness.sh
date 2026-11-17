@@ -74,6 +74,27 @@ hook_with_broken_lib() {
   printf '%s' "$ws/broken/$hook_name"
 }
 
+# Copies a hook and its whole lib/ into $ws/<tag>/, then breaks ONE lib file: $4 =
+# "broken" overwrites it with code that does not parse, "missing" deletes it. Breaking
+# the named analyzer itself is the point: a copy without lib/ also fails, so a case
+# built that way passes for a reason it does not name. Echoes the path of the copy.
+hook_with_lib_file() {
+  local ws="$1" hook_name="$2" lib_file="$3" how="$4" dir="$1/$4-${3%.py}"
+  [ -f "$REPO_ROOT/.claude/hooks/lib/$lib_file" ] || {
+    echo "hook_with_lib_file: no lib/$lib_file in the repo" >&2
+    return 1
+  }
+  mkdir -p "$dir/lib"
+  cp "$REPO_ROOT/.claude/hooks/$hook_name" "$dir/$hook_name"
+  cp "$REPO_ROOT/.claude/hooks/lib/"*.py "$dir/lib/"
+  case "$how" in
+    broken) printf 'def broken(:\n    this is not python\n' >"$dir/lib/$lib_file" ;;
+    missing) rm -f "$dir/lib/$lib_file" ;;
+    *) echo "hook_with_lib_file: unknown mode $how" >&2; return 1 ;;
+  esac
+  printf '%s' "$dir/$hook_name"
+}
+
 # A hook whose BASH is broken — the trap this class of guard already fell into:
 # bash exits 2 on a syntax error, exactly like a block. Echoes its path.
 hook_with_broken_bash() {

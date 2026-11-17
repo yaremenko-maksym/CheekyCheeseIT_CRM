@@ -113,6 +113,6 @@ describe('useOnboardingGate', () => {
     result.current.refetch()
 
     await waitFor(() => expect(mockGet).toHaveBeenCalledTimes(2))
-    expect(mockGet).toHaveBeenLastCalledWith('/onboarding/status')
+    expect(mockGet).toHaveBeenLastCalledWith('/onboarding/status', { timeout: 8000 })
   })
 })

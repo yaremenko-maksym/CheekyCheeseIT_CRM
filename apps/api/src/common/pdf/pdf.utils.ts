@@ -6,9 +6,8 @@
  * `loadFontBuffer` — loads a TTF from `src/assets/fonts/` with a process-level
  *   cache (Map) so the disk read only occurs once per process.
  *
- * These were previously duplicated between `invoice-pdf.utils.ts` (hash fns)
- * and `invoice-pdf.service.ts` (font loading). Moving them here lets
- * InvoicePdfService and future ContractPdfService share the implementations.
+ * One home for the invoice, contract and resume PDF paths — add a PDF helper
+ * here rather than a local copy.
  */
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'

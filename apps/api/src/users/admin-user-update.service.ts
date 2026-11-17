@@ -9,12 +9,14 @@ import { assertEmailAvailable } from './user-emails.util'
 import {
   assertAdminTargetEditableForUpdate,
   assertAssignableRoleOnChange,
+  assertSeniorOnlyRoles,
   assertSeniorTechFloor,
   techStackChanged,
 } from './role-guards.util'
 import { buildAdminUserUpdateSet } from './user-update.util'
 import { assertAvatarDocument } from './user-avatar.util'
 import { updateUserRow } from './user-write.util'
+import { markResumeRecheckNeeded } from '../resumes/verification/recheck-flag'
 
 type AppRole = 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
 
@@ -27,6 +29,7 @@ export interface AdminUpdateUserInput {
   avatarUrl?: string | null | undefined
   avatarDocumentId?: string | null | undefined
   techStack?: string[] | null | undefined
+  technicalRoles?: string[] | undefined
   seniorSharePercent?: number | undefined
   dropSharePercent?: number | undefined
   monthlySalary?: number | null | undefined
@@ -124,6 +127,8 @@ export class AdminUserUpdateService {
     if (data.teamTelegramChannel !== undefined && effectiveRole !== 'SENIOR') {
       throw apiError('TELEGRAM_CHANNEL_SENIOR_ONLY', HttpStatus.BAD_REQUEST)
     }
+    // Senior roles PR 2: checked against the EFFECTIVE role (after a role change in this write).
+    assertSeniorOnlyRoles(effectiveRole, data.technicalRoles)
     // SENIOR technology floor: on a role change TO SENIOR or an actual stack
     // change; an unrelated edit of a legacy SENIOR below the floor still passes.
     const stackChanged = techStackChanged(data.techStack, existing.techStack)
@@ -189,6 +194,8 @@ export class AdminUserUpdateService {
       // employee's IBAN so their earned payout can be sent resubmits the whole
       // form, unchanged `role` and `monthlySalary` included, and must not be
       // blocked (that edit is settlement, not a new entitlement).
+      // Backlog 442: before the UPDATE, so its locked read sees the values this write replaces.
+      await markResumeRecheckNeeded(tx, id, set)
       const u = await updateUserRow(tx, id, existing, set)
       await markUserEditDirty(tx, id, existing, set)
 

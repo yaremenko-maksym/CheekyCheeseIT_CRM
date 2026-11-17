@@ -2,9 +2,23 @@
 
 ## Agent: autotest
 
-## Status: blocked until Tasks 7.3b, 7.4b and 7.5 are merged
+## Status: done (merged as #1324; availability-change sub-case of scenario 7 deferred, see the phase-end brief)
 
-## Blockers: Task 7.3b, Task 7.4b, Task 7.5
+## Blockers: Task 7.6a (the job-queue seed) for wave 2 only
+
+## Waves
+
+The seed has no job-queue data, so the real-API scenarios wait for Task 7.6a
+(`task-vacancy-7-6a-queue-seed.md`, its "Seed contract" lists the titles, users and memberships to find through the API).
+
+- **Wave 1 (now, no seed needed):** scenarios 7, 8, 9, 13 with mocked queue responses (rendering only; mocks
+  `.parse()`-valid against `@crm/shared`), and 11 on the real API (SENIOR dev-login, no data needed).
+- **Wave 2 (after 7.6a merges, rebase on main):** scenarios 1, 2, 3, 4, 5, 6, 10, 12 on the real API with the seed
+  rows. Add the new seed users to the e2e user fixtures. Every wave-2 test restores the state it created (undo a
+  submission or dismissal it made, revoke or let expire a grant), so a re-run on the same DB is green.
+
+Scenario 7's "availability change" part: if no senior availability field exists on `main`, record it as
+blocked in `.blocked.md` with what you found, and ship the rest of scenario 7.
 
 ## Priority: high
 
@@ -56,6 +70,12 @@ Mock mode is never used for a rights check.
 ## Assumptions
 
 - A1 (Master): the plan's "take" wording is replaced by the per-senior submission model (see Context).
+- A1 (Master): the work is split into two waves (see Waves) so the mock-only scenarios do not wait for the seed.
+- A1 (Master): the real-API scenarios use the shared seed of Task 7.6a, not API-side fixtures, because opportunities have no create API.
+- A1 (AutoTest): the row selector matches a row's own test id only, since inner parts share the `job-queue-row-` prefix.
+- A1 (AutoTest): scenario 6 hides React Platform (visible to every team) rather than Uncertain Match, so the "another team still sees it" check is meaningful.
+- Product gap found by scenario 10b (no cache clear when the session cookie changes under an open page): its own Coder task, `task-vacancy-7-6c-session-switch-cache.md`; 10b asserts the leak itself until then.
+- Blocked sub-case (no `.blocked.md`: the rest of the task is not blocked): scenario 7 senior availability, because the seed and schema have no availability field on `main`; it goes to the phase-end decision brief (A3 migration).
 
 ## Verification (AutoTest before `git push`)
 

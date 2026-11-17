@@ -24,6 +24,11 @@ import type { AuditLogService } from './audit-log.service'
 import type { UsersAccessService } from './users-access.service'
 import { UsersService } from './users.service'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
+
+// Backlog 442: the resume re-check flag has its own real-DB spec (resume-recheck-flag.integration.spec).
+vi.mock('../resumes/verification/recheck-flag', () => ({
+  markResumeRecheckNeeded: vi.fn().mockResolvedValue(undefined),
+}))
 // r5 4.6 S5: the roster dirty producers are proven in job-sourcing; here they are inert.
 vi.mock('../job-sourcing/dirty-producers')
 

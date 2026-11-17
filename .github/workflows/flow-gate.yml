@@ -31,9 +31,16 @@ name: Flow Gate
 # reasoning is in flow-gate.mjs, "Verdict freshness" and `isInertDoc`.
 #
 # TRIGGERS: `pull_request_target` only — it runs the BASE branch's copy of this file, so a PR cannot
-# edit the gate that judges it. There is deliberately no `pull_request_review` trigger: that event
-# runs the PR's OWN copy of the workflow. So after a review lands, the check is re-run by a PR-body
-# edit or a label change (`edited` / `labeled` / `unlabeled` are triggers for exactly that).
+# edit the gate that judges it. Push, body edit, label add/remove, reopen and ready-for-review start
+# it directly. There is deliberately no `pull_request_review` trigger here: that event runs the
+# PR's OWN copy of the workflow. Reviews, review comments and PR comments re-run it instead through
+# `flow-gate-recheck.yml` (default-branch copy, fed by `issue_comment` and by the token-less
+# `flow-gate-relay.yml` via `workflow_run`), which re-runs the latest run of the PR head — a new
+# attempt on the same check suite that reads the PR state live. Only comments, reviews and review
+# comments by OWNER / MEMBER / COLLABORATOR re-run it; other such activity does not. An event made by GITHUB_TOKEN (a bot label, a bot
+# comment, a bot push) starts nothing, by GitHub's design. A failed recheck shows on main's commit,
+# not on the PR, and GitHub will not re-run a run older than 30 days or one re-run 50 times: if the check has not re-run a few
+# minutes after the last event, edit the PR body or toggle a label to start a fresh run.
 #
 # NEVER check out or run the PR's code: the job checks out `main` only (sparse, no credentials) and
 # reads the PR through the REST API as data. No `${{ }}` expression carrying PR-controlled text is
@@ -73,6 +80,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      # Which copy of this file is judging: the base branch's commit, never the PR's (a re-run
+      # keeps the copy of the run it re-runs, which is still a base commit).
+      - name: Record the judging workflow copy
+        run: echo "workflow=$GITHUB_WORKFLOW_REF sha=$GITHUB_WORKFLOW_SHA"
 
       # Every list is fetched fresh (not from the event payload) and COUNTED in the log: an
       # instrument that did not look must not report a negative

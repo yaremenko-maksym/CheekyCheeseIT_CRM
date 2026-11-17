@@ -1,0 +1,12 @@
+{
+  "url": "https://api.theirstack.com/v1/jobs/search (POST {\"page\":0,\"limit\":3,\"posted_at_max_age_days\":7,\"workplace_types_or\":[\"remote\"],\"job_seniority_or\":[\"senior\"]})",
+  "fetchedAt": "2026-11-16T21:55:16.000Z",
+  "httpStatus": 200,
+  "rawSha256": "a29e60f092b1675183b09c0dfdf50be6f1b1496f58871b4d2fc78c18d6b52f2d",
+  "fileSha256": "bbc7261223b55d2515e50aba37b844f0077601180412038b9491416c4493a41e",
+  "trimmedBy": "node trim-keyed-captures.mjs (JSON.parse keeping integers past 2^53 as written, whole-record selection, regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify); never a byte cut",
+  "termsUrl": "https://theirstack.com/en/docs/legal/terms-and-conditions",
+  "termsCheckedAt": "2026-11-16T22:00:36.000Z",
+  "permission": "KEY_REQUIRED",
+  "notes": "POST limit 3 (billed one API credit per returned job): 3 jobs; kept 2 whole records and the envelope (metadata, data). The record whose hiring_team named a person was left out. date_posted is a DATE only (2026-11-16); final_url is null in every record, url is the posting on the job board; remote is a boolean; company_object carries firmographics. Terms (read 2026-11-16): 4.3 allows use for recruiting and forbids building a competing product or reselling the dataset; 4.5 requires keeping information that identifies TheirStack as the origin of the records (the CRM stores the source namespace on every record); 4.10 and 4.12 cover retention and integration into the customer's own products. Taken by the owner-authorized controlled authenticated smoke (workflow verify-job-source-credentials.yml, run 43964860057, ONE request per source); the key travelled in a header, or (Jooble only) in the path of a request URL that was never logged, and the script refuses to keep a body or header in which the key appears. permission KEY_REQUIRED: the source answers only with the CRM's own key, which the runtime checks before every run. E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted."
+}

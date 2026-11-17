@@ -1,148 +1,119 @@
-import type { JobSourceDto } from '@crm/shared'
+import { msg } from '@lingui/core/macro'
+import { ChevronRight } from 'lucide-react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { useJobSources } from '@/hooks/use-job-sourcing'
+import { SourceSwitchCard } from './SourceSwitchCard'
+import { deriveSourceState } from './source-state'
+
+export { formatResetAt } from './SourceBudgetRow'
+
+// Module-level `msg` plural, not the `plural()` macro (breaks under Stryker, see TxDateField).
+const SOURCES_COUNT = msg`{n, plural, one {# джерело} few {# джерела} many {# джерел} other {# джерела}}`
 
 /**
- * Remaining request budget per source — task-vacancy-matching AC7.
+ * ADMIN-only source list: budget, state, switch. Renders nothing at all for other roles (the query
+ * is disabled), rather than an empty box that invites "why is this empty?".
  *
- * WHY IT IS ON SCREEN AT ALL. External job APIs meter us hard (JSearch: 200 a
- * MONTH). When an allowance runs out the collector refuses to fetch, and from
- * the outside that is byte-for-byte identical to a quiet day: no new vacancies,
- * no error. The same "breakage disguised as silence" problem the collector
- * already solved for broken feeds, one level further out — so the remainder is
- * shown before it matters, not explained after it does.
- *
- * The copy follows ResumeStatusPanel's quota case, which is the pattern this
- * codebase already settled on: name the number, name WHEN it comes back, and
- * never say only "лимит исчерпан".
+ * `collapsible` is the queue-page form (task 7.5): a closed «Джерела вакансій» section whose
+ * summary line already says how many sources are paused or blocked, so a problem is visible
+ * without opening it. Without it the panel is the always-open list inside the suggestion dialog.
  */
-
-/** Human window name — the unit the remainder is measured in. */
-const WINDOW_LABEL: Record<'DAY' | 'MONTH', string> = {
-  DAY: 'в сутки',
-  MONTH: 'в месяц',
+export function SourceBudgetPanel({
+  canView,
+  collapsible = false,
+}: {
+  canView: boolean
+  collapsible?: boolean
+}) {
+  // A separate component: the non-ADMIN path runs no hook at all (no query, no i18n context).
+  return canView ? <SourceBudgetPanelBody collapsible={collapsible} /> : null
 }
 
-const TRIGGER_LABEL: Record<JobSourceDto['triggerMode'], string> = {
-  SCHEDULED: 'по расписанию',
-  MANUAL: 'по кнопке',
-  BOTH: 'по расписанию и по кнопке',
-}
+function SourceBudgetPanelBody({ collapsible }: { collapsible: boolean }) {
+  const { data, isLoading, isError } = useJobSources(true)
+  const { i18n, t } = useLingui()
 
-export function formatResetAt(iso: string | null): string {
-  if (!iso) return ''
-  const at = new Date(iso)
-  if (Number.isNaN(at.getTime())) return ''
-  return at.toLocaleString('ru-RU', {
-    day: 'numeric',
-    month: 'long',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
+  const items = data?.items ?? []
+  const now = Date.now()
+  const kinds = items.map((source) => deriveSourceState(source, now).kind)
+  const paused = kinds.filter((kind) => kind === 'paused').length
+  const blocked = kinds.filter((kind) => kind === 'blocked').length
+  const summary = data
+    ? [
+        i18n._(SOURCES_COUNT.id, { n: items.length }),
+        ...(paused > 0 ? [t`${paused} призупинено`] : []),
+        ...(blocked > 0 ? [t`${blocked} заблоковано`] : []),
+      ].join(' · ')
+    : null
 
-export function SourceBudgetRow({ source }: { source: JobSourceDto }) {
-  const { state, limit, window, used, remaining, resetsAt } = source.budget
-
-  // Code review MED-4: this used to be inferred here as
-  // `limit === null || window === null`, which read a MISCONFIGURED source — a
-  // cap the collector cannot use, so it refuses every request — as "без лимита
-  // запросов", i.e. showed a hard stop as no restriction at all. The server now
-  // states which case this is; the UI only renders it.
-  if (state === 'MISCONFIGURED') {
-    return (
-      <li
-        data-testid="job-source-budget-row"
-        data-source-type={source.type}
-        className="flex flex-col gap-0.5 rounded-md border border-destructive/50 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3"
-      >
-        <span className="font-medium text-foreground">
-          {source.type}
-          <span className="ml-1.5 font-normal text-muted-foreground">
-            ({TRIGGER_LABEL[source.triggerMode]})
-          </span>
-        </span>
-        <span className="font-medium text-destructive" data-testid="job-source-budget-broken">
-          Лимит настроен неверно — сбор остановлен. Проверьте настройки источника.
-        </span>
-      </li>
-    )
-  }
-
-  const unlimited = state === 'UNLIMITED'
-  const exhausted = state === 'EXHAUSTED'
-
-  return (
-    <li
-      data-testid="job-source-budget-row"
-      data-source-type={source.type}
-      className="flex flex-col gap-0.5 rounded-md border border-border/60 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+  const body = (
+    <section
+      className={collapsible ? undefined : 'mt-6 border-t border-border/50 pt-4'}
+      data-testid="job-source-budgets"
     >
-      <span className="font-medium text-foreground">
-        {source.type}
-        <span className="ml-1.5 font-normal text-muted-foreground">
-          ({TRIGGER_LABEL[source.triggerMode]})
-        </span>
-      </span>
-
-      {unlimited ? (
-        <span className="text-muted-foreground" data-testid="job-source-budget-unlimited">
-          Без лимита запросов
-        </span>
-      ) : (
-        <span
-          data-testid="job-source-budget-remaining"
-          className={exhausted ? 'font-medium text-destructive' : 'text-muted-foreground'}
-        >
-          {exhausted ? 'Лимит исчерпан' : `Осталось ${remaining} из ${limit}`}{' '}
-          {/* `window` is non-null whenever the server says ACTIVE/EXHAUSTED —
-              a cap without a window is MISCONFIGURED and returned above. The
-              fallback keeps that a rendering detail rather than a crash. */}
-          {window ? WINDOW_LABEL[window] : ''}
-          {/* The reset instant is the actionable half — without it "исчерпан"
-              tells an operator nothing they can plan around. */}
-          {resetsAt && <span> · обновится {formatResetAt(resetsAt)}</span>}
-          {!exhausted && used > 0 && <span className="sr-only"> (израсходовано {used})</span>}
-        </span>
+      {!collapsible && (
+        <h3 className="text-sm font-medium text-foreground">
+          <Trans>Бюджет джерел</Trans>
+        </h3>
       )}
-    </li>
-  )
-}
-
-/**
- * ADMIN-only budget list. Renders nothing at all for other roles (the query is
- * disabled), rather than an empty box that invites "why is this empty?".
- */
-export function SourceBudgetPanel({ canView }: { canView: boolean }) {
-  const { data, isLoading, isError } = useJobSources(canView)
-
-  if (!canView) return null
-
-  return (
-    <section className="mt-6 border-t border-border/50 pt-4" data-testid="job-source-budgets">
-      <h3 className="text-sm font-medium text-foreground">Бюджет источников</h3>
       <p className="mt-1 text-xs text-muted-foreground">
-        Сбор останавливается, когда запросы источника закончились — и ручной запуск тратит тот же
-        лимит.
+        <Trans>
+          Збір зупиняється, коли запити джерела вичерпано, а ручний запуск витрачає той самий ліміт.
+        </Trans>
       </p>
 
-      {isLoading && <p className="mt-3 text-xs text-muted-foreground">Загрузка…</p>}
+      {isLoading && (
+        <p className="mt-3 text-xs text-muted-foreground">
+          <Trans context="job source list">Завантаження…</Trans>
+        </p>
+      )}
 
       {isError && !isLoading && (
         <p className="mt-3 text-xs text-destructive" data-testid="job-source-budgets-error">
-          Не удалось загрузить состояние источников.
+          <Trans>Не вдалося завантажити стан джерел.</Trans>
         </p>
       )}
 
       {!isLoading && !isError && (
         <ul className="mt-3 flex flex-col gap-2">
-          {data?.items.map((source) => (
-            <SourceBudgetRow key={source.id} source={source} />
+          {items.map((source) => (
+            <SourceSwitchCard key={source.id} source={source} showTrigger={!collapsible} />
           ))}
-          {(data?.items.length ?? 0) === 0 && (
-            <li className="text-xs text-muted-foreground">Источники не настроены.</li>
+          {items.length === 0 && (
+            <li className="text-xs text-muted-foreground">
+              <Trans>Джерела не налаштовано.</Trans>
+            </li>
           )}
         </ul>
       )}
     </section>
+  )
+
+  if (!collapsible) return body
+
+  return (
+    <details data-testid="job-source-section" className="group rounded-lg border border-border/60">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm [&::-webkit-details-marker]:hidden">
+        <ChevronRight
+          aria-hidden
+          className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
+        />
+        {/* Summary under the title (design §7), so a 320 px row never squeezes it. */}
+        <span data-testid="job-source-section-title" className="flex min-w-0 flex-col">
+          <span className="font-medium text-foreground">
+            <Trans>Джерела вакансій</Trans>
+          </span>
+          {summary && (
+            <span
+              data-testid="job-source-summary"
+              className="text-xs tabular-nums text-muted-foreground"
+            >
+              {summary}
+            </span>
+          )}
+        </span>
+      </summary>
+      <div className="px-3 pb-3">{body}</div>
+    </details>
   )
 }

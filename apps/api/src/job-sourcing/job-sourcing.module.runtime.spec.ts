@@ -8,9 +8,10 @@ import { DatabaseModule } from '../database/database.module'
 import { NotificationsModule } from '../notifications/notifications.module'
 import { DatabaseService } from '../database/database.service'
 import { JobSourceAdminService } from './admin/job-source-admin.service'
+import { JobMatchReconciliationCronService } from './job-match-reconciliation.cron'
 import { JobSourcingModule } from './job-sourcing.module'
 import { StubNotificationsModule } from './stub-notifications-module.test-helper'
-import { JobRunWorker } from './runtime/job-run-worker'
+import { JobRunWorker, type WorkerDeps } from './runtime/job-run-worker'
 import { RecomputeWorker } from './runtime/recompute-worker'
 
 /**
@@ -86,6 +87,14 @@ describe('JobSourcingModule, booted: the ledger reaches the database the app ope
       fenced: 0,
     })
     expect(execute).toHaveBeenCalledTimes(1)
+
+    // Every run ends with the match drain: the worker's post-run step is the reconciliation's.
+    const requestDrain = vi
+      .spyOn(moduleRef.get(JobMatchReconciliationCronService), 'requestDrain')
+      .mockResolvedValue()
+    const { onRunEnded } = (moduleRef.get(JobRunWorker) as unknown as { deps: WorkerDeps }).deps
+    onRunEnded?.({} as never)
+    expect(requestDrain).toHaveBeenCalledTimes(1)
     await moduleRef.close()
   })
 })

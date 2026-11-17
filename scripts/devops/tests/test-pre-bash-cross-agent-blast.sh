@@ -190,6 +190,22 @@ assert_green "removing MY OWN worktree passes" \
   --not-contains '"decision": "block"' \
   -- run_hook "$MINE" "git worktree remove $MINE"
 
+# A Cyrillic command (SO-sonnet-L of #1314). On Windows python read its stdin in the
+# locale code page: CWD came in by the environment as real text and the command as
+# mojibake, so the hook took my own tree for a foreign one (an escaped payload) or died
+# printing an undecodable byte (a raw UTF-8 one). Both were red there before stdin was
+# set to UTF-8. Built from \x escapes so this file adds no Cyrillic letters.
+CYR_X='\xd0\x98\xd0\xb2\xd0\xb0\xd0\xbd'
+MINE_CYR="$FAKE_REPO/.claude/worktrees/agent-$(printf "$CYR_X")"
+MINE_CYR_X="$FAKE_REPO/.claude/worktrees/agent-$CYR_X"
+assert_green "removing MY OWN Cyrillic-named worktree passes (escaped payload)" \
+  -- run_hook "$MINE_CYR" "git worktree remove --force $MINE_CYR"
+assert_green "removing MY OWN Cyrillic-named worktree passes (raw UTF-8 payload)" \
+  -- hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"'"$MINE_CYR_X"'","tool_input":{"command":"git worktree remove --force '"$MINE_CYR_X"'"}}'
+assert_green "removing ANOTHER worktree from a Cyrillic-named one: exit 2 by the predicate, not a crash" \
+  --contains '"decision": "block"' --contains '[WORKTREE-REMOVE]' --not-contains 'INTERNAL ERROR' \
+  -- exits_2 hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"'"$MINE_CYR_X"'","tool_input":{"command":"git worktree remove --force '"$OTHER"' # '"$CYR_X"'"}}'
+
 assert_green "READING another worktree is not gated" \
   --not-contains '"decision": "block"' \
   -- run_hook "$MINE" "cat $OTHER/README.md"
@@ -292,6 +308,97 @@ assert_green "an add aimed at an EXISTING tree stays silent (git refuses it, not
 assert_red "...and records nothing, so removing that live tree is still refused -> BLOCK (L-1)" \
   --contains 'WORKTREE-UNRECORDED' \
   -- run_hook_as agent-A "$LIVE_SESS/scratchpad" "git worktree remove --force $LIVE_SESS/scratchpad/sibling-live"
+
+# Windows only (SR-M-1 / CR-L-3 of #1317): native python sees no Git Bash path, so the
+# existence test above goes through a conversion, and a conversion that fails must
+# count as "exists", never as "absent, record it". Each case uses its own agent id so
+# a record left by another case cannot decide it.
+case "$(uname -s)" in
+  MINGW* | MSYS* | CYGWIN*)
+    FAKE_CYG="$(mktemp -d "${TMPDIR:-/tmp}/guard-fake-cygpath.XXXXXX")"
+    cp /usr/bin/false.exe "$FAKE_CYG/cygpath.exe"
+    # Asserted (CR3-L-5): a failed copy would leave the real cygpath first on PATH,
+    # and the case would pass for the wrong reason.
+    if [ ! -x "$FAKE_CYG/cygpath.exe" ] || "$FAKE_CYG/cygpath.exe" -w /tmp >/dev/null 2>&1; then
+      echo "FATAL: fake cygpath at $FAKE_CYG/cygpath.exe is missing or does not fail"
+      exit 1
+    fi
+    PATH="$FAKE_CYG:$PATH" run_hook_as agent-W1 "$LIVE_SESS/scratchpad" \
+      "git worktree add --detach $LIVE_SESS/scratchpad/sibling-live deadbeef" >/dev/null 2>&1
+    assert_red "[windows] cygpath failing: an add onto a live tree records nothing, its remove is refused" \
+      --contains 'WORKTREE-UNRECORDED' \
+      -- run_hook_as agent-W1 "$LIVE_SESS/scratchpad" "git worktree remove --force $LIVE_SESS/scratchpad/sibling-live"
+    rm -rf "$FAKE_CYG"
+
+    # The name SR used: every byte of it decodes in cp1251, so a wrong decoding gives a
+    # plausible wrong path (absent, recorded) rather than a crash.
+    LIVE_CYR="$LIVE_SESS/scratchpad/$(printf '\xd1\x80\xd0\xb5\xd0\xb2\xd1\x8c\xd1\x8e')-co"
+    mkdir -p "$LIVE_CYR"
+    run_hook_as agent-W2 "$LIVE_SESS/scratchpad" "git worktree add --detach $LIVE_CYR deadbeef" >/dev/null 2>&1
+    assert_red "[windows] a live sibling with a Cyrillic name is seen as existing, its remove is refused" \
+      --contains 'WORKTREE-UNRECORDED' \
+      -- run_hook_as agent-W2 "$LIVE_SESS/scratchpad" "git worktree remove --force $LIVE_CYR"
+    # No /c/... case: a recordable path is always under the /tmp/claude-* scratchpad,
+    # so a /c/... spelling is out of scope before any conversion is asked.
+    ;;
+  *)
+    echo "SKIP  [windows] Git Bash path conversion before the existence test: not Windows ($(uname -s))"
+    ;;
+esac
+
+# A name the Windows code page cannot encode (SR-L-1 of #1317): the ledger is UTF-8,
+# so recording it does not crash the analyzer into a false refusal.
+FRESH_CJK="$MY_SESSION/scratchpad/$(printf '\xe6\x97\xa5\xe6\x9c\xac')-fresh-co"
+assert_green "a fresh checkout with a CJK name is recorded, not a crash" \
+  --not-contains 'INTERNAL ERROR' --not-contains '"decision": "block"' \
+  -- run_hook_as agent-A "$MY_SESSION/scratchpad" "git worktree add --detach $FRESH_CJK deadbeef"
+assert_green "...and its creator may remove it" \
+  --not-contains 'INTERNAL ERROR' --not-contains '"decision": "block"' \
+  -- run_hook_as agent-A "$MY_SESSION/scratchpad" "git worktree remove --force $FRESH_CJK"
+
+# A quoted newline, tab or line separator in an add target (SR3-M-1 of #1317) used
+# to write ledger lines the existence test never saw: a line claiming a live sibling,
+# or the scratch root (every sibling then "mine"). Such a target is never recorded.
+SCR="$LIVE_SESS/scratchpad"
+NL=$'\n' TAB=$'\t' LS="$(printf '\xe2\x80\xa8')"
+run_hook_as agent-S1 "$SCR" "git worktree add --detach \"$SCR/x${NL}agent-S1${TAB}$SCR/sibling-live\" deadbeef" >/dev/null 2>&1
+assert_red "a newline in an add target cannot inject a ledger line for a live sibling -> BLOCK" \
+  --contains 'WORKTREE-UNRECORDED' \
+  -- run_hook_as agent-S1 "$SCR" "git worktree remove --force $SCR/sibling-live"
+run_hook_as agent-S2 "$SCR" "git worktree add --detach \"$SCR/x${NL}agent-S2${TAB}$SCR\" deadbeef" >/dev/null 2>&1
+assert_red "...nor a line for the scratch root itself -> BLOCK" \
+  --contains 'WORKTREE-UNRECORDED' \
+  -- run_hook_as agent-S2 "$SCR" "git worktree remove --force $SCR/sibling-live"
+run_hook_as agent-S3 "$SCR" "git worktree add --detach \"$SCR/x${LS}agent-S3${TAB}$SCR/sibling-live\" deadbeef" >/dev/null 2>&1
+assert_red "...nor through U+2028, which splitlines() reads as a line break -> BLOCK" \
+  --contains 'WORKTREE-UNRECORDED' \
+  -- run_hook_as agent-S3 "$SCR" "git worktree remove --force $SCR/sibling-live"
+
+# A ledger line an older version wrote in cp1251 is not UTF-8. Reading it used to
+# crash the analyzer, and the hook then refused every scratch remove with INTERNAL ERROR.
+CP_LEDGER="$(mktemp "${TMPDIR:-/tmp}/guard-owners-cp.XXXXXX")"
+# cp1251 for U+0440 U+0435 U+0432; 0xf0 opens a 4-byte UTF-8 sequence, 0xe5 cannot continue it
+printf 'agent-C\t%s/\xf0\xe5\xe2-old\n' "$MY_SESSION/scratchpad" >"$CP_LEDGER"
+run_hook_cp() { OWNERS_LEDGER="$CP_LEDGER" run_hook_as "$@"; }
+run_hook_cp agent-C "$MY_SESSION/scratchpad" \
+  "git worktree add --detach $MY_SESSION/scratchpad/co-C deadbeef" >/dev/null 2>&1
+assert_contract "an add next to a legacy non-UTF-8 ledger line is still recorded" \
+  --contains "agent-C	$MY_SESSION/scratchpad/co-C" \
+  -- cat "$CP_LEDGER"
+assert_green "a legacy non-UTF-8 ledger line does not crash the analyzer: the creator may remove its tree" \
+  --not-contains 'INTERNAL ERROR' --not-contains '"decision": "block"' \
+  -- run_hook_cp agent-C "$MY_SESSION/scratchpad" "git worktree remove --force $MY_SESSION/scratchpad/co-C"
+rm -f "$CP_LEDGER"
+
+# A ledger line naming the scratch root itself (3694da26 could be made to write one)
+# must not cover every sibling below it: is_owned re-checks "strictly below".
+ROOT_LEDGER="$(mktemp "${TMPDIR:-/tmp}/guard-owners-root.XXXXXX")"
+printf 'agent-R\t%s\n' "$LIVE_SESS" >"$ROOT_LEDGER"
+run_hook_root() { OWNERS_LEDGER="$ROOT_LEDGER" run_hook_as "$@"; }
+assert_red "a ledger line for the scratch root does not authorise removing a sibling -> BLOCK" \
+  --contains 'WORKTREE-UNRECORDED' \
+  -- run_hook_root agent-R "$SCR" "git worktree remove --force $SCR/sibling-live"
+rm -f "$ROOT_LEDGER"
 
 assert_red "another session's scratchpad is as foreign as another agent's worktree -> BLOCK" \
   --contains 'WORKTREE-REMOVE' \
@@ -470,17 +577,34 @@ rm -rf "$T3_WS"
 assert_green "python3 cannot run: exit 2 with INTERNAL ERROR" \
   --contains "INTERNAL ERROR" \
   -- exits_2 hook_without_python "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","tool_input":{"command":"pkill -f node"}}'
+# The copy carries the whole lib/, and only the analyzer file is broken, so the case
+# fails for the reason it names (a copy without lib/ fails anyway, which once let a
+# sed that matched nothing pass here).
 BROKEN_DIR="$(mktemp -d)"
-sed 's/^for r in reasons:$/def broken(:/' "$HOOK" >"$BROKEN_DIR/hook.sh"
-assert_green "analyzer crash: exit 2 with INTERNAL ERROR" \
+assert_green "analyzer crash (lib/cross_agent_blast_analyzer.py does not parse): exit 2 with INTERNAL ERROR" \
   --contains "INTERNAL ERROR" \
-  -- exits_2 hook_at "$BROKEN_DIR/hook.sh" "pkill -f node" "/x/.claude/worktrees/a"
+  --contains "the analyzer did not run" \
+  -- exits_2 hook_at "$(hook_with_lib_file "$BROKEN_DIR" pre-bash-cross-agent-blast.sh cross_agent_blast_analyzer.py broken)" \
+  "pkill -f node" "/x/.claude/worktrees/a"
+assert_green "analyzer file missing (lib/cross_agent_blast_analyzer.py deleted): exit 2 with INTERNAL ERROR" \
+  --contains "INTERNAL ERROR" \
+  --contains "the analyzer did not run" \
+  -- exits_2 hook_at "$(hook_with_lib_file "$BROKEN_DIR" pre-bash-cross-agent-blast.sh cross_agent_blast_analyzer.py missing)" \
+  "pkill -f node" "/x/.claude/worktrees/a"
 rm -rf "$BROKEN_DIR"
 
 # ── an unreadable command is refused, not read as "no command" (#1297 SR-L-4 class) ──
 assert_green "lone surrogate in the command: exit 2 with INTERNAL ERROR, not waved through" \
   --contains "INTERNAL ERROR" \
   -- exits_2 hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","tool_input":{"command":"pkill -f node \\ud800"}}'
+# The context fields too (SO-M-1 of #1317): an unreadable cwd or agent_id came back
+# empty, the context gate read that as "not an agent", and the command passed.
+assert_green "lone surrogate in the cwd: exit 2 with INTERNAL ERROR, not read as 'not an agent'" \
+  --contains "INTERNAL ERROR" \
+  -- exits_2 hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a\\ud800","tool_input":{"command":"ls"}}'
+assert_green "lone surrogate in the agent_id: exit 2 with INTERNAL ERROR" \
+  --contains "INTERNAL ERROR" \
+  -- exits_2 hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","agent_id":"a\\ud800","tool_input":{"command":"ls"}}'
 assert_green "an empty command still passes" \
   --not-contains "INTERNAL ERROR" \
   -- hook_raw "$HOOK" '{"tool_name":"Bash","cwd":"/x/.claude/worktrees/a","tool_input":{"command":""}}'

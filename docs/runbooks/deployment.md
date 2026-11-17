@@ -648,8 +648,22 @@ rather than trust the numbers, they shift whenever a file is added above):
 | 59       | `2026-10-25_job_record_store.sql`                      | Creates the job record-store tables, so before the grants. One transaction                                                |
 | 60       | `2026-10-27_transactions_tx_date_not_null.sql`         | Permanent, idempotent; fails the deploy on any NULL `tx_date` before the swap. Creates no relation. One transaction       |
 | 60b      | `2026-11-02_job_source_records_source_id.sql`          | Adds `job_source_records.source_id` + FK + index, backfills; after the record store, grants nothing. One transaction      |
+| 60c      | `2026-10-31_job_run_metrics_slowdown.sql`              | Run-metrics columns + `job_sources.slowdown_level` (backlog 434). Creates no relation. One transaction                    |
+| 60d      | `2026-10-31_job_source_health_events.sql`              | Creates append-only `job_source_health_events` (A-log); before the grants (unconditional grant). One transaction          |
+| 60e      | `2026-11-02_job_sources_inventory_uniqueness.sql`      | ATS `(type, namespace)` unique index; fails on a duplicate or empty namespace (audit first). One transaction              |
+| 60f      | `2026-11-04_job_queue_submissions_per_senior.sql`      | Per-senior `job_queue_assignments` key; hand-applied before backlog 434, re-apply is a no-op. One transaction             |
+| 60g      | `2026-11-04_job_opportunities_evaluation_verdict.sql`  | Verdict enum + evaluation columns; hand-applied before backlog 434, re-apply is a no-op. One transaction                  |
+| 60h      | `2026-11-05_job_opportunities_role_family.sql`         | `job_opportunities.role_family`; hand-applied before backlog 434, re-apply is a no-op. One transaction                    |
+| 60i      | `2026-11-05_job_opportunities_manual_team.sql`         | `manual_team_id` + `resume_id` FKs; hand-applied before backlog 434, re-apply is a no-op. One transaction                 |
+| 60j      | `2026-11-06_job_model_health.sql`                      | Creates the two model-health tables (class A); before the grants (unconditional grant). One transaction                   |
+| 60k      | `2026-11-14_senior_availability.sql`                   | Creates `senior_availability` (class A); before the grants (unconditional grant). One transaction                         |
+| 60l      | `2026-11-11_senior_resumes_verification.sql`           | Adds the verified-resume columns + enum to `senior_resumes`; before the swap, grants nothing. One transaction             |
+| 60m      | `2026-11-16_senior_resumes_recheck_needed.sql`         | Adds `recheck_needed_at` to `senior_resumes`; before the swap, grants nothing. One transaction                            |
+| 60n      | `2026-11-17_technical_roles.sql`                       | Role columns on `users` + `job_opportunities`, creates `job_role_classifications` (class A); before the grants. One tx    |
 | 61       | `2026-10-18_db_grants.sql`                             | After EVERY file that creates a table, view or sequence                                                                   |
 | 62       | `2026-10-17_job_opportunities_store_indexes.sql`       | Indexes only, creates no relation                                                                                         |
+| 62a      | `2026-11-02_job_dirty_work_pending_partial.sql`        | `CREATE INDEX CONCURRENTLY`, so NOT one transaction; creates no relation. Sweeps + refuses an INVALID index (§9)          |
+| 62b      | `2026-11-03_job_dirty_work_partition_partial.sql`      | `CREATE INDEX CONCURRENTLY`, so NOT one transaction; creates no relation. Sweeps + refuses an INVALID index (§9)          |
 | 65       | `2026-10-18_db_privileges_check.sql`                   | First run: before the container swap, so a drift fails while the old API serves                                           |
 | 66       | `2026-10-04_multiple_salary_transactions_activate.sql` | Breaking half, must follow the swap and the health gate; creates no relation                                              |
 | (end)    | `2026-10-18_db_privileges_check.sql` (second run)      | The last database step, after the post-cutover `drop_cascade_origin` marker re-run, so the END state is what is validated |
@@ -1110,6 +1124,20 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-10-31_job_bridge_deliveries.sql \
     apps/api/drizzle/manual/2026-11-01_job_source_record_inventory_misses.sql \
     apps/api/drizzle/manual/2026-11-02_job_source_records_source_id.sql \
+    apps/api/drizzle/manual/2026-10-31_job_run_metrics_slowdown.sql \
+    apps/api/drizzle/manual/2026-10-31_job_source_health_events.sql \
+    apps/api/drizzle/manual/2026-11-02_job_sources_inventory_uniqueness.sql \
+    apps/api/drizzle/manual/2026-11-04_job_queue_submissions_per_senior.sql \
+    apps/api/drizzle/manual/2026-11-04_job_opportunities_evaluation_verdict.sql \
+    apps/api/drizzle/manual/2026-11-05_job_opportunities_role_family.sql \
+    apps/api/drizzle/manual/2026-11-05_job_opportunities_manual_team.sql \
+    apps/api/drizzle/manual/2026-11-06_job_model_health.sql \
+    apps/api/drizzle/manual/2026-11-14_senior_availability.sql \
+    apps/api/drizzle/manual/2026-11-02_job_dirty_work_pending_partial.sql \
+    apps/api/drizzle/manual/2026-11-03_job_dirty_work_partition_partial.sql \
+    apps/api/drizzle/manual/2026-11-11_senior_resumes_verification.sql \
+    apps/api/drizzle/manual/2026-11-16_senior_resumes_recheck_needed.sql \
+    apps/api/drizzle/manual/2026-11-17_technical_roles.sql \
     scripts/devops/check-security-headers.sh \
     scripts/devops/check-nginx-perimeter.sh \
     scripts/devops/pg-backup.sh \
@@ -1303,6 +1331,83 @@ older than these files does. The rollback-depth floor moves to the commit that m
 reaches the VPS (the `deploy` job runs `deploy-stack-on-vps.sh` from `main`, which hard-requires
 both files, so a target without them would otherwise fail on the VPS). Older images remain reachable
 through the "Emergency SSH path" below, which applies no DDL.
+
+### Promoted job DDL (backlog 434): read-only audit before the first deploy, and an INVALID index
+
+Backlog 434 moved ten job-sourcing files from `manual-staged/` into `manual/` (§5.1 rows 60c–60j and
+62a–62b). Four of them had been applied in production by hand (submissions per senior, evaluation
+verdict, role family, manual team), so their first deploy is a re-apply over objects that already
+exist. Every file fails loudly before the container swap if production is not in the state it
+expects. Run these read-only checks right before the first deploy that carries them (production
+commands are the owner's, through `ssh crm-vps`; SELECT only):
+
+1. ATS namespace audit for `2026-11-02_job_sources_inventory_uniqueness.sql`. **Must return 0 rows**;
+   any row makes that file's index or CHECK fail and stops the deploy.
+
+   ```sql
+   SELECT type, namespace, count(*)
+     FROM job_sources
+    WHERE type IN ('GREENHOUSE_ATS','LEVER_ATS','ASHBY_ATS','WORKABLE_ATS','SMARTRECRUITERS_ATS','RECRUITEE_ATS','PERSONIO_ATS')
+    GROUP BY 1, 2
+   HAVING count(*) > 1 OR length(namespace) = 0;
+   ```
+
+2. The hand-applied columns exist. **Expect 7 rows.** If `senior_id` is missing,
+   `SELECT count(*) FROM job_queue_assignments` must be 0, or the per-senior file refuses.
+
+   ```sql
+   SELECT table_name, column_name FROM information_schema.columns
+    WHERE table_schema = 'public' AND (table_name, column_name) IN (
+      ('job_queue_assignments','senior_id'), ('job_queue_assignments','resume_id'),
+      ('job_opportunities','evaluated_revision'), ('job_opportunities','evaluation_verdict'),
+      ('job_opportunities','evaluated_inputs_version'), ('job_opportunities','role_family'),
+      ('job_opportunities','manual_team_id'));
+   ```
+
+3. The hand-applied constraints match the files. Expect `uq_job_queue_assignments_opportunity_senior`,
+   `fk_job_queue_assignments_senior` and `fk_job_queue_assignments_resume`, and **no**
+   `uq_job_queue_assignments_opportunity`.
+
+   ```sql
+   SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
+    WHERE conrelid = 'public.job_queue_assignments'::regclass AND contype IN ('u','f');
+   ```
+
+4. No INVALID dirty-work index. **Expect 0 rows, or every row with `indisvalid = t`.**
+
+   ```sql
+   SELECT c.relname, i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+    WHERE c.relname IN ('idx_job_dirty_work_pending_generic','idx_job_dirty_work_pending_match','idx_job_dirty_work_pending_availability');
+   ```
+
+5. No transaction open longer than the `CREATE INDEX CONCURRENTLY` lock timeout. The two dirty-work
+   files run their sweep under `lock_timeout = '10s'` and each `CREATE INDEX CONCURRENTLY` under
+   `lock_timeout = '5min'` (a cap on each single wait, not on the build), so the query below is a
+   heuristic: it flags the transactions already open longer than one wait. **Expect 0 rows** right before the deploy. If such a
+   transaction is still open 5 min after the build starts waiting on it, the build fails with
+   `canceling statement due to lock timeout`, leaves the index INVALID and fails the deploy before the
+   container swap (the old API keeps serving); end that transaction and re-run the deploy, whose sweep
+   drops the INVALID index and rebuilds it (next paragraph). The waits add up within one deploy
+   step: each of the three builds waits at several points and once per older transaction, so the only
+   cap on a build's total wait is `statement_timeout = '30min'`, and a chain of transactions each
+   just under 5 min can pass the step's cut. The ssh-action step pins `command_timeout: 30m` instead of the action's 10-minute default;
+   that covers the realistic case (about one long transaction per build). If the step is cut anyway,
+   the build may run on in the background; once no build is in flight, the next deploy's sweep drops
+   and rebuilds the INVALID index (until then section 3 fails the deploy).
+
+   ```sql
+   SELECT pid, state, now() - xact_start AS age FROM pg_stat_activity
+    WHERE datname = current_database() AND xact_start < now() - interval '5 minutes';
+   ```
+
+**An INVALID dirty-work index on a later deploy.** The two `CONCURRENTLY` files
+(`2026-11-02_job_dirty_work_pending_partial.sql`, `2026-11-03_job_dirty_work_partition_partial.sql`)
+run in autocommit. A cancelled or failed build leaves an index with `indisvalid = false`; the next
+apply of the file drops it (when no build is in flight on `job_dirty_work`) and rebuilds it, and its
+closing check fails the deploy with `job_dirty_work index check failed: <name> is INVALID|MISSING`
+when it could not. The remedy is to re-run the deploy once no other index build is in flight. By
+hand: `DROP INDEX CONCURRENTLY IF EXISTS <name>;`, then re-apply the file with
+`psql -v ON_ERROR_STOP=1 < <file>` (never `--single-transaction`).
 
 ### After a rollback — the mandatory next step: a revert in `main`
 

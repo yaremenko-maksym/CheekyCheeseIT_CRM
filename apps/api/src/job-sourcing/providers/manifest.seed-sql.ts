@@ -1,6 +1,12 @@
 import { join } from 'node:path'
 import type { FetchProfile } from '../scheduling/next-slot'
-import { isReporting, type Manifest, readinessAt, readinessReason } from './manifest'
+import {
+  isReporting,
+  type Manifest,
+  type Readiness,
+  readinessAt,
+  readinessReason,
+} from './manifest'
 
 /**
  * The forward seed delta (r5 Task 3.7, correction C-16), GENERATED from the manifest.
@@ -16,7 +22,10 @@ import { isReporting, type Manifest, readinessAt, readinessReason } from './mani
  * never by parsing this text.
  *
  * IDEMPOTENT, AND A REDEPLOY NEVER UNDOES AN ADMIN:
- *  - the backfill claims only rows whose `manifest_id` IS NULL, so a claimed row is never touched;
+ *  - the backfill claims only rows whose `manifest_id` IS NULL, so a claimed row is never re-claimed;
+ *  - the readiness refresh (step 5) writes ONLY `readiness` / `readiness_reason` (and `updated_at`
+ *    on a real change) of a claimed row, so an owner decision reaches the stored value the enable
+ *    gate reads; a smoke-earned VERIFIED is lost only to a BLOCKED entry, never to a CANDIDATE one;
  *  - the insert is `ON CONFLICT DO NOTHING` (against both `uq_job_sources_type_config` and
  *    `uq_job_sources_manifest_id`), so an existing row, however an admin has since paused, retired
  *    or enabled it, is neither re-added nor reset;
@@ -24,10 +33,16 @@ import { isReporting, type Manifest, readinessAt, readinessReason } from './mani
  *    for a row that did not exist;
  *  - a revision touches a row only while its `config_version` is LOWER than the manifest's.
  *
- * WHAT IT DELIBERATELY DOES NOT DO: create `job_account_meters` rows. A rolling meter needs the
- * instant the provider's billing window began, and nobody holds that for a key nobody has. A meter
- * is created at activation with the owner's figure, by the code that owns the meter (Task 2.5).
- * The manifest records the quota; the delta does not invent a window.
+ *
+ * METERS (PR #1372): an account whose quota declares a `seedMeter` (the owner's figure, below the
+ * provider's allowance) gets ONE `job_account_meters` row, `ON CONFLICT DO NOTHING`, so a re-deploy
+ * never resets its counters or its limit; its window starts on the current UTC calendar day / month
+ * at apply time (the provider's billing start is not known). Each claimed row of that account is
+ * bound to it only while its `account_meter_id` IS NULL, so a binding an admin changed stands.
+ *
+ * `KEY_REQUIRED` IS NEVER STORED. Whether a key is set is a fact of the deploy's env, not of the
+ * manifest: the live catalog checks it at enable and at claim (`catalogFromSnapshot`). A stored
+ * BLOCKED for it would refuse the enable even with the key set (`enableRefusal`).
  */
 
 /**
@@ -143,6 +158,9 @@ export interface SeedSource {
   readiness: 'CANDIDATE' | 'BLOCKED'
   readiness_reason: string | null
   legacy: boolean
+  meter_account_key: string | null
+  meter_unit: string | null
+  meter_window: string | null
 }
 
 export interface SeedTypeBlock {
@@ -160,13 +178,46 @@ export function rollbackCadenceHours(profile: FetchProfile | null): number {
   return Math.max(24, Math.ceil((profile?.intervalMinutes ?? 0) / 60))
 }
 
+/** The readiness the delta stores: the manifest's, minus the blockers only the runtime can judge. */
+export function storedReadinessAt(
+  subject: Parameters<typeof readinessAt>[0],
+  clock: Date,
+): Readiness {
+  const r = readinessAt(subject, clock)
+  if (r.status === 'LEGACY') return r
+  const blockers = r.blockers.filter((b) => b.code !== 'KEY_REQUIRED')
+  return { status: blockers.length === 0 ? 'CANDIDATE' : 'BLOCKED', blockers }
+}
+
+export interface SeedMeter {
+  account_key: string
+  unit: string
+  window_kind: 'DAY' | 'MONTH'
+  limit_amount: number
+}
+
 /**
  * What the delta will write, as plain data. Exported so the spec can compare ROWS against it
  * without going through the SQL text.
  */
 export function seedRowsOf(manifest: Manifest, clock: Date = SEED_CLOCK) {
+  const meterByType = new Map<string, SeedMeter>()
+  for (const t of manifest.types) {
+    const q = t.quota
+    if (q?.seedMeter === undefined) continue
+    meterByType.set(t.type, {
+      account_key: q.account,
+      unit: q.unit,
+      window_kind: q.seedMeter.window,
+      limit_amount: q.seedMeter.limit,
+    })
+  }
+  const meterOf = (type: string) => meterByType.get(type)
+  // One row per account: types sharing an account declare identical terms (`checkQuota`).
+  const meters = [...new Map([...meterByType.values()].map((m) => [m.account_key, m])).values()]
   const sources: SeedSource[] = manifest.entries.map((e) => {
-    const r = readinessAt(e, clock)
+    const r = storedReadinessAt(e, clock)
+    const meter = meterOf(e.type)
     return {
       manifest_id: e.id,
       type: e.type,
@@ -182,15 +233,18 @@ export function seedRowsOf(manifest: Manifest, clock: Date = SEED_CLOCK) {
       readiness: r.status === 'BLOCKED' ? 'BLOCKED' : 'CANDIDATE',
       readiness_reason: readinessReason(r),
       legacy: e.legacySeed,
+      meter_account_key: meter?.account_key ?? null,
+      meter_unit: meter?.unit ?? null,
+      meter_window: meter?.window_kind ?? null,
     }
   })
   const typeBlocks: SeedTypeBlock[] = manifest.types
     .filter((t) => isReporting(t.disposition))
     .flatMap((t) => {
-      const r = readinessAt(t, clock)
+      const r = storedReadinessAt(t, clock)
       return r.status === 'BLOCKED' ? [{ type: t.type, reason: readinessReason(r)! }] : []
     })
-  return { sources, typeBlocks }
+  return { sources, typeBlocks, meters }
 }
 
 const line = (value: unknown): string => `  ${JSON.stringify(value)}`
@@ -199,8 +253,8 @@ const jsonArray = (items: readonly unknown[]): string =>
   items.length === 0 ? '[]' : `[\n${items.map(line).join(',\n')}\n]`
 
 export function generateSeedDelta(manifest: Manifest, clock: Date = SEED_CLOCK): string {
-  const { sources, typeBlocks } = seedRowsOf(manifest, clock)
-  const doc = `{"sources":${jsonArray(sources)},"typeBlocks":${jsonArray(typeBlocks)}}`
+  const { sources, typeBlocks, meters } = seedRowsOf(manifest, clock)
+  const doc = `{"sources":${jsonArray(sources)},"typeBlocks":${jsonArray(typeBlocks)},"meters":${jsonArray(meters)}}`
   if (doc.includes(DOLLAR_TAG)) {
     throw new Error(`the manifest data contains ${DOLLAR_TAG}, which would end its own literal`)
   }
@@ -238,14 +292,26 @@ export function generateSeedDelta(manifest: Manifest, clock: Date = SEED_CLOCK):
 --   3b. verify    - RAISES when an entry still has no row (an unmanaged row of the same
 --                   (type, config) swallowed the insert), so the skip is never silent
 --   4. block      - rows of a not-ready type that no entry claimed
--- No job_account_meters row is created: a rolling meter needs the provider's billing-window
--- start, which nobody holds for a key nobody has.
+--   5. refresh    - every claimed row's readiness and reason follow the manifest, both ways
+--                   (unblock and block); a VERIFIED row is downgraded only by a BLOCKED entry.
+--                   Never enabled, admin state, budget, counters or cooldown. The snapshot
+--                   clock above still applies; a lapsed deadline is also refused live by the
+--                   enable gate, which reads the manifest catalog
+--   6. meters     - one job_account_meters row per account the manifest gives an owner figure
+--                   (our cap, below the provider's); ON CONFLICT DO NOTHING, so a re-deploy never
+--                   touches its used / reserved / uncertain counters or its limit. The window
+--                   starts on the current UTC day / calendar month at apply time: the provider's
+--                   billing start is not known
+--   7. bind       - each claimed row of such an account gets that meter, only while its
+--                   account_meter_id IS NULL (a binding an admin changed stands)
+-- KEY_REQUIRED is never stored as a blocker: whether a key is set is a fact of the env, checked
+-- live at enable and at claim, so a keyed row reads CANDIDATE here and is still refused without it.
 --
 -- How to apply (the deploy wires this file; see the DevOps note in the PR):
 --   psql -v ON_ERROR_STOP=1 --single-transaction < <this file>
 -- --single-transaction is REQUIRED, not a nicety: without it each statement commits on its own, and the
--- step 3b RAISE (an unmanaged row blocked an insert) would leave steps 1-3 committed and step 4 never
--- run, a half-applied delta behind a loud failure. In one transaction the RAISE rolls everything back.
+-- step 3b RAISE (an unmanaged row blocked an insert) would leave steps 1-3 committed and steps 4-5
+-- never run, a half-applied delta behind a loud failure. In one transaction the RAISE rolls everything back.
 
 DROP TABLE IF EXISTS pg_temp._jsm_doc;
 DROP TABLE IF EXISTS pg_temp._jsm_sources;
@@ -261,7 +327,8 @@ FROM _jsm_doc d,
        manifest_id text, type text, config jsonb, namespace text,
        manifest_version int, policy_version int, config_version int,
        min_interval_hours int, budget_limit int, budget_window text,
-       readiness text, readiness_reason text, legacy boolean);
+       readiness text, readiness_reason text, legacy boolean,
+       meter_account_key text, meter_unit text, meter_window text);
 
 CREATE TEMP TABLE _jsm_blocks AS
 SELECT x.*
@@ -340,6 +407,46 @@ FROM _jsm_blocks b
 WHERE s.type = b.type::job_source_type
   AND s.manifest_id IS NULL
   AND s.readiness = 'CANDIDATE';
+
+-- 5. refresh: the stored readiness of every claimed row follows the manifest, both ways (an owner
+-- decision unblocks, a prohibition blocks). Enable refuses on the STORED value, so without this a
+-- row keeps the readiness of the deploy that inserted it. A smoke-earned VERIFIED is never
+-- overwritten by a CANDIDATE manifest, only by a BLOCKED one. Only readiness, its reason and
+-- updated_at are written, and only on a real change, so a re-applied delta stays byte-identical.
+UPDATE job_sources s
+SET readiness        = m.readiness::job_source_readiness,
+    readiness_reason = m.readiness_reason,
+    updated_at       = clock_timestamp()
+FROM _jsm_sources m
+WHERE s.manifest_id = m.manifest_id
+  AND NOT (s.readiness = 'VERIFIED' AND m.readiness = 'CANDIDATE')
+  AND (s.readiness IS DISTINCT FROM m.readiness::job_source_readiness
+       OR s.readiness_reason IS DISTINCT FROM m.readiness_reason);
+
+-- 6. meters: our A1 default cap for each paid account. A meter that exists keeps every counter.
+INSERT INTO job_account_meters
+  (account_key, unit, window_kind, limit_amount, window_started_at, resets_at)
+SELECT x.account_key, x.unit::job_meter_unit, x.window_kind::job_meter_window, x.limit_amount,
+       date_trunc(lower(x.window_kind), now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
+       (date_trunc(lower(x.window_kind), now() AT TIME ZONE 'UTC')
+          + ('1 ' || lower(x.window_kind))::interval) AT TIME ZONE 'UTC'
+FROM _jsm_doc d,
+     jsonb_to_recordset(d.doc -> 'meters') AS x(
+       account_key text, unit text, window_kind text, limit_amount bigint)
+ORDER BY x.account_key
+ON CONFLICT (account_key, unit, window_kind) DO NOTHING;
+
+-- 7. bind: a claimed row of a metered account gets its meter, once; an existing binding stands.
+UPDATE job_sources s
+SET account_meter_id = am.id,
+    updated_at       = clock_timestamp()
+FROM _jsm_sources m
+JOIN job_account_meters am
+  ON am.account_key = m.meter_account_key
+ AND am.unit = m.meter_unit::job_meter_unit
+ AND am.window_kind = m.meter_window::job_meter_window
+WHERE s.manifest_id = m.manifest_id
+  AND s.account_meter_id IS NULL;
 
 DROP TABLE _jsm_blocks;
 DROP TABLE _jsm_sources;

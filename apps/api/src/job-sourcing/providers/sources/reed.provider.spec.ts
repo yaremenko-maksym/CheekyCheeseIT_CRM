@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fakeCollectionContext, type FakeResponse } from '../../../test/fake-collection-context'
 import { meteredContext } from '../../../test/quota-harness'
-import { sourceFixture, sourceProvenance } from '../../../test/source-fixtures'
+import { sourceFixtureText, sourceProvenance } from '../../../test/source-fixtures'
 import { PG_INT_MAX } from '../api-json.provider'
 import { UnvalidatedConfigError } from '../reporting-provider'
 import { SourceNotReadyError } from './quota-provider'
@@ -13,15 +13,17 @@ import {
 } from './reed.provider'
 
 /**
- * Reed through its public provider. Expected values are hand-read from
- * `__fixtures__/reed/doc-example.json` - a UNIT EXAMPLE written from Reed's developer page and the
- * API's published shape, not a capture (see its provenance) - and written as literals, never
- * produced by running the mapper.
+ * Reed through its public provider. Two inputs, each with its own job:
+ * - `__fixtures__/reed/search-smoke.json`, the CAPTURE of the owner's controlled smoke (see its
+ *   provenance): what the real payload maps to, hand-read and written as literals.
+ * - `UNIT_EXAMPLE`, built here: the edge cases a five-result capture does not hold (a day that does
+ *   not exist, a page that ends on the total).
+ * Expected values are never produced by running the mapper.
  *
  * THE KEY is an obviously fake string; no real credential appears here.
  */
 
-const NOW = new Date('2026-10-24T04:00:00Z')
+const NOW = new Date('2026-11-17T04:00:00Z')
 const KEY = '00000000-fake-0000-fake-reedkey00000'
 // base64 of "<KEY>:" and of "<KEY>", computed once with `Buffer.from(..).toString('base64')` and
 // written here as literals so the expected header does not come from the code under test.
@@ -39,7 +41,43 @@ const cfg = (extra: Record<string, unknown> = {}, p = provider()) =>
   p.parseConfig({ configVersion: 1, ...SEEDED, ...extra })
 
 type Envelope = { results: Record<string, unknown>[]; totalResults: number }
-const example = () => sourceFixture('reed', 'doc-example') as Envelope
+const UNIT_EXAMPLE: Envelope = {
+  results: [
+    {
+      jobId: 50123001,
+      employerId: 9001,
+      employerName: 'Example Software Ltd',
+      jobTitle: 'Senior Developer',
+      locationName: 'London',
+      minimumSalary: 70000,
+      maximumSalary: 85000,
+      currency: 'GBP',
+      expirationDate: '20/11/2026',
+      date: '20/10/2026',
+      jobDescription: 'Join our engineering team in central London...',
+      applications: 12,
+      jobUrl: 'https://www.reed.co.uk/jobs/senior-developer/50123001',
+    },
+    {
+      jobId: 50123002,
+      employerId: 9002,
+      employerName: 'Example Digital',
+      jobTitle: 'Lead Engineer',
+      locationName: 'Manchester',
+      minimumSalary: null,
+      maximumSalary: null,
+      currency: 'GBP',
+      expirationDate: '31/02/2026',
+      date: '31/02/2026',
+      jobDescription: 'A date that does not exist, to prove it is refused.',
+      applications: 0,
+      jobUrl: 'https://www.reed.co.uk/jobs/lead-engineer/50123002',
+    },
+  ],
+  totalResults: 2,
+}
+const example = (): Envelope => structuredClone(UNIT_EXAMPLE)
+const capture = (): FakeResponse => ({ bodyText: sourceFixtureText('reed', 'search-smoke') })
 const job = (id: number, over: Record<string, unknown> = {}) => ({
   ...example().results[0],
   jobId: id,
@@ -147,7 +185,7 @@ describe('mapping the unit example', () => {
     expect(o?.normalized.title).toBe('Senior Developer')
     expect(o?.normalized.companyName).toBe('Example Software Ltd')
     expect(o?.normalized.location).toBe('London, United Kingdom')
-    expect(o?.adapterVersion).toBe('reed-1')
+    expect(o?.adapterVersion).toBe('reed-2')
   })
 
   it('the native id and the application URL are different facts', async () => {
@@ -296,11 +334,38 @@ describe('paging', () => {
   })
 })
 
-describe('metering: Reed has no documented quota, so there is no reservation', () => {
-  it('makes no reservation and marks nothing sent', async () => {
+describe('metering: one request is one REQUEST against the account meter (PR #1372)', () => {
+  it('defaults to one REQUEST per call: reserve, mark sent, fetch, settle, in that order', async () => {
     const { m, batch } = await run([body(jobs(1), 1)])
-    expect(m.events).toEqual(['fetch'])
-    expect(batch.requests[0]?.cost).toBeNull()
+    expect(m.reserved).toEqual([{ unit: 'REQUEST', amount: 1 }])
+    expect(m.events).toEqual(['reserve', 'markSent', 'fetch', 'reconcile:USED'])
+    expect(m.settled).toEqual([{ id: 'res-1', resolution: 'USED' }])
+    expect(batch.requests[0]?.cost).toEqual({ unit: 'REQUEST', amount: 1 })
+  })
+
+  it('reserves what the configured agreement says, in its unit', async () => {
+    const p = createReedProvider({
+      credential: READY,
+      meter: { unit: 'USD_MICROS', amountPerRequest: 2_500 },
+    })
+    const { m } = await run([body(jobs(1), 1)], { p, config: cfg({}, p) })
+    expect(m.reserved).toEqual([{ unit: 'USD_MICROS', amount: 2_500 }])
+  })
+
+  it('refuses a bad agreement when the provider is built, not mid-run', () => {
+    expect(() =>
+      createReedProvider({ credential: READY, meter: { unit: 'REQUEST', amountPerRequest: 0 } }),
+    ).toThrow()
+  })
+
+  it('a refused reservation is a cost stop: nothing is sent', async () => {
+    const p = provider()
+    const f = fakeCollectionContext({ now: NOW, responses: [body(jobs(1), 1)] })
+    const m = meteredContext(f, { refuseOnReserve: 1 })
+    const batch = await p.collectReport(cfg({}, p), m.ctx)
+    expect(batch.requests.at(-1)?.error?.code).toBe('COST_STOP')
+    expect(f.sent).toEqual([])
+    expect(m.events).toEqual(['reserve'])
   })
 })
 
@@ -371,15 +436,64 @@ describe('config is refused before any network call', () => {
   })
 })
 
-describe('the BLOCKED state', () => {
-  it('declares itself blocked with the key reason - and the provenance agrees', () => {
-    expect(REED_SOURCE_STATUS.blocked).toBe(true)
+describe('mapping the smoke capture (hand-read from search-smoke.json)', () => {
+  it('every result of the capture is kept, none invalid or quarantined', async () => {
+    const { batch } = await run([capture()], { config: cfg({ resultsToTake: 5 }) })
+    expect(batch.outcome).toBe('SUCCEEDED')
+    expect(batch.counts).toEqual({
+      raw: 5,
+      normalized: 5,
+      invalid: 0,
+      quarantined: 0,
+      discarded: 0,
+    })
+    expect(batch.observations.map((o) => o.identity.nativeId)).toEqual([
+      '57454050',
+      '57499539',
+      '57421313',
+      '57467798',
+      '57517359',
+    ])
+  })
+
+  it('maps the second result, a town, and its two day-first dates', async () => {
+    const { batch } = await run([capture()], { config: cfg({ resultsToTake: 5 }) })
+    const o = byId(batch, '57499539')
+    expect(o?.identity.identityKind).toBe('NATIVE_ID')
+    expect(o?.sourcePostingUrl).toBe('https://www.reed.co.uk/jobs/senior-sap-developer/57499539')
+    expect(o?.normalized.title).toBe('Senior SAP Developer')
+    expect(o?.normalized.companyName).toBe('Gedu')
+    expect(o?.normalized.location).toBe('Portsmouth, United Kingdom')
+    expect(o?.normalized.dates.map((d) => [d.semantics, d.raw, d.status])).toEqual([
+      ['PUBLISHED', '28/10/2026', 'OK'],
+      ['EXPIRY', '20/01/2027', 'OK'],
+    ])
+  })
+
+  it('a postcode in locationName is carried as written', async () => {
+    const { batch } = await run([capture()], { config: cfg({ resultsToTake: 5 }) })
+    expect(byId(batch, '57454050')?.normalized.location).toBe('PR77NR, United Kingdom')
+  })
+
+  it('a full page of 5 of a total of 1039 asks for the next page', async () => {
+    const { batch } = await run([capture()], { config: cfg({ resultsToTake: 5 }) })
+    expect(batch.checkpoint?.position).toEqual({ kind: 'CURSOR', page: 1, cursor: 'page:2' })
+  })
+})
+
+describe('the key-gated state', () => {
+  it('is not blocked, needs its key, and the capture provenance agrees', () => {
+    expect(REED_SOURCE_STATUS.blocked).toBe(false)
     expect(REED_SOURCE_STATUS.permission).toBe('KEY_REQUIRED')
-    expect(REED_SOURCE_STATUS.reason).toContain('controlled authenticated smoke')
-    const prov = sourceProvenance('reed', 'doc-example') as { permission: string; notes: string }
+    expect(REED_SOURCE_STATUS.reason).toContain('REED_API_KEY')
+    const prov = sourceProvenance('reed', 'search-smoke') as {
+      permission: string
+      httpStatus: number
+      notes: string
+    }
     expect(prov.permission).toBe(REED_SOURCE_STATUS.permission)
-    expect(prov.notes).toContain('UNIT EXAMPLE ONLY, NOT A CAPTURE')
-    expect(prov.notes).toContain('31/02/2026')
+    expect(prov.httpStatus).toBe(200)
+    expect(prov.notes).toContain('run 43964860057')
   })
 })
 

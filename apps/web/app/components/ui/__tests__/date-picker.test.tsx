@@ -144,6 +144,92 @@ describe('DatePickerField — minDate/maxDate bounds (owner addendum, 2026-08)',
     expect(panel.getByRole('button', { name: /, 4-е серпня 2026/ })).toBeDisabled()
     expect(panel.getByRole('button', { name: /, 29-е серпня 2026/ })).not.toBeDisabled()
   })
+
+  it('with a max date, the next arrow is disabled in the max month; without bounds, unchanged', async () => {
+    const user = userEvent.setup({ delay: null })
+
+    const { unmount } = renderPicker({
+      value: '2026-08-07',
+      onChange: () => {},
+      maxDate: '2026-08-10',
+    })
+    await user.click(screen.getByRole('button', { name: /07 серп/i }))
+    const panel = within(screen.getByRole('dialog'))
+    const nextBtn = panel.getByRole('button', { name: /^(?:next month|наступний місяць)$/i })
+    expect(nextBtn).toBeDisabled()
+    unmount()
+
+    renderPicker({ value: '2026-08-07', onChange: () => {} })
+    await user.click(screen.getByRole('button', { name: /07 серп/i }))
+    const unboundPanel = within(screen.getByRole('dialog'))
+    const unboundNextBtn = unboundPanel.getByRole('button', {
+      name: /^(?:next month|наступний місяць)$/i,
+    })
+    expect(unboundNextBtn).not.toBeDisabled()
+  })
+
+  it('with a min date, the previous arrow is disabled in the min month; without bounds, unchanged', async () => {
+    const user = userEvent.setup({ delay: null })
+
+    const { unmount } = renderPicker({
+      value: '2026-08-07',
+      onChange: () => {},
+      minDate: '2026-08-05',
+    })
+    await user.click(screen.getByRole('button', { name: /07 серп/i }))
+    const panel = within(screen.getByRole('dialog'))
+    const prevBtn = panel.getByRole('button', { name: /^(?:previous month|попередній місяць)$/i })
+    expect(prevBtn).toBeDisabled()
+    unmount()
+
+    renderPicker({ value: '2026-08-07', onChange: () => {} })
+    await user.click(screen.getByRole('button', { name: /07 серп/i }))
+    const unboundPanel = within(screen.getByRole('dialog'))
+    const unboundPrevBtn = unboundPanel.getByRole('button', {
+      name: /^(?:previous month|попередній місяць)$/i,
+    })
+    expect(unboundPrevBtn).not.toBeDisabled()
+  })
+
+  it('a saved value BEFORE minDate still opens on its own month (SO-2)', async () => {
+    const user = userEvent.setup({ delay: null })
+    renderPicker({
+      value: '2026-06-07',
+      onChange: () => {},
+      minDate: '2026-08-05',
+      maxDate: '2026-08-10',
+    })
+    await user.click(screen.getByRole('button', { name: /07 черв/i }))
+    const panel = within(screen.getByRole('dialog'))
+    expect(panel.getByText('червень')).toBeInTheDocument()
+    // the bounds still apply: the out-of-range value's day stays disabled
+    expect(panel.getByRole('button', { name: /, 7-е червня 2026/ })).toBeDisabled()
+  })
+
+  it('a saved value AFTER maxDate still opens on its own month (SO-2)', async () => {
+    const user = userEvent.setup({ delay: null })
+    renderPicker({
+      value: '2026-10-07',
+      onChange: () => {},
+      minDate: '2026-08-05',
+      maxDate: '2026-08-10',
+    })
+    await user.click(screen.getByRole('button', { name: /07 жовт/i }))
+    const panel = within(screen.getByRole('dialog'))
+    expect(panel.getByText('жовтень')).toBeInTheDocument()
+    expect(panel.getByRole('button', { name: /, 7-е жовтня 2026/ })).toBeDisabled()
+  })
+
+  it('both month navigation arrows have a non-empty accessible name', async () => {
+    const user = userEvent.setup({ delay: null })
+    renderPicker({ value: '2026-08-07', onChange: () => {} })
+    await user.click(screen.getByRole('button', { name: /07 серп/i }))
+    const panel = within(screen.getByRole('dialog'))
+    const prevBtn = panel.getByRole('button', { name: /^(?:previous month|попередній місяць)$/i })
+    const nextBtn = panel.getByRole('button', { name: /^(?:next month|наступний місяць)$/i })
+    expect(prevBtn).toHaveAccessibleName()
+    expect(nextBtn).toHaveAccessibleName()
+  })
 })
 
 describe('DatePickerField — calendar opens on the SELECTED month, not "today" (regression, 2026-09-01)', () => {
@@ -187,4 +273,24 @@ describe('DatePickerField — calendar opens on the SELECTED month, not "today" 
       expect(panel.getByText(year)).toBeInTheDocument()
     },
   )
+})
+
+// QA-LOW-1: the trigger shows the date the way every other date in the app does (`formatDate`),
+// so November is «лист.» here as in «Вільно з 28 лист.», never date-fns' «листоп.»
+describe('DatePickerField — the trigger reads like the rest of the app (QA-LOW-1)', () => {
+  it('uk: «28 лист. 2026 р.»', () => {
+    renderPicker({ value: '2026-11-28', onChange: vi.fn() })
+    expect(screen.getByRole('button')).toHaveTextContent(/^28 лист\. 2026 р\.$/)
+  })
+
+  it('en: «28 Nov 2026»', async () => {
+    await loadCatalog('en')
+    renderPicker({ value: '2026-11-28', onChange: vi.fn() })
+    expect(screen.getByRole('button')).toHaveTextContent(/^28 Nov 2026$/)
+  })
+
+  it('a single-digit day keeps two digits: «05 бер. 2026 р.»', () => {
+    renderPicker({ value: '2026-03-05', onChange: vi.fn() })
+    expect(screen.getByRole('button')).toHaveTextContent(/^05 бер\. 2026 р\.$/)
+  })
 })

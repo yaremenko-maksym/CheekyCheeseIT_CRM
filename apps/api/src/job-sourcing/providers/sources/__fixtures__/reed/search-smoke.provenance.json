@@ -1,0 +1,12 @@
+{
+  "url": "https://www.reed.co.uk/api/1.0/search?keywords=senior%20developer&resultsToTake=5&resultsToSkip=0",
+  "fetchedAt": "2026-11-16T21:55:13.000Z",
+  "httpStatus": 200,
+  "rawSha256": "6564aca4ead6d033e7691eb0b184e68dce69230b458ba5c58eebf299503e9811",
+  "fileSha256": "5463b7625fde3fb10c81b916ff6af55145c79b6d13850770d31e93c97ac1715c",
+  "trimmedBy": "node trim-keyed-captures.mjs (JSON.parse keeping integers past 2^53 as written, whole-record selection, regex redaction of e-mail addresses and separator-bearing phone numbers inside string values, JSON.stringify); never a byte cut",
+  "termsUrl": "https://www.reed.co.uk/developers/jobseeker",
+  "termsCheckedAt": "2026-11-16T21:59:55.000Z",
+  "permission": "KEY_REQUIRED",
+  "notes": "HTTP Basic (the key as username, empty password), keywords \"senior developer\", resultsToTake 5: totalResults 1039, 5 results, kept whole with the envelope (results, ambiguousLocations, totalResults). jobId is an integer; date and expirationDate are dd/MM/yyyy; jobDescription is a ~450-character snippet, not the posting; jobUrl is the posting on reed.co.uk. No locationName was sent, so the seeded \"remote\" location is NOT covered by this capture. The developer page (read 2026-11-16) states the authentication rule and the 100-results-per-request cap and no usage terms or rate limits. Terms: no usage terms were found, so the permission is UNCLEAR beyond the key; Owner decision, 2026-11-16 (answer given in the vacancy-sourcing session): consent to use every source whose permission is unclear; accepted risk, not a documented permission. The seed delta meters it at 50 requests a day (an A1 default cap, not an owner figure; Reed publishes none). Taken by the owner-authorized controlled authenticated smoke (workflow verify-job-source-credentials.yml, run 43964860057, ONE request per source); the key travelled in a header, or (Jooble only) in the path of a request URL that was never logged, and the script refuses to keep a body or header in which the key appears. permission KEY_REQUIRED: the source answers only with the CRM's own key, which the runtime checks before every run. E-mail addresses and phone numbers inside string values were replaced by a parser; personal NAMES in free-text descriptions cannot be found by a parser and were not redacted."
+}

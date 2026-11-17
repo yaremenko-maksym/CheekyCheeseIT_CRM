@@ -1,5 +1,6 @@
 import axios, { getAdapter, type AxiosAdapter } from 'axios'
 import { getUserFacingErrorMessage, stripQueryString } from './axios-utils'
+import { purgePersistedBeforeReload } from './persister'
 
 // Dot access — hotfix (task-telemetry-env-gate): `import.meta.env['VITE_API_URL']`
 // (bracket) is NOT statically foldable by Vite's build-time replacement, so
@@ -47,8 +48,13 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // The caller aborted it (e.g. a dev StrictMode effect re-run): not a failure, nothing to log.
+    if (axios.isCancel(error)) return Promise.reject(error)
     if (error.response?.status === 401) {
-      window.location.href = '/login'
+      // logout's purge: persisting stops before the delete, so no save lands after it
+      void purgePersistedBeforeReload().then(() => {
+        window.location.href = '/login'
+      })
     }
 
     // task fix/api-error-messages: fix the honest-message problem HERE,
