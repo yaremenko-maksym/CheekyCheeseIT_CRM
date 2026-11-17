@@ -201,8 +201,13 @@ export function row(x, { sel = false } = {}) {
   const stLine = status
     ? `<div style="margin-top:3px">${status.replace('height:18px;', 'height:auto;min-height:20px;white-space:normal;line-height:15px;padding:2px 7px;')}</div>`
     : ''
+  // An amount over 14 characters (7+ digits) would squeeze the title to a word: it drops under the title.
+  const stack = x.a.length > 14
+  const head = stack
+    ? `<div class="t-body" style="font-weight:500;${CLAMP2}">${del}${title(x)}</div><div class="row" style="gap:8px;align-items:baseline;flex-wrap:wrap"><span class="amount ${neg ? '' : 'pos'}">${x.a}</span>${x.orig ? `<span class="t-cap muted num">${x.orig}</span>` : ''}</div>`
+    : `<div class="row" style="align-items:flex-start;gap:12px"><div class="t-body grow" style="font-weight:500;${CLAMP2}">${del}${title(x)}</div>${trail}</div>`
   return `<div class="lrow two" role="link" style="--inset:64px;${sel ? 'background:var(--raised);' : ''}${x.deleted ? 'opacity:0.55;' : ''}"><div class="lead">${icon(ic, { size: 18 })}</div>
-  <div class="grow col" style="gap:2px;min-width:0"><div class="row" style="align-items:flex-start;gap:12px"><div class="t-body grow" style="font-weight:500;${CLAMP2}">${del}${title(x)}</div>${trail}</div><div class="t-foot muted trunc">${meta}</div>${stLine}</div></div>`
+  <div class="grow col" style="gap:2px;min-width:0">${head}<div class="t-foot muted trunc">${meta}</div>${stLine}</div></div>`
 }
 
 // The title names the party that is not the company account; a third-party flow shows both sides.

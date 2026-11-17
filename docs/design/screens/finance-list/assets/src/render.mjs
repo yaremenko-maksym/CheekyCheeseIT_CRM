@@ -10,6 +10,7 @@ import { createRequire } from 'node:module'
 import { execFileSync } from 'node:child_process'
 import { frames } from './finance-list.mjs'
 import { stateFrames } from './states.mjs'
+import { roleFrames } from './roles.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const PW =
@@ -37,7 +38,9 @@ try {
   magick = false
 }
 
-const list = [...frames(), ...stateFrames()].filter((f) => !filter || f.name.includes(filter))
+const list = [...frames(), ...stateFrames(), ...roleFrames()].filter(
+  (f) => !filter || f.name.includes(filter),
+)
 const browser = await chromium.launch()
 for (const f of list) {
   const page = await browser.newPage({
