@@ -492,6 +492,22 @@ describe('ModelStructurer — LIMITS_EXHAUSTED latches for the cycle (H.2)', () 
     expect(next.calls).toHaveLength(1)
   })
 
+  it('onResult sees each port result once, in order; a latched run reports nothing', async () => {
+    const seen: { ok: boolean; code?: string }[] = []
+    const fake = fakePort((_req, call) => (call === 1 ? ok() : limits()))
+    const structurer = new ModelStructurer({
+      port: fake.port,
+      budget: new InMemoryModelBudget(20),
+      onResult: (result) => seen.push({ ok: result.ok, code: result.code }),
+    })
+    await structurer.structure(request([rec('1'), rec('2'), rec('3')]))
+    await structurer.structure(request([rec('4')]))
+    expect(seen).toEqual([
+      { ok: true, code: undefined },
+      { ok: false, code: 'LIMITS_EXHAUSTED' },
+    ])
+  })
+
   it('an ai-input gate refusal still wins over the latch', async () => {
     const fake = fakePort(ok)
     const structurer = new ModelStructurer({

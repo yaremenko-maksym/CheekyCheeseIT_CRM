@@ -526,14 +526,47 @@ describe('HOSTED_ROUTES_DEAD (AC7, ADR §5.3 (b))', () => {
     expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
   })
 
-  it('an EXHAUSTED event is neither counted, nor evidence, nor refused', async () => {
-    const s = setUp({
-      extract: { events: [{ type: 'EXHAUSTED', reasons: [{ route: 'gemini', code: 'BUSY' }] }] },
+  describe('an EXHAUSTED event is never counted; its reasons are evidence as H.2 narrows them', () => {
+    const exhausted = (reasons: unknown) => ({
+      extract: { events: [{ type: 'EXHAUSTED', reasons }] },
     })
-    await runCycle(s)
-    expect(s.counts.size).toBe(0)
-    expect(s.raised()).toEqual([])
-    expect(s.errors).toEqual([])
+
+    it.each<[string, unknown]>([
+      ['a transient reason', [{ route: 'gemini', code: 'BUSY' }]],
+      ['an AUTH skip (a key the state already disabled)', [{ route: 'groq', code: 'AUTH' }]],
+      ['a NO_MODEL skip', [{ route: 'cloudflare', code: 'NO_MODEL' }]],
+      [
+        'a limit beside a dead one',
+        [
+          { route: 'gemini', code: 'CAP' },
+          { route: 'groq', code: 'AUTH' },
+        ],
+      ],
+      ['a malformed reason', [{ route: 'mistral', code: 'CAP' }]],
+      ['a reason that is not an object', ['CAP']],
+      ['a non-array reasons', 'CAP'],
+    ])('%s is HOSTED_ROUTES_DEAD evidence', async (_label, reasons) => {
+      const s = setUp(exhausted(reasons))
+      await runCycle(s)
+      expect(s.counts.size).toBe(0)
+      expect(s.raised()).toEqual(['HOSTED_ROUTES_DEAD'])
+      expect(s.errors).toEqual([])
+    })
+
+    it.each<[string, unknown]>([
+      ['CAP', [{ route: 'gemini', code: 'CAP' }]],
+      ['SPENT_DAY', [{ route: 'groq', code: 'SPENT_DAY' }]],
+      ['CREDIT', [{ route: 'cloudflare', code: 'CREDIT' }]],
+      ['a FIT skip (the route was asked nothing)', [{ route: 'gemini', code: 'FIT' }]],
+      ['an empty list', []],
+      ['absent reasons', undefined],
+    ])('%s is no HOSTED_ROUTES_DEAD evidence', async (_label, reasons) => {
+      const s = setUp(exhausted(reasons))
+      await runCycle(s)
+      expect(s.counts.size).toBe(0)
+      expect(s.raised()).toEqual([])
+      expect(s.errors).toEqual([])
+    })
   })
 
   it('a FELL_TO_LOCAL left in a reply by an old worker is neither counted nor evidence', async () => {

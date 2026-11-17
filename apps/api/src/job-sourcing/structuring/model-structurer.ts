@@ -132,6 +132,8 @@ export interface ModelStructurerOptions {
    * stops with LIMITS_EXHAUSTED and the port is never called.
    */
   readonly limitsExhausted?: boolean
+  /** Sees each port result that settled in time, before the guard reads it (the H.2 health flag). */
+  readonly onResult?: (result: { ok: boolean; code?: string }) => void
 }
 
 /**
@@ -268,6 +270,7 @@ export class ModelStructurer implements HtmlStructurer {
         return stopWith(settled.stopped)
       }
       const result = settled.value
+      this.options.onResult?.(result)
       if (!result.ok) {
         // NOT_CONFIGURED: the adapter had no route or key, so nothing was sent.
         sent = result.code !== 'NOT_CONFIGURED'

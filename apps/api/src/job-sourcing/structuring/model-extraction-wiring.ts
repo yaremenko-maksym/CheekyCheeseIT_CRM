@@ -174,7 +174,8 @@ export function buildModelExtraction(
         }
         const budget = new InMemoryModelBudget(HTML_MODEL_CALLS_PER_CYCLE)
         const structurer = new ModelStructurer({
-          port: observed(adapter(cycle.onReply), cycle.onResult),
+          port: adapter(cycle.onReply),
+          onResult: cycle.onResult,
           budget,
           timeoutMs: WORKER_STRUCTURER_TIMEOUT_MS,
           abandonedHoldMs: WORKER_HOLD_MS,
@@ -183,20 +184,6 @@ export function buildModelExtraction(
         })
         return { kind: readiness, structurer, budget, finish: cycle.finish }
       },
-    },
-  }
-}
-
-/** The port as is, with each result shown to the health handler first (H.2 flag). */
-function observed(
-  port: ExtractionWorkerAdapter,
-  onResult: (result: { ok: boolean; code?: string }) => void,
-): Pick<ExtractionWorkerAdapter, 'extract'> {
-  return {
-    extract: async (req) => {
-      const result = await port.extract(req)
-      onResult(result)
-      return result
     },
   }
 }
