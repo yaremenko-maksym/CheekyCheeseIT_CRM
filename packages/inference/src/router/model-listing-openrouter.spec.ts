@@ -76,7 +76,7 @@ describe('the OpenRouter listing filter', () => {
   })
 
   it('never counts a paid entry: only `:free` ids reach the filter', async () => {
-    const paid = entry('meta-llama/llama-3.3-70b-instruct', { pricing: { prompt: '0.0000001' } })
+    const paid = entry('vendor/paid-model', { pricing: { prompt: '0.0000001' } })
     const { result } = await list(catalogue([paid, { id: 7 }, null, entry(M1)]))
     expect(result).toEqual({
       kind: 'ok',
