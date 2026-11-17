@@ -16,8 +16,8 @@ export const GROQ_MODEL_PATTERN = /^openai\/gpt-oss-(20b|120b)$/
 export const CLOUDFLARE_MODEL_PATTERN = /^@cf\/[a-z0-9][a-z0-9_-]*\/[a-z0-9][a-z0-9._-]*$/
 const CLOUDFLARE_MODEL_MAX_CHARS = 128
 
-/** The hosted and local provider names a model id belongs to. */
-export type ModelProvider = 'gemini' | 'groq' | 'cloudflare' | 'local'
+/** The hosted provider names a model id belongs to. */
+export type ModelProvider = 'gemini' | 'groq' | 'cloudflare'
 
 /**
  * The id shape common to every provider (ADR §3.4): letters, digits and `. _ - /`, at most one `:`,
@@ -33,18 +33,15 @@ export function isValidModelId(id: string): boolean {
   )
 }
 
-/** A model id of `provider`, validated by the common shape and, for a hosted provider, its family. */
+/** A model id of `provider`, validated by its provider's family. */
 export function isValidProviderModelId(provider: ModelProvider, id: string): boolean {
   if (provider === 'gemini') return isValidModelId(id) && GEMINI_MODEL_PATTERN.test(id)
   if (provider === 'groq') return GROQ_MODEL_PATTERN.test(id)
-  if (provider === 'cloudflare') {
-    return (
-      id.length <= CLOUDFLARE_MODEL_MAX_CHARS &&
-      !id.includes('..') &&
-      CLOUDFLARE_MODEL_PATTERN.test(id)
-    )
-  }
-  return isValidModelId(id)
+  return (
+    id.length <= CLOUDFLARE_MODEL_MAX_CHARS &&
+    !id.includes('..') &&
+    CLOUDFLARE_MODEL_PATTERN.test(id)
+  )
 }
 
 /** Whether a pair may receive image parts (vision routes research): Gemini family only. */

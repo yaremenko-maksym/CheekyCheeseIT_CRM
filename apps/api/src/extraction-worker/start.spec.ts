@@ -204,22 +204,12 @@ describe('startWorker — what it wires up', () => {
       maxAnswerTokens: 512,
       freeLimit: { requestsPerDay: 100 },
     }
-    const local = {
-      provider: 'local',
-      contextTokens: 8192,
-      structuredOutput: 'json_schema',
-      timeoutMs: 1000,
-      maxAnswerTokens: 512,
-    }
     const env = {
       EXTRACTION_ROUTER_CONFIG: JSON.stringify({
         policyVersion: 'p1',
         hostedBudgetMs: 5000,
-        floorBudgetMs: 60_000,
-        routes: [groq, local],
+        routes: [groq],
       }),
-      ROUTER_LOCAL_MODEL_URL: 'http://crm-model-runtime:11434',
-      LOCAL_MODEL_NAME: 'qwen2.5:3b',
     }
     const routeLines = (out: string[]) =>
       out.map((l) => JSON.parse(l) as { event: string }).filter((l) => l.event === 'HOSTED_ROUTES')
@@ -230,7 +220,6 @@ describe('startWorker — what it wires up', () => {
         { event: 'HOSTED_ROUTES', present: ['groq'], absent: ['gemini', 'cloudflare'] },
       ])
       expect(out.join('')).not.toContain('KEY-MARKER')
-      expect(out.join('')).not.toContain('crm-model-runtime')
     })
 
     it('a typo in the key name drops the route: the line shows it absent', async () => {
@@ -254,8 +243,7 @@ describe('startWorker — what it wires up', () => {
         EXTRACTION_ROUTER_CONFIG: JSON.stringify({
           policyVersion: 'p1',
           hostedBudgetMs: 5000,
-          floorBudgetMs: 60_000,
-          routes: [cf, local],
+          routes: [cf],
         }),
         ...cloudflareEnv,
       })
@@ -296,21 +284,14 @@ describe('startWorker — what it wires up', () => {
     })
   })
 
-  it('/extract spends the own cap on the hosted route, then the floor; /preflight is local only', async () => {
+  it('/extract spends the own cap on the hosted route only; /preflight asks no model', async () => {
     const hostnames: string[] = []
     // The router's bounded request goes through the global fetch: nothing leaves this process.
     vi.stubGlobal('fetch', (url: string) => {
       hostnames.push(new URL(url).hostname)
       return Promise.resolve(new Response('{}', { status: 500 }))
     })
-    // Route parameters only: the key, the local URL and the local model come from env (ADR §2.4).
-    const local = {
-      provider: 'local',
-      contextTokens: 8192,
-      structuredOutput: 'json_schema',
-      timeoutMs: 1000,
-      maxAnswerTokens: 512,
-    }
+    // Route parameters only: the key comes from env (ADR §2.4).
     const hosted = {
       provider: 'groq',
       models: ['openai/gpt-oss-20b'],
@@ -325,12 +306,9 @@ describe('startWorker — what it wires up', () => {
       EXTRACTION_ROUTER_CONFIG: JSON.stringify({
         policyVersion: 'p1',
         hostedBudgetMs: 5000,
-        floorBudgetMs: 60_000,
-        routes: [hosted, local],
+        routes: [hosted],
       }),
       GROQ_API_KEY: 'KEY-MARKER',
-      ROUTER_LOCAL_MODEL_URL: 'http://crm-model-runtime:11434',
-      LOCAL_MODEL_NAME: 'qwen2.5:3b',
     })
 
     const extract = await post(app, '/extract', {
@@ -339,13 +317,12 @@ describe('startWorker — what it wires up', () => {
     })
     const reply = extract.json<{ result: { code: string }; events: { type: string }[] }>()
     expect(reply.result.code).toBe('PROVIDER_ERROR')
-    expect(hostnames).toEqual(['api.groq.com', 'crm-model-runtime'])
-    // The wired sink (§5.3): the fall to the floor reaches both the reply and the log.
-    expect(reply.events.map((e) => e.type)).toContain('FELL_TO_LOCAL')
+    // No local floor (5.4c-H1): the hosted route is the only host the call reaches.
+    expect(hostnames).toEqual(['api.groq.com'])
+    // The wired sink (§5.3): the end of the cascade reaches both the reply and the log.
+    expect(reply.events.map((e) => e.type)).toContain('CALL')
     const logged = out.map((l) => JSON.parse(l) as { event: string; type?: string })
-    expect(logged).toContainEqual(
-      expect.objectContaining({ event: 'ROUTER', type: 'FELL_TO_LOCAL' }),
-    )
+    expect(logged).toContainEqual(expect.objectContaining({ event: 'ROUTER', type: 'CALL' }))
     // The capture (AC7): no key, secret or input text on stdout.
     for (const marker of ['KEY-MARKER', SECRET, 'INPUT-MARKER']) {
       expect(out.join('')).not.toContain(marker)
@@ -355,8 +332,9 @@ describe('startWorker — what it wires up', () => {
     hostnames.length = 0
     healed.recorded.length = 0
     const preflight = await post(app, '/preflight', {})
-    expect(preflight.json<{ ok: boolean }>().ok).toBe(false)
-    expect(hostnames).toEqual(['crm-model-runtime'])
+    // The interim preflight (5.4c-H1) is ready on a configured hosted route and sends nothing.
+    expect(preflight.json<{ ok: boolean }>().ok).toBe(true)
+    expect(hostnames).toEqual([])
     // The preflight is not a production call: it never feeds the OK ledger.
     expect(healed.recorded).toEqual([])
   })
@@ -368,7 +346,6 @@ describe('startWorker — what it wires up', () => {
       EXTRACTION_ROUTER_CONFIG: JSON.stringify({
         policyVersion: 'p1',
         hostedBudgetMs: 5000,
-        floorBudgetMs: 60_000,
         routes: [
           {
             provider: 'groq',
@@ -380,18 +357,9 @@ describe('startWorker — what it wires up', () => {
             maxAnswerTokens: 512,
             freeLimit: { requestsPerDay: 100 },
           },
-          {
-            provider: 'local',
-            contextTokens: 8192,
-            structuredOutput: 'json_schema',
-            timeoutMs: 1000,
-            maxAnswerTokens: 512,
-          },
         ],
       }),
       GROQ_API_KEY: 'KEY-MARKER',
-      ROUTER_LOCAL_MODEL_URL: 'http://crm-model-runtime:11434',
-      LOCAL_MODEL_NAME: 'qwen2.5:3b',
     })
     const extract = await post(app, '/extract', {
       input: 'x',
@@ -422,7 +390,6 @@ describe('startWorker — what it wires up', () => {
       EXTRACTION_ROUTER_CONFIG: JSON.stringify({
         policyVersion: 'p1',
         hostedBudgetMs: 5000,
-        floorBudgetMs: 60_000,
         routes: [
           {
             provider: 'groq',
@@ -434,18 +401,9 @@ describe('startWorker — what it wires up', () => {
             maxAnswerTokens: 512,
             freeLimit: { requestsPerDay: 100 },
           },
-          {
-            provider: 'local',
-            contextTokens: 8192,
-            structuredOutput: 'json_schema',
-            timeoutMs: 1000,
-            maxAnswerTokens: 512,
-          },
         ],
       }),
       GROQ_API_KEY: 'KEY-MARKER',
-      ROUTER_LOCAL_MODEL_URL: 'http://crm-model-runtime:11434',
-      LOCAL_MODEL_NAME: 'qwen2.5:3b',
     })
     await post(app, '/extract', { input: 'x', tableVersion: EXTRACTION_TABLE_VERSION })
     expect(models[0]).toBe('openai/gpt-oss-120b')

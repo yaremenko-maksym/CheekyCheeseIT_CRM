@@ -75,7 +75,6 @@ describe('isVisionCapable (vision routes research, decision input 1)', () => {
     ['gemini', 'gemma-3-27b-it', false],
     ['groq', 'openai/gpt-oss-120b', false],
     ['groq', 'gemini-2.5-flash', false],
-    ['local', 'gemini-2.5-flash', false],
   ] as const)('%s %s -> %s', (provider, id, expected) => {
     expect(isVisionCapable(provider, id)).toBe(expected)
   })
