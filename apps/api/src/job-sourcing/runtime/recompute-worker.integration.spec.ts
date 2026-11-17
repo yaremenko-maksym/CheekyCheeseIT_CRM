@@ -178,8 +178,12 @@ describe.skipIf(!hasDatabaseUrl())('recompute worker against Postgres (Task 4.6 
     kit = new LedgerKit(ledger, fx, catalog, admins[0].id as string)
     run = handleOf(await kit.claimOne(await kit.reporting({ type: 'REMOTIVE_API' })))
     const { rows: seniors } = await session.admin.query(
-      `INSERT INTO users (email, display_name, role, tech_stack)
-       VALUES ($1, 'S4a spec senior', 'SENIOR', ARRAY['Go']) RETURNING id`,
+      // Matching is role-based (senior roles PR 4): the observation title `Senior Go Engineer` is
+      // read by the rule classifier as BACKEND_ENGINEER, so the senior carries that role. The stack
+      // stays for display only.
+      `INSERT INTO users (email, display_name, role, tech_stack, technical_roles)
+       VALUES ($1, 'S4a spec senior', 'SENIOR', ARRAY['Go'], ARRAY['BACKEND_ENGINEER'])
+       RETURNING id`,
       [`s4a-senior-${TAG}@example.test`],
     )
     senior = seniors[0].id as string

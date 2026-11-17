@@ -443,8 +443,9 @@ function overlapEvidence(
 /**
  * Per-senior rows of a verdict. LEAD: a senior scope that matched. EXCLUDED: a senior removed by
  * an exclusion, or — for an opportunity-level exclusion (closed, layer-1 reject, global
- * exclusion) — every roster senior. A plain mismatch is no row. An EXCLUDED entry is never
- * overwritten by a projection (SR-L-1).
+ * exclusion) — every roster senior. A role mismatch is one of those EXCLUDED entries (senior roles
+ * PR 4, stage CLASSIFICATION); a matchable senior who simply produced no projection is no row. An
+ * EXCLUDED entry is never overwritten by a projection (SR-L-1).
  *
  * NOT PERSISTED IN S4a (SPEC-M-1): the STUDIO and TEAM projections — including a TEAM-scope
  * TRIAGE from a triage grant — are deliberately dropped here; this table is per senior. The

@@ -52,20 +52,9 @@ let seq = 0
 const oppIds: string[] = []
 
 /** A record, resolved and evaluated to its first match; returns the opportunity id. */
-async function opportunity(nativeId: string, rowless = false): Promise<string> {
+async function opportunity(nativeId: string): Promise<string> {
   seq += 1
-  const base = observation({ namespace: NAMESPACE, nativeId, version: 'v1', tag: TAG })
-  // A posting no senior's stack can match: the verdict is a plain mismatch, which writes no rows.
-  const obs = rowless
-    ? {
-        ...base,
-        normalized: {
-          ...base.normalized,
-          title: 'Senior Zzznomatch Engineer',
-          tags: ['zzznomatch'],
-        },
-      }
-    : base
+  const obs = observation({ namespace: NAMESPACE, nativeId, version: 'v1', tag: TAG })
   const [saved] = await saveObservationPage(db, run, {
     observations: [obs],
     checkpoint: specCheckpoint(seq),
@@ -134,6 +123,31 @@ async function matchVersions(o: string) {
 }
 
 const sweep = (o: string, now = T0) => reconcileOnce(db, { onlyIds: [o], now: () => now })
+
+/**
+ * Senior roles PR 4 leaves exactly ONE production shape with no match rows: an empty roster.
+ * A posting whose role is unclassified is now an OPPORTUNITY-subject exclusion, so it writes an
+ * EXCLUDED row for every roster senior, and a classified one writes a projection or a
+ * `ROLE_MISMATCH` exclusion per senior (`matchRows`; `loadRoster` joins `team_members`, so
+ * `noTeamAccess` is unreachable from the worker). `isStale`'s `matches.length === 0` branch is
+ * still live production code for that empty roster, so the row-less cases below end every active
+ * membership for the body and restore exactly the rows they ended. Integration runs are serial
+ * (`fileParallelism: false` in `apps/api/vitest.config.mts`), so no sibling suite sees it.
+ */
+async function withEmptyRoster<T>(body: () => Promise<T>): Promise<T> {
+  const { rows } = await session.admin.query(
+    `UPDATE team_members SET left_at = now() WHERE left_at IS NULL RETURNING id`,
+  )
+  const ended = rows.map((r) => r.id as string)
+  try {
+    expect((await loadRoster(db)).rosterSeniorIds).toEqual([])
+    return await body()
+  } finally {
+    await session.admin.query(`UPDATE team_members SET left_at = NULL WHERE id = ANY($1::uuid[])`, [
+      ended,
+    ])
+  }
+}
 const makeStale = (o: string) =>
   session.admin.query(
     `UPDATE job_opportunity_matches SET senior_profile_version = 'STALE' WHERE opportunity_id = $1`,
@@ -158,8 +172,11 @@ describe.skipIf(!hasDatabaseUrl())(
       kit = new LedgerKit(ledger, fx, catalog, admins[0].id as string)
       run = handleOf(await kit.claimOne(await kit.reporting({ type: 'REMOTIVE_API' })))
       const { rows: seniors } = await session.admin.query(
-        `INSERT INTO users (email, display_name, role, tech_stack)
-       VALUES ($1, 'S4b3 spec senior', 'SENIOR', ARRAY['Go']) RETURNING id`,
+        // Matching is role-based (senior roles PR 4): BACKEND_ENGINEER is what the rule classifier
+        // reads out of the default observation title, so this senior matches an open posting.
+        `INSERT INTO users (email, display_name, role, tech_stack, technical_roles)
+       VALUES ($1, 'S4b3 spec senior', 'SENIOR', ARRAY['Go'], ARRAY['BACKEND_ENGINEER'])
+       RETURNING id`,
         [`s4b3-senior-${TAG}@example.test`],
       )
       senior = seniors[0].id as string
@@ -203,6 +220,9 @@ describe.skipIf(!hasDatabaseUrl())(
 
       await makeStale(o)
       expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 1, skipped: 0 })
+      // The PLAIN lineage: the live roster digest and the stored fingerprint, no `EVAL:` segment
+      // (the record is evaluated; only the rows are stale).
+      expect((await dirtyOf(o)).at(-1)?.reason).toMatch(/^RECONCILE:[0-9a-f]{16}:[0-9a-f]{16}$/)
       expect(await sweep(o)).toMatchObject({ stale: 1, enqueued: 0, skipped: 1 }) // in flight
 
       expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
@@ -212,32 +232,36 @@ describe.skipIf(!hasDatabaseUrl())(
     }, 60_000)
 
     it('CR-M-5: a genuinely row-less verdict converges: the worker writes the DONE row, the next sweeps enqueue nothing', async () => {
-      const o = await opportunity('zero-rows', true)
-      const none = () =>
-        session.admin.query(`SELECT 1 FROM job_opportunity_matches WHERE opportunity_id = $1`, [o])
-      // Evaluated by the worker (opportunity() ran it) and it wrote no rows for anyone.
-      expect((await none()).rowCount).toBe(0)
-      expect((await dirtyOf(o)).length).toBe(0) // no sweep row yet
+      await withEmptyRoster(async () => {
+        const o = await opportunity('zero-rows')
+        const none = () =>
+          session.admin.query(`SELECT 1 FROM job_opportunity_matches WHERE opportunity_id = $1`, [
+            o,
+          ])
+        // Evaluated by the worker (opportunity() ran it) and it wrote no rows for anyone.
+        expect((await none()).rowCount).toBe(0)
+        expect((await dirtyOf(o)).length).toBe(0) // no sweep row yet
 
-      expect(await sweep(o)).toMatchObject({ stale: 1, enqueued: 1, skipped: 0 })
-      expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
-      expect((await none()).rowCount).toBe(0) // still row-less after the recompute
-      const rows = await dirtyOf(o)
-      expect(rows.map((r) => r.status)).toEqual(['DONE']) // produced by the worker, not inserted here
-      const { rows: done } = await session.admin.query(
-        `SELECT completed_at, claim_owner, last_error_code FROM job_dirty_work WHERE id = $1`,
-        [rows[0]?.id],
-      )
-      expect(done[0].completed_at).not.toBeNull()
-      expect(done[0].last_error_code).toBeNull()
+        expect(await sweep(o)).toMatchObject({ stale: 1, enqueued: 1, skipped: 0 })
+        expect(await runMine()).toMatchObject({ claimed: 1, done: 1, failed: 0 })
+        expect((await none()).rowCount).toBe(0) // still row-less after the recompute
+        const rows = await dirtyOf(o)
+        expect(rows.map((r) => r.status)).toEqual(['DONE']) // produced by the worker, not inserted here
+        const { rows: done } = await session.admin.query(
+          `SELECT completed_at, claim_owner, last_error_code FROM job_dirty_work WHERE id = $1`,
+          [rows[0]?.id],
+        )
+        expect(done[0].completed_at).not.toBeNull()
+        expect(done[0].last_error_code).toBeNull()
 
-      expect(await sweep(o)).toMatchObject({ stale: 1, enqueued: 0, skipped: 1, gaveUp: 0 })
-      expect(await sweep(o, T0 + 5 * PERIOD_MS)).toMatchObject({
-        stale: 1,
-        enqueued: 0,
-        skipped: 1,
+        expect(await sweep(o)).toMatchObject({ stale: 1, enqueued: 0, skipped: 1, gaveUp: 0 })
+        expect(await sweep(o, T0 + 5 * PERIOD_MS)).toMatchObject({
+          stale: 1,
+          enqueued: 0,
+          skipped: 1,
+        })
+        expect((await dirtyOf(o)).length).toBe(1)
       })
-      expect((await dirtyOf(o)).length).toBe(1)
     }, 60_000)
 
     it('SR-M-2: an opportunity with fresh rows and no evaluation record (the staged-DDL backfill) is recomputed once', async () => {
@@ -283,43 +307,42 @@ describe.skipIf(!hasDatabaseUrl())(
     }, 60_000)
 
     it('SR-M-2 / SR-L-1: a studio keyword change re-enqueues a converged zero-row opportunity under a new EVAL lineage', async () => {
-      const o = await opportunity('inputs-change', true)
-      await sweep(o)
-      await runMine()
-      // Converged: the plain lineage is DONE and the record is at the live inputs version.
-      expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 0, skipped: 1 })
-      const recorded = async () => {
-        const { rows } = await session.admin.query(
-          `SELECT evaluated_inputs_version FROM job_opportunities WHERE id = $1`,
-          [o],
-        )
-        return rows[0]?.evaluated_inputs_version as string
-      }
-      const before = await recorded()
-      const { rows } = await session.admin.query(
-        `INSERT INTO job_exclusion_filters (senior_id, kind, value, normalized_value)
-         VALUES (NULL, 'KEYWORD', $1, $1) RETURNING id`,
-        [`${PREFIX}-kw-${TAG}`],
-      )
-      try {
-        expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 1, skipped: 0 })
-        expect((await dirtyOf(o)).at(-1)?.reason).toMatch(/^RECONCILE:EVAL:[0-9a-f]{16}:/)
+      await withEmptyRoster(async () => {
+        const o = await opportunity('inputs-change')
+        await sweep(o)
         await runMine()
-        expect(await recorded()).not.toBe(before)
-        // Evaluated now, but the studio keyword also changed every senior's exclusion version, so
-        // the roster digest of the PLAIN lineage is new and has no DONE: one more row, not EVAL.
-        // That holds only with a non-empty roster: with no senior the roster digest does not move
-        // and this sweep would enqueue nothing. The seeded senior is that roster.
-        expect((await loadRoster(db)).rosterSeniorIds).toContain(senior)
-        expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 1, skipped: 0 })
-        expect((await dirtyOf(o)).at(-1)?.reason).toMatch(/^RECONCILE:[0-9a-f]{16}:[0-9a-f]{16}$/)
-        await runMine()
-        // Both lineages are DONE for these inputs: converged, nothing more is enqueued.
+        // Converged: the plain lineage is DONE and the record is at the live inputs version.
         expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 0, skipped: 1 })
-        expect(await sweep(o, T0 + 5 * PERIOD_MS)).toMatchObject({ enqueued: 0, skipped: 1 })
-      } finally {
-        await session.admin.query(`DELETE FROM job_exclusion_filters WHERE id = $1`, [rows[0].id])
-      }
+        const recorded = async () => {
+          const { rows } = await session.admin.query(
+            `SELECT evaluated_inputs_version FROM job_opportunities WHERE id = $1`,
+            [o],
+          )
+          return rows[0]?.evaluated_inputs_version as string
+        }
+        const before = await recorded()
+        const { rows } = await session.admin.query(
+          `INSERT INTO job_exclusion_filters (senior_id, kind, value, normalized_value)
+         VALUES (NULL, 'KEYWORD', $1, $1) RETURNING id`,
+          [`${PREFIX}-kw-${TAG}`],
+        )
+        try {
+          expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 1, skipped: 0 })
+          expect((await dirtyOf(o)).at(-1)?.reason).toMatch(/^RECONCILE:EVAL:[0-9a-f]{16}:/)
+          await runMine()
+          expect(await recorded()).not.toBe(before)
+          // The PLAIN lineage cannot move here: its reason digests the live roster and the stored
+          // rows, and both are empty whatever the studio keyword does — the row-less verdict this
+          // case needs IS the empty roster (see `withEmptyRoster`). So the EVAL lineage is the only
+          // new row, and the sweep now finds a DONE for every reason it would use: converged.
+          // The plain-lineage reason format is asserted in the CR-M-2 case above, with a roster.
+          expect(await sweep(o)).toMatchObject({ scanned: 1, stale: 1, enqueued: 0, skipped: 1 })
+          expect((await dirtyOf(o)).map((r) => r.status)).toEqual(['DONE', 'DONE'])
+          expect(await sweep(o, T0 + 5 * PERIOD_MS)).toMatchObject({ enqueued: 0, skipped: 1 })
+        } finally {
+          await session.admin.query(`DELETE FROM job_exclusion_filters WHERE id = $1`, [rows[0].id])
+        }
+      })
     }, 60_000)
 
     it('SR-M-2: a real recompute of a closed posting records EXCLUDED with its rows, in one transaction', async () => {
