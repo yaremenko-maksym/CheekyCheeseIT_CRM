@@ -305,25 +305,31 @@ describe('promotion only after N consecutive alive days (SR-M-9)', () => {
     const managed = managedDoc({ gemini: [G1, G2, NEW] })
     const start = { routes: GEMINI_ONLY, listing: { gemini: WITH_NEW }, managed, state: before }
 
-    it.each([null, 'WRITE_FAILED' as const])(
-      'the cap refuses (%s) before the listing: no request at all',
-      async (refusal) => {
+    it.each([
+      [null, 'CAP'],
+      ['WRITE_FAILED', 'STATE'],
+    ] as const)(
+      'the cap refuses (%s) before the listing: no request at all, reason %s',
+      async (refusal, reason) => {
         const w = refreshWorld({ ...start, cap: limitedCap(0, refusal) })
         const r = await runDailyModelRefresh(w.deps)
         expect(w.sent).toEqual([])
-        expect(r.providers[0]).toEqual({ provider: 'gemini', outcome: 'skipped', reason: 'CAP' })
+        expect(r.providers[0]).toEqual({ provider: 'gemini', outcome: 'skipped', reason })
         expect(w.state.snapshot().probation).toEqual(before.probation)
         expect(w.fileText()).toBe(managed)
       },
     )
 
-    it.each([null, 'WRITE_FAILED' as const])(
-      'the cap refuses (%s) the probe: the listing is all that goes out',
-      async (refusal) => {
+    it.each([
+      [null, 'CAP'],
+      ['WRITE_FAILED', 'STATE'],
+    ] as const)(
+      'the cap refuses (%s) the probe: the listing is all that goes out, reason %s',
+      async (refusal, reason) => {
         const w = refreshWorld({ ...start, cap: limitedCap(1, refusal) })
         const r = await runDailyModelRefresh(w.deps)
         expect(w.chats()).toEqual([])
-        expect(r.providers[0]).toEqual({ provider: 'gemini', outcome: 'skipped', reason: 'CAP' })
+        expect(r.providers[0]).toEqual({ provider: 'gemini', outcome: 'skipped', reason })
         expect(w.state.snapshot().probation).toEqual(before.probation)
         expect(w.fileText()).toBe(managed)
       },

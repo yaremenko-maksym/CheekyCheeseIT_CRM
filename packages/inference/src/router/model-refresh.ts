@@ -100,7 +100,11 @@ const skipped = (provider: HostedProvider, reason: ProviderSkip): ProviderOutcom
   reason,
 })
 
-type ProbeOutcome = { kind: 'capped' } | { kind: 'auth' } | ({ kind: 'answered' } & ProbeAnswer)
+type ProbeOutcome =
+  | { kind: 'capped' }
+  | { kind: 'unwritten' }
+  | { kind: 'auth' }
+  | ({ kind: 'answered' } & ProbeAnswer)
 
 /** One fixed-prompt chat through the production builder, under the production unit rules (§5.1). */
 async function probeModel(
@@ -110,7 +114,9 @@ async function probeModel(
 ): Promise<ProbeOutcome> {
   const p = route.provider
   const unit = await deps.ownCap.reserve(p, route.freeLimit)
-  if (unit === null || unit === 'WRITE_FAILED') return { kind: 'capped' }
+  if (unit === null) return { kind: 'capped' }
+  // A failed state write is a fault, not the cap (R2): reported as STATE, not CAP.
+  if (unit === 'WRITE_FAILED') return { kind: 'unwritten' }
   const structuredOutput: StructuredOutput =
     route.structuredOutput === 'json_schema'
       ? { mode: 'json_schema', schema: PROBE_JSON_SCHEMA }
@@ -141,7 +147,7 @@ async function probeModel(
   return { kind: 'answered', model, verdict, busy429: status === 429 && r.code === 'BUSY' }
 }
 
-type Sweep = { answers: ProbeAnswer[]; stopped: 'capped' | 'auth' | null }
+type Sweep = { answers: ProbeAnswer[]; stopped: 'capped' | 'unwritten' | 'auth' | null }
 
 export async function probeAll(
   route: HostedRouteConfig,
@@ -184,7 +190,8 @@ async function refreshProvider(
 ): Promise<ProviderOutcome> {
   const p = route.provider
   const unit = await deps.ownCap.reserve(p, route.freeLimit)
-  if (unit === null || unit === 'WRITE_FAILED') return skipped(p, 'CAP')
+  if (unit === null) return skipped(p, 'CAP')
+  if (unit === 'WRITE_FAILED') return skipped(p, 'STATE')
   const listing = await fetchModelListing({
     provider: p,
     apiKey: route.apiKey,
@@ -292,6 +299,7 @@ async function refreshProvider(
     )
   }
   if (stopped === 'capped') return skipped(p, 'CAP')
+  if (stopped === 'unwritten') return skipped(p, 'STATE')
   if (stopped === 'auth') return failed(p, 'AUTH')
   if (next.length === 0) return failed(p, 'NOTHING_SURVIVED')
   if (!written) return failed(p, 'WRITE')
@@ -371,6 +379,7 @@ export async function runModelChainCheck(deps: ModelRefreshDeps): Promise<ModelR
     )
     if (dead.length > 0) deps.onEvent({ type: 'MODEL_LIST_STALE', provider: p, models: dead })
     if (stopped === 'capped') return skipped(p, 'CAP')
+    if (stopped === 'unwritten') return skipped(p, 'STATE')
     return stopped === 'auth' ? failed(p, 'AUTH') : { provider: p, outcome: 'done' }
   })
   await deps.state.update(setJobFailed('chain', !result.ok))
