@@ -151,7 +151,9 @@ describe('the fetch profile of every manifest entry (ADR section 8)', () => {
   it.each(['HN_HIRING', 'JOBGETHER_API'])(
     'a null profile on the connected type %s fails the build',
     (type) => {
-      expect(() => withProfile(type, null)).toThrow('needs a fetch profile')
+      expect(() => withProfile(type, null)).toThrow(
+        `FETCH_PROFILE_INVALID: ${type}: its default profile`,
+      )
     },
   )
 
