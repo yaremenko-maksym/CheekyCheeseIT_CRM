@@ -29,4 +29,17 @@ $GOOD" bash "$SUBJECT"
 assert_red "a space -> refused" --contains "whitespace" \
   -- env EXTRACTION_WORKER_SECRET="$GOOD $GOOD" bash "$SUBJECT"
 
+# G4: each of these reads differently in compose env_file and in .env.production.
+for c in '$' '"' "'" '#' '\' '`'; do
+  assert_red "a $c -> refused; the value is not printed" --contains "outside A-Z a-z 0-9" \
+    --not-contains "${GOOD}${c}x" -- env EXTRACTION_WORKER_SECRET="${GOOD}${c}x" bash "$SUBJECT"
+done
+# G5: a non-ASCII value is refused, so no count depends on the runner's locale.
+assert_red "a non-ASCII character -> refused" --contains "outside A-Z a-z 0-9" \
+  -- env LC_ALL=en_US.UTF-8 EXTRACTION_WORKER_SECRET="${GOOD}é" bash "$SUBJECT"
+assert_green "the documented generator (openssl rand -hex 32) passes" --contains "set, usable" \
+  -- env EXTRACTION_WORKER_SECRET="$(openssl rand -hex 32)" bash "$SUBJECT"
+assert_green "dot, underscore and dash are allowed" --contains "set, usable" \
+  -- env EXTRACTION_WORKER_SECRET="${GOOD}._-" bash "$SUBJECT"
+
 guard_test_summary "test-check-extraction-worker-secret.sh"

@@ -61,15 +61,17 @@ So:
 - the composed deploy configuration gains a service, an extraction network or an external network;
 - the deploy script or `deploy.yml` names this file or this project (the names `crm-extraction-entry` and `crm-extraction-worker` are allowed);
 - the extraction file gains a service, a port or a network, or loses any hardening property above;
-- the worker gains a bind mount or a second volume, an `env_file` other than `.env.extraction-worker`, a `DATABASE_URL` or `POSTGRES_*` key, a user other than `node`, `extra_hosts`, `pid` / `ipc` / `uts` / `userns_mode` / `cgroup`, any `security_opt` beyond `no-new-privileges`, or a `/tmp` without `noexec,nosuid`;
+- the worker sets a key outside the reviewed allow-list (the keys the shipped file uses), such as `devices`, `group_add`, `volumes_from`, `sysctls`, `cgroup_parent`, `oom_kill_disable`, `runtime`, `secrets` or `configs`, or the file gains top-level `secrets` or `configs`;
+- the top-level `worker_state` volume sets anything: a `driver`, `driver_opts` (a bind of a host path), `external`, `name` or `labels`;
+- the worker gains a bind mount or a second volume, an `env_file` other than `.env.extraction-worker`, a `DATABASE_URL` or `POSTGRES_*` key, a user other than `node`, `extra_hosts`, `pid` / `ipc` / `uts` / `userns_mode` / `cgroup`, any `security_opt` beyond `no-new-privileges`, or a `/tmp` without `noexec` and `nosuid` or with `exec`, `suid` or `dev` among its options;
 - the worker loses its alias `crm-extraction-worker`;
 - the egress network becomes internal, external, fixed-named, or loses its pinned subnet.
 
-**Deploy preflight:** `scripts/devops/check-extraction-worker-secret.sh` runs in Deploy before anything is written on the server. Unset, it passes. Set, the secret must meet the API's rule (at least 32 characters, at least 8 distinct, no whitespace), or the deploy stops. It never prints the value.
+**Deploy preflight:** `scripts/devops/check-extraction-worker-secret.sh` runs in Deploy before anything is written on the server. Unset, it passes. Set, the secret must meet the API's rule (at least 32 characters, at least 8 distinct) and use only `A-Z a-z 0-9 . _ -`, or the deploy stops. A `$`, a quote, `#` or a backslash reads differently in the worker's env file and in `.env.production`, so the two sides would hold different secrets and every call would get 401. It never prints the value.
 
 **Rehearsal:** `.github/workflows/rehearse-extraction-deploy.yml` runs both deploy paths on a disposable runner with the project up. It checks:
 
-- the worker URL in `deploy.yml` has the host the API's transport accepts;
+- the worker URL on the `EXTRACTION_WORKER_URL=` line of `deploy.yml` has the host the API's transport accepts;
 - `api`, using the URL and the secret from its own env, is refused without the secret (401) and let in with it (400 for an empty body, before any model call);
 - the worker reaches outside;
 - the worker cannot reach postgres;
@@ -91,7 +93,7 @@ Run these in order, on the server in `/opt/crm` unless the step says otherwise.
 
 ### 1. Generate the shared secret
 
-Generate the secret on your machine and keep it for steps 2 and 6. It must be at least 32 characters with at least 8 distinct ones; anything shorter makes both sides refuse it, and makes Deploy stop at its preflight.
+Generate the secret on your machine with the command below and keep it for steps 2 and 6. It must be at least 32 characters with at least 8 distinct ones, and only `A-Z a-z 0-9 . _ -`; anything else makes Deploy stop at its preflight. The hex output meets all three.
 
 ```bash
 openssl rand -hex 32
@@ -111,7 +113,7 @@ Fill it with an editor. Never paste values into a command line or a chat. The ke
 
 | Key                             | Value                                                                                                             |
 | ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `EXTRACTION_WORKER_SECRET`      | the same value as the GitHub secret of step 1                                                                     |
+| `EXTRACTION_WORKER_SECRET`      | the value you generated in step 1 (it goes to GitHub in step 6)                                                   |
 | `INFERENCE_EXTRACTION_PROVIDER` | `router` (anything else and the worker refuses to start)                                                          |
 | `EXTRACTION_ROUTER_CONFIG`      | the route parameters as one line of JSON (sample below). No key, base URL or account id in it                     |
 | `GEMINI_API_KEY`                | the Gemini key (AI Studio)                                                                                        |

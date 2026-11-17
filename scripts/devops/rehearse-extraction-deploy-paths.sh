@@ -67,8 +67,9 @@ deploy_reset() {
 
 # ── The API's worker URL (CR-H-1) ──────────────────────────────────────────
 # The URL deploy.yml writes, and the one plain-HTTP host the API's transport accepts. A mismatch is a
-# worker every call refuses as `transport` before it leaves api.
-WORKER_URL="$(grep -oE "'http://[a-z0-9.-]+:[0-9]+'" "$REPO/.github/workflows/deploy.yml" | tr -d "'" | sort -u)"
+# worker every call refuses as `transport` before it leaves api. Read from the line that writes it,
+# not from any quoted URL in the file.
+WORKER_URL="$(sed -nE "s|^[[:space:]]*printf 'EXTRACTION_WORKER_URL=%s\\\\n' '(http://[a-z0-9.-]+:[0-9]+)' >> /opt/crm/\\.env\\.production$|\\1|p" "$REPO/.github/workflows/deploy.yml")"
 TRANSPORT_HOST="$(sed -n "s/^export const EXTRACTION_WORKER_HOST = '\([^']*\)'.*/\1/p" "$REPO/packages/inference/src/http/bounded-request.ts")"
 [ -n "$TRANSPORT_HOST" ] || fail "EXTRACTION_WORKER_HOST not found in packages/inference/src/http/bounded-request.ts"
 [ "$(printf '%s\n' "$WORKER_URL" | wc -l | tr -d ' ')" = 1 ] && [ -n "$WORKER_URL" ] || fail "deploy.yml must write exactly one worker URL (found: ${WORKER_URL:-none})"
