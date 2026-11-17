@@ -300,6 +300,5 @@ describe('model id validation', () => {
     expect(isValidProviderModelId('groq', 'xopenai/gpt-oss-20b')).toBe(false)
     expect(isValidProviderModelId('gemini', 'gemini-2.5-flash')).toBe(true)
     expect(isValidProviderModelId('gemini', 'models/gemini-2.5-flash')).toBe(false)
-    expect(isValidProviderModelId('local', 'qwen2.5:3b')).toBe(true)
   })
 })

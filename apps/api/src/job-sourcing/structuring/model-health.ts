@@ -89,6 +89,8 @@ export function createModelHealth(deps: { store: ModelHealthStore; log: ModelHea
       const onEvent = (event: ExtractionWorkerReply['events'][number]) => {
         if (event.type === 'ATTEMPT') {
           const attempt = attemptSchema.safeParse(event)
+          // A `local` attempt is read but never counted: the route left in H1, yet a pre-H1 worker
+          // still sends it during a deploy, and the DB CHECK keeps `local` for historic rows.
           if (!attempt.success) {
             log.error('MODEL_REPLY_EVENT_REFUSED type=ATTEMPT')
           } else if (attempt.data.route !== 'local') {
