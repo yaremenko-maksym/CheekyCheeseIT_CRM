@@ -150,7 +150,7 @@ function bars({ W, H, vals, idx, sel, ls = 11, pad = 26, values = true, scrub = 
       const neg = v < 0,
         on = i === sel
       const lbl =
-        values || on
+        values || (on && !scrub)
           ? `<text x="${x + w / 2}" y="${neg ? y1 + 13 : y1 - 5}" text-anchor="middle" font-size="${ls}" font-weight="600" fill="var(--fg)" style="font-variant-numeric:tabular-nums">${kfmt(v)}</text>`
           : ''
       const showM = !thin || on || i % 3 === (vals.length - 1) % 3
@@ -192,9 +192,9 @@ function chartCard({
   const v = S[series][idx[s]]
   const inner = W - pad * 2
   const seriesBtn = `<span class="pill" role="button" aria-haspopup="dialog" aria-label="Показник: ${name}" style="height:44px;padding:0 14px;border-radius:22px;font-size:15px;font-weight:600;flex:none">${name} ${icon('chevron-down', { size: 15 })}</span>`
-  const seg = segmented(PERIODS, period, { fit: !narrow, size: 13 })
+  const seg = segmented(PERIODS, period, { fit: true, size: 13 })
   const controls = narrow
-    ? `<div class="row" style="gap:8px;margin-top:10px"><span class="grow">${seg}</span></div><div class="row" style="margin-top:8px">${seriesBtn}</div>`
+    ? `<div class="row" style="gap:8px;margin-top:10px">${seg}</div><div class="row" style="margin-top:8px">${seriesBtn}</div>`
     : `<div class="row" style="gap:8px;margin-top:10px;justify-content:space-between">${seg}${seriesBtn}</div>`
   // The series menu names the chart; the section heading stays for screen readers only (saves a row above the fold).
   const head = `<h2 style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Динаміка за місяцями</h2>${controls.replace('margin-top:10px', 'margin-top:0')}`
@@ -429,15 +429,10 @@ function hintSheet(w, h) {
 
 // ---------- Tablet (640–1023): rail + one scrolling pane, two-column grid ----------
 function tabletPane({ w, role = 'ADMIN' }) {
-  const colW = Math.floor((w - 80 - 40 - 16) / 2)
   return `<section aria-label="Статистика" class="col" style="flex:1;min-width:0;overflow:hidden">
   <div class="row" style="height:56px;padding:0 8px 0 20px;flex:none"><h1 class="grow t-title" style="margin:0">Статистика</h1><span class="iconbtn" aria-label="Сповіщення, 2 нові">${icon('bell', { size: 22 })}<i class="dot"></i></span></div>
   <div style="padding:4px 20px 24px">
-  ${
-    w < 900
-      ? `<div class="col" style="gap:16px">${partnerBlock(PARTNERS)}${chartCard({ W: w - 80 - 40 })}${card(companyRow(), 'overflow:hidden')}</div>`
-      : `<div class="row" style="gap:16px;align-items:flex-start"><div class="col" style="width:${colW}px;gap:16px;flex:none">${partnerBlock(PARTNERS)}${card(companyRow(), 'overflow:hidden')}</div><div class="grow">${chartCard({ W: colW, narrow: true })}</div></div>`
-  }
+  <div class="col" style="gap:16px">${partnerBlock(PARTNERS)}${chartCard({ W: w - 80 - 40 })}${card(companyRow(), 'overflow:hidden')}</div>
   <div class="sechead" style="padding:24px 4px 8px"><h2 class="t-over" style="margin:0">Показники</h2></div>${kpiTiles(2, { desk: false })}
   <div style="margin:0 -16px">${complianceMobile()}${role === 'ADMIN' ? placeholdersMobile() : ''}</div></div></section>`
 }
@@ -449,7 +444,7 @@ const segDesk = (opts, on) =>
 function chartDesk({ W, series = 'profit', period = 0, hover = null, empty = false }) {
   const n = period === 0 ? 6 : 12
   const idx = Array.from({ length: n }, (_, i) => 12 - n + i)
-  const head = `<div class="row" style="gap:10px;flex-wrap:wrap"><h2 class="t-head grow" style="margin:0">Динаміка за місяцями</h2>${segDesk(
+  const head = `<div class="row" style="gap:10px;flex-wrap:wrap"><h2 class="t-head" style="margin:0;white-space:nowrap;flex:1 0 auto">Динаміка за місяцями</h2>${segDesk(
     SERIES.map((s) => s[1]),
     SERIES.findIndex((s) => s[0] === series),
   )}${segDesk(PERIODS, period)}</div>`
@@ -599,6 +594,7 @@ export function frames() {
       tablet({ w: 768, h: 2180, active: '/stats', list: tabletPane({ w: 768 }) }),
     ),
     D('default-1024', 1024, 1640, deskFrame(1024, 1640)),
+    D('default-1280', 1280, 1240, deskFrame(1280, 1240)),
     D('default-1440', 1440, 1240, deskFrame(1440, 1240)),
     // States, 375 and 1440.
     M('loading-375', 375, 812, loadingMobile(375, 812)),
@@ -639,6 +635,7 @@ export function frames() {
       deskFrame(1440, 1000, { company: 'error', compliance: { error: true } }),
     ),
     M('offline-375', 375, 812, stats375({ banner: offlineBanner() })),
+    M('nowallet-375', 375, 1500, stats375({ h: 1500, company: 'nowallet' })),
     M('balanced-375', 375, 812, stats375({ partners: BALANCED })),
     D('balanced-1440', 1440, 1240, deskFrame(1440, 1240, { partners: BALANCED })),
     M('long-375', 375, 812, stats375({ partners: LONG })),
