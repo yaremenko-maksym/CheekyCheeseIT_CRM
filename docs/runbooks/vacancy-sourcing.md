@@ -133,8 +133,15 @@ action. Split recovery exists only inside the resolver (`revokedPairs`); reopen 
   The reservation (`<attemptId>#<unit>#<n>`) is committed before any I/O; a window reset keeps reserved and uncertain.
 - **Uncertain debit:** at end of run `RESERVED` is released, `SENT` and `UNCERTAIN` are booked as `USED` at full
   amount; no uncertain hold outlives its run. `sweepOrphanReservations` runs in every handler.
-- **No meter row exists** in any migration or seed: credentialed quota sources are refused `METER_MISSING` until the
-  owner freezes a quota (Task 8.2) and a meter row is inserted by a deploy step.
+- **Meter rows come from the deploy step** (the manifest seed delta,
+  `apps/api/drizzle/manual/2026-10-24_job_sources_manifest_delta.sql`, steps 6 and 7, applied on every deploy). An
+  account whose manifest quota declares a `seedMeter` gets one row, and each of its source rows is bound to it while
+  `account_meter_id` is NULL. Owner caps (2026-11-17, below each provider's free allowance): JSearch
+  `jsearch:rapidapi-main` REQUEST / MONTH 150; TheirStack `theirstack:api-main` RECORD / MONTH 150; Jooble
+  `jooble:api-main` and Reed `reed:api-main` REQUEST / DAY 50 (neither publishes a limit). The window starts on the
+  current UTC day or calendar month at apply time; the provider's billing start is not known. An existing meter is
+  never rewritten (`ON CONFLICT DO NOTHING`): changing a limit or a binding is a hand-run `UPDATE`, not a re-deploy.
+  A quota source without a bound meter is still refused `METER_MISSING`.
 - **Reconciliation against provider usage pages: not built.** Uncertain is booked conservatively instead.
 - **Legacy per-source budget:** `job_sources.budget_*`; the DOU run charges one unit.
 - **Model budget:** `HTML_MODEL_CALLS_PER_CYCLE` 20, in memory per cycle (`InMemoryModelBudget`). A daily model budget
@@ -307,7 +314,10 @@ stratified, split by employer and job lineage, thresholds frozen before validati
 
 1. The source's ADMIN card under `/admin/sources`: readiness is not `BLOCKED`; attribution is rendered if
    `LINK_BACK_REQUIRED`.
-2. Credentialed source: the key is in `/opt/crm/.env.production` (human-only item 9) and a meter row exists.
+2. Credentialed source: the key is in `/opt/crm/.env.production` (human-only item 9) and its row is bound to a meter
+   (the deploy step of §5). `KEY_REQUIRED` is never stored in `job_sources.readiness`: whether the key is set is
+   checked live, at enable and at every claim, so a keyed source reads `CANDIDATE` on its card and is still refused
+   `JOB_SOURCE_NOT_READY` while its key is absent.
 3. Toggle on. A refusal (`JOB_SOURCE_NOT_READY`, `JOB_SOURCE_AUTH_PAUSED`) is the gate working; do not work around it.
 4. After the first tick: the §13.2 run aggregates show a run for that source; record the run id in the measurement log.
 5. Rollback: toggle off (§14). History and records are kept.
