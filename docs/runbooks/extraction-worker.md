@@ -121,6 +121,8 @@ Fill it with an editor. Never paste values into a command line or a chat. The ke
 | `CLOUDFLARE_ACCOUNT_ID`         | 32 lower-case hex. Any other form drops the Cloudflare route without an error: check `HOSTED_ROUTES` in step 7    |
 | `CLOUDFLARE_AI_TOKEN`           | a **new** token of its own, Workers AI scope only. Not the API's token. Read "Cloudflare quota and billing" first |
 
+A missing Cloudflare token or account id drops the Cloudflare route. The worker logs a `ROUTE_ENV_WARNING` line at start, with the route and the reason but never the value, for: a malformed account id (`ACCOUNT_ID_MALFORMED`), an account id missing while the token is set (`ACCOUNT_ID_MISSING`), and a token missing while the account id is set (`TOKEN_MISSING`). A token and an id both missing logs nothing. After the start check that `cloudflare` is in the `present` list of the worker's `HOSTED_ROUTES` log line.
+
 Do **not** set `ROUTER_LOCAL_MODEL_URL`, `LOCAL_MODEL_KEY` or `LOCAL_MODEL_NAME`: there is no local runtime. A missing provider key drops that one route without an error.
 
 **Sample `EXTRACTION_ROUTER_CONFIG`** (one line in the file):

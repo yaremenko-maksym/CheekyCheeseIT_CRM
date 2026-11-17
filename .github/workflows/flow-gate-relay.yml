@@ -1,0 +1,33 @@
+name: Flow Gate Relay
+
+# A signal, nothing more. `pull_request_review` and `pull_request_review_comment` run the PR's OWN
+# copy of a workflow, so this file holds no token and evaluates nothing: it only exists and
+# finishes. Its completion starts `flow-gate-recheck.yml` (`workflow_run`), which always runs the
+# DEFAULT branch's copy and re-runs the `Flow Gate` check on the PR head. The recheck reads
+# nothing this run writes — it resolves the PR from the API.
+#
+# The job runs only for a review / review comment by OWNER / MEMBER / COLLABORATOR; for anyone
+# else it is skipped, the run concludes `skipped`, and the recheck (which requires `success`) does
+# nothing. This is the PR's own copy: a PR that edits or deletes this file only stops (or adds)
+# re-checks of its own gate. A missing re-check does not turn the gate red or green — the previous
+# verdict simply stands, as before the relay existed; edit the PR body or toggle a label to re-run.
+
+on:
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+  pull_request_review_comment:
+    types: [created, edited, deleted]
+
+permissions: {}
+
+jobs:
+  relay:
+    name: Flow Gate Relay
+    if: >-
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+      github.event.review.author_association || github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Signal a Flow Gate re-check
+        run: echo "relay done; flow-gate-recheck.yml re-runs Flow Gate on the PR head"

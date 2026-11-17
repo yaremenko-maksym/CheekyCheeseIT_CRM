@@ -52,6 +52,7 @@ const EXPECTED_MAX_BYTES: Readonly<Record<string, number | undefined>> = {
   LEVER_ATS: 10 * MiB,
   RECRUITEE_ATS: 10 * MiB,
   WORKABLE_ATS: 10 * MiB,
+  WWR_RSS: 4 * MiB,
 }
 
 const RUN = (sourceType: string): ClaimedRun => ({

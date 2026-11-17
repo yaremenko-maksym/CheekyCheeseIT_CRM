@@ -735,7 +735,7 @@ describe('apply-first reminder (AC 4)', () => {
     const note = screen.getByTestId('job-queue-apply-first')
     expect(note).toHaveAttribute('role', 'note')
     expect(note).toHaveTextContent(
-      'Спершу подайте на сайті джерела («Відкрити оригінал»), потім запишіть подачу тут.',
+      'Спершу подайте на сайті джерела (відкрийте його кнопкою внизу картки), потім запишіть подачу тут.',
     )
     expect(
       note.compareDocumentPosition(screen.getByTestId('job-queue-seniors-list')) &
@@ -876,7 +876,7 @@ describe('blocking notes (AC 5, §5.7)', () => {
     post.mockRejectedValueOnce(coded(409, 'JOB_QUEUE_VERSION_CONFLICT'))
     fireEvent.click(submitButton())
     await screen.findByTestId('job-queue-conflict')
-    const other = screen.getByRole('button', { name: 'Відкрити оригінал' })
+    const other = screen.getByRole('button', { name: 'Відкрити на DOU' })
     act(() => other.focus())
     setCard(twoSeniors({ revision: 4 }))
     rerender()
@@ -916,13 +916,34 @@ describe('«Відкрити оригінал» (AC 6)', () => {
   it('marks the click once and opens the primary posting inside the same click', () => {
     renderCard()
     const footer = screen.getByTestId('job-queue-card-footer')
-    fireEvent.click(within(footer).getByRole('button', { name: 'Відкрити оригінал' }))
+    fireEvent.click(within(footer).getByRole('button', { name: 'Відкрити на DOU' }))
     // no await: both run synchronously inside the gesture
     expect(openOriginalPosting).toHaveBeenCalledTimes(1)
     expect(openOriginalPosting).toHaveBeenCalledWith('https://jobs.dou.ua/1')
     expect(sent(`/job-queue/${OPP}/opened`)).toEqual([
       { teamId: TEAM, sourceRecordId: PRIMARY_SRC },
     ])
+  })
+
+  it('names the source whatever its type', () => {
+    setCard(
+      cardFixture({
+        primarySource: {
+          sourceRecordId: PRIMARY_SRC,
+          sourceType: 'DJINNI_RSS',
+          url: 'https://djinni.co/1',
+        },
+      }),
+    )
+    renderCard()
+    expect(screen.getByRole('button', { name: 'Відкрити на Djinni' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Відкрити на DOU' })).toBeNull()
+  })
+
+  it('a manual card is labelled «Відкрити оригінал», not a source', () => {
+    setCard(cardFixture({ primarySource: null, applicationUrl: 'https://acme.example/apply' }))
+    renderCard()
+    expect(screen.getByRole('button', { name: 'Відкрити оригінал' })).toBeVisible()
   })
 
   it('a manual card opens its application link, with no source to mark', () => {
@@ -1311,7 +1332,7 @@ describe('RBAC: ADMIN menus (AC 6, §5.6)', () => {
     setCard(cardWithSubmitted())
     renderCard(HR)
     expect(submitButton()).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Відкрити оригінал' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Відкрити на DOU' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Приховати' })).toBeVisible()
     expect(screen.queryByRole('button', { name: /Дії адміністратора/ })).toBeNull()
     expect(screen.queryByText(/Скасувати подачу/)).toBeNull()
@@ -1617,7 +1638,7 @@ describe('touch targets and layout (AC 8)', () => {
     )
     renderCard(ADMIN)
     expect(submitButton()).toHaveClass('min-h-11', 'w-full', 'sm:w-auto')
-    for (const name of ['Відкрити оригінал', 'Приховати']) {
+    for (const name of ['Відкрити на DOU', 'Приховати']) {
       expect(screen.getByRole('button', { name })).toHaveClass('min-h-11')
     }
     expect(screen.getByRole('button', { name: 'Дії адміністратора' })).toHaveClass('size-11')

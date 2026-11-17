@@ -36,6 +36,7 @@ export async function startWorker(
   const log = (line: WorkerLogLine): void => {
     proc.stdout.write(`${JSON.stringify(line)}\n`)
   }
+  for (const w of env.routeWarnings) log({ event: 'ROUTE_ENV_WARNING', ...w })
   try {
     const onStateEvent = (e: StateEvent): void => log({ event: 'STATE', ...e })
     const routeState = await createFileRouteStatePort({

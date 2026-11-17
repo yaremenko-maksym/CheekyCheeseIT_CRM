@@ -1,4 +1,4 @@
-import { GROQ_MODEL_PATTERN } from '../internal/model-id'
+import { isValidProviderModelId } from '../internal/model-id'
 import { MANAGED_LIST_TARGET } from './managed-models'
 import {
   BUSY_DEAD_DAYS,
@@ -231,29 +231,36 @@ export function pickLiveModels(args: {
   ].slice(0, MANAGED_LIST_TARGET)
 }
 
-export type GroqListed = { id: string; context?: number | undefined; active?: boolean | undefined }
+export type ListedEntry = { id: string; context?: number | undefined; active?: boolean | undefined }
 
 /**
- * VCF's `pickGroqModels` with the CRM restriction (SR-H-1): current ids still listed and active,
- * plus at most one addition, the largest-context chat model inside the checked-in family. Groq
- * additions are never chat-probed, so the family pattern is what vouches for them. A current id with
+ * VCF's `pickGroqModels` with the CRM restriction (SR-H-1), for every listing-only provider (Groq and
+ * Cloudflare): current ids still listed and active, plus at most one addition, the largest-context
+ * chat model inside the provider's checked-in family. These additions are never chat-probed, so the
+ * family pattern (and, for Cloudflare, the listing's deprecation and price filter) vouches for them. A current id with
  * no reported context stays (only the route window bounds it); an addition must report one.
  */
-export function pickGroqModels(args: {
+export function pickListedModels(args: {
+  provider: 'groq' | 'cloudflare'
   current: readonly string[]
-  listing: readonly GroqListed[]
+  listing: readonly ListedEntry[]
   routeWindow: number
   minContext: number
 }): string[] {
   const { current, listing, routeWindow, minContext } = args
-  const fits = (m: GroqListed): boolean =>
+  const fits = (m: ListedEntry): boolean =>
     m.active === true &&
     effectiveContext(m.context ?? Number.POSITIVE_INFINITY, routeWindow) >= minContext
   const live = listing.filter(fits)
-  const kept = current.filter((id) => live.some((m) => m.id === id))
+  const liveIds = new Set(live.map((m) => m.id))
+  const currentIds = new Set(current)
+  const kept = current.filter((id) => liveIds.has(id))
   const [addition] = live
     .filter(
-      (m) => m.context !== undefined && !current.includes(m.id) && GROQ_MODEL_PATTERN.test(m.id),
+      (m) =>
+        m.context !== undefined &&
+        !currentIds.has(m.id) &&
+        isValidProviderModelId(args.provider, m.id),
     )
     .sort((a, b) => b.context! - a.context!)
   return [...kept, ...(addition === undefined ? [] : [addition.id])].slice(0, MANAGED_LIST_TARGET)

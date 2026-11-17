@@ -326,7 +326,7 @@ test.describe('scenario 11 — SENIOR direct URL (real API)', () => {
 
 // ---------------------------------------------------------------------------
 // Scenario 13 — mobile (375 px): no horizontal scroll, full-screen card, 44 px targets,
-// «Відкрити оригінал» opens inside the click gesture
+// «Відкрити на {source}» opens inside the click gesture
 // ---------------------------------------------------------------------------
 type OpenCall = { url: string; inGesture: boolean }
 
@@ -362,6 +362,7 @@ test.describe('scenario 13 — mobile 375 px (mocked)', () => {
     await mockJobQueue(page)
     await page.goto('/job-queue')
     await expect(page.getByTestId(`job-queue-row-${OPP}`)).toBeVisible()
+    await expect(page.getByTestId('job-queue-row-source-name').first()).toHaveText('DOU')
 
     const noHorizontalScroll = () =>
       page.evaluate(
@@ -382,9 +383,12 @@ test.describe('scenario 13 — mobile 375 px (mocked)', () => {
     expect(await noHorizontalScroll()).toBe(true)
     await expectMinTarget(page, `job-queue-submit-${MOCK_IDS.seniorA}`)
 
+    // the compiled catalog flattens the `{0}` placeholder to its index
+    const openOn = assertInCatalog(uk, 'Відкрити на 0')
+    expect(openOn.endsWith('0')).toBe(true)
     await page
       .getByTestId('job-queue-card-footer')
-      .getByRole('button', { name: assertInCatalog(uk, 'Відкрити оригінал') })
+      .getByRole('button', { name: `${openOn.slice(0, -1)}DOU` })
       .click()
     const calls = await page.evaluate(
       () => (window as unknown as { __openCalls: OpenCall[] }).__openCalls,

@@ -641,7 +641,7 @@ describe('JobQueueCard', () => {
   it('mounts the vacancy actions in the footer and «Записати подачу» per untouched senior', () => {
     renderCard()
     const footer = screen.getByTestId('job-queue-card-footer')
-    expect(within(footer).getByRole('button', { name: 'Відкрити оригінал' })).toBeVisible()
+    expect(within(footer).getByRole('button', { name: 'Відкрити на DOU' })).toBeVisible()
     expect(within(footer).getByRole('button', { name: 'Приховати' })).toBeVisible()
     expect(screen.getByRole('button', { name: 'Записати подачу: Олена Коваль' })).toBeVisible()
   })

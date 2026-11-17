@@ -80,6 +80,7 @@ import {
 } from '@/lib/axios-utils'
 import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { sourceLabel } from './JobQueueRow'
 import { ownSubmission, ownTaken, submittedElsewhere } from './MatchedSeniors'
 
 /** §5.6: the one conflict text, used everywhere; it never says who changed what, or where. */
@@ -220,7 +221,8 @@ export function ApplyFirst() {
       <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
       <p className="text-pretty">
         <Trans>
-          Спершу подайте на сайті джерела («Відкрити оригінал»), потім запишіть подачу тут.
+          Спершу подайте на сайті джерела (відкрийте його кнопкою внизу картки), потім запишіть
+          подачу тут.
         </Trans>
       </p>
     </div>
@@ -1045,7 +1047,7 @@ export function SeniorAction({
 }
 
 /**
- * «Відкрити оригінал»: the primary source (the click is marked, fire-and-forget) or a manual card's
+ * «Відкрити на {source}» (a manual card: «Відкрити оригінал»): the primary source (the click is marked, fire-and-forget) or a manual card's
  * application link. The posting opens synchronously inside the click, or a phone blocks it.
  */
 export function OpenOriginalButton({
@@ -1055,6 +1057,7 @@ export function OpenOriginalButton({
   scope: QueueScopeSignature
   card: JobQueueCardResponseDto
 }) {
+  const { t } = useLingui()
   const markOpened = useMarkJobOpened(scope)
   const source = card.primarySource
   const url = source?.url ?? card.applicationUrl
@@ -1063,14 +1066,14 @@ export function OpenOriginalButton({
     <Button
       type="button"
       variant="outline"
-      className="min-h-11 w-full sm:w-auto"
+      className="h-auto min-h-11 w-full whitespace-normal text-balance sm:w-auto"
       onClick={() => {
         openOriginalPosting(url)
         if (source) markOpened(card.opportunityId, source.sourceRecordId)
       }}
     >
       <ExternalLink aria-hidden="true" />
-      <Trans>Відкрити оригінал</Trans>
+      {source ? t`Відкрити на ${sourceLabel(source.sourceType)}` : t`Відкрити оригінал`}
     </Button>
   )
 }

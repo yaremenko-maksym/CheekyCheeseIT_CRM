@@ -72,8 +72,9 @@ const EXPECTED: Record<string, unknown> = {
   'himalayas.api.browse': kyivAt('08:00'),
   'jobicy.api.engineering-europe': weekday('Europe/Berlin', 120, 240),
   'arbeitnow.api.feed': { ...weekday('Europe/Berlin', 120, null), routinePages: 1 },
-  'jobgether.api.jobs': null,
-  'hn-hiring.thread.latest': null,
+  // Owner Q8, connected 2026-11-17: once a day.
+  'jobgether.api.jobs': daily(1440),
+  'hn-hiring.thread.latest': daily(1440),
   'greenhouse.board.stripe': weekday('America/Los_Angeles', 60, 180),
   'greenhouse.board.airbnb': weekday('America/Los_Angeles', 60, 180),
   'greenhouse.board.cloudflare': weekday('America/Los_Angeles', 60, 180),
@@ -131,21 +132,32 @@ describe('the fetch profile of every manifest entry (ADR section 8)', () => {
     for (const e of m.entries) expect(e).not.toHaveProperty('intervalHours')
   })
 
-  it('exactly the three deferred accepted-risk types have a null profile (owner, Q8)', () => {
+  it('exactly the one still-deferred accepted-risk type has a null profile (owner, Q8)', () => {
     const nullTypes = MANIFEST_DEFINITIONS.filter(
-      (d) =>
-        d.fetchProfile === null ||
-        d.entries.some((e) => e.fetchProfile === null) ||
-        (d.fetchProfile === undefined &&
-          d.entries.length === 0 &&
-          d.type === 'SMARTRECRUITERS_ATS'),
+      (d) => d.fetchProfile === null || d.entries.some((e) => e.fetchProfile === null),
     ).map((d) => d.type)
-    expect(nullTypes.sort()).toEqual(['HN_HIRING', 'JOBGETHER_API', 'SMARTRECRUITERS_ATS'])
-    const sr = MANIFEST_DEFINITIONS.find((d) => d.type === 'SMARTRECRUITERS_ATS')!
-    expect(sr.fetchProfile).toBeNull()
+    expect(nullTypes).toEqual(['SMARTRECRUITERS_ATS'])
   })
 
-  it.each(['HN_HIRING', 'JOBGETHER_API', 'SMARTRECRUITERS_ATS'])(
+  it.each(['HN_HIRING', 'JOBGETHER_API'])(
+    'the connected type %s is scheduled once a day',
+    (type) => {
+      const entries = build().entries.filter((e) => e.type === type)
+      expect(entries).toHaveLength(1)
+      expect(entries[0]!.fetchProfile).toEqual(daily(1440))
+    },
+  )
+
+  it.each(['HN_HIRING', 'JOBGETHER_API'])(
+    'a null profile on the connected type %s fails the build',
+    (type) => {
+      expect(() => withProfile(type, null)).toThrow(
+        `FETCH_PROFILE_INVALID: ${type}: its default profile`,
+      )
+    },
+  )
+
+  it.each(['SMARTRECRUITERS_ATS'])(
     'a non-null profile on the deferred type %s fails the build',
     (type) => {
       expect(codeOf(() => withProfile(type, daily(1440)))).toBe('FETCH_PROFILE_INVALID')
@@ -162,8 +174,14 @@ describe('the profile is resolved entry over type, and null exactly for the defe
     }))
 
   it('an entry of a deferred type may not override its null default with a profile', () => {
-    expect(() => withEntryProfile('HN_HIRING', daily(1440))).toThrow(
-      'FETCH_PROFILE_INVALID: hn-hiring.thread.latest: an unscheduled type (owner, Q8) takes a null profile',
+    // SmartRecruiters has no entry yet, so the guard is shown on a synthetic one.
+    const withEntry = () =>
+      build('SMARTRECRUITERS_ATS', (d) => ({
+        ...d,
+        entries: [{ id: 'smartrecruiters.board.synthetic', config: {}, fetchProfile: daily(1440) }],
+      }))
+    expect(withEntry).toThrow(
+      'FETCH_PROFILE_INVALID: smartrecruiters.board.synthetic: an unscheduled type (owner, Q8) takes a null profile',
     )
   })
 

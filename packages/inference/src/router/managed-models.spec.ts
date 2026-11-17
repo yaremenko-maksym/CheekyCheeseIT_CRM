@@ -59,6 +59,15 @@ describe('managedModels reader (ADR §3.4)', () => {
     expect(await read('gemini', ['gemini-2.0-flash'])).toEqual(['gemini-2.5-flash'])
   })
 
+  it('serves a cloudflare entry, and rejects the file when one is outside @cf/<vendor>/<name>', async () => {
+    const CF = '@cf/openai/gpt-oss-20b'
+    const ok = reader(doc({ cloudflare: [CF] }))
+    expect(await ok.read('cloudflare', ['@cf/google/gemma-4-26b-a4b-it'])).toEqual([CF])
+    const bad = reader(doc({ cloudflare: ['openai/gpt-oss-20b'], groq: ['openai/gpt-oss-20b'] }))
+    expect(await bad.read('groq', PINNED)).toBe(PINNED)
+    expect(bad.events).toEqual([{ type: 'STATE_RESET', store: 'managed-list', reason: 'invalid' }])
+  })
+
   it('an absent or empty provider entry serves the fallback', async () => {
     const { read, events } = reader(doc({ groq: [] }))
     expect(await read('groq', PINNED)).toBe(PINNED)
@@ -234,6 +243,16 @@ describe('the managed-list writer (SR-M-6)', () => {
     expect(JSON.parse(fs.files.get(PATH)!)).toEqual({
       version: 1,
       providers: { gemini: [G], groq: [Q] },
+    })
+  })
+
+  it('keeps the other lists when it writes the cloudflare one', async () => {
+    const CF = '@cf/mistralai/mistral-small-3.1-24b-instruct'
+    const { fs, write } = writer(doc({ gemini: [G], groq: [Q] }))
+    expect(await write('cloudflare', [CF])).toBe(true)
+    expect(JSON.parse(fs.files.get(PATH)!)).toEqual({
+      version: 1,
+      providers: { gemini: [G], groq: [Q], cloudflare: [CF] },
     })
   })
 

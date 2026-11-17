@@ -377,14 +377,22 @@ export const LEDGER_CATALOG_SNAPSHOT: LedgerCatalogSnapshot = {
       type: 'JOBGETHER_API',
       blockerCodes: [],
       deadlines: [],
-      fetchProfile: null,
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+      },
     },
     {
       id: 'hn-hiring.thread.latest',
       type: 'HN_HIRING',
       blockerCodes: [],
       deadlines: [],
-      fetchProfile: null,
+      fetchProfile: {
+        intervalMinutes: 1440,
+        offIntervalMinutes: null,
+        window: null,
+      },
     },
     {
       id: 'greenhouse.board.stripe',
