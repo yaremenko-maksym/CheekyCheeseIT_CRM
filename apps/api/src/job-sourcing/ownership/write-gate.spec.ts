@@ -19,6 +19,10 @@ const SRC = join(__dirname, '..', '..')
 const LEDGER = 'job-sourcing/ownership/job-run-ledger.ts'
 const HOSTS = 'job-sourcing/scheduling/host-state.ts'
 const METER = 'job-sourcing/metering/account-meter.store.ts'
+/** The deploy-time seed delta: it may CREATE a meter row, and nothing else of the meter tables. */
+const SEED = 'job-sourcing/providers/manifest.seed-sql.ts'
+const SEED_METER_INSERT =
+  /^INSERT INTO job_account_meters\b[^;]*\bON CONFLICT \(account_key, unit, window_kind\) DO NOTHING;/
 
 interface WholeTable {
   readonly sql: string
@@ -83,7 +87,12 @@ function scanForForeignWrites(file: string, text: string): Violation[] {
   const found: Violation[] = []
   for (const t of WHOLE_TABLES) {
     if (file === t.writer) continue
-    if (writeWindows(text, t.sql, t.drizzle).length > 0) found.push({ file, what: t.sql })
+    const writes = writeWindows(text, t.sql, t.drizzle)
+    // PR #1372: the seed creates a missing meter, never touching an existing row's counters.
+    const seeded = file === SEED && t.sql === 'job_account_meters'
+    if (writes.some((w) => !(seeded && SEED_METER_INSERT.test(w)))) {
+      found.push({ file, what: t.sql })
+    }
   }
   if (file !== LEDGER) {
     for (const w of writeWindows(text, 'job_sources', 'jobSources')) {
@@ -133,6 +142,24 @@ describe('the write gate (T3 AC 7)', () => {
       scanForForeignWrites(f, readFileSync(join(SRC, f), 'utf8')),
     )
     expect(violations).toEqual([])
+  })
+
+  it('the seed delta writes job_account_meters only as an INSERT that never overwrites a row', () => {
+    const seed = readFileSync(join(SRC, SEED), 'utf8')
+    const writes = writeWindows(seed, 'job_account_meters', 'jobAccountMeters')
+    expect(writes).toHaveLength(1)
+    expect(writes[0]).toMatch(SEED_METER_INSERT)
+    // Any other statement against the table from the seed file is a violation.
+    const update = 'UPDATE job_account_meters SET used = 0;'
+    expect(scanForForeignWrites(SEED, `\`${update}\``)).toEqual([
+      { file: SEED, what: 'job_account_meters' },
+    ])
+    expect(
+      scanForForeignWrites(
+        SEED,
+        `\`${writes[0].replace(' DO NOTHING', ' DO UPDATE SET used = 0')}\``,
+      ),
+    ).toEqual([{ file: SEED, what: 'job_account_meters' }])
   })
 
   it('the named writers really do write what they own (the gate is reading the right text)', () => {

@@ -1838,7 +1838,12 @@ describe('exact behaviour: constants, markers and boundaries', () => {
     it('a record-counted account is not checked against a request schedule', () => {
       const m = withDefinition('THEIRSTACK_API', (d) => ({
         ...d,
-        quota: { ...d.quota!, window: 'MONTH' as const, limit: 1 },
+        quota: {
+          ...d.quota!,
+          window: 'MONTH' as const,
+          limit: 1,
+          seedMeter: { ...d.quota!.seedMeter!, limit: 1 },
+        },
       }))()
       expect(m.types.find((t) => t.type === 'THEIRSTACK_API')!.quota!.limit).toBe(1)
     })
