@@ -188,7 +188,7 @@ export type NewJobSourceHealthEvent = typeof jobSourceHealthEvents.$inferInsert
  * the format, which an upper-snake string can still pass; the closed list of codes is the handler's
  * (`attemptSchema`). Forward DDL: `manual/2026-11-06_job_model_health.sql`.
  */
-export const MODEL_ROUTE_VALUES = ['gemini', 'groq', 'local'] as const
+export const MODEL_ROUTE_VALUES = ['gemini', 'groq', 'cloudflare', 'local'] as const
 
 export const MODEL_HEALTH_FLAG_VALUES = [
   'MODEL_UNREACHABLE',

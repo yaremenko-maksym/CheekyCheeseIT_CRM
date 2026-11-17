@@ -227,7 +227,7 @@ describe('startWorker — what it wires up', () => {
     it('the key is there: the route is present, the unconfigured one absent, and no value is logged', async () => {
       const { out } = await started({ ...env, GROQ_API_KEY: 'KEY-MARKER' })
       expect(routeLines(out)).toEqual([
-        { event: 'HOSTED_ROUTES', present: ['groq'], absent: ['gemini'] },
+        { event: 'HOSTED_ROUTES', present: ['groq'], absent: ['gemini', 'cloudflare'] },
       ])
       expect(out.join('')).not.toContain('KEY-MARKER')
       expect(out.join('')).not.toContain('crm-model-runtime')
@@ -236,7 +236,7 @@ describe('startWorker — what it wires up', () => {
     it('a typo in the key name drops the route: the line shows it absent', async () => {
       const { out } = await started({ ...env, GROQ_API_KEYS: 'KEY-MARKER' })
       expect(routeLines(out)).toEqual([
-        { event: 'HOSTED_ROUTES', present: [], absent: ['gemini', 'groq'] },
+        { event: 'HOSTED_ROUTES', present: [], absent: ['gemini', 'groq', 'cloudflare'] },
       ])
     })
 
@@ -246,7 +246,7 @@ describe('startWorker — what it wires up', () => {
         GROQ_API_KEY: 'KEY-MARKER',
       })
       expect(routeLines(out)).toEqual([
-        { event: 'HOSTED_ROUTES', present: [], absent: ['gemini', 'groq'] },
+        { event: 'HOSTED_ROUTES', present: [], absent: ['gemini', 'groq', 'cloudflare'] },
       ])
     })
   })

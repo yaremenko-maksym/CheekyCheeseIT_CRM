@@ -207,6 +207,60 @@ describe('buildRouterConfig', () => {
     expect(routerConfigSchema.safeParse(localOnly).success).toBe(true)
   })
 
+  describe('the Cloudflare route (amendment 2026-11-17)', () => {
+    const ACCOUNT = '0123456789abcdef0123456789abcdef'
+    const CF = {
+      provider: 'cloudflare',
+      models: ['@cf/mistralai/mistral-small-3.1-24b-instruct', '@cf/openai/gpt-oss-20b'],
+      ...HOSTED_COMMON,
+      contextTokens: 16_000,
+      maxAnswerTokens: 2_048,
+      freeLimit: { requestsPerDay: 16 },
+    }
+    const WITH_CF = { ...PARAMS, routes: [CF, PARAMS.routes[2]] }
+    const CF_ENV = { ...FULL_ENV, CLOUDFLARE_AI_TOKEN: 'C-ENV-KEY', CLOUDFLARE_ACCOUNT_ID: ACCOUNT }
+
+    it('fills the token and the account id from env into a config the router accepts', () => {
+      const cfg = buildRouterConfig(WITH_CF, CF_ENV)
+      expect((cfg as Routes).routes[0]).toMatchObject({
+        provider: 'cloudflare',
+        apiKey: 'C-ENV-KEY',
+        accountId: ACCOUNT,
+      })
+      expect(routerConfigSchema.safeParse(cfg).success).toBe(true)
+    })
+
+    it.each([
+      ['no token', { CLOUDFLARE_AI_TOKEN: undefined }],
+      ['no account id', { CLOUDFLARE_ACCOUNT_ID: undefined }],
+      ['an upper-case account id', { CLOUDFLARE_ACCOUNT_ID: ACCOUNT.toUpperCase() }],
+      ['a 31-character account id', { CLOUDFLARE_ACCOUNT_ID: ACCOUNT.slice(1) }],
+      ['an account id with a path', { CLOUDFLARE_ACCOUNT_ID: `${ACCOUNT.slice(3)}/..` }],
+      ['an empty account id', { CLOUDFLARE_ACCOUNT_ID: '' }],
+    ])('drops the route with %s: the rest of the config still stands', (_why, over) => {
+      const cfg = buildRouterConfig(WITH_CF, { ...CF_ENV, ...over })
+      expect((cfg as Routes).routes.map((r) => r.provider)).toEqual(['local'])
+      expect(routerConfigSchema.safeParse(cfg).success).toBe(true)
+    })
+
+    it('never takes the token or the account id from the JSON parameters', () => {
+      const smuggled = {
+        ...PARAMS,
+        routes: [{ ...CF, apiKey: 'JSON-KEY', accountId: 'f'.repeat(32) }, PARAMS.routes[2]],
+      }
+      const withEnv = buildRouterConfig(smuggled, CF_ENV) as Routes
+      expect(withEnv.routes[0]).toMatchObject({ apiKey: 'C-ENV-KEY', accountId: ACCOUNT })
+      const without = JSON.stringify(buildRouterConfig(smuggled, FULL_ENV))
+      expect(without).not.toContain('JSON-KEY')
+      expect(without).not.toContain('f'.repeat(32))
+    })
+
+    it('the worker env refuses an empty token and leaves a malformed account id to the route', () => {
+      expect(extractionWorkerEnvSchema.safeParse({ CLOUDFLARE_AI_TOKEN: '' }).success).toBe(false)
+      expect(extractionWorkerEnvSchema.safeParse({ CLOUDFLARE_ACCOUNT_ID: 'x' }).success).toBe(true)
+    })
+  })
+
   it('never takes a key, URL or model from the JSON parameters', () => {
     const smuggled = {
       ...PARAMS,

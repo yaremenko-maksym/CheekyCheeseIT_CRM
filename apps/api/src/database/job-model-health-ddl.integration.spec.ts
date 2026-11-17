@@ -119,6 +119,38 @@ describe.skipIf(!hasDatabaseUrl())(
       expect([await catalogOf(SCHEMA, COUNTERS), await catalogOf(SCHEMA, FLAGS)]).toEqual(before)
     })
 
+    it('widens a route CHECK that predates cloudflare in place and keeps the rows (amendment 2026-11-17)', async () => {
+      const OLD = `${SCHEMA}_old`
+      await client.query(`DROP SCHEMA IF EXISTS ${OLD} CASCADE`)
+      await client.query(`CREATE SCHEMA ${OLD}`)
+      try {
+        await client.query(`CREATE TABLE ${OLD}.${COUNTERS} (
+          "day" date NOT NULL, "route" text NOT NULL, "code" text NOT NULL, "count" integer NOT NULL,
+          CONSTRAINT "job_model_route_daily_day_route_code_pk" PRIMARY KEY ("day", "route", "code"),
+          CONSTRAINT "ck_job_model_route_daily_route" CHECK ("route" IN ('gemini', 'groq', 'local')),
+          CONSTRAINT "ck_job_model_route_daily_code_format" CHECK ("code" ~ '^[A-Z][A-Z0-9_]{0,63}$'),
+          CONSTRAINT "ck_job_model_route_daily_count_positive" CHECK ("count" > 0))`)
+        await client.query(`INSERT INTO ${OLD}.${COUNTERS} VALUES ('2026-11-06', 'groq', 'OK', 3)`)
+        await applyInto(client, OLD)
+        const widened = await catalogOf(OLD, COUNTERS)
+        expect(widened.constraints).toEqual((await catalogOf('public', COUNTERS)).constraints)
+        await client.query(
+          `INSERT INTO ${OLD}.${COUNTERS} VALUES ('2026-11-06', 'cloudflare', 'OK', 1)`,
+        )
+        const { rows } = await client.query(
+          `SELECT route, count FROM ${OLD}.${COUNTERS} ORDER BY route`,
+        )
+        expect(rows).toEqual([
+          { route: 'cloudflare', count: 1 },
+          { route: 'groq', count: 3 },
+        ])
+        await applyInto(client, OLD)
+        expect(await catalogOf(OLD, COUNTERS)).toEqual(widened)
+      } finally {
+        await client.query(`DROP SCHEMA IF EXISTS ${OLD} CASCADE`)
+      }
+    })
+
     it.each([COUNTERS, FLAGS])(
       '%s is class A: the shipped grants give crm_app exactly the class privileges',
       async (table) => {

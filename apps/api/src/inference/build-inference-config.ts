@@ -1,4 +1,8 @@
-import { isAllowedRouterLocalModelUrl, type InferenceConfig } from '@crm/inference'
+import {
+  isAllowedRouterLocalModelUrl,
+  isCloudflareAccountId,
+  type InferenceConfig,
+} from '@crm/inference'
 import { z } from 'zod'
 import type { Env } from '../config/env'
 import { EXTRACTION_MODEL_GUARDRAILS } from './extraction-guardrails'
@@ -61,6 +65,10 @@ export const extractionWorkerEnvSchema = z.object({
   LOCAL_MODEL_NAME: z.string().min(1).optional(),
   GEMINI_API_KEY: z.string().min(1).optional(),
   GROQ_API_KEY: z.string().min(1).optional(),
+  // The same names the API's resume path reads (amendment 2026-11-17). Lenient here: an account id
+  // outside the pattern drops the Cloudflare route instead of refusing the worker's whole env.
+  CLOUDFLARE_AI_TOKEN: z.string().min(1).optional(),
+  CLOUDFLARE_ACCOUNT_ID: z.string().optional(),
   // Its own key: `LOCAL_MODEL_URL` and its refine stay as narrow as they were (§3.3). No message:
   // the worker answers a refusal by reason only, never by text.
   ROUTER_LOCAL_MODEL_URL: z.string().refine(isAllowedRouterLocalModelUrl).optional(),
@@ -68,7 +76,11 @@ export const extractionWorkerEnvSchema = z.object({
 
 export type RouterEnv = z.infer<typeof extractionWorkerEnvSchema>
 
-const HOSTED_KEY_ENV = { gemini: 'GEMINI_API_KEY', groq: 'GROQ_API_KEY' } as const
+const HOSTED_KEY_ENV = {
+  gemini: 'GEMINI_API_KEY',
+  groq: 'GROQ_API_KEY',
+  cloudflare: 'CLOUDFLARE_AI_TOKEN',
+} as const
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   // Stryker disable next-line ConditionalExpression: equivalent — a JSON string or number passed as a record has no `provider` or `routes`, so it is handed on unchanged either way
@@ -78,11 +90,17 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 /** One route with its secret and address from env; null when env lacks them (the route does not exist). */
 function routeFromEnv(route: unknown, env: RouterEnv): unknown {
   if (!isRecord(route)) return route
-  // The JSON parameters never carry a key, URL or local model id: env alone supplies them (§2.4).
-  const { apiKey: _k, baseUrl: _u, ...params } = route
+  // The JSON parameters never carry a key, URL, account id or local model id: env alone supplies them (§2.4).
+  const { apiKey: _k, baseUrl: _u, accountId: _a, ...params } = route
   if (route.provider === 'gemini' || route.provider === 'groq') {
     const apiKey = env[HOSTED_KEY_ENV[route.provider]]
     return apiKey === undefined ? null : { ...params, apiKey }
+  }
+  if (route.provider === 'cloudflare') {
+    // The account id enters the URL path (the SR-M-8 exception): only 32 lower-case hex gets there.
+    const { CLOUDFLARE_AI_TOKEN: apiKey, CLOUDFLARE_ACCOUNT_ID: accountId } = env
+    if (apiKey === undefined || !isCloudflareAccountId(accountId ?? '')) return null
+    return { ...params, apiKey, accountId }
   }
   if (route.provider !== 'local') return route
   const { model: _m, ...local } = params
