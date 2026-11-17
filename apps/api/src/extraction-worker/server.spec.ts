@@ -444,7 +444,7 @@ const EVERY_EVENT: Record<RouterEvent['type'], RouterEvent> = {
     type: 'ATTEMPT',
     route: 'groq',
     model: 'openai/gpt-oss-20b',
-    code: 'RATE_LIMITED',
+    code: 'BUSY',
     inputChars: 120,
     latencyMs: 40,
     status: 429,
