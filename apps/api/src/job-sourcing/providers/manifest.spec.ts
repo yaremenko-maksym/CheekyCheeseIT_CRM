@@ -1319,6 +1319,21 @@ describe("quota accounts: consistent units, and a limit that is the provider's, 
       expect(refusal(dayProvider(5))).toEqual(badSeed(5))
     })
 
+    it('a DAY seed under a DAY provider limit is compared in that same window', () => {
+      const day = (limit: number) =>
+        withDefinition('JSEARCH_API', (d) => ({
+          ...d,
+          quota: {
+            ...d.quota!,
+            window: 'DAY' as const,
+            limit: 10,
+            seedMeter: { ...d.quota!.seedMeter!, limit, window: 'DAY' as const },
+          },
+        }))
+      expect(day(10)).not.toThrow()
+      expect(refusal(day(11))).toEqual(badSeed(11))
+    })
+
     it('any seed under a LIFETIME provider limit is refused: a renewing cap outruns a one-off allowance', () => {
       const lifetime = (window: 'DAY' | 'MONTH') =>
         withDefinition('JSEARCH_API', (d) => ({
