@@ -9,9 +9,7 @@ import {
   GEMINI,
   GOOD,
   GROQ,
-  hostOf,
   KEY_MARKER,
-  LOCAL,
   PROVIDER_BODY_MARKER,
   REQ,
   scriptedFetch,
@@ -79,10 +77,9 @@ describe('router privacy (AC5, ADR §3.3, §4 item 2)', () => {
         now: Date.now,
         onEvent: (e) => stateEvents.push(e),
       })
-      const local = { ...LOCAL, apiKey: KEY_MARKER, baseUrl: 'https://10.0.0.5/v1' }
       const d = deps(f.fetchImpl, { routeState })
       const req = { ...REQ, instruction: `instruction ${TEXT_MARKER}` }
-      const r = await createRouter(config([GROQ, GEMINI, CLOUDFLARE, local]), d).run(req)
+      const r = await createRouter(config([GROQ, GEMINI, CLOUDFLARE]), d).run(req)
       expect(r.ok).toBe(false)
       assertClean('result', r)
       assertClean('events', d.events)
@@ -97,8 +94,8 @@ describe('router privacy (AC5, ADR §3.3, §4 item 2)', () => {
     const d = deps(async () => {
       throw new Error(`${KEY_MARKER} ${TEXT_MARKER}`)
     })
-    const r = await createRouter(config([GROQ, LOCAL]), d).run(REQ)
-    expect(r).toEqual({ ok: false, code: 'PROVIDER_ERROR', usage: { localMs: expect.any(Number) } })
+    const r = await createRouter(config([GROQ]), d).run(REQ)
+    expect(r).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
     assertClean('events', d.events)
     expect(f.sent).toHaveLength(0)
   })
@@ -110,48 +107,43 @@ describe('router privacy (AC5, ADR §3.3, §4 item 2)', () => {
       throw new Error(`${KEY_MARKER} ${TEXT_MARKER}`)
     }
     const d = deps(f.fetchImpl, { ownCap: cap })
-    const r = await createRouter(config([GROQ, LOCAL]), d).run(REQ)
+    const r = await createRouter(config([GROQ]), d).run(REQ)
     expect(r).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
     assertClean('events', d.events)
     expect(d.events.at(-1)).toEqual({
       type: 'CALL',
       code: 'PROVIDER_ERROR',
-      floorAnswered: false,
       latencyMs: 0,
     })
   })
 
   it('a refused config leaks nothing, a key in it included', async () => {
     const d = deps(scriptedFetch(() => GOOD).fetchImpl)
-    const r = await createRouter(config([{ ...GROQ, baseUrl: TEXT_MARKER }, LOCAL]), d).run(REQ)
+    const r = await createRouter(config([{ ...GROQ, baseUrl: TEXT_MARKER }]), d).run(REQ)
     assertClean('result', r)
     assertClean('events', d.events)
   })
 
   it('the key travels only in the Authorization header of its own hosted request, never in a URL or body', async () => {
-    const f = scriptedFetch((s) => (s.host === hostOf.local ? GOOD : { status: 500, body: '' }))
-    await createRouter(config([GROQ, GEMINI, CLOUDFLARE, LOCAL]), deps(f.fetchImpl)).run(REQ)
-    expect(f.sent).toHaveLength(4)
+    const f = scriptedFetch(() => ({ status: 500, body: '' }))
+    await createRouter(config([GROQ, GEMINI, CLOUDFLARE]), deps(f.fetchImpl)).run(REQ)
+    expect(f.sent).toHaveLength(3)
     for (const s of f.sent) {
       expect(s.url).not.toContain(KEY_MARKER)
       expect(JSON.stringify(s.body)).not.toContain(KEY_MARKER)
-      expect(s.url.startsWith('https://') || s.host === hostOf.local).toBe(true)
+      expect(s.url.startsWith('https://')).toBe(true)
+      expect(s.headers.Authorization).toBe(`Bearer ${KEY_MARKER}`)
     }
-    expect(f.sent[0]!.headers.Authorization).toBe(`Bearer ${KEY_MARKER}`)
-    expect(f.sent[2]!.headers.Authorization).toBe(`Bearer ${KEY_MARKER}`)
-    expect(f.sent[3]!.headers).not.toHaveProperty('Authorization')
   })
 
   it('every event field is a code, an id, a count or a timing', async () => {
     const f = scriptedFetch((s, n) =>
       n === 1
         ? { status: 404, body: body({ code: 'model_not_found' }) }
-        : s.host === hostOf.local
-          ? GOOD
-          : { status: 401, body: body() },
+        : { status: 401, body: body() },
     )
     const d = deps(f.fetchImpl)
-    await createRouter(config([GROQ, GEMINI, LOCAL]), d).run(REQ)
+    await createRouter(config([GROQ, GEMINI]), d).run(REQ)
     const allowed = new Set([
       'type',
       'route',
@@ -162,14 +154,11 @@ describe('router privacy (AC5, ADR §3.3, §4 item 2)', () => {
       'status',
       'latencyMs',
       'totalTokens',
-      'plan',
-      'reasons',
-      'floorAnswered',
     ])
     const keys = new Set(d.events.flatMap((e: RouterEvent) => Object.keys(e)))
     expect([...keys].filter((k) => !allowed.has(k))).toEqual([])
     expect(new Set(d.events.map((e) => e.type))).toEqual(
-      new Set(['ATTEMPT', 'RETIRED', 'PROVIDER_DISABLED', 'FELL_TO_LOCAL', 'CALL']),
+      new Set(['ATTEMPT', 'RETIRED', 'PROVIDER_DISABLED', 'CALL']),
     )
   })
 })
