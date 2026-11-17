@@ -19,8 +19,10 @@ export function RoleChips({ roles, limit = roles.length, className }: RoleChipsP
   if (roles.length === 0) return null
   const label = (role: TechnicalRole) => i18n._(TECHNICAL_ROLE_LABELS[role])
   const hidden = roles.slice(limit)
+  // Stryker disable next-line StringLiteral: layout classes only; jsdom has no layout, so no test can observe them (checked visually at 320/1440)
+  const listClassName = cn('flex flex-wrap gap-1', className)
   return (
-    <ul className={cn('flex flex-wrap gap-1', className)} data-testid="role-chips">
+    <ul className={listClassName} data-testid="role-chips">
       {roles.slice(0, limit).map((role) => (
         <li key={role} className="max-w-full">
           <Badge
