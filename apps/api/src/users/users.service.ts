@@ -34,7 +34,8 @@ import {
   assertAdminTargetEditableForRoleChange,
   assertAssignableRole,
   assertSeniorOnlyRoles,
-  assertSeniorTechFloor,
+  assertSeniorRoleFloor,
+  rolesChanged,
   techStackChanged,
 } from './role-guards.util'
 import { UsersAccessService } from './users-access.service'
@@ -527,15 +528,15 @@ export class UsersService {
       // Senior roles PR 2: a self-edit sets the caller's own roles only, and only as a SENIOR.
       if (!self) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
       assertSeniorOnlyRoles(self.role, data.technicalRoles)
+      // SENIOR role floor on an actual roles change (an unchanged resubmit passes).
+      if (rolesChanged(data.technicalRoles, self.technicalRoles)) {
+        assertSeniorRoleFloor(self.role, data.technicalRoles)
+      }
       set.technicalRoles = data.technicalRoles
     }
     if ('techStack' in data) {
-      // SENIOR technology floor on a self-edit of the stack (an unchanged resubmit passes).
       if (!self) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
       stackChanged = techStackChanged(data.techStack, self.techStack)
-      if (stackChanged) {
-        assertSeniorTechFloor(self.role, data.techStack ?? null)
-      }
       set.techStack = data.techStack ?? null
     }
     if ('avatarDocumentId' in data) {
@@ -632,8 +633,8 @@ export class UsersService {
     // (3)+(4) ADMIN targets are never editable here (another ADMIN / self-demotion).
     assertAdminTargetEditableForRoleChange(existing, actorId)
 
-    // SENIOR technology floor — only when the user BECOMES a SENIOR here.
-    if (existing.role !== 'SENIOR') assertSeniorTechFloor(role, existing.techStack)
+    // SENIOR role floor — only when the user BECOMES a SENIOR here, against the stored roles.
+    if (existing.role !== 'SENIOR') assertSeniorRoleFloor(role, existing.technicalRoles)
 
     // (5) task-archived-user-completeness (AC2): an archived user's role is
     // frozen. Guards (1)–(4) are about privilege; this one is about money —

@@ -72,6 +72,7 @@ const makeDbUser = (id: string, role: string) => ({
   telegram: null,
   phone: null,
   techStack: ['TypeScript', 'Go', 'PostgreSQL'],
+  technicalRoles: [] as string[],
   seniorSharePercent: 26,
   dropSharePercent: 5,
   monthlySalary: null,
@@ -193,7 +194,12 @@ describe('UsersService.adminUpdateUser — MED: role-escalation guard bypass (PA
     const db = makeDb({ existingUser: existing, updatedUser: updated })
     const service = makeUsersService(db)
 
-    const result = await service.adminUpdateUser(juniorId, { role: 'SENIOR' }, ADMIN_ID)
+    // A promotion to SENIOR carries its roles in the same PATCH (SENIOR_MIN_ROLES).
+    const result = await service.adminUpdateUser(
+      juniorId,
+      { role: 'SENIOR', technicalRoles: ['BACKEND_ENGINEER'] },
+      ADMIN_ID,
+    )
     expect(result.role).toBe('SENIOR')
   })
 })

@@ -6,7 +6,7 @@ import {
   assertAssignableRole,
   assertAssignableRoleOnChange,
   assertSeniorOnlyRoles,
-  assertSeniorTechFloor,
+  assertSeniorRoleFloor,
   rolesChanged,
   techStackChanged,
 } from './role-guards.util'
@@ -109,23 +109,24 @@ describe('assertAdminTargetEditableForUpdate', () => {
   })
 })
 
-describe('assertSeniorTechFloor', () => {
-  it('refuses a SENIOR with 0, 1 or 2 distinct technologies with SENIOR_MIN_TECHNOLOGIES (400)', () => {
-    for (const stack of [null, [], ['React'], ['React', 'Go'], ['a', 'a', 'a'], ['a', '', ' ']]) {
-      expect(codeOf(() => assertSeniorTechFloor('SENIOR', stack))).toBe('SENIOR_MIN_TECHNOLOGIES')
+describe('assertSeniorRoleFloor', () => {
+  it('refuses a SENIOR with no roles (null or []) with SENIOR_MIN_ROLES (400)', () => {
+    for (const roles of [null, []]) {
+      expect(codeOf(() => assertSeniorRoleFloor('SENIOR', roles))).toBe('SENIOR_MIN_ROLES')
     }
-    expect(() => assertSeniorTechFloor('SENIOR', ['React'])).toThrow(
+    expect(() => assertSeniorRoleFloor('SENIOR', [])).toThrow(
       expect.objectContaining({ status: 400 }),
     )
   })
 
-  it('accepts a SENIOR with 3 distinct technologies', () => {
-    expect(() => assertSeniorTechFloor('SENIOR', ['React', 'Go', 'Docker'])).not.toThrow()
+  it('accepts a SENIOR with one role, whatever the stack', () => {
+    expect(() => assertSeniorRoleFloor('SENIOR', ['BACKEND_ENGINEER'])).not.toThrow()
   })
 
   it('ignores every other role', () => {
     for (const role of ['ADMIN', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] as Role[]) {
-      expect(() => assertSeniorTechFloor(role, null)).not.toThrow()
+      expect(() => assertSeniorRoleFloor(role, null)).not.toThrow()
+      expect(() => assertSeniorRoleFloor(role, [])).not.toThrow()
     }
   })
 })

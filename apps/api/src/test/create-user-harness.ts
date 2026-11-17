@@ -7,7 +7,7 @@ import { expect, vi } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { getTableName, type SQL } from 'drizzle-orm'
 import { UsersService } from '../users/users.service'
-import { SENIOR_TECH_STACK } from './senior-tech-stack'
+import { SENIOR_TECHNICAL_ROLES } from './senior-tech-stack'
 
 export const dialect = new PgDialect()
 export const compile = (cond: SQL | undefined) => {
@@ -180,12 +180,10 @@ export const baseInput = (over: Partial<CreateUserInput> = {}): CreateUserInput 
   role: 'JUNIOR',
   actorRole: 'ADMIN',
   actorId: 'admin-1',
-  // A SENIOR needs >= 3 technologies (SENIOR_MIN_TECHNOLOGIES): tests about other rules get a valid stack.
-  ...(over.role === 'SENIOR' && { techStack: SENIOR_STACK }),
+  // A SENIOR needs >= 1 technical role (SENIOR_MIN_ROLES): tests about other rules get valid roles.
+  ...(over.role === 'SENIOR' && { technicalRoles: SENIOR_TECHNICAL_ROLES }),
   ...over,
 })
-
-export const SENIOR_STACK = SENIOR_TECH_STACK
 
 export const inserts = (log: Log, table: string) =>
   log.filter((e) => e.op === 'insert' && e.table === table)

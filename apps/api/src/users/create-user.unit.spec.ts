@@ -264,7 +264,7 @@ describe('UsersService.createUser — users insert payload', () => {
       phone: '+380',
       avatarUrl: 'https://a/b.png',
       techStack: ['ts', 'go', 'sql'],
-      technicalRoles: [],
+      technicalRoles: ['BACKEND_ENGINEER'],
       locale: 'en',
       seniorSharePercent: 31,
       monthlySalary: '1234.5',
@@ -702,32 +702,36 @@ describe('UsersService.createUser — team / project linkage (post-commit, plain
   })
 })
 
-describe('UsersService.createUser — SENIOR technology floor (>= 3 distinct)', () => {
-  const STACKS_BELOW = [null, [], ['React'], ['React', 'Go'], ['a', 'a', 'a'], ['a', '', ' ']]
-
+describe('UsersService.createUser — SENIOR role floor (>= 1 technical role)', () => {
   it.each(['ADMIN', 'HR'] as const)(
-    '%s creating a SENIOR with 0, 1 or 2 distinct technologies -> 400 SENIOR_MIN_TECHNOLOGIES, nothing written',
+    '%s creating a SENIOR without roles -> 400 SENIOR_MIN_ROLES, nothing written',
     async (actorRole) => {
-      for (const techStack of STACKS_BELOW) {
+      for (const technicalRoles of [undefined, []]) {
         const h = makeHarness({ created: { ...CREATED, role: 'SENIOR' } })
         await expect(
-          h.service.createUser(
-            baseInput({ role: 'SENIOR', techStack, actorRole, actorId: 'hr-9', hrIds: [] }),
-          ),
-        ).rejects.toMatchObject(code('SENIOR_MIN_TECHNOLOGIES', 400))
+          h.service.createUser({
+            ...baseInput({ role: 'SENIOR', actorRole, actorId: 'hr-9', hrIds: [] }),
+            technicalRoles,
+          }),
+        ).rejects.toMatchObject(code('SENIOR_MIN_ROLES', 400))
         expect(h.db.transaction).not.toHaveBeenCalled()
         expect(inserts(h.log, 'users')).toHaveLength(0)
       }
     },
   )
 
-  it('creating a SENIOR with exactly 3 technologies succeeds and stores them as given', async () => {
+  it('creating a SENIOR with roles and no techStack succeeds (the stack floor is gone)', async () => {
     const h = makeHarness({ created: { ...CREATED, role: 'SENIOR' } })
-    await h.service.createUser(baseInput({ role: 'SENIOR', techStack: ['React', 'Go', 'Docker'] }))
-    expect(usersInsertValues(h.log).techStack).toEqual(['React', 'Go', 'Docker'])
+    await h.service.createUser(
+      baseInput({ role: 'SENIOR', techStack: null, technicalRoles: ['QA_ENGINEER'] }),
+    )
+    expect(usersInsertValues(h.log)).toMatchObject({
+      techStack: null,
+      technicalRoles: ['QA_ENGINEER'],
+    })
   })
 
-  it('other roles are created without any technology', async () => {
+  it('other roles are created without any role or technology', async () => {
     const h = makeHarness()
     await h.service.createUser(baseInput({ role: 'JUNIOR', techStack: null }))
     expect(inserts(h.log, 'users')).toHaveLength(1)
@@ -752,11 +756,5 @@ describe('UsersService.createUser — technical roles (senior roles PR 2)', () =
     ).rejects.toMatchObject(code('TECHNICAL_ROLES_SENIOR_ONLY', 400))
     expect(h.db.transaction).not.toHaveBeenCalled()
     expect(inserts(h.log, 'users')).toHaveLength(0)
-  })
-
-  it('roles are optional: a SENIOR created with techStack only stores no roles', async () => {
-    const h = makeHarness({ created: { ...CREATED, role: 'SENIOR' } })
-    await h.service.createUser(baseInput({ role: 'SENIOR', techStack: STACK }))
-    expect(usersInsertValues(h.log).technicalRoles).toEqual([])
   })
 })

@@ -1,5 +1,4 @@
 import { HttpStatus } from '@nestjs/common'
-import { seniorTechStackSchema } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import type { User } from '../database/schema'
 
@@ -57,15 +56,14 @@ export function assertAssignableRoleOnChange(
 }
 
 /**
- * The SENIOR technology floor (`seniorTechStackSchema`, owner decision
- * 2026-10-25). Callers invoke it only on a write that creates a SENIOR, turns a
- * user into one, or changes a SENIOR's stack — so an unrelated edit of a legacy
- * SENIOR below the floor keeps working. A no-op for every other role.
+ * The SENIOR role floor (`SENIOR_MIN_ROLES`, senior roles PR 5): a SENIOR needs at least one
+ * technical role. It replaced the technology floor (`SENIOR_MIN_TECHNOLOGIES`). Callers invoke it
+ * only on a write that creates a SENIOR, turns a user into one, or changes a SENIOR's roles, so an
+ * unrelated edit of a legacy SENIOR with no roles keeps working. A no-op for every other role.
  */
-export function assertSeniorTechFloor(role: Role, techStack: readonly string[] | null): void {
-  if (role !== 'SENIOR') return
-  if (!seniorTechStackSchema.safeParse(techStack).success) {
-    throw apiError('SENIOR_MIN_TECHNOLOGIES', HttpStatus.BAD_REQUEST)
+export function assertSeniorRoleFloor(role: Role, roles: readonly string[] | null): void {
+  if (role === 'SENIOR' && (roles ?? []).length === 0) {
+    throw apiError('SENIOR_MIN_ROLES', HttpStatus.BAD_REQUEST)
   }
 }
 

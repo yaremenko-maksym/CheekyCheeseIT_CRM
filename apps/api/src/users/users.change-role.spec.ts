@@ -62,6 +62,8 @@ const makeDbUser = (id: string, role: string) => ({
   telegram: null,
   phone: null,
   techStack: ['TypeScript', 'Go', 'PostgreSQL'],
+  // users.technical_roles is NOT NULL DEFAULT '{}'; a demotion clears it (user-write.util).
+  technicalRoles: [] as string[],
   seniorSharePercent: 26,
   dropSharePercent: 5,
   monthlySalary: null,
@@ -190,7 +192,8 @@ describe('UsersService.changeRole — SEC-03: privilege escalation guard', () =>
 
   it('AC2g: successful role change JUNIOR → SENIOR by ADMIN (valid path)', async () => {
     const juniorId = 'jjjjjjjj-jjjj-4jjj-jjjj-000000000001'
-    const existing = makeDbUser(juniorId, 'JUNIOR')
+    // The role floor reads the STORED roles here (changeRole takes none): give the target one.
+    const existing = { ...makeDbUser(juniorId, 'JUNIOR'), technicalRoles: ['BACKEND_ENGINEER'] }
     const updated = makeDbUser(juniorId, 'SENIOR')
     const db = makeDb({ existingUser: existing, updatedUser: updated })
     const service = makeUsersService(db)
@@ -207,22 +210,23 @@ describe('UsersService.changeRole — SEC-03: privilege escalation guard', () =>
     ])
   })
 
-  it('SENIOR floor: JUNIOR with fewer than 3 distinct technologies -> SENIOR is refused, nothing written', async () => {
+  it('SENIOR floor: PATCH /users/:id/role JUNIOR -> SENIOR with no stored roles is refused (SENIOR_MIN_ROLES), nothing written', async () => {
     const juniorId = 'jjjjjjjj-jjjj-4jjj-jjjj-000000000002'
-    for (const techStack of [null, ['React', 'Go'], ['a', 'a', 'a']]) {
+    // Whatever the stack: the stack floor is gone, only the roles count.
+    for (const techStack of [null, ['React'], ['TypeScript', 'Go', 'PostgreSQL']]) {
       const existing = { ...makeDbUser(juniorId, 'JUNIOR'), techStack }
       const db = makeDb({ existingUser: existing, updatedUser: makeDbUser(juniorId, 'SENIOR') })
       const service = makeUsersService(db)
       await expect(service.changeRole(juniorId, 'SENIOR', ADMIN_ID)).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'SENIOR_MIN_TECHNOLOGIES', statusCode: 400 }),
+        response: expect.objectContaining({ code: 'SENIOR_MIN_ROLES', statusCode: 400 }),
       })
       expect(db.db.update).not.toHaveBeenCalled()
     }
   })
 
-  it('SENIOR floor: re-asserting SENIOR on a legacy SENIOR with 1 technology is not a promotion, so it passes', async () => {
+  it('SENIOR floor: re-asserting SENIOR on a legacy SENIOR with no roles is not a promotion, so it passes', async () => {
     const seniorId = 'ssssssss-ssss-4sss-ssss-000000000002'
-    const existing = { ...makeDbUser(seniorId, 'SENIOR'), techStack: ['React'] }
+    const existing = { ...makeDbUser(seniorId, 'SENIOR'), techStack: ['React'], technicalRoles: [] }
     const db = makeDb({ existingUser: existing, updatedUser: existing })
     const service = makeUsersService(db)
     await expect(service.changeRole(seniorId, 'SENIOR', ADMIN_ID)).resolves.toMatchObject({

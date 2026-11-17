@@ -15,7 +15,7 @@ import { markSeniorDirty } from '../job-sourcing/dirty-producers'
 import type { TeamsService } from '../teams/teams.service'
 import type { AuditLogService } from './audit-log.service'
 import type { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
-import { assertSeniorOnlyRoles, assertSeniorTechFloor } from './role-guards.util'
+import { assertSeniorOnlyRoles, assertSeniorRoleFloor } from './role-guards.util'
 import { assertTeamStaffRoles } from './team-staff.util'
 import { buildCreateUserInsertValues } from './user-insert.util'
 
@@ -152,7 +152,7 @@ export class UserCreationService {
         }
       }
     }
-    assertSeniorTechFloor(data.role, data.techStack ?? null)
+    assertSeniorRoleFloor(data.role, data.technicalRoles ?? null)
     assertSeniorOnlyRoles(data.role, data.technicalRoles)
     // SR-M-1 (security-review #990): the CREATE_NEW team's HR/accountant members are
     // validated BEFORE anything is written, so a rejection never leaves a

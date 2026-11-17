@@ -121,6 +121,8 @@ const makeUser = (overrides: Record<string, unknown> = {}) => ({
   avatar: null,
   googleId: null,
   techStack: null,
+  // users.technical_roles is NOT NULL DEFAULT '{}'.
+  technicalRoles: [] as string[],
   monthlySalary: null,
   seniorSharePercent: 26,
   createdAt: new Date(),
@@ -1988,7 +1990,7 @@ describe('UsersService.createUser — SENIOR', () => {
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
-      techStack: ['TypeScript', 'Go', 'PostgreSQL'],
+      technicalRoles: ['BACKEND_ENGINEER'],
     })
 
     expect(result.role).toBe('SENIOR')
@@ -2016,7 +2018,7 @@ describe('UsersService.createUser — SENIOR', () => {
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
-      techStack: ['TypeScript', 'Go', 'PostgreSQL'],
+      technicalRoles: ['BACKEND_ENGINEER'],
       hrIds: ['hr-1', 'hr-2'],
       accountantId: 'acc-1',
     })
@@ -2042,7 +2044,7 @@ describe('UsersService.createUser — SENIOR', () => {
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
-      techStack: ['TypeScript', 'Go', 'PostgreSQL'],
+      technicalRoles: ['BACKEND_ENGINEER'],
       hrIds: ['hr-1'],
       accountantId: null,
     })
@@ -2064,7 +2066,7 @@ describe('UsersService.createUser — SENIOR', () => {
       email: senior.email,
       displayName: 'Ivan Drago',
       role: 'SENIOR',
-      techStack: ['TypeScript', 'Go', 'PostgreSQL'],
+      technicalRoles: ['BACKEND_ENGINEER'],
     })
 
     const insertMock = db.db.insert as ReturnType<typeof vi.fn>
@@ -2087,7 +2089,7 @@ describe('UsersService.createUser — SENIOR', () => {
         email: senior.email,
         displayName: 'Dup',
         role: 'SENIOR',
-        techStack: ['TypeScript', 'Go', 'PostgreSQL'],
+        technicalRoles: ['BACKEND_ENGINEER'],
         actorRole: 'ADMIN',
         actorId: 'actor-test-id',
       }),
@@ -2158,7 +2160,7 @@ describe('UsersService.createUser — profile fields', () => {
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
-      techStack: ['TypeScript', 'Go', 'PostgreSQL'],
+      technicalRoles: ['BACKEND_ENGINEER'],
       seniorSharePercent: 60,
     })
 
@@ -2176,7 +2178,7 @@ describe('UsersService.createUser — profile fields', () => {
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
-      techStack: ['TypeScript', 'Go', 'PostgreSQL'],
+      technicalRoles: ['BACKEND_ENGINEER'],
     })
 
     expect(result.seniorSharePercent).toBe(26)
@@ -2249,44 +2251,53 @@ describe('UsersService.createUser — profile fields', () => {
 // (which checks the OTHER direction: entitlement columns stay untouched).
 // ---------------------------------------------------------------------------
 
-describe('UsersService.updateProfile — SENIOR technology floor on a self-edit', () => {
-  const self = (role: string, techStack: string[] | null) =>
-    makeDb({ existingUser: makeUser({ id: 'user-1', role, techStack }) })
+describe('UsersService.updateProfile — SENIOR role floor on a self-edit', () => {
+  const self = (role: string, technicalRoles: string[], techStack: string[] | null = null) =>
+    makeDb({ existingUser: makeUser({ id: 'user-1', role, technicalRoles, techStack }) })
 
-  it('a SENIOR cutting their own stack below 3 is refused and nothing is written', async () => {
-    const db = self('SENIOR', ['React', 'Go', 'AWS'])
-    const service = makeUsersService(db)
+  it('a SENIOR self-edit that clears the roles -> 400 SENIOR_MIN_ROLES, nothing written', async () => {
+    const db = self('SENIOR', ['BACKEND_ENGINEER'])
     await expect(
-      service.updateProfile('user-1', { techStack: ['React', 'React', 'Go'] }),
+      makeUsersService(db).updateProfile('user-1', { technicalRoles: [] }),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'SENIOR_MIN_TECHNOLOGIES', statusCode: 400 }),
+      response: expect.objectContaining({ code: 'SENIOR_MIN_ROLES', statusCode: 400 }),
     })
     expect(db.db.update).not.toHaveBeenCalled()
   })
 
-  it('a SENIOR growing 3 -> 4 is written; a legacy SENIOR resubmitting the same 2 passes', async () => {
-    const grow = self('SENIOR', ['React', 'Go', 'AWS'])
-    await makeUsersService(grow).updateProfile('user-1', {
-      techStack: ['React', 'Go', 'AWS', 'Docker'],
+  it('an unchanged resubmit of the roles passes, in any order', async () => {
+    const db = self('SENIOR', ['BACKEND_ENGINEER', 'QA_ENGINEER'])
+    await makeUsersService(db).updateProfile('user-1', {
+      technicalRoles: ['QA_ENGINEER', 'BACKEND_ENGINEER'],
     })
+    expect(db.db.update).toHaveBeenCalledTimes(1)
+  })
+
+  it('a legacy SENIOR with no roles: a self-edit of the phone passes (Review Focus 4)', async () => {
+    const db = self('SENIOR', [])
+    await makeUsersService(db).updateProfile('user-1', { phone: '+380000000000' })
+    expect(db.db.update).toHaveBeenCalledTimes(1)
+  })
+
+  it('a SENIOR with valid roles may cut the stack to one or none (the stack floor is gone)', async () => {
+    const grow = self('SENIOR', ['BACKEND_ENGINEER'], ['React', 'Go', 'AWS'])
+    await makeUsersService(grow).updateProfile('user-1', { techStack: ['React'] })
     const growSet = (grow.db.update as ReturnType<typeof vi.fn>).mock.results[0]?.value
       ?.set as ReturnType<typeof vi.fn>
-    expect(growSet).toHaveBeenCalledWith(
-      expect.objectContaining({ techStack: ['React', 'Go', 'AWS', 'Docker'] }),
-    )
+    expect(growSet).toHaveBeenCalledWith(expect.objectContaining({ techStack: ['React'] }))
     // r5 4.6 S5: a stack edit marks the roster dirty in the write's transaction.
     expect(vi.mocked(markSeniorDirty)).toHaveBeenLastCalledWith(
       expect.anything(),
       'user-1',
       'senior.stack',
     )
-    const legacy = self('SENIOR', ['React', 'Go'])
-    await makeUsersService(legacy).updateProfile('user-1', { techStack: ['React', 'Go'] })
-    expect(legacy.db.update).toHaveBeenCalledTimes(1)
+    const none = self('SENIOR', ['BACKEND_ENGINEER'], ['React'])
+    await makeUsersService(none).updateProfile('user-1', { techStack: null })
+    expect(none.db.update).toHaveBeenCalledTimes(1)
   })
 
   it('a JUNIOR may keep a single technology', async () => {
-    const db = self('JUNIOR', null)
+    const db = self('JUNIOR', [])
     await makeUsersService(db).updateProfile('user-1', { techStack: ['React'] })
     expect(db.db.update).toHaveBeenCalledTimes(1)
   })
