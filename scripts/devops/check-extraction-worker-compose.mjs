@@ -84,6 +84,11 @@ if (!args.extraction || !args.deploy?.length || !args.names?.length) {
   process.exit(2)
 }
 
+const setKeys = (obj) =>
+  Object.entries(obj ?? {})
+    .filter(([, v]) => v !== null)
+    .map(([k]) => k)
+
 // `configArgs` go after `config`; `post` sees the parsed config and the temp dir before its removal.
 function composeConfig(files, extraEnv, extraArgs = [], { configArgs = [], post = (j) => j } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'guard-compose-'))
@@ -121,8 +126,9 @@ try {
   raw = composeConfig([args.extraction], PINS, ['--profile', '*'], {
     configArgs: ['--no-interpolate'],
     post: (json, dir) => ({
-      topKeys: Object.keys(json),
-      workerKeys: Object.keys(json.services?.[WORKER] ?? {}),
+      // A null is a key some compose release fills in, not one the file sets.
+      topKeys: setKeys(json),
+      workerKeys: setKeys(json.services?.[WORKER]),
       envFiles: (json.services?.[WORKER]?.env_file ?? []).map((f) =>
         relative(dir, typeof f === 'string' ? f : f.path),
       ),
