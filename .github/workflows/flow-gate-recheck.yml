@@ -1,0 +1,58 @@
+name: Flow Gate Recheck
+
+# Re-runs the latest `Flow Gate` run of the PR head after PR activity that cannot start the gate
+# itself: a PR comment (`issue_comment`) and a review or review comment (via `flow-gate-relay.yml`
+# completing). Both triggers run the DEFAULT branch's copy of this file, so a PR cannot change what
+# it does. Logic and the reasoning: scripts/architect/flow-gate-recheck.mjs (unit-tested).
+#
+# Why a re-run and not a gate job here: a run started by these events attaches its check to the
+# default branch's commit, never to the PR head, so it could not be the required `Flow Gate`
+# context. A re-run adds an attempt to the head's own check suite, and the gate reads reviews,
+# comments, labels and body live, so the new attempt judges the current PR state.
+#
+# Never checks out or runs PR code (sparse checkout of `main`, no credentials). The relay's head
+# owner and branch go into env, never into `run:` through `${{ }}`, and only into a URL-encoded
+# query. No `concurrency:` block: overlapping rechecks are safe (the script waits for an in-flight
+# gate run, and a re-run refused as "already running" was started after our event), and a
+# cancelled recheck would only add noise. The gate itself keeps no concurrency either.
+#
+# `actions: write` is the one write scope: POST /actions/runs/{id}/rerun.
+
+on:
+  issue_comment:
+    types: [created, edited, deleted]
+  workflow_run:
+    workflows: [Flow Gate Relay]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+jobs:
+  recheck:
+    name: Flow Gate Recheck
+    if: github.event_name == 'workflow_run' || github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Checkout main (recheck logic only — never the PR's code)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout: scripts/architect
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Re-run Flow Gate on the PR head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: node scripts/architect/flow-gate-recheck.mjs
