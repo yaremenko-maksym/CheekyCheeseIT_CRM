@@ -273,10 +273,13 @@ export const ROLE_TITLE_CASES: readonly RoleTitleCase[] = [
   { title: 'Chief Technology Officer', expected: roles('CTO') },
   { title: 'Chief Technical Officer', expected: roles('CTO') },
   { title: 'Chief Financial Officer', expected: UNCLASSIFIED },
-  // research §1 uk label of SOFTWARE_ARCHITECT is «Архітектор ПЗ»
+  // research §1.10 uk label of SOFTWARE_ARCHITECT is «Архітектор ПЗ»
   { title: 'Архітектор ПЗ', expected: roles('SOFTWARE_ARCHITECT') },
   { title: 'Системний архітектор', expected: roles('SOFTWARE_ARCHITECT') },
   { title: 'Архитектор ПО', expected: roles('SOFTWARE_ARCHITECT') },
+  // the Cyrillic counterpart of the `landscape architect` exclusion
+  { title: 'Ландшафтний архітектор', expected: NON_IT },
+  { title: 'Ландшафтный архитектор', expected: NON_IT },
   // an engineer with no domain stays for the AI fallback
   { title: 'Провідний інженер', expected: UNCLASSIFIED },
   { title: 'Головний інженер', expected: UNCLASSIFIED },
