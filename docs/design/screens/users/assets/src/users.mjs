@@ -30,6 +30,7 @@ import {
   submitBar,
 } from '../../../_foundation/assets/src/money-form.mjs'
 import * as F from './users-forms.mjs'
+import { wideFrames } from './users-wide.mjs'
 import { desktop } from '../../../_foundation/assets/src/desktop.mjs'
 import { tablet } from '../../../_foundation/assets/src/tablet.mjs'
 
@@ -37,7 +38,7 @@ const M = (name, w, h, body) => ({ name, w, h, dpr: 2, html: page(body, { width:
 const D = (name, w, h, body) => ({ name, w, h, dpr: 1, html: page(body, { width: w }) })
 
 // ---------- invented sample data (no real people) ----------
-const R = {
+export const R = {
   ADMIN: 'Адміністратор',
   SENIOR: 'Сеньйор',
   JUNIOR: 'Джуніор',
@@ -56,7 +57,7 @@ const u = (i, name, email, role, tg, phone, tech, added, extra = {}) => ({
   added,
   ...extra,
 })
-const USERS = [
+export const USERS = [
   u(
     'АБ',
     'Анна Бондар',
@@ -152,7 +153,7 @@ const USERS = [
     '3 місяці тому',
   ),
 ]
-const ARCHIVED = [
+export const ARCHIVED = [
   u(
     'ПЗ',
     'Павло Зінченко',
@@ -179,7 +180,7 @@ const ARCHIVED = [
     archived: '21.08.2026',
   }),
 ]
-const LONG = u(
+export const LONG = u(
   'ОЛ',
   'Олександра-Вікторія Литвиненко-Старовойтенко',
   'oleksandra-viktoriia.lytvynenko-starovoitenko@example.com',
@@ -193,12 +194,12 @@ const LONG = u(
 // ---------- mobile list ----------
 const sr = (t) =>
   `<span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">${t}</span>`
-const youPill = `<span class="pill y" style="height:20px;font-size:11px;font-weight:600;padding:0 6px">Ви</span>`
+export const youPill = `<span class="pill y" style="height:20px;font-size:11px;font-weight:600;padding:0 6px">Ви</span>`
 const avatar = (x, size = 36) =>
   `<div class="lead av" aria-hidden="true" style="width:${size}px;height:${size}px;border-radius:${size / 2}px${x.archived ? ';background:var(--surface);color:var(--muted-fg)' : ''}">${x.i}</div>`
 
 /** Two-line row: name (+ «Ви»), «role · email»; trailing: added-time or the archive date. Opens the profile. */
-function userRow(x, { selected = false, swipe = '', added = false } = {}) {
+export function userRow(x, { selected = false, swipe = '', added = false } = {}) {
   // The added time shows only when the list is sorted by it; otherwise the trail stays free for the name.
   const meta = x.archived
     ? `<span class="pill" style="height:20px;font-size:11px;color:var(--muted-fg)">${icon('archive', { size: 12 })}${x.archived}</span>`
@@ -214,12 +215,12 @@ function userRow(x, { selected = false, swipe = '', added = false } = {}) {
 const list = (rows, opts) =>
   `<div class="group">${rows.map((x) => userRow(x, opts)).join('')}</div>`
 /** Section header: count on the left, the sort control (a real 44 px button) on the right. */
-const sortHead = (count, sort = 'Ім’я') =>
+export const sortHead = (count, sort = 'Ім’я') =>
   `<div class="sechead" style="padding-top:12px;align-items:center"><span class="t-over num">${count}</span><button type="button" class="btn ghost" aria-label="Сортування: ${sort}, за зростанням" style="height:44px;padding:0 4px 0 12px;margin-right:-4px;font-size:15px;font-weight:500;color:var(--muted-fg);gap:6px">${icon('arrow-up-down', { size: 16 })}${sort}</button></div>`
 
 const STATUS = ['Активні', 'Архів', 'Усі']
 /** Status (single choice, URL) + role filter: one chip row, the same pattern as the finance list. */
-function filterRow(seg = 0, role = '') {
+export function filterRow(seg = 0, role = '') {
   const c = STATUS.map(
     (t, i) =>
       `<span class="row" role="radio" aria-checked="${i === seg}" style="height:44px;padding:0 16px;border-radius:22px;font-size:15px;font-weight:500;white-space:nowrap;${i === seg ? 'background:var(--fg);color:var(--bg)' : 'background:var(--surface);color:var(--fg);border:1px solid var(--border)'}">${t}</span>`,
@@ -541,5 +542,5 @@ function mobileFrames() {
 
 // ---------- frames ----------
 export function frames() {
-  return [...mobileFrames()]
+  return [...mobileFrames(), ...wideFrames()]
 }
