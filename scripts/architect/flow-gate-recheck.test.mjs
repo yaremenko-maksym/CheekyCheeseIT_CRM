@@ -221,18 +221,18 @@ test('missing inputs and unreadable API responses fail, never pass silently', as
   )
 })
 
-test('attemptIsFresh: only a parsable attempt start later than the event skips', () => {
-  const at = '2026-11-17T10:00:00Z'
+test('attemptIsFresh: only a parsable attempt start later than the script start skips', () => {
+  const at = Date.parse('2026-11-17T10:00:00Z')
   assert.equal(attemptIsFresh({ run_started_at: '2026-11-17T10:00:05Z' }, at), true)
   assert.equal(attemptIsFresh({ run_started_at: '2026-11-17T09:59:00Z' }, at), false)
-  assert.equal(attemptIsFresh({ run_started_at: at }, at), false)
-  assert.equal(attemptIsFresh({ run_started_at: '2026-11-17T10:00:05Z' }, undefined), false)
-  assert.equal(attemptIsFresh({ run_started_at: '2026-11-17T10:00:05Z' }, 'garbage'), false)
+  assert.equal(attemptIsFresh({ run_started_at: '2026-11-17T10:00:00Z' }, at), false)
+  assert.equal(attemptIsFresh({ run_started_at: 'garbage' }, at), false)
   assert.equal(attemptIsFresh({}, at), false)
+  assert.equal(attemptIsFresh({ run_started_at: '2026-11-17T10:00:05Z' }, NaN), false)
 })
 
-// A stateful fake gate run: a POST re-run restarts it (queued, new attempt start); the next poll
-// sees it completed. Two waiters on the same run, events 1 s apart.
+// A stateful fake gate run: a POST re-run restarts it (queued, new attempt start at 10:00:10);
+// the next poll sees it completed. Each recheck below starts at a fixed fake `now`.
 function sharedGate() {
   let gate = { ...run(4, HEAD), run_started_at: '2026-11-17T09:00:00Z' }
   const calls = []
@@ -251,50 +251,33 @@ function sharedGate() {
     }
     return { status: 404, body: { message: 'Not Found' } }
   }
-  return { api, calls }
+  const at = (iso) => ({ api, repo: REPO, prNumber: 12, ...quiet, now: () => Date.parse(iso) })
+  return { at, calls }
 }
+const posts = (calls) => calls.filter((c) => c.startsWith('POST')).length
 
-test('burst: the second waiter sees an attempt started after its event and does not re-run', async () => {
-  const { api, calls } = sharedGate()
-  const first = await recheck({
-    api,
-    repo: REPO,
-    prNumber: 12,
-    eventAt: '2026-11-17T10:00:00Z',
-    ...quiet,
-  })
-  const second = await recheck({
-    api,
-    repo: REPO,
-    prNumber: 12,
-    eventAt: '2026-11-17T10:00:01Z',
-    ...quiet,
-  })
+test('an attempt started before the script started is re-run', async () => {
+  const { at, calls } = sharedGate()
+  const out = await recheck(at('2026-11-17T10:00:00Z'))
+  assert.equal(out[0].outcome, 'rerun')
+  assert.equal(posts(calls), 1)
+})
+
+test('burst: a second waiter started before the new attempt sees it fresh and does not re-run', async () => {
+  const { at, calls } = sharedGate()
+  const first = await recheck(at('2026-11-17T10:00:00Z'))
+  const second = await recheck(at('2026-11-17T10:00:01Z'))
   assert.equal(first[0].outcome, 'rerun')
   assert.equal(second[0].outcome, 'fresh')
-  assert.equal(calls.filter((c) => c.startsWith('POST')).length, 1)
+  assert.equal(posts(calls), 1)
 })
 
-test('burst: an event later than the attempt start still re-runs', async () => {
-  const { api, calls } = sharedGate()
-  await recheck({ api, repo: REPO, prNumber: 12, eventAt: '2026-11-17T10:00:00Z', ...quiet })
-  const late = await recheck({
-    api,
-    repo: REPO,
-    prNumber: 12,
-    eventAt: '2026-11-17T10:00:20Z',
-    ...quiet,
-  })
+test('burst: a recheck that started after the new attempt still re-runs', async () => {
+  const { at, calls } = sharedGate()
+  await recheck(at('2026-11-17T10:00:00Z'))
+  const late = await recheck(at('2026-11-17T10:00:20Z'))
   assert.equal(late[0].outcome, 'rerun')
-  assert.equal(calls.filter((c) => c.startsWith('POST')).length, 2)
-})
-
-test('EVENT_AT missing: re-runs (never skip on doubt)', async () => {
-  const { api, calls } = sharedGate()
-  await recheck({ api, repo: REPO, prNumber: 12, eventAt: '2026-11-17T10:00:00Z', ...quiet })
-  const out = await recheck({ api, repo: REPO, prNumber: 12, ...quiet })
-  assert.equal(out[0].outcome, 'rerun')
-  assert.equal(calls.filter((c) => c.startsWith('POST')).length, 2)
+  assert.equal(posts(calls), 2)
 })
 
 test('escapeCommand: PR text cannot end a workflow command or inject one', () => {

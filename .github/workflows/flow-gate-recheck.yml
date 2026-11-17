@@ -19,7 +19,11 @@ name: Flow Gate Recheck
 # pending recheck. A superseded pending recheck ends `cancelled` — on main's commit, where these
 # runs attach, never on the required `Flow Gate` check of the PR head. The gate itself keeps NO
 # concurrency (a cancelled required check reads as a failure). The script also skips the re-run
-# when the gate's current attempt started after this event (`EVENT_AT`), so waiters do not chain.
+# when the gate's current attempt started after the script itself started (always later than the
+# event; never an event timestamp, which a deleted or edited comment carries stale), so waiters do
+# not chain. The group sits on the job, not the
+# workflow, so a run whose job is skipped (a non-member or bot comment) cannot evict a pending
+# legitimate recheck.
 #
 # Who triggers: a PR comment only from OWNER / MEMBER / COLLABORATOR and not from a bot; a relay
 # run only when it succeeded (the relay job skips for any other author, and a run whose only job
@@ -79,5 +83,4 @@ jobs:
           PR_NUMBER: ${{ github.event.issue.number }}
           HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
-          EVENT_AT: ${{ github.event.comment.updated_at || github.event.comment.created_at || github.event.workflow_run.created_at }}
         run: node scripts/architect/flow-gate-recheck.mjs

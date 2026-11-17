@@ -67,28 +67,21 @@ export function rerunOutcome(status, message) {
   return 'error'
 }
 
-// True when the run's current attempt started after the event: that attempt read the PR after the
-// event, so a re-run would add nothing. A missing or unparsable time never skips (re-run on doubt).
-export function attemptIsFresh(run, eventAt) {
-  const event = Date.parse(eventAt || '')
+// True when the run's current attempt started after this script started. The script starts after
+// the event that triggered it, so such an attempt read the PR after that event and a re-run would
+// add nothing. The reference is our own start time, never an event timestamp: a deleted or edited
+// comment carries its OLD time, which would wrongly judge an older attempt fresh. A missing or
+// unparsable attempt start never skips (re-run on doubt).
+export function attemptIsFresh(run, startedAtMs) {
   const started = Date.parse(run?.run_started_at || '')
-  return Number.isFinite(event) && Number.isFinite(started) && started > event
+  return Number.isFinite(startedAtMs) && Number.isFinite(started) && started > startedAtMs
 }
 
-export async function recheck({
-  api,
-  repo,
-  prNumber,
-  headOwner,
-  headBranch,
-  eventAt,
-  sleep,
-  log,
-  now,
-}) {
+export async function recheck({ api, repo, prNumber, headOwner, headBranch, sleep, log, now }) {
   sleep ||= (ms) => new Promise((r) => setTimeout(r, ms))
   log ||= console.log
   now ||= Date.now
+  const startedAt = now()
   let numbers = []
   if (prNumber) numbers = [Number(prNumber)]
   else if (headOwner && headBranch) {
@@ -106,11 +99,11 @@ export async function recheck({
   }
   const results = []
   for (const n of numbers)
-    results.push(await recheckOne({ api, repo, n, eventAt, sleep, log, now }))
+    results.push(await recheckOne({ api, repo, n, startedAt, sleep, log, now }))
   return results
 }
 
-async function recheckOne({ api, repo, n, eventAt, sleep, log, now }) {
+async function recheckOne({ api, repo, n, startedAt, sleep, log, now }) {
   if (!Number.isInteger(n) || n <= 0) throw new Error(`not a PR number: ${n}`)
   const pr = await api('GET', `repos/${repo}/pulls/${n}`)
   if (pr.status !== 200) throw new Error(`could not read PR #${n} (HTTP ${pr.status})`)
@@ -145,8 +138,8 @@ async function recheckOne({ api, repo, n, eventAt, sleep, log, now }) {
     if (r.status !== 200) throw new Error(`could not read gate run ${run.id} (HTTP ${r.status})`)
     run = r.body
   }
-  if (attemptIsFresh(run, eventAt)) {
-    log(`PR #${n} head ${head}: gate run ${run.id} attempt started after the event — fresh`)
+  if (attemptIsFresh(run, startedAt)) {
+    log(`PR #${n} head ${head}: gate run ${run.id} attempt started after this recheck — fresh`)
     return { pr: n, run: run.id, outcome: 'fresh' }
   }
   const res = await api('POST', `repos/${repo}/actions/runs/${run.id}/rerun`)
@@ -188,7 +181,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     prNumber: e.PR_NUMBER,
     headOwner: e.HEAD_OWNER,
     headBranch: e.HEAD_BRANCH,
-    eventAt: e.EVENT_AT,
   }).then(
     () => {},
     (err) => {
