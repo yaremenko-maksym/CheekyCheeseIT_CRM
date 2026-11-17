@@ -1,8 +1,4 @@
-import {
-  isAllowedRouterLocalModelUrl,
-  isCloudflareAccountId,
-  type InferenceConfig,
-} from '@crm/inference'
+import { isCloudflareAccountId, type InferenceConfig } from '@crm/inference'
 import { z } from 'zod'
 import type { Env } from '../config/env'
 import { EXTRACTION_MODEL_GUARDRAILS } from './extraction-guardrails'
@@ -57,21 +53,16 @@ export function buildInferenceConfig(env: InferenceEnv): InferenceConfig {
 
 /**
  * The extraction worker's model keys (ADR §2.4, §3.3), parsed by the worker alone: the API's env
- * refuses the hosted keys and `ROUTER_LOCAL_MODEL_URL` (a source scan pins who names them).
- * `LOCAL_MODEL_KEY` and `LOCAL_MODEL_NAME` mean the same in both processes.
+ * refuses the hosted keys (a source scan pins who names them). The router is hosted-only
+ * (5.4c-H1): the local route's URL, model and key are no worker keys, and are not read.
  */
 export const extractionWorkerEnvSchema = z.object({
-  LOCAL_MODEL_KEY: z.string().min(1).optional(),
-  LOCAL_MODEL_NAME: z.string().min(1).optional(),
   GEMINI_API_KEY: z.string().min(1).optional(),
   GROQ_API_KEY: z.string().min(1).optional(),
   // The same names the API's resume path reads (amendment 2026-11-17). Lenient here: an account id
   // outside the pattern drops the Cloudflare route instead of refusing the worker's whole env.
   CLOUDFLARE_AI_TOKEN: z.string().min(1).optional(),
   CLOUDFLARE_ACCOUNT_ID: z.string().optional(),
-  // Its own key: `LOCAL_MODEL_URL` and its refine stay as narrow as they were (§3.3). No message:
-  // the worker answers a refusal by reason only, never by text.
-  ROUTER_LOCAL_MODEL_URL: z.string().refine(isAllowedRouterLocalModelUrl).optional(),
 })
 
 export type RouterEnv = z.infer<typeof extractionWorkerEnvSchema>
@@ -87,10 +78,10 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }
 
-/** One route with its secret and address from env; null when env lacks them (the route does not exist). */
+/** One hosted route with its secret from env; null when env lacks it (the route does not exist). */
 function routeFromEnv(route: unknown, env: RouterEnv): unknown {
   if (!isRecord(route)) return route
-  // The JSON parameters never carry a key, URL, account id or local model id: env alone supplies them (§2.4).
+  // The JSON parameters never carry a key, URL or account id: env alone supplies them (§2.4).
   const { apiKey: _k, baseUrl: _u, accountId: _a, ...params } = route
   if (route.provider === 'gemini' || route.provider === 'groq') {
     const apiKey = env[HOSTED_KEY_ENV[route.provider]]
@@ -103,11 +94,8 @@ function routeFromEnv(route: unknown, env: RouterEnv): unknown {
     if (apiKey === undefined || !isCloudflareAccountId(accountId ?? '')) return null
     return { ...params, apiKey, accountId }
   }
-  if (route.provider !== 'local') return route
-  const { model: _m, ...local } = params
-  const { ROUTER_LOCAL_MODEL_URL: baseUrl, LOCAL_MODEL_NAME: model, LOCAL_MODEL_KEY: apiKey } = env
-  if (baseUrl === undefined || model === undefined) return null
-  return { ...local, baseUrl, model, ...(apiKey !== undefined && { apiKey }) }
+  // Any other provider, a stale `local` route included, goes on unchanged for the router to refuse.
+  return route
 }
 
 export type RouterEnvWarning = {
@@ -138,9 +126,10 @@ export function routerEnvWarnings(params: unknown, env: RouterEnv): RouterEnvWar
 
 /**
  * The extraction worker's router config: the non-secret route parameters (`EXTRACTION_ROUTER_CONFIG`)
- * plus the keys and the local URL from env (ADR §2.4). A route whose env is absent is dropped — that
- * provider does not take part; without the local route the router refuses the config and answers
- * `NOT_CONFIGURED`. Anything malformed is handed on unchanged for the router to refuse.
+ * plus the keys from env (ADR §2.4). A route whose env is absent is dropped — that provider does not
+ * take part; with no route left the router refuses the config and answers `NOT_CONFIGURED`.
+ * Anything malformed, a stale `local` route or `floorBudgetMs` included, is handed on unchanged for
+ * the router to refuse (5.4c-H1).
  */
 export function buildRouterConfig(params: unknown, env: RouterEnv): unknown {
   if (!isRecord(params) || !Array.isArray(params.routes)) return params
