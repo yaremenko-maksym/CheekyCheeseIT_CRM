@@ -913,7 +913,7 @@ describe('installMatches', () => {
     expect(EVALUATION_RECORD_VERSION).toBe('rf.2')
   })
 
-  it('the previous record version was advanced with the last bump (review CR2-L-3)', () => {
+  it('the previous record version was advanced with the last bump (review L3 / SR2-L-2)', () => {
     expect(PREVIOUS_EVALUATION_RECORD_VERSION).not.toBe(EVALUATION_RECORD_VERSION)
   })
 })

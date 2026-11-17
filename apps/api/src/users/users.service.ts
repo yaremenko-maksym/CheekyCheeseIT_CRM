@@ -562,6 +562,7 @@ export class UsersService {
         : await this.db.db.transaction(async (tx) => {
             await markResumeRecheckNeeded(tx, id, set)
             const written = await tx.update(users).set(set).where(where).returning()
+            if (!written[0]) throw notWritten() // roll back the re-check flag written above
             if (stackChanged) await markSeniorDirty(tx, id, 'senior.stack') // a missing or non-SENIOR user: no-op
             return written
           })

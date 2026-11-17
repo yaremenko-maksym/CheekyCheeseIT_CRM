@@ -2366,6 +2366,25 @@ describe('UsersService.updateProfile — technical roles on a self-edit (senior 
     })
   })
 
+  it('the same race in the transaction branch throws before the roster mark (the tx rolls back)', async () => {
+    vi.mocked(markSeniorDirty).mockClear()
+    const db = self('SENIOR')
+    ;(db.db.update as ReturnType<typeof vi.fn>).mockReturnValueOnce({
+      set: () => ({ where: () => ({ returning: async () => [] }) }),
+    })
+    await expect(
+      makeUsersService(db).updateProfile('user-1', {
+        technicalRoles: ['BACKEND_ENGINEER'],
+        displayName: 'New Name',
+        techStack: ['React', 'Go', 'AWS', 'Docker'],
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'TECHNICAL_ROLES_SENIOR_ONLY', statusCode: 400 }),
+    })
+    expect(db.db.transaction).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(markSeniorDirty)).not.toHaveBeenCalled()
+  })
+
   it('roles stay optional: a write without them leaves the column out of the update', async () => {
     const db = self('SENIOR')
     await makeUsersService(db).updateProfile('user-1', { techStack: ['React', 'Go', 'AWS'] })
