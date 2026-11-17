@@ -43,6 +43,7 @@ export class JobRoleAiCronService {
         log: this.logger,
         now: () => new Date(),
         onDemandTypes: productionLedgerCatalog().onDemandTypes(),
+        // Stryker disable next-line ObjectLiteral,BooleanLiteral: `infer` only types the value; the key read is asserted in role-ai.cron.spec
         dailyBudget: this.config.get('JOB_ROLE_AI_DAILY_BUDGET', { infer: true }),
       })
     } catch (err: unknown) {
