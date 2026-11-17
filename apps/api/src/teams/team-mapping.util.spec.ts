@@ -15,6 +15,8 @@ function user(id: string, role: string, extra: Record<string, unknown> = {}) {
     avatarUrl: `av-${id}`,
     avatarDocumentId: `doc-${id}`,
     techStack: ['ts'],
+    // A SENIOR's technical roles; '{}' for every other role (users.technical_roles).
+    technicalRoles: role === 'SENIOR' ? ['BACKEND_ENGINEER'] : [],
     phone: `+1${id}`,
     telegram: `@${id}`,
     ...extra,
@@ -101,6 +103,7 @@ describe('mapTeam — senior-team envelope', () => {
       avatarUrl: 'av-s',
       avatarDocumentId: 'doc-s',
       techStack: ['ts'],
+      technicalRoles: ['BACKEND_ENGINEER'],
       phone: '+1s',
       telegram: '@s',
       role: 'SENIOR',
@@ -154,6 +157,7 @@ describe('mapTeam — senior-team envelope', () => {
       avatarUrl: null,
       avatarDocumentId: 'doc-j1',
       techStack: null,
+      technicalRoles: [],
       phone: null,
       telegram: '@j1',
       role: 'JUNIOR',
@@ -283,6 +287,8 @@ describe('mapTeam — DROP branch', () => {
       updatedAt: D2,
     })
     expect(out.members.map((m) => m.userId)).toEqual(['d', 's', 'h', 'acc'])
+    // The drop team's SENIOR carries its technical roles too.
+    expect(out.members[1]?.technicalRoles).toEqual(['BACKEND_ENGINEER'])
     expect(out.members[0]).toEqual({
       id: 'tm-d',
       userId: 'd',
@@ -291,6 +297,7 @@ describe('mapTeam — DROP branch', () => {
       avatarUrl: 'av-d',
       avatarDocumentId: 'doc-d',
       techStack: ['ts'],
+      technicalRoles: [],
       phone: '+1d',
       telegram: '@d',
       role: 'DROP',

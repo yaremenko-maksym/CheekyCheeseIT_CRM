@@ -47,6 +47,7 @@ export function mapTeam(
     avatarUrl: string | null
     avatarDocumentId: string | null
     techStack: string[] | null
+    technicalRoles: string[]
     phone: string | null
     telegram: string | null
     role: string
@@ -68,6 +69,7 @@ export function mapTeam(
             avatarUrl: pm.user.avatarUrl ?? null,
             avatarDocumentId: pm.user.avatarDocumentId ?? null,
             techStack: pm.user.techStack ?? null,
+            technicalRoles: pm.user.technicalRoles,
             phone: pm.user.phone ?? null,
             telegram: pm.user.telegram ?? null,
             role: 'JUNIOR',
@@ -141,6 +143,7 @@ export function mapTeam(
             avatarUrl: m.user.avatarUrl ?? null,
             avatarDocumentId: m.user.avatarDocumentId ?? null,
             techStack: m.user.techStack ?? null,
+            technicalRoles: m.user.technicalRoles,
             phone: maskContacts ? null : (m.user.phone ?? null),
             telegram: maskContacts ? null : (m.user.telegram ?? null),
             role: m.user.role,
@@ -200,6 +203,7 @@ function mapDropTeam(team: TeamWithMembers, currentUser: SessionUser) {
         avatarUrl: m.user.avatarUrl ?? null,
         avatarDocumentId: m.user.avatarDocumentId ?? null,
         techStack: m.user.techStack ?? null,
+        technicalRoles: m.user.technicalRoles,
         phone: maskContacts ? null : (m.user.phone ?? null),
         telegram: maskContacts ? null : (m.user.telegram ?? null),
         role: m.user.role,
