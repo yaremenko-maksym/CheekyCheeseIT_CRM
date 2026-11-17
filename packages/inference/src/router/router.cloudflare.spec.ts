@@ -55,8 +55,6 @@ describe('router: the Cloudflare route (amendment 2026-11-17)', () => {
 
   it.each([
     '410 model deprecated (5028) in the v4 envelope',
-    '410 with the plain text the run endpoint sent (prod log, PR #1370)',
-    '410 with no body',
     '404 with an OpenAI-shaped error naming the model',
   ])('%s: retires the model and moves to the next one in the same call', async (name) => {
     const f = scriptedFetch((s) => (s.model === MISTRAL ? reply(name) : GOOD))
@@ -75,12 +73,12 @@ describe('router: the Cloudflare route (amendment 2026-11-17)', () => {
     expect(isRetired(d.routeState.snapshot(), 'cloudflare', MISTRAL)).toBe(true)
   })
 
-  it('a 404 that does not name the model (3042) retires nothing: the next route', async () => {
-    const f = scriptedFetch((s) =>
-      s.host === CF_HOST
-        ? reply('404 invalid model id (3042) does not name the model: a wrong URL')
-        : GOOD,
-    )
+  it.each([
+    '404 invalid model id (3042) does not name the model: a wrong URL',
+    '410 with the plain text the run endpoint sent (prod log, PR #1370) is TRANSPORT: no code 5028',
+    '410 with no body is TRANSPORT',
+  ])('%s: retires nothing, the next route', async (name) => {
+    const f = scriptedFetch((s) => (s.host === CF_HOST ? reply(name) : GOOD))
     const d = deps(f.fetchImpl, { routeState: route() })
     await createRouter(config([CLOUDFLARE, LOCAL]), d).run(REQ)
     expect(f.sent.map((s) => s.host)).toEqual([CF_HOST, 'crm-model-runtime'])
@@ -116,7 +114,7 @@ describe('router: the Cloudflare route (amendment 2026-11-17)', () => {
   })
 
   it('neither the account id, the key nor the text reaches an event or a result', async () => {
-    const f = scriptedFetch((s) => (s.model === MISTRAL ? reply('410 with no body') : GOOD))
+    const f = scriptedFetch((s) => (s.model === MISTRAL ? reply('410 model deprecated (5028) in the v4 envelope') : GOOD))
     const d = deps(f.fetchImpl, { routeState: route() })
     const r = await createRouter(config([CLOUDFLARE, LOCAL]), d).run(REQ)
     const seen = JSON.stringify({ r, events: d.events })

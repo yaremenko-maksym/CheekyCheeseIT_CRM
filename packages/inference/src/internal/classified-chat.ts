@@ -106,6 +106,10 @@ const retryInfo = z.object({ '@type': z.literal(RETRY_INFO), retryDelay: z.strin
 const groqEnvelope = z.object({ error: z.object({ message: z.string(), type: z.string() }) })
 /** Cloudflare 429 code 3036: the daily free allocation of Neurons is used up (errors page). */
 const CLOUDFLARE_DAY_SPENT = 3036
+/** Cloudflare 410 code 5028: "Model deprecated" (errors page). */
+const CLOUDFLARE_DEPRECATED = 5028
+/** Cloudflare API v4 code 10000 on a 403: the token is refused ("Enriched 403 responses", 2026-08-21). */
+const CLOUDFLARE_AUTH = 10000
 const cloudflareEnvelope = z.object({ errors: z.array(z.object({ code: z.unknown() })) })
 const notFoundEnvelope = z.object({
   error: z.object({ message: z.string().optional(), code: z.unknown().optional() }),
@@ -185,21 +189,24 @@ function classifyRateLimit(
     return { ok: false, code: 'SPENT_DAY' }
   }
   // Cloudflare: only the documented code in its v4 envelope spends the day; 3040 is capacity.
-  if (provider === 'cloudflare' && isCloudflareDaySpent(r.text)) {
+  if (provider === 'cloudflare' && hasCloudflareCode(r.text, CLOUDFLARE_DAY_SPENT)) {
     return { ok: false, code: 'SPENT_DAY' }
   }
   return busy(parseRetryAfter(r.headers?.get('retry-after')))
 }
 
-function isCloudflareDaySpent(text: string | undefined): boolean {
+/** The Cloudflare v4 envelope's `errors[]` holds the documented numeric `code`. */
+function hasCloudflareCode(text: string | undefined, code: number): boolean {
   const env = cloudflareEnvelope.safeParse(errorJson(text))
-  return env.success && env.data.errors.some((e) => e.code === CLOUDFLARE_DAY_SPENT)
+  return env.success && env.data.errors.some((e) => e.code === code)
 }
 
 /** A 403 is AUTH only with the provider's documented envelope; page text can never disable a provider. */
 function isAuthEnvelope(provider: ChatProvider, text: string | undefined): boolean {
   const json = errorJson(text)
   if (provider === 'gemini') return permissionDenied.safeParse(json).success
+  // 5035 (model needs Workers Paid) and 3023 (account blocked) stay TRANSPORT: nothing is disabled.
+  if (provider === 'cloudflare') return hasCloudflareCode(text, CLOUDFLARE_AUTH)
   return provider === 'groq' && groqEnvelope.safeParse(json).success
 }
 
@@ -228,9 +235,11 @@ function classifyFailure(
     case 404:
       if (namesModel(opts.model, r.text)) return { ok: false, code: 'RETIRED' }
       break
-    // Gone: a deprecated hosted model (Cloudflare code 5028). The local floor never retires.
+    // Gone: only Cloudflare's documented "Model deprecated" retires; any other 410 is TRANSPORT.
     case 410:
-      if (opts.provider !== 'local') return { ok: false, code: 'RETIRED' }
+      if (opts.provider === 'cloudflare' && hasCloudflareCode(r.text, CLOUDFLARE_DEPRECATED)) {
+        return { ok: false, code: 'RETIRED' }
+      }
       break
     case 503:
       return { ok: false, code: 'BUSY' }

@@ -527,18 +527,51 @@ describe('provider-specific signals stay with their provider', () => {
     }
   })
 
-  it('a 410 retires the model on every hosted route (ADR amendment 2026-11-17)', async () => {
-    for (const opts of [HOSTED.groq, HOSTED.gemini, HOSTED.cloudflare]) {
-      expect((await run(opts, 410, '')).result).toStrictEqual({ ok: false, code: 'RETIRED' })
+  const cfEnvelope = (...codes: unknown[]): string =>
+    JSON.stringify({ success: false, errors: codes.map((code) => ({ code, message: 'x' })) })
+  const TRANSPORT = { ok: false, code: 'TRANSPORT', responded: true } as const
+
+  it('a Cloudflare 410 with code 5028 in the v4 envelope retires the model (amendment 2026-11-17)', async () => {
+    expect((await run(HOSTED.cloudflare, 410, cfEnvelope(5028))).result).toStrictEqual({
+      ok: false,
+      code: 'RETIRED',
+    })
+    expect((await run(HOSTED.cloudflare, 410, cfEnvelope(1, 5028))).result).toStrictEqual({
+      ok: false,
+      code: 'RETIRED',
+    })
+  })
+
+  it('any other 410 is TRANSPORT: another code, no envelope, another provider, the local floor', async () => {
+    expect((await run(HOSTED.cloudflare, 410, cfEnvelope(3042))).result).toStrictEqual(TRANSPORT)
+    expect((await run(HOSTED.cloudflare, 410, cfEnvelope('5028'))).result).toStrictEqual(TRANSPORT)
+    expect((await run(HOSTED.cloudflare, 410, '')).result).toStrictEqual(TRANSPORT)
+    for (const opts of [HOSTED.groq, HOSTED.gemini, LOCAL]) {
+      expect((await run(opts, 410, cfEnvelope(5028))).result).toStrictEqual(TRANSPORT)
     }
   })
 
-  it('a 410 never retires the local floor', async () => {
-    expect((await run(LOCAL, 410, '')).result).toStrictEqual({
+  it('a Cloudflare 403 with the authentication code 10000 is AUTH; 5035, 3023 and a bare 403 are not', async () => {
+    expect((await run(HOSTED.cloudflare, 403, cfEnvelope(10000))).result).toStrictEqual({
       ok: false,
-      code: 'TRANSPORT',
-      responded: true,
+      code: 'AUTH',
     })
+    for (const body of [cfEnvelope(5035), cfEnvelope(3023), '', BODY_MARKER]) {
+      expect((await run(HOSTED.cloudflare, 403, body)).result).toStrictEqual(TRANSPORT)
+    }
+    // The Cloudflare code means nothing on another provider.
+    for (const opts of [HOSTED.groq, HOSTED.gemini, LOCAL]) {
+      expect((await run(opts, 403, cfEnvelope(10000))).result).toStrictEqual(TRANSPORT)
+    }
+  })
+
+  it('a Cloudflare 401 is AUTH whatever the body says', async () => {
+    for (const body of [cfEnvelope(10000), '']) {
+      expect((await run(HOSTED.cloudflare, 401, body)).result).toStrictEqual({
+        ok: false,
+        code: 'AUTH',
+      })
+    }
   })
 
   it('sends the Cloudflare request to the account path with a bearer token', async () => {

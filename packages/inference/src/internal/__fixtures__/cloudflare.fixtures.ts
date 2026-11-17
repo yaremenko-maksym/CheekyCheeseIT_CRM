@@ -16,6 +16,12 @@ export const CLOUDFLARE_FIXTURES: ProviderFixture[] = [
     expected: { ok: false, code: 'AUTH' },
   },
   {
+    name: '403 authentication error (10000) in the v4 envelope',
+    status: 403,
+    body: v4Error(10000),
+    expected: { ok: false, code: 'AUTH' },
+  },
+  {
     name: '403 Workers Paid required (5035) is not read as AUTH',
     status: 403,
     body: v4Error(5035),
@@ -28,16 +34,16 @@ export const CLOUDFLARE_FIXTURES: ProviderFixture[] = [
     expected: { ok: false, code: 'RETIRED' },
   },
   {
-    name: '410 with the plain text the run endpoint sent (prod log, PR #1370)',
+    name: '410 with the plain text the run endpoint sent (prod log, PR #1370) is TRANSPORT: no code 5028',
     status: 410,
     body: `AiError: Model has been deprecated ${BODY_MARKER}`,
-    expected: { ok: false, code: 'RETIRED' },
+    expected: { ok: false, code: 'TRANSPORT', responded: true },
   },
   {
-    name: '410 with no body',
+    name: '410 with no body is TRANSPORT',
     status: 410,
     body: '',
-    expected: { ok: false, code: 'RETIRED' },
+    expected: { ok: false, code: 'TRANSPORT', responded: true },
   },
   {
     name: '404 invalid model id (3042) does not name the model: a wrong URL',
