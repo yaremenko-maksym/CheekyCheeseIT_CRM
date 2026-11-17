@@ -87,15 +87,15 @@ describe('router: the Cloudflare route (amendment 2026-11-17)', () => {
     expect(d.routeState.snapshot().retired).toEqual([])
   })
 
-  it('the verified live 401 body disables the provider once and moves to the floor', async () => {
+  it('the verified live 401 body disables the provider once and moves to the next route', async () => {
     const f = scriptedFetch((s) =>
       s.host === CF_HOST ? reply('401 invalid bearer, the verified live body (2026-11-17)') : GOOD,
     )
     const d = deps(f.fetchImpl, { routeState: route() })
-    const router = createRouter(config([CLOUDFLARE, LOCAL]), d)
+    const router = createRouter(config([CLOUDFLARE, GROQ]), d)
     await router.run(REQ)
     await router.run(REQ)
-    expect(f.sent.map((s) => s.host)).toEqual([CF_HOST, 'crm-model-runtime', 'crm-model-runtime'])
+    expect(f.sent.map((s) => s.host)).toEqual([CF_HOST, hostOf.groq, hostOf.groq])
     expect(ofType(d.events, 'PROVIDER_DISABLED')).toEqual([
       { type: 'PROVIDER_DISABLED', route: 'cloudflare', code: 'AUTH' },
     ])
