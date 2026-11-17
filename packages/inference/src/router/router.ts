@@ -24,6 +24,7 @@ import {
 } from './config'
 import { promptFits } from './fit'
 import { pinnedModelsOnly, type ManagedModels } from './managed-models'
+import { allLimitBlocked, type RouteEnd } from './readiness'
 import {
   isProviderBlocked,
   isRetired,
@@ -150,13 +151,6 @@ function cascadeCode(reasons: { code: AttemptCode | SkipCode }[]): InferenceErro
   return reasons.every((r) => r.code === 'INVALID_OUTPUT') ? 'INVALID_OUTPUT' : 'PROVIDER_ERROR'
 }
 
-/**
- * How one hosted route ended a call that got no answer (H.2): `UNAVAILABLE` (AUTH-disabled, or no
- * model that takes this call's images), `LIMIT` (own cap, the CREDIT bit, or every model it could try
- * spent), or `OTHER` (anything transient or caused by this input).
- */
-type RouteEnd = 'UNAVAILABLE' | 'LIMIT' | 'OTHER'
-
 /** Codes that settle a route's end in the call at once; each also leaves the route. */
 const ROUTE_END_CODES: Partial<Record<AttemptCode, RouteEnd>> = {
   AUTH: 'UNAVAILABLE',
@@ -166,12 +160,6 @@ const ROUTE_END_CODES: Partial<Record<AttemptCode, RouteEnd>> = {
 
 /** A route's limit bookkeeping through one call: the models still unspent and whether one was spent. */
 type RouteTally = { end?: RouteEnd; unspent: Set<string>; spent: boolean; transient: boolean }
-
-/** H.2: limit-blocked only when the available set is non-empty and every available route is blocked. */
-function allLimitBlocked(ends: RouteEnd[]): boolean {
-  const available = ends.filter((e) => e !== 'UNAVAILABLE')
-  return available.length > 0 && available.every((e) => e === 'LIMIT')
-}
 
 /** A route's end from its tally: a settled end, else spent through when nothing unspent is left. */
 function endOf(t: RouteTally): RouteEnd {
