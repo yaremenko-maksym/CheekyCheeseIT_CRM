@@ -215,24 +215,193 @@ centred sheet ≤ 560 px wide.
 
 ## 6. Interaction and motion
 
-_Section being written: see the next commit._
+### 6.1 URL schema (filters live in the URL)
+
+```
+/finance?q=хостинг&type=EXPENSE&status=PENDING&deleted=1&sort=amount&dir=asc&page=2
+```
+
+| Param     | Values                        | Default (omitted) | Notes                                                               |
+| --------- | ----------------------------- | ----------------- | ------------------------------------------------------------------- |
+| `q`       | free text                     | —                 | search over party, project, notes (same fields as today)            |
+| `type`    | a `TYPE_LABEL_MESSAGES` key   | all               |                                                                     |
+| `status`  | a `STATUS_LABEL_MESSAGES` key | all               | keeps today's deep link `?status=PENDING`                           |
+| `deleted` | `1`                           | off               | ignored for roles other than ADMIN / ACCOUNTANT                     |
+| `sort`    | `date` \| `amount`            | `date`            |                                                                     |
+| `dir`     | `desc` \| `asc`               | `desc`            |                                                                     |
+| `page`    | integer ≥ 1                   | 1                 | desktop / pager only; the phone ignores it and resets on any change |
+
+`validateSearch` parses with Zod and drops unknown values (never throws). Every change writes with
+`replace`, so Back leaves the screen instead of stepping through filter history. DROP keeps its
+own `status` + `period` params with the same mechanism (server params unchanged).
+
+### 6.2 Phone and tablet
+
+- **Row tap** → pushed detail page (foundation push, 280 ms); edge-swipe back.
+- **Pull-to-refresh** (`ptr-375`): 64 px threshold, spinner above the list, the list stays in place;
+  re-fetches the keys of §9.
+- **Filters** → bottom sheet (medium detent; centred ≤ 560 px on tablet). Pickers open nested
+  lists; the footer «Показати N» applies (N counts the already-loaded rows), «Скинути» clears.
+  Active filters become chips with ✕ (removes at once).
+- **Sort chip** «↓ Дата» opens the «Сортування» picker («Спочатку нові / старі / більші / менші»).
+- **Search**: 250 ms debounce, writes `q`.
+- **Swipe (ADMIN, `swipe-375`)**: trailing «Редагувати» / «Видалити»; full swipe does nothing
+  destructive — «Видалити» opens `DeleteTransactionDialog`. Every swipe action is also on the detail
+  page.
+- **Long list**: renders 50 rows, then the next 50 from memory as the footer scrolls into view
+  (footer button «Показати ще» as the non-scroll fallback). No extra request.
+
+### 6.3 Desktop
+
+- Keyboard: `/` focuses search, `C` opens create (Task 1.3), `↑` / `↓` move a roving row focus,
+  `Enter` opens the detail, `E` edits (ADMIN), `Shift+F10` or the context-menu key opens «…».
+- Sortable headers Дата / Сума toggle `dir`; the column already sorted shows its arrow.
+- Row hover / focus shows «…»; rows with a primary action keep it visible (§3.3).
+- Listboxes close on select; `Esc` closes and returns focus to the trigger.
+
+### 6.4 Motion
+
+Row enter 80 ms ease-out (as today, `motion.tr`); push 280 ms; sheet per foundation. With
+`prefers-reduced-motion`: push and sheet become a 120 ms fade, the PTR spinner does not rotate,
+rows appear without offset.
 
 ## 7. Accessibility (WCAG 2.2 AA)
 
-_Pending._
+- **Structure.** Day headers are `h2`; the phone list is `role="list"`, each row a link to the
+  detail whose name reads «title, amount, status» (status included even when the pill is hidden,
+  §11 OP-7). Desktop is a real `<table>` with `aria-sort` on sortable headers and a visually hidden
+  «Дії» header.
+- **Targets.** Phone rows ≥ 64 px, chips and buttons 44 px, FAB 56 px. Desktop controls are 32 px,
+  row buttons 28–32 px (≥ 24 px, SC 2.5.8). Phone inputs are 16 px (no iOS zoom).
+- **Names.** Inline row buttons carry the row in the name: «Перевірити: Клієнт «Північ», +4 800,00
+  USD». «…» is «Інші дії» with `aria-haspopup="menu"`; the menu is «Дії з транзакцією» with roving
+  focus, `Esc` returns focus to «…». Icon-only controls (copy hash, receipt clip, rail «+») have
+  labels.
+- **Not by colour only.** Status is always pill text; amount sign is the `+` / `−` glyph, colour is
+  secondary.
+- **Gestures (SC 2.5.7).** Swipe actions and pull-to-refresh have single-pointer equivalents: detail
+  page buttons; refetch on focus and the retry buttons of the error / offline / partial states.
+- **Dialogs.** The filter sheet and every modal trap focus, close on `Esc` / close button, and return
+  focus to the trigger.
+- **Live regions.** The result count («4 з 132») is `aria-live="polite"`; the error, partial and
+  offline notices are `role="status"`.
+- **Reflow / zoom.** 320 px and 400 % zoom fall back to the phone layout; nothing scrolls
+  horizontally except the desktop table inside its own region.
+- **Contrast.** Foundation tokens (muted text ≥ 4.5:1 on card); the 55 % deleted-row opacity keeps
+  the «Видалено» pill and the «Відновити» button at full opacity.
 
 ## 8. Strings (`uk` / `en`)
 
-_Pending._
+`existing` = msgid already in `packages/shared/src/i18n/locales`; `new` = to add (en written anew,
+not translated). The DROP and `CompanySharePayoutStrip` strings are all existing and unchanged.
+
+| uk                                                                         | en                                                                         | Status                            |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------- |
+| Фінанси                                                                    | Finance                                                                    | existing                          |
+| Нова транзакція                                                            | New transaction                                                            | existing                          |
+| Пошук транзакцій                                                           | Search transactions                                                        | new (replaces «Пошук…»)           |
+| Фільтри / Сортування / Скинути / Скинути фільтри                           | Filters / Sort by / Reset / Reset filters                                  | existing                          |
+| Усі типи / Усі статуси / Показати видалені / Видалено                      | All types / All statuses / Show deleted / Deleted                          | existing                          |
+| Видалені (chip)                                                            | Deleted                                                                    | new                               |
+| Сьогодні / Вчора                                                           | Today / Yesterday                                                          | new                               |
+| Спочатку нові / старі / більші / менші                                     | Newest first / Oldest first / Largest first / Smallest first               | new                               |
+| Показати {count}                                                           | Show {count}                                                               | new                               |
+| Показати ще                                                                | Show more                                                                  | new                               |
+| {count, plural, one {# транзакція} few {# транзакції} many {# транзакцій}} | {count, plural, one {# transaction} other {# transactions}}                | new                               |
+| {shown} з {total}                                                          | {shown} of {total}                                                         | new                               |
+| {from}–{to} з {total}                                                      | {from}–{to} of {total}                                                     | new                               |
+| Транзакцій ще немає                                                        | No transactions yet                                                        | new                               |
+| Натисніть «+», щоб додати першу.                                           | Tap + to add the first one.                                                | new                               |
+| Створіть першу кнопкою «Нова транзакція».                                  | Use New transaction to add the first one.                                  | new                               |
+| Нічого не знайдено                                                         | No results                                                                 | existing                          |
+| Змініть пошук або скиньте фільтри.                                         | Change the search or reset the filters.                                    | new                               |
+| Не вдалося завантажити транзакції                                          | Couldn’t load transactions                                                 | new                               |
+| Сервер не відповів. Нічого не змінено — спробуйте ще раз.                  | The server didn’t respond. Nothing was changed — try again.                | new                               |
+| Спробувати ще                                                              | Try again                                                                  | new                               |
+| Курс недоступний — суми показано у валюті транзакції.                      | Exchange rate unavailable — amounts are shown in the transaction currency. | new                               |
+| Повторити                                                                  | Retry                                                                      | existing                          |
+| Оновлення (PTR spinner label)                                              | Refreshing                                                                 | new                               |
+| Учасник / Тип · проєкт                                                     | Member / Type · project                                                    | new (split of «Учасник / Проєкт») |
+| Дата / Сума / Статус / Тип / Проєкт / Місяць / Дії                         | Date / Amount / Status / Type / Project / Month / Actions                  | existing                          |
+| Дата виплати                                                               | Payout date                                                                | new                               |
+| Хеш транзакції                                                             | Transaction hash                                                           | existing                          |
+| Копіювати хеш                                                              | Copy hash                                                                  | new                               |
+| Інші дії                                                                   | More actions                                                               | new                               |
+| Дії з транзакцією                                                          | Transaction actions                                                        | new                               |
+| Перевірити / Виплатити / Оплатити / Підтвердити оплату                     | Check / Pay out / Pay / Confirm payment                                    | existing (see OP-13)              |
+| Виправити / Розрахуватися / Додати частину зарплати / Відновити            | Fix / Settle / Add salary part / Restore                                   | existing                          |
+| Відкрити / Редагувати / Видалити / Прикріпити чек / Чек / Отримувач        | Open / Edit / Delete / Attach receipt / Receipt / Recipient                | existing                          |
+| Платник / Створив                                                          | Payer / Created by                                                         | new                               |
+| Зарплата · виплачено {date} / ще не виплачено                              | Salary · paid {date} / not paid yet                                        | new                               |
+| Переказ на рахунок компанії (DROP payment row title, phone)                | Transfer to the company account                                            | new                               |
+| Очікує валідації / Підтверджено / Оплачено / Очікує виплати / Відхилено    | Awaiting validation / Validated / Paid / Awaiting payout / Rejected        | existing                          |
+| Виплат ще немає                                                            | No payouts yet                                                             | existing                          |
+
+DROP headers reuse the existing msgids «МОЇ ДОХОДИ» / «ПЛАТЕЖІ НА КОМПАНІЮ» (en «MY INCOME» /
+«PAYMENTS TO THE COMPANY»). Draft-row strings come from the foundation `money-form` spec.
 
 ## 9. Data and network
 
-_Pending._
+- **One query key per dataset for both layouts** (`ByDevice` mounts one layout at a time):
+  `['transactions', 'with-deleted' | 'active']`, `['exchange-rate', 'today']`; the SENIOR strip keeps
+  its own existing query; DROP keeps `DROP_SUMMARY_QUERY_KEY`, `['drop', 'incomes', filters]`,
+  `['drop', 'payments']`. HR and JUNIOR read the same transactions query (own `SALARY` rows).
+- **Filters, search, sort, page and day grouping are client derivations** over the cached array:
+  changing them costs 0 requests (as today). Only the deleted toggle switches the key (as today).
+- **Pull-to-refresh / retry** = `invalidateQueries` on the keys above.
+- **Error state** reads `isError` of the existing query; **partial** = rates query failed while
+  transactions succeeded. No new endpoint, no new field.
+- No new business data, no new KPI, no removed capability (§1.5).
+- **Network baseline: pending** (Wave 0 capture run).
 
 ## 10. Self-score (rubric-calibration)
 
-_Pending._
+Scale 0–10 per criterion; weights from `rubric-calibration.md`. Data viz (7) is N/A (no chart on the
+route), so totals are normalised over 93.
+
+| Criterion (weight) | Phone  | Tablet | Desktop | Note                                                                    |
+| ------------------ | ------ | ------ | ------- | ----------------------------------------------------------------------- |
+| Time-to-task (15)  | 9      | 8      | 9       | deep link lands on the queue; one tap to the action via detail / inline |
+| Never blocks (15)  | 9      | 9      | 9       | list never blanks on refresh; partial and offline keep rows readable    |
+| Navigation (10)    | 9      | 8      | 9       | URL state, Back leaves the screen                                       |
+| Forms (10)         | 8      | 8      | 8       | filter sheet / listboxes; the money form is Task 1.3                    |
+| Lists (10)         | 7      | 7      | 7       | no bulk select, no inline edit                                          |
+| Sheets (8)         | 8      | 8      | 7       | desktop row menu, no side panel for the detail                          |
+| States (10)        | 9      | 9      | 9       | all states mocked; DROP state set open (OP-4)                           |
+| Platform (8)       | 8      | 7      | 9       | PTR, swipe, keyboard; tablet is a widened phone list                    |
+| A11y (7)           | 8      | 8      | 8       |                                                                         |
+| **Total / 100**    | **84** | **81** | **84**  |                                                                         |
+
+Weakest criterion: **Lists** on every class (no bulk validate for ACCOUNTANT, no inline edit).
+Hard floor (criteria 2 and 4 ≥ 5): met.
 
 ## 11. Open points
 
-_Pending._
+Each with a recommendation; none blocks Task 1.2.
+
+- **OP-1 Notes as the row title.** The phone title is the party, notes stay in the detail. _Rec:_
+  keep.
+- **OP-2 "Chart follows the filter".** There is no chart on `/finance`. _Rec:_ do not add one (it
+  would be a new KPI); revisit if statistics move onto this route.
+- **OP-3 New filter dimensions** (project, period, currency — shown in the foundation demo). Not in
+  today's screen. _Rec:_ do not add in this task.
+- **OP-4 DROP full state set.** Only the main frames are mocked. _Rec:_ reuse the existing
+  `DropBalanceCard` error and DROP empty strings in the §4 patterns; mock in a follow-up.
+- **OP-5 `CascadeImpactPanel` `sm:hidden` dual mount** inside the delete / edit dialogs. _Rec:_
+  Task 1.3 replaces it with `ByDevice`.
+- **OP-6 Day totals.** Dropped: mixed currencies make a sum misleading. _Rec:_ keep out.
+- **OP-7 No pill for `VALIDATED` / `PAID` on phone rows.** _Rec:_ keep; the row's accessible name
+  and the detail still state it.
+- **OP-8 JUNIOR transaction hash on phone** only in the detail. _Rec:_ keep.
+- **OP-9 Server paging and a server search param.** Today all rows load and page client-side at 50.
+  _Rec:_ keep for now; move to server paging with the same URL schema when the list passes ~2 000
+  rows.
+- **OP-10 Inline action at 1024–1279** moves into the «…» menu. _Rec:_ accept.
+- **OP-11 DROP «Дія» column** is empty today. _Rec:_ drop it (the mockup does).
+- **OP-12 SENIOR title for own income** shows «Клієнт → self». _Rec:_ show only the client when the
+  receiver is the current user.
+- **OP-13 en of «Перевірити» is "Check"**, while the glossary term is validation. _Rec:_ "Validate";
+  route to copy-reviewer.
+- **OP-14 PNG quantisation.** ImageMagick was not available; PNGs are unquantised. _Rec:_ quantise in
+  a later pass, no content change.
+- **OP-15 Baseline captures and network baseline** are pending (Wave 0).
