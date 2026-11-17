@@ -162,6 +162,14 @@ const techEl = () => screen.getByPlaceholderText('Почніть вводити:
 async function addTech(user: ReturnType<typeof userEvent.setup>, ...techs: string[]) {
   for (const tech of techs) await user.type(techEl(), `${tech}{Enter}`)
 }
+const rolesTrigger = () => screen.getByTestId('roles-section-add-trigger')
+async function addRoles(user: ReturnType<typeof userEvent.setup>, ...roles: string[]) {
+  await user.click(rolesTrigger())
+  for (const role of roles) await user.click(screen.getByTestId(`roles-section-option-${role}`))
+  await user.keyboard('{Escape}')
+}
+const postBody = () =>
+  mockPost.mock.calls.find((c) => String(c[0]) === '/users')?.[1] as Record<string, unknown>
 
 describe('UserDialog — create payload wiring', () => {
   it('SENIOR create: POST /users carries the selected HR + accountant from the team pickers', async () => {
@@ -172,7 +180,7 @@ describe('UserDialog — create payload wiring', () => {
     await user.type(screen.getByTestId('user-dialog-name'), 'Senior Person')
     await selectRole(user, 'Сеньйор')
     await user.type(screen.getByTestId('user-dialog-legal-full-name'), 'Senior Legal Person')
-    await addTech(user, 'Rust', 'Elixir', 'Haskell')
+    await addRoles(user, 'BACKEND_ENGINEER')
     await user.type(
       screen.getByTestId('user-dialog-wallet'),
       '0x1234567890abcdef1234567890abcdef12345678',
@@ -190,7 +198,33 @@ describe('UserDialog — create payload wiring', () => {
       walletUsdtErc20: '0x1234567890abcdef1234567890abcdef12345678',
       hrIds: [HR_ID],
       accountantId: ACCOUNTANT_ID,
+      technicalRoles: ['BACKEND_ENGINEER'],
     })
+    expect('techStack' in (body as object)).toBe(false)
+  })
+
+  it('switching the role JUNIOR -> SENIOR swaps the stack for the roles and sends no stale stack', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    // A JUNIOR (the default) gets the stack, not the roles.
+    expect(screen.queryByTestId('roles-section')).toBeNull()
+    await addTech(user, 'Rust')
+    await user.type(screen.getByTestId('user-dialog-email'), 'senior@example.com')
+    await user.type(screen.getByTestId('user-dialog-name'), 'Senior Person')
+    await selectRole(user, 'Сеньйор')
+    expect(screen.queryByPlaceholderText('Почніть вводити: React, Node.js…')).toBeNull()
+    await user.type(screen.getByTestId('user-dialog-legal-full-name'), 'Senior Legal Person')
+    await addRoles(user, 'QA_ENGINEER', 'BACKEND_ENGINEER')
+    await user.type(
+      screen.getByTestId('user-dialog-wallet'),
+      '0x1234567890abcdef1234567890abcdef12345678',
+    )
+    await user.click(screen.getByTestId('wizard-next-btn'))
+
+    await waitFor(() => expect(postBody()).toBeDefined())
+    expect(postBody().technicalRoles).toStrictEqual(['BACKEND_ENGINEER', 'QA_ENGINEER'])
+    expect('techStack' in postBody()).toBe(false)
   })
 
   it('non-SENIOR create: the salary is sent and the PATCH after going Back re-sends it via the same helper', async () => {
@@ -233,7 +267,7 @@ describe('UserDialog — create payload wiring', () => {
     await user.type(screen.getByTestId('user-dialog-name'), 'Senior Person')
     await selectRole(user, 'Сеньйор')
     await user.type(screen.getByTestId('user-dialog-legal-full-name'), 'Senior Legal Person')
-    await addTech(user, 'Rust', 'Elixir', 'Haskell')
+    await addRoles(user, 'BACKEND_ENGINEER')
     await user.type(
       screen.getByTestId('user-dialog-wallet'),
       '0x1234567890abcdef1234567890abcdef12345678',
@@ -259,8 +293,8 @@ describe('UserDialog — create payload wiring', () => {
   })
 })
 
-describe('UserDialog — SENIOR technology floor (>= 3 distinct)', () => {
-  it('SENIOR create with 2 technologies: no POST, the error is inline and tied to the input', async () => {
+describe('UserDialog — SENIOR role floor (>= 1 technical role)', () => {
+  it('SENIOR create with no role: no POST, the error is inline and tied to the add trigger', async () => {
     const user = userEvent.setup()
     render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
 
@@ -268,21 +302,21 @@ describe('UserDialog — SENIOR technology floor (>= 3 distinct)', () => {
     await user.type(screen.getByTestId('user-dialog-name'), 'Senior Person')
     await selectRole(user, 'Сеньйор')
     await user.type(screen.getByTestId('user-dialog-legal-full-name'), 'Senior Legal Person')
-    await addTech(user, 'Rust', 'Elixir')
     await user.type(
       screen.getByTestId('user-dialog-wallet'),
       '0x1234567890abcdef1234567890abcdef12345678',
     )
     await user.click(screen.getByTestId('wizard-next-btn'))
 
-    const error = await screen.findByText('Сеньйору потрібно щонайменше 3 різні технології')
-    expect(techEl().getAttribute('aria-describedby')).toBe(error.id)
+    const error = await screen.findByText('Сеньйору потрібна щонайменше одна технічна роль')
+    expect(rolesTrigger().getAttribute('aria-describedby')).toBe(error.id)
+    expect(error.getAttribute('role')).toBe('alert')
     expect(mockPost.mock.calls.filter((c) => String(c[0]) === '/users')).toHaveLength(0)
-    // UX-M-2: focus leaves «Далі» for the first invalid control (the tech input here).
-    await waitFor(() => expect(techEl()).toHaveFocus())
+    // UX-M-2: focus leaves «Далі» for the first invalid control (the roles trigger here).
+    await waitFor(() => expect(rolesTrigger()).toHaveFocus())
   })
 
-  it('a JUNIOR create with no technology is not affected', async () => {
+  it('a JUNIOR create with no technology and no role is not affected', async () => {
     const user = userEvent.setup()
     render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
 
@@ -297,6 +331,7 @@ describe('UserDialog — SENIOR technology floor (>= 3 distinct)', () => {
     await waitFor(() => {
       expect(mockPost.mock.calls.filter((c) => String(c[0]) === '/users')).toHaveLength(1)
     })
-    expect(screen.queryByText('Сеньйору потрібно щонайменше 3 різні технології')).toBeNull()
+    expect(screen.queryByText('Сеньйору потрібна щонайменше одна технічна роль')).toBeNull()
+    expect('technicalRoles' in postBody()).toBe(false)
   })
 })

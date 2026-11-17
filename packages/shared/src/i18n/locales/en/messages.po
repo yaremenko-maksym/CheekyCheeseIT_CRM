@@ -67,6 +67,10 @@ msgstr "Manual confirmation"
 msgid "Редагування параметрів проєкту: ставка, валюта, домен і налаштування частки."
 msgstr "Edit project settings: rate, currency, domain, and share settings."
 
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
+msgid "Технічні ролі"
+msgstr "Technical roles"
+
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Не вдалося відновити користувача. Спробуйте ще раз"
 msgstr "Could not restore the user. Try again"
@@ -5422,7 +5426,6 @@ msgstr "Ascending"
 
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/users/user-dialog/TechStackSection.tsx
-#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Почніть вводити: React, Node.js…"
 msgstr "Start typing: React, Node.js…"
 
@@ -5610,6 +5613,10 @@ msgstr "To confirm, enter the {confirmInputLabel}:"
 #: apps/web/app/components/job-sourcing/use-source-health-labels.ts
 msgid "Частково"
 msgstr "Partial"
+
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
+msgid "Додати роль"
+msgstr "Add role"
 
 #. placeholder {0}: invoice.signatures.length
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
@@ -6820,6 +6827,11 @@ msgstr "No interviews found"
 msgid "Змінити особистий email"
 msgstr "Change personal email"
 
+#. placeholder {0}: label(role)
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
+msgid "Прибрано: {0}"
+msgstr "Removed: {0}"
+
 #: apps/web/app/routes/_authenticated/vacancies/index.tsx
 msgid "Немає вакансій із таким статусом"
 msgstr "No vacancies with this status"
@@ -7107,6 +7119,10 @@ msgstr "Reject the share proposal"
 #: apps/web/app/components/job-sourcing/QuotaBar.tsx
 msgid "Ліміт: {used} / {total, plural, one {# запит} few {# запити} many {# запитів} other {# запиту}}"
 msgstr "Quota: {used} / {total, plural, one {# request} other {# requests}}"
+
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
+msgid "Пошук ролі…"
+msgstr "Search roles…"
 
 #: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 msgid "Підтвердження відв’язання дропа від проєкту"
@@ -9331,6 +9347,11 @@ msgstr "Could not join the team — try again"
 msgid "Ім’я в профілі"
 msgstr "Profile name"
 
+#. placeholder {0}: value.length
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
+msgid "Технічні ролі (обрано: {0})"
+msgstr "Technical roles ({0} selected)"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
 msgid "Немає прикріпленого чека"
 msgstr "No receipt attached"
@@ -10013,6 +10034,11 @@ msgstr "Volume drop"
 #: apps/web/app/components/users/user-dialog/useUserDialogMutations.ts
 msgid "Користувача створено, контракт готовий до підписання"
 msgstr "User created, the contract is ready to sign"
+
+#. placeholder {0}: label(role)
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
+msgid "Додано: {0}"
+msgstr "Added: {0}"
 
 #: apps/web/app/components/stats/FinanceChart.tsx
 #: apps/web/app/routes/_authenticated/stats.tsx
@@ -10824,6 +10850,10 @@ msgstr "No teams yet"
 msgid "Частка за замовчуванням: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
 msgstr "Default share: proposal rejected — the previous one stays. The admin will see the reason"
 
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
+msgid "Технічні ролі не обрано"
+msgstr "No technical roles selected"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TxDateField.tsx
 msgid "Дата транзакції"
@@ -11066,6 +11096,7 @@ msgstr "{title}. The previous result was kept. Try the edit again or regenerate 
 #: apps/web/app/components/job-queue/JobQueueList.tsx
 #: apps/web/app/components/users/AccountantChipField.tsx
 #: apps/web/app/components/users/HrChipsField.tsx
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
 #: apps/web/app/routes/_authenticated/documents/components/DocumentsEmptyStates.tsx
 msgid "Нічого не знайдено"
 msgstr "No results"
@@ -11143,6 +11174,11 @@ msgstr "Could not mark as ready"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Крок 2 з 2: оплата створеної заявки"
 msgstr "Step 2 of 2: pay the created request"
+
+#. placeholder {0}: label(role)
+#: apps/web/app/components/users/user-dialog/RolesSection.tsx
+msgid "Прибрати роль {0}"
+msgstr "Remove role {0}"
 
 #: apps/web/app/components/job-sourcing/QuotaBar.tsx
 msgid "Невизначено <0>{uncertainText}</0>"
@@ -12441,7 +12477,6 @@ msgstr "Limit reached"
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/users/user-dialog/TechStackSection.tsx
-#: apps/web/app/routes/_authenticated/team/team-list/components/HrCreateSeniorDialog.tsx
 msgid "Технології"
 msgstr "Tech stack"
 
@@ -13369,6 +13404,10 @@ msgstr "{0, plural, one {# team available.} other {# teams available.}}"
 msgid "Посилання {n}"
 msgstr "Link {n}"
 
+#: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
+msgid "Не збережено: сеньйору потрібна щонайменше одна технічна роль"
+msgstr "Not saved: a senior needs at least one technical role"
+
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 #: apps/web/app/routes/_authenticated/projects/ProjectOverviewTab.tsx
 msgid "Частка дропа"
@@ -14282,10 +14321,6 @@ msgstr "Edit vacancy"
 #: apps/web/app/routes/_authenticated/stats/components/IncomeComplianceSection.tsx
 msgid "Сеньйор"
 msgstr "Senior"
-
-#: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
-msgid "Не збережено: сеньйору потрібно щонайменше 3 різні технології"
-msgstr "Not saved: a senior needs at least 3 different technologies"
 
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "РНОКПП (10 цифр)"

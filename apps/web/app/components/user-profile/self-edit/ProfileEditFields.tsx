@@ -1,13 +1,13 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Value as PhoneValue } from 'react-phone-number-input'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PhoneInput } from '@/components/ui/phone-input'
 import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
-import type { UserProfileDto } from '@crm/shared'
+import type { SeniorSelectableRole, UserProfileDto } from '@crm/shared'
 import { useUpdateMe } from '@/hooks/use-user-profile'
-import { seniorTechStackError } from '@/components/users/user-dialog/validation'
+import { RolesSection } from '@/components/users/user-dialog/RolesSection'
 
 export function ProfileEditFields({ user }: { user: UserProfileDto }) {
   const { t } = useLingui()
@@ -20,8 +20,10 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
     (user.phone as PhoneValue | undefined) ?? ('' as PhoneValue),
   )
   const [techStack, setTechStack] = useState<string[]>(user.techStack ?? [])
-  const [techError, setTechError] = useState<string | undefined>(undefined)
-  const techErrorId = useId()
+  const [technicalRoles, setTechnicalRoles] = useState<SeniorSelectableRole[]>(
+    user.technicalRoles as SeniorSelectableRole[],
+  )
+  const [rolesError, setRolesError] = useState<string | undefined>(undefined)
 
   useEffect(
     () => () => {
@@ -43,15 +45,15 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
     }, 800)
   }
 
-  /** Drops a pending save of an earlier stack, so the server never gets a stack the chips no longer show. */
-  function cancelPendingTechStackSave() {
+  /** Drops a pending save of earlier roles, so the server never gets roles the chips no longer show. */
+  function cancelPendingRolesSave() {
     const pending = pendingPatchRef.current
-    if (pending && 'techStack' in pending) {
+    if (pending && 'technicalRoles' in pending) {
       // A pending patch always has its timer, so no null check is needed here.
       clearTimeout(debounceRef.current ?? undefined)
       pendingPatchRef.current = null
       // Other fields in the same pending save (name, phone…) still go out.
-      const { techStack: _dropped, ...rest } = pending
+      const { technicalRoles: _dropped, ...rest } = pending
       if (Object.keys(rest).length > 0) scheduleSave(rest)
     }
   }
@@ -119,35 +121,39 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
         </div>
       </div>
 
-      <div className="space-y-1.5">
-        <Label className={techError ? 'text-destructive' : undefined}>
-          <Trans>Технології</Trans>
-        </Label>
-        <TechAutocompleteInput
-          value={techStack}
+      {user.role === 'SENIOR' ? (
+        <RolesSection
+          value={technicalRoles}
+          announce="status"
+          error={rolesError}
           onChange={(next) => {
-            setTechStack(next)
-            // A SENIOR below the shared floor is not saved — the API would refuse it — and
-            // the message says so (CR-M-1).
-            const invalid = seniorTechStackError(user.role, next, user) !== undefined
-            setTechError(
-              invalid
-                ? t`Не збережено: сеньйору потрібно щонайменше 3 різні технології`
-                : undefined,
-            )
-            if (invalid) cancelPendingTechStackSave()
-            else scheduleSave({ techStack: next })
+            setTechnicalRoles(next)
+            // A SENIOR with no roles is not saved — the API would refuse it — and the message says
+            // so (CR-M-1). The roles are canonically sorted, never `[]` on the wire.
+            if (next.length === 0) {
+              setRolesError(t`Не збережено: сеньйору потрібна щонайменше одна технічна роль`)
+              cancelPendingRolesSave()
+            } else {
+              setRolesError(undefined)
+              scheduleSave({ technicalRoles: next })
+            }
           }}
-          placeholder={t`Почніть вводити: React, Node.js…`}
-          errorId={techError ? techErrorId : undefined}
         />
-        {techError && (
-          // role="status" (polite): it appears while the user is still editing, so it must not interrupt.
-          <p id={techErrorId} role="status" className="text-xs text-destructive">
-            {techError}
-          </p>
-        )}
-      </div>
+      ) : (
+        <div className="space-y-1.5">
+          <Label>
+            <Trans>Технології</Trans>
+          </Label>
+          <TechAutocompleteInput
+            value={techStack}
+            onChange={(next) => {
+              setTechStack(next)
+              scheduleSave({ techStack: next })
+            }}
+            placeholder={t`Почніть вводити: React, Node.js…`}
+          />
+        </div>
+      )}
     </div>
   )
 }
