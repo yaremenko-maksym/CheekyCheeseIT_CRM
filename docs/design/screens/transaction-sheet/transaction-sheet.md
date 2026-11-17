@@ -11,7 +11,7 @@
 | Route / trigger    | Opens over `/finance` (and the other entry points in "Current"); no route of its own                  |
 | Roles              | ADMIN, ACCOUNTANT, SENIOR, DROP (create); ADMIN (admin edit); SENIOR (edit of a rejected income)      |
 | Claude Design URL  | none — `design-gate: degraded` (Claude Design is not drivable headless; HTML prototypes + Playwright) |
-| Status             | `captured` (HTML mockups rendered to PNG; awaiting owner review)                                      |
+| Status             | `captured`, council round 1 fixes in progress (HTML mockups rendered to PNG)                          |
 | Last synced commit | `11554c089`                                                                                           |
 
 **In one paragraph.** One sheet replaces the create dialog, both edit dialogs and the attach-receipt sheet.
