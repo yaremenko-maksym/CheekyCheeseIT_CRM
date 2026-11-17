@@ -156,15 +156,15 @@ export class ResumeAiService {
 
     const trimmedText = resumeText.slice(0, RESUME_LIMITS.extractionInputChars)
     let tokensUsed: number | null = null
-    let lastParseError = ''
+    // null until attempt 1 fails validation; the corrective retry then carries that error.
+    let lastParseError: string | null = null
 
     // EXACTLY two attempts — the initial call plus a single corrective retry.
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       const now = new Date()
       const spent = await this.budgetSpent(now)
       if (spent) return { ...spent, tokensUsed }
-      // Stryker disable next-line ConditionalExpression: equivalent — on attempt 1 lastParseError is still '', which callModel treats like null
-      const call = await this.callModel(trimmedText, attempt === 2 ? lastParseError : null, now)
+      const call = await this.callModel(trimmedText, lastParseError, now)
       if (!call.ok) {
         const { unbilled, ...failure } = call
         if (unbilled) await this.releaseCall(now)
