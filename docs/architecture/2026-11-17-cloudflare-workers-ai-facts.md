@@ -89,6 +89,12 @@ over it, code 3036 on HTTP 429.
   `{"errors":[{"message":"AiError: Model has been deprecated: @cf/meta/llama-3.1-8b-instruct-awq was deprecated on 2026-05-30. ...","code":5028}],"success":false,"result":{}}`.
   The router retires on a 410 only with code 5028 in the v4 envelope (`errors[].code`); any other 410 is TRANSPORT.
   The 410 test carries this body as a fixture.
+- **UNVERIFIED: a 404 body that names the model on `/ai/v1`.** The router's retire-by-404 rule (ADR C.4) is tested with an
+  OpenAI-shaped `{"error":{"message":"... does not exist"}}` body. No such body was observed. Cloudflare's documented 404 is
+  the v4 envelope with 3042 (wrong URL or route), which is TRANSPORT by design. In practice only 410 with 5028 retires a
+  model on this route; a removed model is healed by the daily listing. The fixture proves the code path, not a Cloudflare behaviour.
+- **Plain-text 410 is not an observed body.** The plain-text 410 test is a defensive case. The PR #1370 log line is the
+  CRM's own extraction of the error message, not a Cloudflare response body.
 - **Verified 2026-11-17 (HIGH): the response to an invalid token.** One live call with an invalid bearer on
   `/ai/v1/chat/completions`: HTTP 401, `{"result":null,"success":false,"errors":[{"code":10000,"message":"Authentication error"}],"messages":[]}`.
   A 401 is AUTH whatever its body says; a 403 is AUTH only with code 10000. The AUTH test carries this body as a fixture.

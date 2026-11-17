@@ -75,7 +75,7 @@ describe('router: the Cloudflare route (amendment 2026-11-17)', () => {
 
   it.each([
     '404 invalid model id (3042) does not name the model: a wrong URL',
-    '410 with the plain text the run endpoint sent (prod log, PR #1370) is TRANSPORT: no code 5028',
+    '410 with a plain-text body (no v4 envelope, defensive) is TRANSPORT: no code 5028',
     '410 with no body is TRANSPORT',
   ])('%s: retires nothing, the next route', async (name) => {
     const f = scriptedFetch((s) => (s.host === CF_HOST ? reply(name) : GOOD))

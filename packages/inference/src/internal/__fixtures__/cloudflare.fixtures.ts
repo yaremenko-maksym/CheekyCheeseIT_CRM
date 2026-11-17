@@ -34,7 +34,8 @@ export const CLOUDFLARE_FIXTURES: ProviderFixture[] = [
     expected: { ok: false, code: 'RETIRED' },
   },
   {
-    name: '410 with the plain text the run endpoint sent (prod log, PR #1370) is TRANSPORT: no code 5028',
+    // Defensive case, not an observed body: F8 verified `/ai/run` answers the JSON 5028 envelope (facts file).
+    name: '410 with a plain-text body (no v4 envelope, defensive) is TRANSPORT: no code 5028',
     status: 410,
     body: `AiError: Model has been deprecated ${BODY_MARKER}`,
     expected: { ok: false, code: 'TRANSPORT', responded: true },
@@ -52,6 +53,9 @@ export const CLOUDFLARE_FIXTURES: ProviderFixture[] = [
     expected: { ok: false, code: 'TRANSPORT', responded: true },
   },
   {
+    // UNVERIFIED shape (facts file, "What could not be established"): no Cloudflare 404 of this form
+    // was observed. Cloudflare's documented 404 is the v4 envelope with 3042, TRANSPORT by design, so
+    // on this route only 410 with 5028 retires a model. This case proves the code path only.
     name: '404 with an OpenAI-shaped error naming the model',
     status: 404,
     body: JSON.stringify({ error: { message: `The model ${CLOUDFLARE_MODEL} does not exist` } }),

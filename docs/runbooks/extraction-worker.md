@@ -93,7 +93,7 @@ Fill it with an editor; never paste values into a command line or chat. Keys (se
 - `ROUTER_LOCAL_MODEL_URL=http://crm-model-runtime:8080/v1`
 - `LOCAL_MODEL_NAME`: the model id you route to.
 - `EXTRACTION_ROUTER_CONFIG`: the route parameters as JSON. The local route's `contextTokens` must equal `EXTRACTION_RUNTIME_CONTEXT_TOKENS`, and its `timeoutMs` must stay below 300000.
-- `CLOUDFLARE_AI_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (optional, only with a `cloudflare` route in `EXTRACTION_ROUTER_CONFIG`; ADR amendment 2026-11-17): the Workers AI bearer token and the account id, the same values the API's env holds. The account id must be 32 lower-case hex characters. A missing token, or an account id in any other form, drops the Cloudflare route without an error, so after the start check that `cloudflare` is in the `present` list of the worker's `HOSTED_ROUTES` log line.
+- `CLOUDFLARE_AI_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (optional, only with a `cloudflare` route in `EXTRACTION_ROUTER_CONFIG`; ADR amendment 2026-11-17): the Workers AI bearer token and the account id, the same values the API's env holds. The account id must be 32 lower-case hex characters. A missing token or account id drops the Cloudflare route. The worker logs a `ROUTE_ENV_WARNING` line at start, with the route and the reason but never the value, for: a malformed account id (`ACCOUNT_ID_MALFORMED`), an account id missing while the token is set (`ACCOUNT_ID_MISSING`), and a token missing while the account id is set (`TOKEN_MISSING`). A token and an id both missing logs nothing. After the start check that `cloudflare` is in the `present` list of the worker's `HOSTED_ROUTES` log line.
 
 ### 5. Download the weights (checked against the digest)
 

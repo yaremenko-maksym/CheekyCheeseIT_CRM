@@ -354,8 +354,9 @@ Facts, each with its primary source: `docs/architecture/2026-11-17-cloudflare-wo
 - The host (`api.cloudflare.com/client/v4/accounts`) stays a package constant. There is still no base-URL env.
 - The worker reads the account id from `CLOUDFLARE_ACCOUNT_ID` and the bearer token from `CLOUDFLARE_AI_TOKEN`
   (`buildRouterConfig`). Both are optional. A missing token, or an account id outside the pattern, drops the route: it is
-  not configured, and the worker's env is not refused. A set but malformed account id is not silent: the worker logs
-  one `ROUTE_ENV_WARNING` line at start (`routerEnvWarnings`) with the route and the reason, never the value. The JSON
+  not configured, and the worker's env is not refused. A set but malformed account id, an account id missing while the token is set, and a token missing while the
+  account id is set are not silent: the worker logs one `ROUTE_ENV_WARNING` line per case at start (`routerEnvWarnings`)
+  with the route and the reason (`ACCOUNT_ID_MALFORMED`, `ACCOUNT_ID_MISSING`, `TOKEN_MISSING`), never the value. The JSON
   route parameters never carry either value. These are the names the API's resume path already reads.
 
 #### C.3 The own cap: Neurons mapped to requests (D5)
@@ -387,7 +388,9 @@ Facts, each with its primary source: `docs/architecture/2026-11-17-cloudflare-wo
   later runs. Any other 410 (another provider, another code, no envelope, plain text) is TRANSPORT: page text can never
   retire a model.
 - **404** retires the model only when the error names it (the "no such model" body). Any other 404 (for example 3042, a
-  missing route) is TRANSPORT: the router moves to the next route and retires nothing.
+  missing route) is TRANSPORT: the router moves to the next route and retires nothing. UNVERIFIED: no Cloudflare 404
+  that names the model was observed (facts file, 2026-11-17). In practice only 410 with 5028 retires a model on this
+  route; a removed model is healed by the daily listing.
 - **429 with error code 3036** in the v4 `errors[]` list (the daily allocation) is SPENT_DAY for that model, wherever 3036
   stands in the list. 3040 (out of capacity) stays BUSY.
 - **401** in chat is AUTH, as on every provider. **403** is AUTH only with code 10000 (the API v4 authentication
