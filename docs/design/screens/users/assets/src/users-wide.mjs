@@ -335,7 +335,7 @@ export function wideFrames() {
           role: 'alert',
           title: 'Не вдалося завантажити користувачів',
           text: 'Сервер не відповів. Нічого не змінено — спробуйте ще раз.',
-          action: `<span class="btn sm secondary" style="height:36px;font-size:14px">${icon('rotate-cw', { size: 15 })}Спробувати ще</span>`,
+          action: `<span class="btn sm secondary" style="height:36px;font-size:14px">${icon('rotate-cw', { size: 15 })}Спробувати ще раз</span>`,
         }),
       }),
     ),

@@ -281,7 +281,7 @@ const loadError = () =>
     role: 'alert',
     title: 'Не вдалося завантажити користувачів',
     text: 'Сервер не відповів. Нічого не змінено — спробуйте ще раз.',
-    action: `<span class="btn secondary" role="button">${icon('rotate-cw', { size: 18 })}Спробувати ще</span>`,
+    action: `<span class="btn secondary" role="button">${icon('rotate-cw', { size: 18 })}Спробувати ще раз</span>`,
   })
 /** The search field with a typed query and its 44 px clear button. */
 const searchWith = (q) =>
