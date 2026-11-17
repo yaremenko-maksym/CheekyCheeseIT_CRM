@@ -9,7 +9,8 @@ import { RESUME_AI_METER_ACCOUNT_KEY, ResumeAiDailyBudget } from './resume-ai-da
 /**
  * The reservation statement of ResumeAiDailyBudget against a REAL database, AS `crm_app` (so the
  * class-A grant on `job_account_meters` is proven too): the cap refuses call N+1, the UTC day
- * rolls over, concurrent reservations cannot overshoot, and a changed code cap takes effect.
+ * rolls over (a NULL `resets_at` too), concurrent reservations cannot overshoot, a changed code cap
+ * takes effect, and a release gives back one call of its own day without going below 0.
  * Every test uses its own meter key, so runs and tests never share a row.
  */
 const KEY_PREFIX = 'cloudflare:resume-spec-'
@@ -96,6 +97,66 @@ describe.skipIf(!hasDatabaseUrl())('ResumeAiDailyBudget against Postgres as crm_
     await expect(budget.reserveCall(now, key, 2)).resolves.toBe(false)
     await expect(budget.reserveCall(now, key, 4)).resolves.toBe(true)
     expect(await row(key)).toMatchObject({ used: '4', limit_amount: '4' })
+  })
+
+  it('R2: a DAY row whose resets_at is NULL rolls over instead of staying spent', async () => {
+    const key = freshKey()
+    await session.admin.query(
+      // A windowed row must have a start (CHECK), but `resets_at` may be NULL.
+      `INSERT INTO job_account_meters (account_key, unit, window_kind, limit_amount, used, window_started_at)
+       VALUES ($1, 'MODEL_CALL', 'DAY', 2, 2, '2026-11-10T00:00:00Z')`,
+      [key],
+    )
+    expect(await budget.reserveCall(at('2026-11-17T10:00:00.000Z'), key, 2)).toBe(true)
+    expect(await row(key)).toEqual({
+      used: '1',
+      limit_amount: '2',
+      window_started_at: at('2026-11-17T00:00:00.000Z'),
+      resets_at: at('2026-11-18T00:00:00.000Z'),
+    })
+  })
+
+  it('R1: a release frees one slot of the same day', async () => {
+    const key = freshKey()
+    const now = at('2026-11-17T10:00:00.000Z')
+    for (let i = 0; i < 2; i += 1) await budget.reserveCall(now, key, 2)
+    expect(await budget.reserveCall(now, key, 2)).toBe(false)
+
+    await budget.releaseCall(now, key)
+    expect((await row(key))?.used).toBe('1')
+    expect(await budget.reserveCall(now, key, 2)).toBe(true)
+  })
+
+  it('R1: a release never takes used below 0, and a missing row stays missing', async () => {
+    const key = freshKey()
+    const now = at('2026-11-17T10:00:00.000Z')
+    await budget.releaseCall(now, key)
+    expect(await row(key)).toBeUndefined()
+
+    await budget.reserveCall(now, key, 2)
+    await budget.releaseCall(now, key)
+    await budget.releaseCall(now, key)
+    expect((await row(key))?.used).toBe('0')
+  })
+
+  it('R1: a release from yesterday leaves a rolled-over row alone', async () => {
+    const key = freshKey()
+    await budget.reserveCall(at('2026-11-17T23:59:59.000Z'), key, 2)
+    await budget.reserveCall(at('2026-11-18T00:00:01.000Z'), key, 2)
+
+    await budget.releaseCall(at('2026-11-17T23:59:59.000Z'), key)
+    expect(await row(key)).toMatchObject({
+      used: '1',
+      window_started_at: at('2026-11-18T00:00:00.000Z'),
+    })
+  })
+
+  it('R1: concurrent releases cannot take used below 0', async () => {
+    const key = freshKey()
+    const now = at('2026-11-17T12:00:00.000Z')
+    for (let i = 0; i < 3; i += 1) await budget.reserveCall(now, key, 5)
+    await Promise.all(Array.from({ length: 10 }, () => budget.releaseCall(now, key)))
+    expect((await row(key))?.used).toBe('0')
   })
 
   it('the production meter key passes the table CHECKs', async () => {
