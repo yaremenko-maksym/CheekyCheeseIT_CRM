@@ -79,7 +79,11 @@ function harness(scope: JobQueueScope, ...answers: Rows[]) {
   const transaction = vi.fn(<T>(fn: (tx: unknown) => Promise<T>, _config?: unknown) =>
     fn({ execute }),
   )
-  const db = { execute, transaction }
+  // H.8: the sourcing-notice read is the one select; push a row to raise MODEL_LIMITS_EXHAUSTED.
+  const flagRows: unknown[] = []
+  const limit = vi.fn(async () => flagRows)
+  const select = vi.fn(() => ({ from: () => ({ where: () => ({ limit }) }) }))
+  const db = { execute, transaction, select }
   const get = vi.fn(() => SECRET)
   const config = { get } as unknown as ConfigService<Env, true>
   const svc = new JobQueueService(
@@ -91,7 +95,7 @@ function harness(scope: JobQueueScope, ...answers: Rows[]) {
     const q = new PgDialect().sqlToQuery((execute.mock.calls[call] as [SQL])[0])
     return { text: q.sql.replace(/\s+/g, ' '), params: q.params }
   }
-  return { svc, execute, scopes, compiled, get, transaction, db }
+  return { svc, execute, scopes, compiled, get, transaction, db, flagRows, select }
 }
 
 async function refusal(p: Promise<unknown>): Promise<{ status: number; code: string }> {
@@ -202,13 +206,24 @@ describe('JobQueueService.list', () => {
     expect((await h.svc.list(user, query())).counts.NEW).toBe(0)
   })
 
-  it('a NONE scope is an empty list and runs no query', async () => {
+  it('a NONE scope is an empty list and runs no queue query', async () => {
     const h = harness({ kind: 'NONE' })
     await expect(h.svc.list(user, query())).resolves.toEqual({
       items: [],
       nextCursor: null,
       counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
       generation: null,
+      sourcingNotice: null,
+    })
+    expect(h.execute).not.toHaveBeenCalled()
+  })
+
+  it('a NONE scope still carries a raised AI-limits notice (global state, H.8)', async () => {
+    const h = harness({ kind: 'NONE' })
+    h.flagRows.push({ flag: 'MODEL_LIMITS_EXHAUSTED' })
+    await expect(h.svc.list(user, query())).resolves.toMatchObject({
+      items: [],
+      sourcingNotice: 'AI_LIMITS_EXHAUSTED',
     })
     expect(h.execute).not.toHaveBeenCalled()
   })
@@ -403,8 +418,19 @@ describe('JobQueueService.list', () => {
       nextCursor: null,
       counts: { NEW: 3, SUBMITTED: 1, HIDDEN: 2 },
       generation: FACTS,
+      sourcingNotice: null,
     })
     expect(h.execute).toHaveBeenCalledTimes(3)
+  })
+
+  it('a scoped page carries a raised AI-limits notice beside its rows (H.8)', async () => {
+    const h = harness(teamScope, [generationRow()], [generationRow()], [tally])
+    h.flagRows.push({ flag: 'MODEL_LIMITS_EXHAUSTED' })
+    await expect(h.svc.list(user, query({ seniorIds: [OTHER_TEAM] }))).resolves.toMatchObject({
+      counts: { NEW: 3, SUBMITTED: 1, HIDDEN: 2 },
+      sourcingNotice: 'AI_LIMITS_EXHAUSTED',
+    })
+    expect(h.select).toHaveBeenCalledTimes(1)
   })
 
   it('a mix of a foreign senior and a scope senior reads the page', async () => {

@@ -62,6 +62,7 @@ import {
   JobSourceDeliberateStopError,
 } from './source-budget.error'
 import { toSafeFailureMessage } from './safe-failure-message'
+import { readSourcingNotice } from './sourcing-notice'
 import type { NormalizedPosting } from './job-source.provider'
 import { apiError } from '../common/api-error'
 import { markExclusionDirty } from './dirty-producers'
@@ -1350,7 +1351,8 @@ export class JobSourcingService {
         )
       }
     }
-    return { results, failures }
+    // H.8: read after the run, so a model stage that stopped on limits in it has raised the flag.
+    return { results, failures, sourcingNotice: await readSourcingNotice(this.db.db) }
   }
 
   /**

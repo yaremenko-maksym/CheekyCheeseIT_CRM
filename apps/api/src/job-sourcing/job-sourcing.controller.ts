@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  HttpStatus,
   Inject,
   Param,
   ParseUUIDPipe,
@@ -28,6 +29,7 @@ import {
   updateJobSuggestionStatusSchema,
 } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
+import { apiError } from '../common/api-error'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { JobSourcingService } from './job-sourcing.service'
@@ -167,6 +169,11 @@ export class JobSourcingController {
     // failure and says so with a 503; a partial run returns 200 but carries the
     // `failures` array, so a broken source is never invisible either way.
     if (run.results.length === 0 && run.failures.length > 0) {
+      // ADR 2026-11-03 §H.8: when the model stage stopped on the AI limits, the 503 says so with
+      // its own static code; any other "nothing succeeded" keeps the message below.
+      if (run.sourcingNotice === 'AI_LIMITS_EXHAUSTED') {
+        throw apiError('JOB_SOURCING_AI_LIMITS_EXHAUSTED', HttpStatus.SERVICE_UNAVAILABLE)
+      }
       throw new ServiceUnavailableException(
         `Сбор не удался: ${run.failures.map((f) => `${f.sourceType} — ${f.message}`).join('; ')}`,
       )

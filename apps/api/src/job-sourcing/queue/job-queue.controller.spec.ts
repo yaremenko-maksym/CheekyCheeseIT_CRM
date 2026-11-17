@@ -36,6 +36,7 @@ const LIST = {
   nextCursor: null,
   counts: { NEW: 0, SUBMITTED: 0, HIDDEN: 0 },
   generation: null,
+  sourcingNotice: null,
 }
 const PAGE = { items: [], totalCount: 0, nextCursor: null }
 const CARD = {

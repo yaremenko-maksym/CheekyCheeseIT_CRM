@@ -1,0 +1,37 @@
+import { Logger } from '@nestjs/common'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { DatabaseService } from '../database/database.service'
+import { readSourcingNotice } from './sourcing-notice'
+
+/** A fake of the one select chain the read uses; `rows` is what the flag table answers. */
+function fakeDb(rows: Promise<unknown[]>) {
+  const limit = vi.fn(() => rows)
+  const where = vi.fn(() => ({ limit }))
+  const from = vi.fn(() => ({ where }))
+  const select = vi.fn(() => ({ from }))
+  return { db: { select } as unknown as DatabaseService['db'], select, from, where, limit }
+}
+
+afterEach(() => vi.restoreAllMocks())
+
+describe('readSourcingNotice (ADR 2026-11-03 §H.8)', () => {
+  it('a raised, not cleared MODEL_LIMITS_EXHAUSTED row gives AI_LIMITS_EXHAUSTED', async () => {
+    const fake = fakeDb(Promise.resolve([{ flag: 'MODEL_LIMITS_EXHAUSTED' }]))
+    await expect(readSourcingNotice(fake.db)).resolves.toBe('AI_LIMITS_EXHAUSTED')
+    expect(fake.limit).toHaveBeenCalledWith(1)
+  })
+
+  it('no such row (never raised, or cleared) gives null', async () => {
+    await expect(readSourcingNotice(fakeDb(Promise.resolve([])).db)).resolves.toBeNull()
+  })
+
+  it('a failed read gives null and one fixed-code error line, never a thrown list', async () => {
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    const fake = fakeDb(
+      Promise.reject(new Error('relation "job_model_health_flags" does not exist')),
+    )
+    await expect(readSourcingNotice(fake.db)).resolves.toBeNull()
+    expect(error).toHaveBeenCalledTimes(1)
+    expect(error).toHaveBeenCalledWith('SOURCING_NOTICE_READ_FAILED')
+  })
+})

@@ -97,6 +97,7 @@ function page(over: Partial<JobQueueListResponseDto> = {}): JobQueueListResponse
     nextCursor: null,
     counts: { NEW: 7, SUBMITTED: 2, HIDDEN: 1 },
     generation: { ruleVersion: 'v1', evaluatedAt: '2026-11-01T00:00:00.000Z', capped: false },
+    sourcingNotice: null,
     ...over,
   }
 }
@@ -498,6 +499,35 @@ describe('/job-queue page', () => {
     renderPage()
     await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
     expect(screen.queryByTestId('job-queue-partial')).toBeNull()
+  })
+
+  it('shows the AI-limits notice beside the partial notice, with the list still rendered', async () => {
+    serve({
+      queue: () =>
+        Promise.resolve({
+          data: page({
+            sourcingNotice: 'AI_LIMITS_EXHAUSTED',
+            generation: {
+              ruleVersion: 'v1',
+              evaluatedAt: '2026-11-01T00:00:00.000Z',
+              capped: true,
+            },
+          }),
+        }),
+    })
+    renderPage()
+    expect(await screen.findByTestId('job-queue-ai-limits')).toHaveTextContent(
+      'ліміти AI-моделей на зараз вичерпано',
+    )
+    expect(screen.getByTestId('job-queue-partial')).toBeInTheDocument()
+    expect(screen.getByTestId(`job-queue-row-${ITEM_ID}`)).toBeInTheDocument()
+  })
+
+  it('has no AI-limits notice when the field is null', async () => {
+    serve()
+    renderPage()
+    await screen.findByTestId(`job-queue-row-${ITEM_ID}`)
+    expect(screen.queryByTestId('job-queue-ai-limits')).toBeNull()
   })
 
   it('offers a refresh when the server says the list changed, and restarts on click', async () => {

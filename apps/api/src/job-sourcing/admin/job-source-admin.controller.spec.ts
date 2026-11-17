@@ -14,6 +14,8 @@ const SOURCE = '11111111-2222-4333-8444-555555555555'
 function harness() {
   const service = {
     listExcluded: vi.fn(async () => []),
+    listSourceHealth: vi.fn(async () => []),
+    sourcingNotice: vi.fn(async () => 'AI_LIMITS_EXHAUSTED' as const),
     resetFailures: vi.fn(async () => undefined),
   }
   return {
@@ -27,6 +29,16 @@ describe('JobSourceAdminController', () => {
     const h = harness()
     expect(await h.controller.listExcluded(ADMIN)).toEqual({ items: [] })
     expect(h.service.listExcluded).toHaveBeenCalledWith(ADMIN)
+  })
+
+  it('the health list carries the AI-limits notice beside its items (H.8)', async () => {
+    const h = harness()
+    expect(await h.controller.listSourceHealth(ADMIN)).toEqual({
+      items: [],
+      sourcingNotice: 'AI_LIMITS_EXHAUSTED',
+    })
+    expect(h.service.listSourceHealth).toHaveBeenCalledWith(ADMIN)
+    expect(h.service.sourcingNotice).toHaveBeenCalledWith(ADMIN)
   })
 
   it('parses the reset body (trimmed) and passes id, body and caller', async () => {
