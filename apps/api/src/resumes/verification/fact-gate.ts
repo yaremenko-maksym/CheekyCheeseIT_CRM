@@ -43,6 +43,13 @@ const ENGLISH_WORDS = new Set([
   'selenium',
   'android',
 ])
+/**
+ * Everyday words that are also a spelling of a role-stack skill group (`spark` of Apache Spark,
+ * `unity` of Unity, `unreal` of Unreal Engine). Lowercase in the source they ground only
+ * themselves, never another spelling of the group: "spark interest" does not ground `Apache Spark`,
+ * "team unity" does not ground `Unity3D`. Older words (`node`, `go`) keep their grounding.
+ */
+const EVERYDAY_ALIASES = /(?<![\p{L}\p{N}#+.])(?:spark|unity|unreal)(?![\p{L}\p{N}#+])/gu
 /** Words for locating a skill's surface form; the leading dot keeps `.NET` whole. */
 const WORD = /\.?[\p{L}\p{N}#+]+/gu
 /** The longest alias in `SKILL_SYNONYM_GROUPS` (`Google Cloud Platform`) has three words. */
@@ -80,8 +87,11 @@ function* skillSpans(text: string): Generator<Candidate & { canonical: string }>
  */
 export function findUngroundedTokens(text: string, source: FactSource): string[] {
   const output = text.normalize('NFC')
-  const grounded = (token: string) =>
-    mentionsSkill(source.text, token) || source.skills.some((skill) => mentionsSkill(skill, token))
+  const grounded = (token: string) => {
+    const lower = token.toLowerCase()
+    const text = source.text.replace(EVERYDAY_ALIASES, (word) => (word === lower ? word : ' '))
+    return mentionsSkill(text, token) || source.skills.some((skill) => mentionsSkill(skill, token))
+  }
   const sourceNumbers = new Set(
     [source.text, ...source.skills].flatMap((part) => [...part.matchAll(NUMBER)].map(([n]) => n)),
   )
@@ -104,7 +114,7 @@ export function findUngroundedTokens(text: string, source: FactSource): string[]
     const english = (s: Candidate) =>
       ENGLISH_WORDS.has(s.token) ||
       (ENGLISH_WORDS.has(s.token.toLowerCase()) && SENTENCE_START.test(output.slice(0, s.index)))
-    const span = spans.find((s) => s.canonical === canonical && !english(s))
+    const span = spans.find((s) => s.canonical === canonical && !english(s) && !grounded(s.token))
     if (span) candidates.push(span)
   }
 

@@ -193,3 +193,27 @@ describe('findUngroundedTokens — fix round 1', () => {
     expect(findUngroundedTokens('it (and more) Kafka', src('it and more'))).toEqual(['Kafka'])
   })
 })
+
+describe('findUngroundedTokens — everyday-word aliases', () => {
+  it('a lowercase everyday word in the source does not ground another spelling of its skill', () => {
+    expect(findUngroundedTokens('Shipped a UE5 title', src('at an unreal pace'))).toContain('UE5')
+    expect(findUngroundedTokens('Built in Unity3D', src('team unity'))).toContain('Unity3D')
+    expect(findUngroundedTokens('Pipelines on Apache Spark', src('spark interest'))).toContain(
+      'Apache Spark',
+    )
+  })
+
+  it('the same word still grounds itself, as before the role-stack skills', () => {
+    expect(findUngroundedTokens('Pipelines on Spark', src('spark interest'))).toEqual([])
+    expect(findUngroundedTokens('Built in Unity', src('team unity'))).toEqual([])
+  })
+
+  it('a capitalised spelling in the source grounds the whole group', () => {
+    expect(findUngroundedTokens('Shipped a UE5 title', src('Unreal 5 pipelines'))).toEqual([])
+    expect(findUngroundedTokens('Built in Unity3D', src('Unity 3 games'))).toEqual([])
+  })
+
+  it('leaves the existing lowercase node grounding unchanged', () => {
+    expect(findUngroundedTokens('Node.js services', src('on each node'))).toEqual([])
+  })
+})
