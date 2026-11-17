@@ -36,7 +36,8 @@ export type JobQueueScope =
       readonly versions: readonly LiveSeniorVersion[]
       /**
        * The LIVE `opportunityInputsVersion` (rule version + studio-wide keyword exclusions). A
-       * grant shows an opportunity only while its recorded inputs version equals this (SR-M-1).
+       * grant shows an opportunity only while its recorded inputs version equals this or
+       * `previousInputsVersion` (SR-M-1, CR-M-2).
        */
       readonly inputsVersion: string
       /**
@@ -114,7 +115,9 @@ const liveTeam = (alias: string, teamId: string) =>
  *          `evaluation_verdict` and `evaluated_inputs_version` are written by `installMatches`
  *          with the match rows, including when there are no rows. A revision bump, a studio-wide
  *          keyword exclusion change or a rule deploy hides the item at once, until its recompute
- *          at the new inputs; NULL (never evaluated) hides it: this fails closed. The verdict is
+ *          at the new inputs; NULL (never evaluated) hides it: this fails closed. A record-format
+ *          bump alone does not hide it: the inputs version of the previous format, at the same
+ *          live rule and keywords, is accepted too (CR-M-2). The verdict is
  *          opportunity-level (`opportunityVerdict`): a per-senior stop-list is
  *          `SCOPED_RESTRICTIONS` and does not hide the opportunity from the team, owner A1g. The
  *          grant itself is revision-independent: the schema states no revision rule for it.

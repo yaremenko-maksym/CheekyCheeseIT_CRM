@@ -116,7 +116,8 @@ export class JobQueueScopeService {
    * The team's matchable seniors (active, non-archived SENIOR, in the team) with their LIVE input
    * versions, from the same `loadRoster` / `rosterVersions` the recompute worker stamps match rows
    * with — so a row is visible only while it still describes the live roster (SR-M-2) — and the
-   * live opportunity inputs version from the same load, for the grant branch (SR-M-1).
+   * live opportunity inputs version from the same load, with its previous-record-format twin, for
+   * the grant and subscription branches (SR-M-1, CR-M-2).
    */
   private async liveInputs(
     db: SqlExecutor,
