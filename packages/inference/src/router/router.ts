@@ -158,13 +158,15 @@ const ROUTE_END_CODES: Partial<Record<AttemptCode, RouteEnd>> = {
   CAP: 'LIMIT',
 }
 
-/** A route's limit bookkeeping through one call: the models still unspent and whether one was spent. */
-type RouteTally = { end?: RouteEnd; unspent: Set<string>; spent: boolean; transient: boolean }
+/**
+ * A route's limit bookkeeping through one call (H.2, R1). A tried route that was left by no settled
+ * end and no transient answer had every model it could try answer `SPENT_DAY`, so it is spent
+ * through. A model cooling down, or one answering `RETIRED` in this call, is no spent model.
+ */
+type RouteTally = { end?: RouteEnd; transient: boolean }
 
-/** A route's end from its tally: a settled end, else spent through when nothing unspent is left. */
 function endOf(t: RouteTally): RouteEnd {
-  if (t.end !== undefined) return t.end
-  return !t.transient && t.spent && t.unspent.size === 0 ? 'LIMIT' : 'OTHER'
+  return t.end ?? (t.transient ? 'OTHER' : 'LIMIT')
 }
 
 const refused: Router = { run: async () => ({ ok: false, code: 'NOT_CONFIGURED' }) }
@@ -344,6 +346,8 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       const unit = await withinBudget(ownCap.reserve(p, route.freeLimit))
       if (unit === undefined) return { ok: false, code: 'BUDGET' } // a store slower than the budget
       if (unit === null) return { ok: false, code: 'CAP' }
+      // A failed state write is a fault, not a limit (R2): transient, and dead-route evidence.
+      if (unit === 'WRITE_FAILED') return { ok: false, code: 'BUDGET' }
       // The gap slot is claimed before any wait, so overlapping calls are spaced too (CR-M-3).
       const slot = Math.max(now(), nextFreeAt.get(p) ?? 0)
       if (slot >= hostedDeadline) {
@@ -407,7 +411,7 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     const tallies = new Map<HostedRouteConfig, RouteTally>()
     const skip = (route: HostedRouteConfig, code: SkipCode | 'SPENT_DAY', end: RouteEnd): void => {
       reasons.push({ route: route.provider, code })
-      tallies.set(route, { end, unspent: new Set(), spent: false, transient: false })
+      tallies.set(route, { end, transient: false })
     }
     const candidates: { route: HostedRouteConfig; models: string[] }[] = []
     for (const route of hostedRoutes) {
@@ -424,22 +428,19 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
         skip(route, 'FIT', 'OTHER')
         continue
       }
-      // The models this call could try: a retired one is no longer one of them (A1).
-      const tryable = (await managedModels(p, route.models)).filter(
-        (m) => (images === undefined || isVisionCapable(p, m)) && !isRetired(snap, p, m),
+      const fitting = (await managedModels(p, route.models)).filter(
+        (m) => images === undefined || isVisionCapable(p, m),
       )
+      // The models this call could try: a retired one is no longer one of them (A1).
+      const tryable = fitting.filter((m) => !isRetired(snap, p, m))
       const unspent = tryable.filter((m) => !isSpent(snap, p, m, today))
       const models = unspent.filter((m) => !coolingDown(p, m))
-      const spent = unspent.length < tryable.length
       if (models.length > 0) {
         candidates.push({ route, models })
-        tallies.set(route, {
-          unspent: new Set(models),
-          spent,
-          transient: models.length < unspent.length,
-        })
-      } else if (unspent.length === 0 && spent) skip(route, 'SPENT_DAY', 'LIMIT')
-      else if (tryable.length === 0 && images !== undefined) skip(route, 'NO_MODEL', 'UNAVAILABLE')
+        tallies.set(route, { transient: models.length < unspent.length })
+      } else if (unspent.length === 0 && tryable.length > 0) skip(route, 'SPENT_DAY', 'LIMIT')
+      // Unavailable only when no model takes the images; a route retired through is transient (R1).
+      else if (fitting.length === 0 && images !== undefined) skip(route, 'NO_MODEL', 'UNAVAILABLE')
       else skip(route, 'NO_MODEL', 'OTHER')
     }
 
@@ -472,10 +473,7 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       const t = tallies.get(route)!
       const end = ROUTE_END_CODES[r.code]
       if (end !== undefined) t.end = end
-      else if (r.code === 'SPENT_DAY' || r.code === 'RETIRED') {
-        t.unspent.delete(model)
-        t.spent ||= r.code === 'SPENT_DAY'
-      } else t.transient = true
+      else if (r.code !== 'SPENT_DAY') t.transient = true
       if (NEXT_ROUTE.has(r.code)) left.add(route)
     }
 

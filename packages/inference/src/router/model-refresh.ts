@@ -110,7 +110,7 @@ async function probeModel(
 ): Promise<ProbeOutcome> {
   const p = route.provider
   const unit = await deps.ownCap.reserve(p, route.freeLimit)
-  if (unit === null) return { kind: 'capped' }
+  if (unit === null || unit === 'WRITE_FAILED') return { kind: 'capped' }
   const structuredOutput: StructuredOutput =
     route.structuredOutput === 'json_schema'
       ? { mode: 'json_schema', schema: PROBE_JSON_SCHEMA }
@@ -184,7 +184,7 @@ async function refreshProvider(
 ): Promise<ProviderOutcome> {
   const p = route.provider
   const unit = await deps.ownCap.reserve(p, route.freeLimit)
-  if (unit === null) return skipped(p, 'CAP')
+  if (unit === null || unit === 'WRITE_FAILED') return skipped(p, 'CAP')
   const listing = await fetchModelListing({
     provider: p,
     apiKey: route.apiKey,

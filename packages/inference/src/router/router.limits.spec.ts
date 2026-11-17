@@ -16,6 +16,7 @@ import type { HostedProvider } from './config'
 import { createRouter, createRouterExtractionAdapter, type RouterEvent } from './router'
 import {
   createMemoryRouteStatePort,
+  createOwnCapPort,
   EMPTY_ROUTE_STATE,
   markAuth,
   markCredit,
@@ -24,6 +25,7 @@ import {
   providerDay,
   type OwnCapPort,
   type RouteState,
+  type RouteStatePort,
 } from './state'
 import { GEMINI_FIXTURES } from '../internal/__fixtures__/gemini.fixtures'
 
@@ -250,6 +252,119 @@ describe('a transient route next to a spent one keeps today’s code (H.2 row 4)
       routes: [GROQ],
     })
     expect(await go()).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+  })
+})
+
+describe('a model RETIRED in this call is not spent (R1, CR-M-3)', () => {
+  const [M0, M1] = GROQ.models as [string, string]
+  it.each<[string, (m: string) => Reply, State[]]>([
+    ['SPENT_DAY, then RETIRED', (m) => (m === M0 ? SPENT : notFound(m)), []],
+    ['RETIRED, then SPENT_DAY', (m) => (m === M0 ? notFound(m) : SPENT), []],
+    [
+      'spent in state, the last model RETIRED',
+      (m) => notFound(m),
+      [(s) => markSpent('groq', M0, day('groq'))(s)],
+    ],
+  ])('%s: the call is transient; the next one is LIMITS_EXHAUSTED', async (_l, groq, state) => {
+    const { f, run: go } = run({ groq, routes: [GROQ], state })
+    expect(await go()).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+    const sent = f.sent.length
+    // The retired model is now retired in state, so it is no longer one the route could try.
+    expect(await go()).toEqual({ ok: false, code: 'LIMITS_EXHAUSTED' })
+    expect(f.sent).toHaveLength(sent)
+  })
+})
+
+describe('the tally branches that decide a route’s end (CR-M-2)', () => {
+  it('a model cooling down is one the route could still try: the rest spent is transient', async () => {
+    const [M0] = GROQ.models as [string, string]
+    let second = false
+    const f = scriptedFetch((s) => {
+      if (second) return SPENT
+      return s.model === M0 ? BUSY : GOOD
+    })
+    const d = deps(f.fetchImpl, { now })
+    const router = createRouter(config([GROQ]), d)
+    // Call 1: M0 is busy twice, so it cools down; M1 answers.
+    expect((await router.run(REQ)).ok).toBe(true)
+    second = true
+    // Call 2: M0 is still cooling down, M1 is spent: not every model it could try is spent.
+    expect(await router.run(REQ)).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+    expect(f.sent.at(-1)?.model).toBe(GROQ.models[1])
+  })
+
+  it('an image call: a route with no vision-capable model is unavailable, so a spent vision route ends it LIMITS_EXHAUSTED', async () => {
+    const f = scriptedFetch(() => GOOD)
+    const d = deps(f.fetchImpl, { now, routeState: stateOf(spentAll(GEMINI)) })
+    const r = await createRouter(config([GROQ, GEMINI]), d).run({ ...REQ, images: ['AAAA'] })
+    expect(r).toEqual({ ok: false, code: 'LIMITS_EXHAUSTED' })
+    expect(f.sent).toEqual([])
+  })
+
+  it('a text call: a route with no model to try is transient, not unavailable', async () => {
+    const f = scriptedFetch(() => GOOD)
+    const d = deps(f.fetchImpl, {
+      now,
+      routeState: stateOf(spentAll(GEMINI)),
+      managedModels: async (p, fallback) => (p === 'groq' ? [] : fallback),
+    })
+    expect(await createRouter(config([GROQ, GEMINI]), d).run(REQ)).toEqual({
+      ok: false,
+      code: 'PROVIDER_ERROR',
+    })
+  })
+})
+
+describe('a failed own-cap write is a fault, not a limit (R2, CR-M-4)', () => {
+  /** A state port that applies every change to memory and reports each write as failed. */
+  const failingWrites = (): RouteStatePort => {
+    const mem = createMemoryRouteStatePort()
+    return {
+      snapshot: mem.snapshot,
+      update: async (change) => {
+        await mem.update(change)
+        return false
+      },
+    }
+  }
+
+  it('sends nothing, leaves the counter unchanged and is not LIMITS_EXHAUSTED', async () => {
+    const capState = failingWrites()
+    const {
+      d,
+      f,
+      run: go,
+    } = run({
+      cap: createOwnCapPort({ state: capState, now }),
+      state: [spentAll(GEMINI)],
+    })
+    expect(await go()).toEqual({ ok: false, code: 'PROVIDER_ERROR' })
+    expect(f.sent).toEqual([])
+    expect(capState.snapshot().providers.find((r) => r.provider === 'groq')?.ownCap?.requests).toBe(
+      0,
+    )
+    expect(ofType(d.events, 'EXHAUSTED')[0]?.reasons).toEqual([
+      { route: 'gemini', code: 'SPENT_DAY' },
+      { route: 'groq', code: 'BUDGET' },
+    ])
+  })
+
+  it('a full own cap stays CAP', async () => {
+    const {
+      d,
+      f,
+      run: go,
+    } = run({
+      cap: createOwnCapPort({ state: createMemoryRouteStatePort(), now }),
+      routes: [{ ...GROQ, freeLimit: { requestsPerDay: 1 } }, GEMINI],
+      state: [spentAll(GEMINI)],
+    })
+    expect(await go()).toEqual({ ok: false, code: 'LIMITS_EXHAUSTED' })
+    expect(f.sent).toEqual([])
+    expect(ofType(d.events, 'EXHAUSTED')[0]?.reasons).toEqual([
+      { route: 'gemini', code: 'SPENT_DAY' },
+      { route: 'groq', code: 'CAP' },
+    ])
   })
 })
 
