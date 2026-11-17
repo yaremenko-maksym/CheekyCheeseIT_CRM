@@ -44,10 +44,14 @@ const at = (name, widths, cfg) =>
   })
 const BOTH = [375, 1440]
 
-// ---------------------------------------------------------------- list rows the sheet returns to
+// ---------------------------------------------------------------- closed-sheet money lifecycle
+// One model at every width (foundation §11): saving → saved | failed | unknown. The pill sits in the
+// foundation slot (phone: above the tab bar, left of «+»; tablet / desktop: bottom-right, 24 px, 320 × 52);
+// a failed / unknown draft is a pinned row at the top of the list and a dot on every «+». No toast.
+// The saved row has no description, so its title is the EXPENSE category (rule: description → category → kind).
 const OPT_ROW = {
   day: 'Сьогодні',
-  t: 'Оренда офісу',
+  t: 'Оплата послуги',
   s: 'Витрата · без проєкту',
   a: '−1 250,50 USD',
   time: '14:32',
@@ -55,69 +59,90 @@ const OPT_ROW = {
   neg: true,
   att: true,
 }
+// Foundation change request: amounts in the pill and the pinned row carry the sign of the kind.
+const signed = (html) => html.replace(/(?<![−+])1 250,50 USD/g, '−1 250,50 USD')
+// Status in --muted-fg (the meta line), never a dimmed row.
 const optimisticRow = (x) =>
-  txnRow({ ...x, tag: 'Зберігаємо…' }).replace(
-    'class="lrow two"',
-    'class="lrow two" aria-busy="true" style="opacity:.72"',
-  )
-function phoneList(rows) {
+  txnRow({ ...x, tag: 'Зберігаємо…' }).replace('class="lrow two"', 'class="lrow two" aria-busy="true"')
+const savedRow = (x) => txnRow(x)
+function phoneList(rows, pinned = '') {
   const today = `<div class="sechead"><span class="t-over">Сьогодні</span></div><div class="group">${rows}${TXNS.filter(
     (r) => r.day === 'Сьогодні',
   )
     .slice(0, 2)
     .map((r) => txnRow(r))
     .join('')}</div>`
-  return `${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾', 'Період ▾'])}${today}`
+  return `${searchField('Пошук транзакцій')}${chips(['Усі', 'Витрати', 'Доходи', 'Проєкт ▾', 'Період ▾'])}${pinned}${today}`
 }
-const toastErr = (w) => {
-  const pos =
-    w < 640
-      ? `left:12px;right:12px;bottom:${50 + (w <= 320 ? 0 : 34) + 16}px`
-      : 'right:24px;bottom:24px;width:420px'
-  return `<div role="alert" class="row" style="position:absolute;z-index:90;${pos};gap:10px;padding:10px 6px 10px 14px;border-radius:16px;background:oklch(0.2 0.04 22);border:1px solid oklch(0.38 0.09 22);box-shadow:0 10px 30px oklch(0 0 0 / 0.5)"><span style="color:var(--destructive)">${icon('circle-alert', { size: 20 })}</span><div class="grow col" style="gap:2px;min-width:0"><span class="num" style="font-size:14px;font-weight:600">Не збережено 1 250,50 USD</span><span class="t-cap" style="color:oklch(0.88 0.02 22)">Рядок прибрано зі списку. Сума й чек у чернетці.</span></div><span class="btn sm secondary" role="button" style="height:44px;flex:none">Відкрити</span></div>`
+/** The phone pill restyled into the tablet / desktop slot. */
+const widePill = (kind) =>
+  signed(T.moneyPill(375, kind)).replace(
+    /position:absolute;left:12px;right:\d+px;bottom:\d+px;z-index:44;height:56px;border-radius:16px/,
+    'position:absolute;right:24px;bottom:24px;z-index:80;width:320px;height:52px;border-radius:14px',
+  )
+const DOT =
+  '<i aria-hidden="true" style="position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--bg)"></i>'
+const TONE = { failed: 'var(--destructive)', unknown: 'var(--warning)' }
+const STATE = { failed: 'Не збережено · Витрата', unknown: 'Результат невідомий · Витрата' }
+/** Desktop: the pinned draft is a 40 px full-width first row of the table (prims-viz draftsDesktop). */
+const pinnedTr = (k) => {
+  const mix = (p) => `color-mix(in oklch, ${TONE[k]} ${p}%, transparent)`
+  return `<tr><td colspan="6" style="padding:0;max-width:none;background:${mix(7)};box-shadow:inset 2px 0 0 ${TONE[k]}"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:${TONE[k]};display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600;white-space:nowrap">−1 250,50 USD</span><span class="grow muted trunc">${STATE[k]}</span><button type="button" class="btn sm secondary" aria-label="Відкрити чернетку −1 250,50 USD" style="height:28px;font-size:13px;padding:0 12px;background:${mix(18)};border-color:${mix(45)}">Відкрити</button></div></td></tr>`
 }
-/** Desktop table with one extra first row (optimistic or none). */
-const injectRow = (html, tr) => html.replace('<tbody>', `<tbody>${tr}`)
-const optTr = `<tr aria-busy="true" style="opacity:.72"><td class="num muted">17.11</td><td><span class="row" style="gap:8px"><span class="trunc">Оренда офісу</span><span class="pill" style="height:20px;font-size:11px;gap:4px">${icon('loader-circle', { size: 11 })}Зберігаємо…</span></span></td><td class="muted">Витрата</td><td class="muted trunc">—</td><td style="text-align:center" class="muted">${icon('paperclip', { size: 14 })}</td><td class="num" style="text-align:right;font-weight:600">−1 250,50 USD</td></tr>`
+const tr = (status) =>
+  `<tr${status ? ' aria-busy="true"' : ''}><td class="num muted">17.11</td><td><span class="row" style="gap:8px"><span class="trunc">Оплата послуги</span>${status ? `<span class="pill" style="height:20px;font-size:11px;gap:4px;color:var(--muted-fg)">${icon('loader-circle', { size: 11 })}Зберігаємо…</span>` : ''}</span></td><td class="muted">Витрата</td><td class="muted trunc">—</td><td style="text-align:center" class="muted">${icon('paperclip', { size: 14 })}</td><td class="num" style="text-align:right;font-weight:600">−1 250,50 USD</td></tr>`
+const STEP_PILL = { saving: 'inflight', saved: 'saved', failed: 'failed', unknown: 'unknown' }
+const draft = (step) => step === 'failed' || step === 'unknown'
+
+function closedState(step, w) {
+  const pill = STEP_PILL[step]
+  if (w < 640) {
+    const row = step === 'saving' ? optimisticRow(OPT_ROW) : step === 'saved' ? savedRow(OPT_ROW) : ''
+    const pinned = draft(step) ? signed(T.pinnedRows([T.DRAFT[step]])) : ''
+    const html = T.tabScreen({
+      w,
+      h: 812,
+      role: 'ADMIN',
+      active: '/finance',
+      title: 'Фінанси',
+      body: phoneList(row, pinned),
+      overlay: signed(T.moneyPill(w, pill)),
+    })
+    return draft(step) ? T.MF.draftFab(html) : html
+  }
+  if (w < 1024) {
+    // Tablet 640–1023: one list pane; the pinned row sits above «Сьогодні», the dot on the rail «+».
+    const row = step === 'saving' ? optimisticRow(OPT_ROW) : step === 'saved' ? savedRow(OPT_ROW) : ''
+    const pinned = draft(step) ? signed(T.pinnedRows([T.DRAFT[step]])) : ''
+    let html = T.tablet({ w, h: 1024, role: 'ADMIN', overlay: widePill(pill) })
+      .replace('<div class="sechead"><span class="t-over">Сьогодні</span></div>', `${pinned}$&`)
+      .replace('<div class="group" style="margin:0 12px">', `$&${row}`)
+    if (draft(step))
+      html = html.replace(
+        /<div aria-label="Створити" style="(width:52px;height:52px;border-radius:16px;[^"]*)">([\s\S]*?)<\/div>/,
+        `<div aria-label="Створити, 1 чернетка потребує уваги" style="position:relative;$1">$2${DOT}</div>`,
+      )
+    return html
+  }
+  const first = step === 'saving' ? tr(true) : step === 'saved' ? tr(false) : pinnedTr(step)
+  let html = T.desktop({ w, h: 900, role: 'ADMIN', overlay: widePill(pill) })
+    .replace('padding:20px 24px 24px;', 'padding:20px 24px 100px;')
+    .replace('<tr aria-selected="true" style="background:var(--raised)">', '<tr>')
+    .replace('<tbody>', `<tbody>${first}`)
+  if (draft(step))
+    html = html
+      .replace(
+        '<span class="btn primary" style="height:36px',
+        '<span class="btn primary" aria-label="Нова транзакція, 1 чернетка потребує уваги" style="position:relative;height:36px',
+      )
+      .replace('C</span></span></header>', `C</span>${DOT}</span></header>`)
+  return html
+}
 
 function listFrames() {
-  const out = []
-  // Optimistic: the sheet closed at once, the row is in the list with «Зберігаємо…».
-  out.push(
-    frame(
-      'optimistic-row',
-      375,
-      T.tabScreen({
-        w: 375,
-        h: 812,
-        role: 'ADMIN',
-        active: '/finance',
-        title: 'Фінанси',
-        body: phoneList(optimisticRow(OPT_ROW)),
-        overlay: T.moneyPill(375, 'inflight'),
-      }),
-    ),
-    frame('optimistic-row', 1440, injectRow(T.desktop({ w: 1440, h: 900, role: 'ADMIN' }), optTr)),
-  )
-  // Rollback: the server said no — the row leaves, an error stays until acknowledged, the draft is pinned.
-  out.push(
-    frame(
-      'rollback',
-      375,
-      T.tabScreen({
-        w: 375,
-        h: 812,
-        role: 'ADMIN',
-        active: '/finance',
-        title: 'Фінанси',
-        body: `${T.pinnedRows([T.DRAFT.failed])}${phoneList('')}`,
-        overlay: toastErr(375),
-        showFab: false,
-      }),
-    ),
-    frame('rollback', 1440, T.desktop({ w: 1440, h: 900, role: 'ADMIN', overlay: toastErr(1440) })),
-  )
-  return out
+  const W3 = [375, 768, 1440]
+  const name = { saving: 'optimistic-row', saved: 'saved', failed: 'rollback', unknown: 'unknown-closed' }
+  return Object.keys(name).flatMap((step) => W3.map((w) => frame(name[step], w, closedState(step, w))))
 }
 
 // ---------------------------------------------------------------- confirm (dirty close)

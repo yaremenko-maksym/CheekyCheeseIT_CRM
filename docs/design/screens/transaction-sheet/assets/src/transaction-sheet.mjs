@@ -110,13 +110,33 @@ function amountSection(c) {
 const infoCard = (ic, html, tone = 'var(--muted-fg)') =>
   `<div class="row" style="gap:10px;align-items:flex-start;padding:12px 14px;border-radius:14px;background:var(--card);border:1px solid var(--border)"><span style="color:${tone};margin-top:1px">${icon(ic, { size: 18 })}</span><div class="grow t-foot" style="color:oklch(0.86 0 0)">${html}</div></div>`
 
-const chipRow = (label, list, on = -1) =>
-  `<div class="field"><label>${label}</label><div class="row" role="group" aria-label="${label}: підказки" style="gap:8px;flex-wrap:wrap">${list
+/** EXPENSE category: free text (today's `ExpenseCategoryField`); the chips only fill the field. */
+export const CATEGORY_HINTS = ['Оплата послуги', 'Банківський збір', 'Інше']
+function categoryField(c) {
+  const on = c.category ?? -1
+  const input = field({
+    id: 'ct',
+    label: 'Категорія',
+    value: on >= 0 ? CATEGORY_HINTS[on] : '',
+    ph: 'Категорія витрати',
+    attrs: 'role="textbox" aria-describedby="ct-s"',
+  })
+  const chips = CATEGORY_HINTS.map(
+    (x, i) =>
+      `<button type="button" class="pill" style="height:44px;padding:0 14px;border-radius:22px;font-size:15px;font:inherit;color:inherit;${i === on ? 'background:var(--raised);border-color:var(--fg)' : ''}">${x}</button>`,
+  ).join('')
+  return `<div class="col" style="gap:8px">${input}<div id="ct-s" class="row" role="group" aria-label="Підказки категорії" style="gap:8px;flex-wrap:wrap">${chips}</div></div>`
+}
+
+/** Read-only label + value list (permission-limited): no inputs, no chevrons, values at --fg. */
+export function readOnlyList(rows) {
+  return `<dl class="group" style="margin:0">${rows
     .map(
-      (x, i) =>
-        `<span role="button" aria-pressed="${i === on}" class="pill" style="height:44px;padding:0 14px;border-radius:22px;font-size:15px;${i === on ? 'background:var(--fg);color:var(--bg);font-weight:600' : ''}">${x}</span>`,
+      ([k, v], i) =>
+        `<div class="row" style="gap:12px;min-height:48px;padding:6px 14px;align-items:flex-start;${i ? 'border-top:1px solid var(--separator)' : ''}"><dt class="t-foot muted" style="flex:none;width:96px;padding-top:7px">${k}</dt><dd class="grow num" style="margin:0;padding-top:5px;color:var(--fg);font-size:15px;overflow-wrap:anywhere">${v}</dd></div>`,
     )
-    .join('')}</div></div>`
+    .join('')}</dl>`
+}
 
 /** Required fields that belong to the kind; they sit right under the amount. */
 function kindBlock(c) {
@@ -145,18 +165,21 @@ function kindBlock(c) {
     case 'DROP_INCOME':
       return pick('pr', 'Проєкт', c.project ?? 'Проєкт «Альфа»', {
         loading: L,
-        hint: c.kind === 'DROP_INCOME' ? 'Дохід піде на валідацію адміністратору' : '',
+        hint: c.kind === 'DROP_INCOME' ? 'Дохід перевірить адміністратор' : '',
       })
     case 'EXPENSE':
-      return chipRow('Категорія', ['Оплата послуги', 'Банківський збір', 'Інше'], c.category ?? -1)
+      return categoryField(c)
     case 'ADMIN_TRANSFER': {
-      const card = (who, verb) =>
-        `<div class="grow col" style="gap:2px;padding:12px;border-radius:14px;background:var(--card);border:1px solid var(--border);min-width:0"><span class="t-foot muted">${verb}</span><span class="t-sub trunc" style="font-weight:600">${who}</span></div>`
-      const swap =
-        c.role === 'ACCOUNTANT'
-          ? `<button type="button" class="iconbtn" aria-label="Поміняти напрямок" style="flex:none">${icon('arrow-left-right', { size: 20 })}</button>`
-          : `<span class="muted" style="flex:none;width:28px;display:grid;place-items:center">${icon('arrow-right', { size: 20 })}</span>`
-      return `<div class="field"><label>Напрямок переказу</label><div class="row" style="gap:6px;align-items:stretch">${card('Адміністратор 1', 'надсилає')}${swap}${card('Адміністратор 2', 'отримує')}</div></div>`
+      // A card is a picker trigger (chevron) unless it is fixed: an ADMIN always sends from their own account.
+      const card = (who, verb, fixed = false) =>
+        `<${fixed ? 'div' : 'button type="button" aria-haspopup="listbox"'} aria-label="${verb}: ${who}" class="grow row" style="gap:6px;min-height:64px;padding:10px 10px 10px 12px;border-radius:14px;background:var(--card);border:1px solid var(--border);min-width:0;text-align:left;font:inherit;color:inherit"><span class="grow col" style="gap:2px;min-width:0"><span class="t-foot muted">${verb}</span><span class="t-sub trunc" style="font-weight:600">${who}</span></span>${fixed ? '' : chev}</${fixed ? 'div' : 'button'}>`
+      const arrow = `<span aria-hidden="true" class="muted" style="flex:none;width:20px;display:grid;place-items:center">${icon('arrow-right', { size: 18 })}</span>`
+      const acc = c.role === 'ACCOUNTANT'
+      const swap = acc
+        ? `<button type="button" class="btn ghost" style="height:44px;align-self:flex-start;padding:0 12px;font-size:15px;font-weight:500;gap:8px">${icon('arrow-left-right', { size: 18 })}Поміняти напрямок</button>`
+        : ''
+      const from = acc ? card('Адміністратор 1', 'надсилає') : card('Ви · Адміністратор 1', 'надсилає', true)
+      return `<div class="field"><label>Напрямок переказу</label><div class="row" style="gap:6px;align-items:stretch">${from}${arrow}${card('Адміністратор 2', 'отримує')}</div>${swap}</div>`
     }
     case 'DIVIDEND':
       return (
@@ -206,8 +229,20 @@ function defaults(c) {
     : c.kind === 'SALARY' || c.kind === 'ADMIN_TRANSFER' || c.kind === 'DIVIDEND'
       ? ''
       : ' · без проєкту'
+  // Collapsed: the line wraps only between items (each item is nowrap); «змінити» is its own 44 × 44 target.
+  const items = [
+    'Сьогодні',
+    ...(proj ? ['без проєкту'] : []),
+    c.note ? `«${c.note}»` : 'без опису',
+    ...(c.kind === 'EXPENSE' && c.companyFunded ? ['Рахунок компанії'] : []),
+  ]
+  const line = items
+    .map((x, i) => `<span style="white-space:nowrap">${x}${i < items.length - 1 ? ' ·' : ''}</span>`)
+    .join(' ')
+  if (c.readOnlyDefaults)
+    return `<div class="row t-foot" style="justify-content:center;gap:6px;min-height:44px;flex-wrap:wrap;color:var(--fg)"><span class="muted">${icon('calendar', { size: 16 })}</span>${line}</div>`
   if (!c.expanded)
-    return `<div role="button" aria-expanded="false" aria-controls="opt" class="row" style="justify-content:center;gap:6px;min-height:44px;font-size:15px;flex-wrap:wrap"><span class="muted">${icon('calendar', { size: 16 })}</span><span>Сьогодні${proj} · без опису ·</span><span style="color:var(--primary);font-weight:600">змінити</span></div>`
+    return `<div class="row" style="justify-content:center;column-gap:6px;row-gap:0;min-height:44px;font-size:15px;flex-wrap:wrap;align-items:center"><span class="muted" style="display:grid">${icon('calendar', { size: 16 })}</span>${line}<button type="button" aria-expanded="false" aria-controls="opt" style="appearance:none;border:0;background:none;font:inherit;min-width:44px;min-height:44px;padding:0 4px;color:var(--primary);font-weight:600">змінити</button></div>`
   const date = field({
     id: 'dt',
     label: 'Дата',
@@ -231,23 +266,46 @@ function defaults(c) {
   return `<div id="opt" class="col" style="gap:16px">${date}${project}${funding}${note}</div>`
 }
 
-const lockedNote = (t = 'Надіслано о 14:32 · змінити не можна') =>
+/** Admin edit's own fields after «Що зміниться»: Дата (+ reason when it moves) and Примітки. */
+function adminEditFields(c) {
+  const date = field({
+    id: 'ed',
+    label: 'Дата',
+    value: '14 листопада 2026',
+    lead: `<span class="muted">${icon('calendar', { size: 18 })}</span>`,
+  })
+  const notes = field({ id: 'en', label: 'Примітки', value: c.note ?? '', ph: 'Необов’язково' })
+  return `<div class="col" style="gap:16px">${date}${notes}</div>`
+}
+
+const lockedNote = (t ='Надіслано о 14:32 · змінити не можна') =>
   `<div class="t-foot muted row num" style="gap:6px;justify-content:center">${icon('lock', { size: 14 })}${t}</div>`
 
 /** The form body: alert, receipt, amount (+ currency + kind), kind fields, optional fields. */
 export function formBody(c) {
+  if (c.readOnly) {
+    // permission-limited: nothing is editable, so nothing looks like a control.
+    const head = `<div style="padding:10px 0 4px;text-align:center"><div class="num" style="font-size:40px;line-height:48px;font-weight:700;letter-spacing:-0.03em;color:var(--fg)">${c.amount} ${c.cur}</div><div class="t-foot" style="margin-top:4px;color:var(--fg)">${c.readOnly.sub}</div></div>`
+    return `<div class="col" style="gap:14px;padding:${c.pad}">${c.banner ?? ''}${head}${readOnlyList(c.readOnly.rows)}</div>`
+  }
+  const sub = c.subtitle
+    ? `<div class="t-foot muted num" style="text-align:center;margin-bottom:-4px">${c.subtitle}</div>`
+    : ''
+  // Admin edit = today's AdminEditTransactionDialog field set: no project, no receiver, no kind.
+  const kindFields = c.adminEdit ? (c.kind === 'EXPENSE' ? categoryField(c) : '') : kindBlock(c)
   const parts = [
+    sub,
     c.banner ?? '',
     c.alert ?? '',
     c.locked ? lockedNote(c.lockedText) : '',
     c.kind === 'SALARY' ? kindBlock(c) : receiptSection(c),
     c.hideAmount ? '' : amountSection(c),
-    c.kind === 'SALARY' ? '' : kindBlock(c),
+    c.kind === 'SALARY' ? '' : kindFields,
     c.extra ?? '',
-    c.hideDefaults ? '' : defaults(c),
+    c.adminEdit ? adminEditFields(c) : c.hideDefaults ? '' : defaults(c),
   ].join('')
   const style = c.locked
-    ? '<style>.locked .btn,.locked .iconbtn,.locked [role=radiogroup],.locked .pill,.locked .input,.locked [aria-expanded]{opacity:.45}</style>'
+    ? '<style>.locked .btn,.locked .iconbtn,.locked [role=radiogroup],.locked .pill,.locked .input,.locked [aria-expanded],.locked button{opacity:.45}</style>'
     : ''
   const body = c.locked
     ? parts
@@ -264,7 +322,9 @@ export const FOOT = {
     `<span class="btn primary" role="button" style="width:100%">${label}${fine ? kbd('⌘↵', true) : ''}</span>`,
   inflight: (label = 'Зберегти') =>
     `<span class="btn primary" role="button" aria-disabled="true" aria-describedby="if-st" style="width:100%;opacity:.85">${spinner}${label}</span><span id="if-st" role="status" style="${SR}">Зберігаємо</span>`,
-  armed: () => armedBtn({ amount: '1 250,50', cur: 'USD' }),
+  // Foundation change request: «після завантаження чека» (the council's copy), not «після чека».
+  armed: () =>
+    armedBtn({ amount: '1 250,50', cur: 'USD' }).replaceAll('після чека', 'після завантаження чека'),
   retry: () => primaryBtn('Повторити збереження', 'rotate-cw') + discardBtn,
   resubmit: () => primaryBtn('Надіслати ще раз', 'send') + discardBtn,
   plain: (label) => primaryBtn(label),
@@ -283,7 +343,7 @@ export function phoneSheet(c) {
       ? `<span aria-label="${c.lead ?? 'Скасувати'}" style="display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center">${icon('x', { size: 22 })}</span>`
       : `<span style="font-size:17px">${c.lead ?? 'Скасувати'}</span>`
   const body = formBody({ ...c, pad: c.pad ?? '4px 16px 160px' })
-  const bar = submitBar({ w, kbdH, inner: c.footer })
+  const bar = c.footer ? submitBar({ w, kbdH, inner: c.footer }) : ''
   const narrow =
     w < 360
       ? '<style>.sheethead{grid-template-columns:minmax(52px,1fr) minmax(0,max-content) minmax(52px,1fr)}</style>'
@@ -314,7 +374,7 @@ export function widePanel(c) {
   const aside = `${scrim}<aside role="dialog" ${modal ? 'aria-modal="true" ' : ''}aria-labelledby="tp-t" style="position:absolute;top:0;right:0;bottom:0;width:${pw}px;z-index:70;background:var(--popover);border-left:1px solid oklch(0.28 0.006 85);box-shadow:-24px 0 60px oklch(0 0 0 / 0.5);display:flex;flex-direction:column">
   <div class="row" style="height:60px;flex:none;padding:0 8px;border-bottom:1px solid var(--border)"><button type="button" class="btn ghost" style="height:44px;font-size:16px;font-weight:400;padding:0 12px">${c.lead ?? 'Скасувати'}${fine ? ` ${kbd('Esc')}` : ''}</button><div id="tp-t" class="grow t-head" style="padding:0 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.title}</div></div>
   <div class="grow" style="min-height:0;overflow:hidden">${formBody({ ...c, w: pw, pad: '12px 24px 24px' }).replace('Камера, фото або файл', fine ? 'Перетягніть файл сюди або оберіть' : 'Камера, фото або файл')}</div>
-  <div style="padding:12px 24px 20px;border-top:1px solid var(--border)">${typeof c.footer === 'function' ? c.footer(fine) : c.footer}</div></aside>${c.over ?? ''}`
+  ${c.footer ? `<div style="padding:12px 24px 20px;border-top:1px solid var(--border)">${typeof c.footer === 'function' ? c.footer(fine) : c.footer}</div>` : ''}</aside>${c.over ?? ''}`
   return w >= 1024
     ? desktop({ w, h, role: c.role, overlay: aside, content: c.content ?? '' })
     : tablet({ w, h, role: c.role, overlay: aside })
@@ -330,4 +390,4 @@ export function txSheet(c) {
 export { page, icon, field, segmented, sheet, closeBtn, safeTop, safeBottom, tabScreen }
 export { financeBody, txnRow, TXNS, searchField, chips, txnList, desktop, tablet }
 export { moneyPill, pinnedRows, DRAFT, errAlert, discardBtn, primaryBtn, thumb, ring, kbd, sk, SR }
-export { infoCard, pick, chev }
+export { infoCard, pick, chev, MF }
