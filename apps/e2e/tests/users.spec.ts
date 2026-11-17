@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test'
 import { test, expect, ALL_USERS, USERS, mockAuthAs } from './fixtures'
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
-import { addTechnologies } from './fixtures/senior-tech'
+import { pickRoles } from './fixtures/senior-roles'
 
 // ---------------------------------------------------------------------------
 // Helper: fill and submit the Create SENIOR form, capturing the POST body
@@ -51,8 +51,8 @@ async function createSeniorViaDialog(page: Page): Promise<Record<string, unknown
   // createUserSchema fails client-side and the wizard blocks advance.
   await page.getByTestId('user-dialog-legal-full-name').fill('Сеніор Тестовий Іванович')
 
-  // A SENIOR needs at least 3 distinct technologies (shared floor).
-  await addTechnologies(page)
+  // A SENIOR needs at least one technical role (shared floor, SENIOR_MIN_ROLES).
+  await pickRoles(page)
 
   // ut-14: SENIOR/ADMIN are USDT-only; `walletUsdtErc20` is required by the
   // shared `refineRequisitePresence` rule. Without it the safeParse fails
@@ -310,7 +310,7 @@ test.describe('Users management page', () => {
 
       // A3-3: legalFullName required for SENIOR (contract-eligible role).
       await page.getByTestId('user-dialog-legal-full-name').fill('Сеніор Другий Іванович')
-      await addTechnologies(page)
+      await pickRoles(page)
 
       // ut-14: SENIOR/ADMIN are USDT-only; without `walletUsdtErc20` the
       // shared `refineRequisitePresence` blocks safeParse and no POST fires.

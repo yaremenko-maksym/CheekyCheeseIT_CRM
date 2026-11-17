@@ -16,7 +16,7 @@
 
 import { test, expect, USERS, TEAMS, API_RE } from './fixtures'
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
-import { addTechnologies } from './fixtures/senior-tech'
+import { pickRoles } from './fixtures/senior-roles'
 
 const VALID_USDT_WALLET = '0x' + '0'.repeat(40)
 
@@ -114,7 +114,7 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
     await page.getByTestId('user-dialog-legal-full-name').fill('Сеніор Тестовий Іванович')
 
     // A SENIOR needs at least 3 distinct technologies (shared floor).
-    await addTechnologies(page)
+    await pickRoles(page)
 
     // SENIOR is USDT-only — fill the wallet so the shared refine passes.
     await page.getByTestId('user-dialog-wallet').fill(VALID_USDT_WALLET)
