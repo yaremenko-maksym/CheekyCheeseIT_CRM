@@ -119,8 +119,9 @@ the redesign moves the two owner blocks to the top and keeps every block that ex
   bar carries its value label in thousands; the caption row reads «тис. USD» and, when any bar is
   negative, the hatch legend «збиток». The card heading «Динаміка за місяцями» is visually hidden
   (`sr-only` h2) — the controls carry the meaning.
-- **Company account row**: icon, «Рахунок компанії», `USDT · <short wallet>` sub-line, balance, info
-  button (44 px) → hint sheet.
+- **Company account card** (stacked, so nothing truncates at 320–375): icon, then «Рахунок компанії»
+  (caption), the balance (`6 215,40 USDT`, title size), `USDT · <short wallet>` (caption); info button
+  (44 px) → hint sheet. Error: caption, «Не вдалося завантажити баланс», a 44 px «Повторити» under it.
 - **«Показники»**: one grouped list, 8 rows (label + sub-line left, value right, info button → hint sheet).
   Order unchanged from today: the 4 primary, then the 4 secondary.
 - **«Контроль доходів»**: the 4 compliance KPIs as a 2 × 2 tile grid, then receiver rows (avatar, name,
@@ -128,18 +129,20 @@ the redesign moves the two owner blocks to the top and keeps every block that ex
 - **«Інші розділи»** (ADMIN): 3 dashed rows with «Скоро».
 - **First viewport.** At 375 × 812 the partner card and the whole 6-month chart sit above the tab bar
   (`default-375`). At 320 × 568 the partner card is complete and the chart starts below it: one short
-  scroll reaches it (`default-320`). The FAB overlaps the right end of the chart caption at 320 only;
-  nothing interactive sits under it.
+  scroll reaches it (`default-320`). Below 360 px the chart controls take two rows: the period
+  segmented sizes to its content (it ends left of the FAB, so «Усе» is never covered at rest) and the
+  series pill sits on the row under it.
 
 #### Tablet (640–1023) — `default-768`
 
 - Foundation rail (80 px) + one scrolling pane, 20 px gutters.
-- **640–899:** one column in the mobile order; the chart gets the full pane width (bars stay ≥ 44 px
-  bands at 6 months). KPIs become a 2-column tile grid, compliance as on mobile.
-- **900–1023:** two panes on top — left: partner card + company row; right: the chart card (narrow
-  controls: segmented on its own row, series pill below). Everything below as at 640–899.
+- **One column across the whole class**, in the mobile order; the chart gets the full pane width (bars
+  stay ≥ 44 px bands at 6 months). KPIs become a 2-column tile grid, compliance as on mobile.
+- No two-pane split at 900–1023: the foundation's split is list + detail, and Stats has no detail pane.
+  (No 900+ tablet frame: the foundation `tablet()` helper always draws a list + detail split from
+  900, so it cannot draw this layout; 768 is the reference for the whole class.)
 
-#### Desktop (≥ 1024) — `default-1024`, `default-1440`
+#### Desktop (≥ 1024) — `default-1024`, `default-1280`, `default-1440`
 
 - Foundation sidebar (248 px), header with breadcrumbs «Гроші › Статистика» and the shell CTA.
 - **≥ 1280:** top row = left column 380 px (partner card, company card) + chart card filling the rest.
@@ -147,26 +150,30 @@ the redesign moves the two owner blocks to the top and keeps every block that ex
   «Прибуток · Дохід · Витрати · Зарплати», period segmented «6 міс · 12 міс · Усе», a plot with y-axis
   ticks and value labels, hover tooltip, and under it the **month table** (Місяць | Дохід | Витрати |
   Зарплати | Прибуток, newest first, caption «Ті самі місяці, що й на графіку») for the selected period.
-- **1024–1279:** partner card and company card side by side, the chart card full width below.
-- «Показники»: 4 × 2 tiles (primary row, secondary row), each with an info button (tooltip on hover
-  and focus). «Контроль доходів»: one card — 4 KPI tiles + receiver rows with the progress bar
+  The chart header wraps when the card is narrow: at 1280 the title and series control share the first
+  row and the period control drops to the second (`default-1280`); the title never wraps.
+- **1024–1279:** partner card and the stacked company card (as on mobile) side by side, the chart card
+  full width below.
+- «Показники»: tiles, each with an info button (tooltip on hover and focus) — 4 columns (primary row,
+  secondary row) at ≥ 1280, 2 columns at 1024–1279 (a 4-column tile is too narrow for
+  `293 040,00 USD` there). «Контроль доходів»: one card — 4 KPI tiles + receiver rows with the progress bar
   (desktop only, decorative) + footnote. «Інші розділи» (ADMIN).
 
 ### 2.2 States
 
-| State                   | Frames                                                                                                            | What shows                                                                                                                                                                                                                                                                                                                                                              |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| default                 | `default-*`, `full-*`                                                                                             | §2.1                                                                                                                                                                                                                                                                                                                                                                    |
-| loading                 | `loading-375`, `loading-1440`                                                                                     | Skeletons in the final geometry (partner card, chart, company row, KPI list / tiles). One `aria-busy` region labelled «Завантаження статистики». No spinner                                                                                                                                                                                                             |
-| empty (no finance data) | `empty-375`, `empty-1440`                                                                                         | No partner card when `adminBalances` is empty (as today). Chart card keeps its controls, plot replaced by «Ще немає даних за місяцями» / «Графік з’явиться після першої оплаченої транзакції.». The 4 primary KPIs show zeros; the 4 secondary ones are hidden (as today: they need monthly data). Compliance: «Немає активних проєктів-отримувачів доходу за <month>.» |
-| error (finance summary) | `error-375`, `error-1440`                                                                                         | One alert card in place of partner + chart + KPIs: «Не вдалося завантажити фінансову статистику» + «Баланс партнерів, графік і показники зараз недоступні. Рахунок компанії та контроль доходів — окремі дані.» + «Повторити». Company account and compliance still render                                                                                              |
-| partial                 | `partial-375`, `partial-1440`                                                                                     | Summary loaded; company account failed → the row reads «Не вдалося завантажити баланс» + «Повторити»; compliance failed → «Не вдалося завантажити дані контролю доходів.» + «Повторити». Each block retries its own query                                                                                                                                               |
-| offline                 | `offline-375`                                                                                                     | Foundation offline banner on top; cached data stays visible (TanStack Query cache), no blanking                                                                                                                                                                                                                                                                         |
-| balanced                | `balanced-375`, `balanced-1440`                                                                                   | `debt <= 0.01` → the answer line reads «Баланси вирівняно» / «Ніхто нікому не винен» (today's copy), no direction line; shares and bars stay                                                                                                                                                                                                                            |
-| long content            | `long-375`, `long-320`                                                                                            | A long partner name wraps to two lines; a negative balance shows U+2212 and share «—» (today's rule) with no bar                                                                                                                                                                                                                                                        |
-| no wallet               | (row variant, see generator `companyRow`)                                                                         | Sub-line «USDT · Гаманець не налаштовано», balance hidden                                                                                                                                                                                                                                                                                                               |
-| permission              | `accountant-375`, `accountant-1440`                                                                               | §2.3. Other roles never see the screen (route redirect)                                                                                                                                                                                                                                                                                                                 |
-| interaction             | `scrub-12m-375`, `series-sheet-375`, `month-sheet-375`, `hint-sheet-375`, `compliance-expanded-375`, `hover-1440` | §2.4                                                                                                                                                                                                                                                                                                                                                                    |
+| State                   | Frames                                                                                                            | What shows                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| default                 | `default-*`, `full-*`                                                                                             | §2.1                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| loading                 | `loading-375`, `loading-1440`                                                                                     | Skeletons in the final geometry (partner card, chart, company row, KPI list / tiles). One `aria-busy` region labelled «Завантаження статистики». No spinner                                                                                                                                                                                                                                                                                                                                                                                                       |
+| empty (no finance data) | `empty-375`, `empty-1440`                                                                                         | Partner card hidden when `adminBalances` is empty (as today); when the partners exist with zero balances (the frame) it shows «Баланси вирівняно», balances `0,00 USD`, share «—» and no bar (today divides by a zero total). Chart card keeps its controls, plot replaced by «Ще немає даних за місяцями» / «Графік з’явиться після першої оплаченої транзакції.». The 4 primary KPIs show `0,00 USD` with no sub-line; the 4 secondary ones are hidden (as today: they need monthly data). Compliance: «Немає активних проєктів-отримувачів доходу за <month>.» |
+| error (finance summary) | `error-375`, `error-1440`                                                                                         | One alert card in place of partner + chart + KPIs: «Не вдалося завантажити фінансову статистику» + «Баланс партнерів, графік і показники зараз недоступні. Рахунок компанії та контроль доходів нижче — окремі дані.» + «Повторити». Company account and compliance still render                                                                                                                                                                                                                                                                                  |
+| partial                 | `partial-375`, `partial-1440`                                                                                     | Summary loaded; company account failed → the row reads «Не вдалося завантажити баланс» + «Повторити»; compliance failed → «Не вдалося завантажити дані контролю доходів.» + «Повторити». Each block retries its own query                                                                                                                                                                                                                                                                                                                                         |
+| offline                 | `offline-375`                                                                                                     | Foundation offline banner on top; cached data stays visible (TanStack Query cache), no blanking                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| balanced                | `balanced-375`, `balanced-1440`                                                                                   | `debt <= 0.01` → the answer line reads «Баланси вирівняно» / «Ніхто нікому не винен» (today's copy), no direction line; shares and bars stay                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| long content            | `long-375`, `long-320`                                                                                            | A long partner name wraps to two lines; a negative balance shows U+2212 and share «—» (today's rule) with no bar                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| no wallet               | `nowallet-375`                                                                                                    | Caption + «USDT · Гаманець не налаштовано», no balance line                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| permission              | `accountant-375`, `accountant-1440`                                                                               | §2.3. Other roles never see the screen (route redirect)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| interaction             | `scrub-12m-375`, `series-sheet-375`, `month-sheet-375`, `hint-sheet-375`, `compliance-expanded-375`, `hover-1440` | §2.4                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 Baseline captures of today's screen and the network baseline: **pending** (no running stack in this
 pass; manual-qa captures them before the coder starts).
@@ -232,40 +239,97 @@ ADMIN nav (a mockup limitation, not a design decision; the real sidebar comes fr
 New or changed strings only; every KPI label, sub-line and hint text keeps today's wording (now in the
 catalog, `uk` source).
 
-| Key (suggested)              | uk                                                                                                         | en                                                                                                          |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `stats.partners.title`       | Баланс партнерів                                                                                           | Partner balance                                                                                             |
-| `stats.partners.total`       | Разом {amount}                                                                                             | Total {amount}                                                                                              |
-| `stats.partners.settle`      | Для вирівнювання                                                                                           | To even out                                                                                                 |
-| `stats.partners.sends`       | надсилає                                                                                                   | sends                                                                                                       |
-| `stats.partners.receives`    | отримує                                                                                                    | receives                                                                                                    |
-| `stats.partners.balanced`    | Баланси вирівняно                                                                                          | Balances are even                                                                                           |
-| `stats.partners.balancedSub` | Ніхто нікому не винен                                                                                      | Nobody owes anyone                                                                                          |
-| `stats.chart.title`          | Динаміка за місяцями                                                                                       | Monthly trend                                                                                               |
-| `stats.chart.period.6`       | 6 міс                                                                                                      | 6 mo                                                                                                        |
-| `stats.chart.period.12`      | 12 міс                                                                                                     | 12 mo                                                                                                       |
-| `stats.chart.period.all`     | Усе                                                                                                        | All                                                                                                         |
-| `stats.chart.series.*`       | Прибуток · Дохід · Витрати · Зарплати                                                                      | Profit · Income · Expenses · Salaries                                                                       |
-| `stats.chart.seriesLabel`    | Показник графіка                                                                                           | Chart series                                                                                                |
-| `stats.chart.unit`           | тис. {currency}                                                                                            | {currency} thousands                                                                                        |
-| `stats.chart.loss`           | збиток                                                                                                     | loss                                                                                                        |
-| `stats.chart.prev` / `.next` | Попередній місяць · Наступний місяць                                                                       | Previous month · Next month                                                                                 |
-| `stats.chart.empty`          | Ще немає даних за місяцями                                                                                 | No monthly data yet                                                                                         |
-| `stats.chart.emptySub`       | Графік з’явиться після першої оплаченої транзакції.                                                        | The chart appears after the first paid transaction.                                                         |
-| `stats.table.caption`        | Ті самі місяці, що й на графіку                                                                            | Same months as the chart                                                                                    |
-| `stats.table.month`          | Місяць                                                                                                     | Month                                                                                                       |
-| `stats.month.transactions`   | Транзакції за {month}                                                                                      | Transactions for {month}                                                                                    |
-| `stats.kpi.title`            | Показники                                                                                                  | Key figures                                                                                                 |
-| `stats.hint.label`           | Пояснення: {name}                                                                                          | About: {name}                                                                                               |
-| `stats.error.title`          | Не вдалося завантажити фінансову статистику                                                                | Couldn’t load finance statistics                                                                            |
-| `stats.error.body`           | Баланс партнерів, графік і показники зараз недоступні. Рахунок компанії та контроль доходів — окремі дані. | Partner balance, chart and key figures are unavailable. Company account and income control load separately. |
-| `stats.company.error`        | Не вдалося завантажити баланс                                                                              | Couldn’t load the balance                                                                                   |
-| `stats.loading`              | Завантаження статистики                                                                                    | Loading statistics                                                                                          |
-| `common.retry`               | Повторити                                                                                                  | Retry                                                                                                       |
+| Key (suggested)              | uk                                                                                                               | en                                                                                                                |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `stats.partners.title`       | Баланс партнерів                                                                                                 | Partner balance                                                                                                   |
+| `stats.partners.total`       | Разом {amount}                                                                                                   | Total {amount}                                                                                                    |
+| `stats.partners.settle`      | Для вирівнювання                                                                                                 | To even out                                                                                                       |
+| `stats.partners.sends`       | надсилає                                                                                                         | sends                                                                                                             |
+| `stats.partners.receives`    | отримує                                                                                                          | receives                                                                                                          |
+| `stats.partners.balanced`    | Баланси вирівняно                                                                                                | Balances are even                                                                                                 |
+| `stats.partners.balancedSub` | Ніхто нікому не винен                                                                                            | Nobody owes anyone                                                                                                |
+| `stats.chart.title`          | Динаміка за місяцями                                                                                             | Monthly trend                                                                                                     |
+| `stats.chart.period.6`       | 6 міс                                                                                                            | 6 mo                                                                                                              |
+| `stats.chart.period.12`      | 12 міс                                                                                                           | 12 mo                                                                                                             |
+| `stats.chart.period.all`     | Усе                                                                                                              | All                                                                                                               |
+| `stats.chart.series.*`       | Прибуток · Дохід · Витрати · Зарплати                                                                            | Profit · Income · Expenses · Salaries                                                                             |
+| `stats.chart.seriesLabel`    | Показник графіка                                                                                                 | Chart series                                                                                                      |
+| `stats.chart.unit`           | тис. {currency}                                                                                                  | {currency} thousands                                                                                              |
+| `stats.chart.loss`           | збиток                                                                                                           | loss                                                                                                              |
+| `stats.chart.prev` / `.next` | Попередній місяць · Наступний місяць                                                                             | Previous month · Next month                                                                                       |
+| `stats.chart.empty`          | Ще немає даних за місяцями                                                                                       | No monthly data yet                                                                                               |
+| `stats.chart.emptySub`       | Графік з’явиться після першої оплаченої транзакції.                                                              | The chart appears after the first paid transaction.                                                               |
+| `stats.table.caption`        | Ті самі місяці, що й на графіку                                                                                  | Same months as the chart                                                                                          |
+| `stats.table.month`          | Місяць                                                                                                           | Month                                                                                                             |
+| `stats.month.transactions`   | Транзакції за {month}                                                                                            | Transactions for {month}                                                                                          |
+| `stats.kpi.title`            | Показники                                                                                                        | Key figures                                                                                                       |
+| `stats.hint.label`           | Пояснення: {name}                                                                                                | About: {name}                                                                                                     |
+| `stats.error.title`          | Не вдалося завантажити фінансову статистику                                                                      | Couldn’t load finance statistics                                                                                  |
+| `stats.error.body`           | Баланс партнерів, графік і показники зараз недоступні. Рахунок компанії та контроль доходів нижче — окремі дані. | Partner balance, chart and key figures are unavailable. Company account and income control below load separately. |
+| `stats.company.error`        | Не вдалося завантажити баланс                                                                                    | Couldn’t load the balance                                                                                         |
+| `stats.loading`              | Завантаження статистики                                                                                          | Loading statistics                                                                                                |
+| `common.retry`               | Повторити                                                                                                        | Retry                                                                                                             |
+| `stats.placeholders.soon`    | Скоро                                                                                                            | Soon                                                                                                              |
 
-The existing compliance strings («Контроль доходів», «Усього доходів», «Закриті повністю», «Відстають»,
-«На валідації у бухгалтера», «Усі отримано», «# у процесі», «# без доходу», the footnote and the empty
-text) and the KPI hints move to the catalog unchanged. copy-reviewer reviews both languages.
+`stats.partners.title` changes today's «Баланси партнерів» to «Баланс партнерів»: the card now answers
+one question (the settlement), not a list of balances (see `## Assumptions`).
+
+**Today's strings, `uk` unchanged.** The `en` column is new; plurals keep today's ICU forms (`en` uses
+`one` / `other`). copy-reviewer reviews both languages.
+
+| uk (today)                                                                                                                                          | en                                                                                                                                  |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Загальний дохід                                                                                                                                     | Total income                                                                                                                        |
+| Витрати                                                                                                                                             | Expenses                                                                                                                            |
+| Зарплати                                                                                                                                            | Salaries                                                                                                                            |
+| Чистий баланс                                                                                                                                       | Net balance                                                                                                                         |
+| Дохід за останній місяць                                                                                                                            | Income last month                                                                                                                   |
+| Прибуток за останній місяць                                                                                                                         | Profit last month                                                                                                                   |
+| Середній дохід / міс.                                                                                                                               | Average income / mo                                                                                                                 |
+| Найкращий місяць                                                                                                                                    | Best month                                                                                                                          |
+| vs попер. місяць                                                                                                                                    | vs previous month                                                                                                                   |
+| Маржа: {margin}%                                                                                                                                    | Margin: {margin}%                                                                                                                   |
+| за {count, plural, one {# місяць} few {# місяці} many {# місяців} other {# місяця}}                                                                 | over {count, plural, one {# month} other {# months}}                                                                                |
+| Сума всіх оплачених надходжень та доходу сеньйорів і адмінів за весь час.                                                                           | All paid receipts plus senior and admin income, all time.                                                                           |
+| Сума всіх оплачених операційних витрат компанії.                                                                                                    | All paid operating expenses of the company.                                                                                         |
+| Сума всіх виплачених зарплат співробітникам компанії за весь час.                                                                                   | All salaries paid to employees, all time.                                                                                           |
+| Чистий залишок: дохід мінус витрати та зарплати. Додатне значення = компанія в плюсі.                                                               | What is left: income minus expenses and salaries. Positive means the company is ahead.                                              |
+| Виручка за {month}. Включає доходи всіх сеньйорів і адмінів.                                                                                        | Revenue for {month}, including the income of every senior and admin.                                                                |
+| Чистий прибуток за {month}: дохід мінус витрати та зарплати того місяця.                                                                            | Net profit for {month}: that month's income minus its expenses and salaries.                                                        |
+| Середньомісячна виручка за весь час роботи компанії.                                                                                                | Average monthly revenue since the company started.                                                                                  |
+| Місяць із найбільшою виручкою за весь час.                                                                                                          | The month with the highest revenue, all time.                                                                                       |
+| Разом                                                                                                                                               | Total                                                                                                                               |
+| Рахунок компанії · USDT                                                                                                                             | Company account · USDT                                                                                                              |
+| Гаманець не налаштовано                                                                                                                             | Wallet not set up                                                                                                                   |
+| Контроль доходів                                                                                                                                    | Income control                                                                                                                      |
+| Усього доходів                                                                                                                                      | All income                                                                                                                          |
+| Закриті повністю                                                                                                                                    | Fully closed                                                                                                                        |
+| Відстають                                                                                                                                           | Lagging                                                                                                                             |
+| На валідації у бухгалтера                                                                                                                           | With the accountant for validation                                                                                                  |
+| # активний проєкт · # активні проєкти · # активних проєктів · # активного проєкту                                                                   | # active project · # active projects                                                                                                |
+| отримувач · отримувачі · отримувачів · отримувача                                                                                                   | receiver · receivers                                                                                                                |
+| дохід · доходи · доходів · доходу                                                                                                                   | income entry · income entries                                                                                                       |
+| Усі отримано                                                                                                                                        | All received                                                                                                                        |
+| # у процесі                                                                                                                                         | # in progress                                                                                                                       |
+| # без доходу                                                                                                                                        | # without income                                                                                                                    |
+| # на валідації                                                                                                                                      | # in validation                                                                                                                     |
+| # нараховано                                                                                                                                        | # accrued                                                                                                                           |
+| Нараховано · очікує розрахунку                                                                                                                      | Accrued · awaiting payout                                                                                                           |
+| Нараховано                                                                                                                                          | Accrued                                                                                                                             |
+| На валідації                                                                                                                                        | In validation                                                                                                                       |
+| Немає доходу                                                                                                                                        | No income                                                                                                                           |
+| Немає доходів                                                                                                                                       | No income yet                                                                                                                       |
+| Проєкти без зарахованого доходу                                                                                                                     | Projects with no credited income                                                                                                    |
+| Не вдалося завантажити дані контролю доходів.                                                                                                       | Couldn’t load income control data.                                                                                                  |
+| Немає активних проєктів-отримувачів доходу за {month}.                                                                                              | No active income-receiving projects for {month}.                                                                                    |
+| Зараховується дохід у статусі «валідовано» або «виплачено» за поточний місяць. Згодом: ручні винятки (пауза / відпустка) і автоматичні нагадування. | Counts income marked “validated” or “paid” for the current month. Later: manual exceptions (pause / leave) and automatic reminders. |
+| Інші розділи                                                                                                                                        | Other sections                                                                                                                      |
+| HR — воронка співбесід                                                                                                                              | HR — interview funnel                                                                                                               |
+| Команда — активність                                                                                                                                | Team — activity                                                                                                                     |
+| Проєкти — завантаженість                                                                                                                            | Projects — workload                                                                                                                 |
+
+Role labels in receiver rows (`Сеньйор`, `Адмін-сеньйор`, `Дроп`) keep today's text and move to the
+catalog with the rest.
 
 ### 2.7 Data each layout reads
 
@@ -291,30 +355,39 @@ text) and the KPI hints move to the catalog unchanged. copy-reviewer reviews bot
   months.
 - A1: the partner card stays visible to ACCOUNTANT, as today.
 - A1: KPI hints keep today's text; only the delivery changes (sheet on touch, tooltip on desktop).
+- A1: the partner card title becomes «Баланс партнерів» (today «Баланси партнерів»); copy-reviewer may
+  revert it.
 
 ## 3. Mockups
 
 `design-gate: degraded` — Claude Design has no headless path; these are HTML prototypes on the
 foundation tokens, rendered by `assets/src/render.mjs` (`node render.mjs [filter]`) into
-`assets/stats/`. Fidelity references: `default-375.png` (mobile) and `default-1440.png` (desktop).
+`assets/stats/`. Fidelity references: `default-320.png` and `default-1440.png` stand in for the
+`design.png` pair that `responsive-design` requires (mobile 320, desktop 1440); `default-375.png` is
+the everyday mobile reference.
 
-| Frame                                                   | Width(s)        | Shows                                    |
-| ------------------------------------------------------- | --------------- | ---------------------------------------- |
-| `default-320`, `default-375`                            | 320, 375        | Main state, first viewport               |
-| `full-320`, `full-375`                                  | 320, 375        | Main state, whole page                   |
-| `default-768`, `default-1024`, `default-1440`           | 768, 1024, 1440 | Main state, tablet and desktop           |
-| `loading-375`, `loading-1440`                           | 375, 1440       | Skeletons                                |
-| `empty-375`, `empty-1440`                               | 375, 1440       | No finance data, no compliance receivers |
-| `error-375`, `error-1440`                               | 375, 1440       | Finance summary failed                   |
-| `partial-375`, `partial-1440`                           | 375, 1440       | Company account and compliance failed    |
-| `offline-375`                                           | 375             | Offline banner over cached data          |
-| `balanced-375`, `balanced-1440`                         | 375, 1440       | Settlement ≤ 0,01                        |
-| `long-375`, `long-320`                                  | 375, 320        | Long name, negative balance              |
-| `accountant-375`, `accountant-1440`                     | 375, 1440       | ACCOUNTANT (no «Інші розділи»)           |
-| `scrub-12m-375`                                         | 375             | 12 months, drag-scrub on a loss month    |
-| `series-sheet-375`, `month-sheet-375`, `hint-sheet-375` | 375             | Sheets                                   |
-| `compliance-expanded-375`                               | 375             | Receiver row expanded                    |
-| `hover-1440`                                            | 1440            | Chart hover tooltip                      |
+| Frame                                                   | Width(s)  | Shows                                    |
+| ------------------------------------------------------- | --------- | ---------------------------------------- |
+| `default-320`, `default-375`                            | 320, 375  | Main state, first viewport               |
+| `full-320`, `full-375`                                  | 320, 375  | Main state, whole page                   |
+| `default-768`                                           | 768       | Main state, tablet (one column)          |
+| `default-1024`, `default-1280`, `default-1440`          | 1024–1440 | Main state, desktop                      |
+| `loading-375`, `loading-1440`                           | 375, 1440 | Skeletons                                |
+| `empty-375`, `empty-1440`                               | 375, 1440 | No finance data, no compliance receivers |
+| `error-375`, `error-1440`                               | 375, 1440 | Finance summary failed                   |
+| `partial-375`, `partial-1440`                           | 375, 1440 | Company account and compliance failed    |
+| `offline-375`                                           | 375       | Offline banner over cached data          |
+| `nowallet-375`                                          | 375       | Company wallet not set up                |
+| `balanced-375`, `balanced-1440`                         | 375, 1440 | Settlement ≤ 0,01                        |
+| `long-375`, `long-320`                                  | 375, 320  | Long name, negative balance              |
+| `accountant-375`, `accountant-1440`                     | 375, 1440 | ACCOUNTANT (no «Інші розділи»)           |
+| `scrub-12m-375`                                         | 375       | 12 months, drag-scrub on a loss month    |
+| `series-sheet-375`, `month-sheet-375`, `hint-sheet-375` | 375       | Sheets                                   |
+| `compliance-expanded-375`                               | 375       | Receiver row expanded                    |
+| `hover-1440`                                            | 1440      | Chart hover tooltip                      |
+
+`month-sheet-375` draws the «Транзакції за <month>» row as the future state; it stays hidden until
+Task 1.2 adds the month filter (Open point 1).
 
 Baseline captures of today's screen and the network baseline: **pending**.
 
@@ -338,6 +411,8 @@ visualisation is capped at 9.5 while drill-down to transactions waits for a mont
 
 **Weakest criterion:** Data visualisation on mobile and tablet (9.0) — the month cannot open its
 transactions until the finance list gains a month filter. On mobile, Time-to-task at 320 ties it.
+On desktop the weakest is Accessibility (9.0): the chart and the month table still need a real
+screen-reader pass (Navigation and Platform fit tie at 9.0, but neither has an open defect).
 
 ## 5. Open points
 
@@ -356,6 +431,39 @@ transactions until the finance list gains a month filter. On mobile, Time-to-tas
    _Recommendation:_ accept; the real sidebar comes from the role nav.
 7. **Desktop month table** (A1 assumption). _Recommendation:_ keep — it is the accessible equivalent of
    the chart and costs no new data; the owner may veto.
+
+## Components (mapping to our stack)
+
+| Visual block                               | Our component (shadcn/ui / composite)                                                | New?                                |
+| ------------------------------------------ | ------------------------------------------------------------------------------------ | ----------------------------------- |
+| Partner balance card (settlement first)    | `ui/card.tsx` + share bars (plain elements)                                          | restyle of `CompanyAndPartnersCard` |
+| Monthly chart                              | the existing chart library (recharts) on `--chart-*` (primitives-v2 §6)              | restyle                             |
+| Period control (6 міс · 12 міс · Усе)      | `ui/segmented-toggle.tsx`                                                            | restyle (compact size at 320)       |
+| Series picker                              | pill button → PickerSheet on touch, `ui/popover.tsx` on desktop                      | uses foundation PickerSheet         |
+| Month sheet                                | Bottom sheet (medium detent) + `ListRow`                                             | uses foundation Sheet               |
+| KPI hint                                   | Bottom sheet on touch, `ui/tooltip.tsx` on desktop                                   | uses foundation Sheet               |
+| Company account card / row                 | `ui/card.tsx`; inline error with `ui/alert.tsx` semantics and a Retry button         | restyle                             |
+| KPI list (mobile, tablet) / tiles (≥ 1024) | `ListSection` + `ListRow`; tiles on `ui/card.tsx`                                    | uses foundation List row            |
+| Desktop month table                        | `ui/table.tsx`                                                                       | NEW block (A1), existing component  |
+| «Контроль доходів»                         | today's `IncomeComplianceSection`, rows as `ListRow`, status pills on `ui/badge.tsx` | restyle                             |
+| «Інші розділи» placeholders                | `ListRow` (disabled) + `ui/badge.tsx` «Скоро»                                        | restyle                             |
+| Skeletons                                  | `ui/skeleton.tsx`                                                                    | restyle                             |
+| Offline banner                             | foundation shell feedback (primitives-v2 §5)                                         | uses foundation                     |
+
+## Token-map
+
+Only tokens from `apps/web/app/styles/globals.css`, as the foundation mirrors them.
+
+| Use                                        | Token                                            |
+| ------------------------------------------ | ------------------------------------------------ |
+| Card, sheet background                     | `--card`, `--raised` (sheet), `--surface` (page) |
+| Sender share bar, profit bars              | `--chart-1`                                      |
+| Receiver share bar                         | `--chart-2`                                      |
+| Chart gridlines, zero line                 | `--chart-grid`                                   |
+| Positive trend, «Усі отримано»             | `--positive`                                     |
+| Loss readout, negative balance, error text | `--destructive`                                  |
+| Captions, units, sub-lines                 | `--muted-fg`                                     |
+| Card / sheet radius; inner rows and bars   | `--r-xl` / `--r-lg`                              |
 
 ## 6. For the coder
 
