@@ -464,6 +464,13 @@ export function opportunityRoleFamily(result: Evaluated | Excluded): string | nu
  */
 export const EVALUATION_RECORD_VERSION = 'rf.2'
 
+/**
+ * The record format `EVALUATION_RECORD_VERSION` replaced; advance it with every bump. A format bump
+ * leaves the verdict unchanged, so a queue grant keeps showing a row still stamped under it until
+ * the sweep re-evaluates the row (review CR-M-2: the sweep takes hours on a large backlog).
+ */
+export const PREVIOUS_EVALUATION_RECORD_VERSION = 'rf.1'
+
 const digest = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 32)
 
@@ -485,6 +492,17 @@ export function opportunityInputsVersion(
     .map((e) => e.value)
     .sort()
   return digest([ruleVersion, keywords])
+}
+
+/**
+ * `opportunityInputsVersion` under `PREVIOUS_EVALUATION_RECORD_VERSION`: the same live keyword
+ * exclusions, so a keyword change still hides a row; only the record-format bump is forgiven.
+ */
+export function previousOpportunityInputsVersion(exclusions: readonly JobExclusionDto[]): string {
+  return opportunityInputsVersion(
+    exclusions,
+    `${MATCH_RULE_VERSION}+${PREVIOUS_EVALUATION_RECORD_VERSION}`,
+  )
 }
 
 /** A senior's profile version: the stack and teams the verdict rests on. */

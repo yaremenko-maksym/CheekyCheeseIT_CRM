@@ -39,6 +39,11 @@ export type JobQueueScope =
        * grant shows an opportunity only while its recorded inputs version equals this (SR-M-1).
        */
       readonly inputsVersion: string
+      /**
+       * `previousOpportunityInputsVersion` from the same load: a grant also shows a row stamped
+       * under the previous record format, whose verdict a format bump does not change (CR-M-2).
+       */
+      readonly previousInputsVersion: string
     }
   | { readonly kind: 'NONE' }
 
@@ -167,7 +172,7 @@ export function visibleOpportunityPredicate(scope: JobQueueScope, opportunityId:
                          AND gop.availability NOT IN ('CLOSED', 'EXPIRED')
                          AND gop.evaluated_revision = gop.revision
                          AND gop.evaluation_verdict = 'OPEN'
-                         AND gop.evaluated_inputs_version = ${scope.inputsVersion}
+                         AND gop.evaluated_inputs_version IN (${scope.inputsVersion}, ${scope.previousInputsVersion})
                          AND ${liveTeam('gt', scope.teamId)})
            OR EXISTS (SELECT 1 FROM job_opportunities sop
                         JOIN job_team_triage_subscriptions s ON s.role_family = sop.role_family
@@ -185,7 +190,7 @@ export function visibleOpportunityPredicate(scope: JobQueueScope, opportunityId:
                          AND sop.availability NOT IN ('CLOSED', 'EXPIRED')
                          AND sop.evaluated_revision = sop.revision
                          AND sop.evaluation_verdict = 'OPEN'
-                         AND sop.evaluated_inputs_version = ${scope.inputsVersion}
+                         AND sop.evaluated_inputs_version IN (${scope.inputsVersion}, ${scope.previousInputsVersion})
                          AND ${liveTeam('st', scope.teamId)}))
              AND NOT EXISTS (SELECT 1 FROM job_opportunities mn
                               WHERE mn.id = ${opportunityId}
