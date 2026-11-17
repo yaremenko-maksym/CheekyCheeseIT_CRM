@@ -171,6 +171,8 @@ never a silent failure"; §5.4 (the small dose); the local phase of §6.2; the t
   cycle through the existing `claimEmissions`, at warn level, not error: it is expected under load. `MODEL_ROUTE_VALUES`
   gains `openrouter` and keeps `local`, so a historical row stays valid. Both are CHECK constraints on
   `job_model_health_flags` and `job_model_route_daily`, so this is forward DDL in `manual-staged/` (critical path).
+  **Amended 2026-11-17 (5.4c-H2):** the tables were promoted to `manual/` (backlog 434), so both CHECKs widen in place
+  in `manual/2026-11-06_job_model_health.sql`, re-runnable, the way C.6 widened the route CHECK for `cloudflare`.
 
 #### H.3 Preflight becomes a readiness check that sends nothing (HIGH)
 
@@ -1531,7 +1533,7 @@ local model's branch (5.4c-7, 5.4c-8).
 > then **MP-03 (hosted-only, §6.2)** after H3, then **5.4c-5 (re-scoped)** after H1–H3 and MP-03. H4 may run in parallel
 > with H3 once H2 is merged; it touches disjoint files.
 >
-> **Status 2026-11-17:** 5.4c-H1 done in PR #1381, based on `main` after #1375 merged.
+> **Status 2026-11-17:** 5.4c-H1 done in PR #1381, based on `main` after #1375 merged. 5.4c-H2 done in PR #1384.
 >
 > | Task                                                    | Agent · model                                                                                               | Depends on             | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 > | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

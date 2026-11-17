@@ -55,18 +55,33 @@ describe.skipIf(!hasDatabaseUrl())('createDrizzleModelHealthStore', () => {
 
   it('counts for one day, route and code add up; another code or day is its own row', async () => {
     const day = '2026-11-06'
-    await store.addRouteCounts([{ day, route: 'local', code: 'FELL_TO_LOCAL', count: 2 }])
+    await store.addRouteCounts([{ day, route: 'groq', code: 'SPENT_DAY', count: 2 }])
     await store.addRouteCounts([
-      { day, route: 'local', code: 'FELL_TO_LOCAL', count: 3 },
+      { day, route: 'groq', code: 'SPENT_DAY', count: 3 },
       { day, route: 'groq', code: 'OK', count: 1 },
-      { day: '2026-11-07', route: 'local', code: 'FELL_TO_LOCAL', count: 7 },
+      { day: '2026-11-07', route: 'groq', code: 'SPENT_DAY', count: 7 },
     ])
     const rows = await db.select().from(counters)
     expect(rows.map((r) => [r.day, r.route, r.code, r.count]).sort()).toEqual([
       ['2026-11-06', 'groq', 'OK', 1],
-      ['2026-11-06', 'local', 'FELL_TO_LOCAL', 5],
-      ['2026-11-07', 'local', 'FELL_TO_LOCAL', 7],
+      ['2026-11-06', 'groq', 'SPENT_DAY', 5],
+      ['2026-11-07', 'groq', 'SPENT_DAY', 7],
     ])
+  })
+
+  it('a historic local floor row still adds up: the route list keeps local (H.2)', async () => {
+    const day = '2026-11-06'
+    await store.addRouteCounts([{ day, route: 'local', code: 'FELL_TO_LOCAL', count: 2 }])
+    await store.addRouteCounts([{ day, route: 'local', code: 'FELL_TO_LOCAL', count: 3 }])
+    const rows = await db.select().from(counters)
+    expect(rows.map((r) => [r.route, r.code, r.count])).toEqual([['local', 'FELL_TO_LOCAL', 5]])
+  })
+
+  it('the H.2 values are stored: an openrouter count and the MODEL_LIMITS_EXHAUSTED flag', async () => {
+    await store.addRouteCounts([{ day: '2026-11-06', route: 'openrouter', code: 'CAP', count: 1 }])
+    await store.raiseFlag('MODEL_LIMITS_EXHAUSTED')
+    expect((await db.select().from(counters)).map((r) => r.route)).toEqual(['openrouter'])
+    expect((await rowOf('MODEL_LIMITS_EXHAUSTED')).clearedAt).toBeNull()
   })
 
   it('a flag still raised keeps its first raised_at; after a clear, raising starts over', async () => {
@@ -118,7 +133,7 @@ describe.skipIf(!hasDatabaseUrl())('createDrizzleModelHealthStore', () => {
     it.each<[string, () => Promise<unknown>]>([
       [
         'addRouteCounts',
-        () => store.addRouteCounts([{ day: DAY, route: 'local', code: 'X', count: 1 }]),
+        () => store.addRouteCounts([{ day: DAY, route: 'groq', code: 'X', count: 1 }]),
       ],
       ['raiseFlag', () => store.raiseFlag('HOSTED_ROUTES_DEAD')],
       ['clearFlag', () => store.clearFlag('HOSTED_ROUTES_DEAD')],
@@ -127,7 +142,7 @@ describe.skipIf(!hasDatabaseUrl())('createDrizzleModelHealthStore', () => {
       '%s is cancelled by the server before the client wait ends, and leaves the row as it was',
       async (_name, blockedWrite) => {
         await store.raiseFlag('HOSTED_ROUTES_DEAD')
-        await store.addRouteCounts([{ day: DAY, route: 'local', code: 'X', count: 1 }])
+        await store.addRouteCounts([{ day: DAY, route: 'groq', code: 'X', count: 1 }])
         const before = await bothRows()
 
         const holder = await session.admin.connect()

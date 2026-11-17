@@ -9,7 +9,8 @@ import { hasDatabaseUrl } from '../test/require-real-db'
 /**
  * The forward DDL `manual/2026-11-06_job_model_health.sql` against a REAL Postgres
  * (ADR §5.3, task 5.4c-4): re-runnable, column for column and CHECK for CHECK what `db:push` builds,
- * class A for `crm_app`, and page text refused by the constraint.
+ * class A for `crm_app`, and page text refused by the constraint. Three starting states: fresh, a
+ * table from before cloudflare, and one from main before H2 (5.4c-H2 widens both CHECKs in place).
  *
  * NEVER `crm_db`:
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/<scratch> \
@@ -119,37 +120,75 @@ describe.skipIf(!hasDatabaseUrl())(
       expect([await catalogOf(SCHEMA, COUNTERS), await catalogOf(SCHEMA, FLAGS)]).toEqual(before)
     })
 
-    it('widens a route CHECK that predates cloudflare in place and keeps the rows (amendment 2026-11-17)', async () => {
-      const OLD = `${SCHEMA}_old`
-      await client.query(`DROP SCHEMA IF EXISTS ${OLD} CASCADE`)
-      await client.query(`CREATE SCHEMA ${OLD}`)
-      try {
-        await client.query(`CREATE TABLE ${OLD}.${COUNTERS} (
-          "day" date NOT NULL, "route" text NOT NULL, "code" text NOT NULL, "count" integer NOT NULL,
-          CONSTRAINT "job_model_route_daily_day_route_code_pk" PRIMARY KEY ("day", "route", "code"),
-          CONSTRAINT "ck_job_model_route_daily_route" CHECK ("route" IN ('gemini', 'groq', 'local')),
-          CONSTRAINT "ck_job_model_route_daily_code_format" CHECK ("code" ~ '^[A-Z][A-Z0-9_]{0,63}$'),
-          CONSTRAINT "ck_job_model_route_daily_count_positive" CHECK ("count" > 0))`)
-        await client.query(`INSERT INTO ${OLD}.${COUNTERS} VALUES ('2026-11-06', 'groq', 'OK', 3)`)
-        await applyInto(client, OLD)
-        const widened = await catalogOf(OLD, COUNTERS)
-        expect(widened.constraints).toEqual((await catalogOf('public', COUNTERS)).constraints)
-        await client.query(
-          `INSERT INTO ${OLD}.${COUNTERS} VALUES ('2026-11-06', 'cloudflare', 'OK', 1)`,
-        )
-        const { rows } = await client.query(
-          `SELECT route, count FROM ${OLD}.${COUNTERS} ORDER BY route`,
-        )
-        expect(rows).toEqual([
-          { route: 'cloudflare', count: 1 },
-          { route: 'groq', count: 3 },
-        ])
-        await applyInto(client, OLD)
-        expect(await catalogOf(OLD, COUNTERS)).toEqual(widened)
-      } finally {
+    // The two states a deployed table can be in before H2 (fresh is the beforeAll above).
+    it.each([
+      ['pre-cloudflare', `'gemini', 'groq', 'local'`],
+      ['main today (cloudflare, before H2)', `'gemini', 'groq', 'cloudflare', 'local'`],
+    ])(
+      'widens a %s table in place: rows kept, new values in, unknown values out (amendments 2026-11-17)',
+      async (_state, oldRoutes) => {
+        const OLD = `${SCHEMA}_old`
         await client.query(`DROP SCHEMA IF EXISTS ${OLD} CASCADE`)
-      }
-    })
+        await client.query(`CREATE SCHEMA ${OLD}`)
+        try {
+          await client.query(`CREATE TABLE ${OLD}.${COUNTERS} (
+            "day" date NOT NULL, "route" text NOT NULL, "code" text NOT NULL, "count" integer NOT NULL,
+            CONSTRAINT "job_model_route_daily_day_route_code_pk" PRIMARY KEY ("day", "route", "code"),
+            CONSTRAINT "ck_job_model_route_daily_route" CHECK ("route" IN (${oldRoutes})),
+            CONSTRAINT "ck_job_model_route_daily_code_format" CHECK ("code" ~ '^[A-Z][A-Z0-9_]{0,63}$'),
+            CONSTRAINT "ck_job_model_route_daily_count_positive" CHECK ("count" > 0))`)
+          await client.query(`CREATE TABLE ${OLD}.${FLAGS} (
+            "flag" text PRIMARY KEY NOT NULL,
+            "raised_at" timestamp with time zone DEFAULT now() NOT NULL,
+            "cleared_at" timestamp with time zone,
+            "last_emitted_cycle_id" uuid,
+            CONSTRAINT "ck_job_model_health_flags_flag" CHECK ("flag" IN ('MODEL_UNREACHABLE',
+              'HOSTED_ROUTES_DEAD', 'MODEL_LIST_STALE', 'FAILED_JOB_DAILY', 'FAILED_JOB_CHAIN')))`)
+          // A historic floor row: `local` stays on the route list so it stays valid.
+          await client.query(`INSERT INTO ${OLD}.${COUNTERS} VALUES
+            ('2026-11-06', 'groq', 'OK', 3), ('2026-11-06', 'local', 'FELL_TO_LOCAL', 2)`)
+          await client.query(`INSERT INTO ${OLD}.${FLAGS} (flag) VALUES ('MODEL_UNREACHABLE')`)
+          await applyInto(client, OLD)
+          const widened = [await catalogOf(OLD, COUNTERS), await catalogOf(OLD, FLAGS)]
+          expect(widened).toEqual([
+            await catalogOf('public', COUNTERS),
+            await catalogOf('public', FLAGS),
+          ])
+
+          const count = (route: string) =>
+            client.query(`INSERT INTO ${OLD}.${COUNTERS} VALUES ('2026-11-07', $1, 'CAP', 1)`, [
+              route,
+            ])
+          const flag = (name: string) =>
+            client.query(`INSERT INTO ${OLD}.${FLAGS} (flag) VALUES ($1)`, [name])
+          await count('openrouter')
+          await count('cloudflare')
+          await flag('MODEL_LIMITS_EXHAUSTED')
+          expect(await sqlstate(() => count('mistral'))).toBe('23514')
+          expect(await sqlstate(() => flag('MODEL_LIMITS_REACHED'))).toBe('23514')
+
+          const { rows } = await client.query(
+            `SELECT route, code, count FROM ${OLD}.${COUNTERS} ORDER BY route, code`,
+          )
+          expect(rows).toEqual([
+            { route: 'cloudflare', code: 'CAP', count: 1 },
+            { route: 'groq', code: 'OK', count: 3 },
+            { route: 'local', code: 'FELL_TO_LOCAL', count: 2 },
+            { route: 'openrouter', code: 'CAP', count: 1 },
+          ])
+          const flags = await client.query(`SELECT flag FROM ${OLD}.${FLAGS} ORDER BY flag`)
+          expect(flags.rows.map((r) => r['flag'])).toEqual([
+            'MODEL_LIMITS_EXHAUSTED',
+            'MODEL_UNREACHABLE',
+          ])
+
+          await applyInto(client, OLD)
+          expect([await catalogOf(OLD, COUNTERS), await catalogOf(OLD, FLAGS)]).toEqual(widened)
+        } finally {
+          await client.query(`DROP SCHEMA IF EXISTS ${OLD} CASCADE`)
+        }
+      },
+    )
 
     it.each([COUNTERS, FLAGS])(
       '%s is class A: the shipped grants give crm_app exactly the class privileges',
@@ -169,8 +208,11 @@ describe.skipIf(!hasDatabaseUrl())(
           `INSERT INTO ${COUNTERS} (day, route, code, count) VALUES ('2026-11-06', $1, $2, 1)`,
           [route, code],
         )
+      await expect(insert('groq', 'SPENT_DAY')).resolves.toBeDefined()
+      await expect(insert('openrouter', 'CAP')).resolves.toBeDefined()
+      // A historic floor row, from before 5.4c-H1: still valid.
       await expect(insert('local', 'FELL_TO_LOCAL')).resolves.toBeDefined()
-      expect(await sqlstate(() => insert('local', 'Senior Go Engineer, Kyiv'))).toBe('23514')
+      expect(await sqlstate(() => insert('groq', 'Senior Go Engineer, Kyiv'))).toBe('23514')
       expect(await sqlstate(() => insert('Senior Go Engineer', 'OK'))).toBe('23514')
       const { rows } = await session.pool.query(`SELECT current_user AS u`)
       expect(rows[0].u).toBe(ROLES.app)
@@ -180,6 +222,7 @@ describe.skipIf(!hasDatabaseUrl())(
       const insert = (flag: string) =>
         session.pool.query(`INSERT INTO ${FLAGS} (flag) VALUES ($1)`, [flag])
       await expect(insert('MODEL_UNREACHABLE')).resolves.toBeDefined()
+      await expect(insert('MODEL_LIMITS_EXHAUSTED')).resolves.toBeDefined()
       expect(await sqlstate(() => insert('NOT_A_FLAG'))).toBe('23514')
     })
   },

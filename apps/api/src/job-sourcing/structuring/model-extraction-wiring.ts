@@ -3,7 +3,6 @@ import {
   MAX_HOSTED_BUDGET_MS,
   routerCallCeilingMs,
   routerInputCeilingChars,
-  type ExtractionPort,
   type ExtractionWorkerAdapter,
   type ExtractionWorkerAdapterConfig,
   type WorkerReadiness,
@@ -190,9 +189,9 @@ export function buildModelExtraction(
 
 /** The port as is, with each result shown to the health handler first (H.2 flag). */
 function observed(
-  port: ExtractionPort,
+  port: ExtractionWorkerAdapter,
   onResult: (result: { ok: boolean; code?: string }) => void,
-): ExtractionPort {
+): Pick<ExtractionWorkerAdapter, 'extract'> {
   return {
     extract: async (req) => {
       const result = await port.extract(req)

@@ -27,6 +27,25 @@
 --   find the wide CHECK and do nothing. Widening only: every row the old CHECK admitted passes the
 --   new one, so the re-validation scan (one pass under ACCESS EXCLUSIVE, a small counter table)
 --   cannot fail. Rollback of the amendment: none needed, the old code never writes 'cloudflare'.
+--
+-- AMENDMENT 2026-11-17 (H2) (ADR 2026-11-03, "Amendment 2026-11-08", H.2; task 5.4c-H2)
+--   The route list gained 'openrouter' (it keeps 'local', so a historic row stays valid) and the flag
+--   list gained 'MODEL_LIMITS_EXHAUSTED'. Both CHECKs widen in place, here in manual/, the same way
+--   as the cloudflare amendment (ADR §C.6): each block below re-creates its CHECK only when the new
+--   value is missing, so the next deploy widens a narrower table and every later one does nothing.
+--   Widening only: every row the old CHECKs admitted passes the new ones, so the re-validation scan
+--   cannot fail. Rollback (owner-run, only after the H2 code is gone from both images): delete the
+--   rows the narrow CHECKs refuse, then re-create each CHECK with its old list:
+--     DELETE FROM job_model_health_flags WHERE flag = 'MODEL_LIMITS_EXHAUSTED';
+--     DELETE FROM job_model_route_daily WHERE route = 'openrouter';
+--     ALTER TABLE job_model_health_flags DROP CONSTRAINT "ck_job_model_health_flags_flag",
+--       ADD CONSTRAINT "ck_job_model_health_flags_flag" CHECK ("flag" IN ('MODEL_UNREACHABLE',
+--       'HOSTED_ROUTES_DEAD', 'MODEL_LIST_STALE', 'FAILED_JOB_DAILY', 'FAILED_JOB_CHAIN'));
+--     ALTER TABLE job_model_route_daily DROP CONSTRAINT "ck_job_model_route_daily_route",
+--       ADD CONSTRAINT "ck_job_model_route_daily_route"
+--       CHECK ("route" IN ('gemini', 'groq', 'cloudflare', 'local'));
+--   A rollback that keeps this file in manual/ is undone by the next deploy: remove the file's H2
+--   values first, or the deploy widens the CHECKs again.
 
 SET LOCAL lock_timeout = '10s';
 
@@ -36,7 +55,7 @@ CREATE TABLE IF NOT EXISTS job_model_route_daily (
   "code" text NOT NULL,
   "count" integer NOT NULL,
   CONSTRAINT "job_model_route_daily_day_route_code_pk" PRIMARY KEY ("day", "route", "code"),
-  CONSTRAINT "ck_job_model_route_daily_route" CHECK ("job_model_route_daily"."route" IN ('gemini', 'groq', 'cloudflare', 'local')),
+  CONSTRAINT "ck_job_model_route_daily_route" CHECK ("job_model_route_daily"."route" IN ('gemini', 'groq', 'cloudflare', 'openrouter', 'local')),
   CONSTRAINT "ck_job_model_route_daily_code_format" CHECK ("job_model_route_daily"."code" ~ '^[A-Z][A-Z0-9_]{0,63}$'),
   CONSTRAINT "ck_job_model_route_daily_count_positive" CHECK ("job_model_route_daily"."count" > 0)
 );
@@ -46,20 +65,36 @@ CREATE TABLE IF NOT EXISTS job_model_health_flags (
   "raised_at" timestamp with time zone DEFAULT now() NOT NULL,
   "cleared_at" timestamp with time zone,
   "last_emitted_cycle_id" uuid,
-  CONSTRAINT "ck_job_model_health_flags_flag" CHECK ("job_model_health_flags"."flag" IN ('MODEL_UNREACHABLE', 'HOSTED_ROUTES_DEAD', 'MODEL_LIST_STALE', 'FAILED_JOB_DAILY', 'FAILED_JOB_CHAIN'))
+  CONSTRAINT "ck_job_model_health_flags_flag" CHECK ("job_model_health_flags"."flag" IN ('MODEL_UNREACHABLE', 'HOSTED_ROUTES_DEAD', 'MODEL_LIST_STALE', 'FAILED_JOB_DAILY', 'FAILED_JOB_CHAIN', 'MODEL_LIMITS_EXHAUSTED'))
 );
 
--- Amendment 2026-11-17: widen a route CHECK that predates 'cloudflare' (see the header).
+-- Amendments 2026-11-17: widen a route CHECK that predates 'cloudflare' or 'openrouter' (see the
+-- header). Keyed on the newest value: a CHECK that admits it admits the whole current list.
 DO $$
 BEGIN
   IF to_regclass('job_model_route_daily') IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM pg_constraint
     WHERE conrelid = 'job_model_route_daily'::regclass AND conname = 'ck_job_model_route_daily_route'
-      AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%''cloudflare''%'
+      AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%''openrouter''%'
   ) THEN
     ALTER TABLE job_model_route_daily DROP CONSTRAINT IF EXISTS "ck_job_model_route_daily_route";
     ALTER TABLE job_model_route_daily ADD CONSTRAINT "ck_job_model_route_daily_route"
-      CHECK ("route" IN ('gemini', 'groq', 'cloudflare', 'local'));
+      CHECK ("route" IN ('gemini', 'groq', 'cloudflare', 'openrouter', 'local'));
+  END IF;
+END $$;
+
+-- Amendment 2026-11-17 (H2): widen a flag CHECK that predates 'MODEL_LIMITS_EXHAUSTED'.
+DO $$
+BEGIN
+  IF to_regclass('job_model_health_flags') IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'job_model_health_flags'::regclass AND conname = 'ck_job_model_health_flags_flag'
+      AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%''MODEL_LIMITS_EXHAUSTED''%'
+  ) THEN
+    ALTER TABLE job_model_health_flags DROP CONSTRAINT IF EXISTS "ck_job_model_health_flags_flag";
+    ALTER TABLE job_model_health_flags ADD CONSTRAINT "ck_job_model_health_flags_flag"
+      CHECK ("flag" IN ('MODEL_UNREACHABLE', 'HOSTED_ROUTES_DEAD', 'MODEL_LIST_STALE',
+        'FAILED_JOB_DAILY', 'FAILED_JOB_CHAIN', 'MODEL_LIMITS_EXHAUSTED'));
   END IF;
 END $$;
 
@@ -93,6 +128,13 @@ BEGIN
     ) THEN
       problems := problems || 'CHECK ck_job_model_route_daily_route does not admit cloudflare'::text;
     END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = 'job_model_route_daily'::regclass AND conname = 'ck_job_model_route_daily_route'
+        AND pg_get_constraintdef(oid) LIKE '%''openrouter''%'
+    ) THEN
+      problems := problems || 'CHECK ck_job_model_route_daily_route does not admit openrouter'::text;
+    END IF;
   END IF;
 
   IF to_regclass('job_model_health_flags') IS NULL THEN
@@ -103,6 +145,12 @@ BEGIN
       AND contype = 'c' AND convalidated
   ) THEN
     problems := problems || 'CHECK ck_job_model_health_flags_flag is missing or not validated'::text;
+  ELSIF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'job_model_health_flags'::regclass AND conname = 'ck_job_model_health_flags_flag'
+      AND pg_get_constraintdef(oid) LIKE '%''MODEL_LIMITS_EXHAUSTED''%'
+  ) THEN
+    problems := problems || 'CHECK ck_job_model_health_flags_flag does not admit MODEL_LIMITS_EXHAUSTED'::text;
   END IF;
 
   IF cardinality(problems) > 0 THEN
