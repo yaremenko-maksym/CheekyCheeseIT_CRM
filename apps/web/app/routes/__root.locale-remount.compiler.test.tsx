@@ -13,9 +13,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
-vi.mock('@tanstack/react-router', async () => {
+// Partial mock: `__root.tsx` builds its `Route` at import time with whatever
+// root-route factory the router exports, so the real module is kept and only
+// `Outlet` is replaced by the probe.
+vi.mock('@tanstack/react-router', async (importOriginal) => {
   const { ProbeLabel } = await import('@/test/fixtures/probe-label')
-  return { createRootRoute: (options: unknown) => options, Outlet: ProbeLabel }
+  return {
+    ...(await importOriginal<typeof import('@tanstack/react-router')>()),
+    Outlet: ProbeLabel,
+  }
 })
 
 vi.mock('sonner', () => ({

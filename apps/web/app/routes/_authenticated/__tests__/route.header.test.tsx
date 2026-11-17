@@ -11,7 +11,7 @@
  * dedicated test file already.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render as rtlRender, screen, type RenderOptions } from '@testing-library/react'
+import { act, render as rtlRender, screen, type RenderOptions } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ReactElement } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -47,10 +47,28 @@ const MOCK_USER: SessionUser = {
   impersonating: false,
 }
 
-const { revalidateSession, routerState } = vi.hoisted(() => ({
-  revalidateSession: Object.assign(vi.fn(), { settled: vi.fn() }),
-  routerState: { status: 'idle', location: { pathname: '/', href: '/' } },
-}))
+// The real `useRouterState` is a store subscription: a state change re-renders the subscriber
+// itself, whatever its parent does. Mutating a plain object and re-rendering from the top is not
+// equivalent — under the React Compiler a prop-less parent returns its cached element and the
+// subscriber never re-reads it. `setRouterStatus` replaces the state and notifies, like the store.
+const { revalidateSession, routerStore } = vi.hoisted(() => {
+  const listeners = new Set<() => void>()
+  const store = {
+    state: { status: 'idle', location: { pathname: '/', href: '/' } },
+    subscribe(listener: () => void) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    setStatus(status: string) {
+      store.state = { ...store.state, status }
+      listeners.forEach((listener) => listener())
+    },
+  }
+  return {
+    revalidateSession: Object.assign(vi.fn(), { settled: vi.fn() }),
+    routerStore: store,
+  }
+})
 vi.mock('@/context/auth', () => ({
   useAuth: () => ({ user: MOCK_USER, isLoading: false }),
   AuthProvider: ({ children }: React.PropsWithChildren) => children,
@@ -64,11 +82,12 @@ vi.mock('@/context/notifications', () => ({
 vi.mock('@tanstack/react-router', async () => {
   const actual =
     await vi.importActual<typeof import('@tanstack/react-router')>('@tanstack/react-router')
+  const { useSyncExternalStore } = await import('react')
   return {
     ...actual,
     useNavigate: () => vi.fn(),
-    useRouterState: ({ select }: { select: (s: typeof routerState) => unknown }) =>
-      select(routerState),
+    useRouterState: ({ select }: { select: (s: typeof routerStore.state) => unknown }) =>
+      useSyncExternalStore(routerStore.subscribe, () => select(routerStore.state)),
     Outlet: () => <div data-testid="mock-outlet" />,
     Link: ({
       children,
@@ -158,12 +177,11 @@ describe('CrmLayout header (routes/_authenticated/route.tsx)', () => {
 describe('refetch after an account switch (backlog 433)', () => {
   it('lets the purged queries refetch only once the router is idle again', () => {
     revalidateSession.settled.mockClear()
-    routerState.status = 'pending'
-    const { rerender } = render(<CrmRoot />)
+    routerStore.setStatus('pending')
+    render(<CrmRoot />)
     expect(revalidateSession.settled).not.toHaveBeenCalled()
 
-    routerState.status = 'idle'
-    rerender(<CrmRoot />)
+    act(() => routerStore.setStatus('idle'))
     expect(revalidateSession.settled).toHaveBeenCalledTimes(1)
   })
 })
