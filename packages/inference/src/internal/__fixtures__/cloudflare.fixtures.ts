@@ -58,6 +58,16 @@ export const CLOUDFLARE_FIXTURES: ProviderFixture[] = [
     expected: { ok: false, code: 'SPENT_DAY' },
   },
   {
+    name: '429 daily allocation (3036) after another error in the list',
+    status: 429,
+    body: JSON.stringify({
+      success: false,
+      errors: [{ code: 3040 }, { code: 3036 }],
+      messages: [],
+    }),
+    expected: { ok: false, code: 'SPENT_DAY' },
+  },
+  {
     name: '429 out of capacity (3040) with retry-after',
     status: 429,
     headers: { 'retry-after': '5' },

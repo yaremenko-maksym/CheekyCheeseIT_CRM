@@ -181,7 +181,12 @@ describe('which Cloudflare entries are kept (planned deprecation, context, price
     ['no context window', { context: undefined }],
     ['a context that is not a positive integer', { context: '128k' }],
     ['a zero context', { context: '0' }],
+    ['a context with a leading zero', { context: '0128000' }],
     ['no price', { price: undefined }],
+    [
+      'a price without the input side',
+      { priceList: [{ unit: 'per M output tokens', price: 0.3, currency: 'USD' }] },
+    ],
     [
       'a price without the output side',
       { priceList: [{ unit: 'per M input tokens', price: 0.1, currency: 'USD' }] },

@@ -27,6 +27,7 @@ export function hostedBaseUrl(route: {
   provider: HostedProvider
   accountId?: string | undefined
 }): string {
+  // Stryker disable next-line StringLiteral: equivalent — any fallback outside 32 lower-case hex throws like '' does
   if (route.provider === 'cloudflare') return cloudflareChatBaseUrl(route.accountId ?? '')
   return HOSTED_BASE_URLS[route.provider]
 }

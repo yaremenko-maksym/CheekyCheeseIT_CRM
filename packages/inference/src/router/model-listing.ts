@@ -174,6 +174,7 @@ async function getListingText(
  * means the catalogue may go on: a cut listing could drop a live model, so the listing fails instead.
  */
 async function fetchCloudflareListing(opts: ListingOptions): Promise<ListingResult> {
+  // Stryker disable next-line StringLiteral: equivalent — any fallback outside 32 lower-case hex is refused like '' is
   const accountId = opts.accountId ?? ''
   if (!isCloudflareAccountId(accountId)) return { kind: 'failed', noResponse: true }
   const headers = { Authorization: `Bearer ${opts.apiKey}` }

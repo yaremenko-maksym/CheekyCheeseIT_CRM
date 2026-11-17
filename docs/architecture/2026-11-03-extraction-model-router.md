@@ -11,6 +11,10 @@ owner decision, 2026-10-18").
 and OpenRouter models only, and an all-exhausted day shows a localized notice. See "Amendment 2026-11-08 — hosted-only"
 below; it supersedes the parts of the earlier amendments and sections that it names.
 
+**Amended 2026-11-17 — Cloudflare provider (A1 on the mechanics; the privacy consent is the owner's).** Cloudflare
+Workers AI becomes the third hosted route after Gemini and Groq, with the same self-heal as theirs. See "Amendment
+2026-11-17 — Cloudflare provider" below.
+
 **Amendment, 2026-11-04 (owner corrections, relayed by Master).** (1) The CRM installs **its own** lightweight local
 model; VCF's model and hardware are not adopted, only the strategy that keeps a small model answering (§8). (2) Small
 dose is **unconditional**: built as part of the local route; MP-03 tunes it, it does not gate it (§5.4). (3) Owner
@@ -324,6 +328,83 @@ operators. No code path waits on it, so an error here delays a retry by one cycl
 - **OD-2, `provider.ignore` contents** (A1, taken by the architect and recorded here; the owner may override).
   **Decided: empty.** Its old content came from the
   D2 exclusion that no longer exists. The field stays in the request builder, so a later entry is a config value.
+
+### Amendment 2026-11-17 — Cloudflare provider
+
+Facts, each with its primary source: `docs/architecture/2026-11-17-cloudflare-workers-ai-facts.md`.
+
+#### C.1 Why
+
+- `@cf/meta/llama-3.1-8b-instruct-awq`, used on the API's resume path, started to answer 410. A model id that Cloudflare
+  retires must not keep failing every call; the router already knows how to retire a model and move on.
+- A third free provider widens the free daily budget before the cascade reaches its last route.
+- So `HOSTED_PROVIDERS` gains `cloudflare`. Every place keyed by it follows: the route schema, the route state, the own
+  cap, the managed model list, model-id validation (`isValidProviderModelId`), the fixtures and the harnesses.
+
+#### C.2 The account id in the URL: the one exception to SR-M-8
+
+- Chat goes to `https://api.cloudflare.com/client/v4/accounts/{accountId}/ai/v1/chat/completions` (OpenAI-compatible);
+  the listing goes to the same account root plus `/ai/models/search`.
+- SR-M-8 says no config value is interpolated into a hosted URL. Cloudflare has no account-free endpoint, so the account
+  id is **the only** exception, and it is guarded twice:
+  - the route schema refuses an `accountId` that is not 32 lower-case hex (`isCloudflareAccountId`), requires it on the
+    Cloudflare route and refuses it on every other;
+  - `accountAiRoot` re-checks the same pattern right before the string is built and throws otherwise, so no code path
+    can put anything else into the path.
+- The host (`api.cloudflare.com/client/v4/accounts`) stays a package constant. There is still no base-URL env.
+- The worker reads the account id from `CLOUDFLARE_ACCOUNT_ID` and the bearer token from `CLOUDFLARE_AI_TOKEN`
+  (`buildRouterConfig`). Both are optional. A missing token, or an account id outside the pattern, drops the route: it is
+  not configured, and the worker's env is not refused. The JSON route parameters never carry either value. These are the
+  names the API's resume path already reads.
+
+#### C.3 The own cap: Neurons mapped to requests (D5)
+
+- The free allowance is 10 000 Neurons a day, reset at 00:00 UTC (`providerDay` keeps UTC for every provider except
+  Gemini). The router counts requests, not Neurons, so the cap is a request count derived from the worst case.
+- A route is accepted only if a full day of calls at full context and full answer fits the ceiling price: 31 876 Neurons
+  per million input tokens, 50 488 per million output tokens (`CLOUDFLARE_CEILING_NEURONS_PER_M`).
+- `fitsCloudflareAllowance` checks `requestsPerDay × (contextTokens × 31 876 + maxAnswerTokens × 50 488) ≤ 10 000 × 10⁶`
+  (in millionths of a Neuron, integers only).
+- The worked numbers for the shipped route: context 16 000 and answer 2 048 tokens cost at most
+  16 000 × 0.031876 + 2 048 × 0.050488 ≈ 613.4 Neurons a call, so at most 16 calls fit in a day
+  (16 × 613.4 ≈ 9 814; 17 × 613.4 ≈ 10 428). `freeLimit.requestsPerDay` is 16, and D5 sets the own cap at 50 %: 8 calls.
+- The API's resume path draws on the same 10 000 Neurons. The 50 % margin is what is left for it; a heavier resume day
+  shows up as SPENT_DAY on this route, never as an overrun.
+
+#### C.4 Retirement: 410 always, 404 only when it names the model
+
+- **410** on a hosted route retires the model: Cloudflare uses it for a deprecated model. The router moves to the next
+  model of the same route in the same call, and the model is skipped on later runs.
+- **404** retires the model only when the error names it (the "no such model" body). Any other 404 (for example 3042, a
+  missing route) is TRANSPORT: the router moves to the next route and retires nothing.
+- **429 with error code 3036** in the v4 `errors[]` list (the daily allocation) is SPENT_DAY for that model, wherever 3036
+  stands in the list. 3040 (out of capacity) stays BUSY.
+- **403** in chat is TRANSPORT (the account or token cannot use the model today). The listing reads 401 and 403 as an
+  auth failure, the same as Groq.
+
+#### C.5 Self-heal: listing only
+
+- The daily refresh reads the models search filtered to Text Generation, 50 per page and at most 4 pages. A full fourth
+  page fails closed: the listing is not trusted as complete, and the managed list stays as it was.
+- An entry is kept only if it has no planned deprecation date, a positive context of plain digits, and an input and an
+  output price both at or under the ceiling (USD 0.351 / 0.555 per million). `hide_experimental` is not sent.
+- The managed list is written the way Groq's is (`pickListedModels`); additions pass `isValidProviderModelId`
+  (`@cf/{vendor}/{name}`, length-capped). The refresh sends no probe chats to Cloudflare.
+- The pinned chain is `@cf/mistralai/mistral-small-3.1-24b-instruct`, then `@cf/openai/gpt-oss-20b`, then
+  `@cf/google/gemma-4-26b-a4b-it`.
+
+#### C.6 The route counters
+
+- `job_model_route_daily.route` admits `cloudflare`. The forward DDL widens the old CHECK in place, keeps the rows and
+  stays re-runnable; `MODEL_ROUTE_VALUES` matches it.
+
+#### C.7 Privacy: resume text on the free routes (owner decision, 2026-11-17)
+
+- The owner consents that resume text may fall back to the free Gemini and Groq routes when Cloudflare cannot answer.
+  This is the owner's decision, not an A1, and it extends §4.1 for the resume source only.
+- The contact strip of H.9 runs in the extraction worker before the router picks a route, so it covers `cloudflare`
+  without a change. The router privacy spec now also sends its markers (keys, page text, provider bodies, the account
+  id) through Cloudflare and asserts that none of them reaches a log, an event or an error.
 
 ## Context
 

@@ -52,7 +52,7 @@ describe('Cloudflare URLs (SR-M-8 exception: the account id is the only interpol
   it('refuses a page outside 1..CLOUDFLARE_LISTING_MAX_PAGES', () => {
     expect(() => cloudflareListingUrl(ID, 0)).toThrow()
     expect(() => cloudflareListingUrl(ID, CLOUDFLARE_LISTING_MAX_PAGES + 1)).toThrow()
-    expect(() => cloudflareListingUrl(ID, 1.5)).toThrow()
+    expect(() => cloudflareListingUrl(ID, 1.5)).toThrow('cloudflare listing page refused')
   })
 
   it('never puts the id in the thrown message', () => {
@@ -88,6 +88,14 @@ describe('fitsCloudflareAllowance (10 000 Neurons a day at the ceiling rates)', 
     // 313 715 * 31 876 = 9 999 979 340 <= 10 000 * 1e6.
     expect(
       fitsCloudflareAllowance({ contextTokens: 313_715, maxAnswerTokens: 0, requestsPerDay: 1 }),
+    ).toBe(true)
+    // 9 888 * 31 876 + 191 824 * 50 488 = 10 000 000 000 exactly: the allowance itself still fits.
+    expect(
+      fitsCloudflareAllowance({
+        contextTokens: 9_888,
+        maxAnswerTokens: 191_824,
+        requestsPerDay: 1,
+      }),
     ).toBe(true)
     // 313 716 * 31 876 = 10 000 011 216 > 10 000 000 000.
     expect(
