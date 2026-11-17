@@ -99,6 +99,7 @@ function routeFromEnv(route: unknown, env: RouterEnv): unknown {
   if (route.provider === 'cloudflare') {
     // The account id enters the URL path (the SR-M-8 exception): only 32 lower-case hex gets there.
     const { CLOUDFLARE_AI_TOKEN: apiKey, CLOUDFLARE_ACCOUNT_ID: accountId } = env
+    // Stryker disable next-line StringLiteral: equivalent — any fallback outside 32 lower-case hex is refused like '' is
     if (apiKey === undefined || !isCloudflareAccountId(accountId ?? '')) return null
     return { ...params, apiKey, accountId }
   }
