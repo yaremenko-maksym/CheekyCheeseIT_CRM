@@ -11,7 +11,7 @@ import {
   ibanPattern,
   phoneFieldSchema,
   rnokppPattern,
-  seniorTechStackError,
+  seniorRolesError,
   telegramFieldSchema,
   toUsd,
   usdtWalletPattern,
@@ -100,31 +100,32 @@ describe('field schemas', () => {
   })
 })
 
-describe('seniorTechStackError (shared SENIOR technology floor)', () => {
-  it('flags a SENIOR with fewer than 3 distinct technologies', () => {
-    expect(seniorTechStackError('SENIOR', [])).toBeDefined()
-    expect(seniorTechStackError('SENIOR', ['React', 'Go'])).toBeDefined()
-    expect(seniorTechStackError('SENIOR', ['a', 'a', 'a'])).toBeDefined()
-    expect(seniorTechStackError('SENIOR', ['node', 'Node.js', 'Go'])).toBeDefined()
+describe('seniorRolesError (shared SENIOR role floor, SENIOR_MIN_ROLES)', () => {
+  const MIN_ROLES_UK = 'Сеньйору потрібна щонайменше одна технічна роль'
+
+  it('flags a SENIOR with no roles, with the translated SENIOR_MIN_ROLES message', () => {
+    expect(seniorRolesError('SENIOR', [])).toBe(MIN_ROLES_UK)
   })
 
-  it('passes 3 distinct technologies, and every other role', () => {
-    expect(seniorTechStackError('SENIOR', ['React', 'Go', 'AWS'])).toBeUndefined()
-    expect(seniorTechStackError('JUNIOR', [])).toBeUndefined()
-    expect(seniorTechStackError('HR', [])).toBeUndefined()
+  it('passes a SENIOR with a role, and every other role with none', () => {
+    expect(seniorRolesError('SENIOR', ['BACKEND_ENGINEER'])).toBeUndefined()
+    expect(seniorRolesError('JUNIOR', [])).toBeUndefined()
+    expect(seniorRolesError('HR', [])).toBeUndefined()
   })
 
-  it('edit of a legacy SENIOR: an unchanged stack passes, any change is checked (A1)', () => {
-    const legacy = { role: 'SENIOR', techStack: ['React', 'Go'] }
-    expect(seniorTechStackError('SENIOR', ['React', 'Go'], legacy)).toBeUndefined()
-    expect(seniorTechStackError('SENIOR', ['Go', 'React'], legacy)).toBeDefined()
-    expect(seniorTechStackError('SENIOR', ['React'], legacy)).toBeDefined()
-    expect(seniorTechStackError('SENIOR', ['React', 'Go', 'AWS'], legacy)).toBeUndefined()
+  it('edit of a legacy SENIOR with no roles: unchanged passes (Review Focus 4)', () => {
+    expect(seniorRolesError('SENIOR', [], { role: 'SENIOR', technicalRoles: [] })).toBeUndefined()
   })
 
-  it('edit promoting a JUNIOR with 2 technologies to SENIOR is checked', () => {
-    const junior = { role: 'JUNIOR', techStack: ['React', 'Go'] }
-    expect(seniorTechStackError('SENIOR', ['React', 'Go'], junior)).toBeDefined()
-    expect(seniorTechStackError('SENIOR', [], { role: 'SENIOR', techStack: null })).toBeUndefined()
+  it('edit of a SENIOR that clears the roles is checked', () => {
+    const senior = { role: 'SENIOR', technicalRoles: ['BACKEND_ENGINEER'] }
+    expect(seniorRolesError('SENIOR', [], senior)).toBe(MIN_ROLES_UK)
+    expect(seniorRolesError('SENIOR', ['QA_ENGINEER'], senior)).toBeUndefined()
+  })
+
+  it('edit promoting a JUNIOR to SENIOR without roles is checked', () => {
+    expect(seniorRolesError('SENIOR', [], { role: 'JUNIOR', technicalRoles: [] })).toBe(
+      MIN_ROLES_UK,
+    )
   })
 })
