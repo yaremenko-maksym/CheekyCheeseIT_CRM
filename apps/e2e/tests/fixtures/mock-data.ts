@@ -13,6 +13,7 @@ export const USERS = {
     telegram: null,
     phone: null,
     techStack: null,
+    technicalRoles: [] as const,
     paymentMethod: null,
     seniorSharePercent: 0,
     monthlySalary: null,
@@ -37,6 +38,8 @@ export const USERS = {
     phone: '+380661234567',
     // A SENIOR carries at least 3 distinct technologies (SENIOR_MIN_TECHNOLOGIES).
     techStack: ['TypeScript', 'React', 'Node.js'],
+    // Senior roles PR 5: the API always sends this array; a SENIOR is described by it, not by the stack.
+    technicalRoles: ['BACKEND_ENGINEER', 'FRONTEND_ENGINEER'] as const,
     paymentMethod: 'USDT_ERC20' as const,
     seniorSharePercent: 26,
     monthlySalary: null,
@@ -56,6 +59,7 @@ export const USERS = {
     telegram: null,
     phone: null,
     techStack: null,
+    technicalRoles: [] as const,
     paymentMethod: 'BANK_UAH_FOP' as const,
     seniorSharePercent: 0,
     monthlySalary: '800',
@@ -75,6 +79,7 @@ export const USERS = {
     telegram: null,
     phone: null,
     techStack: null,
+    technicalRoles: [] as const,
     paymentMethod: 'BANK_UAH_FOP' as const,
     seniorSharePercent: 0,
     monthlySalary: '1000',
@@ -94,6 +99,7 @@ export const USERS = {
     telegram: null,
     phone: null,
     techStack: null,
+    technicalRoles: [] as const,
     paymentMethod: 'BANK_UAH_FOP' as const,
     seniorSharePercent: 0,
     monthlySalary: '1200',
@@ -116,6 +122,7 @@ export const USERS = {
     telegram: '@dropuser',
     phone: null,
     techStack: null,
+    technicalRoles: [] as const,
     paymentMethod: 'USDT_ERC20' as const,
     seniorSharePercent: 0,
     /** Drop's percentage off project income — spec default 5 (AC1 uses 7). */
@@ -139,6 +146,8 @@ export const USERS = {
     telegram: null,
     phone: null,
     techStack: ['TypeScript', 'React', 'Node.js'],
+    // Senior roles PR 5: the API always sends this array; a SENIOR is described by it, not by the stack.
+    technicalRoles: ['BACKEND_ENGINEER', 'FRONTEND_ENGINEER'] as const,
     paymentMethod: 'USDT_ERC20' as const,
     seniorSharePercent: 26,
     monthlySalary: null,
@@ -160,6 +169,8 @@ export const USERS = {
     telegram: null,
     phone: null,
     techStack: ['TypeScript', 'React', 'Node.js'],
+    // Senior roles PR 5: the API always sends this array; a SENIOR is described by it, not by the stack.
+    technicalRoles: ['BACKEND_ENGINEER', 'FRONTEND_ENGINEER'] as const,
     paymentMethod: 'USDT_ERC20' as const,
     seniorSharePercent: 26,
     monthlySalary: null,
@@ -243,6 +254,7 @@ export function toMember<
     avatarUrl: string | null
     avatarDocumentId: string | null
     techStack: string[] | null
+    technicalRoles: readonly string[]
   },
 >(user: T, joinedAt = '2024-01-10T00:00:00.000Z') {
   return {
@@ -254,6 +266,9 @@ export function toMember<
     avatarDocumentId: user.avatarDocumentId,
     role: user.role,
     techStack: user.techStack,
+    // Senior roles PR 5: `teamMemberSchema` carries it for every member; MembersCard
+    // shows it instead of the stack for a SENIOR.
+    technicalRoles: user.technicalRoles,
     joinedAt,
   }
 }
@@ -269,6 +284,7 @@ const EXTRA_ACCOUNTANT = {
   telegram: null,
   phone: null,
   techStack: null,
+  technicalRoles: [] as const,
   paymentMethod: 'BANK_UAH_FOP' as const,
   seniorSharePercent: 0,
   monthlySalary: '1200',
