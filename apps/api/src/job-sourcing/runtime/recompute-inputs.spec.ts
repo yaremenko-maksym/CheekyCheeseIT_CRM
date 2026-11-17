@@ -9,6 +9,7 @@ import type { SqlExecutor } from '../scheduling/host-state'
 import {
   EVALUATION_RECORD_VERSION,
   MATCH_RULE_VERSION,
+  PREVIOUS_EVALUATION_RECORD_VERSION,
   RecomputePoisonError,
   type RosterInputs,
   detailFetchTargets,
@@ -910,6 +911,10 @@ describe('installMatches', () => {
 
   it('the evaluation record version names the technical-roles backfill', () => {
     expect(EVALUATION_RECORD_VERSION).toBe('rf.2')
+  })
+
+  it('the previous record version was advanced with the last bump (review CR2-L-3)', () => {
+    expect(PREVIOUS_EVALUATION_RECORD_VERSION).not.toBe(EVALUATION_RECORD_VERSION)
   })
 })
 

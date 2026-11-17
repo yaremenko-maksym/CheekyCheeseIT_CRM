@@ -469,6 +469,7 @@ export const EVALUATION_RECORD_VERSION = 'rf.2'
  * leaves the verdict unchanged, so a queue grant keeps showing a row still stamped under it until
  * the sweep re-evaluates the row (review CR-M-2: the sweep takes hours on a large backlog).
  */
+// Advance PREVIOUS on every format bump; a bump that changes the verdict must also bump MATCH_RULE_VERSION.
 export const PREVIOUS_EVALUATION_RECORD_VERSION = 'rf.1'
 
 const digest = (value: unknown) =>
