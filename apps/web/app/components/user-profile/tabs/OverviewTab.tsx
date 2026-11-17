@@ -37,6 +37,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useApproveSeniorShareChange, useRejectSeniorShareChange } from '@/hooks/use-user-profile'
 import type { UserProfileDto, ViewPermissions } from '@crm/shared'
 import { ProfileEditFields } from '../self-edit/ProfileEditFields'
+import { RoleChips } from '@/components/users/RoleChips'
 import { AdminNoteDialog } from '../admin-actions/AdminNoteDialog'
 import { ProfileCredentialsSection } from '../ProfileCredentialsSection'
 import { LanguageSection } from '../LanguageSection'
@@ -642,30 +643,49 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
         <ProfileCredentialsSection userId={user.id} />
       )}
 
-      {permissions.fields.techStack !== false && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">
-              <Trans>Технології</Trans>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {techStack.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                <Trans>не вказано</Trans>
-              </p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {techStack.map((tech) => (
-                  <Badge key={tech} variant="outline">
-                    {tech}
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      {permissions.fields.techStack !== false &&
+        (user.role === 'SENIOR' ? (
+          // A SENIOR shows every technical role; one with none keeps "не вказано", never the stale stack.
+          <Card data-testid="profile-technical-roles">
+            <CardHeader>
+              <CardTitle className="text-base">
+                <Trans>Технічні ролі</Trans>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {user.technicalRoles.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  <Trans>не вказано</Trans>
+                </p>
+              ) : (
+                <RoleChips roles={user.technicalRoles} />
+              )}
+            </CardContent>
+          </Card>
+        ) : (
+          <Card data-testid="profile-tech-stack">
+            <CardHeader>
+              <CardTitle className="text-base">
+                <Trans>Технології</Trans>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {techStack.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  <Trans>не вказано</Trans>
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {techStack.map((tech) => (
+                    <Badge key={tech} variant="outline">
+                      {tech}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))}
 
       {canSeeAdminNote && (
         <Card>

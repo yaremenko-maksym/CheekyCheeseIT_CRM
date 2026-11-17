@@ -46,6 +46,7 @@ function member(userId: string, role: string, extra: Record<string, unknown> = {
     telegram: null,
     phone: null,
     techStack: null,
+    technicalRoles: [],
     ...extra,
   } as unknown as Member
 }
@@ -87,7 +88,8 @@ beforeEach(async () => {
 describe('MembersCard rendering', () => {
   it('renders title, total count and one row per visible member with contacts', () => {
     renderCard([
-      member('s1', 'SENIOR', {
+      // A JUNIOR keeps the free-text stack; a SENIOR shows role chips (see below).
+      member('s1', 'JUNIOR', {
         telegram: '@senior_tg',
         phone: '+380501112233',
         techStack: ['React', 'Node'],
@@ -349,5 +351,42 @@ describe('MembersCard removal matrix (canRemove)', () => {
     fireEvent.click(within(row).getByTitle('Виключити'))
     expect(onRemove).toHaveBeenCalledTimes(1)
     expect(onRemove).toHaveBeenCalledWith('d2')
+  })
+})
+
+describe('MembersCard — technical roles of a senior (senior roles PR 5)', () => {
+  beforeEach(async () => {
+    await loadCatalog('uk')
+  })
+
+  it('a SENIOR shows up to 3 role chips and "+N", never the stack', () => {
+    renderCard([
+      member('s1', 'SENIOR', {
+        techStack: ['Zzstale'],
+        technicalRoles: [
+          'BACKEND_ENGINEER',
+          'FRONTEND_ENGINEER',
+          'FULLSTACK_ENGINEER',
+          'QA_ENGINEER',
+        ],
+      }),
+    ])
+    expect(screen.getAllByTestId(/^role-chip-/)).toHaveLength(3)
+    expect(screen.getByTestId('role-chips-more')).toHaveTextContent('+1')
+    expect(screen.queryByText('Zzstale')).toBeNull()
+  })
+
+  it('a legacy SENIOR with no roles shows nothing, not the stale stack', () => {
+    renderCard([member('s1', 'SENIOR', { techStack: ['Zzstale'], technicalRoles: [] })])
+    expect(screen.queryByTestId('role-chips')).toBeNull()
+    expect(screen.queryByText('Zzstale')).toBeNull()
+  })
+
+  it('a non-SENIOR keeps the stack and shows no role chips', () => {
+    renderCard([
+      member('j1', 'JUNIOR', { techStack: ['Zzgo'], technicalRoles: ['BACKEND_ENGINEER'] }),
+    ])
+    expect(screen.getByText('Zzgo')).toBeInTheDocument()
+    expect(screen.queryByTestId('role-chips')).toBeNull()
   })
 })
