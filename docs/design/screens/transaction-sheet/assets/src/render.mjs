@@ -35,8 +35,21 @@ mkdirSync(outDir, { recursive: true })
 mkdirSync(htmlDir, { recursive: true })
 
 // Self-contained: drop the web-font links (Inter must be installed locally; the fallback is system-ui).
+// INTER_DIR — a directory of @fontsource/inter `files/*.woff2`, for a host without Inter installed.
+const INTER = process.env.INTER_DIR
+  ? `<style>${[400, 500, 600, 700]
+      .flatMap((wt) =>
+        ['latin', 'cyrillic'].map(
+          (sub) =>
+            `@font-face{font-family:Inter;font-weight:${wt};font-style:normal;src:url(${pathToFileURL(join(process.env.INTER_DIR, `inter-${sub}-${wt}-normal.woff2`)).href}) format('woff2')}`,
+        ),
+      )
+      .join('')}</style>`
+  : ''
 const selfContained = (html) =>
-  html.replace(/<link[^>]+fonts\.(googleapis|gstatic)\.com[^>]*>/g, '')
+  html
+    .replace(/<link[^>]+fonts\.(googleapis|gstatic)\.com[^>]*>/g, '')
+    .replace('</head>', `${INTER}</head>`)
 
 async function quantise(png) {
   try {

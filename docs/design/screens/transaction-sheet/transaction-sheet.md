@@ -5,24 +5,91 @@
 > `docs/design/screens/_TEMPLATE.md`. Plan: `docs/superpowers/plans/2026-11-11-crm-redesign-v2.md`
 > (Task 1.3). Spec: `docs/superpowers/specs/2026-11-11-crm-redesign-v2-design.md` §4.5b / §4.6.
 
-| Field              | Value                                                                                                 |
-| ------------------ | ----------------------------------------------------------------------------------------------------- |
-| Screen             | `transaction-sheet` — the receipt-first add / edit transaction sheet                                  |
-| Route / trigger    | Opens over `/finance` (and the other entry points in "Current"); no route of its own                  |
-| Roles              | ADMIN, ACCOUNTANT, SENIOR, DROP (create); ADMIN (admin edit); SENIOR (edit of a rejected income)      |
-| Claude Design URL  | none — `design-gate: degraded` (Claude Design is not drivable headless; HTML prototypes + Playwright) |
-| Status             | `captured`, council round 1 fixes done (HTML mockups rendered to PNG)                                 |
-| Last synced commit | `11554c089`                                                                                           |
+| Field              | Value                                                                                                                      |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| Screen             | `transaction-sheet` — the receipt-first add / edit transaction sheet                                                       |
+| Route / trigger    | Opens over `/finance` (and the other entry points in "Current"); no route of its own                                       |
+| Roles              | ADMIN, ACCOUNTANT, SENIOR, DROP (create); ADMIN (admin edit); SENIOR (edit of a rejected income)                           |
+| Claude Design URL  | none — `design-gate: degraded` (Claude Design is not drivable headless; HTML prototypes + Playwright)                      |
+| Status             | `captured`, council round 2 fixes done (HTML mockups rendered to PNG)                                                      |
+| Last synced commit | `11554c089`                                                                                                                |
+| Gate               | **Task 1.1** (an idempotency key on every create) gates the keyed create path; the keyless path below holds until it ships |
 
 **In one paragraph.** One sheet replaces the create dialog, both edit dialogs and the attach-receipt sheet.
 It is a full-height `ResponsiveSheet` on the phone and a right side panel from 640 px. The form body
 is the same at every width. The receipt comes first, the amount second, and everything else is
-prefilled or one tap away. A save closes the sheet at once and shows an optimistic row; this needs
-Task 1.1 (an idempotency key on every create), a hard prerequisite. After the sheet closes, one
-lifecycle runs at every width: saving → saved, or failed / unknown. A failed or unknown save keeps the
-draft as a pinned row at the top of the list, a pill and a dot on «+»; there is no toast. An unknown
-outcome is never retried automatically: the user resubmits with the same key. No capability of
-today's dialogs is removed (see "Field parity").
+prefilled or one tap away. Two create paths exist, and the spec holds on either owner decision about
+Task 1.1. **Keyed** (every kind after Task 1.1; today DIVIDEND, USDT income, SENIOR_INCOME,
+DROP_INCOME and SALARY): a save closes the sheet at once and shows an optimistic row; a failed or
+unknown save keeps the draft as a pinned row, a pill and a dot on «+», and an unknown draft is resent
+only by hand with the same key. **Keyless** (EXPENSE, non-USDT ADMIN_INCOME, ADMIN_TRANSFER and the
+company deposit until Task 1.1 ships): the sheet waits for the answer, there is no optimistic row, and
+an unknown outcome is never resent: «Перевірити список» opens the foundation check sheet. Edits (admin
+edit, senior edit, attach / replace receipt) are never optimistic, carry no key and keep their outcome
+on the edited row. Outcome classes are the foundation's (`primitives-v2.md` §5). There is no toast. No
+capability of today's dialogs is removed (see "Field parity").
+
+## Assumptions
+
+Master decisions for council round 2 (M1–M14) and the designer's own reversible decisions (A1). Each
+line names where the body shows it.
+
+- **M1** Outcome classes are the foundation's, word for word (`primitives-v2.md` §5). Definite = an
+  answer with the app's error envelope (any 4xx; a 500 / 503 only on an endpoint Wave 1 verified to
+  commit in one DB transaction) or offline before the request left. Unknown = 502 / 504 from the
+  gateway, 524, a 5xx without the envelope (or an enveloped 500 / 503 on an unverified endpoint), a
+  connection dropped after the request left, a client timeout. «не збережено» appears only for a
+  definite failure. → "Save behaviour", Strings, `rollback-*`, `error-definite-*`,
+  `confirm-discard-unknown-375`.
+- **M2** Edits (admin edit, senior edit, attach / replace receipt) have their own lifecycle: not
+  optimistic, no idempotency key, never retried automatically. The outcome marker sits on the edited
+  transaction's own row and in the pill, never as a pinned draft row; the wording is edit wording and
+  names the transaction by kind and signed amount (the finance list row-write contract, Task 1.2 §9.2).
+  → "Edit lifecycle", `edit-*` frames.
+- **M3** An unknown edit is never resent blind: the screen refetches the transaction and compares the
+  sent fields (all match → saved; none match → not saved, the form reopens with the entered values
+  and a manual save; a failed refetch keeps the marker with «Повторити»). An admin save after an
+  unknown always runs a fresh cascade preview. A 400 `FINANCE_EDIT_REJECTED_ONLY` or 409
+  `FINANCE_CASCADE_PREVIEW_STALE` after an unknown reads "check the row", never «не збережено».
+  → "Edit lifecycle", `edit-unknown-*`, `edit-unknown-resolved-375`.
+- **M4** Hard field and state parity for admin edit: date-change reason (+ its server error), receipt
+  for ADMIN_INCOME / SENIOR_INCOME / EXPENSE only, stale preview (409) with refresh, preview loading
+  and error, save unavailable while stale / loading / blocked, a blocked state that names the next
+  step; strings from today's catalog. → "Field parity", `admin-edit-*` frames, Strings.
+- **M5** Senior edit keeps today's field set: rejection-reason panel, project as read-only text, no
+  date row, no defaults row. → `senior-edit-rejected-*`.
+- **M6** Attach receipt keeps today's shape: no project field; title and primary switch to the replace
+  wording when a receipt exists; «Замінити наявний чек?» confirms a replace; the primary uses the armed
+  label while uploading. → `attach-receipt-*`, `attach-replace-375`, `attach-replace-confirm-375`.
+- **M7** Task 1.1 gates the keyed create path; the keyless contingency is drawn (no optimistic close,
+  no resend, «Перевірити список» → check sheet). → header, "Save behaviour", `unknown-keyless-*`,
+  `unknown-check-375`.
+- **M8** Tablet is its own class: no bare dash in the 640–1023 column; 900–1023 rendered
+  (`default-1000`, `edit-unknown-1000`); the panel stays modal below 1440 under the foundation rule,
+  and the self-score quotes the anchor. → States, "Layout per device class", Self-score.
+- **M9** A reload or tab kill while a write is in flight is reported at the next boot (foundation page
+  kill). → States, `reload-while-saving-375`.
+- **M10** Two plan test names are replaced (open point 10); the plan file is not edited here.
+- **M11** Every `{amount}` in an outcome, pill, pinned-row, armed-button and confirm string is signed;
+  a field's own value and an "old → new" pair are unsigned on purpose. → Strings.
+- **M12** A locked (sent) draft is a record: sent values at full contrast, an absolute date and the send
+  time, no «змінити». → `inflight-*`, `unknown-resubmit-*`, `unknown-keyless-*`; open point 12.
+- **M13** Fixtures: one date constant (11 листопада 2026, the foundation list's «сьогодні») for sheet
+  and list; the shell shows the viewer's role; the highlighted row behind an edit is the edited
+  transaction; 422 frames keep the entered values; DROP frames show only DROP's rows; invented names.
+- **M14** Foundation files are not edited; each deviation is an open point with a recommendation.
+- **A1-1** Frames render with Inter from `@fontsource/inter` (`INTER_DIR`), the product font; the round 1
+  PNGs had fallen back to system-ui. Every frame is re-rendered, so line breaks moved.
+- **A1-2** A partial match after an unknown edit (some sent fields equal, some not, or the row changed
+  since) is "check the row", like a 400 / 409 after an unknown (open point 13).
+- **A1-3** An unknown edit closes the sheet, as a finance-list row write does; the entered values stay in
+  memory under the row marker until it is resolved.
+- **A1-4** The permission-limited fixture is a PAYOUT row (label «Виплата», `−` sign), so «це виплата»
+  is literally true.
+- **A1-5** Round 1 wording the council did not flag is kept (senior edit «Виправити дохід» /
+  «Зберегти й надіслати», admin edit «Редагування» / «Зберегти зміни»). Attach takes today's pair
+  «Прикріпити чек» / «Замінити чек» with the primaries «Прикріпити» / «Замінити», because M6 needs the
+  replace wording and round 1's «Додати чек» had no replace form.
 
 ## Current (what exists today)
 
@@ -253,62 +320,137 @@ dropped silently. The SALARY row action prefills employee, month and kind exactl
 
 ## Save behaviour
 
-**Prerequisite: Task 1.1** (an idempotency key on every create). The keyless waiting flow of the
-previous revision is deleted; the rejected alternative is recorded in open point 1.
+**Gate: Task 1.1** (an idempotency key on every create) decides which create path a kind takes; the
+spec holds either way. Today DIVIDEND, USDT ADMIN_INCOME, SENIOR_INCOME, DROP_INCOME and SALARY are
+keyed; EXPENSE, non-USDT ADMIN_INCOME, ADMIN_TRANSFER and the company deposit are keyless. After Task
+1.1 every create kind is keyed, EXPENSE included, so the `unknown-resubmit-*` frames (drawn on EXPENSE)
+show the post-1.1 state and the `unknown-keyless-*` frames show the same EXPENSE draft before it.
 
 - **Submit is never `disabled` for validity.** A tap on an invalid form moves focus to the first
-  invalid field and shows its inline message. Further taps while a write is in flight are ignored: one
-  request per tap.
+  invalid field and shows its inline message. A tap while a write is in flight does nothing: the
+  primary is `aria-disabled="true"` and announces «Зберігаємо…» (one request per tap).
+- **A tap while form data loads** (projects, receivers, the NBU rate: `loading-*`) validates what is
+  loaded. A required picker that is still loading counts as empty: focus moves to it and its inline
+  line reads «Список ще завантажується». No request leaves until the picker has a value.
 - **Armed save.** A save tapped while the receipt uploads (primary «Зберегти після завантаження чека»)
   is queued: «Збережеться −1 250,50 USD після завантаження чека» with «Не зберігати автоматично» to
   cancel the queue. The lead becomes «Згорнути»; collapsing keeps the draft and the upload.
 
-**The closed-sheet lifecycle (create).** One model at 375, 768 and 1440; only the slots differ (see
-"Layout per device class"). Amounts carry the sign the list row uses: `−` for EXPENSE, SALARY and
-DIVIDEND, `+` for incomes, no sign for ADMIN_TRANSFER (money moves between admins).
+**Outcome classes** (foundation `primitives-v2.md` §5, word for word; every write on this sheet uses
+them, create and edit):
 
-| Step    | When                                                                      | List                                                                                                                                    | Pill                                                                      | Dot on «+» |
-| ------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ---------- |
-| saving  | Save tapped on a valid form; the sheet closes at once                     | Optimistic row in its date group, status «Зберігаємо…» in `--muted-fg` (no opacity), `aria-busy="true"`                                 | «Зберігаємо −1 250,50 USD… · Відкрити», spinner                           | no         |
-| saved   | 2xx                                                                       | The server row replaces the optimistic row in place (no jump)                                                                           | «Збережено −1 250,50 USD · Відкрити», then the foundation timeout         | no         |
-| failed  | A definite failure: 4xx / 5xx response, or the request never left         | The optimistic row collapses (200 ms). A pinned draft row on top: «−1 250,50 USD · Не збережено · Витрата · Відкрити», destructive tone | «Не збережено −1 250,50 USD · Відкрити»                                   | yes        |
-| unknown | The request left and no answer came (timeout, connection drop after send) | The optimistic row collapses: it is not known to exist. A pinned warning row «−1 250,50 USD · Результат невідомий · Витрата · Відкрити» | «Результат невідомий · −1 250,50 USD · Відкрити», «?» icon in `--primary` | yes        |
+| Class    | What the client saw                                                                                                                                                                                       | Was anything written? |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| 422      | A validation error on a field                                                                                                                                                                             | No                    |
+| Definite | Another 4xx with the app's error envelope; a 500 / 503 with the envelope on an endpoint Wave 1 verified (one DB transaction, post-commit errors swallowed); or the app knew it was offline before sending | No                    |
+| Unknown  | A 502 / 504 from the gateway, a Cloudflare 524, a 5xx without the envelope, an enveloped 500 / 503 on an unverified endpoint, a connection dropped after the request left, a client timeout               | Maybe                 |
+
+«Транзакцію не збережено» and «Зміни не збережено» appear only for a definite failure (and the
+checked "not saved" result of an unknown edit, below). An unknown outcome never says «не збережено».
+
+**The closed-sheet lifecycle (keyed create).** One model at 375, 768, 1000 and 1440; only the slots
+differ (see "Layout per device class"). Amounts carry the sign the list row uses: `−` for EXPENSE,
+SALARY, DIVIDEND and PAYOUT, `+` for incomes, no sign for ADMIN_TRANSFER (money moves between admins).
+
+| Step    | When                                          | List                                                                                                                                            | Pill                                                                      | Dot on «+» |
+| ------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | ---------- |
+| saving  | Save tapped on a valid form; the sheet closes | Optimistic row in its date group, status «Зберігаємо…» in `--muted-fg` (no opacity), `aria-busy="true"`                                         | «Зберігаємо −1 250,50 USD… · Відкрити», spinner                           | no         |
+| saved   | 2xx                                           | The server row replaces the optimistic row in place (no jump)                                                                                   | «Збережено −1 250,50 USD · Відкрити» until tapped or dismissed (✕, swipe) | no         |
+| failed  | A definite failure (table above)              | The optimistic row collapses (200 ms). A pinned draft row on top: «−1 250,50 USD · Не збережено · Витрата · 14:32 · Відкрити», destructive tone | «Не збережено −1 250,50 USD · Відкрити»                                   | yes        |
+| unknown | An unknown outcome (table above)              | The optimistic row collapses: it is not known to exist. A pinned warning row «−1 250,50 USD · Результат невідомий · Витрата · 14:32 · Відкрити» | «Результат невідомий · −1 250,50 USD · Відкрити», «?» icon in `--primary` | yes        |
+
+The pinned-row subtitle ends with the send time («· 14:32»), so two drafts of the same amount differ.
+The foundation row has no time slot; the time rides in the subtitle (open point 14).
+
+**The keyless create** (before Task 1.1). Nothing is shown optimistically: the sheet stays open in
+the locked `inflight` state while the request runs, and «Згорнути» turns it into the saving pill with
+a pinned «Зберігаємо…» draft row (no list row). Saved and definite failure follow the table above. An
+unknown outcome keeps the draft read-only (`unknown-keyless-375`, `unknown-keyless-1440`): the
+foundation alert «Невідомо, чи транзакцію збережено» / «Відповідь не надійшла. Форма й чек
+залишились. Перевірте список: якщо транзакції там немає, її можна створити ще раз.», the sent values
+as a record under «Надіслано 11 листопада о 14:32 · змінити не можна», **no resend button**, the
+filled primary «Перевірити список» and «Видалити чернетку» under it. «Перевірити список» opens the
+foundation check sheet «Нові записи» over the kept form (`unknown-check-375`): «Шукаємо: −1 250,50 USD
+· Витрата · без опису · надіслано 14:32», «Лише ваші записи з 14:27», the row tags and the two exits
+«Є в списку — закрити чернетку» / «Немає — створити ще раз» (gated, foundation §5).
 
 - **No toast** at any step. The pill and the pinned row are the whole signal; a toast would duplicate
   them and time out before it is read. The DROP and DIVIDEND success toasts of today become the saved
-  pill.
+  pill. A pill never times out: a result stays until it is tapped or dismissed (foundation §11).
 - **«Відкрити»** on a failed or unknown draft reopens the sheet in the matching state:
   - 422 → `error-422`: inline on the field; the draft becomes an ordinary dirty form (pill and pinned row
     clear, lead «Скасувати», closing asks «Вийти без збереження?» and leaving discards the draft);
-  - not sent → `error-definite`: «Транзакцію не надіслано» / «Немає з’єднання…», «Повторити
-    збереження»;
-  - any other definite failure (403, 409, 5xx) → the same `error-definite` layout with the title
-    «Транзакцію не збережено» and the catalog message for the server's error code in place of «Немає
-    з’єднання…»; «Повторити збереження» stays (a manual resend with the same key is safe), and so does
+  - definite, offline before sending → `error-definite`: «Транзакцію не надіслано» / «Немає
+    з’єднання…», «Повторити збереження»;
+  - definite, an enveloped answer (403, 409, a 4xx, a verified 500 / 503) → the same `error-definite`
+    layout with the title «Транзакцію не збережено» and the catalog message for the server's error
+    code; «Повторити збереження» stays (nothing was written, so a manual resend is safe), and so does
     «Видалити чернетку»;
-  - unknown → `unknown-resubmit` («Надіслати ще раз», the same key).
+  - unknown, keyed → `unknown-resubmit` («Надіслати ще раз», the same key, by hand only);
+  - unknown, keyless → `unknown-keyless` («Перевірити список», no resend).
 
   On a saving draft it reopens `inflight`.
 
 - **The title of a saved row.** The row title is the description; without one, the EXPENSE category;
   without either, the kind label. The sample has no description, so the row reads «Оплата послуги».
 - **Nothing retries automatically.** Not a definite failure, not an unknown outcome, not a reconnect.
+- **A reload or tab kill while a write is in flight** (`reload-while-saving-375`). The draft lives in
+  memory, so it is gone; the foundation page-kill marker `{t, phase}` (no amount) survives in local
+  storage. At the next boot «Фінанси» shows the foundation alert for the phase: `armed` → «Транзакцію
+  не збережено: застосунок закрився під час завантаження чека. Створіть її ще раз.» + «Зрозуміло»;
+  `sent` → «Результат збереження транзакції о 14:32 невідомий. Вона могла зберегтися: перевірте нові
+  записи, перш ніж створювати її знову.» + «Закрити» / «Оновити список» (the foundation boot check
+  sheet). An edit in flight leaves no marker: the server row is the truth, and the list refetches on
+  boot.
 
-**«Видалити чернетку» (discard).** Shown only in `error-definite` and `unknown-resubmit`, as a ghost
-destructive button under the primary. Never in 422 (the draft is an ordinary form again; closing it
-asks «Вийти без збереження?»), never in flight. A tap opens a confirm (`confirm-discard`): «Видалити
-чернетку −1 250,50 USD?» / «Сума, поля й чек зникнуть. Цю дію не можна скасувати.», buttons «Залишити»
-(initial focus) and «Видалити» (destructive). For an unknown draft the description adds «Якщо
-транзакцію вже збережено, вона залишиться в списку.» Phone: an action sheet over the sheet; wider: a
+**«Видалити чернетку» (discard).** Shown only in `error-definite`, `unknown-resubmit` and
+`unknown-keyless`, as a ghost destructive button under the primary. Never in 422 (the draft is an
+ordinary form again; closing it asks «Вийти без збереження?»), never in flight. A tap opens a confirm:
+«Видалити чернетку −1 250,50 USD?» / «Сума, поля й чек зникнуть. Цю дію не можна скасувати.», buttons
+«Залишити» (initial focus) and «Видалити» (destructive) (`confirm-discard-*`). For an unknown draft the
+description reads «Сума, поля й чек зникнуть із пристрою. Якщо транзакцію вже збережено, вона
+залишиться в списку.» (`confirm-discard-unknown-375`). Phone: an action sheet over the sheet; wider: a
 420 px dialog.
 
-**Edit flows.**
+### Edit lifecycle (admin edit, senior edit, attach / replace receipt)
 
-| Flow           | Behaviour after 1.1                                                                                                                                                                                                                                                                                                                  |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Attach receipt | Optimistic: the sheet closes, the row's paperclip shows at once with «Зберігаємо…»; failure → the same pill + pinned row as a create (a `PATCH` of one field is safe to resend).                                                                                                                                                     |
-| Senior edit    | Optimistic: the row shows the new amount with «Зберігаємо…»; failure → pill + pinned row, the previous values restored in the row.                                                                                                                                                                                                   |
-| Admin edit     | **Always waits.** The server recomputes the derivatives (shares, invoice), so nothing can be shown optimistically. The sheet stays open locked (`admin-edit-saving`): lead «Згорнути», the muted lock line, primary «Зберегти зміни» with a spinner. «Згорнути» turns it into a saving pill; the lifecycle above applies from there. |
+Edits are not creates: **never optimistic** (today's behaviour), **no idempotency key**, **never
+retried automatically**. Their outcome lives on the edited transaction's own row and in the pill;
+an edit never makes a pinned draft row and never puts a dot on «+». The row marker is the finance
+list's (Task 1.2 §9.2: «Зберігається…», «Результат невідомий»). The pill names the kind and the signed
+amount of the edited transaction (the new amount when the edit changed it). Sample: admin edit of an
+income, «Дохід +1 250,50 USD» (was 1 200,00).
+
+| Step              | When                             | Sheet                                                                                                                                                                                                                      | Pill (sheet collapsed or closed)                                | Row marker                             |
+| ----------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | -------------------------------------- |
+| saving            | «Зберегти зміни» on a valid form | Stays open, locked: lead «Згорнути», «Зберігаємо… · змінити не можна», primary spinner `aria-disabled` (`admin-edit-saving-*`). «Згорнути» closes it into the pill                                                         | «Зберігаємо зміни… · Дохід +1 250,50 USD»                       | «Зберігається…» (spinner)              |
+| saved             | 2xx                              | Closes; focus returns to the row, which shows the new values                                                                                                                                                               | «Зміни збережено · Дохід +1 250,50 USD · Відкрити»              | none                                   |
+| failed (definite) | A definite failure               | Stays open with the values: inline alert «Зміни не збережено» + the cause («Нічого не змінено. Дані у формі залишились — спробуйте ще раз.» or the catalog message), primary «Зберегти зміни» (manual) (`edit-failed-375`) | «Зміни не збережено · Дохід +1 250,50 USD · Відкрити»           | «Зміни не збережено» (destructive)     |
+| unknown           | An unknown outcome               | Closes (A1-3); the entered values stay in memory under the marker                                                                                                                                                          | «Невідомо, чи збережено зміни · Дохід +1 250,50 USD · Відкрити» | «Результат невідомий» + «Перевіряємо…» |
+
+**Resolving an unknown edit** (M3). The screen refetches that one transaction at once; this is a read,
+never a resend. It compares the fields the edit sent:
+
+- **all match → saved** (`edit-unknown-resolved-375`): the marker clears, the pill turns into «Зміни
+  збережено · Дохід +1 250,50 USD · Відкрити» (it waits to be dismissed, like every result);
+- **none match → not saved**: the marker reads «Зміни не збережено», and «Відкрити» reopens the form
+  unlocked with the entered values and the alert «Зміни не збережено» / «Транзакцію перевірено: змін у
+  ній немає. Введене залишилось — збережіть ще раз.» The save is manual; for admin edit it is
+  unavailable until a fresh cascade preview has loaded;
+- **some match, or the row changed since** (A1-2), **or** the refetch or a later save returns 400
+  `FINANCE_EDIT_REJECTED_ONLY` / 409 `FINANCE_CASCADE_PREVIEW_STALE` → "check the row": the marker
+  reads «Перевірте транзакцію», the pill «Перевірте транзакцію · Дохід +1 250,50 USD · Відкрити», and
+  «Відкрити» opens the sheet on the server's current values with the alert «Перевірте транзакцію» /
+  «Частину змін могли зберегти, або транзакцію змінили. Звірте значення, перш ніж зберігати ще раз.»;
+  never «не збережено»;
+- **the refetch fails**: the marker stays «Результат невідомий» with a 44 px «Повторити» (it repeats the
+  refetch, not the edit); the pill stays unknown.
+
+| Flow           | Saving                                    | Notes                                                                                                                                                           |
+| -------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Admin edit     | Waits, sheet locked (`admin-edit-saving`) | The server recomputes the derivatives (shares, invoice). A save after an unknown always runs a fresh cascade preview first.                                     |
+| Senior edit    | Waits, sheet locked                       | `PATCH` of a REJECTED SENIOR_INCOME; a 400 `FINANCE_EDIT_REJECTED_ONLY` is definite when it is the first answer («Редагувати можна лише відхилені транзакції»). |
+| Attach receipt | Waits, sheet locked                       | `PATCH /transactions/:id/receipt`; saved pill «Чек прикріплено · Витрата −1 250,50 USD» or «Чек замінено · …» (today's toasts).                                 |
 
 **Cascade block.** When a derivative row cannot be recomputed, the server marks the save as blocked:
 alert «Зберегти не можна» / «По відмічених рядках суму не перерахувати — потрібне ручне рішення.»,
