@@ -49,9 +49,10 @@ export async function deriveOpportunityRoles(
   )
   const cached = rows[0]
   if (cached?.['outcome'] === 'UNCLEAR') return result('UNCLEAR')
-  const roles = (cached?.['technical_roles'] as TechnicalRole[] | undefined) ?? []
-  // An AI row without roles cannot satisfy ck_job_opportunities_roles_iff_status: treat it as unanswered.
-  if (cached?.['outcome'] === 'AI' && roles.length > 0) return result('AI', sortRoles(roles))
+  // technical_roles is NOT NULL. An AI row without roles cannot satisfy
+  // ck_job_opportunities_roles_iff_status: treat it as unanswered.
+  const roles = cached?.['outcome'] === 'AI' ? (cached['technical_roles'] as TechnicalRole[]) : []
+  if (roles.length > 0) return result('AI', sortRoles(roles))
   return result('PENDING')
 }
 

@@ -220,6 +220,12 @@ describe('refresh reclassifies vacancy roles only when a classifier input moved 
     expect(seen.queries.some((q) => /revision = revision \+ 1/.test(q.sql))).toBe(true)
   })
 
+  it('a refresh that finds no stored row writes no roles', async () => {
+    const { db, seen } = fakeDb([refresh([member], [], [[], []])])
+    await releaseTokenTx(db, actor, 'k', 'why')
+    expect(roleWrites(seen.queries)).toEqual([])
+  })
+
   it('an opportunity left with no member keeps its roles and still advances its revision', async () => {
     const { db, seen } = fakeDb([refresh([], [stored({ title: 'Old Title' })], [[], []])])
     await releaseTokenTx(db, actor, 'k', 'why')
