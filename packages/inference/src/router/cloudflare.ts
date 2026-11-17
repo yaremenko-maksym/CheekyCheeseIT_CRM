@@ -38,11 +38,11 @@ export function isCloudflarePinnableModel(id: string): boolean {
 }
 
 /** The vendors of the pinned chain: a listing addition from any other vendor is dropped. */
-const CLOUDFLARE_LISTING_VENDORS: readonly string[] = ['mistralai', 'google', 'openai', 'meta']
+const CLOUDFLARE_LISTING_VENDOR = /^@cf\/(?:mistralai|google|openai|meta)\//
 
-/** `@cf/<vendor>/<name>` with `<vendor>` on the checked-in list (the id shape is checked elsewhere). */
+/** `@cf/<vendor>/...` with `<vendor>` on the checked-in list (the id shape is checked elsewhere). */
 export function isCloudflareListedVendor(id: string): boolean {
-  return CLOUDFLARE_LISTING_VENDORS.includes(id.split('/')[1] ?? '')
+  return CLOUDFLARE_LISTING_VENDOR.test(id)
 }
 
 export function isCloudflareAccountId(id: string): boolean {

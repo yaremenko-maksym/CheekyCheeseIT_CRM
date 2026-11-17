@@ -5,6 +5,7 @@ import {
   cloudflareListingUrl,
   fitsCloudflareAllowance,
   isCloudflareAccountId,
+  isCloudflareListedVendor,
 } from './cloudflare'
 
 const ID = '0123456789abcdef0123456789abcdef'
@@ -25,6 +26,25 @@ describe('isCloudflareAccountId', () => {
     ['empty', ''],
   ])('refuses %s', (_why, id) => {
     expect(isCloudflareAccountId(id)).toBe(false)
+  })
+})
+
+describe('isCloudflareListedVendor (review F3)', () => {
+  it('admits the four vendors of the pinned chain and nothing else', () => {
+    for (const v of ['mistralai', 'google', 'openai', 'meta']) {
+      expect(isCloudflareListedVendor(`@cf/${v}/m`)).toBe(true)
+    }
+    for (const id of [
+      '@cf/metax/m',
+      '@cf/xmeta/m',
+      '@cf/meta',
+      'x@cf/meta/m',
+      '@hf/meta/m',
+      '@cf/qwen/meta/m',
+      'meta',
+    ]) {
+      expect(isCloudflareListedVendor(id)).toBe(false)
+    }
   })
 })
 
