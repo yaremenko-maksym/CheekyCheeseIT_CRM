@@ -209,4 +209,10 @@ describe('UserRow — technical roles instead of the stack (senior roles PR 5)',
     expect(screen.getByText('+1')).toBeInTheDocument()
     expect(screen.queryByTestId('role-chips')).toBeNull()
   })
+
+  it('a JUNIOR with exactly 5 technologies shows all of them and no "+N"', () => {
+    renderRow(makeUser({ role: 'JUNIOR', techStack: ['Zz1', 'Zz2', 'Zz3', 'Zz4', 'Zz5'] }))
+    expect(screen.getByText('Zz5')).toBeInTheDocument()
+    expect(screen.queryByText(/^\+\d+$/)).toBeNull()
+  })
 })

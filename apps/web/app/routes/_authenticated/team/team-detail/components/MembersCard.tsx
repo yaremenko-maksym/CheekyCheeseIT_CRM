@@ -116,27 +116,25 @@ export function MembersCard({
                           {i18n._(ROLE_LABEL_MESSAGES[member.role])}
                         </Badge>
                       </div>
-                      {member.role === 'SENIOR'
-                        ? // A SENIOR shows its technical roles; a legacy one with none shows nothing, never the stale stack.
-                          member.technicalRoles.length > 0 && (
-                            <div className="mt-1">
-                              <RoleChips roles={member.technicalRoles} limit={3} />
-                            </div>
-                          )
-                        : Array.isArray(member.techStack) &&
-                          member.techStack.length > 0 && (
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {(member.techStack as string[]).map((t) => (
-                                <Badge
-                                  key={t}
-                                  variant="outline"
-                                  className="text-[9px] px-1.5 py-0 font-mono"
-                                >
-                                  {t}
-                                </Badge>
-                              ))}
-                            </div>
-                          )}
+                      {member.role === 'SENIOR' ? (
+                        // A SENIOR shows its technical roles; a legacy one with none shows nothing, never the stale stack.
+                        <RoleChips roles={member.technicalRoles} limit={3} className="mt-1" />
+                      ) : (
+                        Array.isArray(member.techStack) &&
+                        member.techStack.length > 0 && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {(member.techStack as string[]).map((t) => (
+                              <Badge
+                                key={t}
+                                variant="outline"
+                                className="text-[9px] px-1.5 py-0 font-mono"
+                              >
+                                {t}
+                              </Badge>
+                            ))}
+                          </div>
+                        )
+                      )}
                       <div className="mt-1 flex flex-col gap-0.5 min-w-0">
                         <a
                           href={`mailto:${member.email}`}

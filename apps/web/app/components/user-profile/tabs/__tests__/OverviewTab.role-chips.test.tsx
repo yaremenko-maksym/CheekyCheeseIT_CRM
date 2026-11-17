@@ -106,6 +106,13 @@ describe('OverviewTab — technical roles of a senior (senior roles PR 5)', () =
     expect(screen.queryByTestId('role-chips')).toBeNull()
   })
 
+  it('a JUNIOR with no stack sees "не вказано" in the stack card', () => {
+    renderTab({ role: 'JUNIOR', techStack: [], technicalRoles: [] })
+    expect(
+      within(screen.getByTestId('profile-tech-stack')).getByText('не вказано'),
+    ).toBeInTheDocument()
+  })
+
   it('the techStack field gate hides the roles card too', () => {
     renderTab(
       { technicalRoles: ['BACKEND_ENGINEER'] },
