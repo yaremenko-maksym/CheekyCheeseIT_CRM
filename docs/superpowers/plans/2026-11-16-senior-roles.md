@@ -403,6 +403,22 @@ it('every role group has at least one dictionary entry', ...) // one hint per gr
 - [ ] **Step 4: Run** the same command. Expected: PASS, one case per fixture row.
 - [ ] **Step 5: Commit** `feat(job-sourcing): deterministic vacancy role classifier`.
 
+**Deviations recorded in PR #1371** (the classifier against research Appendix A; each one is
+pinned by a row in `apps/api/src/job-sourcing/funnel/__fixtures__/role-titles.ts`):
+
+- **Unicode left bound.** Every role keyword is bounded on the left by a Unicode letter or digit,
+  where the run used ASCII `(?<![a-z0-9])`; `\b` / `\w` / `\W` are rewritten to Unicode classes, so
+  Cyrillic titles are bounded the way Python 3 bounds them.
+- **`автотест`** is a QA automation keyword (`Інженер з автотестування`).
+- **Cyrillic engineer + security domain → SECURITY_ENGINEER**, in either word order
+  (`Інженер з кібербезпеки`, `Кібербезпека: Інженер`); an analyst noun in either script
+  (`аналітик`, `analyst`) keeps SECURITY_ANALYST as well.
+- **`go to` is not Go**: `go` followed by `to` across any space or dash (`Go-to-Market`,
+  `Go–to–Market`) gives no back-end role.
+- **An architect re-adds back-end** as well as front-end from its title.
+- **C# / .NET → BACKEND_ENGINEER**: the appendix patterns `\bc#\b` / `\b\.net` could never match,
+  so those titles fell through to SOFTWARE_ENGINEER there.
+
 **PR 1 done when:** `pnpm --filter @crm/shared test`, `pnpm --filter @crm/api test -- role-classifier`
 and `pnpm typecheck` are green. Final commit trailer: `ac_verified: 1.1,1.2,1.3,1.4`.
 

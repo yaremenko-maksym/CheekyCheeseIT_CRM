@@ -4010,6 +4010,11 @@ msgstr "Seniors and admins can only be paid to USDT ERC-20"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.SENIOR_MIN_ROLES"
+msgstr "A senior needs at least one technical role"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SENIOR_MIN_TECHNOLOGIES"
 msgstr "A senior needs at least 3 different technologies"
 
@@ -12080,6 +12085,231 @@ msgstr "Role shown to the client"
 msgid "покриття {coverage}% · {monthLabel}"
 msgstr "coverage {coverage}% · {monthLabel}"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.ADJACENT_ANALYSIS_DESIGN"
+msgstr "Analysis & Product Design"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.ARCHITECTURE_LEADERSHIP"
+msgstr "Architecture & Technical Leadership"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.BLOCKCHAIN"
+msgstr "Blockchain"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.DATA_AI"
+msgstr "Data & AI"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.EMBEDDED_HARDWARE"
+msgstr "Embedded & Hardware"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.GAME"
+msgstr "Game & Graphics"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.INFRASTRUCTURE_OPERATIONS"
+msgstr "Infrastructure & Operations"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.MOBILE"
+msgstr "Mobile"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.QUALITY_ASSURANCE"
+msgstr "Quality Assurance"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.SECURITY"
+msgstr "Security"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role-group.SOFTWARE_ENGINEERING"
+msgstr "Software Engineering"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.AI_ENGINEER"
+msgstr "AI Application Engineer (LLM)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.ANDROID_ENGINEER"
+msgstr "Android Engineer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.BACKEND_ENGINEER"
+msgstr "Back-end Engineer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.BLOCKCHAIN_ENGINEER"
+msgstr "Blockchain / Web3 Engineer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.BUSINESS_ANALYST"
+msgstr "IT Business / Systems Analyst"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.BUSINESS_APPLICATIONS_ENGINEER"
+msgstr "ERP/CRM & Low-code Platform Engineer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.CROSS_PLATFORM_MOBILE_ENGINEER"
+msgstr "Cross-platform Mobile Engineer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.CTO"
+msgstr "CTO"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.DATA_ANALYST"
+msgstr "Data / BI Analyst"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.DATA_ENGINEER"
+msgstr "Data Engineer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.DATA_SCIENTIST"
+msgstr "Data Scientist"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.DATABASE_ENGINEER"
+msgstr "Database Engineer / DBA"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.DESKTOP_ENGINEER"
+msgstr "Desktop Applications Engineer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.DEVOPS_ENGINEER"
+msgstr "DevOps / Platform Engineer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.EMBEDDED_ENGINEER"
+msgstr "Embedded / Firmware Engineer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.ENGINEERING_MANAGER"
+msgstr "Engineering Manager"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.FRONTEND_ENGINEER"
+msgstr "Front-end Engineer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.FULLSTACK_ENGINEER"
+msgstr "Full-stack Engineer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.GAME_DEVELOPER"
+msgstr "Game & Graphics Developer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.HARDWARE_ENGINEER"
+msgstr "Hardware / Electronics Engineer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.IOS_ENGINEER"
+msgstr "iOS Engineer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.ML_ENGINEER"
+msgstr "Machine Learning Engineer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.NETWORK_ENGINEER"
+msgstr "Network Engineer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.PENETRATION_TESTER"
+msgstr "Penetration Tester"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.QA_AUTOMATION_ENGINEER"
+msgstr "QA Automation Engineer / SDET"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.QA_ENGINEER"
+msgstr "QA Engineer (Manual)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.SECURITY_ANALYST"
+msgstr "Security Analyst (SOC / IR / GRC)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.SECURITY_ENGINEER"
+msgstr "Security Engineer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.SITE_RELIABILITY_ENGINEER"
+msgstr "Site Reliability Engineer"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.SOFTWARE_ARCHITECT"
+msgstr "Software / Solution Architect"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.SOFTWARE_ENGINEER"
+msgstr "Software Engineer (general)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.SUPPORT_ENGINEER"
+msgstr "Technical Support Engineer (L2/L3)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.SYSTEM_ADMINISTRATOR"
+msgstr "System Administrator"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/technical-roles.ts
+msgid "technical-role.UI_UX_DESIGNER"
+msgstr "Product (UI/UX) Designer"
+
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 msgid "Перегляд зарплати"
@@ -14439,6 +14669,11 @@ msgstr "Enter the salary or the senior's share — at least one of the two"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.SENDER_RECEIVER_SAME"
 msgstr "Sender and receiver cannot be the same"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.SENIOR_MIN_ROLES"
+msgstr "A senior needs at least one technical role"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts

@@ -46,6 +46,27 @@ export const SKILL_SYNONYM_GROUPS: readonly { canonical: string; aliases: readon
   // --- API styles ---
   { canonical: 'GraphQL', aliases: ['Graph QL'] },
   { canonical: 'REST', aliases: ['REST API', 'RESTful', 'RESTful API'] },
+  // --- role stacks (technical roles, research §1 tech hints) ---
+  { canonical: 'Salesforce', aliases: [] },
+  { canonical: 'iOS', aliases: [] },
+  { canonical: 'Swift', aliases: [] },
+  { canonical: 'Android', aliases: [] },
+  { canonical: 'Jetpack Compose', aliases: [] },
+  { canonical: 'Flutter', aliases: [] },
+  { canonical: 'React Native', aliases: [] },
+  { canonical: 'Apache Spark', aliases: ['Spark'] },
+  { canonical: 'dbt', aliases: [] },
+  { canonical: 'PyTorch', aliases: [] },
+  { canonical: 'Linux', aliases: [] },
+  { canonical: 'Playwright', aliases: [] },
+  { canonical: 'Selenium', aliases: [] },
+  { canonical: 'OWASP', aliases: [] },
+  { canonical: 'Verilog', aliases: [] },
+  { canonical: 'VHDL', aliases: [] },
+  { canonical: 'Unity', aliases: ['Unity3D'] },
+  { canonical: 'Unreal Engine', aliases: ['Unreal', 'UE4', 'UE5'] },
+  { canonical: 'Solidity', aliases: [] },
+  { canonical: 'Figma', aliases: [] },
 ]
 
 /** Normalised lookup key: tokenizer-folded, separators removed (`Node JS` → `nodejs`). */
@@ -98,10 +119,15 @@ export function mergeSkills(skills: string[], technologies: string[][]): string[
  * `Java` is not in `JavaScript`, `C` is not in `C#` / `C++`.
  */
 export function mentionsSkill(text: string, skill: string): boolean {
-  const spellings = spellingsOf(skill) ?? [skill]
+  return skillMentions(text)(skill)
+}
+
+/** `mentionsSkill` with `text` tokenised once, for testing many skills against one text. */
+export function skillMentions(text: string): (skill: string) => boolean {
   const haystack = phraseOf(text)
-  return spellings.some((spelling) => {
-    const needle = phraseOf(spelling)
-    return needle.trim() !== '' && haystack.includes(needle)
-  })
+  return (skill) =>
+    (spellingsOf(skill) ?? [skill]).some((spelling) => {
+      const needle = phraseOf(spelling)
+      return needle.trim() !== '' && haystack.includes(needle)
+    })
 }

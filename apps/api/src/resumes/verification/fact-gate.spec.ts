@@ -131,6 +131,22 @@ describe('findUngroundedTokens — fix round 1', () => {
     expect(findUngroundedTokens('on each node', src('on'))).toEqual([])
   })
 
+  it('does not flag a lowercase English word that a role-stack skill also spells', () => {
+    expect(findUngroundedTokens('a swift rollout', src('a rollout'))).toEqual([])
+    expect(findUngroundedTokens('spark interest', src('interest'))).toEqual([])
+    expect(findUngroundedTokens('team unity', src('team'))).toEqual([])
+    expect(findUngroundedTokens('an unreal pace', src('an pace'))).toEqual([])
+    expect(findUngroundedTokens('the solidity of the design', src('the design'))).toEqual([])
+    expect(findUngroundedTokens('a flutter of tasks', src('a tasks'))).toEqual([])
+    expect(findUngroundedTokens('a playwright by night', src('a by night'))).toEqual([])
+    expect(findUngroundedTokens('selenium intake', src('intake'))).toEqual([])
+    expect(findUngroundedTokens('an android in a film', src('an in a film'))).toEqual([])
+  })
+
+  it('still flags the capitalised role-stack skill when the source lacks it', () => {
+    expect(findUngroundedTokens('Built apps in Swift', src('Built apps'))).toContain('Swift')
+  })
+
   it('does not flag a sentence-initial English word that is also a skill', () => {
     expect(findUngroundedTokens('Go-live in May.', src('in May'))).toEqual([])
     expect(
@@ -175,5 +191,62 @@ describe('findUngroundedTokens — fix round 1', () => {
   it('does not treat a colon or an inline bracket as a sentence start', () => {
     expect(findUngroundedTokens('Stack: Kafka', src(''))).toEqual(['Kafka'])
     expect(findUngroundedTokens('it (and more) Kafka', src('it and more'))).toEqual(['Kafka'])
+  })
+})
+
+describe('findUngroundedTokens — everyday-word aliases', () => {
+  it('a lowercase everyday word in the source does not ground another spelling of its skill', () => {
+    expect(findUngroundedTokens('Shipped a UE5 title', src('at an unreal pace'))).toContain('UE5')
+    expect(findUngroundedTokens('Built in Unity3D', src('team unity'))).toContain('Unity3D')
+    expect(findUngroundedTokens('Pipelines on Apache Spark', src('spark interest'))).toContain(
+      'Apache Spark',
+    )
+  })
+
+  it('the same word still grounds itself, as before the role-stack skills', () => {
+    expect(findUngroundedTokens('Pipelines on Spark', src('spark interest'))).toEqual([])
+    expect(findUngroundedTokens('Built in Unity', src('team unity'))).toEqual([])
+  })
+
+  it('a full multi-word spelling in lowercase still grounds the whole group', () => {
+    const apache = src('experience with apache spark and kafka')
+    expect(findUngroundedTokens('Built pipelines with Apache Spark.', apache)).toEqual([])
+    expect(findUngroundedTokens('Pipelines on Apache Spark', src('Apache spark jobs'))).toEqual([])
+    const unreal = src('shipped games in unreal engine 5')
+    expect(findUngroundedTokens('Shipped a game in Unreal Engine.', unreal)).toEqual([])
+    expect(findUngroundedTokens('Shipped a UE5 title', unreal)).toEqual([])
+    expect(findUngroundedTokens('Built in Unity3D', src('unity 3d games'))).toEqual([])
+  })
+
+  it('the full spelling may wrap or carry extra spaces (PDF text)', () => {
+    expect(findUngroundedTokens('Pipelines on Apache Spark', src('apache\n  spark'))).toEqual([])
+    expect(findUngroundedTokens('Shipped a UE5 title', src('unreal  engine 5'))).toEqual([])
+    expect(findUngroundedTokens('Built in Unity3D', src('unity \n3d games'))).toEqual([])
+  })
+
+  it.each([
+    ['apache-spark', 'Pipelines on Apache Spark'],
+    ['apache_spark', 'Pipelines on Apache Spark'],
+    ['apache – spark', 'Pipelines on Apache Spark'],
+    ['unreal-engine', 'Shipped a game in Unreal Engine'],
+    ['unreal_engine', 'Shipped a game in Unreal Engine'],
+    ['unreal–engine', 'Shipped a game in Unreal Engine'],
+    ['unity-3d', 'Built in Unity3D'],
+    ['unity_3d', 'Built in Unity3D'],
+    ['unity—3d', 'Built in Unity3D'],
+  ])(
+    'the full spelling joined by a dash or underscore (%s) still grounds the group',
+    (raw, out) => {
+      expect(findUngroundedTokens(out, src(`skills: ${raw}`))).toEqual([])
+    },
+  )
+
+  it('a capitalised spelling in the source grounds the whole group', () => {
+    expect(findUngroundedTokens('Shipped a UE5 title', src('Unreal 5 pipelines'))).toEqual([])
+    expect(findUngroundedTokens('Built in Unity3D', src('Unity 3 games'))).toEqual([])
+  })
+
+  it('leaves the existing lowercase node grounding unchanged', () => {
+    expect(findUngroundedTokens('Node.js services', src('on each node'))).toEqual([])
   })
 })
