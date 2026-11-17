@@ -373,6 +373,20 @@ describe('JobQueueRow', () => {
     expect(screen.queryByTestId('job-queue-row-also-seen')).toBeNull()
   })
 
+  it('names any source type and separates source from company for assistive tech', () => {
+    const { row } = renderRow({
+      primarySource: {
+        sourceRecordId: '33333333-3333-4333-8333-333333333333',
+        sourceType: 'HN_HIRING',
+        url: 'https://x.test',
+      },
+    })
+    expect(screen.getByTestId('job-queue-row-source-name')).toHaveTextContent(
+      /^Hacker News: Who is hiring$/,
+    )
+    expect(row).toHaveAccessibleName(/Hacker News: Who is hiring Acme Labs/)
+  })
+
   it('marks a manual card instead of a source and survives a missing company', () => {
     const { row } = renderRow({ primarySource: null, companyName: null })
     expect(screen.getByTestId('job-queue-row-source-name')).toHaveTextContent(/^Додано вручну$/)

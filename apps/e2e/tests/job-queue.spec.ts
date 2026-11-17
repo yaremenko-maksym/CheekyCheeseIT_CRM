@@ -326,7 +326,7 @@ test.describe('scenario 11 — SENIOR direct URL (real API)', () => {
 
 // ---------------------------------------------------------------------------
 // Scenario 13 — mobile (375 px): no horizontal scroll, full-screen card, 44 px targets,
-// «Відкрити оригінал» opens inside the click gesture
+// «Відкрити на {source}» opens inside the click gesture
 // ---------------------------------------------------------------------------
 type OpenCall = { url: string; inGesture: boolean }
 
@@ -357,10 +357,12 @@ test.describe('scenario 13 — mobile 375 px (mocked)', () => {
   test('13: no horizontal scroll, full-screen card, 44 px targets, gesture-safe open', async ({
     asHr: page,
   }) => {
+    const uk = await loadMessages('uk')
     await instrumentWindowOpen(page)
     await mockJobQueue(page)
     await page.goto('/job-queue')
     await expect(page.getByTestId(`job-queue-row-${OPP}`)).toBeVisible()
+    await expect(page.getByTestId('job-queue-row-source-name').first()).toHaveText('DOU')
 
     const noHorizontalScroll = () =>
       page.evaluate(
@@ -383,7 +385,10 @@ test.describe('scenario 13 — mobile 375 px (mocked)', () => {
 
     await page
       .getByTestId('job-queue-card-footer')
-      .getByRole('button', { name: /^Відкрити на DOU$/ })
+      .getByRole('button', {
+        // the compiled catalog flattens the `{0}` placeholder to its index
+        name: assertInCatalog(uk, 'Відкрити на 0').replace(/0$/, 'DOU'),
+      })
       .click()
     const calls = await page.evaluate(
       () => (window as unknown as { __openCalls: OpenCall[] }).__openCalls,

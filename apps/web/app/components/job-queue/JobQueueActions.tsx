@@ -221,7 +221,7 @@ export function ApplyFirst() {
       <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
       <p className="text-pretty">
         <Trans>
-          Спершу подайте на сайті джерела («Відкрити оригінал»), потім запишіть подачу тут.
+          Спершу подайте на сайті джерела (кнопка внизу картки), потім запишіть подачу тут.
         </Trans>
       </p>
     </div>
@@ -1046,7 +1046,7 @@ export function SeniorAction({
 }
 
 /**
- * «Відкрити оригінал»: the primary source (the click is marked, fire-and-forget) or a manual card's
+ * «Відкрити на {source}» (a manual card: «Відкрити оригінал»): the primary source (the click is marked, fire-and-forget) or a manual card's
  * application link. The posting opens synchronously inside the click, or a phone blocks it.
  */
 export function OpenOriginalButton({
@@ -1065,7 +1065,7 @@ export function OpenOriginalButton({
     <Button
       type="button"
       variant="outline"
-      className="min-h-11 w-full sm:w-auto"
+      className="h-auto min-h-11 w-full whitespace-normal sm:w-auto"
       onClick={() => {
         openOriginalPosting(url)
         if (source) markOpened(card.opportunityId, source.sourceRecordId)

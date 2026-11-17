@@ -145,11 +145,14 @@ export function JobQueueRow({
               aria-hidden="true"
               className="size-4 shrink-0"
             />
-            <span data-testid="job-queue-row-source-name" className="shrink-0">
+            <span
+              data-testid="job-queue-row-source-name"
+              title={sourceName}
+              className="min-w-0 max-w-[50%] truncate"
+            >
               {sourceName}
-            </span>
-            <span aria-hidden="true">·</span>
-            <span className="truncate">{company}</span>
+            </span>{' '}
+            <span aria-hidden="true">·</span> <span className="min-w-0 truncate">{company}</span>
           </span>
           {/* §4.3: a triage row replaces the stack line with its reason */}
           {!triage && keywords.length > 0 && (

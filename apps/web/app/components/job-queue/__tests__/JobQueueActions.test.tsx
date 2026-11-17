@@ -735,7 +735,7 @@ describe('apply-first reminder (AC 4)', () => {
     const note = screen.getByTestId('job-queue-apply-first')
     expect(note).toHaveAttribute('role', 'note')
     expect(note).toHaveTextContent(
-      'Спершу подайте на сайті джерела («Відкрити оригінал»), потім запишіть подачу тут.',
+      'Спершу подайте на сайті джерела (кнопка внизу картки), потім запишіть подачу тут.',
     )
     expect(
       note.compareDocumentPosition(screen.getByTestId('job-queue-seniors-list')) &
@@ -923,6 +923,27 @@ describe('«Відкрити оригінал» (AC 6)', () => {
     expect(sent(`/job-queue/${OPP}/opened`)).toEqual([
       { teamId: TEAM, sourceRecordId: PRIMARY_SRC },
     ])
+  })
+
+  it('names the source whatever its type', () => {
+    setCard(
+      cardFixture({
+        primarySource: {
+          sourceRecordId: PRIMARY_SRC,
+          sourceType: 'DJINNI_RSS',
+          url: 'https://djinni.co/1',
+        },
+      }),
+    )
+    renderCard()
+    expect(screen.getByRole('button', { name: 'Відкрити на Djinni' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Відкрити на DOU' })).toBeNull()
+  })
+
+  it('a manual card is labelled «Відкрити оригінал», not a source', () => {
+    setCard(cardFixture({ primarySource: null, applicationUrl: 'https://acme.example/apply' }))
+    renderCard()
+    expect(screen.getByRole('button', { name: 'Відкрити оригінал' })).toBeVisible()
   })
 
   it('a manual card opens its application link, with no source to mark', () => {

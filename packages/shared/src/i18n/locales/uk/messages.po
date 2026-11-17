@@ -843,6 +843,10 @@ msgstr "Опублікувати"
 msgid "Не вдалося відв'язати запис"
 msgstr "Не вдалося відв'язати запис"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Спершу подайте на сайті джерела (кнопка внизу картки), потім запишіть подачу тут."
+msgstr "Спершу подайте на сайті джерела (кнопка внизу картки), потім запишіть подачу тут."
+
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 msgid "Немає збережених паролів"
@@ -8781,10 +8785,6 @@ msgstr "Перша публікація — весь вміст буде дод�
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Неприпустиме значення"
 msgstr "Неприпустиме значення"
-
-#: apps/web/app/components/job-queue/JobQueueActions.tsx
-msgid "Спершу подайте на сайті джерела («Відкрити оригінал»), потім запишіть подачу тут."
-msgstr "Спершу подайте на сайті джерела («Відкрити оригінал»), потім запишіть подачу тут."
 
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Подачу «{who}» буде скасовано. Записати її можна буде знову."

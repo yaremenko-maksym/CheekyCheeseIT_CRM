@@ -843,6 +843,10 @@ msgstr "Publish"
 msgid "Не вдалося відв'язати запис"
 msgstr "Couldn't unlink the recording"
 
+#: apps/web/app/components/job-queue/JobQueueActions.tsx
+msgid "Спершу подайте на сайті джерела (кнопка внизу картки), потім запишіть подачу тут."
+msgstr "Apply at the source first (use the button at the bottom of the card), then log the submission here."
+
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 msgid "Немає збережених паролів"
@@ -8781,10 +8785,6 @@ msgstr "First publication — all of the content will be added as new."
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Неприпустиме значення"
 msgstr "Invalid value"
-
-#: apps/web/app/components/job-queue/JobQueueActions.tsx
-msgid "Спершу подайте на сайті джерела («Відкрити оригінал»), потім запишіть подачу тут."
-msgstr "Apply at the source first (“Open original”), then log the submission here."
 
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Подачу «{who}» буде скасовано. Записати її можна буде знову."
