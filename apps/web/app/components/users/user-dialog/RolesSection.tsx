@@ -112,7 +112,11 @@ export function RolesSection({
                 <Plus className="size-3.5" aria-hidden="true" /> <Trans>Додати роль</Trans>
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[min(20rem,calc(100vw-2rem))] p-0" align="start">
+            <PopoverContent
+              className="w-[min(20rem,calc(100vw-2rem))] p-0"
+              align="start"
+              data-testid="roles-section-popover"
+            >
               <Command
                 value={highlight}
                 onValueChange={(next) => {

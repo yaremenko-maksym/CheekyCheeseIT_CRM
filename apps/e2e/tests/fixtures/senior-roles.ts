@@ -28,5 +28,8 @@ export async function pickRoles(
   }
   // Dismisses the popover only: it is the topmost dismissable layer, above the dialog.
   await page.keyboard.press('Escape')
+  // Radix PopoverContent also carries role="dialog", so until it is gone a caller's
+  // `getByRole('dialog')` resolves to two elements and fails strict mode.
+  await page.getByTestId('roles-section-popover').waitFor({ state: 'detached' })
   await scope.getByTestId(`roles-section-chip-${roles[roles.length - 1]}`).waitFor()
 }
