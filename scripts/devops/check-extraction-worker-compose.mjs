@@ -1,14 +1,16 @@
 #!/usr/bin/env node
-// check-extraction-worker-compose.mjs - static guard: a merged change cannot start the local model
-// on production, and the extraction project keeps its isolation
-// (ADR docs/architecture/2026-11-03-extraction-model-router.md §2.4, §8.3, §8.6).
+// check-extraction-worker-compose.mjs - static guard: a merged change cannot start the extraction
+// worker on production, and the extraction project keeps its isolation
+// (ADR docs/architecture/2026-11-03-extraction-model-router.md §2.4, §8.6; hosted-only since the
+// Amendment 2026-11-08, egress network since the owner decision of 2026-11-17).
 //
 // Usage: node check-extraction-worker-compose.mjs \
 //          --extraction <file> --deploy <prod.yml> --deploy <ghcr.yml> --names <path> [--names <path>]
 //
-//   --extraction  the separate project's compose file: resolved, then checked for no ports, no
-//                 network_mode, network membership, runtime hardening and limits, pinned digests.
-//                 It is resolved a second time with the pins unset, and that must refuse.
+//   --extraction  the separate project's compose file: resolved, then checked for exactly one
+//                 service (the worker), no ports, no network_mode, its hardening and limits, and
+//                 its two networks: the internal entry and its own egress, the worker alone on it.
+//                 It is resolved a second time with the pin unset, and that must refuse.
 //   --deploy      the composed deploy configuration, every profile on: its services must be exactly
 //                 DEPLOY_SERVICES, with no extraction network and no external network.
 //   --names       a deploy path (script, workflow) that must name neither the file nor the project.
@@ -23,23 +25,16 @@ import { basename, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 
 const WORKER = 'extraction-worker'
-const RUNTIME = 'crm-model-runtime'
-const FETCH = 'weights-fetch'
 const PROJECT = 'crm-extraction'
 const ENTRY = 'entry'
 const ENTRY_NAME = 'crm-extraction-entry'
-const RUNTIME_NET = 'runtime'
+const EGRESS = 'egress'
+// No fixed name: compose scopes it to the project, so no main-stack network can be this one.
+const EGRESS_NAME = `${PROJECT}_${EGRESS}`
 // A new service here starts on the next deploy, on the CRM's RAM. Adding one is a reviewed edit.
 const DEPLOY_SERVICES = ['api', 'nginx', 'postgres']
-const RUNTIME_MEM_BYTES = 3584 * 1024 * 1024
 const WORKER_MEM_BYTES = 512 * 1024 * 1024
-const PINS = {
-  EXTRACTION_RUNTIME_IMAGE_SHA256: 'a'.repeat(64),
-  EXTRACTION_MODEL_FILE: 'guard.gguf',
-  EXTRACTION_MODEL_SHA256: 'b'.repeat(64),
-  EXTRACTION_RUNTIME_CONTEXT_TOKENS: '8192',
-  EXTRACTION_WORKER_IMAGE_TAG: 'guard',
-}
+const PINS = { EXTRACTION_WORKER_IMAGE_TAG: 'guard' }
 // Drops anything the caller's shell exported: the unset-pin run must really be unset.
 const CLEAN_ENV = Object.fromEntries(
   Object.entries(process.env).filter(([k]) => !k.startsWith('EXTRACTION_')),
@@ -96,138 +91,73 @@ try {
 const errors = []
 const services = extraction.services ?? {}
 const netsOf = (svc) => Object.keys(svc?.networks ?? {}).sort()
-// The start command as shell words: line continuations joined, quotes dropped.
-const tokens = (svc) =>
-  [...(svc.entrypoint ?? []), ...(svc.command ?? [])]
-    .join(' ')
-    .replace(/\\\n/g, ' ')
-    .replace(/["']/g, '')
-    .split(/\s+/)
-    .filter(Boolean)
-const valuesOf = (words, flag) => words.flatMap((w, i) => (w === flag ? [words[i + 1] ?? ''] : []))
-// null: the flag must carry some value (the window is a pin, checked by the unset-pin run).
-const RUNTIME_FLAGS = {
-  '--ctx-size': null,
-  '--threads': '2',
-  '--threads-batch': '2',
-  '--threads-http': '2',
-  '--parallel': '1',
-  '--host': '0.0.0.0',
-  '--port': '8080',
-}
-const isRoot = (svc) => ['', '0', 'root'].includes(String(svc.user ?? '').split(':')[0])
 
 // ── The separate project ────────────────────────────────────────────────────
 if (extraction.name !== PROJECT)
   errors.push(`the project must be named ${PROJECT} (found: ${extraction.name})`)
 
-function checkHardened(name, svc, memBytes) {
-  if ((svc.ports ?? []).length > 0) errors.push(`${name} must not publish ports (SR-L-4)`)
-  if ((svc.expose ?? []).length > 0) errors.push(`${name} must not declare expose`)
-  if (svc.network_mode) errors.push(`${name} must not set network_mode (${svc.network_mode})`)
-  if (svc.privileged) errors.push(`${name} must not be privileged`)
-  if (!(svc.security_opt ?? []).some((o) => /^no-new-privileges(:true)?$/.test(o))) {
-    errors.push(`${name} must set no-new-privileges`)
-  }
-  if (!(svc.cap_drop ?? []).includes('ALL')) errors.push(`${name} must drop all capabilities`)
-  if ((svc.cap_add ?? []).length > 0) errors.push(`${name} must not add capabilities`)
-  if (Number(svc.mem_limit) !== memBytes) errors.push(`${name} mem_limit must be ${memBytes} bytes`)
-  if (Number(svc.memswap_limit) !== memBytes)
-    errors.push(`${name} memswap_limit must equal mem_limit`)
-}
-
 const worker = services[WORKER]
 if (!worker) {
   errors.push(`service ${WORKER} is missing`)
 } else {
-  checkHardened(WORKER, worker, WORKER_MEM_BYTES)
+  if ((worker.ports ?? []).length > 0) errors.push(`${WORKER} must not publish ports (SR-L-4)`)
+  if ((worker.expose ?? []).length > 0) errors.push(`${WORKER} must not declare expose`)
+  if (worker.network_mode)
+    errors.push(`${WORKER} must not set network_mode (${worker.network_mode})`)
+  if (worker.privileged) errors.push(`${WORKER} must not be privileged`)
+  if (!(worker.security_opt ?? []).some((o) => /^no-new-privileges(:true)?$/.test(o))) {
+    errors.push(`${WORKER} must set no-new-privileges`)
+  }
+  if (!(worker.cap_drop ?? []).includes('ALL')) errors.push(`${WORKER} must drop all capabilities`)
+  if ((worker.cap_add ?? []).length > 0) errors.push(`${WORKER} must not add capabilities`)
+  if (Number(worker.mem_limit) !== WORKER_MEM_BYTES)
+    errors.push(`${WORKER} mem_limit must be ${WORKER_MEM_BYTES} bytes`)
+  if (Number(worker.memswap_limit) !== WORKER_MEM_BYTES)
+    errors.push(`${WORKER} memswap_limit must equal mem_limit`)
   if (Number(worker.cpus) !== 0.5) errors.push(`${WORKER} cpus must be 0.5`)
   if (Number(worker.pids_limit) !== 64) errors.push(`${WORKER} pids_limit must be 64`)
   if (worker.read_only !== true) errors.push(`${WORKER} must run with read_only: true`)
-  if (netsOf(worker).join() !== [ENTRY, RUNTIME_NET].join()) {
+  if (!(worker.volumes ?? []).some((v) => v.target === '/var/lib/extraction-worker'))
+    errors.push(`${WORKER} must keep its state volume at /var/lib/extraction-worker`)
+  if (netsOf(worker).join() !== [EGRESS, ENTRY].join()) {
     errors.push(
-      `${WORKER} must be on ${ENTRY} and ${RUNTIME_NET} only (found: ${netsOf(worker).join(', ') || 'none'})`,
+      `${WORKER} must be on ${ENTRY} and ${EGRESS} only (found: ${netsOf(worker).join(', ') || 'none'})`,
     )
   }
   if ((worker.profiles ?? []).length > 0)
     errors.push(`${WORKER} must not hide behind a profile in its own project`)
 }
 
-const runtime = services[RUNTIME]
-if (!runtime) {
-  errors.push(`service ${RUNTIME} is missing`)
-} else {
-  checkHardened(RUNTIME, runtime, RUNTIME_MEM_BYTES)
-  if (Number(runtime.cpus) !== 2) errors.push(`${RUNTIME} cpus must be 2`)
-  if (Number(runtime.pids_limit) !== 128) errors.push(`${RUNTIME} pids_limit must be 128`)
-  if (netsOf(runtime).join() !== RUNTIME_NET) {
-    errors.push(
-      `${RUNTIME} must be on ${RUNTIME_NET} only (found: ${netsOf(runtime).join(', ') || 'none'})`,
-    )
-  }
-  if (!/@sha256:[0-9a-f]{64}$/.test(runtime.image ?? ''))
-    errors.push(`${RUNTIME} image must be pinned by sha256`)
-  if (isRoot(runtime)) errors.push(`${RUNTIME} must run non-root`)
-  const start = tokens(runtime)
-  if (!start.join(' ').includes('sha256sum -c'))
-    errors.push(`${RUNTIME} start command must carry "sha256sum -c"`)
-  if (!start.includes('--log-disable'))
-    errors.push(`${RUNTIME} start command must carry "--log-disable"`)
-  // Every occurrence must hold the value: a later duplicate flag overrides the first.
-  for (const [flag, want] of Object.entries(RUNTIME_FLAGS)) {
-    const got = valuesOf(start, flag)
-    if (got.length === 0 || got.some((v) => (want === null ? !v : v !== want))) {
-      errors.push(
-        `${RUNTIME} start command must carry "${flag}${want === null ? ' <value>' : ` ${want}`}" (found: ${got.join(', ') || 'none'})`,
-      )
-    }
-  }
-  if ((runtime.volumes ?? []).some((v) => v.target === '/models' && v.read_only !== true)) {
-    errors.push(`${RUNTIME} must mount the weights read-only`)
-  }
-}
-
-for (const key of [ENTRY, RUNTIME_NET]) {
-  if (extraction.networks?.[key]?.internal !== true)
-    errors.push(`network ${key} must be internal: true`)
-}
-if (extraction.networks?.[ENTRY]?.name !== ENTRY_NAME)
+const nets = extraction.networks ?? {}
+if (nets[ENTRY]?.internal !== true) errors.push(`network ${ENTRY} must be internal: true`)
+if (nets[ENTRY]?.name !== ENTRY_NAME)
   errors.push(`network ${ENTRY} must keep the name ${ENTRY_NAME}`)
-for (const [key, net] of Object.entries(extraction.networks ?? {})) {
+if (!nets[EGRESS]) {
+  errors.push(`network ${EGRESS} is missing: the hosted routes have no way out`)
+} else {
+  if (nets[EGRESS].internal === true)
+    errors.push(`network ${EGRESS} must not be internal: the hosted routes need it`)
+  // A fixed name could be a main-stack network (crm_backend): the worker would share it with postgres.
+  if (nets[EGRESS].name !== EGRESS_NAME)
+    errors.push(
+      `network ${EGRESS} must resolve to ${EGRESS_NAME}, the project's own (found: ${nets[EGRESS].name})`,
+    )
+}
+for (const [key, net] of Object.entries(nets)) {
   if (net.external)
     errors.push(`network ${key} must not be external: the project owns its networks`)
+  if (key !== ENTRY && key !== EGRESS)
+    errors.push(`unexpected network ${key} in the extraction project`)
 }
 
-const MAY_JOIN = { [ENTRY]: [WORKER], [RUNTIME_NET]: [WORKER, RUNTIME] }
 for (const [name, svc] of Object.entries(services)) {
-  for (const [net, allowed] of Object.entries(MAY_JOIN)) {
-    if (netsOf(svc).includes(net) && !allowed.includes(name))
+  if (name !== WORKER) errors.push(`unexpected service ${name} in the extraction project`)
+  for (const net of [ENTRY, EGRESS]) {
+    if (name !== WORKER && netsOf(svc).includes(net))
       errors.push(`service ${name} must not join ${net}`)
   }
   if (typeof svc.network_mode === 'string' && svc.network_mode.startsWith('service:')) {
     errors.push(`service ${name} must not share another service's network namespace`)
-  }
-  if (name !== WORKER && name !== RUNTIME) {
-    if (name !== FETCH) errors.push(`unexpected service ${name} in the extraction project`)
-    if (!(svc.profiles ?? []).length) errors.push(`service ${name} must stay behind a profile`)
-    if ((svc.ports ?? []).length > 0) errors.push(`service ${name} must not publish ports`)
-  }
-}
-
-const fetchSvc = services[FETCH]
-if (!fetchSvc) {
-  errors.push(`service ${FETCH} is missing`)
-} else {
-  if (isRoot(fetchSvc)) errors.push(`${FETCH} must run non-root`)
-  if (!(Number(fetchSvc.mem_limit) > 0)) errors.push(`${FETCH} must set mem_limit`)
-  if (!(Number(fetchSvc.pids_limit) > 0)) errors.push(`${FETCH} must set pids_limit`)
-  if (fetchSvc.privileged) errors.push(`${FETCH} must not be privileged`)
-  if ((fetchSvc.cap_add ?? []).length > 0) errors.push(`${FETCH} must not add capabilities`)
-  const words = tokens(fetchSvc)
-  for (const flag of ['--proto', '--proto-redir']) {
-    const got = valuesOf(words, flag)
-    if (got.length === 0 || got.some((v) => v !== '=https'))
-      errors.push(`${FETCH} curl must carry "${flag} =https"`)
   }
 }
 

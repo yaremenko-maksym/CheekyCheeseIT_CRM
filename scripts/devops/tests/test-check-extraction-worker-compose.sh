@@ -44,53 +44,44 @@ mutate() {
 ex() { mutate "$EXTRACTION" "$@"; }
 
 WORKER='/^    command: \[.node., .dist\/extraction-worker\/main.\]/'
-# The runtime's own restart line: its user line is shared with weights-fetch.
-RUNTIME='/^    restart: on-failure:3$/'
-RT='/^  crm-model-runtime:/,/^  # ── Extraction worker/'
-WK='/^  extraction-worker:/,/^  # ── One-shot/'
-FE='/^  weights-fetch:/,/^volumes:/'
+WK='/^  extraction-worker:/,/^volumes:/'
+# A second service, injected before `volumes:`. (Text inserted by `i` is not matched by later sed
+# commands, so a test that needs an extra line on it writes the whole insertion itself.)
+SIDECAR='/^volumes:$/i\
+  sidecar:\
+    image: busybox\
+'
 
 echo "== test-check-extraction-worker-compose.sh =="
 
 assert_green "the real files pass" --contains "isolation OK" -- guard_with
 
-# ── the separate project ──
+# ── the separate project: the worker ──
 F="$(ex worker-ports "${WORKER}a\\
     ports: ['3100:3100']")"
 assert_red "worker gaining ports: is refused" --contains "extraction-worker must not publish ports" -- guard_with --extraction "$F"
 
-F="$(ex runtime-ports "${RUNTIME}a\\
-    ports: ['8080:8080']")"
-assert_red "runtime gaining ports: is refused" --contains "model-runtime must not publish ports" -- guard_with --extraction "$F"
+F="$(ex worker-expose "${WORKER}a\\
+    expose: ['3100']")"
+assert_red "worker declaring expose is refused" --contains "extraction-worker must not declare expose" -- guard_with --extraction "$F"
 
 # compose refuses network_mode beside networks:, so the mutation swaps one for the other.
-F="$(ex runtime-host '/^  crm-model-runtime:/,/^  # ── Extraction worker/ { s/^    networks:$/    network_mode: host/; /^      - runtime$/d; }')"
-assert_red "runtime with network_mode: host is refused" --contains "network_mode" -- guard_with --extraction "$F"
+F="$(ex worker-host "$WK"' { s/^    networks:$/    network_mode: host/; /^      - entry$/d; /^      - egress$/d; }')"
+assert_red "worker with network_mode: host is refused" --contains "network_mode" -- guard_with --extraction "$F"
 
-F="$(ex worker-leaves '/^  extraction-worker:/,/^  # ── One-shot/ { /^      - entry$/d; }')"
-assert_red "worker leaving the entry network is refused" --contains "extraction-worker must be on" -- guard_with --extraction "$F"
+F="$(ex worker-privileged "${WORKER}a\\
+    privileged: true")"
+assert_red "a privileged worker is refused" --contains "extraction-worker must not be privileged" -- guard_with --extraction "$F"
 
-F="$(ex runtime-on-entry '/^  crm-model-runtime:/,/^  # ── Extraction worker/ s/^      - runtime$/      - runtime\
-      - entry/')"
-assert_red "runtime joining the entry network is refused" --contains "model-runtime must be on runtime only" -- guard_with --extraction "$F"
+F="$(ex worker-cap-add "${WORKER}a\\
+    cap_add: [NET_ADMIN]")"
+assert_red "worker adding a capability is refused" --contains "extraction-worker must not add capabilities" -- guard_with --extraction "$F"
 
-F="$(ex fetch-on-runtime '/^  weights-fetch:/,/^volumes:/ s/^      - provision$/      - runtime/')"
-assert_red "the fetch service joining the runtime network is refused" --contains "service weights-fetch must not join runtime" -- guard_with --extraction "$F"
+F="$(ex keep-caps "$WK"' { /^    cap_drop:$/d; /^      - ALL$/d; }')"
+assert_red "worker keeping capabilities is refused" --contains "extraction-worker must drop all capabilities" -- guard_with --extraction "$F"
 
-F="$(ex open-runtime '/^  runtime:$/,/^  # Outbound/ s/^    internal: true$/    internal: false/')"
-assert_red "runtime network losing internal: true is refused" --contains "network runtime must be internal: true" -- guard_with --extraction "$F"
-
-F="$(ex open-entry '/^  entry:$/,/^  # The runtime network/ s/^    internal: true$/    internal: false/')"
-assert_red "entry network losing internal: true is refused" --contains "network entry must be internal: true" -- guard_with --extraction "$F"
-
-F="$(ex external-entry '/^  entry:$/,/^  # The runtime network/ s/^    driver: bridge$/    external: true/')"
-assert_red "an external entry network is refused" --contains "must not be external" -- guard_with --extraction "$F"
-
-F="$(ex renamed-entry 's/^    name: crm-extraction-entry$/    name: other/')"
-assert_red "renaming the entry network is refused" --contains "must keep the name" -- guard_with --extraction "$F"
-
-F="$(ex root-user "$RT"' s/^    user: .1000:1000.$/    user: "0:0"/')"
-assert_red "runtime running as root is refused" --contains "crm-model-runtime must run non-root" -- guard_with --extraction "$F"
+F="$(ex no-nnp "$WK"' { /^    security_opt:$/d; /^      - no-new-privileges:true$/d; }')"
+assert_red "worker without no-new-privileges is refused" --contains "extraction-worker must set no-new-privileges" -- guard_with --extraction "$F"
 
 F="$(ex worker-cpus "$WK"' s/^    cpus: 0.5$/    cpus: 1.0/')"
 assert_red "worker cpus drifting is refused" --contains "extraction-worker cpus must be 0.5" -- guard_with --extraction "$F"
@@ -98,92 +89,97 @@ assert_red "worker cpus drifting is refused" --contains "extraction-worker cpus 
 F="$(ex worker-mem "$WK"' s/^    mem_limit: 512m$/    mem_limit: 1024m/')"
 assert_red "worker memory drifting is refused" --contains "extraction-worker mem_limit" -- guard_with --extraction "$F"
 
+F="$(ex worker-swap "$WK"' s/^    memswap_limit: 512m$/    memswap_limit: 1024m/')"
+assert_red "worker with swap allowed is refused" --contains "memswap_limit must equal" -- guard_with --extraction "$F"
+
 F="$(ex worker-pids "$WK"' { /^    pids_limit: 64$/d; }')"
 assert_red "worker without a pids limit is refused" --contains "extraction-worker pids_limit must be 64" -- guard_with --extraction "$F"
 
 F="$(ex worker-rw "$WK"' { /^    read_only: true$/d; }')"
 assert_red "worker with a writable root filesystem is refused" --contains "extraction-worker must run with read_only" -- guard_with --extraction "$F"
 
-F="$(ex runtime-cpus "$RT"' s/^    cpus: 2.0$/    cpus: 4.0/')"
-assert_red "runtime cpus drifting is refused" --contains "crm-model-runtime cpus must be 2" -- guard_with --extraction "$F"
+F="$(ex worker-no-state "$WK"' { /^    volumes:$/d; /^      - worker_state:\/var\/lib\/extraction-worker$/d; }')"
+assert_red "worker losing its state volume is refused" --contains "must keep its state volume" -- guard_with --extraction "$F"
 
-F="$(ex runtime-pids "$RT"' s/^    pids_limit: 128$/    pids_limit: 4096/')"
-assert_red "runtime pids limit drifting is refused" --contains "crm-model-runtime pids_limit must be 128" -- guard_with --extraction "$F"
+F="$(ex worker-profile "${WORKER}a\\
+    profiles: ['extraction']")"
+assert_red "worker hiding behind a profile is refused" --contains "must not hide behind a profile" -- guard_with --extraction "$F"
 
-F="$(ex parallel-12 's/--parallel 1 /--parallel 12 /')"
-assert_red "runtime with --parallel 12 is refused" --contains '"--parallel 1" (found: 12)' -- guard_with --extraction "$F"
+# ── the separate project: its networks ──
+F="$(ex worker-leaves-entry "$WK"' { /^      - entry$/d; }')"
+assert_red "worker leaving the entry network is refused" --contains "extraction-worker must be on entry and egress only" -- guard_with --extraction "$F"
 
-F="$(ex threads-24 's/--threads 2 --threads-batch/--threads 24 --threads-batch/')"
-assert_red "runtime with --threads 24 is refused" --contains '"--threads 2" (found: 24)' -- guard_with --extraction "$F"
+F="$(ex worker-leaves-egress "$WK"' { /^      - egress$/d; }')"
+assert_red "worker leaving the egress network is refused" --contains "extraction-worker must be on entry and egress only" -- guard_with --extraction "$F"
 
-F="$(ex parallel-dup 's/ --log-disable$/ --log-disable --parallel 4/')"
-assert_red "a later duplicate --parallel is refused" --contains '"--parallel 1" (found: 1, 4)' -- guard_with --extraction "$F"
+F="$(ex third-net -e '$a\
+  extra:\
+    driver: bridge' -e "$WK"' s/^      - egress$/      - egress\
+      - extra/')"
+assert_red "a third network on the worker is refused" --contains "unexpected network extra" -- guard_with --extraction "$F"
 
-F="$(ex worker-expose "${WORKER}a\\
-    expose: ['3100']")"
-assert_red "worker declaring expose is refused" --contains "extraction-worker must not declare expose" -- guard_with --extraction "$F"
+F="$(ex open-entry '/^  entry:$/,/^  # Outbound/ s/^    internal: true$/    internal: false/')"
+assert_red "entry network losing internal: true is refused" --contains "network entry must be internal: true" -- guard_with --extraction "$F"
 
-F="$(ex runtime-privileged "${RUNTIME}a\\
-    privileged: true")"
-assert_red "a privileged runtime is refused" --contains "crm-model-runtime must not be privileged" -- guard_with --extraction "$F"
+F="$(ex external-entry '/^  entry:$/,/^  # Outbound/ s/^    driver: bridge$/    external: true/')"
+assert_red "an external entry network is refused" --contains "must not be external" -- guard_with --extraction "$F"
 
-F="$(ex runtime-cap-add "${RUNTIME}a\\
-    cap_add: [NET_ADMIN]")"
-assert_red "runtime adding a capability is refused" --contains "crm-model-runtime must not add capabilities" -- guard_with --extraction "$F"
+F="$(ex renamed-entry 's/^    name: crm-extraction-entry$/    name: other/')"
+assert_red "renaming the entry network is refused" --contains "must keep the name" -- guard_with --extraction "$F"
 
-F="$(ex fetch-shares-ns "$FE"' { s/^    networks:$/    network_mode: "service:crm-model-runtime"/; /^      - provision$/d; }')"
-assert_red "weights-fetch sharing the runtime's namespace is refused" --contains "must not share another service's network namespace" -- guard_with --extraction "$F"
+F="$(ex no-egress -e '/^  # Outbound to the hosted/,$d' -e "$WK"' { /^      - egress$/d; }')"
+assert_red "no egress network is refused" --contains "network egress is missing" -- guard_with --extraction "$F"
 
-F="$(ex fetch-no-profile "$FE"' { /^    profiles: .*provision/d; }')"
-assert_red "weights-fetch without its profile is refused" --contains "service weights-fetch must stay behind a profile" -- guard_with --extraction "$F"
+F="$(ex internal-egress '/^  egress:$/a\
+    internal: true')"
+assert_red "an internal egress network is refused" --contains "network egress must not be internal" -- guard_with --extraction "$F"
 
-F="$(ex fetch-on-entry "$FE"' s/^      - provision$/      - entry/')"
-assert_red "another service joining the entry network is refused" --contains "service weights-fetch must not join entry" -- guard_with --extraction "$F"
+# The main stack's backend network, where postgres lives: a fixed name would share it.
+F="$(ex shared-egress '/^  egress:$/a\
+    name: crm_backend')"
+assert_red "an egress network named after a main-stack network is refused" --contains "must resolve to crm-extraction_egress" -- guard_with --extraction "$F"
 
-F="$(ex fetch-root "$FE"' s/^    user: .1000:1000.$/    user: "0:0"/')"
-assert_red "weights-fetch running as root is refused" --contains "weights-fetch must run non-root" -- guard_with --extraction "$F"
+F="$(ex external-egress '/^  egress:$/,$ s/^    driver: bridge$/    external: true\
+    name: crm-extraction_egress/')"
+assert_red "an external egress network is refused" --contains "network egress must not be external" -- guard_with --extraction "$F"
 
-F="$(ex fetch-http 's/ --proto =https / /')"
-assert_red "weights-fetch allowing a non-https download is refused" --contains 'curl must carry "--proto =https"' -- guard_with --extraction "$F"
+F="$(ex sidecar-on-egress '/^volumes:$/i\
+  sidecar:\
+    image: busybox\
+    networks: [egress]\
+')"
+assert_red "another service joining the egress network is refused" --contains "service sidecar must not join egress" -- guard_with --extraction "$F"
 
-F="$(ex keep-caps '/^  crm-model-runtime:/,/^  # ── Extraction worker/ { /^    cap_drop:$/d; /^      - ALL$/d; }')"
-assert_red "runtime keeping capabilities is refused" --contains "model-runtime must drop all capabilities" -- guard_with --extraction "$F"
+F="$(ex sidecar-on-entry '/^volumes:$/i\
+  sidecar:\
+    image: busybox\
+    networks: [entry]\
+')"
+assert_red "another service joining the entry network is refused" --contains "service sidecar must not join entry" -- guard_with --extraction "$F"
 
-F="$(ex no-nnp '/^  crm-model-runtime:/,/^  # ── Extraction worker/ { /^    security_opt:$/d; /^      - no-new-privileges:true$/d; }')"
-assert_red "runtime without no-new-privileges is refused" --contains "model-runtime must set no-new-privileges" -- guard_with --extraction "$F"
+F="$(ex sidecar-shares-ns '/^volumes:$/i\
+  sidecar:\
+    image: busybox\
+    network_mode: "service:extraction-worker"\
+')"
+assert_red "a service sharing the worker's namespace is refused" --contains "must not share another service's network namespace" -- guard_with --extraction "$F"
 
-F="$(ex big-mem 's/^    mem_limit: 3584m$/    mem_limit: 4096m/')"
-assert_red "runtime limit drifting from the frozen budget is refused" --contains "model-runtime mem_limit" -- guard_with --extraction "$F"
+# ── the separate project: services, pin, name ──
+F="$(ex extra-service "$SIDECAR")"
+assert_red "an unexpected service in the project is refused" --contains "unexpected service sidecar" -- guard_with --extraction "$F"
 
-F="$(ex swap 's/^    memswap_limit: 3584m$/    memswap_limit: 7168m/')"
-assert_red "runtime with swap allowed is refused" --contains "memswap_limit must equal" -- guard_with --extraction "$F"
+F="$(ex profiled-runtime '/^volumes:$/i\
+  sidecar:\
+    image: busybox\
+    profiles: ["provision"]\
+')"
+assert_red "a service behind a profile in the project is refused" --contains "unexpected service sidecar" -- guard_with --extraction "$F"
 
-F="$(ex logging-on 's/ --log-disable$//')"
-assert_red "runtime with logging on is refused" --contains "--log-disable" -- guard_with --extraction "$F"
-
-F="$(ex no-verify '/sha256sum -c -$/d')"
-assert_red "runtime that does not verify its weights is refused" --contains "sha256sum -c" -- guard_with --extraction "$F"
-
-F="$(ex rw-weights 's/^      - model_weights:\/models:ro$/      - model_weights:\/models/')"
-assert_red "weights mounted writable into the runtime are refused" --contains "read-only" -- guard_with --extraction "$F"
-
-F="$(ex by-tag 's/llama\.cpp@sha256:\${EXTRACTION_RUNTIME_IMAGE_SHA256:?pin the runtime image digest}/llama.cpp:server/')"
-assert_red "runtime image by tag is refused" --contains "pinned by sha256" -- guard_with --extraction "$F"
-
-F="$(ex default-digest 's/\${EXTRACTION_MODEL_SHA256:?pin the weights digest}/${EXTRACTION_MODEL_SHA256:-}/')"
-assert_red "an unset weights digest that does not refuse is itself refused" --contains "unset EXTRACTION_MODEL_SHA256" -- guard_with --extraction "$F"
-
-F="$(ex default-image 's/\${EXTRACTION_RUNTIME_IMAGE_SHA256:?pin the runtime image digest}/${EXTRACTION_RUNTIME_IMAGE_SHA256:-aaaa}/g')"
-assert_red "an unset image digest that does not refuse is itself refused" --contains "unset EXTRACTION_RUNTIME_IMAGE_SHA256" -- guard_with --extraction "$F"
+F="$(ex default-tag 's/\${EXTRACTION_WORKER_IMAGE_TAG:?pin the worker image tag}/${EXTRACTION_WORKER_IMAGE_TAG:-main}/')"
+assert_red "an unset image tag that does not refuse is itself refused" --contains "unset EXTRACTION_WORKER_IMAGE_TAG" -- guard_with --extraction "$F"
 
 F="$(ex renamed-project 's/^name: crm-extraction$/name: crm/')"
 assert_red "losing its own project name is refused" --contains "project must be named" -- guard_with --extraction "$F"
-
-F="$(ex extra-service '/^volumes:$/i\
-  sidecar:\
-    image: busybox\
-')"
-assert_red "an unexpected service in the project is refused" --contains "unexpected service sidecar" -- guard_with --extraction "$F"
 
 # ── the composed deploy configuration ──
 F="$(mutate "$PROD" gains-worker '/^  # ── nginx (reverse-proxy/i\
