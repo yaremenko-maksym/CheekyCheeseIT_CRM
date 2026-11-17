@@ -33,8 +33,8 @@ import {
 export const gap = (h = 12) => `<div style="height:${h}px"></div>`
 
 /** Screen-specific offline stamp: directly under the top bar, above the large title (M8). */
-export const offlineStrip = () =>
-  `<div role="status" class="row" style="gap:8px;margin:0 12px 4px;padding:8px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font-size:14px;line-height:18px"><span style="color:var(--warning)">${icon('wifi-off', { size: 16 })}</span><span class="grow">Немає мережі · показано дані станом на ${STALE_AT}</span></div>`
+export const offlineStrip = (cold = false) =>
+  `<div role="status" class="row" style="gap:8px;margin:0 12px 4px;padding:8px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--border);font-size:14px;line-height:18px"><span style="color:var(--warning)">${icon('wifi-off', { size: 16 })}</span><span class="grow">${cold ? 'Немає мережі' : `Немає мережі · показано дані станом на ${STALE_AT}`}</span></div>`
 
 const EMPTY_CHART = (pad) =>
   `<div class="col" style="align-items:center;text-align:center;gap:4px;padding:24px 8px 8px"><span class="muted">${icon('chart-column', { size: 28 })}</span><div class="t-head" style="margin-top:6px">Ще немає даних за місяцями</div><div class="t-foot muted" style="max-width:260px">Графік з’явиться після першої оплаченої транзакції.</div><span class="btn secondary" style="margin-top:12px;height:44px">${icon('plus', { size: 16 })}Нова транзакція</span></div>`
@@ -98,12 +98,13 @@ export function phoneBody({
   const staleHtml = stale
     ? `<div style="padding:0 ${m}px 12px">${staleBar({ touch: true })}</div>`
     : ''
+  const cold = summary === 'cold'
   const top =
-    summary === 'error'
-      ? `<div style="padding:0 ${m}px">${card(stateBlock({ ic: 'cloud-alert', tone: 'var(--destructive)', role: 'alert', title: 'Не вдалося завантажити фінансову статистику', text: 'Баланс партнерів, графік і показники зараз недоступні. Рахунок компанії та контроль доходів нижче — окремі дані.', action: `<span class="btn secondary" style="height:44px">${icon('rotate-cw', { size: 18 })}Повторити</span>` }).replace('padding:56px 32px 0', 'padding:24px 16px 20px'))}</div>`
+    summary === 'error' || cold
+      ? `<div style="padding:0 ${m}px">${card(stateBlock({ ic: cold ? 'wifi-off' : 'cloud-alert', tone: 'var(--destructive)', role: 'alert', title: cold ? 'Немає мережі' : 'Не вдалося завантажити фінансову статистику', text: cold ? 'Збережених даних ще немає. Підключіться до інтернету й повторіть.' : 'Баланс партнерів, графік і показники зараз недоступні. Рахунок компанії та контроль доходів нижче — окремі дані.', action: `<span class="btn secondary" style="height:44px">${icon('rotate-cw', { size: 18 })}Повторити</span>` }).replace('padding:56px 32px 0', 'padding:24px 16px 20px'))}</div>`
       : `${staleHtml}<div style="padding:0 ${m}px">${partnerCard(partners, { pad, narrow })}${gap()}${chartCard({ W: w - 2 * m, narrow, pad, empty: summary === 'empty', ...chart })}</div>`
   const kpis =
-    summary === 'error'
+    summary === 'error' || cold
       ? ''
       : `<div class="sechead"><h2 class="t-over" style="margin:0">Показники</h2></div>${kpiList({ count: summary === 'empty' ? 4 : 8 })}`
   const comp = complianceList({

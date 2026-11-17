@@ -50,6 +50,12 @@ export function frames() {
     Pfit('partial-375', 375, { company: 'error', compliance: { state: 'error' } }),
     P('stale-375', 375, 812, stats375({ showFab: false, stale: true })),
     P('offline-375', 375, 812, stats375({ showFab: false, banner: offlineStrip() })),
+    Pfit('cold-375', 375, {
+      summary: 'cold',
+      company: 'error',
+      compliance: { state: 'error' },
+      banner: offlineStrip(true),
+    }),
     Pfit('nowallet-375', 375, { company: 'nowallet' }),
     P('balanced-375', 375, 812, stats375({ showFab: false, partners: BALANCED })),
     P('onepartner-375', 375, 812, stats375({ showFab: false, partners: ONE })),
