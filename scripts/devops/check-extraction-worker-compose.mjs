@@ -67,6 +67,15 @@ const WORKER_KEYS = [
 // No top-level configs or secrets: a `file:` source is a host path read into the worker.
 const TOP_KEYS = ['name', 'networks', 'services', 'volumes']
 const STATE_VOLUME = 'worker_state'
+// Network keys the shipped file sets (compose fills `name` and `ipam`). Anything else (driver_opts,
+// attachable, labels, ...) is refused until reviewed; `driver` and `enable_ipv6` also get value checks.
+const NET_KEYS = ['driver', 'enable_ipv6', 'internal', 'ipam', 'name']
+// Logs stay on the host's own driver: gelf or syslog would ship the worker's output off-host,
+// around any later subnet firewall. Options: exactly what the shipped file sets.
+const LOG_DRIVER = 'json-file'
+const LOG_OPTION_KEYS = ['max-file', 'max-size']
+// The pinned image repository (everything before the tag). The tag is the owner's pin.
+const WORKER_IMAGE_REPO = 'ghcr.io/yaremenko-maksym/cheekycheeseit-crm-api'
 // Drops anything the caller's shell exported: the unset-pin run must really be unset.
 const CLEAN_ENV = Object.fromEntries(
   Object.entries(process.env).filter(([k]) => !k.startsWith('EXTRACTION_')),
@@ -132,6 +141,10 @@ try {
       envFiles: (json.services?.[WORKER]?.env_file ?? []).map((f) =>
         relative(dir, typeof f === 'string' ? f : f.path),
       ),
+      // Long syntax: `required: false` skips a missing file, `format` changes how it is parsed.
+      envFileOdd: (json.services?.[WORKER]?.env_file ?? [])
+        .filter((f) => typeof f !== 'string' && (f.required === false || f.format !== undefined))
+        .map((f) => (f.required === false ? 'required: false' : `format: ${f.format}`)),
     }),
   })
   // The production project name (the /opt/crm directory), so network names resolve as on the host.
@@ -185,6 +198,25 @@ if (!worker) {
     errors.push(
       `${WORKER} env_file must be exactly ${WORKER_ENV_FILE} (found: ${raw.envFiles.join(', ') || 'none'})`,
     )
+  for (const odd of raw.envFileOdd)
+    errors.push(`${WORKER} env_file must be a plain path (found: ${odd})`)
+  const log = worker.logging ?? {}
+  if (log.driver !== LOG_DRIVER)
+    errors.push(
+      `${WORKER} logging driver must be ${LOG_DRIVER} (found: ${log.driver ?? 'unset'}): other drivers ship logs off-host`,
+    )
+  for (const key of Object.keys(log.options ?? {}).filter((k) => !LOG_OPTION_KEYS.includes(k)))
+    errors.push(`${WORKER} logging option ${key} is not in the reviewed list`)
+  for (const key of Object.keys(log).filter((k) => k !== 'driver' && k !== 'options'))
+    errors.push(`${WORKER} logging must set only driver and options (found: ${key})`)
+  // Repository only: strip a digest, then a tag (a colon after the last slash).
+  const noDigest = String(worker.image ?? '').split('@')[0]
+  const tagAt = noDigest.indexOf(':', noDigest.lastIndexOf('/') + 1)
+  const repo = tagAt < 0 ? noDigest : noDigest.slice(0, tagAt)
+  if (repo !== WORKER_IMAGE_REPO)
+    errors.push(
+      `${WORKER} image repository must be ${WORKER_IMAGE_REPO} (found: ${repo || 'unset'})`,
+    )
   // The guard's env files are empty, so these keys can only come from the compose file itself.
   for (const key of Object.keys(worker.environment ?? {})) {
     if (/DATABASE_URL|^POSTGRES_|^PG[A-Z]+$/.test(key))
@@ -231,10 +263,16 @@ if (!worker) {
       `${WORKER} must be on ${ENTRY} and ${EGRESS} only (found: ${netsOf(worker).join(', ') || 'none'})`,
     )
   }
-  if (!(worker.networks?.[ENTRY]?.aliases ?? []).includes(WORKER_ALIAS))
+  // Exactly the one alias: `includes` let `postgres` or `api` ride along and shadow the real hosts
+  // for every container on the entry network.
+  const entryAliases = worker.networks?.[ENTRY]?.aliases ?? []
+  if (entryAliases.join() !== WORKER_ALIAS)
     errors.push(
-      `${WORKER} must carry the alias ${WORKER_ALIAS} on ${ENTRY}: the API calls it by that name`,
+      `${WORKER} must carry exactly the alias ${WORKER_ALIAS} on ${ENTRY} (found: ${entryAliases.join(', ') || 'none'}): the API calls it by that name`,
     )
+  const egressAliases = worker.networks?.[EGRESS]?.aliases ?? []
+  if (egressAliases.length > 0)
+    errors.push(`${WORKER} must carry no alias on ${EGRESS} (found: ${egressAliases.join(', ')})`)
   if ((worker.profiles ?? []).length > 0)
     errors.push(`${WORKER} must not hide behind a profile in its own project`)
 }
@@ -272,6 +310,19 @@ if (!nets[EGRESS]) {
     )
 }
 for (const [key, net] of Object.entries(nets)) {
+  for (const k of setKeys(net).filter((k) => !NET_KEYS.includes(k)))
+    errors.push(`network ${key} must not set ${k}: not in the reviewed key allow-list`)
+  // The default bridge: macvlan/ipvlan put the worker on a host-side L2 segment.
+  if (net.driver !== undefined && net.driver !== 'bridge')
+    errors.push(`network ${key} must use the bridge driver (found: ${net.driver})`)
+  if (net.enable_ipv6)
+    errors.push(`network ${key} must not enable IPv6: the pinned subnet is IPv4 only`)
+  for (const k of setKeys(net.ipam).filter((k) => k !== 'config'))
+    errors.push(`network ${key} ipam must set only config (found: ${k})`)
+  for (const c of net.ipam?.config ?? []) {
+    for (const k of setKeys(c).filter((k) => k !== 'subnet'))
+      errors.push(`network ${key} ipam config must set only subnet (found: ${k})`)
+  }
   if (net.external)
     errors.push(`network ${key} must not be external: the project owns its networks`)
   if (key !== ENTRY && key !== EGRESS)

@@ -201,7 +201,7 @@ F="$(ex external-egress '/^  egress:$/,$ s/^    driver: bridge$/    external: tr
 assert_red "an external egress network is refused" --contains "network egress must not be external" -- guard_with --extraction "$F"
 
 F="$(ex no-alias "$WK"' { /^        aliases: \[crm-extraction-worker\]$/d; }')"
-assert_red "the worker losing its crm-extraction-worker alias is refused" --contains "must carry the alias crm-extraction-worker on entry" -- guard_with --extraction "$F"
+assert_red "the worker losing its crm-extraction-worker alias is refused" --contains "must carry exactly the alias crm-extraction-worker on entry" -- guard_with --extraction "$F"
 
 F="$(ex other-subnet 's/^        - subnet: 10\.250\.17\.0\/28$/        - subnet: 10.250.18.0\/28/')"
 assert_red "an egress subnet other than the pinned one is refused" --contains "must pin the subnet 10.250.17.0/28 (found: 10.250.18.0/28)" -- guard_with --extraction "$F"
@@ -309,6 +309,141 @@ for opt in exec suid dev; do
 done
 F="$(ex tmp-prefix "$WK"' s/^      - \/tmp:size/      - \/tmpx:size/')"
 assert_red "a tmpfs path that only starts with /tmp is refused" --contains "tmpfs must be /tmp only" -- guard_with --extraction "$F"
+
+# ── H1: the entry aliases are exactly the one the API calls; egress has none ──
+F="$(ex alias-postgres 's/^        aliases: \[crm-extraction-worker\]$/        aliases: [crm-extraction-worker, postgres, api]/')"
+assert_red "extra aliases (postgres, api) on the entry network are refused" --contains "must carry exactly the alias crm-extraction-worker on entry (found: crm-extraction-worker, postgres, api)" -- guard_with --extraction "$F"
+
+F="$(ex alias-only-other 's/^        aliases: \[crm-extraction-worker\]$/        aliases: [postgres]/')"
+assert_red "an alias other than crm-extraction-worker is refused" --contains "must carry exactly the alias crm-extraction-worker on entry (found: postgres)" -- guard_with --extraction "$F"
+
+F="$(ex alias-egress 's/^      egress: {}$/      egress:\
+        aliases: [postgres]/')"
+assert_red "an alias on the egress network is refused" --contains "must carry no alias on egress (found: postgres)" -- guard_with --extraction "$F"
+
+# ── H2: network definitions: bridge driver, no driver_opts, no IPv6, key allow-list ──
+for drv in macvlan ipvlan overlay host; do
+  F="$(ex "egress-$drv" "/^  egress:\$/,\$ s/^    driver: bridge\$/    driver: $drv/")"
+  assert_red "an egress network on the $drv driver is refused" --contains "network egress must use the bridge driver (found: $drv)" -- guard_with --extraction "$F"
+done
+F="$(ex entry-macvlan '/^  entry:$/,/^  # Outbound/ s/^    driver: bridge$/    driver: macvlan/')"
+assert_red "an entry network on the macvlan driver is refused" --contains "network entry must use the bridge driver (found: macvlan)" -- guard_with --extraction "$F"
+
+F="$(ex egress-ipv6 '/^  egress:$/a\
+    enable_ipv6: true')"
+assert_red "an egress network with enable_ipv6: true is refused" --contains "network egress must not enable IPv6" -- guard_with --extraction "$F"
+F="$(ex entry-ipv6 '/^  entry:$/a\
+    enable_ipv6: true')"
+assert_red "an entry network with enable_ipv6: true is refused" --contains "network entry must not enable IPv6" -- guard_with --extraction "$F"
+F="$(ex egress-ipv6-off '/^  egress:$/a\
+    enable_ipv6: false')"
+assert_green "enable_ipv6: false is the default and passes" --contains "isolation OK" -- guard_with --extraction "$F"
+
+F="$(ex egress-driver-opts '/^    driver: bridge$/{
+x
+s/^/x/
+/^xx$/{
+x
+a\
+    driver_opts:\
+      com.docker.network.bridge.name: docker0
+b
+}
+x
+}')"
+assert_red "driver_opts on a network are refused" --contains "must not set driver_opts: not in the reviewed key allow-list" -- guard_with --extraction "$F"
+
+for kv in 'attachable: true' 'labels: {a: b}' 'enable_ipv4: true'; do
+  k="${kv%%:*}"
+  F="$(ex "net-$k" "/^  egress:\$/a\\
+    $kv")"
+  assert_red "a network key $k outside the allow-list is refused" --contains "network egress must not set $k: not in the reviewed key allow-list" -- guard_with --extraction "$F"
+done
+
+F="$(ex ipam-driver '/^    ipam:$/a\
+      driver: custom')"
+assert_red "an ipam driver on the egress network is refused" --contains "network egress ipam must set only config (found: driver)" -- guard_with --extraction "$F"
+F="$(ex ipam-gateway 's/^        - subnet: 10\.250\.17\.0\/28$/        - subnet: 10.250.17.0\/28\
+          gateway: 10.250.17.1/')"
+assert_red "an ipam gateway on the egress network is refused" --contains "network egress ipam config must set only subnet (found: gateway)" -- guard_with --extraction "$F"
+
+# ── H3: logging stays on the host's own driver; the image repository is pinned ──
+for drv in syslog gelf fluentd local; do
+  F="$(ex "log-$drv" "$WK s/^      driver: json-file\$/      driver: $drv/")"
+  assert_red "logging driver $drv is refused" --contains "logging driver must be json-file (found: $drv)" -- guard_with --extraction "$F"
+done
+F="$(ex log-unset "$WK"' { /^    logging:$/,/^      driver: json-file$/c\
+    logging:
+}')"
+assert_red "logging without a driver is refused" --contains "logging driver must be json-file" -- guard_with --extraction "$F"
+F="$(ex log-no-block "$WK"' { /^    logging:$/,/^        max-file: .5.$/d; }')"
+assert_red "no logging block (the daemon default) is refused" --contains "logging driver must be json-file (found: unset)" -- guard_with --extraction "$F"
+F="$(ex log-option "$WK"' { /^        max-file: .5.$/a\
+        tag: x
+}')"
+assert_red "a logging option outside the shipped keys is refused" --contains "logging option tag is not in the reviewed list" -- guard_with --extraction "$F"
+F="$(ex log-syslog-addr "$WK"' { s/^      driver: json-file$/      driver: syslog/; /^        max-file: .5.$/a\
+        syslog-address: tcp://203.0.113.9:514
+}')"
+assert_red "a syslog driver with a remote address is refused" --contains "logging driver must be json-file (found: syslog)" -- guard_with --extraction "$F"
+
+for img in 'docker.io\/evil\/api' 'ghcr.io\/yaremenko-maksym\/other' 'ghcr.io\/yaremenko-maksym\/cheekycheeseit-crm-api-evil'; do
+  F="$(ex "img-$(echo "$img" | tr -dc 'a-z')" "s/image: ghcr.io\\/yaremenko-maksym\\/cheekycheeseit-crm-api:/image: $img:/")"
+  assert_red "image repository ${img//\\/} is refused" --contains "image repository must be ghcr.io/yaremenko-maksym/cheekycheeseit-crm-api" -- guard_with --extraction "$F"
+done
+F="$(ex img-digest 's/cheekycheeseit-crm-api:\${EXTRACTION_WORKER_IMAGE_TAG:?pin the worker image tag}/cheekycheeseit-crm-api@sha256:0000000000000000000000000000000000000000000000000000000000000000/')"
+assert_red "an image pinned by digest to the right repository still trips the unset-pin check, not the repository check" --not-contains "image repository" -- guard_with --extraction "$F"
+
+# ── H4 + H5: env_file in long syntax ──
+F="$(ex envfile-long 's/^      - .env.extraction-worker$/      - path: .env.extraction-worker/')"
+assert_green "the long-syntax env_file of the right path passes" --contains "isolation OK" -- guard_with --extraction "$F"
+
+F="$(ex envfile-long-other 's/^      - .env.extraction-worker$/      - path: .env.production/')"
+assert_red "a long-syntax env_file of another path is refused" --contains "env_file must be exactly .env.extraction-worker (found: .env.production)" -- guard_with --extraction "$F"
+
+F="$(ex envfile-optional 's/^      - .env.extraction-worker$/      - path: .env.extraction-worker\
+        required: false/')"
+assert_red "an optional (required: false) env_file is refused" --contains "env_file must be a plain path (found: required: false)" -- guard_with --extraction "$F"
+
+F="$(ex envfile-raw 's/^      - .env.extraction-worker$/      - path: .env.extraction-worker\
+        format: raw/')"
+assert_red "an env_file with a format is refused" --contains "env_file must be a plain path (found: format: raw)" -- guard_with --extraction "$F"
+
+F="$(ex envfile-both 's/^      - .env.extraction-worker$/      - path: .env.extraction-worker\
+        required: false\
+        format: raw/')"
+assert_red "an optional env_file with a format is refused" --contains "env_file must be a plain path" -- guard_with --extraction "$F"
+
+# ── H5: bypass shapes the guard catches, pinned so a rewrite cannot lose them ──
+# A merge key brings in a refused key the worker never spells out; the anchor sits in a top-level
+# x- key, so the worker-side error proves the merge was resolved.
+F="$(ex yaml-merge -e "${WORKER}a\\
+    <<: *hardening" -e '1i\
+x-hardening: &hardening\
+  devices: ["/dev/sda:/dev/sda"]')"
+assert_red "a merge key adding a refused key is refused on the worker" --contains "extraction-worker must not set devices: not in the reviewed key allow-list" -- guard_with --extraction "$F"
+assert_red "the anchor's top-level x- key is refused as well" --contains "must not declare top-level x-hardening" -- guard_with --extraction "$F"
+
+F="$(ex extends-same-file -e "${WORKER}a\\
+    extends:\\
+      service: base" -e '/^volumes:$/i\
+  base:\
+    image: busybox\
+    devices: ["/dev/sda:/dev/sda"]\
+')"
+assert_red "same-file extends adding a refused key is refused on the worker" --contains "extraction-worker must not set devices: not in the reviewed key allow-list" -- guard_with --extraction "$F"
+assert_red "the extended service itself is an unexpected service" --contains "unexpected service base" -- guard_with --extraction "$F"
+
+mkdir -p "$TMP/inc"
+printf 'secrets:\n  hostkey:\n    file: /etc/shadow\n' > "$TMP/inc/inc.yml"
+F="$(ex include-secrets "1i\\
+include:\\
+  - $TMP/inc/inc.yml")"
+assert_red "an included file with a top-level secrets block is refused" --contains "must not declare top-level secrets" -- guard_with --extraction "$F"
+
+F="$(ex top-level-x '$a\
+x-extra: {}')"
+assert_red "a top-level x- key is refused" --contains "must not declare top-level x-extra" -- guard_with --extraction "$F"
 
 # ── the composed deploy configuration ──
 F="$(mutate "$PROD" gains-worker '/^  # ── nginx (reverse-proxy/i\
