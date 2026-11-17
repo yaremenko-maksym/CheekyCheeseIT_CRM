@@ -78,7 +78,7 @@ pill with two lines reads as a blob. `rounded-md` matches `HIT_CHIP`.
 
 **Existing, reused as they are:**
 
-- `Section`, `Field` (`apps/web/app/components/users/section.tsx`)
+- `Section` (`apps/web/app/components/users/section.tsx`), dialogs only. `Field` is **not** used by `RolesSection` (5.3)
 - `Badge` (`ui/badge.tsx`)
 - `Button` (`ui/button.tsx`)
 - `Popover`, `PopoverTrigger`, `PopoverContent` (`ui/popover.tsx`)
@@ -115,20 +115,21 @@ Rejected alternatives:
 | Collapsible groups (accordion)    | 11 headers to open one by one, no search, and a second disclosure state to manage and announce.         |
 | Free-text autocomplete (stack UX) | Roles are a closed list. Free text invites values the API refuses.                                      |
 
-A senior has 1–3 roles in practice. So the closed form (chips only) is what people see most of the
-time, and the full list costs nothing until it is opened.
+Assumption (not measured): a senior has 1–3 roles. If so, the closed form (chips only) is what
+people see most of the time, and the full list costs nothing until it is opened.
 
 ### 5.2 Structure
 
 ```
 Професія                                         <- existing Section (dialogs only)
 ┌──────────────────────────────────────────────┐
-│ Технічні ролі (обрано: 2) *                   │ <- Field label, required mark
+│ Технічні ролі (обрано: 2) *                   │ <- Label (own id), required mark
+│ [+ Додати роль]                               │ <- ghost Button ABOVE the chips: the popover
+│                                               │    anchor does not move while chips are added
 │ ┌───────────────────────┐ ┌────────────────┐ │
 │ │ Бекенд-розробник    ✕ │ │ DevOps / Plat- │ │ <- chips, canonical order, wrap
 │ └───────────────────────┘ │ form-інженер ✕ │ │    (a long label wraps INSIDE the chip)
 │                           └────────────────┘ │
-│ [+ Додати роль]                               │ <- ghost Button, opens the popover
 │ Сеньйору потрібна щонайменше одна технічна... │ <- error (only when invalid)
 └──────────────────────────────────────────────┘
 
@@ -151,8 +152,19 @@ Empty selection: the chip row shows `Технічні ролі не обрано
 
 ### 5.3 What `RolesSection` owns, and what the caller owns
 
-- `RolesSection` renders the `Field`: the label, the chips, the trigger, the popover and the error.
-  It does **not** render a `Section`.
+- `RolesSection` renders the label, the trigger, the chips, the popover and the error itself. It
+  does **not** use `Field`, and it does not render a `Section`.
+  - Why not `Field`: `Field` gives its `Label` no `id` (the `role="group"` needs an
+    `aria-labelledby` target), its error is `role="alert"` or nothing (self-edit needs
+    `role="status"`), and it takes no testid. Self-edit does not use `Field` today either.
+  - Compose the same pieces with the same classes: a `div.grid.gap-1.5`, `Label` with
+    `id={labelId}` and `cn(error && 'text-destructive')`, the required `*` in `text-destructive`,
+    and the error `<p className="text-xs text-destructive">`. It then looks identical to its `Field`
+    neighbours.
+- **Order inside:** label, trigger, chips, error. The trigger sits **above** the chips, unlike
+  `HrChipsField`: the popover stays open while the user adds roles (5.5), and at 320 px nearly every
+  added chip is a new row. A trigger below the chips would move down, and the open list with it,
+  after each pick (a layout shift under the pointer).
 - **Dialogs** (`UserDialog`, `HrCreateSeniorDialog`) wrap it in the existing `Section title="Професія"`,
   in the place `TechStackSection` / the stack field holds today. The dialog's form subscription on
   `role` decides which of the two renders. The swap is instant, with no animation.
@@ -172,7 +184,7 @@ pl-2 pr-0.5 text-xs font-normal`.
   pseudo-element), `rounded-sm`, `X` icon `size-3.5` `aria-hidden`.
   - Classes: `text-muted-foreground transition-colors hover:bg-destructive/20 hover:text-destructive
 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`.
-  - `aria-label={t`Прибрати роль ${label}`}`.
+  - ``aria-label={t`Прибрати роль ${label}`}``.
 - Do **not** copy `HrChipsField`'s remove button: it is `p-0.5` around a 14 px icon (about 18×18,
   under 24×24), and its ring is `ring-1 ring-primary/50`.
 - Gap between chips: `gap-1.5`, as both existing chip fields.
@@ -193,16 +205,20 @@ focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`.
   `TECHNICAL_ROLE_GROUP_LABELS` value. A group whose roles are all selected (or filtered out) is not
   rendered. `cmdk` already hides empty groups while filtering.
 - One `CommandItem` per **unselected** senior-selectable role:
-  - `value` = the translated label. `keywords={[translatedGroupLabel]}`, so typing a group name
-    ("Мобільна", "Безпека") lists that group.
+  - `value` = the translated label. `keywords={[translatedGroupLabel]}` (supported by the installed
+    `cmdk@1.1.1`), so typing a group name ("Мобільна", "Безпека") lists that group.
   - Item text wraps: add `whitespace-normal leading-snug` to the item.
   - Selected roles are not listed. This avoids a "checked" state: `cmdk` puts `aria-selected` and
     `data-selected` on the **highlighted** row, so a check icon there would not be an announced
     state.
 - `CommandEmpty`: reuse the existing `Нічого не знайдено` message.
 - **Selecting an item:** it calls `onChange(sortRoles([...value, role]))` and the popover **stays
-  open**, unlike `HrChipsField`, because a senior often has 2–3 roles. The search text stays, and the
-  highlight moves to the next item (`cmdk` default).
+  open**, unlike `HrChipsField`, because a senior may have 2–3 roles. The search text stays.
+  - **Requirement, not a library default:** the picked row unmounts, so `cmdk` may reset the
+    highlight and the scroll to the top. After a pick, the list keeps its scroll position, the
+    highlight lands on the row that took the picked row's place (else the previous row), and focus
+    stays in `CommandInput`. Use `Command`'s controlled `value` / `onValueChange` to set the
+    highlight. A unit test covers it.
 - The popover closes on `Escape`, on an outside click and on Tab out. Focus returns to the trigger
   (Radix default). `Escape` closes only the popover, not the dialog: Radix layers it.
 
@@ -227,15 +243,15 @@ focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`.
 
 ### 5.7 Keyboard and focus
 
-| Key / action                     | Result                                                          |
-| -------------------------------- | --------------------------------------------------------------- |
-| Tab                              | each chip's remove button, in canonical order, then the trigger |
-| Enter / Space on the trigger     | opens the popover, focus goes to `CommandInput`                 |
-| Type                             | filters by label and group name                                 |
-| ArrowDown / ArrowUp, Home / End  | move the highlight (`cmdk`)                                     |
-| Enter on a highlighted item      | adds the role, the popover stays open                           |
-| Escape                           | closes the popover, focus back on the trigger                   |
-| Enter / Space on a remove button | removes that role                                               |
+| Key / action                     | Result                                                         |
+| -------------------------------- | -------------------------------------------------------------- |
+| Tab                              | the trigger, then each chip's remove button in canonical order |
+| Enter / Space on the trigger     | opens the popover, focus goes to `CommandInput`                |
+| Type                             | filters by label and group name                                |
+| ArrowDown / ArrowUp, Home / End  | move the highlight (`cmdk`)                                    |
+| Enter on a highlighted item      | adds the role, the popover stays open                          |
+| Escape                           | closes the popover, focus back on the trigger                  |
+| Enter / Space on a remove button | removes that role                                              |
 
 **Focus after a remove** (the button the user pressed no longer exists). Move focus to:
 
@@ -357,15 +373,16 @@ The indicator takes the slot of the "Збіг за:" row: after the availability
 | `{ kind: 'NO_RESUME' }`                                     | `немає резюме`. Never "0 з N".                                                             |
 | `null`                                                      | nothing from the indicator                                                                 |
 
-"Збіг за:" renders **only** when `skillOverlap === null` and `matchedKeywords.length > 0`. That keeps
-today's behaviour for any card the new field does not cover. When `skillOverlap` is present, the
-"Збіг за:" row is never rendered.
+"Збіг за:" is never rendered when `skillOverlap` is present (plan, A1). Its existing condition
+(`matchedKeywords.length > 0`) gains `skillOverlap === null`. After Task 4.5, `matchedKeywords` is
+`[]` whenever `skillOverlap` is `null`, so the row is effectively gone. The coder may delete the
+branch instead; either is fine.
 
 ### 7.4 Styling
 
 - Row: `flex min-w-0 flex-wrap items-center gap-1 text-xs`, the same classes as the "Збіг за:" row.
 - Count label: `font-medium text-foreground tabular-nums`. One Lingui message with an ICU plural on
-  `total` (section 11). Do not split the message to style the numbers apart.
+  `total` (section 12). Do not split the message to style the numbers apart.
 - Chips: `HIT_CHIP` with `max-w-full [overflow-wrap:anywhere]`, as today. Drop the `title`
   attribute: the text is fully visible.
 - `NO_RESUME`: `text-xs text-muted-foreground`, no icon.
@@ -380,17 +397,30 @@ today's behaviour for any card the new field does not cover. When `skillOverlap`
   and a cap would need a disclosure to stay honest.
 - Each `SeniorBlock` renders its own `skillOverlap`. Nothing is shared between seniors on one card.
 
-## 8. Accessibility (WCAG 2.2 AA)
+## 8. Motion
+
+No new motion. Every surface here is an edit to a dense form or list, and movement would only slow
+the scan.
+
+- **Section swap** (JUNIOR ↔ SENIOR in `UserDialog`): instant, no transition.
+- **Popover:** the existing `PopoverContent` open/close animation, unchanged. `ui/popover.tsx` has
+  no `motion-reduce:` handling today; that is a pre-existing gap of the shared primitive, out of
+  scope for this PR (it is a short fade/zoom, not a large movement).
+- **Chips appear and disappear instantly.** No enter/exit animation, no layout animation.
+- **Remove buttons and the trigger:** `transition-colors` only, never `transition-all`.
+- **Overlap indicator:** static.
+
+## 9. Accessibility (WCAG 2.2 AA)
 
 | SC                           | Where                   | Requirement                                                                                                                                                                                                              |
 | ---------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1.3.1 Info and relationships | `RolesSection`          | The chips and the trigger sit in a `role="group"` with `aria-labelledby` = the label's `id`. Display chips are a `<ul>`.                                                                                                 |
+| 1.3.1 Info and relationships | `RolesSection`          | The trigger and the chips sit in a `role="group"` with `aria-labelledby` = the label's `id`. Display chips are a `<ul>`.                                                                                                 |
 | 1.4.1 Use of colour          | error, overlap          | The error is a sentence. The overlap has no colour scale.                                                                                                                                                                |
 | 1.4.3 / 1.4.11 Contrast      | all                     | Only existing token pairs are used (`text-foreground` on `border-border`, `text-primary` on `bg-yellow-subtle`, `text-muted-foreground`). Mode B measures them on the live dark theme; this spec does not claim a ratio. |
 | 1.4.10 Reflow                | all                     | No horizontal scroll at 320 px. Labels wrap (`[overflow-wrap:anywhere]`).                                                                                                                                                |
 | 1.4.13 Content on hover      | overlap                 | No tooltip carries content (7.1).                                                                                                                                                                                        |
 | 2.1.1 Keyboard               | `RolesSection`          | The full table in 5.7. Nothing needs a pointer.                                                                                                                                                                          |
-| 2.4.3 Focus order            | `RolesSection`          | Chips' remove buttons, then the trigger. Focus after a remove follows 5.7.                                                                                                                                               |
+| 2.4.3 Focus order            | `RolesSection`          | The trigger, then the chips' remove buttons. Focus after a remove follows 5.7.                                                                                                                                           |
 | 2.4.11 Focus not obscured    | popover in a dialog     | The popover opens in a portal above the dialog. `CommandList` max height keeps the highlighted row on screen with the phone keyboard open.                                                                               |
 | 2.4.7 Focus visible          | remove buttons, trigger | `focus-visible:ring-2 focus-visible:ring-ring`. Not `ring-1 ring-primary/50`.                                                                                                                                            |
 | 2.5.8 Target size            | remove, trigger, items  | Remove 24×24 (`size-6`). Trigger 32 px tall. `CommandItem` at least 32 px tall. The "+N" marker is not a target.                                                                                                         |
@@ -398,7 +428,7 @@ today's behaviour for any card the new field does not cover. When `skillOverlap`
 | 4.1.2 Name, role, value      | remove buttons          | `aria-label` = "Прибрати роль {label}". The icon is `aria-hidden`.                                                                                                                                                       |
 | 4.1.3 Status messages        | add / remove            | One `sr-only` `role="status"` region announces "Додано: …" / "Прибрано: …".                                                                                                                                              |
 
-## 9. Responsive (320 / 768 / 1024 / 1440)
+## 10. Responsive (320 / 768 / 1024 / 1440)
 
 | Width      | `RolesSection` (in a dialog / on the profile)                                                                                                                | `RoleChips`                                                              | Overlap indicator                                         |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ | --------------------------------------------------------- |
@@ -408,7 +438,7 @@ today's behaviour for any card the new field does not cover. When `skillOverlap`
 
 Manual QA checks all four widths for the 3 forms and the card (plan "PR 5 done when").
 
-## 10. Edge cases
+## 11. Edge cases
 
 | Case                                        | Behaviour                                                                                                 |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
@@ -427,7 +457,7 @@ Manual QA checks all four widths for the 3 forms and the card (plan "PR 5 done w
 | `NO_RESUME`                                 | `немає резюме`. Never "0 з N".                                                                            |
 | Vacancy with no technologies (`null`)       | Nothing.                                                                                                  |
 
-## 11. Copy table (for copy-reviewer)
+## 12. Copy table (for copy-reviewer)
 
 `uk` is the source (Lingui macros); `en` goes into the catalog. copy-reviewer gives the `uk` and `en`
 verdicts separately. The uk plural forms are copy-reviewer's to settle.
@@ -454,7 +484,7 @@ api-error and zod-error messages, the role labels and group labels in `technical
 **Why "Технічні ролі" and not "Ролі":** `UserDialog` already has the access role select ("Роль":
 ADMIN, SENIOR, …). "Ролі" next to it reads as the same thing.
 
-## 12. `data-testid` map (for Task 5.5)
+## 13. `data-testid` map (for Task 5.5)
 
 | Element                   | `data-testid`                            |
 | ------------------------- | ---------------------------------------- |
@@ -472,7 +502,7 @@ ADMIN, SENIOR, …). "Ролі" next to it reads as the same thing.
 
 `${role}` is the stable role id (`BACKEND_ENGINEER`), never the translated label.
 
-## 13. Open questions
+## 14. Open questions
 
 Each has a recommended answer. None blocks the coder: each recommendation is a reversible A1 choice
 inside one PR.
@@ -493,3 +523,6 @@ inside one PR.
   use a `MatchEvidence`-style disclosure button, not a tooltip.
 - **Q5. Field label.** **Recommendation:** `Технічні ролі` / `Technical roles`, not `Ролі`, so it is
   not read as the access role select in the same dialog. copy-reviewer has the final word on wording.
+- **Q6. Trigger above the chips.** This differs from `HrChipsField`, which puts its trigger below.
+  **Recommendation:** keep it above (5.3). The popover stays open while roles are added, and a
+  trigger below a growing chip row moves the open list under the pointer.
