@@ -228,7 +228,7 @@ export function listableOpportunityPredicate(scope: JobQueueScope, opportunityId
   if (scope.kind !== 'STUDIO') return visibleOpportunityPredicate(scope, opportunityId)
   // Senior roles PR 4: only a vacancy with known IT roles is listed, even before its first
   // evaluation; PENDING / UNCLEAR / NON_IT and a not-yet-backfilled NULL fail closed. A manual card
-  // is never recomputed (no roles backfill), and a person placed it: it stays listed.
+  // is never match-evaluated and a person placed it: its role status does not hide it.
   return sql`(NOT EXISTS (SELECT 1 FROM job_opportunities xo
                           WHERE xo.id = ${opportunityId}
                             AND xo.evaluated_revision = xo.revision

@@ -683,7 +683,9 @@ describe('evaluate: visibility (AC 7, owner decision)', () => {
 })
 
 describe('evaluate: purity (AC 8)', () => {
-  const source = readFileSync(join(__dirname, 'evaluate.ts'), 'utf8')
+  // The committed bytes, not a Stryker sandbox copy (instrumented, re-printed imports).
+  const dir = __dirname.replace(/[/\\]\.stryker-tmp[/\\]sandbox-[^/\\]+/, '')
+  const source = readFileSync(join(dir, 'evaluate.ts'), 'utf8')
   const specifiers = [...source.matchAll(/from '([^']+)'/g)].map((m) => m[1])
 
   it('imports only the composed pure modules and types', () => {
