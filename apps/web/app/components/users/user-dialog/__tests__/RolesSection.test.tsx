@@ -95,6 +95,32 @@ describe('RolesSection', () => {
     expect(screen.getByTestId('roles-section-chip-FRONTEND_ENGINEER')).toBeInTheDocument()
   })
 
+  it('a pick in the middle of the list keeps the highlight there, not on the first row', async () => {
+    const user = await setup()
+    await user.click(screen.getByTestId('roles-section-add-trigger'))
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}')
+    expect(screen.getByTestId('roles-section-chip-FULLSTACK_ENGINEER')).toBeInTheDocument()
+    expect(screen.getByTestId('roles-section-option-DESKTOP_ENGINEER')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(screen.getByTestId('roles-section-option-BACKEND_ENGINEER')).toHaveAttribute(
+      'aria-selected',
+      'false',
+    )
+  })
+
+  it('a pick of the last row moves the highlight to the previous row', async () => {
+    const user = await setup()
+    await user.click(screen.getByTestId('roles-section-add-trigger'))
+    await user.keyboard('{End}{Enter}')
+    expect(screen.getByTestId('roles-section-chip-UI_UX_DESIGNER')).toBeInTheDocument()
+    expect(screen.getByTestId('roles-section-option-BUSINESS_ANALYST')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+  })
+
   it('search matches the group name', async () => {
     const user = await setup()
     await user.click(screen.getByTestId('roles-section-add-trigger'))

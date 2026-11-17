@@ -1,0 +1,211 @@
+import { Plus, X } from 'lucide-react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { Trans, useLingui } from '@lingui/react/macro'
+import {
+  SENIOR_SELECTABLE_ROLES,
+  TECHNICAL_ROLE_GROUPS,
+  TECHNICAL_ROLE_GROUP_LABELS,
+  TECHNICAL_ROLE_LABELS,
+  sortRoles,
+  type SeniorSelectableRole,
+  type TechnicalRole,
+} from '@crm/shared'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import { Label } from '@/components/ui/label'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { cn } from '@/lib/utils'
+
+const SELECTABLE = new Set<TechnicalRole>(SENIOR_SELECTABLE_ROLES)
+
+export interface RolesSectionProps {
+  value: readonly SeniorSelectableRole[]
+  onChange: (next: SeniorSelectableRole[]) => void
+  error?: string | undefined
+  disabled?: boolean | undefined
+  /** `alert` after a submit (dialogs); `status` while the user is still editing (self-edit). */
+  announce?: 'alert' | 'status'
+}
+
+/**
+ * A senior's technical roles: removable chips + a grouped, searchable "add" popover
+ * (`docs/design/senior-roles-ui.md` §5). The caller owns the value and the error.
+ */
+export function RolesSection({
+  value,
+  onChange,
+  error,
+  disabled = false,
+  announce = 'alert',
+}: RolesSectionProps) {
+  const { t, i18n } = useLingui()
+  const labelId = useId()
+  const errorId = useId()
+  const [open, setOpen] = useState(false)
+  const [highlight, setHighlight] = useState('')
+  const [announcement, setAnnouncement] = useState('')
+  const listRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const removeRefs = useRef(new Map<SeniorSelectableRole, HTMLButtonElement>())
+  // `null` = the trigger; set by a remove, applied once the chips re-render.
+  const pendingFocus = useRef<SeniorSelectableRole | null | undefined>(undefined)
+  const pendingHighlight = useRef<string | undefined>(undefined)
+
+  const label = (role: TechnicalRole) => i18n._(TECHNICAL_ROLE_LABELS[role])
+  const selected = new Set<TechnicalRole>(value)
+  const allSelected = value.length >= SENIOR_SELECTABLE_ROLES.length
+
+  useEffect(() => {
+    if (pendingHighlight.current !== undefined) setHighlight(pendingHighlight.current)
+    if (pendingFocus.current === undefined) return
+    const target = pendingFocus.current
+    pendingFocus.current = undefined
+    ;(target === null ? triggerRef.current : removeRefs.current.get(target))?.focus()
+  }, [value])
+
+  function add(role: SeniorSelectableRole, itemValue: string) {
+    // The picked row unmounts: keep the highlight on the row that takes its place (else the previous one).
+    const rows = [...(listRef.current?.querySelectorAll<HTMLElement>('[cmdk-item]') ?? [])]
+    const at = rows.findIndex((row) => row.dataset['value'] === itemValue)
+    const neighbour = rows[at + 1] ?? rows[at - 1]
+    pendingHighlight.current = neighbour?.dataset['value'] ?? ''
+    setAnnouncement(t`Додано: ${label(role)}`)
+    onChange(sortRoles([...value, role]))
+  }
+
+  function remove(role: SeniorSelectableRole) {
+    const at = value.indexOf(role)
+    pendingFocus.current = value[at + 1] ?? value[at - 1] ?? null
+    setAnnouncement(t`Прибрано: ${label(role)}`)
+    onChange(value.filter((r) => r !== role))
+  }
+
+  return (
+    <div className="grid gap-1.5">
+      <Label id={labelId} className={cn(error && 'text-destructive')}>
+        {value.length > 0 ? t`Технічні ролі (обрано: ${value.length})` : t`Технічні ролі`}
+        <span className="text-destructive"> *</span>
+      </Label>
+      <div role="group" aria-labelledby={labelId} className="space-y-2" data-testid="roles-section">
+        {!allSelected && (
+          <Popover open={open && !disabled} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                ref={triggerRef}
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1 text-xs"
+                disabled={disabled}
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? errorId : undefined}
+                data-testid="roles-section-add-trigger"
+              >
+                <Plus className="size-3.5" aria-hidden="true" /> <Trans>Додати роль</Trans>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[min(20rem,calc(100vw-2rem))] p-0" align="start">
+              <Command
+                value={highlight}
+                onValueChange={(next) => {
+                  // cmdk resets the highlight to the first row once the picked row unmounts; the
+                  // row that took the picked row's place wins over that reset (design spec §5.5).
+                  setHighlight(pendingHighlight.current ?? next)
+                  pendingHighlight.current = undefined
+                }}
+                // A key press is the user's own navigation: no pending highlight may hijack it.
+                onKeyDownCapture={() => (pendingHighlight.current = undefined)}
+              >
+                <CommandInput placeholder={t`Пошук ролі…`} />
+                <CommandList ref={listRef} className="max-h-[min(20rem,50dvh)]">
+                  <CommandEmpty>
+                    <Trans>Нічого не знайдено</Trans>
+                  </CommandEmpty>
+                  {TECHNICAL_ROLE_GROUPS.map((group) => {
+                    const roles = group.roles.filter(
+                      (r): r is SeniorSelectableRole => SELECTABLE.has(r) && !selected.has(r),
+                    )
+                    if (roles.length === 0) return null
+                    const heading = i18n._(TECHNICAL_ROLE_GROUP_LABELS[group.id])
+                    return (
+                      <CommandGroup key={group.id} heading={heading}>
+                        {roles.map((role) => (
+                          <CommandItem
+                            key={role}
+                            value={label(role)}
+                            keywords={[heading]}
+                            onSelect={(v) => add(role, v)}
+                            className="whitespace-normal leading-snug"
+                            data-testid={`roles-section-option-${role}`}
+                          >
+                            {label(role)}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    )
+                  })}
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        )}
+
+        <div className="flex flex-wrap gap-1.5">
+          {value.length === 0 ? (
+            <p className="text-xs italic text-muted-foreground">
+              <Trans>Технічні ролі не обрано</Trans>
+            </p>
+          ) : (
+            value.map((role) => (
+              <Badge
+                key={role}
+                variant="outline"
+                className="h-auto min-h-7 max-w-full items-center gap-1 rounded-md py-0.5 pl-2 pr-0.5 text-xs font-normal"
+                data-testid={`roles-section-chip-${role}`}
+              >
+                <span className="min-w-0 leading-snug text-pretty [overflow-wrap:anywhere]">
+                  {label(role)}
+                </span>
+                <button
+                  ref={(el) => {
+                    if (el) removeRefs.current.set(role, el)
+                    else removeRefs.current.delete(role)
+                  }}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => remove(role)}
+                  aria-label={t`Прибрати роль ${label(role)}`}
+                  className="inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-destructive/20 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+                  data-testid={`roles-section-remove-${role}`}
+                >
+                  <X className="size-3.5" aria-hidden="true" />
+                </button>
+              </Badge>
+            ))
+          )}
+        </div>
+      </div>
+      {error && (
+        <p
+          id={errorId}
+          role={announce}
+          className="text-xs text-destructive"
+          data-testid="roles-section-error"
+        >
+          {error}
+        </p>
+      )}
+      <span role="status" className="sr-only">
+        {announcement}
+      </span>
+    </div>
+  )
+}
