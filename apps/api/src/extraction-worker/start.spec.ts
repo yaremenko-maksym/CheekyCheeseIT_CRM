@@ -332,8 +332,8 @@ describe('startWorker — what it wires up', () => {
     hostnames.length = 0
     healed.recorded.length = 0
     const preflight = await post(app, '/preflight', {})
-    // The interim preflight (5.4c-H1) is ready on a configured hosted route and sends nothing.
-    expect(preflight.json<{ ok: boolean }>().ok).toBe(true)
+    // The readiness preflight (H.3) reads route state only: READY with own cap left, no request sent.
+    expect(preflight.json<{ readiness: string }>().readiness).toBe('READY')
     expect(hostnames).toEqual([])
     // The preflight is not a production call: it never feeds the OK ledger.
     expect(healed.recorded).toEqual([])

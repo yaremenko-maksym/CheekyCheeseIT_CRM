@@ -24,6 +24,7 @@ import {
 } from './config'
 import { promptFits } from './fit'
 import { pinnedModelsOnly, type ManagedModels } from './managed-models'
+import { allLimitBlocked, type RouteEnd } from './readiness'
 import {
   isProviderBlocked,
   isRetired,
@@ -46,8 +47,13 @@ export const BUSY_BACKOFF_MS = 9_000
 /** Why an attempt ended: a leaf code, or a stop decided before any request was sent. */
 export const ATTEMPT_CODES = [...CLASSIFIED_CHAT_CODES, 'CAP', 'BUDGET'] as const
 export type AttemptCode = (typeof ATTEMPT_CODES)[number]
-/** Why a hosted route was not tried at all. */
+/**
+ * Why a hosted route was not tried at all. A route whose every model is spent for the day skips with
+ * `SPENT_DAY`, the attempt code of the same cause (H.2).
+ */
 export type SkipCode = 'AUTH' | 'CREDIT' | 'FIT' | 'NO_MODEL'
+/** One route's reason in an `EXHAUSTED` event: route and internal code, never text (H.2). */
+export type ExhaustedReason = { route: HostedProvider; code: AttemptCode | SkipCode }
 
 /**
  * Events carry route, model, internal code, counts and timings only (ADR §4 item 2, §6.2): never
@@ -69,6 +75,8 @@ export type RouterEvent =
     }
   | { type: 'RETIRED'; route: HostedProvider; model: string; servedModel?: string }
   | { type: 'PROVIDER_DISABLED'; route: HostedProvider; code: 'AUTH' | 'CREDIT' }
+  /** No hosted route answered (H.2): every reason a route was skipped or left, in order. */
+  | { type: 'EXHAUSTED'; reasons: ExhaustedReason[] }
   | { type: 'CALL'; code: 'OK' | InferenceErrorCode | 'ABORTED'; latencyMs: number }
 
 export type RouterDeps = {
@@ -134,13 +142,31 @@ export function modelSizeB(id: string): number | undefined {
 }
 
 /**
- * The code of a text call no hosted route answered (Amendment 2026-11-08 H.2, today's codes until
- * `LIMITS_EXHAUSTED` lands): `INVALID_OUTPUT` only when every attempt was an invalid answer, so the
- * record caused it; anything transient, a skip or a spent budget is `PROVIDER_ERROR`. The list is
- * never empty here: each configured route leaves a skip reason or at least one attempt.
+ * The code of a text call no hosted route answered and that is not `LIMITS_EXHAUSTED` (Amendment
+ * 2026-11-08 H.2): `INVALID_OUTPUT` only when every attempt was an invalid answer, so the record
+ * caused it; anything transient, a skip or a spent budget is `PROVIDER_ERROR`. The list is never
+ * empty here: each configured route leaves a skip reason or at least one attempt.
  */
 function cascadeCode(reasons: { code: AttemptCode | SkipCode }[]): InferenceErrorCode {
   return reasons.every((r) => r.code === 'INVALID_OUTPUT') ? 'INVALID_OUTPUT' : 'PROVIDER_ERROR'
+}
+
+/** Codes that settle a route's end in the call at once; each also leaves the route. */
+const ROUTE_END_CODES: Partial<Record<AttemptCode, RouteEnd>> = {
+  AUTH: 'UNAVAILABLE',
+  CREDIT: 'LIMIT',
+  CAP: 'LIMIT',
+}
+
+/**
+ * A route's limit bookkeeping through one call (H.2, R1). A tried route that was left by no settled
+ * end and no transient answer had every model it could try answer `SPENT_DAY`, so it is spent
+ * through. A model cooling down, or one answering `RETIRED` in this call, is no spent model.
+ */
+type RouteTally = { end?: RouteEnd; transient: boolean }
+
+function endOf(t: RouteTally): RouteEnd {
+  return t.end ?? (t.transient ? 'OTHER' : 'LIMIT')
 }
 
 const refused: Router = { run: async () => ({ ok: false, code: 'NOT_CONFIGURED' }) }
@@ -320,6 +346,8 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       const unit = await withinBudget(ownCap.reserve(p, route.freeLimit))
       if (unit === undefined) return { ok: false, code: 'BUDGET' } // a store slower than the budget
       if (unit === null) return { ok: false, code: 'CAP' }
+      // A failed state write is a fault, not a limit (R2): transient, and dead-route evidence.
+      if (unit === 'WRITE_FAILED') return { ok: false, code: 'BUDGET' }
       // The gap slot is claimed before any wait, so overlapping calls are spaced too (CR-M-3).
       const slot = Math.max(now(), nextFreeAt.get(p) ?? 0)
       if (slot >= hostedDeadline) {
@@ -379,7 +407,12 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
     }
 
     // ---- candidates (§5.2 item 2) ----
-    const reasons: { route: HostedProvider; code: AttemptCode | SkipCode }[] = []
+    const reasons: ExhaustedReason[] = []
+    const tallies = new Map<HostedRouteConfig, RouteTally>()
+    const skip = (route: HostedRouteConfig, code: SkipCode | 'SPENT_DAY', end: RouteEnd): void => {
+      reasons.push({ route: route.provider, code })
+      tallies.set(route, { end, transient: false })
+    }
     const candidates: { route: HostedRouteConfig; models: string[] }[] = []
     for (const route of hostedRoutes) {
       const p = route.provider
@@ -388,22 +421,27 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       if (isProviderBlocked(snap, p, today)) {
         const code = providerRecord(snap, p).auth ? 'AUTH' : 'CREDIT'
         disable(p, code)
-        reasons.push({ route: p, code })
+        skip(route, code, code === 'AUTH' ? 'UNAVAILABLE' : 'LIMIT')
         continue
       }
       if (!promptFits(route, req.instruction, inputChars)) {
-        reasons.push({ route: p, code: 'FIT' })
+        skip(route, 'FIT', 'OTHER')
         continue
       }
-      const models = (await managedModels(p, route.models)).filter(
-        (m) =>
-          (images === undefined || isVisionCapable(p, m)) &&
-          !isSpent(snap, p, m, today) &&
-          !isRetired(snap, p, m) &&
-          !coolingDown(p, m),
+      const fitting = (await managedModels(p, route.models)).filter(
+        (m) => images === undefined || isVisionCapable(p, m),
       )
-      if (models.length === 0) reasons.push({ route: p, code: 'NO_MODEL' })
-      else candidates.push({ route, models })
+      // The models this call could try: a retired one is no longer one of them (A1).
+      const tryable = fitting.filter((m) => !isRetired(snap, p, m))
+      const unspent = tryable.filter((m) => !isSpent(snap, p, m, today))
+      const models = unspent.filter((m) => !coolingDown(p, m))
+      if (models.length > 0) {
+        candidates.push({ route, models })
+        tallies.set(route, { transient: models.length < unspent.length })
+      } else if (unspent.length === 0 && tryable.length > 0) skip(route, 'SPENT_DAY', 'LIMIT')
+      // Unavailable only when no model takes the images; a route retired through is transient (R1).
+      else if (fitting.length === 0 && images !== undefined) skip(route, 'NO_MODEL', 'UNAVAILABLE')
+      else skip(route, 'NO_MODEL', 'OTHER')
     }
 
     const pairsOf = (cs: typeof candidates) =>
@@ -432,22 +470,32 @@ export function createRouter(rawConfig: unknown, deps: RouterDeps): Router {
       if (r.ok) return finish(success(r.data))
       if (r.code === 'ABORTED') return finish(r as RouterResult<T>)
       reasons.push({ route: route.provider, code: r.code })
+      const t = tallies.get(route)!
+      const end = ROUTE_END_CODES[r.code]
+      if (end !== undefined) t.end = end
+      else if (r.code !== 'SPENT_DAY') t.transient = true
       if (NEXT_ROUTE.has(r.code)) left.add(route)
     }
 
     // ---- the end of the cascade (H.2) ----
     // An abort during a step that sends nothing (a cap refusal, a state write) ends here.
     if (signal?.aborted === true) return finish({ ok: false, code: 'ABORTED' })
-    // Images never reach any model with the pages dropped.
-    if (images !== undefined) {
-      // NOT_CONFIGURED only when no configured route could ever take images; a blocked, spent or
-      // too-small vision route is a failure of this call.
-      const visionConfigured = hostedRoutes.some((r) =>
-        r.models.some((m) => isVisionCapable(r.provider, m)),
-      )
-      return finish({ ok: false, code: visionConfigured ? 'PROVIDER_ERROR' : 'NOT_CONFIGURED' })
+    emit({ type: 'EXHAUSTED', reasons })
+    // Images never reach any model with the pages dropped. NOT_CONFIGURED only when no configured
+    // route could ever take images; a blocked, spent or too-small vision route fails this call.
+    if (
+      images !== undefined &&
+      !hostedRoutes.some((r) => r.models.some((m) => isVisionCapable(r.provider, m)))
+    ) {
+      return finish({ ok: false, code: 'NOT_CONFIGURED' })
     }
-    return finish({ ok: false, code: cascadeCode(reasons) })
+    if (allLimitBlocked([...tallies.values()].map(endOf))) {
+      return finish({ ok: false, code: 'LIMITS_EXHAUSTED' })
+    }
+    return finish({
+      ok: false,
+      code: images !== undefined ? 'PROVIDER_ERROR' : cascadeCode(reasons),
+    })
   }
 
   return {

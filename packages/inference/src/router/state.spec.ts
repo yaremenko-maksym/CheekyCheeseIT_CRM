@@ -22,7 +22,9 @@ import {
   providerDay,
   STATE_READ_FLAGS,
   STATE_WRITE_FLAGS,
+  type OwnCapUnit,
   type RouteState,
+  type RouteStatePort,
   type StateEvent,
 } from './state'
 
@@ -543,7 +545,7 @@ describe('OwnCapPort over the state (§3.1, §5.1 units, D5)', () => {
 
   it('release gives a unit back', async () => {
     const { cap } = make()
-    const unit = (await cap.reserve('groq', L4))!
+    const unit = (await cap.reserve('groq', L4)) as OwnCapUnit
     await cap.reserve('groq', L4)
     await cap.release('groq', unit)
     expect(await cap.reserve('groq', L4)).not.toBeNull()
@@ -611,14 +613,14 @@ describe('OwnCapPort over the state (§3.1, §5.1 units, D5)', () => {
       let now = Date.parse(before)
       const { cap, state } = make(() => now)
       const limit = { requestsPerDay: 2 }
-      const late = (await cap.reserve(p, limit))! // a call in flight across midnight
+      const late = (await cap.reserve(p, limit)) as OwnCapUnit // a call in flight across midnight
       now = Date.parse(after)
       const fresh = await cap.reserve(p, limit) // a concurrent call on the new day
       expect(fresh).toEqual({ day: newDay })
       await cap.release(p, late)
       expect(ownCap(state.snapshot(), p)).toEqual({ day: newDay, requests: 1, tokens: 0 })
       expect(await cap.reserve(p, limit)).toBeNull()
-      await cap.release(p, fresh!)
+      await cap.release(p, fresh as OwnCapUnit)
       expect(ownCap(state.snapshot(), p)?.requests).toBe(0)
     },
   )
@@ -638,9 +640,82 @@ describe('OwnCapPort over the state (§3.1, §5.1 units, D5)', () => {
     const opts = { path: PATH, fs, now: () => NOON, onEvent: () => {} }
     const cap = createOwnCapPort({ state: await createFileRouteStatePort(opts), now: () => NOON })
     fs.failAt = 'rename'
-    expect(await cap.reserve('groq', { requestsPerDay: 10 })).toBeNull()
+    expect(await cap.reserve('groq', { requestsPerDay: 10 })).toBe('WRITE_FAILED')
     fs.failAt = undefined
-    expect(await cap.reserve('groq', { requestsPerDay: 10 })).not.toBeNull()
+    expect(await cap.reserve('groq', { requestsPerDay: 10 })).toEqual({ day: '2026-11-04' })
+  })
+
+  it('a failed write-through takes its unit back out of memory (R2)', async () => {
+    const fs = fakeFs()
+    const opts = { path: PATH, fs, now: () => NOON, onEvent: () => {} }
+    const state = await createFileRouteStatePort(opts)
+    const cap = createOwnCapPort({ state, now: () => NOON })
+    await cap.reserve('groq', L4)
+    fs.failAt = 'rename'
+    expect(await cap.reserve('groq', L4)).toBe('WRITE_FAILED')
+    expect(ownCap(state.snapshot())?.requests).toBe(1)
+  })
+
+  it('a change refused whole (oversized) is not taken back twice: the count stays (R2)', async () => {
+    const mem = createMemoryRouteStatePort()
+    let refuse = false
+    // The oversized shape: no memory change, no write, `false`.
+    const state = {
+      snapshot: mem.snapshot,
+      update: async (change: (s: RouteState) => RouteState) =>
+        refuse ? false : mem.update(change),
+    }
+    const cap = createOwnCapPort({ state, now: () => NOON })
+    await cap.reserve('groq', L4)
+    refuse = true
+    expect(await cap.reserve('groq', L4)).toBe('WRITE_FAILED')
+    expect(ownCap(state.snapshot())?.requests).toBe(1)
+  })
+
+  it('a write that fails across midnight does not lower the new day count (CR-M-6)', async () => {
+    let now = Date.parse('2026-11-04T23:59:00Z')
+    const mem = createMemoryRouteStatePort()
+    let failNext = true
+    const state: RouteStatePort = {
+      snapshot: mem.snapshot,
+      update: (change) => {
+        if (!failNext) return mem.update(change)
+        failNext = false
+        const write = mem.update(change) // in memory now; the write-through fails below
+        now = Date.parse('2026-11-05T00:00:01Z') // the provider day turns while the write is in flight
+        return write.then(async () => {
+          await cap.reserve('groq', L4) // a concurrent call reserves on the new day
+          return false
+        })
+      },
+    }
+    const cap = createOwnCapPort({ state, now: () => now })
+    expect(await cap.reserve('groq', L4)).toBe('WRITE_FAILED')
+    expect(ownCap(mem.snapshot())).toEqual({ day: '2026-11-05', requests: 1, tokens: 0 })
+  })
+
+  it('a failed write on a record dated after the clock day gives its unit back (SR-L-3)', async () => {
+    let now = Date.parse('2026-11-05T12:00:00Z')
+    const mem = createMemoryRouteStatePort()
+    let fail = false
+    const state: RouteStatePort = {
+      snapshot: mem.snapshot,
+      update: (change) => mem.update(change).then((ok) => ok && !fail),
+    }
+    const cap = createOwnCapPort({ state, now: () => now })
+    await cap.reserve('groq', L4)
+    now = NOON // the clock goes back a day: the stored record is dated after it and keeps counting
+    fail = true
+    expect(await cap.reserve('groq', L4)).toBe('WRITE_FAILED')
+    expect(ownCap(mem.snapshot())).toEqual({ day: '2026-11-05', requests: 1, tokens: 0 })
+  })
+
+  it('reads the provider day once: a clock turning mid-reserve dates the unit and the count alike (CR-L-2)', async () => {
+    const times = [Date.parse('2026-11-04T23:59:59Z'), Date.parse('2026-11-05T00:00:01Z')]
+    let reads = 0
+    const { cap, state } = make(() => times[Math.min(reads++, 1)]!)
+    const unit = await cap.reserve('groq', L4)
+    expect(unit).toEqual({ day: ownCap(state.snapshot())?.day })
   })
 
   it('the count is written before the reservation resolves and survives a restart', async () => {
