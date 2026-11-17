@@ -27,7 +27,7 @@ import {
 } from './config'
 import { promptFits } from './fit'
 import { pinnedModelsOnly, type ManagedModels } from './managed-models'
-import { renderSchema, runSmallDose, structuredOutputFor, type DoseAsk } from './small-dose'
+import { runSmallDose, type DoseAsk } from './small-dose'
 import {
   isProviderBlocked,
   isRetired,
@@ -42,6 +42,7 @@ import {
   type OwnCapUnit,
   type RouteStatePort,
 } from './state'
+import { renderSchema, structuredOutputFor } from './structured-output'
 
 /** One short backoff on a busy model, at most once per model per call (VCF Gemini: 9 s). */
 export const BUSY_BACKOFF_MS = 9_000
