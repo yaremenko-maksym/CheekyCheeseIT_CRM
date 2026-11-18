@@ -46,7 +46,7 @@ export const JOB_SOURCING_ERROR_CODES = [
   // ADR 2026-11-03 §H.8, 503: the ADMIN manual run collected nothing and its model stage stopped on
   // the AI limits. Static: no provider, count or reset time.
   'JOB_SOURCING_AI_LIMITS_EXHAUSTED',
-  // 503: a manual run collected nothing because every source failed; the per-source causes go to the log.
+  // 503: a manual run collected nothing because no source completed (an error or a deliberate stop); the causes go to the log.
   'JOB_SOURCING_COLLECTION_FAILED',
 ] as const
 export type JobSourcingErrorCode = (typeof JOB_SOURCING_ERROR_CODES)[number]
