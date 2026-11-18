@@ -156,12 +156,13 @@ function readingSources(
       ]
     }
     const mapped = map(parts)
-    const last = parts.at(-1)
+    const lastIndex = parts.length - 1
+    const last = parts[lastIndex]
     const sources = [mapped.join(CONTACT_NAME_GAP)]
     // The stored spelling decides, in every reading: a second reading adds Latin spellings of the
     // same parts, and must not widen which parts count as a surname source.
     if (last !== undefined && isSurnameSource(storedSource(last))) {
-      sources.push(mapped[mapped.length - 1] as string)
+      sources.push(mapped[lastIndex] as string)
     }
     // a blank name leaves an empty source, which would match everywhere
     return sources.filter(Boolean)
@@ -180,25 +181,15 @@ function readingSources(
 function nameSources(fullName: string, failClosed: boolean, scanned: string): string[] {
   const stored = readingSources(fullName, failClosed, scanned, storedSource)
   if (!failClosed) return stored
+  // Stryker disable next-line ConditionalExpression: a part with no Latin reading falls back to its stored source in the second pass, so `true` only adds the duplicate sources the span merge already drops — the inverted `===` is killed by the Cyrillic redaction tests
+  const readsAsLatin = (part: string): boolean => transliteratedNameSource(part) !== null
   // No part reads as Latin (a Latin name, or Cyrillic the table does not cover): the second pass
-  // would repeat the stored sources exactly, and its duplicate spans merge away.
-  // Stryker disable next-line ConditionalExpression,BlockStatement: `false` and `{}` are equivalent — the second pass then maps every part through `storedSource` and returns the same sources; `.some` -> `.every` is killed by the mixed-script name test
-  if (
-    !contactNameParts(fullName)
-      .flat()
-      .some((part) => transliteratedNameSource(part) !== null)
-  ) {
-    return stored
-  }
-  return [
-    ...stored,
-    ...readingSources(
-      fullName,
-      failClosed,
-      scanned,
-      (part) => transliteratedNameSource(part) ?? storedSource(part),
-    ),
-  ]
+  // would repeat the stored sources exactly, and its duplicate spans merge away, so this guard is a
+  // saving and not a behaviour. Kept on one line so the directive below covers the whole statement.
+  // Stryker disable next-line ConditionalExpression: `false` is equivalent — without the early return the second pass maps every part through `storedSource` and yields the same sources; `true` is killed by the Cyrillic redaction tests
+  if (!contactNameParts(fullName).flat().some(readsAsLatin)) return stored
+  const latinFirst = (part: string): string => transliteratedNameSource(part) ?? storedSource(part)
+  return [...stored, ...readingSources(fullName, failClosed, scanned, latinFirst)]
 }
 
 /**

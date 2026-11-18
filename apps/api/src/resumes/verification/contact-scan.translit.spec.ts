@@ -191,4 +191,96 @@ describe('transliteratedNameSource (backlog 463)', () => {
       )
     }
   })
+
+  it('counts an apostrophe toward the reading budget, like an ambiguous letter', () => {
+    // `а` reads one way and each apostrophe doubles the readings, so 12 of them sit exactly on the
+    // budget and 13 are past it. A name is user-settable, so this bound is the one that matters.
+    expect(transliteratedNameSource(`а${"'".repeat(12)}`)).not.toBeNull()
+    expect(transliteratedNameSource(`а${"'".repeat(13)}`)).toBeNull()
+  })
+
+  it('treats a Latin letter beside a silent Cyrillic one as the mandatory piece', () => {
+    const source = transliteratedNameSource('ьb')
+    expect(source).not.toBeNull()
+    expect(new RegExp(`^${source as string}$`, 'iu').test('b')).toBe(true)
+  })
+
+  it('reads every apostrophe variant as the ASCII one, so a typographic stored name matches', () => {
+    // The scanned text is normalised to the ASCII apostrophe, so a literal `’` kept in the source
+    // would match no text at all — and a stored name usually carries the typographic one.
+    for (const apostrophe of ["'", '’', 'ʼ', '‘']) {
+      const source = transliteratedNameSource(`Дем${apostrophe}ян`)
+      expect(source).not.toBeNull()
+      const pattern = new RegExp(`^${source as string}$`, 'iu')
+      expect(pattern.test('Demian')).toBe(true)
+      expect(pattern.test("Dem'ian")).toBe(true)
+    }
+  })
+})
+
+/**
+ * The reading table, written out here independently of the module. A reading asserted against the
+ * module's own constant would still pass with that constant mutated away, which is the one defect
+ * the mutation gate exists to catch — so these rows are a second, hand-written original.
+ *
+ * Each row is read with the carrier letter `а`, because a letter whose readings are all optional
+ * (`й`) or absent (`ь`, `ъ`) yields no source on its own.
+ */
+const TABLE: ReadonlyArray<readonly [letter: string, readings: readonly string[]]> = [
+  ['а', ['a']],
+  ['б', ['b']],
+  ['в', ['v', 'w']],
+  ['г', ['h', 'g']],
+  ['ґ', ['g']],
+  ['д', ['d']],
+  ['е', ['e']],
+  ['є', ['ye', 'ie', 'je', 'e']],
+  ['ж', ['zh', 'j']],
+  ['з', ['z']],
+  ['и', ['y', 'i']],
+  ['і', ['i', 'y']],
+  ['ї', ['yi', 'ji', 'i']],
+  ['й', ['y', 'i', 'j', '']],
+  ['к', ['k']],
+  ['л', ['l']],
+  ['м', ['m']],
+  ['н', ['n']],
+  ['о', ['o']],
+  ['п', ['p']],
+  ['р', ['r']],
+  ['с', ['s']],
+  ['т', ['t']],
+  ['у', ['u']],
+  ['ф', ['f']],
+  ['х', ['kh', 'ch', 'h']],
+  ['ц', ['ts', 'tz', 'c']],
+  ['ч', ['tch', 'ch']],
+  ['ш', ['sh']],
+  ['щ', ['shch', 'sch']],
+  ['ь', []],
+  ['ю', ['yu', 'iu', 'ju', 'u']],
+  ['я', ['ya', 'ia', 'ja', 'a']],
+  ['ё', ['yo', 'jo', 'e']],
+  ['ы', ['y']],
+  ['ъ', []],
+  ['э', ['e']],
+]
+
+/** Every spelling any row lists, so "accepts exactly its own readings" is a closed question. */
+const PROBES = [...new Set(['', ...TABLE.flatMap(([, readings]) => readings)])]
+
+describe('the transliteration table, row by row (backlog 463)', () => {
+  it('covers every Ukrainian letter and the four Russian letters Ukrainian lacks', () => {
+    expect(TABLE.map(([letter]) => letter).join('')).toBe('абвгґдеєжзиіїйклмнопрстуфхцчшщьюяёыъэ')
+  })
+
+  it.each(TABLE)('reads %s as exactly the spellings listed for it', (letter, readings) => {
+    const source = transliteratedNameSource(`а${letter}`)
+    expect(source).not.toBeNull()
+    const pattern = new RegExp(`^${source as string}$`, 'iu')
+    const accepted = PROBES.filter((probe) => pattern.test(`a${probe}`)).sort()
+    // A letter with no readings contributes nothing, so the carrier alone must match.
+    const expected = [...new Set(readings.length === 0 ? [''] : readings)].sort()
+    expect(accepted).toEqual(expected)
+  })
 })
