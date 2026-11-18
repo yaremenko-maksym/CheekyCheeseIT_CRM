@@ -1415,7 +1415,7 @@ jobs:
     # `azure.archive.ubuntu.com` in 39s the same day. A stalled socket is not a
     # slow download, and no amount of job budget fixes it: the answer is the apt
     # drop-in written by `scripts/devops/write-apt-ci-fetch-timeouts.sh` (step
-    # below), which aborts a silent socket after 30s and reconnects. The budgets
+    # below), which aborts a silent socket after 15s and reconnects. The budgets
     # under `Install Playwright system deps` are sized for what a working
     # install plus those reconnects needs, and their sum is checked against this
     # 15-minute (900s) ceiling there.
@@ -1936,12 +1936,14 @@ jobs:
           # is sized for a WORKING install plus apt's own reconnects, and the
           # stall is handled where it happens — the drop-in written by
           # `scripts/devops/write-apt-ci-fetch-timeouts.sh` (step above) aborts
-          # a silent socket after 30s and retries it 3 times on fresh
-          # connections, so one stalled package costs at most ~120s, the same
-          # ceiling apt's untouched 120s default already spends on it (measured
-          # in ubuntu:24.04 against a server that sends headers and then stops:
-          # 127s with the defaults and a single attempt, 128s over four
-          # attempts with the drop-in).
+          # a silent socket after 15s and retries it 3 times on fresh
+          # connections, so one stalled package costs at most ~60s (measured in
+          # ubuntu:24.04 against a server that sends headers and then stops:
+          # 68s with the drop-in, 127s on apt's bare defaults). The runner image
+          # itself already sets Timeout 15 with Retries 1, so what the drop-in
+          # buys is reconnects and `Pipeline-Depth "0"` — see the script header
+          # for why the 12+ minutes of silence were many short failures rather
+          # than one long wait.
           #
           # 240 therefore covers the 27-39s install plus a stall on one or two
           # packages, and the step's own DEPS_STEP_DEADLINE_SECONDS caps the
@@ -1969,7 +1971,7 @@ jobs:
           # default. 420 was sized for an orphan that holds the lock for as long
           # as a stalled fetch lasts, i.e. indefinitely. With the apt drop-in in
           # place an orphaned `apt-get` can no longer sit on a dead socket: it
-          # gives each stalled package up after 30s and 3 reconnects, so the
+          # gives each stalled package up after 15s and 3 reconnects, so the
           # orphan this step may have to outlast is a FINISHING install, not a
           # hung one. The wait stays the fallback for the case where a collision
           # happens at all; the step's own DEPS_STEP_DEADLINE_SECONDS below

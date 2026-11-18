@@ -28,8 +28,15 @@ make_apt_config() { # $1 = dir, $2 = mode (ok|reject|silent|absent)
     echo '[ "$1" = "dump" ] || exit 1'
     case "$mode" in
       ok)
-        echo 'echo '"'"'Acquire::http::Timeout "30";'"'"''
+        echo 'echo '"'"'Acquire::http::Timeout "15";'"'"''
         echo 'echo '"'"'Acquire::Retries "3";'"'"''
+        echo 'echo '"'"'Acquire::http::Pipeline-Depth "0";'"'"''
+        ;;
+      overridden)
+        # Parsed, but a later-sorting drop-in wins — the shape seen on job
+        # 134876586258, where the image's own file kept Retries at 1.
+        echo 'echo '"'"'Acquire::http::Timeout "15";'"'"''
+        echo 'echo '"'"'Acquire::Retries "1";'"'"''
         echo 'echo '"'"'Acquire::http::Pipeline-Depth "0";'"'"''
         ;;
       reject) echo 'echo "E: Syntax error" >&2; exit 100' ;;
@@ -61,9 +68,9 @@ run_subject() { # $1 = mode, $2 = target file, [$3 = extra PATH entry]
 # ── green ─────────────────────────────────────────────────────────────────────
 assert_green "writes the five fetch knobs and proves apt READ them (not merely that the file exists)" \
   --contains "FILE-EXISTS" \
-  --contains 'Acquire::http::Timeout "30";' \
-  --contains 'Acquire::https::Timeout "30";' \
-  --contains 'Acquire::ftp::Timeout "30";' \
+  --contains 'Acquire::http::Timeout "15";' \
+  --contains 'Acquire::https::Timeout "15";' \
+  --contains 'Acquire::ftp::Timeout "15";' \
   --contains 'Acquire::Retries "3";' \
   --contains 'Acquire::http::Pipeline-Depth "0";' \
   --contains "Effective apt fetch config:" \
@@ -98,6 +105,17 @@ assert_red_signal "apt-config is not installed at all -> treated as 'apt will no
   --contains "::warning::" \
   --contains "FILE-ABSENT" \
   -- run_subject absent "$WORK/99-noapt"
+
+assert_red_signal "apt parses the file but a later-sorting drop-in wins -> the MISMATCH is named, never passed over in silence" \
+  --contains "::warning::" \
+  --contains "apt reports different effective values for: Acquire::Retries" \
+  --contains "sorts after this one and wins" \
+  --contains "FILE-EXISTS" \
+  -- run_subject overridden "$WORK/99-overridden"
+
+assert_green "the default target sorts AFTER the runner image's own drop-ins (zz-, not 99-)" \
+  --contains "zz-ci-fetch-timeouts" \
+  -- grep -o 'APT_CONF_FILE:-/etc/apt/apt.conf.d/zz-ci-fetch-timeouts' "$SUBJECT"
 
 assert_red_signal "apt parses the file but reports no Acquire fetch keys -> warning, because the drop-in may not be in effect" \
   --contains "::warning::" \

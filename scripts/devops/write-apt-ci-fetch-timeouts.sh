@@ -20,25 +20,46 @@
 # WHAT WAS MEASURED (ubuntu:24.04, a server that sends headers + 1 KB and then
 # stops, which is the observed shape):
 #
-#   defaults            `apt-get update` gave the item up after 127s
-#                       (compiled-in `Acquire::http::Timeout` is 120s and
-#                       nothing retries it)
+#   apt's own compiled-in defaults
+#                       `apt-get update` gave the item up after 127s
+#                       (`Acquire::http::Timeout` defaults to 120s and nothing
+#                       retries it)
 #   Timeout 30 + Retries 5
 #                       212s — the knobs ARE honoured, and Retries multiplies
 #                       total patience rather than reducing it
 #
-# So "apt never times out a stalled fetch" is NOT true. What the defaults do
-# wrong is cheaper to state: one 120s wait per item on a socket that is already
-# dead, and no reconnect. 181 packages give that shape room to look like
-# minutes of silence, because apt prints `Get:` when an item STARTS and prints
-# nothing while it times one out.
+# And what the GitHub runner image turned out to set on top of that, read off
+# the first run of this very step (job 134876586258): `Acquire::http::Timeout
+# "15"`, `Acquire::Retries "1"`, i.e. one reconnect, then the item fails.
 #
-# Hence: abort a silent socket after 30s and reconnect, up to 3 times. Per-item
-# worst case stays 4 × 30s = 120s — the same ceiling the defaults already
-# spend — but each of those 30s windows is a FRESH connection, which is the
-# part that can actually recover. `Pipeline-Depth "0"` removes the other way
-# one dead socket costs more than one item: with pipelining on (apt's default
-# depth is 10), queued responses behind a stalled one are lost with it.
+# So "apt never times out a stalled fetch" is false twice over, and the 12+
+# minutes of silence are not one long wait: they are MANY short ones. apt
+# prints `Get:` when an item STARTS and prints nothing at all while it times one
+# out and gives it up, so 181 packages behind a stalling mirror produce minutes
+# of blank log with the step making real but invisible progress through
+# failures.
+#
+# What this file changes, then, is narrower than "add a timeout":
+#   * `Acquire::Retries "3"` — three reconnects per item instead of the image's
+#     one, so a TRANSIENT stall is survived by apt itself rather than failing
+#     the whole `apt-get install` and leaving the wrapper to retry 125 MB.
+#   * `Acquire::http::Pipeline-Depth "0"` — the substantive knob. With
+#     pipelining on (apt's default depth is 10) the responses queued behind a
+#     stalled one are lost with it, so ONE dead socket costs many items.
+#   * `Timeout "15"` — kept at the image's value, not relaxed. Per-item worst
+#     case is 4 × 15s = 60s against the image's 2 × 15s = 30s: twice the
+#     patience, but four fresh connections instead of two. Measured against the
+#     stalling server above: 68s with this file in place, 127s on apt's bare
+#     defaults, and `apt-config dump` inside the container lists all five keys,
+#     so apt does read it.
+#
+# ORDERING MATTERS. apt reads /etc/apt/apt.conf.d/* in sorted order and the
+# LAST assignment wins, so this file is named `zz-…` to sort after the image's
+# own drop-ins. The first run of this step proved why: as `99-ci-fetch-timeouts`
+# it was written, parsed, and then overridden — the step printed
+# `Acquire::http::Timeout "15"` and `Acquire::Retries "1"` back. The script now
+# compares the EFFECTIVE values with the requested ones and warns on a
+# mismatch, so a future override is visible instead of silent.
 #
 # NON-FATAL BY CONSTRUCTION. A malformed apt.conf.d file breaks EVERY later apt
 # command on the runner, chromium legs included, so the file is validated with
@@ -48,13 +69,13 @@
 #
 # Env:
 #   APT_CONF_FILE   where to write (default:
-#                   /etc/apt/apt.conf.d/99-ci-fetch-timeouts) — overridable so
+#                   /etc/apt/apt.conf.d/zz-ci-fetch-timeouts) — overridable so
 #                   the guard test can assert the content without root.
 #   APT_SUDO        command prefix for the write (default: sudo, or empty when
 #                   already root / when APT_CONF_FILE is writable).
 set -uo pipefail
 
-APT_CONF_FILE="${APT_CONF_FILE:-/etc/apt/apt.conf.d/99-ci-fetch-timeouts}"
+APT_CONF_FILE="${APT_CONF_FILE:-/etc/apt/apt.conf.d/zz-ci-fetch-timeouts}"
 
 if [ -n "${APT_SUDO+x}" ]; then
   sudo_cmd="$APT_SUDO"
@@ -66,13 +87,14 @@ fi
 
 read -r -d '' conf <<'CONF' || true
 // Written by scripts/devops/write-apt-ci-fetch-timeouts.sh (CI only).
-// A stalled archive socket is aborted and re-opened instead of being waited
-// out: 4 x 30s worst case per item, the same ceiling as apt's own 120s default,
-// but each window is a fresh connection. Pipeline-Depth 0 keeps one dead
-// socket from taking the responses queued behind it.
-Acquire::http::Timeout "30";
-Acquire::https::Timeout "30";
-Acquire::ftp::Timeout "30";
+// A stalled archive socket is aborted and re-opened: 4 x 15s worst case per
+// item against the runner image's 2 x 15s, i.e. four fresh connections instead
+// of two. Pipeline-Depth 0 keeps one dead socket from taking the responses
+// queued behind it. The `zz-` filename is load-bearing: apt reads
+// /etc/apt/apt.conf.d/* in sorted order and the last assignment wins.
+Acquire::http::Timeout "15";
+Acquire::https::Timeout "15";
+Acquire::ftp::Timeout "15";
 Acquire::Retries "3";
 Acquire::http::Pipeline-Depth "0";
 CONF
@@ -92,7 +114,22 @@ fi
 
 echo "Wrote ${APT_CONF_FILE}. Effective apt fetch config:"
 # Evidence that apt actually READ the file, not merely that it exists.
-apt-config dump 2>/dev/null | grep -E '^Acquire::(http|https|ftp)::(Timeout|Pipeline-Depth)|^Acquire::Retries' || {
+effective="$(apt-config dump 2>/dev/null | grep -E '^Acquire::(http|https|ftp)::(Timeout|Pipeline-Depth)|^Acquire::Retries' || true)"
+if [ -z "$effective" ]; then
   echo "::warning::apt-config dump printed no Acquire fetch keys — the drop-in may not be in effect."
-}
+  exit 0
+fi
+printf '%s\n' "$effective"
+
+# A drop-in that is READ can still be OVERRIDDEN by a file sorting after it,
+# which is exactly what happened on the first run of this step. Compare the
+# values apt reports with the ones asked for, and say so when they differ: a
+# silent no-op is the failure mode worth catching here.
+mismatch=""
+printf '%s\n' "$effective" | grep -q 'Acquire::Retries "3";' || mismatch="${mismatch} Acquire::Retries"
+printf '%s\n' "$effective" | grep -q 'Acquire::http::Timeout "15";' || mismatch="${mismatch} Acquire::http::Timeout"
+printf '%s\n' "$effective" | grep -q 'Acquire::http::Pipeline-Depth "0";' || mismatch="${mismatch} Acquire::http::Pipeline-Depth"
+if [ -n "$mismatch" ]; then
+  echo "::warning::${APT_CONF_FILE} was written and parsed, but apt reports different effective values for:${mismatch} — another file under /etc/apt/apt.conf.d/ sorts after this one and wins. The install proceeds with the effective values above."
+fi
 exit 0
