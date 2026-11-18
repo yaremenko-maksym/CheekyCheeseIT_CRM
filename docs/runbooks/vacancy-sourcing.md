@@ -229,7 +229,8 @@ until the next deploy. To stop one now, turn the flag off and recreate; to keep 
 `deploy.yml`**; its value in production exists only if set by hand in `/opt/crm/.env.production`. The API reads that file
 through compose `env_file` when its container is **created**, so a change takes effect only after the container is
 recreated: `cd /opt/crm && docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml --env-file .env.production up -d --no-deps api`. Keep `--env-file`: the image tag (`IMAGE_TAG`) lives only in that file, and without it compose falls back to the `main` tag. A plain `docker restart crm-api-1` keeps the old values. Two steps
-follow that command, because the deploy does them after its own `up` and a hand recreate does not:
+follow that command. A deploy needs neither: its `up` names no service, so it recreates `nginx` together with `api`,
+and the deploy script re-attaches `api` right after. A hand recreate of `api` alone does neither:
 
 1. `docker network connect crm-extraction-entry crm-api-1`, when that network exists. A recreated `api` loses this
    attachment, and every role-AI and extraction call then fails until it is back (`extraction-worker.md`, "An `api`
