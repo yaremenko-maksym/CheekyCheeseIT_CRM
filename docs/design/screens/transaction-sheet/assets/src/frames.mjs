@@ -44,7 +44,8 @@ const at = (name, widths, cfg) =>
       }),
     )
   })
-const BOTH = [375, 1440]
+// Round 3b: every class drawn; a 640–1023 cell no longer composes the 1440 body into the 400 px panel.
+const ALL = [375, 768, 1440]
 /** Drawn full length: a taller canvas than the device, so the whole scrolled sheet is in one image. */
 const tall = (name, fh, cfg, w = 320) => {
   const html = txSheet({
@@ -101,7 +102,11 @@ const toWide = (p) =>
 const DOT =
   '<i aria-hidden="true" style="position:absolute;top:-4px;right:-4px;width:10px;height:10px;border-radius:50%;background:var(--destructive);box-shadow:0 0 0 2px var(--bg)"></i>'
 const TONE = { failed: 'var(--destructive)', unknown: 'var(--warning)' }
-const STATE = { failed: 'Не збережено · Витрата', unknown: 'Результат невідомий · Витрата' }
+const STATE = {
+  failed: 'Не збережено · Витрата',
+  unknown: 'Результат невідомий · Витрата',
+  inflight: 'Зберігаємо… · Витрата',
+}
 // M15: a pinned draft and its pill carry the send time, visibly and in the accessible name. On the phone
 // row it sits on the amount line, which never truncates (the state line is trunc and only just fits at 375).
 const SENT = '14:32'
@@ -138,8 +143,11 @@ const pillFor = (w, step) => {
 }
 /** Desktop: the pinned draft is a 40 px full-width first row of the table (prims-viz draftsDesktop). */
 const pinnedTr = (k) => {
-  const mix = (p) => `color-mix(in oklch, ${TONE[k]} ${p}%, transparent)`
-  return `<tr><td colspan="6" style="padding:0;max-width:none;background:${mix(7)};box-shadow:inset 2px 0 0 ${TONE[k]}"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:${TONE[k]};display:grid">${icon('file-pen', { size: 16 })}</span><span class="num" style="font-weight:600;white-space:nowrap">−1 250,50 USD <span class="muted" style="font-weight:400">· ${SENT}</span></span><span class="grow muted trunc">${STATE[k]}</span><button type="button" class="btn sm secondary" aria-label="Відкрити чернетку −1 250,50 USD, надіслано о ${SENT}" style="height:28px;font-size:13px;padding:0 12px;background:${mix(18)};border-color:${mix(45)}">Відкрити</button></div></td></tr>`
+  // inflight (keyless create): no tone, the foundation's neutral edge and a spinner, as its phone row.
+  const t = TONE[k] ?? 'var(--muted-fg)'
+  const mix = (p) => (TONE[k] ? `color-mix(in oklch, ${t} ${p}%, transparent)` : 'transparent')
+  const btn = TONE[k] ? `;background:${mix(18)};border-color:${mix(45)}` : ''
+  return `<tr${TONE[k] ? '' : ' aria-busy="true"'}><td colspan="6" style="padding:0;max-width:none;background:${mix(7)};box-shadow:inset 2px 0 0 ${t}"><div class="row" style="gap:10px;height:40px;padding:0 8px 0 12px"><span style="color:${t};display:grid">${icon(TONE[k] ? 'file-pen' : 'loader-circle', { size: 16 })}</span><span class="num" style="font-weight:600;white-space:nowrap">−1 250,50 USD <span class="muted" style="font-weight:400">· ${SENT}</span></span><span class="grow muted trunc">${STATE[k]}</span><button type="button" class="btn sm secondary" aria-label="Відкрити чернетку −1 250,50 USD, надіслано о ${SENT}" style="height:28px;font-size:13px;padding:0 12px${btn}">Відкрити</button></div></td></tr>`
 }
 const tr = (status) =>
   `<tr${status ? ' aria-busy="true"' : ''}><td class="num muted">11.11</td><td><span class="row" style="gap:8px"><span class="trunc">Оплата послуги</span>${status ? `<span class="pill" style="height:20px;font-size:11px;gap:4px;color:var(--muted-fg)">${icon('loader-circle', { size: 11 })}Зберігаємо…</span>` : ''}</span></td><td class="muted">Витрата</td><td class="muted trunc">—</td><td style="text-align:center" class="muted">${icon('paperclip', { size: 14 })}</td><td class="num" style="text-align:right;font-weight:600">−1 250,50 USD</td></tr>`
@@ -491,15 +499,18 @@ function editClosed(step, w) {
       txnRow(TXNS[1]),
       markedRow(step),
     )
-  const mark =
-    step === 'resolved'
-      ? ''
-      : `<span class="pill warn" style="height:20px;font-size:11px;gap:4px">${icon('loader-circle', { size: 11 })}Результат невідомий · Перевіряємо…</span>`
+  // The same marker as the phone row (MARK), inline after the title.
+  const [tag, warn, busy] = MARK[step] ?? []
+  const mark = tag
+    ? `<span class="pill${warn ? ' warn' : ''}" style="height:20px;font-size:11px;gap:4px${warn ? '' : ';color:var(--muted-fg)'}">${busy ? icon('loader-circle', { size: 11 }) : ''}${tag}</span>`
+    : ''
+  // the list's end clears the pill; the refetch-failed pill is two rows tall
+  const pad = step === 'refetch-failed' ? 148 : 100
   return T.desktop({ w, h, role: 'ADMIN', overlay: toWide(editPill(375, step)) })
-    .replace('padding:20px 24px 24px;', 'padding:20px 24px 100px;')
+    .replace('padding:20px 24px 24px;', `padding:20px 24px ${pad}px;`)
     .replace(
       '<tr aria-selected="true" style="background:var(--raised)">',
-      `<tr aria-selected="true"${step === 'resolved' ? '' : ' aria-busy="true"'} style="background:var(--raised)">`,
+      `<tr aria-selected="true"${busy ? ' aria-busy="true"' : ''} style="background:var(--raised)">`,
     )
     .replace(
       '<span class="trunc">Оренда офісу</span>',
@@ -527,13 +538,25 @@ function keylessSaving(w) {
   const pinned = sentRows(signed(T.pinnedRows([T.DRAFT.inflight])))
   const pill = must(
     must(
-      signed(T.moneyPill(w, 'inflight')),
+      signed(T.moneyPill(w < 640 ? w : 375, 'inflight')),
       '<span class="t-cap muted">Відкрити</span>',
       `<span class="t-cap muted num">Витрата · ${SENT} · Відкрити</span>`,
     ),
     '−1 250,50 USD. Відкрити',
     `−1 250,50 USD, витрата, надіслано о ${SENT}. Відкрити`,
   )
+  // Tablet: the pinned row above «Сьогодні»; desktop: a 40 px first table row (as closedState). No dot:
+  // a write in flight needs no attention.
+  if (w >= 1024)
+    return T.desktop({ w, h: 900, role: 'ADMIN', overlay: toWide(pill) })
+      .replace('padding:20px 24px 24px;', 'padding:20px 24px 100px;')
+      .replace('<tr aria-selected="true" style="background:var(--raised)">', '<tr>')
+      .replace('<tbody>', `<tbody>${pinnedTr('inflight')}`)
+  if (w >= 640)
+    return T.tablet({ w, h: 1024, role: 'ADMIN', overlay: toWide(pill) }).replace(
+      '<div class="sechead"><span class="t-over">Сьогодні</span></div>',
+      `${pinned}$&`,
+    )
   return T.tabScreen({
     w,
     h: 812,
@@ -582,7 +605,7 @@ export function frames() {
 
   // ---- key states
   f.push(
-    ...at('receipt-uploading', BOTH, {
+    ...at('receipt-uploading', ALL, {
       amount: '1 250,50',
       receipt: 'uploading',
       category: 0,
@@ -678,7 +701,7 @@ export function frames() {
     }),
   )
   f.push(
-    ...at('loading', BOTH, {
+    ...at('loading', ALL, {
       kind: 'ADMIN_INCOME',
       cur: 'UAH',
       amount: '52 000,00',
@@ -700,7 +723,7 @@ export function frames() {
   f.push(...at('long-content', [375, 768, 1440], { ...long, scroll: 40 }))
   f.push(...at('long-content-collapsed', [375], { ...long, expanded: false }))
   f.push(
-    ...at('permission-limited', BOTH, {
+    ...at('permission-limited', ALL, {
       title: 'Транзакція',
       amount: '+1 800,00',
       kind: 'PAYOUT',
@@ -729,7 +752,7 @@ export function frames() {
   // ---- kind and role variants
   f.push(...[375, 768, 1440].map((w) => frame('kind-picker', w, kindPicker(...size(w)))))
   f.push(
-    ...at('admin-income-usdt', BOTH, {
+    ...at('admin-income-usdt', ALL, {
       kind: 'ADMIN_INCOME',
       cur: 'USDT',
       curLocked: true,
@@ -746,7 +769,7 @@ export function frames() {
     }),
   )
   f.push(
-    ...at('expense-company', BOTH, {
+    ...at('expense-company', ALL, {
       role: 'ACCOUNTANT',
       cur: 'USDT',
       amount: '86,40',
@@ -771,7 +794,7 @@ export function frames() {
     }),
   )
   f.push(
-    ...at('salary-part', BOTH, {
+    ...at('salary-part', ALL, {
       role: 'ACCOUNTANT',
       kind: 'SALARY',
       title: 'Частина зарплати',
@@ -805,7 +828,7 @@ export function frames() {
     }),
   )
   f.push(
-    ...at('senior-income', BOTH, {
+    ...at('senior-income', ALL, {
       role: 'SENIOR',
       kind: 'SENIOR_INCOME',
       title: 'Новий дохід',
@@ -815,7 +838,7 @@ export function frames() {
     }),
   )
   f.push(
-    ...at('drop-income', BOTH, {
+    ...at('drop-income', ALL, {
       role: 'DROP',
       kind: 'DROP_INCOME',
       title: 'Новий дохід',
@@ -871,7 +894,7 @@ export function frames() {
   f.push(...at('senior-edit-rejected', [375, 768, 1440], seniorEdit))
   // Definite failure of an edit (offline before send): the sheet stays open with the values.
   f.push(
-    ...at('edit-failed', [375], {
+    ...at('edit-failed', ALL, {
       ...seniorEdit,
       banner: '',
       alert: errAlert(
@@ -897,14 +920,14 @@ export function frames() {
     ),
     footer: (fine) => FOOT.save(fine, 'Прикріпити після завантаження чека'),
   }
-  f.push(...at('attach-receipt', BOTH, attach))
+  f.push(...at('attach-receipt', ALL, attach))
   const replace = {
     ...attach,
     title: 'Замінити чек',
     receipt: 'done',
     footer: (fine) => FOOT.save(fine, 'Замінити'),
   }
-  f.push(...at('attach-replace', [375], replace))
+  f.push(...at('attach-replace', ALL, replace))
   f.push(
     frame(
       'attach-replace-confirm',
@@ -925,13 +948,18 @@ export function frames() {
 
   // ---- edit lifecycle, closed sheet: unknown (row marker + pill) and its resolution
   f.push(...[375, 768, 1000, 1440].map((w) => frame('edit-unknown', w, editClosed('unknown', w))))
-  f.push(...[320, 375].map((w) => frame('edit-unknown-resolved', w, editClosed('resolved', w))))
-  // M24: the other closed-sheet edit outcomes, and the keyless create in flight
-  f.push(frame('edit-saving-closed', 375, editClosed('saving', 375)))
-  f.push(frame('edit-failed-closed', 375, editClosed('failed', 375)))
-  f.push(frame('edit-check', 375, editClosed('check', 375)))
-  f.push(frame('edit-refetch-failed', 375, editClosed('refetch-failed', 375)))
-  f.push(frame('keyless-saving', 375, keylessSaving(375)))
+  f.push(
+    ...[320, ...ALL].map((w) => frame('edit-unknown-resolved', w, editClosed('resolved', w))),
+  )
+  // M24 and round 3b: the other closed-sheet edit outcomes and the keyless create in flight, every class.
+  for (const [name, step] of [
+    ['edit-saving-closed', 'saving'],
+    ['edit-failed-closed', 'failed'],
+    ['edit-check', 'check'],
+    ['edit-refetch-failed', 'refetch-failed'],
+  ])
+    f.push(...ALL.map((w) => frame(name, w, editClosed(step, w))))
+  f.push(...ALL.map((w) => frame('keyless-saving', w, keylessSaving(w))))
 
   // ---- admin edit: date reason, stale preview, preview loading / error, definite failure
   f.push(
@@ -942,14 +970,14 @@ export function frames() {
     }),
   )
   f.push(
-    ...at('admin-edit-reason-error', [375], {
+    ...at('admin-edit-reason-error', ALL, {
       ...ADMIN_EDIT,
       dateMove: 'far-error',
       scroll: 420,
     }),
   )
   f.push(
-    ...at('admin-edit-stale', BOTH, {
+    ...at('admin-edit-stale', ALL, {
       ...ADMIN_EDIT,
       extra: cascade({ mode: 'stale' }),
       footer: (fine) => blockedSave(fine, 'st-e'),
@@ -957,7 +985,7 @@ export function frames() {
     }),
   )
   f.push(
-    ...at('admin-edit-preview-loading', [375], {
+    ...at('admin-edit-preview-loading', ALL, {
       ...ADMIN_EDIT,
       extra: cascade({ mode: 'loading' }),
       footer: (fine) => blockedSave(fine, 'pv-s'),
@@ -965,7 +993,7 @@ export function frames() {
     }),
   )
   f.push(
-    ...at('admin-edit-preview-error', [375], {
+    ...at('admin-edit-preview-error', ALL, {
       ...ADMIN_EDIT,
       extra: cascade({ mode: 'error' }),
       footer: (fine) => blockedSave(fine, 'pv-e'),
@@ -973,7 +1001,7 @@ export function frames() {
     }),
   )
   f.push(
-    ...at('admin-edit-error', BOTH, {
+    ...at('admin-edit-error', ALL, {
       ...ADMIN_EDIT,
       alert: errAlert(
         'Зміни не збережено',
@@ -983,7 +1011,7 @@ export function frames() {
   )
 
   // ---- keyless create: unknown outcome without a resend; the check sheet over the kept draft
-  f.push(...at('unknown-keyless', BOTH, KEYLESS))
+  f.push(...at('unknown-keyless', ALL, KEYLESS))
   f.push(
     frame(
       'unknown-check',
