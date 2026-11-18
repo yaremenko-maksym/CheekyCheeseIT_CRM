@@ -122,7 +122,8 @@ const SKEL_CSS =
 
 /**
  * Placeholder chart (R3-M15): every bar has the same height and sits on the baseline, so the skeleton shows
- * no data shape, no negative bar and no selected outline. The loss legend is dropped.
+ * no data shape, no negative bar and no selected outline. The loss legend is blanked but keeps its 16 px line,
+ * so the caption row (and every block below it) keeps the default frame's bounds (R3-13).
  */
 const flatBars = (html) =>
   html
@@ -137,7 +138,10 @@ const flatBars = (html) =>
         )
         .replace(/<defs>[\s\S]*?<\/defs>/, ''),
     )
-    .replace(/<span class="row" style="gap:5px">(?:(?!<\/span>).)*?збиток<\/span>/g, '')
+    .replace(
+      /<span class="row" style="gap:5px">(?:(?!<\/span>).)*?збиток<\/span>/g,
+      '<span style="display:block;width:54px;height:16px"></span>',
+    )
 
 export const skel = (inner) =>
   `${SKEL_CSS}<div role="status" aria-label="Завантаження статистики" style="${srOnly}"></div><div class="skel" aria-hidden="true" style="display:contents">${flatBars(inner)}</div>`
