@@ -18,23 +18,6 @@ import { nameReadingCount, READING_BUDGET, transliteratedNameSource } from './na
 
 const ctx = (fullName: string): ContactContext => ({ fullName, emails: [] })
 
-/** CPU time of `fn` in ms: wall time would count a loaded CI box against the pattern. */
-const cpuMs = (fn: () => void): number => {
-  const start = process.cpuUsage()
-  fn()
-  const { user, system } = process.cpuUsage(start)
-  return (user + system) / 1000
-}
-
-/** The time bound of the backtracking rows. Under Stryker it is unbounded (instrumentation stretches
- * the clock; a mutant that makes a pattern super-linear is caught by Stryker's own timeout). */
-const BOUND_MS =
-  process.env['STRYKER_MUTATOR_WORKER'] === undefined ? 200 : Number.POSITIVE_INFINITY
-
-/** The bound of the budget-edge row: under the old budget's 98 ms, 3x over the current 24 ms. */
-const BUDGET_EDGE_BOUND_MS =
-  process.env['STRYKER_MUTATOR_WORKER'] === undefined ? 80 : Number.POSITIVE_INFINITY
-
 const notesFacts = (notes: string[]): ResumeFacts => ({
   headline: 'Backend Engineer',
   location: { city: 'Lviv', country: 'Ukraine' },
@@ -237,8 +220,6 @@ describe('transliteratedNameSource (backlog 463)', () => {
     expect(transliteratedNameSource('ийийийий')).toMatch(/[|?]/u)
     const adversarial = 'ий'.repeat(16)
     expect(transliteratedNameSource(adversarial)).toBe('yy'.repeat(16))
-    const ms = cpuMs(() => redactContacts(`by ${'y'.repeat(60)}z`, ctx(adversarial)))
-    expect(ms).toBeLessThan(BOUND_MS)
   })
 
   it('never yields a source that can match the empty string', () => {
@@ -379,26 +360,27 @@ describe('PR #1416 round 1: the reading budget, short parts, empty sources', () 
     expect(redactContacts('by Olan today', ctx(name))).toBe('by [REDACTED] today')
     expect(redactContacts("by Ola'n today", ctx(name))).toBe("by Ola'n today")
     // the readings of one name may count differently: an invisible between `и` and a combining breve
-    // is dropped in the joined reading, where the two compose into `й`, and splits the split one. The
-    // joined reading is past the budget (7 `й`), the split one on it, and the name is decided as one.
+    // is dropped in the joined reading, where the two compose into `й`, and splits the split one.
+    // The joined reading is past the budget (7 `й`), the split one on it. Each source decides by its
+    // own parts (round 3), so the split reading keeps every reading of its one part.
     const composed = ctx(`а${'й'.repeat(6)}и\u200B\u0306`)
-    expect(redactContacts('by aiiiiiii done', composed)).toBe('by aiiiiiii done')
+    expect(redactContacts('by aiiiiiii done', composed)).toBe('by [REDACTED] done')
+    // the joined reading alone, past the budget, reads its national romanisation only
+    const joinedOnly = ctx(`а${'й'.repeat(7)}`)
+    expect(redactContacts('by aiiiiiii done', joinedOnly)).toBe('by aiiiiiii done')
+    expect(redactContacts('by ayyyyyyy done', joinedOnly)).toBe('by [REDACTED] done')
     expect(redactContacts('by ayyyyyyy done', composed)).toBe('by [REDACTED] done')
     // exactly on the budget the whole name keeps every reading, the kept apostrophe included
     const onBudget = ctx(`Ола${'\uFF07'.repeat(6)}н`)
     expect(redactContacts("by Ola'n today", onBudget)).toBe('by [REDACTED] today')
   })
 
-  it('scans a many-part adversarial name against a long near-miss in bounded time', () => {
+  it('scans a many-part adversarial name against a long near-miss (timing: contact-scan.timing.spec.ts)', () => {
     for (const parts of [4, 6, 8]) {
       const name = [...Array.from({ length: parts }, () => 'ййййий'), 'Фщ'].join(' ')
       const text = `by ${'y'.repeat(40)} done`
-      let redacted = ''
-      const ms = cpuMs(() => {
-        redacted = redactContacts(text, ctx(name))
-      })
+      const redacted = redactContacts(text, ctx(name))
       expect(redacted).toContain('done')
-      expect(ms).toBeLessThan(BOUND_MS)
     }
   })
 
@@ -454,62 +436,57 @@ describe('PR #1416 round 2: a backslash in a stored name, the budget edge, silen
     ['a stored `\\n` part', '\\n'],
     ['a part whose Latin reading is `\\n`', '\\н'],
     ['a part whose Latin reading is `\\n` and an optional apostrophe', '\\nь'],
-  ])('redacts %s against a run of escaped newlines in bounded time', (_, part) => {
+  ])('redacts %s against a run of escaped newlines (timing spec)', (_, part) => {
     for (const separator of [' ', ZWSP]) {
       const name = adversarial(part, 10, separator)
-      let redacted = ''
-      const ms = cpuMs(() => {
-        redacted = redactAll(escapes, [ctx(name)])
-      })
+      const redacted = redactAll(escapes, [ctx(name)])
       expect(redacted).toContain(' ж')
-      expect(ms).toBeLessThan(BOUND_MS)
     }
   })
 
   it.each([
     ['a stored `\\n` part', '\\n'],
     ['a part whose Latin reading is `\\n`', '\\н'],
-  ])('gate-scans %s against a run of escaped newlines in bounded time', (_, part) => {
+  ])('gate-scans %s against a run of escaped newlines (timing spec)', (_, part) => {
     // the invisible separator makes a split reading, so the gate's runs (`RUN_GAP`) are built too
     for (const separator of [' ', ZWSP]) {
       for (const last of ['Ба', 'Ba']) {
         const name = adversarial(part, 8, separator, last)
-        const ms = cpuMs(() => {
-          scanContacts(escapes, ctx(name))
-        })
-        expect(ms).toBeLessThan(BOUND_MS)
+        // the escape parts are no parts (round 3), and the last one is not in the text
+        expect(scanContacts(escapes, ctx(name))).toEqual([])
       }
     }
   })
 
-  it('redacts the worst name on the budget against a 40 000-character near-miss in bounded time', () => {
+  it('redacts the worst name on the budget against a 40 000-character near-miss (timing spec)', () => {
     // The measured worst shape (SR-M-6): every optional `й` may read `y` or nothing, so each start
     // in a run of `y` is tried in every split; one `й` more than the budget allows reads `y` only.
     const optional = Math.log2(READING_BUDGET)
     const name = `${'й'.repeat(optional)}и Ба`
     expect(nameReadingCount(name)).toBe(READING_BUDGET)
-    let redacted = ''
-    const ms = cpuMs(() => {
-      redacted = redactAll(`${'y'.repeat(40_000)} done`, [ctx(name)])
-    })
+    // the decision, not the clock: on the budget every reading stays, one `й` more reads `y` only
+    expect(transliteratedNameSource(`${'й'.repeat(optional)}и`)).toMatch(/[|?]/u)
+    expect(nameReadingCount(`й${name}`)).toBeGreaterThan(READING_BUDGET)
+    expect(transliteratedNameSource(`${'й'.repeat(optional + 1)}и`)).not.toMatch(/[|?]/u)
+    const redacted = redactAll(`${'y'.repeat(40_000)} done`, [ctx(name)])
     expect(redacted).toContain('done')
-    // generous for CI: 24 ms measured at 64, 98 ms at the old budget of 256
-    expect(ms).toBeLessThan(BUDGET_EDGE_BOUND_MS)
   })
 
-  it('counts only the letters every Latin reading writes toward the four-letter rule', () => {
-    // `Ільйь` has five letters, but `й` and `ь` may read as nothing, so it may read `il`
-    expect(redactContacts('il est la', ctx('Ільйь'))).toBe('il est la')
-    expect(redactContacts('веде Ільйь', ctx('Ільйь'))).toBe('веде [REDACTED]')
-    // four written letters and a silent one still make a Latin lone source
-    expect(redactContacts('by Ilko', ctx('Ілько'))).toBe('by [REDACTED]')
-    // `кс` is two written letters, as before: a four-letter part keeps its Latin lone source
+  it('counts every Cyrillic letter toward the four-letter rule, the silent ones too (round 3)', () => {
+    // `й` and `ь` count: `Юрій`, `Даль`, `Валь` are real names of four letters (finding 4)
+    expect(redactContacts('by Yurii', ctx('Юрій'))).toBe('by [REDACTED]')
+    expect(redactContacts('by Yuri', ctx('Юрій'))).toBe('by [REDACTED]')
+    expect(redactContacts('by Yuriy', ctx('Олена Юрій'))).toBe('by [REDACTED]')
+    expect(redactContacts('by Dal', ctx('Олена Даль'))).toBe('by [REDACTED]')
+    expect(redactContacts('by Val', ctx('Валь'))).toBe('by [REDACTED]')
+    expect(redactContacts('by Kil', ctx('Кіль'))).toBe('by [REDACTED]')
+    expect(redactContacts('by Hal', ctx('Галь'))).toBe('by [REDACTED]')
+    // accepted over-redaction (Assumptions, round 3): an adversarial `Ільйь` reads `il` alone
+    expect(redactContacts('il est la', ctx('Ільйь'))).toBe('[REDACTED] est la')
+    // the apostrophe is still no letter, and three letters still stay in the stored script
+    expect(redactContacts('but the son', ctx("Бу'т"))).toBe('but the son')
+    expect(redactContacts('by Dan', ctx('Олена Дан'))).toBe('by Dan')
     expect(redactContacts('by Fox', ctx('Олена Фокс'))).toBe('by [REDACTED]')
-    expect(redactContacts('by Max', ctx('Макс'))).toBe('by [REDACTED]')
-    // `й` may be left out: `Ілйй` writes two letters for sure, so `il` stays
-    expect(redactContacts('il est', ctx('Ілйй'))).toBe('il est')
-    // `ъ` is never written: `Ъъъл` is one letter in Latin
-    expect(redactContacts('l est', ctx('Ъъъл'))).toBe('l est')
   })
 
   it('builds no Latin source whose only mandatory piece is not a letter', () => {

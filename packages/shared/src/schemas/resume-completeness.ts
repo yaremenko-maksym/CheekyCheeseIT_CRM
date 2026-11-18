@@ -511,12 +511,14 @@ const NAME_PART_EDGE = /^[^\p{L}\p{M}\p{N}']+|[^\p{L}\p{M}\p{N}']+$/gu
  * after `foldAccents`. So no part source can match empty or match gap text, and two gaps never sit
  * side by side. An escaped `\n`, `\r` or `\t` (any case, as the gap reads it) is one separator, so
  * `Ivan\nPetrenko` is `Ivan`, `Petrenko`, not `Ivan`, `nPetrenko`. Punctuation inside a part stays
- * (`Petrenko-Kovalenko` is one part, matched as written).
+ * (`Petrenko-Kovalenko` is one part, matched as written). The two backslashes NFKC turns into `\`
+ * (U+FF3C, U+FE68) count as one before it too, so NFC and NFKC text split alike: every name arm, the
+ * completeness raw arm and the API's main arm included, splits through this one function.
  */
 export function splitNameText(text: string): string[] {
   return text
-    .replace(/\\[nrt]/giu, ' ')
-    .split(/[\s\\]/u)
+    .replace(/[\\＼﹨][nrt]/giu, ' ')
+    .split(/[\s\\＼﹨]/u)
     .map((part) => part.replace(NAME_PART_EDGE, ''))
     .filter((part) => /\p{L}/u.test(foldAccents(part).text))
 }
@@ -635,7 +637,8 @@ function contactCheck(displayName: string, telegram: string | null | undefined):
   // measurement, not a proof. Its name arm is load-bearing (round 8): completeness keeps main's
   // whitespace reading of the stored name, and for U+FEFF, which `\s` matches and the strip removes,
   // that reading is the split one, which the own check drops for a joined reading of two or more parts.
-  const rawOrders = nameOrders(normaliseName(displayName).split(/\s/).filter(Boolean))
+  // the one splitter of every name arm, so this arm and the API agree on a part (PR #1416 round 3)
+  const rawOrders = nameOrders(splitNameText(normaliseName(displayName)))
   const rawSource = rawOrders.map((parts) => parts.map(escapeRegExp).join('\\s+')).join('|')
   const rawName =
     rawOrders.length > 0
