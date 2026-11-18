@@ -346,7 +346,7 @@ describe.skipIf(!hasDatabaseUrl())(
           expect(JSON.parse(res.body)).toStrictEqual({
             statusCode: 503,
             code: 'JOB_SOURCING_COLLECTION_FAILED',
-            message: 'Collection failed: no source returned vacancies.',
+            message: 'Collection failed: no source completed. Try again later.',
           })
         })
       })

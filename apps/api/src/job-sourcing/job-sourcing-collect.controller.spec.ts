@@ -1,6 +1,6 @@
-import { HttpException, HttpStatus, Logger } from '@nestjs/common'
+import { HttpException, HttpStatus } from '@nestjs/common'
 import type { JobCollectionRunDto, SessionUser } from '@crm/shared'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { captureRejection } from '../common/testing/capture-rejection'
 import { JobSourcingController } from './job-sourcing.controller'
 import type { JobSourcingService } from './job-sourcing.service'
@@ -27,8 +27,6 @@ const controllerFor = (run: JobCollectionRunDto) =>
     collectAllAsActor: () => Promise.resolve(run),
   } as unknown as JobSourcingService)
 
-afterEach(() => vi.restoreAllMocks())
-
 /** ADR 2026-11-03 §H.8: the ADMIN manual run (`POST /job-sourcing/collect`). */
 describe('JobSourcingController.collect — the AI-limits notice', () => {
   it('nothing succeeded AND the model stage stopped on limits: 503 with the new code', async () => {
@@ -50,8 +48,7 @@ describe('JobSourcingController.collect — the AI-limits notice', () => {
     })
   })
 
-  it('nothing succeeded without limits: 503 with JOB_SOURCING_COLLECTION_FAILED and structured log', async () => {
-    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+  it('nothing succeeded without limits: 503 with JOB_SOURCING_COLLECTION_FAILED', async () => {
     const run: JobCollectionRunDto = { results: [], failures: [failure], sourcingNotice: null }
     const err = await captureRejection(() => controllerFor(run).collect(ADMIN))
     expect(err).toBeInstanceOf(HttpException)
@@ -61,9 +58,8 @@ describe('JobSourcingController.collect — the AI-limits notice', () => {
       statusCode: 503,
       code: 'JOB_SOURCING_COLLECTION_FAILED',
       params: undefined,
-      message: 'Collection failed: no source returned vacancies.',
+      message: 'Collection failed: no source completed. Try again later.',
     })
-    expect(warn).toHaveBeenCalledWith('Collection failed for source DOU_RSS: boom')
   })
 
   it('a partial run with limits is a 200 that carries the notice', async () => {

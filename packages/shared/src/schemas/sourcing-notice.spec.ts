@@ -73,10 +73,10 @@ describe('JOB_SOURCING_COLLECTION_FAILED (manual run all sources failed)', () =>
     expect(JOB_SOURCING_ERROR_PARAMS.JOB_SOURCING_COLLECTION_FAILED).toEqual([])
     expect(JOB_SOURCING_ERROR_MESSAGES.JOB_SOURCING_COLLECTION_FAILED).toEqual({
       id: 'api-error.JOB_SOURCING_COLLECTION_FAILED',
-      message: 'Збір не вдався: жодне джерело не повернуло вакансій.',
+      message: 'Збір не вдався: жодне джерело не відпрацювало. Спробуйте пізніше.',
     })
     expect(API_ERROR_FALLBACK_EN.JOB_SOURCING_COLLECTION_FAILED).toBe(
-      'Collection failed: no source returned vacancies.',
+      'Collection failed: no source completed. Try again later.',
     )
   })
 })

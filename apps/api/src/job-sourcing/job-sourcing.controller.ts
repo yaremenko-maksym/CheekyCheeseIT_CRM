@@ -7,7 +7,6 @@ import {
   HttpCode,
   HttpStatus,
   Inject,
-  Logger,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -53,7 +52,6 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 @UseGuards(RolesGuard)
 @Controller('job-sourcing')
 export class JobSourcingController {
-  private readonly logger = new Logger(JobSourcingController.name)
   // Explicit @Inject so this REAL controller can be instantiated by Nest's DI in
   // the vitest/esbuild test env (no `design:paramtypes` emission there) — the
   // same reason VacanciesController and CompanyAccountController do it. It lets
@@ -171,12 +169,10 @@ export class JobSourcingController {
     // `failures` array, so a broken source is never invisible either way.
     if (run.results.length === 0 && run.failures.length > 0) {
       // ADR 2026-11-03 §H.8: when the model stage stopped on the AI limits, the 503 says so with
-      // its own static code; any other "nothing succeeded" keeps the message below.
+      // its own static code; any other "nothing succeeded" answers JOB_SOURCING_COLLECTION_FAILED.
+      // The per-source causes are already logged by `collectAll`.
       if (run.sourcingNotice === 'AI_LIMITS_EXHAUSTED') {
         throw apiError('JOB_SOURCING_AI_LIMITS_EXHAUSTED', HttpStatus.SERVICE_UNAVAILABLE)
-      }
-      for (const failure of run.failures) {
-        this.logger.warn(`Collection failed for source ${failure.sourceType}: ${failure.message}`)
       }
       throw apiError('JOB_SOURCING_COLLECTION_FAILED', HttpStatus.SERVICE_UNAVAILABLE)
     }

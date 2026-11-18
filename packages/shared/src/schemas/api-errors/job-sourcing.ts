@@ -164,7 +164,7 @@ export const JOB_SOURCING_ERROR_MESSAGES: Record<JobSourcingErrorCode, MessageDe
   },
   JOB_SOURCING_COLLECTION_FAILED: /* i18n */ {
     id: 'api-error.JOB_SOURCING_COLLECTION_FAILED',
-    message: 'Збір не вдався: жодне джерело не повернуло вакансій.',
+    message: 'Збір не вдався: жодне джерело не відпрацювало. Спробуйте пізніше.',
   },
 }
 
@@ -198,5 +198,5 @@ export const JOB_SOURCING_ERROR_FALLBACK_EN: Record<JobSourcingErrorCode, string
     'This vacancy can no longer be assigned to a team: a senior now matches it, or it has left the queue.',
   JOB_SOURCING_AI_LIMITS_EXHAUSTED:
     'Vacancy search is temporarily unavailable: AI model limits are used up. Try again later.',
-  JOB_SOURCING_COLLECTION_FAILED: 'Collection failed: no source returned vacancies.',
+  JOB_SOURCING_COLLECTION_FAILED: 'Collection failed: no source completed. Try again later.',
 }
