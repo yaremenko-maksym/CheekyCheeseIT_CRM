@@ -78,10 +78,11 @@ export function chartCard({
     sel: s,
     axisW,
     scrub,
+    unit: 'тис. USD',
     label: chartLabel(series, idx),
   })
-  // The unit / legend / scroll hint line sits above the plot like an axis title, so the first viewport keeps it (R2-19).
-  const body = `${phoneReadout({ series, i: idx[s], pos: s, n: len, narrow })}${plotCaption(p)}<div style="margin-top:4px">${p.svg}</div>`
+  // The unit is drawn in the plot's top-left corner; the legend and the scroll hint sit on one line above the plot, so the first viewport keeps them (R2-19).
+  const body = `${phoneReadout({ series, i: idx[s], pos: s, n: len, narrow })}${plotCaption(p, { unit: false })}<div style="margin-top:10px">${p.svg}</div>`
   return card(
     `<div style="padding:${pad - 2}px ${pad}px 12px">${head}${body}${monthTable({ idx, sel: s, series, touch: true, sr: true })}</div>`,
   )
@@ -222,7 +223,7 @@ export function monthSheet(w, h, i = 19) {
 export function hintSheet(w, h, which = 'kpi') {
   const map = {
     kpi: [KPIS[0].t, KPIS[0].hint, 196],
-    partner: ['Баланси партнерів', PARTNER_HINT, 292],
+    partner: ['Баланси партнерів', PARTNER_HINT, 266],
     company: ['Рахунок компанії', COMPANY_HINT, 232],
   }
   const [title, text, height] = map[which]

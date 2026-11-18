@@ -46,6 +46,7 @@ export function plot({
   dim = false,
   scrub = false,
   hover = null,
+  unit = '',
   forceVals = null,
   label,
 }) {
@@ -110,13 +111,23 @@ export function plot({
   const inner = strip
     ? `<svg x="${axisW + inset}" y="0" width="${viewW}" height="${H}" viewBox="${off} 0 ${viewW} ${H}" overflow="hidden">${bars}${mark}</svg>`
     : `<g transform="translate(${axisW},0)">${bars}${mark}</g>`
-  const svg = `<svg width="${W}" height="${H}" role="group" aria-label="${label}" style="display:block;overflow:visible;touch-action:pan-y"><defs><pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="oklch(0.84 0.183 85.3 / 0.12)"/><line x1="0" y1="0" x2="0" y2="5" stroke="var(--chart-1)" stroke-width="1.4"/></pattern></defs>${grid}${inner}</svg>`
+  const svg = `<svg width="${W}" height="${H}" role="group" aria-label="${label}" style="display:block;overflow:visible;touch-action:pan-y"><defs><pattern id="hatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="5" height="5" fill="oklch(0.84 0.183 85.3 / 0.12)"/><line x1="0" y1="0" x2="0" y2="5" stroke="var(--chart-1)" stroke-width="1.4"/></pattern></defs>${grid}${unit ? `<text x="0" y="7" font-size="${ls}" fill="var(--muted-fg)">${unit}</text>` : ''}${inner}</svg>`
   return { svg, band, strip, showVals, hasLoss: vals.some((v) => v < 0) }
 }
 
 /** Caption row under the plot: unit, loss legend, scroll hint. */
-export const plotCaption = ({ strip, hasLoss }) =>
-  `<div class="row t-cap muted" style="gap:12px;margin-top:6px;flex-wrap:wrap"><span>тис. USD</span>${hasLoss ? `<span class="row" style="gap:5px">${lossSwatch}збиток</span>` : ''}${strip ? `<span class="row" style="gap:4px">${icon('chevrons-left', { size: 13 })}Гортайте, щоб побачити раніші місяці</span>` : ''}</div>`
+export const plotCaption = ({ strip, hasLoss }, { unit = true } = {}) => {
+  const parts = [
+    unit ? '<span>тис. USD</span>' : '',
+    hasLoss ? `<span class="row" style="gap:5px">${lossSwatch}збиток</span>` : '',
+    strip
+      ? `<span class="row" style="gap:4px">${icon('chevrons-left', { size: 13 })}Гортайте, щоб побачити раніші місяці</span>`
+      : '',
+  ].filter(Boolean)
+  return parts.length
+    ? `<div class="row t-cap muted" style="gap:12px;margin-top:6px;flex-wrap:wrap">${parts.join('')}</div>`
+    : ''
+}
 
 export const stepBtn = (dir, disabled, size = 44) =>
   `<span class="iconbtn" role="button" aria-label="${dir < 0 ? 'Попередній місяць' : 'Наступний місяць'}" aria-disabled="${disabled}" style="width:${size}px;height:${size}px;background:var(--surface);border-radius:${size / 2}px;${disabled ? 'opacity:0.4' : ''}">${icon(dir < 0 ? 'chevron-left' : 'chevron-right', { size: 20 })}</span>`
