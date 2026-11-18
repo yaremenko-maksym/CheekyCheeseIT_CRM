@@ -450,9 +450,17 @@ function findSpans(
  * Contract (both functions): call on each raw string field BEFORE
  * `JSON.stringify`, never on serialized JSON; that also keeps every input small.
  * Name matching folds accents (`Muller` hits `Müller`, `Walesa` hits `Wałęsa`,
- * `Strasse` hits `Straße`) and curly apostrophes,
- * but not transliterations (`Mueller`) or scripts: a Cyrillic context name does
- * not hit Latin text, so the caller passes the name in the text's script.
+ * `Strasse` hits `Straße`) and curly apostrophes, but not a Latin transliteration of a Latin name
+ * (`Mueller` does not hit `Müller`).
+ *
+ * Scripts differ between the two functions (backlog 463). `redactContacts` also matches a Latin
+ * reading of each Cyrillic part of the context name (`name-transliteration.ts`), so a Cyrillic
+ * stored name is replaced inside Latin free text; its table is the Ukrainian national romanisation
+ * plus the common variants and the four Russian letters Ukrainian lacks, and it carries no position
+ * rules, so a spelling outside the table (`зг` as `zgh`, `Schtscherban`) is not matched.
+ * `scanContacts` matches the stored script only: it refuses a submission, and a table that
+ * over-matches by design would refuse honest text. So the caller still passes the name in the
+ * text's script when it relies on the gate, and the redaction is the fail-closed side.
  */
 export function scanContacts(text: string, ctx: ContactContext): ContactHit[] {
   const norm = normaliseContactText(text)
