@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { rolesChanged } from '../users/role-guards.util'
 import { enqueueDerivedDirty } from './ownership/dirty-work.store'
+import { resumeSkills } from './runtime/recompute-inputs'
 import type { SqlExecutor } from './scheduling/host-state'
 
 /**
@@ -92,11 +93,29 @@ export async function markUserEditDirty(
   return false
 }
 
+/** The resume shape the matcher reads: `content -> 'skills'` and `facts -> 'experience'`. */
+export type ResumeSkillSource = { readonly content?: unknown; readonly facts?: unknown }
+
+const field = (o: unknown, key: string): unknown =>
+  typeof o === 'object' && o !== null ? (o as Record<string, unknown>)[key] : undefined
+
+/** The matcher-read skill set of one resume side, canonicalised exactly as `loadRoster` reads it. */
+const skillsOf = (r: ResumeSkillSource): string =>
+  (resumeSkills(field(r.content, 'skills'), field(r.facts, 'experience')) ?? []).join('\u0000')
+
 /**
- * A SENIOR's resume `content` or `facts` changed: the resume skills feed the profile version.
- * Call it inside the resume write's own transaction; a non-SENIOR owner marks nothing.
+ * A SENIOR's resume was written (`change.before` is the row before it, `change.after` the row
+ * after; a deleted resume is `{}`). Dirty only when the skill set the matcher actually reads
+ * changed (SR-L-1): a summary, a position title or a reordered duplicate of the same skill moves
+ * no match, and an unconditional row would fan out over every opportunity for nothing. Call it
+ * inside the resume write's own transaction; a non-SENIOR owner marks nothing.
  */
-export async function markSeniorResumeDirty(tx: SqlExecutor, userId: string): Promise<boolean> {
+export async function markSeniorResumeDirty(
+  tx: SqlExecutor,
+  userId: string,
+  change: { readonly before: ResumeSkillSource; readonly after: ResumeSkillSource },
+): Promise<boolean> {
+  if (skillsOf(change.before) === skillsOf(change.after)) return false
   return markSeniorDirty(tx, userId, 'senior.resume')
 }
 

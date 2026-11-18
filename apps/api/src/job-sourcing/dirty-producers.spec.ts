@@ -164,17 +164,62 @@ describe('markUserEditDirty', () => {
   })
 })
 
-describe('markSeniorResumeDirty', () => {
-  it('a SENIOR resume write is senior.resume on the user id', async () => {
+describe('markSeniorResumeDirty (SR-L-1: only a matcher-read skill change)', () => {
+  const withSkills = (skills: readonly string[], technologies: readonly string[] = []) => ({
+    content: { skills: [...skills] },
+    facts: { experience: [{ technologies: [...technologies] }] },
+  })
+
+  it('a SENIOR whose resume skills changed is senior.resume on the user id', async () => {
     const { tx, inserts } = scripted('SENIOR')
-    await expect(markSeniorResumeDirty(tx, ID.toUpperCase())).resolves.toBe(true)
+    const change = { before: withSkills(['Go']), after: withSkills(['Go', 'Rust']) }
+    await expect(markSeniorResumeDirty(tx, ID.toUpperCase(), change)).resolves.toBe(true)
     expect(rows(inserts)).toEqual([['SENIOR', ID, 5, 'senior.resume']])
+  })
+
+  it('a skill that arrives through the facts experience counts too', async () => {
+    const { tx, inserts } = scripted('SENIOR')
+    const change = { before: withSkills(['Go']), after: withSkills(['Go'], ['Kafka']) }
+    await expect(markSeniorResumeDirty(tx, ID, change)).resolves.toBe(true)
+    expect(rows(inserts)).toEqual([['SENIOR', ID, 5, 'senior.resume']])
+  })
+
+  it('a deleted resume (no skills after) is a change', async () => {
+    const { tx, inserts } = scripted('SENIOR')
+    const change = { before: withSkills(['Go']), after: {} }
+    await expect(markSeniorResumeDirty(tx, ID, change)).resolves.toBe(true)
+    expect(rows(inserts)).toEqual([['SENIOR', ID, 5, 'senior.resume']])
+  })
+
+  it.each([
+    ['the same skills in another order or spelling', withSkills(['go', 'Rust'])],
+    ['a duplicate of a skill already there', withSkills(['Go', 'Rust', 'Go'])],
+  ])('%s is not a change: the matcher reads the same set', async (_label, after) => {
+    const { tx, inserts } = scripted('SENIOR')
+    const change = { before: withSkills(['Go', 'Rust']), after }
+    await expect(markSeniorResumeDirty(tx, ID, change)).resolves.toBe(false)
+    expect(inserts).toEqual([])
+  })
+
+  it('a non-skill edit of the same resume marks nothing', async () => {
+    const { tx, inserts } = scripted('SENIOR')
+    const before = { content: { skills: ['Go'], summary: 'a' }, facts: { experience: [] } }
+    const after = { content: { skills: ['Go'], summary: 'b' }, facts: { experience: [] } }
+    await expect(markSeniorResumeDirty(tx, ID, { before, after })).resolves.toBe(false)
+    expect(inserts).toEqual([])
+  })
+
+  it('a resume with no skills on either side marks nothing', async () => {
+    const { tx, inserts } = scripted('SENIOR')
+    await expect(markSeniorResumeDirty(tx, ID, { before: {}, after: {} })).resolves.toBe(false)
+    expect(inserts).toEqual([])
   })
 
   it('a resume of a user who is not a SENIOR (or is gone) marks nothing', async () => {
     for (const role of ['JUNIOR', null]) {
       const { tx, inserts } = scripted(role)
-      await expect(markSeniorResumeDirty(tx, ID)).resolves.toBe(false)
+      const change = { before: {}, after: withSkills(['Go']) }
+      await expect(markSeniorResumeDirty(tx, ID, change)).resolves.toBe(false)
       expect(inserts).toEqual([])
     }
   })

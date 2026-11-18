@@ -329,7 +329,11 @@ export class SeniorResumesService {
         })
         .where(draftWriteGuard(existing))
         .returning()
-      if (rows[0]) await markSeniorResumeDirty(tx, rows[0].userId)
+      if (rows[0])
+        await markSeniorResumeDirty(tx, rows[0].userId, {
+          before: existing,
+          after: { content: validated, facts: existing.facts },
+        })
       return rows
     })
 
@@ -539,7 +543,8 @@ export class SeniorResumesService {
             ),
           )
           .returning(returningProjection)
-        if (gone.length > 0) await markSeniorResumeDirty(tx, row.userId)
+        // The row is gone, so the matcher reads no skills for it at all.
+        if (gone.length > 0) await markSeniorResumeDirty(tx, row.userId, { before: row, after: {} })
         return gone
       })
 
@@ -675,7 +680,13 @@ export class SeniorResumesService {
     }
 
     const [current] = await this.db.db
-      .select({ id: seniorResumes.id, stagedPdfS3Key: seniorResumes.stagedPdfS3Key })
+      .select({
+        id: seniorResumes.id,
+        stagedPdfS3Key: seniorResumes.stagedPdfS3Key,
+        // SR-L-1: the skills before the write, read in the select that was already here.
+        content: seniorResumes.content,
+        facts: seniorResumes.facts,
+      })
       .from(seniorResumes)
       .where(eq(seniorResumes.id, resumeId))
       .limit(1)
@@ -700,7 +711,11 @@ export class SeniorResumesService {
         })
         .where(and(this.ownedByRun(resumeId, runId), draftWriteGuard(current)))
         .returning({ id: seniorResumes.id, userId: seniorResumes.userId })
-      if (rows[0]) await markSeniorResumeDirty(tx, rows[0].userId)
+      if (rows[0])
+        await markSeniorResumeDirty(tx, rows[0].userId, {
+          before: current,
+          after: { content: current.content, facts: facts.data },
+        })
       return rows
     })
 

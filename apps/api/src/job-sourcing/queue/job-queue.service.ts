@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common'
+import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import {
   DESCRIPTION_MD_MAX,
@@ -119,15 +119,22 @@ export function toListItem(r: Row): JobQueueListItemDto {
   }
 }
 
+/** Malformed stored evidence is a writer/schema disagreement, not a request error: a log, not a 500. */
+const evidenceLogger = new Logger('JobQueueEvidence')
+
 /**
  * The keywords of a senior's own `TECH_MATCH` reason (`keyword:STRENGTH`). A match is approximate
  * unless it holds a CORE keyword: a TRIAGE row has none, an OPTIONAL-only one is a weak signal.
  */
 export function matchFacts(evidence: unknown): { keywords: string[]; approximate: boolean } {
-  // Senior roles PR 4: a role match is exact; its keywords are the senior's overlapping skills.
+  // Senior roles PR 4: a role match is exact; its keywords are the senior's overlapping skills,
+  // or — with no resume, a malformed overlap or no overlapping skill — the roles that matched
+  // (CR-L-1: those cases rendered no evidence at all).
   if (hasReason(evidence, 'ROLE_MATCH')) {
     const overlap = skillOverlapOf(evidence)
-    return { keywords: overlap?.kind === 'OVERLAP' ? overlap.matched : [], approximate: false }
+    const matched = overlap?.kind === 'OVERLAP' ? overlap.matched : []
+    const keywords = matched.length > 0 ? matched : roleItems(evidence).map((r) => r.role)
+    return { keywords: keywords.slice(0, 200), approximate: false }
   }
   const items = techMatchItems(evidence)
   return {
@@ -146,10 +153,28 @@ function hasReason(evidence: unknown, code: string): boolean {
   return Array.isArray(reasons) && reasons.some((r: { code?: unknown }) => r?.code === code)
 }
 
-/** The senior's own overlap from a LEAD row's evidence; anything malformed is `null`. */
-export function skillOverlapOf(evidence: unknown): JobQueueSkillOverlap | null {
+/**
+ * The senior's own overlap from a LEAD row's evidence; anything malformed is `null`.
+ * With `opportunityId` a value that is PRESENT but does not parse is reported once (CR-L-2):
+ * nothing else would notice a writer and this schema disagreeing. Only the event, the opportunity
+ * and the failing paths are logged — never the stored evidence. A read that does not name the
+ * opportunity stays quiet, so one malformed row is one line, not one per reader of it.
+ */
+export function skillOverlapOf(
+  evidence: unknown,
+  opportunityId?: string,
+): JobQueueSkillOverlap | null {
   const raw = (evidence as { skillOverlap?: unknown } | null)?.skillOverlap
-  return jobQueueSkillOverlapSchema.safeParse(raw).data ?? null
+  if (raw === undefined || raw === null) return null
+  const parsed = jobQueueSkillOverlapSchema.safeParse(raw)
+  if (parsed.success) return parsed.data
+  if (opportunityId !== undefined)
+    evidenceLogger.warn(
+      `job-queue.skill-overlap-malformed opportunityId=${opportunityId} issues=${parsed.error.issues
+        .map((i) => (i.path.length === 0 ? '(root)' : i.path.join('.')))
+        .join(',')}`,
+    )
+  return null
 }
 
 /** The raw `keyword:STRENGTH` items of a senior's own `TECH_MATCH` reasons. */
@@ -163,6 +188,32 @@ function techMatchItems(evidence: unknown): string[] {
     : []
 }
 
+const ROLE_ITEM = /^ROLE:(.+?)(:WIDENED)?$/
+
+/**
+ * The matched roles of a senior's own `ROLE_MATCH` reason (`ROLE:<ROLE>`, `ROLE:<ROLE>:WIDENED` —
+ * `evaluate.ts` `projectScope`). An item in any other shape names no role, so it is left out.
+ */
+function roleItems(evidence: unknown): Array<{ role: string; widened: boolean }> {
+  const reasons = (evidence as { reasons?: unknown } | null)?.reasons
+  if (!Array.isArray(reasons)) return []
+  return reasons
+    .filter((r: { code?: unknown }) => r?.code === 'ROLE_MATCH')
+    .flatMap((r: { evidence?: unknown }) => (Array.isArray(r.evidence) ? r.evidence : []))
+    .map(String)
+    .flatMap((item) => {
+      const m = ROLE_ITEM.exec(item)
+      return m === null
+        ? []
+        : [
+            {
+              role: (m[1] as string).slice(0, MAX_STACK_KEYWORD_CHARS),
+              widened: m[2] !== undefined,
+            },
+          ]
+    })
+}
+
 const EVIDENCE_ITEM = /^(.+):(CORE|OPTIONAL)$/
 
 /**
@@ -172,8 +223,15 @@ const EVIDENCE_ITEM = /^(.+):(CORE|OPTIONAL)$/
 export function matchEvidence(
   evidence: unknown,
 ): Array<{ keyword: string; strength: 'CORE' | 'OPTIONAL' }> {
-  return techMatchItems(evidence)
-    .flatMap((item) => {
+  // Senior roles PR 4: a matched role is the reason the senior is here at all, so it comes first.
+  // A widened match covers the vacancy's role through its family only — a weaker signal, OPTIONAL.
+  const roles = roleItems(evidence).map((r) => ({
+    keyword: r.role,
+    strength: r.widened ? ('OPTIONAL' as const) : ('CORE' as const),
+  }))
+  return [
+    ...roles,
+    ...techMatchItems(evidence).flatMap((item) => {
       const m = EVIDENCE_ITEM.exec(item)
       return m === null
         ? []
@@ -183,7 +241,9 @@ export function matchEvidence(
               strength: m[2] as 'CORE' | 'OPTIONAL',
             },
           ]
-    })
+    }),
+  ]
+    .filter((item) => item.keyword !== '')
     .slice(0, 200)
 }
 
@@ -251,7 +311,7 @@ export function toAvailability(r: Row): SeniorsPage['items'][number]['availabili
 
 /** The ADMIN team heading is read for the STUDIO scope only; a TEAM scope never carries the key. */
 const toSenior =
-  (scope: JobQueueScope) =>
+  (scope: JobQueueScope, opportunityId: string) =>
   (r: Row): SeniorsPage['items'][number] => {
     const facts = matchFacts(r['evidence'])
     return {
@@ -262,7 +322,7 @@ const toSenior =
       matchApproximate: r['evidence'] !== null && facts.approximate,
       matchedKeywords: facts.keywords,
       matchEvidence: matchEvidence(r['evidence']),
-      skillOverlap: skillOverlapOf(r['evidence']),
+      skillOverlap: skillOverlapOf(r['evidence'], opportunityId),
       submission: toSubmission(r),
       ...(scope.kind === 'STUDIO'
         ? {
@@ -536,7 +596,7 @@ export class JobQueueService {
     const total = await this.database.db.execute(seniorTotal(scope, versions, id))
     const page = rows.slice(0, SENIOR_PREVIEW_MAX)
     return {
-      items: page.map(toSenior(scope)),
+      items: page.map(toSenior(scope, id)),
       totalCount: count((total.rows[0] as Row)['total']),
       nextCursor:
         rows.length > SENIOR_PREVIEW_MAX

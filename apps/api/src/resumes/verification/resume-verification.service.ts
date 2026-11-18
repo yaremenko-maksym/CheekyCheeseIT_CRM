@@ -250,7 +250,7 @@ export class ResumeVerificationService {
         })
         .where(draftWriteGuard(row))
         .returning()
-      if (rows[0]) await markSeniorResumeDirty(tx, rows[0].userId)
+      if (rows[0]) await markSeniorResumeDirty(tx, rows[0].userId, { before: row, after: rows[0] })
       return rows
     })
     if (!updated) return this.resolveMiss(row.id)
@@ -537,7 +537,7 @@ export class ResumeVerificationService {
           ),
         )
         .returning()
-      if (rows[0]) await markSeniorResumeDirty(tx, rows[0].userId)
+      if (rows[0]) await markSeniorResumeDirty(tx, rows[0].userId, { before: row, after: rows[0] })
       return rows
     })
     if (!updated) return this.resolveMiss(row.id)
@@ -637,7 +637,7 @@ export class ResumeVerificationService {
         .returning()
       if (!won) return null
       // Senior roles PR 4: the staged content became the live content (new resume skills).
-      await markSeniorResumeDirty(tx, won.userId)
+      await markSeniorResumeDirty(tx, won.userId, { before: row, after: won })
       return { row: won, old: current?.key ?? null }
     })
     if (!result) throw apiError('RESUME_CONFIRM_STALE', HttpStatus.CONFLICT)
