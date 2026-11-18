@@ -53,10 +53,15 @@ const detailM = (w, h) =>
   })
 
 // ---------- Swipe: trailing edge only, the viewer's primary action first (§6.2) ----------
-const TILE = {
+// The foundation tile draws the 12 px «Видалити» label on `--destructive` (3.58:1). This screen
+// overrides it in its own source (P5): a darker red under the same white label; `contrast.mjs`
+// measures every tile and `render.mjs` refuses to render below 4.5:1. OP-19: the foundation fixes
+// the tile first, then this override is deleted.
+export const TILE_BASE = { del: 'background:var(--destructive);color:#fff' }
+export const TILE = {
   primary: 'background:var(--primary);color:var(--primary-fg)',
   edit: 'background:oklch(0.42 0.02 250);color:var(--fg)',
-  del: 'background:var(--destructive);color:#fff',
+  del: 'background:oklch(0.55 0.19 25);color:#fff',
 }
 const tile = ([label, ic, tone]) =>
   `<div class="col" role="button" style="width:84px;height:100%;${TILE[tone]};justify-content:center;align-items:center;gap:3px;font-size:12px;font-weight:600;text-align:center;line-height:14px;padding:0 4px">${icon(ic, { size: 18 })}${label}</div>`
