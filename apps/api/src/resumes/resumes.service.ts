@@ -515,6 +515,10 @@ export class SeniorResumesService {
       if (stagedKey) await this.s3.delete(stagedKey)
 
       // Senior roles PR 4: deleting drops the resume skills; the dirty row commits with it.
+      // Hoisted so the directive below is a leading comment of a statement: on a chained
+      // `.returning(...)` line Stryker does not attach it (see meeting-recorder-retention.cron.ts).
+      // Stryker disable next-line ObjectLiteral: only gone.length is consumed; the RETURNING columns cannot change which row the guarded delete matched, and the query shape is observable only against real Postgres (resume-dirty.integration.spec.ts)
+      const returningProjection = { id: seniorResumes.id }
       const removed = await this.db.db.transaction(async (tx) => {
         const gone = await tx
           .delete(seniorResumes)
@@ -534,8 +538,7 @@ export class SeniorResumesService {
               sql`${seniorResumes.stagedPdfS3Key} IS NOT DISTINCT FROM ${stagedKey}`,
             ),
           )
-          // Stryker disable next-line ObjectLiteral: the unit double ignores the projection; the real delete and its dirty row are in resume-dirty.integration.spec.ts
-          .returning({ id: seniorResumes.id })
+          .returning(returningProjection)
         if (gone.length > 0) await markSeniorResumeDirty(tx, row.userId)
         return gone
       })

@@ -1029,13 +1029,23 @@ describe('evaluate: role match (senior roles PR 4)', () => {
   })
 
   it('a stop-listed senior and a role-mismatched senior are merged in subject order', () => {
+    // SENIOR_A is stop-listed (SCOPED_RESTRICTIONS, appended first) and SENIOR_C mismatches the
+    // vacancy role (CLASSIFICATION, appended second): the merge must KEEP that relative order,
+    // which a comparator that always answers "x first" would reverse.
+    const aExcluded = exclusion({
+      id: '99999999-9999-4999-8999-999999999999',
+      scope: 'SENIOR',
+      seniorId: SENIOR_A,
+      kind: 'COMPANY',
+      value: 'Acme',
+      normalizedValue: 'acme',
+    })
     const r = evaluated(
-      evaluate(input({ exclusions: [cExcluded()], roles: ruleRoles('ML_ENGINEER') })),
+      evaluate(input({ exclusions: [aExcluded], roles: ruleRoles('ML_ENGINEER') })),
     )
-    // SENIOR_C (stop-listed, SCOPED_RESTRICTIONS) is appended first but sorts after SENIOR_A.
     expect(r.audit.excluded.map((e) => [e.subject, e.stage])).toEqual([
-      [SA, 'CLASSIFICATION'],
-      [SC, 'SCOPED_RESTRICTIONS'],
+      [SA, 'SCOPED_RESTRICTIONS'],
+      [SC, 'CLASSIFICATION'],
     ])
     expect(scopes(r)).toContain(SB)
     expect(scopes(r)).not.toContain(SA)
