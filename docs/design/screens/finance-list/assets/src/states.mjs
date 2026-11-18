@@ -234,11 +234,11 @@ const filtersD = (w, h) =>
 // This screen rewrites the draft amount to the list format (the foundation file is not edited).
 const money = (html) => html.replace(/(\d[\d ,]*) USD/g, '$$$1')
 const UNK = (p) => `color-mix(in oklch, var(--warning) ${p}%, transparent)`
-// P1: the unknown card says not to create the draft again before checking, and offers «Перевірити»
+// P1: the unknown card says not to create the draft again before checking, and offers «Оновити статус»
 // (re-reads the list by the draft's idempotency key) beside «Відкрити».
 export const UNKNOWN_DRAFT_TEXT =
   'Результат невідомий: витрата могла зберегтися. Перевірте, перш ніж створювати її знову.'
-const unknownCard = `<div style="padding:0 16px 8px"><div class="col" role="group" aria-label="Чернетка $${AMOUNT}, результат невідомий" style="gap:6px;padding:10px 8px 8px 14px;border-radius:14px;background:var(--card);border:1px solid ${UNK(40)};box-shadow:inset 2px 0 0 var(--warning)"><span class="t-body num" style="font-weight:600;white-space:nowrap">$${AMOUNT} · Витрата</span><span class="t-foot muted" style="padding-right:6px">${UNKNOWN_DRAFT_TEXT}</span><span class="row" style="gap:8px;justify-content:flex-end"><a class="btn sm secondary" href="#" aria-label="Перевірити чернетку $${AMOUNT}" style="height:44px;padding:0 14px;background:${UNK(18)};border-color:${UNK(45)}">Перевірити</a><a class="btn sm secondary" href="#" aria-label="Відкрити чернетку $${AMOUNT}" style="height:44px;padding:0 14px">Відкрити</a></span></div></div>`
+const unknownCard = `<div style="padding:0 16px 8px"><div class="col" role="group" aria-label="Чернетка $${AMOUNT}, результат невідомий" style="gap:6px;padding:10px 8px 8px 14px;border-radius:14px;background:var(--card);border:1px solid ${UNK(40)};box-shadow:inset 2px 0 0 var(--warning)"><span class="t-body num" style="font-weight:600;white-space:nowrap">$${AMOUNT} · Витрата</span><span class="t-foot muted" style="padding-right:6px">${UNKNOWN_DRAFT_TEXT}</span><span class="row" style="gap:8px;justify-content:flex-end"><a class="btn sm secondary" href="#" aria-label="Оновити статус чернетки $${AMOUNT}" style="height:44px;padding:0 14px;background:${UNK(18)};border-color:${UNK(45)}">Оновити статус</a><a class="btn sm secondary" href="#" aria-label="Відкрити чернетку $${AMOUNT}" style="height:44px;padding:0 14px">Відкрити</a></span></div></div>`
 const FOUNDATION_UNKNOWN = pinnedRows([DRAFT.unknown]).slice(
   '<div style="padding-bottom:4px">'.length,
   -'</div>'.length,

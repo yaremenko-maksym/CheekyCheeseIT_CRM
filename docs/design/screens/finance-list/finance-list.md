@@ -50,7 +50,8 @@ this round (A-1…). They ride into the PR body unchanged.
 - **M5** Sign and arrow are a type × viewer table derived from today's row code (§3.5). Today's code
   draws **no sign and no arrow on the amount** for any viewer, so no frame does; direction is carried
   by the type word and the payer → receiver order. Transfers have their own row (no sign, type word
-  «Переказ»). The glossary-vs-display question is OP-17.
+  «Переказ»). The glossary-vs-display question was OP-17; round 2 removed it, because P2 states the
+  direction once, as text (§3.5).
 - **M6** The row leads with today's lead figure, the USD conversion («$4 800,00»); a converted figure
   is marked «≈», the second line is the original amount. Amount sort orders by the displayed USD value
   and is disabled with a reason while rates are missing. **Behaviour change** against today's
@@ -143,7 +144,7 @@ on `origin/main` contradicts a P line, the code wins and the line says so.
   width; coarse menu items and inline primary 44 px; above 1440 the content caps at 1320 (`main-1920`).
 - **P12** Actions are only today's: «Валідувати» is removed from the `ADMIN_INCOME` /
   `PENDING_CASH_CONFIRM` row. Today's code has no cash-confirm action and no API path writes that
-  status (legacy), so the row has no action; OP-23.
+  status (legacy), so the row has no action; OP-25.
 - **P13** DROP and JUNIOR have no search icon. HR / JUNIOR amounts are in the original currency, no
   «≈» (one UAH salary drawn). The detail has «Валюта» (USDT ≠ USD). `detail-rejected-375` and
   `detail-partial-375` show the share, the reason, «Сплачено» / «До сплати». The list ends with the
@@ -727,7 +728,9 @@ the row-write marker fades in 120 ms. With `prefers-reduced-motion`: push, sheet
 - **Contrast.** Foundation tokens only (`--muted-foreground` 6.03:1 on card, 5.38:1 on raised).
   Deleted rows are never dimmed with opacity: title, meta and amount switch to `--muted-foreground`;
   the «Видалено» pill and «Відновити» keep their colours. The foundation swipe «Видалити» label is
-  3.58:1 (white on `--destructive`); it is the primitive's colour, so OP-19 (M16).
+  3.58:1 (white on `--destructive`). This screen draws it at 5.35:1 through the `TILE` override in
+  its own source, measured by `assets/src/contrast.mjs`; `render.mjs` refuses to render below 4.5:1
+  (P5). The foundation fix is the blocking dependency OP-19.
 
 ## 8. Strings (`uk` / `en`)
 
@@ -768,6 +771,12 @@ copy-reviewer (OP-13, OP-16).
 | — (party placeholder when a side is empty)                                                               | —                                                                | existing                                    |
 | Проєкт «{name}» (meta line)                                                                              | Project «{name}»                                                 | new                                         |
 | ≈ {amount} (converted lead figure)                                                                       | ≈ {amount}                                                       | new (M6); spoken «приблизно» / "about"      |
+| Показано {shown} з {total} (phone match line under the search, `data-match`) | Showing {shown} of {total} | new (R2-07; equals the rows drawn) |
+| Очистити пошук (clear button inside the search field) | Clear search | new |
+| Фільтри, активних: {count} (filter button name when filters are on) | Filters, {count} active | new (the badge alone is not a name) |
+| Очікує валідації ({count}) (preset chip, ACCOUNTANT / ADMIN) | Awaiting validation ({count}) | new (status label + count) |
+| Місяць · {month} (filter-sheet row: existing label + value + remove button «Прибрати фільтр: {month}») | Month · {month} | existing label; remove name = «Прибрати фільтр: {filter}» |
+| Більше транзакцій немає (end of the list) | No more transactions | new (P13) |
 
 **States**
 
@@ -786,8 +795,12 @@ copy-reviewer (OP-13, OP-16).
 | Не вдалося оновити. Показано дані станом на {time}.                                                   | Couldn’t refresh. Showing data as of {time}.                                                           | new (M3; `{time}` = «14:32» today, «16.11, 14:32» otherwise) |
 | Повторити                                                                                             | Retry                                                                                                  | existing                                                     |
 | Курс недоступний — суми показано у валюті транзакції.                                                 | Exchange rate unavailable — amounts are shown in the transaction currency.                             | new                                                          |
-| Немає з’єднання. Показано останні завантажені дані; збереження не пройде, введене залишиться у формі. | No connection. Showing the last loaded data; saving will fail, and what you entered stays in the form. | new (foundation offline pattern)                             |
-| Оберіть транзакцію (tablet detail pane, nothing selected)                                             | Select a transaction                                                                                   | new                                                          |
+| Немає з’єднання. Показано дані станом на {time}; збереження не пройде, введене залишиться у формі. | No connection. Showing data as of {time}; saving will fail, and what you entered stays in the form. | new (P9; foundation offline pattern + the stamp, `{time}` as above) |
+| Немає з’єднання (cold offline: nothing cached yet) | No connection | new (P9) |
+| Транзакції ще не завантажено. Список з’явиться, щойно з’єднання повернеться. | Transactions haven’t loaded yet. The list will appear as soon as the connection is back. | new (P9; action «Спробувати ще») |
+| Оберіть інший місяць або покажіть усі транзакції. (month empty, under «За {month} транзакцій немає») | Pick another month or show all transactions. | new (M1) |
+| Оберіть транзакцію (tablet / desktop detail pane, nothing selected)                                             | Select a transaction                                                                                   | new                                                          |
+| Тут з’являться її деталі та дії. (under «Оберіть транзакцію») | Its details and actions will appear here. | new |
 | Не вдалося завантажити виплати (HR / JUNIOR error)                                                    | Couldn’t load your salary payments                                                                     | new                                                          |
 | Виплат ще немає                                                                                       | No payouts yet                                                                                         | existing (OP-16: «виплата» collision on salary)              |
 
@@ -798,8 +811,12 @@ copy-reviewer (OP-13, OP-16).
 | Зберігається… (row marker, spinner)                                                                                    | Saving…                                                                                                                               | new                                   |
 | Результат невідомий (row marker)                                                                                       | Outcome unknown                                                                                                                       | new (foundation term)                 |
 | Невідомо, чи зміну збережено (detail / panel banner title)                                                             | We don’t know if the change was saved                                                                                                 | new                                   |
-| Відповідь не надійшла. Оновіть список: статус покаже, чи зміну збережено. Не повторюйте дію, доки статус не оновиться. | No response came back. Refresh the list: the status will show whether the change was saved. Don’t repeat the action until it updates. | new                                   |
+| Відповідь не надійшла. Оновіть: статус покаже, чи зміну збережено. Не повторюйте дію, доки статус не оновиться. | No response came back. Refresh: the status will show whether the change was saved. Don’t repeat the action until it updates. | new (one text on phone, pane and panel, P1) |
 | Оновити / Зрозуміло                                                                                                    | Refresh / Got it                                                                                                                      | new (A-3)                             |
+| Недоступно: результат попередньої дії ще невідомий (reason on every blocked duplicate: footer, inline, swipe, menu item, key A) | Unavailable: the outcome of the previous action isn’t known yet | new (P1; one string everywhere) |
+| Зберігаємо… (sheet primary button while the request runs) | Saving… | new (the row marker stays «Зберігається…») |
+| Можна закрити: збереження триватиме, а результат з’явиться в рядку транзакції. (pending sheet note) | You can close this: saving continues, and the result will appear in the transaction row. | new (P1) |
+| Не вдалося розрахуватися (definite failure, sheet alert) | Couldn’t settle | new |
 | Не вдалося валідувати дохід (definite failure, inline alert)                                                           | Couldn’t validate the income                                                                                                          | new                                   |
 | Нічого не змінено. Дані у формі залишились — спробуйте ще раз.                                                         | Nothing was changed. Your entries are still here — try again.                                                                         | new                                   |
 | Немає з’єднання. Нічого не змінено, дані у формі залишились.                                                           | No connection. Nothing was changed, and your entries are still here.                                                                  | new (M4 offline write)                |
@@ -808,6 +825,9 @@ copy-reviewer (OP-13, OP-16).
 | Розрахунок проведено: {amount}, {party}                                                                                | Settlement recorded: {amount}, {party}                                                                                                | new                                   |
 | Транзакцію видалено: {amount}, {party} / Транзакцію відновлено: {amount}, {party}                                      | Transaction deleted: {amount}, {party} / Transaction restored: {amount}, {party}                                                      | new                                   |
 | Не відповідає фільтру (meta line of a written row that left the filter, A-2)                                           | Outside the filter                                                                                                                    | new                                   |
+| Результат невідомий: витрата могла зберегтися. Перевірте, перш ніж створювати її знову. (pinned unknown draft) | Outcome unknown: the expense may have been saved. Check before you create it again. | new (P1) |
+| Оновити статус / Відкрити (unknown-draft buttons; names «Оновити статус чернетки {amount}» / «Відкрити чернетку {amount}») | Refresh status / Open | new (not «Перевірити»: that verb is retired for validation, M15) |
+| Ще {count, plural, one {# чернетка} few {# чернетки} many {# чернеток} other {# чернетки}} · Показати | {count, plural, one {# more draft} other {# more drafts}} · Show | new (kept drafts beyond two) |
 
 **Row, table, detail**
 
@@ -827,6 +847,8 @@ copy-reviewer (OP-13, OP-16).
 | Хто валідував                                                                         | Validated by                                                                 | rename — today «Хто перевірив» (validation term, M15)                  |
 | Причина видалення                                                                     | Deletion reason                                                              | new (M11: today only in a `title`)                                     |
 | Частка / Сплачено / До сплати                                                         | Share / Paid / Left to pay                                                   | existing                                                               |
+| Валюта / Частка компанії (detail labels) | Currency / Company share | new |
+| Сума / Отримувач / Період / Списати з («Розрахуватися» sheet) | Amount / Recipient / Period / Pay from | new for «Списати з»; the others existing |
 | за проєктом / за командою / за замовчуванням                                          | project / team / default                                                     | existing (share source)                                                |
 | Зарплата · {date}                                                                     | Salary · {date}                                                              | new (replaces «Зарплата · виплачено {date}», M15)                      |
 | Очікує валідації / Підтверджено / Оплачено / Очікує виплати / Відхилено / Заблоковано | Awaiting validation / Validated / Paid / Awaiting payout / Rejected / Locked | existing                                                               |
@@ -842,6 +864,8 @@ copy-reviewer (OP-13, OP-16).
 | Очікує розрахунку · {count, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}} | Awaiting settlement · {count, plural, one {# obligation} other {# obligations}} | rename — today «Очікує виплати»                           |
 | Частка / У роботі · {count, plural, one {# дохід} few {# доходи} many {# доходів} other {# доходу}}                        | Share / In progress · {count, plural, one {# income} other {# incomes}}         | existing                                                  |
 | Ви маєте сплатити компанії {amount}                                                                                        | You owe the company {amount}                                                    | existing                                                  |
+| Це переказ від {date} у списку нижче. Не сплачуйте двічі: якщо кошти вже надіслано поза платформою, дочекайтеся, доки компанія підтвердить оплату. (under the debt line) | This is the transfer from {date} in the list below. Don’t pay twice: if you already sent the money outside the platform, wait until the company confirms the payment. | new (P3, R2-04) |
+| Тут з’являться доходи, які ви зареєструєте. (under «Доходів ще немає») | Income you register will appear here. | new |
 | Підтверджені доходи, які ви ще не перерахували                                                                             | Validated income you haven’t transferred yet                                    | existing                                                  |
 | Мої доходи                                                                                                                 | My income                                                                       | existing (sentence case of «МОЇ ДОХОДИ»)                  |
 | Перекази на рахунок компанії                                                                                               | Transfers to the company account                                                | rename — today «ПЛАТЕЖІ НА КОМПАНІЮ» (`_Avoid_` «платёж») |
@@ -883,10 +907,12 @@ payment, pay salary / settle, delete, restore (and the SENIOR pay / fix dialogs,
 | Rule                    | Behaviour                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Retry                   | `retry: 0` (today's mutation default); **never retried automatically**, also not on reconnect. A manual retry is the dialog primary after a definite failure only.                                                                                                                                                                                                                                                                                   |
-| Optimism                | None. The row keeps its status until the server answers; the row's status slot shows «Зберігається…» with a spinner and the row's action is `aria-disabled` (`row-write-pending-375`). The dialog's primary shows the spinner.                                                                                                                                                                                                                       |
+| Optimism                | None. The row keeps its status until the server answers; the row's status slot shows «Зберігається…» with a spinner and the row's action is `aria-disabled`. The sheet's primary reads «Зберігаємо…» with a spinner, and the sheet **can be closed** (the foundation closes its money sheets): the request is not cancelled and its outcome lands on the row marker; the note «Можна закрити: збереження триватиме, а результат з’явиться в рядку транзакції.» says so (`row-write-pending-375` draws the open sheet over the row). |
+| Same row                | The pending, failed and unknown frames draw the **same** fixture row (P1), so the three states read as one write's life. |
 | Success                 | The dialog closes, focus returns to the row, a toast names the object («Дохід валідовано: $4 800,00, Клієнт «Північ»»), then the invalidation below refetches and the row shows its new status.                                                                                                                                                                                                                                                      |
 | Definite failure        | A 4xx with the app envelope, or offline before sending: the dialog / sheet **stays open with its values** and an inline `role="alert"` above the primary (`row-write-failed-375`). Nothing changes on the row.                                                                                                                                                                                                                                       |
-| Unknown outcome         | Timeout, 502 / 504 / 524, a 5xx without the envelope, a dropped connection after sending: the dialog closes with no toast; the row gets a persistent «Результат невідомий» marker in its status slot and the detail / panel a banner «Невідомо, чи зміну збережено» with «Оновити» and «Зрозуміло» (`row-write-unknown-375`, `row-write-unknown-1440`). The row's actions stay available but the banner asks not to repeat until the status updates. |
+| Unknown outcome         | Timeout, 502 / 504 / 524, a 5xx without the envelope, a dropped connection after sending: the dialog closes with no toast; the row gets a persistent «Результат невідомий» marker in its status slot and the detail / panel a banner «Невідомо, чи зміну збережено» with «Оновити» and «Зрозуміло», drawn on every class: phone detail (`row-write-unknown-375`), tablet pane (`row-write-unknown-1000`), desktop panel (`row-write-unknown-1440`). Until the marker ends, the row's money action **and every duplicate of it** (sticky footer, inline table action, swipe tile, «…» menu item, key `A`) is `aria-disabled` with the reason «Недоступно: результат попередньої дії ще невідомий» (P1). |
+| Unknown draft           | A pinned draft whose create had an unknown outcome says «Результат невідомий: витрата могла зберегтися. Перевірте, перш ніж створювати її знову.» and offers «Оновити статус» (re-reads the list by the draft's idempotency key) beside «Відкрити». Pinned drafts follow the foundation rule (`pinnedRows`, shell v2 §4): at most three lines; with four or more drafts, two rows (unresolved first) and «Ще N чернеток · Показати»; the FAB badge equals the count of unresolved drafts (`drafts-unknown-375`). |
 | Marker ends             | When a refetch returns the row with a status other than the one it had before the write (settled), or when the user taps «Зрозуміло» (A-3). The marker survives scroll, filter changes and the persisted cache (stored by row id with the pre-write status).                                                                                                                                                                                         |
 | Row that leaves filter  | The row stays where it was with its new pill and the meta line «Не відповідає фільтру» until the filter changes, the list is pulled / refreshed by the user, or the screen is left (A-2). It is not counted in «18 з 132».                                                                                                                                                                                                                           |
 | Deleted row, switch off | After delete with «Показати видалені» off the row leaves by the same rule; after restore it switches back to the normal style in place.                                                                                                                                                                                                                                                                                                              |
@@ -915,7 +941,15 @@ The validate queue already exists in `finance/index.tsx` (`validateQueue`: `SENI
 - **Offline** (shell v2): the banner shows; the list stays readable; the FAB, the filter controls and
   every row action **stay enabled**; a write attempted offline ends in the definite alert «Немає
   з’єднання. Нічого не змінено, дані у формі залишились.» with the values kept (`offline-1440` shows the
-  enabled actions).
+  enabled actions). The offline notice carries the same stamp as refetch-failed: «Немає з’єднання.
+  Показано дані станом на 14:32; …» (P9; stamp = `dataUpdatedAt`).
+- **Cold offline** (first load offline, nothing in the persisted cache) is its own state, not the
+  error: «Немає з’єднання» / «Транзакції ще не завантажено. Список з’явиться, щойно з’єднання
+  повернеться.» + «Спробувати ще». Phone `offline-cold-375`, desktop `offline-cold-1440`; tablet uses
+  the phone block centred in the list column at 640–899 and in the list pane at ≥ 900 (the same
+  `stateBlock` the `error-*` frames use), so it needs no frame of its own.
+- **Reconnect:** the reads keep TanStack Query's default `refetchOnReconnect: true`; on reconnect the
+  list refetches once and the stamp clears. Writes are never replayed (§9.2 Retry).
 - No new business data, no new KPI, no removed capability (§1.5). **Network baseline: pending**
   (OP-15).
 
@@ -926,30 +960,35 @@ and 4 from the stated behaviour, §4 of the rubric). Criterion 8 (data visualisa
 to a list and is dropped; the weights renormalise to 93. A self-score is not a council score: it
 names where the designer expects the council to stop.
 
-| #   | Criterion (weight)           | Phone | Tablet | Desktop | What holds it below 10                                                                                                   |
-| --- | ---------------------------- | ----: | -----: | ------: | ------------------------------------------------------------------------------------------------------------------------ |
-| 1   | Time-to-task (15)            |     9 |      9 |       9 | Swipe actions are not discoverable without the «…» or detail; desktop Cmd+K page actions are still open (OP-23)          |
-| 2   | Never blocks (15)            |   9.5 |    9.5 |     9.5 | Money writes are not optimistic by design (§9.2): a pending marker, not an instant status                                |
-| 3   | Navigation (10)              |   9.5 |    9.5 |     9.5 | The `?status` deep link lands with no breadcrumb of where it came from                                                   |
-| 4   | Forms and input (10)         |     9 |      9 |       9 | Only the filter sheet and confirm sheets live here; the confirm sheet has no field-level error because it has no fields  |
-| 5   | Lists and tables (10)        |   9.5 |      9 |     9.5 | Tablet one-pane list is drawn once (`main-768`); bulk select is open (OP-18)                                             |
-| 6   | Sheets, panels, gestures (8) |     9 |      9 |       9 | Swipe label contrast on the edit tile is unmeasured (OP-19); the docked panel drops «Тип · проєкт» from the table        |
-| 7   | System states (10)           |   9.5 |    8.5 |     9.5 | Tablet states other than error and filters are rules, not frames; the loading list footer is a rule                      |
-| 9   | Platform fit (8)             |   9.5 |      9 |     9.5 | Tablet two-pane adoption needs the shell (OP-20)                                                                         |
-| 10  | Accessibility (7)            |     9 |      9 |       9 | Contrast of swipe tiles and warning pills is asserted, not measured; screen-reader order for the docked panel is by rule |
+Round 2 re-score, after R2-01..R2-18 (§17). Each criterion under 9.5 names what holds it: an R2
+finding still open, or "no R2 finding" when the cause is a deliberate choice or an outside dependency.
 
-**Weighted total per class:** phone **9.3** (863.5 / 93), tablet **9.1** (844.5 / 93), desktop **9.3**
-(863.5 / 93). Every class clears the mockup gate (≥ 9.0) and none reaches 9.5. What keeps each below 9.5:
+| #   | Criterion (weight)           | Phone | Tablet | Desktop | What holds it below 10 (round 2)                                                                                                                                         |
+| --- | ---------------------------- | ----: | -----: | ------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | Time-to-task (15)            |     9 |      9 |       9 | No R2 finding. Phone / tablet: swipe actions are found only through «…» or the detail. Desktop: Cmd+K page actions belong to the shell (OP-23)                            |
+| 2   | Never blocks (15)            |   9.5 |    9.5 |     9.5 | Money writes are not optimistic by design (§9.2); the pending sheet can now be closed (R2-02 fixed)                                                                       |
+| 3   | Navigation (10)              |   9.5 |    9.5 |     9.5 | The `?status` deep link lands with no breadcrumb of where it came from                                                                                                   |
+| 4   | Forms and input (10)         |     9 |      9 |       9 | No R2 finding. Only the filter sheet and confirm sheets live here; the money form itself is the foundation `money-form`, out of this screen                              |
+| 5   | Lists and tables (10)        |   9.5 |    9.5 |     9.5 | Bulk select stays the owner's open point (OP-18); R2-08 / R2-11 fixed (pager counts asserted, one menu order, 1920 cap)                                                   |
+| 6   | Sheets, panels, gestures (8) |   9.5 |    9.5 |     9.5 | Swipe «Видалити» measured 5.35:1 (R2-01 fixed); the foundation tile fix stays a blocking dependency (OP-19)                                                               |
+| 7   | System states (10)           |   9.5 |      9 |     9.5 | Tablet: cold offline and the DROP states are applied by rule, not drawn at tablet width (R2-10 fixed by rule; `loading-1000` and `main-1000-empty-pane` are drawn)        |
+| 9   | Platform fit (8)             |   9.5 |    9.5 |     9.5 | Panel modality follows the foundation (R2-05 fixed); the two-pane tablet still waits on the shell (OP-20)                                                                |
+| 10  | Accessibility (7)            |     9 |      9 |       9 | No R2 finding. The swipe tile is measured, but the warning and success pills are asserted from tokens, not measured by the script; mid-list the floating FAB covers a row (R2-15, by design) |
 
-- **Phone:** swipe discoverability (1), unmeasured tile contrast (6, 10), and non-optimistic money
-  writes (2), which is deliberate and stays.
-- **Tablet:** most states are drawn only at phone and desktop and applied by rule (7); the two-pane
-  layout depends on a shell change (9, OP-20).
-- **Desktop:** Cmd+K page actions not specified (1, OP-23); the docked panel narrows the table (6).
+**Weighted total per class:** phone **9.3** (867.5 / 93), tablet **9.3** (862.5 / 93), desktop **9.3**
+(867.5 / 93). Every class clears the 9.0 mockup gate. None reaches the 9.5 goal, and this score
+does not claim it. What keeps each class below 9.5:
+
+- **Phone:** time-to-task (1, swipe discoverability), forms (4, outside this screen), accessibility
+  (10, pill contrast not measured).
+- **Tablet:** the same three, plus system states (7): cold offline and DROP states are rules at
+  tablet width.
+- **Desktop:** time-to-task (1, Cmd+K is the shell's, OP-23), forms (4), accessibility (10).
 
 ## 11. Open points
 
-Each with a recommendation; none blocks Task 1.2.
+Each with a recommendation. Only OP-19 blocks the coder task (round 2, P5); the rest do not block
+Task 1.2.
 
 - **OP-1 Notes as the row title.** The phone title is the party, notes stay in the detail. _Rec:_
   keep.
@@ -975,7 +1014,10 @@ Each with a recommendation; none blocks Task 1.2.
 - **OP-8 JUNIOR transaction hash on phone** only in the detail (with copy). _Rec:_ keep.
 - **OP-9 Server paging and a server search param.** Today all rows load and page client-side at 50.
   _Rec:_ keep for now; move to server paging with the same URL schema when the list passes ~2 000
-  rows. The month filter then becomes a server param with the same rule.
+  rows. The month filter then becomes a server param with the same rule. _Round 2 answer to the
+  council objection:_ it stands. The data model (§6.2) loads every row, so the list draws no "loading
+  more" or "failed to load more" footer; those footer states arrive only with server paging, under
+  this point.
 - **OP-10 Inline action at 1024–1279 (updated).** It is the first item of the «…» menu
   (`row-menu-1024`), reachable with `A`; under a coarse pointer «…» is always visible. _Rec:_ accept.
 - **OP-11 DROP «Дія» column** is empty today. _Rec:_ drop it (the mockup does).
@@ -991,22 +1033,36 @@ Each with a recommendation; none blocks Task 1.2.
   («Отримано», «Очікує розрахунку», «Перекази на рахунок компанії», «Зобов’язання»), «Зарплата ·
   {date}», and the existing «Виплат ще немає» / «Очікує виплати» on salary rows, which collide with
   `PAYOUT` «Виплата». _Rec:_ route the whole list to copy-reviewer before the coder starts.
-- **OP-17 Direction glyph on the amount (new, M5).** Today no amount carries a sign or arrow; the
-  glossary makes `PAYOUT` an inflow for the company and an outflow for the senior, which a single
-  glyph per type cannot express. _Rec:_ keep today's unsigned amount in this task; if a glyph is ever
-  added, derive it per viewer from §3.5, never per type.
+  Round 2 adds (R2-18), one term each:
+  - **Salary pill «Очікує валідації».** Today a pending salary row shows the income status label,
+    although nobody validates a salary. _Rec:_ «Очікує оплати» / "Awaiting payment" for salary rows.
+  - **VALIDATED: «Валідовано» vs «Підтверджено».** The DROP page says «Валідовано»; the main list
+    says «Підтверджено» (`STATUS_LABEL_MESSAGES`). _Rec:_ «Валідовано» / "Validated" everywhere, since
+    the action is «Валідувати».
+  - **«Оплатити» / «Виплатити».** Near-synonyms for row actions that both send money to a person.
+    _Rec:_ one verb, «Виплатити» / "Pay out", on every such row; copy-reviewer confirms.
+  - **DROP card labels vs today's.** «Отримано» (today «Виплачено») and «Очікує розрахунку» (today
+    «Очікує виплати») — the reasons are in P3. _Rec:_ copy-reviewer confirms the uk form.
+- **OP-17 — removed in round 2 (P2 applied).** The lead icon is a neutral type glyph with no arrow,
+  and the direction is stated once, as text, per viewer (§3.5). Nothing is left to decide.
 - **OP-18 Bulk select (new, owner decision, M13).** Not drawn. _Rec:_ instead of checkboxes, a
   **validate queue**: from `ValidateDialog`, «Далі» steps to the next filtered `PENDING` row, one
   confirmed write each (the existing `validateQueue`). It keeps one write per confirm, which fits M2.
-- **OP-19 Swipe «Видалити» label contrast (foundation deviation, M16).** The primitive's white label
-  on `--destructive` is 3.58:1. _Rec:_ the foundation darkens the swipe tile to ≥ 4.5:1; this screen
-  uses the primitive unchanged.
-- **OP-20 Two-pane tablet and side-panel detail (foundation adoption).** This screen adopts shell v2
-  §3 and the foundation side panel as written. _Rec:_ none needed; listed so the deviation audit is
-  complete.
+- **OP-19 Swipe «Видалити» label contrast — BLOCKING dependency for the coder task (round 2, P5).**
+  The foundation primitive's white label on `--destructive` measures **3.58:1**. This screen's `TILE`
+  override draws it at **5.35:1**, measured by `assets/src/contrast.mjs`. _Rec:_ the foundation tile
+  is fixed first (≥ 4.5:1); the coder task does not start until it is. _Round 2 answer to the council
+  objection:_ changed — from "the foundation fixes it later" to a blocking dependency with both ratios.
+- **OP-20 Two-pane tablet and side-panel detail (corrected in round 2, P4).** The side panel is
+  docked and non-modal only at ≥ 1440; at 1024–1439 it is a modal overlay with a scrim, a focus trap
+  and Esc to close (`detail-1024`). With the docked panel, ↑ / ↓ in the table retargets the panel.
+  The two-pane tablet adopts shell v2 §3. _Rec:_ accept. _Round 2 answer to the council objection:_
+  changed — round 1 docked the panel at 1024, which the foundation does not allow.
 - **OP-21 Sticky search head and status-pill placement (foundation deviation, M16).** The foundation
   list row puts the status inline; here it takes the third line (the status slot) and the head is
-  sticky. _Rec:_ adopt in the foundation `ListRow` as the "status slot" variant.
+  sticky. _Rec:_ adopt in the foundation `ListRow` as the "status slot" variant. _Round 2 answer to
+  the council objection:_ it stands. The status slot keeps the title on one line at 320, and
+  `scrolled-320` now draws the sticky head over a scrolled list and the real end of the list.
 - **OP-22 FAB over row content (M16).** The list bottom inset is tab bar + FAB + 16 px here; the
   foundation inset is the tab bar only. _Rec:_ move the inset rule into the foundation.
 - **OP-23 Cmd+K entries (X3).** Page actions (new transaction, filter by status) in the command list
@@ -1014,7 +1070,15 @@ Each with a recommendation; none blocks Task 1.2.
 - **OP-24 Rejected council items (round 1).** X1 (sort by Учасник / Тип / Статус): rejected — type and
   status are filters, the party is covered by search; sort stays Дата and Сума. X2 (draw the validate
   queue now): rejected — new behaviour outside Task 1.2, kept as the OP-18 recommendation. X3 (Cmd+K
-  for page actions): rejected for this screen, OP-23.
+  for page actions): rejected for this screen, OP-23. Round 2: X1–X3 stand; F18 ("approve the
+  validate queue now") brings no new argument and stays the OP-18 recommendation.
+- **OP-25 `PENDING_CASH_CONFIRM` is legacy (new, round 2, P12).** No action in today's code confirms
+  cash, and no API path writes this status, so the `ADMIN_INCOME` row in that status has no action
+  (the round 1 «Валідувати» on it was invented). _Rec:_ the owner decides whether to migrate the
+  remaining rows to a live status or to add a real confirm action in a later task.
+- **OP-26 Pill contrast is asserted, not measured (new, round 2).** `contrast.mjs` measures the swipe
+  tiles only; the warning / success / destructive pills rely on foundation tokens. _Rec:_ extend the
+  script to the pills in the coder task.
 
 ## 12. Components (mapping to our stack)
 
