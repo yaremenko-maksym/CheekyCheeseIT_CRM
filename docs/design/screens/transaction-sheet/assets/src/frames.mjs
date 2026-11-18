@@ -878,7 +878,9 @@ export function frames() {
         'Зберегти не можна',
         'По відмічених рядках суму не перерахувати — потрібне ручне рішення. Поверніть попередню суму, щоб зберегти інші зміни, або спершу вирішіть заявку на виплату.',
       ).replace('role="alert"', 'role="alert" id="ab-e"') +
-      `<span class="btn sm secondary num" role="button" style="height:44px;align-self:flex-start">${icon('undo-2', { size: 16 })}Повернути +1 200,00 USD</span>`,
+      // Owner decision 2026-11-18 (open point 16): both next steps. «Повернути» first and filled (it
+      // resolves the block inside the sheet); «Відкрити заявку» second, ghost, opens a dialog over the sheet.
+      `<div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><span class="btn sm secondary num" role="button" style="height:44px">${icon('undo-2', { size: 16 })}Повернути +1 200,00 USD</span><span class="btn sm ghost" role="button" aria-haspopup="dialog" style="height:44px">${icon('file-text', { size: 16 })}Відкрити заявку</span></div>`,
     footer: blockedSave,
   }
   f.push(tall('admin-edit-blocked', 1720, blocked, 375))

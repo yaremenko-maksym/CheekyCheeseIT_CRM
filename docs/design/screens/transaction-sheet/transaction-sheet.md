@@ -103,6 +103,16 @@ line names where the body shows it.
 - **A1-8** The blocked admin edit names a next step and offers it as one tap: «Повернути +1 200,00
   USD» puts the old amount back, so the other changes can be saved. Today's dialog has no such
   action; the wording is new (open point 16). → `admin-edit-blocked-*`.
+- **Owner decision 2026-11-18 (open point 16, closed).** The blocked admin edit offers both next
+  steps: «Повернути {amount}» first and filled, «Відкрити заявку» second as a ghost button. «Відкрити
+  заявку» opens the blocking payout request in a dialog over the sheet, keeps every unsaved edit and
+  returns focus to itself on close; it shows only to a viewer who can read that request and only for
+  `LINKED_TO_PAYOUT_REQUEST`. → "Save behaviour", Cascade block; `admin-edit-blocked-375`, `-768`,
+  `-1440`; Strings.
+- **Owner decision 2026-11-18 (open point 17, closed).** Option A: the senior edit title is «Виправити
+  дохід» and its primary «Зберегти й надіслати» (en «Fix income» / «Save and resubmit»), replacing
+  today's «Виправити транзакцію» / «Надіслати повторно». → `senior-edit-rejected-*`, `edit-failed-*`,
+  Strings.
 - **A1-9** An unavailable save (blocked, stale or loading preview) is a flat `--secondary` fill with
   `--muted-fg` text (about 5:1), not a dimmed primary. The foundation has no `--muted` surface token.
   → `admin-edit-blocked-*`, `admin-edit-stale-*`, `admin-edit-preview-*`.
@@ -312,7 +322,7 @@ replace-receipt confirm, which is the dialog of `confirm-discard-*`.
 | admin edit, preview loading         | `admin-edit-preview-loading-375`                                                       | `admin-edit-preview-loading-768`                                                               | `admin-edit-preview-loading-1440`                                     | `role="status"` «Перераховуємо пов’язані виплати…» + row skeletons; the primary is `aria-disabled` and `aria-describedby` that status.                                                                                                                                                                                                                                                                                                                                                                                             |
 | admin edit, preview failed          | `admin-edit-preview-error-375`                                                         | `admin-edit-preview-error-768`                                                                 | `admin-edit-preview-error-1440`                                       | Alert «Перегляд недоступний — спробуйте ще раз» + «Повторити»; the primary is `aria-disabled` and points at the alert.                                                                                                                                                                                                                                                                                                                                                                                                             |
 | admin edit, preview stale           | `admin-edit-stale-375`                                                                 | `admin-edit-stale-768`                                                                         | `admin-edit-stale-1440`                                               | 409 `FINANCE_CASCADE_PREVIEW_STALE`: the catalog alert + «Оновити перегляд»; the primary is `aria-disabled` until a fresh preview loads.                                                                                                                                                                                                                                                                                                                                                                                           |
-| admin edit, blocked                 | `admin-edit-blocked-375`                                                               | `admin-edit-blocked-768`                                                                       | `admin-edit-blocked-1440`                                             | Alert «Зберегти не можна» / «По відмічених рядках суму не перерахувати — потрібне ручне рішення. Поверніть попередню суму, щоб зберегти інші зміни, або спершу вирішіть заявку на виплату.» + «Повернути +1 200,00 USD» (A1-8); the blocked row «120,00 USD — залишиться без змін» + «У заявці на виплату — суму не змінити»; primary `aria-disabled`.                                                                                                                                                                             |
+| admin edit, blocked                 | `admin-edit-blocked-375`                                                               | `admin-edit-blocked-768`                                                                       | `admin-edit-blocked-1440`                                             | Alert «Зберегти не можна» / «По відмічених рядках суму не перерахувати — потрібне ручне рішення. Поверніть попередню суму, щоб зберегти інші зміни, або спершу вирішіть заявку на виплату.» + «Повернути +1 200,00 USD» (filled, first) and «Відкрити заявку» (ghost, second; owner decision, open point 16); the blocked row «120,00 USD — залишиться без змін» + «У заявці на виплату — суму не змінити»; primary `aria-disabled`.                                                                                               |
 | admin edit, saving                  | `admin-edit-saving-375`                                                                | `admin-edit-saving-768`                                                                        | `admin-edit-saving-1440`                                              | Admin edit waits for the server with the sheet open: lead «Згорнути», the sent values as a locked record, primary «Зберігаємо…» with a spinner, `aria-disabled` (M16).                                                                                                                                                                                                                                                                                                                                                             |
 | admin edit, not saved (definite)    | `admin-edit-error-375`                                                                 | `admin-edit-error-768`                                                                         | `admin-edit-error-1440`                                               | Alert «Зміни не збережено» / «Нічого не змінено. Дані у формі залишились — спробуйте ще раз.»; the form stays editable with the values; «Зберегти зміни» is manual.                                                                                                                                                                                                                                                                                                                                                                |
 | edit, unknown (sheet closed)        | `edit-unknown-375`                                                                     | `edit-unknown-768`, `edit-unknown-1000`                                                        | `edit-unknown-1440`                                                   | The edited row carries «Результат невідомий · Перевіряємо…» (`aria-busy`); pill «Невідомо, чи збережено зміни» / «Дохід +1 250,50 USD · Відкрити». No pinned draft row, no dot on «+».                                                                                                                                                                                                                                                                                                                                             |
@@ -611,8 +621,30 @@ the newer write shows. A hidden edit keeps its row marker, so it is never lost (
 | Attach receipt | Waits, sheet locked                       | `PATCH /transactions/:id/receipt`; saved pill «Чек прикріплено · Дохід +2 400,00 USD» or «Чек замінено · …» (today's toasts).                                   |
 
 **Cascade block.** When a derivative row cannot be recomputed, the server marks the save as blocked:
-alert «Зберегти не можна» / «По відмічених рядках суму не перерахувати — потрібне ручне рішення. Поверніть попередню суму, щоб зберегти інші зміни, або спершу вирішіть заявку на виплату.» with the one-tap next step «Повернути +1 200,00 USD» (it restores the old amount and reruns the preview; A1-8, open point 16),
-the blocked row keeps its old value («120,00 USD — залишиться без змін») with the reason «У заявці на
+alert «Зберегти не можна» / «По відмічених рядках суму не перерахувати — потрібне ручне рішення. Поверніть попередню суму, щоб зберегти інші зміни, або спершу вирішіть заявку на виплату.» and two next steps under it (owner decision 2026-11-18, open point 16), in this order:
+
+1. **«Повернути +1 200,00 USD»** — first and the stronger of the two (filled `secondary`, 44 px). It
+   puts the old amount back in the form and reruns the preview; it saves nothing. The other edits
+   («Дата транзакції», «Примітки», the receipt) stay, and «Зберегти зміни» becomes available once the
+   new preview is not blocked.
+2. **«Відкрити заявку»** — second, a ghost button (`aria-haspopup="dialog"`). It opens the payout
+   request that blocks the save in today's `PayoutDetailDialog`, **over** the sheet: a centred dialog
+   over the side panel from 640 (as the check dialog, M25), a full-height dialog over the edit sheet
+   on the phone. The sheet stays mounted with every unsaved edit, so there is nothing to warn about
+   and no «Вийти без збереження?». Closing the dialog («Закрити» / «Скасувати», `Esc`) returns focus
+   to «Відкрити заявку». If the request changed while it was open (for example, a manual
+   confirmation), the sheet reruns the preview on return; while it loads the rows show
+   `admin-edit-preview-loading-*`.
+
+The footer «Зберегти зміни» stays unavailable in both cases until the preview is no longer blocked.
+**Who sees «Відкрити заявку».** Only a viewer who may read that request: `GET /payout-requests/:id`
+is `@Roles('ADMIN', 'ACCOUNTANT', 'SENIOR', 'DROP')`, and the service narrows SENIOR and DROP to their
+own requests. The admin edit's preview, `GET /transactions/:id/edit-preview`, is `@Roles('ADMIN')`, so
+today the viewer is always an ADMIN and the button shows whenever the block names a request. It shows
+only for the reason `LINKED_TO_PAYOUT_REQUEST`; `PAYOUT_FAMILY` and the ledger-fact reasons offer
+«Повернути» alone. **Data gap:** the preview response carries `blockedReason` but no request id, so
+the coder adds the blocking request's id to the response (see "Data"); until it exists, the button is
+not shown and «Повернути» is the only step. The blocked row keeps its old value («120,00 USD — залишиться без змін») with the reason «У заявці на
 виплату — суму не змінити» (destructive), and the primary is `aria-disabled` (`admin-edit-blocked`).
 The reason line comes from today's `CASCADE_BLOCKED_REASON_OWN_MESSAGES`. A row that will not be
 recomputed but does not block (an invoice) reads «… — залишиться без змін» + «Не перерахується
@@ -722,7 +754,13 @@ create it moves to the optimistic row.
 ## Data (what each layout reads)
 
 Every layout reads exactly the same queries; the container is the only difference. No new endpoint,
-no new business field, no new KPI.
+no new business field, no new KPI, with one exception the owner's decision on open point 16 needs:
+the admin edit's preview response (`cascadeEditPreviewResponseSchema`, `GET
+/transactions/:id/edit-preview`) gains the id of the payout request that blocks the save, `null`
+unless `blockedReason` is `LINKED_TO_PAYOUT_REQUEST`. «Відкрити заявку» passes it to today's
+`PayoutDetailDialog`, which reads `['payout-request', id]` (`GET /payout-requests/:id`) as it does
+now. The field reaches only ADMIN (the preview route is `@Roles('ADMIN')`); the field name is the
+coder's.
 
 | Query                                           | Used for                                                                              | Notes                                                                                   |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
@@ -910,6 +948,7 @@ string («до 10 МБ», «2,4 МБ», `{percent}%` excepted), so they never wr
 | Cascade blocked title                   | Зберегти не можна                                                                                                                                             | Can’t save                                                                                                                                                       |
 | Cascade blocked body                    | По відмічених рядках суму не перерахувати — потрібне ручне рішення. Поверніть попередню суму, щоб зберегти інші зміни, або спершу вирішіть заявку на виплату. | The marked rows can’t be recalculated — they need a manual decision. Restore the previous amount to save the other changes, or resolve the payout request first. |
 | Cascade blocked next step               | Повернути {amount}                                                                                                                                            | Restore {amount}                                                                                                                                                 |
+| Cascade blocked, second step            | Відкрити заявку                                                                                                                                               | Open payout request                                                                                                                                              |
 | Date field (admin edit)                 | Дата транзакції                                                                                                                                               | Transaction date                                                                                                                                                 |
 | Date-move reason                        | Причина зміни дати / Для дат давніших за 31 день                                                                                                              | Reason for the date change / For dates more than 31 days back                                                                                                    |
 | Date-move reason missing                | Дата надто далеко в минулому — вкажіть причину в полі «Причина зміни дати»                                                                                    | The date is too far back — give a reason in “Reason for the date change”                                                                                         |
@@ -1181,13 +1220,13 @@ No class reaches 9.5.
 15. **The 422 sample uses the catalog text** `FINANCE_TX_DATE_IN_FUTURE` («Для виконаної операції дата
     не може бути в майбутньому»). The foundation's 422 sample text for a closed month is not a catalog
     string (A1-6). Recommendation: the foundation replaces it with a catalog string.
-16. **The blocked next step «Повернути {amount}»** is new: today's dialog only says the save is
-    blocked (A1-8). It restores the old amount and reruns the preview; nothing is saved by the tap.
-    Recommendation: accept; confirm with the owner that restoring the amount is the right default.
-17. **Senior edit wording.** Today the title is «Виправити транзакцію» and the primary «Надіслати
-    повторно»; the sheet says «Виправити дохід» and «Зберегти й надіслати», so the button says that it
-    saves and sends for validation. Recommendation: accept; if the owner prefers the catalog, keep
-    today's primary — the frames change only in that label.
+16. **Closed (owner, 2026-11-18): both next steps.** «Повернути {amount}» (first, filled; restores
+    the old amount and reruns the preview, saves nothing) and «Відкрити заявку» (second, ghost; opens
+    the blocking payout request over the sheet, keeps the draft). Specified in "Save behaviour",
+    Cascade block, and drawn in `admin-edit-blocked-375`, `-768`, `-1440`. Remaining work for the coder:
+    the preview response must carry the blocking request's id ("Data").
+17. **Closed (owner, 2026-11-18): option A.** Title «Виправити дохід», primary «Зберегти й надіслати»
+    (today «Виправити транзакцію» / «Надіслати повторно»).
 18. **No `--muted` token.** The foundation has no `--muted`, so an unavailable primary uses
     `--secondary` with `--muted-fg` text (about 5:1, A1-9). Recommendation: the foundation names a
     token for an unavailable primary.
