@@ -118,6 +118,15 @@ describe('464: a normal-order name adds no first-part source when displayName de
     expect(redactContacts('by Іван', [other])).toBe('by [REDACTED]')
   })
 
+  it('decides the wrong edge when the displayName is itself written surname first (a known limit)', () => {
+    // the normal-order spelling is ASSUMED given-name first: `Petrenko Ivan` names `Ivan` as the
+    // surname, so the first part is not added and the real surname is left standing. Recorded in
+    // spec §11 Q1 as the limit of this fix, not fixed here: nothing in the row says which order it is
+    const misread = ctx(LEGAL, 'Petrenko Ivan')
+    expect(redactContacts('by Петренко', [misread])).toBe('by Петренко')
+    expect(redactContacts('by Іван', [misread])).toBe('by [REDACTED]')
+  })
+
   it('decides on a stored-script displayName too', () => {
     const decided = ctx('Іван Петренко', 'Іван Петренко-Коваль')
     // the display surname is `Петренко-Коваль`, which is neither edge: nothing is decided
