@@ -16,6 +16,7 @@ import {
   isRegeneratePath,
   ResumeVerificationService,
 } from './resume-verification.service'
+import { markSeniorResumeDirty } from '../../job-sourcing/dirty-producers'
 import { CLEARED_STAGED } from './verification-runner'
 import { renderOwnerKey } from './run-columns'
 
@@ -161,9 +162,15 @@ describe('ResumeVerificationService.confirm', () => {
 
   it('promotes in one locked transaction with a CAS on run, version, status and template', async () => {
     const won = { ...ROW, verificationStatus: 'VERIFIED' }
+    vi.mocked(markSeniorResumeDirty).mockClear()
     const { svc, s3, log } = service([OWNER, [{ key: 'resumes/r-1/live.pdf' }], [won]])
     const out = await svc.confirm(ROW, input, HR1, 'fp-1', OWNER_REF)
     expect(out).toBe(won)
+    // SR-L-1: the promoted row is the `after` side, the pre-confirm row the `before` side; the
+    // producer compares the matcher's skill read set across exactly that pair.
+    expect(vi.mocked(markSeniorResumeDirty).mock.calls).toEqual([
+      [expect.anything(), ROW.userId, { before: ROW, after: won }],
+    ])
     expect(log.map((q) => [q.op, q.lock, q.inTransaction])).toEqual([
       ['select', 'share', true],
       ['select', 'update', true],

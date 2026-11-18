@@ -242,9 +242,7 @@ export function matchEvidence(
             },
           ]
     }),
-  ]
-    .filter((item) => item.keyword !== '')
-    .slice(0, 200)
+  ].slice(0, 200)
 }
 
 /**
