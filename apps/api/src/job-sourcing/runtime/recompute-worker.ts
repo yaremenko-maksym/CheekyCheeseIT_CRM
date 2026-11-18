@@ -271,6 +271,7 @@ function recomputeOpportunity(
   work: ClaimedDirtyWork,
   batch: RecomputeBatch,
   onDemandTypes: readonly JobSourceType[],
+  roleAiEnabled: boolean,
 ): Promise<CompleteOutcome> {
   return inTx(db, async (tx) => {
     const { rows } = await tx.execute(
@@ -319,6 +320,17 @@ function recomputeOpportunity(
         await enqueueDirty(tx, 'SOURCE_RECORD', rec.recordId, rec.version, DETAIL_FETCH)
       }
     }
+    // Senior roles 4.4 (plan Review Focus 5, Owner decision 2): a role-`PENDING` vacancy comes out
+    // EXCLUDED, so the wanted branch above never fires for it, yet the AI pass needs the full
+    // description to classify it. Its missing detail is fetched only while the AI pass is on: with
+    // the flag off the fetch buys nothing, so no external GET is made for it. The plan's
+    // `loaded.detailPending` conjunct is the loop itself — `detailPending` IS
+    // `onDemandMissing.length > 0` (`recompute-inputs.ts`), so an empty list enqueues nothing.
+    if (roleAiEnabled && loaded.roles.status === 'PENDING') {
+      for (const rec of loaded.onDemandMissing) {
+        await enqueueDirty(tx, 'SOURCE_RECORD', rec.recordId, rec.version, DETAIL_FETCH)
+      }
+    }
     return completeDirty(tx, work)
   })
 }
@@ -328,6 +340,8 @@ export function createRecomputeSteps(
   db: MeterDb,
   fanout: FanoutOptions = {},
   onDemandTypes: readonly JobSourceType[] = [],
+  /** Senior roles 4.4: `JOB_ROLE_AI_ENABLED`. Off by default, like the flag itself. */
+  roleAiEnabled = false,
 ): RecomputeSteps {
   return {
     claim: (owner, batchSize, freshOnly) =>
@@ -335,7 +349,7 @@ export function createRecomputeSteps(
     process: (work, batch) => {
       if (work.entityKind === 'SOURCE_RECORD') return resolveSourceRecord(db, work)
       if (work.entityKind === 'OPPORTUNITY')
-        return recomputeOpportunity(db, work, batch, onDemandTypes)
+        return recomputeOpportunity(db, work, batch, onDemandTypes, roleAiEnabled)
       // SENIOR / EXCLUSION / PROJECT_CLIENT (S5): enqueue the opportunities, then complete.
       return inTx(db, async (tx) => (await fanOutDirty(tx, work, fanout)).outcome)
     },

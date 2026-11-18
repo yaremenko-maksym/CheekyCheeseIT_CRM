@@ -144,14 +144,21 @@ import { JobRunLedger } from './ownership/job-run-ledger'
     // r5 Task 4.6 S4a: the dirty-work recompute consumer; S4b's reconciliation cron calls `runOnce`.
     {
       provide: RecomputeWorker,
-      useFactory: (db: DatabaseService) =>
+      useFactory: (db: DatabaseService, config: ConfigService<Env, true> | null) =>
         // U10: pass the ON_DEMAND source types so a wanted opportunity enqueues one DETAIL_FETCH per
         // backing ON_DEMAND record (empty until a source's manifest is flipped — ADR 6a, step 10).
+        // Senior roles 4.4: the same flag the AI pass reads also gates the detail fetch of a
+        // role-PENDING vacancy, so no external GET is made while the pass is dark.
         new RecomputeWorker(
-          createRecomputeSteps(lateBoundDb(db), {}, productionLedgerCatalog().onDemandTypes()),
+          createRecomputeSteps(
+            lateBoundDb(db),
+            {},
+            productionLedgerCatalog().onDemandTypes(),
+            config?.get('JOB_ROLE_AI_ENABLED', { infer: true }) === true,
+          ),
           { owner: `recompute-${process.pid}` },
         ),
-      inject: [DatabaseService],
+      inject: [DatabaseService, { token: ConfigService, optional: true }],
     },
     // r5 Task 4.6 S8d: the availability consumer instance the reconciliation cron drains. A distinct
     // token from RecomputeWorker — same claim loop, the availability port.
