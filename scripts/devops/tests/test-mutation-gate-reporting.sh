@@ -331,6 +331,40 @@ console.log('CONFIRMED=' + confirmed.length + ' RESOLVED=' + resolved.length)
 process.exit(confirmed.length === 0 && resolved.length === 1 ? 0 : 1)
 "
 
+# The re-run only re-verifies what its `mutate` range actually contains.
+# Stryker's range filter includes a mutant only if the mutant is CONTAINED in
+# the range, so a start-line-only pattern silently mutates nothing for every
+# multi-line mutant — no report, and the mutant reads as "still unverified",
+# i.e. a false red. Measured 2026-11-19 on the reproduced zero-test mutant
+# (`content-gates.ts` lines 361-365): `...:361-361` produced `0 mutant(s) in
+# 119.7s` and no report at all. Hence the pattern carries the END line.
+assert_green "retry: a multi-line mutant's pattern spans start-to-end, not start-to-start" \
+  --contains 'PATTERNS=src/a.ts:361-365' \
+  -- node --input-type=module -e "
+import { retryMutatePatterns } from '$GUARD'
+const p = retryMutatePatterns([
+  { where: 'pkg/src/a.ts:361', mutator: 'ObjectLiteral', rel: 'src/a.ts', line: 361, endLine: 365 },
+])
+console.log('PATTERNS=' + p.join(','))
+process.exit(p.length === 1 && p[0] === 'src/a.ts:361-365' ? 0 : 1)
+"
+
+# A single-line mutant, and two mutants on the same range, must still produce
+# ONE pattern each — the re-run's cost is per range, not per mutant.
+assert_green "retry: a single-line mutant and duplicates collapse to one range each" \
+  --contains 'PATTERNS=src/a.ts:42-42,src/b.ts:7-9' \
+  -- node --input-type=module -e "
+import { retryMutatePatterns } from '$GUARD'
+const p = retryMutatePatterns([
+  { where: 'pkg/src/a.ts:42', mutator: 'ArrowFunction', rel: 'src/a.ts', line: 42 },
+  { where: 'pkg/src/a.ts:42', mutator: 'BooleanLiteral', rel: 'src/a.ts', line: 42, endLine: 42 },
+  { where: 'pkg/src/b.ts:7', mutator: 'ObjectLiteral', rel: 'src/b.ts', line: 7, endLine: 9 },
+  { where: 'pkg/src/c.ts:1', mutator: 'ObjectLiteral', rel: null, line: null },
+])
+console.log('PATTERNS=' + p.join(','))
+process.exit(p.length === 2 ? 0 : 1)
+"
+
 # ── timeouts are collected separately, never silently folded into "killed"
 # (task-mutation-gate-timeout-visibility) ────────────────────────────────────
 #

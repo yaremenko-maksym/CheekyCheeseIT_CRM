@@ -954,10 +954,29 @@ function writeConfig(pkg, patterns, reportPath, concurrency, dryRunTimeoutMinute
  * kill (real survivors, blocking for the ordinary reason), `resolved` is the
  * rest (the retry verified them).
  */
+/**
+ * The `mutate` patterns that re-verify exactly the given zero-test mutants and
+ * nothing else — pure, exported and tested, because getting the RANGE wrong
+ * here does not fail loudly: Stryker's range filter includes only mutants
+ * CONTAINED in the range, so a too-narrow range silently mutates nothing,
+ * writes no report, and (through `retryToolFailures()`) reads as "still
+ * unverified". Measured 2026-11-19: the reproduced mutant spans lines 361-365
+ * and `...content-gates.ts:361-361` produced `0 mutant(s)`.
+ */
+function retryMutatePatterns(toolFailures) {
+  return [
+    ...new Set(
+      toolFailures
+        .filter((t) => t.rel && t.line)
+        .map((t) => `${t.rel}:${t.line}-${t.endLine ?? t.line}`),
+    ),
+  ]
+}
+
 async function retryToolFailures(pkg, toolFailures, concurrency, dryRunTimeoutMinutes, remainingMs) {
   const addressable = toolFailures.filter((t) => t.rel && t.line)
   if (addressable.length === 0) return null
-  const patterns = [...new Set(addressable.map((t) => `${t.rel}:${t.line}-${t.line}`))]
+  const patterns = retryMutatePatterns(addressable)
   const slug = pkg.name.replace(/[^a-z0-9]+/gi, '-')
   const reportPath = path.join(REPORT_DIR, `${slug}.retry.report.json`)
   console.log(
@@ -1174,12 +1193,22 @@ function readReport(reportPath, pkg) {
           where,
           mutator: mutant.mutatorName,
           replacement: mutant.replacement,
-          // `rel` and `line` exist only so retryToolFailures() can rebuild a
-          // `mutate` pattern for exactly this mutant (`rel:line-line`) without
-          // re-parsing `where`, whose shape (`pkg.dir/file:line`) is a display
-          // string the PR body and the annotations already depend on.
+          // `rel`, `line` and `endLine` exist only so retryToolFailures() can
+          // rebuild a `mutate` pattern for exactly this mutant
+          // (`rel:line-endLine`) without re-parsing `where`, whose shape
+          // (`pkg.dir/file:line`) is a display string the PR body and the
+          // annotations already depend on.
+          //
+          // `endLine` is NOT redundant: Stryker's range filter includes only
+          // mutants CONTAINED in the range, and a mutant can span several
+          // lines. Measured 2026-11-19: the reproduced zero-test mutant spans
+          // 361-365, and a narrowed run over `...content-gates.ts:361-361`
+          // reported `0 mutant(s) in 119.7s` and wrote no report at all — i.e.
+          // a start-line-only pattern would have turned every multi-line
+          // mutant's re-verification into a false red.
           rel: file,
           line: mutant.location?.start?.line ?? null,
+          endLine: mutant.location?.end?.line ?? mutant.location?.start?.line ?? null,
           // Stryker's OWN perTest coverage analysis for this mutant. A
           // non-zero count here beside `testsCompleted: 0` is the decisive
           // evidence that the runner, not the test suite, is at fault:
@@ -1953,6 +1982,7 @@ export {
   splitUncoveredByIntegrationHint,
   readReport,
   partitionRetriedToolFailures,
+  retryMutatePatterns,
   formatKilled,
   parseInstrumentedMutantCount,
   parseDryRunTimeoutMinutes,
