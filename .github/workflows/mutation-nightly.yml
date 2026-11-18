@@ -55,6 +55,12 @@ jobs:
       matrix:
         package:
           - { name: '@crm/shared', slug: 'shared' }
+          # Added by backlog 461 (2026-11-19) together with the PR-gate leg in
+          # ci.yml. The `--full` sweep of a package the gate never mutated before
+          # reports its pre-existing survivor inventory on the first night; that
+          # inventory is what `MUTATION_SURVIVOR_BUDGET` below is for, exactly as
+          # it was for the three legs that came first.
+          - { name: '@crm/inference', slug: 'inference' }
           - { name: '@crm/api', slug: 'api' }
           - { name: '@crm/web', slug: 'web' }
     env:

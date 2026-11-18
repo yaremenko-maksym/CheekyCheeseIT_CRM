@@ -1092,7 +1092,8 @@ jobs:
   # nightly full sweep (.github/workflows/mutation-nightly.yml) independently
   # arrived at the identical Typst-then-build sequence for the identical
   # reason — see that workflow's own comments on its `sweep` job.
-  # Split into a 3-package matrix (task-infra-mutation-gate-matrix,
+  # Split into a per-package matrix — three legs at the split, four since
+  # backlog 461 added `@crm/inference` (2026-11-19) — (task-infra-mutation-gate-matrix,
   # 2026-09-03): the three packages ran SEQUENTIALLY inside
   # mutation-gate.mjs's own loop (measured: shared ~10s, web ~230s, api
   # typically ~250s but up to 2489s seen — see the runbook's "Measured cost"
@@ -1160,6 +1161,14 @@ jobs:
       matrix:
         package:
           - { name: '@crm/shared', slug: 'shared', budget: 3600, timeout: 75 }
+          # Added by backlog 461 (2026-11-19). Measured locally on a diff that
+          # touches `packages/inference/src/router` — see the runbook's "Measured
+          # cost" section for the number this budget is calibrated against. It
+          # keeps `@crm/shared`'s 3600s/75min pair: the package's whole unit suite
+          # is a node-environment suite in the same order of magnitude as
+          # `@crm/shared`'s, with none of the jsdom/React cost that forced
+          # `@crm/web` to 10800s.
+          - { name: '@crm/inference', slug: 'inference', budget: 3600, timeout: 75 }
           - { name: '@crm/api', slug: 'api', budget: 10800, timeout: 195 }
           - { name: '@crm/web', slug: 'web', budget: 10800, timeout: 195 }
     env:
@@ -1352,15 +1361,18 @@ jobs:
             --color "d73a4a" --description "CI checks failed" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --add-label "ci-failed"
 
-  # Aggregate status of all 3 mutation-gate package legs into one PR-level
+  # Aggregate status of all 4 mutation-gate package legs into one PR-level
   # check — the exact same shape `e2e_summary` below uses for the 8 E2E
   # shards (see that job's own comment for the "do not trust a hardcoded
   # count blindly" caveat; it applies here too — recount `matrix.package`
   # entries above rather than copying "3" forward if a package is ever
   # added or removed). Branch protection depends on this single job's
-  # `Mutation Gate` context, not on any of the three per-package contexts
+  # `Mutation Gate` context, not on any of the four per-package contexts
   # the matrix above produces (those are named `Mutation Gate (@crm/...)`
   # and cannot themselves satisfy a required check named `Mutation Gate`).
+  # `@crm/inference` joined the matrix with backlog 461 (2026-11-19): nothing
+  # here changes for it, because this job aggregates `needs: mutation` as a
+  # whole rather than naming its legs.
   mutation_summary:
     name: Mutation Gate
     runs-on: ubuntu-latest
