@@ -6915,6 +6915,12 @@ Sources: PR #1273 notes; confirmed by reading the guard.
 
 ## 361. Extraction worker env: stale key name, and two refusals the runbook does not state (2026-11-06)
 
+**Closed (2026-11-18).** PR #1410 (the stale `ROUTER_API_KEY` name was already gone from both
+files; the runbook now states the empty-key `ROUTER_ENV` refusal and the `validateEnv` refusal of a
+shared env file, and documents `OPENROUTER_API_KEY` — the same empty-key refusal in the worker, but
+no member of `WORKER_ONLY_ENV_KEYS`, so the separation check must not count it as a leak). Reopen if
+the Verify check below fails.
+
 - `.env.example` still carries `ROUTER_API_KEY=`, and the `docs/runbooks/extraction-worker.md` separation check greps for that
   name, while the code reads `GEMINI_API_KEY` and `GROQ_API_KEY`. So the check cannot see the real keys in the API's env.
 - An empty `GEMINI_API_KEY=` or `GROQ_API_KEY=` fails `extractionWorkerEnvSchema` (`z.string().min(1).optional()`), so the whole
