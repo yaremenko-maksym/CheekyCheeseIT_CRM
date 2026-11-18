@@ -14,8 +14,8 @@ import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
  * `WHERE o.role_status = 'PENDING' AND … ORDER BY o.last_observed_at DESC, o.id LIMIT n`).
  *
  * Unlike `2026-11-02_job_dirty_work_pending_partial.sql` this is NOT a CONCURRENTLY build: the
- * deploy applies it inside `psql -v ON_ERROR_STOP=1 --single-transaction`, so the spec applies it
- * in one explicit BEGIN/COMMIT, the way that batch does.
+ * deploy applies the file in its own `psql -v ON_ERROR_STOP=1 --single-transaction` call, so the
+ * spec applies it in one explicit BEGIN/COMMIT, the way that call does.
  *
  * WHY THE `NULLS FIRST` ASSERTIONS ARE THE POINT OF THIS SPEC
  * ----------------------------------------------------------
@@ -51,7 +51,7 @@ const SEEDED_ROWS = 5_000
 let pool: Pool
 let client: PoolClient
 
-/** Applies the file as the deploy's `--single-transaction` batch does: one BEGIN/COMMIT. */
+/** Applies the file as the deploy's own `--single-transaction` call does: one BEGIN/COMMIT. */
 async function applyFile(): Promise<void> {
   await client.query('BEGIN')
   try {
