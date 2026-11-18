@@ -7,24 +7,40 @@
  * `HrCreateSeniorDialog`, the senior's own `ProfileEditFields`) and the read surfaces render
  * `RoleChips`.
  *
- * Pattern: REAL stack (no `page.route` mocks). `loginViaApi` plants a real JWT cookie and every
- * assertion below is made against the live API, so a backend regression cannot be masked by a
- * fixture — which is the point of test 5 in particular (a mocked route proves nothing about a
+ * Pattern: REAL stack. `loginViaApi` plants a real JWT cookie and every assertion about a write, a
+ * read-back or a refusal is made against the live API, so a backend regression cannot be masked by
+ * a fixture — which is the point of test 5 in particular (a mocked route proves nothing about a
  * guard). Needs a running API + web pair against a SCRATCH database, never `crm_db`
  * (`live-db-access.md`); see `tests/fixtures/api-helpers/common.ts` for the four env vars.
+ *
+ * THE ONE EXCEPTION is the queue-card overlap indicator (tests 7 and the card half of 6): the
+ * session is still a real one, but the `/job-queue` reads are answered by `mockJobQueue`. Not a
+ * preference — the real stack CANNOT produce the state. The card's `skillOverlap` is read straight
+ * out of `job_opportunity_matches.evidence` (`queue-read-sql.ts`, `m.evidence -> 'skillOverlap'`)
+ * and only the funnel's own evaluation ever writes that key (`tech-match.ts`,
+ * `recompute-inputs.ts`). The 7.6a seed's `leadEvidence` writes `score`, `reasons` and
+ * `rankWarnings` and no overlap, so EVERY seeded LEAD answers `skillOverlap: null` and the
+ * indicator is correctly gated off — measured on a freshly seeded scratch database, not inferred:
+ * `GET /api/job-queue/<id>` as `hrA` answered `skillOverlap: null` for every senior of every
+ * seeded LEAD card, and `select count(*) from job_opportunity_matches where evidence ?
+ * 'skillOverlap'` is 0 of 6. The paths that would fill it are all out of reach here:
+ * `POST /job-queue/recompute` only enqueues work for a cron behind
+ * `JOB_MATCH_RECONCILIATION_ENABLED` (and would re-evaluate the matches `job-queue.spec.ts` wave 2
+ * freezes at seed time), `POST /job-queue/manual` writes no match row at all, and teaching the
+ * seed to carry an overlap is a Coder-zone change to `apps/api/**`. So what these two cover is the
+ * RENDERING contract of §7.3 on a real browser; that a real API ever emits a non-null
+ * `skillOverlap` is covered by unit tests (`tech-match.spec.ts`, `job-queue.service.spec.ts`), and
+ * the API→card path for it has no E2E. The mock is the schema-parsed `apps/e2e/fixtures/job-queue`
+ * one, shared with `job-queue.spec.ts` scenarios 7-9 and 13, so a DTO drift fails it loudly.
  *
  * Seeded SENIORs carry NO technical roles (`seed.ts` never writes the column, whose default is
  * `'{}'`), so they are the plan's "legacy senior" case. The API refuses to put a senior back to
  * none (`assertSeniorRoleFloor`), so the self-edit tests do not try to restore that: each sets its
  * own `BASELINE_ROLES` first and restores it afterwards, and each uses a senior of its own
  * (`fullyParallel: true` lets two tests of this file run at once).
- *
- * NOT covered here: "the queue card shows the overlap label for a seeded LEAD" and the card-label
- * half of the mobile test. Task 5.4 has since landed on this branch, so both are writable now:
- * the indicator rows carry `job-queue-senior-overlap-${seniorId}` and
- * `job-queue-senior-no-resume-${seniorId}`, and the label reads «{matched} з {total} навичок».
  */
 
+import { randomUUID } from 'node:crypto'
 import {
   test,
   expect,
@@ -36,6 +52,9 @@ import {
   findUserByEmailViaApi,
 } from './fixtures'
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
+import type { Page } from '@playwright/test'
+import { card, cardSenior, mockJobQueue, MOCK_IDS } from '../fixtures/job-queue'
+import type { QueueCardSenior } from '../fixtures/job-queue'
 import { SENIOR_ROLES, pickRoles } from './fixtures/senior-roles'
 
 /**
@@ -106,6 +125,47 @@ function createRequests(page: import('@playwright/test').Page): string[] {
     if (req.method() === 'POST' && /\/api\/users(\?|$)/.test(req.url())) seen.push(req.url())
   })
   return seen
+}
+
+/**
+ * The overlap indicator's four §7.3 states, one senior each, so a single card open covers the
+ * whole rendering contract. The ids are fresh per call because the testids are built out of them
+ * and `fullyParallel: true` runs the tests of this file side by side.
+ */
+function overlapSeniors(matched: string[], total: number) {
+  return {
+    hits: cardSenior({
+      seniorId: randomUUID(),
+      displayName: 'Overlap Hits',
+      skillOverlap: { kind: 'OVERLAP', matched, total },
+    }),
+    zero: cardSenior({
+      seniorId: randomUUID(),
+      displayName: 'Overlap Zero',
+      skillOverlap: { kind: 'OVERLAP', matched: [], total },
+    }),
+    noResume: cardSenior({
+      seniorId: randomUUID(),
+      displayName: 'Overlap No Resume',
+      skillOverlap: { kind: 'NO_RESUME' },
+    }),
+    legacy: cardSenior({
+      seniorId: randomUUID(),
+      displayName: 'Overlap Legacy',
+      skillOverlap: null,
+    }),
+  }
+}
+
+/**
+ * Opens the one mocked queue card holding `seniors`. The session stays the real one; only the
+ * `/job-queue` reads are mocked, and why that is unavoidable here is the header's EXCEPTION note.
+ */
+async function openMockedCard(page: Page, seniors: QueueCardSenior[]): Promise<void> {
+  await mockJobQueue(page, { card: [card({ matchedSeniorCount: seniors.length }, seniors)] })
+  await page.goto('/job-queue')
+  await page.getByTestId(`job-queue-row-${MOCK_IDS.opportunity}`).click()
+  await expect(page.getByTestId('job-queue-card')).toBeVisible()
 }
 
 test.describe('Senior technical roles — forms, surfaces and the backend floor', () => {
@@ -295,10 +355,57 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
     expect(await rolesOf(page, id)).toEqual([...before])
   })
 
+  test('the queue card shows the overlap label for a seeded LEAD', async ({ page }) => {
+    await loginViaApi(page, SEED_EMAILS.hrA)
+    const matched = ['React', 'PostgreSQL']
+    const seniors = overlapSeniors(matched, 3)
+    await openMockedCard(page, [seniors.hits, seniors.zero, seniors.noResume, seniors.legacy])
+
+    // §7.3 row 1 — OVERLAP with hits: the count, then one chip per matched skill. The count is an
+    // ICU plural, which the compiled catalog keeps as a nested array rather than a flat string, so
+    // `assertInCatalog` cannot address it; the uk wording is asserted literally on purpose — a copy
+    // change to it reddens this line, which is what rule 10 of `playwright-patterns` is after.
+    const hits = page.getByTestId(`job-queue-senior-overlap-${seniors.hits.seniorId}`)
+    await expect(hits).toContainText('2 з 3 навичок')
+    for (const skill of matched) {
+      await expect(hits.getByText(skill, { exact: true })).toBeVisible()
+    }
+    await expect(
+      page.getByTestId(`job-queue-senior-no-resume-${seniors.hits.seniorId}`),
+    ).toHaveCount(0)
+
+    // §7.3 row 2 — OVERLAP with nothing matched: "0 з N" is legal and is NOT the no-resume wording.
+    const zero = page.getByTestId(`job-queue-senior-overlap-${seniors.zero.seniorId}`)
+    await expect(zero).toHaveText('0 з 3 навичок')
+    await expect(
+      page.getByTestId(`job-queue-senior-no-resume-${seniors.zero.seniorId}`),
+    ).toHaveCount(0)
+
+    // §7.3 row 3 — NO_RESUME: the words, never a count.
+    await expect(
+      page.getByTestId(`job-queue-senior-no-resume-${seniors.noResume.seniorId}`),
+    ).toHaveText('немає резюме')
+    await expect(
+      page.getByTestId(`job-queue-senior-overlap-${seniors.noResume.seniorId}`),
+    ).toHaveCount(0)
+
+    // §7.3 row 4 — null (every seeded LEAD today): the senior is listed, the indicator renders
+    // nothing at all, in neither of its two shapes.
+    await expect(page.getByTestId(`job-queue-senior-${seniors.legacy.seniorId}`)).toBeVisible()
+    await expect(
+      page.getByTestId(`job-queue-senior-overlap-${seniors.legacy.seniorId}`),
+    ).toHaveCount(0)
+    await expect(
+      page.getByTestId(`job-queue-senior-no-resume-${seniors.legacy.seniorId}`),
+    ).toHaveCount(0)
+  })
+
   test.describe('mobile 390px', () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
 
-    test('RolesSection is usable by tap and nothing overflows horizontally', async ({ page }) => {
+    test('RolesSection is usable by tap and the card label wraps without overflow', async ({
+      page,
+    }) => {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       // A senior of its own: two workers editing one senior's roles would race (the local matrix
       // runs several).
@@ -338,6 +445,61 @@ test.describe('Senior technical roles — forms, surfaces and the backend floor'
       } finally {
         await setRolesViaApi(page, id, BASELINE_ROLES)
       }
+
+      // The other half of the plan's mobile test: the queue card's overlap label. Many skills and
+      // one unbroken token longer than the viewport, because a label that fits on one line proves
+      // nothing about wrapping.
+      await loginViaApi(page, SEED_EMAILS.hrA)
+      const matched = [
+        'React',
+        'TypeScript',
+        'PostgreSQL',
+        'Kubernetes',
+        'Terraform',
+        'GraphQL',
+        'ElasticSearch',
+        'NeverBreaksWithoutOverflowWrapAnywhereSoThisTokenIsTheWorstCase',
+      ]
+      const seniors = overlapSeniors(matched, 12)
+      await openMockedCard(page, [seniors.hits])
+
+      const overlapTestId = `job-queue-senior-overlap-${seniors.hits.seniorId}`
+      await expect(page.getByTestId(overlapTestId)).toContainText('8 з 12 навичок')
+
+      // Wrapping is asserted positively (more than one line of children) and together with the
+      // containment: a row that stayed on one line, or one that escaped the card, both fail.
+      const geometry = await page.evaluate((testId) => {
+        const row = document.querySelector(`[data-testid="${testId}"]`)
+        const panel = document.querySelector('[data-testid="job-queue-card"]')
+        if (!row || !panel) throw new Error(`missing ${testId} or job-queue-card`)
+        const children = [...row.children].map((child) => {
+          const box = child.getBoundingClientRect()
+          return { right: box.right, top: Math.round(box.top) }
+        })
+        return {
+          children,
+          lines: new Set(children.map((child) => child.top)).size,
+          rowRight: row.getBoundingClientRect().right,
+          panelRight: panel.getBoundingClientRect().right,
+        }
+      }, overlapTestId)
+
+      expect(geometry.children.length, 'the count plus one chip per matched skill').toBe(
+        matched.length + 1,
+      )
+      expect(geometry.lines, 'the label wraps onto more than one line at 390px').toBeGreaterThan(1)
+      expect(geometry.rowRight, 'the label stays inside the card').toBeLessThanOrEqual(
+        geometry.panelRight + 1,
+      )
+      for (const child of geometry.children) {
+        expect(child.right, 'no chip escapes the card sideways').toBeLessThanOrEqual(
+          geometry.panelRight + 1,
+        )
+      }
+      const cardOverflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      )
+      expect(cardOverflow, 'no horizontal overflow with the card open').toBeLessThanOrEqual(0)
     })
   })
 })
