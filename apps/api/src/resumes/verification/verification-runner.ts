@@ -129,7 +129,15 @@ export async function loadOwnerContacts(
     email: user.email,
     legalFullName: user.legalFullName,
     telegram: user.telegram,
-    contacts: names.map((fullName) => ({ fullName, emails, telegram: user.telegram })),
+    // `displayName` is written in normal order, `legalFullName` surname first (the order contracts
+    // use), so the display spelling settles which edge of the legal name is the surname for the
+    // redaction (backlog 464). Equal names decide nothing, and `lastPartIsSurname` reads that.
+    contacts: names.map((fullName) => ({
+      fullName,
+      emails,
+      telegram: user.telegram,
+      normalOrderName: user.displayName,
+    })),
   }
 }
 
