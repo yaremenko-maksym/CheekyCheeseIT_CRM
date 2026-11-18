@@ -1156,22 +1156,32 @@ ORPHAN_PID_J="$(cat "$ORPHAN_PIDFILE_J" 2>/dev/null || echo '')"
 [ -n "$ORPHAN_PID_J" ] && kill "$ORPHAN_PID_J" 2>/dev/null
 
 # ── 31: ROUND 4 REVIEW (SR-L-7) — comm TRUNCATION, PRODUCTION REGEX ──────────
-# `ps -o comm=` truncates to 15 characters on Linux, so the Ubuntu runner's own
-# `unattended-upgrade` reports as `unattended-upgr`. With the regex `apt|dpkg`
-# the single most common REAL holder on a GitHub runner read as "pid reused, not
-# our installer" and the step skipped the wait it exists to perform.
+# `ps -o comm=` truncates the name to 15 characters on Linux, so the Ubuntu
+# runner's own `unattended-upgrade` reports as `unattended-upgr`. With the regex
+# `apt|dpkg` the single most common REAL holder on a GitHub runner read as "pid
+# reused, not our installer" and the step skipped the wait it exists to perform.
 #
-# This case runs with the PRODUCTION regex (not overridden — see
-# RUN_INSTALL_PRODUCTION_COMM_REGEX) and a holder that is a copy of `sleep`
-# named `unattended-upgrade`. What ps reports is printed, so the case is
-# readable as evidence rather than as a claim.
-HOLDER_BIN_DIR="$WS/holder-bin"
-mkdir -p "$HOLDER_BIN_DIR"
-# A SYMLINK, not a copy: a copied `sleep` is SIGKILLed on macOS (code signing),
-# measured here. `ps -o comm=` reports the symlink's own path, so the name under
-# test survives on both platforms — truncated to `unattended-upgr` on Linux,
-# full on macOS, and the production regex is written to match either.
-ln -s "$(command -v sleep)" "$HOLDER_BIN_DIR/unattended-upgrade"
+# The holder's NAME is faked at the seam the script reads it through — bare
+# `ps` — and not by renaming a binary. Renaming was tried on both platforms and
+# is not portable: a copied `sleep` is SIGKILLed on macOS (code signing), and on
+# the GitHub runner `sleep` is a uutils multi-call binary that refuses any argv0
+# it does not own ("Security violation: Requested utility `unattended-upgrade`
+# does not match executable name: /usr/lib/cargo/bin/coreutils/sleep", job
+# 135053626110). The fake `ps` answers only the `-o comm=` query and execs the
+# real `ps` for everything else, so the liveness check the wait depends on stays
+# a real measurement of a real process.
+FAKE_PS_DIR="$WS/fake-ps-bin"
+mkdir -p "$FAKE_PS_DIR"
+REAL_PS="$(command -v ps)"
+cat >"$FAKE_PS_DIR/ps" <<FAKE_PS_EOF
+#!/bin/sh
+# Only the comm query is answered here; liveness goes to the real ps.
+case "\$*" in
+  *"-o comm="*) printf '%s\n' 'unattended-upgr' ;;
+  *) exec "$REAL_PS" "\$@" ;;
+esac
+FAKE_PS_EOF
+chmod +x "$FAKE_PS_DIR/ps"
 ORPHAN_PIDFILE_K="$WS/orphan-pid-unattended"
 COUNTER31="$WS/counter-unattended"
 RUN_INSTALL_PRODUCTION_COMM_REGEX=1 \
@@ -1181,8 +1191,8 @@ assert_green "(round 4 review, SR-L-7) a holder whose comm is truncated to 'unat
   --not-contains "its pid was reused" \
   --not-contains "no longer an apt/dpkg process" \
   -- run_install "0" "$COUNTER31" \
+       PATH="$FAKE_PS_DIR:$PATH" \
        FAKE_PW_DEPS_ORPHAN_PIDFILE="$ORPHAN_PIDFILE_K" \
-       FAKE_PW_DEPS_ORPHAN_SLEEP_BIN="$HOLDER_BIN_DIR/unattended-upgrade" \
        FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS=12 \
        CALL_TIMEOUT_SECONDS=2 \
        FAST_MAX_ATTEMPTS=2 \
@@ -1193,39 +1203,26 @@ assert_green "(round 4 review, SR-L-7) a holder whose comm is truncated to 'unat
        DEPS_RECHECK_FLOOR_SECONDS=10 \
        HOLDER_POLL_INTERVAL_SECONDS=1
 ORPHAN_PID_K="$(cat "$ORPHAN_PIDFILE_K" 2>/dev/null || echo '')"
-if [ -n "$ORPHAN_PID_K" ]; then
-  # The evidence, not a claim: what the holder's comm actually was. Printed
-  # before the kill; an already-exited holder prints empty, which is why the
-  # assertions above are on the step's own output and this line is context.
-  printf 'ps -o comm= for the holder pid %s: %s\n' "$ORPHAN_PID_K" "$(ps -o comm= -p "$ORPHAN_PID_K" 2>/dev/null || echo '(already exited)')"
-  kill "$ORPHAN_PID_K" 2>/dev/null
-fi
-# The truncation itself, measured on THIS machine (macOS does not truncate;
-# Linux does — the guard suite runs on both, and the regex must work where the
-# truncation happens).
-"$HOLDER_BIN_DIR/unattended-upgrade" 5 &
-PROBE_PID=$!
-# A backgrounded child is not necessarily visible to `ps` on the very next
-# instruction; poll briefly rather than read an empty comm as a verdict
-# (verification-integrity.md: an instrument that did not look reports nothing).
-PROBE_COMM=""
-PROBE_TRIES=0
-while [ "$PROBE_TRIES" -lt 20 ]; do
-  PROBE_COMM="$(ps -o comm= -p "$PROBE_PID" 2>/dev/null | sed 's#.*/##')"
-  [ -n "$PROBE_COMM" ] && break
-  PROBE_TRIES=$((PROBE_TRIES + 1))
-  sleep 0.2
-done
-kill "$PROBE_PID" 2>/dev/null
-if [ -z "$PROBE_COMM" ]; then
+[ -n "$ORPHAN_PID_K" ] && kill "$ORPHAN_PID_K" 2>/dev/null
+
+# The other half of SR-L-7, and the half that has to hold on every machine: the
+# PRODUCTION DEFAULT of HOLDER_COMM_REGEX — read out of the script itself, not
+# retyped here — accepts the truncated name. The 15-character truncation is a
+# documented property of `ps -o comm=` on Linux (`man 1 ps`), so the string is
+# the fact under test and no live process is needed to produce it.
+PROD_COMM_REGEX="$(sed -n 's/^HOLDER_COMM_REGEX="${HOLDER_COMM_REGEX:-\(.*\)}"$/\1/p' "$SCRIPT")"
+if [ -z "$PROD_COMM_REGEX" ]; then
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
-  printf 'FAIL  [green] (SR-L-7) ps never reported a comm for the probe pid — the measurement did not happen, which is not a pass\n'
-elif printf '%s\n' "$PROBE_COMM" | grep -Eq 'apt|dpkg|unattended-upgr'; then
+  printf 'FAIL  [green] (SR-L-7) the production HOLDER_COMM_REGEX default was not found in %s — the assertion below would test nothing\n' "$SCRIPT"
+elif printf '%s\n' 'unattended-upgr' | grep -Eq "$PROD_COMM_REGEX" &&
+     printf '%s\n' 'apt-get' | grep -Eq "$PROD_COMM_REGEX" &&
+     printf '%s\n' 'dpkg' | grep -Eq "$PROD_COMM_REGEX" &&
+     ! printf '%s\n' 'sleep' | grep -Eq "$PROD_COMM_REGEX"; then
   GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
-  printf 'PASS  [green] (SR-L-7) comm as this kernel reports it (%s) matches the PRODUCTION regex\n' "$PROBE_COMM"
+  printf 'PASS  [green] (SR-L-7) the production default regex (%s) accepts the truncated unattended-upgr, apt-get and dpkg, and still rejects a stranger\n' "$PROD_COMM_REGEX"
 else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
-  printf 'FAIL  [green] (SR-L-7) comm as this kernel reports it (%s) does NOT match the production regex\n' "$PROBE_COMM"
+  printf 'FAIL  [green] (SR-L-7) the production default regex (%s) does not accept unattended-upgr / apt-get / dpkg while rejecting a stranger\n' "$PROD_COMM_REGEX"
 fi
 
 # ── 32: ROUND 4 REVIEW (item 13) — A REFUSED WAIT IS NOT ANNOUNCED AS A WAIT ──

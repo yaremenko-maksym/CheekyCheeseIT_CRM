@@ -57,11 +57,6 @@
 #                              what actually put the packages on disk.
 #                              FAKE_PW_DEPS_RC_SEQUENCE is ignored in this
 #                              mode. Takes priority over every other mode.
-#   FAKE_PW_DEPS_ORPHAN_SLEEP_BIN  optional (round 4 review, SR-L-7) — the
-#                              binary the detached sleeper runs, so a case can
-#                              give the holder a specific process NAME (what
-#                              HOLDER_COMM_REGEX is matched against). Default:
-#                              `sleep`.
 #   FAKE_PW_DEPS_ORPHAN_LIFETIME_SECONDS   optional — how long that sleeper
 #                              lives (default: 4).
 #   FAKE_PW_DEPS_ORPHAN_SUCCESS_DELAY_SECONDS   optional (round 4) — how long
@@ -118,16 +113,15 @@ if [ -n "${FAKE_PW_DEPS_ORPHAN_PIDFILE:-}" ]; then
     # Detached on purpose (setsid when available, plain background
     # otherwise): the caller must NOT be able to reap it by killing this
     # process, which is the entire mechanism under test.
-    # FAKE_PW_DEPS_ORPHAN_SLEEP_BIN (round 4 review, SR-L-7): the holder's
-    # process NAME is what HOLDER_COMM_REGEX is matched against, and `ps -o
-    # comm=` truncates it to 15 characters on Linux. A case that needs the
-    # runner's real holder name (`unattended-upgrade` -> `unattended-upgr`)
-    # points this at a copy of sleep carrying that name.
-    orphan_bin="${FAKE_PW_DEPS_ORPHAN_SLEEP_BIN:-sleep}"
+    # The holder's process NAME is NOT set here (round 4 review, SR-L-7):
+    # renaming a binary is not portable — a copy is SIGKILLed on macOS by code
+    # signing, and the GitHub runner's `sleep` is a uutils multi-call binary
+    # that refuses a foreign argv0. A case that needs a specific comm fakes
+    # `ps` on PATH instead; this stays a plain detached sleeper.
     if command -v setsid >/dev/null 2>&1; then
-      setsid "$orphan_bin" "$orphan_lifetime" >/dev/null 2>&1 &
+      setsid sleep "$orphan_lifetime" >/dev/null 2>&1 &
     else
-      "$orphan_bin" "$orphan_lifetime" >/dev/null 2>&1 &
+      sleep "$orphan_lifetime" >/dev/null 2>&1 &
     fi
     printf '%s' "$!" >"$FAKE_PW_DEPS_ORPHAN_PIDFILE"
     echo "fake-playwright-deps: call $n started the install (pid $! holds the lock)"
