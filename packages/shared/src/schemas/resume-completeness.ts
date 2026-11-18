@@ -507,14 +507,18 @@ export function findWholeTokens(
  * (`Ivan`, ZWSP, `Petrenko` is two). A control character splits in both (`Ivan`, U+0085,
  * `Petrenko`). Equal readings are one (CR-M-5). The split reading is checked through
  * `splitNameOrders` and `splitNameLoneParts`; which side takes it is noted above `splitNameOrders`.
+ *
+ * A backslash splits too, after the normalisation (NFKC makes one of U+FF3C): `CONTACT_NAME_GAP`
+ * matches an escaped `\n`, so a part that could match one as well would let a pattern split a run
+ * of `\n` between parts and gaps in exponentially many ways (PR #1416, SR-H-2).
  */
 export function contactNameParts(name: string): string[][] {
   const parts = (text: string) =>
-    // each whitespace or control character splits; the filter drops the empty pieces a run or an
-    // edge leaves
+    // each whitespace, control character or backslash splits; the filter drops the empty pieces a
+    // run or an edge leaves
     normaliseContactText(text.replace(/\p{Cc}/gu, ' '))
       .text.replace(CONTACT_APOSTROPHES, "'")
-      .split(/\s/u)
+      .split(/[\s\\]/u)
       .filter(Boolean)
   const joined = parts(name)
   const split = parts(name.replace(INVISIBLE_PATTERN, ' '))

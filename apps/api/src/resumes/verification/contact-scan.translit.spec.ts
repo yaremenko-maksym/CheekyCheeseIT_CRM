@@ -31,6 +31,10 @@ const cpuMs = (fn: () => void): number => {
 const BOUND_MS =
   process.env['STRYKER_MUTATOR_WORKER'] === undefined ? 200 : Number.POSITIVE_INFINITY
 
+/** The bound of the budget-edge row: under the old budget's 98 ms, 3x over the current 24 ms. */
+const BUDGET_EDGE_BOUND_MS =
+  process.env['STRYKER_MUTATOR_WORKER'] === undefined ? 80 : Number.POSITIVE_INFINITY
+
 const notesFacts = (notes: string[]): ResumeFacts => ({
   headline: 'Backend Engineer',
   location: { city: 'Lviv', country: 'Ukraine' },
@@ -246,11 +250,11 @@ describe('transliteratedNameSource (backlog 463)', () => {
   })
 
   it('counts an apostrophe toward the reading budget, like an ambiguous letter', () => {
-    // `а` reads one way and each apostrophe doubles the readings, so 8 of them sit exactly on the
-    // budget and 9 are past it, where the part keeps its primary reading (the apostrophe dropped).
-    expect(nameReadingCount(`а${"'".repeat(8)}`)).toBe(READING_BUDGET)
-    expect(transliteratedNameSource(`а${"'".repeat(8)}`)).toMatch(/\?/u)
-    expect(transliteratedNameSource(`а${"'".repeat(9)}`)).toBe('a')
+    // `а` reads one way and each apostrophe doubles the readings, so 6 of them sit exactly on the
+    // budget and 7 are past it, where the part keeps its primary reading (the apostrophe dropped).
+    expect(nameReadingCount(`а${"'".repeat(6)}`)).toBe(READING_BUDGET)
+    expect(transliteratedNameSource(`а${"'".repeat(6)}`)).toMatch(/\?/u)
+    expect(transliteratedNameSource(`а${"'".repeat(7)}`)).toBe('a')
   })
 
   it('treats a Latin letter beside a silent Cyrillic one as the mandatory piece', () => {
@@ -341,7 +345,7 @@ describe('the transliteration table, row by row (backlog 463)', () => {
 
 describe('PR #1416 round 1: the reading budget, short parts, empty sources', () => {
   it('reads a surname past the budget with its primary spelling instead of dropping it', () => {
-    // 13 parts of `Вальо` hold 13 `ь`, each optionally an apostrophe: past the budget of 8 optional
+    // 13 parts of `Вальо` hold 13 `ь`, each optionally an apostrophe: past the budget of 6 optional
     // pieces. The fallback is the national romanisation, so `Valo` is still redacted.
     const surname = Array.from({ length: 13 }, () => 'Вальо').join('-')
     expect(nameReadingCount(surname)).toBeGreaterThan(READING_BUDGET)
@@ -376,12 +380,12 @@ describe('PR #1416 round 1: the reading budget, short parts, empty sources', () 
     expect(redactContacts("by Ola'n today", ctx(name))).toBe("by Ola'n today")
     // the readings of one name may count differently: an invisible between `и` and a combining breve
     // is dropped in the joined reading, where the two compose into `й`, and splits the split one. The
-    // joined reading is past the budget (9 `й`), the split one on it, and the name is decided as one.
-    const composed = ctx(`а${'й'.repeat(8)}и\u200B\u0306`)
-    expect(redactContacts('by aiiiiiiiii done', composed)).toBe('by aiiiiiiiii done')
-    expect(redactContacts('by ayyyyyyyyy done', composed)).toBe('by [REDACTED] done')
+    // joined reading is past the budget (7 `й`), the split one on it, and the name is decided as one.
+    const composed = ctx(`а${'й'.repeat(6)}и\u200B\u0306`)
+    expect(redactContacts('by aiiiiiii done', composed)).toBe('by aiiiiiii done')
+    expect(redactContacts('by ayyyyyyy done', composed)).toBe('by [REDACTED] done')
     // exactly on the budget the whole name keeps every reading, the kept apostrophe included
-    const onBudget = ctx(`Ола${'\uFF07'.repeat(8)}н`)
+    const onBudget = ctx(`Ола${'\uFF07'.repeat(6)}н`)
     expect(redactContacts("by Ola'n today", onBudget)).toBe('by [REDACTED] today')
   })
 
@@ -471,6 +475,35 @@ describe('PR #1416 round 2: a backslash in a stored name, the budget edge, silen
       })
       expect(ms).toBeLessThan(BOUND_MS)
     }
+  })
+
+  it('redacts the worst name on the budget against a 40 000-character near-miss in bounded time', () => {
+    // The measured worst shape (SR-M-6): every optional `й` may read `y` or nothing, so each start
+    // in a run of `y` is tried in every split; one `й` more than the budget allows reads `y` only.
+    const optional = Math.log2(READING_BUDGET)
+    const name = `${'й'.repeat(optional)}и Ба`
+    expect(nameReadingCount(name)).toBe(READING_BUDGET)
+    let redacted = ''
+    const ms = cpuMs(() => {
+      redacted = redactAll(`${'y'.repeat(40_000)} done`, [ctx(name)])
+    })
+    expect(redacted).toContain('done')
+    // generous for CI: 24 ms measured at 64, 98 ms at the old budget of 256
+    expect(ms).toBeLessThan(BUDGET_EDGE_BOUND_MS)
+  })
+
+  it('counts only the letters every Latin reading writes toward the four-letter rule', () => {
+    // `Ільйь` has five letters, but `й` and `ь` may read as nothing, so it may read `il`
+    expect(redactContacts('il est la', ctx('Ільйь'))).toBe('il est la')
+    expect(redactContacts('веде Ільйь', ctx('Ільйь'))).toBe('веде [REDACTED]')
+    // four written letters and a silent one still make a Latin lone source
+    expect(redactContacts('by Ilko', ctx('Ілько'))).toBe('by [REDACTED]')
+  })
+
+  it('builds no Latin source whose only mandatory piece is not a letter', () => {
+    expect(transliteratedNameSource('ь.')).toBeNull()
+    expect(transliteratedNameSource('й7')).toBeNull()
+    expect(redactContacts('v1.2 and 7 more', ctx('Олена ь. й7'))).toBe('v1.2 and 7 more')
   })
 
   it('reads a backslash in a stored name as a part separator', () => {

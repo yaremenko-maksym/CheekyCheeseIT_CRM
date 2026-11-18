@@ -21,7 +21,12 @@ import {
   splitNameLoneParts,
   splitNameOrders,
 } from '@crm/shared'
-import { nameReadingCount, READING_BUDGET, transliteratedNameSource } from './name-transliteration'
+import {
+  nameReadingCount,
+  READING_BUDGET,
+  transliteratedNameSource,
+  writtenLetterCount,
+} from './name-transliteration'
 
 export interface ContactContext {
   fullName: string
@@ -196,9 +201,10 @@ function nameSources(fullName: string, failClosed: boolean, scanned: string): st
   const latinFirst = (part: string): string =>
     transliteratedNameSource(part, primaryOnly) ?? storedSource(part)
   // A Latin reading of a short part alone is an ordinary English word (`Ян` as `an`, `Бут` as
-  // `but`), so a part of under four letters is matched alone in its stored script only.
+  // `but`), so a part of under four letters is matched alone in its stored script only. Only the
+  // letters every reading writes count: `Ільйь` may read `il` (round 2).
   const latinLone = (part: string): string =>
-    part.replace(/\P{L}/gu, '').length >= 4 ? latinFirst(part) : storedSource(part)
+    writtenLetterCount(part, primaryOnly) >= 4 ? latinFirst(part) : storedSource(part)
   return [...stored, ...readingSources(fullName, failClosed, scanned, latinFirst, latinLone)]
 }
 
@@ -301,7 +307,8 @@ function mainWholeToken(source: string): RegExp {
 /** Main's full-name and surname patterns, accent-folded, for `foldAccents` text of NFC text. */
 function mainNamePatterns(fullName: string): RegExp[] {
   const name = foldAccents(fullName.normalize('NFC').replace(CONTACT_APOSTROPHES, "'")).text
-  const parts = name.trim().split(/\s+/u)
+  // A backslash splits, as in `contactNameParts`: a part holding `\n` would overlap the gap (SR-H-2).
+  const parts = name.split(/[\s\\]+/u).filter(Boolean)
   const sources = [
     parts.map(escapeRegExp).join(MAIN_NAME_GAP),
     ...parts.slice(-1).filter(isSurnameSource).map(escapeRegExp),

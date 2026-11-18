@@ -38,6 +38,21 @@ describe('control characters (findings 3, 4)', () => {
     expect(contactNameParts('Ivan\u0080Petrenko')).toEqual([['Ivan', 'Petrenko']])
   })
 
+  it('a backslash in a stored name splits it, a fullwidth one too (PR #1416, SR-H-2)', () => {
+    // a part holding `\n` would overlap the escaped-newline gap between parts
+    expect(contactNameParts('Ivan\\Petrenko')).toEqual([['Ivan', 'Petrenko']])
+    expect(contactNameParts('\\n\\n Ivan')).toEqual([['n', 'n', 'Ivan']])
+    expect(contactNameParts('Ivan＼Petrenko')).toEqual([['Ivan', 'Petrenko']])
+  })
+
+  it('a stored name of escaped-newline parts checks a run of them in bounded time', () => {
+    const start = process.cpuUsage()
+    const flagged = flags(`${'\\n'.repeat(40)} x`, `${Array(10).fill('\\n').join(' ')} Ba`)
+    const { user, system } = process.cpuUsage(start)
+    expect(flagged).toBe(false)
+    expect((user + system) / 1000).toBeLessThan(200)
+  })
+
   it('a C0 or C1 control in the text is stripped, so the name around it still hits', () => {
     expect(normaliseContactText('P\u0000etrenko').text).toBe('Petrenko')
     expect(normaliseContactText('P\u009Fetrenko').text).toBe('Petrenko')

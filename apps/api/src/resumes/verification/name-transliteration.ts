@@ -93,12 +93,13 @@ const APOSTROPHE_READINGS: readonly string[] = ['', APOSTROPHE]
  * `legalFullName`), and the redaction joins its parts with a gap that may match empty, so the
  * optional pieces of every part multiply in one pattern: `ййййий` four times took 1.4 s on a
  * 40-character near-miss. The count is taken over the whole name (`nameReadingCount`), and past the
- * budget every part keeps its first readings only. 256 is 8 optional pieces, and a real name
- * carries a handful (`Ільчак Андрій Юрійович` is 3, so 8 ways). Set by measurement, not inherited:
- * at 12 pieces (4096) a 4000-character near-miss took 74 ms of CPU (`ь` twelve times against an
- * apostrophe run), and the cost grows with the text, so the bound keeps 16x of headroom.
+ * budget every part keeps its first readings only. 64 is 6 optional pieces, and a real name
+ * carries a handful (`Ільчак Андрій Юрійович` is 3, so 8 ways). Set by measurement through
+ * `redactAll` on a 40 000-character near-miss, the worst shape being `й` n times then `и Ба`
+ * against a run of `y` (PR #1416 round 2, SR-M-6): 256 took 98 ms, 64 takes 24 ms, and the cost
+ * grows with the count, so 64 keeps the worst admitted name well under 50 ms.
  */
-export const READING_BUDGET = 256
+export const READING_BUDGET = 64
 
 /** Any letter the table reads; a Cyrillic letter outside it stops the part (see the file note). */
 const CYRILLIC_LETTER = /\p{Script=Cyrillic}/u
@@ -157,6 +158,22 @@ function readPieces(text: string): { pieces: (readonly string[])[]; known: boole
   return { pieces, known }
 }
 
+/** A piece every Latin reading writes as a letter: not `ь`, `й`, `ъ`, an apostrophe or a digit. */
+const isWrittenLetter = (readings: readonly string[]): boolean =>
+  readings.length > 0 && !readings.includes('') && /^\p{L}/u.test(readings[0] as string)
+
+/**
+ * The pieces of `part` every Latin reading writes as a letter: `Ільйь` has five letters, but `й`
+ * and `ь` may read as nothing, so it counts two and may read `il`. With `primaryOnly` (the source
+ * `transliteratedNameSource` builds past the budget) only the first reading is written, so `й`
+ * counts (`y`) and `ь` does not.
+ */
+export function writtenLetterCount(part: string, primaryOnly: boolean): number {
+  return readPieces(part).pieces.filter((readings) =>
+    primaryOnly ? /^\p{L}/u.test(readings[0] ?? '') : isWrittenLetter(readings),
+  ).length
+}
+
 /**
  * How many readings of a piece can match at one text position: the longest chain of readings each
  * a prefix of the next (`''` is a prefix of all). A prefix-free row is 1.
@@ -195,7 +212,8 @@ export function transliteratedNameSource(
   if (!CYRILLIC_LETTER.test(part)) return null
   const { pieces, known } = readPieces(part)
   if (!known) return null
-  if (!pieces.some((readings) => readings.length > 0 && !readings.includes(''))) return null
+  // a mandatory piece that is no letter (`ь.`, `й7`) would leave a source matching any `.` or `7`
+  if (!pieces.some((readings) => isWrittenLetter(readings))) return null
   return pieces
     .map((readings) => (primaryOnly ? escapeRegExp(readings[0] ?? '') : letterSource(readings)))
     .join('')
