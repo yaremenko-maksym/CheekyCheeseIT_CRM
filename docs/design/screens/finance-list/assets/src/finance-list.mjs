@@ -42,7 +42,7 @@ export const ROWS = [
     'Бета',
     'PENDING',
     '$4 800,00',
-    { act: 'Валідувати' },
+    { act: 'Валідувати', share: '20 %' },
   ),
   R(
     'Сьогодні',
@@ -88,6 +88,22 @@ export const ROWS = [
     '≈ $6 250,00',
     { orig: '257 812,50 UAH', usd: 6250, uah: 257812.5 },
   ),
+  // M20: the SENIOR, HR, JUNIOR and DROP pages draw these same rows (roles.mjs derives them).
+  R(
+    'Вчора',
+    '16.11',
+    'Клієнт «Схід»',
+    'Олег Демо',
+    'SENIOR_INCOME',
+    'Гамма',
+    'VALIDATED',
+    '$2 600,00',
+    { share: '20 %' },
+  ),
+  R('Вчора', '16.11', 'Рахунок компанії', 'Марта Демо', 'SALARY', '—', 'PENDING', '$1 300,00', {
+    act: 'Розрахуватися',
+    month: 'Листопад 2026',
+  }),
   R(
     '15 листопада',
     '15.11',
@@ -118,7 +134,7 @@ export const ROWS = [
     'Гамма',
     'PENDING',
     '$2 900,00',
-    { act: 'Валідувати' },
+    { act: 'Валідувати', share: '20 %' },
   ),
   R(
     '14 листопада',
@@ -140,6 +156,7 @@ export const ROWS = [
     'Альфа',
     'VALIDATED',
     '$3 400,00',
+    { share: '30 %' },
   ),
   R(
     '14 листопада',
@@ -148,18 +165,84 @@ export const ROWS = [
     'Олег Демо',
     'SENIOR_INCOME',
     'Альфа',
-    'PENDING',
+    'REJECTED',
     '$1 750,00',
-    { act: 'Валідувати' },
+    { reason: 'Сума не збігається з рахунком клієнта', share: '20 %' },
+  ),
+  R(
+    '13 листопада',
+    '13.11',
+    'Клієнт «Північ»',
+    'Олег Демо',
+    'SENIOR_INCOME',
+    'Бета',
+    'PAID',
+    '$3 100,00',
+    { share: '20 %' },
   ),
   R('13 листопада', '13.11', 'Рахунок компанії', 'Обладнання', 'EXPENSE', '—', 'PAID', '$310,00', {
     att: true,
   }),
   R('13 листопада', '13.11', 'Рахунок компанії', 'Банк', 'EXPENSE', '—', 'PAID', '$12,50'),
 ]
+// Rows of the drop, the HR and the JUNIOR viewer dated inside the first page (M20); they sort in
+// among the filler rows by date.
+const OLDER = [
+  R(
+    '12 листопада',
+    '12.11',
+    'Клієнт «Північ»',
+    'Дроп Демо',
+    'DROP_INCOME',
+    'Бета',
+    'PENDING',
+    '$1 800,00',
+    { act: 'Валідувати', share: '30 %' },
+  ),
+  R(
+    '11 листопада',
+    '11.11',
+    'Дроп Демо',
+    'Рахунок компанії',
+    'PAYOUT',
+    '—',
+    'PENDING_PAYMENT',
+    '$700,00',
+    { act: 'Підтвердити оплату' },
+  ),
+  R(
+    '10 листопада',
+    '10.11',
+    'Клієнт «Схід»',
+    'Дроп Демо',
+    'DROP_INCOME',
+    'Гамма',
+    'PENDING_PAYMENT',
+    '$1 000,00',
+    { share: '30 %' },
+  ),
+  R('5 листопада', '05.11', 'Рахунок компанії', 'Марта Демо', 'SALARY', '—', 'PAID', '$1 300,00', {
+    month: 'Жовтень 2026',
+  }),
+  R(
+    '5 листопада',
+    '05.11',
+    'Рахунок компанії',
+    'Розробник 4',
+    'SALARY',
+    'Альфа',
+    'PAID',
+    '$2 150,00',
+    {
+      month: 'Жовтень 2026',
+    },
+  ),
+  R('1 листопада', '01.11', 'Дроп Демо', 'Рахунок компанії', 'PAYOUT', '—', 'PAID', '$640,00'),
+]
 
 // Old paid rows that fill the first page to its 50 rows, so the pager «1–50 з 132» counts rows the
-// table really holds (P7). Days run back from 12 November, two rows a day.
+// table really holds (P7). Days run back from 12 November, two rows a day. «Розробник 4» is the
+// JUNIOR viewer: the filler never pays them, so their page and this one hold the same rows (M20).
 export const usd = (n) =>
   `$${Math.floor(n)
     .toString()
@@ -168,7 +251,7 @@ export const usd = (n) =>
     .padStart(2, '0')}`
 const SPEND = ['Оренда офісу', 'Хмарний хостинг', 'Дизайн-інструмент', 'Обладнання', 'Банк']
 const GEN = { 10: 'жовтня', 11: 'листопада' }
-export const FILLER = Array.from({ length: 36 }, (_, i) => {
+export const FILLER = Array.from({ length: 50 - ROWS.length - OLDER.length }, (_, i) => {
   const date = new Date(Date.UTC(2026, 10, 12 - Math.floor(i / 2)))
   const dd = date.getUTCDate()
   const mm = date.getUTCMonth() + 1
@@ -177,7 +260,7 @@ export const FILLER = Array.from({ length: 36 }, (_, i) => {
     `${dd} ${GEN[mm]}`,
     `${String(dd).padStart(2, '0')}.${mm}`,
     'Рахунок компанії',
-    salary ? `Розробник ${(i % 7) + 1}` : SPEND[i % 5],
+    salary ? `Розробник ${[1, 2, 3, 5, 6, 7][(i / 3) % 6]}` : SPEND[i % 5],
     salary ? 'SALARY' : 'EXPENSE',
     salary ? 'Бета' : '—',
     'PAID',
@@ -185,8 +268,9 @@ export const FILLER = Array.from({ length: 36 }, (_, i) => {
     salary ? { month: 'Жовтень 2026' } : {},
   )
 })
-// The first page of the ADMIN list holds 50 rows of 132.
-export const PAGE = [...ROWS, ...FILLER]
+// The first page of the ADMIN list holds 50 rows of 132, newest first.
+export const dayKey = (d) => +d.slice(3, 5) * 100 + +d.slice(0, 2)
+export const PAGE = [...ROWS, ...[...OLDER, ...FILLER].sort((a, b) => dayKey(b.d) - dayKey(a.d))]
 export const TOTAL = 132
 
 // The lead icon names the type only and carries no direction (P2): direction is the text line.
@@ -232,6 +316,9 @@ export const MARK = {
   unknown: `<span class="pill warn" role="status" style="${SMALL};gap:4px">${icon('circle-alert', { size: 12, stroke: 2.2 })}Результат невідомий</span>`,
   left: '<span class="t-foot muted">Не відповідає фільтру</span>',
 }
+// In a table cell the unknown marker is one word, the full text is its tooltip and accessible name,
+// so the pill stays on one line (R3-10, P11).
+const CELL_UNKNOWN = `<span class="pill warn" role="status" title="Результат невідомий" aria-label="Результат невідомий" style="gap:4px;height:22px;padding:0 8px;white-space:nowrap">${icon('circle-alert', { size: 12, stroke: 2.2 })}Невідомо</span>`
 const delPill = `<span class="pill" style="${SMALL}">Видалено</span>`
 // Status slot: the pill when the status needs someone (or the viewer can still act, OP-7), the
 // «Видалено» pill and the row-write marker. Never before the title (R1-20).
@@ -311,12 +398,14 @@ export function dayList(rows, opts = {}) {
     .join('')
 }
 
-// Search + one horizontally scrolling chip row (P6). With no filter: «Фільтри», the sort chip, then the
-// preset «Очікує валідації (n)» for ACCOUNTANT / ADMIN (P14, one tap to the existing status filter).
-// With a filter: the active chips come FIRST, then «Фільтри» and sort collapse to 44 px icon buttons
-// (badge = active count), so an active filter is never behind the fade. The whole active chip is one
+// Search + one chip row (P6). With no filter: the preset «Очікує валідації (n)» for ACCOUNTANT / ADMIN
+// (P14; n = rows the viewer can validate, M22), then «Фільтри» and sort; with no data (loading, error,
+// cold offline) the preset hides (`preset: 0`), as it does for the other roles. With a filter: the
+// active chips come FIRST in a scroller, and «Фільтри (n)» and sort are 44 px icon buttons pinned
+// outside it (R3-06), so the filter count and sort never scroll away. The whole active chip is one
 // 44 px button «Прибрати фільтр: …» (R1-15). `match`: «Показано n з N» under the row while a filter or
-// a search narrows the list; `data-match` lets render.mjs check n against the rows drawn.
+// a search narrows the list; n counts matches, not the rows drawn (R3-07), and `data-match` lets
+// render.mjs check the rows drawn against min(n, 50).
 export const badge = (n) =>
   `<b class="num" style="min-width:20px;height:20px;border-radius:10px;background:var(--primary);color:var(--primary-fg);font-size:12px;line-height:20px;text-align:center;padding:0 5px">${n}</b>`
 export function searchAndFilters({
@@ -326,20 +415,21 @@ export function searchAndFilters({
   sort = 'Дата',
   match = null,
   total = 132,
-  preset = 0,
+  preset = VALIDATE_N,
 } = {}) {
   const chip = (label, { on = false, name = '' } = {}) =>
     `<span class="row" role="button" ${name ? `aria-label="${name}" ` : ''}style="gap:6px;height:44px;padding:0 ${on ? 12 : 14}px 0 14px;border-radius:22px;font-size:15px;font-weight:500;white-space:nowrap;flex:none;${on ? 'background:var(--fg);color:var(--bg)' : 'background:var(--surface);color:var(--fg);border:1px solid var(--border)'}">${label}${on ? `<span aria-hidden="true" style="display:grid">${icon('x', { size: 15, stroke: 2.2 })}</span>` : ''}</span>`
   const iconChip = (ic, name, extra = '') =>
     `<span class="row" role="button" aria-label="${name}" style="gap:4px;height:44px;min-width:44px;padding:0 ${extra ? 8 : 0}px 0 ${extra ? 10 : 0}px;justify-content:center;border-radius:22px;flex:none;background:var(--surface);border:1px solid var(--border)">${icon(ic, { size: 17 })}${extra}</span>`
   const narrowed = active.length > 0
-  const lead = narrowed
-    ? `${active.map((a) => chip(a, { on: true, name: `Прибрати фільтр: ${a}` })).join('')}${iconChip('sliders-horizontal', `Фільтри, активних: ${count}`, badge(count))}${iconChip('arrow-down', `Сортування: ${sort}`)}`
-    : preset
-      ? `${chip(`Очікує валідації ${badge(preset)}`, { name: `Показати транзакції, що очікують валідації: ${preset}` })}${iconChip('sliders-horizontal', 'Фільтри')}${iconChip('arrow-down', `Сортування: ${sort}`)}`
-      : `${chip(`${icon('sliders-horizontal', { size: 17 })}Фільтри`)}${chip(`${icon('arrow-down', { size: 15 })}${sort}`)}`
+  const lead = preset
+    ? `${chip(`Очікує валідації ${badge(preset)}`, { name: `Показати транзакції, які можна валідувати: ${preset}` })}${iconChip('sliders-horizontal', 'Фільтри')}${iconChip('arrow-down', `Сортування: ${sort}`)}`
+    : `${chip(`${icon('sliders-horizontal', { size: 17 })}Фільтри`)}${chip(`${icon('arrow-down', { size: 15 })}${sort}`)}`
   const fade =
-    '<span aria-hidden="true" style="position:absolute;right:0;top:0;bottom:6px;width:24px;background:linear-gradient(to right,transparent,var(--bg));pointer-events:none"></span>'
+    '<span aria-hidden="true" style="position:absolute;right:0;top:0;bottom:0;width:24px;background:linear-gradient(to right,transparent,var(--bg));pointer-events:none"></span>'
+  const chipRow = narrowed
+    ? `<div class="row" style="gap:8px;padding:0 16px 6px"><div style="position:relative;flex:1;min-width:0"><div class="row" style="gap:8px;overflow-x:auto;scrollbar-width:none;padding-right:16px">${active.map((a) => chip(a, { on: true, name: `Прибрати фільтр: ${a}` })).join('')}</div>${active.length > 1 ? fade : ''}</div>${iconChip('sliders-horizontal', `Фільтри, активних: ${count}`, badge(count))}${iconChip('arrow-down', `Сортування: ${sort}`)}</div>`
+    : `<div class="row" style="gap:8px;padding:0 16px 6px;overflow-x:auto;scrollbar-width:none">${lead}</div>`
   const clear = q
     ? `<span class="iconbtn" role="button" aria-label="Очистити пошук" style="width:44px;height:44px;margin-right:-12px;color:var(--muted-fg)">${icon('circle-x', { size: 18 })}</span>`
     : ''
@@ -348,7 +438,7 @@ export function searchAndFilters({
       ? ''
       : `<div class="t-foot muted num" role="status" data-match="${match}" style="padding:4px 16px 2px">Показано ${match} з ${total}</div>`
   return `<div style="padding:4px 16px 10px"><div class="row" role="searchbox" style="gap:8px;height:44px;border-radius:12px;background:var(--surface);padding:0 12px;color:${q ? 'var(--fg)' : 'var(--placeholder)'};font-size:16px">${icon('search', { size: 18 })}<span class="grow trunc">${q || 'Пошук транзакцій'}</span>${clear}</div></div>
-  <div style="position:relative"><div class="row" style="gap:8px;padding:0 16px 6px;overflow-x:auto;scrollbar-width:none">${lead}</div>${narrowed ? fade : ''}</div>${matchLine}`
+  ${chipRow}${matchLine}`
 }
 
 // ---------- Tablet (640–1023): rail + one pane (role-aware copy of the foundation rail) ----------
@@ -491,13 +581,16 @@ const tdPill = (html) => {
 // An inline action that the column cannot hold goes into «…» (P11): the cap is 19 characters.
 export const INLINE_MAX = 19
 
-// Columns at ≥ 1280: Дата 76 (96 when a row shows a year) · Учасник flex · Тип 140 · Проєкт 130 ·
-// Статус 170 · Сума 150 · Дії sized to the longest inline action (max 220). At 1024–1279 type and
-// project share a column and Дії is the «…» only (its first item is the primary). The Учасник cell is
-// two lines at every width (P2): line one the party that is not the company, line two the direction.
-// `coarse`: a touch pointer at desktop width — 52 px rows, «…» and the inline primary always visible
-// at 44 px at any width (§3.7). `blocked`: the index of a row whose money action is disabled after an
-// unknown outcome (P1); its inline action is drawn `aria-disabled` with the reason.
+// Columns at ≥ 1440: Дата 76 (112 when a row shows a year) · Учасник flex, never under 220 ·
+// Тип 140 · Проєкт 130, above 1440 its content up to 200 · Статус 170 · Сума 150 · Дії sized to the
+// longest inline action (max 220). Below 1440 (R3-05) type and project share a column (120), Статус
+// 128, Сума 130 and Дії is the «…» only, under a coarse pointer too (its first item is the primary),
+// so Учасник keeps 220 px; render.mjs measures it. The Учасник cell is two lines at every width (P2):
+// line one the party that is not the company, line two the direction. The Сума cell's second line is
+// the original amount, or the share and its source (M11). `coarse`: a touch pointer at desktop
+// width — 52 px rows, «…» always visible at 44 px; the inline primary shows where the wide columns
+// apply (§3.7). `blocked`: the index of a row whose money action is disabled after an unknown outcome
+// (P1); its inline action is drawn `aria-disabled` with the reason.
 export function table(
   rows,
   {
@@ -511,9 +604,9 @@ export function table(
     blocked = -1,
   } = {},
 ) {
-  const wide = w >= 1280
+  const wide = w >= 1440
   const head = `<tr>${sortTh('Дата', 'down')}<th>Учасник</th><th>${wide ? 'Тип' : 'Тип · проєкт'}</th>${wide ? '<th>Проєкт</th>' : ''}<th>Статус</th>${sortTh('Сума', '', 'r', { disabled: sortOff })}<th><span class="sr">Дії</span></th></tr>`
-  const inline = canAct && (wide || coarse)
+  const inline = canAct && wide
   const fits = (x) => x.act && x.act.length <= INLINE_MAX
   const longest = Math.max(0, ...rows.map((x) => (fits(x) ? x.act.length : 0)))
   const moreW = coarse ? 44 : 28
@@ -521,8 +614,10 @@ export function table(
     inline && longest
       ? Math.min(coarse ? 260 : 220, 24 + moreW + 6 + Math.ceil(longest * 7.4) + 28)
       : 24 + moreW
-  const dateW = rows.some((x) => /\.\d{4}$/.test(x.d)) ? 96 : 76
-  const cols = `<colgroup><col style="width:${dateW}px"><col><col style="width:${wide ? 140 : 150}px">${wide ? '<col style="width:130px">' : ''}<col style="width:${wide ? 170 : 150}px"><col style="width:${wide ? 150 : 140}px"><col style="width:${actW}px"></colgroup>`
+  const dateW = rows.some((x) => /\.\d{4}$/.test(x.d)) ? 112 : 76
+  const longestProject = Math.max(0, ...rows.map((x) => (x.project ?? '').length))
+  const projW = w > 1440 ? Math.min(200, Math.max(130, 24 + Math.ceil(longestProject * 8.2))) : 130
+  const cols = `<colgroup><col style="width:${dateW}px"><col><col style="width:${wide ? 140 : 120}px">${wide ? `<col style="width:${projW}px">` : ''}<col style="width:${wide ? 170 : 128}px"><col style="width:${wide ? 150 : 130}px"><col style="width:${actW}px"></colgroup>`
   const tr = rows
     .map((x, i) => {
       const [typeLabel] = TYPE[x.type]
@@ -541,12 +636,12 @@ export function table(
       const status = [
         tdPill(pill(x.st)),
         x.deleted ? tdPill('<span class="pill" style="vertical-align:middle">Видалено</span>') : '',
-        x.mark && x.mark !== 'left' ? MARK[x.mark] : '',
+        x.mark === 'unknown' ? CELL_UNKNOWN : x.mark && x.mark !== 'left' ? MARK[x.mark] : '',
         x.mark === 'left' ? MARK.left : '',
       ]
         .filter(Boolean)
         .join('')
-      return `<tr data-tx ${i === sel ? 'aria-selected="true"' : ''} class="${i === hover ? 'hover' : ''}${x.deleted ? ' del' : ''}"><td class="num muted">${x.d}</td><td title="${direction(x)}" tabindex="-1">${party}</td><td class="muted">${typeLabel}${wide ? '' : x.project !== '—' ? ` · ${x.project}` : ''}</td>${wide ? `<td class="muted">${x.project}</td>` : ''}<td class="wrap" style="padding-top:6px;padding-bottom:6px"><span class="row" style="gap:6px;flex-wrap:wrap;min-width:0">${status}</span></td><td class="r"><span class="amount" style="font-size:14px">${x.a}</span>${x.orig ? `<div class="t-cap muted num" style="line-height:12px">${x.orig}</div>` : ''}</td><td class="r"><span class="row" style="gap:6px;justify-content:flex-end">${act}${more}</span></td></tr>`
+      return `<tr data-tx ${i === sel ? 'aria-selected="true"' : ''} class="${i === hover ? 'hover' : ''}${x.deleted ? ' del' : ''}"><td class="num muted">${x.d}</td><td title="${direction(x)}" tabindex="-1">${party}</td><td class="muted">${typeLabel}${wide ? '' : x.project !== '—' ? ` · ${x.project}` : ''}</td>${wide ? `<td class="muted">${x.project}</td>` : ''}<td class="wrap" style="padding-top:6px;padding-bottom:6px"><span class="row" style="gap:6px;flex-wrap:wrap;min-width:0">${status}</span></td><td class="r"><span class="amount" style="font-size:14px">${x.a}</span>${x.orig ? `<div class="t-cap muted num" style="line-height:12px">${x.orig}</div>` : x.share ? `<div class="t-cap muted" style="line-height:12px">Частка ${x.share} · проєкт</div>` : ''}</td><td class="r"><span class="row" style="gap:6px;justify-content:flex-end">${act}${more}</span></td></tr>`
     })
     .join('')
   const rowH = coarse ? 52 : 48
@@ -579,10 +674,14 @@ const mobileMain = (w, h) =>
     role: 'ADMIN',
     active: '/finance',
     title: 'Фінанси',
-    body: `${searchAndFilters({ preset: PENDING_N })}${dayList(ROWS)}`,
+    body: `${searchAndFilters()}${dayList(ROWS)}`,
   })
-// The status=PENDING count of the fixture: the preset chip (P14) and every «n з 132» for that filter.
+// The status=PENDING count of the fixture: every «n з 132» for that status filter (salaries included).
 export const PENDING_N = PAGE.filter((r) => r.st === 'PENDING').length
+// The preset chip counts only what the viewer can validate (M22): today's `validateQueue` predicate.
+export const canValidateRow = (r) =>
+  (r.type === 'SENIOR_INCOME' || r.type === 'DROP_INCOME') && r.st === 'PENDING'
+export const VALIDATE_N = PAGE.filter(canValidateRow).length
 // 640–899 single pane: the list column is capped at 560 px and start-aligned beside the rail (P8),
 // so the amount stays next to its title.
 export const CAP = (html) => `<div style="max-width:560px">${html}</div>`
@@ -590,7 +689,7 @@ const tabletMain = (w, h) =>
   tabletFrame({
     w,
     h,
-    body: CAP(`${searchAndFilters({ preset: PENDING_N })}${dayList(ROWS.slice(0, 10))}`),
+    body: CAP(`${searchAndFilters()}${dayList(ROWS.slice(0, 10))}`),
   })
 export const desktopMain = (w, h, opts = {}) =>
   desktopFrame({
