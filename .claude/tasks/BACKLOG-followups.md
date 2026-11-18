@@ -8409,3 +8409,49 @@ source-prefix delete in the replacement path.
 **Verify.** Each item has its own test that fails on the current behaviour and passes after the change.
 
 Sources: PR #1360 security review (SR2-L-2, SR3-L-2, SR4-L-1) and review on the same branch.
+
+## 460. Worker `/resume-write` does not check the keys inside `payload` (2026-11-18)
+
+**Symptoms.** `resumeWriteBodySchema` is strict for the body, but it accepts any JSON object as `payload`. A key the API
+never builds (a name, an email, a link), at the top level of `payload` or in an experience item, is sent on to the
+provider. Nothing in the shipped flow builds such a payload: `writingPayload` is its only producer and passes every
+free-text value through `redactAll`, and `toFeedback` does the same for feedback lines. So this is missing defence in
+depth, not a leak. A key allowlist cannot see a contact inside a free-text value; that stays the caller's redaction.
+
+**Candidate fix.** Give the `WritingPayload` shape a strict schema in the shared link contract and parse `payload` with it
+in the worker. The worker and the API then change together, so the worker is re-pinned with that deploy.
+
+**Verify.** A `/resume-write` body whose `payload` holds an unknown key, at the top level or in an experience item, gives
+400 and sends nothing; the same body without the key is sent.
+
+Sources: PR #1396 fix round (AC 15, probe of the worker), security finding SR-M-1. Owner question: do this before the
+OpenRouter route is enabled, or keep the caller's redaction as the only boundary.
+
+## 461. The mutation gate builds no mutants for `@crm/inference` (2026-11-18)
+
+**Symptoms.** `packages/inference` has no Stryker config, and `scripts/devops/mutation-gate.mjs --changed` reports mutants
+for `@crm/shared`, `@crm/api` and `@crm/web` only. A change in the router therefore passes the gate with 0 mutants of its
+own. In PR #1396 the proof rule of `FLAG_REJECTED` and the `CREDIT` probe scope were covered by a red-then-green test log
+instead.
+
+**Candidate fix.** Add the package to the gate with its own Stryker config; measure the CI time first.
+
+**Verify.** A changed line under `packages/inference/src/router` appears as mutants in the gate's JSON report.
+
+Sources: PR #1396 fix round report.
+
+## 462. CI: the WebKit E2E shard fails when the apt lock stays held (2026-11-18)
+
+**Symptoms.** In the job `E2E (webkit-iphone)`, the step `Install Playwright system deps (cached run)`
+(`scripts/devops/install-playwright-system-deps.sh`) ends green with a `::warning::` when the apt lock stays held through
+both retry tiers. Its reasoning holds for Chromium, which the runner image already serves. It does not hold for WebKit:
+the browser then fails to start for a missing `libwoff2dec` library, and every case of the shard fails. Seen on `main`,
+PR #1396 and PR #1399 on 2026-11-17 and 2026-11-18. `gh run rerun <run id> --failed` clears it.
+
+**Candidate fix.** For a shard whose browser needs libraries the image does not ship, end the step red when the install
+was skipped (or check that the library is present after the step), so the job fails at the install step with a named
+reason.
+
+**Verify.** A WebKit run whose apt lock is held ends red at the install step, not in the test step.
+
+Sources: CI runs of PR #1396 and PR #1399.

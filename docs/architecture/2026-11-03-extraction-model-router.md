@@ -335,6 +335,18 @@ operators. No code path waits on it, so an error here delays a retry by one cycl
     collection side and again in the extraction worker, §2.4) becomes **the** privacy control for OpenRouter. No
     provider-side setting stands behind it. So it is **mandatory on every hosted route**: no config value, route or
     provider can skip it.
+  - **Resume fields also travel on this route** (owner decision Q1 of the tailored-resume spec, 2026-11-10: the
+    whole free pool, "the OpenRouter `:free` route joins when job sourcing builds it"). `/resume-write` shares the
+    router port, and its `largest` preference sorts models across routes. So an OpenRouter `:free` model larger than
+    Groq's `openai/gpt-oss-120b` takes the first request, and a smaller one yields to Groq. The name and contacts
+    never leave (A4 of that spec).
+    - The control on this path is the caller's redaction, not `stripContacts`. `writingPayload` is the only producer
+      of the payload, and it passes every free-text value through `redactAll`; `toFeedback` does the same for every
+      feedback line.
+    - The worker refuses any field beside `task`, `payload` and `feedback`. It does not check what is inside
+      `payload`, and a key allowlist there could not see a contact inside a free-text value. Such an allowlist is
+      defence in depth only (backlog item 460).
+    - `/visual-check` sends nothing to OpenRouter: only a Gemini model is vision-capable (`isVisionCapable`).
   - **Test obligation.** For each hosted provider (`gemini`, `groq`, `openrouter`), a router-level privacy test sends an
     input carrying every contact shape `stripContacts` handles. It asserts that the outgoing request body holds none of
     them, and that no code path reaches a leaf without passing the strip. It runs in the inference privacy specs and the
@@ -443,6 +455,8 @@ Facts, each with its primary source: `docs/architecture/2026-11-17-cloudflare-wo
 - The contact strip of H.9 runs in the extraction worker before the router picks a route, so it covers `cloudflare`
   without a change. The router privacy spec now also sends its markers (keys, page text, provider bodies, the account
   id) through Cloudflare and asserts that none of them reaches a log, an event or an error.
+- The OpenRouter `:free` route joins this pool once it is configured (Q1 of the tailored-resume spec). H.9 D11 names
+  the control for it.
 
 ## Context
 
@@ -996,7 +1010,9 @@ refresh and a pattern standing in for the missing free-tier field are not in VCF
      - `provider.ignore` from config (OD-2: empty).
 
      Never a `models` fallback array, a `route` field or `transforms`: each would let OpenRouter pick a model this guard
-     did not check. A builder that cannot produce these fields disables the route; it never sends without them.
+     did not check. A request whose fields cannot be built is never sent: the call ends as `TRANSPORT` and moves to the
+     next route. This holds on every call and is not a persisted state. The config schema refuses such a route at load,
+     so no config reaches it.
 
   4. **The key's USD `limit` is $0** (an owner setting; the key showed `limit: 0` on 2026-11-08). Even if the three checks
      above failed, a paid request has no spend to draw on. The 5.4c-5 smoke confirms that `:free` calls succeed under a $0
@@ -1011,9 +1027,17 @@ refresh and a pattern standing in for the missing free-tier field are not in VCF
   - **`FLAG_REJECTED`** is classified **before** `RETIRED`, or it retires good models. It covers a 404 whose
     `error.message` reports that no endpoint matches the data policy, and a 400 that refuses a routing parameter. The
     call moves to the next route; it is never retried without the flag, and the own-cap unit is released.
-    - On a production request, it sets a persisted provider bit. A 2xx probe clears it, and the probe must carry every
-      production field to the model the bit was recorded against (or the current first model, if that one is retired).
-      The start-up refresh can be that probe.
+    - On a production request, it sets a persisted provider bit. A 2xx probe of the **proof model** clears it, and the
+      probe must carry every production field.
+      - The proof model is the model the bit was recorded against, for as long as that model is in the provider's
+        vetted list and not retired. It stays the proof model while it is spent for the day, cooling down or not
+        probed in this sweep; then a 2xx of another model does not clear the bit.
+      - When that model is retired or gone from the vetted list, the first vetted model that is not retired is the
+        proof model.
+      - The start-up refresh and the daily refresh probe the proof model first, also after an OK call. When that
+        probe is itself rejected, the same refresh sends one more probe, to the model that is now first. So a refresh
+        sends at most two proof probes, and each takes its own unit of the own cap. The chain check sends no second
+        proof probe.
     - On a probe, that model becomes ineligible, and the provider bit is never set.
   - **`SPENT_DAY`**: a 429 whose `error.message` holds the whole token `free-models-per-day`. The model, and with it the
     provider (the limit is per account, not per model), is spent until the reset.
@@ -1022,7 +1046,8 @@ refresh and a pattern standing in for the missing free-tier field are not in VCF
   - **`CREDIT`**: a 402, or the key's limit reached. The provider is off until the bit clears, and the event is loud.
     A prepaid balance never resets, so for OpenRouter the bit is cleared the way `AUTH` is (§3.2): a keyed chat probe
     that returns 2xx, at the start-up refresh or the daily one. The owner tops up or raises the key limit; the next
-    probe brings the provider back.
+    probe brings the provider back. A probe answered 402 sets the bit and stops the sweep for OpenRouter only
+    (`isCreditHeldUntilProof`); a Gemini or Groq probe answered 402 sets no bit, and the sweep runs on.
   - **`AUTH`**: a 401, or a 403 with the documented error envelope.
   - **`RETIRED`**: a 404 that is not `FLAG_REJECTED` goes to `retiredAnswer` (request-time retirement, §5.1), unchanged.
 - **Egress.** `openrouter.ai` only, listing included.
@@ -1030,7 +1055,7 @@ refresh and a pattern standing in for the missing free-tier field are not in VCF
   - hostile ids: suffixes, the `openrouter` author, path tricks, case;
   - the free filter, including a price present as `"0.0000001"`, missing or `null`;
   - the request-field assertion on all three request kinds;
-  - a disabled route when a field cannot be built;
+  - nothing sent when a field cannot be built;
   - classification fixtures for each marker above, and a literal "free-models-per-day" in a page-echoing message that
     must not match outside `error.message`.
 
