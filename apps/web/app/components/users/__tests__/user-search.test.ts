@@ -25,9 +25,14 @@ describe('matchesUserQuery', () => {
   })
 
   it('matches the localized technical-role label the row renders', () => {
-    const label = ukLabel('BACKEND_ENGINEER')
-    expect(label).not.toBe('BACKEND_ENGINEER')
-    expect(matchesUserQuery(senior(), label.slice(0, 5), ukLabel)).toBe(true)
+    // A stub resolver, not the catalog: its text shares nothing with the key, so a match can only
+    // have come from the label clause. (With the real uk label, a prefix of it can also be a
+    // substring of the key, and the test would pass with the label clause deleted.)
+    const stub = () => 'Ляльковий підпис'
+    expect(matchesUserQuery(senior(), 'ляльковий підпис', stub)).toBe(true)
+    expect(matchesUserQuery(senior(), 'ляльковий підпис', ukLabel)).toBe(false)
+    // and the real catalog label the row actually renders matches too
+    expect(matchesUserQuery(senior(), ukLabel('BACKEND_ENGINEER'), ukLabel)).toBe(true)
   })
 
   it('does not match a role the user does not hold', () => {
@@ -42,6 +47,13 @@ describe('matchesUserQuery', () => {
     expect(matchesUserQuery(u, '@petr', ukLabel)).toBe(true)
     expect(matchesUserQuery(u, 'go', ukLabel)).toBe(true)
     expect(matchesUserQuery(u, 'rust', ukLabel)).toBe(false)
+  })
+
+  it('searches every entry of a multi-item techStack', () => {
+    const u = senior({ techStack: ['Go', 'PostgreSQL'], technicalRoles: [] })
+    expect(matchesUserQuery(u, 'postgres', ukLabel)).toBe(true)
+    // the ', ' the join inserts is not itself matchable content
+    expect(matchesUserQuery(u, 'go, postgresql', ukLabel)).toBe(true)
   })
 
   it('an empty or whitespace-only query matches everyone', () => {

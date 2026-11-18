@@ -330,11 +330,12 @@ describe('UsersService.changeSalary — zero-row UPDATE', () => {
       code('ENTITLEMENT_TARGET_ARCHIVED', 400),
     )
     expect(ops(h.log)).toEqual(['select', 'update', 'select'])
+    // SR-L-2: `role` rides along in the same re-read (it tells a demotion apart from an archival).
     expect(h.log[2]).toEqual({
       op: 'select',
       on: 'db',
       table: 'users',
-      fields: ['archivedAt'],
+      fields: ['archivedAt', 'role'],
       where: PLAIN_WHERE,
       params: ['target-1'],
     })

@@ -960,7 +960,9 @@ describe('UsersService.adminUpdateUser — updateUserRow choke point (archived r
     expect(h.log.some((e) => e.op === 'select' && e.on === 'tx')).toBe(false)
   })
 
-  it('zero rows with an entitlement change + row archived meanwhile -> 400 (re-read on tx, archivedAt only)', async () => {
+  // SR-L-2: the re-read now also carries `role` — the zero-row path has to tell an archival apart
+  // from a demotion that landed between the read of `existing` and this statement.
+  it('zero rows with an entitlement change + row archived meanwhile -> 400 (re-read on tx, archivedAt + role)', async () => {
     const h = makeHarness({ updated: [], reread: { archivedAt: new Date() } })
     await expect(edit(h, { role: 'HR' }, 'a')).rejects.toMatchObject(
       code('ENTITLEMENT_TARGET_ARCHIVED', 400),
@@ -969,7 +971,7 @@ describe('UsersService.adminUpdateUser — updateUserRow choke point (archived r
       op: 'select',
       on: 'tx',
       table: 'users',
-      fields: ['archivedAt'],
+      fields: ['archivedAt', 'role'],
       where: '"users"."id" = $1',
       params: ['target-1'],
     })

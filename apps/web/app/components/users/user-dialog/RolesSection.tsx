@@ -83,11 +83,14 @@ export function RolesSection({
   }
 
   function remove(role: SeniorSelectableRole) {
-    // A removal is not a pick: no row to restore, and a pick's row is stale by now. Defensive
-    // (CR-L): `onValueChange` below already consumes the ref on BOTH paths — the keyboard one and
-    // the tap one, where the controlled `value` change makes cmdk emit — so no test can
-    // distinguish this line today. It costs nothing and holds if cmdk stops emitting on a tap.
-    // Stryker disable next-line BlockStatement,ObjectLiteral: equivalent mutant — see above, the ref is already undefined here on every reachable path
+    // A removal is not a pick: no row to restore, and a pick's row is stale by now. The ref does
+    // survive a tap-pick — cmdk emits no `onValueChange` when the list changes under it, measured, so
+    // only the keyboard path consumes it — and without this line the `[value]` effect above would
+    // replay that row on every later removal. The replay is unobservable today: the effect already
+    // set `highlight` to that same row at the pick, and everything that moves the highlight afterwards
+    // goes through `onValueChange`, which clears the ref. So it could only re-set the value already
+    // there. Kept as the invariant (CR-L), not as a fix for a reachable bug.
+    // Stryker disable next-line BlockStatement,ObjectLiteral: equivalent mutant — the replay this prevents can only re-set the current highlight (see above)
     pendingHighlight.current = undefined
     const at = value.indexOf(role)
     const next = value[at + 1] ?? value[at - 1]
