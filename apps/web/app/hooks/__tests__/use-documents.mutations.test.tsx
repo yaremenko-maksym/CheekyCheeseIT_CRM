@@ -80,6 +80,21 @@ describe('useUploadDocument', () => {
       expect(toast.error).toHaveBeenCalledWith('Не вдалося завантажити документ. Спробуйте ще раз'),
     )
   })
+
+  // QA-M-1: «Підготовка файлу» means "nothing sent yet" — the caller hears 0 %
+  // when the request starts, before the first XHR progress event (if any).
+  it('reports 0 % when the request starts, before any progress event', async () => {
+    const onProgress = vi.fn()
+    const callsAtPost: unknown[][] = []
+    ;(api.post as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      callsAtPost.push(...onProgress.mock.calls)
+      return new Promise(() => {}) // in flight, no progress event
+    })
+    renderProbe(() => useUploadDocument(), { ...input, onProgress })
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() => expect(api.post).toHaveBeenCalled())
+    expect(callsAtPost).toEqual([[0]])
+  })
 })
 
 describe('useDeleteDocument', () => {

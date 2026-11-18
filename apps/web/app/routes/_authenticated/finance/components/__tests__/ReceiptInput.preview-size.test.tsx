@@ -110,6 +110,20 @@ describe('ReceiptInput — bounded image preview (iOS freeze regression)', () =>
     expect(sent.name).toBe('IMG_0001.jpg')
     expect(sent.size).toBe(1024)
   })
+
+  // QA-M-1: once POST /documents has started, the picker no longer claims
+  // «Підготовка файлу» (nothing sent yet), even before any progress event.
+  it('leaves «Підготовка файлу» as soon as the upload request starts', async () => {
+    renderHarness()
+    fireEvent.change(screen.getByTestId('receipt-input-file'), { target: { files: [photo] } })
+    expect(screen.getByTestId('receipt-input-progress-idle')).toHaveTextContent('Підготовка файлу…')
+
+    await waitFor(() => expect(post).toHaveBeenCalled())
+    const status = screen.getByTestId('receipt-input-progress')
+    expect(status).toHaveTextContent('Завантаження…')
+    expect(status).toHaveTextContent('0%')
+    expect(status).not.toHaveTextContent('Підготовка файлу…')
+  })
 })
 
 describe('ReceiptInput — async preview races (task-1316-fix1 item 1)', () => {

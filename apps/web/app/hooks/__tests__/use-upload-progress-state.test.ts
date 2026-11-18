@@ -30,6 +30,16 @@ describe('useUploadProgressState', () => {
     expect(result.current.state).toEqual({ phase: 'preparing' })
   })
 
+  // QA-M-1: the request-start tick leaves 'preparing' in the same commit — a
+  // stalled frame (Android, QA-L-2) must not keep «Підготовка файлу» on screen
+  // while bytes are already going out.
+  it('onProgress(0) leaves preparing at once, without waiting a frame', () => {
+    const { result } = renderHook(() => useUploadProgressState())
+    act(() => result.current.prepare())
+    act(() => result.current.onProgress(0))
+    expect(result.current.state).toEqual({ phase: 'uploading', percent: 0 })
+  })
+
   it('coalesces bursty onProgress ticks into a single commit with the latest value', async () => {
     const { result } = renderHook(() => useUploadProgressState())
     act(() => {
