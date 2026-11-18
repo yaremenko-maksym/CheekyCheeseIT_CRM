@@ -368,7 +368,13 @@ On the two-column desktop layout (≥ 1280) blocks 1, 3 and 4 stack in the left 
   Order unchanged from today: the 4 primary, then the 4 secondary. «Загальний дохід» carries the trend line
   «−16,3 % за місяць» (derived: the latest month against the previous one).
 - **«Контроль доходів»**: the 4 compliance tiles as a 2 × 2 grid, then receiver rows (avatar, name,
-  `<role> · <N активні проєкти>`, status pill, `x / y`, chevron), each expandable; footnote below.
+  `<role> · <N активні проєкти>`, status pill, `x / y`, then a chevron or a check). Only a receiver with open
+  projects is a disclosure button (`aria-expanded`, chevron) that expands its project rows; a complete
+  receiver («Усі отримано», `x = y`) shows a `--positive` check icon and is not interactive: no
+  `role="button"`, no `aria-expanded`, no expansion (today's `CheckCircle2` row, R4-01). Footnote below.
+  The tile «На валідації у бухгалтера» counts the PROJECTS on validation (today's `totals.pendingProjects`),
+  not receivers; accrued projects are booked and are not with the accountant, so they are not counted
+  (R4-02; `compliance-variants-*`: 4).
 - **FAB rule (M8).** The shell FAB must not cover the newest bar, the ‹ › stepper or «Разом». While the chart
   card intersects the FAB zone the FAB fades out (150 ms) and returns when it leaves. The first-viewport
   frames (`default-*`, `all-*`, `scrub-*`, the sheets, `stale-375`, `offline-375`) are drawn with the FAB

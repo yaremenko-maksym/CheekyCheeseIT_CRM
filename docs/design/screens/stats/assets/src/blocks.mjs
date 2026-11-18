@@ -152,6 +152,8 @@ export const ckFor = (list) => {
   const sumS = list.reduce((a, r) => a + r.s, 0)
   const sumP = list.reduce((a, r) => a + r.p, 0)
   const n = (st) => list.filter((r) => r.st === st).length
+  // today's `totals.pendingProjects` (R4-02): open PROJECT rows on validation; accrued ones are not with the accountant
+  const pendingProjects = list.reduce((a, r) => a + r.open.filter((o) => o[2] === 'pending').length, 0)
   return [
     [
       'Усього доходів',
@@ -160,7 +162,7 @@ export const ckFor = (list) => {
     ],
     ['Закриті повністю', String(n('ok')), recv(n('ok'))],
     ['Відстають', String(n('lag')), recv(n('lag'))],
-    ['На валідації у бухгалтера', String(n('pend')), inc(n('pend'))],
+    ['На валідації у бухгалтера', String(pendingProjects), inc(pendingProjects)],
   ]
 }
 export const CK = ckFor(RECEIVERS)
@@ -186,6 +188,14 @@ const openRow = (proj, client, st) =>
 /** One row per project without credited income: exactly `p - s` rows, derived from the fixture (R2-13). */
 const projectsOpen = (r) =>
   `<div style="padding:4px 16px 12px 64px;background:var(--surface)"><div class="t-over" style="padding:8px 0 4px">Проєкти без зарахованого доходу</div>${r.open.map(([p_, c, st]) => openRow(p_, c, st)).join('')}</div>`
+// Today's row (R4-01): only a receiver with open projects is a disclosure button with a chevron; a complete one
+// shows a check icon and is not interactive (no role, no aria-expanded, nothing to expand).
+const disclosure = (r, open) =>
+  r.open.length ? `role="button" aria-expanded="${open}"` : 'data-complete="true"'
+const rowEnd = (r, open, size) =>
+  r.open.length
+    ? `<span class="chev">${icon(open ? 'chevron-up' : 'chevron-down', { size })}</span>`
+    : `<span class="chev" style="color:var(--positive)" aria-hidden="true">${icon('circle-check', { size })}</span>`
 const track = (r, w) =>
   `<span aria-hidden="true" style="${w ? `width:${w}px;flex:none` : 'flex:1'};min-width:40px;height:6px;border-radius:3px;background:var(--surface)"><i style="display:block;height:6px;border-radius:3px;width:${(r.s / r.p) * 100}%;background:${r.st === 'ok' ? 'var(--positive)' : 'var(--muted-fg)'}"></i></span>`
 
@@ -214,8 +224,8 @@ export function complianceList({
     .join('')}</div>`
   const rows = list
     .map((r, i) => {
-      const open = expanded === 'all' || i === expanded
-      return `<div class="lrow two" role="button" aria-expanded="${open}" style="--inset:64px">${avatar(r.i, 9)}<div class="grow col" style="gap:3px;min-width:0"><div class="row" style="gap:8px"><span class="t-body trunc grow">${r.n}</span>${bar ? track(r, 160) : ''}<span class="t-foot num" style="flex:none">${r.s} / ${r.p}</span></div><div class="row" style="gap:6px;flex-wrap:wrap"><span class="t-foot muted">${ROLE[r.role]} · ${PROJECTS(r.p)}</span>${statusPill(r)}</div></div><span class="chev">${icon(open ? 'chevron-up' : 'chevron-down', { size: 18 })}</span></div>${open ? projectsOpen(r) : ''}`
+      const open = r.open.length > 0 && (expanded === 'all' || i === expanded)
+      return `<div class="lrow two" ${disclosure(r, open)} style="--inset:64px">${avatar(r.i, 9)}<div class="grow col" style="gap:3px;min-width:0"><div class="row" style="gap:8px"><span class="t-body trunc grow">${r.n}</span>${bar ? track(r, 160) : ''}<span class="t-foot num" style="flex:none">${r.s} / ${r.p}</span></div><div class="row" style="gap:6px;flex-wrap:wrap"><span class="t-foot muted">${ROLE[r.role]} · ${PROJECTS(r.p)}</span>${statusPill(r)}</div></div>${rowEnd(r, open, 18)}</div>${open ? projectsOpen(r) : ''}`
     })
     .join('')
   return `${head}${tiles}<div class="group">${rows}</div><div class="t-foot muted" style="padding:10px 20px 0">${COMPLIANCE_FOOT}</div>`
@@ -248,8 +258,8 @@ export function complianceDesk({
     .join('')}</div>`
   const rows = list
     .map((r, i) => {
-      const open = expanded === 'all' || i === expanded
-      return `<div class="row" role="button" aria-expanded="${open}" style="gap:12px;height:52px;border-top:1px solid var(--separator)">${avatar(r.i, 9, 32)}<span class="trunc ${bar ? '' : 'grow'}" title="${r.n}" style="${bar ? 'width:170px;' : 'min-width:0;'}flex:${bar ? 'none' : '1'};font-size:14px">${r.n}</span><span class="t-foot muted" style="width:250px;flex:none;white-space:nowrap">${ROLE[r.role]} · ${PROJECTS(r.p)}</span>${bar ? track(r) : ''}<span style="width:128px;flex:none;display:flex;justify-content:flex-end">${statusPill(r)}</span><span class="num t-foot" style="width:48px;flex:none;white-space:nowrap;text-align:right">${r.s} / ${r.p}</span><span class="chev">${icon(open ? 'chevron-up' : 'chevron-down', { size: 16 })}</span></div>${open ? `<div style="padding:4px 0 12px 56px;background:var(--surface);border-radius:var(--r-lg)"><div class="t-over" style="padding:8px 0 4px">Проєкти без зарахованого доходу</div>${r.open.map(([p_, c, st]) => `<div class="row" style="gap:8px;padding:4px 0"><span class="t-sub">${p_}</span><span class="t-foot muted grow">${c}</span>${openPill(st)}</div>`).join('')}</div>` : ''}`
+      const open = r.open.length > 0 && (expanded === 'all' || i === expanded)
+      return `<div class="row" ${disclosure(r, open)} style="gap:12px;height:52px;border-top:1px solid var(--separator)">${avatar(r.i, 9, 32)}<span class="trunc ${bar ? '' : 'grow'}" title="${r.n}" style="${bar ? 'width:170px;' : 'min-width:0;'}flex:${bar ? 'none' : '1'};font-size:14px">${r.n}</span><span class="t-foot muted" style="width:250px;flex:none;white-space:nowrap">${ROLE[r.role]} · ${PROJECTS(r.p)}</span>${bar ? track(r) : ''}<span style="width:128px;flex:none;display:flex;justify-content:flex-end">${statusPill(r)}</span><span class="num t-foot" style="width:48px;flex:none;white-space:nowrap;text-align:right">${r.s} / ${r.p}</span>${rowEnd(r, open, 16)}</div>${open ? `<div style="padding:4px 0 12px 56px;background:var(--surface);border-radius:var(--r-lg)"><div class="t-over" style="padding:8px 0 4px">Проєкти без зарахованого доходу</div>${r.open.map(([p_, c, st]) => `<div class="row" style="gap:8px;padding:4px 0"><span class="t-sub">${p_}</span><span class="t-foot muted grow">${c}</span>${openPill(st)}</div>`).join('')}</div>` : ''}`
     })
     .join('')
   return card(

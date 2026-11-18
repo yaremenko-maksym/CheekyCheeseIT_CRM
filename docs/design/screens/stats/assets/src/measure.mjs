@@ -121,6 +121,7 @@ const TARGETS = [
   ['hint-sheet-375', 44, PHONE],
   ['default-768', 44, 'section[aria-label="Статистика"]'],
   ['default-1000', 44, 'section[aria-label="Статистика"]'],
+  ['stale-768', 44, 'section[aria-label="Статистика"]'],
   ['touch-1024', 44, 'main, .device > div:not(nav)'],
   ['default-1440', 24, 'main, .device > div:not(nav)'],
 ]
@@ -248,6 +249,7 @@ for (const [strip, bare, w] of [
   ['offline-375', 'default-375', 375],
   ['cold-375', null, 375],
   ['stale-yesterday-320', 'default-320', 320],
+  ['stale-768', 'default-768', 768],
   ['stale-1440', 'default-1440', 1440],
   ['offline-1440', 'default-1440', 1440],
 ]) {
@@ -451,6 +453,81 @@ for (const name of [
     r.n > 0 && r.fails.length === 0,
     `${name}: ${r.n} text nodes measured (lowest ${(r.worst * 100).toFixed(0)} % of the required ratio), ${r.exempt} disabled exempt, ${r.unmeasured} unmeasured, ${r.fails.length} below the minimum${r.fails.length ? ': ' + r.fails.slice(0, 4).join(' | ') : ''}`,
   )
+}
+
+// ---- (8) receiver rows: only a row with open projects is a disclosure (R4-01) ----
+// A row is the element that ends in the `.chev` slot and carries the `x / y` count. Complete (x = y): no
+// role="button", no aria-expanded on it or above it, no chevron. Incomplete (x < y): a button with aria-expanded.
+console.log('\n== (8) Receiver rows: a complete row is not a disclosure (every frame) ==')
+const rowAudit = (page) =>
+  page.evaluate(() => {
+    const out = { complete: 0, open: 0, bad: [] }
+    for (const s of document.querySelectorAll('.device span')) {
+      const m = /^(\d+) \/ (\d+)$/.exec(s.textContent.trim())
+      if (!m || s.children.length) continue
+      const row = s.closest(':has(> .chev)')
+      if (!row) continue
+      const done = m[1] === m[2]
+      // lucide chevron-down / chevron-up path data
+      const glyph = row.querySelector(':scope > .chev').innerHTML
+      if (done) {
+        out.complete++
+        if (row.closest('[aria-expanded],[role=button]') || /m6 9|m18 15/.test(glyph))
+          out.bad.push(`complete ${m[0]} is a disclosure`)
+      } else {
+        out.open++
+        if (!row.matches('[role=button][aria-expanded]')) out.bad.push(`open ${m[0]} not a button`)
+      }
+    }
+    return out
+  })
+{
+  let complete = 0
+  let openRows = 0
+  let framesWithRows = 0
+  const bad = []
+  for (const f of all) {
+    const page = await open(f.name)
+    const r = await rowAudit(page)
+    await page.close()
+    if (r.complete + r.open) framesWithRows++
+    complete += r.complete
+    openRows += r.open
+    bad.push(...r.bad.map((b) => `${f.name}: ${b}`))
+  }
+  check(
+    complete > 0 && bad.length === 0,
+    `${all.length} frames, ${framesWithRows} with receiver rows: ${complete} complete rows (none a disclosure), ${openRows} rows with open projects (each a button with aria-expanded), ${bad.length} defects${bad.length ? ': ' + bad.slice(0, 4).join(' | ') : ''}`,
+  )
+}
+
+// ---- (9) «На валідації у бухгалтера» = the drawn pending-project pills (R4-02) ----
+// Only a frame that expands every receiver with open projects draws all project pills, so only those frames
+// can be compared; the project pill sits in the expanded detail, outside the receiver row (the row badge
+// «На валідації» is inside the row and not counted). At least two frames must qualify.
+console.log('\n== (9) Pending-validation tile against the drawn project pills ==')
+{
+  let compared = 0
+  for (const f of all) {
+    const page = await open(f.name)
+    const r = await page.evaluate(() => {
+      const label = [...document.querySelectorAll('.device div')].find(
+        (d) => d.children.length === 0 && d.textContent.trim() === 'На валідації у бухгалтера',
+      )
+      if (!label) return null
+      const rows = [...document.querySelectorAll('.device [aria-expanded]')]
+      if (!rows.length || rows.some((x) => x.getAttribute('aria-expanded') !== 'true')) return null
+      const pills = [...document.querySelectorAll('.device .pill')].filter(
+        (p) => p.textContent.trim() === 'На валідації' && !p.closest(':has(> .chev)'),
+      ).length
+      return { tile: Number(label.nextElementSibling?.textContent.trim()), pills }
+    })
+    await page.close()
+    if (!r) continue
+    compared++
+    check(r.tile === r.pills, `${f.name}: tile ${r.tile}, drawn «На валідації» project pills ${r.pills}`)
+  }
+  check(compared >= 2, `${compared} frames expand every receiver and were compared (at least 2)`)
 }
 
 await browser.close()
