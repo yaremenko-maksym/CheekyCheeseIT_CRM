@@ -74,7 +74,8 @@ line names where the body shows it.
   a field's own value, an "old → new" pair, a cascade row's value, a salary part and an amount
   quoted inside a rejection reason are unsigned on purpose. → Strings.
 - **M12** A locked (sent) draft is a record: sent values at full contrast, an absolute date and the send
-  time, no «змінити». → `inflight-*`, `unknown-resubmit-*`, `unknown-keyless-*`; open point 12.
+  time, no «змінити». → `inflight-*`, `unknown-resubmit-*`, `unknown-keyless-*`; open point 20 and
+  request 8.11.
 - **M13** Fixtures: one date constant (11 листопада 2026, the foundation list's «сьогодні») for sheet
   and list; the shell shows the viewer's role; the highlighted row behind an edit is the edited
   transaction; 422 frames keep the entered values; DROP frames show only DROP's rows; invented names.
@@ -85,8 +86,9 @@ line names where the body shows it.
   since) is "check the row", like a 400 / 409 after an unknown (open point 13).
 - **A1-3** An unknown edit closes the sheet, as a finance-list row write does; the entered values stay in
   memory under the row marker until it is resolved.
-- **A1-4** The permission-limited fixture is a PAYOUT row (label «Виплата», `−` sign), so «це виплата»
-  is literally true.
+- **A1-4** The permission-limited fixture is a PAYOUT row in the glossary's direction (M20): a senior
+  pays the company, «Сеньйор 1 → CheekyCheeseIT», so the banner's payout reason is literally true. The
+  `+` sign is the designer's reading (money into the company); the code shows the direction, not a sign.
 - **A1-5** Round 1 wording the council did not flag is kept (senior edit «Виправити дохід» /
   «Зберегти й надіслати», admin edit «Редагування» / «Зберегти зміни»). Attach takes today's pair
   «Прикріпити чек» / «Замінити чек» with the primaries «Прикріпити» / «Замінити», because M6 needs the
@@ -104,6 +106,64 @@ line names where the body shows it.
 - **A1-9** An unavailable save (blocked, stale or loading preview) is a flat `--secondary` fill with
   `--muted-fg` text (about 5:1), not a dimmed primary. The foundation has no `--muted` surface token.
   → `admin-edit-blocked-*`, `admin-edit-stale-*`, `admin-edit-preview-*`.
+
+Master decisions for council round 3 (M15–M30). M1–M14 stay in force.
+
+- **M15** The pinned draft row and its pill always carry the send time «· 14:32», visibly and in the
+  accessible name («…, надіслано о 14:32»). Drawn on the amount line of the pinned row and in the
+  pill's second line, because the foundation status line is truncated and full at 375. Open point 14
+  closes; the accessible-name half is foundation request 8.8. → "Save behaviour", `rollback-*`,
+  `unknown-closed-*`, `keyless-saving-375`.
+- **M16** The in-flight primary reads «Зберігаємо…» on every class and in every write kind (create,
+  admin edit, senior edit, attach). → `inflight-*`, `admin-edit-saving-*`, Strings.
+- **M17** The lifecycle sections ("Save behaviour", "Edit lifecycle") are the only source for what a
+  write does after submit; "For the coder" points to them and restates nothing. → "For the coder".
+- **M18** Target size follows the pointer, not the width: confirm-dialog buttons are 44 px under
+  `(pointer: coarse)` on every width and 36 px under `(pointer: fine)`. The foundation already says so
+  (`foundation.md`, "Density follows the pointer, not the width" and "Coarse-pointer hit areas
+  (binding)"); no change request. The mockup tool draws the pointer by width (1024 and up = fine) as a
+  stand-in. → "Layout per device class", `dirty-close-*`, `confirm-discard-*`.
+- **M19** A dirty form, an upload in flight and a write in flight each hold the service-worker reload
+  through the plan's Task 0.6 guard; no `beforeunload` prompt. A user-initiated reload keeps M9.
+  → "Closing", "Data".
+- **M20** A `PAYOUT` row is a senior paying the company (`CONTEXT.md`); money given to a person is a
+  settlement and is not drawn here. → `permission-limited-*`, A1-4.
+- **M21** Tablet: `admin-edit-cascade`, `admin-edit-date-reason`, `transfer-admin`,
+  `admin-income-accountant`, `dividend`, `senior-edit-rejected` and `long-content` are drawn at 768.
+  Every 640–1023 cell that stays a rule names the frame that proves it; loading, permission-limited,
+  attach and replace stay rules. The panel is 400 / 420 / 480 px (`primitives-v2.md` §2, Side panel).
+  → States, "Layout per device class".
+- **M22** «Опис» (and admin edit «Примітки») is a multi-line field that grows with its content up to 6
+  lines, then scrolls inside itself. The dividend subtitle is «Дивіденд адміністратору з рахунку
+  компанії» and wraps. → "Form", `long-content-*`, `kind-picker-768`.
+- **M23** EXPENSE has no «Проєкт» (`createExpenseSchema`): not in the defaults row, the expanded row,
+  the record, the saved row or "Field parity". "An expense attributed to a project" is open point 19
+  (the owner's, not drawn).
+- **M24** Closed-sheet outcome states are drawn: edit saving, edit failed, edit «Перевірте
+  транзакцію», refetch failed with «Повторити», keyless create saving. One sentence ranks the edit pill
+  against the draft pills (request 8.9). → States, "Edit lifecycle", A11y, `edit-*-closed-375`,
+  `edit-check-375`, `edit-refetch-failed-375`, `keyless-saving-375`.
+- **M25** The check «Нові записи» is the shell-v2 dialog from 640: "A centred 560 px dialog «Нові
+  записи» over the side panel; the panel stays mounted and keeps the draft" (`shell-v2.md` §4).
+  → `unknown-check-768`, `unknown-check-1440`.
+- **M26** At ≥ 1440 the list beside the non-modal panel reflows: «Проєкт» goes first (the foundation
+  table shows it only from a 1280 px window, `desktop.mjs`, and the list beside a 480 px panel at 1440
+  is narrower than the list of a 1024 window), then the title truncates; «Сума», the amount and the
+  code are never clipped (`primitives-v2.md` §10: titles truncate, amounts never truncate). Open point 9
+  closes. → every 1440 open-panel frame.
+- **M27** «Причина зміни дати» appears once the day differs from the stored one, with the 31-day hint;
+  it is required past the 31-day window (`FINANCE_TX_DATE_EDIT_REASON_REQUIRED`); a locked row never
+  shows it (`FINANCE_TX_DATE_LOCKED_ROW`). Source: `TxDateField.tsx` and its test. → "Admin edit, the
+  other preview and date states".
+- **M28** The page-kill marker extends to edits: the transaction id and the send time, never an amount
+  or a field value. After boot the row carries «Перевірте транзакцію» until a refetch settles it; the
+  entered values are lost. → "Edit lifecycle".
+- **M29** The obligation preview reads «буде створено частку {amount}» / "a share of {amount} will be
+  created"; the glossary's `_Avoid_` term is gone from the spec and the mockups. → `admin-income-usdt-*`,
+  Strings.
+- **M30** One fixture world: project «Альфа», category «Оплата послуги», no date after 11.11 (except the
+  14.11 that is the 422 error itself), and no empty required field in an armed, saving, failed or
+  confirm frame of a valid draft. Mockup profile cards show a role label, never a personal name.
 
 ## Current (what exists today)
 
@@ -933,8 +993,31 @@ the three is at 9.5 exactly; desktop rounds to it.
    6. Defaults row: each item is a no-wrap unit, and «змінити» is a 44 × 44 px button.
    7. `tablet()` / `desktop()` take a `role` parameter, so the mockup tool can drop the `withRole`
       patch (it reads the foundation frame's source text and throws if it changes).
-9. **The 1440 table behind the panel** is the foundation sample, and the finance list itself is Task
-   1.2's design. Recommendation: reconcile once 1.2 is approved.
+   8. Send time in the pinned draft row and the pill (M15): a `{time}` slot in both, and in their
+      accessible names («Відкрити чернетку −1 250,50 USD, надіслано о 14:32»). The foundation pinned
+      row has no time slot; the sheet draws it on the amount line. Recommendation: adopt.
+   9. Edit pills in the one-slot rank (M24). The foundation ranks drafts only («unknown > failed > in
+      flight > armed > saved», `money-form.mjs`, `RANK`). The screen's order: an unknown or
+      «Перевірте транзакцію» edit ranks with an unknown draft, a failed edit with a failed draft, a
+      saving edit with an in-flight draft, a saved edit with a saved draft; on a tie the newer write
+      shows, and the hidden one keeps its row marker, so it is never lost. Recommendation: the
+      foundation adds the edit states to `RANK`.
+   10. No toast on a rolled-back write: `foundation.md` ("Finance writes") says a keyed form is shown
+       "optimistically, with rollback and a visible error", and the matching frames are toasts
+       (`toast-error-*`); the sheet's visible error is the pill + pinned row + dot (M10, open point
+       10). Recommendation: the foundation names that as the visible error and drops the toast.
+   11. The locked record: the foundation's read-only unknown draft has "every control dimmed and
+       `aria-disabled`" (`primitives-v2.md` §5); the sheet draws the sent values at full contrast as a
+       record (M12, open point 20). Recommendation: the foundation adopts the full-contrast record.
+   12. A second save that completes while another draft's pill is failed or unknown: the foundation
+       shows "a normal success toast stacked above it" (`primitives-v2.md` §5); the sheet shows no
+       toast. The new list row appears in place (the
+       saved row is its own confirmation), the unresolved pill keeps the slot, and the saved write
+       is announced once in the screen's polite live region («Транзакцію збережено»).
+       Recommendation: the foundation replaces the toast with this.
+9. **Closed (M26).** The list beside the 1440 panel reflows: «Проєкт» goes first, then the title
+   truncates; «Сума», the amount and the code are never clipped. Drawn in every 1440 open-panel frame.
+   Reconciling the list itself with Task 1.2 stays Task 1.2's job.
 10. **The plan's Task 1.3 test names are replaced by the spec's** (M10; the plan file is Master's to
     amend). "rolled back with an error toast" → **"rolled back to a pill and a pinned row, no toast"**.
     "submit is disabled while in flight" → **"submit is `aria-disabled` and announces «Зберігаємо…»
@@ -946,9 +1029,8 @@ the three is at 9.5 exactly; desktop rounds to it.
     transaction». Recommendation: accept; the subtitle names the kind and amount.
 13. **"Some fields match" after an unknown edit** is treated as "check the row", not as saved or not
     saved (A1-2). Recommendation: accept; a partial match is the one case the client cannot settle.
-14. **Send time in the pinned row.** The foundation pinned row has no time slot, so the time rides in
-    the subtitle («· 14:32»), and the row's accessible name «Відкрити чернетку {amount}» does not carry
-    it. Recommendation: the foundation adds `{time}` to the row and to its accessible name.
+14. **Closed (M15).** The pinned row and the pill carry «· 14:32» visibly and in their accessible
+    names; the foundation half is request 8.8.
 15. **The 422 sample uses the catalog text** `FINANCE_TX_DATE_IN_FUTURE` («Для виконаної операції дата
     не може бути в майбутньому»). The foundation's 422 sample text for a closed month is not a catalog
     string (A1-6). Recommendation: the foundation replaces it with a catalog string.
@@ -962,6 +1044,12 @@ the three is at 9.5 exactly; desktop rounds to it.
 18. **No `--muted` token.** The foundation has no `--muted`, so an unavailable primary uses
     `--secondary` with `--muted-fg` text (about 5:1, A1-9). Recommendation: the foundation names a
     token for an unavailable primary.
+19. **An expense attributed to a project** (M23, the owner's). Today `createExpenseSchema` has no
+    project, so the sheet shows none for EXPENSE. Whether an expense should name a project is a product
+    question; nothing is drawn for it. Recommendation: none from design; it changes the schema first.
+20. **The locked record** (M12). A sent draft reopens as a record, not a disabled form: the sent values
+    at full contrast, «Надіслано 11 листопада о 14:32 · змінити не можна», no «змінити», no inputs.
+    Recommendation: accept; the foundation half is request 8.11.
 
 ## Council round 1
 
