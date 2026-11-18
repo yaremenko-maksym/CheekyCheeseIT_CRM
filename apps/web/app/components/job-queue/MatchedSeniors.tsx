@@ -141,7 +141,7 @@ function SkillOverlap({ senior }: { senior: JobQueueCardSeniorDto }) {
           <Plural
             value={overlap.total}
             one="# навички"
-            few="# навички"
+            few="# навичок"
             many="# навичок"
             other="# навички"
           />

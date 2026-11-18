@@ -223,6 +223,25 @@ describe('MatchedSeniors', () => {
     expect(row.textContent).toBe('0 з 7 навичок')
   })
 
+  // After «з» the count phrase is genitive: 1 takes «навички», 2-4 and 5+ both take
+  // «навичок» («з трьох навичок»), so `few` and `many` share one form.
+  it.each([
+    [1, '1 з 1 навички'],
+    [3, '1 з 3 навичок'],
+    [5, '1 з 5 навичок'],
+  ])('total %i reads «%s»', (total, label) => {
+    renderBlock(
+      cardFixture({
+        seniors: {
+          items: [senior({ skillOverlap: { kind: 'OVERLAP', matched: ['React'], total } })],
+          totalCount: 1,
+          nextCursor: null,
+        },
+      }),
+    )
+    expect(screen.getByTestId(`job-queue-senior-overlap-${S1}`)).toHaveTextContent(label)
+  })
+
   it('NO_RESUME says «немає резюме», never «0 з N»', () => {
     renderBlock(
       cardFixture({
@@ -283,7 +302,7 @@ describe('MatchedSeniors', () => {
         },
       }),
     )
-    expect(screen.getByTestId(`job-queue-senior-overlap-${S1}`)).toHaveTextContent('1 з 3 навички')
+    expect(screen.getByTestId(`job-queue-senior-overlap-${S1}`)).toHaveTextContent('1 з 3 навичок')
     expect(screen.queryByTestId(`job-queue-senior-overlap-${S2}`)).toBeNull()
     expect(screen.getByTestId(`job-queue-senior-no-resume-${S2}`)).toBeVisible()
   })
@@ -304,7 +323,7 @@ describe('MatchedSeniors', () => {
       }),
     )
     expect(screen.queryByText('Збіг за:')).toBeNull()
-    expect(screen.getByTestId(`job-queue-senior-overlap-${S1}`)).toHaveTextContent('1 з 4 навички')
+    expect(screen.getByTestId(`job-queue-senior-overlap-${S1}`)).toHaveTextContent('1 з 4 навичок')
   })
 
   it('NO_RESUME also hides the «Збіг за:» list', () => {

@@ -4455,6 +4455,12 @@ msgstr "Next version: v{0} (current — v{1})"
 msgid "Чистий прибуток за {0}: дохід мінус витрати та зарплати того місяця."
 msgstr "Net profit for {0}: income minus that month’s expenses and salaries."
 
+#. placeholder {0}: overlap.matched.length
+#. placeholder {1}: overlap.total
+#: apps/web/app/components/job-queue/MatchedSeniors.tsx
+msgid "{0} з {1, plural, one {# навички} few {# навичок} many {# навичок} other {# навички}}"
+msgstr "{0} of {1, plural, one {# skill} other {# skills}}"
+
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 msgid "Дія"
 msgstr "Action"
@@ -11459,12 +11465,6 @@ msgstr "An admin will see the reason and can propose a different share"
 #: apps/web/app/routes/_authenticated/interviews/components/LinkRecordingDialog.tsx
 msgid "Не вдалося прив'язати запис"
 msgstr "Couldn't link the recording"
-
-#. placeholder {0}: overlap.matched.length
-#. placeholder {1}: overlap.total
-#: apps/web/app/components/job-queue/MatchedSeniors.tsx
-msgid "{0} з {1, plural, one {# навички} few {# навички} many {# навичок} other {# навички}}"
-msgstr "{0} of {1, plural, one {# skill} other {# skills}}"
 
 #: apps/web/app/components/job-queue/JobQueueActions.tsx
 msgid "Скасувати подачу?"
