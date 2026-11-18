@@ -170,7 +170,9 @@ function kindBlock(c) {
   const L = c.loading
   switch (c.kind) {
     case 'ADMIN_INCOME': {
-      const project = pick('pr', 'Проєкт', c.project ?? 'Проєкт «Альфа»', { loading: L })
+      const project = c.projectErr
+        ? pick('pr', 'Проєкт', '', { err: c.projectErr })
+        : pick('pr', 'Проєкт', c.project ?? 'Проєкт «Альфа»', { loading: L })
       const recv =
         c.role === 'ACCOUNTANT'
           ? `<div class="field"><label>Рахунок отримувача</label>${segmented(['Власник проєкту', 'Рахунок компанії'], 0)}</div>`

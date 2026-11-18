@@ -760,6 +760,17 @@ export function frames() {
       receipt: 'usdt-link',
     }),
   )
+  // Round 3b (C4): client-side inline validation. A touched field validates on blur; submit focuses the
+  // first invalid field in reading order. The amount was left at 0, the project was never picked.
+  f.push(
+    ...at('field-error', ALL, {
+      kind: 'ADMIN_INCOME',
+      amount: '0',
+      amountErr: 'Сума має бути більшою за нуль',
+      projectErr: 'Виберіть проєкт',
+      receipt: 'done',
+    }),
+  )
   f.push(
     ...at('admin-income-accountant', [375, 768, 1440], {
       role: 'ACCOUNTANT',
