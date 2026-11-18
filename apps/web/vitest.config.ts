@@ -87,7 +87,13 @@ const FINANCE_SPECS = [
 
 export default defineConfig({
   plugins: [
-    react({ babel: { plugins: ['@lingui/babel-plugin-lingui-macro'] } }),
+    // Lingui macro BEFORE the React Compiler: compiler-first rewrites <Trans> children, so the
+    // macro hashes a different message id and the catalog lookup falls back to the source text.
+    react({
+      babel: {
+        plugins: ['@lingui/babel-plugin-lingui-macro', ['babel-plugin-react-compiler', {}]],
+      },
+    }),
     lingui(),
     tsconfigPaths(),
   ],
@@ -109,6 +115,8 @@ export default defineConfig({
   // shared schemas must see its OWN changes) removes the dependency on a
   // build step for tests altogether: nothing is left that can go stale.
   resolve: {
+    // One React copy for every importer, whatever pnpm's hoist layout holds.
+    dedupe: ['react', 'react-dom'],
     alias: {
       '@crm/shared': path.resolve(worktreeRoot, 'packages/shared/src/index.ts'),
       // task-i18n-stage2 (Task 6) — a SEPARATE alias, not a subpath of
