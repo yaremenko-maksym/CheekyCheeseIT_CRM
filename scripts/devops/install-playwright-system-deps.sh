@@ -893,10 +893,6 @@ _start_progress_sampler() {
   # Hence sudo, and `tail -1` so a surviving warning cannot displace the total.
   _sample_sudo=""
   command -v sudo >/dev/null 2>&1 && _sample_sudo="sudo -n"
-  # The sources are printed once, because the fix (an official archive, a cache
-  # of .debs, or neither) depends on which host this runner actually fetches
-  # from, and 24.04 keeps that in a deb822 `.sources` file, not sources.list.
-  echo "deps-progress sources: $(grep -rhoE '^(URIs:|deb[^ ]*) +[^ ]+' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>&1 | sort -u | tr '\n' ' ' | cut -c1-400)"
   (
     while :; do
       sleep "$DEPS_PROGRESS_SAMPLE_SECONDS"
@@ -923,7 +919,17 @@ _stop_progress_sampler() {
   _PROGRESS_SAMPLER_PID=""
 }
 
+# One line, ALWAYS, independent of the sampler: when a leg failed with
+# `E: Unable to locate package fonts-unifont` (job 134961852153) the one thing
+# missing from the log was which sources apt had at that moment — the dump then
+# lived inside the sampler, which was off. 24.04 keeps them in a deb822
+# `.sources` file, not in sources.list, so a `cat sources.list` shows nothing.
+_print_apt_sources() {
+  echo "apt sources: $(grep -rhoE '^(URIs:|deb[^ ]*) +[^ ]+' /etc/apt/sources.list /etc/apt/sources.list.d/ 2>&1 | sort -u | tr '\n' ' ' | cut -c1-400)"
+}
+
 trap _stop_progress_sampler EXIT
+_print_apt_sources
 _start_progress_sampler
 
 # Tier 1 — fast, catches quick blips (lock or otherwise) without extra

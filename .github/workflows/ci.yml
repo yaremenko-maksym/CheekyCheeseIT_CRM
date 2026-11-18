@@ -1890,7 +1890,16 @@ jobs:
       # drop-in that used to live here was removed with its test: a fetch
       # timeout only ever helps an INACTIVE socket, and this socket is never
       # inactive. Numbers and job ids: the two scripts' headers.
-      - name: Prefer the official Ubuntu archive over the ec2 mirror
+      # The same step also VERIFIES apt afterwards (refresh the lists, then
+      # check that the universe package `fonts-unifont` has a candidate),
+      # because one leg of 12 on 2026-11-18 (job 134961852153) had apt
+      # enumerate zero Ubuntu sources — including the direct
+      # `security.ubuntu.com` stanza, which the mirror list does not feed — and
+      # only found out three steps later as `exit 100` inside playwright. On a
+      # failed verification the step prints the sources state, rolls back its
+      # own rewrite and claims recovery only if the re-check passes. It still
+      # cannot fail the job.
+      - name: Prefer the official Ubuntu archive and verify apt's package lists
         if: steps.scope.outputs.code == 'true'
         run: bash scripts/devops/prefer-official-apt-mirror.sh
 
