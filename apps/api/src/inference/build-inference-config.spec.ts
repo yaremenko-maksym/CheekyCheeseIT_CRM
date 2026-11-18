@@ -126,6 +126,7 @@ describe('extractionWorkerEnvSchema', () => {
   it('refuses an empty hosted key', () => {
     expect(extractionWorkerEnvSchema.safeParse({ GEMINI_API_KEY: '' }).success).toBe(false)
     expect(extractionWorkerEnvSchema.safeParse({ GROQ_API_KEY: '' }).success).toBe(false)
+    expect(extractionWorkerEnvSchema.safeParse({ OPENROUTER_API_KEY: '' }).success).toBe(false)
   })
 
   it('parses the worker keys alone, without the API env', () => {
@@ -353,6 +354,51 @@ describe('buildRouterConfig', () => {
     })
   })
 
+  describe('the OpenRouter route (5.4c-H3)', () => {
+    const OR = {
+      provider: 'openrouter',
+      models: ['meta-llama/llama-3.3-70b-instruct:free'],
+      ...HOSTED_COMMON,
+      minGapMs: 3_000,
+      dataCollection: 'allow',
+    }
+    const WITH_OR = { ...RUNBOOK_SAMPLE, routes: [...RUNBOOK_SAMPLE.routes, OR] }
+
+    it('fills OPENROUTER_API_KEY from env into a config the router accepts', () => {
+      const cfg = buildRouterConfig(WITH_OR, { ...SAMPLE_ENV, OPENROUTER_API_KEY: 'O-ENV-KEY' })
+      const { routes } = cfg as Routes
+      expect(routes.map((r) => r.provider)).toEqual(['gemini', 'groq', 'cloudflare', 'openrouter'])
+      expect(routes[3]).toEqual({ ...OR, apiKey: 'O-ENV-KEY' })
+      expect(routerConfigSchema.safeParse(cfg).success).toBe(true)
+    })
+
+    it('drops the route when the key is absent, and never takes one from the JSON', () => {
+      const smuggled = {
+        ...WITH_OR,
+        routes: [...RUNBOOK_SAMPLE.routes, { ...OR, apiKey: 'JSON-KEY' }],
+      }
+      const cfg = buildRouterConfig(smuggled, SAMPLE_ENV) as Routes
+      expect(cfg.routes.map((r) => r.provider)).toEqual(['gemini', 'groq', 'cloudflare'])
+      expect(JSON.stringify(cfg)).not.toContain('JSON-KEY')
+    })
+
+    it('a route without dataCollection is handed on, so the router refuses the config', () => {
+      const { dataCollection: _d, ...bare } = OR
+      const cfg = buildRouterConfig(
+        { ...PARAMS, routes: [bare] },
+        { OPENROUTER_API_KEY: 'O-ENV-KEY' },
+      )
+      expect(routerConfigSchema.safeParse(cfg).success).toBe(false)
+    })
+
+    it('OPENROUTER_API_KEY is no worker-only key: the API resume path reads the same name', () => {
+      expect(WORKER_ONLY_ENV_KEYS).not.toContain('OPENROUTER_API_KEY')
+      expect(validateEnv({ ...BASE_DEV, OPENROUTER_API_KEY: 'or-key' }).OPENROUTER_API_KEY).toBe(
+        'or-key',
+      )
+    })
+  })
+
   it('never takes a key or URL from the JSON parameters', () => {
     const smuggled = {
       ...PARAMS,
@@ -369,7 +415,7 @@ describe('buildRouterConfig', () => {
   })
 
   it('hands an unknown provider and a malformed config on unchanged, for the router to refuse', () => {
-    const odd = { ...PARAMS, routes: [{ provider: 'openrouter', apiKey: 'K' }] }
+    const odd = { ...PARAMS, routes: [{ provider: 'mistral', apiKey: 'K' }] }
     expect(buildRouterConfig(odd, FULL_ENV)).toEqual(odd)
     // A route that is not an object is not read; a null one is no route, like an absent env.
     expect(buildRouterConfig({ ...PARAMS, routes: [null, 'x', 7] }, FULL_ENV)).toEqual({

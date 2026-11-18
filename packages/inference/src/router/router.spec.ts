@@ -224,7 +224,7 @@ describe('router: refused configs send nothing', () => {
     ['a stale local-only config', config([STALE_LOCAL]), { ownCap: undefined }],
     ['a stale floorBudgetMs', config([GROQ], { floorBudgetMs: 60_000 }), {}],
     ['no route at all', config([]), {}],
-    ['a foreign provider', config([{ ...GROQ, provider: 'openrouter' }]), {}],
+    ['a foreign provider', config([{ ...GROQ, provider: 'mistral' }]), {}],
   ])('%s: NOT_CONFIGURED, zero requests, one CONFIG_REFUSED', async (_l, cfg, extra) => {
     const f = scriptedFetch(() => GOOD)
     const d = deps(f.fetchImpl, extra)
