@@ -361,6 +361,21 @@ being treated. Either split the PR, or raise `MUTATION_BUDGET_SECONDS` in
 Startup dominates a small diff (~3s of the 3.5s); after that the cost tracks the
 mutant count, which tracks changed lines.
 
+**`@crm/inference` (added to the matrix by backlog 461, measured 2026-11-19, 4
+workers, local, load average 21 with another agent's Stryker running):** the diff
+of the OpenRouter-router commit (PR #1396 — 12 files, 10 of them under
+`src/router`) produced **623 mutants in 170.0s** (Stryker's own `Done in 2
+minutes and 48 seconds`), of which 463 were under `src/router` itself: 587
+killed, 2 timeout, 32 survived, 2 no-coverage, **0 tool failures**. That is the
+largest single-commit diff the package has ever had, so it bounds the PR leg
+rather than describing it; the matrix leg is nevertheless given the same
+`budget: 3600` / `timeout: 75` as `@crm/shared`, because the cost of a too-small
+budget is a SKIP on exactly the change that needed the gate.
+
+The 32 survivors are pre-existing gaps in that historical diff, not a
+regression introduced by adding the leg: the gate is diff-scoped, so they only
+become red again if a PR changes those same lines.
+
 **This table has NO `apps/api` row, and that gap was itself the bug** — the
 2026-08-18 pre-push hook (`.claude/hooks/pre-bash-mutation-gate.sh`) shipped
 quoting this table's `packages/shared` number (3.5s-10s) as "the" typical cost,

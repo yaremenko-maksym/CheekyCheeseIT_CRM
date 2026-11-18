@@ -8450,6 +8450,21 @@ instead.
 
 Sources: PR #1396 fix round report.
 
+**RESOLVED** by PR #<pr> (2026-11-19).
+
+- `@crm/inference` is a `PACKAGES` entry in the gate, so both `--changed` and `--full` derive it, and
+  it is a leg of the CI matrix and the nightly sweep with the same budget pair as `@crm/shared`. The
+  nightly tally (`check-mutation-tally.mjs`) requires its report, so a missing leg is red rather than
+  silent.
+- No per-package Stryker config: the package's vitest config is the same node-environment shape
+  `@crm/shared` runs under, so the gate's generated config covers it.
+- Verified on the OpenRouter-router commit's own diff: 623 mutants, 463 of them under `src/router`,
+  0 tool failures. Measurement and the budget rationale are in the runbook's "Measured cost".
+- Residual, not a regression: that historical diff has 32 surviving mutants and 2 no-coverage
+  mutants. The gate is diff-scoped, so they are only red again for a PR that changes those lines.
+  Test-only helpers under `src/**/__fixtures__/**` are excluded; `__test-helpers__` is mutated, as in
+  `apps/api`.
+
 ## 462. CI: the WebKit E2E shard fails when the apt lock stays held (2026-11-18)
 
 **Symptoms.** In the job `E2E (webkit-iphone)`, the step `Install Playwright system deps (cached run)`

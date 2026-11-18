@@ -1161,9 +1161,10 @@ jobs:
       matrix:
         package:
           - { name: '@crm/shared', slug: 'shared', budget: 3600, timeout: 75 }
-          # Added by backlog 461 (2026-11-19). Measured locally on a diff that
-          # touches `packages/inference/src/router` — see the runbook's "Measured
-          # cost" section for the number this budget is calibrated against. It
+          # Added by backlog 461 (2026-11-19). Measured locally on the largest
+          # diff the package has had (PR #1396, 10 files under
+          # `packages/inference/src/router`): 623 mutants in 170.0s on 4 workers
+          # — runbook, "Measured cost". The budget is ~20x that measurement. It
           # keeps `@crm/shared`'s 3600s/75min pair: the package's whole unit suite
           # is a node-environment suite in the same order of magnitude as
           # `@crm/shared`'s, with none of the jsdom/React cost that forced
