@@ -15,16 +15,21 @@ function pageOf(scope: Page | Locator): Page {
 /**
  * Picks technical roles the way a user does: open the add popover, click one row per role, close it.
  * The popover stays open between picks, so one open covers the whole list.
+ *
+ * `tap` drives the same flow through touch events instead of a mouse (mobile viewports, where a
+ * `hasTouch` context is what the user actually has). It needs `hasTouch: true` on the context.
  */
 export async function pickRoles(
   scope: Page | Locator,
   roles: readonly string[] = SENIOR_ROLES,
+  { tap = false }: { tap?: boolean } = {},
 ): Promise<void> {
   if (roles.length === 0) return
   const page = pageOf(scope)
-  await scope.getByTestId('roles-section-add-trigger').click()
+  const press = async (target: Locator) => (tap ? target.tap() : target.click())
+  await press(scope.getByTestId('roles-section-add-trigger'))
   for (const role of roles) {
-    await page.getByTestId(`roles-section-option-${role}`).click()
+    await press(page.getByTestId(`roles-section-option-${role}`))
   }
   // Dismisses the popover only: it is the topmost dismissable layer, above the dialog.
   await page.keyboard.press('Escape')
