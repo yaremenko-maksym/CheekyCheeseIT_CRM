@@ -54,7 +54,7 @@ describe('TechStackSection', () => {
   })
 })
 
-// ── SENIOR technology floor (shared `seniorTechStackSchema`) ─────────────────
+// ── SENIOR technical-roles floor (`SENIOR_MIN_ROLES`) ───────────────────────
 const MIN_ROLES_UK = 'Сеньйору потрібна щонайменше одна технічна роль'
 
 type FloorForm = { submit: () => Promise<void>; setRole: (role: string) => void }

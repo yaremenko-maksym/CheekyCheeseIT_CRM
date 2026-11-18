@@ -113,7 +113,7 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
     // A3-3: legalFullName is required for contract-eligible roles (SENIOR included).
     await page.getByTestId('user-dialog-legal-full-name').fill('Сеніор Тестовий Іванович')
 
-    // A SENIOR needs at least 3 distinct technologies (shared floor).
+    // A SENIOR needs at least one technical role (`SENIOR_MIN_ROLES`).
     await pickRoles(page)
 
     // SENIOR is USDT-only — fill the wallet so the shared refine passes.

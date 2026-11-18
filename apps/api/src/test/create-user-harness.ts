@@ -7,7 +7,7 @@ import { expect, vi } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { getTableName, type SQL } from 'drizzle-orm'
 import { UsersService } from '../users/users.service'
-import { SENIOR_TECHNICAL_ROLES } from './senior-tech-stack'
+import { SENIOR_TECHNICAL_ROLES } from './senior-technical-roles'
 
 export const dialect = new PgDialect()
 export const compile = (cond: SQL | undefined) => {

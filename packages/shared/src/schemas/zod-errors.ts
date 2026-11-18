@@ -79,7 +79,6 @@ export const ZOD_ERROR_CODES = [
   'LEGAL_FULL_NAME_REQUIRED_FOR_CONTRACT',
   'PERSONAL_EMAIL_MUST_DIFFER',
   'JOIN_DROP_TEAM_SENIOR_ONLY',
-  'SENIOR_MIN_TECHNOLOGIES',
   'SENIOR_MIN_ROLES',
   'DROP_TEAM_ID_REQUIRED',
   'HR_REQUIRED_MIN',
@@ -332,11 +331,6 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
     id: 'zod-error.JOIN_DROP_TEAM_SENIOR_ONLY',
     message: 'Долучити до команди дропа можна лише сеньйора',
   },
-  SENIOR_MIN_TECHNOLOGIES: /* i18n */ {
-    id: 'zod-error.SENIOR_MIN_TECHNOLOGIES',
-    // No-break spaces keep «3 різні технології» on one line (COPY-L-1).
-    message: 'Сеньйору потрібно щонайменше 3 різні технології',
-  },
   SENIOR_MIN_ROLES: /* i18n */ {
     id: 'zod-error.SENIOR_MIN_ROLES',
     message: 'Сеньйору потрібна щонайменше одна технічна роль',
@@ -543,7 +537,6 @@ export const ZOD_ERROR_FALLBACK_EN: Record<ZodErrorCode, string> = {
   LEGAL_FULL_NAME_REQUIRED_FOR_CONTRACT: 'Full name is required for the contract',
   PERSONAL_EMAIL_MUST_DIFFER: 'The personal email must differ from the work email',
   JOIN_DROP_TEAM_SENIOR_ONLY: 'Only a senior can be added to a drop team',
-  SENIOR_MIN_TECHNOLOGIES: 'A senior needs at least 3 different technologies',
   SENIOR_MIN_ROLES: 'A senior needs at least one technical role',
   DROP_TEAM_ID_REQUIRED: 'Select a drop team',
   HR_REQUIRED_MIN: 'Select at least one HR',

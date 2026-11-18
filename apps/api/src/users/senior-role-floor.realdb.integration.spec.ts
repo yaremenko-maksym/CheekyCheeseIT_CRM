@@ -420,9 +420,10 @@ describe.skipIf(!hasDatabaseUrl())(
 
     describe('PATCH /users/me — the SENIOR edits their own profile', () => {
       it('clearing the roles is refused and nothing is written', async () => {
-        expect((await call('PATCH', '/api/users/me', SELF3, { technicalRoles: [] })).status).toBe(
-          400,
-        )
+        expect(await call('PATCH', '/api/users/me', SELF3, { technicalRoles: [] })).toEqual({
+          status: 400,
+          code: 'SENIOR_MIN_ROLES',
+        })
         expect((await rowById(SELF3.id))?.technicalRoles).toEqual(['FRONTEND_ENGINEER'])
       })
 

@@ -37,7 +37,7 @@ import { TeamAuditLogService } from '../teams/team-audit-log.service'
 import { teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
-import { SENIOR_TECHNICAL_ROLES } from '../test/senior-tech-stack'
+import { SENIOR_TECHNICAL_ROLES } from '../test/senior-technical-roles'
 import { makeNotificationsStub } from '../notifications/__test-helpers__/notifications-stub'
 
 // ── Test IDs — stable namespace hrjoin- ────────────────────────────────────

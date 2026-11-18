@@ -527,8 +527,11 @@ export class UsersService {
       // Senior roles PR 2: a self-edit sets the caller's own roles only, and only as a SENIOR.
       if (!self) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
       assertSeniorOnlyRoles(self.role, data.technicalRoles)
-      assertSeniorRoleFloor(self.role, data.technicalRoles)
       rolesWritten = rolesChanged(data.technicalRoles, self.technicalRoles)
+      // SPEC-L-1: the floor fires on an ACTUAL roles change, exactly as on the admin path
+      // (`adminUpdateUser`). A self-edit cannot change the caller's own role, so a legacy SENIOR
+      // whose stored list is already empty resubmits it unchanged and is not refused.
+      if (rolesWritten) assertSeniorRoleFloor(self.role, data.technicalRoles)
       set.technicalRoles = data.technicalRoles
     }
     if ('techStack' in data) {

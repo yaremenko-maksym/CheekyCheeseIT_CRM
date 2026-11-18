@@ -36,7 +36,7 @@ export const USERS = {
     avatarDocumentId: null,
     telegram: '@seniordev',
     phone: '+380661234567',
-    // A SENIOR carries at least 3 distinct technologies (SENIOR_MIN_TECHNOLOGIES).
+    // A plausible stack; the SENIOR floor is on technical roles, not on this list.
     techStack: ['TypeScript', 'React', 'Node.js'],
     // Senior roles PR 5: the API always sends this array; a SENIOR is described by it, not by the stack.
     technicalRoles: ['BACKEND_ENGINEER', 'FRONTEND_ENGINEER'] as const,

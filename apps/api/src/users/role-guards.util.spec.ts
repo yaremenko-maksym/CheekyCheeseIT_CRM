@@ -8,7 +8,6 @@ import {
   assertSeniorOnlyRoles,
   assertSeniorRoleFloor,
   rolesChanged,
-  techStackChanged,
 } from './role-guards.util'
 
 type Role = User['role']
@@ -128,24 +127,6 @@ describe('assertSeniorRoleFloor', () => {
       expect(() => assertSeniorRoleFloor(role, null)).not.toThrow()
       expect(() => assertSeniorRoleFloor(role, [])).not.toThrow()
     }
-  })
-})
-
-describe('techStackChanged', () => {
-  it('is false when the field is absent or resubmitted unchanged', () => {
-    expect(techStackChanged(undefined, ['a'])).toBe(false)
-    expect(techStackChanged(['a', 'b'], ['a', 'b'])).toBe(false)
-    expect(techStackChanged(null, null)).toBe(false)
-    expect(techStackChanged([], null)).toBe(false)
-  })
-
-  it('is true on any difference in length, value or order', () => {
-    expect(techStackChanged(['a'], ['a', 'b'])).toBe(true)
-    expect(techStackChanged(['a', 'b', 'c'], ['a', 'b'])).toBe(true)
-    expect(techStackChanged(['a', 'c'], ['a', 'b'])).toBe(true)
-    expect(techStackChanged(['b', 'a'], ['a', 'b'])).toBe(true)
-    expect(techStackChanged(null, ['a'])).toBe(true)
-    expect(techStackChanged(['a'], null)).toBe(true)
   })
 })
 

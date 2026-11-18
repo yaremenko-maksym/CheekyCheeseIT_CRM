@@ -2279,6 +2279,15 @@ describe('UsersService.updateProfile — SENIOR role floor on a self-edit', () =
     expect(db.db.update).toHaveBeenCalledTimes(1)
   })
 
+  // SPEC-L-1: the floor fires on an ACTUAL roles change, as on the admin path. A legacy SENIOR
+  // whose stored list is already empty resubmits it (the dialog always sends the field) and must
+  // not be refused for a change they did not make.
+  it('a legacy SENIOR resubmitting their empty roles passes', async () => {
+    const db = self('SENIOR', [])
+    await makeUsersService(db).updateProfile('user-1', { technicalRoles: [] })
+    expect(db.db.update).toHaveBeenCalledTimes(1)
+  })
+
   it('a SENIOR with valid roles may cut the stack to one or none (the stack floor is gone)', async () => {
     vi.mocked(markSeniorDirty).mockClear()
     const grow = self('SENIOR', ['BACKEND_ENGINEER'], ['React', 'Go', 'AWS'])
